@@ -496,9 +496,8 @@ class DatabaseManager:
             except Exception:
                 self.snippets_collection = None
             self.client.admin.command('ping')
-            # 🚨 EMERGENCY: הקריאה ל-_create_indexes בוטלה זמנית למניעת Database Lock
-            # כדי להפעיל מחדש: הסר את ההערה מהשורה הבאה
-            # self._create_indexes()
+            # יצירת אינדקסים קריטיים (בנייה ברקע) לשיפור ביצועים ולמניעת COLLSCAN
+            self._create_indexes()
             emit_event("db_connected", severity="info")
         except Exception as e:
             if disable_db:
@@ -516,451 +515,83 @@ class DatabaseManager:
         return self._repo
 
     def _create_indexes(self):
-        indexes = [
-            IndexModel([("user_id", ASCENDING)]),
-            IndexModel([("file_name", ASCENDING)]),
-            IndexModel([("programming_language", ASCENDING)]),
-            IndexModel([("tags", ASCENDING)]),
-            IndexModel([("created_at", DESCENDING)]),
-            # אינדקס מותאם לשאילתות שמסננות לפי file_name ראשון (בוט polling)
-            # שם מפורש כדי למנוע התנגשויות עם ה-admin endpoint
-            IndexModel([("file_name", ASCENDING), ("user_id", ASCENDING), ("version", DESCENDING)], name="user_file_version_desc"),
-            # אינדקס למועדפים: שליפה מהירה לפי משתמש ומועדפים, מיון לפי תאריך הוספה
-            IndexModel([("user_id", ASCENDING), ("is_favorite", ASCENDING), ("favorited_at", DESCENDING)], name="user_favorites_idx"),
-            # אינדקס משופר לתמיכה במיון file_name, version לאחר match על user_id,is_active
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("file_name", ASCENDING),
-                ("version", DESCENDING),
-            ], name="user_active_file_latest_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("programming_language", ASCENDING),
-                ("created_at", DESCENDING),
-            ], name="user_lang_date_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("tags", ASCENDING),
-                ("updated_at", DESCENDING),
-            ], name="user_tags_updated_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("programming_language", ASCENDING),
-            ], name="user_active_lang_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("updated_at", DESCENDING),
-            ], name="user_active_recent_idx"),
-            IndexModel([
-                ("programming_language", ASCENDING),
-                ("tags", ASCENDING),
-                ("created_at", DESCENDING),
-            ], name="lang_tags_date_idx"),
-            # Full-text search for UI: file_name, description, tags, code
-            IndexModel([("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)], name="full_text_search_idx"),
-            IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
-            # אינדקס לשאילתות שמסננות לפי is_active ומיון לפי created_at (ביצועים)
-            # שם עקבי עם ה-admin endpoint: active_recent_fixed
-            IndexModel([("is_active", ASCENDING), ("created_at", DESCENDING)], name="active_recent_fixed"),
-        ]
+        """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
 
-        large_files_indexes = [
-            IndexModel([("user_id", ASCENDING)]),
-            IndexModel([("file_name", ASCENDING)]),
-            IndexModel([("programming_language", ASCENDING)]),
-            IndexModel([("created_at", DESCENDING)]),
-            # Full-text search for UI (Large Files): file_name + content
-            # חשוב: נדרש כדי לתמוך ב-$text בחיפושים בקטגוריית "large".
-            IndexModel([("file_name", TEXT), ("content", TEXT)], name="search_text_idx"),
-            IndexModel([("file_size", ASCENDING)]),
-            IndexModel([("lines_count", ASCENDING)]),
-            IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING)]),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("programming_language", ASCENDING),
-                ("file_size", ASCENDING),
-            ], name="user_lang_size_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("created_at", DESCENDING),
-            ], name="user_active_date_large_idx"),
-            IndexModel([
-                ("programming_language", ASCENDING),
-                ("file_size", ASCENDING),
-                ("lines_count", ASCENDING),
-            ], name="lang_size_lines_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("tags", ASCENDING),
-                ("file_size", DESCENDING),
-            ], name="user_tags_size_idx"),
-            IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
-        ]
+        דרישה: להימנע מיצירת אינדקסים נוספים מעבר לרשימה האופטימלית שהוגדרה.
+        """
+        if not _PYMONGO_AVAILABLE or self.db is None:
+            return
 
-        # users collection indexes
-        users_indexes = [
-            # כל משתמש מזוהה ע"י user_id – אינדקס ייחודי לביצועים ועקביות
-            IndexModel([("user_id", ASCENDING)], name="user_id_unique", unique=True),
-            # username ייחודי אם קיים ובעל ערך (partial כדי להתעלם מ-null/חסר/ריק)
-            IndexModel(
-                [("username", ASCENDING)],
-                name="username_unique",
-                unique=True,
-                partialFilterExpression={"username": {"$type": "string", "$ne": ""}},
-            ),
-            # שימוש נפוץ לדוחות: מיון לפי פעילות אחרונה
-            IndexModel([("last_activity", DESCENDING)], name="last_activity_desc"),
-            # Drive scheduling: מסייע לשליפות/סנכרון של משתמשים עם תזמון פעיל
-            IndexModel([("drive_prefs.schedule", ASCENDING)], name="users_drive_schedule"),
-        ]
-
-        # backup_ratings indexes
-        backup_ratings_indexes = [
-            IndexModel([("user_id", ASCENDING), ("backup_id", ASCENDING)], name="user_backup_unique", unique=True),
-            IndexModel([("created_at", DESCENDING)], name="created_at_desc"),
-        ]
-
-        # metrics collection (service_metrics) TTL for automatic cleanup (e.g., 30 days)
-        metrics_indexes = [
-            # קריטי: נדרש עבור שליפות "אחרונים" (ts DESC) עם יכולת סינון לפי type
-            # דרישה: ts בירידה קודם, ואז type בעלייה
-            IndexModel([("ts", DESCENDING), ("type", ASCENDING)], name="metrics_ts_type"),
-            IndexModel([("ts", ASCENDING)], name="metrics_ttl", expireAfterSeconds=30 * 24 * 60 * 60),
-        ]
-
-        # Query Profiler (slow_queries_log) indexes + TTL 7 days
-        profiler_indexes = [
-            IndexModel([("timestamp", ASCENDING)], name="ttl_cleanup", expireAfterSeconds=7 * 24 * 60 * 60),
-            IndexModel([("collection", ASCENDING), ("timestamp", DESCENDING)], name="collection_timestamp"),
-            IndexModel([("query_id", ASCENDING)], name="query_pattern"),
-        ]
-
-        # markdown_images indexes (WebApp markdown preview images)
-        markdown_images_indexes = [
-            IndexModel([("snippet_id", ASCENDING), ("user_id", ASCENDING)], name="snippet_user_idx"),
-        ]
-
-        # file_bookmarks indexes (Bookmarks feature) — תומך בסינון לפי valid מתוך האינדקס
-        file_bookmarks_indexes = [
-            IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("valid", ASCENDING)], name="user_file_valid_idx"),
-        ]
-
-        # job_runs collection (Background Jobs Monitor) indexes + TTL 7 days
-        JOB_RUNS_COLLECTION = "job_runs"
-        job_runs_indexes: List[Any] = []
+        # note_reminders (הכי דחוף לפי הלוגים)
         try:
-            from .job_runs_collection import JOB_RUNS_COLLECTION, JOB_RUNS_INDEXES
-
-            for idx in JOB_RUNS_INDEXES:
-                keys = idx.get("keys")
-                if not keys:
-                    continue
-                opts = dict(idx)
-                opts.pop("keys", None)
-                job_runs_indexes.append(IndexModel(keys, **opts))
-        except Exception:
-            job_runs_indexes = []
-
-        # דרישת אופטימיזציה: אינדקס משולב לפי job_id+status+started_at
-        # (נשמר גם אם כבר קיים, create_indexes יתעלם מכפילות זהה)
-        try:
-            job_runs_indexes.append(
-                IndexModel([("job_id", ASCENDING), ("status", ASCENDING), ("started_at", DESCENDING)], name="job_id_status_started_idx")
-            )
-        except Exception:
-            pass
-        
-        # קריטי ל-Job Runs: עדכונים תכופים לפי run_id חייבים אינדקס ייעודי (ויייחודי)
-        # ייווצר best-effort בנפרד כדי שלא יפיל אינדקסים אחרים במקרה של כפילויות קיימות.
-        job_runs_run_id_unique_index = IndexModel([("run_id", ASCENDING)], name="run_id_unique", unique=True)
-
-        try:
-            self.collection.create_indexes(indexes)
-            self.large_files_collection.create_indexes(large_files_indexes)
-            # users
-            try:
-                self.db.users.create_indexes(users_indexes)  # type: ignore[attr-defined]
-            except Exception:
-                # הגנה רכה בסביבות ללא users collection
-                pass
-            # metrics (best-effort if enabled)
-            try:
-                collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
-                try:
-                    # ניקוי best-effort של אינדקס היסטורי בכיוון/סדר שגוי (אם קיים)
-                    try:
-                        self.db[collection_name].drop_index("metrics_type_ts")  # type: ignore[index]
-                    except Exception:
-                        pass
-                    self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
-                except Exception as e:
-                    # יישור שמות אינדקסים: אם יש אינדקס קיים עם אותו key-spec אבל בשם אחר
-                    # (למשל type_ts_idx), Mongo יחזיר IndexKeySpecsConflict.
-                    msg = str(e)
-                    if "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
-                        try:
-                            self.db[collection_name].drop_index("type_ts_idx")  # type: ignore[index]
-                        except Exception:
-                            pass
-                        try:
-                            self.db[collection_name].drop_index("ts_type_idx")  # type: ignore[index]
-                        except Exception:
-                            pass
-                        try:
-                            self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-            # profiler slow queries log (best-effort)
-            try:
-                self.db.slow_queries_log.create_indexes(profiler_indexes)  # type: ignore[attr-defined]
-            except Exception:
-                try:
-                    self.db["slow_queries_log"].create_indexes(profiler_indexes)  # type: ignore[index]
-                except Exception:
-                    pass
-            # markdown_images (best-effort)
-            try:
-                self.db.markdown_images.create_indexes(markdown_images_indexes)  # type: ignore[attr-defined]
-            except Exception:
-                try:
-                    self.db["markdown_images"].create_indexes(markdown_images_indexes)  # type: ignore[index]
-                except Exception:
-                    pass
-            # file_bookmarks (best-effort)
-            try:
-                self.db.file_bookmarks.create_indexes(file_bookmarks_indexes)  # type: ignore[attr-defined]
-            except Exception:
-                try:
-                    self.db["file_bookmarks"].create_indexes(file_bookmarks_indexes)  # type: ignore[index]
-                except Exception:
-                    pass
-            # job_runs (best-effort)
-            try:
-                # 1) אינדקס ייחודי ל-run_id (קריטי) — best-effort ולא חוסם שאר אינדקסים
-                try:
-                    self.db[JOB_RUNS_COLLECTION].create_indexes([job_runs_run_id_unique_index])  # type: ignore[index]
-                except Exception:
-                    pass
-                # 2) שאר אינדקסים
-                if job_runs_indexes:
-                    self.db[JOB_RUNS_COLLECTION].create_indexes(job_runs_indexes)  # type: ignore[index]
-            except Exception:
-                pass
-            # job_trigger_requests index for polling efficiency (status + created_at compound)
-            try:
-                job_trigger_indexes = [
-                    IndexModel([("status", ASCENDING), ("created_at", DESCENDING)], name="status_created_idx"),
-                ]
-                self.db.job_trigger_requests.create_indexes(job_trigger_indexes)  # type: ignore[attr-defined]
-            except Exception:
-                try:
-                    self.db["job_trigger_requests"].create_indexes(job_trigger_indexes)  # type: ignore[index]
-                except Exception:
-                    pass
-            # note_reminders index for push/polling efficiency (status + remind_at + last_push_success_at)
-            try:
-                note_reminders_indexes = [
+            self.db.note_reminders.create_indexes(
+                [
                     IndexModel(
                         [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
-                        name="status_remind_push_idx",
-                    ),
+                        name="push_polling_idx",
+                        background=True,
+                    )
                 ]
-                self.db.note_reminders.create_indexes(note_reminders_indexes)  # type: ignore[attr-defined]
-            except Exception:
-                try:
-                    self.db["note_reminders"].create_indexes(note_reminders_indexes)  # type: ignore[index]
-                except Exception:
-                    pass
-            # scheduler_jobs index for efficient scheduling (APScheduler)
-            try:
-                scheduler_indexes = [
-                    IndexModel([("next_run_time", ASCENDING)], name="sched_next_run"),
-                ]
-                try:
-                    self.db.scheduler_jobs.create_indexes(scheduler_indexes)  # type: ignore[attr-defined]
-                except Exception as e:
-                    # יישור שם אינדקס: next_run_time_idx -> sched_next_run
-                    msg = str(e)
-                    if "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
-                        try:
-                            self.db.scheduler_jobs.drop_index("next_run_time_idx")  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
-                        try:
-                            self.db.scheduler_jobs.create_indexes(scheduler_indexes)  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
-            except Exception:
-                try:
-                    try:
-                        self.db["scheduler_jobs"].create_indexes(scheduler_indexes)  # type: ignore[index]
-                    except Exception as e:
-                        msg = str(e)
-                        if "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
-                            try:
-                                self.db["scheduler_jobs"].drop_index("next_run_time_idx")  # type: ignore[index]
-                            except Exception:
-                                pass
-                            try:
-                                self.db["scheduler_jobs"].create_indexes(scheduler_indexes)  # type: ignore[index]
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-            if self.backup_ratings_collection is not None:
-                self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
-            # אינדקסים לשיתופים פנימיים: TTL על expires_at + אינדקסים לשימוש
-            if self.internal_shares_collection is not None:
-                internal_shares_indexes = [
-                    IndexModel([("share_id", ASCENDING)], name="share_id_unique", unique=True),
-                    IndexModel([("created_at", DESCENDING)], name="created_at_desc"),
-                    # TTL על expires_at (Date). אם יישמר כמחרוזת ISO, לא יעבוד — נוודא Date בצד הכותב
-                    IndexModel([("expires_at", ASCENDING)], name="expires_ttl", expireAfterSeconds=0),
-                ]
-                self.internal_shares_collection.create_indexes(internal_shares_indexes)
-            # Community library indexes (best-effort)
-            try:
-                if self.community_library_collection is not None:
-                    community_indexes = [
-                        IndexModel([("status", ASCENDING), ("submitted_at", DESCENDING)], name="status_submitted_idx"),
-                        IndexModel([("status", ASCENDING), ("approved_at", DESCENDING)], name="status_approved_idx"),
-                        IndexModel([("user_id", ASCENDING)], name="user_id_idx"),
-                        IndexModel([("featured", DESCENDING), ("approved_at", DESCENDING)], name="featured_approved_idx"),
-                    ]
-                    self.community_library_collection.create_indexes(community_indexes)
-            except Exception:
-                pass
-            # Snippets library indexes (best-effort)
-            try:
-                if self.snippets_collection is not None:
-                    # חשוב: בשדה העליון "language" אנו מאחסנים את שפת הקוד (python/js וכו').
-                    # לטובת אינדקס טקסטואלי נימנע משימוש בשדה המיוחד "language" כ-language override של MongoDB
-                    # ע"י שינוי language_override לשדה אחר (שאינו קיים במסמכים) והגדרה של default_language="none".
-                    snippets_indexes = [
-                        IndexModel([("status", ASCENDING), ("submitted_at", DESCENDING)], name="snip_status_submitted_idx"),
-                        IndexModel([("status", ASCENDING), ("approved_at", DESCENDING)], name="snip_status_approved_idx"),
-                        IndexModel([("language", ASCENDING)], name="snip_language_idx"),
-                        IndexModel([("user_id", ASCENDING)], name="snip_user_id_idx"),
-                        IndexModel(
-                            [("title", TEXT), ("description", TEXT), ("code", TEXT)],
-                            name="snip_text_idx",
-                            default_language="none",
-                            language_override="search_language",
-                        ),
-                    ]
-                    try:
-                        self.snippets_collection.create_indexes(snippets_indexes)
-                    except Exception as e:
-                        # אם קיימת התנגשות אפשרויות (IndexOptionsConflict) עם אינדקס ישן — ננסה להסיר וליצור מחדש
-                        msg = str(e)
-                        if "IndexOptionsConflict" in msg or "already exists with a different" in msg:
-                            try:
-                                existing = list(self.snippets_collection.list_indexes())
-                                for idx in existing:
-                                    name = idx.get("name", "")
-                                    # נשמיט את אינדקס הטקסט הקודם או כל אינדקס בשם הידוע
-                                    if name in {"snip_text_idx"} or name.endswith("_text"):
-                                        try:
-                                            self.snippets_collection.drop_index(name)
-                                        except Exception:
-                                            pass
-                            except Exception:
-                                pass
-                            try:
-                                self.snippets_collection.create_indexes(snippets_indexes)
-                            except Exception:
-                                pass
-            except Exception:
-                pass
+            )  # type: ignore[attr-defined]
         except Exception as e:
-            msg = str(e)
-            if 'IndexOptionsConflict' in msg or 'already exists with a different name' in msg:
-                try:
-                    existing = list(self.collection.list_indexes())
-                    for idx in existing:
-                        name = idx.get('name', '')
-                        is_text_index = ('textIndexVersion' in idx) or name.endswith('_text')
-                        if (
-                            is_text_index or
-                            name in {
-                                'user_lang_date_idx',
-                                'user_tags_updated_idx',
-                                'user_active_lang_idx',
-                                'user_active_recent_idx',
-                                'lang_tags_date_idx',
-                                'full_text_search_idx'
-                            } or
-                            name.startswith('user_id_') or name.startswith('file_name_')
-                        ):
-                            try:
-                                self.collection.drop_index(name)
-                            except Exception:
-                                pass
-                    try:
-                        self.collection.drop_index([('code', 'text'), ('description', 'text'), ('file_name', 'text')])
-                    except Exception:
-                        pass
-                    self.collection.create_indexes(indexes)
-                    self.large_files_collection.create_indexes(large_files_indexes)
-                    try:
-                        self.db.users.create_indexes(users_indexes)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                    try:
-                        collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
-                        try:
-                            self.db[collection_name].drop_index("metrics_type_ts")  # type: ignore[index]
-                        except Exception:
-                            pass
-                        self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
-                    except Exception:
-                        pass
-                    if self.backup_ratings_collection is not None:
-                        self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
-                except Exception as _e:
-                    emit_event("db_indexes_conflict_update_failed", severity="warn", error=str(_e))
-            else:
-                emit_event("db_create_indexes_error", severity="warn", error=str(e))
+            emit_event("db_create_indexes_error", severity="warn", collection="note_reminders", error=str(e))
 
-        # עדכון מטריקה על מספר אינדקסים פעילים (best-effort)
+        # service_metrics
         try:
-            from metrics import active_indexes  # type: ignore
-        except Exception:
-            active_indexes = None  # type: ignore
-        if active_indexes is not None:
-            try:
-                total = 0
-                try:
-                    total += len(list(self.collection.list_indexes()))
-                except Exception:
-                    pass
-                try:
-                    total += len(list(self.large_files_collection.list_indexes()))
-                except Exception:
-                    pass
-                try:
-                    total += len(list(self.db.users.list_indexes()))  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                try:
-                    if self.backup_ratings_collection is not None:
-                        total += len(list(self.backup_ratings_collection.list_indexes()))
-                except Exception:
-                    pass
-                try:
-                    if self.internal_shares_collection is not None:
-                        total += len(list(self.internal_shares_collection.list_indexes()))
-                except Exception:
-                    pass
-                active_indexes.set(float(total))  # type: ignore[attr-defined]
-            except Exception:
-                pass
+            self.db.service_metrics.create_indexes(
+                [
+                    IndexModel(
+                        [("type", ASCENDING), ("ts", DESCENDING)],
+                        name="metrics_type_ts",
+                        background=True,
+                    )
+                ]
+            )  # type: ignore[attr-defined]
+        except Exception as e:
+            emit_event("db_create_indexes_error", severity="warn", collection="service_metrics", error=str(e))
+
+        # job_runs
+        try:
+            self.db.job_runs.create_indexes(
+                [
+                    IndexModel(
+                        [("run_id", ASCENDING)],
+                        name="run_id_unique",
+                        unique=True,
+                        background=True,
+                    )
+                ]
+            )  # type: ignore[attr-defined]
+        except Exception as e:
+            emit_event("db_create_indexes_error", severity="warn", collection="job_runs", error=str(e))
+
+        # users
+        try:
+            self.db.users.create_indexes(
+                [
+                    IndexModel(
+                        [("drive_prefs.schedule", ASCENDING)],
+                        name="users_drive_schedule",
+                        background=True,
+                    )
+                ]
+            )  # type: ignore[attr-defined]
+        except Exception as e:
+            emit_event("db_create_indexes_error", severity="warn", collection="users", error=str(e))
+
+        # code_snippets (החזרת ה-Text)
+        try:
+            self.collection.create_indexes(
+                [
+                    IndexModel(
+                        [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
+                        name="search_text_idx",
+                        background=True,
+                    )
+                ]
+            )
+        except Exception as e:
+            emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e))
 
     def close(self):
         if self.client:
