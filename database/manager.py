@@ -521,6 +521,8 @@ class DatabaseManager:
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
+            # אינדקס מותאם לשאילתות שמסננות לפי file_name ראשון (בוט polling)
+            IndexModel([("file_name", ASCENDING), ("user_id", ASCENDING), ("version", DESCENDING)], name="user_file_version_desc"),
             # אינדקס למועדפים: שליפה מהירה לפי משתמש ומועדפים, מיון לפי תאריך הוספה
             IndexModel([("user_id", ASCENDING), ("is_favorite", ASCENDING), ("favorited_at", DESCENDING)], name="user_favorites_idx"),
             # אינדקס משופר לתמיכה במיון file_name, version לאחר match על user_id,is_active
@@ -698,15 +700,26 @@ class DatabaseManager:
                     self.db[JOB_RUNS_COLLECTION].create_indexes(job_runs_indexes)  # type: ignore[index]
             except Exception:
                 pass
-            # job_trigger_requests index for polling efficiency (status filter)
+            # job_trigger_requests index for polling efficiency (status + created_at compound)
             try:
                 job_trigger_indexes = [
-                    IndexModel([("status", ASCENDING)], name="status_idx"),
+                    IndexModel([("status", ASCENDING), ("created_at", DESCENDING)], name="status_created_idx"),
                 ]
                 self.db.job_trigger_requests.create_indexes(job_trigger_indexes)  # type: ignore[attr-defined]
             except Exception:
                 try:
                     self.db["job_trigger_requests"].create_indexes(job_trigger_indexes)  # type: ignore[index]
+                except Exception:
+                    pass
+            # scheduler_jobs index for efficient scheduling (APScheduler)
+            try:
+                scheduler_indexes = [
+                    IndexModel([("next_run_time", ASCENDING)], name="next_run_time_idx"),
+                ]
+                self.db.scheduler_jobs.create_indexes(scheduler_indexes)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    self.db["scheduler_jobs"].create_indexes(scheduler_indexes)  # type: ignore[index]
                 except Exception:
                     pass
             if self.backup_ratings_collection is not None:

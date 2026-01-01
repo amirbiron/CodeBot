@@ -6646,6 +6646,261 @@ def fix_all_now():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/resolve-naming-conflicts')
+@admin_required
+def resolve_naming_conflicts():
+    """
+    🛠️ תיקון אינדקסים לפי הדרישות החדשות:
+    
+    1. code_snippets: מחיקת אינדקס מתנגש ויצירת user_file_version_desc
+       {file_name: 1, user_id: 1, version: -1}
+    2. job_trigger_requests: מחיקת status_idx ויצירת אינדקס משולב
+       {status: 1, created_at: -1}
+    3. scheduler_jobs: יצירת אינדקס על next_run_time
+       {next_run_time: 1}
+    4. code_snippets: וידוא active_recent_fixed בסדר הנכון
+       {is_active: 1, created_at: -1}
+    """
+    import json
+    from bson import json_util
+    
+    results = {"steps": [], "collections_fixed": []}
+    
+    try:
+        from database.manager import DatabaseManager
+        from pymongo import IndexModel, ASCENDING, DESCENDING
+        
+        db = DatabaseManager().db
+        
+        # === 1. code_snippets: user_file_version_desc ===
+        collection = db.code_snippets
+        target_name = "user_file_version_desc"
+        
+        # מחיקת אינדקסים מתנגשים (אם יש)
+        try:
+            existing = list(collection.list_indexes())
+            for idx in existing:
+                # מחיקת אינדקסים שמכילים את אותם שדות בסדר שונה
+                key = idx.get("key", {})
+                idx_name = idx.get("name", "")
+                # אם האינדקס מכיל את השדות האלה אבל בסדר אחר, מחק אותו
+                if "file_name" in key and "user_id" in key and "version" in key:
+                    if idx_name != target_name:
+                        try:
+                            collection.drop_index(idx_name)
+                            results["steps"].append({
+                                "action": "drop_conflicting_index",
+                                "collection": "code_snippets",
+                                "index_name": idx_name,
+                                "status": "✅ dropped"
+                            })
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        
+        # יצירת האינדקס החדש
+        try:
+            collection.create_index(
+                [("file_name", ASCENDING), ("user_id", ASCENDING), ("version", DESCENDING)],
+                name=target_name,
+                background=True
+            )
+            results["steps"].append({
+                "action": "create_index",
+                "collection": "code_snippets",
+                "index_name": target_name,
+                "key_order": {"file_name": 1, "user_id": 1, "version": -1},
+                "status": "✅ created"
+            })
+            results["collections_fixed"].append("code_snippets:user_file_version_desc")
+        except Exception as e:
+            err = str(e)
+            if "already exists" in err.lower() or "IndexOptionsConflict" in err:
+                results["steps"].append({
+                    "action": "create_index",
+                    "collection": "code_snippets",
+                    "index_name": target_name,
+                    "status": "✅ already exists"
+                })
+            else:
+                results["steps"].append({
+                    "action": "create_index",
+                    "collection": "code_snippets",
+                    "index_name": target_name,
+                    "status": f"❌ error: {err}"
+                })
+        
+        # === 2. job_trigger_requests: מחיקת status_idx ויצירת אינדקס משולב ===
+        try:
+            jtr_collection = db.job_trigger_requests
+            
+            # מחיקת האינדקס הישן
+            try:
+                jtr_collection.drop_index("status_idx")
+                results["steps"].append({
+                    "action": "drop_index",
+                    "collection": "job_trigger_requests",
+                    "index_name": "status_idx",
+                    "status": "✅ dropped"
+                })
+            except Exception as e:
+                err = str(e).lower()
+                if "not found" in err or "doesn't exist" in err:
+                    results["steps"].append({
+                        "action": "drop_index",
+                        "collection": "job_trigger_requests",
+                        "index_name": "status_idx",
+                        "status": "⚠️ not found (already dropped?)"
+                    })
+                else:
+                    results["steps"].append({
+                        "action": "drop_index",
+                        "collection": "job_trigger_requests",
+                        "index_name": "status_idx",
+                        "status": f"❌ error: {str(e)}"
+                    })
+            
+            # יצירת האינדקס המשולב החדש
+            new_jtr_index = "status_created_idx"
+            try:
+                jtr_collection.create_index(
+                    [("status", ASCENDING), ("created_at", DESCENDING)],
+                    name=new_jtr_index,
+                    background=True
+                )
+                results["steps"].append({
+                    "action": "create_index",
+                    "collection": "job_trigger_requests",
+                    "index_name": new_jtr_index,
+                    "key_order": {"status": 1, "created_at": -1},
+                    "status": "✅ created"
+                })
+                results["collections_fixed"].append("job_trigger_requests:status_created_idx")
+            except Exception as e:
+                err = str(e)
+                if "already exists" in err.lower() or "IndexOptionsConflict" in err:
+                    results["steps"].append({
+                        "action": "create_index",
+                        "collection": "job_trigger_requests",
+                        "index_name": new_jtr_index,
+                        "status": "✅ already exists"
+                    })
+                else:
+                    results["steps"].append({
+                        "action": "create_index",
+                        "collection": "job_trigger_requests",
+                        "index_name": new_jtr_index,
+                        "status": f"❌ error: {err}"
+                    })
+        except Exception as e:
+            results["steps"].append({
+                "action": "job_trigger_requests_setup",
+                "status": f"❌ collection error: {str(e)}"
+            })
+        
+        # === 3. scheduler_jobs: אינדקס על next_run_time ===
+        try:
+            sched_collection = db.scheduler_jobs
+            sched_index_name = "next_run_time_idx"
+            
+            try:
+                sched_collection.create_index(
+                    [("next_run_time", ASCENDING)],
+                    name=sched_index_name,
+                    background=True
+                )
+                results["steps"].append({
+                    "action": "create_index",
+                    "collection": "scheduler_jobs",
+                    "index_name": sched_index_name,
+                    "key_order": {"next_run_time": 1},
+                    "status": "✅ created"
+                })
+                results["collections_fixed"].append("scheduler_jobs:next_run_time_idx")
+            except Exception as e:
+                err = str(e)
+                if "already exists" in err.lower() or "IndexOptionsConflict" in err:
+                    results["steps"].append({
+                        "action": "create_index",
+                        "collection": "scheduler_jobs",
+                        "index_name": sched_index_name,
+                        "status": "✅ already exists"
+                    })
+                else:
+                    results["steps"].append({
+                        "action": "create_index",
+                        "collection": "scheduler_jobs",
+                        "index_name": sched_index_name,
+                        "status": f"❌ error: {err}"
+                    })
+        except Exception as e:
+            results["steps"].append({
+                "action": "scheduler_jobs_setup",
+                "status": f"❌ collection error: {str(e)}"
+            })
+        
+        # === 4. code_snippets: וידוא active_recent_fixed ===
+        collection = db.code_snippets
+        active_idx_name = "active_recent_fixed"
+        
+        # מחיקה אם קיים (כדי ליצור מחדש בסדר הנכון)
+        try:
+            collection.drop_index(active_idx_name)
+            results["steps"].append({
+                "action": "drop_for_recreate",
+                "collection": "code_snippets",
+                "index_name": active_idx_name,
+                "status": "✅ dropped for recreation"
+            })
+        except Exception:
+            pass  # לא קיים, זה בסדר
+        
+        try:
+            # is_active חייב להיות ראשון!
+            collection.create_index(
+                [("is_active", ASCENDING), ("created_at", DESCENDING)],
+                name=active_idx_name,
+                background=True
+            )
+            results["steps"].append({
+                "action": "create_index",
+                "collection": "code_snippets",
+                "index_name": active_idx_name,
+                "key_order": {"is_active": 1, "created_at": -1},
+                "status": "✅ created with correct order"
+            })
+            results["collections_fixed"].append("code_snippets:active_recent_fixed")
+        except Exception as e:
+            err = str(e)
+            results["steps"].append({
+                "action": "create_index",
+                "collection": "code_snippets",
+                "index_name": active_idx_name,
+                "status": f"❌ error: {err}"
+            })
+        
+        # === סיכום: רשימת אינדקסים עדכנית ===
+        results["current_indexes"] = {}
+        
+        for coll_name in ["code_snippets", "job_trigger_requests", "scheduler_jobs"]:
+            try:
+                coll = db[coll_name]
+                indexes = list(coll.list_indexes())
+                results["current_indexes"][coll_name] = json.loads(json_util.dumps(indexes))
+            except Exception as e:
+                results["current_indexes"][coll_name] = {"error": str(e)}
+        
+        results["message"] = f"✅ תיקון הסתיים. {len(results['collections_fixed'])} אינדקסים נוצרו/עודכנו."
+        results["success"] = len([s for s in results["steps"] if "✅" in s.get("status", "")]) > 0
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("resolve_naming_conflicts_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""
