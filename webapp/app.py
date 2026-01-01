@@ -7101,45 +7101,49 @@ def check_mongo_ops():
     🔍 בדיקת פעולות MongoDB שרצות כרגע (כמו בניית אינדקסים).
     
     מחזיר מידע על:
-    - פעולות שממתינות ל-Lock
     - פעולות בניית אינדקסים (Index Builds)
     - זמן ריצה של כל פעולה
+    
+    📝 הערה: גרסה תואמת ל-Atlas Shared Tier (ללא $all).
     """
     try:
         from database.manager import DatabaseManager
         
         db = DatabaseManager().db
         
-        # פקודה שבודקת פעולות שרצות כרגע ב-DB
-        # הפקודה המתוקנת - פילטרים ברמה העליונה וללא waitingForLock
-        ops = db.command({
-            "currentOp": 1,
-            "$all": True,
-            "command.createIndexes": {"$exists": True}
-        })
-        # אם רוצים לראות הכל (לא רק אינדקסים) פשוט תוריד את הפילטר האחרון:
-        # ops = db.command({"currentOp": 1, "$all": True})
+        # פקודה בסיסית שעובדת ב-Atlas Shared Tier
+        ops = db.command({"currentOp": 1, "active": True})
         
         in_progress = []
         for op in ops.get('inprog', []):
-            if 'msg' in op:  # זה בדרך כלל מציין Index Build
+            # טיפול בטוח ב-command למניעת TypeError/AttributeError
+            # (command יכול להיות None, לא רק missing)
+            command = op.get('command') or {}
+            msg = op.get('msg', '')
+            
+            # זיהוי בניית אינדקסים או פקודות רלוונטיות
+            is_index = "createIndexes" in command or "Index Build" in msg
+            
+            if is_index or msg:
                 in_progress.append({
-                    "msg": op['msg'],
+                    "msg": msg or "Processing...",
+                    "collection": command.get("createIndexes") or "N/A",
                     "progress": op.get('progress', {}),
                     "secs_running": op.get('secs_running'),
-                    "op": op.get('op'),
-                    "ns": op.get('ns'),  # namespace (collection)
+                    "opid": op.get('opid')
                 })
         
         return jsonify({
             "status": "success",
             "active_index_builds": in_progress,
-            "raw_count": len(ops.get('inprog', [])),
-            "waiting_for_lock_count": len(in_progress),
+            "raw_ops_count": len(ops.get('inprog', []))
         })
     except Exception as e:
         logger.exception("check_mongo_ops_failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({
+            "status": "error", 
+            "message": f"Atlas/Auth Error: {str(e)}"
+        }), 500
 
 
 # ===== Global Content Search API =====
