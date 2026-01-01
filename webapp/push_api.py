@@ -498,7 +498,12 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         "$or": [
             {"last_push_success_at": {"$exists": False}},
             {"last_push_success_at": None},
-            {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+            {
+                "$and": [
+                    {"last_push_success_at": {"$type": "date"}},
+                    {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+                ]
+            },
         ],
     }
     total_needed = max_users * max_per_user

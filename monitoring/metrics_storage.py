@@ -56,6 +56,7 @@ _last_flush_ts: float = time.time()
 # Background flush worker (to avoid blocking request path)
 _worker_started = False
 _worker_event = Event()
+_start_lock = Lock()
 
 
 def _is_pytest() -> bool:
@@ -66,13 +67,17 @@ def _start_worker_if_needed() -> None:
     global _worker_started
     if _worker_started or _is_pytest():
         return
-    try:
-        t = Thread(target=_worker_loop, name="metrics-db-writer", daemon=True)
-        t.start()
-        _worker_started = True
-    except Exception:
-        # Fail-open: never block app due to background thread
-        return
+    # Double-checked locking to avoid spawning multiple workers under concurrency
+    with _start_lock:
+        if _worker_started or _is_pytest():
+            return
+        try:
+            t = Thread(target=_worker_loop, name="metrics-db-writer", daemon=True)
+            t.start()
+            _worker_started = True
+        except Exception:
+            # Fail-open: never block app due to background thread
+            return
 
 
 def _worker_loop() -> None:  # pragma: no cover
@@ -183,12 +188,19 @@ def _flush_once(now_ts: float) -> bool:
     except Exception:
         batch_size = 50
     items: List[Dict[str, Any]] = []
-    with _lock:
-        try:
+    try:
+        with _lock:
             while _buf and len(items) < max(1, batch_size):
                 items.append(_buf.popleft())
+    except Exception:
+        # Never lose already-popped items
+        try:
+            with _lock:
+                for it in reversed(items):
+                    _buf.appendleft(it)
         except Exception:
-            items = []
+            pass
+        return False
 
     if not items:
         return False
