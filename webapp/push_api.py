@@ -488,16 +488,22 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     """
     db = get_db()
     now = datetime.now(timezone.utc)
-    # IMPORTANT (perf): avoid $expr here to allow indexes; do the precise idempotency
-    # check in Python (same logic: last_push_success_at is None OR < remind_at).
+    # Idempotency is enforced inside MongoDB to avoid Python-side filtering on the hot path.
+    # NOTE: our reminders use status pending/snoozed (not "active").
     mongo_filter = {
         "status": {"$in": ["pending", "snoozed"]},
         "ack_at": None,
         "remind_at": {"$lte": now},
+        # send only if never successfully pushed for this schedule
+        "$or": [
+            {"last_push_success_at": {"$exists": False}},
+            {"last_push_success_at": None},
+            {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+        ],
     }
     total_needed = max_users * max_per_user
-    # We "oversample" to avoid missing due reminders after Python-side filtering.
-    raw_limit = max(10, int(total_needed * 5))
+    # We still oversample to compensate for claim collisions / missing subscriptions, etc.
+    raw_limit = max(10, int(total_needed * 3))
     # Keep projection minimal to reduce memory/network usage.
     projection = {
         "_id": 1,
@@ -508,32 +514,6 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         "last_push_success_at": 1,
     }
 
-    def _as_utc(dt: object) -> datetime | None:
-        if not isinstance(dt, datetime):
-            return None
-        try:
-            if dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
-        except Exception:
-            return None
-
-    def _should_send(reminder_doc: dict) -> bool:
-        try:
-            remind_at = _as_utc(reminder_doc.get("remind_at"))
-            if remind_at is None:
-                return False
-            last_push = reminder_doc.get("last_push_success_at")
-            if last_push is None:
-                return True
-            last_push_at = _as_utc(last_push)
-            # If we can't safely compare, prefer NOT to spam duplicates.
-            if last_push_at is None:
-                return False
-            return last_push_at < remind_at
-        except Exception:
-            return False
-
     try:
         raw_due = list(
             db.note_reminders.find(mongo_filter, projection).sort("remind_at", 1).limit(raw_limit)
@@ -541,7 +521,7 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     except Exception:
         raw_due = []
 
-    due = [r for r in raw_due if isinstance(r, dict) and _should_send(r)]
+    due = [r for r in raw_due if isinstance(r, dict)]
     due = due[:total_needed]
     if not due:
         return

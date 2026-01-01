@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 import time
 from collections import deque
 from datetime import datetime, timezone
-from threading import Lock
+from threading import Event, Lock, Thread
 from typing import Any, Dict, List, Optional, Tuple
 
 # Optional structured event emission (do not hard-depend)
@@ -51,6 +52,46 @@ _init_failed = False
 _buf: deque[Dict[str, Any]] = deque()
 _lock = Lock()
 _last_flush_ts: float = time.time()
+
+# Background flush worker (to avoid blocking request path)
+_worker_started = False
+_worker_event = Event()
+
+
+def _is_pytest() -> bool:
+    return bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
+
+
+def _start_worker_if_needed() -> None:
+    global _worker_started
+    if _worker_started or _is_pytest():
+        return
+    try:
+        t = Thread(target=_worker_loop, name="metrics-db-writer", daemon=True)
+        t.start()
+        _worker_started = True
+    except Exception:
+        # Fail-open: never block app due to background thread
+        return
+
+
+def _worker_loop() -> None:  # pragma: no cover
+    """Flush queued metrics in background so UI requests aren't blocked by DB inserts."""
+    while True:
+        try:
+            interval = int(os.getenv("METRICS_FLUSH_INTERVAL_SEC", "5") or "5")
+        except Exception:
+            interval = 5
+        try:
+            # Wake on signal or periodically
+            _worker_event.wait(timeout=max(1, interval))
+            _worker_event.clear()
+        except Exception:
+            pass
+        try:
+            flush(force=False)
+        except Exception:
+            pass
 
 
 def _build_time_match(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> Dict[str, Any]:
@@ -124,38 +165,46 @@ def _get_collection():  # pragma: no cover - exercised indirectly
         return None
 
 
-def _flush_locked(now_ts: float) -> None:
+def _flush_once(now_ts: float) -> bool:
     coll = _get_collection()
     if coll is None:
         # If initialization failed permanently, clear buffer to prevent leaks
         if _init_failed:
-            try:
-                _buf.clear()
-            except Exception:
-                pass
-        return
-    if not _buf:
-        return
-    # Pop a batch while holding the lock; on failure, push back
-    batch_size = int(os.getenv("METRICS_BATCH_SIZE", "50") or "50")
-    items = []
+            with _lock:
+                try:
+                    _buf.clear()
+                except Exception:
+                    pass
+        return False
+
+    # Pop a batch under lock, but perform IO without holding the lock
     try:
-        while _buf and len(items) < max(1, batch_size):
-            items.append(_buf.popleft())
-        if not items:
-            return
+        batch_size = int(os.getenv("METRICS_BATCH_SIZE", "50") or "50")
+    except Exception:
+        batch_size = 50
+    items: List[Dict[str, Any]] = []
+    with _lock:
         try:
-            coll.insert_many(items, ordered=False)  # type: ignore[attr-defined]
-            global _last_flush_ts
+            while _buf and len(items) < max(1, batch_size):
+                items.append(_buf.popleft())
+        except Exception:
+            items = []
+
+    if not items:
+        return False
+
+    try:
+        coll.insert_many(items, ordered=False)  # type: ignore[attr-defined]
+        global _last_flush_ts
+        with _lock:
             _last_flush_ts = now_ts
-        except Exception as e:  # Re-queue on failure
+        return True
+    except Exception as e:  # Re-queue on failure
+        with _lock:
             for it in reversed(items):
                 _buf.appendleft(it)
-            emit_event("metrics_db_batch_insert_error", severity="warn", error=str(e), count=len(items))
-    except Exception:
-        # On any unexpected error, re-queue items to preserve data
-        for it in reversed(items):
-            _buf.appendleft(it)
+        emit_event("metrics_db_batch_insert_error", severity="warn", error=str(e), count=len(items))
+        return False
 
 
 def flush(force: bool = False) -> None:
@@ -166,11 +215,17 @@ def flush(force: bool = False) -> None:
     if not _enabled():
         return
     now_ts = time.time()
-    with _lock:
-        # Time-based threshold
+    try:
         interval = int(os.getenv("METRICS_FLUSH_INTERVAL_SEC", "5") or "5")
-        if force or (now_ts - _last_flush_ts) >= max(1, interval):
-            _flush_locked(now_ts)
+    except Exception:
+        interval = 5
+    # Time-based threshold
+    if not force and (now_ts - _last_flush_ts) < max(1, interval):
+        return
+    # Flush multiple batches best-effort (useful for force=True and for draining the queue)
+    for _ in range(100):
+        if not _flush_once(time.time()):
+            break
 
 
 def enqueue_request_metric(
@@ -221,12 +276,12 @@ def enqueue_request_metric(
                     _buf.popleft()
             except Exception:
                 pass
-            # Size-based flush threshold
-            batch_size = int(os.getenv("METRICS_BATCH_SIZE", "50") or "50")
-            if len(_buf) >= max(1, batch_size):
-                _flush_locked(time.time())
-        # Also attempt time-based flush outside lock (cheap check)
-        flush(force=False)
+        # Never flush on the request path. Wake background worker instead.
+        _start_worker_if_needed()
+        try:
+            _worker_event.set()
+        except Exception:
+            pass
     except Exception:
         # Fail-open: never raise
         return
