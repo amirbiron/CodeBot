@@ -6160,7 +6160,8 @@ def admin_announcements_activate():
 def force_index_creation():
     """
     Endpoint זמני לכפיית יצירת אינדקס active_recent_idx על code_snippets.
-    מחזיר JSON עם מצב האינדקסים לפני ואחרי, ופעולות בנייה רצות.
+    מוחק את האינדקס הקיים (אם קיים) ויוצר מחדש בסדר הנכון.
+    מחזיר JSON עם מצב האינדקסים ופעולות בנייה רצות.
     """
     results = {}
     try:
@@ -6171,24 +6172,29 @@ def force_index_creation():
 
         db = DatabaseManager().db
         collection = db.code_snippets
-
-        # 1. בדיקה מה קיים לפני (עם המרה ל-JSON תקין)
-        results['before'] = json.loads(json_util.dumps(list(collection.list_indexes())))
-
-        # 2. ניסיון יצירה אגרסיבי
         index_name = "active_recent_idx"
+
+        # 1. מחיקת האינדקס השגוי (אם קיים)
+        try:
+            collection.drop_index(index_name)
+            results['dropped'] = True
+        except Exception as e:
+            results['dropped'] = False
+            results['drop_error'] = str(e)
+
+        # 2. יצירת האינדקס הנכון (הסדר קריטי: is_active ראשון!)
+        # is_active חייב להיות ראשון כדי לצמצם את החיפוש
         model = IndexModel(
             [("is_active", ASCENDING), ("created_at", DESCENDING)],
             name=index_name,
             background=True
         )
 
-        # מפעיל את היצירה
         collection.create_indexes([model])
-        results['status'] = "Creation Command Sent"
+        results['status'] = "Correct Index Creation Command Sent"
 
-        # 3. בדיקה האם נוצר (עם המרה ל-JSON תקין)
-        results['after'] = json.loads(json_util.dumps(list(collection.list_indexes())))
+        # 3. החזרת המצב הנוכחי (עם המרה ל-JSON תקין)
+        results['indexes'] = json.loads(json_util.dumps(list(collection.list_indexes())))
 
         # 4. בדיקת פעולות רצות - תיקון ל-PyMongo 4.x
         current_ops = db.client.admin.command("currentOp")
