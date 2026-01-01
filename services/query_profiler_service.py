@@ -797,6 +797,47 @@ class QueryProfilerService:
         }
 
     # --- Aggregations ---
+    def _fix_pipeline_for_explain(self, pipeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        תיקון ערכי placeholder ב-pipeline לפני שליחה ל-explain.
+
+        כאשר ה-pipeline עבר נרמול (להגנת PII), ערכים מספריים הוחלפו ב-"<value>".
+        MongoDB explain ייכשל אם יקבל "$limit": "<value>" במקום מספר.
+
+        פונקציה זו מחליפה את ה-placeholders בערכי ברירת מחדל תקינים.
+        """
+        fixed: List[Dict[str, Any]] = []
+        for stage in (pipeline or []):
+            if not isinstance(stage, dict):
+                fixed.append(stage)
+                continue
+
+            new_stage = {}
+            for key, value in stage.items():
+                # תיקון $limit - חייב להיות מספר שלם חיובי
+                if key == "$limit":
+                    if not isinstance(value, (int, float)) or value <= 0:
+                        new_stage[key] = 10  # ערך דמי לבדיקה
+                    else:
+                        new_stage[key] = int(value)
+                # תיקון $skip - חייב להיות מספר שלם לא-שלילי
+                elif key == "$skip":
+                    if not isinstance(value, (int, float)) or value < 0:
+                        new_stage[key] = 0
+                    else:
+                        new_stage[key] = int(value)
+                # תיקון $sample - size חייב להיות מספר שלם חיובי
+                elif key == "$sample" and isinstance(value, dict):
+                    sample_val = value.copy()
+                    if "size" in sample_val and not isinstance(sample_val["size"], (int, float)):
+                        sample_val["size"] = 10
+                    new_stage[key] = sample_val
+                else:
+                    new_stage[key] = value
+
+            fixed.append(new_stage)
+        return fixed
+
     async def get_aggregation_explain(
         self,
         collection: str,
@@ -815,6 +856,9 @@ class QueryProfilerService:
                     "Please use the original pipeline or re-record this slow query."
                 )
 
+        # תיקון ערכי placeholder לפני שליחה ל-MongoDB
+        fixed_pipeline = self._fix_pipeline_for_explain(pipeline)
+
         def _run_explain() -> Dict[str, Any]:
             db = getattr(self.db_manager, "db", None)
             if db is None:
@@ -823,7 +867,7 @@ class QueryProfilerService:
             return db.command(
                 "aggregate",
                 collection,
-                pipeline=pipeline,
+                pipeline=fixed_pipeline,
                 explain=True,
                 cursor={},
             )
