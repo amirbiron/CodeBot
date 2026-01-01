@@ -77,18 +77,23 @@ def _count_user_themes(db, user_id: int) -> int:
 _VALID_PX_REGEX = re.compile(r"^\d{1,3}(\.\d{1,2})?px$")
 
 
-def _validate_color_value(value: str) -> bool:
-    """בודק שהערך הוא צבע תקין (hex/rgb/rgba) או blur (px)."""
-    if not value or not isinstance(value, str):
+def _validate_theme_value(var_name: str, value: str) -> bool:
+    """בודק שהערך בטוח למשתנה:
+    - לכל המשתנים: Hex/RGB/RGBA בלבד
+    - חריג יחיד: --glass-blur יכול להיות px
+    """
+    if not var_name or not isinstance(var_name, str):
         return False
+    if value is None or not isinstance(value, str):
+        return False
+
     v = value.strip()
     if not v:
         return False
     if len(v) > MAX_THEME_VALUE_LENGTH:
         return False
-    if v.lower().endswith("px"):
+    if var_name == "--glass-blur":
         return bool(_VALID_PX_REGEX.match(v.lower()))
-    # theme_parser_service מגביל לצבעים בלבד (hex/rgb/rgba)
     return is_valid_color(v)
 
 
@@ -305,7 +310,7 @@ def create_theme():
         if var_name not in _WL:
             continue
         val = str(var_value).strip()
-        if not _validate_color_value(val):
+        if not _validate_theme_value(var_name, val):
             return jsonify({"ok": False, "error": "invalid_color", "field": var_name}), 400
         validated_vars[var_name] = val
 
@@ -375,7 +380,7 @@ def update_theme(theme_id: str):
                 if var_name not in _WL:
                     continue
                 val = str(var_value).strip()
-                if not _validate_color_value(val):
+                if not _validate_theme_value(var_name, val):
                     return jsonify({"ok": False, "error": "invalid_color", "field": var_name}), 400
                 patch_vars[var_name] = val
 
@@ -501,7 +506,7 @@ def save_custom_theme():
         if var_name not in _WL:
             continue
         val = str(var_value).strip()
-        if not _validate_color_value(val):
+        if not _validate_theme_value(var_name, val):
             return jsonify({"ok": False, "error": "invalid_color", "field": var_name}), 400
         validated_vars[var_name] = val
 

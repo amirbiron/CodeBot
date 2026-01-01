@@ -133,6 +133,16 @@ def test_create_theme_success(client, stub_db):
     assert any("$push" in call[2] and "custom_themes" in call[2]["$push"] for call in update_calls)
 
 
+def test_create_theme_rejects_px_for_non_blur(client, stub_db):
+    _login(client)
+    stub_db.users.queue_find_one({"custom_themes": []})
+    resp = client.post("/api/themes", json={"name": "Bad", "variables": {"--bg-primary": "20px"}})
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert data["error"] == "invalid_color"
+    assert data["field"] == "--bg-primary"
+
+
 def test_update_theme_not_found(client, stub_db):
     _login(client)
     stub_db.users.queue_find_one(None)
