@@ -1,74 +1,138 @@
 #!/usr/bin/env python3
 """
-סקריפט לבדיקת מצב אינדקסים ב-code_snippets collection.
+סקריפט זמני לבדיקת מצב האינדקסים ב-MongoDB
+
+הערה: ניתן להריץ את הבדיקות האלה גם דרך ה-Admin Endpoints:
+- /admin/verify-indexes - בדיקה מקיפה של כל האינדקסים
+- /admin/create-users-index - יצירת אינדקס על users.user_id
+- /admin/create-job-trigger-index - יצירת אינדקס על job_trigger_requests.status
 """
-import sys
+import json
 import os
-
-# הוספת הנתיב של הפרויקט
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from database.manager import DatabaseManager
-except ImportError as e:
-    print(f"Error importing DatabaseManager: {e}")
-    sys.exit(1)
+import sys
 
 def main():
+    # Try to load environment variables from .env
     try:
-        print("Connecting to MongoDB...")
-        db_manager = DatabaseManager()
-        db = db_manager.db
-        
-        if db is None:
-            print("ERROR: db is None - could not connect to MongoDB")
-            sys.exit(1)
-            
-        collection = db['code_snippets']
-        
-        print("\n--- Current Indexes on code_snippets ---")
-        try:
-            indexes = list(collection.list_indexes())
-            if not indexes:
-                print("No indexes found (or stub collection)")
-            else:
-                for index in indexes:
-                    print(f"  - {index.get('name', 'N/A')}: {index.get('key', {})}")
-                    
-                # בדיקה ספציפית ל-active_recent_idx
-                active_recent_exists = any(idx.get('name') == 'active_recent_idx' for idx in indexes)
-                print(f"\n✅ active_recent_idx exists: {active_recent_exists}")
-                
-                if active_recent_exists:
-                    idx_info = next((idx for idx in indexes if idx.get('name') == 'active_recent_idx'), None)
-                    if idx_info:
-                        print(f"   Keys: {idx_info.get('key', {})}")
-        except Exception as e:
-            print(f"Error listing indexes: {e}")
-        
-        print("\n--- Current Operations (Is Index Building?) ---")
-        try:
-            # בדיקה אם יש בניית אינדקס שרצה כרגע
-            current_ops = db.current_op()
-            found_ops = False
-            for op in current_ops.get('inprog', []):
-                cmd = op.get('command', {})
-                if 'createIndexes' in cmd or 'msg' in op:
-                    found_ops = True
-                    print(f"  Operation: {op.get('desc', 'N/A')}")
-                    print(f"  Message: {op.get('msg', 'N/A')}")
-                    print(f"  Progress: {op.get('progress', 'N/A')}")
-                    print()
-            if not found_ops:
-                print("  No index building operations in progress")
-        except Exception as e:
-            print(f"Error checking current operations: {e}")
-            
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    try:
+        from bson import json_util
+        from database.manager import DatabaseManager
+    except ImportError as e:
+        print(f"❌ חסרות תלויות: {e}")
+        print("\nכדי להריץ את הסקריפט, התקן את התלויות:")
+        print("  pip install pymongo python-dotenv")
+        print("\nאו השתמש ב-Admin Endpoints:")
+        print("  /admin/verify-indexes")
         sys.exit(1)
+    
+    try:
+        db = DatabaseManager().db
+    except Exception as e:
+        print(f"❌ שגיאה בהתחברות ל-MongoDB: {e}")
+        print("\nודא ש-MONGODB_URL מוגדר בסביבה או בקובץ .env")
+        print("\nאו השתמש ב-Admin Endpoints מתוך האפליקציה:")
+        print("  /admin/verify-indexes")
+        sys.exit(1)
+    
+    print("=" * 60)
+    print("1. בדיקת פעולות בניית אינדקסים פעילות")
+    print("=" * 60)
+    
+    # Check for active index builds
+    try:
+        current_ops = db.command({
+            "currentOp": 1,
+            "command.createIndexes": {"$exists": True}
+        })
+        if current_ops.get("inprog"):
+            print(f"⏳ נמצאו {len(current_ops['inprog'])} פעולות בנייה פעילות:")
+            for op in current_ops["inprog"]:
+                print(json.dumps(json.loads(json_util.dumps(op)), indent=2, ensure_ascii=False))
+        else:
+            print("✅ אין פעולות בניית אינדקסים פעילות כרגע")
+    except Exception as e:
+        print(f"❌ שגיאה בבדיקת currentOp: {e}")
+    
+    print("\n" + "=" * 60)
+    print("2. אינדקסים בקולקשן users")
+    print("=" * 60)
+    
+    try:
+        users_indexes = list(db.users.list_indexes())
+        print(f"נמצאו {len(users_indexes)} אינדקסים:")
+        for idx in users_indexes:
+            print(json.dumps(json.loads(json_util.dumps(idx)), indent=2, ensure_ascii=False))
+        
+        # Check specifically for user_id index
+        has_user_id_idx = any("user_id" in str(idx.get("key", {})) for idx in users_indexes)
+        if has_user_id_idx:
+            print("\n✅ קיים אינדקס על user_id")
+        else:
+            print("\n⚠️ לא נמצא אינדקס על user_id!")
+            print("   לתיקון: /admin/create-users-index")
+    except Exception as e:
+        print(f"❌ שגיאה בקריאת אינדקסים מ-users: {e}")
+    
+    print("\n" + "=" * 60)
+    print("3. אינדקסים בקולקשן note_reminders")
+    print("=" * 60)
+    
+    try:
+        reminders_indexes = list(db.note_reminders.list_indexes())
+        print(f"נמצאו {len(reminders_indexes)} אינדקסים:")
+        for idx in reminders_indexes:
+            print(json.dumps(json.loads(json_util.dumps(idx)), indent=2, ensure_ascii=False))
+    except Exception as e:
+        print(f"❌ שגיאה בקריאת אינדקסים מ-note_reminders: {e}")
+    
+    print("\n" + "=" * 60)
+    print("4. בונוס: אינדקסים בקולקשן job_trigger_requests")
+    print("=" * 60)
+    
+    try:
+        job_trigger_indexes = list(db.job_trigger_requests.list_indexes())
+        print(f"נמצאו {len(job_trigger_indexes)} אינדקסים:")
+        for idx in job_trigger_indexes:
+            print(json.dumps(json.loads(json_util.dumps(idx)), indent=2, ensure_ascii=False))
+        
+        # Check for status index
+        has_status_idx = any("status" in str(idx.get("key", {})) for idx in job_trigger_indexes)
+        if has_status_idx:
+            print("\n✅ קיים אינדקס על status")
+        else:
+            print("\n⚠️ לא נמצא אינדקס על status!")
+            print("   לתיקון: /admin/create-job-trigger-index")
+    except Exception as e:
+        print(f"❌ שגיאה בקריאת אינדקסים מ-job_trigger_requests: {e}")
+    
+    print("\n" + "=" * 60)
+    print("5. בונוס: אינדקסים בקולקשן code_snippets")
+    print("=" * 60)
+    
+    try:
+        snippets_indexes = list(db.code_snippets.list_indexes())
+        print(f"נמצאו {len(snippets_indexes)} אינדקסים:")
+        for idx in snippets_indexes:
+            print(json.dumps(json.loads(json_util.dumps(idx)), indent=2, ensure_ascii=False))
+        
+        # Check for is_active + created_at compound index
+        has_active_idx = any(
+            "is_active" in str(idx.get("key", {})) and "created_at" in str(idx.get("key", {}))
+            for idx in snippets_indexes
+        )
+        if has_active_idx:
+            print("\n✅ קיים אינדקס מורכב על is_active + created_at")
+        else:
+            print("\n⚠️ לא נמצא אינדקס מורכב על is_active + created_at!")
+            print("   לתיקון: /admin/force-index-creation")
+    except Exception as e:
+        print(f"❌ שגיאה בקריאת אינדקסים מ-code_snippets: {e}")
+
 
 if __name__ == "__main__":
     main()

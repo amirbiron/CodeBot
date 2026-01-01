@@ -567,6 +567,21 @@ class DatabaseManager:
             except Exception as e:
                 emit_event("db_create_indexes_error", severity="warn", collection="job_runs", error=str(e))
 
+        # job_trigger_requests - אינדקס על status למניעת COLLSCAN בזמן polling
+        if db is not None:
+            try:
+                db["job_trigger_requests"].create_indexes(
+                    [
+                        IndexModel(
+                            [("status", ASCENDING)],
+                            name="status_idx",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="job_trigger_requests", error=str(e))
+
         # users
         if db is not None:
             try:
@@ -578,7 +593,13 @@ class DatabaseManager:
                             [("drive_prefs.schedule", ASCENDING)],
                             name="users_drive_schedule",
                             background=True,
-                        )
+                        ),
+                        # אינדקס על user_id למניעת COLLSCAN בזמן update לפי user_id
+                        IndexModel(
+                            [("user_id", ASCENDING)],
+                            name="user_id_idx",
+                            background=True,
+                        ),
                     ]
                 )
             except Exception as e:
