@@ -1068,7 +1068,8 @@ VSCODE_TO_CSS_MAP = {
     "input.foreground": "--text-primary",
     
     # כפתורים (Level 2 Tokens) - לא משתמשים ב---primary הגנרי!
-    "button.background": "--btn-primary-bg",
+    # button.background ממלא גם את הגבול למניעת אי-תאימות ויזואלית
+    "button.background": ["--btn-primary-bg", "--btn-primary-border"],
     "button.foreground": "--btn-primary-color",
     "button.hoverBackground": "--btn-primary-hover-bg",
     "focusBorder": "--primary",
@@ -1412,6 +1413,9 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
 def _compute_derived_colors(variables: dict) -> dict:
     """
     מחשב צבעים נגזרים שלא קיימים ישירות ב-VS Code.
+    
+    ⚠️ חשוב: פונקציה זו מבטיחה עקביות ויזואלית עבור ערכות מיובאות
+    על ידי גזירת טוקנים חסרים מטוקנים קיימים.
     """
     result = variables.copy()
     
@@ -1428,6 +1432,29 @@ def _compute_derived_colors(variables: dict) -> dict:
             result["--shadow-color"] = "rgba(0, 0, 0, 0.4)"
         else:
             result["--shadow-color"] = "rgba(0, 0, 0, 0.1)"
+    
+    # ==========================================
+    # גזירת טוקני כפתורים למניעת אי-תאימות ויזואלית
+    # ==========================================
+    # VS Code לא תמיד מספק את כל מאפייני הכפתור.
+    # אם יש רקע כפתור אך חסר גבול - הגבול צריך להתאים לרקע.
+    
+    if "--btn-primary-bg" in result and "--btn-primary-border" not in result:
+        result["--btn-primary-border"] = result["--btn-primary-bg"]
+    
+    # אם יש צבע hover אך חסר צבע טקסט ל-hover - משתמשים בצבע הטקסט הרגיל
+    if "--btn-primary-hover-bg" in result and "--btn-primary-hover-color" not in result:
+        result["--btn-primary-hover-color"] = result.get(
+            "--btn-primary-color", 
+            "#ffffff"  # fallback לטקסט לבן
+        )
+    
+    # גזירת shadow לכפתור (אופציונלי) - יוצר צל עדין מצבע הרקע
+    if "--btn-primary-bg" in result and "--btn-primary-shadow" not in result:
+        result["--btn-primary-shadow"] = color_with_opacity(
+            result["--btn-primary-bg"], 
+            0.3
+        )
     
     return result
 
@@ -2894,6 +2921,8 @@ class TestParseVscodeTheme:
         # כפתורים ממופים לטוקנים הייעודיים (לא ל---primary!)
         assert result["variables"]["--btn-primary-bg"] == "#bd93f9"
         assert result["variables"]["--btn-primary-color"] == "#f8f8f2"
+        # button.background ממלא גם את --btn-primary-border למניעת אי-תאימות
+        assert result["variables"]["--btn-primary-border"] == "#bd93f9"
     
     def test_uses_fallback_for_missing(self):
         theme = {
@@ -2908,6 +2937,28 @@ class TestParseVscodeTheme:
         # Should have fallback values
         assert "--success" in result["variables"]
         assert "--error" in result["variables"]
+    
+    def test_derives_button_border_from_bg(self):
+        """
+        בודק שגבול הכפתור נגזר אוטומטית מצבע הרקע.
+        מונע אי-תאימות ויזואלית בערכות מיובאות.
+        """
+        theme = {
+            "name": "Test",
+            "type": "dark",
+            "colors": {
+                "editor.background": "#1e1e1e",
+                "button.background": "#ff5500"
+                # שים לב: אין button.border ב-VS Code!
+            }
+        }
+        result = parse_vscode_theme(theme)
+        
+        # button.background צריך למלא גם את --btn-primary-border
+        assert result["variables"]["--btn-primary-bg"] == "#ff5500"
+        assert result["variables"]["--btn-primary-border"] == "#ff5500"
+        # וגם shadow נגזר אוטומטית
+        assert "--btn-primary-shadow" in result["variables"]
         
     def test_filters_invalid_colors(self):
         theme = {
@@ -3210,8 +3261,14 @@ function checkThemeAccessibility(variables) {
 ```python
 # editor.background → גם --bg-primary וגם --md-surface
 # editor.foreground → גם --text-primary וגם --md-text
+# button.background → גם --btn-primary-bg וגם --btn-primary-border
 # notificationsErrorIcon.foreground → גם --error וגם --danger-bg
 ```
+
+**גזירת טוקנים חסרים** - הפונקציה `_compute_derived_colors` גוזרת אוטומטית:
+- `--btn-primary-border` מ-`--btn-primary-bg` (למניעת אי-תאימות ויזואלית)
+- `--btn-primary-shadow` מ-`--btn-primary-bg` (צל עדין בשקיפות 30%)
+- `--btn-primary-hover-color` מ-`--btn-primary-color`
 
 ### 1. Syntax Highlighting (tokenColors)
 
