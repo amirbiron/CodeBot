@@ -7,6 +7,25 @@
 (function() {
     'use strict';
 
+    function escapeHtml(str) {
+        try {
+            const div = document.createElement('div');
+            div.textContent = String(str || '');
+            return div.innerHTML;
+        } catch (e) {
+            return String(str || '');
+        }
+    }
+
+    function formatDate(isoString) {
+        try {
+            const date = new Date(isoString);
+            return date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
+        } catch (e) {
+            return '';
+        }
+    }
+
     // === State ===
     let presets = [];
     let currentFilter = 'all';
@@ -23,6 +42,8 @@
     const uploadStatus = document.getElementById('uploadStatus');
     const revertBtn = document.getElementById('revertPreviewBtn');
     const preview = document.getElementById('theme-preview-container');
+    const myThemesList = document.getElementById('myThemesList');
+    let myThemes = [];
 
     function showToast(message, type = 'info') {
         try {
@@ -60,8 +81,151 @@
                 if (tabId === 'presets' && presets.length === 0) {
                     loadPresets();
                 }
+                if (tabId === 'my-themes') {
+                    loadMyThemes();
+                }
             });
         });
+    }
+
+    // === My Themes (saved themes list) ===
+    async function loadMyThemes() {
+        if (!myThemesList) return;
+        try {
+            myThemesList.innerHTML = `
+                <div class="themes-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    טוען...
+                </div>
+            `;
+            const res = await fetch('/api/themes', { headers: { 'Accept': 'application/json' } });
+            const data = await res.json();
+            if (!res.ok || !data || !data.ok) {
+                throw new Error((data && data.error) || 'fetch_failed');
+            }
+            myThemes = data.themes || [];
+            renderMyThemes();
+        } catch (e) {
+            console.error('Failed to load my themes:', e);
+            myThemesList.innerHTML = '<p class="text-danger">שגיאה בטעינת הערכות שלך</p>';
+        }
+    }
+
+    function renderMyThemes() {
+        if (!myThemesList) return;
+        if (!myThemes || !myThemes.length) {
+            myThemesList.innerHTML = `
+                <div class="themes-loading">
+                    <i class="fas fa-palette"></i>
+                    <p style="margin-top: 0.75rem;">עדיין אין לך ערכות מותאמות</p>
+                    <p class="text-muted small">אפשר ליצור חדשה בבונה הערכות או להוסיף Preset/ייבוא</p>
+                </div>
+            `;
+            return;
+        }
+
+        myThemesList.innerHTML = myThemes.map(t => `
+            <div class="my-theme-card" data-theme-id="${t.id}">
+                <div class="my-theme-left">
+                    <div class="my-theme-title">
+                        <span class="my-theme-badge ${t.is_active ? 'active' : ''}">
+                            ${t.is_active ? 'פעילה' : 'שמורה'}
+                        </span>
+                        <span title="${escapeHtml(t.name || '')}">${escapeHtml(t.name || '')}</span>
+                    </div>
+                    <div class="my-theme-meta">
+                        ${t.description ? escapeHtml(t.description) : ''}
+                        ${t.updated_at ? ` • עודכן: ${formatDate(t.updated_at)}` : ''}
+                    </div>
+                </div>
+                <div class="my-theme-actions">
+                    <a class="btn btn-sm btn-outline-primary" href="/settings/theme-builder?theme_id=${encodeURIComponent(t.id)}" title="עריכה בבונה הערכות">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    ${!t.is_active ? `
+                        <button type="button" class="btn btn-sm btn-success" data-action="activate" title="הפעל">
+                            <i class="fas fa-check"></i>
+                        </button>
+                    ` : ''}
+                    <button type="button" class="btn btn-sm btn-danger" data-action="delete" title="מחק">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        myThemesList.querySelectorAll('.my-theme-card').forEach(card => {
+            card.addEventListener('click', async (e) => {
+                // Clicking edit link should navigate normally (no preview)
+                const link = e.target && e.target.closest ? e.target.closest('a') : null;
+                if (link) return;
+
+                const action = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+                const themeId = card.dataset.themeId;
+                if (!themeId) return;
+                if (action && action.dataset && action.dataset.action === 'activate') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await activateTheme(themeId);
+                    return;
+                }
+                if (action && action.dataset && action.dataset.action === 'delete') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await deleteTheme(themeId);
+                    return;
+                }
+                // Click on card: preview
+                await previewTheme(themeId);
+            });
+        });
+    }
+
+    async function previewTheme(themeId) {
+        if (!themeId || !preview) return;
+        saveOriginalPreviewState();
+        isPreviewActive = true;
+        if (revertBtn) revertBtn.style.display = 'inline-flex';
+
+        try {
+            const res = await fetch(`/api/themes/${encodeURIComponent(themeId)}`, { headers: { 'Accept': 'application/json' } });
+            const data = await res.json();
+            if (!res.ok || !data || !data.ok || !data.theme) throw new Error('fetch_failed');
+            const vars = data.theme.variables || {};
+            Object.entries(vars).forEach(([k, v]) => {
+                preview.style.setProperty(k, String(v));
+            });
+        } catch (e) {
+            console.error('Preview theme error:', e);
+            showToast('שגיאה בתצוגה מקדימה', 'error');
+        }
+    }
+
+    async function activateTheme(themeId) {
+        try {
+            const res = await fetch(`/api/themes/${encodeURIComponent(themeId)}/activate`, { method: 'POST', headers: { 'Accept': 'application/json' } });
+            const data = await res.json();
+            if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'activate_failed');
+            showToast('הערכה הופעלה! מרענן...', 'success');
+            setTimeout(() => location.reload(), 800);
+        } catch (e) {
+            console.error('Activate theme error:', e);
+            showToast('שגיאה בהפעלת הערכה', 'error');
+        }
+    }
+
+    async function deleteTheme(themeId) {
+        if (!confirm('האם למחוק את הערכה? פעולה זו אינה ניתנת לביטול.')) return;
+        try {
+            const res = await fetch(`/api/themes/${encodeURIComponent(themeId)}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+            const data = await res.json();
+            if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'delete_failed');
+            showToast('הערכה נמחקה', 'success');
+            await loadMyThemes();
+        } catch (e) {
+            console.error('Delete theme error:', e);
+            showToast('שגיאה במחיקת הערכה', 'error');
+        }
     }
 
     // === Presets Gallery ===
@@ -127,11 +291,7 @@
 
             if (data.success) {
                 showToast('הערכה נוספה בהצלחה!', 'success');
-                try {
-                    if (window.__themeBuilderApi && typeof window.__themeBuilderApi.fetchThemes === 'function') {
-                        window.__themeBuilderApi.fetchThemes();
-                    }
-                } catch (e) {}
+                await loadMyThemes();
 
                 // מעבר לטאב "הערכות שלי"
                 const myTab = document.querySelector('[data-tab="my-themes"]');
@@ -322,11 +482,7 @@
 
             if (data.success) {
                 showToast('הערכה יובאה בהצלחה!', 'success');
-                try {
-                    if (window.__themeBuilderApi && typeof window.__themeBuilderApi.fetchThemes === 'function') {
-                        window.__themeBuilderApi.fetchThemes();
-                    }
-                } catch (e) {}
+                await loadMyThemes();
                 const myTab = document.querySelector('[data-tab="my-themes"]');
                 if (myTab) myTab.click();
             } else {
@@ -352,11 +508,7 @@
 
             if (data.success) {
                 showToast('הערכה יובאה בהצלחה!', 'success');
-                try {
-                    if (window.__themeBuilderApi && typeof window.__themeBuilderApi.fetchThemes === 'function') {
-                        window.__themeBuilderApi.fetchThemes();
-                    }
-                } catch (e) {}
+                await loadMyThemes();
                 const myTab = document.querySelector('[data-tab="my-themes"]');
                 if (myTab) myTab.click();
                 if (jsonInput) jsonInput.value = '';
@@ -397,6 +549,8 @@
         initFilters();
         initImport();
         initRevertButton();
+        // Load my themes immediately if section exists
+        loadMyThemes();
     }
 
     if (document.readyState === 'loading') {

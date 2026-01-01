@@ -1583,6 +1583,16 @@
 
     // ========== Init ==========
     function init() {
+        // Deep-linking: allow opening a specific theme directly from the gallery
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            const tid = (params.get('theme_id') || '').trim();
+            if (tid) {
+                selectedThemeId = tid;
+                isNewTheme = false;
+            }
+        } catch (e) {}
+
         initAllPickers();
         initGlassSliders();
 
