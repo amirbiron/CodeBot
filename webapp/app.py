@@ -6684,30 +6684,34 @@ def resolve_naming_conflicts():
         collection = db.code_snippets
         target_name = "user_file_version_desc"
         
-        # מחיקת אינדקסים מתנגשים (אם יש)
+        # שלב 1: מחיקה מפורשת של האינדקס הקיים (גם אם יש לו את אותו השם אבל סדר שונה)
         try:
-            existing = list(collection.list_indexes())
-            for idx in existing:
-                # מחיקת אינדקסים שמכילים את אותם שדות בסדר שונה
-                key = idx.get("key", {})
-                idx_name = idx.get("name", "")
-                # אם האינדקס מכיל את השדות האלה אבל בסדר אחר, מחק אותו
-                if "file_name" in key and "user_id" in key and "version" in key:
-                    if idx_name != target_name:
-                        try:
-                            collection.drop_index(idx_name)
-                            results["steps"].append({
-                                "action": "drop_conflicting_index",
-                                "collection": "code_snippets",
-                                "index_name": idx_name,
-                                "status": "✅ dropped"
-                            })
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+            collection.drop_index(target_name)
+            results["steps"].append({
+                "action": "drop_existing_index",
+                "collection": "code_snippets",
+                "index_name": target_name,
+                "status": "✅ dropped (was in wrong order: user_id, file_name, version)"
+            })
+        except Exception as e:
+            err = str(e)
+            if "not found" in err.lower() or "ns not found" in err.lower():
+                results["steps"].append({
+                    "action": "drop_existing_index",
+                    "collection": "code_snippets",
+                    "index_name": target_name,
+                    "status": "ℹ️ index did not exist, proceeding to create"
+                })
+            else:
+                results["steps"].append({
+                    "action": "drop_existing_index",
+                    "collection": "code_snippets",
+                    "index_name": target_name,
+                    "status": f"⚠️ drop error (may not exist): {err}"
+                })
         
-        # יצירת האינדקס החדש
+        # שלב 2: יצירת האינדקס בסדר הנכון - file_name ראשון!
+        # הסדר הנכון שה-Manager מצפה לו: file_name, user_id, version
         try:
             collection.create_index(
                 [("file_name", ASCENDING), ("user_id", ASCENDING), ("version", DESCENDING)],
@@ -6719,25 +6723,18 @@ def resolve_naming_conflicts():
                 "collection": "code_snippets",
                 "index_name": target_name,
                 "key_order": {"file_name": 1, "user_id": 1, "version": -1},
-                "status": "✅ created"
+                "expected_order": "file_name → user_id → version (CORRECT)",
+                "status": "✅ created with correct order"
             })
             results["collections_fixed"].append("code_snippets:user_file_version_desc")
         except Exception as e:
             err = str(e)
-            if "already exists" in err.lower() or "IndexOptionsConflict" in err:
-                results["steps"].append({
-                    "action": "create_index",
-                    "collection": "code_snippets",
-                    "index_name": target_name,
-                    "status": "✅ already exists"
-                })
-            else:
-                results["steps"].append({
-                    "action": "create_index",
-                    "collection": "code_snippets",
-                    "index_name": target_name,
-                    "status": f"❌ error: {err}"
-                })
+            results["steps"].append({
+                "action": "create_index",
+                "collection": "code_snippets",
+                "index_name": target_name,
+                "status": f"❌ error: {err}"
+            })
         
         # === 2. job_trigger_requests: מחיקת status_idx ויצירת אינדקס משולב ===
         try:
