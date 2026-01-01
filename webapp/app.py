@@ -6913,6 +6913,135 @@ def resolve_naming_conflicts():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/db-emergency-cleanup')
+@admin_required
+def db_emergency_cleanup():
+    """
+    🚨 EMERGENCY: פעולת חירום לניקוי Database Locks.
+    
+    פעולות:
+    1. מציאת כל הפעולות שאינן idle דרך currentOp
+    2. הריגת כל הפעולות התקועות (killOp)
+    3. מחיקת כל האינדקסים ב-code_snippets (כולל כאלה שתקועים בבנייה)
+    
+    ⚠️ שימו לב: זו פעולה דרסטית - להשתמש רק במצב חירום!
+    """
+    results = {
+        "operations_found": [],
+        "operations_killed": [],
+        "indexes_dropped": False,
+        "errors": [],
+        "success": False
+    }
+    
+    try:
+        from database.manager import DatabaseManager
+        import json
+        from bson import json_util
+        
+        db_manager = DatabaseManager()
+        db = db_manager.db
+        client = db_manager.client
+        
+        if client is None:
+            return jsonify({"error": "No database connection", "status": "failed"}), 500
+        
+        # 1. מציאת כל הפעולות הפעילות (לא idle)
+        try:
+            admin_db = client.admin
+            current_ops = admin_db.command("currentOp", {"active": True})
+            
+            inprogress = current_ops.get("inprog", [])
+            non_idle_ops = []
+            
+            for op in inprogress:
+                # דילוג על פעולות idle או פעולות מערכת
+                if op.get("op") == "none":
+                    continue
+                if op.get("ns", "").startswith("admin.") or op.get("ns", "").startswith("local."):
+                    continue
+                    
+                op_info = {
+                    "opid": op.get("opid"),
+                    "op": op.get("op"),
+                    "ns": op.get("ns"),
+                    "secs_running": op.get("secs_running", 0),
+                    "command": str(op.get("command", {}))[:200],  # קיצור לתצוגה
+                    "desc": op.get("desc", "")
+                }
+                non_idle_ops.append(op_info)
+            
+            results["operations_found"] = non_idle_ops
+            results["total_ops_found"] = len(non_idle_ops)
+            
+        except Exception as e:
+            results["errors"].append(f"currentOp error: {str(e)}")
+        
+        # 2. הריגת כל הפעולות שנמצאו
+        for op in results.get("operations_found", []):
+            opid = op.get("opid")
+            if opid is not None:
+                try:
+                    admin_db.command("killOp", op=opid)
+                    results["operations_killed"].append({
+                        "opid": opid,
+                        "status": "✅ killed"
+                    })
+                except Exception as e:
+                    results["operations_killed"].append({
+                        "opid": opid,
+                        "status": f"❌ error: {str(e)}"
+                    })
+        
+        # 3. מחיקת כל האינדקסים ב-code_snippets
+        try:
+            collection = db.code_snippets
+            
+            # רשימת אינדקסים לפני המחיקה
+            indexes_before = list(collection.list_indexes())
+            results["indexes_before"] = json.loads(json_util.dumps(indexes_before))
+            results["indexes_count_before"] = len(indexes_before)
+            
+            # מחיקת כל האינדקסים (מלבד _id)
+            collection.drop_indexes()
+            
+            # רשימת אינדקסים אחרי המחיקה
+            indexes_after = list(collection.list_indexes())
+            results["indexes_after"] = json.loads(json_util.dumps(indexes_after))
+            results["indexes_count_after"] = len(indexes_after)
+            
+            results["indexes_dropped"] = True
+            results["indexes_dropped_message"] = f"✅ נמחקו {results['indexes_count_before'] - results['indexes_count_after']} אינדקסים"
+            
+        except Exception as e:
+            results["errors"].append(f"drop_indexes error: {str(e)}")
+        
+        # סיכום
+        killed_count = len([k for k in results.get("operations_killed", []) if "✅" in k.get("status", "")])
+        results["summary"] = {
+            "operations_found": len(results.get("operations_found", [])),
+            "operations_killed": killed_count,
+            "indexes_dropped": results.get("indexes_dropped", False)
+        }
+        
+        results["success"] = (
+            len(results.get("errors", [])) == 0 or 
+            results.get("indexes_dropped", False)
+        )
+        
+        results["next_steps"] = [
+            "1. ודא שהאפליקציה עולה בהצלחה",
+            "2. האינדקסים בוטלו זמנית - _create_indexes בוטל ב-manager.py",
+            "3. לאחר יציבות, הסר את ההערה מ-_create_indexes והפעל מחדש"
+        ]
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("db_emergency_cleanup_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""
