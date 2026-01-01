@@ -6288,6 +6288,110 @@ def create_job_trigger_index():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/resolve-naming-conflicts')
+@admin_required
+def resolve_naming_conflicts():
+    """
+    פתרון בעיות IndexOptionsConflict על אינדקסים עם שמות שגויים.
+    
+    מטפל באינדקס user_file_version_desc על code_snippets:
+    - מחפש אינדקס עם המפתחות {"file_name": 1, "user_id": 1, "version": -1}
+    - אם קיים בשם שונה - מוחק אותו ויוצר מחדש עם השם הנכון
+    """
+    import json
+    from bson import json_util
+
+    results = {}
+    try:
+        from database.manager import DatabaseManager
+        from pymongo import IndexModel, ASCENDING, DESCENDING
+
+        db = DatabaseManager().db
+        collection = db.code_snippets
+
+        # המפתחות הצפויים לאינדקס
+        expected_keys = [("file_name", 1), ("user_id", 1), ("version", -1)]
+        expected_name = "user_file_version_desc"
+        
+        # חיפוש אינדקס קיים עם אותם מפתחות
+        existing_indexes = list(collection.list_indexes())
+        conflicting_index = None
+        correct_index_exists = False
+        
+        for idx in existing_indexes:
+            idx_key = idx.get("key", {})
+            idx_name = idx.get("name", "")
+            
+            # המרה של המפתחות לפורמט השוואתי
+            idx_key_list = list(idx_key.items())
+            
+            if idx_key_list == expected_keys:
+                if idx_name == expected_name:
+                    correct_index_exists = True
+                    results['status'] = f"✅ אינדקס '{expected_name}' כבר קיים עם השם הנכון!"
+                    results['action'] = "no_action_needed"
+                else:
+                    conflicting_index = idx_name
+                    results['found_conflicting_index'] = idx_name
+                break
+        
+        if conflicting_index:
+            # מחיקת האינדקס עם השם השגוי
+            try:
+                collection.drop_index(conflicting_index)
+                results['dropped'] = conflicting_index
+                results['drop_status'] = "success"
+            except Exception as drop_err:
+                results['drop_status'] = "failed"
+                results['drop_error'] = str(drop_err)
+                raise drop_err
+            
+            # יצירת האינדקס מחדש עם השם הנכון
+            model = IndexModel(
+                [("file_name", ASCENDING), ("user_id", ASCENDING), ("version", DESCENDING)],
+                name=expected_name,
+                background=True
+            )
+            try:
+                collection.create_indexes([model])
+                results['created'] = expected_name
+                results['create_status'] = "success"
+                results['status'] = f"✅ תיקון הושלם! מחקנו '{conflicting_index}' ויצרנו '{expected_name}'"
+            except Exception as create_err:
+                results['create_status'] = "failed"
+                results['create_error'] = str(create_err)
+                raise create_err
+                
+        elif not correct_index_exists:
+            # האינדקס לא קיים בכלל - ניצור אותו
+            model = IndexModel(
+                [("file_name", ASCENDING), ("user_id", ASCENDING), ("version", DESCENDING)],
+                name=expected_name,
+                background=True
+            )
+            try:
+                collection.create_indexes([model])
+                results['created'] = expected_name
+                results['status'] = f"✅ אינדקס '{expected_name}' נוצר בהצלחה!"
+                results['action'] = "created_new"
+            except Exception as create_err:
+                err_str = str(create_err)
+                if "IndexOptionsConflict" in err_str:
+                    results['status'] = "⚠️ קונפליקט באופציות - יש לבדוק ידנית"
+                    results['error'] = err_str
+                else:
+                    raise create_err
+        
+        # החזרת רשימת האינדקסים הנוכחית
+        results['indexes'] = json.loads(json_util.dumps(list(collection.list_indexes())))
+        
+        return jsonify(results)
+
+    except Exception as e:
+        logger.exception("resolve_naming_conflicts_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 @app.route('/admin/fix-is-active')
 @admin_required
 def fix_is_active():
