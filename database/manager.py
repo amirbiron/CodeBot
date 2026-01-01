@@ -612,6 +612,8 @@ class DatabaseManager:
             ),
             # שימוש נפוץ לדוחות: מיון לפי פעילות אחרונה
             IndexModel([("last_activity", DESCENDING)], name="last_activity_desc"),
+            # Drive scheduling: מסייע לשליפות/סנכרון של משתמשים עם תזמון פעיל
+            IndexModel([("drive_prefs.schedule", ASCENDING)], name="users_drive_schedule"),
         ]
 
         # backup_ratings indexes
@@ -623,7 +625,8 @@ class DatabaseManager:
         # metrics collection (service_metrics) TTL for automatic cleanup (e.g., 30 days)
         metrics_indexes = [
             IndexModel([("ts", DESCENDING)], name="ts_desc"),
-            IndexModel([("type", ASCENDING), ("ts", DESCENDING)], name="type_ts_idx"),
+            # קריטי: נדרש עבור אגרגציות/סינונים לפי type + מיון לפי ts
+            IndexModel([("type", ASCENDING), ("ts", DESCENDING)], name="metrics_type_ts"),
             IndexModel([("ts", ASCENDING)], name="metrics_ttl", expireAfterSeconds=30 * 24 * 60 * 60),
         ]
 
@@ -681,7 +684,21 @@ class DatabaseManager:
             # metrics (best-effort if enabled)
             try:
                 collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
-                self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
+                try:
+                    self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
+                except Exception as e:
+                    # יישור שמות אינדקסים: אם יש אינדקס קיים עם אותו key-spec אבל בשם אחר
+                    # (למשל type_ts_idx), Mongo יחזיר IndexKeySpecsConflict.
+                    msg = str(e)
+                    if "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
+                        try:
+                            self.db[collection_name].drop_index("type_ts_idx")  # type: ignore[index]
+                        except Exception:
+                            pass
+                        try:
+                            self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
+                        except Exception:
+                            pass
             except Exception:
                 pass
             # profiler slow queries log (best-effort)
@@ -742,12 +759,37 @@ class DatabaseManager:
             # scheduler_jobs index for efficient scheduling (APScheduler)
             try:
                 scheduler_indexes = [
-                    IndexModel([("next_run_time", ASCENDING)], name="next_run_time_idx"),
+                    IndexModel([("next_run_time", ASCENDING)], name="sched_next_run"),
                 ]
-                self.db.scheduler_jobs.create_indexes(scheduler_indexes)  # type: ignore[attr-defined]
+                try:
+                    self.db.scheduler_jobs.create_indexes(scheduler_indexes)  # type: ignore[attr-defined]
+                except Exception as e:
+                    # יישור שם אינדקס: next_run_time_idx -> sched_next_run
+                    msg = str(e)
+                    if "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
+                        try:
+                            self.db.scheduler_jobs.drop_index("next_run_time_idx")  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                        try:
+                            self.db.scheduler_jobs.create_indexes(scheduler_indexes)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
             except Exception:
                 try:
-                    self.db["scheduler_jobs"].create_indexes(scheduler_indexes)  # type: ignore[index]
+                    try:
+                        self.db["scheduler_jobs"].create_indexes(scheduler_indexes)  # type: ignore[index]
+                    except Exception as e:
+                        msg = str(e)
+                        if "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
+                            try:
+                                self.db["scheduler_jobs"].drop_index("next_run_time_idx")  # type: ignore[index]
+                            except Exception:
+                                pass
+                            try:
+                                self.db["scheduler_jobs"].create_indexes(scheduler_indexes)  # type: ignore[index]
+                            except Exception:
+                                pass
                 except Exception:
                     pass
             if self.backup_ratings_collection is not None:
