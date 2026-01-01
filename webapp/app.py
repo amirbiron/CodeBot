@@ -6159,40 +6159,273 @@ def admin_announcements_activate():
 @admin_required
 def force_index_creation():
     """
-    Endpoint זמני לכפיית יצירת אינדקס active_recent_v2 על code_snippets.
-    משתמש בשם חדש כדי להימנע מבעיות Cache או Race Conditions.
-    מחזיר JSON עם מצב האינדקסים.
+    Endpoint לבדיקת/יצירת אינדקס active_recent_idx על code_snippets.
+    אם האינדקס כבר קיים - מחזיר את המצב הנוכחי.
     """
+    import json
+    from bson import json_util
+    
     results = {}
     try:
         from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
-        import json
-        from bson import json_util
 
         db = DatabaseManager().db
         collection = db.code_snippets
 
-        # שינוי שם כדי להבטיח יצירה נקייה
-        new_index_name = "active_recent_v2"
+        # בדיקה אם האינדקס כבר קיים
+        existing_indexes = list(collection.list_indexes())
+        index_names = [idx.get("name") for idx in existing_indexes]
+        
+        target_index_name = "active_recent_idx"
+        
+        if target_index_name in index_names:
+            # האינדקס כבר קיים - זה טוב!
+            results['status'] = f"✅ Index '{target_index_name}' already exists!"
+            results['message'] = (
+                "האינדקס כבר קיים ועובד. "
+                "הבעיה היא לא האינדקס - הבעיה היא דפוס השאילתות עם $or. "
+                "לך ל-/admin/fix-is-active?action=migrate כדי לתקן את הנתונים."
+            )
+        else:
+            # ניסיון ליצור את האינדקס
+            model = IndexModel(
+                [("is_active", ASCENDING), ("created_at", DESCENDING)],
+                name=target_index_name,
+                background=True
+            )
+            try:
+                collection.create_indexes([model])
+                results['status'] = f"✅ Index '{target_index_name}' created successfully!"
+            except Exception as create_err:
+                err_str = str(create_err)
+                if "IndexOptionsConflict" in err_str or "already exists" in err_str.lower():
+                    results['status'] = f"✅ Index already exists (different name)"
+                    results['message'] = "האינדקס כבר קיים. הבעיה היא בדפוס השאילתות, לא באינדקס."
+                else:
+                    raise create_err
 
-        # הגדרה קריטית: is_active חייב להיות ראשון!
-        model = IndexModel(
-            [("is_active", ASCENDING), ("created_at", DESCENDING)],
-            name=new_index_name,
-            background=True
-        )
-
-        collection.create_indexes([model])
-        results['status'] = f"Command Sent for {new_index_name}"
-
-        # החזרת רשימת האינדקסים כדי שנוודא שהחדש נוצר
+        # החזרת רשימת האינדקסים
         results['indexes'] = json.loads(json_util.dumps(list(collection.list_indexes())))
+        results['next_step'] = "הרץ /admin/fix-is-active?action=migrate כדי לתקן את הנתונים"
 
         return jsonify(results)
 
     except Exception as e:
         logger.exception("force_index_creation_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
+@app.route('/admin/fix-is-active')
+@admin_required
+def fix_is_active():
+    """
+    🚨 CRITICAL: תיקון הבעיה האמיתית של Slow Queries!
+    
+    הבעיה: השאילתות משתמשות ב-$or במקום פילטר ישיר:
+        $or: [{is_active: True}, {is_active: {$exists: False}}]
+    
+    זה מונע שימוש יעיל באינדקס!
+    
+    הפתרון:
+    1. מיגרציה: הוספת is_active: true לכל המסמכים שחסר להם השדה
+    2. לאחר מכן: השאילתות יוכלו להשתמש בפילטר ישיר {is_active: true}
+    
+    פרמטרים (query string):
+    - action=status: רק בדיקת סטטוס (ברירת מחדל)
+    - action=migrate: הרצת המיגרציה (מוגבל לבאטש בכל קריאה)
+    - batch_size=N: גודל באטש (ברירת מחדל: 5000, מקסימום: 10000)
+    """
+    import json
+    from bson import json_util
+    
+    results = {}
+    action = request.args.get('action', 'status')
+    batch_size = min(10000, max(100, int(request.args.get('batch_size', 5000))))
+    
+    try:
+        from database.manager import DatabaseManager
+        db = DatabaseManager().db
+        
+        # בדיקת שתי הקולקציות
+        collections_to_check = ['code_snippets', 'large_files']
+        
+        for coll_name in collections_to_check:
+            collection = db[coll_name]
+            
+            # ספירת מסמכים לפני המיגרציה
+            missing_count_before = collection.count_documents({"is_active": {"$exists": False}})
+            total_count = collection.count_documents({})
+            
+            results[coll_name] = {
+                "total_documents": total_count,
+                "missing_before_migration": missing_count_before,
+            }
+            
+            if action == 'migrate' and missing_count_before > 0:
+                # מיגרציה עם באטצ'ינג אמיתי:
+                # MongoDB update_many לא תומך ב-limit, אז נשתמש ב-find + update עם $in
+                from bson import ObjectId
+                
+                # שליפת IDs של מסמכים שחסר להם is_active (מוגבל לבאטש)
+                docs_to_update = list(collection.find(
+                    {"is_active": {"$exists": False}},
+                    {"_id": 1},
+                ).limit(batch_size))
+                
+                ids_to_update = [doc["_id"] for doc in docs_to_update]
+                
+                if ids_to_update:
+                    # עדכון רק המסמכים שנבחרו
+                    result = collection.update_many(
+                        {"_id": {"$in": ids_to_update}},
+                        {"$set": {"is_active": True}},
+                    )
+                    results[coll_name]["migrated_count"] = result.modified_count
+                else:
+                    results[coll_name]["migrated_count"] = 0
+                
+                results[coll_name]["action"] = "migrate"
+                results[coll_name]["batch_size_used"] = batch_size
+            else:
+                results[coll_name]["migrated_count"] = 0
+                results[coll_name]["action"] = "status_only"
+            
+            # ספירה מחודשת אחרי המיגרציה (לדיוק בסיכום)
+            missing_count_after = collection.count_documents({"is_active": {"$exists": False}})
+            has_is_active_count = collection.count_documents({"is_active": {"$exists": True}})
+            
+            results[coll_name]["missing_after_migration"] = missing_count_after
+            results[coll_name]["with_is_active"] = has_is_active_count
+            results[coll_name]["percentage_fixed"] = round((has_is_active_count / total_count * 100) if total_count > 0 else 100, 2)
+        
+        # סיכום כללי - משתמש בספירות אחרי המיגרציה
+        total_missing_after = sum(r.get("missing_after_migration", 0) for r in results.values() if isinstance(r, dict))
+        total_migrated = sum(r.get("migrated_count", 0) for r in results.values() if isinstance(r, dict))
+        
+        results["summary"] = {
+            "total_missing_after_migration": total_missing_after,
+            "total_migrated_this_call": total_migrated,
+            "ready_for_optimized_queries": total_missing_after == 0,
+            "batch_size": batch_size,
+            "next_step": (
+                "✅ כל המסמכים מכילים is_active - אפשר לעדכן את השאילתות לפילטר ישיר!"
+                if total_missing_after == 0
+                else f"⚠️ עדיין יש {total_missing_after} מסמכים ללא is_active. הרץ ?action=migrate שוב."
+            ),
+        }
+        
+        if action == 'migrate':
+            results["summary"]["action_taken"] = "migrate"
+            if total_missing_after > 0:
+                results["summary"]["recommendation"] = (
+                    f"המשך להריץ ?action=migrate עד שכל המסמכים יתוקנו. "
+                    f"תיקנתי {total_migrated} מסמכים בקריאה זו, נותרו {total_missing_after}."
+                )
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("fix_is_active_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
+@app.route('/admin/diagnose-slow-queries')
+@admin_required
+def diagnose_slow_queries():
+    """
+    אבחון מפורט של בעיית השאילתות האיטיות.
+    מציג:
+    1. מצב האינדקסים
+    2. כמה מסמכים חסר להם is_active
+    3. דוגמת explain על שאילתה טיפוסית
+    """
+    import json
+    from bson import json_util
+    
+    results = {"diagnosis": {}, "indexes": {}, "explain_test": {}}
+    
+    try:
+        from database.manager import DatabaseManager
+        db = DatabaseManager().db
+        collection = db.code_snippets
+        
+        # 1. מצב האינדקסים
+        indexes = list(collection.list_indexes())
+        results["indexes"] = {
+            "count": len(indexes),
+            "list": json.loads(json_util.dumps(indexes)),
+        }
+        
+        # 2. בדיקת מסמכים חסרי is_active
+        missing_is_active = collection.count_documents({"is_active": {"$exists": False}})
+        total = collection.count_documents({})
+        results["diagnosis"]["missing_is_active"] = missing_is_active
+        results["diagnosis"]["total_documents"] = total
+        results["diagnosis"]["percentage_with_is_active"] = round(((total - missing_is_active) / total * 100) if total > 0 else 100, 2)
+        
+        # 3. בדיקת explain על שאילתה טיפוסית
+        # זו השאילתה שמשתמשת ב-$or ואיטית
+        slow_query = {
+            "$or": [
+                {"is_active": True},
+                {"is_active": {"$exists": False}}
+            ]
+        }
+        
+        # explain עם queryPlanner בלבד (לא מריץ את השאילתה)
+        try:
+            explain_slow = collection.find(slow_query).explain("queryPlanner")
+            results["explain_test"]["slow_query_with_or"] = {
+                "query": slow_query,
+                "winning_plan_stage": explain_slow.get("queryPlanner", {}).get("winningPlan", {}).get("stage", "UNKNOWN"),
+                "index_used": explain_slow.get("queryPlanner", {}).get("winningPlan", {}).get("indexName"),
+                "full_explain": json.loads(json_util.dumps(explain_slow.get("queryPlanner", {}).get("winningPlan", {}))),
+            }
+        except Exception as e:
+            results["explain_test"]["slow_query_with_or"] = {"error": str(e)}
+        
+        # explain על שאילתה מהירה (פילטר ישיר)
+        fast_query = {"is_active": True}
+        try:
+            explain_fast = collection.find(fast_query).explain("queryPlanner")
+            results["explain_test"]["fast_query_direct"] = {
+                "query": fast_query,
+                "winning_plan_stage": explain_fast.get("queryPlanner", {}).get("winningPlan", {}).get("stage", "UNKNOWN"),
+                "index_used": explain_fast.get("queryPlanner", {}).get("winningPlan", {}).get("indexName"),
+                "full_explain": json.loads(json_util.dumps(explain_fast.get("queryPlanner", {}).get("winningPlan", {}))),
+            }
+        except Exception as e:
+            results["explain_test"]["fast_query_direct"] = {"error": str(e)}
+        
+        # 4. המלצות
+        results["recommendations"] = []
+        
+        if missing_is_active > 0:
+            results["recommendations"].append({
+                "priority": "CRITICAL",
+                "issue": f"יש {missing_is_active} מסמכים ללא שדה is_active",
+                "solution": "הרץ /admin/fix-is-active?action=migrate כדי להוסיף is_active לכל המסמכים",
+            })
+        
+        if results["explain_test"].get("slow_query_with_or", {}).get("winning_plan_stage") == "OR":
+            results["recommendations"].append({
+                "priority": "HIGH",
+                "issue": "השאילתות עם $or גורמות ל-OR stage שמונע שימוש יעיל באינדקס",
+                "solution": "לאחר המיגרציה, השאילתות צריכות להשתמש ב-{is_active: true} ישירות",
+            })
+        
+        if missing_is_active == 0:
+            results["recommendations"].append({
+                "priority": "INFO",
+                "status": "✅ כל המסמכים מכילים is_active!",
+                "next_step": "עכשיו צריך לעדכן את הקוד להשתמש בפילטר ישיר במקום $or",
+            })
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("diagnose_slow_queries_failed")
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
