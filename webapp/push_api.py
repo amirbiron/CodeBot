@@ -495,6 +495,18 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         "ack_at": None,
         "remind_at": {"$lte": now},
     }
+    total_needed = max_users * max_per_user
+    # We "oversample" to avoid missing due reminders after Python-side filtering.
+    raw_limit = max(10, int(total_needed * 5))
+    # Keep projection minimal to reduce memory/network usage.
+    projection = {
+        "_id": 1,
+        "user_id": 1,
+        "note_id": 1,
+        "file_id": 1,
+        "remind_at": 1,
+        "last_push_success_at": 1,
+    }
 
     def _as_utc(dt: object) -> datetime | None:
         if not isinstance(dt, datetime):
@@ -524,12 +536,13 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
 
     try:
         raw_due = list(
-            db.note_reminders.find(mongo_filter).sort("remind_at", 1).limit(max_users * max_per_user)
+            db.note_reminders.find(mongo_filter, projection).sort("remind_at", 1).limit(raw_limit)
         )
     except Exception:
         raw_due = []
 
     due = [r for r in raw_due if isinstance(r, dict) and _should_send(r)]
+    due = due[:total_needed]
     if not due:
         return
     # Group by user (support string/int user_id transparently)
