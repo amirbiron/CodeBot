@@ -542,7 +542,7 @@ class DatabaseManager:
                 db["service_metrics"].create_indexes(
                     [
                         IndexModel(
-                            [("type", ASCENDING), ("ts", DESCENDING)],
+                            [("ts", DESCENDING), ("type", ASCENDING)],
                             name="metrics_type_ts",
                             background=True,
                         )
@@ -559,6 +559,7 @@ class DatabaseManager:
                         IndexModel(
                             [("run_id", ASCENDING)],
                             name="run_id_unique",
+                            unique=True,
                             background=True,
                         )
                     ]
