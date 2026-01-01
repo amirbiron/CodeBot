@@ -6153,6 +6153,55 @@ def admin_announcements_activate():
     except Exception:
         pass
     return redirect(url_for('admin_announcements_index'))
+
+
+@app.route('/admin/force-index-creation')
+@admin_required
+def force_index_creation():
+    """
+    Endpoint זמני לכפיית יצירת אינדקס active_recent_idx על code_snippets.
+    מחזיר JSON עם מצב האינדקסים לפני ואחרי, ופעולות בנייה רצות.
+    """
+    results = {}
+    try:
+        from database.manager import DatabaseManager
+        from pymongo import IndexModel, ASCENDING, DESCENDING
+
+        db = DatabaseManager().db
+        collection = db.code_snippets
+
+        # 1. בדיקה מה קיים לפני
+        results['before'] = [idx for idx in collection.list_indexes()]
+
+        # 2. ניסיון יצירה אגרסיבי
+        index_name = "active_recent_idx"
+        model = IndexModel(
+            [("is_active", ASCENDING), ("created_at", DESCENDING)],
+            name=index_name,
+            background=True
+        )
+
+        # מפעיל את היצירה
+        collection.create_indexes([model])
+        results['status'] = "Creation Command Sent"
+
+        # 3. בדיקה האם נוצר או בבנייה
+        results['after'] = [idx for idx in collection.list_indexes()]
+
+        # בדיקת פעולות רצות (לוודא שזה בבנייה)
+        current_ops = db.current_op()
+        results['building_ops'] = [
+            op for op in current_ops.get('inprog', [])
+            if 'createIndexes' in op.get('command', {}) or 'msg' in op
+        ]
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.exception("force_index_creation_failed")
+        return jsonify({"error": str(e), "trace": results}), 500
+
+
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""
