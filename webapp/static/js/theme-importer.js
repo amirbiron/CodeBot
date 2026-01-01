@@ -29,6 +29,29 @@
     // === State ===
     let presets = [];
     let currentFilter = 'all';
+    const HISTORY_MAX = 50;
+    const DRAFT_STORAGE_KEY = 'theme_gallery_draft_v1';
+
+    // רשימה מסונכרנת עם ALLOWED_VARIABLES_WHITELIST (וגם עם saveOriginalPreviewState)
+    const ALLOWED_VARS = [
+        '--bg-primary', '--bg-secondary', '--bg-tertiary',
+        '--text-primary', '--text-secondary', '--text-muted',
+        '--primary', '--primary-hover', '--primary-light',
+        '--secondary',
+        '--border-color', '--shadow-color',
+        '--success', '--warning', '--error',
+        '--danger-bg', '--danger-border', '--text-on-warning',
+        '--code-bg', '--code-text', '--code-border',
+        '--link-color',
+        '--navbar-bg', '--card-bg', '--card-border',
+        '--input-bg', '--input-border',
+        '--btn-primary-bg', '--btn-primary-color',
+        '--btn-primary-border', '--btn-primary-shadow',
+        '--btn-primary-hover-bg', '--btn-primary-hover-color',
+        '--glass', '--glass-border', '--glass-hover', '--glass-blur',
+        '--md-surface', '--md-text',
+        '--split-preview-bg', '--split-preview-meta', '--split-preview-placeholder'
+    ];
 
     // === DOM Elements ===
     const tabBtns = document.querySelectorAll('.tab-btn');
@@ -44,6 +67,253 @@
     const preview = document.getElementById('theme-preview-container');
     const myThemesList = document.getElementById('myThemesList');
     let myThemes = [];
+
+    // === History (Undo/Redo) + Drafts (Autosave) ===
+    class ThemeHistory {
+        constructor(maxSize = 50) {
+            this.maxSize = Math.max(5, Number(maxSize) || 50);
+            this.stack = [];
+            this.index = -1;
+        }
+
+        pushState(state) {
+            if (!state || typeof state !== 'object') return;
+            const cloned = {};
+            Object.keys(state).forEach((k) => {
+                cloned[k] = String(state[k]);
+            });
+            const fingerprint = JSON.stringify(cloned);
+            const current = this.stack[this.index];
+            const currentFp = current ? JSON.stringify(current) : null;
+            if (currentFp === fingerprint) return;
+
+            // אם עשינו undo ואז שינינו – מוחקים את כל מה שאחרי האינדקס
+            if (this.index < this.stack.length - 1) {
+                this.stack = this.stack.slice(0, this.index + 1);
+            }
+
+            this.stack.push(cloned);
+            this.index = this.stack.length - 1;
+
+            // מגבלת גודל
+            if (this.stack.length > this.maxSize) {
+                const toDrop = this.stack.length - this.maxSize;
+                this.stack = this.stack.slice(toDrop);
+                this.index = this.stack.length - 1;
+            }
+        }
+
+        undo() {
+            if (this.index <= 0) return null;
+            this.index -= 1;
+            return this.stack[this.index] || null;
+        }
+
+        redo() {
+            if (this.index >= this.stack.length - 1) return null;
+            this.index += 1;
+            return this.stack[this.index] || null;
+        }
+    }
+
+    let history = new ThemeHistory(HISTORY_MAX);
+    let _draftDebounceTimer = null;
+
+    function _safeJsonParse(str) {
+        try {
+            return JSON.parse(str);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function getPreviewState() {
+        if (!preview) return {};
+        const computed = getComputedStyle(preview);
+        const out = {};
+        ALLOWED_VARS.forEach((varName) => {
+            const v = (preview.style.getPropertyValue(varName) || computed.getPropertyValue(varName) || '').trim();
+            if (v) out[varName] = v;
+        });
+        return out;
+    }
+
+    function applyPreviewState(state) {
+        if (!preview || !state) return;
+        // מנקים קודם כדי למנוע "שאריות" ממשתנים קודמים
+        ALLOWED_VARS.forEach((varName) => preview.style.removeProperty(varName));
+        Object.entries(state).forEach(([k, v]) => {
+            if (ALLOWED_VARS.includes(k)) {
+                preview.style.setProperty(k, String(v));
+            }
+        });
+    }
+
+    function saveDraftToLocalStorageNow() {
+        try {
+            if (!window.localStorage) return;
+
+            const jsonDraft = (jsonInput && jsonInput.value) ? String(jsonInput.value) : '';
+            const hasJsonDraft = jsonDraft.trim().length > 0;
+            const previewState = isPreviewActive ? getPreviewState() : null;
+            const hasPreviewDraft = !!(previewState && Object.keys(previewState).length);
+
+            // אין מה לשמור
+            if (!hasJsonDraft && !hasPreviewDraft) {
+                localStorage.removeItem(DRAFT_STORAGE_KEY);
+                return;
+            }
+
+            const payload = {
+                v: 1,
+                ts: Date.now(),
+                json_input: jsonDraft,
+                preview_active: !!isPreviewActive,
+                preview_state: previewState,
+            };
+            localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    function saveDraftToLocalStorage() {
+        try {
+            if (_draftDebounceTimer) clearTimeout(_draftDebounceTimer);
+            _draftDebounceTimer = setTimeout(() => {
+                _draftDebounceTimer = null;
+                saveDraftToLocalStorageNow();
+            }, 2000);
+        } catch (e) {}
+    }
+
+    function clearDraftFromLocalStorage() {
+        try {
+            if (!window.localStorage) return;
+            localStorage.removeItem(DRAFT_STORAGE_KEY);
+        } catch (e) {}
+    }
+
+    function showRestoreDraftToast(draft) {
+        const toast = document.getElementById('theme-toast');
+        if (!toast) return;
+
+        // הודעה קבועה (לא מציגים תוכן טיוטה כדי להימנע מהזרקת HTML)
+        toast.className = 'theme-toast visible info';
+        toast.innerHTML = `
+            <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                <div style="flex:1; min-width: 200px;">
+                    נמצאה טיוטה שלא נשמרה. לשחזר?
+                </div>
+                <div style="display:flex; gap:0.5rem;">
+                    <button type="button" class="btn btn-sm btn-primary" data-action="restore-draft">שחזר</button>
+                    <button type="button" class="btn btn-sm btn-outline-light" data-action="dismiss-draft">לא</button>
+                </div>
+            </div>
+        `;
+
+        const onClick = async (e) => {
+            const btn = e.target && e.target.closest ? e.target.closest('button[data-action]') : null;
+            if (!btn) return;
+            const action = btn.dataset.action;
+            if (action === 'dismiss-draft') {
+                clearDraftFromLocalStorage();
+                toast.classList.remove('visible');
+                toast.innerHTML = '';
+                toast.removeEventListener('click', onClick);
+                return;
+            }
+            if (action === 'restore-draft') {
+                try {
+                    if (draft && typeof draft.json_input === 'string' && jsonInput) {
+                        jsonInput.value = draft.json_input;
+                    }
+                    if (draft && draft.preview_state && typeof draft.preview_state === 'object' && preview) {
+                        saveOriginalPreviewState();
+                        applyPreviewState(draft.preview_state);
+                        isPreviewActive = true;
+                        if (revertBtn) revertBtn.style.display = 'inline-flex';
+                        history = new ThemeHistory(HISTORY_MAX);
+                        history.pushState(getPreviewState());
+                    }
+                    showToast('הטיוטה שוחזרה', 'success');
+                } finally {
+                    toast.classList.remove('visible');
+                    toast.innerHTML = '';
+                    toast.removeEventListener('click', onClick);
+                }
+            }
+        };
+
+        toast.addEventListener('click', onClick);
+
+        // נסגר אוטומטית אחרי 10 שניות (אבל הטיוטה נשארת)
+        setTimeout(() => {
+            try {
+                toast.classList.remove('visible');
+                toast.innerHTML = '';
+                toast.removeEventListener('click', onClick);
+            } catch (e) {}
+        }, 10000);
+    }
+
+    function maybeOfferDraftRestore() {
+        try {
+            if (!window.localStorage) return;
+            const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+            if (!raw) return;
+            const draft = _safeJsonParse(raw);
+            if (!draft || (!draft.json_input && !draft.preview_state)) return;
+            showRestoreDraftToast(draft);
+        } catch (e) {}
+    }
+
+    function isEditableTarget(target) {
+        try {
+            if (!target) return false;
+            const el = target.closest ? target.closest('input, textarea, select, [contenteditable="true"]') : null;
+            return !!el;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function initKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            if (!e) return;
+            if (isEditableTarget(e.target)) return; // לא שוברים Undo טבעי ב-textarea
+
+            const isCtrl = !!(e.ctrlKey || e.metaKey);
+            if (!isCtrl) return;
+
+            // Undo: Ctrl+Z
+            if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+                const state = history.undo();
+                if (state) {
+                    saveOriginalPreviewState();
+                    applyPreviewState(state);
+                    isPreviewActive = true;
+                    if (revertBtn) revertBtn.style.display = 'inline-flex';
+                    saveDraftToLocalStorage();
+                }
+                e.preventDefault();
+                return;
+            }
+
+            // Redo: Ctrl+Y or Ctrl+Shift+Z
+            if (e.key === 'y' || e.key === 'Y' || ((e.key === 'z' || e.key === 'Z') && e.shiftKey)) {
+                const state = history.redo();
+                if (state) {
+                    saveOriginalPreviewState();
+                    applyPreviewState(state);
+                    isPreviewActive = true;
+                    if (revertBtn) revertBtn.style.display = 'inline-flex';
+                    saveDraftToLocalStorage();
+                }
+                e.preventDefault();
+            }
+        });
+    }
 
     function showToast(message, type = 'info') {
         try {
@@ -195,6 +465,8 @@
             Object.entries(vars).forEach(([k, v]) => {
                 preview.style.setProperty(k, String(v));
             });
+            history.pushState(getPreviewState());
+            saveDraftToLocalStorage();
         } catch (e) {
             console.error('Preview theme error:', e);
             showToast('שגיאה בתצוגה מקדימה', 'error');
@@ -400,6 +672,8 @@
 
         originalPreviewStyles = null;
         isPreviewActive = false;
+        history = new ThemeHistory(HISTORY_MAX);
+        clearDraftFromLocalStorage();
 
         if (revertBtn) {
             revertBtn.style.display = 'none';
@@ -422,6 +696,8 @@
             Object.entries(vars).forEach(([k, v]) => {
                 preview.style.setProperty(k, String(v));
             });
+            history.pushState(getPreviewState());
+            saveDraftToLocalStorage();
         } catch (e) {
             showToast('שגיאה בתצוגה מקדימה', 'error');
         }
@@ -465,6 +741,12 @@
                 importThemeFromJson(content);
             });
         }
+
+        if (jsonInput) {
+            jsonInput.addEventListener('input', () => {
+                saveDraftToLocalStorage();
+            });
+        }
     }
 
     async function uploadThemeFile(file) {
@@ -483,6 +765,8 @@
             if (data.success) {
                 showToast('הערכה יובאה בהצלחה!', 'success');
                 await loadMyThemes();
+                clearDraftFromLocalStorage();
+                history = new ThemeHistory(HISTORY_MAX);
                 const myTab = document.querySelector('[data-tab="my-themes"]');
                 if (myTab) myTab.click();
             } else {
@@ -512,6 +796,8 @@
                 const myTab = document.querySelector('[data-tab="my-themes"]');
                 if (myTab) myTab.click();
                 if (jsonInput) jsonInput.value = '';
+                clearDraftFromLocalStorage();
+                history = new ThemeHistory(HISTORY_MAX);
             } else {
                 showToast(data.error || 'שגיאה בייבוא הערכה', 'error');
             }
@@ -549,6 +835,12 @@
         initFilters();
         initImport();
         initRevertButton();
+        initKeyboardShortcuts();
+        // מצב בסיס ל-Undo/Redo (לפני כל preview)
+        try {
+            if (preview) history.pushState(getPreviewState());
+        } catch (e) {}
+        maybeOfferDraftRestore();
         // Load my themes immediately if section exists
         loadMyThemes();
     }
