@@ -6159,8 +6159,9 @@ def admin_announcements_activate():
 @admin_required
 def force_index_creation():
     """
-    Endpoint לבדיקת/יצירת אינדקס active_recent_idx על code_snippets.
+    Endpoint לבדיקת/יצירת אינדקס active_recent_fixed על code_snippets.
     אם האינדקס כבר קיים - מחזיר את המצב הנוכחי.
+    שם עקבי עם database/manager.py.
     """
     import json
     from bson import json_util
@@ -6177,7 +6178,17 @@ def force_index_creation():
         existing_indexes = list(collection.list_indexes())
         index_names = [idx.get("name") for idx in existing_indexes]
         
-        target_index_name = "active_recent_idx"
+        # שם עקבי עם manager.py
+        target_index_name = "active_recent_fixed"
+        old_index_name = "active_recent_idx"
+        
+        # מחיקת האינדקס הישן אם קיים
+        if old_index_name in index_names:
+            try:
+                collection.drop_index(old_index_name)
+                results['dropped_old'] = f"✅ Dropped old index '{old_index_name}'"
+            except Exception:
+                pass
         
         if target_index_name in index_names:
             # האינדקס כבר קיים - זה טוב!
@@ -6540,31 +6551,28 @@ def fix_all_now():
                     "documents_fixed": 0,
                 })
         
-        # === שלב 2: מחיקת האינדקס ההפוך ===
+        # === שלב 2: מחיקת אינדקסים ישנים/מתנגשים ===
         collection = db.code_snippets
-        old_index_name = "active_recent_idx"
+        old_index_names = ["active_recent_idx", "active_recent_v2"]  # שמות ישנים למחיקה
         
-        try:
-            collection.drop_index(old_index_name)
-            results["steps"].append({
-                "action": "drop_wrong_index",
-                "index_name": old_index_name,
-                "status": "✅ dropped",
-            })
-        except Exception as e:
-            err_str = str(e).lower()
-            if "not found" in err_str or "doesn't exist" in err_str:
+        for old_index_name in old_index_names:
+            try:
+                collection.drop_index(old_index_name)
                 results["steps"].append({
-                    "action": "drop_wrong_index",
+                    "action": "drop_old_index",
                     "index_name": old_index_name,
-                    "status": "⚠️ index not found (already dropped?)",
+                    "status": "✅ dropped",
                 })
-            else:
-                results["steps"].append({
-                    "action": "drop_wrong_index",
-                    "index_name": old_index_name,
-                    "status": f"❌ error: {str(e)}",
-                })
+            except Exception as e:
+                err_str = str(e).lower()
+                if "not found" in err_str or "doesn't exist" in err_str:
+                    pass  # לא קיים, זה בסדר
+                else:
+                    results["steps"].append({
+                        "action": "drop_old_index",
+                        "index_name": old_index_name,
+                        "status": f"❌ error: {str(e)}",
+                    })
         
         # === שלב 3: יצירת האינדקס הנכון ===
         new_index_name = "active_recent_fixed"

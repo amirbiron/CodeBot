@@ -520,8 +520,8 @@ class DatabaseManager:
             IndexModel([("programming_language", ASCENDING)]),
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
-            IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
             # אינדקס מותאם לשאילתות שמסננות לפי file_name ראשון (בוט polling)
+            # שם מפורש כדי למנוע התנגשויות עם ה-admin endpoint
             IndexModel([("file_name", ASCENDING), ("user_id", ASCENDING), ("version", DESCENDING)], name="user_file_version_desc"),
             # אינדקס למועדפים: שליפה מהירה לפי משתמש ומועדפים, מיון לפי תאריך הוספה
             IndexModel([("user_id", ASCENDING), ("is_favorite", ASCENDING), ("favorited_at", DESCENDING)], name="user_favorites_idx"),
@@ -560,7 +560,8 @@ class DatabaseManager:
             IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)], name="full_text_search_idx"),
             IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
             # אינדקס לשאילתות שמסננות לפי is_active ומיון לפי created_at (ביצועים)
-            IndexModel([("is_active", ASCENDING), ("created_at", DESCENDING)], name="active_recent_idx"),
+            # שם עקבי עם ה-admin endpoint: active_recent_fixed
+            IndexModel([("is_active", ASCENDING), ("created_at", DESCENDING)], name="active_recent_fixed"),
         ]
 
         large_files_indexes = [
