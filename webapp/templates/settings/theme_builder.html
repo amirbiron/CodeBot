@@ -15,29 +15,102 @@
 <div class="theme-builder-layout">
     <!-- Sidebar: My Themes -->
     <aside class="theme-builder-sidebar glass-card">
-        <div class="sidebar-header">
-            <h3>
+        <div class="theme-source-tabs">
+            <button class="tab-btn active" type="button" data-tab="my-themes">
                 <i class="fas fa-palette"></i>
                 הערכות שלי
-            </h3>
-            <button type="button" id="createNewThemeBtn" class="btn btn-primary btn-sm">
-                <i class="fas fa-plus"></i>
-                ערכה חדשה
+            </button>
+            <button class="tab-btn" type="button" data-tab="presets">
+                <i class="fas fa-star"></i>
+                ערכות פופולריות
+            </button>
+            <button class="tab-btn" type="button" data-tab="import">
+                <i class="fas fa-file-import"></i>
+                ייבוא
             </button>
         </div>
 
-        <div id="themesList" class="themes-list">
-            <!-- יאוכלס דינמית -->
-            <div class="themes-loading">
-                <i class="fas fa-spinner fa-spin"></i>
-                טוען...
+        <!-- תוכן טאב: הערכות שלי -->
+        <div class="tab-content active" id="my-themes-tab">
+            <div class="sidebar-header">
+                <h3>
+                    <i class="fas fa-palette"></i>
+                    הערכות שלי
+                </h3>
+                <button type="button" id="createNewThemeBtn" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus"></i>
+                    ערכה חדשה
+                </button>
+            </div>
+
+            <div id="themesList" class="themes-list">
+                <!-- יאוכלס דינמית -->
+                <div class="themes-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    טוען...
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <small>
+                    <span id="themesCount">0</span>/<span id="themesMax">10</span> ערכות
+                </small>
             </div>
         </div>
 
-        <div class="sidebar-footer">
-            <small>
-                <span id="themesCount">0</span>/<span id="themesMax">10</span> ערכות
-            </small>
+        <!-- תוכן טאב: ערכות פופולריות -->
+        <div class="tab-content" id="presets-tab">
+            <div class="presets-filter mb-3">
+                <button class="filter-btn active" type="button" data-filter="all">הכל</button>
+                <button class="filter-btn" type="button" data-filter="light">בהירות</button>
+                <button class="filter-btn" type="button" data-filter="dark">כהות</button>
+            </div>
+            <div id="presetsList" class="presets-gallery">
+                <div class="themes-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    טוען...
+                </div>
+            </div>
+        </div>
+
+        <!-- תוכן טאב: ייבוא -->
+        <div class="tab-content" id="import-tab">
+            <div class="import-section">
+                <h4>ייבוא מ-VS Code</h4>
+                <p class="text-muted small">
+                    העלה קובץ JSON של ערכת VS Code (למשל מ-
+                    <a href="https://vscodethemes.com" target="_blank" rel="noopener noreferrer">vscodethemes.com</a>)
+                </p>
+
+                <div class="upload-area" id="uploadArea">
+                    <i class="fas fa-cloud-upload-alt fa-3x mb-3"></i>
+                    <p>גרור קובץ לכאן או לחץ לבחירה</p>
+                    <input type="file" id="themeFileInput" accept=".json" hidden>
+                </div>
+
+                <div class="upload-status mt-3" id="uploadStatus" style="display: none;">
+                    <div class="spinner-border spinner-border-sm me-2"></div>
+                    <span>מייבא...</span>
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <div class="import-section">
+                <h4>ייבוא מ-JSON</h4>
+                <p class="text-muted small">
+                    הדבק את תוכן הערכה בפורמט JSON
+                </p>
+                <textarea
+                    id="jsonInput"
+                    class="form-control"
+                    rows="6"
+                    placeholder='{"name": "My Theme", "variables": {...}}'
+                ></textarea>
+                <button id="importJsonBtn" type="button" class="btn btn-primary mt-2 w-100">
+                    <i class="fas fa-file-import"></i> ייבוא
+                </button>
+            </div>
         </div>
     </aside>
 
@@ -225,6 +298,10 @@
         </h3>
 
         <div id="theme-preview-container" class="preview-sandbox">
+            <button type="button" id="revertPreviewBtn" class="btn btn-secondary btn-sm revert-preview-btn">
+                <i class="fas fa-undo"></i>
+                בטל תצוגה מקדימה
+            </button>
             <!-- Navbar Preview -->
             <nav class="preview-navbar">
                 <span class="preview-logo">
@@ -305,6 +382,183 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+}
+
+/* Tabs (My Themes / Presets / Import) */
+.theme-source-tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 10px;
+    margin-bottom: 1rem;
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 0.55rem 0.5rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+}
+
+.tab-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+.tab-btn:hover:not(.active) {
+    background: var(--bg-secondary);
+}
+
+.tab-content {
+    display: none;
+    flex: 1;
+    min-height: 0;
+}
+
+.tab-content.active {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Presets gallery */
+.presets-filter {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.filter-btn {
+    flex: 1;
+    padding: 0.4rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.85rem;
+}
+
+.filter-btn:hover {
+    background: var(--glass-hover);
+}
+
+.filter-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.presets-gallery {
+    display: grid;
+    gap: 0.75rem;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+.preset-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.75rem;
+    border-radius: 12px;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.preset-card:hover {
+    transform: translateY(-1px);
+    background: var(--glass-hover);
+}
+
+.preset-preview {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 0.25rem;
+}
+
+.preset-preview-color {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.preset-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.preset-desc {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+
+.apply-preset-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Import */
+.import-section h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.95rem;
+}
+
+.upload-area {
+    border: 2px dashed var(--glass-border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--glass);
+}
+
+.upload-area:hover,
+.upload-area.dragover {
+    border-color: var(--primary);
+    background: var(--glass-hover);
+}
+
+.upload-status {
+    color: var(--text-secondary);
+}
+
+/* Revert Preview button */
+.revert-preview-btn {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    z-index: 10;
+    display: none;
+    align-items: center;
+    gap: 0.5rem;
+    animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .sidebar-header {
@@ -1434,6 +1688,25 @@
         updateFormButtons();
     }
 
+    // Expose minimal API for theme-importer.js (kept small on purpose)
+    try {
+        window.__themeBuilderApi = {
+            fetchThemes,
+            fetchThemeDetails,
+            showToast,
+            getSelectedThemeId: () => selectedThemeId,
+            isNewTheme: () => isNewTheme,
+            applyPreviewVariables: (vars) => {
+                try {
+                    if (!previewContainer || !vars) return;
+                    Object.entries(vars).forEach(([k, v]) => {
+                        previewContainer.style.setProperty(k, String(v));
+                    });
+                } catch (e) {}
+            }
+        };
+    } catch (e) {}
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
@@ -1441,4 +1714,5 @@
     }
 })();
 </script>
+<script src="{{ url_for('static', filename='js/theme-importer.js') }}?v={{ static_version }}"></script>
 {% endblock %}

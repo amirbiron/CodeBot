@@ -1411,6 +1411,12 @@
             opacity: 0.8;
         }
     </style>
+    {% if custom_theme.syntax_css %}
+    <!-- Syntax Highlighting Override -->
+    <style id="user-custom-syntax">
+{{ custom_theme.syntax_css | safe }}
+    </style>
+    {% endif %}
     {% endif %}
 </head>
 <body>

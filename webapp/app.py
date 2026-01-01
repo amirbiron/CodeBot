@@ -899,6 +899,14 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
+# Themes API (Presets/Import/Export) - לפי המדריך
+try:
+    from webapp.themes_api import themes_bp  # noqa: E402
+    app.register_blueprint(themes_bp)
+except Exception:
+    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
 # Sticky Notes API (Markdown inline notes)
 try:
     from webapp.sticky_notes_api import sticky_notes_bp, kickoff_index_warmup  # noqa: E402
@@ -1532,11 +1540,9 @@ ALLOWED_UI_THEMES = {
 # Note: keep regex linear-time; bound variable-length parts to avoid ReDoS.
 VALID_COLOR_REGEX = re.compile(
     r'^('
-    r'#[0-9a-fA-F]{6}'
-    r'|#[0-9a-fA-F]{8}'
-    r'|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*[\d.]+\s*)?\)'
-    r'|var\(--[a-zA-Z0-9_-]+\)'
-    r'|color-mix\(in\s+srgb\s*,\s*[^)]{1,160}\)'
+    r'#[0-9a-fA-F]{3,8}'
+    r'|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)'
+    r'|rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*[\d.]+\s*\)'
     r')$'
 )
 MAX_THEME_NAME_LENGTH = 50
@@ -1544,12 +1550,30 @@ MAX_THEME_DESCRIPTION_LENGTH = 200
 MAX_THEME_VALUE_LENGTH = 200
 MAX_THEMES_PER_USER = 10
 ALLOWED_VARIABLES = {
-    '--bg-primary', '--bg-secondary', '--card-bg',
-    '--primary', '--secondary',
-    '--text-primary', '--text-secondary',
-    '--glass', '--glass-border', '--glass-hover', '--glass-blur',
-    '--md-surface', '--md-text',
-    '--btn-primary-bg', '--btn-primary-color',
+    # Level 1 - Primitives
+    "--primary", "--primary-hover", "--primary-light",
+    "--secondary",
+    "--success", "--warning", "--error",
+    "--danger-bg", "--danger-border", "--text-on-warning",
+    "--glass", "--glass-blur", "--glass-border", "--glass-hover",
+
+    # Level 2 - Semantic Tokens
+    "--bg-primary", "--bg-secondary", "--bg-tertiary",
+    "--text-primary", "--text-secondary", "--text-muted",
+    "--border-color", "--shadow-color",
+    "--card-bg", "--card-border",
+    "--navbar-bg",
+    "--input-bg", "--input-border",
+    "--link-color",
+    "--code-bg", "--code-text", "--code-border",
+
+    # Level 2 - Button Tokens
+    "--btn-primary-bg", "--btn-primary-color", "--btn-primary-border", "--btn-primary-shadow",
+    "--btn-primary-hover-bg", "--btn-primary-hover-color",
+
+    # Level 2 - Markdown & Split View
+    "--md-surface", "--md-text",
+    "--split-preview-bg", "--split-preview-meta", "--split-preview-placeholder",
 }
 
 
@@ -1573,10 +1597,18 @@ def _validate_color(value: str) -> bool:
     return bool(VALID_COLOR_REGEX.match(value))
 
 
-def create_theme_document(name: str, variables: Dict[str, str], description: str = "") -> Dict[str, Any]:
+def create_theme_document(
+    name: str,
+    variables: Dict[str, str],
+    description: str = "",
+    *,
+    source: str = "manual",
+    source_preset_id: Optional[str] = None,
+    syntax_css: str = "",
+) -> Dict[str, Any]:
     """יצירת מסמך ערכה חדשה."""
     now = datetime.now(timezone.utc)
-    return {
+    doc: Dict[str, Any] = {
         "id": str(uuid.uuid4()),  # מזהה ייחודי
         "name": name,
         "description": (description or "").strip()[:MAX_THEME_DESCRIPTION_LENGTH],
@@ -1584,7 +1616,12 @@ def create_theme_document(name: str, variables: Dict[str, str], description: str
         "created_at": now,
         "updated_at": now,
         "variables": variables,
+        "source": (source or "manual").strip().lower(),
+        "syntax_css": syntax_css if isinstance(syntax_css, str) else "",
     }
+    if source_preset_id:
+        doc["source_preset_id"] = str(source_preset_id)
+    return doc
 
 
 def activate_theme_simple(user_id: int, theme_id: str) -> bool:
@@ -13410,6 +13447,8 @@ def get_theme_details(theme_id: str):
                     "created_at": created_at.isoformat() if isinstance(created_at, datetime) else None,
                     "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
                     "variables": theme.get("variables", {}) if isinstance(theme.get("variables"), dict) else {},
+                    "syntax_css": theme.get("syntax_css", "") if isinstance(theme.get("syntax_css", ""), str) else "",
+                    "source": theme.get("source", "") if isinstance(theme.get("source", ""), str) else "",
                 },
             }
         )
@@ -13544,6 +13583,7 @@ def update_theme(theme_id: str):
             if not isinstance(variables, dict):
                 return jsonify({"ok": False, "error": "invalid_variables"}), 400
 
+            # נשמור מיפוי חלקי (patch) ולא נדרוס את כל המילון, כדי לא לשבור ערכות מיובאות/Presets
             validated_vars: Dict[str, str] = {}
             for var_name, var_value in variables.items():
                 if var_name not in ALLOWED_VARIABLES:
@@ -13552,7 +13592,23 @@ def update_theme(theme_id: str):
                     return jsonify({"ok": False, "error": "invalid_color", "field": var_name}), 400
                 validated_vars[var_name] = str(var_value).strip()
 
-            update_fields["custom_themes.$.variables"] = validated_vars
+            existing_theme = (user_doc.get("custom_themes") or [None])[0]
+            existing_vars = (
+                (existing_theme.get("variables") or {}) if isinstance(existing_theme, dict) else {}
+            )
+            if not isinstance(existing_vars, dict):
+                existing_vars = {}
+            merged_vars = dict(existing_vars)
+            merged_vars.update(validated_vars)
+            update_fields["custom_themes.$.variables"] = merged_vars
+
+        # עדכון syntax_css (אם סופק) - נשמר רק אם זה מחרוזת (הסניטציה מתבצעת בזמן ייבוא/יצירה)
+        if "syntax_css" in data:
+            sc = data.get("syntax_css")
+            if sc is None:
+                update_fields["custom_themes.$.syntax_css"] = ""
+            elif isinstance(sc, str):
+                update_fields["custom_themes.$.syntax_css"] = sc
 
         result = db_ref.users.update_one(
             {"user_id": user_id, "custom_themes.id": theme_id},
