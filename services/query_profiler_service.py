@@ -921,14 +921,29 @@ class QueryProfilerService:
         )
 
     def _normalize_pipeline_shape(self, pipeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """נרמול צורת ה-pipeline - החלפת ערכים בפלייסהולדרים"""
+        """
+        נרמול צורת ה-pipeline - החלפת ערכים בפלייסהולדרים.
+
+        ⚠️ מקרים מיוחדים:
+        - $sort / $orderby: ערכים מוחזרים כמו שהם (1/-1 חייבים להישאר!)
+        - שאר השלבים: נרמול רגיל
+        """
+        # מפתחות שבהם לא מנרמלים ערכים מספריים (1/-1) – קריטיים לתחביר MongoDB
+        SORT_LIKE_KEYS = {"$sort", "$orderby"}
+
         normalized: List[Dict[str, Any]] = []
         for stage in pipeline or []:
             if not isinstance(stage, dict):
                 continue
             normalized_stage: Dict[str, Any] = {}
             for key, value in stage.items():
-                normalized_stage[key] = self._normalize_query_shape(value) if isinstance(value, dict) else "<value>"
+                if key in SORT_LIKE_KEYS:
+                    # ⚠️ קריטי: לא מנרמלים $sort - ערכי 1/-1 חייבים להישאר!
+                    normalized_stage[key] = value
+                elif isinstance(value, dict):
+                    normalized_stage[key] = self._normalize_query_shape(value)
+                else:
+                    normalized_stage[key] = "<value>"
             normalized.append(normalized_stage)
         return normalized
 
