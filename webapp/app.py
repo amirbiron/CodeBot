@@ -6233,15 +6233,15 @@ def fix_is_active():
     
     פרמטרים (query string):
     - action=status: רק בדיקת סטטוס (ברירת מחדל)
-    - action=migrate: הרצת המיגרציה (מוגבל ל-10000 מסמכים בכל קריאה)
-    - batch_size=N: גודל באטש (ברירת מחדל: 1000)
+    - action=migrate: הרצת המיגרציה (מוגבל לבאטש בכל קריאה)
+    - batch_size=N: גודל באטש (ברירת מחדל: 5000, מקסימום: 10000)
     """
     import json
     from bson import json_util
     
     results = {}
     action = request.args.get('action', 'status')
-    batch_size = min(10000, max(100, int(request.args.get('batch_size', 1000))))
+    batch_size = min(10000, max(100, int(request.args.get('batch_size', 5000))))
     
     try:
         from database.manager import DatabaseManager
@@ -6253,48 +6253,75 @@ def fix_is_active():
         for coll_name in collections_to_check:
             collection = db[coll_name]
             
-            # ספירת מסמכים שחסר להם is_active
-            missing_count = collection.count_documents({"is_active": {"$exists": False}})
+            # ספירת מסמכים לפני המיגרציה
+            missing_count_before = collection.count_documents({"is_active": {"$exists": False}})
             total_count = collection.count_documents({})
-            has_is_active_count = collection.count_documents({"is_active": {"$exists": True}})
             
             results[coll_name] = {
                 "total_documents": total_count,
-                "with_is_active": has_is_active_count,
-                "missing_is_active": missing_count,
-                "percentage_fixed": round((has_is_active_count / total_count * 100) if total_count > 0 else 100, 2),
+                "missing_before_migration": missing_count_before,
             }
             
-            if action == 'migrate' and missing_count > 0:
-                # מיגרציה: הוספת is_active: true לכל המסמכים שחסר להם השדה
-                # מוגבל לבאטש כדי לא להעמיס
-                result = collection.update_many(
+            if action == 'migrate' and missing_count_before > 0:
+                # מיגרציה עם באטצ'ינג אמיתי:
+                # MongoDB update_many לא תומך ב-limit, אז נשתמש ב-find + update עם $in
+                from bson import ObjectId
+                
+                # שליפת IDs של מסמכים שחסר להם is_active (מוגבל לבאטש)
+                docs_to_update = list(collection.find(
                     {"is_active": {"$exists": False}},
-                    {"$set": {"is_active": True}},
-                )
-                results[coll_name]["migrated_count"] = result.modified_count
+                    {"_id": 1},
+                ).limit(batch_size))
+                
+                ids_to_update = [doc["_id"] for doc in docs_to_update]
+                
+                if ids_to_update:
+                    # עדכון רק המסמכים שנבחרו
+                    result = collection.update_many(
+                        {"_id": {"$in": ids_to_update}},
+                        {"$set": {"is_active": True}},
+                    )
+                    results[coll_name]["migrated_count"] = result.modified_count
+                else:
+                    results[coll_name]["migrated_count"] = 0
+                
                 results[coll_name]["action"] = "migrate"
+                results[coll_name]["batch_size_used"] = batch_size
             else:
+                results[coll_name]["migrated_count"] = 0
                 results[coll_name]["action"] = "status_only"
+            
+            # ספירה מחודשת אחרי המיגרציה (לדיוק בסיכום)
+            missing_count_after = collection.count_documents({"is_active": {"$exists": False}})
+            has_is_active_count = collection.count_documents({"is_active": {"$exists": True}})
+            
+            results[coll_name]["missing_after_migration"] = missing_count_after
+            results[coll_name]["with_is_active"] = has_is_active_count
+            results[coll_name]["percentage_fixed"] = round((has_is_active_count / total_count * 100) if total_count > 0 else 100, 2)
         
-        # סיכום כללי
-        total_missing = sum(r.get("missing_is_active", 0) for r in results.values() if isinstance(r, dict))
+        # סיכום כללי - משתמש בספירות אחרי המיגרציה
+        total_missing_after = sum(r.get("missing_after_migration", 0) for r in results.values() if isinstance(r, dict))
+        total_migrated = sum(r.get("migrated_count", 0) for r in results.values() if isinstance(r, dict))
+        
         results["summary"] = {
-            "total_missing_across_collections": total_missing,
-            "ready_for_optimized_queries": total_missing == 0,
+            "total_missing_after_migration": total_missing_after,
+            "total_migrated_this_call": total_migrated,
+            "ready_for_optimized_queries": total_missing_after == 0,
+            "batch_size": batch_size,
             "next_step": (
                 "✅ כל המסמכים מכילים is_active - אפשר לעדכן את השאילתות לפילטר ישיר!"
-                if total_missing == 0
-                else f"⚠️ עדיין יש {total_missing} מסמכים ללא is_active. הרץ ?action=migrate שוב."
+                if total_missing_after == 0
+                else f"⚠️ עדיין יש {total_missing_after} מסמכים ללא is_active. הרץ ?action=migrate שוב."
             ),
         }
         
         if action == 'migrate':
             results["summary"]["action_taken"] = "migrate"
-            results["summary"]["recommendation"] = (
-                "המשך להריץ ?action=migrate עד שכל המסמכים יתוקנו. "
-                "כל קריאה מתקנת עד 10,000 מסמכים."
-            )
+            if total_missing_after > 0:
+                results["summary"]["recommendation"] = (
+                    f"המשך להריץ ?action=migrate עד שכל המסמכים יתוקנו. "
+                    f"תיקנתי {total_migrated} מסמכים בקריאה זו, נותרו {total_missing_after}."
+                )
         
         return jsonify(results)
         
