@@ -20,10 +20,16 @@
                 <i class="fas fa-palette"></i>
                 הערכות שלי
             </h3>
-            <button type="button" id="createNewThemeBtn" class="btn btn-primary btn-sm">
-                <i class="fas fa-plus"></i>
-                ערכה חדשה
-            </button>
+            <div style="display:flex; gap: 0.5rem; align-items: center;">
+                <a href="/settings/theme-gallery" class="btn btn-secondary btn-sm" title="גלריית ערכות וייבוא">
+                    <i class="fas fa-star"></i>
+                    גלריה / ייבוא
+                </a>
+                <button type="button" id="createNewThemeBtn" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus"></i>
+                    ערכה חדשה
+                </button>
+            </div>
         </div>
 
         <div id="themesList" class="themes-list">
@@ -197,6 +203,14 @@
 
             <!-- Actions -->
             <div class="form-actions">
+                <button type="button" class="btn btn-secondary" id="undoBtn" title="בטל (Ctrl+Z)">
+                    <i class="fas fa-undo"></i>
+                    בטל
+                </button>
+                <button type="button" class="btn btn-secondary" id="redoBtn" title="חזור (Ctrl+Shift+Z)">
+                    <i class="fas fa-redo"></i>
+                    חזור
+                </button>
                 <button type="submit" class="btn btn-primary" id="saveThemeBtn">
                     <i class="fas fa-save"></i>
                     שמור שינויים
@@ -306,6 +320,8 @@
     display: flex;
     flex-direction: column;
 }
+
+/* (הגלריה והייבוא עברו לדף ייעודי: /settings/theme-gallery) */
 
 .sidebar-header {
     display: flex;
@@ -766,6 +782,184 @@
         previewContainer.style.setProperty(varName, value);
     }
 
+    // ========== Undo/Redo + Autosave Draft (LocalStorage) ==========
+    const HISTORY_MAX = 50;
+    let history = [];
+    let historyIndex = -1;
+    let _historyDebounce = null;
+    let _draftDebounce = null;
+    let _suppressTracking = false;
+
+    function _draftKey() {
+        return `codebot.theme_builder.draft.v1:${selectedThemeId || 'new'}`;
+    }
+
+    function _safeJsonParse(s) {
+        try { return JSON.parse(s); } catch (e) { return null; }
+    }
+
+    function _getCurrentState() {
+        const nameEl = document.getElementById('themeName');
+        return {
+            version: 1,
+            theme_id: selectedThemeId || null,
+            is_new: !!isNewTheme,
+            name: (nameEl && nameEl.value ? String(nameEl.value) : ''),
+            variables: collectThemeValues(),
+            saved_at: new Date().toISOString(),
+        };
+    }
+
+    function _stateFingerprint(state) {
+        try {
+            const vars = state && state.variables ? state.variables : {};
+            const keys = Object.keys(vars).sort();
+            const flat = keys.map((k) => `${k}:${String(vars[k])}`).join('|');
+            return `${state && state.name ? String(state.name) : ''}||${flat}`;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function _applyState(state) {
+        if (!state || typeof state !== 'object') return;
+        _suppressTracking = true;
+        try {
+            const nameEl = document.getElementById('themeName');
+            if (nameEl && typeof state.name === 'string') {
+                nameEl.value = state.name;
+            }
+
+            const variables = state.variables || {};
+            Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
+                const textInput = document.getElementById(pickrId + 'Text');
+                const value = variables[varName] || DEFAULT_VALUES[varName];
+                if (textInput) textInput.value = value;
+                if (pickrInstances[pickrId]) {
+                    try { pickrInstances[pickrId].setColor(value); } catch (e) {}
+                }
+                updatePreview(varName, value);
+            });
+
+            // Glass sliders from variables
+            try {
+                const opacitySlider = document.getElementById('glassOpacity');
+                const opacityValue = document.getElementById('glassOpacityValue');
+                const blurSlider = document.getElementById('glassBlur');
+                const blurValue = document.getElementById('glassBlurValue');
+
+                if (variables['--glass']) {
+                    const match = String(variables['--glass']).match(/[\d.]+(?=\))/);
+                    if (match && opacitySlider) {
+                        const v = Math.round(parseFloat(match[0]) * 100);
+                        opacitySlider.value = String(v);
+                        if (opacityValue) opacityValue.textContent = v + '%';
+                    }
+                    updatePreview('--glass', String(variables['--glass']));
+                }
+
+                if (variables['--glass-border']) updatePreview('--glass-border', String(variables['--glass-border']));
+                if (variables['--glass-hover']) updatePreview('--glass-hover', String(variables['--glass-hover']));
+
+                if (variables['--glass-blur']) {
+                    const vRaw = String(variables['--glass-blur']);
+                    const v = parseInt(vRaw, 10);
+                    if (blurSlider) blurSlider.value = String(v);
+                    if (blurValue) blurValue.textContent = v + 'px';
+                    updatePreview('--glass-blur', vRaw);
+                }
+            } catch (e) {}
+
+            hasUnsavedChanges = true;
+            updateFormButtons();
+        } finally {
+            _suppressTracking = false;
+        }
+    }
+
+    function _updateUndoRedoButtons() {
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+        if (undoBtn) undoBtn.disabled = !(historyIndex > 0);
+        if (redoBtn) redoBtn.disabled = !(historyIndex >= 0 && historyIndex < history.length - 1);
+    }
+
+    function _pushHistory(state) {
+        if (!state) return;
+        const fp = _stateFingerprint(state);
+        const cur = historyIndex >= 0 ? _stateFingerprint(history[historyIndex]) : '';
+        if (fp && fp === cur) return;
+
+        history = history.slice(0, historyIndex + 1);
+        history.push(state);
+        if (history.length > HISTORY_MAX) {
+            history.shift();
+        }
+        historyIndex = history.length - 1;
+        _updateUndoRedoButtons();
+    }
+
+    function _resetHistoryFromCurrent() {
+        history = [];
+        historyIndex = -1;
+        _pushHistory(_getCurrentState());
+    }
+
+    function undo() {
+        if (historyIndex <= 0) return;
+        historyIndex -= 1;
+        _applyState(history[historyIndex]);
+        _updateUndoRedoButtons();
+    }
+
+    function redo() {
+        if (historyIndex < 0 || historyIndex >= history.length - 1) return;
+        historyIndex += 1;
+        _applyState(history[historyIndex]);
+        _updateUndoRedoButtons();
+    }
+
+    function _saveDraftNow() {
+        try {
+            const state = _getCurrentState();
+            localStorage.setItem(_draftKey(), JSON.stringify(state));
+        } catch (e) {}
+    }
+
+    function _clearDraftForCurrent() {
+        try { localStorage.removeItem(_draftKey()); } catch (e) {}
+    }
+
+    function _maybeRestoreDraftForCurrentTheme() {
+        try {
+            const raw = localStorage.getItem(_draftKey());
+            const draft = _safeJsonParse(raw);
+            if (!draft || !draft.variables) return;
+
+            const shouldRestore = confirm('נמצאה טיוטה שנשמרה אוטומטית עבור הערכה הזו.\nלשחזר?');
+            if (!shouldRestore) return;
+
+            _applyState(draft);
+            _resetHistoryFromCurrent();
+            showToast('שוחזרה טיוטה שנשמרה אוטומטית', 'success');
+        } catch (e) {}
+    }
+
+    function _onStateChanged() {
+        if (_suppressTracking) return;
+        hasUnsavedChanges = true;
+
+        clearTimeout(_historyDebounce);
+        _historyDebounce = setTimeout(() => {
+            try { _pushHistory(_getCurrentState()); } catch (e) {}
+        }, 150);
+
+        clearTimeout(_draftDebounce);
+        _draftDebounce = setTimeout(() => {
+            _saveDraftNow();
+        }, 350);
+    }
+
     // ========== Contrast (WCAG 2.1) ==========
     function _hexToRgb(hex) {
         const h = String(hex || '').trim().replace('#', '');
@@ -827,7 +1021,7 @@
 
             if (textInput) textInput.value = value;
             updatePreview(varName, value);
-            hasUnsavedChanges = true;
+            _onStateChanged();
         });
 
         pickr.on('save', () => pickr.hide());
@@ -841,7 +1035,7 @@
                     try {
                         pickr.setColor(val);
                         updatePreview(varName, val);
-                        hasUnsavedChanges = true;
+                        _onStateChanged();
                     } catch (e) {
                         // ignore invalid color
                     }
@@ -881,14 +1075,14 @@
             opacityValue.textContent = val + '%';
             const rgba = `rgba(255, 255, 255, ${(val / 100).toFixed(2)})`;
             updatePreview('--glass', rgba);
-            hasUnsavedChanges = true;
+            _onStateChanged();
         });
 
         blurSlider.addEventListener('input', () => {
             const val = blurSlider.value;
             blurValue.textContent = val + 'px';
             updatePreview('--glass-blur', val + 'px');
-            hasUnsavedChanges = true;
+            _onStateChanged();
         });
 
         // Initial update
@@ -1167,9 +1361,13 @@
 
         hasUnsavedChanges = false;
         updateFormButtons();
+        _resetHistoryFromCurrent();
+        _maybeRestoreDraftForCurrentTheme();
     }
 
     function loadThemeIntoForm(theme) {
+        _suppressTracking = true;
+        try {
         const nameEl = document.getElementById('themeName');
         if (nameEl) nameEl.value = theme.name || '';
 
@@ -1212,6 +1410,9 @@
             if (blurValue) blurValue.textContent = v + 'px';
             updatePreview('--glass-blur', vRaw);
         }
+        } finally {
+            _suppressTracking = false;
+        }
     }
 
     function clearFormForNewTheme() {
@@ -1223,6 +1424,8 @@
         isNewTheme = true;
         renderThemesList();
 
+        _suppressTracking = true;
+        try {
         const nameEl = document.getElementById('themeName');
         if (nameEl) {
             nameEl.value = '';
@@ -1252,9 +1455,14 @@
 
         updatePreview('--glass', 'rgba(255, 255, 255, 0.10)');
         updatePreview('--glass-blur', '20px');
+        } finally {
+            _suppressTracking = false;
+        }
 
         hasUnsavedChanges = false;
         updateFormButtons();
+        _resetHistoryFromCurrent();
+        _maybeRestoreDraftForCurrentTheme();
     }
 
     function updateFormButtons() {
@@ -1306,6 +1514,7 @@
                 activate: false
             });
             if (newId) {
+                _clearDraftForCurrent(); // clears draft for "new"
                 isNewTheme = false;
                 selectedThemeId = newId;
                 await fetchThemes();
@@ -1314,12 +1523,14 @@
         } else {
             const ok = await updateExistingTheme(selectedThemeId, { name: name, variables: variables });
             if (ok) {
+                _clearDraftForCurrent();
                 await fetchThemes();
             }
         }
 
         hasUnsavedChanges = false;
         updateFormButtons();
+        _resetHistoryFromCurrent();
     }
 
     // ========== Reset Form (Defaults) ==========
@@ -1351,7 +1562,7 @@
         updatePreview('--glass', 'rgba(255, 255, 255, 0.10)');
         updatePreview('--glass-blur', '20px');
 
-        hasUnsavedChanges = true;
+        _onStateChanged();
     }
 
     // ========== Utilities ==========
@@ -1372,6 +1583,16 @@
 
     // ========== Init ==========
     function init() {
+        // Deep-linking: allow opening a specific theme directly from the gallery
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            const tid = (params.get('theme_id') || '').trim();
+            if (tid) {
+                selectedThemeId = tid;
+                isNewTheme = false;
+            }
+        } catch (e) {}
+
         initAllPickers();
         initGlassSliders();
 
@@ -1384,14 +1605,44 @@
 
         // מעקב אחר שינויים
         document.querySelectorAll('.color-text, #themeName').forEach(input => {
-            input.addEventListener('input', () => {
-                hasUnsavedChanges = true;
-            });
+            input.addEventListener('input', _onStateChanged);
         });
         document.querySelectorAll('input[type="range"]').forEach(slider => {
-            slider.addEventListener('input', () => {
-                hasUnsavedChanges = true;
-            });
+            slider.addEventListener('input', _onStateChanged);
+        });
+
+        // Undo/Redo buttons
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+        if (undoBtn) undoBtn.addEventListener('click', undo);
+        if (redoBtn) redoBtn.addEventListener('click', redo);
+
+        // Keyboard shortcuts: Ctrl+S, Ctrl+Z, Ctrl+Shift+Z
+        window.addEventListener('keydown', (e) => {
+            try {
+                const t = e.target;
+                const tag = t && t.tagName ? String(t.tagName).toLowerCase() : '';
+                const isTextInput = tag === 'input' || tag === 'textarea' || (t && t.isContentEditable);
+
+                const key = String(e.key || '').toLowerCase();
+                if (e.ctrlKey && key === 's') {
+                    e.preventDefault();
+                    const form = document.getElementById('themeBuilderForm');
+                    if (form) form.requestSubmit();
+                    return;
+                }
+
+                // כדי לא לשבור undo טבעי בתוך שדות טקסט, ננהל History רק כשלא בפוקוס על input/textarea
+                if (isTextInput) return;
+
+                if (e.ctrlKey && !e.shiftKey && key === 'z') {
+                    e.preventDefault();
+                    undo();
+                } else if ((e.ctrlKey && e.shiftKey && key === 'z') || (e.ctrlKey && key === 'y')) {
+                    e.preventDefault();
+                    redo();
+                }
+            } catch (err) {}
         });
 
         // שמירה (create/update)
@@ -1432,6 +1683,8 @@
         });
 
         updateFormButtons();
+        _resetHistoryFromCurrent();
+        _updateUndoRedoButtons();
     }
 
     if (document.readyState === 'loading') {
