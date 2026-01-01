@@ -7111,8 +7111,14 @@ def check_mongo_ops():
         db = DatabaseManager().db
         
         # פקודה שבודקת פעולות שרצות כרגע ב-DB
-        # $all: True - מחזיר גם פעולות רגילות וגם פנימיות
-        ops = db.command("currentOp", {"$all": True, "waitingForLock": True})
+        # הפקודה המתוקנת - פילטרים ברמה העליונה וללא waitingForLock
+        ops = db.command({
+            "currentOp": 1,
+            "$all": True,
+            "command.createIndexes": {"$exists": True}
+        })
+        # אם רוצים לראות הכל (לא רק אינדקסים) פשוט תוריד את הפילטר האחרון:
+        # ops = db.command({"currentOp": 1, "$all": True})
         
         in_progress = []
         for op in ops.get('inprog', []):
