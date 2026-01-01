@@ -293,9 +293,7 @@ class Repository:
             if snippet is None:
                 try:
                     snippet = self.manager.collection.find_one(
-                        {"user_id": user_id, "file_name": file_name, "$or": [
-                            {"is_active": True}, {"is_active": {"$exists": False}}
-                        ]},
+                        {"user_id": user_id, "file_name": file_name, "is_active": True},
                         sort=[("version", -1)],
                     )
                 except Exception:
@@ -321,7 +319,7 @@ class Repository:
                         "user_id": user_id,
                         "file_name": file_name,
                         "is_favorite": True,
-                        "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                        "is_active": True,
                     }
                     try:
                         fav_doc = self.manager.collection.find_one(fav_q, {"_id": 1})
@@ -346,7 +344,7 @@ class Repository:
             query = {
                 "user_id": user_id,
                 "file_name": file_name,
-                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                "is_active": True,
             }
             # עדכון באמצעות update_many אם זמין; בסביבת in-memory ייתכן שהמתודה לא קיימת
             class _UpdateResult:
@@ -469,9 +467,7 @@ class Repository:
                 "language": ("programming_language", 1),
             }
             sort_key, sort_dir = sort_options.get(sort_by, ("favorited_at", -1))
-            match: Dict[str, Any] = {"user_id": user_id, "is_favorite": True, "$or": [
-                {"is_active": True}, {"is_active": {"$exists": False}}
-            ]}
+            match: Dict[str, Any] = {"user_id": user_id, "is_favorite": True, "is_active": True}
             if language:
                 match["programming_language"] = language
             pipeline = [
@@ -567,10 +563,7 @@ class Repository:
             match = {
                 "user_id": user_id,
                 "is_favorite": True,
-                "$or": [
-                    {"is_active": True},
-                    {"is_active": {"$exists": False}},
-                ],
+                "is_active": True,
             }
             pipeline = [
                 {"$match": match},
@@ -641,7 +634,7 @@ class Repository:
                 "user_id": user_id,
                 "file_name": file_name,
                 "is_favorite": True,
-                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                "is_active": True,
             }
             try:
                 doc = self.manager.collection.find_one(q, {"_id": 1})
@@ -773,9 +766,7 @@ class Repository:
             # DB fallback
             try:
                 return self.manager.collection.find_one(
-                    {"user_id": user_id, "file_name": file_name, "$or": [
-                        {"is_active": True}, {"is_active": {"$exists": False}}
-                    ]},
+                    {"user_id": user_id, "file_name": file_name, "is_active": True},
                     sort=[("version", -1)],
                 )
             except Exception as e:
@@ -788,9 +779,7 @@ class Repository:
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
             return self.manager.collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 sort=[("version", -1)],
             )
         except Exception as e:
@@ -801,9 +790,7 @@ class Repository:
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict]:
         try:
             return list(self.manager.collection.find(
-                {"user_id": user_id, "file_name": file_name, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 sort=[("version", -1)],
             ))
         except Exception as e:
@@ -813,9 +800,7 @@ class Repository:
     def get_version(self, user_id: int, file_name: str, version: int) -> Optional[Dict]:
         try:
             return self.manager.collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "version": version, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}
+                {"user_id": user_id, "file_name": file_name, "version": version, "is_active": True}
             )
         except Exception as e:
             emit_event("db_get_version_error", severity="error", error=str(e), file_name=file_name, version=int(version))
@@ -852,9 +837,7 @@ class Repository:
             except Exception:
                 pass
             pipeline: List[Dict[str, Any]] = [
-                {"$match": {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}},
+                {"$match": {"user_id": user_id, "is_active": True}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
@@ -919,9 +902,7 @@ class Repository:
                 set_current_span_attributes(attrs)
             except Exception:
                 pass
-            search_filter: Dict[str, Any] = {"user_id": user_id, "$or": [
-                {"is_active": True}, {"is_active": {"$exists": False}}
-            ]}
+            search_filter: Dict[str, Any] = {"user_id": user_id, "is_active": True}
             if query:
                 search_filter["$text"] = {"$search": query}
             if programming_language:
@@ -975,9 +956,7 @@ class Repository:
                 set_current_span_attributes(attrs)
             except Exception:
                 pass
-            match_stage = {"user_id": user_id, "tags": repo_tag, "$or": [
-                {"is_active": True}, {"is_active": {"$exists": False}}
-            ]}
+            match_stage = {"user_id": user_id, "tags": repo_tag, "is_active": True}
 
             # שלוף פריטים בעמוד
             items_pipeline = [
@@ -1032,9 +1011,7 @@ class Repository:
 
             # ספירה (distinct לפי file_name לאחר סינון) — תחילה, כדי לאפשר עימוד מהודק ללא רה-פצ' של הקורא
             count_pipeline = [
-                {"$match": {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}},
+                {"$match": {"user_id": user_id, "is_active": True}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
@@ -1059,9 +1036,7 @@ class Repository:
 
             # שליפת פריטים לעמוד החוקי (לאחר הידוק), חד-פעמי
             items_pipeline = [
-                {"$match": {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}},
+                {"$match": {"user_id": user_id, "is_active": True}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
@@ -1097,9 +1072,7 @@ class Repository:
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": file_name, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -1166,17 +1139,13 @@ class Repository:
             # נאתר user_id לפני העדכון לצורך אינוולידציית cache אמינה
             user_id_for_invalidation: Optional[int] = None
             try:
-                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id), "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}, {"user_id": 1})
+                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
                 if isinstance(pre_doc, dict):
                     user_id_for_invalidation = pre_doc.get("user_id")
             except Exception:
                 pass
             result = self.manager.collection.update_many(
-                {"_id": ObjectId(file_id), "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -1211,9 +1180,7 @@ class Repository:
     def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         try:
             pipeline = [
-                {"$match": {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}},
+                {"$match": {"user_id": user_id, "is_active": True}},
                 {"$group": {
                     "_id": "$file_name",
                     "versions": {"$sum": 1},
@@ -1250,9 +1217,7 @@ class Repository:
                     pass
                 return False
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": old_name, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"user_id": user_id, "file_name": old_name, "is_active": True},
                 {"$set": {"file_name": new_name, "updated_at": datetime.now(timezone.utc)}},
             )
             # Update collection_items references so collections stay intact after rename
@@ -1301,9 +1266,7 @@ class Repository:
     def get_large_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
             return self.manager.large_files_collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}
+                {"user_id": user_id, "file_name": file_name, "is_active": True}
             )
         except Exception as e:
             emit_event("db_get_large_file_error", severity="error", error=str(e))
@@ -1319,12 +1282,8 @@ class Repository:
     def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict], int]:
         try:
             skip = (page - 1) * per_page
-            total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "$or": [
-                {"is_active": True}, {"is_active": {"$exists": False}}
-            ]})
-            query = {"user_id": user_id, "$or": [
-                {"is_active": True}, {"is_active": {"$exists": False}}
-            ]}
+            total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "is_active": True})
+            query = {"user_id": user_id, "is_active": True}
             # רשימת קבצים גדולים: אל תחזיר content (כבד) ברירת מחדל.
             try:
                 cursor = self.manager.large_files_collection.find(
@@ -1354,9 +1313,7 @@ class Repository:
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.large_files_collection.update_many(
-                {"user_id": user_id, "file_name": file_name, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -1377,17 +1334,13 @@ class Repository:
             # נאתר user_id לפני העדכון לצורך אינוולידציית cache
             user_id_for_invalidation: Optional[int] = None
             try:
-                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id), "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}, {"user_id": 1})
+                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
                 if isinstance(pre_doc, dict):
                     user_id_for_invalidation = pre_doc.get("user_id")
             except Exception:
                 pass
             result = self.manager.large_files_collection.update_many(
-                {"_id": ObjectId(file_id), "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -1630,9 +1583,7 @@ class Repository:
         """שמות קבצים אחרונים (distinct לפי file_name), ממוינים לפי updated_at של הגרסה האחרונה."""
         try:
             pipeline = [
-                {"$match": {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}},
+                {"$match": {"user_id": user_id, "is_active": True}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},

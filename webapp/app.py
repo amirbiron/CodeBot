@@ -6752,10 +6752,7 @@ def _safe_search(user_id: int, query: str, **kwargs):
     # בניית match בסיסי
     match_stage = {
         'user_id': user_id,
-        '$or': [
-            {'is_active': True},
-            {'is_active': {'$exists': False}},
-        ],
+'is_active': True,
         'code': {
             '$regex': pattern,
             '$options': 'i',  # חיפוש לא רגיש לאותיות גדולות/קטנות
@@ -7961,7 +7958,7 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     try:
         file_query = active_query or {
             'user_id': user_id,
-            '$or': [{'is_active': True}, {'is_active': {'$exists': False}}],
+            'is_active': True,
         }
         cursor = db.code_snippets.find(
             file_query,
@@ -8255,10 +8252,7 @@ def dashboard():
         # שליפת סטטיסטיקות - רק קבצים פעילים
         active_query = {
             'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': True
         }
         total_files = db.code_snippets.count_documents(active_query)
         
@@ -8266,10 +8260,7 @@ def dashboard():
         pipeline = [
             {'$match': {
                 'user_id': user_id,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
+                'is_active': True
             }},
             {'$project': {
                 'code_size': {
@@ -8295,10 +8286,7 @@ def dashboard():
         languages_pipeline = [
             {'$match': {
                 'user_id': user_id,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
+                'is_active': True
             }},
             {'$group': {
                 '_id': '$programming_language',
@@ -8313,10 +8301,7 @@ def dashboard():
         recent_files = list(db.code_snippets.find(
             {
                 'user_id': user_id,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
+                'is_active': True
             },
             {'file_name': 1, 'programming_language': 1, 'created_at': 1}
         ).sort('created_at', DESCENDING).limit(5))
@@ -9958,10 +9943,7 @@ def api_file_history(file_id):
             {
                 'user_id': user_id,
                 'file_name': file_name,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}},
-                ],
+'is_active': True,
             },
             {
                 '_id': 1,
@@ -10055,10 +10037,7 @@ def api_restore_file_version(file_id):
             {
                 'user_id': user_id,
                 'file_name': file_name,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}},
-                ],
+'is_active': True,
             },
             sort=[('version', DESCENDING)],
         )
@@ -10164,10 +10143,7 @@ def api_file_move_to_trash(file_id):
             {
                 'user_id': user_id,
                 'file_name': file_name,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}},
-                ],
+'is_active': True,
             },
             {'$set': {
                 'is_active': False,
@@ -10329,10 +10305,7 @@ def api_recent_files():
                         q = {
                             '_id': last_file_id,
                             'user_id': user_id,
-                            '$or': [
-                                {'is_active': True},
-                                {'is_active': {'$exists': False}}
-                            ]
+'is_active': True
                         }
                         file_doc = db.code_snippets.find_one(
                             q,
@@ -10353,10 +10326,7 @@ def api_recent_files():
                             {
                                 'user_id': user_id,
                                 'file_name': file_name_hint,
-                                '$or': [
-                                    {'is_active': True},
-                                    {'is_active': {'$exists': False}}
-                                ]
+'is_active': True
                             },
                             {
                                 'file_name': 1,
@@ -10433,10 +10403,7 @@ def api_resolve_file_by_name():
                 {
                     'user_id': user_id,
                     'file_name': name,
-                    '$or': [
-                        {'is_active': True},
-                        {'is_active': {'$exists': False}},
-                    ],
+'is_active': True,
                 },
                 sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
             )
@@ -10710,10 +10677,7 @@ def edit_file_page(file_id):
                         {
                             'user_id': user_id,
                             'file_name': file_name,
-                            '$or': [
-                                {'is_active': True},
-                                {'is_active': {'$exists': False}}
-                            ]
+'is_active': True
                         },
                         sort=[('version', -1)]
                     )
@@ -11372,10 +11336,7 @@ def api_save_shared_file():
                 {
                     'user_id': user_id,
                     'file_name': safe_name,
-                    '$or': [
-                        {'is_active': True},
-                        {'is_active': {'$exists': False}}
-                    ]
+'is_active': True
                 },
                 sort=[('version', -1)],
             )
@@ -11734,10 +11695,7 @@ def upload_file_web():
                             {
                                 'user_id': user_id,
                                 'file_name': file_name,
-                                '$or': [
-                                    {'is_active': True},
-                                    {'is_active': {'$exists': False}}
-                                ]
+'is_active': True
                             },
                             sort=[('version', -1)]
                         )
@@ -11843,10 +11801,7 @@ def api_toggle_favorite(file_id):
         q = {
             'user_id': user_id,
             'file_name': file_name,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': True
         }
         try:
             db.code_snippets.update_many(q, {
@@ -11888,10 +11843,7 @@ def api_files_bulk_favorite():
         q = {
             '_id': {'$in': object_ids},
             'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': True
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
@@ -11929,10 +11881,7 @@ def api_files_bulk_unfavorite():
         q = {
             '_id': {'$in': object_ids},
             'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': True
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
@@ -11985,10 +11934,7 @@ def api_files_bulk_tag():
         q = {
             '_id': {'$in': object_ids},
             'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': True
         }
         res = db.code_snippets.update_many(q, {
             '$addToSet': {'tags': {'$each': norm_tags}},
@@ -12023,10 +11969,7 @@ def api_files_create_zip():
         cursor = db.code_snippets.find({
             '_id': {'$in': object_ids},
             'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': True
         })
 
         from io import BytesIO
@@ -12162,10 +12105,7 @@ def api_files_bulk_delete():
             q = {
                 '_id': {'$in': active_ids},
                 'user_id': user_id,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
+                'is_active': True
             }
             res = db.code_snippets.update_many(q, {
                 '$set': {
@@ -12225,10 +12165,7 @@ def api_stats():
     
     active_query = {
         'user_id': user_id,
-        '$or': [
-            {'is_active': True},
-            {'is_active': {'$exists': False}}
-        ]
+'is_active': True
     }
     
     stats = {
@@ -12476,10 +12413,7 @@ def api_cache_warm():
             db = get_db()
             active_query = {
                 'user_id': user_id,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
+                'is_active': True
             }
             stats = {
                 'total_files': db.code_snippets.count_documents(active_query),
@@ -13962,10 +13896,7 @@ def _persist_story_markdown_file(
             {
                 'user_id': user_id,
                 'file_name': safe_name,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}},
-                ],
+'is_active': True,
             },
             sort=[('version', -1)],
         )
