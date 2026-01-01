@@ -733,6 +733,198 @@ def apply_preset_to_user(user_id: str, preset_id: str, db) -> dict:
 }
 ```
 
+### מבנה tokenColors (Syntax Highlighting)
+
+ערכות VS Code כוללות גם מערך `tokenColors` שמגדיר צבעים ל-Syntax Highlighting:
+
+```json
+{
+  "tokenColors": [
+    {
+      "scope": ["comment", "punctuation.definition.comment"],
+      "settings": { "foreground": "#6272a4", "fontStyle": "italic" }
+    },
+    {
+      "scope": ["string", "string.quoted"],
+      "settings": { "foreground": "#f1fa8c" }
+    },
+    {
+      "scope": ["keyword", "storage.type"],
+      "settings": { "foreground": "#ff79c6" }
+    },
+    {
+      "scope": ["entity.name.function", "support.function"],
+      "settings": { "foreground": "#50fa7b" }
+    },
+    {
+      "scope": ["variable", "variable.parameter"],
+      "settings": { "foreground": "#f8f8f2" }
+    },
+    {
+      "scope": ["constant.numeric"],
+      "settings": { "foreground": "#bd93f9" }
+    }
+  ]
+}
+```
+
+#### מיפוי tokenColors ל-CodeMirror
+
+אם ה-Web App משתמש ב-CodeMirror, יש למפות את ה-scopes ל-CSS classes של CodeMirror:
+
+```python
+# מיפוי בין VS Code scopes ל-CodeMirror classes
+TOKEN_TO_CODEMIRROR_MAP = {
+    # Comments
+    "comment": ".cm-comment",
+    "punctuation.definition.comment": ".cm-comment",
+    
+    # Strings
+    "string": ".cm-string",
+    "string.quoted": ".cm-string",
+    
+    # Keywords
+    "keyword": ".cm-keyword",
+    "storage.type": ".cm-keyword",
+    "storage.modifier": ".cm-keyword",
+    
+    # Functions
+    "entity.name.function": ".cm-def",
+    "support.function": ".cm-builtin",
+    
+    # Variables
+    "variable": ".cm-variable",
+    "variable.parameter": ".cm-variable-2",
+    "variable.other": ".cm-variable-3",
+    
+    # Constants
+    "constant.numeric": ".cm-number",
+    "constant.language": ".cm-atom",
+    
+    # Types
+    "entity.name.type": ".cm-type",
+    "support.type": ".cm-type",
+    
+    # Operators
+    "keyword.operator": ".cm-operator",
+    
+    # Properties
+    "entity.other.attribute-name": ".cm-attribute",
+    "support.type.property-name": ".cm-property",
+    
+    # Tags (HTML/XML)
+    "entity.name.tag": ".cm-tag",
+    
+    # Errors
+    "invalid": ".cm-error"
+}
+```
+
+#### יצירת CSS מ-tokenColors
+
+```python
+def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
+    """
+    ממיר tokenColors של VS Code ל-CSS עבור CodeMirror.
+    
+    Args:
+        token_colors: מערך tokenColors מערכת VS Code
+        
+    Returns:
+        מחרוזת CSS
+    """
+    css_rules = []
+    
+    for token in token_colors:
+        scopes = token.get("scope", [])
+        if isinstance(scopes, str):
+            scopes = [scopes]
+        
+        settings = token.get("settings", {})
+        foreground = settings.get("foreground")
+        font_style = settings.get("fontStyle", "")
+        
+        if not foreground:
+            continue
+        
+        # מיפוי כל scope ל-CodeMirror class
+        for scope in scopes:
+            cm_class = _find_codemirror_class(scope)
+            if cm_class:
+                rule_parts = [f"color: {foreground}"]
+                
+                if "italic" in font_style:
+                    rule_parts.append("font-style: italic")
+                if "bold" in font_style:
+                    rule_parts.append("font-weight: bold")
+                if "underline" in font_style:
+                    rule_parts.append("text-decoration: underline")
+                
+                css_rules.append(
+                    f":root[data-theme=\"custom\"] {cm_class} {{ {'; '.join(rule_parts)}; }}"
+                )
+    
+    return "\n".join(css_rules)
+
+
+def _find_codemirror_class(scope: str) -> str | None:
+    """
+    מוצא את ה-CodeMirror class המתאים ל-scope.
+    תומך בהתאמה חלקית (prefix matching).
+    """
+    # התאמה מדויקת
+    if scope in TOKEN_TO_CODEMIRROR_MAP:
+        return TOKEN_TO_CODEMIRROR_MAP[scope]
+    
+    # התאמה לפי prefix
+    for vs_scope, cm_class in TOKEN_TO_CODEMIRROR_MAP.items():
+        if scope.startswith(vs_scope) or vs_scope.startswith(scope):
+            return cm_class
+    
+    return None
+```
+
+#### שמירת Syntax Theme ב-MongoDB
+
+```javascript
+// מבנה מורחב של ערכה מותאמת אישית
+{
+    "id": "uuid",
+    "name": "Dracula",
+    "variables": {
+        "--bg-primary": "#282a36",
+        // ... UI variables
+    },
+    "syntax_css": ":root[data-theme=\"custom\"] .cm-comment { color: #6272a4; font-style: italic; }\n...",
+    "source": "vscode"
+}
+```
+
+#### הזרקת Syntax CSS ב-base.html
+
+```html
+{% if custom_theme and custom_theme.is_active %}
+<!-- User Custom Theme Override -->
+<style id="user-custom-theme">
+:root[data-theme="custom"] {
+    {% for var_name, var_value in custom_theme.variables.items() %}
+    {{ var_name }}: {{ var_value }};
+    {% endfor %}
+}
+</style>
+{% if custom_theme.syntax_css %}
+<!-- Syntax Highlighting Override -->
+<style id="user-custom-syntax">
+{{ custom_theme.syntax_css | safe }}
+</style>
+{% endif %}
+{% endif %}
+```
+
+> ⚠️ **שים לב:** יש לוודא שה-`syntax_css` עבר sanitization לפני שמירה ב-DB כדי למנוע CSS injection.
+
+---
+
 ### Service למיפוי VS Code → CSS Variables
 
 **`services/theme_parser_service.py`:**
@@ -851,12 +1043,109 @@ FALLBACK_LIGHT = {
     "--input-border": "#cecece"
 }
 
-# Regex לוולידציה של צבעים
+# ==========================================
+# 🔒 SECURITY: Regex לוולידציה של צבעים
+# ==========================================
+# ⚠️ אזהרה חשובה: ה-Regex הזה מכוון להיות **מגביל**.
+# אל תרחיב אותו לקבל פורמטים נוספים ללא בדיקה קפדנית!
+# 
+# CSS מאפשר ערכים מסוכנים כמו:
+#   - url('https://evil.com/track.gif')  → מעקב/XSS
+#   - expression(alert())                → JS injection (IE)
+#   - var(--user-input)                  → injection דרך משתנים
+#   - calc(...)                          → עלול לשמש לעקיפות
+#
+# ה-Regex הנוכחי מאפשר **רק**:
+#   - Hex: #fff, #ffffff, #ffffff80
+#   - RGB: rgb(r, g, b)
+#   - RGBA: rgba(r, g, b, a)
+#
+# זה מספיק לכל צורך תקין של ערכות נושא.
+# ==========================================
+
 VALID_COLOR_REGEX = re.compile(
-    r'^#[0-9a-fA-F]{3,8}$|'  # hex
+    r'^#[0-9a-fA-F]{3,8}$|'  # hex (3, 4, 6, or 8 chars)
     r'^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$|'  # rgb
     r'^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*[\d.]+\s*\)$'  # rgba
 )
+
+# רשימה לבנה של משתני CSS מותרים - אל תוסיף משתנים ללא בדיקה
+ALLOWED_VARIABLES_WHITELIST = frozenset([
+    "--bg-primary", "--bg-secondary", "--bg-tertiary",
+    "--text-primary", "--text-secondary", "--text-muted",
+    "--primary", "--primary-hover", "--primary-light",
+    "--border-color", "--shadow-color",
+    "--success", "--warning", "--error",
+    "--code-bg", "--code-text", "--link-color",
+    "--navbar-bg", "--card-bg",
+    "--input-bg", "--input-border",
+    "--glass", "--glass-blur", "--glass-border"
+])
+
+
+def sanitize_css_value(value: str) -> str | None:
+    """
+    מנקה ומוודא שערך CSS בטוח לשימוש.
+    
+    ⚠️ מחזיר None אם הערך לא בטוח!
+    
+    Args:
+        value: ערך CSS לבדיקה
+        
+    Returns:
+        הערך המנוקה, או None אם לא בטוח
+    """
+    if not value or not isinstance(value, str):
+        return None
+    
+    value = value.strip().lower()
+    
+    # חסימת ערכים מסוכנים במפורש
+    dangerous_patterns = [
+        'url(', 'expression(', 'javascript:', 
+        'data:', 'behavior:', 'binding:',
+        '@import', '@charset', '<', '>', 
+        '/*', '*/', '\\', '\n', '\r'
+    ]
+    
+    for pattern in dangerous_patterns:
+        if pattern in value:
+            logger.warning(f"Blocked dangerous CSS value: {value[:50]}...")
+            return None
+    
+    # וולידציה כצבע
+    if VALID_COLOR_REGEX.match(value):
+        return value
+    
+    return None
+
+
+def validate_and_sanitize_theme_variables(variables: dict) -> dict:
+    """
+    מוודא ומנקה את כל המשתנים בערכה.
+    
+    Args:
+        variables: מילון של משתני CSS
+        
+    Returns:
+        מילון מנוקה עם רק משתנים בטוחים
+    """
+    sanitized = {}
+    
+    for key, value in variables.items():
+        # בדיקה שהמפתח ברשימה הלבנה
+        if key not in ALLOWED_VARIABLES_WHITELIST:
+            logger.warning(f"Skipped unknown variable: {key}")
+            continue
+        
+        # ניקוי הערך
+        clean_value = sanitize_css_value(value)
+        if clean_value:
+            sanitized[key] = clean_value
+        else:
+            logger.warning(f"Skipped invalid value for {key}: {value[:30]}...")
+    
+    return sanitized
 
 
 def is_valid_color(value: str) -> bool:
@@ -930,8 +1219,8 @@ def _compute_derived_colors(variables: dict) -> dict:
     # primary-light מבוסס על primary
     if "--primary" in result and "--primary-light" not in result:
         primary = result["--primary"]
-        if primary.startswith("#"):
-            result["--primary-light"] = primary + "26"  # 15% opacity
+        # המרה בטוחה ל-RGBA עם שקיפות
+        result["--primary-light"] = color_with_opacity(primary, 0.15)
     
     # shadow-color מבוסס על סוג הערכה
     if "--shadow-color" not in result:
@@ -942,6 +1231,160 @@ def _compute_derived_colors(variables: dict) -> dict:
             result["--shadow-color"] = "rgba(0, 0, 0, 0.1)"
     
     return result
+
+
+# ==========================================
+# פונקציות עזר למניפולציית צבעים בטוחה
+# ==========================================
+
+def normalize_color_to_rgba(color: str) -> tuple[int, int, int, float] | None:
+    """
+    ממיר כל פורמט צבע תקני ל-tuple של (R, G, B, A).
+    
+    תומך ב:
+    - Hex מקוצר: #fff
+    - Hex מלא: #ffffff
+    - Hex עם alpha: #ffffff80
+    - RGB: rgb(255, 255, 255)
+    - RGBA: rgba(255, 255, 255, 0.5)
+    
+    Returns:
+        tuple (r, g, b, a) כאשר r,g,b הם 0-255 ו-a הוא 0-1
+        או None אם הצבע לא תקין
+    """
+    if not color:
+        return None
+    
+    color = color.strip().lower()
+    
+    # Hex format
+    if color.startswith("#"):
+        hex_val = color[1:]
+        
+        # #fff -> #ffffff
+        if len(hex_val) == 3:
+            hex_val = "".join(c * 2 for c in hex_val)
+            alpha = 1.0
+        # #ffff -> #ffffffff (עם alpha)
+        elif len(hex_val) == 4:
+            hex_val = "".join(c * 2 for c in hex_val[:3])
+            alpha = int(color[4] * 2, 16) / 255
+        # #ffffff
+        elif len(hex_val) == 6:
+            alpha = 1.0
+        # #ffffff80 (עם alpha)
+        elif len(hex_val) == 8:
+            alpha = int(hex_val[6:8], 16) / 255
+            hex_val = hex_val[:6]
+        else:
+            return None
+        
+        try:
+            r = int(hex_val[0:2], 16)
+            g = int(hex_val[2:4], 16)
+            b = int(hex_val[4:6], 16)
+            return (r, g, b, alpha)
+        except ValueError:
+            return None
+    
+    # RGB format
+    rgb_match = re.match(r'rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)', color)
+    if rgb_match:
+        r, g, b = map(int, rgb_match.groups())
+        if all(0 <= c <= 255 for c in (r, g, b)):
+            return (r, g, b, 1.0)
+        return None
+    
+    # RGBA format
+    rgba_match = re.match(
+        r'rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*([\d.]+)\s*\)', 
+        color
+    )
+    if rgba_match:
+        r, g, b = map(int, rgba_match.groups()[:3])
+        a = float(rgba_match.group(4))
+        if all(0 <= c <= 255 for c in (r, g, b)) and 0 <= a <= 1:
+            return (r, g, b, a)
+        return None
+    
+    return None
+
+
+def rgba_to_css(r: int, g: int, b: int, a: float) -> str:
+    """
+    ממיר RGBA tuple למחרוזת CSS.
+    """
+    if a >= 0.999:
+        # ללא שקיפות - מחזיר hex
+        return f"#{r:02x}{g:02x}{b:02x}"
+    else:
+        return f"rgba({r}, {g}, {b}, {a:.2f})"
+
+
+def color_with_opacity(color: str, opacity: float) -> str:
+    """
+    מחזיר צבע עם שקיפות חדשה.
+    
+    Args:
+        color: צבע בכל פורמט תקני
+        opacity: שקיפות חדשה (0-1)
+        
+    Returns:
+        צבע בפורמט rgba()
+        
+    Example:
+        >>> color_with_opacity("#ff0000", 0.5)
+        'rgba(255, 0, 0, 0.50)'
+        >>> color_with_opacity("rgb(255, 0, 0)", 0.15)
+        'rgba(255, 0, 0, 0.15)'
+    """
+    rgba = normalize_color_to_rgba(color)
+    if rgba is None:
+        # fallback - מחזיר צבע שקוף
+        return "rgba(128, 128, 128, 0.15)"
+    
+    r, g, b, _ = rgba
+    return rgba_to_css(r, g, b, opacity)
+
+
+def lighten_color(color: str, amount: float = 0.2) -> str:
+    """
+    מבהיר צבע.
+    
+    Args:
+        color: צבע בכל פורמט
+        amount: כמה להבהיר (0-1)
+    """
+    rgba = normalize_color_to_rgba(color)
+    if rgba is None:
+        return color
+    
+    r, g, b, a = rgba
+    r = min(255, int(r + (255 - r) * amount))
+    g = min(255, int(g + (255 - g) * amount))
+    b = min(255, int(b + (255 - b) * amount))
+    
+    return rgba_to_css(r, g, b, a)
+
+
+def darken_color(color: str, amount: float = 0.2) -> str:
+    """
+    מכהה צבע.
+    
+    Args:
+        color: צבע בכל פורמט
+        amount: כמה להכהות (0-1)
+    """
+    rgba = normalize_color_to_rgba(color)
+    if rgba is None:
+        return color
+    
+    r, g, b, a = rgba
+    r = max(0, int(r * (1 - amount)))
+    g = max(0, int(g * (1 - amount)))
+    b = max(0, int(b * (1 - amount)))
+    
+    return rgba_to_css(r, g, b, a)
 
 
 def _is_dark_color(hex_color: str) -> bool:
@@ -1498,6 +1941,23 @@ def export_theme(theme_id):
     color: white;
     border-color: var(--primary);
 }
+
+/* כפתור Revert Preview */
+.revert-preview-btn {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    z-index: 10;
+    display: none;
+    align-items: center;
+    gap: 0.5rem;
+    animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 ```
 
 ### JavaScript לייבוא ו-Presets
@@ -1628,9 +2088,80 @@ def export_theme(theme_id):
         }
     }
 
+    // === Preview State Management ===
+    let originalPreviewStyles = null;  // שומר את המצב המקורי לפני preview
+    let isPreviewActive = false;
+
+    function saveOriginalPreviewState() {
+        /**
+         * שומר את כל ה-CSS variables הנוכחיים של אזור התצוגה המקדימה.
+         */
+        const preview = document.getElementById('theme-preview-container');
+        if (!preview || originalPreviewStyles !== null) return;
+        
+        originalPreviewStyles = {};
+        const computedStyle = getComputedStyle(preview);
+        
+        // שומר את כל המשתנים הרלוונטיים
+        const varsToSave = [
+            '--bg-primary', '--bg-secondary', '--bg-tertiary',
+            '--text-primary', '--text-secondary', '--text-muted',
+            '--primary', '--primary-hover', '--primary-light',
+            '--border-color', '--shadow-color',
+            '--success', '--warning', '--error',
+            '--code-bg', '--code-text', '--link-color',
+            '--navbar-bg', '--card-bg', '--input-bg', '--input-border'
+        ];
+        
+        varsToSave.forEach(varName => {
+            const value = preview.style.getPropertyValue(varName) || 
+                          computedStyle.getPropertyValue(varName);
+            if (value) {
+                originalPreviewStyles[varName] = value.trim();
+            }
+        });
+    }
+
+    function revertPreview() {
+        /**
+         * מחזיר את אזור התצוגה המקדימה למצב המקורי.
+         */
+        const preview = document.getElementById('theme-preview-container');
+        if (!preview || !originalPreviewStyles) return;
+        
+        // מנקה את כל הסגנונות שהוחלו
+        Object.keys(originalPreviewStyles).forEach(varName => {
+            preview.style.removeProperty(varName);
+        });
+        
+        // מחיל מחדש את המצב המקורי אם יש ערכה נבחרת
+        if (selectedThemeId && !isNewTheme) {
+            // טוען מחדש את הערכה הנוכחית
+            fetchThemeDetails(selectedThemeId).then(theme => {
+                if (theme && theme.variables) {
+                    Object.entries(theme.variables).forEach(([key, value]) => {
+                        preview.style.setProperty(key, value);
+                    });
+                }
+            });
+        }
+        
+        originalPreviewStyles = null;
+        isPreviewActive = false;
+        
+        // מסתיר כפתור Revert
+        const revertBtn = document.getElementById('revertPreviewBtn');
+        if (revertBtn) {
+            revertBtn.style.display = 'none';
+        }
+    }
+
     function previewPreset(presetId) {
         const preset = presets.find(p => p.id === presetId);
         if (!preset) return;
+        
+        // שומר את המצב המקורי לפני ה-preview
+        saveOriginalPreviewState();
         
         // הבאת פרטי הערכה המלאים
         fetch(`/api/themes/presets/${presetId}`)
@@ -1644,8 +2175,55 @@ def export_theme(theme_id):
                             preview.style.setProperty(key, value);
                         });
                     }
+                    
+                    isPreviewActive = true;
+                    
+                    // מציג כפתור Revert
+                    showRevertButton();
                 }
             });
+    }
+
+    function showRevertButton() {
+        /**
+         * מציג כפתור לביטול התצוגה המקדימה.
+         */
+        let revertBtn = document.getElementById('revertPreviewBtn');
+        
+        if (!revertBtn) {
+            // יוצר את הכפתור אם לא קיים
+            revertBtn = document.createElement('button');
+            revertBtn.id = 'revertPreviewBtn';
+            revertBtn.className = 'btn btn-outline-secondary btn-sm revert-preview-btn';
+            revertBtn.innerHTML = '<i class="fas fa-undo"></i> בטל תצוגה מקדימה';
+            revertBtn.addEventListener('click', revertPreview);
+            
+            // מוסיף ליד אזור התצוגה המקדימה
+            const previewContainer = document.querySelector('.preview-header') ||
+                                    document.getElementById('theme-preview-container')?.parentElement;
+            if (previewContainer) {
+                previewContainer.appendChild(revertBtn);
+            }
+        }
+        
+        revertBtn.style.display = 'inline-flex';
+    }
+
+    // מאזין ל-mouseleave מהגלריה לביטול אוטומטי (אופציונלי)
+    function initPreviewAutoRevert() {
+        const gallery = document.getElementById('presetsList');
+        if (gallery) {
+            gallery.addEventListener('mouseleave', () => {
+                // ביטול אוטומטי אחרי 3 שניות אם לא נבחרה ערכה
+                if (isPreviewActive) {
+                    setTimeout(() => {
+                        if (isPreviewActive) {
+                            revertPreview();
+                        }
+                    }, 3000);
+                }
+            });
+        }
     }
 
     // Filters
@@ -1801,6 +2379,7 @@ def export_theme(theme_id):
         initFilters();
         initUpload();
         initJsonImport();
+        initPreviewAutoRevert();  // מנגנון ביטול אוטומטי של preview
     }
 
     // התחלה כשה-DOM מוכן
@@ -1930,6 +2509,94 @@ class TestIsValidColor:
         assert not is_valid_color("red")  # named colors not allowed
         assert not is_valid_color("#gggggg")
         assert not is_valid_color("expression(alert())")
+
+
+class TestColorNormalization:
+    """בדיקות לפונקציות המרת צבעים."""
+    
+    def test_hex_short_to_rgba(self):
+        result = normalize_color_to_rgba("#fff")
+        assert result == (255, 255, 255, 1.0)
+        
+    def test_hex_full_to_rgba(self):
+        result = normalize_color_to_rgba("#ff0000")
+        assert result == (255, 0, 0, 1.0)
+        
+    def test_hex_with_alpha_to_rgba(self):
+        result = normalize_color_to_rgba("#ff000080")
+        assert result[0] == 255
+        assert result[1] == 0
+        assert result[2] == 0
+        assert 0.49 < result[3] < 0.51  # ~0.5
+        
+    def test_rgb_to_rgba(self):
+        result = normalize_color_to_rgba("rgb(100, 150, 200)")
+        assert result == (100, 150, 200, 1.0)
+        
+    def test_rgba_to_rgba(self):
+        result = normalize_color_to_rgba("rgba(100, 150, 200, 0.75)")
+        assert result == (100, 150, 200, 0.75)
+        
+    def test_invalid_returns_none(self):
+        assert normalize_color_to_rgba("red") is None
+        assert normalize_color_to_rgba("url(...)") is None
+        assert normalize_color_to_rgba("") is None
+
+
+class TestColorWithOpacity:
+    """בדיקות להוספת שקיפות לצבע."""
+    
+    def test_hex_with_opacity(self):
+        result = color_with_opacity("#ff0000", 0.5)
+        assert "rgba(255, 0, 0, 0.50)" == result
+        
+    def test_rgb_with_opacity(self):
+        result = color_with_opacity("rgb(255, 0, 0)", 0.15)
+        assert "rgba(255, 0, 0, 0.15)" == result
+        
+    def test_short_hex_with_opacity(self):
+        result = color_with_opacity("#f00", 0.25)
+        assert "rgba(255, 0, 0, 0.25)" == result
+        
+    def test_invalid_color_returns_fallback(self):
+        result = color_with_opacity("invalid", 0.5)
+        assert "rgba" in result  # יחזיר fallback
+
+
+class TestSanitization:
+    """בדיקות אבטחה לניקוי ערכי CSS."""
+    
+    def test_blocks_url(self):
+        assert sanitize_css_value("url('https://evil.com')") is None
+        
+    def test_blocks_expression(self):
+        assert sanitize_css_value("expression(alert(1))") is None
+        
+    def test_blocks_javascript(self):
+        assert sanitize_css_value("javascript:alert(1)") is None
+        
+    def test_blocks_data_uri(self):
+        assert sanitize_css_value("data:text/html,<script>") is None
+        
+    def test_blocks_html_tags(self):
+        assert sanitize_css_value("<script>") is None
+        assert sanitize_css_value("</style>") is None
+        
+    def test_allows_valid_colors(self):
+        assert sanitize_css_value("#ff0000") == "#ff0000"
+        assert sanitize_css_value("rgb(255,0,0)") == "rgb(255,0,0)"
+        
+    def test_validate_theme_variables_filters_unknown(self):
+        variables = {
+            "--bg-primary": "#000",
+            "--unknown-var": "#fff",
+            "--text-primary": "url(evil)"
+        }
+        result = validate_and_sanitize_theme_variables(variables)
+        
+        assert "--bg-primary" in result
+        assert "--unknown-var" not in result
+        assert "--text-primary" not in result  # blocked due to url
 
 
 class TestValidateThemeJson:
@@ -2273,18 +2940,94 @@ function checkThemeAccessibility(variables) {
 
 ---
 
+---
+
+## ⚠️ נקודות חשובות למימוש
+
+### 1. Syntax Highlighting (tokenColors)
+
+ערכות VS Code כוללות `tokenColors` שמגדיר צבעים לקוד. **חובה** לטפל בזה:
+
+- מפה את ה-scopes ל-CodeMirror classes
+- יצר CSS נפרד ושמור אותו בשדה `syntax_css` ב-MongoDB
+- הזריק את ה-CSS בנפרד מה-UI variables
+
+### 2. מניפולציית צבעים בטוחה
+
+**אל תניח** שצבע מגיע בפורמט Hex מלא!
+
+```python
+# ❌ לא בטוח - יישבר על #fff או rgb(...)
+result["--primary-light"] = primary + "26"
+
+# ✅ בטוח - משתמש בהמרה
+result["--primary-light"] = color_with_opacity(primary, 0.15)
+```
+
+### 3. Preview State Management
+
+**חובה** לשמור מצב מקורי לפני preview:
+
+```javascript
+// שמירת מצב
+saveOriginalPreviewState();
+
+// החלת preview
+applyPreviewVariables(newVars);
+
+// כפתור revert
+<button onclick="revertPreview()">בטל תצוגה מקדימה</button>
+```
+
+### 4. Security - CSS Sanitization
+
+ה-Regex לצבעים **מכוון להיות מגביל**. אל תרחיב אותו!
+
+```python
+# ❌ מסוכן - לא להוסיף!
+r'url\([^)]+\)'      # מאפשר מעקב/XSS
+r'expression\(.*\)'  # JS injection
+r'.*'                # הכל מותר
+
+# ✅ בטוח - רק hex/rgb/rgba
+VALID_COLOR_REGEX = re.compile(
+    r'^#[0-9a-fA-F]{3,8}$|'
+    r'^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$|'
+    r'^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*[\d.]+\s*\)$'
+)
+```
+
+---
+
 ## סיכום
 
 ### רשימת משימות למימוש
 
+**שירותי Backend:**
 - [ ] יצירת `services/theme_parser_service.py`
+  - [ ] פונקציות המרת צבעים (`normalize_color_to_rgba`, `color_with_opacity`)
+  - [ ] פרסור VS Code themes (`parse_vscode_theme`)
+  - [ ] פרסור tokenColors ל-CodeMirror CSS (`generate_codemirror_css_from_tokens`)
+  - [ ] Sanitization (`sanitize_css_value`, `validate_and_sanitize_theme_variables`)
 - [ ] יצירת `services/theme_presets_service.py`
 - [ ] יצירת `webapp/static/data/theme_presets.json`
 - [ ] הרחבת `webapp/themes_api.py` עם endpoints חדשים
+
+**Frontend:**
 - [ ] עדכון `theme_builder.html` עם UI לייבוא ו-presets
 - [ ] יצירת `webapp/static/js/theme-importer.js`
-- [ ] כתיבת tests
+- [ ] מנגנון Preview/Revert לגלריית Presets
+- [ ] CSS לכפתור Revert ואנימציות
+
+**בדיקות:**
+- [ ] Unit tests לפונקציות צבע
+- [ ] Unit tests לסניטיזציה (חשוב לאבטחה!)
+- [ ] Integration tests ל-API
+- [ ] בדיקות ידניות עם ערכות VS Code אמיתיות
+
+**תיעוד:**
 - [ ] עדכון documentation
+- [ ] הוספת דוגמאות לייבוא
 
 ### קבצים קיימים לעדכון
 
