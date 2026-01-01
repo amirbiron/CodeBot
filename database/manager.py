@@ -496,7 +496,9 @@ class DatabaseManager:
             except Exception:
                 self.snippets_collection = None
             self.client.admin.command('ping')
-            self._create_indexes()
+            # 🚨 EMERGENCY: הקריאה ל-_create_indexes בוטלה זמנית למניעת Database Lock
+            # כדי להפעיל מחדש: הסר את ההערה מהשורה הבאה
+            # self._create_indexes()
             emit_event("db_connected", severity="info")
         except Exception as e:
             if disable_db:
