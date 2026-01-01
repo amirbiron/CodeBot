@@ -616,8 +616,10 @@ def preset_apply(preset_id: str):
                 "message": "הערכה נוספה בהצלחה!",
             }
         )
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 404
+    except ValueError:
+        # 🔒 אבטחה: לא מחזירים הודעת חריגה גולמית ללקוח
+        logger.exception("Apply preset validation error (preset_id=%s)", preset_id)
+        return jsonify({"success": False, "error": "הערכה אינה זמינה או אינה תקינה"}), 404
     except Exception:
         logger.exception("Apply preset error")
         return jsonify({"success": False, "error": "שגיאה בהוספת הערכה"}), 500
@@ -735,8 +737,10 @@ def import_theme():
             }
         )
 
-    except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+    except ValueError:
+        # 🔒 אבטחה: לא מחזירים הודעת חריגה גולמית ללקוח
+        logger.exception("Theme import validation error")
+        return jsonify({"success": False, "error": "קובץ הערכה אינו תקין"}), 400
     except Exception:
         logger.exception("Theme import error")
         return jsonify({"success": False, "error": "שגיאה בייבוא הערכה"}), 500

@@ -338,8 +338,10 @@ def validate_theme_json(json_content: str) -> tuple[bool, str]:
     """מוודא שקובץ JSON הוא ערכת נושא תקינה."""
     try:
         data = json.loads(json_content)
-    except json.JSONDecodeError as e:
-        return False, f"קובץ JSON לא תקין: {e}"
+    except json.JSONDecodeError:
+        # 🔒 אבטחה: לא מחזירים הודעת חריגה גולמית ללקוח
+        logger.exception("Invalid theme JSON content")
+        return False, "קובץ JSON לא תקין"
 
     if not isinstance(data, dict):
         return False, "הקובץ חייב להיות אובייקט JSON"
@@ -739,10 +741,13 @@ def sanitize_codemirror_css(css: str) -> str:
         return ""
 
     safe_rules: list[str] = []
+    max_line_length = 500  # 🔒 הגנה מפני ReDoS / קלט חריג
 
     for raw_line in css.splitlines():
         line = raw_line.strip()
         if not line:
+            continue
+        if len(line) > max_line_length:
             continue
 
         # חסימת תבניות מסוכנות במפורש
@@ -756,12 +761,26 @@ def sanitize_codemirror_css(css: str) -> str:
         if any(p in lower for p in dangerous_patterns):
             continue
 
-        m = re.match(r'^:root\[data-theme="custom"\]\s+(\.[^\s{]+)\s*\{\s*(.*?)\s*\}\s*$', line)
-        if not m:
+        # 🔒 אבטחה/ביצועים: הימנעות מ-Regex כבד על קלט לא נשלט (ReDoS)
+        prefix = ':root[data-theme="custom"]'
+        if not line.startswith(prefix):
             continue
 
-        selector = m.group(1).strip()
-        body = m.group(2).strip()
+        open_idx = line.find("{")
+        close_idx = line.rfind("}")
+        if open_idx == -1 or close_idx == -1 or close_idx < open_idx:
+            continue
+
+        before = line[:open_idx].strip()
+        body = line[open_idx + 1 : close_idx].strip()
+        after = line[close_idx + 1 :].strip()
+        if after:
+            continue
+
+        rest = before[len(prefix) :].strip()
+        if not rest:
+            continue
+        selector = rest
 
         if not re.match(r'^\.(cm-[a-z0-9_-]+)$', selector):
             continue
