@@ -7101,44 +7101,47 @@ def check_mongo_ops():
     🔍 בדיקת פעולות MongoDB שרצות כרגע (כמו בניית אינדקסים).
     
     מחזיר מידע על:
-    - פעולות שממתינות ל-Lock
     - פעולות בניית אינדקסים (Index Builds)
     - זמן ריצה של כל פעולה
+    
+    📝 הערה: גרסה תואמת ל-Atlas Shared Tier (ללא $all).
     """
     try:
         from database.manager import DatabaseManager
         
         db = DatabaseManager().db
         
-        # פקודה שבודקת פעולות שרצות כרגע ב-DB
-        # הפקודה המתוקנת - פילטרים ברמה העליונה וללא waitingForLock
+        # ב-Atlas Tier נמוך, אנחנו מוותרים על $all 
+        # ומתמקדים רק בפעולות שמונגו מרשה לנו לראות
         ops = db.command({
             "currentOp": 1,
-            "$all": True,
-            "command.createIndexes": {"$exists": True}
+            "active": True,
+            "waitingForLock": False
         })
-        # אם רוצים לראות הכל (לא רק אינדקסים) פשוט תוריד את הפילטר האחרון:
-        # ops = db.command({"currentOp": 1, "$all": True})
         
         in_progress = []
         for op in ops.get('inprog', []):
-            if 'msg' in op:  # זה בדרך כלל מציין Index Build
+            # מחפשים רמזים לבניית אינדקסים או שאילתות כבדות
+            command = op.get('command', {})
+            msg = op.get('msg', '')
+            
+            # אם יש הודעה (כמו Progress) או שזו פקודת יצירת אינדקסים
+            if msg or "createIndexes" in command:
                 in_progress.append({
-                    "msg": op['msg'],
+                    "msg": msg or "Building Index...",
+                    "collection": command.get("createIndexes"),
                     "progress": op.get('progress', {}),
                     "secs_running": op.get('secs_running'),
-                    "op": op.get('op'),
-                    "ns": op.get('ns'),  # namespace (collection)
+                    "opid": op.get('opid')
                 })
         
         return jsonify({
             "status": "success",
             "active_index_builds": in_progress,
-            "raw_count": len(ops.get('inprog', [])),
-            "waiting_for_lock_count": len(in_progress),
+            "raw_ops_count": len(ops.get('inprog', []))
         })
     except Exception as e:
-        logger.exception("check_mongo_ops_failed")
+        # כאן נשמור על str(e) כדי לראות אם יש עוד מגבלות של אטלס
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
