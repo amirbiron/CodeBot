@@ -439,11 +439,23 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
     result = _compute_derived_colors(result)
 
     # 🎨 יצירת CSS להדגשת תחביר מ-tokenColors
-    syntax_css = ""
+    syntax_css_parts = []
     token_colors = theme_data.get("tokenColors", [])
     if token_colors:
-        raw_css = generate_codemirror_css_from_tokens(token_colors)
-        syntax_css = sanitize_codemirror_css(raw_css)
+        # CodeMirror CSS (.tok-* classes)
+        cm_css = generate_codemirror_css_from_tokens(token_colors)
+        cm_css = sanitize_codemirror_css(cm_css)
+        if cm_css:
+            syntax_css_parts.append("/* CodeMirror syntax highlighting */")
+            syntax_css_parts.append(cm_css)
+
+        # Pygments CSS (.source .k, .source .c, etc.)
+        py_css = generate_pygments_css_from_tokens(token_colors)
+        if py_css:
+            syntax_css_parts.append("\n/* Pygments syntax highlighting */")
+            syntax_css_parts.append(py_css)
+
+    syntax_css = "\n".join(syntax_css_parts)
 
     return {
         "name": theme_data.get("name", "Imported Theme"),
@@ -868,6 +880,237 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "url": ".tok-url",
     "source": ".tok-meta",
 }
+
+# ==========================================
+# 🎨 Pygments Token Classes Mapping
+# ==========================================
+# מיפוי VS Code TextMate scopes ל-Pygments CSS classes
+# ראה: https://pygments.org/docs/tokens/
+# ==========================================
+
+TOKEN_TO_PYGMENTS_MAP: dict[str, str] = {
+    # ===========================================
+    # Comments
+    # ===========================================
+    "comment": ".c",
+    "comment.line": ".c1",
+    "comment.block": ".cm",
+    "comment.block.documentation": ".cm",
+    "punctuation.definition.comment": ".c",
+
+    # ===========================================
+    # Strings
+    # ===========================================
+    "string": ".s",
+    "string.quoted": ".s",
+    "string.quoted.single": ".s1",
+    "string.quoted.double": ".s2",
+    "string.quoted.triple": ".s",
+    "string.template": ".s",
+    "string.regexp": ".sr",
+    "string.interpolated": ".si",
+    "string.other": ".s",
+
+    # ===========================================
+    # Keywords
+    # ===========================================
+    "keyword": ".k",
+    "keyword.control": ".k",
+    "keyword.control.flow": ".k",
+    "keyword.control.import": ".kn",
+    "keyword.control.export": ".kn",
+    "keyword.control.conditional": ".k",
+    "keyword.control.loop": ".k",
+    "keyword.control.return": ".k",
+    "keyword.control.trycatch": ".k",
+    "keyword.other": ".k",
+    "keyword.other.unit": ".k",
+    "keyword.operator": ".o",
+
+    # ===========================================
+    # Storage (types and modifiers)
+    # ===========================================
+    "storage": ".k",
+    "storage.type": ".kt",
+    "storage.type.function": ".kd",
+    "storage.type.class": ".kd",
+    "storage.modifier": ".kd",
+    "storage.modifier.async": ".k",
+
+    # ===========================================
+    # Constants (numbers, booleans, etc.)
+    # ===========================================
+    "constant": ".kc",
+    "constant.numeric": ".m",
+    "constant.numeric.integer": ".mi",
+    "constant.numeric.float": ".mf",
+    "constant.numeric.hex": ".mh",
+    "constant.numeric.octal": ".mo",
+    "constant.numeric.binary": ".mb",
+    "constant.language": ".kc",  # true, false, null
+    "constant.character": ".sc",
+    "constant.character.escape": ".se",
+    "constant.other": ".kc",
+
+    # ===========================================
+    # Functions
+    # ===========================================
+    "entity.name.function": ".nf",
+    "entity.name.function.method": ".nf",
+    "entity.name.function.decorator": ".nd",
+    "support.function": ".nf",
+    "meta.function-call": ".nf",
+
+    # ===========================================
+    # Classes and Types
+    # ===========================================
+    "entity.name.class": ".nc",
+    "entity.name.type": ".nc",
+    "entity.name.type.class": ".nc",
+    "support.class": ".nc",
+    "support.type": ".kt",
+    "entity.other.inherited-class": ".nc",
+
+    # ===========================================
+    # Variables
+    # ===========================================
+    "variable": ".n",
+    "variable.other": ".n",
+    "variable.parameter": ".n",
+    "variable.language": ".nb",  # self, this
+    "variable.function": ".nf",
+
+    # ===========================================
+    # HTML/XML Tags and Attributes
+    # ===========================================
+    "entity.name.tag": ".nt",
+    "entity.other.attribute-name": ".na",
+    "punctuation.definition.tag": ".p",
+
+    # ===========================================
+    # Operators and Punctuation
+    # ===========================================
+    "punctuation": ".p",
+    "punctuation.separator": ".p",
+    "punctuation.definition.string": ".p",
+
+    # ===========================================
+    # Markdown
+    # ===========================================
+    "entity.name.section.markdown": ".gh",  # Generic.Heading
+    "markup.heading": ".gh",
+    "markup.bold": ".gs",
+    "markup.italic": ".ge",
+    "markup.raw": ".s",  # code block
+    "markup.inline.raw": ".s",
+    "markup.deleted": ".gd",
+    "markup.inserted": ".gi",
+    "markup.changed": ".go",
+
+    # ===========================================
+    # Invalid/Error
+    # ===========================================
+    "invalid": ".err",
+    "invalid.deprecated": ".err",
+}
+
+
+def _find_pygments_class(scope: str) -> str | None:
+    """
+    מוצא את ה-Pygments class המתאים ל-scope.
+
+    Args:
+        scope: VS Code TextMate scope (e.g., "keyword.control.import")
+
+    Returns:
+        Pygments CSS class (e.g., ".kn") או None אם אין התאמה
+    """
+    if not scope or not isinstance(scope, str):
+        return None
+
+    # התאמה מדויקת - עדיפות ראשונה
+    if scope in TOKEN_TO_PYGMENTS_MAP:
+        return TOKEN_TO_PYGMENTS_MAP[scope]
+
+    # חיפוש ההתאמה הספציפית ביותר (הארוכה ביותר)
+    best_match: str | None = None
+    best_match_length = 0
+
+    for vs_scope, py_class in TOKEN_TO_PYGMENTS_MAP.items():
+        if scope.startswith(vs_scope + ".") or scope == vs_scope:
+            if len(vs_scope) > best_match_length:
+                best_match = py_class
+                best_match_length = len(vs_scope)
+        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
+            if len(scope) > best_match_length:
+                best_match = py_class
+                best_match_length = len(scope)
+
+    return best_match
+
+
+def generate_pygments_css_from_tokens(token_colors: list[dict]) -> str:
+    """
+    ממיר tokenColors של VS Code ל-CSS עבור Pygments.
+
+    🔑 אם יש כמה scopes שממופים לאותו Pygments class,
+    הכלל הראשון מנצח (הספציפי יותר בד"כ מופיע קודם בקובץ VS Code).
+
+    Returns:
+        CSS string עם כללים בפורמט:
+        [data-theme="custom"] .source .k { color: #...; }
+    """
+    if not isinstance(token_colors, list):
+        return ""
+
+    # שימוש ב-dict כדי לדדופ כללים לפי selector
+    css_by_selector: dict[str, str] = {}
+
+    for token in token_colors:
+        if not isinstance(token, dict):
+            continue
+
+        scopes = token.get("scope", [])
+        if isinstance(scopes, str):
+            scopes = [scopes]
+        if not isinstance(scopes, list):
+            continue
+
+        settings = token.get("settings", {})
+        if not isinstance(settings, dict):
+            continue
+
+        foreground = settings.get("foreground")
+        font_style = settings.get("fontStyle", "") or ""
+
+        if not foreground or not is_valid_color(str(foreground)):
+            continue
+
+        for scope in scopes:
+            py_class = _find_pygments_class(str(scope))
+            if not py_class:
+                continue
+
+            # אם כבר יש כלל לזה, נדלג (הראשון מנצח)
+            if py_class in css_by_selector:
+                continue
+
+            # CSS עם !important כדי לדרוס Pygments default styles
+            rule_parts = [f"color: {str(foreground).strip()} !important"]
+
+            fs = str(font_style).lower()
+            if "italic" in fs:
+                rule_parts.append("font-style: italic !important")
+            if "bold" in fs:
+                rule_parts.append("font-weight: bold !important")
+            if "underline" in fs:
+                rule_parts.append("text-decoration: underline !important")
+
+            # Selector: [data-theme="custom"] .source .k
+            selector = f'[data-theme="custom"] .source {py_class}'
+            css_by_selector[py_class] = f'{selector} {{ {"; ".join(rule_parts)}; }}'
+
+    return "\n".join(css_by_selector.values())
 
 
 def _find_codemirror_class(scope: str) -> str | None:
