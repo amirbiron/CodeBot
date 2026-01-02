@@ -798,12 +798,9 @@ def import_theme():
         if isinstance(data, dict) and "colors" in data:
             parsed = parse_vscode_theme(data)
             source = "vscode"
-            token_colors = data.get("tokenColors", [])
-            try:
-                raw_css = generate_codemirror_css_from_tokens(token_colors if isinstance(token_colors, list) else [])
-                syntax_css = sanitize_codemirror_css(raw_css)
-            except Exception:
-                syntax_css = ""
+            # 🔑 שימוש ב-syntax_css שמוחזר מ-parse_vscode_theme
+            # כולל CodeMirror CSS (.tok-*) + Pygments CSS (.source .k, etc.)
+            syntax_css = parsed.get("syntax_css", "") if isinstance(parsed, dict) else ""
         else:
             parsed = parse_native_theme(data)
             source = "import"
