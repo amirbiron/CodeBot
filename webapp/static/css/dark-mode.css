@@ -307,7 +307,9 @@
 [data-theme="dim"] .recent-files-modal .modal-content,
 [data-theme="dim"] .community-modal .modal-content,
 [data-theme="nebula"] .recent-files-modal .modal-content,
-[data-theme="nebula"] .community-modal .modal-content {
+[data-theme="nebula"] .community-modal .modal-content,
+[data-theme="custom"] .recent-files-modal .modal-content,
+[data-theme="custom"] .community-modal .modal-content {
     background: var(--card-bg);
     color: var(--text-primary);
     border: 1px solid var(--card-border);
@@ -318,31 +320,37 @@
 [data-theme="dim"] .recent-files-modal .modal-header,
 [data-theme="dim"] .community-modal .modal-header,
 [data-theme="nebula"] .recent-files-modal .modal-header,
-[data-theme="nebula"] .community-modal .modal-header {
+[data-theme="nebula"] .community-modal .modal-header,
+[data-theme="custom"] .recent-files-modal .modal-header,
+[data-theme="custom"] .community-modal .modal-header {
     border-bottom-color: var(--glass-border);
 }
 
 [data-theme="dark"] .recent-files-modal .modal-header h3,
 [data-theme="dim"] .recent-files-modal .modal-header h3,
-[data-theme="nebula"] .recent-files-modal .modal-header h3 {
+[data-theme="nebula"] .recent-files-modal .modal-header h3,
+[data-theme="custom"] .recent-files-modal .modal-header h3 {
     color: var(--text-primary);
 }
 
 [data-theme="dark"] .recent-files-modal .modal-close,
 [data-theme="dim"] .recent-files-modal .modal-close,
-[data-theme="nebula"] .recent-files-modal .modal-close {
+[data-theme="nebula"] .recent-files-modal .modal-close,
+[data-theme="custom"] .recent-files-modal .modal-close {
     color: var(--text-secondary);
 }
 
 [data-theme="dark"] .recent-files-modal .file-meta,
 [data-theme="dim"] .recent-files-modal .file-meta,
-[data-theme="nebula"] .recent-files-modal .file-meta {
+[data-theme="nebula"] .recent-files-modal .file-meta,
+[data-theme="custom"] .recent-files-modal .file-meta {
     color: var(--text-secondary);
 }
 
 [data-theme="dark"] .recent-file-item,
 [data-theme="dim"] .recent-file-item,
-[data-theme="nebula"] .recent-file-item {
+[data-theme="nebula"] .recent-file-item,
+[data-theme="custom"] .recent-file-item {
     color: var(--text-primary);
 }
 
@@ -425,12 +433,15 @@
 [data-theme="dark"] *,
 [data-theme="dim"] *,
 [data-theme="nebula"] *,
+[data-theme="custom"] *,
 [data-theme="dark"] *::before,
 [data-theme="dim"] *::before,
 [data-theme="nebula"] *::before,
+[data-theme="custom"] *::before,
 [data-theme="dark"] *::after,
 [data-theme="dim"] *::after,
-[data-theme="nebula"] *::after {
+[data-theme="nebula"] *::after,
+[data-theme="custom"] *::after {
     transition: background-color 0.3s ease,
                 color 0.3s ease,
                 border-color 0.3s ease,
