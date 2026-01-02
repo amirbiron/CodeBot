@@ -166,16 +166,11 @@
     border: 1px solid var(--code-border);
 }
 
-/* Custom theme: צבע ברירת מחדל לקוד */
+/* Custom theme: רק רקע, בלי צבע!
+   הצבע מגיע מ-Pygments CSS (github-dark) או מ-syntax_css של הערכה */
 [data-theme="custom"] .source {
     background: var(--code-bg, #1e1e1e) !important;
-    color: var(--code-text, #e4e3e1);  /* צבע ברירת מחדל, ללא !important כדי לאפשר דריסה */
     border: 1px solid var(--code-border, rgba(255, 255, 255, 0.1));
-}
-
-/* Pygments tokens יכולים לדרוס את צבע ברירת המחדל */
-[data-theme="custom"] .source span {
-    /* ירושת הצבע מ-syntax_css אם מוגדר, אחרת מ-.source */
 }
 
 [data-theme="dark"] .highlighttable td.linenos,
