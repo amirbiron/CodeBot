@@ -131,11 +131,14 @@ def test_metrics_storage_batch_insert_success(monkeypatch):
     calls = _install_fake_pymongo(monkeypatch, fail_insert=False, calls_out=[])
 
     ms = _import_fresh_metrics_storage(monkeypatch)
-    # First enqueue should not flush (batch size=2)
+    # Enqueue should never flush on the request path
     ms.enqueue_request_metric(200, 0.100, request_id="r1")
     assert len(calls) == 0
-    # Second enqueue triggers flush
+    # Second enqueue should still not flush
     ms.enqueue_request_metric(200, 0.200, request_id="r2")
+    assert len(calls) == 0
+    # Explicit flush triggers DB write
+    ms.flush(force=True)
     assert len(calls) >= 1
     assert sum(len(b) for b in calls) >= 2
     # Initialized event should be emitted once
@@ -157,8 +160,8 @@ def test_metrics_storage_batch_insert_failure_emits_event(monkeypatch):
 
     ms = _import_fresh_metrics_storage(monkeypatch)
     ms.enqueue_request_metric(500, 0.300, request_id="e1")
-    ms.enqueue_request_metric(500, 0.400, request_id="e2")  # triggers flush and failure
-    # Force another flush to exercise re-queue path safely
+    ms.enqueue_request_metric(500, 0.400, request_id="e2")
+    # Force flush to trigger insert and failure
     ms.flush(force=True)
 
     assert any(e[0] == "metrics_db_batch_insert_error" for e in events)

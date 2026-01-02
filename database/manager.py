@@ -730,6 +730,8 @@ class DatabaseManager:
             "note_reminders",
             [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
             name="push_polling_idx",
+            background=True,
+            enforce=True,
         )
 
         # service_metrics
