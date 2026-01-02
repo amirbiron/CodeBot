@@ -438,10 +438,18 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
 
     result = _compute_derived_colors(result)
 
+    # 🎨 יצירת CSS להדגשת תחביר מ-tokenColors
+    syntax_css = ""
+    token_colors = theme_data.get("tokenColors", [])
+    if token_colors:
+        raw_css = generate_codemirror_css_from_tokens(token_colors)
+        syntax_css = sanitize_codemirror_css(raw_css)
+
     return {
         "name": theme_data.get("name", "Imported Theme"),
         "type": theme_type,
         "variables": result,
+        "syntax_css": syntax_css,
     }
 
 
@@ -642,6 +650,7 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "comment": ".tok-comment",
     "comment.line": ".tok-comment",
     "comment.block": ".tok-comment",
+    "comment.block.documentation": ".tok-comment",
     "punctuation.definition.comment": ".tok-comment",
 
     # ===========================================
@@ -651,8 +660,10 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "string.quoted": ".tok-string",
     "string.quoted.single": ".tok-string",
     "string.quoted.double": ".tok-string",
+    "string.quoted.triple": ".tok-string",
     "string.template": ".tok-string2",
     "string.regexp": ".tok-string2",
+    "string.interpolated": ".tok-string2",
 
     # ===========================================
     # Keywords (מילות מפתח של השפה)
@@ -664,34 +675,52 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "keyword.control.export": ".tok-keyword",
     "keyword.control.conditional": ".tok-keyword",
     "keyword.control.loop": ".tok-keyword",
+    "keyword.control.return": ".tok-keyword",
+    "keyword.control.trycatch": ".tok-keyword",
     "keyword.other": ".tok-keyword",
+    "keyword.other.unit": ".tok-keyword",
 
     # ===========================================
     # Storage (הגדרות משתנים/פונקציות)
     # ===========================================
     "storage": ".tok-keyword",
     "storage.type": ".tok-keyword",
+    "storage.type.function": ".tok-keyword",
+    "storage.type.class": ".tok-keyword",
     "storage.modifier": ".tok-keyword",
+    "storage.modifier.async": ".tok-keyword",
 
     # ===========================================
     # Functions (פונקציות והגדרותיהן)
     # ===========================================
-    "entity.name.function": ".tok-variableName",
-    "entity.name.function.method": ".tok-variableName",
+    # הגדרות פונקציות משתמשות ב-definition class
+    "entity.name.function": ".tok-variableName.tok-definition",
+    "entity.name.function.method": ".tok-variableName.tok-definition",
+    "entity.name.function.decorator": ".tok-macroName",
+    # קריאות לפונקציות (ללא definition)
+    "meta.function-call": ".tok-variableName",
+    "meta.function-call.generic": ".tok-variableName",
+    "entity.name.function.call": ".tok-variableName",
+    "entity.name.function.method.call": ".tok-variableName",
+    # Built-in functions
     "support.function": ".tok-variableName",
     "support.function.builtin": ".tok-variableName",
-    "meta.function-call": ".tok-variableName",
+    "support.function.magic": ".tok-variableName",
 
     # ===========================================
     # Variables (משתנים)
     # ===========================================
     "variable": ".tok-variableName",
-    "variable.parameter": ".tok-variableName",
+    "variable.parameter": ".tok-variableName.tok-local",
+    "variable.parameter.function": ".tok-variableName.tok-local",
     "variable.other": ".tok-variableName",
     "variable.other.readwrite": ".tok-variableName",
-    "variable.language": ".tok-variableName",
-    "variable.language.this": ".tok-variableName",
-    "variable.language.self": ".tok-variableName",
+    "variable.other.constant": ".tok-variableName2",
+    "variable.other.enummember": ".tok-variableName2",
+    "variable.language": ".tok-variableName2",
+    "variable.language.this": ".tok-variableName2",
+    "variable.language.self": ".tok-variableName2",
+    "variable.language.super": ".tok-variableName2",
 
     # ===========================================
     # Constants (קבועים ומספרים)
@@ -701,23 +730,34 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "constant.numeric.integer": ".tok-number",
     "constant.numeric.float": ".tok-number",
     "constant.numeric.hex": ".tok-number",
+    "constant.numeric.binary": ".tok-number",
+    "constant.numeric.octal": ".tok-number",
     "constant.language": ".tok-atom",
     "constant.language.boolean": ".tok-bool",
+    "constant.language.boolean.true": ".tok-bool",
+    "constant.language.boolean.false": ".tok-bool",
     "constant.language.null": ".tok-atom",
+    "constant.language.undefined": ".tok-atom",
     "constant.character": ".tok-string",
     "constant.character.escape": ".tok-string2",
+    "constant.other": ".tok-atom",
 
     # ===========================================
     # Types & Classes (טיפוסים ומחלקות)
     # ===========================================
     "entity.name.type": ".tok-typeName",
-    "entity.name.type.class": ".tok-typeName",
+    "entity.name.type.class": ".tok-className",
     "entity.name.type.interface": ".tok-typeName",
     "entity.name.type.enum": ".tok-typeName",
-    "entity.name.class": ".tok-typeName",
+    "entity.name.type.module": ".tok-namespace",
+    "entity.name.type.namespace": ".tok-namespace",
+    "entity.name.class": ".tok-className",
+    "entity.name.namespace": ".tok-namespace",
+    "entity.name.module": ".tok-namespace",
     "support.type": ".tok-typeName",
-    "support.class": ".tok-typeName",
-    "support.class.builtin": ".tok-typeName",
+    "support.type.primitive": ".tok-typeName",
+    "support.class": ".tok-className",
+    "support.class.builtin": ".tok-className",
 
     # ===========================================
     # Operators (אופרטורים)
@@ -727,6 +767,13 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "keyword.operator.comparison": ".tok-operator",
     "keyword.operator.logical": ".tok-operator",
     "keyword.operator.arithmetic": ".tok-operator",
+    "keyword.operator.bitwise": ".tok-operator",
+    "keyword.operator.ternary": ".tok-operator",
+    "keyword.operator.spread": ".tok-operator",
+    "keyword.operator.new": ".tok-keyword",
+    "keyword.operator.expression": ".tok-keyword",
+    "keyword.operator.typeof": ".tok-keyword",
+    "keyword.operator.instanceof": ".tok-keyword",
 
     # ===========================================
     # Properties & Attributes
@@ -735,8 +782,10 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "entity.other.attribute-name.class": ".tok-propertyName",
     "entity.other.attribute-name.id": ".tok-propertyName",
     "support.type.property-name": ".tok-propertyName",
+    "support.type.property-name.json": ".tok-propertyName",
     "meta.object-literal.key": ".tok-propertyName",
     "variable.other.property": ".tok-propertyName",
+    "variable.other.object.property": ".tok-propertyName",
 
     # ===========================================
     # Tags (HTML/XML/JSX)
@@ -744,15 +793,29 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "entity.name.tag": ".tok-tagName",
     "entity.name.tag.html": ".tok-tagName",
     "entity.name.tag.xml": ".tok-tagName",
-    "punctuation.definition.tag": ".tok-tagName",
-    "support.class.component": ".tok-typeName",
+    "entity.name.tag.css": ".tok-tagName",
+    "punctuation.definition.tag": ".tok-punctuation",
+    "punctuation.definition.tag.begin": ".tok-punctuation",
+    "punctuation.definition.tag.end": ".tok-punctuation",
+    "support.class.component": ".tok-className",
+    "support.class.component.jsx": ".tok-className",
 
     # ===========================================
-    # Punctuation (סימני פיסוק חשובים)
+    # Punctuation (סימני פיסוק)
     # ===========================================
+    "punctuation": ".tok-punctuation",
     "punctuation.definition.string": ".tok-string",
+    "punctuation.definition.string.begin": ".tok-string",
+    "punctuation.definition.string.end": ".tok-string",
     "punctuation.separator": ".tok-punctuation",
+    "punctuation.terminator": ".tok-punctuation",
+    "punctuation.accessor": ".tok-punctuation",
+    "punctuation.bracket": ".tok-punctuation",
+    "punctuation.section": ".tok-punctuation",
     "meta.brace": ".tok-punctuation",
+    "meta.brace.round": ".tok-punctuation",
+    "meta.brace.square": ".tok-punctuation",
+    "meta.brace.curly": ".tok-punctuation",
 
     # ===========================================
     # Errors & Special
@@ -762,13 +825,48 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     "invalid.deprecated": ".tok-invalid",
 
     # ===========================================
+    # Markup (Markdown/HTML content)
+    # ===========================================
+    "markup.heading": ".tok-heading",
+    "markup.heading.1": ".tok-heading",
+    "markup.heading.2": ".tok-heading",
+    "markup.heading.setext": ".tok-heading",
+    "markup.bold": ".tok-strong",
+    "markup.italic": ".tok-emphasis",
+    "markup.underline": ".tok-link",
+    "markup.underline.link": ".tok-link",
+    "markup.inserted": ".tok-inserted",
+    "markup.deleted": ".tok-deleted",
+    "markup.changed": ".tok-atom",
+    "markup.quote": ".tok-meta",
+    "markup.list": ".tok-punctuation",
+    "markup.raw": ".tok-string",
+    "markup.inline.raw": ".tok-string",
+
+    # ===========================================
+    # Git Diff
+    # ===========================================
+    "meta.diff.header": ".tok-meta",
+    "markup.inserted.diff": ".tok-inserted",
+    "markup.deleted.diff": ".tok-deleted",
+
+    # ===========================================
+    # Labels & Special Names
+    # ===========================================
+    "entity.name.label": ".tok-labelName",
+    "entity.name.section": ".tok-heading",
+
+    # ===========================================
     # Additional CodeMirror 6 Classes
     # ===========================================
     "meta": ".tok-meta",
+    "meta.embedded": ".tok-meta",
+    "meta.preprocessor": ".tok-meta",
     "emphasis": ".tok-emphasis",
     "strong": ".tok-strong",
     "link": ".tok-link",
     "url": ".tok-url",
+    "source": ".tok-meta",
 }
 
 
@@ -815,11 +913,16 @@ def _find_codemirror_class(scope: str) -> str | None:
 def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
     """
     ממיר tokenColors של VS Code ל-CSS עבור CodeMirror.
+
+    🔑 אם יש כמה scopes שממופים לאותו CodeMirror class,
+    הכלל הראשון מנצח (הספציפי יותר בד"כ מופיע קודם בקובץ VS Code).
     """
     if not isinstance(token_colors, list):
         return ""
 
-    css_rules: list[str] = []
+    # 🎨 שימוש ב-dict כדי לדדופ כללים לפי selector
+    # הכלל הראשון לכל selector מנצח
+    css_by_selector: dict[str, str] = {}
 
     for token in token_colors:
         if not isinstance(token, dict):
@@ -846,6 +949,10 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
             if not cm_class:
                 continue
 
+            # 🔑 אם כבר יש כלל לזה, נדלג (הראשון מנצח)
+            if cm_class in css_by_selector:
+                continue
+
             # 🎨 !important נדרש כדי לדרוס inline styles של CodeMirror themes
             rule_parts = [f"color: {str(foreground).strip()} !important"]
 
@@ -857,11 +964,11 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
             if "underline" in fs:
                 rule_parts.append("text-decoration: underline !important")
 
-            css_rules.append(
+            css_by_selector[cm_class] = (
                 f':root[data-theme="custom"] {cm_class} {{ {"; ".join(rule_parts)}; }}'
             )
 
-    return "\n".join(css_rules)
+    return "\n".join(css_by_selector.values())
 
 
 def sanitize_codemirror_css(css: str) -> str:
@@ -919,7 +1026,13 @@ def sanitize_codemirror_css(css: str) -> str:
         selector = rest
 
         # 🎨 תומך גם ב-tok- (CodeMirror 6) וגם ב-cm- (legacy)
-        if not re.match(r'^\.(tok-[a-zA-Z0-9_-]+|cm-[a-z0-9_-]+)$', selector):
+        # תומך גם ב-composite selectors כמו .tok-variableName.tok-definition
+        tok_pattern = r'\.tok-[a-zA-Z0-9_-]+'
+        cm_pattern = r'\.cm-[a-z0-9_-]+'
+        single_class = f'({tok_pattern}|{cm_pattern})'
+        # מאפשר עד 3 classes משורשרים (לדוג' .tok-variableName.tok-definition.tok-local)
+        composite_pattern = f'^{single_class}({single_class}){{0,2}}$'
+        if not re.match(composite_pattern, selector):
             continue
 
         decls = [d.strip() for d in body.split(";") if d.strip()]

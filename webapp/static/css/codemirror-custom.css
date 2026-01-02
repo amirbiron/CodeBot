@@ -179,3 +179,40 @@ textarea[name="code"]::placeholder,
 [data-theme="nebula"] .cm-selectionBackground {
   background-color: rgba(124, 138, 255, 0.3) !important;
 }
+
+/* Custom Theme CodeMirror - uses CSS variables from imported theme */
+[data-theme="custom"] .codemirror-container {
+  background: var(--code-bg, var(--bg-primary, #1e1e1e));
+  border-color: var(--code-border, var(--border-color, rgba(255, 255, 255, 0.1)));
+}
+
+[data-theme="custom"] .cm-editor {
+  background: var(--code-bg, var(--bg-primary, #1e1e1e));
+  color: var(--code-text, var(--text-primary, #d4d4d4));
+}
+
+[data-theme="custom"] .cm-gutters {
+  background: var(--bg-tertiary, var(--bg-secondary, #252526));
+  border-right-color: var(--code-border, var(--border-color, rgba(255, 255, 255, 0.1)));
+  color: var(--text-muted, #6d6d6d);
+}
+
+[data-theme="custom"] .cm-activeLineGutter {
+  background: var(--glass-hover, rgba(255, 255, 255, 0.08));
+}
+
+[data-theme="custom"] .cm-activeLine {
+  background: var(--glass, rgba(255, 255, 255, 0.05));
+}
+
+[data-theme="custom"] .cm-selectionBackground {
+  background-color: var(--primary-light, rgba(86, 156, 214, 0.3)) !important;
+}
+
+[data-theme="custom"] .cm-cursor {
+  border-left-color: var(--text-primary, #d4d4d4);
+}
+
+[data-theme="custom"] .cm-editor.cm-focused {
+  outline: 2px solid var(--primary, rgba(100, 100, 255, 0.5));
+}
