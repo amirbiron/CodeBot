@@ -76,7 +76,10 @@
     try {
       const { EditorState, EditorView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
       const languageExt = getLanguageSupport('python') || [];
-      const themeExt = getTheme('dark') || [];
+      // 🎨 Custom themes: בדיקת data-theme כדי לא לטעון oneDark כשיש ערכה מותאמת
+      const htmlTheme = document && document.documentElement ? document.documentElement.getAttribute('data-theme') : '';
+      const effectiveTheme = (htmlTheme === 'custom') ? 'custom' : 'dark';
+      const themeExt = getTheme(effectiveTheme) || [];
       const state = EditorState.create({
         doc: typeof initialDoc === 'string' ? initialDoc : '',
         extensions: [...basicSetup, languageExt, themeExt],
@@ -163,7 +166,10 @@
     try {
       const { MergeView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
       const languageExt = getLanguageSupport('python') || [];
-      const themeExt = getTheme('dark') || [];
+      // 🎨 Custom themes: בדיקת data-theme כדי לא לטעון oneDark כשיש ערכה מותאמת
+      const htmlTheme = document && document.documentElement ? document.documentElement.getAttribute('data-theme') : '';
+      const effectiveTheme = (htmlTheme === 'custom') ? 'custom' : 'dark';
+      const themeExt = getTheme(effectiveTheme) || [];
 
       mergeViewInstance = new MergeView({
         a: { doc: original || '', extensions: [...basicSetup, languageExt, themeExt] },

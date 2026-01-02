@@ -223,8 +223,9 @@ class TestTokenColorsToCodeMirrorCSS:
         css = generate_codemirror_css_from_tokens(token_colors)
         # CodeMirror 6 classHighlighter משתמש ב-tok- classes
         assert ':root[data-theme="custom"] .tok-comment' in css
-        assert "color: #6272a4" in css
-        assert "font-style: italic" in css
+        # !important נדרש כדי לדרוס inline styles של CodeMirror themes
+        assert "color: #6272a4 !important" in css
+        assert "font-style: italic !important" in css
         assert ':root[data-theme="custom"] .tok-keyword' in css
 
     def test_extended_scopes_mapping(self):
@@ -300,7 +301,7 @@ class TestTokenColorsToCodeMirrorCSS:
         assert _find_codemirror_class("") is None
 
     def test_all_font_styles(self):
-        """בדיקה שכל סגנונות הפונט נתמכים."""
+        """בדיקה שכל סגנונות הפונט נתמכים (עם !important)."""
         token_colors = [
             {"scope": "comment", "settings": {"foreground": "#888", "fontStyle": "italic"}},
             {"scope": "keyword", "settings": {"foreground": "#f00", "fontStyle": "bold"}},
@@ -309,9 +310,10 @@ class TestTokenColorsToCodeMirrorCSS:
         ]
         css = generate_codemirror_css_from_tokens(token_colors)
 
-        assert "font-style: italic" in css
-        assert "font-weight: bold" in css
-        assert "text-decoration: underline" in css
+        # !important נדרש כדי לדרוס inline styles של CodeMirror themes
+        assert "font-style: italic !important" in css
+        assert "font-weight: bold !important" in css
+        assert "text-decoration: underline !important" in css
 
 
 class TestExportTheme:

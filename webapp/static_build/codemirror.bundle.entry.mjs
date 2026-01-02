@@ -67,6 +67,15 @@ function getLanguageSupport(name) {
 }
 
 function getTheme(name) {
+  // 🎨 ערכה מותאמת אישית: לא טוענים oneDark כדי לתת ל-syntax_css לעבוד
+  // ה-classHighlighter ב-basicSetup יוצר classes (tok-*) שה-CSS דורס
+  if (typeof document !== 'undefined') {
+    const htmlTheme = document.documentElement.getAttribute('data-theme');
+    if (htmlTheme === 'custom') {
+      return []; // Custom theme - use CSS classes only
+    }
+  }
+  
   const themeName = String(name || '').toLowerCase();
   if (themeName === 'dark' || themeName === 'dim') {
     return oneDark || [];

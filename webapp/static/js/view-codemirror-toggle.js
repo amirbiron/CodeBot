@@ -83,9 +83,14 @@
     // Important: editor pages always pass theme: 'dark' into EditorManager,
     // and only override it to 'dark' again when UI theme is dark/dim/nebula.
     // To keep view-mode 1:1 with the editor, we stick to 'dark' here as well.
+    //
+    // 🎨 Exception: custom themes use CSS classes (tok-*) from syntax_css,
+    // so we return 'custom' to avoid loading oneDark which would override the CSS.
     try {
       const htmlTheme = document && document.documentElement ? (document.documentElement.getAttribute('data-theme') || '') : '';
       const t = String(htmlTheme || '').toLowerCase();
+      // Custom theme: don't load oneDark, let syntax_css CSS classes work
+      if (t === 'custom') return 'custom';
       // Same logic as editor-manager.js (dark/dim/nebula => oneDark)
       if (t === 'dark' || t === 'dim' || t === 'nebula') return 'dark';
     } catch (_) {}
