@@ -50,7 +50,8 @@
         "--split-preview-bg": "#1e1e1e",
         "--split-preview-meta": "#9d9d9d",
         "--split-preview-placeholder": "#6d6d6d"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #6a737d !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #d73a49 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #032f62 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #032f62 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #005cc5 !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #005cc5 !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #005cc5 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #6f42c1 !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #22863a !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #d73a49 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #005cc5 !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #22863a !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #24292f !important; }"
     },
     {
       "id": "github-dark",
@@ -101,7 +102,8 @@
         "--split-preview-bg": "#0d1117",
         "--split-preview-meta": "#8b949e",
         "--split-preview-placeholder": "#6e7681"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #8b949e !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #ff7b72 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #a5d6ff !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #a5d6ff !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #79c0ff !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #79c0ff !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #79c0ff !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #d2a8ff !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #7ee787 !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #ff7b72 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #79c0ff !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #7ee787 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #c9d1d9 !important; }"
     },
     {
       "id": "dracula",
@@ -152,7 +154,8 @@
         "--split-preview-bg": "#282a36",
         "--split-preview-meta": "#bd93f9",
         "--split-preview-placeholder": "#6272a4"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #6272a4 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #ff79c6 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #f1fa8c !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #f1fa8c !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #bd93f9 !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #bd93f9 !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #bd93f9 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #50fa7b !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #8be9fd !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #ff79c6 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #66d9ef !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #ff79c6 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #f8f8f2 !important; }"
     },
     {
       "id": "monokai",
@@ -203,7 +206,8 @@
         "--split-preview-bg": "#1f201b",
         "--split-preview-meta": "#cfcfc2",
         "--split-preview-placeholder": "#75715e"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #75715e !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #f92672 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #e6db74 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #e6db74 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #ae81ff !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #ae81ff !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #ae81ff !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #a6e22e !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #66d9ef !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #f92672 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #66d9ef !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #f92672 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #f8f8f2 !important; }"
     },
     {
       "id": "one-dark",
@@ -254,7 +258,8 @@
         "--split-preview-bg": "#21252b",
         "--split-preview-meta": "#9da5b4",
         "--split-preview-placeholder": "#5c6370"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #5c6370 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #c678dd !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #98c379 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #98c379 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #d19a66 !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #d19a66 !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #d19a66 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #61afef !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #e5c07b !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #56b6c2 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #e06c75 !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #e06c75 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #abb2bf !important; }"
     },
     {
       "id": "stackoverflow-light",
@@ -305,7 +310,8 @@
         "--split-preview-bg": "#1e1e1e",
         "--split-preview-meta": "#9d9d9d",
         "--split-preview-placeholder": "#6d6d6d"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #656e77 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #015692 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #7d2727 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #7d2727 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #015692 !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #015692 !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #015692 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #54790d !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #2b91af !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #015692 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #015692 !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #800000 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #232629 !important; }"
     },
     {
       "id": "stackoverflow-dark",
@@ -356,7 +362,8 @@
         "--split-preview-bg": "#1c1f24",
         "--split-preview-meta": "#c8c8c8",
         "--split-preview-placeholder": "#8a8f98"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #8a8f98 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #88aece !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #c87872 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #c87872 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #88aece !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #88aece !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #88aece !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #88b4b0 !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #71bbb4 !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #88aece !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #88aece !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #88aece !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #e6e6e6 !important; }"
     },
     {
       "id": "solarized-light",
@@ -407,7 +414,8 @@
         "--split-preview-bg": "#1e1e1e",
         "--split-preview-meta": "#9d9d9d",
         "--split-preview-placeholder": "#6d6d6d"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #93a1a1 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #859900 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #2aa198 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #2aa198 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #d33682 !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #d33682 !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #cb4b16 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #268bd2 !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #b58900 !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #859900 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #268bd2 !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #268bd2 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #657b83 !important; }"
     },
     {
       "id": "solarized-dark",
@@ -458,7 +466,8 @@
         "--split-preview-bg": "#002b36",
         "--split-preview-meta": "#839496",
         "--split-preview-placeholder": "#657b83"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #657b83 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #859900 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #2aa198 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #2aa198 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #d33682 !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #d33682 !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #cb4b16 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #268bd2 !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #b58900 !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #859900 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #268bd2 !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #268bd2 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #93a1a1 !important; }"
     },
     {
       "id": "nord",
@@ -509,7 +518,8 @@
         "--split-preview-bg": "#2e3440",
         "--split-preview-meta": "#e5e9f0",
         "--split-preview-placeholder": "#81a1c1"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #616e88 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #81a1c1 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #a3be8c !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #a3be8c !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #b48ead !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #b48ead !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #81a1c1 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #88c0d0 !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #8fbcbb !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #81a1c1 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #88c0d0 !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #81a1c1 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #d8dee9 !important; }"
     },
     {
       "id": "gruvbox",
@@ -560,7 +570,8 @@
         "--split-preview-bg": "#282828",
         "--split-preview-meta": "#d5c4a1",
         "--split-preview-placeholder": "#928374"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #928374 !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #fb4934 !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #b8bb26 !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #b8bb26 !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #d3869b !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #d3869b !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #d3869b !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #83a598 !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #fabd2f !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #fe8019 !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #83a598 !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #fb4934 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #ebdbb2 !important; }"
     },
     {
       "id": "material",
@@ -611,8 +622,8 @@
         "--split-preview-bg": "#263238",
         "--split-preview-meta": "#b0bec5",
         "--split-preview-placeholder": "#546e7a"
-      }
+      },
+      "syntax_css": ":root[data-theme=\"custom\"] .tok-comment { color: #546e7a !important; font-style: italic !important; }\n:root[data-theme=\"custom\"] .tok-keyword { color: #c792ea !important; }\n:root[data-theme=\"custom\"] .tok-string { color: #c3e88d !important; }\n:root[data-theme=\"custom\"] .tok-string2 { color: #c3e88d !important; }\n:root[data-theme=\"custom\"] .tok-number { color: #f78c6c !important; }\n:root[data-theme=\"custom\"] .tok-atom { color: #f78c6c !important; }\n:root[data-theme=\"custom\"] .tok-bool { color: #ff5370 !important; }\n:root[data-theme=\"custom\"] .tok-variableName { color: #82aaff !important; }\n:root[data-theme=\"custom\"] .tok-typeName { color: #ffcb6b !important; }\n:root[data-theme=\"custom\"] .tok-operator { color: #89ddff !important; }\n:root[data-theme=\"custom\"] .tok-propertyName { color: #82aaff !important; }\n:root[data-theme=\"custom\"] .tok-tagName { color: #f07178 !important; }\n:root[data-theme=\"custom\"] .tok-punctuation { color: #eeffff !important; }"
     }
   ]
 }
-
