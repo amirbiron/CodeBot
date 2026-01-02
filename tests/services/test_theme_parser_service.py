@@ -237,9 +237,11 @@ class TestTokenColorsToCodeMirrorCSS:
             # Storage
             {"scope": ["storage"], "settings": {"foreground": "#ff79c6"}},
             {"scope": ["storage.type"], "settings": {"foreground": "#ff79c6"}},
-            # Classes
+            # Classes (support.class, entity.name.class -> tok-className)
             {"scope": ["support.class"], "settings": {"foreground": "#8be9fd"}},
             {"scope": ["entity.name.class"], "settings": {"foreground": "#8be9fd"}},
+            # Types (entity.name.type -> tok-typeName)
+            {"scope": ["entity.name.type"], "settings": {"foreground": "#66d9ef"}},
             # Constants
             {"scope": ["constant.numeric"], "settings": {"foreground": "#bd93f9"}},
             {"scope": ["constant.language.boolean"], "settings": {"foreground": "#bd93f9"}},
@@ -253,7 +255,10 @@ class TestTokenColorsToCodeMirrorCSS:
         # בדיקת Keywords - tok-keyword (CodeMirror 6)
         assert ".tok-keyword" in css
 
-        # בדיקת Types/Classes - tok-typeName (CodeMirror 6)
+        # בדיקת Classes - tok-className (CodeMirror 6)
+        assert ".tok-className" in css
+
+        # בדיקת Types - tok-typeName (CodeMirror 6)
         assert ".tok-typeName" in css
 
         # בדיקת Constants - tok-number, tok-bool (CodeMirror 6)
@@ -285,16 +290,16 @@ class TestTokenColorsToCodeMirrorCSS:
         # constant.language צריך לקבל .tok-atom (יש מיפוי ספציפי)
         assert _find_codemirror_class("constant.language.boolean.true") == ".tok-bool"
 
-        # variable.language.this צריך לקבל .tok-variableName (CodeMirror 6)
-        assert _find_codemirror_class("variable.language.this.js") == ".tok-variableName"
+        # variable.language.this צריך לקבל .tok-variableName2 (special variables)
+        assert _find_codemirror_class("variable.language.this.js") == ".tok-variableName2"
 
-        # 🔑 בדיקה קריטית: support.class.component צריך לקבל .tok-typeName (JSX)
-        assert _find_codemirror_class("support.class.component") == ".tok-typeName"
-        assert _find_codemirror_class("support.class.component.MyButton") == ".tok-typeName"
+        # 🔑 בדיקה קריטית: support.class.component צריך לקבל .tok-className (JSX)
+        assert _find_codemirror_class("support.class.component") == ".tok-className"
+        assert _find_codemirror_class("support.class.component.MyButton") == ".tok-className"
 
-        # support.class רגיל צריך להיות .tok-typeName
-        assert _find_codemirror_class("support.class") == ".tok-typeName"
-        assert _find_codemirror_class("support.class.builtin") == ".tok-typeName"
+        # support.class רגיל צריך להיות .tok-className
+        assert _find_codemirror_class("support.class") == ".tok-className"
+        assert _find_codemirror_class("support.class.builtin") == ".tok-className"
 
         # סקופים לא מוכרים צריכים להחזיר None
         assert _find_codemirror_class("unknown.scope.here") is None
@@ -314,6 +319,61 @@ class TestTokenColorsToCodeMirrorCSS:
         assert "font-style: italic !important" in css
         assert "font-weight: bold !important" in css
         assert "text-decoration: underline !important" in css
+
+
+class TestSanitizeCodeMirrorCSS:
+    """בדיקות ל-sanitize_codemirror_css - וידוא שCSS לא מסוכן נחסם."""
+
+    def test_allows_simple_tok_selectors(self):
+        """בדיקה שselectors פשוטים של tok- מאושרים."""
+        from services.theme_parser_service import sanitize_codemirror_css
+
+        css = ':root[data-theme="custom"] .tok-keyword { color: #ff79c6 !important; }'
+        result = sanitize_codemirror_css(css)
+        assert ".tok-keyword" in result
+        assert "color: #ff79c6 !important" in result
+
+    def test_allows_composite_tok_selectors(self):
+        """בדיקה שselectors מורכבים (composite) של tok- מאושרים."""
+        from services.theme_parser_service import sanitize_codemirror_css
+
+        css = ':root[data-theme="custom"] .tok-variableName.tok-definition { color: #50fa7b !important; }'
+        result = sanitize_codemirror_css(css)
+        assert ".tok-variableName.tok-definition" in result
+        assert "color: #50fa7b !important" in result
+
+    def test_allows_triple_composite_selectors(self):
+        """בדיקה שselectors עם עד 3 classes מאושרים."""
+        from services.theme_parser_service import sanitize_codemirror_css
+
+        css = ':root[data-theme="custom"] .tok-variableName.tok-definition.tok-local { color: #ffb86c !important; }'
+        result = sanitize_codemirror_css(css)
+        assert ".tok-variableName.tok-definition.tok-local" in result
+
+    def test_blocks_too_many_composite_selectors(self):
+        """בדיקה שselectors עם יותר מ-3 classes נחסמים."""
+        from services.theme_parser_service import sanitize_codemirror_css
+
+        # 4 classes - צריך להיחסם
+        css = ':root[data-theme="custom"] .tok-a.tok-b.tok-c.tok-d { color: #fff !important; }'
+        result = sanitize_codemirror_css(css)
+        assert result == ""
+
+    def test_blocks_url_in_css(self):
+        """בדיקה שCSS עם url() נחסם."""
+        from services.theme_parser_service import sanitize_codemirror_css
+
+        css = ':root[data-theme="custom"] .tok-keyword { color: url(evil.com) !important; }'
+        result = sanitize_codemirror_css(css)
+        assert result == ""
+
+    def test_blocks_javascript_in_css(self):
+        """בדיקה שCSS עם javascript: נחסם."""
+        from services.theme_parser_service import sanitize_codemirror_css
+
+        css = ':root[data-theme="custom"] .tok-keyword { color: javascript:alert(1) !important; }'
+        result = sanitize_codemirror_css(css)
+        assert result == ""
 
 
 class TestExportTheme:
