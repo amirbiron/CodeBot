@@ -1634,7 +1634,8 @@ def get_pygments_style(theme_name: str) -> str:
     """
     theme = (theme_name or '').strip().lower()
     preferred = 'github'
-    if theme in ('dark', 'dim', 'nebula'):
+    # custom themes נחשבים כהים כברירת מחדל (רוב הערכות המיובאות הן כהות)
+    if theme in ('dark', 'dim', 'nebula', 'custom'):
         preferred = 'github-dark'
     elif theme == 'high-contrast':
         preferred = 'monokai'
