@@ -438,10 +438,18 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
 
     result = _compute_derived_colors(result)
 
+    # 🎨 יצירת CSS להדגשת תחביר מ-tokenColors
+    syntax_css = ""
+    token_colors = theme_data.get("tokenColors", [])
+    if token_colors:
+        raw_css = generate_codemirror_css_from_tokens(token_colors)
+        syntax_css = sanitize_codemirror_css(raw_css)
+
     return {
         "name": theme_data.get("name", "Imported Theme"),
         "type": theme_type,
         "variables": result,
+        "syntax_css": syntax_css,
     }
 
 
@@ -905,11 +913,16 @@ def _find_codemirror_class(scope: str) -> str | None:
 def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
     """
     ממיר tokenColors של VS Code ל-CSS עבור CodeMirror.
+
+    🔑 אם יש כמה scopes שממופים לאותו CodeMirror class,
+    הכלל הראשון מנצח (הספציפי יותר בד"כ מופיע קודם בקובץ VS Code).
     """
     if not isinstance(token_colors, list):
         return ""
 
-    css_rules: list[str] = []
+    # 🎨 שימוש ב-dict כדי לדדופ כללים לפי selector
+    # הכלל הראשון לכל selector מנצח
+    css_by_selector: dict[str, str] = {}
 
     for token in token_colors:
         if not isinstance(token, dict):
@@ -936,6 +949,10 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
             if not cm_class:
                 continue
 
+            # 🔑 אם כבר יש כלל לזה, נדלג (הראשון מנצח)
+            if cm_class in css_by_selector:
+                continue
+
             # 🎨 !important נדרש כדי לדרוס inline styles של CodeMirror themes
             rule_parts = [f"color: {str(foreground).strip()} !important"]
 
@@ -947,11 +964,11 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
             if "underline" in fs:
                 rule_parts.append("text-decoration: underline !important")
 
-            css_rules.append(
+            css_by_selector[cm_class] = (
                 f':root[data-theme="custom"] {cm_class} {{ {"; ".join(rule_parts)}; }}'
             )
 
-    return "\n".join(css_rules)
+    return "\n".join(css_by_selector.values())
 
 
 def sanitize_codemirror_css(css: str) -> str:

@@ -195,6 +195,46 @@ class TestParseVscodeTheme:
         assert "--text-primary" in result["variables"]
         assert "--btn-primary-bg" in result["variables"]
 
+    def test_generates_syntax_css_from_token_colors(self):
+        """בדיקה שערכת VS Code עם tokenColors מייצרת syntax_css."""
+        theme = {
+            "name": "Morass",
+            "type": "dark",
+            "colors": {"editor.background": "#313a36", "editor.foreground": "#e4e3e1"},
+            "tokenColors": [
+                {"scope": "comment", "settings": {"foreground": "#63776d"}},
+                {"scope": "string", "settings": {"foreground": "#f8bb39"}},
+                {"scope": "keyword", "settings": {"foreground": "#afd0c4"}},
+                {"scope": "constant.numeric", "settings": {"foreground": "#f8bb39"}},
+                {"scope": "entity.name.function", "settings": {"foreground": "#afb54c"}},
+                {"scope": "entity.name.class", "settings": {"foreground": "#68875a", "fontStyle": "underline"}},
+                {"scope": "invalid", "settings": {"foreground": "#cf433e"}},
+            ],
+        }
+        result = parse_vscode_theme(theme)
+
+        # וודא ש-syntax_css קיים ולא ריק
+        assert "syntax_css" in result
+        assert result["syntax_css"]
+
+        # וודא שיש כללים עבור classes שונים
+        syntax_css = result["syntax_css"]
+        assert ".tok-comment" in syntax_css
+        assert ".tok-string" in syntax_css
+        assert ".tok-keyword" in syntax_css
+        assert ".tok-number" in syntax_css
+        assert ".tok-variableName.tok-definition" in syntax_css
+        assert ".tok-className" in syntax_css
+        assert ".tok-invalid" in syntax_css
+
+        # וודא שיש צבעים ו-!important
+        assert "#63776d" in syntax_css  # comment color
+        assert "#f8bb39" in syntax_css  # string color
+        assert "!important" in syntax_css
+
+        # וודא שיש text-decoration עבור class name (underline)
+        assert "text-decoration: underline" in syntax_css
+
 
 class TestNativeTheme:
     def test_parse_native_theme_sanitizes(self):
