@@ -8,10 +8,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Optional
+from typing import Dict, Optional
 
 from flask import Blueprint, Response, jsonify, request, session
 
@@ -28,6 +29,100 @@ from services.theme_parser_service import (
 from services.theme_presets_service import apply_preset_to_user, get_preset_by_id, list_presets
 
 logger = logging.getLogger(__name__)
+
+
+# ==========================================
+# Rate Limiting for Theme Details
+# ==========================================
+# אדמינים מקבלים מגבלה גבוהה יותר (200/שעה) לעבודה רציפה בגלריה
+# משתמשים רגילים: 50/שעה (ברירת מחדל)
+
+_RATE_LIMIT_WINDOW_SECONDS = 3600  # שעה אחת
+_RATE_LIMIT_REGULAR = 50
+_RATE_LIMIT_ADMIN = 200
+
+# In-memory rate limit tracking per user
+_theme_details_rate_log: Dict[int, list] = {}
+
+
+def _is_admin(user_id: int) -> bool:
+    """בודק אם משתמש הוא אדמין - import מאוחר למניעת circular imports"""
+    try:
+        from webapp.app import is_admin
+        return is_admin(user_id)
+    except Exception:
+        return False
+
+
+def _check_theme_details_rate_limit(user_id: int) -> tuple[bool, int]:
+    """
+    בודק rate limit עבור get_theme_details.
+    מחזיר (allowed, retry_after_seconds).
+    
+    אדמינים: 200 בקשות/שעה
+    משתמשים רגילים: 50 בקשות/שעה
+    """
+    now = time.time()
+    window_start = now - _RATE_LIMIT_WINDOW_SECONDS
+    
+    # קביעת מגבלה לפי סטטוס המשתמש
+    max_requests = _RATE_LIMIT_ADMIN if _is_admin(user_id) else _RATE_LIMIT_REGULAR
+    
+    try:
+        entries = _theme_details_rate_log.get(user_id, [])
+        # נקה רשומות ישנות
+        entries = [ts for ts in entries if ts > window_start]
+        _theme_details_rate_log[user_id] = entries
+        
+        if len(entries) >= max_requests:
+            # חישוב זמן המתנה - מתי הבקשה הישנה ביותר תצא מהחלון
+            oldest = min(entries) if entries else now
+            retry_after = max(1, int((oldest + _RATE_LIMIT_WINDOW_SECONDS) - now))
+            return False, retry_after
+        
+        # הוסף את הבקשה הנוכחית
+        entries.append(now)
+        _theme_details_rate_log[user_id] = entries
+        return True, 0
+    except Exception:
+        return True, 0  # בשגיאה - אפשר את הבקשה
+
+
+def theme_details_rate_limit(f):
+    """Decorator עבור rate limiting על get_theme_details"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        try:
+            user_id = int(session.get("user_id") or 0)
+        except Exception:
+            user_id = 0
+        
+        if user_id:
+            allowed, retry_after = _check_theme_details_rate_limit(user_id)
+            if not allowed:
+                is_admin = _is_admin(user_id)
+                limit_info = f"{_RATE_LIMIT_ADMIN}/hour (admin)" if is_admin else f"{_RATE_LIMIT_REGULAR}/hour"
+                logger.warning(
+                    "themes.get_theme_details rate limited",
+                    extra={
+                        "user_id": user_id,
+                        "is_admin": is_admin,
+                        "limit": limit_info,
+                        "retry_after": retry_after,
+                    }
+                )
+                resp = jsonify({
+                    "ok": False,
+                    "error": "rate_limited",
+                    "message": f"יותר מדי בקשות. ניתן לנסות שוב בעוד {retry_after} שניות.",
+                    "retry_after": retry_after,
+                })
+                resp.status_code = 429
+                resp.headers["Retry-After"] = str(retry_after)
+                return resp
+        
+        return f(*args, **kwargs)
+    return decorated
 
 themes_bp = Blueprint("themes", __name__, url_prefix="/api/themes")
 
@@ -231,8 +326,14 @@ def get_user_themes():
 
 
 @themes_bp.route("/<theme_id>", methods=["GET"])
+@theme_details_rate_limit
 def get_theme_details(theme_id: str):
-    """קבלת פרטי ערכה ספציפית כולל variables."""
+    """קבלת פרטי ערכה ספציפית כולל variables.
+    
+    Rate Limits:
+    - משתמשים רגילים: 50 בקשות/שעה
+    - אדמינים: 200 בקשות/שעה
+    """
     try:
         user_id = int(session.get("user_id"))
     except Exception:

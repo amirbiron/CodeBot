@@ -125,7 +125,8 @@ class TestImportAPI:
                 break
         assert pushed is not None
         assert "syntax_css" in pushed
-        assert ".cm-comment" in (pushed.get("syntax_css") or "")
+        # CodeMirror 6 classHighlighter משתמש ב-tok- classes
+        assert ".tok-comment" in (pushed.get("syntax_css") or "")
 
     def test_import_rejects_invalid_json(self, client, stub_db):
         _login(client)

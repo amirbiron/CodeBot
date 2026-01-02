@@ -625,131 +625,150 @@ def _is_dark_color(hex_color: str) -> bool:
 # Syntax Highlighting: tokenColors → CodeMirror CSS
 # ==========================================
 
+# ==========================================
+# 🎨 CodeMirror 6 Token Classes Mapping
+# ==========================================
+# CodeMirror 6 עם classHighlighter משתמש ב-classes בפורמט "tok-*"
+# (לדוגמה: tok-comment, tok-keyword, tok-string)
+#
+# המיפוי הזה ממיר VS Code TextMate scopes ל-CodeMirror 6 classes.
+# ראה: https://lezer.codemirror.net/docs/ref/#highlight.classHighlighter
+# ==========================================
+
 TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
     # ===========================================
     # Comments
     # ===========================================
-    "comment": ".cm-comment",
-    "comment.line": ".cm-comment",
-    "comment.block": ".cm-comment",
-    "punctuation.definition.comment": ".cm-comment",
+    "comment": ".tok-comment",
+    "comment.line": ".tok-comment",
+    "comment.block": ".tok-comment",
+    "punctuation.definition.comment": ".tok-comment",
 
     # ===========================================
     # Strings
     # ===========================================
-    "string": ".cm-string",
-    "string.quoted": ".cm-string",
-    "string.quoted.single": ".cm-string",
-    "string.quoted.double": ".cm-string",
-    "string.template": ".cm-string-2",
-    "string.regexp": ".cm-string-2",
+    "string": ".tok-string",
+    "string.quoted": ".tok-string",
+    "string.quoted.single": ".tok-string",
+    "string.quoted.double": ".tok-string",
+    "string.template": ".tok-string2",
+    "string.regexp": ".tok-string2",
 
     # ===========================================
     # Keywords (מילות מפתח של השפה)
     # ===========================================
-    "keyword": ".cm-keyword",
-    "keyword.control": ".cm-keyword",
-    "keyword.control.flow": ".cm-keyword",
-    "keyword.control.import": ".cm-keyword",
-    "keyword.control.export": ".cm-keyword",
-    "keyword.control.conditional": ".cm-keyword",
-    "keyword.control.loop": ".cm-keyword",
-    "keyword.other": ".cm-keyword",
+    "keyword": ".tok-keyword",
+    "keyword.control": ".tok-keyword",
+    "keyword.control.flow": ".tok-keyword",
+    "keyword.control.import": ".tok-keyword",
+    "keyword.control.export": ".tok-keyword",
+    "keyword.control.conditional": ".tok-keyword",
+    "keyword.control.loop": ".tok-keyword",
+    "keyword.other": ".tok-keyword",
 
     # ===========================================
     # Storage (הגדרות משתנים/פונקציות)
     # ===========================================
-    "storage": ".cm-keyword",
-    "storage.type": ".cm-keyword",
-    "storage.modifier": ".cm-keyword",
+    "storage": ".tok-keyword",
+    "storage.type": ".tok-keyword",
+    "storage.modifier": ".tok-keyword",
 
     # ===========================================
     # Functions (פונקציות והגדרותיהן)
     # ===========================================
-    "entity.name.function": ".cm-def",
-    "entity.name.function.method": ".cm-def",
-    "support.function": ".cm-builtin",
-    "support.function.builtin": ".cm-builtin",
-    "meta.function-call": ".cm-variable",
+    "entity.name.function": ".tok-variableName",
+    "entity.name.function.method": ".tok-variableName",
+    "support.function": ".tok-variableName",
+    "support.function.builtin": ".tok-variableName",
+    "meta.function-call": ".tok-variableName",
 
     # ===========================================
     # Variables (משתנים)
     # ===========================================
-    "variable": ".cm-variable",
-    "variable.parameter": ".cm-variable-2",
-    "variable.other": ".cm-variable-3",
-    "variable.other.readwrite": ".cm-variable",
-    "variable.language": ".cm-variable-2",
-    "variable.language.this": ".cm-variable-2",
-    "variable.language.self": ".cm-variable-2",
+    "variable": ".tok-variableName",
+    "variable.parameter": ".tok-variableName",
+    "variable.other": ".tok-variableName",
+    "variable.other.readwrite": ".tok-variableName",
+    "variable.language": ".tok-variableName",
+    "variable.language.this": ".tok-variableName",
+    "variable.language.self": ".tok-variableName",
 
     # ===========================================
     # Constants (קבועים ומספרים)
     # ===========================================
-    "constant": ".cm-atom",
-    "constant.numeric": ".cm-number",
-    "constant.numeric.integer": ".cm-number",
-    "constant.numeric.float": ".cm-number",
-    "constant.numeric.hex": ".cm-number",
-    "constant.language": ".cm-atom",
-    "constant.language.boolean": ".cm-atom",
-    "constant.language.null": ".cm-atom",
-    "constant.character": ".cm-string",
-    "constant.character.escape": ".cm-string-2",
+    "constant": ".tok-atom",
+    "constant.numeric": ".tok-number",
+    "constant.numeric.integer": ".tok-number",
+    "constant.numeric.float": ".tok-number",
+    "constant.numeric.hex": ".tok-number",
+    "constant.language": ".tok-atom",
+    "constant.language.boolean": ".tok-bool",
+    "constant.language.null": ".tok-atom",
+    "constant.character": ".tok-string",
+    "constant.character.escape": ".tok-string2",
 
     # ===========================================
     # Types & Classes (טיפוסים ומחלקות)
     # ===========================================
-    "entity.name.type": ".cm-type",
-    "entity.name.type.class": ".cm-type",
-    "entity.name.type.interface": ".cm-type",
-    "entity.name.type.enum": ".cm-type",
-    "entity.name.class": ".cm-type",
-    "support.type": ".cm-type",
-    "support.class": ".cm-type",
-    "support.class.builtin": ".cm-type",
+    "entity.name.type": ".tok-typeName",
+    "entity.name.type.class": ".tok-typeName",
+    "entity.name.type.interface": ".tok-typeName",
+    "entity.name.type.enum": ".tok-typeName",
+    "entity.name.class": ".tok-typeName",
+    "support.type": ".tok-typeName",
+    "support.class": ".tok-typeName",
+    "support.class.builtin": ".tok-typeName",
 
     # ===========================================
     # Operators (אופרטורים)
     # ===========================================
-    "keyword.operator": ".cm-operator",
-    "keyword.operator.assignment": ".cm-operator",
-    "keyword.operator.comparison": ".cm-operator",
-    "keyword.operator.logical": ".cm-operator",
-    "keyword.operator.arithmetic": ".cm-operator",
+    "keyword.operator": ".tok-operator",
+    "keyword.operator.assignment": ".tok-operator",
+    "keyword.operator.comparison": ".tok-operator",
+    "keyword.operator.logical": ".tok-operator",
+    "keyword.operator.arithmetic": ".tok-operator",
 
     # ===========================================
     # Properties & Attributes
     # ===========================================
-    "entity.other.attribute-name": ".cm-attribute",
-    "entity.other.attribute-name.class": ".cm-attribute",
-    "entity.other.attribute-name.id": ".cm-attribute",
-    "support.type.property-name": ".cm-property",
-    "meta.object-literal.key": ".cm-property",
-    "variable.other.property": ".cm-property",
+    "entity.other.attribute-name": ".tok-propertyName",
+    "entity.other.attribute-name.class": ".tok-propertyName",
+    "entity.other.attribute-name.id": ".tok-propertyName",
+    "support.type.property-name": ".tok-propertyName",
+    "meta.object-literal.key": ".tok-propertyName",
+    "variable.other.property": ".tok-propertyName",
 
     # ===========================================
     # Tags (HTML/XML/JSX)
     # ===========================================
-    "entity.name.tag": ".cm-tag",
-    "entity.name.tag.html": ".cm-tag",
-    "entity.name.tag.xml": ".cm-tag",
-    "punctuation.definition.tag": ".cm-tag",
-    "support.class.component": ".cm-tag",
+    "entity.name.tag": ".tok-tagName",
+    "entity.name.tag.html": ".tok-tagName",
+    "entity.name.tag.xml": ".tok-tagName",
+    "punctuation.definition.tag": ".tok-tagName",
+    "support.class.component": ".tok-typeName",
 
     # ===========================================
     # Punctuation (סימני פיסוק חשובים)
     # ===========================================
-    "punctuation.definition.string": ".cm-string",
-    "punctuation.separator": ".cm-punctuation",
-    "meta.brace": ".cm-bracket",
+    "punctuation.definition.string": ".tok-string",
+    "punctuation.separator": ".tok-punctuation",
+    "meta.brace": ".tok-punctuation",
 
     # ===========================================
     # Errors & Special
     # ===========================================
-    "invalid": ".cm-error",
-    "invalid.illegal": ".cm-error",
-    "invalid.deprecated": ".cm-error",
+    "invalid": ".tok-invalid",
+    "invalid.illegal": ".tok-invalid",
+    "invalid.deprecated": ".tok-invalid",
+
+    # ===========================================
+    # Additional CodeMirror 6 Classes
+    # ===========================================
+    "meta": ".tok-meta",
+    "emphasis": ".tok-emphasis",
+    "strong": ".tok-strong",
+    "link": ".tok-link",
+    "url": ".tok-url",
 }
 
 
@@ -849,7 +868,9 @@ def sanitize_codemirror_css(css: str) -> str:
     🔒 מנקה CSS של CodeMirror (syntax_css) כדי למנוע CSS injection.
 
     מאפשר רק חוקים בפורמט:
-    :root[data-theme="custom"] .cm-<token> { color: <HEX/RGB/RGBA>; [font-style: italic;] [font-weight: bold;] [text-decoration: underline;] }
+    :root[data-theme="custom"] .<tok|cm>-<token> { color: <HEX/RGB/RGBA>; [font-style: italic;] [font-weight: bold;] [text-decoration: underline;] }
+
+    תומך גם ב-tok- classes (CodeMirror 6 classHighlighter) וגם ב-cm- classes (legacy).
     """
     if not css or not isinstance(css, str):
         return ""
@@ -896,7 +917,8 @@ def sanitize_codemirror_css(css: str) -> str:
             continue
         selector = rest
 
-        if not re.match(r'^\.(cm-[a-z0-9_-]+)$', selector):
+        # 🎨 תומך גם ב-tok- (CodeMirror 6) וגם ב-cm- (legacy)
+        if not re.match(r'^\.(tok-[a-zA-Z0-9_-]+|cm-[a-z0-9_-]+)$', selector):
             continue
 
         decls = [d.strip() for d in body.split(";") if d.strip()]

@@ -1,10 +1,11 @@
 import { EditorState, Compartment } from '@codemirror/state';
 import { EditorView, keymap, drawSelection, dropCursor, highlightSpecialChars, highlightActiveLine, highlightActiveLineGutter, rectangularSelection, crosshairCursor, lineNumbers } from '@codemirror/view';
 import { history, defaultKeymap, historyKeymap } from '@codemirror/commands';
-import { foldGutter, foldKeymap, bracketMatching } from '@codemirror/language';
+import { foldGutter, foldKeymap, bracketMatching, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { MergeView } from '@codemirror/merge';
+import { classHighlighter } from '@lezer/highlight';
 
 // Languages
 import { python } from '@codemirror/lang-python';
@@ -35,6 +36,9 @@ const basicSetup = [
   crosshairCursor(),
   highlightActiveLine(),
   highlightSelectionMatches(),
+  // 🎨 classHighlighter מוסיף classes קבועים (tok-*) לאלמנטי קוד,
+  // מאפשר לערכות נושא מותאמות לדרוס צבעי syntax highlighting
+  syntaxHighlighting(classHighlighter),
   keymap.of([
     ...closeBracketsKeymap,
     ...defaultKeymap,

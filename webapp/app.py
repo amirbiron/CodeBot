@@ -1435,6 +1435,9 @@ def inject_globals():
                     if isinstance(tdoc, dict) and tdoc.get('is_active'):
                         if not isinstance(tdoc.get('variables'), dict):
                             tdoc = {**tdoc, 'variables': {}}
+                        # וולידציה של syntax_css - חשוב לצביעת קוד בערכות מותאמות
+                        if not isinstance(tdoc.get('syntax_css', ''), str):
+                            tdoc = {**tdoc, 'syntax_css': ''}
                         custom_theme = tdoc
                         break
 
@@ -1445,6 +1448,9 @@ def inject_globals():
                     # Normalize minimal structure to avoid template errors
                     if not isinstance(ct.get('variables'), dict):
                         ct = {**ct, 'variables': {}}
+                    # וולידציה של syntax_css - חשוב לצביעת קוד בערכות מותאמות
+                    if not isinstance(ct.get('syntax_css', ''), str):
+                        ct = {**ct, 'syntax_css': ''}
                     custom_theme = ct
     except Exception:
         custom_theme = None
