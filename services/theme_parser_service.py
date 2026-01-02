@@ -846,15 +846,16 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
             if not cm_class:
                 continue
 
-            rule_parts = [f"color: {str(foreground).strip()}"]
+            # 🎨 !important נדרש כדי לדרוס inline styles של CodeMirror themes
+            rule_parts = [f"color: {str(foreground).strip()} !important"]
 
             fs = str(font_style).lower()
             if "italic" in fs:
-                rule_parts.append("font-style: italic")
+                rule_parts.append("font-style: italic !important")
             if "bold" in fs:
-                rule_parts.append("font-weight: bold")
+                rule_parts.append("font-weight: bold !important")
             if "underline" in fs:
-                rule_parts.append("text-decoration: underline")
+                rule_parts.append("text-decoration: underline !important")
 
             css_rules.append(
                 f':root[data-theme="custom"] {cm_class} {{ {"; ".join(rule_parts)}; }}'
@@ -935,28 +936,32 @@ def sanitize_codemirror_css(css: str) -> str:
             prop, val = d.split(":", 1)
             prop = prop.strip().lower()
             val = val.strip()
+            # 🎨 הסר !important לצורך וולידציה, נוסיף אותו בחזרה אחר כך
+            has_important = val.lower().endswith("!important")
+            if has_important:
+                val = val[: -len("!important")].strip()
 
             if prop == "color":
                 clean = sanitize_css_value(val)
                 if not clean:
                     ok = False
                     break
-                out_parts.append(f"color: {clean}")
+                out_parts.append(f"color: {clean} !important")
             elif prop == "font-style":
                 if val.strip().lower() != "italic":
                     ok = False
                     break
-                out_parts.append("font-style: italic")
+                out_parts.append("font-style: italic !important")
             elif prop == "font-weight":
                 if val.strip().lower() != "bold":
                     ok = False
                     break
-                out_parts.append("font-weight: bold")
+                out_parts.append("font-weight: bold !important")
             elif prop == "text-decoration":
                 if val.strip().lower() != "underline":
                     ok = False
                     break
-                out_parts.append("text-decoration: underline")
+                out_parts.append("text-decoration: underline !important")
             else:
                 ok = False
                 break
