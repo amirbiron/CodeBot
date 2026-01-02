@@ -97,14 +97,21 @@
 [data-theme="high-contrast"] .cm-gutters { background-color: #000000 !important; color: #ffffff !important; border-right: 2px solid #ffffff !important; }
 [data-theme="high-contrast"] .cm-activeLine { background-color: #1a1a1a !important; }
 
-/* Code tokens */
-[data-theme="high-contrast"] .cm-keyword { color: #ff00ff !important; font-weight: bold; }
-[data-theme="high-contrast"] .cm-string { color: #00ff00 !important; }
-[data-theme="high-contrast"] .cm-comment { color: #00ffff !important; font-style: italic; }
-[data-theme="high-contrast"] .cm-number { color: #ffff00 !important; }
-[data-theme="high-contrast"] .cm-function { color: #ff9900 !important; font-weight: bold; }
-[data-theme="high-contrast"] .cm-variable { color: #ffffff !important; }
-[data-theme="high-contrast"] .cm-error { background-color: #ff0000 !important; color: #000000 !important; text-decoration: underline wavy; }
+/* Code tokens - CodeMirror 6 classHighlighter (tok-* classes) */
+[data-theme="high-contrast"] .tok-keyword { color: #ff00ff !important; font-weight: bold; }
+[data-theme="high-contrast"] .tok-string,
+[data-theme="high-contrast"] .tok-string2 { color: #00ff00 !important; }
+[data-theme="high-contrast"] .tok-comment { color: #00ffff !important; font-style: italic; }
+[data-theme="high-contrast"] .tok-number { color: #ffff00 !important; }
+[data-theme="high-contrast"] .tok-variableName { color: #ff9900 !important; font-weight: bold; }
+[data-theme="high-contrast"] .tok-typeName { color: #ffffff !important; }
+[data-theme="high-contrast"] .tok-invalid { background-color: #ff0000 !important; color: #000000 !important; text-decoration: underline wavy; }
+[data-theme="high-contrast"] .tok-operator { color: #ffff00 !important; }
+[data-theme="high-contrast"] .tok-punctuation { color: #ffffff !important; }
+[data-theme="high-contrast"] .tok-propertyName { color: #ff9900 !important; }
+[data-theme="high-contrast"] .tok-atom,
+[data-theme="high-contrast"] .tok-bool { color: #ff00ff !important; }
+[data-theme="high-contrast"] .tok-tagName { color: #ff00ff !important; font-weight: bold; }
 
 /* Modal close button and misc */
 [data-theme="high-contrast"] .recent-files-modal .modal-header { border-bottom: 2px solid #ffffff !important; }
