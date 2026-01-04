@@ -1984,6 +1984,8 @@
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
             modal.style.display = 'flex';
+            // נקה מצב "bulk" ישן כדי שלא יזלוג לפתיחה של קובץ יחיד
+            modal.removeAttribute('data-file-names');
             modal.setAttribute('data-file-name', String(fileName||''));
             try {
               const res = await fetch('/api/collections');
