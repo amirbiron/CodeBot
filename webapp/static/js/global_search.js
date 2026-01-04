@@ -301,7 +301,14 @@
           // לא להפיל את כל התוצאות בגלל פריט בעייתי
           try { console.warn('renderCard failed', e, r); } catch(_) {}
           const safeName = escapeHtml((r && r.file_name) || 'קובץ');
-          const safeSnippet = escapeHtml((r && r.snippet) || '');
+          // חשוב: בחיפוש סמנטי highlights לרוב ריק, ואז r.snippet יכול להיות הודעת fallback.
+          // לכן נעדיף snippet_preview אם קיים, ורק אם לא – ניפול ל-snippet.
+          const bestSnippet = normalizeOptionalString(
+            r && r.snippet_preview,
+            r && r.snippet,
+            '(אין תצוגה מקדימה)'
+          );
+          const safeSnippet = escapeHtml(bestSnippet || '');
           return (
             '<article class="search-result-card glass-card" role="listitem">' +
               '<div class="result-card-header"><div class="file-info"><span class="file-icon" aria-hidden="true">📄</span>' +

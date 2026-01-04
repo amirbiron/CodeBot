@@ -107,6 +107,7 @@ def inspect_file():
 
     return jsonify(
         {
+            "ok": True,
             "file_id": file_id,
             "content_length": len(code_text),
             "content_preview": code_text[:500],
