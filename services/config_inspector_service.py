@@ -572,44 +572,6 @@ class ConfigService:
             category="external",
             sensitive=True,
         ),
-        # --- Semantic Search (Embeddings) ---
-        "OPENAI_API_KEY": ConfigDefinition(
-            key="OPENAI_API_KEY",
-            default="",
-            description="מפתח API ל-OpenAI עבור Embeddings (חיפוש סמנטי). נדרש רק כאשר SEMANTIC_SEARCH_ENABLED=true.",
-            category="semantic_search",
-            sensitive=True,
-        ),
-        "EMBEDDING_MODEL": ConfigDefinition(
-            key="EMBEDDING_MODEL",
-            default="text-embedding-3-small",
-            description="שם מודל Embeddings של OpenAI לחיפוש סמנטי.",
-            category="semantic_search",
-        ),
-        "EMBEDDING_DIMENSIONS": ConfigDefinition(
-            key="EMBEDDING_DIMENSIONS",
-            default="1536",
-            description="מספר הממדים של ה-Embedding (חייב להתאים ל-Atlas Vector Index).",
-            category="semantic_search",
-        ),
-        "EMBEDDING_MAX_CHARS": ConfigDefinition(
-            key="EMBEDDING_MAX_CHARS",
-            default="2000",
-            description="מגבלת תווים לטקסט שנשלח ל-Embeddings API (בקרת עלות/Latency).",
-            category="semantic_search",
-        ),
-        "SEMANTIC_SEARCH_ENABLED": ConfigDefinition(
-            key="SEMANTIC_SEARCH_ENABLED",
-            default="false",
-            description="הפעלת חיפוש סמנטי (Vector Search). כאשר כבוי, חיפוש CONTENT יחזור למנוע הישן.",
-            category="semantic_search",
-        ),
-        "SEMANTIC_SEARCH_INDEX_ON_SAVE": ConfigDefinition(
-            key="SEMANTIC_SEARCH_INDEX_ON_SAVE",
-            default="false",
-            description="יצירת embeddings ברקע בעת שמירה/עדכון קובץ (מומלץ להשאיר פעיל בבוט).",
-            category="semantic_search",
-        ),
         "SENTRY_DSN": ConfigDefinition(
             key="SENTRY_DSN",
             default="",

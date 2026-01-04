@@ -347,11 +347,11 @@
     width: 90%;
     max-width: 500px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    animation: modalSlideUpLegacy 0.3s ease;
+    animation: modalSlideUp 0.3s ease;
     overflow: hidden;
 }
 
-@keyframes modalSlideUpLegacy {
+@keyframes modalSlideUp {
     from {
         transform: translateY(50px);
         opacity: 0;

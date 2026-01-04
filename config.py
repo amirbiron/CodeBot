@@ -194,27 +194,6 @@ class BotConfig(BaseSettings):
     GITHUB_TOKEN: Optional[str] = Field(default=None, description="GitHub token")
     PASTEBIN_API_KEY: Optional[str] = Field(default=None, description="Pastebin API key")
 
-    # === Semantic Search (Embeddings) ===
-    OPENAI_API_KEY: str = Field(default="", description="OpenAI API key for embeddings")
-    EMBEDDING_MODEL: str = Field(
-        default="text-embedding-3-small", description="Embedding model name"
-    )
-    EMBEDDING_DIMENSIONS: int = Field(
-        default=1536, ge=1, le=8192, description="Embedding vector dimensions"
-    )
-    SEMANTIC_SEARCH_ENABLED: bool = Field(
-        default=False, description="Enable semantic (vector) search"
-    )
-    SEMANTIC_SEARCH_INDEX_ON_SAVE: bool = Field(
-        default=False, description="Generate embeddings in background on save"
-    )
-    EMBEDDING_MAX_CHARS: int = Field(
-        default=2000,
-        ge=100,
-        le=200_000,
-        description="Max chars sent to Embeddings API (cost control)",
-    )
-
     # מגבלות ושדות כלליים
     MAX_CODE_SIZE: int = Field(
         default=100_000,

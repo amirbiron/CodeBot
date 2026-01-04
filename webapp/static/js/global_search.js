@@ -169,24 +169,20 @@
 
     const original = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מחפש...';
     try{
-      const searchType = ($('searchType')?.value || 'content');
-      const limit = parseInt($('resultsPerPage')?.value || '20', 10);
-
-      // במימוש החדש (/api/search) יש סינון language יחיד בלבד.
-      // נשמור תאימות ל-UI הקיים: אם נבחרו כמה שפות, ניקח את הראשונה.
-      const langs = getSelectedLanguages();
-      const language = (langs && langs.length) ? String(langs[0] || '') : '';
-
-      const url = new URL('/api/search', window.location.origin);
-      url.searchParams.set('q', q);
-      url.searchParams.set('type', searchType);
-      url.searchParams.set('limit', String(limit));
-      if (language) url.searchParams.set('language', language);
-
-      const res = await fetch(url.toString(), {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        credentials: 'same-origin'
+      const payload = {
+        query: q,
+        search_type: ($('searchType')?.value || 'content'),
+        page: page,
+        limit: parseInt($('resultsPerPage')?.value || '20', 10),
+        sort: ($('sortOrder')?.value || 'relevance'),
+        filters: { languages: getSelectedLanguages() }
+      };
+      if (!payload.filters.languages || payload.filters.languages.length === 0) delete payload.filters;
+      const res = await fetch('/api/search/global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
       });
 
       if (res.status === 401 || res.redirected) {
@@ -205,27 +201,10 @@
       }
 
       const data = await res.json();
-      // תאימות: חלק מהמסכים/גרסאות מחזירים success/results במקום ok/items
-      const normalizedItems = (data && Array.isArray(data.items))
-        ? data.items
-        : ((data && Array.isArray(data.results)) ? data.results : []);
-      const isOk = !!(data && (data.ok === true || data.success === true));
-      const okFlag = (data && (data.ok !== undefined ? data.ok : (data.success !== undefined ? data.success : undefined)));
-      const hasItems = normalizedItems.length > 0;
-
-      // כלל: אם יש items – מציגים אותם תמיד.
-      // בנוסף: אם ok=true (גם בלי items) – מציגים "לא נמצאו תוצאות" בצורה מסודרת.
-      const shouldRender = hasItems || isOk;
-      if (shouldRender) {
-        if (data && !Array.isArray(data.items)) data.items = normalizedItems;
-        displayResults(data || { items: normalizedItems, ok: isOk }, q, limit);
+      if (res.ok && data && data.success){
+        displayResults(data);
       } else {
-        alert((data && data.error) || 'אירעה שגיאה בחיפוש');
-      }
-
-      // אם השרת מדווח ok=false אבל עדיין החזיר תוצאות (או אפילו בלי) – לא מסתירים, רק מזהירים.
-      if (okFlag === false) {
-        showSearchWarning((data && data.error) || 'החיפוש הוחזר עם אזהרה/תקלה (ייתכן שהתוצאות חלקיות).');
+        alert(data.error || 'אירעה שגיאה בחיפוש');
       }
     } catch (e){
       console.error('search error', e);
@@ -251,98 +230,36 @@
     return Array.from(sel.selectedOptions || []).map(o => o.value);
   }
 
-  function displayResults(data, query, perPage){
+  function displayResults(data){
     const container = $('searchResultsContainer');
     const info = $('searchInfo');
     const results = $('searchResults');
     const pagination = $('searchPagination');
     if (!container || !info || !results || !pagination) return;
 
-    const itemsRaw = (data && Array.isArray(data.items)) ? data.items : [];
-    const total = itemsRaw.length;
-    const q = String(query || currentSearchQuery || '');
-    info.innerHTML = '<div class="alert alert-info">נמצאו <strong>' + total + '</strong> תוצאות עבור "' + escapeHtml(q) + '"</div>';
-    renderCommandShortcuts(q);
+    info.innerHTML = '<div class="alert alert-info">נמצאו <strong>' + (data.total_results||0) + '</strong> תוצאות עבור "' + escapeHtml(data.query||'') + '" (מציג ' + (data.results?.length||0) + ')</div>';
+    renderCommandShortcuts(data.query || currentSearchQuery || '');
 
-    if (!itemsRaw.length){
+    if (!data.results || data.results.length === 0){
       results.innerHTML = '<p class="text-muted">לא נמצאו תוצאות</p>';
     } else {
-      // התאמה למבנה הקיים של renderCard
-      const mapped = itemsRaw.map(function(it){
-        it = it || {};
-        const rawHighlights = it.highlights || it.highlight_ranges || it.highlightRanges || it.highlight_ranges_list || [];
-        const highlights = normalizeHighlights(rawHighlights);
-        const snippetPreviewText = normalizeOptionalString(it.snippet_preview, it.snippetPreview);
-        // סדר ההחלטה (לפי הדרישה):
-        // 1) אם יש highlights -> נציג snippet עם highlight
-        // 2) אחרת, אם יש snippet_preview -> נציג אותו כטקסט רגיל
-        // 3) אחרת -> "(אין תצוגה מקדימה)"
-        const snippetText = highlights.length
-          ? normalizeSnippet(snippetPreviewText, it.snippet, it.preview, it.content)
-          : '(אין תצוגה מקדימה)';
-        return {
-          file_id: it.file_id || it.id || it._id || '',
-          file_name: it.file_name || it.name || '',
-          language: it.programming_language || it.language || '',
-          tags: it.tags || [],
-          score: (typeof it.score === 'number') ? it.score : 0,
-          snippet: snippetText,
-          snippet_preview: snippetPreviewText,
-          highlights: highlights,
-          updated_at: it.updated_at || null,
-          size: it.file_size || it.size || 0,
-          lines_count: it.lines_count || it.lines || 0
-        };
-      });
-      const cardsHtml = mapped.map(function(r){
-        try {
-          return renderCard(r);
-        } catch (e) {
-          // לא להפיל את כל התוצאות בגלל פריט בעייתי
-          try { console.warn('renderCard failed', e, r); } catch(_) {}
-          const safeName = escapeHtml((r && r.file_name) || 'קובץ');
-          // חשוב: בחיפוש סמנטי highlights לרוב ריק, ואז r.snippet יכול להיות הודעת fallback.
-          // לכן נעדיף snippet_preview אם קיים, ורק אם לא – ניפול ל-snippet.
-          const bestSnippet = normalizeOptionalString(
-            r && r.snippet_preview,
-            r && r.snippet,
-            '(אין תצוגה מקדימה)'
-          );
-          const safeSnippet = escapeHtml(bestSnippet || '');
-          return (
-            '<article class="search-result-card glass-card" role="listitem">' +
-              '<div class="result-card-header"><div class="file-info"><span class="file-icon" aria-hidden="true">📄</span>' +
-                '<span class="file-name">' + safeName + '</span>' +
-              '</div></div>' +
-              (safeSnippet ? ('<div class="result-card-snippet"><pre class="mb-0" dir="ltr"><code>' + safeSnippet + '</code></pre></div>') : '') +
-            '</article>'
-          );
-        }
-      }).join('');
+      const cardsHtml = data.results.map(renderCard).join('');
       results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' + cardsHtml + '</div></div>';
     }
 
-    // לפי המדריך: אין דפדוף כרגע ב-API החדש. נשאיר ריק.
-    pagination.innerHTML = '';
+    renderPagination(pagination, data);
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function renderCard(r) {
+    const highlighted = highlightSnippet(r.snippet, r.highlights);
     const icon = fileIcon(r.language || '');
     const badgeMeta = languageBadgeMeta(r.language, r.file_name);
     const badgeHtml = '<span class="global-search-lang-badge badge ' + badgeMeta.className + '" title="שפת הקובץ">' + escapeHtml(badgeMeta.label.toUpperCase()) + '</span>';
     const scoreValue = typeof r.score === 'number' ? r.score.toFixed(2) : '—';
     const sizeValue = humanSize(r.size || 0);
     const updatedValue = formatDate(r.updated_at) || '—';
-
-    const hasHighlights = !!(r.highlights && r.highlights.length);
-    // אם אין highlights - מציגים snippet_preview כטקסט רגיל (ללא Syntax Highlighting)
-    const previewText = normalizeOptionalString(r.snippet_preview);
-    const plainText = previewText ? previewText : '(אין תצוגה מקדימה)';
-    const codeHtml = hasHighlights
-      ? highlightSnippet(r.snippet, r.highlights)
-      : escapeHtml(plainText);
 
     return (
       '<article class="search-result-card glass-card" role="listitem">' +
@@ -356,7 +273,7 @@
           badgeHtml +
         '</div>' +
         '<div class="result-card-snippet">' +
-          '<pre class="mb-0" dir="ltr"><code>' + codeHtml + '</code></pre>' +
+          '<pre class="mb-0" dir="ltr"><code>' + highlighted + '</code></pre>' +
         '</div>' +
         '<div class="result-card-footer">' +
           '<div class="meta-item">' + META_ICONS.score + '<span>ציון: ' + scoreValue + '</span></div>' +
@@ -382,77 +299,6 @@
     return out;
   }
 
-  function showSearchWarning(message){
-    const msg = String(message || '').trim();
-    if (!msg) return;
-    const info = document.getElementById('searchInfo');
-    if (!info) {
-      // fallback: לפחות נציג הודעה למשתמש
-      try { alert(msg); } catch(_) {}
-      return;
-    }
-    // מניעת כפילויות
-    let box = document.getElementById('searchWarning');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'searchWarning';
-      info.appendChild(box);
-    }
-    box.className = 'alert alert-warning';
-    box.innerHTML = escapeHtml(msg);
-  }
-
-  function normalizeSnippet(){
-    // מקבל רשימת מועמדים (snippet_preview וכו') ומחזיר טקסט לא ריק
-    for (let i = 0; i < arguments.length; i++){
-      const v = arguments[i];
-      if (v === null || v === undefined) continue;
-      const s = String(v);
-      if (s.trim().length) return s;
-    }
-    // fallback: לא להשאיר כרטיס ריק
-    return '(אין תצוגה מקדימה)';
-  }
-
-  function normalizeOptionalString(){
-    for (let i = 0; i < arguments.length; i++){
-      const v = arguments[i];
-      if (v === null || v === undefined) continue;
-      const s = String(v);
-      if (s.trim().length) return s;
-    }
-    return '';
-  }
-
-  function normalizeHighlights(raw){
-    // חיפוש סמנטי לרוב מחזיר [], ועדיין צריך להציג את snippet_preview.
-    // בנוסף, ננקה פורמטים לא צפויים כדי שלא יפיל את highlightSnippet.
-    if (!raw) return [];
-    if (!Array.isArray(raw)) return [];
-    const out = [];
-    for (const item of raw){
-      if (!item) continue;
-      // פורמט צפוי: [start, end]
-      if (Array.isArray(item) && item.length >= 2){
-        const s = Number(item[0]);
-        const e = Number(item[1]);
-        if (Number.isFinite(s) && Number.isFinite(e) && e > s && s >= 0){
-          out.push([s, e]);
-        }
-        continue;
-      }
-      // פורמט אפשרי: {start, end}
-      if (typeof item === 'object' && item.start !== undefined && item.end !== undefined){
-        const s = Number(item.start);
-        const e = Number(item.end);
-        if (Number.isFinite(s) && Number.isFinite(e) && e > s && s >= 0){
-          out.push([s, e]);
-        }
-      }
-    }
-    return out;
-  }
-
   function renderPagination(container, data){
     const total = Math.max(0, parseInt(data.total_results || 0, 10));
     const per = Math.max(1, parseInt(data.per_page || 20, 10));
@@ -472,7 +318,7 @@
 
   async function fetchSuggestions(q){
     try{
-      const res = await fetch('/api/search/suggest?q=' + encodeURIComponent(q), {
+      const res = await fetch('/api/search/suggestions?q=' + encodeURIComponent(q), {
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
       });

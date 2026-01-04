@@ -514,11 +514,6 @@ class DatabaseManager:
             self._repo = Repository(self)
         return self._repo
 
-    @property
-    def manager(self) -> "DatabaseManager":
-        """תאימות למדריכים/קוד ישן שמצפה ל-`db.manager.collection`."""
-        return self
-
     def safe_create_index(
         self,
         collection_name: str,
