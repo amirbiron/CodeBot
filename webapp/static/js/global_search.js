@@ -272,20 +272,22 @@
         it = it || {};
         const rawHighlights = it.highlights || it.highlight_ranges || it.highlightRanges || it.highlight_ranges_list || [];
         const highlights = normalizeHighlights(rawHighlights);
-        const snippetText = normalizeSnippet(
-          it.snippet_preview,
-          it.snippet,
-          it.preview,
-          it.content
-        );
+        const snippetPreviewText = normalizeOptionalString(it.snippet_preview, it.snippetPreview);
+        // סדר ההחלטה (לפי הדרישה):
+        // 1) אם יש highlights -> נציג snippet עם highlight
+        // 2) אחרת, אם יש snippet_preview -> נציג אותו כטקסט רגיל
+        // 3) אחרת -> "(אין תצוגה מקדימה)"
+        const snippetText = highlights.length
+          ? normalizeSnippet(snippetPreviewText, it.snippet, it.preview, it.content)
+          : '(אין תצוגה מקדימה)';
         return {
           file_id: it.file_id || it.id || it._id || '',
           file_name: it.file_name || it.name || '',
           language: it.programming_language || it.language || '',
           tags: it.tags || [],
           score: (typeof it.score === 'number') ? it.score : 0,
-          // חשוב: גם אם highlights ריק (כמו בחיפוש סמנטי) עדיין מציגים snippet_preview
           snippet: snippetText,
+          snippet_preview: snippetPreviewText,
           highlights: highlights,
           updated_at: it.updated_at || null,
           size: it.file_size || it.size || 0,
@@ -299,7 +301,14 @@
           // לא להפיל את כל התוצאות בגלל פריט בעייתי
           try { console.warn('renderCard failed', e, r); } catch(_) {}
           const safeName = escapeHtml((r && r.file_name) || 'קובץ');
-          const safeSnippet = escapeHtml((r && r.snippet) || '');
+          // חשוב: בחיפוש סמנטי highlights לרוב ריק, ואז r.snippet יכול להיות הודעת fallback.
+          // לכן נעדיף snippet_preview אם קיים, ורק אם לא – ניפול ל-snippet.
+          const bestSnippet = normalizeOptionalString(
+            r && r.snippet_preview,
+            r && r.snippet,
+            '(אין תצוגה מקדימה)'
+          );
+          const safeSnippet = escapeHtml(bestSnippet || '');
           return (
             '<article class="search-result-card glass-card" role="listitem">' +
               '<div class="result-card-header"><div class="file-info"><span class="file-icon" aria-hidden="true">📄</span>' +
@@ -320,13 +329,20 @@
   }
 
   function renderCard(r) {
-    const highlighted = highlightSnippet(r.snippet, r.highlights);
     const icon = fileIcon(r.language || '');
     const badgeMeta = languageBadgeMeta(r.language, r.file_name);
     const badgeHtml = '<span class="global-search-lang-badge badge ' + badgeMeta.className + '" title="שפת הקובץ">' + escapeHtml(badgeMeta.label.toUpperCase()) + '</span>';
     const scoreValue = typeof r.score === 'number' ? r.score.toFixed(2) : '—';
     const sizeValue = humanSize(r.size || 0);
     const updatedValue = formatDate(r.updated_at) || '—';
+
+    const hasHighlights = !!(r.highlights && r.highlights.length);
+    // אם אין highlights - מציגים snippet_preview כטקסט רגיל (ללא Syntax Highlighting)
+    const previewText = normalizeOptionalString(r.snippet_preview);
+    const plainText = previewText ? previewText : '(אין תצוגה מקדימה)';
+    const codeHtml = hasHighlights
+      ? highlightSnippet(r.snippet, r.highlights)
+      : escapeHtml(plainText);
 
     return (
       '<article class="search-result-card glass-card" role="listitem">' +
@@ -340,7 +356,7 @@
           badgeHtml +
         '</div>' +
         '<div class="result-card-snippet">' +
-          '<pre class="mb-0" dir="ltr"><code>' + highlighted + '</code></pre>' +
+          '<pre class="mb-0" dir="ltr"><code>' + codeHtml + '</code></pre>' +
         '</div>' +
         '<div class="result-card-footer">' +
           '<div class="meta-item">' + META_ICONS.score + '<span>ציון: ' + scoreValue + '</span></div>' +
@@ -396,6 +412,16 @@
     }
     // fallback: לא להשאיר כרטיס ריק
     return '(אין תצוגה מקדימה)';
+  }
+
+  function normalizeOptionalString(){
+    for (let i = 0; i < arguments.length; i++){
+      const v = arguments[i];
+      if (v === null || v === undefined) continue;
+      const s = String(v);
+      if (s.trim().length) return s;
+    }
+    return '';
   }
 
   function normalizeHighlights(raw){
