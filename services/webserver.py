@@ -1181,23 +1181,14 @@ def create_app() -> web.Application:
 
         Endpoint תחזוקה חד-פעמי (DB):
         - איפוס קולקציות לוגים: slow_queries_log, service_metrics
+        - יצירת TTL לקולקציות לוגים (מחיקה אוטומטית בעתיד)
         - ניקוי אינדקסים ב-code_snippets: השארה של אינדקסים קריטיים בלבד.
 
         ⚠️ מוגן ע"י db_health_auth_middleware (Bearer token).
         """
         from services.db_provider import get_db
 
-        keep_index_names = {
-            "_id_",
-            "search_text_idx",
-            # legacy / newer naming variants:
-            "user_created_at",
-            "user_active_created_at_idx",
-        }
-
         def _run_cleanup() -> dict:
-            import types
-
             db = get_db()
 
             # --- collections to purge ---
@@ -1226,6 +1217,86 @@ def create_app() -> web.Application:
             deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
             deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
 
+            # --- TTL indexes (permanent cleanup) ---
+            def _ensure_ttl_index(coll: Any, *, field: str, expire_seconds: int, index_name: str) -> dict:
+                """Ensure TTL index exists with requested expireAfterSeconds (best-effort)."""
+                info_before = {}
+                try:
+                    info_before = coll.index_information() or {}
+                except Exception:
+                    info_before = {}
+
+                existing_meta = info_before.get(index_name) if isinstance(info_before, dict) else None
+                if isinstance(existing_meta, dict):
+                    try:
+                        existing_expire = existing_meta.get("expireAfterSeconds")
+                        existing_key = existing_meta.get("key")
+                        if (
+                            existing_expire == int(expire_seconds)
+                            and existing_key == [(field, 1)]
+                        ):
+                            return {
+                                "name": index_name,
+                                "field": field,
+                                "expireAfterSeconds": int(expire_seconds),
+                                "status": "exists",
+                            }
+                    except Exception:
+                        pass
+
+                # Try drop conflicting TTL index with the same name
+                try:
+                    coll.drop_index(index_name)
+                except Exception:
+                    pass
+
+                created_name = None
+                try:
+                    created_name = coll.create_index(
+                        [(field, 1)],
+                        name=index_name,
+                        expireAfterSeconds=int(expire_seconds),
+                        background=True,
+                    )
+                except Exception as e:
+                    # Best-effort: report error and continue
+                    return {
+                        "name": index_name,
+                        "field": field,
+                        "expireAfterSeconds": int(expire_seconds),
+                        "status": "error",
+                        "error": str(e),
+                    }
+
+                return {
+                    "name": str(created_name or index_name),
+                    "field": field,
+                    "expireAfterSeconds": int(expire_seconds),
+                    "status": "created",
+                }
+
+            ttl_results: dict[str, Any] = {
+                "slow_queries_log": _ensure_ttl_index(
+                    slow_queries_coll,
+                    field="timestamp",
+                    expire_seconds=604800,  # 7 days
+                    index_name="ttl_cleanup",
+                ),
+                # service_metrics uses "ts" in code, but we'll also create a "timestamp" TTL for safety/backward-compat
+                "service_metrics_ts": _ensure_ttl_index(
+                    service_metrics_coll,
+                    field="ts",
+                    expire_seconds=86400,  # 24 hours
+                    index_name="ttl_cleanup_ts",
+                ),
+                "service_metrics_timestamp": _ensure_ttl_index(
+                    service_metrics_coll,
+                    field="timestamp",
+                    expire_seconds=86400,  # 24 hours
+                    index_name="ttl_cleanup",
+                ),
+            }
+
             # --- index cleanup (code_snippets) ---
             try:
                 idx_info = code_snippets_coll.index_information() or {}
@@ -1237,20 +1308,35 @@ def create_app() -> web.Application:
             kept: list[str] = []
             drop_errors: dict[str, str] = {}
 
-            for name in sorted(idx_info.keys()):
-                idx_name = str(name)
-                if idx_name in keep_index_names:
-                    kept.append(idx_name)
-                    continue
-
-                # שמירה על אינדקסים ייחודיים (אם יש) כדי לא לשבור שלמות נתונים.
+            def _should_keep_code_snippets_index(index_name: str, meta: Any) -> bool:
+                # Keep by explicit name
+                if index_name in {"_id_", "search_text_idx", "unique_file_name", "user_id"}:
+                    return True
+                if not isinstance(meta, dict):
+                    return False
+                key = meta.get("key")
+                # Keep single-field user_id index (name may be user_id_1 / user_id_idx etc.)
+                if key in ([("user_id", 1)], [("user_id", -1)]):
+                    return True
+                # Keep a unique index enforcing unique file name per user (compound user_id + file_name)
                 try:
-                    if bool((idx_info.get(name) or {}).get("unique")):
-                        kept.append(idx_name)
-                        continue
+                    if bool(meta.get("unique")) and key in (
+                        [("user_id", 1), ("file_name", 1)],
+                        [("file_name", 1), ("user_id", 1)],
+                        [("user_id", -1), ("file_name", 1)],
+                        [("file_name", 1), ("user_id", -1)],
+                    ):
+                        return True
                 except Exception:
                     pass
+                return False
 
+            for name in sorted(idx_info.keys()):
+                idx_name = str(name)
+                meta = idx_info.get(name)
+                if _should_keep_code_snippets_index(idx_name, meta):
+                    kept.append(idx_name)
+                    continue
                 try:
                     code_snippets_coll.drop_index(idx_name)
                     dropped.append(idx_name)
@@ -1271,13 +1357,13 @@ def create_app() -> web.Application:
                     "service_metrics": deleted_metrics,
                     "total": deleted_slow + deleted_metrics,
                 },
+                "ttl": ttl_results,
                 "indexes": {
                     "collection": "code_snippets",
                     "before": indexes_before,
                     "after": indexes_after,
                     "dropped": dropped,
                     "kept": kept,
-                    "keep_allowlist": sorted(list(keep_index_names)),
                     "drop_errors": drop_errors,
                 },
             }
