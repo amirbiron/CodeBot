@@ -132,21 +132,24 @@ class _SyncThread:
 
 
 def test_semantic_search_end_to_end(monkeypatch):
-    # Flags + embedding config (tests may run with a config stub)
-    import config as cfg_mod
+    # Flags + embedding config (tests may run with a config stub).
+    # נעדיף לפאץ' את האובייקטים שכבר מיובאים בתוך המודולים הרלוונטיים כדי למנוע תלות בסדר טעינה.
+    import search_engine as se
+    import database.repository as repo_mod
+    import webapp.search_api as api_mod
 
-    monkeypatch.setattr(cfg_mod.config, "SEMANTIC_SEARCH_ENABLED", True, raising=False)
-    monkeypatch.setattr(cfg_mod.config, "SEMANTIC_SEARCH_INDEX_ON_SAVE", True, raising=False)
-    monkeypatch.setattr(cfg_mod.config, "EMBEDDING_MODEL", "text-embedding-3-small", raising=False)
-    monkeypatch.setattr(cfg_mod.config, "EMBEDDING_DIMENSIONS", 1536, raising=False)
-    monkeypatch.setattr(cfg_mod.config, "EMBEDDING_MAX_CHARS", 2000, raising=False)
+    for cfg_obj in (se.config, repo_mod.config, api_mod.config):
+        monkeypatch.setattr(cfg_obj, "SEMANTIC_SEARCH_ENABLED", True, raising=False)
+        monkeypatch.setattr(cfg_obj, "SEMANTIC_SEARCH_INDEX_ON_SAVE", True, raising=False)
+        monkeypatch.setattr(cfg_obj, "EMBEDDING_MODEL", "text-embedding-3-small", raising=False)
+        monkeypatch.setattr(cfg_obj, "EMBEDDING_DIMENSIONS", 1536, raising=False)
+        monkeypatch.setattr(cfg_obj, "EMBEDDING_MAX_CHARS", 2000, raising=False)
 
     # Stub DB and wire it into both search_engine and search_api usage of `database.db`
     mgr = _ManagerStub()
 
     # Patch database.db and search_engine.db to point at our stub
     import database
-    import search_engine as se
 
     monkeypatch.setattr(database, "db", mgr, raising=False)
     monkeypatch.setattr(se, "db", mgr, raising=False)
