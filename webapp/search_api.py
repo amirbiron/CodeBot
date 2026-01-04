@@ -6,6 +6,7 @@ Search API Blueprint.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request, session
@@ -59,6 +60,7 @@ def search_files():
 
     try:
         from search_engine import search_engine, SearchType, SearchFilter
+        from database import db
 
         # מיפוי סוג חיפוש
         type_map = {
@@ -91,17 +93,68 @@ def search_files():
             limit=limit,
         )
 
+        def _resolve_doc_meta(file_name: str) -> Dict[str, Any]:
+            """Best-effort: resolve {_id, file_size, lines_count} for UI links."""
+            try:
+                doc = db.manager.collection.find_one(
+                    {
+                        "user_id": user_id,
+                        "file_name": file_name,
+                        "is_active": {"$ne": False},
+                    },
+                    {"_id": 1, "file_size": 1, "lines_count": 1},
+                    sort=[("version", -1), ("updated_at", -1), ("_id", -1)],
+                )
+            except TypeError:
+                # תאימות ל-stubs/מימושים ישנים שלא תומכים ב-projection/sort
+                try:
+                    doc = db.manager.collection.find_one(
+                        {
+                            "user_id": user_id,
+                            "file_name": file_name,
+                            "is_active": {"$ne": False},
+                        }
+                    )
+                except Exception:
+                    doc = None
+            except Exception:
+                doc = None
+            return dict(doc or {})
+
         # המרה ל-JSON-serializable
         items = []
         for r in results:
+            meta = _resolve_doc_meta(r.file_name)
+            try:
+                file_id = str(meta.get("_id") or "")
+            except Exception:
+                file_id = ""
+            try:
+                file_size = int(meta.get("file_size") or 0)
+            except Exception:
+                file_size = 0
+            try:
+                lines_count = int(meta.get("lines_count") or 0)
+            except Exception:
+                lines_count = 0
+
+            try:
+                highlights = list(getattr(r, "highlight_ranges", None) or [])
+            except Exception:
+                highlights = []
+
             items.append(
                 {
+                    "file_id": file_id,
                     "file_name": r.file_name,
                     "programming_language": r.programming_language,
                     "tags": r.tags,
                     "updated_at": r.updated_at.isoformat() if r.updated_at else None,
                     "score": round(r.relevance_score, 4),
                     "snippet_preview": (r.snippet_preview or "")[:200] if r.snippet_preview else None,
+                    "highlights": highlights,
+                    "file_size": file_size,
+                    "lines_count": lines_count,
                     "is_semantic": st == SearchType.SEMANTIC,
                 }
             )
@@ -113,6 +166,7 @@ def search_files():
                 "total": len(items),
                 "search_type": search_type,
                 "semantic_enabled": getattr(config, "SEMANTIC_SEARCH_ENABLED", False),
+                "ts": datetime.now(timezone.utc).isoformat(),
             }
         )
 
