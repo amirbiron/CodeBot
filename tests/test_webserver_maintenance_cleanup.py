@@ -139,3 +139,67 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
     finally:
         await runner.cleanup()
 
+
+@pytest.mark.asyncio
+async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
+    import services.webserver as ws
+
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
+
+    class _StubDeleteColl:
+        def delete_many(self, _q):
+            return types.SimpleNamespace(deleted_count=0)
+
+        def index_information(self):
+            return {}
+
+        def drop_index(self, _name: str):
+            return None
+
+        def create_index(self, _keys, **_kwargs):
+            return _kwargs.get("name") or "idx"
+
+    class _StubCodeSnippetsColl:
+        def index_information(self):
+            return {"_id_": {"key": [("_id", 1)]}}
+
+        def drop_index(self, _name: str):
+            return None
+
+    class _StubDB:
+        slow_queries_log = _StubDeleteColl()
+        service_metrics = _StubDeleteColl()
+        code_snippets = _StubCodeSnippetsColl()
+
+    import services.db_provider as dbp
+
+    monkeypatch.setattr(dbp, "get_db", lambda: _StubDB(), raising=True)
+
+    app = ws.create_app()
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup?token=test-db-health-token"
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload.get("ok") is True
+
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup?token=wrong"
+            ) as resp2:
+                assert resp2.status == 401
+                payload2 = await resp2.json()
+                assert payload2.get("error") == "unauthorized"
+    finally:
+        await runner.cleanup()
+

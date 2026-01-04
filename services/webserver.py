@@ -132,13 +132,20 @@ async def db_health_auth_middleware(request: web.Request, handler):
             # אם לא מוגדר token, חסום לגמרי
             return web.json_response({"error": "disabled"}, status=403)
 
-        auth = request.headers.get("Authorization", "")
+        auth = request.headers.get("Authorization", "") or ""
 
-        # בדיקה שה-header מתחיל ב-Bearer (לא חושפת מידע)
-        if not auth.startswith("Bearer "):
+        # עדיפות ל-header; fallback ל-query param (?token=...)
+        provided_token = ""
+        if auth.startswith("Bearer "):
+            provided_token = auth[7:]  # הסר את "Bearer "
+        else:
+            try:
+                provided_token = str(request.query.get("token") or "")
+            except Exception:
+                provided_token = ""
+
+        if not provided_token:
             return web.json_response({"error": "unauthorized"}, status=401)
-
-        provided_token = auth[7:]  # הסר את "Bearer "
 
         # השוואה בזמן קבוע למניעת timing attacks!
         # secrets.compare_digest או hmac.compare_digest
