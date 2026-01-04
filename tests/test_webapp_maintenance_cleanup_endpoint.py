@@ -10,8 +10,10 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
     class _StubDeleteColl:
         def __init__(self):
             self.created_indexes = []
+            self.deleted_calls = 0
 
         def delete_many(self, _q):
+            self.deleted_calls += 1
             return types.SimpleNamespace(deleted_count=0)
 
         def index_information(self):
@@ -41,11 +43,13 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
             self._idx.pop(name, None)
 
     class _StubDB:
-        slow_queries_log = _StubDeleteColl()
-        service_metrics = _StubDeleteColl()
-        code_snippets = _StubCodeSnippetsColl()
+        def __init__(self):
+            self.slow_queries_log = _StubDeleteColl()
+            self.service_metrics = _StubDeleteColl()
+            self.code_snippets = _StubCodeSnippetsColl()
 
-    monkeypatch.setattr(webapp_app, "get_db", lambda: _StubDB(), raising=True)
+    shared_db = _StubDB()
+    monkeypatch.setattr(webapp_app, "get_db", lambda: shared_db, raising=True)
 
     with webapp_app.app.test_client() as client:
         # Query param auth should work for maintenance_cleanup
@@ -59,4 +63,14 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
         assert resp2.status_code == 401
         payload2 = resp2.get_json()
         assert payload2 and payload2.get("error") == "unauthorized"
+
+        # Preview should not mutate (no deletes)
+        before_deletes = shared_db.slow_queries_log.deleted_calls + shared_db.service_metrics.deleted_calls
+        resp3 = client.get("/api/debug/maintenance_cleanup?token=test-db-health-token&preview=1")
+        assert resp3.status_code == 200
+        payload3 = resp3.get_json()
+        assert payload3 and payload3.get("preview") is True
+        assert payload3.get("deleted_documents", {}).get("total") == 0
+        after_deletes = shared_db.slow_queries_log.deleted_calls + shared_db.service_metrics.deleted_calls
+        assert after_deletes == before_deletes
 

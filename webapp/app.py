@@ -3973,6 +3973,8 @@ def api_debug_maintenance_cleanup():
     if not _maintenance_cleanup_is_authorized():
         return jsonify({"error": "unauthorized"}), 401
 
+    preview = str(request.args.get("preview") or "").lower() in {"1", "true", "yes", "on"}
+
     def _ensure_ttl_index(coll: Any, *, field: str, expire_seconds: int, index_name: str) -> dict:
         info_before: dict = {}
         try:
@@ -3996,23 +3998,26 @@ def api_debug_maintenance_cleanup():
                 pass
 
         # drop conflicting index with same name (best-effort)
-        try:
-            coll.drop_index(index_name)
-        except Exception:
-            pass
+        if not preview:
+            try:
+                coll.drop_index(index_name)
+            except Exception:
+                pass
 
         try:
-            created_name = coll.create_index(
-                [(field, 1)],
-                name=index_name,
-                expireAfterSeconds=int(expire_seconds),
-                background=True,
-            )
+            created_name = None
+            if not preview:
+                created_name = coll.create_index(
+                    [(field, 1)],
+                    name=index_name,
+                    expireAfterSeconds=int(expire_seconds),
+                    background=True,
+                )
             return {
                 "name": str(created_name or index_name),
                 "field": field,
                 "expireAfterSeconds": int(expire_seconds),
-                "status": "created",
+                "status": "planned" if preview else "created",
             }
         except Exception as e:
             return {
@@ -4049,10 +4054,13 @@ def api_debug_maintenance_cleanup():
         db = get_db()
 
         # Purge logs
-        slow_res = db.slow_queries_log.delete_many({})
-        metrics_res = db.service_metrics.delete_many({})
-        deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
-        deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
+        deleted_slow = 0
+        deleted_metrics = 0
+        if not preview:
+            slow_res = db.slow_queries_log.delete_many({})
+            metrics_res = db.service_metrics.delete_many({})
+            deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
+            deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
 
         # TTL indexes
         ttl_results = {
@@ -4084,6 +4092,18 @@ def api_debug_maintenance_cleanup():
             idx_info = {}
 
         indexes_before = sorted([str(k) for k in (idx_info or {}).keys()])
+        indexes_before_details: dict[str, dict] = {}
+        for k, meta in (idx_info or {}).items():
+            if not isinstance(meta, dict):
+                continue
+            name = str(k)
+            indexes_before_details[name] = {
+                "key": meta.get("key"),
+                "unique": bool(meta.get("unique")) if "unique" in meta else False,
+                "expireAfterSeconds": meta.get("expireAfterSeconds"),
+                "weights": meta.get("weights"),
+                "default_language": meta.get("default_language"),
+            }
         dropped: list[str] = []
         kept: list[str] = []
         drop_errors: dict[str, str] = {}
@@ -4094,8 +4114,11 @@ def api_debug_maintenance_cleanup():
                 kept.append(idx_name)
                 continue
             try:
-                code_snippets.drop_index(idx_name)
-                dropped.append(idx_name)
+                if preview:
+                    dropped.append(idx_name)  # planned
+                else:
+                    code_snippets.drop_index(idx_name)
+                    dropped.append(idx_name)
             except Exception as e:
                 drop_errors[idx_name] = str(e)
 
@@ -4108,6 +4131,7 @@ def api_debug_maintenance_cleanup():
         return jsonify(
             {
                 "ok": True,
+                "preview": preview,
                 "deleted_documents": {
                     "slow_queries_log": deleted_slow,
                     "service_metrics": deleted_metrics,
@@ -4117,6 +4141,7 @@ def api_debug_maintenance_cleanup():
                 "indexes": {
                     "collection": "code_snippets",
                     "before": indexes_before,
+                    "before_details": indexes_before_details,
                     "after": indexes_after,
                     "dropped": dropped,
                     "kept": kept,
