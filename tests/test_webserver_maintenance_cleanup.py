@@ -194,6 +194,14 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
                 payload = await resp.json()
                 assert payload.get("ok") is True
 
+            # Query token should NOT authorize /api/db/*
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/db/pool?token=test-db-health-token"
+            ) as resp_db:
+                assert resp_db.status == 401
+                payload_db = await resp_db.json()
+                assert payload_db.get("error") == "unauthorized"
+
             async with session.get(
                 f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup?token=wrong"
             ) as resp2:

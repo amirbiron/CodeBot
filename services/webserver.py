@@ -134,15 +134,18 @@ async def db_health_auth_middleware(request: web.Request, handler):
 
         auth = request.headers.get("Authorization", "") or ""
 
-        # עדיפות ל-header; fallback ל-query param (?token=...)
+        # עדיפות ל-header; fallback ל-query param (?token=...) רק ל-endpoint תחזוקה,
+        # כדי לא להחליש את מצב האבטחה של /api/db/* ו-/api/jobs/*
         provided_token = ""
         if auth.startswith("Bearer "):
             provided_token = auth[7:]  # הסר את "Bearer "
         else:
-            try:
-                provided_token = str(request.query.get("token") or "")
-            except Exception:
-                provided_token = ""
+            allow_query_token = request.path == "/api/debug/maintenance_cleanup"
+            if allow_query_token:
+                try:
+                    provided_token = str(request.query.get("token") or "")
+                except Exception:
+                    provided_token = ""
 
         if not provided_token:
             return web.json_response({"error": "unauthorized"}, status=401)
