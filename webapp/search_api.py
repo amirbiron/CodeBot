@@ -79,6 +79,12 @@ def search_files():
             # Fallback לחיפוש רגיל
             st = SearchType.FUZZY
 
+        # חשוב: אצלנו "content" מתנהג כסמנטי כברירת מחדל כאשר הפיצ'ר מופעל (override במנוע החיפוש)
+        effective_is_semantic = bool(
+            (st == SearchType.SEMANTIC)
+            or (st == SearchType.CONTENT and getattr(config, "SEMANTIC_SEARCH_ENABLED", False))
+        )
+
         # הכנת פילטרים
         filters = None
         if language:
@@ -155,7 +161,7 @@ def search_files():
                     "highlights": highlights,
                     "file_size": file_size,
                     "lines_count": lines_count,
-                    "is_semantic": st == SearchType.SEMANTIC,
+                    "is_semantic": effective_is_semantic,
                 }
             )
 
@@ -165,6 +171,7 @@ def search_files():
                 "items": items,
                 "total": len(items),
                 "search_type": search_type,
+                "effective_is_semantic": effective_is_semantic,
                 "semantic_enabled": getattr(config, "SEMANTIC_SEARCH_ENABLED", False),
                 "ts": datetime.now(timezone.utc).isoformat(),
             }
