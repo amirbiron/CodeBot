@@ -319,22 +319,40 @@ class AdvancedSearchEngine:
                 except Exception:
                     pass
                 return []
-            
-            # קבלת האינדקס
-            with track_performance("search_index_get", labels={"repo": ""}):
-                index = self.get_index(user_id)
+
+            # קבלת האינדקס (רק כשבאמת צריך).
+            # חיפוש סמנטי לא תלוי באינדקס in-memory, ולכן לא נרצה לגעת בו כאן:
+            # - חוסך עבודה מיותרת
+            # - מונע תקלות "רעש" בטסטים/סביבות שבהן ה-DB מושבת
+            use_semantic_for_content = (
+                search_type == SearchType.CONTENT
+                and getattr(config, "SEMANTIC_SEARCH_ENABLED", False)
+            )
+            index: Optional[SearchIndex] = None
+            if search_type != SearchType.SEMANTIC and not use_semantic_for_content:
+                with track_performance("search_index_get", labels={"repo": ""}):
+                    index = self.get_index(user_id)
             
             # ביצוע החיפוש לפי סוג
             with track_performance("search_execute", labels={"repo": ""}):
                 if search_type == SearchType.TEXT:
+                    # TEXT דורש אינדקס; אם לא קיים מסיבה כלשהי, נבנה עכשיו
+                    if index is None:
+                        index = self.get_index(user_id)
                     candidates = self._text_search(query, index, user_id)
                 elif search_type == SearchType.REGEX:
                     candidates = self._regex_search(query, user_id)
                 elif search_type == SearchType.FUZZY:
+                    # _fuzzy_search לא באמת משתמש ב-index, אבל נשמור תאימות לחתימה
+                    if index is None:
+                        index = SearchIndex()
+                        index.last_update = datetime.now(timezone.utc)
                     candidates = self._fuzzy_search(query, index, user_id)
                 elif search_type == SearchType.SEMANTIC:
                     candidates = self._semantic_search(query, user_id, limit)
                 elif search_type == SearchType.FUNCTION:
+                    if index is None:
+                        index = self.get_index(user_id)
                     candidates = self._function_search(query, index, user_id)
                 elif search_type == SearchType.CONTENT:
                     # Override: חיפוש גלובלי/CONTENT משתמש בסמנטי כברירת מחדל (אם פיצ'ר מופעל)
@@ -343,6 +361,8 @@ class AdvancedSearchEngine:
                     else:
                         candidates = self._content_search(query, user_id)
                 else:
+                    if index is None:
+                        index = self.get_index(user_id)
                     candidates = self._text_search(query, index, user_id)
             
             # החלת מסננים
