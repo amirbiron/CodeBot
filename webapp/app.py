@@ -6254,15 +6254,9 @@ def create_global_search_index():
                 ops = db.command({"currentOp": 1, "active": True})
                 for op in ops.get("inprog", []) or []:
                     cmd = op.get("command") or {}
-                    ns = op.get("ns")
-                    ns_coll = ""
-                    if isinstance(ns, str):
-                        # ns לרוב מגיע בפורמט "<db>.<collection>"
-                        ns_coll = ns.split(".", 1)[-1]
-
-                    # ב-fallback נספור *רק* בניות אינדקסים שקשורות ל-code_snippets,
-                    # כדי לא להטעות על בניות אינדקסים בקולקשנים אחרים.
-                    if cmd.get("createIndexes") == "code_snippets" or ns_coll == "code_snippets":
+                    msg = op.get("msg", "")
+                    # ב-fallback נספור רק אם זו בניית אינדקס של code_snippets (ולא כל "Index Build" כללי)
+                    if cmd.get("createIndexes") == "code_snippets" or ("Index Build" in (msg or "") and "code_snippets" in (msg or "")):
                         building_ops.append(op)
             except Exception as e2:
                 building_error = f"{e} | {e2}"
