@@ -205,8 +205,16 @@
       }
 
       const data = await res.json();
-      if (res.ok && data && data.ok){
-        displayResults(data, q, limit);
+      // תאימות: חלק מהמסכים/גרסאות מחזירים success/results במקום ok/items
+      const normalizedItems = (data && Array.isArray(data.items))
+        ? data.items
+        : ((data && Array.isArray(data.results)) ? data.results : []);
+      const isOk = !!(data && (data.ok === true || data.success === true));
+
+      if (res.ok && (isOk || normalizedItems.length)){
+        // נורמליזציה כדי ש-displayResults תמיד יעבוד מול data.items
+        if (data && !Array.isArray(data.items)) data.items = normalizedItems;
+        displayResults(data || { items: normalizedItems, ok: isOk }, q, limit);
       } else {
         alert((data && data.error) || 'אירעה שגיאה בחיפוש');
       }
@@ -241,31 +249,58 @@
     const pagination = $('searchPagination');
     if (!container || !info || !results || !pagination) return;
 
-    const total = Array.isArray(data.items) ? data.items.length : 0;
+    const itemsRaw = (data && Array.isArray(data.items)) ? data.items : [];
+    const total = itemsRaw.length;
     const q = String(query || currentSearchQuery || '');
     info.innerHTML = '<div class="alert alert-info">נמצאו <strong>' + total + '</strong> תוצאות עבור "' + escapeHtml(q) + '"</div>';
     renderCommandShortcuts(q);
 
-    const items = Array.isArray(data.items) ? data.items : [];
-    if (!items.length){
+    if (!itemsRaw.length){
       results.innerHTML = '<p class="text-muted">לא נמצאו תוצאות</p>';
     } else {
       // התאמה למבנה הקיים של renderCard
-      const mapped = items.map(function(it){
+      const mapped = itemsRaw.map(function(it){
+        it = it || {};
+        const rawHighlights = it.highlights || it.highlight_ranges || it.highlightRanges || it.highlight_ranges_list || [];
+        const highlights = normalizeHighlights(rawHighlights);
+        const snippetText = normalizeSnippet(
+          it.snippet_preview,
+          it.snippet,
+          it.preview,
+          it.content
+        );
         return {
-          file_id: it.file_id || '',
-          file_name: it.file_name || '',
-          language: it.programming_language || '',
+          file_id: it.file_id || it.id || it._id || '',
+          file_name: it.file_name || it.name || '',
+          language: it.programming_language || it.language || '',
           tags: it.tags || [],
           score: (typeof it.score === 'number') ? it.score : 0,
-          snippet: it.snippet_preview || '',
-          highlights: it.highlights || [],
+          // חשוב: גם אם highlights ריק (כמו בחיפוש סמנטי) עדיין מציגים snippet_preview
+          snippet: snippetText,
+          highlights: highlights,
           updated_at: it.updated_at || null,
-          size: it.file_size || 0,
-          lines_count: it.lines_count || 0
+          size: it.file_size || it.size || 0,
+          lines_count: it.lines_count || it.lines || 0
         };
       });
-      const cardsHtml = mapped.map(renderCard).join('');
+      const cardsHtml = mapped.map(function(r){
+        try {
+          return renderCard(r);
+        } catch (e) {
+          // לא להפיל את כל התוצאות בגלל פריט בעייתי
+          try { console.warn('renderCard failed', e, r); } catch(_) {}
+          const safeName = escapeHtml((r && r.file_name) || 'קובץ');
+          const safeSnippet = escapeHtml((r && r.snippet) || '');
+          return (
+            '<article class="search-result-card glass-card" role="listitem">' +
+              '<div class="result-card-header"><div class="file-info"><span class="file-icon" aria-hidden="true">📄</span>' +
+                '<span class="file-name">' + safeName + '</span>' +
+              '</div></div>' +
+              (safeSnippet ? ('<div class="result-card-snippet"><pre class="mb-0" dir="ltr"><code>' + safeSnippet + '</code></pre></div>') : '') +
+            '</article>'
+          );
+        }
+      }).join('');
       results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' + cardsHtml + '</div></div>';
     }
 
@@ -319,6 +354,47 @@
       last = e;
     }
     out += escapeHtml(text.slice(last));
+    return out;
+  }
+
+  function normalizeSnippet(){
+    // מקבל רשימת מועמדים (snippet_preview וכו') ומחזיר טקסט לא ריק
+    for (let i = 0; i < arguments.length; i++){
+      const v = arguments[i];
+      if (v === null || v === undefined) continue;
+      const s = String(v);
+      if (s.trim().length) return s;
+    }
+    // fallback: לא להשאיר כרטיס ריק
+    return '(אין תצוגה מקדימה)';
+  }
+
+  function normalizeHighlights(raw){
+    // חיפוש סמנטי לרוב מחזיר [], ועדיין צריך להציג את snippet_preview.
+    // בנוסף, ננקה פורמטים לא צפויים כדי שלא יפיל את highlightSnippet.
+    if (!raw) return [];
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const item of raw){
+      if (!item) continue;
+      // פורמט צפוי: [start, end]
+      if (Array.isArray(item) && item.length >= 2){
+        const s = Number(item[0]);
+        const e = Number(item[1]);
+        if (Number.isFinite(s) && Number.isFinite(e) && e > s && s >= 0){
+          out.push([s, e]);
+        }
+        continue;
+      }
+      // פורמט אפשרי: {start, end}
+      if (typeof item === 'object' && item.start !== undefined && item.end !== undefined){
+        const s = Number(item.start);
+        const e = Number(item.end);
+        if (Number.isFinite(s) && Number.isFinite(e) && e > s && s >= 0){
+          out.push([s, e]);
+        }
+      }
+    }
     return out;
   }
 
