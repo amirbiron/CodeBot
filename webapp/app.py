@@ -4042,8 +4042,12 @@ def api_debug_maintenance_cleanup():
             if bool(meta.get("unique")) and key in (
                 [("user_id", 1), ("file_name", 1)],
                 [("file_name", 1), ("user_id", 1)],
+                [("user_id", 1), ("file_name", -1)],
+                [("file_name", -1), ("user_id", 1)],
                 [("user_id", -1), ("file_name", 1)],
                 [("file_name", 1), ("user_id", -1)],
+                [("user_id", -1), ("file_name", -1)],
+                [("file_name", -1), ("user_id", -1)],
             ):
                 return True
         except Exception:
