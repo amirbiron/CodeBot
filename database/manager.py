@@ -828,23 +828,52 @@ class DatabaseManager:
             enforce=True,
         )
 
-        # code_snippets - אינדקס TEXT (כבד) מושבת זמנית כדי לא לחנוק את השרת.
-        # נחזיר אותו רק אחרי שכל שאר האינדקסים מתייצבים (שאילתות ~1ms).
-        #
-        # חשוב: להשאיר כאן בהערה בלבד כרגע (לפי הנחיית תפעול).
-        #
-        # try:
-        #     self.collection.create_indexes(
-        #         [
-        #             IndexModel(
-        #                 [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
-        #                 name="search_text_idx",
-        #                 background=True,
-        #             )
-        #         ]
-        #     )
-        # except Exception as e:
-        #     emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e))
+        # code_snippets - אינדקס TEXT לחיפוש גלובלי ($text)
+        # חשוב: זה אינדקס "כבד" כי הוא כולל גם code, אבל הוא קריטי כדי ש-$text יעבוד מהר
+        # (ובמקום ליפול ל-$regex שמעמיס יותר).
+        try:
+            code_snippets = db.code_snippets
+            code_snippets.create_indexes(
+                [
+                    IndexModel(
+                        [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
+                        name="search_text_idx",
+                        background=True,
+                    )
+                ]
+            )
+            emit_event(
+                "db_text_index_created",
+                severity="info",
+                collection="code_snippets",
+                index_name="search_text_idx",
+            )
+        except Exception as e:
+            msg = str(e or "")
+            msg_l = msg.lower()
+            code = getattr(e, "code", None)
+            is_conflict = bool(
+                code in {85, 86}
+                or "indexoptionsconflict" in msg_l
+                or "indexkeyspecsconflict" in msg_l
+                or "already exists" in msg_l
+            )
+            if is_conflict:
+                emit_event(
+                    "db_text_index_exists",
+                    severity="info",
+                    collection="code_snippets",
+                    index_name="search_text_idx",
+                    error=msg,
+                )
+            else:
+                emit_event(
+                    "db_create_indexes_error",
+                    severity="warn",
+                    collection="code_snippets",
+                    index_name="search_text_idx",
+                    error=msg,
+                )
 
         # Snippets library collection: שמירה על תאימות לטסטים/קוד שקיים.
         # לא מוסיפים אינדקסים נוספים מעבר לרשימה האופטימלית — כאן אנו רק מוודאים

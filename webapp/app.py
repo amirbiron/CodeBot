@@ -6191,6 +6191,91 @@ def create_job_trigger_index():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/create-global-search-index')
+@admin_required
+def create_global_search_index():
+    """
+    יצירת אינדקס TEXT לחיפוש גלובלי על code_snippets.
+    מאפשר להפעיל בנייה יזומה ולבדוק אם יש פעולת Index Build פעילה.
+    """
+    import json
+    from bson import json_util
+
+    results = {}
+    try:
+        from database.manager import DatabaseManager
+        from pymongo import IndexModel, TEXT
+
+        db = DatabaseManager().db
+        collection = db.code_snippets
+
+        target_index_name = "search_text_idx"
+
+        # שליחת פקודת יצירה (idempotent בפועל; אם כבר קיים - לא אמור להזיק)
+        model = IndexModel(
+            [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
+            name=target_index_name,
+            background=True,
+        )
+        try:
+            collection.create_indexes([model])
+            results["status"] = f"✅ Command Sent for {target_index_name}"
+        except Exception as create_err:
+            err_str = str(create_err or "")
+            err_l = err_str.lower()
+            code = getattr(create_err, "code", None)
+            is_conflict = bool(
+                code in {85, 86}
+                or "indexoptionsconflict" in err_l
+                or "indexkeyspecsconflict" in err_l
+                or "already exists" in err_l
+            )
+            if is_conflict:
+                results["status"] = f"✅ Index '{target_index_name}' already exists (or equivalent)"
+                results["message"] = err_str
+            else:
+                raise
+
+        # רשימת אינדקסים עדכנית
+        results["indexes"] = json.loads(json_util.dumps(list(collection.list_indexes())))
+
+        # בדיקת פעולות בניית אינדקסים פעילות (best-effort; תלוי הרשאות/Atlas tier)
+        building_ops = []
+        building_error = None
+        try:
+            current_ops = db.command({"currentOp": 1, "command.createIndexes": {"$exists": True}})
+            for op in current_ops.get("inprog", []) or []:
+                cmd = op.get("command") or {}
+                if cmd.get("createIndexes") == "code_snippets":
+                    building_ops.append(op)
+        except Exception as e:
+            # fallback תואם Shared Tier
+            try:
+                ops = db.command({"currentOp": 1, "active": True})
+                for op in ops.get("inprog", []) or []:
+                    cmd = op.get("command") or {}
+                    msg = op.get("msg", "")
+                    # ב-fallback נספור רק אם זו בניית אינדקס של code_snippets (ולא כל "Index Build" כללי)
+                    if cmd.get("createIndexes") == "code_snippets" or ("Index Build" in (msg or "") and "code_snippets" in (msg or "")):
+                        building_ops.append(op)
+            except Exception as e2:
+                building_error = f"{e} | {e2}"
+
+        results["building_ops"] = {
+            "active_count": len(building_ops),
+            "status": "✅ אין בנייה פעילה" if not building_ops else f"⏳ {len(building_ops)} פעולות בנייה פעילות",
+            "operations": json.loads(json_util.dumps(building_ops)) if building_ops else [],
+        }
+        if building_error:
+            results["building_ops"]["error"] = building_error
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.exception("create_global_search_index_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 @app.route('/admin/verify-indexes')
 @admin_required
 def verify_indexes():
