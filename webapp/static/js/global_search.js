@@ -274,27 +274,21 @@
         const highlights = normalizeHighlights(rawHighlights);
         const snippetPreviewText = normalizeOptionalString(it.snippet_preview, it.snippetPreview);
         // סדר ההחלטה (לפי הדרישה):
-        // 1) אם יש highlights -> משתמשים בהם
-        // 2) אחרת, אם יש snippet_preview -> משתמשים בו (ומנסים Syntax Highlight)
+        // 1) אם יש highlights -> נציג snippet עם highlight
+        // 2) אחרת, אם יש snippet_preview -> נציג אותו כטקסט רגיל
         // 3) אחרת -> "(אין תצוגה מקדימה)"
         const snippetText = highlights.length
-          ? normalizeSnippet(
-              snippetPreviewText,
-              it.snippet,
-              it.preview,
-              it.content
-            )
-          : (snippetPreviewText ? snippetPreviewText : '(אין תצוגה מקדימה)');
+          ? normalizeSnippet(snippetPreviewText, it.snippet, it.preview, it.content)
+          : '(אין תצוגה מקדימה)';
         return {
           file_id: it.file_id || it.id || it._id || '',
           file_name: it.file_name || it.name || '',
           language: it.programming_language || it.language || '',
           tags: it.tags || [],
           score: (typeof it.score === 'number') ? it.score : 0,
-          // חשוב: גם אם highlights ריק (כמו בחיפוש סמנטי) עדיין מציגים snippet_preview
           snippet: snippetText,
+          snippet_preview: snippetPreviewText,
           highlights: highlights,
-          _syntax_highlight: (!highlights.length && !!snippetPreviewText),
           updated_at: it.updated_at || null,
           size: it.file_size || it.size || 0,
           lines_count: it.lines_count || it.lines || 0
@@ -319,8 +313,6 @@
         }
       }).join('');
       results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' + cardsHtml + '</div></div>';
-      // Best-effort: Syntax highlight רק כשאין highlights (כלומר snippet_preview "נקי")
-      try { applySearchSyntaxHighlight(results); } catch(_) {}
     }
 
     // לפי המדריך: אין דפדוף כרגע ב-API החדש. נשאיר ריק.
@@ -338,11 +330,12 @@
     const updatedValue = formatDate(r.updated_at) || '—';
 
     const hasHighlights = !!(r.highlights && r.highlights.length);
-    const showPlainForSyntax = !hasHighlights && !!r._syntax_highlight;
-    const codeClass = 'language-' + normalizeLanguageForHljs(r.language || '');
-    const codeHtml = showPlainForSyntax
-      ? escapeHtml(r.snippet || '')
-      : highlightSnippet(r.snippet, r.highlights);
+    // אם אין highlights - מציגים snippet_preview כטקסט רגיל (ללא Syntax Highlighting)
+    const previewText = normalizeOptionalString(r.snippet_preview);
+    const plainText = previewText ? previewText : '(אין תצוגה מקדימה)';
+    const codeHtml = hasHighlights
+      ? highlightSnippet(r.snippet, r.highlights)
+      : escapeHtml(plainText);
 
     return (
       '<article class="search-result-card glass-card" role="listitem">' +
@@ -356,9 +349,7 @@
           badgeHtml +
         '</div>' +
         '<div class="result-card-snippet">' +
-          '<pre class="mb-0" dir="ltr"><code' +
-            (showPlainForSyntax ? (' class="' + escapeHtml(codeClass) + '" data-syntax="1"') : '') +
-          '>' + codeHtml + '</code></pre>' +
+          '<pre class="mb-0" dir="ltr"><code>' + codeHtml + '</code></pre>' +
         '</div>' +
         '<div class="result-card-footer">' +
           '<div class="meta-item">' + META_ICONS.score + '<span>ציון: ' + scoreValue + '</span></div>' +
@@ -424,37 +415,6 @@
       if (s.trim().length) return s;
     }
     return '';
-  }
-
-  function normalizeLanguageForHljs(lang){
-    const m = String(lang || '').trim().toLowerCase();
-    if (!m) return 'text';
-    const map = {
-      js: 'javascript',
-      node: 'javascript',
-      ts: 'typescript',
-      py: 'python',
-      sh: 'bash',
-      shell: 'bash',
-      yml: 'yaml',
-      md: 'markdown',
-      golang: 'go',
-    };
-    return map[m] || m;
-  }
-
-  function applySearchSyntaxHighlight(root){
-    // Best-effort: אם highlight.js לא קיים – לא עושים כלום.
-    try {
-      if (!root || !window.hljs || typeof window.hljs.highlightElement !== 'function') return;
-      const blocks = root.querySelectorAll('code[data-syntax="1"]');
-      blocks.forEach(el => {
-        try {
-          if (el.classList.contains('hljs')) return;
-          window.hljs.highlightElement(el);
-        } catch(_) {}
-      });
-    } catch(_) {}
   }
 
   function normalizeHighlights(raw){
