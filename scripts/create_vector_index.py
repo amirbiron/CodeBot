@@ -2,10 +2,11 @@
 סקריפט ליצירת Vector Index ב-MongoDB Atlas.
 """
 
-import os
 import sys
 
 # הוסף את ה-root לנתיב
+import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pymongo import MongoClient  # noqa: E402
@@ -18,6 +19,11 @@ def create_vector_index():
     db = client[config.DATABASE_NAME]
     collection = db.code_snippets
 
+    try:
+        dimensions = int(getattr(config, "EMBEDDING_DIMENSIONS", 1536) or 1536)
+    except Exception:
+        dimensions = 1536
+
     # הגדרת האינדקס
     index_definition = {
         "name": "code_snippets_vector_index",
@@ -27,7 +33,7 @@ def create_vector_index():
                 {
                     "type": "vector",
                     "path": "embedding",
-                    "numDimensions": int(os.getenv("EMBEDDING_DIMENSIONS", "1536")),
+                    "numDimensions": dimensions,
                     "similarity": "cosine",
                 },
                 {"type": "filter", "path": "user_id"},
