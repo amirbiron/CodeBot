@@ -16,3 +16,14 @@ try:  # pragma: no cover
     github_backoff_state = _state
 except Exception:  # pragma: no cover
     github_backoff_state = None
+
+# בתחתית הקובץ, הוסף:
+try:
+    from .embedding_service import (  # noqa: F401
+        generate_embedding,
+        generate_embedding_for_file,
+        generate_embedding_sync,
+        EmbeddingError,
+    )
+except ImportError:
+    pass  # Optional dependency

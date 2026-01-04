@@ -332,10 +332,16 @@ class AdvancedSearchEngine:
                     candidates = self._regex_search(query, user_id)
                 elif search_type == SearchType.FUZZY:
                     candidates = self._fuzzy_search(query, index, user_id)
+                elif search_type == SearchType.SEMANTIC:
+                    candidates = self._semantic_search(query, user_id, limit)
                 elif search_type == SearchType.FUNCTION:
                     candidates = self._function_search(query, index, user_id)
                 elif search_type == SearchType.CONTENT:
-                    candidates = self._content_search(query, user_id)
+                    # Override: חיפוש גלובלי/CONTENT משתמש בסמנטי כברירת מחדל (אם פיצ'ר מופעל)
+                    if getattr(config, "SEMANTIC_SEARCH_ENABLED", False):
+                        candidates = self._semantic_search(query, user_id, limit)
+                    else:
+                        candidates = self._content_search(query, user_id)
                 else:
                     candidates = self._text_search(query, index, user_id)
             
@@ -618,6 +624,103 @@ class AdvancedSearchEngine:
                     results.append(result)
         
         return results
+
+    def _semantic_search(
+        self,
+        query: str,
+        user_id: int,
+        limit: int = 50,
+    ) -> List[SearchResult]:
+        """חיפוש סמנטי באמצעות embeddings."""
+        from config import config
+
+        # בדיקה שהפיצ'ר מופעל
+        if not getattr(config, "SEMANTIC_SEARCH_ENABLED", False):
+            logger.warning("Semantic search is disabled, falling back to text search")
+            index = self.get_index(user_id)
+            return self._text_search(query, index, user_id)
+
+        try:
+            # יצירת embedding לשאילתה
+            import asyncio
+            from services.embedding_service import generate_embedding
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        future = pool.submit(asyncio.run, generate_embedding(query))
+                        query_embedding = future.result(timeout=15)
+                else:
+                    query_embedding = loop.run_until_complete(generate_embedding(query))
+            except Exception:
+                query_embedding = asyncio.run(generate_embedding(query))
+
+            # הרצת Vector Search ב-MongoDB
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": "code_snippets_vector_index",
+                        "path": "embedding",
+                        "queryVector": query_embedding,
+                        "numCandidates": limit * 10,  # יותר candidates לדיוק טוב יותר
+                        "limit": limit,
+                        "filter": {
+                            "user_id": user_id,
+                            "is_active": {"$ne": False},
+                        },
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "file_name": 1,
+                        "code": 1,
+                        "programming_language": 1,
+                        "tags": 1,
+                        "description": 1,
+                        "created_at": 1,
+                        "updated_at": 1,
+                        "version": 1,
+                        "snippet_preview": {"$substrBytes": ["$code", 0, 2000]},
+                        "score": {"$meta": "vectorSearchScore"},
+                    }
+                },
+            ]
+
+            results_raw = list(db.manager.collection.aggregate(pipeline))
+
+            # המרה ל-SearchResult
+            results: List[SearchResult] = []
+            for doc in results_raw:
+                score = float(doc.get("score", 0))
+                result = self._create_search_result(doc, query, score)
+                results.append(result)
+
+            try:
+                emit_event(
+                    "semantic_search_done",
+                    severity="info",
+                    user_id=int(user_id),
+                    results_count=int(len(results)),
+                )
+            except Exception:
+                pass
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Semantic search failed: {e}, falling back to fuzzy search")
+            try:
+                emit_event("semantic_search_error", severity="error", error=str(e))
+            except Exception:
+                pass
+
+            # Fallback לחיפוש fuzzy
+            index = self.get_index(user_id)
+            return self._fuzzy_search(query, index, user_id)
     
     def _apply_filters(self, results: List[SearchResult], filters: SearchFilter) -> List[SearchResult]:
         """החלת מסננים על התוצאות"""
@@ -725,6 +828,16 @@ class AdvancedSearchEngine:
         except Exception:
             safe_version = 1
 
+        # snippet/highlight (אם הגיע מה-DB)
+        try:
+            snippet_preview = str(file_data.get('snippet_preview') or '')
+        except Exception:
+            snippet_preview = ""
+        try:
+            highlight_ranges = list(file_data.get('highlight_ranges') or [])
+        except Exception:
+            highlight_ranges = []
+
         return SearchResult(
             file_name=str(file_data.get('file_name') or ''),
             content=str(file_data.get('code') or ''),
@@ -733,7 +846,9 @@ class AdvancedSearchEngine:
             created_at=file_data.get('created_at') or datetime.now(timezone.utc),
             updated_at=file_data.get('updated_at') or datetime.now(timezone.utc),
             version=safe_version,
-            relevance_score=float(score)
+            relevance_score=float(score),
+            snippet_preview=snippet_preview,
+            highlight_ranges=highlight_ranges,
         )
     
     def suggest_completions(self, user_id: int, partial_query: str, limit: int = 10) -> List[str]:
