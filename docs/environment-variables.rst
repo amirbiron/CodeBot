@@ -112,6 +112,42 @@
      - -
      - ``ghp_xxx...``
      - Bot
+   * - ``OPENAI_API_KEY``
+     - מפתח API ל-OpenAI (Embeddings) עבור חיפוש סמנטי. חובה כאשר ``SEMANTIC_SEARCH_ENABLED=true``.
+     - לא
+     - "" (ריק)
+     - ``sk-...``
+     - Bot/WebApp
+   * - ``EMBEDDING_MODEL``
+     - שם מודל Embeddings של OpenAI לחיפוש סמנטי.
+     - לא
+     - ``text-embedding-3-small``
+     - ``text-embedding-3-small``
+     - Bot/WebApp
+   * - ``EMBEDDING_DIMENSIONS``
+     - מספר הממדים של ה-Embedding (חייב להתאים ל-Atlas Vector Index).
+     - לא
+     - ``1536``
+     - ``1536``
+     - Bot/WebApp
+   * - ``EMBEDDING_MAX_CHARS``
+     - מגבלת תווים לטקסט שנשלח ל-Embeddings API (בקרת עלות/Latency).
+     - לא
+     - ``2000``
+     - ``2000``
+     - Bot/WebApp
+   * - ``SEMANTIC_SEARCH_ENABLED``
+     - מפעיל חיפוש סמנטי (Vector Search). כאשר כבוי, חיפוש CONTENT יחזור למנוע הישן.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``SEMANTIC_SEARCH_INDEX_ON_SAVE``
+     - מפעיל יצירת embeddings ברקע בעת שמירה/עדכון קובץ (מומלץ להשאיר פעיל בבוט).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
    * - ``WEBAPP_URL``
      - כתובת ה-WebApp
      - לא
