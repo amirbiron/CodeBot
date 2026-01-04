@@ -210,13 +210,22 @@
         ? data.items
         : ((data && Array.isArray(data.results)) ? data.results : []);
       const isOk = !!(data && (data.ok === true || data.success === true));
+      const okFlag = (data && (data.ok !== undefined ? data.ok : (data.success !== undefined ? data.success : undefined)));
+      const hasItems = normalizedItems.length > 0;
 
-      if (res.ok && (isOk || normalizedItems.length)){
-        // נורמליזציה כדי ש-displayResults תמיד יעבוד מול data.items
+      // כלל: אם יש items – מציגים אותם תמיד.
+      // בנוסף: אם ok=true (גם בלי items) – מציגים "לא נמצאו תוצאות" בצורה מסודרת.
+      const shouldRender = hasItems || isOk;
+      if (shouldRender) {
         if (data && !Array.isArray(data.items)) data.items = normalizedItems;
         displayResults(data || { items: normalizedItems, ok: isOk }, q, limit);
       } else {
         alert((data && data.error) || 'אירעה שגיאה בחיפוש');
+      }
+
+      // אם השרת מדווח ok=false אבל עדיין החזיר תוצאות (או אפילו בלי) – לא מסתירים, רק מזהירים.
+      if (okFlag === false) {
+        showSearchWarning((data && data.error) || 'החיפוש הוחזר עם אזהרה/תקלה (ייתכן שהתוצאות חלקיות).');
       }
     } catch (e){
       console.error('search error', e);
@@ -355,6 +364,26 @@
     }
     out += escapeHtml(text.slice(last));
     return out;
+  }
+
+  function showSearchWarning(message){
+    const msg = String(message || '').trim();
+    if (!msg) return;
+    const info = document.getElementById('searchInfo');
+    if (!info) {
+      // fallback: לפחות נציג הודעה למשתמש
+      try { alert(msg); } catch(_) {}
+      return;
+    }
+    // מניעת כפילויות
+    let box = document.getElementById('searchWarning');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'searchWarning';
+      info.appendChild(box);
+    }
+    box.className = 'alert alert-warning';
+    box.innerHTML = escapeHtml(msg);
   }
 
   function normalizeSnippet(){
