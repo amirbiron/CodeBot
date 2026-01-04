@@ -70,6 +70,7 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
     "content": 0,     # LargeFile
     "raw_data": 0,    # future-proof / backward-compat (אם קיים בפריטים מסוימים)
     "raw_content": 0, # future-proof
+    "embedding": 0,   # חדש! לא להחזיר את הוקטור ברשימות
 }
 
 # Alias ציבורי לשימוש בשכבות אחרות (למשל Webapp) בלי להסתמך על שם פרטי עם _.
@@ -220,6 +221,38 @@ class Repository:
                             pass
                 except Exception:
                     pass
+
+                # ===== בדיקה אם צריך לעדכן embedding =====
+                # חשוב: בודקים שינוי בכל השדות שמרכיבים את ה-Embedding!
+                # ה-Embedding נבנה מ: code + description + tags + programming_language
+
+                old_code = existing.get('code', '')
+                old_description = existing.get('description', '')
+                old_tags = existing.get('tags') or []
+                old_language = existing.get('programming_language', '')
+
+                # השוואה בטוחה של tags (רשימות)
+                def _normalize_tags(tags):
+                    if not tags:
+                        return []
+                    return sorted([str(t).strip().lower() for t in tags if t])
+
+                embedding_content_changed = (
+                    old_code != snippet.code or
+                    old_description != (snippet.description or '') or
+                    _normalize_tags(old_tags) != _normalize_tags(snippet.tags) or
+                    old_language != (snippet.programming_language or '')
+                )
+
+                if embedding_content_changed:
+                    snippet.needs_embedding_update = True
+                    snippet.embedding = None  # נקה embedding ישן
+                else:
+                    # שמור על ה-embedding הקיים אם התוכן לא השתנה
+                    snippet.embedding = existing.get('embedding')
+                    snippet.embedding_model = existing.get('embedding_model')
+                    snippet.embedding_updated_at = existing.get('embedding_updated_at')
+                    snippet.needs_embedding_update = existing.get('needs_embedding_update', True)
             snippet.updated_at = datetime.now(timezone.utc)
             # הוסף שדות מטא קלים למסכי רשימות כדי לא למשוך `code` רק בשביל סטטיסטיקות.
             # זה שומר תאימות למסמכים ישנים (ללא שדות אלו) ומשפר ביצועים למסמכים חדשים.
@@ -258,11 +291,90 @@ class Repository:
                     pass
                 from autocomplete_manager import autocomplete
                 autocomplete.invalidate_cache(snippet.user_id)
+
+                # ===== אינדוקס embedding אסינכרוני =====
+                if getattr(config, "SEMANTIC_SEARCH_INDEX_ON_SAVE", False):
+                    try:
+                        self._schedule_embedding_update(snippet)
+                    except Exception:
+                        pass  # לא נכשיל שמירה בגלל embedding
                 return True
             return False
         except Exception as e:
             emit_event("db_save_code_snippet_error", severity="error", error=str(e))
             return False
+
+    def _schedule_embedding_update(self, snippet: CodeSnippet) -> None:
+        """תזמון עדכון embedding ברקע."""
+        import threading
+
+        def _worker():
+            try:
+                # אל תבזבז קריאות API אם אין צורך בעדכון
+                try:
+                    if not bool(getattr(snippet, "needs_embedding_update", True)):
+                        return
+                except Exception:
+                    pass
+
+                from services.embedding_service import generate_embedding_sync
+
+                text = f"File: {snippet.file_name}\n"
+                if snippet.programming_language:
+                    text += f"Language: {snippet.programming_language}\n"
+                if snippet.description:
+                    text += f"Description: {snippet.description}\n"
+                text += f"Code:\n{snippet.code[:2000]}"
+
+                embedding = generate_embedding_sync(text)
+
+                # עדכון ב-DB
+                from datetime import datetime, timezone
+
+                now = datetime.now(timezone.utc)
+
+                update_query: Dict[str, Any] = {"user_id": snippet.user_id, "file_name": snippet.file_name}
+                try:
+                    # אם יש לנו version, נעדכן בדיוק את הרשומה שנשמרה
+                    update_query["version"] = int(getattr(snippet, "version", 0) or 0)
+                except Exception:
+                    pass
+                update_query["is_active"] = {"$ne": False}
+
+                try:
+                    self.manager.collection.update_one(
+                        update_query,
+                        {
+                            "$set": {
+                                "embedding": embedding,
+                                "embedding_model": getattr(config, "EMBEDDING_MODEL", "text-embedding-3-small"),
+                                "embedding_updated_at": now,
+                                "needs_embedding_update": False,
+                            }
+                        },
+                    )
+                except Exception:
+                    # Fallback ל-in-memory collections בטסטים
+                    docs_list = getattr(self.manager.collection, "docs", None)
+                    if isinstance(docs_list, list):
+                        for d in docs_list:
+                            if not isinstance(d, dict):
+                                continue
+                            if d.get("user_id") != snippet.user_id or d.get("file_name") != snippet.file_name:
+                                continue
+                            if update_query.get("version") and d.get("version") != update_query.get("version"):
+                                continue
+                            if d.get("is_active", True) is False:
+                                continue
+                            d["embedding"] = embedding
+                            d["embedding_model"] = getattr(config, "EMBEDDING_MODEL", "text-embedding-3-small")
+                            d["embedding_updated_at"] = now
+                            d["needs_embedding_update"] = False
+                            break
+            except Exception as e:
+                logger.debug(f"Background embedding update failed: {e}")
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     # --- Favorites API ---
     def _validate_file_name(self, file_name: str) -> bool:
@@ -937,6 +1049,69 @@ class Repository:
             return rows
         except Exception as e:
             emit_event("db_search_code_error", severity="error", error=str(e))
+            return []
+
+    def semantic_search(
+        self,
+        user_id: int,
+        query_embedding: List[float],
+        limit: int = 20,
+        programming_language: Optional[str] = None,
+    ) -> List[Dict]:
+        """
+        חיפוש סמנטי באמצעות Vector Search.
+
+        Args:
+            user_id: מזהה המשתמש
+            query_embedding: וקטור ה-embedding של השאילתה
+            limit: מספר תוצאות מקסימלי
+            programming_language: סינון לפי שפה (אופציונלי)
+
+        Returns:
+            רשימת מסמכים ממויינים לפי similarity score
+        """
+        try:
+            # בניית הפילטר
+            filter_conditions: Dict[str, Any] = {
+                "user_id": user_id,
+                "is_active": {"$ne": False},
+            }
+            if programming_language:
+                filter_conditions["programming_language"] = programming_language
+
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": "code_snippets_vector_index",
+                        "path": "embedding",
+                        "queryVector": query_embedding,
+                        "numCandidates": limit * 10,
+                        "limit": limit,
+                        "filter": filter_conditions,
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "file_name": 1,
+                        "programming_language": 1,
+                        "tags": 1,
+                        "description": 1,
+                        "updated_at": 1,
+                        "version": 1,
+                        "score": {"$meta": "vectorSearchScore"},
+                        # לא מחזירים code ו-embedding - שדות כבדים
+                    }
+                },
+            ]
+
+            with track_performance("db_semantic_search"):
+                results = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+
+            return results
+
+        except Exception as e:
+            emit_event("db_semantic_search_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=20, key_prefix="files_by_repo")

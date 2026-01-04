@@ -26,6 +26,12 @@ class CodeSnippet:
     deleted_at: Optional[datetime] = None
     deleted_expires_at: Optional[datetime] = None
 
+    # ===== שדות חדשים לחיפוש סמנטי =====
+    embedding: Optional[List[float]] = None  # וקטור ה-embedding (1536 floats)
+    embedding_model: Optional[str] = None    # שם המודל שיצר את ה-embedding
+    embedding_updated_at: Optional[datetime] = None  # מתי עודכן ה-embedding
+    needs_embedding_update: bool = True  # האם צריך לעדכן את ה-embedding
+
     def __post_init__(self) -> None:
         if self.tags is None:
             self.tags = []

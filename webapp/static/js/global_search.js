@@ -169,20 +169,24 @@
 
     const original = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מחפש...';
     try{
-      const payload = {
-        query: q,
-        search_type: ($('searchType')?.value || 'content'),
-        page: page,
-        limit: parseInt($('resultsPerPage')?.value || '20', 10),
-        sort: ($('sortOrder')?.value || 'relevance'),
-        filters: { languages: getSelectedLanguages() }
-      };
-      if (!payload.filters.languages || payload.filters.languages.length === 0) delete payload.filters;
-      const res = await fetch('/api/search/global', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify(payload)
+      const searchType = ($('searchType')?.value || 'content');
+      const limit = parseInt($('resultsPerPage')?.value || '20', 10);
+
+      // במימוש החדש (/api/search) יש סינון language יחיד בלבד.
+      // נשמור תאימות ל-UI הקיים: אם נבחרו כמה שפות, ניקח את הראשונה.
+      const langs = getSelectedLanguages();
+      const language = (langs && langs.length) ? String(langs[0] || '') : '';
+
+      const url = new URL('/api/search', window.location.origin);
+      url.searchParams.set('q', q);
+      url.searchParams.set('type', searchType);
+      url.searchParams.set('limit', String(limit));
+      if (language) url.searchParams.set('language', language);
+
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
       });
 
       if (res.status === 401 || res.redirected) {
@@ -201,10 +205,10 @@
       }
 
       const data = await res.json();
-      if (res.ok && data && data.success){
-        displayResults(data);
+      if (res.ok && data && data.ok){
+        displayResults(data, q, limit);
       } else {
-        alert(data.error || 'אירעה שגיאה בחיפוש');
+        alert((data && data.error) || 'אירעה שגיאה בחיפוש');
       }
     } catch (e){
       console.error('search error', e);
@@ -230,24 +234,43 @@
     return Array.from(sel.selectedOptions || []).map(o => o.value);
   }
 
-  function displayResults(data){
+  function displayResults(data, query, perPage){
     const container = $('searchResultsContainer');
     const info = $('searchInfo');
     const results = $('searchResults');
     const pagination = $('searchPagination');
     if (!container || !info || !results || !pagination) return;
 
-    info.innerHTML = '<div class="alert alert-info">נמצאו <strong>' + (data.total_results||0) + '</strong> תוצאות עבור "' + escapeHtml(data.query||'') + '" (מציג ' + (data.results?.length||0) + ')</div>';
-    renderCommandShortcuts(data.query || currentSearchQuery || '');
+    const total = Array.isArray(data.items) ? data.items.length : 0;
+    const q = String(query || currentSearchQuery || '');
+    info.innerHTML = '<div class="alert alert-info">נמצאו <strong>' + total + '</strong> תוצאות עבור "' + escapeHtml(q) + '"</div>';
+    renderCommandShortcuts(q);
 
-    if (!data.results || data.results.length === 0){
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length){
       results.innerHTML = '<p class="text-muted">לא נמצאו תוצאות</p>';
     } else {
-      const cardsHtml = data.results.map(renderCard).join('');
+      // התאמה למבנה הקיים של renderCard
+      const mapped = items.map(function(it){
+        return {
+          file_id: it.file_id || '',
+          file_name: it.file_name || '',
+          language: it.programming_language || '',
+          tags: it.tags || [],
+          score: (typeof it.score === 'number') ? it.score : 0,
+          snippet: it.snippet_preview || '',
+          highlights: it.highlights || [],
+          updated_at: it.updated_at || null,
+          size: it.file_size || 0,
+          lines_count: it.lines_count || 0
+        };
+      });
+      const cardsHtml = mapped.map(renderCard).join('');
       results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' + cardsHtml + '</div></div>';
     }
 
-    renderPagination(pagination, data);
+    // לפי המדריך: אין דפדוף כרגע ב-API החדש. נשאיר ריק.
+    pagination.innerHTML = '';
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -318,7 +341,7 @@
 
   async function fetchSuggestions(q){
     try{
-      const res = await fetch('/api/search/suggestions?q=' + encodeURIComponent(q), {
+      const res = await fetch('/api/search/suggest?q=' + encodeURIComponent(q), {
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
       });
