@@ -899,22 +899,6 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
-# Search API (Semantic Search endpoints) - לפי המדריך
-try:
-    from webapp.search_api import search_bp  # noqa: E402
-    app.register_blueprint(search_bp)
-except Exception:
-    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
-    pass
-
-# Debug API (זמני): endpoints לדיאגנוסטיקה מהירה בזמן תקלות
-try:
-    from webapp.debug_api import debug_bp  # noqa: E402
-    app.register_blueprint(debug_bp)
-except Exception:
-    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
-    pass
-
 # Themes API (Presets/Import/Export) - לפי המדריך
 try:
     from webapp.themes_api import themes_bp  # noqa: E402
