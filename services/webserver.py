@@ -123,18 +123,32 @@ def _constant_time_compare(a: str, b: str) -> bool:
 @web.middleware
 async def db_health_auth_middleware(request: web.Request, handler):
     """Middleware להגנה על endpoints רגישים (DB + Jobs Monitor)."""
-    if request.path.startswith("/api/db/") or request.path.startswith("/api/jobs"):
+    if (
+        request.path.startswith("/api/db/")
+        or request.path.startswith("/api/jobs")
+        or request.path.startswith("/api/debug/")
+    ):
         if not DB_HEALTH_TOKEN:
             # אם לא מוגדר token, חסום לגמרי
             return web.json_response({"error": "disabled"}, status=403)
 
-        auth = request.headers.get("Authorization", "")
+        auth = request.headers.get("Authorization", "") or ""
 
-        # בדיקה שה-header מתחיל ב-Bearer (לא חושפת מידע)
-        if not auth.startswith("Bearer "):
+        # עדיפות ל-header; fallback ל-query param (?token=...) רק ל-endpoint תחזוקה,
+        # כדי לא להחליש את מצב האבטחה של /api/db/* ו-/api/jobs/*
+        provided_token = ""
+        if auth.startswith("Bearer "):
+            provided_token = auth[7:]  # הסר את "Bearer "
+        else:
+            allow_query_token = request.path == "/api/debug/maintenance_cleanup"
+            if allow_query_token:
+                try:
+                    provided_token = str(request.query.get("token") or "")
+                except Exception:
+                    provided_token = ""
+
+        if not provided_token:
             return web.json_response({"error": "unauthorized"}, status=401)
-
-        provided_token = auth[7:]  # הסר את "Bearer "
 
         # השוואה בזמן קבוע למניעת timing attacks!
         # secrets.compare_digest או hmac.compare_digest
@@ -1172,6 +1186,218 @@ def create_app() -> web.Application:
             logger.error(f"db_health_summary error: {e}")
             return web.json_response({"error": "failed", "message": "internal_error"}, status=500)
 
+    async def maintenance_cleanup_view(request: web.Request) -> web.Response:
+        """GET /api/debug/maintenance_cleanup
+
+        Endpoint תחזוקה חד-פעמי (DB):
+        - איפוס קולקציות לוגים: slow_queries_log, service_metrics
+        - יצירת TTL לקולקציות לוגים (מחיקה אוטומטית בעתיד)
+        - ניקוי אינדקסים ב-code_snippets: השארה של אינדקסים קריטיים בלבד.
+
+        ⚠️ מוגן ע"י db_health_auth_middleware (Bearer token).
+        """
+        from services.db_provider import get_db
+
+        def _run_cleanup() -> dict:
+            db = get_db()
+
+            # --- collections to purge ---
+            try:
+                slow_queries_coll = db.slow_queries_log
+            except Exception:
+                slow_queries_coll = None
+            try:
+                service_metrics_coll = db.service_metrics
+            except Exception:
+                service_metrics_coll = None
+            try:
+                code_snippets_coll = db.code_snippets
+            except Exception:
+                code_snippets_coll = None
+
+            # Detect fail-open/noop db
+            if not getattr(slow_queries_coll, "delete_many", None) or not getattr(service_metrics_coll, "delete_many", None):
+                raise RuntimeError("db_unavailable_or_no_delete_many")
+            if not getattr(code_snippets_coll, "index_information", None) or not getattr(code_snippets_coll, "drop_index", None):
+                raise RuntimeError("db_unavailable_or_no_index_management")
+
+            slow_res = slow_queries_coll.delete_many({})
+            metrics_res = service_metrics_coll.delete_many({})
+
+            deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
+            deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
+
+            # --- TTL indexes (permanent cleanup) ---
+            def _ensure_ttl_index(coll: Any, *, field: str, expire_seconds: int, index_name: str) -> dict:
+                """Ensure TTL index exists with requested expireAfterSeconds (best-effort)."""
+                info_before = {}
+                try:
+                    info_before = coll.index_information() or {}
+                except Exception:
+                    info_before = {}
+
+                existing_meta = info_before.get(index_name) if isinstance(info_before, dict) else None
+                if isinstance(existing_meta, dict):
+                    try:
+                        existing_expire = existing_meta.get("expireAfterSeconds")
+                        existing_key = existing_meta.get("key")
+                        if (
+                            existing_expire == int(expire_seconds)
+                            and existing_key == [(field, 1)]
+                        ):
+                            return {
+                                "name": index_name,
+                                "field": field,
+                                "expireAfterSeconds": int(expire_seconds),
+                                "status": "exists",
+                            }
+                    except Exception:
+                        pass
+
+                # Try drop conflicting TTL index with the same name
+                try:
+                    coll.drop_index(index_name)
+                except Exception:
+                    pass
+
+                created_name = None
+                try:
+                    created_name = coll.create_index(
+                        [(field, 1)],
+                        name=index_name,
+                        expireAfterSeconds=int(expire_seconds),
+                        background=True,
+                    )
+                except Exception as e:
+                    # Best-effort: report error and continue
+                    return {
+                        "name": index_name,
+                        "field": field,
+                        "expireAfterSeconds": int(expire_seconds),
+                        "status": "error",
+                        "error": str(e),
+                    }
+
+                return {
+                    "name": str(created_name or index_name),
+                    "field": field,
+                    "expireAfterSeconds": int(expire_seconds),
+                    "status": "created",
+                }
+
+            ttl_results: dict[str, Any] = {
+                "slow_queries_log": _ensure_ttl_index(
+                    slow_queries_coll,
+                    field="timestamp",
+                    expire_seconds=604800,  # 7 days
+                    index_name="ttl_cleanup",
+                ),
+                # service_metrics uses "ts" in code, but we'll also create a "timestamp" TTL for safety/backward-compat
+                "service_metrics_ts": _ensure_ttl_index(
+                    service_metrics_coll,
+                    field="ts",
+                    expire_seconds=86400,  # 24 hours
+                    index_name="ttl_cleanup_ts",
+                ),
+                "service_metrics_timestamp": _ensure_ttl_index(
+                    service_metrics_coll,
+                    field="timestamp",
+                    expire_seconds=86400,  # 24 hours
+                    index_name="ttl_cleanup",
+                ),
+            }
+
+            # --- index cleanup (code_snippets) ---
+            try:
+                idx_info = code_snippets_coll.index_information() or {}
+            except Exception:
+                idx_info = {}
+
+            indexes_before = sorted([str(k) for k in idx_info.keys()])
+            dropped: list[str] = []
+            kept: list[str] = []
+            drop_errors: dict[str, str] = {}
+
+            def _should_keep_code_snippets_index(index_name: str, meta: Any) -> bool:
+                # Keep by explicit name
+                if index_name in {"_id_", "search_text_idx", "unique_file_name", "user_id"}:
+                    return True
+                if not isinstance(meta, dict):
+                    return False
+                key = meta.get("key")
+                # Keep single-field user_id index (name may be user_id_1 / user_id_idx etc.)
+                if key in ([("user_id", 1)], [("user_id", -1)]):
+                    return True
+                # Keep a unique index enforcing unique file name per user (compound user_id + file_name)
+                try:
+                    if bool(meta.get("unique")) and key in (
+                        [("user_id", 1), ("file_name", 1)],
+                        [("file_name", 1), ("user_id", 1)],
+                        [("user_id", -1), ("file_name", 1)],
+                        [("file_name", 1), ("user_id", -1)],
+                    ):
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            for name in sorted(idx_info.keys()):
+                idx_name = str(name)
+                meta = idx_info.get(name)
+                if _should_keep_code_snippets_index(idx_name, meta):
+                    kept.append(idx_name)
+                    continue
+                try:
+                    code_snippets_coll.drop_index(idx_name)
+                    dropped.append(idx_name)
+                except Exception as e:
+                    # Best-effort: אם אינדקס לא קיים/לא ניתן למחיקה, נשמור שגיאה ונתקדם.
+                    drop_errors[idx_name] = str(e)
+
+            try:
+                idx_info_after = code_snippets_coll.index_information() or {}
+            except Exception:
+                idx_info_after = {}
+            indexes_after = sorted([str(k) for k in idx_info_after.keys()])
+
+            return {
+                "ok": True,
+                "deleted_documents": {
+                    "slow_queries_log": deleted_slow,
+                    "service_metrics": deleted_metrics,
+                    "total": deleted_slow + deleted_metrics,
+                },
+                "ttl": ttl_results,
+                "indexes": {
+                    "collection": "code_snippets",
+                    "before": indexes_before,
+                    "after": indexes_after,
+                    "dropped": dropped,
+                    "kept": kept,
+                    "drop_errors": drop_errors,
+                },
+            }
+
+        try:
+            result = await asyncio.to_thread(_run_cleanup)
+            try:
+                emit_event(
+                    "maintenance_cleanup_done",
+                    severity="info",
+                    deleted_total=int((result.get("deleted_documents") or {}).get("total") or 0),
+                    dropped_indexes_count=int(len(((result.get("indexes") or {}).get("dropped")) or [])),
+                )
+            except Exception:
+                pass
+            return web.json_response(result)
+        except Exception as e:
+            logger.exception("maintenance_cleanup_failed")
+            try:
+                emit_event("maintenance_cleanup_failed", severity="error", handled=True, error=str(e))
+            except Exception:
+                pass
+            return web.json_response({"ok": False, "error": "failed", "message": "internal_error"}, status=500)
+
     app.router.add_get("/health", health)
     # Always expose /healthz alias for platform probes
     try:
@@ -1197,6 +1423,7 @@ def create_app() -> web.Application:
     app.router.add_get("/incidents", incidents_get_view)
     app.router.add_post("/api/ai/explain", ai_explain_view)
     app.router.add_get("/share/{share_id}", share_view)
+    app.router.add_get("/api/debug/maintenance_cleanup", maintenance_cleanup_view)
     app.router.add_get("/api/db/pool", db_health_pool_view)
     app.router.add_get("/api/db/ops", db_health_ops_view)
     app.router.add_get("/api/db/collections", db_health_collections_view)
