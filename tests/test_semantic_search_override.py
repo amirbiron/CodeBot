@@ -5,7 +5,7 @@ import pytest
 
 def test_content_search_uses_semantic_when_enabled():
     # Arrange: force semantic enabled
-    with patch("config.config.SEMANTIC_SEARCH_ENABLED", True):
+    with patch("config.config.SEMANTIC_SEARCH_ENABLED", True, create=True):
         from search_engine import SearchType, search_engine
 
         # We don't want to hit DB/HTTP; just ensure routing happens.
@@ -20,7 +20,7 @@ def test_content_search_uses_semantic_when_enabled():
 
 
 def test_content_search_falls_back_to_content_when_disabled():
-    with patch("config.config.SEMANTIC_SEARCH_ENABLED", False):
+    with patch("config.config.SEMANTIC_SEARCH_ENABLED", False, create=True):
         from search_engine import SearchType, search_engine
 
         with patch.object(search_engine, "_semantic_search", return_value=[]) as sem:
