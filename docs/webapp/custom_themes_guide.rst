@@ -270,8 +270,14 @@
    --code-bg             רקע קוד
    --glass-blur          טשטוש glass (בפיקסלים, למשל "12px")
 
-רשימת משתנים מלאה
-~~~~~~~~~~~~~~~~~~
+רשימת משתנים מלאה (Whitelist)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. important::
+
+   רק משתנים שנמצאים ברשימה זו יישמרו בעת פרסום ערכה לציבורית.
+   משתנים שאינם ברשימה יסוננו אוטומטית מטעמי אבטחה.
+   הרשימה מוגדרת ב-``services/theme_parser_service.py`` (``ALLOWED_VARIABLES_WHITELIST``).
 
 .. code-block:: text
 
@@ -295,6 +301,11 @@
    --btn-primary-shadow, --btn-primary-hover-bg, --btn-primary-hover-color
    --md-surface, --md-text
    --split-preview-bg, --split-preview-meta, --split-preview-placeholder
+
+   # Level 2 - Markdown Enhanced (inline code, tables, mermaid)
+   --md-inline-code-bg, --md-inline-code-border, --md-inline-code-color
+   --md-table-bg, --md-table-border, --md-table-header-bg
+   --md-mermaid-bg
 
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
@@ -734,6 +745,64 @@ Endpoints
        }
      }
    }
+
+פרסום ערכה לציבורית (Shared Themes)
+------------------------------------
+
+אדמינים יכולים לפרסם ערכות אישיות לכל המשתמשים.
+
+מבנה נתונים ב-DB
+~~~~~~~~~~~~~~~~
+
+ערכות ציבוריות נשמרות ב-collection ``shared_themes``:
+
+.. code-block:: javascript
+
+   {
+     "_id": "cyber_purple",           // slug ייחודי
+     "name": "Cyber Purple",          // שם לתצוגה
+     "description": "ערכה סגולה",
+     "colors": {                      // CSS variables (מסונן לפי whitelist)
+       "--bg-primary": "#0d0221",
+       "--primary": "#7b2cbf"
+     },
+     "syntax_css": "/* CodeMirror */", // CSS להדגשת תחביר
+     "syntax_colors": {               // מילון צבעים ל-HighlightStyle דינמי
+       "keyword": {"color": "#7b2cbf"}
+     },
+     "created_by": 6865105071,
+     "created_at": ISODate("..."),
+     "is_active": true,
+     "is_featured": false
+   }
+
+שמירת משתנים בפרסום
+~~~~~~~~~~~~~~~~~~~
+
+בבונה הערכות (``theme_builder.html``), הקוד שומר את המשתנים המקוריים כדי שלא יאבדו בפרסום:
+
+.. code-block:: javascript
+
+   // משתנים לשמירת נתונים מקוריים
+   let currentThemeOriginalVariables = {};  // כל משתני CSS
+   let currentThemeSyntaxCss = '';          // CSS להדגשת תחביר
+   let currentThemeSyntaxColors = {};       // מילון צבעים דינמי
+
+   // בטעינת ערכה
+   currentThemeOriginalVariables = { ...theme.variables };
+   currentThemeSyntaxCss = theme.syntax_css || '';
+   currentThemeSyntaxColors = theme.syntax_colors || {};
+
+   // בפרסום - מיזוג: משתנים מקוריים + ערכי טופס
+   const colors = {
+     ...currentThemeOriginalVariables,  // משתנים שאינם בטופס
+     ...collectThemeValues(),           // ערכי הטופס (דורסים)
+   };
+
+.. tip::
+
+   משתנים כמו ``--link-color`` ו-``--code-bg`` אינם בטופס אך נשמרים
+   מהערכה המקורית, כך שצבעי קישורים וקוד לא נאבדים בפרסום.
 
 פתרון בעיות (Troubleshooting)
 -----------------------------
