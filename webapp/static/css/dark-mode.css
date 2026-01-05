@@ -15,14 +15,16 @@
 [data-theme="dark"] .navbar .nav-link,
 [data-theme="dim"] .navbar .nav-link,
 [data-theme="nebula"] .navbar .nav-link,
-[data-theme="custom"] .navbar .nav-link {
+[data-theme="custom"] .navbar .nav-link,
+[data-theme-type="custom"] .navbar .nav-link {
     color: var(--text-primary);
 }
 
 [data-theme="dark"] .navbar .nav-link:hover,
 [data-theme="dim"] .navbar .nav-link:hover,
 [data-theme="nebula"] .navbar .nav-link:hover,
-[data-theme="custom"] .navbar .nav-link:hover {
+[data-theme="custom"] .navbar .nav-link:hover,
+[data-theme-type="custom"] .navbar .nav-link:hover {
     color: var(--text-primary);
     opacity: 0.85;
 }
@@ -66,14 +68,21 @@
 [data-theme="custom"] h3,
 [data-theme="custom"] h4,
 [data-theme="custom"] h5,
-[data-theme="custom"] h6 {
+[data-theme="custom"] h6,
+[data-theme-type="custom"] h1,
+[data-theme-type="custom"] h2,
+[data-theme-type="custom"] h3,
+[data-theme-type="custom"] h4,
+[data-theme-type="custom"] h5,
+[data-theme-type="custom"] h6 {
     color: var(--text-primary);
 }
 
 [data-theme="dark"] p,
 [data-theme="dim"] p,
 [data-theme="nebula"] p,
-[data-theme="custom"] p {
+[data-theme="custom"] p,
+[data-theme-type="custom"] p {
     color: var(--text-secondary);
 }
 
@@ -252,14 +261,16 @@
 [data-theme="dark"] a,
 [data-theme="dim"] a,
 [data-theme="nebula"] a,
-[data-theme="custom"] a {
+[data-theme="custom"] a,
+[data-theme-type="custom"] a {
     color: var(--primary);
 }
 
 [data-theme="dark"] a:hover,
 [data-theme="dim"] a:hover,
 [data-theme="nebula"] a:hover,
-[data-theme="custom"] a:hover {
+[data-theme="custom"] a:hover,
+[data-theme-type="custom"] a:hover {
     color: var(--primary-dark);
     opacity: 0.9;
 }
@@ -285,7 +296,8 @@
 [data-theme="dark"] .quick-access-item,
 [data-theme="dim"] .quick-access-item,
 [data-theme="nebula"] .quick-access-item,
-[data-theme="custom"] .quick-access-item {
+[data-theme="custom"] .quick-access-item,
+[data-theme-type="custom"] .quick-access-item {
     color: var(--text-primary);
     border-color: var(--glass-border);
 }
@@ -297,8 +309,9 @@
     color: var(--primary);
 }
 
-/* Custom theme: רק צבע ב-hover, בלי background */
-[data-theme="custom"] .quick-access-item:hover {
+/* Custom/Shared theme: רק צבע ב-hover, בלי background */
+[data-theme="custom"] .quick-access-item:hover,
+[data-theme-type="custom"] .quick-access-item:hover {
     color: var(--primary);
 }
 
@@ -317,9 +330,11 @@
     border: 1px solid var(--card-border);
 }
 
-/* Custom theme: full styling with theme variables */
+/* Custom/Shared theme: full styling with theme variables */
 [data-theme="custom"] .recent-files-modal .modal-content,
-[data-theme="custom"] .community-modal .modal-content {
+[data-theme="custom"] .community-modal .modal-content,
+[data-theme-type="custom"] .recent-files-modal .modal-content,
+[data-theme-type="custom"] .community-modal .modal-content {
     background: var(--card-bg, var(--bg-secondary, #2a2a3a));
     color: var(--text-primary, #f5f5f5);
     border: 1px solid var(--card-border, var(--glass-border, rgba(255,255,255,0.1)));
@@ -365,21 +380,25 @@
 [data-theme="nebula"] .recent-files-modal .modal-header,
 [data-theme="nebula"] .community-modal .modal-header,
 [data-theme="custom"] .recent-files-modal .modal-header,
-[data-theme="custom"] .community-modal .modal-header {
+[data-theme="custom"] .community-modal .modal-header,
+[data-theme-type="custom"] .recent-files-modal .modal-header,
+[data-theme-type="custom"] .community-modal .modal-header {
     border-bottom-color: var(--glass-border);
 }
 
 [data-theme="dark"] .recent-files-modal .modal-header h3,
 [data-theme="dim"] .recent-files-modal .modal-header h3,
 [data-theme="nebula"] .recent-files-modal .modal-header h3,
-[data-theme="custom"] .recent-files-modal .modal-header h3 {
+[data-theme="custom"] .recent-files-modal .modal-header h3,
+[data-theme-type="custom"] .recent-files-modal .modal-header h3 {
     color: var(--text-primary);
 }
 
 [data-theme="dark"] .recent-files-modal .modal-close,
 [data-theme="dim"] .recent-files-modal .modal-close,
 [data-theme="nebula"] .recent-files-modal .modal-close,
-[data-theme="custom"] .recent-files-modal .modal-close {
+[data-theme="custom"] .recent-files-modal .modal-close,
+[data-theme-type="custom"] .recent-files-modal .modal-close {
     color: var(--text-secondary);
 }
 
@@ -387,24 +406,28 @@
 [data-theme="dim"] .recent-files-modal .file-meta,
 [data-theme="nebula"] .recent-files-modal .file-meta,
 [data-theme="custom"] .recent-files-modal .file-meta,
+[data-theme-type="custom"] .recent-files-modal .file-meta,
 [data-theme="dark"] .recent-files-modal .no-files,
 [data-theme="dim"] .recent-files-modal .no-files,
 [data-theme="nebula"] .recent-files-modal .no-files,
-[data-theme="custom"] .recent-files-modal .no-files {
+[data-theme="custom"] .recent-files-modal .no-files,
+[data-theme-type="custom"] .recent-files-modal .no-files {
     color: var(--text-secondary);
 }
 
 [data-theme="dark"] .recent-file-item,
 [data-theme="dim"] .recent-file-item,
 [data-theme="nebula"] .recent-file-item,
-[data-theme="custom"] .recent-file-item {
+[data-theme="custom"] .recent-file-item,
+[data-theme-type="custom"] .recent-file-item {
     color: var(--text-primary);
 }
 
 [data-theme="dark"] .logo,
 [data-theme="dim"] .logo,
 [data-theme="nebula"] .logo,
-[data-theme="custom"] .logo {
+[data-theme="custom"] .logo,
+[data-theme-type="custom"] .logo {
     color: var(--text-primary) !important;
 }
 
@@ -469,9 +492,11 @@
     border-color: var(--glass-border);
 }
 
-/* Custom theme: רק צבע טקסט, בלי background */
+/* Custom/Shared theme: רק צבע טקסט, בלי background */
 [data-theme="custom"] .search-input,
-[data-theme="custom"] .filter-select {
+[data-theme="custom"] .filter-select,
+[data-theme-type="custom"] .search-input,
+[data-theme-type="custom"] .filter-select {
     color: var(--text-primary);
 }
 
@@ -483,14 +508,17 @@
 [data-theme="dim"] *,
 [data-theme="nebula"] *,
 [data-theme="custom"] *,
+[data-theme-type="custom"] *,
 [data-theme="dark"] *::before,
 [data-theme="dim"] *::before,
 [data-theme="nebula"] *::before,
 [data-theme="custom"] *::before,
+[data-theme-type="custom"] *::before,
 [data-theme="dark"] *::after,
 [data-theme="dim"] *::after,
 [data-theme="nebula"] *::after,
-[data-theme="custom"] *::after {
+[data-theme="custom"] *::after,
+[data-theme-type="custom"] *::after {
     transition: background-color 0.3s ease,
                 color 0.3s ease,
                 border-color 0.3s ease,
