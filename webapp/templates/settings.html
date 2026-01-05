@@ -497,20 +497,6 @@
     </div>
   </div>
 </div>
-
-<!-- Admin Shared Themes Management Panel -->
-<div class="glass-card" id="sharedThemesAdminCard">
-  <h2 class="section-title">
-    <i class="fas fa-palette"></i>
-    ניהול ערכות ציבוריות
-  </h2>
-  <p style="opacity: 0.8; margin-bottom: 1rem;">
-    ניהול ערכות נושא ציבוריות (Shared Themes) שפורסמו לכל המשתמשים
-  </p>
-  <div id="sharedThemesAdminList" class="admin-shared-themes-list">
-    <div class="radar-empty-state">טוען ערכות ציבוריות...</div>
-  </div>
-</div>
 {% endif %}
 
 <div class="glass-card">
@@ -821,29 +807,24 @@
     </div>
   </div>
 
-  {% if custom_theme %}
+  {% if is_admin %}
+  <!-- Admin: ניהול ערכות ציבוריות -->
   <div
     class="glass-card"
-    style="margin-top: 1rem; border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);"
+    style="margin-top: 1rem; border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 55%, transparent);"
+    id="sharedThemesAdminPanel"
   >
-    <h2 class="section-title" style="color: color-mix(in srgb, var(--danger) 80%, var(--text-primary) 20%);">
-      <i class="fas fa-exclamation-triangle"></i>
-      אזור סכנה
+    <h2 class="section-title" style="color: var(--warning, #f59e0b);">
+      <i class="fas fa-crown"></i>
+      ניהול ערכות ציבוריות (אדמין)
     </h2>
     <p style="opacity: 0.85; margin-top: -0.5rem">
-      מחיקת ערכות נושא שנבנו ע"י Theme Builder (הפעולה אינה הפיכה).
+      כאן תוכל לראות את כל הערכות הציבוריות שפורסמו ולמחוק את אלו שלא נחוצות.
     </p>
-    <div style="display: flex; justify-content: flex-end; margin-top: 0.75rem; gap: 0.5rem; flex-wrap: wrap;">
-      <button
-        type="button"
-        class="btn btn-outline-danger"
-        onclick="deleteCustomTheme()"
-        title="מחק ערכה {{ custom_theme.name if custom_theme.name else 'Custom' }}"
-        style="border: 1px solid color-mix(in srgb, var(--danger) 75%, transparent); background: transparent; color: var(--danger);"
-      >
-        <i class="fas fa-trash" style="opacity: 0.85;"></i>
-        מחק ערכה {{ custom_theme.name if custom_theme.name else 'Custom' }}
-      </button>
+    <div id="sharedThemesAdminList" style="margin-top: 1rem;">
+      <div class="shared-themes-loading" style="text-align: center; padding: 1rem; opacity: 0.7;">
+        <i class="fas fa-spinner fa-spin"></i> טוען ערכות ציבוריות...
+      </div>
     </div>
   </div>
   {% endif %}
@@ -1391,39 +1372,58 @@
       color: var(--text-secondary);
     }
 
-    /* Admin Shared Themes Management */
-    .admin-shared-themes-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    .admin-shared-theme-item {
+    /* Shared Themes Admin List */
+    .shared-theme-admin-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 1rem;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
       background: rgba(255, 255, 255, 0.05);
       border-radius: 10px;
-      border: 1px solid var(--glass-border);
-      gap: 1rem;
-      flex-wrap: wrap;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.2s ease;
     }
-    .admin-shared-theme-info {
-      flex: 1;
-      min-width: 200px;
+    .shared-theme-admin-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
     }
-    .admin-shared-theme-info strong {
-      display: block;
-      margin-bottom: 0.25rem;
+    .shared-theme-admin-item .theme-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
     }
-    .admin-shared-theme-actions {
+    .shared-theme-admin-item .theme-name {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .shared-theme-admin-item .theme-meta {
+      font-size: 0.85rem;
+      opacity: 0.7;
+    }
+    .shared-theme-admin-item .theme-actions {
       display: flex;
       gap: 0.5rem;
-      flex-wrap: wrap;
+      align-items: center;
     }
-    .admin-shared-theme-actions .btn-sm {
-      padding: 0.4rem 0.8rem;
+    .shared-theme-admin-item .btn-delete-shared {
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--danger) 75%, transparent);
+      color: var(--danger);
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
       font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .shared-theme-admin-item .btn-delete-shared:hover {
+      background: var(--danger);
+      color: white;
+    }
+    .shared-themes-empty {
+      text-align: center;
+      padding: 1.5rem;
+      opacity: 0.7;
     }
   </style>
 
@@ -1604,29 +1604,6 @@
       // טען את הרשימה בעליית הדף
       loadThemesList();
       
-      // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
-      window.deleteCustomTheme = async function deleteCustomTheme(){
-        if (!confirm("האם למחוק את הערכה?")) {
-          return;
-        }
-        try {
-          const res = await fetch('/api/themes/custom', { method: 'DELETE' });
-          const data = await res.json();
-          if (!res.ok || !data || !data.ok) {
-            throw new Error((data && data.error) || 'delete_failed');
-          }
-        } catch (e) {
-          console.error('deleteCustomTheme failed:', e);
-          alert('שגיאה במחיקת הערכה');
-          return;
-        }
-
-        // dark_mode_preference הוא enum של dark/dim/light/auto בלבד
-        // כדי לחזור ל-Classic בצורה תקינה נשתמש ב-"light"
-        try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
-        try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
-        location.reload();
-      };
       function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
       function save(scale){
         return fetch('/api/ui_prefs', {
