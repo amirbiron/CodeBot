@@ -2408,11 +2408,32 @@
 </script>
 
 <script>
+// מנגנון נעילה קטן כדי למנוע חפיפה בין שכבות Onboarding שונות (Tour / Theme Wizard)
+(function initOnboardingLock(){
+    if (window.__ckOnboarding) { return; }
+    let active = null;
+    window.__ckOnboarding = {
+        getActive: () => active,
+        acquire: (name) => {
+            if (active && active !== name) { return false; }
+            active = name;
+            return true;
+        },
+        release: (name) => {
+            if (active === name) { active = null; }
+        }
+    };
+})();
+</script>
+
+<script>
 (function initThemeWizard(){
     const wizardEl = document.getElementById('themeWizard');
     const htmlEl = document.documentElement;
     const bodyEl = document.body;
     const isLoggedIn = {{ 'true' if _session_user_id else 'false' }};
+    const serverHasSeen = {{ 'true' if onboarding_theme_wizard_seen else 'false' }};
+    const serverThemePrefSet = {{ 'true' if ui_theme_pref_set else 'false' }};
     const ALLOWED_PATHS = ['/files'];
     const STORAGE_KEYS = {
         seen: 'theme_wizard_seen',
@@ -2424,7 +2445,8 @@
         initialTheme: null,
         selectedTheme: null,
         focusBeforeOpen: null,
-        fallbackTimer: null
+        fallbackTimer: null,
+        tourActive: false
     };
 
     function createFallbackApi(){
@@ -2458,10 +2480,25 @@
         catch (_) {}
     }
     function hasSeen(){
-        return lsGet(STORAGE_KEYS.seen) === 'true';
+        if (serverHasSeen) {
+            return true;
+        }
+        const v = lsGet(STORAGE_KEYS.seen);
+        return v === 'true' || v === '1' || v === 'yes';
+    }
+    function persistSeenToServer(){
+        if (!isLoggedIn) { return; }
+        try {
+            fetch('/api/ui_prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ onboarding: { theme_wizard_seen: true } })
+            }).catch(() => {});
+        } catch (_) { /* ignore */ }
     }
     function markSeen(){
         lsSet(STORAGE_KEYS.seen, 'true');
+        persistSeenToServer();
     }
     function resetSeen(){
         try { localStorage.removeItem(STORAGE_KEYS.seen); }
@@ -2517,6 +2554,10 @@
     }
     function shouldAutoShow(){
         if (!isLoggedIn || hasSeen()) {
+            return false;
+        }
+        if (serverThemePrefSet) {
+            // אם למשתמש כבר יש Theme ב-DB, אין סיבה לפתוח ויזארד התאמה אישית מחדש
             return false;
         }
         const path = (window.location && window.location.pathname) || '';
@@ -2586,6 +2627,16 @@
         if (!opts.force && !shouldAutoShow()) {
             return false;
         }
+        if (state.tourActive) {
+            return false;
+        }
+        try {
+            if (window.__ckOnboarding && typeof window.__ckOnboarding.acquire === 'function') {
+                if (!window.__ckOnboarding.acquire('theme_wizard')) {
+                    return false;
+                }
+            }
+        } catch (_) { /* ignore */ }
         clearFallback();
         state.focusBeforeOpen = document.activeElement;
         state.initialTheme = htmlEl.getAttribute('data-theme') || defaultTheme();
@@ -2628,6 +2679,11 @@
         markSeen();
         state.isOpen = false;
         try {
+            if (window.__ckOnboarding && typeof window.__ckOnboarding.release === 'function') {
+                window.__ckOnboarding.release('theme_wizard');
+            }
+        } catch (_) { /* ignore */ }
+        try {
             if (state.focusBeforeOpen && typeof state.focusBeforeOpen.focus === 'function') {
                 state.focusBeforeOpen.focus();
             }
@@ -2636,6 +2692,9 @@
     }
     function maybeOpen(reason, opts = {}){
         if (state.isOpen) {
+            return false;
+        }
+        if (state.tourActive) {
             return false;
         }
         const forced = !!opts.force;
@@ -2649,7 +2708,7 @@
         return true;
     }
     function scheduleFallback(){
-        if (!shouldAutoShow() || state.fallbackTimer) {
+        if (!shouldAutoShow() || state.fallbackTimer || state.tourActive) {
             return;
         }
         state.fallbackTimer = setTimeout(() => {
@@ -2661,12 +2720,16 @@
         if (!driver) {
             return;
         }
+        // אם הסיור רץ, לא מפעילים fallback של הוויזארד (מונע חפיפה)
+        clearFallback();
+        state.tourActive = true;
         const handler = () => {
             try {
                 if (typeof driver.off === 'function') {
                     driver.off('destroyed', handler);
                 }
             } catch (_) { /* ignore */ }
+            state.tourActive = false;
             maybeOpen('tour-finished');
         };
         if (typeof driver.on === 'function') {
@@ -2755,6 +2818,13 @@
         resetSeen,
         scheduleFallback
     };
+
+    // סנכרון: אם המשתמש כבר ראה בעבר (לוקאלית) אבל אין לנו DB flag, נעדכן לשרת בשקט.
+    try {
+        if (isLoggedIn && !serverHasSeen && hasSeen()) {
+            persistSeenToServer();
+        }
+    } catch (_) { /* ignore */ }
 
     // סנכרון ערכת נושא בין טאבים (localStorage storage event)
     window.addEventListener('storage', (event) => {
@@ -3260,14 +3330,33 @@
     const AUTO_PATHS = ['/files'];
     const MAX_RETRIES = 5;
     const isLoggedIn = {{ 'true' if _session_user_id else 'false' }};
+    const serverHasSeen = {{ 'true' if onboarding_walkthrough_v1_seen else 'false' }};
 
     function hasSeen(){
-        try { return localStorage.getItem(STORAGE_KEY) === '1'; }
-        catch (_) { return false; }
+        if (serverHasSeen) {
+            return true;
+        }
+        try {
+            const v = localStorage.getItem(STORAGE_KEY);
+            return v === '1' || v === 'true' || v === 'yes';
+        } catch (_) {
+            return false;
+        }
+    }
+    function persistSeenToServer(){
+        if (!isLoggedIn) { return; }
+        try {
+            fetch('/api/ui_prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ onboarding: { walkthrough_v1_seen: true } })
+            }).catch(() => {});
+        } catch (_) { /* ignore */ }
     }
     function markSeen(){
         try { localStorage.setItem(STORAGE_KEY, '1'); }
         catch (_) { /* ignore */ }
+        persistSeenToServer();
     }
     function resetSeen(){
         try { localStorage.removeItem(STORAGE_KEY); }
@@ -3376,17 +3465,77 @@
         if (!steps || !steps.length) {
             return false;
         }
-        const driver = driverFactory({
-            animate: true,
-            smoothScroll: true,
-            showProgress: true,
-            stageBackground: 'rgba(8, 16, 32, 0.78)',
-            nextBtnText: 'הבא',
-            prevBtnText: 'הקודם',
-            doneBtnText: 'סיימנו',
-            steps,
-        });
-        driver.drive();
+        let lockAcquired = false;
+        let safetyTimer = null;
+        // שחרור נעילה בסיום הסיור (מונע מצב "תקוע" שמונע את הוויזארד)
+        const release = () => {
+            if (!lockAcquired) { return; }
+            lockAcquired = false;
+            try {
+                if (safetyTimer) {
+                    clearTimeout(safetyTimer);
+                    safetyTimer = null;
+                }
+            } catch (_) { /* ignore */ }
+            try {
+                if (window.__ckOnboarding && typeof window.__ckOnboarding.release === 'function') {
+                    window.__ckOnboarding.release('tour');
+                }
+            } catch (_) { /* ignore */ }
+        };
+        try {
+            if (window.__ckOnboarding && typeof window.__ckOnboarding.acquire === 'function') {
+                if (!window.__ckOnboarding.acquire('tour')) {
+                    return false;
+                }
+                lockAcquired = true;
+            }
+        } catch (_) { /* ignore */ }
+        let driver = null;
+        try {
+            driver = driverFactory({
+                animate: true,
+                smoothScroll: true,
+                showProgress: true,
+                stageBackground: 'rgba(8, 16, 32, 0.78)',
+                nextBtnText: 'הבא',
+                prevBtnText: 'הקודם',
+                doneBtnText: 'סיימנו',
+                steps,
+            });
+
+            // טיימר בטיחות: גם אם אי אפשר לרשום אירועים, לא נשאיר נעילה לנצח
+            // (נמנע מצב שבו הוויזארד נחסם לכל הסשן בגלל כשל רישום callback)
+            try {
+                if (lockAcquired) {
+                    safetyTimer = setTimeout(() => release(), 120000);
+                }
+            } catch (_) { /* ignore */ }
+
+            // 1) ניסיון להירשם לאירוע "destroyed"
+            try {
+                if (driver && typeof driver.on === 'function') {
+                    driver.on('destroyed', release);
+                }
+            } catch (_) { /* ignore */ }
+
+            // 2) Fallback חזק: עטיפת destroy כדי להבטיח release גם בלי event emitter
+            try {
+                if (driver && typeof driver.destroy === 'function') {
+                    const origDestroy = driver.destroy.bind(driver);
+                    driver.destroy = (...args) => {
+                        try { return origDestroy(...args); }
+                        finally { release(); }
+                    };
+                }
+            } catch (_) { /* ignore */ }
+
+            driver.drive();
+        } catch (_) {
+            // חשוב: release כאן כדי לא להיתקע עם נעילה אם משהו נשבר לפני שהסיור התחיל באמת
+            release();
+            return false;
+        }
         if (window.ThemeWizard && typeof window.ThemeWizard.watchDriver === 'function') {
             try { window.ThemeWizard.watchDriver(driver); }
             catch (_) { /* ignore */ }
@@ -3474,6 +3623,12 @@
 
     ready(() => {
         exposeControls();
+        // סנכרון לשרת (כדי למנוע הופעה אקראית במכשיר אחר) אם כבר מסומן לוקאלית
+        try {
+            if (isLoggedIn && !serverHasSeen && hasSeen()) {
+                persistSeenToServer();
+            }
+        } catch (_) { /* ignore */ }
         const triggered = handleUrlTrigger();
         if (!triggered) {
             scheduleAutoStart();

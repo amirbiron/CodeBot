@@ -1474,6 +1474,29 @@ def inject_globals():
             except Exception:
                 show_welcome_modal = False
 
+    # Onboarding flags (persisted in DB under ui_prefs.onboarding.*)
+    ui_prefs = (user_doc.get('ui_prefs') or {}) if isinstance(user_doc, dict) else {}
+    ui_theme_pref_set = False
+    try:
+        ui_theme_pref_set = bool((ui_prefs.get('theme') or '').strip())
+    except Exception:
+        ui_theme_pref_set = False
+
+    onboarding = ui_prefs.get('onboarding') if isinstance(ui_prefs, dict) else None
+    if not isinstance(onboarding, dict):
+        onboarding = {}
+
+    onboarding_walkthrough_v1_seen = False
+    onboarding_theme_wizard_seen = False
+    try:
+        onboarding_walkthrough_v1_seen = bool(onboarding.get('walkthrough_v1_seen', False))
+    except Exception:
+        onboarding_walkthrough_v1_seen = False
+    try:
+        onboarding_theme_wizard_seen = bool(onboarding.get('theme_wizard_seen', False))
+    except Exception:
+        onboarding_theme_wizard_seen = False
+
     # SRI map (optional): only set if provided via env to avoid mismatches
     sri_map = {}
     try:
@@ -1526,6 +1549,10 @@ def inject_globals():
         'show_welcome_modal': show_welcome_modal,
         'welcome_primary_guide_url': primary_guide_url,
         'welcome_secondary_guide_url': secondary_guide_url,
+        # Onboarding (server persisted)
+        'ui_theme_pref_set': ui_theme_pref_set,
+        'onboarding_walkthrough_v1_seen': onboarding_walkthrough_v1_seen,
+        'onboarding_theme_wizard_seen': onboarding_theme_wizard_seen,
     }
 
     
@@ -13484,6 +13511,7 @@ def api_ui_prefs():
     - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
+    - onboarding: אובייקט flags (walkthrough_v1_seen, theme_wizard_seen)
     """
     try:
         payload = request.get_json(silent=True) or {}
@@ -13566,6 +13594,33 @@ def api_ui_prefs():
                     resp_payload['work_state'] = safe_ws
             except Exception:
                 pass
+
+        # Onboarding flags (persisted; boolean only)
+        if 'onboarding' in payload:
+            try:
+                ob = payload.get('onboarding') or {}
+                if not isinstance(ob, dict):
+                    return jsonify({'ok': False, 'error': 'onboarding must be an object'}), 400
+
+                onboarding_resp: Dict[str, Any] = {}
+                if 'walkthrough_v1_seen' in ob:
+                    v = ob.get('walkthrough_v1_seen')
+                    if not isinstance(v, bool):
+                        return jsonify({'ok': False, 'error': 'onboarding.walkthrough_v1_seen must be boolean'}), 400
+                    update_fields['ui_prefs.onboarding.walkthrough_v1_seen'] = v
+                    onboarding_resp['walkthrough_v1_seen'] = v
+
+                if 'theme_wizard_seen' in ob:
+                    v = ob.get('theme_wizard_seen')
+                    if not isinstance(v, bool):
+                        return jsonify({'ok': False, 'error': 'onboarding.theme_wizard_seen must be boolean'}), 400
+                    update_fields['ui_prefs.onboarding.theme_wizard_seen'] = v
+                    onboarding_resp['theme_wizard_seen'] = v
+
+                if onboarding_resp:
+                    resp_payload['onboarding'] = onboarding_resp
+            except Exception:
+                return jsonify({'ok': False, 'error': 'invalid_onboarding'}), 400
 
         # אם לא התקבל אף שדה עדכני – אין מה לעדכן
         if len(update_fields) == 1:  # רק updated_at

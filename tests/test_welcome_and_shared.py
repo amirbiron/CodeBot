@@ -6,12 +6,31 @@ class FakeUsersCollection:
         self.docs = {}
 
     def update_one(self, query, update, upsert=False):
+        def _set_dotted(doc, dotted_key, value):
+            if '.' not in dotted_key:
+                doc[dotted_key] = value
+                return
+            cur = doc
+            parts = [p for p in str(dotted_key).split('.') if p]
+            if not parts:
+                return
+            for p in parts[:-1]:
+                if p not in cur or not isinstance(cur[p], dict):
+                    cur[p] = {}
+                cur = cur[p]
+            cur[parts[-1]] = value
+
         user_id = query.get('user_id')
         doc = self.docs.setdefault(user_id, {'user_id': user_id})
         for key, value in (update.get('$setOnInsert') or {}).items():
-            doc.setdefault(key, value)
+            if '.' in str(key):
+                # emulate MongoDB dotted keys on insert
+                if key not in doc:
+                    _set_dotted(doc, key, value)
+            else:
+                doc.setdefault(key, value)
         for key, value in (update.get('$set') or {}).items():
-            doc[key] = value
+            _set_dotted(doc, key, value)
         return types.SimpleNamespace(acknowledged=True)
 
     def find_one(self, query):
@@ -139,3 +158,32 @@ def test_builtin_welcome_share_uses_user_guide(monkeypatch, tmp_path):
         assert alias_doc['code'] == primary_doc['code']
     finally:
         app_mod._load_user_guide_markdown.cache_clear()
+
+
+def test_ui_prefs_onboarding_flags(monkeypatch):
+    import webapp.app as app_mod
+
+    fake_users = FakeUsersCollection()
+    fake_db = types.SimpleNamespace(users=fake_users)
+
+    monkeypatch.setattr(app_mod, 'get_db', lambda: fake_db)
+
+    app_mod.app.testing = True
+    with app_mod.app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 55
+            sess['user_data'] = {}
+
+        resp = client.post(
+            '/api/ui_prefs',
+            json={'onboarding': {'walkthrough_v1_seen': True, 'theme_wizard_seen': True}},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data and data['ok'] is True
+        assert data['onboarding']['walkthrough_v1_seen'] is True
+        assert data['onboarding']['theme_wizard_seen'] is True
+
+        stored = fake_users.docs[55]
+        assert stored['ui_prefs']['onboarding']['walkthrough_v1_seen'] is True
+        assert stored['ui_prefs']['onboarding']['theme_wizard_seen'] is True
