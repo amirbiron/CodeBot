@@ -1441,8 +1441,50 @@ def inject_globals():
                 pass
     except Exception:
         pass
-    if theme not in ALLOWED_UI_THEMES:
-        theme = 'classic'
+
+    # Shared Theme (ui_prefs.theme = "shared:<slug>")
+    shared_theme = None
+    try:
+        is_shared_pref = isinstance(theme, str) and theme.startswith("shared:")
+    except Exception:
+        is_shared_pref = False
+
+    if is_shared_pref:
+        theme_id = ""
+        try:
+            theme_id = (theme.split("shared:", 1)[1] or "").strip()
+        except Exception:
+            theme_id = ""
+
+        if theme_id and db_ref is not None:
+            try:
+                doc = db_ref.shared_themes.find_one({"_id": theme_id, "is_active": True})
+                if isinstance(doc, dict) and doc.get("_id"):
+                    colors = doc.get("colors", {})
+                    if not isinstance(colors, dict):
+                        colors = {}
+                    syntax_css = doc.get("syntax_css", "")
+                    if not isinstance(syntax_css, str):
+                        syntax_css = ""
+                    shared_theme = {
+                        "id": doc.get("_id"),
+                        "name": doc.get("name"),
+                        "description": doc.get("description", ""),
+                        "colors": colors,
+                        "syntax_css": syntax_css,
+                        "is_featured": bool(doc.get("is_featured", False)),
+                    }
+                else:
+                    theme = "classic"
+            except Exception:
+                theme = "classic"
+                shared_theme = None
+        else:
+            theme = "classic"
+            shared_theme = None
+    else:
+        if theme not in ALLOWED_UI_THEMES:
+            theme = 'classic'
 
     # ערכת נושא מותאמת (אם קיימת) — מועברת לתבניות כדי לאפשר injection ב-base.html
     # תומך גם במבנה חדש (custom_themes[]) וגם בישן (custom_theme).
@@ -1562,6 +1604,7 @@ def inject_globals():
         'ui_font_scale': font_scale,
         'ui_theme': theme,
         'custom_theme': custom_theme,
+        'shared_theme': shared_theme,
         # הרשאות
         'user_is_admin': user_is_admin,
         # Feature flags
@@ -1764,6 +1807,11 @@ def get_db():
         ensure_users_indexes()
     except Exception:
         pass
+    # אינדקסים לערכות ציבוריות (Shared Themes)
+    try:
+        ensure_shared_themes_indexes()
+    except Exception:
+        pass
     return db
 
 
@@ -1904,6 +1952,63 @@ def ensure_users_indexes() -> None:
             except Exception:
                 pass
 
+
+# --- Ensure indexes for shared_themes once per process ---
+_shared_themes_indexes_ready = False
+
+
+def ensure_shared_themes_indexes() -> None:
+    """יוצר אינדקסים לאוסף shared_themes פעם אחת בתהליך.
+
+    אינדקסים:
+    - (is_active)
+    - (created_at DESC)
+    - (created_by)
+    """
+    global _shared_themes_indexes_ready
+    if _shared_themes_indexes_ready:
+        return
+    _start = _time.perf_counter()
+    _did_work = False
+    try:
+        _db = db if db is not None else None
+        if _db is None:
+            return
+        _did_work = True
+        coll = _db.shared_themes
+        try:
+            from pymongo import ASCENDING, DESCENDING
+
+            coll.create_index(
+                [("is_active", ASCENDING)],
+                name="shared_themes_is_active_idx",
+                background=True,
+            )
+            coll.create_index(
+                [("created_at", DESCENDING)],
+                name="shared_themes_created_at_desc_idx",
+                background=True,
+            )
+            coll.create_index(
+                [("created_by", ASCENDING)],
+                name="shared_themes_created_by_idx",
+                background=True,
+            )
+        except Exception:
+            pass
+        _shared_themes_indexes_ready = True
+    except Exception:
+        pass
+    finally:
+        if _did_work:
+            try:
+                _record_startup_metric(
+                    "indexes_shared_themes",
+                    max(0.0, float(_time.perf_counter() - _start)),
+                    accumulate=True,
+                )
+            except Exception:
+                pass
 
 # --- HTTP caching helpers (ETag / Last-Modified) ---
 def _safe_dt_from_doc(value) -> datetime:

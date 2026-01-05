@@ -1487,7 +1487,7 @@ def generate_pygments_css_from_tokens(token_colors: list[dict]) -> str:
 
     Returns:
         CSS string עם כללים בפורמט:
-        [data-theme="custom"] .source .k { color: #...; }
+        [data-theme-type="custom"] .source .k { color: #...; }
     """
     if not isinstance(token_colors, list):
         return ""
@@ -1535,8 +1535,8 @@ def generate_pygments_css_from_tokens(token_colors: list[dict]) -> str:
             if "underline" in fs:
                 rule_parts.append("text-decoration: underline !important")
 
-            # Selector: [data-theme="custom"] .source .k
-            selector = f'[data-theme="custom"] .source {py_class}'
+            # Selector: [data-theme-type="custom"] .source .k
+            selector = f'[data-theme-type="custom"] .source {py_class}'
             css_by_selector[py_class] = f'{selector} {{ {"; ".join(rule_parts)}; }}'
 
     return "\n".join(css_by_selector.values())
@@ -1636,8 +1636,10 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
             if "underline" in fs:
                 rule_parts.append("text-decoration: underline !important")
 
+            # חשוב: אנחנו תומכים גם ב-Shared Themes, לכן משתמשים ב-data-theme-type="custom"
+            # (במקום data-theme="custom" הקשיח)
             css_by_selector[cm_class] = (
-                f':root[data-theme="custom"] {cm_class} {{ {"; ".join(rule_parts)}; }}'
+                f':root[data-theme-type="custom"] {cm_class} {{ {"; ".join(rule_parts)}; }}'
             )
 
     return "\n".join(css_by_selector.values())
@@ -1648,7 +1650,7 @@ def sanitize_codemirror_css(css: str) -> str:
     🔒 מנקה CSS של CodeMirror (syntax_css) כדי למנוע CSS injection.
 
     מאפשר רק חוקים בפורמט:
-    :root[data-theme="custom"] .<tok|cm>-<token> { color: <HEX/RGB/RGBA>; [font-style: italic;] [font-weight: bold;] [text-decoration: underline;] }
+    :root[data-theme-type="custom"] .<tok|cm>-<token> { color: <HEX/RGB/RGBA>; [font-style: italic;] [font-weight: bold;] [text-decoration: underline;] }
 
     תומך גם ב-tok- classes (CodeMirror 6 classHighlighter) וגם ב-cm- classes (legacy).
     """
@@ -1677,8 +1679,14 @@ def sanitize_codemirror_css(css: str) -> str:
             continue
 
         # 🔒 אבטחה/ביצועים: הימנעות מ-Regex כבד על קלט לא נשלט (ReDoS)
-        prefix = ':root[data-theme="custom"]'
-        if not line.startswith(prefix):
+        # תומך גם בפורמט הישן (data-theme="custom") וגם בחדש (data-theme-type="custom")
+        # כדי לשמור תאימות לאחור לערכות קיימות.
+        allowed_prefixes = (
+            ':root[data-theme="custom"]',
+            ':root[data-theme-type="custom"]',
+        )
+        prefix = next((p for p in allowed_prefixes if line.startswith(p)), None)
+        if not prefix:
             continue
 
         open_idx = line.find("{")
@@ -1758,7 +1766,8 @@ def sanitize_codemirror_css(css: str) -> str:
         if not any(p.startswith("color:") for p in out_parts):
             continue
 
-        safe_rules.append(f':root[data-theme="custom"] {selector} {{ {"; ".join(out_parts)}; }}')
+        # ננרמל תמיד לפורמט החדש, כדי שיתפוס גם custom וגם shared (דרך data-theme-type).
+        safe_rules.append(f':root[data-theme-type="custom"] {selector} {{ {"; ".join(out_parts)}; }}')
 
     return "\n".join(safe_rules)
 

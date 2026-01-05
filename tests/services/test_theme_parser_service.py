@@ -386,11 +386,11 @@ class TestTokenColorsToCodeMirrorCSS:
         ]
         css = generate_codemirror_css_from_tokens(token_colors)
         # CodeMirror 6 classHighlighter משתמש ב-tok- classes
-        assert ':root[data-theme="custom"] .tok-comment' in css
+        assert ':root[data-theme-type="custom"] .tok-comment' in css
         # !important נדרש כדי לדרוס inline styles של CodeMirror themes
         assert "color: #6272a4 !important" in css
         assert "font-style: italic !important" in css
-        assert ':root[data-theme="custom"] .tok-keyword' in css
+        assert ':root[data-theme-type="custom"] .tok-keyword' in css
 
     def test_extended_scopes_mapping(self):
         """בדיקה שכל הסקופים החדשים ממופים כראוי ל-tok- classes."""
@@ -492,7 +492,7 @@ class TestSanitizeCodeMirrorCSS:
         """בדיקה שselectors פשוטים של tok- מאושרים."""
         from services.theme_parser_service import sanitize_codemirror_css
 
-        css = ':root[data-theme="custom"] .tok-keyword { color: #ff79c6 !important; }'
+        css = ':root[data-theme-type="custom"] .tok-keyword { color: #ff79c6 !important; }'
         result = sanitize_codemirror_css(css)
         assert ".tok-keyword" in result
         assert "color: #ff79c6 !important" in result
@@ -501,7 +501,7 @@ class TestSanitizeCodeMirrorCSS:
         """בדיקה שselectors מורכבים (composite) של tok- מאושרים."""
         from services.theme_parser_service import sanitize_codemirror_css
 
-        css = ':root[data-theme="custom"] .tok-variableName.tok-definition { color: #50fa7b !important; }'
+        css = ':root[data-theme-type="custom"] .tok-variableName.tok-definition { color: #50fa7b !important; }'
         result = sanitize_codemirror_css(css)
         assert ".tok-variableName.tok-definition" in result
         assert "color: #50fa7b !important" in result
@@ -510,7 +510,7 @@ class TestSanitizeCodeMirrorCSS:
         """בדיקה שselectors עם עד 3 classes מאושרים."""
         from services.theme_parser_service import sanitize_codemirror_css
 
-        css = ':root[data-theme="custom"] .tok-variableName.tok-definition.tok-local { color: #ffb86c !important; }'
+        css = ':root[data-theme-type="custom"] .tok-variableName.tok-definition.tok-local { color: #ffb86c !important; }'
         result = sanitize_codemirror_css(css)
         assert ".tok-variableName.tok-definition.tok-local" in result
 
@@ -519,7 +519,7 @@ class TestSanitizeCodeMirrorCSS:
         from services.theme_parser_service import sanitize_codemirror_css
 
         # 4 classes - צריך להיחסם
-        css = ':root[data-theme="custom"] .tok-a.tok-b.tok-c.tok-d { color: #fff !important; }'
+        css = ':root[data-theme-type="custom"] .tok-a.tok-b.tok-c.tok-d { color: #fff !important; }'
         result = sanitize_codemirror_css(css)
         assert result == ""
 
@@ -527,7 +527,7 @@ class TestSanitizeCodeMirrorCSS:
         """בדיקה שCSS עם url() נחסם."""
         from services.theme_parser_service import sanitize_codemirror_css
 
-        css = ':root[data-theme="custom"] .tok-keyword { color: url(evil.com) !important; }'
+        css = ':root[data-theme-type="custom"] .tok-keyword { color: url(evil.com) !important; }'
         result = sanitize_codemirror_css(css)
         assert result == ""
 
@@ -535,7 +535,7 @@ class TestSanitizeCodeMirrorCSS:
         """בדיקה שCSS עם javascript: נחסם."""
         from services.theme_parser_service import sanitize_codemirror_css
 
-        css = ':root[data-theme="custom"] .tok-keyword { color: javascript:alert(1) !important; }'
+        css = ':root[data-theme-type="custom"] .tok-keyword { color: javascript:alert(1) !important; }'
         result = sanitize_codemirror_css(css)
         assert result == ""
 
