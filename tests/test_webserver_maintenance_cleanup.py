@@ -36,24 +36,33 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
     monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
 
     class _StubDeleteColl:
-        def __init__(self, deleted_count: int):
+        def __init__(self, deleted_count: int, *, has_legacy_metrics_ttl: bool):
             self.deleted_count = deleted_count
             self.calls: list[dict] = []
             self.created_indexes: list[dict] = []
             self.dropped_indexes: list[str] = []
+            self.metrics_ttl_dropped = False
+            self.has_legacy_metrics_ttl = bool(has_legacy_metrics_ttl)
 
         def delete_many(self, query):
             self.calls.append(query)
             return types.SimpleNamespace(deleted_count=self.deleted_count)
 
         def index_information(self):
-            # Simulate no indexes initially
+            if self.has_legacy_metrics_ttl:
+                # Simulate legacy TTL index exists on service_metrics
+                return {"metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 2592000}}
             return {}
 
         def drop_index(self, name: str):
             self.dropped_indexes.append(str(name))
+            if str(name) == "metrics_ttl":
+                self.metrics_ttl_dropped = True
 
         def create_index(self, keys, **kwargs):
+            # If legacy TTL wasn't dropped first, simulate conflict
+            if self.has_legacy_metrics_ttl and kwargs.get("expireAfterSeconds") is not None and not self.metrics_ttl_dropped:
+                raise RuntimeError("IndexOptionsConflict: legacy metrics_ttl still exists")
             self.created_indexes.append({"keys": keys, **kwargs})
             return kwargs.get("name") or "idx"
 
@@ -71,6 +80,7 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
                 "junk_idx_2": {"key": [("y", 1)]},
             }
             self.dropped: list[str] = []
+            self.created: list[dict] = []
 
         def index_information(self):
             return dict(self._idx)
@@ -80,10 +90,17 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
             if name in self._idx:
                 del self._idx[name]
 
+        def create_index(self, keys, **kwargs):
+            self.created.append({"keys": keys, **kwargs})
+            # Record creation by name for subsequent index_information
+            name = str(kwargs.get("name") or "idx")
+            self._idx[name] = {"key": list(keys)}
+            return name
+
     class _StubDB:
         def __init__(self):
-            self.slow_queries_log = _StubDeleteColl(3)
-            self.service_metrics = _StubDeleteColl(5)
+            self.slow_queries_log = _StubDeleteColl(3, has_legacy_metrics_ttl=False)
+            self.service_metrics = _StubDeleteColl(5, has_legacy_metrics_ttl=True)
             self.code_snippets = _StubCodeSnippetsColl()
 
     stub_db = _StubDB()
@@ -121,6 +138,8 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
         # Ensure TTL indexes were attempted/created
         assert (ttl.get("slow_queries_log") or {}).get("expireAfterSeconds") == 604800
         assert (ttl.get("service_metrics_ts") or {}).get("expireAfterSeconds") == 86400
+        # Ensure we pre-dropped legacy metrics_ttl
+        assert "metrics_ttl" in (ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])
 
         idx = payload.get("indexes") or {}
         dropped = set(idx.get("dropped") or [])
@@ -136,6 +155,11 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
         # Ensure TTL create_index was called for both collections
         assert any(ci.get("expireAfterSeconds") == 604800 for ci in stub_db.slow_queries_log.created_indexes)
         assert any(ci.get("expireAfterSeconds") == 86400 for ci in stub_db.service_metrics.created_indexes)
+
+        # Ensure UI sort index was ensured
+        ensured = idx.get("ensured") or {}
+        assert ensured.get("name") == "user_updated_at"
+        assert any((ci.get("name") == "user_updated_at") for ci in stub_db.code_snippets.created)
     finally:
         await runner.cleanup()
 

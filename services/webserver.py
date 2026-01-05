@@ -1290,6 +1290,19 @@ def create_app() -> web.Application:
                     "status": "planned" if preview else "created",
                 }
 
+            # Explicitly drop legacy TTL index that may conflict (IndexOptionsConflict)
+            service_metrics_pre_drop: dict[str, Any]
+            if preview:
+                service_metrics_pre_drop = {"planned_drop": ["metrics_ttl"]}
+            else:
+                dropped_pre: list[str] = []
+                try:
+                    service_metrics_coll.drop_index("metrics_ttl")
+                    dropped_pre.append("metrics_ttl")
+                except Exception:
+                    pass
+                service_metrics_pre_drop = {"dropped": dropped_pre}
+
             ttl_results: dict[str, Any] = {
                 "slow_queries_log": _ensure_ttl_index(
                     slow_queries_coll,
@@ -1311,6 +1324,7 @@ def create_app() -> web.Application:
                     index_name="ttl_cleanup",
                 ),
             }
+            ttl_results["service_metrics_pre_drop"] = service_metrics_pre_drop
 
             # --- index cleanup (code_snippets) ---
             try:
@@ -1339,13 +1353,21 @@ def create_app() -> web.Application:
 
             def _should_keep_code_snippets_index(index_name: str, meta: Any) -> bool:
                 # Keep by explicit name
-                if index_name in {"_id_", "search_text_idx", "unique_file_name", "user_id"}:
+                if index_name in {"_id_", "search_text_idx", "unique_file_name", "user_id", "user_updated_at"}:
                     return True
                 if not isinstance(meta, dict):
                     return False
                 key = meta.get("key")
                 # Keep single-field user_id index (name may be user_id_1 / user_id_idx etc.)
                 if key in ([("user_id", 1)], [("user_id", -1)]):
+                    return True
+                # Keep default UI sort index (user_id + updated_at desc)
+                if key in (
+                    [("user_id", 1), ("updated_at", -1)],
+                    [("updated_at", -1), ("user_id", 1)],
+                    [("user_id", -1), ("updated_at", -1)],
+                    [("updated_at", -1), ("user_id", -1)],
+                ):
                     return True
                 # Keep a unique index enforcing unique file name per user (compound user_id + file_name)
                 try:
@@ -1380,6 +1402,22 @@ def create_app() -> web.Application:
                     # Best-effort: אם אינדקס לא קיים/לא ניתן למחיקה, נשמור שגיאה ונתקדם.
                     drop_errors[idx_name] = str(e)
 
+            # Ensure critical UI sort index exists (user_id + updated_at desc)
+            ensured: dict[str, Any] = {"name": "user_updated_at", "key": [("user_id", 1), ("updated_at", -1)]}
+            if preview:
+                ensured["status"] = "planned"
+            else:
+                try:
+                    code_snippets_coll.create_index(
+                        [("user_id", 1), ("updated_at", -1)],
+                        name="user_updated_at",
+                        background=True,
+                    )
+                    ensured["status"] = "created_or_exists"
+                except Exception as e:
+                    ensured["status"] = "error"
+                    ensured["error"] = str(e)
+
             try:
                 idx_info_after = code_snippets_coll.index_information() or {}
             except Exception:
@@ -1403,6 +1441,7 @@ def create_app() -> web.Application:
                     "dropped": dropped,
                     "kept": kept,
                     "drop_errors": drop_errors,
+                    "ensured": ensured,
                 },
             }
 
