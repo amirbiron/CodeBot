@@ -228,7 +228,7 @@
                     מחק ערכה
                 </button>
                 {% if is_admin %}
-                <button type="button" class="btn btn-warning" id="publishThemeBtn" disabled>
+                <button type="button" class="btn btn-warning" id="publishThemeBtn">
                     <i class="fas fa-share-alt"></i>
                     פרסם לכולם
                 </button>
@@ -288,14 +288,14 @@
 
 {% if is_admin %}
 <!-- Publish Modal -->
-<div id="publishModal" class="modal" hidden>
-    <div class="modal-content glass-card">
-        <div class="modal-header">
+<div id="publishModal" class="publish-modal" hidden>
+    <div class="publish-modal-content glass-card">
+        <div class="publish-modal-header">
             <h3>
                 <i class="fas fa-share-alt"></i>
                 פרסום ערכה לכולם
             </h3>
-            <button type="button" class="modal-close" id="closePublishModal" aria-label="סגירת חלון פרסום">
+            <button type="button" class="publish-modal-close" id="closePublishModal" aria-label="סגירת חלון פרסום">
                 <i class="fas fa-times"></i>
             </button>
         </div>
@@ -347,7 +347,7 @@
                 </label>
             </div>
 
-            <div class="modal-actions">
+            <div class="publish-modal-actions">
                 <button type="submit" class="btn btn-primary" id="publishSubmitBtn">
                     <i class="fas fa-upload"></i>
                     פרסם
@@ -792,8 +792,10 @@
     color: white;
 }
 
-/* Modal (Publish) */
-.modal {
+/* Modal (Publish)
+   ⚠️ לא משתמשים במחלקה .modal כדי להימנע מקונפליקט עם smooth-scroll.css שמסתיר .modal עם !important
+*/
+.publish-modal {
     position: fixed;
     top: 0;
     left: 0;
@@ -807,11 +809,11 @@
     backdrop-filter: blur(4px);
 }
 
-.modal[hidden] {
+.publish-modal[hidden] {
     display: none;
 }
 
-.modal-content {
+.publish-modal-content {
     width: 90%;
     max-width: 500px;
     max-height: 90vh;
@@ -830,7 +832,7 @@
     }
 }
 
-.modal-header {
+.publish-modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -839,14 +841,14 @@
     border-bottom: 1px solid var(--glass-border);
 }
 
-.modal-header h3 {
+.publish-modal-header h3 {
     margin: 0;
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-.modal-close {
+.publish-modal-close {
     background: none;
     border: none;
     color: var(--text-secondary);
@@ -857,7 +859,7 @@
     transition: all 0.2s;
 }
 
-.modal-close:hover {
+.publish-modal-close:hover {
     background: var(--glass);
     color: var(--text-primary);
 }
@@ -905,7 +907,7 @@
     color: var(--danger);
 }
 
-.modal-actions {
+.publish-modal-actions {
     display: flex;
     gap: 1rem;
     justify-content: flex-end;
@@ -958,6 +960,10 @@
     let currentThemes = [];
     let selectedThemeId = null;
     let isNewTheme = false;
+    // מגן נגד מצב ביניים בזמן טעינת ערכה: מונע "פרסום" של נתונים ישנים מהטופס
+    let isThemeLoading = false;
+    // מזהה הערכה שהטופס כרגע מייצג בפועל (אחרי fetch + loadThemeIntoForm)
+    let loadedThemeId = null;
     let hasUnsavedChanges = false;
     let currentThemeSyntaxCss = '';
 
@@ -1540,6 +1546,8 @@
         const form = document.getElementById('themeBuilderForm');
         if (!form) return;
         form.querySelectorAll('input, button').forEach((el) => {
+            // השאר את כפתור הפרסום לחיץ תמיד (אחרת "לא מגיב" בזמן טעינה/שגיאה)
+            if (el && el.id === 'publishThemeBtn') return;
             el.disabled = !!disabled;
         });
         // תמיד נשאיר את כפתור "ערכה חדשה" פעיל
@@ -1554,14 +1562,21 @@
 
         selectedThemeId = themeId;
         isNewTheme = false;
+        isThemeLoading = true;
+        loadedThemeId = null;
         renderThemesList();
 
         setFormDisabled(true);
-        const theme = await fetchThemeDetails(themeId);
-        if (theme) {
-            loadThemeIntoForm(theme);
+        try {
+            const theme = await fetchThemeDetails(themeId);
+            if (theme) {
+                loadThemeIntoForm(theme);
+                loadedThemeId = themeId;
+            }
+        } finally {
+            isThemeLoading = false;
+            setFormDisabled(false);
         }
-        setFormDisabled(false);
 
         hasUnsavedChanges = false;
         updateFormButtons();
@@ -1627,6 +1642,8 @@
 
         selectedThemeId = null;
         isNewTheme = true;
+        isThemeLoading = false;
+        loadedThemeId = null;
         currentThemeSyntaxCss = '';
         renderThemesList();
 
@@ -1675,18 +1692,15 @@
         const saveBtn = document.getElementById('saveThemeBtn');
         const activateBtn = document.getElementById('activateThemeBtn');
         const deleteBtn = document.getElementById('deleteThemeBtn');
-        const publishBtn = document.getElementById('publishThemeBtn');
 
         if (isNewTheme) {
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-plus"></i> צור ערכה';
             if (activateBtn) activateBtn.disabled = true;
             if (deleteBtn) deleteBtn.disabled = true;
-            if (publishBtn) publishBtn.disabled = true;
         } else {
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> שמור שינויים';
             if (activateBtn) activateBtn.disabled = !selectedThemeId;
             if (deleteBtn) deleteBtn.disabled = !selectedThemeId;
-            if (publishBtn) publishBtn.disabled = !selectedThemeId;
         }
     }
 
@@ -1700,14 +1714,23 @@
     const publishSubmitBtn = document.getElementById('publishSubmitBtn');
 
     function hidePublishModal() {
-        if (publishModal) publishModal.hidden = true;
+        if (publishModal) {
+            publishModal.hidden = true;
+            try { publishModal.style.display = ''; } catch (e) {}
+            try { delete publishModal.dataset.themeId; } catch (e) {}
+        }
         try { if (publishForm) publishForm.reset(); } catch (e) {}
     }
 
     if (publishBtn) {
         publishBtn.addEventListener('click', () => {
             if (!selectedThemeId || isNewTheme) {
-                showToast('יש לבחור ערכה קיימת קודם', 'error');
+                showToast('כדי לפרסם צריך לבחור ערכה קיימת (לא "ערכה חדשה")', 'error');
+                return;
+            }
+            // בזמן טעינה הטופס עדיין מייצג ערכה קודמת — מונעים פתיחת מודאל כדי לא לפרסם נתונים ישנים
+            if (isThemeLoading || loadedThemeId !== selectedThemeId) {
+                showToast('טוען את פרטי הערכה... נסה שוב בעוד רגע', 'info');
                 return;
             }
 
@@ -1725,7 +1748,12 @@
             const publishSlugEl = document.getElementById('publishSlug');
             if (publishSlugEl) publishSlugEl.value = suggestedSlug || '';
 
-            if (publishModal) publishModal.hidden = false;
+            if (publishModal) {
+                try { publishModal.dataset.themeId = String(selectedThemeId); } catch (e) {}
+                publishModal.hidden = false;
+                // "נוקשות" נגד CSS חיצוני שעשוי להסתיר overlays
+                try { publishModal.style.display = 'flex'; } catch (e) {}
+            }
         });
     }
 
@@ -1741,6 +1769,16 @@
     if (publishForm) {
         publishForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+
+            const expectedThemeId = (publishModal && publishModal.dataset) ? publishModal.dataset.themeId : null;
+            if (!expectedThemeId || !selectedThemeId || String(expectedThemeId) !== String(selectedThemeId)) {
+                showToast('הערכה השתנתה מאז פתיחת החלון. פתח את חלון הפרסום מחדש.', 'error');
+                return;
+            }
+            if (isThemeLoading || loadedThemeId !== selectedThemeId) {
+                showToast('הערכה עדיין נטענת. נסה שוב בעוד רגע.', 'info');
+                return;
+            }
 
             const slug = (document.getElementById('publishSlug')?.value || '').trim().toLowerCase();
             const name = (document.getElementById('publishName')?.value || '').trim();
