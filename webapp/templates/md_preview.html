@@ -254,9 +254,9 @@
 [data-theme="dim"] #md-content code:not(pre code),
 [data-theme="nebula"] #md-content code:not(pre code),
 [data-theme="custom"] #md-content code:not(pre code) {
-  background: var(--bg-tertiary);
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
   color: var(--code-text, var(--text-primary));
-  border: 1px solid var(--code-border, var(--glass-border));
+  border: 1px solid var(--code-border, var(--glass-border, rgba(255, 255, 255, 0.15)));
 }
 
 [data-theme="dark"] #md-content pre,
