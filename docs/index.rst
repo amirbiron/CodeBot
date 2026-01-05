@@ -138,6 +138,7 @@ Code Keeper Bot - תיעוד API
    :caption: Frontend > Theming
 
    webapp/theming_and_css
+   webapp/custom_themes_guide
 
 .. toctree::
    :maxdepth: 2
