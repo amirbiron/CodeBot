@@ -228,7 +228,7 @@
                     מחק ערכה
                 </button>
                 {% if is_admin %}
-                <button type="button" class="btn btn-warning" id="publishThemeBtn">
+                <button type="button" class="btn btn-warning" id="publishThemeBtn" disabled>
                     <i class="fas fa-share-alt"></i>
                     פרסם לכולם
                 </button>
@@ -1679,15 +1679,18 @@
         const saveBtn = document.getElementById('saveThemeBtn');
         const activateBtn = document.getElementById('activateThemeBtn');
         const deleteBtn = document.getElementById('deleteThemeBtn');
+        const publishBtn = document.getElementById('publishThemeBtn');
 
         if (isNewTheme) {
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-plus"></i> צור ערכה';
             if (activateBtn) activateBtn.disabled = true;
             if (deleteBtn) deleteBtn.disabled = true;
+            if (publishBtn) publishBtn.disabled = true;
         } else {
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> שמור שינויים';
             if (activateBtn) activateBtn.disabled = !selectedThemeId;
             if (deleteBtn) deleteBtn.disabled = !selectedThemeId;
+            if (publishBtn) publishBtn.disabled = !selectedThemeId;
         }
     }
 
@@ -1711,7 +1714,7 @@
     if (publishBtn) {
         publishBtn.addEventListener('click', () => {
             if (!selectedThemeId || isNewTheme) {
-                showToast('כדי לפרסם צריך לבחור ערכה קיימת (לא "ערכה חדשה")', 'error');
+                showToast('יש לבחור ערכה קיימת קודם', 'error');
                 return;
             }
 
