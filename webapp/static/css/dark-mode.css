@@ -93,6 +93,7 @@
 [data-theme="dark"] .btn-primary,
 [data-theme="dim"] .btn-primary,
 [data-theme="nebula"] .btn-primary,
+[data-theme="custom"] .btn-primary,
 [data-theme-type="custom"] .btn-primary {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-color);
@@ -103,6 +104,7 @@
 [data-theme="dark"] .btn-primary:hover,
 [data-theme="dim"] .btn-primary:hover,
 [data-theme="nebula"] .btn-primary:hover,
+[data-theme="custom"] .btn-primary:hover,
 [data-theme-type="custom"] .btn-primary:hover {
     background: var(--btn-primary-hover-bg, var(--btn-primary-bg));
     box-shadow: var(--btn-primary-hover-shadow, 0 10px 20px rgba(0,0,0,0.2));
@@ -111,6 +113,7 @@
 [data-theme="dark"] .btn-secondary,
 [data-theme="dim"] .btn-secondary,
 [data-theme="nebula"] .btn-secondary,
+[data-theme="custom"] .btn-secondary,
 [data-theme-type="custom"] .btn-secondary {
     background: var(--glass);
     color: var(--text-primary);
@@ -120,6 +123,7 @@
 [data-theme="dark"] .btn-secondary:hover,
 [data-theme="dim"] .btn-secondary:hover,
 [data-theme="nebula"] .btn-secondary:hover,
+[data-theme="custom"] .btn-secondary:hover,
 [data-theme-type="custom"] .btn-secondary:hover {
     background: var(--glass-hover);
     border-color: var(--primary);
@@ -192,7 +196,7 @@
    הצבע מגיע מ-Pygments CSS (github-dark) או מ-syntax_css של הערכה */
 [data-theme="custom"] .source,
 [data-theme-type="custom"] .source {
-    background: var(--md-surface, var(--code-bg, #1e1e1e)) !important;
+    background: var(--code-bg, var(--md-surface, #1e1e1e)) !important;
     border: 1px solid var(--code-border, rgba(255, 255, 255, 0.1));
 }
 

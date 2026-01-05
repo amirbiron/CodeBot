@@ -277,7 +277,7 @@
   --split-error-bg: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent);
   --split-error-border: color-mix(in srgb, var(--danger, #ef4444) 40%, transparent);
   --split-error-text: var(--danger, #fca5a5);
-  --split-codehilite-bg: var(--md-surface, var(--code-bg, var(--bg-secondary, #272822)));
+  --split-codehilite-bg: var(--code-bg, var(--md-surface, var(--bg-secondary, #272822)));
   --split-codehilite-text: var(--md-text, var(--code-text, var(--text-primary, #f8f8f2)));
 }
 
