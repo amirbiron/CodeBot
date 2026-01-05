@@ -222,19 +222,6 @@ def require_auth(f):
     return _inner
 # Simple in-memory rate limiter per user and endpoint key
 _RATE_LOG: Dict[tuple, list] = {}
-_RATE_LIMIT_EXEMPT_USER_IDS = {6865105071}  # החרגה לפיתוח (לא מוגבל בכלל)
-
-
-def _is_rate_limit_exempt(user_id: int) -> bool:
-    if not user_id:
-        return False
-    if int(user_id) in _RATE_LIMIT_EXEMPT_USER_IDS:
-        return True
-    try:
-        from webapp.app import is_admin
-        return bool(is_admin(int(user_id)))
-    except Exception:
-        return False
 
 
 def _rate_limit_check(user_id: int, key: str, max_per_minute: int) -> tuple[bool, int]:
@@ -276,8 +263,6 @@ def notes_rate_limit(key: str, max_per_minute: int):
             except Exception:
                 uid = 0
             if uid:
-                if _is_rate_limit_exempt(uid):
-                    return f(*args, **kwargs)
                 allowed, retry_after = _rate_limit_check(uid, key, max_per_minute)
                 if not allowed:
                     resp = jsonify({'ok': False, 'error': 'Rate limited'})
