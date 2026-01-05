@@ -1234,6 +1234,24 @@ def _client_rate_key():
         except Exception:
             return ""
 
+_RATE_LIMIT_EXEMPT_USER_IDS = {6865105071}  # החרגה לפיתוח (לא מוגבל בכלל)
+
+def _is_rate_limit_exempt_user() -> bool:
+    """האם המשתמש הנוכחי מוחרג מכל ה-rate limits (אדמין או allowlist)."""
+    try:
+        uid_raw = session.get("user_id")
+        uid = int(uid_raw) if uid_raw is not None else None
+    except Exception:
+        uid = None
+    if uid is None:
+        return False
+    if uid in _RATE_LIMIT_EXEMPT_USER_IDS:
+        return True
+    try:
+        return bool(is_admin(int(uid)))
+    except Exception:
+        return False
+
 if _LIMITER_AVAILABLE:
     try:
         # Resolve storage URI: prefer Redis when configured
@@ -1255,6 +1273,15 @@ if _LIMITER_AVAILABLE:
             strategy=(getattr(_cfg, 'RATE_LIMIT_STRATEGY', 'moving-window') if _cfg else 'moving-window'),
             swallow_errors=True,  # don't crash the app if backend unavailable
         )
+
+        # ==========================================================
+        # Rate limit exemptions (dev/admin)
+        # ==========================================================
+        # מטרת ההחרגה: לאפשר פיתוח שוטף בלי להיחסם ע"י Rate Limiting
+        # ולהחריג אדמינים מכל Endpoint.
+        @limiter.request_filter
+        def _rate_limit_exempt_filter() -> bool:
+            return _is_rate_limit_exempt_user()
     except Exception:
         limiter = None
 else:
@@ -3494,6 +3521,9 @@ def _profiler_rate_limit_ok() -> bool:
     limiter = _get_webapp_profiler_rate_limiter()
     if limiter is None:
         return True
+    # אדמין/משתמש מוחרג: אין מגבלת קצב בכלל
+    if _is_rate_limit_exempt_user():
+        return True
     try:
         client_id = str(request.headers.get("X-Profiler-Client") or request.remote_addr or "unknown")
         return limiter.is_allowed(client_id)
@@ -3921,6 +3951,10 @@ def api_db_collections():
 
     start_mono = time.monotonic()
     if cooldown_sec > 0:
+        # אדמין/משתמש מוחרג: לא נחסום עם cooldown בזמן פיתוח/תחזוקה
+        if _is_rate_limit_exempt_user():
+            cooldown_sec = 0
+
         global _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO
         with _DB_HEALTH_COLLECTIONS_COOLDOWN_LOCK:
             last = _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO

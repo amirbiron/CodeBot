@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 _RATE_LIMIT_WINDOW_SECONDS = 3600  # שעה אחת
 _RATE_LIMIT_REGULAR = 50
 _RATE_LIMIT_ADMIN = 200
+_RATE_LIMIT_EXEMPT_USER_IDS = {6865105071}  # החרגה לפיתוח (לא מוגבל בכלל)
 
 # In-memory rate limit tracking per user
 _theme_details_rate_log: Dict[int, list] = {}
@@ -62,6 +63,10 @@ def _check_theme_details_rate_limit(user_id: int) -> tuple[bool, int]:
     אדמינים: 200 בקשות/שעה
     משתמשים רגילים: 50 בקשות/שעה
     """
+    # החרגה: אדמין או משתמש פיתוח ספציפי - ללא הגבלה בכלל
+    if user_id in _RATE_LIMIT_EXEMPT_USER_IDS or _is_admin(user_id):
+        return True, 0
+
     now = time.time()
     window_start = now - _RATE_LIMIT_WINDOW_SECONDS
     
