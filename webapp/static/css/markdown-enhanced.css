@@ -118,6 +118,22 @@
   --tooltip-text: white;
 }
 
+/* === Custom theme override - uses CSS variables from the custom theme === */
+:root[data-theme="custom"] {
+  --details-border: var(--glass-border, #30363d);
+  --details-bg: var(--bg-secondary, #0d1117);
+  --details-hover: var(--bg-tertiary, #161b22);
+  --summary-color: var(--text-primary, #c9d1d9);
+  --summary-bg: linear-gradient(to right, color-mix(in srgb, var(--bg-tertiary, #161b22) 80%, transparent), transparent);
+  --summary-arrow-color: var(--text-muted, #8b949e);
+  --admonition-content-bg: color-mix(in srgb, var(--bg-primary, #0d1117) 70%, transparent);
+  --admonition-content-text: var(--text-primary, #c9d1d9);
+  --header-anchor-color: var(--text-muted, #8b949e);
+  --header-anchor-hover: var(--primary, #58a6ff);
+  --tooltip-bg: var(--bg-tertiary, rgba(255, 255, 255, 0.9));
+  --tooltip-text: var(--text-primary, #000);
+}
+
 /* === קטעים מתקפלים === */
 .markdown-details {
   margin: 1rem 0;
