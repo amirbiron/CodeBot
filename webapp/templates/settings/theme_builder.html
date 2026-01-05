@@ -966,6 +966,10 @@
     let loadedThemeId = null;
     let hasUnsavedChanges = false;
     let currentThemeSyntaxCss = '';
+    // 🆕 שמירת syntax_colors (מילון צבעים ל-HighlightStyle דינמי)
+    let currentThemeSyntaxColors = {};
+    // 🆕 שמירת משתנים מקוריים של הערכה הנטענת (לשימור בפרסום)
+    let currentThemeOriginalVariables = {};
 
     // ========== DOM Elements ==========
     const themesList = document.getElementById('themesList');
@@ -1592,6 +1596,10 @@
 
         const variables = theme.variables || {};
         currentThemeSyntaxCss = (theme && typeof theme.syntax_css === 'string') ? theme.syntax_css : '';
+        // 🆕 שמירת syntax_colors (מילון צבעים ל-HighlightStyle דינמי)
+        currentThemeSyntaxColors = (theme && typeof theme.syntax_colors === 'object' && theme.syntax_colors) ? theme.syntax_colors : {};
+        // 🆕 שמירת כל המשתנים המקוריים (כולל אלו שאינם בטופס) לשימור בפרסום
+        currentThemeOriginalVariables = { ...variables };
 
         Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
             const textInput = document.getElementById(pickrId + 'Text');
@@ -1645,6 +1653,8 @@
         isThemeLoading = false;
         loadedThemeId = null;
         currentThemeSyntaxCss = '';
+        currentThemeSyntaxColors = {};
+        currentThemeOriginalVariables = {};
         renderThemesList();
 
         _suppressTracking = true;
@@ -1785,7 +1795,13 @@
             const description = (document.getElementById('publishDescription')?.value || '').trim();
             const isFeatured = !!document.getElementById('publishFeatured')?.checked;
 
-            const colors = collectThemeValues();
+            // 🆕 מיזוג: משתנים מקוריים (כולל --code-bg, --md-inline-code-bg וכו') + ערכים מהטופס
+            // ערכים מהטופס דורסים את המקוריים (למקרה שהמשתמש שינה צבע)
+            const formValues = collectThemeValues();
+            const colors = {
+                ...(currentThemeOriginalVariables || {}),  // משתנים מקוריים (כולל אלו שאינם בטופס)
+                ...formValues,  // ערכים מהטופס (דורסים)
+            };
 
             try {
                 if (publishSubmitBtn) publishSubmitBtn.disabled = true;
@@ -1798,8 +1814,9 @@
                         colors,
                         description,
                         is_featured: isFeatured,
-                        // 🆕 תמיכה ב-VS Code Import: אם לערכה יש syntax_css נשמור גם אותו
+                        // 🆕 תמיכה ב-VS Code Import: שמירת syntax_css ו-syntax_colors
                         syntax_css: (typeof currentThemeSyntaxCss === 'string' ? currentThemeSyntaxCss : ''),
+                        syntax_colors: (typeof currentThemeSyntaxColors === 'object' && currentThemeSyntaxColors) ? currentThemeSyntaxColors : {},
                     })
                 });
 

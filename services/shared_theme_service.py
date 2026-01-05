@@ -165,6 +165,9 @@ class SharedThemeService:
             syntax_css = doc.get("syntax_css", "")
             if not isinstance(syntax_css, str):
                 syntax_css = ""
+            syntax_colors = doc.get("syntax_colors", {})
+            if not isinstance(syntax_colors, dict):
+                syntax_colors = {}
 
             created_at = doc.get("created_at")
             return {
@@ -173,6 +176,7 @@ class SharedThemeService:
                 "description": doc.get("description", ""),
                 "colors": colors,
                 "syntax_css": syntax_css,
+                "syntax_colors": syntax_colors,
                 "is_featured": bool(doc.get("is_featured", False)),
                 "created_by": doc.get("created_by"),
                 "created_at": created_at.isoformat() if isinstance(created_at, datetime) else None,
@@ -192,6 +196,7 @@ class SharedThemeService:
         description: str = "",
         is_featured: bool = False,
         syntax_css: Optional[str] = None,
+        syntax_colors: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str]:
         """יצירת ערכה ציבורית חדשה."""
         if self.collection is None:
@@ -229,6 +234,7 @@ class SharedThemeService:
             "description": (description or "").strip()[:MAX_DESCRIPTION_LENGTH],
             "colors": filtered_colors,
             "syntax_css": self._normalize_syntax_css(syntax_css),
+            "syntax_colors": syntax_colors if isinstance(syntax_colors, dict) else {},
             "created_by": int(created_by),
             "created_at": now,
             "updated_at": now,
@@ -255,6 +261,7 @@ class SharedThemeService:
         is_featured: Optional[bool] = None,
         is_active: Optional[bool] = None,
         syntax_css: Optional[str] = None,
+        syntax_colors: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str]:
         """עדכון ערכה קיימת."""
         if not theme_id or self.collection is None:
@@ -292,6 +299,9 @@ class SharedThemeService:
 
         if syntax_css is not None:
             update_fields["syntax_css"] = self._normalize_syntax_css(syntax_css)
+
+        if syntax_colors is not None:
+            update_fields["syntax_colors"] = syntax_colors if isinstance(syntax_colors, dict) else {}
 
         if is_featured is not None:
             update_fields["is_featured"] = bool(is_featured)
