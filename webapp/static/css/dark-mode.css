@@ -294,10 +294,44 @@
     border: 1px solid var(--card-border);
 }
 
-/* Custom theme: רק צבע טקסט, בלי background */
+/* Custom theme: full styling with theme variables */
 [data-theme="custom"] .recent-files-modal .modal-content,
 [data-theme="custom"] .community-modal .modal-content {
-    color: var(--text-primary);
+    background: var(--card-bg, var(--bg-secondary, #2a2a3a));
+    color: var(--text-primary, #f5f5f5);
+    border: 1px solid var(--card-border, var(--glass-border, rgba(255,255,255,0.1)));
+}
+
+/* Classic theme: ensure readable dark text on light background */
+[data-theme="classic"] .recent-files-modal .modal-content,
+[data-theme="classic"] .community-modal .modal-content {
+    background: #ffffff;
+    color: #1f2937;
+}
+
+[data-theme="classic"] .recent-files-modal .modal-header {
+    border-bottom-color: #e5e7eb;
+}
+
+[data-theme="classic"] .recent-files-modal .modal-header h3 {
+    color: #1f2937;
+}
+
+[data-theme="classic"] .recent-files-modal .modal-close {
+    color: #6b7280;
+}
+
+[data-theme="classic"] .recent-files-modal .modal-close:hover {
+    color: #1f2937;
+}
+
+[data-theme="classic"] .recent-file-item {
+    color: #1f2937;
+}
+
+[data-theme="classic"] .recent-files-modal .file-meta,
+[data-theme="classic"] .recent-files-modal .no-files {
+    color: #6b7280;
 }
 
 [data-theme="dark"] .recent-files-modal .modal-header,
@@ -328,7 +362,11 @@
 [data-theme="dark"] .recent-files-modal .file-meta,
 [data-theme="dim"] .recent-files-modal .file-meta,
 [data-theme="nebula"] .recent-files-modal .file-meta,
-[data-theme="custom"] .recent-files-modal .file-meta {
+[data-theme="custom"] .recent-files-modal .file-meta,
+[data-theme="dark"] .recent-files-modal .no-files,
+[data-theme="dim"] .recent-files-modal .no-files,
+[data-theme="nebula"] .recent-files-modal .no-files,
+[data-theme="custom"] .recent-files-modal .no-files {
     color: var(--text-secondary);
 }
 
