@@ -3466,6 +3466,23 @@
             return false;
         }
         let lockAcquired = false;
+        let safetyTimer = null;
+        // שחרור נעילה בסיום הסיור (מונע מצב "תקוע" שמונע את הוויזארד)
+        const release = () => {
+            if (!lockAcquired) { return; }
+            lockAcquired = false;
+            try {
+                if (safetyTimer) {
+                    clearTimeout(safetyTimer);
+                    safetyTimer = null;
+                }
+            } catch (_) { /* ignore */ }
+            try {
+                if (window.__ckOnboarding && typeof window.__ckOnboarding.release === 'function') {
+                    window.__ckOnboarding.release('tour');
+                }
+            } catch (_) { /* ignore */ }
+        };
         try {
             if (window.__ckOnboarding && typeof window.__ckOnboarding.acquire === 'function') {
                 if (!window.__ckOnboarding.acquire('tour')) {
@@ -3474,37 +3491,49 @@
                 lockAcquired = true;
             }
         } catch (_) { /* ignore */ }
-        const driver = driverFactory({
-            animate: true,
-            smoothScroll: true,
-            showProgress: true,
-            stageBackground: 'rgba(8, 16, 32, 0.78)',
-            nextBtnText: 'הבא',
-            prevBtnText: 'הקודם',
-            doneBtnText: 'סיימנו',
-            steps,
-        });
+        let driver = null;
         try {
-            // שחרור נעילה בסיום הסיור (מונע מצב "תקוע" שמונע את הוויזארד)
-            const release = () => {
-                if (!lockAcquired) { return; }
-                lockAcquired = false;
-                try {
-                    if (window.__ckOnboarding && typeof window.__ckOnboarding.release === 'function') {
-                        window.__ckOnboarding.release('tour');
-                    }
-                } catch (_) { /* ignore */ }
-            };
-            if (driver && typeof driver.on === 'function') {
-                try { driver.on('destroyed', release); } catch (_) {}
-            }
-            driver.drive();
-        } catch (_) {
+            driver = driverFactory({
+                animate: true,
+                smoothScroll: true,
+                showProgress: true,
+                stageBackground: 'rgba(8, 16, 32, 0.78)',
+                nextBtnText: 'הבא',
+                prevBtnText: 'הקודם',
+                doneBtnText: 'סיימנו',
+                steps,
+            });
+
+            // טיימר בטיחות: גם אם אי אפשר לרשום אירועים, לא נשאיר נעילה לנצח
+            // (נמנע מצב שבו הוויזארד נחסם לכל הסשן בגלל כשל רישום callback)
             try {
-                if (lockAcquired && window.__ckOnboarding && typeof window.__ckOnboarding.release === 'function') {
-                    window.__ckOnboarding.release('tour');
+                if (lockAcquired) {
+                    safetyTimer = setTimeout(() => release(), 120000);
                 }
             } catch (_) { /* ignore */ }
+
+            // 1) ניסיון להירשם לאירוע "destroyed"
+            try {
+                if (driver && typeof driver.on === 'function') {
+                    driver.on('destroyed', release);
+                }
+            } catch (_) { /* ignore */ }
+
+            // 2) Fallback חזק: עטיפת destroy כדי להבטיח release גם בלי event emitter
+            try {
+                if (driver && typeof driver.destroy === 'function') {
+                    const origDestroy = driver.destroy.bind(driver);
+                    driver.destroy = (...args) => {
+                        try { return origDestroy(...args); }
+                        finally { release(); }
+                    };
+                }
+            } catch (_) { /* ignore */ }
+
+            driver.drive();
+        } catch (_) {
+            // חשוב: release כאן כדי לא להיתקע עם נעילה אם משהו נשבר לפני שהסיור התחיל באמת
+            release();
             return false;
         }
         if (window.ThemeWizard && typeof window.ThemeWizard.watchDriver === 'function') {
