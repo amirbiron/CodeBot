@@ -4,7 +4,7 @@
 הדף מרכז את כל הידע המעשי על ארכיטקטורת הצבעים, משתני ה‑CSS והבדיקות שנדרשות לשימור חוויית הממשק בכל שמונה הערכות. זהו מקור האמת עבור כל שינוי עתידי ב‑CSS של ה‑WebApp.
 
 .. contents::
-   :depth: 2
+   :depth: 3
    :local:
 
 רקע ומוטיבציה
@@ -128,6 +128,18 @@
      - Level 2
      - CodeMirror, כרטיסי קוד, Split View
      - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
+   * - ``--md-inline-code-bg`` / ``--md-code-bg`` / ``--md-code-header-bg``
+     - Level 3
+     - רקעים ל-inline code ובלוקי קוד (גישת color-mix)
+     - ``split-view.css`` (``:root[data-theme-type="custom"]``) + ``dark-mode.css``
+   * - ``--md-table-bg`` / ``--md-table-header-bg``
+     - Level 3
+     - רקע טבלאות Markdown (גישת color-mix)
+     - ``split-view.css`` + ``dark-mode.css``
+   * - ``--md-mermaid-bg`` / ``--md-mermaid-node-bg``
+     - Level 3
+     - רקע דיאגרמות Mermaid (גישת color-mix)
+     - ``split-view.css`` + ``dark-mode.css``
 
 רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
@@ -207,8 +219,9 @@ Markdown Viewer ו‑Split View
   - צריך צבע שחוזר בכמה קומפוננטות → טוקן סמנטי (Level 2).  
   - צריך גוון שמזוהה עם רכיב מסוים (צלחמת חיפוש, טאב מסוים) → טוקן רכיב (Level 3) + Overrides.  
 - Inline styles ב‑HTML/JS: צרו מחלקה ב‑CSS שמפנה ל‑``var()``. אם חייבים Inject דינמי (למשל Sticky Notes) – חשבו צבעים דרך טוקנים קיימים (`--text-on-primary`, `--danger-bg`).
-- `color-mix()` עדיף על שקיפות ידנית; הצמידו אותו לטוקנים קיימים כדי להבטיח עקביות.
+- ``color-mix()`` עדיף על שקיפות ידנית; הצמידו אותו לטוקנים קיימים כדי להבטיח עקביות. ראו סעיף :ref:`color-mix-approach` להנחיות מפורטות.
 - ``[data-theme="..."]`` הוא הסלקטור היחיד לשינוי Theme. אין להשתמש שוב ב‑``prefers-color-scheme`` מלבד בקוד Legacy שכבר קיים ב‑``markdown-enhanced.css`` (TODO לעדכן).
+- לערכות משותפות (Shared Themes): השתמשו ב‑``[data-theme-type="custom"]`` בנוסף ל‑``[data-theme="custom"]``. ראו סעיף :ref:`shared-themes-css`.
 
 דוגמת קוד – לא תקין לעומת תקין
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -275,6 +288,151 @@ Component Tokens ו‑Theme Builder
 
 - כאשר מבצעים Override לתמה קיימת (בידיים היום או דרך Theme Builder בעתיד), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
 - טוקנים חובה ל‑Theme מותאם אישית (גם בעתיד כשה‑Builder יהיה פעיל): `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
+
+.. _color-mix-approach:
+
+גישת color-mix להדגשות עקביות
+-----------------------------
+
+במקום להשתמש בצבעים קשיחים או שקיפות ידנית (``rgba``), המערכת משתמשת בגישת ``color-mix`` עקבית עבור רכיבי Markdown. הרעיון: יצירת הדגשה מבוססת על צבעי הערכה עצמה.
+
+**הנוסחה הבסיסית:**
+
+.. code-block:: css
+
+   /* X% של text-primary על bg-primary */
+   color-mix(in srgb, var(--text-primary) X%, var(--bg-primary))
+
+**אחוזי הדגשה סטנדרטיים:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 15 55
+
+   * - משתנה
+     - אחוז
+     - שימוש
+   * - ``--md-inline-code-bg``
+     - 12%
+     - רקע של inline code – בולט יותר
+   * - ``--md-code-header-bg``
+     - 10%
+     - כותרת בלוק קוד / כותרת טבלה
+   * - ``--md-code-bg``
+     - 8%
+     - רקע בלוק קוד / רקע טבלה
+   * - ``--md-table-bg``
+     - 8%
+     - רקע טבלת Markdown
+   * - ``--md-table-header-bg``
+     - 10%
+     - כותרת טבלת Markdown
+   * - ``--md-mermaid-bg``
+     - 6%
+     - רקע דיאגרמת Mermaid (עדין)
+   * - ``--md-mermaid-node-bg``
+     - 10%
+     - צמתים בדיאגרמה
+
+**דוגמת הגדרה ב‑split-view.css:**
+
+.. code-block:: css
+
+   :root[data-theme="custom"],
+   :root[data-theme-type="custom"] {
+     /* משתני Markdown - גישת color-mix עקבית */
+     --md-inline-code-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 12%, var(--bg-primary, #1e1e1e));
+     --md-code-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 8%, var(--bg-primary, #1e1e1e));
+     --md-code-header-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
+     --md-table-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 8%, var(--bg-primary, #1e1e1e));
+     --md-table-header-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
+     --md-mermaid-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 6%, var(--bg-primary, #1e1e1e));
+     --md-mermaid-node-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
+   }
+
+**שימוש ב‑dark-mode.css:**
+
+.. code-block:: css
+
+   /* טבלאות - עם fallback לערכות שלא מגדירות את המשתנה */
+   [data-theme="custom"] table,
+   [data-theme-type="custom"] table {
+       background: var(--md-table-bg, color-mix(in srgb, var(--text-primary) 8%, var(--bg-primary)));
+   }
+
+   /* inline code */
+   [data-theme="custom"] :not(pre) > code,
+   [data-theme-type="custom"] :not(pre) > code {
+       background: var(--md-inline-code-bg, color-mix(in srgb, var(--text-primary) 12%, var(--bg-primary)));
+   }
+
+**יתרונות הגישה:**
+
+1. **עקביות אוטומטית** – ההדגשות מתאימות את עצמן לצבעי הערכה
+2. **תחזוקה קלה** – שינוי אחוז במקום אחד משפיע על כל השימושים
+3. **תמיכה בערכות מיובאות** – עובד עם כל ערכת VS Code ללא התאמות ידניות
+4. **ניגודיות מובטחת** – היחס בין הטקסט לרקע נשמר
+
+.. _shared-themes-css:
+
+ערכות משותפות (Shared Themes) ו‑CSS
+------------------------------------
+
+ערכות משותפות (Shared Themes) הן ערכות שמפורסמות על ידי Admin לכל המשתמשים. הן נשמרות ב‑collection נפרד (``shared_themes``) ומופעלות עם ``data-theme="shared:slug"``.
+
+**הבעיה:**
+ערכות משותפות לא מזוהות על ידי selectors של ``[data-theme="custom"]``.
+
+**הפתרון:**
+שימוש ב‑``data-theme-type="custom"`` על תג ה‑``<html>``:
+
+.. code-block:: javascript
+
+   // base.html - כשטוענים ערכה משותפת
+   if (serverTheme.indexOf('shared:') === 0) {
+       html.setAttribute('data-theme', serverTheme);      // "shared:dracula"
+       html.setAttribute('data-theme-type', 'custom');    // מאפשר CSS selectors
+   }
+
+**עדכון CSS selectors:**
+
+כל selector שמתייחס לערכות custom צריך לכלול גם ``data-theme-type``:
+
+.. code-block:: css
+
+   /* ✅ תקין - תומך גם ב-custom וגם ב-shared */
+   [data-theme="custom"] .btn-primary,
+   [data-theme-type="custom"] .btn-primary {
+       background: var(--btn-primary-bg);
+       color: var(--btn-primary-color);
+   }
+
+   /* ❌ לא מלא - לא יעבוד עם shared themes */
+   [data-theme="custom"] .btn-primary {
+       background: var(--btn-primary-bg);
+   }
+
+**קבצי CSS שצריך לעדכן:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - קובץ
+     - אלמנטים
+   * - ``dark-mode.css``
+     - כפתורים, inputs, טבלאות, inline code, Mermaid, navbar
+   * - ``markdown-enhanced.css``
+     - details, admonitions, tooltips
+   * - ``codemirror-custom.css``
+     - עורך CodeMirror, syntax highlighting
+   * - ``split-view.css``
+     - תצוגת עורך מפוצלת, Live Preview
+
+.. tip::
+
+   בעת הוספת סגנונות חדשים לערכות custom, תמיד הוסיפו את שני ה-selectors יחד.
+   דוגמה: ``[data-theme="custom"] .my-class, [data-theme-type="custom"] .my-class { ... }``
 
 בדיקות חובה לפני Merge
 ----------------------
