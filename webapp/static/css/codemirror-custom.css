@@ -180,39 +180,70 @@ textarea[name="code"]::placeholder,
   background-color: rgba(124, 138, 255, 0.3) !important;
 }
 
-/* Custom Theme CodeMirror - uses CSS variables from imported theme */
-[data-theme="custom"] .codemirror-container {
-  background: var(--code-bg, var(--bg-primary, #1e1e1e));
+/* Custom/Shared Theme CodeMirror - uses CSS variables from imported theme */
+[data-theme="custom"] .codemirror-container,
+[data-theme-type="custom"] .codemirror-container {
+  background: var(--code-bg, var(--md-surface, var(--bg-primary, #1e1e1e)));
   border-color: var(--code-border, var(--border-color, rgba(255, 255, 255, 0.1)));
 }
 
-[data-theme="custom"] .cm-editor {
-  background: var(--code-bg, var(--bg-primary, #1e1e1e));
-  color: var(--code-text, var(--text-primary, #d4d4d4));
+[data-theme="custom"] .cm-editor,
+[data-theme-type="custom"] .cm-editor {
+  background: var(--code-bg, var(--md-surface, var(--bg-primary, #1e1e1e)));
+  color: var(--md-text, var(--code-text, var(--text-primary, #d4d4d4)));
 }
 
-[data-theme="custom"] .cm-gutters {
-  background: var(--bg-tertiary, var(--bg-secondary, #252526));
+[data-theme="custom"] .cm-gutters,
+[data-theme-type="custom"] .cm-gutters {
+  background: var(--bg-tertiary, var(--card-bg, var(--bg-secondary, #252526)));
   border-right-color: var(--code-border, var(--border-color, rgba(255, 255, 255, 0.1)));
   color: var(--text-muted, #6d6d6d);
 }
 
-[data-theme="custom"] .cm-activeLineGutter {
+[data-theme="custom"] .cm-activeLineGutter,
+[data-theme-type="custom"] .cm-activeLineGutter {
   background: var(--glass-hover, rgba(255, 255, 255, 0.08));
 }
 
-[data-theme="custom"] .cm-activeLine {
+[data-theme="custom"] .cm-activeLine,
+[data-theme-type="custom"] .cm-activeLine {
   background: var(--glass, rgba(255, 255, 255, 0.05));
 }
 
-[data-theme="custom"] .cm-selectionBackground {
+[data-theme="custom"] .cm-selectionBackground,
+[data-theme-type="custom"] .cm-selectionBackground {
   background-color: var(--primary-light, rgba(86, 156, 214, 0.3)) !important;
 }
 
-[data-theme="custom"] .cm-cursor {
+[data-theme="custom"] .cm-cursor,
+[data-theme-type="custom"] .cm-cursor {
   border-left-color: var(--text-primary, #d4d4d4);
 }
 
-[data-theme="custom"] .cm-editor.cm-focused {
+[data-theme="custom"] .cm-editor.cm-focused,
+[data-theme-type="custom"] .cm-editor.cm-focused {
   outline: 2px solid var(--primary, rgba(100, 100, 255, 0.5));
+}
+
+/* Default syntax colors for custom themes without syntax_css */
+[data-theme-type="custom"] .cm-content .tok-string,
+[data-theme-type="custom"] .cm-content .tok-string2 {
+  color: var(--syntax-string, #ce9178);
+}
+
+[data-theme-type="custom"] .cm-content .tok-keyword {
+  color: var(--syntax-keyword, #569cd6);
+}
+
+[data-theme-type="custom"] .cm-content .tok-comment {
+  color: var(--syntax-comment, #6a9955);
+}
+
+[data-theme-type="custom"] .cm-content .tok-number {
+  color: var(--syntax-number, #b5cea8);
+}
+
+[data-theme-type="custom"] .cm-content .tok-function,
+[data-theme-type="custom"] .cm-content .tok-variableName {
+  color: var(--syntax-function, #dcdcaa);
 }

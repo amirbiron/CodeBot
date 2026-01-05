@@ -17,6 +17,8 @@
 7. [שלב 5: עדכון דף הגדרות](#שלב-5-עדכון-דף-הגדרות)
 8. [שלב 6: בדיקות](#שלב-6-בדיקות)
 9. [צ'קליסט למימוש](#צקליסט-למימוש)
+10. [🔑 אינטגרציה עם VS Code Import](#אינטגרציה-עם-vs-code-import)
+11. [🎨 מערכת CSS לערכות משותפות](#מערכת-css-לערכות-משותפות)
 
 ---
 
@@ -1890,6 +1892,332 @@ def test_delete_shared_theme_success(client, stub_db, monkeypatch):
 - [ ] Unit tests ל-SharedThemeService
 - [ ] API tests לנתיבים חדשים
 - [ ] בדיקת הרשאות Admin
+
+---
+
+## 🔑 אינטגרציה עם VS Code Import
+
+### הבעיה: אובדן משתנים בפרסום
+
+כשמפרסמים ערכה שיובאה מ-VS Code, קיים סיכון לאובדן משתנים:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     VS Code Theme Import Flow                        │
+├─────────────────────────────────────────────────────────────────────┤
+│  1. קובץ JSON של VS Code (colors, tokenColors)                      │
+│                              ↓                                       │
+│  2. parse_vscode_theme() - מיפוי ל-40+ משתני CSS                    │
+│     • --bg-primary, --bg-secondary, --bg-tertiary                   │
+│     • --text-primary, --text-secondary, --text-muted                │
+│     • --primary, --primary-hover, --primary-light                   │
+│     • --code-bg, --code-text, --code-border                         │
+│     • --btn-primary-bg, --btn-primary-color                         │
+│     • --glass, --glass-border, --glass-hover                        │
+│     • --md-surface, --md-text                                        │
+│     • syntax_css (CodeMirror + Pygments CSS)                        │
+│                              ↓                                       │
+│  3. נשמר ב-DB: { variables: {...}, syntax_css: "..." }              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### הבעיה הקודמת
+
+ב-Theme Builder, הטופס מציג רק **10 משתנים** עם color pickers:
+
+```javascript
+const VAR_MAP = {
+    'bgPrimary': '--bg-primary',
+    'bgSecondary': '--bg-secondary',
+    'cardBg': '--card-bg',
+    'primary': '--primary',
+    'secondary': '--secondary',
+    'textPrimary': '--text-primary',
+    'mdSurface': '--md-surface',
+    'mdText': '--md-text',
+    'btnPrimaryBg': '--btn-primary-bg',
+    'btnPrimaryColor': '--btn-primary-color',
+};
+```
+
+כשמפרסמים ערכה, `collectThemeValues()` אספה רק את 10 המשתנים האלה - והשאר נעלמו!
+
+### הפתרון: שמירת כל המשתנים המקוריים
+
+```javascript
+// State - שמירת כל המשתנים של הערכה המקורית
+let currentThemeAllVariables = {};
+
+// כשטוענים ערכה לטופס
+function loadThemeIntoForm(theme) {
+    const variables = theme.variables || {};
+    
+    // 🔑 שמירת כל המשתנים (לא רק מה שבטופס!)
+    currentThemeAllVariables = { ...variables };
+    
+    // ... טעינת הטופס הרגילה
+}
+
+// כשמפרסמים ערכה
+async function handlePublish() {
+    const formColors = collectThemeValues();  // 10 משתנים מהטופס
+    
+    // 🔑 מיזוג: כל המשתנים המקוריים + שינויים מהטופס
+    const colors = { ...currentThemeAllVariables, ...formColors };
+    
+    await fetch('/api/themes/publish', {
+        method: 'POST',
+        body: JSON.stringify({
+            slug,
+            name,
+            colors,  // כל 40+ המשתנים!
+            syntax_css: currentThemeSyntaxCss,  // CodeMirror/Pygments CSS
+        })
+    });
+}
+```
+
+### תמיכה ב-syntax_css
+
+ערכות VS Code מכילות גם `tokenColors` - הגדרות צבע לקוד:
+
+```python
+# מבנה מסמך ב-shared_themes collection (מעודכן)
+{
+    "_id": "dracula_pro",
+    "name": "Dracula Pro",
+    "colors": {
+        "--bg-primary": "#282a36",
+        "--text-primary": "#f8f8f2",
+        "--primary": "#bd93f9",
+        # ... 40+ משתנים נוספים
+    },
+    "syntax_css": """
+        /* CodeMirror syntax highlighting */
+        .tok-keyword { color: #ff79c6; }
+        .tok-string { color: #f1fa8c; }
+        .tok-comment { color: #6272a4; }
+        .tok-number { color: #bd93f9; }
+        .tok-function { color: #50fa7b; }
+        
+        /* Pygments fallback (לתצוגת קבצים) */
+        .source .k { color: #ff79c6; }
+        .source .s { color: #f1fa8c; }
+        .source .c { color: #6272a4; }
+    """,
+    "created_by": 6865105071,
+    "is_active": true
+}
+```
+
+### הזרקה ב-base.html
+
+```html
+{% if shared_theme %}
+<!-- Shared Theme CSS Variables -->
+<style id="shared-theme-override">
+:root[data-theme^="shared:"] {
+    {% for var_name, var_value in shared_theme.colors.items() %}
+    {{ var_name }}: {{ var_value }};
+    {% endfor %}
+}
+</style>
+
+<!-- Shared Theme Syntax Highlighting -->
+{% if shared_theme.syntax_css %}
+<style id="shared-theme-syntax">
+{{ shared_theme.syntax_css | safe | replace('data-theme="custom"', 'data-theme-type="custom"') }}
+</style>
+{% endif %}
+{% endif %}
+```
+
+---
+
+## 🎨 מערכת CSS לערכות משותפות
+
+### הבעיה: CSS Selectors
+
+ערכות מותאמות אישיות משתמשות ב-`data-theme="custom"`, אבל ערכות משותפות משתמשות ב-`data-theme="shared:slug"`. זה יוצר בעיה:
+
+```css
+/* זה עובד רק לערכות custom, לא ל-shared */
+[data-theme="custom"] .btn-primary {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-color);
+}
+```
+
+### הפתרון: data-theme-type
+
+ב-`base.html`, כשטוענים ערכה משותפת, מוסיפים שני attributes:
+
+```javascript
+// base.html - script לאתחול ערכה
+if (serverTheme.indexOf('shared:') === 0) {
+    html.setAttribute('data-theme', serverTheme);  // "shared:dracula_pro"
+    html.setAttribute('data-theme-type', 'custom');  // 🔑 מאפשר CSS selectors
+}
+```
+
+כעת ה-CSS יכול לתפוס גם ערכות custom וגם shared:
+
+```css
+/* עובד לשני הסוגים! */
+[data-theme="custom"] .btn-primary,
+[data-theme-type="custom"] .btn-primary {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-color);
+}
+```
+
+### רשימת קבצי CSS שצריך לעדכן
+
+| קובץ | אלמנטים |
+|------|---------|
+| `dark-mode.css` | כפתורים, inputs, קוד, טבלאות, inline code, Mermaid |
+| `markdown-enhanced.css` | details, admonitions, tooltips |
+| `codemirror-custom.css` | עורך CodeMirror |
+| `split-view.css` | תצוגת עורך מפוצלת |
+
+### דוגמאות קוד CSS
+
+#### כפתורים (dark-mode.css)
+
+```css
+[data-theme="dark"] .btn-primary,
+[data-theme="dim"] .btn-primary,
+[data-theme="nebula"] .btn-primary,
+[data-theme-type="custom"] .btn-primary {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-color);
+    border: 1px solid var(--btn-primary-border, transparent);
+}
+
+/* מצבי אינטראקציה */
+[data-theme-type="custom"] .btn-primary:hover {
+    background: var(--btn-primary-hover-bg, var(--btn-primary-bg));
+}
+
+[data-theme-type="custom"] .btn-primary:disabled,
+[data-theme-type="custom"] .btn-primary.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+```
+
+#### טבלאות Markdown
+
+```css
+[data-theme="custom"] table,
+[data-theme-type="custom"] table {
+    border-collapse: collapse;
+    width: 100%;
+    background: var(--bg-tertiary, var(--card-bg));
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+}
+
+[data-theme-type="custom"] table th {
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--glass-border);
+}
+
+[data-theme-type="custom"] table td {
+    padding: 0.6rem 1rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--glass-border);
+}
+```
+
+#### Inline Code
+
+```css
+[data-theme="custom"] :not(pre) > code,
+[data-theme-type="custom"] :not(pre) > code {
+    background: var(--md-surface, var(--code-bg));
+    color: var(--md-text, var(--text-primary));
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+```
+
+#### Mermaid Diagrams
+
+```css
+[data-theme-type="custom"] .mermaid {
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+[data-theme-type="custom"] .mermaid text {
+    fill: var(--text-primary) !important;
+}
+
+[data-theme-type="custom"] .mermaid .node rect {
+    fill: var(--bg-secondary) !important;
+    stroke: var(--glass-border) !important;
+}
+```
+
+### מסכת מעבר (Theme Mask)
+
+כשמחליפים ערכה, יש רגע של "מסך לבן" בגלל `location.reload()`. הפתרון - מסכה:
+
+```css
+/* theme-mask.css */
+#theme-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+#theme-mask.active {
+    opacity: 1;
+    pointer-events: all;
+}
+```
+
+```javascript
+// settings.html
+function activateThemeMask() {
+    const mask = document.getElementById('theme-mask');
+    if (mask) {
+        // הגדר את צבע הרקע לפי הערכה הנוכחית
+        const bgColor = getComputedStyle(document.documentElement)
+            .getPropertyValue('--bg-primary').trim() || '#1a1a2e';
+        mask.style.background = bgColor;
+        mask.classList.add('active');
+        sessionStorage.setItem('theme-mask-active', '1');
+    }
+}
+
+async function selectTheme(themeId, themeType) {
+    activateThemeMask();  // הצג מסכה לפני הרענון
+    // ... fetch API ...
+    location.reload();  // המסכה תישאר עד שהדף ייטען
+}
+
+// בטעינת הדף - בדוק אם צריך להסיר מסכה
+(function checkThemeMaskOnLoad() {
+    if (sessionStorage.getItem('theme-mask-active') === '1') {
+        sessionStorage.removeItem('theme-mask-active');
+        const mask = document.getElementById('theme-mask');
+        if (mask) {
+            mask.classList.add('active');
+            setTimeout(() => mask.classList.remove('active'), 100);
+        }
+    }
+})();
+```
 
 ---
 

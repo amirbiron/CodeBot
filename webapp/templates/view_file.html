@@ -7,7 +7,10 @@
 <style>
 
 .source {
-    background: #1e1e1e !important;
+    /* 🔑 שימוש ב-CSS variables כדי לאפשר לערכות מותאמות לשנות את הרקע */
+    background: var(--code-bg, var(--md-surface, #1e1e1e)) !important;
+    color: var(--md-text, var(--text-primary, #f0f0f0));
+    border: 1px solid var(--code-border, rgba(255, 255, 255, 0.1));
     border-radius: 10px;
     padding: 1.5rem !important;
     overflow-x: auto;

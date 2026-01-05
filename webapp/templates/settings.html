@@ -834,6 +834,28 @@
   </div>
   {% endif %}
 
+  {% if is_admin %}
+  <!-- Admin: ניהול ערכות ציבוריות -->
+  <div
+    class="glass-card"
+    style="margin-top: 1rem; border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 55%, transparent);"
+    id="sharedThemesAdminPanel"
+  >
+    <h2 class="section-title" style="color: var(--warning, #f59e0b);">
+      <i class="fas fa-crown"></i>
+      ניהול ערכות ציבוריות (אדמין)
+    </h2>
+    <p style="opacity: 0.85; margin-top: -0.5rem">
+      כאן תוכל לראות את כל הערכות הציבוריות שפורסמו ולמחוק את אלו שלא נחוצות.
+    </p>
+    <div id="sharedThemesAdminList" style="margin-top: 1rem;">
+      <div class="shared-themes-loading" style="text-align: center; padding: 1rem; opacity: 0.7;">
+        <i class="fas fa-spinner fa-spin"></i> טוען ערכות ציבוריות...
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <style>
     .badge {
       display: inline-flex;
@@ -1376,6 +1398,60 @@
     :root[data-theme="rose-pine-dawn"] .config-radar-timestamp {
       color: var(--text-secondary);
     }
+
+    /* Shared Themes Admin List */
+    .shared-theme-admin-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.2s ease;
+    }
+    .shared-theme-admin-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    .shared-theme-admin-item .theme-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .shared-theme-admin-item .theme-name {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .shared-theme-admin-item .theme-meta {
+      font-size: 0.85rem;
+      opacity: 0.7;
+    }
+    .shared-theme-admin-item .theme-actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .shared-theme-admin-item .btn-delete-shared {
+      background: transparent;
+      border: 1px solid color-mix(in srgb, var(--danger) 75%, transparent);
+      color: var(--danger);
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .shared-theme-admin-item .btn-delete-shared:hover {
+      background: var(--danger);
+      color: white;
+    }
+    .shared-themes-empty {
+      text-align: center;
+      padding: 1.5rem;
+      opacity: 0.7;
+    }
   </style>
 
   {% block extra_js %}
@@ -1510,6 +1586,9 @@
             themeAttr = String(themeId);
           }
 
+          // הפעלת מסכה למניעת מסך לבן במעבר
+          activateThemeMask();
+
           // עדכון מהיר ב-UI + LocalStorage לפני קריאת שרת (למניעת "הבהוב")
           try {
             document.documentElement.setAttribute('data-theme', themeAttr);
@@ -1532,17 +1611,187 @@
             throw new Error((data && (data.message || data.error)) || 'theme_change_failed');
           }
 
-          // רענון כדי לקבל injection של CSS (custom/shared)
+          // רענון כדי לקבל injection של CSS (custom/shared) - המסכה תישאר פעילה
           location.reload();
         } catch (err) {
           console.error('Error selecting theme:', err);
+          deactivateThemeMask();
           alert('שגיאה בהחלפת ערכה');
           location.reload();
         }
       }
 
+      // פונקציות עזר למסכת מעבר בין ערכות
+      function activateThemeMask() {
+        try {
+          const mask = document.getElementById('theme-mask');
+          if (!mask) return;
+
+          // קבע את צבע הרקע של המסכה לפי הערכה הנוכחית
+          const currentBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#1a1a2e';
+          mask.style.background = currentBg;
+
+          // מרכז את ה-ripple במרכז המסך
+          mask.style.setProperty('--toggle-x', '50vw');
+          mask.style.setProperty('--toggle-y', '50vh');
+          mask.style.setProperty('--ripple-radius', '150vmax');
+
+          // הפעל את המסכה
+          mask.classList.add('active');
+
+          // שמור ב-sessionStorage שהמסכה צריכה להישאר פעילה גם אחרי reload
+          try { sessionStorage.setItem('theme_mask_active', '1'); } catch (_) {}
+        } catch (e) {
+          console.warn('activateThemeMask failed:', e);
+        }
+      }
+
+      function deactivateThemeMask() {
+        try {
+          const mask = document.getElementById('theme-mask');
+          if (mask) {
+            mask.classList.remove('active');
+            mask.style.opacity = '0';
+          }
+          try { sessionStorage.removeItem('theme_mask_active'); } catch (_) {}
+        } catch (_) {}
+      }
+
+      // בדוק אם צריך להשאיר את המסכה פעילה (אחרי reload)
+      (function checkThemeMaskOnLoad() {
+        try {
+          if (sessionStorage.getItem('theme_mask_active') === '1') {
+            sessionStorage.removeItem('theme_mask_active');
+            const mask = document.getElementById('theme-mask');
+            if (mask) {
+              // הפעל את המסכה מיד
+              mask.style.background = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#1a1a2e';
+              mask.style.setProperty('--toggle-x', '50vw');
+              mask.style.setProperty('--toggle-y', '50vh');
+              mask.style.setProperty('--ripple-radius', '150vmax');
+              mask.classList.add('active');
+
+              // כבה את המסכה אחרי שהעמוד נטען
+              setTimeout(() => {
+                mask.classList.remove('active');
+                mask.style.opacity = '0';
+              }, 300);
+            }
+          }
+        } catch (_) {}
+      })();
+
       // טען את הרשימה בעליית הדף
       loadThemesList();
+
+      // ========== Utility Functions (must be defined before use) ==========
+      const escapeHtml = (value) => {
+        if (value === null || value === undefined) return '';
+        return String(value).replace(/[&<>"']/g, (char) => {
+          switch (char) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return char;
+          }
+        });
+      };
+
+      const formatDateTime = (value) => {
+        if (!value) return 'לא זמין';
+        try {
+          const dt = new Date(value);
+          if (Number.isNaN(dt.getTime())) return value;
+          return new Intl.DateTimeFormat('he-IL', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }).format(dt);
+        } catch (e) {
+          return value;
+        }
+      };
+
+      // ========== Admin: Shared Themes Management ==========
+      {% if is_admin %}
+      const sharedThemesAdminList = document.getElementById('sharedThemesAdminList');
+
+      async function loadSharedThemesAdmin() {
+        if (!sharedThemesAdminList) return;
+        try {
+          const res = await fetch('/api/themes/list');
+          const data = await res.json();
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'load_failed');
+          }
+          const themes = Array.isArray(data.themes) ? data.themes : [];
+          const shared = themes.filter(t => t && t.type === 'shared' && t.id);
+          renderSharedThemesAdmin(shared);
+        } catch (err) {
+          console.error('Error loading shared themes for admin:', err);
+          sharedThemesAdminList.innerHTML = '<div class="shared-themes-empty">שגיאה בטעינת ערכות ציבוריות</div>';
+        }
+      }
+
+      function renderSharedThemesAdmin(themes) {
+        if (!sharedThemesAdminList) return;
+        if (!themes || themes.length === 0) {
+          sharedThemesAdminList.innerHTML = '<div class="shared-themes-empty"><i class="fas fa-info-circle"></i> אין ערכות ציבוריות. פרסם ערכה מתוך בונה ערכות הנושא.</div>';
+          return;
+        }
+
+        sharedThemesAdminList.innerHTML = themes.map(t => `
+          <div class="shared-theme-admin-item" data-theme-id="${escapeHtml(t.id)}" data-theme-name="${escapeHtml(t.name)}">
+            <div class="theme-info">
+              <span class="theme-name">${t.is_featured ? '⭐ ' : ''}${escapeHtml(t.name)}</span>
+              <span class="theme-meta">מזהה: ${escapeHtml(t.id)}${t.created_at ? ' | נוצרה: ' + formatDateTime(t.created_at) : ''}</span>
+            </div>
+            <div class="theme-actions">
+              <button type="button" class="btn-delete-shared" title="מחק ערכה ציבורית">
+                <i class="fas fa-trash"></i> מחק
+              </button>
+            </div>
+          </div>
+        `).join('');
+
+        // Event delegation למניעת בעיות XSS/escaping עם onclick inline
+        sharedThemesAdminList.querySelectorAll('.btn-delete-shared').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const item = this.closest('.shared-theme-admin-item');
+            if (item) {
+              const themeId = item.dataset.themeId;
+              const themeName = item.dataset.themeName;
+              deleteSharedTheme(themeId, themeName);
+            }
+          });
+        });
+      }
+
+      window.deleteSharedTheme = async function deleteSharedTheme(themeId, themeName) {
+        if (!themeId) return;
+        if (!confirm(`האם למחוק את הערכה הציבורית "${themeName || themeId}"? פעולה זו אינה הפיכה.`)) {
+          return;
+        }
+        try {
+          const res = await fetch(`/api/themes/shared/${encodeURIComponent(themeId)}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'delete_failed');
+          }
+          // רענון הרשימות
+          loadSharedThemesAdmin();
+          loadThemesList();
+          alert('הערכה נמחקה בהצלחה!');
+        } catch (e) {
+          console.error('deleteSharedTheme failed:', e);
+          alert('שגיאה במחיקת הערכה הציבורית: ' + (e.message || 'Unknown error'));
+        }
+      };
+
+      // טען את רשימת הערכות הציבוריות לאדמין
+      loadSharedThemesAdmin();
+      {% endif %}
       
       // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
       window.deleteCustomTheme = async function deleteCustomTheme(){
@@ -1637,33 +1886,7 @@
       if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
       refreshBmState();
 
-      const escapeHtml = (value) => {
-        if (value === null || value === undefined) return '';
-        return String(value).replace(/[&<>"']/g, (char) => {
-          switch (char) {
-            case '&': return '&amp;';
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '"': return '&quot;';
-            case "'": return '&#39;';
-            default: return char;
-          }
-        });
-      };
-
-      const formatDateTime = (value) => {
-        if (!value) return 'לא זמין';
-        try {
-          const dt = new Date(value);
-          if (Number.isNaN(dt.getTime())) return value;
-          return new Intl.DateTimeFormat('he-IL', {
-            dateStyle: 'short',
-            timeStyle: 'short',
-          }).format(dt);
-        } catch (e) {
-          return value;
-        }
-      };
+      // escapeHtml and formatDateTime are defined earlier in "Utility Functions" section
 
       const sanitizeHref = (value) => {
         const href = String(value || '').trim();
