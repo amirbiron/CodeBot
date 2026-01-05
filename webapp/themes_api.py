@@ -28,6 +28,7 @@ from services.theme_parser_service import (
     validate_theme_json,
 )
 from services.theme_presets_service import apply_preset_to_user, get_preset_by_id, list_presets
+from services.shared_theme_service import get_shared_theme_service
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,212 @@ def require_auth(f):
 
     return decorated_function
 
+
+def _require_admin_user_id() -> tuple[Optional[int], Optional[tuple[Response, int]]]:
+    """עוזר: החזר user_id או (Response, status_code)."""
+    user_id = get_current_user_id()
+    if not user_id:
+        return None, (jsonify({"ok": False, "error": "unauthorized"}), 401)
+    if not _is_admin(int(user_id)):
+        return None, (jsonify({"ok": False, "error": "admin_required"}), 403)
+    return int(user_id), None
+
+
+# ============================================================
+# Shared Themes API (Shared Theme Library)
+# מימוש לפי GUIDES/SHARED_THEME_LIBRARY_GUIDE.md
+# ============================================================
+
+
+@themes_bp.route("/list", methods=["GET"])
+def get_all_themes_list():
+    """
+    קבלת רשימה משולבת של כל הערכות:
+    - Built-in (קבועות בקוד)
+    - Shared (ציבוריות מה-DB)
+    - Custom (אישיות של המשתמש)
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        db_ref = get_db()
+        user_doc = db_ref.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1}) or {}
+        user_themes = user_doc.get("custom_themes", []) if isinstance(user_doc, dict) else []
+        if not isinstance(user_themes, list):
+            user_themes = []
+
+        service = get_shared_theme_service()
+        merged = service.get_all_themes_merged(user_themes)
+        return jsonify({"ok": True, "themes": merged, "count": len(merged)})
+    except Exception as e:
+        logger.exception("get_all_themes_list failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@themes_bp.route("/shared/<theme_id>", methods=["GET"])
+def get_shared_theme(theme_id: str):
+    """קבלת פרטי ערכה ציבורית כולל colors + syntax_css."""
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        service = get_shared_theme_service()
+        theme = service.get_by_id(theme_id)
+        if not theme:
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+        return jsonify({"ok": True, "theme": theme})
+    except Exception as e:
+        logger.exception("get_shared_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@themes_bp.route("/publish", methods=["POST"])
+def publish_shared_theme():
+    """פרסום ערכה ציבורית חדשה (Admin בלבד)."""
+    user_id, err_resp = _require_admin_user_id()
+    if err_resp is not None:
+        return err_resp
+
+    data = request.get_json(silent=True) or {}
+    slug = (data.get("slug") or "").strip().lower()
+    name = (data.get("name") or "").strip()
+    colors = data.get("colors") or {}
+    description = data.get("description", "")
+    is_featured = bool(data.get("is_featured", False))
+    syntax_css = data.get("syntax_css")  # optional
+
+    if not slug:
+        return jsonify({"ok": False, "error": "missing_slug"}), 400
+    if not name:
+        return jsonify({"ok": False, "error": "missing_name"}), 400
+    if not colors:
+        return jsonify({"ok": False, "error": "missing_colors"}), 400
+
+    try:
+        service = get_shared_theme_service()
+        success, result = service.create(
+            slug=slug,
+            name=name,
+            colors=colors,
+            created_by=int(user_id),
+            description=description,
+            is_featured=is_featured,
+            syntax_css=str(syntax_css) if isinstance(syntax_css, str) else None,
+        )
+
+        if not success:
+            if result.startswith("invalid_color:"):
+                field = result.split(":", 1)[1]
+                return jsonify({"ok": False, "error": "invalid_color", "field": field}), 400
+
+            error_map = {
+                "invalid_slug": ("slug חייב להיות 3-30 תווים באנגלית קטנה", 400),
+                "slug_exists": ("slug כבר קיים", 409),
+                "missing_name": ("חסר שם לתצוגה", 400),
+                "name_too_long": ("שם ארוך מדי (עד 50 תווים)", 400),
+                "invalid_colors": ("colors לא תקין", 400),
+            }
+            msg, status = error_map.get(result, ("שגיאה לא ידועה", 500))
+            return jsonify({"ok": False, "error": result, "message": msg}), status
+
+        return jsonify({"ok": True, "theme_id": result, "message": "הערכה פורסמה בהצלחה!"})
+    except Exception as e:
+        logger.exception("publish_shared_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@themes_bp.route("/shared/<theme_id>", methods=["PUT"])
+def update_shared_theme(theme_id: str):
+    """עדכון ערכה ציבורית (Admin בלבד)."""
+    user_id, err_resp = _require_admin_user_id()
+    if err_resp is not None:
+        return err_resp
+
+    data = request.get_json(silent=True) or {}
+    try:
+        service = get_shared_theme_service()
+        success, result = service.update(
+            theme_id,
+            name=data.get("name"),
+            description=data.get("description"),
+            colors=data.get("colors"),
+            is_featured=data.get("is_featured"),
+            is_active=data.get("is_active"),
+            syntax_css=data.get("syntax_css"),
+        )
+        if not success:
+            if result == "theme_not_found":
+                return jsonify({"ok": False, "error": result}), 404
+            if result.startswith("invalid_color:"):
+                field = result.split(":", 1)[1]
+                return jsonify({"ok": False, "error": "invalid_color", "field": field}), 400
+            return jsonify({"ok": False, "error": result}), 400
+        return jsonify({"ok": True, "message": "הערכה עודכנה"})
+    except Exception as e:
+        logger.exception("update_shared_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@themes_bp.route("/shared/<theme_id>", methods=["DELETE"])
+def delete_shared_theme(theme_id: str):
+    """מחיקת ערכה ציבורית (Admin בלבד)."""
+    user_id, err_resp = _require_admin_user_id()
+    if err_resp is not None:
+        return err_resp
+
+    try:
+        service = get_shared_theme_service()
+        success, result = service.delete(theme_id)
+        if not success:
+            if result == "theme_not_found":
+                return jsonify({"ok": False, "error": result}), 404
+            return jsonify({"ok": False, "error": result}), 500
+        return jsonify({"ok": True, "message": "הערכה נמחקה"})
+    except Exception as e:
+        logger.exception("delete_shared_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@themes_bp.route("/shared/<theme_id>/apply", methods=["POST"])
+def apply_shared_theme(theme_id: str):
+    """החלת ערכה ציבורית על המשתמש: ui_prefs.theme = 'shared:<id>'."""
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        service = get_shared_theme_service()
+        theme = service.get_by_id(theme_id)
+        if not theme:
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+
+        db_ref = get_db()
+        now_utc = datetime.now(timezone.utc)
+
+        # בטל ערכות אישיות פעילות (custom_themes)
+        try:
+            db_ref.users.update_one(
+                {"user_id": int(user_id), "custom_themes": {"$exists": True}},
+                {"$set": {"custom_themes.$[].is_active": False, "updated_at": now_utc}},
+            )
+        except Exception:
+            # best-effort
+            pass
+
+        # עדכן את ההעדפה
+        db_ref.users.update_one(
+            {"user_id": int(user_id)},
+            {"$set": {"ui_prefs.theme": f"shared:{theme_id}", "updated_at": now_utc}},
+            upsert=True,
+        )
+
+        return jsonify({"ok": True, "message": "הערכה הוחלה!", "applied_theme": theme_id})
+    except Exception as e:
+        logger.exception("apply_shared_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
 
 def _count_user_themes(db, user_id: int) -> int:
     try:

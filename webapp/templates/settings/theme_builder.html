@@ -227,6 +227,12 @@
                     <i class="fas fa-trash"></i>
                     מחק ערכה
                 </button>
+                {% if is_admin %}
+                <button type="button" class="btn btn-warning" id="publishThemeBtn" disabled>
+                    <i class="fas fa-share-alt"></i>
+                    פרסם לכולם
+                </button>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -279,6 +285,81 @@
 
 <!-- Toast notifications -->
 <div id="theme-toast" class="theme-toast" role="alert" aria-live="polite"></div>
+
+{% if is_admin %}
+<!-- Publish Modal -->
+<div id="publishModal" class="modal" hidden>
+    <div class="modal-content glass-card">
+        <div class="modal-header">
+            <h3>
+                <i class="fas fa-share-alt"></i>
+                פרסום ערכה לכולם
+            </h3>
+            <button type="button" class="modal-close" id="closePublishModal" aria-label="סגירת חלון פרסום">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <form id="publishForm">
+            <div class="form-group">
+                <label for="publishSlug">
+                    מזהה באנגלית (Slug)
+                    <span class="required">*</span>
+                </label>
+                <input
+                    type="text"
+                    id="publishSlug"
+                    placeholder="cyber_purple"
+                    pattern="[a-z][a-z0-9_]{2,29}"
+                    required
+                />
+                <small>3-30 תווים, אותיות קטנות ומספרים בלבד, מתחיל באות</small>
+            </div>
+
+            <div class="form-group">
+                <label for="publishName">
+                    שם לתצוגה
+                    <span class="required">*</span>
+                </label>
+                <input
+                    type="text"
+                    id="publishName"
+                    placeholder="Cyber Purple"
+                    maxlength="50"
+                    required
+                />
+            </div>
+
+            <div class="form-group">
+                <label for="publishDescription">תיאור קצר</label>
+                <textarea
+                    id="publishDescription"
+                    placeholder="ערכה סגולה בהשראת סייברפאנק"
+                    maxlength="200"
+                    rows="2"
+                ></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="publishFeatured" />
+                    סמן כמומלצת (Featured)
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button type="submit" class="btn btn-primary" id="publishSubmitBtn">
+                    <i class="fas fa-upload"></i>
+                    פרסם
+                </button>
+                <button type="button" class="btn btn-secondary" id="cancelPublish">
+                    ביטול
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <style>
 .theme-builder-layout {
@@ -710,6 +791,128 @@
     background: var(--success);
     color: white;
 }
+
+/* Modal (Publish) */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+}
+
+.modal[hidden] {
+    display: none;
+}
+
+.modal-content {
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: modalFadeIn 0.2s ease;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.modal-header h3 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 0.5rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.modal-close:hover {
+    background: var(--glass);
+    color: var(--text-primary);
+}
+
+.form-group {
+    margin-bottom: 1.25rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+.form-group small {
+    display: block;
+    margin-top: 0.4rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.form-group input[type="checkbox"] {
+    margin-left: 0.5rem;
+}
+
+.required {
+    color: var(--danger);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--glass-border);
+}
 </style>
 {% endblock %}
 
@@ -756,6 +959,7 @@
     let selectedThemeId = null;
     let isNewTheme = false;
     let hasUnsavedChanges = false;
+    let currentThemeSyntaxCss = '';
 
     // ========== DOM Elements ==========
     const themesList = document.getElementById('themesList');
@@ -1372,6 +1576,7 @@
         if (nameEl) nameEl.value = theme.name || '';
 
         const variables = theme.variables || {};
+        currentThemeSyntaxCss = (theme && typeof theme.syntax_css === 'string') ? theme.syntax_css : '';
 
         Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
             const textInput = document.getElementById(pickrId + 'Text');
@@ -1422,6 +1627,7 @@
 
         selectedThemeId = null;
         isNewTheme = true;
+        currentThemeSyntaxCss = '';
         renderThemesList();
 
         _suppressTracking = true;
@@ -1469,17 +1675,112 @@
         const saveBtn = document.getElementById('saveThemeBtn');
         const activateBtn = document.getElementById('activateThemeBtn');
         const deleteBtn = document.getElementById('deleteThemeBtn');
+        const publishBtn = document.getElementById('publishThemeBtn');
 
         if (isNewTheme) {
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-plus"></i> צור ערכה';
             if (activateBtn) activateBtn.disabled = true;
             if (deleteBtn) deleteBtn.disabled = true;
+            if (publishBtn) publishBtn.disabled = true;
         } else {
             if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> שמור שינויים';
             if (activateBtn) activateBtn.disabled = !selectedThemeId;
             if (deleteBtn) deleteBtn.disabled = !selectedThemeId;
+            if (publishBtn) publishBtn.disabled = !selectedThemeId;
         }
     }
+
+    {% if is_admin %}
+    // ========== Publish Logic (Admin Only) ==========
+    const publishBtn = document.getElementById('publishThemeBtn');
+    const publishModal = document.getElementById('publishModal');
+    const publishForm = document.getElementById('publishForm');
+    const closePublishModal = document.getElementById('closePublishModal');
+    const cancelPublish = document.getElementById('cancelPublish');
+    const publishSubmitBtn = document.getElementById('publishSubmitBtn');
+
+    function hidePublishModal() {
+        if (publishModal) publishModal.hidden = true;
+        try { if (publishForm) publishForm.reset(); } catch (e) {}
+    }
+
+    if (publishBtn) {
+        publishBtn.addEventListener('click', () => {
+            if (!selectedThemeId || isNewTheme) {
+                showToast('יש לבחור ערכה קיימת קודם', 'error');
+                return;
+            }
+
+            // מלא את השם אוטומטית
+            const currentName = document.getElementById('themeName')?.value || '';
+            const publishNameEl = document.getElementById('publishName');
+            if (publishNameEl) publishNameEl.value = currentName;
+
+            // הצע slug אוטומטי
+            const suggestedSlug = String(currentName || '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '_')
+                .replace(/^_|_$/g, '')
+                .slice(0, 30);
+            const publishSlugEl = document.getElementById('publishSlug');
+            if (publishSlugEl) publishSlugEl.value = suggestedSlug || '';
+
+            if (publishModal) publishModal.hidden = false;
+        });
+    }
+
+    if (closePublishModal) closePublishModal.addEventListener('click', hidePublishModal);
+    if (cancelPublish) cancelPublish.addEventListener('click', hidePublishModal);
+
+    publishModal?.addEventListener('click', (e) => {
+        if (e.target === publishModal) {
+            hidePublishModal();
+        }
+    });
+
+    if (publishForm) {
+        publishForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const slug = (document.getElementById('publishSlug')?.value || '').trim().toLowerCase();
+            const name = (document.getElementById('publishName')?.value || '').trim();
+            const description = (document.getElementById('publishDescription')?.value || '').trim();
+            const isFeatured = !!document.getElementById('publishFeatured')?.checked;
+
+            const colors = collectThemeValues();
+
+            try {
+                if (publishSubmitBtn) publishSubmitBtn.disabled = true;
+                const res = await fetch('/api/themes/publish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        slug,
+                        name,
+                        colors,
+                        description,
+                        is_featured: isFeatured,
+                        // 🆕 תמיכה ב-VS Code Import: אם לערכה יש syntax_css נשמור גם אותו
+                        syntax_css: (typeof currentThemeSyntaxCss === 'string' ? currentThemeSyntaxCss : ''),
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.message || data.error || 'publish_failed');
+                }
+
+                hidePublishModal();
+                showToast(`הערכה "${name}" פורסמה בהצלחה!`, 'success');
+            } catch (err) {
+                console.error('Publish failed:', err);
+                showToast(err?.message || 'שגיאה בפרסום הערכה', 'error');
+            } finally {
+                if (publishSubmitBtn) publishSubmitBtn.disabled = false;
+            }
+        });
+    }
+    {% endif %}
 
     // ========== Save Handler ==========
     async function handleSave(e) {

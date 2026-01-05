@@ -572,23 +572,12 @@
         </div>
       </div>
       <div>
-        <select
-          id="themeSelect"
-          class="filter-select"
-          aria-label="בחר ערכת נושא"
-          style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
-        >
-          {% if custom_theme and custom_theme.is_active %}
-          <option value="custom" {% if ui_theme == 'custom' %}selected{% endif %}>🎨 {{ custom_theme.name if custom_theme.name else 'Custom' }}{% if ui_theme == 'custom' %} (נוכחית){% endif %}</option>
-          {% endif %}
-          <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
-          <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
-          <option value="rose-pine-dawn" {% if ui_theme == 'rose-pine-dawn' %}selected{% endif %}>🌹 Rose Pine Dawn{% if ui_theme == 'rose-pine-dawn' %} (נוכחית){% endif %}</option>
-          <option value="dark" {% if ui_theme == 'dark' %}selected{% endif %}>🌙 חשוך{% if ui_theme == 'dark' %} (נוכחית){% endif %}</option>
-          <option value="dim" {% if ui_theme == 'dim' %}selected{% endif %}>🌆 מעומעם{% if ui_theme == 'dim' %} (נוכחית){% endif %}</option>
-          <option value="nebula" {% if ui_theme == 'nebula' %}selected{% endif %}>🌌 Nebula{% if ui_theme == 'nebula' %} (נוכחית){% endif %}</option>
-          <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
-        </select>
+        <div id="themeCardsContainer" aria-label="בחר ערכת נושא">
+          <div style="opacity: 0.8; padding: 0.5rem 0;">
+            <i class="fas fa-spinner fa-spin"></i>
+            טוען ערכות...
+          </div>
+        </div>
         <div style="margin-top: 0.75rem; opacity: 0.85; font-size: 0.95rem;">
           <a class="btn btn-secondary btn-icon" href="/settings/theme-builder">
             <i class="fas fa-palette"></i>
@@ -598,6 +587,7 @@
       </div>
     </div>
   </div>
+ 
 
   <!-- Bookmarks toggle visibility (moved from panel) -->
   <div
@@ -863,6 +853,85 @@
     .glass-card h4 {
       margin: 0 0 0.5rem 0;
       color: var(--text-primary); /* שימוש במשתנה במקום צבע קבוע */
+    }
+
+    /* Theme Cards (Shared Theme Library) */
+    .theme-group {
+      margin-bottom: 1.5rem;
+    }
+    .theme-group h4 {
+      margin: 0 0 0.75rem 0;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .theme-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 1rem;
+    }
+    .theme-card {
+      background: var(--glass);
+      border: 2px solid transparent;
+      border-radius: 12px;
+      padding: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .theme-card:hover {
+      background: var(--glass-hover);
+      transform: translateY(-2px);
+    }
+    .theme-card.active {
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 15%, transparent);
+    }
+    .theme-card-preview {
+      height: 60px;
+      border-radius: 8px;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.5rem;
+      border: 1px solid color-mix(in srgb, var(--glass-border) 80%, transparent);
+    }
+    .theme-card-info {
+      text-align: center;
+    }
+    .theme-card-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+    }
+    .theme-card-badges {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.25rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    /* scoped badge styling for theme cards only */
+    .theme-card-badges .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      gap: 0;
+    }
+    .theme-card-badges .badge.featured {
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      color: #000;
+      border: none;
+    }
+    .theme-card-badges .badge.shared {
+      background: var(--primary);
+      color: white;
+      border: none;
     }
 
     /* Toggle switch */
@@ -1406,6 +1475,159 @@
       const btnMinus = document.getElementById('fontMinus');
       const btnPlus = document.getElementById('fontPlus');
       const themeSel = document.getElementById('themeSelect');
+      const themeCardsContainer = document.getElementById('themeCardsContainer');
+
+      // ========== Theme Selection (Shared Theme Library) ==========
+      async function loadThemesList() {
+        if (!themeCardsContainer) return;
+        try {
+          const res = await fetch('/api/themes/list');
+          const data = await res.json();
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'load_failed');
+          }
+          renderThemeCards(data.themes || []);
+        } catch (err) {
+          console.error('Error loading themes:', err);
+          themeCardsContainer.innerHTML = '<div style="opacity:0.8">שגיאה בטעינת ערכות</div>';
+        }
+      }
+
+      function escapeHtmlTheme(str) {
+        const div = document.createElement('div');
+        div.textContent = String(str || '');
+        return div.innerHTML;
+      }
+
+      function isThemeActive(theme) {
+        const currentTheme = (document.documentElement.getAttribute('data-theme') || 'classic').trim().toLowerCase();
+        if (!theme) return false;
+        if (theme.type === 'custom') return theme.is_active === true;
+        if (theme.type === 'shared') return currentTheme === `shared:${theme.id}`;
+        return currentTheme === String(theme.id || '').trim().toLowerCase();
+      }
+
+      function renderThemeCard(theme) {
+        const active = isThemeActive(theme);
+        const badges = [];
+
+        if (theme && theme.is_featured) badges.push('<span class="badge featured">⭐ מומלץ</span>');
+        if (theme && theme.type === 'shared') badges.push('<span class="badge shared">ציבורי</span>');
+
+        return `
+          <div class="theme-card ${active ? 'active' : ''}"
+               data-theme-id="${escapeHtmlTheme(theme.id)}"
+               data-theme-type="${escapeHtmlTheme(theme.type)}">
+            <div class="theme-card-preview" style="background: var(--theme-preview-${escapeHtmlTheme(theme.id)}, var(--bg-primary))">
+              ${active ? '<i class="fas fa-check-circle"></i>' : ''}
+            </div>
+            <div class="theme-card-info">
+              <div class="theme-card-name">${escapeHtmlTheme(theme.name)}</div>
+              ${badges.length ? '<div class="theme-card-badges">' + badges.join('') + '</div>' : ''}
+            </div>
+          </div>
+        `;
+      }
+
+      function renderThemeCards(themes) {
+        if (!themeCardsContainer) return;
+
+        const builtin = themes.filter(t => t && t.type === 'builtin');
+        const shared = themes.filter(t => t && t.type === 'shared');
+        const custom = themes.filter(t => t && t.type === 'custom');
+
+        let html = '';
+        html += '<div class="theme-group"><h4>ערכות מובנות</h4><div class="theme-cards">';
+        for (const theme of builtin) html += renderThemeCard(theme);
+        html += '</div></div>';
+
+        if (shared.length > 0) {
+          html += '<div class="theme-group"><h4>ערכות ציבוריות</h4><div class="theme-cards">';
+          for (const theme of shared) html += renderThemeCard(theme);
+          html += '</div></div>';
+        }
+
+        if (custom.length > 0) {
+          html += '<div class="theme-group"><h4>הערכות שלי</h4><div class="theme-cards">';
+          for (const theme of custom) html += renderThemeCard(theme);
+          html += '</div></div>';
+        }
+
+        themeCardsContainer.innerHTML = html;
+
+        themeCardsContainer.querySelectorAll('.theme-card').forEach((card) => {
+          card.addEventListener('click', () => {
+            const id = card.dataset.themeId;
+            const type = card.dataset.themeType;
+            selectTheme(id, type);
+          });
+        });
+      }
+
+      function persistLocalTheme(theme) {
+        const t = String(theme || '').trim().toLowerCase();
+        try { localStorage.setItem('user_theme', t); } catch (_) {}
+        try {
+          if (t === 'dark' || t === 'dim') {
+            localStorage.setItem('dark_mode_preference', t);
+          } else if (t === 'classic') {
+            localStorage.setItem('dark_mode_preference', 'light');
+          } else {
+            localStorage.removeItem('dark_mode_preference');
+          }
+        } catch (_) {}
+      }
+
+      async function selectTheme(themeId, themeType) {
+        if (!themeId || !themeType) return;
+
+        try {
+          let endpoint = '';
+          let body = null;
+          let themeAttr = '';
+
+          if (themeType === 'shared') {
+            endpoint = `/api/themes/shared/${encodeURIComponent(themeId)}/apply`;
+            themeAttr = `shared:${themeId}`;
+          } else if (themeType === 'custom') {
+            endpoint = `/api/themes/${encodeURIComponent(themeId)}/activate`;
+            themeAttr = 'custom';
+          } else {
+            endpoint = '/api/ui_prefs';
+            body = { theme: themeId };
+            themeAttr = String(themeId);
+          }
+
+          // עדכון מהיר ב-UI + LocalStorage לפני קריאת שרת (למניעת "הבהוב")
+          try {
+            document.documentElement.setAttribute('data-theme', themeAttr);
+            if (themeType === 'shared' || themeType === 'custom') {
+              document.documentElement.setAttribute('data-theme-type', 'custom');
+            } else {
+              document.documentElement.removeAttribute('data-theme-type');
+            }
+          } catch (_) {}
+          persistLocalTheme(themeAttr);
+
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body ? JSON.stringify(body) : null,
+          });
+
+          const data = await res.json();
+          if (!res.ok || !(data && (data.ok || data.success))) {
+            throw new Error((data && (data.message || data.error)) || 'theme_change_failed');
+          }
+
+          // רענון כדי לקבל injection של CSS (custom/shared)
+          location.reload();
+        } catch (err) {
+          console.error('Error selecting theme:', err);
+          alert('שגיאה בהחלפת ערכה');
+          location.reload();
+        }
+      }
       
       // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
       window.deleteCustomTheme = async function deleteCustomTheme(){
