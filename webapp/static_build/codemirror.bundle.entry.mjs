@@ -57,9 +57,13 @@ const TAG_NAME_MAP = {
   'definition(variableName)': tags.definition(tags.variableName),
   'constant(variableName)': tags.constant(tags.variableName),
   'function(variableName)': tags.function(tags.variableName),
-  'definition(function(variableName))': tags.definition(tags.function(tags.variableName)),
+  // 🔑 CodeMirror Python parser משתמש ב-function(definition(...)) לא definition(function(...))!
+  'function(definition(variableName))': tags.function(tags.definition(tags.variableName)),
+  'definition(function(variableName))': tags.definition(tags.function(tags.variableName)),  // fallback
   'standard(function(variableName))': tags.standard(tags.function(tags.variableName)),
   'special(function(variableName))': tags.special(tags.function(tags.variableName)),
+  // Properties שנקראים כפונקציות (method calls)
+  'function(propertyName)': tags.function(tags.propertyName),
   self: tags.self,
   
   // Types & Classes
@@ -128,7 +132,45 @@ const TAG_NAME_MAP = {
 };
 
 /**
+ * מיפוי Fallback - אם tag מורכב חסר, נשתמש ב-base tag
+ * לדוגמה: אם אין function(variableName), נשתמש בצבע של variableName
+ */
+const FALLBACK_MAP = {
+  'function(variableName)': 'variableName',
+  'function(definition(variableName))': 'variableName',
+  'definition(function(variableName))': 'variableName',
+  'standard(function(variableName))': 'variableName',
+  'special(function(variableName))': 'variableName',
+  'local(variableName)': 'variableName',
+  'constant(variableName)': 'variableName',
+  'definition(variableName)': 'variableName',
+  'function(propertyName)': 'propertyName',
+  'definition(propertyName)': 'propertyName',
+  'definition(className)': 'className',
+  'standard(className)': 'className',
+  'standard(typeName)': 'typeName',
+  'bool': 'atom',
+  'null': 'atom',
+  'integer': 'number',
+  'float': 'number',
+  'controlKeyword': 'keyword',
+  'definitionKeyword': 'keyword',
+  'moduleKeyword': 'keyword',
+  'operatorKeyword': 'keyword',
+  'definitionOperator': 'operator',
+  'compareOperator': 'operator',
+  'logicOperator': 'operator',
+  'arithmeticOperator': 'operator',
+  'lineComment': 'comment',
+  'blockComment': 'comment',
+  'docComment': 'comment',
+  'special(string)': 'string',
+  'regexp': 'string',
+};
+
+/**
  * יוצר HighlightStyle דינמי מנתוני syntax_colors מה-JSON
+ * עם fallback חכם ל-tags חסרים
  */
 function createDynamicHighlightStyle(syntaxColors) {
   if (!syntaxColors || typeof syntaxColors !== 'object') {
@@ -136,31 +178,40 @@ function createDynamicHighlightStyle(syntaxColors) {
   }
   
   const specs = [];
+  const processedTags = new Set();
   
+  // שלב 1: הוספת כל הצבעים שהוגדרו במפורש
   for (const [tagName, style] of Object.entries(syntaxColors)) {
     const tag = TAG_NAME_MAP[tagName];
     if (!tag) {
-      // נסיון למצוא tag לפי שם פשוט (ללא modifiers)
       const simpleTag = tags[tagName];
       if (simpleTag) {
-        specs.push({
-          tag: simpleTag,
-          ...style
-        });
+        specs.push({ tag: simpleTag, ...style });
+        processedTags.add(tagName);
       }
       continue;
     }
     
-    specs.push({
-      tag,
-      ...style
-    });
+    specs.push({ tag, ...style });
+    processedTags.add(tagName);
+  }
+  
+  // שלב 2: הוספת fallbacks עבור tags חסרים
+  for (const [derivedTag, baseTag] of Object.entries(FALLBACK_MAP)) {
+    // אם ה-derived tag לא הוגדר, אבל ה-base tag כן - נשתמש בצבע של ה-base
+    if (!processedTags.has(derivedTag) && syntaxColors[baseTag]) {
+      const tag = TAG_NAME_MAP[derivedTag];
+      if (tag) {
+        specs.push({ tag, ...syntaxColors[baseTag] });
+      }
+    }
   }
   
   if (specs.length === 0) {
     return null;
   }
   
+  console.log('[CM Bundle] Created HighlightStyle with', specs.length, 'rules (including fallbacks)');
   return HighlightStyle.define(specs);
 }
 

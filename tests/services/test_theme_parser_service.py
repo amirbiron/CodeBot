@@ -270,10 +270,11 @@ class TestParseVscodeTheme:
         assert "string" in syntax_colors
         assert syntax_colors["string"]["color"] == "#ce9178"
 
-        # בדיקה שפונקציות ממופות ל-definition(function(variableName))
-        assert "definition(function(variableName))" in syntax_colors
-        assert syntax_colors["definition(function(variableName))"]["color"] == "#dcdcaa"
-        assert syntax_colors["definition(function(variableName))"]["fontWeight"] == "bold"
+        # בדיקה שפונקציות ממופות ל-function(definition(variableName))
+        # 🔑 CodeMirror Python parser משתמש ב-function(definition(...)) לא definition(function(...))
+        assert "function(definition(variableName))" in syntax_colors
+        assert syntax_colors["function(definition(variableName))"]["color"] == "#dcdcaa"
+        assert syntax_colors["function(definition(variableName))"]["fontWeight"] == "bold"
 
         # בדיקה ש-variable.language ממופה ל-self
         assert "self" in syntax_colors
@@ -480,8 +481,8 @@ class TestSyntaxColorsGeneration:
 
     def test_find_cm_tag_function_scopes(self):
         """בדיקה שסקופים של פונקציות ממופים נכון."""
-        # הגדרת פונקציה
-        assert _find_cm_tag("entity.name.function") == "definition(function(variableName))"
+        # הגדרת פונקציה - CodeMirror משתמש ב-function(definition(...))
+        assert _find_cm_tag("entity.name.function") == "function(definition(variableName))"
         # קריאה לפונקציה
         assert _find_cm_tag("meta.function-call") == "function(variableName)"
         # פונקציות מובנות
