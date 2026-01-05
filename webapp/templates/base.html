@@ -1477,6 +1477,7 @@
     {% endif %}
 
     <!-- Primary Button States - force theme colors on all interaction states (custom + shared) -->
+    <!-- 🔧 הוספת fallback ל-var(--primary) למקרה ש-btn-primary-color לא מוגדר בערכה -->
     <style id="primary-btn-states-custom-type">
         [data-theme-type="custom"] .btn-primary:active,
         [data-theme-type="custom"] .btn-primary:focus,
@@ -1487,18 +1488,18 @@
         [data-theme^="shared:"] .btn-primary:disabled,
         [data-theme^="shared:"] .btn-primary.disabled {
             background-color: var(--btn-primary-bg) !important;
-            color: var(--btn-primary-color) !important;
+            color: var(--btn-primary-color, var(--primary)) !important;
             opacity: 0.8;
         }
         /* Shared theme button base styles */
         [data-theme^="shared:"] .btn-primary {
             background-color: var(--btn-primary-bg) !important;
-            color: var(--btn-primary-color) !important;
+            color: var(--btn-primary-color, var(--primary)) !important;
             border-color: var(--btn-primary-border, var(--btn-primary-bg)) !important;
         }
         [data-theme^="shared:"] .btn-primary:hover {
             background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg)) !important;
-            color: var(--btn-primary-hover-color, var(--btn-primary-color)) !important;
+            color: var(--btn-primary-hover-color, var(--btn-primary-color, var(--primary))) !important;
         }
     </style>
 </head>

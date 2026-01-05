@@ -525,6 +525,14 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
 
     result = _compute_derived_colors(result)
 
+    # 🔧 אם button.foreground לא הוגדר בערכת VS Code, מסירים את --btn-primary-color
+    # כדי לאפשר ל-CSS fallback (var(--primary)) לעבוד
+    if "button.foreground" not in colors and "--btn-primary-color" in result:
+        del result["--btn-primary-color"]
+    if "button.hoverBackground" not in colors and "--btn-primary-hover-color" in result:
+        # גם --btn-primary-hover-color - נניח ל-CSS fallback לעבוד
+        del result["--btn-primary-hover-color"]
+
     # 🎨 יצירת CSS להדגשת תחביר מ-tokenColors
     syntax_css_parts = []
     syntax_colors: dict[str, dict] = {}
