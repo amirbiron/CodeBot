@@ -1502,7 +1502,9 @@
       function isThemeActive(theme) {
         const currentTheme = (document.documentElement.getAttribute('data-theme') || 'classic').trim().toLowerCase();
         if (!theme) return false;
-        if (theme.type === 'custom') return theme.is_active === true;
+        // חשוב: custom נחשב פעיל רק אם גם ה-DB מסמן is_active וגם בפועל הנתון שמרונדר הוא data-theme="custom"
+        // אחרת (למשל כש-shared נבחר והעדכון לבטל custom נכשל) נקבל שתי ערכות פעילות ב-UI.
+        if (theme.type === 'custom') return (currentTheme === 'custom') && (theme.is_active === true);
         if (theme.type === 'shared') return currentTheme === `shared:${theme.id}`;
         return currentTheme === String(theme.id || '').trim().toLowerCase();
       }
