@@ -83,23 +83,26 @@
 
 [data-theme="dark"] .btn-primary,
 [data-theme="dim"] .btn-primary,
-[data-theme="nebula"] .btn-primary {
+[data-theme="nebula"] .btn-primary,
+[data-theme-type="custom"] .btn-primary {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-color);
-    border: 1px solid var(--btn-primary-border);
-    box-shadow: var(--btn-primary-shadow);
+    border: 1px solid var(--btn-primary-border, transparent);
+    box-shadow: var(--btn-primary-shadow, none);
 }
 
 [data-theme="dark"] .btn-primary:hover,
 [data-theme="dim"] .btn-primary:hover,
-[data-theme="nebula"] .btn-primary:hover {
-    background: var(--btn-primary-hover-bg);
-    box-shadow: var(--btn-primary-hover-shadow);
+[data-theme="nebula"] .btn-primary:hover,
+[data-theme-type="custom"] .btn-primary:hover {
+    background: var(--btn-primary-hover-bg, var(--btn-primary-bg));
+    box-shadow: var(--btn-primary-hover-shadow, 0 10px 20px rgba(0,0,0,0.2));
 }
 
 [data-theme="dark"] .btn-secondary,
 [data-theme="dim"] .btn-secondary,
-[data-theme="nebula"] .btn-secondary {
+[data-theme="nebula"] .btn-secondary,
+[data-theme-type="custom"] .btn-secondary {
     background: var(--glass);
     color: var(--text-primary);
     border: 1px solid var(--glass-border);
@@ -107,7 +110,8 @@
 
 [data-theme="dark"] .btn-secondary:hover,
 [data-theme="dim"] .btn-secondary:hover,
-[data-theme="nebula"] .btn-secondary:hover {
+[data-theme="nebula"] .btn-secondary:hover,
+[data-theme-type="custom"] .btn-secondary:hover {
     background: var(--glass-hover);
     border-color: var(--primary);
 }
@@ -124,8 +128,11 @@
 [data-theme="dim"] select,
 [data-theme="nebula"] input,
 [data-theme="nebula"] textarea,
-[data-theme="nebula"] select {
-    background: var(--bg-tertiary);
+[data-theme="nebula"] select,
+[data-theme-type="custom"] input,
+[data-theme-type="custom"] textarea,
+[data-theme-type="custom"] select {
+    background: var(--bg-tertiary, var(--card-bg, rgba(255,255,255,0.1)));
     color: var(--text-primary);
     border: 1px solid var(--glass-border);
 }
@@ -138,7 +145,10 @@
 [data-theme="dim"] select:focus,
 [data-theme="nebula"] input:focus,
 [data-theme="nebula"] textarea:focus,
-[data-theme="nebula"] select:focus {
+[data-theme="nebula"] select:focus,
+[data-theme-type="custom"] input:focus,
+[data-theme-type="custom"] textarea:focus,
+[data-theme-type="custom"] select:focus {
     outline: 2px solid var(--primary);
     border-color: var(--primary);
 }
@@ -150,8 +160,10 @@
 [data-theme="nebula"] input::placeholder,
 [data-theme="nebula"] textarea::placeholder,
 [data-theme="custom"] input::placeholder,
-[data-theme="custom"] textarea::placeholder {
-    color: var(--text-muted);
+[data-theme="custom"] textarea::placeholder,
+[data-theme-type="custom"] input::placeholder,
+[data-theme-type="custom"] textarea::placeholder {
+    color: var(--text-muted, rgba(255,255,255,0.5));
 }
 
 /* ============================================
@@ -167,20 +179,30 @@
     border: 1px solid var(--code-border);
 }
 
-/* Custom theme: רק רקע, בלי צבע!
+/* Custom / Shared themes: רקע מ-CSS variables
    הצבע מגיע מ-Pygments CSS (github-dark) או מ-syntax_css של הערכה */
-[data-theme="custom"] .source {
-    background: var(--code-bg, #1e1e1e) !important;
+[data-theme="custom"] .source,
+[data-theme-type="custom"] .source {
+    background: var(--md-surface, var(--code-bg, #1e1e1e)) !important;
     border: 1px solid var(--code-border, rgba(255, 255, 255, 0.1));
+}
+
+/* טקסט בסיסי בבלוקי קוד (לפני syntax highlighting) */
+[data-theme-type="custom"] .source,
+[data-theme-type="custom"] .source code,
+[data-theme-type="custom"] pre.source,
+[data-theme-type="custom"] .highlighttable code {
+    color: var(--md-text, #f0f0f0);
 }
 
 [data-theme="dark"] .highlighttable td.linenos,
 [data-theme="dim"] .highlighttable td.linenos,
 [data-theme="nebula"] .highlighttable td.linenos,
-[data-theme="custom"] .highlighttable td.linenos {
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-    border-right: 1px solid var(--code-border);
+[data-theme="custom"] .highlighttable td.linenos,
+[data-theme-type="custom"] .highlighttable td.linenos {
+    background: var(--bg-tertiary, var(--card-bg, rgba(255,255,255,0.05)));
+    color: var(--text-muted, rgba(255,255,255,0.5));
+    border-right: 1px solid var(--code-border, rgba(255,255,255,0.1));
 }
 
 /* ============================================
