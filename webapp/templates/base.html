@@ -27,6 +27,7 @@
                 var isLoggedIn = {{ 'true' if _session_user_id else 'false' }};
                 var serverTheme = '{{ ui_theme }}';
                 serverTheme = String(serverTheme || 'classic').trim().toLowerCase();
+                var hasSharedTheme = {{ 'true' if shared_theme and shared_theme.colors else 'false' }};
                 var allowed = {
                     'classic': 1,
                     'ocean': 1,
@@ -38,6 +39,13 @@
                     'custom': 1{% endif %}
                 };
 
+                // Shared theme מהשרת מקבל עדיפות על localStorage (מונע "הבהוב" / override מקומי)
+                if (hasSharedTheme && serverTheme.indexOf('shared:') === 0) {
+                    html.setAttribute('data-theme', serverTheme);
+                    html.setAttribute('data-theme-type', 'custom');
+                    return;
+                }
+
                 // עדיפות ל-custom אם קיים ותקין (כדי למנוע "הבהוב" לאחר שמירה/רענון)
                 // חשוב: לא משתמשים ב-dark_mode_preference לסימון ערכות (זה enum של dark/dim/light/auto).
                 var savedMode = localStorage.getItem('dark_mode_preference');
@@ -46,21 +54,27 @@
                 savedThemeAny = String(savedThemeAny || '').trim().toLowerCase();
                 if (savedThemeAny === 'custom' && allowed['custom']) {
                     html.setAttribute('data-theme', 'custom');
+                    html.setAttribute('data-theme-type', 'custom');
                     return;
                 }
 
                 // אם השרת קבע ערכת נושא שאינה מצב "בהיר/כהה" – נכבד אותה תמיד (סנכרון בין מכשירים)
                 if (allowed[serverTheme] && (serverTheme !== 'classic' && serverTheme !== 'dark' && serverTheme !== 'dim')) {
                     html.setAttribute('data-theme', serverTheme);
+                    if (serverTheme === 'custom') {
+                        html.setAttribute('data-theme-type', 'custom');
+                    }
                     return;
                 }
 
                 if (savedMode === 'dark' || savedMode === 'dim') {
                     html.setAttribute('data-theme', savedMode);
+                    html.removeAttribute('data-theme-type');
                     return;
                 }
                 if (savedMode === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
                     html.setAttribute('data-theme', 'dark');
+                    html.removeAttribute('data-theme-type');
                     return;
                 }
 
@@ -71,6 +85,11 @@
                         savedTheme = String(savedTheme).trim().toLowerCase();
                         if (allowed[savedTheme]) {
                             html.setAttribute('data-theme', savedTheme);
+                            if (savedTheme === 'custom') {
+                                html.setAttribute('data-theme-type', 'custom');
+                            } else {
+                                html.removeAttribute('data-theme-type');
+                            }
                             return;
                         }
                     }
@@ -79,6 +98,11 @@
                 // fallback: ערכת נושא מהשרת
                 if (allowed[serverTheme]) {
                     html.setAttribute('data-theme', serverTheme);
+                    if (serverTheme === 'custom') {
+                        html.setAttribute('data-theme-type', 'custom');
+                    } else {
+                        html.removeAttribute('data-theme-type');
+                    }
                 }
             } catch (_) { /* ignore */ }
         })();
@@ -351,7 +375,7 @@
         :root[data-theme="dim"] body,
         :root[data-theme="nebula"] body,
         :root[data-theme="ocean"] body,
-        :root[data-theme="custom"] body {
+        :root[data-theme-type="custom"] body {
             background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
             color: var(--text-primary);
         }
@@ -381,7 +405,7 @@
         /* עדכון רקע הגל למצב חשוך/מעומעם */
         :root[data-theme="dark"] body::before,
         :root[data-theme="dim"] body::before,
-        :root[data-theme="custom"] body::before {
+        :root[data-theme-type="custom"] body::before {
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23000000" fill-opacity="0.1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
         }
 
@@ -1402,21 +1426,16 @@
             {% endif %}
             {% endfor %}
         }
-
-        /* Primary Button States - force theme colors on all interaction states */
-        [data-theme="custom"] .btn-primary:active,
-        [data-theme="custom"] .btn-primary:focus,
-        [data-theme="custom"] .btn-primary:disabled,
-        [data-theme="custom"] .btn-primary.disabled {
-            background-color: var(--btn-primary-bg) !important;
-            color: var(--btn-primary-color) !important;
-            opacity: 0.8;
-        }
     </style>
     {% if custom_theme.syntax_css %}
     <!-- Syntax Highlighting Override -->
     <style id="user-custom-syntax">
-{{ custom_theme.syntax_css | safe }}
+{# תאימות לאחור: ערכות ישנות שמכילות data-theme="custom" #}
+{% set _custom_syntax = (custom_theme.syntax_css
+  | replace('data-theme="custom"', 'data-theme-type="custom"')
+  | replace("data-theme='custom'", "data-theme-type='custom'")
+) %}
+{{ _custom_syntax | safe }}
     </style>
     {% endif %}
     {% if custom_theme.syntax_colors %}
@@ -1426,6 +1445,42 @@
     </script>
     {% endif %}
     {% endif %}
+
+    {% if shared_theme and shared_theme.colors %}
+    <!-- Shared Theme Override -->
+    <style id="shared-theme-override">
+        :root[data-theme^="shared:"] {
+            {% for var_name, var_value in shared_theme.colors.items() %}
+            {% if var_name and var_value %}
+            {{ var_name }}: {{ var_value }};
+            {% endif %}
+            {% endfor %}
+        }
+    </style>
+    {% if shared_theme.syntax_css %}
+    <!-- Shared Theme Syntax Override -->
+    <style id="shared-theme-syntax">
+{# תאימות לאחור: ערכות shared שנשמרו בעבר עם data-theme="custom" #}
+{% set _shared_syntax = (shared_theme.syntax_css
+  | replace('data-theme="custom"', 'data-theme-type="custom"')
+  | replace("data-theme='custom'", "data-theme-type='custom'")
+) %}
+{{ _shared_syntax | safe }}
+    </style>
+    {% endif %}
+    {% endif %}
+
+    <!-- Primary Button States - force theme colors on all interaction states (custom + shared) -->
+    <style id="primary-btn-states-custom-type">
+        [data-theme-type="custom"] .btn-primary:active,
+        [data-theme-type="custom"] .btn-primary:focus,
+        [data-theme-type="custom"] .btn-primary:disabled,
+        [data-theme-type="custom"] .btn-primary.disabled {
+            background-color: var(--btn-primary-bg) !important;
+            color: var(--btn-primary-color) !important;
+            opacity: 0.8;
+        }
+    </style>
 </head>
 <body>
     <div id="theme-mask" aria-hidden="true"></div>
@@ -1448,6 +1503,15 @@
                 if (!htmlEl.getAttribute('data-theme')) {
                     htmlEl.setAttribute('data-theme', '{{ ui_theme }}');
                 }
+                // theme-type: מאפשר CSS "לתפוס" גם ערכות shared (וגם custom) בצורה אחידה
+                try {
+                    var t = String(htmlEl.getAttribute('data-theme') || '').trim().toLowerCase();
+                    if (t === 'custom' || t.indexOf('shared:') === 0) {
+                        htmlEl.setAttribute('data-theme-type', 'custom');
+                    } else {
+                        htmlEl.removeAttribute('data-theme-type');
+                    }
+                } catch (e) {}
 
                 // העדפת עורך מהשרת (אם קיימת) — כדי לאפשר ברירת מחדל Codemirror
                 // נשמר במשתנה גלובלי שה-JS של העורך יוכל לקרוא

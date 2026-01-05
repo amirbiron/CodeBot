@@ -125,6 +125,7 @@ class DatabaseManager:
     internal_shares_collection: Optional[CollectionLike]
     community_library_collection: Optional[CollectionLike]
     snippets_collection: Optional[CollectionLike]
+    shared_themes_collection: Optional[CollectionLike]
     _repo: Optional[Any]
 
     def __init__(self):
@@ -139,6 +140,7 @@ class DatabaseManager:
         self.internal_shares_collection = _StubCollection()
         self.community_library_collection = _StubCollection()
         self.snippets_collection = _StubCollection()
+        self.shared_themes_collection = _StubCollection()
         self._repo = None
         self.connect()
 
@@ -205,6 +207,7 @@ class DatabaseManager:
             self.backup_ratings_collection = NoOpCollection()
             self.community_library_collection = NoOpCollection()
             self.snippets_collection = NoOpCollection()
+            self.shared_themes_collection = NoOpCollection()
             emit_event("db_disabled", reason="docs_or_ci_mode")
 
         # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
@@ -485,6 +488,11 @@ class DatabaseManager:
             self.large_files_collection = self.db.large_files
             self.backup_ratings_collection = self.db.backup_ratings
             self.internal_shares_collection = self.db.internal_shares
+            # Shared Themes public catalog
+            try:
+                self.shared_themes_collection = self.db.shared_themes
+            except Exception:
+                self.shared_themes_collection = None
             # Community Library public catalog
             try:
                 self.community_library_collection = self.db.community_library_items
@@ -808,6 +816,11 @@ class DatabaseManager:
             name="user_id_unique",
             unique=True,
         )
+
+        # shared_themes - ערכות נושא ציבוריות
+        safe_create_index("shared_themes", [("is_active", ASCENDING)], name="shared_themes_is_active_idx")
+        safe_create_index("shared_themes", [("created_at", DESCENDING)], name="shared_themes_created_at_desc_idx")
+        safe_create_index("shared_themes", [("created_by", ASCENDING)], name="shared_themes_created_by_idx")
 
         # הוספת אינדקסים קטנים שחונקים CPU (לפי התדירות/סינונים)
         safe_create_index("visual_rules", [("enabled", ASCENDING)], name="visual_rules_enabled_idx")
