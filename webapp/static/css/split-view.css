@@ -231,6 +231,39 @@
   /* Use defaults for dark-friendly text values */
 }
 
+/* Custom theme override - uses CSS variables from the custom theme */
+:root[data-theme="custom"] {
+  --split-container-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 50%, transparent);
+  --split-container-border: var(--glass-border, rgba(255, 255, 255, 0.1));
+  --split-toolbar-bg: color-mix(in srgb, var(--bg-secondary, #1f2937) 80%, transparent);
+  --split-toolbar-border: var(--glass-border, rgba(255, 255, 255, 0.1));
+  --split-toggle-bg: color-mix(in srgb, var(--primary, #6366f1) 20%, transparent);
+  --split-toggle-border: color-mix(in srgb, var(--primary, #6366f1) 50%, transparent);
+  --split-toggle-active-bg: color-mix(in srgb, var(--success, #22c55e) 25%, transparent);
+  --split-toggle-active-border: color-mix(in srgb, var(--success, #22c55e) 50%, transparent);
+  --split-tabs-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 60%, transparent);
+  --split-tabs-selected-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 90%, transparent);
+  --split-tabs-selected-color: var(--text-primary, #f0f0f0);
+  --split-preview-panel-bg: color-mix(in srgb, var(--bg-secondary, #1f2937) 60%, transparent);
+  --split-preview-panel-border: var(--glass-border, rgba(255, 255, 255, 0.1));
+  --split-resizer-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 70%, transparent);
+  --split-resizer-handle: var(--text-muted, rgba(255, 255, 255, 0.4));
+  --split-resizer-dragging: color-mix(in srgb, var(--primary, #6366f1) 40%, transparent);
+  --split-preview-bg: var(--bg-primary, var(--md-surface, #1b1e24));
+  --split-preview-text: var(--text-primary, var(--md-text, #f0f0f0));
+  --split-preview-code-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 80%, transparent);
+  --split-preview-code-text: var(--text-primary, #f0f0f0);
+  --split-preview-placeholder: var(--text-muted, rgba(255, 255, 255, 0.6));
+  --split-preview-meta: var(--text-secondary, rgba(255, 255, 255, 0.55));
+  --split-preview-loading-bg: color-mix(in srgb, var(--bg-primary, #1b1e24) 85%, transparent);
+  --split-preview-loading-text: var(--text-primary, #f0f0f0);
+  --split-error-bg: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent);
+  --split-error-border: color-mix(in srgb, var(--danger, #ef4444) 40%, transparent);
+  --split-error-text: var(--danger, #fca5a5);
+  --split-codehilite-bg: var(--code-bg, var(--bg-secondary, #272822));
+  --split-codehilite-text: var(--code-text, var(--text-primary, #f8f8f2));
+}
+
 /* ==============================================
    Split View Styles
    ============================================== */
