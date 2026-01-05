@@ -340,10 +340,84 @@ def validate_and_sanitize_theme_variables(variables: dict) -> dict:
     return sanitized
 
 
+def strip_jsonc_comments(json_content: str) -> str:
+    """
+    מסיר הערות JSONC מתוכן JSON.
+
+    VS Code themes עשויים להכיל הערות /* */ או // שלא נתמכות ב-JSON סטנדרטי.
+    פונקציה זו מסירה אותן בצורה בטוחה תוך שמירה על strings.
+
+    Args:
+        json_content: תוכן JSON/JSONC גולמי
+
+    Returns:
+        תוכן JSON ללא הערות
+    """
+    result = []
+    i = 0
+    in_string = False
+    escape_next = False
+
+    while i < len(json_content):
+        char = json_content[i]
+
+        # Handle escape sequences inside strings
+        if escape_next:
+            result.append(char)
+            escape_next = False
+            i += 1
+            continue
+
+        if in_string:
+            result.append(char)
+            if char == "\\":
+                escape_next = True
+            elif char == '"':
+                in_string = False
+            i += 1
+            continue
+
+        # Not in string - check for comments
+        if char == '"':
+            in_string = True
+            result.append(char)
+            i += 1
+            continue
+
+        # Check for // single-line comment
+        if char == "/" and i + 1 < len(json_content) and json_content[i + 1] == "/":
+            # Skip until end of line
+            while i < len(json_content) and json_content[i] != "\n":
+                i += 1
+            continue
+
+        # Check for /* multi-line comment */
+        if char == "/" and i + 1 < len(json_content) and json_content[i + 1] == "*":
+            i += 2  # Skip /*
+            # Find closing */
+            while i + 1 < len(json_content):
+                if json_content[i] == "*" and json_content[i + 1] == "/":
+                    i += 2  # Skip */
+                    break
+                i += 1
+            else:
+                # Unclosed comment - skip to end
+                i = len(json_content)
+            continue
+
+        result.append(char)
+        i += 1
+
+    return "".join(result)
+
+
 def validate_theme_json(json_content: str) -> tuple[bool, str]:
     """מוודא שקובץ JSON הוא ערכת נושא תקינה."""
+    # הסרת הערות JSONC לפני פרסור (VS Code themes עשויים להכיל /* */ או //)
+    cleaned_content = strip_jsonc_comments(json_content)
+
     try:
-        data = json.loads(json_content)
+        data = json.loads(cleaned_content)
     except json.JSONDecodeError:
         # 🔒 אבטחה: לא מחזירים הודעת חריגה גולמית ללקוח
         logger.exception("Invalid theme JSON content")

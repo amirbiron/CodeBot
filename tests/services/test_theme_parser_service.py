@@ -12,6 +12,7 @@ from services.theme_parser_service import (
     parse_native_theme,
     parse_vscode_theme,
     sanitize_css_value,
+    strip_jsonc_comments,
     validate_and_sanitize_theme_variables,
     validate_theme_json,
 )
@@ -127,6 +128,70 @@ class TestSanitization:
         assert "--text-primary" not in result
 
 
+class TestStripJsoncComments:
+    """טסטים לפונקציה שמסירה הערות JSONC מתוכן JSON."""
+
+    def test_removes_single_line_comment(self):
+        """הסרת הערות // מתוכן JSON."""
+        json_content = """{
+            "name": "Test", // this is a comment
+            "value": 123
+        }"""
+        result = strip_jsonc_comments(json_content)
+        assert "//" not in result
+        assert '"name": "Test"' in result
+        assert '"value": 123' in result
+
+    def test_removes_multiline_comment(self):
+        """הסרת הערות /* */ מתוכן JSON."""
+        json_content = """{
+            /* This is a
+               multiline comment */
+            "name": "Test"
+        }"""
+        result = strip_jsonc_comments(json_content)
+        assert "/*" not in result
+        assert "*/" not in result
+        assert '"name": "Test"' in result
+
+    def test_preserves_comment_like_strings(self):
+        """שמירה על מחרוזות שנראות כמו הערות."""
+        json_content = '{"url": "http://example.com", "desc": "/* not a comment */"}'
+        result = strip_jsonc_comments(json_content)
+        assert '"http://example.com"' in result
+        assert '"/* not a comment */"' in result
+
+    def test_handles_nord_theme_comment(self):
+        """טיפול בהערה אמיתית מערכת Nord."""
+        json_content = """{
+            "minimapSlider.hoverBackground": "#434c5eaa",
+
+            /* `notification.*` keys are legacy support for VS Code versions >1.21.0 */
+            "notification.background": "#3b4252"
+        }"""
+        result = strip_jsonc_comments(json_content)
+        assert "/*" not in result
+        assert "legacy support" not in result
+        assert '"notification.background": "#3b4252"' in result
+
+    def test_empty_content(self):
+        """תוכן ריק."""
+        assert strip_jsonc_comments("") == ""
+
+    def test_no_comments(self):
+        """תוכן ללא הערות."""
+        json_content = '{"name": "Test", "value": 123}'
+        assert strip_jsonc_comments(json_content) == json_content
+
+    def test_escape_sequences_in_strings(self):
+        """טיפול נכון ב-escape sequences בתוך מחרוזות."""
+        json_content = r'{"path": "C:\\Users\\test", "quote": "say \"hello\""}' + " // comment"
+        result = strip_jsonc_comments(json_content)
+        assert r'"C:\\Users\\test"' in result
+        assert r'"say \"hello\""' in result
+        assert "// comment" not in result
+
+
 class TestValidateThemeJson:
     def test_valid_vscode_theme(self):
         json_content = """
@@ -142,6 +207,20 @@ class TestValidateThemeJson:
         is_valid, error = validate_theme_json(json_content)
         assert is_valid
         assert error == ""
+
+    def test_vscode_theme_with_comments(self):
+        """טסט חשוב: ערכת VS Code עם הערות JSONC."""
+        json_content = """{
+            "name": "Nord",
+            "colors": {
+                "editor.background": "#2e3440",
+                /* Legacy support comment */
+                "editor.foreground": "#d8dee9",
+                "button.background": "#88c0d0" // inline comment
+            }
+        }"""
+        is_valid, error = validate_theme_json(json_content)
+        assert is_valid, f"Should accept JSONC with comments, got error: {error}"
 
     def test_valid_native_theme(self):
         json_content = """
