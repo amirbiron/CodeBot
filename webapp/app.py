@@ -1466,12 +1466,16 @@ def inject_globals():
                     syntax_css = doc.get("syntax_css", "")
                     if not isinstance(syntax_css, str):
                         syntax_css = ""
+                    syntax_colors = doc.get("syntax_colors", {})
+                    if not isinstance(syntax_colors, dict):
+                        syntax_colors = {}
                     shared_theme = {
                         "id": doc.get("_id"),
                         "name": doc.get("name"),
                         "description": doc.get("description", ""),
                         "colors": colors,
                         "syntax_css": syntax_css,
+                        "syntax_colors": syntax_colors,
                         "is_featured": bool(doc.get("is_featured", False)),
                     }
                 else:

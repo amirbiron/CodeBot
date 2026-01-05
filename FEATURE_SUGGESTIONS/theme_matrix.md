@@ -25,4 +25,62 @@
 - **High Contrast** – אסור להשתמש ב־`rgba` מלבד הערכים המוגדרים בקובץ הייעודי.  
 - **Custom Theme** – ברגע שמזריקים ערכים ל‑``<style id="user-custom-theme">`` חובה לכסות את הטוקנים מהרשימה לעיל.
 
+---
+
+## שמירת משתנים בפרסום ערכה לציבורית
+
+בעת פרסום ערכה אישית לציבורית, יש לוודא ששדות אלו נשמרים:
+
+| שדה | תיאור | מקור |
+|-----|-------|------|
+| `colors` | משתני CSS | מיזוג: `originalVariables` + `formValues` |
+| `syntax_css` | CSS להדגשת תחביר | `currentThemeSyntaxCss` |
+| `syntax_colors` | מילון צבעים דינמי | `currentThemeSyntaxColors` |
+
+### קוד המיזוג (theme_builder.html)
+
+```javascript
+// שמירת משתנים מקוריים בטעינת ערכה
+currentThemeOriginalVariables = { ...theme.variables };
+currentThemeSyntaxCss = theme.syntax_css || '';
+currentThemeSyntaxColors = theme.syntax_colors || {};
+
+// בפרסום - מיזוג
+const colors = {
+  ...currentThemeOriginalVariables,  // --link-color, --code-bg, etc.
+  ...collectThemeValues(),           // ערכי הטופס
+};
+```
+
+### Whitelist (משתנים מותרים)
+
+רק משתנים אלו יישמרו (מוגדר ב-`theme_parser_service.py`):
+
+```
+# Level 1
+--primary, --primary-hover, --primary-light, --secondary
+--success, --warning, --error, --danger-bg, --danger-border
+--glass, --glass-blur, --glass-border, --glass-hover
+
+# Level 2 - רקע/טקסט
+--bg-primary, --bg-secondary, --bg-tertiary
+--text-primary, --text-secondary, --text-muted
+--border-color, --shadow-color, --card-bg, --card-border
+--navbar-bg, --input-bg, --input-border, --link-color
+--code-bg, --code-text, --code-border
+
+# Level 2 - כפתורים
+--btn-primary-bg, --btn-primary-color, --btn-primary-border
+--btn-primary-shadow, --btn-primary-hover-bg, --btn-primary-hover-color
+
+# Level 2 - Markdown
+--md-surface, --md-text
+--md-inline-code-bg, --md-inline-code-border, --md-inline-code-color
+--md-table-bg, --md-table-border, --md-table-header-bg
+--md-mermaid-bg
+--split-preview-bg, --split-preview-meta, --split-preview-placeholder
+```
+
+---
+
 הטבלה תעודכן בכל פעם שטוקן חדש נכנס לאחת הערכות. לצרכי עריכה, פתחו Issue קצר עם הפער והפנו אליו מה‑PR.

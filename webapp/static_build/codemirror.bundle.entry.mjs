@@ -221,7 +221,9 @@ function createDynamicHighlightStyle(syntaxColors) {
 function getSyntaxColorsFromPage() {
   if (typeof document === 'undefined') return null;
   
-  const el = document.getElementById('syntax-colors-data');
+  // Shared theme has priority over custom theme
+  const el = document.getElementById('shared-syntax-colors-data')
+          || document.getElementById('syntax-colors-data');
   if (!el) return null;
   
   try {
