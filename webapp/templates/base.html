@@ -1512,6 +1512,26 @@
             background-color: var(--btn-secondary-hover-bg, rgba(255, 255, 255, 0.2)) !important;
             color: var(--btn-secondary-hover-color, var(--btn-secondary-color, var(--text-primary))) !important;
         }
+        /* Link buttons for custom + shared themes */
+        [data-theme-type="custom"] .btn-link,
+        [data-theme^="shared:"] .btn-link {
+            color: var(--btn-link-color, var(--link-color, var(--primary))) !important;
+            text-decoration: none;
+        }
+        [data-theme-type="custom"] .btn-link:hover,
+        [data-theme^="shared:"] .btn-link:hover {
+            color: var(--btn-link-hover-color, var(--primary-hover, var(--secondary))) !important;
+            text-decoration: underline;
+        }
+        /* Regular links (not buttons) */
+        [data-theme-type="custom"] a:not(.btn),
+        [data-theme^="shared:"] a:not(.btn) {
+            color: var(--link-color, var(--primary));
+        }
+        [data-theme-type="custom"] a:not(.btn):hover,
+        [data-theme^="shared:"] a:not(.btn):hover {
+            color: var(--primary-hover, var(--secondary));
+        }
     </style>
 </head>
 <body>

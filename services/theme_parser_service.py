@@ -67,6 +67,7 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--btn-primary-hover-bg", "--btn-primary-hover-color",
     "--btn-secondary-bg", "--btn-secondary-color", "--btn-secondary-border",
     "--btn-secondary-hover-bg", "--btn-secondary-hover-color",
+    "--btn-link-color", "--btn-link-hover-color",
 
     # Level 2 - Markdown & Split View
     "--md-surface", "--md-text",
