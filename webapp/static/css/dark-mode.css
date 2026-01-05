@@ -1,6 +1,28 @@
 /* Dark Mode Styles - Comprehensive Theme Support */
 
 /* ============================================
+   Custom Theme Fallbacks
+   ============================================ */
+
+/* Ensure --text-muted has a good fallback for custom themes */
+[data-theme="custom"] {
+    --text-muted: color-mix(in srgb, var(--text-primary, #ffffff) 60%, transparent);
+}
+
+/* Fix placeholder text color for custom themes */
+[data-theme="custom"] input::placeholder,
+[data-theme="custom"] textarea::placeholder {
+    color: color-mix(in srgb, var(--text-primary, #ffffff) 50%, transparent);
+    opacity: 1;
+}
+
+/* Fix select option colors for custom themes (for browsers that support it) */
+[data-theme="custom"] select option {
+    background: var(--bg-secondary, #1e1e2e);
+    color: var(--text-primary, #ffffff);
+}
+
+/* ============================================
    Base Elements
    ============================================ */
 
@@ -28,15 +50,17 @@
 }
 
 [data-theme="dark"] .glass-card,
-[data-theme="dim"] .glass-card {
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
+[data-theme="dim"] .glass-card,
+[data-theme="custom"] .glass-card {
+    background: var(--card-bg, var(--glass, rgba(255,255,255,0.08)));
+    border: 1px solid var(--card-border, var(--glass-border, rgba(255,255,255,0.1)));
     color: var(--text-primary);
 }
 
 [data-theme="dark"] .glass-card:hover,
-[data-theme="dim"] .glass-card:hover {
-    background: var(--glass-hover);
+[data-theme="dim"] .glass-card:hover,
+[data-theme="custom"] .glass-card:hover {
+    background: var(--glass-hover, rgba(255,255,255,0.12));
 }
 
 /* ============================================
@@ -77,37 +101,49 @@
     color: var(--text-secondary);
 }
 
+/* Text muted class */
+[data-theme="dark"] .text-muted,
+[data-theme="dim"] .text-muted,
+[data-theme="nebula"] .text-muted,
+[data-theme="custom"] .text-muted {
+    color: var(--text-muted, var(--text-secondary)) !important;
+}
+
 /* ============================================
    Buttons
    ============================================ */
 
 [data-theme="dark"] .btn-primary,
 [data-theme="dim"] .btn-primary,
-[data-theme="nebula"] .btn-primary {
-    background: var(--btn-primary-bg);
-    color: var(--btn-primary-color);
-    border: 1px solid var(--btn-primary-border);
-    box-shadow: var(--btn-primary-shadow);
+[data-theme="nebula"] .btn-primary,
+[data-theme="custom"] .btn-primary {
+    background: var(--btn-primary-bg, var(--primary, #6366f1));
+    color: var(--btn-primary-color, #ffffff);
+    border: 1px solid var(--btn-primary-border, transparent);
+    box-shadow: var(--btn-primary-shadow, none);
 }
 
 [data-theme="dark"] .btn-primary:hover,
 [data-theme="dim"] .btn-primary:hover,
-[data-theme="nebula"] .btn-primary:hover {
-    background: var(--btn-primary-hover-bg);
-    box-shadow: var(--btn-primary-hover-shadow);
+[data-theme="nebula"] .btn-primary:hover,
+[data-theme="custom"] .btn-primary:hover {
+    background: var(--btn-primary-hover-bg, var(--primary-dark, #5558e3));
+    box-shadow: var(--btn-primary-hover-shadow, none);
 }
 
 [data-theme="dark"] .btn-secondary,
 [data-theme="dim"] .btn-secondary,
-[data-theme="nebula"] .btn-secondary {
-    background: var(--glass);
+[data-theme="nebula"] .btn-secondary,
+[data-theme="custom"] .btn-secondary {
+    background: var(--glass, rgba(255,255,255,0.08));
     color: var(--text-primary);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--glass-border, rgba(255,255,255,0.15));
 }
 
 [data-theme="dark"] .btn-secondary:hover,
 [data-theme="dim"] .btn-secondary:hover,
-[data-theme="nebula"] .btn-secondary:hover {
+[data-theme="nebula"] .btn-secondary:hover,
+[data-theme="custom"] .btn-secondary:hover {
     background: var(--glass-hover);
     border-color: var(--primary);
 }
