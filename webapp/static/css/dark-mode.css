@@ -561,6 +561,7 @@
 
 /* ============================================
    Markdown Tables (Custom/Shared themes)
+   משתמשים במשתני --md-* מ-split-view.css
    ============================================ */
 
 [data-theme="custom"] table,
@@ -570,8 +571,8 @@
     border-collapse: collapse;
     width: 100%;
     margin: 1rem 0;
-    background: var(--bg-tertiary, var(--card-bg, rgba(255,255,255,0.05)));
-    border: 1px solid var(--glass-border, rgba(255,255,255,0.1));
+    background: var(--md-table-bg, color-mix(in srgb, var(--text-primary, #f0f0f0) 8%, var(--bg-primary, #1e1e1e)));
+    border: 1px solid color-mix(in srgb, var(--text-primary, #f0f0f0) 15%, transparent);
     border-radius: 8px;
     overflow: hidden;
 }
@@ -580,7 +581,7 @@
 [data-theme-type="custom"] table thead,
 [data-theme="custom"] .split-preview-content table thead,
 [data-theme-type="custom"] .split-preview-content table thead {
-    background: var(--bg-secondary, rgba(255,255,255,0.08));
+    background: var(--md-table-header-bg, color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e)));
 }
 
 [data-theme="custom"] table th,
@@ -591,7 +592,7 @@
     text-align: right;
     font-weight: 600;
     color: var(--text-primary, #f0f0f0);
-    border-bottom: 2px solid var(--glass-border, rgba(255,255,255,0.15));
+    border-bottom: 2px solid color-mix(in srgb, var(--text-primary, #f0f0f0) 20%, transparent);
 }
 
 [data-theme="custom"] table td,
@@ -600,25 +601,26 @@
 [data-theme-type="custom"] .split-preview-content table td {
     padding: 0.6rem 1rem;
     color: var(--text-secondary, var(--text-primary, #e0e0e0));
-    border-bottom: 1px solid var(--glass-border, rgba(255,255,255,0.08));
+    border-bottom: 1px solid color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, transparent);
 }
 
 [data-theme="custom"] table tr:hover,
 [data-theme-type="custom"] table tr:hover,
 [data-theme="custom"] .split-preview-content table tr:hover,
 [data-theme-type="custom"] .split-preview-content table tr:hover {
-    background: var(--glass-hover, rgba(255,255,255,0.05));
+    background: color-mix(in srgb, var(--text-primary, #f0f0f0) 5%, transparent);
 }
 
 /* ============================================
    Inline Code (Custom/Shared themes)
+   --md-inline-code-bg: 12% של text-primary על bg-primary
    ============================================ */
 
 [data-theme="custom"] :not(pre) > code,
 [data-theme-type="custom"] :not(pre) > code,
 [data-theme="custom"] code.inline-code,
 [data-theme-type="custom"] code.inline-code {
-    background: var(--md-surface, var(--code-bg, rgba(255,255,255,0.1)));
+    background: var(--md-inline-code-bg, color-mix(in srgb, var(--text-primary, #f0f0f0) 12%, var(--bg-primary, #1e1e1e)));
     color: var(--md-text, var(--text-primary, #f0f0f0));
     padding: 0.15em 0.4em;
     border-radius: 4px;
@@ -628,13 +630,14 @@
 
 /* ============================================
    Mermaid Diagrams (Custom/Shared themes)
+   --md-mermaid-bg: 6% של text-primary על bg-primary
    ============================================ */
 
 [data-theme="custom"] .mermaid,
 [data-theme-type="custom"] .mermaid,
 [data-theme="custom"] .split-preview-content .mermaid,
 [data-theme-type="custom"] .split-preview-content .mermaid {
-    background: var(--bg-tertiary, var(--card-bg, rgba(255,255,255,0.03)));
+    background: var(--md-mermaid-bg, color-mix(in srgb, var(--text-primary, #f0f0f0) 6%, var(--bg-primary, #1e1e1e)));
     border-radius: 8px;
     padding: 1rem;
     margin: 1rem 0;
@@ -654,13 +657,13 @@
 [data-theme-type="custom"] .mermaid .node ellipse,
 [data-theme="custom"] .mermaid .node polygon,
 [data-theme-type="custom"] .mermaid .node polygon {
-    fill: var(--bg-secondary, rgba(255,255,255,0.08)) !important;
-    stroke: var(--glass-border, rgba(255,255,255,0.2)) !important;
+    fill: var(--md-mermaid-node-bg, color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e))) !important;
+    stroke: color-mix(in srgb, var(--text-primary, #f0f0f0) 25%, transparent) !important;
 }
 
 [data-theme="custom"] .mermaid .edgePath path,
 [data-theme-type="custom"] .mermaid .edgePath path {
-    stroke: var(--text-muted, rgba(255,255,255,0.5)) !important;
+    stroke: color-mix(in srgb, var(--text-primary, #f0f0f0) 40%, transparent) !important;
 }
 
 [data-theme="custom"] .mermaid .edgeLabel,

@@ -232,8 +232,24 @@
 }
 
 /* Custom theme override - uses CSS variables from the custom theme */
+/* גישת color-mix: הדגשה עקבית מ-text-primary על bg-primary */
 :root[data-theme="custom"],
 :root[data-theme-type="custom"] {
+  /* ============================================
+     משתני Markdown - גישת color-mix עקבית
+     --md-inline-code-bg: 12% של text-primary על bg-primary
+     --md-code-bg: 8%
+     --md-code-header-bg: 10%
+     ============================================ */
+  --md-inline-code-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 12%, var(--bg-primary, #1e1e1e));
+  --md-code-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 8%, var(--bg-primary, #1e1e1e));
+  --md-code-header-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
+  --md-table-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 8%, var(--bg-primary, #1e1e1e));
+  --md-table-header-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
+  --md-mermaid-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 6%, var(--bg-primary, #1e1e1e));
+  --md-mermaid-node-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
+
+  /* Split View משתנים */
   --split-container-bg: color-mix(in srgb, var(--bg-tertiary, var(--card-bg, #2a2d40)) 50%, transparent);
   --split-container-border: var(--glass-border, rgba(255, 255, 255, 0.1));
   --split-toolbar-bg: color-mix(in srgb, var(--bg-secondary, #1f2937) 80%, transparent);
