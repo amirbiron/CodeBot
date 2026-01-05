@@ -416,6 +416,171 @@
 
 אם הערכה מגדירה צבע רק ל-``variableName``, כל ההגדרות שיורשות ממנו יקבלו את אותו הצבע עד שתוגדר דריסה ספציפית.
 
+CodeMirror CSS Classes
+~~~~~~~~~~~~~~~~~~~~~~
+
+מעבר ל-Tags המשמשים ב-``HighlightStyle.define()``, המערכת תומכת גם ב-CSS Classes עבור ``classHighlighter``. אלו מאפשרים דריסה ישירה ב-CSS:
+
+**Classes בסיסיים:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - CSS Class
+     - תיאור
+   * - ``.tok-comment``
+     - הערות
+   * - ``.tok-string``, ``.tok-string2``
+     - מחרוזות (רגילות / template)
+   * - ``.tok-keyword``
+     - מילות מפתח
+   * - ``.tok-number``
+     - מספרים
+   * - ``.tok-operator``
+     - אופרטורים
+   * - ``.tok-punctuation``
+     - סימני פיסוק
+   * - ``.tok-atom``, ``.tok-bool``
+     - קבועים וערכי boolean
+   * - ``.tok-literal``
+     - ערכים ליטרליים
+
+**משתנים ופונקציות:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - CSS Class
+     - תיאור
+   * - ``.tok-variableName``
+     - משתנים רגילים
+   * - ``.tok-variableName.tok-definition``
+     - הגדרות משתנים (צבע שונה)
+   * - ``.tok-variableName.tok-local``
+     - משתנים מקומיים (לעתים עם italic)
+   * - ``.tok-variableName2``
+     - משתנים מיוחדים (self, this, super)
+   * - ``.tok-function``
+     - פונקציות
+   * - ``.tok-macroName``
+     - מאקרו / decorators
+
+**טיפוסים ומחלקות:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - CSS Class
+     - תיאור
+   * - ``.tok-className``
+     - שמות מחלקות
+   * - ``.tok-typeName``
+     - שמות טיפוסים
+   * - ``.tok-namespace``
+     - namespaces / modules
+   * - ``.tok-propertyName``
+     - שמות properties
+   * - ``.tok-propertyName.tok-definition``
+     - הגדרות properties
+
+**HTML/XML:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - CSS Class
+     - תיאור
+   * - ``.tok-tagName``
+     - תגיות HTML/XML
+   * - ``.tok-attributeName``
+     - מאפיינים
+   * - ``.tok-angleBracket``
+     - סוגריים זוויתיים ``< >``
+
+**עיצוב טקסט (Markdown):**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - CSS Class
+     - תיאור
+   * - ``.tok-heading``
+     - כותרות
+   * - ``.tok-emphasis``
+     - טקסט נטוי (italic)
+   * - ``.tok-strong``
+     - טקסט מודגש (bold)
+   * - ``.tok-link``, ``.tok-url``
+     - קישורים
+   * - ``.tok-quote``
+     - ציטוטים
+   * - ``.tok-monospace``
+     - קוד inline
+
+**מיוחדים:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - CSS Class
+     - תיאור
+   * - ``.tok-meta``
+     - מטא-דאטה
+   * - ``.tok-labelName``
+     - labels
+   * - ``.tok-inserted``
+     - שורות שנוספו (git diff)
+   * - ``.tok-deleted``
+     - שורות שנמחקו (git diff)
+   * - ``.tok-changed``
+     - שורות ששונו
+   * - ``.tok-invalid``
+     - קוד לא תקין
+
+**דוגמת CSS לדריסה:**
+
+.. code-block:: css
+
+   /* דריסת צבע הגדרות פונקציות */
+   :root[data-theme="custom"] .tok-variableName.tok-definition {
+       color: #7aa2f7 !important;
+       font-weight: bold !important;
+   }
+
+   /* משתנים מקומיים באיטליק */
+   :root[data-theme="custom"] .tok-variableName.tok-local {
+       color: #bb9af7 !important;
+       font-style: italic !important;
+   }
+
+   /* self/this בצבע מיוחד */
+   :root[data-theme="custom"] .tok-variableName2 {
+       color: #f7768e !important;
+   }
+
+   /* שורות שנוספו בדיף */
+   :root[data-theme="custom"] .tok-inserted {
+       color: #9ece6a !important;
+       background: rgba(158, 206, 106, 0.1);
+   }
+
+   /* שורות שנמחקו בדיף */
+   :root[data-theme="custom"] .tok-deleted {
+       color: #f7768e !important;
+       background: rgba(247, 118, 142, 0.1);
+   }
+
+.. note::
+
+   ה-``!important`` נדרש כדי לדרוס את ה-inline styles שמוזרקים על ידי CodeMirror themes.
+   הסלקטור ``:root[data-theme="custom"]`` מבטיח שהדריסות יחולו רק כשערכה מותאמת פעילה.
+
 אבטחה וולידציה
 --------------
 
