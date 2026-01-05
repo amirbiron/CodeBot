@@ -1500,6 +1500,13 @@
             background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg)) !important;
             color: var(--btn-primary-hover-color, var(--btn-primary-color)) !important;
         }
+        /* Links for shared themes */
+        [data-theme^="shared:"] a:not(.btn) {
+            color: var(--link-color, var(--primary));
+        }
+        [data-theme^="shared:"] a:not(.btn):hover {
+            color: var(--primary-hover, var(--secondary));
+        }
     </style>
 </head>
 <body>

@@ -2768,88 +2768,84 @@
         waitForManager();
       };
 
-      // ========== Admin Shared Themes Management ==========
-      const initSharedThemesAdmin = async () => {
-        const card = document.getElementById('sharedThemesAdminCard');
-        const listEl = document.getElementById('sharedThemesAdminList');
-        if (!card || !listEl) return;
+      // ========== Admin: Shared Themes Management ==========
+      const sharedThemesAdminList = document.getElementById('sharedThemesAdminList');
 
-        const renderThemes = (themes) => {
-          if (!themes || !themes.length) {
-            listEl.innerHTML = '<div class="radar-empty-state">אין ערכות ציבוריות</div>';
-            return;
-          }
-
-          const html = themes.map(t => {
-            const id = escapeHtml(t.id || '');
-            const name = escapeHtml(t.name || t.id || '');
-            const slug = escapeHtml(t.slug || '');
-            const featured = t.is_featured ? '<span class="badge" style="background: gold; color: #000; font-size: 0.75rem;">⭐ מומלצת</span>' : '';
-            const downloads = typeof t.downloads === 'number' ? `${t.downloads} הורדות` : '';
-            return `
-              <div class="admin-shared-theme-item" data-theme-id="${id}">
-                <div class="admin-shared-theme-info">
-                  <strong>${name}</strong> ${featured}
-                  <div style="font-size: 0.85rem; opacity: 0.8;">
-                    <code dir="ltr">${slug}</code>
-                    ${downloads ? ` • ${downloads}` : ''}
-                  </div>
-                </div>
-                <div class="admin-shared-theme-actions">
-                  <button class="btn btn-danger btn-sm" data-delete-theme="${id}" title="מחק ערכה ציבורית">
-                    <i class="fas fa-trash"></i>
-                    מחק
-                  </button>
-                </div>
-              </div>
-            `;
-          }).join('');
-          listEl.innerHTML = html;
-
-          // Bind delete buttons
-          listEl.querySelectorAll('[data-delete-theme]').forEach(btn => {
-            btn.addEventListener('click', async () => {
-              const themeId = btn.getAttribute('data-delete-theme');
-              if (!themeId) return;
-              if (!confirm(`האם למחוק את הערכה הציבורית? פעולה זו אינה ניתנת לביטול.`)) return;
-              
-              btn.disabled = true;
-              btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-              
-              try {
-                const res = await fetch(`/api/themes/shared/${encodeURIComponent(themeId)}`, { method: 'DELETE' });
-                const data = await res.json();
-                if (!res.ok || !data.ok) {
-                  throw new Error(data.error || 'delete_failed');
-                }
-                // Remove from list
-                const item = btn.closest('.admin-shared-theme-item');
-                if (item) item.remove();
-                
-                // Check if list is empty
-                if (!listEl.querySelector('.admin-shared-theme-item')) {
-                  listEl.innerHTML = '<div class="radar-empty-state">אין ערכות ציבוריות</div>';
-                }
-              } catch (err) {
-                console.error('Delete shared theme failed:', err);
-                alert('שגיאה במחיקת הערכה: ' + (err.message || 'unknown'));
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-trash"></i> מחק';
-              }
-            });
-          });
-        };
-
+      async function loadSharedThemesAdmin() {
+        if (!sharedThemesAdminList) return;
         try {
           const res = await fetch('/api/themes/list');
           const data = await res.json();
-          if (!res.ok || !data.ok) throw new Error(data.error || 'load_failed');
-          const sharedThemes = (data.themes || []).filter(t => t && t.type === 'shared');
-          renderThemes(sharedThemes);
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'load_failed');
+          }
+          const themes = Array.isArray(data.themes) ? data.themes : [];
+          const shared = themes.filter(t => t && t.type === 'shared' && t.id);
+          renderSharedThemesAdmin(shared);
         } catch (err) {
-          console.error('Failed to load shared themes:', err);
-          listEl.innerHTML = '<div class="radar-empty-state">שגיאה בטעינת ערכות ציבוריות</div>';
+          console.error('Error loading shared themes for admin:', err);
+          sharedThemesAdminList.innerHTML = '<div class="shared-themes-empty">שגיאה בטעינת ערכות ציבוריות</div>';
         }
+      }
+
+      function renderSharedThemesAdmin(themes) {
+        if (!sharedThemesAdminList) return;
+        if (!themes || themes.length === 0) {
+          sharedThemesAdminList.innerHTML = '<div class="shared-themes-empty"><i class="fas fa-info-circle"></i> אין ערכות ציבוריות. פרסם ערכה מתוך בונה ערכות הנושא.</div>';
+          return;
+        }
+
+        sharedThemesAdminList.innerHTML = themes.map(t => `
+          <div class="shared-theme-admin-item" data-theme-id="${escapeHtml(t.id)}" data-theme-name="${escapeHtml(t.name)}">
+            <div class="theme-info">
+              <span class="theme-name">${t.is_featured ? '⭐ ' : ''}${escapeHtml(t.name)}</span>
+              <span class="theme-meta">מזהה: ${escapeHtml(t.id)}${t.created_at ? ' | נוצרה: ' + escapeHtml(formatDateTime(t.created_at)) : ''}</span>
+            </div>
+            <div class="theme-actions">
+              <button type="button" class="btn-delete-shared" title="מחק ערכה ציבורית">
+                <i class="fas fa-trash"></i> מחק
+              </button>
+            </div>
+          </div>
+        `).join('');
+
+        // Event delegation למניעת בעיות XSS/escaping עם onclick inline
+        sharedThemesAdminList.querySelectorAll('.btn-delete-shared').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const item = this.closest('.shared-theme-admin-item');
+            if (item) {
+              const themeId = item.dataset.themeId;
+              const themeName = item.dataset.themeName;
+              deleteSharedTheme(themeId, themeName);
+            }
+          });
+        });
+      }
+
+      window.deleteSharedTheme = async function deleteSharedTheme(themeId, themeName) {
+        if (!themeId) return;
+        if (!confirm(`האם למחוק את הערכה הציבורית "${themeName || themeId}"? פעולה זו אינה הפיכה.`)) {
+          return;
+        }
+        try {
+          const res = await fetch(`/api/themes/shared/${encodeURIComponent(themeId)}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'delete_failed');
+          }
+          // רענון הרשימות
+          await loadSharedThemesAdmin();
+          await loadThemesList();
+          alert('הערכה נמחקה בהצלחה!');
+        } catch (e) {
+          console.error('deleteSharedTheme failed:', e);
+          alert('שגיאה במחיקת הערכה הציבורית: ' + (e.message || 'Unknown error'));
+        }
+      };
+
+      // טען את רשימת הערכות הציבוריות לאדמין
+      const initSharedThemesAdmin = () => {
+        loadSharedThemesAdmin();
       };
 
       const initAfterDom = () => {
