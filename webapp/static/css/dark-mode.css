@@ -560,6 +560,116 @@
 }
 
 /* ============================================
+   Markdown Tables (Custom/Shared themes)
+   ============================================ */
+
+[data-theme="custom"] table,
+[data-theme-type="custom"] table,
+[data-theme="custom"] .split-preview-content table,
+[data-theme-type="custom"] .split-preview-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    background: var(--bg-tertiary, var(--card-bg, rgba(255,255,255,0.05)));
+    border: 1px solid var(--glass-border, rgba(255,255,255,0.1));
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+[data-theme="custom"] table thead,
+[data-theme-type="custom"] table thead,
+[data-theme="custom"] .split-preview-content table thead,
+[data-theme-type="custom"] .split-preview-content table thead {
+    background: var(--bg-secondary, rgba(255,255,255,0.08));
+}
+
+[data-theme="custom"] table th,
+[data-theme-type="custom"] table th,
+[data-theme="custom"] .split-preview-content table th,
+[data-theme-type="custom"] .split-preview-content table th {
+    padding: 0.75rem 1rem;
+    text-align: right;
+    font-weight: 600;
+    color: var(--text-primary, #f0f0f0);
+    border-bottom: 2px solid var(--glass-border, rgba(255,255,255,0.15));
+}
+
+[data-theme="custom"] table td,
+[data-theme-type="custom"] table td,
+[data-theme="custom"] .split-preview-content table td,
+[data-theme-type="custom"] .split-preview-content table td {
+    padding: 0.6rem 1rem;
+    color: var(--text-secondary, var(--text-primary, #e0e0e0));
+    border-bottom: 1px solid var(--glass-border, rgba(255,255,255,0.08));
+}
+
+[data-theme="custom"] table tr:hover,
+[data-theme-type="custom"] table tr:hover,
+[data-theme="custom"] .split-preview-content table tr:hover,
+[data-theme-type="custom"] .split-preview-content table tr:hover {
+    background: var(--glass-hover, rgba(255,255,255,0.05));
+}
+
+/* ============================================
+   Inline Code (Custom/Shared themes)
+   ============================================ */
+
+[data-theme="custom"] :not(pre) > code,
+[data-theme-type="custom"] :not(pre) > code,
+[data-theme="custom"] code.inline-code,
+[data-theme-type="custom"] code.inline-code {
+    background: var(--md-surface, var(--code-bg, rgba(255,255,255,0.1)));
+    color: var(--md-text, var(--text-primary, #f0f0f0));
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+}
+
+/* ============================================
+   Mermaid Diagrams (Custom/Shared themes)
+   ============================================ */
+
+[data-theme="custom"] .mermaid,
+[data-theme-type="custom"] .mermaid,
+[data-theme="custom"] .split-preview-content .mermaid,
+[data-theme-type="custom"] .split-preview-content .mermaid {
+    background: var(--bg-tertiary, var(--card-bg, rgba(255,255,255,0.03)));
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+/* Mermaid text colors - override defaults for custom themes */
+[data-theme="custom"] .mermaid text,
+[data-theme-type="custom"] .mermaid text {
+    fill: var(--text-primary, #f0f0f0) !important;
+}
+
+[data-theme="custom"] .mermaid .node rect,
+[data-theme-type="custom"] .mermaid .node rect,
+[data-theme="custom"] .mermaid .node circle,
+[data-theme-type="custom"] .mermaid .node circle,
+[data-theme="custom"] .mermaid .node ellipse,
+[data-theme-type="custom"] .mermaid .node ellipse,
+[data-theme="custom"] .mermaid .node polygon,
+[data-theme-type="custom"] .mermaid .node polygon {
+    fill: var(--bg-secondary, rgba(255,255,255,0.08)) !important;
+    stroke: var(--glass-border, rgba(255,255,255,0.2)) !important;
+}
+
+[data-theme="custom"] .mermaid .edgePath path,
+[data-theme-type="custom"] .mermaid .edgePath path {
+    stroke: var(--text-muted, rgba(255,255,255,0.5)) !important;
+}
+
+[data-theme="custom"] .mermaid .edgeLabel,
+[data-theme-type="custom"] .mermaid .edgeLabel {
+    background: var(--bg-primary, #1e1e1e) !important;
+    color: var(--text-primary, #f0f0f0) !important;
+}
+
+/* ============================================
    Mobile Adjustments
    ============================================ */
 
