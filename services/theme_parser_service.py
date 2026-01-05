@@ -104,8 +104,8 @@ VSCODE_TO_CSS_MAP = {
     "button.foreground": "--btn-primary-color",
     "button.hoverBackground": "--btn-primary-hover-bg",
     "focusBorder": "--primary",
-    "textLink.foreground": "--link-color",
-    "textLink.activeForeground": "--primary-hover",
+    "textLink.foreground": ["--link-color", "--btn-link-color"],
+    "textLink.activeForeground": ["--primary-hover", "--btn-link-hover-color"],
 
     # גבולות
     "input.border": "--input-border",
@@ -589,6 +589,30 @@ def _compute_derived_colors(variables: dict) -> dict:
 
     if "--btn-primary-bg" in result and "--btn-primary-shadow" not in result:
         result["--btn-primary-shadow"] = color_with_opacity(result["--btn-primary-bg"], 0.3)
+
+    # גזירת טוקני כפתורים משניים (Secondary Buttons)
+    # VS Code אין לו כפתורים משניים, אז נגזור מצבעים קיימים
+    if "--btn-secondary-color" not in result:
+        # צבע טקסט משני = צבע טקסט ראשי
+        result["--btn-secondary-color"] = result.get("--text-primary", "#ffffff")
+
+    if "--btn-secondary-bg" not in result and "--glass" in result:
+        # רקע משני = glass (שקוף למחצה)
+        result["--btn-secondary-bg"] = result["--glass"]
+
+    if "--btn-secondary-border" not in result and "--glass-border" in result:
+        result["--btn-secondary-border"] = result["--glass-border"]
+
+    if "--btn-secondary-hover-color" not in result:
+        result["--btn-secondary-hover-color"] = result.get("--btn-secondary-color", result.get("--text-primary", "#ffffff"))
+
+    # גזירת צבעי כפתורי לינק (Link Buttons)
+    if "--btn-link-color" not in result:
+        # כפתור לינק = צבע לינק או primary
+        result["--btn-link-color"] = result.get("--link-color", result.get("--primary", "#667eea"))
+
+    if "--btn-link-hover-color" not in result:
+        result["--btn-link-hover-color"] = result.get("--primary-hover", result.get("--secondary", "#764ba2"))
 
     return result
 
