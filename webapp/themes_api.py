@@ -240,6 +240,7 @@ def publish_shared_theme():
     description = data.get("description", "")
     is_featured = bool(data.get("is_featured", False))
     syntax_css = data.get("syntax_css")  # optional
+    syntax_colors = data.get("syntax_colors")  # optional - dict for dynamic HighlightStyle
 
     if not slug:
         return jsonify({"ok": False, "error": "missing_slug"}), 400
@@ -258,6 +259,7 @@ def publish_shared_theme():
             description=description,
             is_featured=is_featured,
             syntax_css=str(syntax_css) if isinstance(syntax_css, str) else None,
+            syntax_colors=syntax_colors if isinstance(syntax_colors, dict) else None,
         )
 
         if not success:
@@ -299,6 +301,7 @@ def update_shared_theme(theme_id: str):
             is_featured=data.get("is_featured"),
             is_active=data.get("is_active"),
             syntax_css=data.get("syntax_css"),
+            syntax_colors=data.get("syntax_colors"),
         )
         if not success:
             if result == "theme_not_found":

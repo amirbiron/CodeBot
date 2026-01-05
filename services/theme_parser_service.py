@@ -69,6 +69,11 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     # Level 2 - Markdown & Split View
     "--md-surface", "--md-text",
     "--split-preview-bg", "--split-preview-meta", "--split-preview-placeholder",
+
+    # Level 2 - Markdown Enhanced (inline code, tables, mermaid)
+    "--md-inline-code-bg", "--md-inline-code-border", "--md-inline-code-color",
+    "--md-table-bg", "--md-table-border", "--md-table-header-bg",
+    "--md-mermaid-bg",
 ])
 
 
