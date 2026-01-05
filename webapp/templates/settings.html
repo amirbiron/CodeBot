@@ -1713,18 +1713,30 @@
         }
 
         sharedThemesAdminList.innerHTML = themes.map(t => `
-          <div class="shared-theme-admin-item" data-theme-id="${t.id}">
+          <div class="shared-theme-admin-item" data-theme-id="${escapeHtml(t.id)}" data-theme-name="${escapeHtml(t.name)}">
             <div class="theme-info">
               <span class="theme-name">${t.is_featured ? '⭐ ' : ''}${escapeHtml(t.name)}</span>
               <span class="theme-meta">מזהה: ${escapeHtml(t.id)}${t.created_at ? ' | נוצרה: ' + formatDateTime(t.created_at) : ''}</span>
             </div>
             <div class="theme-actions">
-              <button type="button" class="btn-delete-shared" onclick="deleteSharedTheme('${escapeHtml(t.id)}', '${escapeHtml(t.name)}')" title="מחק ערכה ציבורית">
+              <button type="button" class="btn-delete-shared" title="מחק ערכה ציבורית">
                 <i class="fas fa-trash"></i> מחק
               </button>
             </div>
           </div>
         `).join('');
+
+        // Event delegation למניעת בעיות XSS/escaping עם onclick inline
+        sharedThemesAdminList.querySelectorAll('.btn-delete-shared').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const item = this.closest('.shared-theme-admin-item');
+            if (item) {
+              const themeId = item.dataset.themeId;
+              const themeName = item.dataset.themeName;
+              deleteSharedTheme(themeId, themeName);
+            }
+          });
+        });
       }
 
       window.deleteSharedTheme = async function deleteSharedTheme(themeId, themeName) {
