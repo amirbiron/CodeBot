@@ -966,8 +966,6 @@
     let loadedThemeId = null;
     let hasUnsavedChanges = false;
     let currentThemeSyntaxCss = '';
-    // 🆕 שמירת כל המשתנים של הערכה המקורית (לא רק מה שבטופס) - חשוב לפרסום!
-    let currentThemeAllVariables = {};
 
     // ========== DOM Elements ==========
     const themesList = document.getElementById('themesList');
@@ -1594,8 +1592,6 @@
 
         const variables = theme.variables || {};
         currentThemeSyntaxCss = (theme && typeof theme.syntax_css === 'string') ? theme.syntax_css : '';
-        // 🆕 שמירת כל המשתנים של הערכה המקורית (לא רק מה שבטופס)
-        currentThemeAllVariables = { ...variables };
 
         Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
             const textInput = document.getElementById(pickrId + 'Text');
@@ -1649,7 +1645,6 @@
         isThemeLoading = false;
         loadedThemeId = null;
         currentThemeSyntaxCss = '';
-        currentThemeAllVariables = {};
         renderThemesList();
 
         _suppressTracking = true;
@@ -1790,10 +1785,7 @@
             const description = (document.getElementById('publishDescription')?.value || '').trim();
             const isFeatured = !!document.getElementById('publishFeatured')?.checked;
 
-            // 🔑 מיזוג: נתחיל מכל המשתנים של הערכה המקורית, ואז נדרוס עם מה שבטופס
-            // כך נשמרים גם משתנים שאין להם pickr (כמו --code-bg, --primary-hover וכו')
-            const formColors = collectThemeValues();
-            const colors = { ...currentThemeAllVariables, ...formColors };
+            const colors = collectThemeValues();
 
             try {
                 if (publishSubmitBtn) publishSubmitBtn.disabled = true;

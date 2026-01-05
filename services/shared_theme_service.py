@@ -372,3 +372,4 @@ def get_shared_theme_service():
         _shared_theme_service = SharedThemeService(db)
 
     return _shared_theme_service
+

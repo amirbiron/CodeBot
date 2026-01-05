@@ -118,9 +118,8 @@
   --tooltip-text: white;
 }
 
-/* === Custom/Shared theme override - uses CSS variables from the custom/shared theme === */
-:root[data-theme="custom"],
-:root[data-theme-type="custom"] {
+/* === Custom theme override - uses CSS variables from the custom theme === */
+:root[data-theme="custom"] {
   --details-border: var(--glass-border, #30363d);
   --details-bg: var(--bg-secondary, #0d1117);
   --details-hover: var(--bg-tertiary, #161b22);
