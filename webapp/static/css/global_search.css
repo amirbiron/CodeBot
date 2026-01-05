@@ -82,6 +82,7 @@
 
 /* כרטיס תוצאת חיפוש */
 .search-result-card{
+  direction:ltr;
   width:100%;
   margin:0 auto;
   padding:1.5rem;
@@ -113,7 +114,8 @@
 .file-info{
   display:flex;
   align-items:center;
-  gap:0.85rem;
+  justify-content:flex-start;
+  gap:10px;
   min-width:0;
   flex:1;
 }
@@ -139,12 +141,12 @@
 }
 
 .search-result-card .global-search-lang-badge{
-  flex-shrink:0;
-  order:1;
+  order:unset !important;
+  margin-left:auto;
 }
 
 .result-card-header .file-info{
-  order:2;
+  order:unset !important;
   text-align:left;
 }
 
