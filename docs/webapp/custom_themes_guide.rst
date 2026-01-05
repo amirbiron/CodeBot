@@ -829,18 +829,34 @@ Endpoints
 
 .. warning::
 
-   **בעיית אובדן משתנים:** כשמפרסמים ערכה, הטופס מציג רק 10 משתנים (עם color pickers).
-   אם לא נשמור את כל המשתנים המקוריים, ערכות VS Code יאבדו את רוב הסגנונות!
+   **בעיית אובדן משתנים:** כשמפרסמים ערכה, הטופס מציג רק ~10 משתנים (עם color pickers).
+   אם לא נשמור את כל הנתונים המקוריים, ערכות VS Code יאבדו סגנונות!
 
-   **הפתרון:** שמירת ``currentThemeAllVariables`` בטעינת ערכה ומיזוג בפרסום:
+   **הפתרון:** שמירת נתונים מקוריים בטעינת ערכה ומיזוג בפרסום:
 
    .. code-block:: javascript
 
-      // בטעינת ערכה
-      currentThemeAllVariables = { ...theme.variables };
+      // משתנים לשמירה בטעינת ערכה
+      let currentThemeOriginalVariables = {};  // משתני CSS מקוריים
+      let currentThemeSyntaxCss = '';          // CSS להדגשת תחביר
+      let currentThemeSyntaxColors = {};       // מילון צבעים ל-HighlightStyle
 
-      // בפרסום
-      const colors = { ...currentThemeAllVariables, ...collectThemeValues() };
+      // בטעינת ערכה
+      currentThemeOriginalVariables = { ...theme.variables };
+      currentThemeSyntaxCss = theme.syntax_css || '';
+      currentThemeSyntaxColors = theme.syntax_colors || {};
+
+      // בפרסום - מיזוג (ערכי הטופס דורסים את המקוריים)
+      const colors = { ...currentThemeOriginalVariables, ...collectThemeValues() };
+
+   **חשוב:** יש לוודא שמשתני ``--md-*`` נמצאים ב-whitelist של ``theme_parser_service.py``:
+
+   .. code-block:: python
+
+      # Level 2 - Markdown Enhanced (חייב להיות ב-whitelist!)
+      "--md-inline-code-bg", "--md-inline-code-border", "--md-inline-code-color",
+      "--md-table-bg", "--md-table-border", "--md-table-header-bg",
+      "--md-mermaid-bg",
 
 מבנה מסמך בDB
 ~~~~~~~~~~~~~
@@ -856,13 +872,18 @@ Endpoints
            "--bg-primary": "#282a36",
            "--text-primary": "#f8f8f2",
            "--primary": "#bd93f9",
-           # ... 40+ משתנים נוספים
+           # ... משתנים נוספים
        },
        "syntax_css": """
            .tok-keyword { color: #ff79c6; }
            .tok-string { color: #f1fa8c; }
            .source .k { color: #ff79c6; }
        """,
+       "syntax_colors": {                 # 🆕 מילון צבעים ל-HighlightStyle
+           "keyword": {"color": "#ff79c6"},
+           "string": {"color": "#f1fa8c"},
+           "comment": {"color": "#6272a4", "fontStyle": "italic"},
+       },
        "created_by": 6865105071,
        "created_at": ISODate("..."),
        "is_active": true,

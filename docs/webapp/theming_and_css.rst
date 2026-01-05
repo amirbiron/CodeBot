@@ -291,87 +291,39 @@ Component Tokens ו‑Theme Builder
 
 .. _color-mix-approach:
 
-גישת color-mix להדגשות עקביות
------------------------------
+משתני Markdown (``--md-*``)
+---------------------------
 
-במקום להשתמש בצבעים קשיחים או שקיפות ידנית (``rgba``), המערכת משתמשת בגישת ``color-mix`` עקבית עבור רכיבי Markdown. הרעיון: יצירת הדגשה מבוססת על צבעי הערכה עצמה.
+רכיבי Markdown (inline code, טבלאות, Mermaid) משתמשים במשתני ``--md-*`` ייעודיים.
 
-**הנוסחה הבסיסית:**
-
-.. code-block:: text
-
-   /* X% של text-primary על bg-primary */
-   color-mix(in srgb, var(--text-primary) X%, var(--bg-primary))
-
-**אחוזי הדגשה סטנדרטיים:**
+**משתנים נתמכים:**
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 15 55
+   :widths: 40 60
 
    * - משתנה
-     - אחוז
      - שימוש
-   * - ``--md-inline-code-bg``
-     - 12%
-     - רקע של inline code – בולט יותר
-   * - ``--md-code-header-bg``
-     - 10%
-     - כותרת בלוק קוד / כותרת טבלה
-   * - ``--md-code-bg``
-     - 8%
-     - רקע בלוק קוד / רקע טבלה
-   * - ``--md-table-bg``
-     - 8%
-     - רקע טבלת Markdown
-   * - ``--md-table-header-bg``
-     - 10%
-     - כותרת טבלת Markdown
+   * - ``--md-inline-code-bg``, ``--md-inline-code-color``, ``--md-inline-code-border``
+     - רקע, צבע וגבול של inline code
+   * - ``--md-table-bg``, ``--md-table-header-bg``, ``--md-table-border``
+     - רקע טבלאות Markdown
    * - ``--md-mermaid-bg``
-     - 6%
-     - רקע דיאגרמת Mermaid (עדין)
-   * - ``--md-mermaid-node-bg``
-     - 10%
-     - צמתים בדיאגרמה
+     - רקע דיאגרמות Mermaid
 
-**דוגמת הגדרה ב‑split-view.css:**
+**חשוב:** משתנים אלה חייבים להיות ב-whitelist של ``theme_parser_service.py`` כדי שיישמרו בפרסום ערכות.
 
-.. code-block:: text
+.. tip::
 
-   :root[data-theme="custom"],
-   :root[data-theme-type="custom"] {
-     /* משתני Markdown - גישת color-mix עקבית */
-     --md-inline-code-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 12%, var(--bg-primary, #1e1e1e));
-     --md-code-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 8%, var(--bg-primary, #1e1e1e));
-     --md-code-header-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
-     --md-table-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 8%, var(--bg-primary, #1e1e1e));
-     --md-table-header-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
-     --md-mermaid-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 6%, var(--bg-primary, #1e1e1e));
-     --md-mermaid-node-bg: color-mix(in srgb, var(--text-primary, #f0f0f0) 10%, var(--bg-primary, #1e1e1e));
-   }
+   **גישת color-mix (אופציונלי):** אם ערכה לא מגדירה משתני ``--md-*``, ניתן לחשב אותם דינמית:
 
-**שימוש ב‑dark-mode.css:**
+   .. code-block:: text
 
-.. code-block:: text
+      /* X% של text-primary על bg-primary */
+      --md-inline-code-bg: color-mix(in srgb, var(--text-primary) 12%, var(--bg-primary));
+      --md-table-bg: color-mix(in srgb, var(--text-primary) 8%, var(--bg-primary));
 
-   /* טבלאות - עם fallback לערכות שלא מגדירות את המשתנה */
-   [data-theme="custom"] table,
-   [data-theme-type="custom"] table {
-       background: var(--md-table-bg, color-mix(in srgb, var(--text-primary) 8%, var(--bg-primary)));
-   }
-
-   /* inline code */
-   [data-theme="custom"] :not(pre) > code,
-   [data-theme-type="custom"] :not(pre) > code {
-       background: var(--md-inline-code-bg, color-mix(in srgb, var(--text-primary) 12%, var(--bg-primary)));
-   }
-
-**יתרונות הגישה:**
-
-1. **עקביות אוטומטית** – ההדגשות מתאימות את עצמן לצבעי הערכה
-2. **תחזוקה קלה** – שינוי אחוז במקום אחד משפיע על כל השימושים
-3. **תמיכה בערכות מיובאות** – עובד עם כל ערכת VS Code ללא התאמות ידניות
-4. **ניגודיות מובטחת** – היחס בין הטקסט לרקע נשמר
+   אחוזים מומלצים: inline code 12%, כותרות 10%, רקעים 8%, Mermaid 6%.
 
 .. _shared-themes-css:
 

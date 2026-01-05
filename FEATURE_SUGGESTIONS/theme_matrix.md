@@ -22,25 +22,28 @@
 | ``--split-preview-*`` | מוגדר בערכי ברירת מחדל ב-`split-view.css` | ✔️ | ✔️ (rgba בגוון כחול) | ✔️ (rgba ירוק) | ✔️ (rgba סגלגל) | ✔️ (שחור/לבן/צהוב) | ✔️ |
 | ``--search-*`` | משתמש בערכי ברירת מחדל כהים | צל ייחודי `rgba(7,7,31,0.35)` | צל כחול + הדגשת info | צל ירוק | מדגיש צבעי עץ | שחור/לבן עם צהוב (WCAG) | ✔️ |
 
-## גישת color-mix לערכות Custom/Shared
+## שמירת משתנים בפרסום ערכות
 
-עבור ערכות מותאמות (Custom) וערכות משותפות (Shared), משתני Markdown מחושבים אוטומטית באמצעות `color-mix`:
+כשמפרסמים ערכה מותאמת לציבורית, חשוב לשמור את **כל** הנתונים המקוריים:
 
-```css
-/* הנוסחה: X% של text-primary על bg-primary */
---md-inline-code-bg: color-mix(in srgb, var(--text-primary) 12%, var(--bg-primary));
---md-code-bg: color-mix(in srgb, var(--text-primary) 8%, var(--bg-primary));
---md-table-bg: color-mix(in srgb, var(--text-primary) 8%, var(--bg-primary));
---md-mermaid-bg: color-mix(in srgb, var(--text-primary) 6%, var(--bg-primary));
+```javascript
+// ב-theme_builder.html - שמירת נתונים בטעינת ערכה
+let currentThemeOriginalVariables = { ...theme.variables };
+let currentThemeSyntaxCss = theme.syntax_css || '';
+let currentThemeSyntaxColors = theme.syntax_colors || {};
+
+// בפרסום - מיזוג (ערכי טופס דורסים מקוריים)
+const colors = { ...currentThemeOriginalVariables, ...collectThemeValues() };
 ```
 
-**אחוזים סטנדרטיים:**
-| אחוז | שימוש |
-| --- | --- |
-| 12% | Inline code (בולט) |
-| 10% | כותרות טבלאות/קוד |
-| 8% | רקע טבלאות/קוד |
-| 6% | רקע Mermaid (עדין) |
+**Whitelist:** משתני `--md-*` חייבים להיות ב-`theme_parser_service.py`:
+```python
+"--md-inline-code-bg", "--md-inline-code-border", "--md-inline-code-color",
+"--md-table-bg", "--md-table-border", "--md-table-header-bg",
+"--md-mermaid-bg",
+```
+
+> **טיפ:** אם ערכה לא מגדירה `--md-*`, אפשר לחשב עם `color-mix` (12% inline, 10% headers, 8% bg, 6% mermaid).
 
 ## Shared Themes ו-CSS Selectors
 
