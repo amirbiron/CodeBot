@@ -162,7 +162,8 @@
 [data-theme="dim"] .source,
 [data-theme="nebula"] .source {
     background: var(--code-bg) !important;
-    color: var(--code-text) !important;
+    /* ⚠️ אין להשתמש ב-color עם !important כאן - זה דורס את צבעי Pygments
+       (כמו .source .c, .source .s) שמגיעים מהסגנון github-dark */
     border: 1px solid var(--code-border);
 }
 
