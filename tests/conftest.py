@@ -16,6 +16,12 @@ import sys
 from pathlib import Path
 import importlib.util
 
+import pytest
+try:
+    from PIL import Image
+except ModuleNotFoundError:  # pragma: no cover
+    Image = None  # type: ignore[assignment]
+
 # Ensure safe, isolated test environment variables (no external IO)
 os.environ.setdefault('DISABLE_ACTIVITY_REPORTER', '1')
 os.environ.setdefault('DISABLE_DB', '1')
@@ -63,3 +69,11 @@ except ModuleNotFoundError:
         else:
             # If we cannot even locate the file, re-raise the original error
             raise
+
+
+@pytest.fixture(scope="session", autouse=True)
+def initialize_pillow_codecs():
+    """מניעת Race Condition בטעינת פורמטים (PNG) בזמן ריצה מקבילית."""
+    if Image is None:
+        return
+    Image.init()
