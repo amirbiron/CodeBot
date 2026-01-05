@@ -204,6 +204,7 @@ def _create_theme_document(
     description: str = "",
     source: str = "manual",
     syntax_css: str = "",
+    syntax_colors: dict | None = None,
     source_preset_id: str | None = None,
 ) -> dict:
     now = datetime.now(timezone.utc)
@@ -217,6 +218,7 @@ def _create_theme_document(
         "variables": variables,
         "source": (source or "manual").strip().lower(),
         "syntax_css": syntax_css if isinstance(syntax_css, str) else "",
+        "syntax_colors": syntax_colors if isinstance(syntax_colors, dict) else {},
     }
     if source_preset_id:
         doc["source_preset_id"] = str(source_preset_id)
@@ -368,6 +370,7 @@ def get_theme_details(theme_id: str):
                     "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
                     "variables": theme.get("variables", {}) if isinstance(theme.get("variables"), dict) else {},
                     "syntax_css": theme.get("syntax_css", "") if isinstance(theme.get("syntax_css", ""), str) else "",
+                    "syntax_colors": theme.get("syntax_colors", {}) if isinstance(theme.get("syntax_colors"), dict) else {},
                     "source": theme.get("source", "") if isinstance(theme.get("source", ""), str) else "",
                 },
             }
@@ -800,12 +803,15 @@ def import_theme():
         data = json.loads(json_content)
 
         syntax_css = ""
+        syntax_colors: dict = {}
         if isinstance(data, dict) and "colors" in data:
             parsed = parse_vscode_theme(data)
             source = "vscode"
-            # 🔑 שימוש ב-syntax_css שמוחזר מ-parse_vscode_theme
-            # כולל CodeMirror CSS (.tok-*) + Pygments CSS (.source .k, etc.)
+            # 🔑 שימוש ב-syntax_css ו-syntax_colors שמוחזרים מ-parse_vscode_theme
+            # syntax_css: CodeMirror CSS (.tok-*) + Pygments CSS (.source .k, etc.) - fallback
+            # syntax_colors: מילון צבעים לפי tag עבור HighlightStyle דינמי
             syntax_css = parsed.get("syntax_css", "") if isinstance(parsed, dict) else ""
+            syntax_colors = parsed.get("syntax_colors", {}) if isinstance(parsed, dict) else {}
         else:
             parsed = parse_native_theme(data)
             source = "import"
@@ -824,6 +830,7 @@ def import_theme():
             "updated_at": datetime.now(timezone.utc),
             "variables": filtered_vars,
             "syntax_css": syntax_css,
+            "syntax_colors": syntax_colors,  # 🆕 מילון צבעים ל-HighlightStyle דינמי
         }
 
         db.users.update_one(

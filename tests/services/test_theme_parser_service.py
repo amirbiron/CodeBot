@@ -1,10 +1,12 @@
 import pytest
 
 from services.theme_parser_service import (
+    _find_cm_tag,
     _find_codemirror_class,
     color_with_opacity,
     export_theme_to_json,
     generate_codemirror_css_from_tokens,
+    generate_syntax_colors_from_tokens,
     is_valid_color,
     normalize_color_to_rgba,
     parse_native_theme,
@@ -235,6 +237,48 @@ class TestParseVscodeTheme:
         # וודא שיש text-decoration עבור class name (underline)
         assert "text-decoration: underline" in syntax_css
 
+    def test_generates_syntax_colors_dict(self):
+        """בדיקה שערכת VS Code עם tokenColors מייצרת גם syntax_colors (מילון לפי tags)."""
+        theme = {
+            "name": "Colorful",
+            "type": "dark",
+            "colors": {"editor.background": "#1e1e1e", "editor.foreground": "#d4d4d4"},
+            "tokenColors": [
+                {"scope": "comment", "settings": {"foreground": "#6a9955"}},
+                {"scope": "keyword", "settings": {"foreground": "#569cd6"}},
+                {"scope": "string", "settings": {"foreground": "#ce9178"}},
+                {"scope": "entity.name.function", "settings": {"foreground": "#dcdcaa", "fontStyle": "bold"}},
+                {"scope": "variable.language", "settings": {"foreground": "#9cdcfe"}},
+            ],
+        }
+        result = parse_vscode_theme(theme)
+
+        # וודא ש-syntax_colors קיים ולא ריק
+        assert "syntax_colors" in result
+        assert isinstance(result["syntax_colors"], dict)
+        assert len(result["syntax_colors"]) > 0
+
+        syntax_colors = result["syntax_colors"]
+
+        # בדיקת צבעים לפי tag names
+        assert "comment" in syntax_colors
+        assert syntax_colors["comment"]["color"] == "#6a9955"
+
+        assert "keyword" in syntax_colors
+        assert syntax_colors["keyword"]["color"] == "#569cd6"
+
+        assert "string" in syntax_colors
+        assert syntax_colors["string"]["color"] == "#ce9178"
+
+        # בדיקה שפונקציות ממופות ל-definition(function(variableName))
+        assert "definition(function(variableName))" in syntax_colors
+        assert syntax_colors["definition(function(variableName))"]["color"] == "#dcdcaa"
+        assert syntax_colors["definition(function(variableName))"]["fontWeight"] == "bold"
+
+        # בדיקה ש-variable.language ממופה ל-self
+        assert "self" in syntax_colors
+        assert syntax_colors["self"]["color"] == "#9cdcfe"
+
 
 class TestNativeTheme:
     def test_parse_native_theme_sanitizes(self):
@@ -414,6 +458,87 @@ class TestSanitizeCodeMirrorCSS:
         css = ':root[data-theme="custom"] .tok-keyword { color: javascript:alert(1) !important; }'
         result = sanitize_codemirror_css(css)
         assert result == ""
+
+
+class TestSyntaxColorsGeneration:
+    """בדיקות לפונקציות החדשות של syntax_colors (HighlightStyle דינמי)."""
+
+    def test_find_cm_tag_exact_match(self):
+        """בדיקה ש-_find_cm_tag מוצא התאמות מדויקות."""
+        assert _find_cm_tag("comment") == "comment"
+        assert _find_cm_tag("keyword") == "keyword"
+        assert _find_cm_tag("string") == "string"
+        assert _find_cm_tag("constant.numeric") == "number"
+
+    def test_find_cm_tag_prefix_matching(self):
+        """בדיקה ש-_find_cm_tag עושה prefix matching נכון."""
+        # סקופים ספציפיים יותר צריכים ליפול לבסיס
+        assert _find_cm_tag("keyword.control.import.python") == "moduleKeyword"
+        assert _find_cm_tag("keyword.control.flow") == "controlKeyword"
+        assert _find_cm_tag("constant.numeric.integer.decimal") == "integer"
+        assert _find_cm_tag("variable.language.this") == "self"
+
+    def test_find_cm_tag_function_scopes(self):
+        """בדיקה שסקופים של פונקציות ממופים נכון."""
+        # הגדרת פונקציה
+        assert _find_cm_tag("entity.name.function") == "definition(function(variableName))"
+        # קריאה לפונקציה
+        assert _find_cm_tag("meta.function-call") == "function(variableName)"
+        # פונקציות מובנות
+        assert _find_cm_tag("support.function.builtin") == "standard(function(variableName))"
+
+    def test_find_cm_tag_unknown_returns_none(self):
+        """בדיקה שסקופים לא מוכרים מחזירים None."""
+        assert _find_cm_tag("unknown.scope.here") is None
+        assert _find_cm_tag("") is None
+        assert _find_cm_tag(None) is None
+
+    def test_generate_syntax_colors_basic(self):
+        """בדיקה בסיסית של generate_syntax_colors_from_tokens."""
+        token_colors = [
+            {"scope": "comment", "settings": {"foreground": "#6a9955", "fontStyle": "italic"}},
+            {"scope": "keyword", "settings": {"foreground": "#569cd6"}},
+        ]
+        colors = generate_syntax_colors_from_tokens(token_colors)
+
+        assert "comment" in colors
+        assert colors["comment"]["color"] == "#6a9955"
+        assert colors["comment"]["fontStyle"] == "italic"
+
+        assert "keyword" in colors
+        assert colors["keyword"]["color"] == "#569cd6"
+        assert "fontStyle" not in colors["keyword"]
+
+    def test_generate_syntax_colors_first_wins(self):
+        """בדיקה שהכלל הראשון מנצח כשיש התנגשויות."""
+        token_colors = [
+            {"scope": "keyword", "settings": {"foreground": "#ff0000"}},  # ראשון
+            {"scope": "keyword", "settings": {"foreground": "#00ff00"}},  # שני - צריך להתעלם
+        ]
+        colors = generate_syntax_colors_from_tokens(token_colors)
+
+        assert "keyword" in colors
+        assert colors["keyword"]["color"] == "#ff0000"
+
+    def test_generate_syntax_colors_empty_input(self):
+        """בדיקה שקלט ריק מחזיר מילון ריק."""
+        assert generate_syntax_colors_from_tokens([]) == {}
+        assert generate_syntax_colors_from_tokens(None) == {}
+        assert generate_syntax_colors_from_tokens("invalid") == {}
+
+    def test_generate_syntax_colors_font_styles(self):
+        """בדיקה שכל סגנונות הפונט נתמכים."""
+        token_colors = [
+            {"scope": "comment", "settings": {"foreground": "#888", "fontStyle": "italic"}},
+            {"scope": "keyword", "settings": {"foreground": "#f00", "fontStyle": "bold"}},
+            {"scope": "string", "settings": {"foreground": "#0f0", "fontStyle": "bold italic"}},
+        ]
+        colors = generate_syntax_colors_from_tokens(token_colors)
+
+        assert colors["comment"]["fontStyle"] == "italic"
+        assert colors["keyword"]["fontWeight"] == "bold"
+        assert colors["string"]["fontWeight"] == "bold"
+        assert colors["string"]["fontStyle"] == "italic"
 
 
 class TestExportTheme:

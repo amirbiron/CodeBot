@@ -1465,6 +1465,9 @@ def inject_globals():
                         # וולידציה של syntax_css - חשוב לצביעת קוד בערכות מותאמות
                         if not isinstance(tdoc.get('syntax_css', ''), str):
                             tdoc = {**tdoc, 'syntax_css': ''}
+                        # וולידציה של syntax_colors - מילון צבעים ל-HighlightStyle דינמי
+                        if not isinstance(tdoc.get('syntax_colors'), dict):
+                            tdoc = {**tdoc, 'syntax_colors': {}}
                         custom_theme = tdoc
                         break
 
@@ -1478,6 +1481,9 @@ def inject_globals():
                     # וולידציה של syntax_css - חשוב לצביעת קוד בערכות מותאמות
                     if not isinstance(ct.get('syntax_css', ''), str):
                         ct = {**ct, 'syntax_css': ''}
+                    # וולידציה של syntax_colors - מילון צבעים ל-HighlightStyle דינמי
+                    if not isinstance(ct.get('syntax_colors'), dict):
+                        ct = {**ct, 'syntax_colors': {}}
                     custom_theme = ct
     except Exception:
         custom_theme = None
@@ -1627,6 +1633,8 @@ def get_custom_theme(user_id) -> Optional[Dict[str, Any]]:
                         theme = {**theme, "variables": {}}
                     if not isinstance(theme.get("syntax_css", ""), str):
                         theme = {**theme, "syntax_css": ""}
+                    if not isinstance(theme.get("syntax_colors"), dict):
+                        theme = {**theme, "syntax_colors": {}}
                     return theme
 
         # Fallback למבנה ישן (אובייקט בודד)
@@ -1636,6 +1644,8 @@ def get_custom_theme(user_id) -> Optional[Dict[str, Any]]:
                 old_theme = {**old_theme, "variables": {}}
             if not isinstance(old_theme.get("syntax_css", ""), str):
                 old_theme = {**old_theme, "syntax_css": ""}
+            if not isinstance(old_theme.get("syntax_colors"), dict):
+                old_theme = {**old_theme, "syntax_colors": {}}
             return old_theme
 
         return None
