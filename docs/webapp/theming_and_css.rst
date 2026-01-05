@@ -298,7 +298,7 @@ Component Tokens ו‑Theme Builder
 
 **הנוסחה הבסיסית:**
 
-.. code-block:: css
+.. code-block:: text
 
    /* X% של text-primary על bg-primary */
    color-mix(in srgb, var(--text-primary) X%, var(--bg-primary))
@@ -336,7 +336,7 @@ Component Tokens ו‑Theme Builder
 
 **דוגמת הגדרה ב‑split-view.css:**
 
-.. code-block:: css
+.. code-block:: text
 
    :root[data-theme="custom"],
    :root[data-theme-type="custom"] {
@@ -352,7 +352,7 @@ Component Tokens ו‑Theme Builder
 
 **שימוש ב‑dark-mode.css:**
 
-.. code-block:: css
+.. code-block:: text
 
    /* טבלאות - עם fallback לערכות שלא מגדירות את המשתנה */
    [data-theme="custom"] table,
