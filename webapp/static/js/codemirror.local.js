@@ -32025,9 +32025,14 @@
     "definition(variableName)": tags.definition(tags.variableName),
     "constant(variableName)": tags.constant(tags.variableName),
     "function(variableName)": tags.function(tags.variableName),
+    // 🔑 CodeMirror Python parser משתמש ב-function(definition(...)) לא definition(function(...))!
+    "function(definition(variableName))": tags.function(tags.definition(tags.variableName)),
     "definition(function(variableName))": tags.definition(tags.function(tags.variableName)),
+    // fallback
     "standard(function(variableName))": tags.standard(tags.function(tags.variableName)),
     "special(function(variableName))": tags.special(tags.function(tags.variableName)),
+    // Properties שנקראים כפונקציות (method calls)
+    "function(propertyName)": tags.function(tags.propertyName),
     self: tags.self,
     // Types & Classes
     typeName: tags.typeName,
@@ -32086,31 +32091,69 @@
     url: tags.url,
     invalid: tags.invalid
   };
+  var FALLBACK_MAP = {
+    "function(variableName)": "variableName",
+    "function(definition(variableName))": "variableName",
+    "definition(function(variableName))": "variableName",
+    "standard(function(variableName))": "variableName",
+    "special(function(variableName))": "variableName",
+    "local(variableName)": "variableName",
+    "constant(variableName)": "variableName",
+    "definition(variableName)": "variableName",
+    "function(propertyName)": "propertyName",
+    "definition(propertyName)": "propertyName",
+    "definition(className)": "className",
+    "standard(className)": "className",
+    "standard(typeName)": "typeName",
+    "bool": "atom",
+    "null": "atom",
+    "integer": "number",
+    "float": "number",
+    "controlKeyword": "keyword",
+    "definitionKeyword": "keyword",
+    "moduleKeyword": "keyword",
+    "operatorKeyword": "keyword",
+    "definitionOperator": "operator",
+    "compareOperator": "operator",
+    "logicOperator": "operator",
+    "arithmeticOperator": "operator",
+    "lineComment": "comment",
+    "blockComment": "comment",
+    "docComment": "comment",
+    "special(string)": "string",
+    "regexp": "string"
+  };
   function createDynamicHighlightStyle(syntaxColors) {
     if (!syntaxColors || typeof syntaxColors !== "object") {
       return null;
     }
     const specs = [];
+    const processedTags = /* @__PURE__ */ new Set();
     for (const [tagName2, style] of Object.entries(syntaxColors)) {
       const tag = TAG_NAME_MAP[tagName2];
       if (!tag) {
         const simpleTag = tags[tagName2];
         if (simpleTag) {
-          specs.push({
-            tag: simpleTag,
-            ...style
-          });
+          specs.push({ tag: simpleTag, ...style });
+          processedTags.add(tagName2);
         }
         continue;
       }
-      specs.push({
-        tag,
-        ...style
-      });
+      specs.push({ tag, ...style });
+      processedTags.add(tagName2);
+    }
+    for (const [derivedTag, baseTag] of Object.entries(FALLBACK_MAP)) {
+      if (!processedTags.has(derivedTag) && syntaxColors[baseTag]) {
+        const tag = TAG_NAME_MAP[derivedTag];
+        if (tag) {
+          specs.push({ tag, ...syntaxColors[baseTag] });
+        }
+      }
     }
     if (specs.length === 0) {
       return null;
     }
+    console.log("[CM Bundle] Created HighlightStyle with", specs.length, "rules (including fallbacks)");
     return HighlightStyle.define(specs);
   }
   function getSyntaxColorsFromPage() {

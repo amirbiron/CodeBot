@@ -721,8 +721,10 @@ VSCODE_TO_CM_TAG: dict[str, str] = {
     # ===========================================
     # Functions - הבחנה בין הגדרה לקריאה!
     # ===========================================
-    "entity.name.function": "definition(function(variableName))",
-    "entity.name.function.method": "definition(function(variableName))",
+    # 🔑 CodeMirror Python parser משתמש ב-function(definition(...)) לא definition(function(...))!
+    # ראה: codemirror.local.js שורה ~25146
+    "entity.name.function": "function(definition(variableName))",
+    "entity.name.function.method": "function(definition(variableName))",
     "entity.name.function.decorator": "macroName",
     "meta.function.decorator": "macroName",
     # קריאות לפונקציות
