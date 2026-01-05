@@ -1418,6 +1418,12 @@
 {{ custom_theme.syntax_css | safe }}
     </style>
     {% endif %}
+    {% if custom_theme.syntax_colors %}
+    <!-- Dynamic Syntax Colors for CodeMirror HighlightStyle -->
+    <script type="application/json" id="syntax-colors-data">
+{{ custom_theme.syntax_colors | tojson | safe }}
+    </script>
+    {% endif %}
     {% endif %}
 </head>
 <body>

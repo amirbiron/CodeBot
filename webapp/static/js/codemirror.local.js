@@ -1,5 +1,5 @@
 (() => {
-  // node_modules/@marijn/find-cluster-break/src/index.js
+  // ../../node_modules/@marijn/find-cluster-break/src/index.js
   var rangeFrom = [];
   var rangeTo = [];
   (() => {
@@ -73,7 +73,7 @@
     return code < 65536 ? 1 : 2;
   }
 
-  // node_modules/@codemirror/state/dist/index.js
+  // ../../node_modules/@codemirror/state/dist/index.js
   var Text = class _Text {
     /**
     Get the line description around the given position.
@@ -3415,7 +3415,7 @@
     return strict === true ? -1 : string2.length;
   }
 
-  // node_modules/style-mod/src/style-mod.js
+  // ../../node_modules/style-mod/src/style-mod.js
   var C = "\u037C";
   var COUNT = typeof Symbol == "undefined" ? "__" + C : Symbol.for(C);
   var SET = typeof Symbol == "undefined" ? "__styleSet" + Math.floor(Math.random() * 1e8) : Symbol("styleSet");
@@ -3546,7 +3546,7 @@
     }
   };
 
-  // node_modules/w3c-keyname/index.js
+  // ../../node_modules/w3c-keyname/index.js
   var base = {
     8: "Backspace",
     9: "Tab",
@@ -3652,7 +3652,7 @@
     return name2;
   }
 
-  // node_modules/crelt/index.js
+  // ../../node_modules/crelt/index.js
   function crelt() {
     var elt2 = arguments[0];
     if (typeof elt2 == "string") elt2 = document.createElement(elt2);
@@ -3681,7 +3681,7 @@
     }
   }
 
-  // node_modules/@codemirror/view/dist/index.js
+  // ../../node_modules/@codemirror/view/dist/index.js
   var nav = typeof navigator != "undefined" ? navigator : { userAgent: "", vendor: "", platform: "" };
   var doc = typeof document != "undefined" ? document : { documentElement: { style: {} } };
   var ie_edge = /* @__PURE__ */ /Edge\/(\d+)/.exec(nav.userAgent);
@@ -13514,7 +13514,7 @@
     return activeLineGutterHighlighter;
   }
 
-  // node_modules/@lezer/common/dist/index.js
+  // ../../node_modules/@lezer/common/dist/index.js
   var DefaultBufferLength = 1024;
   var nextPropID = 0;
   var Range2 = class {
@@ -15551,7 +15551,7 @@
     return result;
   }
 
-  // node_modules/@lezer/highlight/dist/index.js
+  // ../../node_modules/@lezer/highlight/dist/index.js
   var nextTagID = 0;
   var Tag = class _Tag {
     /**
@@ -16275,7 +16275,7 @@
     { tag: tags.punctuation, class: "tok-punctuation" }
   ]);
 
-  // node_modules/@codemirror/language/dist/index.js
+  // ../../node_modules/@codemirror/language/dist/index.js
   var _a;
   var languageDataProp = /* @__PURE__ */ new NodeProp();
   function defineLanguageFacet(baseData) {
@@ -17868,7 +17868,7 @@
     auto: /* @__PURE__ */ Decoration.mark({ class: "cm-iso", inclusive: true, attributes: { dir: "auto" }, bidiIsolate: null })
   };
 
-  // node_modules/@codemirror/commands/dist/index.js
+  // ../../node_modules/@codemirror/commands/dist/index.js
   var toggleComment = (target) => {
     let { state } = target, line = state.doc.lineAt(state.selection.main.from), config2 = getConfig(target.state, line.from);
     return config2.line ? toggleLineComment(target) : config2.block ? toggleBlockCommentByLine(target) : false;
@@ -18940,7 +18940,7 @@
     { key: "Ctrl-m", mac: "Shift-Alt-m", run: toggleTabFocusMode }
   ].concat(standardKeymap);
 
-  // node_modules/@codemirror/search/dist/index.js
+  // ../../node_modules/@codemirror/search/dist/index.js
   var basicNormalize = typeof String.prototype.normalize == "function" ? (x) => x.normalize("NFKD") : (x) => x;
   var SearchCursor = class {
     /**
@@ -20057,7 +20057,7 @@
     baseTheme3
   ];
 
-  // node_modules/@codemirror/autocomplete/dist/index.js
+  // ../../node_modules/@codemirror/autocomplete/dist/index.js
   var CompletionContext = class {
     /**
     Create a new completion context. (Mostly useful for testing
@@ -21864,7 +21864,7 @@
   ];
   var completionKeymapExt = /* @__PURE__ */ Prec.highest(/* @__PURE__ */ keymap.computeN([completionConfig], (state) => state.facet(completionConfig).defaultKeymap ? [completionKeymap] : []));
 
-  // node_modules/@codemirror/merge/dist/index.js
+  // ../../node_modules/@codemirror/merge/dist/index.js
   var Change = class _Change {
     constructor(fromA, toA, fromB, toB) {
       this.fromA = fromA;
@@ -23095,7 +23095,7 @@
     return next;
   }
 
-  // node_modules/@lezer/lr/dist/index.js
+  // ../../node_modules/@lezer/lr/dist/index.js
   var Stack = class _Stack {
     /**
     @internal
@@ -24854,7 +24854,7 @@
     return spec.get;
   }
 
-  // node_modules/@lezer/python/dist/index.js
+  // ../../node_modules/@lezer/python/dist/index.js
   var printKeyword = 1;
   var indent = 194;
   var dedent = 195;
@@ -25190,7 +25190,7 @@
     tokenPrec: 7668
   });
 
-  // node_modules/@codemirror/lang-python/dist/index.js
+  // ../../node_modules/@codemirror/lang-python/dist/index.js
   var cache = /* @__PURE__ */ new NodeWeakMap();
   var ScopeNodes = /* @__PURE__ */ new Set([
     "Script",
@@ -25610,7 +25610,7 @@
     ]);
   }
 
-  // node_modules/@lezer/javascript/dist/index.js
+  // ../../node_modules/@lezer/javascript/dist/index.js
   var noSemi = 316;
   var noSemiType = 317;
   var incdec = 1;
@@ -25822,7 +25822,7 @@
     tokenPrec: 15201
   });
 
-  // node_modules/@codemirror/lang-javascript/dist/index.js
+  // ../../node_modules/@codemirror/lang-javascript/dist/index.js
   var snippets2 = [
     /* @__PURE__ */ snippetCompletion("function ${name}(${params}) {\n	${}\n}", {
       label: "function",
@@ -26120,7 +26120,7 @@
     return true;
   });
 
-  // node_modules/@lezer/html/dist/index.js
+  // ../../node_modules/@lezer/html/dist/index.js
   var scriptText = 55;
   var StartCloseScriptTag = 1;
   var styleText = 56;
@@ -26464,7 +26464,7 @@
     });
   }
 
-  // node_modules/@lezer/css/dist/index.js
+  // ../../node_modules/@lezer/css/dist/index.js
   var descendantOp = 122;
   var Unit = 1;
   var identifier = 123;
@@ -26636,7 +26636,7 @@
     tokenPrec: 1963
   });
 
-  // node_modules/@codemirror/lang-css/dist/index.js
+  // ../../node_modules/@codemirror/lang-css/dist/index.js
   var _properties = null;
   function properties() {
     if (!_properties && typeof document == "object" && document.body) {
@@ -27497,7 +27497,7 @@
     return new LanguageSupport(cssLanguage, cssLanguage.data.of({ autocomplete: cssCompletionSource }));
   }
 
-  // node_modules/@codemirror/lang-html/dist/index.js
+  // ../../node_modules/@codemirror/lang-html/dist/index.js
   var Targets = ["_blank", "_self", "_top", "_parent"];
   var Charsets = ["ascii", "utf-8", "utf-16", "latin1", "latin1"];
   var Methods = ["get", "post", "put", "delete"];
@@ -28226,7 +28226,7 @@
     return true;
   });
 
-  // node_modules/@codemirror/lang-sql/dist/index.js
+  // ../../node_modules/@codemirror/lang-sql/dist/index.js
   var whitespace = 36;
   var LineComment2 = 1;
   var BlockComment2 = 2;
@@ -28941,7 +28941,7 @@
     plsqlQuotingMechanism: true
   });
 
-  // node_modules/@lezer/json/dist/index.js
+  // ../../node_modules/@lezer/json/dist/index.js
   var jsonHighlighting = styleTags({
     String: tags.string,
     Number: tags.number,
@@ -28973,7 +28973,7 @@
     tokenPrec: 0
   });
 
-  // node_modules/@codemirror/lang-json/dist/index.js
+  // ../../node_modules/@codemirror/lang-json/dist/index.js
   var jsonLanguage = /* @__PURE__ */ LRLanguage.define({
     name: "json",
     parser: /* @__PURE__ */ parser6.configure({
@@ -28996,7 +28996,7 @@
     return new LanguageSupport(jsonLanguage);
   }
 
-  // node_modules/@lezer/markdown/dist/index.js
+  // ../../node_modules/@lezer/markdown/dist/index.js
   var CompositeBlock = class _CompositeBlock {
     static create(type, value, from, parentHash, end) {
       let hash3 = parentHash + (parentHash << 8) + type + (value << 4) | 0;
@@ -31043,7 +31043,7 @@
     }]
   };
 
-  // node_modules/@codemirror/lang-markdown/dist/index.js
+  // ../../node_modules/@codemirror/lang-markdown/dist/index.js
   var data = /* @__PURE__ */ defineLanguageFacet({ commentTokens: { block: { open: "<!--", close: "-->" } } });
   var headingProp = /* @__PURE__ */ new NodeProp();
   var commonmark = /* @__PURE__ */ parser7.configure({
@@ -31462,7 +31462,7 @@
     }
   });
 
-  // node_modules/@lezer/xml/dist/index.js
+  // ../../node_modules/@lezer/xml/dist/index.js
   var StartTag2 = 1;
   var StartCloseTag2 = 2;
   var MissingCloseTag = 3;
@@ -31582,7 +31582,7 @@
     tokenPrec: 0
   });
 
-  // node_modules/@codemirror/lang-xml/dist/index.js
+  // ../../node_modules/@codemirror/lang-xml/dist/index.js
   function tagName(doc2, tag) {
     let name2 = tag && tag.getChild("TagName");
     return name2 ? doc2.sliceString(name2.from, name2.to) : "";
@@ -31854,7 +31854,7 @@
     return true;
   });
 
-  // node_modules/@codemirror/theme-one-dark/dist/index.js
+  // ../../node_modules/@codemirror/theme-one-dark/dist/index.js
   var chalky = "#e5c07b";
   var coral = "#e06c75";
   var cyan = "#56b6c2";
@@ -31998,7 +31998,156 @@
   ]);
   var oneDark = [oneDarkTheme, /* @__PURE__ */ syntaxHighlighting(oneDarkHighlightStyle)];
 
-  // webapp/static_build/codemirror.bundle.entry.mjs
+  // codemirror.bundle.entry.mjs
+  var TAG_NAME_MAP = {
+    // Comments
+    comment: tags.comment,
+    lineComment: tags.lineComment,
+    blockComment: tags.blockComment,
+    docComment: tags.docComment,
+    // Strings
+    string: tags.string,
+    "special(string)": tags.special(tags.string),
+    regexp: tags.regexp,
+    escape: tags.escape,
+    character: tags.character,
+    // Keywords
+    keyword: tags.keyword,
+    controlKeyword: tags.controlKeyword,
+    moduleKeyword: tags.moduleKeyword,
+    definitionKeyword: tags.definitionKeyword,
+    operatorKeyword: tags.operatorKeyword,
+    modifier: tags.modifier,
+    unit: tags.unit,
+    // Functions & Variables
+    variableName: tags.variableName,
+    "local(variableName)": tags.local(tags.variableName),
+    "definition(variableName)": tags.definition(tags.variableName),
+    "constant(variableName)": tags.constant(tags.variableName),
+    "function(variableName)": tags.function(tags.variableName),
+    "definition(function(variableName))": tags.definition(tags.function(tags.variableName)),
+    "standard(function(variableName))": tags.standard(tags.function(tags.variableName)),
+    "special(function(variableName))": tags.special(tags.function(tags.variableName)),
+    self: tags.self,
+    // Types & Classes
+    typeName: tags.typeName,
+    className: tags.className,
+    namespace: tags.namespace,
+    "standard(typeName)": tags.standard(tags.typeName),
+    "standard(className)": tags.standard(tags.className),
+    "definition(className)": tags.definition(tags.className),
+    macroName: tags.macroName,
+    // Constants & Numbers
+    atom: tags.atom,
+    bool: tags.bool,
+    number: tags.number,
+    integer: tags.integer,
+    float: tags.float,
+    null: tags.null,
+    // Operators
+    operator: tags.operator,
+    definitionOperator: tags.definitionOperator,
+    compareOperator: tags.compareOperator,
+    logicOperator: tags.logicOperator,
+    arithmeticOperator: tags.arithmeticOperator,
+    bitwiseOperator: tags.bitwiseOperator,
+    // Properties & Attributes
+    propertyName: tags.propertyName,
+    "definition(propertyName)": tags.definition(tags.propertyName),
+    attributeName: tags.attributeName,
+    // Tags (HTML/XML)
+    tagName: tags.tagName,
+    angleBracket: tags.angleBracket,
+    // Punctuation
+    punctuation: tags.punctuation,
+    separator: tags.separator,
+    bracket: tags.bracket,
+    brace: tags.brace,
+    paren: tags.paren,
+    squareBracket: tags.squareBracket,
+    // Markup
+    heading: tags.heading,
+    heading1: tags.heading1,
+    heading2: tags.heading2,
+    strong: tags.strong,
+    emphasis: tags.emphasis,
+    link: tags.link,
+    quote: tags.quote,
+    list: tags.list,
+    monospace: tags.monospace,
+    inserted: tags.inserted,
+    deleted: tags.deleted,
+    changed: tags.changed,
+    // Special
+    meta: tags.meta,
+    processingInstruction: tags.processingInstruction,
+    labelName: tags.labelName,
+    content: tags.content,
+    url: tags.url,
+    invalid: tags.invalid
+  };
+  function createDynamicHighlightStyle(syntaxColors) {
+    if (!syntaxColors || typeof syntaxColors !== "object") {
+      return null;
+    }
+    const specs = [];
+    for (const [tagName2, style] of Object.entries(syntaxColors)) {
+      const tag = TAG_NAME_MAP[tagName2];
+      if (!tag) {
+        const simpleTag = tags[tagName2];
+        if (simpleTag) {
+          specs.push({
+            tag: simpleTag,
+            ...style
+          });
+        }
+        continue;
+      }
+      specs.push({
+        tag,
+        ...style
+      });
+    }
+    if (specs.length === 0) {
+      return null;
+    }
+    return HighlightStyle.define(specs);
+  }
+  function getSyntaxColorsFromPage() {
+    if (typeof document === "undefined") return null;
+    const el = document.getElementById("syntax-colors-data");
+    if (!el) return null;
+    try {
+      return JSON.parse(el.textContent || "{}");
+    } catch (e) {
+      console.warn("[CM Bundle] Failed to parse syntax-colors-data:", e);
+      return null;
+    }
+  }
+  var cachedDynamicHighlighter = null;
+  function getSyntaxHighlighter() {
+    if (typeof document === "undefined") {
+      return syntaxHighlighting(classHighlighter);
+    }
+    const htmlTheme = document.documentElement.getAttribute("data-theme");
+    if (htmlTheme === "custom") {
+      if (cachedDynamicHighlighter === null) {
+        const syntaxColors = getSyntaxColorsFromPage();
+        if (syntaxColors && Object.keys(syntaxColors).length > 0) {
+          const dynamicStyle = createDynamicHighlightStyle(syntaxColors);
+          if (dynamicStyle) {
+            cachedDynamicHighlighter = syntaxHighlighting(dynamicStyle);
+            console.log("[CM Bundle] Using dynamic HighlightStyle with", Object.keys(syntaxColors).length, "colors");
+          }
+        }
+        if (!cachedDynamicHighlighter) {
+          cachedDynamicHighlighter = syntaxHighlighting(classHighlighter);
+        }
+      }
+      return cachedDynamicHighlighter;
+    }
+    return syntaxHighlighting(classHighlighter);
+  }
   var basicSetup = [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -32015,8 +32164,7 @@
     crosshairCursor(),
     highlightActiveLine(),
     highlightSelectionMatches(),
-    // 🎨 classHighlighter מוסיף classes קבועים (tok-*) לאלמנטי קוד,
-    // מאפשר לערכות נושא מותאמות לדרוס צבעי syntax highlighting
+    // 🎨 classHighlighter כ-fallback - ערכות מותאמות משתמשות ב-dynamic HighlightStyle
     syntaxHighlighting(classHighlighter),
     keymap.of([
       ...closeBracketsKeymap,
@@ -32080,7 +32228,12 @@
     themeCompartment,
     getLanguageSupport,
     getTheme,
-    MergeView
+    getSyntaxHighlighter,
+    createDynamicHighlightStyle,
+    MergeView,
+    syntaxHighlighting,
+    HighlightStyle,
+    tags
   };
   if (typeof window !== "undefined") {
     console.log("[CM Bundle] Assigning CodeMirror6 to window");

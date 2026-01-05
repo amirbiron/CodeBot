@@ -402,6 +402,14 @@ def parse_native_theme(json_content: str | dict) -> dict:
 def parse_vscode_theme(json_content: str | dict) -> dict:
     """
     מפרסר ערכת VS Code ומייצר מילון של CSS Variables.
+
+    Returns:
+        מילון עם:
+        - name: שם הערכה
+        - type: "dark" או "light"
+        - variables: CSS Variables
+        - syntax_css: CSS להדגשת תחביר (Pygments + CodeMirror fallback)
+        - syntax_colors: מילון צבעים לפי tag עבור CodeMirror HighlightStyle דינמי
     """
     if isinstance(json_content, str):
         try:
@@ -440,9 +448,14 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
 
     # 🎨 יצירת CSS להדגשת תחביר מ-tokenColors
     syntax_css_parts = []
+    syntax_colors: dict[str, dict] = {}
     token_colors = theme_data.get("tokenColors", [])
+
     if token_colors:
-        # CodeMirror CSS (.tok-* classes)
+        # 🆕 מילון צבעים לפי tag (עבור HighlightStyle דינמי)
+        syntax_colors = generate_syntax_colors_from_tokens(token_colors)
+
+        # CodeMirror CSS (.tok-* classes) - fallback
         cm_css = generate_codemirror_css_from_tokens(token_colors)
         cm_css = sanitize_codemirror_css(cm_css)
         if cm_css:
@@ -462,6 +475,7 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
         "type": theme_type,
         "variables": result,
         "syntax_css": syntax_css,
+        "syntax_colors": syntax_colors,  # 🆕 לשימוש ב-HighlightStyle דינמי
     }
 
 
@@ -642,17 +656,252 @@ def _is_dark_color(hex_color: str) -> bool:
 
 
 # ==========================================
-# Syntax Highlighting: tokenColors → CodeMirror CSS
+# Syntax Highlighting: tokenColors → CodeMirror
 # ==========================================
 
 # ==========================================
-# 🎨 CodeMirror 6 Token Classes Mapping
+# 🎨 CodeMirror 6 Tags Mapping (for HighlightStyle.define)
 # ==========================================
-# CodeMirror 6 עם classHighlighter משתמש ב-classes בפורמט "tok-*"
-# (לדוגמה: tok-comment, tok-keyword, tok-string)
+# המיפוי הזה ממיר VS Code TextMate scopes לשמות של CodeMirror tags.
+# ה-tags משמשים ליצירת HighlightStyle דינמי ב-JavaScript.
 #
-# המיפוי הזה ממיר VS Code TextMate scopes ל-CodeMirror 6 classes.
-# ראה: https://lezer.codemirror.net/docs/ref/#highlight.classHighlighter
+# ⚠️ חשוב: שמות ה-tags חייבים להתאים לשמות ב-@lezer/highlight
+# ראה: https://lezer.codemirror.net/docs/ref/#highlight.tags
+# ==========================================
+
+# מיפוי VS Code scopes → CodeMirror tag names (לא classes!)
+# זה מאפשר יצירת HighlightStyle דינמי עם צבעים ייחודיים לכל סוג
+VSCODE_TO_CM_TAG: dict[str, str] = {
+    # ===========================================
+    # Comments - מיפוי פשוט
+    # ===========================================
+    "comment": "comment",
+    "comment.line": "lineComment",
+    "comment.block": "blockComment",
+    "comment.block.documentation": "docComment",
+    "punctuation.definition.comment": "comment",
+
+    # ===========================================
+    # Strings
+    # ===========================================
+    "string": "string",
+    "string.quoted": "string",
+    "string.quoted.single": "string",
+    "string.quoted.double": "string",
+    "string.quoted.triple": "string",
+    "string.template": "special(string)",
+    "string.regexp": "regexp",
+    "string.interpolated": "special(string)",
+
+    # ===========================================
+    # Keywords
+    # ===========================================
+    "keyword": "keyword",
+    "keyword.control": "controlKeyword",
+    "keyword.control.flow": "controlKeyword",
+    "keyword.control.import": "moduleKeyword",
+    "keyword.control.export": "moduleKeyword",
+    "keyword.control.conditional": "controlKeyword",
+    "keyword.control.loop": "controlKeyword",
+    "keyword.control.return": "controlKeyword",
+    "keyword.control.trycatch": "controlKeyword",
+    "keyword.other": "keyword",
+    "keyword.other.unit": "unit",
+
+    # ===========================================
+    # Storage (def, class, var, let, const)
+    # ===========================================
+    "storage": "definitionKeyword",
+    "storage.type": "definitionKeyword",
+    "storage.type.function": "definitionKeyword",
+    "storage.type.class": "definitionKeyword",
+    "storage.modifier": "modifier",
+    "storage.modifier.async": "modifier",
+
+    # ===========================================
+    # Functions - הבחנה בין הגדרה לקריאה!
+    # ===========================================
+    "entity.name.function": "definition(function(variableName))",
+    "entity.name.function.method": "definition(function(variableName))",
+    "entity.name.function.decorator": "macroName",
+    "meta.function.decorator": "macroName",
+    # קריאות לפונקציות
+    "meta.function-call": "function(variableName)",
+    "meta.function-call.generic": "function(variableName)",
+    "entity.name.function.call": "function(variableName)",
+    # פונקציות מובנות
+    "support.function": "standard(function(variableName))",
+    "support.function.builtin": "standard(function(variableName))",
+    "support.function.magic": "special(function(variableName))",
+
+    # ===========================================
+    # Variables - הבחנה בין סוגים שונים
+    # ===========================================
+    "variable": "variableName",
+    "variable.parameter": "local(variableName)",
+    "variable.parameter.function": "local(variableName)",
+    "variable.other": "variableName",
+    "variable.other.readwrite": "variableName",
+    "variable.other.constant": "constant(variableName)",
+    "variable.other.enummember": "constant(variableName)",
+    "variable.language": "self",
+    "variable.language.this": "self",
+    "variable.language.self": "self",
+    "variable.language.super": "self",
+
+    # ===========================================
+    # Constants & Numbers
+    # ===========================================
+    "constant": "atom",
+    "constant.numeric": "number",
+    "constant.numeric.integer": "integer",
+    "constant.numeric.float": "float",
+    "constant.numeric.hex": "integer",
+    "constant.numeric.binary": "integer",
+    "constant.numeric.octal": "integer",
+    "constant.language": "atom",
+    "constant.language.boolean": "bool",
+    "constant.language.boolean.true": "bool",
+    "constant.language.boolean.false": "bool",
+    "constant.language.null": "null",
+    "constant.language.undefined": "null",
+    "constant.character": "character",
+    "constant.character.escape": "escape",
+    "constant.other": "atom",
+
+    # ===========================================
+    # Types & Classes
+    # ===========================================
+    "entity.name.type": "typeName",
+    "entity.name.type.class": "className",
+    "entity.name.type.interface": "typeName",
+    "entity.name.type.enum": "typeName",
+    "entity.name.type.module": "namespace",
+    "entity.name.type.namespace": "namespace",
+    "entity.name.class": "definition(className)",
+    "entity.name.namespace": "namespace",
+    "entity.name.module": "namespace",
+    "support.type": "standard(typeName)",
+    "support.type.primitive": "typeName",
+    "support.class": "standard(className)",
+    "support.class.builtin": "standard(className)",
+
+    # ===========================================
+    # Operators
+    # ===========================================
+    "keyword.operator": "operator",
+    "keyword.operator.assignment": "definitionOperator",
+    "keyword.operator.comparison": "compareOperator",
+    "keyword.operator.logical": "logicOperator",
+    "keyword.operator.arithmetic": "arithmeticOperator",
+    "keyword.operator.bitwise": "bitwiseOperator",
+    "keyword.operator.ternary": "operator",
+    "keyword.operator.spread": "operator",
+    "keyword.operator.new": "operatorKeyword",
+    "keyword.operator.expression": "operatorKeyword",
+    "keyword.operator.typeof": "operatorKeyword",
+    "keyword.operator.instanceof": "operatorKeyword",
+
+    # ===========================================
+    # Properties & Attributes
+    # ===========================================
+    "entity.other.attribute-name": "attributeName",
+    "entity.other.attribute-name.class": "attributeName",
+    "entity.other.attribute-name.id": "attributeName",
+    "support.type.property-name": "propertyName",
+    "support.type.property-name.json": "propertyName",
+    "meta.object-literal.key": "propertyName",
+    "variable.other.property": "propertyName",
+    "variable.other.object.property": "propertyName",
+    "meta.attribute": "attributeName",
+
+    # ===========================================
+    # Tags (HTML/XML/JSX)
+    # ===========================================
+    "entity.name.tag": "tagName",
+    "entity.name.tag.html": "tagName",
+    "entity.name.tag.xml": "tagName",
+    "entity.name.tag.css": "tagName",
+    "punctuation.definition.tag": "angleBracket",
+    "punctuation.definition.tag.begin": "angleBracket",
+    "punctuation.definition.tag.end": "angleBracket",
+    "support.class.component": "className",
+    "support.class.component.jsx": "className",
+
+    # ===========================================
+    # Punctuation
+    # ===========================================
+    "punctuation": "punctuation",
+    "punctuation.definition.string": "string",
+    "punctuation.definition.string.begin": "string",
+    "punctuation.definition.string.end": "string",
+    "punctuation.separator": "separator",
+    "punctuation.terminator": "punctuation",
+    "punctuation.accessor": "punctuation",
+    "punctuation.bracket": "bracket",
+    "punctuation.section": "punctuation",
+    "meta.brace": "brace",
+    "meta.brace.round": "paren",
+    "meta.brace.square": "squareBracket",
+    "meta.brace.curly": "brace",
+
+    # ===========================================
+    # Errors & Special
+    # ===========================================
+    "invalid": "invalid",
+    "invalid.illegal": "invalid",
+    "invalid.deprecated": "invalid",
+
+    # ===========================================
+    # Markup (Markdown)
+    # ===========================================
+    "markup.heading": "heading",
+    "markup.heading.1": "heading1",
+    "markup.heading.2": "heading2",
+    "markup.heading.setext": "heading",
+    "markup.bold": "strong",
+    "markup.italic": "emphasis",
+    "markup.underline": "link",
+    "markup.underline.link": "link",
+    "markup.inserted": "inserted",
+    "markup.deleted": "deleted",
+    "markup.changed": "changed",
+    "markup.quote": "quote",
+    "markup.list": "list",
+    "markup.raw": "monospace",
+    "markup.inline.raw": "monospace",
+
+    # ===========================================
+    # Git Diff
+    # ===========================================
+    "meta.diff.header": "meta",
+    "markup.inserted.diff": "inserted",
+    "markup.deleted.diff": "deleted",
+
+    # ===========================================
+    # Labels & Special Names
+    # ===========================================
+    "entity.name.label": "labelName",
+    "entity.name.section": "heading",
+
+    # ===========================================
+    # Additional
+    # ===========================================
+    "meta": "meta",
+    "meta.embedded": "meta",
+    "meta.preprocessor": "processingInstruction",
+    "emphasis": "emphasis",
+    "strong": "strong",
+    "link": "link",
+    "url": "url",
+    "source": "content",
+}
+
+
+# ==========================================
+# 🎨 Legacy: CodeMirror 6 CSS Classes Mapping (for classHighlighter)
+# ==========================================
+# שמור לתאימות לאחור עם classHighlighter
 # ==========================================
 
 TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
@@ -1013,6 +1262,110 @@ TOKEN_TO_PYGMENTS_MAP: dict[str, str] = {
     "invalid": ".err",
     "invalid.deprecated": ".err",
 }
+
+
+# ==========================================
+# 🎨 Dynamic Syntax Colors (for HighlightStyle.define)
+# ==========================================
+
+
+def _find_cm_tag(scope: str) -> str | None:
+    """
+    מוצא את ה-CodeMirror tag המתאים ל-scope.
+
+    Args:
+        scope: VS Code TextMate scope (e.g., "keyword.control.import")
+
+    Returns:
+        CodeMirror tag name (e.g., "moduleKeyword") או None אם אין התאמה
+    """
+    if not scope or not isinstance(scope, str):
+        return None
+
+    # התאמה מדויקת
+    if scope in VSCODE_TO_CM_TAG:
+        return VSCODE_TO_CM_TAG[scope]
+
+    # חיפוש ההתאמה הספציפית ביותר
+    best_match: str | None = None
+    best_match_length = 0
+
+    for vs_scope, cm_tag in VSCODE_TO_CM_TAG.items():
+        if scope.startswith(vs_scope + ".") or scope == vs_scope:
+            if len(vs_scope) > best_match_length:
+                best_match = cm_tag
+                best_match_length = len(vs_scope)
+        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
+            if len(scope) > best_match_length:
+                best_match = cm_tag
+                best_match_length = len(scope)
+
+    return best_match
+
+
+def generate_syntax_colors_from_tokens(token_colors: list[dict]) -> dict[str, dict]:
+    """
+    ממיר tokenColors של VS Code למילון צבעים עבור CodeMirror HighlightStyle.
+
+    🎨 זה מאפשר צביעה עשירה יותר מאשר classHighlighter בלבד,
+    כי כל tag מקבל צבע ייחודי (לא רק classes משותפים).
+
+    Args:
+        token_colors: רשימת tokenColors מקובץ VS Code theme
+
+    Returns:
+        מילון בפורמט: {
+            "keyword": {"color": "#ff0000"},
+            "controlKeyword": {"color": "#00ff00", "fontStyle": "bold"},
+            ...
+        }
+    """
+    if not isinstance(token_colors, list):
+        return {}
+
+    # מילון צבעים לפי tag
+    colors_by_tag: dict[str, dict] = {}
+
+    for token in token_colors:
+        if not isinstance(token, dict):
+            continue
+
+        scopes = token.get("scope", [])
+        if isinstance(scopes, str):
+            scopes = [scopes]
+        if not isinstance(scopes, list):
+            continue
+
+        settings = token.get("settings", {})
+        if not isinstance(settings, dict):
+            continue
+
+        foreground = settings.get("foreground")
+        font_style = settings.get("fontStyle", "") or ""
+
+        if not foreground or not is_valid_color(str(foreground)):
+            continue
+
+        for scope in scopes:
+            cm_tag = _find_cm_tag(str(scope))
+            if not cm_tag:
+                continue
+
+            # 🔑 אם כבר יש צבע לזה, נדלג (הראשון מנצח - בד"כ הספציפי יותר)
+            if cm_tag in colors_by_tag:
+                continue
+
+            style: dict[str, str] = {"color": str(foreground).strip()}
+
+            fs = str(font_style).lower()
+            if "italic" in fs:
+                style["fontStyle"] = "italic"
+            if "bold" in fs:
+                style["fontWeight"] = "bold"
+
+            colors_by_tag[cm_tag] = style
+
+    return colors_by_tag
 
 
 def _find_pygments_class(scope: str) -> str | None:
