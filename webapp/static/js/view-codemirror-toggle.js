@@ -140,10 +140,22 @@
       themeExt = [];
     }
 
+    // 🎨 Custom themes: טוען dynamic syntax highlighter עם צבעים מ-syntax_colors
+    // getSyntaxHighlighter() מחזירה syntaxHighlighting(dynamicStyle) אם theme="custom",
+    // או syntaxHighlighting(classHighlighter) כ-fallback
+    let customSyntaxHighlighter = null;
+    if (themeName === 'custom' && window.CodeMirror6.getSyntaxHighlighter) {
+      try {
+        customSyntaxHighlighter = window.CodeMirror6.getSyntaxHighlighter();
+      } catch (_) {}
+    }
+
     const extensions = [
       ...(window.CodeMirror6.basicSetup || []),
       languageCompartment ? languageCompartment.of(langSupport || []) : (langSupport || []),
       themeCompartment ? themeCompartment.of(themeExt || []) : (themeExt || []),
+      // 🎨 אם יש custom theme עם syntax highlighter, מוסיפים אותו כדי לדרוס את ה-classHighlighter שב-basicSetup
+      ...(customSyntaxHighlighter ? [customSyntaxHighlighter] : []),
       // Keep wrapping consistent with editor
       EditorView.lineWrapping,
       // Read-only but still interactive (selection/folding)

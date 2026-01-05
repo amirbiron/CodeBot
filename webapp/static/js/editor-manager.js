@@ -260,6 +260,16 @@
           const effectiveTheme = (htmlTheme === 'custom') ? 'custom' : ((htmlTheme === 'dark' || htmlTheme === 'dim' || htmlTheme === 'nebula') ? 'dark' : theme);
           const themeExt = await this.withTimeout(this.getTheme(effectiveTheme), 12000, 'codemirror_theme_load');
 
+          // 🎨 Custom themes: טוען dynamic syntax highlighter במקום classHighlighter
+          // getSyntaxHighlighter() מחזירה syntaxHighlighting(dynamicStyle) עם צבעים מ-syntax_colors,
+          // או syntaxHighlighting(classHighlighter) כ-fallback אם אין syntax_colors
+          let customSyntaxHighlighter = null;
+          if (htmlTheme === 'custom' && window.CodeMirror6.getSyntaxHighlighter) {
+            try {
+              customSyntaxHighlighter = window.CodeMirror6.getSyntaxHighlighter();
+            } catch(_) {}
+          }
+
           const debouncedSync = this.debounce((val) => {
             this.textarea.value = val;
             try { this.textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
@@ -271,6 +281,8 @@
               ...basicSetup,
               languageCompartment.of(langSupport || []),
               themeCompartment.of(themeExt || []),
+              // 🎨 אם יש custom theme עם syntax highlighter, מוסיפים אותו כדי לדרוס את ה-classHighlighter שב-basicSetup
+              ...(customSyntaxHighlighter ? [customSyntaxHighlighter] : []),
               EditorView.lineWrapping,
               EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
