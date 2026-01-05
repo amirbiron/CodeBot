@@ -1468,6 +1468,12 @@
 {{ _shared_syntax | safe }}
     </style>
     {% endif %}
+    {% if shared_theme.syntax_colors %}
+    <!-- Dynamic Syntax Colors for CodeMirror HighlightStyle (Shared Theme) -->
+    <script type="application/json" id="syntax-colors-data">
+{{ shared_theme.syntax_colors | tojson | safe }}
+    </script>
+    {% endif %}
     {% endif %}
 
     <!-- Primary Button States - force theme colors on all interaction states (custom + shared) -->
