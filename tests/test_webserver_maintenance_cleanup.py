@@ -235,6 +235,76 @@ async def test_maintenance_cleanup_preview_does_not_mutate(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_maintenance_cleanup_preview_does_not_mutate(monkeypatch):
+    import services.webserver as ws
+
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
+
+    class _StubDeleteColl:
+        def __init__(self):
+            self.calls = []
+
+        def delete_many(self, query):
+            self.calls.append(query)
+            return types.SimpleNamespace(deleted_count=123)
+
+        def index_information(self):
+            return {}
+
+        def drop_index(self, _name: str):
+            raise AssertionError("drop_index should not be called in preview")
+
+        def create_index(self, _keys, **_kwargs):
+            raise AssertionError("create_index should not be called in preview")
+
+    class _StubCodeSnippetsColl:
+        def __init__(self):
+            self._idx = {"_id_": {"key": [("_id", 1)]}, "junk": {"key": [("x", 1)]}}
+
+        def index_information(self):
+            return dict(self._idx)
+
+        def drop_index(self, _name: str):
+            raise AssertionError("drop_index should not be called in preview")
+
+    class _StubDB:
+        slow_queries_log = _StubDeleteColl()
+        service_metrics = _StubDeleteColl()
+        code_snippets = _StubCodeSnippetsColl()
+
+    import services.db_provider as dbp
+    monkeypatch.setattr(dbp, "get_db", lambda: _StubDB(), raising=True)
+
+    app = ws.create_app()
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        headers = {"Authorization": "Bearer test-db-health-token"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup?preview=1",
+                headers=headers,
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload.get("ok") is True
+                assert payload.get("preview") is True
+                deleted = payload.get("deleted_documents") or {}
+                assert deleted.get("total") == 0
+                idx = payload.get("indexes") or {}
+                assert "before_details" in idx
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
 async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
     import services.webserver as ws
 
