@@ -1485,6 +1485,49 @@
 <body>
     <div id="theme-mask" aria-hidden="true"></div>
     <script>
+        // 🆕 מניעת מסך לבן: הצגת מסכה בזמן מעבר ערכה (עד שה-CSS נטען)
+        (function() {
+            try {
+                var raw = sessionStorage.getItem('__ck_theme_transition');
+                if (!raw) return;
+                var data = JSON.parse(raw);
+                // בדוק שהמעבר רלוונטי (לא יותר מ-5 שניות)
+                if (!data || !data.ts || Date.now() - data.ts > 5000) {
+                    sessionStorage.removeItem('__ck_theme_transition');
+                    return;
+                }
+                // הצג את המסכה מיידית עם צבע הערכה הנוכחית
+                var mask = document.getElementById('theme-mask');
+                if (mask) {
+                    mask.style.opacity = '1';
+                    mask.style.clipPath = 'circle(200vmax at 50vw 50vh)';
+                    mask.style.webkitClipPath = 'circle(200vmax at 50vw 50vh)';
+                    mask.style.transition = 'none';
+                }
+                // הסר את המסכה אחרי שהעמוד נטען
+                var hideAfterLoad = function() {
+                    sessionStorage.removeItem('__ck_theme_transition');
+                    if (mask) {
+                        mask.style.transition = 'opacity 300ms ease';
+                        mask.style.opacity = '0';
+                        setTimeout(function() {
+                            mask.style.clipPath = '';
+                            mask.style.webkitClipPath = '';
+                            mask.style.transition = '';
+                        }, 350);
+                    }
+                };
+                if (document.readyState === 'complete') {
+                    setTimeout(hideAfterLoad, 100);
+                } else {
+                    window.addEventListener('load', function() { setTimeout(hideAfterLoad, 100); });
+                }
+            } catch (e) {
+                try { sessionStorage.removeItem('__ck_theme_transition'); } catch (_) {}
+            }
+        })();
+    </script>
+    <script>
         (function() {
             try {
                 if (window.Telegram && window.Telegram.WebApp) {
