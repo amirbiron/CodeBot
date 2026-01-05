@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.theme_parser_service import (
     ALLOWED_VARIABLES_WHITELIST,
     is_valid_color,
+    normalize_color_to_rgba,
     sanitize_codemirror_css,
 )
 
@@ -31,6 +32,78 @@ _VALID_PX_REGEX = re.compile(r"^\d{1,3}(\.\d{1,2})?px$")
 MAX_NAME_LENGTH = 50
 MAX_DESCRIPTION_LENGTH = 200
 MAX_SYNTAX_CSS_LENGTH = 200_000
+
+
+def _relative_luminance_srgb(r: int, g: int, b: int) -> float:
+    """Relative luminance per WCAG (sRGB). r/g/b are 0..255."""
+
+    def _to_linear(c_255: float) -> float:
+        c = c_255 / 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r_lin = _to_linear(float(r))
+    g_lin = _to_linear(float(g))
+    b_lin = _to_linear(float(b))
+    return 0.2126 * r_lin + 0.7152 * g_lin + 0.0722 * b_lin
+
+
+def _contrast_ratio(bg: str, fg: str) -> float | None:
+    """
+    Contrast ratio for opaque colors (WCAG).
+    Returns None when color can't be parsed or is significantly transparent.
+    """
+    bg_rgba = normalize_color_to_rgba(str(bg))
+    fg_rgba = normalize_color_to_rgba(str(fg))
+    if not bg_rgba or not fg_rgba:
+        return None
+
+    br, bgc, bb, ba = bg_rgba
+    fr, fgc, fb, fa = fg_rgba
+
+    # Can't compute reliably without knowing the backdrop
+    if ba < 0.98 or fa < 0.98:
+        return None
+
+    l1 = _relative_luminance_srgb(br, bgc, bb)
+    l2 = _relative_luminance_srgb(fr, fgc, fb)
+    lighter = max(l1, l2)
+    darker = min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _maybe_fix_button_text_contrast(colors: Dict[str, str]) -> Dict[str, str]:
+    """
+    UX guard: prevent unreadable primary button text in Shared Themes.
+
+    Common case: imported VS Code themes define a light button background but omit button.foreground,
+    leading to low-contrast (often white-on-white) after publish.
+    """
+    if not isinstance(colors, dict) or not colors:
+        return colors
+
+    out = dict(colors)
+
+    btn_bg = out.get("--btn-primary-bg")
+    btn_fg = out.get("--btn-primary-color")
+    primary = out.get("--primary") or out.get("--text-primary")
+
+    if btn_bg and btn_fg and primary:
+        ratio = _contrast_ratio(btn_bg, btn_fg)
+        if ratio is not None and ratio < 2.2:
+            ratio_primary = _contrast_ratio(btn_bg, primary)
+            if ratio_primary is not None and ratio_primary >= 3.0:
+                out["--btn-primary-color"] = primary
+
+    hover_bg = out.get("--btn-primary-hover-bg")
+    hover_fg = out.get("--btn-primary-hover-color")
+    if hover_bg and hover_fg and primary:
+        ratio = _contrast_ratio(hover_bg, hover_fg)
+        if ratio is not None and ratio < 2.2:
+            ratio_primary = _contrast_ratio(hover_bg, primary)
+            if ratio_primary is not None and ratio_primary >= 3.0:
+                out["--btn-primary-hover-color"] = primary
+
+    return out
 
 
 # ערכות מובנות (Built-in) – קבועות בקוד (זהות למדריך)
@@ -218,6 +291,9 @@ class SharedThemeService:
                 return False, f"invalid_color:{error_field}"
             return False, "invalid_colors"
 
+        # 🛡️ UX: מניעת "כפתור נעלם" בפרסום (ניגודיות נמוכה לטקסט כפתור).
+        filtered_colors = _maybe_fix_button_text_contrast(filtered_colors)
+
         # בדיקת slug תפוס
         try:
             existing = self.collection.find_one({"_id": slug})
@@ -295,7 +371,7 @@ class SharedThemeService:
                 if error_field and error_field != "colors_not_dict":
                     return False, f"invalid_color:{error_field}"
                 return False, "invalid_colors"
-            update_fields["colors"] = filtered
+            update_fields["colors"] = _maybe_fix_button_text_contrast(filtered)
 
         if syntax_css is not None:
             update_fields["syntax_css"] = self._normalize_syntax_css(syntax_css)
