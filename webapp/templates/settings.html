@@ -1684,6 +1684,35 @@
       // טען את הרשימה בעליית הדף
       loadThemesList();
 
+      // ========== Utility Functions (must be defined before use) ==========
+      const escapeHtml = (value) => {
+        if (value === null || value === undefined) return '';
+        return String(value).replace(/[&<>"']/g, (char) => {
+          switch (char) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return char;
+          }
+        });
+      };
+
+      const formatDateTime = (value) => {
+        if (!value) return 'לא זמין';
+        try {
+          const dt = new Date(value);
+          if (Number.isNaN(dt.getTime())) return value;
+          return new Intl.DateTimeFormat('he-IL', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }).format(dt);
+        } catch (e) {
+          return value;
+        }
+      };
+
       // ========== Admin: Shared Themes Management ==========
       {% if is_admin %}
       const sharedThemesAdminList = document.getElementById('sharedThemesAdminList');
@@ -1857,33 +1886,7 @@
       if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
       refreshBmState();
 
-      const escapeHtml = (value) => {
-        if (value === null || value === undefined) return '';
-        return String(value).replace(/[&<>"']/g, (char) => {
-          switch (char) {
-            case '&': return '&amp;';
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '"': return '&quot;';
-            case "'": return '&#39;';
-            default: return char;
-          }
-        });
-      };
-
-      const formatDateTime = (value) => {
-        if (!value) return 'לא זמין';
-        try {
-          const dt = new Date(value);
-          if (Number.isNaN(dt.getTime())) return value;
-          return new Intl.DateTimeFormat('he-IL', {
-            dateStyle: 'short',
-            timeStyle: 'short',
-          }).format(dt);
-        } catch (e) {
-          return value;
-        }
-      };
+      // escapeHtml and formatDateTime are defined earlier in "Utility Functions" section
 
       const sanitizeHref = (value) => {
         const href = String(value || '').trim();
