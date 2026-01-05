@@ -2799,7 +2799,7 @@
           <div class="shared-theme-admin-item" data-theme-id="${escapeHtml(t.id)}" data-theme-name="${escapeHtml(t.name)}">
             <div class="theme-info">
               <span class="theme-name">${t.is_featured ? '⭐ ' : ''}${escapeHtml(t.name)}</span>
-              <span class="theme-meta">מזהה: ${escapeHtml(t.id)}${t.created_at ? ' | נוצרה: ' + formatDateTime(t.created_at) : ''}</span>
+              <span class="theme-meta">מזהה: ${escapeHtml(t.id)}${t.created_at ? ' | נוצרה: ' + escapeHtml(formatDateTime(t.created_at)) : ''}</span>
             </div>
             <div class="theme-actions">
               <button type="button" class="btn-delete-shared" title="מחק ערכה ציבורית">
@@ -2834,8 +2834,8 @@
             throw new Error((data && data.error) || 'delete_failed');
           }
           // רענון הרשימות
-          loadSharedThemesAdmin();
-          loadThemesList();
+          await loadSharedThemesAdmin();
+          await loadThemesList();
           alert('הערכה נמחקה בהצלחה!');
         } catch (e) {
           console.error('deleteSharedTheme failed:', e);
