@@ -1417,43 +1417,60 @@
           if (!res.ok || !data || !data.ok) {
             throw new Error((data && data.error) || 'load_failed');
           }
-
-          // מוסיפים Shared themes ל-dropdown (כדי לשמור את ה-UI כמו שהיה)
           const themes = Array.isArray(data.themes) ? data.themes : [];
+          const builtin = themes.filter(t => t && t.type === 'builtin' && t.id);
           const shared = themes.filter(t => t && t.type === 'shared' && t.id);
+          const custom = themes.filter(t => t && t.type === 'custom' && t.id);
 
-          // נקה optgroup ישן אם כבר קיים (למניעת כפילות)
-          try {
-            const existing = themeSel.querySelector('optgroup[data-kind="shared"]');
-            if (existing) existing.remove();
-          } catch (_) {}
+          // שמור את הערכה הנוכחית כדי לבחור נכון אחרי רינדור
+          const currentTheme = (document.documentElement.getAttribute('data-theme') || 'classic').trim().toLowerCase();
 
-          if (shared.length > 0) {
+          // בונים את הרשימה מחדש (במקרה של כשל נשאיר את הסטטי מהשרת)
+          themeSel.innerHTML = '';
+
+          function addOptGroup(label, items, kind) {
+            if (!items || !items.length) return;
             const og = document.createElement('optgroup');
-            og.label = 'ערכות ציבוריות';
-            og.setAttribute('data-kind', 'shared');
+            og.label = label;
 
-            for (const t of shared) {
-              const opt = document.createElement('option');
+            for (const t of items) {
               const id = String(t.id || '').trim();
-              opt.value = `shared:${id}`;
+              if (!id) continue;
+
+              const opt = document.createElement('option');
+              if (kind === 'shared') opt.value = `shared:${id}`;
+              else if (kind === 'custom') opt.value = `custom:${id}`;
+              else opt.value = id;
+
+              const name = String(t.name || id);
               const featured = !!t.is_featured;
-              opt.textContent = (featured ? '⭐ ' : '') + String(t.name || id);
+              opt.textContent = (featured ? '⭐ ' : '') + name;
               og.appendChild(opt);
             }
 
-            // הוסף optgroup לפני סוף הרשימה
             themeSel.appendChild(og);
           }
 
-          // אם המשתמש כרגע על shared:..., נסמן אותה כ-selected
-          try {
-            const currentTheme = (document.documentElement.getAttribute('data-theme') || 'classic').trim().toLowerCase();
-            if (currentTheme.startsWith('shared:')) {
-              const has = Array.from(themeSel.options).some(o => o.value === currentTheme);
-              if (has) themeSel.value = currentTheme;
-            }
-          } catch (_) {}
+          addOptGroup('ערכות מובנות', builtin, 'builtin');
+          addOptGroup('ערכות ציבוריות', shared, 'shared');
+          addOptGroup('הערכות שלי', custom, 'custom');
+
+          // בחירה פעילה:
+          // - shared:* => shared:<id>
+          // - custom => custom:<id> לפי is_active
+          // - builtin => id
+          let selectedValue = '';
+          if (currentTheme.startsWith('shared:')) {
+            selectedValue = currentTheme;
+          } else if (currentTheme === 'custom') {
+            const activeCustom = custom.find(t => t && t.is_active === true && t.id);
+            selectedValue = activeCustom ? `custom:${String(activeCustom.id).trim()}` : '';
+          } else {
+            selectedValue = currentTheme;
+          }
+
+          const hasSelected = Array.from(themeSel.options).some(o => o.value === selectedValue);
+          themeSel.value = hasSelected ? selectedValue : 'classic';
         } catch (err) {
           console.error('Error loading themes:', err);
         }
@@ -1588,7 +1605,15 @@
           return;
         }
 
-        // builtin/custom דרך ui_prefs ואז רענון (כדי למנוע דליפת syntax_css בין shared/custom)
+        // ערכה מותאמת (custom:<id>) עוברת דרך activate
+        if (nextTheme.toLowerCase().startsWith('custom:')) {
+          const id = nextTheme.slice('custom:'.length).trim();
+          if (!id) return;
+          await selectTheme(id, 'custom');
+          return;
+        }
+
+        // builtin
         await selectTheme(nextTheme, 'builtin');
       });
 

@@ -960,6 +960,10 @@
     let currentThemes = [];
     let selectedThemeId = null;
     let isNewTheme = false;
+    // מגן נגד מצב ביניים בזמן טעינת ערכה: מונע "פרסום" של נתונים ישנים מהטופס
+    let isThemeLoading = false;
+    // מזהה הערכה שהטופס כרגע מייצג בפועל (אחרי fetch + loadThemeIntoForm)
+    let loadedThemeId = null;
     let hasUnsavedChanges = false;
     let currentThemeSyntaxCss = '';
 
@@ -1558,14 +1562,21 @@
 
         selectedThemeId = themeId;
         isNewTheme = false;
+        isThemeLoading = true;
+        loadedThemeId = null;
         renderThemesList();
 
         setFormDisabled(true);
-        const theme = await fetchThemeDetails(themeId);
-        if (theme) {
-            loadThemeIntoForm(theme);
+        try {
+            const theme = await fetchThemeDetails(themeId);
+            if (theme) {
+                loadThemeIntoForm(theme);
+                loadedThemeId = themeId;
+            }
+        } finally {
+            isThemeLoading = false;
+            setFormDisabled(false);
         }
-        setFormDisabled(false);
 
         hasUnsavedChanges = false;
         updateFormButtons();
@@ -1631,6 +1642,8 @@
 
         selectedThemeId = null;
         isNewTheme = true;
+        isThemeLoading = false;
+        loadedThemeId = null;
         currentThemeSyntaxCss = '';
         renderThemesList();
 
@@ -1704,6 +1717,7 @@
         if (publishModal) {
             publishModal.hidden = true;
             try { publishModal.style.display = ''; } catch (e) {}
+            try { delete publishModal.dataset.themeId; } catch (e) {}
         }
         try { if (publishForm) publishForm.reset(); } catch (e) {}
     }
@@ -1712,6 +1726,11 @@
         publishBtn.addEventListener('click', () => {
             if (!selectedThemeId || isNewTheme) {
                 showToast('כדי לפרסם צריך לבחור ערכה קיימת (לא "ערכה חדשה")', 'error');
+                return;
+            }
+            // בזמן טעינה הטופס עדיין מייצג ערכה קודמת — מונעים פתיחת מודאל כדי לא לפרסם נתונים ישנים
+            if (isThemeLoading || loadedThemeId !== selectedThemeId) {
+                showToast('טוען את פרטי הערכה... נסה שוב בעוד רגע', 'info');
                 return;
             }
 
@@ -1730,6 +1749,7 @@
             if (publishSlugEl) publishSlugEl.value = suggestedSlug || '';
 
             if (publishModal) {
+                try { publishModal.dataset.themeId = String(selectedThemeId); } catch (e) {}
                 publishModal.hidden = false;
                 // "נוקשות" נגד CSS חיצוני שעשוי להסתיר overlays
                 try { publishModal.style.display = 'flex'; } catch (e) {}
@@ -1749,6 +1769,16 @@
     if (publishForm) {
         publishForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+
+            const expectedThemeId = (publishModal && publishModal.dataset) ? publishModal.dataset.themeId : null;
+            if (!expectedThemeId || !selectedThemeId || String(expectedThemeId) !== String(selectedThemeId)) {
+                showToast('הערכה השתנתה מאז פתיחת החלון. פתח את חלון הפרסום מחדש.', 'error');
+                return;
+            }
+            if (isThemeLoading || loadedThemeId !== selectedThemeId) {
+                showToast('הערכה עדיין נטענת. נסה שוב בעוד רגע.', 'info');
+                return;
+            }
 
             const slug = (document.getElementById('publishSlug')?.value || '').trim().toLowerCase();
             const name = (document.getElementById('publishName')?.value || '').trim();
