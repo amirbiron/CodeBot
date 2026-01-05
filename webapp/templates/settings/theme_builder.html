@@ -1542,6 +1542,8 @@
         const form = document.getElementById('themeBuilderForm');
         if (!form) return;
         form.querySelectorAll('input, button').forEach((el) => {
+            // השאר את כפתור הפרסום לחיץ תמיד (אחרת "לא מגיב" בזמן טעינה/שגיאה)
+            if (el && el.id === 'publishThemeBtn') return;
             el.disabled = !!disabled;
         });
         // תמיד נשאיר את כפתור "ערכה חדשה" פעיל
@@ -1699,7 +1701,10 @@
     const publishSubmitBtn = document.getElementById('publishSubmitBtn');
 
     function hidePublishModal() {
-        if (publishModal) publishModal.hidden = true;
+        if (publishModal) {
+            publishModal.hidden = true;
+            try { publishModal.style.display = ''; } catch (e) {}
+        }
         try { if (publishForm) publishForm.reset(); } catch (e) {}
     }
 
@@ -1724,7 +1729,11 @@
             const publishSlugEl = document.getElementById('publishSlug');
             if (publishSlugEl) publishSlugEl.value = suggestedSlug || '';
 
-            if (publishModal) publishModal.hidden = false;
+            if (publishModal) {
+                publishModal.hidden = false;
+                // "נוקשות" נגד CSS חיצוני שעשוי להסתיר overlays
+                try { publishModal.style.display = 'flex'; } catch (e) {}
+            }
         });
     }
 
