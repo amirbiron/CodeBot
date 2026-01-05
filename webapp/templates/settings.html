@@ -807,33 +807,6 @@
     </div>
   </div>
 
-  {% if custom_theme %}
-  <div
-    class="glass-card"
-    style="margin-top: 1rem; border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);"
-  >
-    <h2 class="section-title" style="color: color-mix(in srgb, var(--danger) 80%, var(--text-primary) 20%);">
-      <i class="fas fa-exclamation-triangle"></i>
-      אזור סכנה
-    </h2>
-    <p style="opacity: 0.85; margin-top: -0.5rem">
-      מחיקת ערכות נושא שנבנו ע"י Theme Builder (הפעולה אינה הפיכה).
-    </p>
-    <div style="display: flex; justify-content: flex-end; margin-top: 0.75rem; gap: 0.5rem; flex-wrap: wrap;">
-      <button
-        type="button"
-        class="btn btn-outline-danger"
-        onclick="deleteCustomTheme()"
-        title="מחק ערכה {{ custom_theme.name if custom_theme.name else 'Custom' }}"
-        style="border: 1px solid color-mix(in srgb, var(--danger) 75%, transparent); background: transparent; color: var(--danger);"
-      >
-        <i class="fas fa-trash" style="opacity: 0.85;"></i>
-        מחק ערכה {{ custom_theme.name if custom_theme.name else 'Custom' }}
-      </button>
-    </div>
-  </div>
-  {% endif %}
-
   {% if is_admin %}
   <!-- Admin: ניהול ערכות ציבוריות -->
   <div
@@ -1631,29 +1604,6 @@
       // טען את הרשימה בעליית הדף
       loadThemesList();
       
-      // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
-      window.deleteCustomTheme = async function deleteCustomTheme(){
-        if (!confirm("האם למחוק את הערכה?")) {
-          return;
-        }
-        try {
-          const res = await fetch('/api/themes/custom', { method: 'DELETE' });
-          const data = await res.json();
-          if (!res.ok || !data || !data.ok) {
-            throw new Error((data && data.error) || 'delete_failed');
-          }
-        } catch (e) {
-          console.error('deleteCustomTheme failed:', e);
-          alert('שגיאה במחיקת הערכה');
-          return;
-        }
-
-        // dark_mode_preference הוא enum של dark/dim/light/auto בלבד
-        // כדי לחזור ל-Classic בצורה תקינה נשתמש ב-"light"
-        try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
-        try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
-        location.reload();
-      };
       function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
       function save(scale){
         return fetch('/api/ui_prefs', {
