@@ -2461,10 +2461,27 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     // Mermaid: רנדר דיאגרמות בקוד fence ```mermaid
     try {
       if (!window.mermaid) throw new Error('mermaid missing');
-      // Choose Mermaid theme based on current data-theme
+      // Choose Mermaid theme based on actual background brightness
       const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-      const darkThemes = ['dark', 'dim', 'nebula', 'ocean', 'forest', 'high-contrast', 'custom'];
-      const mermaidTheme = darkThemes.includes(currentTheme) ? 'dark' : 'default';
+      const knownDarkThemes = ['dark', 'dim', 'nebula', 'ocean', 'forest', 'high-contrast'];
+      const knownLightThemes = ['classic', 'rose-pine-dawn'];
+      let mermaidTheme = 'dark';
+      if (knownLightThemes.includes(currentTheme)) {
+        mermaidTheme = 'default';
+      } else if (currentTheme === 'custom') {
+        // For custom themes, check actual background color brightness
+        const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
+        if (bgColor) {
+          const hex = bgColor.replace('#', '');
+          if (hex.length >= 6) {
+            const r = parseInt(hex.substr(0, 2), 16);
+            const g = parseInt(hex.substr(2, 2), 16);
+            const b = parseInt(hex.substr(4, 2), 16);
+            const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+            mermaidTheme = brightness > 128 ? 'default' : 'dark';
+          }
+        }
+      }
       window.mermaid.initialize({ 
         startOnLoad: false, 
         securityLevel: 'strict',
