@@ -21,6 +21,7 @@ textstat==0.7.10
 requests==2.32.5
 aiohttp==3.13.1
 httpx==0.28.1
+py_vapid==1.9.2  # pinned: 1.9.3 has broken tar with absolute symlink
 pywebpush==1.14.0
 
 # Google APIs (Drive OAuth + Client)
