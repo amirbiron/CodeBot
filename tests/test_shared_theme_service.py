@@ -82,7 +82,8 @@ def test_create_success_filters_colors_and_saves_syntax_css():
         name="Cyber Purple",
         colors={"--primary": "#667eea", "--bg-primary": "#000000", "--not-allowed": "#ffffff"},
         created_by=123,
-        syntax_css=".cm-content { color: #fff; }",
+        # syntax_css חייב לעבור sanitize ולהתיישר לפורמט שמכסה גם shared (data-theme-type)
+        syntax_css=':root[data-theme="custom"] .tok-keyword { color: #ffffff; }',
     )
     assert ok is True
     assert theme_id == "cyber_purple"
@@ -90,6 +91,7 @@ def test_create_success_filters_colors_and_saves_syntax_css():
     assert db.shared_themes.docs[0]["_id"] == "cyber_purple"
     assert "--not-allowed" not in db.shared_themes.docs[0]["colors"]
     assert isinstance(db.shared_themes.docs[0].get("syntax_css"), str)
+    assert 'data-theme-type="custom"' in db.shared_themes.docs[0].get("syntax_css", "")
 
 
 def test_create_duplicate_slug_rejected():

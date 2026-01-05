@@ -1429,7 +1429,12 @@
     {% if custom_theme.syntax_css %}
     <!-- Syntax Highlighting Override -->
     <style id="user-custom-syntax">
-{{ custom_theme.syntax_css | safe }}
+{# תאימות לאחור: ערכות ישנות שמכילות data-theme="custom" #}
+{% set _custom_syntax = (custom_theme.syntax_css
+  | replace('data-theme="custom"', 'data-theme-type="custom"')
+  | replace("data-theme='custom'", "data-theme-type='custom'")
+) %}
+{{ _custom_syntax | safe }}
     </style>
     {% endif %}
     {% if custom_theme.syntax_colors %}
@@ -1454,7 +1459,12 @@
     {% if shared_theme.syntax_css %}
     <!-- Shared Theme Syntax Override -->
     <style id="shared-theme-syntax">
-{{ shared_theme.syntax_css | safe }}
+{# תאימות לאחור: ערכות shared שנשמרו בעבר עם data-theme="custom" #}
+{% set _shared_syntax = (shared_theme.syntax_css
+  | replace('data-theme="custom"', 'data-theme-type="custom"')
+  | replace("data-theme='custom'", "data-theme-type='custom'")
+) %}
+{{ _shared_syntax | safe }}
     </style>
     {% endif %}
     {% endif %}

@@ -132,7 +132,7 @@ def test_publish_theme_success(client, stub_db, monkeypatch):
             "slug": "new_theme",
             "name": "New Theme",
             "colors": {"--primary": "#667eea", "--bg-primary": "#000000"},
-            "syntax_css": ".cm-content{color:#fff;}",
+            "syntax_css": ':root[data-theme="custom"] .tok-keyword { color: #ffffff; }',
         },
     )
     data = resp.get_json()
@@ -140,6 +140,8 @@ def test_publish_theme_success(client, stub_db, monkeypatch):
     assert data["ok"] is True
     assert data["theme_id"] == "new_theme"
     assert any(doc.get("_id") == "new_theme" for doc in stub_db.shared_themes.docs)
+    doc = next(doc for doc in stub_db.shared_themes.docs if doc.get("_id") == "new_theme")
+    assert 'data-theme-type="custom"' in str(doc.get("syntax_css") or "")
 
 
 def test_apply_shared_theme_sets_ui_pref(client, stub_db, monkeypatch):
