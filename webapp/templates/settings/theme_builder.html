@@ -966,6 +966,8 @@
     let loadedThemeId = null;
     let hasUnsavedChanges = false;
     let currentThemeSyntaxCss = '';
+    // 🆕 שמירת משתנים מקוריים של הערכה הנטענת (לשימור בפרסום)
+    let currentThemeOriginalVariables = {};
 
     // ========== DOM Elements ==========
     const themesList = document.getElementById('themesList');
@@ -1592,6 +1594,8 @@
 
         const variables = theme.variables || {};
         currentThemeSyntaxCss = (theme && typeof theme.syntax_css === 'string') ? theme.syntax_css : '';
+        // 🆕 שמירת כל המשתנים המקוריים (כולל אלו שאינם בטופס) לשימור בפרסום
+        currentThemeOriginalVariables = { ...variables };
 
         Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
             const textInput = document.getElementById(pickrId + 'Text');
@@ -1645,6 +1649,7 @@
         isThemeLoading = false;
         loadedThemeId = null;
         currentThemeSyntaxCss = '';
+        currentThemeOriginalVariables = {};
         renderThemesList();
 
         _suppressTracking = true;
@@ -1785,7 +1790,13 @@
             const description = (document.getElementById('publishDescription')?.value || '').trim();
             const isFeatured = !!document.getElementById('publishFeatured')?.checked;
 
-            const colors = collectThemeValues();
+            // 🆕 מיזוג: משתנים מקוריים (כולל --code-bg, --md-inline-code-bg וכו') + ערכים מהטופס
+            // ערכים מהטופס דורסים את המקוריים (למקרה שהמשתמש שינה צבע)
+            const formValues = collectThemeValues();
+            const colors = {
+                ...(currentThemeOriginalVariables || {}),  // משתנים מקוריים (כולל אלו שאינם בטופס)
+                ...formValues,  // ערכים מהטופס (דורסים)
+            };
 
             try {
                 if (publishSubmitBtn) publishSubmitBtn.disabled = true;
