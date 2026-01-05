@@ -218,8 +218,8 @@
   /* Inline code: mix 12% of text color into background for visible contrast */
   --md-inline-code-bg: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
   --md-inline-code-border: color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent);
-  /* Inline code text: golden accent for code distinction */
-  --md-inline-code-color: #DCCC44;
+  /* Inline code text: mix primary accent with text for dynamic emphasis */
+  --md-inline-code-color: color-mix(in srgb, var(--primary, var(--warning, #DCCC44)) 65%, var(--text-primary, #e5eaf7));
   --md-code-border: var(--glass-border, rgba(255, 255, 255, 0.18));
   /* Code blocks: use theme variables (these usually have good contrast) */
   --md-code-shell-bg: var(--bg-secondary, #1f1f28);
