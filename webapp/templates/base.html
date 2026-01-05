@@ -1481,10 +1481,24 @@
         [data-theme-type="custom"] .btn-primary:active,
         [data-theme-type="custom"] .btn-primary:focus,
         [data-theme-type="custom"] .btn-primary:disabled,
-        [data-theme-type="custom"] .btn-primary.disabled {
+        [data-theme-type="custom"] .btn-primary.disabled,
+        [data-theme^="shared:"] .btn-primary:active,
+        [data-theme^="shared:"] .btn-primary:focus,
+        [data-theme^="shared:"] .btn-primary:disabled,
+        [data-theme^="shared:"] .btn-primary.disabled {
             background-color: var(--btn-primary-bg) !important;
             color: var(--btn-primary-color) !important;
             opacity: 0.8;
+        }
+        /* Shared theme button base styles */
+        [data-theme^="shared:"] .btn-primary {
+            background-color: var(--btn-primary-bg) !important;
+            color: var(--btn-primary-color) !important;
+            border-color: var(--btn-primary-border, var(--btn-primary-bg)) !important;
+        }
+        [data-theme^="shared:"] .btn-primary:hover {
+            background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg)) !important;
+            color: var(--btn-primary-hover-color, var(--btn-primary-color)) !important;
         }
     </style>
 </head>
