@@ -23,6 +23,7 @@ from services.theme_parser_service import (
     parse_native_theme,
     parse_vscode_theme,
     sanitize_codemirror_css,
+    strip_jsonc_comments,
     validate_and_sanitize_theme_variables,
     validate_theme_json,
 )
@@ -796,11 +797,14 @@ def import_theme():
         if not json_content:
             return jsonify({"success": False, "error": "לא התקבל תוכן"}), 400
 
-        is_valid, error_msg = validate_theme_json(json_content)
+        # הסרת הערות JSONC (/* */ או //) שנפוצות ב-VS Code themes
+        cleaned_json = strip_jsonc_comments(json_content)
+
+        is_valid, error_msg = validate_theme_json(cleaned_json)
         if not is_valid:
             return jsonify({"success": False, "error": error_msg}), 400
 
-        data = json.loads(json_content)
+        data = json.loads(cleaned_json)
 
         syntax_css = ""
         syntax_colors: dict = {}
