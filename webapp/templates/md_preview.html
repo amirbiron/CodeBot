@@ -219,20 +219,20 @@
   --md-inline-code-bg: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
   --md-inline-code-border: color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent);
   --md-inline-code-color: var(--text-primary, #e9ecff);
-  --md-code-border: color-mix(in srgb, var(--text-primary, #ffffff) 15%, transparent);
-  /* Code blocks: mix 8% of text color for subtle but visible distinction */
-  --md-code-shell-bg: color-mix(in srgb, var(--text-primary, #ffffff) 6%, var(--bg-primary, #1a1c23));
-  --md-code-header-bg: color-mix(in srgb, var(--text-primary, #ffffff) 10%, var(--bg-primary, #1a1c23));
+  --md-code-border: var(--glass-border, rgba(255, 255, 255, 0.18));
+  /* Code blocks: use theme variables (these usually have good contrast) */
+  --md-code-shell-bg: var(--bg-secondary, #1f1f28);
+  --md-code-header-bg: var(--bg-tertiary, #25273a);
   --md-code-header-text: var(--text-secondary, #cfd7ff);
-  --md-code-bg: color-mix(in srgb, var(--text-primary, #ffffff) 8%, var(--bg-primary, #1a1c23));
+  --md-code-bg: var(--code-bg, var(--bg-secondary, #1a1c23));
   --md-code-text: var(--code-text, var(--text-primary, #e5eaf7));
-  --md-code-copy-bg: color-mix(in srgb, var(--text-primary, #ffffff) 10%, var(--bg-primary, #1a1c23));
-  --md-code-copy-border: color-mix(in srgb, var(--text-primary, #ffffff) 18%, transparent);
+  --md-code-copy-bg: var(--bg-tertiary, #2d2f49);
+  --md-code-copy-border: var(--glass-border, #3c3f60);
   --md-code-copy-color: var(--text-primary, #f8f9ff);
-  --md-code-copy-hover-bg: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23));
+  --md-code-copy-hover-bg: color-mix(in srgb, var(--bg-tertiary, #3b3f5c) 90%, white 10%);
   --md-code-copy-success-color: var(--success, #4ade80);
   --md-code-copy-error-color: var(--danger, #f87171);
-  --md-code-lang-bg: color-mix(in srgb, var(--text-primary, #ffffff) 14%, var(--bg-primary, #1a1c23));
+  --md-code-lang-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 85%, white 15%);
   --md-code-lang-text: var(--text-primary, #f4f4ff);
   --md-code-shadow: 0 18px 30px rgba(0, 0, 0, 0.55);
   --hljs-text: var(--text-primary, #e5eaf7);
@@ -277,10 +277,10 @@
   border: 1px solid var(--code-border, var(--glass-border));
 }
 
-/* Custom theme: use color-mix for better contrast */
+/* Custom theme: use theme variables for code blocks */
 [data-theme="custom"] #md-content pre {
-  background: color-mix(in srgb, var(--text-primary, #ffffff) 8%, var(--bg-primary, #1a1c23));
-  border: 1px solid color-mix(in srgb, var(--text-primary, #ffffff) 15%, transparent);
+  background: var(--code-bg, var(--bg-secondary, #1a1c23));
+  border: 1px solid var(--code-border, var(--glass-border, rgba(255, 255, 255, 0.15)));
 }
 
 /* צבעי רקע חומים לתצוגת מארקדאון — גוונים בהירים ונעימים */
