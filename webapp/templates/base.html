@@ -1470,7 +1470,7 @@
     {% endif %}
     {% if shared_theme.syntax_colors %}
     <!-- Dynamic Syntax Colors for CodeMirror HighlightStyle (Shared Theme) -->
-    <script type="application/json" id="syntax-colors-data">
+    <script type="application/json" id="shared-syntax-colors-data">
 {{ shared_theme.syntax_colors | tojson | safe }}
     </script>
     {% endif %}
