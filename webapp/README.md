@@ -154,8 +154,7 @@ http://localhost:5000
 
 - לפני העלייה הוא מחשב `ASSET_VERSION` דינמי (בברירת מחדל `RENDER_GIT_COMMIT` מקוצר, ואז `git rev-parse`, ולבסוף timestamp) ומייצא אותו ל-Flask לצורך Cache Busting של CSS/JS.
 - מיד אחרי הפעלת Gunicorn הוא מבצע קריאת `curl` best-effort ל-`/healthz` (ברירת מחדל `http://127.0.0.1:$PORT` כדי לוודא שמחממים את ה-instance המקומי; ניתן להגדיר יעד אחר עם `WEBAPP_WARMUP_URL`) כדי לחמם חיבורי Mongo ואינדקסים בזמן שהדיפלוי עדיין מסומן כ-In Progress.
-- לאחר שה-`/healthz` חוזר תקין ניתן להגדיר את `WEBAPP_WARMUP_PATHS` (CSV של מסלולים כמו `/dashboard,/collections`) כדי לבצע `curl` סדרתי לדפים סטטיים/Template Cache, עם Timeout קצר (ברירת מחדל 2 שניות) ולוגים בסגנון `Warmup: /dashboard... OK`. ניתן גם לשנות את כתובת הבסיס באמצעות `WEBAPP_WARMUP_BASE_URL`.
-- ניתן לכוון את ההתנהגות עם משתני סביבה: `ASSET_VERSION` (override מפורש), `WEBAPP_ENABLE_WARMUP=0` לביטול, `WEBAPP_WARMUP_URL` ליעד מותאם, `WEBAPP_WARMUP_MAX_ATTEMPTS` ו-`WEBAPP_WARMUP_DELAY_SECONDS` ללולאת ה-warmup הראשונית, `WEBAPP_WARMUP_PATHS` לנתיבי front-end, `WEBAPP_WARMUP_BASE_URL` לבסיס מותאם ו-`WEBAPP_WARMUP_REQUEST_TIMEOUT` ל-Timeout לכל דף.
+- ניתן לכוון את ההתנהגות עם משתני סביבה: `ASSET_VERSION` (override מפורש), `WEBAPP_ENABLE_WARMUP=0` לביטול, `WEBAPP_WARMUP_URL` ליעד מותאם, `WEBAPP_WARMUP_MAX_ATTEMPTS` ו-`WEBAPP_WARMUP_DELAY_SECONDS` ללולאת ה-warmup הראשונית.
 
 ## משתני סביבה 🔐
 
@@ -172,9 +171,7 @@ http://localhost:5000
 | `WEBAPP_WARMUP_URL` | יעד ה-curl לחימום (ברירת מחדל: `http://127.0.0.1:$PORT/healthz`) | ❌ | - |
 | `WEBAPP_WARMUP_MAX_ATTEMPTS` | מספר ניסיונות warmup | ❌ | `15` |
 | `WEBAPP_WARMUP_DELAY_SECONDS` | השהיה בין ניסיונות warmup (שניות) | ❌ | `2` |
-| `WEBAPP_WARMUP_PATHS` | רשימת נתיבי Frontend (CSV) לחימום לאחר שה-Healthz תקין | ❌ | - |
 | `WEBAPP_WARMUP_BASE_URL` | בסיס ה-URL לבקשות ה-Fronted Warmup | ❌ | `http://127.0.0.1:$PORT` |
-| `WEBAPP_WARMUP_REQUEST_TIMEOUT` | Timeout בשניות לכל בקשת Frontend Warmup | ❌ | `2` |
 | `UPTIME_PROVIDER` | ספק זמינות חיצוני (`betteruptime`/`uptimerobot`) | ❌ | - |
 | `UPTIME_API_KEY` | מפתח API ל‑uptime | ❌ | - |
 | `UPTIME_MONITOR_ID` | מזהה monitor | ❌ | - |

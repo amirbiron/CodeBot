@@ -154,23 +154,11 @@
      - ``2``
      - ``5``
      - WebApp
-   * - ``WEBAPP_WARMUP_PATHS``
-     - רשימת מסלולי Frontend (CSV) לחימום לאחר שה-Healthz הצליח
-     - לא
-     - "" (ריק)
-     - ``/dashboard,/collections,/settings``
-     - WebApp
    * - ``WEBAPP_WARMUP_BASE_URL``
      - בסיס ה-URL לבקשות ה-Frontend Warmup
      - לא
      - ``http://127.0.0.1:$PORT``
      - ``https://code-keeper-webapp.onrender.com``
-     - WebApp
-   * - ``WEBAPP_WARMUP_REQUEST_TIMEOUT``
-     - Timeout בשניות לכל בקשת Frontend Warmup
-     - לא
-     - ``2``
-     - ``4``
      - WebApp
    * - ``WEBAPP_WSGI_APP``
      - מודול ה-WSGI של Flask עבור Gunicorn (בשימוש ``scripts/start_webapp.sh``)

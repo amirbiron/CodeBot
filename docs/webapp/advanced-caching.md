@@ -30,9 +30,9 @@
 
 ## Warmup לנכסי Frontend
 
-- לאחר שהשרת חולף על `/healthz`, `scripts/start_webapp.sh` יכול לבצע warmup יזום לדפי ה-Frontend ע״י משתנה הסביבה `WEBAPP_WARMUP_PATHS` (CSV כמו `/dashboard,/collections`).
-- ניתן לשנות את בסיס הכתובת באמצעות `WEBAPP_WARMUP_BASE_URL` (ברירת מחדל `http://127.0.0.1:$PORT`) ואת ה-timeout לכל בקשה דרך `WEBAPP_WARMUP_REQUEST_TIMEOUT` (ברירת מחדל 2 שניות).
-- כל ניסיון מחזיר לוג בסגנון `Warmup: /dashboard... OK/FAIL`, כך שניתן לעקוב אחרי CDN/Template Cache שמתמלא עוד לפני שהמשתמשים הראשונים מגיעים.
+- לאחר שהשרת עולה, `scripts/start_webapp.sh` מבצע warmup best-effort באמצעות `curl` ל-`/healthz` כדי לוודא שה-instance מוכן ושהחיבורים ל-DB "מתחממים".
+- ניתן לשנות את יעד ה-warmup דרך `WEBAPP_WARMUP_URL`, ולכוון את קצב הניסיונות עם `WEBAPP_WARMUP_MAX_ATTEMPTS` ו-`WEBAPP_WARMUP_DELAY_SECONDS`.
+- הלוגים מציינים מתי ה-warmup הצליח (באיזה ניסיון), וכישלון נחשב best-effort ולא מפיל את התהליך.
 - כדי למנוע השפעה על זמני עלייה, ה-warmup רץ רק לאחר הצלחת בדיקת הבריאות, ונחשב best-effort (כישלון לא מפיל את התהליך).
 
 ## קישורים

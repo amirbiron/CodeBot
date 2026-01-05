@@ -381,22 +381,10 @@ class ConfigService:
             description="השהיה בין ניסיונות ה-warmup הראשיים (שניות)",
             category="warmup",
         ),
-        "WEBAPP_WARMUP_PATHS": ConfigDefinition(
-            key="WEBAPP_WARMUP_PATHS",
-            default="",
-            description="רשימת מסלולי Frontend (CSV) לחימום לאחר שה-Healthz הצליח",
-            category="warmup",
-        ),
         "WEBAPP_WARMUP_BASE_URL": ConfigDefinition(
             key="WEBAPP_WARMUP_BASE_URL",
             default="http://127.0.0.1:$PORT",
             description="בסיס ה-URL לבקשות ה-Frontend Warmup",
-            category="warmup",
-        ),
-        "WEBAPP_WARMUP_REQUEST_TIMEOUT": ConfigDefinition(
-            key="WEBAPP_WARMUP_REQUEST_TIMEOUT",
-            default="2",
-            description="Timeout בשניות לכל בקשת Frontend Warmup",
             category="warmup",
         ),
         "WEBAPP_WSGI_APP": ConfigDefinition(
