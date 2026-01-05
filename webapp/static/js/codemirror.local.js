@@ -32125,25 +32125,42 @@
     }
   }
   var cachedDynamicHighlighter = null;
+  var cachedSyntaxColorsHash = null;
+  function hashSyntaxColors(syntaxColors) {
+    if (!syntaxColors) return null;
+    try {
+      return JSON.stringify(syntaxColors);
+    } catch (e) {
+      return null;
+    }
+  }
+  function invalidateSyntaxHighlighterCache() {
+    cachedDynamicHighlighter = null;
+    cachedSyntaxColorsHash = null;
+    console.log("[CM Bundle] Syntax highlighter cache invalidated");
+  }
   function getSyntaxHighlighter() {
     if (typeof document === "undefined") {
       return syntaxHighlighting(classHighlighter);
     }
     const htmlTheme = document.documentElement.getAttribute("data-theme");
     if (htmlTheme === "custom") {
-      if (cachedDynamicHighlighter === null) {
-        const syntaxColors = getSyntaxColorsFromPage();
-        if (syntaxColors && Object.keys(syntaxColors).length > 0) {
-          const dynamicStyle = createDynamicHighlightStyle(syntaxColors);
-          if (dynamicStyle) {
-            cachedDynamicHighlighter = syntaxHighlighting(dynamicStyle);
-            console.log("[CM Bundle] Using dynamic HighlightStyle with", Object.keys(syntaxColors).length, "colors");
-          }
-        }
-        if (!cachedDynamicHighlighter) {
-          cachedDynamicHighlighter = syntaxHighlighting(classHighlighter);
+      const syntaxColors = getSyntaxColorsFromPage();
+      const currentHash = hashSyntaxColors(syntaxColors);
+      if (cachedDynamicHighlighter !== null && currentHash === cachedSyntaxColorsHash) {
+        return cachedDynamicHighlighter;
+      }
+      if (syntaxColors && Object.keys(syntaxColors).length > 0) {
+        const dynamicStyle = createDynamicHighlightStyle(syntaxColors);
+        if (dynamicStyle) {
+          cachedDynamicHighlighter = syntaxHighlighting(dynamicStyle);
+          cachedSyntaxColorsHash = currentHash;
+          console.log("[CM Bundle] Using dynamic HighlightStyle with", Object.keys(syntaxColors).length, "colors");
+          return cachedDynamicHighlighter;
         }
       }
+      cachedDynamicHighlighter = syntaxHighlighting(classHighlighter);
+      cachedSyntaxColorsHash = currentHash;
       return cachedDynamicHighlighter;
     }
     return syntaxHighlighting(classHighlighter);
@@ -32230,6 +32247,8 @@
     getTheme,
     getSyntaxHighlighter,
     createDynamicHighlightStyle,
+    invalidateSyntaxHighlighterCache,
+    // 🆕 לאיפוס cache כש-theme משתנה
     MergeView,
     syntaxHighlighting,
     HighlightStyle,

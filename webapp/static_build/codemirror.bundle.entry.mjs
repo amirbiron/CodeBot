@@ -181,8 +181,30 @@ function getSyntaxColorsFromPage() {
   }
 }
 
-// שמירת ה-HighlightStyle הדינמי
+// שמירת ה-HighlightStyle הדינמי + hash לזיהוי שינויים
 let cachedDynamicHighlighter = null;
+let cachedSyntaxColorsHash = null;
+
+/**
+ * יוצר hash פשוט מה-syntax colors לזיהוי שינויים
+ */
+function hashSyntaxColors(syntaxColors) {
+  if (!syntaxColors) return null;
+  try {
+    return JSON.stringify(syntaxColors);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * מאפס את ה-cache של ה-syntax highlighter (לשימוש כש-theme משתנה)
+ */
+function invalidateSyntaxHighlighterCache() {
+  cachedDynamicHighlighter = null;
+  cachedSyntaxColorsHash = null;
+  console.log('[CM Bundle] Syntax highlighter cache invalidated');
+}
 
 /**
  * מחזיר את ה-syntax highlighter המתאים לערכה הנוכחית
@@ -196,20 +218,28 @@ function getSyntaxHighlighter() {
   
   // אם זו ערכה מותאמת - נסה ליצור HighlightStyle דינמי
   if (htmlTheme === 'custom') {
-    if (cachedDynamicHighlighter === null) {
-      const syntaxColors = getSyntaxColorsFromPage();
-      if (syntaxColors && Object.keys(syntaxColors).length > 0) {
-        const dynamicStyle = createDynamicHighlightStyle(syntaxColors);
-        if (dynamicStyle) {
-          cachedDynamicHighlighter = syntaxHighlighting(dynamicStyle);
-          console.log('[CM Bundle] Using dynamic HighlightStyle with', Object.keys(syntaxColors).length, 'colors');
-        }
-      }
-      // fallback to classHighlighter
-      if (!cachedDynamicHighlighter) {
-        cachedDynamicHighlighter = syntaxHighlighting(classHighlighter);
+    const syntaxColors = getSyntaxColorsFromPage();
+    const currentHash = hashSyntaxColors(syntaxColors);
+    
+    // בדיקה אם הנתונים השתנו מאז ה-cache האחרון
+    if (cachedDynamicHighlighter !== null && currentHash === cachedSyntaxColorsHash) {
+      return cachedDynamicHighlighter;
+    }
+    
+    // נתונים חדשים או שונים - יצירת highlighter חדש
+    if (syntaxColors && Object.keys(syntaxColors).length > 0) {
+      const dynamicStyle = createDynamicHighlightStyle(syntaxColors);
+      if (dynamicStyle) {
+        cachedDynamicHighlighter = syntaxHighlighting(dynamicStyle);
+        cachedSyntaxColorsHash = currentHash;
+        console.log('[CM Bundle] Using dynamic HighlightStyle with', Object.keys(syntaxColors).length, 'colors');
+        return cachedDynamicHighlighter;
       }
     }
+    
+    // fallback to classHighlighter
+    cachedDynamicHighlighter = syntaxHighlighting(classHighlighter);
+    cachedSyntaxColorsHash = currentHash;
     return cachedDynamicHighlighter;
   }
   
@@ -297,6 +327,7 @@ const api = {
   getTheme,
   getSyntaxHighlighter,
   createDynamicHighlightStyle,
+  invalidateSyntaxHighlighterCache,  // 🆕 לאיפוס cache כש-theme משתנה
   MergeView,
   syntaxHighlighting,
   HighlightStyle,
