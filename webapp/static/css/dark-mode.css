@@ -305,33 +305,34 @@
 /* Classic theme: ensure readable dark text on light background */
 [data-theme="classic"] .recent-files-modal .modal-content,
 [data-theme="classic"] .community-modal .modal-content {
-    background: #ffffff;
-    color: #1f2937;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
 }
 
 [data-theme="classic"] .recent-files-modal .modal-header {
-    border-bottom-color: #e5e7eb;
+    border-bottom-color: var(--card-border);
 }
 
 [data-theme="classic"] .recent-files-modal .modal-header h3 {
-    color: #1f2937;
+    color: var(--text-primary);
 }
 
 [data-theme="classic"] .recent-files-modal .modal-close {
-    color: #6b7280;
+    color: var(--text-secondary);
 }
 
 [data-theme="classic"] .recent-files-modal .modal-close:hover {
-    color: #1f2937;
+    color: var(--text-primary);
 }
 
 [data-theme="classic"] .recent-file-item {
-    color: #1f2937;
+    color: var(--text-primary);
 }
 
 [data-theme="classic"] .recent-files-modal .file-meta,
 [data-theme="classic"] .recent-files-modal .no-files {
-    color: #6b7280;
+    color: var(--text-secondary);
 }
 
 [data-theme="dark"] .recent-files-modal .modal-header,
