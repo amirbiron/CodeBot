@@ -288,14 +288,14 @@
 
 {% if is_admin %}
 <!-- Publish Modal -->
-<div id="publishModal" class="modal" hidden>
-    <div class="modal-content glass-card">
-        <div class="modal-header">
+<div id="publishModal" class="publish-modal" hidden>
+    <div class="publish-modal-content glass-card">
+        <div class="publish-modal-header">
             <h3>
                 <i class="fas fa-share-alt"></i>
                 פרסום ערכה לכולם
             </h3>
-            <button type="button" class="modal-close" id="closePublishModal" aria-label="סגירת חלון פרסום">
+            <button type="button" class="publish-modal-close" id="closePublishModal" aria-label="סגירת חלון פרסום">
                 <i class="fas fa-times"></i>
             </button>
         </div>
@@ -347,7 +347,7 @@
                 </label>
             </div>
 
-            <div class="modal-actions">
+            <div class="publish-modal-actions">
                 <button type="submit" class="btn btn-primary" id="publishSubmitBtn">
                     <i class="fas fa-upload"></i>
                     פרסם
@@ -792,8 +792,10 @@
     color: white;
 }
 
-/* Modal (Publish) */
-.modal {
+/* Modal (Publish)
+   ⚠️ לא משתמשים במחלקה .modal כדי להימנע מקונפליקט עם smooth-scroll.css שמסתיר .modal עם !important
+*/
+.publish-modal {
     position: fixed;
     top: 0;
     left: 0;
@@ -807,11 +809,11 @@
     backdrop-filter: blur(4px);
 }
 
-.modal[hidden] {
+.publish-modal[hidden] {
     display: none;
 }
 
-.modal-content {
+.publish-modal-content {
     width: 90%;
     max-width: 500px;
     max-height: 90vh;
@@ -830,7 +832,7 @@
     }
 }
 
-.modal-header {
+.publish-modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -839,14 +841,14 @@
     border-bottom: 1px solid var(--glass-border);
 }
 
-.modal-header h3 {
+.publish-modal-header h3 {
     margin: 0;
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-.modal-close {
+.publish-modal-close {
     background: none;
     border: none;
     color: var(--text-secondary);
@@ -857,7 +859,7 @@
     transition: all 0.2s;
 }
 
-.modal-close:hover {
+.publish-modal-close:hover {
     background: var(--glass);
     color: var(--text-primary);
 }
@@ -905,7 +907,7 @@
     color: var(--danger);
 }
 
-.modal-actions {
+.publish-modal-actions {
     display: flex;
     gap: 1rem;
     justify-content: flex-end;
