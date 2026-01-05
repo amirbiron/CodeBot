@@ -256,6 +256,69 @@
   --md-table-header-bg: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
 }
 
+/* Mermaid diagrams - ensure readable colors for custom themes */
+[data-theme="custom"] #md-content .mermaid,
+[data-theme="custom"] #md-content [class*="mermaid"] {
+  /* Node backgrounds and text */
+  --mermaid-node-bg: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23));
+  --mermaid-node-text: var(--text-primary, #e5eaf7);
+  --mermaid-node-border: color-mix(in srgb, var(--text-primary, #ffffff) 30%, transparent);
+}
+
+[data-theme="custom"] #md-content .node rect,
+[data-theme="custom"] #md-content .node polygon,
+[data-theme="custom"] #md-content .node circle {
+  fill: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23)) !important;
+  stroke: color-mix(in srgb, var(--primary, var(--text-primary, #ffffff)) 50%, transparent) !important;
+}
+
+[data-theme="custom"] #md-content .node .label,
+[data-theme="custom"] #md-content .nodeLabel,
+[data-theme="custom"] #md-content .label {
+  color: var(--text-primary, #e5eaf7) !important;
+  fill: var(--text-primary, #e5eaf7) !important;
+}
+
+[data-theme="custom"] #md-content .edgeLabel {
+  background-color: var(--bg-primary, #1a1c23) !important;
+  color: var(--text-primary, #e5eaf7) !important;
+  fill: var(--text-primary, #e5eaf7) !important;
+}
+
+[data-theme="custom"] #md-content .edgePath path {
+  stroke: color-mix(in srgb, var(--text-primary, #ffffff) 40%, transparent) !important;
+}
+
+/* Sequence diagram specific */
+[data-theme="custom"] #md-content .actor {
+  fill: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23)) !important;
+  stroke: color-mix(in srgb, var(--primary, var(--text-primary, #ffffff)) 50%, transparent) !important;
+}
+
+[data-theme="custom"] #md-content .actor-line {
+  stroke: color-mix(in srgb, var(--text-primary, #ffffff) 30%, transparent) !important;
+}
+
+[data-theme="custom"] #md-content text.actor,
+[data-theme="custom"] #md-content .messageText,
+[data-theme="custom"] #md-content .loopText {
+  fill: var(--text-primary, #e5eaf7) !important;
+}
+
+[data-theme="custom"] #md-content .messageLine0,
+[data-theme="custom"] #md-content .messageLine1 {
+  stroke: color-mix(in srgb, var(--text-primary, #ffffff) 50%, transparent) !important;
+}
+
+[data-theme="custom"] #md-content .note {
+  fill: color-mix(in srgb, var(--warning, var(--text-primary, #ffffff)) 20%, var(--bg-primary, #1a1c23)) !important;
+  stroke: color-mix(in srgb, var(--warning, var(--text-primary, #ffffff)) 40%, transparent) !important;
+}
+
+[data-theme="custom"] #md-content .noteText {
+  fill: var(--text-primary, #e5eaf7) !important;
+}
+
 [data-theme="dark"] #md-content code:not(pre code),
 [data-theme="dim"] #md-content code:not(pre code),
 [data-theme="nebula"] #md-content code:not(pre code) {
@@ -2398,7 +2461,15 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     // Mermaid: רנדר דיאגרמות בקוד fence ```mermaid
     try {
       if (!window.mermaid) throw new Error('mermaid missing');
-      window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+      // Choose Mermaid theme based on current data-theme
+      const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+      const darkThemes = ['dark', 'dim', 'nebula', 'ocean', 'forest', 'high-contrast', 'custom'];
+      const mermaidTheme = darkThemes.includes(currentTheme) ? 'dark' : 'default';
+      window.mermaid.initialize({ 
+        startOnLoad: false, 
+        securityLevel: 'strict',
+        theme: mermaidTheme
+      });
       const blocks = container.querySelectorAll('code.language-mermaid, pre code.language-mermaid');
       let i=0;
       for (const el of blocks) {
