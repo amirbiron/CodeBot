@@ -64,8 +64,8 @@ scripts/migrate_workspace_collections.py
 ``scripts/start_webapp.sh``
 ---------------------------
 
-- מעטפת ל-Gunicorn עבור `webapp/` עם הפקת ``ASSET_VERSION`` אוטומטית והפעלת warmup לנתיבים קריטיים.
-- מכבד ``PORT`` (ברירת מחדל 5000), ``WEBAPP_WSGI_APP`` ופרמטרי warmup (``WEBAPP_WARMUP_URL`` / ``WEBAPP_WARMUP_PATHS``).
+- מעטפת ל-Gunicorn עבור `webapp/` עם הפקת ``ASSET_VERSION`` אוטומטית והפעלת warmup best-effort ל-``/healthz``.
+- מכבד ``PORT`` (ברירת מחדל 5000), ``WEBAPP_WSGI_APP`` ופרמטרי warmup (``WEBAPP_ENABLE_WARMUP`` / ``WEBAPP_WARMUP_URL`` / ``WEBAPP_WARMUP_MAX_ATTEMPTS`` / ``WEBAPP_WARMUP_DELAY_SECONDS``).
 - משמש להפעלה מקומית או ב-Render/Heroku כאשר אין Supervisor חיצוני.
 
 ``scripts/start_with_worker.sh``

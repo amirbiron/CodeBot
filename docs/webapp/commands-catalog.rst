@@ -49,7 +49,7 @@
        "description": "מרים מקומית את ה-WebApp עם ASSET_VERSION מחושב ואפשרות warmup",
        "arguments": [
          "PORT=5000",
-         "WEBAPP_WARMUP_PATHS=/dashboard,/collections"
+         "WEBAPP_WARMUP_URL=http://127.0.0.1:5000/healthz"
        ],
        "doc_link": "https://amirbiron.github.io/CodeBot/development/scripts.html#scripts-start_webapp-sh"
      },
