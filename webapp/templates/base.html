@@ -1500,6 +1500,18 @@
             background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg)) !important;
             color: var(--btn-primary-hover-color, var(--btn-primary-color)) !important;
         }
+        /* Secondary button styles for custom + shared themes */
+        [data-theme-type="custom"] .btn-secondary,
+        [data-theme^="shared:"] .btn-secondary {
+            background-color: var(--btn-secondary-bg, var(--glass)) !important;
+            color: var(--btn-secondary-color, var(--text-primary)) !important;
+            border-color: var(--btn-secondary-border, var(--glass-border)) !important;
+        }
+        [data-theme-type="custom"] .btn-secondary:hover,
+        [data-theme^="shared:"] .btn-secondary:hover {
+            background-color: var(--btn-secondary-hover-bg, rgba(255, 255, 255, 0.2)) !important;
+            color: var(--btn-secondary-hover-color, var(--btn-secondary-color, var(--text-primary))) !important;
+        }
     </style>
 </head>
 <body>

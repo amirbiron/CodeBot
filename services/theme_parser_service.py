@@ -65,6 +65,8 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     # Level 2 - כפתורים (Button Tokens)
     "--btn-primary-bg", "--btn-primary-color", "--btn-primary-border", "--btn-primary-shadow",
     "--btn-primary-hover-bg", "--btn-primary-hover-color",
+    "--btn-secondary-bg", "--btn-secondary-color", "--btn-secondary-border",
+    "--btn-secondary-hover-bg", "--btn-secondary-hover-color",
 
     # Level 2 - Markdown & Split View
     "--md-surface", "--md-text",
