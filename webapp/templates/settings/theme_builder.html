@@ -1798,9 +1798,22 @@
             // 🆕 מיזוג: משתנים מקוריים (כולל --code-bg, --md-inline-code-bg וכו') + ערכים מהטופס
             // ערכים מהטופס דורסים את המקוריים (למקרה שהמשתמש שינה צבע)
             const formValues = collectThemeValues();
+            
+            // 🔧 סינון משתנים שהם ברירות מחדל ולא היו בערכה המקורית
+            // כדי לאפשר ל-CSS fallbacks לעבוד (למשל --btn-primary-color -> --primary)
+            const filteredFormValues = {};
+            for (const [varName, value] of Object.entries(formValues)) {
+                const isDefaultValue = DEFAULT_VALUES[varName] === value;
+                const wasInOriginal = currentThemeOriginalVariables && (varName in currentThemeOriginalVariables);
+                // כלול את הערך רק אם: לא ברירת מחדל, או שהיה בערכה המקורית
+                if (!isDefaultValue || wasInOriginal) {
+                    filteredFormValues[varName] = value;
+                }
+            }
+            
             const colors = {
                 ...(currentThemeOriginalVariables || {}),  // משתנים מקוריים (כולל אלו שאינם בטופס)
-                ...formValues,  // ערכים מהטופס (דורסים)
+                ...filteredFormValues,  // ערכים מהטופס (מסוננים, דורסים)
             };
 
             try {
@@ -1849,7 +1862,27 @@
             return;
         }
 
-        const variables = collectThemeValues();
+        const formValues = collectThemeValues();
+        
+        // 🔧 סינון משתנים שהם ברירות מחדל ולא היו בערכה המקורית
+        // כדי לאפשר ל-CSS fallbacks לעבוד (למשל --btn-primary-color -> --primary)
+        const variables = {};
+        for (const [varName, value] of Object.entries(formValues)) {
+            const isDefaultValue = DEFAULT_VALUES[varName] === value;
+            const wasInOriginal = currentThemeOriginalVariables && (varName in currentThemeOriginalVariables);
+            // כלול את הערך רק אם: לא ברירת מחדל, או שהיה בערכה המקורית
+            if (!isDefaultValue || wasInOriginal) {
+                variables[varName] = value;
+            }
+        }
+        // מיזוג עם משתנים מקוריים שלא בטופס (כמו --code-bg, --md-inline-code-bg)
+        if (currentThemeOriginalVariables) {
+            for (const [varName, value] of Object.entries(currentThemeOriginalVariables)) {
+                if (!(varName in variables)) {
+                    variables[varName] = value;
+                }
+            }
+        }
 
         // נגישות: בדיקת ניגודיות בסיסית (כאשר הערכים הם hex)
         try {
