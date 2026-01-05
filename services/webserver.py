@@ -1199,6 +1199,7 @@ def create_app() -> web.Application:
         from services.db_provider import get_db
 
         def _run_cleanup() -> dict:
+            preview = str(request.query.get("preview", "") or "").lower() in {"1", "true", "yes", "on"}
             db = get_db()
 
             # --- collections to purge ---
@@ -1221,11 +1222,13 @@ def create_app() -> web.Application:
             if not getattr(code_snippets_coll, "index_information", None) or not getattr(code_snippets_coll, "drop_index", None):
                 raise RuntimeError("db_unavailable_or_no_index_management")
 
-            slow_res = slow_queries_coll.delete_many({})
-            metrics_res = service_metrics_coll.delete_many({})
-
-            deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
-            deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
+            deleted_slow = 0
+            deleted_metrics = 0
+            if not preview:
+                slow_res = slow_queries_coll.delete_many({})
+                metrics_res = service_metrics_coll.delete_many({})
+                deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
+                deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
 
             # --- TTL indexes (permanent cleanup) ---
             def _ensure_ttl_index(coll: Any, *, field: str, expire_seconds: int, index_name: str) -> dict:
@@ -1255,34 +1258,36 @@ def create_app() -> web.Application:
                         pass
 
                 # Try drop conflicting TTL index with the same name
-                try:
-                    coll.drop_index(index_name)
-                except Exception:
-                    pass
+                if not preview:
+                    try:
+                        coll.drop_index(index_name)
+                    except Exception:
+                        pass
 
                 created_name = None
-                try:
-                    created_name = coll.create_index(
-                        [(field, 1)],
-                        name=index_name,
-                        expireAfterSeconds=int(expire_seconds),
-                        background=True,
-                    )
-                except Exception as e:
-                    # Best-effort: report error and continue
-                    return {
-                        "name": index_name,
-                        "field": field,
-                        "expireAfterSeconds": int(expire_seconds),
-                        "status": "error",
-                        "error": str(e),
-                    }
+                if not preview:
+                    try:
+                        created_name = coll.create_index(
+                            [(field, 1)],
+                            name=index_name,
+                            expireAfterSeconds=int(expire_seconds),
+                            background=True,
+                        )
+                    except Exception as e:
+                        # Best-effort: report error and continue
+                        return {
+                            "name": index_name,
+                            "field": field,
+                            "expireAfterSeconds": int(expire_seconds),
+                            "status": "error",
+                            "error": str(e),
+                        }
 
                 return {
                     "name": str(created_name or index_name),
                     "field": field,
                     "expireAfterSeconds": int(expire_seconds),
-                    "status": "created",
+                    "status": "planned" if preview else "created",
                 }
 
             ttl_results: dict[str, Any] = {
@@ -1314,6 +1319,20 @@ def create_app() -> web.Application:
                 idx_info = {}
 
             indexes_before = sorted([str(k) for k in idx_info.keys()])
+            indexes_before_details: dict[str, dict] = {}
+            for k, meta in (idx_info or {}).items():
+                if not isinstance(meta, dict):
+                    continue
+                name = str(k)
+                # keep response compact but useful for review (especially text indexes)
+                indexes_before_details[name] = {
+                    "key": meta.get("key"),
+                    "unique": bool(meta.get("unique")) if "unique" in meta else False,
+                    "expireAfterSeconds": meta.get("expireAfterSeconds"),
+                    "weights": meta.get("weights"),
+                    "default_language": meta.get("default_language"),
+                }
+
             dropped: list[str] = []
             kept: list[str] = []
             drop_errors: dict[str, str] = {}
@@ -1333,8 +1352,12 @@ def create_app() -> web.Application:
                     if bool(meta.get("unique")) and key in (
                         [("user_id", 1), ("file_name", 1)],
                         [("file_name", 1), ("user_id", 1)],
+                        [("user_id", 1), ("file_name", -1)],
+                        [("file_name", -1), ("user_id", 1)],
                         [("user_id", -1), ("file_name", 1)],
                         [("file_name", 1), ("user_id", -1)],
+                        [("user_id", -1), ("file_name", -1)],
+                        [("file_name", -1), ("user_id", -1)],
                     ):
                         return True
                 except Exception:
@@ -1348,8 +1371,11 @@ def create_app() -> web.Application:
                     kept.append(idx_name)
                     continue
                 try:
-                    code_snippets_coll.drop_index(idx_name)
-                    dropped.append(idx_name)
+                    if preview:
+                        dropped.append(idx_name)  # planned
+                    else:
+                        code_snippets_coll.drop_index(idx_name)
+                        dropped.append(idx_name)
                 except Exception as e:
                     # Best-effort: אם אינדקס לא קיים/לא ניתן למחיקה, נשמור שגיאה ונתקדם.
                     drop_errors[idx_name] = str(e)
@@ -1362,6 +1388,7 @@ def create_app() -> web.Application:
 
             return {
                 "ok": True,
+                "preview": preview,
                 "deleted_documents": {
                     "slow_queries_log": deleted_slow,
                     "service_metrics": deleted_metrics,
@@ -1371,6 +1398,7 @@ def create_app() -> web.Application:
                 "indexes": {
                     "collection": "code_snippets",
                     "before": indexes_before,
+                    "before_details": indexes_before_details,
                     "after": indexes_after,
                     "dropped": dropped,
                     "kept": kept,
