@@ -1500,35 +1500,10 @@
             background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg)) !important;
             color: var(--btn-primary-hover-color, var(--btn-primary-color)) !important;
         }
-        /* Secondary button styles for custom + shared themes */
-        [data-theme-type="custom"] .btn-secondary,
-        [data-theme^="shared:"] .btn-secondary {
-            background-color: var(--btn-secondary-bg, var(--glass)) !important;
-            color: var(--btn-secondary-color, var(--text-primary)) !important;
-            border-color: var(--btn-secondary-border, var(--glass-border)) !important;
-        }
-        [data-theme-type="custom"] .btn-secondary:hover,
-        [data-theme^="shared:"] .btn-secondary:hover {
-            background-color: var(--btn-secondary-hover-bg, rgba(255, 255, 255, 0.2)) !important;
-            color: var(--btn-secondary-hover-color, var(--btn-secondary-color, var(--text-primary))) !important;
-        }
-        /* Link buttons for custom + shared themes */
-        [data-theme-type="custom"] .btn-link,
-        [data-theme^="shared:"] .btn-link {
-            color: var(--btn-link-color, var(--link-color, var(--primary))) !important;
-            text-decoration: none;
-        }
-        [data-theme-type="custom"] .btn-link:hover,
-        [data-theme^="shared:"] .btn-link:hover {
-            color: var(--btn-link-hover-color, var(--primary-hover, var(--secondary))) !important;
-            text-decoration: underline;
-        }
-        /* Regular links (not buttons) */
-        [data-theme-type="custom"] a:not(.btn),
+        /* Links for shared themes */
         [data-theme^="shared:"] a:not(.btn) {
             color: var(--link-color, var(--primary));
         }
-        [data-theme-type="custom"] a:not(.btn):hover,
         [data-theme^="shared:"] a:not(.btn):hover {
             color: var(--primary-hover, var(--secondary));
         }
