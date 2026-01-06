@@ -210,9 +210,10 @@
   --md-table-header-bg: color-mix(in srgb, var(--bg-secondary) 80%, rgba(255,255,255,0.3));
 }
 
-/* Custom Theme support - משתמש במשתני CSS מהערכה המותאמת */
+/* Custom/Shared Theme support - משתמש במשתני CSS מהערכה המותאמת */
 /* Note: Using color-mix with --text-primary ensures good contrast even when --bg-tertiary is similar to --bg-primary */
-[data-theme="custom"] #md-content {
+[data-theme="custom"] #md-content,
+[data-theme^="shared:"] #md-content {
   background: var(--bg-primary, var(--md-surface, #1a1c23));
   color: var(--text-primary, var(--md-text, #e5eaf7));
   /* Inline code: mix 12% of text color into background for visible contrast */
@@ -256,9 +257,11 @@
   --md-table-header-bg: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
 }
 
-/* Mermaid diagrams - ensure readable colors for custom themes */
+/* Mermaid diagrams - ensure readable colors for custom/shared themes */
 [data-theme="custom"] #md-content .mermaid,
-[data-theme="custom"] #md-content [class*="mermaid"] {
+[data-theme="custom"] #md-content [class*="mermaid"],
+[data-theme^="shared:"] #md-content .mermaid,
+[data-theme^="shared:"] #md-content [class*="mermaid"] {
   /* Node backgrounds and text */
   --mermaid-node-bg: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23));
   --mermaid-node-text: var(--text-primary, #e5eaf7);
@@ -267,55 +270,72 @@
 
 [data-theme="custom"] #md-content .node rect,
 [data-theme="custom"] #md-content .node polygon,
-[data-theme="custom"] #md-content .node circle {
+[data-theme="custom"] #md-content .node circle,
+[data-theme^="shared:"] #md-content .node rect,
+[data-theme^="shared:"] #md-content .node polygon,
+[data-theme^="shared:"] #md-content .node circle {
   fill: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23)) !important;
   stroke: color-mix(in srgb, var(--primary, var(--text-primary, #ffffff)) 50%, transparent) !important;
 }
 
 [data-theme="custom"] #md-content .node .label,
 [data-theme="custom"] #md-content .nodeLabel,
-[data-theme="custom"] #md-content .label {
+[data-theme="custom"] #md-content .label,
+[data-theme^="shared:"] #md-content .node .label,
+[data-theme^="shared:"] #md-content .nodeLabel,
+[data-theme^="shared:"] #md-content .label {
   color: var(--text-primary, #e5eaf7) !important;
   fill: var(--text-primary, #e5eaf7) !important;
 }
 
-[data-theme="custom"] #md-content .edgeLabel {
+[data-theme="custom"] #md-content .edgeLabel,
+[data-theme^="shared:"] #md-content .edgeLabel {
   background-color: var(--bg-primary, #1a1c23) !important;
   color: var(--text-primary, #e5eaf7) !important;
   fill: var(--text-primary, #e5eaf7) !important;
 }
 
-[data-theme="custom"] #md-content .edgePath path {
+[data-theme="custom"] #md-content .edgePath path,
+[data-theme^="shared:"] #md-content .edgePath path {
   stroke: color-mix(in srgb, var(--text-primary, #ffffff) 40%, transparent) !important;
 }
 
 /* Sequence diagram specific */
-[data-theme="custom"] #md-content .actor {
+[data-theme="custom"] #md-content .actor,
+[data-theme^="shared:"] #md-content .actor {
   fill: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23)) !important;
   stroke: color-mix(in srgb, var(--primary, var(--text-primary, #ffffff)) 50%, transparent) !important;
 }
 
-[data-theme="custom"] #md-content .actor-line {
+[data-theme="custom"] #md-content .actor-line,
+[data-theme^="shared:"] #md-content .actor-line {
   stroke: color-mix(in srgb, var(--text-primary, #ffffff) 30%, transparent) !important;
 }
 
 [data-theme="custom"] #md-content text.actor,
 [data-theme="custom"] #md-content .messageText,
-[data-theme="custom"] #md-content .loopText {
+[data-theme="custom"] #md-content .loopText,
+[data-theme^="shared:"] #md-content text.actor,
+[data-theme^="shared:"] #md-content .messageText,
+[data-theme^="shared:"] #md-content .loopText {
   fill: var(--text-primary, #e5eaf7) !important;
 }
 
 [data-theme="custom"] #md-content .messageLine0,
-[data-theme="custom"] #md-content .messageLine1 {
+[data-theme="custom"] #md-content .messageLine1,
+[data-theme^="shared:"] #md-content .messageLine0,
+[data-theme^="shared:"] #md-content .messageLine1 {
   stroke: color-mix(in srgb, var(--text-primary, #ffffff) 50%, transparent) !important;
 }
 
-[data-theme="custom"] #md-content .note {
+[data-theme="custom"] #md-content .note,
+[data-theme^="shared:"] #md-content .note {
   fill: color-mix(in srgb, var(--warning, var(--text-primary, #ffffff)) 20%, var(--bg-primary, #1a1c23)) !important;
   stroke: color-mix(in srgb, var(--warning, var(--text-primary, #ffffff)) 40%, transparent) !important;
 }
 
-[data-theme="custom"] #md-content .noteText {
+[data-theme="custom"] #md-content .noteText,
+[data-theme^="shared:"] #md-content .noteText {
   fill: var(--text-primary, #e5eaf7) !important;
 }
 
@@ -327,8 +347,9 @@
   border: 1px solid var(--code-border, var(--glass-border));
 }
 
-/* Custom theme: use color-mix for better contrast since --bg-tertiary may be too similar to --bg-primary */
-[data-theme="custom"] #md-content code:not(pre code) {
+/* Custom/Shared theme: use color-mix for better contrast since --bg-tertiary may be too similar to --bg-primary */
+[data-theme="custom"] #md-content code:not(pre code),
+[data-theme^="shared:"] #md-content code:not(pre code) {
   background: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
   color: var(--code-text, var(--text-primary));
   border: 1px solid color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent);
@@ -341,8 +362,9 @@
   border: 1px solid var(--code-border, var(--glass-border));
 }
 
-/* Custom theme: use theme variables for code blocks */
-[data-theme="custom"] #md-content pre {
+/* Custom/Shared theme: use theme variables for code blocks */
+[data-theme="custom"] #md-content pre,
+[data-theme^="shared:"] #md-content pre {
   background: var(--code-bg, var(--bg-secondary, #1a1c23));
   border: 1px solid var(--code-border, var(--glass-border, rgba(255, 255, 255, 0.15)));
 }
