@@ -231,8 +231,9 @@
   /* Use defaults for dark-friendly text values */
 }
 
-/* Custom theme override - uses CSS variables from the custom theme */
-:root[data-theme="custom"] {
+/* Custom/Shared theme override - uses CSS variables from the custom/shared theme */
+:root[data-theme="custom"],
+:root[data-theme^="shared:"] {
   --split-container-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 50%, transparent);
   --split-container-border: var(--glass-border, rgba(255, 255, 255, 0.1));
   --split-toolbar-bg: color-mix(in srgb, var(--bg-secondary, #1f2937) 80%, transparent);
