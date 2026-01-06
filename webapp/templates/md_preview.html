@@ -1190,6 +1190,24 @@ input.md-task-checkbox {
     inset 0 1px 0 rgba(255,255,255,0.6);
 }
 
+/* Custom/Shared themes - TOC uses theme variables for consistent dark appearance */
+:root[data-theme="custom"],
+:root[data-theme^="shared:"] {
+  --md-toc-surface: var(--card-bg, var(--toc-bg-dark));
+  --md-toc-border: var(--card-border, rgba(255, 255, 255, 0.1));
+  --md-toc-text: var(--text-primary, var(--toc-text-dark));
+  --md-toc-hover: color-mix(in srgb, var(--primary, #6366f1) 20%, transparent);
+  --md-toc-active: color-mix(in srgb, var(--primary, #6366f1) 25%, transparent);
+  --md-toc-control-bg: var(--glass, rgba(255, 255, 255, 0.12));
+  --md-toc-mini-bg: var(--card-bg, var(--bg-secondary));
+  --md-toc-mini-border: var(--card-border, var(--glass-border));
+  --md-toc-mini-hover-bg: var(--bg-tertiary, var(--glass-hover));
+  --md-toc-mini-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --md-toc-shadow:
+    0 10px 40px rgba(0,0,0,0.5),
+    0 2px 10px rgba(0,0,0,0.3);
+}
+
 .md-toc {
   position: fixed;
   top: 100px;
@@ -1354,6 +1372,22 @@ input.md-task-checkbox {
   text-decoration: none;
   position: relative;
   overflow: hidden;
+}
+
+/* Custom/Shared themes - override global link color for TOC items */
+[data-theme="custom"] .md-toc-item,
+[data-theme^="shared:"] .md-toc-item {
+  color: var(--md-toc-text);
+}
+
+[data-theme="custom"] .md-toc-item:hover,
+[data-theme^="shared:"] .md-toc-item:hover {
+  color: var(--md-toc-text);
+}
+
+[data-theme="custom"] .md-toc-item.active,
+[data-theme^="shared:"] .md-toc-item.active {
+  color: var(--primary);
 }
 
 /* אפקט hover מתקדם */
