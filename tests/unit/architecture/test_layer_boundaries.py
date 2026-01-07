@@ -39,10 +39,12 @@ def _collect_imports(py_file: pathlib.Path) -> List[Tuple[str, str]]:
 
 def _collect_dynamic_database_imports(py_file: pathlib.Path) -> List[str]:
     """
-    Detect dynamic imports of the legacy `database` package via runtime calls.
+    Detect runtime dependencies on the legacy `database` package via dynamic means.
 
-    Why: `importlib.import_module("database")` bypasses ast.Import/ast.ImportFrom checks,
-    but it is still a direct dependency that we want to keep out of handlers.
+    Why: patterns like `importlib.import_module("database")` bypass ast.Import/ast.ImportFrom checks,
+    and patterns like `sys.modules.get("database")`/`sys.modules["database"]` are another indirect
+    way to reach the DB layer from handlers. We want to keep all of these out of handlers so that
+    persistence is accessed only via composition/facades/services.
     """
     try:
         source = py_file.read_text(encoding="utf-8")
@@ -54,23 +56,41 @@ def _collect_dynamic_database_imports(py_file: pathlib.Path) -> List[str]:
         return []
     mods: List[str] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-
         # importlib.import_module("database" / "database.*")
-        if isinstance(node.func, ast.Attribute) and node.func.attr == "import_module":
-            if isinstance(node.func.value, ast.Name) and node.func.value.id == "importlib":
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "import_module":
+                if isinstance(node.func.value, ast.Name) and node.func.value.id == "importlib":
+                    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                        mod = node.args[0].value
+                        if mod.startswith("database"):
+                            mods.append(mod)
+
+            # __import__("database" / "database.*")
+            if isinstance(node.func, ast.Name) and node.func.id == "__import__":
                 if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
                     mod = node.args[0].value
                     if mod.startswith("database"):
                         mods.append(mod)
 
-        # __import__("database" / "database.*")
-        if isinstance(node.func, ast.Name) and node.func.id == "__import__":
-            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                mod = node.args[0].value
-                if mod.startswith("database"):
-                    mods.append(mod)
+            # sys.modules.get("database" / "database.*")
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+                # sys.modules.get(...)
+                if isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "modules":
+                    if isinstance(node.func.value.value, ast.Name) and node.func.value.value.id == "sys":
+                        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                            mod = node.args[0].value
+                            if mod.startswith("database"):
+                                mods.append(f"sys.modules.get({mod})")
+
+        # sys.modules["database" / "database.*"]
+        if isinstance(node, ast.Subscript):
+            if isinstance(node.value, ast.Attribute) and node.value.attr == "modules":
+                if isinstance(node.value.value, ast.Name) and node.value.value.id == "sys":
+                    sl = node.slice
+                    if isinstance(sl, ast.Constant) and isinstance(sl.value, str):
+                        mod = sl.value
+                        if mod.startswith("database"):
+                            mods.append(f"sys.modules[{mod}]")
     return mods
 
 

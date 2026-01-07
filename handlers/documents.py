@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 import zipfile
-from dataclasses import is_dataclass
+from dataclasses import dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from io import BytesIO
 from types import SimpleNamespace
@@ -28,6 +28,29 @@ from html import escape as html_escape
 
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class _LegacyCodeSnippet:
+    """דאטה-קלאס מינימלי לתאימות עם legacy Repository.save_code_snippet (asdict)."""
+
+    user_id: int
+    file_name: str
+    code: str
+    programming_language: str
+    description: str = ""
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _LegacyLargeFile:
+    """דאטה-קלאס מינימלי לתאימות עם legacy Repository.save_large_file (asdict)."""
+
+    user_id: int
+    file_name: str
+    content: str
+    programming_language: str
+    file_size: int
+    lines_count: int
 
 
 class _ReporterProto(Protocol):
@@ -481,25 +504,13 @@ class DocumentHandler:
             "description": description,
             "tags": list(tags or []),
         }
-        # Prefer the real dataclass model when legacy DB is DatabaseManager/Repository
-        # (Repository.save_code_snippet uses dataclasses.asdict). We intentionally
-        # avoid importing `database` here; instead we reuse already-loaded modules.
+        # הימנע מתלות ב-`sys.modules["database.models"]` מתוך handlers.
+        # עבור legacy DB נבנה דאטה-קלאס מקומי שמתאים ל-asdict; בטסטים אפשר גם SimpleNamespace.
         try:
-            mod = sys.modules.get("database.models") or sys.modules.get("database")
-            CodeSnippet = getattr(mod, "CodeSnippet", None) if mod is not None else None  # type: ignore[attr-defined]
+            obj = _LegacyCodeSnippet(**payload)
+            return obj
         except Exception:
-            CodeSnippet = None  # type: ignore
-        if CodeSnippet is not None and callable(CodeSnippet):  # type: ignore
-            try:
-                obj = CodeSnippet(**payload)  # type: ignore[misc]
-                # sanity: ensure this really behaves like a dataclass when available
-                if is_dataclass(obj) or is_dataclass(CodeSnippet):  # type: ignore[arg-type]
-                    return obj
-                return obj
-            except Exception:
-                pass
-        # Fallback: most legacy DB stubs in tests accept a simple object with attributes.
-        return SimpleNamespace(**payload)
+            return SimpleNamespace(**payload)
 
     def _build_legacy_large_file_payload(
         self,
@@ -519,20 +530,12 @@ class DocumentHandler:
             "file_size": file_size,
             "lines_count": lines_count,
         }
+        # הימנע מתלות ב-`sys.modules["database.models"]` מתוך handlers.
         try:
-            mod = sys.modules.get("database.models") or sys.modules.get("database")
-            LargeFile = getattr(mod, "LargeFile", None) if mod is not None else None  # type: ignore[attr-defined]
+            obj = _LegacyLargeFile(**payload)
+            return obj
         except Exception:
-            LargeFile = None  # type: ignore
-        if LargeFile is not None and callable(LargeFile):  # type: ignore
-            try:
-                obj = LargeFile(**payload)  # type: ignore[misc]
-                if is_dataclass(obj) or is_dataclass(LargeFile):  # type: ignore[arg-type]
-                    return obj
-                return obj
-            except Exception:
-                pass
-        return SimpleNamespace(**payload)
+            return SimpleNamespace(**payload)
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""
 
