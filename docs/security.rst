@@ -6,6 +6,17 @@ Security Guide
 
 אל תרשום סודות/PII בלוגים, השתמש ב‑ENV בלבד.
 
+הרצת קוד (Code Execution Playground)
+------------------------------------
+ה‑WebApp כולל אפשרות להריץ קוד Python דרך ``/tools/code`` (Premium/Admin בלבד).
+
+הדגשים החשובים:
+- בפרודקשן מומלץ להריץ **רק** בתוך Docker sandbox ולהשאיר ``CODE_EXEC_ALLOW_FALLBACK=false`` (Fail‑Closed).
+- לא ללוגג קוד או פלט, רק מטא‑דאטה.
+
+ראו עמוד ייעודי עם אבטחה/מגבלות/Troubleshooting:
+- :doc:`/webapp/code-execution`
+
 הצפנת טוקנים (דוגמה)
 ----------------------
 

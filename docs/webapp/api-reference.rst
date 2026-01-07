@@ -43,6 +43,12 @@ Endpoints
      - ✅
      - -
      - HTML
+   * - ``/tools/code``
+     - GET
+     - Code Tools (Playground: עיצוב/בדיקות/הרצת קוד)
+     - ✅
+     - -
+     - HTML
    * - ``/files``
      - GET
      - רשימת קבצים (סינון, חיפוש ודפדוף)
@@ -121,6 +127,18 @@ Endpoints
      - ✅
      - ``{"share_id": "string", "file_name": "optional override"}``
      - ``{"ok": true, "file_id": "...", "file_name": "...", "version": 1}``
+   * - ``/api/code/run/limits``
+     - GET
+     - מגבלות וזמינות להרצת קוד (Premium/Admin בלבד)
+     - ✅
+     - -
+     - ``{"enabled": true|false, "limits": {...}, "allowed_imports": [...]}``
+   * - ``/api/code/run``
+     - POST
+     - הרצת קוד Python (Premium/Admin בלבד)
+     - ✅
+     - ``{"code": "...", "timeout": 5, "memory_limit_mb": 128}``
+     - ``{"success": true|false, "stdout": "...", "stderr": "...", "exit_code": 0, "execution_time_ms": 12, "truncated": false, "error": null}``
    * - ``/api/stats``
      - GET
      - סטטיסטיקות
