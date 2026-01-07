@@ -403,8 +403,21 @@ class CodeExecutionService:
         try:
             if use_docker:
                 result = self._execute_docker(code, timeout, memory_limit_mb)
-            else:
+            elif self._allow_fallback:
+                # Fallback ל-subprocess רק אם הוגדר במפורש
                 result = self._execute_subprocess(code, timeout)
+            else:
+                # Fail-closed: Docker לא זמין ו-fallback חסום
+                # הערה: can_execute() אמור לתפוס את זה קודם,
+                # אבל זו הגנה לעומק (defense in depth)
+                logger.error(
+                    "Code execution blocked: docker=%s, available=%s, fallback=%s",
+                    self._use_docker, self._docker_available, self._allow_fallback
+                )
+                return ExecutionResult(
+                    success=False,
+                    error_message="תצורת שרת שגויה: הרצה ללא Docker חסומה",
+                )
             
             result.execution_time_ms = int((time.monotonic() - start_time) * 1000)
             result.used_docker = use_docker
@@ -1244,6 +1257,29 @@ Fail-Open (לפיתוח בלבד):
   ENV: CODE_EXEC_ALLOW_FALLBACK=true
 ```
 
+### Defense in Depth – הגנה כפולה
+
+הקוד מיישם **שתי שכבות הגנה** נגד הרצה לא מאובטחת:
+
+```
+שכבה 1: can_execute()
+  └─ בודק: docker_required && !docker_available && !allow_fallback
+  └─ נקרא לפני execute()
+  └─ מחזיר (False, "Docker לא זמין...")
+
+שכבה 2: בתוך execute()
+  └─ if use_docker: _execute_docker()
+  └─ elif _allow_fallback: _execute_subprocess()  ← רק אם מותר!
+  └─ else: return error  ← הגנה לעומק
+```
+
+**למה צריך את שתי השכבות?**
+
+אם מישהו בטעות קורא ל-`execute()` ישירות בלי `can_execute()`,
+או אם יש באג בלוגיקה של `can_execute()`, השכבה הפנימית עדיין תגן.
+
+זה עיקרון **Defense in Depth** – לעולם לא לסמוך על בדיקה אחת בלבד.
+
 ---
 
 ## 9. בדיקות (Tests)
@@ -1339,13 +1375,32 @@ class TestCodeExecutionService:
         assert "ארוך" in error
 
     def test_fail_closed_without_docker(self, service_docker_required):
-        """Without Docker and fallback=false, should fail."""
+        """Without Docker and fallback=false, should fail at can_execute."""
         # מדמה מצב שאין Docker
         service_docker_required._docker_available = False
         
         can_exec, error = service_docker_required.can_execute()
         assert can_exec is False
         assert "Docker לא זמין" in error
+
+    def test_fail_closed_defense_in_depth(self, monkeypatch):
+        """
+        Defense in depth: even if can_execute is bypassed,
+        execute() should not fall back to subprocess when fallback=false.
+        """
+        monkeypatch.setenv("CODE_EXEC_USE_DOCKER", "true")
+        monkeypatch.setenv("CODE_EXEC_ALLOW_FALLBACK", "false")
+        
+        service = CodeExecutionService()
+        service._docker_available = False  # Simulate Docker failure
+        
+        # הקריאה ישירות ל-execute (כאילו can_execute עבר)
+        # אפילו אם מישהו עקף את can_execute, ההגנה הפנימית צריכה לעבוד
+        result = service.execute("print('should not run')")
+        
+        assert result.success is False
+        assert "חסומה" in result.error_message or "Docker" in result.error_message
+        assert result.used_docker is False
 
     @patch('subprocess.run')
     def test_execute_simple_code_mocked(self, mock_run, service_no_docker):
@@ -1783,3 +1838,8 @@ def run_code():
 | | - ENV נקרא בזמן `__init__` (לא global) |
 | | - Logging: רק מטא-דאטה, לא קוד/פלט |
 | | - טסטים מותאמים לקונבנציות הפרויקט |
+| ינואר 2026 | **תיקון אבטחה קריטי (Fail-Closed):** |
+| | - תיקון לוגיקת `execute()`: הוספת `elif self._allow_fallback` |
+| | - הבטחה ש-subprocess לא ירוץ ללא אישור מפורש |
+| | - הוספת הגנה לעומק (defense in depth) |
+| | - הוספת טסט `test_fail_closed_defense_in_depth` |
