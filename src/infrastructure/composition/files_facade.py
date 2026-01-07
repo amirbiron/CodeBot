@@ -38,7 +38,42 @@ class FilesFacade:
 
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
         db = self._get_db()
-        return db.get_latest_version(user_id, file_name)
+        # Support multiple legacy signatures:
+        # - get_latest_version(user_id, file_name)
+        # - get_file(user_id, file_name)
+        # - get_code_by_name(user_id, file_name)
+        try:
+            fn = getattr(db, "get_latest_version", None)
+            if callable(fn):
+                return fn(user_id, file_name)
+        except Exception:
+            pass
+        try:
+            fn = getattr(db, "get_file", None)
+            if callable(fn):
+                return fn(user_id, file_name)
+        except Exception:
+            pass
+        try:
+            fn = getattr(db, "get_code_by_name", None)
+            if callable(fn):
+                return fn(user_id, file_name)
+        except Exception:
+            pass
+        return None
+
+    def get_file(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Legacy alias used by some flows/tests.
+        """
+        try:
+            db = self._get_db()
+            fn = getattr(db, "get_file", None)
+            if callable(fn):
+                return fn(user_id, file_name)
+        except Exception:
+            return None
+        return None
 
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict[str, Any]]:
         db = self._get_db()
