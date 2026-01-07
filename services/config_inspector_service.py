@@ -207,6 +207,61 @@ class ConfigService:
             description="שם המשתמש של הבוט בטלגרם",
             category="telegram",
         ),
+        # --- Telegram Polling / Network timeouts (stability against getUpdates conflicts) ---
+        "TELEGRAM_CONNECT_TIMEOUT_SECS": ConfigDefinition(
+            key="TELEGRAM_CONNECT_TIMEOUT_SECS",
+            default="10.0",
+            description="טיימאאוט התחברות ל-Telegram Bot API (שניות).",
+            category="telegram",
+        ),
+        "TELEGRAM_POOL_TIMEOUT_SECS": ConfigDefinition(
+            key="TELEGRAM_POOL_TIMEOUT_SECS",
+            default="10.0",
+            description="טיימאאוט המתנה ל-connection מה-pool (שניות) בעת קריאה ל-Telegram Bot API.",
+            category="telegram",
+        ),
+        "TELEGRAM_READ_TIMEOUT_SECS": ConfigDefinition(
+            key="TELEGRAM_READ_TIMEOUT_SECS",
+            default="30.0",
+            description="טיימאאוט קריאה ל-Telegram Bot API (שניות). מומלץ להיות גבוה מ-TELEGRAM_LONG_POLL_TIMEOUT_SECS.",
+            category="telegram",
+        ),
+        "TELEGRAM_WRITE_TIMEOUT_SECS": ConfigDefinition(
+            key="TELEGRAM_WRITE_TIMEOUT_SECS",
+            default="30.0",
+            description="טיימאאוט כתיבה ל-Telegram Bot API (שניות).",
+            category="telegram",
+        ),
+        "TELEGRAM_LONG_POLL_TIMEOUT_SECS": ConfigDefinition(
+            key="TELEGRAM_LONG_POLL_TIMEOUT_SECS",
+            default="20",
+            description="timeout של long-polling עבור getUpdates (שניות).",
+            category="telegram",
+        ),
+        "TELEGRAM_POLL_INTERVAL_SECS": ConfigDefinition(
+            key="TELEGRAM_POLL_INTERVAL_SECS",
+            default="0.0",
+            description="poll_interval בין סבבי polling (שניות). 0 = ברירת מחדל של PTB.",
+            category="telegram",
+        ),
+        "TELEGRAM_CONFLICT_BACKOFF_SECS": ConfigDefinition(
+            key="TELEGRAM_CONFLICT_BACKOFF_SECS",
+            default="30",
+            description="זמן המתנה (שניות) לפני retry כאשר מתקבלת שגיאת 409 Conflict ב-getUpdates.",
+            category="telegram",
+        ),
+        "TELEGRAM_CONFLICT_MAX_RETRIES": ConfigDefinition(
+            key="TELEGRAM_CONFLICT_MAX_RETRIES",
+            default="5",
+            description="כמה פעמים לנסות שוב (retry) אחרי 409 Conflict ב-getUpdates לפני יציאה מהתהליך כדי לשחרר lock ולאפשר recovery. 0/שלילי = ללא הגבלה (לא מומלץ).",
+            category="telegram",
+        ),
+        "TELEGRAM_CONFLICT_MAX_SECONDS": ConfigDefinition(
+            key="TELEGRAM_CONFLICT_MAX_SECONDS",
+            default="300",
+            description="חלון זמן מקסימלי (שניות) לרצף conflicts לפני יציאה מהתהליך כדי לשחרר lock ולאפשר recovery. 0/שלילי = ללא הגבלה (לא מומלץ).",
+            category="telegram",
+        ),
         "ADMIN_USER_IDS": ConfigDefinition(
             key="ADMIN_USER_IDS",
             default="",
