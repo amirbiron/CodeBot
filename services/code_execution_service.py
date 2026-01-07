@@ -342,78 +342,93 @@ class CodeExecutionService:
         """
         container_name = f"code-exec-{uuid.uuid4().hex[:12]}"
 
-        docker_cmd = [
-            "docker",
-            "run",
-            "--rm",
-            f"--name={container_name}",
-            f"--label={self.CONTAINER_LABEL}",
-            "--network=none",
-            "--read-only",
-            "--tmpfs=/tmp:rw,noexec,nosuid,size=10m",
-            f"--memory={memory_limit_mb}m",
-            f"--memory-swap={memory_limit_mb}m",
-            "--cpus=0.5",
-            "--pids-limit=50",
-            "--ipc=none",
-            "--security-opt=no-new-privileges",
-            "--cap-drop=ALL",
-            "--user=nobody",
-            self._docker_image,
-            "python",
-            "-c",
-            code,
-        ]
+        # נכתוב את הקוד לקובץ זמני ונמפה אותו ל-container כדי להימנע מהעברת הקוד כארגומנט שורת פקודה
+        with tempfile.TemporaryDirectory() as code_dir:
+            code_path = os.path.join(code_dir, "main.py")
+            try:
+                with open(code_path, "w", encoding="utf-8") as code_file:
+                    code_file.write(code)
+            except Exception:
+                # במקרה של כשל בכתיבה לדיסק נחזיר שגיאה בטוחה
+                return ExecutionResult(
+                    success=False,
+                    error_message="שגיאה בהכנת קובץ הקוד להרצה",
+                    exit_code=-1,
+                )
 
-        with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
-            started = time.monotonic()
-            process = subprocess.Popen(docker_cmd, stdout=stdout_f, stderr=stderr_f)
+            docker_cmd = [
+                "docker",
+                "run",
+                "--rm",
+                f"--name={container_name}",
+                f"--label={self.CONTAINER_LABEL}",
+                "--network=none",
+                "--read-only",
+                "--tmpfs=/tmp:rw,noexec,nosuid,size=10m",
+                f"--memory={memory_limit_mb}m",
+                f"--memory-swap={memory_limit_mb}m",
+                "--cpus=0.5",
+                "--pids-limit=50",
+                "--ipc=none",
+                "--security-opt=no-new-privileges",
+                "--cap-drop=ALL",
+                "--user=nobody",
+                "-v",
+                f"{code_dir}:/app:ro",
+                self._docker_image,
+                "python",
+                "/app/main.py",
+            ]
 
-            exit_code: Optional[int] = None
-            output_truncated = False
-            error_msg: Optional[str] = None
+            with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
+                started = time.monotonic()
+                process = subprocess.Popen(docker_cmd, stdout=stdout_f, stderr=stderr_f)
 
-            while True:
-                exit_code = process.poll()
-                if exit_code is not None:
-                    break
+                exit_code: Optional[int] = None
+                output_truncated = False
+                error_msg: Optional[str] = None
 
-                elapsed = time.monotonic() - started
-                # לפי המדריך: timeout + גרייס קצר ל-overhead של Docker
-                if elapsed > (timeout + 2):
-                    process.kill()
-                    process.wait()
-                    self._cleanup_container(container_name)
-                    error_msg = f"תם הזמן להרצה ({timeout} שניות)"
-                    break
+                while True:
+                    exit_code = process.poll()
+                    if exit_code is not None:
+                        break
 
-                try:
-                    out_size = os.fstat(stdout_f.fileno()).st_size
-                    err_size = os.fstat(stderr_f.fileno()).st_size
-                except OSError:
-                    out_size = 0
-                    err_size = 0
+                    elapsed = time.monotonic() - started
+                    # לפי המדריך: timeout + גרייס קצר ל-overhead של Docker
+                    if elapsed > (timeout + 2):
+                        process.kill()
+                        process.wait()
+                        self._cleanup_container(container_name)
+                        error_msg = f"תם הזמן להרצה ({timeout} שניות)"
+                        break
 
-                if out_size > self._max_output_bytes or err_size > self._max_output_bytes:
-                    process.kill()
-                    process.wait()
-                    self._cleanup_container(container_name)
-                    output_truncated = True
-                    logger.warning(
-                        "Output limit exceeded: stdout=%d stderr=%d max=%d",
-                        out_size,
-                        err_size,
-                        self._max_output_bytes,
-                    )
-                    break
+                    try:
+                        out_size = os.fstat(stdout_f.fileno()).st_size
+                        err_size = os.fstat(stderr_f.fileno()).st_size
+                    except OSError:
+                        out_size = 0
+                        err_size = 0
 
-                time.sleep(0.05)
+                    if out_size > self._max_output_bytes or err_size > self._max_output_bytes:
+                        process.kill()
+                        process.wait()
+                        self._cleanup_container(container_name)
+                        output_truncated = True
+                        logger.warning(
+                            "Output limit exceeded: stdout=%d stderr=%d max=%d",
+                            out_size,
+                            err_size,
+                            self._max_output_bytes,
+                        )
+                        break
 
-            stdout_f.seek(0)
-            stderr_f.seek(0)
-            read_limit = self._max_output_bytes + 100
-            stdout_str = stdout_f.read(read_limit).decode("utf-8", errors="replace")
-            stderr_str = stderr_f.read(read_limit).decode("utf-8", errors="replace")
+                    time.sleep(0.05)
+
+                stdout_f.seek(0)
+                stderr_f.seek(0)
+                read_limit = self._max_output_bytes + 100
+                stdout_str = stdout_f.read(read_limit).decode("utf-8", errors="replace")
+                stderr_str = stderr_f.read(read_limit).decode("utf-8", errors="replace")
 
         stdout, out_trunc = self._sanitize_output(stdout_str)
         stderr, err_trunc = self._sanitize_output(stderr_str)
