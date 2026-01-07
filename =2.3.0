@@ -1,0 +1,11 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting autoflake
+  Downloading autoflake-2.3.1-py3-none-any.whl.metadata (7.6 kB)
+Collecting pyflakes>=3.0.0 (from autoflake)
+  Downloading pyflakes-3.4.0-py2.py3-none-any.whl.metadata (3.5 kB)
+Downloading autoflake-2.3.1-py3-none-any.whl (32 kB)
+Downloading pyflakes-3.4.0-py2.py3-none-any.whl (63 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 63.6/63.6 kB 10.6 MB/s eta 0:00:00
+
+Installing collected packages: pyflakes, autoflake
+Successfully installed autoflake-2.3.1 pyflakes-3.4.0
