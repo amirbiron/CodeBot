@@ -41,11 +41,12 @@ Code Execution מאפשר למשתמשים להריץ קטעי קוד Python י�
 
 1. **Docker Sandbox** – הרצה בקונטיינר מבודד (חובה בפרודקשן)
 2. **Fail-Closed** – אם Docker לא זמין בפרודקשן, מסרבים להריץ (לא fallback)
-3. **Timeout** – מגבלת זמן ריצה (5-30 שניות)
-4. **Resource Limits** – הגבלת CPU/Memory/PIDs
-5. **Network Isolation** – ללא גישה לרשת
-6. **Read-only + tmpfs** – אין כתיבה לדיסק, רק ל-/tmp מוגבל
-7. **Admin Only** – ברירת מחדל: רק אדמינים (כבר קיים ברמת ה-Blueprint)
+3. **AST Validation** – בדיקה סטטית של imports (Allowlist enforcement)
+4. **Timeout** – מגבלת זמן ריצה (5-30 שניות)
+5. **Resource Limits** – הגבלת CPU/Memory/PIDs
+6. **Network Isolation** – ללא גישה לרשת
+7. **Read-only + tmpfs** – אין כתיבה לדיסק, רק ל-/tmp מוגבל
+8. **Admin Only** – ברירת מחדל: רק אדמינים (כבר קיים ברמת ה-Blueprint)
 
 ---
 
@@ -124,6 +125,7 @@ Code Execution Service
 
 from __future__ import annotations
 
+import ast
 import logging
 import subprocess
 import tempfile
@@ -327,6 +329,11 @@ class CodeExecutionService:
         """
         בדיקת תקינות קוד לפני הרצה.
         
+        כולל:
+        - בדיקת אורך וקידוד
+        - בדיקת מילות מפתח חסומות (Blocklist)
+        - ניתוח AST לאכיפת מודולים מותרים (Allowlist)
+        
         Returns:
             (is_valid, error_message)
         """
@@ -343,11 +350,37 @@ class CodeExecutionService:
         except UnicodeEncodeError:
             return False, "קידוד תווים לא תקין"
         
-        # בדיקת מילות מפתח חסומות
+        # 1. בדיקת מילות מפתח חסומות (Text-based Fast Check)
+        # מסנן דברים כמו eval(), exec(), __import__ ברמה הבסיסית
         code_lower = code.lower()
         for keyword in self.BLOCKED_KEYWORDS:
             if keyword.lower() in code_lower:
-                return False, f"הקוד מכיל פעולה לא מורשית: {keyword}"
+                return False, f"הקוד מכיל ביטוי אסור: {keyword}"
+        
+        # 2. ניתוח סטטי (AST) לאכיפת מודולים מותרים
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return False, f"שגיאת תחביר (Syntax Error): {e}"
+        
+        for node in ast.walk(tree):
+            # זיהוי כל ניסיון ייבוא (import X או from X import Y)
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                module_names: list[str] = []
+                
+                if isinstance(node, ast.Import):
+                    # import os, sys → ["os", "sys"]
+                    module_names = [alias.name.split(".")[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    # from os import path → ["os"]
+                    if node.module:
+                        module_names = [node.module.split(".")[0]]
+                
+                # בדיקה מול הרשימה המותרת
+                for mod in module_names:
+                    if mod not in self.ALLOWED_IMPORTS:
+                        allowed_str = ", ".join(sorted(self.ALLOWED_IMPORTS))
+                        return False, f"המודול '{mod}' אינו מורשה. מודולים מותרים: {allowed_str}"
         
         return True, None
     
@@ -1301,7 +1334,8 @@ print(f"Cleaned {cleaned} containers")
 | **Feature Flag** | מכבה את הפיצ'ר כברירת מחדל | `FEATURE_CODE_EXECUTION` |
 | **Admin Check** | רק אדמינים (ברמת Blueprint) | `@code_tools_bp.before_request` |
 | **Fail-Closed** | לא fallback ל-subprocess בפרודקשן | `CODE_EXEC_ALLOW_FALLBACK=false` |
-| **Keyword Blocking** | חסימת פקודות מסוכנות | `BLOCKED_KEYWORDS` |
+| **Keyword Blocking** | חסימת ביטויים מסוכנים (Blocklist) | `BLOCKED_KEYWORDS` |
+| **AST Import Check** | אכיפת מודולים מותרים (Allowlist) | `ast.parse()` + `ALLOWED_IMPORTS` |
 | **Code Length** | הגבלת אורך קוד | 50KB |
 | **Docker Sandbox** | בידוד מלא | `--network=none`, `--read-only` |
 | **tmpfs** | /tmp מבודד עם noexec | `--tmpfs=/tmp:rw,noexec,nosuid,size=10m` |
@@ -1359,6 +1393,7 @@ docker run \
 ❌ **אל תשתמש ב-`capture_output=True`** – מאפשר OOM מפלט אינסופי  
 ❌ **אל תשתמש ב-`subprocess.run` לתהליכים ארוכים** – לא מאפשר ניטור בזמן אמת  
 ❌ **אל תנקה קונטיינרים `running`** – רק `exited` (Race Condition!)  
+❌ **אל תסמוך רק על Blocklist לבדיקת imports** – תמיד אכוף AST Allowlist  
 ❌ אל תעלה את ה-timeout מעל 30 שניות  
 ❌ אל תאפשר גישה לרשת מתוך הקונטיינר  
 ❌ **אל תלוגג קוד או stdout/stderr** – עלולים להכיל סודות  
@@ -1429,6 +1464,38 @@ with tempfile.TemporaryFile() as stdout_f:
 - RAM: הפלט בדיסק, לא בזיכרון
 - Disk: עוצרים את התהליך לפני שהדיסק מתמלא
 - Time: טיפול ב-timeout בלולאה אותה
+
+---
+
+### Blocklist vs Allowlist – אכיפת Imports עם AST
+
+**בעיה עם Blocklist בלבד:**
+```python
+# 🔴 מסוכן - חסימת מילים לא מספיקה
+BLOCKED_KEYWORDS = ["subprocess", "os.system", "__import__"]
+
+# משתמש מריץ:
+import http.server  # לא ברשימה השחורה!
+from multiprocessing import Process  # גם זה עובר!
+```
+
+**פתרון: AST Allowlist**
+```python
+# ✅ בטוח - רק מודולים ברשימה מותרים
+import ast
+
+tree = ast.parse(code)
+for node in ast.walk(tree):
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        for mod in extract_module_names(node):
+            if mod not in ALLOWED_IMPORTS:
+                return False, f"המודול '{mod}' אינו מורשה"
+```
+
+**למה AST ולא String Matching?**
+- תופס `import X`, `from X import Y`, `from X.Y import Z`
+- לא ניתן לעקוף עם הערות או encoding מוזר
+- מזהה שגיאות Syntax לפני הרצה
 
 ---
 
@@ -1548,6 +1615,38 @@ class TestCodeExecutionService:
         is_valid, error = service_no_docker.validate_code(long_code)
         assert is_valid is False
         assert "ארוך" in error
+
+    def test_validate_code_ast_blocked_imports(self, service_no_docker):
+        """AST validation should block imports outside ALLOWED_IMPORTS."""
+        blocked_imports = [
+            "import subprocess",
+            "import http.server",
+            "from multiprocessing import Process",
+            "import socket",
+            "from os import system",
+        ]
+        for code in blocked_imports:
+            is_valid, error = service_no_docker.validate_code(code)
+            assert is_valid is False, f"Should block: {code}"
+            assert "אינו מורשה" in error or "not allowed" in error.lower()
+
+    def test_validate_code_ast_allowed_imports(self, service_no_docker):
+        """AST validation should allow imports in ALLOWED_IMPORTS."""
+        allowed_imports = [
+            "import math",
+            "from datetime import datetime",
+            "import json",
+            "from collections import Counter",
+        ]
+        for code in allowed_imports:
+            is_valid, error = service_no_docker.validate_code(code)
+            assert is_valid is True, f"Should allow: {code}"
+
+    def test_validate_code_syntax_error(self, service_no_docker):
+        """AST parsing should catch syntax errors."""
+        is_valid, error = service_no_docker.validate_code("def foo( :")
+        assert is_valid is False
+        assert "Syntax" in error
 
     def test_fail_closed_without_docker(self, service_docker_required):
         """Without Docker and fallback=false, should fail at can_execute."""
@@ -2061,3 +2160,8 @@ def run_code():
 | | - ניטור גודל קבצים בזמן אמת עם `os.fstat()` |
 | | - עצירת תהליך מיידית אם פלט חורג מהמקסימום |
 | | - הגנה על RAM, Disk ו-Time במקביל |
+| ינואר 2026 | **אכיפת Import Allowlist עם AST:** |
+| | - הוספת `import ast` וניתוח סטטי ב-`validate_code()` |
+| | - בדיקת כל `import X` ו-`from X import Y` מול `ALLOWED_IMPORTS` |
+| | - מונע עקיפת Blocklist עם מודולים לא צפויים |
+| | - תפיסת Syntax Errors לפני הרצה |
