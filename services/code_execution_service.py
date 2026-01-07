@@ -344,10 +344,30 @@ class CodeExecutionService:
 
         # נכתוב את הקוד לקובץ זמני ונמפה אותו ל-container כדי להימנע מהעברת הקוד כארגומנט שורת פקודה
         with tempfile.TemporaryDirectory() as code_dir:
+            # חשוב: TemporaryDirectory נוצר כברירת מחדל עם הרשאות 0700.
+            # מאחר שאנחנו מריצים את הקונטיינר עם --user=nobody, חייבים לאפשר קריאה/גישה לתיקייה ולקובץ.
+            try:
+                os.chmod(code_dir, 0o755)
+            except Exception:
+                return ExecutionResult(
+                    success=False,
+                    error_message="שגיאה בהכנת הרשאות לתיקיית הקוד להרצה",
+                    exit_code=-1,
+                )
+
             code_path = os.path.join(code_dir, "main.py")
             try:
                 with open(code_path, "w", encoding="utf-8") as code_file:
                     code_file.write(code)
+                # לאפשר ל-nobody לקרוא את הקובץ בתוך ה-mount
+                try:
+                    os.chmod(code_path, 0o644)
+                except Exception:
+                    return ExecutionResult(
+                        success=False,
+                        error_message="שגיאה בהכנת הרשאות לקובץ הקוד להרצה",
+                        exit_code=-1,
+                    )
             except Exception:
                 # במקרה של כשל בכתיבה לדיסק נחזיר שגיאה בטוחה
                 return ExecutionResult(
