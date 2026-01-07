@@ -250,6 +250,18 @@ class ConfigService:
             description="זמן המתנה (שניות) לפני retry כאשר מתקבלת שגיאת 409 Conflict ב-getUpdates.",
             category="telegram",
         ),
+        "TELEGRAM_CONFLICT_MAX_RETRIES": ConfigDefinition(
+            key="TELEGRAM_CONFLICT_MAX_RETRIES",
+            default="5",
+            description="מספר מקסימלי של retries כאשר מתקבלת שגיאת 409 Conflict ב-getUpdates. 0/שלילי = ללא הגבלה (לא מומלץ).",
+            category="telegram",
+        ),
+        "TELEGRAM_CONFLICT_MAX_SECONDS": ConfigDefinition(
+            key="TELEGRAM_CONFLICT_MAX_SECONDS",
+            default="300",
+            description="חלון זמן מקסימלי (שניות) לרצף conflicts לפני יציאה מהתהליך כדי לשחרר lock ולאפשר recovery. 0/שלילי = ללא הגבלה (לא מומלץ).",
+            category="telegram",
+        ),
         "ADMIN_USER_IDS": ConfigDefinition(
             key="ADMIN_USER_IDS",
             default="",

@@ -3884,6 +3884,8 @@ def main() -> None:
             poll_interval = _env_float("TELEGRAM_POLL_INTERVAL_SECS", 0.0)
             long_poll_timeout = _env_int("TELEGRAM_LONG_POLL_TIMEOUT_SECS", 20)
             conflict_backoff = _env_int("TELEGRAM_CONFLICT_BACKOFF_SECS", 30)
+            conflict_max_retries = _env_int("TELEGRAM_CONFLICT_MAX_RETRIES", 5)
+            conflict_max_seconds = _env_int("TELEGRAM_CONFLICT_MAX_SECONDS", 300)
 
             # Ensure read_timeout is safely above the long poll timeout
             try:
@@ -3917,6 +3919,8 @@ def main() -> None:
             except Exception:  # pragma: no cover
                 _TgConflict = None  # type: ignore
 
+            conflict_tries = 0
+            conflict_started_at: float | None = None
             while True:
                 try:
                     _call_with_supported_kwargs(_run_poll_app, poll_kwargs)
@@ -3932,6 +3936,37 @@ def main() -> None:
                         is_conflict = False
                     if not is_conflict:
                         raise
+                    # Persistent conflicts likely mean another long-lived poller (or webhook) is active.
+                    # Don't retry forever: release lock via finally and let the orchestrator recover.
+                    try:
+                        conflict_tries += 1
+                        if conflict_started_at is None:
+                            conflict_started_at = time.time()
+                        elapsed = float(time.time() - conflict_started_at)
+                    except Exception:
+                        elapsed = 0.0
+
+                    hit_retry_cap = bool(conflict_max_retries > 0 and conflict_tries >= conflict_max_retries)
+                    hit_time_cap = bool(conflict_max_seconds > 0 and elapsed >= float(conflict_max_seconds))
+                    if hit_retry_cap or hit_time_cap:
+                        logger.error(
+                            "Persistent Telegram getUpdates Conflict; exiting to release lock and allow recovery. "
+                            f"tries={conflict_tries} elapsed={elapsed:.1f}s max_retries={conflict_max_retries} "
+                            f"max_seconds={conflict_max_seconds} last_err={_e}"
+                        )
+                        try:
+                            emit_event(
+                                "telegram_polling_conflict_persistent",
+                                severity="error",
+                                tries=int(conflict_tries),
+                                elapsed_seconds=float(elapsed),
+                                max_retries=int(conflict_max_retries),
+                                max_seconds=int(conflict_max_seconds),
+                                error=str(_e)[:500],
+                            )
+                        except Exception:
+                            pass
+                        raise SystemExit(1)
                     logger.warning(
                         f"Telegram getUpdates Conflict detected; backing off for {conflict_backoff}s and retrying. err={_e}"
                     )
