@@ -1427,6 +1427,59 @@ class CodeKeeperBot:
     """
     
     def __init__(self):
+        def _env_float(name: str, default: float) -> float:
+            try:
+                v = os.getenv(name)
+                if v is None:
+                    return float(default)
+                v = str(v).strip()
+                if not v:
+                    return float(default)
+                return float(v)
+            except Exception:
+                return float(default)
+
+        def _env_int(name: str, default: int) -> int:
+            try:
+                v = os.getenv(name)
+                if v is None:
+                    return int(default)
+                v = str(v).strip()
+                if not v:
+                    return int(default)
+                return int(float(v))
+            except Exception:
+                return int(default)
+
+        def _apply_ptb_timeouts(builder: Any) -> Any:
+            """
+            Best-effort apply network timeouts to python-telegram-bot builder.
+
+            אנחנו לא מניחים API קשיח (כי PTB השתנה בין גרסאות), ולכן מפעילים רק
+            אם השיטה קיימת. כך לא נשבור טסטים/סביבות מינימליות.
+            """
+            # Defaults tuned to reduce getUpdates "409 Conflict" caused by network jitter:
+            # - long polling timeout (server-side) is configured in run_polling (see main()).
+            connect_timeout = _env_float("TELEGRAM_CONNECT_TIMEOUT_SECS", 10.0)
+            pool_timeout = _env_float("TELEGRAM_POOL_TIMEOUT_SECS", 10.0)
+            read_timeout = _env_float("TELEGRAM_READ_TIMEOUT_SECS", 30.0)
+            write_timeout = _env_float("TELEGRAM_WRITE_TIMEOUT_SECS", 30.0)
+
+            for method_name, value in (
+                ("connect_timeout", connect_timeout),
+                ("pool_timeout", pool_timeout),
+                ("read_timeout", read_timeout),
+                ("write_timeout", write_timeout),
+            ):
+                try:
+                    m = getattr(builder, method_name, None)
+                    if callable(m):
+                        m(value)
+                except Exception:
+                    # Fail-open: do not block bot startup because of builder API mismatch
+                    pass
+            return builder
+
         # יצירת תיקייה זמנית עם הרשאות כתיבה
         DATA_DIR = "/tmp"
         if not os.path.exists(DATA_DIR):
@@ -1438,24 +1491,26 @@ class CodeKeeperBot:
         # במצב בדיקות/CI, חלק מתלויות הטלגרם (Updater פנימי) עלולות להיכשל.
         # נשתמש בבנאי הרגיל, ואם נכשל – נבנה Application מינימלי עם טוקן דמה.
         try:
-            self.application = (
+            _builder = (
                 Application.builder()
                 .token(config.BOT_TOKEN)
                 .defaults(Defaults(parse_mode=ParseMode.HTML))
                 .persistence(persistence)
                 .post_init(setup_bot_data)
-                .build()
             )
+            _builder = _apply_ptb_timeouts(_builder)
+            self.application = _builder.build()
         except Exception:
             dummy_token = os.getenv("DUMMY_BOT_TOKEN", "dummy_token")
             # נסה לבנות ללא persistence/post_init כדי לעקוף Updater פנימי
             try:
-                self.application = (
+                _builder = (
                     Application.builder()
                     .token(dummy_token)
                     .defaults(Defaults(parse_mode=ParseMode.HTML))
-                    .build()
                 )
+                _builder = _apply_ptb_timeouts(_builder)
+                self.application = _builder.build()
             except Exception:
                 # בנאי ידני מינימלי: אובייקט עם הממשקים הדרושים לטסטים/סביבות חסרות
                 class _MiniApp:
@@ -3795,7 +3850,101 @@ def main() -> None:
         _app = getattr(bot, "application", None)
         _run_poll_app = getattr(_app, "run_polling", None)
         if callable(_run_poll_app):
-            _run_poll_app(drop_pending_updates=True)
+            # ריכוך התופעה של 409 Conflict בגלל "גיהוקים" ברשת:
+            # - מעלים read/write/connect/pool timeouts (ב-builder) + מגדילים גם את long-poll timeout כאן.
+            # - מפעילים רק פרמטרים שקיימים בפועל בגרסת PTB (באמצעות inspect.signature).
+            def _env_float(name: str, default: float) -> float:
+                try:
+                    v = os.getenv(name)
+                    if v is None:
+                        return float(default)
+                    v = str(v).strip()
+                    if not v:
+                        return float(default)
+                    return float(v)
+                except Exception:
+                    return float(default)
+
+            def _env_int(name: str, default: int) -> int:
+                try:
+                    v = os.getenv(name)
+                    if v is None:
+                        return int(default)
+                    v = str(v).strip()
+                    if not v:
+                        return int(default)
+                    return int(float(v))
+                except Exception:
+                    return int(default)
+
+            connect_timeout = _env_float("TELEGRAM_CONNECT_TIMEOUT_SECS", 10.0)
+            pool_timeout = _env_float("TELEGRAM_POOL_TIMEOUT_SECS", 10.0)
+            write_timeout = _env_float("TELEGRAM_WRITE_TIMEOUT_SECS", 30.0)
+            read_timeout = _env_float("TELEGRAM_READ_TIMEOUT_SECS", 30.0)
+            poll_interval = _env_float("TELEGRAM_POLL_INTERVAL_SECS", 0.0)
+            long_poll_timeout = _env_int("TELEGRAM_LONG_POLL_TIMEOUT_SECS", 20)
+            conflict_backoff = _env_int("TELEGRAM_CONFLICT_BACKOFF_SECS", 30)
+
+            # Ensure read_timeout is safely above the long poll timeout
+            try:
+                if float(read_timeout) <= float(long_poll_timeout) + 2.0:
+                    read_timeout = float(long_poll_timeout) + 5.0
+            except Exception:
+                pass
+
+            poll_kwargs = {
+                "drop_pending_updates": True,
+                "poll_interval": float(poll_interval),
+                "timeout": int(long_poll_timeout),
+                "read_timeout": float(read_timeout),
+                "write_timeout": float(write_timeout),
+                "connect_timeout": float(connect_timeout),
+                "pool_timeout": float(pool_timeout),
+            }
+
+            def _call_with_supported_kwargs(fn, kwargs: dict[str, Any]):
+                try:
+                    sig = inspect.signature(fn)
+                    supported = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                    return fn(**supported)
+                except Exception:
+                    # fallback: ננסה להעביר הכל (הרבה stubs מקבלים **kwargs)
+                    return fn(**kwargs)
+
+            # Best-effort swallow & backoff on Conflict (אם זה נזרק החוצה)
+            try:
+                from telegram.error import Conflict as _TgConflict  # type: ignore
+            except Exception:  # pragma: no cover
+                _TgConflict = None  # type: ignore
+
+            while True:
+                try:
+                    _call_with_supported_kwargs(_run_poll_app, poll_kwargs)
+                    break
+                except Exception as _e:
+                    is_conflict = False
+                    try:
+                        if _TgConflict is not None and isinstance(_e, _TgConflict):
+                            is_conflict = True
+                        elif "terminated by other getupdates request" in str(_e).lower():
+                            is_conflict = True
+                    except Exception:
+                        is_conflict = False
+                    if not is_conflict:
+                        raise
+                    logger.warning(
+                        f"Telegram getUpdates Conflict detected; backing off for {conflict_backoff}s and retrying. err={_e}"
+                    )
+                    try:
+                        emit_event(
+                            "telegram_polling_conflict_backoff",
+                            severity="warn",
+                            backoff_seconds=int(conflict_backoff),
+                            error=str(_e)[:500],
+                        )
+                    except Exception:
+                        pass
+                    time.sleep(max(5, int(conflict_backoff)))
         else:
             _run_poll_bot = getattr(bot, "run_polling", None)
             if callable(_run_poll_bot):
