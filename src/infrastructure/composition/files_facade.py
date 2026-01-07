@@ -550,20 +550,20 @@ class FilesFacade:
         except Exception:
             return False
 
-    def list_active_user_ids(self) -> List[int]:
+    def list_active_user_ids(self) -> Optional[List[int]]:
         """
         Return user ids eligible for admin broadcast (non-blocked users).
         """
         try:
             mongo_db = self.get_mongo_db()
             if mongo_db is None:
-                return []
+                return None
             coll = getattr(mongo_db, "users", None)
             if coll is None:
                 try:
                     coll = mongo_db["users"]  # type: ignore[index]
                 except Exception:
-                    return []
+                    return None
             cursor = coll.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
             out: List[int] = []
             for doc in cursor or []:
@@ -575,7 +575,7 @@ class FilesFacade:
                     continue
             return out
         except Exception:
-            return []
+            return None
 
     def mark_users_blocked(self, user_ids: List[int]) -> int:
         """

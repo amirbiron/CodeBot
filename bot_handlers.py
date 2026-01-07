@@ -160,8 +160,8 @@ def _call_files_api(method_name: str, *args, **kwargs):
                             out.append(uid)
                     except Exception:
                         continue
-                if out:
-                    return out
+                # Success path (even if empty list)
+                return out
         except Exception:
             pass
         # Fall through to normal facade/legacy dispatch
@@ -4235,7 +4235,22 @@ class AdvancedBotHandlers:
         
         # שליפת נמענים דרך הפסאדה (ללא גישה ישירה ל-PyMongo מתוך handlers)
         try:
-            recipients = list(_call_files_api("list_active_user_ids") or [])
+            raw_recipients = _call_files_api("list_active_user_ids")
+        except Exception as e:
+            logger.error("טעינת נמענים לשידור נכשלה", exc_info=True)
+            await update.message.reply_text("❌ שגיאה בטעינת רשימת נמענים")
+            return
+
+        if raw_recipients is None:
+            await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
+            return
+
+        if not isinstance(raw_recipients, (list, tuple, set)):
+            await update.message.reply_text("❌ שגיאה בטעינת רשימת נמענים")
+            return
+
+        try:
+            recipients = [int(x) for x in list(raw_recipients) if str(x).lstrip("-").isdigit()]
         except Exception:
             recipients = []
         
