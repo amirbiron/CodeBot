@@ -98,7 +98,22 @@ class FilesFacade:
 
     def get_favorites(self, user_id: int, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict[str, Any]]:
         db = self._get_db()
-        return list(db.get_favorites(user_id, language=language, sort_by=sort_by, limit=limit) or [])
+        # Support multiple legacy signatures:
+        # - get_favorites(user_id, language=..., sort_by=..., limit=...)
+        # - get_favorites(user_id, limit=...)
+        # - get_favorites(user_id)
+        try:
+            return list(db.get_favorites(user_id, language=language, sort_by=sort_by, limit=limit) or [])
+        except TypeError:
+            pass
+        try:
+            return list(db.get_favorites(user_id, limit=limit) or [])
+        except TypeError:
+            pass
+        try:
+            return list(db.get_favorites(user_id) or [])
+        except Exception:
+            return []
 
     def get_favorites_count(self, user_id: int) -> int:
         try:
@@ -116,7 +131,14 @@ class FilesFacade:
     # ---- Save/update operations -------------------------------------------
     def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
         db = self._get_db()
-        return bool(db.save_file(user_id, file_name, code, programming_language, extra_tags))
+        # Support multiple legacy signatures:
+        # - save_file(user_id, file_name, code, programming_language, extra_tags)
+        # - save_file(user_id, file_name, code, programming_language)
+        try:
+            return bool(db.save_file(user_id, file_name, code, programming_language, extra_tags))
+        except TypeError:
+            # Legacy stubs/tests often don't accept extra_tags
+            return bool(db.save_file(user_id, file_name, code, programming_language))
 
     def save_code_snippet(self, *, user_id: int, file_name: str, code: str, programming_language: str, description: str = "", tags: Optional[List[str]] = None) -> bool:
         """Persist a CodeSnippet including description field (for notes)."""
@@ -333,10 +355,13 @@ class FilesFacade:
         repo = self._repo()
         if repo is None:
             return ([], 0)
+        # Important: don't swallow runtime errors here.
+        # Handlers should be able to surface an explicit ❌ error message to the user.
         try:
             return repo.list_deleted_files(user_id, page=page, per_page=per_page)
-        except Exception:
-            return ([], 0)
+        except TypeError:
+            # Legacy signature without kwargs
+            return repo.list_deleted_files(user_id, page, per_page)
 
     def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
         repo = self._repo()

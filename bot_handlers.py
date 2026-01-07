@@ -71,7 +71,10 @@ def _get_legacy_db():
     Best-effort access to legacy DB object **without importing** the `database` package.
 
     - Prefer explicit injection via `bot_handlers.db` (tests patch this a lot).
-    - Fall back to `sys.modules['database'].db` when a test injects a lightweight module.
+
+    הערה: בעבר תמכנו גם ב-`sys.modules['database'].db`, אבל זה עדיין "עוקף" את הפסאדה
+    ומעודד תלות עקיפה ב-DB מתוך handlers. המטרה היא שהאפליקציה תיגש ל-DB רק דרך
+    `FilesFacade`/`SnippetService`, ובבדיקות נעשה injection מפורש דרך המשתנה `db`.
     """
     try:
         patched = globals().get("db")
@@ -79,12 +82,6 @@ def _get_legacy_db():
             return patched
     except Exception:
         pass
-    try:
-        mod = sys.modules.get("database")
-        if mod is not None:
-            return getattr(mod, "db", None)
-    except Exception:
-        return None
     return None
 
 
@@ -143,15 +140,11 @@ def _call_files_api(method_name: str, *args, **kwargs):
                         return out
                 except Exception:
                     pass
-        try:
-            mod = sys.modules.get("database")
-            legacy_mgr = getattr(mod, "db", None) if mod is not None else None
-        except Exception:
-            legacy_mgr = None
+        legacy_mgr = _get_legacy_db()
         if legacy_mgr is None:
             return None
+        # legacy_mgr is typically DatabaseManager; .db is the underlying pymongo database.
         try:
-            # legacy_mgr is typically DatabaseManager; .db is the underlying pymongo database.
             inner = getattr(legacy_mgr, "db", None)
             return inner if inner is not None else legacy_mgr
         except Exception:

@@ -27,19 +27,17 @@ db = None  # type: ignore
 
 
 def _get_legacy_db():
-    """Best-effort access to legacy db object without importing `database`."""
+    """Best-effort access to legacy db object without importing `database`.
+
+    נשתמש רק ב-injection מפורש דרך `handlers.save_flow.db` (בעיקר עבור טסטים),
+    ולא דרך `sys.modules['database']` כדי לא לעודד תלות עקיפה ב-DB מתוך handlers.
+    """
     try:
         patched = globals().get("db")
         if patched is not None:
             return patched
     except Exception:
         pass
-    try:
-        mod = sys.modules.get("database")
-        if mod is not None:
-            return getattr(mod, "db", None)
-    except Exception:
-        return None
     return None
 # Observability (fail-open): unify error/event reporting
 try:  # type: ignore

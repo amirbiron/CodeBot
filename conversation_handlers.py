@@ -115,7 +115,10 @@ def _get_legacy_db():
     Best-effort access to legacy DB object **without importing** the `database` package.
 
     - Prefer explicit injection via `conversation_handlers.db` (tests often patch this).
-    - Fall back to `sys.modules['database'].db` if a test injected a lightweight module.
+
+    הערה: בעבר תמכנו גם ב-`sys.modules['database'].db`, אבל זה עדיין "עוקף" את הפסאדה
+    ומעודד תלות עקיפה ב-DB מתוך handlers. המטרה היא שכל הגישה ל-DB תעבור דרך
+    `FilesFacade`/`SnippetService`, ובבדיקות נעשה injection מפורש דרך המשתנה `db`.
     """
     try:
         patched = globals().get("db")
@@ -123,12 +126,6 @@ def _get_legacy_db():
             return patched
     except Exception:
         pass
-    try:
-        mod = sys.modules.get("database")
-        if mod is not None:
-            return getattr(mod, "db", None)
-    except Exception:
-        return None
     return None
 
 
