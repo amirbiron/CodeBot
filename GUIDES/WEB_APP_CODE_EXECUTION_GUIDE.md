@@ -126,6 +126,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import tempfile
 import time
 import os
 import uuid
@@ -297,13 +298,28 @@ class CodeExecutionService:
         """
         בדיקה האם אפשר להריץ קוד כרגע.
         
+        לוגיקה חיובית (Whitelist):
+        1. Docker מוגדר וזמין? → OK
+        2. Fallback מותר? → OK
+        3. אחרת → שגיאה
+        
         Returns:
             (can_execute, error_message)
         """
+        # 1. האם Docker מוגדר וזמין?
+        if self._use_docker and self._docker_available:
+            return True, None
+        
+        # 2. אם לא, האם מותר Fallback?
+        if self._allow_fallback:
+            return True, None
+        
+        # 3. אף אחד מהם לא מתקיים - שגיאה
         if self._use_docker and not self._docker_available:
-            if not self._allow_fallback:
-                return False, "Docker לא זמין והרצה ללא Docker מושבתת בפרודקשן"
-        return True, None
+            return False, "Docker מוגדר אך אינו זמין בשרת"
+        
+        # Docker כבוי מפורשות ו-Fallback אסור
+        return False, "הרצת קוד מושבתת (Docker כבוי ו-Fallback אסור)"
     
     # ============== Validation ==============
     
@@ -468,6 +484,11 @@ class CodeExecutionService:
         - --cap-drop=ALL: הסרת כל ה-capabilities
         - --ipc=none: בידוד IPC
         - --name + --label: לזיהוי וניקוי ב-timeout
+        
+        הגנה על זיכרון:
+        - שימוש ב-tempfile במקום capture_output=True
+        - מונע "פצצת זיכרון" מפלט אינסופי
+        - קריאה מבוקרת רק עד MAX_OUTPUT_BYTES
         """
         # שם ייחודי לקונטיינר (לניקוי במקרה של timeout)
         container_name = f"code-exec-{uuid.uuid4().hex[:12]}"
@@ -493,29 +514,42 @@ class CodeExecutionService:
             "python", "-c", code,
         ]
         
-        try:
-            result = subprocess.run(
-                docker_cmd,
-                capture_output=True,
-                timeout=timeout + 2,  # קצת יותר מ-timeout פנימי
-            )
-        except subprocess.TimeoutExpired:
-            # ניקוי הקונטיינר במקרה של timeout
-            self._cleanup_container(container_name)
-            raise
+        # שימוש בקבצים זמניים במקום capture_output=True
+        # מונע "פצצת זיכרון" - הפלט נכתב לדיסק, לא ל-RAM
+        with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
+            try:
+                process_result = subprocess.run(
+                    docker_cmd,
+                    stdout=stdout_f,
+                    stderr=stderr_f,
+                    timeout=timeout + 2,
+                )
+                exit_code = process_result.returncode
+            except subprocess.TimeoutExpired:
+                self._cleanup_container(container_name)
+                raise
+            
+            # קריאה מבוקרת מהקבצים - רק עד MAX_OUTPUT_BYTES + מעט
+            # זה מונע OOM גם אם הקוד הדפיס GB של פלט
+            stdout_f.seek(0)
+            stderr_f.seek(0)
+            
+            read_limit = self._max_output_bytes + 100
+            raw_stdout = stdout_f.read(read_limit)
+            raw_stderr = stderr_f.read(read_limit)
         
         stdout, stdout_truncated = self._sanitize_output(
-            result.stdout.decode("utf-8", errors="replace")
+            raw_stdout.decode("utf-8", errors="replace")
         )
         stderr, stderr_truncated = self._sanitize_output(
-            result.stderr.decode("utf-8", errors="replace")
+            raw_stderr.decode("utf-8", errors="replace")
         )
         
         return ExecutionResult(
-            success=result.returncode == 0,
+            success=exit_code == 0,
             stdout=stdout,
             stderr=stderr,
-            exit_code=result.returncode,
+            exit_code=exit_code,
             truncated=stdout_truncated or stderr_truncated,
         )
     
@@ -575,31 +609,46 @@ class CodeExecutionService:
         
         ⚠️ אזהרה: שיטה זו פחות בטוחה מ-Docker.
         משמשת רק כש-CODE_EXEC_ALLOW_FALLBACK=true.
+        
+        הגנה על זיכרון:
+        - שימוש ב-tempfile במקום capture_output=True
+        - עקבי עם _execute_docker
         """
         logger.warning("Executing code via subprocess (fallback mode)")
         
-        result = subprocess.run(
-            ["python", "-c", code],
-            capture_output=True,
-            timeout=timeout,
-            env={
-                "PATH": "/usr/bin:/bin",
-                "PYTHONDONTWRITEBYTECODE": "1",
-            },
-        )
+        # שימוש בקבצים זמניים - עקבי עם _execute_docker
+        with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
+            process_result = subprocess.run(
+                ["python", "-c", code],
+                stdout=stdout_f,
+                stderr=stderr_f,
+                timeout=timeout,
+                env={
+                    "PATH": "/usr/bin:/bin",
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+            )
+            
+            # קריאה מבוקרת
+            stdout_f.seek(0)
+            stderr_f.seek(0)
+            
+            read_limit = self._max_output_bytes + 100
+            raw_stdout = stdout_f.read(read_limit)
+            raw_stderr = stderr_f.read(read_limit)
         
         stdout, stdout_truncated = self._sanitize_output(
-            result.stdout.decode("utf-8", errors="replace")
+            raw_stdout.decode("utf-8", errors="replace")
         )
         stderr, stderr_truncated = self._sanitize_output(
-            result.stderr.decode("utf-8", errors="replace")
+            raw_stderr.decode("utf-8", errors="replace")
         )
         
         return ExecutionResult(
-            success=result.returncode == 0,
+            success=process_result.returncode == 0,
             stdout=stdout,
             stderr=stderr,
-            exit_code=result.returncode,
+            exit_code=process_result.returncode,
             truncated=stdout_truncated or stderr_truncated,
         )
     
@@ -1182,6 +1231,7 @@ print(f"Cleaned {cleaned} containers")
 | **Timeout** | מניעת infinite loops | 5-30 שניות |
 | **Container Cleanup** | ניקוי קונטיינרים יתומים | `--name` + `--label` + cleanup |
 | **Output Limit** | מניעת memory bomb | 100KB |
+| **TempFile Output** | מניעת OOM מפלט גדול | `tempfile.TemporaryFile()` |
 | **No Privileges** | הרצה כ-nobody | `--user=nobody`, `--cap-drop=ALL` |
 
 ### Flags מלאים של Docker
@@ -1226,6 +1276,7 @@ docker run \
 
 ❌ **אל תפעיל `CODE_EXEC_ALLOW_FALLBACK=true` בפרודקשן** – subprocess לא בטוח  
 ❌ **אל תעשה mount ל-docker.sock** אם אפשר להימנע (סיכון root)  
+❌ **אל תשתמש ב-`capture_output=True`** – מאפשר OOM מפלט אינסופי  
 ❌ אל תעלה את ה-timeout מעל 30 שניות  
 ❌ אל תאפשר גישה לרשת מתוך הקונטיינר  
 ❌ **אל תלוגג קוד או stdout/stderr** – עלולים להכיל סודות  
@@ -1256,6 +1307,34 @@ Fail-Open (לפיתוח בלבד):
   Docker לא זמין? → subprocess fallback
   ENV: CODE_EXEC_ALLOW_FALLBACK=true
 ```
+
+### הגנה על זיכרון – TempFile במקום capture_output
+
+**הבעיה עם `capture_output=True`:**
+```python
+# 🔴 מסוכן - טוען את כל הפלט ל-RAM
+result = subprocess.run(cmd, capture_output=True)
+
+# משתמש מריץ: while True: print("a"*1000)
+# → השרת צורך GB של RAM → OOM Kill → קריסה
+```
+
+**הפתרון עם TempFile:**
+```python
+# ✅ בטוח - הפלט נכתב לדיסק
+with tempfile.TemporaryFile() as stdout_f:
+    subprocess.run(cmd, stdout=stdout_f)
+    stdout_f.seek(0)
+    # קוראים רק את הבייטים הראשונים
+    raw = stdout_f.read(MAX_OUTPUT_BYTES + 100)
+```
+
+**יתרונות:**
+- הפלט נכתב לדיסק, לא ל-RAM
+- קריאה מבוקרת רק עד המקסימום המותר
+- גם אם הקוד מדפיס TB של פלט, השרת לא יקרוס
+
+---
 
 ### Defense in Depth – הגנה כפולה
 
@@ -1401,6 +1480,34 @@ class TestCodeExecutionService:
         assert result.success is False
         assert "חסומה" in result.error_message or "Docker" in result.error_message
         assert result.used_docker is False
+
+    def test_can_execute_docker_disabled_no_fallback(self, monkeypatch):
+        """
+        can_execute should return False when Docker is explicitly disabled
+        and fallback is not allowed.
+        """
+        monkeypatch.setenv("CODE_EXEC_USE_DOCKER", "false")
+        monkeypatch.setenv("CODE_EXEC_ALLOW_FALLBACK", "false")
+        
+        service = CodeExecutionService()
+        can_exec, error = service.can_execute()
+        
+        assert can_exec is False
+        assert "מושבתת" in error or "כבוי" in error
+
+    def test_can_execute_docker_disabled_with_fallback(self, monkeypatch):
+        """
+        can_execute should return True when Docker is disabled
+        but fallback is allowed.
+        """
+        monkeypatch.setenv("CODE_EXEC_USE_DOCKER", "false")
+        monkeypatch.setenv("CODE_EXEC_ALLOW_FALLBACK", "true")
+        
+        service = CodeExecutionService()
+        can_exec, error = service.can_execute()
+        
+        assert can_exec is True
+        assert error is None
 
     @patch('subprocess.run')
     def test_execute_simple_code_mocked(self, mock_run, service_no_docker):
@@ -1843,3 +1950,9 @@ def run_code():
 | | - הבטחה ש-subprocess לא ירוץ ללא אישור מפורש |
 | | - הוספת הגנה לעומק (defense in depth) |
 | | - הוספת טסט `test_fail_closed_defense_in_depth` |
+| ינואר 2026 | **תיקוני אבטחה נוספים:** |
+| | - תיקון `can_execute()`: לוגיקה חיובית (Whitelist) |
+| | - הוספת כיסוי למצב Docker כבוי + Fallback אסור |
+| | - **מניעת OOM**: שימוש ב-`tempfile` במקום `capture_output=True` |
+| | - הגנה על זיכרון השרת מפלט אינסופי |
+| | - טסטים: `test_can_execute_docker_disabled_*` |
