@@ -568,14 +568,26 @@ class CodeExecutionService:
     
     def cleanup_orphan_containers(self) -> int:
         """
-        ניקוי קונטיינרים יתומים לפי label (לשימוש תקופתי).
+        ניקוי קונטיינרים יתומים (שכבר סיימו לרוץ אך לא נמחקו).
+        
+        חשוב: מנקה רק קונטיינרים בסטטוס `exited`, לא רצים!
+        זה מונע Race Condition שבו נהרוג קונטיינר באמצע הרצה.
         
         Returns:
             מספר הקונטיינרים שנוקו
         """
         try:
+            # חשוב: -a להציג גם קונטיינרים שסיימו
+            # חשוב: status=exited לסנן רק קונטיינרים שכבר לא רצים
+            # בלי זה, נהרוג קונטיינרים אקטיביים!
+            cmd = [
+                "docker", "ps", "-a", "-q",
+                "-f", f"label={self.CONTAINER_LABEL}",
+                "-f", "status=exited",
+            ]
+            
             result = subprocess.run(
-                ["docker", "ps", "-q", "-f", f"label={self.CONTAINER_LABEL}"],
+                cmd,
                 capture_output=True,
                 timeout=10,
             )
@@ -592,7 +604,7 @@ class CodeExecutionService:
                     count += 1
             
             if count > 0:
-                logger.info("Cleaned up %d orphan containers", count)
+                logger.info("Cleaned up %d orphan (exited) containers", count)
             return count
             
         except Exception as e:
@@ -1192,17 +1204,23 @@ code-keeper-bot:
 
 ### ניקוי קונטיינרים יתומים
 
-קונטיינרים עלולים להישאר "יתומים" אם ה-timeout נכשל. השירות מסמן אותם עם label:
+קונטיינרים עלולים להישאר "יתומים" אם ה-timeout נכשל. השירות מסמן אותם עם label.
+
+> ⚠️ **חשוב:** יש לנקות רק קונטיינרים בסטטוס `exited`!  
+> ניקוי קונטיינרים `running` יהרוג הרצות אקטיביות של משתמשים.
 
 ```bash
-# ניקוי ידני
-docker ps -a -q -f label=code_exec=1 | xargs -r docker rm -f
+# ניקוי ידני - רק קונטיינרים שכבר סיימו
+docker ps -a -q -f label=code_exec=1 -f status=exited | xargs -r docker rm -f
 
-# ניקוי תקופתי (cron)
-*/5 * * * * docker ps -a -q -f label=code_exec=1 --filter "status=exited" | xargs -r docker rm -f
+# ניקוי תקופתי (cron) - בטוח להרצות אקטיביות
+*/5 * * * * docker ps -a -q -f label=code_exec=1 -f status=exited | xargs -r docker rm -f
+
+# 🔴 לא לעשות! זה יהרוג הרצות באמצע:
+# docker ps -q -f label=code_exec=1 | xargs -r docker rm -f
 ```
 
-או דרך ה-API:
+או דרך ה-API (בטוח - מסנן רק `exited`):
 
 ```python
 from services.code_execution_service import get_code_execution_service
@@ -1277,6 +1295,7 @@ docker run \
 ❌ **אל תפעיל `CODE_EXEC_ALLOW_FALLBACK=true` בפרודקשן** – subprocess לא בטוח  
 ❌ **אל תעשה mount ל-docker.sock** אם אפשר להימנע (סיכון root)  
 ❌ **אל תשתמש ב-`capture_output=True`** – מאפשר OOM מפלט אינסופי  
+❌ **אל תנקה קונטיינרים `running`** – רק `exited` (Race Condition!)  
 ❌ אל תעלה את ה-timeout מעל 30 שניות  
 ❌ אל תאפשר גישה לרשת מתוך הקונטיינר  
 ❌ **אל תלוגג קוד או stdout/stderr** – עלולים להכיל סודות  
@@ -1956,3 +1975,7 @@ def run_code():
 | | - **מניעת OOM**: שימוש ב-`tempfile` במקום `capture_output=True` |
 | | - הגנה על זיכרון השרת מפלט אינסופי |
 | | - טסטים: `test_can_execute_docker_disabled_*` |
+| ינואר 2026 | **תיקון Race Condition ב-cleanup:** |
+| | - הוספת `-a` ו-`status=exited` ל-`cleanup_orphan_containers()` |
+| | - מונע הריגת קונטיינרים אקטיביים באמצע הרצה |
+| | - עדכון פקודות cron לסינון בטוח |
