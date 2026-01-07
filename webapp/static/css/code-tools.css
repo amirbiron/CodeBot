@@ -577,3 +577,81 @@
   display: none;
 }
 
+/* ============================================================
+   Code Execution Output Console
+   ============================================================ */
+
+.run-console {
+  padding: 1rem;
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  min-height: 200px;
+  direction: ltr;
+  text-align: left;
+}
+
+.console-loading {
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+  text-align: center;
+  padding: 2rem;
+}
+
+.console-stdout {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary, #ffffff);
+  margin-bottom: 0.5rem;
+}
+
+.console-stderr {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ff8a8a;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(255, 99, 132, 0.1);
+  border-radius: 6px;
+  border-left: 3px solid #ff6384;
+}
+
+.console-error {
+  color: #ff6384;
+  padding: 0.75rem;
+  background: rgba(255, 99, 132, 0.12);
+  border-radius: 8px;
+  margin-top: 0.5rem;
+}
+
+.console-info {
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+  text-align: center;
+  padding: 1rem;
+}
+
+.console-meta {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.8rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.5));
+}
+
+/* Success button style */
+.code-tools-container .btn.btn-success {
+  background: linear-gradient(135deg, #10b981, #059669);
+  border: none;
+  color: #ffffff;
+}
+
+.code-tools-container .btn.btn-success:hover {
+  background: linear-gradient(135deg, #059669, #047857);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* Running state */
+.code-tools-container .btn.btn-success.running {
+  opacity: 0.7;
+  pointer-events: none;
+}
+

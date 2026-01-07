@@ -256,6 +256,54 @@
      - ``true``
      - ``true``
      - WebApp
+   * - ``FEATURE_CODE_EXECUTION``
+     - הפעלת הרצת קוד (Playground) ב-WebApp (``/api/code/run``)
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp
+   * - ``CODE_EXEC_USE_DOCKER``
+     - האם להריץ קוד בתוך Docker sandbox (מומלץ/חובה בפרודקשן)
+     - לא
+     - ``true``
+     - ``true``
+     - WebApp
+   * - ``CODE_EXEC_ALLOW_FALLBACK``
+     - האם לאפשר fallback ל-subprocess (לפיתוח בלבד; בפרודקשן מומלץ ``false``)
+     - לא
+     - ``false``
+     - ``false``
+     - WebApp
+   * - ``CODE_EXEC_MAX_TIMEOUT``
+     - timeout מקסימלי להרצת קוד (שניות)
+     - לא
+     - ``30``
+     - ``10``
+     - WebApp
+   * - ``CODE_EXEC_MAX_MEMORY_MB``
+     - זיכרון מקסימלי להרצת קוד (MB)
+     - לא
+     - ``128``
+     - ``256``
+     - WebApp
+   * - ``CODE_EXEC_MAX_OUTPUT_BYTES``
+     - כמות מקסימלית של stdout/stderr (bytes) לפני עצירה/קיצוץ
+     - לא
+     - ``102400``
+     - ``102400``
+     - WebApp
+   * - ``CODE_EXEC_MAX_CODE_LENGTH``
+     - אורך קוד מקסימלי (bytes) שמותר לשלוח להרצה
+     - לא
+     - ``51200``
+     - ``51200``
+     - WebApp
+   * - ``CODE_EXEC_DOCKER_IMAGE``
+     - Docker image להרצת קוד (למשל ``python:3.11-slim``)
+     - לא
+     - ``python:3.11-slim``
+     - ``python:3.11-slim``
+     - WebApp
    * - ``PUBLIC_SHARE_TTL_DAYS``
      - תוקף ברירת מחדל לקישורי שיתוף (ימים)
      - לא

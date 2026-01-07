@@ -143,7 +143,7 @@
 
   function setViewMode(mode) {
     const viewButtons = Array.from(document.querySelectorAll('.view-btn[data-view]'));
-    const views = ['code', 'diff', 'issues'];
+    const views = ['code', 'diff', 'issues', 'output'];
     views.forEach((v) => {
       const el = document.getElementById(`${v}-view`);
       if (el) el.classList.toggle('active', v === mode);
@@ -254,6 +254,12 @@
 
     updateStats(inputEditor, inputStats);
 
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = String(text ?? '');
+      return div.innerHTML;
+    }
+
     // View toggle
     Array.from(document.querySelectorAll('.view-btn[data-view]')).forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -264,6 +270,107 @@
         }
       });
     });
+
+    // ============================================================
+    // Code Execution (Run Button)
+    // ============================================================
+
+    const btnRun = document.getElementById('btn-run');
+    const runOutput = document.getElementById('run-output');
+    let executionLimits = null;
+
+    async function checkExecutionEnabled() {
+      try {
+        const resp = await fetch('/api/code/run/limits', { method: 'GET' });
+        const data = await resp.json().catch(() => null);
+        executionLimits = data;
+
+        const enabled = !!(data && data.enabled);
+        if (btnRun) btnRun.style.display = enabled ? 'inline-flex' : 'none';
+
+        if (enabled && btnRun) {
+          const timeout = data?.limits?.max_timeout_seconds ?? 30;
+          const dockerOk = !!data?.limits?.docker_available;
+          const dockerInfo = dockerOk ? '🐳 Docker' : '⚠️ Docker לא זמין';
+          btnRun.title = `הרץ (Ctrl+Enter) · Timeout: ${timeout}s · ${dockerInfo}`;
+        }
+      } catch (_) {
+        if (btnRun) btnRun.style.display = 'none';
+      }
+    }
+
+    async function runCode() {
+      const code = getDoc(inputEditor);
+      if (!code.trim()) {
+        showStatus('אין קוד להרצה', 'warning');
+        return;
+      }
+
+      if (btnRun) {
+        btnRun.disabled = true;
+        btnRun.classList.add('running');
+      }
+
+      showStatus('מריץ...', 'loading');
+      setViewMode('output');
+      if (runOutput) runOutput.innerHTML = '<div class="console-loading">⏳ מריץ קוד...</div>';
+
+      try {
+        const maxTimeout = executionLimits?.limits?.max_timeout_seconds ?? 30;
+        const maxMemory = executionLimits?.limits?.max_memory_mb ?? 128;
+
+        const result = await postJson('/api/code/run', {
+          code,
+          timeout: maxTimeout,
+          memory_limit_mb: maxMemory,
+        });
+
+        if (runOutput) {
+          let html = '';
+
+          if (result.stdout) html += `<div class="console-stdout">${escapeHtml(result.stdout)}</div>`;
+          if (result.stderr) html += `<div class="console-stderr">${escapeHtml(result.stderr)}</div>`;
+          if (result.error && !result.success) html += `<div class="console-error">❌ ${escapeHtml(result.error)}</div>`;
+
+          if (!html) html = '<div class="console-info">הקוד רץ בהצלחה (ללא פלט)</div>';
+
+          html += `<div class="console-meta">
+            Exit: ${escapeHtml(result.exit_code)} · Time: ${escapeHtml(result.execution_time_ms)}ms
+            ${result.truncated ? ' · ⚠️ הפלט קוצץ' : ''}
+          </div>`;
+
+          runOutput.innerHTML = html;
+        }
+
+        if (result.success) {
+          showStatus(`הרצה הסתיימה (${result.execution_time_ms}ms)`, 'success');
+        } else {
+          showStatus(result.error || 'שגיאה בהרצה', 'error');
+        }
+      } catch (e) {
+        const msg = e && e.message ? e.message : 'שגיאה בהרצה';
+        if (runOutput) runOutput.innerHTML = `<div class="console-error">❌ ${escapeHtml(msg)}</div>`;
+        showStatus(msg, 'error');
+      } finally {
+        if (btnRun) {
+          btnRun.disabled = false;
+          btnRun.classList.remove('running');
+        }
+      }
+    }
+
+    btnRun?.addEventListener('click', runCode);
+
+    // Keyboard shortcut: Ctrl+Enter / Cmd+Enter
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        runCode();
+      }
+    });
+
+    // בדיקת זמינות בטעינה
+    checkExecutionEnabled();
 
     // Preferences
     toolSelect?.addEventListener('change', () => {

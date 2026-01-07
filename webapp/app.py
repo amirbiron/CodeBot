@@ -3380,6 +3380,24 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def premium_or_admin_required(f):
+    """דקורטור לבדיקת הרשאות Premium או אדמין"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+
+        try:
+            uid = int(session['user_id'])
+        except Exception:
+            abort(403)
+
+        if not (is_admin(uid) or is_premium(uid)):
+            abort(403)
+
+        return f(*args, **kwargs)
+    return decorated_function
+
 def is_admin(user_id: int) -> bool:
     """בודק אם משתמש הוא אדמין"""
     admin_ids_env = os.getenv('ADMIN_USER_IDS', '')
@@ -10544,7 +10562,7 @@ def compare_files_page():
 
 
 @app.route('/tools/code')
-@admin_required
+@premium_or_admin_required
 def code_tools_page():
     """דף ייעודי לכלי קוד (Playground) עם Diff מקצועי."""
     return render_template('code_tools.html')
