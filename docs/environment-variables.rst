@@ -106,6 +106,60 @@
      - ``my_code_keeper_bot``
      - ``@MyBot``
      - Bot/WebApp
+   * - ``TELEGRAM_CONNECT_TIMEOUT_SECS``
+     - טיימאאוט התחברות ל‑Telegram Bot API (שניות). מעלה סבילות לבעיות רשת קצרות.
+     - לא
+     - ``10.0``
+     - ``10.0``
+     - Bot
+   * - ``TELEGRAM_POOL_TIMEOUT_SECS``
+     - טיימאאוט המתנה ל‑connection מה‑pool (שניות) בעת קריאות ל‑Telegram Bot API.
+     - לא
+     - ``10.0``
+     - ``10.0``
+     - Bot
+   * - ``TELEGRAM_READ_TIMEOUT_SECS``
+     - טיימאאוט קריאה ל‑Telegram Bot API (שניות). מומלץ שיהיה גבוה מ‑``TELEGRAM_LONG_POLL_TIMEOUT_SECS`` כדי להקטין סיכוי ל‑``getUpdates`` Conflict בזמן "גיהוק" רשת.
+     - לא
+     - ``30.0``
+     - ``30.0``
+     - Bot
+   * - ``TELEGRAM_WRITE_TIMEOUT_SECS``
+     - טיימאאוט כתיבה ל‑Telegram Bot API (שניות).
+     - לא
+     - ``30.0``
+     - ``30.0``
+     - Bot
+   * - ``TELEGRAM_LONG_POLL_TIMEOUT_SECS``
+     - ``timeout`` של long‑polling עבור ``getUpdates`` (שניות). זה זמן ההמתנה בצד שרת Telegram לפני החזרת עדכונים.
+     - לא
+     - ``20``
+     - ``20``
+     - Bot
+   * - ``TELEGRAM_POLL_INTERVAL_SECS``
+     - ``poll_interval`` בין סבבי polling (שניות). ``0`` = ברירת מחדל של python-telegram-bot.
+     - לא
+     - ``0.0``
+     - ``0.0``
+     - Bot
+   * - ``TELEGRAM_CONFLICT_BACKOFF_SECS``
+     - זמן המתנה (שניות) לפני retry כאשר מתקבלת שגיאת ``409 Conflict`` מסוג "terminated by other getUpdates request".
+     - לא
+     - ``30``
+     - ``30``
+     - Bot
+   * - ``TELEGRAM_CONFLICT_MAX_RETRIES``
+     - כמה פעמים לנסות שוב (retry) אחרי ``409 Conflict``. אם מגיעים לתקרה — התהליך יוצא כדי לשחרר lock ולאפשר ל‑orchestrator לנסות התאוששות. ``0``/שלילי = ללא הגבלה (לא מומלץ).
+     - לא
+     - ``5``
+     - ``5``
+     - Bot
+   * - ``TELEGRAM_CONFLICT_MAX_SECONDS``
+     - חלון זמן מקסימלי (שניות) לרצף conflicts לפני יציאה מהתהליך (שחרור lock + recovery). ``0``/שלילי = ללא הגבלה (לא מומלץ).
+     - לא
+     - ``300``
+     - ``300``
+     - Bot
    * - ``GITHUB_TOKEN``
      - טוקן GitHub לשימוש בפעולות API. למינימום הרשאות ראו טבלת Scopes בהמשך.
      - לא
