@@ -116,40 +116,6 @@ def _call_files_api(method_name: str, *args, **kwargs):
 
     Note: Bot handlers must not import/use the legacy `database` package directly.
     """
-    # Special case: allow safe access to underlying Mongo DB (used by broadcast/dm admin flows).
-    if method_name == "get_mongo_db":
-        # Prefer explicit injection via module globals (tests), then facade, then already-loaded legacy module.
-        try:
-            injected = globals().get("db")
-        except Exception:
-            injected = None
-        try:
-            injected_db_obj = getattr(injected, "db", None) if injected is not None else None
-        except Exception:
-            injected_db_obj = None
-        if injected_db_obj is not None:
-            return injected_db_obj
-
-        facade = _get_files_facade_or_none()
-        if facade is not None:
-            fn = getattr(facade, "get_mongo_db", None)
-            if callable(fn):
-                try:
-                    out = fn()
-                    if out is not None:
-                        return out
-                except Exception:
-                    pass
-        legacy_mgr = _get_legacy_db()
-        if legacy_mgr is None:
-            return None
-        # legacy_mgr is typically DatabaseManager; .db is the underlying pymongo database.
-        try:
-            inner = getattr(legacy_mgr, "db", None)
-            return inner if inner is not None else legacy_mgr
-        except Exception:
-            return legacy_mgr
-
     # Prefer injected legacy db (tests), then facade, then fallback to legacy.
     legacy = _get_legacy_db()
     if legacy is not None:
@@ -4170,26 +4136,11 @@ class AdvancedBotHandlers:
             )
             return
         
-        # שליפת נמענים מ-Mongo
-        db_obj = _call_files_api("get_mongo_db")
-        coll = getattr(db_obj, "users", None) if db_obj is not None else None
-        if coll is None:
-            await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
-            return
+        # שליפת נמענים דרך הפסאדה (ללא גישה ישירה ל-PyMongo מתוך handlers)
         try:
-            cursor = coll.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
-            recipients: List[int] = []
-            for doc in cursor:
-                try:
-                    uid = int(doc.get("user_id") or 0)
-                    if uid:
-                        recipients.append(uid)
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.error(f"טעינת נמענים נכשלה: {e}")
-            await update.message.reply_text("❌ שגיאה בטעינת רשימת נמענים")
-            return
+            recipients = list(_call_files_api("list_active_user_ids") or [])
+        except Exception:
+            recipients = []
         
         if not recipients:
             await update.message.reply_text("ℹ️ אין נמענים לשידור.")
@@ -4235,8 +4186,7 @@ class AdvancedBotHandlers:
         removed_count = 0
         if removed_ids:
             try:
-                coll.update_many({"user_id": {"$in": removed_ids}}, {"$set": {"blocked": True}})
-                removed_count = len(removed_ids)
+                removed_count = int(_call_files_api("mark_users_blocked", removed_ids) or 0)
             except Exception:
                 pass
         
@@ -4285,13 +4235,9 @@ class AdvancedBotHandlers:
             # username: strip leading @ and query DB
             uname = recipient_token[1:] if recipient_token.startswith('@') else recipient_token
             try:
-                db_obj = _call_files_api("get_mongo_db")
-                users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
-                if users_coll is not None:
-                    # נסה התאמה מדויקת ואז lowercase
-                    doc = users_coll.find_one({"username": uname}) or users_coll.find_one({"username": uname.lower()})
-                    if doc and doc.get('user_id'):
-                        target_id = int(doc['user_id'])
+                resolved = _call_files_api("find_user_id_by_username", uname)
+                if resolved is not None:
+                    target_id = int(resolved)
             except Exception:
                 target_id = None
 
@@ -4326,10 +4272,7 @@ class AdvancedBotHandlers:
         except telegram.error.Forbidden:
             # ייתכן שהמשתמש חסם את הבוט – נסמן ב-DB
             try:
-                db_obj = _call_files_api("get_mongo_db")
-                users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
-                if users_coll is not None:
-                    users_coll.update_one({"user_id": target_id}, {"$set": {"blocked": True}})
+                _call_files_api("mark_user_blocked", int(target_id))
             except Exception:
                 pass
             await update.message.reply_text("⚠️ לא ניתן לשלוח (המשתמש חסם את הבוט או בוטק). סומן כ-blocked.")

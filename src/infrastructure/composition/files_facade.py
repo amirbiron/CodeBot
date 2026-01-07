@@ -493,6 +493,169 @@ class FilesFacade:
         except Exception:
             return None
 
+    # ---- Legacy collections helpers (keep handlers away from raw PyMongo) ---
+    def insert_webapp_login_token(self, token_doc: Dict[str, Any]) -> bool:
+        """
+        Insert a short-lived WebApp login token into `webapp_tokens` collection.
+
+        Handlers should not reach for raw PyMongo db/collections directly.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "webapp_tokens", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["webapp_tokens"]  # type: ignore[index]
+                except Exception:
+                    return False
+            coll.insert_one(dict(token_doc or {}))
+            return True
+        except Exception:
+            return False
+
+    def list_active_user_ids(self) -> List[int]:
+        """
+        Return user ids eligible for admin broadcast (non-blocked users).
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return []
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return []
+            cursor = coll.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
+            out: List[int] = []
+            for doc in cursor or []:
+                try:
+                    uid = int((doc or {}).get("user_id") or 0)
+                    if uid:
+                        out.append(uid)
+                except Exception:
+                    continue
+            return out
+        except Exception:
+            return []
+
+    def mark_users_blocked(self, user_ids: List[int]) -> int:
+        """
+        Mark a list of users as blocked. Returns best-effort count.
+        """
+        try:
+            ids = [int(x) for x in (user_ids or []) if str(x).lstrip("-").isdigit()]
+        except Exception:
+            ids = []
+        if not ids:
+            return 0
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return 0
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return 0
+            res = coll.update_many({"user_id": {"$in": ids}}, {"$set": {"blocked": True}})
+            for attr in ("modified_count", "matched_count"):
+                try:
+                    val = getattr(res, attr, None)
+                    if val is not None:
+                        return int(val)
+                except Exception:
+                    continue
+            return 0
+        except Exception:
+            return 0
+
+    def find_user_id_by_username(self, username: str) -> Optional[int]:
+        """
+        Resolve @username to user_id from `users` collection.
+        """
+        uname = str(username or "").strip()
+        if uname.startswith("@"):
+            uname = uname[1:]
+        if not uname:
+            return None
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return None
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return None
+            doc = coll.find_one({"username": uname}) or coll.find_one({"username": uname.lower()})
+            if not isinstance(doc, dict):
+                return None
+            uid = doc.get("user_id")
+            return int(uid) if uid is not None else None
+        except Exception:
+            return None
+
+    def mark_user_blocked(self, user_id: int) -> bool:
+        """
+        Mark a single user as blocked.
+        """
+        try:
+            uid = int(user_id)
+        except Exception:
+            return False
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return False
+            coll.update_one({"user_id": uid}, {"$set": {"blocked": True}})
+            return True
+        except Exception:
+            return False
+
+    def insert_refactor_metadata(self, doc: Dict[str, Any]) -> bool:
+        """
+        Persist refactor metadata to `refactorings` collection (best-effort).
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "refactorings", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["refactorings"]  # type: ignore[index]
+                except Exception:
+                    return False
+            coll.insert_one(dict(doc or {}))
+            return True
+        except Exception:
+            return False
+
+    def delete_large_file(self, user_id: int, file_name: str) -> bool:
+        """
+        Delete a large file (moves it to trash in legacy implementation).
+        """
+        try:
+            db = self._get_db()
+            fn = getattr(db, "delete_large_file", None)
+            if callable(fn):
+                return bool(fn(user_id, file_name))
+        except Exception:
+            return False
+        return False
+
     @staticmethod
     def _doc_belongs_to_user(doc: Dict[str, Any], user_id: int) -> bool:
         try:

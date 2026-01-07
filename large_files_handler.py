@@ -15,8 +15,8 @@ from telegram import (
 )
 from telegram.ext import ContextTypes
 
-from database import LargeFile, db
-from utils import detect_language_from_filename, get_language_emoji, TextUtils
+from src.infrastructure.composition import get_files_facade
+from utils import get_language_emoji, TextUtils
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,13 @@ class LargeFilesHandler:
     def __init__(self):
         self.files_per_page = 8
         self.preview_max_chars = 3500
+
+    def _facade(self):
+        """גישה בטוחה ל-FilesFacade (ללא תלות ישירה ב-database מתוך handlers)."""
+        try:
+            return get_files_facade()
+        except Exception:
+            return None
 
     def _fetch_full_large_file_content(self, user_id: int, file_data: Dict) -> Tuple[str, str]:
         """
@@ -41,19 +48,23 @@ class LargeFilesHandler:
             return content, str(language or "text")
 
         full_doc: Optional[Dict] = None
-        try:
-            file_id = file_data.get("_id") if isinstance(file_data, dict) else None
-            if file_id:
-                full_doc = db.get_large_file_by_id(str(file_id))
-                if isinstance(full_doc, dict) and full_doc.get("user_id") != user_id:
-                    full_doc = None
-        except Exception:
-            full_doc = None
+        facade = self._facade()
+        if facade is None:
+            return "", str(language or "text")
+
+        file_id = file_data.get("_id") if isinstance(file_data, dict) else None
+        if file_id:
+            try:
+                doc, is_large = facade.get_user_document_by_id(user_id=user_id, file_id=str(file_id))
+                if is_large and isinstance(doc, dict):
+                    full_doc = doc
+            except Exception:
+                full_doc = None
 
         if not full_doc:
             try:
                 if file_name:
-                    full_doc = db.get_large_file(user_id, str(file_name))
+                    full_doc = facade.get_large_file(user_id, str(file_name))
             except Exception:
                 full_doc = None
 
@@ -76,7 +87,11 @@ class LargeFilesHandler:
         user_id = update.effective_user.id
         
         # קבלת קבצים לעמוד הנוכחי
-        files, total_count = db.get_user_large_files(user_id, page, self.files_per_page)
+        facade = self._facade()
+        if facade is None:
+            files, total_count = ([], 0)
+        else:
+            files, total_count = facade.get_user_large_files(user_id, page=page, per_page=self.files_per_page)
         
         if not files and page == 1:
             # אין קבצים בכלל
@@ -409,7 +424,8 @@ class LargeFilesHandler:
         file_name = file_data.get('file_name', 'קובץ ללא שם')
         
         # מחיקת הקובץ
-        success = db.delete_large_file(user_id, file_name)
+        facade = self._facade()
+        success = bool(facade.delete_large_file(user_id, file_name)) if facade is not None else False
         
         if success:
             # ניקוי הקאש
@@ -417,7 +433,10 @@ class LargeFilesHandler:
                 del large_files_cache[file_index]
             
             # בדוק אם נשארו קבצים פעילים
-            remaining_files, remaining_total = db.get_user_large_files(user_id, page=1, per_page=1)
+            if facade is None:
+                remaining_files, remaining_total = ([], 0)
+            else:
+                remaining_files, remaining_total = facade.get_user_large_files(user_id, page=1, per_page=1)
             if remaining_total > 0:
                 keyboard = [[InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")]]
             else:
