@@ -3905,13 +3905,24 @@ def main() -> None:
             }
 
             def _call_with_supported_kwargs(fn, kwargs: dict[str, Any]):
+                """
+                Call fn(**kwargs) but only pass supported keyword args.
+
+                חשוב: לא "לבלוע" חריגות של fn (למשל Conflict). לכן אנחנו תופסים חריגות
+                *רק* מהאינטורספקציה של inspect.signature, ולא מהקריאה עצמה.
+                """
+                supported = kwargs
                 try:
                     sig = inspect.signature(fn)
-                    supported = {k: v for k, v in kwargs.items() if k in sig.parameters}
-                    return fn(**supported)
-                except Exception:
-                    # fallback: ננסה להעביר הכל (הרבה stubs מקבלים **kwargs)
-                    return fn(**kwargs)
+                    # אם הפונקציה מקבלת **kwargs, תעביר הכל (זה המקרה בהרבה stubs/tests)
+                    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                        supported = kwargs
+                    else:
+                        supported = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                except (TypeError, ValueError):
+                    # signature לא זמין (builtins/partials/monkeypatch) – ננסה להעביר הכל
+                    supported = kwargs
+                return fn(**supported)
 
             # Best-effort swallow & backoff on Conflict (אם זה נזרק החוצה)
             try:
