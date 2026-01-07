@@ -4,6 +4,7 @@
 מה נותן?
 --------
  - **צפייה ועריכה** – תצוגת קוד עם הדגשת תחביר, עריכה עם CodeMirror
+ - **הרצת קוד (Playground)** – הרצת Python דרך API עם מגבלות ואבטחה (:doc:`/webapp/code-execution`)
  - **ספריית סניפטים** – גלריית קטעי קוד קצרים עם חיפוש, סינון וקרדיט מחבר (:doc:`/webapp/snippet-library`)
  - **תצוגת Markdown מתקדמת** – GFM, Mermaid, KaTeX, Task Lists אינטראקטיביות
  - **ארגון מתקדם:**
