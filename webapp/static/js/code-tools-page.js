@@ -279,6 +279,10 @@
     const runOutput = document.getElementById('run-output');
     let executionLimits = null;
 
+    if (runOutput) {
+      runOutput.innerHTML = '<div class="console-info">לחץ ▶️ הרץ (או Ctrl+Enter) כדי לראות פלט.</div>';
+    }
+
     async function checkExecutionEnabled() {
       try {
         const resp = await fetch('/api/code/run/limits', { method: 'GET' });
@@ -286,16 +290,32 @@
         executionLimits = data;
 
         const enabled = !!(data && data.enabled);
+        const outputTabBtn = document.querySelector('.view-btn[data-view="output"]');
         if (btnRun) btnRun.style.display = enabled ? 'inline-flex' : 'none';
+        if (outputTabBtn) {
+          outputTabBtn.disabled = !enabled;
+          outputTabBtn.style.opacity = enabled ? '1' : '0.6';
+          outputTabBtn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+        }
 
         if (enabled && btnRun) {
           const timeout = data?.limits?.max_timeout_seconds ?? 30;
           const dockerOk = !!data?.limits?.docker_available;
           const dockerInfo = dockerOk ? '🐳 Docker' : '⚠️ Docker לא זמין';
           btnRun.title = `הרץ (Ctrl+Enter) · Timeout: ${timeout}s · ${dockerInfo}`;
+        } else if (!enabled && runOutput) {
+          const reason = (data && (data.error || data.message)) ? String(data.error || data.message) : 'הרצת קוד מושבתת בשרת זה';
+          runOutput.innerHTML = `<div class="console-info">${escapeHtml(reason)}</div>`;
         }
       } catch (_) {
         if (btnRun) btnRun.style.display = 'none';
+        const outputTabBtn = document.querySelector('.view-btn[data-view="output"]');
+        if (outputTabBtn) {
+          outputTabBtn.disabled = true;
+          outputTabBtn.style.opacity = '0.6';
+          outputTabBtn.style.cursor = 'not-allowed';
+        }
+        if (runOutput) runOutput.innerHTML = '<div class="console-info">הרצת קוד לא זמינה כרגע.</div>';
       }
     }
 
