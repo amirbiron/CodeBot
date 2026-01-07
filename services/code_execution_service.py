@@ -23,6 +23,7 @@ import ast
 import logging
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -120,6 +121,7 @@ class CodeExecutionService:
     ALLOWED_IMPORTS: Tuple[str, ...] = (
         "math",
         "random",
+        "time",
         "datetime",
         "json",
         "re",
@@ -475,7 +477,7 @@ class CodeExecutionService:
         with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
             started = time.monotonic()
             process = subprocess.Popen(
-                ["python", "-c", code],
+                [sys.executable, "-c", code],
                 stdout=stdout_f,
                 stderr=stderr_f,
                 env={
