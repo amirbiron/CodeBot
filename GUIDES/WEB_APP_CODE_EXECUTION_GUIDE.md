@@ -1011,11 +1011,14 @@ async function runCode() {
   }
 
   try {
-    const timeout = executionLimits?.limits?.max_timeout_seconds || 10;
+    // שימוש בערך מהשרת (ברירת מחדל 30) ללא הנמכה מלאכותית
+    const maxTimeout = executionLimits?.limits?.max_timeout_seconds || 30;
+    const maxMemory = executionLimits?.limits?.max_memory_mb || 128;
+    
     const result = await postJson('/api/code/run', {
       code,
-      timeout: Math.min(timeout, 10),  // ברירת מחדל 10 שניות
-      memory_limit_mb: 128,
+      timeout: maxTimeout,
+      memory_limit_mb: maxMemory,
     });
 
     if (outputConsole) {
@@ -1394,6 +1397,7 @@ docker run \
 ❌ **אל תשתמש ב-`subprocess.run` לתהליכים ארוכים** – לא מאפשר ניטור בזמן אמת  
 ❌ **אל תנקה קונטיינרים `running`** – רק `exited` (Race Condition!)  
 ❌ **אל תסמוך רק על Blocklist לבדיקת imports** – תמיד אכוף AST Allowlist  
+❌ **אל תגביל ב-Frontend יותר מהשרת** – השתמש בערכים מ-`/run/limits`  
 ❌ אל תעלה את ה-timeout מעל 30 שניות  
 ❌ אל תאפשר גישה לרשת מתוך הקונטיינר  
 ❌ **אל תלוגג קוד או stdout/stderr** – עלולים להכיל סודות  
@@ -2165,3 +2169,7 @@ def run_code():
 | | - בדיקת כל `import X` ו-`from X import Y` מול `ALLOWED_IMPORTS` |
 | | - מונע עקיפת Blocklist עם מודולים לא צפויים |
 | | - תפיסת Syntax Errors לפני הרצה |
+| ינואר 2026 | **תיקון Timeout ב-Frontend:** |
+| | - הסרת `Math.min(timeout, 10)` שחסם ב-10 שניות |
+| | - שימוש בערך `max_timeout_seconds` מהשרת (30 כברירת מחדל) |
+| | - שליפת `max_memory_mb` מהשרת במקום hardcoded |
