@@ -1219,6 +1219,54 @@ class ConfigService:
             description="מתג כללי להצגת רכיב ההכרזות (on/off)",
             category="features",
         ),
+        "FEATURE_CODE_EXECUTION": ConfigDefinition(
+            key="FEATURE_CODE_EXECUTION",
+            default="false",
+            description="הפעלת הרצת קוד (Playground) ב-WebApp: /api/code/run",
+            category="features",
+        ),
+        "CODE_EXEC_USE_DOCKER": ConfigDefinition(
+            key="CODE_EXEC_USE_DOCKER",
+            default="true",
+            description="האם להריץ קוד בתוך Docker sandbox (מומלץ/חובה בפרודקשן)",
+            category="code_execution",
+        ),
+        "CODE_EXEC_ALLOW_FALLBACK": ConfigDefinition(
+            key="CODE_EXEC_ALLOW_FALLBACK",
+            default="false",
+            description="אם true מאפשר fallback ל-subprocess (לפיתוח בלבד; בפרודקשן מומלץ false=fail-closed)",
+            category="code_execution",
+        ),
+        "CODE_EXEC_MAX_TIMEOUT": ConfigDefinition(
+            key="CODE_EXEC_MAX_TIMEOUT",
+            default="30",
+            description="timeout מקסימלי להרצת קוד (שניות)",
+            category="code_execution",
+        ),
+        "CODE_EXEC_MAX_MEMORY_MB": ConfigDefinition(
+            key="CODE_EXEC_MAX_MEMORY_MB",
+            default="128",
+            description="זיכרון מקסימלי להרצת קוד (MB)",
+            category="code_execution",
+        ),
+        "CODE_EXEC_MAX_OUTPUT_BYTES": ConfigDefinition(
+            key="CODE_EXEC_MAX_OUTPUT_BYTES",
+            default="102400",
+            description="כמות מקסימלית של stdout/stderr (bytes) לפני עצירה/קיצוץ",
+            category="code_execution",
+        ),
+        "CODE_EXEC_MAX_CODE_LENGTH": ConfigDefinition(
+            key="CODE_EXEC_MAX_CODE_LENGTH",
+            default="51200",
+            description="אורך קוד מקסימלי (bytes) שמותר לשלוח להרצה",
+            category="code_execution",
+        ),
+        "CODE_EXEC_DOCKER_IMAGE": ConfigDefinition(
+            key="CODE_EXEC_DOCKER_IMAGE",
+            default="python:3.11-slim",
+            description="Docker image להרצת קוד (למשל python:3.11-slim)",
+            category="code_execution",
+        ),
     }
 
     def __init__(self) -> None:

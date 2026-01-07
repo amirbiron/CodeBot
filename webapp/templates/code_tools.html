@@ -17,6 +17,7 @@
     <div class="toolbar-group primary-actions">
       <button id="btn-format" class="btn btn-primary" title="עיצוב (Ctrl+Shift+F)">✨ עיצוב</button>
       <button id="btn-lint" class="btn btn-secondary" title="בדיקת איכות (Ctrl+Shift+L)">🔍 Lint</button>
+      <button id="btn-run" class="btn btn-success" style="display:none;" title="הרץ (Ctrl+Enter)">▶️ הרץ</button>
       <div class="dropdown">
         <button id="btn-fix" class="btn btn-secondary">🔧 תיקון</button>
         <div class="dropdown-menu">
@@ -69,6 +70,7 @@
           <button class="view-btn active" data-view="code">קוד</button>
           <button class="view-btn" data-view="diff">Diff</button>
           <button class="view-btn" data-view="issues">בעיות</button>
+          <button class="view-btn" data-view="output">פלט</button>
         </div>
       </div>
       <div class="panel-body">
@@ -80,6 +82,9 @@
         </div>
         <div id="issues-view" class="view-content">
           <div id="issues-list"></div>
+        </div>
+        <div id="output-view" class="view-content">
+          <div id="run-output" class="run-console"></div>
         </div>
       </div>
       <div class="panel-footer">
