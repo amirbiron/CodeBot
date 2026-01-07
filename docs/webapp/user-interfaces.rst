@@ -12,7 +12,7 @@
 
 מסכים בולטים
 -------------
-- **Code Execution Playground**: ``/tools/code`` (Premium/Admin בלבד + ``FEATURE_CODE_EXECUTION=true``).
+- **Code Execution Playground**: ``/tools/code`` (פתוח לכל משתמש מחובר; **הרצת קוד** Premium/Admin בלבד + ``FEATURE_CODE_EXECUTION=true``).
   לפרטים מלאים (אבטחה, API, מגבלות, ותפעול) ראו :doc:`/webapp/code-execution`.
 
 זרימת עבודה דרך הבוט

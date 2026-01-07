@@ -8,7 +8,7 @@ Security Guide
 
 הרצת קוד (Code Execution Playground)
 ------------------------------------
-ה‑WebApp כולל אפשרות להריץ קוד Python דרך ``/tools/code`` (Premium/Admin בלבד).
+ה‑WebApp כולל Playground בכתובת ``/tools/code`` (פתוח לכל משתמש מחובר), כאשר **הרצת קוד בפועל** זמינה רק ל‑Premium/Admin.
 
 הדגשים החשובים:
 - בפרודקשן מומלץ להריץ **רק** בתוך Docker sandbox ולהשאיר ``CODE_EXEC_ALLOW_FALLBACK=false`` (Fail‑Closed).

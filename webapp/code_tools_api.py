@@ -39,9 +39,10 @@ def _is_code_execution_enabled() -> bool:
 
 
 @code_tools_bp.before_request
-def _require_admin_for_code_tools():
+def _require_login_for_code_tools():
     """
-    Code Tools הם פיצ'ר Admin-only.
+    Code Tools זמינים לכל משתמש מחובר (Format/Lint/Fix/Diff).
+    הרצת קוד (Run) נשארת Premium/Admin בלבד.
     חשוב לא להסתמך רק על הסתרה ב-UI.
     """
     user_id = session.get("user_id")
@@ -53,18 +54,15 @@ def _require_admin_for_code_tools():
         return jsonify({"success": False, "error": "משתמש לא תקין"}), 401
 
     # חריג להרצת קוד: Premium + Admin
-    premium_allowed_endpoints = {
+    premium_only_endpoints = {
         "code_tools.run_code",
         "code_tools.get_run_limits",
     }
-    if request.endpoint in premium_allowed_endpoints:
+    if request.endpoint in premium_only_endpoints:
         if not (_is_admin(uid_int) or _is_premium(uid_int)):
             return jsonify({"success": False, "error": "Premium/Admin בלבד"}), 403
         return None
-
-    # ברירת מחדל: Admin-only
-    if not _is_admin(uid_int):
-        return jsonify({"success": False, "error": "Admin בלבד"}), 403
+    return None
 
 
 @code_tools_bp.route("/format", methods=["POST"])

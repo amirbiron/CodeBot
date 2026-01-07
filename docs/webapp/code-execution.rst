@@ -21,7 +21,7 @@
 
 הרשאות (Premium/Admin)
 ----------------------
-הכלל במערכת הוא ש‑Code Tools הם Admin‑only, אבל **הרצת קוד היא חריג**:
+Format/Lint/Fix זמינים לכל משתמש מחובר, אבל **הרצת קוד** נשארת Premium/Admin בלבד:
 
 - **Premium + Admin** יכולים:
   - ``GET /api/code/run/limits``

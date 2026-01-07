@@ -175,9 +175,7 @@
 {{ code_tools_modal(user_is_admin=user_is_admin) }}
 {% endblock %}
 {% block extra_js %}
-{% if user_is_admin %}
 <script src="{{ url_for('static', filename='js/code-tools.js') }}?v={{ static_version }}" defer></script>
-{% endif %}
 <script src="{{ url_for('static', filename='js/file-form-manager.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/upload-page.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>

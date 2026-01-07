@@ -10562,7 +10562,7 @@ def compare_files_page():
 
 
 @app.route('/tools/code')
-@premium_or_admin_required
+@login_required
 def code_tools_page():
     """דף ייעודי לכלי קוד (Playground) עם Diff מקצועי."""
     return render_template('code_tools.html')
