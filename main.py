@@ -3957,7 +3957,10 @@ def main() -> None:
                     except Exception:
                         elapsed = 0.0
 
-                    hit_retry_cap = bool(conflict_max_retries > 0 and conflict_tries >= conflict_max_retries)
+                    # conflict_tries נספר כ"כמה פעמים כבר קיבלנו Conflict" (כולל הפעם הראשונה).
+                    # כדי ש-CONFLICT_MAX_RETRIES יתנהג כ"מספר retries אחרי ה-Conflict הראשון",
+                    # אנחנו יוצאים רק כשעברנו את התקרה (>) ולא כששווים לה.
+                    hit_retry_cap = bool(conflict_max_retries > 0 and conflict_tries > conflict_max_retries)
                     hit_time_cap = bool(conflict_max_seconds > 0 and elapsed >= float(conflict_max_seconds))
                     if hit_retry_cap or hit_time_cap:
                         logger.error(
