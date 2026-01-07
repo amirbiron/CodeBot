@@ -872,16 +872,22 @@ def run_code():
     timeout = data.get("timeout", 5)
     memory_limit_mb = data.get("memory_limit_mb", 128)
     
-    # Validation של פרמטרים
-    try:
-        timeout = min(max(1, int(timeout)), 30)
-        memory_limit_mb = min(max(32, int(memory_limit_mb)), 128)
-    except (ValueError, TypeError):
-        timeout = 5
-        memory_limit_mb = 128
-    
     # הרצה
     service = get_code_execution_service()
+    
+    # שליפת הגבולות העדכניים מהקונפיגורציה (SSOT)
+    service_limits = service.get_limits()
+    max_timeout = service_limits.get("max_timeout_seconds", 30)
+    max_memory = service_limits.get("max_memory_mb", 128)
+    
+    # Validation דינמי בהתאם לקונפיגורציה
+    try:
+        timeout = min(max(1, int(timeout)), max_timeout)
+        memory_limit_mb = min(max(32, int(memory_limit_mb)), max_memory)
+    except (ValueError, TypeError):
+        timeout = 5
+        memory_limit_mb = max_memory
+    
     result = service.execute(
         code=code,
         timeout=timeout,
@@ -1398,7 +1404,8 @@ docker run \
 ❌ **אל תנקה קונטיינרים `running`** – רק `exited` (Race Condition!)  
 ❌ **אל תסמוך רק על Blocklist לבדיקת imports** – תמיד אכוף AST Allowlist  
 ❌ **אל תגביל ב-Frontend יותר מהשרת** – השתמש בערכים מ-`/run/limits`  
-❌ אל תעלה את ה-timeout מעל 30 שניות  
+❌ **אל תשתמש ב-hardcoded limits ב-API** – קרא מ-`service.get_limits()`  
+❌ אל תעלה את ה-timeout מעל 30 שניות (אלא אם שינית CODE_EXEC_MAX_TIMEOUT)  
 ❌ אל תאפשר גישה לרשת מתוך הקונטיינר  
 ❌ **אל תלוגג קוד או stdout/stderr** – עלולים להכיל סודות  
 ❌ אל תשמור קוד משתמשים ללא הצפנה  
@@ -2173,3 +2180,7 @@ def run_code():
 | | - הסרת `Math.min(timeout, 10)` שחסם ב-10 שניות |
 | | - שימוש בערך `max_timeout_seconds` מהשרת (30 כברירת מחדל) |
 | | - שליפת `max_memory_mb` מהשרת במקום hardcoded |
+| ינואר 2026 | **SSOT ב-API Endpoint:** |
+| | - שליפת מגבלות מ-`service.get_limits()` במקום hardcoded 30/128 |
+| | - ה-Service הוא מקור האמת היחיד לקונפיגורציה |
+| | - שינוי ENV משפיע על כל השכבות אוטומטית |
