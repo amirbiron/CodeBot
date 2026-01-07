@@ -474,7 +474,7 @@ class CodeExecutionService:
         """
         הרצה בתוך Docker container עם הגנות מלאות.
         
-        הגנות:
+        הגנות Docker:
         - --rm: מחיקה אוטומטית
         - --network none: ללא רשת
         - --read-only: filesystem רק קריאה
@@ -485,72 +485,105 @@ class CodeExecutionService:
         - --ipc=none: בידוד IPC
         - --name + --label: לזיהוי וניקוי ב-timeout
         
-        הגנה על זיכרון:
-        - שימוש ב-tempfile במקום capture_output=True
-        - מונע "פצצת זיכרון" מפלט אינסופי
-        - קריאה מבוקרת רק עד MAX_OUTPUT_BYTES
+        הגנות משאבים (בזמן אמת):
+        - RAM: tempfile במקום capture_output
+        - Disk: ניטור גודל קבצים בלולאה עם Popen
+        - Time: timeout עם kill
         """
-        # שם ייחודי לקונטיינר (לניקוי במקרה של timeout)
         container_name = f"code-exec-{uuid.uuid4().hex[:12]}"
         
-        # פקודת Docker עם הגנות מלאות
         docker_cmd = [
             "docker", "run",
-            "--rm",                              # מחיקה אוטומטית
-            f"--name={container_name}",          # שם לזיהוי
-            f"--label={self.CONTAINER_LABEL}",   # label ל-cleanup תקופתי
-            "--network=none",                    # ללא רשת
-            "--read-only",                       # קריאה בלבד
-            "--tmpfs=/tmp:rw,noexec,nosuid,size=10m",  # /tmp מוגבל
-            f"--memory={memory_limit_mb}m",      # הגבלת זיכרון
-            f"--memory-swap={memory_limit_mb}m", # ללא swap
-            "--cpus=0.5",                        # חצי CPU
-            "--pids-limit=50",                   # הגבלת processes
-            "--ipc=none",                        # בידוד IPC
-            "--security-opt=no-new-privileges",  # ללא העלאת הרשאות
-            "--cap-drop=ALL",                    # הסרת capabilities
-            "--user=nobody",                     # משתמש מוגבל
+            "--rm",
+            f"--name={container_name}",
+            f"--label={self.CONTAINER_LABEL}",
+            "--network=none",
+            "--read-only",
+            "--tmpfs=/tmp:rw,noexec,nosuid,size=10m",
+            f"--memory={memory_limit_mb}m",
+            f"--memory-swap={memory_limit_mb}m",
+            "--cpus=0.5",
+            "--pids-limit=50",
+            "--ipc=none",
+            "--security-opt=no-new-privileges",
+            "--cap-drop=ALL",
+            "--user=nobody",
             self._docker_image,
             "python", "-c", code,
         ]
         
-        # שימוש בקבצים זמניים במקום capture_output=True
-        # מונע "פצצת זיכרון" - הפלט נכתב לדיסק, לא ל-RAM
+        # Popen + Polling לניטור בזמן אמת (מונע Disk Exhaustion)
         with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
-            try:
-                process_result = subprocess.run(
-                    docker_cmd,
-                    stdout=stdout_f,
-                    stderr=stderr_f,
-                    timeout=timeout + 2,
-                )
-                exit_code = process_result.returncode
-            except subprocess.TimeoutExpired:
-                self._cleanup_container(container_name)
-                raise
+            start_time = time.monotonic()
             
-            # קריאה מבוקרת מהקבצים - רק עד MAX_OUTPUT_BYTES + מעט
-            # זה מונע OOM גם אם הקוד הדפיס GB של פלט
+            # 1. הפעלת התהליך (Non-blocking)
+            process = subprocess.Popen(
+                docker_cmd,
+                stdout=stdout_f,
+                stderr=stderr_f,
+            )
+            
+            exit_code = None
+            output_truncated = False
+            error_msg = None
+            
+            # 2. לולאת ניטור (Polling)
+            while True:
+                # בדיקת סטטוס - האם התהליך סיים?
+                exit_code = process.poll()
+                if exit_code is not None:
+                    break
+                
+                # בדיקת Timeout
+                elapsed = time.monotonic() - start_time
+                if elapsed > timeout + 2:
+                    process.kill()
+                    process.wait()  # חיכוי לסגירה נקייה
+                    self._cleanup_container(container_name)
+                    error_msg = f"תם הזמן להרצה ({timeout} שניות)"
+                    break
+                
+                # בדיקת גודל קבצים (Disk Quota Protection)
+                # os.fstat נותן את הגודל האמיתי מה-OS
+                try:
+                    out_size = os.fstat(stdout_f.fileno()).st_size
+                    err_size = os.fstat(stderr_f.fileno()).st_size
+                except OSError:
+                    out_size = err_size = 0
+                
+                if out_size > self._max_output_bytes or err_size > self._max_output_bytes:
+                    process.kill()
+                    process.wait()
+                    self._cleanup_container(container_name)
+                    output_truncated = True
+                    logger.warning(
+                        "Output limit exceeded: stdout=%d stderr=%d max=%d",
+                        out_size, err_size, self._max_output_bytes
+                    )
+                    break
+                
+                # המתנה קצרה למניעת עומס CPU
+                time.sleep(0.05)
+            
+            # 3. קריאת הפלט שנצבר (עד המקסימום)
             stdout_f.seek(0)
             stderr_f.seek(0)
             
             read_limit = self._max_output_bytes + 100
-            raw_stdout = stdout_f.read(read_limit)
-            raw_stderr = stderr_f.read(read_limit)
+            stdout_str = stdout_f.read(read_limit).decode("utf-8", errors="replace")
+            stderr_str = stderr_f.read(read_limit).decode("utf-8", errors="replace")
         
-        stdout, stdout_truncated = self._sanitize_output(
-            raw_stdout.decode("utf-8", errors="replace")
-        )
-        stderr, stderr_truncated = self._sanitize_output(
-            raw_stderr.decode("utf-8", errors="replace")
-        )
+        # Sanitization סופי
+        stdout, out_trunc = self._sanitize_output(stdout_str)
+        stderr, err_trunc = self._sanitize_output(stderr_str)
         
         return ExecutionResult(
-            success=exit_code == 0,
+            success=(exit_code == 0) and (error_msg is None),
             stdout=stdout,
             stderr=stderr,
-            exit_code=exit_code,
-            truncated=stdout_truncated or stderr_truncated,
+            exit_code=exit_code if exit_code is not None else -1,
+            truncated=output_truncated or out_trunc or err_trunc,
+            error_message=error_msg,
         )
     
     def _cleanup_container(self, container_name: str) -> None:
@@ -622,46 +655,74 @@ class CodeExecutionService:
         ⚠️ אזהרה: שיטה זו פחות בטוחה מ-Docker.
         משמשת רק כש-CODE_EXEC_ALLOW_FALLBACK=true.
         
-        הגנה על זיכרון:
-        - שימוש ב-tempfile במקום capture_output=True
-        - עקבי עם _execute_docker
+        הגנות (עקבי עם _execute_docker):
+        - RAM: tempfile
+        - Disk: ניטור גודל בזמן אמת
+        - Time: timeout
         """
         logger.warning("Executing code via subprocess (fallback mode)")
         
-        # שימוש בקבצים זמניים - עקבי עם _execute_docker
         with tempfile.TemporaryFile() as stdout_f, tempfile.TemporaryFile() as stderr_f:
-            process_result = subprocess.run(
+            start_time = time.monotonic()
+            
+            process = subprocess.Popen(
                 ["python", "-c", code],
                 stdout=stdout_f,
                 stderr=stderr_f,
-                timeout=timeout,
                 env={
                     "PATH": "/usr/bin:/bin",
                     "PYTHONDONTWRITEBYTECODE": "1",
                 },
             )
             
-            # קריאה מבוקרת
+            exit_code = None
+            output_truncated = False
+            error_msg = None
+            
+            # לולאת ניטור
+            while True:
+                exit_code = process.poll()
+                if exit_code is not None:
+                    break
+                
+                elapsed = time.monotonic() - start_time
+                if elapsed > timeout:
+                    process.kill()
+                    process.wait()
+                    error_msg = f"תם הזמן להרצה ({timeout} שניות)"
+                    break
+                
+                try:
+                    out_size = os.fstat(stdout_f.fileno()).st_size
+                    err_size = os.fstat(stderr_f.fileno()).st_size
+                except OSError:
+                    out_size = err_size = 0
+                
+                if out_size > self._max_output_bytes or err_size > self._max_output_bytes:
+                    process.kill()
+                    process.wait()
+                    output_truncated = True
+                    break
+                
+                time.sleep(0.05)
+            
             stdout_f.seek(0)
             stderr_f.seek(0)
             
             read_limit = self._max_output_bytes + 100
-            raw_stdout = stdout_f.read(read_limit)
-            raw_stderr = stderr_f.read(read_limit)
+            stdout_str = stdout_f.read(read_limit).decode("utf-8", errors="replace")
+            stderr_str = stderr_f.read(read_limit).decode("utf-8", errors="replace")
         
-        stdout, stdout_truncated = self._sanitize_output(
-            raw_stdout.decode("utf-8", errors="replace")
-        )
-        stderr, stderr_truncated = self._sanitize_output(
-            raw_stderr.decode("utf-8", errors="replace")
-        )
+        stdout, out_trunc = self._sanitize_output(stdout_str)
+        stderr, err_trunc = self._sanitize_output(stderr_str)
         
         return ExecutionResult(
-            success=process_result.returncode == 0,
+            success=(exit_code == 0) and (error_msg is None),
             stdout=stdout,
             stderr=stderr,
-            exit_code=process_result.returncode,
-            truncated=stdout_truncated or stderr_truncated,
+            exit_code=exit_code if exit_code is not None else -1,
+            truncated=output_truncated or out_trunc or err_trunc,
+            error_message=error_msg,
         )
     
     # ============== Helper Methods ==============
@@ -1249,7 +1310,8 @@ print(f"Cleaned {cleaned} containers")
 | **Timeout** | מניעת infinite loops | 5-30 שניות |
 | **Container Cleanup** | ניקוי קונטיינרים יתומים | `--name` + `--label` + cleanup |
 | **Output Limit** | מניעת memory bomb | 100KB |
-| **TempFile Output** | מניעת OOM מפלט גדול | `tempfile.TemporaryFile()` |
+| **Popen + Polling** | ניטור בזמן אמת | `os.fstat()` + `process.kill()` |
+| **Disk Protection** | עצירה לפני מילוי דיסק | בדיקת גודל כל 50ms |
 | **No Privileges** | הרצה כ-nobody | `--user=nobody`, `--cap-drop=ALL` |
 
 ### Flags מלאים של Docker
@@ -1295,6 +1357,7 @@ docker run \
 ❌ **אל תפעיל `CODE_EXEC_ALLOW_FALLBACK=true` בפרודקשן** – subprocess לא בטוח  
 ❌ **אל תעשה mount ל-docker.sock** אם אפשר להימנע (סיכון root)  
 ❌ **אל תשתמש ב-`capture_output=True`** – מאפשר OOM מפלט אינסופי  
+❌ **אל תשתמש ב-`subprocess.run` לתהליכים ארוכים** – לא מאפשר ניטור בזמן אמת  
 ❌ **אל תנקה קונטיינרים `running`** – רק `exited` (Race Condition!)  
 ❌ אל תעלה את ה-timeout מעל 30 שניות  
 ❌ אל תאפשר גישה לרשת מתוך הקונטיינר  
@@ -1327,31 +1390,45 @@ Fail-Open (לפיתוח בלבד):
   ENV: CODE_EXEC_ALLOW_FALLBACK=true
 ```
 
-### הגנה על זיכרון – TempFile במקום capture_output
+### הגנה על RAM ו-Disk – Popen + Polling
 
-**הבעיה עם `capture_output=True`:**
+**בעיה 1: `capture_output=True` → OOM (RAM)**
 ```python
 # 🔴 מסוכן - טוען את כל הפלט ל-RAM
 result = subprocess.run(cmd, capture_output=True)
-
-# משתמש מריץ: while True: print("a"*1000)
-# → השרת צורך GB של RAM → OOM Kill → קריסה
+# while True: print("x") → GB ב-RAM → OOM Kill
 ```
 
-**הפתרון עם TempFile:**
+**בעיה 2: `subprocess.run` + TempFile → Disk Full**
 ```python
-# ✅ בטוח - הפלט נכתב לדיסק
+# 🔴 עדיין מסוכן - הדיסק יכול להתמלא
+with tempfile.TemporaryFile() as f:
+    subprocess.run(cmd, stdout=f)  # מחכה עד הסוף!
+    # while True: print("x") → GB בדיסק לפני שנבדוק
+```
+
+**הפתרון: Popen + Polling בזמן אמת**
+```python
+# ✅ בטוח - מנטר ועוצר בזמן אמת
 with tempfile.TemporaryFile() as stdout_f:
-    subprocess.run(cmd, stdout=stdout_f)
+    process = subprocess.Popen(cmd, stdout=stdout_f)
+    
+    while process.poll() is None:
+        # בדיקת גודל קובץ בזמן אמת
+        size = os.fstat(stdout_f.fileno()).st_size
+        if size > MAX_OUTPUT_BYTES:
+            process.kill()  # עוצר מיד!
+            break
+        time.sleep(0.05)
+    
     stdout_f.seek(0)
-    # קוראים רק את הבייטים הראשונים
-    raw = stdout_f.read(MAX_OUTPUT_BYTES + 100)
+    raw = stdout_f.read(MAX_OUTPUT_BYTES)
 ```
 
 **יתרונות:**
-- הפלט נכתב לדיסק, לא ל-RAM
-- קריאה מבוקרת רק עד המקסימום המותר
-- גם אם הקוד מדפיס TB של פלט, השרת לא יקרוס
+- RAM: הפלט בדיסק, לא בזיכרון
+- Disk: עוצרים את התהליך לפני שהדיסק מתמלא
+- Time: טיפול ב-timeout בלולאה אותה
 
 ---
 
@@ -1979,3 +2056,8 @@ def run_code():
 | | - הוספת `-a` ו-`status=exited` ל-`cleanup_orphan_containers()` |
 | | - מונע הריגת קונטיינרים אקטיביים באמצע הרצה |
 | | - עדכון פקודות cron לסינון בטוח |
+| ינואר 2026 | **מניעת Disk Exhaustion:** |
+| | - מעבר מ-`subprocess.run` ל-`subprocess.Popen` + polling |
+| | - ניטור גודל קבצים בזמן אמת עם `os.fstat()` |
+| | - עצירת תהליך מיידית אם פלט חורג מהמקסימום |
+| | - הגנה על RAM, Disk ו-Time במקביל |
