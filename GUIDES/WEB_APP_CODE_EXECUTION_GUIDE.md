@@ -14,9 +14,11 @@ Code Execution מאפשר למשתמשים להריץ קטעי קוד Python י�
 | פונקציונליות | תיאור |
 |--------------|-------|
 | **הרצת קוד** | ביצוע קוד Python בסביבה מבודדת |
-| **פלט בזמן אמת** | הצגת stdout/stderr |
+| **פלט אחרי סיום** | הצגת stdout/stderr לאחר סיום ההרצה |
 | **הגבלות אבטחה** | Sandbox עם timeout ומגבלות משאבים |
 | **היסטוריה** | שמירת הרצות אחרונות (אופציונלי) |
+
+> **הערה:** כרגע זו קריאה סינכרונית שמחזירה פלט בסוף. לפלט בזמן אמת (streaming) ראו סעיף 12 – הרחבות עתידיות (SSE/WebSocket).
 
 ### למה זה שימושי?
 
@@ -25,16 +27,25 @@ Code Execution מאפשר למשתמשים להריץ קטעי קוד Python י�
 - **Playground**: סביבת ניסויים מהירה
 - **Code Tools**: משלים את הפיצ'ר הקיים של עיצוב ו-lint
 
+### הגנות Admin קיימות (חשוב!)
+
+הדף `/tools/code` ו-API `/api/code/*` **כבר מוגנים** בפרויקט:
+- הדף מוגן עם `@admin_required` ב-`webapp/app.py`
+- כל ה-API מוגן עם `@code_tools_bp.before_request` ב-`webapp/code_tools_api.py`
+
+**לכן:** אין צורך לשכפל בדיקות Admin בכל endpoint חדש. מספיק להוסיף Feature Flag + הלוגיקה עצמה.
+
 ### סיכוני אבטחה ⚠️
 
 הרצת קוד משתמש בשרת היא **פעולה מסוכנת**. המדריך כולל שכבות הגנה:
 
-1. **Docker Sandbox** – הרצה בקונטיינר מבודד
-2. **Timeout** – מגבלת זמן ריצה (5-30 שניות)
-3. **Resource Limits** – הגבלת CPU/Memory
-4. **Network Isolation** – ללא גישה לרשת
-5. **Read-only Filesystem** – אין אפשרות לכתוב לדיסק
-6. **Admin Only** – ברירת מחדל: רק אדמינים (אפשר להרחיב)
+1. **Docker Sandbox** – הרצה בקונטיינר מבודד (חובה בפרודקשן)
+2. **Fail-Closed** – אם Docker לא זמין בפרודקשן, מסרבים להריץ (לא fallback)
+3. **Timeout** – מגבלת זמן ריצה (5-30 שניות)
+4. **Resource Limits** – הגבלת CPU/Memory/PIDs
+5. **Network Isolation** – ללא גישה לרשת
+6. **Read-only + tmpfs** – אין כתיבה לדיסק, רק ל-/tmp מוגבל
+7. **Admin Only** – ברירת מחדל: רק אדמינים (כבר קיים ברמת ה-Blueprint)
 
 ---
 
@@ -102,21 +113,45 @@ Code Execution Service
 
 ⚠️ אזהרת אבטחה: שירות זה מאפשר הרצת קוד שרירותי.
    יש להפעיל רק עם הגנות מתאימות (Docker, Resource Limits, Admin-only).
+
+קונפיגורציה דרך ENV:
+    CODE_EXEC_USE_DOCKER=true       # חובה בפרודקשן
+    CODE_EXEC_ALLOW_FALLBACK=false  # false = fail-closed בפרודקשן
+    CODE_EXEC_MAX_TIMEOUT=30        # מקסימום timeout בשניות
+    CODE_EXEC_MAX_MEMORY_MB=128     # מקסימום זיכרון
+    CODE_EXEC_DOCKER_IMAGE=python:3.11-slim
 """
 
 from __future__ import annotations
 
 import logging
 import subprocess
-import tempfile
 import time
 import os
-import re
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def _get_env_int(key: str, default: int) -> int:
+    """קריאת ENV כ-int עם ברירת מחדל."""
+    val = os.environ.get(key)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+def _get_env_bool(key: str, default: bool) -> bool:
+    """קריאת ENV כ-bool עם ברירת מחדל."""
+    val = os.environ.get(key)
+    if val is None:
+        return default
+    return val.lower() in ("true", "1", "yes", "on")
 
 
 @dataclass
@@ -130,6 +165,7 @@ class ExecutionResult:
     execution_time_ms: int = 0
     error_message: Optional[str] = None
     truncated: bool = False  # האם הפלט קוצץ
+    used_docker: bool = False  # האם רץ ב-Docker
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -149,27 +185,13 @@ class CodeExecutionService:
     
     אסטרטגיות הרצה:
     1. Docker (מומלץ לפרודקשן) - בידוד מלא
-    2. subprocess (לפיתוח בלבד) - פחות בטוח
+    2. subprocess (לפיתוח בלבד) - רק אם ALLOW_FALLBACK=true
     
     שימוש:
         service = CodeExecutionService()
         result = service.execute("print('Hello')")
         print(result.stdout)  # Hello
     """
-    
-    # ============== הגדרות ברירת מחדל ==============
-    
-    # Timeout בשניות
-    DEFAULT_TIMEOUT: int = 5
-    MAX_TIMEOUT: int = 30
-    
-    # הגבלות משאבים
-    MAX_MEMORY_MB: int = 128
-    MAX_OUTPUT_BYTES: int = 100 * 1024  # 100KB
-    MAX_CODE_LENGTH: int = 50 * 1024     # 50KB
-    
-    # Docker image להרצה
-    DOCKER_IMAGE: str = "python:3.11-slim"
     
     # מילות מפתח חסומות (אבטחה בסיסית - לא מספיקה לבד!)
     BLOCKED_KEYWORDS: tuple[str, ...] = (
@@ -228,22 +250,32 @@ class CodeExecutionService:
         "array",
     )
     
-    def __init__(self, use_docker: bool = True):
+    # Label לזיהוי קונטיינרים להרצת קוד (ל-cleanup)
+    CONTAINER_LABEL: str = "code_exec=1"
+    
+    def __init__(self):
         """
         אתחול השירות.
-        
-        Args:
-            use_docker: האם להשתמש ב-Docker (מומלץ).
-                        False רק לסביבת פיתוח מקומית!
+        קונפיגורציה נקראת מ-ENV בזמן __init__ (לא global)
+        כדי לאפשר monkeypatch בטסטים.
         """
-        self._use_docker = use_docker
+        self._use_docker = _get_env_bool("CODE_EXEC_USE_DOCKER", True)
+        self._allow_fallback = _get_env_bool("CODE_EXEC_ALLOW_FALLBACK", False)
+        self._max_timeout = _get_env_int("CODE_EXEC_MAX_TIMEOUT", 30)
+        self._max_memory_mb = _get_env_int("CODE_EXEC_MAX_MEMORY_MB", 128)
+        self._max_output_bytes = _get_env_int("CODE_EXEC_MAX_OUTPUT_BYTES", 100 * 1024)
+        self._max_code_length = _get_env_int("CODE_EXEC_MAX_CODE_LENGTH", 50 * 1024)
+        self._docker_image = os.environ.get("CODE_EXEC_DOCKER_IMAGE", "python:3.11-slim")
+        
         self._docker_available = self._check_docker()
         
-        if use_docker and not self._docker_available:
-            logger.warning(
-                "Docker not available, falling back to subprocess. "
-                "This is UNSAFE for production!"
-            )
+        # לוג קונפיגורציה בעלייה
+        logger.info(
+            "CodeExecutionService initialized: docker=%s, available=%s, fallback=%s",
+            self._use_docker,
+            self._docker_available,
+            self._allow_fallback,
+        )
     
     def _check_docker(self) -> bool:
         """בדיקה האם Docker זמין."""
@@ -261,6 +293,18 @@ class CodeExecutionService:
         """האם Docker זמין להרצה."""
         return self._docker_available
     
+    def can_execute(self) -> tuple[bool, Optional[str]]:
+        """
+        בדיקה האם אפשר להריץ קוד כרגע.
+        
+        Returns:
+            (can_execute, error_message)
+        """
+        if self._use_docker and not self._docker_available:
+            if not self._allow_fallback:
+                return False, "Docker לא זמין והרצה ללא Docker מושבתת בפרודקשן"
+        return True, None
+    
     # ============== Validation ==============
     
     def validate_code(self, code: str) -> tuple[bool, Optional[str]]:
@@ -274,8 +318,8 @@ class CodeExecutionService:
             return False, "הקוד ריק"
         
         # בדיקת אורך
-        if len(code) > self.MAX_CODE_LENGTH:
-            return False, f"הקוד ארוך מדי (מקסימום {self.MAX_CODE_LENGTH // 1024}KB)"
+        if len(code) > self._max_code_length:
+            return False, f"הקוד ארוך מדי (מקסימום {self._max_code_length // 1024}KB)"
         
         # בדיקת קידוד
         try:
@@ -291,10 +335,15 @@ class CodeExecutionService:
         
         return True, None
     
-    def _sanitize_output(self, output: str) -> str:
-        """ניקוי וקיצוץ פלט."""
+    def _sanitize_output(self, output: str) -> tuple[str, bool]:
+        """
+        ניקוי וקיצוץ פלט.
+        
+        Returns:
+            (sanitized_output, was_truncated)
+        """
         if not output:
-            return ""
+            return "", False
         
         # המרה ל-UTF-8 בטוח
         try:
@@ -303,18 +352,19 @@ class CodeExecutionService:
             output = str(output)
         
         # קיצוץ אם ארוך מדי
-        if len(output) > self.MAX_OUTPUT_BYTES:
-            output = output[:self.MAX_OUTPUT_BYTES] + "\n... (הפלט קוצץ)"
+        truncated = len(output) > self._max_output_bytes
+        if truncated:
+            output = output[:self._max_output_bytes] + "\n... (הפלט קוצץ)"
         
-        return output
+        return output, truncated
     
     # ============== Execution ==============
     
     def execute(
         self,
         code: str,
-        timeout: int = DEFAULT_TIMEOUT,
-        memory_limit_mb: int = MAX_MEMORY_MB,
+        timeout: int = 5,
+        memory_limit_mb: int = 128,
     ) -> ExecutionResult:
         """
         הרצת קוד Python.
@@ -327,6 +377,14 @@ class CodeExecutionService:
         Returns:
             ExecutionResult עם stdout/stderr/exit_code
         """
+        # בדיקת זמינות (fail-closed)
+        can_exec, exec_error = self.can_execute()
+        if not can_exec:
+            return ExecutionResult(
+                success=False,
+                error_message=exec_error,
+            )
+        
         # Validation
         is_valid, error = self.validate_code(code)
         if not is_valid:
@@ -336,31 +394,46 @@ class CodeExecutionService:
             )
         
         # אכיפת מגבלות
-        timeout = min(max(1, timeout), self.MAX_TIMEOUT)
-        memory_limit_mb = min(max(32, memory_limit_mb), self.MAX_MEMORY_MB)
+        timeout = min(max(1, timeout), self._max_timeout)
+        memory_limit_mb = min(max(32, memory_limit_mb), self._max_memory_mb)
         
         start_time = time.monotonic()
+        use_docker = self._use_docker and self._docker_available
         
         try:
-            if self._use_docker and self._docker_available:
+            if use_docker:
                 result = self._execute_docker(code, timeout, memory_limit_mb)
             else:
                 result = self._execute_subprocess(code, timeout)
             
             result.execution_time_ms = int((time.monotonic() - start_time) * 1000)
+            result.used_docker = use_docker
+            
+            # לוג (ללא קוד וללא פלט - רק מטא-דאטה)
+            logger.info(
+                "Code execution: docker=%s exit=%s time=%dms truncated=%s",
+                use_docker,
+                result.exit_code,
+                result.execution_time_ms,
+                result.truncated,
+            )
+            
             return result
             
         except subprocess.TimeoutExpired:
+            logger.warning("Code execution timeout: %ds", timeout)
             return ExecutionResult(
                 success=False,
                 error_message=f"תם הזמן להרצה ({timeout} שניות)",
                 execution_time_ms=timeout * 1000,
+                used_docker=use_docker,
             )
         except Exception as e:
-            logger.error(f"Code execution error: {e}", exc_info=True)
+            # לא מלוגגים את e המלא כי עלול להכיל קוד
+            logger.error("Code execution error: %s", type(e).__name__)
             return ExecutionResult(
                 success=False,
-                error_message=f"שגיאה בהרצה: {str(e)}",
+                error_message=f"שגיאה בהרצה: {type(e).__name__}",
             )
     
     def _execute_docker(
@@ -369,37 +442,60 @@ class CodeExecutionService:
         timeout: int,
         memory_limit_mb: int,
     ) -> ExecutionResult:
-        """הרצה בתוך Docker container."""
+        """
+        הרצה בתוך Docker container עם הגנות מלאות.
+        
+        הגנות:
+        - --rm: מחיקה אוטומטית
+        - --network none: ללא רשת
+        - --read-only: filesystem רק קריאה
+        - --tmpfs /tmp: /tmp זמני לכתיבה (עם noexec)
+        - --memory/--cpus/--pids-limit: הגבלת משאבים
+        - --security-opt no-new-privileges: ללא העלאת הרשאות
+        - --cap-drop=ALL: הסרת כל ה-capabilities
+        - --ipc=none: בידוד IPC
+        - --name + --label: לזיהוי וניקוי ב-timeout
+        """
+        # שם ייחודי לקונטיינר (לניקוי במקרה של timeout)
+        container_name = f"code-exec-{uuid.uuid4().hex[:12]}"
         
         # פקודת Docker עם הגנות מלאות
         docker_cmd = [
             "docker", "run",
             "--rm",                              # מחיקה אוטומטית
-            "--network", "none",                 # ללא רשת
+            f"--name={container_name}",          # שם לזיהוי
+            f"--label={self.CONTAINER_LABEL}",   # label ל-cleanup תקופתי
+            "--network=none",                    # ללא רשת
             "--read-only",                       # קריאה בלבד
+            "--tmpfs=/tmp:rw,noexec,nosuid,size=10m",  # /tmp מוגבל
             f"--memory={memory_limit_mb}m",      # הגבלת זיכרון
-            "--memory-swap", f"{memory_limit_mb}m",  # ללא swap
+            f"--memory-swap={memory_limit_mb}m", # ללא swap
             "--cpus=0.5",                        # חצי CPU
             "--pids-limit=50",                   # הגבלת processes
+            "--ipc=none",                        # בידוד IPC
             "--security-opt=no-new-privileges",  # ללא העלאת הרשאות
             "--cap-drop=ALL",                    # הסרת capabilities
-            "--user", "nobody",                  # משתמש מוגבל
-            self.DOCKER_IMAGE,
+            "--user=nobody",                     # משתמש מוגבל
+            self._docker_image,
             "python", "-c", code,
         ]
         
-        result = subprocess.run(
-            docker_cmd,
-            capture_output=True,
-            timeout=timeout + 2,  # קצת יותר מ-timeout פנימי
+        try:
+            result = subprocess.run(
+                docker_cmd,
+                capture_output=True,
+                timeout=timeout + 2,  # קצת יותר מ-timeout פנימי
+            )
+        except subprocess.TimeoutExpired:
+            # ניקוי הקונטיינר במקרה של timeout
+            self._cleanup_container(container_name)
+            raise
+        
+        stdout, stdout_truncated = self._sanitize_output(
+            result.stdout.decode("utf-8", errors="replace")
         )
-        
-        stdout = self._sanitize_output(result.stdout.decode("utf-8", errors="replace"))
-        stderr = self._sanitize_output(result.stderr.decode("utf-8", errors="replace"))
-        
-        truncated = (
-            len(result.stdout) > self.MAX_OUTPUT_BYTES or
-            len(result.stderr) > self.MAX_OUTPUT_BYTES
+        stderr, stderr_truncated = self._sanitize_output(
+            result.stderr.decode("utf-8", errors="replace")
         )
         
         return ExecutionResult(
@@ -407,8 +503,54 @@ class CodeExecutionService:
             stdout=stdout,
             stderr=stderr,
             exit_code=result.returncode,
-            truncated=truncated,
+            truncated=stdout_truncated or stderr_truncated,
         )
+    
+    def _cleanup_container(self, container_name: str) -> None:
+        """ניקוי קונטיינר יתום (best-effort)."""
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True,
+                timeout=5,
+            )
+            logger.info("Cleaned up container: %s", container_name)
+        except Exception:
+            # best-effort, לא קריטי
+            pass
+    
+    def cleanup_orphan_containers(self) -> int:
+        """
+        ניקוי קונטיינרים יתומים לפי label (לשימוש תקופתי).
+        
+        Returns:
+            מספר הקונטיינרים שנוקו
+        """
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "-q", "-f", f"label={self.CONTAINER_LABEL}"],
+                capture_output=True,
+                timeout=10,
+            )
+            container_ids = result.stdout.decode().strip().split()
+            
+            count = 0
+            for cid in container_ids:
+                if cid:
+                    subprocess.run(
+                        ["docker", "rm", "-f", cid],
+                        capture_output=True,
+                        timeout=5,
+                    )
+                    count += 1
+            
+            if count > 0:
+                logger.info("Cleaned up %d orphan containers", count)
+            return count
+            
+        except Exception as e:
+            logger.warning("Failed to cleanup orphan containers: %s", e)
+            return 0
     
     def _execute_subprocess(
         self,
@@ -419,8 +561,9 @@ class CodeExecutionService:
         הרצה ב-subprocess (לפיתוח בלבד!).
         
         ⚠️ אזהרה: שיטה זו פחות בטוחה מ-Docker.
+        משמשת רק כש-CODE_EXEC_ALLOW_FALLBACK=true.
         """
-        logger.warning("Executing code via subprocess - UNSAFE for production!")
+        logger.warning("Executing code via subprocess (fallback mode)")
         
         result = subprocess.run(
             ["python", "-c", code],
@@ -432,14 +575,19 @@ class CodeExecutionService:
             },
         )
         
-        stdout = self._sanitize_output(result.stdout.decode("utf-8", errors="replace"))
-        stderr = self._sanitize_output(result.stderr.decode("utf-8", errors="replace"))
+        stdout, stdout_truncated = self._sanitize_output(
+            result.stdout.decode("utf-8", errors="replace")
+        )
+        stderr, stderr_truncated = self._sanitize_output(
+            result.stderr.decode("utf-8", errors="replace")
+        )
         
         return ExecutionResult(
             success=result.returncode == 0,
             stdout=stdout,
             stderr=stderr,
             exit_code=result.returncode,
+            truncated=stdout_truncated or stderr_truncated,
         )
     
     # ============== Helper Methods ==============
@@ -451,11 +599,13 @@ class CodeExecutionService:
     def get_limits(self) -> Dict[str, Any]:
         """מגבלות הרצה נוכחיות."""
         return {
-            "max_timeout_seconds": self.MAX_TIMEOUT,
-            "max_memory_mb": self.MAX_MEMORY_MB,
-            "max_code_length_bytes": self.MAX_CODE_LENGTH,
-            "max_output_bytes": self.MAX_OUTPUT_BYTES,
+            "max_timeout_seconds": self._max_timeout,
+            "max_memory_mb": self._max_memory_mb,
+            "max_code_length_bytes": self._max_code_length,
+            "max_output_bytes": self._max_output_bytes,
             "docker_available": self._docker_available,
+            "docker_required": self._use_docker,
+            "fallback_allowed": self._allow_fallback,
         }
 
 
@@ -468,10 +618,14 @@ def get_code_execution_service() -> CodeExecutionService:
     """קבלת instance יחיד של השירות."""
     global _service_instance
     if _service_instance is None:
-        # בפרודקשן: Docker=True, בפיתוח: לפי ENV
-        use_docker = os.getenv("CODE_EXEC_USE_DOCKER", "true").lower() == "true"
-        _service_instance = CodeExecutionService(use_docker=use_docker)
+        _service_instance = CodeExecutionService()
     return _service_instance
+
+
+def reset_service_instance() -> None:
+    """איפוס ה-singleton (לטסטים בלבד)."""
+    global _service_instance
+    _service_instance = None
 ```
 
 ---
@@ -480,37 +634,33 @@ def get_code_execution_service() -> CodeExecutionService:
 
 ### הוספה לקובץ: `webapp/code_tools_api.py`
 
+> **הערה חשובה:** הרשאות Admin כבר נבדקות ב-`@code_tools_bp.before_request`.  
+> לכן בנקודות הקצה החדשות אנחנו בודקים רק את ה-Feature Flag.
+
 ```python
 # הוספה ל-imports בראש הקובץ:
 from services.code_execution_service import (
     get_code_execution_service,
-    ExecutionResult,
 )
 
 # ============================================================
 # Code Execution Endpoint
 # ============================================================
 
-# Feature flag - ברירת מחדל: מכובה
-FEATURE_CODE_EXECUTION = os.getenv("FEATURE_CODE_EXECUTION", "false").lower() == "true"
-
-
-def _is_code_execution_allowed(user_id: int) -> bool:
+def _is_code_execution_enabled() -> bool:
     """
-    בדיקה האם הרצת קוד מותרת למשתמש.
-    
-    ברירת מחדל: Admin בלבד.
-    ניתן להרחיב ל-whitelist או לכולם (לא מומלץ).
+    בדיקה האם הרצת קוד מופעלת.
+    נקרא בזמן ריצה (לא כ-global) כדי לאפשר monkeypatch בטסטים.
     """
-    if not FEATURE_CODE_EXECUTION:
-        return False
-    return _is_admin(user_id)
+    return os.getenv("FEATURE_CODE_EXECUTION", "false").lower() == "true"
 
 
 @code_tools_bp.route("/run", methods=["POST"])
 def run_code():
     """
     הרצת קוד Python בסביבה מבודדת.
+    
+    הערה: הרשאות Admin נבדקות כבר ב-before_request של ה-Blueprint.
 
     Request Body:
         {
@@ -538,27 +688,11 @@ def run_code():
             "exit_code": -1
         }
     """
-    # בדיקת Feature Flag
-    if not FEATURE_CODE_EXECUTION:
+    # בדיקת Feature Flag בלבד (Admin נבדק ב-before_request)
+    if not _is_code_execution_enabled():
         return jsonify({
             "success": False,
             "error": "הרצת קוד מושבתת בשרת זה",
-        }), 403
-    
-    # בדיקת הרשאות
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"success": False, "error": "נדרש להתחבר"}), 401
-    
-    try:
-        uid_int = int(user_id)
-    except Exception:
-        return jsonify({"success": False, "error": "משתמש לא תקין"}), 401
-    
-    if not _is_code_execution_allowed(uid_int):
-        return jsonify({
-            "success": False,
-            "error": "אין הרשאה להריץ קוד",
         }), 403
     
     # פרסור הבקשה
@@ -586,19 +720,7 @@ def run_code():
         memory_limit_mb=memory_limit_mb,
     )
     
-    # לוג (ללא הקוד עצמו - אבטחה)
-    try:
-        from logging import getLogger
-        logger = getLogger(__name__)
-        logger.info(
-            "Code execution: user=%s success=%s exit=%s time=%dms",
-            uid_int,
-            result.success,
-            result.exit_code,
-            result.execution_time_ms,
-        )
-    except Exception:
-        pass
+    # הלוג כבר נעשה בתוך service.execute()
     
     return jsonify({
         "success": result.success,
@@ -624,7 +746,9 @@ def get_run_limits():
                 "max_memory_mb": 128,
                 "max_code_length_bytes": 51200,
                 "max_output_bytes": 102400,
-                "docker_available": true
+                "docker_available": true,
+                "docker_required": true,
+                "fallback_allowed": false
             },
             "allowed_imports": ["math", "random", ...]
         }
@@ -632,7 +756,7 @@ def get_run_limits():
     service = get_code_execution_service()
     
     return jsonify({
-        "enabled": FEATURE_CODE_EXECUTION,
+        "enabled": _is_code_execution_enabled(),
         "limits": service.get_limits(),
         "allowed_imports": service.get_allowed_imports(),
     })
@@ -644,6 +768,27 @@ def get_run_limits():
 
 ### עדכון: `webapp/static/js/code-tools-page.js`
 
+#### שלב 1: עדכון `setViewMode` לתמיכה ב-output
+
+הפונקציה `setViewMode` הקיימת תומכת רק ב-`code/diff/issues`.  
+יש לעדכן אותה להוסיף תמיכה ב-`output`:
+
+```javascript
+// מחליף את הפונקציה setViewMode הקיימת
+function setViewMode(mode) {
+  const viewButtons = Array.from(document.querySelectorAll('.view-btn[data-view]'));
+  // הוספת 'output' לרשימה
+  const views = ['code', 'diff', 'issues', 'output'];
+  views.forEach((v) => {
+    const el = document.getElementById(`${v}-view`);
+    if (el) el.classList.toggle('active', v === mode);
+  });
+  viewButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === mode));
+}
+```
+
+#### שלב 2: הוספת לוגיקת Code Execution
+
 הוסף את הקוד הבא **בתוך פונקציית `init()`**, אחרי האתחולים הקיימים:
 
 ```javascript
@@ -653,16 +798,20 @@ def get_run_limits():
 
 const btnRun = document.getElementById('btn-run');
 const outputConsole = document.getElementById('run-output');
+let executionLimits = null;
 
 // בדיקה האם הרצת קוד מופעלת
 async function checkExecutionEnabled() {
   try {
     const resp = await fetch('/api/code/run/limits');
     const data = await resp.json();
+    executionLimits = data;
     
     if (data && data.enabled && btnRun) {
       btnRun.style.display = 'inline-flex';
-      btnRun.title = `Timeout: ${data.limits?.max_timeout_seconds || 30}s`;
+      const timeout = data.limits?.max_timeout_seconds || 30;
+      const dockerInfo = data.limits?.docker_available ? '🐳 Docker' : '⚠️ Subprocess';
+      btnRun.title = `הרץ (Ctrl+Enter) · Timeout: ${timeout}s · ${dockerInfo}`;
     }
     
     return data;
@@ -679,6 +828,12 @@ async function runCode() {
     return;
   }
 
+  // נעילת הכפתור
+  if (btnRun) {
+    btnRun.disabled = true;
+    btnRun.classList.add('running');
+  }
+  
   showStatus('מריץ...', 'loading');
   
   // הצגת פאנל פלט
@@ -688,9 +843,10 @@ async function runCode() {
   }
 
   try {
+    const timeout = executionLimits?.limits?.max_timeout_seconds || 10;
     const result = await postJson('/api/code/run', {
       code,
-      timeout: 10,
+      timeout: Math.min(timeout, 10),  // ברירת מחדל 10 שניות
       memory_limit_mb: 128,
     });
 
@@ -737,6 +893,12 @@ async function runCode() {
       outputConsole.innerHTML = `<div class="console-error">❌ ${escapeHtml(e.message)}</div>`;
     }
     showStatus(e.message || 'שגיאה בהרצה', 'error');
+  } finally {
+    // שחרור הכפתור
+    if (btnRun) {
+      btnRun.disabled = false;
+      btnRun.classList.remove('running');
+    }
   }
 }
 
@@ -889,11 +1051,28 @@ checkExecutionEnabled();
 
 ```bash
 # Code Execution Feature
-FEATURE_CODE_EXECUTION=true      # הפעלת הפיצ'ר (false by default)
-CODE_EXEC_USE_DOCKER=true        # שימוש ב-Docker (מומלץ)
-CODE_EXEC_MAX_TIMEOUT=30         # timeout מקסימלי בשניות
-CODE_EXEC_MAX_MEMORY_MB=128      # זיכרון מקסימלי
+FEATURE_CODE_EXECUTION=true           # הפעלת הפיצ'ר (false by default)
+CODE_EXEC_USE_DOCKER=true             # שימוש ב-Docker (חובה בפרודקשן)
+CODE_EXEC_ALLOW_FALLBACK=false        # false = fail-closed אם אין Docker
+CODE_EXEC_MAX_TIMEOUT=30              # timeout מקסימלי בשניות
+CODE_EXEC_MAX_MEMORY_MB=128           # זיכרון מקסימלי
+CODE_EXEC_MAX_OUTPUT_BYTES=102400     # פלט מקסימלי (100KB)
+CODE_EXEC_MAX_CODE_LENGTH=51200       # אורך קוד מקסימלי (50KB)
+CODE_EXEC_DOCKER_IMAGE=python:3.11-slim  # Docker image להרצה
 ```
+
+### טבלת ENV מלאה
+
+| משתנה | ברירת מחדל | תיאור |
+|-------|------------|-------|
+| `FEATURE_CODE_EXECUTION` | `false` | הפעלת הפיצ'ר |
+| `CODE_EXEC_USE_DOCKER` | `true` | שימוש ב-Docker |
+| `CODE_EXEC_ALLOW_FALLBACK` | `false` | האם לאפשר subprocess fallback |
+| `CODE_EXEC_MAX_TIMEOUT` | `30` | Timeout מקסימלי (שניות) |
+| `CODE_EXEC_MAX_MEMORY_MB` | `128` | זיכרון מקסימלי (MB) |
+| `CODE_EXEC_MAX_OUTPUT_BYTES` | `102400` | פלט מקסימלי (bytes) |
+| `CODE_EXEC_MAX_CODE_LENGTH` | `51200` | אורך קוד מקסימלי (bytes) |
+| `CODE_EXEC_DOCKER_IMAGE` | `python:3.11-slim` | Docker image |
 
 ---
 
@@ -909,19 +1088,65 @@ docker pull python:3.11-slim
 
 ### הרשאות Docker (Linux)
 
-אם ה-webapp רץ כ-non-root, יש להוסיף את המשתמש לקבוצת docker:
+#### אפשרות 1: הוספה לקבוצת docker (מומלץ לפיתוח)
 
 ```bash
+sudo usermod -aG docker $(whoami)
+# או אם webapp רץ כ-www-data:
 sudo usermod -aG docker www-data
 ```
 
-או להריץ עם Docker socket mount ב-docker-compose:
+#### אפשרות 2: Docker Socket Mount
+
+> ⚠️ **אזהרה: זהו סיכון אבטחה משמעותי!**  
+> Mount של `/var/run/docker.sock` נותן בפועל **הרשאות root על השרת**.
+> כל מי שיכול לגשת ל-socket יכול להריץ קונטיינרים עם mount של `/` וכו'.
 
 ```yaml
-# docker-compose.yml
+# docker-compose.yml - זהיר!
 code-keeper-bot:
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+#### אפשרות 3: Runner נפרד (מומלץ לפרודקשן)
+
+עדיפות לארכיטקטורה עם **שירות runner ייעודי**:
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│   Webapp        │──HTTP──▶│  Code Runner    │
+│  (no docker)    │         │  (has docker)   │
+└─────────────────┘         └─────────────────┘
+```
+
+זה מאפשר:
+- הפרדת הרשאות
+- Rate limiting ברמת השירות
+- Scaling עצמאי
+- Monitoring נפרד
+
+מימוש מלא של Runner נפרד הוא מחוץ לסקופ של מדריך זה, אבל זו הדרך הבטוחה ביותר.
+
+### ניקוי קונטיינרים יתומים
+
+קונטיינרים עלולים להישאר "יתומים" אם ה-timeout נכשל. השירות מסמן אותם עם label:
+
+```bash
+# ניקוי ידני
+docker ps -a -q -f label=code_exec=1 | xargs -r docker rm -f
+
+# ניקוי תקופתי (cron)
+*/5 * * * * docker ps -a -q -f label=code_exec=1 --filter "status=exited" | xargs -r docker rm -f
+```
+
+או דרך ה-API:
+
+```python
+from services.code_execution_service import get_code_execution_service
+service = get_code_execution_service()
+cleaned = service.cleanup_orphan_containers()
+print(f"Cleaned {cleaned} containers")
 ```
 
 ---
@@ -933,39 +1158,90 @@ code-keeper-bot:
 | שכבה | מה עושה | איפה |
 |------|---------|------|
 | **Feature Flag** | מכבה את הפיצ'ר כברירת מחדל | `FEATURE_CODE_EXECUTION` |
-| **Auth** | רק משתמשים מחוברים | `session.get("user_id")` |
-| **Admin Check** | רק אדמינים (ברירת מחדל) | `_is_code_execution_allowed()` |
+| **Admin Check** | רק אדמינים (ברמת Blueprint) | `@code_tools_bp.before_request` |
+| **Fail-Closed** | לא fallback ל-subprocess בפרודקשן | `CODE_EXEC_ALLOW_FALLBACK=false` |
 | **Keyword Blocking** | חסימת פקודות מסוכנות | `BLOCKED_KEYWORDS` |
 | **Code Length** | הגבלת אורך קוד | 50KB |
-| **Docker Sandbox** | בידוד מלא | `--network none`, `--read-only` |
-| **Resource Limits** | הגבלת CPU/Memory | `--memory`, `--cpus` |
+| **Docker Sandbox** | בידוד מלא | `--network=none`, `--read-only` |
+| **tmpfs** | /tmp מבודד עם noexec | `--tmpfs=/tmp:rw,noexec,nosuid,size=10m` |
+| **Resource Limits** | הגבלת CPU/Memory/PIDs | `--memory`, `--cpus`, `--pids-limit` |
+| **IPC Isolation** | בידוד IPC | `--ipc=none` |
 | **Timeout** | מניעת infinite loops | 5-30 שניות |
+| **Container Cleanup** | ניקוי קונטיינרים יתומים | `--name` + `--label` + cleanup |
 | **Output Limit** | מניעת memory bomb | 100KB |
-| **No Privileges** | הרצה כ-nobody | `--user nobody`, `--cap-drop=ALL` |
+| **No Privileges** | הרצה כ-nobody | `--user=nobody`, `--cap-drop=ALL` |
+
+### Flags מלאים של Docker
+
+```bash
+docker run \
+  --rm \
+  --name=code-exec-<uuid> \
+  --label=code_exec=1 \
+  --network=none \
+  --read-only \
+  --tmpfs=/tmp:rw,noexec,nosuid,size=10m \
+  --memory=128m \
+  --memory-swap=128m \
+  --cpus=0.5 \
+  --pids-limit=50 \
+  --ipc=none \
+  --security-opt=no-new-privileges \
+  --cap-drop=ALL \
+  --user=nobody \
+  python:3.11-slim \
+  python -c "<code>"
+```
+
+### הקשחה נוספת (אופציונלי)
+
+למי שרוצה אבטחה מקסימלית:
+
+```bash
+# Seccomp profile (מגביל syscalls)
+--security-opt=seccomp=/path/to/seccomp-profile.json
+
+# AppArmor profile (Linux)
+--security-opt=apparmor=docker-code-exec
+
+# Ulimits נוספים
+--ulimit nproc=50:50
+--ulimit nofile=100:100
+```
 
 ### מה **לא** לעשות
 
-❌ אל תפעיל את הפיצ'ר ללא Docker בפרודקשן  
-❌ אל תאפשר הרצה לכל המשתמשים ללא שיקול  
+❌ **אל תפעיל `CODE_EXEC_ALLOW_FALLBACK=true` בפרודקשן** – subprocess לא בטוח  
+❌ **אל תעשה mount ל-docker.sock** אם אפשר להימנע (סיכון root)  
 ❌ אל תעלה את ה-timeout מעל 30 שניות  
 ❌ אל תאפשר גישה לרשת מתוך הקונטיינר  
+❌ **אל תלוגג קוד או stdout/stderr** – עלולים להכיל סודות  
 ❌ אל תשמור קוד משתמשים ללא הצפנה  
 
-### הרחבת הרשאות (זהירות!)
-
-אם רוצים לאפשר לכל המשתמשים:
+### Logging – מה כן ומה לא
 
 ```python
-def _is_code_execution_allowed(user_id: int) -> bool:
-    if not FEATURE_CODE_EXECUTION:
-        return False
-    
-    # אפשרות 1: לכל משתמש מחובר
-    return True
-    
-    # אפשרות 2: Whitelist
-    allowed_users = os.getenv("CODE_EXEC_ALLOWED_USERS", "").split(",")
-    return str(user_id) in allowed_users
+# ✅ כן – מטא-דאטה בלבד
+logger.info(
+    "Code execution: docker=%s exit=%s time=%dms truncated=%s",
+    used_docker, exit_code, execution_time_ms, truncated
+)
+
+# ❌ לא – לעולם לא לוגגים קוד או פלט
+logger.info(f"Code: {code}")      # אסור!
+logger.info(f"Output: {stdout}")  # אסור!
+```
+
+### Fail-Closed vs Fail-Open
+
+```
+Fail-Closed (ברירת מחדל):
+  Docker לא זמין? → מחזירים שגיאה
+  ENV: CODE_EXEC_ALLOW_FALLBACK=false
+  
+Fail-Open (לפיתוח בלבד):
+  Docker לא זמין? → subprocess fallback
+  ENV: CODE_EXEC_ALLOW_FALLBACK=true
 ```
 
 ---
@@ -974,16 +1250,23 @@ def _is_code_execution_allowed(user_id: int) -> bool:
 
 ### קובץ: `tests/test_code_execution_service.py`
 
+> **הערה:** הטסטים מותאמים לקונבנציות הקיימות בפרויקט:
+> - שימוש ב-`monkeypatch` להגדרת ENV
+> - מימוש ה-execution ב-mock (לא באמת להריץ Docker בטסטים יחידה)
+> - שימוש ב-`reset_service_instance()` לאיפוס ה-singleton
+
 ```python
 """Unit tests for CodeExecutionService."""
 
 from unittest.mock import MagicMock, patch
 import pytest
+import os
 
 from services.code_execution_service import (
     CodeExecutionService,
     ExecutionResult,
     get_code_execution_service,
+    reset_service_instance,
 )
 
 
@@ -991,16 +1274,34 @@ class TestCodeExecutionService:
     """Test suite for CodeExecutionService."""
 
     def setup_method(self):
-        """Setup test instance (no Docker)."""
-        self.service = CodeExecutionService(use_docker=False)
+        """Setup test instance with fallback allowed."""
+        reset_service_instance()  # איפוס singleton
+        
+    def teardown_method(self):
+        """Cleanup after each test."""
+        reset_service_instance()
 
-    def test_validate_empty_code(self):
+    @pytest.fixture
+    def service_no_docker(self, monkeypatch):
+        """Service configured for subprocess fallback."""
+        monkeypatch.setenv("CODE_EXEC_USE_DOCKER", "false")
+        monkeypatch.setenv("CODE_EXEC_ALLOW_FALLBACK", "true")
+        return CodeExecutionService()
+
+    @pytest.fixture
+    def service_docker_required(self, monkeypatch):
+        """Service configured to require Docker (fail-closed)."""
+        monkeypatch.setenv("CODE_EXEC_USE_DOCKER", "true")
+        monkeypatch.setenv("CODE_EXEC_ALLOW_FALLBACK", "false")
+        return CodeExecutionService()
+
+    def test_validate_empty_code(self, service_no_docker):
         """Empty code should fail validation."""
-        is_valid, error = self.service.validate_code("")
+        is_valid, error = service_no_docker.validate_code("")
         assert is_valid is False
         assert "ריק" in error
 
-    def test_validate_blocked_keywords(self):
+    def test_validate_blocked_keywords(self, service_no_docker):
         """Blocked keywords should fail validation."""
         dangerous_codes = [
             "import os",
@@ -1012,11 +1313,11 @@ class TestCodeExecutionService:
         ]
         
         for code in dangerous_codes:
-            is_valid, error = self.service.validate_code(code)
+            is_valid, error = service_no_docker.validate_code(code)
             assert is_valid is False, f"Should block: {code}"
             assert "לא מורשית" in error
 
-    def test_validate_safe_code(self):
+    def test_validate_safe_code(self, service_no_docker):
         """Safe code should pass validation."""
         safe_codes = [
             "print('hello')",
@@ -1026,90 +1327,120 @@ class TestCodeExecutionService:
         ]
         
         for code in safe_codes:
-            is_valid, error = self.service.validate_code(code)
+            is_valid, error = service_no_docker.validate_code(code)
             assert is_valid is True, f"Should allow: {code}"
             assert error is None
 
-    def test_validate_code_too_long(self):
+    def test_validate_code_too_long(self, service_no_docker):
         """Code exceeding max length should fail."""
         long_code = "x = 1\n" * 100000
-        is_valid, error = self.service.validate_code(long_code)
+        is_valid, error = service_no_docker.validate_code(long_code)
         assert is_valid is False
         assert "ארוך" in error
 
+    def test_fail_closed_without_docker(self, service_docker_required):
+        """Without Docker and fallback=false, should fail."""
+        # מדמה מצב שאין Docker
+        service_docker_required._docker_available = False
+        
+        can_exec, error = service_docker_required.can_execute()
+        assert can_exec is False
+        assert "Docker לא זמין" in error
+
     @patch('subprocess.run')
-    def test_execute_simple_code(self, mock_run):
-        """Test simple code execution."""
+    def test_execute_simple_code_mocked(self, mock_run, service_no_docker):
+        """Test simple code execution with mocked subprocess."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout=b"Hello World\n",
             stderr=b"",
         )
         
-        result = self.service.execute("print('Hello World')")
+        result = service_no_docker.execute("print('Hello World')")
         
         assert result.success is True
         assert "Hello World" in result.stdout
         assert result.exit_code == 0
 
     @patch('subprocess.run')
-    def test_execute_with_error(self, mock_run):
-        """Test code that raises an error."""
+    def test_execute_with_error_mocked(self, mock_run, service_no_docker):
+        """Test code that raises an error with mocked subprocess."""
         mock_run.return_value = MagicMock(
             returncode=1,
             stdout=b"",
             stderr=b"NameError: name 'x' is not defined\n",
         )
         
-        result = self.service.execute("print(x)")
+        result = service_no_docker.execute("print(x)")
         
         assert result.success is False
         assert "NameError" in result.stderr
         assert result.exit_code == 1
 
     @patch('subprocess.run')
-    def test_execute_timeout(self, mock_run):
-        """Test timeout handling."""
+    def test_execute_timeout_mocked(self, mock_run, service_no_docker):
+        """Test timeout handling with mocked subprocess."""
         from subprocess import TimeoutExpired
         mock_run.side_effect = TimeoutExpired(cmd="python", timeout=5)
         
-        result = self.service.execute("while True: pass")
+        result = service_no_docker.execute("while True: pass")
         
         assert result.success is False
         assert "תם הזמן" in result.error_message
 
-    def test_sanitize_output_truncation(self):
+    def test_sanitize_output_truncation(self, service_no_docker):
         """Long output should be truncated."""
         long_output = "x" * 200000
-        sanitized = self.service._sanitize_output(long_output)
+        sanitized, truncated = service_no_docker._sanitize_output(long_output)
         
-        assert len(sanitized) <= self.service.MAX_OUTPUT_BYTES + 50
+        assert truncated is True
+        assert len(sanitized) <= service_no_docker._max_output_bytes + 50
         assert "קוצץ" in sanitized
 
-    def test_get_limits(self):
+    def test_get_limits(self, service_no_docker):
         """Test limits getter."""
-        limits = self.service.get_limits()
+        limits = service_no_docker.get_limits()
         
         assert "max_timeout_seconds" in limits
         assert "max_memory_mb" in limits
         assert "docker_available" in limits
+        assert "docker_required" in limits
+        assert "fallback_allowed" in limits
 
-    def test_get_allowed_imports(self):
+    def test_get_allowed_imports(self, service_no_docker):
         """Test allowed imports list."""
-        imports = self.service.get_allowed_imports()
+        imports = service_no_docker.get_allowed_imports()
         
         assert "math" in imports
         assert "random" in imports
         assert "os" not in imports
+    
+    def test_env_config_respected(self, monkeypatch):
+        """Test that ENV variables are respected."""
+        monkeypatch.setenv("CODE_EXEC_MAX_TIMEOUT", "15")
+        monkeypatch.setenv("CODE_EXEC_MAX_MEMORY_MB", "64")
+        monkeypatch.setenv("CODE_EXEC_DOCKER_IMAGE", "python:3.10-slim")
+        
+        service = CodeExecutionService()
+        limits = service.get_limits()
+        
+        assert limits["max_timeout_seconds"] == 15
+        assert limits["max_memory_mb"] == 64
+        assert service._docker_image == "python:3.10-slim"
 
 
 class TestDockerExecution:
-    """Tests for Docker-based execution (integration)."""
+    """
+    Integration tests for Docker-based execution.
+    Skip if Docker is not available.
+    """
 
     @pytest.fixture
-    def docker_service(self):
+    def docker_service(self, monkeypatch):
         """Service with Docker enabled."""
-        service = CodeExecutionService(use_docker=True)
+        monkeypatch.setenv("CODE_EXEC_USE_DOCKER", "true")
+        monkeypatch.setenv("CODE_EXEC_ALLOW_FALLBACK", "false")
+        service = CodeExecutionService()
         if not service.is_docker_available():
             pytest.skip("Docker not available")
         return service
@@ -1120,13 +1451,14 @@ class TestDockerExecution:
         
         assert result.success is True
         assert "Docker works!" in result.stdout
+        assert result.used_docker is True
 
     def test_docker_network_blocked(self, docker_service):
         """Network should be blocked in Docker."""
         result = docker_service.execute("""
 import socket
 try:
-    socket.create_connection(("google.com", 80), timeout=1)
+    socket.create_connection(("8.8.8.8", 53), timeout=1)
     print("NETWORK WORKS - BAD!")
 except:
     print("Network blocked - Good!")
@@ -1134,44 +1466,95 @@ except:
         
         assert "blocked" in result.stdout.lower() or result.exit_code != 0
 
-    def test_docker_filesystem_readonly(self, docker_service):
-        """Filesystem should be read-only."""
-        result = docker_service.execute("""
-try:
-    with open('/tmp/test.txt', 'w') as f:
-        f.write('test')
-    print("WRITE WORKS - BAD!")
-except:
-    print("Write blocked - Good!")
-""")
-        
-        # בדיקה שכתיבה נכשלה או הפלט מציין חסימה
-        assert "blocked" in result.stdout.lower() or "error" in result.stderr.lower()
-
 
 class TestAPIEndpoint:
-    """Tests for the /api/code/run endpoint."""
+    """
+    Tests for the /api/code/run endpoint.
+    Uses Flask test client with project conventions.
+    """
 
     @pytest.fixture
-    def client(self, app):
+    def client(self):
         """Flask test client."""
-        return app.test_client()
+        import webapp.app as app_mod
+        app_mod.app.config["TESTING"] = True
+        return app_mod.app.test_client()
+
+    @pytest.fixture
+    def admin_session(self, client, monkeypatch):
+        """Setup admin session."""
+        admin_id = "12345"
+        monkeypatch.setenv("ADMIN_USER_IDS", admin_id)
+        monkeypatch.setenv("FEATURE_CODE_EXECUTION", "true")
+        
+        with client.session_transaction() as sess:
+            sess["user_id"] = int(admin_id)
+        
+        return client
 
     def test_run_requires_auth(self, client):
         """Endpoint should require authentication."""
         response = client.post(
             '/api/code/run',
             json={"code": "print(1)"},
+            content_type='application/json',
         )
+        # 401 (not logged in) or 403 (not admin)
         assert response.status_code in (401, 403)
 
-    def test_run_requires_code(self, client, admin_session):
-        """Endpoint should require code parameter."""
+    def test_run_requires_feature_flag(self, client, monkeypatch):
+        """Endpoint should check feature flag."""
+        admin_id = "12345"
+        monkeypatch.setenv("ADMIN_USER_IDS", admin_id)
+        monkeypatch.setenv("FEATURE_CODE_EXECUTION", "false")  # disabled
+        
+        with client.session_transaction() as sess:
+            sess["user_id"] = int(admin_id)
+        
         response = client.post(
             '/api/code/run',
-            json={},
+            json={"code": "print(1)"},
+            content_type='application/json',
         )
+        assert response.status_code == 403
+        data = response.get_json()
+        assert "מושבתת" in data.get("error", "")
+
+    def test_run_requires_code(self, admin_session, monkeypatch):
+        """Endpoint should require code parameter."""
+        # Mock the execution to avoid actual run
+        with patch('services.code_execution_service.CodeExecutionService.execute') as mock_exec:
+            response = admin_session.post(
+                '/api/code/run',
+                json={},
+                content_type='application/json',
+            )
+        
         assert response.status_code == 400
+        data = response.get_json()
+        assert "חסר קוד" in data.get("error", "")
+
+    @patch('services.code_execution_service.CodeExecutionService.execute')
+    def test_run_success(self, mock_execute, admin_session):
+        """Test successful code execution."""
+        mock_execute.return_value = ExecutionResult(
+            success=True,
+            stdout="42\n",
+            stderr="",
+            exit_code=0,
+            execution_time_ms=50,
+        )
+        
+        response = admin_session.post(
+            '/api/code/run',
+            json={"code": "print(42)"},
+            content_type='application/json',
+        )
+        
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["success"] is True
+        assert "42" in data["stdout"]
 ```
 
 ### הרצת הבדיקות
@@ -1180,26 +1563,62 @@ class TestAPIEndpoint:
 # Unit tests only (no Docker)
 pytest tests/test_code_execution_service.py -v -k "not Docker"
 
-# Full tests (requires Docker)
+# Full tests including Docker integration
 pytest tests/test_code_execution_service.py -v
+
+# With coverage
+pytest tests/test_code_execution_service.py -v --cov=services.code_execution_service
 ```
 
 ---
 
 ## 10. צ'קליסט למימוש
 
+### שלב 1: Backend
+
 - [ ] יצירת `services/code_execution_service.py`
 - [ ] הוספת endpoints ל-`webapp/code_tools_api.py`
-- [ ] עדכון `webapp/static/js/code-tools-page.js`
-- [ ] עדכון `webapp/templates/code_tools.html`
+- [ ] וידוא Docker image: `docker pull python:3.11-slim`
+- [ ] הגדרת ENV:
+  - [ ] `FEATURE_CODE_EXECUTION=true`
+  - [ ] `CODE_EXEC_USE_DOCKER=true`
+  - [ ] `CODE_EXEC_ALLOW_FALLBACK=false` (פרודקשן)
+
+### שלב 2: Frontend
+
+- [ ] עדכון `setViewMode()` להוסיף `output`
+- [ ] הוספת כפתור Run ב-`webapp/templates/code_tools.html`
+- [ ] הוספת tab "פלט" ב-view toggle
+- [ ] הוספת `#output-view` ב-panel-body
+- [ ] הוספת לוגיקת הרצה ל-`webapp/static/js/code-tools-page.js`
 - [ ] הוספת CSS ל-`webapp/static/css/code-tools.css`
-- [ ] הגדרת ENV: `FEATURE_CODE_EXECUTION=true`
-- [ ] וידוא Docker image: `python:3.11-slim`
-- [ ] כתיבת בדיקות
-- [ ] Review אבטחה
+
+### שלב 3: בדיקות
+
+- [ ] כתיבת unit tests (עם mock)
+- [ ] כתיבת integration tests (עם Docker)
+- [ ] הרצת `pytest tests/test_code_execution_service.py -v`
+
+### שלב 4: אבטחה
+
+- [ ] Review קוד - אין לוגים של קוד/פלט
+- [ ] Review Docker flags - כל ההגנות קיימות
+- [ ] בדיקה שאין fallback בפרודקשן
+- [ ] בדיקה ידנית של blocked keywords
+- [ ] בדיקת timeout עובד
+
+### שלב 5: Deployment
+
 - [ ] בדיקה בסביבת פיתוח
 - [ ] Deploy לסביבת staging
-- [ ] תיעוד למשתמשים
+- [ ] בדיקה ידנית ב-staging
+- [ ] Deploy לפרודקשן
+- [ ] הוספת cron לניקוי קונטיינרים (אופציונלי)
+
+### שלב 6: תיעוד
+
+- [ ] עדכון USER_GUIDE.md
+- [ ] עדכון תיעוד API (אם יש)
 
 ---
 
@@ -1345,3 +1764,22 @@ def run_code():
 - [Code Tools API הקיים](/workspace/webapp/code_tools_api.py)
 - [Code Formatter Service](/workspace/services/code_formatter_service.py)
 - [Cache Inspector Guide](/workspace/GUIDES/CACHE_INSPECTOR_IMPLEMENTATION_GUIDE.md) - מדריך מימוש דומה
+
+---
+
+## 15. היסטוריית עדכונים
+
+| תאריך | שינוי |
+|-------|-------|
+| ינואר 2026 | גרסה ראשונית |
+| ינואר 2026 | עדכון לפי code review: |
+| | - הבהרה: Admin checks כבר קיימים ב-Blueprint |
+| | - עדכון `setViewMode` להוסיף `output` |
+| | - תיקון ניסוח "פלט בזמן אמת" ← "פלט אחרי סיום" |
+| | - Fail-closed בפרודקשן (לא fallback) |
+| | - אזהרה על docker.sock כסיכון root |
+| | - Container cleanup עם `--name` ו-`--label` |
+| | - הקשחת Docker: `--ipc=none`, `--tmpfs` |
+| | - ENV נקרא בזמן `__init__` (לא global) |
+| | - Logging: רק מטא-דאטה, לא קוד/פלט |
+| | - טסטים מותאמים לקונבנציות הפרויקט |
