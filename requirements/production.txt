@@ -7,3 +7,4 @@ black>=25.0.0
 flake8>=7.0.0
 isort>=6.0.0
 autopep8>=2.0.0
+autoflake>=2.3.0  # Deep cleaning - unused imports & variables removal
