@@ -8,6 +8,7 @@ import os
 
 from flask import Blueprint, request, jsonify, session
 from services.code_formatter_service import get_code_formatter_service
+from services.code_execution_service import get_code_execution_service
 
 code_tools_bp = Blueprint("code_tools", __name__, url_prefix="/api/code")
 
@@ -16,6 +17,25 @@ def _is_admin(user_id: int) -> bool:
     admin_ids_list = admin_ids_env.split(",") if admin_ids_env else []
     admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
     return user_id in admin_ids
+
+
+def _is_premium(user_id: int) -> bool:
+    """בודק אם משתמש הוא פרימיום לפי ENV PREMIUM_USER_IDS"""
+    try:
+        premium_ids_env = os.getenv("PREMIUM_USER_IDS", "")
+        premium_ids_list = premium_ids_env.split(",") if premium_ids_env else []
+        premium_ids = [int(x.strip()) for x in premium_ids_list if x.strip().isdigit()]
+        return user_id in premium_ids
+    except Exception:
+        return False
+
+
+def _is_code_execution_enabled() -> bool:
+    """
+    בדיקה האם הרצת קוד מופעלת.
+    נקרא בזמן ריצה (לא כ-global) כדי לאפשר monkeypatch בטסטים.
+    """
+    return os.getenv("FEATURE_CODE_EXECUTION", "false").strip().lower() == "true"
 
 
 @code_tools_bp.before_request
@@ -31,6 +51,18 @@ def _require_admin_for_code_tools():
         uid_int = int(user_id)
     except Exception:
         return jsonify({"success": False, "error": "משתמש לא תקין"}), 401
+
+    # חריג להרצת קוד: Premium + Admin
+    premium_allowed_endpoints = {
+        "code_tools.run_code",
+        "code_tools.get_run_limits",
+    }
+    if request.endpoint in premium_allowed_endpoints:
+        if not (_is_admin(uid_int) or _is_premium(uid_int)):
+            return jsonify({"success": False, "error": "Premium/Admin בלבד"}), 403
+        return None
+
+    # ברירת מחדל: Admin-only
     if not _is_admin(uid_int):
         return jsonify({"success": False, "error": "Admin בלבד"}), 403
 
@@ -262,6 +294,76 @@ def get_diff():
             "success": True,
             "diff": diff,
             "lines_changed": lines_changed,
+        }
+    )
+
+
+# ============================================================
+# Code Execution Endpoints
+# ============================================================
+
+
+@code_tools_bp.route("/run", methods=["POST"])
+def run_code():
+    """
+    הרצת קוד Python בסביבה מבודדת.
+
+    Request Body:
+        {
+            "code": "<python code>",
+            "timeout": 5,           // אופציונלי
+            "memory_limit_mb": 128  // אופציונלי
+        }
+    """
+    if not _is_code_execution_enabled():
+        return jsonify({"success": False, "error": "הרצת קוד מושבתת בשרת זה"}), 403
+
+    data = request.get_json()
+    if not data or "code" not in data:
+        return jsonify({"success": False, "error": "חסר קוד"}), 400
+
+    code = data.get("code", "")
+    timeout = data.get("timeout", 5)
+    memory_limit_mb = data.get("memory_limit_mb", 128)
+
+    service = get_code_execution_service()
+
+    # SSOT: שליפה מה-Service עצמו (לא hardcoded)
+    service_limits = service.get_limits()
+    max_timeout = service_limits.get("max_timeout_seconds", 30)
+    max_memory = service_limits.get("max_memory_mb", 128)
+
+    try:
+        timeout = min(max(1, int(timeout)), int(max_timeout))
+        memory_limit_mb = min(max(32, int(memory_limit_mb)), int(max_memory))
+    except (ValueError, TypeError):
+        timeout = 5
+        memory_limit_mb = int(max_memory) if isinstance(max_memory, int) else 128
+
+    result = service.execute(code=code, timeout=timeout, memory_limit_mb=memory_limit_mb)
+
+    return jsonify(
+        {
+            "success": result.success,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.exit_code,
+            "execution_time_ms": result.execution_time_ms,
+            "truncated": result.truncated,
+            "error": result.error_message,
+        }
+    )
+
+
+@code_tools_bp.route("/run/limits", methods=["GET"])
+def get_run_limits():
+    """קבלת מגבלות הרצה והאם הפיצ'ר מופעל."""
+    service = get_code_execution_service()
+    return jsonify(
+        {
+            "enabled": _is_code_execution_enabled(),
+            "limits": service.get_limits(),
+            "allowed_imports": service.get_allowed_imports(),
         }
     )
 
