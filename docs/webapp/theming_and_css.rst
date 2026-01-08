@@ -128,6 +128,10 @@
      - Level 2
      - CodeMirror, כרטיסי קוד, Split View
      - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
+   * - ``--lang-badge-*`` / ``--lang-hue-*``
+     - Level 3
+     - תגיות שפת תכנות צבעוניות (Python, JavaScript וכו')
+     - ``webapp/static/css/language-badges.css`` – מערכת HSL עם Hue קבוע לכל שפה ו-Lightness/Saturation משתנים לפי Theme
 
 רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
@@ -285,6 +289,51 @@ Component Tokens ו‑Theme Builder
 - כאשר מבצעים Override לתמה קיימת (בידיים היום או דרך Theme Builder בעתיד), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
 - טוקנים חובה ל‑Theme מותאם אישית (גם בעתיד כשה‑Builder יהיה פעיל): `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
 
+Language Badges (תגיות שפה צבעוניות)
+-------------------------------------
+
+תגיות השפה (``lang-badge``) משתמשות בגישה ייחודית של **HSL עם Hue קבוע** לכל שפת תכנות, כאשר ה-Saturation וה-Lightness משתנים לפי ערכת הנושא.
+
+**למה HSL ולא color-mix?**
+
+- **הבחנה ברורה בין שפות** – Python תמיד צהוב (Hue 48°), TypeScript תמיד כחול (Hue 210°)
+- **התאמה לערכות** – Lightness גבוה בערכות בהירות, נמוך בערכות כהות
+- **עקביות** – המשתמש לומד לזהות שפות לפי צבע
+
+**חלופה שנשקלה ונדחתה:**
+
+.. code-block:: css
+
+   /* גישת color-mix – יותר "טבעית" לערכה אבל פחות מובחנת */
+   background: color-mix(in srgb, var(--lang-python-color) 15%, var(--card-bg));
+
+גישה זו מערבבת את צבע השפה עם רקע הכרטיס, מה שיוצר התאמה טובה יותר לערכה אבל **מקשה על הבחנה מהירה** בין שפות שונות.
+
+**שימוש:**
+
+.. code-block:: html
+
+   <!-- תגית שפה בסיסית -->
+   <span class="lang-badge" data-lang="python">Python</span>
+
+   <!-- גרסה קומפקטית -->
+   <span class="lang-badge lang-badge-sm" data-lang="typescript">TypeScript</span>
+
+**טוקנים עיקריים (Level 3):**
+
+- ``--lang-badge-saturation`` – רוויה (משתנה לפי ערכה)
+- ``--lang-badge-lightness-bg`` – בהירות רקע
+- ``--lang-badge-lightness-border`` – בהירות גבול
+- ``--lang-badge-lightness-text`` – בהירות טקסט
+- ``--lang-hue-python``, ``--lang-hue-javascript``, וכו' – ערכי Hue קבועים לכל שפה
+
+**קובץ:** ``webapp/static/css/language-badges.css``
+
+.. note::
+
+   אם הצבעים יתגלו כבולטים מדי בערכה מסוימת, ניתן להתאים את ערכי 
+   ``--lang-badge-saturation`` ו-``--lang-badge-lightness-*`` בבלוק ה-Theme הרלוונטי.
+
 בדיקות חובה לפני Merge
 ----------------------
 
@@ -323,7 +372,7 @@ Component Tokens ו‑Theme Builder
    - ``webapp/templates/base.html`` – טעינת ``variables.css``, קביעת ``data-theme`` מוקדמת וה‑Theme Wizard.
    - ``webapp/static/css/dark-mode.css`` – שימוש בטוקנים עבור רכיבי Dark/Dim/Nebula.
    - ``webapp/static/css/high-contrast.css`` – Legacy לפוקוס/Outline; הדריסות עצמן ב‑``variables.css``.
-   - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css`` – דוגמאות מעשיות לטוקנים.
+   - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css``, ``language-badges.css`` – דוגמאות מעשיות לטוקנים.
    - Issue #2097 – מפרט Theme Builder (טוקנים במיקוד, UI/Backend/API, נגישות ו‑Reset flow).
 
 לשאלות תיעוד/Testing יש לפנות לערוץ Frontend או לפתוח Issue חדש עם קישור לדף זה. הקפידו לעיין גם ב‑`FEATURE_SUGGESTIONS/css_refactor_plan.md` לפני שינויים רוחביים בקוד.
