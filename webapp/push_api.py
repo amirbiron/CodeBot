@@ -764,8 +764,12 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 continue
         if success_any:
             try:
+                # Race condition protection: only mark as sent if remind_at hasn't changed
+                # (i.e., user didn't snooze during the push). If snoozed, the new remind_at
+                # means we should NOT clear needs_push - the snoozed reminder needs its push.
+                original_remind_at = r.get("remind_at")
                 db.note_reminders.update_one(
-                    {"_id": r.get("_id")},
+                    {"_id": r.get("_id"), "remind_at": original_remind_at},
                     {"$set": {
                         "last_push_success_at": datetime.now(timezone.utc),
                         "updated_at": datetime.now(timezone.utc),
