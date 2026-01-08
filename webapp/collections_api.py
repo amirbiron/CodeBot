@@ -9,7 +9,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request, session, send_file
 from functools import wraps
 from typing import Optional, Dict, Any, List, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 import json
 import os
@@ -132,6 +132,22 @@ def _get_public_base_url() -> str:
         return f"{host_base}{script_root}".rstrip('/')
     except Exception:
         return ''
+
+
+def _build_app_url(path: str) -> str:
+    """בונה URL פנימי ל-Webapp כולל script_root (למשל /myapp/collections/...)."""
+    try:
+        script_root = str(getattr(request, "script_root", "") or "").strip()
+    except Exception:
+        script_root = ""
+    if script_root and script_root not in ("/", ""):
+        script_root = "/" + script_root.strip("/")
+    else:
+        script_root = ""
+    p = str(path or "").strip()
+    if not p.startswith("/"):
+        p = "/" + p
+    return f"{script_root}{p}"
 
 
 def _build_public_collection_url(token: str) -> str:
@@ -865,6 +881,426 @@ def export_shared_collection(token: str):
         except Exception:
             pass
         return jsonify({'ok': False, 'error': 'שגיאה בהפקת קובץ ZIP'}), 500
+
+
+# --- Shared -> Save (requires auth) ---
+
+def _safe_tags(tags: Any, *, limit: int = 50) -> List[str]:
+    if not isinstance(tags, list):
+        return []
+    out: List[str] = []
+    for t in tags:
+        try:
+            s = str(t or "").strip()
+        except Exception:
+            s = ""
+        if not s:
+            continue
+        out.append(s[:80])
+        if len(out) >= limit:
+            break
+    # הסרת כפילויות תוך שמירה על סדר
+    seen: set[str] = set()
+    return [x for x in out if not (x in seen or seen.add(x))]
+
+
+def _compute_size_and_lines(content: str) -> Tuple[int, int]:
+    if not isinstance(content, str) or not content:
+        return 0, 0
+    try:
+        size = len(content.encode("utf-8", errors="ignore"))
+    except Exception:
+        size = len(content)
+    try:
+        lines = len(content.splitlines())
+    except Exception:
+        lines = 0
+    return int(size), int(lines)
+
+
+def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) -> Dict[str, Any]:
+    """שמירת מסמך משיתוף לתוך המשתמש הנוכחי (code_snippets או large_files).
+
+    Returns:
+      {ok, action: inserted|skipped, source, file_name, inserted_id?}
+    """
+    try:
+        src = str((doc.get("source") or "regular")).lower()
+    except Exception:
+        src = "regular"
+    file_name = _sanitize_filename(str(doc.get("file_name") or ""), fallback="shared.txt")
+    content = doc.get("content")
+    if not isinstance(content, str):
+        content = str(content or "")
+    language = str(doc.get("language") or "text").strip() or "text"
+    description = str(doc.get("description") or "").strip()
+    tags = _safe_tags(doc.get("tags"))
+    now = datetime.now(timezone.utc)
+    file_size, lines_count = _compute_size_and_lines(content)
+
+    # אם large_files לא קיים בסביבה – fallback ל-code_snippets
+    large_coll = getattr(db_ref, "large_files", None)
+    if src == "large" and large_coll is None:
+        src = "regular"
+
+    if src == "large" and large_coll is not None:
+        # מניעת כפילות: אם כבר יש מסמך פעיל זהה – דלג
+        try:
+            prev = large_coll.find_one(
+                {"user_id": int(user_id), "file_name": file_name, "is_active": True},
+                sort=[("updated_at", -1), ("_id", -1)],
+            )
+        except Exception:
+            prev = None
+        try:
+            prev_content = (prev or {}).get("content")
+        except Exception:
+            prev_content = None
+        if isinstance(prev_content, str) and prev_content == content:
+            return {"ok": True, "action": "skipped", "source": "large", "file_name": file_name}
+        payload = {
+            "user_id": int(user_id),
+            "file_name": file_name,
+            "content": content,
+            "programming_language": language,
+            "description": description,
+            "tags": tags,
+            "file_size": file_size,
+            "lines_count": lines_count,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+        }
+        try:
+            res = large_coll.insert_one(payload)
+            inserted_id = str(getattr(res, "inserted_id", "") or "")
+        except Exception:
+            return {"ok": False, "error": "שמירת קובץ גדול נכשלה"}
+        return {"ok": True, "action": "inserted", "source": "large", "file_name": file_name, "inserted_id": inserted_id}
+
+    # regular
+    try:
+        prev = db_ref.code_snippets.find_one(
+            {"user_id": int(user_id), "file_name": file_name, "is_active": True},
+            sort=[("version", -1), ("updated_at", -1), ("_id", -1)],
+        )
+    except Exception:
+        prev = None
+
+    try:
+        prev_code = (prev or {}).get("code")
+    except Exception:
+        prev_code = None
+    if isinstance(prev_code, str) and prev_code == content:
+        return {"ok": True, "action": "skipped", "source": "regular", "file_name": file_name}
+
+    try:
+        prev_version = int((prev or {}).get("version", 0) or 0)
+    except Exception:
+        prev_version = 0
+    version = prev_version + 1
+
+    payload = {
+        "user_id": int(user_id),
+        "file_name": file_name,
+        "code": content,
+        "programming_language": language,
+        "description": description,
+        "tags": tags,
+        "version": int(version),
+        "file_size": file_size,
+        "lines_count": lines_count,
+        "created_at": now,
+        "updated_at": now,
+        "is_active": True,
+    }
+    try:
+        res = db_ref.code_snippets.insert_one(payload)
+        inserted_id = str(getattr(res, "inserted_id", "") or "")
+    except Exception:
+        return {"ok": False, "error": "שמירת קובץ נכשלה"}
+    return {"ok": True, "action": "inserted", "source": "regular", "file_name": file_name, "inserted_id": inserted_id}
+
+
+def _invalidate_user_collections_cache(user_id: int, *, collection_id: Optional[str] = None) -> None:
+    try:
+        uid = str(int(user_id))
+    except Exception:
+        return
+    try:
+        invalidate = getattr(cache, "invalidate_user_cache", None)
+        if callable(invalidate):
+            invalidate(int(user_id))
+    except Exception:
+        pass
+    try:
+        cache.delete_pattern(f"collections_list:{uid}:*")
+        cache.delete_pattern(f"collections_list:v2:{uid}:*")
+        cache.delete_pattern(f"collections_detail:{uid}:*")
+        cache.delete_pattern(f"collections_items:{uid}:*")
+    except Exception:
+        pass
+    if collection_id:
+        try:
+            cache.delete_pattern(f"collections_detail:{uid}:-api-collections-{collection_id}*")
+            cache.delete_pattern(f"collections_items:{uid}:-api-collections-{collection_id}-items*")
+        except Exception:
+            pass
+
+
+def _create_saved_collection_for_user(mgr, *, user_id: int, base_name: str, base_description: str = "", icon: Optional[str] = None, color: Optional[str] = None) -> Dict[str, Any]:
+    safe_base = sanitize_input(base_name or "אוסף משותף", 60).strip() or "אוסף משותף"
+    desc = (sanitize_input(base_description or "", 500) or "").strip()
+    if desc:
+        desc = f"{desc}\n\nנשמר מאוסף משותף"
+    else:
+        desc = "נשמר מאוסף משותף"
+    # נסה שמות עם סיומות כדי להימנע מהתנגשות slug
+    for i in range(0, 20):
+        suffix = " (שמור)" if i == 0 else f" (שמור {i + 1})"
+        name = (safe_base + suffix)[:80]
+        res = mgr.create_collection(
+            user_id=int(user_id),
+            name=name,
+            description=desc[:500],
+            mode="manual",
+            icon=icon,
+            color=color,
+        )
+        if res.get("ok"):
+            return res
+    return {"ok": False, "error": "לא ניתן ליצור אוסף חדש לשמירה"}
+
+
+def _resolve_workspace_collection_id(mgr, *, user_id: int) -> Optional[str]:
+    """ניסיון למצוא את אוסף 'שולחן עבודה' של המשתמש (או fallback)."""
+    try:
+        mgr.ensure_default_collections(int(user_id))
+    except Exception:
+        pass
+    # קודם חפש אוסף פעיל בשם 'שולחן עבודה'
+    try:
+        doc = mgr.collections.find_one({"user_id": int(user_id), "name": "שולחן עבודה", "is_active": True})
+    except Exception:
+        doc = None
+    # אם אין אוסף פעיל, נסה למצוא אוסף קיים ולהפעיל אותו מחדש כדי שלא נוסיף פריטים לאוסף "מחוק"/נסתר
+    if not doc:
+        try:
+            doc_any = mgr.collections.find_one({"user_id": int(user_id), "name": "שולחן עבודה"})
+        except Exception:
+            doc_any = None
+        if isinstance(doc_any, dict):
+            try:
+                cid_any = str(doc_any.get("_id") or "").strip()
+            except Exception:
+                cid_any = ""
+            if cid_any:
+                try:
+                    mgr.collections.update_one(
+                        {"_id": doc_any.get("_id"), "user_id": int(user_id)},
+                        {"$set": {"is_active": True, "updated_at": datetime.now(timezone.utc)}},
+                    )
+                except Exception:
+                    pass
+                return cid_any
+    try:
+        cid = str((doc or {}).get("_id") or "").strip()
+    except Exception:
+        cid = ""
+    if cid:
+        return cid
+
+    # אם עדיין לא נמצא: נסה ליצור אוסף חדש בשם "שולחן עבודה" (יכול להיכשל אם יש התנגשות slug/מגבלות)
+    try:
+        created_ws = mgr.create_collection(
+            user_id=int(user_id),
+            name="שולחן עבודה",
+            description="קבצים שאני עובד עליהם כרגע",
+            mode="manual",
+            icon="🖥️",
+            color="purple",
+            is_favorite=True,
+            sort_order=-1,
+        )
+    except Exception:
+        created_ws = {"ok": False}
+    if isinstance(created_ws, dict) and created_ws.get("ok"):
+        try:
+            return str((created_ws.get("collection") or {}).get("id") or "").strip() or None
+        except Exception:
+            return None
+
+    # fallback: צור אוסף "שמורים"
+    created = _create_saved_collection_for_user(mgr, user_id=int(user_id), base_name="שמורים", base_description="")
+    if created.get("ok"):
+        try:
+            return str(created.get("collection", {}).get("id") or "").strip()
+        except Exception:
+            return None
+    return None
+
+
+@collections_bp.route('/shared/<token>/save', methods=['POST'])
+@require_auth
+@traced("collections.shared_save_all")
+def save_shared_collection_to_webapp(token: str):
+    """שמירת כל האוסף המשותף ב-Webapp (יוצר אוסף חדש אצל המשתמש ומעתיק את הקבצים)."""
+    try:
+        user_id = int(session["user_id"])
+        db_ref = get_db()
+        mgr = get_manager()
+
+        docs_res = mgr.collect_shared_documents(token)
+        if not docs_res.get("ok"):
+            error_message = docs_res.get("error", "שגיאה בשמירה")
+            status = 404 if error_message == "לא נמצא" else 500
+            return jsonify({"ok": False, "error": error_message}), status
+
+        shared_collection = docs_res.get("collection") or {}
+        documents: List[Dict[str, Any]] = list(docs_res.get("documents") or [])
+        if not documents:
+            return jsonify({"ok": False, "error": "אין קבצים זמינים לשמירה"}), 404
+
+        created = _create_saved_collection_for_user(
+            mgr,
+            user_id=user_id,
+            base_name=str(shared_collection.get("name") or "אוסף משותף"),
+            base_description=str(shared_collection.get("description") or ""),
+            icon=shared_collection.get("icon"),
+            color=shared_collection.get("color"),
+        )
+        if not created.get("ok"):
+            return jsonify({"ok": False, "error": created.get("error") or "שגיאה ביצירת אוסף"}), 400
+        dest_collection = created.get("collection") or {}
+        dest_collection_id = str(dest_collection.get("id") or "").strip()
+        if not dest_collection_id:
+            return jsonify({"ok": False, "error": "שגיאה ביצירת אוסף"}), 500
+
+        inserted = 0
+        skipped = 0
+        items_to_add: List[Dict[str, Any]] = []
+
+        for doc in documents:
+            if not isinstance(doc, dict):
+                continue
+            saved = _save_shared_document_to_user(db_ref, user_id=user_id, doc=doc)
+            if not saved.get("ok"):
+                continue
+            action = saved.get("action")
+            if action == "inserted":
+                inserted += 1
+            else:
+                skipped += 1
+            items_to_add.append({"source": saved.get("source") or "regular", "file_name": saved.get("file_name") or ""})
+
+        if items_to_add:
+            try:
+                mgr.add_items(user_id, dest_collection_id, items_to_add)
+            except Exception:
+                pass
+
+        _invalidate_user_collections_cache(user_id, collection_id=dest_collection_id)
+
+        return jsonify({
+            "ok": True,
+            "saved": int(inserted),
+            "skipped": int(skipped),
+            "collection_id": dest_collection_id,
+            "collection_url": _build_app_url(f"/collections/{dest_collection_id}"),
+            "message": f"נשמר בהצלחה ({int(inserted) + int(skipped)} קבצים)",
+        })
+    except Exception as e:
+        rid = _get_request_id()
+        uid = session.get("user_id")
+        try:
+            emit_event(
+                "collections_shared_save_all_error",
+                severity="anomaly",
+                operation="collections.shared_save_all",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid else None,
+                token=str(token),
+                error=str(e),
+            )
+        except Exception:
+            pass
+        logger.error("Error saving shared collection: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": "שגיאה בשמירת האוסף"}), 500
+
+
+@collections_bp.route('/shared/<token>/files/<file_id>/save', methods=['POST'])
+@require_auth
+@traced("collections.shared_save_file")
+def save_shared_file_to_webapp(token: str, file_id: str):
+    """שמירת קובץ בודד מהאוסף המשותף ב-Webapp (לתוך אוסף 'שולחן עבודה' כברירת מחדל)."""
+    try:
+        user_id = int(session["user_id"])
+        db_ref = get_db()
+        mgr = get_manager()
+
+        details = mgr.get_shared_file_details(token, file_id)
+        if not details.get("ok"):
+            error_message = details.get("error", "שגיאה בשמירה")
+            status = 404 if error_message == "לא נמצא" else 500
+            return jsonify({"ok": False, "error": error_message}), status
+
+        file_payload = details.get("file") or {}
+        if not isinstance(file_payload, dict):
+            return jsonify({"ok": False, "error": "שגיאה בשמירה"}), 500
+
+        doc = {
+            "file_name": file_payload.get("file_name"),
+            "content": file_payload.get("content") or "",
+            "language": file_payload.get("language") or "text",
+            "description": file_payload.get("description") or "",
+            "tags": file_payload.get("tags") or [],
+            "source": file_payload.get("source") or "regular",
+        }
+        saved = _save_shared_document_to_user(db_ref, user_id=user_id, doc=doc)
+        if not saved.get("ok"):
+            return jsonify({"ok": False, "error": saved.get("error") or "שמירת קובץ נכשלה"}), 500
+
+        workspace_id = _resolve_workspace_collection_id(mgr, user_id=user_id)
+        if workspace_id:
+            try:
+                mgr.add_items(user_id, workspace_id, [{"source": saved.get("source") or "regular", "file_name": saved.get("file_name") or ""}])
+            except Exception:
+                pass
+            _invalidate_user_collections_cache(user_id, collection_id=workspace_id)
+            collection_url = _build_app_url(f"/collections/{workspace_id}")
+            msg_suffix = "לאוסף שולחן עבודה"
+        else:
+            _invalidate_user_collections_cache(user_id)
+            collection_url = _build_app_url("/collections")
+            msg_suffix = "לחשבון"
+
+        return jsonify({
+            "ok": True,
+            "file_name": saved.get("file_name"),
+            "action": saved.get("action"),
+            "collection_url": collection_url,
+            "message": f"נשמר בהצלחה {msg_suffix}",
+        })
+    except Exception as e:
+        rid = _get_request_id()
+        uid = session.get("user_id")
+        try:
+            emit_event(
+                "collections_shared_save_file_error",
+                severity="anomaly",
+                operation="collections.shared_save_file",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid else None,
+                token=str(token),
+                file_id=str(file_id),
+                error=str(e),
+            )
+        except Exception:
+            pass
+        logger.error("Error saving shared file: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": "שגיאה בשמירת הקובץ"}), 500
 
 
 # ==================== Error Handlers ====================
