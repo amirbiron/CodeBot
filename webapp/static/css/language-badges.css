@@ -1,0 +1,549 @@
+/* ============================================
+   Language Badges - Colored Tags for Programming Languages
+   ============================================
+   
+   Design Principles:
+   1. Each language has a fixed HUE value (brand color)
+   2. Saturation/Lightness adapt per theme (light/dark)
+   3. Text color is auto-calculated for readability
+   4. Fallback to default badge style for unknown languages
+*/
+
+/* ============================================
+   Base Variables - Light Themes Default
+   ============================================ */
+:root {
+    /* Base modifiers for light themes */
+    --lang-badge-saturation: 60%;
+    --lang-badge-lightness-bg: 92%;
+    --lang-badge-lightness-border: 65%;
+    --lang-badge-lightness-text: 25%;
+    
+    /* Language Hue values (brand colors) */
+    --lang-hue-python: 48;      /* Yellow-Gold */
+    --lang-hue-javascript: 50;  /* Yellow */
+    --lang-hue-typescript: 210; /* Blue */
+    --lang-hue-java: 20;        /* Orange-Red */
+    --lang-hue-cpp: 220;        /* Deep Blue */
+    --lang-hue-c: 200;          /* Steel Blue */
+    --lang-hue-csharp: 280;     /* Purple */
+    --lang-hue-go: 190;         /* Cyan */
+    --lang-hue-rust: 25;        /* Orange-Brown */
+    --lang-hue-ruby: 0;         /* Red */
+    --lang-hue-php: 240;        /* Purple-Blue */
+    --lang-hue-swift: 30;       /* Orange */
+    --lang-hue-kotlin: 285;     /* Violet */
+    --lang-hue-html: 15;        /* Red-Orange */
+    --lang-hue-css: 205;        /* Sky Blue */
+    --lang-hue-sql: 35;         /* Amber */
+    --lang-hue-bash: 120;       /* Green */
+    --lang-hue-shell: 140;      /* Teal-Green */
+    --lang-hue-dockerfile: 195; /* Docker Blue */
+    --lang-hue-yaml: 10;        /* Red */
+    --lang-hue-json: 80;        /* Yellow-Green */
+    --lang-hue-xml: 28;         /* Orange */
+    --lang-hue-markdown: 270;   /* Purple */
+    --lang-hue-text: 0;         /* Neutral (gray) */
+    --lang-hue-vue: 155;        /* Vue Green */
+    --lang-hue-react: 195;      /* React Blue */
+    --lang-hue-angular: 350;    /* Angular Red */
+    --lang-hue-svelte: 15;      /* Svelte Orange */
+    --lang-hue-scala: 0;        /* Scala Red */
+    --lang-hue-haskell: 265;    /* Haskell Purple */
+    --lang-hue-lua: 230;        /* Lua Blue */
+    --lang-hue-perl: 205;       /* Perl Blue */
+    --lang-hue-r: 220;          /* R Blue */
+    --lang-hue-dart: 195;       /* Dart Blue */
+    --lang-hue-elixir: 270;     /* Elixir Purple */
+    --lang-hue-erlang: 350;     /* Erlang Red */
+    --lang-hue-clojure: 200;    /* Clojure Cyan */
+    --lang-hue-fsharp: 210;     /* F# Blue */
+    --lang-hue-powershell: 210; /* PowerShell Blue */
+    --lang-hue-toml: 30;        /* TOML Orange */
+    --lang-hue-ini: 40;         /* INI Yellow */
+    --lang-hue-env: 130;        /* Env Green */
+    --lang-hue-dotenv: 130;     /* Dotenv Green */
+    --lang-hue-gitignore: 0;    /* Git Red */
+    --lang-hue-dockerfile: 195; /* Docker Blue */
+    --lang-hue-makefile: 45;    /* Make Yellow */
+    --lang-hue-cmake: 200;      /* CMake Blue */
+    --lang-hue-groovy: 185;     /* Groovy Teal */
+    --lang-hue-graphql: 320;    /* GraphQL Pink */
+    --lang-hue-protobuf: 195;   /* Protobuf Blue */
+}
+
+/* ============================================
+   Dark Theme Modifiers
+   ============================================ */
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"] {
+    --lang-badge-saturation: 55%;
+    --lang-badge-lightness-bg: 18%;
+    --lang-badge-lightness-border: 35%;
+    --lang-badge-lightness-text: 80%;
+}
+
+/* ============================================
+   Ocean Theme Modifiers
+   ============================================ */
+:root[data-theme="ocean"] {
+    --lang-badge-saturation: 50%;
+    --lang-badge-lightness-bg: 22%;
+    --lang-badge-lightness-border: 40%;
+    --lang-badge-lightness-text: 85%;
+}
+
+/* ============================================
+   Forest Theme Modifiers
+   ============================================ */
+:root[data-theme="forest"] {
+    --lang-badge-saturation: 45%;
+    --lang-badge-lightness-bg: 20%;
+    --lang-badge-lightness-border: 38%;
+    --lang-badge-lightness-text: 82%;
+}
+
+/* ============================================
+   Rose Pine Dawn Theme Modifiers (Light)
+   ============================================ */
+:root[data-theme="rose-pine-dawn"] {
+    --lang-badge-saturation: 40%;
+    --lang-badge-lightness-bg: 88%;
+    --lang-badge-lightness-border: 60%;
+    --lang-badge-lightness-text: 30%;
+}
+
+/* ============================================
+   Classic Theme Modifiers
+   ============================================ */
+:root[data-theme="classic"] {
+    --lang-badge-saturation: 65%;
+    --lang-badge-lightness-bg: 88%;
+    --lang-badge-lightness-border: 55%;
+    --lang-badge-lightness-text: 28%;
+}
+
+/* ============================================
+   High Contrast Theme Modifiers
+   ============================================ */
+:root[data-theme="high-contrast"] {
+    --lang-badge-saturation: 100%;
+    --lang-badge-lightness-bg: 10%;
+    --lang-badge-lightness-border: 60%;
+    --lang-badge-lightness-text: 100%;
+}
+
+/* ============================================
+   Custom/Shared Theme Modifiers
+   ============================================ */
+:root[data-theme="custom"],
+:root[data-theme^="shared:"] {
+    --lang-badge-saturation: 50%;
+    --lang-badge-lightness-bg: 20%;
+    --lang-badge-lightness-border: 40%;
+    --lang-badge-lightness-text: 85%;
+}
+
+/* ============================================
+   Base Lang Badge Style
+   ============================================ */
+.lang-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    /* Default: neutral gray */
+    background: hsl(0, 0%, var(--lang-badge-lightness-bg));
+    border: 1px solid hsl(0, 0%, var(--lang-badge-lightness-border));
+    color: hsl(0, 0%, var(--lang-badge-lightness-text));
+}
+
+.lang-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+/* Icon inside badge */
+.lang-badge .lang-icon {
+    font-size: 0.9em;
+}
+
+/* ============================================
+   Language-Specific Styles
+   ============================================ */
+
+/* Python */
+.lang-badge[data-lang="python"],
+.lang-badge.lang-python {
+    background: hsl(var(--lang-hue-python), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-python), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-python), 30%, var(--lang-badge-lightness-text));
+}
+
+/* JavaScript */
+.lang-badge[data-lang="javascript"],
+.lang-badge.lang-javascript,
+.lang-badge[data-lang="js"],
+.lang-badge.lang-js {
+    background: hsl(var(--lang-hue-javascript), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-javascript), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-javascript), 30%, var(--lang-badge-lightness-text));
+}
+
+/* TypeScript */
+.lang-badge[data-lang="typescript"],
+.lang-badge.lang-typescript,
+.lang-badge[data-lang="ts"],
+.lang-badge.lang-ts {
+    background: hsl(var(--lang-hue-typescript), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-typescript), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-typescript), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Java */
+.lang-badge[data-lang="java"],
+.lang-badge.lang-java {
+    background: hsl(var(--lang-hue-java), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-java), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-java), 30%, var(--lang-badge-lightness-text));
+}
+
+/* C++ */
+.lang-badge[data-lang="cpp"],
+.lang-badge.lang-cpp,
+.lang-badge[data-lang="c++"],
+.lang-badge.lang-c\+\+ {
+    background: hsl(var(--lang-hue-cpp), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-cpp), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-cpp), 30%, var(--lang-badge-lightness-text));
+}
+
+/* C */
+.lang-badge[data-lang="c"],
+.lang-badge.lang-c {
+    background: hsl(var(--lang-hue-c), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-c), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-c), 30%, var(--lang-badge-lightness-text));
+}
+
+/* C# */
+.lang-badge[data-lang="csharp"],
+.lang-badge.lang-csharp,
+.lang-badge[data-lang="c#"],
+.lang-badge.lang-c\# {
+    background: hsl(var(--lang-hue-csharp), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-csharp), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-csharp), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Go */
+.lang-badge[data-lang="go"],
+.lang-badge.lang-go,
+.lang-badge[data-lang="golang"],
+.lang-badge.lang-golang {
+    background: hsl(var(--lang-hue-go), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-go), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-go), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Rust */
+.lang-badge[data-lang="rust"],
+.lang-badge.lang-rust {
+    background: hsl(var(--lang-hue-rust), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-rust), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-rust), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Ruby */
+.lang-badge[data-lang="ruby"],
+.lang-badge.lang-ruby {
+    background: hsl(var(--lang-hue-ruby), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-ruby), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-ruby), 30%, var(--lang-badge-lightness-text));
+}
+
+/* PHP */
+.lang-badge[data-lang="php"],
+.lang-badge.lang-php {
+    background: hsl(var(--lang-hue-php), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-php), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-php), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Swift */
+.lang-badge[data-lang="swift"],
+.lang-badge.lang-swift {
+    background: hsl(var(--lang-hue-swift), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-swift), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-swift), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Kotlin */
+.lang-badge[data-lang="kotlin"],
+.lang-badge.lang-kotlin {
+    background: hsl(var(--lang-hue-kotlin), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-kotlin), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-kotlin), 30%, var(--lang-badge-lightness-text));
+}
+
+/* HTML */
+.lang-badge[data-lang="html"],
+.lang-badge.lang-html {
+    background: hsl(var(--lang-hue-html), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-html), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-html), 30%, var(--lang-badge-lightness-text));
+}
+
+/* CSS */
+.lang-badge[data-lang="css"],
+.lang-badge.lang-css {
+    background: hsl(var(--lang-hue-css), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-css), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-css), 30%, var(--lang-badge-lightness-text));
+}
+
+/* SQL */
+.lang-badge[data-lang="sql"],
+.lang-badge.lang-sql {
+    background: hsl(var(--lang-hue-sql), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-sql), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-sql), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Bash */
+.lang-badge[data-lang="bash"],
+.lang-badge.lang-bash {
+    background: hsl(var(--lang-hue-bash), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-bash), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-bash), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Shell */
+.lang-badge[data-lang="shell"],
+.lang-badge.lang-shell,
+.lang-badge[data-lang="sh"],
+.lang-badge.lang-sh {
+    background: hsl(var(--lang-hue-shell), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-shell), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-shell), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Dockerfile */
+.lang-badge[data-lang="dockerfile"],
+.lang-badge.lang-dockerfile,
+.lang-badge[data-lang="docker"],
+.lang-badge.lang-docker {
+    background: hsl(var(--lang-hue-dockerfile), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-dockerfile), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-dockerfile), 30%, var(--lang-badge-lightness-text));
+}
+
+/* YAML */
+.lang-badge[data-lang="yaml"],
+.lang-badge.lang-yaml,
+.lang-badge[data-lang="yml"],
+.lang-badge.lang-yml {
+    background: hsl(var(--lang-hue-yaml), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-yaml), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-yaml), 30%, var(--lang-badge-lightness-text));
+}
+
+/* JSON */
+.lang-badge[data-lang="json"],
+.lang-badge.lang-json {
+    background: hsl(var(--lang-hue-json), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-json), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-json), 30%, var(--lang-badge-lightness-text));
+}
+
+/* XML */
+.lang-badge[data-lang="xml"],
+.lang-badge.lang-xml {
+    background: hsl(var(--lang-hue-xml), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-xml), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-xml), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Markdown */
+.lang-badge[data-lang="markdown"],
+.lang-badge.lang-markdown,
+.lang-badge[data-lang="md"],
+.lang-badge.lang-md {
+    background: hsl(var(--lang-hue-markdown), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-markdown), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-markdown), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Text/Plain */
+.lang-badge[data-lang="text"],
+.lang-badge.lang-text,
+.lang-badge[data-lang="plain"],
+.lang-badge.lang-plain {
+    background: hsl(0, 0%, var(--lang-badge-lightness-bg));
+    border-color: hsl(0, 0%, var(--lang-badge-lightness-border));
+    color: hsl(0, 0%, var(--lang-badge-lightness-text));
+}
+
+/* Vue */
+.lang-badge[data-lang="vue"],
+.lang-badge.lang-vue {
+    background: hsl(var(--lang-hue-vue), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-vue), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-vue), 30%, var(--lang-badge-lightness-text));
+}
+
+/* React (JSX/TSX) */
+.lang-badge[data-lang="jsx"],
+.lang-badge.lang-jsx,
+.lang-badge[data-lang="tsx"],
+.lang-badge.lang-tsx,
+.lang-badge[data-lang="react"],
+.lang-badge.lang-react {
+    background: hsl(var(--lang-hue-react), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-react), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-react), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Scala */
+.lang-badge[data-lang="scala"],
+.lang-badge.lang-scala {
+    background: hsl(var(--lang-hue-scala), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-scala), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-scala), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Haskell */
+.lang-badge[data-lang="haskell"],
+.lang-badge.lang-haskell {
+    background: hsl(var(--lang-hue-haskell), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-haskell), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-haskell), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Lua */
+.lang-badge[data-lang="lua"],
+.lang-badge.lang-lua {
+    background: hsl(var(--lang-hue-lua), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-lua), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-lua), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Perl */
+.lang-badge[data-lang="perl"],
+.lang-badge.lang-perl {
+    background: hsl(var(--lang-hue-perl), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-perl), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-perl), 30%, var(--lang-badge-lightness-text));
+}
+
+/* R */
+.lang-badge[data-lang="r"],
+.lang-badge.lang-r {
+    background: hsl(var(--lang-hue-r), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-r), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-r), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Dart */
+.lang-badge[data-lang="dart"],
+.lang-badge.lang-dart {
+    background: hsl(var(--lang-hue-dart), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-dart), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-dart), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Elixir */
+.lang-badge[data-lang="elixir"],
+.lang-badge.lang-elixir {
+    background: hsl(var(--lang-hue-elixir), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-elixir), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-elixir), 30%, var(--lang-badge-lightness-text));
+}
+
+/* PowerShell */
+.lang-badge[data-lang="powershell"],
+.lang-badge.lang-powershell,
+.lang-badge[data-lang="ps1"],
+.lang-badge.lang-ps1 {
+    background: hsl(var(--lang-hue-powershell), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-powershell), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-powershell), 30%, var(--lang-badge-lightness-text));
+}
+
+/* TOML */
+.lang-badge[data-lang="toml"],
+.lang-badge.lang-toml {
+    background: hsl(var(--lang-hue-toml), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-toml), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-toml), 30%, var(--lang-badge-lightness-text));
+}
+
+/* INI */
+.lang-badge[data-lang="ini"],
+.lang-badge.lang-ini {
+    background: hsl(var(--lang-hue-ini), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-ini), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-ini), 30%, var(--lang-badge-lightness-text));
+}
+
+/* ENV/Dotenv */
+.lang-badge[data-lang="env"],
+.lang-badge.lang-env,
+.lang-badge[data-lang="dotenv"],
+.lang-badge.lang-dotenv {
+    background: hsl(var(--lang-hue-env), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-env), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-env), 30%, var(--lang-badge-lightness-text));
+}
+
+/* Gitignore */
+.lang-badge[data-lang="gitignore"],
+.lang-badge.lang-gitignore {
+    background: hsl(var(--lang-hue-gitignore), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-gitignore), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-gitignore), 30%, var(--lang-badge-lightness-text));
+}
+
+/* GraphQL */
+.lang-badge[data-lang="graphql"],
+.lang-badge.lang-graphql,
+.lang-badge[data-lang="gql"],
+.lang-badge.lang-gql {
+    background: hsl(var(--lang-hue-graphql), var(--lang-badge-saturation), var(--lang-badge-lightness-bg));
+    border-color: hsl(var(--lang-hue-graphql), var(--lang-badge-saturation), var(--lang-badge-lightness-border));
+    color: hsl(var(--lang-hue-graphql), 30%, var(--lang-badge-lightness-text));
+}
+
+/* ============================================
+   Compact Size Variant
+   ============================================ */
+.lang-badge.lang-badge-sm {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 12px;
+}
+
+/* ============================================
+   Pill (rounded) Variant - extra round
+   ============================================ */
+.lang-badge.lang-badge-pill {
+    border-radius: 999px;
+}
+
+/* ============================================
+   Accessibility: Respect reduced-motion
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+    .lang-badge {
+        transition: none;
+    }
+    .lang-badge:hover {
+        transform: none;
+    }
+}

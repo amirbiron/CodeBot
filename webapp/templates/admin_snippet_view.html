@@ -15,8 +15,8 @@
     <div class="alert alert-warning">הפריט לא נמצא.</div>
   {% else %}
     <h3 style="margin-top:0;">{{ item.title }}</h3>
-    <div class="text-muted" style="margin-bottom:.5rem;">
-      {{ item.language }}{% if item.username %} · נוסף על ידי @{{ item.username }}{% endif %}
+    <div class="text-muted" style="margin-bottom:.5rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+      <span class="lang-badge lang-badge-sm" data-lang="{{ item.language|lower }}">{{ item.language }}</span>{% if item.username %}<span>· נוסף על ידי @{{ item.username }}</span>{% endif %}
     </div>
     {% if item.description %}<p>{{ item.description }}</p>{% endif %}
     <pre class="code-block"><code class="language-{{ item.language|e }}" dir="ltr">{{ item.code }}</code></pre>
