@@ -442,6 +442,12 @@ def unsubscribe():
 _sender_started = False
 _sender_lock_fh = None  # type: ignore
 
+# Legacy scan (documents without needs_push) is only required during migration windows.
+# After backfilling needs_push for all documents, continuing to run the legacy branch
+# can cause a COLLSCAN and produce 2 slow-query alerts per loop.
+_legacy_scan_cached_has_missing: Optional[bool] = None
+_legacy_scan_cached_at_ts: float = 0.0
+
 
 def start_sender_if_enabled() -> None:
     global _sender_started
@@ -548,38 +554,69 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
 
     # 2) Legacy documents (best-effort, limited)
     if len(due) < raw_limit:
+        # Auto-disable legacy scan once the collection is migrated (no documents missing needs_push).
+        # Cache the presence check so we don't add another frequent query.
+        legacy_scan_enabled = True
         try:
-            legacy_limit = max(1, raw_limit - len(due))
-            legacy_filter = dict(base_filter)
-            legacy_filter["needs_push"] = {"$exists": False}
-            legacy_filter["$or"] = [
-                {"last_push_success_at": {"$exists": False}},
-                {"last_push_success_at": None},
-                {
-                    "$and": [
-                        {"last_push_success_at": {"$type": "date"}},
-                        {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
-                    ]
-                },
-            ]
-            legacy_raw = list(
-                db.note_reminders.find(legacy_filter, projection).sort("remind_at", 1).limit(legacy_limit)
-            )
-            # Merge & de-dup by _id
-            seen = {str(d.get("_id")) for d in due if d.get("_id") is not None}
-            for r in legacy_raw:
-                if not isinstance(r, dict):
-                    continue
-                rid = r.get("_id")
-                if rid is None:
-                    continue
-                s = str(rid)
-                if s in seen:
-                    continue
-                seen.add(s)
-                due.append(r)
+            raw = (os.getenv("PUSH_LEGACY_SCAN_ENABLED") or "").strip().lower()
+            if raw in {"0", "false", "no", "off"}:
+                legacy_scan_enabled = False
         except Exception:
             pass
+
+        if legacy_scan_enabled:
+            global _legacy_scan_cached_has_missing, _legacy_scan_cached_at_ts
+            try:
+                import time
+                ttl = max(30, int(os.getenv("PUSH_LEGACY_SCAN_CHECK_TTL_SECONDS", "600") or "600"))
+                now_ts = float(time.time())
+                if _legacy_scan_cached_has_missing is None or (now_ts - float(_legacy_scan_cached_at_ts or 0.0)) > float(ttl):
+                    # Use find_one to minimize work; if no doc exists, migration is done.
+                    missing = db.note_reminders.find_one({"needs_push": {"$exists": False}}, {"_id": 1})
+                    _legacy_scan_cached_has_missing = bool(missing)
+                    _legacy_scan_cached_at_ts = now_ts
+                if _legacy_scan_cached_has_missing is False:
+                    legacy_scan_enabled = False
+            except Exception:
+                # Fail-open: if we can't check, keep legacy scan enabled for safety.
+                legacy_scan_enabled = True
+
+        if not legacy_scan_enabled:
+            # No legacy docs -> skip legacy query to avoid COLLSCAN and duplicate alerts.
+            pass
+        else:
+            try:
+                legacy_limit = max(1, raw_limit - len(due))
+                legacy_filter = dict(base_filter)
+                legacy_filter["needs_push"] = {"$exists": False}
+                legacy_filter["$or"] = [
+                    {"last_push_success_at": {"$exists": False}},
+                    {"last_push_success_at": None},
+                    {
+                        "$and": [
+                            {"last_push_success_at": {"$type": "date"}},
+                            {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+                        ]
+                    },
+                ]
+                legacy_raw = list(
+                    db.note_reminders.find(legacy_filter, projection).sort("remind_at", 1).limit(legacy_limit)
+                )
+                # Merge & de-dup by _id
+                seen = {str(d.get("_id")) for d in due if d.get("_id") is not None}
+                for r in legacy_raw:
+                    if not isinstance(r, dict):
+                        continue
+                    rid = r.get("_id")
+                    if rid is None:
+                        continue
+                    s = str(rid)
+                    if s in seen:
+                        continue
+                    seen.add(s)
+                    due.append(r)
+            except Exception:
+                pass
 
     # Keep global order by remind_at after merging new+legacy lists.
     # Otherwise, early legacy reminders can be pushed after later "new" reminders.
