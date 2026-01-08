@@ -529,6 +529,8 @@
 יחסים בין אוספים
 ------------------
 
+**דיאגרמת יחסים בסיסית:**
+
 .. mermaid::
 
    erDiagram
@@ -543,9 +545,87 @@
        large_files ||--o{ collections : "referenced_by"
 
 **הערות:**
+
 - ``bookmarks.file_id`` יכול להצביע על ``code_snippets._id`` או ``large_files._id``
 - ``collections.items[].file_id`` יכול להצביע על ``code_snippets._id`` או ``large_files._id``
 - אין Foreign Key constraints ב-MongoDB - יש לבדוק תקינות בקוד
+
+סכמת מערכת Observability - התראות ומטריקות
+-------------------------------------------
+
+הדיאגרמה הבאה מציגה את מבנה הנתונים עבור מערכת המוניטור וההתראות:
+
+.. mermaid::
+
+   erDiagram
+       METRICS ||--o{ ALERTS : triggers
+       METRICS {
+           string request_id PK
+           datetime timestamp
+           string metric_type
+           string operation
+           string status
+           float value
+           json metadata
+           string user_id FK
+           string error_code
+       }
+
+       ALERTS ||--o{ ALERT_ACTIONS : has
+       ALERTS {
+           string alert_id PK
+           datetime timestamp
+           string severity
+           string alert_type
+           string title
+           text description
+           array affected_services
+           json metrics_snapshot
+           datetime resolved_at
+       }
+
+       ALERT_ACTIONS {
+           int id PK
+           string alert_id FK
+           string action_type
+           text suggestion
+           string runbook_url
+       }
+
+       CODE_DUPLICATES ||--|| FILES : references
+       CODE_DUPLICATES {
+           string duplicate_id PK
+           datetime detection_time
+           string file1
+           int file1_start_line
+           int file1_end_line
+           string file2
+           int file2_start_line
+           int file2_end_line
+           float similarity_score
+           string detection_method
+       }
+
+       METRICS_AGGREGATES ||--|| METRICS : summarizes
+       METRICS_AGGREGATES {
+           int id PK
+           datetime period_start
+           datetime period_end
+           string operation
+           int total_requests
+           int success_count
+           int error_count
+           float avg_latency_ms
+           float p95_latency_ms
+       }
+
+**הסבר הטבלאות:**
+
+- **METRICS**: מטריקות גולמיות לכל בקשה (latency, status, errors)
+- **ALERTS**: התראות שנוצרו על סמך ניתוח המטריקות
+- **ALERT_ACTIONS**: פעולות מומלצות לכל התראה (suggestions, runbooks)
+- **CODE_DUPLICATES**: זיהוי קוד כפול בין קבצים
+- **METRICS_AGGREGATES**: אגרגציות תקופתיות של המטריקות
 
 Best Practices
 --------------
