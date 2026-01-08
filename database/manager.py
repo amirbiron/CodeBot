@@ -635,6 +635,17 @@ class DatabaseManager:
                 if bool(unique) != existing_unique:
                     return False
 
+                # partialFilterExpression: partial index vs non-partial are different indexes
+                existing_partial = idx.get("partialFilterExpression")
+                if partial_filter_expression is not None:
+                    # We want a partial index - existing must have same filter
+                    if existing_partial != partial_filter_expression:
+                        return False
+                else:
+                    # We want a non-partial index - existing must not be partial
+                    if existing_partial is not None:
+                        return False
+
                 return True
             except Exception:
                 return False
