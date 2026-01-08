@@ -215,22 +215,11 @@ html {
     }
 }
 
-/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה
-   - בתצוגה בסיסית (Pygments): גלילה על ה-container
-   - בתצוגה מתקדמת (CodeMirror): גלילה פנימית בתוך העורך כדי שה-toolbar יישאר תמיד נגיש */
-#codeCard:fullscreen:not(.is-advanced) .code-container {
-    height: calc(100vh - 120px);
-    overflow: auto;
-}
-
-#codeCard:fullscreen.is-advanced .code-container {
-    /* במסך מלא נוח לשמור גלילה פנימית בתוך הכרטיס */
-    height: calc(100vh - 120px);
-    overflow: auto;
-}
-
-#codeCard:fullscreen.is-advanced #codeMirrorContainer {
-    width: 100%;
+/* מסך מלא: משאירים גלילה "אינסופית" של הדפדפן (ללא גובה קשיח).
+   אחרת, height קשיח עלול לגרום לכך שלא מגיעים ממש לשורות האחרונות. */
+#codeCard:fullscreen .code-container {
+    height: auto;
+    overflow: visible;
 }
 
 /* View Mode: CodeMirror (תצוגה מתקדמת) */
@@ -244,13 +233,14 @@ html {
     overflow: visible;
 }
 
+/* במסך מלא (כמו מחוץ למסך מלא): תן ל-CodeMirror להתארך לפי התוכן */
 #codeCard:fullscreen #codeMirrorContainer .cm-editor {
-    height: 100%;
+    height: auto;
     max-height: none;
 }
-
 #codeCard:fullscreen #codeMirrorContainer .cm-scroller {
-    height: 100%;
+    height: auto;
+    overflow: visible;
 }
 
 .file-header {
