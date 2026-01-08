@@ -880,7 +880,7 @@ async def test_back_after_view_menu_builds(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_handle_view_file_html_respects_4096(monkeypatch):
-    # Ensure handle_view_file trims safely after HTML escaping
+    # Ensure handle_view_file trims safely and stays <= 4096.
     import types
 
     long_code = "<" * 8000  # expands significantly when escaped (&lt;)
@@ -923,15 +923,16 @@ async def test_handle_view_file_html_respects_4096(monkeypatch):
     from handlers.file_view import handle_view_file
     u = U()
     await handle_view_file(u, ctx)
-    assert u.callback_query.captured_mode == 'HTML'
+    # We now prefer MarkdownV2 with a language-tagged code block for syntax highlighting
+    assert u.callback_query.captured_mode == 'MarkdownV2'
     assert u.callback_query.captured_text is not None
     assert len(u.callback_query.captured_text) <= 4096
-    assert '<pre><code>' in u.callback_query.captured_text
+    assert '```html' in u.callback_query.captured_text
 
 
 @pytest.mark.asyncio
 async def test_handle_view_version_html_respects_4096(monkeypatch):
-    # Ensure handle_view_version trims safely after HTML escaping
+    # Ensure handle_view_version trims safely and stays <= 4096.
     import types, sys
 
     big = "<" * 10000
@@ -970,10 +971,11 @@ async def test_handle_view_version_html_respects_4096(monkeypatch):
     u = U()
     ctx = types.SimpleNamespace(user_data={})
     await handle_view_version(u, ctx)
-    assert u.callback_query.captured_mode == 'HTML'
+    # We now prefer MarkdownV2 with a language-tagged code block for syntax highlighting
+    assert u.callback_query.captured_mode == 'MarkdownV2'
     assert u.callback_query.captured_text is not None
     assert len(u.callback_query.captured_text) <= 4096
-    assert '<pre><code>' in u.callback_query.captured_text
+    assert '```html' in u.callback_query.captured_text
 
 
 @pytest.mark.asyncio

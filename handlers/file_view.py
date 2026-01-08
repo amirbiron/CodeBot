@@ -524,9 +524,9 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             language_lower = str(language or "").lower()
         except Exception:
             language_lower = ""
-        # העדף MarkdownV2 כמעט תמיד כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח.
-        # את הרצף ``` בתוך הקוד נשבור בצורה בטוחה כדי לא לסגור את הבלוק.
-        if True:
+        # העדף MarkdownV2 כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח.
+        # חריג: קבצי Markdown נשארים ב-HTML כדי לא לשבור תצוגת Markdown טבעית.
+        if not is_markdown_language:
             try:
                 safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=2)
                 safe_language_md = TextUtils.escape_markdown(str(language), version=2)
@@ -1295,9 +1295,11 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             file_name_lower = str(file_name).lower()
         except Exception:
             file_name_lower = ""
-        # העדף MarkdownV2 לכל קובץ שאינו "גדול", כדי לקבל תווית שפה + הדגשת תחביר.
-        # אם יש ``` בתוך התוכן נשבור אותו בצורה בטוחה.
-        prefer_markdown = (not is_large_file)
+        # העדף MarkdownV2 כדי לקבל תווית שפה + הדגשת תחביר.
+        # חריגים:
+        # - קבצים גדולים: עדיף HTML כדי לשמור עקביות בטעינה מדורגת/כפתור "הצג עוד"
+        # - קבצי Markdown: עדיף HTML כדי לא לאבד תצוגת Markdown טבעית
+        prefer_markdown = (not is_large_file) and (not is_markdown_language)
 
         if prefer_markdown:
             try:
