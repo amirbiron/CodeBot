@@ -550,7 +550,9 @@
 .shared-item-badge{display:inline-flex;align-items:center;gap:.3rem;background:var(--collections-badge-pinned-bg);color:var(--collections-badge-pinned-text);border-radius:999px;padding:.2rem .75rem;font-size:.85rem}
 .shared-item-note{margin:0;color:var(--collections-secondary-text);font-size:.95rem;line-height:1.6;word-break:break-word}
 .shared-item-meta{color:var(--collections-muted);font-size:.85rem;line-height:1.4;word-break:break-word}
-.shared-item-actions{display:flex;gap:.5rem;flex-wrap:wrap}
+.shared-item-actions{display:flex;flex-direction:column;align-items:flex-end;gap:.35rem}
+.shared-item-actions-meta{color:var(--collections-muted);font-size:.85rem;line-height:1.2}
+.shared-item-actions-buttons{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end}
 .shared-item-actions button{background:var(--collections-accent-bg);border:1px solid var(--collections-accent-border);border-radius:8px;color:var(--collections-badge-link-text);padding:.25rem .6rem;font-size:.85rem;cursor:pointer;transition:background .2s,transform .2s}
 .shared-item-actions button:hover{background:var(--collections-btn-hover-bg);transform:translateY(-1px)}
 @media(max-width:600px){

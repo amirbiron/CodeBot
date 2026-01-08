@@ -186,10 +186,8 @@
       const share = item && item.share ? item.share : {};
       const badges = pinned ? '<span class="shared-item-badge">📌 מוצמד</span>' : '';
       const canSave = !!(share && share.file_id);
+      const languageLabel = share.language ? `שפה: ${escapeHtml(share.language)}` : '';
       const metaParts = [];
-      if (share.language) {
-        metaParts.push(`שפה: ${escapeHtml(share.language)}`);
-      }
       if (share.size_label) {
         metaParts.push(`גודל: ${escapeHtml(share.size_label)}`);
       }
@@ -202,10 +200,13 @@
           <div class="shared-item-row">
             <span class="shared-item-name">${escapeHtml(name || 'ללא שם')}</span>
             <div class="shared-item-actions">
-              ${share.view_url ? '<button type="button" class="shared-item-action" data-action="view">👁️ הצג</button>' : ''}
-              ${share.download_url ? '<button type="button" class="shared-item-action" data-action="download">📥 הורד</button>' : ''}
-              ${canSave ? '<button type="button" class="shared-item-action" data-action="save">💾 שמור</button>' : ''}
-              ${badges}
+              ${languageLabel ? `<div class="shared-item-actions-meta">${languageLabel}</div>` : ''}
+              <div class="shared-item-actions-buttons">
+                ${share.view_url ? '<button type="button" class="shared-item-action" data-action="view">👁️ הצג</button>' : ''}
+                ${share.download_url ? '<button type="button" class="shared-item-action" data-action="download">📥 הורד</button>' : ''}
+                ${canSave ? '<button type="button" class="shared-item-action" data-action="save">💾 שמור</button>' : ''}
+                ${badges}
+              </div>
             </div>
           </div>
           ${note ? `<div class="shared-item-note">${escapeHtml(note)}</div>` : ''}
