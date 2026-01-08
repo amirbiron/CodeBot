@@ -190,13 +190,8 @@ except Exception as e: \
     sys.exit(1);"
 
 # פקודת הפעלה - מריץ Worker (אם דגל מופעל) ואת ה-WebApp
-RUN chmod +x scripts/start_with_worker.sh scripts/start_webapp.sh scripts/run_all.sh
-
-# ברירת מחדל: הרצת WebApp + AI Explain (שני תהליכים באותו קונטיינר)
-# ניתן לעקוף ב-Render/Docker דרך ENV:
-#   START_COMMAND="scripts/start_with_worker.sh"  (למצב bot/worker הישן)
-ENV START_COMMAND="scripts/run_all.sh"
-CMD ["sh", "-c", "${START_COMMAND}"]
+RUN chmod +x scripts/start_with_worker.sh
+CMD ["sh", "-c", "scripts/start_with_worker.sh"]
 
 ######################################
 # שלב dev נפרד הוסר; משתמשים באותו בסיס בטוח

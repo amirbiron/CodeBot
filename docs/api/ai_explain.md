@@ -92,12 +92,11 @@
 | משתנה | תפקיד | ברירת מחדל |
 |-------|-------|------------|
 | `ANTHROPIC_API_KEY` | מפתח API של Claude Sonnet | — |
-| `OBS_AI_EXPLAIN_URL` | כתובת השירות (בדרך כלל `http://127.0.0.1:11000/api/ai/explain` כששני התהליכים באותו קונטיינר) | ריק (מבטל AI) |
+| `OBS_AI_EXPLAIN_URL` | כתובת השירות (בדרך כלל `http://<host>:10000/api/ai/explain`) | ריק (מבטל AI) |
 | `OBS_AI_EXPLAIN_TOKEN` | Bearer token הדדי בין Dashboard ↔︎ שירות | ריק (ללא אימות) |
 | `OBS_AI_EXPLAIN_TIMEOUT` | Timeout גם ללקוח וגם לשירות | `10` שניות |
 | `OBS_AI_EXPLAIN_MODEL` *(אופציונלי)* | שם הדגם המדויק (למשל `claude-sonnet-4-5-20250929`) | Sonnet 4.5 יציב |
 | `OBS_AI_EXPLAIN_MAX_TOKENS` *(אופציונלי)* | מגבלת טוקנים לתשובת Claude | `800` |
-| `OBS_AI_EXPLAIN_INTERNAL_PORT` *(אופציונלי)* | פורט פנימי ל-local webserver כשמריצים עם `scripts/run_all.sh` | `11000` |
 
 > חשוב: אם החיבור לשירות נפל, הדשבורד ימשיך לספק הסבר יוריסטי כך שה-UX לא נשבר.
 
@@ -118,8 +117,7 @@ pytest tests/unit/services/test_ai_explain_service.py tests/test_webserver_ai_ex
 
 ## 📝 טיפים לפריסה
 
-1. אם מריצים **שני תהליכים באותו קונטיינר**, השתמש ב-Start Command `./scripts/run_all.sh`.
-2. ברירת המחדל של `run_all.sh` היא להרים את ה-webserver (AioHTTP) על `127.0.0.1:${OBS_AI_EXPLAIN_INTERNAL_PORT:-11000}`.
-3. קבע את `OBS_AI_EXPLAIN_URL` בצד ה-WebApp ל-`http://127.0.0.1:<internal_port>/api/ai/explain` (או השאר ריק כדי ש-`run_all.sh` יקבע ברירת מחדל).
-4. אחסן את `OBS_AI_EXPLAIN_TOKEN` וגם את `ANTHROPIC_API_KEY` ב-Secret Manager (Render/Heroku/K8s).
-5. נטר את האירועים `ai_explain_request_*` ב-Observability כדי לוודא SLA < 10 שניות.
+1. חשוף את ה־webserver (AioHTTP) דרך פורט ייעודי או behind-ingress.
+2. קבע את `OBS_AI_EXPLAIN_URL` בצד ה-WebApp כדי שיפנה לשירות.
+3. אחסן את `OBS_AI_EXPLAIN_TOKEN` וגם את `ANTHROPIC_API_KEY` ב-Secret Manager (Render/Heroku/K8s).
+4. נטר את האירועים `ai_explain_request_*` ב-Observability כדי לוודא SLA < 10 שניות.

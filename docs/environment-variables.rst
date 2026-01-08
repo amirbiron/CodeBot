@@ -1313,12 +1313,6 @@
      - "" (ריק)
      - ``https://ai.example.com/explain``
      - WebApp/Observability
-   * - ``OBS_AI_EXPLAIN_INTERNAL_PORT``
-     - פורט פנימי כאשר מריצים את שירות ה-AI Explain באותו קונטיינר עם ה-WebApp (למשל דרך ``scripts/run_all.sh``). בשימוש יחד עם ``OBS_AI_EXPLAIN_URL=http://127.0.0.1:<port>/api/ai/explain``.
-     - לא
-     - ``11000``
-     - ``11000``
-     - WebApp/Observability
    * - ``OBS_AI_EXPLAIN_TOKEN``
      - אסימון Bearer שנשלח ב-Header ``Authorization`` כאשר השירות מוגן (אופציונלי).
      - לא
