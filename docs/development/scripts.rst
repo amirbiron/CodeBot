@@ -74,3 +74,17 @@ scripts/migrate_workspace_collections.py
 - מפעיל את הבוט Python (``python main.py``) ובמידת הצורך גם Worker מבוסס Node לטיפול ב-Web Push.
 - קורא קובץ ``.env.worker`` (לא מנוהל ב-git) כדי לטעון מפתחות VAPID פרטיים רק לתהליך ה-Worker.
 - מגדיר ``PUSH_DELIVERY_URL`` מקומי אם ה-Worker רץ על אותה מכונה וממתין ל-healthcheck קצר כדי למנוע race conditions.
+
+``scripts/run_all.sh``
+----------------------
+
+- מריץ **שני תהליכים באותו קונטיינר**: ה-WebApp (Gunicorn דרך ``scripts/start_webapp.sh``) וגם שירות ``AI Explain`` (AioHTTP דרך ``python -m services.webserver``).
+- מגדיר ברירת מחדל ל-``OBS_AI_EXPLAIN_URL`` ל-``http://127.0.0.1:<internal_port>/api/ai/explain`` כאשר המשתנה לא הוגדר, כדי שהדשבורד יפנה פנימה.
+- אמינות: אם אחד מהתהליכים נסגר/נופל, הסקריפט עוצר גם את השני ויוצא עם קוד שגיאה (כדי שהקונטיינר לא ימשיך “חצי עובד”).
+
+משתני סביבה שימושיים:
+
+- ``OBS_AI_EXPLAIN_INTERNAL_PORT`` (ברירת מחדל: ``11000``)
+- ``OBS_AI_EXPLAIN_INTERNAL_HOST`` (ברירת מחדל: ``127.0.0.1``)
+- ``OBS_AI_EXPLAIN_RUN_LOCAL_SERVICE`` (ברירת מחדל: ``true``)
+- ``WEBAPP_START_SCRIPT`` (ברירת מחדל: ``scripts/start_webapp.sh``)

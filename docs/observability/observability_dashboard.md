@@ -50,7 +50,8 @@
 - **Backend משותף:** הלקוח קורא ל־`POST /api/observability/alerts/ai_explain` שמעביר את צילום ההתראה (כולל metadata ולוגים אחרי Masking) לשירות AI ייעודי. אם אין שירות מוגדר – מוצגת גרסה היוריסטית מתוך הקוד.
 - **Caching:** ברירת המחדל היא 10 דקות לכל `alert_uid` (`OBS_AI_EXPLAIN_CACHE_TTL`). כך לחיצות חוזרות של אותו צוות לא יגררו עלויות כפולות למודל.
 - **ENV (נדרשים להפעלה מלאה):**
-  - `OBS_AI_EXPLAIN_URL` – ה־endpoint שמקבל `{ "context": {...} }` ומחזיר `root_cause`, `actions`, `signals`.
+  - `OBS_AI_EXPLAIN_URL` – ה־endpoint שמקבל `{ "context": {...} }` ומחזיר `root_cause`, `actions`, `signals`. בפריסה מאוחדת זה לרוב `http://127.0.0.1:11000/api/ai/explain`.
+  - `OBS_AI_EXPLAIN_INTERNAL_PORT` – פורט פנימי כשמריצים את שירות ה-AI Explain באותו קונטיינר (ברירת מחדל 11000).
   - `OBS_AI_EXPLAIN_TOKEN` – אסימון Bearer אופציונלי (נשלח ב־`Authorization`).
   - `OBS_AI_EXPLAIN_TIMEOUT` – Timeout בשניות לפנייה לשירות (ברירת מחדל 12).
   - `OBS_AI_EXPLAIN_CACHE_TTL` – חיי המטמון בשרת (ברירת מחדל 600).
