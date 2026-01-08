@@ -48,9 +48,13 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 
 /* View Mode (view_file.html): responsive font sizing
    - Mobile: match basic code view font-size (12px)
-   - Tablet/Desktop: slightly smaller than default (13px) */
+   - Tablet/Desktop: match basic view (14px) */
 #codeMirrorContainer .cm-editor {
-  font-size: 13px;
+  font-size: 14px;
+}
+/* Telegram Mini App: basic view forces 12px, so advanced must match */
+body.telegram-mini-app #codeMirrorContainer .cm-editor {
+  font-size: 12px !important;
 }
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; font-size: 14px; }
