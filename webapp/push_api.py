@@ -565,6 +565,28 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         except Exception:
             pass
 
+    # Keep global order by remind_at after merging new+legacy lists.
+    # Otherwise, early legacy reminders can be pushed after later "new" reminders.
+    def _due_sort_key(d: dict):
+        ra = d.get("remind_at")
+        if isinstance(ra, datetime):
+            try:
+                if ra.tzinfo is None:
+                    ra = ra.replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+        else:
+            try:
+                ra = datetime.max.replace(tzinfo=timezone.utc)
+            except Exception:
+                ra = datetime.max
+        return (ra, str(d.get("_id") or ""))
+
+    try:
+        due.sort(key=_due_sort_key)
+    except Exception:
+        pass
+
     due = due[:total_needed]
     if not due:
         return
