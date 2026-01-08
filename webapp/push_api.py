@@ -487,17 +487,37 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     Idempotency: send once per reminder schedule using the needs_push field.
     When a push succeeds, needs_push is set to False.
     When a reminder is rescheduled (snooze), needs_push is reset to True.
+
+    Backward compatibility: documents without needs_push field use the old
+    last_push_success_at logic to avoid duplicate sends on deployment.
     """
     db = get_db()
     now = datetime.now(timezone.utc)
-    # Optimized query: uses partial index on ack_at=null and needs_push field.
-    # needs_push: {"$ne": False} catches True, null, and missing values.
+    # Optimized query with backward compatibility for documents without needs_push.
     # NOTE: our reminders use status pending/snoozed (not "active").
     mongo_filter = {
         "ack_at": None,
         "status": {"$in": ["pending", "snoozed"]},
         "remind_at": {"$lte": now},
-        "needs_push": {"$ne": False},
+        "$or": [
+            # New documents: explicit needs_push flag
+            {"needs_push": True},
+            # Old documents without needs_push: use timestamp-based logic
+            # (never pushed, or remind_at changed since last push)
+            {
+                "needs_push": {"$exists": False},
+                "$or": [
+                    {"last_push_success_at": {"$exists": False}},
+                    {"last_push_success_at": None},
+                    {
+                        "$and": [
+                            {"last_push_success_at": {"$type": "date"}},
+                            {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+                        ]
+                    },
+                ],
+            },
+        ],
     }
     total_needed = max_users * max_per_user
     # We still oversample to compensate for claim collisions / missing subscriptions, etc.
