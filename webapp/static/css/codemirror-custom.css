@@ -48,7 +48,7 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 
 /* View Mode (view_file.html): responsive font sizing
    - Mobile: match basic code view font-size (12px)
-   - Tablet/Desktop: slightly smaller than default (14px) */
+   - Tablet/Desktop: match basic view (14px) */
 #codeMirrorContainer .cm-editor {
   font-size: 14px;
 }
