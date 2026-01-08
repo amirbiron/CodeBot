@@ -219,7 +219,9 @@
 }
 
 #codeCard.is-advanced .code-container {
-    overflow: visible;
+    /* במצב מתקדם הגלילה צריכה להיות פנימית (CodeMirror scroller),
+       כדי שה-toolbar לא "ייעלם" כשגוללים בתוך הקוד. */
+    overflow: hidden;
 }
 
 #codeCard:fullscreen #codeMirrorContainer .cm-editor {
