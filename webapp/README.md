@@ -130,7 +130,7 @@ http://localhost:5000
    - Name: `code-keeper-webapp`
    - Environment: Python
    - Build Command: `cd webapp && pip install -r ../requirements/production.txt`
-   - Start Command: `./scripts/start_webapp.sh` _(דואג ל-ASSET_VERSION ול-Warmup)_
+   - Start Command: `./scripts/run_all.sh` _(מריץ את ה-WebApp + שירות ה-AI Explain באותו קונטיינר; דואג גם ל-ASSET_VERSION ול-Warmup)_
 
 2. **הגדר משתני סביבה:**
    - `SECRET_KEY` - מפתח סודי ל-Flask sessions
@@ -150,7 +150,12 @@ http://localhost:5000
 
 ### 🔥 Cache Busting & Warmup אוטומטי
 
-`scripts/start_webapp.sh` הוא ה-Start Command המומלץ:
+`scripts/run_all.sh` הוא ה-Start Command המומלץ כאשר רוצים להריץ גם את שירות ה-AI Explain באותו שירות (Container) ב-Render:
+
+- הוא מרים webserver פנימי (AioHTTP) על `127.0.0.1:${OBS_AI_EXPLAIN_INTERNAL_PORT:-11000}`.
+- אם `OBS_AI_EXPLAIN_URL` לא הוגדר — הוא מגדיר אותו אוטומטית ל-`http://127.0.0.1:<internal_port>/api/ai/explain` כדי שהדשבורד יפנה פנימה ולא החוצה.
+
+`scripts/start_webapp.sh` עדיין משמש כמעטפת Gunicorn (והוא זה ש-`run_all.sh` קורא לו בפועל):
 
 - לפני העלייה הוא מחשב `ASSET_VERSION` דינמי (בברירת מחדל `RENDER_GIT_COMMIT` מקוצר, ואז `git rev-parse`, ולבסוף timestamp) ומייצא אותו ל-Flask לצורך Cache Busting של CSS/JS.
 - מיד אחרי הפעלת Gunicorn הוא מבצע קריאת `curl` best-effort ל-`/healthz` (ברירת מחדל `http://127.0.0.1:$PORT` כדי לוודא שמחממים את ה-instance המקומי; ניתן להגדיר יעד אחר עם `WEBAPP_WARMUP_URL`) כדי לחמם חיבורי Mongo ואינדקסים בזמן שהדיפלוי עדיין מסומן כ-In Progress.
