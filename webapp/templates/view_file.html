@@ -6,6 +6,14 @@
 <style id="syntax-css"></style>
 <style>
 
+/* כדי שכאשר קופצים לתוצאה, היא לא תסתתר מתחת ל-toolbar הדביק */
+html {
+    scroll-padding-top: 96px;
+}
+@media (max-width: 768px) {
+    html { scroll-padding-top: 140px; }
+}
+
 .source {
     background: #1e1e1e !important;
     border-radius: 10px;
@@ -207,10 +215,11 @@
     }
 }
 
-/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
+/* מסך מלא: משאירים גלילה "אינסופית" של הדפדפן (ללא גובה קשיח).
+   אחרת, height קשיח עלול לגרום לכך שלא מגיעים ממש לשורות האחרונות. */
 #codeCard:fullscreen .code-container {
-    height: calc(100vh - 120px);
-    overflow: auto;
+    height: auto;
+    overflow: visible;
 }
 
 /* View Mode: CodeMirror (תצוגה מתקדמת) */
@@ -219,16 +228,19 @@
 }
 
 #codeCard.is-advanced .code-container {
+    /* משאירים את העמוד "אינסופי" עם גלילת דפדפן;
+       ה-toolbar דביק בעזרת position: sticky */
     overflow: visible;
 }
 
+/* במסך מלא (כמו מחוץ למסך מלא): תן ל-CodeMirror להתארך לפי התוכן */
 #codeCard:fullscreen #codeMirrorContainer .cm-editor {
-    height: 100%;
+    height: auto;
     max-height: none;
 }
-
 #codeCard:fullscreen #codeMirrorContainer .cm-scroller {
-    height: 100%;
+    height: auto;
+    overflow: visible;
 }
 
 .file-header {
@@ -425,35 +437,24 @@
 }
 
 .file-actions .btn-primary.btn-icon {
-    background: rgba(255, 255, 255, 0.95) !important;
-    color: #667eea !important;
-    border: 1px solid rgba(102, 126, 234, 0.35) !important;
-    border-radius: 12px !important;
-    padding: 12px 20px !important;
-    display: inline-flex !important;
+    /* חשוב: אין כאן צבעים קשיחים — כפתורי primary יורשים צבעים מהערכה דרך .btn-primary */
+    border-radius: 12px;
+    padding: 12px 20px;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
     font-size: 15px;
     font-weight: 500;
     white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
     transition: all 0.2s ease;
 }
 
 .file-actions .btn-primary.btn-icon:hover {
-    background: rgba(255, 255, 255, 1) !important;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 .file-actions .btn-primary.btn-icon:active {
     transform: translateY(0);
-}
-
-.file-actions .btn-primary.btn-icon .fas,
-.file-actions .btn-primary.btn-icon i,
-.file-actions .btn-primary.btn-icon svg {
-    color: #667eea;
 }
 
 .file-actions__list .btn.file-action--hidden {
