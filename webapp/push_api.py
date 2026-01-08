@@ -440,6 +440,7 @@ def unsubscribe():
 
 # --- Background sender (opt-in via env) ---
 _sender_started = False
+_sender_lock_fh = None  # type: ignore
 
 
 def start_sender_if_enabled() -> None:
@@ -449,6 +450,21 @@ def start_sender_if_enabled() -> None:
     enabled = (os.getenv("PUSH_NOTIFICATIONS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"})
     if not enabled:
         return
+    # Ensure only one sender loop runs across multiple Gunicorn workers/processes.
+    # Using an OS-level flock means the lock is released automatically on process exit/crash.
+    global _sender_lock_fh
+    try:
+        import fcntl
+        lock_path = os.getenv("PUSH_SENDER_LOCK_FILE") or "/tmp/codebot-push-sender.lock"
+        _sender_lock_fh = open(lock_path, "a+")
+        try:
+            fcntl.flock(_sender_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except Exception:
+            # Another process owns the sender lock; do not start a duplicate loop.
+            return
+    except Exception:
+        # Fail-open: if locking isn't available, fall back to per-process behavior.
+        pass
     try:
         import threading
 
