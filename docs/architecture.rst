@@ -21,6 +21,61 @@
      A --> G[WebApp]
      G --> D
 
+תרשים ארכיטקטורה מפורט
+-----------------------
+
+התרשים הבא מציג את הארכיטקטורה המלאה של המערכת, כולל כל השכבות והקשרים ביניהן:
+
+.. mermaid::
+
+   graph TB
+       subgraph "Telegram Interface"
+           U[User] --> TB[Telegram Bot]
+       end
+
+       subgraph "Command Processing Layer"
+           TB --> CR[Command Router]
+           CR --> PH[Permission Handler]
+           PH --> CH[Command Handlers]
+       end
+
+       subgraph "Core Services"
+           CH --> MC[Metrics Collector]
+           CH --> GH[GitHub API Handler]
+           CH --> CD[Code Analyzer]
+           MC --> MS[Metrics Storage]
+           MC --> MA[Metrics Analyzer]
+       end
+
+       subgraph "Storage Layer"
+           MS --> PG[(PostgreSQL)]
+           MS --> RD[(Redis Cache)]
+           CD --> FS[File System]
+       end
+
+       subgraph "Monitoring & Alerts"
+           MA --> AM[Alert Manager]
+           AM --> NS[Notification Service]
+           MA --> PE[Prometheus Exporter]
+           PE --> GD[Grafana Dashboards]
+       end
+
+       NS -->|Alert| TB
+
+**הסבר השכבות:**
+
+- **Telegram Interface**: ממשק המשתמש דרך הבוט
+- **Command Processing Layer**: ניתוב פקודות, בדיקת הרשאות וטיפול בפקודות
+- **Core Services**: שירותי הליבה - איסוף מטריקות, GitHub API, ניתוח קוד
+- **Storage Layer**: שכבת האחסון - PostgreSQL, Redis Cache, File System
+- **Monitoring & Alerts**: ניטור והתראות - Prometheus, Grafana, Alert Manager
+
+.. seealso::
+
+   - תיקיית handlers: :doc:`handlers/index`
+   - תיקיית services: :doc:`services/index`
+   - תיקיית database: :doc:`database/index`
+
 מבנה תיקיות
 -----------
 

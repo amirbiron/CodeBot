@@ -14841,6 +14841,18 @@ def api_public_stats():
     - total_snippets: סה"כ קטעי קוד ייחודיים שנשמרו אי פעם (distinct לפי user_id+file_name) כאשר התוכן לא ריק — כולל כאלה שנמחקו (is_active=false)
     """
     try:
+        # קאש ל-5–10 דקות (באמצעות cache_manager; Redis אם זמין, אחרת פולבק בזיכרון).
+        # זה endpoint ציבורי שמרונדר הרבה ואין סיבה להפעיל aggregation כבד בכל ריענון.
+        cache_key = "api:public_stats:v1"
+        try:
+            cached = cache.get(cache_key)
+            if isinstance(cached, dict) and cached.get("ok") is True:
+                payload = dict(cached)
+                payload["cached"] = True
+                return jsonify(payload)
+        except Exception:
+            pass
+
         db = get_db()
         now_utc = datetime.now(timezone.utc)
         last_24h = now_utc - timedelta(hours=24)
@@ -14877,13 +14889,20 @@ def api_public_stats():
         except Exception:
             total_snippets = 0
 
-        return jsonify({
+        payload = {
             "ok": True,
             "total_users": total_users,
             "active_users_24h": active_users_24h,
             "total_snippets": total_snippets,
             "timestamp": now_utc.isoformat(),
-        })
+            "cached": False,
+        }
+        try:
+            # Dynamic TTL: public_stats ברירת מחדל 10 דקות (עם התאמות פעילות)
+            cache.set_dynamic(cache_key, payload, "public_stats", {"endpoint": "api_public_stats"})
+        except Exception:
+            pass
+        return jsonify(payload)
     except Exception as e:
         return jsonify({
             "ok": False,

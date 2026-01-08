@@ -224,6 +224,36 @@ def test_get_quick_fix_actions_matches_config_key_with_different_separators(monk
     assert actions and actions[0]["href"].endswith("2025-01-01T00:00:00+00:00")
 
 
+def test_get_quick_fix_actions_hides_deployment_event_in_dashboard_history(monkeypatch, tmp_path):
+    cfg = {
+        "by_alert_type": {
+            "deployment_event": [
+                {
+                    "id": "open_replay_window",
+                    "label": "Replay",
+                    "type": "link",
+                    "href": "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}",
+                }
+            ]
+        }
+    }
+    path = tmp_path / "quick_fix.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setattr(obs, "_QUICK_FIX_PATH", path)
+    monkeypatch.setattr(obs, "_QUICK_FIX_CACHE", {})
+    monkeypatch.setattr(obs, "_QUICK_FIX_MTIME", 0.0)
+
+    alert = {"alert_type": "deployment_event", "timestamp": "2025-01-01T00:00:00+00:00"}
+
+    # Still available generally (e.g. other contexts).
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions and actions[0]["href"].endswith("2025-01-01T00:00:00+00:00")
+
+    # But hidden specifically in the Observability dashboard history.
+    hidden = obs.get_quick_fix_actions(alert, ui_context="dashboard_history")
+    assert hidden == []
+
+
 def test_fetch_runbook_for_event_uses_cache(monkeypatch, tmp_path):
     yaml_text = """
 runbooks:
