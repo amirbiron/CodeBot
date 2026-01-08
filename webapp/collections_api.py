@@ -134,6 +134,22 @@ def _get_public_base_url() -> str:
         return ''
 
 
+def _build_app_url(path: str) -> str:
+    """בונה URL פנימי ל-Webapp כולל script_root (למשל /myapp/collections/...)."""
+    try:
+        script_root = str(getattr(request, "script_root", "") or "").strip()
+    except Exception:
+        script_root = ""
+    if script_root and script_root not in ("/", ""):
+        script_root = "/" + script_root.strip("/")
+    else:
+        script_root = ""
+    p = str(path or "").strip()
+    if not p.startswith("/"):
+        p = "/" + p
+    return f"{script_root}{p}"
+
+
 def _build_public_collection_url(token: str) -> str:
     try:
         base = _get_public_base_url()
@@ -931,7 +947,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
         # מניעת כפילות: אם כבר יש מסמך פעיל זהה – דלג
         try:
             prev = large_coll.find_one(
-                {"user_id": int(user_id), "file_name": file_name, "is_active": {"$ne": False}},
+                {"user_id": int(user_id), "file_name": file_name, "is_active": True},
                 sort=[("updated_at", -1), ("_id", -1)],
             )
         except Exception:
@@ -1067,17 +1083,52 @@ def _resolve_workspace_collection_id(mgr, *, user_id: int) -> Optional[str]:
         doc = mgr.collections.find_one({"user_id": int(user_id), "name": "שולחן עבודה", "is_active": True})
     except Exception:
         doc = None
+    # אם אין אוסף פעיל, נסה למצוא אוסף קיים ולהפעיל אותו מחדש כדי שלא נוסיף פריטים לאוסף "מחוק"/נסתר
     if not doc:
         try:
-            doc = mgr.collections.find_one({"user_id": int(user_id), "name": "שולחן עבודה"})
+            doc_any = mgr.collections.find_one({"user_id": int(user_id), "name": "שולחן עבודה"})
         except Exception:
-            doc = None
+            doc_any = None
+        if isinstance(doc_any, dict):
+            try:
+                cid_any = str(doc_any.get("_id") or "").strip()
+            except Exception:
+                cid_any = ""
+            if cid_any:
+                try:
+                    mgr.collections.update_one(
+                        {"_id": doc_any.get("_id"), "user_id": int(user_id)},
+                        {"$set": {"is_active": True, "updated_at": datetime.now(timezone.utc)}},
+                    )
+                except Exception:
+                    pass
+                return cid_any
     try:
         cid = str((doc or {}).get("_id") or "").strip()
     except Exception:
         cid = ""
     if cid:
         return cid
+
+    # אם עדיין לא נמצא: נסה ליצור אוסף חדש בשם "שולחן עבודה" (יכול להיכשל אם יש התנגשות slug/מגבלות)
+    try:
+        created_ws = mgr.create_collection(
+            user_id=int(user_id),
+            name="שולחן עבודה",
+            description="קבצים שאני עובד עליהם כרגע",
+            mode="manual",
+            icon="🖥️",
+            color="purple",
+            is_favorite=True,
+            sort_order=-1,
+        )
+    except Exception:
+        created_ws = {"ok": False}
+    if isinstance(created_ws, dict) and created_ws.get("ok"):
+        try:
+            return str((created_ws.get("collection") or {}).get("id") or "").strip() or None
+        except Exception:
+            return None
 
     # fallback: צור אוסף "שמורים"
     created = _create_saved_collection_for_user(mgr, user_id=int(user_id), base_name="שמורים", base_description="")
@@ -1155,7 +1206,7 @@ def save_shared_collection_to_webapp(token: str):
             "saved": int(inserted),
             "skipped": int(skipped),
             "collection_id": dest_collection_id,
-            "collection_url": f"/collections/{dest_collection_id}",
+            "collection_url": _build_app_url(f"/collections/{dest_collection_id}"),
             "message": f"נשמר בהצלחה ({int(inserted) + int(skipped)} קבצים)",
         })
     except Exception as e:
@@ -1217,11 +1268,11 @@ def save_shared_file_to_webapp(token: str, file_id: str):
             except Exception:
                 pass
             _invalidate_user_collections_cache(user_id, collection_id=workspace_id)
-            collection_url = f"/collections/{workspace_id}"
+            collection_url = _build_app_url(f"/collections/{workspace_id}")
             msg_suffix = "לאוסף שולחן עבודה"
         else:
             _invalidate_user_collections_cache(user_id)
-            collection_url = "/collections"
+            collection_url = _build_app_url("/collections")
             msg_suffix = "לחשבון"
 
         return jsonify({
