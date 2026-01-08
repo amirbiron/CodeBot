@@ -55,7 +55,7 @@
             <div class="language-item">
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <span style="font-size: 1.5rem;">{{ lang.icon }}</span>
-                    <span style="font-weight: 500;">{{ lang.name }}</span>
+                    <span class="lang-badge" data-lang="{{ lang.name|lower }}">{{ lang.name }}</span>
                 </div>
                 <div class="badge">{{ lang.count }} קבצים</div>
             </div>

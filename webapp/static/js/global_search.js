@@ -256,7 +256,8 @@
     const highlighted = highlightSnippet(r.snippet, r.highlights);
     const icon = fileIcon(r.language || '');
     const badgeMeta = languageBadgeMeta(r.language, r.file_name);
-    const badgeHtml = '<span class="global-search-lang-badge badge ' + badgeMeta.className + '" title="שפת הקובץ">' + escapeHtml(badgeMeta.label.toUpperCase()) + '</span>';
+    const langKey = (r.language || badgeMeta.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const badgeHtml = '<span class="lang-badge lang-badge-sm" data-lang="' + langKey + '" title="שפת הקובץ">' + escapeHtml(badgeMeta.label) + '</span>';
     const scoreValue = typeof r.score === 'number' ? r.score.toFixed(2) : '—';
     const sizeValue = humanSize(r.size || 0);
     const updatedValue = formatDate(r.updated_at) || '—';
