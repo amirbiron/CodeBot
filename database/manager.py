@@ -365,10 +365,9 @@ class DatabaseManager:
 
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
-                                slow_ms = float(_slow_mongo_log_threshold_ms() or 0.0)
-
-                                # לוגים רגילים (Warning)
-                                if slow_ms and dur_ms > slow_ms:
+                                # --- slow_mongo warning log (controlled by DB_SLOW_MS) ---
+                                slow_log_ms = float(_slow_mongo_log_threshold_ms() or 0.0)
+                                if slow_log_ms and dur_ms > slow_log_ms:
                                     try:
                                         logger.warning(
                                             'slow_mongo',
@@ -381,62 +380,62 @@ class DatabaseManager:
                                     except Exception:
                                         pass
 
-                                    # --- Query Performance Profiler ---
+                                # --- Query Performance Profiler (independent of DB_SLOW_MS) ---
+                                try:
+                                    if not _profiler_enabled():
+                                        return
+
+                                    profiler_slow_ms = float(_profiler_threshold_ms() or 0.0)
+                                    if profiler_slow_ms and dur_ms <= profiler_slow_ms:
+                                        return
+
+                                    # אם אין לנו את המידע מ-started, אי אפשר להקליט
+                                    if not req_data:
+                                        return
+
+                                    coll = req_data["coll"]
+                                    # מניעת רקורסיה
+                                    if coll in {"slow_queries_log", "system.profile"}:
+                                        return
+
+                                    profiler = _get_profiler_service()
+                                    if profiler is None:
+                                        return
+
+                                    client_info = {
+                                        "db": req_data["db"],
+                                        "cmd": req_data["cmd_name"],
+                                    }
+
+                                    # הרצה אסינכרונית
                                     try:
-                                        if not _profiler_enabled():
-                                            return
+                                        loop = asyncio.get_running_loop()
+                                    except RuntimeError:
+                                        loop = None
 
-                                        profiler_slow_ms = float(_profiler_threshold_ms() or 0.0)
-                                        if profiler_slow_ms and dur_ms <= profiler_slow_ms:
-                                            return
-
-                                        # אם אין לנו את המידע מ-started, אי אפשר להקליט
-                                        if not req_data:
-                                            return
-
-                                        coll = req_data["coll"]
-                                        # מניעת רקורסיה
-                                        if coll in {"slow_queries_log", "system.profile"}:
-                                            return
-
-                                        profiler = _get_profiler_service()
-                                        if profiler is None:
-                                            return
-
-                                        client_info = {
-                                            "db": req_data["db"],
-                                            "cmd": req_data["cmd_name"],
-                                        }
-
-                                        # הרצה אסינכרונית
-                                        try:
-                                            loop = asyncio.get_running_loop()
-                                        except RuntimeError:
-                                            loop = None
-
-                                        if loop is not None:
-                                            loop.create_task(
-                                                profiler.record_slow_query(
-                                                    collection=coll,
-                                                    operation=req_data["cmd_name"],
-                                                    query=req_data["query"],
-                                                    execution_time_ms=float(dur_ms),
-                                                    client_info=client_info,
-                                                )
+                                    if loop is not None:
+                                        loop.create_task(
+                                            profiler.record_slow_query(
+                                                collection=coll,
+                                                operation=req_data["cmd_name"],
+                                                query=req_data["query"],
+                                                execution_time_ms=float(dur_ms),
+                                                client_info=client_info,
                                             )
-                                        else:
-                                            asyncio.run(
-                                                profiler.record_slow_query(
-                                                    collection=coll,
-                                                    operation=req_data["cmd_name"],
-                                                    query=req_data["query"],
-                                                    execution_time_ms=float(dur_ms),
-                                                    client_info=client_info,
-                                                )
+                                        )
+                                    else:
+                                        asyncio.run(
+                                            profiler.record_slow_query(
+                                                collection=coll,
+                                                operation=req_data["cmd_name"],
+                                                query=req_data["query"],
+                                                execution_time_ms=float(dur_ms),
+                                                client_info=client_info,
                                             )
-                                    except Exception as e:
-                                        # החזרת לוג שגיאה למקרה הצורך
-                                        logger.error(f"Profiler Error: {str(e)}")
+                                        )
+                                except Exception as e:
+                                    # החזרת לוג שגיאה למקרה הצורך
+                                    logger.error(f"Profiler Error: {str(e)}")
                             except Exception:
                                 pass
 
