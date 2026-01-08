@@ -1230,19 +1230,45 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if prefer_markdown:
             try:
-                safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=1)
-                safe_language_md = TextUtils.escape_markdown(str(language), version=1)
-                safe_note_md = TextUtils.escape_markdown(str(note), version=1) if note else '—'
+                # MarkdownV2 מאפשר גם תג שפה לבלוק קוד (שמפעיל תווית שפה + הדגשת תחביר בצד הלקוח)
+                safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=2)
+                safe_language_md = TextUtils.escape_markdown(str(language), version=2)
+                safe_note_md = TextUtils.escape_markdown(str(note), version=2) if note else '—'
                 header_md = (
-                    f"📄 **{safe_file_name_md}** ({safe_language_md}) - גרסה {version}\n"
+                    f"📄 *{safe_file_name_md}*\n"
+                    f"🧠 שפה: {safe_language_md}\n"
+                    f"🔢 גרסה: {version}\n"
                     f"📝 הערה: {safe_note_md}\n\n"
                 )
                 code_block_body = code_preview or ""
                 closing_newline = "" if code_block_body.endswith("\n") else "\n"
-                markdown_payload = f"{header_md}```\n{code_block_body}{closing_newline}```"
+                # סניטציה לתג שפה לפי הדרישות של Telegram (אותיות/מספרים/#+-)
+                try:
+                    lang_tag = str(language or "").strip().lower()
+                except Exception:
+                    lang_tag = ""
+                # מיפוי מינימלי למניעת תגיות לא סטנדרטיות
+                alias = {
+                    "c#": "csharp",
+                    "csharp": "csharp",
+                    "cs": "csharp",
+                    "c++": "cpp",
+                    "cpp": "cpp",
+                    "py": "python",
+                    "js": "javascript",
+                    "ts": "typescript",
+                    "sh": "bash",
+                    "shell": "bash",
+                }
+                lang_tag = alias.get(lang_tag, lang_tag)
+                # שמור רק תווים בטוחים; אם יצא ריק, fallback ל-text (עדיף תווית עקבית מאשר בלי)
+                lang_tag = re.sub(r"[^a-z0-9#+-]+", "", lang_tag)
+                if not lang_tag:
+                    lang_tag = "text"
+                markdown_payload = f"{header_md}```{lang_tag}\n{code_block_body}{closing_newline}```"
                 if len(markdown_payload) <= 4096:
                     message_text = markdown_payload
-                    parse_mode = 'Markdown'
+                    parse_mode = getattr(ParseMode, "MARKDOWN_V2", "MarkdownV2")
             except Exception as markdown_err:
                 logger.debug("Markdown render fallback to HTML: %s", markdown_err)
 

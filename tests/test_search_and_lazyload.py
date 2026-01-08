@@ -834,11 +834,12 @@ async def test_view_direct_file_non_markdown_markdown_mode(monkeypatch):
         @property
         def effective_user(self):
             return types.SimpleNamespace(id=1)
-    from handlers.file_view import handle_view_direct_file
+    import handlers.file_view as fv
     u = U()
     ctx = types.SimpleNamespace(user_data={})
-    await handle_view_direct_file(u, ctx)
-    assert u.callback_query.captured_mode == 'Markdown'
+    await fv.handle_view_direct_file(u, ctx)
+    # view_direct משתמש ב-MarkdownV2 כדי לקבל תווית שפה והדגשת תחביר
+    assert u.callback_query.captured_mode in ('MarkdownV2', getattr(fv.ParseMode, 'MARKDOWN_V2', None))
     assert "זה קובץ גדול" not in (u.callback_query.captured_text or "")
 
 
