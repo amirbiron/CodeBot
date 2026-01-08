@@ -1179,9 +1179,15 @@ class ConfigService:
         "OBS_AI_EXPLAIN_URL": ConfigDefinition(
             key="OBS_AI_EXPLAIN_URL",
             default="",
-            description="Endpoint לשירות ההסבר החכם של הדשבורד (מקבל ``POST`` עם ``context`` ומחזיר ``root_cause``/``actions``/``signals``).",
+            description="Endpoint לשירות ההסבר החכם של הדשבורד (מקבל ``POST`` עם ``context`` ומחזיר ``root_cause``/``actions``/``signals``). בפריסה מאוחדת (WebApp + AI Explain באותו קונטיינר) זה לרוב ``http://127.0.0.1:11000/api/ai/explain``.",
             category="observability",
             sensitive=True,
+        ),
+        "OBS_AI_EXPLAIN_INTERNAL_PORT": ConfigDefinition(
+            key="OBS_AI_EXPLAIN_INTERNAL_PORT",
+            default="11000",
+            description="פורט פנימי לשירות ה-AI Explain כאשר הוא רץ באותו קונטיינר עם ה-WebApp (למשל דרך ``scripts/run_all.sh``).",
+            category="observability",
         ),
         "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": ConfigDefinition(
             key="OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
