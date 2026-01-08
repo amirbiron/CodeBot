@@ -207,10 +207,32 @@
     }
 }
 
-/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
-#codeCard:fullscreen .code-container {
+/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה
+   - בתצוגה בסיסית (Pygments): גלילה על ה-container
+   - בתצוגה מתקדמת (CodeMirror): גלילה פנימית בתוך העורך כדי שה-toolbar יישאר תמיד נגיש */
+#codeCard:fullscreen:not(.is-advanced) .code-container {
     height: calc(100vh - 120px);
     overflow: auto;
+}
+
+#codeCard:fullscreen.is-advanced .code-container {
+    height: calc(100vh - 120px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+#codeCard:fullscreen.is-advanced #codeMirrorContainer {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+#codeCard:fullscreen.is-advanced #codeMirrorContainer.codemirror-container,
+#codeCard:fullscreen.is-advanced #codeMirrorContainer,
+#codeCard:fullscreen.is-advanced #codeMirrorContainer .cm-editor,
+#codeCard:fullscreen.is-advanced #codeMirrorContainer .cm-scroller {
+    height: 100%;
 }
 
 /* View Mode: CodeMirror (תצוגה מתקדמת) */
@@ -219,7 +241,9 @@
 }
 
 #codeCard.is-advanced .code-container {
-    overflow: visible;
+    /* במצב מתקדם הגלילה צריכה להיות פנימית (CodeMirror scroller),
+       כדי שה-toolbar לא "ייעלם" כשגוללים בתוך הקוד. */
+    overflow: hidden;
 }
 
 #codeCard:fullscreen #codeMirrorContainer .cm-editor {

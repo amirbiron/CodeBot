@@ -142,13 +142,14 @@
      expr: |
        (
          health_latency_ewma
-           > predict_linear(health_latency_ewma[2h], 15m) * 1.2
+           > predict_linear(health_latency_ewma[2h], 15m) * 1.35
        )
+       and (health_latency_ewma > 800)
        and on(job, instance) (
-         sum by (job, instance) (increase(http_requests_total[2h])) > 200
+         sum by (job, instance) (increase(http_requests_total[2h])) > 400
        )
        and on(job, instance) (time() - process_start_time_seconds > 300)
-     for: 10m
+     for: 20m
      labels:
        severity: warning
        component: webapp
