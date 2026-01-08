@@ -150,83 +150,7 @@
   </div>
 </div>
 
-{% if push_enabled %}
-<div class="glass-card">
-  <h2 class="section-title">
-    <i class="fas fa-bell"></i>
-    התראות דפדפן (Web Push)
-  </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
-    <div
-      style="
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        flex-wrap: wrap;
-      "
-    >
-      <div
-        style="display: flex; align-items: center; gap: 1rem; min-width: 260px"
-      >
-        <i class="fas fa-bell" style="font-size: 1.5rem"></i>
-        <div>
-          <div style="font-weight: 600">התראות לפתקי Sticky Notes</div>
-          <div style="opacity: 0.8; font-size: 0.95rem">
-            קבל התראות כשהתזכורת מגיעה. ב‑iOS נדרש להתקין כ‑PWA.
-          </div>
-        </div>
-      </div>
-      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
-        <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
-        <button id="pushDisableBtn" class="btn btn-secondary">
-          כבה התראות
-        </button>
-        <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
-      </div>
-    </div>
-    <div
-      id="pushStatus"
-      style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem"
-    >
-      מצב לא ידוע
-    </div>
-  </div>
-</div>
-{% else %}
-<div class="glass-card">
-  <h2 class="section-title">
-    <i class="fas fa-bell-slash"></i>
-    התראות דפדפן (Web Push)
-  </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
-    <div style="opacity: 0.8; font-size: 0.95rem">
-      התראות פוש כבויות במערכת.
-    </div>
-  </div>
-</div>
-{% endif %}
 {% if is_admin %}
-<div class="glass-card">
-  <h2 class="section-title">
-    <i class="fas fa-screwdriver-wrench"></i>
-    כלי אדמין
-  </h2>
-  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
-    <a href="/jobs/monitor" class="btn btn-secondary btn-icon" title="Background Jobs Monitor">
-      <i class="fas fa-list-check"></i>
-      מוניטור Jobs
-    </a>
-    <a href="/admin/profiler" class="btn btn-secondary btn-icon" title="Query Performance Profiler">
-      <i class="fas fa-tachometer-alt"></i>
-      Query Profiler
-    </a>
-  </div>
-  <p style="margin: 0.75rem 0 0; opacity: 0.75; font-size: 0.95rem;">
-    כאן תוכל לראות ריצות רקע, פעולות משתמש (Drive/Reminders/Batch) ולוגים מפורטים.
-  </p>
-</div>
-
 <div class="glass-card config-radar-card" id="configRadarCard">
   <div class="config-radar-header">
     <div>
@@ -405,6 +329,42 @@
           rel="noopener"
         >
           קרא את המדריך
+        </a>
+      </div>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fas fa-list-check"></i> מוניטור Jobs</h4>
+      <p style="opacity: 0.8; margin-bottom: 0.75rem;">
+        צפייה ומעקב אחרי ריצות Background Jobs (תורים, סטטוסים, שגיאות וזמני ריצה).
+      </p>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <a href="/jobs/monitor" class="btn btn-primary btn-icon" title="Background Jobs Monitor">
+          <i class="fas fa-list-check"></i>
+          פתח מוניטור
+        </a>
+      </div>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fas fa-tachometer-alt"></i> Query Profiler</h4>
+      <p style="opacity: 0.8; margin-bottom: 0.75rem;">
+        פרופיילר ביצועי שאילתות ומדידה של נקודות איטיות כדי לאתר צווארי בקבוק.
+      </p>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <a href="/admin/profiler" class="btn btn-primary btn-icon" title="Query Performance Profiler">
+          <i class="fas fa-tachometer-alt"></i>
+          פתח פרופיילר
         </a>
       </div>
     </div>
@@ -2864,143 +2824,6 @@
         initAfterDom();
       }
 
-      // --- Web Push (Service Worker + PushManager) ---
-      const __PUSH_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
-      if (!__PUSH_ENABLED__) {
-        // When push is disabled server-side, skip all push JS logic
-        return;
-      }
-      const pushStatus = document.getElementById('pushStatus');
-      const pushEnableBtn = document.getElementById('pushEnableBtn');
-      const pushDisableBtn = document.getElementById('pushDisableBtn');
-      const pushTestBtn = document.getElementById('pushTestBtn');
-
-      function setPushStatus(text){ if (pushStatus) pushStatus.textContent = text; }
-
-      function urlBase64ToUint8Array(base64String) {
-        const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
-        return outputArray;
-      }
-
-      async function registerSw(){
-        if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
-        const reg = await navigator.serviceWorker.register('/sw.js');
-        try { await navigator.serviceWorker.ready; } catch(_) {}
-        return reg;
-      }
-
-      async function getVapid(){
-        const r = await fetch('/api/push/public-key', { cache:'no-store' });
-        const j = await r.json().catch(()=>({}));
-        if (!j || j.ok === false || !j.vapidPublicKey) throw new Error('מפתח VAPID לא זמין');
-        return j.vapidPublicKey;
-      }
-
-      async function enablePush(){
-        try {
-          if (!('Notification' in window)) throw new Error('התראות לא נתמכות בדפדפן');
-          if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
-          if (!('PushManager' in window)) throw new Error('PushManager לא נתמך');
-
-          const reg = await registerSw();
-          // אם כבר קיים מנוי – הצג הודעת "כבר מופעלות" וסנכרן לשרת בעדינות
-          try {
-            const existing = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
-            if (existing) {
-              try {
-                await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(existing) });
-              } catch(_) {}
-              setPushStatus('ההתראות כבר מופעלות');
-              return;
-            }
-          } catch(_) {}
-
-          const perm = await Notification.requestPermission();
-          if (perm !== 'granted') { setPushStatus('הרשאת התראות נדחתה'); return; }
-          setPushStatus('נרשם Service Worker...');
-          const key = await getVapid();
-          const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
-          const resp = await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(sub) });
-          const j = await resp.json().catch(()=>({}));
-          if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
-          setPushStatus('התראות הופעלו בהצלחה');
-        } catch(e){ setPushStatus('שגיאה בהפעלת התראות'); console.warn('enablePush failed', e); }
-      }
-
-      async function disablePush(){
-        try {
-          if (!('serviceWorker' in navigator)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
-          const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
-          const sub = (reg && reg.pushManager) ? await reg.pushManager.getSubscription() : null;
-          if (!sub) { setPushStatus('ההתראות כבר כבויות'); return; }
-          try {
-            const ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
-            if (ep) {
-              await fetch('/api/push/subscribe', { method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ endpoint: ep }) });
-            }
-          } catch(_) {}
-          try { await sub.unsubscribe(); } catch(_) {}
-          setPushStatus('התראות כובו');
-        } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
-      }
-
-      async function testPush(){
-        try {
-          const r = await fetch('/api/push/test', { method:'POST', credentials:'include' });
-          const j = await r.json().catch(()=>({}));
-          if (r.ok && j && j.ok) {
-            if (j.sent > 0) { setPushStatus('נשלחה התראת בדיקה'); return; }
-            const codes = j.codes || {};
-            const known = Object.keys(codes).map(k => Number(k));
-            // Treat only non-zero codes as meaningful; code 0 is a transport/TLS error
-            const nonZero = known.filter(k => k !== 0);
-            if (nonZero.includes(404) || nonZero.includes(410)) {
-              setPushStatus('המנוי פג (404/410) — כבה/הפעל התראות ואז נסה שוב');
-            } else if (nonZero.includes(401) || nonZero.includes(403)) {
-              setPushStatus('אי־התאמת מפתחות (401/403) — ודא זוג VAPID תואם ורענן מנוי');
-            } else if (nonZero.length) {
-              setPushStatus('כשל שליחה (קודים: ' + nonZero.join(', ') + ')');
-            } else if (Array.isArray(j.errors) && j.errors.length) {
-              const first = j.errors.find(e => !e.status || e.status === 0) || j.errors[0];
-              const msg = (first && first.error) ? String(first.error) : 'שגיאה לא ידועה';
-              setPushStatus('כשל שליחה (0): ' + msg);
-            } else {
-              setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
-            }
-          } else {
-            if (j && j.error === 'no_subscriptions') setPushStatus('אין מנוי פוש לשלח אליו — הפעל התראות');
-            else if (j && j.error === 'missing_vapid_private_key') setPushStatus('חסר VAPID_PRIVATE_KEY בשרת');
-            else if (j && j.error === 'pywebpush_not_available') setPushStatus('שרת: pywebpush לא מותקן/זמין');
-            else if (j && j.error === 'internal_error') setPushStatus('שגיאה פנימית בשרת');
-            else setPushStatus('בדיקת פוש נכשלה');
-          }
-        } catch(e){ setPushStatus('בדיקת פוש נכשלה'); }
-      }
-
-      async function refreshPushUi(){
-        try {
-          if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
-          const st = Notification.permission;
-          let hasSub = false;
-          try {
-            const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
-            const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
-            hasSub = !!sub;
-          } catch(_) {}
-          if (st === 'granted' && hasSub) setPushStatus('התראות מופעלות בדפדפן זה');
-          else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
-          else setPushStatus('נדרש להפעיל התראות');
-        } catch(_) { setPushStatus('מצב לא ידוע'); }
-      }
-
-      if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
-      if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
-      if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
-      refreshPushUi();
     })();
     </script>
     {% endblock %}
