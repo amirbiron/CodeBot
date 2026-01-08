@@ -1,5 +1,5 @@
 window_minutes: 5
-min_count_default: 1
+min_count_default: 3
 cooldown_minutes: 20
 immediate_categories:
   - config
