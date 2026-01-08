@@ -445,6 +445,16 @@
     transform: translateY(0);
 }
 
+/* ב-theme custom: הכפתורים "ערוך" + "העתק קוד" משתמשים בצבע הראשי לטקסט/אייקון */
+:root[data-theme-type="custom"] .file-actions .file-primary-action {
+    color: var(--primary);
+}
+:root[data-theme-type="custom"] .file-actions .file-primary-action .fas,
+:root[data-theme-type="custom"] .file-actions .file-primary-action i,
+:root[data-theme-type="custom"] .file-actions .file-primary-action svg {
+    color: currentColor;
+}
+
 .file-actions__list .btn.file-action--hidden {
     display: none !important;
 }
@@ -765,7 +775,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
                 <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
             </button>
-            <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon"
+            <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon file-primary-action"
                data-overflow-id="edit"
                data-overflow-priority="2"
                data-menu-label="✏️ ערוך">
@@ -773,7 +783,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 ערוך
             </a>
             {% endif %}
-            <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button"
+            <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button file-primary-action"
                     data-overflow-id="copy"
                     data-overflow-priority="3"
                     data-menu-label="📋 העתק קוד">
