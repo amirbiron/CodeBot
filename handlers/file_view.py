@@ -86,6 +86,19 @@ def _sanitize_codeblock_language_tag(language: Optional[str]) -> str:
         lang_tag = ""
     return lang_tag or "text"
 
+def _sanitize_codeblock_content_for_markdown_v2(code: str) -> str:
+    """מונע סגירה מוקדמת של בלוק ``` ב-Telegram ע"י פירוק הרצף ``` בתוך התוכן."""
+    try:
+        text = str(code or "")
+    except Exception:
+        return ""
+    # אם מופיע ``` בתוך הקוד, הוא יסגור את הבלוק. נשבור את הרצף בעזרת תו Zero‑Width Space.
+    # זה שומר קריאות גבוהה ומונע נפילות "אקראיות" ל-HTML.
+    try:
+        return text.replace("```", "``\u200b`")
+    except Exception:
+        return text
+
 
 def _resolve_webapp_base_url() -> Optional[str]:
     """החזרת בסיס ה-URL של ה-WebApp עם סדר עדיפויות ברור."""
@@ -511,9 +524,9 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             language_lower = str(language or "").lower()
         except Exception:
             language_lower = ""
-        is_markdown_language = language_lower == 'markdown' or file_name_lower.endswith('.md') or file_name_lower.endswith('.markdown')
-        prefer_markdown = (not is_markdown_language) and ("```" not in (code_preview or ""))
-        if prefer_markdown:
+        # העדף MarkdownV2 כמעט תמיד כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח.
+        # את הרצף ``` בתוך הקוד נשבור בצורה בטוחה כדי לא לסגור את הבלוק.
+        if True:
             try:
                 safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=2)
                 safe_language_md = TextUtils.escape_markdown(str(language), version=2)
@@ -525,7 +538,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     f"📝 הערה: {safe_note_md}\n\n"
                 )
                 lang_tag = _sanitize_codeblock_language_tag(language)
-                code_block_body = code_preview or ""
+                code_block_body = _sanitize_codeblock_content_for_markdown_v2(code_preview or "")
                 closing_newline = "" if code_block_body.endswith("\n") else "\n"
                 markdown_payload = f"{header_md}```{lang_tag}\n{code_block_body}{closing_newline}```"
                 if len(markdown_payload) <= 4096:
@@ -1282,14 +1295,9 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             file_name_lower = str(file_name).lower()
         except Exception:
             file_name_lower = ""
-        language_lower = str(language).lower()
-        is_markdown_language = language_lower == 'markdown' or file_name_lower.endswith('.md') or file_name_lower.endswith('.markdown')
-
-        prefer_markdown = (
-            not is_markdown_language
-            and not is_large_file
-            and "```" not in code_preview
-        )
+        # העדף MarkdownV2 לכל קובץ שאינו "גדול", כדי לקבל תווית שפה + הדגשת תחביר.
+        # אם יש ``` בתוך התוכן נשבור אותו בצורה בטוחה.
+        prefer_markdown = (not is_large_file)
 
         if prefer_markdown:
             try:
@@ -1303,31 +1311,9 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                     f"🔢 גרסה: {version}\n"
                     f"📝 הערה: {safe_note_md}\n\n"
                 )
-                code_block_body = code_preview or ""
+                code_block_body = _sanitize_codeblock_content_for_markdown_v2(code_preview or "")
                 closing_newline = "" if code_block_body.endswith("\n") else "\n"
-                # סניטציה לתג שפה לפי הדרישות של Telegram (אותיות/מספרים/#+-)
-                try:
-                    lang_tag = str(language or "").strip().lower()
-                except Exception:
-                    lang_tag = ""
-                # מיפוי מינימלי למניעת תגיות לא סטנדרטיות
-                alias = {
-                    "c#": "csharp",
-                    "csharp": "csharp",
-                    "cs": "csharp",
-                    "c++": "cpp",
-                    "cpp": "cpp",
-                    "py": "python",
-                    "js": "javascript",
-                    "ts": "typescript",
-                    "sh": "bash",
-                    "shell": "bash",
-                }
-                lang_tag = alias.get(lang_tag, lang_tag)
-                # שמור רק תווים בטוחים; אם יצא ריק, fallback ל-text (עדיף תווית עקבית מאשר בלי)
-                lang_tag = re.sub(r"[^a-z0-9#+-]+", "", lang_tag)
-                if not lang_tag:
-                    lang_tag = "text"
+                lang_tag = _sanitize_codeblock_language_tag(language)
                 markdown_payload = f"{header_md}```{lang_tag}\n{code_block_body}{closing_newline}```"
                 if len(markdown_payload) <= 4096:
                     message_text = markdown_payload
