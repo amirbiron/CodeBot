@@ -7,16 +7,16 @@
 }
 .cm-editor { min-height: 400px; max-height: 60vh; font-family: 'Fira Code','Consolas',monospace; }
 
-/* View Mode (view_file.html): גלילת דפדפן + CodeMirror auto-height (גם במסך מלא) */
-#codeCard .codemirror-container.cm-autoheight {
+/* View Mode (view_file.html): allow page-level scrolling (auto height) */
+#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight {
   overflow: visible;
 }
-#codeCard .codemirror-container.cm-autoheight .cm-editor {
+#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight .cm-editor {
   height: auto;
   min-height: 0;
   max-height: none;
 }
-#codeCard .codemirror-container.cm-autoheight .cm-scroller {
+#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight .cm-scroller {
   height: auto;
   overflow: visible;
 }
@@ -48,9 +48,9 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 
 /* View Mode (view_file.html): responsive font sizing
    - Mobile: match basic code view font-size (12px)
-   - Tablet/Desktop: match basic code view font-size (14px) */
+   - Tablet/Desktop: slightly smaller than default (13px) */
 #codeMirrorContainer .cm-editor {
-  font-size: 14px;
+  font-size: 13px;
 }
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; font-size: 14px; }
