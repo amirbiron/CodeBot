@@ -429,13 +429,9 @@ class QueryProfilerService:
         except Exception:
             pass
 
-        logger.warning(
-            "Slow query recorded: %s.%s took %.2fms (threshold: %sms)",
-            collection,
-            operation,
-            float(execution_time_ms),
-            self.slow_threshold_ms,
-        )
+        # NOTE: We intentionally avoid a second free-form log line here.
+        # The structured JSON event above (emit_event) is the source of truth
+        # and prevents duplicate log lines in container logs.
 
         return record
 
