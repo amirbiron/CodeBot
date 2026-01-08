@@ -1,435 +1,418 @@
-# 🚀 הצעות פיצ'רים ממוקדות ל-WebApp
-## דצמבר 2025 - גרסה 2.0
+# 🎯 הצעות פיצ'רים ממוקדות-משתמש ל-WebApp
+## ינואר 2026 - גרסה 3.0
 
-> **Focus Areas:** Observability, Dev Tools, ויזואליזציות, Admin Tools, UI Components
-> **מה לא נכלל:** Social features, AI Agents, Backend-heavy ללא UI, CRUD משעממים
+> **Focus:** פיצ'רים שפותרים בעיות יומיומיות אמיתיות  
+> **מה נכלל:** כלים שחוסכים זמן, משפרים workflow, ומועילים בשימוש יום-יומי  
+> **מה לא נכלל:** Social/Community, AI Agents ללא צורך ברור, Backend ללא UI, CRUD בסיסיים
 
 ---
 
 ## 📋 תוכן עניינים
 
-1. [🔭 Observability & Monitoring](#-observability--monitoring)
-2. [🔧 Dev Tools](#-dev-tools)
-3. [📊 ויזואליזציות](#-ויזואליזציות)
-4. [🔐 Admin Tools](#-admin-tools)
-5. [✨ UI Components מגניבים](#-ui-components-מגניבים)
-6. [🎮 Interactive Debugging](#-interactive-debugging)
+1. [🔥 Quick Wins - חוסכי זמן מיידיים](#-quick-wins---חוסכי-זמן-מיידיים)
+2. [⚡ Productivity Boosters - שיפורי פרודוקטיביות](#-productivity-boosters---שיפורי-פרודוקטיביות)
+3. [🧭 Navigation & Discovery - ניווט וגילוי](#-navigation--discovery---ניווט-וגילוי)
+4. [📝 Code Management - ניהול קוד חכם](#-code-management---ניהול-קוד-חכם)
+5. [🔧 Power User Tools - כלים למשתמשים מתקדמים](#-power-user-tools---כלים-למשתמשים-מתקדמים)
+6. [📱 Mobile & Accessibility](#-mobile--accessibility)
 
 ---
 
-## 🔭 Observability & Monitoring
+## 🔥 Quick Wins - חוסכי זמן מיידיים
 
-### 📊 Error Budget Burndown Chart
-**תיאור:** גרף שמציג צריכת Error Budget לאורך זמן עם קו burndown ואזהרות כשנגמר
-**קטגוריה:** Observability
+### ⏱️ Recent Files Quick Access Bar
+**תיאור:** סרגל קבוע בראש הדף עם 5-7 הקבצים האחרונים שנערכו/נצפו - קליק אחד לחזרה  
+**בעיה שפותר:** "איפה הקובץ שעבדתי עליו לפני דקה?" - בזבוז זמן בחיפוש  
+**ROI למשתמש:** חוסך 10-30 שניות בכל פעם שרוצים לחזור לקובץ אחרון  
+**קטגוריה:** Navigation  
+**מורכבות:** קלה
+
+---
+
+### 📋 Smart Clipboard History
+**תיאור:** היסטוריית העתקות מתוך הקוד - 10 פריטים אחרונים עם preview ושם הקובץ המקורי  
+**בעיה שפותר:** "העתקתי snippet מצוין אבל כבר העתקתי משהו אחר" - אובדן קוד שהועתק  
+**ROI למשתמש:** מונע צורך לחזור לקובץ ולהעתיק שוב  
+**קטגוריה:** Productivity  
 **מורכבות:** בינונית
 
 ---
 
-### 🧩 Dependency Health Matrix
-**תיאור:** מטריצה אינטראקטיבית המציגה status של כל השירותים והתלויות עם צבעים ו-tooltips
-**קטגוריה:** Observability
+### 🔗 Quick Share Button (One-Click)
+**תיאור:** כפתור בולט "שתף" שיוצר לינק זמני (24h) בקליק אחד, ללא מודאלים  
+**בעיה שפותר:** תהליך השיתוף הנוכחי דורש מספר צעדים - איטי כשרוצים לשתף מהר  
+**ROI למשתמש:** שיתוף קוד עם קולגה ב-2 שניות במקום 10+  
+**קטגוריה:** Workflow  
+**מורכבות:** קלה
+
+---
+
+### 📌 Pin Files to Top
+**תיאור:** אפשרות להצמיד קבצים חשובים לראש רשימת הקבצים - נשארים שם תמיד  
+**בעיה שפותר:** קבצים חשובים "נבלעים" ברשימה ארוכה כשמוסיפים קבצים חדשים  
+**ROI למשתמש:** גישה מיידית ל-config files או snippets קריטיים  
+**קטגוריה:** Organization  
+**מורכבות:** קלה
+
+---
+
+### 🎯 Context Menu Actions
+**תיאור:** תפריט קליק ימני על קובץ עם: העתק, שכפל, העבר לאוסף, הורד, מחק  
+**בעיה שפותר:** פעולות נפוצות דורשות כניסה לקובץ ואז חיפוש הכפתור הנכון  
+**ROI למשתמש:** פעולות מהירות ישירות מרשימת הקבצים  
+**קטגוריה:** UX  
+**מורכבות:** קלה
+
+---
+
+## ⚡ Productivity Boosters - שיפורי פרודוקטיביות
+
+### 🔄 Auto-Save Draft with Indicator
+**תיאור:** שמירה אוטומטית כל 30 שניות עם אינדיקטור "נשמר" / "שינויים לא שמורים"  
+**בעיה שפותר:** אובדן עבודה כשסוגרים tab בטעות או כשיש קריסה  
+**ROI למשתמש:** אף פעם לא מאבדים עבודה, שקט נפשי בזמן עריכה  
+**קטגוריה:** Reliability  
 **מורכבות:** בינונית
 
 ---
 
-### 🔄 Request Replay Studio
-**תיאור:** כלי לצפייה וחזרה על requests ספציפיים עם אפשרות לשנות פרמטרים ולראות תוצאות
-**קטגוריה:** Observability
+### 📦 Batch Operations Toolbar
+**תיאור:** בחירה מרובה + סרגל פעולות: "הוסף תג לכולם", "העבר לאוסף", "הורד כ-ZIP"  
+**בעיה שפותר:** ארגון מחדש של הרבה קבצים דורש פעולה על כל אחד בנפרד  
+**ROI למשתמש:** ארגון 20 קבצים ב-30 שניות במקום 10 דקות  
+**קטגוריה:** Workflow  
+**מורכבות:** בינונית
+
+---
+
+### 🏷️ Smart Tag Suggestions
+**תיאור:** הצעת תגיות אוטומטית על בסיס: שם הקובץ, שפה, תוכן (imports), תגיות קיימות דומות  
+**בעיה שפותר:** תיוג ידני גוזל זמן ולא עקבי - קשה למצוא קבצים אח"כ  
+**ROI למשתמש:** תיוג נכון בקליק אחד במקום הקלדה ידנית  
+**קטגוריה:** Organization  
+**מורכבות:** בינונית
+
+---
+
+### 📊 Duplicate Code Detector
+**תיאור:** התראה כשמנסים לשמור קוד שכבר קיים (זהה או דומה מאוד)  
+**בעיה שפותר:** שמירת אותו snippet פעמיים כי שכחנו שכבר שמרנו  
+**ROI למשתמש:** מניעת כפילויות, שמירה על סדר  
+**קטגוריה:** Organization  
+**מורכבות:** בינונית
+
+---
+
+### 🔍 Find & Replace Across Files
+**תיאור:** חיפוש והחלפה גלובלית בכל הקבצים או בתוך אוסף ספציפי  
+**בעיה שפותר:** צריך לשנות שם פונקציה/משתנה בכמה snippets - עכשיו חייבים לעבור אחד אחד  
+**ROI למשתמש:** refactoring גלובלי בכמה שניות  
+**קטגוריה:** Dev Tool  
+**מורכבות:** בינונית
+
+---
+
+### ⚡ Quick Code Runner (Python Only)
+**תיאור:** כפתור "הרץ" פשוט לקבצי Python קטנים (עד 50 שורות) - תוצאה מופיעה בצד  
+**בעיה שפותר:** רוצים לבדוק snippet מהר בלי לפתוח IDE  
+**ROI למשתמש:** אימות קוד מיידי ללא מעבר לסביבה אחרת  
+**קטגוריה:** Dev Tool  
 **מורכבות:** מורכבת
 
 ---
 
-### 📈 Metrics Comparison Timeline
-**תיאור:** השוואה ויזואלית של מטריקות בין תקופות זמן שונות (היום vs אתמול, שבוע vs שבוע קודם)
-**קטגוריה:** Observability
+## 🧭 Navigation & Discovery - ניווט וגילוי
+
+### 🗂️ Folder-Like View Option
+**תיאור:** תצוגת עץ תיקיות וירטואלי לפי: תגיות / שפות / אוספים - בנוסף לתצוגת רשימה  
+**בעיה שפותר:** קשה לראות את "התמונה הגדולה" של מה שיש לי כשהכל רשימה שטוחה  
+**ROI למשתמש:** ארגון ויזואלי, קל לנווט לקטגוריה ספציפית  
+**קטגוריה:** Navigation  
 **מורכבות:** בינונית
 
 ---
 
-### 🐢 Query Performance Profiler
-**תיאור:** ממשק לניתוח שאילתות MongoDB איטיות עם explain plans ויזואליים והמלצות לאופטימיזציה
-**קטגוריה:** Observability
+### 🔎 Instant Search Preview
+**תיאור:** תוצאות חיפוש מופיעות בזמן אמת תוך כדי הקלדה (כמו Spotlight/Alfred)  
+**בעיה שפותר:** צריך ללחוץ Enter ולהמתין - מאט את הזרימה  
+**ROI למשתמש:** מציאת קבצים מהירה יותר, פחות הקשות מקלדת  
+**קטגוריה:** Search  
+**מורכבות:** בינונית
+
+---
+
+### 📜 Scrollable Tabs Bar
+**תיאור:** כמו ב-IDE - אפשרות לפתוח מספר קבצים ב-tabs ולעבור ביניהם מהר  
+**בעיה שפותר:** כל פתיחת קובץ דורסת את הקודם - צריך לנווט מחדש  
+**ROI למשתמש:** עבודה על מספר קבצים במקביל ללא אובדן הקשר  
+**קטגוריה:** Navigation  
 **מורכבות:** מורכבת
 
 ---
 
-### 📉 Resource Forecast Widget
-**תיאור:** widget שמנבא צריכת משאבים עתידית (disk, memory, connections) על בסיס מגמות
-**קטגוריה:** Observability
-**מורכבות:** בינונית
-
----
-
-### 🔔 Smart Alert Correlation
-**תיאור:** מציג קשרים בין התראות שונות, מזהה patterns ומציע root cause אפשריים
-**קטגוריה:** Observability
-**מורכבות:** מורכבת
-
----
-
-### 📊 Live Metrics Ticker
-**תיאור:** סרגל תחתון בסגנון בורסה עם מטריקות בזמן אמת שרצות - requests/sec, errors, latency
-**קטגוריה:** Observability
+### 🧭 Breadcrumb with Filters
+**תיאור:** שרשרת ניווט שמראה: Home > שפה: Python > תג: API > קובץ - קליק על כל שלב מסנן  
+**בעיה שפותר:** קשה לדעת "איפה אני" ואיך הגעתי לתצוגה הנוכחית  
+**ROI למשתמש:** ניווט אינטואיטיבי, קל לחזור אחורה או לשנות פילטר  
+**קטגוריה:** Navigation  
 **מורכבות:** קלה
 
 ---
 
-## 🔧 Dev Tools
-
-### 🔍 Environment Diff Inspector
-**תיאור:** כלי להשוואת configurations בין סביבות (dev/staging/prod) עם הדגשת שינויים
-**קטגוריה:** Dev Tool
+### 🎯 "Jump to Symbol" in File
+**תיאור:** Ctrl+Shift+O - רשימת כל הפונקציות/classes בקובץ, קליק קופץ אליהם  
+**בעיה שפותר:** קשה לנווט בקובץ ארוך, צריך לגלול הרבה  
+**ROI למשתמש:** קפיצה ישירה לפונקציה ספציפית  
+**קטגוריה:** Navigation  
 **מורכבות:** בינונית
 
 ---
 
-### 🎲 Mock Data Factory
-**תיאור:** מחולל נתוני דמה חכם שמבין את הסכמה ומייצר data ריאליסטי לטסטים
-**קטגוריה:** Dev Tool
+## 📝 Code Management - ניהול קוד חכם
+
+### 📎 Code Snippet Linker
+**תיאור:** יצירת קישור בין קבצים קשורים - "ראה גם" - מופיע בתחתית כל קובץ  
+**בעיה שפותר:** קבצים קשורים (למשל: API handler + model + test) לא מקושרים  
+**ROI למשתמש:** מציאת קבצים קשורים בקליק אחד  
+**קטגוריה:** Organization  
 **מורכבות:** בינונית
 
 ---
 
-### 🌳 AST Visual Explorer
-**תיאור:** ויזואליזציה אינטראקטיבית של Abstract Syntax Tree לקוד פייתון עם הדגשה צולבת
-**קטגוריה:** Dev Tool
-**מורכבות:** מורכבת
-
----
-
-### 📋 API Schema Validator
-**תיאור:** כלי לבדיקת תאימות API responses מול schema מוגדר עם דוחות שגיאות מפורטים
-**קטגוריה:** Dev Tool
-**מורכבות:** בינונית
-
----
-
-### 🔗 Import Dependency Mapper
-**תיאור:** מפה אינטראקטיבית של imports ותלויות בין קבצים בפרויקט עם סינון וחיפוש
-**קטגוריה:** Dev Tool
-**מורכבות:** בינונית
-
----
-
-### ⚡ Quick Code Executor
-**תיאור:** כלי להרצת snippets קטנים ישירות בדפדפן עם תוצאות real-time (Python sandbox)
-**קטגוריה:** Dev Tool
-**מורכבות:** מורכבת
-
----
-
-### 📝 Git Blame Timeline
-**תיאור:** timeline ויזואלי של שינויים בקובץ - מי שינה מה ומתי, עם drill-down לכל commit
-**קטגוריה:** Dev Tool
-**מורכבות:** בינונית
-
----
-
-### 🔧 Environment Variable Manager
-**תיאור:** ממשק לניהול משתני סביבה עם קבוצות, encryption status ו-validation
-**קטגוריה:** Dev Tool
+### 📋 Copy Code with Formatting Options
+**תיאור:** בעת העתקה - בחירה: טקסט נקי / עם syntax highlighting / כ-Markdown code block  
+**בעיה שפותר:** צריך לערוך את הקוד אחרי העתקה בהתאם ליעד (Slack, Notion, GitHub)  
+**ROI למשתמש:** קוד מוכן להדבקה ישירות ביעד הנכון  
+**קטגוריה:** Workflow  
 **מורכבות:** קלה
 
 ---
 
-## 📊 ויזואליזציות
+### 🔀 Split View Mode
+**תיאור:** תצוגה מפוצלת - שני קבצים זה לצד זה (כמו diff אבל לכל שני קבצים)  
+**בעיה שפותר:** רוצים להשוות שני snippets או להעתיק מאחד לשני  
+**ROI למשתמש:** השוואה והעתקה קלה ללא מעבר בין tabs  
+**קטגוריה:** Productivity  
+**מורכבות:** בינונית
 
-### 🔥 Code Contribution Heatmap
-**תיאור:** לוח שנה בסגנון GitHub contributions אבל לקבצים שנשמרו בבוט - צבעים לפי פעילות
-**קטגוריה:** Visualization
+---
+
+### 📥 Import from URL
+**תיאור:** הדבקת URL (GitHub raw, Gist, Pastebin) ושמירה ישירה כקובץ חדש  
+**בעיה שפותר:** צריך לפתוח URL, להעתיק, לחזור לאפליקציה, ליצור קובץ, להדביק  
+**ROI למשתמש:** שמירת קוד מהרשת בקליק אחד  
+**קטגוריה:** Import  
 **מורכבות:** קלה
 
 ---
 
-### 🌊 Error Flow Sankey Diagram
-**תיאור:** Sankey chart שמראה מאיפה מגיעות שגיאות (endpoint → error type → resolution)
-**קטגוריה:** Visualization
-**מורכבות:** בינונית
-
----
-
-### 🛤️ User Journey Flowchart
-**תיאור:** גרף זרימה שמציג את המסלולים הנפוצים של משתמשים באפליקציה עם אחוזים
-**קטגוריה:** Visualization
-**מורכבות:** מורכבת
-
----
-
-### 📊 Latency Distribution Histogram
-**תיאור:** היסטוגרמה אינטראקטיבית של זמני תגובה עם percentiles מסומנים (p50, p90, p99)
-**קטגוריה:** Visualization
+### 🔢 Line Number Anchors
+**תיאור:** קליק על מספר שורה מוסיף #L15 ל-URL - אפשר לשתף לינק לשורה ספציפית  
+**בעיה שפותר:** "תסתכל על שורה 47" - אבל הוא צריך לגלול ולמצוא  
+**ROI למשתמש:** שיתוף מדויק של מיקום בקוד  
+**קטגוריה:** Sharing  
 **מורכבות:** קלה
 
 ---
 
-### 📅 Event Waterfall Timeline
-**תיאור:** תצוגת waterfall של אירועים קשורים על ציר זמן - requests, jobs, errors, deployments
-**קטגוריה:** Visualization
+### 📝 Inline Notes/Comments
+**תיאור:** הוספת הערה צמודה לשורה ספציפית - נראית כ-tooltip/sidebar  
+**בעיה שפותר:** רוצים לתעד "למה עשיתי את זה ככה" בלי לשנות את הקוד עצמו  
+**ROI למשתמש:** תיעוד החלטות והסברים ללא זיהום הקוד  
+**קטגוריה:** Documentation  
 **מורכבות:** בינונית
 
 ---
 
-### 💾 Storage Usage Treemap
-**תיאור:** treemap אינטראקטיבי של צריכת אחסון לפי משתמש/שפה/סוג עם drill-down
-**קטגוריה:** Visualization
+## 🔧 Power User Tools - כלים למשתמשים מתקדמים
+
+### ⌨️ Command Palette (Ctrl+Shift+P)
+**תיאור:** פקודות טקסט מהיר - הקלדת "new", "search", "settings" וכו' - כמו VS Code  
+**בעיה שפותר:** ניווט בעזרת עכבר איטי למשתמשים מנוסים  
+**ROI למשתמש:** כל פעולה נגישה במקלדת, לא צריך לזכור איפה כל כפתור  
+**קטגוריה:** Power User  
 **מורכבות:** בינונית
 
 ---
 
-### 🔀 API Route Map
-**תיאור:** ויזואליזציה של כל ה-API routes כרשת עם קשרים, שימוש וסטטוס
-**קטגוריה:** Visualization
-**מורכבות:** בינונית
-
----
-
-### 📈 Trend Sparklines Dashboard
-**תיאור:** דשבורד קומפקטי עם עשרות mini-graphs שמציגים מגמות של מדדים שונים
-**קטגוריה:** Visualization
+### 📊 Personal Usage Stats
+**תיאור:** דף סטטיסטיקות אישי: כמה קבצים, שפות נפוצות, פעילות לפי יום, תגיות נפוצות  
+**בעיה שפותר:** אין visibility לדפוסי השימוש שלי  
+**ROI למשתמש:** הבנת הרגלים, גאווה בהישגים, מוטיבציה  
+**קטגוריה:** Analytics  
 **מורכבות:** קלה
 
 ---
 
-## 🔐 Admin Tools
-
-### 👁️ Live Session Inspector
-**תיאור:** צפייה בזמן אמת בסשנים פעילים עם מידע על מיקום, device, actions אחרונות
-**קטגוריה:** Admin
+### 🔁 Repeat Last Action
+**תיאור:** Ctrl+Y - חזרה על הפעולה האחרונה (הוספת תג, העברה לאוסף וכו')  
+**בעיה שפותר:** עושים את אותה פעולה על הרבה קבצים - מייגע  
+**ROI למשתמש:** ביצוע פעולות חוזרות במהירות  
+**קטגוריה:** Productivity  
 **מורכבות:** בינונית
 
 ---
 
-### 📝 Config Version Timeline
-**תיאור:** היסטוריית שינויים בקונפיגורציה עם diff, rollback ו-audit trail
-**קטגוריה:** Admin
-**מורכבות:** בינונית
-
----
-
-### 🔄 Background Tasks Control Center
-**תיאור:** שליטה מלאה בtasks ברקע - pause, resume, priority, dependencies, logs
-**קטגוריה:** Admin
-**מורכבות:** בינונית
-
----
-
-### 🗄️ Cache Inspector Panel
-**תיאור:** ממשק לצפייה, חיפוש ומחיקת entries בRedis cache עם TTL ו-memory usage
-**קטגוריה:** Admin
+### 🎛️ Custom Filters Presets
+**תיאור:** שמירת שילובי פילטרים כ-preset עם שם: "Python APIs", "React Components"  
+**בעיה שפותר:** מגדירים אותם פילטרים שוב ושוב  
+**ROI למשתמש:** גישה מיידית לתצוגות מותאמות אישית  
+**קטגוריה:** Organization  
 **מורכבות:** קלה
 
 ---
 
-### 📊 Index Usage Analytics
-**תיאור:** דוחות שימוש באינדקסים של MongoDB - אילו נמצאים בשימוש, אילו מיותרים
-**קטגוריה:** Admin
+### 📤 Export Selection as Gist
+**תיאור:** בחירת טקסט בקובץ ו"ייצא כ-Gist" - יוצר Gist חדש עם הבחירה בלבד  
+**בעיה שפותר:** רוצים לשתף רק חלק מהקובץ, לא הכל  
+**ROI למשתמש:** שיתוף חלקי מדויק  
+**קטגוריה:** Sharing  
 **מורכבות:** בינונית
 
 ---
 
-### 🐢 Slow Query Inspector
-**תיאור:** רשימה מפורטת של שאילתות איטיות עם explain, תדירות והשפעה
-**קטגוריה:** Admin
+### 🔐 Private Notes Section
+**תיאור:** אזור "הערות פרטיות" לכל קובץ - סיסמאות, tokens, הערות רגישות - מוצפן  
+**בעיה שפותר:** לפעמים שומרים מידע רגיש ליד הקוד אבל לא רוצים שיהיה חלק מהקובץ  
+**ROI למשתמש:** מקום בטוח להערות רגישות  
+**קטגוריה:** Security  
 **מורכבות:** בינונית
 
 ---
 
-### 🎛️ System Configuration Panel
-**תיאור:** ממשק מרכזי לשליטה בהגדרות מערכת עם categories, validation ו-live preview
-**קטגוריה:** Admin
+## 📱 Mobile & Accessibility
+
+### 📱 Mobile Quick Actions Bar
+**תיאור:** סרגל תחתון קבוע במובייל: חיפוש, קבצים אחרונים, מועדפים, העלאה  
+**בעיה שפותר:** ניווט קשה במובייל, צריך הרבה גלילה  
+**ROI למשתמש:** גישה מהירה לפעולות עיקריות באגודל אחד  
+**קטגוריה:** Mobile  
 **מורכבות:** קלה
 
 ---
 
-### 📋 Webhook Event Log
-**תיאור:** לוג מפורט של כל ה-webhooks שנשלחו עם status, payload ו-retry history
-**קטגוריה:** Admin
+### 👆 Swipe Actions on Mobile
+**תיאור:** החלקה על קובץ: ימינה = מועדפים, שמאלה = מחיקה (עם אישור)  
+**בעיה שפותר:** פעולות נפוצות דורשות כמה נגיעות במובייל  
+**ROI למשתמש:** ניהול קבצים מהיר בנייד  
+**קטגוריה:** Mobile  
+**מורכבות:** בינונית
+
+---
+
+### 🔠 Font Size Quick Toggle
+**תיאור:** כפתורי A- A+ קבועים בעורך הקוד לשינוי גודל פונט מיידי  
+**בעיה שפותר:** צריך להיכנס להגדרות כדי לשנות גודל טקסט  
+**ROI למשתמש:** התאמה מיידית לנוחות קריאה  
+**קטגוריה:** Accessibility  
 **מורכבות:** קלה
 
 ---
 
-## ✨ UI Components מגניבים
-
-### 🧭 Smart Breadcrumb Navigator
-**תיאור:** breadcrumbs חכמים עם dropdown לכל רמה, היסטוריה ו-quick jump
-**קטגוריה:** UI Component
+### 🌙 Auto Dark Mode by Time
+**תיאור:** מעבר אוטומטי למצב כהה בשעות הערב (או לפי הגדרת מערכת)  
+**בעיה שפותר:** שוכחים להחליף מצב, עיניים מתאמצות  
+**ROI למשתמש:** נוחות אוטומטית לעיניים  
+**קטגוריה:** Accessibility  
 **מורכבות:** קלה
 
 ---
 
-### 📜 Virtual Scroll List
-**תיאור:** רשימה עם virtualization שתומכת באלפי פריטים בלי lag - מושלם לקבצים
-**קטגוריה:** UI Component
-**מורכבות:** בינונית
-
----
-
-### ⌨️ Universal Keyboard Navigator
-**תיאור:** מערכת ניווט במקלדת לכל האפליקציה עם visual hints וחיפוש fuzzy
-**קטגוריה:** UI Component
-**מורכבות:** בינונית
-
----
-
-### 🪟 Multi-Panel Layout Manager
-**תיאור:** מערכת panels גמישה בסגנון IDE עם drag & drop, resize ו-presets
-**קטגוריה:** UI Component
-**מורכבות:** מורכבת
-
----
-
-### 📊 Status Bar Component
-**תיאור:** סרגל תחתון בסגנון VS Code עם notifications, progress ו-quick actions
-**קטגוריה:** UI Component
-**מורכבות:** קלה
-
----
-
-### 📑 Split View Editor
-**תיאור:** תצוגה מפוצלת לעריכה של שני קבצים במקביל עם sync scroll אופציונלי
-**קטגוריה:** UI Component
-**מורכבות:** בינונית
-
----
-
-### 🖥️ Embedded Terminal Widget
-**תיאור:** terminal מובנה באפליקציה להרצת פקודות מהירות (sandboxed)
-**קטגוריה:** UI Component
-**מורכבות:** מורכבת
-
----
-
-### 🌲 Advanced File Tree
-**תיאור:** עץ קבצים עם icons לפי סוג, drag & drop, context menu ו-lazy loading
-**קטגוריה:** UI Component
-**מורכבות:** בינונית
-
----
-
-### 🔍 Floating Search Bar
-**תיאור:** סרגל חיפוש צף שמופיע עם Ctrl+K ומאפשר חיפוש בכל האפליקציה
-**קטגוריה:** UI Component
-**מורכבות:** קלה
-
----
-
-### 🎨 Syntax Theme Previewer
-**תיאור:** תצוגה מקדימה של ערכות צבעים לקוד עם אפשרות החלפה מיידית
-**קטגוריה:** UI Component
-**מורכבות:** קלה
-
----
-
-### 📱 Responsive Sidebar
-**תיאור:** sidebar שמתאים את עצמו לגודל המסך - icons בלבד במובייל, מלא בדסקטופ
-**קטגוריה:** UI Component
-**מורכבות:** קלה
-
----
-
-### 🔔 Rich Notification Center
-**תיאור:** מרכז התראות עם קטגוריות, פעולות מהירות, mark as read ו-persistence
-**קטגוריה:** UI Component
-**מורכבות:** בינונית
-
----
-
-## 🎮 Interactive Debugging
-
-### 🔬 Request Debugger Panel
-**תיאור:** panel שמציג את כל ה-requests שעברו עם headers, body, timing ו-response
-**קטגוריה:** Dev Tool
-**מורכבות:** בינונית
-
----
-
-### 🧪 A/B Test Dashboard
-**תיאור:** ממשק לניהול וצפייה בתוצאות של feature flags ו-A/B tests
-**קטגוריה:** Admin
-**מורכבות:** בינונית
-
----
-
-### 🔍 State Inspector
-**תיאור:** כלי לצפייה בstate של האפליקציה בזמן אמת עם אפשרות לשנות ערכים
-**קטגוריה:** Dev Tool
-**מורכבות:** בינונית
-
----
-
-### 📸 Visual Regression Viewer
-**תיאור:** השוואה ויזואלית של screenshots לפני ואחרי שינויים עם הדגשת הבדלים
-**קטגוריה:** Dev Tool
-**מורכבות:** מורכבת
-
----
-
-### 🔄 Live Reload Status
-**תיאור:** אינדיקטור שמציג חיבור לשרת, זמן מאז עדכון אחרון ו-reconnect status
-**קטגוריה:** UI Component
+### 📖 Reading Mode
+**תיאור:** מצב קריאה נקי - מסתיר UI מיותר, מגדיל קוד למרכז המסך  
+**בעיה שפותר:** רוצים להתמקד בקוד ללא הסחות  
+**ROI למשתמש:** ריכוז מוגבר בעת לימוד/קריאת קוד  
+**קטגוריה:** Focus  
 **מורכבות:** קלה
 
 ---
 
 ## 📊 סיכום לפי קטגוריה ומורכבות
 
-| קטגוריה | קל | בינוני | מורכב |
-|---------|-----|--------|--------|
-| Observability | 1 | 4 | 3 |
-| Dev Tools | 2 | 4 | 2 |
-| Visualization | 3 | 4 | 1 |
-| Admin | 3 | 4 | 1 |
-| UI Components | 5 | 5 | 2 |
-| Interactive Debug | 1 | 3 | 1 |
-| **סה"כ** | **15** | **24** | **10** |
+| קטגוריה | קלה | בינונית | מורכבת |
+|---------|-----|---------|--------|
+| Quick Wins | 4 | 1 | - |
+| Productivity | 1 | 5 | 1 |
+| Navigation | 2 | 3 | 1 |
+| Code Management | 3 | 3 | - |
+| Power User | 2 | 4 | - |
+| Mobile & A11y | 4 | 1 | - |
+| **סה"כ** | **16** | **17** | **2** |
 
 ---
 
-## 🎯 המלצות לסדר יישום
+## 🎯 סדר יישום מומלץ
 
-### Phase 1: Quick Wins (1-2 שבועות)
-רכיבים קלים עם impact גבוה:
-1. **Live Metrics Ticker** - observability בולט ומגניב
-2. **Code Contribution Heatmap** - ויזואליזציה אטרקטיבית
-3. **Smart Breadcrumb Navigator** - UX משופר מיידית
-4. **Status Bar Component** - תשתית לכל הפיצ'רים
+### Phase 1: Quick Wins (שבוע 1-2)
+פיצ'רים קלים עם impact מיידי:
+1. **📌 Pin Files to Top** - פשוט ושימושי
+2. **🔗 Quick Share Button** - workflow מהיר
+3. **🎯 Context Menu Actions** - UX טבעי
+4. **🔢 Line Number Anchors** - שיתוף מדויק
+5. **🔠 Font Size Quick Toggle** - נגישות בסיסית
 
-### Phase 2: Core Features (2-4 שבועות)
-1. **Environment Diff Inspector** - כלי מפתחים חיוני
-2. **Cache Inspector Panel** - admin tool שימושי
-3. **Virtual Scroll List** - ביצועים משופרים
-4. **Latency Distribution Histogram** - observability ויזואלי
+### Phase 2: Daily Workflow (שבוע 3-4)
+שיפורים משמעותיים לשימוש יומי:
+1. **⏱️ Recent Files Quick Access Bar** - ניווט מהיר
+2. **🧭 Breadcrumb with Filters** - ניווט אינטואיטיבי
+3. **📋 Copy Code with Formatting** - workflow שיתוף
+4. **📥 Import from URL** - יבוא קל
+5. **🎛️ Custom Filters Presets** - התאמה אישית
 
-### Phase 3: Advanced (4+ שבועות)
-1. **Request Replay Studio** - debugging מתקדם
-2. **Multi-Panel Layout Manager** - IDE-like experience
-3. **User Journey Flowchart** - insights עמוקים
-4. **AST Visual Explorer** - כלי מתקדם למפתחים
+### Phase 3: Power Features (שבוע 5-8)
+כלים מתקדמים:
+1. **📦 Batch Operations Toolbar** - ניהול בכמויות
+2. **🔍 Find & Replace Across Files** - refactoring
+3. **⌨️ Command Palette** - power users
+4. **📋 Smart Clipboard History** - פרודוקטיביות
+5. **🗂️ Folder-Like View Option** - ארגון ויזואלי
 
----
-
-## 🎨 רעיונות לעיצוב משותף
-
-### Color Scheme לכל הרכיבים
-```css
---success: #10b981;    /* ירוק - OK */
---warning: #f59e0b;    /* כתום - אזהרה */
---error: #ef4444;      /* אדום - שגיאה */
---info: #3b82f6;       /* כחול - מידע */
---neutral: #6b7280;    /* אפור - neutral */
-```
-
-### Animation Guidelines
-- **Duration:** 150-300ms לרוב האנימציות
-- **Easing:** `ease-out` לכניסה, `ease-in` ליציאה
-- **Hover effects:** scale(1.02) עדין, לא יותר
-
-### Responsive Breakpoints
-- **Mobile:** < 640px
-- **Tablet:** 640px - 1024px
-- **Desktop:** > 1024px
+### Phase 4: Advanced (שבוע 9+)
+פיצ'רים מתקדמים:
+1. **📜 Scrollable Tabs Bar** - IDE-like
+2. **🔀 Split View Mode** - השוואה
+3. **⚡ Quick Code Runner** - sandbox
+4. **🎯 Jump to Symbol** - ניווט מתקדם
 
 ---
 
-> נוצר: דצמבר 2025 | Focus: Observability + Dev Tools + Visualizations + Admin + UI
+## 💡 עקרונות מנחים
+
+### ✅ מה כן לבנות:
+- **פותר בעיה יומית** - משהו שמשתמש נתקל בו לפחות פעם ביום
+- **חוסך זמן מוחשי** - לפחות 5 שניות בכל שימוש
+- **אינטואיטיבי** - לא צריך הסבר
+- **לא דורש תחזוקה** - עובד מאחורי הקלעים
+
+### ❌ מה לא לבנות:
+- **Social features** - לא הפוקוס של האפליקציה
+- **AI לשם AI** - רק אם פותר בעיה אמיתית
+- **Over-engineering** - פשוט עדיף על מושלם
+- **"נחמד לקיום"** - רק מה שבאמת ישתמשו בו
+
+---
+
+## 📋 שאלות לכל הצעה חדשה
+
+לפני שמוסיפים פיצ'ר, לענות על:
+
+1. **איזו בעיה זה פותר?**
+   > מה כואב למשתמש היום?
+
+2. **כמה זמן זה חוסך?**
+   > מה ה-ROI למשתמש בכל שימוש?
+
+3. **האם זה שימושי יום-יום?**
+   > או רק פעם בשבוע/חודש?
+
+4. **מה האלטרנטיבה?**
+   > איך המשתמש פותר את הבעיה היום?
+
+5. **האם זה פשוט מספיק?**
+   > יכול להסביר ב-10 מילים?
+
+---
+
+> **נוצר:** ינואר 2026  
+> **גרסה:** 3.0  
+> **Focus:** User-centric features שפותרים בעיות יומיומיות
