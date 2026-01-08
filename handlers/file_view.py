@@ -58,6 +58,47 @@ FILES_FACADE = None
 
 DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
 
+def _sanitize_codeblock_language_tag(language: Optional[str]) -> str:
+    """מחזיר תג שפה בטוח ל-```lang ב-MarkdownV2 (כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח)."""
+    try:
+        lang_tag = str(language or "").strip().lower()
+    except Exception:
+        lang_tag = ""
+    # מיפוי מינימלי לערכים נפוצים/היסטוריים
+    alias = {
+        "c#": "csharp",
+        "cs": "csharp",
+        "csharp": "csharp",
+        "c++": "cpp",
+        "cpp": "cpp",
+        "py": "python",
+        "python3": "python",
+        "js": "javascript",
+        "ts": "typescript",
+        "sh": "bash",
+        "shell": "bash",
+    }
+    lang_tag = alias.get(lang_tag, lang_tag)
+    # Telegram: שמור רק תווים בטוחים; אם יצא ריק — fallback עקבי
+    try:
+        lang_tag = re.sub(r"[^a-z0-9#+-]+", "", lang_tag)
+    except Exception:
+        lang_tag = ""
+    return lang_tag or "text"
+
+def _sanitize_codeblock_content_for_markdown_v2(code: str) -> str:
+    """מונע סגירה מוקדמת של בלוק ``` ב-Telegram ע"י פירוק הרצף ``` בתוך התוכן."""
+    try:
+        text = str(code or "")
+    except Exception:
+        return ""
+    # אם מופיע ``` בתוך הקוד, הוא יסגור את הבלוק. נשבור את הרצף בעזרת תו Zero‑Width Space.
+    # זה שומר קריאות גבוהה ומונע נפילות "אקראיות" ל-HTML.
+    try:
+        return text.replace("```", "``\u200b`")
+    except Exception:
+        return text
+
 
 def _resolve_webapp_base_url() -> Optional[str]:
     """החזרת בסיס ה-URL של ה-WebApp עם סדר עדיפויות ברור."""
@@ -472,11 +513,47 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
             keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:idx:{file_index}:{preview_raw_limit}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
+        # ניסיון: MarkdownV2 עם תג שפה בבלוק קוד (כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח)
+        message_text = f"{header_html}<pre><code>{safe_code}</code></pre>"
+        parse_mode = 'HTML'
+        try:
+            file_name_lower = str(file_name or "").lower()
+        except Exception:
+            file_name_lower = ""
+        try:
+            language_lower = str(language or "").lower()
+        except Exception:
+            language_lower = ""
+        is_markdown_language = language_lower == 'markdown' or file_name_lower.endswith('.md') or file_name_lower.endswith('.markdown')
+        # העדף MarkdownV2 כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח.
+        # חריג: קבצי Markdown נשארים ב-HTML כדי לא לשבור תצוגת Markdown טבעית.
+        if not is_markdown_language:
+            try:
+                safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=2)
+                safe_language_md = TextUtils.escape_markdown(str(language), version=2)
+                safe_note_md = TextUtils.escape_markdown(str(note), version=2) if note else '—'
+                header_md = (
+                    f"📄 *{safe_file_name_md}*\n"
+                    f"🧠 שפה: {safe_language_md}\n"
+                    f"🔢 גרסה: {version}\n"
+                    f"📝 הערה: {safe_note_md}\n\n"
+                )
+                lang_tag = _sanitize_codeblock_language_tag(language)
+                code_block_body = _sanitize_codeblock_content_for_markdown_v2(code_preview or "")
+                closing_newline = "" if code_block_body.endswith("\n") else "\n"
+                markdown_payload = f"{header_md}```{lang_tag}\n{code_block_body}{closing_newline}```"
+                if len(markdown_payload) <= 4096:
+                    message_text = markdown_payload
+                    parse_mode = getattr(ParseMode, "MARKDOWN_V2", "MarkdownV2")
+            except Exception:
+                # fallback ל-HTML (הקיים) אם MarkdownV2 נכשל מכל סיבה
+                pass
+
         await TelegramUtils.safe_edit_message_text(
             query,
-            f"{header_html}<pre><code>{safe_code}</code></pre>",
+            message_text,
             reply_markup=reply_markup,
-            parse_mode='HTML',
+            parse_mode=parse_mode,
         )
     except Exception as e:
         logger.error(f"Error in handle_view_file: {e}")
@@ -1219,30 +1296,36 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             file_name_lower = str(file_name).lower()
         except Exception:
             file_name_lower = ""
-        language_lower = str(language).lower()
+        try:
+            language_lower = str(language or "").lower()
+        except Exception:
+            language_lower = ""
         is_markdown_language = language_lower == 'markdown' or file_name_lower.endswith('.md') or file_name_lower.endswith('.markdown')
-
-        prefer_markdown = (
-            not is_markdown_language
-            and not is_large_file
-            and "```" not in code_preview
-        )
+        # העדף MarkdownV2 כדי לקבל תווית שפה + הדגשת תחביר.
+        # חריגים:
+        # - קבצים גדולים: עדיף HTML כדי לשמור עקביות בטעינה מדורגת/כפתור "הצג עוד"
+        # - קבצי Markdown: עדיף HTML כדי לא לאבד תצוגת Markdown טבעית
+        prefer_markdown = (not is_large_file) and (not is_markdown_language)
 
         if prefer_markdown:
             try:
-                safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=1)
-                safe_language_md = TextUtils.escape_markdown(str(language), version=1)
-                safe_note_md = TextUtils.escape_markdown(str(note), version=1) if note else '—'
+                # MarkdownV2 מאפשר גם תג שפה לבלוק קוד (שמפעיל תווית שפה + הדגשת תחביר בצד הלקוח)
+                safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=2)
+                safe_language_md = TextUtils.escape_markdown(str(language), version=2)
+                safe_note_md = TextUtils.escape_markdown(str(note), version=2) if note else '—'
                 header_md = (
-                    f"📄 **{safe_file_name_md}** ({safe_language_md}) - גרסה {version}\n"
+                    f"📄 *{safe_file_name_md}*\n"
+                    f"🧠 שפה: {safe_language_md}\n"
+                    f"🔢 גרסה: {version}\n"
                     f"📝 הערה: {safe_note_md}\n\n"
                 )
-                code_block_body = code_preview or ""
+                code_block_body = _sanitize_codeblock_content_for_markdown_v2(code_preview or "")
                 closing_newline = "" if code_block_body.endswith("\n") else "\n"
-                markdown_payload = f"{header_md}```\n{code_block_body}{closing_newline}```"
+                lang_tag = _sanitize_codeblock_language_tag(language)
+                markdown_payload = f"{header_md}```{lang_tag}\n{code_block_body}{closing_newline}```"
                 if len(markdown_payload) <= 4096:
                     message_text = markdown_payload
-                    parse_mode = 'Markdown'
+                    parse_mode = getattr(ParseMode, "MARKDOWN_V2", "MarkdownV2")
             except Exception as markdown_err:
                 logger.debug("Markdown render fallback to HTML: %s", markdown_err)
 

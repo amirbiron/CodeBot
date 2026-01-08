@@ -398,6 +398,9 @@ async def test_file_view_direct_no_note_markdown_block(monkeypatch):
     ctx = types.SimpleNamespace(user_data={})
     upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=123))
     await fv.handle_view_direct_file(upd, ctx)
-    assert captured.get('parse_mode') == 'Markdown'
+    # view_direct משתמש ב-MarkdownV2 כדי לתמוך בתג שפה בבלוק קוד
+    assert captured.get('parse_mode') in ('MarkdownV2', getattr(fv.ParseMode, 'MARKDOWN_V2', None))
     assert '📝 הערה: —' in captured.get('text', '')
+    # בלוק הקוד אמור לכלול תג שפה להדגשת תחביר ותווית שפה
+    assert '```python' in (captured.get('text', '') or '')
 
