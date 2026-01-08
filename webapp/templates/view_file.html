@@ -6,6 +6,14 @@
 <style id="syntax-css"></style>
 <style>
 
+/* כדי שכאשר קופצים לתוצאה, היא לא תסתתר מתחת ל-toolbar הדביק */
+html {
+    scroll-padding-top: 96px;
+}
+@media (max-width: 768px) {
+    html { scroll-padding-top: 140px; }
+}
+
 .source {
     background: #1e1e1e !important;
     border-radius: 10px;
@@ -216,23 +224,13 @@
 }
 
 #codeCard:fullscreen.is-advanced .code-container {
+    /* במסך מלא נוח לשמור גלילה פנימית בתוך הכרטיס */
     height: calc(100vh - 120px);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+    overflow: auto;
 }
 
 #codeCard:fullscreen.is-advanced #codeMirrorContainer {
-    flex: 1 1 auto;
-    min-height: 0;
-}
-
-#codeCard:fullscreen.is-advanced #codeMirrorContainer.codemirror-container,
-#codeCard:fullscreen.is-advanced #codeMirrorContainer,
-#codeCard:fullscreen.is-advanced #codeMirrorContainer .cm-editor,
-#codeCard:fullscreen.is-advanced #codeMirrorContainer .cm-scroller {
-    height: 100%;
+    width: 100%;
 }
 
 /* View Mode: CodeMirror (תצוגה מתקדמת) */
@@ -241,9 +239,9 @@
 }
 
 #codeCard.is-advanced .code-container {
-    /* במצב מתקדם הגלילה צריכה להיות פנימית (CodeMirror scroller),
-       כדי שה-toolbar לא "ייעלם" כשגוללים בתוך הקוד. */
-    overflow: hidden;
+    /* משאירים את העמוד "אינסופי" עם גלילת דפדפן;
+       ה-toolbar דביק בעזרת position: sticky */
+    overflow: visible;
 }
 
 #codeCard:fullscreen #codeMirrorContainer .cm-editor {
