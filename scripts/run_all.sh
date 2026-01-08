@@ -19,10 +19,16 @@ OBS_AI_EXPLAIN_RUN_LOCAL_SERVICE="${OBS_AI_EXPLAIN_RUN_LOCAL_SERVICE:-true}"
 OBS_AI_EXPLAIN_INTERNAL_HOST="${OBS_AI_EXPLAIN_INTERNAL_HOST:-127.0.0.1}"
 OBS_AI_EXPLAIN_INTERNAL_PORT="${OBS_AI_EXPLAIN_INTERNAL_PORT:-${AI_EXPLAIN_PORT:-11000}}"
 
-# Default the WebApp -> AI URL to localhost when missing.
+# Default the WebApp -> AI URL to localhost only when local service is enabled.
+# If local AI service is disabled and OBS_AI_EXPLAIN_URL is empty, keep it empty
+# so the WebApp can fall back to the heuristic explainer.
 if [[ -z "${OBS_AI_EXPLAIN_URL:-}" ]]; then
-  export OBS_AI_EXPLAIN_URL="http://${OBS_AI_EXPLAIN_INTERNAL_HOST}:${OBS_AI_EXPLAIN_INTERNAL_PORT}/api/ai/explain"
-  log "OBS_AI_EXPLAIN_URL not set; defaulting to ${OBS_AI_EXPLAIN_URL}"
+  if is_true "$OBS_AI_EXPLAIN_RUN_LOCAL_SERVICE"; then
+    export OBS_AI_EXPLAIN_URL="http://${OBS_AI_EXPLAIN_INTERNAL_HOST}:${OBS_AI_EXPLAIN_INTERNAL_PORT}/api/ai/explain"
+    log "OBS_AI_EXPLAIN_URL not set; defaulting to ${OBS_AI_EXPLAIN_URL}"
+  else
+    log "OBS_AI_EXPLAIN_URL not set and local AI service disabled; leaving empty (heuristic fallback)"
+  fi
 fi
 
 AI_PID=""
