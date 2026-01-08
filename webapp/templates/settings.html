@@ -150,83 +150,64 @@
   </div>
 </div>
 
-{% if push_enabled %}
-<div class="glass-card">
-  <h2 class="section-title">
-    <i class="fas fa-bell"></i>
-    התראות דפדפן (Web Push)
-  </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
-    <div
-      style="
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        flex-wrap: wrap;
-      "
-    >
+{# 
+  Web Push נשאר במערכת, אבל מוסתר מההגדרות כרגע (לא עובד/לא יציב).
+  כדי להחזיר למסך ההגדרות: החלף ל-true.
+#}
+{% set show_web_push_settings = false %}
+{% if show_web_push_settings %}
+  {% if push_enabled %}
+  <div class="glass-card">
+    <h2 class="section-title">
+      <i class="fas fa-bell"></i>
+      התראות דפדפן (Web Push)
+    </h2>
+    <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
       <div
-        style="display: flex; align-items: center; gap: 1rem; min-width: 260px"
+        style="
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          flex-wrap: wrap;
+        "
       >
-        <i class="fas fa-bell" style="font-size: 1.5rem"></i>
-        <div>
-          <div style="font-weight: 600">התראות לפתקי Sticky Notes</div>
-          <div style="opacity: 0.8; font-size: 0.95rem">
-            קבל התראות כשהתזכורת מגיעה. ב‑iOS נדרש להתקין כ‑PWA.
+        <div style="display: flex; align-items: center; gap: 1rem; min-width: 260px">
+          <i class="fas fa-bell" style="font-size: 1.5rem"></i>
+          <div>
+            <div style="font-weight: 600">התראות לפתקי Sticky Notes</div>
+            <div style="opacity: 0.8; font-size: 0.95rem">
+              קבל התראות כשהתזכורת מגיעה. ב‑iOS נדרש להתקין כ‑PWA.
+            </div>
           </div>
         </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+          <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
+          <button id="pushDisableBtn" class="btn btn-secondary">כבה התראות</button>
+          <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
+        </div>
       </div>
-      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
-        <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
-        <button id="pushDisableBtn" class="btn btn-secondary">
-          כבה התראות
-        </button>
-        <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
+      <div id="pushStatus" style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem">
+        מצב לא ידוע
       </div>
-    </div>
-    <div
-      id="pushStatus"
-      style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem"
-    >
-      מצב לא ידוע
     </div>
   </div>
-</div>
-{% else %}
-<div class="glass-card">
-  <h2 class="section-title">
-    <i class="fas fa-bell-slash"></i>
-    התראות דפדפן (Web Push)
-  </h2>
-  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
-    <div style="opacity: 0.8; font-size: 0.95rem">
-      התראות פוש כבויות במערכת.
+  {% else %}
+  <div class="glass-card">
+    <h2 class="section-title">
+      <i class="fas fa-bell-slash"></i>
+      התראות דפדפן (Web Push)
+    </h2>
+    <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+      <div style="opacity: 0.8; font-size: 0.95rem">
+        התראות פוש כבויות במערכת.
+      </div>
     </div>
   </div>
-</div>
+  {% endif %}
 {% endif %}
-{% if is_admin %}
-<div class="glass-card">
-  <h2 class="section-title">
-    <i class="fas fa-screwdriver-wrench"></i>
-    כלי אדמין
-  </h2>
-  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
-    <a href="/jobs/monitor" class="btn btn-secondary btn-icon" title="Background Jobs Monitor">
-      <i class="fas fa-list-check"></i>
-      מוניטור Jobs
-    </a>
-    <a href="/admin/profiler" class="btn btn-secondary btn-icon" title="Query Performance Profiler">
-      <i class="fas fa-tachometer-alt"></i>
-      Query Profiler
-    </a>
-  </div>
-  <p style="margin: 0.75rem 0 0; opacity: 0.75; font-size: 0.95rem;">
-    כאן תוכל לראות ריצות רקע, פעולות משתמש (Drive/Reminders/Batch) ולוגים מפורטים.
-  </p>
-</div>
 
+{% if is_admin %}
 <div class="glass-card config-radar-card" id="configRadarCard">
   <div class="config-radar-header">
     <div>
@@ -405,6 +386,42 @@
           rel="noopener"
         >
           קרא את המדריך
+        </a>
+      </div>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fas fa-list-check"></i> מוניטור Jobs</h4>
+      <p style="opacity: 0.8; margin-bottom: 0.75rem;">
+        צפייה ומעקב אחרי ריצות Background Jobs (תורים, סטטוסים, שגיאות וזמני ריצה).
+      </p>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <a href="/jobs/monitor" class="btn btn-primary btn-icon" title="Background Jobs Monitor">
+          <i class="fas fa-list-check"></i>
+          פתח מוניטור
+        </a>
+      </div>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fas fa-tachometer-alt"></i> Query Profiler</h4>
+      <p style="opacity: 0.8; margin-bottom: 0.75rem;">
+        פרופיילר ביצועי שאילתות ומדידה של נקודות איטיות כדי לאתר צווארי בקבוק.
+      </p>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <a href="/admin/profiler" class="btn btn-primary btn-icon" title="Query Performance Profiler">
+          <i class="fas fa-tachometer-alt"></i>
+          פתח פרופיילר
         </a>
       </div>
     </div>
@@ -2864,6 +2881,7 @@
         initAfterDom();
       }
 
+      {% if show_web_push_settings %}
       // --- Web Push (Service Worker + PushManager) ---
       const __PUSH_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
       if (!__PUSH_ENABLED__) {
@@ -3001,6 +3019,8 @@
       if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
       if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
       refreshPushUi();
+      {% endif %}
+
     })();
     </script>
     {% endblock %}
