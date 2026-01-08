@@ -257,8 +257,18 @@
 
         viewInstance.dispatch(
           scrollEffect
-            ? { selection: { anchor: m.from, head: m.to }, effects: scrollEffect }
-            : { selection: { anchor: m.from, head: m.to } }
+            ? {
+                selection: { anchor: m.from, head: m.to },
+                // CM6 expects a StateEffect (or array). We pass it as an array for maximum compatibility.
+                effects: [scrollEffect],
+                // Fallback safety: if the bundle ignores effects for some reason, still request scroll.
+                scrollIntoView: true,
+              }
+            : {
+                selection: { anchor: m.from, head: m.to },
+                // Fallback when EditorView.scrollIntoView isn't available (or CM6 isn't exposed fully)
+                scrollIntoView: true,
+              }
         );
       } catch (_) {}
       updateCmCount();
