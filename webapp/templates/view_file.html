@@ -6,14 +6,6 @@
 <style id="syntax-css"></style>
 <style>
 
-/* כדי שכאשר קופצים לתוצאה, היא לא תסתתר מתחת ל-toolbar הדביק */
-html {
-    scroll-padding-top: 96px;
-}
-@media (max-width: 768px) {
-    html { scroll-padding-top: 140px; }
-}
-
 .source {
     background: #1e1e1e !important;
     border-radius: 10px;
@@ -215,11 +207,10 @@ html {
     }
 }
 
-/* מסך מלא: משאירים גלילה "אינסופית" של הדפדפן (ללא גובה קשיח).
-   אחרת, height קשיח עלול לגרום לכך שלא מגיעים ממש לשורות האחרונות. */
+/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
 #codeCard:fullscreen .code-container {
-    height: auto;
-    overflow: visible;
+    height: calc(100vh - 120px);
+    overflow: auto;
 }
 
 /* View Mode: CodeMirror (תצוגה מתקדמת) */
@@ -228,19 +219,16 @@ html {
 }
 
 #codeCard.is-advanced .code-container {
-    /* משאירים את העמוד "אינסופי" עם גלילת דפדפן;
-       ה-toolbar דביק בעזרת position: sticky */
     overflow: visible;
 }
 
-/* במסך מלא (כמו מחוץ למסך מלא): תן ל-CodeMirror להתארך לפי התוכן */
 #codeCard:fullscreen #codeMirrorContainer .cm-editor {
-    height: auto;
+    height: 100%;
     max-height: none;
 }
+
 #codeCard:fullscreen #codeMirrorContainer .cm-scroller {
-    height: auto;
-    overflow: visible;
+    height: 100%;
 }
 
 .file-header {
