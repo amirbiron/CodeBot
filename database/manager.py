@@ -656,7 +656,7 @@ class DatabaseManager:
                 "unique": unique,
                 "background": background,
             }
-            if partial_filter_expression:
+            if partial_filter_expression is not None:
                 index_kwargs["partialFilterExpression"] = partial_filter_expression
             collection.create_index(desired_keys, **index_kwargs)
             emit_event(
@@ -717,7 +717,7 @@ class DatabaseManager:
                             "unique": unique,
                             "background": background,
                         }
-                        if partial_filter_expression:
+                        if partial_filter_expression is not None:
                             recreate_kwargs["partialFilterExpression"] = partial_filter_expression
                         collection.create_index(desired_keys, **recreate_kwargs)
                         emit_event(

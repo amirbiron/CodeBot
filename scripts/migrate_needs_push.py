@@ -38,9 +38,15 @@ def main():
         sys.exit(1)
     
     try:
-        db = DatabaseManager().db
+        dbm = DatabaseManager()
+        db = dbm.db
     except Exception as e:
         print(f"❌ שגיאה בהתחברות ל-MongoDB: {e}")
+        sys.exit(1)
+    
+    if db is None:
+        print("❌ לא ניתן להתחבר ל-MongoDB - db is None")
+        print("   ודא ש-MONGODB_URL מוגדר בסביבה")
         sys.exit(1)
     
     collection = db.note_reminders
