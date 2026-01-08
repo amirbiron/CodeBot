@@ -722,7 +722,9 @@ docs/
 - **תצורה נדרשת:**
   ```env
   ANTHROPIC_API_KEY=sk-...
-  OBS_AI_EXPLAIN_URL=http://observability:10000/api/ai/explain
+  # כאשר ה-WebApp ושירות ה-AI Explain רצים באותו קונטיינר (localhost פנימי):
+  OBS_AI_EXPLAIN_INTERNAL_PORT=11000
+  OBS_AI_EXPLAIN_URL=http://127.0.0.1:11000/api/ai/explain
   OBS_AI_EXPLAIN_TOKEN=super-secret-token
   OBS_AI_EXPLAIN_TIMEOUT=10
   OBS_AI_EXPLAIN_MODEL=claude-sonnet-4-5-20250929  # אופציונלי
