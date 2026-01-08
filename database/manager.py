@@ -761,7 +761,7 @@ class DatabaseManager:
                 return DatabaseManager.safe_create_index(self, *args, **kwargs)
 
         # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)
-        # note_reminders - אינדקס מותאם לשאילתת הפולינג החדשה
+        # note_reminders - אינדקס מותאם לשאילתת הפולינג החדשה (push_api.py)
         # השאילתה מסננת לפי: ack_at=null, status in [pending, snoozed], remind_at <= now, needs_push != false
         # אינדקס חלקי (Partial Index) על ack_at=null ו-needs_push != false
         safe_create_index(
@@ -771,6 +771,16 @@ class DatabaseManager:
             background=True,
             enforce=True,
             partial_filter_expression={"ack_at": None, "needs_push": {"$ne": False}},
+        )
+        # note_reminders - אינדקס לשאילתת /reminders/summary (sticky_notes_api.py)
+        # השאילתה מסננת לפי: user_id, ack_at=null, status, remind_at
+        safe_create_index(
+            "note_reminders",
+            [("user_id", ASCENDING), ("status", ASCENDING), ("remind_at", ASCENDING)],
+            name="user_reminders_summary_idx",
+            background=True,
+            enforce=True,
+            partial_filter_expression={"ack_at": None},
         )
         # אינדקס חלקי פשוט יותר לתאימות
         safe_create_index(
