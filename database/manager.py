@@ -550,6 +550,7 @@ class DatabaseManager:
         unique: bool = False,
         background: bool = True,
         enforce: bool = False,
+        partial_filter_expression: Optional[Dict[str, Any]] = None,
     ) -> None:
         """יוצר אינדקס בצורה בטוחה וב-Background.
 
@@ -557,6 +558,10 @@ class DatabaseManager:
         - להימנע מקריסה אם קיים אינדקס *זהה* עם שם אחר (IndexOptionsConflict / "already exists")
         - לא להסתיר תקלות אמיתיות (חיבור/הרשאות/duplicate keys וכו')
         - לאפשר "אכיפה" (drop+create) רק לאינדקסים קריטיים כשיש mismatch אמיתי
+
+        Args:
+            partial_filter_expression: אופציונלי - תנאי סינון לאינדקס חלקי (Partial Index).
+                                       מאפשר לאנדקס רק חלק מהמסמכים לפי פילטר.
         """
         db = getattr(self, "db", None)
         if db is None:
@@ -630,17 +635,30 @@ class DatabaseManager:
                 if bool(unique) != existing_unique:
                     return False
 
+                # partialFilterExpression: partial index vs non-partial are different indexes
+                existing_partial = idx.get("partialFilterExpression")
+                if partial_filter_expression is not None:
+                    # We want a partial index - existing must have same filter
+                    if existing_partial != partial_filter_expression:
+                        return False
+                else:
+                    # We want a non-partial index - existing must not be partial
+                    if existing_partial is not None:
+                        return False
+
                 return True
             except Exception:
                 return False
 
         try:
-            collection.create_index(
-                desired_keys,
-                name=name,
-                unique=unique,
-                background=background,
-            )
+            index_kwargs: Dict[str, Any] = {
+                "name": name,
+                "unique": unique,
+                "background": background,
+            }
+            if partial_filter_expression is not None:
+                index_kwargs["partialFilterExpression"] = partial_filter_expression
+            collection.create_index(desired_keys, **index_kwargs)
             emit_event(
                 "db_index_created",
                 severity="info",
@@ -694,12 +712,14 @@ class DatabaseManager:
                         )
 
                     try:
-                        collection.create_index(
-                            desired_keys,
-                            name=name,
-                            unique=unique,
-                            background=background,
-                        )
+                        recreate_kwargs: Dict[str, Any] = {
+                            "name": name,
+                            "unique": unique,
+                            "background": background,
+                        }
+                        if partial_filter_expression is not None:
+                            recreate_kwargs["partialFilterExpression"] = partial_filter_expression
+                        collection.create_index(desired_keys, **recreate_kwargs)
                         emit_event(
                             "db_index_created",
                             severity="info",
@@ -752,13 +772,43 @@ class DatabaseManager:
                 return DatabaseManager.safe_create_index(self, *args, **kwargs)
 
         # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)
-        # note_reminders (הכי דחוף לפי הלוגים)
+        # note_reminders - אינדקס מותאם לשאילתת הפולינג החדשה (push_api.py)
+        # השאילתה מסננת לפי: ack_at=null, status in [pending, snoozed], remind_at <= now, needs_push != false
+        # אינדקס חלקי (Partial Index) על ack_at=null ו-needs_push != false
+        safe_create_index(
+            "note_reminders",
+            [("status", ASCENDING), ("remind_at", ASCENDING), ("needs_push", ASCENDING)],
+            name="push_polling_optimized_idx",
+            background=True,
+            enforce=True,
+            partial_filter_expression={"ack_at": None, "needs_push": {"$ne": False}},
+        )
+        # note_reminders - אינדקס לשאילתת /reminders/summary (sticky_notes_api.py)
+        # השאילתה מסננת לפי: user_id, ack_at=null, status, remind_at
+        safe_create_index(
+            "note_reminders",
+            [("user_id", ASCENDING), ("status", ASCENDING), ("remind_at", ASCENDING)],
+            name="user_reminders_summary_idx",
+            background=True,
+            enforce=True,
+            partial_filter_expression={"ack_at": None},
+        )
+        # אינדקס חלקי פשוט יותר לתאימות
+        safe_create_index(
+            "note_reminders",
+            [("status", ASCENDING), ("remind_at", ASCENDING)],
+            name="push_polling_partial_idx",
+            background=True,
+            enforce=False,
+            partial_filter_expression={"ack_at": None},
+        )
+        # אינדקס ישן לתאימות לאחור (לא חלקי)
         safe_create_index(
             "note_reminders",
             [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
             name="push_polling_idx",
             background=True,
-            enforce=True,
+            enforce=False,  # לא לאכוף - אם קיים, לא למחוק
         )
 
         # service_metrics
@@ -842,14 +892,33 @@ class DatabaseManager:
         safe_create_index("shared_themes", [("created_by", ASCENDING)], name="shared_themes_created_by_idx")
 
         # הוספת אינדקסים קטנים שחונקים CPU (לפי התדירות/סינונים)
-        safe_create_index("visual_rules", [("enabled", ASCENDING)], name="visual_rules_enabled_idx")
+        # enforce=True לוודא שהאינדקסים נוצרים גם אם יש קונפליקט
+        safe_create_index(
+            "visual_rules",
+            [("enabled", ASCENDING)],
+            name="visual_rules_enabled_idx",
+            enforce=True,
+        )
         safe_create_index(
             "alerts_silences",
             [("active", ASCENDING), ("until_ts", ASCENDING)],
             name="alerts_silences_active_until_idx",
+            enforce=True,
         )
-        safe_create_index("alerts_log", [("_key", ASCENDING)], name="alerts_log_key_idx")
-        safe_create_index("alert_types_catalog", [("alert_type", ASCENDING)], name="alert_types_catalog_type_idx")
+        safe_create_index(
+            "alerts_log",
+            [("_key", ASCENDING)],
+            name="alerts_log_key_idx",
+            unique=True,  # _key צריך להיות ייחודי
+            enforce=True,
+        )
+        safe_create_index(
+            "alert_types_catalog",
+            [("alert_type", ASCENDING)],
+            name="alert_types_catalog_type_idx",
+            unique=True,  # alert_type צריך להיות ייחודי
+            enforce=True,
+        )
 
         # code_snippets - אינדקס מורכב לרשימות משתמש (משפר פילטר user_id+is_active ומיון לפי created_at)
         # אינדקס קריטי: אם יש mismatch אמיתי בשם הזה, ננסה drop+create בצורה מבוקרת.

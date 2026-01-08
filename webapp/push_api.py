@@ -484,25 +484,38 @@ def _loop_send_due_reminders() -> None:
 def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     """Scan due sticky-note reminders and send web push per user subscriptions.
 
-    Idempotency: send once per reminder schedule by checking last_push_success_at < remind_at.
+    Idempotency: send once per reminder schedule using the needs_push field.
+    When a push succeeds, needs_push is set to False.
+    When a reminder is rescheduled (snooze), needs_push is reset to True.
+
+    Backward compatibility: documents without needs_push field use the old
+    last_push_success_at logic to avoid duplicate sends on deployment.
     """
     db = get_db()
     now = datetime.now(timezone.utc)
-    # Idempotency is enforced inside MongoDB to avoid Python-side filtering on the hot path.
+    # Optimized query with backward compatibility for documents without needs_push.
     # NOTE: our reminders use status pending/snoozed (not "active").
     mongo_filter = {
-        "status": {"$in": ["pending", "snoozed"]},
         "ack_at": None,
+        "status": {"$in": ["pending", "snoozed"]},
         "remind_at": {"$lte": now},
-        # send only if never successfully pushed for this schedule
         "$or": [
-            {"last_push_success_at": {"$exists": False}},
-            {"last_push_success_at": None},
+            # New documents: explicit needs_push flag
+            {"needs_push": True},
+            # Old documents without needs_push: use timestamp-based logic
+            # (never pushed, or remind_at changed since last push)
             {
-                "$and": [
-                    {"last_push_success_at": {"$type": "date"}},
-                    {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
-                ]
+                "needs_push": {"$exists": False},
+                "$or": [
+                    {"last_push_success_at": {"$exists": False}},
+                    {"last_push_success_at": None},
+                    {
+                        "$and": [
+                            {"last_push_success_at": {"$type": "date"}},
+                            {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+                        ]
+                    },
+                ],
             },
         ],
     }
@@ -771,9 +784,17 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 continue
         if success_any:
             try:
+                # Race condition protection: only mark as sent if remind_at hasn't changed
+                # (i.e., user didn't snooze during the push). If snoozed, the new remind_at
+                # means we should NOT clear needs_push - the snoozed reminder needs its push.
+                original_remind_at = r.get("remind_at")
                 db.note_reminders.update_one(
-                    {"_id": r.get("_id")},
-                    {"$set": {"last_push_success_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}},
+                    {"_id": r.get("_id"), "remind_at": original_remind_at},
+                    {"$set": {
+                        "last_push_success_at": datetime.now(timezone.utc),
+                        "updated_at": datetime.now(timezone.utc),
+                        "needs_push": False,
+                    }},
                 )
             except Exception:
                 pass
