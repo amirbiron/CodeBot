@@ -7,18 +7,16 @@
 }
 .cm-editor { min-height: 400px; max-height: 60vh; font-family: 'Fira Code','Consolas',monospace; }
 
-/* View Mode (view_file.html):
-   - ב"תצוגה בסיסית" אפשר לתת לעמוד לגלול (auto height).
-   - ב"תצוגה מתקדמת" אנחנו רוצים גלילה פנימית של CodeMirror כדי שה-toolbar יישאר קבוע. */
-#codeCard:not(:fullscreen):not(.is-advanced) .codemirror-container.cm-autoheight {
+/* View Mode (view_file.html): גלילת דפדפן + CodeMirror auto-height (גם במסך מלא) */
+#codeCard .codemirror-container.cm-autoheight {
   overflow: visible;
 }
-#codeCard:not(:fullscreen):not(.is-advanced) .codemirror-container.cm-autoheight .cm-editor {
+#codeCard .codemirror-container.cm-autoheight .cm-editor {
   height: auto;
   min-height: 0;
   max-height: none;
 }
-#codeCard:not(:fullscreen):not(.is-advanced) .codemirror-container.cm-autoheight .cm-scroller {
+#codeCard .codemirror-container.cm-autoheight .cm-scroller {
   height: auto;
   overflow: visible;
 }

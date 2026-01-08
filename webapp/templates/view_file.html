@@ -6,6 +6,14 @@
 <style id="syntax-css"></style>
 <style>
 
+/* כדי שכאשר קופצים לתוצאה, היא לא תסתתר מתחת ל-toolbar הדביק */
+html {
+    scroll-padding-top: 96px;
+}
+@media (max-width: 768px) {
+    html { scroll-padding-top: 140px; }
+}
+
 .source {
     background: #1e1e1e !important;
     border-radius: 10px;
@@ -207,32 +215,11 @@
     }
 }
 
-/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה
-   - בתצוגה בסיסית (Pygments): גלילה על ה-container
-   - בתצוגה מתקדמת (CodeMirror): גלילה פנימית בתוך העורך כדי שה-toolbar יישאר תמיד נגיש */
-#codeCard:fullscreen:not(.is-advanced) .code-container {
-    height: calc(100vh - 120px);
-    overflow: auto;
-}
-
-#codeCard:fullscreen.is-advanced .code-container {
-    height: calc(100vh - 120px);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
-
-#codeCard:fullscreen.is-advanced #codeMirrorContainer {
-    flex: 1 1 auto;
-    min-height: 0;
-}
-
-#codeCard:fullscreen.is-advanced #codeMirrorContainer.codemirror-container,
-#codeCard:fullscreen.is-advanced #codeMirrorContainer,
-#codeCard:fullscreen.is-advanced #codeMirrorContainer .cm-editor,
-#codeCard:fullscreen.is-advanced #codeMirrorContainer .cm-scroller {
-    height: 100%;
+/* מסך מלא: משאירים גלילה "אינסופית" של הדפדפן (ללא גובה קשיח).
+   אחרת, height קשיח עלול לגרום לכך שלא מגיעים ממש לשורות האחרונות. */
+#codeCard:fullscreen .code-container {
+    height: auto;
+    overflow: visible;
 }
 
 /* View Mode: CodeMirror (תצוגה מתקדמת) */
@@ -241,18 +228,19 @@
 }
 
 #codeCard.is-advanced .code-container {
-    /* במצב מתקדם הגלילה צריכה להיות פנימית (CodeMirror scroller),
-       כדי שה-toolbar לא "ייעלם" כשגוללים בתוך הקוד. */
-    overflow: hidden;
+    /* משאירים את העמוד "אינסופי" עם גלילת דפדפן;
+       ה-toolbar דביק בעזרת position: sticky */
+    overflow: visible;
 }
 
+/* במסך מלא (כמו מחוץ למסך מלא): תן ל-CodeMirror להתארך לפי התוכן */
 #codeCard:fullscreen #codeMirrorContainer .cm-editor {
-    height: 100%;
+    height: auto;
     max-height: none;
 }
-
 #codeCard:fullscreen #codeMirrorContainer .cm-scroller {
-    height: 100%;
+    height: auto;
+    overflow: visible;
 }
 
 .file-header {
