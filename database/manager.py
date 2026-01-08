@@ -550,6 +550,7 @@ class DatabaseManager:
         unique: bool = False,
         background: bool = True,
         enforce: bool = False,
+        partial_filter_expression: Optional[Dict[str, Any]] = None,
     ) -> None:
         """יוצר אינדקס בצורה בטוחה וב-Background.
 
@@ -557,6 +558,10 @@ class DatabaseManager:
         - להימנע מקריסה אם קיים אינדקס *זהה* עם שם אחר (IndexOptionsConflict / "already exists")
         - לא להסתיר תקלות אמיתיות (חיבור/הרשאות/duplicate keys וכו')
         - לאפשר "אכיפה" (drop+create) רק לאינדקסים קריטיים כשיש mismatch אמיתי
+
+        Args:
+            partial_filter_expression: אופציונלי - תנאי סינון לאינדקס חלקי (Partial Index).
+                                       מאפשר לאנדקס רק חלק מהמסמכים לפי פילטר.
         """
         db = getattr(self, "db", None)
         if db is None:
@@ -635,12 +640,14 @@ class DatabaseManager:
                 return False
 
         try:
-            collection.create_index(
-                desired_keys,
-                name=name,
-                unique=unique,
-                background=background,
-            )
+            index_kwargs: Dict[str, Any] = {
+                "name": name,
+                "unique": unique,
+                "background": background,
+            }
+            if partial_filter_expression:
+                index_kwargs["partialFilterExpression"] = partial_filter_expression
+            collection.create_index(desired_keys, **index_kwargs)
             emit_event(
                 "db_index_created",
                 severity="info",
@@ -694,12 +701,14 @@ class DatabaseManager:
                         )
 
                     try:
-                        collection.create_index(
-                            desired_keys,
-                            name=name,
-                            unique=unique,
-                            background=background,
-                        )
+                        recreate_kwargs: Dict[str, Any] = {
+                            "name": name,
+                            "unique": unique,
+                            "background": background,
+                        }
+                        if partial_filter_expression:
+                            recreate_kwargs["partialFilterExpression"] = partial_filter_expression
+                        collection.create_index(desired_keys, **recreate_kwargs)
                         emit_event(
                             "db_index_created",
                             severity="info",
@@ -752,13 +761,33 @@ class DatabaseManager:
                 return DatabaseManager.safe_create_index(self, *args, **kwargs)
 
         # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)
-        # note_reminders (הכי דחוף לפי הלוגים)
+        # note_reminders - אינדקס מותאם לשאילתת הפולינג החדשה
+        # השאילתה מסננת לפי: ack_at=null, status in [pending, snoozed], remind_at <= now, needs_push != false
+        # אינדקס חלקי (Partial Index) על ack_at=null ו-needs_push != false
+        safe_create_index(
+            "note_reminders",
+            [("status", ASCENDING), ("remind_at", ASCENDING), ("needs_push", ASCENDING)],
+            name="push_polling_optimized_idx",
+            background=True,
+            enforce=True,
+            partial_filter_expression={"ack_at": None, "needs_push": {"$ne": False}},
+        )
+        # אינדקס חלקי פשוט יותר לתאימות
+        safe_create_index(
+            "note_reminders",
+            [("status", ASCENDING), ("remind_at", ASCENDING)],
+            name="push_polling_partial_idx",
+            background=True,
+            enforce=False,
+            partial_filter_expression={"ack_at": None},
+        )
+        # אינדקס ישן לתאימות לאחור (לא חלקי)
         safe_create_index(
             "note_reminders",
             [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
             name="push_polling_idx",
             background=True,
-            enforce=True,
+            enforce=False,  # לא לאכוף - אם קיים, לא למחוק
         )
 
         # service_metrics

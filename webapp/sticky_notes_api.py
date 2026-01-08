@@ -624,6 +624,7 @@ def set_note_reminder(note_id: str):
             'snooze_until': None,
             'ack_at': None,
             'updated_at': now_utc,
+            'needs_push': True,
         }
         # Upsert: keep only one active reminder per note for simplicity
         try:
@@ -678,7 +679,14 @@ def snooze_note_reminder(note_id: str):
         new_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
         r = db.note_reminders.update_one(
             {'user_id': user_id, 'note_id': str(note_id), 'status': {'$in': ['pending', 'snoozed']}},
-            {'$set': {'status': 'snoozed', 'snooze_until': new_time, 'remind_at': new_time, 'updated_at': datetime.now(timezone.utc), 'ack_at': None}},
+            {'$set': {
+                'status': 'snoozed',
+                'snooze_until': new_time,
+                'remind_at': new_time,
+                'updated_at': datetime.now(timezone.utc),
+                'ack_at': None,
+                'needs_push': True,  # Reset so push will be sent again
+            }},
         )
         if getattr(r, 'matched_count', 0) <= 0:
             return jsonify({'ok': False, 'error': 'Reminder not found'}), 404
