@@ -111,19 +111,16 @@ groups:
         expr: |
           (
             health_latency_ewma
-              > predict_linear(health_latency_ewma[2h], 15m) * 1.35
+              > predict_linear(health_latency_ewma[2h], 15m) * 1.2
           )
-          # Avoid alert noise on small absolute changes.
-          # health_latency_ewma is reported in milliseconds (see /healthz and metrics.py).
-          and (health_latency_ewma > 800)
           # Require enough traffic so the EWMA trend is meaningful.
           # Without this, low-traffic services may get noisy false positives.
           and on(job, instance) (
-            sum by (job, instance) (increase(http_requests_total[2h])) > 400
+            sum by (job, instance) (increase(http_requests_total[2h])) > 200
           )
           and on(job, instance) (time() - process_start_time_seconds > 300)
           and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
-        for: 20m
+        for: 10m
         labels:
           severity: warning
           component: webapp
