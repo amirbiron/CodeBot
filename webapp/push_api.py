@@ -493,31 +493,18 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     """
     db = get_db()
     now = datetime.now(timezone.utc)
-    # Optimized query with backward compatibility for documents without needs_push.
-    # NOTE: our reminders use status pending/snoozed (not "active").
-    mongo_filter = {
+    # IMPORTANT: do NOT use a single $or query here.
+    # A partial index (ack_at=None, needs_push=True) is only usable when the query
+    # *guarantees* needs_push=True. With a top-level $or (legacy branch), MongoDB
+    # tends to fall back to COLLSCAN under load.
+    #
+    # Strategy:
+    # 1) Query "new" documents (needs_push=True) — hits the partial index.
+    # 2) If we still need items, query legacy documents without needs_push.
+    base_filter = {
         "ack_at": None,
         "status": {"$in": ["pending", "snoozed"]},
         "remind_at": {"$lte": now},
-        "$or": [
-            # New documents: explicit needs_push flag
-            {"needs_push": True},
-            # Old documents without needs_push: use timestamp-based logic
-            # (never pushed, or remind_at changed since last push)
-            {
-                "needs_push": {"$exists": False},
-                "$or": [
-                    {"last_push_success_at": {"$exists": False}},
-                    {"last_push_success_at": None},
-                    {
-                        "$and": [
-                            {"last_push_success_at": {"$type": "date"}},
-                            {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
-                        ]
-                    },
-                ],
-            },
-        ],
     }
     total_needed = max_users * max_per_user
     # We still oversample to compensate for claim collisions / missing subscriptions, etc.
@@ -532,14 +519,52 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         "last_push_success_at": 1,
     }
 
+    raw_due: list = []
+    # 1) New documents (fast path, uses partial index)
     try:
-        raw_due = list(
-            db.note_reminders.find(mongo_filter, projection).sort("remind_at", 1).limit(raw_limit)
-        )
+        new_filter = dict(base_filter)
+        new_filter["needs_push"] = True
+        raw_due = list(db.note_reminders.find(new_filter, projection).sort("remind_at", 1).limit(raw_limit))
     except Exception:
         raw_due = []
 
-    due = [r for r in raw_due if isinstance(r, dict)]
+    due: list[dict] = [r for r in raw_due if isinstance(r, dict)]
+
+    # 2) Legacy documents (best-effort, limited)
+    if len(due) < raw_limit:
+        try:
+            legacy_limit = max(1, raw_limit - len(due))
+            legacy_filter = dict(base_filter)
+            legacy_filter["needs_push"] = {"$exists": False}
+            legacy_filter["$or"] = [
+                {"last_push_success_at": {"$exists": False}},
+                {"last_push_success_at": None},
+                {
+                    "$and": [
+                        {"last_push_success_at": {"$type": "date"}},
+                        {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+                    ]
+                },
+            ]
+            legacy_raw = list(
+                db.note_reminders.find(legacy_filter, projection).sort("remind_at", 1).limit(legacy_limit)
+            )
+            # Merge & de-dup by _id
+            seen = {str(d.get("_id")) for d in due if d.get("_id") is not None}
+            for r in legacy_raw:
+                if not isinstance(r, dict):
+                    continue
+                rid = r.get("_id")
+                if rid is None:
+                    continue
+                s = str(rid)
+                if s in seen:
+                    continue
+                seen.add(s)
+                due.append(r)
+        except Exception:
+            pass
+
     due = due[:total_needed]
     if not due:
         return
