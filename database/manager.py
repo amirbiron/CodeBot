@@ -235,21 +235,37 @@ class DatabaseManager:
                             return True
 
                     def _profiler_threshold_ms() -> float:
-                        # Prefer profiler-specific threshold; fallback to legacy DB_SLOW_MS if present
+                        # PROFILER_SLOW_THRESHOLD_MS controls recording into the profiler.
+                        # It should NOT control slow_mongo log emission (that is controlled by DB_SLOW_MS).
                         raw = os.getenv("PROFILER_SLOW_THRESHOLD_MS", "").strip()
                         if raw:
                             try:
                                 return float(raw)
                             except Exception:
                                 return 100.0
+                        # Backward-compat: if profiler threshold isn't set but legacy DB_SLOW_MS is set (>0),
+                        # use it as a reasonable profiler threshold.
                         raw2 = os.getenv("DB_SLOW_MS", "").strip()
                         if raw2:
                             try:
-                                return float(raw2)
+                                v = float(raw2)
+                                if v > 0:
+                                    return v
                             except Exception:
-                                return 100.0
+                                pass
                         # ברירת מחדל: 100ms (תואם docs ו-Config Inspector)
                         return 100.0
+
+                    def _slow_mongo_log_threshold_ms() -> float:
+                        # DB_SLOW_MS controls the slow_mongo warning log.
+                        # Docs/Config Inspector define default as 0 (disabled).
+                        raw = os.getenv("DB_SLOW_MS", "").strip()
+                        if not raw:
+                            return 0.0
+                        try:
+                            return float(raw)
+                        except Exception:
+                            return 0.0
 
                     def _get_profiler_service():
                         # Lazy import to avoid hard dependency / circular imports at startup
@@ -349,7 +365,7 @@ class DatabaseManager:
 
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
-                                slow_ms = float(_profiler_threshold_ms() or 0.0)
+                                slow_ms = float(_slow_mongo_log_threshold_ms() or 0.0)
 
                                 # לוגים רגילים (Warning)
                                 if slow_ms and dur_ms > slow_ms:
@@ -368,6 +384,10 @@ class DatabaseManager:
                                     # --- Query Performance Profiler ---
                                     try:
                                         if not _profiler_enabled():
+                                            return
+
+                                        profiler_slow_ms = float(_profiler_threshold_ms() or 0.0)
+                                        if profiler_slow_ms and dur_ms <= profiler_slow_ms:
                                             return
 
                                         # אם אין לנו את המידע מ-started, אי אפשר להקליט
