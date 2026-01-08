@@ -247,10 +247,19 @@
         viewInstance.focus();
       } catch (_) {}
       try {
-        viewInstance.dispatch({
-          selection: { anchor: m.from, head: m.to },
-          scrollIntoView: true,
-        });
+        const EditorView = window.CodeMirror6 && window.CodeMirror6.EditorView;
+        // CM6: הדרך ה"נכונה" לגלול היא באמצעות effect (EditorView.scrollIntoView).
+        // נשמור fallback אם ה-bundle לא חושף את הפונקציה הזו מסיבה כלשהי.
+        const scrollEffect =
+          EditorView && typeof EditorView.scrollIntoView === 'function'
+            ? EditorView.scrollIntoView(m.from, { y: 'center' })
+            : null;
+
+        viewInstance.dispatch(
+          scrollEffect
+            ? { selection: { anchor: m.from, head: m.to }, effects: scrollEffect }
+            : { selection: { anchor: m.from, head: m.to } }
+        );
       } catch (_) {}
       updateCmCount();
     }
