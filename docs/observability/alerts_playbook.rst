@@ -9,6 +9,53 @@ Playbook קצר להתראות
 3. פעלו לפי ה-``remediation`` של ה-``error_code``.
 4. בדקו השפעה בדשבורד (P95 / error rate). הסלימו אם אין שיפור.
 
+דיאגרמת מערכת התראות חכמות
+--------------------------
+
+התרשים הבא מציג את הזרימה המלאה של מערכת ההתראות - מזיהוי האירוע ועד לשליחת ההתראה:
+
+.. mermaid::
+
+   graph TD
+       subgraph "Detection Layer"
+           M1[Error Rate Monitor]
+           M2[Latency Monitor]
+           M3[Rate Limit Monitor]
+           M4[System Health Monitor]
+       end
+
+       subgraph "Analysis Layer"
+           M1 --> AE[Alert Engine]
+           M2 --> AE
+           M3 --> AE
+           M4 --> AE
+           AE --> TA{Threshold Analysis}
+       end
+
+       subgraph "Decision Layer"
+           TA -->|Critical| C[Create Alert]
+           TA -->|Warning| W[Create Warning]
+           TA -->|Normal| N[No Action]
+           C --> ES[Enrich with Suggestions]
+           W --> ES
+           ES --> GL[Add Grafana Links]
+           GL --> RP[Add Runbook]
+       end
+
+       subgraph "Delivery Layer"
+           RP --> TN[Telegram Notification]
+           RP --> DB[(Store Alert)]
+           RP --> WH[Webhook]
+           TN --> U[User]
+       end
+
+**הסבר השכבות:**
+
+- **Detection Layer**: זיהוי אירועים - מעקב אחר שגיאות, latency, rate limits ובריאות המערכת
+- **Analysis Layer**: ניתוח הסף - האם האירוע חורג מהערכים המוגדרים
+- **Decision Layer**: קבלת החלטות - יצירת התראה/אזהרה, העשרה בהמלצות וקישורים
+- **Delivery Layer**: משלוח - Telegram, אחסון ב-DB, Webhook
+
 קישורים בקוד
 ------------
 - נקודת קצה: ``POST /alerts`` ב-``services/webserver.py``.
