@@ -772,16 +772,17 @@ class DatabaseManager:
                 return DatabaseManager.safe_create_index(self, *args, **kwargs)
 
         # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)
-        # note_reminders - אינדקס מותאם לשאילתת הפולינג החדשה (push_api.py)
-        # השאילתה מסננת לפי: ack_at=null, status in [pending, snoozed], remind_at <= now, needs_push != false
-        # אינדקס חלקי (Partial Index) על ack_at=null ו-needs_push != false
+        # note_reminders - אינדקס מותאם לשאילתת הפולינג (push_api.py)
+        # קריטי: אינדקס חלקי לא תומך ב-$ne/$not ב-partialFilterExpression.
+        # לכן אנחנו מאנדקסים רק מסמכים "חדשים" עם needs_push=True.
         safe_create_index(
             "note_reminders",
-            [("status", ASCENDING), ("remind_at", ASCENDING), ("needs_push", ASCENDING)],
+            # remind_at ראשון כדי לאפשר sort+limit יעילים על due reminders
+            [("remind_at", ASCENDING), ("status", ASCENDING)],
             name="push_polling_optimized_idx",
             background=True,
             enforce=True,
-            partial_filter_expression={"ack_at": None, "needs_push": {"$ne": False}},
+            partial_filter_expression={"ack_at": None, "needs_push": True},
         )
         # note_reminders - אינדקס לשאילתת /reminders/summary (sticky_notes_api.py)
         # השאילתה מסננת לפי: user_id, ack_at=null, status, remind_at

@@ -14,6 +14,14 @@ is_true() {
 
 WEBAPP_START_SCRIPT="${WEBAPP_START_SCRIPT:-scripts/start_webapp.sh}"
 
+# When running WebApp + AI service in the same container, keep Gunicorn concurrency conservative
+# unless the operator explicitly overrides it. This reduces duplicate startup side-effects
+# (jobs registration, background threads) and prevents double polling pressure on MongoDB.
+if [[ -z "${WEB_CONCURRENCY:-}" && -z "${WEBAPP_GUNICORN_WORKERS:-}" ]]; then
+  export WEB_CONCURRENCY="1"
+  log "WEB_CONCURRENCY not set; defaulting to ${WEB_CONCURRENCY} (unified container)"
+fi
+
 # Internal AI Explain service (aiohttp) settings
 OBS_AI_EXPLAIN_RUN_LOCAL_SERVICE="${OBS_AI_EXPLAIN_RUN_LOCAL_SERVICE:-true}"
 OBS_AI_EXPLAIN_INTERNAL_HOST="${OBS_AI_EXPLAIN_INTERNAL_HOST:-127.0.0.1}"
