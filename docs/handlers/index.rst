@@ -3,6 +3,88 @@ Handlers
 
 תיעוד של כל ה-handlers בפרויקט.
 
+זרימת פקודה בסיסית
+------------------
+
+התרשים הבא מציג את הזרימה הכללית של פקודה מהמשתמש ועד לתגובה:
+
+.. mermaid::
+
+   graph LR
+       A[User Command] --> B{Permission Check}
+       B -->|Authorized| C[Validate Args]
+       B -->|Denied| D[Error Response]
+       C --> E[Metrics Collection]
+       E --> F[Execute Command]
+       F --> G[Format Response]
+       G --> H[Send to User]
+       F --> I[Log Metrics]
+       I --> J{Alert Check}
+       J -->|Threshold Exceeded| K[Trigger Alert]
+       J -->|Normal| L[Store Metrics]
+
+**שלבי הזרימה:**
+
+1. **Permission Check**: בדיקת הרשאות המשתמש לפקודה
+2. **Validate Args**: אימות הפרמטרים שהועברו
+3. **Metrics Collection**: איסוף מטריקות לפני ביצוע
+4. **Execute Command**: הרצת הפקודה בפועל
+5. **Log Metrics**: רישום המטריקות לניטור
+6. **Alert Check**: בדיקה האם יש לשלוח התראה
+
+ארכיטקטורת Handlers
+--------------------
+
+התרשים הבא מציג את הקשר בין ה-Handlers השונים לשירותים:
+
+.. mermaid::
+
+   graph TB
+       subgraph "Bot Interface"
+           U[User Input] --> DP[Dispatcher]
+       end
+
+       subgraph "Command Handlers"
+           DP --> SH[/status Handler]
+           DP --> EH[/errors Handler]
+           DP --> LH[/latency Handler]
+           DP --> RH[/rate_limit Handler]
+           DP --> TH[/triage Handler]
+           DP --> DH[/dashboard Handler]
+       end
+
+       subgraph "Services Layer"
+           SH --> HS[Health Service]
+           EH --> MS[Metrics Service]
+           LH --> MS
+           RH --> GS[GitHub Service]
+           TH --> IS[Investigation Service]
+           DH --> AS[Aggregation Service]
+       end
+
+       subgraph "Data Layer"
+           HS --> DB[(Database)]
+           MS --> DB
+           MS --> RC[(Redis)]
+           GS --> GA[GitHub API]
+           IS --> DB
+           IS --> ES[Elastic/Logs]
+           AS --> DB
+       end
+
+**הסבר השכבות:**
+
+- **Bot Interface**: קבלת קלט מהמשתמש וניתוב לפקודה המתאימה
+- **Command Handlers**: טיפול בפקודות ספציפיות (status, errors, latency וכו')
+- **Services Layer**: שירותי הליבה שמבצעים את הלוגיקה העסקית
+- **Data Layer**: שכבת הנתונים - DB, Cache, APIs חיצוניים
+
+.. seealso::
+
+   - ארכיטקטורה כללית: :doc:`/architecture`
+   - Services: :doc:`/services/index`
+   - Resilience: :doc:`/resilience`
+
 Show Command
 ------------
 
