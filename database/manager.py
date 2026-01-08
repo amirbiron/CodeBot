@@ -881,14 +881,33 @@ class DatabaseManager:
         safe_create_index("shared_themes", [("created_by", ASCENDING)], name="shared_themes_created_by_idx")
 
         # הוספת אינדקסים קטנים שחונקים CPU (לפי התדירות/סינונים)
-        safe_create_index("visual_rules", [("enabled", ASCENDING)], name="visual_rules_enabled_idx")
+        # enforce=True לוודא שהאינדקסים נוצרים גם אם יש קונפליקט
+        safe_create_index(
+            "visual_rules",
+            [("enabled", ASCENDING)],
+            name="visual_rules_enabled_idx",
+            enforce=True,
+        )
         safe_create_index(
             "alerts_silences",
             [("active", ASCENDING), ("until_ts", ASCENDING)],
             name="alerts_silences_active_until_idx",
+            enforce=True,
         )
-        safe_create_index("alerts_log", [("_key", ASCENDING)], name="alerts_log_key_idx")
-        safe_create_index("alert_types_catalog", [("alert_type", ASCENDING)], name="alert_types_catalog_type_idx")
+        safe_create_index(
+            "alerts_log",
+            [("_key", ASCENDING)],
+            name="alerts_log_key_idx",
+            unique=True,  # _key צריך להיות ייחודי
+            enforce=True,
+        )
+        safe_create_index(
+            "alert_types_catalog",
+            [("alert_type", ASCENDING)],
+            name="alert_types_catalog_type_idx",
+            unique=True,  # alert_type צריך להיות ייחודי
+            enforce=True,
+        )
 
         # code_snippets - אינדקס מורכב לרשימות משתמש (משפר פילטר user_id+is_active ומיון לפי created_at)
         # אינדקס קריטי: אם יש mismatch אמיתי בשם הזה, ננסה drop+create בצורה מבוקרת.
