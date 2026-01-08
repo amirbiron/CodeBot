@@ -524,6 +524,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             language_lower = str(language or "").lower()
         except Exception:
             language_lower = ""
+        is_markdown_language = language_lower == 'markdown' or file_name_lower.endswith('.md') or file_name_lower.endswith('.markdown')
         # העדף MarkdownV2 כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח.
         # חריג: קבצי Markdown נשארים ב-HTML כדי לא לשבור תצוגת Markdown טבעית.
         if not is_markdown_language:
@@ -1295,6 +1296,11 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             file_name_lower = str(file_name).lower()
         except Exception:
             file_name_lower = ""
+        try:
+            language_lower = str(language or "").lower()
+        except Exception:
+            language_lower = ""
+        is_markdown_language = language_lower == 'markdown' or file_name_lower.endswith('.md') or file_name_lower.endswith('.markdown')
         # העדף MarkdownV2 כדי לקבל תווית שפה + הדגשת תחביר.
         # חריגים:
         # - קבצים גדולים: עדיף HTML כדי לשמור עקביות בטעינה מדורגת/כפתור "הצג עוד"
