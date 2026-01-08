@@ -2648,12 +2648,36 @@ def _call_ai_provider(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             headers=headers,
             timeout=_AI_EXPLAIN_TIMEOUT,
         )
-        response.raise_for_status()
+        # We intentionally avoid raise_for_status() here:
+        # - This endpoint can return expected non-200 statuses (e.g. 503 when ANTHROPIC_API_KEY is missing)
+        # - We want to keep logs actionable without a noisy traceback
+        if int(getattr(response, "status_code", 0) or 0) >= 400:
+            status = int(getattr(response, "status_code", 0) or 0)
+            extra: Dict[str, Any] = {"status_code": status, "url": str(_AI_EXPLAIN_URL)}
+            try:
+                body = str(getattr(response, "text", "") or "")
+                if body:
+                    extra["body_snippet"] = body[:500]
+            except Exception:
+                pass
+            try:
+                data = response.json()
+                if isinstance(data, dict):
+                    # The internal AI webserver returns {error, message} on failures.
+                    if data.get("error"):
+                        extra["ai_error"] = str(data.get("error"))
+                    if data.get("message"):
+                        extra["ai_message"] = str(data.get("message"))
+            except Exception:
+                pass
+            logger.warning("observability_ai_request_failed", extra=extra)
+            return None
+
         data = response.json()
         if isinstance(data, dict):
             return data
     except Exception as exc:  # pragma: no cover - network issues
-        logger.warning("observability_ai_request_failed", exc_info=True, extra={"error": str(exc)})
+        logger.warning("observability_ai_request_failed", extra={"error": str(exc), "url": str(_AI_EXPLAIN_URL)})
     return None
 
 
