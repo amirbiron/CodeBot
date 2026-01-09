@@ -198,11 +198,18 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
         tag = match.group(0)
         # בדיקה אם יש rel כאטריביוט (לא בתוך href או ערך אחר)
         # שימוש ברגקס שמחפש rel= מחוץ למירכאות
-        has_rel_attr = re.search(r'\srel\s*=\s*["\']', tag)
+        has_rel_attr = re.search(r'\srel\s*=\s*(["\'])', tag)
 
         if has_rel_attr:
             # החלפת rel קיים
-            tag = re.sub(r'\srel\s*=\s*["\'][^"\']*["\']', ' rel="noopener noreferrer"', tag)
+            # 🔒 חשוב: match של אותו סוג מרכאות בפתיחה/סגירה כדי לא לחתוך ערכים עם גרשיים/מרכאות פנימיים
+            tag = re.sub(
+                r'\srel\s*=\s*(["\']).*?\1',
+                ' rel="noopener noreferrer"',
+                tag,
+                count=1,
+                flags=re.IGNORECASE,
+            )
         else:
             # הוספת rel חדש
             tag = tag.replace('target="_blank"', 'target="_blank" rel="noopener noreferrer"')

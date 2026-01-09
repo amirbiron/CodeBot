@@ -94,6 +94,13 @@ class TestSecuritySanitization:
         html, _ = markdown_to_html(text)
         assert 'rel="noopener noreferrer"' in html
 
+    def test_noopener_replaces_rel_without_corrupting_quotes(self):
+        # מקרה קצה: rel עם גרשיים בתוך מרכאות כפולות (לא סטנדרטי אבל יכול להגיע מ-HTML גולמי)
+        text = '<a href="https://example.com" target="_blank" rel="don\'t">Link</a>'
+        html, _ = markdown_to_html(text)
+        assert 'rel="noopener noreferrer"' in html
+        assert 'rel="noopener noreferrer"t"' not in html
+
 
 class TestTocGeneration:
     """📑 טסטי TOC - וידוא שתוכן עניינים עובד"""
