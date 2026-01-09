@@ -332,9 +332,12 @@ const MarkdownToolbar = {
 
     // שימוש ב-editorManager אם קיים
     if (window.editorManager && typeof window.editorManager.insertTextAtCursor === 'function') {
-      window.editorManager.insertTextAtCursor(text);
-      this.showStatus(`הוזרק: ${this.getTemplateLabel(key)}`);
-      return;
+      const ok = !!window.editorManager.insertTextAtCursor(text);
+      if (ok) {
+        this.showStatus(`הוזרק: ${this.getTemplateLabel(key)}`);
+        return;
+      }
+      // אם ההזרקה נכשלה (למשל מצב לא עקבי), ננסה fallback ל-textarea
     }
 
     // Fallback: הזרקה ישירה ל-textarea תוך שמירה על Undo/Redo
@@ -363,7 +366,11 @@ const MarkdownToolbar = {
       // Dispatch input event לסנכרון (חשוב!)
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
       this.showStatus(`הוזרק: ${this.getTemplateLabel(key)}`);
+      return;
     }
+
+    // אם אין יעד הזרקה בכלל
+    this.showStatus('נכשל להזריק תבנית');
   },
 
   // ---------- קישור חכם ----------
@@ -465,6 +472,8 @@ const MarkdownToolbar = {
 
     // הזרקה / החלפה - משתמשים בקואורדינטות שנשמרו!
     if (savedStart === -1 && window.editorManager) {
+      let handled = false;
+
       // העדפה: הזרקה בטווח שנשמר לפני prompt (כדי לא להכניס במקום שגוי אחרי blur)
       if (
         typeof window.editorManager.insertTextAtRange === 'function' &&
@@ -473,15 +482,20 @@ const MarkdownToolbar = {
       ) {
         const ok = !!window.editorManager.insertTextAtRange(linkText, savedEditorFrom, savedEditorTo);
         this.showStatus(ok ? 'קישור נוצר' : 'נכשל ליצור קישור');
-        return;
-      }
-
-      if (typeof window.editorManager.insertTextAtCursor === 'function') {
+        handled = true;
+      } else if (typeof window.editorManager.insertTextAtCursor === 'function') {
         const ok = !!window.editorManager.insertTextAtCursor(linkText);
         this.showStatus(ok ? 'קישור נוצר' : 'נכשל ליצור קישור');
+        handled = true;
+      }
+
+      // אם לא טיפלנו (editorManager קיים אבל חסרות פונקציות insert) — ננסה fallback ל-textarea למטה
+      if (handled) {
         return;
       }
-    } else if (textarea) {
+    }
+
+    if (textarea) {
       textarea.focus();
 
       // אם editorManager היה זמין רק חלקית (getSelectedTextOrAll קיים אבל insertTextAtCursor לא),
