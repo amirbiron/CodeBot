@@ -220,7 +220,7 @@ class QueryProfilerService:
     """
 
     # סף ברירת מחדל לשאילתה איטית (במילישניות)
-    DEFAULT_SLOW_THRESHOLD_MS = 100
+    DEFAULT_SLOW_THRESHOLD_MS = 1000
 
     # מספר מקסימלי של שאילתות איטיות לשמור בזיכרון
     MAX_SLOW_QUERIES_BUFFER = 1000

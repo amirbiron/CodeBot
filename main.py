@@ -4250,11 +4250,13 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 logger.error("pending_job_triggers: outer exception: %s", outer_err)
                 return
 
+        # שיכוך כאבים: polling איטי יותר כדי להפחית עומס על Mongo ברשת איטית/latency גבוהה
+        # ברירת מחדל: 60 שניות (ניתן לשינוי דרך ENV)
         try:
-            interval = int(os.getenv("JOB_TRIGGERS_POLL_INTERVAL_SECS", "15") or 15)
+            interval = int(os.getenv("JOB_TRIGGERS_POLL_INTERVAL_SECS", "60") or 60)
         except Exception:
-            interval = 15
-        interval = max(5, interval)
+            interval = 60
+        interval = max(60, interval)
         application.job_queue.run_repeating(
             _process_pending_job_triggers,
             interval=interval,

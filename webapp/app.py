@@ -3637,9 +3637,10 @@ def _get_webapp_profiler_service():
         raise RuntimeError(f"QueryProfilerService unavailable: {e}") from e
 
     try:
-        threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "100") or 100))
+        # שיכוך כאבים: ברירת מחדל גבוהה יותר כדי להימנע מרעש/עומס בלוגים
+        threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "1000") or 1000))
     except Exception:
-        threshold_ms = 100
+        threshold_ms = 1000
 
     _WEBAPP_PROFILER_SERVICE = PersistentQueryProfilerService(_ManagerLike(), slow_threshold_ms=threshold_ms)
     return _WEBAPP_PROFILER_SERVICE

@@ -40,6 +40,11 @@ def _is_true(val: Optional[str]) -> bool:
 
 
 def _enabled() -> bool:
+    # 🛑 עצירת כתיבת Metrics ל-DB (שיכוך כאבים)
+    # כרגע אנחנו מנתקים זמנית את כתיבת המטריקות ל-MongoDB כדי לתת למערכת "לנשום".
+    # השארנו את ההתנהגות פעילה תחת pytest כדי לא לשבור טסטים ולשמור יכולת בדיקה.
+    if not _is_pytest():
+        return False
     if _is_true(os.getenv("DISABLE_DB")):
         return False
     return _is_true(os.getenv("METRICS_DB_ENABLED"))
