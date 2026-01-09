@@ -4017,7 +4017,9 @@ def main() -> None:
         # Scheduler/Webapp thread-safety: close the scheduler-dedicated Mongo clients (best-effort)
         try:
             app_obj = bot if "bot" in locals() else None
-            bot_data = getattr(app_obj, "bot_data", None)
+            # CodeKeeperBot שומר את PTB Application תחת bot.application
+            app = getattr(app_obj, "application", None) or app_obj
+            bot_data = getattr(app, "bot_data", None)
             if isinstance(bot_data, dict):
                 motor_client = bot_data.get("_scheduler_motor_client")
                 if motor_client is not None and hasattr(motor_client, "close"):
@@ -4025,6 +4027,14 @@ def main() -> None:
                 pymongo_client = bot_data.get("_scheduler_pymongo_client")
                 if pymongo_client is not None and hasattr(pymongo_client, "close"):
                     pymongo_client.close()
+                # ניקוי best-effort כדי למנוע שימוש חוזר באובייקטים סגורים
+                try:
+                    bot_data.pop("_scheduler_motor_client", None)
+                    bot_data.pop("_scheduler_motor_db", None)
+                    bot_data.pop("_scheduler_pymongo_client", None)
+                    bot_data.pop("_scheduler_motor_lock", None)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -4074,19 +4084,43 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         if existing_db is not None:
             return existing_db
 
-        try:
-            client = AsyncIOMotorClient(mongo_url)
-            db_obj = client[db_name]
-            # Best-effort ping to fail fast on bad config; do not block startup if it fails.
+        # הגנה מפני race: שתי coroutines יכולות להגיע לכאן במקביל ולהדליף client "יתום"
+        lock = bot_data.get("_scheduler_motor_lock")
+        if lock is None or not isinstance(lock, asyncio.Lock):
+            lock = asyncio.Lock()
+            bot_data["_scheduler_motor_lock"] = lock
+
+        async with lock:
+            # Double-check אחרי הנעילה
+            existing_db = bot_data.get("_scheduler_motor_db")
+            if existing_db is not None:
+                return existing_db
+
             try:
-                await client.admin.command("ping")
+                client = AsyncIOMotorClient(mongo_url)
+                db_obj = client[db_name]
+
+                # שמירה לפני await כדי למנוע "יתום" במקרה של interleave
+                bot_data["_scheduler_motor_client"] = client
+                bot_data["_scheduler_motor_db"] = db_obj
+
+                # Best-effort ping: לא חייב, רק sanity check קצר
+                try:
+                    await asyncio.wait_for(client.admin.command("ping"), timeout=2.0)
+                except Exception:
+                    pass
+
+                return db_obj
             except Exception:
-                pass
-            bot_data["_scheduler_motor_client"] = client
-            bot_data["_scheduler_motor_db"] = db_obj
-            return db_obj
-        except Exception:
-            return None
+                # אם משהו נכשל אחרי יצירה חלקית, ננקה best-effort
+                try:
+                    maybe_client = bot_data.pop("_scheduler_motor_client", None)
+                    bot_data.pop("_scheduler_motor_db", None)
+                    if maybe_client is not None and hasattr(maybe_client, "close"):
+                        maybe_client.close()
+                except Exception:
+                    pass
+                return None
 
     def _get_scheduler_pymongo_client(app: Application):
         """PyMongo client פרטי ל-APScheduler jobstore (best-effort)."""
