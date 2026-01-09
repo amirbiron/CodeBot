@@ -470,15 +470,16 @@
     } catch (_) {}
 
     const snippets = [
-      'TODO: fix this',
-      '// why is this slow?',
-      'Latency: 220ms',
-      '🔥 SERVER ON FIRE 🔥',
-      'git blame',
-      'try { ... } catch (e) { ignore }',
-      'import time; time.sleep(5)',
-      'Please wait...',
+      'MongoTimeoutError: 30000ms',
+      'Slow query: 505ms detected',
+      'Too many connections',
+      'Connection pool exhausted',
+      'Retrying in 5s...',
       '504 Gateway Timeout',
+      'CPU: 99%',
+      "// This shouldn't happen",
+      'await db.wait_forever()',
+      'git undo everything',
     ];
 
     let container = null;
