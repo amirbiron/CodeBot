@@ -686,7 +686,7 @@ def render_styled_html(
          * CSS Variables (מוזרקים מערכת הנושא)
          * ============================================ */
         :root {
-{{ css_variables }}
+{{ css_variables | safe }}
         }
 
         /* ============================================
@@ -1595,7 +1595,7 @@ def api_parse_vscode_theme():
         // 🔒 XSS Protection - escape all user-provided data
         presetsGrid.innerHTML = presets.map(p => `
             <button type="button" 
-                    class="export-theme-card ${escapeHtml(p.id) === selectedTheme.id ? 'selected' : ''}"
+                    class="export-theme-card ${p.id === selectedTheme.id ? 'selected' : ''}"
                     data-theme-id="${escapeHtml(p.id)}"
                     data-theme-name="${escapeHtml(p.name)}"
                     data-source="preset">
@@ -2629,6 +2629,8 @@ class TestConsecutiveAlerts:
 | 10 | קריסה כש-`file_name` הוא `None` (בדיקת סוג קובץ) | בינוני | `file.get('file_name') or ''` |
 | 11 | CSS Variables לא מסוננים (CSS injection) | גבוה | פונקציית `sanitize_css_value()` + וולידציית key |
 | 12 | שם קובץ שומר newlines (header injection) | נמוך | רווח בודד ` ` במקום `\s` ברגקס |
+| 13 | השוואת ID escaped מול unescaped | נמוך | `p.id === selectedTheme.id` (escape רק ל-HTML output) |
+| 14 | חסר `\| safe` ל-`css_variables` בתבנית | נמוך | הוספת `{{ css_variables \| safe }}` |
 
 ### פונקציות אבטחה שנוספו
 
