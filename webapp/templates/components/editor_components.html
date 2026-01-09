@@ -97,3 +97,121 @@
 </div>
 {% endmacro %}
 
+{% macro markdown_toolbar() %}
+{# Markdown Toolbar - סרגל כלים מהיר להזרקת תבניות #}
+<div class="md-toolbar-group" data-component="markdown-toolbar">
+  <button
+    type="button"
+    class="md-toolbar-trigger"
+    data-md-action="toggle-dropdown"
+    title="כלי Markdown"
+    aria-expanded="false"
+    aria-haspopup="true"
+  >
+    <i class="fas fa-pen-fancy"></i>
+    <span>MD</span>
+  </button>
+
+  <div class="md-toolbar-dropdown" role="menu" aria-label="כלי Markdown">
+    {# טבלה #}
+    <button type="button" class="md-toolbar-item" data-md-insert="table" role="menuitem">
+      <span class="item-icon">📊</span>
+      <span class="item-label">טבלה</span>
+      <span class="item-shortcut">Ctrl+Shift+T</span>
+    </button>
+
+    {# קישור חכם #}
+    <button type="button" class="md-toolbar-item" data-md-action="smart-link" role="menuitem">
+      <span class="item-icon">🔗</span>
+      <span class="item-label">קישור חכם</span>
+      <span class="item-shortcut">Ctrl+K</span>
+    </button>
+
+    {# מארקר #}
+    <button type="button" class="md-toolbar-item" data-md-insert="highlight" role="menuitem">
+      <span class="item-icon">🎨</span>
+      <span class="item-label">מארקר</span>
+      <span class="item-shortcut">Ctrl+Shift+H</span>
+    </button>
+
+    {# קיפול #}
+    <button type="button" class="md-toolbar-item" data-md-insert="details" role="menuitem">
+      <span class="item-icon">📁</span>
+      <span class="item-label">קיפול</span>
+      <span class="item-shortcut">Ctrl+Shift+D</span>
+    </button>
+
+    {# רשימת משימות #}
+    <button type="button" class="md-toolbar-item" data-md-insert="taskList" role="menuitem">
+      <span class="item-icon">✅</span>
+      <span class="item-label">רשימת משימות</span>
+      <span class="item-shortcut">Ctrl+Shift+C</span>
+    </button>
+
+    <div class="md-toolbar-divider" role="separator"></div>
+
+    {# תפריט משנה - התראות #}
+    <div class="md-toolbar-submenu-trigger">
+      <button type="button" class="md-toolbar-item" role="menuitem" aria-haspopup="true">
+        <span class="item-icon">🔔</span>
+        <span class="item-label">התראות (Alerts)</span>
+      </button>
+      <div class="md-toolbar-submenu" role="menu" aria-label="סוגי התראות">
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:note" role="menuitem">
+          <span class="item-icon">🧭</span>
+          <span class="item-label">Note</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:tip" role="menuitem">
+          <span class="item-icon">💡</span>
+          <span class="item-label">Tip</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:warning" role="menuitem">
+          <span class="item-icon">⚠️</span>
+          <span class="item-label">Warning</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:danger" role="menuitem">
+          <span class="item-icon">🚨</span>
+          <span class="item-label">Danger</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:info" role="menuitem">
+          <span class="item-icon">📘</span>
+          <span class="item-label">Info</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:success" role="menuitem">
+          <span class="item-icon">🎯</span>
+          <span class="item-label">Success</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:question" role="menuitem">
+          <span class="item-icon">❓</span>
+          <span class="item-label">Question</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:example" role="menuitem">
+          <span class="item-icon">🧩</span>
+          <span class="item-label">Example</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:quote" role="menuitem">
+          <span class="item-icon">💬</span>
+          <span class="item-label">Quote</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:experimental" role="menuitem">
+          <span class="item-icon">🧪</span>
+          <span class="item-label">Experimental</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:deprecated" role="menuitem">
+          <span class="item-icon">🚫</span>
+          <span class="item-label">Deprecated</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:todo" role="menuitem">
+          <span class="item-icon">📝</span>
+          <span class="item-label">Todo</span>
+        </button>
+        <button type="button" class="md-toolbar-item" data-md-insert="alert:abstract" role="menuitem">
+          <span class="item-icon">📄</span>
+          <span class="item-label">Abstract</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+

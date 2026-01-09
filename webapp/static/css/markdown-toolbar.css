@@ -1,0 +1,205 @@
+/* ============================================
+   סרגל כלים Markdown
+   ============================================ */
+
+/* הסרגל הראשי */
+.md-toolbar-group {
+  display: none; /* מוסתר בברירת מחדל */
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline-start: auto; /* דחיפה ימינה (RTL) */
+  padding-inline-start: 0.75rem;
+  border-inline-start: 1px solid rgba(255, 255, 255, 0.15);
+  position: relative;
+}
+
+/* כשמזהים Markdown */
+.md-toolbar-group.is-visible {
+  display: flex;
+}
+
+/* כפתור ראשי */
+.md-toolbar-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+  background: rgba(100, 200, 150, 0.15);
+  border: 1px solid rgba(100, 200, 150, 0.4);
+  border-radius: 6px;
+  color: var(--text-color, #e0e0e0);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.md-toolbar-trigger:hover {
+  background: rgba(100, 200, 150, 0.25);
+  border-color: rgba(100, 200, 150, 0.6);
+}
+
+.md-toolbar-trigger:focus-visible {
+  outline: 2px solid rgba(100, 200, 150, 0.6);
+  outline-offset: 2px;
+}
+
+.md-toolbar-trigger i {
+  font-size: 1rem;
+}
+
+/* Dropdown ראשי */
+.md-toolbar-dropdown {
+  position: absolute;
+  top: 100%;
+  inset-inline-end: 0;
+  min-width: 220px;
+  margin-top: 4px;
+  padding: 0.5rem 0;
+  background: rgba(30, 30, 40, 0.98);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition: all 0.2s ease;
+}
+
+.md-toolbar-dropdown.is-open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* פריטי תפריט */
+.md-toolbar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
+  background: transparent;
+  border: none;
+  color: var(--text-color, #e0e0e0);
+  cursor: pointer;
+  text-align: start;
+  transition: background 0.15s ease;
+}
+
+.md-toolbar-item:hover {
+  background: rgba(100, 200, 150, 0.15);
+}
+
+.md-toolbar-item:focus-visible {
+  background: rgba(100, 200, 150, 0.2);
+  outline: none;
+}
+
+.md-toolbar-item .item-icon {
+  width: 1.5rem;
+  text-align: center;
+  font-size: 1.1rem;
+}
+
+.md-toolbar-item .item-label {
+  flex: 1;
+}
+
+.md-toolbar-item .item-shortcut {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  font-family: monospace;
+}
+
+/* מפריד */
+.md-toolbar-divider {
+  height: 1px;
+  margin: 0.4rem 0.75rem;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* תפריט משנה (Alerts) */
+.md-toolbar-submenu-trigger {
+  position: relative;
+}
+
+.md-toolbar-submenu-trigger::after {
+  content: '◀';
+  margin-inline-start: auto;
+  font-size: 0.65rem;
+  opacity: 0.6;
+}
+
+.md-toolbar-submenu {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 100%;
+  min-width: 200px;
+  margin-inline-end: 4px;
+  padding: 0.5rem 0;
+  background: rgba(30, 30, 40, 0.98);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(8px);
+  transition: all 0.2s ease;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* התאמה ל-RTL */
+[dir="rtl"] .md-toolbar-submenu,
+:root[dir="rtl"] .md-toolbar-submenu {
+  inset-inline-end: auto;
+  inset-inline-start: 100%;
+  margin-inline-end: 0;
+  margin-inline-start: 4px;
+  transform: translateX(-8px);
+}
+
+.md-toolbar-submenu-trigger:hover .md-toolbar-submenu,
+.md-toolbar-submenu-trigger:focus-within .md-toolbar-submenu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+}
+
+/* רספונסיביות - מובייל */
+@media (max-width: 640px) {
+  .md-toolbar-dropdown {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    min-width: 100%;
+    border-radius: 16px 16px 0 0;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .md-toolbar-submenu {
+    position: static;
+    min-width: 100%;
+    margin: 0;
+    padding: 0 0.5rem;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    max-height: none;
+  }
+
+  .md-toolbar-submenu-trigger::after {
+    content: '▼';
+  }
+}
+

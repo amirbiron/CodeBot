@@ -683,6 +683,88 @@
       return { text: this.getEditorContent() || '', usedSelection: false };
     }
 
+    getSelectionRange() {
+      // מחזיר טווח בחירה/סמן נוכחי (from/to) עבור העורך הפעיל.
+      // שימושי במיוחד כשפותחים prompt שעלול לגרום לאיבוד focus/selection.
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          const mainSel = (view.state.selection && view.state.selection.main) ? view.state.selection.main : null;
+          const from = mainSel ? Math.max(0, Math.min(mainSel.from, mainSel.to)) : view.state.doc.length;
+          const to = mainSel ? Math.max(0, Math.max(mainSel.from, mainSel.to)) : view.state.doc.length;
+          return { from, to };
+        }
+      } catch(_) {}
+
+      try {
+        if (this.textarea) {
+          const ta = this.textarea;
+          const value = ta.value || '';
+          const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : 0;
+          const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
+          const from = Math.max(0, Math.min(start, end, value.length));
+          const to = Math.max(0, Math.min(Math.max(start, end), value.length));
+          return { from, to };
+        }
+      } catch(_) {}
+
+      return { from: 0, to: 0 };
+    }
+
+    insertTextAtRange(nextText, from, to) {
+      const text = typeof nextText === 'string' ? nextText : '';
+      if (!text) return false;
+      const fRaw = (typeof from === 'number' && Number.isFinite(from)) ? from : 0;
+      const tRaw = (typeof to === 'number' && Number.isFinite(to)) ? to : fRaw;
+      const f = Math.max(0, Math.min(fRaw, tRaw));
+      const t = Math.max(0, Math.max(fRaw, tRaw));
+
+      // CodeMirror: החלפה בטווח מפורש (שומר על הטווח גם אחרי blur/prompt)
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          const docLen = view.state.doc.length;
+          const fromSafe = Math.max(0, Math.min(f, docLen));
+          const toSafe = Math.max(0, Math.min(t, docLen));
+          try { view.focus(); } catch(_) {}
+          view.dispatch({
+            changes: { from: fromSafe, to: toSafe, insert: text },
+            selection: { anchor: fromSafe + text.length },
+            scrollIntoView: true
+          });
+          return true;
+        }
+      } catch(_) {}
+
+      // textarea: החלפה בטווח מפורש תוך שמירה על Undo/Redo
+      try {
+        if (this.textarea) {
+          const ta = this.textarea;
+          const value = ta.value || '';
+          const fromSafe = Math.max(0, Math.min(f, value.length));
+          const toSafe = Math.max(0, Math.min(t, value.length));
+          try { ta.focus(); } catch(_) {}
+
+          if (typeof ta.setRangeText === 'function') {
+            ta.setRangeText(text, fromSafe, toSafe, 'end');
+          } else if (document.execCommand && typeof document.execCommand === 'function') {
+            try { ta.setSelectionRange(fromSafe, toSafe); } catch(_) {}
+            document.execCommand('insertText', false, text);
+          } else {
+            const nextValue = value.slice(0, fromSafe) + text + value.slice(toSafe);
+            ta.value = nextValue;
+            const caret = fromSafe + text.length;
+            try { ta.setSelectionRange(caret, caret); } catch(_) {}
+          }
+
+          try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+          return true;
+        }
+      } catch(_) {}
+
+      return false;
+    }
+
     setEditorContent(nextValue) {
       const value = typeof nextValue === 'string' ? nextValue : '';
       try {
@@ -730,12 +812,23 @@
           const value = ta.value || '';
           const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : value.length;
           const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
-          const nextValue = value.slice(0, start) + text + value.slice(end);
-          ta.value = nextValue;
-          try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
-          const caret = start + text.length;
           try { ta.focus(); } catch(_) {}
-          try { ta.setSelectionRange(caret, caret); } catch(_) {}
+
+          // חשוב: להימנע משינוי ישיר של value כדי לשמור Undo/Redo
+          if (typeof ta.setRangeText === 'function') {
+            ta.setRangeText(text, start, end, 'end');
+          } else if (document.execCommand && typeof document.execCommand === 'function') {
+            try { ta.setSelectionRange(start, end); } catch(_) {}
+            document.execCommand('insertText', false, text);
+          } else {
+            // fallback אחרון - עלול לשבור Undo/Redo
+            const nextValue = value.slice(0, start) + text + value.slice(end);
+            ta.value = nextValue;
+            const caret = start + text.length;
+            try { ta.setSelectionRange(caret, caret); } catch(_) {}
+          }
+
+          try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
           return true;
         }
       } catch(_) {}
