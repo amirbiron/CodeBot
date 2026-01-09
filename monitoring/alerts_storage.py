@@ -701,17 +701,25 @@ def is_new_error(signature: str) -> bool:
     """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
     # CodeQL/NoSQL injection:
     # - cast to str
-    # - hash to a fixed 64-hex identifier
+    # - if already 64-hex: use as-is (avoid double-hash)
+    # - else: hash to a fixed 64-hex identifier
     # - regex-validate the exact variable used in the Mongo query
     try:
-        raw = str(signature or "")
-        raw = raw.strip()
+        raw = str(signature or "").strip()
         if not raw:
             return False
-        # Always hash before querying (new storage format is sha256 hex, 64 chars)
-        safe_signature = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
-        safe_signature = str(safe_signature).strip().lower()
-        if not re.fullmatch(r"[0-9a-f]{64}", safe_signature):
+
+        raw_l = raw.lower()
+        # אם כבר הגיע hash בפורמט החדש (למשל מ-_sanitize_signature) – לא עושים hash שוב
+        if re.fullmatch(r"[0-9a-f]{64}", raw_l):
+            safe_signature = str(raw_l)
+        else:
+            # אחרת: תמיד נייצר hash יציב ובטוח לשאילתה
+            safe_signature = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
+            safe_signature = str(safe_signature).strip().lower()
+
+        # ולידציה סופית על המשתנה שמוזן לשאילתה (CodeQL-friendly)
+        if not re.fullmatch(r"[0-9a-f]{64}", str(safe_signature)):
             return False
     except Exception:
         return False

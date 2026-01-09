@@ -121,8 +121,21 @@ class RemindersDB:
             return []
 
         try:
-            claimed = list(self.reminders_collection.find({"claim_token": claim_token}))
-            return [d for d in claimed if isinstance(d, dict)]
+            # חשוב: לא לחפש לפי claim_token בלבד (עלול לגרום COLLSCAN אם אין אינדקס).
+            # נחפש לפי _id + claim_token (משתמש באינדקס ברירת מחדל על _id).
+            claimed = list(self.reminders_collection.find({"_id": {"$in": ids}, "claim_token": claim_token}))
+            out = [d for d in claimed if isinstance(d, dict)]
+            # ניקוי claim_token כדי לא להשאיר שדה זמני במסמכים
+            try:
+                claimed_ids = [d.get("_id") for d in out if d.get("_id") is not None]
+                if claimed_ids:
+                    self.reminders_collection.update_many(
+                        {"_id": {"$in": claimed_ids}, "claim_token": claim_token},
+                        {"$unset": {"claim_token": ""}},
+                    )
+            except Exception:
+                pass
+            return out
         except Exception:
             return []
 
