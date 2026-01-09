@@ -87,10 +87,19 @@ def _sanitize_signature(raw: Any) -> str:
     """
     try:
         # Use a bounded, stringified representation as hashing input.
-        normalized = _safe_str(raw, limit=512)
+        normalized = _safe_str(raw, limit=512).strip()
         if not normalized:
             return ""
-        return hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()
+        # Backward compatibility:
+        # - historically we stored a 16-hex signature (sha256(... )[:16])
+        # - if input is already a signature-like hex, do not hash again
+        try:
+            if re.fullmatch(r"[0-9a-fA-F]{16}", normalized):
+                return normalized.lower()
+        except Exception:
+            pass
+        # Normalize everything else to the same 16-hex format
+        return hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()[:16]
     except Exception:
         # Fail-closed for sanitization: empty string means "no signature"
         return ""
