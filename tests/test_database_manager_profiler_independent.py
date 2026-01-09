@@ -15,8 +15,8 @@ class _DummyLogger:
 
 def test_db_manager_profiler_runs_when_slow_mongo_disabled(monkeypatch):
     """
-    אם DB_SLOW_MS=0 (כלומר slow_mongo מושתק), הפרופיילר עדיין צריך לעבוד
-    לפי PROFILER_SLOW_THRESHOLD_MS.
+    הפרופיילר יכול להיות מנוטרל "קשיח" ברמת הקוד דרך DatabaseManager.ENABLE_PROFILING.
+    במצב כזה, גם אם PROFILER_ENABLED=true, לא אמורה להיות הרצה של record_slow_query.
     """
     monkeypatch.setenv("BOT_TOKEN", "x")
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/db")
@@ -33,6 +33,8 @@ def test_db_manager_profiler_runs_when_slow_mongo_disabled(monkeypatch):
     monkeypatch.setenv("SPHINX_MOCK_IMPORTS", "0")
 
     import database.manager as dm
+    # Hard-disable is the default per production request
+    assert bool(getattr(dm.DatabaseManager, "ENABLE_PROFILING", True)) is False
 
     # Force pymongo available path and inject fake monitoring API
     monkeypatch.setattr(dm, "_PYMONGO_AVAILABLE", True)
@@ -134,8 +136,8 @@ def test_db_manager_profiler_runs_when_slow_mongo_disabled(monkeypatch):
 
     listener.succeeded(_SucceededEvent())
 
-    # Assert: profiler ran even though slow_mongo is disabled
-    assert called["count"] == 1
+    # Assert: profiler is hard-disabled by code flag (no recording)
+    assert called["count"] == 0
 
     # Assert: no slow_mongo warning was emitted
     assert not any(level == "warning" and msg == "slow_mongo" for level, msg, _ in dlog.records)

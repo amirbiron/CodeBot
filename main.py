@@ -4014,6 +4014,29 @@ def main() -> None:
             pass
         if 'db' in globals():
             db.close_connection()
+        # Scheduler/Webapp thread-safety: close the scheduler-dedicated Mongo clients (best-effort)
+        try:
+            app_obj = bot if "bot" in locals() else None
+            # CodeKeeperBot שומר את PTB Application תחת bot.application
+            app = getattr(app_obj, "application", None) or app_obj
+            bot_data = getattr(app, "bot_data", None)
+            if isinstance(bot_data, dict):
+                motor_client = bot_data.get("_scheduler_motor_client")
+                if motor_client is not None and hasattr(motor_client, "close"):
+                    motor_client.close()
+                pymongo_client = bot_data.get("_scheduler_pymongo_client")
+                if pymongo_client is not None and hasattr(pymongo_client, "close"):
+                    pymongo_client.close()
+                # ניקוי best-effort כדי למנוע שימוש חוזר באובייקטים סגורים
+                try:
+                    bot_data.pop("_scheduler_motor_client", None)
+                    bot_data.pop("_scheduler_motor_db", None)
+                    bot_data.pop("_scheduler_pymongo_client", None)
+                    bot_data.pop("_scheduler_motor_lock", None)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 # A minimal post_init stub to comply with the PTB builder chain
@@ -4032,16 +4055,109 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אל תכשיל startup אם מודול הניטור לא זמין
         pass
 
+    # Scheduler: "צינור" MongoDB נפרד ל-thread של ה-bot/scheduler, כדי לא לחלוק Pool עם ה-Webapp.
+    def _scheduler_db_disabled() -> bool:
+        try:
+            return str(os.getenv("DISABLE_DB", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+        except Exception:
+            return False
+
+    async def _get_scheduler_motor_db(app: Application):
+        """Motor DB פרטי ל-scheduler (best-effort)."""
+        if _scheduler_db_disabled():
+            return None
+        mongo_url = (os.getenv("MONGODB_URL") or "").strip()
+        if not mongo_url:
+            return None
+        db_name = (os.getenv("DATABASE_NAME") or "code_keeper_bot").strip() or "code_keeper_bot"
+
+        try:
+            from motor.motor_asyncio import AsyncIOMotorClient  # type: ignore
+        except Exception:
+            return None
+
+        bot_data = getattr(app, "bot_data", None)
+        if not isinstance(bot_data, dict):
+            return None
+
+        existing_db = bot_data.get("_scheduler_motor_db")
+        if existing_db is not None:
+            return existing_db
+
+        # הגנה מפני race: שתי coroutines יכולות להגיע לכאן במקביל ולהדליף client "יתום"
+        lock = bot_data.get("_scheduler_motor_lock")
+        if lock is None or not isinstance(lock, asyncio.Lock):
+            lock = asyncio.Lock()
+            bot_data["_scheduler_motor_lock"] = lock
+
+        async with lock:
+            # Double-check אחרי הנעילה
+            existing_db = bot_data.get("_scheduler_motor_db")
+            if existing_db is not None:
+                return existing_db
+
+            try:
+                client = AsyncIOMotorClient(mongo_url)
+                db_obj = client[db_name]
+
+                # שמירה לפני await כדי למנוע "יתום" במקרה של interleave
+                bot_data["_scheduler_motor_client"] = client
+                bot_data["_scheduler_motor_db"] = db_obj
+
+                # Best-effort ping: לא חייב, רק sanity check קצר
+                try:
+                    await asyncio.wait_for(client.admin.command("ping"), timeout=2.0)
+                except Exception:
+                    pass
+
+                return db_obj
+            except Exception:
+                # אם משהו נכשל אחרי יצירה חלקית, ננקה best-effort
+                try:
+                    maybe_client = bot_data.pop("_scheduler_motor_client", None)
+                    bot_data.pop("_scheduler_motor_db", None)
+                    if maybe_client is not None and hasattr(maybe_client, "close"):
+                        maybe_client.close()
+                except Exception:
+                    pass
+                return None
+
+    def _get_scheduler_pymongo_client(app: Application):
+        """PyMongo client פרטי ל-APScheduler jobstore (best-effort)."""
+        if _scheduler_db_disabled():
+            return None
+        mongo_url = (os.getenv("MONGODB_URL") or "").strip()
+        if not mongo_url:
+            return None
+        try:
+            from pymongo import MongoClient  # type: ignore
+        except Exception:
+            return None
+
+        bot_data = getattr(app, "bot_data", None)
+        if not isinstance(bot_data, dict):
+            return None
+
+        existing = bot_data.get("_scheduler_pymongo_client")
+        if existing is not None:
+            return existing
+
+        try:
+            client = MongoClient(mongo_url, serverSelectionTimeoutMS=3000)
+            bot_data["_scheduler_pymongo_client"] = client
+            return client
+        except Exception:
+            return None
+
     # Jobs Monitor: זיהוי הרצות "תקועות" (job_stuck)
     try:
         from datetime import timedelta as _td
-        from database import db as _dbm  # type: ignore
         from observability import emit_event as _emit  # type: ignore
 
         async def _jobs_stuck_monitor(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
             try:
-                db_obj = getattr(_dbm, "db", None)
-                if db_obj is None or getattr(db_obj, "name", "") == "noop_db":
+                db_obj = await _get_scheduler_motor_db(_context.application)
+                if db_obj is None:
                     return
 
                 try:
@@ -4067,7 +4183,12 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     {"run_id": 1, "job_id": 1, "started_at": 1},
                 ).sort("started_at", 1).limit(50)
 
-                for doc in list(cursor or []):
+                try:
+                    docs = await cursor.to_list(length=50)
+                except Exception:
+                    docs = []
+
+                for doc in list(docs or []):
                     run_id = str(doc.get("run_id") or "").strip()
                     job_id = str(doc.get("job_id") or "").strip()
                     started_at = doc.get("started_at")
@@ -4083,7 +4204,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                     # mark + append log (keep last 50)
                     try:
-                        coll.update_one(
+                        await coll.update_one(
                             {"run_id": run_id, "stuck_reported_at": {"$exists": False}},
                             {
                                 "$set": {"stuck_reported_at": now},
@@ -4133,13 +4254,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
     # Job Triggers Processor: עיבוד בקשות trigger מה-Webapp
     try:
-        from database import db as _dbm_triggers  # type: ignore
-
         async def _process_pending_job_triggers(context: ContextTypes.DEFAULT_TYPE):
             """מעבד בקשות trigger שנוצרו דרך ה-Webapp ומפעיל את הג'ובים."""
             try:
-                db_obj = getattr(_dbm_triggers, "db", None)
-                if db_obj is None or getattr(db_obj, "name", "") == "noop_db":
+                db_obj = await _get_scheduler_motor_db(context.application)
+                if db_obj is None:
                     logger.debug("pending_job_triggers: DB not available or noop")
                     return
 
@@ -4156,7 +4275,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                 # סימון בקשות ישנות מדי כ-expired
                 try:
-                    expired_result = coll.update_many(
+                    expired_result = await coll.update_many(
                         {"status": "pending", "created_at": {"$lt": expire_cutoff}},
                         {"$set": {"status": "expired", "error": "Request expired (bot was unavailable for >1h)"}},
                     )
@@ -4165,11 +4284,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 except Exception as exp_err:
                     logger.debug("pending_job_triggers: expire update failed: %s", exp_err)
 
-                cursor = coll.find({
-                    "status": "pending",
-                }).sort("created_at", 1).limit(10)
-
-                pending_list = list(cursor)
+                cursor = coll.find({"status": "pending"}).sort("created_at", 1).limit(10)
+                try:
+                    pending_list = await cursor.to_list(length=10)
+                except Exception:
+                    pending_list = []
                 if pending_list:
                     logger.info("pending_job_triggers: found %d pending requests", len(pending_list))
 
@@ -4183,7 +4302,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     logger.info("pending_job_triggers: processing trigger_id=%s job_id=%s", trigger_id, job_id)
 
                     # סימון כ-processing כדי למנוע עיבוד כפול
-                    result = coll.update_one(
+                    result = await coll.update_one(
                         {"trigger_id": trigger_id, "status": "pending"},
                         {"$set": {"status": "processing", "processed_at": now}},
                     )
@@ -4232,7 +4351,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         jq.run_once(callback, **kwargs)
 
                         # עדכון סטטוס להצלחה
-                        coll.update_one(
+                        await coll.update_one(
                             {"trigger_id": trigger_id},
                             {"$set": {"status": "completed", "result": "triggered"}},
                         )
@@ -4240,7 +4359,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                     except Exception as e:
                         # עדכון סטטוס לכישלון
-                        coll.update_one(
+                        await coll.update_one(
                             {"trigger_id": trigger_id},
                             {"$set": {"status": "failed", "error": str(e)}},
                         )
@@ -4273,15 +4392,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         jq = getattr(application, "job_queue", None)
         scheduler = getattr(jq, "scheduler", None)
         if scheduler is not None:
-            try:
-                from database import db as _dbm  # שימוש בלקוח/DB הקיימים
-            except Exception:
-                _dbm = None  # type: ignore[assignment]
-            client = getattr(_dbm, "client", None) if _dbm is not None else None
-            db_obj = getattr(_dbm, "db", None) if _dbm is not None else None
-            db_name = getattr(db_obj, "name", None) if db_obj is not None else None
-            # אל תגדיר במצב NoOp או כשאין חיבור
-            if client is not None and db_name and db_name != "noop_db":
+            client = _get_scheduler_pymongo_client(application)
+            db_name = (os.getenv("DATABASE_NAME") or "code_keeper_bot").strip() or "code_keeper_bot"
+            # אל תגדיר כשאין חיבור
+            if client is not None and db_name:
                 try:
                     # הוסף JobStore בשם 'persistent' לשימוש ע"י משימות הגיבוי
                     scheduler.add_jobstore(
