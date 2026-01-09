@@ -162,26 +162,33 @@ def preprocess_markdown(text: str) -> str:
     return re.sub(pattern, replacer, text, flags=re.DOTALL)
 
 
-def markdown_to_html(text: str) -> str:
+def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
     """
     המרת Markdown ל-HTML עם extensions מתאימים.
     
     🔒 אבטחה: ה-HTML עובר sanitization דרך bleach למניעת XSS.
+    
+    Args:
+        text: תוכן Markdown
+        include_toc: האם להחזיר גם תוכן עניינים
+    
+    Returns:
+        tuple של (html_content, toc_html)
+        אם include_toc=False, toc_html יהיה ריק
     """
     if not text:
-        return ""
+        return ("", "")
     
     # עיבוד מקדים
     processed = preprocess_markdown(text)
     
-    # המרה ל-HTML
-    html_raw = markdown.markdown(
-        processed,
+    # יצירת אובייקט Markdown (לא פונקציה) כדי לגשת ל-TOC
+    md = markdown.Markdown(
         extensions=[
             'fenced_code',      # ```code blocks```
             'tables',           # טבלאות GFM
             'nl2br',            # שורות חדשות → <br>
-            'toc',              # תוכן עניינים (אופציונלי)
+            'toc',              # תוכן עניינים
             'codehilite',       # הדגשת קוד (עם Pygments)
             'attr_list',        # attributes על אלמנטים
         ],
@@ -190,9 +197,19 @@ def markdown_to_html(text: str) -> str:
                 'css_class': 'highlight',
                 'linenums': False,
                 'guess_lang': True,
+            },
+            'toc': {
+                'title': '📑 תוכן עניינים',
+                'toc_depth': 3,
             }
         }
     )
+    
+    # המרה ל-HTML
+    html_raw = md.convert(processed)
+    
+    # שמירת ה-TOC לשימוש בתבנית (אופציונלי)
+    # ניתן לגשת אליו דרך md.toc
     
     # 🔒 Sanitization - מניעת XSS
     # רשימה לבנה של תגיות מותרות
@@ -223,7 +240,12 @@ def markdown_to_html(text: str) -> str:
         strip=True  # הסרת תגיות לא מורשות במקום escape
     )
     
-    return clean_html
+    # החזרת HTML + TOC (אם נדרש)
+    toc_html = ""
+    if include_toc and hasattr(md, 'toc'):
+        toc_html = md.toc  # HTML של תוכן העניינים
+    
+    return (clean_html, toc_html)
 
 
 # ============================================
@@ -520,7 +542,7 @@ def render_styled_html(
     content_html: str,
     title: str,
     theme: dict,
-    include_toc: bool = False,
+    toc_html: str = "",
     footer_text: str = "נוצר אוטומטית ע\"י Code Keeper Bot"
 ) -> str:
     """
@@ -530,7 +552,7 @@ def render_styled_html(
         content_html: תוכן ה-HTML (אחרי המרה מ-Markdown)
         title: כותרת המסמך
         theme: ערכת הנושא (name, variables, syntax_css)
-        include_toc: האם לכלול תוכן עניינים
+        toc_html: HTML של תוכן עניינים (אופציונלי)
         footer_text: טקסט בתחתית המסמך
     
     Returns:
@@ -546,7 +568,7 @@ def render_styled_html(
         css_variables=css_variables,
         syntax_css=syntax_css,
         theme_name=theme.get("name", "Custom"),
-        include_toc=include_toc,
+        toc_html=toc_html,
         footer_text=footer_text,
     )
 ```
@@ -977,10 +999,9 @@ def render_styled_html(
     </header>
 
     <main class="container">
-        {% if include_toc %}
+        {% if toc_html %}
         <nav class="toc">
-            <h2>📑 תוכן עניינים</h2>
-            <!-- TOC יוזרק כאן אם נדרש -->
+            {{ toc_html | safe }}
         </nav>
         {% endif %}
 
@@ -1145,7 +1166,10 @@ def export_styled_html(file_id):
     
     # המרת Markdown ל-HTML
     raw_content = file.get('code') or file.get('content') or ''
-    html_content = markdown_to_html(raw_content)
+    
+    # בדיקה אם המשתמש רוצה TOC
+    include_toc = request.args.get('toc') == '1' or request.form.get('toc') == '1'
+    html_content, toc_html = markdown_to_html(raw_content, include_toc=include_toc)
     
     # רינדור HTML מלא
     title = file.get('file_name', 'Untitled').replace('.md', '').replace('.markdown', '')
@@ -1153,6 +1177,7 @@ def export_styled_html(file_id):
         content_html=html_content,
         title=title,
         theme=theme,
+        toc_html=toc_html,
     )
     
     # תצוגה מקדימה או הורדה
@@ -2148,6 +2173,7 @@ class TestGetExportTheme:
 | **`rgba(var(--hex), 0.5)` לא תקני** | שימוש ב-CSS Variables מוגדרים מראש |
 | **פונטים לא אחידים** | System Font Stack לתאימות מלאה |
 | **`alert()` מכוער** | הודעות שגיאה יפות ב-UI עם אנימציה |
+| **TOC לא מחובר** | מימוש מלא עם `md.toc` + פרמטר `?toc=1` |
 
 ### שיפורים עתידיים אפשריים
 
