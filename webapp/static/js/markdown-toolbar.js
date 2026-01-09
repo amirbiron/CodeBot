@@ -382,9 +382,21 @@ const MarkdownToolbar = {
       savedTextareaStart = textarea.selectionStart || 0;
       savedTextareaEnd = textarea.selectionEnd || savedTextareaStart;
     }
+    // גיבוי טווח מהעורך (CodeMirror/textarea) דרך editorManager כדי לשרוד prompt/blur
+    let savedEditorFrom = null;
+    let savedEditorTo = null;
 
     // קבלת טקסט מסומן + שמירת קואורדינטות
     if (window.editorManager && typeof window.editorManager.getSelectedTextOrAll === 'function') {
+      if (typeof window.editorManager.getSelectionRange === 'function') {
+        try {
+          const r = window.editorManager.getSelectionRange();
+          if (r && typeof r.from === 'number' && typeof r.to === 'number') {
+            savedEditorFrom = r.from;
+            savedEditorTo = r.to;
+          }
+        } catch (_) {}
+      }
       const result = window.editorManager.getSelectedTextOrAll();
       if (result.usedSelection) {
         selectedText = result.text;
@@ -452,13 +464,22 @@ const MarkdownToolbar = {
     if (!linkText) return;
 
     // הזרקה / החלפה - משתמשים בקואורדינטות שנשמרו!
-    if (savedStart === -1 && window.editorManager && typeof window.editorManager.insertTextAtCursor === 'function') {
-      // editorManager מנהל את הסלקציה בעצמו
-      const ok = !!window.editorManager.insertTextAtCursor(linkText);
-      if (ok) {
-        this.showStatus('קישור נוצר');
-      } else {
-        this.showStatus('נכשל ליצור קישור');
+    if (savedStart === -1 && window.editorManager) {
+      // העדפה: הזרקה בטווח שנשמר לפני prompt (כדי לא להכניס במקום שגוי אחרי blur)
+      if (
+        typeof window.editorManager.insertTextAtRange === 'function' &&
+        typeof savedEditorFrom === 'number' &&
+        typeof savedEditorTo === 'number'
+      ) {
+        const ok = !!window.editorManager.insertTextAtRange(linkText, savedEditorFrom, savedEditorTo);
+        this.showStatus(ok ? 'קישור נוצר' : 'נכשל ליצור קישור');
+        return;
+      }
+
+      if (typeof window.editorManager.insertTextAtCursor === 'function') {
+        const ok = !!window.editorManager.insertTextAtCursor(linkText);
+        this.showStatus(ok ? 'קישור נוצר' : 'נכשל ליצור קישור');
+        return;
       }
     } else if (textarea) {
       textarea.focus();
