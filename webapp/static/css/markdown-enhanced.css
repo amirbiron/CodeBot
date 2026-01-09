@@ -275,6 +275,82 @@
 
 /* === מצב כהה מוגדר כעת ב-data-theme למעלה === */
 
+/* === Admonition content overrides for Classic theme === */
+:root[data-theme="classic"] .admonition-note .admonition-content,
+:root[data-theme="classic"] .admonition-info .admonition-content,
+:root[data-theme="classic"] .admonition-example .admonition-content,
+:root[data-theme="classic"] .admonition-todo .admonition-content {
+  background: color-mix(in srgb, #0969da 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-tip .admonition-content,
+:root[data-theme="classic"] .admonition-success .admonition-content {
+  background: color-mix(in srgb, #1a7f37 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-warning .admonition-content,
+:root[data-theme="classic"] .admonition-experimental .admonition-content {
+  background: color-mix(in srgb, #9a6700 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-danger .admonition-content {
+  background: color-mix(in srgb, #cf222e 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-question .admonition-content {
+  background: color-mix(in srgb, #8250df 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-quote .admonition-content,
+:root[data-theme="classic"] .admonition-deprecated .admonition-content,
+:root[data-theme="classic"] .admonition-abstract .admonition-content {
+  background: color-mix(in srgb, #57606a 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+/* === Admonition content overrides for Rose Pine Dawn theme === */
+:root[data-theme="rose-pine-dawn"] .admonition-note .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-info .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-example .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-todo .admonition-content {
+  background: color-mix(in srgb, #286983 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-tip .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-success .admonition-content {
+  background: color-mix(in srgb, #56949f 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-warning .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-experimental .admonition-content {
+  background: color-mix(in srgb, #ea9d34 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-danger .admonition-content {
+  background: color-mix(in srgb, #b4637a 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-question .admonition-content {
+  background: color-mix(in srgb, #907aa9 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-quote .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-deprecated .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-abstract .admonition-content {
+  background: color-mix(in srgb, #797593 10%, #faf4ed 90%);
+  color: #575279;
+}
+
 /* === Admonition content overrides for Dark themes (dark/dim/nebula) === */
 :root[data-theme="dark"] .admonition-note .admonition-content,
 :root[data-theme="dim"] .admonition-note .admonition-content,
