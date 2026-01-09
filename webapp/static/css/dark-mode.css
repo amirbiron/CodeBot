@@ -157,12 +157,16 @@
 [data-theme="dim"] input::placeholder,
 [data-theme="dim"] textarea::placeholder,
 [data-theme="nebula"] input::placeholder,
-[data-theme="nebula"] textarea::placeholder,
+[data-theme="nebula"] textarea::placeholder {
+    color: var(--text-muted);
+}
+
+/* Custom/Shared themes - placeholder יחסי לצבע הטקסט הראשי של הערכה */
 [data-theme="custom"] input::placeholder,
 [data-theme="custom"] textarea::placeholder,
 [data-theme^="shared:"] input::placeholder,
 [data-theme^="shared:"] textarea::placeholder {
-    color: var(--text-muted);
+    color: color-mix(in srgb, var(--text-primary, #ffffff) 55%, transparent);
 }
 
 /* ============================================
