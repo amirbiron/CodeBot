@@ -557,6 +557,26 @@ def _extract_preview_colors(variables: dict) -> list[str]:
 # HTML Generation
 # ============================================
 
+def sanitize_css_value(value: str) -> str:
+    """
+    🔒 מנקה ערך CSS בודד מתווים מסוכנים.
+    
+    מונע CSS injection כמו: #fff; } body { display: none; } :root { --x:
+    """
+    if not value:
+        return ""
+    
+    # תווים שיכולים לשבור את ההקשר של CSS value
+    dangerous_chars = ['{', '}', ';', '<', '>', '"', "'", '\\', '\n', '\r']
+    
+    clean_value = value
+    for char in dangerous_chars:
+        clean_value = clean_value.replace(char, '')
+    
+    # אם הערך ריק אחרי הניקוי, החזר ערך ברירת מחדל
+    return clean_value.strip() or 'inherit'
+
+
 def generate_css_variables(variables: dict) -> str:
     """
     מייצר CSS Variables מתוך מילון.
@@ -569,8 +589,14 @@ def generate_css_variables(variables: dict) -> str:
     
     lines = []
     for key, value in variables.items():
-        if key.startswith("--") and value:
-            lines.append(f"    {key}: {value};")
+        # 🔒 וולידציה של שם המשתנה - רק אותיות, מספרים, מקפים
+        if not re.match(r'^--[a-zA-Z0-9\-]+$', key):
+            continue
+        if value:
+            # 🔒 סניטציה של הערך
+            safe_value = sanitize_css_value(str(value))
+            if safe_value:
+                lines.append(f"    {key}: {safe_value};")
     
     return "\n".join(lines)
 
@@ -1263,7 +1289,9 @@ def export_styled_html(file_id):
     response = make_response(rendered_html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
     
-    safe_filename = re.sub(r'[^\w\s\-.]', '', title)[:50] or 'document'
+    # 🔒 סניטציה של שם הקובץ - רווח בודד במקום כל whitespace, ללא newlines
+    safe_filename = re.sub(r'[^\w \-.]', '', title)  # רווח בודד, לא \s
+    safe_filename = safe_filename.strip()[:50] or 'document'
     response.headers['Content-Disposition'] = f'attachment; filename="{safe_filename}.html"'
     
     return response
@@ -2599,6 +2627,8 @@ class TestConsecutiveAlerts:
 | 8 | XSS בהצגת שמות ערכות ב-JS | גבוה | פונקציית `escapeHtml()` + `sanitizeColor()` |
 | 9 | XSS ב-`syntax_css` שמוזרק עם `\| safe` | גבוה | פונקציית `sanitize_css()` בצד השרת |
 | 10 | קריסה כש-`file_name` הוא `None` (בדיקת סוג קובץ) | בינוני | `file.get('file_name') or ''` |
+| 11 | CSS Variables לא מסוננים (CSS injection) | גבוה | פונקציית `sanitize_css_value()` + וולידציית key |
+| 12 | שם קובץ שומר newlines (header injection) | נמוך | רווח בודד ` ` במקום `\s` ברגקס |
 
 ### פונקציות אבטחה שנוספו
 
@@ -2633,4 +2663,22 @@ def sanitize_css(css_content: str) -> str:
     for pattern in dangerous_patterns:
         clean_css = re.sub(pattern, '/* blocked */', clean_css, flags=re.IGNORECASE)
     return clean_css
+
+def sanitize_css_value(value: str) -> str:
+    """מונע CSS injection בערכי משתנים."""
+    if not value:
+        return ""
+    # תווים שיכולים לשבור את ההקשר
+    dangerous_chars = ['{', '}', ';', '<', '>', '"', "'", '\\', '\n', '\r']
+    clean_value = value
+    for char in dangerous_chars:
+        clean_value = clean_value.replace(char, '')
+    return clean_value.strip() or 'inherit'
+```
+
+#### Python - סניטציה לשם קובץ
+```python
+# רווח בודד במקום \s (שכולל newlines)
+safe_filename = re.sub(r'[^\w \-.]', '', title)
+safe_filename = safe_filename.strip()[:50] or 'document'
 ```
