@@ -730,12 +730,23 @@
           const value = ta.value || '';
           const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : value.length;
           const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
-          const nextValue = value.slice(0, start) + text + value.slice(end);
-          ta.value = nextValue;
-          try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
-          const caret = start + text.length;
           try { ta.focus(); } catch(_) {}
-          try { ta.setSelectionRange(caret, caret); } catch(_) {}
+
+          // חשוב: להימנע משינוי ישיר של value כדי לשמור Undo/Redo
+          if (typeof ta.setRangeText === 'function') {
+            ta.setRangeText(text, start, end, 'end');
+          } else if (document.execCommand && typeof document.execCommand === 'function') {
+            try { ta.setSelectionRange(start, end); } catch(_) {}
+            document.execCommand('insertText', false, text);
+          } else {
+            // fallback אחרון - עלול לשבור Undo/Redo
+            const nextValue = value.slice(0, start) + text + value.slice(end);
+            ta.value = nextValue;
+            const caret = start + text.length;
+            try { ta.setSelectionRange(caret, caret); } catch(_) {}
+          }
+
+          try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
           return true;
         }
       } catch(_) {}
