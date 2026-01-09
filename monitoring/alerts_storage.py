@@ -719,6 +719,9 @@ def is_new_error(signature: str) -> bool:
         else:
             return False
 
+        # Force to str (fail-closed) before any DB query
+        query_signature = str(query_signature).strip().lower()
+
         # Final hard validation on the exact variable used in Mongo query
         if not re.fullmatch(r"[0-9a-f]{64}", str(query_signature)):
             return False
