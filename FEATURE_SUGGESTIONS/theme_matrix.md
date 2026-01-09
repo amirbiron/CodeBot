@@ -17,7 +17,6 @@
 | ``--md-surface`` / ``--md-text`` | כהה אחיד | כהה מותאם (`#15141f`) | כהה כחול (`#1a365d`) | כהה ירוק (`#1a4731`) | נשאר כהה כדי להגן על Highlight | שחור/לבן בהתאם לחוקים |
 | ``--split-preview-*`` | מוגדר בערכי ברירת מחדל ב-`split-view.css` | ✔️ | ✔️ (rgba בגוון כחול) | ✔️ (rgba ירוק) | ✔️ (rgba סגלגל) | ✔️ (שחור/לבן/צהוב) |
 | ``--search-*`` | משתמש בערכי ברירת מחדל כהים | צל ייחודי `rgba(7,7,31,0.35)` | צל כחול + הדגשת info | צל ירוק | מדגיש צבעי עץ | שחור/לבן עם צהוב (WCAG) |
-| ``--lang-*`` (python, typescript...) | צבעים בהירים על רקע שקוף | צבעים כהים יותר לקריאות | צבעים בהירים | צבעים בהירים | צבעים כהים יותר | צבעים חזקים על רקע כהה |
 
 ## בדיקות רגרסיה
 
@@ -80,16 +79,7 @@ const colors = {
 --md-table-bg, --md-table-border, --md-table-header-bg
 --md-mermaid-bg
 --split-preview-bg, --split-preview-meta, --split-preview-placeholder
-
-# Level 3 - Language Badges (ב-language-badges.css)
---lang-python, --lang-javascript, --lang-typescript, --lang-java
---lang-go, --lang-rust, --lang-ruby, --lang-php, --lang-swift
---lang-html, --lang-css, --lang-sql, --lang-bash, --lang-yaml
---lang-json, --lang-markdown, --lang-default (ועוד ~40 שפות)
 ```
-
-> **הערה:** טוקני Language Badges מגדירים צבע טקסט לכל שפה.
-> הרקע והגבול משתמשים באותו צבע עם שקיפות (rgba).
 
 ---
 

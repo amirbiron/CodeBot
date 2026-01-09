@@ -25,7 +25,7 @@
           {% for it in items %}
             <tr>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><a href="/admin/snippets/view?id={{ it._id }}" class="link-light">{{ it.title }}</a></div></td>
-              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><span class="lang-badge lang-badge-sm" data-lang="{{ it.language|lower }}">{{ it.language }}</span></div></td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.language }}</div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.username and ('@' ~ it.username) }}</div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.description }}</div></td>
               <td>

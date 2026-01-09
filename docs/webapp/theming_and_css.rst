@@ -128,10 +128,6 @@
      - Level 2
      - CodeMirror, כרטיסי קוד, Split View
      - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
-   * - ``--lang-*`` (python, typescript, java...)
-     - Level 3
-     - צבעי תגיות שפת תכנות (Python, JavaScript וכו')
-     - ``webapp/static/css/language-badges.css`` – צבע טקסט לכל שפה; רקע וגבול משתמשים ב-rgba שקוף
 
 רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
@@ -289,50 +285,6 @@ Component Tokens ו‑Theme Builder
 - כאשר מבצעים Override לתמה קיימת (בידיים היום או דרך Theme Builder בעתיד), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
 - טוקנים חובה ל‑Theme מותאם אישית (גם בעתיד כשה‑Builder יהיה פעיל): `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
 
-Language Badges (תגיות שפה צבעוניות)
--------------------------------------
-
-תגיות השפה (``lang-badge``) משתמשות בסגנון **רקע שקוף עם טקסט צבעוני** – אותו סגנון שמשמש בתגיות החיפוש הגלובלי.
-
-**העיצוב:**
-
-.. code-block:: css
-
-   /* רקע שקוף עם גוון צבע השפה */
-   background: rgba(צבע, 0.2);
-   /* טקסט בצבע השפה */
-   color: var(--lang-python);
-   /* גבול שקוף */
-   border: 1px solid rgba(צבע, 0.35);
-
-**יתרונות:**
-
-- **משתלב עם ה-Glass** – הרקע השקוף נראה טוב על כל סוגי הכרטיסים
-- **הבחנה ברורה** – כל שפה בצבע ייחודי (Python צהוב, TypeScript כחול, וכו')
-- **עקבי עם החיפוש הגלובלי** – אותו סגנון בכל המערכת
-
-**שימוש:**
-
-.. code-block:: html
-
-   <!-- תגית שפה בסיסית -->
-   <span class="lang-badge" data-lang="python">Python</span>
-
-   <!-- גרסה קומפקטית -->
-   <span class="lang-badge lang-badge-sm" data-lang="typescript">TypeScript</span>
-
-**טוקנים עיקריים (Level 3):**
-
-- ``--lang-python``, ``--lang-javascript``, ``--lang-typescript``, וכו' – צבעי טקסט לכל שפה
-- ``--lang-default`` – צבע ברירת מחדל לשפות לא מוכרות
-
-**קובץ:** ``webapp/static/css/language-badges.css``
-
-.. note::
-
-   בערכות בהירות (Classic, Rose Pine Dawn) הצבעים מותאמים להיות כהים יותר 
-   כדי לשמור על קריאות טובה על רקע בהיר.
-
 בדיקות חובה לפני Merge
 ----------------------
 
@@ -371,7 +323,7 @@ Language Badges (תגיות שפה צבעוניות)
    - ``webapp/templates/base.html`` – טעינת ``variables.css``, קביעת ``data-theme`` מוקדמת וה‑Theme Wizard.
    - ``webapp/static/css/dark-mode.css`` – שימוש בטוקנים עבור רכיבי Dark/Dim/Nebula.
    - ``webapp/static/css/high-contrast.css`` – Legacy לפוקוס/Outline; הדריסות עצמן ב‑``variables.css``.
-   - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css``, ``language-badges.css`` – דוגמאות מעשיות לטוקנים.
+   - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css`` – דוגמאות מעשיות לטוקנים.
    - Issue #2097 – מפרט Theme Builder (טוקנים במיקוד, UI/Backend/API, נגישות ו‑Reset flow).
 
 לשאלות תיעוד/Testing יש לפנות לערוץ Frontend או לפתוח Issue חדש עם קישור לדף זה. הקפידו לעיין גם ב‑`FEATURE_SUGGESTIONS/css_refactor_plan.md` לפני שינויים רוחביים בקוד.
