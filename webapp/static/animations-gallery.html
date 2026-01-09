@@ -49,7 +49,23 @@
             align-items: center;
             justify-content: center;
             font-size: 4rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
         }
+        .preview:hover { filter: brightness(1.2); }
+        .preview::after {
+            content: '▶ לחץ להפעלה';
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .preview:hover::after { opacity: 1; }
         .card-content { padding: 1.5rem; }
         .card-title { font-size: 1.2rem; margin-bottom: 0.5rem; }
         .card-desc {
@@ -339,7 +355,7 @@ animations.forEach(anim => {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-        <div class="preview ${anim.previewClass}">${anim.emoji}</div>
+        <div class="preview ${anim.previewClass}" onclick="runAnimation('${anim.id}')">${anim.emoji}</div>
         <div class="card-content">
             <h3 class="card-title">${anim.title}</h3>
             <p class="card-desc">${anim.desc}</p>
@@ -358,6 +374,44 @@ function copyCode(id) {
         toast.classList.add('show');
         setTimeout(() => toast.classList.remove('show'), 2000);
     });
+}
+
+function runAnimation(id) {
+    const code = codeSnippets[id];
+    if (!code) return;
+    
+    // Remove existing animation elements
+    const ids = ['synthwave','fireflies','matrix','aurora','starfield','bubbles','snow','confetti'];
+    ids.forEach(i => { const el = document.getElementById(i); if (el) el.remove(); });
+    
+    // Clean up old styles
+    document.querySelectorAll('style[id^="anim-style-"]').forEach(s => s.remove());
+    
+    // Add style
+    const styleMatch = code.match(/<style>([\s\S]*?)<\/style>/);
+    if (styleMatch) {
+        const style = document.createElement('style');
+        style.textContent = styleMatch[1];
+        style.id = 'anim-style-' + id;
+        document.head.appendChild(style);
+    }
+    
+    // Add HTML element (canvas or div)
+    const htmlMatch = code.match(/<(canvas|div)[^>]*id="([^"]+)"[^>]*>/);
+    if (htmlMatch) {
+        const el = document.createElement(htmlMatch[1]);
+        el.id = htmlMatch[2];
+        document.body.appendChild(el);
+    }
+    
+    // Execute script
+    const scriptMatch = code.match(/<script>([\s\S]*?)<\/script>/);
+    if (scriptMatch) {
+        try {
+            const fn = new Function(scriptMatch[1]);
+            fn();
+        } catch(e) { console.error(e); }
+    }
 }
 </script>
 </body>
