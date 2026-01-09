@@ -684,6 +684,10 @@ class AdvancedBotHandlers:
                     _lbl(current_theme == 'dracula', 'Dracula', '🧛 Dracula'),
                     callback_data=_mk_theme_cb('dracula')
                 ),
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'banner_tech', 'Banner Tech', '💜 Banner Tech'),
+                    callback_data=_mk_theme_cb('banner_tech')
+                ),
             ],
         ]
 
