@@ -78,6 +78,24 @@ def _safe_str(value: Any, *, limit: int = 256) -> str:
     return text
 
 
+def _sanitize_signature(raw: Any) -> str:
+    """
+    Normalize a potentially user-controlled signature value into a safe identifier.
+
+    We hash the input into a fixed-length hex string so that arbitrary content
+    cannot affect the MongoDB query structure and only acts as an opaque key.
+    """
+    try:
+        # Use a bounded, stringified representation as hashing input.
+        normalized = _safe_str(raw, limit=512)
+        if not normalized:
+            return ""
+        return hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()
+    except Exception:
+        # Fail-closed for sanitization: empty string means "no signature"
+        return ""
+
+
 def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     שמירה "Fail-open" של details עבור DB/UI, בלי למחוק שדות.
@@ -667,6 +685,8 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 
 def is_new_error(signature: str) -> bool:
     """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
+    # Normalize the provided signature to a safe, fixed-format identifier
+    signature = _sanitize_signature(signature)
     if not signature:
         return False
     if not _enabled() or _init_failed:
@@ -742,9 +762,14 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # השתמש ב-hash קיים רק אם הוא באמת מכיל תוכן (מניעת שדות ריקים שנוצרו בעבר)
     signature_hash_existing = _safe_str(existing_hash, limit=128)
+    # Normalize any existing hash into a safe signature format.
+    if signature_hash_existing:
+        signature_hash_existing = _sanitize_signature(signature_hash_existing)
     signature_hash = signature_hash_existing
     if not signature_hash:
-        signature_hash = _safe_str(compute_error_signature(alert_data or {}), limit=128)
+        # Compute a deterministic hash from the error data and sanitize it.
+        computed = compute_error_signature(alert_data or {})
+        signature_hash = _sanitize_signature(computed)
 
     # אם אין חתימה אמיתית – לא מוסיפים שדות Signature כלל (וגם מנקים שדות ריקים אם קיימים)
     if not signature_hash:
