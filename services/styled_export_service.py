@@ -16,6 +16,17 @@ from typing import Optional
 import bleach
 import markdown
 
+# Pygments for dynamic syntax highlighting CSS
+try:
+    from pygments.formatters import HtmlFormatter
+    from pygments.styles import get_style_by_name
+
+    HAS_PYGMENTS = True
+except ImportError:  # pragma: no cover
+    HtmlFormatter = None  # type: ignore[assignment, misc]
+    get_style_by_name = None  # type: ignore[assignment]
+    HAS_PYGMENTS = False
+
 from services.theme_parser_service import (
     FALLBACK_DARK,
     FALLBACK_LIGHT,
@@ -24,6 +35,38 @@ from services.theme_parser_service import (
 from services.theme_presets_service import get_preset_by_id, list_presets
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# 🎨 מיפוי ערכות נושא ל-Pygments Styles
+# ============================================
+# מיפוי בין מזהי ערכות הנושא שלנו לבין styles מובנים של Pygments
+# אם ערכה לא נמצאת כאן, נשתמש ב-style ברירת מחדל לפי סוג הערכה (dark/light)
+
+THEME_TO_PYGMENTS_STYLE: dict[str, str] = {
+    # Dark themes
+    "tech-guide-dark": "monokai",
+    "github-dark": "github-dark",
+    "dracula": "dracula",
+    "one-dark": "one-dark",
+    "monokai": "monokai",
+    "gruvbox-dark": "gruvbox-dark",
+    "nord": "nord",
+    "tokyo-night": "monokai",
+    "material-dark": "material",
+    "synthwave": "monokai",
+    "cyberpunk": "monokai",
+    # Light themes
+    "clean-light": "default",
+    "github-light": "github-dark",  # github-dark works well for light too
+    "minimal": "default",
+    "solarized-light": "solarized-light",
+    "gruvbox-light": "gruvbox-light",
+}
+
+# Fallback styles לפי קטגוריה
+PYGMENTS_STYLE_DARK_FALLBACK = "monokai"
+PYGMENTS_STYLE_LIGHT_FALLBACK = "default"
 
 # ============================================
 # 🔒 Sanitization policy (shared)
@@ -428,7 +471,9 @@ def get_export_theme(
             theme_type = (parsed.get("type") if isinstance(parsed, dict) else None) or "dark"
             fallback = FALLBACK_DARK if str(theme_type).lower() == "dark" else FALLBACK_LIGHT
             return {
+                "id": "vscode-import",
                 "name": parsed.get("name", "Imported Theme"),
+                "category": str(theme_type).lower(),
                 "variables": parsed.get("variables", fallback),
                 "syntax_css": parsed.get("syntax_css", ""),
             }
@@ -439,7 +484,9 @@ def get_export_theme(
     if theme_id in EXPORT_PRESETS:
         preset = EXPORT_PRESETS[theme_id]
         return {
+            "id": theme_id,
             "name": preset["name"],
+            "category": preset.get("category", "dark"),
             "variables": preset["variables"],
             "syntax_css": preset.get("syntax_css", ""),
         }
@@ -448,7 +495,9 @@ def get_export_theme(
     gallery_preset = get_preset_by_id(theme_id)
     if gallery_preset:
         return {
+            "id": theme_id,
             "name": gallery_preset["name"],
+            "category": gallery_preset.get("category", "dark"),
             "variables": gallery_preset.get("variables", FALLBACK_DARK),
             "syntax_css": gallery_preset.get("syntax_css", ""),
         }
@@ -460,7 +509,9 @@ def get_export_theme(
                 continue
             if theme.get("id") == theme_id:
                 return {
+                    "id": theme_id,
                     "name": theme.get("name", "My Theme"),
+                    "category": theme.get("category", "dark"),
                     "variables": theme.get("variables", FALLBACK_DARK),
                     "syntax_css": theme.get("syntax_css", ""),
                 }
@@ -468,7 +519,9 @@ def get_export_theme(
     # 5. Fallback
     logger.info("Theme '%s' not found, using tech-guide-dark fallback", theme_id)
     return {
+        "id": "tech-guide-dark",
         "name": "Tech Guide Dark",
+        "category": "dark",
         "variables": EXPORT_PRESETS["tech-guide-dark"]["variables"],
         "syntax_css": EXPORT_PRESETS["tech-guide-dark"].get("syntax_css", ""),
     }
@@ -511,6 +564,72 @@ def _extract_preview_colors(variables: dict) -> list[str]:
         if key in variables:
             colors.append(variables[key])
     return colors[:3] or ["#1a1a2e", "#eeeeee", "#0088cc"]
+
+
+# ============================================
+# 🎨 Pygments CSS Generation
+# ============================================
+
+
+def get_pygments_style_for_theme(theme_id: str, theme_category: str = "dark") -> str:
+    """
+    מחזיר את שם ה-Pygments style המתאים לערכת נושא.
+
+    Args:
+        theme_id: מזהה הערכה
+        theme_category: קטגוריית הערכה ('dark' או 'light')
+
+    Returns:
+        שם ה-Pygments style
+    """
+    # בדיקה במיפוי הישיר
+    if theme_id in THEME_TO_PYGMENTS_STYLE:
+        return THEME_TO_PYGMENTS_STYLE[theme_id]
+
+    # fallback לפי קטגוריה
+    if theme_category.lower() == "light":
+        return PYGMENTS_STYLE_LIGHT_FALLBACK
+    return PYGMENTS_STYLE_DARK_FALLBACK
+
+
+def generate_pygments_css(
+    style_name: str = "monokai",
+    css_class: str = ".highlight",
+) -> str:
+    """
+    מייצר CSS להדגשת תחביר באמצעות Pygments.
+
+    Args:
+        style_name: שם ה-Pygments style (לדוגמה: 'monokai', 'default', 'github-dark')
+        css_class: ה-CSS class שמשמש לעטיפת הקוד (ברירת מחדל: '.highlight')
+
+    Returns:
+        מחרוזת CSS עם הגדרות הצבעים להדגשת תחביר
+    """
+    if not HAS_PYGMENTS:
+        logger.warning("Pygments not available, returning empty CSS")
+        return ""
+
+    try:
+        # נסה לטעון את ה-style המבוקש
+        try:
+            style = get_style_by_name(style_name)
+        except Exception:
+            # אם לא נמצא, השתמש ב-monokai כברירת מחדל
+            logger.warning("Pygments style '%s' not found, using monokai", style_name)
+            style = get_style_by_name("monokai")
+
+        # יצירת ה-formatter עם ה-style
+        formatter = HtmlFormatter(style=style, cssclass=css_class.lstrip("."))
+
+        # קבלת הגדרות ה-CSS
+        css_defs = formatter.get_style_defs(css_class)
+
+        return css_defs
+
+    except Exception as e:
+        logger.exception("Failed to generate Pygments CSS: %s", e)
+        return ""
 
 
 # ============================================
@@ -602,7 +721,7 @@ def render_styled_html(
     Args:
         content_html: תוכן ה-HTML (אחרי המרה מ-Markdown)
         title: כותרת המסמך
-        theme: ערכת הנושא (name, variables, syntax_css)
+        theme: ערכת הנושא (name, variables, syntax_css, id, category)
         toc_html: HTML של תוכן עניינים (אופציונלי)
         footer_text: טקסט בתחתית המסמך
 
@@ -610,8 +729,26 @@ def render_styled_html(
         HTML מלא מוכן להורדה
     """
     css_variables = generate_css_variables(theme.get("variables", {}))
-    # 🔒 XSS Protection - sanitize CSS before rendering
-    syntax_css = sanitize_css(theme.get("syntax_css", ""))
+
+    # 🎨 קבלת CSS להדגשת תחביר
+    # אם הערכה כוללת syntax_css מוגדר מראש, נשתמש בו
+    # אחרת, נייצר CSS דינמי באמצעות Pygments
+    syntax_css_raw = theme.get("syntax_css", "")
+
+    if syntax_css_raw:
+        # יש CSS מוגדר בערכה
+        syntax_css = sanitize_css(syntax_css_raw)
+    else:
+        # ייצור CSS דינמי מ-Pygments
+        theme_id = theme.get("id", "")
+        theme_category = theme.get("category", "dark")
+
+        # קביעת ה-Pygments style המתאים
+        pygments_style = get_pygments_style_for_theme(theme_id, theme_category)
+
+        # ייצור ה-CSS
+        # 🔒 CSS מ-Pygments הוא בטוח (מיוצר פנימית), אבל נעביר דרך sanitize בכל מקרה
+        syntax_css = sanitize_css(generate_pygments_css(pygments_style, ".highlight"))
 
     # ייבוא מאוחר כדי לאפשר שימוש בפונקציות אחרות גם בלי Flask (למשל בטסטים)
     from flask import render_template
