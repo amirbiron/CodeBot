@@ -164,7 +164,7 @@ def test_top_level_handler_like_modules_do_not_import_database_directly():
     They still behave like handlers (Telegram flows / menus) and must not import the
     legacy `database` package directly.
     """
-    rel_files = (
+    explicit = (
         "bot_handlers.py",
         "conversation_handlers.py",
         "github_menu_handler.py",
@@ -172,7 +172,23 @@ def test_top_level_handler_like_modules_do_not_import_database_directly():
         "backup_menu_handler.py",
         "file_manager.py",
     )
-    files = [ROOT / f for f in rel_files if (ROOT / f).exists()]
+    files = [ROOT / f for f in explicit if (ROOT / f).exists()]
+    # Also include any root-level handler-like modules we might add later
+    # (keeps the rule enforceable without maintaining a manual list).
+    for pat in ("*handler*.py", "*handlers.py"):
+        try:
+            files.extend(list(ROOT.glob(pat)))
+        except Exception:
+            continue
+    # De-dup while preserving order
+    seen = set()
+    uniq = []
+    for f in files:
+        if f in seen:
+            continue
+        seen.add(f)
+        uniq.append(f)
+    files = uniq
     forbidden = ("database",)
     violations = _violations(files, forbidden_prefixes=forbidden)
     dyn = _dynamic_database_import_violations(files)
