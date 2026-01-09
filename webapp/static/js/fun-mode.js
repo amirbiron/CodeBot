@@ -454,11 +454,127 @@
     });
   }
 
+  function startCodeParticles() {
+    stopAll();
+    closeFunMenuIfExists();
+
+    const bag = createCleanupBag();
+    activeCleanup = bag;
+    bindStopOnKey(bag, 'escape');
+
+    // נגישות: למי שמבקש להפחית אנימציות - לא מריצים אפקטים כאלה
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return;
+      }
+    } catch (_) {}
+
+    const snippets = [
+      'TODO: fix this',
+      '// why is this slow?',
+      'Latency: 220ms',
+      '🔥 SERVER ON FIRE 🔥',
+      'git blame',
+      'try { ... } catch (e) { ignore }',
+      'import time; time.sleep(5)',
+      'Please wait...',
+      '504 Gateway Timeout',
+    ];
+
+    let container = null;
+    try {
+      container = document.getElementById('code-particles-container');
+    } catch (_) {}
+
+    // Fallback: אם משום מה לא קיים ב-HTML, ניצור אותו בתוך ה-navbar
+    if (!container) {
+      try {
+        const nav = document.querySelector('.navbar');
+        if (nav) {
+          container = document.createElement('div');
+          container.id = 'code-particles-container';
+          container.setAttribute('aria-hidden', 'true');
+          nav.insertBefore(container, nav.firstChild);
+          bag.add(() => {
+            try {
+              container.remove();
+            } catch (_) {}
+          });
+        }
+      } catch (_) {}
+    }
+
+    if (!container) return;
+
+    const timeouts = [];
+    let intervalId = 0;
+
+    function clearAllParticles() {
+      try {
+        const els = container.querySelectorAll('.code-particle');
+        for (const el of els) {
+          try {
+            el.remove();
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
+    function createParticle() {
+      try {
+        const el = document.createElement('span');
+        el.className = 'code-particle';
+        el.textContent = snippets[Math.floor(Math.random() * snippets.length)];
+
+        el.style.left = 5 + Math.random() * 90 + '%';
+        el.style.fontSize = 10 + Math.random() * 6 + 'px';
+
+        const duration = 10 + Math.random() * 10;
+        el.style.animation = 'floatUpRotated ' + duration + 's linear forwards';
+
+        container.appendChild(el);
+
+        const t = window.setTimeout(() => {
+          try {
+            el.remove();
+          } catch (_) {}
+        }, duration * 1000 + 120);
+        timeouts.push(t);
+      } catch (_) {}
+    }
+
+    try {
+      intervalId = window.setInterval(createParticle, 1200);
+    } catch (_) {}
+
+    for (let i = 0; i < 5; i++) {
+      try {
+        const t = window.setTimeout(createParticle, i * 300);
+        timeouts.push(t);
+      } catch (_) {}
+    }
+
+    bag.add(() => {
+      try {
+        if (intervalId) window.clearInterval(intervalId);
+      } catch (_) {}
+      try {
+        for (const t of timeouts) {
+          try {
+            window.clearTimeout(t);
+          } catch (_) {}
+        }
+      } catch (_) {}
+      clearAllParticles();
+    });
+  }
+
   window.FunMode = window.FunMode || {};
   window.FunMode.stopAll = stopAll;
   window.FunMode.startMatrix = startMatrix;
   window.FunMode.startConfetti = startConfetti;
   window.FunMode.startHackerTyper = startHackerTyper;
   window.FunMode.startGravity = startGravity;
+  window.FunMode.startCodeParticles = startCodeParticles;
 })();
 
