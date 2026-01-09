@@ -622,7 +622,7 @@ def sanitize_css(css_content: str) -> str:
         r'</script',          # סגירת script
         r'javascript:',       # JavaScript URI
         r'expression\s*\(',   # IE CSS expression
-        r'@import\s+url',     # יכול לטעון קבצים חיצוניים
+        r'@import',           # חוסם כל @import (גם url() וגם "...")
         r'behavior\s*:',      # IE behavior
         r'-moz-binding',      # Firefox XBL binding
     ]
@@ -2661,6 +2661,7 @@ class TestConsecutiveAlerts:
 | 18 | הסרת `.json` case-sensitive בהצגה | נמוך | `file.name.replace(/\.json$/i, '')` |
 | 19 | False positive ב-`rel=` בתוך URL | בינוני | `re.search(r'\srel\s*=\s*["\']', tag)` |
 | 20 | Timeout ישן מסתיר הודעות חדשות | נמוך | `clearTimeout` לפני יצירת timeout חדש |
+| 21 | `@import` חלקי - לא חוסם `@import "..."` | בינוני | שינוי ל-`r'@import'` (ללא `\s+url`) |
 
 ### פונקציות אבטחה שנוספו
 
@@ -2688,7 +2689,7 @@ def sanitize_css(css_content: str) -> str:
     """מונע הזרקת קוד זדוני דרך CSS."""
     dangerous_patterns = [
         r'</style', r'<script', r'javascript:', 
-        r'expression\s*\(', r'@import\s+url',
+        r'expression\s*\(', r'@import',  # חוסם כל @import
         r'behavior\s*:', r'-moz-binding',
     ]
     clean_css = css_content
