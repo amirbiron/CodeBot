@@ -686,9 +686,10 @@ def create_app() -> web.Application:
             from handlers.profiler_handler import setup_profiler_routes  # type: ignore
 
             try:
-                threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "100") or 100))
+                # שיכוך כאבים: ברירת מחדל גבוהה יותר כדי לא לתעד כל latency "רגיל"
+                threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "1000") or 1000))
             except Exception:
-                threshold_ms = 100
+                threshold_ms = 1000
             profiler_service = PersistentQueryProfilerService(db_manager, slow_threshold_ms=threshold_ms)
             app["profiler_service"] = profiler_service
             setup_profiler_routes(app, profiler_service)

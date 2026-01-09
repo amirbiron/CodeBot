@@ -242,7 +242,7 @@ class DatabaseManager:
                             try:
                                 return float(raw)
                             except Exception:
-                                return 100.0
+                                return 1000.0
                         # Backward-compat: if profiler threshold isn't set but legacy DB_SLOW_MS is set (>0),
                         # use it as a reasonable profiler threshold.
                         raw2 = os.getenv("DB_SLOW_MS", "").strip()
@@ -253,8 +253,8 @@ class DatabaseManager:
                                     return v
                             except Exception:
                                 pass
-                        # ברירת מחדל: 100ms (תואם docs ו-Config Inspector)
-                        return 100.0
+                        # שיכוך כאבים: ברירת מחדל 1000ms כדי לא לתעד כל latency "רגיל" ברשת איטית
+                        return 1000.0
 
                     def _slow_mongo_log_threshold_ms() -> float:
                         # DB_SLOW_MS controls the slow_mongo warning log.
@@ -279,7 +279,7 @@ class DatabaseManager:
                         try:
                             svc = PersistentQueryProfilerService(
                                 db_manager=outer_self,
-                                slow_threshold_ms=int(_profiler_threshold_ms() or 100),
+                                slow_threshold_ms=int(_profiler_threshold_ms() or 1000),
                             )
                             setattr(outer_self, "_profiler_service", svc)
                             return svc
