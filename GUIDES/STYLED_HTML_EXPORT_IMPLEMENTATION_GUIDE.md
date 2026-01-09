@@ -249,10 +249,23 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
     )
     
     # הוספת rel="noopener noreferrer" לכל קישורים עם target="_blank"
-    # (bleach.linkify יכול לעשות את זה, אבל אנחנו נעשה זאת ידנית)
-    clean_html = clean_html.replace(
-        'target="_blank"', 
-        'target="_blank" rel="noopener noreferrer"'
+    # שימוש ב-regex כדי להימנע מ-duplicate attributes
+    def add_noopener(match):
+        tag = match.group(0)
+        # אם כבר יש rel, נחליף אותו; אחרת נוסיף
+        if 'rel=' in tag:
+            # החלפת rel קיים
+            tag = re.sub(r'rel="[^"]*"', 'rel="noopener noreferrer"', tag)
+        else:
+            # הוספת rel חדש
+            tag = tag.replace('target="_blank"', 'target="_blank" rel="noopener noreferrer"')
+        return tag
+    
+    # מציאת כל תגיות a עם target="_blank"
+    clean_html = re.sub(
+        r'<a\s[^>]*target="_blank"[^>]*>',
+        add_noopener,
+        clean_html
     )
     
     # החזרת HTML + TOC (אם נדרש)
@@ -1196,7 +1209,8 @@ def export_styled_html(file_id):
     html_content, toc_html = markdown_to_html(raw_content, include_toc=include_toc)
     
     # רינדור HTML מלא
-    title = file.get('file_name', 'Untitled').replace('.md', '').replace('.markdown', '')
+    # שימוש ב-or כדי לטפל גם במקרה ש-file_name קיים אבל הוא None
+    title = (file.get('file_name') or 'Untitled').replace('.md', '').replace('.markdown', '')
     rendered_html = render_styled_html(
         content_html=html_content,
         title=title,
