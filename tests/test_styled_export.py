@@ -160,6 +160,12 @@ class TestPygmentsCssGeneration:
         style = get_pygments_style_for_theme("unknown-theme", "light")
         assert style == "default"  # PYGMENTS_STYLE_LIGHT_FALLBACK
 
+    def test_get_pygments_style_handles_none_category(self):
+        """הגנה מפני category=None (יכול להגיע מ-MongoDB)"""
+        # לא צריך לזרוק AttributeError
+        style = get_pygments_style_for_theme("unknown-theme", None)  # type: ignore[arg-type]
+        assert style == "monokai"  # fallback to dark
+
 
 class TestGetExportThemeWithMetadata:
     """בדיקות שה-get_export_theme מחזיר גם id ו-category"""

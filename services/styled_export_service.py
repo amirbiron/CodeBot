@@ -587,7 +587,9 @@ def get_pygments_style_for_theme(theme_id: str, theme_category: str = "dark") ->
         return THEME_TO_PYGMENTS_STYLE[theme_id]
 
     # fallback לפי קטגוריה
-    if theme_category.lower() == "light":
+    # 🔒 הגנה מפני None (יכול להגיע מ-MongoDB עם "category": null)
+    category = (theme_category or "dark").lower()
+    if category == "light":
         return PYGMENTS_STYLE_LIGHT_FALLBACK
     return PYGMENTS_STYLE_DARK_FALLBACK
 
@@ -740,8 +742,9 @@ def render_styled_html(
         syntax_css = sanitize_css(syntax_css_raw)
     else:
         # ייצור CSS דינמי מ-Pygments
-        theme_id = theme.get("id", "")
-        theme_category = theme.get("category", "dark")
+        theme_id = theme.get("id") or ""
+        # 🔒 הגנה מפני None (יכול להגיע מ-MongoDB עם "category": null)
+        theme_category = theme.get("category") or "dark"
 
         # קביעת ה-Pygments style המתאים
         pygments_style = get_pygments_style_for_theme(theme_id, theme_category)
