@@ -823,8 +823,18 @@ class DatabaseManager:
         safe_create_index(
             "job_runs",
             [("run_id", ASCENDING)],
-            name="run_id_unique",
+            # אינדקס ייחודי קריטי לעדכוני סטטוס מהירים לפי run_id
+            # (שם האינדקס לא חשוב לביצועים, אבל נשמור שם ברור/סטנדרטי)
+            name="idx_job_runs_id",
             unique=True,
+        )
+
+        # scheduler_jobs - אינדקס לשאילתות polling לפי next_run_time (רץ בתדירות גבוהה)
+        safe_create_index(
+            "scheduler_jobs",
+            [("next_run_time", ASCENDING)],
+            name="idx_jobs_next_run",
+            background=True,
         )
 
         # job_trigger_requests - אינדקס על status למניעת COLLSCAN בזמן polling
@@ -927,6 +937,18 @@ class DatabaseManager:
             "code_snippets",
             [("user_id", ASCENDING), ("is_active", ASCENDING), ("created_at", DESCENDING)],
             name="user_active_created_at_idx",
+            enforce=True,
+        )
+
+        # code_snippets - אינדקס קריטי לשליפת "הגרסה האחרונה לכל קובץ" (Killer Query)
+        # תומך ב:
+        # 1) match לפי user_id + is_active
+        # 2) sort לפי file_name (ASC) + version (DESC)
+        # 3) group לפי file_name עם $first כדי לקחת את הגרסה האחרונה
+        safe_create_index(
+            "code_snippets",
+            [("user_id", ASCENDING), ("is_active", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)],
+            name="idx_snippets_latest_version",
             enforce=True,
         )
 
