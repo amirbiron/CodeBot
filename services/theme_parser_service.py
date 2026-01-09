@@ -492,7 +492,9 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
     """
     if isinstance(json_content, str):
         try:
-            theme_data = json.loads(json_content)
+            # VS Code themes עשויים להיות JSONC (עם // או /* */)
+            cleaned = strip_jsonc_comments(json_content)
+            theme_data = json.loads(cleaned)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON: {e}")
     else:

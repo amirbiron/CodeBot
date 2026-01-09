@@ -807,6 +807,18 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 🌐 תצוגת Markdown
             </a>
             {% endif %}
+            {% if ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
+            <button type="button"
+                    class="btn btn-secondary btn-icon"
+                    data-overflow-id="export-styled"
+                    data-overflow-priority="5"
+                    data-menu-label="📥 HTML מעוצב"
+                    onclick="openExportModal('{{ file.id }}')"
+                    title="ייצוא HTML מעוצב">
+                <i class="fas fa-file-export"></i>
+                <span class="btn-text">HTML מעוצב</span>
+            </button>
+            {% endif %}
             <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon"
                data-overflow-id="download"
                data-overflow-priority="6"
@@ -2514,6 +2526,11 @@ function goBack(ev){
     window.openTrashConfirmModal = openTrashConfirmModal;
 })();
 </script>
+{% if ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
+{% include 'export/export_modal.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/export-modal.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', filename='js/export-modal.js') }}?v={{ static_version }}" defer></script>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
