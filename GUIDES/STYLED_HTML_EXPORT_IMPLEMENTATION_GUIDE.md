@@ -136,8 +136,10 @@ def preprocess_markdown(text: str) -> str:
     if not text:
         return ""
     
-    # Pattern for ::: type ... :::
-    pattern = r":::\s?(info|warning|danger|success|tip)\s?(.*?):::"
+    # Pattern for ::: type ... ::: 
+    # הסוגר ::: חייב להופיע בתחילת שורה (אחרי newline או בסוף) כדי למנוע חיתוך מוקדם
+    # אם התוכן מכיל ::: באמצע, זה לא יתפוס כסוגר
+    pattern = r"^:::\s?(info|warning|danger|success|tip)\s*\n(.*?)\n:::$"
     
     def replacer(match):
         alert_type = match.group(1).lower()
@@ -158,8 +160,8 @@ def preprocess_markdown(text: str) -> str:
         
         return f'<div class="alert alert-{css_class}">{inner_html}</div>'
     
-    # DOTALL כדי לתפוס תוכן מרובה שורות
-    return re.sub(pattern, replacer, text, flags=re.DOTALL)
+    # MULTILINE כדי ש-^ ו-$ יתאימו לתחילת/סוף שורה, DOTALL כדי ש-. יתפוס newlines
+    return re.sub(pattern, replacer, text, flags=re.DOTALL | re.MULTILINE)
 
 
 def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
@@ -252,10 +254,13 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
     # שימוש ב-regex כדי להימנע מ-duplicate attributes
     def add_noopener(match):
         tag = match.group(0)
-        # אם כבר יש rel, נחליף אותו; אחרת נוסיף
-        if 'rel=' in tag:
+        # בדיקה אם יש rel כאטריביוט (לא בתוך href או ערך אחר)
+        # שימוש ברגקס שמחפש rel= מחוץ למירכאות
+        has_rel_attr = re.search(r'\srel\s*=\s*["\']', tag)
+        
+        if has_rel_attr:
             # החלפת rel קיים
-            tag = re.sub(r'rel="[^"]*"', 'rel="noopener noreferrer"', tag)
+            tag = re.sub(r'\srel\s*=\s*["\'][^"\']*["\']', ' rel="noopener noreferrer"', tag)
         else:
             # הוספת rel חדש
             tag = tag.replace('target="_blank"', 'target="_blank" rel="noopener noreferrer"')
@@ -1707,7 +1712,16 @@ def api_parse_vscode_theme():
         importTab.insertBefore(errorContainer, importTab.firstChild);
     }
 
+    // Store timeout reference to prevent premature hiding
+    let errorHideTimeout = null;
+    
     function showError(message) {
+        // Clear any existing timeout to prevent premature hiding
+        if (errorHideTimeout) {
+            clearTimeout(errorHideTimeout);
+            errorHideTimeout = null;
+        }
+        
         errorContainer.textContent = message;
         errorContainer.hidden = false;
         errorContainer.classList.add('shake');
@@ -1717,12 +1731,17 @@ def api_parse_vscode_theme():
         }, 500);
         
         // הסתרה אוטומטית אחרי 5 שניות
-        setTimeout(() => {
+        errorHideTimeout = setTimeout(() => {
             errorContainer.hidden = true;
+            errorHideTimeout = null;
         }, 5000);
     }
 
     function hideError() {
+        if (errorHideTimeout) {
+            clearTimeout(errorHideTimeout);
+            errorHideTimeout = null;
+        }
         errorContainer.hidden = true;
     }
 
@@ -1753,9 +1772,11 @@ def api_parse_vscode_theme():
             }
 
             // Success - update state
+            // Case-insensitive extension removal
+            const displayName = data.name || file.name.replace(/\.json$/i, '');
             selectedTheme = {
                 id: 'vscode-import',
-                name: data.name || file.name.replace('.json', ''),
+                name: displayName,
                 source: 'vscode',
                 vscodeJson: content,
             };
@@ -2636,6 +2657,10 @@ class TestConsecutiveAlerts:
 | 14 | חסר `\| safe` ל-`css_variables` בתבנית | נמוך | הוספת `{{ css_variables \| safe }}` |
 | 15 | בדיקת `.json` case-sensitive | נמוך | `file.name.toLowerCase().endsWith('.json')` |
 | 16 | הסרת `.md` case-sensitive | נמוך | `re.sub(r'\.(md\|markdown)$', '', title, flags=re.IGNORECASE)` |
+| 17 | Regex חותך תוכן עם `:::` פנימי | בינוני | `^:::` ו-`:::$` עם `MULTILINE` flag |
+| 18 | הסרת `.json` case-sensitive בהצגה | נמוך | `file.name.replace(/\.json$/i, '')` |
+| 19 | False positive ב-`rel=` בתוך URL | בינוני | `re.search(r'\srel\s*=\s*["\']', tag)` |
+| 20 | Timeout ישן מסתיר הודעות חדשות | נמוך | `clearTimeout` לפני יצירת timeout חדש |
 
 ### פונקציות אבטחה שנוספו
 
