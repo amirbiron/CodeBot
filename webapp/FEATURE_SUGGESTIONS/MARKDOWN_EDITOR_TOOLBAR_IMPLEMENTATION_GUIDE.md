@@ -50,6 +50,11 @@ webapp/
 
 הפיצ'ר נשען על קוד קיים:
 
+> ⚠️ **הערה על אייקונים**: הקוד משתמש ב-FontAwesome (`fas fa-pen-fancy` וכו').
+> הפרויקט כבר טוען את FontAwesome ב-`base.html`, אז זה אמור לעבוד.
+> אם מסיבה כלשהי האייקונים לא מופיעים, אפשר להחליף ל-Emoji כ-Fallback זמני
+> (למשל: `✒️` במקום `<i class="fas fa-pen-fancy"></i>`).
+
 1. **`file-form-manager.js`** - מכיל כבר לוגיקת זיהוי Markdown:
    ```javascript
    // שורות 40-48 - פונקציות עזר קיימות!
@@ -71,6 +76,41 @@ webapp/
    ```
 
 3. **`code-tools.js`** - תבנית לאינטגרציה של סרגל כלים (Event Delegation)
+
+---
+
+## ⚠️ דגשים טכניים חשובים
+
+### 1. שמירה על Undo/Redo (קריטי!)
+
+**הבעיה**: שינוי ישיר של `textarea.value` ב-JavaScript מוחק את היסטוריית ה-Undo של הדפדפן.
+אם משתמש יזריק טבלה בטעות וילחץ `Ctrl+Z`, זה לא יעבוד (או שימחק את כל מה שכתב עד כה).
+
+**הפתרון**: שימוש ב-`setRangeText()` או `execCommand('insertText')` שומרים על ההיסטוריה.
+
+```javascript
+// ❌ רע - שובר Ctrl+Z
+textarea.value = value.slice(0, start) + text + value.slice(end);
+
+// ✅ טוב - שומר על Undo/Redo
+textarea.setRangeText(text, start, end, 'end');
+// או:
+document.execCommand('insertText', false, text);
+```
+
+### 2. ניתוק MutationObserver (ביצועים)
+
+ה-Observer שמחפש את `editor-switcher-actions` צריך להתנתק ברגע שמצא את האלמנט.
+אחרת הוא ממשיך לרוץ ולבזבז משאבים על כל שינוי ב-DOM.
+
+```javascript
+// חשוב להוסיף:
+mdObserver.disconnect();
+```
+
+### 3. טיפול בשגיאות Clipboard
+
+כשהמשתמש חוסם גישה ללוח, הקוד צריך להמשיך לעבוד (לבקש URL ידנית) במקום להיכשל.
 
 ---
 
@@ -574,18 +614,30 @@ const MarkdownToolbar = {
       return;
     }
 
-    // Fallback: הזרקה ישירה ל-textarea
+    // Fallback: הזרקה ישירה ל-textarea תוך שמירה על Undo/Redo
     const textarea = document.getElementById('codeTextarea');
     if (textarea) {
-      const start = textarea.selectionStart || 0;
-      const end = textarea.selectionEnd || start;
-      const value = textarea.value || '';
-
-      textarea.value = value.slice(0, start) + text + value.slice(end);
       textarea.focus();
-      textarea.setSelectionRange(start + text.length, start + text.length);
 
-      // Dispatch input event לסנכרון
+      // אופציה א' (מודרנית ושומרת היסטוריה ברוב הדפדפנים):
+      if (typeof textarea.setRangeText === 'function') {
+        textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end');
+        // 'end' שם את הסמן בסוף הטקסט שהוזרק
+      }
+      // אופציה ב' (Legacy אבל עובדת מעולה ל-Undo):
+      else if (document.execCommand && typeof document.execCommand === 'function') {
+        document.execCommand('insertText', false, text);
+      }
+      // אופציה ג' (מוצא אחרון - שובר את Ctrl+Z):
+      else {
+        const start = textarea.selectionStart || 0;
+        const end = textarea.selectionEnd || start;
+        const value = textarea.value || '';
+        textarea.value = value.slice(0, start) + text + value.slice(end);
+        textarea.setSelectionRange(start + text.length, start + text.length);
+      }
+
+      // Dispatch input event לסנכרון (חשוב!)
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
       this.showStatus(`הוזרק: ${this.getTemplateLabel(key)}`);
     }
@@ -623,7 +675,9 @@ const MarkdownToolbar = {
         }
       }
     } catch (err) {
-      console.warn('[MarkdownToolbar] Clipboard read failed:', err);
+      // אם אין גישה ללוח (חסימת הרשאות), נמשיך ונבקש מהמשתמש להזין ידנית
+      console.log('[MarkdownToolbar] Clipboard access denied or failed, falling back to manual input');
+      // לא מציגים שגיאה למשתמש - פשוט ממשיכים לזרימה הידנית
     }
 
     // בניית הקישור
@@ -966,6 +1020,7 @@ const mdObserver = new MutationObserver((mutations) => {
       if (editorSwitcher && MarkdownToolbar._initialized) {
         MarkdownToolbar.moveToEditorRow();
         MarkdownToolbar.updateVisibility();
+        mdObserver.disconnect(); // 🛑 חשוב: עוצרים את המעקב אחרי שמצאנו - חוסך משאבים!
       }
     }
   }
@@ -1009,6 +1064,19 @@ if (document.body) {
 ```javascript
 // tests/markdown-toolbar.test.js
 describe('MarkdownToolbar', () => {
+  // Mock של editorManager
+  beforeEach(() => {
+    window.editorManager = {
+      insertTextAtCursor: jest.fn(),
+      getSelectedTextOrAll: jest.fn(() => ({ text: '', usedSelection: false }))
+    };
+  });
+
+  afterEach(() => {
+    delete window.editorManager;
+    document.body.innerHTML = '';
+  });
+
   test('isMarkdownContext returns true for .md files', () => {
     document.body.innerHTML = '<input id="fileNameInput" value="test.md">';
     expect(MarkdownToolbar.isMarkdownContext()).toBe(true);
@@ -1029,8 +1097,45 @@ describe('MarkdownToolbar', () => {
     `;
     expect(MarkdownToolbar.isMarkdownContext()).toBe(false);
   });
+
+  test('insertTemplate calls editorManager.insertTextAtCursor', () => {
+    document.body.innerHTML = '<span class="editor-info-status"></span>';
+    MarkdownToolbar.insertTemplate('table');
+    
+    expect(window.editorManager.insertTextAtCursor).toHaveBeenCalledTimes(1);
+    expect(window.editorManager.insertTextAtCursor).toHaveBeenCalledWith(
+      expect.stringContaining('| כותרת 1 |')
+    );
+  });
+
+  test('insertTemplate with alert type', () => {
+    document.body.innerHTML = '<span class="editor-info-status"></span>';
+    MarkdownToolbar.insertTemplate('alert:warning');
+    
+    expect(window.editorManager.insertTextAtCursor).toHaveBeenCalledWith(
+      expect.stringContaining('::: warning')
+    );
+  });
+
+  test('Fallback works when editorManager is not available', () => {
+    delete window.editorManager;
+    document.body.innerHTML = `
+      <textarea id="codeTextarea">existing text</textarea>
+      <span class="editor-info-status"></span>
+    `;
+    const textarea = document.getElementById('codeTextarea');
+    textarea.selectionStart = 13; // end of "existing text"
+    textarea.selectionEnd = 13;
+    
+    MarkdownToolbar.insertTemplate('highlight');
+    
+    expect(textarea.value).toContain('==טקסט מודגש==');
+  });
 });
 ```
+
+> 💡 **טיפ**: אם אתה בשלב פיתוח מהיר, אפשר להסתפק בבדיקות ידניות בהתחלה
+> ולהוסיף בדיקות אוטומטיות אחרי שהפיצ'ר יציב.
 
 ---
 
