@@ -454,11 +454,149 @@
     });
   }
 
+  function startCodeParticles() {
+    stopAll();
+    closeFunMenuIfExists();
+
+    const bag = createCleanupBag();
+    activeCleanup = bag;
+    bindStopOnKey(bag, 'escape');
+
+    // נגישות: למי שמבקש להפחית אנימציות - לא מריצים אפקטים כאלה
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return;
+      }
+    } catch (_) {}
+
+    const snippets = [
+      'MongoTimeoutError: 30000ms',
+      'Slow query: 505ms detected',
+      'Too many connections',
+      'Connection pool exhausted',
+      'Retrying in 5s...',
+      '504 Gateway Timeout',
+      'CPU: 99%',
+      "// This shouldn't happen",
+      'await db.wait_forever()',
+      'git undo everything',
+    ];
+
+    let container = null;
+    try {
+      container = document.getElementById('code-particles-container');
+    } catch (_) {}
+
+    // Fallback: אם משום מה לא קיים ב-HTML, ניצור אותו בתוך ה-navbar
+    if (!container) {
+      try {
+        const nav = document.querySelector('.navbar');
+        if (nav) {
+          container = document.createElement('div');
+          container.id = 'code-particles-container';
+          container.setAttribute('aria-hidden', 'true');
+          nav.insertBefore(container, nav.firstChild);
+          bag.add(() => {
+            try {
+              container.remove();
+            } catch (_) {}
+          });
+        }
+      } catch (_) {}
+    }
+
+    if (!container) return;
+
+    const timeouts = [];
+    let intervalId = 0;
+
+    function clearAllParticles() {
+      try {
+        const els = container.querySelectorAll('.code-particle');
+        for (const el of els) {
+          try {
+            el.remove();
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
+    function createParticle() {
+      try {
+        const el = document.createElement('span');
+        el.className = 'code-particle';
+        el.textContent = snippets[Math.floor(Math.random() * snippets.length)];
+
+        el.style.left = 5 + Math.random() * 90 + '%';
+        el.style.fontSize = 10 + Math.random() * 6 + 'px';
+        // סטייה אופקית אקראית כדי שחלק “יעופו” ימינה וחלק שמאלה
+        el.style.setProperty('--code-particle-dx', (Math.random() - 0.5) * 180 + 'px');
+
+        const duration = 10 + Math.random() * 10;
+        el.style.animation = 'floatUpRotated ' + duration + 's linear forwards';
+
+        container.appendChild(el);
+
+        const t = window.setTimeout(() => {
+          try {
+            el.remove();
+          } catch (_) {}
+        }, duration * 1000 + 120);
+        timeouts.push(t);
+      } catch (_) {}
+    }
+
+    try {
+      intervalId = window.setInterval(createParticle, 1200);
+    } catch (_) {}
+
+    for (let i = 0; i < 5; i++) {
+      try {
+        const t = window.setTimeout(createParticle, i * 300);
+        timeouts.push(t);
+      } catch (_) {}
+    }
+
+    function stopOnTouchOrClick(e) {
+      try {
+        // לא חוסמים אינטראקציה, רק מכבים את האפקט
+        if (e && e.type) {}
+      } catch (_) {}
+      stopAll();
+    }
+
+    // נגיעה/קליק על המסך מכבים את האפקט (ידידותי למובייל/Telegram MiniApp)
+    try {
+      document.addEventListener('click', stopOnTouchOrClick, true);
+      bag.add(() => document.removeEventListener('click', stopOnTouchOrClick, true));
+    } catch (_) {}
+
+    try {
+      document.addEventListener('touchstart', stopOnTouchOrClick, { capture: true, passive: true });
+      bag.add(() => document.removeEventListener('touchstart', stopOnTouchOrClick, { capture: true }));
+    } catch (_) {}
+
+    bag.add(() => {
+      try {
+        if (intervalId) window.clearInterval(intervalId);
+      } catch (_) {}
+      try {
+        for (const t of timeouts) {
+          try {
+            window.clearTimeout(t);
+          } catch (_) {}
+        }
+      } catch (_) {}
+      clearAllParticles();
+    });
+  }
+
   window.FunMode = window.FunMode || {};
   window.FunMode.stopAll = stopAll;
   window.FunMode.startMatrix = startMatrix;
   window.FunMode.startConfetti = startConfetti;
   window.FunMode.startHackerTyper = startHackerTyper;
   window.FunMode.startGravity = startGravity;
+  window.FunMode.startCodeParticles = startCodeParticles;
 })();
 
