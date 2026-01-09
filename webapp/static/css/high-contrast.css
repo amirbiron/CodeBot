@@ -42,6 +42,7 @@
 
 [data-theme="high-contrast"] .glass-card,
 [data-theme="high-contrast"] .quick-access-dropdown,
+[data-theme="high-contrast"] .fun-mode-dropdown,
 [data-theme="high-contrast"] .recent-files-modal .modal-content,
 [data-theme="high-contrast"] .filter-select,
 [data-theme="high-contrast"] .source,
@@ -53,10 +54,12 @@
   box-shadow: none !important;
 }
 
-[data-theme="high-contrast"] .quick-access-item {
+[data-theme="high-contrast"] .quick-access-item,
+[data-theme="high-contrast"] .fun-mode-item {
   color: #ffffff !important;
 }
-[data-theme="high-contrast"] .quick-access-item:hover {
+[data-theme="high-contrast"] .quick-access-item:hover,
+[data-theme="high-contrast"] .fun-mode-item:hover {
   background: #222222 !important;
   color: #ffff00 !important;
 }
