@@ -269,7 +269,10 @@
 
 [data-theme="dark"] .quick-access-dropdown,
 [data-theme="dim"] .quick-access-dropdown,
-[data-theme="nebula"] .quick-access-dropdown {
+[data-theme="nebula"] .quick-access-dropdown,
+[data-theme="dark"] .fun-mode-dropdown,
+[data-theme="dim"] .fun-mode-dropdown,
+[data-theme="nebula"] .fun-mode-dropdown {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -279,20 +282,32 @@
 [data-theme="dim"] .quick-access-item,
 [data-theme="nebula"] .quick-access-item,
 [data-theme="custom"] .quick-access-item,
-[data-theme^="shared:"] .quick-access-item {
+[data-theme^="shared:"] .quick-access-item,
+[data-theme="dark"] .fun-mode-item,
+[data-theme="dim"] .fun-mode-item,
+[data-theme="nebula"] .fun-mode-item,
+[data-theme="custom"] .fun-mode-item,
+[data-theme^="shared:"] .fun-mode-item {
     color: var(--text-primary);
     border-color: var(--glass-border);
 }
 
 [data-theme="dark"] .quick-access-item:hover,
 [data-theme="dim"] .quick-access-item:hover,
-[data-theme="nebula"] .quick-access-item:hover {
+[data-theme="nebula"] .quick-access-item:hover,
+[data-theme="dark"] .fun-mode-item:hover,
+[data-theme="dim"] .fun-mode-item:hover,
+[data-theme="nebula"] .fun-mode-item:hover {
     background: var(--glass-hover);
     color: var(--primary);
 }
 
 /* Custom theme: רק צבע ב-hover, בלי background */
 [data-theme="custom"] .quick-access-item:hover {
+    color: var(--primary);
+}
+
+[data-theme="custom"] .fun-mode-item:hover {
     color: var(--primary);
 }
 
