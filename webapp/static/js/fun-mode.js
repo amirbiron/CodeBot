@@ -40,12 +40,19 @@
     activeCleanup = null;
   }
 
-  function bindEscToStop(bag) {
+  function bindStopOnKey(bag, mode) {
     const onKeyDown = function (e) {
       try {
-        if (e && e.key === 'Escape') {
-          stopAll();
+        if (!e) return;
+        if (mode === 'escape') {
+          if (e.key === 'Escape') stopAll();
+          return;
         }
+
+        // mode === 'any': כל מקש “אמיתי” מבטל (מתעלמים ממקשי modifier)
+        const key = String(e.key || '');
+        if (key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta') return;
+        stopAll();
       } catch (_) {}
     };
     try {
@@ -60,7 +67,7 @@
 
     const bag = createCleanupBag();
     activeCleanup = bag;
-    bindEscToStop(bag);
+    bindStopOnKey(bag, 'escape');
 
     const canvas = document.createElement('canvas');
     canvas.setAttribute('aria-hidden', 'true');
@@ -174,7 +181,7 @@
 
     const bag = createCleanupBag();
     activeCleanup = bag;
-    bindEscToStop(bag);
+    bindStopOnKey(bag, 'escape');
 
     if (typeof window.confetti !== 'function') {
       try {
@@ -233,7 +240,7 @@
 
     const bag = createCleanupBag();
     activeCleanup = bag;
-    bindEscToStop(bag);
+    bindStopOnKey(bag, 'escape');
 
     const overlay = document.createElement('div');
     Object.assign(overlay.style, {
@@ -257,7 +264,26 @@
     const header = document.createElement('div');
     header.style.color = '#fff';
     header.style.marginBottom = '12px';
-    header.textContent = 'Accessing Mainframe... (Press any key to hack)  •  ESC לסגירה  •  קליק לסגירה';
+    header.textContent = 'Accessing Mainframe... (Press any key to hack)  •  ESC לסגירה  •  קליק/טאפ לסגירה';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.setAttribute('aria-label', 'סגור');
+    closeBtn.textContent = '✕';
+    Object.assign(closeBtn.style, {
+      position: 'fixed',
+      top: '10px',
+      right: '10px',
+      zIndex: '100000',
+      width: '44px',
+      height: '44px',
+      borderRadius: '12px',
+      border: '1px solid rgba(255,255,255,0.25)',
+      background: 'rgba(0,0,0,0.6)',
+      color: '#fff',
+      fontSize: '20px',
+      cursor: 'pointer',
+    });
 
     const codeEl = document.createElement('pre');
     Object.assign(codeEl.style, {
@@ -270,6 +296,7 @@
 
     overlay.appendChild(header);
     overlay.appendChild(codeEl);
+    overlay.appendChild(closeBtn);
 
     const codeSnippet =
       'struct group_info init_groups = { .usage = ATOMIC_INIT(2) };\n' +
@@ -334,6 +361,17 @@
       overlay.addEventListener('click', onClick);
       bag.add(() => overlay.removeEventListener('click', onClick));
     } catch (_) {}
+
+    // מובייל/Telegram MiniApp: לפעמים click לא מספיק עקבי, אז מוסיפים touchstart
+    try {
+      overlay.addEventListener('touchstart', onClick, { capture: true, passive: true });
+      bag.add(() => overlay.removeEventListener('touchstart', onClick, { capture: true }));
+    } catch (_) {}
+
+    try {
+      closeBtn.addEventListener('click', onClick);
+      bag.add(() => closeBtn.removeEventListener('click', onClick));
+    } catch (_) {}
   }
 
   function startGravity() {
@@ -348,7 +386,8 @@
 
     const bag = createCleanupBag();
     activeCleanup = bag;
-    bindEscToStop(bag);
+    // גם ESC וגם "כל מקש" למי שיש מקלדת (חשוב למקלדות בלי ESC נוח)
+    bindStopOnKey(bag, 'any');
 
     const els = [];
     try {
@@ -382,6 +421,58 @@
           el.style.transform = 'translateY(' + dropDistance + 'px) rotate(' + randomRotate + 'deg)';
         } catch (_) {}
       }
+    } catch (_) {}
+
+    // כפתור ביטול קטן למובייל + Tap/Click על המסך לביטול
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.textContent = '⟲ בטל';
+    resetBtn.setAttribute('aria-label', 'בטל אפקט');
+    Object.assign(resetBtn.style, {
+      position: 'fixed',
+      top: '12px',
+      left: '12px',
+      zIndex: '100000',
+      padding: '10px 12px',
+      borderRadius: '12px',
+      border: '1px solid rgba(255,255,255,0.25)',
+      background: 'rgba(0,0,0,0.55)',
+      color: '#fff',
+      fontSize: '14px',
+      fontWeight: '700',
+      cursor: 'pointer',
+    });
+
+    function cancelGravity(e) {
+      try {
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+      } catch (_) {}
+      stopAll();
+    }
+
+    try {
+      document.body.appendChild(resetBtn);
+      bag.add(() => {
+        try {
+          resetBtn.remove();
+        } catch (_) {}
+      });
+    } catch (_) {}
+
+    try {
+      resetBtn.addEventListener('click', cancelGravity, true);
+      bag.add(() => resetBtn.removeEventListener('click', cancelGravity, true));
+    } catch (_) {}
+
+    try {
+      document.addEventListener('click', cancelGravity, true);
+      bag.add(() => document.removeEventListener('click', cancelGravity, true));
+    } catch (_) {}
+
+    try {
+      document.addEventListener('touchstart', cancelGravity, { capture: true, passive: false });
+      bag.add(() => document.removeEventListener('touchstart', cancelGravity, { capture: true }));
     } catch (_) {}
 
     bag.add(() => {
