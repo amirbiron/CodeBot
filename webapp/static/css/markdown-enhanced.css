@@ -275,6 +275,222 @@
 
 /* === מצב כהה מוגדר כעת ב-data-theme למעלה === */
 
+/* === Admonition content overrides for Classic theme === */
+:root[data-theme="classic"] .admonition-note .admonition-content,
+:root[data-theme="classic"] .admonition-info .admonition-content,
+:root[data-theme="classic"] .admonition-example .admonition-content,
+:root[data-theme="classic"] .admonition-todo .admonition-content {
+  background: color-mix(in srgb, #0969da 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-tip .admonition-content,
+:root[data-theme="classic"] .admonition-success .admonition-content {
+  background: color-mix(in srgb, #1a7f37 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-warning .admonition-content,
+:root[data-theme="classic"] .admonition-experimental .admonition-content {
+  background: color-mix(in srgb, #9a6700 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-danger .admonition-content {
+  background: color-mix(in srgb, #cf222e 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-question .admonition-content {
+  background: color-mix(in srgb, #8250df 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+:root[data-theme="classic"] .admonition-quote .admonition-content,
+:root[data-theme="classic"] .admonition-deprecated .admonition-content,
+:root[data-theme="classic"] .admonition-abstract .admonition-content {
+  background: color-mix(in srgb, #57606a 8%, #ffffff 92%);
+  color: #24292e;
+}
+
+/* === Admonition content overrides for Rose Pine Dawn theme === */
+:root[data-theme="rose-pine-dawn"] .admonition-note .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-info .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-example .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-todo .admonition-content {
+  background: color-mix(in srgb, #286983 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-tip .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-success .admonition-content {
+  background: color-mix(in srgb, #56949f 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-warning .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-experimental .admonition-content {
+  background: color-mix(in srgb, #ea9d34 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-danger .admonition-content {
+  background: color-mix(in srgb, #b4637a 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-question .admonition-content {
+  background: color-mix(in srgb, #907aa9 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .admonition-quote .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-deprecated .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-abstract .admonition-content {
+  background: color-mix(in srgb, #797593 10%, #faf4ed 90%);
+  color: #575279;
+}
+
+/* === Admonition content overrides for Dark themes (dark/dim/nebula) === */
+:root[data-theme="dark"] .admonition-note .admonition-content,
+:root[data-theme="dim"] .admonition-note .admonition-content,
+:root[data-theme="nebula"] .admonition-note .admonition-content,
+:root[data-theme="dark"] .admonition-info .admonition-content,
+:root[data-theme="dim"] .admonition-info .admonition-content,
+:root[data-theme="nebula"] .admonition-info .admonition-content,
+:root[data-theme="dark"] .admonition-example .admonition-content,
+:root[data-theme="dim"] .admonition-example .admonition-content,
+:root[data-theme="nebula"] .admonition-example .admonition-content,
+:root[data-theme="dark"] .admonition-todo .admonition-content,
+:root[data-theme="dim"] .admonition-todo .admonition-content,
+:root[data-theme="nebula"] .admonition-todo .admonition-content {
+  background: color-mix(in srgb, #3b82f6 12%, #0d1117 88%);
+  color: #c9d1d9;
+}
+
+:root[data-theme="dark"] .admonition-tip .admonition-content,
+:root[data-theme="dim"] .admonition-tip .admonition-content,
+:root[data-theme="nebula"] .admonition-tip .admonition-content,
+:root[data-theme="dark"] .admonition-success .admonition-content,
+:root[data-theme="dim"] .admonition-success .admonition-content,
+:root[data-theme="nebula"] .admonition-success .admonition-content {
+  background: color-mix(in srgb, #22c55e 12%, #0d1117 88%);
+  color: #c9d1d9;
+}
+
+:root[data-theme="dark"] .admonition-warning .admonition-content,
+:root[data-theme="dim"] .admonition-warning .admonition-content,
+:root[data-theme="nebula"] .admonition-warning .admonition-content,
+:root[data-theme="dark"] .admonition-experimental .admonition-content,
+:root[data-theme="dim"] .admonition-experimental .admonition-content,
+:root[data-theme="nebula"] .admonition-experimental .admonition-content {
+  background: color-mix(in srgb, #eab308 12%, #0d1117 88%);
+  color: #c9d1d9;
+}
+
+:root[data-theme="dark"] .admonition-danger .admonition-content,
+:root[data-theme="dim"] .admonition-danger .admonition-content,
+:root[data-theme="nebula"] .admonition-danger .admonition-content {
+  background: color-mix(in srgb, #ef4444 12%, #0d1117 88%);
+  color: #c9d1d9;
+}
+
+:root[data-theme="dark"] .admonition-question .admonition-content,
+:root[data-theme="dim"] .admonition-question .admonition-content,
+:root[data-theme="nebula"] .admonition-question .admonition-content {
+  background: color-mix(in srgb, #8b5cf6 12%, #0d1117 88%);
+  color: #c9d1d9;
+}
+
+:root[data-theme="dark"] .admonition-quote .admonition-content,
+:root[data-theme="dim"] .admonition-quote .admonition-content,
+:root[data-theme="nebula"] .admonition-quote .admonition-content,
+:root[data-theme="dark"] .admonition-deprecated .admonition-content,
+:root[data-theme="dim"] .admonition-deprecated .admonition-content,
+:root[data-theme="nebula"] .admonition-deprecated .admonition-content,
+:root[data-theme="dark"] .admonition-abstract .admonition-content,
+:root[data-theme="dim"] .admonition-abstract .admonition-content,
+:root[data-theme="nebula"] .admonition-abstract .admonition-content {
+  background: color-mix(in srgb, #6b7280 12%, #0d1117 88%);
+  color: #c9d1d9;
+}
+
+/* === Admonition content overrides for Ocean theme === */
+:root[data-theme="ocean"] .admonition-note .admonition-content,
+:root[data-theme="ocean"] .admonition-info .admonition-content,
+:root[data-theme="ocean"] .admonition-example .admonition-content,
+:root[data-theme="ocean"] .admonition-todo .admonition-content {
+  background: color-mix(in srgb, #3b82f6 12%, #1a365d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="ocean"] .admonition-tip .admonition-content,
+:root[data-theme="ocean"] .admonition-success .admonition-content {
+  background: color-mix(in srgb, #22c55e 12%, #1a365d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="ocean"] .admonition-warning .admonition-content,
+:root[data-theme="ocean"] .admonition-experimental .admonition-content {
+  background: color-mix(in srgb, #eab308 12%, #1a365d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="ocean"] .admonition-danger .admonition-content {
+  background: color-mix(in srgb, #ef4444 12%, #1a365d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="ocean"] .admonition-question .admonition-content {
+  background: color-mix(in srgb, #8b5cf6 12%, #1a365d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="ocean"] .admonition-quote .admonition-content,
+:root[data-theme="ocean"] .admonition-deprecated .admonition-content,
+:root[data-theme="ocean"] .admonition-abstract .admonition-content {
+  background: color-mix(in srgb, #6b7280 12%, #1a365d 88%);
+  color: #e2e8f0;
+}
+
+/* === Admonition content overrides for Forest theme === */
+:root[data-theme="forest"] .admonition-note .admonition-content,
+:root[data-theme="forest"] .admonition-info .admonition-content,
+:root[data-theme="forest"] .admonition-example .admonition-content,
+:root[data-theme="forest"] .admonition-todo .admonition-content {
+  background: color-mix(in srgb, #3b82f6 12%, #14532d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="forest"] .admonition-tip .admonition-content,
+:root[data-theme="forest"] .admonition-success .admonition-content {
+  background: color-mix(in srgb, #22c55e 12%, #14532d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="forest"] .admonition-warning .admonition-content,
+:root[data-theme="forest"] .admonition-experimental .admonition-content {
+  background: color-mix(in srgb, #eab308 12%, #14532d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="forest"] .admonition-danger .admonition-content {
+  background: color-mix(in srgb, #ef4444 12%, #14532d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="forest"] .admonition-question .admonition-content {
+  background: color-mix(in srgb, #8b5cf6 12%, #14532d 88%);
+  color: #e2e8f0;
+}
+
+:root[data-theme="forest"] .admonition-quote .admonition-content,
+:root[data-theme="forest"] .admonition-deprecated .admonition-content,
+:root[data-theme="forest"] .admonition-abstract .admonition-content {
+  background: color-mix(in srgb, #6b7280 12%, #14532d 88%);
+  color: #e2e8f0;
+}
+
 /* === Header anchors & copy buttons accessibility additions === */
 /* קישור עוגן (סמל בלבד) שמתווסף אחרי הכותרת; לא מסתיר טקסט הכותרת */
 .header-anchor {
