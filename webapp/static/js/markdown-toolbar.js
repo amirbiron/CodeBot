@@ -19,7 +19,7 @@ const MarkdownToolbar = {
 
 תוכן שמוסתר עד ללחיצה.
 
-::::
+:::
 `,
 
     highlight: '==טקסט מודגש==',
@@ -33,56 +33,56 @@ const MarkdownToolbar = {
     alerts: {
       note: `::: note
 זהו בלוק מסוג **note** — טיפים כלליים או תזכורות חשובות 🧭
-::::
+:::
 `,
       tip: `::: tip
 טיפ חכם 💡
 נסה ללחוץ על הקיפול ולראות איך הוא מתנהג!
-::::
+:::
 `,
       warning: `::: warning
 ⚠️ זה בלוק אזהרה — משהו שכדאי לשים לב אליו במיוחד.
-::::
+:::
 `,
       danger: `::: danger
 🚨 זה בלוק **סכנה** — שימוש בזהירות!
-::::
+:::
 `,
       info: `::: info
 בלוק מידע כללי 📘 — יכול לשמש להסברים טכניים או הערות מערכת.
-::::
+:::
 `,
       success: `::: success
 🎯 הצלחה! הפעולה הושלמה בהצלחה.
-::::
+:::
 `,
       question: `::: question
 ❓ שאלה פתוחה — אפשר להוסיף תשובות מתחת.
-::::
+:::
 `,
       example: `::: example
 🧩 דוגמה לשימוש בפיצ'ר חדש.
-::::
+:::
 `,
       quote: `::: quote
 > "הדמיון חשוב מהידע." — איינשטיין
-::::
+:::
 `,
       experimental: `::: experimental
 🧪 פיצ'ר ניסיוני — לבדיקה בלבד.
-::::
+:::
 `,
       deprecated: `::: deprecated
 🚫 בלוק שהוכרז כמיושן — לא לשימוש יותר.
-::::
+:::
 `,
       todo: `::: todo
 📝 משימה לביצוע בהמשך.
-::::
+:::
 `,
       abstract: `::: abstract
 סיכום קצר של רעיון או פרק במסמך.
-::::
+:::
 `
     }
   },
@@ -263,10 +263,16 @@ const MarkdownToolbar = {
   // ---------- פתיחה/סגירה של Dropdown ----------
   toggleDropdown() {
     const dropdown = document.querySelector('.md-toolbar-dropdown');
+    const trigger = document.querySelector('.md-toolbar-trigger');
     if (!dropdown) return;
 
     this._dropdownOpen = !this._dropdownOpen;
     dropdown.classList.toggle('is-open', this._dropdownOpen);
+
+    // עדכון נגישות
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', String(this._dropdownOpen));
+    }
 
     // Focus על הפריט הראשון
     if (this._dropdownOpen) {
@@ -277,9 +283,15 @@ const MarkdownToolbar = {
 
   closeDropdown() {
     const dropdown = document.querySelector('.md-toolbar-dropdown');
+    const trigger = document.querySelector('.md-toolbar-trigger');
     if (dropdown) {
       dropdown.classList.remove('is-open');
       this._dropdownOpen = false;
+    }
+
+    // עדכון נגישות (גם אם כבר סגור)
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
     }
   },
 
