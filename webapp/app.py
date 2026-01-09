@@ -12477,7 +12477,7 @@ def api_parse_vscode_theme():
         })
     except Exception as e:
         logger.exception("Failed to parse VS Code theme")
-        return jsonify({"ok": False, "error": str(e)}), 400
+        return jsonify({"ok": False, "error": "Failed to parse VS Code theme"}), 400
 
 
 @app.route('/api/share/<file_id>', methods=['POST'])
