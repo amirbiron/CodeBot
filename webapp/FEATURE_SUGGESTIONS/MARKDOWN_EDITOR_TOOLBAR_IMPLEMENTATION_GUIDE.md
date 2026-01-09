@@ -112,6 +112,25 @@ mdObserver.disconnect();
 
 כשהמשתמש חוסם גישה ללוח, הקוד צריך להמשיך לעבוד (לבקש URL ידנית) במקום להיכשל.
 
+### 4. שמירת מיקום הסלקציה לפני Prompt (קריטי!)
+
+**הבעיה**: כש-`window.prompt()` נפתח, ה-textarea מאבד פוקוס והסלקציה מתאפסת.
+אם נקרא `selectionStart`/`selectionEnd` אחרי ה-prompt, נקבל ערכים שגויים (בד"כ 0).
+
+**הפתרון**: לשמור את הקואורדינטות **לפני** כל קריאה ל-prompt, ולהשתמש בערכים השמורים להזרקה.
+
+```javascript
+// ✅ נכון - שומרים מיד
+const savedStart = textarea.selectionStart;
+const savedEnd = textarea.selectionEnd;
+// ... prompt ...
+textarea.setRangeText(linkText, savedStart, savedEnd, 'end');
+
+// ❌ שגוי - קוראים שוב אחרי prompt
+window.prompt(...);
+const start = textarea.selectionStart; // יחזיר 0!
+```
+
 ---
 
 ## 💻 מימוש שלב-אחר-שלב
@@ -647,21 +666,25 @@ const MarkdownToolbar = {
   async handleSmartLink() {
     let selectedText = '';
     let clipboardUrl = '';
+    
+    // 🔑 חשוב: שומרים את מיקום הסלקציה עכשיו, לפני שהדיאלוגים יגרמו לאיבוד פוקוס!
+    let savedStart = 0;
+    let savedEnd = 0;
+    const textarea = document.getElementById('codeTextarea');
 
-    // קבלת טקסט מסומן
+    // קבלת טקסט מסומן + שמירת קואורדינטות
     if (window.editorManager && typeof window.editorManager.getSelectedTextOrAll === 'function') {
       const result = window.editorManager.getSelectedTextOrAll();
       if (result.usedSelection) {
         selectedText = result.text;
       }
-    } else {
-      const textarea = document.getElementById('codeTextarea');
-      if (textarea) {
-        const start = textarea.selectionStart || 0;
-        const end = textarea.selectionEnd || start;
-        if (end > start) {
-          selectedText = textarea.value.substring(start, end);
-        }
+      // editorManager ינהל את המיקום בעצמו
+      savedStart = -1; // סימון שנשתמש ב-editorManager
+    } else if (textarea) {
+      savedStart = textarea.selectionStart || 0;
+      savedEnd = textarea.selectionEnd || savedStart;
+      if (savedEnd > savedStart) {
+        selectedText = textarea.value.substring(savedStart, savedEnd);
       }
     }
 
@@ -717,22 +740,28 @@ const MarkdownToolbar = {
 
     if (!linkText) return;
 
-    // הזרקה / החלפה
-    if (window.editorManager && typeof window.editorManager.insertTextAtCursor === 'function') {
+    // הזרקה / החלפה - משתמשים בקואורדינטות שנשמרו!
+    if (savedStart === -1 && window.editorManager && typeof window.editorManager.insertTextAtCursor === 'function') {
+      // editorManager מנהל את הסלקציה בעצמו
       window.editorManager.insertTextAtCursor(linkText);
-    } else {
-      const textarea = document.getElementById('codeTextarea');
-      if (textarea) {
-        const start = textarea.selectionStart || 0;
-        const end = textarea.selectionEnd || start;
+    } else if (textarea) {
+      textarea.focus();
+      
+      // שימוש בקואורדינטות שנשמרו (לא לקרוא selectionStart/End שוב!)
+      if (typeof textarea.setRangeText === 'function') {
+        textarea.setRangeText(linkText, savedStart, savedEnd, 'end');
+      } else if (document.execCommand && typeof document.execCommand === 'function') {
+        // צריך לשחזר את הסלקציה לפני execCommand
+        textarea.setSelectionRange(savedStart, savedEnd);
+        document.execCommand('insertText', false, linkText);
+      } else {
+        // Fallback אחרון
         const value = textarea.value || '';
-
-        textarea.value = value.slice(0, start) + linkText + value.slice(end);
-        textarea.focus();
-        const newPos = start + linkText.length;
-        textarea.setSelectionRange(newPos, newPos);
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.value = value.slice(0, savedStart) + linkText + value.slice(savedEnd);
+        textarea.setSelectionRange(savedStart + linkText.length, savedStart + linkText.length);
       }
+      
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
     this.showStatus('קישור נוצר');
