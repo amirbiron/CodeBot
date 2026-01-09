@@ -1,4 +1,4 @@
-/* Fun Mode – אנימציות אינטראקטיביות (Matrix / Confetti / Hacker Typer / Gravity)
+/* Fun Mode – אנימציות אינטראקטיביות (Synthwave / Confetti / Fireflies / Gravity)
  *
  * עקרונות:
  * - לא משאיר מאזינים/טיימרים רצים ברקע אחרי stop
@@ -49,7 +49,7 @@
           return;
         }
 
-        // mode === 'any': כל מקש “אמיתי” מבטל (מתעלמים ממקשי modifier)
+        // mode === 'any': כל מקש "אמיתי" מבטל (מתעלמים ממקשי modifier)
         const key = String(e.key || '');
         if (key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta') return;
         stopAll();
@@ -61,7 +61,7 @@
     } catch (_) {}
   }
 
-  function startMatrix() {
+  function startSynthwave() {
     stopAll();
     closeFunMenuIfExists();
 
@@ -78,7 +78,6 @@
       width: '100vw',
       height: '100vh',
       zIndex: '99999',
-      background: 'black',
       cursor: 'pointer',
     });
 
@@ -88,13 +87,11 @@
       return;
     }
 
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789@#$%^&*()*&^%';
-    const fontSize = 16;
-    let drops = [];
     let w = 0;
     let h = 0;
     let rafId = 0;
-    let last = 0;
+    let gridOffset = 0;
+    let stars = [];
 
     function resize() {
       try {
@@ -104,32 +101,107 @@
         canvas.width = Math.max(1, Math.floor(w * dpr));
         canvas.height = Math.max(1, Math.floor(h * dpr));
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const columns = Math.max(1, Math.floor(w / fontSize));
-        drops = Array(columns).fill(1);
+        // Generate stars
+        stars = [];
+        for (let i = 0; i < 100; i++) {
+          stars.push({
+            x: Math.random() * w,
+            y: Math.random() * h * 0.5,
+            size: Math.random() * 2 + 0.5,
+            twinkle: Math.random() * Math.PI * 2
+          });
+        }
       } catch (_) {}
     }
 
-    function draw(now) {
+    function draw() {
       try {
-        // throttle to ~30fps
-        if (!last || now - last >= 33) {
-          last = now;
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-          ctx.fillRect(0, 0, w, h);
+        // Background gradient (dark purple to dark blue)
+        const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+        bgGrad.addColorStop(0, '#0f0c29');
+        bgGrad.addColorStop(0.5, '#302b63');
+        bgGrad.addColorStop(1, '#24243e');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, w, h);
 
-          ctx.fillStyle = '#0F0';
-          ctx.font = fontSize + 'px monospace';
+        // Stars
+        for (const star of stars) {
+          star.twinkle += 0.05;
+          const opacity = 0.5 + Math.sin(star.twinkle) * 0.5;
+          ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+          ctx.beginPath();
+          ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
-          for (let i = 0; i < drops.length; i++) {
-            const text = letters.charAt(Math.floor(Math.random() * letters.length));
-            ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+        // Sun
+        const sunY = h * 0.45;
+        const sunRadius = Math.min(w, h) * 0.15;
+        const sunGrad = ctx.createLinearGradient(w / 2, sunY - sunRadius, w / 2, sunY + sunRadius);
+        sunGrad.addColorStop(0, '#ff6b6b');
+        sunGrad.addColorStop(0.5, '#feca57');
+        sunGrad.addColorStop(1, '#ff9ff3');
+        ctx.fillStyle = sunGrad;
+        ctx.beginPath();
+        ctx.arc(w / 2, sunY, sunRadius, 0, Math.PI * 2);
+        ctx.fill();
 
-            if (drops[i] * fontSize > h && Math.random() > 0.975) {
-              drops[i] = 0;
-            }
-            drops[i]++;
+        // Sun stripes
+        ctx.fillStyle = '#24243e';
+        const stripeCount = 8;
+        for (let i = 0; i < stripeCount; i++) {
+          const stripeY = sunY - sunRadius + (i * 2 + 1) * (sunRadius * 2) / (stripeCount * 2);
+          const stripeHeight = sunRadius * 0.08;
+          // Calculate stripe width based on circle geometry
+          const dy = Math.abs(stripeY - sunY);
+          if (dy < sunRadius) {
+            const stripeHalfWidth = Math.sqrt(sunRadius * sunRadius - dy * dy);
+            ctx.fillRect(w / 2 - stripeHalfWidth, stripeY, stripeHalfWidth * 2, stripeHeight);
           }
         }
+
+        // Horizon line
+        const horizonY = h * 0.55;
+        ctx.fillStyle = '#24243e';
+        ctx.fillRect(0, horizonY, w, h - horizonY);
+
+        // Grid
+        gridOffset = (gridOffset + 0.5) % 40;
+
+        // Horizontal lines (perspective)
+        ctx.strokeStyle = '#ff00ff';
+        ctx.lineWidth = 1.5;
+        const lineCount = 20;
+        for (let i = 0; i < lineCount; i++) {
+          const t = (i + gridOffset / 40) / lineCount;
+          const y = horizonY + Math.pow(t, 1.5) * (h - horizonY);
+          ctx.globalAlpha = Math.min(1, t * 2);
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(w, y);
+          ctx.stroke();
+        }
+
+        // Vertical lines (perspective from center)
+        ctx.strokeStyle = '#00ffff';
+        ctx.globalAlpha = 0.8;
+        const vLineCount = 20;
+        for (let i = -vLineCount / 2; i <= vLineCount / 2; i++) {
+          const topX = w / 2 + i * 5;
+          const bottomX = w / 2 + i * (w / vLineCount) * 2;
+          ctx.beginPath();
+          ctx.moveTo(topX, horizonY);
+          ctx.lineTo(bottomX, h);
+          ctx.stroke();
+        }
+
+        ctx.globalAlpha = 1;
+
+        // Hint text
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('לחץ לסגירה | ESC', w / 2, h - 20);
       } catch (_) {}
 
       try {
@@ -234,7 +306,7 @@
     } catch (_) {}
   }
 
-  function startHackerTyper() {
+  function startFireflies() {
     stopAll();
     closeFunMenuIfExists();
 
@@ -242,101 +314,122 @@
     activeCleanup = bag;
     bindStopOnKey(bag, 'escape');
 
+    // נגישות: למי שמבקש להפחית אנימציות - לא מריצים אפקטים כאלה
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return;
+      }
+    } catch (_) {}
+
     const overlay = document.createElement('div');
+    overlay.setAttribute('aria-hidden', 'true');
     Object.assign(overlay.style, {
       position: 'fixed',
       top: '0',
       left: '0',
       width: '100vw',
       height: '100vh',
-      background: 'black',
-      color: '#0f0',
-      fontFamily: 'monospace',
-      padding: '20px',
-      fontSize: '18px',
       zIndex: '99999',
+      background: 'radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%)',
+      cursor: 'pointer',
       overflow: 'hidden',
-      whiteSpace: 'pre-wrap',
-      boxSizing: 'border-box',
-      cursor: 'pointer',
     });
 
-    const header = document.createElement('div');
-    header.style.color = '#fff';
-    header.style.marginBottom = '12px';
-    header.textContent = 'Accessing Mainframe... (Press any key to hack)  •  ESC לסגירה  •  קליק/טאפ לסגירה';
+    // Add CSS keyframes
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes firefly-drift {
+        0% { transform: translate(0, 0); }
+        100% { transform: translate(var(--moveX), var(--moveY)); }
+      }
+      @keyframes firefly-flash {
+        0%, 100% { opacity: 0; }
+        50% { opacity: var(--max-opacity); box-shadow: 0 0 25px #ffd700; }
+      }
+      .firefly-particle {
+        position: absolute;
+        border-radius: 50%;
+        background-color: #ffd700;
+        box-shadow: 0 0 10px #ffd700, 0 0 20px #ff8c00;
+        opacity: 0;
+        pointer-events: none;
+      }
+    `;
 
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.setAttribute('aria-label', 'סגור');
-    closeBtn.textContent = '✕';
-    Object.assign(closeBtn.style, {
-      position: 'fixed',
-      top: '10px',
-      right: '10px',
-      zIndex: '100000',
-      width: '44px',
-      height: '44px',
-      borderRadius: '12px',
-      border: '1px solid rgba(255,255,255,0.25)',
-      background: 'rgba(0,0,0,0.6)',
-      color: '#fff',
-      fontSize: '20px',
-      cursor: 'pointer',
+    const container = document.createElement('div');
+    Object.assign(container.style, {
+      position: 'absolute',
+      top: '0',
+      left: '0',
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none',
     });
 
-    const codeEl = document.createElement('pre');
-    Object.assign(codeEl.style, {
-      margin: '0',
-      whiteSpace: 'pre-wrap',
-      overflow: 'auto',
-      height: 'calc(100vh - 72px)',
-      paddingBottom: '24px',
+    // Hint text
+    const hint = document.createElement('div');
+    Object.assign(hint.style, {
+      position: 'absolute',
+      bottom: '20px',
+      left: '0',
+      right: '0',
+      textAlign: 'center',
+      color: 'rgba(255, 255, 255, 0.5)',
+      fontSize: '14px',
+      fontFamily: 'sans-serif',
+      pointerEvents: 'none',
     });
+    hint.textContent = 'לחץ לסגירה | ESC';
 
-    overlay.appendChild(header);
-    overlay.appendChild(codeEl);
-    overlay.appendChild(closeBtn);
+    overlay.appendChild(style);
+    overlay.appendChild(container);
+    overlay.appendChild(hint);
 
-    const codeSnippet =
-      'struct group_info init_groups = { .usage = ATOMIC_INIT(2) };\n' +
-      'struct group_info *groups_alloc(int gidsetsize){\n' +
-      '    struct group_info *group_info;\n' +
-      '    int nblocks;\n' +
-      '    int i;\n' +
-      '    nblocks = (gidsetsize + NGROUPS_PER_BLOCK - 1) / NGROUPS_PER_BLOCK;\n' +
-      '    nblocks = nblocks ? : 1;\n' +
-      '    group_info = kmalloc(sizeof(*group_info) + nblocks*sizeof(gid_t *), GFP_USER);\n' +
-      '    if (!group_info)\n' +
-      '        return NULL;\n' +
-      '    group_info->ngroups = gidsetsize;\n' +
-      '    group_info->nblocks = nblocks;\n' +
-      '    atomic_set(&group_info->usage, 1);\n' +
-      '}\n';
+    const fireflyCount = 50;
 
-    let idx = 0;
-    const charsPerKey = 3;
-
-    function onKeyDown(e) {
+    function createFirefly() {
       try {
-        if (!e) return;
-        if (e.key === 'Escape') {
-          stopAll();
-          return;
-        }
+        const fly = document.createElement('div');
+        fly.className = 'firefly-particle';
 
-        // מתעלמים ממקשי שליטה כדי לא "למלא" בטעות
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
-        if (e.key && e.key.length > 1 && e.key !== 'Enter' && e.key !== 'Backspace' && e.key !== 'Tab') return;
+        // Size (2-5 pixels)
+        const size = Math.random() * 3 + 2;
+        fly.style.width = size + 'px';
+        fly.style.height = size + 'px';
 
-        const next = codeSnippet.slice(idx, idx + charsPerKey);
-        idx = (idx + charsPerKey) % codeSnippet.length;
-        codeEl.textContent += next;
-        codeEl.scrollTop = codeEl.scrollHeight;
+        // Starting position
+        fly.style.left = Math.random() * 100 + '%';
+        fly.style.top = Math.random() * 100 + '%';
+
+        // Movement direction
+        const moveX = (Math.random() - 0.5) * 300 + 'px';
+        const moveY = (Math.random() - 0.5) * 300 + 'px';
+        fly.style.setProperty('--moveX', moveX);
+        fly.style.setProperty('--moveY', moveY);
+
+        // Max opacity
+        const maxOpacity = Math.random() * 0.6 + 0.4;
+        fly.style.setProperty('--max-opacity', maxOpacity);
+
+        // Animation timing
+        const duration = Math.random() * 10 + 10;
+        const delay = Math.random() * 5;
+        const flashDuration = Math.random() * 3 + 2;
+
+        fly.style.animation = 
+          'firefly-drift ' + duration + 's ease-in-out infinite alternate, ' +
+          'firefly-flash ' + flashDuration + 's ease-in-out infinite alternate ' + delay + 's';
+
+        container.appendChild(fly);
       } catch (_) {}
     }
 
-    function onClick() {
+    // Create all fireflies
+    for (let i = 0; i < fireflyCount; i++) {
+      createFirefly();
+    }
+
+    function stop() {
       stopAll();
     }
 
@@ -353,24 +446,13 @@
     }
 
     try {
-      document.addEventListener('keydown', onKeyDown, true);
-      bag.add(() => document.removeEventListener('keydown', onKeyDown, true));
+      overlay.addEventListener('click', stop);
+      bag.add(() => overlay.removeEventListener('click', stop));
     } catch (_) {}
 
     try {
-      overlay.addEventListener('click', onClick);
-      bag.add(() => overlay.removeEventListener('click', onClick));
-    } catch (_) {}
-
-    // מובייל/Telegram MiniApp: לפעמים click לא מספיק עקבי, אז מוסיפים touchstart
-    try {
-      overlay.addEventListener('touchstart', onClick, { capture: true, passive: true });
-      bag.add(() => overlay.removeEventListener('touchstart', onClick, { capture: true }));
-    } catch (_) {}
-
-    try {
-      closeBtn.addEventListener('click', onClick);
-      bag.add(() => closeBtn.removeEventListener('click', onClick));
+      overlay.addEventListener('touchstart', stop, { capture: true, passive: true });
+      bag.add(() => overlay.removeEventListener('touchstart', stop, { capture: true }));
     } catch (_) {}
   }
 
@@ -454,149 +536,10 @@
     });
   }
 
-  function startCodeParticles() {
-    stopAll();
-    closeFunMenuIfExists();
-
-    const bag = createCleanupBag();
-    activeCleanup = bag;
-    bindStopOnKey(bag, 'escape');
-
-    // נגישות: למי שמבקש להפחית אנימציות - לא מריצים אפקטים כאלה
-    try {
-      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        return;
-      }
-    } catch (_) {}
-
-    const snippets = [
-      'MongoTimeoutError: 30000ms',
-      'Slow query: 505ms detected',
-      'Too many connections',
-      'Connection pool exhausted',
-      'Retrying in 5s...',
-      '504 Gateway Timeout',
-      'CPU: 99%',
-      "// This shouldn't happen",
-      'await db.wait_forever()',
-      'git undo everything',
-    ];
-
-    let container = null;
-    try {
-      container = document.getElementById('code-particles-container');
-    } catch (_) {}
-
-    // Fallback: אם משום מה לא קיים ב-HTML, ניצור אותו בתוך ה-navbar
-    if (!container) {
-      try {
-        const nav = document.querySelector('.navbar');
-        if (nav) {
-          container = document.createElement('div');
-          container.id = 'code-particles-container';
-          container.setAttribute('aria-hidden', 'true');
-          nav.insertBefore(container, nav.firstChild);
-          bag.add(() => {
-            try {
-              container.remove();
-            } catch (_) {}
-          });
-        }
-      } catch (_) {}
-    }
-
-    if (!container) return;
-
-    const timeouts = [];
-    let intervalId = 0;
-
-    function clearAllParticles() {
-      try {
-        const els = container.querySelectorAll('.code-particle');
-        for (const el of els) {
-          try {
-            el.remove();
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }
-
-    function createParticle() {
-      try {
-        const el = document.createElement('span');
-        el.className = 'code-particle';
-        el.textContent = snippets[Math.floor(Math.random() * snippets.length)];
-
-        el.style.left = 5 + Math.random() * 90 + '%';
-        el.style.fontSize = 10 + Math.random() * 6 + 'px';
-        // סטייה אופקית אקראית כדי שחלק “יעופו” ימינה וחלק שמאלה
-        el.style.setProperty('--code-particle-dx', (Math.random() - 0.5) * 180 + 'px');
-
-        const duration = 10 + Math.random() * 10;
-        el.style.animation = 'floatUpRotated ' + duration + 's linear forwards';
-
-        container.appendChild(el);
-
-        const t = window.setTimeout(() => {
-          try {
-            el.remove();
-          } catch (_) {}
-        }, duration * 1000 + 120);
-        timeouts.push(t);
-      } catch (_) {}
-    }
-
-    try {
-      intervalId = window.setInterval(createParticle, 1200);
-    } catch (_) {}
-
-    for (let i = 0; i < 5; i++) {
-      try {
-        const t = window.setTimeout(createParticle, i * 300);
-        timeouts.push(t);
-      } catch (_) {}
-    }
-
-    function stopOnTouchOrClick(e) {
-      try {
-        // לא חוסמים אינטראקציה, רק מכבים את האפקט
-        if (e && e.type) {}
-      } catch (_) {}
-      stopAll();
-    }
-
-    // נגיעה/קליק על המסך מכבים את האפקט (ידידותי למובייל/Telegram MiniApp)
-    try {
-      document.addEventListener('click', stopOnTouchOrClick, true);
-      bag.add(() => document.removeEventListener('click', stopOnTouchOrClick, true));
-    } catch (_) {}
-
-    try {
-      document.addEventListener('touchstart', stopOnTouchOrClick, { capture: true, passive: true });
-      bag.add(() => document.removeEventListener('touchstart', stopOnTouchOrClick, { capture: true }));
-    } catch (_) {}
-
-    bag.add(() => {
-      try {
-        if (intervalId) window.clearInterval(intervalId);
-      } catch (_) {}
-      try {
-        for (const t of timeouts) {
-          try {
-            window.clearTimeout(t);
-          } catch (_) {}
-        }
-      } catch (_) {}
-      clearAllParticles();
-    });
-  }
-
   window.FunMode = window.FunMode || {};
   window.FunMode.stopAll = stopAll;
-  window.FunMode.startMatrix = startMatrix;
+  window.FunMode.startSynthwave = startSynthwave;
   window.FunMode.startConfetti = startConfetti;
-  window.FunMode.startHackerTyper = startHackerTyper;
+  window.FunMode.startFireflies = startFireflies;
   window.FunMode.startGravity = startGravity;
-  window.FunMode.startCodeParticles = startCodeParticles;
 })();
-
