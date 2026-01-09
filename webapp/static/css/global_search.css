@@ -140,8 +140,7 @@
   color: var(--primary);
 }
 
-.search-result-card .global-search-lang-badge,
-.search-result-card .lang-badge{
+.search-result-card .global-search-lang-badge{
   order:unset !important;
   margin-left:auto;
 }

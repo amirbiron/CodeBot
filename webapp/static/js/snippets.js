@@ -149,18 +149,7 @@
       const lang = (it.language || '').toString();
       const emoji = languageEmoji(lang);
       const by = it.username ? (' · נוסף על ידי @' + String(it.username)) : '';
-      
-      // Create colored language badge
-      const langBadge = document.createElement('span');
-      langBadge.className = 'lang-badge lang-badge-sm';
-      langBadge.setAttribute('data-lang', lang.toLowerCase());
-      langBadge.innerHTML = `<span class="lang-icon">${emoji}</span> ${lang}`;
-      meta.appendChild(langBadge);
-      if (by) {
-        const bySpan = document.createElement('span');
-        bySpan.textContent = by;
-        meta.appendChild(bySpan);
-      }
+      meta.textContent = `${emoji} ${lang}${by}`;
 
       summary.appendChild(titleEl);
       summary.appendChild(meta);
