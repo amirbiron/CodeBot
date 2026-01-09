@@ -5,12 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🎨 גלריית אנימציות | Animation Gallery</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
@@ -18,12 +13,7 @@
             color: #fff;
             padding: 2rem;
         }
-
-        .header {
-            text-align: center;
-            margin-bottom: 3rem;
-        }
-
+        .header { text-align: center; margin-bottom: 3rem; }
         .header h1 {
             font-size: 2.5rem;
             background: linear-gradient(90deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3);
@@ -32,20 +22,14 @@
             background-clip: text;
             margin-bottom: 0.5rem;
         }
-
-        .header p {
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 1.1rem;
-        }
-
+        .header p { color: rgba(255, 255, 255, 0.7); font-size: 1.1rem; }
         .gallery {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             gap: 2rem;
             max-width: 1400px;
             margin: 0 auto;
         }
-
         .card {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 16px;
@@ -53,106 +37,50 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
-
         .card:hover {
             transform: translateY(-5px);
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
         }
-
         .preview {
-            height: 200px;
+            height: 180px;
             position: relative;
             overflow: hidden;
-            cursor: pointer;
-        }
-
-        .preview:hover::after {
-            content: '▶ לחץ להפעלה';
-            position: absolute;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.5);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
-            color: #fff;
+            font-size: 4rem;
         }
-
-        .card-content {
-            padding: 1.5rem;
-        }
-
-        .card-title {
-            font-size: 1.3rem;
-            margin-bottom: 0.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
+        .card-content { padding: 1.5rem; }
+        .card-title { font-size: 1.2rem; margin-bottom: 0.5rem; }
         .card-desc {
             color: rgba(255, 255, 255, 0.6);
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             margin-bottom: 1rem;
             line-height: 1.5;
         }
-
-        .tags {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-            margin-bottom: 1rem;
-        }
-
+        .tags { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
         .tag {
             background: rgba(255, 255, 255, 0.1);
-            padding: 0.25rem 0.75rem;
+            padding: 0.2rem 0.6rem;
             border-radius: 20px;
-            font-size: 0.75rem;
-            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.7rem;
         }
-
-        .btn-group {
-            display: flex;
-            gap: 0.5rem;
-        }
-
         .btn {
-            flex: 1;
-            padding: 0.75rem 1rem;
+            width: 100%;
+            padding: 0.75rem;
             border: none;
             border-radius: 8px;
             cursor: pointer;
             font-size: 0.9rem;
             font-weight: 600;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-        }
-
-        .btn-copy {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #fff;
+            transition: all 0.2s ease;
         }
-
-        .btn-copy:hover {
+        .btn:hover {
             transform: scale(1.02);
             box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
         }
-
-        .btn-preview {
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .btn-preview:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        /* Toast notification */
         .toast {
             position: fixed;
             bottom: 2rem;
@@ -163,131 +91,23 @@
             padding: 1rem 2rem;
             border-radius: 12px;
             font-weight: 600;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
             opacity: 0;
             transition: all 0.3s ease;
             z-index: 10000;
         }
-
-        .toast.show {
-            transform: translateX(-50%) translateY(0);
-            opacity: 1;
-        }
-
-        /* Modal for fullscreen preview */
-        .modal {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.9);
-            z-index: 9999;
-            display: none;
-            cursor: pointer;
-        }
-
-        .modal.active {
-            display: block;
-        }
-
-        .modal-hint {
-            position: absolute;
-            bottom: 2rem;
-            left: 50%;
-            transform: translateX(-50%);
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 0.9rem;
-        }
-
-        /* Preview backgrounds */
-        .preview-synthwave {
-            background: linear-gradient(to bottom, #0f0c29, #302b63, #24243e);
-        }
-
-        .preview-fireflies {
-            background: radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%);
-        }
-
-        .preview-matrix {
-            background: #000;
-        }
-
-        .preview-aurora {
-            background: linear-gradient(to bottom, #0c0c1e, #1a1a3e);
-        }
-
-        .preview-starfield {
-            background: radial-gradient(ellipse at center, #1a1a2e 0%, #000 100%);
-        }
-
-        .preview-bubbles {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .preview-snow {
-            background: linear-gradient(to bottom, #2c3e50, #4ca1af);
-        }
-
-        .preview-neon {
-            background: #0a0a0a;
-        }
-
-        .preview-confetti {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-
-        .preview-glitch {
-            background: #111;
-        }
-
-        /* Mini animations for previews */
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 0.5; }
-            50% { opacity: 1; }
-        }
-
-        @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-        }
-
-        .mini-preview {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 4rem;
-            animation: float 3s ease-in-out infinite;
-        }
-
-        .preview-synthwave .mini-preview::after {
-            content: '';
-            position: absolute;
-            bottom: 20%;
-            left: 10%;
-            right: 10%;
-            height: 2px;
-            background: linear-gradient(90deg, #ff00ff, #00ffff);
-            box-shadow: 0 0 10px #ff00ff;
-        }
-
-        /* Responsive */
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .preview-synthwave { background: linear-gradient(to bottom, #0f0c29, #302b63, #24243e); }
+        .preview-fireflies { background: radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%); }
+        .preview-matrix { background: #000; color: #0f0; }
+        .preview-aurora { background: linear-gradient(to bottom, #0c0c1e, #1a1a3e); }
+        .preview-starfield { background: radial-gradient(ellipse at center, #1a1a2e 0%, #000 100%); }
+        .preview-bubbles { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .preview-snow { background: linear-gradient(to bottom, #2c3e50, #4ca1af); }
+        .preview-confetti { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
         @media (max-width: 768px) {
-            body {
-                padding: 1rem;
-            }
-
-            .header h1 {
-                font-size: 1.8rem;
-            }
-
-            .gallery {
-                grid-template-columns: 1fr;
-            }
+            body { padding: 1rem; }
+            .header h1 { font-size: 1.8rem; }
+            .gallery { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -296,862 +116,249 @@
         <h1>🎨 גלריית אנימציות</h1>
         <p>לחץ על "העתק קוד" כדי להעתיק את האנימציה לפרויקט שלך</p>
     </header>
-
     <div class="gallery" id="gallery"></div>
-
     <div class="toast" id="toast">✓ הקוד הועתק!</div>
 
-    <div class="modal" id="modal">
-        <div class="modal-hint">לחץ בכל מקום או ESC לסגירה</div>
-    </div>
-
-    <script>
-        // Animation data
-        const animations = [
-            {
-                id: 'synthwave',
-                title: '🎸 Synthwave Grid',
-                desc: 'רשת רטרו בסגנון שנות ה-80 עם שמש צבעונית, כוכבים מנצנצים וקווי ניאון בפרספקטיבה.',
-                tags: ['Canvas', 'Retro', '80s'],
-                previewClass: 'preview-synthwave',
-                emoji: '🌅',
-                code: `<!-- Synthwave Grid Animation -->
-<canvas id="synthwave-canvas"></canvas>
-<style>
-    #synthwave-canvas {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 9999;
-        cursor: pointer;
+<script>
+const animations = [
+    {
+        id: 'synthwave',
+        title: '🎸 Synthwave Grid',
+        desc: 'רשת רטרו בסגנון שנות ה-80 עם שמש צבעונית וקווי ניאון.',
+        tags: ['Canvas', 'Retro'],
+        previewClass: 'preview-synthwave',
+        emoji: '🌅'
+    },
+    {
+        id: 'fireflies',
+        title: '✨ גחליליות',
+        desc: 'נקודות אור זהובות מהבהבות על רקע לילי כהה.',
+        tags: ['CSS', 'Relaxing'],
+        previewClass: 'preview-fireflies',
+        emoji: '🔥'
+    },
+    {
+        id: 'matrix',
+        title: '🕶️ Matrix Rain',
+        desc: 'גשם של אותיות ירוקות בסגנון הסרט Matrix.',
+        tags: ['Canvas', 'Hacker'],
+        previewClass: 'preview-matrix',
+        emoji: '💚'
+    },
+    {
+        id: 'aurora',
+        title: '🌌 Aurora Borealis',
+        desc: 'אורות צפוניים צבעוניים שמתנועעים בגלים.',
+        tags: ['Canvas', 'Nature'],
+        previewClass: 'preview-aurora',
+        emoji: '🌈'
+    },
+    {
+        id: 'starfield',
+        title: '🚀 Starfield',
+        desc: 'מסע בחלל במהירות האור - כוכבים שעפים לעברך.',
+        tags: ['Canvas', 'Space'],
+        previewClass: 'preview-starfield',
+        emoji: '⭐'
+    },
+    {
+        id: 'bubbles',
+        title: '🫧 בועות צפות',
+        desc: 'בועות סבון שקופות שעולות בעדינות.',
+        tags: ['CSS', 'Playful'],
+        previewClass: 'preview-bubbles',
+        emoji: '🫧'
+    },
+    {
+        id: 'snow',
+        title: '❄️ שלג',
+        desc: 'פתיתי שלג נופלים - מושלם לחורף.',
+        tags: ['CSS', 'Winter'],
+        previewClass: 'preview-snow',
+        emoji: '❄️'
+    },
+    {
+        id: 'confetti',
+        title: '🎉 קונפטי',
+        desc: 'מטר של קונפטי צבעוני לחגיגות!',
+        tags: ['Canvas', 'Party'],
+        previewClass: 'preview-confetti',
+        emoji: '🎊'
     }
+];
+
+// Full code snippets stored separately to avoid script tag issues
+const codeSnippets = {
+    synthwave: `<!-- Synthwave Grid -->
+<canvas id="synthwave"></canvas>
+<style>
+#synthwave{position:fixed;inset:0;width:100vw;height:100vh;z-index:9999;cursor:pointer}
 </style>
 <script>
-(function() {
-    const canvas = document.getElementById('synthwave-canvas');
-    const ctx = canvas.getContext('2d');
-    let w, h, rafId, gridOffset = 0, stars = [];
+(function(){
+var c=document.getElementById('synthwave'),x=c.getContext('2d'),w,h,g=0,s=[];
+function r(){w=innerWidth;h=innerHeight;c.width=w;c.height=h;s=[];for(var i=0;i<100;i++)s.push({x:Math.random()*w,y:Math.random()*h*.5,z:Math.random()*2+.5,t:Math.random()*6.28})}
+function d(){var bg=x.createLinearGradient(0,0,0,h);bg.addColorStop(0,'#0f0c29');bg.addColorStop(.5,'#302b63');bg.addColorStop(1,'#24243e');x.fillStyle=bg;x.fillRect(0,0,w,h);
+s.forEach(function(p){p.t+=.05;x.fillStyle='rgba(255,255,255,'+(0.5+Math.sin(p.t)*.5)+')';x.beginPath();x.arc(p.x,p.y,p.z,0,6.28);x.fill()});
+var sy=h*.45,sr=Math.min(w,h)*.15,sg=x.createLinearGradient(w/2,sy-sr,w/2,sy+sr);sg.addColorStop(0,'#ff6b6b');sg.addColorStop(.5,'#feca57');sg.addColorStop(1,'#ff9ff3');x.fillStyle=sg;x.beginPath();x.arc(w/2,sy,sr,0,6.28);x.fill();
+x.fillStyle='#24243e';for(var i=0;i<8;i++){var y=sy-sr+(i*2+1)*sr/8,dy=Math.abs(y-sy);if(dy<sr){var hw=Math.sqrt(sr*sr-dy*dy);x.fillRect(w/2-hw,y,hw*2,sr*.08)}}
+var hy=h*.55;x.fillRect(0,hy,w,h);g=(g+.5)%40;x.strokeStyle='#f0f';x.lineWidth=1.5;
+for(var i=0;i<20;i++){var t=(i+g/40)/20,y=hy+Math.pow(t,1.5)*(h-hy);x.globalAlpha=Math.min(1,t*2);x.beginPath();x.moveTo(0,y);x.lineTo(w,y);x.stroke()}
+x.strokeStyle='#0ff';x.globalAlpha=.8;for(var i=-10;i<=10;i++){x.beginPath();x.moveTo(w/2+i*5,hy);x.lineTo(w/2+i*(w/10),h);x.stroke()}x.globalAlpha=1;
+requestAnimationFrame(d)}
+r();addEventListener('resize',r);c.onclick=function(){c.remove()};d()
+})();
+<` + `/script>`,
 
-    function resize() {
-        w = window.innerWidth;
-        h = window.innerHeight;
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        stars = Array.from({length: 100}, () => ({
-            x: Math.random() * w,
-            y: Math.random() * h * 0.5,
-            size: Math.random() * 2 + 0.5,
-            twinkle: Math.random() * Math.PI * 2
-        }));
-    }
+    fireflies: `<!-- Fireflies -->
+<div id="fireflies"></div>
+<style>
+#fireflies{position:fixed;inset:0;z-index:9999;background:radial-gradient(ellipse at bottom,#1B2735,#090A0F);cursor:pointer;overflow:hidden}
+@keyframes fd{0%{transform:translate(0,0)}100%{transform:translate(var(--mx),var(--my))}}
+@keyframes ff{0%,100%{opacity:0}50%{opacity:var(--mo);box-shadow:0 0 25px #ffd700}}
+.ff{position:absolute;border-radius:50%;background:#ffd700;box-shadow:0 0 10px #ffd700,0 0 20px #ff8c00;opacity:0}
+</style>
+<script>
+(function(){
+var c=document.getElementById('fireflies');
+for(var i=0;i<50;i++){var f=document.createElement('div');f.className='ff';var z=Math.random()*3+2;
+f.style.cssText='width:'+z+'px;height:'+z+'px;left:'+Math.random()*100+'%;top:'+Math.random()*100+'%;--mx:'+(Math.random()-.5)*300+'px;--my:'+(Math.random()-.5)*300+'px;--mo:'+(Math.random()*.6+.4)+';animation:fd '+(Math.random()*10+10)+'s ease-in-out infinite alternate,ff '+(Math.random()*3+2)+'s ease-in-out infinite alternate '+Math.random()*5+'s';
+c.appendChild(f)}
+c.onclick=function(){c.remove()}
+})();
+<` + `/script>`,
 
-    function draw() {
-        // Background
-        const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-        bgGrad.addColorStop(0, '#0f0c29');
-        bgGrad.addColorStop(0.5, '#302b63');
-        bgGrad.addColorStop(1, '#24243e');
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, w, h);
+    matrix: `<!-- Matrix Rain -->
+<canvas id="matrix"></canvas>
+<style>
+#matrix{position:fixed;inset:0;width:100vw;height:100vh;z-index:9999;background:#000;cursor:pointer}
+</style>
+<script>
+(function(){
+var c=document.getElementById('matrix'),x=c.getContext('2d'),ch='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%',fs=16,col,dr,w,h;
+function r(){w=innerWidth;h=innerHeight;c.width=w;c.height=h;col=Math.floor(w/fs);dr=Array(col).fill(1)}
+function d(){x.fillStyle='rgba(0,0,0,0.05)';x.fillRect(0,0,w,h);x.fillStyle='#0F0';x.font=fs+'px monospace';
+for(var i=0;i<dr.length;i++){var t=ch[Math.floor(Math.random()*ch.length)];x.fillText(t,i*fs,dr[i]*fs);if(dr[i]*fs>h&&Math.random()>.975)dr[i]=0;dr[i]++}
+requestAnimationFrame(d)}
+r();addEventListener('resize',r);c.onclick=function(){c.remove()};d()
+})();
+<` + `/script>`,
 
-        // Stars
-        stars.forEach(star => {
-            star.twinkle += 0.05;
-            ctx.fillStyle = \`rgba(255,255,255,\${0.5 + Math.sin(star.twinkle) * 0.5})\`;
-            ctx.beginPath();
-            ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-            ctx.fill();
-        });
+    aurora: `<!-- Aurora Borealis -->
+<canvas id="aurora"></canvas>
+<style>
+#aurora{position:fixed;inset:0;width:100vw;height:100vh;z-index:9999;cursor:pointer}
+</style>
+<script>
+(function(){
+var c=document.getElementById('aurora'),x=c.getContext('2d'),w,h,t=0;
+function r(){w=innerWidth;h=innerHeight;c.width=w;c.height=h}
+function d(){t+=.01;var bg=x.createLinearGradient(0,0,0,h);bg.addColorStop(0,'#0c0c1e');bg.addColorStop(1,'#1a1a3e');x.fillStyle=bg;x.fillRect(0,0,w,h);
+var colors=['rgba(0,255,150,0.3)','rgba(0,200,255,0.25)','rgba(150,0,255,0.2)'];
+colors.forEach(function(col,idx){x.beginPath();x.moveTo(0,h*.3);for(var i=0;i<=w;i+=10){var y=h*.25+Math.sin(i*.003+t+idx)*50+Math.sin(i*.007+t*1.5)*30;x.lineTo(i,y)}x.lineTo(w,h*.6);x.lineTo(0,h*.6);x.closePath();x.fillStyle=col;x.fill()});
+for(var i=0;i<50;i++){var px=(i*137.5)%w,py=(i*73.7)%(h*.5);x.fillStyle='rgba(255,255,255,'+(0.5+Math.sin(t*3+i)*.4)+')';x.beginPath();x.arc(px,py,1,0,6.28);x.fill()}
+requestAnimationFrame(d)}
+r();addEventListener('resize',r);c.onclick=function(){c.remove()};d()
+})();
+<` + `/script>`,
 
-        // Sun
-        const sunY = h * 0.45, sunR = Math.min(w, h) * 0.15;
-        const sunGrad = ctx.createLinearGradient(w/2, sunY - sunR, w/2, sunY + sunR);
-        sunGrad.addColorStop(0, '#ff6b6b');
-        sunGrad.addColorStop(0.5, '#feca57');
-        sunGrad.addColorStop(1, '#ff9ff3');
-        ctx.fillStyle = sunGrad;
-        ctx.beginPath();
-        ctx.arc(w/2, sunY, sunR, 0, Math.PI * 2);
-        ctx.fill();
+    starfield: `<!-- Starfield -->
+<canvas id="starfield"></canvas>
+<style>
+#starfield{position:fixed;inset:0;width:100vw;height:100vh;z-index:9999;background:#000;cursor:pointer}
+</style>
+<script>
+(function(){
+var c=document.getElementById('starfield'),x=c.getContext('2d'),w,h,s=[];
+function r(){w=innerWidth;h=innerHeight;c.width=w;c.height=h;s=[];for(var i=0;i<300;i++)s.push({x:Math.random()*w-w/2,y:Math.random()*h-h/2,z:Math.random()*1000})}
+function d(){x.fillStyle='rgba(0,0,0,0.2)';x.fillRect(0,0,w,h);var cx=w/2,cy=h/2;
+s.forEach(function(p){p.z-=10;if(p.z<=0){p.x=Math.random()*w-w/2;p.y=Math.random()*h-h/2;p.z=1000}
+var sx=(p.x/p.z)*400+cx,sy=(p.y/p.z)*400+cy,sz=(1-p.z/1000)*3,op=1-p.z/1000;
+x.fillStyle='rgba(255,255,255,'+op+')';x.beginPath();x.arc(sx,sy,sz,0,6.28);x.fill()});
+requestAnimationFrame(d)}
+r();addEventListener('resize',r);c.onclick=function(){c.remove()};d()
+})();
+<` + `/script>`,
 
-        // Sun stripes
-        ctx.fillStyle = '#24243e';
-        for (let i = 0; i < 8; i++) {
-            const stripeY = sunY - sunR + (i * 2 + 1) * sunR / 8;
-            const dy = Math.abs(stripeY - sunY);
-            if (dy < sunR) {
-                const hw = Math.sqrt(sunR * sunR - dy * dy);
-                ctx.fillRect(w/2 - hw, stripeY, hw * 2, sunR * 0.08);
-            }
-        }
+    bubbles: `<!-- Bubbles -->
+<div id="bubbles"></div>
+<style>
+#bubbles{position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,#667eea,#764ba2);cursor:pointer;overflow:hidden}
+@keyframes br{0%{transform:translateY(100vh) scale(0);opacity:0}10%{opacity:1}90%{opacity:1}100%{transform:translateY(-100px) translateX(var(--d)) scale(1);opacity:0}}
+.bb{position:absolute;border-radius:50%;background:radial-gradient(circle at 30% 30%,rgba(255,255,255,0.8),rgba(255,255,255,0.1) 40%,transparent 70%);border:1px solid rgba(255,255,255,0.3)}
+</style>
+<script>
+(function(){
+var c=document.getElementById('bubbles');
+function b(){var e=document.createElement('div');e.className='bb';var s=Math.random()*60+20;
+e.style.cssText='width:'+s+'px;height:'+s+'px;left:'+Math.random()*100+'%;--d:'+(Math.random()-.5)*200+'px;animation:br '+(Math.random()*4+6)+'s ease-in forwards';
+c.appendChild(e);setTimeout(function(){e.remove()},10000)}
+var iv=setInterval(b,300);for(var i=0;i<15;i++)setTimeout(b,i*200);
+c.onclick=function(){clearInterval(iv);c.remove()}
+})();
+<` + `/script>`,
 
-        // Ground
-        const horizonY = h * 0.55;
-        ctx.fillStyle = '#24243e';
-        ctx.fillRect(0, horizonY, w, h);
+    snow: `<!-- Snow -->
+<div id="snow"></div>
+<style>
+#snow{position:fixed;inset:0;z-index:9999;background:linear-gradient(to bottom,#2c3e50,#4ca1af);cursor:pointer;overflow:hidden}
+@keyframes sf{0%{transform:translateY(-10px) rotate(0)}100%{transform:translateY(100vh) translateX(var(--d)) rotate(360deg)}}
+.sn{position:absolute;color:#fff;opacity:var(--o);font-size:var(--s);animation:sf var(--t) linear infinite;text-shadow:0 0 5px rgba(255,255,255,0.5)}
+</style>
+<script>
+(function(){
+var c=document.getElementById('snow'),f=['❄','❅','❆','✦','•'];
+for(var i=0;i<100;i++){var e=document.createElement('div');e.className='sn';e.textContent=f[Math.floor(Math.random()*f.length)];
+e.style.cssText='left:'+Math.random()*100+'%;--s:'+(Math.random()*20+10)+'px;--o:'+(Math.random()*.7+.3)+';--t:'+(Math.random()*5+5)+'s;--d:'+(Math.random()-.5)*100+'px;animation-delay:-'+Math.random()*10+'s';
+c.appendChild(e)}
+c.onclick=function(){c.remove()}
+})();
+<` + `/script>`,
 
-        // Grid
-        gridOffset = (gridOffset + 0.5) % 40;
-        ctx.strokeStyle = '#ff00ff';
-        ctx.lineWidth = 1.5;
-        for (let i = 0; i < 20; i++) {
-            const t = (i + gridOffset / 40) / 20;
-            const y = horizonY + Math.pow(t, 1.5) * (h - horizonY);
-            ctx.globalAlpha = Math.min(1, t * 2);
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(w, y);
-            ctx.stroke();
-        }
-        ctx.strokeStyle = '#00ffff';
-        ctx.globalAlpha = 0.8;
-        for (let i = -10; i <= 10; i++) {
-            ctx.beginPath();
-            ctx.moveTo(w/2 + i * 5, horizonY);
-            ctx.lineTo(w/2 + i * (w/10), h);
-            ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
+    confetti: `<!-- Confetti -->
+<canvas id="confetti"></canvas>
+<style>
+#confetti{position:fixed;inset:0;width:100vw;height:100vh;z-index:9999;pointer-events:none}
+</style>
+<script>
+(function(){
+var c=document.getElementById('confetti'),x=c.getContext('2d'),w,h,p=[],cols=['#ff6b6b','#feca57','#48dbfb','#ff9ff3','#1dd1a1','#5f27cd'];
+function r(){w=innerWidth;h=innerHeight;c.width=w;c.height=h}
+function n(){return{x:Math.random()*w,y:-20,s:Math.random()*10+5,c:cols[Math.floor(Math.random()*cols.length)],sp:Math.random()*3+2,a:Math.random()*6.28,sn:(Math.random()-.5)*.2,d:(Math.random()-.5)*2}}
+function d(){x.clearRect(0,0,w,h);if(p.length<150&&Math.random()>.8)p.push(n());
+p=p.filter(function(o){o.y+=o.sp;o.x+=o.d;o.a+=o.sn;x.save();x.translate(o.x,o.y);x.rotate(o.a);x.fillStyle=o.c;x.fillRect(-o.s/2,-o.s/2,o.s,o.s*.6);x.restore();return o.y<h+20});
+requestAnimationFrame(d);setTimeout(function(){c.remove()},5000)}
+r();addEventListener('resize',r);d()
+})();
+<` + `/script>`
+};
 
-        rafId = requestAnimationFrame(draw);
-    }
+// Render gallery
+const gallery = document.getElementById('gallery');
+animations.forEach(anim => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+        <div class="preview ${anim.previewClass}">${anim.emoji}</div>
+        <div class="card-content">
+            <h3 class="card-title">${anim.title}</h3>
+            <p class="card-desc">${anim.desc}</p>
+            <div class="tags">${anim.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
+            <button class="btn" onclick="copyCode('${anim.id}')">📋 העתק קוד</button>
+        </div>
+    `;
+    gallery.appendChild(card);
+});
 
-    resize();
-    window.addEventListener('resize', resize);
-    canvas.addEventListener('click', () => {
-        cancelAnimationFrame(rafId);
-        canvas.remove();
+function copyCode(id) {
+    const code = codeSnippets[id];
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+        const toast = document.getElementById('toast');
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2000);
     });
-    draw();
-})();
-<\\/script>`
-            },
-            {
-                id: 'fireflies',
-                title: '✨ גחליליות',
-                desc: 'נקודות אור זהובות מהבהבות שצפות על רקע לילי כהה - כמו לילה קסום ביער.',
-                tags: ['CSS', 'Relaxing', 'Night'],
-                previewClass: 'preview-fireflies',
-                emoji: '🔥',
-                code: `<!-- Fireflies Animation -->
-<div id="fireflies-container"></div>
-<style>
-    #fireflies-container {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        background: radial-gradient(ellipse at bottom, #1B2735 0%, #090A0F 100%);
-        cursor: pointer;
-        overflow: hidden;
-    }
-    @keyframes firefly-drift {
-        0% { transform: translate(0, 0); }
-        100% { transform: translate(var(--moveX), var(--moveY)); }
-    }
-    @keyframes firefly-flash {
-        0%, 100% { opacity: 0; }
-        50% { opacity: var(--max-opacity); box-shadow: 0 0 25px #ffd700; }
-    }
-    .firefly {
-        position: absolute;
-        border-radius: 50%;
-        background: #ffd700;
-        box-shadow: 0 0 10px #ffd700, 0 0 20px #ff8c00;
-        opacity: 0;
-        pointer-events: none;
-    }
-</style>
-<script>
-(function() {
-    const container = document.getElementById('fireflies-container');
-    for (let i = 0; i < 50; i++) {
-        const fly = document.createElement('div');
-        fly.className = 'firefly';
-        const size = Math.random() * 3 + 2;
-        fly.style.cssText = \`
-            width: \${size}px; height: \${size}px;
-            left: \${Math.random() * 100}%; top: \${Math.random() * 100}%;
-            --moveX: \${(Math.random() - 0.5) * 300}px;
-            --moveY: \${(Math.random() - 0.5) * 300}px;
-            --max-opacity: \${Math.random() * 0.6 + 0.4};
-            animation: firefly-drift \${Math.random() * 10 + 10}s ease-in-out infinite alternate,
-                       firefly-flash \${Math.random() * 3 + 2}s ease-in-out infinite alternate \${Math.random() * 5}s;
-        \`;
-        container.appendChild(fly);
-    }
-    container.addEventListener('click', () => container.remove());
-})();
-<\\/script>`
-            },
-            {
-                id: 'matrix',
-                title: '🕶️ Matrix Rain',
-                desc: 'גשם של אותיות ירוקות בסגנון הסרט Matrix - קלאסיקה טכנולוגית.',
-                tags: ['Canvas', 'Hacker', 'Classic'],
-                previewClass: 'preview-matrix',
-                emoji: '💚',
-                code: `<!-- Matrix Rain Animation -->
-<canvas id="matrix-canvas"></canvas>
-<style>
-    #matrix-canvas {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 9999;
-        background: #000;
-        cursor: pointer;
-    }
-</style>
-<script>
-(function() {
-    const canvas = document.getElementById('matrix-canvas');
-    const ctx = canvas.getContext('2d');
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*';
-    const fontSize = 16;
-    let columns, drops, w, h, rafId;
-
-    function resize() {
-        w = window.innerWidth;
-        h = window.innerHeight;
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        columns = Math.floor(w / fontSize);
-        drops = Array(columns).fill(1);
-    }
-
-    function draw() {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-        ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = '#0F0';
-        ctx.font = fontSize + 'px monospace';
-        for (let i = 0; i < drops.length; i++) {
-            const char = chars[Math.floor(Math.random() * chars.length)];
-            ctx.fillText(char, i * fontSize, drops[i] * fontSize);
-            if (drops[i] * fontSize > h && Math.random() > 0.975) drops[i] = 0;
-            drops[i]++;
-        }
-        rafId = requestAnimationFrame(draw);
-    }
-
-    resize();
-    window.addEventListener('resize', resize);
-    canvas.addEventListener('click', () => {
-        cancelAnimationFrame(rafId);
-        canvas.remove();
-    });
-    draw();
-})();
-<\\/script>`
-            },
-            {
-                id: 'aurora',
-                title: '🌌 Aurora Borealis',
-                desc: 'אורות צפוניים צבעוניים שמתנועעים בגלים - אפקט מרגיע ומהפנט.',
-                tags: ['Canvas', 'Relaxing', 'Nature'],
-                previewClass: 'preview-aurora',
-                emoji: '🌈',
-                code: `<!-- Aurora Borealis Animation -->
-<canvas id="aurora-canvas"></canvas>
-<style>
-    #aurora-canvas {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 9999;
-        cursor: pointer;
-    }
-</style>
-<script>
-(function() {
-    const canvas = document.getElementById('aurora-canvas');
-    const ctx = canvas.getContext('2d');
-    let w, h, rafId, time = 0;
-
-    function resize() {
-        w = window.innerWidth;
-        h = window.innerHeight;
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    function draw() {
-        time += 0.01;
-        
-        // Background
-        const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-        bgGrad.addColorStop(0, '#0c0c1e');
-        bgGrad.addColorStop(1, '#1a1a3e');
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, w, h);
-
-        // Aurora waves
-        const colors = [
-            'rgba(0, 255, 150, 0.3)',
-            'rgba(0, 200, 255, 0.25)',
-            'rgba(150, 0, 255, 0.2)',
-            'rgba(255, 0, 150, 0.15)'
-        ];
-        
-        colors.forEach((color, idx) => {
-            ctx.beginPath();
-            ctx.moveTo(0, h * 0.3);
-            for (let x = 0; x <= w; x += 10) {
-                const y = h * 0.25 + 
-                    Math.sin(x * 0.003 + time + idx) * 50 +
-                    Math.sin(x * 0.007 + time * 1.5) * 30 +
-                    Math.sin(x * 0.001 + time * 0.5) * 70;
-                ctx.lineTo(x, y);
-            }
-            ctx.lineTo(w, h * 0.6);
-            ctx.lineTo(0, h * 0.6);
-            ctx.closePath();
-            ctx.fillStyle = color;
-            ctx.fill();
-        });
-
-        // Stars
-        for (let i = 0; i < 50; i++) {
-            const x = (i * 137.5) % w;
-            const y = (i * 73.7) % (h * 0.5);
-            const flicker = 0.5 + Math.sin(time * 3 + i) * 0.5;
-            ctx.fillStyle = \`rgba(255, 255, 255, \${flicker * 0.8})\`;
-            ctx.beginPath();
-            ctx.arc(x, y, 1, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        rafId = requestAnimationFrame(draw);
-    }
-
-    resize();
-    window.addEventListener('resize', resize);
-    canvas.addEventListener('click', () => {
-        cancelAnimationFrame(rafId);
-        canvas.remove();
-    });
-    draw();
-})();
-<\\/script>`
-            },
-            {
-                id: 'starfield',
-                title: '🚀 Starfield',
-                desc: 'מסע בחלל במהירות האור - כוכבים שעפים לעברך בתחושת היפרספייס.',
-                tags: ['Canvas', 'Space', 'Dynamic'],
-                previewClass: 'preview-starfield',
-                emoji: '⭐',
-                code: `<!-- Starfield Animation -->
-<canvas id="starfield-canvas"></canvas>
-<style>
-    #starfield-canvas {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 9999;
-        background: #000;
-        cursor: pointer;
-    }
-</style>
-<script>
-(function() {
-    const canvas = document.getElementById('starfield-canvas');
-    const ctx = canvas.getContext('2d');
-    let w, h, rafId, stars = [];
-    const numStars = 300;
-
-    function resize() {
-        w = window.innerWidth;
-        h = window.innerHeight;
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    function initStars() {
-        stars = Array.from({length: numStars}, () => ({
-            x: Math.random() * w - w/2,
-            y: Math.random() * h - h/2,
-            z: Math.random() * 1000
-        }));
-    }
-
-    function draw() {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.fillRect(0, 0, w, h);
-
-        const cx = w / 2, cy = h / 2;
-        
-        stars.forEach(star => {
-            star.z -= 10;
-            if (star.z <= 0) {
-                star.x = Math.random() * w - w/2;
-                star.y = Math.random() * h - h/2;
-                star.z = 1000;
-            }
-
-            const sx = (star.x / star.z) * 400 + cx;
-            const sy = (star.y / star.z) * 400 + cy;
-            const size = (1 - star.z / 1000) * 3;
-            const opacity = 1 - star.z / 1000;
-
-            ctx.fillStyle = \`rgba(255, 255, 255, \${opacity})\`;
-            ctx.beginPath();
-            ctx.arc(sx, sy, size, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Trail
-            const px = (star.x / (star.z + 10)) * 400 + cx;
-            const py = (star.y / (star.z + 10)) * 400 + cy;
-            ctx.strokeStyle = \`rgba(255, 255, 255, \${opacity * 0.5})\`;
-            ctx.lineWidth = size * 0.5;
-            ctx.beginPath();
-            ctx.moveTo(px, py);
-            ctx.lineTo(sx, sy);
-            ctx.stroke();
-        });
-
-        rafId = requestAnimationFrame(draw);
-    }
-
-    resize();
-    initStars();
-    window.addEventListener('resize', () => { resize(); initStars(); });
-    canvas.addEventListener('click', () => {
-        cancelAnimationFrame(rafId);
-        canvas.remove();
-    });
-    draw();
-})();
-<\\/script>`
-            },
-            {
-                id: 'bubbles',
-                title: '🫧 בועות צפות',
-                desc: 'בועות סבון שקופות שעולות בעדינות - אפקט חלומי ונעים.',
-                tags: ['CSS', 'Playful', 'Light'],
-                previewClass: 'preview-bubbles',
-                emoji: '🫧',
-                code: `<!-- Floating Bubbles Animation -->
-<div id="bubbles-container"></div>
-<style>
-    #bubbles-container {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        cursor: pointer;
-        overflow: hidden;
-    }
-    @keyframes bubble-rise {
-        0% { transform: translateY(100vh) translateX(0) scale(0); opacity: 0; }
-        10% { opacity: 1; }
-        90% { opacity: 1; }
-        100% { transform: translateY(-100px) translateX(var(--drift)) scale(1); opacity: 0; }
-    }
-    .bubble {
-        position: absolute;
-        border-radius: 50%;
-        background: radial-gradient(circle at 30% 30%, 
-            rgba(255,255,255,0.8) 0%, 
-            rgba(255,255,255,0.4) 20%, 
-            rgba(255,255,255,0.1) 40%,
-            transparent 70%);
-        border: 1px solid rgba(255,255,255,0.3);
-        pointer-events: none;
-    }
-</style>
-<script>
-(function() {
-    const container = document.getElementById('bubbles-container');
-    
-    function createBubble() {
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        const size = Math.random() * 60 + 20;
-        bubble.style.cssText = \`
-            width: \${size}px; height: \${size}px;
-            left: \${Math.random() * 100}%;
-            --drift: \${(Math.random() - 0.5) * 200}px;
-            animation: bubble-rise \${Math.random() * 4 + 6}s ease-in forwards;
-        \`;
-        container.appendChild(bubble);
-        setTimeout(() => bubble.remove(), 10000);
-    }
-
-    const interval = setInterval(createBubble, 300);
-    for (let i = 0; i < 15; i++) setTimeout(createBubble, i * 200);
-
-    container.addEventListener('click', () => {
-        clearInterval(interval);
-        container.remove();
-    });
-})();
-<\\/script>`
-            },
-            {
-                id: 'snow',
-                title: '❄️ שלג',
-                desc: 'פתיתי שלג נופלים בעדינות - מושלם לחורף או לאתרים חגיגיים.',
-                tags: ['CSS', 'Winter', 'Holiday'],
-                previewClass: 'preview-snow',
-                emoji: '❄️',
-                code: `<!-- Snowfall Animation -->
-<div id="snow-container"></div>
-<style>
-    #snow-container {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        background: linear-gradient(to bottom, #2c3e50, #4ca1af);
-        cursor: pointer;
-        overflow: hidden;
-        pointer-events: auto;
-    }
-    @keyframes snowfall {
-        0% { transform: translateY(-10px) translateX(0) rotate(0deg); }
-        100% { transform: translateY(100vh) translateX(var(--drift)) rotate(360deg); }
-    }
-    .snowflake {
-        position: absolute;
-        color: #fff;
-        opacity: var(--opacity);
-        font-size: var(--size);
-        animation: snowfall var(--duration) linear infinite;
-        pointer-events: none;
-        text-shadow: 0 0 5px rgba(255,255,255,0.5);
-    }
-</style>
-<script>
-(function() {
-    const container = document.getElementById('snow-container');
-    const flakes = ['❄', '❅', '❆', '✦', '✧', '•'];
-    
-    for (let i = 0; i < 100; i++) {
-        const flake = document.createElement('div');
-        flake.className = 'snowflake';
-        flake.textContent = flakes[Math.floor(Math.random() * flakes.length)];
-        flake.style.cssText = \`
-            left: \${Math.random() * 100}%;
-            --size: \${Math.random() * 20 + 10}px;
-            --opacity: \${Math.random() * 0.7 + 0.3};
-            --duration: \${Math.random() * 5 + 5}s;
-            --drift: \${(Math.random() - 0.5) * 100}px;
-            animation-delay: -\${Math.random() * 10}s;
-        \`;
-        container.appendChild(flake);
-    }
-
-    container.addEventListener('click', () => container.remove());
-})();
-<\\/script>`
-            },
-            {
-                id: 'neon',
-                title: '💜 Neon Glow',
-                desc: 'טקסט זוהר בסגנון ניאון - אפקט רטרו עירוני מושלם לכותרות.',
-                tags: ['CSS', 'Retro', 'Text'],
-                previewClass: 'preview-neon',
-                emoji: '💡',
-                code: `<!-- Neon Glow Text Animation -->
-<div id="neon-container">
-    <h1 class="neon-text">NEON</h1>
-</div>
-<style>
-    #neon-container {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        background: #0a0a0a;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-    }
-    @keyframes neon-flicker {
-        0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
-            text-shadow:
-                0 0 5px #fff,
-                0 0 10px #fff,
-                0 0 20px #ff00de,
-                0 0 40px #ff00de,
-                0 0 80px #ff00de,
-                0 0 90px #ff00de,
-                0 0 100px #ff00de;
-        }
-        20%, 24%, 55% {
-            text-shadow: none;
-        }
-    }
-    .neon-text {
-        font-family: 'Arial Black', sans-serif;
-        font-size: 8vw;
-        color: #fff;
-        animation: neon-flicker 1.5s infinite alternate;
-        letter-spacing: 0.2em;
-    }
-</style>
-<script>
-    document.getElementById('neon-container').addEventListener('click', function() {
-        this.remove();
-    });
-<\\/script>`
-            },
-            {
-                id: 'confetti',
-                title: '🎉 קונפטי',
-                desc: 'מטר של קונפטי צבעוני - מושלם לחגיגות והצלחות!',
-                tags: ['Canvas', 'Party', 'Fun'],
-                previewClass: 'preview-confetti',
-                emoji: '🎊',
-                code: `<!-- Confetti Animation -->
-<canvas id="confetti-canvas"></canvas>
-<style>
-    #confetti-canvas {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 9999;
-        pointer-events: none;
-    }
-</style>
-<script>
-(function() {
-    const canvas = document.getElementById('confetti-canvas');
-    const ctx = canvas.getContext('2d');
-    let w, h, particles = [], rafId;
-    const colors = ['#ff6b6b', '#feca57', '#48dbfb', '#ff9ff3', '#1dd1a1', '#5f27cd'];
-
-    function resize() {
-        w = window.innerWidth;
-        h = window.innerHeight;
-        canvas.width = w;
-        canvas.height = h;
-    }
-
-    function createParticle() {
-        return {
-            x: Math.random() * w,
-            y: -20,
-            size: Math.random() * 10 + 5,
-            color: colors[Math.floor(Math.random() * colors.length)],
-            speed: Math.random() * 3 + 2,
-            angle: Math.random() * Math.PI * 2,
-            spin: (Math.random() - 0.5) * 0.2,
-            drift: (Math.random() - 0.5) * 2
-        };
-    }
-
-    function draw() {
-        ctx.clearRect(0, 0, w, h);
-        
-        if (particles.length < 150 && Math.random() > 0.8) {
-            particles.push(createParticle());
-        }
-
-        particles = particles.filter(p => {
-            p.y += p.speed;
-            p.x += p.drift;
-            p.angle += p.spin;
-
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            ctx.rotate(p.angle);
-            ctx.fillStyle = p.color;
-            ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size * 0.6);
-            ctx.restore();
-
-            return p.y < h + 20;
-        });
-
-        rafId = requestAnimationFrame(draw);
-        
-        // Auto-stop after 5 seconds
-        setTimeout(() => {
-            cancelAnimationFrame(rafId);
-            canvas.remove();
-        }, 5000);
-    }
-
-    resize();
-    window.addEventListener('resize', resize);
-    draw();
-})();
-<\\/script>`
-            },
-            {
-                id: 'glitch',
-                title: '📺 Glitch',
-                desc: 'אפקט גליץ\' דיגיטלי - כאילו המסך מתקלקל לרגע. מאוד טכי!',
-                tags: ['CSS', 'Cyberpunk', 'Effect'],
-                previewClass: 'preview-glitch',
-                emoji: '⚡',
-                code: `<!-- Glitch Effect Animation -->
-<div id="glitch-container">
-    <h1 class="glitch" data-text="GLITCH">GLITCH</h1>
-</div>
-<style>
-    #glitch-container {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        background: #111;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-    }
-    .glitch {
-        font-family: 'Arial Black', sans-serif;
-        font-size: 8vw;
-        color: #fff;
-        position: relative;
-    }
-    .glitch::before, .glitch::after {
-        content: attr(data-text);
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-    }
-    .glitch::before {
-        color: #0ff;
-        animation: glitch-1 0.3s infinite linear alternate-reverse;
-        clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%);
-    }
-    .glitch::after {
-        color: #f0f;
-        animation: glitch-2 0.3s infinite linear alternate-reverse;
-        clip-path: polygon(0 65%, 100% 65%, 100% 100%, 0 100%);
-    }
-    @keyframes glitch-1 {
-        0% { transform: translate(0); }
-        20% { transform: translate(-3px, 3px); }
-        40% { transform: translate(-3px, -3px); }
-        60% { transform: translate(3px, 3px); }
-        80% { transform: translate(3px, -3px); }
-        100% { transform: translate(0); }
-    }
-    @keyframes glitch-2 {
-        0% { transform: translate(0); }
-        20% { transform: translate(3px, -3px); }
-        40% { transform: translate(3px, 3px); }
-        60% { transform: translate(-3px, -3px); }
-        80% { transform: translate(-3px, 3px); }
-        100% { transform: translate(0); }
-    }
-</style>
-<script>
-    document.getElementById('glitch-container').addEventListener('click', function() {
-        this.remove();
-    });
-<\\/script>`
-            }
-        ];
-
-        // Render gallery
-        const gallery = document.getElementById('gallery');
-        animations.forEach(anim => {
-            const card = document.createElement('div');
-            card.className = 'card';
-            card.innerHTML = `
-                <div class="preview ${anim.previewClass}" onclick="showPreview('${anim.id}')">
-                    <div class="mini-preview">${anim.emoji}</div>
-                </div>
-                <div class="card-content">
-                    <h3 class="card-title">${anim.title}</h3>
-                    <p class="card-desc">${anim.desc}</p>
-                    <div class="tags">
-                        ${anim.tags.map(t => `<span class="tag">${t}</span>`).join('')}
-                    </div>
-                    <div class="btn-group">
-                        <button class="btn btn-copy" onclick="copyCode('${anim.id}')">
-                            📋 העתק קוד
-                        </button>
-                        <button class="btn btn-preview" onclick="showPreview('${anim.id}')">
-                            ▶ תצוגה
-                        </button>
-                    </div>
-                </div>
-            `;
-            gallery.appendChild(card);
-        });
-
-        // Copy function
-        function copyCode(id) {
-            const anim = animations.find(a => a.id === id);
-            if (!anim) return;
-
-            // Clean up the code for copying
-            const cleanCode = anim.code.replace(/<\\/script>/g, '</script>');
-            
-            navigator.clipboard.writeText(cleanCode).then(() => {
-                const toast = document.getElementById('toast');
-                toast.classList.add('show');
-                setTimeout(() => toast.classList.remove('show'), 2000);
-            });
-        }
-
-        // Preview function
-        function showPreview(id) {
-            const anim = animations.find(a => a.id === id);
-            if (!anim) return;
-
-            const modal = document.getElementById('modal');
-            modal.classList.add('active');
-            
-            // Create temp container for the animation
-            const cleanCode = anim.code.replace(/<\\/script>/g, '</script>');
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = cleanCode;
-            
-            // Extract and apply styles
-            const styleEl = tempDiv.querySelector('style');
-            if (styleEl) document.head.appendChild(styleEl.cloneNode(true));
-            
-            // Add HTML elements
-            const htmlEls = tempDiv.querySelectorAll(':not(style):not(script)');
-            htmlEls.forEach(el => modal.appendChild(el.cloneNode(true)));
-            
-            // Execute scripts
-            const scripts = tempDiv.querySelectorAll('script');
-            scripts.forEach(script => {
-                const newScript = document.createElement('script');
-                newScript.textContent = script.textContent;
-                document.body.appendChild(newScript);
-            });
-
-            // Close on click
-            const closeModal = () => {
-                modal.classList.remove('active');
-                modal.innerHTML = '<div class="modal-hint">לחץ בכל מקום או ESC לסגירה</div>';
-            };
-
-            modal.onclick = closeModal;
-            document.addEventListener('keydown', function handler(e) {
-                if (e.key === 'Escape') {
-                    closeModal();
-                    document.removeEventListener('keydown', handler);
-                }
-            });
-        }
-
-        // Make functions global
-        window.copyCode = copyCode;
-        window.showPreview = showPreview;
-    </script>
+}
+</script>
 </body>
 </html>
