@@ -1,5 +1,11 @@
 # 🎨 מדריך מימוש: ייצוא HTML מעוצב ממארקדאון
 
+> **תלויות נדרשות:** `bleach` (לאבטחת XSS)
+> ```bash
+> pip install bleach
+> ```
+> או להוסיף `bleach>=6.0.0` ל-`requirements/base.txt`
+
 ## 📋 סקירה כללית
 
 פיצ'ר זה מאפשר למשתמש לייצא קבצי Markdown כקבצי HTML מעוצבים להורדה, עם אפשרות לבחור ערכת עיצוב.
@@ -90,6 +96,10 @@ services/
 """
 Styled HTML Export Service
 ייצוא קבצי Markdown כ-HTML מעוצב עם ערכות נושא
+
+🔒 אבטחה:
+- כל HTML עובר sanitization דרך bleach למניעת XSS
+- מותרים רק תגיות ו-attributes ברשימה לבנה
 """
 
 from __future__ import annotations
@@ -98,6 +108,7 @@ import re
 import logging
 from typing import Optional
 
+import bleach
 import markdown
 from flask import render_template
 
@@ -154,6 +165,8 @@ def preprocess_markdown(text: str) -> str:
 def markdown_to_html(text: str) -> str:
     """
     המרת Markdown ל-HTML עם extensions מתאימים.
+    
+    🔒 אבטחה: ה-HTML עובר sanitization דרך bleach למניעת XSS.
     """
     if not text:
         return ""
@@ -162,7 +175,7 @@ def markdown_to_html(text: str) -> str:
     processed = preprocess_markdown(text)
     
     # המרה ל-HTML
-    html = markdown.markdown(
+    html_raw = markdown.markdown(
         processed,
         extensions=[
             'fenced_code',      # ```code blocks```
@@ -181,7 +194,36 @@ def markdown_to_html(text: str) -> str:
         }
     )
     
-    return html
+    # 🔒 Sanitization - מניעת XSS
+    # רשימה לבנה של תגיות מותרות
+    allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
+        'div', 'span', 'p', 'br', 
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'pre', 'code', 'img', 
+        'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'blockquote', 'ul', 'ol', 'li', 'hr', 
+        'a', 'b', 'i', 'strong', 'em', 'del', 'ins',
+        'sup', 'sub', 'mark',
+    ]
+    
+    # רשימה לבנה של attributes מותרים
+    allowed_attrs = {
+        '*': ['class', 'id'],
+        'a': ['href', 'title', 'target', 'rel'],
+        'img': ['src', 'alt', 'title', 'width', 'height'],
+        'th': ['colspan', 'rowspan'],
+        'td': ['colspan', 'rowspan'],
+    }
+    
+    # ניקוי ה-HTML
+    clean_html = bleach.clean(
+        html_raw, 
+        tags=allowed_tags, 
+        attributes=allowed_attrs,
+        strip=True  # הסרת תגיות לא מורשות במקום escape
+    )
+    
+    return clean_html
 
 
 # ============================================
@@ -542,7 +584,17 @@ def render_styled_html(
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+            /* System Font Stack - עובד בכל מערכות ההפעלה */
+            font-family: 
+                -apple-system,           /* macOS/iOS */
+                BlinkMacSystemFont,      /* macOS Chrome */
+                'Segoe UI',              /* Windows */
+                'Roboto',                /* Android */
+                'Oxygen', 'Ubuntu',      /* Linux */
+                'Cantarell', 'Fira Sans',
+                'Droid Sans',
+                'Helvetica Neue',
+                sans-serif;
             background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-tertiary, var(--bg-primary)) 100%);
             color: var(--text-primary);
             line-height: 1.8;
@@ -762,22 +814,23 @@ def render_styled_html(
 
         .alert-info {
             border-color: var(--alert-info-border, var(--primary));
-            background: rgba(var(--primary), 0.05);
+            /* שימוש ב-CSS Variable מוגדר מראש (לא rgba עם hex) */
+            background: var(--alert-info-bg, rgba(0, 136, 204, 0.08));
         }
 
         .alert-warning {
             border-color: var(--alert-warning-border, var(--warning));
-            background: rgba(243, 156, 18, 0.08);
+            background: var(--alert-warning-bg, rgba(243, 156, 18, 0.08));
         }
 
         .alert-success {
             border-color: var(--alert-success-border, var(--success));
-            background: rgba(46, 204, 113, 0.08);
+            background: var(--alert-success-bg, rgba(46, 204, 113, 0.08));
         }
 
         .alert-danger {
             border-color: var(--alert-danger-border, var(--error));
-            background: rgba(231, 76, 60, 0.08);
+            background: var(--alert-danger-bg, rgba(231, 76, 60, 0.08));
         }
 
         /* ============================================
@@ -1035,16 +1088,20 @@ from services.styled_export_service import (
 from services.theme_parser_service import parse_vscode_theme, validate_theme_json
 
 
-@app.route('/export/styled/<file_id>')
+@app.route('/export/styled/<file_id>', methods=['GET', 'POST'])
 @login_required
 @traced("export.styled_html")
 def export_styled_html(file_id):
     """
     ייצוא קובץ Markdown כ-HTML מעוצב להורדה.
     
-    Query params:
-        theme: מזהה ערכת הנושא (default: technical-dark)
+    GET Query params:
+        theme: מזהה ערכת הנושא (default: tech-guide-dark)
         preview: אם '1', מחזיר HTML לתצוגה מקדימה במקום להורדה
+    
+    POST Form data:
+        vscode_json: תוכן JSON של ערכת VS Code (לייבוא ישיר)
+        preview: אם '1', מחזיר HTML לתצוגה מקדימה
     """
     db = get_db()
     user_id = session['user_id']
@@ -1068,14 +1125,23 @@ def export_styled_html(file_id):
         flash('ייצוא HTML מעוצב זמין רק לקבצי Markdown', 'warning')
         return redirect(url_for('view_file', file_id=file_id))
     
-    # שליפת ערכת הנושא
-    theme_id = request.args.get('theme', 'tech-guide-dark')
-    
-    # שליפת ערכות המשתמש (אם בחר ערכה אישית)
-    user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
-    user_themes = user_data.get("custom_themes", []) if user_data else []
-    
-    theme = get_export_theme(theme_id, user_themes=user_themes)
+    # שליפת ערכת הנושא - תלוי ב-Method
+    if request.method == 'POST':
+        # POST: ערכת VS Code מה-Form Data
+        vscode_json = request.form.get('vscode_json')
+        if vscode_json:
+            theme = get_export_theme('vscode-import', vscode_json=vscode_json)
+        else:
+            theme = get_export_theme('tech-guide-dark')
+    else:
+        # GET: ערכה מה-Query String
+        theme_id = request.args.get('theme', 'tech-guide-dark')
+        
+        # שליפת ערכות המשתמש (אם בחר ערכה אישית)
+        user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+        user_themes = user_data.get("custom_themes", []) if user_data else []
+        
+        theme = get_export_theme(theme_id, user_themes=user_themes)
     
     # המרת Markdown ל-HTML
     raw_content = file.get('code') or file.get('content') or ''
@@ -1090,12 +1156,17 @@ def export_styled_html(file_id):
     )
     
     # תצוגה מקדימה או הורדה
-    is_preview = request.args.get('preview') == '1'
+    # תומך גם ב-GET query param וגם ב-POST form field
+    is_preview = (
+        request.args.get('preview') == '1' or 
+        request.form.get('preview') == '1'
+    )
     
     if is_preview:
+        # לתצוגה מקדימה - מחזירים HTML ישיר
         return rendered_html
     
-    # הורדה
+    # הורדה - מחזירים כקובץ להורדה
     response = make_response(rendered_html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
     
@@ -1481,9 +1552,43 @@ def api_parse_vscode_theme():
         if (file) handleFileUpload(file);
     });
 
+    // ============================================
+    // Error Display (UI יפה במקום alert)
+    // ============================================
+    
+    const errorContainer = document.createElement('div');
+    errorContainer.className = 'export-error-message';
+    errorContainer.hidden = true;
+    // מוסיפים ל-Import Tab
+    const importTab = document.getElementById('export-import-tab');
+    if (importTab) {
+        importTab.insertBefore(errorContainer, importTab.firstChild);
+    }
+
+    function showError(message) {
+        errorContainer.textContent = message;
+        errorContainer.hidden = false;
+        errorContainer.classList.add('shake');
+        
+        setTimeout(() => {
+            errorContainer.classList.remove('shake');
+        }, 500);
+        
+        // הסתרה אוטומטית אחרי 5 שניות
+        setTimeout(() => {
+            errorContainer.hidden = true;
+        }, 5000);
+    }
+
+    function hideError() {
+        errorContainer.hidden = true;
+    }
+
     async function handleFileUpload(file) {
+        hideError();
+        
         if (!file.name.endsWith('.json')) {
-            alert('נא להעלות קובץ JSON');
+            showError('נא להעלות קובץ JSON בלבד');
             return;
         }
 
@@ -1500,7 +1605,7 @@ def api_parse_vscode_theme():
             const data = await resp.json();
 
             if (!data.ok) {
-                alert(`שגיאה בפרסור הערכה: ${data.error}`);
+                showError(`שגיאה בפרסור הערכה: ${data.error}`);
                 return;
             }
 
@@ -1522,7 +1627,7 @@ def api_parse_vscode_theme():
 
         } catch (err) {
             console.error('File upload error:', err);
-            alert('שגיאה בקריאת הקובץ');
+            showError('שגיאה בקריאת הקובץ. וודא שזהו קובץ JSON תקין.');
         }
     }
 
@@ -1531,6 +1636,37 @@ def api_parse_vscode_theme():
     // ============================================
 
     modal.querySelector('[data-action="preview"]').addEventListener('click', async () => {
+        // מקרה מיוחד: תצוגה מקדימה של VS Code JSON (צריך POST עם Blob)
+        if (selectedTheme.source === 'vscode' && selectedTheme.vscodeJson) {
+            try {
+                const formData = new FormData();
+                formData.append('vscode_json', selectedTheme.vscodeJson);
+                formData.append('preview', '1');
+                
+                const response = await fetch(`/export/styled/${fileId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('שגיאה בשרת');
+                }
+                
+                // יצירת Blob URL ופתיחה בחלון חדש
+                const htmlBlob = await response.blob();
+                const blobUrl = URL.createObjectURL(htmlBlob);
+                window.open(blobUrl, '_blank');
+                
+                // ניקוי ה-Blob URL אחרי זמן קצר
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+            } catch (err) {
+                console.error('Preview error:', err);
+                showError('שגיאה ביצירת תצוגה מקדימה');
+            }
+            return;
+        }
+
+        // מקרה רגיל (GET)
         const url = buildExportUrl(true);
         window.open(url, '_blank');
     });
@@ -1854,6 +1990,39 @@ def api_parse_vscode_theme():
     color: var(--error);
 }
 
+/* Error Message (הודעת שגיאה יפה במקום alert) */
+.export-error-message {
+    background: rgba(231, 76, 60, 0.15);
+    border: 1px solid var(--error, #e74c3c);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    color: var(--error, #e74c3c);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.export-error-message::before {
+    content: '⚠️';
+}
+
+.export-error-message[hidden] {
+    display: none;
+}
+
+/* Animation for error shake */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
+}
+
+.export-error-message.shake {
+    animation: shake 0.5s ease-in-out;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .export-modal__surface {
@@ -1883,14 +2052,15 @@ def api_parse_vscode_theme():
 
 ## ✅ צ'קליסט מימוש
 
+- [ ] **שלב 0**: הוספת `bleach>=6.0.0` ל-`requirements/base.txt`
 - [ ] **שלב 1**: יצירת `services/styled_export_service.py`
 - [ ] **שלב 2**: יצירת `webapp/templates/export/styled_document.html`
-- [ ] **שלב 3**: הוספת Routes ל-`webapp/app.py`
+- [ ] **שלב 3**: הוספת Routes ל-`webapp/app.py` (עם תמיכה ב-GET + POST)
 - [ ] **שלב 4**: יצירת `webapp/templates/export/export_modal.html`
-- [ ] **שלב 5**: יצירת `webapp/static/js/export-modal.js`
-- [ ] **שלב 6**: יצירת `webapp/static/css/export-modal.css`
+- [ ] **שלב 5**: יצירת `webapp/static/js/export-modal.js` (עם Blob URL לתצוגה מקדימה)
+- [ ] **שלב 6**: יצירת `webapp/static/css/export-modal.css` (כולל הודעות שגיאה)
 - [ ] **שלב 7**: עדכון `view_file.html` עם הכפתור וה-include
-- [ ] **שלב 8**: טסטים
+- [ ] **שלב 8**: טסטים (כולל sanitization)
 - [ ] **שלב 9**: תיעוד
 
 ---
@@ -1965,6 +2135,19 @@ class TestGetExportTheme:
 2. **תמיכה ב-Alerts מרובי שורות** - עם Markdown פנימי
 3. **Print Styles** - להדפסה נכונה
 4. **Responsive Design** - מותאם למובייל
+
+### 🔒 תיקוני אבטחה ואיכות (Code Review)
+
+התיקונים הבאים בוצעו בעקבות ביקורת קוד:
+
+| בעיה | תיקון |
+|------|-------|
+| **XSS Vulnerability** | הוספת `bleach` ל-sanitization של HTML |
+| **POST לא נתמך** | הוספת `methods=['GET', 'POST']` ל-Route |
+| **Preview לא עובד עם VS Code JSON** | שימוש ב-Blob URL במקום `window.open` |
+| **`rgba(var(--hex), 0.5)` לא תקני** | שימוש ב-CSS Variables מוגדרים מראש |
+| **פונטים לא אחידים** | System Font Stack לתאימות מלאה |
+| **`alert()` מכוער** | הודעות שגיאה יפות ב-UI עם אנימציה |
 
 ### שיפורים עתידיים אפשריים
 
