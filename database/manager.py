@@ -117,6 +117,14 @@ _MONGO_MONITORING_REGISTERED = False
 class DatabaseManager:
     """אחראי על חיבור MongoDB והגדרת אינדקסים."""
 
+    # --- Profiler hard-disable ---
+    # נטרול מוחלט של ה-Profiler ברמת הקוד (לא תלוי ENV).
+    # אם נרצה להפעיל שוב בעתיד, נרים את הערך ל-True ונשתמש ב-ENV כרגיל.
+    ENABLE_PROFILING: bool = False
+
+    # --- Diagnostics: instance counter (sanity check for accidental re-creation) ---
+    _INSTANCES_CREATED: int = 0
+
     client: Optional[Any]
     db: Optional[DBLike]
     collection: CollectionLike
@@ -129,6 +137,10 @@ class DatabaseManager:
     _repo: Optional[Any]
 
     def __init__(self):
+        try:
+            type(self)._INSTANCES_CREATED += 1
+        except Exception:
+            pass
         self.client = None
         self.db = None
         # תאימות לשכבות שמצפות ל-db_name (למשל JobTracker במדריכים)
@@ -143,6 +155,13 @@ class DatabaseManager:
         self.shared_themes_collection = _StubCollection()
         self._repo = None
         self.connect()
+
+    @classmethod
+    def instances_created(cls) -> int:
+        try:
+            return int(getattr(cls, "_INSTANCES_CREATED", 0) or 0)
+        except Exception:
+            return 0
 
     def connect(self):
         # Docs build / CI: אפשר לנטרל חיבור למסד כדי למנוע שגיאות בזמן בניית דוקס
@@ -229,10 +248,14 @@ class DatabaseManager:
 
                     def _profiler_enabled() -> bool:
                         try:
+                            # Hard-disable flag in code (even if ENV says enabled)
+                            if not bool(getattr(outer_self, "ENABLE_PROFILING", True)):
+                                return False
                             v = os.getenv("PROFILER_ENABLED", "true")
                             return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
                         except Exception:
-                            return True
+                            # Fail-safe: אם יש תקלה בקריאת ENV, נשאיר כבוי (כדי לא להעמיס)
+                            return False
 
                     def _profiler_threshold_ms() -> float:
                         # PROFILER_SLOW_THRESHOLD_MS controls recording into the profiler.
@@ -1226,6 +1249,30 @@ class DatabaseManager:
 
     def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
         return self._get_repo().save_user(user_id, username)
+
+    def get_user(self, user_id: Any) -> Optional[Dict[str, Any]]:
+        """Sanity helper: fetch user document by user_id (PyMongo).
+
+        נועד בעיקר לניסויי latency/בדיקות תפעוליות, כדי לוודא שאין יצירה חוזרת של MongoClient.
+        """
+        db = getattr(self, "db", None)
+        if db is None:
+            return None
+        try:
+            uid = int(user_id)
+        except Exception:
+            return None
+        try:
+            coll = getattr(db, "users", None)
+        except Exception:
+            coll = None
+        if coll is None or not hasattr(coll, "find_one"):
+            return None
+        try:
+            doc = coll.find_one({"user_id": uid})
+        except Exception:
+            return None
+        return doc if isinstance(doc, dict) else None
 
     # Google Drive tokens & preferences
     def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any]) -> bool:
