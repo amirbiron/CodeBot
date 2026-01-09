@@ -183,13 +183,21 @@
             font-size: 0.9em;
         }
 
-        /* צבע ברירת מחדל לקוד שאינו בתוך .highlight (קוד ללא syntax highlighting) */
-        pre:not(.highlight) code {
+        /* צבע ברירת מחדל לקוד בתוך pre שאינו בתוך .highlight (קוד ללא syntax highlighting) */
+        /* המבנה של codehilite: <div class="highlight"><pre><code>...</code></pre></div> */
+        pre code {
             color: var(--code-text, #d4d4d4);
         }
 
-        /* Inline code */
-        p code, li code, td code {
+        /* קוד עם syntax highlighting - הצבעים מגיעים מ-Pygments CSS */
+        .highlight pre code {
+            color: inherit;
+        }
+
+        /* Inline code - כולל בכותרות */
+        p code, li code, td code,
+        h1 code, h2 code, h3 code, h4 code, h5 code, h6 code,
+        blockquote code {
             background: var(--code-bg, rgba(0, 0, 0, 0.1));
             color: var(--code-text, #d4d4d4);
             padding: 2px 6px;
