@@ -178,32 +178,30 @@
             text-align: left;
         }
 
+        /* Inline code - ברירת מחדל לכל code */
+        /* כולל code בתוך strong, em, a וכו' */
         code {
             font-family: 'Consolas', 'Fira Code', 'Monaco', monospace;
-            font-size: 0.9em;
+            font-size: 0.85em;
+            background: var(--code-bg, rgba(0, 0, 0, 0.1));
+            color: var(--code-text, #d4d4d4);
+            padding: 2px 6px;
+            border-radius: 4px;
         }
 
-        /* צבע ברירת מחדל לקוד בתוך pre שאינו בתוך .highlight (קוד ללא syntax highlighting) */
+        /* Code blocks - דריסת סגנון inline */
         /* המבנה של codehilite: <div class="highlight"><pre><code>...</code></pre></div> */
         pre code {
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            font-size: 1em; /* גודל מלא בבלוקים */
             color: var(--code-text, #d4d4d4);
         }
 
         /* קוד עם syntax highlighting - הצבעים מגיעים מ-Pygments CSS */
         .highlight pre code {
             color: inherit;
-        }
-
-        /* Inline code - כולל בכותרות ובטבלאות */
-        /* שימוש ב- :not(pre) > code כדי לא לתפוס code blocks */
-        p > code, li > code, td > code, th > code,
-        h1 > code, h2 > code, h3 > code, h4 > code, h5 > code, h6 > code,
-        blockquote > p > code {
-            background: var(--code-bg, rgba(0, 0, 0, 0.1));
-            color: var(--code-text, #d4d4d4);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.85em;
         }
 
         /* ============================================
