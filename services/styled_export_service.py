@@ -597,6 +597,7 @@ def get_pygments_style_for_theme(theme_id: str, theme_category: str = "dark") ->
 def generate_pygments_css(
     style_name: str = "monokai",
     css_class: str = ".highlight",
+    theme_category: str = "dark",
 ) -> str:
     """
     מייצר CSS להדגשת תחביר באמצעות Pygments.
@@ -604,6 +605,7 @@ def generate_pygments_css(
     Args:
         style_name: שם ה-Pygments style (לדוגמה: 'monokai', 'default', 'github-dark')
         css_class: ה-CSS class שמשמש לעטיפת הקוד (ברירת מחדל: '.highlight')
+        theme_category: קטגוריית הערכה ('dark' או 'light') - משמש לבחירת fallback מתאים
 
     Returns:
         מחרוזת CSS עם הגדרות הצבעים להדגשת תחביר
@@ -617,9 +619,21 @@ def generate_pygments_css(
         try:
             style = get_style_by_name(style_name)
         except Exception:
-            # אם לא נמצא, השתמש ב-monokai כברירת מחדל
-            logger.warning("Pygments style '%s' not found, using monokai", style_name)
-            style = get_style_by_name("monokai")
+            # אם לא נמצא, השתמש ב-fallback לפי הקטגוריה
+            # 🔒 הגנה מפני None
+            category = (theme_category or "dark").lower()
+            fallback_style = (
+                PYGMENTS_STYLE_LIGHT_FALLBACK
+                if category == "light"
+                else PYGMENTS_STYLE_DARK_FALLBACK
+            )
+            logger.warning(
+                "Pygments style '%s' not found, using %s fallback for %s theme",
+                style_name,
+                fallback_style,
+                category,
+            )
+            style = get_style_by_name(fallback_style)
 
         # יצירת ה-formatter עם ה-style
         formatter = HtmlFormatter(style=style, cssclass=css_class.lstrip("."))
@@ -751,7 +765,10 @@ def render_styled_html(
 
         # ייצור ה-CSS
         # 🔒 CSS מ-Pygments הוא בטוח (מיוצר פנימית), אבל נעביר דרך sanitize בכל מקרה
-        syntax_css = sanitize_css(generate_pygments_css(pygments_style, ".highlight"))
+        # מעבירים את הקטגוריה כדי לבחור fallback מתאים אם ה-style לא נמצא
+        syntax_css = sanitize_css(
+            generate_pygments_css(pygments_style, ".highlight", theme_category)
+        )
 
     # ייבוא מאוחר כדי לאפשר שימוש בפונקציות אחרות גם בלי Flask (למשל בטסטים)
     from flask import render_template

@@ -133,10 +133,16 @@ class TestPygmentsCssGeneration:
         assert "color:" in css or "background:" in css
 
     @pytest.mark.skipif(not HAS_PYGMENTS, reason="Pygments not installed")
-    def test_generate_pygments_css_fallback_on_invalid_style(self):
-        """fallback ל-monokai כשהסגנון לא קיים"""
-        css = generate_pygments_css("nonexistent-style-xyz", ".highlight")
+    def test_generate_pygments_css_fallback_dark_on_invalid_style(self):
+        """fallback ל-monokai (dark) כשהסגנון לא קיים וקטגוריה כהה"""
+        css = generate_pygments_css("nonexistent-style-xyz", ".highlight", "dark")
         assert css  # אמור להחזיר CSS גם כשהסגנון לא קיים
+
+    @pytest.mark.skipif(not HAS_PYGMENTS, reason="Pygments not installed")
+    def test_generate_pygments_css_fallback_light_on_invalid_style(self):
+        """fallback ל-default (light) כשהסגנון לא קיים וקטגוריה בהירה"""
+        css = generate_pygments_css("nonexistent-style-xyz", ".highlight", "light")
+        assert css  # אמור להחזיר CSS מתאים לערכה בהירה
 
     @pytest.mark.skipif(not HAS_PYGMENTS, reason="Pygments not installed")
     def test_generate_pygments_css_default_style(self):
