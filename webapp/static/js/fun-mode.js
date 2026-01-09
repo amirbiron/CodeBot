@@ -380,7 +380,7 @@
 
     let ok = true;
     try {
-      ok = window.confirm('אזהרה: האפקט מזיז את כל הדף. אפשר לבטל בכל מקש, בטאפ/קליק, או בכפתור "⟲ בטל". להמשיך?');
+      ok = window.confirm('אזהרה: האפקט מזיז את כל הדף. אפשר לבטל בכל מקש או בטאפ/קליק על המסך. להמשיך?');
     } catch (_) {}
     if (!ok) return;
 
@@ -423,26 +423,6 @@
       }
     } catch (_) {}
 
-    // כפתור ביטול קטן למובייל + Tap/Click על המסך לביטול
-    const resetBtn = document.createElement('button');
-    resetBtn.type = 'button';
-    resetBtn.textContent = '⟲ בטל';
-    resetBtn.setAttribute('aria-label', 'בטל אפקט');
-    Object.assign(resetBtn.style, {
-      position: 'fixed',
-      top: '12px',
-      left: '12px',
-      zIndex: '100000',
-      padding: '10px 12px',
-      borderRadius: '12px',
-      border: '1px solid rgba(255,255,255,0.25)',
-      background: 'rgba(0,0,0,0.55)',
-      color: '#fff',
-      fontSize: '14px',
-      fontWeight: '700',
-      cursor: 'pointer',
-    });
-
     function cancelGravity(e) {
       try {
         if (e && e.preventDefault) e.preventDefault();
@@ -450,20 +430,6 @@
       } catch (_) {}
       stopAll();
     }
-
-    try {
-      document.body.appendChild(resetBtn);
-      bag.add(() => {
-        try {
-          resetBtn.remove();
-        } catch (_) {}
-      });
-    } catch (_) {}
-
-    try {
-      resetBtn.addEventListener('click', cancelGravity, true);
-      bag.add(() => resetBtn.removeEventListener('click', cancelGravity, true));
-    } catch (_) {}
 
     try {
       document.addEventListener('click', cancelGravity, true);
