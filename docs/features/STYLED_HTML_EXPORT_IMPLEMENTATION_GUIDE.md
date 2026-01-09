@@ -190,40 +190,94 @@ def markdown_to_html(text: str) -> str:
 
 # Presets מיוחדים לייצוא (בנוסף לאלו שבגלריה)
 EXPORT_PRESETS = {
-    "technical-dark": {
-        "id": "technical-dark",
-        "name": "Technical Dark",
-        "description": "עיצוב טכני כהה - מושלם למדריכים",
+    "tech-guide-dark": {
+        "id": "tech-guide-dark",
+        "name": "Tech Guide Dark",
+        "description": "עיצוב טכני כהה מקצועי - מושלם למדריכים ותיעוד",
         "category": "dark",
         "variables": {
-            "--bg-primary": "#1a1a2e",
+            # רקעים (מבוססים על editor.background, sideBar.background)
+            "--bg-primary": "#0f0f23",
             "--bg-secondary": "#16213e",
-            "--bg-tertiary": "#0f0f23",
-            "--text-primary": "#eeeeee",
-            "--text-secondary": "#9d9d9d",
-            "--text-muted": "#6d6d6d",
+            "--bg-tertiary": "#1a1a2e",
+            
+            # טקסט (מבוססים על editor.foreground)
+            "--text-primary": "#c3cee3",
+            "--text-secondary": "#c3cee3",
+            "--text-muted": "#3d5a80",
+            "--text-heading": "#eeeeee",
+            
+            # צבעי מותג
             "--primary": "#0088cc",
-            "--primary-hover": "#0077b3",
+            "--primary-hover": "#0099dd",
             "--primary-light": "#0088cc26",
             "--secondary": "#9b59b6",
+            
+            # גבולות וצללים
             "--border-color": "#3d5a80",
             "--shadow-color": "rgba(0, 0, 0, 0.4)",
+            
+            # סטטוסים (מבוססים על terminal colors)
             "--success": "#2ecc71",
             "--warning": "#f39c12",
             "--error": "#e74c3c",
             "--danger-bg": "#e74c3c",
             "--danger-border": "#c0392b",
+            
+            # קוד (מבוססים על terminal.background)
             "--code-bg": "#0f0f23",
             "--code-text": "#7fdbca",
             "--code-border": "#3d5a80",
+            "--code-line-highlight": "#16213e",
+            
+            # קישורים
             "--link-color": "#0088cc",
+            
+            # כרטיסים
             "--card-bg": "#16213e",
             "--card-border": "#3d5a80",
+            
+            # Alerts
             "--alert-info-border": "#0088cc",
+            "--alert-info-bg": "rgba(0, 136, 204, 0.08)",
             "--alert-warning-border": "#f39c12",
+            "--alert-warning-bg": "rgba(243, 156, 18, 0.08)",
             "--alert-success-border": "#2ecc71",
+            "--alert-success-bg": "rgba(46, 204, 113, 0.08)",
             "--alert-danger-border": "#e74c3c",
-        }
+            "--alert-danger-bg": "rgba(231, 76, 60, 0.08)",
+            
+            # כפתורים (מבוססים על button.background)
+            "--btn-bg": "#0088cc",
+            "--btn-hover-bg": "#0099dd",
+            "--btn-color": "#ffffff",
+            
+            # Copy Button
+            "--copy-btn-bg": "rgba(255, 255, 255, 0.1)",
+            "--copy-btn-hover-bg": "#0088cc",
+            "--copy-btn-success-bg": "#2ecc71",
+        },
+        # Syntax highlighting CSS (מבוסס על tokenColors מה-JSON)
+        "syntax_css": """
+/* Tech Guide Dark - Syntax Highlighting */
+.highlight .c, .highlight .c1, .highlight .cm { color: #6a9955; font-style: italic; }  /* Comments */
+.highlight .k, .highlight .kd, .highlight .kn { color: #c586c0; }  /* Keywords */
+.highlight .s, .highlight .s1, .highlight .s2 { color: #ce9178; }  /* Strings */
+.highlight .m, .highlight .mi, .highlight .mf, .highlight .mh { color: #b5cea8; }  /* Numbers */
+.highlight .nb, .highlight .bp { color: #b5cea8; }  /* Built-ins / Constants */
+.highlight .n, .highlight .nv { color: #9cdcfe; }  /* Variables */
+.highlight .nf, .highlight .fm { color: #dcdcaa; }  /* Functions */
+.highlight .nc, .highlight .nn { color: #4ec9b0; }  /* Classes / Namespaces */
+.highlight .nt { color: #569cd6; }  /* HTML Tags */
+.highlight .na { color: #9cdcfe; }  /* Attributes */
+.highlight .o, .highlight .p { color: #d4d4d4; }  /* Operators / Punctuation */
+.highlight .sr { color: #d16969; }  /* Regex */
+.highlight .se { color: #d7ba7d; }  /* Escape */
+.highlight .gh, .highlight .gu { color: #0088cc; font-weight: bold; }  /* Headings */
+.highlight .ge { font-style: italic; }  /* Emphasis */
+.highlight .gs { font-weight: bold; }  /* Strong */
+.highlight .err { color: #f44747; text-decoration: underline; }  /* Errors */
+"""
     },
     "clean-light": {
         "id": "clean-light",
@@ -353,11 +407,11 @@ def get_export_theme(
                 }
     
     # 5. Fallback
-    logger.info("Theme '%s' not found, using technical-dark fallback", theme_id)
+    logger.info("Theme '%s' not found, using tech-guide-dark fallback", theme_id)
     return {
-        "name": "Technical Dark",
-        "variables": EXPORT_PRESETS["technical-dark"]["variables"],
-        "syntax_css": "",
+        "name": "Tech Guide Dark",
+        "variables": EXPORT_PRESETS["tech-guide-dark"]["variables"],
+        "syntax_css": EXPORT_PRESETS["tech-guide-dark"].get("syntax_css", ""),
     }
 
 
@@ -620,8 +674,10 @@ def render_styled_html(
          * Code Blocks
          * ============================================ */
         pre {
+            position: relative; /* מאפשר הצמדת כפתור Copy לפינה */
             background: var(--code-bg, #1e1e1e);
             padding: 20px;
+            padding-top: 2.5rem; /* מקום לכפתור */
             border-radius: 10px;
             overflow-x: auto;
             border: 1px solid var(--code-border, var(--border-color));
@@ -642,6 +698,51 @@ def render_styled_html(
             padding: 2px 6px;
             border-radius: 4px;
             font-size: 0.85em;
+        }
+
+        /* ============================================
+         * Copy Button
+         * ============================================ */
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            left: 8px; /* בשמאל כי הקוד הוא LTR */
+            background: var(--copy-btn-bg, rgba(255, 255, 255, 0.1));
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s ease;
+            opacity: 0;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        pre:hover .copy-btn,
+        pre:focus-within .copy-btn {
+            opacity: 1;
+        }
+
+        .copy-btn:hover {
+            background: var(--copy-btn-hover-bg, var(--primary));
+            border-color: var(--primary);
+            color: #ffffff;
+        }
+
+        .copy-btn.success {
+            background: var(--copy-btn-success-bg, var(--success));
+            border-color: var(--success);
+            color: #ffffff;
+        }
+
+        /* תמיד מוצג במובייל (אין hover) */
+        @media (max-width: 768px) {
+            .copy-btn {
+                opacity: 1;
+            }
         }
 
         /* ============================================
@@ -839,6 +940,77 @@ def render_styled_html(
             Theme: {{ theme_name }}
         </p>
     </footer>
+
+    <!-- Copy Button Script -->
+    <script>
+    (function() {
+        'use strict';
+        
+        // מוסיף כפתור "העתק" לכל בלוק קוד
+        document.querySelectorAll('pre').forEach(function(codeBlock) {
+            // יצירת הכפתור
+            var button = document.createElement('button');
+            button.className = 'copy-btn';
+            button.type = 'button';
+            button.innerHTML = '📋 <span>העתק</span>';
+            button.title = 'העתק קוד ללוח';
+            button.setAttribute('aria-label', 'העתק קוד ללוח');
+
+            button.addEventListener('click', function() {
+                // מציאת הקוד להעתקה
+                var codeEl = codeBlock.querySelector('code');
+                var textToCopy = codeEl ? codeEl.innerText : codeBlock.innerText;
+                
+                // ניקוי רווחים מיותרים בסוף
+                textToCopy = textToCopy.trim();
+
+                // העתקה ללוח
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(textToCopy).then(function() {
+                        showSuccess(button);
+                    }).catch(function() {
+                        fallbackCopy(textToCopy, button);
+                    });
+                } else {
+                    fallbackCopy(textToCopy, button);
+                }
+            });
+
+            codeBlock.appendChild(button);
+        });
+
+        // פידבק ויזואלי להצלחה
+        function showSuccess(button) {
+            var originalHTML = button.innerHTML;
+            button.innerHTML = '✅ <span>הועתק!</span>';
+            button.classList.add('success');
+            
+            setTimeout(function() {
+                button.innerHTML = originalHTML;
+                button.classList.remove('success');
+            }, 2000);
+        }
+
+        // fallback לדפדפנים ישנים
+        function fallbackCopy(text, button) {
+            var textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                showSuccess(button);
+            } catch (err) {
+                alert('לא הצלחנו להעתיק את הקוד');
+            }
+            
+            document.body.removeChild(textarea);
+        }
+    })();
+    </script>
 </body>
 </html>
 ```
@@ -897,7 +1069,7 @@ def export_styled_html(file_id):
         return redirect(url_for('view_file', file_id=file_id))
     
     # שליפת ערכת הנושא
-    theme_id = request.args.get('theme', 'technical-dark')
+    theme_id = request.args.get('theme', 'tech-guide-dark')
     
     # שליפת ערכות המשתמש (אם בחר ערכה אישית)
     user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
@@ -1086,7 +1258,7 @@ def api_parse_vscode_theme():
         <div class="export-modal__footer">
             <div class="export-selected-info">
                 <span class="export-selected-label">ערכה נבחרת:</span>
-                <strong id="exportSelectedThemeName">Technical Dark</strong>
+                <strong id="exportSelectedThemeName">Tech Guide Dark</strong>
             </div>
             <div class="export-modal__actions">
                 <button type="button" class="btn btn-secondary" data-action="preview">
@@ -1114,8 +1286,8 @@ def api_parse_vscode_theme():
 
     // State
     let selectedTheme = {
-        id: 'technical-dark',
-        name: 'Technical Dark',
+        id: 'tech-guide-dark',
+        name: 'Tech Guide Dark',
         source: 'preset', // 'preset' | 'user' | 'vscode'
         vscodeJson: null,  // תוכן JSON אם מקור הוא VS Code
     };
@@ -1762,9 +1934,10 @@ class TestPreprocessMarkdown:
 
 class TestGetExportTheme:
     def test_returns_builtin_preset(self):
-        theme = get_export_theme("technical-dark")
-        assert theme["name"] == "Technical Dark"
+        theme = get_export_theme("tech-guide-dark")
+        assert theme["name"] == "Tech Guide Dark"
         assert "--bg-primary" in theme["variables"]
+        assert theme["variables"]["--bg-primary"] == "#0f0f23"
 
     def test_returns_gallery_preset(self):
         theme = get_export_theme("github-dark")
@@ -1772,7 +1945,12 @@ class TestGetExportTheme:
 
     def test_fallback_to_default(self):
         theme = get_export_theme("nonexistent-theme")
-        assert theme["name"] == "Technical Dark"
+        assert theme["name"] == "Tech Guide Dark"
+    
+    def test_syntax_css_included(self):
+        theme = get_export_theme("tech-guide-dark")
+        assert theme.get("syntax_css")
+        assert ".highlight .k" in theme["syntax_css"]  # Keywords
 ```
 
 ---
@@ -1794,3 +1972,233 @@ class TestGetExportTheme:
 2. **שמירת ערכה מועדפת** - per-user default
 3. **ייצוא PDF** - עם wkhtmltopdf / Playwright
 4. **תבניות נוספות** - Resume, Presentation, Newsletter
+
+---
+
+## 🎨 נספח: ערכת Tech Guide Dark (VS Code JSON)
+
+ערכת הנושא המקורית בפורמט VS Code, לשימוש בייבוא או כגיבוי:
+
+<details>
+<summary>לחץ לצפייה בקובץ JSON המלא</summary>
+
+```json
+{
+    "$schema": "vscode://schemas/color-theme",
+    "name": "Tech Guide Dark",
+    "type": "dark",
+    "colors": {
+        "editor.background": "#0f0f23",
+        "editor.foreground": "#c3cee3",
+        "editorCursor.foreground": "#0088cc",
+        "editor.lineHighlightBackground": "#16213e",
+        "editor.selectionBackground": "#3d5a8066",
+        "editor.findMatchBackground": "#f39c1266",
+        "editor.findMatchHighlightBackground": "#f39c1244",
+        "editorLineNumber.foreground": "#3d5a80",
+        "editorLineNumber.activeForeground": "#0088cc",
+        "editorGutter.background": "#1a1a2e",
+        "editorBracketMatch.border": "#0088cc",
+        "editorBracketMatch.background": "#0088cc33",
+        "editorIndentGuide.background": "#3d5a8044",
+        "editorIndentGuide.activeBackground": "#0088cc",
+        "sideBar.background": "#16213e",
+        "sideBar.foreground": "#c3cee3",
+        "sideBar.border": "#3d5a80",
+        "sideBarTitle.foreground": "#eeeeee",
+        "activityBar.background": "#1a1a2e",
+        "activityBar.foreground": "#0088cc",
+        "activityBar.border": "#3d5a80",
+        "activityBarBadge.background": "#0088cc",
+        "activityBarBadge.foreground": "#ffffff",
+        "statusBar.background": "#0088cc",
+        "statusBar.foreground": "#ffffff",
+        "statusBar.border": "#005577",
+        "titleBar.activeBackground": "#1a1a2e",
+        "titleBar.activeForeground": "#eeeeee",
+        "titleBar.inactiveBackground": "#0f0f23",
+        "titleBar.inactiveForeground": "#c3cee3",
+        "tab.activeBackground": "#16213e",
+        "tab.activeForeground": "#eeeeee",
+        "tab.inactiveBackground": "#1a1a2e",
+        "tab.inactiveForeground": "#c3cee3",
+        "tab.border": "#3d5a80",
+        "tab.activeBorderTop": "#0088cc",
+        "panel.background": "#16213e",
+        "panel.border": "#3d5a80",
+        "terminal.background": "#0f0f23",
+        "terminal.foreground": "#c3cee3",
+        "terminal.ansiBlack": "#0f0f23",
+        "terminal.ansiRed": "#e74c3c",
+        "terminal.ansiGreen": "#2ecc71",
+        "terminal.ansiYellow": "#f39c12",
+        "terminal.ansiBlue": "#0088cc",
+        "terminal.ansiMagenta": "#9b59b6",
+        "terminal.ansiCyan": "#7fdbca",
+        "terminal.ansiWhite": "#eeeeee",
+        "terminal.ansiBrightBlack": "#3d5a80",
+        "terminal.ansiBrightRed": "#e74c3c",
+        "terminal.ansiBrightGreen": "#2ecc71",
+        "terminal.ansiBrightYellow": "#f39c12",
+        "terminal.ansiBrightBlue": "#0088cc",
+        "terminal.ansiBrightMagenta": "#c586c0",
+        "terminal.ansiBrightCyan": "#9cdcfe",
+        "terminal.ansiBrightWhite": "#ffffff",
+        "input.background": "#0f0f23",
+        "input.foreground": "#eeeeee",
+        "input.border": "#3d5a80",
+        "input.placeholderForeground": "#3d5a80",
+        "dropdown.background": "#16213e",
+        "dropdown.foreground": "#eeeeee",
+        "dropdown.border": "#3d5a80",
+        "button.background": "#0088cc",
+        "button.foreground": "#ffffff",
+        "button.hoverBackground": "#0099dd",
+        "badge.background": "#0088cc",
+        "badge.foreground": "#ffffff",
+        "scrollbar.shadow": "#00000066",
+        "scrollbarSlider.background": "#3d5a8066",
+        "scrollbarSlider.hoverBackground": "#3d5a8099",
+        "scrollbarSlider.activeBackground": "#0088cc",
+        "list.activeSelectionBackground": "#0088cc",
+        "list.activeSelectionForeground": "#ffffff",
+        "list.inactiveSelectionBackground": "#16213e",
+        "list.hoverBackground": "#16213e",
+        "list.focusBackground": "#0088cc44",
+        "gitDecoration.addedResourceForeground": "#2ecc71",
+        "gitDecoration.modifiedResourceForeground": "#f39c12",
+        "gitDecoration.deletedResourceForeground": "#e74c3c",
+        "gitDecoration.untrackedResourceForeground": "#9b59b6",
+        "gitDecoration.ignoredResourceForeground": "#3d5a80",
+        "editorError.foreground": "#e74c3c",
+        "editorWarning.foreground": "#f39c12",
+        "editorInfo.foreground": "#0088cc"
+    },
+    "tokenColors": [
+        {
+            "name": "Comment",
+            "scope": ["comment", "punctuation.definition.comment"],
+            "settings": { "foreground": "#6a9955", "fontStyle": "italic" }
+        },
+        {
+            "name": "Keyword",
+            "scope": ["keyword", "keyword.control", "keyword.operator.new", "keyword.operator.expression", "keyword.operator.cast", "keyword.operator.sizeof", "keyword.operator.instanceof"],
+            "settings": { "foreground": "#c586c0" }
+        },
+        {
+            "name": "Storage",
+            "scope": ["storage", "storage.type", "storage.modifier"],
+            "settings": { "foreground": "#c586c0" }
+        },
+        {
+            "name": "String",
+            "scope": ["string", "string.quoted", "string.template"],
+            "settings": { "foreground": "#ce9178" }
+        },
+        {
+            "name": "Number",
+            "scope": ["constant.numeric", "constant.numeric.integer", "constant.numeric.float", "constant.numeric.hex"],
+            "settings": { "foreground": "#b5cea8" }
+        },
+        {
+            "name": "Constant",
+            "scope": ["constant", "constant.language", "constant.character", "constant.other"],
+            "settings": { "foreground": "#b5cea8" }
+        },
+        {
+            "name": "Variable",
+            "scope": ["variable", "variable.other", "variable.language"],
+            "settings": { "foreground": "#9cdcfe" }
+        },
+        {
+            "name": "Parameter",
+            "scope": ["variable.parameter", "meta.function.parameters"],
+            "settings": { "foreground": "#9cdcfe", "fontStyle": "italic" }
+        },
+        {
+            "name": "Function",
+            "scope": ["entity.name.function", "meta.function-call", "support.function"],
+            "settings": { "foreground": "#dcdcaa" }
+        },
+        {
+            "name": "Class",
+            "scope": ["entity.name.class", "entity.name.type.class", "support.class"],
+            "settings": { "foreground": "#4ec9b0" }
+        },
+        {
+            "name": "Type",
+            "scope": ["entity.name.type", "support.type", "support.type.primitive"],
+            "settings": { "foreground": "#4ec9b0" }
+        },
+        {
+            "name": "Operator",
+            "scope": ["keyword.operator", "keyword.operator.arithmetic", "keyword.operator.comparison", "keyword.operator.logical"],
+            "settings": { "foreground": "#d4d4d4" }
+        },
+        {
+            "name": "Punctuation",
+            "scope": ["punctuation", "punctuation.definition", "punctuation.separator", "punctuation.terminator"],
+            "settings": { "foreground": "#d4d4d4" }
+        },
+        {
+            "name": "HTML/XML Tag",
+            "scope": ["entity.name.tag", "meta.tag"],
+            "settings": { "foreground": "#569cd6" }
+        },
+        {
+            "name": "HTML/XML Attribute",
+            "scope": ["entity.other.attribute-name"],
+            "settings": { "foreground": "#9cdcfe" }
+        },
+        {
+            "name": "Regex",
+            "scope": ["string.regexp"],
+            "settings": { "foreground": "#d16969" }
+        },
+        {
+            "name": "Escape Character",
+            "scope": ["constant.character.escape"],
+            "settings": { "foreground": "#d7ba7d" }
+        },
+        {
+            "name": "Invalid",
+            "scope": ["invalid", "invalid.illegal"],
+            "settings": { "foreground": "#f44747", "fontStyle": "underline" }
+        },
+        {
+            "name": "JSON Key",
+            "scope": ["support.type.property-name.json"],
+            "settings": { "foreground": "#9cdcfe" }
+        },
+        {
+            "name": "Markdown Heading",
+            "scope": ["markup.heading", "entity.name.section.markdown"],
+            "settings": { "foreground": "#0088cc", "fontStyle": "bold" }
+        },
+        {
+            "name": "Markdown Bold",
+            "scope": ["markup.bold"],
+            "settings": { "foreground": "#dcdcaa", "fontStyle": "bold" }
+        },
+        {
+            "name": "Markdown Italic",
+            "scope": ["markup.italic"],
+            "settings": { "fontStyle": "italic" }
+        },
+        {
+            "name": "Markdown Link",
+            "scope": ["markup.underline.link"],
+            "settings": { "foreground": "#0088cc" }
+        },
+        {
+            "name": "Markdown Code",
+            "scope": ["markup.inline.raw", "markup.fenced_code"],
+            "settings": { "foreground": "#7fdbca" }
+        }
+    ]
+}
+```
+
+</details>
+
+ניתן לשמור קובץ זה כ-`tech-guide-dark.json` ולייבא אותו ישירות מתוך המודאל.
