@@ -38,7 +38,9 @@ try:  # Pygments (נדרש)
         get_lexer_for_filename,
         guess_lexer,
     )
+    from pygments.style import Style
     from pygments.styles import get_style_by_name
+    from pygments.token import Comment, Error, Generic, Keyword, Name, Number, Operator, String, Text
     from pygments.util import ClassNotFound
 except Exception:  # pragma: no cover
     highlight = None  # type: ignore[assignment]
@@ -46,8 +48,36 @@ except Exception:  # pragma: no cover
     get_lexer_by_name = None  # type: ignore[assignment]
     get_lexer_for_filename = None  # type: ignore[assignment]
     guess_lexer = None  # type: ignore[assignment]
+    Style = None  # type: ignore[assignment]
     get_style_by_name = None  # type: ignore[assignment]
     ClassNotFound = Exception  # type: ignore[assignment]
+
+
+if Style is not None:
+    class TechGuideStyle(Style):
+        """
+        ערכת הצבעים של Tech Guide:
+        רקע כהה מאוד, צבעים חזקים וברורים לקוד.
+        """
+
+        default_style = ""
+        styles = {
+            Text: '#d4d4d4',  # טקסט רגיל (אפור בהיר)
+            Comment: '#6a9955 italic',  # הערות (ירוק)
+            Keyword: '#569cd6',  # מילות מפתח (כחול - כמו ב-VS Code המקורי)
+            Keyword.Type: '#4ec9b0',  # טיפוסים (טורקיז)
+            Name: '#dcdcaa',  # שמות משתנים/כללי
+            Name.Function: '#dcdcaa',  # פונקציות (צהוב בהיר)
+            Name.Class: '#4ec9b0 bold',  # מחלקות
+            String: '#ce9178',  # מחרוזות (כתום - ה-Signature של Tech Guide)
+            Number: '#b5cea8',  # מספרים (ירוק בהיר)
+            Operator: '#d4d4d4',  # אופרטורים
+            Generic.Heading: '#569cd6 bold',
+            Generic.Subheading: '#569cd6 bold',
+            Error: '#f44747',
+        }
+else:  # pragma: no cover
+    TechGuideStyle = None  # type: ignore[assignment]
 
 
 class CodeImageGenerator:
@@ -118,6 +148,20 @@ class CodeImageGenerator:
             'line_number_bg': '#1e1f29',
             'line_number_text': '#6272a4',
             'border': '#44475a',
+        },
+        'banner_tech': {
+            # הרקע מסביב לכרטיס (ה-Wallpaper) - הסגול של הממשק
+            'background': '#1d1a26',
+            # צבע הטקסט הראשי
+            'text': '#d4d4d4',
+            # הרקע של "העורך" בתוך הכרטיס - כהה מאוד כדי שהקוד יבלוט
+            'line_number_bg': '#14121a',
+            # צבע מספרי השורות
+            'line_number_text': '#6e6290',
+            # צבע גבול סגול עדין
+            'border': '#4b4363',
+            # צבע חתימה/Watermark
+            'watermark': '#7cd827',
         },
     }
 
@@ -270,8 +314,16 @@ class CodeImageGenerator:
             th = max(0, bbox[3] - bbox[1])
             x = max(0, (self.LOGO_SIZE[0] - tw) // 2)
             y = max(0, (self.LOGO_SIZE[1] - th) // 2)
-            draw.rectangle([(0, 0), self.LOGO_SIZE], fill=(30, 30, 30, 200))
-            draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
+            try:
+                bg_rgb = self._parse_color(str(self.colors.get('line_number_bg') or '#1e1e1e'))
+            except Exception:
+                bg_rgb = (30, 30, 30)
+            try:
+                wm_rgb = self._parse_color(str(self.colors.get('watermark') or '#ffffff'))
+            except Exception:
+                wm_rgb = (255, 255, 255)
+            draw.rectangle([(0, 0), self.LOGO_SIZE], fill=(bg_rgb[0], bg_rgb[1], bg_rgb[2], 200))
+            draw.text((x, y), text, fill=(wm_rgb[0], wm_rgb[1], wm_rgb[2], 255), font=font)
             self._logo_cache = logo
             return logo
         except Exception as e:  # pragma: no cover
@@ -363,6 +415,9 @@ class CodeImageGenerator:
         fallback_stack = "'DejaVu Sans Mono','Liberation Mono','Noto Sans Mono','SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace"
         font_stack = f"{selected_css_font}, {fallback_stack}" if selected_css_font else fallback_stack
         line_numbers_html = "\n".join(f'<span class="line-number">{i}</span>' for i in range(1, len(lines) + 1))
+        wm_color = self.colors.get('watermark') or 'rgba(255,255,255,0.6)'
+        if isinstance(wm_color, tuple):
+            wm_color = f"rgb({wm_color[0]},{wm_color[1]},{wm_color[2]})"
         # כיתוב watermark טקסטואלי – אם אחר כך נוסיף לוגו אמיתי ב-PIL, נמנע כפילות
         html_doc = f"""<!DOCTYPE html>
 <html lang="he" dir="ltr">
@@ -437,7 +492,7 @@ class CodeImageGenerator:
 
     .wm {{
       position: absolute; bottom: {self.LOGO_PADDING}px; right: {self.LOGO_PADDING}px;
-      font-size: 11px; color: rgba(255,255,255,0.6);
+      font-size: 11px; color: {wm_color};
       background: rgba(0,0,0,0.25);
       padding: 4px 8px; border-radius: 4px; font-weight: 700;
     }}
@@ -507,11 +562,14 @@ class CodeImageGenerator:
         if theme is not None and theme != self.theme:
             self.theme = theme
             self.colors = self.THEMES.get(theme, self.THEMES['dark'])
+            # ה-watermark/הרקעים יכולים להשתנות לפי תמה – נבנה לוגו מחדש אם צריך
+            self._logo_cache = None
         if font_family is not None:
             normalized = (font_family or '').strip().lower() or None
             if normalized != self.font_family:
                 self.font_family = normalized
                 self._font_cache.clear()
+                self._logo_cache = None
 
     def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
         if not self._has_playwright:
@@ -624,7 +682,10 @@ class CodeImageGenerator:
             lexer = get_lexer_by_name('text', stripall=True)  # type: ignore[misc]
 
         try:
-            style = get_style_by_name(self.style)  # type: ignore[misc]
+            if self.style == 'banner_tech' and TechGuideStyle is not None:
+                style = TechGuideStyle
+            else:
+                style = get_style_by_name(self.style)  # type: ignore[misc]
         except Exception:
             style = get_style_by_name('default')  # type: ignore[misc]
 
