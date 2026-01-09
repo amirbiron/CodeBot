@@ -508,12 +508,21 @@ def get_export_theme(
             if not isinstance(theme, dict):
                 continue
             if theme.get("id") == theme_id:
+                # 🔧 תיקון: אם ה-syntax_css שמור עם selector ישן (.source),
+                # נייצר מחדש עם ה-selector הנכון (.highlight)
+                stored_css = theme.get("syntax_css", "")
+                if stored_css and ".source " in stored_css:
+                    # CSS ישן - צריך לתקן
+                    stored_css = stored_css.replace(".source ", ".highlight ")
+                    # גם להסיר את ה-attribute selector הישן
+                    stored_css = stored_css.replace('[data-theme-type="custom"] ', '')
+                
                 return {
                     "id": theme_id,
                     "name": theme.get("name", "My Theme"),
                     "category": theme.get("category", "dark"),
                     "variables": theme.get("variables", FALLBACK_DARK),
-                    "syntax_css": theme.get("syntax_css", ""),
+                    "syntax_css": stored_css,
                 }
 
     # 5. Fallback
