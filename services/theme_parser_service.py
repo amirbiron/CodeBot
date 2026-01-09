@@ -1494,7 +1494,7 @@ def generate_pygments_css_from_tokens(token_colors: list[dict]) -> str:
 
     Returns:
         CSS string עם כללים בפורמט:
-        [data-theme-type="custom"] .source .k { color: #...; }
+        .highlight .k { color: #...; }
     """
     if not isinstance(token_colors, list):
         return ""
@@ -1542,8 +1542,8 @@ def generate_pygments_css_from_tokens(token_colors: list[dict]) -> str:
             if "underline" in fs:
                 rule_parts.append("text-decoration: underline !important")
 
-            # Selector: [data-theme-type="custom"] .source .k
-            selector = f'[data-theme-type="custom"] .source {py_class}'
+            # Selector: .highlight .k (מתאים ל-codehilite Markdown extension)
+            selector = f'.highlight {py_class}'
             css_by_selector[py_class] = f'{selector} {{ {"; ".join(rule_parts)}; }}'
 
     return "\n".join(css_by_selector.values())
