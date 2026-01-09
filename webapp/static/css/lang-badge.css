@@ -1,0 +1,168 @@
+/* ============================================
+   🏷️ Language Badge Styling (GitHub-style)
+   ============================================
+   
+   עיצוב תגיות שפה עם נקודה צבעונית בסגנון GitHub.
+   תואם לכל ערכות הנושא (Dark/Light/Ocean וכו').
+   
+   שימוש:
+   <span class="lang-badge" data-lang="python">Python</span>
+*/
+
+/* --- 1. עיצוב המעטפת (מתאים לכל ה-Themes) --- */
+.lang-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    
+    /* משתמשים בטוקנים של המערכת כדי להתאים לכל ערכה (Dark/Light/Ocean) */
+    background-color: transparent; 
+    border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3)); 
+    color: var(--text-primary, inherit);
+    
+    padding: 2px 8px;
+    border-radius: 12px; /* פינות עגולות יותר למראה מודרני */
+    font-size: 0.8em;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* --- 2. הנקודה הצבעונית --- */
+.lang-badge::before {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    /* אם אין צבע מוגדר לשפה, משתמשים באפור ברירת מחדל */
+    background-color: var(--badge-color, #858585); 
+    flex-shrink: 0;
+}
+
+/* --- 3. מיפוי שפות מורחב (Top 50 Languages) --- */
+
+/* Web & Scripting */
+.lang-badge[data-lang="js"], 
+.lang-badge[data-lang="javascript"] { --badge-color: #f1e05a; }
+.lang-badge[data-lang="ts"],
+.lang-badge[data-lang="typescript"] { --badge-color: #3178c6; }
+.lang-badge[data-lang="html"]       { --badge-color: #e34c26; }
+.lang-badge[data-lang="css"]        { --badge-color: #563d7c; }
+.lang-badge[data-lang="php"]        { --badge-color: #4F5D95; }
+.lang-badge[data-lang="python"],
+.lang-badge[data-lang="py"]         { --badge-color: #3572A5; }
+.lang-badge[data-lang="ruby"],
+.lang-badge[data-lang="rb"]         { --badge-color: #701516; }
+
+/* Backend & Systems */
+.lang-badge[data-lang="java"]       { --badge-color: #b07219; }
+.lang-badge[data-lang="c"]          { --badge-color: #555555; }
+.lang-badge[data-lang="cpp"],
+.lang-badge[data-lang="c++"]        { --badge-color: #f34b7d; }
+.lang-badge[data-lang="csharp"],
+.lang-badge[data-lang="c#"],
+.lang-badge[data-lang="cs"]         { --badge-color: #178600; }
+.lang-badge[data-lang="go"]         { --badge-color: #00ADD8; }
+.lang-badge[data-lang="rust"],
+.lang-badge[data-lang="rs"]         { --badge-color: #dea584; }
+.lang-badge[data-lang="swift"]      { --badge-color: #F05138; }
+.lang-badge[data-lang="kotlin"]     { --badge-color: #A97BFF; }
+
+/* Data & Config */
+.lang-badge[data-lang="json"]       { --badge-color: #292929; }
+.lang-badge[data-lang="yaml"],
+.lang-badge[data-lang="yml"]        { --badge-color: #cb171e; }
+.lang-badge[data-lang="xml"]        { --badge-color: #0060ac; }
+.lang-badge[data-lang="sql"]        { --badge-color: #e38c00; }
+.lang-badge[data-lang="markdown"],
+.lang-badge[data-lang="md"]         { --badge-color: #083fa1; }
+.lang-badge[data-lang="dockerfile"] { --badge-color: #384d54; }
+.lang-badge[data-lang="shell"],
+.lang-badge[data-lang="bash"],
+.lang-badge[data-lang="sh"]         { --badge-color: #89e051; }
+
+/* Others */
+.lang-badge[data-lang="lua"]        { --badge-color: #000080; }
+.lang-badge[data-lang="r"]          { --badge-color: #198CE7; }
+.lang-badge[data-lang="perl"]       { --badge-color: #0298c3; }
+.lang-badge[data-lang="dart"]       { --badge-color: #00B4AB; }
+.lang-badge[data-lang="scala"]      { --badge-color: #c22d40; }
+.lang-badge[data-lang="elixir"]     { --badge-color: #6e4a7e; }
+.lang-badge[data-lang="haskell"]    { --badge-color: #5e5086; }
+
+/* Additional common languages */
+.lang-badge[data-lang="vue"]        { --badge-color: #41b883; }
+.lang-badge[data-lang="react"],
+.lang-badge[data-lang="jsx"],
+.lang-badge[data-lang="tsx"]        { --badge-color: #61dafb; }
+.lang-badge[data-lang="svelte"]     { --badge-color: #ff3e00; }
+.lang-badge[data-lang="angular"]    { --badge-color: #dd0031; }
+.lang-badge[data-lang="scss"],
+.lang-badge[data-lang="sass"]       { --badge-color: #c6538c; }
+.lang-badge[data-lang="less"]       { --badge-color: #1d365d; }
+.lang-badge[data-lang="graphql"]    { --badge-color: #e10098; }
+.lang-badge[data-lang="toml"]       { --badge-color: #9c4121; }
+.lang-badge[data-lang="ini"]        { --badge-color: #d1dbe0; }
+.lang-badge[data-lang="makefile"]   { --badge-color: #427819; }
+.lang-badge[data-lang="cmake"]      { --badge-color: #064f8c; }
+
+/* Mobile Development */
+.lang-badge[data-lang="objective-c"],
+.lang-badge[data-lang="objc"]       { --badge-color: #438eff; }
+.lang-badge[data-lang="flutter"]    { --badge-color: #02569b; }
+
+/* Functional & Other */
+.lang-badge[data-lang="clojure"]    { --badge-color: #db5855; }
+.lang-badge[data-lang="erlang"]     { --badge-color: #B83998; }
+.lang-badge[data-lang="f#"],
+.lang-badge[data-lang="fsharp"]     { --badge-color: #b845fc; }
+.lang-badge[data-lang="ocaml"]      { --badge-color: #3be133; }
+.lang-badge[data-lang="julia"]      { --badge-color: #a270ba; }
+.lang-badge[data-lang="nim"]        { --badge-color: #ffc200; }
+.lang-badge[data-lang="zig"]        { --badge-color: #ec915c; }
+.lang-badge[data-lang="v"]          { --badge-color: #5d87bf; }
+
+/* DevOps & Infrastructure */
+.lang-badge[data-lang="terraform"],
+.lang-badge[data-lang="tf"]         { --badge-color: #844fba; }
+.lang-badge[data-lang="ansible"]    { --badge-color: #1a1918; }
+.lang-badge[data-lang="puppet"]     { --badge-color: #302b6d; }
+.lang-badge[data-lang="helm"]       { --badge-color: #0f1689; }
+
+/* Text & Documentation */
+.lang-badge[data-lang="tex"],
+.lang-badge[data-lang="latex"]      { --badge-color: #3D6117; }
+.lang-badge[data-lang="rst"],
+.lang-badge[data-lang="restructuredtext"] { --badge-color: #141414; }
+.lang-badge[data-lang="asciidoc"]   { --badge-color: #73a0c5; }
+
+/* Database */
+.lang-badge[data-lang="plsql"]      { --badge-color: #dad8d8; }
+.lang-badge[data-lang="mongodb"]    { --badge-color: #13aa52; }
+.lang-badge[data-lang="redis"]      { --badge-color: #a51f17; }
+
+/* --- 4. התאמות לערכות נושא ספציפיות --- */
+
+/* High Contrast: נקודות בוהקות יותר */
+:root[data-theme="high-contrast"] .lang-badge {
+    border-color: var(--text-primary, #ffffff);
+}
+
+:root[data-theme="high-contrast"] .lang-badge::before {
+    box-shadow: 0 0 2px currentColor;
+}
+
+/* Light themes: גבול כהה יותר */
+:root[data-theme="ocean"] .lang-badge,
+:root[data-theme="rose-pine-dawn"] .lang-badge {
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Dark themes: גבול בהיר יותר */
+:root[data-theme="dark"] .lang-badge,
+:root[data-theme="dim"] .lang-badge,
+:root[data-theme="nebula"] .lang-badge,
+:root[data-theme="classic"] .lang-badge {
+    border-color: rgba(255, 255, 255, 0.2);
+}
