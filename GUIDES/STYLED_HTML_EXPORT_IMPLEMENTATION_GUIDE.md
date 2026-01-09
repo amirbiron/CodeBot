@@ -575,6 +575,35 @@ def generate_css_variables(variables: dict) -> str:
     return "\n".join(lines)
 
 
+def sanitize_css(css_content: str) -> str:
+    """
+    🔒 מנקה CSS ממחרוזות מסוכנות שעלולות לפרוץ מבלוק <style>.
+    
+    מונע הזרקת </style><script>... או expression(...) וכו'.
+    """
+    if not css_content:
+        return ""
+    
+    # רשימת דפוסים מסוכנים
+    dangerous_patterns = [
+        r'</style',           # סגירת תגית style
+        r'<script',           # פתיחת script
+        r'</script',          # סגירת script
+        r'javascript:',       # JavaScript URI
+        r'expression\s*\(',   # IE CSS expression
+        r'@import\s+url',     # יכול לטעון קבצים חיצוניים
+        r'behavior\s*:',      # IE behavior
+        r'-moz-binding',      # Firefox XBL binding
+    ]
+    
+    import re
+    clean_css = css_content
+    for pattern in dangerous_patterns:
+        clean_css = re.sub(pattern, '/* blocked */', clean_css, flags=re.IGNORECASE)
+    
+    return clean_css
+
+
 def render_styled_html(
     content_html: str,
     title: str,
@@ -596,7 +625,8 @@ def render_styled_html(
         HTML מלא מוכן להורדה
     """
     css_variables = generate_css_variables(theme.get("variables", {}))
-    syntax_css = theme.get("syntax_css", "")
+    # 🔒 XSS Protection - sanitize CSS before rendering
+    syntax_css = sanitize_css(theme.get("syntax_css", ""))
     
     return render_template(
         "export/styled_document.html",
@@ -1176,7 +1206,7 @@ def export_styled_html(file_id):
     
     # וידוא שזה קובץ Markdown
     language = (file.get('programming_language') or '').lower()
-    file_name = file.get('file_name', '')
+    file_name = file.get('file_name') or ''  # טיפול גם ב-None וגם בחסר
     is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
     
     if not is_markdown:
@@ -1418,6 +1448,23 @@ def api_parse_vscode_theme():
 (function () {
     'use strict';
 
+    // 🔒 XSS Protection - escape HTML entities
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+    
+    // 🔒 Validate hex color (prevent CSS injection)
+    function isValidHexColor(color) {
+        return /^#[0-9a-fA-F]{3,8}$/.test(color);
+    }
+    
+    function sanitizeColor(color) {
+        return isValidHexColor(color) ? color : '#888888';
+    }
+
     // State
     let selectedTheme = {
         id: 'tech-guide-dark',
@@ -1517,18 +1564,19 @@ def api_parse_vscode_theme():
             return;
         }
 
+        // 🔒 XSS Protection - escape all user-provided data
         presetsGrid.innerHTML = presets.map(p => `
             <button type="button" 
-                    class="export-theme-card ${p.id === selectedTheme.id ? 'selected' : ''}"
-                    data-theme-id="${p.id}"
-                    data-theme-name="${p.name}"
+                    class="export-theme-card ${escapeHtml(p.id) === selectedTheme.id ? 'selected' : ''}"
+                    data-theme-id="${escapeHtml(p.id)}"
+                    data-theme-name="${escapeHtml(p.name)}"
                     data-source="preset">
                 <div class="export-theme-preview">
-                    ${(p.preview_colors || []).map(c => `<span style="background:${c}"></span>`).join('')}
+                    ${(p.preview_colors || []).map(c => `<span style="background:${sanitizeColor(c)}"></span>`).join('')}
                 </div>
                 <div class="export-theme-info">
-                    <strong>${p.name}</strong>
-                    <small>${p.description || ''}</small>
+                    <strong>${escapeHtml(p.name)}</strong>
+                    <small>${escapeHtml(p.description || '')}</small>
                 </div>
             </button>
         `).join('');
@@ -1547,15 +1595,16 @@ def api_parse_vscode_theme():
             return;
         }
 
+        // 🔒 XSS Protection - escape all user-provided data
         userThemesGrid.innerHTML = themes.map(t => `
             <button type="button"
                     class="export-theme-card"
-                    data-theme-id="${t.id}"
-                    data-theme-name="${t.name}"
+                    data-theme-id="${escapeHtml(t.id)}"
+                    data-theme-name="${escapeHtml(t.name)}"
                     data-source="user">
                 <div class="export-theme-info">
-                    <strong>${t.name}</strong>
-                    <small>${t.description || 'ערכה מותאמת אישית'}</small>
+                    <strong>${escapeHtml(t.name)}</strong>
+                    <small>${escapeHtml(t.description || 'ערכה מותאמת אישית')}</small>
                 </div>
             </button>
         `).join('');
@@ -2531,3 +2580,57 @@ class TestConsecutiveAlerts:
 </details>
 
 ניתן לשמור קובץ זה כ-`tech-guide-dark.json` ולייבא אותו ישירות מתוך המודאל.
+
+---
+
+## 📋 נספח ג': סיכום תיקוני אבטחה ויציבות
+
+### תיקונים שנערכו על בסיס Code Review
+
+| # | בעיה | חומרה | תיקון |
+|---|------|--------|-------|
+| 1 | Route ב-GET לא תומך ב-POST עבור VS Code JSON | קריטי | הוספת `methods=['GET', 'POST']` |
+| 2 | Preview ל-VS Code לא עובד (JSON לא עובר ב-GET) | קריטי | שימוש ב-`fetch` POST עם `Blob URL` |
+| 3 | CSS לא תקין (`rgba(var(--hex))`) | קריטי | משתנים ייעודיים `--alert-*-bg` |
+| 4 | XSS - תוכן HTML לא מסונן | קריטי | `bleach` עם whitelist מוגדר |
+| 5 | TOC מוגדר אבל לא מחובר לתבנית | בינוני | החזרת `(html, toc_html)` מהפונקציה |
+| 6 | `rel` כפול באייתור `target="_blank"` | נמוך | `re.sub` עם פונקציית `add_noopener` |
+| 7 | קריסה כש-`file_name` הוא `None` | בינוני | `(file.get('file_name') or 'Untitled')` |
+| 8 | XSS בהצגת שמות ערכות ב-JS | גבוה | פונקציית `escapeHtml()` + `sanitizeColor()` |
+| 9 | XSS ב-`syntax_css` שמוזרק עם `\| safe` | גבוה | פונקציית `sanitize_css()` בצד השרת |
+| 10 | קריסה כש-`file_name` הוא `None` (בדיקת סוג קובץ) | בינוני | `file.get('file_name') or ''` |
+
+### פונקציות אבטחה שנוספו
+
+#### JavaScript - הגנה מפני XSS
+```javascript
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function isValidHexColor(color) {
+    return /^#[0-9a-fA-F]{3,8}$/.test(color);
+}
+
+function sanitizeColor(color) {
+    return isValidHexColor(color) ? color : '#888888';
+}
+```
+
+#### Python - ניקוי CSS
+```python
+def sanitize_css(css_content: str) -> str:
+    """מונע הזרקת קוד זדוני דרך CSS."""
+    dangerous_patterns = [
+        r'</style', r'<script', r'javascript:', 
+        r'expression\s*\(', r'@import\s+url',
+        r'behavior\s*:', r'-moz-binding',
+    ]
+    clean_css = css_content
+    for pattern in dangerous_patterns:
+        clean_css = re.sub(pattern, '/* blocked */', clean_css, flags=re.IGNORECASE)
+    return clean_css
+```
