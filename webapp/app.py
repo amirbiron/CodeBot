@@ -6557,10 +6557,9 @@ def force_index_creation():
     
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.code_snippets
 
         # בדיקה אם האינדקס כבר קיים
@@ -6628,10 +6627,9 @@ def create_job_trigger_index():
 
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.job_trigger_requests
 
         # בדיקה אם האינדקס כבר קיים
@@ -6683,10 +6681,9 @@ def create_global_search_index():
 
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, TEXT
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.code_snippets
 
         target_index_name = "search_text_idx"
@@ -6780,8 +6777,7 @@ def verify_indexes():
     }
 
     try:
-        from database.manager import DatabaseManager
-        db = DatabaseManager().db
+        db = get_db()
 
         # 1. בדיקת פעולות בניית אינדקסים פעילות
         try:
@@ -6891,10 +6887,9 @@ def create_users_index():
 
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.users
 
         # בדיקה אם האינדקס כבר קיים
@@ -6967,8 +6962,7 @@ def fix_is_active():
         batch_size = 5000
     
     try:
-        from database.manager import DatabaseManager
-        db = DatabaseManager().db
+        db = get_db()
         
         # בדיקת שתי הקולקציות
         collections_to_check = ['code_snippets', 'large_files']
@@ -7069,8 +7063,7 @@ def diagnose_slow_queries():
     results = {"diagnosis": {}, "indexes": {}, "explain_test": {}}
     
     try:
-        from database.manager import DatabaseManager
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.code_snippets
         
         # 1. מצב האינדקסים
@@ -7180,10 +7173,9 @@ def fix_all_now():
     results = {"steps": []}
     
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
         
-        db = DatabaseManager().db
+        db = get_db()
         
         # === שלב 1: תיקון המסמכים החסרים ===
         for coll_name in ['code_snippets', 'large_files']:
@@ -7331,10 +7323,9 @@ def resolve_naming_conflicts():
     results = {"steps": [], "collections_fixed": []}
     
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
         
-        db = DatabaseManager().db
+        db = get_db()
         
         # === 1. code_snippets: user_file_version_desc ===
         collection = db.code_snippets
@@ -7575,9 +7566,7 @@ def check_mongo_ops():
     📝 הערה: גרסה תואמת ל-Atlas Shared Tier (ללא $all).
     """
     try:
-        from database.manager import DatabaseManager
-        
-        db = DatabaseManager().db
+        db = get_db()
         
         # פקודה בסיסית שעובדת ב-Atlas Shared Tier
         ops = db.command({"currentOp": 1, "active": True})

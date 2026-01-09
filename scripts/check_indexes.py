@@ -21,7 +21,7 @@ def main():
 
     try:
         from bson import json_util
-        from database.manager import DatabaseManager
+        from services.db_provider import get_db
     except ImportError as e:
         print(f"❌ חסרות תלויות: {e}")
         print("\nכדי להריץ את הסקריפט, התקן את התלויות:")
@@ -30,11 +30,14 @@ def main():
         print("  /admin/verify-indexes")
         sys.exit(1)
     
+    db = get_db()
+    # אם קיבלנו No-Op DB (למשל בלי MONGODB_URL / DISABLE_DB) - זה לא מצב שימושי לסקריפט
     try:
-        db = DatabaseManager().db
-    except Exception as e:
-        print(f"❌ שגיאה בהתחברות ל-MongoDB: {e}")
-        print("\nודא ש-MONGODB_URL מוגדר בסביבה או בקובץ .env")
+        if getattr(db, "name", "") == "noop_db":
+            raise RuntimeError("noop_db")
+    except Exception:
+        print("❌ לא התחברתי ל-MongoDB (קיבלתי noop DB).")
+        print("\nודא ש-MONGODB_URL מוגדר בסביבה או בקובץ .env וש-DISABLE_DB לא פעיל")
         print("\nאו השתמש ב-Admin Endpoints מתוך האפליקציה:")
         print("  /admin/verify-indexes")
         sys.exit(1)

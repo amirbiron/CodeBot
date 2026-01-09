@@ -191,10 +191,26 @@ def _clear_internal_cache() -> bool:
 
 def _reconnect_mongodb() -> bool:
     try:
-        if DatabaseManager is not None:
-            # Create a new ephemeral manager to force a new connection
-            mgr = DatabaseManager()
-            # Touch db attribute to initialize
+        # שימוש במנהל הקיים מה-singleton (database.db) כדי לא ליצור instance חדש.
+        # אם צריך "לכפות" התחברות מחדש - נסגור ונפתח מחדש best-effort.
+        try:
+            from database import db as mgr  # type: ignore
+        except Exception:
+            mgr = None  # type: ignore
+        if mgr is not None:
+            try:
+                close_fn = getattr(mgr, "close_connection", None)
+                if callable(close_fn):
+                    close_fn()
+            except Exception:
+                pass
+            try:
+                connect_fn = getattr(mgr, "connect", None)
+                if callable(connect_fn):
+                    connect_fn()
+            except Exception:
+                pass
+            # Touch db attribute to initialize (best-effort)
             _ = getattr(mgr, "db", None)
         _emit_event("mongodb_reconnect_attempt", severity="anomaly", handled=True)
         return True

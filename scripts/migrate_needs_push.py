@@ -30,23 +30,20 @@ def main():
         pass
     
     try:
-        from database.manager import DatabaseManager
+        from services.db_provider import get_db
     except ImportError as e:
         print(f"❌ חסרות תלויות: {e}")
         print("\nהרץ מתוך תיקיית הפרויקט:")
         print("  cd /path/to/project && python scripts/migrate_needs_push.py")
         sys.exit(1)
     
+    db = get_db()
     try:
-        dbm = DatabaseManager()
-        db = dbm.db
-    except Exception as e:
-        print(f"❌ שגיאה בהתחברות ל-MongoDB: {e}")
-        sys.exit(1)
-    
-    if db is None:
-        print("❌ לא ניתן להתחבר ל-MongoDB - db is None")
-        print("   ודא ש-MONGODB_URL מוגדר בסביבה")
+        if getattr(db, "name", "") == "noop_db":
+            raise RuntimeError("noop_db")
+    except Exception:
+        print("❌ לא ניתן להתחבר ל-MongoDB (קיבלתי noop DB).")
+        print("   ודא ש-MONGODB_URL מוגדר בסביבה וש-DISABLE_DB לא פעיל")
         sys.exit(1)
     
     collection = db.note_reminders
