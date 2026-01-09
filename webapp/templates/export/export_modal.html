@@ -1,0 +1,87 @@
+{# מודאל בחירת ערכה לייצוא HTML מעוצב #}
+{# Usage: {% include 'export/export_modal.html' %} #}
+
+<div id="exportThemeModal" class="export-modal" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle" hidden>
+    <div class="export-modal__surface">
+        <div class="export-modal__header">
+            <h3 id="exportModalTitle">
+                <i class="fas fa-file-export"></i>
+                ייצוא HTML מעוצב
+            </h3>
+            <button type="button" class="export-modal__close" data-export-close aria-label="סגור">✕</button>
+        </div>
+
+        <div class="export-modal__tabs">
+            <button type="button" class="export-tab active" data-tab="presets">
+                <i class="fas fa-star"></i>
+                ערכות מוכנות
+            </button>
+            <button type="button" class="export-tab" data-tab="my-themes">
+                <i class="fas fa-palette"></i>
+                הערכות שלי
+            </button>
+            <button type="button" class="export-tab" data-tab="import">
+                <i class="fas fa-file-import"></i>
+                ייבוא VS Code
+            </button>
+        </div>
+
+        <div class="export-modal__content">
+            {# Tab 1: Presets #}
+            <div class="export-tab-content active" id="export-presets-tab">
+                <div class="export-themes-grid" id="exportPresetsGrid">
+                    <div class="export-loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        טוען ערכות...
+                    </div>
+                </div>
+            </div>
+
+            {# Tab 2: My Themes #}
+            <div class="export-tab-content" id="export-my-themes-tab">
+                <div class="export-themes-grid" id="exportUserThemesGrid">
+                    <p class="export-empty">טוען...</p>
+                </div>
+            </div>
+
+            {# Tab 3: Import VS Code #}
+            <div class="export-tab-content" id="export-import-tab">
+                <div class="export-import-section">
+                    <p class="text-muted">
+                        העלה קובץ JSON של ערכת VS Code מ-
+                        <a href="https://vscodethemes.com" target="_blank" rel="noopener">vscodethemes.com</a>
+                    </p>
+
+                    <div class="export-upload-area" id="exportUploadArea">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>גרור קובץ JSON לכאן<br>או לחץ לבחירה</p>
+                        <input type="file" id="exportThemeFileInput" accept=".json" hidden>
+                    </div>
+
+                    <div class="export-upload-status" id="exportUploadStatus" hidden>
+                        <i class="fas fa-check-circle"></i>
+                        <span id="exportUploadFileName">theme.json</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="export-modal__footer">
+            <div class="export-selected-info">
+                <span class="export-selected-label">ערכה נבחרת:</span>
+                <strong id="exportSelectedThemeName">Tech Guide Dark</strong>
+            </div>
+            <div class="export-modal__actions">
+                <button type="button" class="btn btn-secondary" data-action="preview">
+                    <i class="fas fa-eye"></i>
+                    תצוגה מקדימה
+                </button>
+                <button type="button" class="btn btn-primary" data-action="download">
+                    <i class="fas fa-download"></i>
+                    הורד HTML
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+

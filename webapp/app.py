@@ -18,7 +18,7 @@ from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
+from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response
 import threading
 import atexit
 import time as _time
@@ -115,6 +115,13 @@ from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import ThreadPoolDatabaseHealthService  # noqa: E402
+from services.styled_export_service import (  # noqa: E402
+    get_export_theme,
+    list_export_presets,
+    markdown_to_html,
+    render_styled_html,
+)
+from services.theme_parser_service import parse_vscode_theme, validate_theme_json  # noqa: E402
 
 
 # --- Observability: הרצת פעולות כבדות בת׳רד (תואם Flask sync) ---
@@ -10255,6 +10262,17 @@ def view_file(file_id):
     """צפייה בקובץ בודד"""
     db = get_db()
     user_id = session['user_id']
+
+    # הרשאות UI (לכפתורים/מודאלים) - Premium/Admin
+    user_is_admin = False
+    user_is_premium = False
+    try:
+        uid_int = int(user_id)
+        user_is_admin = bool(is_admin(uid_int))
+        user_is_premium = bool(is_premium(uid_int))
+    except Exception:
+        user_is_admin = False
+        user_is_premium = False
     
     try:
         file, kind = _get_user_any_file_by_id(db, user_id, file_id)
@@ -10332,6 +10350,8 @@ def view_file(file_id):
     if len(code.encode('utf-8')) > MAX_DISPLAY_SIZE:
         html = render_template('view_file.html',
                              user=session['user_data'],
+                             user_is_admin=user_is_admin,
+                             is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
                              file={
                                  'id': str(file['_id']),
@@ -10360,6 +10380,8 @@ def view_file(file_id):
     if is_binary_file(code, file.get('file_name', '')):
         html = render_template('view_file.html',
                              user=session['user_data'],
+                             user_is_admin=user_is_admin,
+                             is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
                              file={
                                  'id': str(file['_id']),
@@ -10458,6 +10480,8 @@ def view_file(file_id):
     
     html = render_template('view_file.html',
                          user=session['user_data'],
+                         user_is_admin=user_is_admin,
+                         is_premium=user_is_premium,
                          clear_edit_draft_for_id=clear_edit_draft_for_id,
                          file=file_data,
                          highlighted_code=highlighted_code,
@@ -12274,6 +12298,187 @@ def md_preview(file_id):
     resp.headers['ETag'] = etag
     resp.headers['Last-Modified'] = last_modified_str
     return resp
+
+
+# ============================================
+# Styled HTML Export Routes
+# ============================================
+
+
+@app.route('/export/styled/<file_id>', methods=['GET', 'POST'])
+@login_required
+@premium_or_admin_required
+@traced("export.styled_html")
+def export_styled_html(file_id):
+    """
+    ייצוא קובץ Markdown כ-HTML מעוצב להורדה.
+
+    GET Query params:
+        theme: מזהה ערכת הנושא (default: tech-guide-dark)
+        preview: אם '1', מחזיר HTML לתצוגה מקדימה במקום להורדה
+
+    POST Form data:
+        vscode_json: תוכן JSON של ערכת VS Code (לייבוא ישיר)
+        preview: אם '1', מחזיר HTML לתצוגה מקדימה
+    """
+    db = get_db()
+    user_id = session['user_id']
+
+    # שליפת הקובץ
+    try:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception as e:
+        logger.exception("DB error fetching file for export", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+        abort(500)
+
+    if not file:
+        abort(404)
+
+    # וידוא שזה קובץ Markdown
+    language = (file.get('programming_language') or '').lower()
+    file_name = file.get('file_name') or ''  # טיפול גם ב-None וגם בחסר
+    is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
+
+    if not is_markdown:
+        flash('ייצוא HTML מעוצב זמין רק לקבצי Markdown', 'warning')
+        return redirect(url_for('view_file', file_id=file_id))
+
+    # שליפת ערכת הנושא - תלוי ב-Method
+    if request.method == 'POST':
+        # POST: ערכת VS Code מה-Form Data
+        vscode_json = request.form.get('vscode_json')
+        if vscode_json:
+            theme = get_export_theme('vscode-import', vscode_json=vscode_json)
+        else:
+            theme = get_export_theme('tech-guide-dark')
+    else:
+        # GET: ערכה מה-Query String
+        theme_id = request.args.get('theme', 'tech-guide-dark')
+
+        # שליפת ערכות המשתמש (אם בחר ערכה אישית)
+        user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+        user_themes = user_data.get("custom_themes", []) if user_data else []
+
+        theme = get_export_theme(theme_id, user_themes=user_themes)
+
+    # המרת Markdown ל-HTML
+    raw_content = file.get('code') or file.get('content') or ''
+
+    # בדיקה אם המשתמש רוצה TOC
+    include_toc = request.args.get('toc') == '1' or request.form.get('toc') == '1'
+    html_content, toc_html = markdown_to_html(raw_content, include_toc=include_toc)
+
+    # רינדור HTML מלא
+    # שימוש ב-or כדי לטפל גם במקרה ש-file_name קיים אבל הוא None
+    # הסרת סיומות case-insensitive עם regex
+    raw_title = file.get('file_name') or 'Untitled'
+    title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
+    rendered_html = render_styled_html(
+        content_html=html_content,
+        title=title,
+        theme=theme,
+        toc_html=toc_html,
+    )
+
+    # תצוגה מקדימה או הורדה
+    # תומך גם ב-GET query param וגם ב-POST form field
+    is_preview = (
+        request.args.get('preview') == '1' or
+        request.form.get('preview') == '1'
+    )
+
+    if is_preview:
+        # לתצוגה מקדימה - מחזירים HTML ישיר
+        return rendered_html
+
+    # הורדה - מחזירים כקובץ להורדה
+    response = make_response(rendered_html)
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+
+    # 🔒 סניטציה של שם הקובץ - רווח בודד במקום כל whitespace, ללא newlines
+    safe_filename = re.sub(r'[^\w \-.]', '', title)  # רווח בודד, לא \s
+    safe_filename = safe_filename.strip()[:50] or 'document'
+    response.headers['Content-Disposition'] = f'attachment; filename="{safe_filename}.html"'
+
+    return response
+
+
+@app.route('/api/export/themes')
+@login_required
+@premium_or_admin_required
+def api_export_themes():
+    """
+    מחזיר רשימת ערכות נושא זמינות לייצוא.
+
+    Returns:
+        JSON עם:
+        - presets: ערכות מוכנות מראש
+        - user_themes: ערכות המשתמש
+    """
+    db = get_db()
+    user_id = session['user_id']
+
+    # Presets
+    presets = list_export_presets()
+
+    # ערכות המשתמש
+    user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+    user_themes: list[dict] = []
+
+    if user_data and user_data.get("custom_themes"):
+        for theme in user_data["custom_themes"]:
+            user_themes.append({
+                "id": theme.get("id"),
+                "name": theme.get("name", "My Theme"),
+                "description": theme.get("description", ""),
+                "category": "custom",
+            })
+
+    return jsonify({
+        "ok": True,
+        "presets": presets,
+        "user_themes": user_themes,
+    })
+
+
+@app.route('/api/export/parse-vscode', methods=['POST'])
+@login_required
+@premium_or_admin_required
+def api_parse_vscode_theme():
+    """
+    מפרסר JSON של ערכת VS Code ומחזיר CSS Variables.
+
+    Body (JSON):
+        json_content: תוכן הקובץ JSON
+
+    Returns:
+        JSON עם name, variables, syntax_css
+    """
+    data = request.get_json()
+    if not data or not data.get('json_content'):
+        return jsonify({"ok": False, "error": "Missing json_content"}), 400
+
+    json_content = data['json_content']
+
+    # וולידציה
+    is_valid, error_msg = validate_theme_json(json_content)
+    if not is_valid:
+        return jsonify({"ok": False, "error": error_msg}), 400
+
+    # פרסור
+    try:
+        parsed = parse_vscode_theme(json_content)
+        return jsonify({
+            "ok": True,
+            "name": parsed.get("name", "VS Code Theme"),
+            "type": parsed.get("type", "dark"),
+            "variables": parsed.get("variables", {}),
+            "syntax_css": parsed.get("syntax_css", ""),
+        })
+    except Exception as e:
+        logger.exception("Failed to parse VS Code theme")
+        return jsonify({"ok": False, "error": str(e)}), 400
+
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required

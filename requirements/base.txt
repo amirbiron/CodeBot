@@ -66,6 +66,7 @@ opentelemetry-instrumentation-pymongo
 # Security
 bcrypt==5.0.0
 cryptography==46.0.3
+bleach==6.3.0
 
 # Web Server & HTTP layer
 Flask==3.1.2
