@@ -375,6 +375,13 @@ const MarkdownToolbar = {
     let savedStart = 0;
     let savedEnd = 0;
     const textarea = document.getElementById('codeTextarea');
+    // גיבוי קואורדינטות מה-textarea (למקרה ש-editorManager קיים חלקית)
+    let savedTextareaStart = 0;
+    let savedTextareaEnd = 0;
+    if (textarea) {
+      savedTextareaStart = textarea.selectionStart || 0;
+      savedTextareaEnd = textarea.selectionEnd || savedTextareaStart;
+    }
 
     // קבלת טקסט מסומן + שמירת קואורדינטות
     if (window.editorManager && typeof window.editorManager.getSelectedTextOrAll === 'function') {
@@ -385,8 +392,8 @@ const MarkdownToolbar = {
       // editorManager ינהל את המיקום בעצמו
       savedStart = -1; // סימון שנשתמש ב-editorManager
     } else if (textarea) {
-      savedStart = textarea.selectionStart || 0;
-      savedEnd = textarea.selectionEnd || savedStart;
+      savedStart = savedTextareaStart;
+      savedEnd = savedTextareaEnd;
       if (savedEnd > savedStart) {
         selectedText = textarea.value.substring(savedStart, savedEnd);
       }
@@ -456,18 +463,25 @@ const MarkdownToolbar = {
     } else if (textarea) {
       textarea.focus();
 
+      // אם editorManager היה זמין רק חלקית (getSelectedTextOrAll קיים אבל insertTextAtCursor לא),
+      // savedStart עלול להיות -1. נשתמש בגיבוי מה-textarea כדי להימנע מאינדקסים שליליים/השחתת תוכן.
+      const startForInsert = (savedStart === -1) ? savedTextareaStart : savedStart;
+      const endForInsert = (savedStart === -1) ? savedTextareaEnd : savedEnd;
+      const safeStart = Math.max(0, startForInsert || 0);
+      const safeEnd = Math.max(safeStart, Math.max(0, endForInsert || 0));
+
       // שימוש בקואורדינטות שנשמרו (לא לקרוא selectionStart/End שוב!)
       if (typeof textarea.setRangeText === 'function') {
-        textarea.setRangeText(linkText, savedStart, savedEnd, 'end');
+        textarea.setRangeText(linkText, safeStart, safeEnd, 'end');
       } else if (document.execCommand && typeof document.execCommand === 'function') {
         // צריך לשחזר את הסלקציה לפני execCommand
-        textarea.setSelectionRange(savedStart, savedEnd);
+        textarea.setSelectionRange(safeStart, safeEnd);
         document.execCommand('insertText', false, linkText);
       } else {
         // Fallback אחרון
         const value = textarea.value || '';
-        textarea.value = value.slice(0, savedStart) + linkText + value.slice(savedEnd);
-        textarea.setSelectionRange(savedStart + linkText.length, savedStart + linkText.length);
+        textarea.value = value.slice(0, safeStart) + linkText + value.slice(safeEnd);
+        textarea.setSelectionRange(safeStart + linkText.length, safeStart + linkText.length);
       }
 
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
