@@ -221,6 +221,24 @@ const MarkdownToolbar = {
     // רק אם במצב Markdown
     if (!this.isMarkdownContext()) return;
 
+    // אל "נחטוף" קיצורים כשמשתמש מקליד בשדות אחרים (שם קובץ/תיאור/תגיות/בחירת שפה וכו').
+    // הפעלת הקיצורים רק כשהפוקוס בתוך העורך עצמו.
+    const target = e && e.target ? e.target : null;
+    const tag = target && target.tagName ? String(target.tagName).toUpperCase() : '';
+    const isOtherTextarea = tag === 'TEXTAREA' && target.id !== 'codeTextarea';
+    const isOtherInput = tag === 'INPUT' || tag === 'SELECT';
+    const isContentEditable = !!(target && target.isContentEditable);
+    const isEditorFocus =
+      (target && target.id === 'codeTextarea') ||
+      (target && typeof target.closest === 'function' && (
+        target.closest('#editorContainer') ||
+        target.closest('.cm-editor')
+      ));
+
+    if (isOtherInput || isOtherTextarea || isContentEditable || !isEditorFocus) {
+      return;
+    }
+
     const isMod = e.ctrlKey || e.metaKey;
     const isShift = e.shiftKey;
 
@@ -429,7 +447,12 @@ const MarkdownToolbar = {
     // הזרקה / החלפה - משתמשים בקואורדינטות שנשמרו!
     if (savedStart === -1 && window.editorManager && typeof window.editorManager.insertTextAtCursor === 'function') {
       // editorManager מנהל את הסלקציה בעצמו
-      window.editorManager.insertTextAtCursor(linkText);
+      const ok = !!window.editorManager.insertTextAtCursor(linkText);
+      if (ok) {
+        this.showStatus('קישור נוצר');
+      } else {
+        this.showStatus('נכשל ליצור קישור');
+      }
     } else if (textarea) {
       textarea.focus();
 
@@ -448,9 +471,11 @@ const MarkdownToolbar = {
       }
 
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      this.showStatus('קישור נוצר');
+    } else {
+      // אין יעד הזרקה — לא נטען עורך בדף/DOM לא זמין
+      this.showStatus('נכשל ליצור קישור');
     }
-
-    this.showStatus('קישור נוצר');
   },
 
   // ---------- הצגת סטטוס ----------
