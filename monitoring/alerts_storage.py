@@ -90,16 +90,21 @@ def _sanitize_signature(raw: Any) -> str:
         normalized = _safe_str(raw, limit=512).strip()
         if not normalized:
             return ""
-        # Backward compatibility:
-        # - historically we stored a 16-hex signature (sha256(... )[:16])
-        # - if input is already a signature-like hex, do not hash again
+        norm_l = normalized.lower()
+        # New format: 64-hex sha256
         try:
-            if re.fullmatch(r"[0-9a-fA-F]{16}", normalized):
-                return normalized.lower()
+            if re.fullmatch(r"[0-9a-f]{64}", norm_l):
+                return norm_l
         except Exception:
             pass
-        # Normalize everything else to the same 16-hex format
-        return hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        # Legacy: 16-hex -> migrate key-space by hashing into 64-hex
+        try:
+            if re.fullmatch(r"[0-9a-f]{16}", norm_l):
+                return hashlib.sha256(norm_l.encode("utf-8", errors="ignore")).hexdigest()
+        except Exception:
+            pass
+        # Default: hash arbitrary input into a fixed 64-hex key
+        return hashlib.sha256(norm_l.encode("utf-8", errors="ignore")).hexdigest()
     except Exception:
         # Fail-closed for sanitization: empty string means "no signature"
         return ""
@@ -694,15 +699,19 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 
 def is_new_error(signature: str) -> bool:
     """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
-    # CodeQL/NoSQL injection: validate *inline* with a strict allowlist and only
-    # query by a fixed-format hex identifier (no Mongo operators possible).
+    # CodeQL/NoSQL injection:
+    # - cast to str
+    # - hash to a fixed 64-hex identifier
+    # - regex-validate the exact variable used in the Mongo query
     try:
-        raw = signature if isinstance(signature, str) else ""
-        safe_signature = raw.strip().lower()
-        if not safe_signature:
+        raw = str(signature or "")
+        raw = raw.strip()
+        if not raw:
             return False
-        # Support legacy (16 hex) and new (64 hex) formats.
-        if not (re.fullmatch(r"[0-9a-f]{16}", safe_signature) or re.fullmatch(r"[0-9a-f]{64}", safe_signature)):
+        # Always hash before querying (new storage format is sha256 hex, 64 chars)
+        safe_signature = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
+        safe_signature = str(safe_signature).strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", safe_signature):
             return False
     except Exception:
         return False
