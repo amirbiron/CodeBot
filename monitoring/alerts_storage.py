@@ -694,9 +694,13 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 
 def is_new_error(signature: str) -> bool:
     """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
-    # Normalize the provided signature to a safe, fixed-format identifier
-    signature = _sanitize_signature(signature)
-    if not signature:
+    # Normalize the provided signature to a safe, fixed-format identifier.
+    # NOTE: CodeQL/NoSQL injection: we only ever query by an allowlisted hex key.
+    safe_signature = _sanitize_signature(signature)
+    try:
+        if not safe_signature or not re.fullmatch(r"[0-9a-f]{16}", str(safe_signature)):
+            return False
+    except Exception:
         return False
     if not _enabled() or _init_failed:
         return False
@@ -724,7 +728,7 @@ def is_new_error(signature: str) -> bool:
             from pymongo import ReturnDocument  # type: ignore
 
             prev = collection.find_one_and_update(
-                {"signature": signature},
+                {"signature": safe_signature},
                 {
                     "$set": {"last_seen": now},
                     "$inc": {"count": 1},
@@ -740,9 +744,9 @@ def is_new_error(signature: str) -> bool:
             return True
         except Exception:
             # Fallback: שתי שאילתות (שומר תאימות לסביבות בלי find_one_and_update)
-            existing = collection.find_one({"signature": signature, "last_seen": {"$gte": cutoff}})
+            existing = collection.find_one({"signature": safe_signature, "last_seen": {"$gte": cutoff}})
             collection.update_one(
-                {"signature": signature},
+                {"signature": safe_signature},
                 {
                     "$set": {"last_seen": now},
                     "$inc": {"count": 1},
