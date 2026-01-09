@@ -739,7 +739,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             <div class="file-title-wrap">
                 <h1 class="file-title">{{ file.file_name }}</h1>
                 <div class="file-subrow">
-                    <span class="badge">{{ file.language }}</span>
+                    <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
                     <span class="muted">גרסה {{ file.version }}</span>
                 </div>
             </div>
