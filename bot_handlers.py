@@ -430,8 +430,8 @@ class AdvancedBotHandlers:
         except Exception as e:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
-        # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/שמירה)
-        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_)'
+        # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/סגנון/שמירה)
+        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_style:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_)'
         image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=image_pattern)
         try:
             self.application.add_handler(image_handler, group=-5)
@@ -617,13 +617,14 @@ class AdvancedBotHandlers:
         raise ApplicationHandlerStop()
 
     def _build_image_settings_keyboard(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
-        """בנה מקלדת הגדרות תמונה (תמה/רוחב/פונט) תוך סימון הבחירה הנוכחית.
+        """בנה מקלדת הגדרות תמונה (תמה/סגנון/רוחב/פונט) תוך סימון הבחירה הנוכחית.
 
-        עדכון: כוללת תמות נוספות (Gruvbox, One Dark, Dracula) ושורת בחירת פונט.
+        עדכון: כוללת תמות נוספות (Gruvbox, One Dark, Dracula), בחירת סגנון (Pygments) ושורת בחירת פונט.
         """
         # העדפות אפקטיביות: פר-משתמש (DB) עם דריסה פר-קובץ (context)
         settings = self._get_effective_image_settings(user_id, context, file_name)
         current_theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+        current_style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
         try:
             current_width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
         except Exception:
@@ -633,6 +634,7 @@ class AdvancedBotHandlers:
 
         # suffixes בטוחים עבור callback_data קצרים
         theme_suffix = self._make_safe_suffix(context, "img_set_theme:", file_name)
+        style_suffix = self._make_safe_suffix(context, "img_set_style:", file_name)
         width_suffix = self._make_safe_suffix(context, "img_set_width:", file_name)
         font_suffix = self._make_safe_suffix(context, "img_set_font:", file_name)
         note_suffix = self._make_safe_suffix(context, "img_note_prompt:", file_name)
@@ -641,6 +643,9 @@ class AdvancedBotHandlers:
 
         def _mk_theme_cb(val: str) -> str:
             return f"img_set_theme:{val}:{theme_suffix}"
+
+        def _mk_style_cb(val: str) -> str:
+            return f"img_set_style:{val}:{style_suffix}"
 
         def _mk_width_cb(val: int) -> str:
             return f"img_set_width:{val}:{width_suffix}"
@@ -684,8 +689,36 @@ class AdvancedBotHandlers:
                     _lbl(current_theme == 'dracula', 'Dracula', '🧛 Dracula'),
                     callback_data=_mk_theme_cb('dracula')
                 ),
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'banner_tech', 'Banner Tech', '💜 Banner Tech'),
+                    callback_data=_mk_theme_cb('banner_tech')
+                ),
             ],
         ]
+
+        # שורת "סגנון" (Pygments) – אחראית על צבעי התחביר.
+        rows.extend([
+            [
+                InlineKeyboardButton(
+                    _lbl(current_style == 'banner_tech', 'Tech Guide', '💜 Tech Guide'),
+                    callback_data=_mk_style_cb('banner_tech')
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_style == 'monokai', 'Monokai', '🎯 Monokai'),
+                    callback_data=_mk_style_cb('monokai')
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    _lbl(current_style == 'default', 'Default', '🧩 Default'),
+                    callback_data=_mk_style_cb('default')
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_style == 'dracula', 'Dracula', '🧛 Dracula'),
+                    callback_data=_mk_style_cb('dracula')
+                ),
+            ],
+        ])
 
         width_buttons: List[InlineKeyboardButton] = []
         for opt in self._get_configured_width_options():
@@ -4492,7 +4525,7 @@ class AdvancedBotHandlers:
                 kb = self._build_image_settings_keyboard(user_id, context, file_name)
                 await self._edit_message_with_media_fallback(
                     query,
-                    "🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב/פונט ואז לחץ 'צור מחדש'",
+                    "🛠️ עריכת הגדרות תמונה – בחר תמה/סגנון/רוחב/פונט ואז לחץ 'צור מחדש'",
                     reply_markup=kb,
                 )
 
@@ -4514,6 +4547,29 @@ class AdvancedBotHandlers:
                     await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
                 except Exception:
                     # אין צורך להכשיל את הזרימה אם עריכת המקלדת נכשלה
+                    pass
+
+            elif data.startswith("img_set_style:"):
+                try:
+                    _, style_name, suffix = data.split(":", 2)
+                except ValueError:
+                    await query.answer("⚠️ נתונים שגויים", show_alert=False)
+                    return
+                style_name = str(style_name or "").strip().lower()
+                # הגנה בסיסית: סטיילים של Pygments הם שמות קצרים; לא נאפשר מחרוזות ארוכות/מוזרות.
+                if not style_name or len(style_name) > 32 or not re.fullmatch(r"[a-z0-9_\\-]+", style_name):
+                    await query.answer("⚠️ סגנון לא תקין", show_alert=False)
+                    return
+                file_name = self._resolve_image_target(context, suffix)
+                self._set_image_setting(context, file_name, 'style', style_name)
+                try:
+                    await query.answer("🖌️ עודכן!", show_alert=False)
+                except Exception:
+                    pass
+                try:
+                    kb = self._build_image_settings_keyboard(user_id, context, file_name)
+                    await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
+                except Exception:
                     pass
 
             elif data.startswith("img_set_width:"):

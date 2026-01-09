@@ -71,6 +71,10 @@ async def test_image_settings_callbacks_and_persist(monkeypatch):
     await h.handle_callback_query(_Upd('img_set_theme:gruvbox:demo.py'), ctx)
     assert ctx.user_data.get('img_settings', {}).get('demo.py', {}).get('theme') == 'gruvbox'
 
+    # 2.5) Set style (Pygments)
+    await h.handle_callback_query(_Upd('img_set_style:banner_tech:demo.py'), ctx)
+    assert ctx.user_data.get('img_settings', {}).get('demo.py', {}).get('style') == 'banner_tech'
+
     # 3) Set width
     await h.handle_callback_query(_Upd('img_set_width:1400:demo.py'), ctx)
     assert ctx.user_data.get('img_settings', {}).get('demo.py', {}).get('width') == 1400
