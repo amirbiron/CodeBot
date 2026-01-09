@@ -694,11 +694,15 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 
 def is_new_error(signature: str) -> bool:
     """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
-    # Normalize the provided signature to a safe, fixed-format identifier.
-    # NOTE: CodeQL/NoSQL injection: we only ever query by an allowlisted hex key.
-    safe_signature = _sanitize_signature(signature)
+    # CodeQL/NoSQL injection: validate *inline* with a strict allowlist and only
+    # query by a fixed-format hex identifier (no Mongo operators possible).
     try:
-        if not safe_signature or not re.fullmatch(r"[0-9a-f]{16}", str(safe_signature)):
+        raw = signature if isinstance(signature, str) else ""
+        safe_signature = raw.strip().lower()
+        if not safe_signature:
+            return False
+        # Support legacy (16 hex) and new (64 hex) formats.
+        if not (re.fullmatch(r"[0-9a-f]{16}", safe_signature) or re.fullmatch(r"[0-9a-f]{64}", safe_signature)):
             return False
     except Exception:
         return False
