@@ -509,13 +509,15 @@ def get_export_theme(
                 continue
             if theme.get("id") == theme_id:
                 # 🔧 תיקון: אם ה-syntax_css שמור עם selector ישן (.source),
-                # נייצר מחדש עם ה-selector הנכון (.highlight)
+                # נתקן את ה-Pygments selectors בלבד (לא לפגוע ב-CodeMirror)
                 stored_css = theme.get("syntax_css", "")
                 if stored_css and ".source " in stored_css:
-                    # CSS ישן - צריך לתקן
-                    stored_css = stored_css.replace(".source ", ".highlight ")
-                    # גם להסיר את ה-attribute selector הישן
-                    stored_css = stored_css.replace('[data-theme-type="custom"] ', '')
+                    # תיקון Pygments CSS: [data-theme-type="custom"] .source .X → .highlight .X
+                    # ⚠️ לא לגעת ב-CodeMirror שמתחיל ב-:root[data-theme-type="custom"]
+                    stored_css = stored_css.replace(
+                        '[data-theme-type="custom"] .source ',
+                        '.highlight '
+                    )
                 
                 return {
                     "id": theme_id,
