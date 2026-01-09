@@ -758,25 +758,28 @@ def render_styled_html(
     css_variables = generate_css_variables(theme.get("variables", {}))
 
     # 🎨 קבלת CSS להדגשת תחביר
-    # אם הערכה כוללת syntax_css מוגדר מראש, נשתמש בו
-    # אחרת, נייצר CSS דינמי באמצעות Pygments
+    # Pygments CSS נדרש תמיד עבור בלוקי קוד בייצוא HTML
+    # CodeMirror CSS (.tok-*) רלוונטי רק לעורך בדפדפן, לא לייצוא
+
+    theme_id = theme.get("id") or ""
+    # 🔒 הגנה מפני None (יכול להגיע מ-MongoDB עם "category": null)
+    theme_category = theme.get("category") or "dark"
+
     syntax_css_raw = theme.get("syntax_css", "")
 
-    if syntax_css_raw:
-        # יש CSS מוגדר בערכה
+    # בדיקה אם יש Pygments CSS (כללים עם .highlight)
+    has_pygments_css = syntax_css_raw and ".highlight " in syntax_css_raw
+
+    if has_pygments_css:
+        # יש CSS מוגדר עם Pygments - נשתמש בו
         syntax_css = sanitize_css(syntax_css_raw)
     else:
-        # ייצור CSS דינמי מ-Pygments
-        theme_id = theme.get("id") or ""
-        # 🔒 הגנה מפני None (יכול להגיע מ-MongoDB עם "category": null)
-        theme_category = theme.get("category") or "dark"
-
-        # קביעת ה-Pygments style המתאים
+        # אין Pygments CSS - נייצר דינמית
+        # (גם אם יש CodeMirror CSS, הוא לא רלוונטי לייצוא HTML)
         pygments_style = get_pygments_style_for_theme(theme_id, theme_category)
 
         # ייצור ה-CSS
         # 🔒 CSS מ-Pygments הוא בטוח (מיוצר פנימית), אבל נעביר דרך sanitize בכל מקרה
-        # מעבירים את הקטגוריה כדי לבחור fallback מתאים אם ה-style לא נמצא
         syntax_css = sanitize_css(
             generate_pygments_css(pygments_style, ".highlight", theme_category)
         )
