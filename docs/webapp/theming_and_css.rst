@@ -128,10 +128,10 @@
      - Level 2
      - CodeMirror, כרטיסי קוד, Split View
      - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
-   * - ``--lang-badge-*`` / ``--lang-hue-*``
+   * - ``--lang-*`` (python, typescript, java...)
      - Level 3
-     - תגיות שפת תכנות צבעוניות (Python, JavaScript וכו')
-     - ``webapp/static/css/language-badges.css`` – מערכת HSL עם Hue קבוע לכל שפה ו-Lightness/Saturation משתנים לפי Theme
+     - צבעי תגיות שפת תכנות (Python, JavaScript וכו')
+     - ``webapp/static/css/language-badges.css`` – צבע טקסט לכל שפה; רקע וגבול משתמשים ב-rgba שקוף
 
 רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
@@ -292,22 +292,24 @@ Component Tokens ו‑Theme Builder
 Language Badges (תגיות שפה צבעוניות)
 -------------------------------------
 
-תגיות השפה (``lang-badge``) משתמשות בגישה ייחודית של **HSL עם Hue קבוע** לכל שפת תכנות, כאשר ה-Saturation וה-Lightness משתנים לפי ערכת הנושא.
+תגיות השפה (``lang-badge``) משתמשות בסגנון **רקע שקוף עם טקסט צבעוני** – אותו סגנון שמשמש בתגיות החיפוש הגלובלי.
 
-**למה HSL ולא color-mix?**
-
-- **הבחנה ברורה בין שפות** – Python תמיד צהוב (Hue 48°), TypeScript תמיד כחול (Hue 210°)
-- **התאמה לערכות** – Lightness גבוה בערכות בהירות, נמוך בערכות כהות
-- **עקביות** – המשתמש לומד לזהות שפות לפי צבע
-
-**חלופה שנשקלה ונדחתה:**
+**העיצוב:**
 
 .. code-block:: css
 
-   /* גישת color-mix – יותר "טבעית" לערכה אבל פחות מובחנת */
-   background: color-mix(in srgb, var(--lang-python-color) 15%, var(--card-bg));
+   /* רקע שקוף עם גוון צבע השפה */
+   background: rgba(צבע, 0.2);
+   /* טקסט בצבע השפה */
+   color: var(--lang-python);
+   /* גבול שקוף */
+   border: 1px solid rgba(צבע, 0.35);
 
-גישה זו מערבבת את צבע השפה עם רקע הכרטיס, מה שיוצר התאמה טובה יותר לערכה אבל **מקשה על הבחנה מהירה** בין שפות שונות.
+**יתרונות:**
+
+- **משתלב עם ה-Glass** – הרקע השקוף נראה טוב על כל סוגי הכרטיסים
+- **הבחנה ברורה** – כל שפה בצבע ייחודי (Python צהוב, TypeScript כחול, וכו')
+- **עקבי עם החיפוש הגלובלי** – אותו סגנון בכל המערכת
 
 **שימוש:**
 
@@ -321,18 +323,15 @@ Language Badges (תגיות שפה צבעוניות)
 
 **טוקנים עיקריים (Level 3):**
 
-- ``--lang-badge-saturation`` – רוויה (משתנה לפי ערכה)
-- ``--lang-badge-lightness-bg`` – בהירות רקע
-- ``--lang-badge-lightness-border`` – בהירות גבול
-- ``--lang-badge-lightness-text`` – בהירות טקסט
-- ``--lang-hue-python``, ``--lang-hue-javascript``, וכו' – ערכי Hue קבועים לכל שפה
+- ``--lang-python``, ``--lang-javascript``, ``--lang-typescript``, וכו' – צבעי טקסט לכל שפה
+- ``--lang-default`` – צבע ברירת מחדל לשפות לא מוכרות
 
 **קובץ:** ``webapp/static/css/language-badges.css``
 
 .. note::
 
-   אם הצבעים יתגלו כבולטים מדי בערכה מסוימת, ניתן להתאים את ערכי 
-   ``--lang-badge-saturation`` ו-``--lang-badge-lightness-*`` בבלוק ה-Theme הרלוונטי.
+   בערכות בהירות (Classic, Rose Pine Dawn) הצבעים מותאמים להיות כהים יותר 
+   כדי לשמור על קריאות טובה על רקע בהיר.
 
 בדיקות חובה לפני Merge
 ----------------------
