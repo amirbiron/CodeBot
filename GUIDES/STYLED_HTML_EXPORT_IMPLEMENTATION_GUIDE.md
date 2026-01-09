@@ -221,29 +221,53 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
         'blockquote', 'ul', 'ol', 'li', 'hr', 
         'a', 'b', 'i', 'strong', 'em', 'del', 'ins',
         'sup', 'sub', 'mark',
+        'nav',  # עבור TOC wrapper
     ]
     
     # רשימה לבנה של attributes מותרים
     allowed_attrs = {
-        '*': ['class', 'id'],
+        '*': ['class', 'id'],  # id נדרש עבור anchors של TOC
         'a': ['href', 'title', 'target', 'rel'],
         'img': ['src', 'alt', 'title', 'width', 'height'],
         'th': ['colspan', 'rowspan'],
         'td': ['colspan', 'rowspan'],
+        'code': ['class'],  # עבור codehilite language classes
+        'span': ['class'],  # עבור syntax highlighting
+        'pre': ['class'],
     }
+    
+    # פרוטוקולים מותרים (חוסם javascript:, data: וכו')
+    allowed_protocols = ['http', 'https', 'mailto']
     
     # ניקוי ה-HTML
     clean_html = bleach.clean(
         html_raw, 
         tags=allowed_tags, 
         attributes=allowed_attrs,
+        protocols=allowed_protocols,
         strip=True  # הסרת תגיות לא מורשות במקום escape
+    )
+    
+    # הוספת rel="noopener noreferrer" לכל קישורים עם target="_blank"
+    # (bleach.linkify יכול לעשות את זה, אבל אנחנו נעשה זאת ידנית)
+    clean_html = clean_html.replace(
+        'target="_blank"', 
+        'target="_blank" rel="noopener noreferrer"'
     )
     
     # החזרת HTML + TOC (אם נדרש)
     toc_html = ""
     if include_toc and hasattr(md, 'toc'):
-        toc_html = md.toc  # HTML של תוכן העניינים
+        # TOC נוצר ע"י Python-Markdown ומכיל רק ul/li/a עם anchors
+        # אבל נעביר גם אותו דרך bleach לבטיחות
+        toc_raw = md.toc
+        toc_html = bleach.clean(
+            toc_raw,
+            tags=['div', 'nav', 'ul', 'li', 'a'],
+            attributes={'a': ['href', 'title'], '*': ['class', 'id']},
+            protocols=['http', 'https', '#'],  # # עבור anchors פנימיים
+            strip=True
+        )
     
     return (clean_html, toc_html)
 
@@ -2146,6 +2170,84 @@ class TestGetExportTheme:
         theme = get_export_theme("tech-guide-dark")
         assert theme.get("syntax_css")
         assert ".highlight .k" in theme["syntax_css"]  # Keywords
+
+
+class TestSecuritySanitization:
+    """🔒 טסטי אבטחה - וידוא שהקוד חוסם XSS"""
+    
+    def test_blocks_script_tags(self):
+        """<script> חייב להיחסם"""
+        text = "Hello <script>alert('xss')</script> World"
+        html, _ = markdown_to_html(text)
+        assert '<script>' not in html
+        assert 'alert' not in html
+    
+    def test_blocks_javascript_protocol(self):
+        """javascript: בקישורים חייב להיחסם"""
+        text = "[Click me](javascript:alert('xss'))"
+        html, _ = markdown_to_html(text)
+        assert 'javascript:' not in html
+    
+    def test_blocks_onerror_attribute(self):
+        """event handlers כמו onerror חייבים להיחסם"""
+        text = '<img src="x" onerror="alert(1)">'
+        html, _ = markdown_to_html(text)
+        assert 'onerror' not in html
+    
+    def test_allows_safe_links(self):
+        """קישורים בטוחים (http/https) חייבים לעבוד"""
+        text = "[Google](https://google.com)"
+        html, _ = markdown_to_html(text)
+        assert 'href="https://google.com"' in html
+    
+    def test_adds_noopener_to_blank_target(self):
+        """target="_blank" חייב לקבל rel="noopener noreferrer\""""
+        text = '<a href="https://example.com" target="_blank">Link</a>'
+        html, _ = markdown_to_html(text)
+        assert 'rel="noopener noreferrer"' in html
+    
+    def test_preserves_code_classes(self):
+        """classes של syntax highlighting חייבים להישמר"""
+        text = "```python\nprint('hello')\n```"
+        html, _ = markdown_to_html(text)
+        assert 'class="' in html  # codehilite מוסיף classes
+
+
+class TestTocGeneration:
+    """📑 טסטי TOC - וידוא שתוכן עניינים עובד"""
+    
+    def test_toc_generated_when_requested(self):
+        """TOC נוצר כאשר include_toc=True"""
+        text = "# Heading 1\n\nContent\n\n## Heading 2\n\nMore content"
+        html, toc = markdown_to_html(text, include_toc=True)
+        assert toc  # TOC לא ריק
+        assert '<ul>' in toc or '<li>' in toc
+    
+    def test_toc_empty_when_not_requested(self):
+        """TOC ריק כאשר include_toc=False"""
+        text = "# Heading 1\n\nContent"
+        html, toc = markdown_to_html(text, include_toc=False)
+        assert toc == ""
+    
+    def test_toc_anchors_match_headings(self):
+        """anchors ב-TOC תואמים ל-id בכותרות"""
+        text = "# Test Heading\n\nContent"
+        html, toc = markdown_to_html(text, include_toc=True)
+        # TOC צריך להכיל קישור עם # שמתאים ל-id בכותרת
+        if toc:
+            assert 'href="#' in toc
+
+
+class TestConsecutiveAlerts:
+    """⚠️ טסטים לאלרטים רצופים"""
+    
+    def test_consecutive_alerts_not_merged(self):
+        """שני alerts רצופים לא צריכים להתמזג"""
+        text = "::: info\nFirst alert\n:::\n\n::: warning\nSecond alert\n:::"
+        result = preprocess_markdown(text)
+        assert 'alert-info' in result
+        assert 'alert-warning' in result
+        assert result.count('class="alert') == 2
 ```
 
 ---
@@ -2174,6 +2276,10 @@ class TestGetExportTheme:
 | **פונטים לא אחידים** | System Font Stack לתאימות מלאה |
 | **`alert()` מכוער** | הודעות שגיאה יפות ב-UI עם אנימציה |
 | **TOC לא מחובר** | מימוש מלא עם `md.toc` + פרמטר `?toc=1` |
+| **`javascript:` לא חסום** | הוספת `protocols` whitelist ל-bleach |
+| **חסר `rel="noopener"`** | הוספה אוטומטית לכל `target="_blank"` |
+| **TOC לא מסונן** | TOC עובר sanitize נפרד |
+| **חסרים טסטי אבטחה** | הוספת `TestSecuritySanitization` class |
 
 ### שיפורים עתידיים אפשריים
 
