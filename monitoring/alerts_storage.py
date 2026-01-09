@@ -788,6 +788,18 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
         computed = compute_error_signature(alert_data or {})
         signature_hash = _sanitize_signature(computed)
 
+    # Compute a dedicated, sanitized signature for DB lookups to avoid using any
+    # externally supplied value in Mongo queries.
+    db_signature = ""
+    try:
+        computed_db = compute_error_signature(alert_data or {})
+        db_signature = _sanitize_signature(computed_db)
+    except Exception:
+        db_signature = ""
+    # If we failed to compute a dedicated DB signature, fall back to the primary hash.
+    if not db_signature:
+        db_signature = signature_hash
+
     # אם אין חתימה אמיתית – לא מוסיפים שדות Signature כלל (וגם מנקים שדות ריקים אם קיימים)
     if not signature_hash:
         try:
@@ -814,7 +826,7 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     if existing_is_new in (True, False) and bool(signature_hash_existing):
         is_new = bool(existing_is_new)
     else:
-        is_new = is_new_error(signature_hash)
+        is_new = is_new_error(db_signature)
 
     # הוספה בלבד: לא יוצרים dict חדש, לא דורסים Metadata קיים
     alert_data["error_signature_hash"] = signature_hash
