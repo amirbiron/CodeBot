@@ -12427,6 +12427,8 @@ def api_export_themes():
 
     if user_data and user_data.get("custom_themes"):
         for theme in user_data["custom_themes"]:
+            if not isinstance(theme, dict):
+                continue
             user_themes.append({
                 "id": theme.get("id"),
                 "name": theme.get("name", "My Theme"),

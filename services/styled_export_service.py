@@ -25,6 +25,64 @@ from services.theme_presets_service import get_preset_by_id, list_presets
 
 logger = logging.getLogger(__name__)
 
+# ============================================
+# 🔒 Sanitization policy (shared)
+# ============================================
+
+# רשימה לבנה של תגיות מותרות
+ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
+    "div",
+    "span",
+    "p",
+    "br",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "pre",
+    "code",
+    "img",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "hr",
+    "a",
+    "b",
+    "i",
+    "strong",
+    "em",
+    "del",
+    "ins",
+    "sup",
+    "sub",
+    "mark",
+    "nav",  # עבור TOC wrapper
+]
+
+# רשימה לבנה של attributes מותרים
+ALLOWED_ATTRS = {
+    "*": ["class", "id"],  # id נדרש עבור anchors של TOC
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "title", "width", "height"],
+    "th": ["colspan", "rowspan"],
+    "td": ["colspan", "rowspan"],
+    "code": ["class"],  # עבור codehilite language classes
+    "span": ["class"],  # עבור syntax highlighting
+    "pre": ["class"],
+}
+
+# פרוטוקולים מותרים (חוסם javascript:, data: וכו')
+ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
+
 
 # ============================================
 # Markdown Preprocessing
@@ -62,7 +120,16 @@ def preprocess_markdown(text: str) -> str:
         # המרת תוכן פנימי ל-HTML (תומך ב-Markdown בתוך alerts)
         inner_html = markdown.markdown(content, extensions=["nl2br"])
 
-        return f'<div class="alert alert-{css_class}">{inner_html}</div>'
+        # 🔒 סניטציה מיידית ל-HTML הפנימי כדי לצמצם תלות בשלבי עיבוד מאוחרים
+        clean_inner_html = bleach.clean(
+            inner_html,
+            tags=ALLOWED_TAGS,
+            attributes=ALLOWED_ATTRS,
+            protocols=ALLOWED_PROTOCOLS,
+            strip=True,
+        )
+
+        return f'<div class="alert alert-{css_class}">{clean_inner_html}</div>'
 
     # MULTILINE כדי ש-^ ו-$ יתאימו לתחילת/סוף שורה, DOTALL כדי ש-. יתפוס newlines
     return re.sub(pattern, replacer, text, flags=re.DOTALL | re.MULTILINE)
@@ -116,67 +183,12 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
     # 🔒 אבטחה: הסרת בלוקים מסוכנים יחד עם התוכן (script/style)
     html_raw = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", "", html_raw, flags=re.IGNORECASE | re.DOTALL)
 
-    # 🔒 Sanitization - מניעת XSS
-    # רשימה לבנה של תגיות מותרות
-    allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
-        "div",
-        "span",
-        "p",
-        "br",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "pre",
-        "code",
-        "img",
-        "table",
-        "thead",
-        "tbody",
-        "tr",
-        "th",
-        "td",
-        "blockquote",
-        "ul",
-        "ol",
-        "li",
-        "hr",
-        "a",
-        "b",
-        "i",
-        "strong",
-        "em",
-        "del",
-        "ins",
-        "sup",
-        "sub",
-        "mark",
-        "nav",  # עבור TOC wrapper
-    ]
-
-    # רשימה לבנה של attributes מותרים
-    allowed_attrs = {
-        "*": ["class", "id"],  # id נדרש עבור anchors של TOC
-        "a": ["href", "title", "target", "rel"],
-        "img": ["src", "alt", "title", "width", "height"],
-        "th": ["colspan", "rowspan"],
-        "td": ["colspan", "rowspan"],
-        "code": ["class"],  # עבור codehilite language classes
-        "span": ["class"],  # עבור syntax highlighting
-        "pre": ["class"],
-    }
-
-    # פרוטוקולים מותרים (חוסם javascript:, data: וכו')
-    allowed_protocols = ["http", "https", "mailto"]
-
     # ניקוי ה-HTML
     clean_html = bleach.clean(
         html_raw,
-        tags=allowed_tags,
-        attributes=allowed_attrs,
-        protocols=allowed_protocols,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRS,
+        protocols=ALLOWED_PROTOCOLS,
         strip=True,  # הסרת תגיות לא מורשות במקום escape
     )
 
@@ -437,6 +449,8 @@ def get_export_theme(
     # 4. ערכות המשתמש
     if user_themes:
         for theme in user_themes:
+            if not isinstance(theme, dict):
+                continue
             if theme.get("id") == theme_id:
                 return {
                     "name": theme.get("name", "My Theme"),
