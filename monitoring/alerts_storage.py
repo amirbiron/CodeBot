@@ -700,27 +700,31 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 def is_new_error(signature: str) -> bool:
     """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
     # CodeQL/NoSQL injection:
-    # - cast to str
+    # - require str (fail-closed) so Mongo can't receive dict/operators
     # - if already 64-hex: use as-is (avoid double-hash)
     # - else: hash to a fixed 64-hex identifier
     # - regex-validate the exact variable used in the Mongo query
     try:
-        raw = str(signature or "").strip()
+        if not isinstance(signature, str):
+            return False
+        raw = signature.strip()
         if not raw:
             return False
 
         raw_l = raw.lower()
         # אם כבר הגיע hash בפורמט החדש (למשל מ-_sanitize_signature) – לא עושים hash שוב
         if re.fullmatch(r"[0-9a-f]{64}", raw_l):
-            safe_signature = str(raw_l)
+            safe_signature = raw_l
         else:
             # אחרת: תמיד נייצר hash יציב ובטוח לשאילתה
             safe_signature = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
             safe_signature = str(safe_signature).strip().lower()
 
         # ולידציה סופית על המשתנה שמוזן לשאילתה (CodeQL-friendly)
-        if not re.fullmatch(r"[0-9a-f]{64}", str(safe_signature)):
+        if not re.fullmatch(r"[0-9a-f]{64}", safe_signature):
             return False
+        # משתנה ייעודי לשאילתה אחרי ולידציה (עוזר ל-Static Analysis)
+        query_signature: str = safe_signature
     except Exception:
         return False
     if not _enabled() or _init_failed:
@@ -749,7 +753,7 @@ def is_new_error(signature: str) -> bool:
             from pymongo import ReturnDocument  # type: ignore
 
             prev = collection.find_one_and_update(
-                {"signature": safe_signature},
+                {"signature": query_signature},
                 {
                     "$set": {"last_seen": now},
                     "$inc": {"count": 1},
@@ -765,9 +769,9 @@ def is_new_error(signature: str) -> bool:
             return True
         except Exception:
             # Fallback: שתי שאילתות (שומר תאימות לסביבות בלי find_one_and_update)
-            existing = collection.find_one({"signature": safe_signature, "last_seen": {"$gte": cutoff}})
+            existing = collection.find_one({"signature": query_signature, "last_seen": {"$gte": cutoff}})
             collection.update_one(
-                {"signature": safe_signature},
+                {"signature": query_signature},
                 {
                     "$set": {"last_seen": now},
                     "$inc": {"count": 1},
