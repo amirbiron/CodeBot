@@ -554,6 +554,25 @@
       } catch (_) {}
     }
 
+    function stopOnTouchOrClick(e) {
+      try {
+        // לא חוסמים אינטראקציה, רק מכבים את האפקט
+        if (e && e.type) {}
+      } catch (_) {}
+      stopAll();
+    }
+
+    // נגיעה/קליק על המסך מכבים את האפקט (ידידותי למובייל/Telegram MiniApp)
+    try {
+      document.addEventListener('click', stopOnTouchOrClick, true);
+      bag.add(() => document.removeEventListener('click', stopOnTouchOrClick, true));
+    } catch (_) {}
+
+    try {
+      document.addEventListener('touchstart', stopOnTouchOrClick, { capture: true, passive: true });
+      bag.add(() => document.removeEventListener('touchstart', stopOnTouchOrClick, { capture: true }));
+    } catch (_) {}
+
     bag.add(() => {
       try {
         if (intervalId) window.clearInterval(intervalId);
