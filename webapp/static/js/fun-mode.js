@@ -529,6 +529,8 @@
 
         el.style.left = 5 + Math.random() * 90 + '%';
         el.style.fontSize = 10 + Math.random() * 6 + 'px';
+        // סטייה אופקית אקראית כדי שחלק “יעופו” ימינה וחלק שמאלה
+        el.style.setProperty('--code-particle-dx', (Math.random() - 0.5) * 180 + 'px');
 
         const duration = 10 + Math.random() * 10;
         el.style.animation = 'floatUpRotated ' + duration + 's linear forwards';

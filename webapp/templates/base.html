@@ -1047,7 +1047,7 @@
 
         @keyframes floatUpRotated {
             0% {
-                transform: translateY(0) rotate(0deg);
+                transform: translate3d(0, 0, 0) rotate(0deg);
                 opacity: 0;
             }
             10% {
@@ -1057,7 +1057,7 @@
                 opacity: 0.8;
             }
             100% {
-                transform: translateY(-150px) rotate(45deg);
+                transform: translate3d(var(--code-particle-dx, 0px), -150px, 0) rotate(45deg);
                 opacity: 0;
             }
         }
