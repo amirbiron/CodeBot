@@ -1,9 +1,12 @@
 import pytest
 
 from services.styled_export_service import (
+    generate_pygments_css,
     get_export_theme,
+    get_pygments_style_for_theme,
     markdown_to_html,
     preprocess_markdown,
+    HAS_PYGMENTS,
 )
 from services.theme_presets_service import list_presets
 
@@ -115,4 +118,76 @@ class TestTocGeneration:
         text = "# Heading 1\n\nContent"
         _html, toc = markdown_to_html(text, include_toc=False)
         assert toc == ""
+
+
+class TestPygmentsCssGeneration:
+    """🎨 טסטי יצירת CSS דינמי להדגשת תחביר"""
+
+    @pytest.mark.skipif(not HAS_PYGMENTS, reason="Pygments not installed")
+    def test_generate_pygments_css_returns_css(self):
+        """ייצור CSS בסיסי"""
+        css = generate_pygments_css("monokai", ".highlight")
+        assert css
+        assert ".highlight" in css
+        # בדיקה שיש הגדרות צבעים
+        assert "color:" in css or "background:" in css
+
+    @pytest.mark.skipif(not HAS_PYGMENTS, reason="Pygments not installed")
+    def test_generate_pygments_css_fallback_dark_on_invalid_style(self):
+        """fallback ל-monokai (dark) כשהסגנון לא קיים וקטגוריה כהה"""
+        css = generate_pygments_css("nonexistent-style-xyz", ".highlight", "dark")
+        assert css  # אמור להחזיר CSS גם כשהסגנון לא קיים
+
+    @pytest.mark.skipif(not HAS_PYGMENTS, reason="Pygments not installed")
+    def test_generate_pygments_css_fallback_light_on_invalid_style(self):
+        """fallback ל-default (light) כשהסגנון לא קיים וקטגוריה בהירה"""
+        css = generate_pygments_css("nonexistent-style-xyz", ".highlight", "light")
+        assert css  # אמור להחזיר CSS מתאים לערכה בהירה
+
+    @pytest.mark.skipif(not HAS_PYGMENTS, reason="Pygments not installed")
+    def test_generate_pygments_css_default_style(self):
+        """בדיקת סגנון default"""
+        css = generate_pygments_css("default", ".code")
+        assert css
+        assert ".code" in css
+
+    def test_get_pygments_style_for_known_theme(self):
+        """מיפוי ערכה ידועה לסגנון Pygments"""
+        style = get_pygments_style_for_theme("tech-guide-dark", "dark")
+        assert style == "monokai"
+
+    def test_get_pygments_style_fallback_dark(self):
+        """fallback לערכה לא ידועה בקטגוריה כהה"""
+        style = get_pygments_style_for_theme("unknown-theme", "dark")
+        assert style == "monokai"  # PYGMENTS_STYLE_DARK_FALLBACK
+
+    def test_get_pygments_style_fallback_light(self):
+        """fallback לערכה לא ידועה בקטגוריה בהירה"""
+        style = get_pygments_style_for_theme("unknown-theme", "light")
+        assert style == "default"  # PYGMENTS_STYLE_LIGHT_FALLBACK
+
+    def test_get_pygments_style_handles_none_category(self):
+        """הגנה מפני category=None (יכול להגיע מ-MongoDB)"""
+        # לא צריך לזרוק AttributeError
+        style = get_pygments_style_for_theme("unknown-theme", None)  # type: ignore[arg-type]
+        assert style == "monokai"  # fallback to dark
+
+
+class TestGetExportThemeWithMetadata:
+    """בדיקות שה-get_export_theme מחזיר גם id ו-category"""
+
+    def test_returns_id_and_category_for_builtin(self):
+        theme = get_export_theme("tech-guide-dark")
+        assert theme.get("id") == "tech-guide-dark"
+        assert theme.get("category") == "dark"
+
+    def test_returns_id_and_category_for_fallback(self):
+        theme = get_export_theme("nonexistent-theme-xyz")
+        assert theme.get("id") == "tech-guide-dark"
+        assert theme.get("category") == "dark"
+
+    def test_clean_light_theme_has_light_category(self):
+        theme = get_export_theme("clean-light")
+        assert theme.get("id") == "clean-light"
+        assert theme.get("category") == "light"
 
