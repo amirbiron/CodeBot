@@ -119,7 +119,8 @@
 }
 
 /* === Custom theme override - uses CSS variables from the custom theme === */
-:root[data-theme="custom"] {
+:root[data-theme="custom"],
+:root[data-theme^="shared:"] {
   --details-border: var(--glass-border, #30363d);
   --details-bg: var(--bg-secondary, #0d1117);
   --details-hover: var(--bg-tertiary, #161b22);
@@ -132,6 +133,9 @@
   --header-anchor-hover: var(--primary, #58a6ff);
   --tooltip-bg: var(--bg-tertiary, rgba(255, 255, 255, 0.9));
   --tooltip-text: var(--text-primary, #000);
+  /* mark/highlight styling - yellow for visibility */
+  --mark-bg: color-mix(in srgb, #ffd700 70%, var(--bg-primary, #0d1117) 30%);
+  --mark-text: #1a1a1a;
 }
 
 /* === קטעים מתקפלים === */
@@ -336,4 +340,120 @@ h6:hover .header-anchor { opacity: 1; }
 }
 @media (pointer: coarse) {
   .header-anchor { opacity: 1; padding: 0.25em; display: inline-flex; align-items: center; }
+}
+
+/* === Mark/Highlight styling (==טקסט מודגש==) === */
+mark {
+  background: linear-gradient(120deg, #ffd700 0%, #ffec8a 100%);
+  color: #1a1a1a;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Custom/Shared themes - yellow highlight with theme mix */
+:root[data-theme="custom"] mark,
+:root[data-theme^="shared:"] mark {
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, #ffd700 85%, var(--primary, #6366f1) 15%) 0%,
+    color-mix(in srgb, #ffec8a 85%, var(--primary, #6366f1) 15%) 100%
+  );
+  color: #1a1a1a;
+  font-weight: 500;
+}
+
+/* Dark themes - brighter yellow for visibility */
+:root[data-theme="dark"] mark,
+:root[data-theme="dim"] mark,
+:root[data-theme="nebula"] mark {
+  background: linear-gradient(120deg, #ffd700 0%, #ffe45c 100%);
+  color: #0d1117;
+}
+
+/* High contrast - pure yellow */
+:root[data-theme="high-contrast"] mark {
+  background: #ffff00;
+  color: #000000;
+  font-weight: bold;
+}
+
+/* === Admonition overrides for Custom/Shared themes === */
+:root[data-theme="custom"] .admonition,
+:root[data-theme^="shared:"] .admonition {
+  background: color-mix(in srgb, var(--bg-secondary, #1f2937) 90%, transparent);
+  border-color: var(--primary, #6366f1);
+}
+
+:root[data-theme="custom"] .admonition-title,
+:root[data-theme^="shared:"] .admonition-title {
+  background: color-mix(in srgb, var(--bg-tertiary, #374151) 80%, var(--primary, #6366f1) 20%);
+  color: var(--text-primary, #f3f4f6);
+}
+
+:root[data-theme="custom"] .admonition-content,
+:root[data-theme^="shared:"] .admonition-content {
+  background: color-mix(in srgb, var(--bg-primary, #111827) 70%, transparent);
+  color: var(--text-primary, #e5e7eb);
+}
+
+/* Admonition type colors for Custom/Shared themes */
+:root[data-theme="custom"] .admonition-note,
+:root[data-theme^="shared:"] .admonition-note {
+  border-color: #3b82f6;
+  background: color-mix(in srgb, #3b82f6 15%, var(--bg-secondary, #1f2937) 85%);
+}
+:root[data-theme="custom"] .admonition-note .admonition-title,
+:root[data-theme^="shared:"] .admonition-note .admonition-title {
+  background: color-mix(in srgb, #3b82f6 30%, var(--bg-tertiary, #374151) 70%);
+  color: #93c5fd;
+}
+
+:root[data-theme="custom"] .admonition-tip,
+:root[data-theme^="shared:"] .admonition-tip,
+:root[data-theme="custom"] .admonition-success,
+:root[data-theme^="shared:"] .admonition-success {
+  border-color: #22c55e;
+  background: color-mix(in srgb, #22c55e 15%, var(--bg-secondary, #1f2937) 85%);
+}
+:root[data-theme="custom"] .admonition-tip .admonition-title,
+:root[data-theme^="shared:"] .admonition-tip .admonition-title,
+:root[data-theme="custom"] .admonition-success .admonition-title,
+:root[data-theme^="shared:"] .admonition-success .admonition-title {
+  background: color-mix(in srgb, #22c55e 30%, var(--bg-tertiary, #374151) 70%);
+  color: #86efac;
+}
+
+:root[data-theme="custom"] .admonition-warning,
+:root[data-theme^="shared:"] .admonition-warning {
+  border-color: #eab308;
+  background: color-mix(in srgb, #eab308 15%, var(--bg-secondary, #1f2937) 85%);
+}
+:root[data-theme="custom"] .admonition-warning .admonition-title,
+:root[data-theme^="shared:"] .admonition-warning .admonition-title {
+  background: color-mix(in srgb, #eab308 30%, var(--bg-tertiary, #374151) 70%);
+  color: #fde047;
+}
+
+:root[data-theme="custom"] .admonition-danger,
+:root[data-theme^="shared:"] .admonition-danger {
+  border-color: #ef4444;
+  background: color-mix(in srgb, #ef4444 15%, var(--bg-secondary, #1f2937) 85%);
+}
+:root[data-theme="custom"] .admonition-danger .admonition-title,
+:root[data-theme^="shared:"] .admonition-danger .admonition-title {
+  background: color-mix(in srgb, #ef4444 30%, var(--bg-tertiary, #374151) 70%);
+  color: #fca5a5;
+}
+
+:root[data-theme="custom"] .admonition-info,
+:root[data-theme^="shared:"] .admonition-info {
+  border-color: #06b6d4;
+  background: color-mix(in srgb, #06b6d4 15%, var(--bg-secondary, #1f2937) 85%);
+}
+:root[data-theme="custom"] .admonition-info .admonition-title,
+:root[data-theme^="shared:"] .admonition-info .admonition-title {
+  background: color-mix(in srgb, #06b6d4 30%, var(--bg-tertiary, #374151) 70%);
+  color: #67e8f9;
 }
