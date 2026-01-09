@@ -1266,7 +1266,9 @@ def export_styled_html(file_id):
     
     # רינדור HTML מלא
     # שימוש ב-or כדי לטפל גם במקרה ש-file_name קיים אבל הוא None
-    title = (file.get('file_name') or 'Untitled').replace('.md', '').replace('.markdown', '')
+    # הסרת סיומות case-insensitive עם regex
+    raw_title = file.get('file_name') or 'Untitled'
+    title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
     rendered_html = render_styled_html(
         content_html=html_content,
         title=title,
@@ -1727,7 +1729,8 @@ def api_parse_vscode_theme():
     async function handleFileUpload(file) {
         hideError();
         
-        if (!file.name.endsWith('.json')) {
+        // Case-insensitive check for .json extension
+        if (!file.name.toLowerCase().endsWith('.json')) {
             showError('נא להעלות קובץ JSON בלבד');
             return;
         }
@@ -2631,6 +2634,8 @@ class TestConsecutiveAlerts:
 | 12 | שם קובץ שומר newlines (header injection) | נמוך | רווח בודד ` ` במקום `\s` ברגקס |
 | 13 | השוואת ID escaped מול unescaped | נמוך | `p.id === selectedTheme.id` (escape רק ל-HTML output) |
 | 14 | חסר `\| safe` ל-`css_variables` בתבנית | נמוך | הוספת `{{ css_variables \| safe }}` |
+| 15 | בדיקת `.json` case-sensitive | נמוך | `file.name.toLowerCase().endsWith('.json')` |
+| 16 | הסרת `.md` case-sensitive | נמוך | `re.sub(r'\.(md\|markdown)$', '', title, flags=re.IGNORECASE)` |
 
 ### פונקציות אבטחה שנוספו
 
