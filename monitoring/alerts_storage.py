@@ -687,22 +687,41 @@ def is_new_error(signature: str) -> bool:
         except Exception:
             pass
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=30)
 
-        existing = collection.find_one({"signature": signature, "last_seen": {"$gte": cutoff}})
+        # Bulk/atomic: שאילתה אחת שמחזירה את המסמך הישן (אם קיים) וגם מעדכנת/upsert
+        try:
+            from pymongo import ReturnDocument  # type: ignore
 
-        # עדכון/הוספת הרשומה
-        collection.update_one(
-            {"signature": signature},
-            {
-                "$set": {"last_seen": datetime.now(timezone.utc)},
-                "$inc": {"count": 1},
-                "$setOnInsert": {"first_seen": datetime.now(timezone.utc)},
-            },
-            upsert=True,
-        )
-
-        return existing is None
+            prev = collection.find_one_and_update(
+                {"signature": signature},
+                {
+                    "$set": {"last_seen": now},
+                    "$inc": {"count": 1},
+                    "$setOnInsert": {"first_seen": now},
+                },
+                upsert=True,
+                return_document=ReturnDocument.BEFORE,
+            )
+            if isinstance(prev, dict):
+                last_seen = prev.get("last_seen")
+                if isinstance(last_seen, datetime) and last_seen >= cutoff:
+                    return False
+            return True
+        except Exception:
+            # Fallback: שתי שאילתות (שומר תאימות לסביבות בלי find_one_and_update)
+            existing = collection.find_one({"signature": signature, "last_seen": {"$gte": cutoff}})
+            collection.update_one(
+                {"signature": signature},
+                {
+                    "$set": {"last_seen": now},
+                    "$inc": {"count": 1},
+                    "$setOnInsert": {"first_seen": now},
+                },
+                upsert=True,
+            )
+            return existing is None
     except Exception:
         return False
 
@@ -1054,16 +1073,35 @@ def count_alerts_since(since_dt: datetime) -> tuple[int, int]:
         match: Dict[str, Any] = {"ts_dt": {"$gte": since_dt}}
         # Default: exclude Drill alerts from stats to prevent metric pollution
         match["details.is_drill"] = {"$ne": True}
-        total = int(coll.count_documents(match))  # type: ignore[attr-defined]
-        critical = int(
-            coll.count_documents(
-                {
-                    **match,
-                    "severity": {"$regex": "^critical$", "$options": "i"},
+        # Bulk: aggregate בשאילתה אחת במקום 2 count_documents
+        pipeline = [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": None,
+                    "total": {"$sum": 1},
+                    "critical": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$eq": [
+                                        {"$toLower": {"$ifNull": ["$severity", "info"]}},
+                                        "critical",
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
                 }
-            )  # type: ignore[attr-defined]
-        )
-        return total, critical
+            },
+        ]
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+        if not rows:
+            return 0, 0
+        doc = rows[0] if isinstance(rows[0], dict) else {}
+        return int(doc.get("total", 0) or 0), int(doc.get("critical", 0) or 0)
     except Exception:
         return 0, 0
 

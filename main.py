@@ -3778,7 +3778,9 @@ def main() -> None:
     try:
         # Initialize database first
         global db
-        db = DatabaseManager()
+        # השתמש ב-DatabaseManager הגלובלי (database.db) כדי לא ליצור instance חדש
+        from database import db as _db  # type: ignore
+        db = _db
         
         # MongoDB connection and lock management
         if not manage_mongo_lock():
