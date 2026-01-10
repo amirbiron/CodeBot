@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 from services.query_profiler_service import (
     QueryProfilerService,
+    PersistentQueryProfilerService,
     QueryStage,
     SeverityLevel,
     ExplainPlan,
@@ -65,6 +66,19 @@ class TestQueryProfilerService:
 
         assert len(queries) == 1
         assert queries[0].collection == "users"
+
+    @pytest.mark.asyncio
+    async def test_get_summary_async_matches_get_summary(self, profiler_service):
+        """בדיקה ש-get_summary_async קיים ומחזיר את אותו סיכום כמו get_summary."""
+        await profiler_service.record_slow_query(
+            collection="users",
+            operation="find",
+            query={"name": "test"},
+            execution_time_ms=200,
+        )
+        sync_summary = profiler_service.get_summary()
+        async_summary = await profiler_service.get_summary_async()
+        assert async_summary == sync_summary
 
     @pytest.mark.asyncio
     async def test_normalize_query_shape(self, profiler_service):
@@ -294,4 +308,23 @@ class TestRateLimiting:
         assert limiter.is_allowed("client1") is False
 
         assert limiter.is_allowed("client2") is True
+
+
+class TestPersistentQueryProfilerServiceSummaryAsync:
+    @pytest.mark.asyncio
+    async def test_get_summary_async_uses_cache(self, mock_db_manager, monkeypatch):
+        """ודא ש-Persistent get_summary_async עושה caching כדי לא להעמיס על DB."""
+        svc = PersistentQueryProfilerService(db_manager=mock_db_manager, slow_threshold_ms=100)
+        calls = {"n": 0}
+
+        monkeypatch.setattr(
+            svc,
+            "_calculate_summary_sync",
+            lambda: {"total_slow_queries": calls.__setitem__("n", calls["n"] + 1) or calls["n"]},
+        )
+
+        r1 = await svc.get_summary_async()
+        r2 = await svc.get_summary_async()
+        assert calls["n"] == 1
+        assert r1 == r2
 
