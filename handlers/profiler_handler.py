@@ -183,7 +183,7 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
     @require_profiler_auth
     async def get_summary(request: web.Request) -> web.Response:
         """GET /api/profiler/summary"""
-        summary = profiler_service.get_summary()
+        summary = await profiler_service.get_summary_async()
         return web.json_response({"status": "success", "data": summary})
 
     @require_profiler_auth
