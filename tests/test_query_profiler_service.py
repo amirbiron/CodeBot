@@ -314,11 +314,6 @@ class TestPersistentQueryProfilerServiceSummaryAsync:
     @pytest.mark.asyncio
     async def test_get_summary_async_uses_cache(self, mock_db_manager, monkeypatch):
         """ודא ש-Persistent get_summary_async עושה caching כדי לא להעמיס על DB."""
-        # ניקוי cache גלובלי בין טסטים (הוא class-level)
-        PersistentQueryProfilerService._summary_cache_by_loop.clear()
-        PersistentQueryProfilerService._summary_cache_expires_at_by_loop.clear()
-        PersistentQueryProfilerService._summary_lock_by_loop.clear()
-
         svc = PersistentQueryProfilerService(db_manager=mock_db_manager, slow_threshold_ms=100)
         calls = {"n": 0}
 
