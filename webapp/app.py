@@ -12531,7 +12531,20 @@ def api_create_styled_share(file_id):
                 else:
                     theme = get_export_theme(theme_id)
 
-            styled_html = render_styled_markdown(markdown_content, theme, file_name)
+            # המרת Markdown ל-HTML
+            html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
+
+            # יצירת כותרת מהשם (הסרת סיומת)
+            raw_title = file_name or 'Untitled'
+            title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
+
+            # רינדור HTML מלא
+            styled_html = render_styled_html(
+                content_html=html_content,
+                title=title,
+                theme=theme,
+                toc_html=toc_html,
+            )
         except Exception as e:
             logger.exception("Failed to render styled HTML for share", extra={"file_id": file_id, "theme_id": theme_id})
             return jsonify({'ok': False, 'error': 'שגיאה ביצירת HTML מעוצב'}), 500
