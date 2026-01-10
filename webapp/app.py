@@ -15471,6 +15471,8 @@ def public_shared_styled(token: str):
     response = make_response(styled_html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
     response.headers['Cache-Control'] = 'public, max-age=3600'  # cache לשעה
+    # CSP restrictive - מונע הרצת סקריפטים בתוכן משתמש
+    response.headers['Content-Security-Policy'] = "script-src 'none'"
     return response
 
 

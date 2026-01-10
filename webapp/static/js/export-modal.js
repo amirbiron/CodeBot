@@ -236,10 +236,10 @@
     const errorContainer = document.createElement('div');
     errorContainer.className = 'export-error-message';
     errorContainer.hidden = true;
-    // מוסיפים ל-Import Tab
-    const importTab = document.getElementById('export-import-tab');
-    if (importTab) {
-        importTab.insertBefore(errorContainer, importTab.firstChild);
+    // מוסיפים ל-modal content (נראה מכל הטאבים)
+    const modalContent = modal.querySelector('.export-modal__content');
+    if (modalContent) {
+        modalContent.insertBefore(errorContainer, modalContent.firstChild);
     }
 
     // Store timeout reference to prevent premature hiding
@@ -457,19 +457,32 @@
                     throw new Error(data.error || 'שגיאה ביצירת קישור');
                 }
 
-                // העתקה ללוח
-                await navigator.clipboard.writeText(data.share_url);
+                // ניסיון העתקה ללוח
+                let clipboardSuccess = false;
+                try {
+                    await navigator.clipboard.writeText(data.share_url);
+                    clipboardSuccess = true;
+                } catch (clipboardErr) {
+                    console.warn('Clipboard write failed:', clipboardErr);
+                }
 
-                // הצגת הצלחה
-                copyLinkBtn.classList.add('copy-success');
-                if (copyLinkText) copyLinkText.textContent = 'הועתק!';
+                if (clipboardSuccess) {
+                    // הצגת הצלחה
+                    copyLinkBtn.classList.add('copy-success');
+                    if (copyLinkText) copyLinkText.textContent = 'הועתק!';
 
-                // החזרה למצב רגיל אחרי 2 שניות
-                setTimeout(() => {
-                    copyLinkBtn.classList.remove('copy-success');
+                    // החזרה למצב רגיל אחרי 2 שניות
+                    setTimeout(() => {
+                        copyLinkBtn.classList.remove('copy-success');
+                        if (copyLinkText) copyLinkText.textContent = originalText;
+                        copyLinkBtn.disabled = false;
+                    }, 2000);
+                } else {
+                    // הצגת ה-URL למשתמש אם ההעתקה נכשלה
                     if (copyLinkText) copyLinkText.textContent = originalText;
                     copyLinkBtn.disabled = false;
-                }, 2000);
+                    prompt('הקישור נוצר בהצלחה. העתק אותו ידנית:', data.share_url);
+                }
 
             } catch (err) {
                 console.error('Copy link error:', err);
