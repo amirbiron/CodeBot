@@ -113,28 +113,13 @@ def test_db_manager_profiler_runs_when_slow_mongo_disabled(monkeypatch):
 
     monkeypatch.setattr(qps, "PersistentQueryProfilerService", _DummyProfiler)
 
-    # Act: init manager to register listener
+    # Act: init manager
     dm.DatabaseManager()
+
+    # Assert: כאשר גם slow_mongo כבוי וגם profiler מנוטרל "קשיח" ברמת הקוד,
+    # לא נרשום CommandListener בכלל (אין איסוף duration/context ואין overhead).
     listener = registered.get("listener")
-    assert listener is not None
-
-    # Provide request context via started()
-    class _StartedEvent:
-        request_id = 123
-        command_name = "find"
-        database_name = "db"
-        command = {"find": "users", "filter": {"user_id": 1}}
-
-    listener.started(_StartedEvent())
-
-    # Trigger succeeded with duration above profiler threshold
-    class _SucceededEvent:
-        request_id = 123
-        duration_micros = 500.0  # 0.5 ms
-        command_name = "find"
-        database_name = "db"
-
-    listener.succeeded(_SucceededEvent())
+    assert listener is None
 
     # Assert: profiler is hard-disabled by code flag (no recording)
     assert called["count"] == 0

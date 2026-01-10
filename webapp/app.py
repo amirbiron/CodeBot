@@ -3782,164 +3782,39 @@ def _serialize_recommendation(rec) -> Dict[str, Any]:
 
 @app.route("/api/profiler/slow-queries", methods=["GET"])
 def api_profiler_slow_queries():
-    if not _profiler_is_authorized():
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if not _profiler_rate_limit_ok():
-        return jsonify({"status": "error", "message": "rate_limited"}), 429
-    try:
-        limit = int(request.args.get("limit", "50"))
-    except Exception:
-        limit = 50
-    collection = request.args.get("collection")
-    min_time = request.args.get("min_time")
-    hours = request.args.get("hours")
-    since = None
-    if hours:
-        try:
-            since = datetime.utcnow() - timedelta(hours=int(hours))
-        except Exception:
-            since = None
-    try:
-        svc = _get_webapp_profiler_service()
-        queries = _run_profiler(
-            svc.get_slow_queries(
-                limit=limit,
-                collection_filter=collection,
-                min_execution_time_ms=float(min_time) if min_time else None,
-                since=since,
-            )
-        )
-        return jsonify({"status": "success", "data": [_serialize_slow_query(q) for q in queries], "count": len(queries)})
-    except Exception:
-        logger.exception("api_profiler_slow_queries_failed")
-        return jsonify({"status": "error", "message": "internal_error"}), 500
+    # נטרול מוחלט של פרופיילר: חייב להיות מיידי וללא DB/חישובים.
+    return jsonify({"status": "disabled"})
 
 
 @app.route("/api/profiler/summary", methods=["GET"])
 def api_profiler_summary():
-    if not _profiler_is_authorized():
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if not _profiler_rate_limit_ok():
-        return jsonify({"status": "error", "message": "rate_limited"}), 429
-    try:
-        svc = _get_webapp_profiler_service()
-        return jsonify({"status": "success", "data": svc.get_summary()})
-    except Exception:
-        logger.exception("api_profiler_summary_failed")
-        return jsonify({"status": "error", "message": "internal_error"}), 500
+    # נטרול מוחלט של פרופיילר: חייב להיות מיידי וללא DB/חישובים.
+    return jsonify({"status": "disabled"})
 
 
 @app.route("/api/profiler/explain", methods=["POST"])
 def api_profiler_explain():
-    if not _profiler_is_authorized():
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if not _profiler_rate_limit_ok():
-        return jsonify({"status": "error", "message": "rate_limited"}), 429
-    try:
-        body = request.get_json(force=True, silent=False) or {}
-    except Exception:
-        return jsonify({"status": "error", "message": "invalid_json"}), 400
-    collection = body.get("collection")
-    query = body.get("query", {}) or {}
-    pipeline = body.get("pipeline")
-    verbosity = body.get("verbosity", "queryPlanner")
-    if not collection:
-        return jsonify({"status": "error", "message": "collection is required"}), 400
-    try:
-        svc = _get_webapp_profiler_service()
-        if isinstance(pipeline, list):
-            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
-            return jsonify({"status": "success", "data": _serialize_aggregation_explain(explain)})
-        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
-        return jsonify({"status": "success", "data": _serialize_explain_plan(explain)})
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
-        logger.exception("api_profiler_explain_failed")
-        return jsonify({"status": "error", "message": "internal_error"}), 500
-    except Exception:
-        logger.exception("api_profiler_explain_failed")
-        return jsonify({"status": "error", "message": "internal_error"}), 500
+    # נטרול מוחלט של פרופיילר: חייב להיות מיידי וללא DB/חישובים.
+    return jsonify({"status": "disabled"})
 
 
 @app.route("/api/profiler/recommendations", methods=["POST"])
 def api_profiler_recommendations():
-    if not _profiler_is_authorized():
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if not _profiler_rate_limit_ok():
-        return jsonify({"status": "error", "message": "rate_limited"}), 429
-    try:
-        body = request.get_json(force=True, silent=False) or {}
-    except Exception:
-        return jsonify({"status": "error", "message": "invalid_json"}), 400
-    collection = body.get("collection")
-    query = body.get("query", {}) or {}
-    pipeline = body.get("pipeline")
-    verbosity = body.get("verbosity", "queryPlanner")
-    if not collection:
-        return jsonify({"status": "error", "message": "collection is required"}), 400
-    try:
-        svc = _get_webapp_profiler_service()
-        if isinstance(pipeline, list):
-            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
-            recommendations = _run_profiler(svc.analyze_aggregation_and_recommend(explain))
-            return jsonify(
-                {
-                    "status": "success",
-                    "data": {
-                        "aggregation_explain": _serialize_aggregation_explain(explain),
-                        "recommendations": [_serialize_recommendation(r) for r in recommendations],
-                    },
-                }
-            )
-        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
-        recommendations = _run_profiler(svc.generate_recommendations(explain))
-        return jsonify(
-            {
-                "status": "success",
-                "data": {
-                    "explain": _serialize_explain_plan(explain),
-                    "recommendations": [_serialize_recommendation(r) for r in recommendations],
-                },
-            }
-        )
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
-        logger.exception("api_profiler_recommendations_failed")
-        return jsonify({"status": "error", "message": "internal_error"}), 500
-    except Exception:
-        logger.exception("api_profiler_recommendations_failed")
-        return jsonify({"status": "error", "message": "internal_error"}), 500
+    # נטרול מוחלט של פרופיילר: חייב להיות מיידי וללא DB/חישובים.
+    return jsonify({"status": "disabled"})
 
 
 @app.route("/api/profiler/analyze", methods=["POST"])
 def api_profiler_analyze():
     """Alias 1:1 למדריך: POST /api/profiler/analyze -> recommendations."""
-    return api_profiler_recommendations()
+    # נטרול מוחלט של פרופיילר: חייב להיות מיידי וללא DB/חישובים.
+    return jsonify({"status": "disabled"})
 
 
 @app.route("/api/profiler/collection/<name>/stats", methods=["GET"])
 def api_profiler_collection_stats(name: str):
-    if not _profiler_is_authorized():
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    if not _profiler_rate_limit_ok():
-        return jsonify({"status": "error", "message": "rate_limited"}), 429
-    try:
-        svc = _get_webapp_profiler_service()
-        stats = _run_profiler(svc.get_collection_stats(name))
-        return jsonify({"status": "success", "data": stats})
-    except Exception:
-        logger.exception("api_profiler_collection_stats_failed")
-        return jsonify({"status": "error", "message": "internal_error"}), 500
+    # נטרול מוחלט של פרופיילר: חייב להיות מיידי וללא DB/חישובים.
+    return jsonify({"status": "disabled"})
 
 
 def _db_health_token() -> str:
