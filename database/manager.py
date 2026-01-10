@@ -117,10 +117,11 @@ _MONGO_MONITORING_REGISTERED = False
 class DatabaseManager:
     """אחראי על חיבור MongoDB והגדרת אינדקסים."""
 
-    # --- Profiler hard-disable ---
-    # נטרול מוחלט של ה-Profiler ברמת הקוד (לא תלוי ENV).
-    # אם נרצה להפעיל שוב בעתיד, נרים את הערך ל-True ונשתמש ב-ENV כרגיל.
-    ENABLE_PROFILING: bool = False
+    # --- Profiler hard-disable (Kill Switch) ---
+    # דגל "קשיח" ברמת הקוד:
+    # - True  => הפרופיילר יכול לעבוד (ועדיין נשלט ע"י ENV כמו PROFILER_ENABLED)
+    # - False => הפרופיילר כבוי לחלוטין, גם אם ENV אומר להפעיל
+    ENABLE_PROFILING: bool = True
 
     # --- Diagnostics: instance counter (sanity check for accidental re-creation) ---
     _INSTANCES_CREATED: int = 0

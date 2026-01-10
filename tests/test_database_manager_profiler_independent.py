@@ -33,7 +33,8 @@ def test_db_manager_profiler_runs_when_slow_mongo_disabled(monkeypatch):
     monkeypatch.setenv("SPHINX_MOCK_IMPORTS", "0")
 
     import database.manager as dm
-    # Hard-disable is the default per production request
+    # בדיקה ש-Kill Switch עובד: כיבוי "קשיח" גובר על ENV
+    monkeypatch.setattr(dm.DatabaseManager, "ENABLE_PROFILING", False, raising=False)
     assert bool(getattr(dm.DatabaseManager, "ENABLE_PROFILING", True)) is False
 
     # Force pymongo available path and inject fake monitoring API
