@@ -451,6 +451,10 @@
                     body: JSON.stringify(requestBody),
                 });
 
+                if (!response.ok) {
+                    throw new Error('שגיאה בשרת');
+                }
+
                 const data = await response.json();
 
                 if (!data.ok) {
