@@ -429,9 +429,14 @@
             if (copyLinkText) copyLinkText.textContent = 'יוצר קישור...';
 
             try {
+                // בדיקת checkbox לקישור קבוע
+                const permanentCheckbox = document.getElementById('exportPermanentLink');
+                const isPermanent = permanentCheckbox ? permanentCheckbox.checked : false;
+
                 // בניית הבקשה
                 const requestBody = {
                     theme: selectedTheme.id,
+                    permanent: isPermanent,
                 };
 
                 // אם זו ערכת VS Code, נוסיף את ה-JSON

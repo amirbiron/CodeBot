@@ -210,12 +210,39 @@
     flex-wrap: wrap;
 }
 
+.export-footer-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .export-selected-info {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     color: var(--text-secondary);
     font-size: 0.9rem;
+}
+
+.export-permanent-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.export-permanent-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--primary, #0088cc);
+}
+
+.export-permanent-toggle:hover {
+    color: var(--text-secondary);
 }
 
 .export-modal__actions {

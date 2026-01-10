@@ -12513,6 +12513,7 @@ def api_create_styled_share(file_id):
         data = request.get_json(silent=True) or {}
         theme_id = data.get('theme', 'tech-guide-dark')
         vscode_json = data.get('vscode_json')
+        is_permanent = bool(data.get('permanent', False))
 
         # יצירת ה-styled HTML
         markdown_content = file.get('code', '')
@@ -12538,7 +12539,7 @@ def api_create_styled_share(file_id):
         # יצירת token ושמירה ב-DB
         token = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+        expires_at = None if is_permanent else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
         db.styled_shares.insert_one({
             'token': token,
@@ -12549,6 +12550,7 @@ def api_create_styled_share(file_id):
             'styled_html': styled_html,
             'created_at': now,
             'expires_at': expires_at,
+            'is_permanent': is_permanent,
             'view_count': 0,
         })
 
@@ -12559,7 +12561,8 @@ def api_create_styled_share(file_id):
             'ok': True,
             'share_url': share_url,
             'token': token,
-            'expires_at': expires_at.isoformat(),
+            'expires_at': expires_at.isoformat() if expires_at else None,
+            'is_permanent': is_permanent,
         })
     except Exception as e:
         logger.exception("Failed to create styled share", extra={"file_id": file_id})
@@ -15418,16 +15421,22 @@ def public_shared_styled(token: str):
     if not doc:
         return render_template('404.html'), 404
 
-    # בדיקת תוקף
+    # בדיקת תוקף - קישורים קבועים לא פגים
+    is_permanent = doc.get('is_permanent', False)
     exp = doc.get('expires_at')
-    try:
-        now = datetime.now(timezone.utc)
-        if isinstance(exp, datetime):
-            expired = exp <= now
-        else:
+    expired = False
+
+    if not is_permanent:
+        try:
+            now = datetime.now(timezone.utc)
+            if exp is None:
+                expired = True
+            elif isinstance(exp, datetime):
+                expired = exp <= now
+            else:
+                expired = True
+        except Exception:
             expired = True
-    except Exception:
-        expired = True
 
     if expired:
         return render_template('404.html'), 404
