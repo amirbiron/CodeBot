@@ -12473,6 +12473,116 @@ def api_parse_vscode_theme():
         return jsonify({"ok": False, "error": "Failed to parse VS Code theme"}), 400
 
 
+@app.route('/api/export/styled/<file_id>/share', methods=['POST'])
+@login_required
+@premium_or_admin_required
+@traced("export.styled_share")
+def api_create_styled_share(file_id):
+    """
+    יוצר קישור שיתוף ציבורי ל-HTML מעוצב.
+
+    Body (JSON):
+        theme: מזהה ערכת הנושא (default: tech-guide-dark)
+        vscode_json: תוכן JSON של ערכת VS Code (אופציונלי)
+
+    Returns:
+        JSON עם share_url, token, expires_at
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+
+        # בדיקת קובץ
+        try:
+            file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+        except Exception as e:
+            logger.exception("DB error fetching file for styled share", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+            return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+
+        if not file:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        # וידוא שזה קובץ Markdown
+        language = (file.get('programming_language') or '').lower()
+        file_name = file.get('file_name') or ''
+        is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
+
+        if not is_markdown:
+            return jsonify({'ok': False, 'error': 'ייצוא HTML מעוצב זמין רק לקבצי Markdown'}), 400
+
+        # פרסור הבקשה
+        data = request.get_json(silent=True) or {}
+        theme_id = data.get('theme', 'tech-guide-dark')
+        vscode_json = data.get('vscode_json')
+        is_permanent = bool(data.get('permanent', False))
+
+        # יצירת ה-styled HTML
+        markdown_content = file.get('code', '')
+        try:
+            if vscode_json:
+                theme = get_export_theme('vscode-import', vscode_json=vscode_json)
+            else:
+                # בדיקה אם זו ערכה אישית של המשתמש
+                user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+                user_themes = (user_data.get("custom_themes") or []) if user_data else []
+                user_theme = next((t for t in user_themes if t.get("id") == theme_id), None)
+
+                if user_theme:
+                    theme = get_export_theme(theme_id, user_theme=user_theme)
+                else:
+                    theme = get_export_theme(theme_id)
+
+            # המרת Markdown ל-HTML
+            html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
+
+            # יצירת כותרת מהשם (הסרת סיומת)
+            raw_title = file_name or 'Untitled'
+            title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
+
+            # רינדור HTML מלא
+            styled_html = render_styled_html(
+                content_html=html_content,
+                title=title,
+                theme=theme,
+                toc_html=toc_html,
+            )
+        except Exception as e:
+            logger.exception("Failed to render styled HTML for share", extra={"file_id": file_id, "theme_id": theme_id})
+            return jsonify({'ok': False, 'error': 'שגיאה ביצירת HTML מעוצב'}), 500
+
+        # יצירת token ושמירה ב-DB
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires_at = None if is_permanent else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+
+        db.styled_shares.insert_one({
+            'token': token,
+            'source_file_id': ObjectId(file_id),
+            'user_id': int(user_id),
+            'file_name': file_name,
+            'theme_id': theme_id,
+            'styled_html': styled_html,
+            'created_at': now,
+            'expires_at': expires_at,
+            'is_permanent': is_permanent,
+            'view_count': 0,
+        })
+
+        base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
+        share_url = f"{base_url}/shared/styled/{token}"
+
+        return jsonify({
+            'ok': True,
+            'share_url': share_url,
+            'token': token,
+            'expires_at': expires_at.isoformat() if expires_at else None,
+            'is_permanent': is_permanent,
+        })
+    except Exception as e:
+        logger.exception("Failed to create styled share", extra={"file_id": file_id})
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
 @traced("share.create_single")
@@ -15308,6 +15418,64 @@ def public_share_download(share_id: str):
     resp = send_file(buf, mimetype='text/plain; charset=utf-8', as_attachment=True, download_name=safe)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+# --- Public styled HTML share route (tokens created via /api/export/styled/<file_id>/share) ---
+@app.route('/shared/styled/<token>')
+def public_shared_styled(token: str):
+    """עמוד שיתוף ציבורי ל-HTML מעוצב לפי token מ-collection styled_shares.
+
+    מחזיר את ה-HTML המעוצב ישירות. אם פג תוקף, מחזיר 404.
+    """
+    try:
+        db = get_db()
+        doc = db.styled_shares.find_one({'token': token})
+    except Exception:
+        doc = None
+
+    if not doc:
+        return render_template('404.html'), 404
+
+    # בדיקת תוקף - קישורים קבועים לא פגים
+    is_permanent = doc.get('is_permanent', False)
+    exp = doc.get('expires_at')
+    expired = False
+
+    if not is_permanent:
+        try:
+            now = datetime.now(timezone.utc)
+            if exp is None:
+                expired = True
+            elif isinstance(exp, datetime):
+                expired = exp <= now
+            else:
+                expired = True
+        except Exception:
+            expired = True
+
+    if expired:
+        return render_template('404.html'), 404
+
+    # עדכון מונה צפיות
+    try:
+        db.styled_shares.update_one(
+            {'token': token},
+            {'$inc': {'view_count': 1}}
+        )
+    except Exception:
+        pass  # לא קריטי
+
+    # החזרת ה-HTML המעוצב
+    styled_html = doc.get('styled_html', '')
+    if not styled_html:
+        return render_template('404.html'), 404
+
+    response = make_response(styled_html)
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    response.headers['Cache-Control'] = 'public, max-age=3600'  # cache לשעה
+    # CSP restrictive - מונע הרצת סקריפטים בתוכן משתמש
+    response.headers['Content-Security-Policy'] = "script-src 'none'"
+    return response
+
 
 # --- Public multiple-files share route (tokens created via /api/files/create-share-link) ---
 @app.route('/shared/<token>')

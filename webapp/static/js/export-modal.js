@@ -52,6 +52,9 @@
         modal.hidden = false;
         document.body.style.overflow = 'hidden';
 
+        // איפוס מצב כפתור Copy Link
+        resetCopyLinkButton();
+
         if (!presetsLoaded) {
             loadThemes();
         }
@@ -236,10 +239,10 @@
     const errorContainer = document.createElement('div');
     errorContainer.className = 'export-error-message';
     errorContainer.hidden = true;
-    // מוסיפים ל-Import Tab
-    const importTab = document.getElementById('export-import-tab');
-    if (importTab) {
-        importTab.insertBefore(errorContainer, importTab.firstChild);
+    // מוסיפים ל-modal content (נראה מכל הטאבים)
+    const modalContent = modal.querySelector('.export-modal__content');
+    if (modalContent) {
+        modalContent.insertBefore(errorContainer, modalContent.firstChild);
     }
 
     // Store timeout reference to prevent premature hiding
@@ -335,6 +338,7 @@
 
     const previewBtn = modal.querySelector('[data-action="preview"]');
     const downloadBtn = modal.querySelector('[data-action="download"]');
+    const copyLinkBtn = modal.querySelector('[data-action="copy-link"]');
 
     if (previewBtn) {
         previewBtn.addEventListener('click', async () => {
@@ -412,6 +416,112 @@
         document.body.appendChild(form);
         form.submit();
         document.body.removeChild(form);
+    }
+
+    // ============================================
+    // Copy Link - יצירת קישור שיתוף והעתקה ללוח
+    // ============================================
+
+    let copyLinkResetTimeout = null;
+    const COPY_LINK_ORIGINAL_TEXT = 'העתק קישור';
+
+    function resetCopyLinkButton() {
+        if (!copyLinkBtn) return;
+
+        // ביטול timeout קיים
+        if (copyLinkResetTimeout) {
+            clearTimeout(copyLinkResetTimeout);
+            copyLinkResetTimeout = null;
+        }
+
+        // איפוס מצב הכפתור
+        copyLinkBtn.disabled = false;
+        copyLinkBtn.classList.remove('copy-success');
+        const copyLinkText = copyLinkBtn.querySelector('.copy-link-text');
+        if (copyLinkText) {
+            copyLinkText.textContent = COPY_LINK_ORIGINAL_TEXT;
+        }
+    }
+
+    if (copyLinkBtn) {
+        copyLinkBtn.addEventListener('click', async () => {
+            const copyLinkText = copyLinkBtn.querySelector('.copy-link-text');
+
+            // הצגת מצב טעינה
+            copyLinkBtn.disabled = true;
+            if (copyLinkText) copyLinkText.textContent = 'יוצר קישור...';
+
+            try {
+                // בדיקת checkbox לקישור קבוע
+                const permanentCheckbox = document.getElementById('exportPermanentLink');
+                const isPermanent = permanentCheckbox ? permanentCheckbox.checked : false;
+
+                // בניית הבקשה
+                const requestBody = {
+                    theme: selectedTheme.id,
+                    permanent: isPermanent,
+                };
+
+                // אם זו ערכת VS Code, נוסיף את ה-JSON
+                if (selectedTheme.source === 'vscode' && selectedTheme.vscodeJson) {
+                    requestBody.vscode_json = selectedTheme.vscodeJson;
+                }
+
+                // קריאה ל-API
+                const response = await fetch(`/api/export/styled/${fileId}/share`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                });
+
+                // ניסיון לפרסר JSON - גם אם הסטטוס לא ok, השרת עשוי להחזיר הודעת שגיאה ב-JSON
+                let data;
+                try {
+                    data = await response.json();
+                } catch (parseErr) {
+                    // תגובה לא-JSON (כמו HTML 403 מ-decorators)
+                    throw new Error('שגיאה בשרת');
+                }
+
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.error || 'שגיאה ביצירת קישור');
+                }
+
+                // ניסיון העתקה ללוח
+                let clipboardSuccess = false;
+                try {
+                    await navigator.clipboard.writeText(data.share_url);
+                    clipboardSuccess = true;
+                } catch (clipboardErr) {
+                    console.warn('Clipboard write failed:', clipboardErr);
+                }
+
+                if (clipboardSuccess) {
+                    // הצגת הצלחה
+                    copyLinkBtn.classList.add('copy-success');
+                    if (copyLinkText) copyLinkText.textContent = 'הועתק!';
+
+                    // החזרה למצב רגיל אחרי 2 שניות
+                    copyLinkResetTimeout = setTimeout(() => {
+                        copyLinkBtn.classList.remove('copy-success');
+                        if (copyLinkText) copyLinkText.textContent = COPY_LINK_ORIGINAL_TEXT;
+                        copyLinkBtn.disabled = false;
+                        copyLinkResetTimeout = null;
+                    }, 2000);
+                } else {
+                    // הצגת ה-URL למשתמש אם ההעתקה נכשלה
+                    if (copyLinkText) copyLinkText.textContent = COPY_LINK_ORIGINAL_TEXT;
+                    copyLinkBtn.disabled = false;
+                    prompt('הקישור נוצר בהצלחה. העתק אותו ידנית:', data.share_url);
+                }
+
+            } catch (err) {
+                console.error('Copy link error:', err);
+                showError(err.message || 'שגיאה ביצירת קישור שיתוף');
+                if (copyLinkText) copyLinkText.textContent = COPY_LINK_ORIGINAL_TEXT;
+                copyLinkBtn.disabled = false;
+            }
+        });
     }
 
 })();
