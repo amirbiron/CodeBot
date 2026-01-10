@@ -348,126 +348,139 @@ class DatabaseManager:
                             query = {"raw": str(query)}
                         return coll, query
 
-                    class _SlowMongoListener(_pymongo_monitoring.CommandListener):  # type: ignore[attr-defined]
-                        def __init__(self):
-                            # שומר הקשר בין התחלת בקשה לסיומה
-                            self._requests = {}
+                    # אם גם slow_mongo logs כבויים וגם profiler כבוי — אין טעם לרשום CommandListener.
+                    # זה מצמצם overhead פר-שאילתה ומונע צבירת זיכרון של context (requests map).
+                    try:
+                        should_register = bool(_profiler_enabled()) or float(_slow_mongo_log_threshold_ms() or 0.0) > 0.0
+                    except Exception:
+                        should_register = False
 
-                        def started(self, event):  # type: ignore[override]
-                            try:
-                                request_id = getattr(event, "request_id", None)
-                                if request_id is None:
-                                    return
+                    if should_register:
+                        class _SlowMongoListener(_pymongo_monitoring.CommandListener):  # type: ignore[attr-defined]
+                            def __init__(self):
+                                # שומר הקשר בין התחלת בקשה לסיומה (נדרש רק עבור ה-Profiler)
+                                self._requests = {}
 
-                                cmd_name = str(getattr(event, "command_name", "") or "")
-                                if cmd_name.lower() == "explain":
-                                    return
-
-                                command = getattr(event, "command", None) or {}
-                                if not isinstance(command, dict):
-                                    return
-
-                                # חילוץ המידע כבר בהתחלה - כשהוא זמין
-                                coll, query = _extract_collection_and_query(cmd_name, command)
-
-                                # שמירה בהקשר הבקשה
-                                if coll:
-                                    self._requests[request_id] = {
-                                        "coll": coll,
-                                        "query": query,
-                                        "cmd_name": cmd_name,
-                                        "db": str(getattr(event, "database_name", "") or ""),
-                                    }
-                            except Exception:
-                                pass
-
-                        def succeeded(self, event):  # type: ignore[override]
-                            # שליפת הקשר הבקשה
-                            request_id = getattr(event, "request_id", None)
-                            req_data = self._requests.pop(request_id, None) if request_id is not None else None
-
-                            try:
-                                dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
-                                # --- slow_mongo warning log (controlled by DB_SLOW_MS) ---
-                                slow_log_ms = float(_slow_mongo_log_threshold_ms() or 0.0)
-                                if slow_log_ms and dur_ms > slow_log_ms:
-                                    try:
-                                        logger.warning(
-                                            'slow_mongo',
-                                            extra={
-                                                'cmd': getattr(event, 'command_name', ''),
-                                                'db': getattr(event, 'database_name', ''),
-                                                'ms': round(dur_ms, 1),
-                                            },
-                                        )
-                                    except Exception:
-                                        pass
-
-                                # --- Query Performance Profiler (independent of DB_SLOW_MS) ---
+                            def started(self, event):  # type: ignore[override]
                                 try:
+                                    # אנחנו שומרים context רק עבור ה-Profiler (לוג slow_mongo לא צריך את זה).
                                     if not _profiler_enabled():
                                         return
-
-                                    profiler_slow_ms = float(_profiler_threshold_ms() or 0.0)
-                                    if profiler_slow_ms and dur_ms <= profiler_slow_ms:
+                                    request_id = getattr(event, "request_id", None)
+                                    if request_id is None:
                                         return
 
-                                    # אם אין לנו את המידע מ-started, אי אפשר להקליט
-                                    if not req_data:
+                                    cmd_name = str(getattr(event, "command_name", "") or "")
+                                    if cmd_name.lower() == "explain":
                                         return
 
-                                    coll = req_data["coll"]
-                                    # מניעת רקורסיה
-                                    if coll in {"slow_queries_log", "system.profile"}:
+                                    command = getattr(event, "command", None) or {}
+                                    if not isinstance(command, dict):
                                         return
 
-                                    profiler = _get_profiler_service()
-                                    if profiler is None:
-                                        return
+                                    # חילוץ המידע כבר בהתחלה - כשהוא זמין
+                                    coll, query = _extract_collection_and_query(cmd_name, command)
 
-                                    client_info = {
-                                        "db": req_data["db"],
-                                        "cmd": req_data["cmd_name"],
-                                    }
+                                    # שמירה בהקשר הבקשה
+                                    if coll:
+                                        self._requests[request_id] = {
+                                            "coll": coll,
+                                            "query": query,
+                                            "cmd_name": cmd_name,
+                                            "db": str(getattr(event, "database_name", "") or ""),
+                                        }
+                                except Exception:
+                                    pass
 
-                                    # הרצה אסינכרונית
+                            def succeeded(self, event):  # type: ignore[override]
+                                # שליפת הקשר הבקשה (אם נאסף)
+                                request_id = getattr(event, "request_id", None)
+                                req_data = self._requests.pop(request_id, None) if request_id is not None else None
+
+                                try:
+                                    dur_ms = float(getattr(event, "duration_micros", 0) or 0) / 1000.0
+                                    # --- slow_mongo warning log (controlled by DB_SLOW_MS) ---
+                                    slow_log_ms = float(_slow_mongo_log_threshold_ms() or 0.0)
+                                    if slow_log_ms and dur_ms > slow_log_ms:
+                                        try:
+                                            logger.warning(
+                                                "slow_mongo",
+                                                extra={
+                                                    "cmd": getattr(event, "command_name", ""),
+                                                    "db": getattr(event, "database_name", ""),
+                                                    "ms": round(dur_ms, 1),
+                                                },
+                                            )
+                                        except Exception:
+                                            pass
+
+                                    # --- Query Performance Profiler (independent of DB_SLOW_MS) ---
                                     try:
-                                        loop = asyncio.get_running_loop()
-                                    except RuntimeError:
-                                        loop = None
+                                        if not _profiler_enabled():
+                                            return
 
-                                    if loop is not None:
-                                        loop.create_task(
-                                            profiler.record_slow_query(
-                                                collection=coll,
-                                                operation=req_data["cmd_name"],
-                                                query=req_data["query"],
-                                                execution_time_ms=float(dur_ms),
-                                                client_info=client_info,
-                                            )
-                                        )
-                                    else:
-                                        asyncio.run(
-                                            profiler.record_slow_query(
-                                                collection=coll,
-                                                operation=req_data["cmd_name"],
-                                                query=req_data["query"],
-                                                execution_time_ms=float(dur_ms),
-                                                client_info=client_info,
-                                            )
-                                        )
-                                except Exception as e:
-                                    # החזרת לוג שגיאה למקרה הצורך
-                                    logger.error(f"Profiler Error: {str(e)}")
-                            except Exception:
-                                pass
+                                        profiler_slow_ms = float(_profiler_threshold_ms() or 0.0)
+                                        if profiler_slow_ms and dur_ms <= profiler_slow_ms:
+                                            return
 
-                        def failed(self, event):  # type: ignore[override]
-                            # ניקוי זיכרון במקרה של כישלון
-                            request_id = getattr(event, "request_id", None)
-                            if request_id is not None:
-                                self._requests.pop(request_id, None)
-                    _pymongo_monitoring.register(_SlowMongoListener())  # type: ignore[attr-defined]
+                                        # אם אין לנו את המידע מ-started, אי אפשר להקליט
+                                        if not req_data:
+                                            return
+
+                                        coll = req_data["coll"]
+                                        # מניעת רקורסיה
+                                        if coll in {"slow_queries_log", "system.profile"}:
+                                            return
+
+                                        profiler = _get_profiler_service()
+                                        if profiler is None:
+                                            return
+
+                                        client_info = {
+                                            "db": req_data["db"],
+                                            "cmd": req_data["cmd_name"],
+                                        }
+
+                                        # הרצה אסינכרונית
+                                        try:
+                                            loop = asyncio.get_running_loop()
+                                        except RuntimeError:
+                                            loop = None
+
+                                        if loop is not None:
+                                            loop.create_task(
+                                                profiler.record_slow_query(
+                                                    collection=coll,
+                                                    operation=req_data["cmd_name"],
+                                                    query=req_data["query"],
+                                                    execution_time_ms=float(dur_ms),
+                                                    client_info=client_info,
+                                                )
+                                            )
+                                        else:
+                                            asyncio.run(
+                                                profiler.record_slow_query(
+                                                    collection=coll,
+                                                    operation=req_data["cmd_name"],
+                                                    query=req_data["query"],
+                                                    execution_time_ms=float(dur_ms),
+                                                    client_info=client_info,
+                                                )
+                                            )
+                                    except Exception as e:
+                                        # החזרת לוג שגיאה למקרה הצורך
+                                        logger.error(f"Profiler Error: {str(e)}")
+                                except Exception:
+                                    pass
+
+                            def failed(self, event):  # type: ignore[override]
+                                # ניקוי זיכרון במקרה של כישלון
+                                request_id = getattr(event, "request_id", None)
+                                if request_id is not None:
+                                    self._requests.pop(request_id, None)
+
+                        _pymongo_monitoring.register(_SlowMongoListener())  # type: ignore[attr-defined]
+
                     _MONGO_MONITORING_REGISTERED = True
                 except Exception:
                     pass
@@ -545,7 +558,14 @@ class DatabaseManager:
                 self.snippets_collection = self.db.snippets
             except Exception:
                 self.snippets_collection = None
-            self.client.admin.command('ping')
+            self.client.admin.command("ping")
+            # Database-level: כיבוי MongoDB profiler (מקביל ל-db.setProfilingLevel(0) ב-mongosh)
+            # best-effort: אם אין הרשאות/תמיכה, לא נקרוס.
+            try:
+                if self.db is not None:
+                    self.db.command("profile", 0)
+            except Exception:
+                pass
             # יצירת אינדקסים קריטיים (בנייה ברקע) לשיפור ביצועים ולמניעת COLLSCAN
             self._create_indexes()
             emit_event("db_connected", severity="info")

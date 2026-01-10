@@ -62,6 +62,18 @@ def require_profiler_auth(handler):
 
 def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerService):
     """הגדרת routes לפרופיילר"""
+    # נטרול מוחלט של פרופיילר: routes חייבים להיות מיידיים וללא DB/חישובים/איסוף בזיכרון.
+    # (שומרים את הקוד הקיים למקרה שיחזור בעתיד, אבל כרגע לא משתמשים בו)
+    async def _disabled(_request: web.Request) -> web.Response:
+        return web.json_response({"status": "disabled"})
+
+    app.router.add_get("/api/profiler/slow-queries", _disabled)
+    app.router.add_post("/api/profiler/explain", _disabled)
+    app.router.add_post("/api/profiler/recommendations", _disabled)
+    app.router.add_post("/api/profiler/analyze", _disabled)
+    app.router.add_get("/api/profiler/summary", _disabled)
+    app.router.add_get("/api/profiler/collection/{name}/stats", _disabled)
+    return
 
     @require_profiler_auth
     async def get_slow_queries(request: web.Request) -> web.Response:
