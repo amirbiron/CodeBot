@@ -335,6 +335,7 @@
 
     const previewBtn = modal.querySelector('[data-action="preview"]');
     const downloadBtn = modal.querySelector('[data-action="download"]');
+    const copyLinkBtn = modal.querySelector('[data-action="copy-link"]');
 
     if (previewBtn) {
         previewBtn.addEventListener('click', async () => {
@@ -412,6 +413,66 @@
         document.body.appendChild(form);
         form.submit();
         document.body.removeChild(form);
+    }
+
+    // ============================================
+    // Copy Link - יצירת קישור שיתוף והעתקה ללוח
+    // ============================================
+
+    if (copyLinkBtn) {
+        copyLinkBtn.addEventListener('click', async () => {
+            const copyLinkText = copyLinkBtn.querySelector('.copy-link-text');
+            const originalText = copyLinkText ? copyLinkText.textContent : 'העתק קישור';
+
+            // הצגת מצב טעינה
+            copyLinkBtn.disabled = true;
+            if (copyLinkText) copyLinkText.textContent = 'יוצר קישור...';
+
+            try {
+                // בניית הבקשה
+                const requestBody = {
+                    theme: selectedTheme.id,
+                };
+
+                // אם זו ערכת VS Code, נוסיף את ה-JSON
+                if (selectedTheme.source === 'vscode' && selectedTheme.vscodeJson) {
+                    requestBody.vscode_json = selectedTheme.vscodeJson;
+                }
+
+                // קריאה ל-API
+                const response = await fetch(`/api/export/styled/${fileId}/share`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                });
+
+                const data = await response.json();
+
+                if (!data.ok) {
+                    throw new Error(data.error || 'שגיאה ביצירת קישור');
+                }
+
+                // העתקה ללוח
+                await navigator.clipboard.writeText(data.share_url);
+
+                // הצגת הצלחה
+                copyLinkBtn.classList.add('copy-success');
+                if (copyLinkText) copyLinkText.textContent = 'הועתק!';
+
+                // החזרה למצב רגיל אחרי 2 שניות
+                setTimeout(() => {
+                    copyLinkBtn.classList.remove('copy-success');
+                    if (copyLinkText) copyLinkText.textContent = originalText;
+                    copyLinkBtn.disabled = false;
+                }, 2000);
+
+            } catch (err) {
+                console.error('Copy link error:', err);
+                showError(err.message || 'שגיאה ביצירת קישור שיתוף');
+                if (copyLinkText) copyLinkText.textContent = originalText;
+                copyLinkBtn.disabled = false;
+            }
+        });
     }
 
 })();
