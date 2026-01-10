@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import weakref
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -792,6 +793,15 @@ class QueryProfilerService:
             "threshold_ms": self.slow_threshold_ms,
         }
 
+    async def get_summary_async(self) -> Dict[str, Any]:
+        """
+        גרסה אסינכרונית לסיכום.
+
+        בבסיס (in-memory) אין I/O, אז אין צורך ב-to_thread.
+        מחלקות יורשות (למשל Persistent*) יכולות לדרוס כדי להימנע מחסימה על I/O סינכרוני.
+        """
+        return self.get_summary()
+
     # --- Aggregations ---
     def _fix_pipeline_for_explain(self, pipeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -1076,6 +1086,18 @@ class PersistentQueryProfilerService(QueryProfilerService):
 
     COLLECTION_NAME = "slow_queries_log"
 
+    # Cache ברמת class (מבודד פר-event-loop כדי להימנע מבעיות Lock בין לופים שונים)
+    _summary_cache_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, Any]]" = (
+        weakref.WeakKeyDictionary()
+    )
+    _summary_cache_expires_at_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, datetime]" = (
+        weakref.WeakKeyDictionary()
+    )
+    _summary_lock_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
+        weakref.WeakKeyDictionary()
+    )
+    _CACHE_TTL_SECONDS = 60
+
     async def record_slow_query(
         self,
         collection: str,
@@ -1178,7 +1200,48 @@ class PersistentQueryProfilerService(QueryProfilerService):
 
         return await asyncio.to_thread(_aggregate)
 
-    def get_summary(self) -> Dict[str, Any]:
+    async def get_summary_async(self) -> Dict[str, Any]:
+        """
+        סיכום אסינכרוני שלא חוסם את ה-Event Loop:
+        - Cache קצר (TTL) כדי לא להעמיס על ה-DB
+        - חישוב כבד ב-thread (asyncio.to_thread)
+        """
+        now = datetime.utcnow()
+        loop = asyncio.get_running_loop()
+
+        cached = self.__class__._summary_cache_by_loop.get(loop)
+        expires_at = self.__class__._summary_cache_expires_at_by_loop.get(loop)
+        if cached is not None and expires_at is not None and expires_at > now:
+            return cached
+
+        lock = self.__class__._summary_lock_by_loop.get(loop)
+        if lock is None:
+            lock = asyncio.Lock()
+            self.__class__._summary_lock_by_loop[loop] = lock
+
+        async with lock:
+            # Double-check בתוך הנעילה כדי למנוע cache stampede
+            now = datetime.utcnow()
+            cached = self.__class__._summary_cache_by_loop.get(loop)
+            expires_at = self.__class__._summary_cache_expires_at_by_loop.get(loop)
+            if cached is not None and expires_at is not None and expires_at > now:
+                return cached
+
+            try:
+                result = await asyncio.to_thread(self._calculate_summary_sync)
+            except Exception:
+                logger.exception("profiler_summary_calculation_failed")
+                return super().get_summary()
+
+            self.__class__._summary_cache_by_loop[loop] = result
+            self.__class__._summary_cache_expires_at_by_loop[loop] = now + timedelta(seconds=self._CACHE_TTL_SECONDS)
+            return result
+
+    def _calculate_summary_sync(self) -> Dict[str, Any]:
+        """הלוגיקה הסינכרונית המקורית (כולל DB aggregate) – מופרדת כדי להריץ ב-thread."""
+        return self._calculate_summary_sync_best_effort()
+
+    def _calculate_summary_sync_best_effort(self) -> Dict[str, Any]:
         """סיכום מהיר – best-effort: נסה מה-DB, אחרת fallback לזיכרון."""
         try:
             db = getattr(self.db_manager, "db", None)
@@ -1226,4 +1289,12 @@ class PersistentQueryProfilerService(QueryProfilerService):
             }
         except Exception:
             return super().get_summary()
+
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        תאימות לאחור (סינכרוני).
+
+        ⚠️ חשוב: בשרת אסינכרוני, עדיף לקרוא ל-get_summary_async() כדי לא לחסום את ה-Event Loop.
+        """
+        return self._calculate_summary_sync_best_effort()
 

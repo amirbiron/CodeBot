@@ -3823,7 +3823,8 @@ def api_profiler_summary():
         return jsonify({"status": "error", "message": "rate_limited"}), 429
     try:
         svc = _get_webapp_profiler_service()
-        return jsonify({"status": "success", "data": svc.get_summary()})
+        summary = _run_profiler(svc.get_summary_async())
+        return jsonify({"status": "success", "data": summary})
     except Exception:
         logger.exception("api_profiler_summary_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
