@@ -154,7 +154,8 @@ class SharedThemeService:
             and self._active_themes_expires_at is not None
             and self._active_themes_expires_at > now
         ):
-            return self._active_themes_cache
+            # מחזירים עותק כדי למנוע "השחתה" של ה-cache ע"י קוראים שמשנים את הרשימה/מילונים
+            return [t.copy() for t in self._active_themes_cache]
         try:
             cursor = self.collection.find(
                 {"is_active": True},
@@ -186,7 +187,8 @@ class SharedThemeService:
             # Save to cache
             self._active_themes_cache = themes
             self._active_themes_expires_at = now + timedelta(seconds=self._cache_ttl_seconds)
-            return themes
+            # מחזירים עותק כדי לשמור על התנהגות עקבית (גם ב-cache miss)
+            return [t.copy() for t in themes]
         except Exception as e:
             logger.exception("SharedThemeService.get_all_active failed: %s", e)
             return []
