@@ -1208,6 +1208,15 @@ HELP_SECTION_COMMANDS = {
     for cmd in entry["commands"]
 }
 
+# פקודות שמופיעות בסקשנים שאינם admin (כדי לא לשכפל אותן בסקשן ChatOps אדמיני)
+NON_ADMIN_SECTION_COMMANDS: set[str] = {
+    cmd.lower()
+    for section in HELP_SECTIONS
+    if not bool(section.get("admin_only"))
+    for entry in section["entries"]
+    for cmd in entry["commands"]
+}
+
 HELP_EXCLUDED_COMMANDS: set[str] = {"start", "help", "cancel", "done"}
 
 STATIC_HELP_MESSAGE = (
@@ -1265,6 +1274,10 @@ def _build_chatops_help_entries_from_catalog() -> list[HelpEntry]:
 
             cmd_token = parts[0].lstrip("/").strip().lower()
             if not cmd_token:
+                continue
+            # מניעת כפילויות: אם הפקודה כבר מוצגת בסקשן ציבורי (כמו cache_stats/clear_cache),
+            # לא נציג אותה שוב תחת "מנהל (מוגבל)".
+            if cmd_token in NON_ADMIN_SECTION_COMMANDS:
                 continue
 
             description_raw = item.get("description")
@@ -3839,7 +3852,13 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
             commands = ctx_commands
         else:
             commands = _get_registered_commands(application)
-        text = _build_help_message(commands)
+        try:
+            from chatops.permissions import is_admin as _is_admin
+            user_id = int(getattr(getattr(update, "effective_user", None), "id", 0) or 0)
+            user_is_admin = bool(_is_admin(user_id))
+        except Exception:
+            user_is_admin = False
+        text = _build_help_message(commands, is_admin=user_is_admin)
         try:
             await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         except Exception:
