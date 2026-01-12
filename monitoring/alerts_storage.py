@@ -78,6 +78,38 @@ def _safe_str(value: Any, *, limit: int = 256) -> str:
     return text
 
 
+def _sanitize_signature(raw: Any) -> str:
+    """
+    Normalize a potentially user-controlled signature value into a safe identifier.
+
+    We hash the input into a fixed-length hex string so that arbitrary content
+    cannot affect the MongoDB query structure and only acts as an opaque key.
+    """
+    try:
+        # Use a bounded, stringified representation as hashing input.
+        normalized = _safe_str(raw, limit=512).strip()
+        if not normalized:
+            return ""
+        norm_l = normalized.lower()
+        # New format: 64-hex sha256
+        try:
+            if re.fullmatch(r"[0-9a-f]{64}", norm_l):
+                return norm_l
+        except Exception:
+            pass
+        # Legacy: 16-hex -> migrate key-space by hashing into 64-hex
+        try:
+            if re.fullmatch(r"[0-9a-f]{16}", norm_l):
+                return hashlib.sha256(norm_l.encode("utf-8", errors="ignore")).hexdigest()
+        except Exception:
+            pass
+        # Default: hash arbitrary input into a fixed 64-hex key
+        return hashlib.sha256(norm_l.encode("utf-8", errors="ignore")).hexdigest()
+    except Exception:
+        # Fail-closed for sanitization: empty string means "no signature"
+        return ""
+
+
 def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     שמירה "Fail-open" של details עבור DB/UI, בלי למחוק שדות.
@@ -667,7 +699,33 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 
 def is_new_error(signature: str) -> bool:
     """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
-    if not signature:
+    # CodeQL/NoSQL injection:
+    # - cast to str and normalize
+    # - if 16-hex: hash to 64-hex (new storage format)
+    # - if already 64-hex: use as-is (avoid double-hash)
+    # - regex-validate the exact variable used in the Mongo query
+    try:
+        safe_sig = str(signature or "").strip().lower()
+        if not safe_sig:
+            return False
+
+        # 1) 64-hex already -> use as-is
+        if re.fullmatch(r"[0-9a-f]{64}", safe_sig):
+            query_signature = safe_sig
+        # 2) legacy 16-hex -> migrate key space by hashing to 64-hex
+        elif re.fullmatch(r"[0-9a-f]{16}", safe_sig):
+            query_signature = hashlib.sha256(safe_sig.encode("utf-8", errors="ignore")).hexdigest()
+            query_signature = str(query_signature).strip().lower()
+        else:
+            return False
+
+        # Force to str (fail-closed) before any DB query
+        query_signature = str(query_signature).strip().lower()
+
+        # Final hard validation on the exact variable used in Mongo query
+        if not re.fullmatch(r"[0-9a-f]{64}", str(query_signature)):
+            return False
+    except Exception:
         return False
     if not _enabled() or _init_failed:
         return False
@@ -687,22 +745,41 @@ def is_new_error(signature: str) -> bool:
         except Exception:
             pass
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=30)
 
-        existing = collection.find_one({"signature": signature, "last_seen": {"$gte": cutoff}})
+        # Bulk/atomic: שאילתה אחת שמחזירה את המסמך הישן (אם קיים) וגם מעדכנת/upsert
+        try:
+            from pymongo import ReturnDocument  # type: ignore
 
-        # עדכון/הוספת הרשומה
-        collection.update_one(
-            {"signature": signature},
-            {
-                "$set": {"last_seen": datetime.now(timezone.utc)},
-                "$inc": {"count": 1},
-                "$setOnInsert": {"first_seen": datetime.now(timezone.utc)},
-            },
-            upsert=True,
-        )
-
-        return existing is None
+            prev = collection.find_one_and_update(
+                {"signature": query_signature},  # lgtm[py/nosql-injection]
+                {
+                    "$set": {"last_seen": now},
+                    "$inc": {"count": 1},
+                    "$setOnInsert": {"first_seen": now},
+                },
+                upsert=True,
+                return_document=ReturnDocument.BEFORE,
+            )
+            if isinstance(prev, dict):
+                last_seen = prev.get("last_seen")
+                if isinstance(last_seen, datetime) and last_seen >= cutoff:
+                    return False
+            return True
+        except Exception:
+            # Fallback: שתי שאילתות (שומר תאימות לסביבות בלי find_one_and_update)
+            existing = collection.find_one({"signature": query_signature, "last_seen": {"$gte": cutoff}})  # lgtm[py/nosql-injection]
+            collection.update_one(
+                {"signature": query_signature},  # lgtm[py/nosql-injection]
+                {
+                    "$set": {"last_seen": now},
+                    "$inc": {"count": 1},
+                    "$setOnInsert": {"first_seen": now},
+                },
+                upsert=True,
+            )
+            return existing is None
     except Exception:
         return False
 
@@ -723,9 +800,26 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # השתמש ב-hash קיים רק אם הוא באמת מכיל תוכן (מניעת שדות ריקים שנוצרו בעבר)
     signature_hash_existing = _safe_str(existing_hash, limit=128)
+    # Normalize any existing hash into a safe signature format.
+    if signature_hash_existing:
+        signature_hash_existing = _sanitize_signature(signature_hash_existing)
     signature_hash = signature_hash_existing
     if not signature_hash:
-        signature_hash = _safe_str(compute_error_signature(alert_data or {}), limit=128)
+        # Compute a deterministic hash from the error data and sanitize it.
+        computed = compute_error_signature(alert_data or {})
+        signature_hash = _sanitize_signature(computed)
+
+    # Compute a dedicated, sanitized signature for DB lookups to avoid using any
+    # externally supplied value in Mongo queries.
+    db_signature = ""
+    try:
+        computed_db = compute_error_signature(alert_data or {})
+        db_signature = _sanitize_signature(computed_db)
+    except Exception:
+        db_signature = ""
+    # If we failed to compute a dedicated DB signature, fall back to the primary hash.
+    if not db_signature:
+        db_signature = signature_hash
 
     # אם אין חתימה אמיתית – לא מוסיפים שדות Signature כלל (וגם מנקים שדות ריקים אם קיימים)
     if not signature_hash:
@@ -753,7 +847,7 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     if existing_is_new in (True, False) and bool(signature_hash_existing):
         is_new = bool(existing_is_new)
     else:
-        is_new = is_new_error(signature_hash)
+        is_new = is_new_error(db_signature)
 
     # הוספה בלבד: לא יוצרים dict חדש, לא דורסים Metadata קיים
     alert_data["error_signature_hash"] = signature_hash
@@ -1054,16 +1148,35 @@ def count_alerts_since(since_dt: datetime) -> tuple[int, int]:
         match: Dict[str, Any] = {"ts_dt": {"$gte": since_dt}}
         # Default: exclude Drill alerts from stats to prevent metric pollution
         match["details.is_drill"] = {"$ne": True}
-        total = int(coll.count_documents(match))  # type: ignore[attr-defined]
-        critical = int(
-            coll.count_documents(
-                {
-                    **match,
-                    "severity": {"$regex": "^critical$", "$options": "i"},
+        # Bulk: aggregate בשאילתה אחת במקום 2 count_documents
+        pipeline = [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": None,
+                    "total": {"$sum": 1},
+                    "critical": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$eq": [
+                                        {"$toLower": {"$ifNull": ["$severity", "info"]}},
+                                        "critical",
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
                 }
-            )  # type: ignore[attr-defined]
-        )
-        return total, critical
+            },
+        ]
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+        if not rows:
+            return 0, 0
+        doc = rows[0] if isinstance(rows[0], dict) else {}
+        return int(doc.get("total", 0) or 0), int(doc.get("critical", 0) or 0)
     except Exception:
         return 0, 0
 

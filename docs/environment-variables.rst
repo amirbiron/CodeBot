@@ -930,6 +930,7 @@
      - Bot/WebApp
    * - ``PROFILER_ENABLED``
      - הפעלת Query Performance Profiler (ניטור שאילתות MongoDB איטיות + דשבורד). ראו :doc:`observability/query-performance-profiler`.
+       **שימו לב:** כרגע יש נטרול קשיח ברמת הקוד (``DatabaseManager.ENABLE_PROFILING = False``), ולכן גם אם הערך כאן ``true`` – הפרופיילר לא ירוץ ולא יירשם ל‑API.
      - לא
      - ``true``
      - ``false``
@@ -1312,6 +1313,12 @@
      - לא
      - "" (ריק)
      - ``https://ai.example.com/explain``
+     - WebApp/Observability
+   * - ``OBS_AI_EXPLAIN_INTERNAL_PORT``
+     - פורט פנימי כאשר מריצים את שירות ה-AI Explain באותו קונטיינר עם ה-WebApp (למשל דרך ``scripts/run_all.sh``). בשימוש יחד עם ``OBS_AI_EXPLAIN_URL=http://127.0.0.1:<port>/api/ai/explain``.
+     - לא
+     - ``11000``
+     - ``11000``
      - WebApp/Observability
    * - ``OBS_AI_EXPLAIN_TOKEN``
      - אסימון Bearer שנשלח ב-Header ``Authorization`` כאשר השירות מוגן (אופציונלי).
@@ -1940,6 +1947,12 @@
      - ``false``
      - ``true``
      - Docs
+   * - ``SANITY_USER_ID``
+     - מזהה משתמש לדגימת בדיקת latency בסקריפט ``scripts/db_manager_sanity_check.py`` (לא משפיע על ריצה רגילה של המערכת).
+     - לא
+     - ``123``
+     - ``6865105071``
+     - Scripts
    * - ``PIP_NO_SETUPTOOLS`` / ``PIP_NO_WHEEL``
      - דגלים של סקריפט ``get-pip.py`` בלבד; השאירו כבויים אלא אם מריצים את הסקריפט כחלק מאוטומציה.
      - לא

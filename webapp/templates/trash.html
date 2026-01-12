@@ -48,7 +48,7 @@
                             <div style="min-width:0;">
                                 <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{{ it.file_name }}">{{ it.file_name }}</div>
                                 <div style="opacity:0.8; font-size:0.9rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
-                                    <span class="badge">{{ it.language }}</span>
+                                    <span class="lang-badge" data-lang="{{ it.language|lower }}">{{ it.language }}</span>
                                     {% if it.version %}
                                     <span class="badge" style="opacity:0.9;">v{{ it.version }}</span>
                                     {% endif %}

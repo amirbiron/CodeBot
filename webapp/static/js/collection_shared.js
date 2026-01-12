@@ -9,6 +9,7 @@
   const itemsContainer = document.getElementById('sharedCollectionItems');
   const visibilityNoteEl = document.querySelector('.shared-collection-visibility-note');
   const viewerEl = document.getElementById('sharedCollectionViewer');
+  const saveAllBtn = document.getElementById('sharedCollectionSaveAll');
   const downloadAllBtn = document.getElementById('sharedCollectionDownloadAll');
 
   const token = pageRoot.getAttribute('data-share-token') || '';
@@ -18,6 +19,7 @@
   let exportUrl = '';
   let activeFileId = '';
   let currentItems = [];
+  let savingAll = false;
 
   const joinWithScriptRoot = (root, path) => {
     const normalizedPath = String(path || '');
@@ -49,6 +51,7 @@
     if (metaEl) metaEl.textContent = '';
     if (descriptionEl) descriptionEl.textContent = '';
     updateDownloadAllButton('');
+    updateSaveAllButton(false);
     if (itemsContainer) {
       itemsContainer.innerHTML = `<div class="error">${escapeHtml(message || 'שגיאה בהצגת האוסף')}</div>`;
     }
@@ -79,6 +82,58 @@
     } else {
       downloadAllBtn.disabled = true;
     }
+  }
+
+  function updateSaveAllButton(enabled){
+    if (!saveAllBtn) return;
+    saveAllBtn.disabled = !enabled;
+  }
+
+  function buildLoginRedirectUrl(){
+    try {
+      const nextUrl = (window.location.pathname || '') + (window.location.search || '');
+      return joinWithScriptRoot(scriptRootAttr, `/login?next=${encodeURIComponent(nextUrl)}`);
+    } catch (_err) {
+      return joinWithScriptRoot(scriptRootAttr, '/login');
+    }
+  }
+
+  async function postJson(url, body){
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body || {}),
+      cache: 'no-store',
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (_err) {
+      data = null;
+    }
+    if (response.status === 401) {
+      // לא מחובר – הפנייה ל-login עם next
+      window.location.href = buildLoginRedirectUrl();
+      return { ok: false, redirected: true };
+    }
+    if (!response.ok || !data) {
+      const msg = (data && (data.error || data.message)) || 'בקשה נכשלה';
+      throw new Error(String(msg || 'בקשה נכשלה'));
+    }
+    return data;
+  }
+
+  function getSaveAllUrl(){
+    const base = String(apiUrl || '').replace(/\/$/, '');
+    return `${base}/save`;
+  }
+
+  function getSaveFileUrl(fileId){
+    const base = String(apiUrl || '').replace(/\/$/, '');
+    return `${base}/files/${encodeURIComponent(String(fileId || ''))}/save`;
   }
 
   function setViewerPlaceholder(){
@@ -114,18 +169,25 @@
     if (!currentItems.length) {
       itemsContainer.innerHTML = '<div class="empty">אין עדיין פריטים משותפים</div>';
       setViewerPlaceholder();
+      updateSaveAllButton(false);
       return;
     }
+    const hasSavableItems = currentItems.some((it) => {
+      try {
+        return !!(it && it.share && it.share.file_id);
+      } catch (_err) {
+        return false;
+      }
+    });
     const html = currentItems.map((item) => {
       const name = item && item.file_name ? item.file_name : item && item.name ? item.name : '';
       const note = item && item.note ? String(item.note) : '';
       const pinned = item && item.pinned;
       const share = item && item.share ? item.share : {};
       const badges = pinned ? '<span class="shared-item-badge">📌 מוצמד</span>' : '';
+      const canSave = !!(share && share.file_id);
+      const languageLabel = share.language ? `שפה: ${escapeHtml(share.language)}` : '';
       const metaParts = [];
-      if (share.language) {
-        metaParts.push(`שפה: ${escapeHtml(share.language)}`);
-      }
       if (share.size_label) {
         metaParts.push(`גודל: ${escapeHtml(share.size_label)}`);
       }
@@ -138,9 +200,13 @@
           <div class="shared-item-row">
             <span class="shared-item-name">${escapeHtml(name || 'ללא שם')}</span>
             <div class="shared-item-actions">
-              ${share.view_url ? '<button type="button" class="shared-item-action" data-action="view">👁️ הצג</button>' : ''}
-              ${share.download_url ? '<button type="button" class="shared-item-action" data-action="download">📥 הורד</button>' : ''}
-              ${badges}
+              ${languageLabel ? `<div class="shared-item-actions-meta">${languageLabel}</div>` : ''}
+              <div class="shared-item-actions-buttons">
+                ${share.view_url ? '<button type="button" class="shared-item-action" data-action="view">👁️ הצג</button>' : ''}
+                ${share.download_url ? '<button type="button" class="shared-item-action" data-action="download">📥 הורד</button>' : ''}
+                ${canSave ? '<button type="button" class="shared-item-action" data-action="save">💾 שמור</button>' : ''}
+                ${badges}
+              </div>
             </div>
           </div>
           ${note ? `<div class="shared-item-note">${escapeHtml(note)}</div>` : ''}
@@ -150,6 +216,7 @@
     }).join('');
     itemsContainer.innerHTML = `<ul class="shared-collection-list">${html}</ul>`;
     markActiveItem(activeFileId);
+    updateSaveAllButton(hasSavableItems);
   }
 
   function renderCollection(collection, items, itemsTotal){
@@ -182,7 +249,7 @@
       descriptionEl.style.display = description ? '' : 'none';
     }
     if (visibilityNoteEl) {
-      visibilityNoteEl.innerHTML = '<span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור הזה יכול לצפות בקבצים, להוריד פריטים בודדים או את כל האוסף כקובץ ZIP.';
+      visibilityNoteEl.innerHTML = '<span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור הזה יכול לצפות בקבצים, להוריד פריטים בודדים או את כל האוסף כקובץ ZIP.<br> אפשרי גם לשמור פריטים בודדים או את כל האוסף בwebapp';
     }
 
     renderItems(items);
@@ -273,6 +340,7 @@
       itemsContainer.innerHTML = '<div class="loading">טוען…</div>';
     }
     setViewerPlaceholder();
+    updateSaveAllButton(false);
     try {
       const data = await fetchJson(apiUrl);
       if (!data || data.ok === false) {
@@ -296,6 +364,47 @@
     });
   }
 
+  if (saveAllBtn) {
+    saveAllBtn.addEventListener('click', async () => {
+      if (saveAllBtn.disabled || savingAll) return;
+      savingAll = true;
+      const originalText = saveAllBtn.textContent;
+      try {
+        saveAllBtn.disabled = true;
+        saveAllBtn.textContent = '💾 שומר…';
+        const data = await postJson(getSaveAllUrl(), {});
+        if (data && data.redirected) {
+          return;
+        }
+        if (!data || data.ok === false) {
+          throw new Error(data && data.error ? data.error : 'שגיאה בשמירה');
+        }
+        const msg = data.message || 'נשמר בהצלחה';
+        alert(msg);
+        if (data.collection_url) {
+          try {
+            window.open(String(data.collection_url), '_blank');
+          } catch (_err) {}
+        }
+      } catch (error) {
+        const message = error && error.message ? error.message : 'שגיאה בשמירה';
+        alert(message);
+      } finally {
+        savingAll = false;
+        saveAllBtn.textContent = originalText;
+        // חזור למצב לפי מה שיש כרגע ברשימה
+        const hasSavableItems = Array.isArray(currentItems) && currentItems.some((it) => {
+          try {
+            return !!(it && it.share && it.share.file_id);
+          } catch (_err) {
+            return false;
+          }
+        });
+        updateSaveAllButton(!!hasSavableItems);
+      }
+    });
+  }
+
   if (itemsContainer) {
     itemsContainer.addEventListener('click', (event) => {
       const actionBtn = event.target.closest('.shared-item-action');
@@ -312,6 +421,30 @@
         } else if (action === 'download' && downloadUrl) {
           event.preventDefault();
           window.open(downloadUrl, '_blank');
+        } else if (action === 'save' && fileId) {
+          event.preventDefault();
+          actionBtn.disabled = true;
+          const original = actionBtn.textContent;
+          actionBtn.textContent = '💾 שומר…';
+          postJson(getSaveFileUrl(fileId), {})
+            .then((data) => {
+              if (data && data.redirected) {
+                return;
+              }
+              if (!data || data.ok === false) {
+                throw new Error(data && data.error ? data.error : 'שגיאה בשמירה');
+              }
+              const msg = data.message || 'נשמר בהצלחה';
+              alert(msg);
+            })
+            .catch((error) => {
+              const message = error && error.message ? error.message : 'שגיאה בשמירה';
+              alert(message);
+            })
+            .finally(() => {
+              actionBtn.textContent = original;
+              actionBtn.disabled = false;
+            });
         }
         return;
       }

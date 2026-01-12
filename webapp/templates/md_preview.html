@@ -18,6 +18,7 @@
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
   padding: 14px; /* ריווח אחיד ועדין – לא מרחיק את הבלוק מהגבול */
   transition: background-color 0.3s ease, color 0.3s ease;
+  --md-mark-bg: #fff2a8;
   --md-inline-code-bg: #f6f8fa;
   --md-inline-code-border: #d0d7de;
   --md-inline-code-color: #1f2328;
@@ -63,6 +64,7 @@
 }
 
 [data-theme="dark"] #md-content {
+  --md-mark-bg: rgba(220, 204, 68, 0.28);
   --md-inline-code-bg: rgba(255, 255, 255, 0.08);
   --md-inline-code-border: rgba(255, 255, 255, 0.2);
   --md-inline-code-color: #e9ecff;
@@ -100,6 +102,7 @@
 }
 
 [data-theme="dim"] #md-content {
+  --md-mark-bg: rgba(220, 204, 68, 0.25);
   --md-inline-code-bg: rgba(236, 239, 244, 0.08);
   --md-inline-code-border: rgba(236, 239, 244, 0.18);
   --md-inline-code-color: #eceff4;
@@ -137,6 +140,7 @@
 }
 
 [data-theme="nebula"] #md-content {
+  --md-mark-bg: rgba(220, 204, 68, 0.28);
   --md-inline-code-bg: rgba(248, 248, 242, 0.08);
   --md-inline-code-border: rgba(248, 248, 242, 0.2);
   --md-inline-code-color: #f8f8f2;
@@ -174,6 +178,7 @@
 }
 
 :root[data-theme="rose-pine-dawn"] #md-content {
+  --md-mark-bg: rgba(234, 157, 52, 0.28);
   --md-inline-code-bg: rgba(244, 219, 214, 0.9);
   --md-inline-code-border: rgba(180, 99, 122, 0.4);
   --md-inline-code-color: #4a2c2a;
@@ -216,6 +221,7 @@
 [data-theme^="shared:"] #md-content {
   background: var(--bg-primary, var(--md-surface, #1a1c23));
   color: var(--text-primary, var(--md-text, #e5eaf7));
+  --md-mark-bg: color-mix(in srgb, var(--warning, #DCCC44) 30%, transparent);
   /* Inline code: mix 12% of text color into background for visible contrast */
   --md-inline-code-bg: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
   --md-inline-code-border: color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent);
@@ -255,6 +261,14 @@
   --md-table-border: color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent);
   /* Table header: 12% mix for clear distinction */
   --md-table-header-bg: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
+}
+
+/* Highlight ("marker") syntax: ==text== -> <mark>text</mark> */
+#md-content mark {
+  background: var(--md-mark-bg, #fff2a8);
+  color: inherit;
+  padding: 0 0.15em;
+  border-radius: 0.25em;
 }
 
 /* Mermaid diagrams - ensure readable colors for custom/shared themes */
@@ -678,7 +692,20 @@
   border-color: rgba(255, 255, 255, 0.85);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
 }
-#bgColorSwitcher { position: relative; z-index: 1; margin-inline-end: .5rem; }
+/* כפתור "צבע רקע" — יוצג רק בערכות: classic/ocean/rose-pine-dawn */
+#bgColorSwitcher {
+  display: none;
+  position: relative;
+  z-index: 1;
+  margin-inline-end: .5rem;
+}
+
+:root[data-theme="classic"] #bgColorSwitcher,
+:root[data-theme="ocean"] #bgColorSwitcher,
+:root[data-theme="rose-pine-dawn"] #bgColorSwitcher {
+  display: inline-flex;
+  align-items: center;
+}
 @media (max-width: 600px) {
   /* במובייל – אם צריך, ניתן להעביר לשורה שנייה בתוך הכותרת */
   #bgColorSwitcher { order: 2; width: auto; margin-top: 6px; }
@@ -1622,12 +1649,6 @@ input.md-task-checkbox {
           </div>
         </div>
       </div>
-      {% if (is_admin|default(false)) and not (is_public|default(false)) %}
-      <button id="mdCollapseBtn" class="btn btn-secondary btn-icon" title="מצב מצומצם (קיפול ##)">
-        <i class="fas fa-compress-alt"></i>
-        מצב מצומצם
-      </button>
-      {% endif %}
       <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
         <i class="fas fa-expand"></i>
         מסך מלא
@@ -2089,6 +2110,65 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       // לא לבצע הדגשה בשלב ה-render של markdown-it; נבצע post-process עם hljs
       highlight: function (_str, _lang) { return ''; }
     })
+    // תמיכה בהדגשת "טוש" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
+    ;(function enableMarkdownMark(){
+      try {
+        function markdownItMarkPlugin(mdInstance) {
+          function isSpace(code) {
+            return code === 0x20 /* space */ || code === 0x0A /* \n */ || code === 0x09 /* \t */;
+          }
+          function isEscaped(src, pos) {
+            // pos הוא תחילת הסוגריים "==" (כלומר התו הראשון)
+            let backslashes = 0;
+            let i = pos - 1;
+            while (i >= 0 && src.charCodeAt(i) === 0x5C /* \ */) { backslashes += 1; i -= 1; }
+            return (backslashes % 2) === 1;
+          }
+          function tokenize(state, silent) {
+            const start = state.pos;
+            const max = state.posMax;
+            const src = state.src;
+
+            if (start + 4 > max) return false; // מינימום: ==a==
+            if (src.charCodeAt(start) !== 0x3D || src.charCodeAt(start + 1) !== 0x3D) return false; // "=="
+
+            const next = src.charCodeAt(start + 2);
+            if (isSpace(next)) return false; // לא פותחים הדגשה עם רווח מיד אחרי
+
+            // חיפוש סוגר תואם
+            let end = start + 2;
+            while (true) {
+              end = src.indexOf('==', end);
+              if (end < 0 || end + 2 > max) return false;
+              if (end === start + 2) { end += 2; continue; } // "====" לא שימושי
+              if (isSpace(src.charCodeAt(end - 1))) { end += 2; continue; } // לא סוגרים עם רווח לפני
+              if (isEscaped(src, end)) { end += 2; continue; } // סוגר עם escape
+              break;
+            }
+
+            if (silent) return true;
+
+            // פתיחה
+            const open = state.push('mark_open', 'mark', 1);
+            open.markup = '==';
+
+            // תוכן פנימי – נותן ל-markdown-it לפרש גם **, _, קישורים וכו'
+            const inner = src.slice(start + 2, end);
+            state.md.inline.parse(inner, state.md, state.env, state.tokens);
+
+            // סגירה
+            const close = state.push('mark_close', 'mark', -1);
+            close.markup = '==';
+
+            state.pos = end + 2;
+            return true;
+          }
+
+          mdInstance.inline.ruler.before('emphasis', 'mark', tokenize);
+        }
+        md.use(markdownItMarkPlugin);
+      } catch(_) {}
+    })();
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     // עוגני כותרות – הגדרה יציבה למניעת רגרסיות בין גרסאות התוסף
@@ -3014,6 +3094,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   };
   
   const STORAGE_KEY = 'md_bg_color_preference';
+  const ALLOWED_THEMES = new Set(['classic', 'ocean', 'rose-pine-dawn']);
   
   // שליפת העדפה שמורה
   function getSavedColorPreference() {
@@ -3035,8 +3116,16 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     } catch(_) {}
   }
   
+  function clearAppliedBackground() {
+    const mdContent = document.getElementById('md-content');
+    if (!mdContent) return;
+    mdContent.classList.remove('bg-sepia', 'bg-light', 'bg-medium', 'bg-dark');
+    const indicator = document.querySelector('#bgColorBtn span');
+    if (indicator) indicator.style.background = '#ffffff';
+  }
+
   // החלת צבע רקע
- function applyBackgroundColor(color) {
+  function applyBackgroundColor(color) {
    const mdContent = document.getElementById('md-content');
    if (!mdContent) return;
  
@@ -3079,8 +3168,20 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   function init() {
     const bgColorBtn = document.getElementById('bgColorBtn');
     const bgColorOptions = document.getElementById('bgColorOptions');
+    const bgColorSwitcher = document.getElementById('bgColorSwitcher');
     
-    if (!bgColorBtn || !bgColorOptions) return;
+    if (!bgColorBtn || !bgColorOptions || !bgColorSwitcher) return;
+
+    // הכפתור פעיל רק בערכות ספציפיות (אחרת גם לא מיישמים צבע שמור)
+    const currentTheme = document.documentElement.getAttribute('data-theme') || '';
+    if (!ALLOWED_THEMES.has(currentTheme)) {
+      try { bgColorSwitcher.style.display = 'none'; } catch(_) {}
+      clearAppliedBackground();
+      return;
+    } else {
+      // אם הגיעו לכאן זה אומר שה-Theme מאפשר, לכן נדאג שהכפתור יופיע גם אם CSS לא נטען עדיין
+      try { bgColorSwitcher.style.display = 'inline-flex'; } catch(_) {}
+    }
     
     // טעינת העדפה שמורה
    const savedColor = getSavedColorPreference();

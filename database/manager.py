@@ -117,6 +117,15 @@ _MONGO_MONITORING_REGISTERED = False
 class DatabaseManager:
     """אחראי על חיבור MongoDB והגדרת אינדקסים."""
 
+    # --- Profiler hard-disable (Kill Switch) ---
+    # דגל "קשיח" ברמת הקוד:
+    # - True  => הפרופיילר יכול לעבוד (ועדיין נשלט ע"י ENV כמו PROFILER_ENABLED)
+    # - False => הפרופיילר כבוי לחלוטין, גם אם ENV אומר להפעיל
+    ENABLE_PROFILING: bool = True
+
+    # --- Diagnostics: instance counter (sanity check for accidental re-creation) ---
+    _INSTANCES_CREATED: int = 0
+
     client: Optional[Any]
     db: Optional[DBLike]
     collection: CollectionLike
@@ -129,6 +138,10 @@ class DatabaseManager:
     _repo: Optional[Any]
 
     def __init__(self):
+        try:
+            type(self)._INSTANCES_CREATED += 1
+        except Exception:
+            pass
         self.client = None
         self.db = None
         # תאימות לשכבות שמצפות ל-db_name (למשל JobTracker במדריכים)
@@ -143,6 +156,13 @@ class DatabaseManager:
         self.shared_themes_collection = _StubCollection()
         self._repo = None
         self.connect()
+
+    @classmethod
+    def instances_created(cls) -> int:
+        try:
+            return int(getattr(cls, "_INSTANCES_CREATED", 0) or 0)
+        except Exception:
+            return 0
 
     def connect(self):
         # Docs build / CI: אפשר לנטרל חיבור למסד כדי למנוע שגיאות בזמן בניית דוקס
@@ -229,27 +249,47 @@ class DatabaseManager:
 
                     def _profiler_enabled() -> bool:
                         try:
+                            # Hard-disable flag in code (even if ENV says enabled)
+                            if not bool(getattr(outer_self, "ENABLE_PROFILING", True)):
+                                return False
                             v = os.getenv("PROFILER_ENABLED", "true")
                             return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
                         except Exception:
-                            return True
+                            # Fail-safe: אם יש תקלה בקריאת ENV, נשאיר כבוי (כדי לא להעמיס)
+                            return False
 
                     def _profiler_threshold_ms() -> float:
-                        # Prefer profiler-specific threshold; fallback to legacy DB_SLOW_MS if present
+                        # PROFILER_SLOW_THRESHOLD_MS controls recording into the profiler.
+                        # It should NOT control slow_mongo log emission (that is controlled by DB_SLOW_MS).
                         raw = os.getenv("PROFILER_SLOW_THRESHOLD_MS", "").strip()
                         if raw:
                             try:
                                 return float(raw)
                             except Exception:
-                                return 100.0
+                                return 1000.0
+                        # Backward-compat: if profiler threshold isn't set but legacy DB_SLOW_MS is set (>0),
+                        # use it as a reasonable profiler threshold.
                         raw2 = os.getenv("DB_SLOW_MS", "").strip()
                         if raw2:
                             try:
-                                return float(raw2)
+                                v = float(raw2)
+                                if v > 0:
+                                    return v
                             except Exception:
-                                return 100.0
-                        # ברירת מחדל: 100ms (תואם docs ו-Config Inspector)
-                        return 100.0
+                                pass
+                        # שיכוך כאבים: ברירת מחדל 1000ms כדי לא לתעד כל latency "רגיל" ברשת איטית
+                        return 1000.0
+
+                    def _slow_mongo_log_threshold_ms() -> float:
+                        # DB_SLOW_MS controls the slow_mongo warning log.
+                        # Docs/Config Inspector define default as 0 (disabled).
+                        raw = os.getenv("DB_SLOW_MS", "").strip()
+                        if not raw:
+                            return 0.0
+                        try:
+                            return float(raw)
+                        except Exception:
+                            return 0.0
 
                     def _get_profiler_service():
                         # Lazy import to avoid hard dependency / circular imports at startup
@@ -263,7 +303,7 @@ class DatabaseManager:
                         try:
                             svc = PersistentQueryProfilerService(
                                 db_manager=outer_self,
-                                slow_threshold_ms=int(_profiler_threshold_ms() or 100),
+                                slow_threshold_ms=int(_profiler_threshold_ms() or 1000),
                             )
                             setattr(outer_self, "_profiler_service", svc)
                             return svc
@@ -349,10 +389,9 @@ class DatabaseManager:
 
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
-                                slow_ms = float(_profiler_threshold_ms() or 0.0)
-
-                                # לוגים רגילים (Warning)
-                                if slow_ms and dur_ms > slow_ms:
+                                # --- slow_mongo warning log (controlled by DB_SLOW_MS) ---
+                                slow_log_ms = float(_slow_mongo_log_threshold_ms() or 0.0)
+                                if slow_log_ms and dur_ms > slow_log_ms:
                                     try:
                                         logger.warning(
                                             'slow_mongo',
@@ -365,58 +404,62 @@ class DatabaseManager:
                                     except Exception:
                                         pass
 
-                                    # --- Query Performance Profiler ---
+                                # --- Query Performance Profiler (independent of DB_SLOW_MS) ---
+                                try:
+                                    if not _profiler_enabled():
+                                        return
+
+                                    profiler_slow_ms = float(_profiler_threshold_ms() or 0.0)
+                                    if profiler_slow_ms and dur_ms <= profiler_slow_ms:
+                                        return
+
+                                    # אם אין לנו את המידע מ-started, אי אפשר להקליט
+                                    if not req_data:
+                                        return
+
+                                    coll = req_data["coll"]
+                                    # מניעת רקורסיה
+                                    if coll in {"slow_queries_log", "system.profile"}:
+                                        return
+
+                                    profiler = _get_profiler_service()
+                                    if profiler is None:
+                                        return
+
+                                    client_info = {
+                                        "db": req_data["db"],
+                                        "cmd": req_data["cmd_name"],
+                                    }
+
+                                    # הרצה אסינכרונית
                                     try:
-                                        if not _profiler_enabled():
-                                            return
+                                        loop = asyncio.get_running_loop()
+                                    except RuntimeError:
+                                        loop = None
 
-                                        # אם אין לנו את המידע מ-started, אי אפשר להקליט
-                                        if not req_data:
-                                            return
-
-                                        coll = req_data["coll"]
-                                        # מניעת רקורסיה
-                                        if coll in {"slow_queries_log", "system.profile"}:
-                                            return
-
-                                        profiler = _get_profiler_service()
-                                        if profiler is None:
-                                            return
-
-                                        client_info = {
-                                            "db": req_data["db"],
-                                            "cmd": req_data["cmd_name"],
-                                        }
-
-                                        # הרצה אסינכרונית
-                                        try:
-                                            loop = asyncio.get_running_loop()
-                                        except RuntimeError:
-                                            loop = None
-
-                                        if loop is not None:
-                                            loop.create_task(
-                                                profiler.record_slow_query(
-                                                    collection=coll,
-                                                    operation=req_data["cmd_name"],
-                                                    query=req_data["query"],
-                                                    execution_time_ms=float(dur_ms),
-                                                    client_info=client_info,
-                                                )
+                                    if loop is not None:
+                                        loop.create_task(
+                                            profiler.record_slow_query(
+                                                collection=coll,
+                                                operation=req_data["cmd_name"],
+                                                query=req_data["query"],
+                                                execution_time_ms=float(dur_ms),
+                                                client_info=client_info,
                                             )
-                                        else:
-                                            asyncio.run(
-                                                profiler.record_slow_query(
-                                                    collection=coll,
-                                                    operation=req_data["cmd_name"],
-                                                    query=req_data["query"],
-                                                    execution_time_ms=float(dur_ms),
-                                                    client_info=client_info,
-                                                )
+                                        )
+                                    else:
+                                        asyncio.run(
+                                            profiler.record_slow_query(
+                                                collection=coll,
+                                                operation=req_data["cmd_name"],
+                                                query=req_data["query"],
+                                                execution_time_ms=float(dur_ms),
+                                                client_info=client_info,
                                             )
-                                    except Exception as e:
-                                        # החזרת לוג שגיאה למקרה הצורך
-                                        logger.error(f"Profiler Error: {str(e)}")
+                                        )
+                                except Exception as e:
+                                    # החזרת לוג שגיאה למקרה הצורך
+                                    logger.error(f"Profiler Error: {str(e)}")
                             except Exception:
                                 pass
 
@@ -531,6 +574,7 @@ class DatabaseManager:
         unique: bool = False,
         background: bool = True,
         enforce: bool = False,
+        partial_filter_expression: Optional[Dict[str, Any]] = None,
     ) -> None:
         """יוצר אינדקס בצורה בטוחה וב-Background.
 
@@ -538,6 +582,10 @@ class DatabaseManager:
         - להימנע מקריסה אם קיים אינדקס *זהה* עם שם אחר (IndexOptionsConflict / "already exists")
         - לא להסתיר תקלות אמיתיות (חיבור/הרשאות/duplicate keys וכו')
         - לאפשר "אכיפה" (drop+create) רק לאינדקסים קריטיים כשיש mismatch אמיתי
+
+        Args:
+            partial_filter_expression: אופציונלי - תנאי סינון לאינדקס חלקי (Partial Index).
+                                       מאפשר לאנדקס רק חלק מהמסמכים לפי פילטר.
         """
         db = getattr(self, "db", None)
         if db is None:
@@ -611,17 +659,30 @@ class DatabaseManager:
                 if bool(unique) != existing_unique:
                     return False
 
+                # partialFilterExpression: partial index vs non-partial are different indexes
+                existing_partial = idx.get("partialFilterExpression")
+                if partial_filter_expression is not None:
+                    # We want a partial index - existing must have same filter
+                    if existing_partial != partial_filter_expression:
+                        return False
+                else:
+                    # We want a non-partial index - existing must not be partial
+                    if existing_partial is not None:
+                        return False
+
                 return True
             except Exception:
                 return False
 
         try:
-            collection.create_index(
-                desired_keys,
-                name=name,
-                unique=unique,
-                background=background,
-            )
+            index_kwargs: Dict[str, Any] = {
+                "name": name,
+                "unique": unique,
+                "background": background,
+            }
+            if partial_filter_expression is not None:
+                index_kwargs["partialFilterExpression"] = partial_filter_expression
+            collection.create_index(desired_keys, **index_kwargs)
             emit_event(
                 "db_index_created",
                 severity="info",
@@ -675,12 +736,14 @@ class DatabaseManager:
                         )
 
                     try:
-                        collection.create_index(
-                            desired_keys,
-                            name=name,
-                            unique=unique,
-                            background=background,
-                        )
+                        recreate_kwargs: Dict[str, Any] = {
+                            "name": name,
+                            "unique": unique,
+                            "background": background,
+                        }
+                        if partial_filter_expression is not None:
+                            recreate_kwargs["partialFilterExpression"] = partial_filter_expression
+                        collection.create_index(desired_keys, **recreate_kwargs)
                         emit_event(
                             "db_index_created",
                             severity="info",
@@ -733,13 +796,44 @@ class DatabaseManager:
                 return DatabaseManager.safe_create_index(self, *args, **kwargs)
 
         # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)
-        # note_reminders (הכי דחוף לפי הלוגים)
+        # note_reminders - אינדקס מותאם לשאילתת הפולינג (push_api.py)
+        # קריטי: אינדקס חלקי לא תומך ב-$ne/$not ב-partialFilterExpression.
+        # לכן אנחנו מאנדקסים רק מסמכים "חדשים" עם needs_push=True.
+        safe_create_index(
+            "note_reminders",
+            # remind_at ראשון כדי לאפשר sort+limit יעילים על due reminders
+            [("remind_at", ASCENDING), ("status", ASCENDING)],
+            name="push_polling_optimized_idx",
+            background=True,
+            enforce=True,
+            partial_filter_expression={"ack_at": None, "needs_push": True},
+        )
+        # note_reminders - אינדקס לשאילתת /reminders/summary (sticky_notes_api.py)
+        # השאילתה מסננת לפי: user_id, ack_at=null, status, remind_at
+        safe_create_index(
+            "note_reminders",
+            [("user_id", ASCENDING), ("status", ASCENDING), ("remind_at", ASCENDING)],
+            name="user_reminders_summary_idx",
+            background=True,
+            enforce=True,
+            partial_filter_expression={"ack_at": None},
+        )
+        # אינדקס חלקי פשוט יותר לתאימות
+        safe_create_index(
+            "note_reminders",
+            [("status", ASCENDING), ("remind_at", ASCENDING)],
+            name="push_polling_partial_idx",
+            background=True,
+            enforce=False,
+            partial_filter_expression={"ack_at": None},
+        )
+        # אינדקס ישן לתאימות לאחור (לא חלקי)
         safe_create_index(
             "note_reminders",
             [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
             name="push_polling_idx",
             background=True,
-            enforce=True,
+            enforce=False,  # לא לאכוף - אם קיים, לא למחוק
         )
 
         # service_metrics
@@ -753,8 +847,18 @@ class DatabaseManager:
         safe_create_index(
             "job_runs",
             [("run_id", ASCENDING)],
-            name="run_id_unique",
+            # אינדקס ייחודי קריטי לעדכוני סטטוס מהירים לפי run_id
+            # (שם האינדקס לא חשוב לביצועים, אבל נשמור שם ברור/סטנדרטי)
+            name="idx_job_runs_id",
             unique=True,
+        )
+
+        # scheduler_jobs - אינדקס לשאילתות polling לפי next_run_time (רץ בתדירות גבוהה)
+        safe_create_index(
+            "scheduler_jobs",
+            [("next_run_time", ASCENDING)],
+            name="idx_jobs_next_run",
+            background=True,
         )
 
         # job_trigger_requests - אינדקס על status למניעת COLLSCAN בזמן polling
@@ -823,14 +927,33 @@ class DatabaseManager:
         safe_create_index("shared_themes", [("created_by", ASCENDING)], name="shared_themes_created_by_idx")
 
         # הוספת אינדקסים קטנים שחונקים CPU (לפי התדירות/סינונים)
-        safe_create_index("visual_rules", [("enabled", ASCENDING)], name="visual_rules_enabled_idx")
+        # enforce=True לוודא שהאינדקסים נוצרים גם אם יש קונפליקט
+        safe_create_index(
+            "visual_rules",
+            [("enabled", ASCENDING)],
+            name="visual_rules_enabled_idx",
+            enforce=True,
+        )
         safe_create_index(
             "alerts_silences",
             [("active", ASCENDING), ("until_ts", ASCENDING)],
             name="alerts_silences_active_until_idx",
+            enforce=True,
         )
-        safe_create_index("alerts_log", [("_key", ASCENDING)], name="alerts_log_key_idx")
-        safe_create_index("alert_types_catalog", [("alert_type", ASCENDING)], name="alert_types_catalog_type_idx")
+        safe_create_index(
+            "alerts_log",
+            [("_key", ASCENDING)],
+            name="alerts_log_key_idx",
+            unique=True,  # _key צריך להיות ייחודי
+            enforce=True,
+        )
+        safe_create_index(
+            "alert_types_catalog",
+            [("alert_type", ASCENDING)],
+            name="alert_types_catalog_type_idx",
+            unique=True,  # alert_type צריך להיות ייחודי
+            enforce=True,
+        )
 
         # code_snippets - אינדקס מורכב לרשימות משתמש (משפר פילטר user_id+is_active ומיון לפי created_at)
         # אינדקס קריטי: אם יש mismatch אמיתי בשם הזה, ננסה drop+create בצורה מבוקרת.
@@ -838,6 +961,18 @@ class DatabaseManager:
             "code_snippets",
             [("user_id", ASCENDING), ("is_active", ASCENDING), ("created_at", DESCENDING)],
             name="user_active_created_at_idx",
+            enforce=True,
+        )
+
+        # code_snippets - אינדקס קריטי לשליפת "הגרסה האחרונה לכל קובץ" (Killer Query)
+        # תומך ב:
+        # 1) match לפי user_id + is_active
+        # 2) sort לפי file_name (ASC) + version (DESC)
+        # 3) group לפי file_name עם $first כדי לקחת את הגרסה האחרונה
+        safe_create_index(
+            "code_snippets",
+            [("user_id", ASCENDING), ("is_active", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)],
+            name="idx_snippets_latest_version",
             enforce=True,
         )
 
@@ -1115,6 +1250,30 @@ class DatabaseManager:
 
     def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
         return self._get_repo().save_user(user_id, username)
+
+    def get_user(self, user_id: Any) -> Optional[Dict[str, Any]]:
+        """Sanity helper: fetch user document by user_id (PyMongo).
+
+        נועד בעיקר לניסויי latency/בדיקות תפעוליות, כדי לוודא שאין יצירה חוזרת של MongoClient.
+        """
+        db = getattr(self, "db", None)
+        if db is None:
+            return None
+        try:
+            uid = int(user_id)
+        except Exception:
+            return None
+        try:
+            coll = getattr(db, "users", None)
+        except Exception:
+            coll = None
+        if coll is None or not hasattr(coll, "find_one"):
+            return None
+        try:
+            doc = coll.find_one({"user_id": uid})
+        except Exception:
+            return None
+        return doc if isinstance(doc, dict) else None
 
     # Google Drive tokens & preferences
     def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any]) -> bool:

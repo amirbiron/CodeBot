@@ -440,6 +440,13 @@ def unsubscribe():
 
 # --- Background sender (opt-in via env) ---
 _sender_started = False
+_sender_lock_fh = None  # type: ignore
+
+# Legacy scan (documents without needs_push) is only required during migration windows.
+# After backfilling needs_push for all documents, continuing to run the legacy branch
+# can cause a COLLSCAN and produce 2 slow-query alerts per loop.
+_legacy_scan_cached_has_missing: Optional[bool] = None
+_legacy_scan_cached_at_ts: float = 0.0
 
 
 def start_sender_if_enabled() -> None:
@@ -449,6 +456,21 @@ def start_sender_if_enabled() -> None:
     enabled = (os.getenv("PUSH_NOTIFICATIONS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"})
     if not enabled:
         return
+    # Ensure only one sender loop runs across multiple Gunicorn workers/processes.
+    # Using an OS-level flock means the lock is released automatically on process exit/crash.
+    global _sender_lock_fh
+    try:
+        import fcntl
+        lock_path = os.getenv("PUSH_SENDER_LOCK_FILE") or "/tmp/codebot-push-sender.lock"
+        _sender_lock_fh = open(lock_path, "a+")
+        try:
+            fcntl.flock(_sender_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except Exception:
+            # Another process owns the sender lock; do not start a duplicate loop.
+            return
+    except Exception:
+        # Fail-open: if locking isn't available, fall back to per-process behavior.
+        pass
     try:
         import threading
 
@@ -484,27 +506,27 @@ def _loop_send_due_reminders() -> None:
 def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     """Scan due sticky-note reminders and send web push per user subscriptions.
 
-    Idempotency: send once per reminder schedule by checking last_push_success_at < remind_at.
+    Idempotency: send once per reminder schedule using the needs_push field.
+    When a push succeeds, needs_push is set to False.
+    When a reminder is rescheduled (snooze), needs_push is reset to True.
+
+    Backward compatibility: documents without needs_push field use the old
+    last_push_success_at logic to avoid duplicate sends on deployment.
     """
     db = get_db()
     now = datetime.now(timezone.utc)
-    # Idempotency is enforced inside MongoDB to avoid Python-side filtering on the hot path.
-    # NOTE: our reminders use status pending/snoozed (not "active").
-    mongo_filter = {
-        "status": {"$in": ["pending", "snoozed"]},
+    # IMPORTANT: do NOT use a single $or query here.
+    # A partial index (ack_at=None, needs_push=True) is only usable when the query
+    # *guarantees* needs_push=True. With a top-level $or (legacy branch), MongoDB
+    # tends to fall back to COLLSCAN under load.
+    #
+    # Strategy:
+    # 1) Query "new" documents (needs_push=True) — hits the partial index.
+    # 2) If we still need items, query legacy documents without needs_push.
+    base_filter = {
         "ack_at": None,
+        "status": {"$in": ["pending", "snoozed"]},
         "remind_at": {"$lte": now},
-        # send only if never successfully pushed for this schedule
-        "$or": [
-            {"last_push_success_at": {"$exists": False}},
-            {"last_push_success_at": None},
-            {
-                "$and": [
-                    {"last_push_success_at": {"$type": "date"}},
-                    {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
-                ]
-            },
-        ],
     }
     total_needed = max_users * max_per_user
     # We still oversample to compensate for claim collisions / missing subscriptions, etc.
@@ -519,14 +541,105 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         "last_push_success_at": 1,
     }
 
+    raw_due: list = []
+    # 1) New documents (fast path, uses partial index)
     try:
-        raw_due = list(
-            db.note_reminders.find(mongo_filter, projection).sort("remind_at", 1).limit(raw_limit)
-        )
+        new_filter = dict(base_filter)
+        new_filter["needs_push"] = True
+        raw_due = list(db.note_reminders.find(new_filter, projection).sort("remind_at", 1).limit(raw_limit))
     except Exception:
         raw_due = []
 
-    due = [r for r in raw_due if isinstance(r, dict)]
+    due: list[dict] = [r for r in raw_due if isinstance(r, dict)]
+
+    # 2) Legacy documents (best-effort, limited)
+    if len(due) < raw_limit:
+        # Auto-disable legacy scan once the collection is migrated (no documents missing needs_push).
+        # Cache the presence check so we don't add another frequent query.
+        legacy_scan_enabled = True
+        try:
+            raw = (os.getenv("PUSH_LEGACY_SCAN_ENABLED") or "").strip().lower()
+            if raw in {"0", "false", "no", "off"}:
+                legacy_scan_enabled = False
+        except Exception:
+            pass
+
+        if legacy_scan_enabled:
+            global _legacy_scan_cached_has_missing, _legacy_scan_cached_at_ts
+            try:
+                import time
+                ttl = max(30, int(os.getenv("PUSH_LEGACY_SCAN_CHECK_TTL_SECONDS", "600") or "600"))
+                now_ts = float(time.time())
+                if _legacy_scan_cached_has_missing is None or (now_ts - float(_legacy_scan_cached_at_ts or 0.0)) > float(ttl):
+                    # Use find_one to minimize work; if no doc exists, migration is done.
+                    missing = db.note_reminders.find_one({"needs_push": {"$exists": False}}, {"_id": 1})
+                    _legacy_scan_cached_has_missing = bool(missing)
+                    _legacy_scan_cached_at_ts = now_ts
+                if _legacy_scan_cached_has_missing is False:
+                    legacy_scan_enabled = False
+            except Exception:
+                # Fail-open: if we can't check, keep legacy scan enabled for safety.
+                legacy_scan_enabled = True
+
+        if not legacy_scan_enabled:
+            # No legacy docs -> skip legacy query to avoid COLLSCAN and duplicate alerts.
+            pass
+        else:
+            try:
+                legacy_limit = max(1, raw_limit - len(due))
+                legacy_filter = dict(base_filter)
+                legacy_filter["needs_push"] = {"$exists": False}
+                legacy_filter["$or"] = [
+                    {"last_push_success_at": {"$exists": False}},
+                    {"last_push_success_at": None},
+                    {
+                        "$and": [
+                            {"last_push_success_at": {"$type": "date"}},
+                            {"$expr": {"$gt": ["$remind_at", "$last_push_success_at"]}},
+                        ]
+                    },
+                ]
+                legacy_raw = list(
+                    db.note_reminders.find(legacy_filter, projection).sort("remind_at", 1).limit(legacy_limit)
+                )
+                # Merge & de-dup by _id
+                seen = {str(d.get("_id")) for d in due if d.get("_id") is not None}
+                for r in legacy_raw:
+                    if not isinstance(r, dict):
+                        continue
+                    rid = r.get("_id")
+                    if rid is None:
+                        continue
+                    s = str(rid)
+                    if s in seen:
+                        continue
+                    seen.add(s)
+                    due.append(r)
+            except Exception:
+                pass
+
+    # Keep global order by remind_at after merging new+legacy lists.
+    # Otherwise, early legacy reminders can be pushed after later "new" reminders.
+    def _due_sort_key(d: dict):
+        ra = d.get("remind_at")
+        if isinstance(ra, datetime):
+            try:
+                if ra.tzinfo is None:
+                    ra = ra.replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+        else:
+            try:
+                ra = datetime.max.replace(tzinfo=timezone.utc)
+            except Exception:
+                ra = datetime.max
+        return (ra, str(d.get("_id") or ""))
+
+    try:
+        due.sort(key=_due_sort_key)
+    except Exception:
+        pass
+
     due = due[:total_needed]
     if not due:
         return
@@ -771,9 +884,17 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 continue
         if success_any:
             try:
+                # Race condition protection: only mark as sent if remind_at hasn't changed
+                # (i.e., user didn't snooze during the push). If snoozed, the new remind_at
+                # means we should NOT clear needs_push - the snoozed reminder needs its push.
+                original_remind_at = r.get("remind_at")
                 db.note_reminders.update_one(
-                    {"_id": r.get("_id")},
-                    {"$set": {"last_push_success_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}},
+                    {"_id": r.get("_id"), "remind_at": original_remind_at},
+                    {"$set": {
+                        "last_push_success_at": datetime.now(timezone.utc),
+                        "updated_at": datetime.now(timezone.utc),
+                        "needs_push": False,
+                    }},
                 )
             except Exception:
                 pass

@@ -1000,6 +1000,14 @@ def _filter_quick_fix_actions(actions: List[Dict[str, Any]], *, ui_context: Opti
 def get_quick_fix_actions(alert: Dict[str, Any], *, ui_context: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return applicable quick-fix actions for a given alert."""
     try:
+        ctx = str(ui_context or "").strip().lower()
+        if ctx == "dashboard_history":
+            # Dashboard History includes deployments as contextual markers, not actionable alerts.
+            # Hide quick-fix actions for deployment events to reduce noise in the alerts table.
+            effective_alert_type = _effective_alert_type_from_snapshot(alert)
+            if _normalize_alert_type(effective_alert_type) == "deployment_event":
+                return []
+
         combined: List[Dict[str, Any]] = []
         seen: set[str] = set()
 

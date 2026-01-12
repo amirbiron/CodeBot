@@ -4429,31 +4429,88 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        header_html = (
-            f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version_num}\n\n"
-        )
-        html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
-        fudge = 10
-        available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
-        if available_for_code < 100:
-            available_for_code = 100
-        preview_raw_limit = min(max_length, len(code))
-        safe_code = html_escape(code[:preview_raw_limit])
-        if len(safe_code) > available_for_code and preview_raw_limit > 0:
+        # העדף MarkdownV2 עם תג שפה (תווית שפה + הדגשת תחביר בצד הלקוח).
+        # אם יש ``` בתוך הקוד נשבור אותו כדי לא לסגור את הבלוק.
+        def _sanitize_lang_tag(lang: str) -> str:
             try:
-                factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
-                preview_raw_limit = max(0, int(available_for_code / factor))
+                s = str(lang or "").strip().lower()
             except Exception:
-                preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
+                s = ""
+            alias = {
+                "c#": "csharp",
+                "cs": "csharp",
+                "csharp": "csharp",
+                "c++": "cpp",
+                "cpp": "cpp",
+                "py": "python",
+                "python3": "python",
+                "js": "javascript",
+                "ts": "typescript",
+                "sh": "bash",
+                "shell": "bash",
+            }
+            s = alias.get(s, s)
+            try:
+                s = re.sub(r"[^a-z0-9#+-]+", "", s)
+            except Exception:
+                s = ""
+            return s or "text"
+
+        def _sanitize_codeblock(code_text: str) -> str:
+            try:
+                return str(code_text or "").replace("```", "``\u200b`")
+            except Exception:
+                return ""
+
+        message_text = ""
+        parse_mode = ParseMode.HTML
+        try:
+            safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=2)
+            safe_language_md = TextUtils.escape_markdown(str(language), version=2)
+            header_md = (
+                f"📄 *{safe_file_name_md}*\n"
+                f"🧠 שפה: {safe_language_md}\n"
+                f"🔢 גרסה: {version_num}\n\n"
+            )
+            lang_tag = _sanitize_lang_tag(language)
+            code_block_body = _sanitize_codeblock(code_preview or "")
+            closing_newline = "" if code_block_body.endswith("\n") else "\n"
+            md_payload = f"{header_md}```{lang_tag}\n{code_block_body}{closing_newline}```"
+            if len(md_payload) <= 4096:
+                message_text = md_payload
+                parse_mode = getattr(ParseMode, "MARKDOWN_V2", "MarkdownV2")
+        except Exception:
+            message_text = ""
+
+        if not message_text:
+            header_html = (
+                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version_num}\n\n"
+            )
+            html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
+            fudge = 10
+            available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
+            if available_for_code < 100:
+                available_for_code = 100
+            preview_raw_limit = min(max_length, len(code))
             safe_code = html_escape(code[:preview_raw_limit])
-            while len(safe_code) > available_for_code and preview_raw_limit > 0:
-                step = max(50, len(safe_code) - available_for_code)
-                preview_raw_limit = max(0, preview_raw_limit - step)
+            if len(safe_code) > available_for_code and preview_raw_limit > 0:
+                try:
+                    factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
+                    preview_raw_limit = max(0, int(available_for_code / factor))
+                except Exception:
+                    preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
                 safe_code = html_escape(code[:preview_raw_limit])
+                while len(safe_code) > available_for_code and preview_raw_limit > 0:
+                    step = max(50, len(safe_code) - available_for_code)
+                    preview_raw_limit = max(0, preview_raw_limit - step)
+                    safe_code = html_escape(code[:preview_raw_limit])
+            message_text = f"{header_html}<pre><code>{safe_code}</code></pre>"
+            parse_mode = ParseMode.HTML
+
         await query.edit_message_text(
-            f"{header_html}<pre><code>{safe_code}</code></pre>",
+            message_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.HTML
+            parse_mode=parse_mode,
         )
         
     except Exception as e:

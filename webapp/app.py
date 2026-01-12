@@ -18,7 +18,7 @@ from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
+from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response
 import threading
 import atexit
 import time as _time
@@ -48,6 +48,63 @@ import threading
 import base64
 import traceback
 import asyncio
+
+
+# Cache עבור בדיקות persistent login
+_persistent_login_cache = {}
+_persistent_login_cache_lock = threading.Lock()
+
+
+def _check_persistent_login_cached(user_id: str) -> bool:
+    """בדיקת persistent login עם cache של 60 שניות"""
+    now = time.time()
+    token = request.cookies.get(REMEMBER_COOKIE_NAME)
+    if not token:
+        return False
+
+    # cache key כולל גם את ה-token (חלק ממנו) כדי להימנע מזיהום בין מכשירים
+    cache_key = f"persistent_{user_id}_{token[:16]}"
+
+    # בדיקת Cache (בנעילה כדי למנוע race / dict-size-change)
+    with _persistent_login_cache_lock:
+        if cache_key in _persistent_login_cache:
+            cached_value, expires_at = _persistent_login_cache[cache_key]
+            if expires_at > now:
+                return cached_value
+
+    # Cache miss - בדיקה מול DB
+    has_persistent = False
+    try:
+        db = get_db()
+        doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
+        if doc:
+            exp = doc.get('expires_at')
+            if isinstance(exp, datetime):
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                has_persistent = exp > datetime.now(timezone.utc)
+            else:
+                try:
+                    dt = datetime.fromisoformat(str(exp))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    has_persistent = dt > datetime.now(timezone.utc)
+                except Exception:
+                    has_persistent = False
+    except Exception:
+        has_persistent = False
+
+    # שמירה ב-cache
+    with _persistent_login_cache_lock:
+        _persistent_login_cache[cache_key] = (has_persistent, now + 60)
+
+        # ניקוי cache ישן (בטוח)
+        if len(_persistent_login_cache) > 1000:
+            keys_to_remove = [k for k, v in list(_persistent_login_cache.items()) if v[1] < now]
+            for k in keys_to_remove:
+                _persistent_login_cache.pop(k, None)
+
+    return has_persistent
 
 
 # --- Logging: honor LOG_LEVEL for the WebApp process ---
@@ -115,6 +172,13 @@ from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import ThreadPoolDatabaseHealthService  # noqa: E402
+from services.styled_export_service import (  # noqa: E402
+    get_export_theme,
+    list_export_presets,
+    markdown_to_html,
+    render_styled_html,
+)
+from services.theme_parser_service import parse_vscode_theme, validate_theme_json  # noqa: E402
 
 
 # --- Observability: הרצת פעולות כבדות בת׳רד (תואם Flask sync) ---
@@ -2786,7 +2850,9 @@ def try_persistent_login():
             'last_name': user.get('last_name', ''),
             'username': user.get('username', ''),
             'photo_url': '',
-            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False)),
+            'is_admin': is_admin(user_id),
+            'is_premium': is_premium(user_id),
         }
         session.permanent = True
     except Exception:
@@ -3630,9 +3696,10 @@ def _get_webapp_profiler_service():
         raise RuntimeError(f"QueryProfilerService unavailable: {e}") from e
 
     try:
-        threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "100") or 100))
+        # שיכוך כאבים: ברירת מחדל גבוהה יותר כדי להימנע מרעש/עומס בלוגים
+        threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "1000") or 1000))
     except Exception:
-        threshold_ms = 100
+        threshold_ms = 1000
 
     _WEBAPP_PROFILER_SERVICE = PersistentQueryProfilerService(_ManagerLike(), slow_threshold_ms=threshold_ms)
     return _WEBAPP_PROFILER_SERVICE
@@ -3815,7 +3882,8 @@ def api_profiler_summary():
         return jsonify({"status": "error", "message": "rate_limited"}), 429
     try:
         svc = _get_webapp_profiler_service()
-        return jsonify({"status": "success", "data": svc.get_summary()})
+        summary = _run_profiler(svc.get_summary_async())
+        return jsonify({"status": "success", "data": summary})
     except Exception:
         logger.exception("api_profiler_summary_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
@@ -6550,10 +6618,9 @@ def force_index_creation():
     
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.code_snippets
 
         # בדיקה אם האינדקס כבר קיים
@@ -6621,10 +6688,9 @@ def create_job_trigger_index():
 
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.job_trigger_requests
 
         # בדיקה אם האינדקס כבר קיים
@@ -6676,10 +6742,9 @@ def create_global_search_index():
 
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, TEXT
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.code_snippets
 
         target_index_name = "search_text_idx"
@@ -6773,8 +6838,7 @@ def verify_indexes():
     }
 
     try:
-        from database.manager import DatabaseManager
-        db = DatabaseManager().db
+        db = get_db()
 
         # 1. בדיקת פעולות בניית אינדקסים פעילות
         try:
@@ -6884,10 +6948,9 @@ def create_users_index():
 
     results = {}
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING
 
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.users
 
         # בדיקה אם האינדקס כבר קיים
@@ -6960,8 +7023,7 @@ def fix_is_active():
         batch_size = 5000
     
     try:
-        from database.manager import DatabaseManager
-        db = DatabaseManager().db
+        db = get_db()
         
         # בדיקת שתי הקולקציות
         collections_to_check = ['code_snippets', 'large_files']
@@ -7062,8 +7124,7 @@ def diagnose_slow_queries():
     results = {"diagnosis": {}, "indexes": {}, "explain_test": {}}
     
     try:
-        from database.manager import DatabaseManager
-        db = DatabaseManager().db
+        db = get_db()
         collection = db.code_snippets
         
         # 1. מצב האינדקסים
@@ -7173,10 +7234,9 @@ def fix_all_now():
     results = {"steps": []}
     
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
         
-        db = DatabaseManager().db
+        db = get_db()
         
         # === שלב 1: תיקון המסמכים החסרים ===
         for coll_name in ['code_snippets', 'large_files']:
@@ -7324,10 +7384,9 @@ def resolve_naming_conflicts():
     results = {"steps": [], "collections_fixed": []}
     
     try:
-        from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
         
-        db = DatabaseManager().db
+        db = get_db()
         
         # === 1. code_snippets: user_file_version_desc ===
         collection = db.code_snippets
@@ -7568,9 +7627,7 @@ def check_mongo_ops():
     📝 הערה: גרסה תואמת ל-Atlas Shared Tier (ללא $all).
     """
     try:
-        from database.manager import DatabaseManager
-        
-        db = DatabaseManager().db
+        db = get_db()
         
         # פקודה בסיסית שעובדת ב-Atlas Shared Tier
         ops = db.command({"currentOp": 1, "active": True})
@@ -8740,7 +8797,9 @@ def telegram_auth():
         'last_name': auth_data.get('last_name', ''),
         'username': auth_data.get('username', ''),
         'photo_url': auth_data.get('photo_url', ''),
-        'has_seen_welcome_modal': bool((user_doc or {}).get('has_seen_welcome_modal', False))
+        'has_seen_welcome_modal': bool((user_doc or {}).get('has_seen_welcome_modal', False)),
+        'is_admin': is_admin(user_id),
+        'is_premium': is_premium(user_id),
     }
     
     # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -8822,7 +8881,9 @@ def token_auth():
             'last_name': user.get('last_name', token_doc.get('last_name', '')),
             'username': token_doc.get('username', ''),
             'photo_url': user.get('photo_url', ''),
-            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False)),
+            'is_admin': is_admin(user_id_int),
+            'is_premium': is_premium(user_id_int),
         }
         
         # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -10255,6 +10316,17 @@ def view_file(file_id):
     """צפייה בקובץ בודד"""
     db = get_db()
     user_id = session['user_id']
+
+    # הרשאות UI (לכפתורים/מודאלים) - Premium/Admin
+    user_is_admin = False
+    user_is_premium = False
+    try:
+        uid_int = int(user_id)
+        user_is_admin = bool(is_admin(uid_int))
+        user_is_premium = bool(is_premium(uid_int))
+    except Exception:
+        user_is_admin = False
+        user_is_premium = False
     
     try:
         file, kind = _get_user_any_file_by_id(db, user_id, file_id)
@@ -10332,6 +10404,8 @@ def view_file(file_id):
     if len(code.encode('utf-8')) > MAX_DISPLAY_SIZE:
         html = render_template('view_file.html',
                              user=session['user_data'],
+                             user_is_admin=user_is_admin,
+                             is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
                              file={
                                  'id': str(file['_id']),
@@ -10360,6 +10434,8 @@ def view_file(file_id):
     if is_binary_file(code, file.get('file_name', '')):
         html = render_template('view_file.html',
                              user=session['user_data'],
+                             user_is_admin=user_is_admin,
+                             is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
                              file={
                                  'id': str(file['_id']),
@@ -10458,6 +10534,8 @@ def view_file(file_id):
     
     html = render_template('view_file.html',
                          user=session['user_data'],
+                         user_is_admin=user_is_admin,
+                         is_premium=user_is_premium,
                          clear_edit_draft_for_id=clear_edit_draft_for_id,
                          file=file_data,
                          highlighted_code=highlighted_code,
@@ -10559,6 +10637,13 @@ def compare_files_page():
         selected_right=right_id,
         top_languages=top_languages,
     )
+
+
+@app.route('/compare/paste')
+@login_required
+def compare_paste_page():
+    """דף השוואת קוד בהדבקה - ללא צורך בקבצים שמורים."""
+    return render_template('compare_paste.html')
 
 
 @app.route('/tools/code')
@@ -12275,6 +12360,299 @@ def md_preview(file_id):
     resp.headers['Last-Modified'] = last_modified_str
     return resp
 
+
+# ============================================
+# Styled HTML Export Routes
+# ============================================
+
+
+@app.route('/export/styled/<file_id>', methods=['GET', 'POST'])
+@login_required
+@premium_or_admin_required
+@traced("export.styled_html")
+def export_styled_html(file_id):
+    """
+    ייצוא קובץ Markdown כ-HTML מעוצב להורדה.
+
+    GET Query params:
+        theme: מזהה ערכת הנושא (default: tech-guide-dark)
+        preview: אם '1', מחזיר HTML לתצוגה מקדימה במקום להורדה
+
+    POST Form data:
+        vscode_json: תוכן JSON של ערכת VS Code (לייבוא ישיר)
+        preview: אם '1', מחזיר HTML לתצוגה מקדימה
+    """
+    db = get_db()
+    user_id = session['user_id']
+
+    # שליפת הקובץ
+    try:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception as e:
+        logger.exception("DB error fetching file for export", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+        abort(500)
+
+    if not file:
+        abort(404)
+
+    # וידוא שזה קובץ Markdown
+    language = (file.get('programming_language') or '').lower()
+    file_name = file.get('file_name') or ''  # טיפול גם ב-None וגם בחסר
+    is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
+
+    if not is_markdown:
+        flash('ייצוא HTML מעוצב זמין רק לקבצי Markdown', 'warning')
+        return redirect(url_for('view_file', file_id=file_id))
+
+    # שליפת ערכת הנושא - תלוי ב-Method
+    if request.method == 'POST':
+        # POST: ערכת VS Code מה-Form Data
+        vscode_json = request.form.get('vscode_json')
+        if vscode_json:
+            theme = get_export_theme('vscode-import', vscode_json=vscode_json)
+        else:
+            theme = get_export_theme('tech-guide-dark')
+    else:
+        # GET: ערכה מה-Query String
+        theme_id = request.args.get('theme', 'tech-guide-dark')
+
+        # שליפת ערכות המשתמש (אם בחר ערכה אישית)
+        user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+        user_themes = user_data.get("custom_themes", []) if user_data else []
+
+        theme = get_export_theme(theme_id, user_themes=user_themes)
+
+    # המרת Markdown ל-HTML
+    raw_content = file.get('code') or file.get('content') or ''
+
+    # בדיקה אם המשתמש רוצה TOC
+    include_toc = request.args.get('toc') == '1' or request.form.get('toc') == '1'
+    html_content, toc_html = markdown_to_html(raw_content, include_toc=include_toc)
+
+    # רינדור HTML מלא
+    # שימוש ב-or כדי לטפל גם במקרה ש-file_name קיים אבל הוא None
+    # הסרת סיומות case-insensitive עם regex
+    raw_title = file.get('file_name') or 'Untitled'
+    title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
+    rendered_html = render_styled_html(
+        content_html=html_content,
+        title=title,
+        theme=theme,
+        toc_html=toc_html,
+    )
+
+    # תצוגה מקדימה או הורדה
+    # תומך גם ב-GET query param וגם ב-POST form field
+    is_preview = (
+        request.args.get('preview') == '1' or
+        request.form.get('preview') == '1'
+    )
+
+    if is_preview:
+        # לתצוגה מקדימה - מחזירים HTML ישיר
+        return rendered_html
+
+    # הורדה - מחזירים כקובץ להורדה
+    response = make_response(rendered_html)
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+
+    # 🔒 סניטציה של שם הקובץ - רווח בודד במקום כל whitespace, ללא newlines
+    safe_filename = re.sub(r'[^\w \-.]', '', title)  # רווח בודד, לא \s
+    safe_filename = safe_filename.strip()[:50] or 'document'
+    response.headers['Content-Disposition'] = f'attachment; filename="{safe_filename}.html"'
+
+    return response
+
+
+@app.route('/api/export/themes')
+@login_required
+@premium_or_admin_required
+def api_export_themes():
+    """
+    מחזיר רשימת ערכות נושא זמינות לייצוא.
+
+    Returns:
+        JSON עם:
+        - presets: ערכות מוכנות מראש
+        - user_themes: ערכות המשתמש
+    """
+    db = get_db()
+    user_id = session['user_id']
+
+    # Presets
+    presets = list_export_presets()
+
+    # ערכות המשתמש
+    user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+    user_themes: list[dict] = []
+
+    if user_data and user_data.get("custom_themes"):
+        for theme in user_data["custom_themes"]:
+            if not isinstance(theme, dict):
+                continue
+            user_themes.append({
+                "id": theme.get("id"),
+                "name": theme.get("name", "My Theme"),
+                "description": theme.get("description", ""),
+                "category": "custom",
+            })
+
+    return jsonify({
+        "ok": True,
+        "presets": presets,
+        "user_themes": user_themes,
+    })
+
+
+@app.route('/api/export/parse-vscode', methods=['POST'])
+@login_required
+@premium_or_admin_required
+def api_parse_vscode_theme():
+    """
+    מפרסר JSON של ערכת VS Code ומחזיר CSS Variables.
+
+    Body (JSON):
+        json_content: תוכן הקובץ JSON
+
+    Returns:
+        JSON עם name, variables, syntax_css
+    """
+    data = request.get_json()
+    if not data or not data.get('json_content'):
+        return jsonify({"ok": False, "error": "Missing json_content"}), 400
+
+    json_content = data['json_content']
+
+    # וולידציה
+    is_valid, error_msg = validate_theme_json(json_content)
+    if not is_valid:
+        return jsonify({"ok": False, "error": error_msg}), 400
+
+    # פרסור
+    try:
+        parsed = parse_vscode_theme(json_content)
+        return jsonify({
+            "ok": True,
+            "name": parsed.get("name", "VS Code Theme"),
+            "type": parsed.get("type", "dark"),
+            "variables": parsed.get("variables", {}),
+            "syntax_css": parsed.get("syntax_css", ""),
+        })
+    except Exception as e:
+        logger.exception("Failed to parse VS Code theme")
+        return jsonify({"ok": False, "error": "Failed to parse VS Code theme"}), 400
+
+
+@app.route('/api/export/styled/<file_id>/share', methods=['POST'])
+@login_required
+@premium_or_admin_required
+@traced("export.styled_share")
+def api_create_styled_share(file_id):
+    """
+    יוצר קישור שיתוף ציבורי ל-HTML מעוצב.
+
+    Body (JSON):
+        theme: מזהה ערכת הנושא (default: tech-guide-dark)
+        vscode_json: תוכן JSON של ערכת VS Code (אופציונלי)
+
+    Returns:
+        JSON עם share_url, token, expires_at
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+
+        # בדיקת קובץ
+        try:
+            file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+        except Exception as e:
+            logger.exception("DB error fetching file for styled share", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+            return jsonify({'ok': False, 'error': 'שגיאה בשרת'}), 500
+
+        if not file:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        # וידוא שזה קובץ Markdown
+        language = (file.get('programming_language') or '').lower()
+        file_name = file.get('file_name') or ''
+        is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
+
+        if not is_markdown:
+            return jsonify({'ok': False, 'error': 'ייצוא HTML מעוצב זמין רק לקבצי Markdown'}), 400
+
+        # פרסור הבקשה
+        data = request.get_json(silent=True) or {}
+        theme_id = data.get('theme', 'tech-guide-dark')
+        vscode_json = data.get('vscode_json')
+        is_permanent = bool(data.get('permanent', False))
+
+        # יצירת ה-styled HTML
+        markdown_content = file.get('code', '')
+        try:
+            if vscode_json:
+                theme = get_export_theme('vscode-import', vscode_json=vscode_json)
+            else:
+                # בדיקה אם זו ערכה אישית של המשתמש
+                user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+                user_themes = (user_data.get("custom_themes") or []) if user_data else []
+                user_theme = next((t for t in user_themes if t.get("id") == theme_id), None)
+
+                if user_theme:
+                    theme = get_export_theme(theme_id, user_theme=user_theme)
+                else:
+                    theme = get_export_theme(theme_id)
+
+            # המרת Markdown ל-HTML
+            html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
+
+            # יצירת כותרת מהשם (הסרת סיומת)
+            raw_title = file_name or 'Untitled'
+            title = re.sub(r'\.(md|markdown)$', '', raw_title, flags=re.IGNORECASE)
+
+            # רינדור HTML מלא
+            styled_html = render_styled_html(
+                content_html=html_content,
+                title=title,
+                theme=theme,
+                toc_html=toc_html,
+            )
+        except Exception as e:
+            logger.exception("Failed to render styled HTML for share", extra={"file_id": file_id, "theme_id": theme_id})
+            return jsonify({'ok': False, 'error': 'שגיאה ביצירת HTML מעוצב'}), 500
+
+        # יצירת token ושמירה ב-DB
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires_at = None if is_permanent else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+
+        db.styled_shares.insert_one({
+            'token': token,
+            'source_file_id': ObjectId(file_id),
+            'user_id': int(user_id),
+            'file_name': file_name,
+            'theme_id': theme_id,
+            'styled_html': styled_html,
+            'created_at': now,
+            'expires_at': expires_at,
+            'is_permanent': is_permanent,
+            'view_count': 0,
+        })
+
+        base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
+        share_url = f"{base_url}/shared/styled/{token}"
+
+        return jsonify({
+            'ok': True,
+            'share_url': share_url,
+            'token': token,
+            'expires_at': expires_at.isoformat() if expires_at else None,
+            'is_permanent': is_permanent,
+        })
+    except Exception as e:
+        logger.exception("Failed to create styled share", extra={"file_id": file_id})
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
 @traced("share.create_single")
@@ -13420,46 +13798,41 @@ def theme_preview():
 @app.route('/settings')
 @login_required
 def settings():
-    """דף הגדרות"""
+    """דף הגדרות - אופטימלי עם תמיכה בsessions ישנים"""
     user_id = session['user_id']
-    
-    # בדיקה אם המשתמש הוא אדמין
-    user_is_admin = is_admin(user_id)
-    # בדיקה אם המשתמש הוא פרימיום
-    user_is_premium = is_premium(user_id)
+    user_data = session.get('user_data') or {}
+    if not isinstance(user_data, dict):
+        user_data = {}
+    session['user_data'] = user_data
 
-    # בדיקה האם יש חיבור קבוע פעיל
-    has_persistent = False
-    try:
-        db = get_db()
-        token = request.cookies.get(REMEMBER_COOKIE_NAME)
-        if token:
-            doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
-            if doc:
-                exp = doc.get('expires_at')
-                if isinstance(exp, datetime):
-                    has_persistent = exp > datetime.now(timezone.utc)
-                else:
-                    try:
-                        has_persistent = datetime.fromisoformat(str(exp)) > datetime.now(timezone.utc)
-                    except Exception:
-                        has_persistent = False
-    except Exception:
-        has_persistent = False
+    # ✅ Fallback ל-DB אם אין ב-session (sessions ישנים)
+    user_is_admin = user_data.get('is_admin')
+    if user_is_admin is None:
+        user_is_admin = is_admin(user_id)
+        user_data['is_admin'] = user_is_admin
+        session.modified = True
 
-    # דגל פוש – הסתרת UI כשמכובה
-    try:
-        push_enabled = (os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1','true','yes','on'})
-    except Exception:
-        push_enabled = True
+    user_is_premium = user_data.get('is_premium')
+    if user_is_premium is None:
+        user_is_premium = is_premium(user_id)
+        user_data['is_premium'] = user_is_premium
+        session.modified = True
 
-    return render_template('settings.html',
-                         user=session['user_data'],
-                         is_admin=user_is_admin,
-                         is_premium=user_is_premium,
-                         persistent_login_enabled=has_persistent,
-                         persistent_days=PERSISTENT_LOGIN_DAYS,
-                         push_enabled=push_enabled)
+    # ✅ בדיקת persistent token עם cache
+    has_persistent = _check_persistent_login_cached(user_id)
+
+    # דגל פוש
+    push_enabled = os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    return render_template(
+        'settings.html',
+        user=user_data,
+        is_admin=user_is_admin,
+        is_premium=user_is_premium,
+        persistent_login_enabled=has_persistent,
+        persistent_days=PERSISTENT_LOGIN_DAYS,
+        push_enabled=push_enabled
+    )
 
 
 @app.route('/settings/theme-builder')
@@ -14841,6 +15214,18 @@ def api_public_stats():
     - total_snippets: סה"כ קטעי קוד ייחודיים שנשמרו אי פעם (distinct לפי user_id+file_name) כאשר התוכן לא ריק — כולל כאלה שנמחקו (is_active=false)
     """
     try:
+        # קאש ל-5–10 דקות (באמצעות cache_manager; Redis אם זמין, אחרת פולבק בזיכרון).
+        # זה endpoint ציבורי שמרונדר הרבה ואין סיבה להפעיל aggregation כבד בכל ריענון.
+        cache_key = "api:public_stats:v1"
+        try:
+            cached = cache.get(cache_key)
+            if isinstance(cached, dict) and cached.get("ok") is True:
+                payload = dict(cached)
+                payload["cached"] = True
+                return jsonify(payload)
+        except Exception:
+            pass
+
         db = get_db()
         now_utc = datetime.now(timezone.utc)
         last_24h = now_utc - timedelta(hours=24)
@@ -14877,13 +15262,20 @@ def api_public_stats():
         except Exception:
             total_snippets = 0
 
-        return jsonify({
+        payload = {
             "ok": True,
             "total_users": total_users,
             "active_users_24h": active_users_24h,
             "total_snippets": total_snippets,
             "timestamp": now_utc.isoformat(),
-        })
+            "cached": False,
+        }
+        try:
+            # Dynamic TTL: public_stats ברירת מחדל 10 דקות (עם התאמות פעילות)
+            cache.set_dynamic(cache_key, payload, "public_stats", {"endpoint": "api_public_stats"})
+        except Exception:
+            pass
+        return jsonify(payload)
     except Exception as e:
         return jsonify({
             "ok": False,
@@ -15091,6 +15483,64 @@ def public_share_download(share_id: str):
     resp = send_file(buf, mimetype='text/plain; charset=utf-8', as_attachment=True, download_name=safe)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+# --- Public styled HTML share route (tokens created via /api/export/styled/<file_id>/share) ---
+@app.route('/shared/styled/<token>')
+def public_shared_styled(token: str):
+    """עמוד שיתוף ציבורי ל-HTML מעוצב לפי token מ-collection styled_shares.
+
+    מחזיר את ה-HTML המעוצב ישירות. אם פג תוקף, מחזיר 404.
+    """
+    try:
+        db = get_db()
+        doc = db.styled_shares.find_one({'token': token})
+    except Exception:
+        doc = None
+
+    if not doc:
+        return render_template('404.html'), 404
+
+    # בדיקת תוקף - קישורים קבועים לא פגים
+    is_permanent = doc.get('is_permanent', False)
+    exp = doc.get('expires_at')
+    expired = False
+
+    if not is_permanent:
+        try:
+            now = datetime.now(timezone.utc)
+            if exp is None:
+                expired = True
+            elif isinstance(exp, datetime):
+                expired = exp <= now
+            else:
+                expired = True
+        except Exception:
+            expired = True
+
+    if expired:
+        return render_template('404.html'), 404
+
+    # עדכון מונה צפיות
+    try:
+        db.styled_shares.update_one(
+            {'token': token},
+            {'$inc': {'view_count': 1}}
+        )
+    except Exception:
+        pass  # לא קריטי
+
+    # החזרת ה-HTML המעוצב
+    styled_html = doc.get('styled_html', '')
+    if not styled_html:
+        return render_template('404.html'), 404
+
+    response = make_response(styled_html)
+    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    response.headers['Cache-Control'] = 'public, max-age=3600'  # cache לשעה
+    # CSP restrictive - מונע הרצת סקריפטים בתוכן משתמש
+    response.headers['Content-Security-Policy'] = "script-src 'none'"
+    return response
+
 
 # --- Public multiple-files share route (tokens created via /api/files/create-share-link) ---
 @app.route('/shared/<token>')

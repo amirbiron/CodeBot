@@ -167,7 +167,7 @@
             --code-bg: rgba(0, 0, 0, 0.3);
             --card-border: rgba(255, 255, 255, 0.25);
             --btn-primary-bg: rgba(255, 255, 255, 0.94);
-            --btn-primary-color: #1c1f3a;
+            --btn-primary-color: #667eea;
             --btn-primary-border: rgba(255, 255, 255, 0.65);
             --btn-primary-shadow: 0 4px 14px rgba(7, 7, 31, 0.25);
             --btn-primary-hover-bg: #ffffff;
@@ -458,7 +458,8 @@
             backdrop-filter: blur(20px);
             border-bottom: 0; /* הסרת הקו האופקי העליון */
             padding: 1rem 0;
-            position: static;
+            /* מאפשר שכבות רקע כמו Code Particles בלי לפגוע בדרופדאונים */
+            position: relative;
             top: auto;
             z-index: 1000;
             transform: translateY(0);
@@ -935,6 +936,132 @@
         .qa-icon { font-size: 1.1rem; }
         .qa-label { display: none; }
 
+        /* Fun Mode (כמו "קיצורי דרך" אבל עם אנימציות) */
+        .fun-mode-menu {
+            position: relative;
+        }
+
+        .fun-mode-toggle {
+            background: var(--quick-toggle-bg, var(--glass));
+            border: 1px solid var(--quick-toggle-border, var(--glass-border));
+            color: var(--quick-toggle-color, var(--text-primary, #ffffff));
+            padding: 0.5rem 0.75rem;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            font-size: 1.15rem;
+            line-height: 1;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+        }
+
+        .fun-mode-toggle:hover {
+            background: var(--quick-toggle-hover-bg, var(--glass-hover, rgba(255, 255, 255, 0.2)));
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+        }
+
+        .fun-mode-toggle.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+        }
+
+        .fun-mode-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            transform: translateY(6px);
+            background: var(--quick-dropdown-bg, var(--card-bg, #ffffff));
+            border-radius: 12px;
+            box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.25s ease;
+            z-index: 1000;
+            display: flex;
+            direction: ltr;
+            gap: .25rem;
+            padding: .4rem;
+            max-width: calc(100vw - 24px);
+            overflow-x: hidden;
+            border: 1px solid var(--quick-dropdown-border, var(--card-border, rgba(0, 0, 0, 0.08)));
+        }
+
+        .fun-mode-dropdown.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .fun-mode-item {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border-radius: 10px;
+            color: var(--text-primary, #333);
+            text-decoration: none;
+            background: var(--quick-item-bg, transparent);
+            border: 1px solid var(--quick-item-border, var(--glass-border, rgba(0,0,0,0.08)));
+            cursor: pointer;
+            transition: transform .15s ease, background .2s ease;
+            font-size: 1.15rem;
+        }
+
+        .fun-mode-item:hover {
+            background: var(--glass-hover, rgba(103, 126, 234, 0.1));
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+        }
+
+        /* Code Particles (Fun Mode) - שכבת רקע קלילה בתוך ה-navbar */
+        #code-particles-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden; /* חיתוך החלקיקים בתוך הנאבבר, בלי לחתוך דרופדאונים */
+        }
+
+        .navbar > .container {
+            position: relative;
+            z-index: 2;
+        }
+
+        .code-particle {
+            position: absolute;
+            bottom: -20px;
+            color: rgba(100, 220, 255, 0.4);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            user-select: none;
+            will-change: transform, opacity;
+            white-space: nowrap;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+        }
+
+        @keyframes floatUpRotated {
+            0% {
+                transform: translate3d(0, 0, 0) rotate(0deg);
+                opacity: 0;
+            }
+            10% {
+                opacity: 0.8;
+            }
+            90% {
+                opacity: 0.8;
+            }
+            100% {
+                transform: translate3d(var(--code-particle-dx, 0px), -150px, 0) rotate(45deg);
+                opacity: 0;
+            }
+        }
+
         /* Fallback when Font Awesome fails to load: hide FA <i> and reveal labels */
         .no-fa-icons .btn-icon i[class^="fa"],
         .no-fa-icons .btn-icon i[class*=" fa-"] { display: none !important; }
@@ -1409,6 +1536,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lang-badge.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-mode.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme-mask.css') }}?v={{ static_version }}">
@@ -1584,6 +1712,7 @@
         })();
     </script>
     <nav class="navbar">
+        <div id="code-particles-container" aria-hidden="true"></div>
         <div class="container">
             <div class="nav-content">
                 <a href="/" class="logo">
@@ -1647,10 +1776,21 @@
                                 <i class="fas fa-cog"></i>
                                 <span class="nav-text" style="display:inline-block">הגדרות</span>
                             </a>
-                            <a href="/logout" class="btn btn-secondary btn-icon">
-                                <i class="fas fa-sign-out-alt"></i>
-                                יציאה
-                            </a>
+                            <div class="fun-mode-menu">
+                                <button
+                                    type="button"
+                                    class="fun-mode-toggle"
+                                    onclick="toggleFunModeMenu(event)"
+                                    aria-label="Fun Mode"
+                                    title="Fun Mode"
+                                >🪄</button>
+                                <div class="fun-mode-dropdown" id="funModeDropdown" role="menu" aria-label="Fun Mode">
+                                    <button type="button" class="fun-mode-item" role="menuitem" onclick="if (window.FunMode && typeof FunMode.startSynthwave === 'function') { FunMode.startSynthwave(); } else { alert('Fun Mode לא נטען'); } return false;" title="🎸 Synthwave" aria-label="Synthwave">🎸</button>
+                                    <button type="button" class="fun-mode-item" role="menuitem" onclick="if (window.FunMode && typeof FunMode.startConfetti === 'function') { FunMode.startConfetti(); } else { alert('Fun Mode לא נטען'); } return false;" title="🎉 Confetti" aria-label="Confetti">🎉</button>
+                                    <button type="button" class="fun-mode-item" role="menuitem" onclick="if (window.FunMode && typeof FunMode.startFireflies === 'function') { FunMode.startFireflies(); } else { alert('Fun Mode לא נטען'); } return false;" title="✨ Fireflies" aria-label="Fireflies">✨</button>
+                                    <button type="button" class="fun-mode-item" role="menuitem" onclick="if (window.FunMode && typeof FunMode.startGravity === 'function') { FunMode.startGravity(); } else { alert('Fun Mode לא נטען'); } return false;" title="🧱 Gravity" aria-label="Gravity">🧱</button>
+                                </div>
+                            </div>
                         {% else %}
                             <a href="/login" class="btn btn-primary btn-icon">
                                 <i class="fab fa-telegram"></i>
@@ -1860,6 +2000,68 @@
                 };
                 setTimeout(() => document.addEventListener('click', closer), 0);
             }
+        }
+
+        // --- Fun Mode menu (אנימציות) ---
+        let __funModeMenuCloser = null;
+        let __funModeMenuKeydown = null;
+
+        function closeFunModeMenu() {
+            const dropdown = document.getElementById('funModeDropdown');
+            const toggle = document.querySelector('.fun-mode-toggle');
+            if (!dropdown || !toggle) return;
+            dropdown.classList.remove('active');
+            toggle.classList.remove('active');
+            try {
+                if (__funModeMenuCloser) {
+                    document.removeEventListener('click', __funModeMenuCloser);
+                    __funModeMenuCloser = null;
+                }
+            } catch (e) { __funModeMenuCloser = null; }
+            try {
+                if (__funModeMenuKeydown) {
+                    window.removeEventListener('keydown', __funModeMenuKeydown, true);
+                    __funModeMenuKeydown = null;
+                }
+            } catch (e) { __funModeMenuKeydown = null; }
+        }
+
+        function toggleFunModeMenu(ev) {
+            try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (e) {}
+            const dropdown = document.getElementById('funModeDropdown');
+            const toggle = document.querySelector('.fun-mode-toggle');
+            if (!dropdown || !toggle) return;
+
+            const shouldOpen = !dropdown.classList.contains('active');
+            closeFunModeMenu();
+            if (!shouldOpen) return;
+
+            dropdown.classList.add('active');
+            toggle.classList.add('active');
+            try { dropdown.scrollTop = 0; } catch (e) {}
+            ensureQuickAccessVisible(dropdown);
+
+            __funModeMenuCloser = function(event) {
+                try {
+                    const menu = document.querySelector('.fun-mode-menu');
+                    if (!menu || !menu.contains(event.target)) {
+                        closeFunModeMenu();
+                    }
+                } catch (e) {
+                    closeFunModeMenu();
+                }
+            };
+
+            __funModeMenuKeydown = function(e) {
+                try {
+                    if (e && e.key === 'Escape') {
+                        closeFunModeMenu();
+                    }
+                } catch (_) {}
+            };
+
+            setTimeout(() => document.addEventListener('click', __funModeMenuCloser), 0);
+            window.addEventListener('keydown', __funModeMenuKeydown, true);
         }
 
         function openGlobalSearch() {
@@ -2268,6 +2470,8 @@
             });
         })();
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js" defer></script>
+    <script src="{{ url_for('static', filename='js/fun-mode.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/utils/animations.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/dark-mode.js') }}?v={{ static_version }}" defer></script>

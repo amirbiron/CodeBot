@@ -61,6 +61,11 @@ async def test_img_settings_and_regenerate(monkeypatch):
     await h.handle_callback_query(upd, ctx)
     assert ctx.user_data['img_settings']['test.py']['theme'] == 'github'
 
+    # Set style
+    upd = SimpleNamespace(effective_user=SimpleNamespace(id=1), callback_query=_Query('img_set_style:banner_tech:test.py', captured))
+    await h.handle_callback_query(upd, ctx)
+    assert ctx.user_data['img_settings']['test.py']['style'] == 'banner_tech'
+
     # Set width
     upd = SimpleNamespace(effective_user=SimpleNamespace(id=1), callback_query=_Query('img_set_width:1400:test.py', captured))
     await h.handle_callback_query(upd, ctx)

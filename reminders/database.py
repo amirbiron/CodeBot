@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
+import uuid
 
 try:
     from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
@@ -79,25 +80,64 @@ class RemindersDB:
 
     def get_pending_reminders(self, batch_size: int = 100) -> List[Dict]:
         now = datetime.now(timezone.utc)
-        items: List[Dict[str, Any]] = []
         try:
-            cursor = self.reminders_collection.find({
-                "status": ReminderStatus.PENDING.value,
-                "is_sent": False,
-                "remind_at": {"$lte": now},
-                "retry_count": {"$lt": ReminderConfig.max_retries},
-            }).limit(int(batch_size))
-            for doc in cursor:
-                # optimistic lock: mark as sent
-                r = self.reminders_collection.update_one(
-                    {"_id": doc["_id"], "is_sent": False},
-                    {"$set": {"is_sent": True, "updated_at": now}},
-                )
-                if getattr(r, "modified_count", 0) > 0:
-                    items.append(doc)
+            limit = max(1, int(batch_size))
+        except Exception:
+            limit = 100
+
+        base_filter: Dict[str, Any] = {
+            "status": ReminderStatus.PENDING.value,
+            "is_sent": False,
+            "remind_at": {"$lte": now},
+            "retry_count": {"$lt": ReminderConfig.max_retries},
+        }
+
+        # Bulk fetch + bulk claim (במקום N עדכונים קטנים)
+        try:
+            cursor = (
+                self.reminders_collection.find(base_filter)
+                .sort("remind_at", ASCENDING)
+                .limit(limit)
+            )
+            candidates = list(cursor)
         except Exception:
             return []
-        return items
+
+        if not candidates:
+            return []
+
+        ids = [doc.get("_id") for doc in candidates if isinstance(doc, dict) and doc.get("_id") is not None]
+        if not ids:
+            return []
+
+        claim_token = uuid.uuid4().hex
+        try:
+            # optimistic lock: claim only documents that are still unsent
+            self.reminders_collection.update_many(
+                {"_id": {"$in": ids}, "is_sent": False},
+                {"$set": {"is_sent": True, "updated_at": now, "claim_token": claim_token}},
+            )
+        except Exception:
+            return []
+
+        try:
+            # חשוב: לא לחפש לפי claim_token בלבד (עלול לגרום COLLSCAN אם אין אינדקס).
+            # נחפש לפי _id + claim_token (משתמש באינדקס ברירת מחדל על _id).
+            claimed = list(self.reminders_collection.find({"_id": {"$in": ids}, "claim_token": claim_token}))
+            out = [d for d in claimed if isinstance(d, dict)]
+            # ניקוי claim_token כדי לא להשאיר שדה זמני במסמכים
+            try:
+                claimed_ids = [d.get("_id") for d in out if d.get("_id") is not None]
+                if claimed_ids:
+                    self.reminders_collection.update_many(
+                        {"_id": {"$in": claimed_ids}, "claim_token": claim_token},
+                        {"$unset": {"claim_token": ""}},
+                    )
+            except Exception:
+                pass
+            return out
+        except Exception:
+            return []
 
     def get_future_reminders(self, batch_size: int = 1000) -> List[Dict]:
         """Return unsent reminders scheduled for the future.
@@ -233,23 +273,38 @@ class RemindersDB:
             })
         except Exception:
             cursor = []
+        to_insert: List[Dict[str, Any]] = []
         for rem in cursor:
-            next_time = self._calculate_next_occurrence(rem.get("recurrence"), rem.get("recurrence_pattern"))
-            if not next_time:
-                continue
-            new_doc = dict(rem)
-            new_doc.pop("_id", None)
-            new_doc["reminder_id"] = f"{rem.get('reminder_id')}_r_{int(now.timestamp())}"
-            new_doc["status"] = ReminderStatus.PENDING.value
-            new_doc["remind_at"] = next_time
-            new_doc["next_occurrence"] = self._calculate_next_occurrence(rem.get("recurrence"), rem.get("recurrence_pattern"), base_time=next_time)
-            new_doc["is_sent"] = False
-            new_doc["created_at"] = now
-            new_doc["updated_at"] = now
             try:
-                self.reminders_collection.insert_one(new_doc)
+                next_time = self._calculate_next_occurrence(rem.get("recurrence"), rem.get("recurrence_pattern"))
+                if not next_time:
+                    continue
+                new_doc = dict(rem)
+                new_doc.pop("_id", None)
+                new_doc["reminder_id"] = f"{rem.get('reminder_id')}_r_{int(now.timestamp())}_{uuid.uuid4().hex[:6]}"
+                new_doc["status"] = ReminderStatus.PENDING.value
+                new_doc["remind_at"] = next_time
+                new_doc["next_occurrence"] = self._calculate_next_occurrence(
+                    rem.get("recurrence"),
+                    rem.get("recurrence_pattern"),
+                    base_time=next_time,
+                )
+                new_doc["is_sent"] = False
+                new_doc["created_at"] = now
+                new_doc["updated_at"] = now
+                to_insert.append(new_doc)
             except Exception:
-                pass
+                continue
+
+        if not to_insert:
+            return
+
+        try:
+            # Bulk insert במקום insert_one בלולאה
+            self.reminders_collection.insert_many(to_insert, ordered=False)
+        except Exception:
+            # Fail-open: אם יש התנגשויות unique/שגיאות אחרות - לא נפיל את הסייקל
+            return
 
     def _calculate_next_occurrence(self, recurrence: str | None, pattern: Optional[str] = None, base_time: Optional[datetime] = None) -> Optional[datetime]:
         if not base_time:

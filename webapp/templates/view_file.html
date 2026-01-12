@@ -425,35 +425,34 @@
 }
 
 .file-actions .btn-primary.btn-icon {
-    background: rgba(255, 255, 255, 0.95) !important;
-    color: #667eea !important;
-    border: 1px solid rgba(102, 126, 234, 0.35) !important;
-    border-radius: 12px !important;
-    padding: 12px 20px !important;
-    display: inline-flex !important;
+    /* חשוב: אין כאן צבעים קשיחים — כפתורי primary יורשים צבעים מהערכה דרך .btn-primary */
+    border-radius: 12px;
+    padding: 12px 20px;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
     font-size: 15px;
     font-weight: 500;
     white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
     transition: all 0.2s ease;
 }
 
 .file-actions .btn-primary.btn-icon:hover {
-    background: rgba(255, 255, 255, 1) !important;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 .file-actions .btn-primary.btn-icon:active {
     transform: translateY(0);
 }
 
-.file-actions .btn-primary.btn-icon .fas,
-.file-actions .btn-primary.btn-icon i,
-.file-actions .btn-primary.btn-icon svg {
-    color: #667eea;
+/* ב-theme custom: הכפתורים "ערוך" + "העתק קוד" משתמשים בצבע הראשי לטקסט/אייקון */
+:root[data-theme-type="custom"] .file-actions .file-primary-action {
+    color: var(--primary);
+}
+:root[data-theme-type="custom"] .file-actions .file-primary-action .fas,
+:root[data-theme-type="custom"] .file-actions .file-primary-action i,
+:root[data-theme-type="custom"] .file-actions .file-primary-action svg {
+    color: currentColor;
 }
 
 .file-actions__list .btn.file-action--hidden {
@@ -740,7 +739,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             <div class="file-title-wrap">
                 <h1 class="file-title">{{ file.file_name }}</h1>
                 <div class="file-subrow">
-                    <span class="badge">{{ file.language }}</span>
+                    <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
                     <span class="muted">גרסה {{ file.version }}</span>
                 </div>
             </div>
@@ -776,7 +775,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
                 <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
             </button>
-            <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon"
+            <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon file-primary-action"
                data-overflow-id="edit"
                data-overflow-priority="2"
                data-menu-label="✏️ ערוך">
@@ -784,7 +783,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 ערוך
             </a>
             {% endif %}
-            <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button"
+            <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button file-primary-action"
                     data-overflow-id="copy"
                     data-overflow-priority="3"
                     data-menu-label="📋 העתק קוד">
@@ -807,6 +806,18 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                data-menu-label="🌐 תצוגת Markdown">
                 🌐 תצוגת Markdown
             </a>
+            {% endif %}
+            {% if ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
+            <button type="button"
+                    class="btn btn-secondary btn-icon"
+                    data-overflow-id="export-styled"
+                    data-overflow-priority="5"
+                    data-menu-label="📥 HTML מעוצב"
+                    onclick="openExportModal('{{ file.id }}')"
+                    title="ייצוא HTML מעוצב">
+                <i class="fas fa-file-export"></i>
+                <span class="btn-text">HTML מעוצב</span>
+            </button>
             {% endif %}
             <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon"
                data-overflow-id="download"
@@ -2515,6 +2526,11 @@ function goBack(ev){
     window.openTrashConfirmModal = openTrashConfirmModal;
 })();
 </script>
+{% if ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
+{% include 'export/export_modal.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/export-modal.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', filename='js/export-modal.js') }}?v={{ static_version }}" defer></script>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

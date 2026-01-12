@@ -12,6 +12,57 @@ Resilience לשירותים חיצוניים
 - CircuitBreaker: פתיחה/half-open/סגירה לפי כשלים רצופים וחלונות הצלחה.
 - כל הקביעות נשלטות דרך ENV, ללא שינוי קוד.
 
+דיאגרמת טיפול בשגיאות
+---------------------
+
+התרשים הבא מציג את הזרימה המלאה של טיפול בשגיאות ושחזור:
+
+.. mermaid::
+
+   graph TD
+       E[Error Occurs] --> ET{Error Type}
+
+       ET -->|Database| DBE[DB Error Handler]
+       ET -->|API| APE[API Error Handler]
+       ET -->|Timeout| TE[Timeout Handler]
+       ET -->|Unknown| UE[Generic Handler]
+
+       DBE --> RT1{Retry?}
+       RT1 -->|Yes| RTC1[Retry with Backoff]
+       RT1 -->|No| FO1[Failover to Cache]
+
+       APE --> RT2{Rate Limited?}
+       RT2 -->|Yes| BK[Activate Backoff]
+       RT2 -->|No| RTC2[Retry Request]
+
+       TE --> CX[Cancel Operation]
+       CX --> NF[Notify User]
+
+       UE --> LOG[Log Error]
+       LOG --> ALT[Alert Admin]
+
+       RTC1 --> SR{Success?}
+       RTC2 --> SR
+       FO1 --> SR
+       BK --> SR
+
+       SR -->|Yes| RES[Return Result]
+       SR -->|No| ERR[Return Error]
+
+**סוגי שגיאות והטיפול:**
+
+- **Database Errors**: ניסיון חוזר עם Backoff, או Failover ל-Cache
+- **API Errors**: בדיקת Rate Limit, הפעלת Backoff או Retry
+- **Timeout Errors**: ביטול הפעולה והודעה למשתמש
+- **Unknown Errors**: לוגים + התראה לאדמין
+
+**עקרונות מרכזיים:**
+
+1. זיהוי סוג השגיאה לטיפול מותאם
+2. Retry עם Backoff אקספוננציאלי למניעת עומס
+3. Failover אוטומטי לשירותי גיבוי (Cache)
+4. התראות לאדמין בשגיאות קריטיות
+
 קונפיגורציה חשובה (ENV)
 ------------------------
 
