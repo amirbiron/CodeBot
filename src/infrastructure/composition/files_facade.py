@@ -38,28 +38,38 @@ class FilesFacade:
 
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
         db = self._get_db()
-        # Support multiple legacy signatures:
+        # Support multiple legacy method names/signatures:
         # - get_latest_version(user_id, file_name)
         # - get_file(user_id, file_name)
         # - get_code_by_name(user_id, file_name)
-        try:
-            fn = getattr(db, "get_latest_version", None)
-            if callable(fn):
+        #
+        # חשוב: לא בולעים חריגות "אמיתיות" מה-DB (למשל תקלות חיבור),
+        # כדי שלא יפורשו כ"קובץ לא נמצא".
+        def _looks_like_signature_mismatch(err: TypeError) -> bool:
+            msg = str(err or "").lower()
+            return any(
+                s in msg
+                for s in (
+                    "positional argument",
+                    "positional arguments",
+                    "unexpected keyword",
+                    "missing 1 required positional argument",
+                    "missing required positional argument",
+                    "takes",
+                )
+            )
+
+        for method_name in ("get_latest_version", "get_file", "get_code_by_name"):
+            fn = getattr(db, method_name, None)
+            if not callable(fn):
+                continue
+            try:
                 return fn(user_id, file_name)
-        except Exception:
-            pass
-        try:
-            fn = getattr(db, "get_file", None)
-            if callable(fn):
-                return fn(user_id, file_name)
-        except Exception:
-            pass
-        try:
-            fn = getattr(db, "get_code_by_name", None)
-            if callable(fn):
-                return fn(user_id, file_name)
-        except Exception:
-            pass
+            except TypeError as e:
+                # התאמה ל-stubs ישנים בלבד (חתימה לא תואמת).
+                if _looks_like_signature_mismatch(e):
+                    continue
+                raise
         return None
 
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
@@ -565,6 +575,9 @@ class FilesFacade:
                 except Exception:
                     return None
             cursor = coll.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
+            # אם ה-stub/driver החזיר None במקום cursor, אל נפרש את זה כ"רשימה ריקה".
+            if cursor is None:
+                return None
             out: List[int] = []
             for doc in cursor or []:
                 try:
