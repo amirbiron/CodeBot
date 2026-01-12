@@ -61,12 +61,16 @@ class SharedThemeService:
         self._active_themes_cache: Optional[List[Dict[str, Any]]] = None
         self._active_themes_expires_at: Optional[datetime] = None
         self._cache_ttl_seconds = 300  # 5 minutes
+        # מונה "גרסה" כדי למנוע דריסת invalidate ע"י כתיבה מאוחרת מ-thread אחר
+        self._active_themes_cache_version = 0
 
         # Optional: best-effort index creation (safe if unsupported)
         self.ensure_indexes()
 
     def invalidate_cache(self) -> None:
         """איפוס cache (יש לקרוא אחרי create/update/delete)."""
+        # קודם מעלים גרסה כדי שכל fetch שמתקדם במקביל לא יכתוב cache "ישן"
+        self._active_themes_cache_version += 1
         self._active_themes_cache = None
         self._active_themes_expires_at = None
 
@@ -148,14 +152,20 @@ class SharedThemeService:
         if self.collection is None:
             return []
         now = datetime.now(timezone.utc)
+        # העתקה למשתנים מקומיים כדי להימנע מקריסה אם invalidate מתרחש באמצע (race)
+        cached_themes = self._active_themes_cache
+        cached_expires_at = self._active_themes_expires_at
         # Cache hit
         if (
-            self._active_themes_cache is not None
-            and self._active_themes_expires_at is not None
-            and self._active_themes_expires_at > now
+            cached_themes is not None
+            and cached_expires_at is not None
+            and cached_expires_at > now
         ):
             # מחזירים עותק כדי למנוע "השחתה" של ה-cache ע"י קוראים שמשנים את הרשימה/מילונים
-            return [t.copy() for t in self._active_themes_cache]
+            return [t.copy() for t in cached_themes]
+
+        # Cache miss: זוכרים את הגרסה הנוכחית כדי לא לדרוס invalidate שהתרחש בזמן ה-fetch
+        version_at_start = self._active_themes_cache_version
         try:
             cursor = self.collection.find(
                 {"is_active": True},
@@ -185,8 +195,9 @@ class SharedThemeService:
                     }
                 )
             # Save to cache
-            self._active_themes_cache = themes
-            self._active_themes_expires_at = now + timedelta(seconds=self._cache_ttl_seconds)
+            if version_at_start == self._active_themes_cache_version:
+                self._active_themes_cache = themes
+                self._active_themes_expires_at = now + timedelta(seconds=self._cache_ttl_seconds)
             # מחזירים עותק כדי לשמור על התנהגות עקבית (גם ב-cache miss)
             return [t.copy() for t in themes]
         except Exception as e:
