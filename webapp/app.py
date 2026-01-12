@@ -10639,6 +10639,13 @@ def compare_files_page():
     )
 
 
+@app.route('/compare/paste')
+@login_required
+def compare_paste_page():
+    """דף השוואת קוד בהדבקה - ללא צורך בקבצים שמורים."""
+    return render_template('compare_paste.html')
+
+
 @app.route('/tools/code')
 @login_required
 def code_tools_page():
