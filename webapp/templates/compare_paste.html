@@ -1,0 +1,842 @@
+{% extends "base.html" %}
+
+{% block title %}השוואת קוד בהדבקה - Code Keeper Bot{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+<style>
+/* =================================================================
+   Compare Paste Page - Specific Styles
+   ================================================================= */
+
+/* Paste Input Grid */
+.paste-input-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 992px) {
+    .paste-input-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .swap-column-paste {
+        justify-self: center;
+    }
+}
+
+/* Paste Area Wrapper */
+.paste-area-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.paste-area-wrapper label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+}
+
+.paste-area-wrapper label i {
+    font-size: 1.1rem;
+}
+
+/* Paste Textarea */
+.paste-textarea {
+    width: 100%;
+    min-height: 300px;
+    max-height: 60vh;
+    padding: 1rem;
+    font-family: 'Fira Code', 'Consolas', 'Monaco', 'Menlo', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary, #fff);
+    background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.15));
+    border-radius: 12px;
+    resize: vertical;
+    direction: ltr;
+    text-align: left;
+    tab-size: 4;
+}
+
+.paste-textarea:focus {
+    outline: none;
+    border-color: var(--accent-color, #6366f1);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.paste-textarea::placeholder {
+    color: var(--text-muted, rgba(255, 255, 255, 0.4));
+    font-family: inherit;
+}
+
+/* Left textarea accent */
+.paste-area-wrapper.left-area .paste-textarea {
+    border-left: 3px solid var(--bs-danger, #dc3545);
+}
+
+/* Right textarea accent */
+.paste-area-wrapper.right-area .paste-textarea {
+    border-left: 3px solid var(--bs-success, #28a745);
+}
+
+/* Swap Button */
+.swap-column-paste {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 2rem;
+}
+
+.btn-swap-paste {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+    color: var(--text-primary, #fff);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-swap-paste:hover {
+    background: var(--accent-color, #6366f1);
+    border-color: var(--accent-color, #6366f1);
+    transform: rotate(180deg);
+}
+
+/* Action Bar */
+.paste-action-bar {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1rem 0;
+    border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+/* Clear Buttons */
+.paste-actions-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.5rem;
+}
+
+.btn-clear-text {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    background: transparent;
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+    border-radius: 4px;
+    color: var(--text-muted, rgba(255, 255, 255, 0.6));
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-clear-text:hover {
+    background: rgba(220, 53, 69, 0.2);
+    border-color: var(--bs-danger, #dc3545);
+    color: var(--bs-danger, #dc3545);
+}
+
+/* Character count */
+.char-count {
+    font-size: 0.75rem;
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
+}
+
+/* Language Detection Badge */
+.detected-language {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    background: rgba(99, 102, 241, 0.2);
+    border-radius: 4px;
+    color: var(--accent-color, #6366f1);
+    margin-right: auto;
+}
+
+/* Light theme */
+[data-theme="light"] .paste-textarea {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.15);
+    color: var(--text-primary, #1e1e2e);
+}
+
+[data-theme="light"] .btn-swap-paste {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Header -->
+    <div class="compare-header glass-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-2">
+                    <i class="fas fa-paste me-2"></i>
+                    השוואת קוד בהדבקה
+                </h1>
+                <p class="text-muted mb-0">הדבק שני קטעי קוד להשוואה מיידית - ללא צורך בשמירה</p>
+            </div>
+            
+            <!-- View Mode Toggle (shown after comparison) -->
+            <div id="view-mode-toggle" class="btn-group d-none" role="group" aria-label="מצב תצוגה">
+                <button type="button" class="btn btn-outline-primary active" data-mode="side-by-side">
+                    <i class="fas fa-columns"></i> צד לצד
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-mode="unified">
+                    <i class="fas fa-align-left"></i> אחיד
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-mode="inline">
+                    <i class="fas fa-highlighter"></i> Inline
+                </button>
+            </div>
+        </div>
+        
+        <!-- Paste Input Areas -->
+        <form id="paste-compare-form">
+            <div class="paste-input-grid">
+                <!-- Left Code Input -->
+                <div class="paste-area-wrapper left-area">
+                    <label for="paste-left">
+                        <i class="fas fa-file-code text-danger"></i>
+                        קוד מקורי / ישן
+                    </label>
+                    <textarea 
+                        id="paste-left" 
+                        class="paste-textarea" 
+                        placeholder="הדבק כאן את הקוד המקורי...&#10;&#10;דוגמה:&#10;function hello() {&#10;    console.log('Hello');&#10;}"
+                        spellcheck="false"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
+                    ></textarea>
+                    <div class="paste-actions-row">
+                        <span class="detected-language" id="lang-left">-</span>
+                        <span class="char-count" id="count-left">0 תווים</span>
+                        <button type="button" class="btn-clear-text" data-target="paste-left">
+                            <i class="fas fa-eraser"></i> נקה
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Swap Button -->
+                <div class="swap-column-paste">
+                    <button type="button" id="swap-paste" class="btn-swap-paste" title="החלף צדדים">
+                        <i class="fas fa-exchange-alt"></i>
+                    </button>
+                </div>
+                
+                <!-- Right Code Input -->
+                <div class="paste-area-wrapper right-area">
+                    <label for="paste-right">
+                        <i class="fas fa-file-code text-success"></i>
+                        קוד חדש / משונה
+                    </label>
+                    <textarea 
+                        id="paste-right" 
+                        class="paste-textarea" 
+                        placeholder="הדבק כאן את הקוד החדש...&#10;&#10;דוגמה:&#10;function hello(name) {&#10;    console.log('Hello ' + name);&#10;}"
+                        spellcheck="false"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
+                    ></textarea>
+                    <div class="paste-actions-row">
+                        <span class="detected-language" id="lang-right">-</span>
+                        <span class="char-count" id="count-right">0 תווים</span>
+                        <button type="button" class="btn-clear-text" data-target="paste-right">
+                            <i class="fas fa-eraser"></i> נקה
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Compare Action Bar -->
+            <div class="paste-action-bar">
+                <a href="{{ url_for('compare_files_page') }}" class="btn btn-secondary">
+                    <i class="fas fa-folder-open"></i> השוואת קבצים שמורים
+                </a>
+                <button type="submit" id="btn-paste-compare" class="btn-compare">
+                    <span class="spinner"></span>
+                    <span class="btn-text">
+                        <i class="fas fa-code-compare"></i>
+                        השווה קוד
+                    </span>
+                </button>
+                <button type="button" id="btn-clear-all" class="btn btn-outline-danger">
+                    <i class="fas fa-trash-alt"></i> נקה הכל
+                </button>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Stats Bar (hidden until comparison) -->
+    <div id="stats-bar" class="stats-bar glass-card p-3 mb-4 d-none">
+        <div class="row text-center">
+            <div class="col">
+                <span class="badge bg-success fs-6" id="stat-added">
+                    <i class="fas fa-plus"></i> +<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-danger fs-6" id="stat-removed">
+                    <i class="fas fa-minus"></i> -<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-warning fs-6" id="stat-modified">
+                    <i class="fas fa-pen"></i> ~<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-secondary fs-6" id="stat-unchanged">
+                    <i class="fas fa-equals"></i> =<span>0</span>
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Diff Container (hidden until comparison) -->
+    <div id="diff-container" class="diff-container glass-card d-none">
+        <!-- Side by Side View -->
+        <div id="side-by-side-view" class="diff-view active">
+            <div class="diff-pane left-pane">
+                <div class="pane-header">
+                    <span class="file-label" id="left-file-label">קוד מקורי</span>
+                </div>
+                <div class="pane-content" id="left-content"></div>
+            </div>
+            <div class="diff-pane right-pane">
+                <div class="pane-header">
+                    <span class="file-label" id="right-file-label">קוד חדש</span>
+                </div>
+                <div class="pane-content" id="right-content"></div>
+            </div>
+        </div>
+        
+        <!-- Unified View -->
+        <div id="unified-view" class="diff-view">
+            <div class="unified-content" id="unified-content"></div>
+        </div>
+        
+        <!-- Inline View -->
+        <div id="inline-view" class="diff-view">
+            <div class="inline-content" id="inline-content"></div>
+        </div>
+    </div>
+    
+    <!-- Action Bar (shown after comparison) -->
+    <div id="result-actions" class="action-bar glass-card p-3 mt-4 d-none">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <button type="button" id="btn-new-compare" class="btn btn-secondary">
+                <i class="fas fa-redo"></i> השוואה חדשה
+            </button>
+            <div class="d-flex gap-2">
+                <button id="btn-copy-diff" class="btn btn-outline-primary">
+                    <i class="fas fa-copy"></i> העתק Diff
+                </button>
+                <button id="btn-download-diff" class="btn btn-outline-primary">
+                    <i class="fas fa-download"></i> הורד Patch
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/compare.js') }}"></script>
+<script>
+(function() {
+    'use strict';
+    
+    // =================================================================
+    // Paste Compare Mode - Initialization
+    // =================================================================
+    
+    // State
+    const pasteState = {
+        leftContent: '',
+        rightContent: '',
+        diffData: null,
+        viewMode: 'side-by-side',
+    };
+    
+    // Elements
+    const els = {
+        form: document.getElementById('paste-compare-form'),
+        pasteLeft: document.getElementById('paste-left'),
+        pasteRight: document.getElementById('paste-right'),
+        swapBtn: document.getElementById('swap-paste'),
+        compareBtn: document.getElementById('btn-paste-compare'),
+        clearAllBtn: document.getElementById('btn-clear-all'),
+        newCompareBtn: document.getElementById('btn-new-compare'),
+        countLeft: document.getElementById('count-left'),
+        countRight: document.getElementById('count-right'),
+        langLeft: document.getElementById('lang-left'),
+        langRight: document.getElementById('lang-right'),
+        statsBar: document.getElementById('stats-bar'),
+        diffContainer: document.getElementById('diff-container'),
+        resultActions: document.getElementById('result-actions'),
+        viewModeToggle: document.getElementById('view-mode-toggle'),
+        modeButtons: document.querySelectorAll('[data-mode]'),
+        copyDiffBtn: document.getElementById('btn-copy-diff'),
+        downloadDiffBtn: document.getElementById('btn-download-diff'),
+        clearTextBtns: document.querySelectorAll('.btn-clear-text'),
+    };
+    
+    // =================================================================
+    // Event Listeners
+    // =================================================================
+    
+    // Text input changes
+    els.pasteLeft.addEventListener('input', () => updateInputMeta('left'));
+    els.pasteRight.addEventListener('input', () => updateInputMeta('right'));
+    
+    // Form submit
+    els.form.addEventListener('submit', handleCompare);
+    
+    // Swap sides
+    els.swapBtn.addEventListener('click', swapSides);
+    
+    // Clear all
+    els.clearAllBtn.addEventListener('click', clearAll);
+    
+    // New comparison (scroll to top and focus)
+    els.newCompareBtn?.addEventListener('click', () => {
+        document.querySelector('.compare-header').scrollIntoView({ behavior: 'smooth' });
+        setTimeout(() => els.pasteLeft.focus(), 300);
+    });
+    
+    // Clear individual textarea
+    els.clearTextBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.dataset.target;
+            const textarea = document.getElementById(targetId);
+            if (textarea) {
+                textarea.value = '';
+                textarea.focus();
+                updateInputMeta(targetId === 'paste-left' ? 'left' : 'right');
+            }
+        });
+    });
+    
+    // View mode buttons
+    els.modeButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.mode;
+            setViewMode(mode);
+        });
+    });
+    
+    // Copy and download
+    els.copyDiffBtn?.addEventListener('click', copyDiff);
+    els.downloadDiffBtn?.addEventListener('click', downloadDiff);
+    
+    // Enable keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Ctrl/Cmd + Enter to compare
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            handleCompare(e);
+        }
+    });
+    
+    // =================================================================
+    // Functions
+    // =================================================================
+    
+    function updateInputMeta(side) {
+        const textarea = side === 'left' ? els.pasteLeft : els.pasteRight;
+        const countEl = side === 'left' ? els.countLeft : els.countRight;
+        const langEl = side === 'left' ? els.langLeft : els.langRight;
+        
+        const text = textarea.value;
+        const charCount = text.length;
+        const lineCount = text.split('\n').length;
+        
+        // Update character count
+        countEl.textContent = `${charCount.toLocaleString('he-IL')} תווים, ${lineCount} שורות`;
+        
+        // Simple language detection
+        const lang = detectLanguage(text);
+        langEl.textContent = lang || '-';
+    }
+    
+    function detectLanguage(code) {
+        if (!code || code.trim().length < 10) return null;
+        
+        // Simple heuristics
+        if (/^\s*(import|from)\s+[\w.]+/.test(code) || /def\s+\w+\s*\(/.test(code)) return 'Python';
+        if (/^\s*(const|let|var|function|=>|async|await)/.test(code) || /console\.log/.test(code)) return 'JavaScript';
+        if (/^\s*(public|private|class|interface|void)\s+/.test(code)) return 'Java/C#';
+        if (/^\s*#include|int main\(/.test(code)) return 'C/C++';
+        if (/^\s*<[a-zA-Z][\s\S]*>/.test(code)) return 'HTML/XML';
+        if (/^\s*\{[\s\S]*"[\w]+"\s*:/.test(code)) return 'JSON';
+        if (/^\s*[\w-]+\s*:\s*[^;]+;/.test(code)) return 'CSS';
+        if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER)/i.test(code)) return 'SQL';
+        if (/^\s*#!/.test(code)) return 'Shell';
+        
+        return null;
+    }
+    
+    function swapSides() {
+        const leftVal = els.pasteLeft.value;
+        els.pasteLeft.value = els.pasteRight.value;
+        els.pasteRight.value = leftVal;
+        
+        updateInputMeta('left');
+        updateInputMeta('right');
+        
+        // If already compared, re-run
+        if (pasteState.diffData) {
+            handleCompare(new Event('submit'));
+        }
+    }
+    
+    function clearAll() {
+        els.pasteLeft.value = '';
+        els.pasteRight.value = '';
+        updateInputMeta('left');
+        updateInputMeta('right');
+        
+        // Hide results
+        els.statsBar.classList.add('d-none');
+        els.diffContainer.classList.add('d-none');
+        els.resultActions.classList.add('d-none');
+        els.viewModeToggle.classList.add('d-none');
+        
+        pasteState.diffData = null;
+        
+        els.pasteLeft.focus();
+    }
+    
+    async function handleCompare(e) {
+        e.preventDefault();
+        
+        const leftContent = els.pasteLeft.value;
+        const rightContent = els.pasteRight.value;
+        
+        if (!leftContent.trim() && !rightContent.trim()) {
+            showToast('יש להדביק קוד בלפחות אחד מהשדות', 'warning');
+            return;
+        }
+        
+        setLoading(true);
+        
+        try {
+            const response = await fetch('/api/compare/diff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    left_content: leftContent,
+                    right_content: rightContent,
+                }),
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            pasteState.diffData = await response.json();
+            pasteState.leftContent = leftContent;
+            pasteState.rightContent = rightContent;
+            
+            // Show results
+            showResults();
+            
+        } catch (error) {
+            console.error('Compare failed:', error);
+            showToast('שגיאה בביצוע ההשוואה: ' + error.message, 'error');
+        } finally {
+            setLoading(false);
+        }
+    }
+    
+    function showResults() {
+        // Use the existing CompareView module for rendering
+        if (window.CompareView) {
+            // Inject the diff data manually since we're in paste mode
+            window.CompareView._pasteData = pasteState.diffData;
+        }
+        
+        // Show UI elements
+        els.statsBar.classList.remove('d-none');
+        els.diffContainer.classList.remove('d-none');
+        els.resultActions.classList.remove('d-none');
+        els.viewModeToggle.classList.remove('d-none');
+        
+        // Update stats
+        updateStats(pasteState.diffData.stats);
+        
+        // Render diff
+        renderDiff();
+        
+        // Scroll to results
+        els.statsBar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    
+    function updateStats(stats) {
+        document.querySelector('#stat-added span').textContent = stats.added || 0;
+        document.querySelector('#stat-removed span').textContent = stats.removed || 0;
+        document.querySelector('#stat-modified span').textContent = stats.modified || 0;
+        document.querySelector('#stat-unchanged span').textContent = stats.unchanged || 0;
+    }
+    
+    function renderDiff() {
+        const data = pasteState.diffData;
+        if (!data) return;
+        
+        // Update view visibility
+        document.getElementById('side-by-side-view').classList.toggle('active', pasteState.viewMode === 'side-by-side');
+        document.getElementById('unified-view').classList.toggle('active', pasteState.viewMode === 'unified');
+        document.getElementById('inline-view').classList.toggle('active', pasteState.viewMode === 'inline');
+        
+        switch (pasteState.viewMode) {
+            case 'side-by-side':
+                renderSideBySide(data);
+                break;
+            case 'unified':
+                renderUnified(data);
+                break;
+            case 'inline':
+                renderInline(data);
+                break;
+        }
+    }
+    
+    function renderSideBySide(data) {
+        const leftLines = [];
+        const rightLines = [];
+        
+        data.lines.forEach((line, idx) => {
+            leftLines.push(createDiffLine(
+                line.line_num_left,
+                line.content_left,
+                getLeftClass(line.change_type),
+                `row-${idx}`
+            ));
+            rightLines.push(createDiffLine(
+                line.line_num_right,
+                line.content_right,
+                getRightClass(line.change_type),
+                `row-${idx}`
+            ));
+        });
+        
+        document.getElementById('left-content').innerHTML = leftLines.join('');
+        document.getElementById('right-content').innerHTML = rightLines.join('');
+        
+        // Sync scroll
+        setupScrollSync();
+    }
+    
+    function renderUnified(data) {
+        const lines = data.lines.map(line => {
+            const cssClass = line.change_type !== 'unchanged' ? line.change_type : '';
+            const content = line.change_type === 'removed' ? line.content_left :
+                           line.change_type === 'added' ? line.content_right :
+                           line.content_left ?? line.content_right ?? '';
+            
+            return `
+                <div class="unified-line ${cssClass}">
+                    <div class="line-numbers">
+                        <span>${line.line_num_left ?? ''}</span>
+                        <span>${line.line_num_right ?? ''}</span>
+                    </div>
+                    <div class="line-content">${escapeHtml(content)}</div>
+                </div>
+            `;
+        });
+        
+        document.getElementById('unified-content').innerHTML = lines.join('');
+    }
+    
+    function renderInline(data) {
+        const lines = data.lines.map(line => {
+            return createDiffLine(
+                line.line_num_left ?? line.line_num_right,
+                line.content_left ?? line.content_right,
+                line.change_type
+            );
+        });
+        
+        document.getElementById('inline-content').innerHTML = lines.join('');
+    }
+    
+    function createDiffLine(lineNum, content, cssClass, rowId) {
+        const escaped = escapeHtml(content ?? '') || '&nbsp;';
+        const dataRow = rowId ? `data-row="${rowId}"` : '';
+        
+        return `
+            <div class="diff-line ${cssClass || ''}" ${dataRow}>
+                <div class="line-number">${lineNum ?? ''}</div>
+                <div class="line-content"><pre>${escaped}</pre></div>
+            </div>
+        `;
+    }
+    
+    function getLeftClass(changeType) {
+        switch (changeType) {
+            case 'removed': return 'removed';
+            case 'modified': return 'modified';
+            case 'added': return 'empty';
+            default: return '';
+        }
+    }
+    
+    function getRightClass(changeType) {
+        switch (changeType) {
+            case 'added': return 'added';
+            case 'modified': return 'modified';
+            case 'removed': return 'empty';
+            default: return '';
+        }
+    }
+    
+    function setupScrollSync() {
+        const left = document.getElementById('left-content');
+        const right = document.getElementById('right-content');
+        
+        if (!left || !right) return;
+        
+        let isScrolling = null;
+        
+        function sync(source, target) {
+            if (isScrolling === target) return;
+            isScrolling = source;
+            
+            const pct = source.scrollTop / (source.scrollHeight - source.clientHeight || 1);
+            target.scrollTop = pct * (target.scrollHeight - target.clientHeight);
+            
+            clearTimeout(isScrolling._timeout);
+            isScrolling._timeout = setTimeout(() => { isScrolling = null; }, 100);
+        }
+        
+        left.addEventListener('scroll', () => sync(left, right), { passive: true });
+        right.addEventListener('scroll', () => sync(right, left), { passive: true });
+    }
+    
+    function setViewMode(mode) {
+        pasteState.viewMode = mode;
+        
+        els.modeButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        
+        renderDiff();
+    }
+    
+    function setLoading(isLoading) {
+        els.compareBtn.classList.toggle('loading', isLoading);
+        els.compareBtn.disabled = isLoading;
+    }
+    
+    function copyDiff() {
+        const text = generateUnifiedText();
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('ה-Diff הועתק ללוח!', 'success');
+        }).catch(() => {
+            showToast('שגיאה בהעתקה', 'error');
+        });
+    }
+    
+    function downloadDiff() {
+        const text = generateUnifiedText();
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `paste-compare-${Date.now()}.patch`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showToast('הקובץ הורד', 'success');
+    }
+    
+    function generateUnifiedText() {
+        if (!pasteState.diffData) return '';
+        
+        const lines = ['--- original', '+++ modified'];
+        
+        pasteState.diffData.lines.forEach(line => {
+            if (line.change_type === 'unchanged') {
+                lines.push(` ${line.content_left || ''}`);
+            } else if (line.change_type === 'removed') {
+                lines.push(`-${line.content_left || ''}`);
+            } else if (line.change_type === 'added') {
+                lines.push(`+${line.content_right || ''}`);
+            } else if (line.change_type === 'modified') {
+                lines.push(`-${line.content_left || ''}`);
+                lines.push(`+${line.content_right || ''}`);
+            }
+        });
+        
+        return lines.join('\n');
+    }
+    
+    function escapeHtml(text) {
+        if (text == null) return '';
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
+    }
+    
+    function showToast(message, type = 'info') {
+        // Use existing toast system if available
+        if (window.Toast && typeof window.Toast.show === 'function') {
+            window.Toast.show(message, type);
+            return;
+        }
+        
+        // Fallback
+        const toast = document.createElement('div');
+        toast.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+            <span>${escapeHtml(message)}</span>
+        `;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#6366f1'};
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        `;
+        
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+    
+    // Initial focus
+    els.pasteLeft.focus();
+    
+})();
+</script>
+{% endblock %}
+
