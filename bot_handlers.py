@@ -152,6 +152,9 @@ def _call_files_api(method_name: str, *args, **kwargs):
             users = getattr(mongo_db, "users", None) if mongo_db is not None else None
             if users is not None and hasattr(users, "find"):
                 cursor = users.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
+                # אם stub/driver החזיר None במקום cursor, זה לא "אין משתמשים" אלא כשל גישה/מימוש.
+                if cursor is None:
+                    raise RuntimeError("users.find returned None")
                 out: List[int] = []
                 for doc in cursor or []:
                     try:

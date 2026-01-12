@@ -47,17 +47,14 @@ class FilesFacade:
         # כדי שלא יפורשו כ"קובץ לא נמצא".
         def _looks_like_signature_mismatch(err: TypeError) -> bool:
             msg = str(err or "").lower()
-            return any(
-                s in msg
-                for s in (
-                    "positional argument",
-                    "positional arguments",
-                    "unexpected keyword",
-                    "missing 1 required positional argument",
-                    "missing required positional argument",
-                    "takes",
-                )
-            )
+            if "unexpected keyword" in msg:
+                return True
+            if "missing 1 required positional argument" in msg or "missing required positional argument" in msg:
+                return True
+            # דוגמה קלאסית לחתימה לא תואמת: "takes 2 positional arguments but 3 were given"
+            if "positional argument" in msg or "positional arguments" in msg:
+                return "takes" in msg or "were given" in msg
+            return False
 
         for method_name in ("get_latest_version", "get_file", "get_code_by_name"):
             fn = getattr(db, method_name, None)

@@ -1,6 +1,8 @@
 import types
 import sys
 
+import pytest
+
 from src.infrastructure.composition.files_facade import FilesFacade
 
 
@@ -231,3 +233,50 @@ def test_files_facade_pagination_and_recycle(monkeypatch):
 
     doc, is_large = fac.get_user_document_by_id(1, "OID1")
     assert doc and is_large is False
+
+
+def test_files_facade_get_latest_version_propagates_db_errors(monkeypatch):
+    class ExplodingDB:
+        def get_latest_version(self, user_id, file_name):
+            raise RuntimeError("db down")
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = ExplodingDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    with pytest.raises(RuntimeError):
+        fac.get_latest_version(1, "a.py")
+
+
+def test_files_facade_get_latest_version_falls_back_to_get_file(monkeypatch):
+    class LegacyDB:
+        def get_file(self, user_id, file_name):
+            return {"user_id": user_id, "file_name": file_name, "code": "x"}
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = LegacyDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    doc = fac.get_latest_version(7, "old.py")
+    assert isinstance(doc, dict)
+    assert doc.get("file_name") == "old.py"
+
+
+def test_files_facade_get_latest_version_skips_signature_mismatch_and_uses_fallback(monkeypatch):
+    class LegacyDB:
+        # Wrong signature (missing file_name)
+        def get_latest_version(self, user_id):  # noqa: ARG002
+            return {"user_id": user_id, "file_name": "wrong", "code": "x"}
+
+        def get_file(self, user_id, file_name):
+            return {"user_id": user_id, "file_name": file_name, "code": "ok"}
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = LegacyDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    doc = fac.get_latest_version(1, "a.py")
+    assert doc and doc.get("file_name") == "a.py"
