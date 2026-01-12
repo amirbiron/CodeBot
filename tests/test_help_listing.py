@@ -56,6 +56,19 @@ def test_help_message_contains_spacing_before_footer():
     assert "\n\nלבעיות או הצעות: @moominAmir" in text
 
 
+def test_build_help_message_hides_admin_section_for_non_admin():
+    # גם אם הפקודות קיימות, לא מציגים את הסקשן למשתמש רגיל
+    text = mod._build_help_message({"status", "errors"}, is_admin=False)
+    assert "⚙️ <b>מנהל (מוגבל)</b>" not in text
+    assert "<code>/status</code>" not in text
+
+
+def test_build_help_message_shows_admin_section_for_admin():
+    text = mod._build_help_message({"status", "errors"}, is_admin=True)
+    assert "⚙️ <b>מנהל (מוגבל)</b>" in text
+    assert "<code>/status</code>" in text
+
+
 @pytest.mark.asyncio
 async def test_codekeeperbot_help_command_uses_registered_commands(monkeypatch):
     bot = object.__new__(mod.CodeKeeperBot)

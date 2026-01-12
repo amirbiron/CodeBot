@@ -13,6 +13,8 @@ import inspect
 import logging
 import asyncio
 import warnings
+import json
+from pathlib import Path
 from typing import Any, Optional, TypedDict
 try:
     from typing import NotRequired  # type: ignore[attr-defined]
@@ -1145,6 +1147,8 @@ class HelpSection(TypedDict):
     """קבוצת פקודות ללא כפתורים."""
     title: str
     entries: list[HelpEntry]
+    admin_only: NotRequired[bool]
+    entries_source: NotRequired[str]
 
 
 HELP_SECTIONS: list[HelpSection] = [
@@ -1177,6 +1181,8 @@ HELP_SECTIONS: list[HelpSection] = [
     },
     {
         "title": "⚙️ <b>מנהל (מוגבל)</b>",
+        "admin_only": True,
+        "entries_source": "chatops_catalog",
         "entries": [
             {
                 "commands": ("status",),
@@ -1217,12 +1223,87 @@ STATIC_HELP_MESSAGE = (
     "• <code>/clear_cache</code> – ניקוי מטמון למשתמש הנוכחי\n\n"
     "🏗️ <b>רפקטורינג</b>\n"
     "• <code>/refactor</code> &lt;קובץ&gt; – רפקטורינג אוטומטי לקובץ\n\n"
-    "⚙️ <b>מנהל (מוגבל)</b>\n"
-    "• <code>/status</code> <code>--since 15m</code> | <code>--from ... --to ...</code>\n"
-    "• <code>/errors</code> <code>--since 15m</code> | <code>--from ... --to ...</code> | <code>--endpoint /api</code> | <code>--min_severity ERROR</code>\n"
-    "• <code>/metrics</code> <code>/uptime</code>\n\n"
     f"{SUPPORT_FOOTER}"
 )
+
+@functools.lru_cache(maxsize=1)
+def _load_chatops_commands_catalog() -> list[dict[str, Any]]:
+    """טוען את קטלוג פקודות ChatOps מתוך commands.json (זה מקור האמת של התיעוד)."""
+    try:
+        path = Path(__file__).resolve().parent / "webapp" / "static" / "data" / "commands.json"
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+    except Exception:
+        return []
+
+
+def _build_chatops_help_entries_from_catalog() -> list[HelpEntry]:
+    """ממיר את קטלוג ChatOps לרשימת HelpEntry בפורמט של /help."""
+    try:
+        from html import escape as html_escape
+
+        # חשוב לשמור על הודעת /help קצרה מספיק לטלגרם (~4096 תווים).
+        # לכן מציגים פרמטרים רק לפקודות המרכזיות (כמו בדוגמה הקיימת).
+        show_args_for = {"status", "errors", "health"}
+
+        out: list[HelpEntry] = []
+        for item in _load_chatops_commands_catalog():
+            if str(item.get("type", "")).strip().lower() != "chatops":
+                continue
+
+            name = str(item.get("name", "")).strip()
+            if not name.startswith("/"):
+                continue
+
+            # name יכול להיות למשל "/observe -v" או "/check commands"
+            parts = [p for p in name.split() if p.strip()]
+            if not parts:
+                continue
+
+            cmd_token = parts[0].lstrip("/").strip().lower()
+            if not cmd_token:
+                continue
+
+            description_raw = item.get("description")
+            description = description_raw.strip() if isinstance(description_raw, str) else None
+            if not description:
+                description = None
+
+            suffix_chunks: list[str] = []
+            for extra in parts[1:]:
+                suffix_chunks.append(f"<code>{html_escape(str(extra))}</code>")
+
+            args = item.get("arguments", [])
+            if cmd_token in show_args_for and isinstance(args, list) and args:
+                arg_codes = [
+                    f"<code>{html_escape(str(a))}</code>"
+                    for a in args
+                    if isinstance(a, (str, int, float)) and str(a).strip()
+                ]
+                if arg_codes:
+                    suffix_chunks.append(" | ".join(arg_codes))
+
+            suffix = (" " + " ".join(suffix_chunks)) if suffix_chunks else ""
+            out.append({"commands": (cmd_token,), "description": description, "suffix": suffix})
+
+        return out
+    except Exception:
+        return []
+
+
+def _resolve_section_entries(section: HelpSection) -> list[HelpEntry]:
+    """מאפשר לסקשן להביא entries ממקור דינמי, עם fallback לרשימה הקשיחה."""
+    try:
+        if section.get("entries_source") == "chatops_catalog":
+            dyn = _build_chatops_help_entries_from_catalog()
+            if dyn:
+                return dyn
+    except Exception:
+        pass
+    return section.get("entries", [])
 
 
 def _collect_commands_from_handler(handler, seen_ids: set[int]) -> set[str]:
@@ -1373,15 +1454,17 @@ def _build_debug_commands_report(
     return "\n".join(lines)
 
 
-def _build_help_message(registered_commands: set[str]) -> str:
+def _build_help_message(registered_commands: set[str], *, is_admin: bool = False) -> str:
     """Compose the help text for commands without dedicated buttons."""
     available_commands = {cmd.lower() for cmd in registered_commands if isinstance(cmd, str)}
     lines: list[str] = ["<b>📚 עזרה – פקודות ללא כפתורים</b>", ""]
     has_sections = False
 
     for section in HELP_SECTIONS:
+        if bool(section.get("admin_only")) and not is_admin:
+            continue
         section_lines: list[str] = []
-        for entry in section["entries"]:
+        for entry in _resolve_section_entries(section):
             commands = [cmd for cmd in entry["commands"] if cmd in available_commands]
             if not commands:
                 continue
@@ -2851,7 +2934,13 @@ class CodeKeeperBot:
             commands = ctx_commands
         else:
             commands = _get_registered_commands(self.application)
-        response = _build_help_message(commands)
+        try:
+            from chatops.permissions import is_admin as _is_admin
+            user_id = int(getattr(getattr(update, "effective_user", None), "id", 0) or 0)
+            user_is_admin = bool(_is_admin(user_id))
+        except Exception:
+            user_is_admin = False
+        response = _build_help_message(commands, is_admin=user_is_admin)
         await update.message.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
