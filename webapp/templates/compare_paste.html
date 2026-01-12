@@ -376,6 +376,7 @@
         diffData: null,
         viewMode: 'side-by-side',
         scrollCleanup: null,
+        isLoading: false,
     };
     
     // Elements
@@ -497,6 +498,10 @@
     }
     
     function swapSides() {
+        if (pasteState.isLoading) {
+            return;
+        }
+
         const leftVal = els.pasteLeft.value;
         els.pasteLeft.value = els.pasteRight.value;
         els.pasteRight.value = leftVal;
@@ -535,6 +540,10 @@
     
     async function handleCompare(e) {
         e.preventDefault();
+
+        if (pasteState.isLoading) {
+            return;
+        }
         
         const leftContent = els.pasteLeft.value;
         const rightContent = els.pasteRight.value;
@@ -811,8 +820,12 @@
     }
     
     function setLoading(isLoading) {
+        pasteState.isLoading = !!isLoading;
         els.compareBtn.classList.toggle('loading', isLoading);
         els.compareBtn.disabled = isLoading;
+
+        // Prevent parallel requests / race conditions
+        if (els.swapBtn) els.swapBtn.disabled = isLoading;
     }
     
     function copyDiff() {
@@ -877,8 +890,20 @@
         
         // Fallback
         const toast = document.createElement('div');
+        const icon = (
+            type === 'success' ? 'check-circle' :
+            type === 'error' ? 'exclamation-circle' :
+            type === 'warning' ? 'exclamation-triangle' :
+            'info-circle'
+        );
+        const bg = (
+            type === 'success' ? '#28a745' :
+            type === 'error' ? '#dc3545' :
+            type === 'warning' ? '#ed8936' :
+            '#6366f1'
+        );
         toast.innerHTML = `
-            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+            <i class="fas fa-${icon}"></i>
             <span>${escapeHtml(message)}</span>
         `;
         toast.style.cssText = `
@@ -887,7 +912,7 @@
             left: 50%;
             transform: translateX(-50%);
             padding: 12px 24px;
-            background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#6366f1'};
+            background: ${bg};
             color: white;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
