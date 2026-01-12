@@ -52,51 +52,57 @@ import asyncio
 
 # Cache עבור בדיקות persistent login
 _persistent_login_cache = {}
+_persistent_login_cache_lock = threading.Lock()
 
 
 def _check_persistent_login_cached(user_id: str) -> bool:
     """בדיקת persistent login עם cache של 60 שניות"""
     now = time.time()
-    cache_key = f"persistent_{user_id}"
+    token = request.cookies.get(REMEMBER_COOKIE_NAME)
+    if not token:
+        return False
 
-    # בדיקת Cache
-    if cache_key in _persistent_login_cache:
-        cached_value, expires_at = _persistent_login_cache[cache_key]
-        if expires_at > now:
-            return cached_value
+    # cache key כולל גם את ה-token (חלק ממנו) כדי להימנע מזיהום בין מכשירים
+    cache_key = f"persistent_{user_id}_{token[:16]}"
+
+    # בדיקת Cache (בנעילה כדי למנוע race / dict-size-change)
+    with _persistent_login_cache_lock:
+        if cache_key in _persistent_login_cache:
+            cached_value, expires_at = _persistent_login_cache[cache_key]
+            if expires_at > now:
+                return cached_value
 
     # Cache miss - בדיקה מול DB
     has_persistent = False
     try:
         db = get_db()
-        token = request.cookies.get(REMEMBER_COOKIE_NAME)
-        if token:
-            doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
-            if doc:
-                exp = doc.get('expires_at')
-                if isinstance(exp, datetime):
-                    if exp.tzinfo is None:
-                        exp = exp.replace(tzinfo=timezone.utc)
-                    has_persistent = exp > datetime.now(timezone.utc)
-                else:
-                    try:
-                        dt = datetime.fromisoformat(str(exp))
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        has_persistent = dt > datetime.now(timezone.utc)
-                    except Exception:
-                        has_persistent = False
+        doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
+        if doc:
+            exp = doc.get('expires_at')
+            if isinstance(exp, datetime):
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                has_persistent = exp > datetime.now(timezone.utc)
+            else:
+                try:
+                    dt = datetime.fromisoformat(str(exp))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    has_persistent = dt > datetime.now(timezone.utc)
+                except Exception:
+                    has_persistent = False
     except Exception:
         has_persistent = False
 
     # שמירה ב-cache
-    _persistent_login_cache[cache_key] = (has_persistent, now + 60)
+    with _persistent_login_cache_lock:
+        _persistent_login_cache[cache_key] = (has_persistent, now + 60)
 
-    # ניקוי cache ישן
-    if len(_persistent_login_cache) > 1000:
-        keys_to_remove = [k for k, v in _persistent_login_cache.items() if v[1] < now]
-        for k in keys_to_remove:
-            del _persistent_login_cache[k]
+        # ניקוי cache ישן (בטוח)
+        if len(_persistent_login_cache) > 1000:
+            keys_to_remove = [k for k, v in list(_persistent_login_cache.items()) if v[1] < now]
+            for k in keys_to_remove:
+                _persistent_login_cache.pop(k, None)
 
     return has_persistent
 
@@ -13785,13 +13791,25 @@ def theme_preview():
 @app.route('/settings')
 @login_required
 def settings():
-    """דף הגדרות - אופטימלי (0ms DB calls)"""
+    """דף הגדרות - אופטימלי עם תמיכה בsessions ישנים"""
     user_id = session['user_id']
-    user_data = session.get('user_data', {})
+    user_data = session.get('user_data') or {}
+    if not isinstance(user_data, dict):
+        user_data = {}
+    session['user_data'] = user_data
 
-    # ✅ שליפה מהירה מה-session (0ms)
-    user_is_admin = user_data.get('is_admin', False)
-    user_is_premium = user_data.get('is_premium', False)
+    # ✅ Fallback ל-DB אם אין ב-session (sessions ישנים)
+    user_is_admin = user_data.get('is_admin')
+    if user_is_admin is None:
+        user_is_admin = is_admin(user_id)
+        user_data['is_admin'] = user_is_admin
+        session.modified = True
+
+    user_is_premium = user_data.get('is_premium')
+    if user_is_premium is None:
+        user_is_premium = is_premium(user_id)
+        user_data['is_premium'] = user_is_premium
+        session.modified = True
 
     # ✅ בדיקת persistent token עם cache
     has_persistent = _check_persistent_login_cached(user_id)
