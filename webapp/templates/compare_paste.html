@@ -375,6 +375,7 @@
         rightContent: '',
         diffData: null,
         viewMode: 'side-by-side',
+        scrollCleanup: null,
     };
     
     // Elements
@@ -515,6 +516,12 @@
         updateInputMeta('left');
         updateInputMeta('right');
         
+        // Cleanup scroll sync listeners (if any)
+        if (pasteState.scrollCleanup) {
+            try { pasteState.scrollCleanup(); } catch (_) {}
+            pasteState.scrollCleanup = null;
+        }
+
         // Hide results
         els.statsBar.classList.add('d-none');
         els.diffContainer.classList.add('d-none');
@@ -647,13 +654,38 @@
     }
     
     function renderUnified(data) {
-        const lines = data.lines.map(line => {
+        const lines = [];
+
+        data.lines.forEach(line => {
+            // "modified" מכיל גם ישן וגם חדש — נציג 2 שורות (כמו unified diff)
+            if (line.change_type === 'modified') {
+                lines.push(`
+                    <div class="unified-line removed">
+                        <div class="line-numbers">
+                            <span>${line.line_num_left ?? ''}</span>
+                            <span></span>
+                        </div>
+                        <div class="line-content">${escapeHtml(line.content_left ?? '')}</div>
+                    </div>
+                `);
+                lines.push(`
+                    <div class="unified-line added">
+                        <div class="line-numbers">
+                            <span></span>
+                            <span>${line.line_num_right ?? ''}</span>
+                        </div>
+                        <div class="line-content">${escapeHtml(line.content_right ?? '')}</div>
+                    </div>
+                `);
+                return;
+            }
+
             const cssClass = line.change_type !== 'unchanged' ? line.change_type : '';
             const content = line.change_type === 'removed' ? line.content_left :
                            line.change_type === 'added' ? line.content_right :
                            line.content_left ?? line.content_right ?? '';
-            
-            return `
+
+            lines.push(`
                 <div class="unified-line ${cssClass}">
                     <div class="line-numbers">
                         <span>${line.line_num_left ?? ''}</span>
@@ -661,21 +693,29 @@
                     </div>
                     <div class="line-content">${escapeHtml(content)}</div>
                 </div>
-            `;
+            `);
         });
-        
+
         document.getElementById('unified-content').innerHTML = lines.join('');
     }
     
     function renderInline(data) {
-        const lines = data.lines.map(line => {
-            return createDiffLine(
+        const lines = [];
+
+        data.lines.forEach(line => {
+            // "modified" מכיל גם ישן וגם חדש — נציג 2 שורות (אדום ואז ירוק)
+            if (line.change_type === 'modified') {
+                lines.push(createDiffLine(line.line_num_left, line.content_left, 'removed'));
+                lines.push(createDiffLine(line.line_num_right, line.content_right, 'added'));
+                return;
+            }
+            lines.push(createDiffLine(
                 line.line_num_left ?? line.line_num_right,
                 line.content_left ?? line.content_right,
                 line.change_type
-            );
+            ));
         });
-        
+
         document.getElementById('inline-content').innerHTML = lines.join('');
     }
     
@@ -712,27 +752,55 @@
     function setupScrollSync() {
         const left = document.getElementById('left-content');
         const right = document.getElementById('right-content');
-        
-        if (!left || !right) return;
-        
-        let isScrolling = null;
-        
-        function sync(source, target) {
-            if (isScrolling === target) return;
-            isScrolling = source;
-            
-            const pct = source.scrollTop / (source.scrollHeight - source.clientHeight || 1);
-            target.scrollTop = pct * (target.scrollHeight - target.clientHeight);
-            
-            clearTimeout(isScrolling._timeout);
-            isScrolling._timeout = setTimeout(() => { isScrolling = null; }, 100);
+
+        // Prevent accumulating listeners across renders / comparisons
+        if (pasteState.scrollCleanup) {
+            try { pasteState.scrollCleanup(); } catch (_) {}
+            pasteState.scrollCleanup = null;
         }
-        
-        left.addEventListener('scroll', () => sync(left, right), { passive: true });
-        right.addEventListener('scroll', () => sync(right, left), { passive: true });
+
+        if (!left || !right) return;
+
+        let isSyncingFrom = null;
+        let timeoutId = null;
+
+        const handleLeftScroll = () => {
+            if (isSyncingFrom === right) return;
+            isSyncingFrom = left;
+            const pct = left.scrollTop / (left.scrollHeight - left.clientHeight || 1);
+            right.scrollTop = pct * (right.scrollHeight - right.clientHeight);
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => { isSyncingFrom = null; }, 100);
+        };
+
+        const handleRightScroll = () => {
+            if (isSyncingFrom === left) return;
+            isSyncingFrom = right;
+            const pct = right.scrollTop / (right.scrollHeight - right.clientHeight || 1);
+            left.scrollTop = pct * (left.scrollHeight - left.clientHeight);
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => { isSyncingFrom = null; }, 100);
+        };
+
+        left.addEventListener('scroll', handleLeftScroll, { passive: true });
+        right.addEventListener('scroll', handleRightScroll, { passive: true });
+
+        pasteState.scrollCleanup = () => {
+            left.removeEventListener('scroll', handleLeftScroll);
+            right.removeEventListener('scroll', handleRightScroll);
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = null;
+            isSyncingFrom = null;
+        };
     }
     
     function setViewMode(mode) {
+        // In paste mode we can safely remove scroll sync when leaving side-by-side
+        if (pasteState.viewMode === 'side-by-side' && mode !== 'side-by-side' && pasteState.scrollCleanup) {
+            try { pasteState.scrollCleanup(); } catch (_) {}
+            pasteState.scrollCleanup = null;
+        }
+
         pasteState.viewMode = mode;
         
         els.modeButtons.forEach(btn => {
