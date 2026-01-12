@@ -50,6 +50,63 @@ import traceback
 import asyncio
 
 
+# Cache עבור בדיקות persistent login
+_persistent_login_cache = {}
+_persistent_login_cache_lock = threading.Lock()
+
+
+def _check_persistent_login_cached(user_id: str) -> bool:
+    """בדיקת persistent login עם cache של 60 שניות"""
+    now = time.time()
+    token = request.cookies.get(REMEMBER_COOKIE_NAME)
+    if not token:
+        return False
+
+    # cache key כולל גם את ה-token (חלק ממנו) כדי להימנע מזיהום בין מכשירים
+    cache_key = f"persistent_{user_id}_{token[:16]}"
+
+    # בדיקת Cache (בנעילה כדי למנוע race / dict-size-change)
+    with _persistent_login_cache_lock:
+        if cache_key in _persistent_login_cache:
+            cached_value, expires_at = _persistent_login_cache[cache_key]
+            if expires_at > now:
+                return cached_value
+
+    # Cache miss - בדיקה מול DB
+    has_persistent = False
+    try:
+        db = get_db()
+        doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
+        if doc:
+            exp = doc.get('expires_at')
+            if isinstance(exp, datetime):
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                has_persistent = exp > datetime.now(timezone.utc)
+            else:
+                try:
+                    dt = datetime.fromisoformat(str(exp))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    has_persistent = dt > datetime.now(timezone.utc)
+                except Exception:
+                    has_persistent = False
+    except Exception:
+        has_persistent = False
+
+    # שמירה ב-cache
+    with _persistent_login_cache_lock:
+        _persistent_login_cache[cache_key] = (has_persistent, now + 60)
+
+        # ניקוי cache ישן (בטוח)
+        if len(_persistent_login_cache) > 1000:
+            keys_to_remove = [k for k, v in list(_persistent_login_cache.items()) if v[1] < now]
+            for k in keys_to_remove:
+                _persistent_login_cache.pop(k, None)
+
+    return has_persistent
+
+
 # --- Logging: honor LOG_LEVEL for the WebApp process ---
 def _env_log_level_name(default: str = "INFO") -> str:
     raw = os.getenv("LOG_LEVEL")
@@ -2793,7 +2850,9 @@ def try_persistent_login():
             'last_name': user.get('last_name', ''),
             'username': user.get('username', ''),
             'photo_url': '',
-            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False)),
+            'is_admin': is_admin(user_id),
+            'is_premium': is_premium(user_id),
         }
         session.permanent = True
     except Exception:
@@ -8738,7 +8797,9 @@ def telegram_auth():
         'last_name': auth_data.get('last_name', ''),
         'username': auth_data.get('username', ''),
         'photo_url': auth_data.get('photo_url', ''),
-        'has_seen_welcome_modal': bool((user_doc or {}).get('has_seen_welcome_modal', False))
+        'has_seen_welcome_modal': bool((user_doc or {}).get('has_seen_welcome_modal', False)),
+        'is_admin': is_admin(user_id),
+        'is_premium': is_premium(user_id),
     }
     
     # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -8820,7 +8881,9 @@ def token_auth():
             'last_name': user.get('last_name', token_doc.get('last_name', '')),
             'username': token_doc.get('username', ''),
             'photo_url': user.get('photo_url', ''),
-            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False)),
+            'is_admin': is_admin(user_id_int),
+            'is_premium': is_premium(user_id_int),
         }
         
         # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -13728,46 +13791,41 @@ def theme_preview():
 @app.route('/settings')
 @login_required
 def settings():
-    """דף הגדרות"""
+    """דף הגדרות - אופטימלי עם תמיכה בsessions ישנים"""
     user_id = session['user_id']
-    
-    # בדיקה אם המשתמש הוא אדמין
-    user_is_admin = is_admin(user_id)
-    # בדיקה אם המשתמש הוא פרימיום
-    user_is_premium = is_premium(user_id)
+    user_data = session.get('user_data') or {}
+    if not isinstance(user_data, dict):
+        user_data = {}
+    session['user_data'] = user_data
 
-    # בדיקה האם יש חיבור קבוע פעיל
-    has_persistent = False
-    try:
-        db = get_db()
-        token = request.cookies.get(REMEMBER_COOKIE_NAME)
-        if token:
-            doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
-            if doc:
-                exp = doc.get('expires_at')
-                if isinstance(exp, datetime):
-                    has_persistent = exp > datetime.now(timezone.utc)
-                else:
-                    try:
-                        has_persistent = datetime.fromisoformat(str(exp)) > datetime.now(timezone.utc)
-                    except Exception:
-                        has_persistent = False
-    except Exception:
-        has_persistent = False
+    # ✅ Fallback ל-DB אם אין ב-session (sessions ישנים)
+    user_is_admin = user_data.get('is_admin')
+    if user_is_admin is None:
+        user_is_admin = is_admin(user_id)
+        user_data['is_admin'] = user_is_admin
+        session.modified = True
 
-    # דגל פוש – הסתרת UI כשמכובה
-    try:
-        push_enabled = (os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1','true','yes','on'})
-    except Exception:
-        push_enabled = True
+    user_is_premium = user_data.get('is_premium')
+    if user_is_premium is None:
+        user_is_premium = is_premium(user_id)
+        user_data['is_premium'] = user_is_premium
+        session.modified = True
 
-    return render_template('settings.html',
-                         user=session['user_data'],
-                         is_admin=user_is_admin,
-                         is_premium=user_is_premium,
-                         persistent_login_enabled=has_persistent,
-                         persistent_days=PERSISTENT_LOGIN_DAYS,
-                         push_enabled=push_enabled)
+    # ✅ בדיקת persistent token עם cache
+    has_persistent = _check_persistent_login_cached(user_id)
+
+    # דגל פוש
+    push_enabled = os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    return render_template(
+        'settings.html',
+        user=user_data,
+        is_admin=user_is_admin,
+        is_premium=user_is_premium,
+        persistent_login_enabled=has_persistent,
+        persistent_days=PERSISTENT_LOGIN_DAYS,
+        push_enabled=push_enabled
+    )
 
 
 @app.route('/settings/theme-builder')
