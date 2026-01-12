@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.theme_parser_service import (
@@ -55,6 +55,38 @@ class SharedThemeService:
         """
         self.db = db
         self.collection = getattr(db, "shared_themes", None)
+        # ==========================
+        # In-memory cache (active themes list)
+        # ==========================
+        self._active_themes_cache: Optional[List[Dict[str, Any]]] = None
+        self._active_themes_expires_at: Optional[datetime] = None
+        self._cache_ttl_seconds = 300  # 5 minutes
+        # מונה "גרסה" כדי למנוע דריסת invalidate ע"י כתיבה מאוחרת מ-thread אחר
+        self._active_themes_cache_version = 0
+
+        # Optional: best-effort index creation (safe if unsupported)
+        self.ensure_indexes()
+
+    def invalidate_cache(self) -> None:
+        """איפוס cache (יש לקרוא אחרי create/update/delete)."""
+        # קודם מעלים גרסה כדי שכל fetch שמתקדם במקביל לא יכתוב cache "ישן"
+        self._active_themes_cache_version += 1
+        self._active_themes_cache = None
+        self._active_themes_expires_at = None
+
+    def ensure_indexes(self) -> None:
+        """יוצר אינדקסים בסיסיים לשיפור ביצועים (best-effort)."""
+        if self.collection is None:
+            return
+        try:
+            create_index = getattr(self.collection, "create_index", None)
+            if not callable(create_index):
+                return
+            # Compound index for is_active + order + created_at
+            create_index([("is_active", 1), ("order", 1), ("created_at", -1)])
+        except Exception as e:
+            # לא שוברים את האפליקציה/טסטים בגלל אינדקסים
+            logger.debug("SharedThemeService.ensure_indexes failed: %s", e)
 
     # ============= Validation =============
 
@@ -119,6 +151,21 @@ class SharedThemeService:
         """קבלת כל הערכות הפעילות (מטא-דאטה בלבד)."""
         if self.collection is None:
             return []
+        now = datetime.now(timezone.utc)
+        # העתקה למשתנים מקומיים כדי להימנע מקריסה אם invalidate מתרחש באמצע (race)
+        cached_themes = self._active_themes_cache
+        cached_expires_at = self._active_themes_expires_at
+        # Cache hit
+        if (
+            cached_themes is not None
+            and cached_expires_at is not None
+            and cached_expires_at > now
+        ):
+            # מחזירים עותק כדי למנוע "השחתה" של ה-cache ע"י קוראים שמשנים את הרשימה/מילונים
+            return [t.copy() for t in cached_themes]
+
+        # Cache miss: זוכרים את הגרסה הנוכחית כדי לא לדרוס invalidate שהתרחש בזמן ה-fetch
+        version_at_start = self._active_themes_cache_version
         try:
             cursor = self.collection.find(
                 {"is_active": True},
@@ -135,9 +182,11 @@ class SharedThemeService:
             themes: List[Dict[str, Any]] = []
             for doc in cursor:
                 created_at = doc.get("created_at")
+                theme_id = doc.get("_id")
                 themes.append(
                     {
-                        "id": doc.get("_id"),
+                        # ⚠️ JSON safety: ObjectId לא תמיד סיריאליזבילי, אז ממירים ל-str
+                        "id": str(theme_id) if theme_id is not None else None,
                         "name": doc.get("name"),
                         "description": doc.get("description", ""),
                         "is_featured": bool(doc.get("is_featured", False)),
@@ -145,7 +194,12 @@ class SharedThemeService:
                         "type": "shared",
                     }
                 )
-            return themes
+            # Save to cache
+            if version_at_start == self._active_themes_cache_version:
+                self._active_themes_cache = themes
+                self._active_themes_expires_at = now + timedelta(seconds=self._cache_ttl_seconds)
+            # מחזירים עותק כדי לשמור על התנהגות עקבית (גם ב-cache miss)
+            return [t.copy() for t in themes]
         except Exception as e:
             logger.exception("SharedThemeService.get_all_active failed: %s", e)
             return []
@@ -245,6 +299,7 @@ class SharedThemeService:
 
         try:
             self.collection.insert_one(doc)
+            self.invalidate_cache()
             logger.info("Created shared theme %s by user %s", slug, created_by)
             return True, slug
         except Exception as e:
@@ -313,6 +368,7 @@ class SharedThemeService:
             result = self.collection.update_one({"_id": str(theme_id)}, {"$set": update_fields})
             if getattr(result, "modified_count", 0) == 0:
                 return False, "no_changes"
+            self.invalidate_cache()
             return True, "ok"
         except Exception as e:
             logger.exception("SharedThemeService.update failed: %s", e)
@@ -326,6 +382,7 @@ class SharedThemeService:
             result = self.collection.delete_one({"_id": str(theme_id)})
             if getattr(result, "deleted_count", 0) == 0:
                 return False, "theme_not_found"
+            self.invalidate_cache()
             return True, "ok"
         except Exception as e:
             logger.exception("SharedThemeService.delete failed: %s", e)
