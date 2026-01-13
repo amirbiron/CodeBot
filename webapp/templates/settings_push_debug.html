@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}דיבוג Web Push - Code Keeper Bot{% endblock %}
+
+{% block content %}
+<h1 class="page-title">
+  <i class="fas fa-bug"></i>
+  דיבוג Web Push
+</h1>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-server"></i>
+    סטטוס שרת
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="display: grid; grid-template-columns: 1fr; gap: 0.6rem">
+      <div><strong>PUSH_NOTIFICATIONS_ENABLED:</strong> {{ '🟢 true' if push_enabled else '🔴 false' }}</div>
+      <div><strong>VAPID_PUBLIC_KEY:</strong> {{ '🟢 מוגדר' if vapid_public_set else '🔴 חסר' }}</div>
+      <div><strong>VAPID_PRIVATE_KEY:</strong> {{ '🟢 מוגדר' if vapid_private_set else '🔴 חסר' }}</div>
+      <div><strong>PUSH_REMOTE_DELIVERY_ENABLED:</strong> {{ remote_enabled_env if remote_enabled_env else '—' }}</div>
+      <div><strong>PUSH_DELIVERY_URL:</strong> {{ remote_url if remote_url else '—' }}</div>
+      <div><strong>PUSH_DELIVERY_TOKEN:</strong> {{ '🟢 מוגדר' if remote_token_set else '🔴 חסר' }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-database"></i>
+    מנויים (DB)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    {% if subs_error %}
+      <div style="opacity: 0.9">🔴 שגיאה בקריאת DB: {{ subs_error }}</div>
+    {% else %}
+      <div><strong>Subscriptions count (user):</strong> {{ subs_count }}</div>
+      <div style="opacity: 0.85; margin-top: 0.5rem">
+        אם המספר 0 – אין מנוי בדפדפן/מכשיר הזה (או שה-Subscribe לא נשלח לשרת).
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-mobile-screen"></i>
+    לקוח (מידע כללי)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="opacity: 0.9; word-break: break-word">
+      <strong>User-Agent:</strong> {{ user_agent if user_agent else '—' }}
+    </div>
+    <div style="opacity: 0.85; margin-top: 0.75rem">
+      תזכורת: ב-iOS התראות Web Push בדפדפן עובדות רק כשמתקינים את האתר כ‑PWA (Add to Home Screen).
+      ב-Telegram/Embedded WebView לפעמים אין תמיכה ב-ServiceWorker/PushManager.
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-vial"></i>
+    בדיקות
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+      <form action="/settings/push-test" method="post" style="margin: 0">
+        <button type="submit" class="btn btn-primary">
+          שלח פוש בדיקה (שרת)
+        </button>
+      </form>
+      <a href="/settings#push" class="btn btn-secondary">חזרה להגדרות</a>
+    </div>
+    <div style="opacity: 0.85; margin-top: 0.75rem">
+      הבדיקה הזו מחזירה JSON של <code>/api/push/test</code>. אם אין מנויים – תקבל <code>no_subscriptions</code>.
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-desktop"></i>
+    סטטוס דפדפן (JavaScript)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div id="browser-checks" style="display: grid; gap: 0.6rem">
+      <div>טוען בדיקות...</div>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-plug"></i>
+    בדיקת חיבוריות Push Services
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <button id="diagnoseBtn" type="button" class="btn btn-secondary" onclick="runDiagnose()">
+      הרץ בדיקת חיבוריות
+    </button>
+    <div id="diagnose-results" style="margin-top: 1rem; display: none"></div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-list"></i>
+    כלים נוספים
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+      <button type="button" onclick="listSubscriptions()" class="btn btn-secondary">
+        הצג מנויים
+      </button>
+      <button type="button" onclick="deleteAllSubs()" class="btn btn-danger">
+        מחק את כל המנויים
+      </button>
+    </div>
+    <div id="subs-list" style="margin-top: 1rem"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  try {
+    var checksDiv = document.getElementById('browser-checks');
+    if (!checksDiv) return;
+
+    var checks = [];
+    function add(line) { checks.push(line); }
+    function render() { checksDiv.innerHTML = checks.join(''); }
+
+    // 1) Notification API
+    var hasNotification = ('Notification' in window);
+    var notifPerm = hasNotification ? String(Notification.permission || '') : 'not-supported';
+    add('<div><strong>Notification API:</strong> ' + (hasNotification ? '🟢 נתמך' : '🔴 לא נתמך') + ' (הרשאה: ' + notifPerm + ')</div>');
+
+    // 2) Service Worker
+    var hasSW = (typeof navigator !== 'undefined' && 'serviceWorker' in navigator);
+    add('<div><strong>Service Worker:</strong> ' + (hasSW ? '🟢 נתמך' : '🔴 לא נתמך') + '</div>');
+
+    // 3) PushManager
+    var hasPush = ('PushManager' in window);
+    add('<div><strong>PushManager:</strong> ' + (hasPush ? '🟢 נתמך' : '🔴 לא נתמך') + '</div>');
+
+    // 4) HTTPS/Localhost
+    var host = String(location.hostname || '');
+    var isSecure = (location.protocol === 'https:') || (host === 'localhost') || (host === '127.0.0.1');
+    add('<div><strong>חיבור מאובטח (HTTPS):</strong> ' + (isSecure ? '🟢 כן' : '🔴 לא (דרוש HTTPS)') + '</div>');
+
+    // If no permission yet - show CTA
+    if (hasNotification && notifPerm === 'default') {
+      add('<div style="margin-top: 1rem"><button type="button" onclick="requestNotificationPermission()" class="btn btn-primary">בקש הרשאת התראות</button></div>');
+    }
+
+    // 5) SW registration + subscription
+    if (!hasSW) {
+      render();
+      return;
+    }
+
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      var hasReg = !!reg;
+      add('<div><strong>Service Worker רשום:</strong> ' + (hasReg ? '🟢 כן' : '🟡 לא (עדיין לא נרשם)') + '</div>');
+      if (!hasReg || !reg.pushManager) {
+        render();
+        return;
+      }
+      reg.pushManager.getSubscription().then(function (sub) {
+        var hasSub = !!sub;
+        add('<div><strong>יש מנוי פעיל בדפדפן:</strong> ' + (hasSub ? '🟢 כן' : '🟡 לא') + '</div>');
+        render();
+      }).catch(function () {
+        add('<div><strong>יש מנוי פעיל בדפדפן:</strong> 🔴 שגיאה בבדיקה</div>');
+        render();
+      });
+    }).catch(function () {
+      add('<div><strong>Service Worker רשום:</strong> 🔴 שגיאה בבדיקה</div>');
+      render();
+    });
+  } catch (e) {
+    try {
+      var el = document.getElementById('browser-checks');
+      if (el) el.innerHTML = '<div>🔴 שגיאה בהרצת בדיקות דפדפן</div>';
+    } catch (_) {}
+  }
+})();
+
+function requestNotificationPermission() {
+  try {
+    if (!('Notification' in window)) {
+      alert('הדפדפן לא תומך בהתראות');
+      return;
+    }
+    Notification.requestPermission().then(function (perm) {
+      alert('הרשאה: ' + perm);
+      try { location.reload(); } catch (_) {}
+    });
+  } catch (_) {
+    alert('שגיאה בבקשת הרשאה');
+  }
+}
+
+function runDiagnose() {
+  var btn = document.getElementById('diagnoseBtn');
+  var results = document.getElementById('diagnose-results');
+  if (!btn || !results) return;
+
+  btn.disabled = true;
+  btn.textContent = 'בודק...';
+  results.style.display = 'none';
+  results.innerHTML = '';
+
+  fetch('/api/push/diagnose', { credentials: 'include' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      results.style.display = 'block';
+      if (!data || !data.results || !(data.results instanceof Array)) {
+        results.innerHTML = '<div style="color: var(--danger)">❌ שגיאה בבדיקה</div>';
+        return;
+      }
+      var html = '<div style="display: grid; gap: 0.5rem">';
+      for (var i = 0; i < data.results.length; i++) {
+        var row = data.results[i] || {};
+        var ok = !!row.ok;
+        var icon = ok ? '🟢' : '🔴';
+        var status = row.status || 0;
+        var err = row.error ? (' (' + row.error + ')') : '';
+        html += '<div><strong>' + String(row.name || 'unknown') + ':</strong> ' + icon + ' ' + String(row.url || '') + ' - Status: ' + String(status) + err + '</div>';
+      }
+      html += '</div>';
+      results.innerHTML = html;
+    })
+    .catch(function (err) {
+      results.style.display = 'block';
+      results.innerHTML = '<div style="color: var(--danger)">❌ שגיאה: ' + String((err && err.message) || err || 'unknown') + '</div>';
+    })
+    .finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'הרץ בדיקת חיבוריות';
+    });
+}
+
+function listSubscriptions() {
+  var div = document.getElementById('subs-list');
+  if (!div) return;
+  div.innerHTML = 'טוען...';
+
+  fetch('/api/push/subscriptions', { credentials: 'include' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data || !data.ok || !data.subscriptions) {
+        div.innerHTML = '<div style="color: var(--danger)">שגיאה בטעינת מנויים</div>';
+        return;
+      }
+      if (!data.count) {
+        div.innerHTML = '<div>אין מנויים</div>';
+        return;
+      }
+      var subs = data.subscriptions;
+      var html = '<div style="display: grid; gap: 0.5rem; margin-top: 0.5rem">';
+      for (var i = 0; i < subs.length; i++) {
+        var s = subs[i] || {};
+        html += '<div class="glass-card" style="padding: 0.5rem; background: rgba(255,255,255,0.05)">';
+        html += '<div><strong>Provider:</strong> ' + String(s.provider || 'unknown') + '</div>';
+        html += '<div><strong>Created:</strong> ' + String(s.created_at || 'לא ידוע') + '</div>';
+        html += '<div><strong>Endpoint:</strong> ' + String(s.endpoint_preview || '') + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+      div.innerHTML = html;
+    })
+    .catch(function (err) {
+      div.innerHTML = '<div style="color: var(--danger)">❌ ' + String((err && err.message) || err || 'unknown') + '</div>';
+    });
+}
+
+function deleteAllSubs() {
+  if (!confirm('למחוק את כל המנויים? תצטרך להירשם מחדש.')) return;
+  fetch('/api/push/subscriptions/delete-all', { method: 'DELETE', credentials: 'include' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var msg = (data && (data.message || data.error)) || ('נמחקו ' + String((data && data.deleted) || 0) + ' מנויים');
+      alert(msg);
+      try { location.reload(); } catch (_) {}
+    })
+    .catch(function (err) {
+      alert('שגיאה: ' + String((err && err.message) || err || 'unknown'));
+    });
+}
+</script>
+{% endblock %}
+

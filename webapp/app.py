@@ -13848,6 +13848,90 @@ def settings():
     )
 
 
+@app.route('/settings/push-debug')
+@login_required
+def settings_push_debug():
+    """עמוד דיבוג פשוט ל-Web Push (למי שאין DevTools)."""
+    user_id = session.get('user_id')
+    user_data = session.get('user_data') or {}
+    if not isinstance(user_data, dict):
+        user_data = {}
+
+    push_enabled = os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    # Server config signals (do not expose secrets)
+    vapid_public = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
+    vapid_private = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+    remote_enabled_env = (os.getenv("PUSH_REMOTE_DELIVERY_ENABLED") or "").strip()
+    remote_url = (os.getenv("PUSH_DELIVERY_URL") or "").strip()
+    remote_token_set = bool((os.getenv("PUSH_DELIVERY_TOKEN") or "").strip())
+
+    subs_count = None
+    subs_error = ""
+    try:
+        db = get_db()
+        # Match the same user_id handling used by push_api (int/str variants).
+        variants: set = set()
+        try:
+            variants.add(user_id)
+        except Exception:
+            pass
+        try:
+            variants.add(int(user_id))  # type: ignore[arg-type]
+        except Exception:
+            pass
+        try:
+            variants.add(str(user_id or ""))
+        except Exception:
+            pass
+        variants_list = [v for v in variants if v not in (None, "")]
+        if not variants_list:
+            variants_list = [user_id]
+        subs_count = int(db.push_subscriptions.count_documents({"user_id": {"$in": variants_list}}))
+    except Exception as e:
+        subs_error = str(e)
+
+    ua = ""
+    try:
+        ua = str(request.headers.get("User-Agent") or "")
+    except Exception:
+        ua = ""
+
+    return render_template(
+        'settings_push_debug.html',
+        user=user_data,
+        is_admin=user_data.get('is_admin', False),
+        is_premium=user_data.get('is_premium', False),
+        push_enabled=push_enabled,
+        vapid_public_set=bool(vapid_public),
+        vapid_private_set=bool(vapid_private),
+        remote_enabled_env=remote_enabled_env,
+        remote_url=remote_url,
+        remote_token_set=remote_token_set,
+        subs_count=subs_count,
+        subs_error=subs_error,
+        user_agent=ua,
+        static_version=_STATIC_VERSION,
+    )
+
+
+@app.route('/settings/push-test', methods=['POST'])
+@login_required
+def settings_push_test():
+    """POST שמחזיר JSON של /api/push/test (ללא DevTools)."""
+    try:
+        # Reuse the existing API handler to keep behavior consistent.
+        from webapp.push_api import test_push as _test_push  # type: ignore
+        resp = _test_push()
+        # resp can be (response, status) in some paths, normalize.
+        if isinstance(resp, tuple) and len(resp) >= 1:
+            return resp
+        return resp
+    except Exception:
+        # Do not leak traceback; return simple JSON
+        return jsonify({"ok": False, "error": "internal_error"}), 500
+
+
 @app.route('/settings/theme-builder')
 @login_required
 def theme_builder():
