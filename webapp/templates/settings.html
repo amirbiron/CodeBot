@@ -3015,7 +3015,16 @@
 
       async function refreshPushUi(){
         try {
+          // Default: show the CTA text even if SW checks fail (keeps UX consistent)
+          setPushStatus('נדרש להפעיל התראות');
           if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
+          // Push requires secure context (https or localhost)
+          try {
+            if (window.isSecureContext === false) {
+              setPushStatus('כדי להפעיל התראות פוש צריך HTTPS (או localhost)');
+              return;
+            }
+          } catch (_) {}
           const st = Notification.permission;
           let hasSub = false;
           try {
@@ -3026,7 +3035,10 @@
           if (st === 'granted' && hasSub) setPushStatus('התראות מופעלות בדפדפן זה');
           else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
           else setPushStatus('נדרש להפעיל התראות');
-        } catch(_) { setPushStatus('מצב לא ידוע'); }
+        } catch(_) {
+          // Keep a deterministic status instead of "unknown"
+          try { setPushStatus('נדרש להפעיל התראות'); } catch (_) {}
+        }
       }
 
       if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
@@ -3185,7 +3197,15 @@
 
           function refreshPushUi() {
             try {
+              // Default status (even if SW probing fails)
+              setStatus('נדרש להפעיל התראות');
               if (!('Notification' in window)) { setStatus('הדפדפן לא תומך בהתראות'); return; }
+              try {
+                if (window.isSecureContext === false) {
+                  setStatus('כדי להפעיל התראות פוש צריך HTTPS (או localhost)');
+                  return;
+                }
+              } catch (_) {}
               var st = Notification.permission;
               if (st === 'denied') { setStatus('המשתמש חסם התראות – יש לאפשר ידנית'); return; }
               getRegistration().then(function (reg) {
@@ -3194,10 +3214,10 @@
                   else setStatus('נדרש להפעיל התראות');
                 });
               }).catch(function () {
-                // If SW isn't supported/available, status already handled elsewhere
+                // If SW isn't supported/available, keep default CTA status.
               });
             } catch (_) {
-              setStatus('מצב לא ידוע');
+              setStatus('נדרש להפעיל התראות');
             }
           }
 
