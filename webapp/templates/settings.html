@@ -178,9 +178,9 @@
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
-          <button id="pushEnableBtn" type="button" class="btn btn-primary">אפשר התראות</button>
-          <button id="pushDisableBtn" type="button" class="btn btn-secondary">כבה התראות</button>
-          <button id="pushTestBtn" type="button" class="btn btn-tertiary">שלח פוש בדיקה</button>
+          <button id="pushEnableBtn" type="button" class="btn btn-primary" onclick="try{ if(window.__ckPushEnable){ window.__ckPushEnable(event); } }catch(e){} return false;">אפשר התראות</button>
+          <button id="pushDisableBtn" type="button" class="btn btn-secondary" onclick="try{ if(window.__ckPushDisable){ window.__ckPushDisable(event); } }catch(e){} return false;">כבה התראות</button>
+          <button id="pushTestBtn" type="button" class="btn btn-tertiary" onclick="try{ if(window.__ckPushTest){ window.__ckPushTest(event); } }catch(e){} return false;">שלח פוש בדיקה</button>
         </div>
       </div>
       {% if not push_enabled %}
@@ -2861,9 +2861,6 @@
         try { initSmoothScrollSettingsCard(); } catch (e) { console.warn('settings initSmoothScrollSettingsCard failed', e); }
         try { initConfigRadar(); } catch (e) { console.warn('settings initConfigRadar failed', e); }
         try { initSharedThemesAdmin(); } catch (e) { console.warn('settings initSharedThemesAdmin failed', e); }
-        {% if show_web_push_settings %}
-        try { initWebPushSettings(); } catch (e) { console.warn('settings initWebPushSettings failed', e); }
-        {% endif %}
       };
 
       if (document.readyState === 'loading') {
@@ -2872,202 +2869,20 @@
         initAfterDom();
       }
 
-      {% if show_web_push_settings %}
-      // --- Web Push (Service Worker + PushManager) ---
-      let __webPushInitDone = false;
-      function initWebPushSettings() {
-        if (__webPushInitDone) return;
-        __webPushInitDone = true;
-
-        const __PUSH_SYSTEM_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
-        const pushStatus = document.getElementById('pushStatus');
-        const pushEnableBtn = document.getElementById('pushEnableBtn');
-        const pushDisableBtn = document.getElementById('pushDisableBtn');
-        const pushTestBtn = document.getElementById('pushTestBtn');
-
-        if (!pushStatus || !pushEnableBtn || !pushDisableBtn || !pushTestBtn) {
-          console.warn('web push UI elements missing', {
-            pushStatus: !!pushStatus,
-            pushEnableBtn: !!pushEnableBtn,
-            pushDisableBtn: !!pushDisableBtn,
-            pushTestBtn: !!pushTestBtn,
-          });
-          return;
-        }
-
-        // If another binder already attached handlers, do nothing.
-        try {
-          if (pushEnableBtn.getAttribute('data-bound') === '1') return;
-        } catch (_) {}
-
-        function setPushStatus(text){ pushStatus.textContent = text; }
-        if (!__PUSH_SYSTEM_ENABLED__) {
-          // UI stays available even when server-side sender is disabled
-          setPushStatus('ההתראות זמינות בדפדפן, אבל שליחה אוטומטית מהשרת כבויה כרגע');
-        }
-
-      function urlBase64ToUint8Array(base64String) {
-        const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
-        return outputArray;
-      }
-
-      async function registerSw(){
-        if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
-        const reg = await navigator.serviceWorker.register('/sw.js');
-        try { await navigator.serviceWorker.ready; } catch(_) {}
-        return reg;
-      }
-
-      async function getVapid(){
-        const r = await fetch('/api/push/public-key', { cache:'no-store' });
-        const j = await r.json().catch(()=>({}));
-        if (!j || j.ok === false || !j.vapidPublicKey) throw new Error('מפתח VAPID לא זמין');
-        return j.vapidPublicKey;
-      }
-
-      async function enablePush(){
-        try {
-          setPushStatus('בודק תמיכה בדפדפן...');
-          if (!('Notification' in window)) throw new Error('התראות לא נתמכות בדפדפן');
-          if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
-          if (!('PushManager' in window)) throw new Error('PushManager לא נתמך');
-
-          const reg = await registerSw();
-          // אם כבר קיים מנוי – הצג הודעת "כבר מופעלות" וסנכרן לשרת בעדינות
-          try {
-            const existing = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
-            if (existing) {
-              try {
-                await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(existing) });
-              } catch(_) {}
-              setPushStatus('ההתראות כבר מופעלות');
-              return;
-            }
-          } catch(_) {}
-
-          const perm = await Notification.requestPermission();
-          if (perm !== 'granted') { setPushStatus('הרשאת התראות נדחתה'); return; }
-          setPushStatus('נרשם Service Worker...');
-          const key = await getVapid();
-          const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
-          const resp = await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(sub) });
-          const j = await resp.json().catch(()=>({}));
-          if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
-          setPushStatus('התראות הופעלו בהצלחה');
-        } catch(e){ setPushStatus('שגיאה בהפעלת התראות'); console.warn('enablePush failed', e); }
-      }
-
-      async function disablePush(){
-        try {
-          setPushStatus('מכבה התראות...');
-          if (!('serviceWorker' in navigator)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
-          const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
-          const sub = (reg && reg.pushManager) ? await reg.pushManager.getSubscription() : null;
-          if (!sub) { setPushStatus('ההתראות כבר כבויות'); return; }
-          try {
-            const ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
-            if (ep) {
-              await fetch('/api/push/subscribe', { method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ endpoint: ep }) });
-            }
-          } catch(_) {}
-          try { await sub.unsubscribe(); } catch(_) {}
-          setPushStatus('התראות כובו');
-        } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
-      }
-
-      async function testPush(){
-        try {
-          setPushStatus('שולח פוש בדיקה...');
-          const r = await fetch('/api/push/test', { method:'POST', credentials:'include' });
-          const j = await r.json().catch(()=>({}));
-          if (r.ok && j && j.ok) {
-            if (j.sent > 0) { setPushStatus('נשלחה התראת בדיקה'); return; }
-            const codes = j.codes || {};
-            const known = Object.keys(codes).map(k => Number(k));
-            // Treat only non-zero codes as meaningful; code 0 is a transport/TLS error
-            const nonZero = known.filter(k => k !== 0);
-            if (nonZero.includes(404) || nonZero.includes(410)) {
-              setPushStatus('המנוי פג (404/410) — כבה/הפעל התראות ואז נסה שוב');
-            } else if (nonZero.includes(401) || nonZero.includes(403)) {
-              setPushStatus('אי־התאמת מפתחות (401/403) — ודא זוג VAPID תואם ורענן מנוי');
-            } else if (nonZero.length) {
-              setPushStatus('כשל שליחה (קודים: ' + nonZero.join(', ') + ')');
-            } else if (Array.isArray(j.errors) && j.errors.length) {
-              const first = j.errors.find(e => !e.status || e.status === 0) || j.errors[0];
-              const msg = (first && first.error) ? String(first.error) : 'שגיאה לא ידועה';
-              setPushStatus('כשל שליחה (0): ' + msg);
-            } else {
-              setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
-            }
-          } else {
-            if (j && j.error === 'no_subscriptions') setPushStatus('אין מנוי פוש לשלח אליו — הפעל התראות');
-            else if (j && j.error === 'missing_vapid_private_key') setPushStatus('חסר VAPID_PRIVATE_KEY בשרת');
-            else if (j && j.error === 'pywebpush_not_available') setPushStatus('שרת: pywebpush לא מותקן/זמין');
-            else if (j && j.error === 'internal_error') setPushStatus('שגיאה פנימית בשרת');
-            else setPushStatus('בדיקת פוש נכשלה');
-          }
-        } catch(e){ setPushStatus('בדיקת פוש נכשלה'); }
-      }
-
-      async function refreshPushUi(){
-        try {
-          // Default: show the CTA text even if SW checks fail (keeps UX consistent)
-          setPushStatus('נדרש להפעיל התראות');
-          if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
-          // Push requires secure context (https or localhost)
-          try {
-            if (window.isSecureContext === false) {
-              setPushStatus('כדי להפעיל התראות פוש צריך HTTPS (או localhost)');
-              return;
-            }
-          } catch (_) {}
-          const st = Notification.permission;
-          let hasSub = false;
-          try {
-            const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
-            const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
-            hasSub = !!sub;
-          } catch(_) {}
-          if (st === 'granted' && hasSub) setPushStatus('התראות מופעלות בדפדפן זה');
-          else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
-          else setPushStatus('נדרש להפעיל התראות');
-        } catch(_) {
-          // Keep a deterministic status instead of "unknown"
-          try { setPushStatus('נדרש להפעיל התראות'); } catch (_) {}
-        }
-      }
-
-      if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
-      if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
-      if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
-      try {
-        pushEnableBtn.setAttribute('data-bound', '1');
-        pushDisableBtn.setAttribute('data-bound', '1');
-        pushTestBtn.setAttribute('data-bound', '1');
-      } catch (_) {}
-      refreshPushUi();
-      }
-      {% endif %}
+      // Web Push handlers are bound in a separate script block (below),
+      // so they still work even if this large settings script crashes.
 
     })();
     </script>
 
-    {# Web Push: keep a small ES5-safe binder so buttons work even if the big settings script fails in older WebViews #}
+    {# Web Push: bind in an isolated script so failures elsewhere won't break it #}
     {% if show_web_push_settings %}
     <script>
-      (function () {
+      (function(){
         try {
-          function byId(id) { return document.getElementById(id); }
-          function setStatus(text) {
-            var el = byId('pushStatus');
-            if (el) el.textContent = String(text || '');
-          }
-
-          function urlBase64ToUint8Array(base64String) {
+          function _el(id){ return document.getElementById(id); }
+          function _set(text){ var s = _el('pushStatus'); if (s) s.textContent = String(text || ''); }
+          function _urlBase64ToUint8Array(base64String) {
             var padding = Array((4 - (base64String.length % 4)) % 4 + 1).join('=');
             var base64 = String(base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
             var rawData = window.atob(base64);
@@ -3075,84 +2890,81 @@
             for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
             return outputArray;
           }
-
-          function registerSw() {
+          function _registerSw() {
             if (!('serviceWorker' in navigator)) return Promise.reject(new Error('ServiceWorker לא נתמך'));
-            return navigator.serviceWorker.register('/sw.js').then(function (reg) {
-              try { return navigator.serviceWorker.ready.then(function () { return reg; }).catch(function () { return reg; }); }
+            return navigator.serviceWorker.register('/sw.js').then(function(reg){
+              try { return navigator.serviceWorker.ready.then(function(){ return reg; }).catch(function(){ return reg; }); }
               catch (_) { return reg; }
             });
           }
-
-          function getRegistration() {
+          function _getReg() {
             if (!('serviceWorker' in navigator)) return Promise.reject(new Error('ServiceWorker לא נתמך'));
-            return navigator.serviceWorker.getRegistration().then(function (reg) {
+            return navigator.serviceWorker.getRegistration().then(function(reg){
               if (reg) return reg;
-              return registerSw();
-            }).catch(function () { return registerSw(); });
+              return _registerSw();
+            }).catch(function(){ return _registerSw(); });
           }
-
-          function getVapid() {
+          function _getVapid() {
             return fetch('/api/push/public-key', { cache: 'no-store', credentials: 'include' })
-              .then(function (r) { return r.json().catch(function () { return {}; }); })
-              .then(function (j) {
+              .then(function(r){ return r.json().catch(function(){ return {}; }); })
+              .then(function(j){
                 if (!j || j.ok === false || !j.vapidPublicKey) throw new Error('מפתח VAPID לא זמין');
                 return j.vapidPublicKey;
               });
           }
 
-          function enablePush() {
-            setStatus('בודק תמיכה בדפדפן...');
-            if (!('Notification' in window)) { setStatus('התראות לא נתמכות בדפדפן'); return; }
-            if (!('PushManager' in window)) { setStatus('PushManager לא נתמך'); return; }
-            getRegistration().then(function (reg) {
-              return reg.pushManager.getSubscription().then(function (existing) {
+          window.__ckPushEnable = function(){
+            try {
+              _set('בודק תמיכה בדפדפן...');
+              if (!('Notification' in window)) { _set('התראות לא נתמכות בדפדפן'); return; }
+              if (!('serviceWorker' in navigator)) { _set('ServiceWorker לא נתמך'); return; }
+              if (!('PushManager' in window)) { _set('PushManager לא נתמך'); return; }
+            } catch (_) {}
+            _getReg().then(function(reg){
+              return reg.pushManager.getSubscription().then(function(existing){
                 if (existing) {
-                  // Best-effort sync to server
                   return fetch('/api/push/subscribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
                     body: JSON.stringify(existing),
-                  }).catch(function () {}).then(function () {
-                    setStatus('ההתראות כבר מופעלות');
-                  });
+                  }).catch(function(){}).then(function(){ _set('ההתראות כבר מופעלות'); });
                 }
-                return Notification.requestPermission().then(function (perm) {
-                  if (perm !== 'granted') { setStatus('הרשאת התראות נדחתה'); return; }
-                  setStatus('נרשם Service Worker...');
-                  return getVapid().then(function (key) {
+                return Notification.requestPermission().then(function(perm){
+                  if (perm !== 'granted') { _set('הרשאת התראות נדחתה'); return; }
+                  _set('נרשם Service Worker...');
+                  return _getVapid().then(function(key){
                     return reg.pushManager.subscribe({
                       userVisibleOnly: true,
-                      applicationServerKey: urlBase64ToUint8Array(key),
-                    }).then(function (sub) {
+                      applicationServerKey: _urlBase64ToUint8Array(key),
+                    }).then(function(sub){
                       return fetch('/api/push/subscribe', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'include',
                         body: JSON.stringify(sub),
-                      }).then(function (resp) {
-                        return resp.json().catch(function () { return {}; }).then(function (j) {
+                      }).then(function(resp){
+                        return resp.json().catch(function(){ return {}; }).then(function(j){
                           if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
-                          setStatus('התראות הופעלו בהצלחה');
+                          _set('התראות הופעלו בהצלחה');
                         });
                       });
                     });
                   });
                 });
               });
-            }).catch(function (e) {
-              setStatus('שגיאה בהפעלת התראות');
-              try { console.warn('enablePush failed', e); } catch (_) {}
+            }).catch(function(e){
+              _set('שגיאה בהפעלת התראות');
+              try { console.warn('push enable failed', e); } catch (_) {}
             });
-          }
+          };
 
-          function disablePush() {
-            setStatus('מכבה התראות...');
-            if (!('serviceWorker' in navigator)) { setStatus('הדפדפן לא תומך בהתראות'); return; }
-            getRegistration().then(function (reg) {
-              return reg.pushManager.getSubscription().then(function (sub) {
-                if (!sub) { setStatus('ההתראות כבר כבויות'); return; }
+          window.__ckPushDisable = function(){
+            _set('מכבה התראות...');
+            if (!('serviceWorker' in navigator)) { _set('הדפדפן לא תומך בהתראות'); return; }
+            _getReg().then(function(reg){
+              return reg.pushManager.getSubscription().then(function(sub){
+                if (!sub) { _set('ההתראות כבר כבויות'); return; }
                 try {
                   var ep = sub && typeof sub.endpoint === 'string' ? sub.endpoint : '';
                   if (ep) {
@@ -3161,87 +2973,74 @@
                       headers: { 'Content-Type': 'application/json' },
                       credentials: 'include',
                       body: JSON.stringify({ endpoint: ep }),
-                    }).catch(function () {});
+                    }).catch(function(){});
                   }
                 } catch (_) {}
-                return sub.unsubscribe().catch(function () {}).then(function () {
-                  setStatus('התראות כובו');
-                });
+                return sub.unsubscribe().catch(function(){}).then(function(){ _set('התראות כובו'); });
               });
-            }).catch(function (e) {
-              setStatus('שגיאה בכיבוי התראות');
-              try { console.warn('disablePush failed', e); } catch (_) {}
+            }).catch(function(e){
+              _set('שגיאה בכיבוי התראות');
+              try { console.warn('push disable failed', e); } catch (_) {}
             });
-          }
+          };
 
-          function testPush() {
-            setStatus('שולח פוש בדיקה...');
+          window.__ckPushTest = function(){
+            _set('שולח פוש בדיקה...');
             fetch('/api/push/test', { method: 'POST', credentials: 'include' })
-              .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; }); })
-              .then(function (out) {
+              .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { r: r, j: j }; }); })
+              .then(function(out){
                 if (out.r && out.r.ok && out.j && out.j.ok) {
-                  if ((out.j.sent || 0) > 0) { setStatus('נשלחה התראת בדיקה'); return; }
-                  setStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
+                  if ((out.j.sent || 0) > 0) { _set('נשלחה התראת בדיקה'); return; }
+                  _set('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
                   return;
                 }
-                if (out.j && out.j.error === 'no_subscriptions') setStatus('אין מנוי פוש לשלח אליו — הפעל התראות');
-                else if (out.j && out.j.error === 'missing_vapid_private_key') setStatus('חסר VAPID_PRIVATE_KEY בשרת');
-                else if (out.j && out.j.error === 'pywebpush_not_available') setStatus('שרת: pywebpush לא מותקן/זמין');
-                else setStatus('בדיקת פוש נכשלה');
+                if (out.j && out.j.error === 'no_subscriptions') _set('אין מנוי פוש לשלח אליו — הפעל התראות');
+                else if (out.j && out.j.error === 'missing_vapid_private_key') _set('חסר VAPID_PRIVATE_KEY בשרת');
+                else if (out.j && out.j.error === 'pywebpush_not_available') _set('שרת: pywebpush לא מותקן/זמין');
+                else if (out.j && out.j.error === 'internal_error') _set('שגיאה פנימית בשרת');
+                else _set('בדיקת פוש נכשלה');
               })
-              .catch(function (e) {
-                setStatus('בדיקת פוש נכשלה');
-                try { console.warn('testPush failed', e); } catch (_) {}
+              .catch(function(e){
+                _set('בדיקת פוש נכשלה');
+                try { console.warn('push test failed', e); } catch (_) {}
               });
-          }
+          };
 
-          function refreshPushUi() {
+          function refreshPushUi(){
             try {
-              // Default status (even if SW probing fails)
-              setStatus('נדרש להפעיל התראות');
-              if (!('Notification' in window)) { setStatus('הדפדפן לא תומך בהתראות'); return; }
-              try {
-                if (window.isSecureContext === false) {
-                  setStatus('כדי להפעיל התראות פוש צריך HTTPS (או localhost)');
-                  return;
-                }
-              } catch (_) {}
+              if (!('Notification' in window)) { _set('הדפדפן לא תומך בהתראות'); return; }
               var st = Notification.permission;
-              if (st === 'denied') { setStatus('המשתמש חסם התראות – יש לאפשר ידנית'); return; }
-              getRegistration().then(function (reg) {
-                return reg.pushManager.getSubscription().then(function (sub) {
-                  if (st === 'granted' && sub) setStatus('התראות מופעלות בדפדפן זה');
-                  else setStatus('נדרש להפעיל התראות');
+              var hasSub = false;
+              _getReg().then(function(reg){
+                return reg.pushManager.getSubscription().then(function(sub){
+                  hasSub = !!sub;
+                  if (st === 'granted' && hasSub) _set('התראות מופעלות בדפדפן זה');
+                  else if (st === 'denied') _set('המשתמש חסם התראות – יש לאפשר ידנית');
+                  else _set('נדרש להפעיל התראות');
                 });
-              }).catch(function () {
-                // If SW isn't supported/available, keep default CTA status.
+              }).catch(function(){
+                // If SW isn't available, fall back to permission-only state.
+                if (st === 'denied') _set('המשתמש חסם התראות – יש לאפשר ידנית');
+                else _set('נדרש להפעיל התראות');
               });
             } catch (_) {
-              setStatus('נדרש להפעיל התראות');
+              _set('מצב לא ידוע');
             }
           }
 
-          function bind() {
-            var enableBtn = byId('pushEnableBtn');
-            var disableBtn = byId('pushDisableBtn');
-            var testBtn = byId('pushTestBtn');
-            if (!enableBtn || !disableBtn || !testBtn) return;
-            if (enableBtn.getAttribute('data-bound') === '1') return;
-            enableBtn.addEventListener('click', function (e) { try { e.preventDefault(); } catch (_) {} enablePush(); });
-            disableBtn.addEventListener('click', function (e) { try { e.preventDefault(); } catch (_) {} disablePush(); });
-            testBtn.addEventListener('click', function (e) { try { e.preventDefault(); } catch (_) {} testPush(); });
-            try {
-              enableBtn.setAttribute('data-bound', '1');
-              disableBtn.setAttribute('data-bound', '1');
-              testBtn.setAttribute('data-bound', '1');
-            } catch (_) {}
-            refreshPushUi();
-          }
+          // Also bind via addEventListener for keyboard/accessibility; onclick handlers call the same funcs.
+          try {
+            var eBtn = _el('pushEnableBtn');
+            var dBtn = _el('pushDisableBtn');
+            var tBtn = _el('pushTestBtn');
+            if (eBtn) eBtn.addEventListener('click', function(ev){ try { ev.preventDefault(); } catch(_) {} window.__ckPushEnable(); });
+            if (dBtn) dBtn.addEventListener('click', function(ev){ try { ev.preventDefault(); } catch(_) {} window.__ckPushDisable(); });
+            if (tBtn) tBtn.addEventListener('click', function(ev){ try { ev.preventDefault(); } catch(_) {} window.__ckPushTest(); });
+          } catch (_) {}
 
-          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
-          else bind();
+          refreshPushUi();
         } catch (e) {
-          try { console.warn('push settings binder failed', e); } catch (_) {}
+          try { console.warn('push settings init failed', e); } catch (_) {}
         }
       })();
     </script>
