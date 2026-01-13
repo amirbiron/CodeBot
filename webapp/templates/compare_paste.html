@@ -177,6 +177,40 @@
     to { transform: rotate(360deg); }
 }
 
+/* Fallback diff highlighting (in case compare.css fails to load) */
+.diff-line.added,
+.unified-line.added {
+    background: var(--diff-added-bg, rgba(40, 167, 69, 0.15));
+}
+
+.diff-line.removed,
+.unified-line.removed {
+    background: var(--diff-removed-bg, rgba(220, 53, 69, 0.15));
+}
+
+.diff-line.modified,
+.unified-line.modified {
+    background: var(--diff-modified-bg, rgba(255, 193, 7, 0.1));
+}
+
+.diff-line.added { border-right: 2px solid var(--diff-added-border, rgba(40, 167, 69, 0.4)); }
+.diff-line.removed { border-right: 2px solid var(--diff-removed-border, rgba(220, 53, 69, 0.4)); }
+.diff-line.modified { border-right: 2px solid var(--diff-modified-border, rgba(255, 193, 7, 0.4)); }
+
+.inline-added {
+    background: rgba(40, 167, 69, 0.35);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+.inline-removed {
+    background: rgba(220, 53, 69, 0.35);
+    text-decoration: line-through;
+    border-radius: 2px;
+    padding: 0 1px;
+    opacity: 0.8;
+}
+
 /* Clear Buttons */
 .paste-actions-row {
     display: flex;
@@ -764,10 +798,15 @@
         const lines = [];
 
         data.lines.forEach(line => {
-            // "modified" מכיל גם ישן וגם חדש — נציג 2 שורות (אדום ואז ירוק)
-            if (line.change_type === 'modified') {
-                lines.push(createDiffLine(line.line_num_left, line.content_left, 'removed'));
-                lines.push(createDiffLine(line.line_num_right, line.content_right, 'added'));
+            // "modified" — הדגשה ברמת תווים (כמו compare.js)
+            if (line.change_type === 'modified' && line.content_left && line.content_right) {
+                const highlighted = highlightInlineDiff(line.content_left, line.content_right);
+                lines.push(`
+                    <div class="diff-line modified">
+                        <div class="line-number">${line.line_num_right ?? ''}</div>
+                        <div class="line-content">${highlighted}</div>
+                    </div>
+                `);
                 return;
             }
             lines.push(createDiffLine(
@@ -790,6 +829,86 @@
                 <div class="line-content"><pre>${escaped}</pre></div>
             </div>
         `;
+    }
+
+    // =================================================================
+    // Inline character-level diff (LCS) — copied from compare.js behavior
+    // =================================================================
+
+    function highlightInlineDiff(oldText, newText) {
+        const result = [];
+        const oldChars = [...String(oldText || '')];
+        const newChars = [...String(newText || '')];
+
+        const lcs = computeLCS(oldChars, newChars);
+
+        let oldIdx = 0;
+        let newIdx = 0;
+        let lcsIdx = 0;
+
+        while (oldIdx < oldChars.length || newIdx < newChars.length) {
+            if (lcsIdx < lcs.length) {
+                while (oldIdx < oldChars.length && oldChars[oldIdx] !== lcs[lcsIdx]) {
+                    result.push(`<span class="inline-removed">${escapeHtml(oldChars[oldIdx])}</span>`);
+                    oldIdx++;
+                }
+
+                while (newIdx < newChars.length && newChars[newIdx] !== lcs[lcsIdx]) {
+                    result.push(`<span class="inline-added">${escapeHtml(newChars[newIdx])}</span>`);
+                    newIdx++;
+                }
+
+                if (oldIdx < oldChars.length && newIdx < newChars.length) {
+                    result.push(escapeHtml(newChars[newIdx]));
+                    oldIdx++;
+                    newIdx++;
+                    lcsIdx++;
+                }
+            } else {
+                while (oldIdx < oldChars.length) {
+                    result.push(`<span class="inline-removed">${escapeHtml(oldChars[oldIdx])}</span>`);
+                    oldIdx++;
+                }
+                while (newIdx < newChars.length) {
+                    result.push(`<span class="inline-added">${escapeHtml(newChars[newIdx])}</span>`);
+                    newIdx++;
+                }
+            }
+        }
+
+        return result.join('');
+    }
+
+    function computeLCS(arr1, arr2) {
+        const m = arr1.length;
+        const n = arr2.length;
+        const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+        for (let i = 1; i <= m; i++) {
+            for (let j = 1; j <= n; j++) {
+                if (arr1[i - 1] === arr2[j - 1]) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+        }
+
+        const lcs = [];
+        let i = m, j = n;
+        while (i > 0 && j > 0) {
+            if (arr1[i - 1] === arr2[j - 1]) {
+                lcs.unshift(arr1[i - 1]);
+                i--;
+                j--;
+            } else if (dp[i - 1][j] > dp[i][j - 1]) {
+                i--;
+            } else {
+                j--;
+            }
+        }
+
+        return lcs;
     }
     
     function getLeftClass(changeType) {
