@@ -2073,8 +2073,7 @@ class AdvancedBotHandlers:
 
             # Recent errors (limited)
             try:
-                from observability import get_recent_errors  # type: ignore
-                recent = get_recent_errors(limit=5) or []
+                from observability import get_recent_errors                recent = get_recent_errors(limit=5) or []
             except Exception:
                 recent = []
             if recent:
@@ -2100,8 +2099,7 @@ class AdvancedBotHandlers:
             if verbose_level >= 2 and source in {"db", "all"}:
                 try:
                     if db_ok:
-                        from monitoring.alerts_storage import list_recent_alert_ids  # type: ignore
-                        ids = list_recent_alert_ids(limit=10) or []
+                        from monitoring.alerts_storage import list_recent_alert_ids                        ids = list_recent_alert_ids(limit=10) or []
                     else:
                         ids = []
                 except Exception:
@@ -2132,8 +2130,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
             try:
-                from internal_alerts import get_recent_alerts  # type: ignore
-                items = get_recent_alerts(limit=5) or []
+                from internal_alerts import get_recent_alerts                items = get_recent_alerts(limit=5) or []
             except Exception:
                 items = []
             if not items:
@@ -2160,8 +2157,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
             try:
-                from remediation_manager import get_incidents  # type: ignore
-                items = get_incidents(limit=5) or []
+                from remediation_manager import get_incidents                items = get_incidents(limit=5) or []
             except Exception:
                 items = []
             lines = ["🧠 תקלות אחרונות:"]
@@ -2174,8 +2170,7 @@ class AdvancedBotHandlers:
                 lines.append(f"{i}. {name} — {ts} — action: {action}")
             # הרחבה: תחזיות פעילות (Observability v6)
             try:
-                from predictive_engine import get_recent_predictions  # type: ignore
-                preds = get_recent_predictions(limit=3) or []
+                from predictive_engine import get_recent_predictions                preds = get_recent_predictions(limit=3) or []
             except Exception:
                 preds = []
             lines.append("\n🔮 תחזיות פעילות:")
@@ -2202,8 +2197,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
             try:
-                from predictive_engine import evaluate_predictions, note_observation  # type: ignore
-            except Exception:
+                from predictive_engine import evaluate_predictions, note_observation            except Exception:
                 await update.message.reply_text("ℹ️ מנוע חיזוי אינו זמין בסביבה זו")
                 return
             horizon = 3 * 60 * 60  # 3h
@@ -2282,9 +2276,8 @@ class AdvancedBotHandlers:
 
             # duration parse & bounds
             try:
-                from monitoring.silences import parse_duration_to_seconds  # type: ignore
-                max_days_env = int(_os.getenv("SILENCE_MAX_DAYS", "7") or 7)
-                dur_sec = parse_duration_to_seconds(duration_str, max_days=max_days_env)  # type: ignore[arg-type]
+                from monitoring.silences import parse_duration_to_seconds                max_days_env = int(_os.getenv("SILENCE_MAX_DAYS", "7") or 7)
+                dur_sec = parse_duration_to_seconds(duration_str, max_days=max_days_env)[arg-type]
             except Exception:
                 # Fallback lightweight parser (supports Ns/Nm/Nh/Nd)
                 try:
@@ -2331,9 +2324,7 @@ class AdvancedBotHandlers:
                     return
 
             # Dynamically resolve monitoring.silences to respect test monkeypatching
-            import sys as _sys, importlib as _il  # type: ignore
-            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')  # type: ignore
-            doc = sil.create_silence(pattern=pattern, duration_seconds=int(dur_sec), created_by=user_id, reason=reason, severity=severity, force=bool(force))
+            import sys as _sys, importlib as _il            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')            doc = sil.create_silence(pattern=pattern, duration_seconds=int(dur_sec), created_by=user_id, reason=reason, severity=severity, force=bool(force))
             if not doc:
                 await update.message.reply_text("❌ יצירת השתקה נכשלה (בדוק מגבלות/תבנית/DB)")
                 return
@@ -2351,9 +2342,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("ℹ️ שימוש: /unsilence <id|pattern>")
                 return
             target = " ".join(args).strip()
-            import sys as _sys, importlib as _il  # type: ignore
-            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')  # type: ignore
-            # Heuristic: id is 32-hex (uuid hex); else treat as pattern
+            import sys as _sys, importlib as _il            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')            # Heuristic: id is 32-hex (uuid hex); else treat as pattern
             import re as _re
             if _re.fullmatch(r"[0-9a-fA-F]{32}", target):
                 ok = sil.unsilence_by_id(target)
@@ -2368,9 +2357,7 @@ class AdvancedBotHandlers:
     async def silences_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/silences – list active silences."""
         try:
-            import sys as _sys, importlib as _il  # type: ignore
-            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')  # type: ignore
-            items = sil.list_active_silences(limit=50) or []
+            import sys as _sys, importlib as _il            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')            items = sil.list_active_silences(limit=50) or []
             if not items:
                 await update.message.reply_text("ℹ️ אין השתקות פעילות")
                 return
@@ -2402,8 +2389,7 @@ class AdvancedBotHandlers:
             accuracy = None
             prevented_total = 0
             try:
-                from metrics import prediction_accuracy_percent, prevented_incidents_total  # type: ignore
-                if prediction_accuracy_percent is not None:
+                from metrics import prediction_accuracy_percent, prevented_incidents_total                if prediction_accuracy_percent is not None:
                     # Gauges in prometheus_client expose _value.get()
                     accuracy = float(getattr(getattr(prediction_accuracy_percent, "_value", None), "get", lambda: 0.0)())
                 if prevented_incidents_total is not None:
@@ -2421,8 +2407,7 @@ class AdvancedBotHandlers:
             # גיבוי: חישוב זריז מתוך predictive_engine (אם gauge לא קיים)
             if accuracy is None:
                 try:
-                    from predictive_engine import get_recent_predictions  # type: ignore
-                    preds = get_recent_predictions(limit=200) or []
+                    from predictive_engine import get_recent_predictions                    preds = get_recent_predictions(limit=200) or []
                     accuracy = 100.0 if preds else 0.0
                 except Exception:
                     accuracy = 0.0
@@ -2608,8 +2593,7 @@ class AdvancedBotHandlers:
                     await _reply_safe("ℹ️ שימוש: /errors examples <error_signature>")
                     return
                 try:
-                    from observability import get_recent_errors  # type: ignore
-                    examples = []
+                    from observability import get_recent_errors                    examples = []
                     for er in (get_recent_errors(limit=200) or []):
                         sig = str(er.get("error_signature") or er.get("event") or "")
                         if sig == signature:
@@ -2638,8 +2622,7 @@ class AdvancedBotHandlers:
             # בלי לערבב "Sentry issues אחרונים" שאינם קשורים בהכרח לטווח המבוקש.
             if explicit_time_range and start_dt and end_dt:
                 try:
-                    from observability import get_recent_errors  # type: ignore
-                    from datetime import datetime, timezone
+                    from observability import get_recent_errors                    from datetime import datetime, timezone
 
                     def _parse_ts(ts: str) -> Optional[datetime]:
                         try:
@@ -2792,8 +2775,7 @@ class AdvancedBotHandlers:
 
             # 1) Sentry-first (best-effort): recent unresolved issues
             try:
-                import integrations_sentry as _sentry  # type: ignore
-                if getattr(_sentry, "is_configured", None) and _sentry.is_configured():
+                import integrations_sentry as _sentry                if getattr(_sentry, "is_configured", None) and _sentry.is_configured():
                     issues = await _sentry.get_recent_issues(limit=10)
                     if issues:
                         lines.append("Sentry – issues אחרונים:")
@@ -2809,8 +2791,7 @@ class AdvancedBotHandlers:
 
             # 2) Local Top signatures from recent errors buffer, across windows
             try:
-                from observability import get_recent_errors  # type: ignore
-                from datetime import datetime, timezone
+                from observability import get_recent_errors                from datetime import datetime, timezone
 
                 def _parse_ts(ts: str) -> Optional[datetime]:
                     try:
@@ -3000,9 +2981,7 @@ class AdvancedBotHandlers:
                     now_dt = datetime.now(timezone.utc)
                     start_dt = now_dt - timedelta(minutes=5)
                 except Exception:
-                    now_dt = None  # type: ignore
-                    start_dt = None  # type: ignore
-
+                    now_dt = None                    start_dt = None
                 # --- Request stats (prefer DB-backed metrics; fallback to in-memory alert_manager) ---
                 total = errors = 0
                 err_rate = avg_lat = 0.0
@@ -3011,8 +2990,7 @@ class AdvancedBotHandlers:
 
                 # 1) DB-backed metrics (shared across processes/services)
                 try:
-                    from monitoring import metrics_storage as ms  # type: ignore
-
+                    from monitoring import metrics_storage as ms
                     if start_dt is not None and now_dt is not None:
                         ratio = ms.aggregate_error_ratio(start_dt=start_dt, end_dt=now_dt)
                         total = int(ratio.get("total", 0) or 0)
@@ -3056,8 +3034,7 @@ class AdvancedBotHandlers:
                 # 2) In-memory alert_manager fallback (works only when bot+webapp share a process)
                 if stats_source != "db":
                     try:
-                        import alert_manager as am  # type: ignore
-
+                        import alert_manager as am
                         try:
                             err_rate = float(am.get_current_error_rate_percent(window_sec=5 * 60, source="internal"))
                         except Exception:
@@ -3093,8 +3070,7 @@ class AdvancedBotHandlers:
                 mem_mb = 0.0
                 uptime_s = 0.0
                 try:
-                    from metrics import get_active_requests_count, get_current_memory_usage, get_process_uptime_seconds  # type: ignore
-
+                    from metrics import get_active_requests_count, get_current_memory_usage, get_process_uptime_seconds
                     try:
                         active_requests = int(get_active_requests_count())
                     except Exception:
@@ -3162,8 +3138,7 @@ class AdvancedBotHandlers:
             # איסוף נתונים דרך שירות ה-investigation (Sentry-first, best-effort)
             result: dict = {}
             try:
-                from services import investigation_service as inv  # type: ignore
-                result = await inv.triage(query, limit=20)
+                from services import investigation_service as inv                result = await inv.triage(query, limit=20)
             except Exception:
                 result = {"query": query, "timeline": [], "summary_text": ""}
 
@@ -3176,8 +3151,7 @@ class AdvancedBotHandlers:
             # שיתוף דוח HTML מלא כ-share פנימי
             share_url = None
             try:
-                from integrations import code_sharing  # type: ignore
-                html_doc = str(result.get("summary_html") or "")
+                from integrations import code_sharing                html_doc = str(result.get("summary_html") or "")
                 share = await code_sharing.share_code(
                     "internal", f"triage-{query}.html", html_doc, "html", description="Triage report"
                 )
@@ -3266,8 +3240,7 @@ class AdvancedBotHandlers:
             import sys, platform
             # Uptime – השתמש בפונקציה ייעודית מ-metrics
             try:
-                from metrics import get_process_uptime_seconds  # type: ignore
-                uptime_sec = float(get_process_uptime_seconds())
+                from metrics import get_process_uptime_seconds                uptime_sec = float(get_process_uptime_seconds())
             except Exception:
                 uptime_sec = 0.0
 
@@ -3311,15 +3284,12 @@ class AdvancedBotHandlers:
             mem_part = "unknown"
             try:
                 try:
-                    import psutil  # type: ignore
-                except Exception:
-                    psutil = None  # type: ignore
-                if psutil is not None:
+                    import psutil                except Exception:
+                    psutil = None                if psutil is not None:
                     p = psutil.Process(os.getpid())
                     mem_part = _fmt_bytes(int(getattr(p.memory_info(), 'rss', 0)))
                 else:
-                    import resource  # type: ignore
-                    rss_kb = int(getattr(resource.getrusage(resource.RUSAGE_SELF), 'ru_maxrss', 0))
+                    import resource                    rss_kb = int(getattr(resource.getrusage(resource.RUSAGE_SELF), 'ru_maxrss', 0))
                     mem_part = _fmt_bytes(rss_kb * 1024)
             except Exception:
                 mem_part = "unknown"
@@ -3356,8 +3326,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
 
-            from metrics import metrics_endpoint_bytes, get_uptime_percentage  # type: ignore
-            payload: bytes
+            from metrics import metrics_endpoint_bytes, get_uptime_percentage            payload: bytes
             try:
                 payload = metrics_endpoint_bytes() or b""
             except Exception:
@@ -3481,8 +3450,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text(f"ℹ️ לא ניתן להריץ clear_stale כי {reason}.")
                 return
 
-            from cache_manager import cache as global_cache  # type: ignore
-
+            from cache_manager import cache as global_cache
             if not getattr(global_cache, "is_enabled", False):
                 await update.message.reply_text("ℹ️ Redis/Cache אינו פעיל בסביבה זו – אין מה לנקות.")
                 return
@@ -3499,8 +3467,7 @@ class AdvancedBotHandlers:
                 f"• נמחקו בקירוב: {int(deleted):,} מפתחות",
             ]
             try:
-                from observability import emit_event as _emit_event  # type: ignore
-            except Exception:
+                from observability import emit_event as _emit_event            except Exception:
                 _emit_event = None  # type: ignore
             if callable(_emit_event):
                 try:
@@ -4556,7 +4523,7 @@ class AdvancedBotHandlers:
                     )
                 finally:
                     try:
-                        gen.cleanup()  # type: ignore[attr-defined]
+                        gen.cleanup()
                     except Exception:
                         pass
                 bio = io.BytesIO(img)
@@ -4734,7 +4701,7 @@ class AdvancedBotHandlers:
                     payload = {k: eff[k] for k in ("theme", "width", "font") if k in eff}
                     if payload:
                         try:
-                            _call_files_api("save_image_prefs", user_id, payload)  # type: ignore[attr-defined]
+                            _call_files_api("save_image_prefs", user_id, payload)
                         except Exception:
                             # אם אין method זמין (במצב ללא DB), דלג בשקט
                             pass
@@ -4801,13 +4768,12 @@ class AdvancedBotHandlers:
                     )
                 finally:
                     try:
-                        gen.cleanup()  # type: ignore[attr-defined]
+                        gen.cleanup()
                     except Exception:
                         pass
                 # העלאה ל-Drive
                 try:
-                    from services.google_drive_service import upload_bytes  # type: ignore
-                    fid = upload_bytes(user_id, filename=f"{file_name}.png", data=img, sub_path="code_images")
+                    from services.google_drive_service import upload_bytes                    fid = upload_bytes(user_id, filename=f"{file_name}.png", data=img, sub_path="code_images")
                 except Exception:
                     fid = None
                 if fid:
@@ -4843,8 +4809,7 @@ class AdvancedBotHandlers:
                     return
                 # אסוף עד 5 דוגמאות מהבאפר המקומי
                 try:
-                    from observability import get_recent_errors  # type: ignore
-                    examples = []
+                    from observability import get_recent_errors                    examples = []
                     for er in (get_recent_errors(limit=200) or []):
                         if str(er.get("error_signature") or er.get("event") or "") == sig:
                             ts = str(er.get("ts") or er.get("timestamp") or "")
@@ -5593,7 +5558,7 @@ class AdvancedBotHandlers:
                 )
             finally:
                 try:
-                    generator.cleanup()  # type: ignore[attr-defined]
+                    generator.cleanup()
                 except Exception:
                     pass
 
@@ -5687,7 +5652,7 @@ class AdvancedBotHandlers:
                 image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=prev_w, max_height=1500)
             finally:
                 try:
-                    generator.cleanup()  # type: ignore[attr-defined]
+                    generator.cleanup()
                 except Exception:
                     pass
             bio = io.BytesIO(image_bytes)
@@ -5795,7 +5760,7 @@ class AdvancedBotHandlers:
         finally:
             if generator is not None:
                 try:
-                    generator.cleanup()  # type: ignore[attr-defined]
+                    generator.cleanup()
                 except Exception:
                     pass
         msg = f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."
@@ -5832,8 +5797,7 @@ async def check_db_connection() -> bool:
 
         # Motor (עדיף אסינכרוני)
         try:
-            import motor.motor_asyncio as _motor  # type: ignore
-            client = _motor.AsyncIOMotorClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            import motor.motor_asyncio as _motor            client = _motor.AsyncIOMotorClient(mongodb_uri, serverSelectionTimeoutMS=3000)
             try:
                 await client.admin.command('ping')
                 return True
@@ -5847,8 +5811,7 @@ async def check_db_connection() -> bool:
 
         # PyMongo (סינכרוני)
         try:
-            from pymongo import MongoClient  # type: ignore
-            client2 = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            from pymongo import MongoClient            client2 = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
             try:
                 client2.admin.command('ping')
                 return True
