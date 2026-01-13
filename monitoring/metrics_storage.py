@@ -78,7 +78,8 @@ def _enabled() -> bool:
 # Lazily-initialized PyMongo client/collection
 _client = None  # type: ignore
 _collection = None  # type: ignore
-_init_failed = False
+_init_failed = False  # True when initialization permanently failed (e.g., pymongo missing)
+_write_disabled = False  # True when writes are intentionally disabled (not a failure)
 _buf: deque[Dict[str, Any]] = deque()
 _lock = Lock()
 _last_flush_ts: float = time.time()
@@ -156,16 +157,27 @@ def _get_collection(*, for_read: bool = True):  # pragma: no cover - exercised i
         for_read: If True, allows connection even when writes are disabled.
                   This enables the Observability dashboard to show historical data.
     """
-    global _client, _collection, _init_failed
-    if _collection is not None or _init_failed:
+    global _client, _collection, _init_failed, _write_disabled
+
+    # If already initialized successfully, return the collection
+    if _collection is not None:
         return _collection
+
+    # If initialization permanently failed (e.g., pymongo missing), don't retry
+    if _init_failed:
+        return None
+
+    # If writes are disabled and this is a write request, return None
+    # but allow read requests to proceed with initialization
+    if _write_disabled and not for_read:
+        return None
 
     # Check if we should connect based on read/write mode
     enabled = _read_enabled() if for_read else _write_enabled()
     if not enabled:
-        # Don't mark _init_failed for read-only disable - allow future write attempts
+        # Mark write_disabled (not init_failed) so reads can still work
         if not for_read:
-            _init_failed = True
+            _write_disabled = True
         return None
 
     try:
