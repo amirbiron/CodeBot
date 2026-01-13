@@ -51,15 +51,16 @@ def _read_enabled() -> bool:
     קריאה מה-DB נשארת פעילה תמיד (אלא אם מושבתת מפורשות),
     כדי שדשבורד ה-Observability יציג נתונים היסטוריים גם כשהכתיבה מושבתת.
     """
-    if _is_true(os.getenv("DISABLE_DB")):
-        return False
     if _is_true(os.getenv("DISABLE_ALERTS_READS")):
         return False
-    # אם ALERTS_DB_ENABLED=true או METRICS_DB_ENABLED=true - אפשר לקרוא
+    # Explicit opt-in wins over global disable (tests often set DISABLE_DB=1 by default).
+    # אם ALERTS_DB_ENABLED=true או METRICS_DB_ENABLED=true - אפשר לקרוא (גם אם DISABLE_DB=true)
     if _is_true(os.getenv("ALERTS_DB_ENABLED")):
         return True
     if _is_true(os.getenv("METRICS_DB_ENABLED")):
         return True
+    if _is_true(os.getenv("DISABLE_DB")):
+        return False
     # Fallback: אפשר קריאה אם יש MongoDB URL מוגדר (גם בלי הדגלים)
     return bool(os.getenv("MONGODB_URL"))
 
