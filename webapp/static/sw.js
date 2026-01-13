@@ -20,10 +20,20 @@ self.addEventListener('message', (event) => {
     const msg = event && event.data ? event.data : null;
     if (!msg || msg.type !== 'ck_debug_ping') return;
     const endpointHash = (msg.endpoint_hash && String(msg.endpoint_hash)) || '';
-    reportToServer('debug_ping', 'received', { endpoint_hash: endpointHash || '' });
+    event.waitUntil(
+      Promise.resolve()
+        .then(() => reportToServer('debug_ping', 'received', { endpoint_hash: endpointHash || '' }))
+        .catch((e) => {
+          try {
+            return reportToServer('debug_ping', 'error', { error: String(e) });
+          } catch (_) {
+            return Promise.resolve();
+          }
+        })
+    );
   } catch (e) {
     try {
-      reportToServer('debug_ping', 'error', { error: String(e) });
+      event.waitUntil(reportToServer('debug_ping', 'error', { error: String(e) }));
     } catch (_) {}
   }
 });
@@ -71,7 +81,7 @@ function getEndpointHash() {
 function reportToServer(eventType, status, extra = {}) {
   console.log('[SW] Reporting to server:', eventType, status, extra);
   try {
-    getEndpointHash().then((endpointHash) => {
+    return getEndpointHash().then((endpointHash) => {
       const body = JSON.stringify({
         event: eventType,
         status: status,
@@ -80,7 +90,7 @@ function reportToServer(eventType, status, extra = {}) {
         endpoint_hash: endpointHash || '',
         ...extra
       });
-      fetch('/api/push/sw-report', {
+      return fetch('/api/push/sw-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body,
@@ -93,6 +103,7 @@ function reportToServer(eventType, status, extra = {}) {
     }).catch(() => {});
   } catch (e) {
     console.error('[SW] reportToServer exception:', e);
+    return Promise.resolve();
   }
 }
 
@@ -112,8 +123,10 @@ self.addEventListener('push', (event) => {
       console.log('[SW] event.data exists:', !!event.data);
       console.log('========================================');
       
-      // STEP 2: Send immediate report to server
-      reportToServer('push_received', 'started', { received_at: receivedAt });
+      // STEP 2: Send immediate report to server (await for reliability)
+      try {
+        await reportToServer('push_received', 'started', { received_at: receivedAt });
+      } catch (_) {}
       
       // STEP 3: Extract and parse the push data
       console.log('[SW] Step 3: Extracting push data...');

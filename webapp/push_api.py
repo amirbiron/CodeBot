@@ -1428,8 +1428,29 @@ def list_sw_reports():
         except Exception:
             # Fallback to in-memory (single-worker environments)
             data = list(_SW_REPORTS)[-50:]
-            if req_hash:
-                data = [r for r in data if isinstance(r, dict) and str(r.get("endpoint_hash") or "") == req_hash]
+            variants = _user_id_variants(user_id)
+            out_mem: list[dict[str, Any]] = []
+            for r in data:
+                if not isinstance(r, dict):
+                    continue
+                r_uid = r.get("user_id")
+                r_hash = str(r.get("endpoint_hash") or "")
+                # Match DB behavior:
+                # - no req_hash: user_id only
+                # - req_hash: endpoint_hash OR user_id
+                try:
+                    uid_match = r_uid in variants
+                except Exception:
+                    uid_match = False
+                hash_match = bool(req_hash and r_hash == req_hash)
+                if req_hash:
+                    if not (hash_match or uid_match):
+                        continue
+                else:
+                    if not uid_match:
+                        continue
+                out_mem.append(r)
+            data = out_mem
             return jsonify({"ok": True, "count": len(data), "reports": data}), 200
     except Exception:
         return jsonify({"ok": False, "error": "Failed to load sw reports"}), 500
