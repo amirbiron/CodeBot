@@ -153,7 +153,6 @@
 {# Web Push נשאר במערכת. #}
 {% set show_web_push_settings = true %}
 {% if show_web_push_settings %}
-  {% if push_enabled %}
   <div class="glass-card" id="push">
     <h2 class="section-title">
       <i class="fas fa-bell"></i>
@@ -184,24 +183,16 @@
           <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
         </div>
       </div>
+      {% if not push_enabled %}
+      <div style="opacity: 0.85; margin-top: 0.75rem; font-size: 0.95rem">
+        ⚠️ שליחת פוש אוטומטית כבויה בשרת כרגע (PUSH_NOTIFICATIONS_ENABLED=false). עדיין אפשר להפעיל התראות בדפדפן ולשלוח בדיקת פוש.
+      </div>
+      {% endif %}
       <div id="pushStatus" style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem">
         מצב לא ידוע
       </div>
     </div>
   </div>
-  {% else %}
-  <div class="glass-card" id="push">
-    <h2 class="section-title">
-      <i class="fas fa-bell-slash"></i>
-      התראות דפדפן (Web Push)
-    </h2>
-    <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
-      <div style="opacity: 0.8; font-size: 0.95rem">
-        התראות פוש כבויות במערכת.
-      </div>
-    </div>
-  </div>
-  {% endif %}
 {% endif %}
 
 {% if is_admin %}
@@ -2880,17 +2871,17 @@
 
       {% if show_web_push_settings %}
       // --- Web Push (Service Worker + PushManager) ---
-      const __PUSH_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
-      if (!__PUSH_ENABLED__) {
-        // When push is disabled server-side, skip all push JS logic
-        return;
-      }
+      const __PUSH_SYSTEM_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
       const pushStatus = document.getElementById('pushStatus');
       const pushEnableBtn = document.getElementById('pushEnableBtn');
       const pushDisableBtn = document.getElementById('pushDisableBtn');
       const pushTestBtn = document.getElementById('pushTestBtn');
 
       function setPushStatus(text){ if (pushStatus) pushStatus.textContent = text; }
+      if (!__PUSH_SYSTEM_ENABLED__) {
+        // UI stays available even when server-side sender is disabled
+        setPushStatus('ההתראות זמינות בדפדפן, אבל שליחה אוטומטית מהשרת כבויה כרגע');
+      }
 
       function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
