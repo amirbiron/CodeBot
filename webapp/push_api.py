@@ -33,6 +33,21 @@ def _append_sw_report(item: dict[str, Any]) -> None:
     except Exception:
         pass
 
+def _persist_sw_report_to_db(doc: dict[str, Any]) -> None:
+    """Best-effort persistence for SW reports (for multi-worker setups)."""
+    try:
+        db = get_db()
+    except Exception:
+        return
+    try:
+        coll = db.sw_push_reports
+    except Exception:
+        return
+    try:
+        coll.insert_one(doc)
+    except Exception:
+        return
+
 
 def _env_positive_int(name: str, default: int) -> int:
     try:
@@ -1289,16 +1304,42 @@ def sw_report():
         raw_data = str(payload.get("raw_data") or "")[:500]  # Truncate for safety
         timestamp = str(payload.get("timestamp") or "")
 
-        # Store a short in-memory record for debug UIs (avoid PII: no full endpoints).
+        now_iso = datetime.now(timezone.utc).isoformat()
+        record = {
+            "ts": now_iso,
+            "client_timestamp": timestamp,
+            "event": event_type,
+            "status": status,
+            "error": (error_msg[:240] if error_msg else ""),
+            "raw_data_preview": (raw_data[:160] if raw_data else ""),
+        }
+
+        # Try to attach user_id if session cookie exists (SW fetch is same-origin).
         try:
-            _append_sw_report(
+            uid = session.get("user_id")
+        except Exception:
+            uid = None
+        try:
+            if uid is not None and uid != "":
+                record["user_id"] = uid
+        except Exception:
+            pass
+
+        # Store in-memory (per worker) + persist to DB (cross-worker).
+        try:
+            _append_sw_report(record)
+        except Exception:
+            pass
+        try:
+            _persist_sw_report_to_db(
                 {
-                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "ts": datetime.now(timezone.utc),
                     "client_timestamp": timestamp,
                     "event": event_type,
                     "status": status,
                     "error": (error_msg[:240] if error_msg else ""),
                     "raw_data_preview": (raw_data[:160] if raw_data else ""),
+                    "user_id": uid,
                 }
             )
         except Exception:
@@ -1342,9 +1383,39 @@ def sw_report():
 def list_sw_reports():
     """Return last SW diagnostic reports for the current session (debug aid)."""
     try:
-        # No user filtering here: reports currently don't include user_id and we keep a small buffer.
-        # The goal is to see *if* SW receives pushes at all, and showNotification results.
-        data = list(_SW_REPORTS)[-50:]
-        return jsonify({"ok": True, "count": len(data), "reports": data}), 200
+        user_id = _session_user_id()
+        # Prefer DB (works across multiple Gunicorn workers/processes)
+        try:
+            db = get_db()
+            coll = db.sw_push_reports
+            docs = list(
+                coll.find({"user_id": {"$in": _user_id_variants(user_id)}})
+                .sort("ts", -1)
+                .limit(50)
+            )
+            out: list[dict[str, Any]] = []
+            for d in docs:
+                if not isinstance(d, dict):
+                    continue
+                ts = d.get("ts")
+                try:
+                    ts_s = ts.isoformat() if isinstance(ts, datetime) else str(ts or "")
+                except Exception:
+                    ts_s = ""
+                out.append(
+                    {
+                        "ts": ts_s,
+                        "client_timestamp": str(d.get("client_timestamp") or ""),
+                        "event": str(d.get("event") or ""),
+                        "status": str(d.get("status") or ""),
+                        "error": str(d.get("error") or ""),
+                        "raw_data_preview": str(d.get("raw_data_preview") or ""),
+                    }
+                )
+            return jsonify({"ok": True, "count": len(out), "reports": out}), 200
+        except Exception:
+            # Fallback to in-memory (single-worker environments)
+            data = list(_SW_REPORTS)[-50:]
+            return jsonify({"ok": True, "count": len(data), "reports": data}), 200
     except Exception:
         return jsonify({"ok": False, "error": "Failed to load sw reports"}), 500
