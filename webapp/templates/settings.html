@@ -150,14 +150,11 @@
   </div>
 </div>
 
-{# 
-  Web Push נשאר במערכת, אבל מוסתר מההגדרות כרגע (לא עובד/לא יציב).
-  כדי להחזיר למסך ההגדרות: החלף ל-true.
-#}
-{% set show_web_push_settings = false %}
+{# Web Push נשאר במערכת. #}
+{% set show_web_push_settings = true %}
 {% if show_web_push_settings %}
   {% if push_enabled %}
-  <div class="glass-card">
+  <div class="glass-card" id="push">
     <h2 class="section-title">
       <i class="fas fa-bell"></i>
       התראות דפדפן (Web Push)
@@ -193,7 +190,7 @@
     </div>
   </div>
   {% else %}
-  <div class="glass-card">
+  <div class="glass-card" id="push">
     <h2 class="section-title">
       <i class="fas fa-bell-slash"></i>
       התראות דפדפן (Web Push)
