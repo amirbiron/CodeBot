@@ -15303,12 +15303,17 @@ def api_public_stats():
 _user_prefs_cache = {}
 
 
-def _get_user_prefs_cached(user_id: str) -> dict:
+def _get_user_prefs_cached(user_id) -> dict:
     """מחזיר העדפות UI עם cache של 60 שניות"""
     import time
 
     now = time.time()
-    cache_key = f"prefs_{user_id}"
+    try:
+        uid_int = int(user_id)
+    except Exception:
+        return {}
+
+    cache_key = f"prefs_{uid_int}"
 
     # בדיקת cache
     if cache_key in _user_prefs_cache:
@@ -15320,7 +15325,8 @@ def _get_user_prefs_cached(user_id: str) -> dict:
     prefs = {}
     try:
         _db = get_db()
-        u = _db.users.find_one({'user_id': user_id}) or {}
+        # Mongo הוא type-strict: user_id נשמר כאינט, לכן חייבים לשאול עם int
+        u = _db.users.find_one({'user_id': uid_int}) or {}
         prefs = u.get('ui_prefs') or {}
     except Exception:
         prefs = {}
@@ -15350,20 +15356,21 @@ def api_me():
                 'ok': False,
                 'authenticated': False
             })
-        user_data = session.get('user_data') or {}
-        if not isinstance(user_data, dict):
+        raw_user_data = session.get('user_data')
+        user_data = raw_user_data if isinstance(raw_user_data, dict) else {}
+        # אם ה-session לא הכיל dict, נוודא שמעתה הוא כן (כדי שהכתיבה תתמיד)
+        if raw_user_data is None or not isinstance(raw_user_data, dict):
             user_data = {}
             session['user_data'] = user_data
 
         uid = session['user_id']
-        uid_str = str(uid)
         try:
             uid_int = int(uid)
         except Exception:
             uid_int = None
 
         # ✅ Cache ל-ui_prefs (60 שניות)
-        prefs = _get_user_prefs_cached(uid_str)
+        prefs = _get_user_prefs_cached(uid_int) if uid_int is not None else {}
 
         # ✅ roles מתוך session עם fallback (תומך sessions ישנים)
         user_is_admin = user_data.get('is_admin')
@@ -15397,7 +15404,7 @@ def api_me():
             'ok': True,
             'authenticated': True,
             'user': {
-                'user_id': uid_str,
+                'user_id': uid,
                 'username': user_data.get('username'),
                 'first_name': user_data.get('first_name'),
                 'last_name': user_data.get('last_name'),
