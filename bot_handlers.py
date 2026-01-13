@@ -3560,8 +3560,10 @@ class AdvancedBotHandlers:
             base_url = str(base_url).strip().rstrip("/")
             health_url = f"{base_url}{health_path}"
 
-            remote_enabled = str(os.getenv("PUSH_REMOTE_DELIVERY_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
-            token_set = bool(os.getenv("PUSH_DELIVERY_TOKEN"))
+            remote_enabled = str(
+                os.getenv("PUSH_REMOTE_DELIVERY_ENABLED", "") or getattr(config, "PUSH_REMOTE_DELIVERY_ENABLED", "")
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            token_set = bool(os.getenv("PUSH_DELIVERY_TOKEN") or getattr(config, "PUSH_DELIVERY_TOKEN", None))
 
             try:
                 from http_async import request as async_request

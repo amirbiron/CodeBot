@@ -243,6 +243,26 @@ class BotConfig(BaseSettings):
         default=None, description="WebApp base URL (if different from public)"
     )
 
+    # Remote Push Delivery (Worker)
+    PUSH_REMOTE_DELIVERY_ENABLED: bool = Field(
+        default=False,
+        description="Enable remote push delivery via external Worker",
+    )
+    PUSH_DELIVERY_URL: Optional[str] = Field(
+        default=None,
+        description="Base URL for push-delivery worker (without /send at the end)",
+    )
+    PUSH_DELIVERY_TOKEN: Optional[str] = Field(
+        default=None,
+        description="Shared bearer token for calls to the push-delivery worker",
+    )
+    PUSH_DELIVERY_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        ge=0.1,
+        le=120.0,
+        description="Timeout (seconds) for worker health checks and delivery calls",
+    )
+
     # תחזוקה
     MAINTENANCE_MODE: bool = Field(default=False, description="Maintenance gate")
     MAINTENANCE_MESSAGE: str = Field(
@@ -495,6 +515,17 @@ class BotConfig(BaseSettings):
                 out.append(item)
                 seen.add(item)
         return out
+
+    @field_validator("PUSH_DELIVERY_URL", mode="before")
+    @classmethod
+    def _normalize_push_delivery_url(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        # Keep as provided, but normalize trailing slash.
+        return s.rstrip("/")
 
     @classmethod
     def settings_customise_sources(
