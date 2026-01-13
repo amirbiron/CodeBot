@@ -365,6 +365,11 @@ class RefactoringEngine:
                 return RefactorResult(success=False, proposal=None, error=f"סוג רפקטורינג לא נתמך: {refactor_type}")
             validated = self._validate_proposal(proposal)
             return RefactorResult(success=True, proposal=proposal, validation_passed=validated)
+        except ValueError as e:
+            # ValueError משמש אותנו לתרחישי "אין מה לעשות"/"אין מספיק נתונים" — זה מצב צפוי,
+            # לא תקלה מערכתית, ולכן לא נרצה ERROR + traceback בלוגים.
+            logger.info("רפקטורינג לא בוצע: %s", e)
+            return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
         except Exception as e:
             logger.error(f"שגיאה ברפקטורינג: {e}", exc_info=True)
             return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
