@@ -2895,11 +2895,9 @@
           return;
         }
 
-        // Mark as bound so the ES5 fallback binder won't double-bind on modern browsers.
+        // If another binder already attached handlers, do nothing.
         try {
-          pushEnableBtn.setAttribute('data-bound', '1');
-          pushDisableBtn.setAttribute('data-bound', '1');
-          pushTestBtn.setAttribute('data-bound', '1');
+          if (pushEnableBtn.getAttribute('data-bound') === '1') return;
         } catch (_) {}
 
         function setPushStatus(text){ pushStatus.textContent = text; }
@@ -3034,6 +3032,11 @@
       if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
       if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
       if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
+      try {
+        pushEnableBtn.setAttribute('data-bound', '1');
+        pushDisableBtn.setAttribute('data-bound', '1');
+        pushTestBtn.setAttribute('data-bound', '1');
+      } catch (_) {}
       refreshPushUi();
       }
       {% endif %}
@@ -3204,12 +3207,14 @@
             var testBtn = byId('pushTestBtn');
             if (!enableBtn || !disableBtn || !testBtn) return;
             if (enableBtn.getAttribute('data-bound') === '1') return;
-            enableBtn.setAttribute('data-bound', '1');
-            disableBtn.setAttribute('data-bound', '1');
-            testBtn.setAttribute('data-bound', '1');
             enableBtn.addEventListener('click', function (e) { try { e.preventDefault(); } catch (_) {} enablePush(); });
             disableBtn.addEventListener('click', function (e) { try { e.preventDefault(); } catch (_) {} disablePush(); });
             testBtn.addEventListener('click', function (e) { try { e.preventDefault(); } catch (_) {} testPush(); });
+            try {
+              enableBtn.setAttribute('data-bound', '1');
+              disableBtn.setAttribute('data-bound', '1');
+              testBtn.setAttribute('data-bound', '1');
+            } catch (_) {}
             refreshPushUi();
           }
 
