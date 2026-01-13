@@ -103,9 +103,18 @@
       <button id="browserSubscribeBtn" type="button" class="btn btn-primary" onclick="subscribeFromBrowserNow()">
         בקש הרשאה + צור מנוי + שמור בשרת
       </button>
+      <button id="browserUnsubscribeBtn" type="button" class="btn btn-secondary" onclick="unsubscribeFromBrowserNow()">
+        בטל מנוי בדפדפן (Unsubscribe)
+      </button>
+      <button id="swUnregisterBtn" type="button" class="btn btn-secondary" onclick="unregisterServiceWorkerNow()">
+        בטל רישום Service Worker
+      </button>
     </div>
     <div id="browser-actions-status" style="margin-top: 0.75rem; opacity: 0.9">
       —
+    </div>
+    <div style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem">
+      הערה: מחיקה של מנויים בשרת (DB) לא מבטלת אוטומטית את המנוי המקומי בדפדפן. כדי “לאפס באמת” צריך גם Unsubscribe/Unregister כאן.
     </div>
   </div>
 </div>
@@ -329,6 +338,86 @@ function subscribeFromBrowserNow() {
   }).finally(function () {
     if (btn) btn.disabled = false;
   });
+}
+
+function unsubscribeFromBrowserNow() {
+  var btn = document.getElementById('browserUnsubscribeBtn');
+  if (btn) btn.disabled = true;
+  _setBrowserActionsStatus('מבטל מנוי בדפדפן...');
+  try {
+    if (!('serviceWorker' in navigator)) {
+      _setBrowserActionsStatus('ServiceWorker לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (!reg || !reg.pushManager) {
+        _setBrowserActionsStatus('אין Service Worker רשום');
+        return;
+      }
+      return reg.pushManager.getSubscription().then(function (sub) {
+        if (!sub) {
+          _setBrowserActionsStatus('אין מנוי פעיל בדפדפן');
+          return;
+        }
+        // Best-effort: remove from server by endpoint too (doesn't require DB list)
+        try {
+          var ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
+          if (ep) {
+            fetch('/api/push/subscribe', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ endpoint: ep }),
+            }).catch(function () {});
+          }
+        } catch (_) {}
+        return sub.unsubscribe().then(function () {
+          _setBrowserActionsStatus('המנוי בוטל בהצלחה. מרענן...');
+          try { location.reload(); } catch (_) {}
+        }).catch(function (e) {
+          _setBrowserActionsStatus('שגיאה בביטול מנוי: ' + String((e && e.message) || e || 'unknown'));
+        });
+      });
+    }).catch(function (e) {
+      _setBrowserActionsStatus('שגיאה בביטול מנוי: ' + String((e && e.message) || e || 'unknown'));
+    }).finally(function () {
+      if (btn) btn.disabled = false;
+    });
+  } catch (e) {
+    _setBrowserActionsStatus('שגיאה בביטול מנוי');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function unregisterServiceWorkerNow() {
+  var btn = document.getElementById('swUnregisterBtn');
+  if (btn) btn.disabled = true;
+  _setBrowserActionsStatus('מבטל רישום Service Worker...');
+  try {
+    if (!('serviceWorker' in navigator)) {
+      _setBrowserActionsStatus('ServiceWorker לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (!reg) {
+        _setBrowserActionsStatus('אין Service Worker רשום');
+        return;
+      }
+      return reg.unregister().then(function (ok) {
+        _setBrowserActionsStatus(ok ? 'Service Worker בוטל. מרענן...' : 'לא הצלחתי לבטל Service Worker');
+        try { location.reload(); } catch (_) {}
+      });
+    }).catch(function (e) {
+      _setBrowserActionsStatus('שגיאה בביטול Service Worker: ' + String((e && e.message) || e || 'unknown'));
+    }).finally(function () {
+      if (btn) btn.disabled = false;
+    });
+  } catch (e) {
+    _setBrowserActionsStatus('שגיאה בביטול Service Worker');
+    if (btn) btn.disabled = false;
+  }
 }
 
 function runDiagnose() {
