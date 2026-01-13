@@ -609,6 +609,7 @@ class FilesFacade:
                     continue
             return out
         except Exception:
+            logger.error("list_active_user_ids failed", exc_info=True)
             return None
 
     def mark_users_blocked(self, user_ids: List[int]) -> int:
@@ -641,6 +642,7 @@ class FilesFacade:
                     continue
             return 0
         except Exception:
+            logger.error("mark_users_blocked failed", exc_info=True)
             return 0
 
     def find_user_id_by_username(self, username: str) -> Optional[int]:
@@ -668,6 +670,7 @@ class FilesFacade:
             uid = doc.get("user_id")
             return int(uid) if uid is not None else None
         except Exception:
+            logger.error("find_user_id_by_username failed", exc_info=True)
             return None
 
     def mark_user_blocked(self, user_id: int) -> bool:
@@ -691,6 +694,7 @@ class FilesFacade:
             coll.update_one({"user_id": uid}, {"$set": {"blocked": True}})
             return True
         except Exception:
+            logger.error("mark_user_blocked failed", exc_info=True)
             return False
 
     def insert_refactor_metadata(self, doc: Dict[str, Any]) -> bool:

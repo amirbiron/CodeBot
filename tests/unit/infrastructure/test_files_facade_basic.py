@@ -335,3 +335,52 @@ def test_files_facade_delete_large_file_returns_false_when_missing_method(monkey
 
     fac = FilesFacade()
     assert fac.delete_large_file(1, "big.txt") is False
+
+
+def test_files_facade_user_helpers_log_on_db_exceptions(monkeypatch):
+    """
+    Ensure facade helpers don't swallow DB errors silently:
+    they should return best-effort values and emit an error log.
+    """
+    import src.infrastructure.composition.files_facade as ff
+
+    class _CapturingLogger:
+        def __init__(self):
+            self.calls = []
+
+        def error(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    cap = _CapturingLogger()
+    monkeypatch.setattr(ff, "logger", cap, raising=True)
+
+    class _Users:
+        def find(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        def update_many(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        def find_one(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        def update_one(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+    mongo = types.SimpleNamespace(users=_Users())
+    db_root = types.SimpleNamespace(db=mongo)
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = db_root
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    assert fac.list_active_user_ids() is None
+    assert fac.mark_users_blocked([1, 2]) == 0
+    assert fac.find_user_id_by_username("x") is None
+    assert fac.mark_user_blocked(1) is False
+
+    # We expect 4 error logs (one per failing method)
+    assert len(cap.calls) >= 4
+    # Each call should have exc_info=True for traceback visibility
+    assert all(call[1].get("exc_info") is True for call in cap.calls[-4:])
