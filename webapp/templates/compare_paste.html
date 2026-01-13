@@ -3,7 +3,7 @@
 {% block title %}השוואת קוד בהדבקה - Code Keeper Bot{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}?v={{ static_version }}">
 <style>
 /* =================================================================
    Compare Paste Page - Specific Styles
@@ -123,6 +123,58 @@
     flex-wrap: wrap;
     padding: 1rem 0;
     border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+/* Compare button (shared look with compare_files) */
+.btn-compare {
+    min-width: 200px;
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, var(--accent-color, #6366f1), var(--accent-secondary, #8b5cf6));
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+}
+
+.btn-compare:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.btn-compare:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-compare .spinner {
+    display: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.btn-compare.loading .spinner {
+    display: inline-block;
+}
+
+.btn-compare.loading .btn-text {
+    display: none;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 
 /* Clear Buttons */
