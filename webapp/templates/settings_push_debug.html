@@ -92,6 +92,26 @@
 
 <div class="glass-card">
   <h2 class="section-title">
+    <i class="fas fa-wand-magic-sparkles"></i>
+    פעולות מהדפדפן
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+      <button id="swRegisterBtn" type="button" class="btn btn-secondary" onclick="registerServiceWorkerNow()">
+        רשום Service Worker
+      </button>
+      <button id="browserSubscribeBtn" type="button" class="btn btn-primary" onclick="subscribeFromBrowserNow()">
+        בקש הרשאה + צור מנוי + שמור בשרת
+      </button>
+    </div>
+    <div id="browser-actions-status" style="margin-top: 0.75rem; opacity: 0.9">
+      —
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
     <i class="fas fa-plug"></i>
     בדיקת חיבוריות Push Services
   </h2>
@@ -200,6 +220,115 @@ function requestNotificationPermission() {
   } catch (_) {
     alert('שגיאה בבקשת הרשאה');
   }
+}
+
+function _setBrowserActionsStatus(text) {
+  try {
+    var el = document.getElementById('browser-actions-status');
+    if (el) el.textContent = String(text || '');
+  } catch (_) {}
+}
+
+function registerServiceWorkerNow() {
+  var btn = document.getElementById('swRegisterBtn');
+  if (btn) btn.disabled = true;
+  _setBrowserActionsStatus('רושם Service Worker...');
+  try {
+    if (!('serviceWorker' in navigator)) {
+      _setBrowserActionsStatus('ServiceWorker לא נתמך בדפדפן הזה');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    navigator.serviceWorker.register('/sw.js').then(function () {
+      _setBrowserActionsStatus('Service Worker נרשם בהצלחה. מרענן...');
+      try { location.reload(); } catch (_) {}
+    }).catch(function (e) {
+      _setBrowserActionsStatus('שגיאה ברישום Service Worker: ' + String((e && e.message) || e || 'unknown'));
+    }).finally(function () {
+      if (btn) btn.disabled = false;
+    });
+  } catch (e) {
+    _setBrowserActionsStatus('שגיאה ברישום Service Worker');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _urlBase64ToUint8Array(base64String) {
+  var padding = Array((4 - (base64String.length % 4)) % 4 + 1).join('=');
+  var base64 = String(base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  var rawData = window.atob(base64);
+  var outputArray = new Uint8Array(rawData.length);
+  for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+function _fetchVapidPublicKey() {
+  return fetch('/api/push/public-key', { cache: 'no-store', credentials: 'include' })
+    .then(function (r) { return r.json().catch(function () { return {}; }); })
+    .then(function (j) {
+      if (!j || j.ok === false || !j.vapidPublicKey) throw new Error('VAPID public key missing');
+      return j.vapidPublicKey;
+    });
+}
+
+function subscribeFromBrowserNow() {
+  var btn = document.getElementById('browserSubscribeBtn');
+  if (btn) btn.disabled = true;
+  _setBrowserActionsStatus('בודק תמיכה...');
+  try {
+    if (!('Notification' in window)) {
+      _setBrowserActionsStatus('Notification API לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (!('serviceWorker' in navigator)) {
+      _setBrowserActionsStatus('ServiceWorker לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (!('PushManager' in window)) {
+      _setBrowserActionsStatus('PushManager לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+  } catch (_) {}
+
+  _setBrowserActionsStatus('מבקש הרשאת התראות...');
+  Notification.requestPermission().then(function (perm) {
+    if (perm !== 'granted') {
+      _setBrowserActionsStatus('הרשאת התראות לא אושרה: ' + String(perm));
+      if (btn) btn.disabled = false;
+      return;
+    }
+    _setBrowserActionsStatus('רושם Service Worker...');
+    return navigator.serviceWorker.register('/sw.js').then(function (reg) {
+      _setBrowserActionsStatus('יוצר subscription...');
+      return _fetchVapidPublicKey().then(function (key) {
+        return reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: _urlBase64ToUint8Array(key),
+        }).then(function (sub) {
+          _setBrowserActionsStatus('שומר מנוי בשרת...');
+          return fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(sub),
+          }).then(function (resp) {
+            return resp.json().catch(function () { return {}; }).then(function (j) {
+              if (!resp.ok || !j || j.ok === false) throw new Error('server_subscribe_failed');
+              _setBrowserActionsStatus('הצלחה: נרשם מנוי ונשמר בשרת. מרענן...');
+              try { location.reload(); } catch (_) {}
+            });
+          });
+        });
+      });
+    });
+  }).catch(function (e) {
+    _setBrowserActionsStatus('כשל בהפעלה מהדפדפן: ' + String((e && e.message) || e || 'unknown'));
+  }).finally(function () {
+    if (btn) btn.disabled = false;
+  });
 }
 
 function runDiagnose() {
