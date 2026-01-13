@@ -15,6 +15,7 @@ Environment variables:
 - METRICS_BATCH_SIZE: Batch size threshold (default: 50)
 - METRICS_FLUSH_INTERVAL_SEC: Time-based flush threshold (default: 5 seconds)
 - METRICS_MAX_BUFFER: Max queued items in memory (default: 5000)
+- METRICS_ROLLUP_SECONDS: Rollup bucket size in seconds for DB writes (default: 60)
 """
 from __future__ import annotations
 
@@ -42,13 +43,13 @@ def _is_true(val: Optional[str]) -> bool:
 def _write_enabled() -> bool:
     """Check if WRITING metrics to DB is enabled.
 
-    🛑 עצירת כתיבת Metrics ל-DB (שיכוך כאבים)
-    כרגע אנחנו מנתקים זמנית את כתיבת המטריקות ל-MongoDB כדי לתת למערכת "לנשום".
-    השארנו את ההתנהגות פעילה תחת pytest כדי לא לשבור טסטים ולשמור יכולת בדיקה.
+    שומרי בטיחות:
+    - ברירת המחדל היא OFF (כדי לא להעמיס על MongoDB בלי כוונה)
+    - אפשר לעצור כתיבה באופן מיידי עם DISABLE_METRICS_WRITES=true
     """
-    if not _is_pytest():
-        return False
     if _is_true(os.getenv("DISABLE_DB")):
+        return False
+    if _is_true(os.getenv("DISABLE_METRICS_WRITES")):
         return False
     return _is_true(os.getenv("METRICS_DB_ENABLED"))
 
@@ -81,6 +82,7 @@ _collection = None  # type: ignore
 _init_failed = False  # True when initialization permanently failed (e.g., pymongo missing)
 _write_disabled = False  # True when writes are intentionally disabled (not a failure)
 _buf: deque[Dict[str, Any]] = deque()
+_agg: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
 _lock = Lock()
 _last_flush_ts: float = time.time()
 
@@ -131,7 +133,8 @@ def _worker_loop() -> None:  # pragma: no cover
 
 
 def _build_time_match(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> Dict[str, Any]:
-    match: Dict[str, Any] = {"type": "request"}
+    # Support both legacy per-request docs and rollup docs.
+    match: Dict[str, Any] = {"type": {"$in": ["request", "request_agg"]}}
     if start_dt or end_dt:
         window: Dict[str, Any] = {}
         if start_dt:
@@ -148,6 +151,53 @@ def _max_buffer_size() -> int:
         return max(1, int(os.getenv("METRICS_MAX_BUFFER", "5000") or "5000"))
     except Exception:
         return 5000
+
+
+def _rollup_seconds() -> int:
+    """Return rollup bucket size in seconds for DB writes."""
+    try:
+        value = int(os.getenv("METRICS_ROLLUP_SECONDS", "60") or "60")
+    except Exception:
+        value = 60
+    return max(1, min(3600, value))
+
+
+def _bucket_start_dt(now: datetime, bucket_seconds: int) -> datetime:
+    """Floor a datetime to bucket_seconds (UTC)."""
+    try:
+        ts = int(now.timestamp())
+    except Exception:
+        ts = int(time.time())
+    b = int(bucket_seconds) if bucket_seconds else 60
+    b = max(1, b)
+    bucket_ts = ts - (ts % b)
+    return datetime.fromtimestamp(bucket_ts, tz=timezone.utc)
+
+
+def _safe_label(value: Any, *, default: str, limit: int = 160) -> str:
+    """Normalize a potentially noisy label into a bounded string."""
+    try:
+        text = str(value or "").strip()
+    except Exception:
+        text = ""
+    if not text:
+        return default
+    # Keep labels low-cardinality-ish (no newlines, bounded length)
+    text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    if len(text) > limit:
+        text = text[:limit]
+    return text
+
+
+def _drain_agg_to_buf_unlocked() -> None:
+    """Move rollup entries from _agg into _buf. Caller must hold _lock."""
+    if not _agg:
+        return
+    try:
+        for doc in _agg.values():
+            _buf.append(doc)
+    finally:
+        _agg.clear()
 
 
 def _get_collection(*, for_read: bool = True):  # pragma: no cover - exercised indirectly
@@ -229,10 +279,26 @@ def _flush_once(now_ts: float) -> bool:
         if _init_failed:
             with _lock:
                 try:
+                    _agg.clear()
                     _buf.clear()
                 except Exception:
                     pass
         return False
+
+    # Convert current rollups into buffer before popping a batch
+    try:
+        with _lock:
+            _drain_agg_to_buf_unlocked()
+            # Cap buffer to prevent unbounded growth under persistent failures
+            try:
+                max_buf = _max_buffer_size()
+                while len(_buf) > max_buf:
+                    _buf.popleft()
+            except Exception:
+                pass
+    except Exception:
+        # best-effort; continue
+        pass
 
     # Pop a batch under lock, but perform IO without holding the lock
     try:
@@ -301,7 +367,10 @@ def enqueue_request_metric(
 ) -> None:
     """Queue a single request metric for best-effort DB persistence.
 
-    No-ops entirely when METRICS_DB_ENABLED is not true.
+    Notes:
+    - Writes are opt-in via METRICS_DB_ENABLED=true
+    - In production we do NOT write "one document per request".
+      Instead, we aggregate (roll up) into per-bucket documents to keep Mongo load low.
     """
     # Emergency kill-switch: disable DB writes explicitly when needed.
     # Default is OFF (i.e., writes are allowed when METRICS_DB_ENABLED=true).
@@ -314,30 +383,79 @@ def enqueue_request_metric(
     if _init_failed:
         return
     try:
-        doc: Dict[str, Any] = {
-            "ts": datetime.now(timezone.utc),
-            "type": "request",
-            "status_code": int(status_code),
-            "duration_seconds": float(duration_seconds),
-        }
-        if request_id:
-            doc["request_id"] = str(request_id)
-        if extra:
-            for k, v in (extra or {}).items():
-                if k in doc:
-                    continue
-                doc[k] = v
+        now = datetime.now(timezone.utc)
+        rollup_sec = _rollup_seconds()
+        bucket_dt = _bucket_start_dt(now, rollup_sec)
+        bucket_ts = int(bucket_dt.timestamp())
+
+        # Best-effort enrich with low-cardinality context (method/path/handler)
+        method = "UNKNOWN"
+        path = "unknown"
+        handler = ""
+        if isinstance(extra, dict):
+            method = _safe_label(extra.get("method"), default="UNKNOWN", limit=16).upper()
+            handler = _safe_label(extra.get("handler"), default="", limit=160)
+            path = _safe_label(extra.get("path") or handler, default="unknown", limit=160)
+        else:
+            method = "UNKNOWN"
+            path = "unknown"
+
+        dur = max(0.0, float(duration_seconds))
+        is_err = 1 if int(status_code) >= 500 else 0
 
         with _lock:
             # Re-check under lock to avoid races
             if _init_failed:
                 return
-            _buf.append(doc)
-            # Cap buffer to prevent unbounded growth under persistent failures
+
+            key = (bucket_ts, method, path)
+            doc = _agg.get(key)
+            if doc is None:
+                doc = {
+                    "ts": bucket_dt,
+                    "type": "request_agg",
+                    "bucket_seconds": int(rollup_sec),
+                    "method": method,
+                    "path": path,
+                    # Keep handler if provided (may be useful for debugging)
+                    "handler": handler or None,
+                    "count": 0,
+                    "sum_duration": 0.0,
+                    "max_duration": 0.0,
+                    "error_count": 0,
+                }
+                _agg[key] = doc
+
+            # Update rollup counters
+            try:
+                doc["count"] = int(doc.get("count", 0) or 0) + 1
+            except Exception:
+                doc["count"] = 1
+            try:
+                doc["sum_duration"] = float(doc.get("sum_duration", 0.0) or 0.0) + dur
+            except Exception:
+                doc["sum_duration"] = dur
+            try:
+                prev_max = float(doc.get("max_duration", 0.0) or 0.0)
+            except Exception:
+                prev_max = 0.0
+            doc["max_duration"] = max(prev_max, dur)
+            try:
+                doc["error_count"] = int(doc.get("error_count", 0) or 0) + int(is_err)
+            except Exception:
+                doc["error_count"] = int(is_err)
+
+            # Cap total queued DB docs (rollups + pending inserts)
             try:
                 max_buf = _max_buffer_size()
-                while len(_buf) > max_buf:
-                    _buf.popleft()
+                # If _agg grows too much (e.g. huge cardinality), start dropping oldest
+                while len(_agg) + len(_buf) > max_buf:
+                    # Drain one rollup into buffer, then drop from buffer head
+                    _drain_agg_to_buf_unlocked()
+                    if _buf:
+                        _buf.popleft()
+                    else:
+                        break
             except Exception:
                 pass
         # Never flush on the request path. Wake background worker instead.
@@ -380,25 +498,64 @@ def aggregate_request_timeseries(
                         ]
                     }
                 },
-                "duration_seconds": "$duration_seconds",
-                "status_code": "$status_code",
+                # Support both legacy per-request docs and rollup docs
+                "count": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$count", 0]},
+                        1,
+                    ]
+                },
+                "sum_duration": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$sum_duration", 0.0]},
+                        {"$ifNull": ["$duration_seconds", 0.0]},
+                    ]
+                },
+                "max_duration": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$max_duration", 0.0]},
+                        {"$ifNull": ["$duration_seconds", 0.0]},
+                    ]
+                },
+                "error_count": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$error_count", 0]},
+                        {
+                            "$cond": [
+                                {"$gte": ["$status_code", 500]},
+                                1,
+                                0,
+                            ]
+                        },
+                    ]
+                },
             }
         },
         {
             "$group": {
                 "_id": "$bucket",
-                "count": {"$sum": 1},
-                "avg_duration": {"$avg": "$duration_seconds"},
-                "max_duration": {"$max": "$duration_seconds"},
-                "error_count": {
-                    "$sum": {
-                        "$cond": [
-                            {"$gte": ["$status_code", 500]},
-                            1,
-                            0,
-                        ]
-                    }
+                "count": {"$sum": "$count"},
+                "sum_duration": {"$sum": "$sum_duration"},
+                "max_duration": {"$max": "$max_duration"},
+                "error_count": {"$sum": "$error_count"},
+            }
+        },
+        {
+            "$project": {
+                "count": 1,
+                "avg_duration": {
+                    "$cond": [
+                        {"$gt": ["$count", 0]},
+                        {"$divide": ["$sum_duration", "$count"]},
+                        0.0,
+                    ]
                 },
+                "max_duration": 1,
+                "error_count": 1,
             }
         },
         {"$sort": {"_id": 1}},
@@ -453,15 +610,48 @@ def aggregate_top_endpoints(
                     ]
                 },
                 "method": {"$ifNull": ["$method", "UNKNOWN"]},
-                "duration_seconds": "$duration_seconds",
+                "count": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$count", 0]},
+                        1,
+                    ]
+                },
+                "sum_duration": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$sum_duration", 0.0]},
+                        {"$ifNull": ["$duration_seconds", 0.0]},
+                    ]
+                },
+                "max_duration": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$max_duration", 0.0]},
+                        {"$ifNull": ["$duration_seconds", 0.0]},
+                    ]
+                },
             }
         },
         {
             "$group": {
                 "_id": {"path": "$path", "method": "$method"},
-                "count": {"$sum": 1},
-                "avg_duration": {"$avg": "$duration_seconds"},
-                "max_duration": {"$max": "$duration_seconds"},
+                "count": {"$sum": "$count"},
+                "sum_duration": {"$sum": "$sum_duration"},
+                "max_duration": {"$max": "$max_duration"},
+            }
+        },
+        {
+            "$project": {
+                "count": 1,
+                "avg_duration": {
+                    "$cond": [
+                        {"$gt": ["$count", 0]},
+                        {"$divide": ["$sum_duration", "$count"]},
+                        0.0,
+                    ]
+                },
+                "max_duration": 1,
             }
         },
         {"$sort": {"max_duration": -1}},
@@ -502,9 +692,39 @@ def average_request_duration(
     pipeline = [
         {"$match": match},
         {
+            "$project": {
+                "count": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$count", 0]},
+                        1,
+                    ]
+                },
+                "sum_duration": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$sum_duration", 0.0]},
+                        {"$ifNull": ["$duration_seconds", 0.0]},
+                    ]
+                },
+            }
+        },
+        {
             "$group": {
                 "_id": None,
-                "avg_duration": {"$avg": "$duration_seconds"},
+                "count": {"$sum": "$count"},
+                "sum_duration": {"$sum": "$sum_duration"},
+            }
+        },
+        {
+            "$project": {
+                "avg_duration": {
+                    "$cond": [
+                        {"$gt": ["$count", 0]},
+                        {"$divide": ["$sum_duration", "$count"]},
+                        0.0,
+                    ]
+                }
             }
         },
     ]
@@ -534,18 +754,34 @@ def aggregate_error_ratio(
     pipeline = [
         {"$match": match},
         {
+            "$project": {
+                "count": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$count", 0]},
+                        1,
+                    ]
+                },
+                "error_count": {
+                    "$cond": [
+                        {"$eq": ["$type", "request_agg"]},
+                        {"$ifNull": ["$error_count", 0]},
+                        {
+                            "$cond": [
+                                {"$gte": ["$status_code", 500]},
+                                1,
+                                0,
+                            ]
+                        },
+                    ]
+                },
+            }
+        },
+        {
             "$group": {
                 "_id": None,
-                "total": {"$sum": 1},
-                "errors": {
-                    "$sum": {
-                        "$cond": [
-                            {"$gte": ["$status_code", 500]},
-                            1,
-                            0,
-                        ]
-                    }
-                },
+                "total": {"$sum": "$count"},
+                "errors": {"$sum": "$error_count"},
             }
         },
     ]
@@ -641,7 +877,16 @@ def aggregate_latency_percentiles(
     if not pcts:
         pcts = (50, 95, 99)
 
-    match = _build_time_match(start_dt, end_dt)
+    # Percentiles require raw per-request samples (rollups are not sufficient).
+    match = {"type": "request"}
+    if start_dt or end_dt:
+        window: Dict[str, Any] = {}
+        if start_dt:
+            window["$gte"] = start_dt
+        if end_dt:
+            window["$lte"] = end_dt
+        if window:
+            match["ts"] = window
 
     # Attempt Mongo-native percentile aggregation (MongoDB 5.2+)
     try:
