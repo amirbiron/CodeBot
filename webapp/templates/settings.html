@@ -178,9 +178,9 @@
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
-          <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
-          <button id="pushDisableBtn" class="btn btn-secondary">כבה התראות</button>
-          <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
+          <button id="pushEnableBtn" type="button" class="btn btn-primary">אפשר התראות</button>
+          <button id="pushDisableBtn" type="button" class="btn btn-secondary">כבה התראות</button>
+          <button id="pushTestBtn" type="button" class="btn btn-tertiary">שלח פוש בדיקה</button>
         </div>
       </div>
       {% if not push_enabled %}
@@ -2858,9 +2858,12 @@
       };
 
       const initAfterDom = () => {
-        initSmoothScrollSettingsCard();
-        initConfigRadar();
-        initSharedThemesAdmin();
+        try { initSmoothScrollSettingsCard(); } catch (e) { console.warn('settings initSmoothScrollSettingsCard failed', e); }
+        try { initConfigRadar(); } catch (e) { console.warn('settings initConfigRadar failed', e); }
+        try { initSharedThemesAdmin(); } catch (e) { console.warn('settings initSharedThemesAdmin failed', e); }
+        {% if show_web_push_settings %}
+        try { initWebPushSettings(); } catch (e) { console.warn('settings initWebPushSettings failed', e); }
+        {% endif %}
       };
 
       if (document.readyState === 'loading') {
@@ -2871,17 +2874,32 @@
 
       {% if show_web_push_settings %}
       // --- Web Push (Service Worker + PushManager) ---
-      const __PUSH_SYSTEM_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
-      const pushStatus = document.getElementById('pushStatus');
-      const pushEnableBtn = document.getElementById('pushEnableBtn');
-      const pushDisableBtn = document.getElementById('pushDisableBtn');
-      const pushTestBtn = document.getElementById('pushTestBtn');
+      let __webPushInitDone = false;
+      function initWebPushSettings() {
+        if (__webPushInitDone) return;
+        __webPushInitDone = true;
 
-      function setPushStatus(text){ if (pushStatus) pushStatus.textContent = text; }
-      if (!__PUSH_SYSTEM_ENABLED__) {
-        // UI stays available even when server-side sender is disabled
-        setPushStatus('ההתראות זמינות בדפדפן, אבל שליחה אוטומטית מהשרת כבויה כרגע');
-      }
+        const __PUSH_SYSTEM_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
+        const pushStatus = document.getElementById('pushStatus');
+        const pushEnableBtn = document.getElementById('pushEnableBtn');
+        const pushDisableBtn = document.getElementById('pushDisableBtn');
+        const pushTestBtn = document.getElementById('pushTestBtn');
+
+        if (!pushStatus || !pushEnableBtn || !pushDisableBtn || !pushTestBtn) {
+          console.warn('web push UI elements missing', {
+            pushStatus: !!pushStatus,
+            pushEnableBtn: !!pushEnableBtn,
+            pushDisableBtn: !!pushDisableBtn,
+            pushTestBtn: !!pushTestBtn,
+          });
+          return;
+        }
+
+        function setPushStatus(text){ pushStatus.textContent = text; }
+        if (!__PUSH_SYSTEM_ENABLED__) {
+          // UI stays available even when server-side sender is disabled
+          setPushStatus('ההתראות זמינות בדפדפן, אבל שליחה אוטומטית מהשרת כבויה כרגע');
+        }
 
       function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -2908,6 +2926,7 @@
 
       async function enablePush(){
         try {
+          setPushStatus('בודק תמיכה בדפדפן...');
           if (!('Notification' in window)) throw new Error('התראות לא נתמכות בדפדפן');
           if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
           if (!('PushManager' in window)) throw new Error('PushManager לא נתמך');
@@ -2939,6 +2958,7 @@
 
       async function disablePush(){
         try {
+          setPushStatus('מכבה התראות...');
           if (!('serviceWorker' in navigator)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
           const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
           const sub = (reg && reg.pushManager) ? await reg.pushManager.getSubscription() : null;
@@ -2956,6 +2976,7 @@
 
       async function testPush(){
         try {
+          setPushStatus('שולח פוש בדיקה...');
           const r = await fetch('/api/push/test', { method:'POST', credentials:'include' });
           const j = await r.json().catch(()=>({}));
           if (r.ok && j && j.ok) {
@@ -3007,6 +3028,7 @@
       if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
       if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
       refreshPushUi();
+      }
       {% endif %}
 
     })();
