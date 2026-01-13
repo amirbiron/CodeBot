@@ -106,6 +106,45 @@ async def test_broadcast_counts_and_summary(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_broadcast_db_failure_shows_error(monkeypatch):
+    import bot_handlers as bh
+
+    monkeypatch.setenv("ADMIN_USER_IDS", "999")
+    monkeypatch.setattr(bh.reporter, "report_activity", lambda *a, **k: None, raising=False)
+
+    # Force no facade + no injected db (simulate DB connectivity issue / missing wiring)
+    monkeypatch.setattr(bh, "db", None, raising=False)
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: None, raising=True)
+
+    class DummyMessage:
+        def __init__(self):
+            self.calls = []
+        async def reply_text(self, text, **kwargs):
+            self.calls.append((text, kwargs))
+            return None
+
+    class DummyUpdate:
+        def __init__(self):
+            self.message = DummyMessage()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=999)
+
+    class DummyContext:
+        def __init__(self):
+            self.args = ["hello"]
+            self.bot = types.SimpleNamespace(send_message=lambda **_: None)
+
+    adv = bh.AdvancedBotHandlers(type("_A", (), {"add_handler": lambda *_: None})())
+    u = DummyUpdate()
+    c = DummyContext()
+    await adv.broadcast_command(u, c)
+
+    text, _kw = u.message.calls[-1]
+    assert "לא ניתן לטעון רשימת משתמשים" in text or "שגיאה בטעינת רשימת נמענים" in text
+
+
+@pytest.mark.asyncio
 async def test_recent_uses_html_and_escapes(monkeypatch):
     import bot_handlers as bh
 
