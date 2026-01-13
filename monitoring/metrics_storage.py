@@ -39,10 +39,13 @@ def _is_true(val: Optional[str]) -> bool:
     return str(val or "").lower() in {"1", "true", "yes", "on"}
 
 
-def _enabled() -> bool:
-    # 🛑 עצירת כתיבת Metrics ל-DB (שיכוך כאבים)
-    # כרגע אנחנו מנתקים זמנית את כתיבת המטריקות ל-MongoDB כדי לתת למערכת "לנשום".
-    # השארנו את ההתנהגות פעילה תחת pytest כדי לא לשבור טסטים ולשמור יכולת בדיקה.
+def _write_enabled() -> bool:
+    """Check if WRITING metrics to DB is enabled.
+
+    🛑 עצירת כתיבת Metrics ל-DB (שיכוך כאבים)
+    כרגע אנחנו מנתקים זמנית את כתיבת המטריקות ל-MongoDB כדי לתת למערכת "לנשום".
+    השארנו את ההתנהגות פעילה תחת pytest כדי לא לשבור טסטים ולשמור יכולת בדיקה.
+    """
     if not _is_pytest():
         return False
     if _is_true(os.getenv("DISABLE_DB")):
@@ -50,10 +53,33 @@ def _enabled() -> bool:
     return _is_true(os.getenv("METRICS_DB_ENABLED"))
 
 
+def _read_enabled() -> bool:
+    """Check if READING metrics from DB is enabled.
+
+    קריאה מה-DB נשארת פעילה תמיד (אלא אם מושבתת מפורשות),
+    כדי שדשבורד ה-Observability יציג נתונים היסטוריים גם כשהכתיבה מושבתת.
+    """
+    if _is_true(os.getenv("DISABLE_DB")):
+        return False
+    if _is_true(os.getenv("DISABLE_METRICS_READS")):
+        return False
+    # אם METRICS_DB_ENABLED=true או שיש URL תקין - אפשר לקרוא
+    if _is_true(os.getenv("METRICS_DB_ENABLED")):
+        return True
+    # Fallback: אפשר קריאה אם יש MongoDB URL מוגדר (גם בלי METRICS_DB_ENABLED)
+    return bool(os.getenv("MONGODB_URL"))
+
+
+def _enabled() -> bool:
+    """Legacy function - now delegates to _write_enabled for backwards compatibility."""
+    return _write_enabled()
+
+
 # Lazily-initialized PyMongo client/collection
 _client = None  # type: ignore
 _collection = None  # type: ignore
-_init_failed = False
+_init_failed = False  # True when initialization permanently failed (e.g., pymongo missing)
+_write_disabled = False  # True when writes are intentionally disabled (not a failure)
 _buf: deque[Dict[str, Any]] = deque()
 _lock = Lock()
 _last_flush_ts: float = time.time()
@@ -124,13 +150,34 @@ def _max_buffer_size() -> int:
         return 5000
 
 
-def _get_collection():  # pragma: no cover - exercised indirectly
-    global _client, _collection, _init_failed
-    if _collection is not None or _init_failed:
+def _get_collection(*, for_read: bool = True):  # pragma: no cover - exercised indirectly
+    """Get the MongoDB collection for metrics storage.
+
+    Args:
+        for_read: If True, allows connection even when writes are disabled.
+                  This enables the Observability dashboard to show historical data.
+    """
+    global _client, _collection, _init_failed, _write_disabled
+
+    # If already initialized successfully, return the collection
+    if _collection is not None:
         return _collection
 
-    if not _enabled():
-        _init_failed = True  # mark to skip further attempts
+    # If initialization permanently failed (e.g., pymongo missing), don't retry
+    if _init_failed:
+        return None
+
+    # If writes are disabled and this is a write request, return None
+    # but allow read requests to proceed with initialization
+    if _write_disabled and not for_read:
+        return None
+
+    # Check if we should connect based on read/write mode
+    enabled = _read_enabled() if for_read else _write_enabled()
+    if not enabled:
+        # Mark write_disabled (not init_failed) so reads can still work
+        if not for_read:
+            _write_disabled = True
         return None
 
     try:
@@ -176,7 +223,7 @@ def _get_collection():  # pragma: no cover - exercised indirectly
 
 
 def _flush_once(now_ts: float) -> bool:
-    coll = _get_collection()
+    coll = _get_collection(for_read=False)  # Writing metrics requires write access
     if coll is None:
         # If initialization failed permanently, clear buffer to prevent leaks
         if _init_failed:
