@@ -15298,6 +15298,51 @@ def api_public_stats():
         }), 200
 
 # --- Auth status & user info ---
+
+# Cache עבור העדפות משתמש
+_user_prefs_cache = {}
+
+
+def _get_user_prefs_cached(user_id) -> dict:
+    """מחזיר העדפות UI עם cache של 60 שניות"""
+    import time
+
+    now = time.time()
+    try:
+        uid_int = int(user_id)
+    except Exception:
+        return {}
+
+    cache_key = f"prefs_{uid_int}"
+
+    # בדיקת cache
+    if cache_key in _user_prefs_cache:
+        cached_prefs, expires_at = _user_prefs_cache[cache_key]
+        if expires_at > now:
+            return cached_prefs
+
+    # Cache miss - טען מDB
+    prefs = {}
+    try:
+        _db = get_db()
+        # Mongo הוא type-strict: user_id נשמר כאינט, לכן חייבים לשאול עם int
+        u = _db.users.find_one({'user_id': uid_int}) or {}
+        prefs = u.get('ui_prefs') or {}
+    except Exception:
+        prefs = {}
+
+    # שמור בcache
+    _user_prefs_cache[cache_key] = (prefs, now + 60)
+
+    # ניקוי cache ישן
+    if len(_user_prefs_cache) > 1000:
+        keys_to_remove = [k for k, v in _user_prefs_cache.items() if v[1] < now]
+        for k in keys_to_remove:
+            _user_prefs_cache.pop(k, None)
+
+    return prefs
+
+
 @app.route('/api/me')
 def api_me():
     """סטטוס התחברות ופרטי משתמש בסיסיים לצורך סוכנים/קליינט.
@@ -15311,19 +15356,38 @@ def api_me():
                 'ok': False,
                 'authenticated': False
             })
-        user_data = session.get('user_data') or {}
-        # שליפת העדפות בסיסיות מה‑DB (best-effort, ללא כשל)
-        prefs = {}
-        try:
-            _db = get_db()
-            u = _db.users.find_one({'user_id': session['user_id']}) or {}
-            prefs = (u.get('ui_prefs') or {})
-        except Exception:
-            prefs = {}
+        raw_user_data = session.get('user_data')
+        user_data = raw_user_data if isinstance(raw_user_data, dict) else {}
+        # אם ה-session לא הכיל dict, נוודא שמעתה הוא כן (כדי שהכתיבה תתמיד)
+        if raw_user_data is None or not isinstance(raw_user_data, dict):
+            user_data = {}
+            session['user_data'] = user_data
+
         uid = session['user_id']
+        try:
+            uid_int = int(uid)
+        except Exception:
+            uid_int = None
+
+        # ✅ Cache ל-ui_prefs (60 שניות)
+        prefs = _get_user_prefs_cached(uid_int) if uid_int is not None else {}
+
+        # ✅ roles מתוך session עם fallback (תומך sessions ישנים)
+        user_is_admin = user_data.get('is_admin')
+        if user_is_admin is None:
+            user_is_admin = bool(is_admin(uid_int)) if uid_int is not None else False
+            user_data['is_admin'] = user_is_admin
+            session.modified = True
+
+        user_is_premium = user_data.get('is_premium')
+        if user_is_premium is None:
+            user_is_premium = bool(is_premium(uid_int)) if uid_int is not None else False
+            user_data['is_premium'] = user_is_premium
+            session.modified = True
+
         role_flags = {
-            'is_admin': is_admin(uid),
-            'is_premium': is_premium(uid),
+            'is_admin': bool(user_is_admin),
+            'is_premium': bool(user_is_premium),
         }
         # קביעת תפקיד עיקרי ותווית ידידותית
         if role_flags['is_admin']:
