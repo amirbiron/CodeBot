@@ -92,6 +92,21 @@
 
 <div class="glass-card">
   <h2 class="section-title">
+    <i class="fas fa-link"></i>
+    התאמת מנוי (דפדפן ↔ שרת)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div id="sub-match" style="display: grid; gap: 0.6rem">
+      <div>טוען בדיקה...</div>
+    </div>
+    <div style="opacity: 0.8; margin-top: 0.5rem">
+      אם כתוב "לא נמצא בשרת" — זה מסביר למה לא מתקבל פוש במכשיר הזה: השרת שולח למנויים אחרים.
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
     <i class="fas fa-wand-magic-sparkles"></i>
     פעולות מהדפדפן
   </h2>
@@ -115,6 +130,26 @@
     </div>
     <div style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem">
       הערה: מחיקה של מנויים בשרת (DB) לא מבטלת אוטומטית את המנוי המקומי בדפדפן. כדי “לאפס באמת” צריך גם Unsubscribe/Unregister כאן.
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-receipt"></i>
+    דוחות Service Worker מהשרת
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="display:flex; gap: 0.5rem; flex-wrap: wrap">
+      <button type="button" class="btn btn-secondary" onclick="loadSwReports()">
+        טען דוחות
+      </button>
+    </div>
+    <div id="sw-reports" style="margin-top: 1rem; display: grid; gap: 0.5rem">
+      <div style="opacity: 0.8">עוד לא נטענו דוחות.</div>
+    </div>
+    <div style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem">
+      אם אין שום דוח אחרי "פוש בדיקה" — ה־push לא הגיע ל־Service Worker במכשיר הזה.
     </div>
   </div>
 </div>
@@ -215,6 +250,15 @@
     } catch (_) {}
   }
 })();
+
+// Also run the browser<->server subscription match check
+try {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', checkSubscriptionMatch);
+  } else {
+    checkSubscriptionMatch();
+  }
+} catch (_) {}
 
 function requestNotificationPermission() {
   try {
@@ -462,6 +506,111 @@ function runDiagnose() {
       btn.disabled = false;
       btn.textContent = 'הרץ בדיקת חיבוריות';
     });
+}
+
+function loadSwReports() {
+  var box = document.getElementById('sw-reports');
+  if (!box) return;
+  box.innerHTML = '<div>טוען...</div>';
+  fetch('/api/push/sw-reports', { credentials: 'include' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data || !data.ok) {
+        box.innerHTML = '<div style="color: var(--danger)">שגיאה בטעינת דוחות</div>';
+        return;
+      }
+      if (!data.count) {
+        box.innerHTML = '<div style="opacity:0.85">אין דוחות.</div>';
+        return;
+      }
+      var reports = data.reports || [];
+      var html = '';
+      for (var i = reports.length - 1; i >= 0; i--) {
+        var r = reports[i] || {};
+        html += '<div class="glass-card" style="padding: 0.6rem; background: rgba(255,255,255,0.05)">';
+        html += '<div><strong>' + String(r.event || 'unknown') + '</strong> — ' + String(r.status || '') + '</div>';
+        html += '<div style="opacity:0.8; font-size:0.9rem">server: ' + String(r.ts || '') + '</div>';
+        if (r.error) html += '<div style="opacity:0.9; color: var(--danger)">error: ' + String(r.error) + '</div>';
+        if (r.raw_data_preview) html += '<div style="opacity:0.8; font-size:0.9rem">data: ' + String(r.raw_data_preview) + '</div>';
+        html += '</div>';
+      }
+      box.innerHTML = html;
+    })
+    .catch(function (err) {
+      box.innerHTML = '<div style="color: var(--danger)">❌ ' + String((err && err.message) || err || 'unknown') + '</div>';
+    });
+}
+
+function _hashEndpointSha12(endpoint) {
+  // Server uses sha256 hex and takes first 12 chars.
+  if (!endpoint) return Promise.resolve('');
+  if (!(window.crypto && window.crypto.subtle && window.TextEncoder)) return Promise.resolve('');
+  var enc = new TextEncoder().encode(String(endpoint));
+  return crypto.subtle.digest('SHA-256', enc).then(function (buf) {
+    var bytes = new Uint8Array(buf);
+    var hex = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var h = bytes[i].toString(16);
+      if (h.length === 1) h = '0' + h;
+      hex += h;
+    }
+    return hex.slice(0, 12);
+  }).catch(function () { return ''; });
+}
+
+function checkSubscriptionMatch() {
+  var box = document.getElementById('sub-match');
+  if (!box) return;
+  box.innerHTML = '<div>טוען...</div>';
+  if (!('serviceWorker' in navigator)) {
+    box.innerHTML = '<div><strong>Service Worker:</strong> 🔴 לא נתמך</div>';
+    return;
+  }
+  navigator.serviceWorker.getRegistration().then(function (reg) {
+    if (!reg || !reg.pushManager) {
+      box.innerHTML = '<div><strong>מנוי בדפדפן:</strong> 🟡 אין רישום SW</div>';
+      return;
+    }
+    return reg.pushManager.getSubscription().then(function (sub) {
+      if (!sub) {
+        box.innerHTML = '<div><strong>מנוי בדפדפן:</strong> 🟡 אין subscription</div>';
+        return;
+      }
+      var ep = sub && sub.endpoint ? String(sub.endpoint) : '';
+      if (!ep) {
+        box.innerHTML = '<div><strong>מנוי בדפדפן:</strong> 🔴 endpoint חסר</div>';
+        return;
+      }
+      _hashEndpointSha12(ep).then(function (h) {
+        if (!h) {
+          box.innerHTML = '<div><strong>מנוי בדפדבן:</strong> 🟢 קיים, אבל אי אפשר לחשב hash בדפדפן הזה</div>';
+          return;
+        }
+        fetch('/api/push/subscriptions', { credentials: 'include' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!data || !data.ok || !data.subscriptions) {
+              box.innerHTML = '<div style="color: var(--danger)">שגיאה בטעינת מנויים מהשרת</div>';
+              return;
+            }
+            var subs = data.subscriptions || [];
+            var found = false;
+            for (var i = 0; i < subs.length; i++) {
+              var s = subs[i] || {};
+              if (String(s.endpoint_hash || '') === h) { found = true; break; }
+            }
+            box.innerHTML = ''
+              + '<div><strong>endpoint_hash (דפדפן):</strong> <code>' + h + '</code></div>'
+              + '<div><strong>מנוי קיים בשרת:</strong> ' + (found ? '🟢 כן' : '🔴 לא') + '</div>';
+          })
+          .catch(function () {
+            box.innerHTML = '<div style="color: var(--danger)">שגיאה בטעינת מנויים מהשרת</div>';
+          });
+      });
+    });
+  }).catch(function () {
+    box.innerHTML = '<div style="color: var(--danger)">שגיאה בבדיקת מנוי בדפדפן</div>';
+  });
 }
 
 function listSubscriptions() {
