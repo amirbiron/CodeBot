@@ -1048,8 +1048,8 @@ def record_request_outcome(
             _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
         # OpenTelemetry: record request outcome via counters/histograms (best-effort).
-        # NOTE: We intentionally do NOT persist per-request metrics to MongoDB anymore
-        # (legacy metrics_storage caused DB overload and was disabled in production).
+        # MongoDB (optional): persist request metrics in a rolled-up form (see monitoring/metrics_storage.py).
+        # This is opt-in via METRICS_DB_ENABLED=true and uses rollups to keep DB load low.
         ctx_dict: Dict[str, Any] = {}
         rid: Optional[str] = None
         queue_delay_ms: Optional[int] = None
@@ -1133,6 +1133,22 @@ def record_request_outcome(
                 source=source_origin or None,
                 status_bucket=status_bucket,
                 queue_delay_ms=queue_delay_ms,
+            )
+        except Exception:
+            pass
+
+        # Best-effort rollup persistence for Observability dashboard fallback (Mongo).
+        # Never blocks the request path: metrics_storage enqueues and flushes in background.
+        try:
+            _db_enqueue_request_metric(
+                int(status_code),
+                float(duration_seconds),
+                request_id=rid,
+                extra={
+                    "method": method_text or None,
+                    "path": path_text or None,
+                    "handler": handler_text or None,
+                },
             )
         except Exception:
             pass

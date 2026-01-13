@@ -140,7 +140,8 @@ def test_metrics_storage_batch_insert_success(monkeypatch):
     # Explicit flush triggers DB write
     ms.flush(force=True)
     assert len(calls) >= 1
-    assert sum(len(b) for b in calls) >= 2
+    # Rollup mode may aggregate multiple requests into a single DB document
+    assert sum(len(b) for b in calls) >= 1
     # Initialized event should be emitted once
     assert any(e[0] == "metrics_db_initialized" for e in events)
 
