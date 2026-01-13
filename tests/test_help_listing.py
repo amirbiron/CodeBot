@@ -56,6 +56,27 @@ def test_help_message_contains_spacing_before_footer():
     assert "\n\nלבעיות או הצעות: @moominAmir" in text
 
 
+def test_build_help_message_hides_admin_section_for_non_admin():
+    # גם אם הפקודות קיימות, לא מציגים את הסקשן למשתמש רגיל
+    text = mod._build_help_message({"status", "errors"}, is_admin=False)
+    assert "⚙️ <b>מנהל (מוגבל)</b>" not in text
+    assert "<code>/status</code>" not in text
+
+
+def test_build_help_message_shows_admin_section_for_admin():
+    text = mod._build_help_message({"status", "errors"}, is_admin=True)
+    assert "⚙️ <b>מנהל (מוגבל)</b>" in text
+    assert "<code>/status</code>" in text
+
+
+def test_admin_help_does_not_duplicate_cache_commands():
+    # cache_stats/clear_cache מוגדרים גם בקטלוג ChatOps וגם בסקשן "מטמון".
+    # בעזרת אדמין לא אמורים לראות אותם כפעמיים.
+    text = mod._build_help_message({"cache_stats", "clear_cache", "status"}, is_admin=True)
+    assert text.count("<code>/cache_stats</code>") == 1
+    assert text.count("<code>/clear_cache</code>") == 1
+
+
 @pytest.mark.asyncio
 async def test_codekeeperbot_help_command_uses_registered_commands(monkeypatch):
     bot = object.__new__(mod.CodeKeeperBot)
