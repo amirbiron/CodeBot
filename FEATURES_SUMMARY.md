@@ -1,8 +1,8 @@
 # מסמך מסכם - כל הפיצ'רים של CodeBot
 
 > תיעוד מקיף של כל התכונות והיכולות של הבוט וה-Web App
-> תאריך עדכון: דצמבר 2025
-> גרסה: 2.0.0
+> תאריך עדכון: ינואר 2026
+> גרסה: 2.1.0
 
 ---
 
@@ -25,6 +25,12 @@
    - 23. [Commands Catalog](#2️⃣3️⃣-commands-catalog-קטלוג-פקודות)
    - 24. [Copy Page Button](#2️⃣4️⃣-copy-page-button-העתקת-דפי-תיעוד)
    - 25. [תכונות נוספות](#2️⃣5️⃣-תכונות-נוספות)
+   - 26. [הרצת קוד (Code Execution)](#2️⃣6️⃣-הרצת-קוד-code-execution)
+   - 27. [ייצוא HTML מעוצב](#2️⃣7️⃣-ייצוא-html-מעוצב-styled-html-export)
+   - 28. [השוואת קוד (Paste Compare)](#2️⃣8️⃣-השוואת-קוד-paste-compare)
+   - 29. [סרגל כלים Markdown](#2️⃣9️⃣-סרגל-כלים-markdown)
+   - 30. [מצב כיף (Fun Mode)](#3️⃣0️⃣-מצב-כיף-fun-mode)
+   - 31. [ערכות נושא משותפות](#3️⃣1️⃣-ערכות-נושא-משותפות-shared-themes)
 5. [טכנולוגיות ותשתית](#טכנולוגיות-ותשתית)
 6. [אבטחה ומעקב](#אבטחה-ומעקב)
 
@@ -1542,10 +1548,13 @@ CodeBot/
 - **אוספים:** 15+ תכונות ארגון
 - **קהילה:** 10+ תכונות שיתוף
 - **אבטחה:** 10+ מנגנוני הגנה
-- **ביצועים:** 8+ אופטימיזציות
-- **API Endpoints:** 50+ נקודות קצה
+- **ביצועים:** 12+ אופטימיזציות
+- **ייצוא וכלים:** 15+ תכונות
+- **עורך ותצוגה:** 20+ תכונות
+- **ערכות נושא:** 12+ תכונות
+- **API Endpoints:** 60+ נקודות קצה
 
-**סה"כ:** 160+ תכונות נפרדות ב-Web App!
+**סה"כ:** 190+ תכונות נפרדות ב-Web App!
 
 ---
 
@@ -1865,6 +1874,240 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - **view_url** - URL לצפייה בקובץ
 - **Auto-Redirect** - מעבר אוטומטי לקובץ
 - **UX Flow** - חווית משתמש משופרת
+
+---
+
+### 2️⃣6️⃣ הרצת קוד (Code Execution)
+
+**סביבת הרצת קוד בטוחה ומבוקרת:**
+
+#### תכונות מרכזיות
+
+**1. שפות נתמכות**
+- **Python** - הרצה עם `sys.executable`
+- **JavaScript** - דרך Node.js
+- תמיכה בייבוא `time` ומודולים בסיסיים
+
+**2. אבטחה**
+- **Sandbox Environment** - הרצה בסביבה מבודדת
+- **Resource Limits** - הגבלות זיכרון וזמן ריצה
+- **Code Validation** - אימות קוד לפני הרצה
+- **Blocked Operations** - חסימת פעולות מסוכנות
+
+**3. ממשק משתמש**
+- **עורך קוד** - CodeMirror עם הדגשת תחביר
+- **כפתור הרצה** - ביצוע מיידי
+- **פלט בזמן אמת** - תצוגת תוצאות
+- **טיפול בשגיאות** - הודעות שגיאה ברורות
+
+**4. תצורה**
+- משתני סביבה להתאמה אישית
+- הגבלות ניתנות לשינוי
+- מעקב אחר הרצות
+
+**API Endpoints:**
+- `POST /api/code-tools/execute` - הרצת קוד
+
+**מימוש:**
+- `/home/user/CodeBot/services/code_execution_service.py` (621 שורות)
+- `/home/user/CodeBot/webapp/code_tools_api.py`
+- `/home/user/CodeBot/webapp/static/js/code-tools-page.js`
+
+**תיעוד:**
+- `/home/user/CodeBot/GUIDES/WEB_APP_CODE_EXECUTION_GUIDE.md`
+
+---
+
+### 2️⃣7️⃣ ייצוא HTML מעוצב (Styled HTML Export)
+
+**ייצוא קבצים כ-HTML מעוצב עם ערכות נושא:**
+
+#### תכונות מרכזיות
+
+**1. אפשרויות ייצוא**
+- **HTML עם סגנונות** - קובץ HTML עצמאי עם CSS מוטמע
+- **PDF** - הדפסה לקובץ PDF
+- **העתקה ללוח** - העתקת HTML מעוצב
+
+**2. הדגשת קוד (Code Highlighting)**
+- **Pygments Integration** - הדגשת תחביר מלאה
+- **ערכות נושא** - התאמה לערכת הנושא הנבחרת
+- **שמירת צבעים** - צבעים מדויקים מהתצוגה
+- **מספרי שורות** - אפשרות להצגת מספרי שורות
+
+**3. מודל ייצוא**
+- **תצוגה מקדימה** - Preview לפני ייצוא
+- **כפתור Copy Link** - העתקת קישור לשיתוף
+- **בחירת פורמט** - HTML/PDF
+- **הגדרות נוספות** - מספרי שורות, ערכת נושא
+
+**4. Template מעוצב**
+- **עיצוב מקצועי** - תבנית HTML יפה
+- **Responsive** - מותאם לכל מסך
+- **Print-Friendly** - מותאם להדפסה
+- **RTL Support** - תמיכה בעברית
+
+**API Endpoints:**
+- `GET /api/export/<file_id>/html` - ייצוא HTML
+- `GET /api/export/<file_id>/styled` - HTML מעוצב
+
+**מימוש:**
+- `/home/user/CodeBot/services/styled_export_service.py` (629 שורות)
+- `/home/user/CodeBot/webapp/static/css/export-modal.css`
+- `/home/user/CodeBot/webapp/static/js/export-modal.js`
+- `/home/user/CodeBot/webapp/templates/export/styled_document.html`
+
+---
+
+### 2️⃣8️⃣ השוואת קוד (Paste Compare)
+
+**השוואה ויזואלית בין קטעי קוד:**
+
+#### תכונות מרכזיות
+
+**1. מצבי השוואה**
+- **Side-by-Side** - תצוגה זה לצד זה
+- **Inline Diff** - תצוגת הבדלים משולבת
+- **Unified View** - תצוגה מאוחדת
+
+**2. יכולות**
+- **הדבקת קוד** - הדבקה ישירה משני מקורות
+- **הדגשת הבדלים** - צביעת שורות שונות
+- **שורות נוספות/חסרות** - סימון ברור
+- **ניווט בהבדלים** - מעבר מהיר בין הבדלים
+
+**3. ממשק משתמש**
+- **עורך מפוצל** - שני חלונות עריכה
+- **כפתור השוואה** - ביצוע Compare
+- **סטטיסטיקות** - מספר שורות שונות/זהות
+- **ייצוא תוצאות** - שמירת ההשוואה
+
+**נגישות:**
+- `/compare/paste` - דף השוואת קוד
+- אינטגרציה מדף השוואת קבצים
+
+**מימוש:**
+- `/home/user/CodeBot/webapp/templates/compare_paste.html` (935 שורות)
+
+---
+
+### 2️⃣9️⃣ סרגל כלים Markdown
+
+**סרגל כלים מתקדם לעריכת Markdown:**
+
+#### תכונות מרכזיות
+
+**1. עיצוב טקסט**
+- **Bold** - טקסט מודגש (`**text**`)
+- **Italic** - טקסט נטוי (`*text*`)
+- **Strikethrough** - קו חוצה (`~~text~~`)
+- **Mark** - הדגשה (`==text==`)
+- **Code** - קוד inline (`` `code` ``)
+
+**2. מבנה**
+- **Headers** (H1-H6) - כותרות
+- **Lists** - רשימות ממוספרות ולא ממוספרות
+- **Task Lists** - רשימות משימות
+- **Blockquotes** - ציטוטים
+- **Horizontal Rule** - קו מפריד
+
+**3. תוכן מתקדם**
+- **Links** - קישורים
+- **Images** - תמונות
+- **Tables** - טבלאות
+- **Code Blocks** - בלוקי קוד עם שפה
+- **Mermaid Diagrams** - דיאגרמות
+
+**4. קיצורי מקלדת**
+- `Ctrl/Cmd + B` - Bold
+- `Ctrl/Cmd + I` - Italic
+- `Ctrl/Cmd + K` - Link
+- `Ctrl/Cmd + Shift + C` - Code Block
+
+**מימוש:**
+- `/home/user/CodeBot/webapp/static/js/markdown-toolbar.js` (595 שורות)
+- `/home/user/CodeBot/webapp/static/css/markdown-toolbar.css`
+- `/home/user/CodeBot/webapp/templates/components/editor_components.html`
+
+---
+
+### 3️⃣0️⃣ מצב כיף (Fun Mode)
+
+**אנימציות ואפקטים ויזואליים מהנים:**
+
+#### תכונות מרכזיות
+
+**1. אנימציות Navbar**
+- **Code Particles Effect** - חלקיקי קוד מרחפים
+- **Button Animations** - אנימציות כפתורים
+- **Hover Effects** - אפקטי ריחוף
+- **Gradient Animations** - אנימציות גרדיינט
+
+**2. אפקטים ויזואליים**
+- **Floating Elements** - אלמנטים צפים
+- **Sparkle Effects** - אפקטי ניצוצות
+- **Wave Animations** - אנימציות גלים
+- **Particle Systems** - מערכות חלקיקים
+
+**3. התאמה**
+- **Toggle On/Off** - הפעלה/כיבוי
+- **Intensity Control** - שליטה בעוצמה
+- **Theme Integration** - התאמה לערכת הנושא
+- **Performance Mode** - מצב ביצועים
+
+**4. נגישות**
+- **Reduced Motion** - כיבוד `prefers-reduced-motion`
+- **מצב חיסכון** - הפחתת אנימציות למכשירים חלשים
+
+**מימוש:**
+- `/home/user/CodeBot/webapp/static/js/fun-mode.js` (407 שורות)
+- אינטגרציה ב-`base.html`
+
+---
+
+### 3️⃣1️⃣ ערכות נושא משותפות (Shared Themes)
+
+**יצירה, שיתוף וייבוא ערכות נושא מותאמות:**
+
+#### תכונות מרכזיות
+
+**1. בונה ערכות נושא (Theme Builder)**
+- **עורך צבעים** - בחירת צבעים לכל רכיב
+- **תצוגה מקדימה חיה** - Preview בזמן אמת
+- **ייצוא/ייבוא** - שמירה וטעינה
+- **שיתוף** - יצירת קישור שיתוף
+
+**2. ניהול ערכות נושא**
+- **ערכות מותאמות אישית** - יצירה חופשית
+- **ספריית ערכות** - גישה לערכות משותפות
+- **מועדפים** - שמירת ערכות אהובות
+- **היסטוריה** - גרסאות קודמות
+
+**3. מיפוי הדגשת קוד (Code Highlighting Mapping)**
+- **שיוך שפות** - מיפוי שפות ל-syntax themes
+- **צבעים מותאמים** - צבעי הדגשה לכל שפה
+- **Preview** - תצוגה מקדימה של הדגשה
+- **Fallback** - ערכת נושא ברירת מחדל
+
+**4. Tech Guide Theme**
+- **ערכת נושא חדשה** - Tech Guide
+- **עיצוב טכני** - מותאם לתיעוד טכני
+- **ניגודיות גבוהה** - קריאות משופרת
+
+**API Endpoints:**
+- `GET /api/themes` - רשימת ערכות נושא
+- `POST /api/themes` - יצירת ערכת נושא
+- `GET /api/themes/<id>` - קבלת ערכת נושא
+- `GET /api/themes/shared/<token>` - ערכה משותפת
+
+**מימוש:**
+- `/home/user/CodeBot/services/shared_theme_service.py` (375 שורות)
+- `/home/user/CodeBot/services/theme_parser_service.py`
+- `/home/user/CodeBot/webapp/themes_api.py`
+- `/home/user/CodeBot/webapp/templates/settings/theme_builder.html`
+
+**תיעוד:**
+- `/home/user/CodeBot/docs/webapp/custom_themes_guide.rst`
 
 ---
 
@@ -2324,7 +2567,7 @@ docker-compose up -d
 **CodeBot** הוא פתרון מקיף ברמת enterprise לניהול קוד עם:
 
 ✅ **170+ תכונות בבוט Telegram**
-✅ **160+ תכונות ב-Web App**
+✅ **190+ תכונות ב-Web App**
 ✅ **100+ שפות תכנות נתמכות**
 ✅ **ניהול גרסאות מובנה**
 ✅ **אינטגרציות GitHub ו-Google Drive מלאות**
@@ -2335,15 +2578,64 @@ docker-compose up -d
 ✅ **DevOps מקצועי (Docker, CI/CD, Monitoring)**
 ✅ **תיעוד מקיף ובדיקות**
 
-### 🆕 תכונות חדשות בגרסה 2.0 (דצמבר 2025)
+### 🆕 תכונות חדשות בגרסה 2.1 (ינואר 2026)
 
-#### תכונות בוט חדשות:
+#### תכונות WebApp חדשות:
+
+**הרצת קוד וכלים:**
+- 🖥️ **Code Execution Playground** - הרצת קוד Python/JS בסביבה בטוחה
+- 🔧 **Code Tools Page** - עמוד כלי קוד משופר
+
+**ייצוא והשוואה:**
+- 📤 **Styled HTML Export** - ייצוא HTML מעוצב עם הדגשת קוד
+- 🔗 **Copy Link Button** - העתקת קישור במודל ייצוא
+- 🔄 **Paste Compare** - השוואת קוד מודבק side-by-side
+
+**עורך Markdown:**
+- ✏️ **Markdown Toolbar** - סרגל כלים מתקדם לעריכת Markdown
+- 🖍️ **Mark Syntax** - תמיכה בתחביר `==highlight==`
+- 🏷️ **GitHub-style Language Badges** - תגיות שפה יפות
+
+**ערכות נושא:**
+- 🎨 **Shared Themes System** - יצירה ושיתוף ערכות נושא
+- 🛠️ **Theme Builder** - בונה ערכות נושא אינטראקטיבי
+- 📖 **Tech Guide Theme** - ערכת נושא חדשה לתיעוד טכני
+- 🎯 **Code Highlighting Mapping** - מיפוי משופר להדגשת קוד
+
+**אנימציות ו-UI:**
+- 🎉 **Fun Mode Animations** - אנימציות מהנות (Code Particles, Button Effects)
+- ✨ **Navbar Animations** - אנימציות כפתורי ניווט
+- 🌊 **Wave/Particle Effects** - אפקטים ויזואליים
+
+**ביצועים ואופטימיזציות:**
+- 🗄️ **Database Indexes** - אינדקסים חדשים לביצועים
+- ⚡ **Async Query Profiler** - פרופילר שאילתות משופר
+- 🔧 **Database Manager Optimization** - אופטימיזציית מנהל מסד נתונים
+- 📊 **Scheduler Independent DB Pool** - Pool נפרד לתזמונים
+
+**Observability:**
+- 📈 **OpenTelemetry Metrics** - הגדרת מטריקות OpenTelemetry
+- 📊 **Observability Dashboard Data** - נתונים משופרים ללוח בקרה
+- 👁️ **Admin Commands Visibility** - נראות משופרת לפקודות מנהל
+
+**תיקוני באגים ושיפורים:**
+- 🎨 **Theme Color Contrast** - שיפור ניגודיות צבעים
+- 💾 **Collection Sharing Save Buttons** - כפתורי שמירה בשיתוף אוספים
+- 📁 **File View Button Styles** - סגנונות כפתורים בתצוגת קבצים
+- ⚡ **Settings Page Optimization** - אופטימיזציית דף הגדרות
+- 🔔 **Note Reminders Fix** - תיקון שאילתות תזכורות
+
+---
+
+### תכונות מגרסה 2.0 (דצמבר 2025)
+
+#### תכונות בוט:
 - 🤖 **AI Model עם Fallback** - מערכת AI משופרת עם 8 מודלים גיבוי
 - 💬 **ChatOps מורחב** - 20+ פקודות ניטור ו-troubleshooting חדשות
 - 📊 **Incident Memory** - מעקב היסטורי אחר תקריות
 - 📚 **כפתורי פעולה חדשים** - היסטוריה, למקור, העבר לסל
 
-#### תכונות WebApp חדשות:
+#### תכונות WebApp:
 
 **Onboarding ו-UX:**
 - 🎓 **מערכת Onboarding מקיפה** - Welcome Modal + Interactive Tour + Theme Wizard
@@ -2380,8 +2672,8 @@ docker-compose up -d
 ---
 
 **נוצר ב-:** נובמבר 2025
-**עודכן לאחרונה:** דצמבר 2025
-**גרסה:** 2.0.0
+**עודכן לאחרונה:** ינואר 2026
+**גרסה:** 2.1.0
 **Repository:** [github.com/amirbiron/CodeBot](https://github.com/amirbiron/CodeBot)
 **רישיון:** MIT
 
