@@ -73,13 +73,31 @@ class FilesFacade:
         """
         Legacy alias used by some flows/tests.
         """
-        try:
-            db = self._get_db()
-            fn = getattr(db, "get_file", None)
-            if callable(fn):
+        db = self._get_db()
+
+        # חשוב: כמו ב-get_latest_version, לא מסתירים תקלות DB כ"קובץ לא נמצא".
+        def _looks_like_signature_mismatch(err: TypeError) -> bool:
+            msg = str(err or "").lower()
+            if "unexpected keyword" in msg:
+                return True
+            if "missing 1 required positional argument" in msg or "missing required positional argument" in msg:
+                return True
+            if "positional argument" in msg or "positional arguments" in msg:
+                return "takes" in msg or "were given" in msg
+            return False
+
+        # Support legacy variants even when callers still use `get_file`.
+        for method_name in ("get_file", "get_latest_version", "get_code_by_name"):
+            fn = getattr(db, method_name, None)
+            if not callable(fn):
+                continue
+            try:
                 return fn(user_id, file_name)
-        except Exception:
-            return None
+            except TypeError as e:
+                # תאימות ל-stubs ישנים בלבד (חתימה לא תואמת).
+                if _looks_like_signature_mismatch(e):
+                    continue
+                raise
         return None
 
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict[str, Any]]:
@@ -692,14 +710,18 @@ class FilesFacade:
         """
         Delete a large file (moves it to trash in legacy implementation).
         """
-        try:
-            db = self._get_db()
-            fn = getattr(db, "delete_large_file", None)
-            if callable(fn):
-                return bool(fn(user_id, file_name))
-        except Exception:
+        db = self._get_db()
+        fn = getattr(db, "delete_large_file", None)
+        if not callable(fn):
             return False
-        return False
+        try:
+            return bool(fn(user_id, file_name))
+        except TypeError as e:
+            # במקרי stub ישן עם חתימה לא תואמת – ניפול חזרה ל-False (ללא הסתרת תקלות DB אמיתיות).
+            msg = str(e or "").lower()
+            if "positional argument" in msg or "positional arguments" in msg or "missing" in msg or "takes" in msg:
+                return False
+            raise
 
     @staticmethod
     def _doc_belongs_to_user(doc: Dict[str, Any], user_id: int) -> bool:

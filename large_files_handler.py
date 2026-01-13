@@ -425,7 +425,15 @@ class LargeFilesHandler:
         
         # מחיקת הקובץ
         facade = self._facade()
-        success = bool(facade.delete_large_file(user_id, file_name)) if facade is not None else False
+        if facade is None:
+            await query.edit_message_text("❌ לא ניתן למחוק כרגע — אין חיבור למסד הנתונים.")
+            return
+        try:
+            success = bool(facade.delete_large_file(user_id, file_name))
+        except Exception:
+            logger.error("מחיקת קובץ גדול נכשלה (שגיאת DB)", exc_info=True)
+            await query.edit_message_text("❌ שגיאה במסד הנתונים בעת מחיקת הקובץ. נסו שוב עוד רגע.")
+            return
         
         if success:
             # ניקוי הקאש
