@@ -436,25 +436,17 @@ class SharedThemeService:
 _shared_theme_service: Optional[SharedThemeService] = None
 
 
-def get_shared_theme_service():
-    """Singleton factory — בטוח גם לטסטים (מתאפס אם ה-DB object השתנה)."""
+def get_shared_theme_service() -> SharedThemeService:
+    """
+    Returns singleton instance of SharedThemeService.
+    Cached across all requests for performance.
+    """
     global _shared_theme_service
 
-    # import מאוחר כדי למנוע circular imports בזמן טעינת מודולים
-    from webapp.app import get_db  # noqa: WPS433 (local import by design)
-
-    db = get_db()
-    current_coll = getattr(db, "shared_themes", None)
     if _shared_theme_service is None:
-        _shared_theme_service = SharedThemeService(db)
-        return _shared_theme_service
+        from database.db_manager import get_db
 
-    # אם סביבת טסט החליפה DB (monkeypatch), נוודא שה-service מתיישר
-    try:
-        if getattr(_shared_theme_service, "collection", None) is not current_coll:
-            _shared_theme_service = SharedThemeService(db)
-    except Exception:
-        _shared_theme_service = SharedThemeService(db)
+        _shared_theme_service = SharedThemeService(get_db())
 
     return _shared_theme_service
 
