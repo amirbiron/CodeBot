@@ -1358,8 +1358,9 @@ class RefactoringEngine:
         idx = 0
         if getattr(tree, "body", None):
             first = tree.body[0]
-            if isinstance(first, ast.Expr) and isinstance(getattr(first, "value", None), ast.Constant):
-                if isinstance(first.value.value, str):
+            first_value = getattr(first, "value", None)
+            if isinstance(first, ast.Expr) and isinstance(first_value, ast.Constant):
+                if isinstance(first_value.value, str):
                     end = int(getattr(first, "end_lineno", 1) or 1)
                     idx = max(idx, end)
         # עבור כל import צמוד בתחילת המודול

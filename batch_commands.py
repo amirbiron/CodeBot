@@ -201,11 +201,11 @@ async def job_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         # הצגת רשימת עבודות
         keyboard = []
-        for job in active_jobs[-5:]:  # 5 עבודות אחרונות
+        for active_job in active_jobs[-5:]:  # 5 עבודות אחרונות
             keyboard.append([
                 InlineKeyboardButton(
-                    f"{job.operation} - {job.status}",
-                    callback_data=f"job_status:{job.job_id}"
+                    f"{active_job.operation} - {active_job.status}",
+                    callback_data=f"job_status:{active_job.job_id}"
                 )
             ])
         
@@ -316,7 +316,6 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
     try:
         if data.startswith("job_status:"):
             job_id = data[11:]  # הסרת "job_status:"
-            from typing import Optional
             job: Optional[BatchJob] = batch_processor.get_job_status(job_id)
             
             if not job or job.user_id != user_id:
@@ -348,19 +347,18 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
             
         elif data.startswith("job_results:"):
             job_id = data[12:]  # הסרת "job_results:"
-            from typing import Optional
-            job: Optional[BatchJob] = batch_processor.get_job_status(job_id)
+            job_results: Optional[BatchJob] = batch_processor.get_job_status(job_id)
             
-            if not job or job.user_id != user_id:
+            if not job_results or job_results.user_id != user_id:
                 await query.edit_message_text("❌ עבודה לא נמצאה")
                 return
             
-            if job.status != "completed":
+            if job_results.status != "completed":
                 await query.edit_message_text("⏳ עבודה עדיין לא הושלמה")
                 return
             
             # בדיקת סוג הפעולה
-            is_analyze = job.operation == "analyze"
+            is_analyze = job_results.operation == "analyze"
             
             # הצגת תוצאות מפורטות
             if is_analyze:
@@ -372,14 +370,14 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
             successful_files = []
             failed_files = []
             
-            for file_name, result in job.results.items():
+            for file_name, result in job_results.results.items():
                 if result.get('success', False):
                     successful_files.append(file_name)
                 else:
                     failed_files.append((file_name, result.get('error', 'שגיאה לא ידועה')))
             
             # סטטיסטיקות כלליות
-            total_files = len(job.results)
+            total_files = len(job_results.results)
             results_text += f"📈 <b>סטטיסטיקות:</b>\n"
             results_text += f"   • סה״כ קבצים: <b>{total_files}</b>\n"
             results_text += f"   • ✅ עברו בהצלחה: <b>{len(successful_files)}</b>\n"

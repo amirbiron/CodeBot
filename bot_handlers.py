@@ -2033,7 +2033,7 @@ class AdvancedBotHandlers:
                 for di in ditems:
                     sink = str(di.get('sink') or 'unknown')
                     ok = bool(di.get('ok'))
-                    s = per_sink.setdefault(sink, {"ok": 0, "fail": 0})
+                    s: dict[str, int] = per_sink.setdefault(sink, {"ok": 0, "fail": 0})
                     if ok:
                         s["ok"] += 1
                     else:
@@ -2840,11 +2840,11 @@ class AdvancedBotHandlers:
 
                 # נשמור מועמדים לכפתורים מתוך חלון היעד (ברירת מחדל: 30m או החלון היחיד שבחר המשתמש)
                 target_window = wins[0] if len(wins) == 1 else 30
-                selected_sigs: list[str] = []
+                legacy_selected_sigs: list[str] = []
 
                 for w in wins:
                     start = now - timedelta(minutes=int(w))
-                    grouped: dict[str, dict[str, Any]] = {}
+                    window_grouped: dict[str, dict[str, Any]] = {}
                     for er in recent:
                         # Apply optional filters (substring match, case-insensitive)
                         try:
@@ -2880,7 +2880,7 @@ class AdvancedBotHandlers:
                         if error_ts < start:
                             continue
                         signature = str(er.get("error_signature") or er.get("event") or "unknown")
-                        bucket = grouped.setdefault(signature, {
+                        bucket = window_grouped.setdefault(signature, {
                             "count": 0,
                             "sample": "",
                             "category": str(er.get("error_category") or ""),
@@ -2906,11 +2906,11 @@ class AdvancedBotHandlers:
 
                     lines.append("")
                     lines.append(f"⏱️ Top {w}m:")
-                    if not grouped:
+                    if not window_grouped:
                         lines.append("(אין נתונים בחלון זה)")
                         continue
 
-                    sorted_groups = sorted(grouped.items(), key=lambda item: item[1]["count"], reverse=True)
+                    sorted_groups = sorted(window_grouped.items(), key=lambda item: item[1]["count"], reverse=True)
                     for i, (sig, info) in enumerate(sorted_groups[:10], 1):
                         category = info.get("category") or "-"
                         label_parts = [category]
@@ -2935,14 +2935,14 @@ class AdvancedBotHandlers:
                         lines.append(line)
 
                     # בחירת מועמדים לכפתורים
-                    if (w == target_window) or (not selected_sigs and w == wins[-1]):
-                        selected_sigs = [sig for sig, _info in sorted_groups[:5] if sig and sig != "unknown"]
+                    if (w == target_window) or (not legacy_selected_sigs and w == wins[-1]):
+                        legacy_selected_sigs = [sig for sig, _info in sorted_groups[:5] if sig and sig != "unknown"]
 
                 # בניית מקלדת אינליין: לכל חתימה כפתור דוגמאות + כפתור Sentry (URL)
-                if selected_sigs:
+                if legacy_selected_sigs:
                     try:
                         tokens_map = context.user_data.get('errors_sig_tokens') or {}
-                        for sig in selected_sigs:
+                        for sig in legacy_selected_sigs:
                             tok = hashlib.sha1(sig.encode('utf-8', 'ignore')).hexdigest()[:16]
                             tokens_map[tok] = sig
                             label = f"📄 דוגמאות – {sig[:18]}"
