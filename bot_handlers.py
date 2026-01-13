@@ -3538,9 +3538,24 @@ class AdvancedBotHandlers:
                 elif lower.startswith("path="):
                     health_path = "/" + text.split("=", 1)[1].strip().lstrip("/")
 
-            base_url = override_url or os.getenv("PUSH_DELIVERY_URL") or getattr(config, "PUSH_DELIVERY_URL", None)
+            env_url_raw = os.getenv("PUSH_DELIVERY_URL")
+            config_url_raw = getattr(config, "PUSH_DELIVERY_URL", None)
+            base_url = override_url or env_url_raw or config_url_raw
             if not base_url:
-                await update.message.reply_text("⚠️ PUSH_DELIVERY_URL לא מוגדר – לא ניתן לבדוק Worker.")
+                env_state = "לא קיים (None)" if env_url_raw is None else ("מוגדר אבל ריק" if not str(env_url_raw).strip() else "מוגדר")
+                cfg_state = "לא קיים (attr חסר/None)" if config_url_raw is None else ("מוגדר אבל ריק" if not str(config_url_raw).strip() else "מוגדר")
+                await update.message.reply_text(
+                    "\n".join(
+                        [
+                            "⚠️ PUSH_DELIVERY_URL לא נגיש לתהליך הבוט – לא ניתן לבדוק Worker.",
+                            f"• os.getenv('PUSH_DELIVERY_URL'): {env_state}",
+                            f"• config.PUSH_DELIVERY_URL: {cfg_state}",
+                            "ℹ️ אם הגדרת את המשתנה בשרת (למשל ב-SSH/.bashrc), הוא לא עובר אוטומטית ל-service (systemd) או ל-Container.",
+                            "ℹ️ ודא שהוא מוגדר בקובץ השירות/compose/environment של הדיפלוי, ואז בצע restart לתהליך כדי שיקלוט את ה-ENV.",
+                            "טיפ: אפשר גם לבדוק זמנית עם `/status_worker url=<כתובת>`.",
+                        ]
+                    )
+                )
                 return
             base_url = str(base_url).strip().rstrip("/")
             health_url = f"{base_url}{health_path}"
