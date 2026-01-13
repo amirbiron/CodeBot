@@ -32,8 +32,11 @@ def _is_true(val: Optional[str]) -> bool:
     return str(val or "").lower() in {"1", "true", "yes", "on"}
 
 
-def _enabled() -> bool:
-    # Explicit opt-in wins over global disable to support tests and targeted writes
+def _write_enabled() -> bool:
+    """Check if WRITING alerts to DB is enabled.
+
+    Explicit opt-in wins over global disable to support tests and targeted writes.
+    """
     if _is_true(os.getenv("ALERTS_DB_ENABLED")):
         return True
     if _is_true(os.getenv("DISABLE_DB")):
@@ -42,10 +45,36 @@ def _enabled() -> bool:
     return _is_true(os.getenv("METRICS_DB_ENABLED"))
 
 
+def _read_enabled() -> bool:
+    """Check if READING alerts from DB is enabled.
+
+    קריאה מה-DB נשארת פעילה תמיד (אלא אם מושבתת מפורשות),
+    כדי שדשבורד ה-Observability יציג נתונים היסטוריים גם כשהכתיבה מושבתת.
+    """
+    if _is_true(os.getenv("DISABLE_ALERTS_READS")):
+        return False
+    # Explicit opt-in wins over global disable (tests often set DISABLE_DB=1 by default).
+    # אם ALERTS_DB_ENABLED=true או METRICS_DB_ENABLED=true - אפשר לקרוא (גם אם DISABLE_DB=true)
+    if _is_true(os.getenv("ALERTS_DB_ENABLED")):
+        return True
+    if _is_true(os.getenv("METRICS_DB_ENABLED")):
+        return True
+    if _is_true(os.getenv("DISABLE_DB")):
+        return False
+    # Fallback: אפשר קריאה אם יש MongoDB URL מוגדר (גם בלי הדגלים)
+    return bool(os.getenv("MONGODB_URL"))
+
+
+def _enabled() -> bool:
+    """Legacy function - now delegates to _write_enabled for backwards compatibility."""
+    return _write_enabled()
+
+
 _client = None  # type: ignore
 _collection = None  # type: ignore
 _catalog_collection = None  # type: ignore
-_init_failed = False
+_init_failed = False  # True when initialization permanently failed (e.g., pymongo missing)
+_write_disabled = False  # True when writes are intentionally disabled (not a failure)
 
 _SENSITIVE_DETAIL_KEYS = {
     "token",
@@ -290,13 +319,34 @@ def _build_time_filter(start_dt: Optional[datetime], end_dt: Optional[datetime])
     return match
 
 
-def _get_collection():  # pragma: no cover - exercised indirectly
-    global _client, _collection, _init_failed
-    if _collection is not None or _init_failed:
+def _get_collection(*, for_read: bool = True):  # pragma: no cover - exercised indirectly
+    """Get the MongoDB collection for alerts storage.
+
+    Args:
+        for_read: If True, allows connection even when writes are disabled.
+                  This enables the Observability dashboard to show historical data.
+    """
+    global _client, _collection, _init_failed, _write_disabled
+
+    # If already initialized successfully, return the collection
+    if _collection is not None:
         return _collection
 
-    if not _enabled():
-        _init_failed = True
+    # If initialization permanently failed (e.g., pymongo missing), don't retry
+    if _init_failed:
+        return None
+
+    # If writes are disabled and this is a write request, return None
+    # but allow read requests to proceed with initialization
+    if _write_disabled and not for_read:
+        return None
+
+    # Check if we should connect based on read/write mode
+    enabled = _read_enabled() if for_read else _write_enabled()
+    if not enabled:
+        # Mark write_disabled (not init_failed) so reads can still work
+        if not for_read:
+            _write_disabled = True
         return None
 
     try:
@@ -354,14 +404,20 @@ def _get_collection():  # pragma: no cover - exercised indirectly
         return None
 
 
-def _get_catalog_collection():  # pragma: no cover - exercised indirectly
-    """Return (and lazily create) the alert types catalog collection."""
+def _get_catalog_collection(*, for_read: bool = True):  # pragma: no cover - exercised indirectly
+    """Return (and lazily create) the alert types catalog collection.
+
+    Args:
+        for_read: If True, allows connection even when writes are disabled.
+    """
     global _catalog_collection
-    if _catalog_collection is not None or _init_failed:
+    if _catalog_collection is not None:
         return _catalog_collection
+    if _init_failed:
+        return None
     # Ensure base client is initialized (same DB/cluster settings)
     try:
-        coll = _get_collection()
+        coll = _get_collection(for_read=for_read)
         if coll is None:
             return None
     except Exception:
@@ -727,11 +783,13 @@ def is_new_error(signature: str) -> bool:
             return False
     except Exception:
         return False
-    if not _enabled() or _init_failed:
+    if not _write_enabled():
+        return False
+    if _init_failed:
         return False
     try:
         # ודא שהלקוח מאותחל (best-effort)
-        _ = _get_collection()
+        _ = _get_collection(for_read=False)
         if _client is None:
             return False
         db_name = os.getenv("DATABASE_NAME") or "code_keeper_bot"
@@ -880,10 +938,12 @@ def record_alert(
     - When alert_id is provided, use it for de-duplication via a unique key.
     - Otherwise use a stable hash based on name/severity/summary/minute.
     """
-    if not _enabled() or _init_failed:
+    if not _write_enabled():
+        return
+    if _init_failed:
         return
     try:
-        coll = _get_collection()
+        coll = _get_collection(for_read=False)
         if coll is None:
             return
         now = datetime.now(timezone.utc)
@@ -1139,10 +1199,12 @@ def fetch_alerts_by_type(
 
 def count_alerts_since(since_dt: datetime) -> tuple[int, int]:
     """Return (total, critical) counts since the given datetime (UTC recommended)."""
-    if not _enabled() or _init_failed:
+    if not _read_enabled():
+        return 0, 0
+    if _init_failed:
         return 0, 0
     try:
-        coll = _get_collection()
+        coll = _get_collection(for_read=True)
         if coll is None:
             return 0, 0
         match: Dict[str, Any] = {"ts_dt": {"$gte": since_dt}}
@@ -1195,10 +1257,12 @@ def list_recent_alert_ids(limit: int = 10) -> List[str]:
     stable unique ``_key`` used for de-duplication. Results are ordered by
     ``ts_dt`` descending and truncated to ``limit``.
     """
-    if not _enabled() or _init_failed:
+    if not _read_enabled():
+        return []
+    if _init_failed:
         return []
     try:
-        coll = _get_collection()
+        coll = _get_collection(for_read=True)
         if coll is None:
             return []
         try:
