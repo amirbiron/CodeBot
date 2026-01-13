@@ -371,6 +371,19 @@ app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
 app.config['COMPRESS_LEVEL'] = 6
 app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
+
+# OpenTelemetry (best-effort, fail-open)
+try:
+    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+
+    _setup_otel(
+        service_name=str(os.getenv("OTEL_SERVICE_NAME") or "codebot-webapp"),
+        service_version=os.getenv("SERVICE_VERSION") or os.getenv("RENDER_GIT_COMMIT") or None,
+        environment=os.getenv("ENVIRONMENT") or os.getenv("ENV") or None,
+        flask_app=app,
+    )
+except Exception:
+    pass
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
 

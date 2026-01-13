@@ -1466,13 +1466,19 @@
      - דוגמה
      - רכיב
    * - ``ENABLE_METRICS``
-     - מפעיל/מכבה יצוא Metrics (Prometheus/OTEL). שימושי בסביבות שאין בהן endpoints חיצוניים.
+     - מפעיל/מכבה יצוא Metrics דרך OTLP (OpenTelemetry Metrics). כדי לא להרעיש, יצוא OTLP דורש גם ``OTEL_EXPORTER_OTLP_ENDPOINT``.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+  * - ``ENABLE_PROMETHEUS_METRICS``
+     - מפעיל OpenTelemetry Prometheus exporter (pull/scrape). כשהוא פעיל, מדדים של OTEL נחשפים דרך ה-``/metrics`` הקיים. (Alias נתמך: ``ENABLE_PROMETHEUS_OTEL_METRICS``)
      - לא
      - ``false``
      - ``true``
      - Bot/WebApp
    * - ``METRICS_DB_ENABLED``
-     - Dual-write של metrics ל-MongoDB (לצד Prometheus).
+     - **Legacy**: מפעיל כתיבה של metrics ל-MongoDB (``monitoring/metrics_storage.py``). כיום הכתיבה מושבתת בפרודקשן ברמת הקוד ונשארה בעיקר לטסטים/תאימות.
      - לא
      - ``false``
      - ``true``
@@ -1573,6 +1579,18 @@
      - "" (ריק)
      - ``https://otel-collector:4318/v1/traces``
      - Bot/WebApp
+  * - ``PROMETHEUS_URL``
+     - בסיס URL ל-Prometheus HTTP API. אם מוגדר, דשבורד ה-Observability ישתמש ב-Prometheus ל-timeseries במקום קריאה מ-MongoDB.
+     - לא
+     - "" (ריק)
+     - ``https://prometheus.example.com``
+     - WebApp/Observability
+  * - ``PROMETHEUS_RATE_WINDOW``
+     - חלון ברירת מחדל ל-``rate()``/``histogram_quantile()`` ב-PromQL (למשל ``5m``). משפיע על החלקת גרפים בדשבורד.
+     - לא
+     - ``5m``
+     - ``1m``
+     - WebApp/Observability
    * - ``PREDICTION_MAX_AGE_SECONDS``
      - כמה זמן לשמור קבצי חיזוי/תקריות לפני ניקוי (ברירת מחדל 24 שעות).
      - לא

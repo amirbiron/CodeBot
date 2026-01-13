@@ -52,6 +52,99 @@ except Exception:  # pragma: no cover - prometheus optional in some envs
 # Logger for structured warnings around anomalies
 logger = logging.getLogger(__name__)
 
+# --- OpenTelemetry metrics (best-effort, fail-open) ---
+_OTEL_HTTP_LOCK = threading.Lock()
+_OTEL_HTTP_INIT_DONE: bool = False
+_OTEL_HTTP_REQUESTS_COUNTER = None
+_OTEL_HTTP_DURATION_HIST = None
+_OTEL_HTTP_QUEUE_DELAY_HIST = None
+
+
+def _otel_init_http_metrics():
+    """Best-effort init of OpenTelemetry HTTP instruments (idempotent)."""
+    global _OTEL_HTTP_INIT_DONE, _OTEL_HTTP_REQUESTS_COUNTER, _OTEL_HTTP_DURATION_HIST, _OTEL_HTTP_QUEUE_DELAY_HIST
+    if _OTEL_HTTP_INIT_DONE:
+        return
+    with _OTEL_HTTP_LOCK:
+        if _OTEL_HTTP_INIT_DONE:
+            return
+        try:
+            from opentelemetry import metrics as _otel_metrics  # type: ignore
+        except Exception:
+            _OTEL_HTTP_INIT_DONE = True
+            return
+        try:
+            meter = _otel_metrics.get_meter("codebot.metrics")
+        except Exception:
+            _OTEL_HTTP_INIT_DONE = True
+            return
+        try:
+            _OTEL_HTTP_REQUESTS_COUNTER = meter.create_counter(
+                "codebot.http.server.requests",
+                description="Total incoming request outcomes (best-effort)",
+                unit="1",
+            )
+        except Exception:
+            _OTEL_HTTP_REQUESTS_COUNTER = None
+        try:
+            _OTEL_HTTP_DURATION_HIST = meter.create_histogram(
+                "codebot.http.server.duration",
+                description="Incoming request duration in seconds (best-effort)",
+                unit="s",
+            )
+        except Exception:
+            _OTEL_HTTP_DURATION_HIST = None
+        try:
+            _OTEL_HTTP_QUEUE_DELAY_HIST = meter.create_histogram(
+                "codebot.http.server.queue_delay",
+                description="Incoming request queue delay in seconds (best-effort)",
+                unit="s",
+            )
+        except Exception:
+            _OTEL_HTTP_QUEUE_DELAY_HIST = None
+        _OTEL_HTTP_INIT_DONE = True
+
+
+def _otel_record_http_outcome(
+    *,
+    status_code: int,
+    duration_seconds: float,
+    endpoint: str,
+    method: str,
+    source: str | None = None,
+    status_bucket: str | None = None,
+    queue_delay_ms: int | None = None,
+) -> None:
+    """Record a single request outcome to OpenTelemetry metrics (never raises)."""
+    try:
+        _otel_init_http_metrics()
+        attrs: dict[str, object] = {
+            "http.method": (method or "").upper() or "GET",
+            "http.route": str(endpoint or "unknown")[:160],
+            "http.status_code": int(status_code),
+        }
+        if source:
+            attrs["codebot.source"] = str(source)[:64]
+        if status_bucket:
+            attrs["codebot.status_bucket"] = str(status_bucket)[:16]
+        if _OTEL_HTTP_REQUESTS_COUNTER is not None:
+            try:
+                _OTEL_HTTP_REQUESTS_COUNTER.add(1, attrs)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        if _OTEL_HTTP_DURATION_HIST is not None:
+            try:
+                _OTEL_HTTP_DURATION_HIST.record(max(0.0, float(duration_seconds)), attrs)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        if queue_delay_ms is not None and _OTEL_HTTP_QUEUE_DELAY_HIST is not None:
+            try:
+                _OTEL_HTTP_QUEUE_DELAY_HIST.record(max(0.0, float(queue_delay_ms)) / 1000.0, attrs)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+    except Exception:
+        return
+
 # Core metrics (names chosen to be generic and reusable)
 errors_total = Counter("errors_total", "Total error count", ["code"]) if Counter else None
 operation_latency_seconds = (
@@ -954,7 +1047,9 @@ def record_request_outcome(
         if not _is_anomaly_ignored(path=path):
             _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
-        # Dual-write: enqueue request metrics to DB (best-effort, batched)
+        # OpenTelemetry: record request outcome via counters/histograms (best-effort).
+        # NOTE: We intentionally do NOT persist per-request metrics to MongoDB anymore
+        # (legacy metrics_storage caused DB overload and was disabled in production).
         ctx_dict: Dict[str, Any] = {}
         rid: Optional[str] = None
         queue_delay_ms: Optional[int] = None
@@ -994,8 +1089,6 @@ def record_request_outcome(
                     handler_text = str(handler).strip()
                 except Exception:
                     handler_text = ""
-                if handler_text:
-                    extra_fields["handler"] = handler_text[:200]
             if command:
                 try:
                     command_label = str(command).strip()
@@ -1009,47 +1102,38 @@ def record_request_outcome(
                     except Exception:
                         command_label = ""
             if command_label:
-                extra_fields["command"] = command_label[:120]
+                pass
             if method:
                 try:
                     method_text = str(method).upper()
                 except Exception:
                     method_text = ""
-                if method_text:
-                    extra_fields["method"] = method_text[:16]
             if path:
                 try:
                     path_text = str(path).strip()
                 except Exception:
                     path_text = ""
-                if path_text:
-                    extra_fields["path"] = path_text[:512]
-            extra_fields["status_bucket"] = status_bucket
-            if cache_label:
-                extra_fields["cache_hit"] = cache_label
             source_origin, component_label = _classify_request_source(
                 source_raw_text or None,
                 handler_text or None,
                 command_label or None,
                 path_text or None,
             )
-            if source_origin:
-                extra_fields["source"] = source_origin
-            if component_label:
-                limited_component = component_label[:200]
-                extra_fields["component"] = limited_component
-            if queue_delay_ms is not None:
-                extra_fields["queue_delay_ms"] = int(queue_delay_ms)
-            # אל תשמור ב-DB מטריקות טכניות שמגיעות בתדירות גבוהה.
-            # חשוב: אנחנו עדיין רוצים counters/alerts בזיכרון, רק לדלג על persist ל-DB כדי לא לנפח אותו.
-            _db_ignored_paths = {"/metrics", "/healthz", "/favicon.ico"}
-            if path_text not in _db_ignored_paths:
-                _db_enqueue_request_metric(
-                    int(status_code),
-                    float(duration_seconds),
-                    request_id=rid,
-                    extra=extra_fields or None,
-                )
+        except Exception:
+            pass
+
+        try:
+            endpoint_label = (handler_text or command_label or path_text or "unknown")[:160]
+            method_label = (method_text or "GET")[:16]
+            _otel_record_http_outcome(
+                status_code=int(status_code),
+                duration_seconds=float(duration_seconds),
+                endpoint=endpoint_label,
+                method=method_label,
+                source=source_origin or None,
+                status_bucket=status_bucket,
+                queue_delay_ms=queue_delay_ms,
+            )
         except Exception:
             pass
         note_context = {
