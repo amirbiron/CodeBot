@@ -124,6 +124,12 @@
       <button id="swUnregisterBtn" type="button" class="btn btn-secondary" onclick="unregisterServiceWorkerNow()">
         בטל רישום Service Worker
       </button>
+      <button id="localNotifBtn" type="button" class="btn btn-tertiary" onclick="showLocalNotificationNow()">
+        הצג התראה מקומית (ללא Push)
+      </button>
+      <button id="swPingBtn" type="button" class="btn btn-tertiary" onclick="pingServiceWorkerNow()">
+        Ping ל-Service Worker
+      </button>
     </div>
     <div id="browser-actions-status" style="margin-top: 0.75rem; opacity: 0.9">
       —
@@ -464,6 +470,89 @@ function unregisterServiceWorkerNow() {
     });
   } catch (e) {
     _setBrowserActionsStatus('שגיאה בביטול Service Worker');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function showLocalNotificationNow() {
+  var btn = document.getElementById('localNotifBtn');
+  if (btn) btn.disabled = true;
+  _setBrowserActionsStatus('מציג התראה מקומית דרך Service Worker...');
+  try {
+    if (!('Notification' in window)) {
+      _setBrowserActionsStatus('Notification API לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      _setBrowserActionsStatus('אין הרשאת התראות (permission=' + String(Notification.permission) + ')');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (!('serviceWorker' in navigator)) {
+      _setBrowserActionsStatus('ServiceWorker לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (!reg) {
+        _setBrowserActionsStatus('אין Service Worker רשום');
+        return;
+      }
+      // This tests OS/browser notification pipeline without push delivery.
+      return reg.showNotification('🔔 בדיקת התראה מקומית', {
+        body: 'אם אתה רואה את זה — הצגת Notifications עובדת במכשיר הזה.',
+        icon: '/static/icons/app-icon-192.png',
+        badge: '/static/icons/app-icon-192.png',
+        tag: 'ck-local-test-' + String(Date.now()),
+      }).then(function () {
+        _setBrowserActionsStatus('נשלחה התראה מקומית. אם לא הופיעה — זו בעיית מערכת/דפדפן.');
+      }).catch(function (e) {
+        _setBrowserActionsStatus('showNotification נכשל: ' + String((e && e.message) || e || 'unknown'));
+      });
+    }).catch(function (e) {
+      _setBrowserActionsStatus('שגיאה: ' + String((e && e.message) || e || 'unknown'));
+    }).finally(function () {
+      if (btn) btn.disabled = false;
+    });
+  } catch (e) {
+    _setBrowserActionsStatus('שגיאה בהצגת התראה מקומית');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function pingServiceWorkerNow() {
+  var btn = document.getElementById('swPingBtn');
+  if (btn) btn.disabled = true;
+  _setBrowserActionsStatus('שולח ping ל-Service Worker...');
+  try {
+    if (!('serviceWorker' in navigator)) {
+      _setBrowserActionsStatus('ServiceWorker לא נתמך');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (!reg) {
+        _setBrowserActionsStatus('אין Service Worker רשום');
+        return;
+      }
+      if (!reg.active) {
+        _setBrowserActionsStatus('אין SW active (נסה לרענן)');
+        return;
+      }
+      reg.active.postMessage({
+        type: 'ck_debug_ping',
+        endpoint_hash: (window.__ckEndpointHash ? String(window.__ckEndpointHash) : ''),
+        ts: new Date().toISOString(),
+      });
+      _setBrowserActionsStatus('Ping נשלח. עכשיו לחץ "טען דוחות" כדי לראות אם ה-SW דיווח.');
+    }).catch(function (e) {
+      _setBrowserActionsStatus('שגיאה בשליחת ping: ' + String((e && e.message) || e || 'unknown'));
+    }).finally(function () {
+      if (btn) btn.disabled = false;
+    });
+  } catch (e) {
+    _setBrowserActionsStatus('שגיאה בשליחת ping');
     if (btn) btn.disabled = false;
   }
 }

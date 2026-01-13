@@ -15,6 +15,19 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+self.addEventListener('message', (event) => {
+  try {
+    const msg = event && event.data ? event.data : null;
+    if (!msg || msg.type !== 'ck_debug_ping') return;
+    const endpointHash = (msg.endpoint_hash && String(msg.endpoint_hash)) || '';
+    reportToServer('debug_ping', 'received', { endpoint_hash: endpointHash || '' });
+  } catch (e) {
+    try {
+      reportToServer('debug_ping', 'error', { error: String(e) });
+    } catch (_) {}
+  }
+});
+
 // Helper: report SW events back to server for debugging (no auth needed)
 // This is CRITICAL for debugging - sends a POST to /api/push/sw-report
 let __endpointHashPromise = null;
