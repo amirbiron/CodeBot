@@ -181,6 +181,7 @@
           <button id="pushEnableBtn" type="button" class="btn btn-primary" onclick="try{ if(window.__ckPushEnable){ window.__ckPushEnable(event); } }catch(e){} return false;">אפשר התראות</button>
           <button id="pushDisableBtn" type="button" class="btn btn-secondary" onclick="try{ if(window.__ckPushDisable){ window.__ckPushDisable(event); } }catch(e){} return false;">כבה התראות</button>
           <button id="pushTestBtn" type="button" class="btn btn-tertiary" onclick="try{ if(window.__ckPushTest){ window.__ckPushTest(event); } }catch(e){} return false;">שלח פוש בדיקה</button>
+          <a href="/settings/push-debug" class="btn btn-secondary">דיבוג פוש</a>
         </div>
       </div>
       {% if not push_enabled %}

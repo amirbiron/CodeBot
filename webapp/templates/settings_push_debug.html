@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}דיבוג Web Push - Code Keeper Bot{% endblock %}
+
+{% block content %}
+<h1 class="page-title">
+  <i class="fas fa-bug"></i>
+  דיבוג Web Push
+</h1>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-server"></i>
+    סטטוס שרת
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="display: grid; grid-template-columns: 1fr; gap: 0.6rem">
+      <div><strong>PUSH_NOTIFICATIONS_ENABLED:</strong> {{ '🟢 true' if push_enabled else '🔴 false' }}</div>
+      <div><strong>VAPID_PUBLIC_KEY:</strong> {{ '🟢 מוגדר' if vapid_public_set else '🔴 חסר' }}</div>
+      <div><strong>VAPID_PRIVATE_KEY:</strong> {{ '🟢 מוגדר' if vapid_private_set else '🔴 חסר' }}</div>
+      <div><strong>PUSH_REMOTE_DELIVERY_ENABLED:</strong> {{ remote_enabled_env if remote_enabled_env else '—' }}</div>
+      <div><strong>PUSH_DELIVERY_URL:</strong> {{ remote_url if remote_url else '—' }}</div>
+      <div><strong>PUSH_DELIVERY_TOKEN:</strong> {{ '🟢 מוגדר' if remote_token_set else '🔴 חסר' }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-database"></i>
+    מנויים (DB)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    {% if subs_error %}
+      <div style="opacity: 0.9">🔴 שגיאה בקריאת DB: {{ subs_error }}</div>
+    {% else %}
+      <div><strong>Subscriptions count (user):</strong> {{ subs_count }}</div>
+      <div style="opacity: 0.85; margin-top: 0.5rem">
+        אם המספר 0 – אין מנוי בדפדפן/מכשיר הזה (או שה-Subscribe לא נשלח לשרת).
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-mobile-screen"></i>
+    לקוח (מידע כללי)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="opacity: 0.9; word-break: break-word">
+      <strong>User-Agent:</strong> {{ user_agent if user_agent else '—' }}
+    </div>
+    <div style="opacity: 0.85; margin-top: 0.75rem">
+      תזכורת: ב-iOS התראות Web Push בדפדפן עובדות רק כשמתקינים את האתר כ‑PWA (Add to Home Screen).
+      ב-Telegram/Embedded WebView לפעמים אין תמיכה ב-ServiceWorker/PushManager.
+    </div>
+  </div>
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-vial"></i>
+    בדיקות
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+      <form action="/settings/push-test" method="post" style="margin: 0">
+        <button type="submit" class="btn btn-primary">
+          שלח פוש בדיקה (שרת)
+        </button>
+      </form>
+      <a href="/settings#push" class="btn btn-secondary">חזרה להגדרות</a>
+    </div>
+    <div style="opacity: 0.85; margin-top: 0.75rem">
+      הבדיקה הזו מחזירה JSON של <code>/api/push/test</code>. אם אין מנויים – תקבל <code>no_subscriptions</code>.
+    </div>
+  </div>
+</div>
+{% endblock %}
+
