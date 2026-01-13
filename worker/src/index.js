@@ -84,11 +84,22 @@ export default {
       // IMPORTANT: In some runtimes, non-2xx responses may not throw.
       // Treat non-2xx as failure and propagate back to server for cleanup/diagnosis.
       try {
-        const st = resp && typeof resp.status === "number" ? resp.status : 0;
+        const st =
+          (resp && typeof resp.statusCode === "number" ? resp.statusCode : 0) ||
+          (resp && typeof resp.status === "number" ? resp.status : 0) ||
+          0;
         if (st && (st < 200 || st >= 300)) {
           let details = "";
           try {
-            details = (await resp.text()) || "";
+            // web-push (Node) returns { statusCode, body, headers }.
+            // In some runtimes it may return a fetch Response-like object.
+            if (resp && typeof resp.body === "string") {
+              details = resp.body || "";
+            } else if (resp && typeof resp.text === "function") {
+              details = (await resp.text()) || "";
+            } else {
+              details = "";
+            }
           } catch (_) {
             details = "";
           }
@@ -112,7 +123,10 @@ export default {
       console.log(JSON.stringify({ 
         event: "push_sent", 
         endpoint_hash: endpointHash,
-        status: (resp && typeof resp.status === "number" ? resp.status : 201)
+        status:
+          (resp && typeof resp.statusCode === "number" ? resp.statusCode : 0) ||
+          (resp && typeof resp.status === "number" ? resp.status : 0) ||
+          201
       }));
 
       return json({ ok: true });
