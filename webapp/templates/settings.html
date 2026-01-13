@@ -2895,6 +2895,13 @@
           return;
         }
 
+        // Mark as bound so the ES5 fallback binder won't double-bind on modern browsers.
+        try {
+          pushEnableBtn.setAttribute('data-bound', '1');
+          pushDisableBtn.setAttribute('data-bound', '1');
+          pushTestBtn.setAttribute('data-bound', '1');
+        } catch (_) {}
+
         function setPushStatus(text){ pushStatus.textContent = text; }
         if (!__PUSH_SYSTEM_ENABLED__) {
           // UI stays available even when server-side sender is disabled
