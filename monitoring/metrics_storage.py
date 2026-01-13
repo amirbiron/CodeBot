@@ -367,10 +367,10 @@ def enqueue_request_metric(
 ) -> None:
     """Queue a single request metric for best-effort DB persistence.
 
-    Notes:
-    - Writes are opt-in via METRICS_DB_ENABLED=true
-    - In production we do NOT write "one document per request".
-      Instead, we aggregate (roll up) into per-bucket documents to keep Mongo load low.
+    This write path is opt-in via ``METRICS_DB_ENABLED=true``.
+
+    In production we do **not** write "one document per request". Instead, we roll up
+    requests into per-bucket documents to keep MongoDB load low.
     """
     # Emergency kill-switch: disable DB writes explicitly when needed.
     # Default is OFF (i.e., writes are allowed when METRICS_DB_ENABLED=true).
