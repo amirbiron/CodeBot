@@ -63,7 +63,7 @@ def setup_telemetry(
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
             OTLPSpanExporter,
         )
-        # Metrics are optional; configure provider if exporter is available
+        # Metrics are optional; configure provider if exporter(s) are available
         try:
             from opentelemetry.sdk.metrics import MeterProvider
             from opentelemetry.sdk.metrics.export import (
@@ -119,26 +119,51 @@ def setup_telemetry(
             trace.set_tracer_provider(tracer_provider)
 
         # ----- Metrics (best-effort) -----
-        # Guard metrics initialization behind both an explicit feature flag and a valid endpoint.
-        # This prevents noisy retries to localhost:4317 when no collector is present.
+        # Guard metrics initialization behind explicit feature flags.
+        #
+        # - OTLP metrics exporter requires a valid endpoint to avoid noisy retries to localhost:4317.
+        # - Prometheus exporter does NOT require an OTLP endpoint (scraped via /metrics).
         if _METRICS_AVAILABLE:
             try:
                 enable_metrics = _str2bool(os.getenv("ENABLE_METRICS", "false"))
             except Exception:
                 enable_metrics = False
+            try:
+                enable_prometheus = _str2bool(os.getenv("ENABLE_PROMETHEUS_METRICS", "false")) or _str2bool(
+                    os.getenv("ENABLE_PROMETHEUS_OTEL_METRICS", "false")
+                )
+            except Exception:
+                enable_prometheus = False
 
+            metric_readers = []
+
+            # OTLP exporter (push)
             if enable_metrics and endpoint.strip():
                 try:
                     metric_exporter = OTLPMetricExporter(endpoint=endpoint, insecure=insecure)
                     metric_reader = PeriodicExportingMetricReader(
                         metric_exporter, export_interval_millis=60000
                     )
-                    meter_provider = MeterProvider(
-                        resource=resource, metric_readers=[metric_reader]
-                    )
-                    metrics.set_meter_provider(meter_provider)
+                    metric_readers.append(metric_reader)
                 except Exception:
                     # Metrics are optional – ignore exporter/transport errors
+                    pass
+
+            # Prometheus exporter (pull/scrape)
+            if enable_prometheus:
+                try:
+                    from opentelemetry.exporter.prometheus import PrometheusMetricReader  # type: ignore
+
+                    metric_readers.append(PrometheusMetricReader())
+                except Exception:
+                    # Prometheus exporter is optional and may not be installed
+                    pass
+
+            if metric_readers:
+                try:
+                    meter_provider = MeterProvider(resource=resource, metric_readers=metric_readers)
+                    metrics.set_meter_provider(meter_provider)
+                except Exception:
                     pass
 
         # ----- Auto-instrumentation -----

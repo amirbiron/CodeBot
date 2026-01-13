@@ -96,6 +96,51 @@ def _format_locked_netloc(ip: str, port: int | None, username: Optional[str], pa
     return f"{user}@{host}"
 
 
+def fetch_url_securely(
+    url: str,
+    *,
+    timeout: int = 10,
+    allow_redirects: bool = False,
+    headers: Dict[str, str] | None = None,
+) -> bytes:
+    """Fetch an already-built URL while protecting against SSRF/DNS rebinding."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise SecurityError("Only http/https URLs are allowed")
+    if not parsed.hostname:
+        raise SecurityError("Invalid URL - missing hostname")
+
+    locked_ip, _ = resolve_and_validate_domain(parsed.hostname)
+
+    netloc_with_ip = _format_locked_netloc(locked_ip, parsed.port, parsed.username, parsed.password)
+    parsed_with_ip = parsed._replace(netloc=netloc_with_ip)
+    url_with_locked_ip = urlunparse(parsed_with_ip)
+
+    base_headers: Dict[str, str] = {}
+    if headers:
+        try:
+            base_headers.update({str(k): str(v) for k, v in headers.items() if k and v})
+        except Exception:
+            pass
+    base_headers.setdefault("Host", parsed.hostname)
+    base_headers.setdefault("User-Agent", _DEFAULT_USER_AGENT)
+
+    verify_cert = True
+
+    with requests.Session() as session:
+        if parsed.scheme == "https":
+            session.mount("https://", HostHeaderSSLAdapter(parsed.hostname))
+        response = session.get(
+            url_with_locked_ip,
+            headers=base_headers,
+            timeout=timeout,
+            allow_redirects=allow_redirects,
+            verify=verify_cert,
+        )
+        response.raise_for_status()
+        return response.content
+
+
 def fetch_graph_securely(
     graph_url_template: str,
     *,
@@ -120,40 +165,9 @@ def fetch_graph_securely(
     except KeyError as exc:
         missing = exc.args[0]
         raise ValueError(f"Missing template parameter: {missing}") from exc
-
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise SecurityError("Only http/https URLs are allowed")
-    if not parsed.hostname:
-        raise SecurityError("Invalid URL - missing hostname")
-
-    locked_ip, _ = resolve_and_validate_domain(parsed.hostname)
-
-    netloc_with_ip = _format_locked_netloc(locked_ip, parsed.port, parsed.username, parsed.password)
-    parsed_with_ip = parsed._replace(netloc=netloc_with_ip)
-    url_with_locked_ip = urlunparse(parsed_with_ip)
-
-    base_headers: Dict[str, str] = {}
-    if headers:
-        try:
-            base_headers.update({str(k): str(v) for k, v in headers.items() if k and v})
-        except Exception:
-            # Fall back silently if headers contain non-serializable values
-            pass
-    base_headers.setdefault("Host", parsed.hostname)
-    base_headers.setdefault("User-Agent", _DEFAULT_USER_AGENT)
-
-    verify_cert = True
-
-    with requests.Session() as session:
-        if parsed.scheme == "https":
-            session.mount("https://", HostHeaderSSLAdapter(parsed.hostname))
-        response = session.get(
-            url_with_locked_ip,
-            headers=base_headers,
-            timeout=timeout,
-            allow_redirects=allow_redirects,
-            verify=verify_cert,
-        )
-        response.raise_for_status()
-        return response.content
+    return fetch_url_securely(
+        url,
+        timeout=timeout,
+        allow_redirects=allow_redirects,
+        headers=headers,
+    )
