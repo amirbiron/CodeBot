@@ -1254,10 +1254,6 @@ def _build_chatops_help_entries_from_catalog() -> list[HelpEntry]:
     try:
         from html import escape as html_escape
 
-        # חשוב לשמור על הודעת /help קצרה מספיק לטלגרם (~4096 תווים).
-        # לכן מציגים פרמטרים רק לפקודות המרכזיות (כמו בדוגמה הקיימת).
-        show_args_for = {"status", "errors", "health"}
-
         out: list[HelpEntry] = []
         for item in _load_chatops_commands_catalog():
             if str(item.get("type", "")).strip().lower() != "chatops":
@@ -1290,7 +1286,7 @@ def _build_chatops_help_entries_from_catalog() -> list[HelpEntry]:
                 suffix_chunks.append(f"<code>{html_escape(str(extra))}</code>")
 
             args = item.get("arguments", [])
-            if cmd_token in show_args_for and isinstance(args, list) and args:
+            if isinstance(args, list) and args:
                 arg_codes = [
                     f"<code>{html_escape(str(a))}</code>"
                     for a in args
@@ -1305,6 +1301,39 @@ def _build_chatops_help_entries_from_catalog() -> list[HelpEntry]:
         return out
     except Exception:
         return []
+
+
+def _split_long_message(text: str, *, max_len: int = 3900) -> list[str]:
+    """
+    מפצל הודעה ארוכה לכמה הודעות (לפי שורות) כדי להישאר מתחת למגבלת טלגרם.
+
+    הערה: אנחנו מפצלים לפי '\n' בלבד כדי לא לשבור HTML (כל התגים הם in-line).
+    """
+    try:
+        if not isinstance(text, str) or not text:
+            return [""]
+        if len(text) <= max_len:
+            return [text]
+        lines = text.split("\n")
+        chunks: list[str] = []
+        buf: list[str] = []
+        cur = 0
+        for line in lines:
+            add = (len(line) + (1 if buf else 0))
+            if buf and (cur + add) > max_len:
+                chunks.append("\n".join(buf))
+                buf = [line]
+                cur = len(line)
+            else:
+                if buf:
+                    cur += 1  # newline
+                buf.append(line)
+                cur += len(line)
+        if buf:
+            chunks.append("\n".join(buf))
+        return chunks or [text]
+    except Exception:
+        return [text]
 
 
 def _resolve_section_entries(section: HelpSection) -> list[HelpEntry]:
@@ -2954,7 +2983,8 @@ class CodeKeeperBot:
         except Exception:
             user_is_admin = False
         response = _build_help_message(commands, is_admin=user_is_admin)
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        for chunk in _split_long_message(response):
+            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
@@ -3860,7 +3890,8 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
             user_is_admin = False
         text = _build_help_message(commands, is_admin=user_is_admin)
         try:
-            await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            for chunk in _split_long_message(text):
+                await update.message.reply_text(chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         except Exception:
             plain_text = (
                 text.replace("<b>", "")
@@ -3870,7 +3901,8 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
                 .replace("&lt;", "<")
                 .replace("&gt;", ">")
             )
-            await update.message.reply_text(plain_text, disable_web_page_preview=True)
+            for chunk in _split_long_message(plain_text, max_len=3900):
+                await update.message.reply_text(chunk, disable_web_page_preview=True)
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
