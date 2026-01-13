@@ -18,6 +18,21 @@ push_bp = Blueprint("push_api", __name__, url_prefix="/api/push")
 
 _INDEX_READY = False
 
+# --- Lightweight in-memory SW report buffer (debug aid) ---
+# We intentionally keep this small and lossy: it's only for quick debugging
+# when users don't have access to DevTools or server logs.
+_SW_REPORTS_MAX = 80
+_SW_REPORTS: list[dict[str, Any]] = []
+
+def _append_sw_report(item: dict[str, Any]) -> None:
+    try:
+        _SW_REPORTS.append(item)
+        # Keep only last N
+        if len(_SW_REPORTS) > _SW_REPORTS_MAX:
+            del _SW_REPORTS[: max(0, len(_SW_REPORTS) - _SW_REPORTS_MAX)]
+    except Exception:
+        pass
+
 
 def _env_positive_int(name: str, default: int) -> int:
     try:
@@ -1273,6 +1288,21 @@ def sw_report():
         error_msg = str(payload.get("error") or "")
         raw_data = str(payload.get("raw_data") or "")[:500]  # Truncate for safety
         timestamp = str(payload.get("timestamp") or "")
+
+        # Store a short in-memory record for debug UIs (avoid PII: no full endpoints).
+        try:
+            _append_sw_report(
+                {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "client_timestamp": timestamp,
+                    "event": event_type,
+                    "status": status,
+                    "error": (error_msg[:240] if error_msg else ""),
+                    "raw_data_preview": (raw_data[:160] if raw_data else ""),
+                }
+            )
+        except Exception:
+            pass
         
         # Log with structlog if available, else standard logging
         try:
@@ -1305,3 +1335,16 @@ def sw_report():
         return jsonify({"ok": True}), 200
     except Exception:
         return jsonify({"ok": True}), 200  # Always return OK to not break SW
+
+
+@push_bp.route("/sw-reports", methods=["GET"])
+@require_auth
+def list_sw_reports():
+    """Return last SW diagnostic reports for the current session (debug aid)."""
+    try:
+        # No user filtering here: reports currently don't include user_id and we keep a small buffer.
+        # The goal is to see *if* SW receives pushes at all, and showNotification results.
+        data = list(_SW_REPORTS)[-50:]
+        return jsonify({"ok": True, "count": len(data), "reports": data}), 200
+    except Exception:
+        return jsonify({"ok": False, "error": "Failed to load sw reports"}), 500
