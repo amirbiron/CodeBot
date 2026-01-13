@@ -1709,6 +1709,18 @@ def register_jobs_routes(app: web.Application):
 
 
 def run(host: str = "0.0.0.0", port: int = 10000) -> None:
+    # OpenTelemetry (best-effort, fail-open)
+    try:
+        from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+
+        _setup_otel(
+            service_name=str(os.getenv("OTEL_SERVICE_NAME") or "codebot-aiohttp"),
+            service_version=os.getenv("SERVICE_VERSION") or os.getenv("RENDER_GIT_COMMIT") or None,
+            environment=os.getenv("ENVIRONMENT") or os.getenv("ENV") or None,
+            flask_app=None,
+        )
+    except Exception:
+        pass
     try:
         note_deployment_started("aiohttp service starting up")
     except Exception:

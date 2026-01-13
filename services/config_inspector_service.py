@@ -818,9 +818,33 @@ class ConfigService:
         ),
         "ENABLE_METRICS": ConfigDefinition(
             key="ENABLE_METRICS",
-            default="true",
-            description="הפעלת מטריקות Prometheus",
+            default="false",
+            description="הפעלת יצוא Metrics דרך OTLP (OpenTelemetry Metrics). כדי לפעול בפועל צריך גם OTEL_EXPORTER_OTLP_ENDPOINT.",
             category="metrics",
+        ),
+        "ENABLE_PROMETHEUS_METRICS": ConfigDefinition(
+            key="ENABLE_PROMETHEUS_METRICS",
+            default="false",
+            description="הפעלת OpenTelemetry Prometheus exporter (scrape דרך /metrics).",
+            category="metrics",
+        ),
+        "ENABLE_PROMETHEUS_OTEL_METRICS": ConfigDefinition(
+            key="ENABLE_PROMETHEUS_OTEL_METRICS",
+            default="false",
+            description="Alias ל-ENABLE_PROMETHEUS_METRICS (תאימות לאחור).",
+            category="metrics",
+        ),
+        "PROMETHEUS_URL": ConfigDefinition(
+            key="PROMETHEUS_URL",
+            default="",
+            description="בסיס URL ל-Prometheus HTTP API. כשמוגדר, דשבורד Observability יקרא timeseries מ-Prometheus במקום מה-DB.",
+            category="observability",
+        ),
+        "PROMETHEUS_RATE_WINDOW": ConfigDefinition(
+            key="PROMETHEUS_RATE_WINDOW",
+            default="5m",
+            description="חלון ברירת מחדל ל-rate()/histogram_quantile() ב-PromQL (למשל 5m).",
+            category="observability",
         ),
         "HTTP_SAMPLE_BUFFER": ConfigDefinition(
             key="HTTP_SAMPLE_BUFFER",
