@@ -16,8 +16,14 @@ def get_db() -> Any:
 
     Delegates to `services.db_provider.get_db` which is designed to avoid circular imports.
     """
+    # Prefer the webapp DB provider when available (this is what tests monkeypatch).
+    # Fallback to standalone provider to avoid circular-import failures during early imports.
+    try:
+        from webapp.app import get_db as _webapp_get_db  # local import by design
 
-    from services.db_provider import get_db as _get_db
+        return _webapp_get_db()
+    except Exception:
+        from services.db_provider import get_db as _get_db
 
-    return _get_db()
+        return _get_db()
 
