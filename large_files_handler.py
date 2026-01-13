@@ -50,7 +50,7 @@ class LargeFilesHandler:
         full_doc: Optional[Dict] = None
         facade = self._facade()
         if facade is None:
-            return "", str(language or "text")
+            raise RuntimeError("FilesFacade unavailable")
 
         file_id = file_data.get("_id") if isinstance(file_data, dict) else None
         if file_id:
@@ -59,14 +59,16 @@ class LargeFilesHandler:
                 if is_large and isinstance(doc, dict):
                     full_doc = doc
             except Exception:
-                full_doc = None
+                logger.error("שליפת מסמך קובץ גדול לפי id נכשלה", exc_info=True)
+                raise
 
         if not full_doc:
             try:
                 if file_name:
                     full_doc = facade.get_large_file(user_id, str(file_name))
             except Exception:
-                full_doc = None
+                logger.error("שליפת קובץ גדול לפי שם נכשלה", exc_info=True)
+                raise
 
         if isinstance(full_doc, dict):
             new_content = full_doc.get("content") or ""
@@ -89,9 +91,27 @@ class LargeFilesHandler:
         # קבלת קבצים לעמוד הנוכחי
         facade = self._facade()
         if facade is None:
-            files, total_count = ([], 0)
-        else:
+            logger.error("FilesFacade unavailable while listing large files")
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            text = "❌ לא ניתן לטעון כרגע את רשימת הקבצים הגדולים (בעיה במסד הנתונים)."
+            if hasattr(update, 'callback_query') and update.callback_query:
+                await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+            else:
+                await update.message.reply_text(text, reply_markup=reply_markup)
+            return
+        try:
             files, total_count = facade.get_user_large_files(user_id, page=page, per_page=self.files_per_page)
+        except Exception:
+            logger.error("טעינת רשימת קבצים גדולים נכשלה (שגיאת DB)", exc_info=True)
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            text = "❌ שגיאה במסד הנתונים בעת טעינת הרשימה. נסו שוב עוד רגע."
+            if hasattr(update, 'callback_query') and update.callback_query:
+                await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+            else:
+                await update.message.reply_text(text, reply_markup=reply_markup)
+            return
         
         if not files and page == 1:
             # אין קבצים בכלל
@@ -263,7 +283,16 @@ class LargeFilesHandler:
         
         user_id = update.effective_user.id
         file_name = file_data.get('file_name', 'קובץ ללא שם')
-        content, language = self._fetch_full_large_file_content(user_id, file_data)
+        try:
+            content, language = self._fetch_full_large_file_content(user_id, file_data)
+        except Exception:
+            logger.error("שליפת תוכן קובץ גדול נכשלה (שגיאת DB)", exc_info=True)
+            keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
+            await query.edit_message_text(
+                "❌ שגיאה במסד הנתונים בעת שליפת תוכן הקובץ. נסו שוב עוד רגע.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
 
         if not (isinstance(content, str) and content):
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
@@ -349,7 +378,16 @@ class LargeFilesHandler:
         
         user_id = update.effective_user.id
         file_name = file_data.get('file_name', 'קובץ ללא שם')
-        content, language = self._fetch_full_large_file_content(user_id, file_data)
+        try:
+            content, language = self._fetch_full_large_file_content(user_id, file_data)
+        except Exception:
+            logger.error("הכנת הורדה לקובץ גדול נכשלה (שגיאת DB)", exc_info=True)
+            keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
+            await query.edit_message_text(
+                "❌ שגיאה במסד הנתונים בעת הכנת ההורדה. נסו שוב עוד רגע.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
 
         if not (isinstance(content, str) and content):
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]

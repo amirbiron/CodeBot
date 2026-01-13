@@ -378,8 +378,12 @@ def _is_webapp_login_requested(update: Update, context: ContextTypes.DEFAULT_TYP
 def _persist_webapp_login_token(token_doc: Dict[str, object]) -> None:
     """שומר את טוקן ההתחברות במסד הנתונים אם אפשר (דרך הפסאדה בלבד)."""
     try:
-        _call_files_api("insert_webapp_login_token", token_doc)
+        ok = bool(_call_files_api("insert_webapp_login_token", token_doc))
+        if not ok:
+            # חשוב: _call_files_api "בולע" חריגות מהפסאדה, לכן חייבים לבדוק ערך חזרה.
+            logger.error("שמירת טוקן webapp נכשלה (הפסאדה החזירה False/None)")
     except Exception:
+        # fallback: אם בכל זאת משהו דלף החוצה, נשמור לוג מלא
         logger.exception("שמירת טוקן webapp נכשלה", exc_info=True)
 
 

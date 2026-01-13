@@ -530,7 +530,8 @@ class RefactorHandlers:
 
     def _save_refactor_metadata(self, user_id: int, proposal: RefactorProposal) -> None:
         try:
-            _call_files_api(
+            ok = bool(
+                _call_files_api(
                 "insert_refactor_metadata",
                 {
                     "user_id": user_id,
@@ -540,7 +541,11 @@ class RefactorHandlers:
                     "new_files": list((proposal.new_files or {}).keys()),
                     "changes_summary": list(proposal.changes_summary or []),
                 },
+                )
             )
+            if not ok:
+                # חשוב: הפסאדה מחזירה False על כשלי DB, ו-_call_files_api יכול לבלוע חריגות.
+                logger.error("שמירת מטא-דאטה לרפקטורינג נכשלה (הפסאדה החזירה False/None)")
         except Exception as e:
             logger.error(f"שגיאה בשמירת מטא-דאטה: {e}")
 

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple
+
+
+logger = logging.getLogger(__name__)
 
 
 class FilesFacade:
@@ -573,6 +577,8 @@ class FilesFacade:
             coll.insert_one(dict(token_doc or {}))
             return True
         except Exception:
+            # חשוב: לא למסך כשלי DB בשקט — לפחות לוג תשתיתי.
+            logger.error("insert_webapp_login_token failed", exc_info=True)
             return False
 
     def list_active_user_ids(self) -> Optional[List[int]]:
@@ -704,6 +710,7 @@ class FilesFacade:
             coll.insert_one(dict(doc or {}))
             return True
         except Exception:
+            logger.error("insert_refactor_metadata failed", exc_info=True)
             return False
 
     def delete_large_file(self, user_id: int, file_name: str) -> bool:
