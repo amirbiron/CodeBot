@@ -1,6 +1,8 @@
 import types
 import sys
 
+import pytest
+
 from src.infrastructure.composition.files_facade import FilesFacade
 
 
@@ -231,3 +233,154 @@ def test_files_facade_pagination_and_recycle(monkeypatch):
 
     doc, is_large = fac.get_user_document_by_id(1, "OID1")
     assert doc and is_large is False
+
+
+def test_files_facade_get_latest_version_propagates_db_errors(monkeypatch):
+    class ExplodingDB:
+        def get_latest_version(self, user_id, file_name):
+            raise RuntimeError("db down")
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = ExplodingDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    with pytest.raises(RuntimeError):
+        fac.get_latest_version(1, "a.py")
+
+
+def test_files_facade_get_latest_version_falls_back_to_get_file(monkeypatch):
+    class LegacyDB:
+        def get_file(self, user_id, file_name):
+            return {"user_id": user_id, "file_name": file_name, "code": "x"}
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = LegacyDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    doc = fac.get_latest_version(7, "old.py")
+    assert isinstance(doc, dict)
+    assert doc.get("file_name") == "old.py"
+
+
+def test_files_facade_get_latest_version_skips_signature_mismatch_and_uses_fallback(monkeypatch):
+    class LegacyDB:
+        # Wrong signature (missing file_name)
+        def get_latest_version(self, user_id):  # noqa: ARG002
+            return {"user_id": user_id, "file_name": "wrong", "code": "x"}
+
+        def get_file(self, user_id, file_name):
+            return {"user_id": user_id, "file_name": file_name, "code": "ok"}
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = LegacyDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    doc = fac.get_latest_version(1, "a.py")
+    assert doc and doc.get("file_name") == "a.py"
+
+
+def test_files_facade_get_file_propagates_db_errors(monkeypatch):
+    class ExplodingDB:
+        def get_file(self, user_id, file_name):
+            raise RuntimeError("db down")
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = ExplodingDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    with pytest.raises(RuntimeError):
+        fac.get_file(1, "a.py")
+
+
+def test_files_facade_get_file_falls_back_to_get_latest_version(monkeypatch):
+    class LegacyDB:
+        def get_latest_version(self, user_id, file_name):
+            return {"user_id": user_id, "file_name": file_name, "code": "x"}
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = LegacyDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    doc = fac.get_file(7, "old.py")
+    assert isinstance(doc, dict)
+    assert doc.get("file_name") == "old.py"
+
+
+def test_files_facade_delete_large_file_propagates_db_errors(monkeypatch):
+    class ExplodingDB:
+        def delete_large_file(self, user_id, file_name):  # noqa: ARG002
+            raise RuntimeError("db down")
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = ExplodingDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    with pytest.raises(RuntimeError):
+        fac.delete_large_file(1, "big.txt")
+
+
+def test_files_facade_delete_large_file_returns_false_when_missing_method(monkeypatch):
+    class LegacyDB:
+        pass
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = LegacyDB()
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    assert fac.delete_large_file(1, "big.txt") is False
+
+
+def test_files_facade_user_helpers_log_on_db_exceptions(monkeypatch):
+    """
+    Ensure facade helpers don't swallow DB errors silently:
+    they should return best-effort values and emit an error log.
+    """
+    import src.infrastructure.composition.files_facade as ff
+
+    class _CapturingLogger:
+        def __init__(self):
+            self.calls = []
+
+        def error(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    cap = _CapturingLogger()
+    monkeypatch.setattr(ff, "logger", cap, raising=True)
+
+    class _Users:
+        def find(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        def update_many(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        def find_one(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+        def update_one(self, *_a, **_k):
+            raise RuntimeError("db down")
+
+    mongo = types.SimpleNamespace(users=_Users())
+    db_root = types.SimpleNamespace(db=mongo)
+
+    db_mod = types.ModuleType("database")
+    db_mod.db = db_root
+    monkeypatch.setitem(sys.modules, "database", db_mod)
+
+    fac = FilesFacade()
+    assert fac.list_active_user_ids() is None
+    assert fac.mark_users_blocked([1, 2]) == 0
+    assert fac.find_user_id_by_username("x") is None
+    assert fac.mark_user_blocked(1) is False
+
+    # We expect 4 error logs (one per failing method)
+    assert len(cap.calls) >= 4
+    # Each call should have exc_info=True for traceback visibility
+    assert all(call[1].get("exc_info") is True for call in cap.calls[-4:])

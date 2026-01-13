@@ -214,6 +214,19 @@ except Exception:
     # אל תכשיל את האפליקציה אם תצורת observability נכשלה
     pass
 
+# OpenTelemetry (best-effort, fail-open)
+try:
+    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+
+    _setup_otel(
+        service_name=str(os.getenv("OTEL_SERVICE_NAME") or "codebot-bot"),
+        service_version=os.getenv("SERVICE_VERSION") or os.getenv("RENDER_GIT_COMMIT") or None,
+        environment=os.getenv("ENVIRONMENT") or os.getenv("ENV") or None,
+        flask_app=None,
+    )
+except Exception:
+    pass
+
 # סגירת סשן aiohttp משותף בסיום התהליך (best-effort)
 @atexit.register
 def _shutdown_http_shared_session() -> None:
@@ -3160,8 +3173,9 @@ class CodeKeeperBot:
         """בדיקת פקודות תפריט/Runtime (מנהלים בלבד).
 
         שימושים:
-        - `/check` : מציג את פקודות התפריט (Telegram menu) ציבורי + scope אישי
-        - `/check commands` : מציג את כל ה-Slash commands שנרשמו ב-runtime דרך Application.handlers,
+
+        - ``/check``: מציג את פקודות התפריט (Telegram menu) ציבורי + scope אישי
+        - ``/check commands``: מציג את כל ה-Slash commands שנרשמו ב-runtime דרך Application.handlers,
           ומשווה מול התפריט כדי לזהות מה "מוסתר".
         """
         from chatops.permissions import is_admin

@@ -371,6 +371,19 @@ app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
 app.config['COMPRESS_LEVEL'] = 6
 app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
+
+# OpenTelemetry (best-effort, fail-open)
+try:
+    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+
+    _setup_otel(
+        service_name=str(os.getenv("OTEL_SERVICE_NAME") or "codebot-webapp"),
+        service_version=os.getenv("SERVICE_VERSION") or os.getenv("RENDER_GIT_COMMIT") or None,
+        environment=os.getenv("ENVIRONMENT") or os.getenv("ENV") or None,
+        flask_app=app,
+    )
+except Exception:
+    pass
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
 
@@ -13799,11 +13812,19 @@ def theme_preview():
 @login_required
 def settings():
     """דף הגדרות - אופטימלי עם תמיכה בsessions ישנים"""
+    import logging
+    logger = logging.getLogger(__name__)
+
     user_id = session['user_id']
     user_data = session.get('user_data') or {}
     if not isinstance(user_data, dict):
         user_data = {}
     session['user_data'] = user_data
+
+    # 🔍 DEBUG
+    has_admin = 'is_admin' in user_data
+    has_premium = 'is_premium' in user_data
+    logger.warning(f"⚙️ Settings: is_admin in session={has_admin}, is_premium in session={has_premium}")
 
     # ✅ Fallback ל-DB אם אין ב-session (sessions ישנים)
     user_is_admin = user_data.get('is_admin')

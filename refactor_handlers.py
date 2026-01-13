@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 import unicodedata
 import os
@@ -45,6 +45,98 @@ from utils import TelegramUtils
 logger = logging.getLogger(__name__)
 
 # reporter יוגדר ב-main בזמן ריצה דרך set_activity_reporter
+
+# ---- DB access via composition facade --------------------------------------
+# Backwards-compatibility: tests may monkeypatch `refactor_handlers.db`
+db = None  # type: ignore
+
+
+def _get_files_facade_or_none():
+    """Best-effort access to FilesFacade without importing `database` in handlers."""
+    try:
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        return get_files_facade()
+    except Exception:
+        return None
+
+
+def _get_legacy_db():
+    """
+    Best-effort access to legacy DB object **without importing** the `database` package.
+
+    Tests can inject a stub via `refactor_handlers.db`.
+    """
+    try:
+        patched = globals().get("db")
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
+    return None
+
+
+_FACADE_SENTINEL = object()
+
+
+def _should_retry_with_legacy(method_name: str, value) -> bool:
+    if value is _FACADE_SENTINEL:
+        return True
+    if value is None:
+        return True
+    if value is False:
+        return True
+    if isinstance(value, (list, dict)) and not value:
+        return True
+    if isinstance(value, tuple):
+        # חשוב: תוצאות כמו ([], 0) הן תוצאה תקינה (אין נתונים), ולא כשל שצריך retry.
+        # Retry רק אם זה tuple ריק או שכל הערכים בו הם None.
+        if len(value) == 0:
+            return True
+        if all(v is None for v in value):
+            return True
+    return False
+
+
+def _call_files_api(method_name: str, *args, **kwargs):
+    """
+    Invoke FilesFacade method by name, with legacy fallback (best-effort).
+    """
+    legacy = _get_legacy_db()
+    if legacy is not None:
+        method = getattr(legacy, method_name, None)
+        if callable(method):
+            try:
+                out = method(*args, **kwargs)
+                if out is not None:
+                    return out
+            except Exception:
+                pass
+
+    facade_result = _FACADE_SENTINEL
+    facade = _get_files_facade_or_none()
+    if facade is not None:
+        method = getattr(facade, method_name, None)
+        if callable(method):
+            try:
+                facade_result = method(*args, **kwargs)
+            except Exception:
+                facade_result = _FACADE_SENTINEL
+
+    if _should_retry_with_legacy(method_name, facade_result):
+        legacy = _get_legacy_db()
+        if legacy is not None:
+            method = getattr(legacy, method_name, None)
+            if callable(method):
+                try:
+                    out = method(*args, **kwargs)
+                    if out is not None:
+                        return out
+                except Exception:
+                    pass
+
+    if facade_result is _FACADE_SENTINEL:
+        return None
+    return facade_result
 
 
 class RefactorHandlers:
@@ -102,43 +194,33 @@ class RefactorHandlers:
             return s
         filename = _normalize_filename_input(raw)
 
-        # טעינת קובץ מה-DB
-        try:
-            from database import db  # import דינמי לתמיכה בטסטים עם monkeypatch
-            # תמיכה לאחור: get_code_by_name אם קיים, אחרת get_file
-            if hasattr(db, 'get_code_by_name'):
-                snippet = db.get_code_by_name(user_id, filename)
-            else:
-                snippet = db.get_file(user_id, filename)
-            # תמיכה בקבצים גדולים (נשמרים באוסף נפרד)
-            if not snippet and hasattr(db, 'get_large_file'):
-                snippet = db.get_large_file(user_id, filename)
-        except Exception:
-            snippet = None
+        # טעינת קובץ דרך הפסאדה (ללא import של database בתוך handlers)
+        snippet = _call_files_api("get_latest_version", user_id, filename)
+        if not snippet:
+            snippet = _call_files_api("get_large_file", user_id, filename)
 
         # Fallback: השוואה בלתי-תלויה-רישיות + התאמת basename (עוזר במקרי נתיב מלא)
         if not snippet:
             # חשוב: לאחר רפקטור ה-Repository מחזיר ברירת מחדל רשימות ללא code/content כדי לשפר ביצועים.
             # לכן כאן משתמשים ברשימה רק כדי למצוא שם קובץ מתאים, ואז מבצעים Full Fetch ממוקד לקובץ הבודד.
             try:
-                files = db.get_user_files(user_id, limit=200)  # type: ignore[attr-defined]
+                files = _call_files_api("get_user_files", user_id, limit=200) or []
             except Exception:
                 files = []
             # צירוף קבצים גדולים לרשימה להשוואה בשם
             try:
-                if hasattr(db, 'get_user_large_files'):
-                    large_files, _ = db.get_user_large_files(user_id, page=1, per_page=200)  # type: ignore[attr-defined]
-                    # נסמן שמדובר בקובץ גדול כדי שנוכל לבצע full fetch נכון בהמשך
-                    marked_large: list[dict] = []
-                    try:
-                        for lf in list(large_files or []):
-                            if isinstance(lf, dict):
-                                tmp = dict(lf)
-                                tmp["_is_large_file"] = True
-                                marked_large.append(tmp)
-                    except Exception:
-                        marked_large = list(large_files or [])
-                    files = list(files or []) + marked_large
+                large_files, _ = _call_files_api("get_user_large_files", user_id, page=1, per_page=200) or ([], 0)
+                # נסמן שמדובר בקובץ גדול כדי שנוכל לבצע full fetch נכון בהמשך
+                marked_large: list[dict] = []
+                try:
+                    for lf in list(large_files or []):
+                        if isinstance(lf, dict):
+                            tmp = dict(lf)
+                            tmp["_is_large_file"] = True
+                            marked_large.append(tmp)
+                except Exception:
+                    marked_large = list(large_files or [])
+                files = list(files or []) + marked_large
             except Exception:
                 pass
             def _norm_for_match(s: str) -> str:
@@ -181,12 +263,12 @@ class RefactorHandlers:
                     best_name = ""
                 if best_name:
                     try:
-                        if bool(best.get("_is_large_file")) and hasattr(db, "get_large_file"):
-                            snippet = db.get_large_file(user_id, best_name)
+                        if bool(best.get("_is_large_file")):
+                            snippet = _call_files_api("get_large_file", user_id, best_name)
                         else:
-                            snippet = db.get_file(user_id, best_name)
-                        if not snippet and hasattr(db, "get_large_file"):
-                            snippet = db.get_large_file(user_id, best_name)
+                            snippet = _call_files_api("get_latest_version", user_id, best_name)
+                        if not snippet:
+                            snippet = _call_files_api("get_large_file", user_id, best_name)
                     except Exception:
                         snippet = best
                 else:
@@ -201,7 +283,7 @@ class RefactorHandlers:
             return
 
         # תמיכה גם במסמכי LargeFile שבהם התוכן תחת המפתח 'content'
-        code = snippet.get('code') or snippet.get('content') or ''
+        code = (snippet.get('code') if isinstance(snippet, dict) else None) or (snippet.get('content') if isinstance(snippet, dict) else None) or ''
         await self._show_refactor_type_menu(update, filename, code)
 
     async def _show_refactor_type_menu(self, update: Update, filename: str, code: str):
@@ -263,18 +345,13 @@ class RefactorHandlers:
             return
         refactor_type_str = action
         filename = ':'.join(parts[2:])
-        try:
-            from database import db  # dynamic import for tests
-            if hasattr(db, 'get_code_by_name'):
-                snippet = db.get_code_by_name(user_id, filename)
-            else:
-                snippet = db.get_file(user_id, filename)
-        except Exception:
-            snippet = None
+        snippet = _call_files_api("get_latest_version", user_id, filename)
+        if not snippet:
+            snippet = _call_files_api("get_large_file", user_id, filename)
         if not snippet:
             await TelegramUtils.safe_edit_message_text(query, "❌ הקובץ לא נמצא")
             return
-        code = snippet.get('code') or ''
+        code = (snippet.get('code') if isinstance(snippet, dict) else None) or (snippet.get('content') if isinstance(snippet, dict) else None) or ''
         await TelegramUtils.safe_edit_message_text(query, "🏗️ מנתח קוד ומכין הצעת רפקטורינג...\n⏳ זה יכול לקחת כמה שניות")
         try:
             refactor_type = RefactorType(refactor_type_str)
@@ -426,30 +503,23 @@ class RefactorHandlers:
         await TelegramUtils.safe_edit_message_text(query, "💾 שומר קבצים חדשים...")
         saved_count = 0
         errors = []
-        try:
-            from database import db
-        except Exception:
-            db = None  # type: ignore
+        tag = f"refactored_{proposal.refactor_type.value}"
         for filename, content in proposal.new_files.items():
             try:
-                if db is not None:
-                    if hasattr(db, 'save_code'):
-                        db.save_code(
-                            user_id=user_id,
-                            filename=filename,
-                            code=content,
-                            language="python",
-                            tags=[f"refactored_{proposal.refactor_type.value}"],
-                        )
-                    else:
-                        db.save_file(
-                            user_id=user_id,
-                            file_name=filename,
-                            code=content,
-                            programming_language="python",
-                            extra_tags=[f"refactored_{proposal.refactor_type.value}"],
-                        )
-                saved_count += 1
+                ok = bool(
+                    _call_files_api(
+                        "save_file",
+                        user_id,
+                        filename,
+                        content,
+                        "python",
+                        extra_tags=[tag],
+                    )
+                )
+                if ok:
+                    saved_count += 1
+                else:
+                    errors.append(f"❌ {filename}: שמירה נכשלה")
             except Exception as e:
                 logger.error(f"שגיאה בשמירת {filename}: {e}")
                 errors.append(f"❌ {filename}: {str(e)}")
@@ -465,15 +535,22 @@ class RefactorHandlers:
 
     def _save_refactor_metadata(self, user_id: int, proposal: RefactorProposal) -> None:
         try:
-            from database import db
-            db.collection('refactorings').insert_one({
-                'user_id': user_id,
-                'timestamp': datetime.now(timezone.utc),
-                'refactor_type': proposal.refactor_type.value,
-                'original_file': proposal.original_file,
-                'new_files': list(proposal.new_files.keys()),
-                'changes_summary': proposal.changes_summary,
-            })
+            ok = bool(
+                _call_files_api(
+                "insert_refactor_metadata",
+                {
+                    "user_id": user_id,
+                    "timestamp": datetime.now(timezone.utc),
+                    "refactor_type": proposal.refactor_type.value,
+                    "original_file": proposal.original_file,
+                    "new_files": list((proposal.new_files or {}).keys()),
+                    "changes_summary": list(proposal.changes_summary or []),
+                },
+                )
+            )
+            if not ok:
+                # חשוב: הפסאדה מחזירה False על כשלי DB, ו-_call_files_api יכול לבלוע חריגות.
+                logger.error("שמירת מטא-דאטה לרפקטורינג נכשלה (הפסאדה החזירה False/None)")
         except Exception as e:
             logger.error(f"שגיאה בשמירת מטא-דאטה: {e}")
 

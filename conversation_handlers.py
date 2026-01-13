@@ -149,8 +149,12 @@ def _should_retry_with_legacy(method_name: str, value) -> bool:
         return True
     if isinstance(value, (list, dict)) and not value:
         return True
-    if isinstance(value, tuple) and not any(value):
-        return True
+    if isinstance(value, tuple):
+        # חשוב: תוצאות כמו ([], 0) הן תוצאה תקינה (אין נתונים), ולא כשל שצריך retry.
+        if len(value) == 0:
+            return True
+        if all(v is None for v in value):
+            return True
     return False
 
 
@@ -161,40 +165,6 @@ def _call_files_api(method_name: str, *args, **kwargs):
     Note: Handlers must not reach into the legacy `database` package directly.
     Legacy fallback is supported only via explicit injection / already-loaded modules.
     """
-    # Special case: allow safe access to underlying Mongo DB (used by webapp login token).
-    if method_name == "get_mongo_db":
-        # Prefer explicit injection via module globals (tests), then facade, then already-loaded legacy module.
-        try:
-            injected = globals().get("db")
-        except Exception:
-            injected = None
-        try:
-            injected_db_obj = getattr(injected, "db", None) if injected is not None else None
-        except Exception:
-            injected_db_obj = None
-        if injected_db_obj is not None:
-            return injected_db_obj
-
-        facade = _get_files_facade_or_none()
-        if facade is not None:
-            fn = getattr(facade, "get_mongo_db", None)
-            if callable(fn):
-                try:
-                    out = fn()
-                    if out is not None:
-                        return out
-                except Exception:
-                    pass
-
-        legacy = _get_legacy_db()
-        if legacy is None:
-            return None
-        try:
-            inner = getattr(legacy, "db", None)
-            return inner if inner is not None else legacy
-        except Exception:
-            return None
-
     facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
     if facade is not None:
@@ -412,21 +382,12 @@ def _is_webapp_login_requested(update: Update, context: ContextTypes.DEFAULT_TYP
 def _persist_webapp_login_token(token_doc: Dict[str, object]) -> None:
     """שומר את טוקן ההתחברות במסד הנתונים אם אפשר (דרך הפסאדה בלבד)."""
     try:
-        mongo_db = _call_files_api("get_mongo_db")
-        if mongo_db is None:
-            return
-        collection = None
-        try:
-            collection = getattr(mongo_db, "webapp_tokens")
-        except AttributeError:
-            try:
-                collection = mongo_db["webapp_tokens"]  # type: ignore[index]
-            except Exception:
-                collection = None
-        if collection is None:
-            return
-        collection.insert_one(token_doc)
+        ok = bool(_call_files_api("insert_webapp_login_token", token_doc))
+        if not ok:
+            # חשוב: _call_files_api "בולע" חריגות מהפסאדה, לכן חייבים לבדוק ערך חזרה.
+            logger.error("שמירת טוקן webapp נכשלה (הפסאדה החזירה False/None)")
     except Exception:
+        # fallback: אם בכל זאת משהו דלף החוצה, נשמור לוג מלא
         logger.exception("שמירת טוקן webapp נכשלה", exc_info=True)
 
 

@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover
 
 from monitoring import alerts_storage, metrics_storage, incident_story_storage  # type: ignore
 from monitoring import alert_tags_storage  # type: ignore
-from services.observability_http import SecurityError, fetch_graph_securely
+from services.observability_http import SecurityError, fetch_graph_securely, fetch_url_securely
 
 try:  # Best-effort fallback for slow endpoint summaries
     from metrics import get_top_slow_endpoints  # type: ignore
@@ -94,6 +94,409 @@ _RUNBOOK_STATE_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
 
 _HTTP_FETCH_TIMEOUT = 10
+
+
+def _prometheus_base_url() -> Optional[str]:
+    """Return Prometheus base URL when configured, else None.
+
+    Example: https://prometheus.example.com
+    """
+    for key in ("PROMETHEUS_URL", "PROMETHEUS_BASE_URL", "PROMETHEUS_API_URL"):
+        raw = os.getenv(key)
+        if not raw:
+            continue
+        value = str(raw).strip()
+        if value:
+            return value.rstrip("/")
+    return None
+
+
+def _prometheus_rate_window() -> str:
+    """PromQL range selector used for rate()/histogram_quantile() queries."""
+    raw = os.getenv("PROMETHEUS_RATE_WINDOW") or os.getenv("PROM_RATE_WINDOW") or ""
+    value = str(raw or "").strip()
+    return value or "5m"
+
+
+def _prometheus_query_range_sum(
+    base_url: str,
+    *,
+    query: str,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    step_seconds: int,
+    timeout: Optional[int] = None,
+) -> List[Tuple[float, float]]:
+    """Query Prometheus /api/v1/query_range and return a single summed series."""
+    if not base_url:
+        return []
+    if start_dt is None or end_dt is None:
+        return []
+    try:
+        start = float(_ensure_utc_aware(start_dt).timestamp())
+        end = float(_ensure_utc_aware(end_dt).timestamp())
+    except Exception:
+        return []
+    if end <= start:
+        return []
+    try:
+        step = max(1, int(step_seconds or 60))
+    except Exception:
+        step = 60
+    params = {
+        "query": str(query),
+        "start": str(start),
+        "end": str(end),
+        "step": str(step),
+    }
+    url = f"{base_url}/api/v1/query_range?{urlencode(params)}"
+    try:
+        raw = fetch_url_securely(url, timeout=int(timeout or _HTTP_FETCH_TIMEOUT))
+        payload = json.loads(raw.decode("utf-8") if raw else "{}")
+    except Exception:
+        return []
+    try:
+        if (payload or {}).get("status") != "success":
+            return []
+        data = (payload or {}).get("data") or {}
+        results = data.get("result") if isinstance(data, dict) else None
+        if not isinstance(results, list) or not results:
+            return []
+    except Exception:
+        return []
+
+    # Sum across all series into a single timestamp->value map
+    buckets: Dict[float, float] = {}
+    for series in results:
+        values = series.get("values") if isinstance(series, dict) else None
+        if not isinstance(values, list):
+            continue
+        for pair in values:
+            if not isinstance(pair, list) or len(pair) < 2:
+                continue
+            try:
+                ts = float(pair[0])
+                val = float(pair[1])
+            except Exception:
+                continue
+            if val != val:  # NaN
+                continue
+            buckets[ts] = buckets.get(ts, 0.0) + float(val)
+    out: List[Tuple[float, float]] = [(ts, buckets[ts]) for ts in sorted(buckets.keys())]
+    return out
+
+
+def _iso_from_epoch(ts: float) -> str:
+    try:
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+    except Exception:
+        return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_prom_duration_seconds(value: str) -> Optional[int]:
+    """Parse a simple Prometheus duration like '5m', '1h' into seconds."""
+    try:
+        text = str(value or "").strip().lower()
+    except Exception:
+        return None
+    if not text:
+        return None
+    try:
+        if text.endswith("s"):
+            return max(1, int(float(text[:-1])))
+        if text.endswith("m"):
+            return max(1, int(float(text[:-1]) * 60.0))
+        if text.endswith("h"):
+            return max(1, int(float(text[:-1]) * 3600.0))
+        if text.endswith("d"):
+            return max(1, int(float(text[:-1]) * 86400.0))
+    except Exception:
+        return None
+    return None
+
+
+def _prometheus_query_instant(
+    base_url: str,
+    *,
+    query: str,
+    at_dt: Optional[datetime] = None,
+    timeout: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Query Prometheus /api/v1/query and return the raw 'result' list."""
+    if not base_url:
+        return []
+    try:
+        time_ts = None
+        if at_dt is not None:
+            time_ts = float(_ensure_utc_aware(at_dt).timestamp())
+    except Exception:
+        time_ts = None
+    params: Dict[str, str] = {"query": str(query)}
+    if time_ts is not None:
+        params["time"] = str(time_ts)
+    url = f"{base_url}/api/v1/query?{urlencode(params)}"
+    try:
+        raw = fetch_url_securely(url, timeout=int(timeout or _HTTP_FETCH_TIMEOUT))
+        payload = json.loads(raw.decode("utf-8") if raw else "{}")
+    except Exception:
+        return []
+    try:
+        if (payload or {}).get("status") != "success":
+            return []
+        data = (payload or {}).get("data") or {}
+        results = data.get("result") if isinstance(data, dict) else None
+        return results if isinstance(results, list) else []
+    except Exception:
+        return []
+
+
+def _prometheus_top_endpoints(
+    base_url: str,
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """Return a Prometheus-based approximation of slow endpoints (best-effort)."""
+    if not base_url or end_dt is None:
+        return []
+    try:
+        max_items = max(1, min(25, int(limit or 5)))
+    except Exception:
+        max_items = 5
+    window = _prometheus_rate_window()
+    window_seconds = _parse_prom_duration_seconds(window) or 300
+
+    q_avg = (
+        "topk("
+        + str(max_items)
+        + ", "
+        + "sum(rate(http_request_duration_seconds_sum["
+        + window
+        + "])) by (method, endpoint)"
+        + " / "
+        + "sum(rate(http_request_duration_seconds_count["
+        + window
+        + "])) by (method, endpoint)"
+        + ")"
+    )
+    q_p99 = (
+        "topk("
+        + str(max_items)
+        + ", "
+        + "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket["
+        + window
+        + "])) by (le, method, endpoint))"
+        + ")"
+    )
+    q_count = (
+        "sum(rate(http_request_duration_seconds_count[" + window + "])) by (method, endpoint)"
+    )
+
+    avg_rows = _prometheus_query_instant(base_url, query=q_avg, at_dt=end_dt)
+    if not avg_rows:
+        return []
+
+    p99_rows = _prometheus_query_instant(base_url, query=q_p99, at_dt=end_dt)
+    count_rows = _prometheus_query_instant(base_url, query=q_count, at_dt=end_dt)
+
+    p99_map: Dict[Tuple[str, str], float] = {}
+    for row in p99_rows:
+        if not isinstance(row, dict):
+            continue
+        metric = row.get("metric") if isinstance(row.get("metric"), dict) else {}
+        try:
+            key = (str(metric.get("method") or "GET"), str(metric.get("endpoint") or "unknown"))
+            value = float((row.get("value") or [None, "0"])[1])
+            p99_map[key] = value
+        except Exception:
+            continue
+
+    count_map: Dict[Tuple[str, str], float] = {}
+    # Avoid pathological high-cardinality explosions
+    if isinstance(count_rows, list) and len(count_rows) < 800:
+        for row in count_rows:
+            if not isinstance(row, dict):
+                continue
+            metric = row.get("metric") if isinstance(row.get("metric"), dict) else {}
+            try:
+                key = (str(metric.get("method") or "GET"), str(metric.get("endpoint") or "unknown"))
+                value = float((row.get("value") or [None, "0"])[1])
+                count_map[key] = value
+            except Exception:
+                continue
+
+    out: List[Dict[str, Any]] = []
+    for row in avg_rows:
+        if not isinstance(row, dict):
+            continue
+        metric = row.get("metric") if isinstance(row.get("metric"), dict) else {}
+        try:
+            method = str(metric.get("method") or "GET")
+            endpoint = str(metric.get("endpoint") or "unknown")
+            avg_val = float((row.get("value") or [None, "0"])[1])
+        except Exception:
+            continue
+        key = (method, endpoint)
+        p99_val = p99_map.get(key, 0.0)
+        rps = count_map.get(key, 0.0)
+        count_est = int(max(0.0, float(rps)) * float(window_seconds))
+        out.append(
+            {
+                "endpoint": endpoint,
+                "method": method,
+                "count": count_est,
+                "avg_duration": float(avg_val),
+                "max_duration": float(p99_val or avg_val),
+            }
+        )
+    out.sort(key=lambda item: float(item.get("max_duration") or 0.0), reverse=True)
+    return out[:max_items]
+
+
+def _prometheus_avg_latency_over_window(
+    base_url: str,
+    *,
+    start_dt: datetime,
+    end_dt: datetime,
+    step_seconds: int = 60,
+) -> Optional[float]:
+    """Return average latency (seconds) over a window (best-effort)."""
+    window = _prometheus_rate_window()
+    q_avg = (
+        "sum(rate(http_request_duration_seconds_sum["
+        + window
+        + "])) / sum(rate(http_request_duration_seconds_count["
+        + window
+        + "]))"
+    )
+    series = _prometheus_query_range_sum(
+        base_url,
+        query=q_avg,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        step_seconds=step_seconds,
+    )
+    if not series:
+        return None
+    values = [float(v) for _ts, v in series if v == v and float(v) >= 0.0]
+    if not values:
+        return None
+    return float(sum(values) / float(len(values)))
+
+
+def _prometheus_latency_timeseries(
+    base_url: str,
+    *,
+    start_dt: datetime,
+    end_dt: datetime,
+    granularity_seconds: int,
+) -> List[Dict[str, Any]]:
+    window = _prometheus_rate_window()
+    step = max(1, int(granularity_seconds or 60))
+
+    q_avg = (
+        "sum(rate(http_request_duration_seconds_sum["
+        + window
+        + "])) / sum(rate(http_request_duration_seconds_count["
+        + window
+        + "]))"
+    )
+    q_p99 = (
+        "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket["
+        + window
+        + "])) by (le))"
+    )
+    q_rps = "sum(rate(http_requests_total[" + window + "]))"
+
+    avg_series = _prometheus_query_range_sum(base_url, query=q_avg, start_dt=start_dt, end_dt=end_dt, step_seconds=step)
+    if not avg_series:
+        return []
+    p99_series = _prometheus_query_range_sum(base_url, query=q_p99, start_dt=start_dt, end_dt=end_dt, step_seconds=step)
+    rps_series = _prometheus_query_range_sum(base_url, query=q_rps, start_dt=start_dt, end_dt=end_dt, step_seconds=step)
+
+    p99_map = {ts: val for ts, val in p99_series}
+    rps_map = {ts: val for ts, val in rps_series}
+
+    out: List[Dict[str, Any]] = []
+    for ts, avg_val in avg_series:
+        rps = float(rps_map.get(ts, 0.0) or 0.0)
+        count_est = int(max(0.0, rps) * float(step))
+        out.append(
+            {
+                "timestamp": _iso_from_epoch(ts),
+                "avg_duration": float(avg_val),
+                "max_duration": float(p99_map.get(ts, avg_val) or avg_val),
+                "count": count_est,
+            }
+        )
+    return out
+
+
+def _prometheus_error_rate_timeseries(
+    base_url: str,
+    *,
+    start_dt: datetime,
+    end_dt: datetime,
+    granularity_seconds: int,
+) -> List[Dict[str, Any]]:
+    window = _prometheus_rate_window()
+    step = max(1, int(granularity_seconds or 60))
+
+    q_total = "sum(rate(http_requests_total[" + window + "]))"
+    q_err = 'sum(rate(http_requests_total{status=~"5.."}[' + window + "]))"
+
+    total_series = _prometheus_query_range_sum(base_url, query=q_total, start_dt=start_dt, end_dt=end_dt, step_seconds=step)
+    if not total_series:
+        return []
+    err_series = _prometheus_query_range_sum(base_url, query=q_err, start_dt=start_dt, end_dt=end_dt, step_seconds=step)
+    err_map = {ts: val for ts, val in err_series}
+
+    out: List[Dict[str, Any]] = []
+    for ts, total_rps in total_series:
+        err_rps = float(err_map.get(ts, 0.0) or 0.0)
+        total_rps_f = max(0.0, float(total_rps or 0.0))
+        err_rps_f = max(0.0, float(err_rps or 0.0))
+        count_est = int(total_rps_f * float(step))
+        errors_est = int(err_rps_f * float(step))
+        rate_percent = (float(err_rps_f) / float(total_rps_f) * 100.0) if total_rps_f > 0 else 0.0
+        out.append(
+            {
+                "timestamp": _iso_from_epoch(ts),
+                "error_rate": round(rate_percent, 3),
+                "count": count_est,
+                "errors": errors_est,
+            }
+        )
+    return out
+
+
+def _prometheus_requests_per_minute_timeseries(
+    base_url: str,
+    *,
+    start_dt: datetime,
+    end_dt: datetime,
+    granularity_seconds: int,
+) -> List[Dict[str, Any]]:
+    window = _prometheus_rate_window()
+    step = max(1, int(granularity_seconds or 60))
+    q_total = "sum(rate(http_requests_total[" + window + "]))"
+    total_series = _prometheus_query_range_sum(base_url, query=q_total, start_dt=start_dt, end_dt=end_dt, step_seconds=step)
+    if not total_series:
+        return []
+    out: List[Dict[str, Any]] = []
+    minutes = max(1.0, float(step) / 60.0)
+    for ts, total_rps in total_series:
+        rps = max(0.0, float(total_rps or 0.0))
+        count_est = int(rps * float(step))
+        out.append(
+            {
+                "timestamp": _iso_from_epoch(ts),
+                "requests_per_minute": float(rps) * 60.0,
+                "count": count_est,
+            }
+        )
+    return out
 
 _RANGE_TO_MINUTES = {
     "15m": 15,
@@ -1785,11 +2188,26 @@ def fetch_aggregations(
     if not any(summary.values()):
         summary = _fallback_summary()
 
-    top_endpoints = metrics_storage.aggregate_top_endpoints(
-        start_dt=start_dt,
-        end_dt=end_dt,
-        limit=slow_endpoints_limit,
-    )
+    prom_base = _prometheus_base_url()
+
+    top_endpoints: List[Dict[str, Any]] = []
+    if prom_base:
+        try:
+            top_endpoints = _prometheus_top_endpoints(
+                prom_base,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                limit=slow_endpoints_limit,
+            )
+        except Exception:
+            top_endpoints = []
+
+    if not top_endpoints:
+        top_endpoints = metrics_storage.aggregate_top_endpoints(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            limit=slow_endpoints_limit,
+        )
     if not top_endpoints:
         top_endpoints = _fallback_top_endpoints(limit=slow_endpoints_limit)
 
@@ -1811,7 +2229,19 @@ def fetch_aggregations(
     windows = _build_windows(deployments)
     window_averages: List[float] = []
     for start, finish in windows:
-        avg = metrics_storage.average_request_duration(start_dt=start, end_dt=finish)
+        avg: Optional[float] = None
+        if prom_base:
+            try:
+                avg = _prometheus_avg_latency_over_window(
+                    prom_base,
+                    start_dt=start,
+                    end_dt=finish,
+                    step_seconds=60,
+                )
+            except Exception:
+                avg = None
+        if avg is None:
+            avg = metrics_storage.average_request_duration(start_dt=start, end_dt=finish)
         if avg is not None:
             window_averages.append(avg)
     avg_spike = sum(window_averages) / len(window_averages) if window_averages else 0.0
@@ -2100,37 +2530,61 @@ def fetch_timeseries(
                 }
             )
     elif normalized_metric in {"response_time", "latency_seconds"}:
-        buckets = metrics_storage.aggregate_request_timeseries(
-            start_dt=start_dt,
-            end_dt=end_dt,
-            granularity_seconds=granularity_seconds,
-        )
-        for entry in buckets:
-            data.append(
-                {
-                    "timestamp": entry.get("timestamp"),
-                    "avg_duration": entry.get("avg_duration"),
-                    "max_duration": entry.get("max_duration"),
-                    "count": entry.get("count", 0),
-                }
+        prom_base = _prometheus_base_url()
+        if prom_base and start_dt and end_dt:
+            try:
+                data = _prometheus_latency_timeseries(
+                    prom_base,
+                    start_dt=_ensure_utc_aware(start_dt),
+                    end_dt=_ensure_utc_aware(end_dt),
+                    granularity_seconds=granularity_seconds,
+                )
+            except Exception:
+                data = []
+        if not data:
+            buckets = metrics_storage.aggregate_request_timeseries(
+                start_dt=start_dt,
+                end_dt=end_dt,
+                granularity_seconds=granularity_seconds,
             )
+            for entry in buckets:
+                data.append(
+                    {
+                        "timestamp": entry.get("timestamp"),
+                        "avg_duration": entry.get("avg_duration"),
+                        "max_duration": entry.get("max_duration"),
+                        "count": entry.get("count", 0),
+                    }
+                )
     elif normalized_metric in {"error_rate", "error_rate_percent"}:
-        buckets = metrics_storage.aggregate_request_timeseries(
-            start_dt=start_dt,
-            end_dt=end_dt,
-            granularity_seconds=granularity_seconds,
-        )
-        for entry in buckets:
-            count = entry.get("count", 0)
-            errors = entry.get("error_count", 0)
-            data.append(
-                {
-                    "timestamp": entry.get("timestamp"),
-                    "error_rate": _percent(int(errors), int(count)),
-                    "count": count,
-                    "errors": errors,
-                }
+        prom_base = _prometheus_base_url()
+        if prom_base and start_dt and end_dt:
+            try:
+                data = _prometheus_error_rate_timeseries(
+                    prom_base,
+                    start_dt=_ensure_utc_aware(start_dt),
+                    end_dt=_ensure_utc_aware(end_dt),
+                    granularity_seconds=granularity_seconds,
+                )
+            except Exception:
+                data = []
+        if not data:
+            buckets = metrics_storage.aggregate_request_timeseries(
+                start_dt=start_dt,
+                end_dt=end_dt,
+                granularity_seconds=granularity_seconds,
             )
+            for entry in buckets:
+                count = entry.get("count", 0)
+                errors = entry.get("error_count", 0)
+                data.append(
+                    {
+                        "timestamp": entry.get("timestamp"),
+                        "error_rate": _percent(int(errors), int(count)),
+                        "count": count,
+                        "errors": errors,
+                    }
+                )
     elif normalized_metric in {"memory_usage_percent", "cpu_usage_percent", "disk_usage_percent"}:
         data = _predictive_metric_series(
             normalized_metric,
@@ -2139,22 +2593,34 @@ def fetch_timeseries(
             granularity_seconds=granularity_seconds,
         )
     elif normalized_metric == "requests_per_minute":
-        buckets = metrics_storage.aggregate_request_timeseries(
-            start_dt=start_dt,
-            end_dt=end_dt,
-            granularity_seconds=granularity_seconds,
-        )
-        minutes = max(1.0, float(granularity_seconds or 60) / 60.0)
-        for entry in buckets:
-            count_val = int(entry.get("count", 0) or 0)
-            rpm = float(count_val) / minutes
-            data.append(
-                {
-                    "timestamp": entry.get("timestamp"),
-                    "requests_per_minute": rpm,
-                    "count": count_val,
-                }
+        prom_base = _prometheus_base_url()
+        if prom_base and start_dt and end_dt:
+            try:
+                data = _prometheus_requests_per_minute_timeseries(
+                    prom_base,
+                    start_dt=_ensure_utc_aware(start_dt),
+                    end_dt=_ensure_utc_aware(end_dt),
+                    granularity_seconds=granularity_seconds,
+                )
+            except Exception:
+                data = []
+        if not data:
+            buckets = metrics_storage.aggregate_request_timeseries(
+                start_dt=start_dt,
+                end_dt=end_dt,
+                granularity_seconds=granularity_seconds,
             )
+            minutes = max(1.0, float(granularity_seconds or 60) / 60.0)
+            for entry in buckets:
+                count_val = int(entry.get("count", 0) or 0)
+                rpm = float(count_val) / minutes
+                data.append(
+                    {
+                        "timestamp": entry.get("timestamp"),
+                        "requests_per_minute": rpm,
+                        "count": count_val,
+                    }
+                )
     else:
         definition = _get_metric_definition(normalized_metric)
         if definition and definition.get("source") == "external":

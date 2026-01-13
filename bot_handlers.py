@@ -105,8 +105,12 @@ def _should_retry_with_legacy(method_name: str, value) -> bool:
         return True
     if isinstance(value, (list, dict)) and not value:
         return True
-    if isinstance(value, tuple) and not any(value):
-        return True
+    if isinstance(value, tuple):
+        # חשוב: תוצאות כמו ([], 0) הן תוצאה תקינה (אין נתונים), ולא כשל שצריך retry.
+        if len(value) == 0:
+            return True
+        if all(v is None for v in value):
+            return True
     return False
 
 
@@ -116,39 +120,105 @@ def _call_files_api(method_name: str, *args, **kwargs):
 
     Note: Bot handlers must not import/use the legacy `database` package directly.
     """
-    # Special case: allow safe access to underlying Mongo DB (used by broadcast/dm admin flows).
-    if method_name == "get_mongo_db":
-        # Prefer explicit injection via module globals (tests), then facade, then already-loaded legacy module.
-        try:
-            injected = globals().get("db")
-        except Exception:
-            injected = None
-        try:
-            injected_db_obj = getattr(injected, "db", None) if injected is not None else None
-        except Exception:
-            injected_db_obj = None
-        if injected_db_obj is not None:
-            return injected_db_obj
+    def _get_mongo_db_from_injected() -> Optional[object]:
+        """
+        Best-effort access to an underlying mongo-like db object from injected legacy db.
 
-        facade = _get_files_facade_or_none()
-        if facade is not None:
-            fn = getattr(facade, "get_mongo_db", None)
-            if callable(fn):
-                try:
-                    out = fn()
-                    if out is not None:
-                        return out
-                except Exception:
-                    pass
-        legacy_mgr = _get_legacy_db()
-        if legacy_mgr is None:
+        Tests commonly patch `bot_handlers.db = SimpleNamespace(db=<mongo_db_stub>)`.
+        """
+        legacy_obj = _get_legacy_db()
+        if legacy_obj is None:
             return None
-        # legacy_mgr is typically DatabaseManager; .db is the underlying pymongo database.
+        # Most common: wrapper with `.db` attribute
         try:
-            inner = getattr(legacy_mgr, "db", None)
-            return inner if inner is not None else legacy_mgr
+            inner = getattr(legacy_obj, "db", None)
+            if inner is not None:
+                return inner
         except Exception:
-            return legacy_mgr
+            pass
+        # Some stubs may expose `get_mongo_db()`
+        try:
+            fn = getattr(legacy_obj, "get_mongo_db", None)
+            if callable(fn):
+                out = fn()
+                if out is not None:
+                    return out
+        except Exception:
+            pass
+        # As a last resort, treat legacy as mongo db itself
+        return legacy_obj
+
+    # Transitional fallbacks for tests/legacy stubs:
+    # These methods exist on FilesFacade in runtime, but older tests only patch `bot_handlers.db.db.users.*`.
+    if method_name == "list_active_user_ids":
+        mongo_db = _get_mongo_db_from_injected()
+        try:
+            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
+            if users is not None and hasattr(users, "find"):
+                cursor = users.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
+                # אם stub/driver החזיר None במקום cursor, זה לא "אין משתמשים" אלא כשל גישה/מימוש.
+                if cursor is None:
+                    raise RuntimeError("users.find returned None")
+                out: List[int] = []
+                for doc in cursor or []:
+                    try:
+                        uid = int((doc or {}).get("user_id") or 0)
+                        if uid:
+                            out.append(uid)
+                    except Exception:
+                        continue
+                # Success path (even if empty list)
+                return out
+        except Exception:
+            pass
+        # Fall through to normal facade/legacy dispatch
+
+    if method_name == "mark_users_blocked":
+        mongo_db = _get_mongo_db_from_injected()
+        try:
+            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
+            if users is not None and hasattr(users, "update_many"):
+                ids = list(args[0]) if args else list(kwargs.get("user_ids") or [])
+                res = users.update_many({"user_id": {"$in": ids}}, {"$set": {"blocked": True}})
+                try:
+                    return int(getattr(res, "modified_count", None) or 0)
+                except Exception:
+                    return 0
+        except Exception:
+            pass
+        # Fall through
+
+    if method_name == "find_user_id_by_username":
+        mongo_db = _get_mongo_db_from_injected()
+        try:
+            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
+            if users is not None and hasattr(users, "find_one"):
+                uname = ""
+                if args:
+                    uname = str(args[0] or "")
+                else:
+                    uname = str(kwargs.get("username") or "")
+                uname = uname[1:] if uname.startswith("@") else uname
+                if not uname:
+                    return None
+                doc = users.find_one({"username": uname}) or users.find_one({"username": uname.lower()})
+                if isinstance(doc, dict) and doc.get("user_id") is not None:
+                    return int(doc.get("user_id"))
+        except Exception:
+            pass
+        # Fall through
+
+    if method_name == "mark_user_blocked":
+        mongo_db = _get_mongo_db_from_injected()
+        try:
+            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
+            if users is not None and hasattr(users, "update_one"):
+                uid = args[0] if args else kwargs.get("user_id")
+                users.update_one({"user_id": int(uid)}, {"$set": {"blocked": True}})
+                return True
+        except Exception:
+            pass
+        # Fall through
 
     # Prefer injected legacy db (tests), then facade, then fallback to legacy.
     legacy = _get_legacy_db()
@@ -4203,26 +4273,26 @@ class AdvancedBotHandlers:
             )
             return
         
-        # שליפת נמענים מ-Mongo
-        db_obj = _call_files_api("get_mongo_db")
-        coll = getattr(db_obj, "users", None) if db_obj is not None else None
-        if coll is None:
-            await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
-            return
+        # שליפת נמענים דרך הפסאדה (ללא גישה ישירה ל-PyMongo מתוך handlers)
         try:
-            cursor = coll.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
-            recipients: List[int] = []
-            for doc in cursor:
-                try:
-                    uid = int(doc.get("user_id") or 0)
-                    if uid:
-                        recipients.append(uid)
-                except Exception:
-                    continue
+            raw_recipients = _call_files_api("list_active_user_ids")
         except Exception as e:
-            logger.error(f"טעינת נמענים נכשלה: {e}")
+            logger.error("טעינת נמענים לשידור נכשלה", exc_info=True)
             await update.message.reply_text("❌ שגיאה בטעינת רשימת נמענים")
             return
+
+        if raw_recipients is None:
+            await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
+            return
+
+        if not isinstance(raw_recipients, (list, tuple, set)):
+            await update.message.reply_text("❌ שגיאה בטעינת רשימת נמענים")
+            return
+
+        try:
+            recipients = [int(x) for x in list(raw_recipients) if str(x).lstrip("-").isdigit()]
+        except Exception:
+            recipients = []
         
         if not recipients:
             await update.message.reply_text("ℹ️ אין נמענים לשידור.")
@@ -4268,8 +4338,7 @@ class AdvancedBotHandlers:
         removed_count = 0
         if removed_ids:
             try:
-                coll.update_many({"user_id": {"$in": removed_ids}}, {"$set": {"blocked": True}})
-                removed_count = len(removed_ids)
+                removed_count = int(_call_files_api("mark_users_blocked", removed_ids) or 0)
             except Exception:
                 pass
         
@@ -4318,13 +4387,9 @@ class AdvancedBotHandlers:
             # username: strip leading @ and query DB
             uname = recipient_token[1:] if recipient_token.startswith('@') else recipient_token
             try:
-                db_obj = _call_files_api("get_mongo_db")
-                users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
-                if users_coll is not None:
-                    # נסה התאמה מדויקת ואז lowercase
-                    doc = users_coll.find_one({"username": uname}) or users_coll.find_one({"username": uname.lower()})
-                    if doc and doc.get('user_id'):
-                        target_id = int(doc['user_id'])
+                resolved = _call_files_api("find_user_id_by_username", uname)
+                if resolved is not None:
+                    target_id = int(resolved)
             except Exception:
                 target_id = None
 
@@ -4359,10 +4424,7 @@ class AdvancedBotHandlers:
         except telegram.error.Forbidden:
             # ייתכן שהמשתמש חסם את הבוט – נסמן ב-DB
             try:
-                db_obj = _call_files_api("get_mongo_db")
-                users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
-                if users_coll is not None:
-                    users_coll.update_one({"user_id": target_id}, {"$set": {"blocked": True}})
+                _call_files_api("mark_user_blocked", int(target_id))
             except Exception:
                 pass
             await update.message.reply_text("⚠️ לא ניתן לשלוח (המשתמש חסם את הבוט או בוטק). סומן כ-blocked.")
@@ -5391,7 +5453,7 @@ class AdvancedBotHandlers:
             return ""
 
     async def lang_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/lang – זיהוי שפה קצר: מקבל שם קובץ אופציונלי ו/או קוד (reply/``` block)."""
+        """/lang – זיהוי שפה קצר: מקבל שם קובץ אופציונלי ו/או קוד (reply / Markdown code-fence)."""
         try:
             args = context.args or []
             arg_text = " ".join(args).strip()

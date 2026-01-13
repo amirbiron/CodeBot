@@ -83,6 +83,7 @@ Autodoc
 -------
 
 .. automodule:: database.bookmarks_manager
+   :noindex:
    :members:
    :undoc-members:
    :show-inheritance:
