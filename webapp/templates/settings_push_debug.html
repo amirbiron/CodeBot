@@ -512,7 +512,14 @@ function loadSwReports() {
   var box = document.getElementById('sw-reports');
   if (!box) return;
   box.innerHTML = '<div>טוען...</div>';
-  fetch('/api/push/sw-reports', { credentials: 'include' })
+  // Prefer endpoint_hash-scoped reports (works even if SW reports arrive without session cookies)
+  var url = '/api/push/sw-reports';
+  try {
+    if (window.__ckEndpointHash && String(window.__ckEndpointHash).length === 12) {
+      url = url + '?endpoint_hash=' + encodeURIComponent(String(window.__ckEndpointHash));
+    }
+  } catch (_) {}
+  fetch(url, { credentials: 'include' })
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (!data || !data.ok) {
@@ -586,6 +593,7 @@ function checkSubscriptionMatch() {
           box.innerHTML = '<div><strong>מנוי בדפדבן:</strong> 🟢 קיים, אבל אי אפשר לחשב hash בדפדפן הזה</div>';
           return;
         }
+        try { window.__ckEndpointHash = h; } catch (_) {}
         fetch('/api/push/subscriptions', { credentials: 'include' })
           .then(function (r) { return r.json(); })
           .then(function (data) {

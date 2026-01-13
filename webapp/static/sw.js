@@ -17,27 +17,67 @@ self.addEventListener('activate', (event) => {
 
 // Helper: report SW events back to server for debugging (no auth needed)
 // This is CRITICAL for debugging - sends a POST to /api/push/sw-report
+let __endpointHashPromise = null;
+function _sha256Hex12(str) {
+  try {
+    if (!str || !self.crypto || !self.crypto.subtle || !self.TextEncoder) return Promise.resolve('');
+    const data = new TextEncoder().encode(String(str));
+    return crypto.subtle.digest('SHA-256', data).then((buf) => {
+      const bytes = new Uint8Array(buf);
+      let hex = '';
+      for (let i = 0; i < bytes.length; i++) {
+        const h = bytes[i].toString(16).padStart(2, '0');
+        hex += h;
+      }
+      return hex.slice(0, 12);
+    }).catch(() => '');
+  } catch (_) {
+    return Promise.resolve('');
+  }
+}
+
+function getEndpointHash() {
+  try {
+    if (__endpointHashPromise) return __endpointHashPromise;
+    if (!self.registration || !self.registration.pushManager) {
+      __endpointHashPromise = Promise.resolve('');
+      return __endpointHashPromise;
+    }
+    __endpointHashPromise = self.registration.pushManager.getSubscription()
+      .then((sub) => {
+        const ep = sub && sub.endpoint ? String(sub.endpoint) : '';
+        return _sha256Hex12(ep);
+      })
+      .catch(() => '');
+    return __endpointHashPromise;
+  } catch (_) {
+    return Promise.resolve('');
+  }
+}
+
 function reportToServer(eventType, status, extra = {}) {
   console.log('[SW] Reporting to server:', eventType, status, extra);
   try {
-    const body = JSON.stringify({
-      event: eventType,
-      status: status,
-      timestamp: new Date().toISOString(),
-      sw_version: SW_VERSION,
-      ...extra
-    });
-    // Use fetch with keepalive to ensure it completes even if SW terminates
-    fetch('/api/push/sw-report', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body,
-      keepalive: true
-    }).then(resp => {
-      console.log('[SW] Report sent, status:', resp.status);
-    }).catch(err => {
-      console.error('[SW] Report failed:', err);
-    });
+    getEndpointHash().then((endpointHash) => {
+      const body = JSON.stringify({
+        event: eventType,
+        status: status,
+        timestamp: new Date().toISOString(),
+        sw_version: SW_VERSION,
+        endpoint_hash: endpointHash || '',
+        ...extra
+      });
+      fetch('/api/push/sw-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body,
+        keepalive: true
+      }).then(resp => {
+        console.log('[SW] Report sent, status:', resp.status);
+      }).catch(err => {
+        console.error('[SW] Report failed:', err);
+      });
+    }).catch(() => {});
   } catch (e) {
     console.error('[SW] reportToServer exception:', e);
   }
@@ -59,24 +99,8 @@ self.addEventListener('push', (event) => {
       console.log('[SW] event.data exists:', !!event.data);
       console.log('========================================');
       
-      // STEP 2: Send immediate report to server (AWAIT to ensure it sends)
-      try {
-        await fetch('/api/push/sw-report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            event: 'push_received',
-            status: 'started',
-            timestamp: receivedAt,
-            sw_version: SW_VERSION,
-            received_at: receivedAt
-          }),
-          keepalive: true
-        });
-        console.log('[SW] Initial report sent successfully');
-      } catch (reportErr) {
-        console.error('[SW] Initial report failed (continuing anyway):', reportErr);
-      }
+      // STEP 2: Send immediate report to server
+      reportToServer('push_received', 'started', { received_at: receivedAt });
       
       // STEP 3: Extract and parse the push data
       console.log('[SW] Step 3: Extracting push data...');

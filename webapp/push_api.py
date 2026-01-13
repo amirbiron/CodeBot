@@ -1303,9 +1303,12 @@ def sw_report():
         error_msg = str(payload.get("error") or "")
         raw_data = str(payload.get("raw_data") or "")[:500]  # Truncate for safety
         timestamp = str(payload.get("timestamp") or "")
+        endpoint_hash = str(payload.get("endpoint_hash") or "").strip().lower()
+        if endpoint_hash and (len(endpoint_hash) != 12 or any(c not in "0123456789abcdef" for c in endpoint_hash)):
+            endpoint_hash = ""
 
         now_iso = datetime.now(timezone.utc).isoformat()
-        record = {
+        record: dict[str, Any] = {
             "ts": now_iso,
             "client_timestamp": timestamp,
             "event": event_type,
@@ -1313,6 +1316,8 @@ def sw_report():
             "error": (error_msg[:240] if error_msg else ""),
             "raw_data_preview": (raw_data[:160] if raw_data else ""),
         }
+        if endpoint_hash:
+            record["endpoint_hash"] = endpoint_hash
 
         # Try to attach user_id if session cookie exists (SW fetch is same-origin).
         try:
@@ -1340,6 +1345,7 @@ def sw_report():
                     "error": (error_msg[:240] if error_msg else ""),
                     "raw_data_preview": (raw_data[:160] if raw_data else ""),
                     "user_id": uid,
+                    "endpoint_hash": endpoint_hash or None,
                 }
             )
         except Exception:
@@ -1384,15 +1390,20 @@ def list_sw_reports():
     """Return last SW diagnostic reports for the current session (debug aid)."""
     try:
         user_id = _session_user_id()
+        req_hash = str(request.args.get("endpoint_hash") or "").strip().lower()
+        if req_hash and (len(req_hash) != 12 or any(c not in "0123456789abcdef" for c in req_hash)):
+            req_hash = ""
         # Prefer DB (works across multiple Gunicorn workers/processes)
         try:
             db = get_db()
             coll = db.sw_push_reports
-            docs = list(
-                coll.find({"user_id": {"$in": _user_id_variants(user_id)}})
-                .sort("ts", -1)
-                .limit(50)
-            )
+            variants = _user_id_variants(user_id)
+            filt: dict[str, Any]
+            if req_hash:
+                filt = {"$or": [{"endpoint_hash": req_hash}, {"user_id": {"$in": variants}}]}
+            else:
+                filt = {"user_id": {"$in": variants}}
+            docs = list(coll.find(filt).sort("ts", -1).limit(50))
             out: list[dict[str, Any]] = []
             for d in docs:
                 if not isinstance(d, dict):
@@ -1410,12 +1421,15 @@ def list_sw_reports():
                         "status": str(d.get("status") or ""),
                         "error": str(d.get("error") or ""),
                         "raw_data_preview": str(d.get("raw_data_preview") or ""),
+                        "endpoint_hash": str(d.get("endpoint_hash") or ""),
                     }
                 )
             return jsonify({"ok": True, "count": len(out), "reports": out}), 200
         except Exception:
             # Fallback to in-memory (single-worker environments)
             data = list(_SW_REPORTS)[-50:]
+            if req_hash:
+                data = [r for r in data if isinstance(r, dict) and str(r.get("endpoint_hash") or "") == req_hash]
             return jsonify({"ok": True, "count": len(data), "reports": data}), 200
     except Exception:
         return jsonify({"ok": False, "error": "Failed to load sw reports"}), 500
