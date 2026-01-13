@@ -426,10 +426,20 @@ def get_shared_theme_service() -> SharedThemeService:
     """
     global _shared_theme_service
 
-    if _shared_theme_service is None:
-        from database.db_manager import get_db
+    from database.db_manager import get_db
 
-        _shared_theme_service = SharedThemeService(get_db())
+    db = get_db()
+
+    if _shared_theme_service is None:
+        _shared_theme_service = SharedThemeService(db)
+    else:
+        # בדיקות/pytest עשויות להחליף את get_db (monkeypatch) בין טסטים.
+        # כדי לא "לנעול" service על DB ישן, נרענן אם ה-DB השתנה.
+        try:
+            if getattr(_shared_theme_service, "db", None) is not db:
+                _shared_theme_service = SharedThemeService(db)
+        except Exception:
+            _shared_theme_service = SharedThemeService(db)
 
     return _shared_theme_service
 
