@@ -65,6 +65,9 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           PicklePersistence, InlineQueryHandler, ApplicationHandlerStop, TypeHandler)
 
 from config import config
+from types import ModuleType
+
+_observability: ModuleType | None
 try:
     import observability as _observability
 except Exception:
@@ -718,6 +721,8 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
         # Alert Pipeline Consolidation:
         # לא שולחים הודעות "אדמין" ישירות דרך bot.send_message (זה עוקף suppress/Rule Engine).
         # במקום זה, מפיקים internal_alert ומאפשרים למנוע הכללים להחליט אם/לאן לשלוח.
+        from typing import Callable
+        emit_internal_alert: Callable[..., None] | None
         try:
             from internal_alerts import emit_internal_alert
         except Exception:
@@ -861,7 +866,8 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # טעינה דינמית של מודול ה-DB כדי לעבוד היטב עם monkeypatch בטסטים
             from database import db as _db
-            users_collection = _db.db.users if getattr(_db, 'db', None) else None
+            db_obj = getattr(_db, 'db', None)
+            users_collection = db_obj.users if db_obj is not None else None
             if users_collection is None:
                 return
             doc = users_collection.find_one({"user_id": user_id}, {"total_actions": 1, "milestones_sent": 1}) or {}
@@ -3728,12 +3734,14 @@ class CodeKeeperBot:
                     pass
                 # Alert Pipeline Consolidation: שלח התראה דרך internal_alerts (ולא DM ישיר בבוט)
                 try:
+                    from typing import Callable
+                    emit_internal_alert_fn: Callable[..., None] | None
                     try:
-                        from internal_alerts import emit_internal_alert
+                        from internal_alerts import emit_internal_alert as emit_internal_alert_fn
                     except Exception:
-                        emit_internal_alert = None
-                    if emit_internal_alert is not None:
-                        emit_internal_alert(
+                        emit_internal_alert_fn = None
+                    if emit_internal_alert_fn is not None:
+                        emit_internal_alert_fn(
                             "bot_oom",
                             severity="critical",
                             summary=f"🚨 OOM זוהתה בבוט{mem_status}. חריגה: {err_text[:500]}",
@@ -4584,9 +4592,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # פליטת אירוע מוקדמת: ניקוי גיבויים — תמיכה במצבי טסט
     # נשתמש בייבוא דינמי כדי לשתף פעולה עם monkeypatch בטסטים
     try:
+        from typing import Callable, Any
         enabled_env = str(os.getenv("BACKUPS_CLEANUP_ENABLED", "false")).lower()
         enabled = enabled_env in {"1", "true", "yes", "on"}
         if not enabled:
+            _emit: Callable[..., None] | None
             try:
                 from observability import emit_event as _emit
             except Exception:  # pragma: no cover
@@ -4602,6 +4612,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             # כאשר מופעל (enabled) ובסביבת טסטים, נפעיל פעם אחת מידית כדי להבטיח פליטת אירוע
             try:
                 if os.getenv("PYTEST_CURRENT_TEST"):
+                    _bm: Any | None
                     try:
                         from file_manager import backup_manager as _bm
                     except Exception:  # pragma: no cover
@@ -5140,19 +5151,21 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
         # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
         try:
+            from typing import Callable, Any
             enabled = str(os.getenv("BACKUPS_CLEANUP_ENABLED", "false")).lower() in {"1", "true", "yes", "on"}
             if enabled:
                 # בסביבת טסטים: הפעל ניקוי פעם אחת מידית כדי להבטיח פליטת אירוע,
                 # ללא תלות במוזרויות של לולאות asyncio בסימולציה של ה-JobQueue
                 try:
                     if os.getenv("PYTEST_CURRENT_TEST"):
+                        _bm_local: Any | None
                         try:
-                            from file_manager import backup_manager as _bm
+                            from file_manager import backup_manager as _bm_local
                         except Exception:  # pragma: no cover
-                            _bm = None
-                        if _bm is not None:
+                            _bm_local = None
+                        if _bm_local is not None:
                             try:
-                                summary = _bm.cleanup_expired_backups()
+                                summary = _bm_local.cleanup_expired_backups()
                                 try:
                                     from observability import emit_event as _emit
                                 except Exception:  # pragma: no cover
@@ -5207,12 +5220,14 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 # 1) Prefer a late dynamic import (cooperates with tests that patch sys.modules at runtime)
                 # 2) Fallback to the already-imported emit_event when dynamic import is unavailable
                 try:
+                    from typing import Callable
+                    _emit_fn: Callable[..., None] | None
                     try:
-                        from observability import emit_event as _emit
+                        from observability import emit_event as _emit_fn
                     except Exception:  # pragma: no cover
-                        _emit = None
-                    if _emit is not None:
-                        _emit("backups_cleanup_disabled", severity="info")
+                        _emit_fn = None
+                    if _emit_fn is not None:
+                        _emit_fn("backups_cleanup_disabled", severity="info")
                     else:
                         try:
                             emit_event("backups_cleanup_disabled", severity="info")
@@ -5485,6 +5500,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     t0 = _t.time()
 
                     # Lazy imports to avoid hard deps
+                    from typing import Callable, Any
+                    _cache: Any | None
+                    _build_cache_key: Callable[..., str] | None
+                    _get_db: Callable[[], Any] | None
+                    _search_engine: Any | None
                     try:
                         from cache_manager import cache as _cache
                     except Exception:  # pragma: no cover
