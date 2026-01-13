@@ -3143,8 +3143,9 @@ class CodeKeeperBot:
         """בדיקת פקודות תפריט/Runtime (מנהלים בלבד).
 
         שימושים:
-        - `/check` : מציג את פקודות התפריט (Telegram menu) ציבורי + scope אישי
-        - `/check commands` : מציג את כל ה-Slash commands שנרשמו ב-runtime דרך Application.handlers,
+
+        - ``/check``: מציג את פקודות התפריט (Telegram menu) ציבורי + scope אישי
+        - ``/check commands``: מציג את כל ה-Slash commands שנרשמו ב-runtime דרך Application.handlers,
           ומשווה מול התפריט כדי לזהות מה "מוסתר".
         """
         from chatops.permissions import is_admin

@@ -68,6 +68,7 @@ Autodoc
 -------
 
 .. automodule:: database.collections_manager
+   :noindex:
    :members:
    :undoc-members:
    :show-inheritance:

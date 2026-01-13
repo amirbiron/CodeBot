@@ -5391,7 +5391,7 @@ class AdvancedBotHandlers:
             return ""
 
     async def lang_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/lang – זיהוי שפה קצר: מקבל שם קובץ אופציונלי ו/או קוד (reply/``` block)."""
+        """/lang – זיהוי שפה קצר: מקבל שם קובץ אופציונלי ו/או קוד (reply / Markdown code-fence)."""
         try:
             args = context.args or []
             arg_text = " ".join(args).strip()

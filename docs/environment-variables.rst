@@ -1471,7 +1471,7 @@
      - ``false``
      - ``true``
      - Bot/WebApp
-  * - ``ENABLE_PROMETHEUS_METRICS``
+   * - ``ENABLE_PROMETHEUS_METRICS``
      - מפעיל OpenTelemetry Prometheus exporter (pull/scrape). כשהוא פעיל, מדדים של OTEL נחשפים דרך ה-``/metrics`` הקיים. (Alias נתמך: ``ENABLE_PROMETHEUS_OTEL_METRICS``)
      - לא
      - ``false``
@@ -1579,13 +1579,13 @@
      - "" (ריק)
      - ``https://otel-collector:4318/v1/traces``
      - Bot/WebApp
-  * - ``PROMETHEUS_URL``
+   * - ``PROMETHEUS_URL``
      - בסיס URL ל-Prometheus HTTP API. אם מוגדר, דשבורד ה-Observability ישתמש ב-Prometheus ל-timeseries במקום קריאה מ-MongoDB.
      - לא
      - "" (ריק)
      - ``https://prometheus.example.com``
      - WebApp/Observability
-  * - ``PROMETHEUS_RATE_WINDOW``
+   * - ``PROMETHEUS_RATE_WINDOW``
      - חלון ברירת מחדל ל-``rate()``/``histogram_quantile()`` ב-PromQL (למשל ``5m``). משפיע על החלקת גרפים בדשבורד.
      - לא
      - ``5m``
