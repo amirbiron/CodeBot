@@ -53,7 +53,6 @@ class SharedThemeService:
         Args:
             db: אובייקט DB בסגנון PyMongo (חייב להכיל shared_themes collection)
         """
-        logger.warning("🔧 SharedThemeService.__init__() called!")  # 👈 צריך לראות פעם אחת בלבד!
         self.db = db
         self.collection = getattr(db, "shared_themes", None)
         # ==========================
@@ -157,20 +156,6 @@ class SharedThemeService:
         cached_themes = self._active_themes_cache
         cached_expires_at = self._active_themes_expires_at
 
-        # 🔍 DEBUG
-        is_hit = (
-            cached_themes is not None
-            and cached_expires_at is not None
-            and cached_expires_at > now
-        )
-        cache_status = "HIT" if is_hit else "MISS"
-        logger.warning(
-            "🎨 Theme cache %s | cached=%s | expires=%s",
-            cache_status,
-            cached_themes is not None,
-            cached_expires_at,
-        )
-
         # Cache hit
         if (
             cached_themes is not None
@@ -178,11 +163,9 @@ class SharedThemeService:
             and cached_expires_at > now
         ):
             # מחזירים עותק כדי למנוע "השחתה" של ה-cache ע"י קוראים שמשנים את הרשימה/מילונים
-            logger.warning("✅ Returning %s themes from cache", len(cached_themes))
             return [t.copy() for t in cached_themes]
 
         # Cache miss: זוכרים את הגרסה הנוכחית כדי לא לדרוס invalidate שהתרחש בזמן ה-fetch
-        logger.warning("❌ Cache miss - loading from DB")
         version_at_start = self._active_themes_cache_version
         try:
             cursor = self.collection.find(
@@ -436,25 +419,27 @@ class SharedThemeService:
 _shared_theme_service: Optional[SharedThemeService] = None
 
 
-def get_shared_theme_service():
-    """Singleton factory — בטוח גם לטסטים (מתאפס אם ה-DB object השתנה)."""
+def get_shared_theme_service() -> SharedThemeService:
+    """
+    Returns singleton instance of SharedThemeService.
+    Cached across all requests for performance.
+    """
     global _shared_theme_service
 
-    # import מאוחר כדי למנוע circular imports בזמן טעינת מודולים
-    from webapp.app import get_db  # noqa: WPS433 (local import by design)
+    from database.db_manager import get_db
 
     db = get_db()
-    current_coll = getattr(db, "shared_themes", None)
+
     if _shared_theme_service is None:
         _shared_theme_service = SharedThemeService(db)
-        return _shared_theme_service
-
-    # אם סביבת טסט החליפה DB (monkeypatch), נוודא שה-service מתיישר
-    try:
-        if getattr(_shared_theme_service, "collection", None) is not current_coll:
+    else:
+        # בדיקות/pytest עשויות להחליף את get_db (monkeypatch) בין טסטים.
+        # כדי לא "לנעול" service על DB ישן, נרענן אם ה-DB השתנה.
+        try:
+            if getattr(_shared_theme_service, "db", None) is not db:
+                _shared_theme_service = SharedThemeService(db)
+        except Exception:
             _shared_theme_service = SharedThemeService(db)
-    except Exception:
-        _shared_theme_service = SharedThemeService(db)
 
     return _shared_theme_service
 
