@@ -479,10 +479,12 @@ class LargeFilesHandler:
                 del large_files_cache[file_index]
             
             # בדוק אם נשארו קבצים פעילים
-            if facade is None:
-                remaining_files, remaining_total = ([], 0)
-            else:
-                remaining_files, remaining_total = facade.get_user_large_files(user_id, page=1, per_page=1)
+            remaining_total = 0
+            try:
+                _remaining_files, remaining_total = facade.get_user_large_files(user_id, page=1, per_page=1)
+            except Exception:
+                # לא נכשיל את ה-flow על בדיקה "קוסמטית" של האם נשארו קבצים; נרשום לוג ונפול חזרה.
+                logger.error("בדיקת קבצים גדולים שנותרו נכשלה (שגיאת DB)", exc_info=True)
             if remaining_total > 0:
                 keyboard = [[InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")]]
             else:

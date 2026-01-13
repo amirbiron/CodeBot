@@ -198,11 +198,39 @@ class FilesFacade:
         # Support multiple legacy signatures:
         # - save_file(user_id, file_name, code, programming_language, extra_tags)
         # - save_file(user_id, file_name, code, programming_language)
+        # - save_code(**kwargs)  (legacy path used by older tests/flows)
         try:
             return bool(db.save_file(user_id, file_name, code, programming_language, extra_tags))
+        except AttributeError:
+            # Backwards-compatibility: some legacy DB stubs expose only `save_code`.
+            fn = getattr(db, "save_code", None)
+            if callable(fn):
+                return bool(
+                    fn(
+                        user_id=user_id,
+                        file_name=file_name,
+                        code=code,
+                        programming_language=programming_language,
+                        extra_tags=extra_tags,
+                    )
+                )
+            raise
         except TypeError:
             # Legacy stubs/tests often don't accept extra_tags
-            return bool(db.save_file(user_id, file_name, code, programming_language))
+            try:
+                return bool(db.save_file(user_id, file_name, code, programming_language))
+            except AttributeError:
+                fn = getattr(db, "save_code", None)
+                if callable(fn):
+                    return bool(
+                        fn(
+                            user_id=user_id,
+                            file_name=file_name,
+                            code=code,
+                            programming_language=programming_language,
+                        )
+                    )
+                raise
 
     def save_code_snippet(self, *, user_id: int, file_name: str, code: str, programming_language: str, description: str = "", tags: Optional[List[str]] = None) -> bool:
         """Persist a CodeSnippet including description field (for notes)."""

@@ -15,6 +15,7 @@ async def test_approve_uses_save_code_when_available(monkeypatch):
 
     class _DB:
         def __init__(self):
+            self.save_code_called = False
             class _C:
                 def insert_one(self, doc):
                     return types.SimpleNamespace(inserted_id="1")
@@ -27,11 +28,13 @@ async def test_approve_uses_save_code_when_available(monkeypatch):
             return {"code": code, "file_name": filename, "programming_language": "python"}
         def save_code(self, **kwargs):
             # path should reach here without exceptions
+            self.save_code_called = True
             return True
         def collection(self, name):
             return self._c
     db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+    inst = _DB()
+    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
 
     class _Msg:
         async def reply_text(self, *a, **k):
@@ -58,4 +61,6 @@ async def test_approve_uses_save_code_when_available(monkeypatch):
     await rh.handle_refactor_type_callback(upd, _Ctx())
     upd.callback_query.data = 'refactor_action:approve'
     await rh.handle_proposal_callback(upd, _Ctx())
+
+    assert inst.save_code_called is True
 

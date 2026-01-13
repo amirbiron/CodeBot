@@ -105,8 +105,12 @@ def _should_retry_with_legacy(method_name: str, value) -> bool:
         return True
     if isinstance(value, (list, dict)) and not value:
         return True
-    if isinstance(value, tuple) and not any(value):
-        return True
+    if isinstance(value, tuple):
+        # חשוב: תוצאות כמו ([], 0) הן תוצאה תקינה (אין נתונים), ולא כשל שצריך retry.
+        if len(value) == 0:
+            return True
+        if all(v is None for v in value):
+            return True
     return False
 
 
