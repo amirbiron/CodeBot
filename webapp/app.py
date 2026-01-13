@@ -13870,7 +13870,24 @@ def settings_push_debug():
     subs_error = ""
     try:
         db = get_db()
-        subs_count = int(db.push_subscriptions.count_documents({"user_id": user_id}))
+        # Match the same user_id handling used by push_api (int/str variants).
+        variants: set = set()
+        try:
+            variants.add(user_id)
+        except Exception:
+            pass
+        try:
+            variants.add(int(user_id))  # type: ignore[arg-type]
+        except Exception:
+            pass
+        try:
+            variants.add(str(user_id or ""))
+        except Exception:
+            pass
+        variants_list = [v for v in variants if v not in (None, "")]
+        if not variants_list:
+            variants_list = [user_id]
+        subs_count = int(db.push_subscriptions.count_documents({"user_id": {"$in": variants_list}}))
     except Exception as e:
         subs_error = str(e)
 

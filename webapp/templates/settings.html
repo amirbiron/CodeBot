@@ -3029,16 +3029,6 @@
             }
           }
 
-          // Also bind via addEventListener for keyboard/accessibility; onclick handlers call the same funcs.
-          try {
-            var eBtn = _el('pushEnableBtn');
-            var dBtn = _el('pushDisableBtn');
-            var tBtn = _el('pushTestBtn');
-            if (eBtn) eBtn.addEventListener('click', function(ev){ try { ev.preventDefault(); } catch(_) {} window.__ckPushEnable(); });
-            if (dBtn) dBtn.addEventListener('click', function(ev){ try { ev.preventDefault(); } catch(_) {} window.__ckPushDisable(); });
-            if (tBtn) tBtn.addEventListener('click', function(ev){ try { ev.preventDefault(); } catch(_) {} window.__ckPushTest(); });
-          } catch (_) {}
-
           refreshPushUi();
         } catch (e) {
           try { console.warn('push settings init failed', e); } catch (_) {}
