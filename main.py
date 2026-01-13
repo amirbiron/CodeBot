@@ -17,15 +17,15 @@ import json
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 try:
-    from typing import NotRequired  # type: ignore[attr-defined]
+    from typing import NotRequired
 except ImportError:  # pragma: no cover
     try:
-        from typing_extensions import NotRequired  # type: ignore[assignment]
+        from typing_extensions import NotRequired
     except Exception:  # pragma: no cover
         class _NotRequiredShim:
             def __class_getitem__(cls, item):
                 return item
-        NotRequired = _NotRequiredShim  # type: ignore[misc,assignment]
+        NotRequired = _NotRequiredShim  # type: ignore[assignment]
 from datetime import datetime
 
 # הפחתת רעש בלוגים: DeprecationWarnings ספרייתיים (למשל httplib2/pyparsing)
@@ -71,7 +71,7 @@ except Exception:
     _observability = None
 
 
-def _noop(*_a, **_k):  # type: ignore[unused-argument]
+def _noop(*_a, **_k):
     return None
 
 
@@ -120,10 +120,10 @@ try:
     from limits.strategies import MovingWindowRateLimiter
     _LIMITS_AVAILABLE = True
 except Exception:
-    RateLimitItemPerMinute = None  # type: ignore[assignment]
-    RedisStorage = None  # type: ignore[assignment]
-    MemoryStorage = None  # type: ignore[assignment]
-    MovingWindowRateLimiter = None  # type: ignore[assignment]
+    RateLimitItemPerMinute = None
+    RedisStorage = None
+    MemoryStorage = None
+    MovingWindowRateLimiter = None
     _LIMITS_AVAILABLE = False
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
@@ -216,7 +216,7 @@ except Exception:
 
 # OpenTelemetry (best-effort, fail-open)
 try:
-    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+    from observability_otel import setup_telemetry as _setup_otel
 
     _setup_otel(
         service_name=str(os.getenv("OTEL_SERVICE_NAME") or "codebot-bot"),
@@ -231,7 +231,7 @@ except Exception:
 @atexit.register
 def _shutdown_http_shared_session() -> None:
     try:
-        from http_async import close_session  # type: ignore
+        from http_async import close_session
     except Exception:
         return
     loop: asyncio.AbstractEventLoop | None = None
@@ -254,7 +254,7 @@ def _shutdown_http_shared_session() -> None:
                     loop.run_until_complete(coro)
                 except Exception:
                     try:
-                        coro.close()  # type: ignore[attr-defined]
+                        coro.close()
                     except Exception:
                         pass
                 else:
@@ -281,7 +281,7 @@ def _shutdown_http_shared_session() -> None:
                     tmp_loop.run_until_complete(coro)
                 except Exception:
                     try:
-                        coro.close()  # type: ignore[attr-defined]
+                        coro.close()
                     except Exception:
                         pass
         finally:
@@ -471,7 +471,7 @@ def _wrap_github_callback(callback):
             except Exception:
                 pass
 
-    _wrapped._metrics_wrapped = True  # type: ignore[attr-defined]
+    _wrapped._metrics_wrapped = True
     try:
         _wrapped.__name__ = getattr(callback, "__name__", "github_callback")
     except Exception:
@@ -629,7 +629,7 @@ def _redis_socket_available(redis_url: str, timeout: float = 0.25) -> bool:
 # מתקין Policy חסין שמייצר לולאה חדשה אם אין אחת זמינה, גם אם asyncio.run() ניקה את הלולאה.
 try:
     class _ResilientEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
-        def get_event_loop(self):  # type: ignore[override]
+        def get_event_loop(self):
             try:
                 return super().get_event_loop()
             except RuntimeError:
@@ -719,9 +719,9 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
         # לא שולחים הודעות "אדמין" ישירות דרך bot.send_message (זה עוקף suppress/Rule Engine).
         # במקום זה, מפיקים internal_alert ומאפשרים למנוע הכללים להחליט אם/לאן לשלוח.
         try:
-            from internal_alerts import emit_internal_alert  # type: ignore
+            from internal_alerts import emit_internal_alert
         except Exception:
-            emit_internal_alert = None  # type: ignore
+            emit_internal_alert = None
 
         if emit_internal_alert is None:
             return
@@ -861,7 +861,7 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # טעינה דינמית של מודול ה-DB כדי לעבוד היטב עם monkeypatch בטסטים
             from database import db as _db
-            users_collection = _db.db.users if getattr(_db, 'db', None) else None
+            users_collection = _db.db.users if getattr(_db, 'db', None) and _db else None
             if users_collection is None:
                 return
             doc = users_collection.find_one({"user_id": user_id}, {"total_actions": 1, "milestones_sent": 1}) or {}
@@ -1937,10 +1937,10 @@ class CodeKeeperBot:
         if getattr(app, "_codebot_tracing_installed", False):
             return
         try:
-            from observability_instrumentation import start_span, set_current_span_attributes  # type: ignore
+            from observability_instrumentation import start_span, set_current_span_attributes
         except Exception:
             return
-        if not callable(start_span):  # type: ignore[call-arg]
+        if not callable(start_span):
             return
 
         setattr(app, "_codebot_tracing_installed", True)
@@ -2042,7 +2042,7 @@ class CodeKeeperBot:
                 result = await original(update, *args, **kwargs)
                 if span is not None:
                     try:
-                        span.set_attribute("status", "ok")  # type: ignore[attr-defined]
+                        span.set_attribute("status", "ok")
                     except Exception:
                         pass
                 return result
@@ -2050,8 +2050,8 @@ class CodeKeeperBot:
                 error = exc
                 if span is not None:
                     try:
-                        span.set_attribute("status", "error")  # type: ignore[attr-defined]
-                        span.set_attribute("error_signature", type(exc).__name__)  # type: ignore[attr-defined]
+                        span.set_attribute("status", "error")
+                        span.set_attribute("error_signature", type(exc).__name__)
                     except Exception:
                         pass
                 raise
@@ -3729,9 +3729,9 @@ class CodeKeeperBot:
                 # Alert Pipeline Consolidation: שלח התראה דרך internal_alerts (ולא DM ישיר בבוט)
                 try:
                     try:
-                        from internal_alerts import emit_internal_alert  # type: ignore
+                        from internal_alerts import emit_internal_alert
                     except Exception:
-                        emit_internal_alert = None  # type: ignore
+                        emit_internal_alert = None
                     if emit_internal_alert is not None:
                         emit_internal_alert(
                             "bot_oom",
@@ -3933,7 +3933,7 @@ def main() -> None:
         # Initialize database first
         global db
         # השתמש ב-DatabaseManager הגלובלי (database.db) כדי לא ליצור instance חדש
-        from database import db as _db  # type: ignore
+        from database import db as _db
         db = _db
         
         # MongoDB connection and lock management
@@ -4082,9 +4082,9 @@ def main() -> None:
 
             # Best-effort swallow & backoff on Conflict (אם זה נזרק החוצה)
             try:
-                from telegram.error import Conflict as _TgConflict  # type: ignore
+                from telegram.error import Conflict as _TgConflict
             except Exception:  # pragma: no cover
-                _TgConflict = None  # type: ignore
+                _TgConflict = None
 
             conflict_tries = 0
             conflict_started_at: float | None = None
@@ -4226,7 +4226,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         db_name = (os.getenv("DATABASE_NAME") or "code_keeper_bot").strip() or "code_keeper_bot"
 
         try:
-            from motor.motor_asyncio import AsyncIOMotorClient  # type: ignore
+            from motor.motor_asyncio import AsyncIOMotorClient
         except Exception:
             return None
 
@@ -4284,7 +4284,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         if not mongo_url:
             return None
         try:
-            from pymongo import MongoClient  # type: ignore
+            from pymongo import MongoClient
         except Exception:
             return None
 
@@ -4306,7 +4306,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Jobs Monitor: זיהוי הרצות "תקועות" (job_stuck)
     try:
         from datetime import timedelta as _td
-        from observability import emit_event as _emit  # type: ignore
+        from observability import emit_event as _emit
 
         async def _jobs_stuck_monitor(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
             try:
@@ -4695,12 +4695,12 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
     # Register reminders feature (handlers + scheduler)
     try:
-        from reminders.handlers import setup_reminder_handlers  # type: ignore
-        from reminders.scheduler import setup_reminder_scheduler  # type: ignore
+        from reminders.handlers import setup_reminder_handlers
+        from reminders.scheduler import setup_reminder_scheduler
         # שמור db_manager ב-bot_data כדי ש-reminders ישתמש באותו חיבור DB
         try:
             if 'db' in globals():
-                application.bot_data['db_manager'] = db  # type: ignore[name-defined]
+                application.bot_data['db_manager'] = db
         except Exception:
             pass
         setup_reminder_handlers(application)
@@ -4747,7 +4747,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     db_manager = context.application.bot_data.get('db_manager')
                     if not db_manager:
                         try:
-                            from database import db as module_db  # type: ignore
+                            from database import db as module_db
                             db_manager = module_db
                         except Exception:
                             pass
@@ -5255,7 +5255,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     pass
                 return
 
-            _exc_info = (None, None, None)
+            _exc_info: tuple[type[BaseException] | None, BaseException | None, Any] = (None, None, None)
             try:
                 if os.getenv("PYTEST_CURRENT_TEST"):
                     allow_in_tests = str(os.getenv("PREDICTIVE_SAMPLER_RUN_IN_TESTS", "false")).lower()
@@ -5277,15 +5277,15 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 url = base.rstrip("/") + "/metrics"
                 text: str | None = None
                 try:
-                    from http_async import request as async_request  # type: ignore
+                    from http_async import request as async_request
                     async with async_request("GET", url, service="webapp", endpoint="/metrics") as resp:
                         if getattr(resp, "status", 0) == 200:
                             # aiohttp response supports .text() coroutine
                             try:
-                                text = await resp.text()  # type: ignore[attr-defined]
+                                text = await resp.text()
                             except Exception:
                                 try:
-                                    text = (await resp.read()).decode("utf-8", "ignore")  # type: ignore[attr-defined]
+                                    text = (await resp.read()).decode("utf-8", "ignore")
                                 except Exception:
                                     text = None
                 except Exception:
@@ -5324,19 +5324,19 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                 # Feed predictive engine with the best available snapshot
                 try:
-                    from predictive_engine import note_observation, maybe_recompute_and_preempt  # type: ignore
+                    from predictive_engine import note_observation, maybe_recompute_and_preempt
                     kwargs = {}
                     if cur_err is not None:
                         kwargs["error_rate_percent"] = float(cur_err)
                     if cur_lat is not None:
                         kwargs["latency_seconds"] = float(cur_lat)
                     # memory is handled inside note_observation when omitted
-                    note_observation(**kwargs)  # type: ignore[arg-type]
+                    note_observation(**kwargs)
                     maybe_recompute_and_preempt()
                 except Exception:
                     # Soft-fail, but report once per run
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                         _emit("predictive_sampler_error", severity="anomaly", handled=True)
                     except Exception:
                         pass
@@ -5359,11 +5359,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             )
         except Exception:
             # בסביבות שבהן ה-JobQueue לא זמין (למשל חלק מהטסטים), הרץ פעם אחת מידית
-            class _Ctx:
+            class _PredictiveSamplerCtx:
                 def __init__(self, app):
                     self.application = app
             try:
-                await _predictive_sampler_job(_Ctx(application))
+                await _predictive_sampler_job(_PredictiveSamplerCtx(application))
             except Exception:
                 pass
     except Exception:
@@ -5371,7 +5371,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
     # --- Background job: Sentry polling (fallback when webhooks are unavailable) ---
     try:
-        from services.sentry_polling import SentryPoller, SentryPollerConfig  # type: ignore
+        from services.sentry_polling import SentryPoller, SentryPollerConfig
 
         poller_cfg = SentryPoller.from_env()
         poller = SentryPoller(poller_cfg)
@@ -5392,12 +5392,12 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     pass
                 return
 
-            _exc_info = (None, None, None)
+            _exc_info: tuple[type[BaseException] | None, BaseException | None, Any] = (None, None, None)
             try:
                 try:
                     res = await poller.tick()
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
                         _emit = lambda *a, **k: None
                     if isinstance(res, dict) and res.get("enabled"):
@@ -5415,7 +5415,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         )
                 except Exception as e:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
                         _emit = lambda *a, **k: None
                     _emit("sentry_poll_error", severity="anomaly", handled=True, error=str(e))
@@ -5468,7 +5468,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     pass
                 return
 
-            _exc_info = (None, None, None)
+            _exc_info: tuple[type[BaseException] | None, BaseException | None, Any] = (None, None, None)
             try:
                 try:
                     # Feature flag
@@ -5659,7 +5659,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                     files_cache_key = f"web:files:user:{uid}:fallback"
 
                                 # בניית user_data מינימלי שתואם ל-session של ה-webapp
-                                user_doc = {}
+                                user_doc: dict[str, Any] = {}
                                 try:
                                     user_doc = db.users.find_one({"user_id": int(uid)}) or {}
                                 except Exception:
@@ -5773,8 +5773,8 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                         return None
                                     return None
 
-                                payload = _extract_payload(res) or _extract_payload(res2)
-                                collections = (payload or {}).get("collections") if payload else None
+                                response_payload: dict[str, Any] | None = _extract_payload(res) or _extract_payload(res2)
+                                collections = (response_payload or {}).get("collections") if response_payload else None
                                 workspace_id = None
                                 if isinstance(collections, list):
                                     for c in collections:
