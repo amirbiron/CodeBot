@@ -406,8 +406,12 @@ function unregisterServiceWorkerNow() {
         return;
       }
       return reg.unregister().then(function (ok) {
-        _setBrowserActionsStatus(ok ? 'Service Worker בוטל. מרענן...' : 'לא הצלחתי לבטל Service Worker');
-        try { location.reload(); } catch (_) {}
+        if (ok) {
+          _setBrowserActionsStatus('Service Worker בוטל. מרענן...');
+          try { location.reload(); } catch (_) {}
+          return;
+        }
+        _setBrowserActionsStatus('לא הצלחתי לבטל Service Worker');
       });
     }).catch(function (e) {
       _setBrowserActionsStatus('שגיאה בביטול Service Worker: ' + String((e && e.message) || e || 'unknown'));
