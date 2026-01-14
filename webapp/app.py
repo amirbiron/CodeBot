@@ -11783,25 +11783,36 @@ def edit_file_page(file_id):
                 if large_coll is None:
                     error = "לא ניתן לערוך קבצים גדולים בסביבה זו (large_files לא זמין)."
                 else:
-                    large_coll.update_one(
+                    res = large_coll.update_one(
                         {'_id': ObjectId(file_id), 'user_id': user_id, 'is_active': {'$ne': False}},
                         {'$set': update_doc},
                     )
-                    try:
-                        _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
-                    except Exception:
-                        pass
-                    try:
-                        cache.invalidate_user_cache(int(user_id))
-                    except Exception:
-                        pass
-                    success = "✅ נשמר"
-                    try:
-                        refreshed = large_coll.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
-                        if isinstance(refreshed, dict):
-                            file = refreshed
-                    except Exception:
-                        pass
+                    acknowledged = bool(getattr(res, "acknowledged", False))
+                    matched = int(getattr(res, "matched_count", 0) or 0)
+                    modified = int(getattr(res, "modified_count", 0) or 0)
+                    if not acknowledged:
+                        error = "❌ השמירה נכשלה (DB לא אישר את העדכון)."
+                    elif matched <= 0:
+                        # לדוגמה: הקובץ הועבר לסל/סומן כלא-פעיל בזמן שהמשתמש ערך
+                        error = "⚠️ הקובץ כבר לא זמין לעריכה (ייתכן שנמחק/הועבר לסל). רענן את הדף ונסה שוב."
+                    else:
+                        try:
+                            _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                        except Exception:
+                            pass
+                        try:
+                            cache.invalidate_user_cache(int(user_id))
+                        except Exception:
+                            pass
+                        success = "✅ נשמר" if modified > 0 else "✅ נשמר (ללא שינוי)"
+                        try:
+                            refreshed = large_coll.find_one(
+                                {'_id': ObjectId(file_id), 'user_id': user_id, 'is_active': {'$ne': False}}
+                            )
+                            if isinstance(refreshed, dict):
+                                file = refreshed
+                        except Exception:
+                            pass
         except Exception as exc:
             logger.exception("Error saving large file", extra={"file_id": file_id, "user_id": user_id, "error": str(exc)})
             error = "אירעה שגיאה בשמירה"
