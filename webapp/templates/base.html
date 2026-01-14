@@ -459,7 +459,7 @@
             border-bottom: 0; /* הסרת הקו האופקי העליון */
             padding: 1rem 0;
             /* מאפשר שכבות רקע כמו Code Particles בלי לפגוע בדרופדאונים */
-            position: relative;
+            position: static;
             top: auto;
             z-index: 1000;
             transform: translateY(0);
@@ -1712,8 +1712,8 @@
         })();
     </script>
     <nav class="navbar">
-        <div id="code-particles-container" aria-hidden="true"></div>
         <div class="container">
+            <div id="code-particles-container" aria-hidden="true"></div>
             <div class="nav-content">
                 <a href="/" class="logo">
                     <i class="fas fa-code"></i>
