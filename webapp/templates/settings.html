@@ -197,7 +197,7 @@
 {% endif %}
 {# Web Push: load a dedicated, cache-busted script to avoid "silent disconnect" cases #}
 {% if show_web_push_settings %}
-  <script src="{{ url_for('static', filename='js/push-settings.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='js/push-settings.js') }}?v={{ static_version }}"></script>
 {% endif %}
 
 {% if is_admin %}
