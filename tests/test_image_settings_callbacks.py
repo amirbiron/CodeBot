@@ -87,6 +87,7 @@ async def test_image_settings_callbacks_and_persist(monkeypatch):
     await h.handle_callback_query(_Upd('img_settings_done:demo.py'), ctx)
     assert saved.get('payload') and saved['payload'][0] == 123
     assert saved['payload'][1].get('theme') == 'gruvbox'
+    assert saved['payload'][1].get('style') == 'banner_tech'
     assert saved['payload'][1].get('width') == 1400
     assert saved['payload'][1].get('font') == 'jetbrains'
 
