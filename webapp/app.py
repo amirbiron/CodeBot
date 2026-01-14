@@ -13953,6 +13953,29 @@ def settings_push_debug():
     remote_url = (os.getenv("PUSH_DELIVERY_URL") or "").strip()
     remote_token_set = bool((os.getenv("PUSH_DELIVERY_TOKEN") or "").strip())
 
+    # Runtime package versions (helps diagnose "dependency hell" / stale deploys)
+    py_vapid_version = ""
+    pywebpush_version = ""
+    cryptography_version = ""
+    try:
+        import py_vapid  # type: ignore
+
+        py_vapid_version = str(getattr(py_vapid, "__version__", "") or "")
+    except Exception as e:
+        py_vapid_version = f"import_error:{type(e).__name__}"
+    try:
+        import pywebpush  # type: ignore
+
+        pywebpush_version = str(getattr(pywebpush, "__version__", "") or "")
+    except Exception as e:
+        pywebpush_version = f"import_error:{type(e).__name__}"
+    try:
+        import cryptography  # type: ignore
+
+        cryptography_version = str(getattr(cryptography, "__version__", "") or "")
+    except Exception as e:
+        cryptography_version = f"import_error:{type(e).__name__}"
+
     subs_count = None
     subs_error = ""
     try:
@@ -13995,6 +14018,9 @@ def settings_push_debug():
         remote_enabled_env=remote_enabled_env,
         remote_url=remote_url,
         remote_token_set=remote_token_set,
+        py_vapid_version=py_vapid_version,
+        pywebpush_version=pywebpush_version,
+        cryptography_version=cryptography_version,
         subs_count=subs_count,
         subs_error=subs_error,
         user_agent=ua,

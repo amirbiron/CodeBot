@@ -1019,6 +1019,26 @@ def test_push():
         if not subs:
             return jsonify({"ok": False, "error": "no_subscriptions"}), 400
 
+        runtime_versions: dict[str, str] = {}
+        try:
+            import cryptography  # type: ignore
+
+            runtime_versions["cryptography"] = str(getattr(cryptography, "__version__", "") or "")
+        except Exception as e:
+            runtime_versions["cryptography"] = f"import_error:{type(e).__name__}"
+        try:
+            import py_vapid  # type: ignore
+
+            runtime_versions["py_vapid"] = str(getattr(py_vapid, "__version__", "") or "")
+        except Exception as e:
+            runtime_versions["py_vapid"] = f"import_error:{type(e).__name__}"
+        try:
+            import pywebpush  # type: ignore
+
+            runtime_versions["pywebpush"] = str(getattr(pywebpush, "__version__", "") or "")
+        except Exception as e:
+            runtime_versions["pywebpush"] = f"import_error:{type(e).__name__}"
+
         remote_cfg = _remote_delivery_cfg()
         use_remote = bool(remote_cfg.get("enabled"))
         if not use_remote:
@@ -1155,7 +1175,7 @@ def test_push():
         for e in errors:
             c = int(e.get("status") or 0)
             code_counts[c] = code_counts.get(c, 0) + 1
-        return jsonify({"ok": True, "sent": sent, "errors": errors, "codes": code_counts}), 200
+        return jsonify({"ok": True, "sent": sent, "errors": errors, "codes": code_counts, "runtime": runtime_versions}), 200
     except Exception as ex:
         # Log full exception server-side; do not leak details to client
         try:
