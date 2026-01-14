@@ -740,7 +740,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <h1 class="file-title">{{ file.file_name }}</h1>
                 <div class="file-subrow">
                     <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
+                    {% if file.version %}
                     <span class="muted">גרסה {{ file.version }}</span>
+                    {% else %}
+                    <span class="muted">קובץ גדול</span>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -775,6 +779,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
                 <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
             </button>
+            {% endif %}
             <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon file-primary-action"
                data-overflow-id="edit"
                data-overflow-priority="2"
@@ -782,7 +787,6 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <i class="fas fa-edit"></i>
                 ערוך
             </a>
-            {% endif %}
             <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button file-primary-action"
                     data-overflow-id="copy"
                     data-overflow-priority="3"

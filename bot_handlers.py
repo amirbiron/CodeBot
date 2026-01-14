@@ -2137,7 +2137,8 @@ class AdvancedBotHandlers:
             except Exception:
                 items = []
             if not items:
-                await update.message.reply_text("ℹ️ אין התראות אחרונות")
+                # חשוב: להימנע מ-parse_mode=HTML כדי למנוע כשל על תוכן שמכיל "<...>"
+                await update.message.reply_text("ℹ️ אין התראות אחרונות", parse_mode=None)
                 return
             lines = ["🚨 התראות אחרונות:"]
             for i, a in enumerate(items, 1):
@@ -2145,9 +2146,9 @@ class AdvancedBotHandlers:
                 sev = str(a.get('severity') or 'info').upper()
                 summary = str(a.get('summary') or '')
                 lines.append(f"{i}. [{sev}] {name} – {summary}")
-            await update.message.reply_text("\n".join(lines))
+            await update.message.reply_text("\n".join(lines), parse_mode=None)
         except Exception as e:
-            await update.message.reply_text(f"❌ שגיאה ב-/alerts: {html.escape(str(e))}")
+            await update.message.reply_text(f"❌ שגיאה ב-/alerts: {str(e)}", parse_mode=None)
 
     async def incidents_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/incidents – 5 התקלות האחרונות (שם, זמן, טיפול)"""
@@ -3552,9 +3553,12 @@ class AdvancedBotHandlers:
                             f"• config.PUSH_DELIVERY_URL: {cfg_state}",
                             "ℹ️ אם הגדרת את המשתנה בשרת (למשל ב-SSH/.bashrc), הוא לא עובר אוטומטית ל-service (systemd) או ל-Container.",
                             "ℹ️ ודא שהוא מוגדר בקובץ השירות/compose/environment של הדיפלוי, ואז בצע restart לתהליך כדי שיקלוט את ה-ENV.",
-                            "טיפ: אפשר גם לבדוק זמנית עם `/status_worker url=<כתובת>`.",
+                            "טיפ: אפשר גם לבדוק זמנית עם `/status_worker url=https://example.com`.",
                         ]
                     )
+                ,
+                    # חשוב: ההודעה עלולה להכיל טקסט/HTML שמגיע מה-Worker או דוגמאות עם "<...>"
+                    parse_mode=None,
                 )
                 return
             base_url = str(base_url).strip().rstrip("/")
@@ -3617,9 +3621,9 @@ class AdvancedBotHandlers:
                 lines.append("⚠️ אין PUSH_DELIVERY_TOKEN – קריאות /send ייכשלו.")
             if status_code == 404:
                 lines.append("ℹ️ ה-Worker החזיר 404 ל-/healthz. ודא שה-endpoint קיים או הגדר path=<...>.")
-            await update.message.reply_text("\n".join(lines))
+            await update.message.reply_text("\n".join(lines), parse_mode=None)
         except Exception as e:
-            await update.message.reply_text(f"❌ שגיאה ב-/status_worker: {html.escape(str(e))}")
+            await update.message.reply_text(f"❌ שגיאה ב-/status_worker: {str(e)}", parse_mode=None)
 
     async def version_history_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/version_history – פירוט Deployment events אחרונים מתוך observability"""
@@ -4748,7 +4752,8 @@ class AdvancedBotHandlers:
                 # שלב שמירה: פרסיסטנס של העדפות גלובליות למשתמש
                 try:
                     eff = self._get_image_settings(context, file_name)
-                    payload = {k: eff[k] for k in ("theme", "width", "font") if k in eff}
+                    # כולל גם style (Pygments) כדי ש"ערוך הגדרות" באמת יישמר כברירת מחדל.
+                    payload = {k: eff[k] for k in ("theme", "style", "width", "font") if k in eff}
                     if payload:
                         try:
                             _call_files_api("save_image_prefs", user_id, payload)  # type: ignore[attr-defined]
