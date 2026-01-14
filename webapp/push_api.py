@@ -146,8 +146,9 @@ def _coerce_vapid_pair() -> tuple[str, str]:
     Supports either raw base64url strings or a JSON blob pasted into the env
     by mistake (e.g. output of `web-push generate-vapid-keys`).
     """
-    pub = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
-    prv = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+    # Prefer worker-scoped env names when present (public is safe to expose; private is used only for local pywebpush path).
+    pub = (os.getenv("WORKER_VAPID_PUBLIC_KEY") or os.getenv("VAPID_PUBLIC_KEY") or "").strip()
+    prv = (os.getenv("WORKER_VAPID_PRIVATE_KEY") or os.getenv("VAPID_PRIVATE_KEY") or "").strip()
     try:
         import json as _json  # defer import
         blob = None
