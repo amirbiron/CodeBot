@@ -21,6 +21,10 @@
       <div><strong>PUSH_REMOTE_DELIVERY_ENABLED:</strong> {{ remote_enabled_env if remote_enabled_env else '—' }}</div>
       <div><strong>PUSH_DELIVERY_URL:</strong> {{ remote_url if remote_url else '—' }}</div>
       <div><strong>PUSH_DELIVERY_TOKEN:</strong> {{ '🟢 מוגדר' if remote_token_set else '🔴 חסר' }}</div>
+      <div style="margin-top: 0.25rem; opacity: 0.95"><strong>Runtime versions:</strong></div>
+      <div style="opacity: 0.9"><strong>py_vapid:</strong> {{ py_vapid_version if py_vapid_version else '—' }}</div>
+      <div style="opacity: 0.9"><strong>pywebpush:</strong> {{ pywebpush_version if pywebpush_version else '—' }}</div>
+      <div style="opacity: 0.9"><strong>cryptography:</strong> {{ cryptography_version if cryptography_version else '—' }}</div>
     </div>
   </div>
 </div>
