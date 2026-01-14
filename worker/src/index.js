@@ -1,18 +1,30 @@
-import webpush from 'web-push';
+// NOTE:
+// Cloudflare Workers do not fully support Node's `https.request` even with nodejs_compat.
+// The `web-push` package relies on that API, which causes runtime errors like:
+// "[unenv] https.request is not implemented yet!"
+//
+// לכן ב-Worker הזה אנחנו מעדיפים מצב Proxy: להעביר את הבקשה לשירות Node (push_worker)
+// שמבצע את ה-web-push בפועל. זה גם מאפשר לוגים/סטטוסים אמינים.
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
 
-    // Default to 404 for unknown paths
+    // Health check endpoint (used by /status_worker)
+    if (url.pathname === "/healthz") {
+      if (method !== "GET") {
+        return json({ ok: false, status: 405, error: "method_not_allowed" }, 405, { Allow: "GET" });
+      }
+      return json({ ok: true }, 200);
+    }
+
+    // Only /send is supported for delivery
     if (url.pathname !== "/send") {
       return json({ ok: false, status: 404, error: "not_found" }, 404);
     }
     if (method !== "POST") {
-      return json({ ok: false, status: 405, error: "method_not_allowed" }, 405, {
-        Allow: "POST",
-      });
+      return json({ ok: false, status: 405, error: "method_not_allowed" }, 405, { Allow: "POST" });
     }
 
     // Auth check: Bearer token
@@ -34,102 +46,62 @@ export default {
       return json({ ok: false, status: 400, error: "missing_fields" }, 200);
     }
 
-    // Validate VAPID config
-    if (!env.WORKER_VAPID_PUBLIC_KEY || !env.WORKER_VAPID_PRIVATE_KEY) {
-      console.error("Missing VAPID keys in Worker environment");
-      return json({ ok: false, status: 500, error: "worker_misconfigured" }, 502);
-    }
-
-    // Set VAPID details globally for the library instance
-    // Note: In Cloudflare Workers, env is only available in the handler, so we must set it here.
-    let subject = env.WORKER_VAPID_SUB_EMAIL || 'mailto:support@example.com';
-    if (!subject.startsWith('mailto:')) {
-      subject = `mailto:${subject}`;
-    }
-
-    try {
-      webpush.setVapidDetails(
-        subject,
-        env.WORKER_VAPID_PUBLIC_KEY,
-        env.WORKER_VAPID_PRIVATE_KEY
-      );
-    } catch (err) {
-      console.error("vapid_setup_error", err);
-      return json({ ok: false, status: 500, error: "vapid_setup_failed" }, 502);
-    }
-
     // Log endpoint hash
     const endpointHash = await hashEndpoint(subscription.endpoint || "");
 
     try {
-      // Forward headers including Idempotency Key
-      const sendHeaders = options?.headers || {};
-      const idempotencyKey = request.headers.get("X-Idempotency-Key");
-      if (idempotencyKey) {
-        sendHeaders["X-Idempotency-Key"] = idempotencyKey;
+      // Proxy mode: forward to Node push worker
+      const forwardUrlRaw = (env.FORWARD_URL || "").trim();
+      if (!forwardUrlRaw) {
+        console.error("push_error", {
+          endpoint_hash: endpointHash,
+          status: 500,
+          error: "missing_forward_url",
+        });
+        return json({ ok: false, status: 500, error: "worker_misconfigured", details: "FORWARD_URL missing" }, 502);
       }
 
-      // Send the notification
-      const resp = await webpush.sendNotification(
-        subscription,
-        JSON.stringify(payload),
-        {
-          TTL: options?.ttl,
-          headers: sendHeaders,
-          contentEncoding: options?.contentEncoding || 'aes128gcm',
-          urgency: options?.urgency
-        }
-      );
+      const forwardUrl = forwardUrlRaw.endsWith("/send") ? forwardUrlRaw : forwardUrlRaw.replace(/\/+$/, "") + "/send";
+      const forwardToken = (env.FORWARD_TOKEN || env.PUSH_DELIVERY_TOKEN || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${forwardToken}`,
+      };
+      const idempotencyKey = request.headers.get("X-Idempotency-Key");
+      if (idempotencyKey) headers["X-Idempotency-Key"] = idempotencyKey;
 
-      // IMPORTANT: In some runtimes, non-2xx responses may not throw.
-      // Treat non-2xx as failure and propagate back to server for cleanup/diagnosis.
-      try {
-        const st =
-          (resp && typeof resp.statusCode === "number" ? resp.statusCode : 0) ||
-          (resp && typeof resp.status === "number" ? resp.status : 0) ||
-          0;
-        if (st && (st < 200 || st >= 300)) {
-          let details = "";
-          try {
-            // web-push (Node) returns { statusCode, body, headers }.
-            // In some runtimes it may return a fetch Response-like object.
-            if (resp && typeof resp.body === "string") {
-              details = resp.body || "";
-            } else if (resp && typeof resp.text === "function") {
-              details = (await resp.text()) || "";
-            } else {
-              details = "";
-            }
-          } catch (_) {
-            details = "";
-          }
-          console.error("push_error", {
-            endpoint_hash: endpointHash,
-            status: st,
-            error: details ? details.slice(0, 300) : "non_2xx",
-          });
-          return json(
-            {
-              ok: false,
-              status: st,
-              error: "upstream_error",
-              details: details ? details.slice(0, 300) : "",
-            },
-            200
-          );
-        }
-      } catch (_) {}
-
-      console.log(JSON.stringify({ 
-        event: "push_sent", 
+      console.log(JSON.stringify({
+        event: "push_send_proxy",
+        provider: "forward_url",
         endpoint_hash: endpointHash,
-        status:
-          (resp && typeof resp.statusCode === "number" ? resp.statusCode : 0) ||
-          (resp && typeof resp.status === "number" ? resp.status : 0) ||
-          201
+        forward_host: (() => { try { return new URL(forwardUrl).host; } catch (_) { return ""; } })(),
       }));
 
-      return json({ ok: true });
+      const r = await fetch(forwardUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ subscription, payload, options }),
+      });
+
+      let outJson = null;
+      try {
+        outJson = await r.json();
+      } catch (_) {
+        outJson = null;
+      }
+      if (!r.ok) {
+        console.error("push_error", {
+          endpoint_hash: endpointHash,
+          status: r.status,
+          error: "forward_non_2xx",
+        });
+        return json({ ok: false, status: r.status, error: "forward_non_2xx" }, 200);
+      }
+      // Expect push_worker schema: { ok: true } or { ok:false, status, error, ... }
+      if (outJson && typeof outJson === "object" && outJson.ok === false) {
+        return json(outJson, 200);
+      }
+      return json(outJson && typeof outJson === "object" ? outJson : { ok: true }, 200);
 
     } catch (err) {
       const status = err.statusCode || 500;
