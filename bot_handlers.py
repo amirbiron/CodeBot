@@ -3531,6 +3531,7 @@ class AdvancedBotHandlers:
 
             override_url = None
             health_path = "/healthz"
+            path_overridden = False
             for token in getattr(context, "args", []) or []:
                 text = str(token or "").strip()
                 lower = text.lower()
@@ -3538,6 +3539,7 @@ class AdvancedBotHandlers:
                     override_url = text.split("=", 1)[1].strip()
                 elif lower.startswith("path="):
                     health_path = "/" + text.split("=", 1)[1].strip().lstrip("/")
+                    path_overridden = True
 
             env_url_raw = os.getenv("PUSH_DELIVERY_URL")
             config_url_raw = getattr(config, "PUSH_DELIVERY_URL", None)
@@ -3607,6 +3609,31 @@ class AdvancedBotHandlers:
             finally:
                 latency_ms = round((time.perf_counter() - start) * 1000.0, 1)
 
+            # If the target doesn't expose /healthz (common for CF Workers), try root as a fallback.
+            fallback_status = None
+            fallback_latency = None
+            fallback_preview = ""
+            if (status_code == 404) and (not path_overridden) and base_url:
+                try:
+                    start2 = time.perf_counter()
+                    async with async_request(
+                        "GET",
+                        base_url + "/",
+                        service="push-worker",
+                        endpoint="root",
+                        max_attempts=1,
+                    ) as resp2:
+                        fallback_status = int(getattr(resp2, "status", 0) or 0)
+                        try:
+                            t2 = await resp2.text()
+                        except Exception:
+                            t2 = ""
+                        fallback_preview = (t2 or "")[:160]
+                except Exception:
+                    fallback_status = None
+                finally:
+                    fallback_latency = round((time.perf_counter() - start2) * 1000.0, 1) if 'start2' in locals() else None
+
             lines = [
                 "👷 Worker Status",
                 f"• Remote delivery: {'🟢 פעיל' if remote_enabled else '⚪️ כבוי'}",
@@ -3620,7 +3647,11 @@ class AdvancedBotHandlers:
             if remote_enabled and not token_set:
                 lines.append("⚠️ אין PUSH_DELIVERY_TOKEN – קריאות /send ייכשלו.")
             if status_code == 404:
-                lines.append("ℹ️ ה-Worker החזיר 404 ל-/healthz. ודא שה-endpoint קיים או הגדר path=<...>.")
+                if fallback_status and int(fallback_status) in {200, 204}:
+                    lines.append(f"• Root: 🟢 {fallback_status} ({fallback_latency}ms)")
+                    lines.append("ℹ️ נראה שהיעד לא חושף /healthz. אפשר להגדיר `path=/` או `path=/send` לפי השירות.")
+                else:
+                    lines.append("ℹ️ ה-Worker החזיר 404 ל-/healthz. ודא שה-endpoint קיים או הגדר path=<...>.")
             await update.message.reply_text("\n".join(lines), parse_mode=None)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/status_worker: {str(e)}", parse_mode=None)

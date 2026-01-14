@@ -115,6 +115,9 @@ def test_time_utils_and_validation_utils():
     # relative format (minutes)
     out = TimeUtils.format_relative_time(datetime.now() - timedelta(minutes=2))
     assert "לפני" in out
+    # relative format (future)
+    out2 = TimeUtils.format_relative_time(datetime.now() + timedelta(minutes=2))
+    assert "בעוד" in out2 or out2 in {"מחר", "עוד רגע"}
 
     # parse_date_string special words
     assert TimeUtils.parse_date_string("היום") is not None

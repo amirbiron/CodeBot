@@ -13947,6 +13947,11 @@ def settings_push_debug():
     user_data = session.get('user_data') or {}
     if not isinstance(user_data, dict):
         user_data = {}
+    try:
+        if not is_admin(user_id):
+            return redirect('/settings#push')
+    except Exception:
+        return redirect('/settings#push')
 
     push_enabled = os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 

@@ -164,6 +164,31 @@ class TimeUtils:
         """פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')"""
         
         now = datetime.now(timezone.utc) if dt.tzinfo else datetime.now()
+        # Handle future dates too (e.g. "בעוד 10 דקות") to avoid negative timedelta quirks
+        if dt > now:
+            diff_f = dt - now
+            if diff_f.days > 365:
+                years = diff_f.days // 365
+                return f"בעוד {years} שנ{'ה' if years == 1 else 'ים'}"
+            elif diff_f.days > 30:
+                months = diff_f.days // 30
+                return f"בעוד {months} חוד{'ש' if months == 1 else 'שים'}"
+            elif diff_f.days > 7:
+                weeks = diff_f.days // 7
+                return f"בעוד {weeks} שבוע{'ות' if weeks > 1 else ''}"
+            elif diff_f.days > 0:
+                if diff_f.days == 1:
+                    return "מחר"
+                return f"בעוד {diff_f.days} ימים"
+            elif diff_f.seconds > 3600:
+                hours = diff_f.seconds // 3600
+                return f"בעוד {hours} שע{'ה' if hours == 1 else 'ות'}"
+            elif diff_f.seconds > 60:
+                minutes = diff_f.seconds // 60
+                return f"בעוד {minutes} דק{'ה' if minutes == 1 else 'ות'}"
+            else:
+                return "עוד רגע"
+
         diff = now - dt
         
         if diff.days > 365:
