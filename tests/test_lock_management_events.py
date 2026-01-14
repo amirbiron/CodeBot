@@ -119,7 +119,8 @@ def test_manage_mongo_lock_reacquired_emits(monkeypatch):
             # not expired if expires in future; to trigger takeover need expired
             return {"expires_at": datetime.now(timezone.utc) - timedelta(minutes=10)}
         def find_one_and_update(self, *a, **k):
-            return {"_id": "ok"}
+            # המימוש החדש מצפה לראות owner במסמך אחרי update
+            return {"_id": "ok", "owner": mod._default_owner_id()}
     monkeypatch.setattr(mod, "get_lock_collection", lambda: _Coll(), raising=False)
 
     ok = mod.manage_mongo_lock()

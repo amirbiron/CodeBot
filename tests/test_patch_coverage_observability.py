@@ -35,6 +35,24 @@ def test_manage_mongo_lock_acquire_failed_emits(monkeypatch):
     monkeypatch.setattr(mod, "get_lock_collection", lambda: (_ for _ in ()).throw(Exception("boom")))
 
     ok = mod.manage_mongo_lock()
+    # ברירת מחדל חדשה: fail-closed (לא מפעילים polling בלי לוק)
+    assert ok is False
+    assert any(e[0] == "lock_acquire_failed" for e in captured.get("events", []))
+
+
+def test_manage_mongo_lock_acquire_failed_can_fail_open_when_enabled(monkeypatch):
+    import main as mod
+
+    monkeypatch.setenv("LOCK_FAIL_OPEN", "true")
+
+    captured = {}
+    def _emit(event, severity="info", **fields):
+        captured.setdefault("events", []).append((event, severity, fields))
+    monkeypatch.setattr(mod, "emit_event", _emit, raising=False)
+
+    monkeypatch.setattr(mod, "get_lock_collection", lambda: (_ for _ in ()).throw(Exception("boom")))
+
+    ok = mod.manage_mongo_lock()
     assert ok is True
     assert any(e[0] == "lock_acquire_failed" for e in captured.get("events", []))
 

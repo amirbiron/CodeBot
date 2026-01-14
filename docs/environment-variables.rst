@@ -1869,16 +1869,88 @@
      - ``10``
      - Scripts
    * - ``LOCK_MAX_WAIT_SECONDS``
-     - כמה זמן לחכות ללוק לפני שמתייאשים (``0`` = המתנה אינסופית).
+     - (Legacy) כמה זמן לחכות ללוק לפני שמתייאשים (``0`` = המתנה אינסופית). הוחלף ע"י ``LOCK_ACQUIRE_MAX_WAIT``.
      - לא
      - ``0``
      - ``15``
      - Bot
    * - ``LOCK_RETRY_INTERVAL_SECONDS``
-     - זמן המתנה בין ניסיונות נעילה חוזרים.
+     - זמן המתנה בין ניסיונות נעילה חוזרים (בעיקר במצב המתנה אקטיבית). נשמר לתאימות.
      - לא
-     - ``5``
      - ``1``
+     - ``1``
+     - Bot
+   * - ``SERVICE_ID``
+     - מזהה ייחודי לשירות/סביבה עבור נעילה מבוזרת (משמש כ־``_id`` במסמך הנעילה). אם לא מוגדר, נופל ל־``code_keeper_bot_lock``.
+     - לא
+     - ``code_keeper_bot_lock`` (fallback)
+     - ``codebot-prod``
+     - Bot
+   * - ``RENDER_INSTANCE_ID``
+     - מזהה אינסטנס בפלטפורמת Render (נשמר במסמך הנעילה לצורכי תחקור). ה-``owner`` בפועל הוא מזהה תהליך ייחודי: ``RENDER_INSTANCE_ID:pid``. אם לא מוגדר, ה-``owner`` נופל ל־``hostname:pid``.
+     - לא
+     - ``hostname:pid`` (fallback)
+     - ``srv-abc123``
+     - Bot
+   * - ``RENDER_SERVICE_NAME``
+     - תווית host/service לתחקור במסמך הלוק. אם לא מוגדר, נופל ל־``HOSTNAME``/hostname.
+     - לא
+     - ערך מערכת (fallback)
+     - ``codebot``
+     - Bot
+   * - ``LOCK_LEASE_SECONDS``
+     - משך ה־lease (שניות) של נעילה מבוזרת ב־MongoDB.
+     - לא
+     - ``60``
+     - ``120``
+     - Bot
+   * - ``LOCK_HEARTBEAT_INTERVAL``
+     - תדירות heartbeat (שניות) לרענון ה־lease. אם ריק: 40% מה־lease (מינימום 5 שניות).
+     - לא
+     - "" (אוטומטי)
+     - ``20``
+     - Bot
+   * - ``LOCK_WAIT_FOR_ACQUIRE``
+     - אם ``true``: המתנה אקטיבית ללוק עם retries קצרים; אם ``false``: המתנה פסיבית עם jitter (ברירת מחדל) כדי למנוע restart-loop.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``LOCK_ACQUIRE_MAX_WAIT``
+     - מגבלת זמן (שניות) במצב המתנה אקטיבית. ``0`` = ללא מגבלה. (אליאס תאימות: ``LOCK_MAX_WAIT_SECONDS``).
+     - לא
+     - ``0``
+     - ``90``
+     - Bot
+   * - ``LOCK_WAIT_MIN_SECONDS``
+     - מינימום זמן המתנה (שניות) במצב המתנה פסיבית עם jitter.
+     - לא
+     - ``15``
+     - ``10``
+     - Bot
+   * - ``LOCK_WAIT_MAX_SECONDS``
+     - מקסימום זמן המתנה (שניות) במצב המתנה פסיבית עם jitter.
+     - לא
+     - ``45``
+     - ``60``
+     - Bot
+   * - ``LOCK_FAIL_OPEN``
+     - אם ``true`` מאפשר עלייה "ללא לוק" במקרה חריגות ברכישת נעילה (לא מומלץ). ברירת מחדל: fail-closed.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``LOCK_WAIT_HEALTH_SERVER_ENABLED``
+     - אם ``true`` ובקיום ``PORT``: בעת המתנה ללוק מופעל שרת HTTP מינימלי עם ``/health`` ו־``/healthz`` כדי לעבור health checks.
+     - לא
+     - ``true``
+     - ``false``
+     - Bot
+   * - ``LOCK_COLLECTION``
+     - שם קולקציית ה־locks ב־MongoDB (ברירת מחדל legacy: ``locks``).
+     - לא
+     - ``locks``
+     - ``bot_locks``
      - Bot
    * - ``APP_VERSION``
      - מחרוזת גרסה שמוזנת מהפלטפורמה (Render/Heroku) לצורכי Telemetry.

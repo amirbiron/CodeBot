@@ -14,6 +14,8 @@ import logging
 import asyncio
 import warnings
 import json
+import random
+import threading
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 try:
@@ -941,9 +943,14 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MONGODB LOCK MANAGEMENT (FINAL, NO-GUESSING VERSION)
 # =============================================================================
 
-LOCK_ID = "code_keeper_bot_lock"
-LOCK_COLLECTION = "locks"
-LOCK_TIMEOUT_MINUTES = 5
+LOCK_ID = "code_keeper_bot_lock"  # legacy fallback
+LOCK_COLLECTION = os.getenv("LOCK_COLLECTION", "locks")  # keep legacy default for safe rollouts
+LOCK_TIMEOUT_MINUTES = 5  # legacy fallback (deprecated)
+
+# Global lock state (used by cleanup + heartbeat)
+_LOCK_SERVICE_ID: str | None = None
+_LOCK_OWNER_ID: str | None = None
+_LOCK_HEARTBEAT: "_MongoLockHeartbeat | None" = None
 
 def get_lock_collection():
     """
@@ -994,7 +1001,25 @@ def ensure_lock_indexes() -> None:
     try:
         lock_collection = get_lock_collection()
         # TTL based on the absolute expiration time in the document
-        lock_collection.create_index("expires_at", expireAfterSeconds=0, name="lock_expires_ttl")
+        # Backward compatibility: support both legacy `expires_at` and new `expiresAt`
+        failures: list[str] = []
+        try:
+            lock_collection.create_index("expires_at", expireAfterSeconds=0, name="lock_expires_at_ttl")
+        except Exception as e:
+            failures.append(str(e))
+        try:
+            lock_collection.create_index("expiresAt", expireAfterSeconds=0, name="lock_expiresAt_ttl")
+        except Exception as e:
+            failures.append(str(e))
+        if failures:
+            msg = "; ".join([f for f in failures if f])
+            if not msg:
+                msg = "ttl_index_failed"
+            logger.warning(f"Could not ensure TTL index for lock collection: {msg}")
+            try:
+                emit_event("lock_ttl_index_failed", severity="warn", error=msg)
+            except Exception:
+                pass
     except Exception as e:
         # Non-fatal; continue without TTL if index creation fails
         logger.warning(f"Could not ensure TTL index for lock collection: {e}")
@@ -1002,6 +1027,359 @@ def ensure_lock_indexes() -> None:
             emit_event("lock_ttl_index_failed", severity="warn", error=str(e))
         except Exception:
             pass
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    try:
+        raw = os.getenv(name)
+        if raw is None:
+            return bool(default)
+        val = str(raw).strip().lower()
+        if val in {"1", "true", "yes", "y", "on"}:
+            return True
+        if val in {"0", "false", "no", "n", "off"}:
+            return False
+        return bool(default)
+    except Exception:
+        return bool(default)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        raw = os.getenv(name)
+        if raw is None:
+            return int(default)
+        raw = str(raw).strip()
+        if not raw:
+            return int(default)
+        return int(float(raw))
+    except Exception:
+        return int(default)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        raw = os.getenv(name)
+        if raw is None:
+            return float(default)
+        raw = str(raw).strip()
+        if not raw:
+            return float(default)
+        return float(raw)
+    except Exception:
+        return float(default)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _default_owner_id() -> str:
+    rid = (os.getenv("RENDER_INSTANCE_ID") or "").strip()
+    if rid:
+        # חשוב: owner חייב להיות ייחודי ברמת תהליך.
+        # אחרת כמה תהליכים באותו Render instance (למשל overlapped restart / multi-worker)
+        # יחשבו בטעות "זה אני" ויעשו reacquire/heartbeat במקביל.
+        return f"{rid}:{os.getpid()}"
+    # fallback: stable enough per-process, and visible for forensics
+    try:
+        host = (os.getenv("HOSTNAME") or "").strip() or socket.gethostname()
+    except Exception:
+        host = "unknown-host"
+    return f"{host}:{os.getpid()}"
+
+
+def _default_host_label() -> str:
+    v = (os.getenv("RENDER_SERVICE_NAME") or "").strip()
+    if v:
+        return v
+    try:
+        return (os.getenv("HOSTNAME") or "").strip() or socket.gethostname()
+    except Exception:
+        return "unknown-host"
+
+
+def _compute_heartbeat_interval_seconds(*, lease_seconds: int, explicit: float | None) -> float:
+    if explicit is not None and explicit > 0:
+        return max(5.0, float(explicit))
+    # default: 40% of lease, minimum 5 seconds
+    return max(5.0, float(lease_seconds) * 0.4)
+
+
+def _compute_passive_wait_seconds(min_seconds: float, max_seconds: float) -> float:
+    lo = max(0.0, float(min_seconds))
+    hi = max(lo, float(max_seconds))
+    if hi <= lo:
+        return lo
+    return float(random.uniform(lo, hi))
+
+
+_LOCK_SIGNALS_INSTALLED = False
+_LOCK_ORIG_SIGNAL_HANDLERS: dict[int, object] = {}
+
+
+def _install_lock_signal_handlers(*, service_id: str, owner_id: str) -> None:
+    """התקנת handlers ל-SIGTERM/SIGINT לשחרור לוק לפני יציאה.
+
+    best-effort: אם פלטפורמה/ספרייה אחרת התקינה handler, ננסה לשרשר אליו.
+    """
+    global _LOCK_SIGNALS_INSTALLED
+    if _LOCK_SIGNALS_INSTALLED:
+        return
+    # אל תיגע ב-signal handlers בטסטים
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return
+
+    def _handler(signum, _frame):  # noqa: ANN001
+        try:
+            try:
+                emit_event(
+                    "lock_signal_received",
+                    severity="warn",
+                    signal=int(signum),
+                    service_id=service_id,
+                    owner=owner_id,
+                )
+            except Exception:
+                pass
+            try:
+                cleanup_mongo_lock()
+            except Exception:
+                pass
+        finally:
+            # Chain to original handler if it is callable
+            orig = _LOCK_ORIG_SIGNAL_HANDLERS.get(int(signum))
+            if callable(orig):
+                try:
+                    orig(signum, _frame)  # type: ignore[misc]
+                except Exception:
+                    pass
+            # Ensure we exit even if chaining did nothing
+            try:
+                os._exit(0)
+            except Exception:
+                raise SystemExit(0)
+
+    for sig in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGINT", None)):
+        if sig is None:
+            continue
+        try:
+            _LOCK_ORIG_SIGNAL_HANDLERS[int(sig)] = signal.getsignal(sig)
+        except Exception:
+            _LOCK_ORIG_SIGNAL_HANDLERS[int(sig)] = None
+        try:
+            signal.signal(sig, _handler)
+        except Exception:
+            # ignore platforms that do not allow setting signals
+            pass
+
+    _LOCK_SIGNALS_INSTALLED = True
+
+
+class _MongoLockHeartbeat:
+    def __init__(
+        self,
+        *,
+        lock_collection,
+        service_id: str,
+        owner_id: str,
+        host_label: str,
+        lease_seconds: int,
+        interval_seconds: float,
+    ) -> None:
+        self._lock_collection = lock_collection
+        self._service_id = service_id
+        self._owner_id = owner_id
+        self._host_label = host_label
+        self._lease_seconds = int(lease_seconds)
+        self._interval_seconds = float(interval_seconds)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_ok_monotonic = time.monotonic()
+        self._local_expires_at = _utcnow() + timedelta(seconds=self._lease_seconds)
+        try:
+            self._instance_id = (os.getenv("RENDER_INSTANCE_ID") or "").strip()
+        except Exception:
+            self._instance_id = ""
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        t = threading.Thread(target=self._run, name="mongo_lock_heartbeat", daemon=True)
+        self._thread = t
+        t.start()
+        try:
+            emit_event(
+                "lock_heartbeat_started",
+                severity="info",
+                service_id=self._service_id,
+                owner=self._owner_id,
+                interval_seconds=float(self._interval_seconds),
+                lease_seconds=int(self._lease_seconds),
+            )
+        except Exception:
+            pass
+
+    def stop(self, *, join_timeout_seconds: float = 2.0) -> None:
+        try:
+            self._stop.set()
+        except Exception:
+            pass
+        t = self._thread
+        if t is None:
+            return
+        try:
+            t.join(timeout=float(join_timeout_seconds))
+        except Exception:
+            pass
+
+    def _run(self) -> None:
+        # In tests we keep behavior deterministic and avoid background threads unless explicitly enabled.
+        if os.getenv("PYTEST_CURRENT_TEST") and not _env_bool("LOCK_ENABLE_HEARTBEAT_IN_TESTS", False):
+            return
+
+        while not self._stop.is_set():
+            # Wait first (so a caller can stop immediately on shutdown).
+            # חשוב: לא מסתמכים רק על interval קבוע.
+            # אם ה-lease מתקרב לפקיעה וה-network נכשל, interval גדול יכול ליצור "חלון חפיפה"
+            # שבו הלוק פג ב-Mongo אבל המופע עדיין חי עד הטיק הבא.
+            # לכן אנחנו מקצרים sleep כאשר מתקרבים ל-expiry המקומי.
+            try:
+                if self._should_exit_due_to_local_expiry():
+                    try:
+                        emit_event(
+                            "lock_heartbeat_local_expired_exiting",
+                            severity="critical",
+                            service_id=self._service_id,
+                            owner=self._owner_id,
+                        )
+                    except Exception:
+                        pass
+                    logger.critical(
+                        "Local lock lease is about to expire; exiting to prevent double polling."
+                    )
+                    os._exit(0)
+            except Exception:
+                # best-effort only
+                pass
+
+            sleep_seconds = self._compute_next_sleep_seconds()
+            try:
+                self._stop.wait(timeout=float(sleep_seconds))
+            except Exception:
+                time.sleep(float(sleep_seconds))
+            if self._stop.is_set():
+                break
+            self._tick_once()
+
+    def _compute_next_sleep_seconds(self, *, now: datetime | None = None) -> float:
+        """קובע כמה זמן לישון עד ניסיון heartbeat הבא.
+
+        העיקרון: interval קבוע הוא ברירת מחדל, אבל כשמתקרבים ל-expiry המקומי
+        אנחנו מתעוררים מוקדם יותר (expiry_guard) כדי למנוע חלון חפיפה.
+        """
+        if now is None:
+            now = _utcnow()
+        try:
+            remaining = float((self._local_expires_at - now).total_seconds())
+        except Exception:
+            remaining = float(self._interval_seconds)
+
+        expiry_guard_seconds = 2.0
+        # Wake up no later than (expiry - guard)
+        wake_in = min(float(self._interval_seconds), max(0.2, remaining - expiry_guard_seconds))
+        return max(0.2, float(wake_in))
+
+    def _should_exit_due_to_local_expiry(self, *, now: datetime | None = None) -> bool:
+        if now is None:
+            now = _utcnow()
+        try:
+            return now >= (self._local_expires_at - timedelta(seconds=2))
+        except Exception:
+            return False
+
+    def _tick_once(self) -> None:
+        """ריצת heartbeat אחת (מופרדת לטסטים)."""
+        now = _utcnow()
+        # מחשבים יעד חדש, אבל לא "מאריכים" מקומית לפני שהעדכון הצליח בפועל ב-MongoDB.
+        # אחרת: תקלה רגעית (timeout/failover) יכולה לגרום לנו לחשוב שיש לנו lease,
+        # בעוד שב-Mongo הנעילה פגה ומופע אחר יכול לרכוש אותה -> double polling.
+        target_exp = now + timedelta(seconds=self._lease_seconds)
+
+        try:
+            res = self._lock_collection.update_one(
+                {"_id": self._service_id, "owner": self._owner_id},
+                {
+                    "$set": {
+                        "expiresAt": target_exp,
+                        "expires_at": target_exp,  # legacy alias
+                        "updatedAt": now,
+                        "host": self._host_label,
+                        "instance": self._instance_id,
+                        "pid": int(os.getpid()),
+                    }
+                },
+            )
+            matched = int(getattr(res, "matched_count", 0) or 0)
+            if matched <= 0:
+                # Ownership lost: exit immediately to prevent dual polling.
+                try:
+                    emit_event(
+                        "lock_ownership_lost",
+                        severity="critical",
+                        service_id=self._service_id,
+                        owner=self._owner_id,
+                    )
+                except Exception:
+                    pass
+                logger.critical(
+                    "Lost MongoDB lock ownership; exiting immediately to avoid double polling. "
+                    f"service_id={self._service_id} owner={self._owner_id}"
+                )
+                os._exit(0)
+
+            # עדכון הצליח והמסמך עדיין בבעלותנו -> עכשיו מותר לעדכן את ה-expiry המקומי
+            self._local_expires_at = target_exp
+            self._last_ok_monotonic = time.monotonic()
+        except Exception as e:
+            # If we fail to refresh close to local expiry, exit rather than risk polling without a valid lease.
+            try:
+                emit_event(
+                    "lock_heartbeat_failed",
+                    severity="error",
+                    service_id=self._service_id,
+                    owner=self._owner_id,
+                    error=str(e),
+                )
+            except Exception:
+                pass
+            logger.warning(f"Mongo lock heartbeat failed: {e}", exc_info=True)
+
+            try:
+                # חשוב: משתמשים ב-expiry האחרון שהצלחנו לחדש בפועל,
+                # ולא ב"יעד" הנוכחי שנכשל, כדי לא להאריך מקומית בטעות.
+                # חשוב לא פחות: דוגמים זמן מחדש כאן, כי update_one יכול להיתקע זמן רב
+                # (timeout/failover), ואז now מתחילת הפונקציה עלול להיות "ישן" מדי.
+                check_now = _utcnow()
+                if check_now >= (self._local_expires_at - timedelta(seconds=2)):
+                    try:
+                        emit_event(
+                            "lock_heartbeat_expiring_exiting",
+                            severity="critical",
+                            service_id=self._service_id,
+                            owner=self._owner_id,
+                            error=str(e),
+                        )
+                    except Exception:
+                        pass
+                    logger.critical(
+                        "Mongo lock heartbeat could not refresh before expiry; exiting to prevent double polling."
+                    )
+                    os._exit(0)
+            except Exception:
+                # If we can't reason about expiry, prefer staying alive; ownership-loss check will kill us if needed.
+                pass
+
 
 def cleanup_mongo_lock() -> bool:
     """
@@ -1014,6 +1392,16 @@ def cleanup_mongo_lock() -> bool:
         פונקציה זו נרשמת עם atexit ורצה אוטומטית בסיום התוכנית
     """
     try:
+        # Stop heartbeat first (best-effort)
+        global _LOCK_HEARTBEAT
+        try:
+            hb = _LOCK_HEARTBEAT
+            _LOCK_HEARTBEAT = None
+            if hb is not None:
+                hb.stop()
+        except Exception:
+            pass
+
         # If DB client is not available, skip quietly (נחשב כהצלחה — אין מה לנקות)
         try:
             if 'db' in globals() and getattr(db, "client", None) is None:
@@ -1024,11 +1412,22 @@ def cleanup_mongo_lock() -> bool:
 
         lock_collection = get_lock_collection()
         pid = os.getpid()
-        result = lock_collection.delete_one({"_id": LOCK_ID, "pid": pid})
+        service_id = _LOCK_SERVICE_ID or (os.getenv("SERVICE_ID") or LOCK_ID)
+        owner_id = _LOCK_OWNER_ID or _default_owner_id()
+        # Delete only if we're the owner. Legacy fallback: if owner is missing, allow pid-based cleanup.
+        result = lock_collection.delete_one(
+            {
+                "_id": service_id,
+                "$or": [
+                    {"owner": owner_id},
+                    {"owner": {"$exists": False}, "pid": int(pid)},
+                ],
+            }
+        )
         if result.deleted_count > 0:
-            logger.info(f"Lock '{LOCK_ID}' released successfully by PID: {pid}.")
+            logger.info(f"Lock '{service_id}' released successfully. owner={owner_id} pid={pid}")
             try:
-                emit_event("lock_released", severity="info", pid=pid)
+                emit_event("lock_released", severity="info", pid=pid, service_id=service_id, owner=owner_id)
             except Exception:
                 pass
         # גם אם לא נמחק — הניקוי idempotent; נחשב כהצלחה
@@ -1058,90 +1457,362 @@ def manage_mongo_lock():
     Note:
         תומך בהמתנה לשחרור נעילה קיימת עבור blue/green deployments
     """
+    wait_health = _LockWaitHealthServer(port=-1)
     try:
         try:
             ensure_lock_indexes()
         except Exception:
             logger.warning("could not ensure lock indexes; continuing")
         lock_collection = get_lock_collection()
-        pid = os.getpid()
-        now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
+        service_id = (os.getenv("SERVICE_ID") or LOCK_ID).strip() or LOCK_ID
+        owner_id = _default_owner_id()
+        host_label = _default_host_label()
+        instance_id = (os.getenv("RENDER_INSTANCE_ID") or "").strip()
+        pid = int(os.getpid())
 
-        # Try to create the lock document
+        # Config
+        lease_seconds = max(5, _env_int("LOCK_LEASE_SECONDS", 60))
+        hb_override = os.getenv("LOCK_HEARTBEAT_INTERVAL")
+        hb_explicit = None
         try:
-            lock_collection.insert_one({"_id": LOCK_ID, "pid": pid, "expires_at": expires_at})
-            logger.info(f"✅ MongoDB lock acquired by PID {pid}")
+            hb_explicit = float(hb_override) if (hb_override is not None and str(hb_override).strip()) else None
+        except Exception:
+            hb_explicit = None
+        heartbeat_interval = _compute_heartbeat_interval_seconds(lease_seconds=lease_seconds, explicit=hb_explicit)
+
+        wait_for_acquire = _env_bool("LOCK_WAIT_FOR_ACQUIRE", False)
+        # Backward compatible alias: LOCK_MAX_WAIT_SECONDS (legacy)
+        acquire_max_wait = _env_float("LOCK_ACQUIRE_MAX_WAIT", 0.0)
+        if acquire_max_wait <= 0:
+            acquire_max_wait = float(_env_int("LOCK_MAX_WAIT_SECONDS", 0) or 0)
+        wait_min = _env_float("LOCK_WAIT_MIN_SECONDS", 15.0)
+        wait_max = _env_float("LOCK_WAIT_MAX_SECONDS", 45.0)
+        active_retry_interval = float(_env_float("LOCK_RETRY_INTERVAL_SECONDS", 1.0))
+
+        fail_open = _env_bool("LOCK_FAIL_OPEN", False)
+
+        start_monotonic = time.monotonic()
+
+        # Optionally start a tiny health server while we wait (Render-safe)
+        wait_health = _LockWaitHealthServer.maybe_start_when_waiting()
+
+        while True:
+            now = _utcnow()
+            exp = now + timedelta(seconds=int(lease_seconds))
+
+            # Attempt: create lock doc
             try:
-                emit_event("lock_acquired", severity="info", pid=pid)
+                lock_collection.insert_one(
+                    {
+                        "_id": service_id,
+                        "owner": owner_id,
+                        "host": host_label,
+                        "instance": instance_id,
+                        "pid": pid,
+                        "createdAt": now,
+                        "updatedAt": now,
+                        "expiresAt": exp,
+                        "expires_at": exp,  # legacy alias
+                    }
+                )
+                logger.info(f"✅ MongoDB lock acquired. service_id={service_id} owner={owner_id} pid={pid}")
+                try:
+                    emit_event("lock_acquired", severity="info", pid=pid, service_id=service_id, owner=owner_id)
+                except Exception:
+                    pass
+                break
+            except DuplicateKeyError:
+                # Document exists; attempt takeover if expired, or idempotent refresh if already ours.
+                result = None
+                try:
+                    # Prefer ReturnDocument if available; otherwise, keep compatibility with older pymongo stubs.
+                    try:
+                        from pymongo import ReturnDocument  # type: ignore
+                        _ret_after = ReturnDocument.AFTER
+                    except Exception:  # pragma: no cover
+                        _ret_after = True
+
+                    result = lock_collection.find_one_and_update(
+                        {
+                            "_id": service_id,
+                            "$or": [
+                                {"owner": owner_id},
+                                {"expiresAt": {"$lte": now}},
+                                {"expires_at": {"$lte": now}},
+                            ],
+                        },
+                        {
+                            "$set": {
+                                "owner": owner_id,
+                                "host": host_label,
+                                "instance": instance_id,
+                                "pid": pid,
+                                "updatedAt": now,
+                                "expiresAt": exp,
+                                "expires_at": exp,
+                            },
+                            "$setOnInsert": {"createdAt": now},
+                        },
+                        return_document=_ret_after,
+                    )
+                except Exception:
+                    result = None
+
+                if result and isinstance(result, dict) and result.get("owner") == owner_id:
+                    logger.info(f"✅ MongoDB lock re-acquired. service_id={service_id} owner={owner_id} pid={pid}")
+                    try:
+                        emit_event("lock_reacquired", severity="info", pid=pid, service_id=service_id, owner=owner_id)
+                    except Exception:
+                        pass
+                    break
+
+                # Not ours, not expired => wait
+                if wait_for_acquire:
+                    if acquire_max_wait > 0 and (time.monotonic() - start_monotonic) >= float(acquire_max_wait):
+                        logger.warning("Timeout waiting for lock; exiting gracefully.")
+                        try:
+                            emit_event(
+                                "lock_wait_timeout",
+                                severity="warn",
+                                max_wait_seconds=float(acquire_max_wait),
+                                service_id=service_id,
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            wait_health.stop()
+                        except Exception:
+                            pass
+                        return False
+
+                    sleep_s = max(0.2, float(active_retry_interval))
+                    logger.info(
+                        f"Lock busy (active wait). service_id={service_id} will retry in {sleep_s:.1f}s..."
+                    )
+                    try:
+                        emit_event(
+                            "lock_waiting_existing",
+                            severity="warn",
+                            mode="active",
+                            sleep_seconds=float(sleep_s),
+                            service_id=service_id,
+                        )
+                    except Exception:
+                        pass
+                    time.sleep(sleep_s)
+                    continue
+
+                # Passive wait with jitter to avoid restart loops (default)
+                sleep_s = _compute_passive_wait_seconds(wait_min, wait_max)
+                logger.warning(
+                    f"Another instance holds the lock; waiting (passive) {sleep_s:.1f}s. service_id={service_id}"
+                )
+                try:
+                    emit_event(
+                        "lock_waiting_existing",
+                        severity="warn",
+                        mode="passive",
+                        sleep_seconds=float(sleep_s),
+                        service_id=service_id,
+                    )
+                except Exception:
+                    pass
+                time.sleep(float(sleep_s))
+                continue
+
+            except Exception as e:
+                # Unexpected insert error: break to outer handler
+                raise e
+
+        # Acquired: stop wait health server if started
+        try:
+            wait_health.stop()
+        except Exception:
+            pass
+
+        # Save global ownership state for cleanup/heartbeat
+        global _LOCK_SERVICE_ID, _LOCK_OWNER_ID, _LOCK_HEARTBEAT
+        _LOCK_SERVICE_ID = service_id
+        _LOCK_OWNER_ID = owner_id
+
+        # Ensure lock is released on exit ASAP after ownership is established
+        # (גם אם שלבים מאוחרים יותר ייכשלו)
+        try:
+            atexit.register(cleanup_mongo_lock)
+        except Exception:
+            pass
+
+        # Start heartbeat (disabled by default in tests unless explicitly enabled)
+        try:
+            hb = _MongoLockHeartbeat(
+                lock_collection=lock_collection,
+                service_id=service_id,
+                owner_id=owner_id,
+                host_label=host_label,
+                lease_seconds=int(lease_seconds),
+                interval_seconds=float(heartbeat_interval),
+            )
+            _LOCK_HEARTBEAT = hb
+            hb.start()
+        except Exception as e:
+            # Fail-closed: if we can't keep ownership fresh, better to not start polling
+            logger.error(f"Failed to start lock heartbeat: {e}", exc_info=True)
+            try:
+                emit_event("lock_heartbeat_start_failed", severity="error", error=str(e), service_id=service_id)
             except Exception:
                 pass
-        except DuplicateKeyError:
-            # A lock already exists
-            # First, attempt immediate takeover if the lock is expired
-            while True:
-                now = datetime.now(timezone.utc)
-                expires_at = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
+            # חשוב: אל תשאיר lock יתום במונגו אם ה-heartbeat לא עלה.
+            try:
+                res = lock_collection.delete_one({"_id": service_id, "owner": owner_id})
+                if int(getattr(res, "deleted_count", 0) or 0) > 0:
+                    try:
+                        emit_event(
+                            "lock_released",
+                            severity="warn",
+                            service_id=service_id,
+                            owner=owner_id,
+                            pid=int(pid),
+                            reason="heartbeat_start_failed",
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # נקה state גלובלי כדי למנוע cleanup עתידי על owner "אחר"
+            try:
+                _LOCK_HEARTBEAT = None
+                _LOCK_SERVICE_ID = None
+                _LOCK_OWNER_ID = None
+            except Exception:
+                pass
+            if not fail_open:
+                return False
+            # Fail-open explicit: continue without lock (still log loudly)
+            return True
 
-                doc = lock_collection.find_one({"_id": LOCK_ID})
-                if doc and doc.get("expires_at") and doc["expires_at"] < now:
-                    # Attempt to take over an expired lock
-                    result = lock_collection.find_one_and_update(
-                        {"_id": LOCK_ID, "expires_at": {"$lt": now}},
-                        {"$set": {"pid": pid, "expires_at": expires_at}},
-                        return_document=True,
-                    )
-                    if result:
-                        logger.info(f"✅ MongoDB lock re-acquired by PID {pid} (expired lock)")
-                        try:
-                            emit_event("lock_reacquired", severity="info", pid=pid)
-                        except Exception:
-                            pass
-                        break
-                else:
-                    # Not expired: wait and retry instead of exiting to support blue/green deploys
-                    max_wait_seconds = int(os.getenv("LOCK_MAX_WAIT_SECONDS", "0"))  # 0 = wait indefinitely
-                    retry_interval_seconds = int(os.getenv("LOCK_RETRY_INTERVAL_SECONDS", "5"))
-
-                    if max_wait_seconds > 0:
-                        deadline = time.time() + max_wait_seconds
-                        while time.time() < deadline:
-                            time.sleep(retry_interval_seconds)
-                            now = datetime.now(timezone.utc)
-                            doc = lock_collection.find_one({"_id": LOCK_ID})
-                            if not doc or (doc.get("expires_at") and doc["expires_at"] < now):
-                                break
-                        # loop will re-check and attempt takeover at the top
-                        if time.time() >= deadline:
-                            logger.warning("Timeout waiting for existing lock to release. Exiting gracefully.")
-                            try:
-                                emit_event("lock_wait_timeout", severity="warn", max_wait_seconds=max_wait_seconds)
-                            except Exception:
-                                pass
-                            return False
-                    else:
-                        # Infinite wait with periodic log
-                        logger.warning("Another bot instance is already running (lock present). Waiting for lock release…")
-                        try:
-                            emit_event("lock_waiting_existing", severity="warn")
-                        except Exception:
-                            pass
-                        time.sleep(retry_interval_seconds)
-                        continue
-                # If we reach here without breaking, loop will retry
-            
-        # Ensure lock is released on exit
-        atexit.register(cleanup_mongo_lock)
+        # Install signal handlers after lock ownership is established
+        try:
+            _install_lock_signal_handlers(service_id=service_id, owner_id=owner_id)
+        except Exception:
+            pass
         return True
 
     except Exception as e:
+        # Ensure wait health server is not left running in any exception path
+        try:
+            wait_health.stop()
+        except Exception:
+            pass
         logger.error(f"Failed to acquire MongoDB lock: {e}", exc_info=True)
         try:
             emit_event("lock_acquire_failed", severity="error", error=str(e))
         except Exception:
             pass
-        # Fail-open to not crash the app, but log loudly
-        return True
+        # Fail-closed by default: don't run polling without a lock (unless explicitly opted-in)
+        if _env_bool("LOCK_FAIL_OPEN", False):
+            return True
+        return False
+    finally:
+        # Best-effort cleanup: never leave the temporary health server bound to PORT
+        try:
+            wait_health.stop()
+        except Exception:
+            pass
+
+
+class _LockWaitHealthServer:
+    """שרת HTTP מינימלי ל-/ /health /healthz בזמן המתנה ללוק.
+
+    מטרה: למנוע restart-loop ב-Render כאשר השירות מוגדר כ-Web Service עם health check.
+    """
+
+    def __init__(self, *, port: int) -> None:
+        self._port = int(port)
+        self._thread: threading.Thread | None = None
+        self._server = None
+
+    @classmethod
+    def maybe_start_when_waiting(cls) -> "_LockWaitHealthServer":
+        # Enable only on platforms that expose PORT (Render/Heroku), and only if explicitly enabled.
+        # Default is enabled to align with Render "health passes while waiting".
+        if not _env_bool("LOCK_WAIT_HEALTH_SERVER_ENABLED", True):
+            return cls(port=-1)
+        raw_port = os.getenv("PORT")
+        if raw_port is None:
+            return cls(port=-1)
+        try:
+            port = int(str(raw_port).strip() or "0")
+        except Exception:
+            port = 0
+        if port <= 0:
+            return cls(port=-1)
+        srv = cls(port=port)
+        try:
+            srv.start()
+        except Exception:
+            pass
+        return srv
+
+    def start(self) -> None:
+        if self._port <= 0:
+            return
+        if self._thread is not None:
+            return
+
+        # Use stdlib HTTP server to avoid dependency or asyncio loop juggling.
+        from http.server import BaseHTTPRequestHandler, HTTPServer  # local import
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                try:
+                    path = str(getattr(self, "path", "") or "")
+                except Exception:
+                    path = "/"
+                if path in {"/", "/health", "/healthz"}:
+                    payload = b'{"status":"ok","mode":"waiting_for_lock"}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
+                self.send_response(404)
+                self.end_headers()
+
+            def log_message(self, *_a, **_k):  # noqa: ANN001, D401
+                # silence request logs
+                return
+
+        httpd = HTTPServer(("0.0.0.0", int(self._port)), _Handler)
+        self._server = httpd
+
+        def _run():
+            try:
+                httpd.serve_forever(poll_interval=0.5)
+            except Exception:
+                return
+
+        t = threading.Thread(target=_run, name="lock_wait_health_http", daemon=True)
+        self._thread = t
+        t.start()
+        try:
+            emit_event("lock_wait_health_server_started", severity="info", port=int(self._port))
+        except Exception:
+            pass
+
+    def stop(self) -> None:
+        httpd = self._server
+        if httpd is None:
+            return
+        try:
+            httpd.shutdown()
+        except Exception:
+            pass
+        try:
+            httpd.server_close()
+        except Exception:
+            pass
+        self._server = None
 
 # =============================================================================
 # Global reference to the current bot instance
