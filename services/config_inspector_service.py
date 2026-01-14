@@ -272,7 +272,7 @@ class ConfigService:
         "RENDER_INSTANCE_ID": ConfigDefinition(
             key="RENDER_INSTANCE_ID",
             default="",
-            description="מזהה אינסטנס ב-Render (owner של הלוק). אם ריק, נופל ל-hostname:pid.",
+            description="מזהה אינסטנס ב-Render (נשמר במסמך הלוק לצורכי תחקור). ה-owner בפועל הוא מזהה תהליך ייחודי (RENDER_INSTANCE_ID:pid). אם ריק, owner נופל ל-hostname:pid.",
             category="locking",
         ),
         "RENDER_SERVICE_NAME": ConfigDefinition(

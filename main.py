@@ -1077,7 +1077,10 @@ def _utcnow() -> datetime:
 def _default_owner_id() -> str:
     rid = (os.getenv("RENDER_INSTANCE_ID") or "").strip()
     if rid:
-        return rid
+        # חשוב: owner חייב להיות ייחודי ברמת תהליך.
+        # אחרת כמה תהליכים באותו Render instance (למשל overlapped restart / multi-worker)
+        # יחשבו בטעות "זה אני" ויעשו reacquire/heartbeat במקביל.
+        return f"{rid}:{os.getpid()}"
     # fallback: stable enough per-process, and visible for forensics
     try:
         host = (os.getenv("HOSTNAME") or "").strip() or socket.gethostname()
@@ -1194,6 +1197,10 @@ class _MongoLockHeartbeat:
         self._thread: threading.Thread | None = None
         self._last_ok_monotonic = time.monotonic()
         self._local_expires_at = _utcnow() + timedelta(seconds=self._lease_seconds)
+        try:
+            self._instance_id = (os.getenv("RENDER_INSTANCE_ID") or "").strip()
+        except Exception:
+            self._instance_id = ""
 
     def start(self) -> None:
         if self._thread is not None:
@@ -1258,6 +1265,7 @@ class _MongoLockHeartbeat:
                         "expires_at": target_exp,  # legacy alias
                         "updatedAt": now,
                         "host": self._host_label,
+                        "instance": self._instance_id,
                         "pid": int(os.getpid()),
                     }
                 },
@@ -1409,6 +1417,7 @@ def manage_mongo_lock():
         service_id = (os.getenv("SERVICE_ID") or LOCK_ID).strip() or LOCK_ID
         owner_id = _default_owner_id()
         host_label = _default_host_label()
+        instance_id = (os.getenv("RENDER_INSTANCE_ID") or "").strip()
         pid = int(os.getpid())
 
         # Config
@@ -1448,6 +1457,7 @@ def manage_mongo_lock():
                         "_id": service_id,
                         "owner": owner_id,
                         "host": host_label,
+                        "instance": instance_id,
                         "pid": pid,
                         "createdAt": now,
                         "updatedAt": now,
@@ -1485,6 +1495,7 @@ def manage_mongo_lock():
                             "$set": {
                                 "owner": owner_id,
                                 "host": host_label,
+                                "instance": instance_id,
                                 "pid": pid,
                                 "updatedAt": now,
                                 "expiresAt": exp,

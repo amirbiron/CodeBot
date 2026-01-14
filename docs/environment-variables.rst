@@ -1887,7 +1887,7 @@
      - ``codebot-prod``
      - Bot
    * - ``RENDER_INSTANCE_ID``
-     - מזהה אינסטנס (owner) בפלטפורמת Render. אם לא מוגדר, נופל ל־``hostname:pid``.
+     - מזהה אינסטנס בפלטפורמת Render (נשמר במסמך הנעילה לצורכי תחקור). ה-``owner`` בפועל הוא מזהה תהליך ייחודי: ``RENDER_INSTANCE_ID:pid``. אם לא מוגדר, ה-``owner`` נופל ל־``hostname:pid``.
      - לא
      - ``hostname:pid`` (fallback)
      - ``srv-abc123``
