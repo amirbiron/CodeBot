@@ -1297,7 +1297,10 @@ class _MongoLockHeartbeat:
             try:
                 # חשוב: משתמשים ב-expiry האחרון שהצלחנו לחדש בפועל,
                 # ולא ב"יעד" הנוכחי שנכשל, כדי לא להאריך מקומית בטעות.
-                if now >= (self._local_expires_at - timedelta(seconds=2)):
+                # חשוב לא פחות: דוגמים זמן מחדש כאן, כי update_one יכול להיתקע זמן רב
+                # (timeout/failover), ואז now מתחילת הפונקציה עלול להיות "ישן" מדי.
+                check_now = _utcnow()
+                if check_now >= (self._local_expires_at - timedelta(seconds=2)):
                     try:
                         emit_event(
                             "lock_heartbeat_expiring_exiting",
