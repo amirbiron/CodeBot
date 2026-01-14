@@ -48,31 +48,48 @@ cd "$APP_DIR"
 # Render (במיוחד Free/Starter) מאוד רגיש לזיכרון בזמן boot.
 # יותר מדי workers = הרבה תהליכים שמטעינים את האפליקציה במקביל -> OOM / thrash -> Port Scan timeout.
 #
-# לכן ברירת המחדל פה היא **שמרנית וקבועה**: 2 workers + 2 threads.
+# לכן ברירת המחדל פה היא **שמרנית**: worker יחיד עם gevent (IO-bound concurrency).
 # עדיין אפשר override ידני דרך ENV:
 # - WEB_CONCURRENCY / WEBAPP_GUNICORN_WORKERS
 # - WEBAPP_GUNICORN_THREADS
-# - WEBAPP_GUNICORN_WORKER_CLASS (ברירת מחדל: gthread)
+# - WEBAPP_GUNICORN_WORKER_CLASS (ברירת מחדל: gevent)
+# - WEBAPP_GUNICORN_WORKER_CONNECTIONS (רלוונטי ל-gevent בלבד)
 # - WEBAPP_GUNICORN_TIMEOUT / WEBAPP_GUNICORN_KEEPALIVE
-GUNICORN_WORKERS="$(trim "${WEB_CONCURRENCY:-${WEBAPP_GUNICORN_WORKERS:-2}}")"
-GUNICORN_THREADS="$(trim "${WEBAPP_GUNICORN_THREADS:-2}")"
-GUNICORN_WORKER_CLASS="$(trim "${WEBAPP_GUNICORN_WORKER_CLASS:-gthread}")"
+GUNICORN_WORKERS="$(trim "${WEB_CONCURRENCY:-${WEBAPP_GUNICORN_WORKERS:-1}}")"
+GUNICORN_THREADS="$(trim "${WEBAPP_GUNICORN_THREADS:-4}")"
+GUNICORN_WORKER_CLASS="$(trim "${WEBAPP_GUNICORN_WORKER_CLASS:-gevent}")"
+GUNICORN_WORKER_CONNECTIONS="$(trim "${WEBAPP_GUNICORN_WORKER_CONNECTIONS:-${GUNICORN_WORKER_CONNECTIONS:-100}}")"
 # Timeout: allow both WEBAPP_GUNICORN_TIMEOUT (preferred) and GUNICORN_TIMEOUT (compat).
 # Default is more generous to survive cold starts / heavy first requests on Render.
 GUNICORN_TIMEOUT="$(trim "${WEBAPP_GUNICORN_TIMEOUT:-${GUNICORN_TIMEOUT:-180}}")"
 GUNICORN_GRACEFUL_TIMEOUT="$(trim "${WEBAPP_GUNICORN_GRACEFUL_TIMEOUT:-${GUNICORN_GRACEFUL_TIMEOUT:-${GUNICORN_TIMEOUT}}}")"
 GUNICORN_KEEPALIVE="$(trim "${WEBAPP_GUNICORN_KEEPALIVE:-2}")"
 
-log "Gunicorn config: workers=${GUNICORN_WORKERS} threads=${GUNICORN_THREADS} class=${GUNICORN_WORKER_CLASS} timeout=${GUNICORN_TIMEOUT}s graceful_timeout=${GUNICORN_GRACEFUL_TIMEOUT}s keepalive=${GUNICORN_KEEPALIVE}s"
+GUNICORN_ARGS=(
+  "$APP_MODULE"
+  --bind "0.0.0.0:${PORT}"
+  --workers "${GUNICORN_WORKERS}"
+  --worker-class "${GUNICORN_WORKER_CLASS}"
+  --timeout "${GUNICORN_TIMEOUT}"
+  --graceful-timeout "${GUNICORN_GRACEFUL_TIMEOUT}"
+  --keep-alive "${GUNICORN_KEEPALIVE}"
+)
 
-gunicorn "$APP_MODULE" \
-  --bind "0.0.0.0:${PORT}" \
-  --workers "${GUNICORN_WORKERS}" \
-  --worker-class "${GUNICORN_WORKER_CLASS}" \
-  --threads "${GUNICORN_THREADS}" \
-  --timeout "${GUNICORN_TIMEOUT}" \
-  --graceful-timeout "${GUNICORN_GRACEFUL_TIMEOUT}" \
-  --keep-alive "${GUNICORN_KEEPALIVE}" &
+case "${GUNICORN_WORKER_CLASS,,}" in
+  *gevent*)
+    log "Gunicorn config: workers=${GUNICORN_WORKERS} class=${GUNICORN_WORKER_CLASS} worker_connections=${GUNICORN_WORKER_CONNECTIONS} timeout=${GUNICORN_TIMEOUT}s graceful_timeout=${GUNICORN_GRACEFUL_TIMEOUT}s keepalive=${GUNICORN_KEEPALIVE}s"
+    GUNICORN_ARGS+=(--worker-connections "${GUNICORN_WORKER_CONNECTIONS}")
+    ;;
+  *gthread*)
+    log "Gunicorn config: workers=${GUNICORN_WORKERS} class=${GUNICORN_WORKER_CLASS} threads=${GUNICORN_THREADS} timeout=${GUNICORN_TIMEOUT}s graceful_timeout=${GUNICORN_GRACEFUL_TIMEOUT}s keepalive=${GUNICORN_KEEPALIVE}s"
+    GUNICORN_ARGS+=(--threads "${GUNICORN_THREADS}")
+    ;;
+  *)
+    log "Gunicorn config: workers=${GUNICORN_WORKERS} class=${GUNICORN_WORKER_CLASS} timeout=${GUNICORN_TIMEOUT}s graceful_timeout=${GUNICORN_GRACEFUL_TIMEOUT}s keepalive=${GUNICORN_KEEPALIVE}s"
+    ;;
+esac
+
+gunicorn "${GUNICORN_ARGS[@]}" &
 APP_PID=$!
 
 cleanup() {
