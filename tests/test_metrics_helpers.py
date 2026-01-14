@@ -98,3 +98,17 @@ def test_anomaly_includes_deploy_metadata(monkeypatch):
     assert "active_requests" in labels
     slow_endpoints = payload.get("slow_endpoints")
     assert isinstance(slow_endpoints, list)
+
+
+def test_ewma_excludes_5xx_and_timeout_like_failures():
+    # First request sets EWMA baseline
+    metrics.record_request_outcome(200, 1.0, path="/ok")
+    assert metrics.get_avg_response_time_seconds() == pytest.approx(1.0)
+
+    # Failures should not affect EWMA (e.g., gateway/worker timeout)
+    metrics.record_request_outcome(504, 30.0, path="/timeout")
+    assert metrics.get_avg_response_time_seconds() == pytest.approx(1.0)
+
+    # Another success should update EWMA from the previous served baseline
+    metrics.record_request_outcome(200, 2.0, path="/ok2")
+    assert metrics.get_avg_response_time_seconds() > 1.0

@@ -474,8 +474,14 @@ class ConfigService:
         ),
         "WEBAPP_GUNICORN_TIMEOUT": ConfigDefinition(
             key="WEBAPP_GUNICORN_TIMEOUT",
-            default="60",
+            default="180",
             description="Timeout (שניות) לבקשה ב-Gunicorn",
+            category="gunicorn",
+        ),
+        "WEBAPP_GUNICORN_GRACEFUL_TIMEOUT": ConfigDefinition(
+            key="WEBAPP_GUNICORN_GRACEFUL_TIMEOUT",
+            default="180",
+            description="graceful-timeout (שניות) לסגירה נקייה של worker ב-Gunicorn",
             category="gunicorn",
         ),
         "WEBAPP_GUNICORN_KEEPALIVE": ConfigDefinition(

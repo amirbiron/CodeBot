@@ -57,10 +57,13 @@ cd "$APP_DIR"
 GUNICORN_WORKERS="$(trim "${WEB_CONCURRENCY:-${WEBAPP_GUNICORN_WORKERS:-2}}")"
 GUNICORN_THREADS="$(trim "${WEBAPP_GUNICORN_THREADS:-2}")"
 GUNICORN_WORKER_CLASS="$(trim "${WEBAPP_GUNICORN_WORKER_CLASS:-gthread}")"
-GUNICORN_TIMEOUT="$(trim "${WEBAPP_GUNICORN_TIMEOUT:-60}")"
+# Timeout: allow both WEBAPP_GUNICORN_TIMEOUT (preferred) and GUNICORN_TIMEOUT (compat).
+# Default is more generous to survive cold starts / heavy first requests on Render.
+GUNICORN_TIMEOUT="$(trim "${WEBAPP_GUNICORN_TIMEOUT:-${GUNICORN_TIMEOUT:-180}}")"
+GUNICORN_GRACEFUL_TIMEOUT="$(trim "${WEBAPP_GUNICORN_GRACEFUL_TIMEOUT:-${GUNICORN_GRACEFUL_TIMEOUT:-${GUNICORN_TIMEOUT}}}")"
 GUNICORN_KEEPALIVE="$(trim "${WEBAPP_GUNICORN_KEEPALIVE:-2}")"
 
-log "Gunicorn config: workers=${GUNICORN_WORKERS} threads=${GUNICORN_THREADS} class=${GUNICORN_WORKER_CLASS} timeout=${GUNICORN_TIMEOUT}s keepalive=${GUNICORN_KEEPALIVE}s"
+log "Gunicorn config: workers=${GUNICORN_WORKERS} threads=${GUNICORN_THREADS} class=${GUNICORN_WORKER_CLASS} timeout=${GUNICORN_TIMEOUT}s graceful_timeout=${GUNICORN_GRACEFUL_TIMEOUT}s keepalive=${GUNICORN_KEEPALIVE}s"
 
 gunicorn "$APP_MODULE" \
   --bind "0.0.0.0:${PORT}" \
@@ -68,6 +71,7 @@ gunicorn "$APP_MODULE" \
   --worker-class "${GUNICORN_WORKER_CLASS}" \
   --threads "${GUNICORN_THREADS}" \
   --timeout "${GUNICORN_TIMEOUT}" \
+  --graceful-timeout "${GUNICORN_GRACEFUL_TIMEOUT}" \
   --keep-alive "${GUNICORN_KEEPALIVE}" &
 APP_PID=$!
 
