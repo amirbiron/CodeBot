@@ -884,6 +884,37 @@ def get_avg_response_time_seconds() -> float:
         return 0.0
 
 
+def _should_update_latency_ewma(*, status_code: int, status_label: str | None = None) -> bool:
+    """Decide whether a request should affect EWMA latency.
+
+    We intentionally exclude failures/timeouts so EWMA represents *served* latency
+    and doesn't get skewed by gateway/worker timeouts or internal errors.
+    """
+    try:
+        sc = int(status_code)
+    except Exception:
+        sc = 0
+
+    # Unknown/invalid status: don't touch EWMA.
+    if sc <= 0:
+        return False
+
+    # Failures (5xx) often include timeouts/retries and would distort "avg served latency".
+    if sc >= 500:
+        return False
+
+    try:
+        label = str(status_label or "").strip().lower()
+    except Exception:
+        label = ""
+    if label:
+        # Defensive: if callers pass a custom label that indicates timeout/failure, exclude.
+        if "timeout" in label or label in {"worker_timeout", "gateway_timeout"}:
+            return False
+
+    return True
+
+
 def _status_label_from_code(status_code: int | None, override: str | None = None) -> str:
     try:
         if override:
@@ -1044,7 +1075,10 @@ def record_request_outcome(
             _record_error_timestamp()
         # Allow excluding specific paths (e.g., observability heavy endpoints) from EWMA.
         # Still record core request counters + error timestamps for history.
-        if not _is_anomaly_ignored(path=path):
+        if (
+            not _is_anomaly_ignored(path=path)
+            and _should_update_latency_ewma(status_code=status_int, status_label=status_label)
+        ):
             _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
         # OpenTelemetry: record request outcome via counters/histograms (best-effort).
