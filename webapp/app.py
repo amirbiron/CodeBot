@@ -13953,28 +13953,27 @@ def settings_push_debug():
     remote_url = (os.getenv("PUSH_DELIVERY_URL") or "").strip()
     remote_token_set = bool((os.getenv("PUSH_DELIVERY_TOKEN") or "").strip())
 
-    # Runtime package versions (helps diagnose "dependency hell" / stale deploys)
-    py_vapid_version = ""
-    pywebpush_version = ""
-    cryptography_version = ""
-    try:
-        import py_vapid  # type: ignore
+    # Runtime package versions (helps diagnose dependency/caching issues)
+    def _dist_version(*names: str) -> str:
+        try:
+            from importlib import metadata  # py3.8+
 
-        py_vapid_version = str(getattr(py_vapid, "__version__", "") or "")
-    except Exception as e:
-        py_vapid_version = f"import_error:{type(e).__name__}"
-    try:
-        import pywebpush  # type: ignore
+            for n in names:
+                try:
+                    v = metadata.version(n)
+                    if v:
+                        return str(v)
+                except metadata.PackageNotFoundError:
+                    continue
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return "unknown"
 
-        pywebpush_version = str(getattr(pywebpush, "__version__", "") or "")
-    except Exception as e:
-        pywebpush_version = f"import_error:{type(e).__name__}"
-    try:
-        import cryptography  # type: ignore
-
-        cryptography_version = str(getattr(cryptography, "__version__", "") or "")
-    except Exception as e:
-        cryptography_version = f"import_error:{type(e).__name__}"
+    py_vapid_version = _dist_version("py-vapid", "py_vapid")
+    pywebpush_version = _dist_version("pywebpush")
+    cryptography_version = _dist_version("cryptography")
 
     subs_count = None
     subs_error = ""

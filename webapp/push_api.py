@@ -1021,23 +1021,32 @@ def test_push():
 
         runtime_versions: dict[str, str] = {}
         try:
-            import cryptography  # type: ignore
+            import sys
 
-            runtime_versions["cryptography"] = str(getattr(cryptography, "__version__", "") or "")
-        except Exception as e:
-            runtime_versions["cryptography"] = f"import_error:{type(e).__name__}"
-        try:
-            import py_vapid  # type: ignore
+            runtime_versions["python"] = str(sys.version.split()[0])
+        except Exception:
+            pass
 
-            runtime_versions["py_vapid"] = str(getattr(py_vapid, "__version__", "") or "")
-        except Exception as e:
-            runtime_versions["py_vapid"] = f"import_error:{type(e).__name__}"
-        try:
-            import pywebpush  # type: ignore
+        def _dist_version(*names: str) -> str:
+            try:
+                from importlib import metadata  # py3.8+
 
-            runtime_versions["pywebpush"] = str(getattr(pywebpush, "__version__", "") or "")
-        except Exception as e:
-            runtime_versions["pywebpush"] = f"import_error:{type(e).__name__}"
+                for n in names:
+                    try:
+                        v = metadata.version(n)
+                        if v:
+                            return str(v)
+                    except metadata.PackageNotFoundError:
+                        continue
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            return "unknown"
+
+        runtime_versions["cryptography"] = _dist_version("cryptography")
+        runtime_versions["py_vapid"] = _dist_version("py-vapid", "py_vapid")
+        runtime_versions["pywebpush"] = _dist_version("pywebpush")
 
         remote_cfg = _remote_delivery_cfg()
         use_remote = bool(remote_cfg.get("enabled"))
