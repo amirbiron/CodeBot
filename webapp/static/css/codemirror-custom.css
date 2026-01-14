@@ -59,8 +59,10 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; font-size: 14px; }
   #codeMirrorContainer .cm-editor { font-size: 12px; }
-  /* Mobile fix: prevent last lines from being hidden by browser UI / safe-area */
-  .cm-editor .cm-scroller {
+  /* Mobile fix (edit/upload only): prevent last lines from being hidden by keyboard/UI.
+     NOTE: On view page (read-only advanced mode) this padding created a "blank tail"
+     without line numbers, so we scope it to the editor container only. */
+  #editorContainer .cm-editor .cm-scroller {
     padding-bottom: 80px !important;
     padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important;
   }
