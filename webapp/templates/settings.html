@@ -178,9 +178,9 @@
           </div>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
-          <button id="pushEnableBtn" type="button" class="btn btn-primary" onclick="try{ if(window.__ckPushEnable){ window.__ckPushEnable(event); } }catch(e){} return false;">אפשר התראות</button>
-          <button id="pushDisableBtn" type="button" class="btn btn-secondary" onclick="try{ if(window.__ckPushDisable){ window.__ckPushDisable(event); } }catch(e){} return false;">כבה התראות</button>
-          <button id="pushTestBtn" type="button" class="btn btn-tertiary" onclick="try{ if(window.__ckPushTest){ window.__ckPushTest(event); } }catch(e){} return false;">שלח פוש בדיקה</button>
+          <button id="pushEnableBtn" type="button" class="btn btn-primary" onclick="try{ if(window.__ckPushEnable){ window.__ckPushEnable(); } }catch(e){} return false;">אפשר התראות</button>
+          <button id="pushDisableBtn" type="button" class="btn btn-secondary" onclick="try{ if(window.__ckPushDisable){ window.__ckPushDisable(); } }catch(e){} return false;">כבה התראות</button>
+          <button id="pushTestBtn" type="button" class="btn btn-tertiary" onclick="try{ if(window.__ckPushTest){ window.__ckPushTest(); } }catch(e){} return false;">שלח פוש בדיקה</button>
           <a href="/settings/push-debug" class="btn btn-secondary">דיבוג פוש</a>
         </div>
       </div>
@@ -3006,6 +3006,16 @@
                 try { console.warn('push test failed', e); } catch (_) {}
               });
           };
+
+          // Also bind listeners (more reliable than inline onclick in some environments)
+          try {
+            var _en = _el('pushEnableBtn');
+            if (_en) _en.addEventListener('click', function(e){ try { e && e.preventDefault && e.preventDefault(); } catch(_) {} window.__ckPushEnable && window.__ckPushEnable(); });
+            var _dis = _el('pushDisableBtn');
+            if (_dis) _dis.addEventListener('click', function(e){ try { e && e.preventDefault && e.preventDefault(); } catch(_) {} window.__ckPushDisable && window.__ckPushDisable(); });
+            var _t = _el('pushTestBtn');
+            if (_t) _t.addEventListener('click', function(e){ try { e && e.preventDefault && e.preventDefault(); } catch(_) {} window.__ckPushTest && window.__ckPushTest(); });
+          } catch (_) {}
 
           function refreshPushUi(){
             try {

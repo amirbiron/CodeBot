@@ -229,8 +229,7 @@ self.addEventListener('push', (event) => {
       
       const options = {
         body: body,
-        icon: (parsedJson.notification && parsedJson.notification.icon) || '/static/icons/app-icon-192.png',
-        badge: (parsedJson.notification && parsedJson.notification.badge) || '/static/icons/app-icon-192.png',
+        icon: (parsedJson.notification && parsedJson.notification.icon) || '/static/icons/app-icon-512.png',
         data: customData,
         requireInteraction: (parsedJson.notification && parsedJson.notification.requireInteraction) || false,
         silent: (parsedJson.notification && parsedJson.notification.silent) || false,
@@ -242,6 +241,13 @@ self.addEventListener('push', (event) => {
           { action: 'snooze_1440', title: 'דחה 24 שעות' },
         ]
       };
+
+      // Normalize icon URL to absolute (helps some desktop notification daemons)
+      try {
+        if (options.icon && typeof options.icon === 'string') {
+          options.icon = new URL(options.icon, self.location.origin).toString();
+        }
+      } catch (_) {}
       
       console.log('[SW] Notification options:', JSON.stringify(options));
       
@@ -291,8 +297,7 @@ self.addEventListener('push', (event) => {
         if (self.registration) {
           await self.registration.showNotification('🔔 התראה חדשה', {
             body: 'לא הצלחנו לטעון את פרטי ההתראה',
-            icon: '/static/icons/app-icon-192.png',
-            badge: '/static/icons/app-icon-192.png',
+            icon: new URL('/static/icons/app-icon-512.png', self.location.origin).toString(),
             tag: 'codekeeper-fallback-' + Date.now(),
             silent: false,
             requireInteraction: false
