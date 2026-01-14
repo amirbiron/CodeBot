@@ -9393,6 +9393,150 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
     }
 
 
+def _encode_dashboard_cursor(activity_at: datetime, oid: Any) -> str:
+    try:
+        payload = {
+            't': (activity_at.isoformat() if isinstance(activity_at, datetime) else None),
+            'id': str(oid) if oid is not None else None,
+        }
+        raw = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+        return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+    except Exception:
+        return ''
+
+
+def _decode_dashboard_cursor(token: str) -> Optional[Dict[str, Any]]:
+    token = (token or '').strip()
+    if not token:
+        return None
+    try:
+        padded = token + ('=' * (-len(token) % 4))
+        raw = base64.urlsafe_b64decode(padded.encode('ascii'))
+        data = json.loads(raw.decode('utf-8'))
+        if not isinstance(data, dict):
+            return None
+        t = data.get('t')
+        oid_raw = data.get('id')
+        if not t or not oid_raw:
+            return None
+        dt = datetime.fromisoformat(str(t))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        try:
+            oid = ObjectId(str(oid_raw))
+        except Exception:
+            return None
+        return {'t': dt, 'id': oid}
+    except Exception:
+        return None
+
+
+@app.route('/api/dashboard/recent_files')
+@login_required
+@traced("dashboard.recent_files")
+def dashboard_recent_files_api():
+    """
+    פיד "קבצים אחרונים" לדשבורד, עם טעינה מדורגת.
+
+    כל הקריאות מוגבלות ל-7 ימים אחורה, ומחזירות מטא-דאטה בלבד (בלי code/content/raw_data).
+    """
+    db = get_db()
+    user_id = session['user_id']
+
+    try:
+        limit = int(request.args.get('limit', 12))
+    except Exception:
+        limit = 12
+    limit = max(1, min(limit, 50))
+
+    cursor_token = (request.args.get('cursor') or '').strip()
+    cursor = _decode_dashboard_cursor(cursor_token)
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=7)
+
+    pipeline: List[Dict[str, Any]] = [
+        {'$match': {'user_id': user_id, 'is_active': True}},
+        {'$addFields': {'activity_at': {'$ifNull': ['$updated_at', '$created_at']}}},
+        {'$match': {'activity_at': {'$gte': cutoff}}},
+    ]
+
+    if cursor:
+        c_dt: datetime = cursor['t']
+        c_id: Any = cursor['id']
+        pipeline.append({
+            '$match': {
+                '$or': [
+                    {'activity_at': {'$lt': c_dt}},
+                    {'$and': [{'activity_at': c_dt}, {'_id': {'$lt': c_id}}]},
+                ]
+            }
+        })
+
+    pipeline.extend([
+        {'$sort': {'activity_at': -1, '_id': -1}},
+        {'$project': {
+            'file_name': 1,
+            'programming_language': 1,
+            'created_at': 1,
+            'updated_at': 1,
+            'version': 1,
+            'description': 1,
+            'activity_at': 1,
+        }},
+        {'$limit': limit + 1},
+    ])
+
+    try:
+        docs = list(db.code_snippets.aggregate(pipeline) or [])
+    except Exception:
+        logger.exception("dashboard_recent_files_api failed")
+        return jsonify({'ok': False, 'error': 'שגיאה בשליפת קבצים אחרונים'}), 500
+
+    has_more = len(docs) > limit
+    docs = docs[:limit]
+
+    items: List[Dict[str, Any]] = []
+    last_dt: Optional[datetime] = None
+    last_id: Optional[Any] = None
+    for doc in docs:
+        fid = str(doc.get('_id'))
+        file_name = doc.get('file_name') or 'ללא שם'
+        dt = _normalize_dt(doc.get('activity_at') or doc.get('updated_at') or doc.get('created_at'))
+        language = resolve_file_language(doc.get('programming_language'), file_name)
+        icon = get_language_icon(language)
+
+        created_fmt = ''
+        if isinstance(dt, datetime):
+            try:
+                created_fmt = dt.astimezone(timezone.utc).strftime('%d/%m/%Y %H:%M')
+            except Exception:
+                created_fmt = dt.strftime('%d/%m/%Y %H:%M')
+
+        items.append({
+            'id': fid,
+            'file_name': file_name,
+            'language': language,
+            'icon': icon,
+            'timestamp': dt.isoformat() if isinstance(dt, datetime) else None,
+            'relative_time': _format_relative(dt),
+            'created_at_formatted': created_fmt,
+        })
+
+        if isinstance(dt, datetime):
+            last_dt = dt
+            last_id = doc.get('_id')
+
+    next_cursor = _encode_dashboard_cursor(last_dt, last_id) if (has_more and last_dt and last_id) else None
+    return jsonify({
+        'ok': True,
+        'items': items,
+        'has_more': bool(has_more and next_cursor),
+        'next_cursor': next_cursor,
+        'cutoff': cutoff.isoformat(),
+    })
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
