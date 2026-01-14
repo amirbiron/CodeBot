@@ -95,3 +95,34 @@ def test_passive_wait_jitter_deterministic_when_uniform_patched(monkeypatch):
     monkeypatch.setattr(mod.random, "uniform", lambda a, b: 23.5)  # noqa: ARG005
     assert mod._compute_passive_wait_seconds(15.0, 45.0) == 23.5
 
+
+def test_heartbeat_sleep_shortens_near_expiry(monkeypatch):
+    import main as mod
+
+    class _Coll:
+        def update_one(self, *a, **k):  # noqa: ANN001
+            raise RuntimeError("unused")
+
+    hb = mod._MongoLockHeartbeat(  # type: ignore[attr-defined]
+        lock_collection=_Coll(),
+        service_id="svc",
+        owner_id="owner-1",
+        host_label="host",
+        lease_seconds=60,
+        interval_seconds=24.0,
+    )
+
+    base = mod.datetime(2026, 1, 1, tzinfo=mod.timezone.utc)
+    hb._local_expires_at = base + mod.timedelta(seconds=12)  # type: ignore[attr-defined]
+
+    # remaining=12s, guard=2s => should sleep ~10s (not 24s)
+    assert hb._compute_next_sleep_seconds(now=base) == 10.0  # type: ignore[attr-defined]
+
+    # far from expiry => sleep interval
+    hb._local_expires_at = base + mod.timedelta(seconds=120)  # type: ignore[attr-defined]
+    assert hb._compute_next_sleep_seconds(now=base) == 24.0  # type: ignore[attr-defined]
+
+    # at/after guard window => should request exit
+    hb._local_expires_at = base + mod.timedelta(seconds=1)  # type: ignore[attr-defined]
+    assert hb._should_exit_due_to_local_expiry(now=base) is True  # type: ignore[attr-defined]
+

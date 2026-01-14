@@ -1239,14 +1239,64 @@ class _MongoLockHeartbeat:
             return
 
         while not self._stop.is_set():
-            # Wait first (so a caller can stop immediately on shutdown)
+            # Wait first (so a caller can stop immediately on shutdown).
+            # חשוב: לא מסתמכים רק על interval קבוע.
+            # אם ה-lease מתקרב לפקיעה וה-network נכשל, interval גדול יכול ליצור "חלון חפיפה"
+            # שבו הלוק פג ב-Mongo אבל המופע עדיין חי עד הטיק הבא.
+            # לכן אנחנו מקצרים sleep כאשר מתקרבים ל-expiry המקומי.
             try:
-                self._stop.wait(timeout=max(0.2, float(self._interval_seconds)))
+                if self._should_exit_due_to_local_expiry():
+                    try:
+                        emit_event(
+                            "lock_heartbeat_local_expired_exiting",
+                            severity="critical",
+                            service_id=self._service_id,
+                            owner=self._owner_id,
+                        )
+                    except Exception:
+                        pass
+                    logger.critical(
+                        "Local lock lease is about to expire; exiting to prevent double polling."
+                    )
+                    os._exit(0)
             except Exception:
-                time.sleep(max(0.2, float(self._interval_seconds)))
+                # best-effort only
+                pass
+
+            sleep_seconds = self._compute_next_sleep_seconds()
+            try:
+                self._stop.wait(timeout=float(sleep_seconds))
+            except Exception:
+                time.sleep(float(sleep_seconds))
             if self._stop.is_set():
                 break
             self._tick_once()
+
+    def _compute_next_sleep_seconds(self, *, now: datetime | None = None) -> float:
+        """קובע כמה זמן לישון עד ניסיון heartbeat הבא.
+
+        העיקרון: interval קבוע הוא ברירת מחדל, אבל כשמתקרבים ל-expiry המקומי
+        אנחנו מתעוררים מוקדם יותר (expiry_guard) כדי למנוע חלון חפיפה.
+        """
+        if now is None:
+            now = _utcnow()
+        try:
+            remaining = float((self._local_expires_at - now).total_seconds())
+        except Exception:
+            remaining = float(self._interval_seconds)
+
+        expiry_guard_seconds = 2.0
+        # Wake up no later than (expiry - guard)
+        wake_in = min(float(self._interval_seconds), max(0.2, remaining - expiry_guard_seconds))
+        return max(0.2, float(wake_in))
+
+    def _should_exit_due_to_local_expiry(self, *, now: datetime | None = None) -> bool:
+        if now is None:
+            now = _utcnow()
+        try:
+            return now >= (self._local_expires_at - timedelta(seconds=2))
+        except Exception:
+            return False
 
     def _tick_once(self) -> None:
         """ריצת heartbeat אחת (מופרדת לטסטים)."""
