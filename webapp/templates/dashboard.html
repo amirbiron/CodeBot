@@ -71,38 +71,30 @@
             <i class="fas fa-clock"></i>
             קבצים אחרונים
         </h2>
-        {% if stats.recent_files %}
-        <div class="recent-files-list">
-            {% for file in stats.recent_files %}
-            <div class="file-item">
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <span style="font-size: 1.5rem;">{{ file.icon }}</span>
-                    <div>
-                        <div style="font-weight: 500;">{{ file.file_name }}</div>
-                        <div style="font-size: 0.85rem; opacity: 0.7;">{{ file.created_at_formatted }}</div>
-                    </div>
-                </div>
-                <a href="/file/{{ file._id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;">
-                    <i class="fas fa-eye"></i>
-                </a>
-            </div>
-            {% endfor %}
+        <div class="recent-files-list" id="dashboardRecentFilesList" aria-live="polite">
+            <p id="dashboardRecentFilesLoading" style="opacity: 0.7; text-align:center; margin: 0.75rem 0;">טוען קבצים אחרונים…</p>
         </div>
-        <div style="margin-top: 1.5rem;">
-            <a href="/files" class="btn btn-primary btn-icon">
+
+        <div id="dashboardRecentFilesFooter" style="margin-top: 1.25rem; display:flex; gap: .75rem; flex-wrap: wrap; align-items:center;">
+            <button id="dashboardRecentFilesLoadMore"
+                    type="button"
+                    class="btn btn-secondary btn-icon"
+                    style="display:none;">
+                <i class="fas fa-plus"></i>
+                טען עוד
+            </button>
+
+            <span id="dashboardRecentFilesHint" style="opacity: 0.7; font-size: 0.9rem; display:none;">
+                מציג עד 7 ימים אחורה
+            </span>
+
+            <a href="/files" class="btn btn-primary btn-icon" style="margin-right: auto;">
                 <i class="fas fa-folder-open"></i>
                 צפה בכל הקבצים
             </a>
         </div>
-        {% else %}
-        <p style="opacity: 0.7;">אין עדיין קבצים</p>
-        <div style="margin-top: 1.5rem;">
-            <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-primary btn-icon">
-                <i class="fab fa-telegram"></i>
-                התחל לשמור קבצים בבוט
-            </a>
-        </div>
-        {% endif %}
+
+        <p id="dashboardRecentFilesEmpty" style="opacity: 0.7; display:none; text-align:center; margin-top: 0.75rem;">אין עדיין קבצים ב-7 הימים האחרונים</p>
     </div>
 </div>
 
@@ -882,6 +874,107 @@ document.addEventListener('DOMContentLoaded', () => {
         mq.addListener(syncDesktop);
     }
     syncDesktop();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const listEl = document.getElementById('dashboardRecentFilesList');
+    const loadMoreBtn = document.getElementById('dashboardRecentFilesLoadMore');
+    const loadingEl = document.getElementById('dashboardRecentFilesLoading');
+    const emptyEl = document.getElementById('dashboardRecentFilesEmpty');
+    const hintEl = document.getElementById('dashboardRecentFilesHint');
+    if (!listEl || !loadMoreBtn) return;
+
+    const isMobile = (() => {
+        try { return window.matchMedia('(max-width: 768px)').matches; } catch (_) { return window.innerWidth <= 768; }
+    })();
+    const mobileLimit = 6; // פחות מ-12, כמו שביקשת
+    const initialLimit = isMobile ? mobileLimit : 12;
+    const pageLimit = isMobile ? (mobileLimit * 2) : 12; // בנייד: טען עוד = כפול מהמגבלה
+
+    let cursor = null;
+    let hasMore = true;
+    let isLoading = false;
+
+    const escapeHtml = (s) => String(s || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+
+    const renderItem = (item) => {
+        const id = escapeHtml(item.id);
+        const name = escapeHtml(item.file_name);
+        const icon = escapeHtml(item.icon || '📄');
+        const time = escapeHtml(item.created_at_formatted || item.relative_time || '');
+        return `
+            <div class="file-item">
+                <div style="display: flex; align-items: center; gap: 1rem; min-width:0;">
+                    <span style="font-size: 1.5rem; flex:0 0 auto;">${icon}</span>
+                    <div style="min-width:0;">
+                        <div style="font-weight: 500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${name}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.7;">${time}</div>
+                    </div>
+                </div>
+                <a href="/file/${id}" class="btn btn-secondary" style="padding: 0.5rem 1rem;">
+                    <i class="fas fa-eye"></i>
+                </a>
+            </div>
+        `;
+    };
+
+    const setButtonState = ({ visible, disabled, text } = {}) => {
+        if (visible !== undefined) loadMoreBtn.style.display = visible ? 'inline-flex' : 'none';
+        if (disabled !== undefined) loadMoreBtn.disabled = !!disabled;
+        if (text) loadMoreBtn.innerHTML = text;
+    };
+
+    const loadBatch = async (limit) => {
+        if (!hasMore || isLoading) return;
+        isLoading = true;
+        setButtonState({ visible: true, disabled: true, text: '<i class="fas fa-spinner fa-spin"></i> טוען…' });
+        if (hintEl) hintEl.style.display = 'inline';
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        try {
+            const params = new URLSearchParams();
+            params.set('limit', String(limit));
+            if (cursor) params.set('cursor', cursor);
+            const res = await fetch('/api/dashboard/recent_files?' + params.toString(), { credentials: 'same-origin', cache: 'no-store' });
+            const data = await res.json();
+            if (!res.ok || !data || data.ok === false) throw new Error((data && data.error) ? data.error : 'bad response');
+
+            const items = Array.isArray(data.items) ? data.items : [];
+            if (items.length) {
+                const html = items.map(renderItem).join('');
+                listEl.insertAdjacentHTML('beforeend', html);
+            }
+
+            cursor = data.next_cursor || null;
+            hasMore = !!data.has_more;
+
+            if (!listEl.querySelector('.file-item')) {
+                if (emptyEl) emptyEl.style.display = 'block';
+            }
+
+            if (hasMore) {
+                setButtonState({ visible: true, disabled: false, text: '<i class="fas fa-plus"></i> טען עוד' });
+            } else {
+                setButtonState({ visible: false });
+            }
+        } catch (e) {
+            console.error('dashboard recent files error', e);
+            setButtonState({ visible: true, disabled: false, text: '<i class="fas fa-redo"></i> נסה שוב' });
+        } finally {
+            isLoading = false;
+        }
+    };
+
+    loadMoreBtn.addEventListener('click', () => loadBatch(pageLimit));
+    // טעינה ראשונית
+    listEl.innerHTML = '';
+    loadBatch(initialLimit);
 });
 </script>
 {% endblock %}
