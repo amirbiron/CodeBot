@@ -146,8 +146,24 @@ def _coerce_vapid_pair() -> tuple[str, str]:
     Supports either raw base64url strings or a JSON blob pasted into the env
     by mistake (e.g. output of `web-push generate-vapid-keys`).
     """
-    pub = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
-    prv = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+    # IMPORTANT: keep public/private from the same keypair source (avoid mismatches).
+    # - If both WORKER_* keys exist, use them.
+    # - Else use VAPID_* keys.
+    worker_pub = (os.getenv("WORKER_VAPID_PUBLIC_KEY") or "").strip()
+    worker_prv = (os.getenv("WORKER_VAPID_PRIVATE_KEY") or "").strip()
+    server_pub = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
+    server_prv = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+
+    if worker_pub and worker_prv:
+        pub, prv = worker_pub, worker_prv
+    else:
+        # Prefer server pair for local pywebpush; if only public is needed (client),
+        # other parts of the code can still safely use pub even when prv is empty.
+        pub, prv = server_pub, server_prv
+        # In remote-worker mode it's still valid to expose WORKER_VAPID_PUBLIC_KEY
+        # as the subscription key even if server_prv is missing.
+        if worker_pub and not pub:
+            pub = worker_pub
     try:
         import json as _json  # defer import
         blob = None
