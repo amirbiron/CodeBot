@@ -1,6 +1,6 @@
 """Unit tests for CacheInspectorService."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 from services.cache_inspector_service import (
@@ -120,6 +120,78 @@ class TestCacheInspectorService:
         preview, value_type = self.service._get_value_preview("session:abc")
         assert preview == self.service.MASKED_VALUE
         assert value_type == "sensitive"
+
+    def test_get_value_preview_list_uses_redis_type(self):
+        """List keys shouldn't use GET (avoid WRONGTYPE)."""
+        mock_client = MagicMock()
+        mock_client.type.return_value = b"list"
+        mock_client.llen.return_value = 7
+        mock_client.lrange.return_value = [b"1", b"2", b"3", b"4", b"5"]
+
+        with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = mock_client
+            preview, value_type = self.service._get_value_preview("my:list")
+
+        assert value_type == "list"
+        assert "1" in preview
+        assert "more" in preview.lower()
+        mock_client.get.assert_not_called()
+
+    def test_get_key_details_sensitive_does_not_call_get(self):
+        """Sensitive keys should never call GET and should not crash."""
+        mock_client = MagicMock()
+        mock_client.exists.return_value = True
+        mock_client.ttl.return_value = 120
+        mock_client.type.return_value = b"string"
+        mock_client.strlen.side_effect = Exception("WRONGTYPE")
+        mock_client.object.side_effect = Exception("unsupported")
+
+        with patch.object(self.service, "is_enabled", return_value=True):
+            with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+                mock_prop.return_value = mock_client
+                details = self.service.get_key_details("session:abc")
+
+        assert details is not None
+        assert details["value"] == self.service.MASKED_VALUE
+        assert details["value_type"] == "sensitive"
+        assert details["size_bytes"] == 0
+        mock_client.get.assert_not_called()
+
+    def test_get_value_preview_hash_more_count_uses_shown_len(self):
+        """Hash preview should compute (+more) based on shown fields, not COUNT hint."""
+        # להימנע מ-truncation שמסתיר את ה-suffix "(+... more)"
+        self.service.VALUE_PREVIEW_LENGTH = 10_000
+        mock_client = MagicMock()
+        mock_client.type.return_value = b"hash"
+        mock_client.hlen.return_value = 100
+        # hscan may return >5 items even if count=5 (it's a hint)
+        mock_client.hscan.return_value = (0, {f"k{i}".encode(): f"v{i}".encode() for i in range(8)})
+
+        with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = mock_client
+            preview, value_type = self.service._get_value_preview("my:hash")
+
+        assert value_type == "hash"
+        assert "(+92 more)" in preview  # 100 - 8
+
+    def test_get_key_details_string_null_value_is_none(self):
+        """If GET returns None (race), get_key_details should return JSON null consistently."""
+        mock_client = MagicMock()
+        mock_client.exists.return_value = True
+        mock_client.ttl.return_value = 120
+        mock_client.type.return_value = b"string"
+        mock_client.get.return_value = None
+        mock_client.strlen.return_value = 0
+        mock_client.object.side_effect = Exception("unsupported")
+
+        with patch.object(self.service, "is_enabled", return_value=True):
+            with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+                mock_prop.return_value = mock_client
+                details = self.service.get_key_details("race:string")
+
+        assert details is not None
+        assert details["value"] is None
+        assert details["value_type"] == "null"
 
     def test_overview_integration(self):
         """Test get_overview returns proper structure."""

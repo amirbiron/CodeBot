@@ -3758,12 +3758,24 @@ def _run_profiler(awaitable):
     async def _runner():
         return await awaitable
 
-    try:
-        from asgiref.sync import async_to_sync  # type: ignore
-
-        return async_to_sync(_runner)()
-    except Exception:
+    def _run_in_new_loop():
         return asyncio.run(_runner())
+
+    # תחת gevent (או בכל thread שיש בו event loop פעיל), אסור לקרוא asyncio.run/AsyncToSync.
+    # הפתרון היציב: לברוח ל-OS thread "נקי" ולהריץ שם event loop חדש.
+    try:
+        asyncio.get_running_loop()
+        return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
+    except RuntimeError:
+        # אין event loop פעיל ב-thread הנוכחי => מותר להריץ לולאה חדשה כאן.
+        try:
+            return _run_in_new_loop()
+        except RuntimeError as e:
+            # Fall back בטוח: אם asyncio עדיין חושב שיש loop פעיל (נראה לעתים עם gevent),
+            # נריץ ב-threadpool.
+            if "asyncio.run() cannot be called from a running event loop" in str(e):
+                return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
+            raise
 
 
 @app.route("/admin/profiler")
@@ -4083,12 +4095,20 @@ def _run_db_health(awaitable):
     async def _runner():
         return await awaitable
 
-    try:
-        from asgiref.sync import async_to_sync  # type: ignore
-
-        return async_to_sync(_runner)()
-    except Exception:
+    def _run_in_new_loop():
         return asyncio.run(_runner())
+
+    # אותו עיקרון כמו ב-Query Profiler: תחת gevent אי אפשר להריץ event loop באותו thread.
+    try:
+        asyncio.get_running_loop()
+        return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
+    except RuntimeError:
+        try:
+            return _run_in_new_loop()
+        except RuntimeError as e:
+            if "asyncio.run() cannot be called from a running event loop" in str(e):
+                return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
+            raise
 
 
 def _get_webapp_db_health_service():
