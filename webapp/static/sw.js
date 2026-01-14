@@ -324,44 +324,77 @@ self.addEventListener('notificationclick', (event) => {
   const d = (event.notification && event.notification.data) || {};
   event.notification && event.notification.close && event.notification.close();
 
-  if (event.action === 'open_note' && d.file_id && d.note_id) {
-    const urlToOpen = `/file/${encodeURIComponent(d.file_id)}#note=${encodeURIComponent(d.note_id)}`;
-    const ack = fetch('/api/sticky-notes/reminders/ack', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note_id: String(d.note_id) })
-    }).catch(() => {});
-    const nav = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+  event.waitUntil((async () => {
+    const fileId = (d && d.file_id != null) ? String(d.file_id) : '';
+    const noteId = (d && d.note_id != null) ? String(d.note_id) : '';
+    const action = (event && event.action) ? String(event.action) : '';
+
+    // Report click (no PII: only presence + action)
+    try {
+      await reportToServer('notification_click', 'started', {
+        action: action || '',
+        has_file_id: !!fileId,
+        has_note_id: !!noteId,
+      });
+    } catch (_) {}
+
+    // Snooze actions
+    if (action && action.startsWith('snooze_') && noteId) {
+      const minutes = Number(action.split('_')[1] || 10);
+      try {
+        await fetch(`/api/sticky-notes/note/${encodeURIComponent(noteId)}/snooze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ minutes })
+        }).catch(() => {});
+      } catch (_) {}
+      return;
+    }
+
+    // Open-note action OR clicking the notification body: open the markdown view with deep-link
+    // (matches the in-app behavior: /md/<file_id>?note=<note_id>)
+    let urlToOpen = '/';
+    try {
+      if (fileId) {
+        urlToOpen = `/md/${encodeURIComponent(fileId)}` + (noteId ? `?note=${encodeURIComponent(noteId)}` : '');
+      }
+    } catch (_) {
+      urlToOpen = '/';
+    }
+
+    // Best-effort ack when we actually have a note id
+    if (noteId) {
+      try {
+        fetch('/api/sticky-notes/reminders/ack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note_id: noteId })
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    try {
+      const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
       let matchingClient = null;
       try {
-        matchingClient = windowClients.find((client) => client && client.url && client.url.includes(`/file/${encodeURIComponent(d.file_id)}`));
-      } catch(_) {}
-      if (matchingClient && matchingClient.navigate) {
-        return matchingClient.navigate(urlToOpen).then((client) => client && client.focus && client.focus());
-      } else {
-        return clients.openWindow(urlToOpen);
-      }
-    });
-    event.waitUntil(Promise.all([ack, nav]));
-  } else if (event.action && event.action.startsWith('snooze_') && d.note_id) {
-    const minutes = Number(event.action.split('_')[1] || 10);
-    event.waitUntil(
-      fetch(`/api/sticky-notes/note/${encodeURIComponent(d.note_id)}/snooze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ minutes })
-      }).catch(() => {})
-    );
-  } else {
-    // Focus/open client on generic click
-    event.waitUntil(
-      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-        if (windowClients.length > 0) {
-          const client = windowClients[0];
-          return client && client.focus && client.focus();
+        if (fileId) {
+          const needle = `/md/${encodeURIComponent(fileId)}`;
+          matchingClient = windowClients.find((client) => client && client.url && client.url.includes(needle));
+        } else {
+          matchingClient = windowClients.length ? windowClients[0] : null;
         }
-        return clients.openWindow('/');
-      })
-    );
-  }
+      } catch (_) {}
+
+      if (matchingClient && matchingClient.navigate) {
+        const client = await matchingClient.navigate(urlToOpen);
+        try { client && client.focus && client.focus(); } catch (_) {}
+      } else {
+        await clients.openWindow(urlToOpen);
+      }
+      try { await reportToServer('notification_click', 'opened', { action: action || '', opened: true }); } catch (_) {}
+    } catch (e) {
+      try { await reportToServer('notification_click', 'error', { action: action || '', error: String(e) }); } catch (_) {}
+      try { await clients.openWindow('/'); } catch (_) {}
+    }
+  })());
 });
