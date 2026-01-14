@@ -195,6 +195,10 @@
     </div>
   </div>
 {% endif %}
+{# Web Push: load a dedicated, cache-busted script to avoid "silent disconnect" cases #}
+{% if show_web_push_settings %}
+  <script defer src="{{ url_for('static', filename='js/push-settings.js') }}?v={{ static_version }}"></script>
+{% endif %}
 
 {% if is_admin %}
 <div class="glass-card config-radar-card" id="configRadarCard">
@@ -2881,6 +2885,8 @@
     <script>
       (function(){
         try {
+          // If the external push script loaded, do not override it.
+          try { if (window.__ckPushSettingsLoaded) { return; } } catch (_) {}
           function _el(id){ return document.getElementById(id); }
           function _set(text){ var s = _el('pushStatus'); if (s) s.textContent = String(text || ''); }
           function _urlBase64ToUint8Array(base64String) {

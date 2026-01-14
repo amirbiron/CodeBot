@@ -1,5 +1,5 @@
 // SW Version for cache busting
-const SW_VERSION = '2.0.2';
+const SW_VERSION = '2.0.4';
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing version:', SW_VERSION);
@@ -338,8 +338,9 @@ self.addEventListener('notificationclick', (event) => {
       });
     } catch (_) {}
 
-    // Snooze actions
-    if (action && action.startsWith('snooze_') && noteId) {
+    // Snooze actions (NOTE: some environments mis-map action buttons; keep open fallback below)
+    const isSnooze = !!(action && action.startsWith('snooze_') && noteId);
+    if (isSnooze) {
       const minutes = Number(action.split('_')[1] || 10);
       try {
         await fetch(`/api/sticky-notes/note/${encodeURIComponent(noteId)}/snooze`, {
@@ -348,11 +349,20 @@ self.addEventListener('notificationclick', (event) => {
           body: JSON.stringify({ minutes })
         }).catch(() => {});
       } catch (_) {}
-      return;
     }
 
     // Open-note action OR clicking the notification body: open the markdown view with deep-link
     // (matches the in-app behavior: /md/<file_id>?note=<note_id>)
+    //
+    // Fallback: if action buttons are mis-mapped and we got snooze_10, still open the note.
+    const shouldOpen =
+      !action ||
+      action === 'open_note' ||
+      action === 'snooze_10';
+    if (!shouldOpen) {
+      try { await reportToServer('notification_click', 'skipped_open', { action: action || '' }); } catch (_) {}
+      return;
+    }
     let urlToOpen = '/';
     try {
       if (fileId) {
@@ -361,6 +371,8 @@ self.addEventListener('notificationclick', (event) => {
     } catch (_) {
       urlToOpen = '/';
     }
+    // Normalize to absolute URL for best compatibility
+    try { urlToOpen = new URL(urlToOpen, self.location.origin).toString(); } catch (_) {}
 
     // Best-effort ack when we actually have a note id
     if (noteId) {
