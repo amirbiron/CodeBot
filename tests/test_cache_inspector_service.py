@@ -1,6 +1,6 @@
 """Unit tests for CacheInspectorService."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 from services.cache_inspector_service import (
@@ -128,7 +128,8 @@ class TestCacheInspectorService:
         mock_client.llen.return_value = 7
         mock_client.lrange.return_value = [b"1", b"2", b"3", b"4", b"5"]
 
-        with patch.object(self.service, "redis_client", mock_client):
+        with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = mock_client
             preview, value_type = self.service._get_value_preview("my:list")
 
         assert value_type == "list"
@@ -146,7 +147,8 @@ class TestCacheInspectorService:
         mock_client.object.side_effect = Exception("unsupported")
 
         with patch.object(self.service, "is_enabled", return_value=True):
-            with patch.object(self.service, "redis_client", mock_client):
+            with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+                mock_prop.return_value = mock_client
                 details = self.service.get_key_details("session:abc")
 
         assert details is not None
