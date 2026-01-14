@@ -1117,7 +1117,7 @@ def _install_lock_signal_handlers(*, service_id: str, owner_id: str) -> None:
 
     best-effort: אם פלטפורמה/ספרייה אחרת התקינה handler, ננסה לשרשר אליו.
     """
-    global _LOCK_SIGNALS_INSTALLED, _LOCK_ORIG_SIGNAL_HANDLERS
+    global _LOCK_SIGNALS_INSTALLED
     if _LOCK_SIGNALS_INSTALLED:
         return
     # אל תיגע ב-signal handlers בטסטים
