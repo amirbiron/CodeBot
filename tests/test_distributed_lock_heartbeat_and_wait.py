@@ -29,6 +29,34 @@ def test_lock_heartbeat_ownership_loss_exits(monkeypatch):
         hb._tick_once()  # type: ignore[attr-defined]
 
 
+def test_lock_heartbeat_does_not_extend_local_expiry_on_failure(monkeypatch):
+    import main as mod
+
+    class _Coll:
+        def update_one(self, *a, **k):  # noqa: ANN001
+            raise RuntimeError("network blip")
+
+    hb = mod._MongoLockHeartbeat(  # type: ignore[attr-defined]
+        lock_collection=_Coll(),
+        service_id="svc",
+        owner_id="owner-1",
+        host_label="host",
+        lease_seconds=60,
+        interval_seconds=5.0,
+    )
+
+    # simulate already-expired local lease (last successful refresh was long ago)
+    hb._local_expires_at = mod._utcnow() - mod.timedelta(seconds=5)  # type: ignore[attr-defined]
+
+    class ExitNow(BaseException):
+        pass
+
+    monkeypatch.setattr(mod.os, "_exit", lambda _code=0: (_ for _ in ()).throw(ExitNow()))
+
+    with pytest.raises(ExitNow):
+        hb._tick_once()  # type: ignore[attr-defined]
+
+
 def test_manage_mongo_lock_active_wait_times_out(monkeypatch):
     import main as mod
 

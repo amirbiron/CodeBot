@@ -1241,16 +1241,18 @@ class _MongoLockHeartbeat:
     def _tick_once(self) -> None:
         """ריצת heartbeat אחת (מופרדת לטסטים)."""
         now = _utcnow()
-        exp = now + timedelta(seconds=self._lease_seconds)
-        self._local_expires_at = exp
+        # מחשבים יעד חדש, אבל לא "מאריכים" מקומית לפני שהעדכון הצליח בפועל ב-MongoDB.
+        # אחרת: תקלה רגעית (timeout/failover) יכולה לגרום לנו לחשוב שיש לנו lease,
+        # בעוד שב-Mongo הנעילה פגה ומופע אחר יכול לרכוש אותה -> double polling.
+        target_exp = now + timedelta(seconds=self._lease_seconds)
 
         try:
             res = self._lock_collection.update_one(
                 {"_id": self._service_id, "owner": self._owner_id},
                 {
                     "$set": {
-                        "expiresAt": exp,
-                        "expires_at": exp,  # legacy alias
+                        "expiresAt": target_exp,
+                        "expires_at": target_exp,  # legacy alias
                         "updatedAt": now,
                         "host": self._host_label,
                         "pid": int(os.getpid()),
@@ -1275,6 +1277,8 @@ class _MongoLockHeartbeat:
                 )
                 os._exit(0)
 
+            # עדכון הצליח והמסמך עדיין בבעלותנו -> עכשיו מותר לעדכן את ה-expiry המקומי
+            self._local_expires_at = target_exp
             self._last_ok_monotonic = time.monotonic()
         except Exception as e:
             # If we fail to refresh close to local expiry, exit rather than risk polling without a valid lease.
@@ -1291,7 +1295,9 @@ class _MongoLockHeartbeat:
             logger.warning(f"Mongo lock heartbeat failed: {e}", exc_info=True)
 
             try:
-                if _utcnow() >= (self._local_expires_at - timedelta(seconds=2)):
+                # חשוב: משתמשים ב-expiry האחרון שהצלחנו לחדש בפועל,
+                # ולא ב"יעד" הנוכחי שנכשל, כדי לא להאריך מקומית בטעות.
+                if now >= (self._local_expires_at - timedelta(seconds=2)):
                     try:
                         emit_event(
                             "lock_heartbeat_expiring_exiting",
