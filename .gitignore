@@ -52,6 +52,3 @@ tmp/
 .cursor/
 # Sphinx build output
 docs/_build/
-
-# Node (Worker only)
-worker/node_modules/
