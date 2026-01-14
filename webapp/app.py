@@ -9534,7 +9534,9 @@ def files():
     search_query = request.args.get('q', '')
     language_filter = request.args.get('lang', '')
     category_filter = request.args.get('category', '')
-    sort_by = request.args.get('sort', 'created_at')
+    # ברירת מחדל: חדש ביותר (ולא "ישן ביותר") — עבור "כל הקבצים", "קבצים גדולים", "שאר הקבצים"
+    raw_sort = (request.args.get('sort') or '').strip()
+    sort_by = raw_sort or '-created_at'
     repo_name = request.args.get('repo', '').strip()
     page = int(request.args.get('page', 1))
     cursor_token = (request.args.get('cursor') or '').strip()
@@ -9574,13 +9576,13 @@ def files():
     # החלת ברירות מחדל למיון לפני בניית מפתח הקאש
     try:
         # קטגוריית "נפתחו לאחרונה": לפי זמן פתיחה אחרון אם לא סופק מיון במפורש
-        if (category_filter or '').strip().lower() == 'recent' and not (request.args.get('sort') or '').strip():
+        if (category_filter or '').strip().lower() == 'recent' and not raw_sort:
             sort_by = '-last_opened_at'
     except Exception:
         pass
     try:
         # קטגוריית "מועדפים": לפי זמן הוספה למועדפים (חדש -> ישן) אם לא סופק מיון במפורש
-        if (category_filter or '').strip().lower() == 'favorites' and not (request.args.get('sort') or '').strip():
+        if (category_filter or '').strip().lower() == 'favorites' and not raw_sort:
             sort_by = '-favorited_at'
     except Exception:
         pass
@@ -11722,17 +11724,89 @@ def edit_file_page(file_id):
     db = get_db()
     user_id = session['user_id']
     try:
-        file = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
-    except Exception:
-        file = None
+        file, kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception as e:
+        logger.exception("DB error fetching file for edit", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+        abort(500)
     if not file:
         abort(404)
+    is_large = (kind == "large")
 
     original_file_name = str(file.get('file_name') or '')
     error = None
     success = None
 
-    if request.method == 'POST':
+    # --- Large files: עדכון במקום (ללא "גרסאות") ---
+    if request.method == 'POST' and is_large:
+        try:
+            file_name = (request.form.get('file_name') or '').strip()
+            content = request.form.get('code') or ''
+            content = normalize_code(content)
+            language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
+            description = (request.form.get('description') or '').strip()
+            raw_tags = (request.form.get('tags') or '').strip()
+            tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else list(file.get('tags') or [])
+
+            raw_source_url = (request.form.get('source_url') or '').strip()
+            source_url_state = (request.form.get('source_url_touched') or '').strip().lower()
+            source_url_was_edited = source_url_state == 'edited'
+
+            if not file_name:
+                error = 'יש להזין שם קובץ'
+            if not content and not error:
+                error = 'יש להזין תוכן קוד'
+
+            update_doc: Dict[str, Any] = {}
+            if not error and source_url_was_edited:
+                if raw_source_url:
+                    clean_source_url, source_url_err = _normalize_source_url_value(raw_source_url)
+                    if source_url_err:
+                        error = source_url_err
+                    else:
+                        update_doc['source_url'] = clean_source_url or ''
+                else:
+                    update_doc['source_url'] = ''
+
+            if not error:
+                now = datetime.now(timezone.utc)
+                update_doc.update({
+                    'file_name': file_name,
+                    'content': content,
+                    'programming_language': language,
+                    'description': description,
+                    'tags': tags,
+                    'file_size': len(content.encode('utf-8')),
+                    'lines_count': len(content.split('\n')),
+                    'updated_at': now,
+                })
+                large_coll = getattr(db, 'large_files', None)
+                if large_coll is None:
+                    error = "לא ניתן לערוך קבצים גדולים בסביבה זו (large_files לא זמין)."
+                else:
+                    large_coll.update_one(
+                        {'_id': ObjectId(file_id), 'user_id': user_id, 'is_active': {'$ne': False}},
+                        {'$set': update_doc},
+                    )
+                    try:
+                        _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                    except Exception:
+                        pass
+                    try:
+                        cache.invalidate_user_cache(int(user_id))
+                    except Exception:
+                        pass
+                    success = "✅ נשמר"
+                    try:
+                        refreshed = large_coll.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+                        if isinstance(refreshed, dict):
+                            file = refreshed
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.exception("Error saving large file", extra={"file_id": file_id, "user_id": user_id, "error": str(exc)})
+            error = "אירעה שגיאה בשמירה"
+
+    if request.method == 'POST' and not is_large:
         try:
             file_name = (request.form.get('file_name') or '').strip()
             code = request.form.get('code') or ''
@@ -12065,31 +12139,33 @@ def edit_file_page(file_id):
     languages = _build_language_choices(user_langs)
 
     # המרה לנתונים לתבנית
-    code_value = file.get('code') or ''
+    code_value = file.get('code') or file.get('content') or ''
     file_data = {
         'id': str(file.get('_id')),
         'file_name': file.get('file_name') or '',
         'language': file.get('programming_language') or 'text',
         'description': file.get('description') or '',
         'tags': file.get('tags') or [],
-        'version': file.get('version', 1),
+        'version': (file.get('version', 1) if not is_large else None),
+        'is_large': bool(is_large),
         'source_url': file.get('source_url') or '',
     }
 
-    # תמונות Markdown לגרסה הנוכחית (לצורך תצוגה/מחיקה ב-edit)
+    # תמונות Markdown לגרסה הנוכחית (לצורך תצוגה/מחיקה ב-edit) — רק לקבצים רגילים
     existing_images: List[Dict[str, Any]] = []
-    try:
-        cursor = db.markdown_images.find(
-            {'snippet_id': file.get('_id'), 'user_id': user_id}
-        ).sort('order', 1)
-        for img in cursor:
-            existing_images.append({
-                'id': str(img.get('_id')),
-                'url': url_for('get_markdown_image', file_id=file_id, image_id=str(img.get('_id'))),
-                'name': img.get('file_name') or 'image',
-            })
-    except Exception:
-        existing_images = []
+    if not is_large:
+        try:
+            cursor = db.markdown_images.find(
+                {'snippet_id': file.get('_id'), 'user_id': user_id}
+            ).sort('order', 1)
+            for img in cursor:
+                existing_images.append({
+                    'id': str(img.get('_id')),
+                    'url': url_for('get_markdown_image', file_id=file_id, image_id=str(img.get('_id'))),
+                    'name': img.get('file_name') or 'image',
+                })
+        except Exception:
+            existing_images = []
 
     return render_template('edit_file.html',
                          user=session['user_data'],
