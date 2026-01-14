@@ -458,7 +458,6 @@
             backdrop-filter: blur(20px);
             border-bottom: 0; /* הסרת הקו האופקי העליון */
             padding: 1rem 0;
-            /* מאפשר שכבות רקע כמו Code Particles בלי לפגוע בדרופדאונים */
             position: static;
             top: auto;
             z-index: 1000;
@@ -1014,52 +1013,6 @@
             background: var(--glass-hover, rgba(103, 126, 234, 0.1));
             color: var(--primary);
             box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
-        }
-
-        /* Code Particles (Fun Mode) - שכבת רקע קלילה בתוך ה-navbar */
-        #code-particles-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 1;
-            overflow: hidden; /* חיתוך החלקיקים בתוך הנאבבר, בלי לחתוך דרופדאונים */
-        }
-
-        .navbar > .container {
-            position: relative;
-            z-index: 2;
-        }
-
-        .code-particle {
-            position: absolute;
-            bottom: -20px;
-            color: rgba(100, 220, 255, 0.4);
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-size: 12px;
-            user-select: none;
-            will-change: transform, opacity;
-            white-space: nowrap;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
-        }
-
-        @keyframes floatUpRotated {
-            0% {
-                transform: translate3d(0, 0, 0) rotate(0deg);
-                opacity: 0;
-            }
-            10% {
-                opacity: 0.8;
-            }
-            90% {
-                opacity: 0.8;
-            }
-            100% {
-                transform: translate3d(var(--code-particle-dx, 0px), -150px, 0) rotate(45deg);
-                opacity: 0;
-            }
         }
 
         /* Fallback when Font Awesome fails to load: hide FA <i> and reveal labels */
@@ -1713,7 +1666,6 @@
     </script>
     <nav class="navbar">
         <div class="container">
-            <div id="code-particles-container" aria-hidden="true"></div>
             <div class="nav-content">
                 <a href="/" class="logo">
                     <i class="fas fa-code"></i>
