@@ -121,6 +121,40 @@ class TestCacheInspectorService:
         assert preview == self.service.MASKED_VALUE
         assert value_type == "sensitive"
 
+    def test_get_value_preview_list_uses_redis_type(self):
+        """List keys shouldn't use GET (avoid WRONGTYPE)."""
+        mock_client = MagicMock()
+        mock_client.type.return_value = b"list"
+        mock_client.llen.return_value = 7
+        mock_client.lrange.return_value = [b"1", b"2", b"3", b"4", b"5"]
+
+        with patch.object(self.service, "redis_client", mock_client):
+            preview, value_type = self.service._get_value_preview("my:list")
+
+        assert value_type == "list"
+        assert "1" in preview
+        assert "more" in preview.lower()
+        mock_client.get.assert_not_called()
+
+    def test_get_key_details_sensitive_does_not_call_get(self):
+        """Sensitive keys should never call GET and should not crash."""
+        mock_client = MagicMock()
+        mock_client.exists.return_value = True
+        mock_client.ttl.return_value = 120
+        mock_client.type.return_value = b"string"
+        mock_client.strlen.side_effect = Exception("WRONGTYPE")
+        mock_client.object.side_effect = Exception("unsupported")
+
+        with patch.object(self.service, "is_enabled", return_value=True):
+            with patch.object(self.service, "redis_client", mock_client):
+                details = self.service.get_key_details("session:abc")
+
+        assert details is not None
+        assert details["value"] == self.service.MASKED_VALUE
+        assert details["value_type"] == "sensitive"
+        assert details["size_bytes"] == 0
+        mock_client.get.assert_not_called()
+
     def test_overview_integration(self):
         """Test get_overview returns proper structure."""
         with patch.object(self.service, 'is_enabled', return_value=False):

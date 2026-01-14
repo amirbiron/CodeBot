@@ -133,6 +133,25 @@ class CacheInspectorService:
         key_lower = key.lower()
         return any(pattern in key_lower for pattern in self.SENSITIVE_PATTERNS)
 
+    @staticmethod
+    def _to_str(value: Any) -> str:
+        """המרה בטוחה ל-string (כולל bytes)."""
+        if value is None:
+            return ""
+        if isinstance(value, (bytes, bytearray)):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    def _get_redis_key_type(self, client, key: Any) -> str:
+        """קבלת TYPE של מפתח ב-Redis בצורה בטוחה."""
+        try:
+            t = client.type(key)
+        except Exception:
+            return "unknown"
+        # redis-py יכול להחזיר bytes או str
+        t_s = self._to_str(t).strip().lower()
+        return t_s or "unknown"
+
     def _get_value_preview(self, key: str) -> Tuple[str, str]:
         """
         קבלת תצוגה מקדימה של ערך.
@@ -140,7 +159,9 @@ class CacheInspectorService:
         Returns:
             Tuple של (preview, type)
         """
-        if self._is_sensitive_key(key):
+        # redis-py יכול להחזיר key כ-bytes (תלוי decode_responses)
+        key_str = self._to_str(key)
+        if self._is_sensitive_key(key_str):
             return self.MASKED_VALUE, "sensitive"
 
         try:
@@ -148,26 +169,128 @@ class CacheInspectorService:
             if client is None:
                 return "(unavailable)", "unknown"
 
-            # קבלת הערך הגולמי
-            raw_value = client.get(key)
-            if raw_value is None:
-                return "(null)", "null"
+            redis_type = self._get_redis_key_type(client, key)
 
-            # ניסיון לפרסר JSON
-            try:
-                parsed = json.loads(raw_value)
-                if isinstance(parsed, dict):
-                    value_type = "dict"
-                    preview = json.dumps(parsed, ensure_ascii=False)
-                elif isinstance(parsed, list):
-                    value_type = "list"
-                    preview = json.dumps(parsed, ensure_ascii=False)
-                else:
-                    value_type = type(parsed).__name__
-                    preview = str(parsed)
-            except (json.JSONDecodeError, TypeError):
-                value_type = "string"
-                preview = str(raw_value)
+            # --- String ---
+            if redis_type in ("string", "str"):
+                raw_value = client.get(key)
+                if raw_value is None:
+                    return "(null)", "null"
+
+                raw_str = self._to_str(raw_value)
+                # ניסיון לפרסר JSON
+                try:
+                    parsed = json.loads(raw_str)
+                    if isinstance(parsed, dict):
+                        value_type = "dict"
+                        preview = json.dumps(parsed, ensure_ascii=False)
+                    elif isinstance(parsed, list):
+                        value_type = "list"
+                        preview = json.dumps(parsed, ensure_ascii=False)
+                    else:
+                        value_type = type(parsed).__name__
+                        preview = str(parsed)
+                except (json.JSONDecodeError, TypeError):
+                    value_type = "string"
+                    preview = raw_str
+
+            # --- List ---
+            elif redis_type == "list":
+                try:
+                    length = int(client.llen(key) or 0)
+                except Exception:
+                    length = 0
+                try:
+                    sample = client.lrange(key, 0, min(4, max(0, length - 1)))
+                except Exception:
+                    sample = []
+                preview = json.dumps([self._to_str(v) for v in (sample or [])], ensure_ascii=False)
+                value_type = "list"
+                if length > 5:
+                    preview = f"{preview}  (+{length - 5} more)"
+
+            # --- Set ---
+            elif redis_type == "set":
+                try:
+                    count = int(client.scard(key) or 0)
+                except Exception:
+                    count = 0
+                try:
+                    sample = client.srandmember(key, number=5)
+                except Exception:
+                    sample = []
+                if sample is None:
+                    sample = []
+                if not isinstance(sample, list):
+                    sample = [sample]
+                preview = json.dumps([self._to_str(v) for v in sample], ensure_ascii=False)
+                value_type = "set"
+                if count > 5:
+                    preview = f"{preview}  (+{count - 5} more)"
+
+            # --- ZSet ---
+            elif redis_type in ("zset", "sortedset"):
+                try:
+                    count = int(client.zcard(key) or 0)
+                except Exception:
+                    count = 0
+                try:
+                    sample = client.zrange(key, 0, 4, withscores=True)
+                except Exception:
+                    sample = []
+                preview = json.dumps(
+                    [[self._to_str(v), float(s)] for (v, s) in (sample or [])],
+                    ensure_ascii=False,
+                )
+                value_type = "zset"
+                if count > 5:
+                    preview = f"{preview}  (+{count - 5} more)"
+
+            # --- Hash ---
+            elif redis_type == "hash":
+                try:
+                    count = int(client.hlen(key) or 0)
+                except Exception:
+                    count = 0
+                try:
+                    _cursor, data = client.hscan(key, cursor=0, count=5)
+                except Exception:
+                    data = {}
+                preview = json.dumps(
+                    {self._to_str(k): self._to_str(v) for k, v in (data or {}).items()},
+                    ensure_ascii=False,
+                )
+                value_type = "hash"
+                if count > 5:
+                    preview = f"{preview}  (+{count - 5} more)"
+
+            # --- Stream ---
+            elif redis_type == "stream":
+                try:
+                    count = int(client.xlen(key) or 0)
+                except Exception:
+                    count = 0
+                try:
+                    entries = client.xrevrange(key, count=3)
+                except Exception:
+                    entries = []
+                preview = json.dumps(
+                    [
+                        {"id": self._to_str(entry_id), "fields": {self._to_str(k): self._to_str(v) for k, v in fields.items()}}
+                        for (entry_id, fields) in (entries or [])
+                    ],
+                    ensure_ascii=False,
+                )
+                value_type = "stream"
+                if count > 3:
+                    preview = f"{preview}  (+{count - 3} more)"
+
+            # --- None / Unknown ---
+            elif redis_type in ("none",):
+                return "(null)", "null"
+            else:
+                # סוג שאינו נתמך לתצוגה מלאה - נחזיר את הסוג בלבד בלי להרעיש בלוגים
+                return f"({redis_type})", redis_type
 
             # קיצור התצוגה
             if len(preview) > self.VALUE_PREVIEW_LENGTH:
@@ -176,7 +299,7 @@ class CacheInspectorService:
             return preview, value_type
 
         except Exception as e:
-            logger.warning(f"Error getting value preview for {key}: {e}")
+            logger.warning(f"Error getting value preview for {key_str}: {e}")
             return "(error)", "error"
 
     def _determine_status(self, ttl: int) -> CacheKeyStatus:
@@ -362,23 +485,32 @@ class CacheInspectorService:
             ttl = client.ttl(key)
 
             # קבלת הערך המלא (אם לא רגיש)
+            raw_value = None
+            redis_type = self._get_redis_key_type(client, key)
             if self._is_sensitive_key(key):
                 value = self.MASKED_VALUE
                 value_type = "sensitive"
             else:
-                raw_value = client.get(key)
-                try:
-                    value = json.loads(raw_value)
-                    value_type = type(value).__name__
-                except (json.JSONDecodeError, TypeError):
-                    value = raw_value
-                    value_type = "string"
+                if redis_type in ("string", "str"):
+                    raw_value = client.get(key)
+                    raw_str = self._to_str(raw_value)
+                    try:
+                        value = json.loads(raw_str)
+                        value_type = type(value).__name__
+                    except (json.JSONDecodeError, TypeError):
+                        value = raw_str
+                        value_type = "string"
+                else:
+                    # עבור טיפוסים לא-String נחזיר רק תצוגה מקדימה יציבה כדי להימנע מ-WRONGTYPE.
+                    preview, preview_type = self._get_value_preview(key)
+                    value = preview
+                    value_type = preview_type
 
             # קבלת גודל
             try:
                 size = client.strlen(key)
             except Exception:
-                size = len(str(raw_value)) if raw_value else 0
+                size = len(self._to_str(raw_value)) if raw_value else 0
 
             # קבלת encoding ו-idletime (אם נתמך)
             encoding = "unknown"
@@ -393,6 +525,7 @@ class CacheInspectorService:
                 "key": key,
                 "value": value,
                 "value_type": value_type,
+                "redis_type": redis_type,
                 "ttl_seconds": ttl,
                 "size_bytes": size,
                 "encoding": encoding,
