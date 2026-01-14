@@ -206,8 +206,9 @@ class CacheInspectorService:
                     sample = []
                 preview = json.dumps([self._to_str(v) for v in (sample or [])], ensure_ascii=False)
                 value_type = "list"
-                if length > 5:
-                    preview = f"{preview}  (+{length - 5} more)"
+                shown = len(sample or [])
+                if length > shown:
+                    preview = f"{preview}  (+{max(0, length - shown)} more)"
 
             # --- Set ---
             elif redis_type == "set":
@@ -225,8 +226,9 @@ class CacheInspectorService:
                     sample = [sample]
                 preview = json.dumps([self._to_str(v) for v in sample], ensure_ascii=False)
                 value_type = "set"
-                if count > 5:
-                    preview = f"{preview}  (+{count - 5} more)"
+                shown = len(sample or [])
+                if count > shown:
+                    preview = f"{preview}  (+{max(0, count - shown)} more)"
 
             # --- ZSet ---
             elif redis_type in ("zset", "sortedset"):
@@ -243,8 +245,9 @@ class CacheInspectorService:
                     ensure_ascii=False,
                 )
                 value_type = "zset"
-                if count > 5:
-                    preview = f"{preview}  (+{count - 5} more)"
+                shown = len(sample or [])
+                if count > shown:
+                    preview = f"{preview}  (+{max(0, count - shown)} more)"
 
             # --- Hash ---
             elif redis_type == "hash":
@@ -261,8 +264,9 @@ class CacheInspectorService:
                     ensure_ascii=False,
                 )
                 value_type = "hash"
-                if count > 5:
-                    preview = f"{preview}  (+{count - 5} more)"
+                shown = len((data or {}).keys())
+                if count > shown:
+                    preview = f"{preview}  (+{max(0, count - shown)} more)"
 
             # --- Stream ---
             elif redis_type == "stream":
@@ -282,8 +286,9 @@ class CacheInspectorService:
                     ensure_ascii=False,
                 )
                 value_type = "stream"
-                if count > 3:
-                    preview = f"{preview}  (+{count - 3} more)"
+                shown = len(entries or [])
+                if count > shown:
+                    preview = f"{preview}  (+{max(0, count - shown)} more)"
 
             # --- None / Unknown ---
             elif redis_type in ("none",):
@@ -493,13 +498,17 @@ class CacheInspectorService:
             else:
                 if redis_type in ("string", "str"):
                     raw_value = client.get(key)
-                    raw_str = self._to_str(raw_value)
-                    try:
-                        value = json.loads(raw_str)
-                        value_type = type(value).__name__
-                    except (json.JSONDecodeError, TypeError):
-                        value = raw_str
-                        value_type = "string"
+                    if raw_value is None:
+                        value = None
+                        value_type = "null"
+                    else:
+                        raw_str = self._to_str(raw_value)
+                        try:
+                            value = json.loads(raw_str)
+                            value_type = type(value).__name__
+                        except (json.JSONDecodeError, TypeError):
+                            value = raw_str
+                            value_type = "string"
                 else:
                     # עבור טיפוסים לא-String נחזיר רק תצוגה מקדימה יציבה כדי להימנע מ-WRONGTYPE.
                     preview, preview_type = self._get_value_preview(key)

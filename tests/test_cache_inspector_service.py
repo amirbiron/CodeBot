@@ -157,6 +157,42 @@ class TestCacheInspectorService:
         assert details["size_bytes"] == 0
         mock_client.get.assert_not_called()
 
+    def test_get_value_preview_hash_more_count_uses_shown_len(self):
+        """Hash preview should compute (+more) based on shown fields, not COUNT hint."""
+        # להימנע מ-truncation שמסתיר את ה-suffix "(+... more)"
+        self.service.VALUE_PREVIEW_LENGTH = 10_000
+        mock_client = MagicMock()
+        mock_client.type.return_value = b"hash"
+        mock_client.hlen.return_value = 100
+        # hscan may return >5 items even if count=5 (it's a hint)
+        mock_client.hscan.return_value = (0, {f"k{i}".encode(): f"v{i}".encode() for i in range(8)})
+
+        with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+            mock_prop.return_value = mock_client
+            preview, value_type = self.service._get_value_preview("my:hash")
+
+        assert value_type == "hash"
+        assert "(+92 more)" in preview  # 100 - 8
+
+    def test_get_key_details_string_null_value_is_none(self):
+        """If GET returns None (race), get_key_details should return JSON null consistently."""
+        mock_client = MagicMock()
+        mock_client.exists.return_value = True
+        mock_client.ttl.return_value = 120
+        mock_client.type.return_value = b"string"
+        mock_client.get.return_value = None
+        mock_client.strlen.return_value = 0
+        mock_client.object.side_effect = Exception("unsupported")
+
+        with patch.object(self.service, "is_enabled", return_value=True):
+            with patch("services.cache_inspector_service.CacheInspectorService.redis_client", new_callable=PropertyMock) as mock_prop:
+                mock_prop.return_value = mock_client
+                details = self.service.get_key_details("race:string")
+
+        assert details is not None
+        assert details["value"] is None
+        assert details["value_type"] == "null"
+
     def test_overview_integration(self):
         """Test get_overview returns proper structure."""
         with patch.object(self.service, 'is_enabled', return_value=False):
