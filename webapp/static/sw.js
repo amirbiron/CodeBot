@@ -1,5 +1,5 @@
 // SW Version for cache busting
-const SW_VERSION = '2.0.2';
+const SW_VERSION = '2.0.3';
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing version:', SW_VERSION);
@@ -361,6 +361,8 @@ self.addEventListener('notificationclick', (event) => {
     } catch (_) {
       urlToOpen = '/';
     }
+    // Normalize to absolute URL for best compatibility
+    try { urlToOpen = new URL(urlToOpen, self.location.origin).toString(); } catch (_) {}
 
     // Best-effort ack when we actually have a note id
     if (noteId) {

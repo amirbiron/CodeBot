@@ -302,7 +302,8 @@ function registerServiceWorkerNow() {
       if (btn) btn.disabled = false;
       return;
     }
-    navigator.serviceWorker.register('/sw.js').then(function () {
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      try { reg && reg.update && reg.update().catch(function(){}); } catch (_) {}
       _setBrowserActionsStatus('Service Worker נרשם בהצלחה. מרענן...');
       try { location.reload(); } catch (_) {}
     }).catch(function (e) {
@@ -364,7 +365,8 @@ function subscribeFromBrowserNow() {
       return;
     }
     _setBrowserActionsStatus('רושם Service Worker...');
-    return navigator.serviceWorker.register('/sw.js').then(function (reg) {
+    return navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      try { reg && reg.update && reg.update().catch(function(){}); } catch (_) {}
       _setBrowserActionsStatus('יוצר subscription...');
       return _fetchVapidPublicKey().then(function (key) {
         return reg.pushManager.subscribe({

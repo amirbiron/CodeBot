@@ -3355,8 +3355,12 @@ def service_worker_js():
         resp = Response(content)
         try:
             resp.headers['Content-Type'] = 'application/javascript; charset=utf-8'
-            # Disable caching to allow quick SW updates during development; CDNs may still cache per policy
-            resp.headers['Cache-Control'] = 'no-cache'
+            # Service Worker MUST update quickly; avoid any caching.
+            resp.headers['Cache-Control'] = 'no-store, max-age=0, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            # Ensure root scope is allowed even if served from /sw.js
+            resp.headers['Service-Worker-Allowed'] = '/'
         except Exception:
             pass
         return resp
