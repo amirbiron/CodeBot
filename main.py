@@ -1090,7 +1090,10 @@ def _default_host_label() -> str:
     v = (os.getenv("RENDER_SERVICE_NAME") or "").strip()
     if v:
         return v
-    return (os.getenv("HOSTNAME") or "").strip() or socket.gethostname()
+    try:
+        return (os.getenv("HOSTNAME") or "").strip() or socket.gethostname()
+    except Exception:
+        return "unknown-host"
 
 
 def _compute_heartbeat_interval_seconds(*, lease_seconds: int, explicit: float | None) -> float:
@@ -1396,6 +1399,7 @@ def manage_mongo_lock():
     Note:
         תומך בהמתנה לשחרור נעילה קיימת עבור blue/green deployments
     """
+    wait_health = _LockWaitHealthServer(port=-1)
     try:
         try:
             ensure_lock_indexes()
@@ -1570,6 +1574,13 @@ def manage_mongo_lock():
         _LOCK_SERVICE_ID = service_id
         _LOCK_OWNER_ID = owner_id
 
+        # Ensure lock is released on exit ASAP after ownership is established
+        # (גם אם שלבים מאוחרים יותר ייכשלו)
+        try:
+            atexit.register(cleanup_mongo_lock)
+        except Exception:
+            pass
+
         # Start heartbeat (disabled by default in tests unless explicitly enabled)
         try:
             hb = _MongoLockHeartbeat(
@@ -1589,23 +1600,48 @@ def manage_mongo_lock():
                 emit_event("lock_heartbeat_start_failed", severity="error", error=str(e), service_id=service_id)
             except Exception:
                 pass
+            # חשוב: אל תשאיר lock יתום במונגו אם ה-heartbeat לא עלה.
+            try:
+                res = lock_collection.delete_one({"_id": service_id, "owner": owner_id})
+                if int(getattr(res, "deleted_count", 0) or 0) > 0:
+                    try:
+                        emit_event(
+                            "lock_released",
+                            severity="warn",
+                            service_id=service_id,
+                            owner=owner_id,
+                            pid=int(pid),
+                            reason="heartbeat_start_failed",
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # נקה state גלובלי כדי למנוע cleanup עתידי על owner "אחר"
+            try:
+                _LOCK_HEARTBEAT = None
+                _LOCK_SERVICE_ID = None
+                _LOCK_OWNER_ID = None
+            except Exception:
+                pass
             if not fail_open:
                 return False
+            # Fail-open explicit: continue without lock (still log loudly)
+            return True
 
         # Install signal handlers after lock ownership is established
         try:
             _install_lock_signal_handlers(service_id=service_id, owner_id=owner_id)
         except Exception:
             pass
-
-        # Ensure lock is released on exit
-        try:
-            atexit.register(cleanup_mongo_lock)
-        except Exception:
-            pass
         return True
 
     except Exception as e:
+        # Ensure wait health server is not left running in any exception path
+        try:
+            wait_health.stop()
+        except Exception:
+            pass
         logger.error(f"Failed to acquire MongoDB lock: {e}", exc_info=True)
         try:
             emit_event("lock_acquire_failed", severity="error", error=str(e))
@@ -1615,6 +1651,12 @@ def manage_mongo_lock():
         if _env_bool("LOCK_FAIL_OPEN", False):
             return True
         return False
+    finally:
+        # Best-effort cleanup: never leave the temporary health server bound to PORT
+        try:
+            wait_health.stop()
+        except Exception:
+            pass
 
 
 class _LockWaitHealthServer:
