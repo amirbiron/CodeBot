@@ -20,7 +20,7 @@ def test_lock_heartbeat_ownership_loss_exits(monkeypatch):
         interval_seconds=5.0,
     )
 
-    class ExitNow(Exception):
+    class ExitNow(BaseException):
         pass
 
     monkeypatch.setattr(mod.os, "_exit", lambda _code=0: (_ for _ in ()).throw(ExitNow()))
