@@ -1002,14 +1002,24 @@ def ensure_lock_indexes() -> None:
         lock_collection = get_lock_collection()
         # TTL based on the absolute expiration time in the document
         # Backward compatibility: support both legacy `expires_at` and new `expiresAt`
+        failures: list[str] = []
         try:
             lock_collection.create_index("expires_at", expireAfterSeconds=0, name="lock_expires_at_ttl")
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append(str(e))
         try:
             lock_collection.create_index("expiresAt", expireAfterSeconds=0, name="lock_expiresAt_ttl")
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append(str(e))
+        if failures:
+            msg = "; ".join([f for f in failures if f])
+            if not msg:
+                msg = "ttl_index_failed"
+            logger.warning(f"Could not ensure TTL index for lock collection: {msg}")
+            try:
+                emit_event("lock_ttl_index_failed", severity="warn", error=msg)
+            except Exception:
+                pass
     except Exception as e:
         # Non-fatal; continue without TTL if index creation fails
         logger.warning(f"Could not ensure TTL index for lock collection: {e}")
