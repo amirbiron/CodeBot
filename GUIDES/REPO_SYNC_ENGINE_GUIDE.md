@@ -321,15 +321,16 @@ class GitMirrorService:
             
             success = result.returncode == 0
             
-            # ניקוי טוקנים מהפלט (אבטחה!)
+            # ניקוי טוקנים מהפלט וגם מהפקודה! (אבטחה קריטית!)
             safe_stdout = self._sanitize_output(result.stdout)
             safe_stderr = self._sanitize_output(result.stderr)
+            safe_cmd = self._sanitize_output(' '.join(cmd))  # הפקודה יכולה להכיל את ה-URL עם הטוקן!
             
             if not success:
-                # לוג מנוקה - לא חושף טוקנים!
+                # לוג מנוקה - גם הפקודה מנוקה מטוקנים
                 logger.warning(
                     f"Git command returned {result.returncode}: "
-                    f"{' '.join(cmd)}\nstderr: {safe_stderr[:500]}"
+                    f"{safe_cmd}\nstderr: {safe_stderr[:500]}"
                 )
             
             return GitCommandResult(
@@ -340,7 +341,9 @@ class GitMirrorService:
             )
             
         except subprocess.TimeoutExpired:
-            logger.error(f"Git command timeout ({timeout}s): {' '.join(cmd)}")
+            # גם כאן חובה לנקות את הפקודה לפני הלוג!
+            safe_cmd = self._sanitize_output(' '.join(cmd))
+            logger.error(f"Git command timeout ({timeout}s): {safe_cmd}")
             return GitCommandResult(
                 success=False,
                 stdout="",
@@ -349,11 +352,12 @@ class GitMirrorService:
             )
             
         except Exception as e:
-            logger.exception(f"Git command failed: {' '.join(cmd)}")
+            safe_cmd = self._sanitize_output(' '.join(cmd))
+            logger.exception(f"Git command failed: {safe_cmd}")
             return GitCommandResult(
                 success=False,
                 stdout="",
-                stderr=self._sanitize_output(str(e)),  # גם כאן!
+                stderr=self._sanitize_output(str(e)),
                 return_code=-1
             )
     
@@ -758,9 +762,12 @@ class GitMirrorService:
             return {"error": "mirror_not_found", "results": []}
         
         # קביעת ה-ref לחיפוש
-        # ב-Mirror עדיף origin/main על HEAD (שיכול להצביע לא נכון)
+        # ב-Mirror עדיף origin/{default_branch} על HEAD
+        # הערה: ה-default_branch נשמר ב-repo_metadata במהלך initial_import
         if ref is None:
-            ref = "origin/main"  # ברירת מחדל ל-mirror
+            # ברירת מחדל - אם לא הועבר ref, נשתמש ב-origin/main
+            # אבל עדיף שהקורא יעביר את ה-ref הנכון מה-DB!
+            ref = "origin/main"
         
         # בניית הפקודה - סדר נכון ל-Bare Repository!
         # git grep [options] <pattern> <revision> -- <pathspec>
@@ -1396,6 +1403,7 @@ Repository Search Service
 """
 
 import logging
+import re  # חשוב! לצורך re.escape בחיפושי MongoDB
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
@@ -1460,11 +1468,19 @@ class RepoSearchService:
         
         query = query.strip()
         
+        # שליפת ה-default_branch מה-DB (לא לנחש שזה main!)
+        # זה נשמר במהלך initial_import
+        ref = "origin/main"  # ברירת מחדל בטוחה
+        if self.db:
+            meta = self.db.repo_metadata.find_one({"repo_name": repo_name})
+            if meta and meta.get("default_branch"):
+                ref = f"origin/{meta['default_branch']}"
+        
         # בחירת שיטת חיפוש
         if search_type == "content":
             return self._search_content(
                 repo_name, query, file_pattern,
-                case_sensitive, max_results
+                case_sensitive, max_results, ref=ref  # העברת ה-ref הנכון
             )
         elif search_type == "filename":
             return self._search_filename(repo_name, query, max_results)
@@ -1481,7 +1497,8 @@ class RepoSearchService:
         query: str,
         file_pattern: Optional[str],
         case_sensitive: bool,
-        max_results: int
+        max_results: int,
+        ref: str = "origin/main"
     ) -> Dict[str, Any]:
         """חיפוש תוכן עם git grep"""
         
@@ -1497,7 +1514,8 @@ class RepoSearchService:
             max_results=max_results,
             timeout=10,
             file_pattern=git_pattern,
-            case_sensitive=case_sensitive
+            case_sensitive=case_sensitive,
+            ref=ref  # שימוש ב-ref הנכון מה-DB
         )
         
         if "error" in result:
@@ -1561,10 +1579,14 @@ class RepoSearchService:
         
         # חיפוש ב-MongoDB (מהיר יותר)
         try:
+            # תיקון Regex Injection: חובה לעשות escape לתווים מיוחדים!
+            # בלי זה, חיפוש "config.py" ימצא גם "configXpy" (נקודה = any char)
+            safe_query = re.escape(query)
+            
             cursor = self.db.repo_files.find(
                 {
                     "repo_name": repo_name,
-                    "path": {"$regex": query, "$options": "i"}
+                    "path": {"$regex": safe_query, "$options": "i"}
                 },
                 {"path": 1, "language": 1, "size": 1, "lines": 1}
             ).limit(max_results)
@@ -1603,9 +1625,12 @@ class RepoSearchService:
             return {"error": "Database required for function search", "results": []}
         
         try:
+            # תיקון Regex Injection
+            safe_query = re.escape(query)
+            
             filter_query = {
                 "repo_name": repo_name,
-                "functions": {"$regex": query, "$options": "i"}
+                "functions": {"$regex": safe_query, "$options": "i"}
             }
             
             if language:
@@ -1618,10 +1643,11 @@ class RepoSearchService:
             
             results = []
             for doc in cursor:
-                # מציאת הפונקציות שמתאימות
+                # מציאת הפונקציות שמתאימות (חיפוש פשוט, לא regex)
+                query_lower = query.lower()
                 matching = [
                     f for f in doc.get("functions", [])
-                    if query.lower() in f.lower()
+                    if query_lower in f.lower()
                 ]
                 
                 for func_name in matching:
@@ -1655,9 +1681,12 @@ class RepoSearchService:
             return {"error": "Database required for class search", "results": []}
         
         try:
+            # תיקון Regex Injection
+            safe_query = re.escape(query)
+            
             filter_query = {
                 "repo_name": repo_name,
-                "classes": {"$regex": query, "$options": "i"}
+                "classes": {"$regex": safe_query, "$options": "i"}
             }
             
             if language:
@@ -1670,9 +1699,11 @@ class RepoSearchService:
             
             results = []
             for doc in cursor:
+                # חיפוש פשוט, לא regex
+                query_lower = query.lower()
                 matching = [
                     c for c in doc.get("classes", [])
-                    if query.lower() in c.lower()
+                    if query_lower in c.lower()
                 ]
                 
                 for class_name in matching:
