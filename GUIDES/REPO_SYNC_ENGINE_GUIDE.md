@@ -112,11 +112,29 @@ services:
 
 ```bash
 # .env או Render Environment
+
+# === Git Mirror ===
 REPO_MIRROR_PATH=/var/data/repos
 REPO_NAME=CodeBot
 GITHUB_REPO_URL=https://github.com/amirbiron/CodeBot.git
+
+# === Authentication ===
+# חובה ל-Private Repos!
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+
+# === Webhook Security ===
 GITHUB_WEBHOOK_SECRET=your-webhook-secret-here
+
+# === Worker Configuration ===
+# אופציה 1: Worker בודד (פשוט, מומלץ להתחלה)
+WEB_CONCURRENCY=1
+
+# אופציה 2: Multi-workers (scalable, דורש MongoDB-based queue)
+# WEB_CONCURRENCY=2
 ```
+
+> **חשוב:** אם `WEB_CONCURRENCY > 1`, חובה להשתמש ב-MongoDB-based Queue
+> (כפי שמתואר בקוד `repo_sync_service.py`) כדי שכל ה-workers יראו את אותם jobs.
 
 ### 3. בדיקת הדיסק
 
@@ -185,6 +203,9 @@ class GitMirrorService:
         service.init_mirror("https://github.com/user/repo.git", "repo")
         service.fetch_updates("repo")
         content = service.get_file_content("repo", "src/main.py")
+    
+    תמיכה ב-Private Repos:
+        הגדר GITHUB_TOKEN בסביבה, והשירות יזריק אותו אוטומטית ל-URL.
     """
     
     def __init__(self, base_path: Optional[str] = None):
@@ -198,6 +219,38 @@ class GitMirrorService:
             os.getenv("REPO_MIRROR_PATH", "/var/data/repos")
         )
         self._ensure_base_path()
+    
+    def _get_authenticated_url(self, url: str) -> str:
+        """
+        הזרקת GitHub Token ל-URL לתמיכה ב-Private Repos
+        
+        Args:
+            url: URL מקורי של הריפו
+            
+        Returns:
+            URL עם token (אם קיים) או URL מקורי
+        
+        Note:
+            לא לרשום את ה-URL המאומת ללוגים!
+        """
+        token = os.getenv("GITHUB_TOKEN")
+        
+        if not token:
+            return url
+        
+        # תמיכה ב-HTTPS URLs בלבד
+        if url.startswith("https://github.com/"):
+            # https://github.com/user/repo.git
+            # -> https://oauth2:TOKEN@github.com/user/repo.git
+            return url.replace(
+                "https://github.com/",
+                f"https://oauth2:{token}@github.com/"
+            )
+        elif url.startswith("https://"):
+            # Generic HTTPS URL
+            return url.replace("https://", f"https://oauth2:{token}@")
+        
+        return url
     
     def _ensure_base_path(self) -> None:
         """יצירת תיקיית הבסיס אם לא קיימת"""
@@ -289,6 +342,9 @@ class GitMirrorService:
             
         Returns:
             dict עם success, path, message
+        
+        Note:
+            תומך ב-Private Repos אם GITHUB_TOKEN מוגדר בסביבה.
         """
         repo_path = self._get_repo_path(repo_name)
         
@@ -302,11 +358,15 @@ class GitMirrorService:
                 "already_existed": True
             }
         
+        # לוג ללא ה-token!
         logger.info(f"Creating mirror: {repo_url} -> {repo_path}")
+        
+        # הזרקת token ל-Private Repos
+        auth_url = self._get_authenticated_url(repo_url)
         
         # Clone as bare mirror
         result = self._run_git_command(
-            ["git", "clone", "--mirror", repo_url, str(repo_path)],
+            ["git", "clone", "--mirror", auth_url, str(repo_path)],
             timeout=timeout
         )
         
@@ -616,10 +676,14 @@ class GitMirrorService:
         max_results: int = 100,
         timeout: int = 10,
         file_pattern: Optional[str] = None,
-        case_sensitive: bool = True
+        case_sensitive: bool = True,
+        ref: str = "HEAD"
     ) -> Dict[str, Any]:
         """
         חיפוש בקוד עם git grep (מהיר מאוד!)
+        
+        **חשוב:** ב-Bare Repository (mirror) יש לשים לב לסדר הארגומנטים:
+        git grep [options] <pattern> <revision> -- <pathspec>
         
         Args:
             repo_name: שם הריפו
@@ -628,6 +692,7 @@ class GitMirrorService:
             timeout: timeout בשניות
             file_pattern: סינון קבצים (למשל "*.py")
             case_sensitive: case sensitive?
+            ref: revision לחיפוש (HEAD, branch name, או SHA)
             
         Returns:
             dict עם results, total_count, truncated
@@ -637,7 +702,8 @@ class GitMirrorService:
         if not repo_path.exists():
             return {"error": "mirror_not_found", "results": []}
         
-        # בניית הפקודה
+        # בניית הפקודה - סדר נכון ל-Bare Repository!
+        # git grep [options] <pattern> <revision> -- <pathspec>
         cmd = ["git", "grep", "-n", "-I", "--break", "--heading"]
         
         # Case sensitivity
@@ -650,15 +716,25 @@ class GitMirrorService:
         else:
             cmd.append("-F")  # Fixed string (מהיר יותר)
         
-        # File pattern
-        if file_pattern:
-            cmd.extend(["--", file_pattern])
+        # 1. הוספת ה-Pattern (Query)
+        # אם מתחיל ב-"-", צריך להשתמש ב-"-e" כדי שגיט לא יחשוב שזה flag
+        if query.startswith("-"):
+            cmd.extend(["-e", query])
+        else:
+            cmd.append(query)
         
-        # חשוב! הפרדה בין flags לבין ה-query
-        # זה מונע בעיה כשה-query מתחיל ב-"-"
+        # 2. הוספת ה-Revision (branch/SHA)
+        # ב-Bare repo עדיף להשתמש ב-refs/heads/main במקום HEAD
+        cmd.append(ref)
+        
+        # 3. הפרדה בין revision לבין pathspec
         cmd.append("--")
-        cmd.append(query)
-        cmd.append("HEAD")
+        
+        # 4. File pattern (pathspec) - חייב לבוא אחרי "--"
+        if file_pattern:
+            cmd.append(file_pattern)
+        else:
+            cmd.append(".")  # כל הקבצים
         
         try:
             result = self._run_git_command(cmd, cwd=repo_path, timeout=timeout)
@@ -833,6 +909,33 @@ class CodeIndexer:
     
     מה לא נשמר:
     - תוכן מלא (נקרא מ-git mirror)
+    
+    **הערה חשובה על Regex vs AST:**
+    
+    הקוד הזה משתמש ב-Regex לפשטות, אבל יש לזה חסרונות:
+    - Regex יכול לתפוס מילים בתוך מחרוזות או הערות
+    - `def` בתוך docstring יזוהה בטעות כפונקציה
+    
+    **לפרודקשן מומלץ:**
+    - Python: להשתמש במודול `ast` המובנה (מהיר ומדויק 100%)
+    - JavaScript/TypeScript: להשתמש ב-`@babel/parser` או `typescript`
+    - שאר השפות: Regex מספיק טוב (או tree-sitter)
+    
+    דוגמה לשימוש ב-AST לפייתון:
+    
+    ```python
+    import ast
+    
+    def extract_functions_with_ast(content: str) -> List[str]:
+        try:
+            tree = ast.parse(content)
+            return [
+                node.name for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ]
+        except SyntaxError:
+            return []  # fallback to regex
+    ```
     """
     
     # דפוסים להתעלמות
@@ -1693,14 +1796,29 @@ Repository Sync Service
 - Initial import
 - Delta sync (מ-webhook)
 - Manual sync
+
+**חשוב לגבי Gunicorn Multi-Workers:**
+ב-Render (ובכל סביבת פרודקשן), gunicorn מריץ מספר workers (processes).
+כל worker הוא process נפרד עם זיכרון נפרד!
+
+בעיה: אם משתמשים ב-Queue/Dict בזיכרון:
+- Webhook מגיע ל-Worker A -> Job נשמר בזיכרון של A
+- User עושה refresh -> מגיע ל-Worker B -> "Job not found" (404)
+
+פתרונות:
+1. **MongoDB-based Queue** (מומלץ) - Jobs נשמרים ב-DB, כל worker יכול לראות
+2. **WEB_CONCURRENCY=1** - worker בודד (פשוט אבל לא scalable)
+3. **Redis + Celery** - פתרון enterprise (מורכב יותר)
+
+הקוד הזה משתמש ב-MongoDB-based Queue.
 """
 
 import logging
 import threading
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
-from queue import Queue
 import uuid
 
 from services.git_mirror_service import get_mirror_service
@@ -1708,36 +1826,9 @@ from services.code_indexer import CodeIndexer
 
 logger = logging.getLogger(__name__)
 
-# תור משימות פשוט (ללא Celery)
-sync_queue: Queue = Queue()
+# Flag לוודא worker אחד per process
 _worker_started = False
-
-
-class SyncJob:
-    """משימת סנכרון"""
-    def __init__(
-        self,
-        repo_name: str,
-        new_sha: str,
-        old_sha: Optional[str] = None,
-        trigger: str = "manual",
-        job_id: Optional[str] = None
-    ):
-        self.job_id = job_id or str(uuid.uuid4())[:8]
-        self.repo_name = repo_name
-        self.new_sha = new_sha
-        self.old_sha = old_sha
-        self.trigger = trigger
-        self.status = "pending"
-        self.created_at = datetime.utcnow()
-        self.started_at: Optional[datetime] = None
-        self.completed_at: Optional[datetime] = None
-        self.result: Optional[Dict] = None
-        self.error: Optional[str] = None
-
-
-# In-memory job tracking
-_jobs: Dict[str, SyncJob] = {}
+_worker_lock = threading.Lock()
 
 
 def trigger_sync(
@@ -1748,7 +1839,7 @@ def trigger_sync(
     delivery_id: Optional[str] = None
 ) -> str:
     """
-    הפעלת סנכרון ברקע
+    הפעלת סנכרון ברקע - שומר ב-MongoDB
     
     Args:
         repo_name: שם הריפו
@@ -1760,93 +1851,159 @@ def trigger_sync(
     Returns:
         job_id
     """
-    job = SyncJob(
-        repo_name=repo_name,
-        new_sha=new_sha,
-        old_sha=old_sha,
-        trigger=trigger,
-        job_id=delivery_id
+    from database.db_manager import get_db
+    
+    job_id = delivery_id or str(uuid.uuid4())[:8]
+    
+    # שמירת Job ב-MongoDB (לא בזיכרון!)
+    db = get_db()
+    
+    job_doc = {
+        "_id": job_id,
+        "repo_name": repo_name,
+        "new_sha": new_sha,
+        "old_sha": old_sha,
+        "trigger": trigger,
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+        "started_at": None,
+        "completed_at": None,
+        "result": None,
+        "error": None,
+        # TTL index - מחיקה אוטומטית אחרי 7 ימים
+        "expire_at": datetime.utcnow() + timedelta(days=7)
+    }
+    
+    # Upsert - אם אותו delivery_id כבר קיים, לא ליצור כפילות
+    db.sync_jobs.update_one(
+        {"_id": job_id},
+        {"$setOnInsert": job_doc},
+        upsert=True
     )
     
-    _jobs[job.job_id] = job
-    sync_queue.put(job)
+    logger.info(f"Sync job queued in MongoDB: {job_id}")
     
+    # הפעלת worker (אם לא רץ)
     _ensure_worker_started()
     
-    logger.info(f"Sync job queued: {job.job_id}")
-    return job.job_id
+    return job_id
 
 
 def get_job_status(job_id: str) -> Optional[Dict]:
-    """קבלת סטטוס משימה"""
-    job = _jobs.get(job_id)
+    """קבלת סטטוס משימה מ-MongoDB"""
+    from database.db_manager import get_db
+    
+    db = get_db()
+    job = db.sync_jobs.find_one({"_id": job_id})
+    
     if not job:
         return None
     
     return {
-        "job_id": job.job_id,
-        "status": job.status,
-        "repo": job.repo_name,
-        "trigger": job.trigger,
-        "created_at": job.created_at.isoformat(),
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-        "result": job.result,
-        "error": job.error
+        "job_id": job["_id"],
+        "status": job["status"],
+        "repo": job["repo_name"],
+        "trigger": job["trigger"],
+        "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+        "started_at": job["started_at"].isoformat() if job.get("started_at") else None,
+        "completed_at": job["completed_at"].isoformat() if job.get("completed_at") else None,
+        "result": job.get("result"),
+        "error": job.get("error")
     }
 
 
 def _ensure_worker_started():
-    """הפעלת worker thread אם לא פעיל"""
+    """הפעלת worker thread אם לא פעיל (per process)"""
     global _worker_started
     
-    if not _worker_started:
-        worker = threading.Thread(target=_sync_worker, daemon=True)
-        worker.start()
-        _worker_started = True
-        logger.info("Sync worker thread started")
+    with _worker_lock:
+        if not _worker_started:
+            worker = threading.Thread(target=_sync_worker, daemon=True)
+            worker.start()
+            _worker_started = True
+            logger.info("Sync worker thread started")
 
 
 def _sync_worker():
-    """Worker thread לעיבוד משימות סנכרון"""
+    """
+    Worker thread - polling על MongoDB לחיפוש jobs
+    
+    Note: כל Gunicorn worker יריץ את ה-thread הזה.
+    השימוש ב-findOneAndUpdate עם "$set": {"status": "running"}
+    מבטיח שרק worker אחד יתפוס כל job (atomic operation).
+    """
     from database.db_manager import get_db
     
-    logger.info("Sync worker running...")
+    logger.info("Sync worker polling MongoDB...")
     
     while True:
         try:
-            job = sync_queue.get(timeout=60)
+            db = get_db()
             
-            job.status = "running"
-            job.started_at = datetime.utcnow()
+            # Atomic: מצא job pending ותפוס אותו
+            job = db.sync_jobs.find_one_and_update(
+                {"status": "pending"},
+                {
+                    "$set": {
+                        "status": "running",
+                        "started_at": datetime.utcnow()
+                    }
+                },
+                sort=[("created_at", 1)],  # FIFO - הישן קודם
+                return_document=True  # מחזיר אחרי העדכון
+            )
             
-            logger.info(f"Processing sync job: {job.job_id}")
+            if not job:
+                # אין jobs - ישן 5 שניות
+                time.sleep(5)
+                continue
+            
+            job_id = job["_id"]
+            logger.info(f"Processing sync job: {job_id}")
             
             try:
-                db = get_db()
-                result = _run_sync(job, db)
+                result = _run_sync_from_doc(job, db)
                 
-                job.status = "completed"
-                job.result = result
+                # עדכון סטטוס - completed
+                db.sync_jobs.update_one(
+                    {"_id": job_id},
+                    {
+                        "$set": {
+                            "status": "completed",
+                            "completed_at": datetime.utcnow(),
+                            "result": result
+                        }
+                    }
+                )
+                
+                logger.info(f"Job {job_id} completed successfully")
                 
             except Exception as e:
-                logger.exception(f"Sync job failed: {job.job_id}")
-                job.status = "failed"
-                job.error = str(e)
-            
-            job.completed_at = datetime.utcnow()
-            
+                logger.exception(f"Sync job failed: {job_id}")
+                
+                # עדכון סטטוס - failed
+                db.sync_jobs.update_one(
+                    {"_id": job_id},
+                    {
+                        "$set": {
+                            "status": "failed",
+                            "completed_at": datetime.utcnow(),
+                            "error": str(e)
+                        }
+                    }
+                )
+                
         except Exception as e:
-            # Queue timeout or other error
-            continue
+            logger.exception(f"Worker error: {e}")
+            time.sleep(10)  # backoff on error
 
 
-def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
+def _run_sync_from_doc(job_doc: Dict, db) -> Dict[str, Any]:
     """
-    הרצת סנכרון בפועל
+    הרצת סנכרון מ-document של MongoDB
     
     Args:
-        job: משימת הסנכרון
+        job_doc: document מ-sync_jobs collection
         db: חיבור ל-MongoDB
         
     Returns:
@@ -1855,8 +2012,28 @@ def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
     git_service = get_mirror_service()
     indexer = CodeIndexer(db)
     
-    repo_name = job.repo_name
+    repo_name = job_doc["repo_name"]
+    new_sha = job_doc["new_sha"]
+    old_sha = job_doc.get("old_sha")
     
+    # המשך הלוגיקה כמו ב-_run_sync המקורי...
+    return _run_sync_logic(
+        git_service, indexer, db,
+        repo_name, new_sha, old_sha
+    )
+
+
+def _run_sync_logic(
+    git_service,
+    indexer,
+    db,
+    repo_name: str,
+    new_sha: str,
+    old_sha: Optional[str]
+) -> Dict[str, Any]:
+    """הלוגיקה של הסנכרון - מופרדת לשימוש חוזר"""
+
+
     # וידוא שה-mirror קיים
     if not git_service.mirror_exists(repo_name):
         return {"error": "Mirror not found. Run initial import first."}
@@ -1870,7 +2047,6 @@ def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
         }
     
     # אם אין old_sha, נשלוף מה-DB
-    old_sha = job.old_sha
     if not old_sha:
         metadata = db.repo_metadata.find_one({"repo_name": repo_name})
         old_sha = metadata.get("last_synced_sha") if metadata else None
@@ -1879,11 +2055,11 @@ def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
         return {"error": "No previous SHA. Run initial import first."}
     
     # אם ה-SHA זהה, אין מה לעדכן
-    if old_sha == job.new_sha:
+    if old_sha == new_sha:
         return {"status": "up_to_date", "message": "No changes"}
     
     # קבלת רשימת שינויים
-    changes = git_service.get_changed_files(repo_name, old_sha, job.new_sha)
+    changes = git_service.get_changed_files(repo_name, old_sha, new_sha)
     
     if changes is None:
         return {"error": "Failed to get changed files"}
@@ -1892,6 +2068,7 @@ def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
         "added": 0,
         "modified": 0,
         "removed": 0,
+        "renamed": 0,
         "indexed": 0,
         "skipped": 0
     }
@@ -1902,22 +2079,38 @@ def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
         stats["removed"] = removed_count
         logger.info(f"Removed {removed_count} files from index")
     
-    # עדכון/הוספת קבצים
+    # טיפול ב-RENAMED files (חשוב!)
+    # git diff-tree עם -M מחזיר סטטוס R לקבצים ששונו שם
     files_to_process = changes["added"] + changes["modified"]
     
+    if changes.get("renamed"):
+        for rename_info in changes["renamed"]:
+            old_path = rename_info["old"]
+            new_path = rename_info["new"]
+            
+            # 1. מחיקת הקובץ הישן מהאינדקס
+            indexer.remove_file(repo_name, old_path)
+            
+            # 2. הוספת הקובץ החדש לרשימת העיבוד
+            files_to_process.append(new_path)
+            stats["renamed"] += 1
+            
+            logger.debug(f"Renamed: {old_path} -> {new_path}")
+    
+    # עדכון/הוספת קבצים
     for file_path in files_to_process:
         if not indexer.should_index(file_path):
             stats["skipped"] += 1
             continue
         
-        content = git_service.get_file_content(repo_name, file_path, job.new_sha)
+        content = git_service.get_file_content(repo_name, file_path, new_sha)
         
         if content:
-            if indexer.index_file(repo_name, file_path, content, job.new_sha):
+            if indexer.index_file(repo_name, file_path, content, new_sha):
                 stats["indexed"] += 1
                 if file_path in changes["added"]:
                     stats["added"] += 1
-                else:
+                elif file_path in changes["modified"]:
                     stats["modified"] += 1
     
     # עדכון metadata
@@ -1925,7 +2118,7 @@ def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
         {"repo_name": repo_name},
         {
             "$set": {
-                "last_synced_sha": job.new_sha,
+                "last_synced_sha": new_sha,
                 "last_sync_time": datetime.utcnow(),
                 "sync_status": "completed",
                 "last_sync_stats": stats
@@ -1939,7 +2132,7 @@ def _run_sync(job: SyncJob, db) -> Dict[str, Any]:
     return {
         "status": "synced",
         "old_sha": old_sha[:7],
-        "new_sha": job.new_sha[:7],
+        "new_sha": new_sha[:7],
         "stats": stats
     }
 
@@ -2399,7 +2592,11 @@ services:
     env: python
     plan: starter
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app --workers 2 --threads 4 --bind 0.0.0.0:$PORT
+    
+    # Gunicorn עם WEB_CONCURRENCY (או ברירת מחדל 1)
+    # ב-Render, הם מגדירים WEB_CONCURRENCY אוטומטית לפי ה-plan
+    # אבל אנחנו רוצים לשלוט בזה ידנית
+    startCommand: gunicorn main:app --workers ${WEB_CONCURRENCY:-1} --threads 4 --bind 0.0.0.0:$PORT
     
     # Render Disk for Git Mirror
     disk:
@@ -2412,8 +2609,16 @@ services:
         value: /var/data/repos
       - key: REPO_NAME
         value: CodeBot
+      
+      # מספר workers - התחל עם 1, הגדל אם צריך
+      - key: WEB_CONCURRENCY
+        value: "1"
+      
+      # הגדרות רגישות - מוגדרות ידנית ב-Dashboard
       - key: GITHUB_REPO_URL
         sync: false  # Set manually
+      - key: GITHUB_TOKEN
+        sync: false  # Set manually - REQUIRED for private repos!
       - key: GITHUB_WEBHOOK_SECRET
         sync: false  # Set manually
       - key: MONGODB_URI
@@ -2422,6 +2627,11 @@ services:
     # Health check
     healthCheckPath: /health
 ```
+
+> **חשוב:**
+> - עם `WEB_CONCURRENCY=1` - פשוט ועובד, מתאים לרוב המקרים
+> - עם `WEB_CONCURRENCY > 1` - צריך MongoDB-based queue (כמו בקוד למעלה)
+> - אל תשכח להגדיר `GITHUB_TOKEN` ל-Private Repos!
 
 ### הגדרת Webhook ב-GitHub
 
@@ -2565,6 +2775,79 @@ print(result)
 1. הגדילו timeout ב-git grep
 2. הוסיפו file pattern לצמצום
 3. בדקו שהדיסק לא מלא
+
+### בעיה: "Authentication failed" ב-Private Repo
+
+**סיבה:** `GITHUB_TOKEN` לא מוגדר או לא תקף
+
+**פתרון:**
+1. צרו Personal Access Token ב-GitHub:
+   - Settings → Developer settings → Personal access tokens → Fine-grained tokens
+   - תנו הרשאת `Contents: Read-only` על הריפו הספציפי
+2. הגדירו ב-Render: `GITHUB_TOKEN=ghp_xxxx`
+3. אל תשכחו: הטוקן לא יופיע בלוגים (מוסתר אוטומטית)
+
+### בעיה: Job נעלם / "Job not found"
+
+**סיבה:** Multi-workers עם in-memory queue
+
+**פתרון:**
+1. **מהיר:** הגדירו `WEB_CONCURRENCY=1`
+2. **נכון:** השתמשו ב-MongoDB-based queue (כמו בקוד למעלה)
+
+**בדיקה:**
+```bash
+# ראו כמה workers רצים
+ps aux | grep gunicorn
+```
+
+### בעיה: git grep מחזיר שגיאה על query עם מקף
+
+**סיבה:** `-v` מזוהה כ-flag במקום כ-pattern
+
+**פתרון:**
+הקוד המעודכן כבר מטפל בזה:
+```python
+if query.startswith("-"):
+    cmd.extend(["-e", query])
+```
+
+### בעיה: Renamed files לא מתעדכנים
+
+**סיבה:** הקוד לא טיפל ב-`changes["renamed"]`
+
+**פתרון:**
+הקוד המעודכן מטפל בזה - ראו `_run_sync_logic`:
+1. מוחק את הקובץ הישן מהאינדקס
+2. מוסיף את הקובץ החדש לרשימת העיבוד
+
+---
+
+## MongoDB Indexes
+
+כדי שה-sync jobs יעבדו מהר, הוסיפו אינדקסים:
+
+```python
+# scripts/create_repo_indexes.py
+from database.db_manager import get_db
+
+db = get_db()
+
+# sync_jobs - לחיפוש pending jobs
+db.sync_jobs.create_index([("status", 1), ("created_at", 1)])
+
+# sync_jobs - TTL index למחיקה אוטומטית
+db.sync_jobs.create_index("expire_at", expireAfterSeconds=0)
+
+# repo_files - לחיפוש לפי path
+db.repo_files.create_index([("repo_name", 1), ("path", 1)], unique=True)
+
+# repo_files - לחיפוש טקסט
+db.repo_files.create_index([("search_text", "text")])
+
+# repo_files - לחיפוש לפי שפה
+db.repo_files.create_index([("repo_name", 1), ("language", 1)])
+```
 
 ---
 
