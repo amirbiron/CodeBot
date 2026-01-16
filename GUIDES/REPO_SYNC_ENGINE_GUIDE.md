@@ -835,13 +835,18 @@ class GitMirrorService:
         """
         פרסור פלט git grep
         
-        פורמט הפלט עם --break --heading:
-        filename
-        line_num:content
-        line_num:content
+        **חשוב:** כשמחפשים עם revision (למשל origin/main),
+        הפלט של git grep כולל את ה-ref בשורת הקובץ:
         
-        filename2
-        ...
+        פורמט עם revision:
+            origin/main:src/app.py      <-- שם קובץ עם ref prefix!
+            10:content
+            15:more content
+            
+            origin/main:utils/helper.py
+            ...
+        
+        הפרסור חייב לזהות את זה ולחלץ רק את הנתיב.
         """
         results = []
         current_file = None
@@ -850,17 +855,14 @@ class GitMirrorService:
             if not line:
                 continue
             
-            # שורה ללא ":" היא שם קובץ (heading)
-            if ':' not in line or (line[0] != ' ' and ':' not in line[:50]):
-                # בדיקה אם זה נתיב קובץ
-                if '/' in line or line.endswith(('.py', '.js', '.ts', '.html', '.css', '.md')):
-                    current_file = line.strip()
-                continue
+            # בדיקה אם זו שורת תוצאה (מספר:תוכן)
+            # שורת תוצאה מתחילה במספר ואז נקודתיים
+            parts = line.split(':', 1)
+            is_match_line = len(parts) == 2 and parts[0].strip().isdigit()
             
-            # שורת תוצאה: line_num:content
-            if current_file:
-                parts = line.split(':', 1)
-                if len(parts) == 2:
+            if is_match_line:
+                # שורת תוצאה: line_num:content
+                if current_file:
                     try:
                         line_num = int(parts[0].strip())
                         content = parts[1]
@@ -868,7 +870,7 @@ class GitMirrorService:
                         results.append({
                             "path": current_file,
                             "line": line_num,
-                            "content": content.strip()[:500]  # הגבלת אורך
+                            "content": content.strip()[:500]
                         })
                         
                         if len(results) >= max_results:
@@ -876,6 +878,25 @@ class GitMirrorService:
                             
                     except ValueError:
                         continue
+            else:
+                # שורת Heading (שם קובץ)
+                file_line = line.strip()
+                
+                # אם הפלט כולל ref prefix (למשל "origin/main:path/to/file.py")
+                # צריך לחלץ רק את הנתיב
+                if ':' in file_line:
+                    # בדיקה אם זה ref:path או סתם נתיב עם נקודתיים
+                    # ref בדרך כלל לא מכיל "/" לפני הנקודתיים הראשונות
+                    colon_pos = file_line.find(':')
+                    before_colon = file_line[:colon_pos]
+                    
+                    # אם החלק לפני הנקודתיים נראה כמו ref (למשל "origin/main")
+                    # ולא כמו נתיב (למשל "C:" ב-Windows, או "src")
+                    if '/' in before_colon or before_colon in ['HEAD', 'main', 'master']:
+                        # זה ref:path - לוקחים רק את הנתיב
+                        file_line = file_line[colon_pos + 1:]
+                
+                current_file = file_line
         
         return results
     
@@ -2253,11 +2274,17 @@ def initial_import(repo_url: str, repo_name: str, db) -> Dict[str, Any]:
     # שימוש ב-default_branch שזיהינו
     current_sha = git_service.get_current_sha(repo_name, branch=default_branch) or "HEAD"
     
+    # הכנת ה-ref לשליפת תוכן
+    # חשוב! חייבים להשתמש באותו ref כמו ב-list_all_files
+    # אחרת נשלוף תוכן מ-HEAD שיכול להיות שונה
+    content_ref = f"origin/{default_branch}"
+    
     for i, file_path in enumerate(code_files):
         if i % 100 == 0:
             logger.info(f"Indexing progress: {i}/{len(code_files)}")
         
-        content = git_service.get_file_content(repo_name, file_path)
+        # התיקון: מעבירים ref במפורש (לא HEAD!)
+        content = git_service.get_file_content(repo_name, file_path, ref=content_ref)
         
         if content:
             if indexer.index_file(repo_name, file_path, content, current_sha):
@@ -2308,6 +2335,7 @@ UI לגלישה בקוד הריפו
 """
 
 import logging
+import re  # חשוב! לצורך re.escape
 from flask import Blueprint, render_template, request, jsonify, abort
 from functools import lru_cache
 
@@ -2348,9 +2376,12 @@ def browse_directory(dir_path: str = ""):
     repo_name = "CodeBot"
     
     # בניית שאילתה לקבצים בתיקייה
+    # חובה לעשות escape לתווים מיוחדים ב-regex!
+    # בלי זה, תיקיות כמו ".github" ישברו (הנקודה = "any char")
     if dir_path:
         # קבצים בתיקייה ספציפית
-        pattern = f"^{dir_path}/[^/]+$"
+        safe_path = re.escape(dir_path)  # .github -> \.github
+        pattern = f"^{safe_path}/[^/]+$"
     else:
         # קבצים ב-root
         pattern = "^[^/]+$"
@@ -2364,9 +2395,10 @@ def browse_directory(dir_path: str = ""):
         {"path": 1, "language": 1, "size": 1, "lines": 1}
     ).sort("path", 1))
     
-    # שליפת תיקיות
+    # שליפת תיקיות (גם כאן צריך escape!)
     if dir_path:
-        dir_pattern = f"^{dir_path}/[^/]+/"
+        safe_path = re.escape(dir_path)
+        dir_pattern = f"^{safe_path}/[^/]+/"
     else:
         dir_pattern = "^[^/]+/"
     
