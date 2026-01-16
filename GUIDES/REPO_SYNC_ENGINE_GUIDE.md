@@ -252,6 +252,31 @@ class GitMirrorService:
         
         return url
     
+    def _sanitize_output(self, text: str) -> str:
+        """
+        מחיקת טוקנים רגישים מפלט/לוגים
+        
+        חשוב! אם git clone/fetch נכשל, stderr יכול להכיל את ה-URL
+        כולל הטוקן. חובה לנקות לפני לוג/החזרה ל-API.
+        
+        Args:
+            text: טקסט שעלול להכיל טוקן
+            
+        Returns:
+            טקסט נקי (הטוקן מוחלף ב-***)
+        """
+        if not text:
+            return ""
+        
+        import re
+        # מחפש תבנית של https://oauth2:TOKEN@... או https://user:TOKEN@...
+        sanitized = re.sub(
+            r'(https://[^:]+):([^@]+)@',
+            r'\1:***@',
+            text
+        )
+        return sanitized
+    
     def _ensure_base_path(self) -> None:
         """יצירת תיקיית הבסיס אם לא קיימת"""
         try:
@@ -281,6 +306,9 @@ class GitMirrorService:
             
         Returns:
             GitCommandResult עם התוצאות
+            
+        Note:
+            stdout/stderr מנוקים מטוקנים רגישים!
         """
         try:
             result = subprocess.run(
@@ -293,16 +321,21 @@ class GitMirrorService:
             
             success = result.returncode == 0
             
+            # ניקוי טוקנים מהפלט (אבטחה!)
+            safe_stdout = self._sanitize_output(result.stdout)
+            safe_stderr = self._sanitize_output(result.stderr)
+            
             if not success:
+                # לוג מנוקה - לא חושף טוקנים!
                 logger.warning(
                     f"Git command returned {result.returncode}: "
-                    f"{' '.join(cmd)}\nstderr: {result.stderr[:500]}"
+                    f"{' '.join(cmd)}\nstderr: {safe_stderr[:500]}"
                 )
             
             return GitCommandResult(
                 success=success,
-                stdout=result.stdout,
-                stderr=result.stderr,
+                stdout=safe_stdout,  # פלט נקי
+                stderr=safe_stderr,  # שגיאה נקייה
                 return_code=result.returncode
             )
             
@@ -320,7 +353,7 @@ class GitMirrorService:
             return GitCommandResult(
                 success=False,
                 stdout="",
-                stderr=str(e),
+                stderr=self._sanitize_output(str(e)),  # גם כאן!
                 return_code=-1
             )
     
@@ -484,6 +517,13 @@ class GitMirrorService:
         """
         קבלת SHA הנוכחי של branch
         
+        **חשוב ל-Bare Mirror:**
+        ב-`git clone --mirror`, ה-branches נמצאים תחת:
+        - `refs/remotes/origin/{branch}` (הכי נפוץ)
+        - או `origin/{branch}` (קיצור)
+        
+        **לא** תחת `refs/heads/{branch}` כמו ב-working repo רגיל!
+        
         Args:
             repo_name: שם הריפו
             branch: שם ה-branch (main/master)
@@ -493,17 +533,27 @@ class GitMirrorService:
         """
         repo_path = self._get_repo_path(repo_name)
         
-        # ניסיון עם origin/branch
-        result = self._run_git_command(
-            ["git", "rev-parse", f"refs/heads/{branch}"],
-            cwd=repo_path,
-            timeout=10
-        )
+        # ב-Mirror, ה-Branch נמצא תחת refs/remotes/origin/
+        # ננסה כמה אפשרויות לפי סדר עדיפות
+        refs_to_try = [
+            f"refs/remotes/origin/{branch}",  # הכי נכון ל-mirror
+            f"origin/{branch}",               # קיצור נפוץ
+            f"refs/heads/{branch}",           # לפעמים קיים
+            branch                            # ניסיון אחרון
+        ]
         
-        if result.success:
-            return result.stdout.strip()
+        for ref in refs_to_try:
+            result = self._run_git_command(
+                ["git", "rev-parse", ref],
+                cwd=repo_path,
+                timeout=10
+            )
+            if result.success and result.stdout.strip():
+                return result.stdout.strip()
         
-        # fallback ל-HEAD
+        # Fallback ל-HEAD רק אם הכל נכשל
+        # הערה: HEAD במראה יכול להצביע על משהו לא צפוי!
+        logger.warning(f"Could not find branch {branch}, falling back to HEAD")
         result = self._run_git_command(
             ["git", "rev-parse", "HEAD"],
             cwd=repo_path,
@@ -677,13 +727,17 @@ class GitMirrorService:
         timeout: int = 10,
         file_pattern: Optional[str] = None,
         case_sensitive: bool = True,
-        ref: str = "HEAD"
+        ref: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         חיפוש בקוד עם git grep (מהיר מאוד!)
         
         **חשוב:** ב-Bare Repository (mirror) יש לשים לב לסדר הארגומנטים:
         git grep [options] <pattern> <revision> -- <pathspec>
+        
+        **Refs ב-Mirror:**
+        ב-bare repo, עדיף להשתמש ב-`origin/main` (לא `refs/heads/main`).
+        אם לא מועבר ref, נשתמש ב-`origin/main` כברירת מחדל.
         
         Args:
             repo_name: שם הריפו
@@ -692,7 +746,8 @@ class GitMirrorService:
             timeout: timeout בשניות
             file_pattern: סינון קבצים (למשל "*.py")
             case_sensitive: case sensitive?
-            ref: revision לחיפוש (HEAD, branch name, או SHA)
+            ref: revision לחיפוש (origin/main, SHA, וכו'). 
+                 None = ברירת מחדל origin/main
             
         Returns:
             dict עם results, total_count, truncated
@@ -701,6 +756,11 @@ class GitMirrorService:
         
         if not repo_path.exists():
             return {"error": "mirror_not_found", "results": []}
+        
+        # קביעת ה-ref לחיפוש
+        # ב-Mirror עדיף origin/main על HEAD (שיכול להצביע לא נכון)
+        if ref is None:
+            ref = "origin/main"  # ברירת מחדל ל-mirror
         
         # בניית הפקודה - סדר נכון ל-Bare Repository!
         # git grep [options] <pattern> <revision> -- <pathspec>
@@ -724,17 +784,15 @@ class GitMirrorService:
             cmd.append(query)
         
         # 2. הוספת ה-Revision (branch/SHA)
-        # ב-Bare repo עדיף להשתמש ב-refs/heads/main במקום HEAD
         cmd.append(ref)
         
-        # 3. הפרדה בין revision לבין pathspec
-        cmd.append("--")
-        
-        # 4. File pattern (pathspec) - חייב לבוא אחרי "--"
+        # 3. File pattern (pathspec)
+        # ב-bare repo אין working directory, אז אם אין פילטר -
+        # פשוט לא מוסיפים pathspec (git grep יחפש בכל העץ)
         if file_pattern:
+            cmd.append("--")
             cmd.append(file_pattern)
-        else:
-            cmd.append(".")  # כל הקבצים
+        # אם אין file_pattern, לא צריך -- ולא צריך "."
         
         try:
             result = self._run_git_command(cmd, cwd=repo_path, timeout=timeout)
@@ -1821,6 +1879,9 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import uuid
 
+# חשוב! ReturnDocument הוא Enum, לא בוליאני
+from pymongo import ReturnDocument
+
 from services.git_mirror_service import get_mirror_service
 from services.code_indexer import CodeIndexer
 
@@ -1941,6 +2002,7 @@ def _sync_worker():
             db = get_db()
             
             # Atomic: מצא job pending ותפוס אותו
+            # חשוב: return_document הוא Enum ב-PyMongo, לא True/False!
             job = db.sync_jobs.find_one_and_update(
                 {"status": "pending"},
                 {
@@ -1950,7 +2012,7 @@ def _sync_worker():
                     }
                 },
                 sort=[("created_at", 1)],  # FIFO - הישן קודם
-                return_document=True  # מחזיר אחרי העדכון
+                return_document=ReturnDocument.AFTER  # מחזיר את המסמך אחרי העדכון
             )
             
             if not job:
@@ -2160,8 +2222,24 @@ def initial_import(repo_url: str, repo_name: str, db) -> Dict[str, Any]:
     if not result["success"]:
         return {"error": "Failed to create mirror", "details": result}
     
-    # 2. רשימת כל הקבצים
-    all_files = git_service.list_all_files(repo_name) or []
+    repo_path = git_service._get_repo_path(repo_name)
+    
+    # 2. זיהוי ה-Default Branch האמיתי
+    # ב-Mirror, HEAD מצביע על ה-default branch של origin
+    branch_result = git_service._run_git_command(
+        ["git", "symbolic-ref", "--short", "HEAD"],
+        cwd=repo_path
+    )
+    default_branch = branch_result.stdout.strip() if branch_result.success else "main"
+    
+    # אם זה refs/heads/main, נחלץ רק את main
+    if "/" in default_branch:
+        default_branch = default_branch.split("/")[-1]
+    
+    logger.info(f"Detected default branch: {default_branch}")
+    
+    # 3. רשימת כל הקבצים
+    all_files = git_service.list_all_files(repo_name, ref=f"origin/{default_branch}") or []
     
     # 3. סינון קבצי קוד
     code_files = [f for f in all_files if indexer.should_index(f)]
@@ -2172,7 +2250,8 @@ def initial_import(repo_url: str, repo_name: str, db) -> Dict[str, Any]:
     indexed_count = 0
     error_count = 0
     
-    current_sha = git_service.get_current_sha(repo_name) or "HEAD"
+    # שימוש ב-default_branch שזיהינו
+    current_sha = git_service.get_current_sha(repo_name, branch=default_branch) or "HEAD"
     
     for i, file_path in enumerate(code_files):
         if i % 100 == 0:
@@ -2186,12 +2265,13 @@ def initial_import(repo_url: str, repo_name: str, db) -> Dict[str, Any]:
             else:
                 error_count += 1
     
-    # 5. שמירת metadata
+    # 5. שמירת metadata (כולל default_branch לשימוש בחיפוש ובסנכרון)
     db.repo_metadata.update_one(
         {"repo_name": repo_name},
         {
             "$set": {
                 "repo_url": repo_url,
+                "default_branch": default_branch,  # חשוב! לשימוש ב-git grep וב-sync
                 "last_synced_sha": current_sha,
                 "last_sync_time": datetime.utcnow(),
                 "total_files": len(code_files),
@@ -2820,6 +2900,31 @@ if query.startswith("-"):
 הקוד המעודכן מטפל בזה - ראו `_run_sync_logic`:
 1. מוחק את הקובץ הישן מהאינדקס
 2. מוסיף את הקובץ החדש לרשימת העיבוד
+
+### בעיה: "fatal: ambiguous argument 'refs/heads/main'" ב-Mirror
+
+**סיבה:** ב-bare mirror, הבראנצ'ים לא נמצאים תחת `refs/heads/`
+
+**פתרון:**
+הקוד המעודכן מנסה כמה refs לפי סדר:
+1. `refs/remotes/origin/{branch}` - הכי נכון ל-mirror
+2. `origin/{branch}` - קיצור נפוץ
+3. `refs/heads/{branch}` - לפעמים קיים
+4. `HEAD` - fallback אחרון
+
+**בדיקה ידנית:**
+```bash
+# איזה refs קיימים ב-mirror?
+cd /var/data/repos/CodeBot.git
+git for-each-ref --format='%(refname)'
+```
+
+### בעיה: Token נחשף בלוגים
+
+**סיבה:** git מדפיס את ה-URL (כולל הטוקן) ב-stderr כשיש שגיאה
+
+**פתרון:**
+הקוד המעודכן משתמש ב-`_sanitize_output()` שמחליף את הטוקן ב-`***` לפני כל לוג או החזרה ל-API
 
 ---
 
