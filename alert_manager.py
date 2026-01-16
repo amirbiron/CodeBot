@@ -341,8 +341,10 @@ def _recompute_thresholds(now_ts: float) -> None:
 
     # Update Prometheus gauges (best-effort, lazy import to avoid cycles)
     try:
-        cur_err = get_current_error_rate_percent(window_sec=5 * 60)
-        cur_lat = get_current_avg_latency_seconds(window_sec=5 * 60)
+        # שמור עקביות: ספים מחושבים רק על דגימות פנימיות, ולכן גם ה-"current" gauges
+        # צריכים לשקף את אותו מקור (ולא לכלול תקלות חיצוניות/Circuit Breaker).
+        cur_err = get_current_error_rate_percent(window_sec=5 * 60, source="internal")
+        cur_lat = get_current_avg_latency_seconds(window_sec=5 * 60, source="internal")
         _update_gauges(err_thr, lat_thr, cur_err, cur_lat)
     except Exception:
         _update_gauges(err_thr, lat_thr, None, None)
