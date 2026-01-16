@@ -579,34 +579,46 @@ class DocumentHandler:
             await update.message.reply_text("⏳ מוריד קובץ ZIP...")
             file = await context.bot.get_file(document.file_id)
             buf = BytesIO()
-            await file.download_to_memory(buf)
-            buf.seek(0)
-            if not zipfile.is_zipfile(buf):
-                await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
-                return
-            zf = zipfile.ZipFile(buf, "r")
-            all_names = [n for n in zf.namelist() if not n.endswith("/")]
-            members = [n for n in all_names if not (n.startswith("__MACOSX/") or n.split("/")[-1].startswith("._"))]
-            top_levels = set()
-            for name in zf.namelist():
-                if "/" in name and not name.startswith("__MACOSX/"):
-                    top_levels.add(name.split("/", 1)[0])
-            common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+            try:
+                await file.download_to_memory(buf)
+                buf.seek(0)
+                if not zipfile.is_zipfile(buf):
+                    await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
+                    return
 
-            def strip_root(path: str) -> str:
-                if common_root and path.startswith(common_root + "/"):
-                    return path[len(common_root) + 1 :]
-                return path
+                # חשוב: סגירה דטרמיניסטית של ה-ZIP כדי להימנע מ-Unraisable Exception בזמן GC
+                with zipfile.ZipFile(buf, "r") as zf:
+                    all_names = [n for n in zf.namelist() if not n.endswith("/")]
+                    members = [
+                        n
+                        for n in all_names
+                        if not (n.startswith("__MACOSX/") or n.split("/")[-1].startswith("._"))
+                    ]
+                    top_levels = set()
+                    for name in zf.namelist():
+                        if "/" in name and not name.startswith("__MACOSX/"):
+                            top_levels.add(name.split("/", 1)[0])
+                    common_root = list(top_levels)[0] if len(top_levels) == 1 else None
 
-            files: List[tuple[str, bytes]] = []
-            for name in members:
-                raw = zf.read(name)
-                clean = strip_root(name)
-                if clean:
-                    files.append((clean, raw))
-            if not files:
-                await update.message.reply_text("❌ לא נמצאו קבצים בתוך ה-ZIP")
-                return
+                    def strip_root(path: str) -> str:
+                        if common_root and path.startswith(common_root + "/"):
+                            return path[len(common_root) + 1 :]
+                        return path
+
+                    files: List[tuple[str, bytes]] = []
+                    for name in members:
+                        raw = zf.read(name)
+                        clean = strip_root(name)
+                        if clean:
+                            files.append((clean, raw))
+                if not files:
+                    await update.message.reply_text("❌ לא נמצאו קבצים בתוך ה-ZIP")
+                    return
+            finally:
+                try:
+                    buf.close()
+                except Exception:
+                    pass
 
             from github import Github
             from github.InputGitTreeElement import InputGitTreeElement
