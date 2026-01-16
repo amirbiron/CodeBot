@@ -222,8 +222,11 @@ def _get_current_values() -> Tuple[float, float, float]:
             get_current_error_rate_percent,
             get_current_avg_latency_seconds,
         )
-        err = float(get_current_error_rate_percent(window_sec=5 * 60))
-        lat = float(get_current_avg_latency_seconds(window_sec=5 * 60))
+        # חשוב: פעולות Predictive (כולל ריסטארט וורקר) צריכות להתבסס על בריאות פנימית בלבד.
+        # שגיאות שמקורן בשירותים חיצוניים / Circuit Breaker יכולות להקפיץ את שיעור השגיאות,
+        # אבל לא מעידות שהוורקר עצמו "תקול".
+        err = float(get_current_error_rate_percent(window_sec=5 * 60, source="internal"))
+        lat = float(get_current_avg_latency_seconds(window_sec=5 * 60, source="internal"))
     except Exception:
         err, lat = 0.0, 0.0
     try:

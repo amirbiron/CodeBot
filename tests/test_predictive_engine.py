@@ -106,3 +106,29 @@ def test_adaptive_feedback_accuracy_and_halflife_tuning(monkeypatch, tmp_path):
     lat_trend = [t for t in trends if t.metric == "latency_seconds"][0]
     assert lat_trend.slope_per_minute < 0
     assert lat_trend.predicted_cross_ts is None
+
+
+def test_predictive_engine_samples_internal_only(monkeypatch):
+    import importlib
+    pe = importlib.import_module('predictive_engine')
+    importlib.reload(pe)
+
+    import alert_manager as am
+
+    calls = []
+
+    def fake_err(window_sec: int = 300, *, source=None):
+        calls.append(("err", int(window_sec), source))
+        return 1.23
+
+    def fake_lat(window_sec: int = 300, *, source=None):
+        calls.append(("lat", int(window_sec), source))
+        return 0.45
+
+    monkeypatch.setattr(am, "get_current_error_rate_percent", fake_err)
+    monkeypatch.setattr(am, "get_current_avg_latency_seconds", fake_lat)
+
+    pe.note_observation()
+
+    assert ("err", 300, "internal") in calls
+    assert ("lat", 300, "internal") in calls
