@@ -1226,14 +1226,28 @@ class _MongoLockHeartbeat:
             f"💀 Killing process {os.getpid()} immediately to prevent telegram.error.Conflict..."
         )
 
-        # נותנים ללוגים רגע להיכתב (ברשת/דיסק). בטסטים לא רוצים השהייה אמיתית.
+        # Fail-fast באמת: לא עושים sleep (כדי לא להשאיר חלון שבו poller ממשיך לרוץ במקביל).
+        # Best-effort flush כדי להגדיל סיכוי שהלוג/אירוע יישלחו לפני ה-exit.
         try:
-            sleep_seconds = 0.0 if os.getenv("PYTEST_CURRENT_TEST") else 1.0
+            import sys
+
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+            try:
+                sys.stderr.flush()
+            except Exception:
+                pass
         except Exception:
-            sleep_seconds = 1.0
+            pass
         try:
-            if sleep_seconds > 0:
-                time.sleep(float(sleep_seconds))
+            root_logger = logging.getLogger()
+            for h in list(getattr(root_logger, "handlers", []) or []):
+                try:
+                    h.flush()
+                except Exception:
+                    pass
         except Exception:
             pass
 
