@@ -1202,6 +1202,59 @@ class _MongoLockHeartbeat:
         except Exception:
             self._instance_id = ""
 
+    def _handle_lost_lock(self, reason: str) -> None:
+        """
+        נקראת כאשר ה-Heartbeat מזהה שאיבדנו את הנעילה (או שאנחנו על סף פקיעה).
+        מבצעת יציאה כפויה (Fail-Fast) כדי למנוע מצב של Zombie Bot ו-telegram.error.Conflict.
+        """
+        try:
+            emit_event(
+                "lock_fail_fast_exit",
+                severity="critical",
+                service_id=self._service_id,
+                owner=self._owner_id,
+                host=self._host_label,
+                instance=self._instance_id,
+                pid=int(os.getpid()),
+                reason=str(reason),
+            )
+        except Exception:
+            pass
+
+        logger.critical(f"🚨 CRITICAL: Lock ownership lost! Reason: {reason}")
+        logger.critical(
+            f"💀 Killing process {os.getpid()} immediately to prevent telegram.error.Conflict..."
+        )
+
+        # Fail-fast באמת: לא עושים sleep (כדי לא להשאיר חלון שבו poller ממשיך לרוץ במקביל).
+        # Best-effort flush כדי להגדיל סיכוי שהלוג/אירוע יישלחו לפני ה-exit.
+        try:
+            import sys
+
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+            try:
+                sys.stderr.flush()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            root_logger = logging.getLogger()
+            for h in list(getattr(root_logger, "handlers", []) or []):
+                try:
+                    h.flush()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # הרג מיידי של כל התהליך (כולל Threads ו-Greenlets).
+        # קוד 1 מסמן ל-Render שהייתה יציאה לא תקינה (כדי שיפעיל מחדש אם צריך).
+        os._exit(1)
+
     def start(self) -> None:
         if self._thread is not None:
             return
@@ -1258,7 +1311,7 @@ class _MongoLockHeartbeat:
                     logger.critical(
                         "Local lock lease is about to expire; exiting to prevent double polling."
                     )
-                    os._exit(0)
+                    self._handle_lost_lock("Local lock lease is about to expire (pre-heartbeat)")
             except Exception:
                 # best-effort only
                 pass
@@ -1332,11 +1385,7 @@ class _MongoLockHeartbeat:
                     )
                 except Exception:
                     pass
-                logger.critical(
-                    "Lost MongoDB lock ownership; exiting immediately to avoid double polling. "
-                    f"service_id={self._service_id} owner={self._owner_id}"
-                )
-                os._exit(0)
+                self._handle_lost_lock("Database document mismatch (stolen lock)")
 
             # עדכון הצליח והמסמך עדיין בבעלותנו -> עכשיו מותר לעדכן את ה-expiry המקומי
             self._local_expires_at = target_exp
@@ -1372,10 +1421,7 @@ class _MongoLockHeartbeat:
                         )
                     except Exception:
                         pass
-                    logger.critical(
-                        "Mongo lock heartbeat could not refresh before expiry; exiting to prevent double polling."
-                    )
-                    os._exit(0)
+                    self._handle_lost_lock(f"Lease expired during network error ({e})")
             except Exception:
                 # If we can't reason about expiry, prefer staying alive; ownership-loss check will kill us if needed.
                 pass
