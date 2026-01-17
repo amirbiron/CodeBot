@@ -82,7 +82,21 @@ def api_tree():
     ).sort("path", 1))
     
     # Get all paths to find directories
-    all_paths = db.repo_files.distinct("path", {"repo_name": repo_name})
+    # ביצועים: לא מושכים את כל הנתיבים לריפו גדול.
+    # מביאים distinct רק על נתיבים תחת ה-prefix הרלוונטי (כולל nested) כדי להפיק תיקיות.
+    if path:
+        safe_prefix = re.escape(path)
+        dir_pattern = f"^{safe_prefix}/"
+    else:
+        dir_pattern = "^[^/]+/"
+
+    all_paths = db.repo_files.distinct(
+        "path",
+        {
+            "repo_name": repo_name,
+            "path": {"$regex": dir_pattern},
+        },
+    )
     
     # Extract unique directories at this level
     directories = set()
@@ -137,7 +151,16 @@ def api_get_file(file_path: str):
     })
     
     # Get content from git mirror
-    content = git_service.get_file_content(repo_name, file_path)
+    # חשוב: ב-bare mirror לא מסתמכים על HEAD (יכול להצביע למשהו לא צפוי).
+    # נעדיף commit_sha שאונדקס (עקביות מול תוצאות חיפוש), ואם חסר - origin/<default_branch>.
+    commit_sha = metadata.get("commit_sha") if metadata else None
+    ref = commit_sha
+    if not ref:
+        meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
+        default_branch = str(meta.get("default_branch") or "").strip() or "main"
+        ref = f"origin/{default_branch}"
+
+    content = git_service.get_file_content(repo_name, file_path, ref=ref)
     
     if content is None:
         return jsonify({"error": "File not found"}), 404

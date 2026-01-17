@@ -61,6 +61,26 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ========================================
+// Security helpers (XSS / quotes)
+// ========================================
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function escapeJsStr(text) {
+    if (text === null || text === undefined) return '';
+    // Escape backslashes + single quotes for onclick="... '...'"
+    return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+// ========================================
 // Tree View
 // ========================================
 
@@ -166,24 +186,26 @@ async function toggleFolder(node, item) {
         icon.innerHTML = '<i class="bi bi-folder-fill"></i>';
         state.expandedFolders.delete(item.path);
     } else {
-        // Expand
-        if (children.children.length === 0) {
-            // Load children
-            try {
+        // Expand (עדכון UI רק אחרי טעינה מוצלחת)
+        try {
+            if (children.children.length === 0) {
                 const response = await fetch(`${CONFIG.apiBase}/tree?path=${encodeURIComponent(item.path)}`);
+                if (!response.ok) throw new Error('Network error');
                 const data = await response.json();
                 renderTree(children, data, getLevel(node) + 1);
-            } catch (error) {
-                console.error('Failed to load folder:', error);
             }
+
+            children.classList.add('expanded');
+            toggle.classList.add('expanded');
+            // עדכון class + innerHTML לאייקון
+            icon.classList.remove('folder');
+            icon.classList.add('folder-open');
+            icon.innerHTML = '<i class="bi bi-folder2-open"></i>';
+            state.expandedFolders.add(item.path);
+        } catch (error) {
+            console.error('Failed to load folder:', error);
+            showToast('Failed to load folder contents');
         }
-        children.classList.add('expanded');
-        toggle.classList.add('expanded');
-        // עדכון class + innerHTML לאייקון
-        icon.classList.remove('folder');
-        icon.classList.add('folder-open');
-        icon.innerHTML = '<i class="bi bi-folder2-open"></i>';
-        state.expandedFolders.add(item.path);
     }
 }
 
@@ -302,7 +324,7 @@ async function selectFile(path, element) {
         wrapper.innerHTML = `
             <div class="error-message" style="padding: 20px; color: var(--accent-red);">
                 <i class="bi bi-exclamation-triangle"></i>
-                <span>Failed to load file: ${error.message}</span>
+                <span>Failed to load file: ${escapeHtml(error && error.message ? error.message : String(error))}</span>
             </div>
         `;
     }
@@ -370,11 +392,13 @@ function updateBreadcrumbs(path) {
     breadcrumb.innerHTML = parts.map((part, index) => {
         const isLast = index === parts.length - 1;
         const partPath = parts.slice(0, index + 1).join('/');
+        const safePart = escapeHtml(part);
+        const safeJsPartPath = escapeJsStr(partPath);
         
         if (isLast) {
-            return `<li class="breadcrumb-item active">${part}</li>`;
+            return `<li class="breadcrumb-item active">${safePart}</li>`;
         }
-        return `<li class="breadcrumb-item"><a href="#" onclick="navigateToFolder('${partPath}')">${part}</a></li>`;
+        return `<li class="breadcrumb-item"><a href="#" onclick="navigateToFolder('${safeJsPartPath}')">${safePart}</a></li>`;
     }).join('');
 
     // Update copy button
@@ -463,15 +487,17 @@ function renderSearchResults(container, results, query) {
     }
 
     container.innerHTML = results.slice(0, 20).map(result => {
+        const safePath = escapeHtml(result.path);
+        const safeJsPath = escapeJsStr(result.path);
         const highlightedContent = result.content 
-            ? highlightMatch(result.content, query)
+            ? highlightMatch(escapeHtml(result.content), query)
             : '';
         
         return `
-            <div class="search-result-item" onclick="selectFile('${result.path}')">
+            <div class="search-result-item" onclick="selectFile('${safeJsPath}')">
                 <div class="search-result-path">
                     <span class="file-icon">${getIcon({name: result.path, type: 'file'})}</span>
-                    <span>${result.path}</span>
+                    <span>${safePath}</span>
                     ${result.line ? `<span class="search-result-line">L${result.line}</span>` : ''}
                 </div>
                 ${highlightedContent ? `<div class="search-result-preview">${highlightedContent}</div>` : ''}
@@ -574,9 +600,9 @@ function loadRecentFiles() {
     }
 
     container.innerHTML = recent.map(path => `
-        <li onclick="selectFile('${path}')">
+        <li onclick="selectFile('${escapeJsStr(path)}')">
             ${getIcon({name: path, type: 'file'})}
-            <span>${path.split('/').pop()}</span>
+            <span>${escapeHtml(path.split('/').pop())}</span>
         </li>
     `).join('');
 }
@@ -627,12 +653,22 @@ function showToast(message, duration = 2000) {
 }
 
 function navigateToFolder(path) {
-    // Find and expand the folder in tree
-    const node = document.querySelector(`[data-path="${path}"]`);
+    // Find and expand the folder in tree (בלי CSS selector injection)
+    const node = findNodeByPath(path);
     if (node) {
         const item = node.querySelector('.tree-item');
         item?.click();
     }
+}
+
+function findNodeByPath(path) {
+    const nodes = document.querySelectorAll('[data-path]');
+    for (const node of nodes) {
+        if (node && node.dataset && node.dataset.path === path) {
+            return node;
+        }
+    }
+    return null;
 }
 
 // Collapse all folders
