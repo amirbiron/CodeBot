@@ -6,10 +6,8 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.css">
 
-<!-- Bootstrap Icons (גרסה יציבה עם integrity) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" 
-      integrity="sha384-XGjxtQfXaH2tnPFa9x+ruJTuLE3Aa6LhHSWRr1XeTyhezb4abCG4ccI5AkVDxLM+" 
-      crossorigin="anonymous">
+<!-- Bootstrap Icons -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
 <!-- Custom Repo Browser Styles -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/repo-browser.css') }}">
@@ -73,13 +71,13 @@
             <div class="sidebar-footer">
                 {% if metadata %}
                 <div class="stats-mini">
-                    <span title="Python files"><i class="bi bi-filetype-py" aria-hidden="true"></i><span class="icon-fallback">.py</span> {{ metadata.get('file_types', {}).get('python', 0) }}</span>
-                    <span title="JavaScript files"><i class="bi bi-filetype-js" aria-hidden="true"></i><span class="icon-fallback">.js</span> {{ metadata.get('file_types', {}).get('javascript', 0) }}</span>
-                    <span title="Total files"><i class="bi bi-files" aria-hidden="true"></i><span class="icon-fallback">All</span> {{ metadata.total_files | default(0) }}</span>
+                    <span title="Python files"><i class="bi bi-filetype-py"></i> {{ metadata.get('file_types', {}).get('python', 0) }}</span>
+                    <span title="JavaScript files"><i class="bi bi-filetype-js"></i> {{ metadata.get('file_types', {}).get('javascript', 0) }}</span>
+                    <span title="Total files"><i class="bi bi-files"></i> {{ metadata.total_files | default(0) }}</span>
                 </div>
                 {% else %}
                 <div class="stats-mini">
-                    <span class="text-muted">No data yet</span>
+                    <span class="text-muted">Sync required</span>
                 </div>
                 {% endif %}
             </div>

@@ -128,7 +128,7 @@ class RepoSearchService:
             return result
 
         # העשרת התוצאות עם metadata מ-MongoDB
-        if self.db and result.get("results"):
+        if self.db is not None and result.get("results"):
             paths = list(set(r["path"] for r in result["results"]))
 
             # שליפת metadata

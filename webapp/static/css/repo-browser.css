@@ -419,21 +419,9 @@
     gap: 4px;
 }
 
-/* Icon fallback - הצג רק כשאייקונים לא נטענים */
+/* Icon fallback - מוסתר כברירת מחדל */
 .stats-mini .icon-fallback {
     display: none;
-    font-size: 10px;
-    color: var(--text-muted);
-}
-
-/* כשאייקון Bootstrap נטען, הסתר fallback */
-.stats-mini .bi:not(:empty) + .icon-fallback {
-    display: none;
-}
-
-/* אם האייקון ריק (לא נטען), הצג fallback */
-.stats-mini .bi:empty + .icon-fallback {
-    display: inline;
 }
 
 /* Resizer */
@@ -524,19 +512,24 @@
 
 /* Code Editor Wrapper */
 .code-editor-wrapper {
-    flex: 1;
+    flex: 1 1 auto;
     overflow: hidden;
     position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0; /* חשוב לפלקס בתוך פלקס */
+    height: 0; /* מאלץ את flex לקחת שליטה */
 }
 
 /* CodeMirror Overrides */
 .CodeMirror {
     height: 100% !important;
     min-height: 100% !important;
-    flex: 1;
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
     line-height: 1.5;
@@ -546,6 +539,7 @@
 /* CodeMirror scroll container */
 .CodeMirror-scroll {
     min-height: 100% !important;
+    max-height: 100% !important;
 }
 
 .CodeMirror-gutters {
