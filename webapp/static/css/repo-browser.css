@@ -444,7 +444,6 @@
     overflow: hidden;
     background: var(--bg-primary);
     min-height: 0;
-    height: 100%;
 }
 
 .code-viewer-container,
@@ -453,13 +452,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    min-height: 0;
-    height: 100%;
-}
-
-/* Ensure repo-main-content fills available space */
-.repo-main-content {
-    flex: 1 1 0;
     min-height: 0;
 }
 
@@ -551,7 +543,7 @@
 /* Code Editor Wrapper */
 .code-editor-wrapper,
 #code-editor-wrapper {
-    flex: 1 1 0;
+    flex: 1 1 auto;
     overflow: hidden;
     position: relative;
     min-height: 200px;
@@ -567,6 +559,20 @@
     bottom: 0;
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
+}
+
+/* CodeMirror 6 Overrides */
+.cm-editor {
+    height: 100% !important;
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.cm-scroller {
+    overflow: auto !important;
     line-height: 1.5;
     background: var(--bg-primary) !important;
 }
