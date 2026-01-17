@@ -9462,8 +9462,8 @@ _whats_new_cache_lock = threading.Lock()
 _WHATS_NEW_CACHE_TTL = 300  # 5 דקות
 
 
-def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
-    """טוען את רשימת הפיצ'רים החדשים מקובץ YAML"""
+def _load_whats_new_cached() -> List[Dict[str, Any]]:
+    """טוען את כל הפיצ'רים מקובץ YAML (עם cache)"""
     global _whats_new_cache, _whats_new_cache_time
     
     now = time.time()
@@ -9471,13 +9471,11 @@ def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
     # בדיקת cache (בנעילה)
     with _whats_new_cache_lock:
         if _whats_new_cache and (now - _whats_new_cache_time) < _WHATS_NEW_CACHE_TTL:
-            cached = _whats_new_cache.copy()
-            cached['features'] = cached.get('features', [])[:limit]
-            return cached
+            return _whats_new_cache.get('features', [])
     
     try:
         if not _WHATS_NEW_PATH.exists():
-            return {'features': [], 'has_features': False, 'total': 0}
+            return []
         
         with open(_WHATS_NEW_PATH, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
@@ -9497,6 +9495,7 @@ def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
             # עיבוד תאריך
             date_str = feat.get('date', '')
             relative_time = ''
+            feat_date = None
             if date_str:
                 try:
                     feat_date = datetime.strptime(str(date_str), '%Y-%m-%d').replace(tzinfo=timezone.utc)
@@ -9509,6 +9508,7 @@ def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
                 'description': feat.get('description', ''),
                 'icon': feat.get('icon', '✨'),
                 'date': date_str,
+                'date_obj': feat_date,
                 'relative_time': relative_time,
                 'link': feat.get('link'),
                 'badge': feat.get('badge'),
@@ -9516,20 +9516,45 @@ def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
         
         # שמירה ב-cache (בנעילה)
         with _whats_new_cache_lock:
-            _whats_new_cache = {
-                'features': processed_features,
-                'has_features': bool(processed_features),
-                'total': len(processed_features),
-            }
+            _whats_new_cache = {'features': processed_features}
             _whats_new_cache_time = now
         
-        result = _whats_new_cache.copy()
-        result['features'] = result['features'][:limit]
-        return result
+        return processed_features
         
     except Exception as e:
         logger.warning(f"Failed to load whats_new.yaml: {e}")
-        return {'features': [], 'has_features': False, 'total': 0}
+        return []
+
+
+def _load_whats_new(limit: int = 5, offset: int = 0, max_days: int = 30) -> Dict[str, Any]:
+    """טוען פיצ'רים חדשים עם תמיכה ב-pagination והגבלת ימים"""
+    all_features = _load_whats_new_cached()
+    
+    # סינון לפי תאריך (רק פיצ'רים מהימים האחרונים)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=max_days)
+    filtered_features = []
+    for feat in all_features:
+        feat_date = feat.get('date_obj')
+        # אם אין תאריך או התאריך בטווח - כולל
+        if feat_date is None or feat_date >= cutoff_date:
+            # הסר את date_obj מהתוצאה (לא צריך ב-template)
+            clean_feat = {k: v for k, v in feat.items() if k != 'date_obj'}
+            filtered_features.append(clean_feat)
+    
+    total = len(filtered_features)
+    features_slice = filtered_features[offset:offset + limit]
+    next_offset = offset + len(features_slice)
+    remaining = max(0, total - next_offset)
+    
+    return {
+        'features': features_slice,
+        'has_features': bool(features_slice),
+        'total': total,
+        'offset': offset,
+        'next_offset': next_offset,
+        'remaining': remaining,
+        'has_more': remaining > 0,
+    }
 
 
 @app.route('/dashboard')
@@ -14173,6 +14198,32 @@ def api_dashboard_activity_files():
             "has_more": bool(remaining > 0),
         }
     )
+
+
+@app.route('/api/dashboard/whats-new', methods=['GET'])
+@login_required
+def api_dashboard_whats_new():
+    """API: טען עוד פיצ'רים חדשים (pagination)."""
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+        limit = min(10, max(1, int(request.args.get('limit', 5))))
+        max_days = min(90, max(7, int(request.args.get('max_days', 30))))
+    except (ValueError, TypeError):
+        offset = 0
+        limit = 5
+        max_days = 30
+
+    data = _load_whats_new(limit=limit, offset=offset, max_days=max_days)
+    
+    return jsonify({
+        "ok": True,
+        "features": data['features'],
+        "total": data['total'],
+        "offset": data['offset'],
+        "next_offset": data['next_offset'],
+        "remaining": data['remaining'],
+        "has_more": data['has_more'],
+    })
 
 
 @app.route('/api/stats/logs', methods=['GET'])
