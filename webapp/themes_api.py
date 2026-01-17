@@ -385,6 +385,32 @@ def _count_user_themes(db, user_id: int) -> int:
         return 0
 
 
+def _get_user_max_themes_allowed(user_id: int) -> Optional[int]:
+    """
+    מחזיר את המגבלה למספר ערכות שמותר לשמור.
+
+    - משתמש רגיל: MAX_THEMES_PER_USER
+    - אדמין: ללא מגבלה (None)
+
+    הערה: ב-API מחזירים None כדי שה-UI יוכל להציג ∞.
+    """
+    try:
+        if _is_admin(int(user_id)):
+            return None
+    except Exception:
+        # best-effort: אם לא הצלחנו לזהות אדמין - נחזור למגבלת ברירת מחדל
+        pass
+    return MAX_THEMES_PER_USER
+
+
+def _is_over_theme_limit(db, user_id: int) -> bool:
+    """בודק האם המשתמש עבר את המגבלה (אדמין תמיד False)."""
+    max_allowed = _get_user_max_themes_allowed(user_id)
+    if max_allowed is None:
+        return False
+    return _count_user_themes(db, user_id) >= int(max_allowed)
+
+
 _VALID_PX_REGEX = re.compile(r"^\d{1,3}(\.\d{1,2})?px$")
 
 
@@ -537,7 +563,14 @@ def get_user_themes():
                     }
                 )
 
-        return jsonify({"ok": True, "themes": themes, "count": len(themes), "max_allowed": MAX_THEMES_PER_USER})
+        return jsonify(
+            {
+                "ok": True,
+                "themes": themes,
+                "count": len(themes),
+                "max_allowed": _get_user_max_themes_allowed(user_id),
+            }
+        )
     except Exception as e:
         logger.exception("get_user_themes failed: %s", e)
         return jsonify({"ok": False, "error": "database_error"}), 500
@@ -603,9 +636,15 @@ def create_theme():
 
     try:
         db_ref = get_db()
-        if _count_user_themes(db_ref, user_id) >= MAX_THEMES_PER_USER:
+        if _is_over_theme_limit(db_ref, user_id):
             return (
-                jsonify({"ok": False, "error": "max_themes_reached", "message": f"ניתן לשמור עד {MAX_THEMES_PER_USER} ערכות"}),
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "max_themes_reached",
+                        "message": f"ניתן לשמור עד {MAX_THEMES_PER_USER} ערכות",
+                    }
+                ),
                 400,
             )
     except Exception as e:
@@ -921,7 +960,7 @@ def preset_apply(preset_id: str):
         return jsonify({"success": False, "error": "Unauthorized"}), 401
 
     db = get_db()
-    if _count_user_themes(db, user_id) >= MAX_THEMES_PER_USER:
+    if _is_over_theme_limit(db, int(user_id)):
         return (
             jsonify({"success": False, "error": f"הגעת למגבלה של {MAX_THEMES_PER_USER} ערכות מותאמות אישית"}),
             400,
@@ -961,7 +1000,7 @@ def import_theme():
 
     db = get_db()
 
-    if _count_user_themes(db, user_id) >= MAX_THEMES_PER_USER:
+    if _is_over_theme_limit(db, int(user_id)):
         return (
             jsonify({"success": False, "error": f"הגעת למגבלה של {MAX_THEMES_PER_USER} ערכות מותאמות אישית"}),
             400,
