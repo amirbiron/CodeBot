@@ -301,8 +301,7 @@ async function selectFile(path, element) {
     const footer = document.getElementById('code-footer');
 
     welcome.style.display = 'none';
-    wrapper.style.display = 'flex';
-    wrapper.style.flexDirection = 'column';
+    wrapper.style.display = 'block';
     header.style.display = 'flex';
     footer.style.display = 'flex';
     

@@ -455,14 +455,6 @@
     min-height: 0;
 }
 
-/* Ensure repo-main-content fills available space */
-.repo-main-content {
-    flex: 1;
-    display: flex;
-    min-height: 0;
-    overflow: hidden;
-}
-
 /* Code Header - Breadcrumbs & Actions */
 .code-header {
     display: flex;
