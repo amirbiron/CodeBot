@@ -9527,7 +9527,7 @@ def _load_whats_new_cached() -> List[Dict[str, Any]]:
         return []
 
 
-def _load_whats_new(limit: int = 5, offset: int = 0, max_days: int = 30) -> Dict[str, Any]:
+def _load_whats_new(limit: int = 5, offset: int = 0, max_days: int = 180) -> Dict[str, Any]:
     """טוען פיצ'רים חדשים עם תמיכה ב-pagination והגבלת ימים"""
     all_features = _load_whats_new_cached()
     
