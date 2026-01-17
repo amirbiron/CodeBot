@@ -174,3 +174,46 @@ class TestFixCommonErrors:
         assert fixed == json_str
         assert fixes == []
 
+    def test_fix_handles_comments_unquoted_keys_single_quotes_and_trailing_commas(
+        self, service: JsonFormatterService
+    ) -> None:
+        json_str = """
+        {
+          name: 'CodeBot Pro',  // no quotes on key + single quotes in value
+          "version": 2.5,
+          "is_active": true,
+          "config": {
+            "theme": "dark",
+            "retries": 3,       // trailing comma + comment
+          },
+          "tags": [
+            'python',
+            'flask',            // single quotes + trailing comma
+          ]
+        }
+        """
+        fixed, fixes = service.fix_common_errors(json_str)
+        parsed = json.loads(fixed)
+        assert parsed["name"] == "CodeBot Pro"
+        assert parsed["version"] == 2.5
+        assert parsed["is_active"] is True
+        assert parsed["config"]["retries"] == 3
+        assert parsed["tags"] == ["python", "flask"]
+
+        joined = " ".join(fixes)
+        assert "הוסרו הערות" in joined
+        assert "מפתחות" in joined
+        assert "מירכאות" in joined
+
+    def test_fix_strips_end_of_string_line_comment_delimiter(self, service: JsonFormatterService) -> None:
+        json_str = '{"a": 1}//'
+        fixed, fixes = service.fix_common_errors(json_str)
+        assert json.loads(fixed) == {"a": 1}
+        assert "הוסרו הערות" in " ".join(fixes)
+
+    def test_fix_strips_end_of_string_block_comment_delimiter(self, service: JsonFormatterService) -> None:
+        json_str = '{"a": 1}/*'
+        fixed, fixes = service.fix_common_errors(json_str)
+        assert json.loads(fixed) == {"a": 1}
+        assert "הוסרו הערות" in " ".join(fixes)
+

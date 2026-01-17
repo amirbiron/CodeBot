@@ -125,6 +125,27 @@ class TestFixEndpoint:
         assert data["result"]
         assert "fixes_applied" in data
 
+    def test_fix_handles_comments_unquoted_keys_and_single_quotes(self, client) -> None:
+        content = """
+        {
+          name: 'CodeBot Pro',  // no quotes on key + single quotes
+          "version": 2.5,
+          "config": {
+            "retries": 3,       // trailing comma + comment
+          },
+          "tags": [
+            'python',
+            'flask',
+          ]
+        }
+        """
+        resp = client.post("/api/json/fix", json={"content": content})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert "result" in data
+        assert "CodeBot Pro" in data["result"]
+
     def test_fix_failure(self, client) -> None:
         resp = client.post("/api/json/fix", json={"content": "{not even close"})
         assert resp.status_code == 400
