@@ -42,7 +42,8 @@ const CONFIG = {
 let state = {
     currentFile: null,
     treeData: null,
-    editor: null,
+    editor: null, // CodeMirror 5 instance
+    editorView6: null, // CodeMirror 6 EditorView instance (fallback)
     expandedFolders: new Set(),
     selectedElement: null,
     searchTimeout: null
@@ -189,6 +190,8 @@ async function toggleFolder(node, item) {
         // Expand (עדכון UI רק אחרי טעינה מוצלחת)
         try {
             if (children.children.length === 0) {
+                // spinner זמני בזמן טעינת children
+                icon.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div>';
                 const response = await fetch(`${CONFIG.apiBase}/tree?path=${encodeURIComponent(item.path)}`);
                 if (!response.ok) throw new Error('Network error');
                 const data = await response.json();
@@ -205,6 +208,10 @@ async function toggleFolder(node, item) {
         } catch (error) {
             console.error('Failed to load folder:', error);
             showToast('Failed to load folder contents');
+            // מחזירים אייקון סגור (למקרה ששמנו spinner)
+            icon.classList.remove('folder-open');
+            icon.classList.add('folder');
+            icon.innerHTML = '<i class="bi bi-folder-fill"></i>';
         }
     }
 }
@@ -314,7 +321,7 @@ async function selectFile(path, element) {
         updateFileInfo(data);
 
         // Initialize or update CodeMirror
-        initCodeMirror(data.content, data.language || detectLanguage(path));
+        await initCodeViewer(data.content, data.language || detectLanguage(path));
 
         // Save to recent files
         addToRecentFiles(path);
@@ -330,36 +337,110 @@ async function selectFile(path, element) {
     }
 }
 
-function initCodeMirror(content, language) {
-    const textarea = document.getElementById('code-editor');
-    
-    // Destroy existing editor
+async function initCodeViewer(content, language) {
+    const wrapper = document.getElementById('code-editor-wrapper');
+    if (!wrapper) return;
+
+    const kind = await ensureCodeMirrorRuntime();
+
+    // Destroy previous instances
     if (state.editor) {
-        state.editor.toTextArea();
+        try { state.editor.toTextArea(); } catch (_) {}
+        state.editor = null;
+    }
+    if (state.editorView6) {
+        try { state.editorView6.destroy(); } catch (_) {}
+        state.editorView6 = null;
     }
 
-    // Get mode from language
-    const mode = CONFIG.modeMap[language] || 'null';
+    if (kind === 'cm5') {
+        if (!document.getElementById('code-editor')) {
+            wrapper.innerHTML = '<textarea id="code-editor"></textarea>';
+        }
 
-    // Create new editor
-    state.editor = CodeMirror.fromTextArea(textarea, {
-        value: content,
-        mode: mode,
-        theme: 'dracula',
-        lineNumbers: true,
-        readOnly: true,
-        lineWrapping: false,
-        foldGutter: true,
-        gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
-        styleActiveLine: true,
-        matchBrackets: true,
-        autoCloseBrackets: true,
-        tabSize: 4,
-        indentUnit: 4
-    });
+        const textarea = document.getElementById('code-editor');
+        const mode = CONFIG.modeMap[language] || 'null';
 
-    state.editor.setValue(content);
-    state.editor.refresh();
+        state.editor = CodeMirror.fromTextArea(textarea, {
+            value: content,
+            mode: mode,
+            theme: 'dracula',
+            lineNumbers: true,
+            readOnly: true,
+            lineWrapping: false,
+            foldGutter: true,
+            gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+            styleActiveLine: true,
+            matchBrackets: true,
+            autoCloseBrackets: true,
+            tabSize: 4,
+            indentUnit: 4
+        });
+
+        state.editor.setValue(content);
+        state.editor.refresh();
+        return;
+    }
+
+    if (kind === 'cm6') {
+        wrapper.innerHTML = '<div id="code-editor-cm6" style="height:100%;"></div>';
+        const mountEl = document.getElementById('code-editor-cm6');
+
+        const { EditorState, EditorView } = window.CodeMirror6;
+        const basicSetup = window.CodeMirror6.basicSetup || [];
+
+        const extensions = [...basicSetup];
+
+        // שפה
+        if (typeof window.CodeMirror6.getLanguageSupport === 'function') {
+            const support = window.CodeMirror6.getLanguageSupport(language);
+            if (support) extensions.push(support);
+        }
+
+        // Read-only
+        if (EditorView && EditorView.editable) {
+            extensions.push(EditorView.editable.of(false));
+        }
+        if (EditorState && EditorState.readOnly) {
+            extensions.push(EditorState.readOnly.of(true));
+        }
+
+        const cmState = EditorState.create({
+            doc: String(content || ''),
+            extensions
+        });
+
+        state.editorView6 = new EditorView({
+            state: cmState,
+            parent: mountEl
+        });
+
+        return;
+    }
+
+    throw new Error('CodeMirror failed to load');
+}
+
+async function ensureCodeMirrorRuntime() {
+    // CodeMirror 5 from CDN (guide)
+    if (window.CodeMirror && typeof window.CodeMirror.fromTextArea === 'function') {
+        return 'cm5';
+    }
+
+    // Fallback: use existing in-app CodeMirror 6 loader (local bundle)
+    if (window.editorManager && typeof window.editorManager.loadCodeMirror === 'function') {
+        try {
+            await window.editorManager.loadCodeMirror();
+        } catch (_) {
+            // ignore - handled by checks below
+        }
+    }
+
+    if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
+        return 'cm6';
+    }
+
+    return null;
 }
 
 function detectLanguage(path) {
