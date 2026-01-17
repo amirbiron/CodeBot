@@ -31,6 +31,15 @@
         </div>
     </div>
 
+    <!-- In-file Search Bar -->
+    <div class="in-file-search" id="in-file-search" style="display: none;">
+        <input type="text" id="in-file-search-input" placeholder="Search in file..." autocomplete="off">
+        <span id="in-file-search-count"></span>
+        <button class="btn-icon" onclick="findPrevMatch()" title="Previous"><i class="bi bi-chevron-up"></i></button>
+        <button class="btn-icon" onclick="findNextMatch()" title="Next"><i class="bi bi-chevron-down"></i></button>
+        <button class="btn-icon" onclick="closeInFileSearch()" title="Close"><i class="bi bi-x"></i></button>
+    </div>
+
     <!-- Code Editor Container -->
     <div class="code-editor-wrapper" id="code-editor-wrapper" style="display: none;">
         <textarea id="code-editor"></textarea>
