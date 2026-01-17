@@ -172,6 +172,7 @@ from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import ThreadPoolDatabaseHealthService  # noqa: E402
+from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
     get_export_theme,
     list_export_presets,
@@ -9436,6 +9437,9 @@ def dashboard():
     try:
         db = get_db()
         user_id = session['user_id']
+
+        # בדיקה אם המשתמש אדמין
+        user_is_admin = is_admin(user_id)
         
         # שליפת סטטיסטיקות - רק קבצים פעילים
         active_query = {
@@ -9516,6 +9520,27 @@ def dashboard():
             ],
             'recent_files': recent_files
         }
+
+        # ========== חדש: קבצים מהקומיט האחרון (אדמין בלבד) ==========
+        last_commit = None
+        if user_is_admin:
+            try:
+                repo_name = os.getenv("REPO_NAME", "CodeBot")
+                git_service = get_mirror_service()
+
+                if git_service.mirror_exists(repo_name):
+                    last_commit = git_service.get_last_commit_info(repo_name)
+
+                    # הוספת מידע נוסף מה-DB
+                    if last_commit:
+                        metadata = db.repo_metadata.find_one({"repo_name": repo_name})
+                        if metadata:
+                            last_commit["sync_time"] = metadata.get("last_sync_time")
+                            last_commit["sync_status"] = metadata.get("sync_status", "unknown")
+            except Exception as e:
+                logger.warning(f"Failed to get last commit info: {e}")
+                last_commit = None
+        # ================================================================
         
         activity_timeline = _build_activity_timeline(db, user_id, active_query)
         push_card = _build_push_card(db, user_id)
@@ -9527,7 +9552,10 @@ def dashboard():
                              activity_timeline=activity_timeline,
                              push_card=push_card,
                              notes_snapshot=notes_snapshot,
-                             bot_username=BOT_USERNAME_CLEAN)
+                             bot_username=BOT_USERNAME_CLEAN,
+                             # חדש:
+                             user_is_admin=user_is_admin,
+                             last_commit=last_commit)
                              
     except Exception as e:
         logger.exception("Error in dashboard")
@@ -9557,7 +9585,9 @@ def dashboard():
                              push_card=fallback_card,
                              notes_snapshot=fallback_notes,
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
-                             bot_username=BOT_USERNAME_CLEAN)
+                             bot_username=BOT_USERNAME_CLEAN,
+                             user_is_admin=False,
+                             last_commit=None)
 
 @app.route('/files')
 @app.route('/files', endpoint='files_page')
