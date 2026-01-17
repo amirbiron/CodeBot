@@ -228,8 +228,18 @@ def api_search():
     
     try:
         db = get_db()
-        search_service = create_search_service(db)
+        git_service = get_mirror_service()
         repo_name = "CodeBot"
+        
+        # בדיקה אם ה-mirror קיים
+        if not git_service.mirror_exists(repo_name):
+            return jsonify({
+                "error": "Repository mirror not initialized",
+                "message": "Please run initial_import first",
+                "results": []
+            })
+        
+        search_service = create_search_service(db)
         
         result = search_service.search(
             repo_name=repo_name,
@@ -243,9 +253,16 @@ def api_search():
         return jsonify(result)
     except Exception as e:
         logger.exception(f"Search API error: {e}")
+        error_msg = str(e)
+        if "mirror_not_found" in error_msg.lower():
+            return jsonify({
+                "error": "Repository not synced yet",
+                "message": "The code mirror needs to be initialized",
+                "results": []
+            })
         return jsonify({
-            "error": "Search service unavailable",
-            "message": str(e),
+            "error": "Search service error",
+            "message": error_msg[:200],
             "results": []
         }), 500
 
@@ -270,4 +287,3 @@ def api_stats():
         stats["sync_status"] = metadata.get("sync_status")
     
     return jsonify(stats)
-

@@ -419,23 +419,6 @@
     gap: 4px;
 }
 
-/* Icon fallback - הצג רק כשאייקונים לא נטענים */
-.stats-mini .icon-fallback {
-    display: none;
-    font-size: 10px;
-    color: var(--text-muted);
-}
-
-/* כשאייקון Bootstrap נטען, הסתר fallback */
-.stats-mini .bi:not(:empty) + .icon-fallback {
-    display: none;
-}
-
-/* אם האייקון ריק (לא נטען), הצג fallback */
-.stats-mini .bi:empty + .icon-fallback {
-    display: inline;
-}
-
 /* Resizer */
 .resizer {
     width: 4px;
@@ -459,7 +442,7 @@
     flex-direction: column;
     overflow: hidden;
     background: var(--bg-primary);
-    min-height: 0; /* חשוב לפלקס בתוך פלקס */
+    min-height: 0;
     height: 100%;
 }
 
@@ -468,7 +451,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    min-height: 0; /* חשוב לפלקס בתוך פלקס */
+    min-height: 0;
     height: 100%;
 }
 
@@ -481,6 +464,7 @@
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     min-height: 40px;
+    flex-shrink: 0;
 }
 
 .file-breadcrumb {
@@ -524,19 +508,20 @@
 
 /* Code Editor Wrapper */
 .code-editor-wrapper {
-    flex: 1;
+    flex: 1 1 auto;
     overflow: hidden;
     position: relative;
-    display: flex;
-    flex-direction: column;
-    min-height: 0; /* חשוב לפלקס בתוך פלקס */
+    min-height: 0;
 }
 
 /* CodeMirror Overrides */
 .CodeMirror {
     height: 100% !important;
-    min-height: 100% !important;
-    flex: 1;
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
     line-height: 1.5;
@@ -545,7 +530,7 @@
 
 /* CodeMirror scroll container */
 .CodeMirror-scroll {
-    min-height: 100% !important;
+    height: 100% !important;
 }
 
 .CodeMirror-gutters {
@@ -577,6 +562,7 @@
     border-top: 1px solid var(--border-color);
     font-size: 12px;
     color: var(--text-muted);
+    flex-shrink: 0;
 }
 
 .file-info {
@@ -785,4 +771,3 @@
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
-
