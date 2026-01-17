@@ -186,16 +186,18 @@ def validate_json():
 
     try:
         result = service.validate_json(content)
-    except TypeError as e:
-        return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
+    except TypeError:
+        logging.exception("Type error while validating JSON content")
+        return jsonify({"success": False, "error": "Invalid request: content has an incompatible type"}), 400
 
     response = {"success": True, "is_valid": result.is_valid}
 
     if result.is_valid:
         try:
             stats = service.get_json_stats(content)
-        except TypeError as e:
-            return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
+        except TypeError:
+            logging.exception("Type error while computing JSON statistics")
+            return jsonify({"success": False, "error": "Invalid request: content cannot be analyzed"}), 400
         response["stats"] = {
             "total_keys": stats.total_keys,
             "max_depth": stats.max_depth,
