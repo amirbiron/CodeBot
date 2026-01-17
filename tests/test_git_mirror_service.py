@@ -74,3 +74,23 @@ def test_sanitize_output_masks_https_credentials(service):
     assert "SECRET_TOKEN" not in sanitized
     assert "https://oauth2:***@github.com/org/repo.git" in sanitized
 
+
+def test_get_file_content_strips_ref_and_path(service, monkeypatch):
+    class _Res:
+        def __init__(self, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    seen = {"cmd": None}
+
+    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None):
+        seen["cmd"] = cmd
+        return _Res(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("services.git_mirror_service.subprocess.run", _fake_run)
+
+    out = service.get_file_content("test-repo", " src/file.py ", ref=" origin/main ")
+    assert out == "ok"
+    assert seen["cmd"] == ["git", "show", "origin/main:src/file.py"]
+

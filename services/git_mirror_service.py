@@ -579,6 +579,12 @@ class GitMirrorService:
         Returns:
             תוכן הקובץ או None
         """
+        # נרמול קלט: הוולידציה עושה strip מקומי, אבל אנחנו חייבים להשתמש בערכים הנקיים בפועל בפקודת git.
+        file_path = file_path.strip() if isinstance(file_path, str) else ""
+        ref = ref.strip() if isinstance(ref, str) else ""
+        if not ref:
+            ref = "HEAD"
+
         # ולידציה של נתיבים לפני הרצת git (מניעת uncontrolled command line)
         if not self._validate_repo_file_path(file_path):
             logger.warning("Rejected invalid repo file path: %r", file_path)
@@ -672,6 +678,10 @@ class GitMirrorService:
         Returns:
             dict עם results, total_count, truncated
         """
+        query = str(query or "").strip()
+        file_pattern = file_pattern.strip() if isinstance(file_pattern, str) else None
+        ref = ref.strip() if isinstance(ref, str) else None
+
         repo_path = self._get_repo_path(repo_name)
 
         if not repo_path.exists():
