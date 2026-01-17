@@ -44,6 +44,7 @@ import re
 import sys
 from pathlib import Path
 import secrets
+import yaml
 import threading
 import base64
 import traceback
@@ -9451,6 +9452,86 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
     }
 
 
+# נתיב לקובץ whats_new
+_WHATS_NEW_PATH = Path(__file__).parent.parent / 'config' / 'whats_new.yaml'
+
+# Cache לטעינת whats_new עם TTL
+_whats_new_cache: Dict[str, Any] = {}
+_whats_new_cache_time: float = 0
+_whats_new_cache_lock = threading.Lock()
+_WHATS_NEW_CACHE_TTL = 300  # 5 דקות
+
+
+def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
+    """טוען את רשימת הפיצ'רים החדשים מקובץ YAML"""
+    global _whats_new_cache, _whats_new_cache_time
+    
+    now = time.time()
+    
+    # בדיקת cache (בנעילה)
+    with _whats_new_cache_lock:
+        if _whats_new_cache and (now - _whats_new_cache_time) < _WHATS_NEW_CACHE_TTL:
+            cached = _whats_new_cache.copy()
+            cached['features'] = cached.get('features', [])[:limit]
+            return cached
+    
+    try:
+        if not _WHATS_NEW_PATH.exists():
+            return {'features': [], 'has_features': False, 'total': 0}
+        
+        with open(_WHATS_NEW_PATH, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        
+        features = data.get('features', []) if data else []
+        
+        # עיבוד הנתונים
+        processed_features = []
+        for feat in features:
+            if not isinstance(feat, dict):
+                continue
+            
+            title = feat.get('title', '')
+            if not title:
+                continue
+            
+            # עיבוד תאריך
+            date_str = feat.get('date', '')
+            relative_time = ''
+            if date_str:
+                try:
+                    feat_date = datetime.strptime(str(date_str), '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                    relative_time = _format_relative(feat_date)
+                except (ValueError, TypeError):
+                    relative_time = str(date_str)
+            
+            processed_features.append({
+                'title': title,
+                'description': feat.get('description', ''),
+                'icon': feat.get('icon', '✨'),
+                'date': date_str,
+                'relative_time': relative_time,
+                'link': feat.get('link'),
+                'badge': feat.get('badge'),
+            })
+        
+        # שמירה ב-cache (בנעילה)
+        with _whats_new_cache_lock:
+            _whats_new_cache = {
+                'features': processed_features,
+                'has_features': bool(processed_features),
+                'total': len(processed_features),
+            }
+            _whats_new_cache_time = now
+        
+        result = _whats_new_cache.copy()
+        result['features'] = result['features'][:limit]
+        return result
+        
+    except Exception as e:
+        logger.warning(f"Failed to load whats_new.yaml: {e}")
+        return {'features': [], 'has_features': False, 'total': 0}
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -9566,6 +9647,7 @@ def dashboard():
         activity_timeline = _build_activity_timeline(db, user_id, active_query)
         push_card = _build_push_card(db, user_id)
         notes_snapshot = _build_notes_snapshot(db, user_id)
+        whats_new = _load_whats_new(limit=5)
 
         return render_template('dashboard.html', 
                              user=session['user_data'],
@@ -9573,6 +9655,7 @@ def dashboard():
                              activity_timeline=activity_timeline,
                              push_card=push_card,
                              notes_snapshot=notes_snapshot,
+                             whats_new=whats_new,
                              bot_username=BOT_USERNAME_CLEAN,
                              # חדש:
                              user_is_admin=user_is_admin,
@@ -9605,6 +9688,7 @@ def dashboard():
                              activity_timeline=fallback_timeline,
                              push_card=fallback_card,
                              notes_snapshot=fallback_notes,
+                             whats_new={'features': [], 'has_features': False, 'total': 0},
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
                              bot_username=BOT_USERNAME_CLEAN,
                              user_is_admin=False,
