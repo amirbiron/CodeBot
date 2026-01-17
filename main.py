@@ -3571,7 +3571,6 @@ class CodeKeeperBot:
                 from conversation_handlers import (
                     community_queue_command, community_approve_command, community_reject_command,
                     snippet_queue_command, snippet_approve_command, snippet_reject_command,
-                    whats_new_command,
                 )
                 self.application.add_handler(CommandHandler("community_queue", community_queue_command))
                 self.application.add_handler(CommandHandler("community_approve", community_approve_command))
@@ -3580,9 +3579,14 @@ class CodeKeeperBot:
                 self.application.add_handler(CommandHandler("snippet_queue", snippet_queue_command))
                 self.application.add_handler(CommandHandler("snippet_approve", snippet_approve_command))
                 self.application.add_handler(CommandHandler("snippet_reject", snippet_reject_command))
-                self.application.add_handler(CommandHandler("new", whats_new_command))
             except Exception:
                 pass
+        # פקודות אדמין כלליות שאינן תלויות בספריית קהילה
+        try:
+            from conversation_handlers import whats_new_command
+            self.application.add_handler(CommandHandler("new", whats_new_command))
+        except Exception:
+            pass
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))
