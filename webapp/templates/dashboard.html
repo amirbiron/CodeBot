@@ -66,42 +66,40 @@
         {% endif %}
     </div>
 
-    <div class="glass-card">
+    <div class="glass-card whats-new-card">
         <h2 class="section-title">
-            <i class="fas fa-clock"></i>
-            קבצים אחרונים
+            <i class="fas fa-sparkles"></i>
+            מה חדש
         </h2>
-        {% if stats.recent_files %}
-        <div class="recent-files-list">
-            {% for file in stats.recent_files %}
-            <div class="file-item">
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <span style="font-size: 1.5rem;">{{ file.icon }}</span>
-                    <div>
-                        <div style="font-weight: 500;">{{ file.file_name }}</div>
-                        <div style="font-size: 0.85rem; opacity: 0.7;">{{ file.created_at_formatted }}</div>
+        {% if whats_new.has_features %}
+        <div class="whats-new-list">
+            {% for feature in whats_new.features %}
+            <div class="whats-new-item">
+                <div class="feature-content">
+                    <span class="feature-icon">{{ feature.icon }}</span>
+                    <div class="feature-details">
+                        <div class="feature-title">
+                            {{ feature.title }}
+                            {% if feature.badge %}
+                            <span class="feature-badge">{{ feature.badge }}</span>
+                            {% endif %}
+                        </div>
+                        {% if feature.description %}
+                        <div class="feature-description">{{ feature.description }}</div>
+                        {% endif %}
+                        <div class="feature-time">{{ feature.relative_time }}</div>
                     </div>
                 </div>
-                <a href="/file/{{ file._id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;">
-                    <i class="fas fa-eye"></i>
+                {% if feature.link %}
+                <a href="{{ feature.link }}" class="btn btn-secondary btn-sm" title="למידע נוסף">
+                    <i class="fas fa-arrow-left"></i>
                 </a>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
-        <div style="margin-top: 1.5rem;">
-            <a href="/files" class="btn btn-primary btn-icon">
-                <i class="fas fa-folder-open"></i>
-                צפה בכל הקבצים
-            </a>
-        </div>
         {% else %}
-        <p style="opacity: 0.7;">אין עדיין קבצים</p>
-        <div style="margin-top: 1.5rem;">
-            <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-primary btn-icon">
-                <i class="fab fa-telegram"></i>
-                התחל לשמור קבצים בבוט
-            </a>
-        </div>
+        <p style="opacity: 0.7;">אין עדכונים חדשים כרגע</p>
         {% endif %}
     </div>
 
@@ -442,6 +440,119 @@
 :root[data-theme="rose-pine-dawn"] .language-item:hover,
 :root[data-theme="rose-pine-dawn"] .file-item:hover {
     background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%) !important;
+}
+
+/* === What's New Card === */
+.whats-new-card {
+    border-right: 3px solid #8b5cf6;
+}
+
+.whats-new-card .section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.whats-new-card .section-title i {
+    color: #8b5cf6;
+}
+
+.whats-new-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.whats-new-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: rgba(139, 92, 246, 0.08);
+    border-radius: 10px;
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    transition: all 0.2s ease;
+}
+
+.whats-new-item:hover {
+    background: rgba(139, 92, 246, 0.15);
+    border-color: rgba(139, 92, 246, 0.25);
+}
+
+.feature-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.feature-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.feature-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.feature-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.feature-badge {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+    color: white;
+    border-radius: 999px;
+    font-weight: 500;
+}
+
+.feature-description {
+    font-size: 0.85rem;
+    opacity: 0.8;
+    margin-top: 0.25rem;
+    line-height: 1.4;
+}
+
+.feature-time {
+    font-size: 0.75rem;
+    opacity: 0.6;
+    margin-top: 0.35rem;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.6rem !important;
+    font-size: 0.85rem;
+}
+
+/* Rose Pine Dawn overrides for What's New */
+:root[data-theme="rose-pine-dawn"] .whats-new-card {
+    border-right-color: #907aa9;
+}
+
+:root[data-theme="rose-pine-dawn"] .whats-new-card .section-title i {
+    color: #907aa9;
+}
+
+:root[data-theme="rose-pine-dawn"] .whats-new-item {
+    background: rgba(144, 122, 169, 0.1);
+    border-color: rgba(144, 122, 169, 0.2);
+}
+
+:root[data-theme="rose-pine-dawn"] .whats-new-item:hover {
+    background: rgba(144, 122, 169, 0.18);
+    border-color: rgba(144, 122, 169, 0.3);
+}
+
+:root[data-theme="rose-pine-dawn"] .feature-badge {
+    background: linear-gradient(135deg, #907aa9 0%, #b4a7c7 100%);
 }
 
 @media (max-width: 768px) {
