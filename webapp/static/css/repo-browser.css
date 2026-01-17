@@ -571,24 +571,12 @@
     max-height: none !important;
 }
 
-#code-editor-wrapper .cm-gutters {
-    background: var(--bg-secondary) !important;
-    border-right: 1px solid var(--border-color) !important;
-}
-
-#code-editor-wrapper .cm-activeLineGutter {
-    background: var(--bg-hover) !important;
-}
 
 /* CodeMirror scroll container */
 .CodeMirror-scroll {
     height: 100% !important;
 }
 
-.CodeMirror-gutters {
-    background: var(--bg-secondary) !important;
-    border-right: 1px solid var(--border-color) !important;
-}
 
 .CodeMirror-linenumber {
     color: var(--text-muted) !important;
