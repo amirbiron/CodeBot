@@ -582,13 +582,17 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: var(--bg-primary) !important;
+    background: var(--bg-primary, #1e1e2e) !important;
 }
 
 #code-editor-wrapper .cm-scroller {
     overflow: auto !important;
     line-height: 1.5;
-    background: var(--bg-primary) !important;
+    background: var(--bg-primary, #1e1e2e) !important;
+}
+
+#code-editor-wrapper .cm-content {
+    background: var(--bg-primary, #1e1e2e) !important;
 }
 
 #code-editor-wrapper .cm-gutters {
