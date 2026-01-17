@@ -1,90 +1,66 @@
-{% extends "base.html" %}
+{% extends "repo/base_repo.html" %}
 
-{% block title %}דפדפן קוד - {{ repo_name }}{% endblock %}
+{% block tree_content %}
+<div class="tree-view" id="file-tree">
+    <!-- Tree will be populated by JavaScript -->
+</div>
+{% endblock %}
 
-{% block content %}
-<div class="container-fluid py-4">
-    <div class="d-flex align-items-center justify-content-between mb-4">
-        <h1 class="mb-0">
-            <i class="bi bi-git"></i>
-            דפדפן קוד
-        </h1>
-        <div class="d-flex gap-2">
-            <a class="btn btn-outline-primary" href="{{ url_for('repo.browse_directory') }}">
-                <i class="bi bi-folder2-open"></i>
-                Browse
-            </a>
-            <a class="btn btn-primary" href="{{ url_for('repo.search') }}">
-                <i class="bi bi-search"></i>
-                Search
+{% block code_content %}
+<div class="code-viewer-container" id="code-viewer-container">
+    <!-- Breadcrumbs -->
+    <div class="code-header" id="code-header" style="display: none;">
+        <nav aria-label="breadcrumb" class="file-breadcrumb">
+            <ol class="breadcrumb" id="file-breadcrumb">
+                <!-- Populated by JS -->
+            </ol>
+        </nav>
+        <div class="file-actions">
+            <button class="btn-icon" id="copy-path" title="Copy path">
+                <i class="bi bi-clipboard"></i>
+            </button>
+            <button class="btn-icon" id="copy-content" title="Copy content">
+                <i class="bi bi-files"></i>
+            </button>
+            <a class="btn-icon" id="github-link" href="#" target="_blank" title="View on GitHub">
+                <i class="bi bi-github"></i>
             </a>
         </div>
     </div>
 
-    <div class="row g-3">
-        <div class="col-lg-6">
-            <div class="card">
-                <div class="card-header">
-                    <strong>Mirror</strong>
-                </div>
-                <div class="card-body">
-                    {% if mirror_info %}
-                    <div class="text-muted small mb-2">נתיב</div>
-                    <div class="mb-3"><code>{{ mirror_info.path }}</code></div>
+    <!-- Code Editor Container -->
+    <div class="code-editor-wrapper" id="code-editor-wrapper" style="display: none;">
+        <textarea id="code-editor"></textarea>
+    </div>
 
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="text-muted small">גודל (MB)</div>
-                            <div><strong>{{ mirror_info.size_mb }}</strong></div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="text-muted small">SHA נוכחי</div>
-                            <div><code>{{ mirror_info.current_sha }}</code></div>
-                        </div>
-                    </div>
-                    {% else %}
-                    <div class="alert alert-warning mb-0">
-                        אין מידע על Mirror (כנראה שטרם בוצע initial import).
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
+    <!-- File Info Footer -->
+    <div class="code-footer" id="code-footer" style="display: none;">
+        <span class="file-info" id="file-info">
+            <!-- Lines: 245 | Size: 8.2KB | Python -->
+        </span>
+    </div>
+
+    <!-- Welcome Screen (shown when no file selected) -->
+    <div class="welcome-screen" id="welcome-screen">
+        <div class="welcome-icon">
+            <i class="bi bi-code-square"></i>
         </div>
-
-        <div class="col-lg-6">
-            <div class="card">
-                <div class="card-header">
-                    <strong>Metadata (MongoDB)</strong>
-                </div>
-                <div class="card-body">
-                    {% if metadata %}
-                    <div class="row g-2">
-                        <div class="col-md-6">
-                            <div class="text-muted small">Default branch</div>
-                            <div><code>{{ metadata.default_branch }}</code></div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="text-muted small">Last synced SHA</div>
-                            <div><code>{{ metadata.last_synced_sha }}</code></div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="text-muted small">Sync status</div>
-                            <div><strong>{{ metadata.sync_status }}</strong></div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="text-muted small">Total files</div>
-                            <div><strong>{{ metadata.total_files }}</strong></div>
-                        </div>
-                    </div>
-                    {% else %}
-                    <div class="alert alert-warning mb-0">
-                        אין metadata עבור הריפו הזה.
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
+        <h3>ברוכים הבאים לדפדפן הקוד</h3>
+        <p>בחר קובץ מהעץ משמאל, או השתמש בחיפוש למעלה</p>
+        <div class="quick-actions">
+            <button class="btn btn-outline-primary" onclick="focusSearch()">
+                <i class="bi bi-search"></i>
+                חפש קובץ (Ctrl+K)
+            </button>
+        </div>
+        
+        <!-- Recent Files -->
+        <div class="recent-files" id="recent-files">
+            <h5><i class="bi bi-clock-history"></i> קבצים אחרונים</h5>
+            <ul class="recent-files-list" id="recent-files-list">
+                <!-- Populated from localStorage -->
+            </ul>
         </div>
     </div>
 </div>
 {% endblock %}
-
