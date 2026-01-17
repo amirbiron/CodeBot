@@ -73,6 +73,19 @@ def test_get_themes_empty_list(client, stub_db):
     assert data["max_allowed"] == 10
 
 
+def test_get_themes_admin_unlimited(client, stub_db, monkeypatch):
+    monkeypatch.setenv("ADMIN_USER_IDS", "42")
+    _login(client, user_id=42)
+    stub_db.users.queue_find_one({"custom_themes": []})
+
+    resp = client.get("/api/themes")
+    data = resp.get_json()
+
+    assert resp.status_code == 200
+    assert data["ok"] is True
+    assert data["max_allowed"] is None
+
+
 def test_get_themes_with_items(client, stub_db):
     _login(client)
     stub_db.users.queue_find_one(
@@ -101,6 +114,19 @@ def test_create_theme_max_limit(client, stub_db):
     resp = client.post("/api/themes", json={"name": "New Theme", "variables": {}})
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "max_themes_reached"
+
+
+def test_create_theme_admin_bypasses_max_limit(client, stub_db, monkeypatch):
+    monkeypatch.setenv("ADMIN_USER_IDS", "42")
+    _login(client, user_id=42)
+    stub_db.users.queue_find_one({"custom_themes": [{"id": str(i)} for i in range(10)]})
+
+    resp = client.post("/api/themes", json={"name": "New Theme", "variables": {}})
+    data = resp.get_json()
+
+    assert resp.status_code == 200
+    assert data["ok"] is True
+    assert "theme_id" in data and data["theme_id"]
 
 
 def test_create_theme_missing_name(client, stub_db):

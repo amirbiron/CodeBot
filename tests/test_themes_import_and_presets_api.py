@@ -90,6 +90,16 @@ class TestPresetsAPI:
         update_calls = [c for c in stub_db.users.calls if c[0] == "update_one"]
         assert any("$push" in call[2] and "custom_themes" in call[2]["$push"] for call in update_calls)
 
+    def test_apply_preset_admin_bypasses_max_limit(self, client, stub_db, monkeypatch):
+        monkeypatch.setenv("ADMIN_USER_IDS", "42")
+        _login(client, user_id=42)
+        stub_db.users.queue_find_one({"custom_themes": [{"id": str(i)} for i in range(10)]})
+
+        resp = client.post("/api/themes/presets/github-light/apply")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+
 
 class TestImportAPI:
     def test_import_vscode_theme_json(self, client, stub_db):
@@ -127,6 +137,26 @@ class TestImportAPI:
         assert "syntax_css" in pushed
         # CodeMirror 6 classHighlighter משתמש ב-tok- classes
         assert ".tok-comment" in (pushed.get("syntax_css") or "")
+
+    def test_import_admin_bypasses_max_limit(self, client, stub_db, monkeypatch):
+        monkeypatch.setenv("ADMIN_USER_IDS", "42")
+        _login(client, user_id=42)
+        stub_db.users.queue_find_one({"custom_themes": [{"id": str(i)} for i in range(10)]})
+
+        vscode_theme = {
+            "name": "Test",
+            "type": "dark",
+            "colors": {
+                "editor.background": "#282a36",
+                "editor.foreground": "#f8f8f2",
+                "button.background": "#bd93f9",
+            },
+        }
+
+        resp = client.post("/api/themes/import", json={"json_content": json.dumps(vscode_theme)})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
 
     def test_import_rejects_invalid_json(self, client, stub_db):
         _login(client)

@@ -1335,6 +1335,13 @@
     }
 
     // ========== API Functions ==========
+    function _formatMaxAllowed(maxAllowed) {
+        // Admin יכול להיות ללא מגבלה => null מהשרת
+        if (maxAllowed === null || maxAllowed === undefined) return '∞';
+        const n = parseInt(String(maxAllowed), 10);
+        return Number.isFinite(n) ? String(n) : '∞';
+    }
+
     async function fetchThemes() {
         if (!themesList) return;
         try {
@@ -1346,7 +1353,7 @@
             }
 
             currentThemes = data.themes || [];
-            if (themesMax) themesMax.textContent = data.max_allowed;
+            if (themesMax) themesMax.textContent = _formatMaxAllowed(data.max_allowed);
 
             renderThemesList();
 
