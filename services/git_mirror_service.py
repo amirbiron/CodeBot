@@ -431,6 +431,52 @@ class GitMirrorService:
 
     # ========== File Content ==========
 
+    def _validate_repo_file_path(self, file_path: str) -> bool:
+        """ולידציה בסיסית לנתיב קובץ בריפו לפני שימוש בפקודות git.
+
+        המטרה היא למנוע נתיבים מסוכנים (למשל כאלה שיכולים להתפרש כאופציות של git
+        או להכיל ניסיון traversal).
+        """
+        if not isinstance(file_path, str):
+            return False
+
+        file_path = file_path.strip()
+        if not file_path:
+            return False
+
+        # מניעת תווים בעייתיים בסיסיים
+        if "\x00" in file_path or "\\" in file_path:
+            return False
+
+        # לא לאפשר שהנתיב יתחיל ב-'-' כדי שלא יתפרש כאופציה של git
+        if file_path.startswith("-"):
+            return False
+
+        # מניעת path traversal וקטעי נתיב ריקים (//)
+        parts = file_path.split("/")
+        for part in parts:
+            if part in ("", ".", ".."):
+                return False
+
+        return True
+
+    def _validate_repo_ref(self, ref: str) -> bool:
+        """ולידציה בסיסית ל-ref לפני שילוב בפקודות git (best-effort)."""
+        if not isinstance(ref, str):
+            return False
+        ref = ref.strip()
+        if not ref:
+            return False
+        if "\x00" in ref:
+            return False
+        # מניעת מצב שבו ref מזוהה כ-flag
+        if ref.startswith("-"):
+            return False
+        # הימנעות מרווחים/תווי שליטה
+        if any(ch.isspace() for ch in ref):
+            return False
+        return True
+
     def get_file_content(self, repo_name: str, file_path: str, ref: str = "HEAD") -> Optional[str]:
         """
         קריאת תוכן קובץ מה-mirror
@@ -443,6 +489,14 @@ class GitMirrorService:
         Returns:
             תוכן הקובץ או None
         """
+        # ולידציה של נתיבים לפני הרצת git (מניעת uncontrolled command line)
+        if not self._validate_repo_file_path(file_path):
+            logger.warning("Rejected invalid repo file path: %r", file_path)
+            return None
+        if not self._validate_repo_ref(ref):
+            logger.warning("Rejected invalid repo ref: %r", ref)
+            return None
+
         repo_path = self._get_repo_path(repo_name)
 
         result = self._run_git_command(["git", "show", f"{ref}:{file_path}"], cwd=repo_path, timeout=30)
@@ -595,7 +649,7 @@ class GitMirrorService:
 
         except Exception as e:
             logger.exception(f"Search error: {e}")
-            return {"error": str(e), "results": []}
+            return {"error": "search_error", "results": []}
 
     def _is_regex(self, query: str) -> bool:
         """בדיקה אם ה-query הוא regex"""

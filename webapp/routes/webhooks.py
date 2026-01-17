@@ -133,7 +133,7 @@ def handle_push_event(payload: dict, delivery_id: str):
 
     except Exception as e:
         logger.exception(f"Failed to process push event: {e}")
-        return jsonify({"error": "Processing failed", "message": str(e)}), 500
+        return jsonify({"error": "Processing failed", "delivery_id": delivery_id}), 500
 
 
 @webhooks_bp.route("/github/test", methods=["POST"])

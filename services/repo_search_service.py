@@ -199,7 +199,7 @@ class RepoSearchService:
 
         except Exception as e:
             logger.exception(f"Filename search failed: {e}")
-            return {"error": str(e), "results": []}
+            return {"error": "Internal filename search error", "results": []}
 
     def _search_functions(
         self, repo_name: str, query: str, language: Optional[str], max_results: int
@@ -242,7 +242,7 @@ class RepoSearchService:
 
         except Exception as e:
             logger.exception(f"Function search failed: {e}")
-            return {"error": str(e), "results": []}
+            return {"error": "Internal function search error", "results": []}
 
     def _search_classes(self, repo_name: str, query: str, language: Optional[str], max_results: int) -> Dict[str, Any]:
         """חיפוש מחלקות"""
@@ -279,7 +279,7 @@ class RepoSearchService:
 
         except Exception as e:
             logger.exception(f"Class search failed: {e}")
-            return {"error": str(e), "results": []}
+            return {"error": "Internal class search error", "results": []}
 
 
 def create_search_service(db: Any = None) -> RepoSearchService:
