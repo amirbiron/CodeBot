@@ -558,7 +558,7 @@
     min-height: 200px;
 }
 
-/* CodeMirror Overrides */
+/* CodeMirror Overrides - Only height/position, inherit background from theme */
 .CodeMirror {
     height: 100% !important;
     position: absolute !important;
@@ -569,13 +569,10 @@
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
     line-height: 1.5;
-    background: var(--bg-primary, #1e1e2e) !important;
 }
 
-/* CodeMirror 6 Overrides - Override max-height from codemirror-custom.css */
-#code-editor-wrapper .cm-editor,
-#code-editor-cm6 .cm-editor,
-.code-editor-wrapper .cm-editor {
+/* CodeMirror 6 Overrides - Only height/position, inherit background from theme */
+#code-editor-wrapper .cm-editor {
     height: 100% !important;
     max-height: none !important;
     min-height: 0 !important;
@@ -584,32 +581,10 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: #1e1e2e !important;
-    background-color: #1e1e2e !important;
 }
 
-#code-editor-wrapper .cm-scroller,
-#code-editor-cm6 .cm-scroller,
-.code-editor-wrapper .cm-scroller {
+#code-editor-wrapper .cm-scroller {
     overflow: auto !important;
-    line-height: 1.5;
-    background: #1e1e2e !important;
-    background-color: #1e1e2e !important;
-}
-
-#code-editor-wrapper .cm-content,
-#code-editor-cm6 .cm-content,
-.code-editor-wrapper .cm-content {
-    background: #1e1e2e !important;
-    background-color: #1e1e2e !important;
-}
-
-/* Force background on all CM6 elements in repo browser */
-.repo-browser-container .cm-editor,
-.repo-browser-container .cm-scroller,
-.repo-browser-container .cm-content {
-    background: #1e1e2e !important;
-    background-color: #1e1e2e !important;
 }
 
 #code-editor-wrapper .cm-gutters {
