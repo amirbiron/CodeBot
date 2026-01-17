@@ -356,7 +356,15 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
     # ב-git clone --mirror ה-refs לרוב נמצאים תחת refs/heads/<branch>
     # (ולא בהכרח origin/<branch>), לכן נשתמש בפורמט יציב.
     tree_ref = f"refs/heads/{default_branch}"
-    all_files = git_service.list_all_files(repo_name, ref=tree_ref) or []
+    all_files = git_service.list_all_files(repo_name, ref=tree_ref)
+    if all_files is None:
+        logger.error(f"Failed to list files for {repo_name} at {tree_ref}")
+        return {
+            "error": "Failed to list repository files",
+            "details": "Check if branch ref exists or mirror repo is corrupt",
+            "repo_name": repo_name,
+            "ref": tree_ref,
+        }
 
     # 3. סינון קבצי קוד
     code_files = [f for f in all_files if indexer.should_index(f)]
@@ -367,8 +375,27 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
     indexed_count = 0
     error_count = 0
 
-    # שימוש ב-default_branch שזיהינו
-    current_sha = git_service.get_current_sha(repo_name, branch=default_branch) or "HEAD"
+    # שימוש ב-default_branch שזיהינו — חייב להיות SHA סטטי (לא "HEAD" סמלי)
+    current_sha = git_service.get_current_sha(repo_name, branch=default_branch)
+    if not current_sha:
+        # ניסיון אחרון: לפתור SHA ישירות מה-ref של העץ
+        sha_res = git_service._run_git_command(["git", "rev-parse", tree_ref], cwd=repo_path, timeout=10)
+        if sha_res.success and sha_res.stdout.strip():
+            current_sha = sha_res.stdout.strip()
+    if not current_sha:
+        # ניסיון אחרון: לפתור SHA מה-HEAD הנוכחי, אבל לשמור את ההאש עצמו (לא את המחרוזת HEAD)
+        sha_res = git_service._run_git_command(["git", "rev-parse", "HEAD"], cwd=repo_path, timeout=10)
+        if sha_res.success and sha_res.stdout.strip():
+            current_sha = sha_res.stdout.strip()
+    if not current_sha:
+        logger.error(f"Could not resolve commit SHA for {repo_name} (branch={default_branch})")
+        return {
+            "error": "Could not resolve commit SHA",
+            "details": "Import failed (unable to resolve a stable commit SHA)",
+            "repo_name": repo_name,
+            "branch": default_branch,
+            "ref": tree_ref,
+        }
 
     # הכנת ה-ref לשליפת תוכן
     # חשוב! חייבים להשתמש באותו ref כמו ב-list_all_files
