@@ -69,7 +69,14 @@ def browse_directory(dir_path: str = ""):
     else:
         dir_pattern = "^[^/]+/"
 
-    all_paths = db.repo_files.distinct("path", {"repo_name": repo_name})
+    # שימוש ב-regex כבר ב-DB כדי לא למשוך את כל הנתיבים לריפו גדול
+    all_paths = db.repo_files.distinct(
+        "path",
+        {
+            "repo_name": repo_name,
+            "path": {"$regex": dir_pattern},
+        },
+    )
 
     # חילוץ תיקיות ייחודיות
     directories = set()

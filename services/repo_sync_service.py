@@ -284,7 +284,8 @@ def _run_sync_logic(
 
         content = git_service.get_file_content(repo_name, file_path, new_sha)
 
-        if content:
+        # תוכן ריק "" הוא תקין; רק None אומר שהקריאה נכשלה/אין קובץ
+        if content is not None:
             if indexer.index_file(repo_name, file_path, content, new_sha):
                 stats["indexed"] += 1
                 if file_path in changes["added"]:
@@ -374,7 +375,8 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
         # התיקון: מעבירים ref במפורש (לא HEAD!)
         content = git_service.get_file_content(repo_name, file_path, ref=content_ref)
 
-        if content:
+        # תוכן ריק "" הוא תקין; רק None אומר שהקריאה נכשלה/אין קובץ
+        if content is not None:
             if indexer.index_file(repo_name, file_path, content, current_sha):
                 indexed_count += 1
             else:
