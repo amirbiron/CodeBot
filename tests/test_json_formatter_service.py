@@ -91,6 +91,14 @@ class TestGetJsonStats:
         assert stats.null_count == 1
         assert stats.boolean_count == 1
 
+    def test_stats_very_deep_nesting_does_not_crash(self, service: JsonFormatterService) -> None:
+        # עומק גדול מאוד לא אמור להפיל ב-RecursionError (הניתוח איטרטיבי)
+        s = "0"
+        for _ in range(2000):
+            s = '{"a":' + s + "}"
+        stats = service.get_json_stats(s)
+        assert stats.max_depth == 2000
+
 
 class TestFixCommonErrors:
     def test_fix_trailing_comma(self, service: JsonFormatterService) -> None:

@@ -43,6 +43,20 @@ class JsonFormatterService:
     def __init__(self) -> None:
         self.default_indent = 2
 
+    def _loads_strict(self, json_string: str) -> Any:
+        """json.loads עם חסימת NaN/Infinity ועם טיפול ב-recursion."""
+
+        def _reject_constants(_val: str) -> None:
+            raise ValueError("invalid_json_constant")
+
+        try:
+            return json.loads(json_string, parse_constant=_reject_constants)
+        except RecursionError as e:
+            raise json.JSONDecodeError("JSON too deeply nested", json_string, 0) from e
+        except ValueError as e:
+            # כולל NaN/Infinity (דרך parse_constant)
+            raise json.JSONDecodeError(str(e), json_string, 0) from e
+
     def format_json(self, json_string: str, indent: int = 2, sort_keys: bool = False) -> str:
         """
         עיצוב JSON עם הזחה.
@@ -58,7 +72,7 @@ class JsonFormatterService:
         Raises:
             json.JSONDecodeError: אם ה-JSON לא תקין
         """
-        parsed = json.loads(json_string)
+        parsed = self._loads_strict(json_string)
         return json.dumps(parsed, indent=indent, sort_keys=sort_keys, ensure_ascii=False)
 
     def minify_json(self, json_string: str) -> str:
@@ -71,7 +85,7 @@ class JsonFormatterService:
         Returns:
             JSON דחוס בשורה אחת
         """
-        parsed = json.loads(json_string)
+        parsed = self._loads_strict(json_string)
         return json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
 
     def validate_json(self, json_string: str) -> JsonValidationResult:
@@ -85,7 +99,7 @@ class JsonFormatterService:
             תוצאת האימות עם פרטי שגיאה אם יש
         """
         try:
-            json.loads(json_string)
+            self._loads_strict(json_string)
             return JsonValidationResult(is_valid=True)
         except json.JSONDecodeError as e:
             return JsonValidationResult(
@@ -107,7 +121,7 @@ class JsonFormatterService:
         Returns:
             סטטיסטיקות המבנה
         """
-        parsed = json.loads(json_string)
+        parsed = self._loads_strict(json_string)
         stats = {
             "total_keys": 0,
             "max_depth": 0,
@@ -120,18 +134,22 @@ class JsonFormatterService:
             "object_count": 0,
         }
 
-        def analyze(obj: Any, depth: int = 0) -> None:
+        # Traversal איטרטיבי כדי למנוע RecursionError על עומק חריג
+        stack: list[tuple[Any, int]] = [(parsed, 0)]
+        while stack:
+            obj, depth = stack.pop()
             stats["max_depth"] = max(stats["max_depth"], depth)
 
             if isinstance(obj, dict):
                 stats["object_count"] += 1
                 stats["total_keys"] += len(obj)
+                # push values
                 for value in obj.values():
-                    analyze(value, depth + 1)
+                    stack.append((value, depth + 1))
             elif isinstance(obj, list):
                 stats["array_count"] += 1
                 for item in obj:
-                    analyze(item, depth + 1)
+                    stack.append((item, depth + 1))
             else:
                 stats["total_values"] += 1
                 if isinstance(obj, str):
@@ -143,7 +161,6 @@ class JsonFormatterService:
                 elif obj is None:
                     stats["null_count"] += 1
 
-        analyze(parsed)
         return JsonStats(**stats)
 
     def fix_common_errors(self, json_string: str) -> tuple[str, list[str]]:
@@ -161,14 +178,11 @@ class JsonFormatterService:
 
         # אם ה-JSON כבר תקין — לא נוגעים בו בכלל (מונע "תיקון" שמקלקל תוכן)
         try:
-            def _reject_constants(_val: str) -> None:
-                raise ValueError("invalid_json_constant")
-
             # חשוב: Python json מאפשר NaN/Infinity כברירת מחדל.
             # כאן אנחנו מתייחסים אליהם כ"לא תקין" כדי ש-Magic Fix לא יחזיר -Infinity/-NaN כערכים.
-            json.loads(fixed, parse_constant=_reject_constants)
+            self._loads_strict(fixed)
             return fixed, fixes
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except (json.JSONDecodeError, TypeError):
             pass
 
         def _partition_by_quoted_strings(text: str) -> tuple[list[tuple[bool, str]], bool]:
