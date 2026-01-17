@@ -1023,6 +1023,42 @@
         display: none;
     }
 }
+
+/* ========================================
+   Animations
+   ======================================== */
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideOut {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
 ```
 
 ---
@@ -1194,6 +1230,9 @@ async function toggleFolder(node, item) {
         // Collapse
         children.classList.remove('expanded');
         toggle.classList.remove('expanded');
+        // עדכון class + innerHTML לאייקון (חשוב ל-Collapse All)
+        icon.classList.remove('folder-open');
+        icon.classList.add('folder');
         icon.innerHTML = '<i class="bi bi-folder-fill"></i>';
         state.expandedFolders.delete(item.path);
     } else {
@@ -1210,6 +1249,9 @@ async function toggleFolder(node, item) {
         }
         children.classList.add('expanded');
         toggle.classList.add('expanded');
+        // עדכון class + innerHTML לאייקון
+        icon.classList.remove('folder');
+        icon.classList.add('folder-open');
         icon.innerHTML = '<i class="bi bi-folder2-open"></i>';
         state.expandedFolders.add(item.path);
     }
@@ -1262,7 +1304,7 @@ function getIcon(item) {
         'py': '<i class="bi bi-filetype-py"></i>',
         'js': '<i class="bi bi-filetype-js"></i>',
         'jsx': '<i class="bi bi-filetype-jsx"></i>',
-        'ts': '<i class="bi bi-filetype-tsx"></i>',
+        'ts': '<i class="bi bi-filetype-ts"></i>',   // תוקן: היה tsx בטעות
         'tsx': '<i class="bi bi-filetype-tsx"></i>',
         'html': '<i class="bi bi-filetype-html"></i>',
         'css': '<i class="bi bi-filetype-css"></i>',
@@ -1665,12 +1707,25 @@ function navigateToFolder(path) {
 
 // Collapse all folders
 document.getElementById('collapse-all')?.addEventListener('click', () => {
+    // Remove expanded class from children containers
     document.querySelectorAll('.tree-children.expanded').forEach(el => {
         el.classList.remove('expanded');
     });
+    
+    // Remove expanded class from toggle arrows
     document.querySelectorAll('.tree-toggle.expanded').forEach(el => {
         el.classList.remove('expanded');
     });
+    
+    // Reset folder icons from open to closed
+    // תיקון: בלי זה, האייקונים נשארים פתוחים למרות שהתיקייה סגורה
+    document.querySelectorAll('.tree-icon.folder-open').forEach(el => {
+        el.classList.remove('folder-open');
+        el.classList.add('folder');
+        el.innerHTML = '<i class="bi bi-folder-fill"></i>';
+    });
+    
+    // Clear state
     state.expandedFolders.clear();
 });
 ```
