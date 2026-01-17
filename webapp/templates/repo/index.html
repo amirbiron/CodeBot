@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}דפדפן קוד - {{ repo_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h1 class="mb-0">
+            <i class="bi bi-git"></i>
+            דפדפן קוד
+        </h1>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-primary" href="{{ url_for('repo.browse_directory') }}">
+                <i class="bi bi-folder2-open"></i>
+                Browse
+            </a>
+            <a class="btn btn-primary" href="{{ url_for('repo.search') }}">
+                <i class="bi bi-search"></i>
+                Search
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <strong>Mirror</strong>
+                </div>
+                <div class="card-body">
+                    {% if mirror_info %}
+                    <div class="text-muted small mb-2">נתיב</div>
+                    <div class="mb-3"><code>{{ mirror_info.path }}</code></div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="text-muted small">גודל (MB)</div>
+                            <div><strong>{{ mirror_info.size_mb }}</strong></div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-muted small">SHA נוכחי</div>
+                            <div><code>{{ mirror_info.current_sha }}</code></div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning mb-0">
+                        אין מידע על Mirror (כנראה שטרם בוצע initial import).
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <strong>Metadata (MongoDB)</strong>
+                </div>
+                <div class="card-body">
+                    {% if metadata %}
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <div class="text-muted small">Default branch</div>
+                            <div><code>{{ metadata.default_branch }}</code></div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-muted small">Last synced SHA</div>
+                            <div><code>{{ metadata.last_synced_sha }}</code></div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-muted small">Sync status</div>
+                            <div><strong>{{ metadata.sync_status }}</strong></div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-muted small">Total files</div>
+                            <div><strong>{{ metadata.total_files }}</strong></div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning mb-0">
+                        אין metadata עבור הריפו הזה.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
