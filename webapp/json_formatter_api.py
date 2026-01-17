@@ -7,6 +7,7 @@ JSON Formatter API Blueprint
 from __future__ import annotations
 
 import json
+import logging
 
 from flask import Blueprint, jsonify, request, session
 
@@ -88,7 +89,8 @@ def format_json():
             400,
         )
     except TypeError as e:
-        return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
+        logging.exception("TypeError while handling /api/json/format request")
+        return jsonify({"success": False, "error": "Invalid request data"}), 400
 
 
 @json_formatter_bp.route("/minify", methods=["POST"])
