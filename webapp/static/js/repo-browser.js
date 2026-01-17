@@ -533,18 +533,32 @@ function updateBreadcrumbs(path) {
     const copyContentBtn = document.getElementById('copy-content');
     if (copyContentBtn) {
         copyContentBtn.onclick = () => {
-            if (state.editor) {
-                const content = state.editor.getValue();
+            let content = null;
+            
+            // Try CodeMirror 5 first
+            if (state.editor && typeof state.editor.getValue === 'function') {
+                content = state.editor.getValue();
+            }
+            // Fallback to CodeMirror 6
+            else if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
+                content = state.editorView6.state.doc.toString();
+            }
+            
+            if (content !== null) {
                 navigator.clipboard.writeText(content);
                 showToast('Content copied!');
+            } else {
+                showToast('No content to copy');
             }
         };
     }
     
-    // Update GitHub link
+    // Update GitHub link (encode path for special characters)
     const githubLink = document.getElementById('github-link');
     if (githubLink) {
-        githubLink.href = `https://github.com/amirbiron/CodeBot/blob/main/${path}`;
+        // Encode each path segment separately to preserve slashes
+        const encodedPath = path.split('/').map(segment => encodeURIComponent(segment)).join('/');
+        githubLink.href = `https://github.com/amirbiron/CodeBot/blob/main/${encodedPath}`;
     }
 }
 
@@ -696,9 +710,9 @@ function focusSearch() {
 
 function searchInFile() {
     // Trigger CodeMirror's built-in search
+    // Try CodeMirror 5 first
     if (state.editor) {
         state.editor.focus();
-        // Try execCommand first (standard way)
         if (typeof state.editor.execCommand === 'function') {
             state.editor.execCommand('find');
         } else {
@@ -711,7 +725,15 @@ function searchInFile() {
             });
             state.editor.getInputField().dispatchEvent(event);
         }
-    } else {
+    }
+    // Fallback to CodeMirror 6
+    else if (state.editorView6) {
+        // CM6 doesn't have built-in search dialog like CM5
+        // Show browser's native find (Ctrl+F)
+        showToast('Use Ctrl+F to search in CodeMirror 6');
+        state.editorView6.focus();
+    }
+    else {
         showToast('Open a file first');
     }
 }
