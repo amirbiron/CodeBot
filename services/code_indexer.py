@@ -162,6 +162,10 @@ class CodeIndexer:
     # גודל מקסימלי לאינדוקס (500KB)
     MAX_FILE_SIZE = 500_000
 
+    # allowlist נקודתי לקבצים "גדולים" שחייבים להיות באינדקס
+    # חשוב: משתמשים בנתיב רלטיבי בפורמט POSIX (למשל webapp/app.py)
+    LARGE_FILE_ALLOWLIST = {"webapp/app.py"}
+
     def __init__(self, db: Any = None):
         """
         Args:
@@ -235,7 +239,8 @@ class CodeIndexer:
             return False
 
         # בדיקת גודל
-        if len(content) > self.MAX_FILE_SIZE:
+        normalized_path = file_path.replace("\\", "/").lstrip("/")
+        if len(content) > self.MAX_FILE_SIZE and normalized_path not in self.LARGE_FILE_ALLOWLIST:
             logger.info(f"Skipping large file ({len(content)} bytes): {file_path}")
             return False
 
