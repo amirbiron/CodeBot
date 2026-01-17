@@ -205,3 +205,15 @@ class TestFixCommonErrors:
         assert "מפתחות" in joined
         assert "מירכאות" in joined
 
+    def test_fix_strips_end_of_string_line_comment_delimiter(self, service: JsonFormatterService) -> None:
+        json_str = '{"a": 1}//'
+        fixed, fixes = service.fix_common_errors(json_str)
+        assert json.loads(fixed) == {"a": 1}
+        assert "הוסרו הערות" in " ".join(fixes)
+
+    def test_fix_strips_end_of_string_block_comment_delimiter(self, service: JsonFormatterService) -> None:
+        json_str = '{"a": 1}/*'
+        fixed, fixes = service.fix_common_errors(json_str)
+        assert json.loads(fixed) == {"a": 1}
+        assert "הוסרו הערות" in " ".join(fixes)
+

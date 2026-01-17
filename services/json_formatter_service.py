@@ -241,11 +241,15 @@ class JsonFormatterService:
                     continue
 
                 if ch == "/" and nxt == "/":
+                    # גם אם זו הערה בסוף המחרוזת (ללא תווים נוספים) נחשב שינוי
+                    changed = True
                     in_line_comment = True
                     i += 2
                     continue
 
                 if ch == "/" and nxt == "*":
+                    # גם אם זה block comment בסוף המחרוזת (ללא תווים נוספים) נחשב שינוי
+                    changed = True
                     in_block_comment = True
                     i += 2
                     continue
