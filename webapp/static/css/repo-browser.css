@@ -447,12 +447,18 @@
 }
 
 .code-viewer-container {
-    flex: 1;
+    flex: 1 1 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     min-height: 0;
-    height: 100%;
+}
+
+#code-viewer-container {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 /* Code Header - Breadcrumbs & Actions */
@@ -508,10 +514,16 @@
 
 /* Code Editor Wrapper */
 .code-editor-wrapper {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     overflow: hidden;
     position: relative;
     min-height: 0;
+}
+
+#code-editor-wrapper {
+    flex: 1 1 0;
+    min-height: 0;
+    display: block;
 }
 
 /* CodeMirror Overrides */
@@ -550,6 +562,60 @@
 /* Highlight current line */
 .CodeMirror-activeline-background {
     background: var(--bg-hover) !important;
+}
+
+/* CodeMirror Search Dialog */
+.CodeMirror-dialog {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 12px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.CodeMirror-dialog input {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    min-width: 200px;
+}
+
+.CodeMirror-dialog input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+.CodeMirror-dialog button {
+    background: var(--bg-hover);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.CodeMirror-dialog button:hover {
+    background: var(--bg-active);
+}
+
+.CodeMirror-dialog .CodeMirror-search-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+/* Search match highlighting */
+.cm-searching {
+    background: rgba(249, 226, 175, 0.4) !important;
 }
 
 /* Code Footer */

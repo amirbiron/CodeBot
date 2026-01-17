@@ -301,7 +301,8 @@ async function selectFile(path, element) {
     const footer = document.getElementById('code-footer');
 
     welcome.style.display = 'none';
-    wrapper.style.display = 'block';
+    wrapper.style.display = 'flex';
+    wrapper.style.flexDirection = 'column';
     header.style.display = 'flex';
     footer.style.display = 'flex';
 
@@ -374,11 +375,26 @@ async function initCodeViewer(content, language) {
             matchBrackets: true,
             autoCloseBrackets: true,
             tabSize: 4,
-            indentUnit: 4
+            indentUnit: 4,
+            extraKeys: {
+                'Ctrl-F': 'findPersistent',
+                'Cmd-F': 'findPersistent',
+                'Ctrl-G': 'findNext',
+                'Cmd-G': 'findNext',
+                'Shift-Ctrl-G': 'findPrev',
+                'Shift-Cmd-G': 'findPrev',
+                'Ctrl-H': 'replace',
+                'Cmd-Option-F': 'replace'
+            }
         });
 
         state.editor.setValue(content);
-        state.editor.refresh();
+        
+        // Refresh after a short delay to fix height issues
+        setTimeout(() => {
+            state.editor.refresh();
+            state.editor.setSize(null, '100%');
+        }, 100);
         return;
     }
 
@@ -632,6 +648,14 @@ function focusSearch() {
     if (searchInput) {
         searchInput.focus();
         searchInput.select();
+    }
+}
+
+function searchInFile() {
+    // Trigger CodeMirror's built-in search
+    if (state.editor && typeof state.editor.execCommand === 'function') {
+        state.editor.focus();
+        state.editor.execCommand('findPersistent');
     }
 }
 
