@@ -251,9 +251,25 @@ class JsonFormatterService:
             # JSON לא תומך ב-\' (זה escape לא חוקי), ולכן אם הגיע מ-string בסגנון single-quote,
             # נסיר backslash רק מהדפוס \' ונשאיר escapes אחרים.
             s = text.replace("\\'", "'")
-            # אם יש " לא מאויש ב-backslash, צריך לאייש כדי שיהיה JSON תקין
-            s = re.sub(r'(?<!\\)"', r'\\"', s)
-            return s
+            # אם יש " לא מאויש ב-backslash, צריך לאייש כדי שיהיה JSON תקין.
+            # חשוב: יש להתחשב ברצפים של backslashes. אם מספר ה-"\\" לפני " הוא זוגי,
+            # אז ה-" אינו מאויש בפועל (כי חלק מה-\ הם escaped backslashes).
+            out: list[str] = []
+            backslashes_run = 0
+            for ch in s:
+                if ch == "\\":
+                    out.append("\\")
+                    backslashes_run += 1
+                    continue
+                if ch == '"':
+                    if backslashes_run % 2 == 0:
+                        out.append('\\"')
+                    else:
+                        out.append('"')
+                else:
+                    out.append(ch)
+                backslashes_run = 0
+            return "".join(out)
 
         def _fix_single_quoted_keys_and_values(raw: str) -> tuple[str, bool]:
             """
@@ -289,6 +305,18 @@ class JsonFormatterService:
                 return f': "{val}"'
 
             out = val_pat.sub(_val_sub, out)
+
+            # מערכים: ['a', 'b'] -> ["a", "b"]
+            array_pat = re.compile(r"(?P<prefix>(?:^|[\[,]\s*))'(?P<val>(?:[^'\\]|\\.)*)'(?P<suffix>(?=\s*[,}\]]|\s*$))")
+
+            def _array_sub(m: re.Match[str]) -> str:
+                nonlocal changed
+                changed = True
+                prefix = m.group("prefix")
+                val = _escape_for_double_quotes(m.group("val"))
+                return f'{prefix}"{val}"'
+
+            out = array_pat.sub(_array_sub, out)
             return out, changed
 
         # תיקון מירכאות בודדות למירכאות כפולות (זהיר, בלי replace גורף)

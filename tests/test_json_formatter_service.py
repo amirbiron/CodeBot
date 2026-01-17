@@ -127,6 +127,21 @@ class TestFixCommonErrors:
         parsed = json.loads(fixed)
         assert parsed["name"] == "John's book"
 
+    def test_fix_single_quoted_array_elements(self, service: JsonFormatterService) -> None:
+        json_str = "['a', 'b', 'c']"
+        fixed, fixes = service.fix_common_errors(json_str)
+        parsed = json.loads(fixed)
+        assert parsed == ["a", "b", "c"]
+        assert "מירכאות" in " ".join(fixes)
+
+    def test_fix_handles_even_backslashes_before_double_quote(self, service: JsonFormatterService) -> None:
+        # ערך בסגנון single-quote שמכיל \\"
+        json_str = "{'text': 'test\\\\\"quote'}"
+        fixed, _fixes = service.fix_common_errors(json_str)
+        parsed = json.loads(fixed)
+        assert "quote" in parsed["text"]
+        assert '"' in parsed["text"]
+
     def test_fix_signed_infinity(self, service: JsonFormatterService) -> None:
         json_str = '{"value": -Infinity}'
         fixed, fixes = service.fix_common_errors(json_str)
