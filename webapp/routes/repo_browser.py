@@ -120,7 +120,7 @@ def view_file(file_path: str):
     if not ref:
         meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
         default_branch = str(meta.get("default_branch") or "").strip() or "main"
-        ref = f"origin/{default_branch}"
+        ref = f"refs/heads/{default_branch}"
 
     content = git_service.get_file_content(repo_name, file_path, ref=ref)
 
@@ -196,7 +196,7 @@ def api_get_file(file_path: str):
     if not ref:
         meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
         default_branch = str(meta.get("default_branch") or "").strip() or "main"
-        ref = f"origin/{default_branch}"
+        ref = f"refs/heads/{default_branch}"
 
     content = git_service.get_file_content(repo_name, file_path, ref=ref)
 

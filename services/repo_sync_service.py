@@ -353,7 +353,10 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
     logger.info(f"Detected default branch: {default_branch}")
 
     # 3. רשימת כל הקבצים
-    all_files = git_service.list_all_files(repo_name, ref=f"origin/{default_branch}") or []
+    # ב-git clone --mirror ה-refs לרוב נמצאים תחת refs/heads/<branch>
+    # (ולא בהכרח origin/<branch>), לכן נשתמש בפורמט יציב.
+    tree_ref = f"refs/heads/{default_branch}"
+    all_files = git_service.list_all_files(repo_name, ref=tree_ref) or []
 
     # 3. סינון קבצי קוד
     code_files = [f for f in all_files if indexer.should_index(f)]
@@ -370,7 +373,7 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
     # הכנת ה-ref לשליפת תוכן
     # חשוב! חייבים להשתמש באותו ref כמו ב-list_all_files
     # אחרת נשלוף תוכן מ-HEAD שיכול להיות שונה
-    content_ref = f"origin/{default_branch}"
+    content_ref = tree_ref
 
     for i, file_path in enumerate(code_files):
         if i % 100 == 0:

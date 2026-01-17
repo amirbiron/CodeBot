@@ -72,11 +72,11 @@ class RepoSearchService:
 
         # שליפת ה-default_branch מה-DB (לא לנחש שזה main!)
         # זה נשמר במהלך initial_import
-        ref = "origin/main"  # ברירת מחדל בטוחה
+        ref = "refs/heads/main"  # ברירת מחדל בטוחה ל-mirror
         if self.db:
             meta = self.db.repo_metadata.find_one({"repo_name": repo_name})
             if meta and meta.get("default_branch"):
-                ref = f"origin/{meta['default_branch']}"
+                ref = f"refs/heads/{meta['default_branch']}"
 
         # בחירת שיטת חיפוש
         if search_type == "content":
@@ -104,7 +104,7 @@ class RepoSearchService:
         file_pattern: Optional[str],
         case_sensitive: bool,
         max_results: int,
-        ref: str = "origin/main",
+        ref: str = "refs/heads/main",
     ) -> Dict[str, Any]:
         """חיפוש תוכן עם git grep"""
 

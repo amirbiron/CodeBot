@@ -443,10 +443,10 @@ class GitMirrorService:
         # ב-Mirror, ה-Branch נמצא תחת refs/remotes/origin/
         # ננסה כמה אפשרויות לפי סדר עדיפות
         refs_to_try = [
-            f"refs/remotes/origin/{branch}",  # הכי נכון ל-mirror
-            f"origin/{branch}",  # קיצור נפוץ
-            f"refs/heads/{branch}",  # לפעמים קיים
-            branch,  # ניסיון אחרון
+            f"refs/heads/{branch}",  # נפוץ ב-mirror (refs מקומיים)
+            branch,  # קיצור נפוץ (main / feature/foo)
+            f"refs/remotes/origin/{branch}",  # fallback לסוגי clone אחרים
+            f"origin/{branch}",  # fallback נוסף
         ]
 
         for ref in refs_to_try:
@@ -662,8 +662,8 @@ class GitMirrorService:
         git grep [options] <pattern> <revision> -- <pathspec>
 
         **Refs ב-Mirror:**
-        ב-bare repo, עדיף להשתמש ב-`origin/main` (לא `refs/heads/main`).
-        אם לא מועבר ref, נשתמש ב-`origin/main` כברירת מחדל.
+        ב-bare repo שנוצר עם `git clone --mirror`, ה-refs לרוב נמצאים תחת `refs/heads/<branch>`.
+        אם לא מועבר ref, נשתמש ב-`HEAD` כברירת מחדל.
 
         Args:
             repo_name: שם הריפו
@@ -691,9 +691,9 @@ class GitMirrorService:
         # ב-Mirror עדיף origin/{default_branch} על HEAD
         # הערה: ה-default_branch נשמר ב-repo_metadata במהלך initial_import
         if ref is None:
-            # ברירת מחדל - אם לא הועבר ref, נשתמש ב-origin/main
+            # ברירת מחדל - אם לא הועבר ref, נשתמש ב-HEAD
             # אבל עדיף שהקורא יעביר את ה-ref הנכון מה-DB!
-            ref = "origin/main"
+            ref = "HEAD"
 
         # בניית הפקודה - סדר נכון ל-Bare Repository!
         # git grep [options] <pattern> <revision> -- <pathspec>
