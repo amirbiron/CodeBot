@@ -13903,6 +13903,60 @@ def api_stats():
         return jsonify(stats)
 
 
+@app.route('/api/dashboard/last-commit-files', methods=['GET'])
+@login_required
+def api_dashboard_last_commit_files():
+    """API: טעינת 'טען עוד' לקבצי הקומיט האחרון (Admin only)."""
+    user_id = session.get("user_id")
+    try:
+        if user_id is None or not is_admin(int(user_id)):
+            return jsonify({"ok": False, "error": "admin_only"}), 403
+    except Exception:
+        return jsonify({"ok": False, "error": "admin_only"}), 403
+
+    sha = (request.args.get("sha") or "").strip()
+    raw_offset = request.args.get("offset", "0")
+    raw_limit = request.args.get("limit", "50")
+    try:
+        offset = int(raw_offset)
+    except Exception:
+        offset = 0
+    try:
+        limit = int(raw_limit)
+    except Exception:
+        limit = 50
+
+    offset = max(0, offset)
+    limit = max(1, min(200, limit))
+
+    db = get_db()
+    repo_name = os.getenv("REPO_NAME", "CodeBot")
+    git_service = get_mirror_service()
+
+    if not git_service.mirror_exists(repo_name):
+        return jsonify({"ok": False, "error": "mirror_not_found"}), 404
+
+    try:
+        last_commit = git_service.get_last_commit_info(repo_name, ref=sha or "HEAD", offset=offset, max_files=limit)
+        if not last_commit:
+            return jsonify({"ok": False, "error": "commit_not_found"}), 404
+
+        # אפשר להחזיר גם sync_time/סטטוס אם נרצה בעתיד, כרגע מספיק קבצים + total
+        return jsonify(
+            {
+                "ok": True,
+                "sha": last_commit.get("sha"),
+                "files": last_commit.get("files") or [],
+                "total_files": int(last_commit.get("total_files") or 0),
+                "truncated": bool(last_commit.get("truncated")),
+                "offset": offset,
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to load last commit files: {e}")
+        return jsonify({"ok": False, "error": "load_failed"}), 500
+
+
 @app.route('/api/stats/logs', methods=['GET'])
 @login_required
 def api_stats_logs():

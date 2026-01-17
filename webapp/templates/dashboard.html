@@ -133,7 +133,7 @@
         </div>
 
         {% if last_commit.files %}
-        <div class="changed-files-list">
+        <div class="changed-files-list" data-last-commit-files>
             <div class="files-header">
                 <span>קבצים שהשתנו</span>
                 <span class="files-count badge">{{ last_commit.total_files }}</span>
@@ -152,7 +152,16 @@
 
             {% if last_commit.truncated %}
             <div class="more-files">
-                <span>ועוד {{ last_commit.total_files - last_commit.files|length }} קבצים...</span>
+                <button
+                    type="button"
+                    class="btn btn-secondary btn-icon load-more-commit-files"
+                    data-sha="{{ last_commit.sha }}"
+                    data-offset="{{ last_commit.files|length }}"
+                    data-total="{{ last_commit.total_files }}"
+                >
+                    <i class="fas fa-plus"></i>
+                    טען עוד {{ last_commit.total_files - last_commit.files|length }} קבצים
+                </button>
             </div>
             {% endif %}
         </div>
@@ -544,6 +553,13 @@
     padding: 0.5rem;
     opacity: 0.7;
     font-size: 0.85rem;
+}
+
+.load-more-commit-files {
+    width: 100%;
+    justify-content: center;
+    gap: 0.5rem;
+    opacity: 1;
 }
 
 .commit-actions {
@@ -1117,6 +1133,105 @@ document.addEventListener('DOMContentLoaded', () => {
         mq.addListener(syncDesktop);
     }
     syncDesktop();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.querySelector('.load-more-commit-files[data-sha]');
+    const list = document.querySelector('[data-last-commit-files]');
+    if (!btn || !list) return;
+
+    const appendFileRow = (file) => {
+        const path = (file && file.path ? String(file.path) : '').trim();
+        if (!path) return;
+
+        const a = document.createElement('a');
+        a.className = `changed-file-item status-${file.status || 'unknown'}`;
+        a.href = `/repo/?file=${encodeURIComponent(path)}`;
+        a.title = path;
+
+        const info = document.createElement('div');
+        info.className = 'file-info';
+
+        const fileIcon = document.createElement('span');
+        fileIcon.className = 'file-icon';
+        fileIcon.textContent = String(file.file_icon || '📄');
+
+        const name = document.createElement('span');
+        name.className = 'file-name';
+        name.title = path;
+        name.textContent = String(file.name || path.split('/').pop() || path);
+
+        info.appendChild(fileIcon);
+        info.appendChild(name);
+
+        const statusWrap = document.createElement('div');
+        statusWrap.className = 'file-status';
+
+        const statusIcon = document.createElement('span');
+        statusIcon.className = 'status-icon';
+        statusIcon.title = String(file.status_label || '');
+        statusIcon.textContent = String(file.status_icon || '❓');
+
+        statusWrap.appendChild(statusIcon);
+
+        a.appendChild(info);
+        a.appendChild(statusWrap);
+
+        const moreEl = list.querySelector('.more-files');
+        if (moreEl && moreEl.parentNode === list) {
+            list.insertBefore(a, moreEl);
+        } else {
+            list.appendChild(a);
+        }
+    };
+
+    const setButtonLabel = (remaining) => {
+        const rem = Math.max(0, parseInt(remaining || '0', 10) || 0);
+        if (rem <= 0) {
+            btn.remove();
+            return;
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus"></i> ' + `טען עוד ${rem} קבצים`;
+    };
+
+    btn.addEventListener('click', async () => {
+        const sha = (btn.dataset.sha || '').trim();
+        const offset = parseInt(btn.dataset.offset || '0', 10) || 0;
+        const limit = 50;
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> טוען...';
+
+        try {
+            const qs = new URLSearchParams({
+                sha,
+                offset: String(offset),
+                limit: String(limit),
+            });
+            const resp = await fetch(`/api/dashboard/last-commit-files?${qs.toString()}`, {
+                headers: { 'Accept': 'application/json' },
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data || data.ok !== true) {
+                throw new Error((data && data.error) ? String(data.error) : 'load_failed');
+            }
+
+            const files = Array.isArray(data.files) ? data.files : [];
+            files.forEach(appendFileRow);
+
+            const newOffset = offset + files.length;
+            btn.dataset.offset = String(newOffset);
+
+            const total = parseInt(data.total_files || btn.dataset.total || '0', 10) || 0;
+            const remaining = Math.max(0, total - newOffset);
+            setButtonLabel(remaining);
+        } catch (e) {
+            console.error('Failed to load more commit files:', e);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
+        }
+    });
 });
 </script>
 {% endblock %}

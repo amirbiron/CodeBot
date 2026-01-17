@@ -872,7 +872,9 @@ class GitMirrorService:
             "file_types": dict(sorted(file_types.items(), key=lambda x: x[1], reverse=True)[:20]),  # Top 20
         }
 
-    def get_last_commit_info(self, repo_name: str, ref: str = "HEAD") -> Optional[Dict[str, Any]]:
+    def get_last_commit_info(
+        self, repo_name: str, ref: str = "HEAD", offset: int = 0, max_files: int = 10
+    ) -> Optional[Dict[str, Any]]:
         """
         קבלת מידע על הקומיט האחרון כולל רשימת קבצים שהשתנו.
 
@@ -889,6 +891,11 @@ class GitMirrorService:
         repo_path = self._get_repo_path(repo_name)
 
         if not repo_path.exists():
+            return None
+
+        # ולידציה בסיסית ל-ref (מניעת שימוש ב-flag כ-ref)
+        ref = str(ref or "").strip() or "HEAD"
+        if not self._validate_repo_ref(ref):
             return None
 
         # 1. קבלת פרטי הקומיט האחרון
@@ -986,10 +993,23 @@ class GitMirrorService:
                     }
                 )
 
-        # הגבלת מספר הקבצים להצגה (מקסימום 10)
-        max_files = 10
+        # הגבלת מספר הקבצים להצגה + תמיכה ב-"טען עוד"
         total_files = len(files)
-        truncated = total_files > max_files
+        try:
+            offset_i = int(offset)
+        except Exception:
+            offset_i = 0
+        try:
+            max_i = int(max_files)
+        except Exception:
+            max_i = 10
+
+        offset_i = max(0, offset_i)
+        max_i = max(1, min(200, max_i))
+
+        start = offset_i
+        end = offset_i + max_i
+        truncated = end < total_files
 
         return {
             "sha": sha,
@@ -997,7 +1017,7 @@ class GitMirrorService:
             "author": author,
             "date": date_str,
             "message": message,
-            "files": files[:max_files],
+            "files": files[start:end],
             "total_files": total_files,
             "truncated": truncated,
         }
