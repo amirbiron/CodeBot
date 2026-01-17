@@ -59,6 +59,12 @@ class TestFormatEndpoint:
         resp = client.post("/api/json/format", json={})
         assert resp.status_code == 400
 
+    def test_format_invalid_indent_type_returns_400(self, client) -> None:
+        resp = client.post("/api/json/format", json={"content": '{"a":1}', "indent": 2.5})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+
 
 class TestValidateEndpoint:
     def test_validate_valid(self, client) -> None:

@@ -49,9 +49,18 @@ def format_json():
     service = get_json_formatter_service()
 
     try:
+        indent = data.get("indent", 2)
+        if isinstance(indent, str) and indent.strip().isdigit():
+            indent = int(indent.strip())
+        if indent is not None and not isinstance(indent, (int, str)):
+            return jsonify({"success": False, "error": "Invalid indent: must be int or string"}), 400
+        if isinstance(indent, int):
+            # שמירה על גבולות סבירים כדי למנוע שימוש חריג
+            indent = max(0, min(8, indent))
+
         result = service.format_json(
             data["content"],
-            indent=data.get("indent", 2),
+            indent=indent,
             sort_keys=data.get("sort_keys", False),
         )
         stats = service.get_json_stats(data["content"])
@@ -78,6 +87,8 @@ def format_json():
             ),
             400,
         )
+    except TypeError as e:
+        return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
 
 
 @json_formatter_bp.route("/minify", methods=["POST"])

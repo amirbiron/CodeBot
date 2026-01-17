@@ -163,25 +163,77 @@ class JsonFormatterService:
             fixed = trailing_comma.sub(r"\1", fixed)
             fixes.append("הוסרו פסיקים מיותרים")
 
-        # תיקון מירכאות בודדות למירכאות כפולות
+        def _escape_for_double_quotes(text: str) -> str:
+            # JSON לא תומך ב-\' (זה escape לא חוקי), ולכן אם הגיע מ-string בסגנון single-quote,
+            # נסיר backslash רק מהדפוס \' ונשאיר escapes אחרים.
+            s = text.replace("\\'", "'")
+            # אם יש " לא מאויש ב-backslash, צריך לאייש כדי שיהיה JSON תקין
+            s = re.sub(r'(?<!\\)"', r'\\"', s)
+            return s
+
+        def _fix_single_quoted_keys_and_values(raw: str) -> tuple[str, bool]:
+            """
+            ניסיון "זהיר" להמיר מירכאות בודדות לכפולות *רק* במקומות שמזוהים בבירור:
+            - מפתחות באובייקט: {'key': ...}  -> {"key": ...}
+            - ערכי מחרוזת:     : 'value'     -> : "value"
+            לא נוגעים בטקסט שבתוך מחרוזות קיימות במירכאות כפולות (כדי לא לשבור apostrophes).
+            """
+            changed = False
+            out = raw
+
+            # מפתחות: start או אחרי '{' / ',' עם רווחים
+            key_pat = re.compile(r"(?P<prefix>(?:^|[{,]\s*))'(?P<key>(?:[^'\\]|\\.)*)'\s*:")
+
+            def _key_sub(m: re.Match[str]) -> str:
+                nonlocal changed
+                changed = True
+                prefix = m.group("prefix")
+                key = _escape_for_double_quotes(m.group("key"))
+                return f'{prefix}"{key}":'
+
+            out = key_pat.sub(_key_sub, out)
+
+            # ערכי מחרוזת: אחרי ':' ואז '...'(עד delimiter), בלי לנחש מבנים מורכבים
+            val_pat = re.compile(
+                r":\s*'(?P<val>(?:[^'\\]|\\.)*)'(?P<suffix>(?=\s*[,}\]]|\s*$))"
+            )
+
+            def _val_sub(m: re.Match[str]) -> str:
+                nonlocal changed
+                changed = True
+                val = _escape_for_double_quotes(m.group("val"))
+                return f': "{val}"'
+
+            out = val_pat.sub(_val_sub, out)
+            return out, changed
+
+        # תיקון מירכאות בודדות למירכאות כפולות (זהיר, בלי replace גורף)
         if "'" in fixed:
-            # זהירות: רק אם זה נראה כמו JSON עם מירכאות בודדות
             try:
                 json.loads(fixed)
             except json.JSONDecodeError:
-                fixed = fixed.replace("'", '"')
-                fixes.append("הומרו מירכאות בודדות לכפולות")
+                fixed2, changed = _fix_single_quoted_keys_and_values(fixed)
+                if changed and fixed2 != fixed:
+                    fixed = fixed2
+                    fixes.append("הומרו מירכאות בודדות לכפולות")
 
-        # תיקון undefined/NaN/Infinity
-        replacements = [
-            (r"\bundefined\b", "null", "הומר undefined ל-null"),
-            (r"\bNaN\b", "null", "הומר NaN ל-null"),
-            (r"\bInfinity\b", "null", "הומר Infinity ל-null"),
-        ]
-        for pattern, replacement, message in replacements:
-            if re.search(pattern, fixed):
-                fixed = re.sub(pattern, replacement, fixed)
-                fixes.append(message)
+        # תיקון undefined/NaN/Infinity (זהיר: מחליף רק כערכים, לא בתוך מחרוזות)
+        token_pat = re.compile(
+            r"(?P<prefix>(?:^|[{\[,]\s*|:\s*))(?P<token>undefined|[+-]?NaN|[+-]?Infinity)(?P<suffix>(?=\s*[,}\]]|\s*$))"
+        )
+
+        def _token_sub(m: re.Match[str]) -> str:
+            token = m.group("token")
+            if token == "undefined":
+                fixes.append("הומר undefined ל-null")
+            elif "NaN" in token:
+                fixes.append("הומר NaN ל-null")
+            else:
+                fixes.append("הומר Infinity ל-null")
+            return f"{m.group('prefix')}null"
+
+        if token_pat.search(fixed):
+            fixed = token_pat.sub(_token_sub, fixed)
 
         return fixed, fixes
 

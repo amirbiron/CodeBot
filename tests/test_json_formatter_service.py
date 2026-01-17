@@ -105,6 +105,28 @@ class TestFixCommonErrors:
         assert json.loads(fixed)
         assert "מירכאות" in " ".join(fixes)
 
+    def test_fix_single_quotes_does_not_corrupt_apostrophes_in_double_quoted_strings(
+        self, service: JsonFormatterService
+    ) -> None:
+        json_str = """{'name': "John's book"}"""
+        fixed, _fixes = service.fix_common_errors(json_str)
+        parsed = json.loads(fixed)
+        assert parsed["name"] == "John's book"
+
+    def test_fix_signed_infinity(self, service: JsonFormatterService) -> None:
+        json_str = '{"value": -Infinity}'
+        fixed, fixes = service.fix_common_errors(json_str)
+        parsed = json.loads(fixed)
+        assert parsed["value"] is None
+        assert "infinity" in " ".join(fixes).lower()
+
+    def test_fix_signed_nan(self, service: JsonFormatterService) -> None:
+        json_str = '{"value": -NaN}'
+        fixed, fixes = service.fix_common_errors(json_str)
+        parsed = json.loads(fixed)
+        assert parsed["value"] is None
+        assert "nan" in " ".join(fixes).lower()
+
     def test_fix_undefined(self, service: JsonFormatterService) -> None:
         json_str = '{"a": undefined}'
         fixed, fixes = service.fix_common_errors(json_str)
