@@ -9458,6 +9458,7 @@ _WHATS_NEW_PATH = Path(__file__).parent.parent / 'config' / 'whats_new.yaml'
 # Cache לטעינת whats_new עם TTL
 _whats_new_cache: Dict[str, Any] = {}
 _whats_new_cache_time: float = 0
+_whats_new_cache_lock = threading.Lock()
 _WHATS_NEW_CACHE_TTL = 300  # 5 דקות
 
 
@@ -9467,11 +9468,12 @@ def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
     
     now = time.time()
     
-    # בדיקת cache
-    if _whats_new_cache and (now - _whats_new_cache_time) < _WHATS_NEW_CACHE_TTL:
-        cached = _whats_new_cache.copy()
-        cached['features'] = cached.get('features', [])[:limit]
-        return cached
+    # בדיקת cache (בנעילה)
+    with _whats_new_cache_lock:
+        if _whats_new_cache and (now - _whats_new_cache_time) < _WHATS_NEW_CACHE_TTL:
+            cached = _whats_new_cache.copy()
+            cached['features'] = cached.get('features', [])[:limit]
+            return cached
     
     try:
         if not _WHATS_NEW_PATH.exists():
@@ -9512,13 +9514,14 @@ def _load_whats_new(limit: int = 5) -> Dict[str, Any]:
                 'badge': feat.get('badge'),
             })
         
-        # שמירה ב-cache
-        _whats_new_cache = {
-            'features': processed_features,
-            'has_features': bool(processed_features),
-            'total': len(processed_features),
-        }
-        _whats_new_cache_time = now
+        # שמירה ב-cache (בנעילה)
+        with _whats_new_cache_lock:
+            _whats_new_cache = {
+                'features': processed_features,
+                'has_features': bool(processed_features),
+                'total': len(processed_features),
+            }
+            _whats_new_cache_time = now
         
         result = _whats_new_cache.copy()
         result['features'] = result['features'][:limit]
