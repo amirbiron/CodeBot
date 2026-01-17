@@ -255,7 +255,10 @@ class CodeIndexer:
             "path": file_path,
             "language": language,
             "size": len(content),
-            "lines": content.count("\n") + 1,
+            # splitlines() סופר שורות בצורה מדויקת:
+            # - קובץ ריק "" -> 0
+            # - קובץ שמסתיים ב-\n (ברוב המקרים) לא מוסיף שורה "ריקה" בסוף
+            "lines": len(content.splitlines()) if content else 0,
             "commit_sha": commit_sha,
             "last_indexed": datetime.utcnow(),
             "imports": imports,

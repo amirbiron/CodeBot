@@ -46,3 +46,26 @@ async def fetch_data():
     assert "hello" in functions
     assert "fetch_data" in functions
 
+
+def test_line_count_splitlines_behavior(indexer):
+    class _FakeRepoFiles:
+        def __init__(self):
+            self.last_set = None
+
+        def update_one(self, filt, update, upsert=False):
+            self.last_set = update.get("$set", {})
+            return None
+
+    class _FakeDb:
+        def __init__(self):
+            self.repo_files = _FakeRepoFiles()
+
+    db = _FakeDb()
+    idx = CodeIndexer(db=db)
+
+    assert idx.index_file("Repo", "a.txt", "", commit_sha="a" * 40) is True
+    assert db.repo_files.last_set["lines"] == 0
+
+    assert idx.index_file("Repo", "b.txt", "hello\n", commit_sha="b" * 40) is True
+    assert db.repo_files.last_set["lines"] == 1
+
