@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}{{ file_path }} - {{ repo_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h1 class="mb-1">
+                <i class="bi bi-file-code"></i>
+                {{ file_path }}
+            </h1>
+            {% if metadata %}
+            <div class="text-muted small">
+                שפה: <strong>{{ metadata.language }}</strong>
+                · שורות: <strong>{{ metadata.lines }}</strong>
+                · גודל: <strong>{{ metadata.size }}</strong>
+            </div>
+            {% endif %}
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary" href="{{ url_for('repo.browse_directory', dir_path=(file_path.rsplit('/', 1)[0]) if ('/' in file_path) else '') }}">
+                <i class="bi bi-folder2-open"></i>
+                חזרה לתיקייה
+            </a>
+            <a class="btn btn-primary" href="{{ url_for('repo.search') }}">
+                <i class="bi bi-search"></i>
+                Search
+            </a>
+        </div>
+    </div>
+
+    {% if breadcrumbs %}
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('repo.browse_directory') }}">root</a></li>
+            {% for b in breadcrumbs %}
+            {% if b.is_last %}
+            <li class="breadcrumb-item active" aria-current="page">{{ b.name }}</li>
+            {% else %}
+            <li class="breadcrumb-item">
+                <a href="{{ url_for('repo.browse_directory', dir_path=b.path) }}">{{ b.name }}</a>
+            </li>
+            {% endif %}
+            {% endfor %}
+        </ol>
+    </nav>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-body p-0">
+            <pre class="m-0 p-3" style="white-space: pre; overflow: auto; font-size: 13px; line-height: 1.5;">
+{% set lines = content.split('\n') %}
+{% for line in lines %}
+<a id="L{{ loop.index }}"></a><span class="text-muted">{{ "%4d"|format(loop.index) }}</span> {{ line|e }}
+{% endfor %}
+            </pre>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
