@@ -114,7 +114,15 @@ def view_file(file_path: str):
         abort(404)
 
     # תוכן מ-git mirror
-    content = git_service.get_file_content(repo_name, file_path)
+    # ב-bare mirror לא מסתמכים על HEAD (יכול להצביע למשהו לא צפוי).
+    # נעדיף את ה-commit_sha שאונדקס (למען עקביות עם החיפוש), ואם חסר אז origin/<default_branch>.
+    ref = metadata.get("commit_sha")
+    if not ref:
+        meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
+        default_branch = str(meta.get("default_branch") or "").strip() or "main"
+        ref = f"origin/{default_branch}"
+
+    content = git_service.get_file_content(repo_name, file_path, ref=ref)
 
     if content is None:
         abort(404)
@@ -175,15 +183,27 @@ def search():
 @repo_bp.route("/api/file/<path:file_path>")
 def api_get_file(file_path: str):
     """API לקבלת תוכן קובץ"""
+    db = get_db()
     git_service = get_mirror_service()
     repo_name = "CodeBot"
 
-    content = git_service.get_file_content(repo_name, file_path)
+    # אופציה: client יכול לבקש ref מפורש (למשל SHA מתוצאות חיפוש),
+    # אחרת נשתמש ב-ref שאונדקס או ב-origin/<default_branch>.
+    ref = request.args.get("ref") or ""
+    if not ref:
+        doc = db.repo_files.find_one({"repo_name": repo_name, "path": file_path}, {"commit_sha": 1}) or {}
+        ref = doc.get("commit_sha") or ""
+    if not ref:
+        meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
+        default_branch = str(meta.get("default_branch") or "").strip() or "main"
+        ref = f"origin/{default_branch}"
+
+    content = git_service.get_file_content(repo_name, file_path, ref=ref)
 
     if content is None:
         return jsonify({"error": "File not found"}), 404
 
-    return jsonify({"path": file_path, "content": content})
+    return jsonify({"path": file_path, "content": content, "ref": ref})
 
 
 @repo_bp.route("/api/search")
