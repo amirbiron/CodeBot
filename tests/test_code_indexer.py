@@ -69,3 +69,14 @@ def test_line_count_splitlines_behavior(indexer):
     assert idx.index_file("Repo", "b.txt", "hello\n", commit_sha="b" * 40) is True
     assert db.repo_files.last_set["lines"] == 1
 
+
+def test_code_indexer_does_not_bool_check_pymongo_db():
+    class _DbBoolRaises:
+        def __bool__(self):
+            raise NotImplementedError("PyMongo Database does not implement truth value testing")
+
+    idx = CodeIndexer(db=_DbBoolRaises())
+    # אם בוצע bool(db) זה היה זורק NotImplementedError לפני שנגיע ללוגיקה הבאה.
+    # כאן נוודא שהקוד פשוט ממשיך ואז נכשל “בצורה צפויה” כי אין repo_files.
+    assert idx.index_file("Repo", "a.txt", "x", commit_sha="a" * 40) is False
+

@@ -229,7 +229,8 @@ class CodeIndexer:
         Returns:
             True אם הצליח
         """
-        if not self.db:
+        # PyMongo Database לא תומך ב-bool(db) ולכן חייבים להשוות ל-None
+        if self.db is None:
             logger.error("No database connection")
             return False
 
@@ -281,7 +282,7 @@ class CodeIndexer:
 
     def remove_file(self, repo_name: str, file_path: str) -> bool:
         """מחיקת קובץ מהאינדקס"""
-        if not self.db:
+        if self.db is None:
             return False
 
         try:
@@ -294,7 +295,7 @@ class CodeIndexer:
 
     def remove_files(self, repo_name: str, file_paths: List[str]) -> int:
         """מחיקת מספר קבצים מהאינדקס"""
-        if not self.db or not file_paths:
+        if self.db is None or not file_paths:
             return 0
 
         try:
