@@ -66,13 +66,13 @@
         {% endif %}
     </div>
 
-    <div class="glass-card whats-new-card">
+    <div class="glass-card whats-new-card" data-whats-new-card>
         <h2 class="section-title">
             <i class="fas fa-wand-magic-sparkles"></i>
             מה חדש
         </h2>
         {% if whats_new.has_features %}
-        <div class="whats-new-list">
+        <div class="whats-new-list" data-whats-new-list>
             {% for feature in whats_new.features %}
             <div class="whats-new-item">
                 <div class="feature-content">
@@ -98,6 +98,19 @@
             </div>
             {% endfor %}
         </div>
+        {% if whats_new.has_more %}
+        <div class="whats-new-load-more">
+            <button
+                type="button"
+                class="btn btn-secondary btn-icon load-more-whats-new"
+                data-offset="{{ whats_new.next_offset }}"
+                data-remaining="{{ whats_new.remaining }}"
+            >
+                <i class="fas fa-plus"></i>
+                טען עוד {{ whats_new.remaining }} עדכונים
+            </button>
+        </div>
+        {% endif %}
         {% else %}
         <p style="opacity: 0.7;">אין עדכונים חדשים כרגע</p>
         {% endif %}
@@ -530,6 +543,17 @@
 .btn-sm {
     padding: 0.4rem 0.6rem !important;
     font-size: 0.85rem;
+}
+
+.whats-new-load-more {
+    margin-top: 1rem;
+    text-align: center;
+}
+
+.load-more-whats-new {
+    width: 100%;
+    justify-content: center;
+    gap: 0.5rem;
 }
 
 /* Rose Pine Dawn overrides for What's New */
@@ -1496,6 +1520,118 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
             }
         });
+    });
+});
+
+// === What's New: Load More ===
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.querySelector('.load-more-whats-new[data-offset]');
+    const list = document.querySelector('[data-whats-new-list]');
+    if (!btn || !list) return;
+
+    const createFeatureItem = (feature) => {
+        const item = document.createElement('div');
+        item.className = 'whats-new-item';
+
+        const content = document.createElement('div');
+        content.className = 'feature-content';
+
+        const icon = document.createElement('span');
+        icon.className = 'feature-icon';
+        icon.textContent = String(feature.icon || '✨');
+
+        const details = document.createElement('div');
+        details.className = 'feature-details';
+
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'feature-title';
+        titleWrap.textContent = String(feature.title || '');
+
+        if (feature.badge) {
+            const badge = document.createElement('span');
+            badge.className = 'feature-badge';
+            badge.textContent = String(feature.badge);
+            titleWrap.appendChild(badge);
+        }
+
+        details.appendChild(titleWrap);
+
+        if (feature.description) {
+            const desc = document.createElement('div');
+            desc.className = 'feature-description';
+            desc.textContent = String(feature.description);
+            details.appendChild(desc);
+        }
+
+        const time = document.createElement('div');
+        time.className = 'feature-time';
+        time.textContent = String(feature.relative_time || '');
+        details.appendChild(time);
+
+        content.appendChild(icon);
+        content.appendChild(details);
+        item.appendChild(content);
+
+        if (feature.link) {
+            const link = document.createElement('a');
+            link.className = 'btn btn-secondary btn-sm';
+            link.href = String(feature.link);
+            link.title = 'למידע נוסף';
+            link.innerHTML = '<i class="fas fa-arrow-left"></i>';
+            item.appendChild(link);
+        }
+
+        return item;
+    };
+
+    const updateButton = (remaining) => {
+        const rem = Math.max(0, parseInt(remaining || '0', 10) || 0);
+        if (rem <= 0) {
+            btn.closest('.whats-new-load-more')?.remove();
+            return;
+        }
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-plus"></i> טען עוד ${rem} עדכונים`;
+    };
+
+    btn.addEventListener('click', async () => {
+        const offset = parseInt(btn.dataset.offset || '0', 10) || 0;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> טוען...';
+
+        try {
+            const qs = new URLSearchParams({
+                offset: String(offset),
+                limit: '5',
+                max_days: '30',
+            });
+            const resp = await fetch(`/api/dashboard/whats-new?${qs.toString()}`, {
+                headers: { 'Accept': 'application/json' },
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data || data.ok !== true) {
+                throw new Error((data && data.error) ? String(data.error) : 'load_failed');
+            }
+
+            const features = Array.isArray(data.features) ? data.features : [];
+            const loadMoreWrap = btn.closest('.whats-new-load-more');
+            features.forEach((feat) => {
+                const item = createFeatureItem(feat);
+                if (loadMoreWrap && loadMoreWrap.parentNode) {
+                    loadMoreWrap.parentNode.insertBefore(item, loadMoreWrap);
+                } else {
+                    list.appendChild(item);
+                }
+            });
+
+            btn.dataset.offset = String(data.next_offset || (offset + features.length));
+            btn.dataset.remaining = String(data.remaining || 0);
+            updateButton(data.remaining);
+        } catch (e) {
+            console.error('Failed to load more features:', e);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
+        }
     });
 });
 </script>
