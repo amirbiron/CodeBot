@@ -569,7 +569,7 @@
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
     line-height: 1.5;
-    background: var(--bg-primary) !important;
+    background: var(--bg-primary, #1e1e2e) !important;
 }
 
 /* CodeMirror 6 Overrides - Override max-height from codemirror-custom.css */
