@@ -115,8 +115,12 @@ def minify_json():
     service = get_json_formatter_service()
 
     try:
-        result = service.minify_json(data["content"])
-        original_size = len(data["content"].encode("utf-8"))
+        content = data.get("content")
+        if not isinstance(content, str):
+            return jsonify({"success": False, "error": "Invalid content: must be a JSON string"}), 400
+
+        result = service.minify_json(content)
+        original_size = len(content.encode("utf-8"))
         minified_size = len(result.encode("utf-8"))
         savings = ((original_size - minified_size) / original_size * 100) if original_size > 0 else 0
 
@@ -141,6 +145,8 @@ def minify_json():
             ),
             400,
         )
+    except TypeError as e:
+        return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
 
 
 @json_formatter_bp.route("/validate", methods=["POST"])
@@ -172,12 +178,22 @@ def validate_json():
         return jsonify({"success": False, "error": "Missing content"}), 400
 
     service = get_json_formatter_service()
-    result = service.validate_json(data["content"])
+    content = data.get("content")
+    if not isinstance(content, str):
+        return jsonify({"success": False, "error": "Invalid content: must be a JSON string"}), 400
+
+    try:
+        result = service.validate_json(content)
+    except TypeError as e:
+        return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
 
     response = {"success": True, "is_valid": result.is_valid}
 
     if result.is_valid:
-        stats = service.get_json_stats(data["content"])
+        try:
+            stats = service.get_json_stats(content)
+        except TypeError as e:
+            return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
         response["stats"] = {
             "total_keys": stats.total_keys,
             "max_depth": stats.max_depth,
@@ -218,7 +234,11 @@ def fix_json():
     service = get_json_formatter_service()
 
     try:
-        fixed, fixes = service.fix_common_errors(data["content"])
+        content = data.get("content")
+        if not isinstance(content, str):
+            return jsonify({"success": False, "error": "Invalid content: must be a JSON string"}), 400
+
+        fixed, fixes = service.fix_common_errors(content)
         # נסה לאמת את התוצאה
         json.loads(fixed)
         return jsonify({"success": True, "result": fixed, "fixes_applied": fixes})
@@ -233,4 +253,6 @@ def fix_json():
             ),
             400,
         )
+    except TypeError as e:
+        return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
 

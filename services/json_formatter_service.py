@@ -94,6 +94,8 @@ class JsonFormatterService:
                 error_line=e.lineno,
                 error_column=e.colno,
             )
+        except TypeError as e:
+            return JsonValidationResult(is_valid=False, error_message=str(e))
 
     def get_json_stats(self, json_string: str) -> JsonStats:
         """

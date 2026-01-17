@@ -95,6 +95,12 @@ class TestMinifyEndpoint:
         assert " " not in data["result"]
         assert "savings_percent" in data
 
+    def test_minify_non_string_content_returns_400(self, client) -> None:
+        resp = client.post("/api/json/minify", json={"content": 123})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+
 
 class TestFixEndpoint:
     def test_fix_success(self, client) -> None:
@@ -107,6 +113,20 @@ class TestFixEndpoint:
 
     def test_fix_failure(self, client) -> None:
         resp = client.post("/api/json/fix", json={"content": "{not even close"})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+
+    def test_fix_non_string_content_returns_400(self, client) -> None:
+        resp = client.post("/api/json/fix", json={"content": None})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+
+
+class TestValidateNonString:
+    def test_validate_non_string_content_returns_400(self, client) -> None:
+        resp = client.post("/api/json/validate", json={"content": 123})
         assert resp.status_code == 400
         data = resp.get_json()
         assert data["success"] is False

@@ -143,9 +143,10 @@
     const b = typeof bytes === 'number' && Number.isFinite(bytes) ? bytes : 0;
     if (b <= 0) return '0 B';
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB'];
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(b) / Math.log(k));
-    return `${parseFloat((b / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+    const idx = Math.max(0, Math.min(i, sizes.length - 1));
+    return `${parseFloat((b / Math.pow(k, idx)).toFixed(1))} ${sizes[idx]}`;
   }
 
   function updateInputStats() {
@@ -542,7 +543,9 @@
           const btn = document.getElementById('btn-suggest-fix');
           if (btn) btn.addEventListener('click', magicFix, { once: true });
         } catch (_) {}
-        highlightError(result.line, result.column);
+        if (result && (result.line || result.column)) {
+          highlightError(result.line, result.column);
+        }
       }
     } catch (e) {
       showValidation('error', 'שגיאה', e && e.message ? e.message : 'שגיאה באימות');
