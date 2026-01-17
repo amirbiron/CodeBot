@@ -1610,7 +1610,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const qs = new URLSearchParams({
                 offset: String(offset),
                 limit: '5',
-                max_days: '30',
+                max_days: '180',
             });
             const resp = await fetch(`/api/dashboard/whats-new?${qs.toString()}`, {
                 headers: { 'Accept': 'application/json' },
