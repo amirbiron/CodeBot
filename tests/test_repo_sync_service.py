@@ -5,15 +5,21 @@ from dataclasses import dataclass
 import pytest
 
 # repo_sync_service מייבא pymongo.ReturnDocument בטופ-לבל.
-# בסביבות מינימליות ייתכן ש-pymongo לא מותקן – במקרה כזה נסמן את הטסטים כ-skipped
-# (ולא "0 tests collected", כדי לא להפיל ריצות נקודתיות).
+# בחלק מסביבות הפיתוח (כולל סביבת הסוכן כאן) pymongo לא מותקן,
+# אבל לטסטים שלנו מספיק stub מינימלי כדי לאפשר import.
 try:
     import pymongo as _pymongo  # noqa: F401
-    _HAS_PYMONGO = True
-except Exception:
-    _HAS_PYMONGO = False
+except Exception:  # pragma: no cover
+    import sys
+    import types
 
-pytestmark = pytest.mark.skipif(not _HAS_PYMONGO, reason="pymongo not installed")
+    _pymongo_stub = types.ModuleType("pymongo")
+
+    class ReturnDocument:  # noqa: D401 - stub
+        AFTER = object()
+
+    _pymongo_stub.ReturnDocument = ReturnDocument
+    sys.modules["pymongo"] = _pymongo_stub
 
 
 class _FakeRepoMetadataCollection:
@@ -105,4 +111,21 @@ def test_initial_import_never_stores_symbolic_head_sha(monkeypatch):
     assert out["sha"] == ("a" * 7)
     saved = (db.repo_metadata.last_update or {}).get("update", {}).get("$set", {})
     assert saved.get("last_synced_sha") == ("a" * 40)
+
+
+def test_initial_import_counts_read_failures_as_errors(monkeypatch):
+    from services import repo_sync_service as rss
+
+    class _Git(_StubGitService):
+        def get_file_content(self, repo_name: str, file_path: str, ref: str = "HEAD"):
+            return None
+
+    db = _FakeDb()
+    monkeypatch.setattr(rss, "get_mirror_service", lambda: _Git(list_files=["a.py"], current_sha="c" * 40))
+    monkeypatch.setattr(rss, "CodeIndexer", _StubIndexer)
+
+    out = rss.initial_import("https://example.com/repo.git", "Repo", db)
+    assert out["total_files"] == 1
+    assert out["indexed"] == 0
+    assert out["errors"] == 1
 

@@ -250,7 +250,7 @@ def _run_sync_logic(
     if changes is None:
         return {"error": "Failed to get changed files"}
 
-    stats = {"added": 0, "modified": 0, "removed": 0, "renamed": 0, "indexed": 0, "skipped": 0}
+    stats = {"added": 0, "modified": 0, "removed": 0, "renamed": 0, "indexed": 0, "skipped": 0, "errors": 0}
 
     # מחיקת קבצים שנמחקו
     if changes["removed"]:
@@ -293,6 +293,11 @@ def _run_sync_logic(
                     stats["added"] += 1
                 elif file_path in changes["modified"]:
                     stats["modified"] += 1
+            else:
+                stats["errors"] += 1
+        else:
+            stats["errors"] += 1
+            logger.warning(f"Skipping file content for {file_path} (unable to read)")
 
     # עדכון metadata
     db.repo_metadata.update_one(
@@ -415,6 +420,9 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
                 indexed_count += 1
             else:
                 error_count += 1
+        else:
+            error_count += 1
+            logger.warning(f"Skipping file content for {file_path} (unable to read)")
 
     # 5. שמירת metadata (כולל default_branch לשימוש בחיפוש ובסנכרון)
     db.repo_metadata.update_one(

@@ -405,7 +405,15 @@ class GitMirrorService:
             return None
 
         # גודל התיקייה
-        total_size = sum(f.stat().st_size for f in repo_path.rglob("*") if f.is_file())
+        total_size = 0
+        for f in repo_path.rglob("*"):
+            if not f.is_file():
+                continue
+            try:
+                total_size += f.stat().st_size
+            except FileNotFoundError:
+                # Race condition אפשרי בזמן git fetch/gc: הקובץ נמחק בין rglob ל-stat
+                continue
 
         # SHA הנוכחי
         current_sha = self.get_current_sha(repo_name)
@@ -776,6 +784,13 @@ class GitMirrorService:
         results: List[Dict[str, Any]] = []
         current_file = None
 
+        def _looks_like_git_sha(text: str) -> bool:
+            t = (text or "").strip()
+            # Git מאפשר SHA מקוצר (בד"כ 7+) או מלא (40), ובחלק מהמערכות גם SHA-256 (64)
+            if len(t) < 7 or len(t) > 64:
+                return False
+            return all(c in "0123456789abcdefABCDEF" for c in t)
+
         for line in output.split("\n"):
             if not line:
                 continue
@@ -813,7 +828,11 @@ class GitMirrorService:
 
                     # אם החלק לפני הנקודתיים נראה כמו ref (למשל "origin/main")
                     # ולא כמו נתיב (למשל "C:" ב-Windows, או "src")
-                    if "/" in before_colon or before_colon in ["HEAD", "main", "master"]:
+                    if (
+                        "/" in before_colon
+                        or before_colon in ["HEAD", "main", "master", "develop"]
+                        or _looks_like_git_sha(before_colon)
+                    ):
                         # זה ref:path - לוקחים רק את הנתיב
                         file_line = file_line[colon_pos + 1 :]
 

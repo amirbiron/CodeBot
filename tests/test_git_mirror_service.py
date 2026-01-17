@@ -94,3 +94,45 @@ def test_get_file_content_strips_ref_and_path(service, monkeypatch):
     assert out == "ok"
     assert seen["cmd"] == ["git", "show", "origin/main:src/file.py"]
 
+
+def test_parse_grep_output_strips_sha_prefix(service):
+    output = "abc123def456:src/app.py\n10:hello\n"
+    results = service._parse_grep_output(output, max_results=10)
+    assert results == [{"path": "src/app.py", "line": 10, "content": "hello"}]
+
+
+def test_get_mirror_info_ignores_deleted_files_during_size_calc(service, monkeypatch):
+    class _St:
+        def __init__(self, size: int):
+            self.st_size = size
+
+    class _FakeFile:
+        def __init__(self, *, size: int | None):
+            self._size = size
+
+        def is_file(self) -> bool:
+            return True
+
+        def stat(self):
+            if self._size is None:
+                raise FileNotFoundError("deleted during traversal")
+            return _St(self._size)
+
+    class _FakeRepoPath:
+        def exists(self) -> bool:
+            return True
+
+        def rglob(self, pattern: str):
+            assert pattern == "*"
+            return [_FakeFile(size=10), _FakeFile(size=None), _FakeFile(size=5)]
+
+        def __str__(self) -> str:
+            return "/tmp/fake-repo.git"
+
+    monkeypatch.setattr(service, "_get_repo_path", lambda repo_name: _FakeRepoPath())
+    monkeypatch.setattr(service, "get_current_sha", lambda repo_name: "deadbeef")
+
+    info = service.get_mirror_info("test-repo")
+    assert info is not None
+    assert info["size_bytes"] == 15
+
