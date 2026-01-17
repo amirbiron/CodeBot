@@ -10,6 +10,12 @@
 #   - badge: תגית כמו "חדש", "בטא", "שיפור" (אופציונלי)
 
 features:
+  - title: "json formater"
+    icon: "{ }"
+    date: "2026-01-17"
+    link: "/tools/json"
+    badge: "חדש"
+
   - title: "ערכות נושא חדשות"
     description: "ערכות חדשות מדהימות, נמצא בהגדרות תחת 'ערכות ציבוריות'"
     icon: "🎨"
