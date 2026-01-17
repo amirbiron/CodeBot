@@ -573,6 +573,22 @@
     background: var(--bg-primary) !important;
 }
 
+/* CodeMirror 6 Overrides - Override max-height from codemirror-custom.css */
+#code-editor-wrapper .cm-editor {
+    height: 100% !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+#code-editor-wrapper .cm-scroller {
+    overflow: auto !important;
+}
+
 /* CodeMirror scroll container */
 .CodeMirror-scroll {
     height: 100% !important;
