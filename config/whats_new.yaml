@@ -1,6 +1,6 @@
 # מה חדש - רשימת פיצ'רים חדשים להצגה בדשבורד
 # הוסף רשומות חדשות בראש הקובץ (החדש ביותר למעלה)
-# 
+#
 # שדות:
 #   - title: כותרת הפיצ'ר (חובה)
 #   - description: תיאור קצר (אופציונלי)
@@ -10,37 +10,54 @@
 #   - badge: תגית כמו "חדש", "בטא", "שיפור" (אופציונלי)
 
 features:
-  - title: "היסטוריית פעולות בדשבורד"
-    description: "מעקב אחרי כל הפעולות - שמירות, פתקים ותזכורות במקום אחד"
-    icon: "⚡"
-    date: "2026-01-15"
+  - title: "ערכות נושא חדשות"
+    description: "ערכות חדשות מדהימות, נמצא בהגדרות תחת 'ערכות ציבוריות'"
+    icon: "🎨"
+    date: "2026-01-17"
+    link: "/settings#appearance"
     badge: "חדש"
-    link: "/dashboard#activity-timeline"
 
-  - title: "פתקים וסימניות"
-    description: "הוסף פתקים ותזכורות לקבצים שלך ישירות מתצוגת Markdown"
-    icon: "🗒️"
-    date: "2026-01-10"
+  - title: "התראות פוש ב-WebApp"
+    description: "התראות פוש על פתקים דביקים בקבצי מארקדאון, מדליקים בהגדרות"
+    icon: "🔔"
+    date: "2026-01-14"
     badge: "חדש"
-    link: "/files"
-
-  - title: "התראות פוש"
-    description: "קבל התראות על תזכורות ועדכונים ישירות לטלגרם"
-    icon: "📣"
-    date: "2026-01-05"
     link: "/settings#push"
 
-  - title: "דפדפן קוד"
-    description: "צפה בריפו ישירות מהאתר עם syntax highlighting"
-    icon: "🔍"
-    date: "2025-12-20"
-    link: "/repo/"
+  - title: "ערכת נושא חדשה לפונקציית יצירת תמונה מעוצבת בבוט"
+    description: "שולחים בבוט '/image <שם הקובץ>' נכנסים להגדרות ובוחרים ב-Banner Tech וב-Tech Guide"
+    icon: "🖼️"
+    date: "2026-01-10"
+    badge: "חדש"
 
-  - title: "ערכות נושא חדשות"
-    description: "Rose Pine Dawn ו-High Contrast לנגישות משופרת"
+  - title: "הרצת קוד מהווב אפ"
+    description: "למשתמשי פרימיום בלבד כרגע"
+    icon: "🔮"
+    date: "2026-01-08"
+    link: "/tools/code"
+
+  - title: "Theme Builder"
+    description: "בנייה אישית של ערכות נושא"
     icon: "🎨"
-    date: "2025-12-15"
-    link: "/settings#appearance"
+    date: "2025-12-25"
+    link: "/settings/theme-builder"
+
+  - title: "סל מיחזור"
+    description: "הקבצים נשארים בסל למשך 30 יום"
+    icon: "🗑️"
+    date: "2025-12-16"
+    link: "/trash"
+
+  - title: "Diff Viewer"
+    description: "כלי להשוואת קבצים"
+    icon: "🔃"
+    date: "2025-12-11"
+    link: "/compare"
+
+  - title: "רולבאק דרך הבוט"
+    description: "בתפריט גיטהאב תחת גיבוי ושחזור"
+    icon: "🔄"
+    date: "2025-12-10"
 
 # ========================================
 # איך להוסיף פיצ'ר חדש:
@@ -48,7 +65,7 @@ features:
 # 1. הוסף רשומה חדשה בראש הרשימה (מעל הפיצ'רים הקיימים)
 # 2. מלא לפחות title ו-date
 # 3. שדות אופציונליים: description, icon, link, badge
-# 
+#
 # דוגמה:
 #   - title: "שם הפיצ'ר"
 #     description: "תיאור קצר"
