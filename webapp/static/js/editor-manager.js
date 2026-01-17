@@ -1205,7 +1205,7 @@
           case 'md': {
             // 🎨 Markdown with nested code block highlighting
             // Load common languages for fenced code blocks
-            const [mdModule, langModule, pyModule, jsModule, htmlModule, cssModule, jsonModule] = await Promise.all([
+            const [mdModule, langModule, pyModule, jsModule, htmlModule, cssModule, jsonModule, sqlModule, xmlModule] = await Promise.all([
               import(gen('@codemirror/lang-markdown')),
               import(gen('@codemirror/language')),
               import(gen('@codemirror/lang-python')),
@@ -1213,15 +1213,19 @@
               import(gen('@codemirror/lang-html')),
               import(gen('@codemirror/lang-css')),
               import(gen('@codemirror/lang-json')),
+              import(gen('@codemirror/lang-sql')),
+              import(gen('@codemirror/lang-xml')),
             ]);
             const { LanguageDescription } = langModule;
             const codeLanguages = [
-              LanguageDescription.of({ name: 'python', alias: ['py'], extensions: ['py'], load: () => Promise.resolve(pyModule.python()) }),
-              LanguageDescription.of({ name: 'javascript', alias: ['js'], extensions: ['js'], load: () => Promise.resolve(jsModule.javascript()) }),
-              LanguageDescription.of({ name: 'typescript', alias: ['ts'], extensions: ['ts'], load: () => Promise.resolve(jsModule.javascript({ typescript: true })) }),
-              LanguageDescription.of({ name: 'html', extensions: ['html'], load: () => Promise.resolve(htmlModule.html()) }),
+              LanguageDescription.of({ name: 'python', alias: ['py', 'python3'], extensions: ['py', 'pyw'], load: () => Promise.resolve(pyModule.python()) }),
+              LanguageDescription.of({ name: 'javascript', alias: ['js', 'node'], extensions: ['js', 'mjs', 'cjs'], load: () => Promise.resolve(jsModule.javascript()) }),
+              LanguageDescription.of({ name: 'typescript', alias: ['ts'], extensions: ['ts', 'tsx'], load: () => Promise.resolve(jsModule.javascript({ typescript: true })) }),
+              LanguageDescription.of({ name: 'html', alias: ['htm'], extensions: ['html', 'htm'], load: () => Promise.resolve(htmlModule.html()) }),
               LanguageDescription.of({ name: 'css', extensions: ['css'], load: () => Promise.resolve(cssModule.css()) }),
               LanguageDescription.of({ name: 'json', extensions: ['json'], load: () => Promise.resolve(jsonModule.json()) }),
+              LanguageDescription.of({ name: 'sql', extensions: ['sql'], load: () => Promise.resolve(sqlModule.sql()) }),
+              LanguageDescription.of({ name: 'xml', extensions: ['xml', 'xsl', 'xsd'], load: () => Promise.resolve(xmlModule.xml()) }),
             ];
             return mdModule.markdown({ codeLanguages });
           }
