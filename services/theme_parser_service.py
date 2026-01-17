@@ -1299,28 +1299,28 @@ TOKEN_TO_HLJS_MAP: dict[str, str] = {
     "constant.language.null": ".hljs-literal",
     "constant.language.undefined": ".hljs-literal",
     "constant.character": ".hljs-string",
-    "constant.character.escape": ".hljs-char\\.escape_",
+    "constant.character.escape": ".hljs-char.escape_",
     "constant.other": ".hljs-literal",
 
     # ===========================================
     # Functions
     # ===========================================
-    "entity.name.function": ".hljs-title\\.function_",
-    "entity.name.function.method": ".hljs-title\\.function_",
+    "entity.name.function": ".hljs-title.function_",
+    "entity.name.function.method": ".hljs-title.function_",
     "entity.name.function.decorator": ".hljs-meta",
     "support.function": ".hljs-built_in",
     "support.function.builtin": ".hljs-built_in",
-    "meta.function-call": ".hljs-title\\.function_",
+    "meta.function-call": ".hljs-title.function_",
 
     # ===========================================
     # Classes and Types
     # ===========================================
-    "entity.name.class": ".hljs-title\\.class_",
+    "entity.name.class": ".hljs-title.class_",
     "entity.name.type": ".hljs-type",
-    "entity.name.type.class": ".hljs-title\\.class_",
+    "entity.name.type.class": ".hljs-title.class_",
     "support.class": ".hljs-built_in",
     "support.type": ".hljs-type",
-    "entity.other.inherited-class": ".hljs-title\\.class_\\.inherited__",
+    "entity.other.inherited-class": ".hljs-title.class_.inherited__",
 
     # ===========================================
     # Variables
@@ -1328,9 +1328,9 @@ TOKEN_TO_HLJS_MAP: dict[str, str] = {
     "variable": ".hljs-variable",
     "variable.other": ".hljs-variable",
     "variable.parameter": ".hljs-params",
-    "variable.language": ".hljs-variable\\.language_",
-    "variable.language.this": ".hljs-variable\\.language_",
-    "variable.language.self": ".hljs-variable\\.language_",
+    "variable.language": ".hljs-variable.language_",
+    "variable.language.this": ".hljs-variable.language_",
+    "variable.language.self": ".hljs-variable.language_",
 
     # ===========================================
     # HTML/XML Tags and Attributes
