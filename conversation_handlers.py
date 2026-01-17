@@ -1850,6 +1850,15 @@ async def snippet_reject_command(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
+@_admin_required
+async def whats_new_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+    target = f"{base_url}/repo/?file=config/whats_new.yaml"
+    message = getattr(update, "message", None)
+    if message is None or not hasattr(message, "reply_text"):
+        return
+    await message.reply_text(f"🆕 קובץ מה חדש: {target}", disable_web_page_preview=True)
+
 async def show_regular_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """הצגת קבצים רגילים בלבד"""
     query = update.callback_query

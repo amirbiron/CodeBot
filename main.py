@@ -1927,6 +1927,13 @@ HELP_SECTIONS: list[HelpSection] = [
             {"commands": ("metrics", "uptime"), "description": None},
         ],
     },
+    {
+        "title": "⚙️ <b>מנהל (בוט)</b>",
+        "admin_only": True,
+        "entries": [
+            {"commands": ("new",), "description": "קישור לקובץ whats_new.yaml"},
+        ],
+    },
 ]
 
 SUPPORT_FOOTER = "לבעיות או הצעות: @moominAmir"
@@ -3574,6 +3581,12 @@ class CodeKeeperBot:
                 self.application.add_handler(CommandHandler("snippet_reject", snippet_reject_command))
             except Exception:
                 pass
+        # פקודות אדמין כלליות שאינן תלויות בספריית קהילה
+        try:
+            from conversation_handlers import whats_new_command
+            self.application.add_handler(CommandHandler("new", whats_new_command))
+        except Exception:
+            pass
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))
