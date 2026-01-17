@@ -287,4 +287,3 @@ def api_stats():
         stats["sync_status"] = metadata.get("sync_status")
     
     return jsonify(stats)
-
