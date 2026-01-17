@@ -119,7 +119,7 @@ def verify_installation():
     
     # בדיקת MongoDB
     db = check_mongodb_connection()
-    if db:
+    if db is not None:
         checks['MongoDB Connection'] = True
         
         # בדיקת collections
@@ -174,7 +174,7 @@ def main():
     # Step 1: Check MongoDB
     print("Step 1: Checking MongoDB connection...")
     db = check_mongodb_connection()
-    if not db:
+    if db is None:
         print("❌ Cannot continue without MongoDB connection")
         return 1
     
