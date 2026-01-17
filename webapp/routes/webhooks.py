@@ -94,12 +94,13 @@ def handle_push_event(payload: dict, delivery_id: str):
         if not isinstance(payload, dict):
             return jsonify({"error": "Invalid JSON payload", "delivery_id": delivery_id}), 400
         # חילוץ מידע
-        ref = payload.get("ref", "")
+        ref = str(payload.get("ref") or "")
         repo = payload.get("repository", {}) or {}
-        repo_name = repo.get("name", "")
-        payload_default_branch = repo.get("default_branch") or ""
-        new_sha = payload.get("after", "")
-        old_sha = payload.get("before", "")
+        repo_name = str(repo.get("name") or "")
+        payload_default_branch = str(repo.get("default_branch") or "")
+        # payload יכול להכיל null -> נוודא שתמיד נקבל מחרוזת כדי לא לקרוס על slicing
+        new_sha = str(payload.get("after") or "")
+        old_sha = str(payload.get("before") or "")
 
         # default branch דינמי: קודם DB (initial_import), ואז payload, ואז fallback
         default_branch = ""
