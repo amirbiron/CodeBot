@@ -6,7 +6,7 @@ UI לגלישה בקוד הריפו עם API מתקדם
 
 import logging
 import re
-from flask import Blueprint, render_template, request, jsonify, abort
+from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for
 from functools import lru_cache
 
 from services.git_mirror_service import get_mirror_service
@@ -18,37 +18,78 @@ logger = logging.getLogger(__name__)
 repo_bp = Blueprint('repo', __name__, url_prefix='/repo')
 
 
+# ========================================
+# Legacy Routes Redirects (מ-גרסה ישנה)
+# ========================================
+
+@repo_bp.route('/browse')
+@repo_bp.route('/browse/')
+@repo_bp.route('/browse/<path:subpath>')
+def legacy_browse(subpath: str = ''):
+    """Redirect from legacy /browse to new repo index"""
+    return redirect(url_for('repo.repo_index'))
+
+
+@repo_bp.route('/search')
+def legacy_search():
+    """Redirect from legacy /search to new repo index with search"""
+    query = request.args.get('q', '')
+    if query:
+        # Pass query to frontend via fragment
+        return redirect(url_for('repo.repo_index') + f'#search={query}')
+    return redirect(url_for('repo.repo_index'))
+
+
 @repo_bp.route('/')
 def repo_index():
     """דף ראשי של דפדפן הקוד"""
-    db = get_db()
-    git_service = get_mirror_service()
-    
-    repo_name = "CodeBot"
-    
-    metadata = db.repo_metadata.find_one({"repo_name": repo_name})
-    mirror_info = git_service.get_mirror_info(repo_name)
-    
-    # Get file type stats
-    if metadata:
+    try:
+        db = get_db()
+        git_service = get_mirror_service()
+        
+        repo_name = "CodeBot"
+        
+        metadata = None
+        mirror_info = None
         file_types = {}
-        cursor = db.repo_files.aggregate([
-            {"$match": {"repo_name": repo_name}},
-            {"$group": {"_id": "$language", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-            {"$limit": 10}
-        ])
-        for doc in cursor:
-            if doc["_id"]:
-                file_types[doc["_id"]] = doc["count"]
-        metadata["file_types"] = file_types
-    
-    return render_template(
-        'repo/index.html',
-        repo_name=repo_name,
-        metadata=metadata,
-        mirror_info=mirror_info
-    )
+        
+        try:
+            metadata = db.repo_metadata.find_one({"repo_name": repo_name})
+            mirror_info = git_service.get_mirror_info(repo_name)
+        except Exception as e:
+            logger.warning(f"Could not fetch repo info: {e}")
+        
+        # Get file type stats
+        if metadata:
+            try:
+                cursor = db.repo_files.aggregate([
+                    {"$match": {"repo_name": repo_name}},
+                    {"$group": {"_id": "$language", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10}
+                ])
+                for doc in cursor:
+                    if doc["_id"]:
+                        file_types[doc["_id"]] = doc["count"]
+                metadata["file_types"] = file_types
+            except Exception as e:
+                logger.warning(f"Could not fetch file types: {e}")
+        
+        return render_template(
+            'repo/index.html',
+            repo_name=repo_name,
+            metadata=metadata,
+            mirror_info=mirror_info
+        )
+    except Exception as e:
+        logger.exception(f"Repo index error: {e}")
+        return render_template(
+            'repo/index.html',
+            repo_name="CodeBot",
+            metadata=None,
+            mirror_info=None,
+            error=str(e)
+        )
 
 
 @repo_bp.route('/api/tree')
@@ -185,20 +226,28 @@ def api_search():
     if not query or len(query) < 2:
         return jsonify({"error": "Query too short", "results": []})
     
-    db = get_db()
-    search_service = create_search_service(db)
-    repo_name = "CodeBot"
-    
-    result = search_service.search(
-        repo_name=repo_name,
-        query=query,
-        search_type=search_type,
-        file_pattern=file_pattern or None,
-        language=language or None,
-        max_results=50
-    )
-    
-    return jsonify(result)
+    try:
+        db = get_db()
+        search_service = create_search_service(db)
+        repo_name = "CodeBot"
+        
+        result = search_service.search(
+            repo_name=repo_name,
+            query=query,
+            search_type=search_type,
+            file_pattern=file_pattern or None,
+            language=language or None,
+            max_results=50
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.exception(f"Search API error: {e}")
+        return jsonify({
+            "error": "Search service unavailable",
+            "message": str(e),
+            "results": []
+        }), 500
 
 
 @repo_bp.route('/api/stats')
