@@ -708,38 +708,170 @@ function focusSearch() {
     }
 }
 
+// In-file search state
+let searchState = {
+    matches: [],
+    currentIndex: -1,
+    query: ''
+};
+
 function searchInFile() {
-    // Trigger CodeMirror's built-in search
-    // Try CodeMirror 5 first
-    if (state.editor) {
+    // Show custom search bar (works on mobile too)
+    const searchBar = document.getElementById('in-file-search');
+    const searchInput = document.getElementById('in-file-search-input');
+    
+    if (searchBar && searchInput) {
+        searchBar.style.display = 'flex';
+        searchInput.focus();
+        searchInput.select();
+    } else if (state.editor) {
+        // Fallback to CM5 built-in search
         state.editor.focus();
         if (typeof state.editor.execCommand === 'function') {
             state.editor.execCommand('find');
-        } else {
-            // Fallback: trigger Ctrl+F event
-            const event = new KeyboardEvent('keydown', {
-                key: 'f',
-                code: 'KeyF',
-                ctrlKey: true,
-                bubbles: true
-            });
-            state.editor.getInputField().dispatchEvent(event);
         }
-    }
-    // Fallback to CodeMirror 6
-    else if (state.editorView6) {
-        // CM6 doesn't have built-in search dialog like CM5
-        // Show browser's native find (Ctrl+F)
-        showToast('Use Ctrl+F to search in CodeMirror 6');
-        state.editorView6.focus();
-    }
-    else {
+    } else {
         showToast('Open a file first');
     }
 }
 
-// Make searchInFile available globally
+function closeInFileSearch() {
+    const searchBar = document.getElementById('in-file-search');
+    if (searchBar) {
+        searchBar.style.display = 'none';
+    }
+    clearSearchHighlights();
+    searchState = { matches: [], currentIndex: -1, query: '' };
+    document.getElementById('in-file-search-count').textContent = '';
+}
+
+function performInFileSearch(query) {
+    if (!query || query.length < 1) {
+        clearSearchHighlights();
+        searchState = { matches: [], currentIndex: -1, query: '' };
+        document.getElementById('in-file-search-count').textContent = '';
+        return;
+    }
+    
+    searchState.query = query;
+    searchState.matches = [];
+    searchState.currentIndex = -1;
+    
+    let content = '';
+    
+    // Get content from editor
+    if (state.editor && typeof state.editor.getValue === 'function') {
+        content = state.editor.getValue();
+    } else if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
+        content = state.editorView6.state.doc.toString();
+    }
+    
+    if (!content) return;
+    
+    // Find all matches (case insensitive)
+    const regex = new RegExp(escapeRegex(query), 'gi');
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+        searchState.matches.push({
+            index: match.index,
+            length: match[0].length
+        });
+    }
+    
+    // Update count display
+    const countEl = document.getElementById('in-file-search-count');
+    if (searchState.matches.length > 0) {
+        countEl.textContent = `${searchState.matches.length} found`;
+        findNextMatch();
+    } else {
+        countEl.textContent = 'No results';
+    }
+}
+
+function findNextMatch() {
+    if (searchState.matches.length === 0) return;
+    
+    searchState.currentIndex = (searchState.currentIndex + 1) % searchState.matches.length;
+    goToMatch(searchState.currentIndex);
+}
+
+function findPrevMatch() {
+    if (searchState.matches.length === 0) return;
+    
+    searchState.currentIndex = searchState.currentIndex <= 0 
+        ? searchState.matches.length - 1 
+        : searchState.currentIndex - 1;
+    goToMatch(searchState.currentIndex);
+}
+
+function goToMatch(index) {
+    const match = searchState.matches[index];
+    if (!match) return;
+    
+    // Update count display
+    const countEl = document.getElementById('in-file-search-count');
+    countEl.textContent = `${index + 1} / ${searchState.matches.length}`;
+    
+    // Navigate to match in editor
+    if (state.editor) {
+        const doc = state.editor.getDoc();
+        const startPos = doc.posFromIndex(match.index);
+        const endPos = doc.posFromIndex(match.index + match.length);
+        
+        // Select the match
+        doc.setSelection(startPos, endPos);
+        state.editor.scrollIntoView({ from: startPos, to: endPos }, 100);
+        state.editor.focus();
+    } else if (state.editorView6) {
+        // CM6 navigation
+        state.editorView6.dispatch({
+            selection: { anchor: match.index, head: match.index + match.length },
+            scrollIntoView: true
+        });
+        state.editorView6.focus();
+    }
+}
+
+function clearSearchHighlights() {
+    // Clear any search highlights if needed
+}
+
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Initialize in-file search input listener
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('in-file-search-input');
+    if (searchInput) {
+        let debounceTimer;
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                performInFileSearch(e.target.value);
+            }, 200);
+        });
+        
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    findPrevMatch();
+                } else {
+                    findNextMatch();
+                }
+            } else if (e.key === 'Escape') {
+                closeInFileSearch();
+            }
+        });
+    }
+});
+
+// Make functions available globally
 window.searchInFile = searchInFile;
+window.closeInFileSearch = closeInFileSearch;
+window.findNextMatch = findNextMatch;
+window.findPrevMatch = findPrevMatch;
 
 // ========================================
 // Keyboard Shortcuts

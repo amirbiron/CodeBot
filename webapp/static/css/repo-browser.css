@@ -444,18 +444,20 @@
     overflow: hidden;
     background: var(--bg-primary);
     min-height: 0;
+    height: 100%;
 }
 
 .code-viewer-container,
 #code-viewer-container {
-    flex: 1 1 0;
+    flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     min-height: 0;
+    height: 100%;
 }
 
-/* Ensure repo-content fills available space */
+/* Ensure repo-main-content fills available space */
 .repo-main-content {
     flex: 1 1 0;
     min-height: 0;
@@ -512,13 +514,47 @@
     gap: 4px;
 }
 
+/* In-file Search Bar */
+.in-file-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.in-file-search input {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    min-width: 150px;
+}
+
+.in-file-search input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+#in-file-search-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 60px;
+    text-align: center;
+}
+
 /* Code Editor Wrapper */
 .code-editor-wrapper,
 #code-editor-wrapper {
     flex: 1 1 0;
     overflow: hidden;
     position: relative;
-    min-height: 0;
+    min-height: 200px;
 }
 
 /* CodeMirror Overrides */
