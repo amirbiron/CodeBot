@@ -570,22 +570,6 @@
     font-size: 13px;
 }
 
-/* CodeMirror 6 Overrides */
-.cm-editor {
-    height: 100% !important;
-    position: absolute !important;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-}
-
-.cm-scroller {
-    overflow: auto !important;
-    line-height: 1.5;
-    background: var(--bg-primary) !important;
-}
-
 /* CodeMirror 6 Overrides - Override max-height from codemirror-custom.css */
 #code-editor-wrapper .cm-editor {
     height: 100% !important;
@@ -596,10 +580,22 @@
     left: 0;
     right: 0;
     bottom: 0;
+    background: var(--bg-primary) !important;
 }
 
 #code-editor-wrapper .cm-scroller {
     overflow: auto !important;
+    line-height: 1.5;
+    background: var(--bg-primary) !important;
+}
+
+#code-editor-wrapper .cm-gutters {
+    background: var(--bg-secondary) !important;
+    border-right: 1px solid var(--border-color) !important;
+}
+
+#code-editor-wrapper .cm-activeLineGutter {
+    background: var(--bg-hover) !important;
 }
 
 /* CodeMirror scroll container */
