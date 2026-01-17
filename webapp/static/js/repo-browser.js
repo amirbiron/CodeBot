@@ -301,8 +301,7 @@ async function selectFile(path, element) {
     const footer = document.getElementById('code-footer');
 
     welcome.style.display = 'none';
-    wrapper.style.display = 'flex';
-    wrapper.style.flexDirection = 'column';
+    wrapper.style.display = 'block';
     header.style.display = 'flex';
     footer.style.display = 'flex';
     
@@ -397,29 +396,16 @@ async function initCodeViewer(content, language) {
 
         state.editor.setValue(content);
         
-        // Refresh and fix height after DOM update
+        // Refresh editor after DOM update
         setTimeout(() => {
-            state.editor.refresh();
-            
-            // Calculate available height
-            const wrapper = document.getElementById('code-editor-wrapper');
-            const container = document.getElementById('code-viewer-container');
-            const header = document.getElementById('code-header');
-            const footer = document.getElementById('code-footer');
-            
-            if (wrapper && container) {
-                const containerHeight = container.offsetHeight;
-                const headerHeight = header ? header.offsetHeight : 0;
-                const footerHeight = footer ? footer.offsetHeight : 0;
-                const availableHeight = containerHeight - headerHeight - footerHeight;
-                
-                if (availableHeight > 100) {
-                    state.editor.setSize(null, availableHeight + 'px');
-                }
+            if (state.editor) {
+                state.editor.refresh();
+                // Additional refresh after layout settles
+                setTimeout(() => {
+                    if (state.editor) state.editor.refresh();
+                }, 50);
             }
-            
-            state.editor.refresh();
-        }, 150);
+        }, 100);
         return;
     }
 
@@ -724,6 +710,10 @@ function searchInFile() {
         searchBar.style.display = 'flex';
         searchInput.focus();
         searchInput.select();
+        // Refresh editor to adjust height after search bar appears
+        setTimeout(() => {
+            if (state.editor) state.editor.refresh();
+        }, 50);
     } else if (state.editor) {
         // Fallback to CM5 built-in search
         state.editor.focus();
@@ -743,6 +733,10 @@ function closeInFileSearch() {
     clearSearchHighlights();
     searchState = { matches: [], currentIndex: -1, query: '' };
     document.getElementById('in-file-search-count').textContent = '';
+    // Refresh editor to adjust height after search bar closes
+    setTimeout(() => {
+        if (state.editor) state.editor.refresh();
+    }, 50);
 }
 
 function performInFileSearch(query) {
