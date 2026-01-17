@@ -1927,6 +1927,13 @@ HELP_SECTIONS: list[HelpSection] = [
             {"commands": ("metrics", "uptime"), "description": None},
         ],
     },
+    {
+        "title": "⚙️ <b>מנהל (בוט)</b>",
+        "admin_only": True,
+        "entries": [
+            {"commands": ("new",), "description": "קישור לקובץ whats_new.yaml"},
+        ],
+    },
 ]
 
 SUPPORT_FOOTER = "לבעיות או הצעות: @moominAmir"
@@ -3564,6 +3571,7 @@ class CodeKeeperBot:
                 from conversation_handlers import (
                     community_queue_command, community_approve_command, community_reject_command,
                     snippet_queue_command, snippet_approve_command, snippet_reject_command,
+                    whats_new_command,
                 )
                 self.application.add_handler(CommandHandler("community_queue", community_queue_command))
                 self.application.add_handler(CommandHandler("community_approve", community_approve_command))
@@ -3572,6 +3580,7 @@ class CodeKeeperBot:
                 self.application.add_handler(CommandHandler("snippet_queue", snippet_queue_command))
                 self.application.add_handler(CommandHandler("snippet_approve", snippet_approve_command))
                 self.application.add_handler(CommandHandler("snippet_reject", snippet_reject_command))
+                self.application.add_handler(CommandHandler("new", whats_new_command))
             except Exception:
                 pass
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.

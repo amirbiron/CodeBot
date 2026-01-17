@@ -137,7 +137,14 @@
                         <i class="fas fa-user"></i> {{ last_commit.author }}
                     </span>
                     <span class="commit-date">
-                        <i class="fas fa-clock"></i> {{ last_commit.date[:10] }}
+                        <i class="fas fa-clock"></i>
+                        {% if last_commit.date_israel_str %}
+                            {{ last_commit.date_israel_str }} (ישראל)
+                        {% elif last_commit.date %}
+                            {{ last_commit.date[:10] }}
+                        {% else %}
+                            -
+                        {% endif %}
                     </span>
                 </div>
             </div>

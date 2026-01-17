@@ -14,6 +14,7 @@ import time
 import mimetypes
 import uuid
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
@@ -9664,6 +9665,23 @@ def dashboard():
                         if metadata:
                             last_commit["sync_time"] = metadata.get("last_sync_time")
                             last_commit["sync_status"] = metadata.get("sync_status", "unknown")
+                        try:
+                            raw_date = str(last_commit.get("date") or "").strip()
+                        except Exception:
+                            raw_date = ""
+                        if raw_date:
+                            local_dt = None
+                            try:
+                                normalized = raw_date.replace("Z", "+00:00")
+                                parsed = datetime.fromisoformat(normalized)
+                                if parsed.tzinfo is None:
+                                    parsed = parsed.replace(tzinfo=timezone.utc)
+                                local_dt = parsed.astimezone(ZoneInfo("Asia/Jerusalem"))
+                            except Exception:
+                                local_dt = None
+                            if local_dt is not None:
+                                last_commit["date_israel"] = local_dt
+                                last_commit["date_israel_str"] = local_dt.strftime("%d/%m/%Y %H:%M")
             except Exception as e:
                 logger.warning(f"Failed to get last commit info: {e}")
                 last_commit = None
