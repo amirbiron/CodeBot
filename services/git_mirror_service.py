@@ -108,12 +108,55 @@ class GitMirrorService:
         """
         if not text:
             return ""
+        # הימנעות מ-regex כאן (CodeQL: ReDoS). נבצע סניטציה לינארית על טקסט.
+        # נזהה תבניות של credentials ב-URL בסגנון:
+        #   https://user:SECRET@host/...
+        # ונחליף את SECRET ב-*** (נשמור את user ואת ה-host).
+        s = str(text)
+        out: list[str] = []
+        i = 0
+        needle = "https://"
+        n = len(s)
 
-        import re
+        while True:
+            j = s.find(needle, i)
+            if j == -1:
+                out.append(s[i:])
+                break
 
-        # מחפש תבנית של https://oauth2:TOKEN@... או https://user:TOKEN@...
-        sanitized = re.sub(r"(https://[^:]+):([^@]+)@", r"\1:***@", text)
-        return sanitized
+            out.append(s[i:j])
+            k = j + len(needle)
+
+            # חיפוש '@' רק בתוך ה-authority (לפני '/'), ובתוך חלון מוגבל.
+            # זה מונע מצב של סריקה עד סוף טקסט ענק.
+            max_end = min(n, k + 2048)
+
+            # עצירה גם על whitespace (URLs בפלט לרוב לא חוצים רווחים)
+            ws_positions = []
+            for ch in (" ", "\n", "\r", "\t"):
+                p = s.find(ch, k, max_end)
+                if p != -1:
+                    ws_positions.append(p)
+            segment_end = min(ws_positions) if ws_positions else max_end
+
+            slash_pos = s.find("/", k, segment_end)
+            at_pos = s.find("@", k, segment_end)
+
+            # credentials קיימים רק אם יש '@' לפני ה-slash הראשון (או שאין slash)
+            if at_pos != -1 and (slash_pos == -1 or at_pos < slash_pos):
+                colon_pos = s.rfind(":", k, at_pos)
+                if colon_pos != -1:
+                    # נשמור את "https://user:" ונחליף את הסיסמה/טוקן
+                    out.append(s[j : colon_pos + 1])
+                    out.append("***@")
+                    i = at_pos + 1
+                    continue
+
+            # אין תבנית credentials מוכרת — נשמור את הסכמה ונמשיך.
+            out.append(needle)
+            i = k
+
+        return "".join(out)
 
     def _ensure_base_path(self) -> None:
         """יצירת תיקיית הבסיס אם לא קיימת"""

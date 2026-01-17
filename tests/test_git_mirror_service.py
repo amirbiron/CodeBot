@@ -67,3 +67,10 @@ def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tm
     assert calls["rev_parse"] >= 1
     assert calls["clone"] == 1
 
+
+def test_sanitize_output_masks_https_credentials(service):
+    raw = "fatal: unable to access 'https://oauth2:SECRET_TOKEN@github.com/org/repo.git/': 403\n"
+    sanitized = service._sanitize_output(raw)
+    assert "SECRET_TOKEN" not in sanitized
+    assert "https://oauth2:***@github.com/org/repo.git" in sanitized
+
