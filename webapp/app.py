@@ -10896,6 +10896,13 @@ def code_tools_page():
     return render_template('code_tools.html')
 
 
+@app.route('/tools/json')
+@login_required
+def json_formatter_page():
+    """דף JSON Formatter."""
+    return render_template('json_formatter.html')
+
+
 @app.route('/file/<file_id>/images/<image_id>')
 @login_required
 def get_markdown_image(file_id, image_id):
