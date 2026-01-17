@@ -270,9 +270,10 @@ def _run_sync_logic(
             # 1. מחיקת הקובץ הישן מהאינדקס
             indexer.remove_file(repo_name, old_path)
 
-            # 2. הוספת הקובץ החדש לרשימת העיבוד
-            files_to_process.append(new_path)
-            stats["renamed"] += 1
+            # 2. הוספת הקובץ החדש לרשימת העיבוד רק אם הוא רלוונטי לאינדקס
+            if indexer.should_index(new_path):
+                files_to_process.append(new_path)
+                stats["renamed"] += 1
 
             logger.debug(f"Renamed: {old_path} -> {new_path}")
 
@@ -406,7 +407,10 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
 
     return {
         "status": "completed",
-        "total_files": len(all_files),
+        # עקביות מול מה שנשמר ב-MongoDB: total_files = מספר הקבצים שבחרנו לאנדקס (code_files)
+        "total_files": len(code_files),
+        # שדה נוסף למספר כל הקבצים בריפו (כולל לא-מאונדקסים)
+        "total_git_files": len(all_files),
         "code_files": len(code_files),
         "indexed": indexed_count,
         "errors": error_count,

@@ -102,7 +102,7 @@ def handle_push_event(payload: dict, delivery_id: str):
         new_sha = str(payload.get("after") or "")
         old_sha = str(payload.get("before") or "")
 
-        # default branch דינמי: קודם DB (initial_import), ואז payload, ואז fallback
+        # default branch דינמי: קודם DB (initial_import), ואז payload; רק אם לא יודעים בכלל ניפול ל-main/master.
         default_branch = ""
         try:
             from database.db_manager import get_db
@@ -114,13 +114,14 @@ def handle_push_event(payload: dict, delivery_id: str):
         except Exception:
             default_branch = ""
         if not default_branch:
-            default_branch = str(payload_default_branch or "").strip() or "main"
+            default_branch = str(payload_default_branch or "").strip() or ""
 
-        allowed_refs = {
-            f"refs/heads/{default_branch}",
-            "refs/heads/main",  # fallback
-            "refs/heads/master",  # fallback
-        }
+        # אם זיהינו default_branch (DB/payload) נהיה קשוחים: רק הבראנץ' הזה מפעיל סנכרון.
+        # רק אם אין לנו default_branch בכלל נרשה main/master כ-fallback.
+        if default_branch:
+            allowed_refs = {f"refs/heads/{default_branch}"}
+        else:
+            allowed_refs = {"refs/heads/main", "refs/heads/master"}
 
         # רק default branch (עם fallback ל-main/master)
         if ref not in allowed_refs:
