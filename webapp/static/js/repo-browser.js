@@ -301,7 +301,8 @@ async function selectFile(path, element) {
     const footer = document.getElementById('code-footer');
 
     welcome.style.display = 'none';
-    wrapper.style.display = 'block';
+    wrapper.style.display = 'flex';
+    wrapper.style.flexDirection = 'column';
     header.style.display = 'flex';
     footer.style.display = 'flex';
     
@@ -396,15 +397,34 @@ async function initCodeViewer(content, language) {
 
         state.editor.setValue(content);
         
-        // Refresh editor after DOM update
+        // Refresh and fix height after DOM update
         setTimeout(() => {
-            if (state.editor) {
-                state.editor.refresh();
-                // Additional refresh after layout settles
-                setTimeout(() => {
-                    if (state.editor) state.editor.refresh();
-                }, 50);
+            // Get the actual available height from viewport
+            const wrapper = document.getElementById('code-editor-wrapper');
+            const header = document.getElementById('code-header');
+            const footer = document.getElementById('code-footer');
+            const searchBar = document.getElementById('in-file-search');
+            const repoSearchBar = document.querySelector('.repo-search-bar');
+            
+            if (wrapper) {
+                // Calculate used height
+                const headerHeight = header && header.style.display !== 'none' ? header.offsetHeight : 0;
+                const footerHeight = footer && footer.style.display !== 'none' ? footer.offsetHeight : 0;
+                const searchBarHeight = searchBar && searchBar.style.display !== 'none' ? searchBar.offsetHeight : 0;
+                const repoSearchHeight = repoSearchBar ? repoSearchBar.offsetHeight : 52;
+                
+                // Calculate available height (viewport - all fixed elements)
+                const viewportHeight = window.innerHeight;
+                const navbarHeight = 56; // --header-height
+                const availableHeight = viewportHeight - navbarHeight - repoSearchHeight - headerHeight - footerHeight - searchBarHeight - 20;
+                
+                if (availableHeight > 200) {
+                    wrapper.style.height = availableHeight + 'px';
+                    state.editor.setSize(null, availableHeight + 'px');
+                }
             }
+            
+            state.editor.refresh();
         }, 100);
         return;
     }
@@ -710,10 +730,6 @@ function searchInFile() {
         searchBar.style.display = 'flex';
         searchInput.focus();
         searchInput.select();
-        // Refresh editor to adjust height after search bar appears
-        setTimeout(() => {
-            if (state.editor) state.editor.refresh();
-        }, 50);
     } else if (state.editor) {
         // Fallback to CM5 built-in search
         state.editor.focus();
@@ -733,10 +749,6 @@ function closeInFileSearch() {
     clearSearchHighlights();
     searchState = { matches: [], currentIndex: -1, query: '' };
     document.getElementById('in-file-search-count').textContent = '';
-    // Refresh editor to adjust height after search bar closes
-    setTimeout(() => {
-        if (state.editor) state.editor.refresh();
-    }, 50);
 }
 
 function performInFileSearch(query) {
