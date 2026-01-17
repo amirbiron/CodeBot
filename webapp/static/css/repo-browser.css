@@ -552,41 +552,23 @@
 /* Code Editor Wrapper */
 .code-editor-wrapper,
 #code-editor-wrapper {
-    flex: 1 1 auto;
+    flex: 1;
     overflow: hidden;
     position: relative;
-    min-height: 200px;
 }
 
 /* CodeMirror Overrides */
 .CodeMirror {
     height: 100% !important;
-    position: absolute !important;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
+    line-height: 1.5;
 }
 
 /* CodeMirror 6 Overrides - Override max-height from codemirror-custom.css */
 #code-editor-wrapper .cm-editor {
     height: 100% !important;
     max-height: none !important;
-    min-height: 0 !important;
-    position: absolute !important;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--bg-primary) !important;
-}
-
-#code-editor-wrapper .cm-scroller {
-    overflow: auto !important;
-    line-height: 1.5;
-    background: var(--bg-primary) !important;
 }
 
 #code-editor-wrapper .cm-gutters {
