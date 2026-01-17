@@ -59,7 +59,41 @@ document.addEventListener('DOMContentLoaded', () => {
     initResizer();
     initKeyboardShortcuts();
     loadRecentFiles();
+    applyInitialNavigationFromUrl();
 });
+
+function applyInitialNavigationFromUrl() {
+    try {
+        const url = new URL(window.location.href);
+        const fileFromQuery = url.searchParams.get('file');
+        const hashRaw = (window.location.hash || '').replace(/^#/, '');
+        const hashParams = new URLSearchParams(hashRaw);
+        const fileFromHash = hashParams.get('file');
+        const searchFromHash = hashParams.get('search');
+
+        const initialFile = (fileFromQuery || fileFromHash || '').trim();
+        if (initialFile) {
+            // Open file without relying on tree selection (works even if folder nodes are not loaded yet)
+            const normalized = initialFile.replace(/^\/+/, '');
+            selectFile(normalized);
+        }
+
+        // Support legacy redirect: /repo/search?q=... -> /repo/#search=...
+        const searchValue = (searchFromHash || '').trim();
+        if (searchValue) {
+            const searchInput = document.getElementById('global-search');
+            if (searchInput) {
+                searchInput.value = searchValue;
+                // Trigger the existing input listener to execute the search
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                searchInput.focus();
+            }
+        }
+    } catch (e) {
+        // Never break the page because of URL parsing
+        console.warn('Initial navigation parsing failed:', e);
+    }
+}
 
 // ========================================
 // Security helpers (XSS / quotes)
