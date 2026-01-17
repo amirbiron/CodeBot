@@ -976,6 +976,22 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
+# GitHub Webhooks (Repo Sync Engine) - לפי המדריך
+try:
+    from webapp.routes.webhooks import webhooks_bp  # noqa: E402
+    app.register_blueprint(webhooks_bp)
+except Exception:
+    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
+# Repo Browser UI/API (Repo Sync Engine) - לפי המדריך
+try:
+    from webapp.routes.repo_browser import repo_bp  # noqa: E402
+    app.register_blueprint(repo_bp)
+except Exception:
+    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
 # Themes API (Presets/Import/Export) - לפי המדריך
 try:
     from webapp.themes_api import themes_bp  # noqa: E402

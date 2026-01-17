@@ -549,6 +549,15 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
             syntax_css_parts.append("\n/* Pygments syntax highlighting */")
             syntax_css_parts.append(py_css)
 
+        # 🆕 Highlight.js CSS (.hljs-* classes) - for Markdown Preview
+        # מעבירים את צבעי ברירת המחדל לטקסט שלא מסומן (משתנים, קבועים וכו')
+        editor_fg = colors.get("editor.foreground")
+        editor_bg = colors.get("editor.background")
+        hljs_css = generate_hljs_css_from_tokens(token_colors, editor_fg, editor_bg)
+        if hljs_css:
+            syntax_css_parts.append("\n/* Highlight.js syntax highlighting (Preview) */")
+            syntax_css_parts.append(hljs_css)
+
     syntax_css = "\n".join(syntax_css_parts)
 
     return {
@@ -1220,6 +1229,171 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
 # ראה: https://pygments.org/docs/tokens/
 # ==========================================
 
+# ==========================================
+# 🎨 Highlight.js Classes Mapping
+# ==========================================
+# מיפוי VS Code TextMate scopes ל-highlight.js CSS classes
+# ראה: https://highlightjs.readthedocs.io/en/latest/css-classes-reference.html
+# ==========================================
+
+TOKEN_TO_HLJS_MAP: dict[str, str] = {
+    # ===========================================
+    # Comments
+    # ===========================================
+    "comment": ".hljs-comment",
+    "comment.line": ".hljs-comment",
+    "comment.block": ".hljs-comment",
+    "comment.block.documentation": ".hljs-doctag",
+    "punctuation.definition.comment": ".hljs-comment",
+
+    # ===========================================
+    # Strings
+    # ===========================================
+    "string": ".hljs-string",
+    "string.quoted": ".hljs-string",
+    "string.quoted.single": ".hljs-string",
+    "string.quoted.double": ".hljs-string",
+    "string.quoted.triple": ".hljs-string",
+    "string.template": ".hljs-string",
+    "string.regexp": ".hljs-regexp",
+    "string.interpolated": ".hljs-string",
+    "string.other": ".hljs-string",
+
+    # ===========================================
+    # Keywords
+    # ===========================================
+    "keyword": ".hljs-keyword",
+    "keyword.control": ".hljs-keyword",
+    "keyword.control.flow": ".hljs-keyword",
+    "keyword.control.import": ".hljs-keyword",
+    "keyword.control.export": ".hljs-keyword",
+    "keyword.control.conditional": ".hljs-keyword",
+    "keyword.control.loop": ".hljs-keyword",
+    "keyword.control.return": ".hljs-keyword",
+    "keyword.control.trycatch": ".hljs-keyword",
+    "keyword.other": ".hljs-keyword",
+    "keyword.other.unit": ".hljs-number",
+    "keyword.operator": ".hljs-operator",
+
+    # ===========================================
+    # Storage (types and modifiers)
+    # ===========================================
+    "storage": ".hljs-keyword",
+    "storage.type": ".hljs-type",
+    "storage.type.function": ".hljs-keyword",
+    "storage.type.class": ".hljs-keyword",
+    "storage.modifier": ".hljs-keyword",
+    "storage.modifier.async": ".hljs-keyword",
+
+    # ===========================================
+    # Constants (numbers, booleans, etc.)
+    # ===========================================
+    "constant": ".hljs-literal",
+    "constant.numeric": ".hljs-number",
+    "constant.numeric.integer": ".hljs-number",
+    "constant.numeric.float": ".hljs-number",
+    "constant.numeric.hex": ".hljs-number",
+    "constant.numeric.octal": ".hljs-number",
+    "constant.numeric.binary": ".hljs-number",
+    "constant.language": ".hljs-literal",
+    "constant.language.boolean": ".hljs-literal",
+    "constant.language.boolean.true": ".hljs-literal",
+    "constant.language.boolean.false": ".hljs-literal",
+    "constant.language.null": ".hljs-literal",
+    "constant.language.undefined": ".hljs-literal",
+    "constant.character": ".hljs-string",
+    "constant.character.escape": ".hljs-char.escape_",
+    "constant.other": ".hljs-literal",
+
+    # ===========================================
+    # Functions
+    # ===========================================
+    "entity.name.function": ".hljs-title.function_",
+    "entity.name.function.method": ".hljs-title.function_",
+    "entity.name.function.decorator": ".hljs-meta",
+    "support.function": ".hljs-built_in",
+    "support.function.builtin": ".hljs-built_in",
+    "meta.function-call": ".hljs-title.function_",
+
+    # ===========================================
+    # Classes and Types
+    # ===========================================
+    "entity.name.class": ".hljs-title.class_",
+    "entity.name.type": ".hljs-type",
+    "entity.name.type.class": ".hljs-title.class_",
+    "support.class": ".hljs-built_in",
+    "support.type": ".hljs-type",
+    "entity.other.inherited-class": ".hljs-title.class_.inherited__",
+
+    # ===========================================
+    # Variables
+    # ===========================================
+    "variable": ".hljs-variable",
+    "variable.other": ".hljs-variable",
+    "variable.parameter": ".hljs-params",
+    "variable.language": ".hljs-variable.language_",
+    "variable.language.this": ".hljs-variable.language_",
+    "variable.language.self": ".hljs-variable.language_",
+
+    # ===========================================
+    # HTML/XML Tags and Attributes
+    # ===========================================
+    "entity.name.tag": ".hljs-name",
+    "entity.other.attribute-name": ".hljs-attr",
+    "punctuation.definition.tag": ".hljs-tag",
+
+    # ===========================================
+    # Operators and Punctuation
+    # ===========================================
+    "punctuation": ".hljs-punctuation",
+    "punctuation.separator": ".hljs-punctuation",
+    "punctuation.definition.string": ".hljs-string",
+
+    # ===========================================
+    # Markdown
+    # ===========================================
+    "entity.name.section.markdown": ".hljs-section",
+    "markup.heading": ".hljs-section",
+    "markup.bold": ".hljs-strong",
+    "markup.italic": ".hljs-emphasis",
+    "markup.raw": ".hljs-code",
+    "markup.inline.raw": ".hljs-code",
+    "markup.deleted": ".hljs-deletion",
+    "markup.inserted": ".hljs-addition",
+    "markup.list": ".hljs-bullet",
+
+    # ===========================================
+    # Meta
+    # ===========================================
+    "meta": ".hljs-meta",
+    "meta.preprocessor": ".hljs-meta",
+    "meta.decorator": ".hljs-meta",
+
+    # ===========================================
+    # Invalid/Error
+    # ===========================================
+    "invalid": ".hljs-comment",  # no error class in hljs, fallback to comment
+    "invalid.deprecated": ".hljs-comment",
+
+    # ===========================================
+    # Links & URLs
+    # ===========================================
+    "markup.underline.link": ".hljs-link",
+    "string.other.link": ".hljs-link",
+
+    # ===========================================
+    # Quote
+    # ===========================================
+    "markup.quote": ".hljs-quote",
+
+    # ===========================================
+    # Symbols
+    # ===========================================
+    "constant.other.symbol": ".hljs-symbol",
+    "entity.name.label": ".hljs-symbol",
+}
+
+
 TOKEN_TO_PYGMENTS_MAP: dict[str, str] = {
     # ===========================================
     # Comments
@@ -1449,6 +1623,122 @@ def generate_syntax_colors_from_tokens(token_colors: list[dict]) -> dict[str, di
             colors_by_tag[cm_tag] = style
 
     return colors_by_tag
+
+
+def _find_hljs_class(scope: str) -> str | None:
+    """
+    מוצא את ה-highlight.js class המתאים ל-scope.
+
+    Args:
+        scope: VS Code TextMate scope (e.g., "keyword.control.import")
+
+    Returns:
+        highlight.js CSS class (e.g., ".hljs-keyword") או None אם אין התאמה
+    """
+    if not scope or not isinstance(scope, str):
+        return None
+
+    # התאמה מדויקת - עדיפות ראשונה
+    if scope in TOKEN_TO_HLJS_MAP:
+        return TOKEN_TO_HLJS_MAP[scope]
+
+    # חיפוש ההתאמה הספציפית ביותר (הארוכה ביותר)
+    best_match: str | None = None
+    best_match_length = 0
+
+    for vs_scope, hljs_class in TOKEN_TO_HLJS_MAP.items():
+        if scope.startswith(vs_scope + ".") or scope == vs_scope:
+            if len(vs_scope) > best_match_length:
+                best_match = hljs_class
+                best_match_length = len(vs_scope)
+        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
+            if len(scope) > best_match_length:
+                best_match = hljs_class
+                best_match_length = len(scope)
+
+    return best_match
+
+
+def generate_hljs_css_from_tokens(
+    token_colors: list[dict],
+    default_foreground: str | None = None,
+    default_background: str | None = None,
+) -> str:
+    """
+    ממיר tokenColors של VS Code ל-CSS עבור highlight.js.
+
+    🔑 אם יש כמה scopes שממופים לאותו hljs class,
+    הכלל הראשון מנצח (הספציפי יותר בד"כ מופיע קודם בקובץ VS Code).
+
+    Args:
+        token_colors: רשימת tokenColors מערכת VS Code
+        default_foreground: צבע ברירת מחדל לטקסט (editor.foreground)
+        default_background: צבע רקע לבלוקי קוד (editor.background)
+
+    Returns:
+        CSS string עם כללים בפורמט:
+        .hljs-keyword { color: #...; }
+    """
+    if not isinstance(token_colors, list):
+        return ""
+
+    # שימוש ב-dict כדי לדדופ כללים לפי selector
+    css_by_selector: dict[str, str] = {}
+
+    # 🆕 הוספת צבע ברירת מחדל עבור .hljs (טקסט שלא מסומן)
+    # זה חשוב עבור משתנים, קבועים ואלמנטים ש-highlight.js לא מסמן
+    if default_foreground and is_valid_color(str(default_foreground)):
+        base_parts = [f"color: {str(default_foreground).strip()} !important"]
+        if default_background and is_valid_color(str(default_background)):
+            base_parts.append(f"background: {str(default_background).strip()} !important")
+        css_by_selector[".hljs"] = f':root[data-theme-type="custom"] .hljs {{ {"; ".join(base_parts)}; }}'
+
+    for token in token_colors:
+        if not isinstance(token, dict):
+            continue
+
+        scopes = token.get("scope", [])
+        if isinstance(scopes, str):
+            scopes = [scopes]
+        if not isinstance(scopes, list):
+            continue
+
+        settings = token.get("settings", {})
+        if not isinstance(settings, dict):
+            continue
+
+        foreground = settings.get("foreground")
+        font_style = settings.get("fontStyle", "") or ""
+
+        if not foreground or not is_valid_color(str(foreground)):
+            continue
+
+        for scope in scopes:
+            hljs_class = _find_hljs_class(str(scope))
+            if not hljs_class:
+                continue
+
+            # אם כבר יש כלל לזה, נדלג (הראשון מנצח)
+            if hljs_class in css_by_selector:
+                continue
+
+            # CSS עם !important כדי לדרוס hljs default styles
+            rule_parts = [f"color: {str(foreground).strip()} !important"]
+
+            fs = str(font_style).lower()
+            if "italic" in fs:
+                rule_parts.append("font-style: italic !important")
+            if "bold" in fs:
+                rule_parts.append("font-weight: bold !important")
+            if "underline" in fs:
+                rule_parts.append("text-decoration: underline !important")
+
+            # highlight.js classes need to work inside .hljs container
+            # תומך גם ב-custom וגם ב-shared themes
+            # הסלקטור צריך לעבוד כשה-theme הוא custom או shared
+            css_by_selector[hljs_class] = f':root[data-theme-type="custom"] {hljs_class} {{ {"; ".join(rule_parts)}; }}'
+
+    return "\n".join(css_by_selector.values())
 
 
 def _find_pygments_class(scope: str) -> str | None:
