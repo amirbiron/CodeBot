@@ -67,6 +67,32 @@ def register_all_jobs():
 
     # === Monitoring Jobs ===
     register_job(
+        job_id="jobs_stuck_monitor",
+        name="ניטור Jobs תקועות",
+        description="זיהוי הרצות 'תקועות' ב-job_runs והפקת אירוע job_stuck (מנוהל ב-main.py)",
+        category=JobCategory.MONITORING,
+        job_type=JobType.REPEATING,
+        # main.py: interval = max(30, JOBS_STUCK_MONITOR_INTERVAL_SECS או 60)
+        interval_seconds=max(30, int(os.getenv("JOBS_STUCK_MONITOR_INTERVAL_SECS", "60") or 60)),
+        enabled=True,
+        callback_name="_jobs_stuck_monitor",
+        source_file="main.py",
+    )
+
+    register_job(
+        job_id="pending_job_triggers",
+        name="עיבוד בקשות Trigger",
+        description="Polling על job_trigger_requests כדי להפעיל Jobs שנשלחו מה-WebApp (מנוהל ב-main.py)",
+        category=JobCategory.MONITORING,
+        job_type=JobType.REPEATING,
+        # main.py: interval = max(60, JOB_TRIGGERS_POLL_INTERVAL_SECS או 60)
+        interval_seconds=max(60, int(os.getenv("JOB_TRIGGERS_POLL_INTERVAL_SECS", "60") or 60)),
+        enabled=True,
+        callback_name="_process_pending_job_triggers",
+        source_file="main.py",
+    )
+
+    register_job(
         job_id="sentry_poll",
         name="סקירת Sentry",
         description="משיכת אירועים חדשים מ-Sentry",
