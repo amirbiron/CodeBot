@@ -185,6 +185,76 @@ class JsonFormatterService:
         except (json.JSONDecodeError, TypeError):
             pass
 
+        def _strip_json_like_comments(text: str) -> tuple[str, bool]:
+            """
+            מסיר הערות בסגנון JavaScript:
+            - // comment עד סוף שורה
+            - /* block comment */
+            רק מחוץ למחרוזות (במירכאות ' או ").
+            """
+            out: list[str] = []
+            i = 0
+            changed = False
+
+            in_quote: Optional[str] = None
+            escape = False
+            in_line_comment = False
+            in_block_comment = False
+
+            while i < len(text):
+                ch = text[i]
+                nxt = text[i + 1] if i + 1 < len(text) else ""
+
+                if in_line_comment:
+                    changed = True
+                    if ch == "\n":
+                        in_line_comment = False
+                        out.append(ch)
+                    i += 1
+                    continue
+
+                if in_block_comment:
+                    changed = True
+                    if ch == "*" and nxt == "/":
+                        in_block_comment = False
+                        i += 2
+                        continue
+                    i += 1
+                    continue
+
+                if in_quote is not None:
+                    out.append(ch)
+                    if escape:
+                        escape = False
+                    elif ch == "\\":
+                        escape = True
+                    elif ch == in_quote:
+                        in_quote = None
+                    i += 1
+                    continue
+
+                # not inside string/comment
+                if ch in ('"', "'"):
+                    in_quote = ch
+                    out.append(ch)
+                    i += 1
+                    continue
+
+                if ch == "/" and nxt == "/":
+                    in_line_comment = True
+                    i += 2
+                    continue
+
+                if ch == "/" and nxt == "*":
+                    in_block_comment = True
+                    i += 2
+                    continue
+
+                out.append(ch)
+                i += 1
+
+            return "".join(out), changed
+
         def _partition_by_quoted_strings(text: str) -> tuple[list[tuple[bool, str]], bool]:
             """
             מחלק את הטקסט למקטעים: (is_quoted_string, segment).
@@ -239,6 +309,21 @@ class JsonFormatterService:
                     changed = True
                 out_parts.append(new_seg)
             return "".join(out_parts), changed
+
+        # הסרת הערות בסגנון JS (// או /* */) מחוץ למחרוזות
+        if "//" in fixed or "/*" in fixed:
+            fixed2, changed = _strip_json_like_comments(fixed)
+            if changed and fixed2 != fixed:
+                fixed = fixed2
+                fixes.append("הוסרו הערות (comments)")
+
+        # הוספת מרכאות כפולות למפתחות "ברורים" בלי מרכאות: { name: ... } -> { "name": ... }
+        # תיקון זהיר: רק identifiers (A-Z/a-z/_ ואז A-Z/a-z/0-9/_), ורק בתחילת אובייקט/אחרי פסיק.
+        unquoted_key = re.compile(r"(?P<prefix>(?:^|[{,]\s*))(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*:")
+        fixed2, changed = _sub_outside_strings(fixed, unquoted_key, r'\g<prefix>"\g<key>":')
+        if changed:
+            fixed = fixed2
+            fixes.append('הוספו מרכאות כפולות למפתחות ללא מרכאות')
 
         # תיקון פסיקים מיותרים בסוף arrays/objects
         trailing_comma = re.compile(r",(\s*[\]\}])")

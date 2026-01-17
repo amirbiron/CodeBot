@@ -126,7 +126,8 @@
 
 .json-formatter-container .formatter-content {
   display: flex;
-  flex-direction: row-reverse; /* input on right */
+  /* ב-RTL, flex-direction: row מציב את הפריט הראשון מימין */
+  flex-direction: row; /* input on right */
   gap: 1rem;
   min-height: 560px;
 }
