@@ -80,3 +80,33 @@ def test_code_indexer_does_not_bool_check_pymongo_db():
     # כאן נוודא שהקוד פשוט ממשיך ואז נכשל “בצורה צפויה” כי אין repo_files.
     assert idx.index_file("Repo", "a.txt", "x", commit_sha="a" * 40) is False
 
+
+def test_index_file_allows_webapp_app_py_even_if_large():
+    class _FakeRepoFiles:
+        def __init__(self):
+            self.last_set = None
+
+        def update_one(self, filt, update, upsert=False):
+            self.last_set = update.get("$set", {})
+            return None
+
+    class _FakeDb:
+        def __init__(self):
+            self.repo_files = _FakeRepoFiles()
+
+    db = _FakeDb()
+    idx = CodeIndexer(db=db)
+
+    large_content = "a" * (idx.MAX_FILE_SIZE + 1)
+
+    # קובץ גדול רגיל עדיין ידולג
+    assert idx.index_file("Repo", "services/other.py", large_content, commit_sha="a" * 40) is False
+
+    # אבל webapp/app.py הוא חריג מכוון (קובץ חשוב)
+    assert idx.index_file("Repo", "webapp/app.py", large_content, commit_sha="a" * 40) is True
+    assert db.repo_files.last_set["path"] == "webapp/app.py"
+
+    # וגם וריאציות נתיב נפוצות צריכות לעבוד (normalize)
+    assert idx.index_file("Repo", "/webapp/app.py", large_content, commit_sha="b" * 40) is True
+    assert idx.index_file("Repo", "webapp\\app.py", large_content, commit_sha="c" * 40) is True
+
