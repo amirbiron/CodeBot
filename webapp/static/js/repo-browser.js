@@ -399,27 +399,33 @@ async function initCodeViewer(content, language) {
         
         // Refresh and fix height after DOM update
         setTimeout(() => {
-            state.editor.refresh();
-            
-            // Calculate available height
+            // Get the actual available height from viewport
             const wrapper = document.getElementById('code-editor-wrapper');
-            const container = document.getElementById('code-viewer-container');
             const header = document.getElementById('code-header');
             const footer = document.getElementById('code-footer');
+            const searchBar = document.getElementById('in-file-search');
+            const repoSearchBar = document.querySelector('.repo-search-bar');
             
-            if (wrapper && container) {
-                const containerHeight = container.offsetHeight;
-                const headerHeight = header ? header.offsetHeight : 0;
-                const footerHeight = footer ? footer.offsetHeight : 0;
-                const availableHeight = containerHeight - headerHeight - footerHeight;
+            if (wrapper) {
+                // Calculate used height
+                const headerHeight = header && header.style.display !== 'none' ? header.offsetHeight : 0;
+                const footerHeight = footer && footer.style.display !== 'none' ? footer.offsetHeight : 0;
+                const searchBarHeight = searchBar && searchBar.style.display !== 'none' ? searchBar.offsetHeight : 0;
+                const repoSearchHeight = repoSearchBar ? repoSearchBar.offsetHeight : 52;
                 
-                if (availableHeight > 100) {
+                // Calculate available height (viewport - all fixed elements)
+                const viewportHeight = window.innerHeight;
+                const navbarHeight = 56; // --header-height
+                const availableHeight = viewportHeight - navbarHeight - repoSearchHeight - headerHeight - footerHeight - searchBarHeight - 20;
+                
+                if (availableHeight > 200) {
+                    wrapper.style.height = availableHeight + 'px';
                     state.editor.setSize(null, availableHeight + 'px');
                 }
             }
             
             state.editor.refresh();
-        }, 150);
+        }, 100);
         return;
     }
 

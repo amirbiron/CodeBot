@@ -460,7 +460,9 @@
 /* Ensure repo-main-content fills available space */
 .repo-main-content {
     flex: 1 1 0;
+    display: flex;
     min-height: 0;
+    overflow: hidden;
 }
 
 /* Code Header - Breadcrumbs & Actions */
@@ -551,10 +553,10 @@
 /* Code Editor Wrapper */
 .code-editor-wrapper,
 #code-editor-wrapper {
-    flex: 1 1 0;
+    flex: 1 1 auto;
     overflow: hidden;
     position: relative;
-    min-height: 200px;
+    min-height: 0;
 }
 
 /* CodeMirror Overrides */
