@@ -1041,6 +1041,16 @@ except Exception as e:
     except Exception:
         pass
 
+# JSON Formatter API (format/minify/validate/fix)
+try:
+    from webapp.json_formatter_api import json_formatter_bp  # noqa: E402
+    app.register_blueprint(json_formatter_bp)
+except Exception as e:
+    try:
+        logger.warning(f"Failed to register json_formatter_bp: {e}")
+    except Exception:
+        pass
+
 # זיהוי הרצה תחת pytest בזמן import (גם בזמן איסוף טסטים)
 _IS_PYTEST = bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules) or os.getenv("PYTEST") == "1" or os.getenv("PYTEST_RUNNING") == "1"
 
@@ -10884,6 +10894,13 @@ def compare_paste_page():
 def code_tools_page():
     """דף ייעודי לכלי קוד (Playground) עם Diff מקצועי."""
     return render_template('code_tools.html')
+
+
+@app.route('/tools/json')
+@login_required
+def json_formatter_page():
+    """דף JSON Formatter."""
+    return render_template('json_formatter.html')
 
 
 @app.route('/file/<file_id>/images/<image_id>')

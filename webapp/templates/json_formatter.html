@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}JSON Formatter - Code Keeper Bot{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/json-formatter.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="json-formatter-container">
+  <div class="tools-header">
+    <h1><span class="icon">{ }</span> JSON Formatter</h1>
+    <p class="subtitle">עיצוב, דחיסה, אימות ותיקון אוטומטי ל-JSON</p>
+  </div>
+
+  <div class="formatter-toolbar">
+    <div class="toolbar-group primary-actions">
+      <button id="btn-format" class="btn btn-primary" title="עיצוב (Ctrl+Shift+F)">✨ עיצוב</button>
+      <button id="btn-minify" class="btn btn-secondary" title="דחיסה">📦 דחיסה</button>
+      <button id="btn-validate" class="btn btn-secondary" title="אימות (Ctrl+Enter)">✓ אימות</button>
+      <button id="btn-magic-fix" class="btn btn-magic" title="Magic Fix (תיקון אוטומטי)">🪄 Magic Fix</button>
+    </div>
+
+    <div class="toolbar-group">
+      <button id="btn-copy" class="btn btn-outline" title="העתקה">📋 העתק</button>
+      <button id="btn-clear" class="btn btn-outline" title="ניקוי">🗑️ נקה</button>
+      <button id="btn-sample" class="btn btn-outline" title="דוגמה">📝 דוגמה</button>
+    </div>
+  </div>
+
+  <div id="validation-message" class="validation-message hidden"></div>
+
+  <div class="formatter-content">
+    <div class="panel input-panel">
+      <div class="panel-header">
+        <span class="panel-title">קלט (ימין)</span>
+      </div>
+      <div class="panel-body">
+        <div id="json-input-editor" class="cm-host" aria-label="JSON input editor"></div>
+        <textarea
+          id="json-input"
+          class="fallback-textarea"
+          placeholder='הדבק JSON כאן...
+{
+  "example": "value",
+  "number": 42
+}'
+        ></textarea>
+      </div>
+      <div class="panel-footer">
+        <span id="input-stats" class="stats-text"></span>
+      </div>
+    </div>
+
+    <div class="panel output-panel">
+      <div class="panel-header">
+        <span class="panel-title">פלט (שמאל)</span>
+      </div>
+      <div class="panel-body">
+        <div id="json-output-editor" class="cm-host" aria-label="JSON output editor"></div>
+        <textarea id="json-output" class="fallback-textarea" readonly></textarea>
+      </div>
+      <div class="panel-footer">
+        <span id="output-stats" class="stats-text"></span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/json-formatter.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}
+
