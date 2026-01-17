@@ -340,11 +340,14 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
     # 2. זיהוי ה-Default Branch האמיתי
     # ב-Mirror, HEAD מצביע על ה-default branch של origin
     branch_result = git_service._run_git_command(["git", "symbolic-ref", "--short", "HEAD"], cwd=repo_path)
-    default_branch = branch_result.stdout.strip() if branch_result.success else "main"
-
-    # אם זה refs/heads/main, נחלץ רק את main
-    if "/" in default_branch:
-        default_branch = default_branch.split("/")[-1]
+    default_branch = branch_result.stdout.strip() if branch_result.success else ""
+    # `--short` מחזיר שם "קצר" (למשל: main, develop, feature/login או origin/main).
+    # חשוב: לא לחתוך על "/" באופן כללי כי זה שובר ברנצ'ים היררכיים כמו feature/foo.
+    # אם HEAD מצביע על origin/<branch>, נחלץ רק את <branch> (כולל סלאשים).
+    if default_branch.startswith("origin/"):
+        default_branch = default_branch.split("/", 1)[1]
+    if not default_branch or not branch_result.success:
+        default_branch = "main"
 
     logger.info(f"Detected default branch: {default_branch}")
 
