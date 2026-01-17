@@ -14225,7 +14225,7 @@ def api_dashboard_whats_new():
     try:
         offset = max(0, int(request.args.get('offset', 0)))
         limit = min(10, max(1, int(request.args.get('limit', 5))))
-        max_days = min(90, max(7, int(request.args.get('max_days', 30))))
+        max_days = min(180, max(7, int(request.args.get('max_days', 30))))
     except (ValueError, TypeError):
         offset = 0
         limit = 5
