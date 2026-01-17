@@ -128,13 +128,22 @@ def search():
     query = request.args.get("q", "")
     search_type = request.args.get("type", "content")
     file_pattern = request.args.get("pattern", "")
+    repo_name = "CodeBot"
 
     if not query:
-        return render_template("repo/search.html", query="", results=[], total=0)
+        return render_template(
+            "repo/search.html",
+            repo_name=repo_name,
+            query="",
+            search_type=search_type,
+            results=[],
+            total=0,
+            truncated=False,
+            error=None,
+        )
 
     db = get_db()
     search_service = create_search_service(db)
-    repo_name = "CodeBot"
 
     result = search_service.search(
         repo_name=repo_name,
@@ -146,6 +155,7 @@ def search():
 
     return render_template(
         "repo/search.html",
+        repo_name=repo_name,
         query=query,
         search_type=search_type,
         results=result.get("results", []),
