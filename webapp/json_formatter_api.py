@@ -256,7 +256,8 @@ def fix_json():
                 }
             ),
             400,
-        )
+        logging.exception("TypeError while processing /api/json/fix request")
+        return jsonify({"success": False, "error": "Invalid request"}), 400
     except TypeError as e:
         return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
 
