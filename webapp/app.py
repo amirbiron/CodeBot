@@ -9142,6 +9142,7 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     recent_cutoff = now - timedelta(days=7)
     events: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _TIMELINE_GROUP_META}
     errors: List[str] = []
+    files_recent_total = 0
 
     # Files activity
     try:
@@ -9149,8 +9150,21 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
             'user_id': user_id,
             'is_active': True,
         }
+        # טווח 7 ימים: הכפתור "טען עוד" אמור להרחיב עד שבוע אחורה בלבד.
+        # נשתמש ב-$or כדי לכסות מקרים שבהם updated_at חסר/None ונשענים על created_at.
+        file_query_recent = dict(file_query) if isinstance(file_query, dict) else {'user_id': user_id, 'is_active': True}
+        file_query_recent['$or'] = [
+            {'updated_at': {'$gte': recent_cutoff}},
+            {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
+            {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
+        ]
+        try:
+            files_recent_total = int(db.code_snippets.count_documents(file_query_recent))
+        except Exception:
+            files_recent_total = 0
+
         cursor = db.code_snippets.find(
-            file_query,
+            file_query_recent,
             {'file_name': 1, 'programming_language': 1, 'updated_at': 1, 'created_at': 1, 'version': 1, 'description': 1},
         ).sort('updated_at', DESCENDING).limit(_TIMELINE_LIMITS['files'])
     except Exception:
@@ -9258,13 +9272,20 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         events[group_id] = sorted_items
         feed.extend(sorted_items)
         recent_count = sum(1 for ev in sorted_items if isinstance(ev.get('_dt'), datetime) and ev['_dt'] >= recent_cutoff)
-        groups_payload.append({
+        group_payload: Dict[str, Any] = {
             'id': group_id,
             'title': meta['title'],
             'icon': meta['icon'],
             'summary': _summarize_group(meta['title'], len(sorted_items), recent_count),
             'events': _finalize_events(sorted_items),
-        })
+        }
+        if group_id == 'files':
+            shown = len(sorted_items)
+            total = max(0, int(files_recent_total or 0))
+            group_payload['total_recent'] = total
+            group_payload['shown'] = shown
+            group_payload['has_more'] = bool(total > shown)
+        groups_payload.append(group_payload)
         filters.append({'id': group_id, 'label': meta['title'], 'count': len(sorted_items)})
 
     feed_sorted = sorted(feed, key=lambda ev: ev.get('_dt') or _MIN_DT, reverse=True)
@@ -13901,6 +13922,173 @@ def api_stats():
         return resp
     except Exception:
         return jsonify(stats)
+
+
+@app.route('/api/dashboard/last-commit-files', methods=['GET'])
+@login_required
+def api_dashboard_last_commit_files():
+    """API: טעינת 'טען עוד' לקבצי הקומיט האחרון (Admin only)."""
+    user_id = session.get("user_id")
+    try:
+        if user_id is None or not is_admin(int(user_id)):
+            return jsonify({"ok": False, "error": "admin_only"}), 403
+    except Exception:
+        return jsonify({"ok": False, "error": "admin_only"}), 403
+
+    sha = (request.args.get("sha") or "").strip()
+    raw_offset = request.args.get("offset", "0")
+    raw_limit = request.args.get("limit", "50")
+    try:
+        offset = int(raw_offset)
+    except Exception:
+        offset = 0
+    try:
+        limit = int(raw_limit)
+    except Exception:
+        limit = 50
+
+    offset = max(0, offset)
+    limit = max(1, min(200, limit))
+
+    db = get_db()
+    repo_name = os.getenv("REPO_NAME", "CodeBot")
+    git_service = get_mirror_service()
+
+    if not git_service.mirror_exists(repo_name):
+        return jsonify({"ok": False, "error": "mirror_not_found"}), 404
+
+    try:
+        last_commit = git_service.get_last_commit_info(repo_name, ref=sha or "HEAD", offset=offset, max_files=limit)
+        if not last_commit:
+            return jsonify({"ok": False, "error": "commit_not_found"}), 404
+
+        # אפשר להחזיר גם sync_time/סטטוס אם נרצה בעתיד, כרגע מספיק קבצים + total
+        return jsonify(
+            {
+                "ok": True,
+                "sha": last_commit.get("sha"),
+                "files": last_commit.get("files") or [],
+                "total_files": int(last_commit.get("total_files") or 0),
+                "truncated": bool(last_commit.get("truncated")),
+                "offset": offset,
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to load last commit files: {e}")
+        return jsonify({"ok": False, "error": "load_failed"}), 500
+
+
+@app.route('/api/dashboard/activity/files', methods=['GET'])
+@login_required
+def api_dashboard_activity_files():
+    """API: טען עוד 12 אירועי קבצים לפיד אחרון (עד 7 ימים אחורה)."""
+    user_id = session.get("user_id")
+    try:
+        user_id_int = int(user_id) if user_id is not None else None
+    except Exception:
+        user_id_int = None
+    if not user_id_int:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    raw_offset = request.args.get("offset", "0")
+    raw_limit = request.args.get("limit", "12")
+    try:
+        offset = int(raw_offset)
+    except Exception:
+        offset = 0
+    try:
+        limit = int(raw_limit)
+    except Exception:
+        limit = 12
+
+    offset = max(0, offset)
+    limit = max(1, min(50, limit))
+
+    now = datetime.now(timezone.utc)
+    recent_cutoff = now - timedelta(days=7)
+
+    db = get_db()
+    base_query = {
+        'user_id': user_id_int,
+        'is_active': True,
+    }
+    recent_query: Dict[str, Any] = dict(base_query)
+    recent_query['$or'] = [
+        {'updated_at': {'$gte': recent_cutoff}},
+        {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
+        {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
+    ]
+
+    try:
+        total_recent = int(db.code_snippets.count_documents(recent_query))
+    except Exception:
+        total_recent = 0
+
+    try:
+        cursor = (
+            db.code_snippets.find(
+                recent_query,
+                {'file_name': 1, 'programming_language': 1, 'updated_at': 1, 'created_at': 1, 'version': 1, 'description': 1},
+            )
+            .sort('updated_at', DESCENDING)
+            .skip(offset)
+            .limit(limit)
+        )
+        docs = list(cursor or [])
+    except Exception as e:
+        logger.warning(f"Failed to fetch timeline files: {e}")
+        return jsonify({"ok": False, "error": "load_failed"}), 500
+
+    items: List[Dict[str, Any]] = []
+    for doc in docs:
+        dt = doc.get('updated_at') or doc.get('created_at')
+        version = doc.get('version') or 1
+        is_new = version == 1
+        action = "נוצר" if is_new else "עודכן"
+        file_name = doc.get('file_name') or "ללא שם"
+        language = resolve_file_language(doc.get('programming_language'), file_name)
+        title = f"{action} {file_name}"
+        details: List[str] = []
+        if doc.get('programming_language'):
+            details.append(doc['programming_language'])
+        elif language and language != 'text':
+            details.append(language)
+        if version:
+            details.append(f"גרסה {version}")
+        description = (doc.get('description') or "").strip()
+        subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
+        href = f"/file/{doc.get('_id')}"
+        file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
+        items.append(
+            _build_timeline_event(
+                'files',
+                title=title,
+                subtitle=subtitle,
+                dt=dt,
+                icon=get_language_icon(language),
+                badge=file_badge,
+                badge_variant='code',
+                href=href,
+                meta={'details': " · ".join(details)},
+            )
+        )
+
+    # שמירה על אחידות פורמט מול הדשבורד
+    finalized = _finalize_events(sorted(items, key=lambda ev: ev.get('_dt') or _MIN_DT, reverse=True))
+    next_offset = offset + len(finalized)
+    remaining = max(0, total_recent - next_offset)
+
+    return jsonify(
+        {
+            "ok": True,
+            "events": finalized,
+            "total_recent": total_recent,
+            "offset": offset,
+            "next_offset": next_offset,
+            "remaining": remaining,
+            "has_more": bool(remaining > 0),
+        }
+    )
 
 
 @app.route('/api/stats/logs', methods=['GET'])

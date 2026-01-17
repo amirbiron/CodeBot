@@ -872,7 +872,9 @@ class GitMirrorService:
             "file_types": dict(sorted(file_types.items(), key=lambda x: x[1], reverse=True)[:20]),  # Top 20
         }
 
-    def get_last_commit_info(self, repo_name: str, ref: str = "HEAD") -> Optional[Dict[str, Any]]:
+    def get_last_commit_info(
+        self, repo_name: str, ref: str = "HEAD", offset: int = 0, max_files: int = 10
+    ) -> Optional[Dict[str, Any]]:
         """
         קבלת מידע על הקומיט האחרון כולל רשימת קבצים שהשתנו.
 
@@ -891,18 +893,29 @@ class GitMirrorService:
         if not repo_path.exists():
             return None
 
+        # ולידציה בסיסית ל-ref (מניעת שימוש ב-flag כ-ref)
+        ref = str(ref or "").strip() or "HEAD"
+        if not self._validate_repo_ref(ref):
+            return None
+
         # 1. קבלת פרטי הקומיט האחרון
-        # פורמט: SHA|Author|Date|Subject
-        result = self._run_git_command(["git", "log", "-1", "--format=%H|%an|%aI|%s", ref], cwd=repo_path, timeout=10)
+        # חשוב: לא להשתמש במפריד רגיל כמו "|" (יכול להופיע בשם מחבר/Subject).
+        # נשתמש במפריד NUL (\x00) שלא יכול להופיע בשדות טקסט רגילים.
+        result = self._run_git_command(
+            ["git", "log", "-1", "--format=%H%x00%an%x00%aI%x00%s", ref],
+            cwd=repo_path,
+            timeout=10,
+        )
 
         if not result.success or not result.stdout.strip():
             return None
 
-        parts = result.stdout.strip().split("|", 3)
+        raw = (result.stdout or "").rstrip("\n")
+        parts = raw.split("\x00")
         if len(parts) < 4:
             return None
 
-        sha, author, date_str, message = parts
+        sha, author, date_str, message = parts[0], parts[1], parts[2], parts[3]
 
         # 2. קבלת רשימת קבצים שהשתנו בקומיט
         # הערה: עבור הקומיט הראשון (ללא parent), diff-tree עם ^! לא יעבוד.
@@ -923,8 +936,8 @@ class GitMirrorService:
 
                 old_path: Optional[str] = None
                 file_path: str
-                # Renames: git outputs "R100\told_path\tnew_path" (3+ parts)
-                if status_code.startswith("R") and len(parts) >= 3:
+                # Renames/Copies: git outputs "R100\told_path\tnew_path" / "C100\told_path\tnew_path" (3+ parts)
+                if (status_code.startswith("R") or status_code.startswith("C")) and len(parts) >= 3:
                     old_path = (parts[1] or "").strip()
                     file_path = (parts[2] or "").strip()
                 else:
@@ -943,6 +956,9 @@ class GitMirrorService:
                 # R = Renamed (בדרך כלל R100, R095 וכו')
                 if status_code.startswith("R"):
                     status_info = {"status": "renamed", "icon": "📝", "label": "שונה שם"}
+                # C = Copied (בדרך כלל C100, C095 וכו')
+                elif status_code.startswith("C"):
+                    status_info = {"status": "copied", "icon": "📄", "label": "הועתק"}
                 else:
                     status_info = status_map.get(status_code, {"status": "unknown", "icon": "❓", "label": "אחר"})
 
@@ -977,10 +993,23 @@ class GitMirrorService:
                     }
                 )
 
-        # הגבלת מספר הקבצים להצגה (מקסימום 10)
-        max_files = 10
+        # הגבלת מספר הקבצים להצגה + תמיכה ב-"טען עוד"
         total_files = len(files)
-        truncated = total_files > max_files
+        try:
+            offset_i = int(offset)
+        except Exception:
+            offset_i = 0
+        try:
+            max_i = int(max_files)
+        except Exception:
+            max_i = 10
+
+        offset_i = max(0, offset_i)
+        max_i = max(1, min(200, max_i))
+
+        start = offset_i
+        end = offset_i + max_i
+        truncated = end < total_files
 
         return {
             "sha": sha,
@@ -988,7 +1017,7 @@ class GitMirrorService:
             "author": author,
             "date": date_str,
             "message": message,
-            "files": files[:max_files],
+            "files": files[start:end],
             "total_files": total_files,
             "truncated": truncated,
         }
