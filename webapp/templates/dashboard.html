@@ -139,7 +139,7 @@
                 <span class="files-count badge">{{ last_commit.total_files }}</span>
             </div>
             {% for file in last_commit.files %}
-            <div class="changed-file-item status-{{ file.status }}">
+            <a class="changed-file-item status-{{ file.status }}" href="/repo/?file={{ file.path|urlencode }}" title="{{ file.path }}">
                 <div class="file-info">
                     <span class="file-icon">{{ file.file_icon }}</span>
                     <span class="file-name" title="{{ file.path }}">{{ file.name }}</span>
@@ -147,7 +147,7 @@
                 <div class="file-status">
                     <span class="status-icon" title="{{ file.status_label }}">{{ file.status_icon }}</span>
                 </div>
-            </div>
+            </a>
             {% endfor %}
 
             {% if last_commit.truncated %}
@@ -486,6 +486,12 @@
     border-radius: 8px;
     margin-bottom: 0.35rem;
     border-right: 3px solid transparent;
+    text-decoration: none;
+    color: inherit;
+}
+
+.changed-file-item:hover {
+    background: rgba(255,255,255,0.08);
 }
 
 .changed-file-item.status-added {
