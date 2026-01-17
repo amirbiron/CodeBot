@@ -289,6 +289,19 @@
                                 </div>
                             </article>
                             {% endfor %}
+                            {% if group.id == 'files' and group.has_more %}
+                            <div class="timeline-load-more-wrap">
+                                <button
+                                    type="button"
+                                    class="btn btn-secondary btn-icon timeline-load-more-files"
+                                    data-offset="{{ group.shown|default(group.events|length) }}"
+                                    data-total="{{ group.total_recent|default(0) }}"
+                                >
+                                    <i class="fas fa-plus"></i>
+                                    טען עוד {{ 12 if (group.total_recent - (group.shown|default(group.events|length))) > 12 else (group.total_recent - (group.shown|default(group.events|length))) }} קבצים
+                                </button>
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
                     {% endfor %}
@@ -794,6 +807,17 @@
     gap: 0.5rem;
 }
 
+.timeline-load-more-wrap {
+    margin-top: 0.5rem;
+    display: flex;
+}
+
+.timeline-load-more-files {
+    width: 100%;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
 .timeline-group {
     border-radius: 14px;
     background: rgba(255,255,255,0.02);
@@ -1231,6 +1255,136 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
         }
+    });
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const loadMoreButtons = document.querySelectorAll('.timeline-load-more-files[data-offset]');
+    if (!loadMoreButtons.length) return;
+
+    const createTimelineItem = (event) => {
+        const article = document.createElement('article');
+        article.className = 'timeline-item';
+        article.setAttribute('data-timeline-event', '');
+        article.setAttribute('data-group', 'files');
+        if (event && event.accent) {
+            article.setAttribute('data-accent', String(event.accent));
+        }
+
+        const marker = document.createElement('div');
+        marker.className = 'timeline-marker';
+
+        const body = document.createElement('div');
+        body.className = 'timeline-item-body';
+
+        const header = document.createElement('div');
+        header.className = 'timeline-item-header';
+
+        const icon = document.createElement('div');
+        icon.className = 'timeline-icon';
+        icon.textContent = String(event.icon || '📁');
+
+        const texts = document.createElement('div');
+        texts.className = 'timeline-texts';
+
+        const title = document.createElement('div');
+        title.className = 'timeline-title';
+        title.textContent = String(event.title || '');
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'timeline-subtitle';
+        subtitle.textContent = String(event.subtitle || '');
+
+        texts.appendChild(title);
+        texts.appendChild(subtitle);
+
+        const time = document.createElement('div');
+        time.className = 'timeline-time';
+        time.textContent = String(event.relative_time || '');
+
+        header.appendChild(icon);
+        header.appendChild(texts);
+        header.appendChild(time);
+
+        const footer = document.createElement('div');
+        footer.className = 'timeline-item-footer';
+
+        if (event.badge) {
+            const badge = document.createElement('span');
+            const variant = String(event.badge_variant || 'neutral');
+            badge.className = `timeline-badge timeline-badge-${variant}`;
+            badge.textContent = String(event.badge);
+            footer.appendChild(badge);
+        }
+
+        if (event.href) {
+            const a = document.createElement('a');
+            a.className = 'timeline-link';
+            a.href = String(event.href);
+            a.textContent = 'פתח';
+            footer.appendChild(a);
+        }
+
+        body.appendChild(header);
+        body.appendChild(footer);
+        article.appendChild(marker);
+        article.appendChild(body);
+        return article;
+    };
+
+    const updateButtonLabel = (btn, remaining) => {
+        const rem = Math.max(0, parseInt(remaining || '0', 10) || 0);
+        if (rem <= 0) {
+            btn.closest('.timeline-load-more-wrap')?.remove();
+            return;
+        }
+        const toLoad = Math.min(12, rem);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus"></i> ' + `טען עוד ${toLoad} קבצים`;
+    };
+
+    loadMoreButtons.forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const offset = parseInt(btn.dataset.offset || '0', 10) || 0;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> טוען...';
+
+            try {
+                const qs = new URLSearchParams({
+                    offset: String(offset),
+                    limit: '12',
+                });
+                const resp = await fetch(`/api/dashboard/activity/files?${qs.toString()}`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data || data.ok !== true) {
+                    throw new Error((data && data.error) ? String(data.error) : 'load_failed');
+                }
+
+                const events = Array.isArray(data.events) ? data.events : [];
+                const group = btn.closest('.timeline-group[data-group="files"]');
+                const groupItems = group ? group.querySelector('.group-items') : null;
+                const wrap = btn.closest('.timeline-load-more-wrap');
+                if (groupItems) {
+                    events.forEach((ev) => {
+                        const item = createTimelineItem(ev);
+                        if (wrap && wrap.parentNode === groupItems) {
+                            groupItems.insertBefore(item, wrap);
+                        } else {
+                            groupItems.appendChild(item);
+                        }
+                    });
+                }
+
+                btn.dataset.offset = String(data.next_offset || (offset + events.length));
+                updateButtonLabel(btn, data.remaining);
+            } catch (e) {
+                console.error('Failed to load more file activity:', e);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
+            }
+        });
     });
 });
 </script>
