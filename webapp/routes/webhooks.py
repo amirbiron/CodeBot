@@ -73,7 +73,10 @@ def handle_github_webhook():
 
     # Push event
     if event_type == "push":
-        return handle_push_event(request.json, delivery_id)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Invalid JSON payload", "delivery_id": delivery_id}), 400
+        return handle_push_event(payload, delivery_id)
 
     # אירועים אחרים - מתעלמים
     return jsonify({"message": f"Event '{event_type}' ignored", "delivery_id": delivery_id}), 200
@@ -88,6 +91,8 @@ def handle_push_event(payload: dict, delivery_id: str):
         delivery_id: מזהה ייחודי לאירוע
     """
     try:
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Invalid JSON payload", "delivery_id": delivery_id}), 400
         # חילוץ מידע
         ref = payload.get("ref", "")
         repo = payload.get("repository", {}) or {}
@@ -164,5 +169,8 @@ def test_webhook():
     if not current_app.debug:
         return jsonify({"error": "Only available in debug mode"}), 403
 
-    return handle_push_event(request.json, "test-delivery")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid JSON payload"}), 400
+    return handle_push_event(payload, "test-delivery")
 

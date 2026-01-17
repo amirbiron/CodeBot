@@ -9,6 +9,7 @@ Code Indexer - אינדוקס קבצי קוד ב-MongoDB
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import re
 from datetime import datetime
@@ -178,17 +179,35 @@ class CodeIndexer:
         Returns:
             True אם צריך לאנדקס
         """
-        # בדיקת דפוסי התעלמות
+        path = Path(file_path)
+        file_path_posix = file_path.replace("\\", "/")
+
+        # בדיקת דפוסי התעלמות (מדויק יותר מ-substring כדי להימנע מהתאמות שווא כמו .coverage -> .coveragerc)
         for pattern in self.IGNORE_PATTERNS:
-            pattern_clean = pattern.replace("*", "")
-            if pattern_clean in file_path:
+            # תבנית תיקייה (למשל node_modules/)
+            if pattern.endswith("/"):
+                dir_name = pattern.rstrip("/")
+                if dir_name and dir_name in path.parts:
+                    return False
+                continue
+
+            # תבנית קובץ/גלוב (למשל *.pyc, package-lock.json, .coverage)
+            if fnmatch.fnmatch(path.name, pattern):
                 return False
 
-        # בדיקת סיומת
-        path = Path(file_path)
+            # תבניות עם '/' נבדקות מול הנתיב כולו (POSIX)
+            if "/" in pattern and fnmatch.fnmatch(file_path_posix, pattern):
+                return False
 
         # קבצים ללא סיומת ספציפיים
-        if path.name in ["Dockerfile", "Makefile", "Jenkinsfile", ".gitignore", ".env.example"]:
+        if path.name in [
+            "Dockerfile",
+            "Makefile",
+            "Jenkinsfile",
+            ".gitignore",
+            ".env.example",
+            ".coveragerc",
+        ]:
             return True
 
         # סיומות מותרות

@@ -11,6 +11,8 @@ def indexer():
 def test_should_index_python(indexer):
     assert indexer.should_index("src/main.py") is True
     assert indexer.should_index("node_modules/pkg/index.js") is False
+    assert indexer.should_index(".coverage") is False
+    assert indexer.should_index(".coveragerc") is True
 
 
 def test_detect_language(indexer):
