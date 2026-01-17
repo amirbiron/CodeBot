@@ -90,13 +90,35 @@ def handle_push_event(payload: dict, delivery_id: str):
     try:
         # חילוץ מידע
         ref = payload.get("ref", "")
-        repo_name = payload.get("repository", {}).get("name", "")
+        repo = payload.get("repository", {}) or {}
+        repo_name = repo.get("name", "")
+        payload_default_branch = repo.get("default_branch") or ""
         new_sha = payload.get("after", "")
         old_sha = payload.get("before", "")
 
-        # רק main/master branch
-        if ref not in ["refs/heads/main", "refs/heads/master"]:
-            logger.info(f"Ignoring push to {ref}")
+        # default branch דינמי: קודם DB (initial_import), ואז payload, ואז fallback
+        default_branch = ""
+        try:
+            from database.db_manager import get_db
+
+            db = get_db()
+            meta = db.repo_metadata.find_one({"repo_name": repo_name}) if repo_name else None
+            if meta and meta.get("default_branch"):
+                default_branch = str(meta["default_branch"])
+        except Exception:
+            default_branch = ""
+        if not default_branch:
+            default_branch = str(payload_default_branch or "").strip() or "main"
+
+        allowed_refs = {
+            f"refs/heads/{default_branch}",
+            "refs/heads/main",  # fallback
+            "refs/heads/master",  # fallback
+        }
+
+        # רק default branch (עם fallback ל-main/master)
+        if ref not in allowed_refs:
+            logger.info(f"Ignoring push to {ref} (default_branch={default_branch})")
             return jsonify({"message": f"Ignoring branch {ref}", "delivery_id": delivery_id}), 200
 
         # בדיקה ש-SHA תקין

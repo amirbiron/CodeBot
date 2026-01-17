@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -127,6 +128,44 @@ class GitMirrorService:
         """נתיב ל-mirror של ריפו ספציפי"""
         return self.base_path / f"{repo_name}.git"
 
+    def _is_valid_mirror(self, repo_path: Path) -> bool:
+        """בדיקה שהספרייה היא bare git repository תקין (best-effort)."""
+        try:
+            result = self._run_git_command(["git", "rev-parse", "--is-bare-repository"], cwd=repo_path, timeout=10)
+            return bool(result.success and result.stdout.strip().lower() == "true")
+        except Exception:
+            return False
+
+    def _safe_rmtree(self, path: Path) -> bool:
+        """מחיקה בטוחה של נתיב mirror (מוגבל תחת base_path בלבד)."""
+        try:
+            p = path.resolve()
+            base = self.base_path.resolve()
+        except Exception:
+            return False
+
+        # לעולם לא למחוק נתיבים מסוכנים
+        if str(p) in {"/", "."}:
+            return False
+        try:
+            if p == base or p == Path.cwd().resolve():
+                return False
+        except Exception:
+            pass
+
+        # חייב להיות תחת base_path
+        try:
+            if not str(p).startswith(str(base) + os.sep):
+                return False
+        except Exception:
+            return False
+
+        try:
+            shutil.rmtree(p)
+            return True
+        except Exception:
+            return False
+
     def _run_git_command(self, cmd: List[str], cwd: Optional[Path] = None, timeout: int = 60) -> GitCommandResult:
         """
         הרצת פקודת Git בצורה בטוחה
@@ -213,13 +252,17 @@ class GitMirrorService:
 
         # בדיקה אם כבר קיים
         if repo_path.exists():
-            logger.info(f"Mirror already exists: {repo_path}")
-            return {
-                "success": True,
-                "path": str(repo_path),
-                "message": "Mirror already exists",
-                "already_existed": True,
-            }
+            if self._is_valid_mirror(repo_path):
+                logger.info(f"Mirror already exists: {repo_path}")
+                return {
+                    "success": True,
+                    "path": str(repo_path),
+                    "message": "Mirror already exists",
+                    "already_existed": True,
+                }
+            # mirror קיים אבל לא תקין -> לנקות כדי לא להיתקע עם "זומבי"
+            logger.warning(f"Mirror directory exists but is invalid, cleaning up: {repo_path}")
+            self._safe_rmtree(repo_path)
 
         # לוג ללא ה-token!
         logger.info(f"Creating mirror: {repo_url} -> {repo_path}")
@@ -240,6 +283,10 @@ class GitMirrorService:
             }
         else:
             logger.error(f"Failed to create mirror: {result.stderr}")
+            # ניקוי שאריות של clone חלקי/שבור כדי לא להחזיר success בעתיד בגלל exists()
+            if repo_path.exists():
+                logger.warning(f"Cleaning up failed mirror clone directory: {repo_path}")
+                self._safe_rmtree(repo_path)
             return {
                 "success": False,
                 "path": None,
