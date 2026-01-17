@@ -137,6 +137,7 @@ class TestGetLastCommitInfo:
         assert result is not None
         assert len(result["files"]) == 1
         file0 = result["files"][0]
+        assert file0["status"] == "copied"
         assert file0["old_path"] == "src/source.py"
         assert file0["path"] == "src/copied.py"
 

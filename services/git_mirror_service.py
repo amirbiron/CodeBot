@@ -949,6 +949,9 @@ class GitMirrorService:
                 # R = Renamed (בדרך כלל R100, R095 וכו')
                 if status_code.startswith("R"):
                     status_info = {"status": "renamed", "icon": "📝", "label": "שונה שם"}
+                # C = Copied (בדרך כלל C100, C095 וכו')
+                elif status_code.startswith("C"):
+                    status_info = {"status": "copied", "icon": "📄", "label": "הועתק"}
                 else:
                     status_info = status_map.get(status_code, {"status": "unknown", "icon": "❓", "label": "אחר"})
 
