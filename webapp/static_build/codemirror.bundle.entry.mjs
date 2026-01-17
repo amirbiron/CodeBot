@@ -16,6 +16,55 @@ import { sql } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
 import { xml } from '@codemirror/lang-xml';
+import { LanguageDescription } from '@codemirror/language';
+
+// 🎨 LanguageDescription list for nested code blocks in Markdown
+const codeLanguages = [
+  LanguageDescription.of({
+    name: 'python',
+    alias: ['py', 'python3'],
+    extensions: ['py', 'pyw'],
+    load: () => Promise.resolve(python()),
+  }),
+  LanguageDescription.of({
+    name: 'javascript',
+    alias: ['js', 'node'],
+    extensions: ['js', 'mjs', 'cjs'],
+    load: () => Promise.resolve(javascript()),
+  }),
+  LanguageDescription.of({
+    name: 'typescript',
+    alias: ['ts'],
+    extensions: ['ts', 'tsx'],
+    load: () => Promise.resolve(javascript({ typescript: true })),
+  }),
+  LanguageDescription.of({
+    name: 'html',
+    alias: ['htm'],
+    extensions: ['html', 'htm'],
+    load: () => Promise.resolve(html()),
+  }),
+  LanguageDescription.of({
+    name: 'css',
+    extensions: ['css'],
+    load: () => Promise.resolve(css()),
+  }),
+  LanguageDescription.of({
+    name: 'json',
+    extensions: ['json'],
+    load: () => Promise.resolve(json()),
+  }),
+  LanguageDescription.of({
+    name: 'sql',
+    extensions: ['sql'],
+    load: () => Promise.resolve(sql()),
+  }),
+  LanguageDescription.of({
+    name: 'xml',
+    extensions: ['xml', 'xsl', 'xsd'],
+    load: () => Promise.resolve(xml()),
+  }),
+];
 
 // Theme
 import { oneDark } from '@codemirror/theme-one-dark';
@@ -335,11 +384,15 @@ function getLanguageSupport(name) {
   switch (String(name || '').toLowerCase()) {
     case 'python': return python();
     case 'javascript': return javascript();
+    case 'typescript': return javascript({ typescript: true });
     case 'html': return html();
     case 'css': return css();
     case 'sql': return sql();
     case 'json': return json();
-    case 'markdown': return markdown();
+    // 🎨 Markdown with nested code block highlighting
+    case 'markdown':
+    case 'md':
+      return markdown({ codeLanguages });
     case 'xml': return xml();
     default: return [];
   }

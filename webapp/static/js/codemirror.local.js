@@ -31378,7 +31378,7 @@
   ];
   var htmlNoMatch = /* @__PURE__ */ html({ matchClosingTags: false });
   function markdown(config2 = {}) {
-    let { codeLanguages, defaultCodeLanguage, addKeymap = true, base: { parser: parser9 } = commonmarkLanguage, completeHTMLTags = true, pasteURLAsLink: pasteURL = true, htmlTagLanguage = htmlNoMatch } = config2;
+    let { codeLanguages: codeLanguages2, defaultCodeLanguage, addKeymap = true, base: { parser: parser9 } = commonmarkLanguage, completeHTMLTags = true, pasteURLAsLink: pasteURL = true, htmlTagLanguage = htmlNoMatch } = config2;
     if (!(parser9 instanceof MarkdownParser))
       throw new RangeError("Base parser provided to `markdown` should be a Markdown parser");
     let extensions = config2.extensions ? [config2.extensions] : [];
@@ -31391,7 +31391,7 @@
     } else if (defaultCodeLanguage) {
       defaultCode = defaultCodeLanguage;
     }
-    let codeParser = codeLanguages || defaultCode ? getCodeParser(codeLanguages, defaultCode) : void 0;
+    let codeParser = codeLanguages2 || defaultCode ? getCodeParser(codeLanguages2, defaultCode) : void 0;
     extensions.push(parseCode({ codeParser, htmlParser: htmlTagLanguage.language.parser }));
     if (addKeymap)
       support.push(Prec.high(keymap.of(markdownKeymap)));
@@ -31999,6 +31999,52 @@
   var oneDark = [oneDarkTheme, /* @__PURE__ */ syntaxHighlighting(oneDarkHighlightStyle)];
 
   // codemirror.bundle.entry.mjs
+  var codeLanguages = [
+    LanguageDescription.of({
+      name: "python",
+      alias: ["py", "python3"],
+      extensions: ["py", "pyw"],
+      load: () => Promise.resolve(python())
+    }),
+    LanguageDescription.of({
+      name: "javascript",
+      alias: ["js", "node"],
+      extensions: ["js", "mjs", "cjs"],
+      load: () => Promise.resolve(javascript())
+    }),
+    LanguageDescription.of({
+      name: "typescript",
+      alias: ["ts"],
+      extensions: ["ts", "tsx"],
+      load: () => Promise.resolve(javascript({ typescript: true }))
+    }),
+    LanguageDescription.of({
+      name: "html",
+      alias: ["htm"],
+      extensions: ["html", "htm"],
+      load: () => Promise.resolve(html())
+    }),
+    LanguageDescription.of({
+      name: "css",
+      extensions: ["css"],
+      load: () => Promise.resolve(css())
+    }),
+    LanguageDescription.of({
+      name: "json",
+      extensions: ["json"],
+      load: () => Promise.resolve(json())
+    }),
+    LanguageDescription.of({
+      name: "sql",
+      extensions: ["sql"],
+      load: () => Promise.resolve(sql())
+    }),
+    LanguageDescription.of({
+      name: "xml",
+      extensions: ["xml", "xsl", "xsd"],
+      load: () => Promise.resolve(xml())
+    })
+  ];
   var TAG_NAME_MAP = {
     // Comments
     comment: tags.comment,
@@ -32158,9 +32204,7 @@
   }
   function getSyntaxColorsFromPage() {
     if (typeof document === "undefined") return null;
-    // Shared theme has priority over custom theme
-    const el = document.getElementById("shared-syntax-colors-data") 
-            || document.getElementById("syntax-colors-data");
+    const el = document.getElementById("shared-syntax-colors-data") || document.getElementById("syntax-colors-data");
     if (!el) return null;
     try {
       return JSON.parse(el.textContent || "{}");
@@ -32245,6 +32289,8 @@
         return python();
       case "javascript":
         return javascript();
+      case "typescript":
+        return javascript({ typescript: true });
       case "html":
         return html();
       case "css":
@@ -32253,8 +32299,10 @@
         return sql();
       case "json":
         return json();
+      // 🎨 Markdown with nested code block highlighting
       case "markdown":
-        return markdown();
+      case "md":
+        return markdown({ codeLanguages });
       case "xml":
         return xml();
       default:

@@ -1201,8 +1201,29 @@
           case 'json': {
             const m = await import(gen('@codemirror/lang-json')); return m.json();
           }
-          case 'markdown': {
-            const m = await import(gen('@codemirror/lang-markdown')); return m.markdown();
+          case 'markdown':
+          case 'md': {
+            // 🎨 Markdown with nested code block highlighting
+            // Load common languages for fenced code blocks
+            const [mdModule, langModule, pyModule, jsModule, htmlModule, cssModule, jsonModule] = await Promise.all([
+              import(gen('@codemirror/lang-markdown')),
+              import(gen('@codemirror/language')),
+              import(gen('@codemirror/lang-python')),
+              import(gen('@codemirror/lang-javascript')),
+              import(gen('@codemirror/lang-html')),
+              import(gen('@codemirror/lang-css')),
+              import(gen('@codemirror/lang-json')),
+            ]);
+            const { LanguageDescription } = langModule;
+            const codeLanguages = [
+              LanguageDescription.of({ name: 'python', alias: ['py'], extensions: ['py'], load: () => Promise.resolve(pyModule.python()) }),
+              LanguageDescription.of({ name: 'javascript', alias: ['js'], extensions: ['js'], load: () => Promise.resolve(jsModule.javascript()) }),
+              LanguageDescription.of({ name: 'typescript', alias: ['ts'], extensions: ['ts'], load: () => Promise.resolve(jsModule.javascript({ typescript: true })) }),
+              LanguageDescription.of({ name: 'html', extensions: ['html'], load: () => Promise.resolve(htmlModule.html()) }),
+              LanguageDescription.of({ name: 'css', extensions: ['css'], load: () => Promise.resolve(cssModule.css()) }),
+              LanguageDescription.of({ name: 'json', extensions: ['json'], load: () => Promise.resolve(jsonModule.json()) }),
+            ];
+            return mdModule.markdown({ codeLanguages });
           }
           case 'xml': {
             const m = await import(gen('@codemirror/lang-xml')); return m.xml();
