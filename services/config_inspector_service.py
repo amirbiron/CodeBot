@@ -479,6 +479,34 @@ class ConfigService:
             description="כתובת WebApp (אם שונה מ-public)",
             category="webserver",
         ),
+
+        # --- Repo Sync Engine (Git Mirror) ---
+        "REPO_NAME": ConfigDefinition(
+            key="REPO_NAME",
+            default="CodeBot",
+            description="שם ריפו לוגי לשימוש ב-Repo Sync (מפתח ל-mirror בדיסק ול-metadata ב-DB).",
+            category="repo_sync",
+        ),
+        "REPO_MIRROR_PATH": ConfigDefinition(
+            key="REPO_MIRROR_PATH",
+            default="/var/data/repos",
+            description="נתיב בסיסי בדיסק לשמירת Bare Mirror של הריפו (Repo Sync Engine).",
+            category="repo_sync",
+        ),
+        "GITHUB_WEBHOOK_SECRET": ConfigDefinition(
+            key="GITHUB_WEBHOOK_SECRET",
+            default="",
+            description="סוד לאימות GitHub Webhook (HMAC SHA256) עבור POST /api/webhooks/github (Repo Sync).",
+            category="repo_sync",
+            sensitive=True,
+        ),
+        "GITHUB_TOKEN": ConfigDefinition(
+            key="GITHUB_TOKEN",
+            default="",
+            description="טוקן GitHub לשימוש בפעולות API וגם לאימות clone/fetch של Repo Sync בריפו פרטי (אם רלוונטי).",
+            category="repo_sync",
+            sensitive=True,
+        ),
         "BOT_JOBS_API_BASE_URL": ConfigDefinition(
             key="BOT_JOBS_API_BASE_URL",
             default="",
@@ -1327,6 +1355,12 @@ class ConfigService:
             key="JOBS_STUCK_MONITOR_INTERVAL_SECS",
             default="60",
             description="תדירות (שניות) של מוניטור Jobs תקועות (job_stuck).",
+            category="jobs_monitor",
+        ),
+        "JOB_TRIGGERS_POLL_INTERVAL_SECS": ConfigDefinition(
+            key="JOB_TRIGGERS_POLL_INTERVAL_SECS",
+            default="60",
+            description="תדירות polling (שניות) של processor בבוט שמטפל בבקשות trigger שנוצרו מה-WebApp (job_trigger_requests). מינימום 60.",
             category="jobs_monitor",
         ),
         "PUSH_WORKER_PORT": ConfigDefinition(

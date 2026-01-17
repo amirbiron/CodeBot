@@ -161,11 +161,29 @@
      - ``300``
      - Bot
    * - ``GITHUB_TOKEN``
-     - טוקן GitHub לשימוש בפעולות API. למינימום הרשאות ראו טבלת Scopes בהמשך.
+     - טוקן GitHub לשימוש בפעולות API וגם לאימות clone/fetch של Repo Sync בריפו פרטי (אם רלוונטי). למינימום הרשאות ראו טבלת Scopes בהמשך.
      - לא
      - -
      - ``ghp_xxx...``
-     - Bot
+     - Bot/WebApp
+   * - ``GITHUB_WEBHOOK_SECRET``
+     - סוד לאימות GitHub Webhook (HMAC SHA256) עבור ``POST /api/webhooks/github``. אם לא מוגדר, ה-webhook ייחסם (401) ולא יתבצע Sync אוטומטי.
+     - כן (Repo Sync)
+     - "" (ריק)
+     - ``my_webhook_secret``
+     - WebApp
+   * - ``REPO_MIRROR_PATH``
+     - נתיב בסיסי בדיסק לשמירת Bare Mirror של הריפו (Repo Sync Engine)
+     - לא
+     - ``/var/data/repos``
+     - ``/var/data/repos``
+     - WebApp
+   * - ``REPO_NAME``
+     - שם ריפו לוגי לשימוש ב-Repo Sync (מפתח ל-mirror בדיסק ול-metadata ב-DB)
+     - לא
+     - ``CodeBot``
+     - ``CodeBot``
+     - WebApp
    * - ``WEBAPP_URL``
      - כתובת ה-WebApp
      - לא
@@ -600,6 +618,12 @@
      - Bot
    * - ``JOBS_STUCK_MONITOR_INTERVAL_SECS``
      - תדירות הריצה (שניות) של מוניטור Jobs "תקועות" שמפיק ``job_stuck``.
+     - לא
+     - ``60``
+     - ``120``
+     - Bot
+   * - ``JOB_TRIGGERS_POLL_INTERVAL_SECS``
+     - תדירות polling (שניות) של processor בבוט שמטפל בבקשות trigger שנוצרו מה-WebApp (``job_trigger_requests``). מינימום 60.
      - לא
      - ``60``
      - ``120``
