@@ -305,6 +305,13 @@ async function selectFile(path, element) {
     wrapper.style.flexDirection = 'column';
     header.style.display = 'flex';
     footer.style.display = 'flex';
+    
+    // Force the container to recalculate layout
+    const container = document.getElementById('code-viewer-container');
+    if (container) {
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+    }
 
     try {
         // Fetch file content
@@ -390,11 +397,29 @@ async function initCodeViewer(content, language) {
 
         state.editor.setValue(content);
         
-        // Refresh after a short delay to fix height issues
+        // Refresh and fix height after DOM update
         setTimeout(() => {
             state.editor.refresh();
-            state.editor.setSize(null, '100%');
-        }, 100);
+            
+            // Calculate available height
+            const wrapper = document.getElementById('code-editor-wrapper');
+            const container = document.getElementById('code-viewer-container');
+            const header = document.getElementById('code-header');
+            const footer = document.getElementById('code-footer');
+            
+            if (wrapper && container) {
+                const containerHeight = container.offsetHeight;
+                const headerHeight = header ? header.offsetHeight : 0;
+                const footerHeight = footer ? footer.offsetHeight : 0;
+                const availableHeight = containerHeight - headerHeight - footerHeight;
+                
+                if (availableHeight > 100) {
+                    state.editor.setSize(null, availableHeight + 'px');
+                }
+            }
+            
+            state.editor.refresh();
+        }, 150);
         return;
     }
 
@@ -498,11 +523,43 @@ function updateBreadcrumbs(path) {
         return `<li class="breadcrumb-item"><a href="#" onclick="navigateToFolder('${safeJsPartPath}')">${safePart}</a></li>`;
     }).join('');
 
-    // Update copy button
+    // Update copy path button
     document.getElementById('copy-path').onclick = () => {
         navigator.clipboard.writeText(path);
         showToast('Path copied!');
     };
+    
+    // Update copy content button
+    const copyContentBtn = document.getElementById('copy-content');
+    if (copyContentBtn) {
+        copyContentBtn.onclick = () => {
+            let content = null;
+            
+            // Try CodeMirror 5 first
+            if (state.editor && typeof state.editor.getValue === 'function') {
+                content = state.editor.getValue();
+            }
+            // Fallback to CodeMirror 6
+            else if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
+                content = state.editorView6.state.doc.toString();
+            }
+            
+            if (content !== null) {
+                navigator.clipboard.writeText(content);
+                showToast('Content copied!');
+            } else {
+                showToast('No content to copy');
+            }
+        };
+    }
+    
+    // Update GitHub link (encode path for special characters)
+    const githubLink = document.getElementById('github-link');
+    if (githubLink) {
+        // Encode each path segment separately to preserve slashes
+        const encodedPath = path.split('/').map(segment => encodeURIComponent(segment)).join('/');
+        githubLink.href = `https://github.com/amirbiron/CodeBot/blob/main/${encodedPath}`;
+    }
 }
 
 function updateFileInfo(data) {
@@ -653,11 +710,36 @@ function focusSearch() {
 
 function searchInFile() {
     // Trigger CodeMirror's built-in search
-    if (state.editor && typeof state.editor.execCommand === 'function') {
+    // Try CodeMirror 5 first
+    if (state.editor) {
         state.editor.focus();
-        state.editor.execCommand('findPersistent');
+        if (typeof state.editor.execCommand === 'function') {
+            state.editor.execCommand('find');
+        } else {
+            // Fallback: trigger Ctrl+F event
+            const event = new KeyboardEvent('keydown', {
+                key: 'f',
+                code: 'KeyF',
+                ctrlKey: true,
+                bubbles: true
+            });
+            state.editor.getInputField().dispatchEvent(event);
+        }
+    }
+    // Fallback to CodeMirror 6
+    else if (state.editorView6) {
+        // CM6 doesn't have built-in search dialog like CM5
+        // Show browser's native find (Ctrl+F)
+        showToast('Use Ctrl+F to search in CodeMirror 6');
+        state.editorView6.focus();
+    }
+    else {
+        showToast('Open a file first');
     }
 }
+
+// Make searchInFile available globally
+window.searchInFile = searchInFile;
 
 // ========================================
 // Keyboard Shortcuts

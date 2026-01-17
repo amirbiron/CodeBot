@@ -455,6 +455,12 @@
     min-height: 0;
 }
 
+/* Ensure repo-content fills available space */
+.repo-main-content {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
 /* Code Header - Breadcrumbs & Actions */
 .code-header {
     display: flex;
