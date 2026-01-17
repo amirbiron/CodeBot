@@ -398,9 +398,13 @@ async function initCodeViewer(content, language) {
         
         // Refresh editor after DOM update
         setTimeout(() => {
-            state.editor.refresh();
-            // Let CSS flexbox handle the height - just refresh
-            setTimeout(() => state.editor.refresh(), 50);
+            if (state.editor) {
+                state.editor.refresh();
+                // Additional refresh after layout settles
+                setTimeout(() => {
+                    if (state.editor) state.editor.refresh();
+                }, 50);
+            }
         }, 100);
         return;
     }
