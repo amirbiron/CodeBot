@@ -301,10 +301,16 @@ async function selectFile(path, element) {
     const footer = document.getElementById('code-footer');
 
     welcome.style.display = 'none';
-    wrapper.style.display = 'flex';
-    wrapper.style.flexDirection = 'column';
+    wrapper.style.display = 'block';
     header.style.display = 'flex';
     footer.style.display = 'flex';
+    
+    // Force the container to recalculate layout
+    const container = document.getElementById('code-viewer-container');
+    if (container) {
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+    }
 
     try {
         // Fetch file content
@@ -390,11 +396,29 @@ async function initCodeViewer(content, language) {
 
         state.editor.setValue(content);
         
-        // Refresh after a short delay to fix height issues
+        // Refresh and fix height after DOM update
         setTimeout(() => {
             state.editor.refresh();
-            state.editor.setSize(null, '100%');
-        }, 100);
+            
+            // Calculate available height
+            const wrapper = document.getElementById('code-editor-wrapper');
+            const container = document.getElementById('code-viewer-container');
+            const header = document.getElementById('code-header');
+            const footer = document.getElementById('code-footer');
+            
+            if (wrapper && container) {
+                const containerHeight = container.offsetHeight;
+                const headerHeight = header ? header.offsetHeight : 0;
+                const footerHeight = footer ? footer.offsetHeight : 0;
+                const availableHeight = containerHeight - headerHeight - footerHeight;
+                
+                if (availableHeight > 100) {
+                    state.editor.setSize(null, availableHeight + 'px');
+                }
+            }
+            
+            state.editor.refresh();
+        }, 150);
         return;
     }
 
@@ -498,11 +522,29 @@ function updateBreadcrumbs(path) {
         return `<li class="breadcrumb-item"><a href="#" onclick="navigateToFolder('${safeJsPartPath}')">${safePart}</a></li>`;
     }).join('');
 
-    // Update copy button
+    // Update copy path button
     document.getElementById('copy-path').onclick = () => {
         navigator.clipboard.writeText(path);
         showToast('Path copied!');
     };
+    
+    // Update copy content button
+    const copyContentBtn = document.getElementById('copy-content');
+    if (copyContentBtn) {
+        copyContentBtn.onclick = () => {
+            if (state.editor) {
+                const content = state.editor.getValue();
+                navigator.clipboard.writeText(content);
+                showToast('Content copied!');
+            }
+        };
+    }
+    
+    // Update GitHub link
+    const githubLink = document.getElementById('github-link');
+    if (githubLink) {
+        githubLink.href = `https://github.com/amirbiron/CodeBot/blob/main/${path}`;
+    }
 }
 
 function updateFileInfo(data) {
@@ -653,11 +695,28 @@ function focusSearch() {
 
 function searchInFile() {
     // Trigger CodeMirror's built-in search
-    if (state.editor && typeof state.editor.execCommand === 'function') {
+    if (state.editor) {
         state.editor.focus();
-        state.editor.execCommand('findPersistent');
+        // Try execCommand first (standard way)
+        if (typeof state.editor.execCommand === 'function') {
+            state.editor.execCommand('find');
+        } else {
+            // Fallback: trigger Ctrl+F event
+            const event = new KeyboardEvent('keydown', {
+                key: 'f',
+                code: 'KeyF',
+                ctrlKey: true,
+                bubbles: true
+            });
+            state.editor.getInputField().dispatchEvent(event);
+        }
+    } else {
+        showToast('Open a file first');
     }
 }
+
+// Make searchInFile available globally
+window.searchInFile = searchInFile;
 
 // ========================================
 // Keyboard Shortcuts
