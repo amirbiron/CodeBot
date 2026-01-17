@@ -159,10 +159,78 @@ class JsonFormatterService:
         fixes: list[str] = []
         fixed = json_string
 
+        # אם ה-JSON כבר תקין — לא נוגעים בו בכלל (מונע "תיקון" שמקלקל תוכן)
+        try:
+            def _reject_constants(_val: str) -> None:
+                raise ValueError("invalid_json_constant")
+
+            # חשוב: Python json מאפשר NaN/Infinity כברירת מחדל.
+            # כאן אנחנו מתייחסים אליהם כ"לא תקין" כדי ש-Magic Fix לא יחזיר -Infinity/-NaN כערכים.
+            json.loads(fixed, parse_constant=_reject_constants)
+            return fixed, fixes
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+        def _partition_by_quoted_strings(text: str) -> tuple[list[tuple[bool, str]], bool]:
+            """
+            מחלק את הטקסט למקטעים: (is_quoted_string, segment).
+            מזהה מחרוזות שמתחילות ב- ' או " ומכבד escape עם backslash.
+            """
+            parts: list[tuple[bool, str]] = []
+            start = 0
+            i = 0
+            in_quote: Optional[str] = None
+            while i < len(text):
+                ch = text[i]
+                if in_quote is not None:
+                    if ch == "\\":
+                        i += 2
+                        continue
+                    if ch == in_quote:
+                        i += 1
+                        parts.append((True, text[start:i]))
+                        start = i
+                        in_quote = None
+                        continue
+                    i += 1
+                    continue
+
+                # not in quote
+                if ch in ('"', "'"):
+                    if start < i:
+                        parts.append((False, text[start:i]))
+                    in_quote = ch
+                    start = i
+                    i += 1
+                    continue
+                i += 1
+
+            if start < len(text):
+                parts.append(((in_quote is not None), text[start:]))
+            return parts, (in_quote is not None)
+
+        def _sub_outside_strings(text: str, pattern: re.Pattern[str], repl: str) -> tuple[str, bool]:
+            parts, unbalanced = _partition_by_quoted_strings(text)
+            if unbalanced:
+                # אם יש מחרוזת לא סגורה, עדיף לא להריץ תיקונים Regex שעלולים לשבור תוכן.
+                return text, False
+            changed = False
+            out_parts: list[str] = []
+            for is_str, seg in parts:
+                if is_str:
+                    out_parts.append(seg)
+                    continue
+                new_seg, n = pattern.subn(repl, seg)
+                if n:
+                    changed = True
+                out_parts.append(new_seg)
+            return "".join(out_parts), changed
+
         # תיקון פסיקים מיותרים בסוף arrays/objects
         trailing_comma = re.compile(r",(\s*[\]\}])")
-        if trailing_comma.search(fixed):
-            fixed = trailing_comma.sub(r"\1", fixed)
+        fixed2, changed = _sub_outside_strings(fixed, trailing_comma, r"\1")
+        if changed:
+            fixed = fixed2
             fixes.append("הוסרו פסיקים מיותרים")
 
         def _escape_for_double_quotes(text: str) -> str:
@@ -234,8 +302,20 @@ class JsonFormatterService:
                 fixes.append("הומר Infinity ל-null")
             return f"{m.group('prefix')}null"
 
-        if token_pat.search(fixed):
-            fixed = token_pat.sub(_token_sub, fixed)
+        parts, unbalanced = _partition_by_quoted_strings(fixed)
+        if not unbalanced:
+            changed = False
+            out_parts2: list[str] = []
+            for is_str, seg in parts:
+                if is_str:
+                    out_parts2.append(seg)
+                    continue
+                new_seg, n = token_pat.subn(_token_sub, seg)
+                if n:
+                    changed = True
+                out_parts2.append(new_seg)
+            if changed:
+                fixed = "".join(out_parts2)
 
         return fixed, fixes
 

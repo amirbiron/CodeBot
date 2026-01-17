@@ -65,6 +65,20 @@ class TestFormatEndpoint:
         data = resp.get_json()
         assert data["success"] is False
 
+    def test_format_non_string_content_returns_400(self, client) -> None:
+        resp = client.post("/api/json/format", json={"content": 123})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+
+    def test_format_null_indent_uses_default_indent(self, client) -> None:
+        resp = client.post("/api/json/format", json={"content": '{"a":1}', "indent": None})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        # ברירת מחדל: output מעוצב עם שורות חדשות
+        assert "\n" in data["result"]
+
 
 class TestValidateEndpoint:
     def test_validate_valid(self, client) -> None:

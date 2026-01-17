@@ -133,3 +133,15 @@ class TestFixCommonErrors:
         assert json.loads(fixed)
         assert "undefined" in " ".join(fixes).lower()
 
+    def test_fix_does_not_modify_valid_json_with_comma_brace_in_string(self, service: JsonFormatterService) -> None:
+        json_str = '{"msg": "x,}"}'
+        fixed, fixes = service.fix_common_errors(json_str)
+        assert fixed == json_str
+        assert fixes == []
+
+    def test_fix_does_not_modify_valid_json_with_undefined_like_text_in_string(self, service: JsonFormatterService) -> None:
+        json_str = '{"desc": ": undefined}"}'
+        fixed, fixes = service.fix_common_errors(json_str)
+        assert fixed == json_str
+        assert fixes == []
+

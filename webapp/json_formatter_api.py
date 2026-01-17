@@ -13,6 +13,8 @@ from flask import Blueprint, jsonify, request, session
 
 from services.json_formatter_service import get_json_formatter_service
 
+logger = logging.getLogger(__name__)
+
 json_formatter_bp = Blueprint("json_formatter", __name__, url_prefix="/api/json")
 
 
@@ -47,10 +49,15 @@ def format_json():
     if not data or "content" not in data:
         return jsonify({"success": False, "error": "Missing content"}), 400
 
-    service = get_json_formatter_service()
-
     try:
+        content = data.get("content")
+        if not isinstance(content, str):
+            return jsonify({"success": False, "error": "Invalid content: must be a JSON string"}), 400
+
         indent = data.get("indent", 2)
+        # אם נשלח null במפורש — נתייחס כמו ברירת מחדל (ולא ניצור minified)
+        if indent is None:
+            indent = 2
         if isinstance(indent, str) and indent.strip().isdigit():
             indent = int(indent.strip())
         if indent is not None and not isinstance(indent, (int, str)):
@@ -59,12 +66,13 @@ def format_json():
             # שמירה על גבולות סבירים כדי למנוע שימוש חריג
             indent = max(0, min(8, indent))
 
+        service = get_json_formatter_service()
         result = service.format_json(
-            data["content"],
+            content,
             indent=indent,
             sort_keys=data.get("sort_keys", False),
         )
-        stats = service.get_json_stats(data["content"])
+        stats = service.get_json_stats(content)
         return jsonify(
             {
                 "success": True,
@@ -88,8 +96,9 @@ def format_json():
             ),
             400,
         )
-    except TypeError as e:
-        logging.exception("TypeError while handling /api/json/format request")
+    except TypeError:
+        # שגיאת קלט/טיפוסים — לא "exception" כדי לא להציף לוגים
+        logger.warning("Invalid request data for /api/json/format (TypeError)")
         return jsonify({"success": False, "error": "Invalid request data"}), 400
 
 
@@ -114,13 +123,12 @@ def minify_json():
     if not data or "content" not in data:
         return jsonify({"success": False, "error": "Missing content"}), 400
 
-    service = get_json_formatter_service()
-
     try:
         content = data.get("content")
         if not isinstance(content, str):
             return jsonify({"success": False, "error": "Invalid content: must be a JSON string"}), 400
 
+        service = get_json_formatter_service()
         result = service.minify_json(content)
         original_size = len(content.encode("utf-8"))
         minified_size = len(result.encode("utf-8"))
@@ -147,8 +155,9 @@ def minify_json():
             ),
             400,
         )
-    except TypeError as e:
-        return jsonify({"success": False, "error": f"Invalid request: {str(e)}"}), 400
+    except TypeError:
+        logger.warning("Invalid request data for /api/json/minify (TypeError)")
+        return jsonify({"success": False, "error": "Invalid request data"}), 400
 
 
 @json_formatter_bp.route("/validate", methods=["POST"])
@@ -179,16 +188,16 @@ def validate_json():
     if not data or "content" not in data:
         return jsonify({"success": False, "error": "Missing content"}), 400
 
-    service = get_json_formatter_service()
     content = data.get("content")
     if not isinstance(content, str):
         return jsonify({"success": False, "error": "Invalid content: must be a JSON string"}), 400
 
     try:
+        service = get_json_formatter_service()
         result = service.validate_json(content)
     except TypeError:
-        logging.exception("Type error while validating JSON content")
-        return jsonify({"success": False, "error": "Invalid request: content has an incompatible type"}), 400
+        logger.warning("Invalid request data for /api/json/validate (TypeError)")
+        return jsonify({"success": False, "error": "Invalid request data"}), 400
 
     response = {"success": True, "is_valid": result.is_valid}
 
@@ -196,8 +205,8 @@ def validate_json():
         try:
             stats = service.get_json_stats(content)
         except TypeError:
-            logging.exception("Type error while computing JSON statistics")
-            return jsonify({"success": False, "error": "Invalid request: content cannot be analyzed"}), 400
+            logger.warning("Invalid request data for /api/json/validate stats (TypeError)")
+            return jsonify({"success": False, "error": "Invalid request data"}), 400
         response["stats"] = {
             "total_keys": stats.total_keys,
             "max_depth": stats.max_depth,
@@ -235,13 +244,12 @@ def fix_json():
     if not data or "content" not in data:
         return jsonify({"success": False, "error": "Missing content"}), 400
 
-    service = get_json_formatter_service()
-
     try:
         content = data.get("content")
         if not isinstance(content, str):
             return jsonify({"success": False, "error": "Invalid content: must be a JSON string"}), 400
 
+        service = get_json_formatter_service()
         fixed, fixes = service.fix_common_errors(content)
         # נסה לאמת את התוצאה
         json.loads(fixed)
@@ -258,6 +266,6 @@ def fix_json():
             400,
         )
     except TypeError:
-        logging.exception("TypeError while processing /api/json/fix request")
-        return jsonify({"success": False, "error": "Invalid request"}), 400
+        logger.warning("Invalid request data for /api/json/fix (TypeError)")
+        return jsonify({"success": False, "error": "Invalid request data"}), 400
 
