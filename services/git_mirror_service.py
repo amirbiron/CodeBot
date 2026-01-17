@@ -892,17 +892,23 @@ class GitMirrorService:
             return None
 
         # 1. קבלת פרטי הקומיט האחרון
-        # פורמט: SHA|Author|Date|Subject
-        result = self._run_git_command(["git", "log", "-1", "--format=%H|%an|%aI|%s", ref], cwd=repo_path, timeout=10)
+        # חשוב: לא להשתמש במפריד רגיל כמו "|" (יכול להופיע בשם מחבר/Subject).
+        # נשתמש במפריד NUL (\x00) שלא יכול להופיע בשדות טקסט רגילים.
+        result = self._run_git_command(
+            ["git", "log", "-1", "--format=%H%x00%an%x00%aI%x00%s", ref],
+            cwd=repo_path,
+            timeout=10,
+        )
 
         if not result.success or not result.stdout.strip():
             return None
 
-        parts = result.stdout.strip().split("|", 3)
+        raw = (result.stdout or "").rstrip("\n")
+        parts = raw.split("\x00")
         if len(parts) < 4:
             return None
 
-        sha, author, date_str, message = parts
+        sha, author, date_str, message = parts[0], parts[1], parts[2], parts[3]
 
         # 2. קבלת רשימת קבצים שהשתנו בקומיט
         # הערה: עבור הקומיט הראשון (ללא parent), diff-tree עם ^! לא יעבוד.
@@ -923,8 +929,8 @@ class GitMirrorService:
 
                 old_path: Optional[str] = None
                 file_path: str
-                # Renames: git outputs "R100\told_path\tnew_path" (3+ parts)
-                if status_code.startswith("R") and len(parts) >= 3:
+                # Renames/Copies: git outputs "R100\told_path\tnew_path" / "C100\told_path\tnew_path" (3+ parts)
+                if (status_code.startswith("R") or status_code.startswith("C")) and len(parts) >= 3:
                     old_path = (parts[1] or "").strip()
                     file_path = (parts[2] or "").strip()
                 else:
