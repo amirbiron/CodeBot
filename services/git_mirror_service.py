@@ -915,12 +915,23 @@ class GitMirrorService:
                 if not line.strip():
                     continue
 
-                file_parts = line.split("\t", 1)
-                if len(file_parts) < 2:
+                parts = line.split("\t")
+                if len(parts) < 2:
                     continue
 
-                status_code = file_parts[0].strip()
-                file_path = file_parts[1].strip()
+                status_code = (parts[0] or "").strip()
+
+                old_path: Optional[str] = None
+                file_path: str
+                # Renames: git outputs "R100\told_path\tnew_path" (3+ parts)
+                if status_code.startswith("R") and len(parts) >= 3:
+                    old_path = (parts[1] or "").strip()
+                    file_path = (parts[2] or "").strip()
+                else:
+                    file_path = (parts[1] or "").strip()
+
+                if not file_path:
+                    continue
 
                 # מיפוי סטטוס לאייקון ותיאור
                 status_map = {
@@ -958,6 +969,7 @@ class GitMirrorService:
                     {
                         "path": file_path,
                         "name": PathLib(file_path).name,
+                        "old_path": old_path,
                         "status": status_info["status"],
                         "status_icon": status_info["icon"],
                         "status_label": status_info["label"],

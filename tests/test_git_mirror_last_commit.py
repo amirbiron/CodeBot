@@ -63,6 +63,34 @@ class TestGetLastCommitInfo:
         assert files_by_path["src/existing.py"]["status"] == "modified"
         assert files_by_path["old_file.py"]["status"] == "deleted"
 
+    def test_parses_rename_status_correctly(self, mock_service, tmp_path):
+        """Renamed files should use the new path (not old\\tnew)."""
+        repo_path = tmp_path / "test-repo.git"
+        repo_path.mkdir()
+
+        log_output = "abc123def456|John Doe|2025-01-17T10:30:00+00:00|refactor: rename file"
+        show_output = "R100\tsrc/old_name.py\tsrc/new_name.py"
+
+        def mock_run_git(cmd, cwd=None, timeout=60):
+            result = MagicMock()
+            result.success = True
+            result.return_code = 0
+            result.stdout = log_output if "log" in cmd else show_output
+            result.stderr = ""
+            return result
+
+        mock_service._run_git_command = mock_run_git
+
+        result = mock_service.get_last_commit_info("test-repo")
+        assert result is not None
+        assert len(result["files"]) == 1
+
+        file0 = result["files"][0]
+        assert file0["status"] == "renamed"
+        assert file0["old_path"] == "src/old_name.py"
+        assert file0["path"] == "src/new_name.py"
+        assert file0["name"] == "new_name.py"
+
     def test_truncates_files_over_limit(self, mock_service, tmp_path):
         """Should truncate file list and set truncated flag."""
         repo_path = tmp_path / "test-repo.git"
