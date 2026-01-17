@@ -517,11 +517,21 @@ function formatBytes(bytes) {
 function initSearch() {
     const searchInput = document.getElementById('global-search');
     const dropdown = document.getElementById('search-results-dropdown');
+    const shortcuts = document.querySelector('.search-shortcuts');
+    
+    if (!searchInput || !dropdown) return;
+    
     const resultsList = dropdown.querySelector('.search-results-list');
 
-    if (!searchInput) return;
+    // הסתרת shortcuts כשיש טקסט בחיפוש (JS fallback)
+    function updateShortcutsVisibility() {
+        if (shortcuts) {
+            shortcuts.style.opacity = searchInput.value.length > 0 ? '0' : '1';
+        }
+    }
 
     searchInput.addEventListener('input', (e) => {
+        updateShortcutsVisibility();
         clearTimeout(state.searchTimeout);
         const query = e.target.value.trim();
 
@@ -535,18 +545,42 @@ function initSearch() {
                 const response = await fetch(`${CONFIG.apiBase}/search?q=${encodeURIComponent(query)}&type=content`);
                 const data = await response.json();
                 
-                renderSearchResults(resultsList, data.results || [], query);
+                if (data.error) {
+                    resultsList.innerHTML = `
+                        <div class="search-result-item">
+                            <span class="text-muted">${escapeHtml(data.error)}</span>
+                        </div>
+                    `;
+                } else {
+                    renderSearchResults(resultsList, data.results || [], query);
+                }
                 dropdown.classList.remove('hidden');
             } catch (error) {
                 console.error('Search failed:', error);
+                resultsList.innerHTML = `
+                    <div class="search-result-item">
+                        <span class="text-muted">Search unavailable</span>
+                    </div>
+                `;
+                dropdown.classList.remove('hidden');
             }
         }, CONFIG.searchDebounceMs);
     });
 
     searchInput.addEventListener('focus', () => {
+        updateShortcutsVisibility();
         if (searchInput.value.length >= 2) {
             dropdown.classList.remove('hidden');
         }
+    });
+    
+    searchInput.addEventListener('blur', () => {
+        // מחזירים את ה-shortcuts כשמאבדים פוקוס (רק אם ריק)
+        setTimeout(() => {
+            if (searchInput.value.length === 0 && shortcuts) {
+                shortcuts.style.opacity = '1';
+            }
+        }, 100);
     });
 
     // Close dropdown when clicking outside

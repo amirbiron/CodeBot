@@ -73,7 +73,7 @@ class RepoSearchService:
         # שליפת ה-default_branch מה-DB (לא לנחש שזה main!)
         # זה נשמר במהלך initial_import
         ref = "refs/heads/main"  # ברירת מחדל בטוחה ל-mirror
-        if self.db:
+        if self.db is not None:
             meta = self.db.repo_metadata.find_one({"repo_name": repo_name})
             if meta and meta.get("default_branch"):
                 ref = f"refs/heads/{meta['default_branch']}"
@@ -160,7 +160,7 @@ class RepoSearchService:
     def _search_filename(self, repo_name: str, query: str, max_results: int) -> Dict[str, Any]:
         """חיפוש לפי שם קובץ"""
 
-        if not self.db:
+        if self.db is None:
             # Fallback ל-git ls-tree
             all_files = self.git_service.list_all_files(repo_name) or []
             query_lower = query.lower()
@@ -206,7 +206,7 @@ class RepoSearchService:
     ) -> Dict[str, Any]:
         """חיפוש פונקציות"""
 
-        if not self.db:
+        if self.db is None:
             return {"error": "Database required for function search", "results": []}
 
         try:
@@ -247,7 +247,7 @@ class RepoSearchService:
     def _search_classes(self, repo_name: str, query: str, language: Optional[str], max_results: int) -> Dict[str, Any]:
         """חיפוש מחלקות"""
 
-        if not self.db:
+        if self.db is None:
             return {"error": "Database required for class search", "results": []}
 
         try:
