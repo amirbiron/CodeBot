@@ -3,6 +3,20 @@
 ## Purpose
 Quick reference for running and testing this repo in cloud/CI or local dev.
 
+## AI quickstart (project rules)
+Do not:
+- Use sudo.
+- Run long-lived processes (dev servers, watch, etc).
+- Run interactive commands (git rebase -i, git add -i, nano).
+- Change git config.
+- Push to remote unless explicitly requested.
+
+Do:
+- Use approved file tools (Read/LS/Grep/Glob) instead of cat/ls/find/grep.
+- Use absolute paths.
+- Keep edits minimal and follow existing style.
+- Do all test/script IO only under /tmp.
+
 ## Requirements (common)
 - Python 3.11+ (3.12 recommended)
 - MongoDB (local or Atlas)
@@ -65,6 +79,17 @@ Safety rules for tests:
 - Use `tmp_path` for file IO.
 - Delete only under `/tmp` and only with a safe wrapper.
 
+## Git commits
+- Use Conventional Commits: feat | fix | docs | test | refactor | chore | perf
+- Prefer heredoc messages, for example:
+  - `git commit -m "$(cat <<'EOF'`
+  - `docs: short why-oriented message`
+  - ``
+  - `- Key change`
+  - ``
+  - `EOF`
+  - `)"`
+
 ## Optional quality checks
 - `pip install pre-commit`
 - `pre-commit run --all-files`
@@ -74,3 +99,12 @@ Safety rules for tests:
 - `webapp/README.md` (webapp setup)
 - `docs/testing.rst` (testing guide)
 - `docs/performance-tests.rst` (performance tests)
+
+## Rate limiting (quick ref)
+- Enable shadow mode first, then move to blocking.
+- Key env vars:
+  - `RATE_LIMIT_ENABLED=true`
+  - `RATE_LIMIT_SHADOW_MODE=true`
+  - `RATE_LIMIT_STRATEGY=moving-window` (or `fixed-window`)
+  - `ADMIN_USER_IDS=123,456`
+  - `REDIS_URL=rediss://...` (prod)
