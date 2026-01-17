@@ -8778,6 +8778,7 @@ def format_day_hhmm(value) -> str:
 # Routes
 
 @app.route('/', methods=['HEAD'])
+@_limiter_exempt()
 def index_head():
     """בדיקת דופק קלה ל-HEAD / בלי IO/Template.
 
@@ -8788,6 +8789,7 @@ def index_head():
 
 
 @app.route('/', methods=['GET'])
+@_limiter_exempt()
 def index():
     """דף הבית"""
     # Try resolve external uptime (non-blocking semantics: short timeout + cache inside helper)
