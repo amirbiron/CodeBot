@@ -59,7 +59,41 @@ document.addEventListener('DOMContentLoaded', () => {
     initResizer();
     initKeyboardShortcuts();
     loadRecentFiles();
+    applyInitialNavigationFromUrl();
 });
+
+function applyInitialNavigationFromUrl() {
+    try {
+        const url = new URL(window.location.href);
+        const fileFromQuery = url.searchParams.get('file');
+        const hashRaw = (window.location.hash || '').replace(/^#/, '');
+        const hashParams = new URLSearchParams(hashRaw);
+        const fileFromHash = hashParams.get('file');
+        const searchFromHash = hashParams.get('search');
+
+        const initialFile = (fileFromQuery || fileFromHash || '').trim();
+        if (initialFile) {
+            // Open file without relying on tree selection (works even if folder nodes are not loaded yet)
+            const normalized = initialFile.replace(/^\/+/, '');
+            selectFile(normalized);
+        }
+
+        // Support legacy redirect: /repo/search?q=... -> /repo/#search=...
+        const searchValue = (searchFromHash || '').trim();
+        if (searchValue) {
+            const searchInput = document.getElementById('global-search');
+            if (searchInput) {
+                searchInput.value = searchValue;
+                // Trigger the existing input listener to execute the search
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                searchInput.focus();
+            }
+        }
+    } catch (e) {
+        // Never break the page because of URL parsing
+        console.warn('Initial navigation parsing failed:', e);
+    }
+}
 
 // ========================================
 // Security helpers (XSS / quotes)
@@ -301,8 +335,7 @@ async function selectFile(path, element) {
     const footer = document.getElementById('code-footer');
 
     welcome.style.display = 'none';
-    wrapper.style.display = 'flex';
-    wrapper.style.flexDirection = 'column';
+    wrapper.style.display = 'block';
     header.style.display = 'flex';
     footer.style.display = 'flex';
     
@@ -397,7 +430,7 @@ async function initCodeViewer(content, language) {
 
         state.editor.setValue(content);
         
-        // Refresh and fix height after DOM update
+        // Refresh editor after DOM update
         setTimeout(() => {
             // Get the actual available height from viewport
             const wrapper = document.getElementById('code-editor-wrapper');
@@ -406,7 +439,7 @@ async function initCodeViewer(content, language) {
             const searchBar = document.getElementById('in-file-search');
             const repoSearchBar = document.querySelector('.repo-search-bar');
             
-            if (wrapper) {
+            if (wrapper && state.editor) {
                 // Calculate used height
                 const headerHeight = header && header.style.display !== 'none' ? header.offsetHeight : 0;
                 const footerHeight = footer && footer.style.display !== 'none' ? footer.offsetHeight : 0;
@@ -422,9 +455,9 @@ async function initCodeViewer(content, language) {
                     wrapper.style.height = availableHeight + 'px';
                     state.editor.setSize(null, availableHeight + 'px');
                 }
+                
+                state.editor.refresh();
             }
-            
-            state.editor.refresh();
         }, 100);
         return;
     }
@@ -730,6 +763,10 @@ function searchInFile() {
         searchBar.style.display = 'flex';
         searchInput.focus();
         searchInput.select();
+        // Refresh editor to adjust height after search bar appears
+        setTimeout(() => {
+            if (state.editor) state.editor.refresh();
+        }, 50);
     } else if (state.editor) {
         // Fallback to CM5 built-in search
         state.editor.focus();
@@ -749,6 +786,10 @@ function closeInFileSearch() {
     clearSearchHighlights();
     searchState = { matches: [], currentIndex: -1, query: '' };
     document.getElementById('in-file-search-count').textContent = '';
+    // Refresh editor to adjust height after search bar closes
+    setTimeout(() => {
+        if (state.editor) state.editor.refresh();
+    }, 50);
 }
 
 function performInFileSearch(query) {

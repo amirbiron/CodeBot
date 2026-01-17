@@ -872,6 +872,127 @@ class GitMirrorService:
             "file_types": dict(sorted(file_types.items(), key=lambda x: x[1], reverse=True)[:20]),  # Top 20
         }
 
+    def get_last_commit_info(self, repo_name: str, ref: str = "HEAD") -> Optional[Dict[str, Any]]:
+        """
+        קבלת מידע על הקומיט האחרון כולל רשימת קבצים שהשתנו.
+
+        **שימוש בדשבורד:** הצגת שינויים אחרונים לאדמין.
+
+        Args:
+            repo_name: שם הריפו
+            ref: branch/SHA (ברירת מחדל: HEAD)
+
+        Returns:
+            dict עם sha, message, author, date, files
+            או None אם נכשל
+        """
+        repo_path = self._get_repo_path(repo_name)
+
+        if not repo_path.exists():
+            return None
+
+        # 1. קבלת פרטי הקומיט האחרון
+        # פורמט: SHA|Author|Date|Subject
+        result = self._run_git_command(["git", "log", "-1", "--format=%H|%an|%aI|%s", ref], cwd=repo_path, timeout=10)
+
+        if not result.success or not result.stdout.strip():
+            return None
+
+        parts = result.stdout.strip().split("|", 3)
+        if len(parts) < 4:
+            return None
+
+        sha, author, date_str, message = parts
+
+        # 2. קבלת רשימת קבצים שהשתנו בקומיט
+        # הערה: עבור הקומיט הראשון (ללא parent), diff-tree עם ^! לא יעבוד.
+        # נשתמש ב-show --name-status שעובד גם לקומיט יתום.
+        files_result = self._run_git_command(["git", "show", "--name-status", "--format=", sha], cwd=repo_path, timeout=30)
+
+        files = []
+        if files_result.success:
+            for line in files_result.stdout.strip().split("\n"):
+                if not line.strip():
+                    continue
+
+                parts = line.split("\t")
+                if len(parts) < 2:
+                    continue
+
+                status_code = (parts[0] or "").strip()
+
+                old_path: Optional[str] = None
+                file_path: str
+                # Renames: git outputs "R100\told_path\tnew_path" (3+ parts)
+                if status_code.startswith("R") and len(parts) >= 3:
+                    old_path = (parts[1] or "").strip()
+                    file_path = (parts[2] or "").strip()
+                else:
+                    file_path = (parts[1] or "").strip()
+
+                if not file_path:
+                    continue
+
+                # מיפוי סטטוס לאייקון ותיאור
+                status_map = {
+                    "A": {"status": "added", "icon": "➕", "label": "נוסף"},
+                    "M": {"status": "modified", "icon": "✏️", "label": "עודכן"},
+                    "D": {"status": "deleted", "icon": "🗑️", "label": "נמחק"},
+                }
+
+                # R = Renamed (בדרך כלל R100, R095 וכו')
+                if status_code.startswith("R"):
+                    status_info = {"status": "renamed", "icon": "📝", "label": "שונה שם"}
+                else:
+                    status_info = status_map.get(status_code, {"status": "unknown", "icon": "❓", "label": "אחר"})
+
+                # קבלת סיומת לאייקון שפה
+                from pathlib import Path as PathLib
+
+                ext = PathLib(file_path).suffix.lower()
+                lang_icons = {
+                    ".py": "🐍",
+                    ".js": "📜",
+                    ".ts": "📘",
+                    ".html": "🌐",
+                    ".css": "🎨",
+                    ".json": "📋",
+                    ".md": "📝",
+                    ".yml": "⚙️",
+                    ".yaml": "⚙️",
+                    ".sh": "🔧",
+                    ".sql": "🗄️",
+                }
+                file_icon = lang_icons.get(ext, "📄")
+
+                files.append(
+                    {
+                        "path": file_path,
+                        "name": PathLib(file_path).name,
+                        "old_path": old_path,
+                        "status": status_info["status"],
+                        "status_icon": status_info["icon"],
+                        "status_label": status_info["label"],
+                        "file_icon": file_icon,
+                    }
+                )
+
+        # הגבלת מספר הקבצים להצגה (מקסימום 10)
+        max_files = 10
+        total_files = len(files)
+        truncated = total_files > max_files
+
+        return {
+            "sha": sha,
+            "sha_short": sha[:7],
+            "author": author,
+            "date": date_str,
+            "message": message,
+            "files": files[:max_files],
+            "total_files": total_files,
+            "truncated": truncated,
+        }
+
 
 # Singleton instance
 _mirror_service: Optional[GitMirrorService] = None

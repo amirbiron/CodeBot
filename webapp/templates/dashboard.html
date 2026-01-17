@@ -43,7 +43,7 @@
     </div>
 </div>
 
-<div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+<div class="dashboard-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem;">
     <div class="glass-card">
         <h2 class="section-title">
             <i class="fas fa-code"></i>
@@ -104,6 +104,75 @@
         </div>
         {% endif %}
     </div>
+
+    {% if user_is_admin and last_commit %}
+    {# === בלוק קומיט אחרון (אדמין בלבד) === #}
+    <div class="glass-card last-commit-card">
+        <h2 class="section-title">
+            <i class="fas fa-code-commit"></i>
+            קומיט אחרון
+        </h2>
+
+        <div class="commit-header">
+            <div class="commit-info">
+                <div class="commit-sha">
+                    <code>{{ last_commit.sha_short }}</code>
+                </div>
+                <div class="commit-message" title="{{ last_commit.message }}">
+                    {{ last_commit.message[:80] }}{% if last_commit.message|length > 80 %}...{% endif %}
+                </div>
+                <div class="commit-meta">
+                    <span class="commit-author">
+                        <i class="fas fa-user"></i> {{ last_commit.author }}
+                    </span>
+                    <span class="commit-date">
+                        <i class="fas fa-clock"></i> {{ last_commit.date[:10] }}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        {% if last_commit.files %}
+        <div class="changed-files-list">
+            <div class="files-header">
+                <span>קבצים שהשתנו</span>
+                <span class="files-count badge">{{ last_commit.total_files }}</span>
+            </div>
+            {% for file in last_commit.files %}
+            <a class="changed-file-item status-{{ file.status }}" href="/repo/?file={{ file.path|urlencode }}" title="{{ file.path }}">
+                <div class="file-info">
+                    <span class="file-icon">{{ file.file_icon }}</span>
+                    <span class="file-name" title="{{ file.path }}">{{ file.name }}</span>
+                </div>
+                <div class="file-status">
+                    <span class="status-icon" title="{{ file.status_label }}">{{ file.status_icon }}</span>
+                </div>
+            </a>
+            {% endfor %}
+
+            {% if last_commit.truncated %}
+            <div class="more-files">
+                <span>ועוד {{ last_commit.total_files - last_commit.files|length }} קבצים...</span>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="no-changes">אין קבצים שהשתנו</p>
+        {% endif %}
+
+        <div class="commit-actions">
+            <a href="/repo/" class="btn btn-secondary btn-icon">
+                <i class="fas fa-folder-tree"></i>
+                דפדפן קוד
+            </a>
+            {% if last_commit.sync_time %}
+            <small class="sync-time">
+                סונכרן: {{ last_commit.sync_time.strftime('%d/%m %H:%M') if last_commit.sync_time else 'לא ידוע' }}
+            </small>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <section class="activity-section" id="activity-timeline">
@@ -357,6 +426,168 @@
     .dashboard-grid {
         grid-template-columns: 1fr !important;
     }
+}
+
+/* === Last Commit Card (Admin Only) === */
+.last-commit-card {
+    border-right: 3px solid #10b981;
+}
+
+.commit-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.commit-sha code {
+    background: rgba(16, 185, 129, 0.2);
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: #10b981;
+}
+
+.commit-message {
+    font-weight: 600;
+    margin: 0.75rem 0 0.5rem;
+    line-height: 1.4;
+}
+
+.commit-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.85rem;
+    opacity: 0.75;
+}
+
+.commit-meta i {
+    margin-left: 0.25rem;
+}
+
+.changed-files-list {
+    margin-top: 1rem;
+}
+
+.files-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+.changed-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    margin-bottom: 0.35rem;
+    border-right: 3px solid transparent;
+    text-decoration: none;
+    color: inherit;
+}
+
+.changed-file-item:hover {
+    background: rgba(255,255,255,0.08);
+}
+
+.changed-file-item.status-added {
+    border-right-color: #10b981;
+}
+
+.changed-file-item.status-modified {
+    border-right-color: #f59e0b;
+}
+
+.changed-file-item.status-deleted {
+    border-right-color: #ef4444;
+    opacity: 0.7;
+}
+
+.changed-file-item.status-renamed {
+    border-right-color: #8b5cf6;
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+}
+
+.file-icon {
+    font-size: 1.1rem;
+}
+
+.file-name {
+    font-family: monospace;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.status-icon {
+    font-size: 0.9rem;
+}
+
+.more-files {
+    text-align: center;
+    padding: 0.5rem;
+    opacity: 0.7;
+    font-size: 0.85rem;
+}
+
+.commit-actions {
+    margin-top: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sync-time {
+    opacity: 0.6;
+    font-size: 0.8rem;
+}
+
+.no-changes {
+    opacity: 0.7;
+    text-align: center;
+    padding: 1rem;
+}
+
+/* Rose Pine Dawn overrides */
+:root[data-theme="rose-pine-dawn"] .commit-sha code {
+    background: rgba(86, 148, 159, 0.15);
+    color: #286983;
+}
+
+:root[data-theme="rose-pine-dawn"] .last-commit-card {
+    border-right-color: #56949f;
+}
+
+:root[data-theme="rose-pine-dawn"] .changed-file-item {
+    background: rgba(255,255,255,0.4);
+}
+
+:root[data-theme="rose-pine-dawn"] .changed-file-item.status-added {
+    border-right-color: #56949f;
+}
+
+:root[data-theme="rose-pine-dawn"] .changed-file-item.status-modified {
+    border-right-color: #ea9d34;
+}
+
+:root[data-theme="rose-pine-dawn"] .changed-file-item.status-deleted {
+    border-right-color: #b4637a;
+}
+
+:root[data-theme="rose-pine-dawn"] .changed-file-item.status-renamed {
+    border-right-color: #907aa9;
 }
 
 .activity-section {
