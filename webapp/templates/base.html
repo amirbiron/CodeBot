@@ -1483,6 +1483,8 @@
         }
     </style>
     
+    {# תאימות למדריכים/תבניות שמצפים ל-extra_head #}
+    {% block extra_head %}{% endblock %}
     {% block extra_css %}{% endblock %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}?v={{ static_version }}">

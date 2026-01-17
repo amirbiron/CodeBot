@@ -1,75 +1,95 @@
 """
-Repository Browser Routes
+Repository Browser Routes - Extended API
 
-UI לגלישה בקוד הריפו
+UI לגלישה בקוד הריפו עם API מתקדם
 """
 
-from __future__ import annotations
-
 import logging
-import re  # חשוב! לצורך re.escape
+import re
+from flask import Blueprint, render_template, request, jsonify, abort
 from functools import lru_cache
 
-from flask import Blueprint, abort, jsonify, render_template, request
-
-from database.db_manager import get_db
 from services.git_mirror_service import get_mirror_service
 from services.repo_search_service import create_search_service
+from database.db_manager import get_db
 
 logger = logging.getLogger(__name__)
 
-repo_bp = Blueprint("repo", __name__, url_prefix="/repo")
+repo_bp = Blueprint('repo', __name__, url_prefix='/repo')
 
 
-@repo_bp.route("/")
+@repo_bp.route('/')
 def repo_index():
     """דף ראשי של דפדפן הקוד"""
     db = get_db()
     git_service = get_mirror_service()
-
-    # מידע על הריפו
-    repo_name = "CodeBot"  # או מ-config
-
+    
+    repo_name = "CodeBot"
+    
     metadata = db.repo_metadata.find_one({"repo_name": repo_name})
     mirror_info = git_service.get_mirror_info(repo_name)
-
-    return render_template("repo/index.html", repo_name=repo_name, metadata=metadata, mirror_info=mirror_info)
-
-
-@repo_bp.route("/browse")
-@repo_bp.route("/browse/<path:dir_path>")
-def browse_directory(dir_path: str = ""):
-    """גלישה בתיקיות"""
-    db = get_db()
-    repo_name = "CodeBot"
-
-    # בניית שאילתה לקבצים בתיקייה
-    # חובה לעשות escape לתווים מיוחדים ב-regex!
-    # בלי זה, תיקיות כמו ".github" ישברו (הנקודה = "any char")
-    if dir_path:
-        # קבצים בתיקייה ספציפית
-        safe_path = re.escape(dir_path)  # .github -> \.github
-        pattern = f"^{safe_path}/[^/]+$"
-    else:
-        # קבצים ב-root
-        pattern = "^[^/]+$"
-
-    # שליפת קבצים
-    files = list(
-        db.repo_files.find(
-            {"repo_name": repo_name, "path": {"$regex": pattern}},
-            {"path": 1, "language": 1, "size": 1, "lines": 1},
-        ).sort("path", 1)
+    
+    # Get file type stats
+    if metadata:
+        file_types = {}
+        cursor = db.repo_files.aggregate([
+            {"$match": {"repo_name": repo_name}},
+            {"$group": {"_id": "$language", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 10}
+        ])
+        for doc in cursor:
+            if doc["_id"]:
+                file_types[doc["_id"]] = doc["count"]
+        metadata["file_types"] = file_types
+    
+    return render_template(
+        'repo/index.html',
+        repo_name=repo_name,
+        metadata=metadata,
+        mirror_info=mirror_info
     )
 
-    # שליפת תיקיות (גם כאן צריך escape!)
-    if dir_path:
-        safe_path = re.escape(dir_path)
-        dir_pattern = f"^{safe_path}/[^/]+/"
+
+@repo_bp.route('/api/tree')
+def api_tree():
+    """
+    API לקבלת עץ הקבצים
+    
+    Query params:
+        path: נתיב לתיקייה ספציפית (אופציונלי)
+    """
+    db = get_db()
+    repo_name = "CodeBot"
+    path = request.args.get('path', '')
+    
+    # Build tree from MongoDB
+    if path:
+        # Get children of specific folder
+        safe_path = re.escape(path)
+        pattern = f"^{safe_path}/[^/]+$"
+    else:
+        # Get root level
+        pattern = "^[^/]+$"
+    
+    # Get files matching pattern
+    files = list(db.repo_files.find(
+        {
+            "repo_name": repo_name,
+            "path": {"$regex": pattern}
+        },
+        {"path": 1, "language": 1, "size": 1, "lines": 1}
+    ).sort("path", 1))
+    
+    # Get all paths to find directories
+    # ביצועים: לא מושכים את כל הנתיבים לריפו גדול.
+    # מביאים distinct רק על נתיבים תחת ה-prefix הרלוונטי (כולל nested) כדי להפיק תיקיות.
+    if path:
+        safe_prefix = re.escape(path)
+        dir_pattern = f"^{safe_prefix}/"
     else:
         dir_pattern = "^[^/]+/"
 
-    # שימוש ב-regex כבר ב-DB כדי לא למשוך את כל הנתיבים לריפו גדול
     all_paths = db.repo_files.distinct(
         "path",
         {
@@ -77,177 +97,128 @@ def browse_directory(dir_path: str = ""):
             "path": {"$regex": dir_pattern},
         },
     )
-
-    # חילוץ תיקיות ייחודיות
+    
+    # Extract unique directories at this level
     directories = set()
-    for path in all_paths:
-        if dir_path:
-            if path.startswith(dir_path + "/"):
-                remaining = path[len(dir_path) + 1 :]
-                if "/" in remaining:
-                    directories.add(remaining.split("/")[0])
-        else:
-            if "/" in path:
-                directories.add(path.split("/")[0])
-
-    return render_template(
-        "repo/browse.html",
-        repo_name=repo_name,
-        current_path=dir_path,
-        files=files,
-        directories=sorted(directories),
-        breadcrumbs=_build_breadcrumbs(dir_path),
-    )
-
-
-@repo_bp.route("/file/<path:file_path>")
-def view_file(file_path: str):
-    """הצגת קובץ"""
-    db = get_db()
-    git_service = get_mirror_service()
-    repo_name = "CodeBot"
-
-    # metadata מ-MongoDB
-    metadata = db.repo_files.find_one({"repo_name": repo_name, "path": file_path})
-
-    if not metadata:
-        abort(404)
-
-    # תוכן מ-git mirror
-    # ב-bare mirror לא מסתמכים על HEAD (יכול להצביע למשהו לא צפוי).
-    # נעדיף את ה-commit_sha שאונדקס (למען עקביות עם החיפוש), ואם חסר אז origin/<default_branch>.
-    ref = metadata.get("commit_sha")
-    if not ref:
-        meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
-        default_branch = str(meta.get("default_branch") or "").strip() or "main"
-        ref = f"refs/heads/{default_branch}"
-
-    content = git_service.get_file_content(repo_name, file_path, ref=ref)
-
-    if content is None:
-        abort(404)
-
-    return render_template(
-        "repo/file.html",
-        repo_name=repo_name,
-        file_path=file_path,
-        content=content,
-        metadata=metadata,
-        breadcrumbs=_build_breadcrumbs(file_path),
-    )
+    prefix = path + "/" if path else ""
+    prefix_len = len(prefix)
+    
+    for p in all_paths:
+        if p.startswith(prefix):
+            remaining = p[prefix_len:]
+            if "/" in remaining:
+                dir_name = remaining.split("/")[0]
+                directories.add(dir_name)
+    
+    # Build result
+    result = []
+    
+    # Add directories first
+    for dir_name in sorted(directories):
+        dir_path = f"{path}/{dir_name}" if path else dir_name
+        result.append({
+            "name": dir_name,
+            "path": dir_path,
+            "type": "directory"
+        })
+    
+    # Add files
+    for f in files:
+        name = f["path"].split("/")[-1]
+        result.append({
+            "name": name,
+            "path": f["path"],
+            "type": "file",
+            "language": f.get("language", "text"),
+            "size": f.get("size", 0),
+            "lines": f.get("lines", 0)
+        })
+    
+    return jsonify(result)
 
 
-@repo_bp.route("/search")
-def search():
-    """חיפוש בקוד"""
-    query = request.args.get("q", "")
-    search_type = request.args.get("type", "content")
-    file_pattern = request.args.get("pattern", "")
-    repo_name = "CodeBot"
-
-    if not query:
-        return render_template(
-            "repo/search.html",
-            repo_name=repo_name,
-            query="",
-            search_type=search_type,
-            results=[],
-            total=0,
-            truncated=False,
-            error=None,
-        )
-
-    db = get_db()
-    search_service = create_search_service(db)
-
-    result = search_service.search(
-        repo_name=repo_name,
-        query=query,
-        search_type=search_type,
-        file_pattern=file_pattern or None,
-        max_results=100,
-    )
-
-    return render_template(
-        "repo/search.html",
-        repo_name=repo_name,
-        query=query,
-        search_type=search_type,
-        results=result.get("results", []),
-        total=result.get("total", 0),
-        truncated=result.get("truncated", False),
-        error=result.get("error"),
-    )
-
-
-@repo_bp.route("/api/file/<path:file_path>")
+@repo_bp.route('/api/file/<path:file_path>')
 def api_get_file(file_path: str):
     """API לקבלת תוכן קובץ"""
     db = get_db()
     git_service = get_mirror_service()
     repo_name = "CodeBot"
-
-    # אופציה: client יכול לבקש ref מפורש (למשל SHA מתוצאות חיפוש),
-    # אחרת נשתמש ב-ref שאונדקס או ב-origin/<default_branch>.
-    ref = request.args.get("ref") or ""
-    if not ref:
-        doc = db.repo_files.find_one({"repo_name": repo_name, "path": file_path}, {"commit_sha": 1}) or {}
-        ref = doc.get("commit_sha") or ""
+    
+    # Get metadata from MongoDB
+    metadata = db.repo_files.find_one({
+        "repo_name": repo_name,
+        "path": file_path
+    })
+    
+    # Get content from git mirror
+    # חשוב: ב-bare mirror לא מסתמכים על HEAD (יכול להצביע למשהו לא צפוי).
+    # נעדיף commit_sha שאונדקס (עקביות מול תוצאות חיפוש), ואם חסר - origin/<default_branch>.
+    commit_sha = metadata.get("commit_sha") if metadata else None
+    ref = commit_sha
     if not ref:
         meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
         default_branch = str(meta.get("default_branch") or "").strip() or "main"
-        ref = f"refs/heads/{default_branch}"
+        ref = f"origin/{default_branch}"
 
     content = git_service.get_file_content(repo_name, file_path, ref=ref)
-
+    
     if content is None:
         return jsonify({"error": "File not found"}), 404
+    
+    return jsonify({
+        "path": file_path,
+        "content": content,
+        "language": metadata.get("language", "text") if metadata else "text",
+        "size": metadata.get("size", len(content)) if metadata else len(content),
+        "lines": metadata.get("lines", content.count("\n") + 1) if metadata else content.count("\n") + 1
+    })
 
-    return jsonify({"path": file_path, "content": content, "ref": ref})
 
-
-@repo_bp.route("/api/search")
+@repo_bp.route('/api/search')
 def api_search():
-    """API לחיפוש"""
-    query = request.args.get("q", "")
-    search_type = request.args.get("type", "content")
-
-    if not query:
-        return jsonify({"error": "Query required"}), 400
-
+    """API לחיפוש משופר"""
+    query = request.args.get('q', '')
+    search_type = request.args.get('type', 'content')
+    file_pattern = request.args.get('pattern', '')
+    language = request.args.get('language', '')
+    
+    if not query or len(query) < 2:
+        return jsonify({"error": "Query too short", "results": []})
+    
     db = get_db()
     search_service = create_search_service(db)
     repo_name = "CodeBot"
-
-    result = search_service.search(repo_name=repo_name, query=query, search_type=search_type, max_results=50)
-
+    
+    result = search_service.search(
+        repo_name=repo_name,
+        query=query,
+        search_type=search_type,
+        file_pattern=file_pattern or None,
+        language=language or None,
+        max_results=50
+    )
+    
     return jsonify(result)
 
 
-@repo_bp.route("/api/stats")
+@repo_bp.route('/api/stats')
 def api_stats():
     """API לסטטיסטיקות"""
+    db = get_db()
     git_service = get_mirror_service()
     repo_name = "CodeBot"
-
+    
+    # Get from git service
     stats = git_service.get_repo_stats(repo_name)
-
+    
     if stats is None:
         return jsonify({"error": "Stats not available"}), 404
-
+    
+    # Enrich with MongoDB stats
+    metadata = db.repo_metadata.find_one({"repo_name": repo_name})
+    if metadata:
+        stats["last_sync"] = metadata.get("last_sync_time")
+        stats["sync_status"] = metadata.get("sync_status")
+    
     return jsonify(stats)
-
-
-def _build_breadcrumbs(path: str) -> list:
-    """בניית breadcrumbs לניווט"""
-    if not path:
-        return []
-
-    parts = path.split("/")
-    breadcrumbs = []
-
-    for i, part in enumerate(parts):
-        breadcrumbs.append({"name": part, "path": "/".join(parts[: i + 1]), "is_last": i == len(parts) - 1})
-
-    return breadcrumbs
 
