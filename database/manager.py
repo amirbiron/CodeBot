@@ -195,9 +195,8 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                 old_order = int(pinned_doc.get("pin_order", 0)) if isinstance(pinned_doc, dict) else 0
             except Exception:
                 old_order = 0
-
-        # החזר הודעת שגיאה כללית בלבד למניעת חשיפת פרטי חריגה פנימיים
-        return {"success": False, "error": "שגיאה בעת עדכון סטטוס נעיצה"}
+            
+            self.collection.update_many(
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_pinned": False,

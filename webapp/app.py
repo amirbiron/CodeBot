@@ -13741,10 +13741,15 @@ def api_toggle_pin(file_id):
         result = _toggle_pin(pin_manager, user_id, file_name)
 
         if not result.get("success"):
-            # אל תחזיר פרטי שגיאה פנימיים ללקוח
+            # אל תחזיר פרטי שגיאה פנימיים ללקוח (אבל שמור הודעות עסקיות)
+            raw_error = result.get("error", "") or ""
+            if raw_error.startswith("ניתן לנעוץ עד"):
+                client_error = raw_error
+            else:
+                client_error = "שגיאה בעת עדכון סטטוס נעיצה"
             return jsonify({
                 "ok": False,
-                "error": "שגיאה בעת עדכון סטטוס נעיצה"
+                "error": client_error
             }), 400
 
         return jsonify({
@@ -13756,7 +13761,7 @@ def api_toggle_pin(file_id):
     except Exception as e:
         # Log full exception details on the server, but return a generic message to the client
         # הודעת שגיאה כללית בלבד ללקוח
-        return jsonify({"ok": False, "error": "שגיאה פנימית בשרת"}), 500
+        logger.exception("Error in api_toggle_pin")
         return jsonify({"ok": False, "error": "שגיאה פנימית בשרת"}), 500
 
 
