@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/reader.css') }}">
+    <style>
+      {{ pygments_css | safe }}
+    </style>
+  </head>
+  <body class="reader-mode reader-bg-sepia">
+    <main class="reader-container">
+      <header class="reader-header">
+        <h1 class="reader-title">{{ title }}</h1>
+        {% if subtitle %}
+        <p class="reader-subtitle">{{ subtitle }}</p>
+        {% endif %}
+      </header>
+      <article class="reader-content">
+        {{ content | safe }}
+      </article>
+    </main>
+  </body>
+</html>
