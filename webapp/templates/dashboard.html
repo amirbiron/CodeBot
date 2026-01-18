@@ -43,7 +43,7 @@
     </div>
 </div>
 
-<div class="dashboard-grid {{ 'has-last-commit' if user_is_admin and last_commit else 'no-last-commit' }}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem;">
+<div class="dashboard-grid {{ 'has-last-commit' if user_is_admin and last_commit else 'no-last-commit' }}">
     {% if pinned_files %}
     <section class="pinned-section glass-card widget-pinned" id="pinnedFiles">
         <div class="pinned-header">
