@@ -160,7 +160,12 @@ def _normalize_pinned_orders(self, user_id: int) -> int:
     ))
 
     now = datetime.now(timezone.utc)
-    keep = keep[:MAX_PINNED_FILES]
+    if len(keep) > MAX_PINNED_FILES:
+        overflow = keep[MAX_PINNED_FILES:]
+        for doc in overflow:
+            if doc.get("_id") is not None:
+                drop_ids.append(doc.get("_id"))
+        keep = keep[:MAX_PINNED_FILES]
 
     for idx, doc in enumerate(keep):
         try:
@@ -173,15 +178,17 @@ def _normalize_pinned_orders(self, user_id: int) -> int:
 
     if drop_ids:
         try:
-            self.collection.update_many(
-                {"_id": {"$in": drop_ids}},
-                {"$set": {
-                    "is_pinned": False,
-                    "pinned_at": None,
-                    "pin_order": 0,
-                    "updated_at": now,
-                }},
-            )
+            unique_drop_ids = list({doc_id for doc_id in drop_ids if doc_id is not None})
+            if unique_drop_ids:
+                self.collection.update_many(
+                    {"_id": {"$in": unique_drop_ids}},
+                    {"$set": {
+                        "is_pinned": False,
+                        "pinned_at": None,
+                        "pin_order": 0,
+                        "updated_at": now,
+                    }},
+                )
         except Exception:
             pass
 
