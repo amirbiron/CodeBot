@@ -556,14 +556,6 @@ html[dir="rtl"] .split-preview-content code {
 
   .split-toolbar-controls {
     justify-content: space-between;
-    flex-wrap: wrap;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .split-toolbar-hint {
-    white-space: normal;
-    flex: 1 1 100%;
   }
 
   .split-tabs {
