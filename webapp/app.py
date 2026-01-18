@@ -16745,7 +16745,7 @@ def public_share(share_id):
 @app.route('/read/share/<share_id>')
 def public_reader_mode(share_id):
     """Reader mode for public shared markdown files."""
-    doc = get_internal_share(share_id, include_code=False)
+    doc = get_internal_share(share_id, include_code=True)
     if not doc:
         return render_template('404.html'), 404
 
