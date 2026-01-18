@@ -16742,6 +16742,37 @@ def public_share(share_id):
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
 
 
+@app.route('/read/share/<share_id>')
+def public_reader_mode(share_id):
+    """Reader mode for public shared markdown files."""
+    doc = get_internal_share(share_id, include_code=False)
+    if not doc:
+        return render_template('404.html'), 404
+
+    code = doc.get('snippet_preview') or doc.get('code') or ''
+    file_name = str(doc.get('file_name') or 'snippet.md').strip() or 'snippet.md'
+    language = resolve_file_language(doc.get('language'), file_name)
+    is_markdown = (language == 'markdown') or (file_name.lower().endswith(('.md', '.markdown')))
+    if not is_markdown:
+        return redirect(url_for('public_share', share_id=share_id))
+
+    rendered_html, pygments_css = _render_markdown_preview(code)
+    back_url = url_for('public_share', share_id=share_id, view='md')
+    subtitle = doc.get('description') or None
+
+    html = render_template(
+        'reader_mode.html',
+        title=file_name or 'README.md',
+        subtitle=subtitle,
+        content=rendered_html,
+        pygments_css=pygments_css,
+        back_url=back_url,
+    )
+    resp = Response(html, mimetype='text/html; charset=utf-8')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 @app.route('/share/<share_id>/download')
 def public_share_download(share_id: str):
     """הורדה ציבורית של שיתוף פנימי (רק לשיתופי download/full)."""
