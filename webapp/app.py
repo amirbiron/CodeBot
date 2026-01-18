@@ -13797,7 +13797,7 @@ def api_get_pinned_files():
 
     except Exception as e:
         logger.error(f"Error in api_get_pinned_files: {e}")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": "אירעה שגיאה בעת טעינת הקבצים הנעוצים"}), 500
 
 
 @app.route('/api/files/bulk-favorite', methods=['POST'])
