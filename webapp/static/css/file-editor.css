@@ -204,10 +204,14 @@ form.file-edit-form .split-view,
 form.file-edit-form #editorContainer,
 form.file-edit-form .source-url-block,
 form.file-edit-form .save-actions,
-form.file-edit-form .code-tools-group,
-form.file-edit-form .md-toolbar-group {
+form.file-edit-form .code-tools-group {
   max-width: 100%;
   min-width: 0;
+}
+
+form[data-file-form-config] .md-toolbar-group {
+  position: relative;
+  overflow: visible;
 }
 
 form.file-edit-form .split-view,
