@@ -139,12 +139,20 @@ class TestAdminImpersonation:
     
     def test_impersonation_hides_admin_ui(self, client, admin_user_session):
         """במצב Impersonation, אלמנטי אדמין נעלמים."""
+        admin_badge = "משתמש אדמין".encode("utf-8")
+        regular_badge = "משתמש רגיל".encode("utf-8")
+
+        # לפני Impersonation - אמור להופיע תג אדמין
+        response = client.get('/settings')
+        assert admin_badge in response.data
+
         # הפעלת Impersonation
         client.post('/admin/impersonate/start')
         
-        # בדיקת עמוד הבית
-        response = client.get('/dashboard')
-        assert b'admin-menu' not in response.data
+        # אחרי Impersonation - תג אדמין נעלם
+        response = client.get('/settings')
+        assert admin_badge not in response.data
+        assert regular_badge in response.data
     
     def test_impersonation_blocks_admin_pages(self, client, admin_user_session):
         """במצב Impersonation, עמודי אדמין חסומים."""
@@ -188,12 +196,12 @@ class TestAdminImpersonation:
     def test_context_processor_calculates_effective_status(self, client, admin_user_session):
         """בדיקה שה-Context Processor מחשב נכון את הסטטוס האפקטיבי."""
         # לפני Impersonation
-        response = client.get('/dashboard')
-        # בדוק שיש אלמנטי אדמין ב-HTML
-        assert b'actual_is_admin' in response.data or b'admin-menu' in response.data
+        response = client.get('/settings')
+        # בדוק שכפתור ההפעלה מופיע לאדמין
+        assert b'btn-start-impersonation' in response.data
         
         # אחרי הפעלת Impersonation
         client.post('/admin/impersonate/start')
         response = client.get('/dashboard')
-        # בדוק שאין אלמנטי אדמין ב-HTML (למעט כפתור היציאה)
-        assert b'impersonation-banner' in response.data
+        # בדוק שכפתור היציאה קיים ב-UI
+        assert b'btn-stop-impersonation' in response.data
