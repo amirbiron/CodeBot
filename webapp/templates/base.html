@@ -113,6 +113,9 @@
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
           {% if cdn_sri and cdn_sri.fa %}integrity="{{ cdn_sri.fa }}" crossorigin="anonymous" referrerpolicy="no-referrer"{% endif %} />
     <meta id="uiFont" data-scale="{{ '%.2f' % ui_font_scale }}">
+    {% if csrf_token is defined %}
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    {% endif %}
 
     <!-- PWA Manifest (cache-busted) -->
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}?v={{ static_version }}">
@@ -1585,8 +1588,11 @@
             color: var(--primary) !important;
         }
     </style>
+    {% if can_impersonate %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/impersonation.css') }}?v={{ static_version }}">
+    {% endif %}
 </head>
-<body>
+<body class="{% if user_is_impersonating %}impersonation-active{% endif %}">
     <div id="theme-mask" aria-hidden="true"></div>
     <script>
         // 🆕 מניעת מסך לבן: הצגת מסכה בזמן מעבר ערכה (עד שה-CSS נטען)
@@ -1706,6 +1712,30 @@
                         </button>
                         <!-- הוסר: כפתור הגדרות בתוך חלונית קיצורי הדרך -->
                     </div>
+                </div>
+                {% endif %}
+
+                {% if can_impersonate %}
+                <div id="impersonation-toggle" class="impersonation-control" data-actual_is_admin="{{ '1' if actual_is_admin else '0' }}">
+                    {% if user_is_impersonating %}
+                        <!-- מצב פעיל - באנר צף -->
+                        <div class="impersonation-banner">
+                            <span class="impersonation-icon">👁️</span>
+                            <span class="impersonation-text">מצב צפייה כמשתמש פעיל</span>
+                            <button id="btn-stop-impersonation" class="btn btn-sm btn-warning">
+                                <i class="fas fa-user-shield"></i> חזור למצב אדמין
+                            </button>
+                            <!-- 🆘 Fail-Safe Link: תמיד גלוי למקרה שה-JS לא עובד -->
+                            <a href="?force_admin=1" class="impersonation-failsafe" title="לחץ כאן אם הכפתור לא עובד">
+                                <i class="fas fa-life-ring"></i>
+                            </a>
+                        </div>
+                    {% else %}
+                        <!-- כפתור הפעלה (רק לאדמינים) -->
+                        <button id="btn-start-impersonation" class="btn btn-sm btn-outline-secondary" title="צפה במערכת כמשתמש רגיל">
+                            <i class="fas fa-eye"></i> צפה כמשתמש
+                        </button>
+                    {% endif %}
                 </div>
                 {% endif %}
                 
@@ -3930,6 +3960,9 @@
 })();
 </script>
 
+    {% if can_impersonate %}
+    <script src="{{ url_for('static', filename='js/impersonation.js') }}?v={{ static_version }}"></script>
+    {% endif %}
     {% block extra_js %}{% endblock %}
 </body>
 </html>
