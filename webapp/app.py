@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
+from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
 
@@ -2335,6 +2336,14 @@ def ensure_code_snippets_indexes() -> None:
                 coll.create_index(
                     [('user_id', ASCENDING), ('is_favorite', ASCENDING), ('favorited_at', DESCENDING)],
                     name='user_favorite_favorited_at',
+                    background=True,
+                )
+            except Exception:
+                pass
+            try:
+                coll.create_index(
+                    [('user_id', ASCENDING), ('is_pinned', ASCENDING), ('pin_order', ASCENDING), ('pinned_at', DESCENDING)],
+                    name='user_pinned_pin_order',
                     background=True,
                 )
             except Exception:
@@ -9661,6 +9670,28 @@ def dashboard():
             'recent_files': recent_files
         }
 
+        # 📌 קבצים נעוצים לדשבורד
+        pinned_files = []
+        max_pinned = 8
+        try:
+            from database.manager import get_pinned_files as _get_pinned_files, MAX_PINNED_FILES
+            pin_manager = SimpleNamespace(collection=db.code_snippets)
+            pinned_files = _get_pinned_files(pin_manager, user_id)
+            max_pinned = MAX_PINNED_FILES
+        except Exception:
+            pinned_files = []
+        pinned_data = []
+        for p in pinned_files:
+            pinned_data.append({
+                "id": str(p.get("_id", "")),
+                "file_name": p.get("file_name", ""),
+                "language": p.get("programming_language", ""),
+                "icon": get_language_icon(p.get("programming_language", "")),
+                "tags": (p.get("tags") or [])[:3],
+                "description": (p.get("description", "") or "")[:50],
+                "lines": p.get("lines_count", 0)
+            })
+
         # ========== חדש: קבצים מהקומיט האחרון (אדמין בלבד) ==========
         last_commit = None
         if user_is_admin:
@@ -9712,6 +9743,8 @@ def dashboard():
                              notes_snapshot=notes_snapshot,
                              whats_new=whats_new,
                              bot_username=BOT_USERNAME_CLEAN,
+                             pinned_files=pinned_data,
+                             max_pinned=max_pinned,
                              # חדש:
                              user_is_admin=user_is_admin,
                              last_commit=last_commit)
@@ -9740,6 +9773,8 @@ def dashboard():
                                  'top_languages': [],
                                  'recent_files': []
                              },
+                             pinned_files=[],
+                             max_pinned=8,
                              activity_timeline=fallback_timeline,
                              push_card=fallback_card,
                              notes_snapshot=fallback_notes,
@@ -10665,6 +10700,8 @@ def view_file(file_id):
                                  'updated_at': format_datetime_display(file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
+                                 'can_pin': False,
+                                 'is_pinned': bool(file.get('is_pinned', False)),
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
                              },
@@ -10695,6 +10732,8 @@ def view_file(file_id):
                                  'updated_at': format_datetime_display(file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
+                                 'can_pin': False,
+                                 'is_pinned': bool(file.get('is_pinned', False)),
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
                              },
@@ -10754,7 +10793,9 @@ def view_file(file_id):
         'updated_at': format_datetime_display(file.get('updated_at')),
         'version': (file.get('version', 1) if not is_large else None),
         'is_large': is_large,
+        'can_pin': not is_large,
         'is_favorite': bool(file.get('is_favorite', False)),
+        'is_pinned': bool(file.get('is_pinned', False)),
         'source_url': file.get('source_url') or '',
         'source_url_host': _extract_source_hostname(file.get('source_url')),
     }
@@ -13672,6 +13713,104 @@ def api_toggle_favorite(file_id):
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
+
+@app.route('/api/pin/toggle/<file_id>', methods=['POST'])
+@login_required
+def api_toggle_pin(file_id):
+    """
+    API לנעיצה/ביטול נעיצה של קובץ
+
+    Returns:
+        JSON: {ok: bool, is_pinned: bool, error?: str, count: int}
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+
+        # מצא את הקובץ לפי ID
+        try:
+            snippet = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+        except Exception:
+            snippet = None
+        if not snippet:
+            return jsonify({"ok": False, "error": "הקובץ לא נמצא"}), 404
+
+        file_name = snippet.get("file_name")
+        if not file_name:
+            return jsonify({"ok": False, "error": "שם קובץ חסר"}), 400
+
+        from database.manager import toggle_pin as _toggle_pin, get_pinned_count as _get_pinned_count
+        pin_manager = SimpleNamespace(collection=db.code_snippets)
+        result = _toggle_pin(pin_manager, user_id, file_name)
+
+        if not result.get("success"):
+            # אל תחזיר פרטי שגיאה פנימיים ללקוח (אבל שמור הודעות עסקיות)
+            raw_error = result.get("error", "") or ""
+            if raw_error.startswith("ניתן לנעוץ עד"):
+                client_error = raw_error
+            else:
+                client_error = "שגיאה בעת עדכון סטטוס נעיצה"
+            return jsonify({
+                "ok": False,
+                "error": client_error
+            }), 400
+
+        return jsonify({
+            "ok": True,
+            "is_pinned": result.get("is_pinned", False),
+            "count": _get_pinned_count(pin_manager, user_id)
+        })
+
+    except Exception as e:
+        # Log full exception details on the server, but return a generic message to the client
+        # הודעת שגיאה כללית בלבד ללקוח
+        logger.exception("Error in api_toggle_pin")
+        return jsonify({"ok": False, "error": "שגיאה פנימית בשרת"}), 500
+
+
+@app.route('/api/pinned', methods=['GET'])
+@login_required
+def api_get_pinned_files():
+    """
+    API לקבלת רשימת קבצים נעוצים
+
+    Returns:
+        JSON: {ok: bool, files: list, count: int}
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        from database.manager import get_pinned_files as _get_pinned_files
+        pin_manager = SimpleNamespace(collection=db.code_snippets)
+        pinned = _get_pinned_files(pin_manager, user_id)
+
+        # הכנת נתונים לתצוגה
+        files = []
+        for p in pinned:
+            files.append({
+                "id": str(p.get("_id", "")),
+                "file_name": p.get("file_name", ""),
+                "language": p.get("programming_language", ""),
+                "icon": get_language_icon(p.get("programming_language", "")),
+                "tags": (p.get("tags") or [])[:3],
+                "description": (p.get("description", "") or "")[:50],
+                "pinned_at": p.get("pinned_at"),
+                "updated_at": p.get("updated_at"),
+                "size": format_file_size(p.get("file_size", 0)),
+                "lines": p.get("lines_count", 0)
+            })
+
+        return jsonify({
+            "ok": True,
+            "files": files,
+            "count": len(files)
+        })
+
+    except Exception as e:
+        logger.error(f"Error in api_get_pinned_files: {e}")
+        return jsonify({"ok": False, "error": "אירעה שגיאה בעת טעינת הקבצים הנעוצים"}), 500
+
+
 @app.route('/api/files/bulk-favorite', methods=['POST'])
 @login_required
 @traced("files.bulk_favorite")
@@ -16168,6 +16307,7 @@ def public_share(share_id):
         'created_at': created_at_str,
         'updated_at': created_at_str,
         'version': 1,
+        'can_pin': False,
     }
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
 

@@ -859,6 +859,15 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                     <button type="button" class="file-actions__menu-item" data-menu-action="share">
                         <span>📤 שתף קובץ</span>
                     </button>
+                    {% if file.can_pin %}
+                    <button type="button"
+                            class="file-actions__menu-item"
+                            data-menu-action="pin"
+                            data-file-id="{{ file.id }}"
+                            data-is-pinned="{{ 'true' if file.is_pinned else 'false' }}">
+                        <span id="pinMenuLabel">{{ '📌 הסר מהדשבורד' if file.is_pinned else '📌 נעץ לדשבורד' }}</span>
+                    </button>
+                    {% endif %}
                     {% if file.source_url %}
                     <button type="button"
                             class="file-actions__menu-item"
@@ -1481,6 +1490,41 @@ async function shareToTelegram() {
         }
     });
 })();
+
+async function handlePinToggle(btn) {
+    const fileId = btn.getAttribute('data-file-id') || '';
+    const isPinned = btn.getAttribute('data-is-pinned') === 'true';
+
+    try {
+        const resp = await fetch(`/api/pin/toggle/${fileId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await resp.json();
+
+        if (!resp.ok || !data.ok) {
+            showToast(data.error || 'שגיאה בעדכון נעיצה', 'error');
+            return;
+        }
+
+        const newState = data.is_pinned;
+        btn.setAttribute('data-is-pinned', newState ? 'true' : 'false');
+
+        const label = document.getElementById('pinMenuLabel');
+        if (label) {
+            label.textContent = newState ? '📌 הסר מהדשבורד' : '📌 נעץ לדשבורד';
+        }
+
+        showToast(
+            newState ? '📌 הקובץ נעוץ לדשבורד' : '📌 הקובץ הוסר מהדשבורד',
+            'success'
+        );
+
+    } catch (e) {
+        console.error('pin toggle failed', e);
+        showToast('שגיאה בעדכון נעיצה', 'error');
+    }
+}
 
 async function toggleFavorite(){
     try {
@@ -2249,6 +2293,10 @@ function goBack(ev){
             event.preventDefault();
             const action = btn.getAttribute('data-menu-action');
             closeMenu();
+            if (action === 'pin') {
+                handlePinToggle(btn);
+                return;
+            }
             if (action === 'share') {
                 openShareLinkModal();
                 return;

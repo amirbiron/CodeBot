@@ -43,6 +43,54 @@
     </div>
 </div>
 
+{% if pinned_files %}
+<section class="pinned-section glass-card" id="pinnedFiles">
+    <div class="pinned-header">
+        <h2 class="section-title">
+            <i class="fas fa-thumbtack"></i>
+            קבצים נעוצים
+        </h2>
+        <span class="badge" data-pinned-count data-max-pinned="{{ max_pinned }}">{{ pinned_files|length }}/{{ max_pinned }}</span>
+    </div>
+    
+    <div class="pinned-grid" data-pinned-grid>
+        {% for file in pinned_files %}
+        <a href="/file/{{ file.id }}" class="pinned-card" data-pinned-card data-file-id="{{ file.id }}">
+            <div class="pinned-card__icon">{{ file.icon }}</div>
+            <div class="pinned-card__content">
+                <div class="pinned-card__name" title="{{ file.file_name }}">
+                    {{ file.file_name }}
+                </div>
+                <div class="pinned-card__meta">
+                    <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
+                    {% if file.lines %}
+                    <span class="pinned-card__lines">{{ file.lines }} שורות</span>
+                    {% endif %}
+                </div>
+                {% if file.description %}
+                <div class="pinned-card__note">{{ file.description }}</div>
+                {% endif %}
+            </div>
+            <button type="button"
+                    class="pinned-card__unpin"
+                    data-unpin-file="{{ file.id }}"
+                    title="הסר מנעוצים"
+                    aria-label="הסר מנעוצים"
+                    onclick="event.preventDefault(); event.stopPropagation(); unpinFile('{{ file.id }}');">
+                ✕
+            </button>
+        </a>
+        {% endfor %}
+    </div>
+    
+    {% if pinned_files|length < max_pinned %}
+    <p class="pinned-hint">
+        💡 ניתן לנעוץ עד {{ max_pinned }} קבצים. נעץ קבצים דרך תפריט ⋮ בעמוד הקובץ.
+    </p>
+    {% endif %}
+</section>
+{% endif %}
+
 <div class="dashboard-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem;">
     <div class="glass-card">
         <h2 class="section-title">
@@ -460,6 +508,160 @@
 :root[data-theme="rose-pine-dawn"] .language-item:hover,
 :root[data-theme="rose-pine-dawn"] .file-item:hover {
     background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%) !important;
+}
+
+/* === Pinned Files Section === */
+.pinned-section {
+    margin-bottom: 2rem;
+    border-right: 3px solid #f59e0b;
+}
+
+.pinned-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.pinned-header .section-title {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pinned-header .section-title i {
+    color: #f59e0b;
+}
+
+.pinned-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.pinned-card {
+    position: relative;
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.2s ease;
+}
+
+.pinned-card:hover {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.35);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
+}
+
+.pinned-card__icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+}
+
+.pinned-card__content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.pinned-card__name {
+    font-weight: 600;
+    font-size: 1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pinned-card__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+}
+
+.pinned-card__lines {
+    opacity: 0.7;
+}
+
+.pinned-card__note {
+    font-size: 0.85rem;
+    opacity: 0.75;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pinned-card__unpin {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    border-radius: 50%;
+    font-size: 0.8rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pinned-card:hover .pinned-card__unpin {
+    opacity: 1;
+}
+
+.pinned-card__unpin:hover {
+    background: rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+}
+
+.pinned-hint {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    opacity: 0.7;
+    text-align: center;
+}
+
+/* Rose Pine Dawn overrides */
+:root[data-theme="rose-pine-dawn"] .pinned-section {
+    border-right-color: #ea9d34;
+}
+
+:root[data-theme="rose-pine-dawn"] .pinned-header .section-title i {
+    color: #ea9d34;
+}
+
+:root[data-theme="rose-pine-dawn"] .pinned-card {
+    background: rgba(234, 157, 52, 0.1);
+    border-color: rgba(234, 157, 52, 0.25);
+}
+
+:root[data-theme="rose-pine-dawn"] .pinned-card:hover {
+    background: rgba(234, 157, 52, 0.18);
+    border-color: rgba(234, 157, 52, 0.4);
+}
+
+@media (max-width: 768px) {
+    .pinned-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .pinned-card__unpin {
+        opacity: 1;
+    }
 }
 
 /* === What's New Card === */
@@ -1215,6 +1417,54 @@
 </style>
 
 <script>
+async function unpinFile(fileId) {
+    try {
+        const resp = await fetch(`/api/pin/toggle/${fileId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await resp.json();
+        
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'שגיאה בהסרת נעיצה');
+            return;
+        }
+
+        if (data.is_pinned === true) {
+            alert('הקובץ עדיין נעוץ. נסה לרענן את העמוד.');
+            return;
+        }
+        
+        const badge = document.querySelector('[data-pinned-count]');
+        const maxPinned = badge ? parseInt(badge.getAttribute('data-max-pinned') || '0', 10) : 0;
+        if (badge && typeof data.count === 'number') {
+            const maxText = maxPinned || (badge.textContent || '').split('/')[1];
+            badge.textContent = `${data.count}/${maxText}`.trim();
+        }
+        
+        // הסר את הכרטיס מה-DOM
+        const card = document.querySelector(`[data-pinned-card][data-file-id="${fileId}"]`);
+        if (card) {
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.9)';
+            setTimeout(() => {
+                card.remove();
+                
+                // אם אין יותר נעוצים, הסתר את כל הקטע
+                const grid = document.querySelector('[data-pinned-grid]');
+                if (grid && grid.children.length === 0) {
+                    const section = document.getElementById('pinnedFiles');
+                    if (section) section.remove();
+                }
+            }, 200);
+        }
+        
+    } catch (e) {
+        console.error('unpin failed', e);
+        alert('שגיאה בהסרת נעיצה');
+    }
+}
+
 function refreshStats() {
     const btn = event.target;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מרענן...';
