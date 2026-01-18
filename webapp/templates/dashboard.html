@@ -50,7 +50,7 @@
             <i class="fas fa-thumbtack"></i>
             קבצים נעוצים
         </h2>
-        <span class="badge">{{ pinned_files|length }}/{{ max_pinned }}</span>
+        <span class="badge" data-pinned-count data-max-pinned="{{ max_pinned }}">{{ pinned_files|length }}/{{ max_pinned }}</span>
     </div>
     
     <div class="pinned-grid" data-pinned-grid>
@@ -1428,6 +1428,18 @@ async function unpinFile(fileId) {
         if (!resp.ok || !data.ok) {
             alert(data.error || 'שגיאה בהסרת נעיצה');
             return;
+        }
+
+        if (data.is_pinned === true) {
+            alert('הקובץ עדיין נעוץ. נסה לרענן את העמוד.');
+            return;
+        }
+        
+        const badge = document.querySelector('[data-pinned-count]');
+        const maxPinned = badge ? parseInt(badge.getAttribute('data-max-pinned') || '0', 10) : 0;
+        if (badge && typeof data.count === 'number') {
+            const maxText = maxPinned || (badge.textContent || '').split('/')[1];
+            badge.textContent = `${data.count}/${maxText}`.trim();
         }
         
         // הסר את הכרטיס מה-DOM

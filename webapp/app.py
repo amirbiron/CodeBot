@@ -9687,7 +9687,7 @@ def dashboard():
                 "file_name": p.get("file_name", ""),
                 "language": p.get("programming_language", ""),
                 "icon": get_language_icon(p.get("programming_language", "")),
-                "tags": p.get("tags", [])[:3],
+                "tags": (p.get("tags") or [])[:3],
                 "description": (p.get("description", "") or "")[:50],
                 "lines": p.get("lines_count", 0)
             })
@@ -13789,7 +13789,7 @@ def api_get_pinned_files():
                 "file_name": p.get("file_name", ""),
                 "language": p.get("programming_language", ""),
                 "icon": get_language_icon(p.get("programming_language", "")),
-                "tags": p.get("tags", [])[:3],
+                "tags": (p.get("tags") or [])[:3],
                 "description": (p.get("description", "") or "")[:50],
                 "pinned_at": p.get("pinned_at"),
                 "updated_at": p.get("updated_at"),
