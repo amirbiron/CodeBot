@@ -66,42 +66,53 @@
         {% endif %}
     </div>
 
-    <div class="glass-card">
+    <div class="glass-card whats-new-card" data-whats-new-card>
         <h2 class="section-title">
-            <i class="fas fa-clock"></i>
-            קבצים אחרונים
+            <i class="fas fa-wand-magic-sparkles"></i>
+            מה חדש
         </h2>
-        {% if stats.recent_files %}
-        <div class="recent-files-list">
-            {% for file in stats.recent_files %}
-            <div class="file-item">
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <span style="font-size: 1.5rem;">{{ file.icon }}</span>
-                    <div>
-                        <div style="font-weight: 500;">{{ file.file_name }}</div>
-                        <div style="font-size: 0.85rem; opacity: 0.7;">{{ file.created_at_formatted }}</div>
+        {% if whats_new.has_features %}
+        <div class="whats-new-list" data-whats-new-list>
+            {% for feature in whats_new.features %}
+            <div class="whats-new-item">
+                <div class="feature-content">
+                    <span class="feature-icon">{{ feature.icon }}</span>
+                    <div class="feature-details">
+                        <div class="feature-title">
+                            {{ feature.title }}
+                            {% if feature.badge %}
+                            <span class="feature-badge">{{ feature.badge }}</span>
+                            {% endif %}
+                        </div>
+                        {% if feature.description %}
+                        <div class="feature-description">{{ feature.description }}</div>
+                        {% endif %}
+                        <div class="feature-time">{{ feature.relative_time }}</div>
                     </div>
                 </div>
-                <a href="/file/{{ file._id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;">
-                    <i class="fas fa-eye"></i>
+                {% if feature.link %}
+                <a href="{{ feature.link }}" class="btn btn-secondary btn-sm" title="למידע נוסף">
+                    <i class="fas fa-arrow-left"></i>
                 </a>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
-        <div style="margin-top: 1.5rem;">
-            <a href="/files" class="btn btn-primary btn-icon">
-                <i class="fas fa-folder-open"></i>
-                צפה בכל הקבצים
-            </a>
+        {% if whats_new.has_more %}
+        <div class="whats-new-load-more">
+            <button
+                type="button"
+                class="btn btn-secondary btn-icon load-more-whats-new"
+                data-offset="{{ whats_new.next_offset }}"
+                data-remaining="{{ whats_new.remaining }}"
+            >
+                <i class="fas fa-plus"></i>
+                טען עוד {{ whats_new.remaining }} עדכונים
+            </button>
         </div>
+        {% endif %}
         {% else %}
-        <p style="opacity: 0.7;">אין עדיין קבצים</p>
-        <div style="margin-top: 1.5rem;">
-            <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-primary btn-icon">
-                <i class="fab fa-telegram"></i>
-                התחל לשמור קבצים בבוט
-            </a>
-        </div>
+        <p style="opacity: 0.7;">אין עדכונים חדשים כרגע</p>
         {% endif %}
     </div>
 
@@ -126,7 +137,14 @@
                         <i class="fas fa-user"></i> {{ last_commit.author }}
                     </span>
                     <span class="commit-date">
-                        <i class="fas fa-clock"></i> {{ last_commit.date[:10] }}
+                        <i class="fas fa-clock"></i>
+                        {% if last_commit.date_israel_str %}
+                            {{ last_commit.date_israel_str }} (ישראל)
+                        {% elif last_commit.date %}
+                            {{ last_commit.date[:10] }}
+                        {% else %}
+                            -
+                        {% endif %}
                     </span>
                 </div>
             </div>
@@ -442,6 +460,130 @@
 :root[data-theme="rose-pine-dawn"] .language-item:hover,
 :root[data-theme="rose-pine-dawn"] .file-item:hover {
     background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%) !important;
+}
+
+/* === What's New Card === */
+.whats-new-card {
+    border-right: 3px solid #8b5cf6;
+}
+
+.whats-new-card .section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.whats-new-card .section-title i {
+    color: #8b5cf6;
+}
+
+.whats-new-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.whats-new-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: rgba(139, 92, 246, 0.08);
+    border-radius: 10px;
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    transition: all 0.2s ease;
+}
+
+.whats-new-item:hover {
+    background: rgba(139, 92, 246, 0.15);
+    border-color: rgba(139, 92, 246, 0.25);
+}
+
+.feature-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.feature-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.feature-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.feature-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.feature-badge {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+    color: white;
+    border-radius: 999px;
+    font-weight: 500;
+}
+
+.feature-description {
+    font-size: 0.85rem;
+    opacity: 0.8;
+    margin-top: 0.25rem;
+    line-height: 1.4;
+}
+
+.feature-time {
+    font-size: 0.75rem;
+    opacity: 0.6;
+    margin-top: 0.35rem;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.6rem !important;
+    font-size: 0.85rem;
+}
+
+.whats-new-load-more {
+    margin-top: 1rem;
+    text-align: center;
+}
+
+.load-more-whats-new {
+    width: 100%;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+/* Rose Pine Dawn overrides for What's New */
+:root[data-theme="rose-pine-dawn"] .whats-new-card {
+    border-right-color: #907aa9;
+}
+
+:root[data-theme="rose-pine-dawn"] .whats-new-card .section-title i {
+    color: #907aa9;
+}
+
+:root[data-theme="rose-pine-dawn"] .whats-new-item {
+    background: rgba(144, 122, 169, 0.1);
+    border-color: rgba(144, 122, 169, 0.2);
+}
+
+:root[data-theme="rose-pine-dawn"] .whats-new-item:hover {
+    background: rgba(144, 122, 169, 0.18);
+    border-color: rgba(144, 122, 169, 0.3);
+}
+
+:root[data-theme="rose-pine-dawn"] .feature-badge {
+    background: linear-gradient(135deg, #907aa9 0%, #b4a7c7 100%);
 }
 
 @media (max-width: 768px) {
@@ -1385,6 +1527,118 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
             }
         });
+    });
+});
+
+// === What's New: Load More ===
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.querySelector('.load-more-whats-new[data-offset]');
+    const list = document.querySelector('[data-whats-new-list]');
+    if (!btn || !list) return;
+
+    const createFeatureItem = (feature) => {
+        const item = document.createElement('div');
+        item.className = 'whats-new-item';
+
+        const content = document.createElement('div');
+        content.className = 'feature-content';
+
+        const icon = document.createElement('span');
+        icon.className = 'feature-icon';
+        icon.textContent = String(feature.icon || '✨');
+
+        const details = document.createElement('div');
+        details.className = 'feature-details';
+
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'feature-title';
+        titleWrap.textContent = String(feature.title || '');
+
+        if (feature.badge) {
+            const badge = document.createElement('span');
+            badge.className = 'feature-badge';
+            badge.textContent = String(feature.badge);
+            titleWrap.appendChild(badge);
+        }
+
+        details.appendChild(titleWrap);
+
+        if (feature.description) {
+            const desc = document.createElement('div');
+            desc.className = 'feature-description';
+            desc.textContent = String(feature.description);
+            details.appendChild(desc);
+        }
+
+        const time = document.createElement('div');
+        time.className = 'feature-time';
+        time.textContent = String(feature.relative_time || '');
+        details.appendChild(time);
+
+        content.appendChild(icon);
+        content.appendChild(details);
+        item.appendChild(content);
+
+        if (feature.link) {
+            const link = document.createElement('a');
+            link.className = 'btn btn-secondary btn-sm';
+            link.href = String(feature.link);
+            link.title = 'למידע נוסף';
+            link.innerHTML = '<i class="fas fa-arrow-left"></i>';
+            item.appendChild(link);
+        }
+
+        return item;
+    };
+
+    const updateButton = (remaining) => {
+        const rem = Math.max(0, parseInt(remaining || '0', 10) || 0);
+        if (rem <= 0) {
+            btn.closest('.whats-new-load-more')?.remove();
+            return;
+        }
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-plus"></i> טען עוד ${rem} עדכונים`;
+    };
+
+    btn.addEventListener('click', async () => {
+        const offset = parseInt(btn.dataset.offset || '0', 10) || 0;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> טוען...';
+
+        try {
+            const qs = new URLSearchParams({
+                offset: String(offset),
+                limit: '5',
+                max_days: '180',
+            });
+            const resp = await fetch(`/api/dashboard/whats-new?${qs.toString()}`, {
+                headers: { 'Accept': 'application/json' },
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data || data.ok !== true) {
+                throw new Error((data && data.error) ? String(data.error) : 'load_failed');
+            }
+
+            const features = Array.isArray(data.features) ? data.features : [];
+            const loadMoreWrap = btn.closest('.whats-new-load-more');
+            features.forEach((feat) => {
+                const item = createFeatureItem(feat);
+                if (loadMoreWrap && loadMoreWrap.parentNode) {
+                    loadMoreWrap.parentNode.insertBefore(item, loadMoreWrap);
+                } else {
+                    list.appendChild(item);
+                }
+            });
+
+            btn.dataset.offset = String(data.next_offset || (offset + features.length));
+            btn.dataset.remaining = String(data.remaining || 0);
+            updateButton(data.remaining);
+        } catch (e) {
+            console.error('Failed to load more features:', e);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
+        }
     });
 });
 </script>

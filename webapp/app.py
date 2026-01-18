@@ -14,6 +14,7 @@ import time
 import mimetypes
 import uuid
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +45,7 @@ import re
 import sys
 from pathlib import Path
 import secrets
+import yaml
 import threading
 import base64
 import traceback
@@ -1036,6 +1038,16 @@ try:
 except Exception as e:
     try:
         logger.warning(f"Failed to register code_tools_bp: {e}")
+    except Exception:
+        pass
+
+# JSON Formatter API (format/minify/validate/fix)
+try:
+    from webapp.json_formatter_api import json_formatter_bp  # noqa: E402
+    app.register_blueprint(json_formatter_bp)
+except Exception as e:
+    try:
+        logger.warning(f"Failed to register json_formatter_bp: {e}")
     except Exception:
         pass
 
@@ -8766,6 +8778,7 @@ def format_day_hhmm(value) -> str:
 # Routes
 
 @app.route('/', methods=['HEAD'])
+@_limiter_exempt()
 def index_head():
     """בדיקת דופק קלה ל-HEAD / בלי IO/Template.
 
@@ -8776,6 +8789,7 @@ def index_head():
 
 
 @app.route('/', methods=['GET'])
+@_limiter_exempt()
 def index():
     """דף הבית"""
     # Try resolve external uptime (non-blocking semantics: short timeout + cache inside helper)
@@ -9451,6 +9465,111 @@ def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
     }
 
 
+# נתיב לקובץ whats_new
+_WHATS_NEW_PATH = Path(__file__).parent.parent / 'config' / 'whats_new.yaml'
+
+# Cache לטעינת whats_new עם TTL
+_whats_new_cache: Dict[str, Any] = {}
+_whats_new_cache_time: float = 0
+_whats_new_cache_lock = threading.Lock()
+_WHATS_NEW_CACHE_TTL = 300  # 5 דקות
+
+
+def _load_whats_new_cached() -> List[Dict[str, Any]]:
+    """טוען את כל הפיצ'רים מקובץ YAML (עם cache)"""
+    global _whats_new_cache, _whats_new_cache_time
+    
+    now = time.time()
+    
+    # בדיקת cache (בנעילה)
+    with _whats_new_cache_lock:
+        if _whats_new_cache and (now - _whats_new_cache_time) < _WHATS_NEW_CACHE_TTL:
+            return _whats_new_cache.get('features', [])
+    
+    try:
+        if not _WHATS_NEW_PATH.exists():
+            return []
+        
+        with open(_WHATS_NEW_PATH, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        
+        features = data.get('features', []) if data else []
+        
+        # עיבוד הנתונים
+        processed_features = []
+        for feat in features:
+            if not isinstance(feat, dict):
+                continue
+            
+            title = feat.get('title', '')
+            if not title:
+                continue
+            
+            # עיבוד תאריך
+            date_str = feat.get('date', '')
+            relative_time = ''
+            feat_date = None
+            if date_str:
+                try:
+                    feat_date = datetime.strptime(str(date_str), '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                    relative_time = _format_relative(feat_date)
+                except (ValueError, TypeError):
+                    relative_time = str(date_str)
+            
+            processed_features.append({
+                'title': title,
+                'description': feat.get('description', ''),
+                'icon': feat.get('icon', '✨'),
+                'date': date_str,
+                'date_obj': feat_date,
+                'relative_time': relative_time,
+                'link': feat.get('link'),
+                'badge': feat.get('badge'),
+            })
+        
+        # שמירה ב-cache (בנעילה)
+        with _whats_new_cache_lock:
+            _whats_new_cache = {'features': processed_features}
+            _whats_new_cache_time = now
+        
+        return processed_features
+        
+    except Exception as e:
+        logger.warning(f"Failed to load whats_new.yaml: {e}")
+        return []
+
+
+def _load_whats_new(limit: int = 5, offset: int = 0, max_days: int = 180) -> Dict[str, Any]:
+    """טוען פיצ'רים חדשים עם תמיכה ב-pagination והגבלת ימים"""
+    all_features = _load_whats_new_cached()
+    
+    # סינון לפי תאריך (רק פיצ'רים מהימים האחרונים)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=max_days)
+    filtered_features = []
+    for feat in all_features:
+        feat_date = feat.get('date_obj')
+        # אם אין תאריך או התאריך בטווח - כולל
+        if feat_date is None or feat_date >= cutoff_date:
+            # הסר את date_obj מהתוצאה (לא צריך ב-template)
+            clean_feat = {k: v for k, v in feat.items() if k != 'date_obj'}
+            filtered_features.append(clean_feat)
+    
+    total = len(filtered_features)
+    features_slice = filtered_features[offset:offset + limit]
+    next_offset = offset + len(features_slice)
+    remaining = max(0, total - next_offset)
+    
+    return {
+        'features': features_slice,
+        'has_features': bool(features_slice),
+        'total': total,
+        'offset': offset,
+        'next_offset': next_offset,
+        'remaining': remaining,
+        'has_more': remaining > 0,
+    }
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -9558,6 +9677,23 @@ def dashboard():
                         if metadata:
                             last_commit["sync_time"] = metadata.get("last_sync_time")
                             last_commit["sync_status"] = metadata.get("sync_status", "unknown")
+                        try:
+                            raw_date = str(last_commit.get("date") or "").strip()
+                        except Exception:
+                            raw_date = ""
+                        if raw_date:
+                            local_dt = None
+                            try:
+                                normalized = raw_date.replace("Z", "+00:00")
+                                parsed = datetime.fromisoformat(normalized)
+                                if parsed.tzinfo is None:
+                                    parsed = parsed.replace(tzinfo=timezone.utc)
+                                local_dt = parsed.astimezone(ZoneInfo("Asia/Jerusalem"))
+                            except Exception:
+                                local_dt = None
+                            if local_dt is not None:
+                                last_commit["date_israel"] = local_dt
+                                last_commit["date_israel_str"] = local_dt.strftime("%d/%m/%Y %H:%M")
             except Exception as e:
                 logger.warning(f"Failed to get last commit info: {e}")
                 last_commit = None
@@ -9566,6 +9702,7 @@ def dashboard():
         activity_timeline = _build_activity_timeline(db, user_id, active_query)
         push_card = _build_push_card(db, user_id)
         notes_snapshot = _build_notes_snapshot(db, user_id)
+        whats_new = _load_whats_new(limit=5)
 
         return render_template('dashboard.html', 
                              user=session['user_data'],
@@ -9573,6 +9710,7 @@ def dashboard():
                              activity_timeline=activity_timeline,
                              push_card=push_card,
                              notes_snapshot=notes_snapshot,
+                             whats_new=whats_new,
                              bot_username=BOT_USERNAME_CLEAN,
                              # חדש:
                              user_is_admin=user_is_admin,
@@ -9605,6 +9743,7 @@ def dashboard():
                              activity_timeline=fallback_timeline,
                              push_card=fallback_card,
                              notes_snapshot=fallback_notes,
+                             whats_new={'features': [], 'has_features': False, 'total': 0},
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
                              bot_username=BOT_USERNAME_CLEAN,
                              user_is_admin=False,
@@ -10757,6 +10896,13 @@ def compare_paste_page():
 def code_tools_page():
     """דף ייעודי לכלי קוד (Playground) עם Diff מקצועי."""
     return render_template('code_tools.html')
+
+
+@app.route('/tools/json')
+@login_required
+def json_formatter_page():
+    """דף JSON Formatter."""
+    return render_template('json_formatter.html')
 
 
 @app.route('/file/<file_id>/images/<image_id>')
@@ -14089,6 +14235,32 @@ def api_dashboard_activity_files():
             "has_more": bool(remaining > 0),
         }
     )
+
+
+@app.route('/api/dashboard/whats-new', methods=['GET'])
+@login_required
+def api_dashboard_whats_new():
+    """API: טען עוד פיצ'רים חדשים (pagination)."""
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+        limit = min(10, max(1, int(request.args.get('limit', 5))))
+        max_days = min(180, max(7, int(request.args.get('max_days', 30))))
+    except (ValueError, TypeError):
+        offset = 0
+        limit = 5
+        max_days = 30
+
+    data = _load_whats_new(limit=limit, offset=offset, max_days=max_days)
+    
+    return jsonify({
+        "ok": True,
+        "features": data['features'],
+        "total": data['total'],
+        "offset": data['offset'],
+        "next_offset": data['next_offset'],
+        "remaining": data['remaining'],
+        "has_more": data['has_more'],
+    })
 
 
 @app.route('/api/stats/logs', methods=['GET'])
