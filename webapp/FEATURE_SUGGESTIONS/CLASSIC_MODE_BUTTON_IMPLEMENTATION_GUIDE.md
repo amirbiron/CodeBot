@@ -253,6 +253,13 @@
   --hljs-comment: #6e7781;
   --hljs-number: #0550ae;
   --hljs-operator: #24292f;
+  --hljs-variable: #953800;
+  --hljs-built-in: #0550ae;
+  --hljs-attr: #0550ae;
+  --hljs-tag: #116329;
+  --hljs-name: #116329;
+  --hljs-selector-tag: #116329;
+  --hljs-selector-class: #6639ba;
   --hljs-addition-text: #1a7f37;
   --hljs-addition-bg: rgba(26, 127, 55, 0.12);
   --hljs-deletion-text: #cf222e;
@@ -323,27 +330,28 @@
 }
 
 /* === 7. Syntax Highlighting (highlight.js) === */
-#md-content.classic-mode-active .hljs-keyword { color: #cf222e !important; }
-#md-content.classic-mode-active .hljs-string { color: #0a3069 !important; }
+/* שימוש ב-var() כדי שצבעי הרקע החומים יוכלו לדרוס */
+#md-content.classic-mode-active .hljs-keyword { color: var(--hljs-keyword) !important; }
+#md-content.classic-mode-active .hljs-string { color: var(--hljs-string) !important; }
 #md-content.classic-mode-active .hljs-function,
-#md-content.classic-mode-active .hljs-title { color: #8250df !important; }
-#md-content.classic-mode-active .hljs-comment { color: #6e7781 !important; }
-#md-content.classic-mode-active .hljs-number { color: #0550ae !important; }
-#md-content.classic-mode-active .hljs-operator { color: #24292f !important; }
-#md-content.classic-mode-active .hljs-variable { color: #953800 !important; }
-#md-content.classic-mode-active .hljs-built_in { color: #0550ae !important; }
-#md-content.classic-mode-active .hljs-attr { color: #0550ae !important; }
-#md-content.classic-mode-active .hljs-tag { color: #116329 !important; }
-#md-content.classic-mode-active .hljs-name { color: #116329 !important; }
-#md-content.classic-mode-active .hljs-selector-tag { color: #116329 !important; }
-#md-content.classic-mode-active .hljs-selector-class { color: #6639ba !important; }
+#md-content.classic-mode-active .hljs-title { color: var(--hljs-function) !important; }
+#md-content.classic-mode-active .hljs-comment { color: var(--hljs-comment) !important; }
+#md-content.classic-mode-active .hljs-number { color: var(--hljs-number) !important; }
+#md-content.classic-mode-active .hljs-operator { color: var(--hljs-operator) !important; }
+#md-content.classic-mode-active .hljs-variable { color: var(--hljs-variable, #953800) !important; }
+#md-content.classic-mode-active .hljs-built_in { color: var(--hljs-built-in, #0550ae) !important; }
+#md-content.classic-mode-active .hljs-attr { color: var(--hljs-attr, #0550ae) !important; }
+#md-content.classic-mode-active .hljs-tag { color: var(--hljs-tag, #116329) !important; }
+#md-content.classic-mode-active .hljs-name { color: var(--hljs-name, #116329) !important; }
+#md-content.classic-mode-active .hljs-selector-tag { color: var(--hljs-selector-tag, #116329) !important; }
+#md-content.classic-mode-active .hljs-selector-class { color: var(--hljs-selector-class, #6639ba) !important; }
 #md-content.classic-mode-active .hljs-addition { 
-  color: #1a7f37 !important;
-  background: rgba(26, 127, 55, 0.12) !important;
+  color: var(--hljs-addition-text) !important;
+  background: var(--hljs-addition-bg) !important;
 }
 #md-content.classic-mode-active .hljs-deletion { 
-  color: #cf222e !important;
-  background: rgba(207, 34, 46, 0.15) !important;
+  color: var(--hljs-deletion-text) !important;
+  background: var(--hljs-deletion-bg) !important;
 }
 
 /* === 8. ציטוטים (blockquote) === */
@@ -552,7 +560,7 @@
    (משחזר את כל גווני הטקסט לכהים)
    ======================================== */
 
-/* --- נייר חם (Sepia) --- */
+/* --- נייר חם (Sepia) - צבעי Solarized Light --- */
 #md-content.classic-mode-active.bg-sepia {
   background: #fdf6e3 !important;
   color: #586e75 !important;
@@ -564,6 +572,18 @@
   --hljs-function: #268bd2;
   --hljs-comment: #93a1a1;
   --hljs-number: #b58900;
+  --hljs-operator: #657b83;
+  --hljs-variable: #cb4b16;
+  --hljs-built-in: #268bd2;
+  --hljs-attr: #b58900;
+  --hljs-tag: #859900;
+  --hljs-name: #268bd2;
+  --hljs-selector-tag: #859900;
+  --hljs-selector-class: #268bd2;
+  --hljs-addition-text: #859900;
+  --hljs-addition-bg: rgba(133, 153, 0, 0.15);
+  --hljs-deletion-text: #dc322f;
+  --hljs-deletion-bg: rgba(220, 50, 47, 0.15);
   --md-fold-bg: #fff3dc;
 }
 
@@ -612,6 +632,18 @@
   --hljs-function: #4682b4;
   --hljs-comment: #8b7d6b;
   --hljs-number: #c97b63;
+  --hljs-operator: #5a4a3a;
+  --hljs-variable: #8b4513;
+  --hljs-built-in: #4682b4;
+  --hljs-attr: #a67c52;
+  --hljs-tag: #6b8e23;
+  --hljs-name: #4682b4;
+  --hljs-selector-tag: #6b8e23;
+  --hljs-selector-class: #4682b4;
+  --hljs-addition-text: #6b8e23;
+  --hljs-addition-bg: rgba(107, 142, 35, 0.18);
+  --hljs-deletion-text: #a67c52;
+  --hljs-deletion-bg: rgba(166, 124, 82, 0.22);
   --md-fold-bg: #fbf2e6;
 }
 
@@ -664,6 +696,18 @@
   --hljs-function: #4169e1;
   --hljs-comment: #7a6e5d;
   --hljs-number: #c97b63;
+  --hljs-operator: #4a3d2f;
+  --hljs-variable: #8b4513;
+  --hljs-built-in: #4169e1;
+  --hljs-attr: #8b6914;
+  --hljs-tag: #2e8b57;
+  --hljs-name: #4169e1;
+  --hljs-selector-tag: #2e8b57;
+  --hljs-selector-class: #4169e1;
+  --hljs-addition-text: #2e8b57;
+  --hljs-addition-bg: rgba(46, 139, 87, 0.18);
+  --hljs-deletion-text: #8b6914;
+  --hljs-deletion-bg: rgba(139, 105, 20, 0.22);
   --md-fold-bg: #f2e2c8;
 }
 
@@ -716,6 +760,18 @@
   --hljs-function: #4682b4;
   --hljs-comment: #6b5d4f;
   --hljs-number: #d2691e;
+  --hljs-operator: #3d3020;
+  --hljs-variable: #8b4513;
+  --hljs-built-in: #4682b4;
+  --hljs-attr: #8b4513;
+  --hljs-tag: #228b22;
+  --hljs-name: #4682b4;
+  --hljs-selector-tag: #228b22;
+  --hljs-selector-class: #4682b4;
+  --hljs-addition-text: #228b22;
+  --hljs-addition-bg: rgba(34, 139, 34, 0.2);
+  --hljs-deletion-text: #8b4513;
+  --hljs-deletion-bg: rgba(139, 69, 19, 0.22);
   --md-fold-bg: #e8d2b4;
 }
 
@@ -820,56 +876,16 @@
     } catch(_) {}
   }
   
-  // רינדור מחדש של דיאגרמות Mermaid עם ערכה בהירה
-  async function rerenderMermaidLight() {
-    if (!window.mermaid) return;
-    
-    try {
-      // אתחול מחדש עם ערכה בהירה
-      window.mermaid.initialize({ 
-        startOnLoad: false, 
-        securityLevel: 'strict',
-        theme: 'default' // ערכה בהירה
-      });
-      
-      // מצא את כל בלוקי הקוד של mermaid שטרם רונדרו
-      const blocks = mdContent.querySelectorAll('code.language-mermaid');
-      let i = 0;
-      for (const el of blocks) {
-        const parent = el.closest('pre') || el.parentElement;
-        if (!parent) continue;
-        const code = el.textContent || '';
-        const svgId = `mermaid-classic-${i++}`;
-        const wrapper = document.createElement('div');
-        wrapper.className = 'mermaid-wrapper';
-        parent.replaceWith(wrapper);
-        try {
-          const { svg } = await window.mermaid.render(svgId, code);
-          wrapper.innerHTML = svg;
-        } catch(e) {
-          wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
-        }
-      }
-    } catch(e) {
-      console.warn('Mermaid re-render failed:', e);
-    }
-  }
-  
-  // רינדור מחדש של Mermaid עם ערכה כהה
-  async function rerenderMermaidDark() {
-    if (!window.mermaid) return;
-    
-    try {
-      window.mermaid.initialize({ 
-        startOnLoad: false, 
-        securityLevel: 'strict',
-        theme: 'dark'
-      });
-      // הדיאגרמות כבר רונדרו בטעינה הראשונה - ה-CSS ידרוס את הצבעים
-    } catch(e) {
-      console.warn('Mermaid re-init failed:', e);
-    }
-  }
+  // הערה חשובה לגבי Mermaid:
+  // ---------------------------------
+  // Mermaid מרנדר את הדיאגרמות בטעינת הדף ומחליף את בלוקי code.language-mermaid
+  // ב-divs עם SVG. לכן אי אפשר לרנדר מחדש את אותם בלוקים.
+  // 
+  // הפתרון: ה-CSS שהוספנו (סעיף 17) דורס את צבעי ה-SVG ישירות עם !important,
+  // כך שאין צורך ברינדור מחדש - הצבעים משתנים מיידית דרך CSS.
+  //
+  // אם בכל זאת רוצים רינדור מחדש מלא (למשל לשינוי layout), 
+  // צריך לשמור את קוד המקור המקורי ב-data attribute לפני הרינדור הראשון.
 
   // הפעלת מצב קלאסי
   function enableClassicMode() {
@@ -895,9 +911,8 @@
       applyBackgroundColor(savedBgColor);
     }
     
-    // רינדור מחדש של Mermaid (ה-CSS ידאג לצבעים, אבל כדאי לאתחל מחדש)
-    // הערה: ה-CSS שהוספנו דורס את צבעי Mermaid, אז אין צורך ברינדור מחדש
-    // אם רוצים רינדור מחדש מלא: rerenderMermaidLight();
+    // הערה: ה-CSS דורס את צבעי Mermaid ו-syntax highlighting,
+    // אין צורך ברינדור מחדש - הצבעים משתנים מיידית
     
     saveState(true);
   }
