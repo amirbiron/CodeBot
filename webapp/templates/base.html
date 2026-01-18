@@ -3611,6 +3611,29 @@
         return div.innerHTML;
     }
 
+    function escapeAttr(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function normalizeThemeId(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        return String(value);
+    }
+
+    function sanitizeColor(value) {
+        const v = String(value || '').trim();
+        if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) {
+            return v;
+        }
+        return null;
+    }
+
     /**
      * פתיחת המודאל
      */
@@ -3654,6 +3677,7 @@
     async function loadThemes() {
         if (isLoading) return;
         isLoading = true;
+        allThemes = [...BUILTIN_THEMES];
         
         gridEl.innerHTML = `
             <div class="theme-picker__loading">
@@ -3673,18 +3697,19 @@
             const data = await response.json();
             
             if (data.ok && Array.isArray(data.themes)) {
-                // מיזוג עם ערכות מובנות
-                allThemes = [...BUILTIN_THEMES];
-                
                 // הוסף ערכות מה-API (shared + custom)
                 data.themes.forEach(theme => {
+                    const themeId = normalizeThemeId(theme.id || theme.slug);
+                    if (!themeId) {
+                        return;
+                    }
                     // בדוק שזו לא ערכה מובנית כפולה
-                    const isBuiltin = BUILTIN_THEMES.some(b => b.id === theme.id || b.id === theme.slug);
+                    const isBuiltin = BUILTIN_THEMES.some(b => normalizeThemeId(b.id) === themeId);
                     if (!isBuiltin) {
                         allThemes.push({
-                            id: theme.id || theme.slug,
+                            id: themeId,
                             name: theme.name,
-                            type: theme.type || (theme.source === 'shared' ? 'shared' : 'custom'),
+                            type: String(theme.type || (theme.source === 'shared' ? 'shared' : 'custom')),
                             colors: theme.preview_colors || theme.colors || [],
                             source: theme.source,
                             is_active: theme.is_active
@@ -3753,6 +3778,10 @@
             const typeLabel = getTypeLabel(theme.type);
             const typeIcon = getTypeIcon(theme.type);
             const colors = getPreviewColors(theme);
+            const themeId = normalizeThemeId(theme.id);
+            const themeType = String(theme.type || '');
+            const safeThemeId = escapeAttr(themeId);
+            const safeThemeType = escapeAttr(themeType);
             const safeName = escapeHtml(theme.name || '');
             const safeEmoji = escapeHtml(theme.emoji || '');
             const displayName = safeEmoji ? `${safeEmoji} ${safeName}` : safeName;
@@ -3761,8 +3790,8 @@
                 <div class="theme-picker__card ${isActive ? 'is-active' : ''}" 
                      role="option" 
                      aria-selected="${isActive}"
-                     data-theme-id="${theme.id}"
-                     data-theme-type="${theme.type}"
+                     data-theme-id="${safeThemeId}"
+                     data-theme-type="${safeThemeType}"
                      tabindex="0">
                     <div class="theme-picker__preview">
                         ${colors.map(c => `<div class="theme-picker__preview-color" style="background: ${c}"></div>`).join('')}
@@ -3792,8 +3821,10 @@
      * קבלת צבעים לתצוגה מקדימה
      */
     function getPreviewColors(theme) {
-        if (Array.isArray(theme.colors) && theme.colors.length > 0) {
-            return theme.colors.slice(0, 4);
+        const rawColors = Array.isArray(theme.colors) ? theme.colors : [];
+        const safeColors = rawColors.map(sanitizeColor).filter(Boolean);
+        if (safeColors.length > 0) {
+            return safeColors.slice(0, 4);
         }
         // צבעי ברירת מחדל
         return ['#1a1b26', '#7aa2f7', '#bb9af7', '#f7768e'];
@@ -3830,22 +3861,23 @@
      */
     function isThemeActive(theme) {
         if (theme.is_active) return true;
-        if (currentActiveTheme === theme.id) return true;
+        const themeId = normalizeThemeId(theme.id);
+        if (normalizeThemeId(currentActiveTheme) === themeId) return true;
         
         // בדוק לפי data-theme על html
-        const htmlTheme = document.documentElement.getAttribute('data-theme');
-        return htmlTheme === theme.id;
+        const htmlTheme = normalizeThemeId(document.documentElement.getAttribute('data-theme'));
+        return htmlTheme === themeId;
     }
 
     /**
      * זיהוי הערכה הנוכחית
      */
     function detectCurrentTheme() {
-        const htmlTheme = document.documentElement.getAttribute('data-theme') || 'nebula';
+        const htmlTheme = normalizeThemeId(document.documentElement.getAttribute('data-theme') || 'nebula');
         currentActiveTheme = htmlTheme;
         
         // מצא את שם הערכה
-        const theme = allThemes.find(t => t.id === htmlTheme);
+        const theme = allThemes.find(t => normalizeThemeId(t.id) === htmlTheme);
         if (theme && currentNameEl) {
             currentNameEl.textContent = theme.name;
         } else if (currentNameEl) {
@@ -3857,10 +3889,12 @@
      * בחירת ערכה והחלתה
      */
     async function selectTheme(themeId, themeType) {
-        if (!themeId) return;
+        const normalizedThemeId = normalizeThemeId(themeId);
+        if (!normalizedThemeId) return;
         
         // הצג מצב טעינה על הכרטיס
-        const card = gridEl.querySelector(`[data-theme-id="${themeId}"]`);
+        const card = Array.from(gridEl.querySelectorAll('.theme-picker__card'))
+            .find((el) => el.dataset && el.dataset.themeId === normalizedThemeId);
         if (card) {
             card.style.opacity = '0.7';
             card.style.pointerEvents = 'none';
@@ -3872,9 +3906,9 @@
             
             if (themeType === 'builtin') {
                 // עדכון ישיר של data-theme ושמירה ב-localStorage
-                document.documentElement.setAttribute('data-theme', themeId);
-                localStorage.setItem('user_theme', themeId);
-                const darkModePreference = (themeId === 'classic' || themeId === 'rose-pine-dawn')
+                document.documentElement.setAttribute('data-theme', normalizedThemeId);
+                localStorage.setItem('user_theme', normalizedThemeId);
+                const darkModePreference = (normalizedThemeId === 'classic' || normalizedThemeId === 'rose-pine-dawn')
                     ? 'light'
                     : 'dark';
                 localStorage.setItem('dark_mode_preference', darkModePreference);
@@ -3884,24 +3918,24 @@
                     await fetch('/api/ui_prefs', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ theme: themeId })
+                        body: JSON.stringify({ theme: normalizedThemeId })
                     });
                 } catch (e) {
                     // best-effort
                 }
                 
-                currentActiveTheme = themeId;
+                currentActiveTheme = normalizedThemeId;
                 renderThemes();
                 detectCurrentTheme();
-                showToast(`ערכת ${themeId} הופעלה!`, 'success');
+                showToast(`ערכת ${normalizedThemeId} הופעלה!`, 'success');
                 return;
             }
             
             if (themeType === 'shared') {
-                endpoint = `/api/themes/shared/${encodeURIComponent(themeId)}/apply`;
+                endpoint = `/api/themes/shared/${encodeURIComponent(normalizedThemeId)}/apply`;
             } else {
                 // custom theme
-                endpoint = `/api/themes/${encodeURIComponent(themeId)}/activate`;
+                endpoint = `/api/themes/${encodeURIComponent(normalizedThemeId)}/activate`;
             }
             
             const response = await fetch(endpoint, {
@@ -3912,7 +3946,7 @@
             const data = await response.json();
             
             if (data.ok || data.success) {
-                currentActiveTheme = themeId;
+                currentActiveTheme = normalizedThemeId;
                 showToast('הערכה הופעלה בהצלחה!', 'success');
                 
                 // רענן את הדף כדי להחיל את הערכה
