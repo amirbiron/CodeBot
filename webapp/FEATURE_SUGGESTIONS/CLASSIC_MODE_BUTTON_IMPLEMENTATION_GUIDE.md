@@ -119,10 +119,31 @@
 #md-content.classic-mode-active a {
   color: #0366d6 !important;          /* קישורים כחולים! ✅ */
 }
+
+/* Mermaid diagrams */
+#md-content.classic-mode-active .mermaid .node rect {
+  fill: #f6f8fa !important;           /* רקע צמתים בהיר! ✅ */
+}
+#md-content.classic-mode-active .mermaid .nodeLabel {
+  fill: #24292f !important;           /* טקסט בצמתים כהה! ✅ */
+}
 /* וכו'... */
 ```
 
 **התוצאה**: כל האלמנטים מקבלים צבעים מותאמים לרקע הבהיר = קריא! 😊
+
+### רשימת אלמנטים שנדרסים
+
+| קטגוריה | אלמנטים |
+|---------|---------|
+| טקסט | פסקאות, רשימות, spans |
+| כותרות | h1-h6 + גבולות תחתונים |
+| קישורים | צבע + hover + underline |
+| קוד | inline, blocks, syntax highlighting |
+| טבלאות | headers, cells, borders |
+| ציטוטים | רקע + גבול + טקסט |
+| **Mermaid** | nodes, edges, labels, actors, notes, tasks |
+| אחר | hr, mark, checkboxes, details/summary |
 
 ---
 
@@ -412,6 +433,120 @@
   background: #f6f6f6 !important;
 }
 
+/* === 17. דיאגרמות Mermaid === */
+#md-content.classic-mode-active .mermaid,
+#md-content.classic-mode-active [class*="mermaid"] {
+  --mermaid-node-bg: #f6f8fa;
+  --mermaid-node-text: #24292f;
+  --mermaid-node-border: #d0d7de;
+}
+
+/* קווים וחיבורים */
+#md-content.classic-mode-active .mermaid .edgePath path,
+#md-content.classic-mode-active .mermaid .flowchart-link {
+  stroke: #57606a !important;
+}
+
+#md-content.classic-mode-active .mermaid .marker,
+#md-content.classic-mode-active .mermaid .arrowheadPath {
+  fill: #57606a !important;
+}
+
+/* צמתים (nodes) */
+#md-content.classic-mode-active .mermaid .node rect,
+#md-content.classic-mode-active .mermaid .node polygon,
+#md-content.classic-mode-active .mermaid .node circle,
+#md-content.classic-mode-active .mermaid .node ellipse {
+  fill: #f6f8fa !important;
+  stroke: #d0d7de !important;
+}
+
+/* טקסט בצמתים */
+#md-content.classic-mode-active .mermaid .node .label,
+#md-content.classic-mode-active .mermaid .nodeLabel,
+#md-content.classic-mode-active .mermaid .label {
+  color: #24292f !important;
+  fill: #24292f !important;
+}
+
+/* תוויות על קווים */
+#md-content.classic-mode-active .mermaid .edgeLabel {
+  background-color: #ffffff !important;
+  color: #24292f !important;
+  fill: #24292f !important;
+}
+
+/* Sequence Diagrams */
+#md-content.classic-mode-active .mermaid .actor {
+  fill: #f6f8fa !important;
+  stroke: #d0d7de !important;
+}
+
+#md-content.classic-mode-active .mermaid .actor-line {
+  stroke: #d0d7de !important;
+}
+
+#md-content.classic-mode-active .mermaid text.actor,
+#md-content.classic-mode-active .mermaid .messageText,
+#md-content.classic-mode-active .mermaid .loopText {
+  fill: #24292f !important;
+}
+
+#md-content.classic-mode-active .mermaid .messageLine0,
+#md-content.classic-mode-active .mermaid .messageLine1 {
+  stroke: #57606a !important;
+}
+
+/* הערות (notes) */
+#md-content.classic-mode-active .mermaid .note {
+  fill: #fff8c5 !important;
+  stroke: #d4a72c !important;
+}
+
+#md-content.classic-mode-active .mermaid .noteText {
+  fill: #24292f !important;
+}
+
+/* Gantt Charts */
+#md-content.classic-mode-active .mermaid .task {
+  fill: #ddf4ff !important;
+  stroke: #54aeff !important;
+}
+
+#md-content.classic-mode-active .mermaid .taskText {
+  fill: #24292f !important;
+}
+
+/* Class Diagrams */
+#md-content.classic-mode-active .mermaid .classGroup rect {
+  fill: #f6f8fa !important;
+  stroke: #d0d7de !important;
+}
+
+#md-content.classic-mode-active .mermaid .classGroup text {
+  fill: #24292f !important;
+}
+
+/* Pie Charts */
+#md-content.classic-mode-active .mermaid .pieCircle {
+  stroke: #ffffff !important;
+}
+
+#md-content.classic-mode-active .mermaid .pieTitleText,
+#md-content.classic-mode-active .mermaid .slice {
+  fill: #24292f !important;
+}
+
+/* State Diagrams */
+#md-content.classic-mode-active .mermaid .stateGroup rect {
+  fill: #f6f8fa !important;
+  stroke: #d0d7de !important;
+}
+
+#md-content.classic-mode-active .mermaid .stateGroup text {
+  fill: #24292f !important;
+}
+
 /* ========================================
    צבעי רקע חומים במצב קלאסי
    (משחזר את כל גווני הטקסט לכהים)
@@ -685,6 +820,57 @@
     } catch(_) {}
   }
   
+  // רינדור מחדש של דיאגרמות Mermaid עם ערכה בהירה
+  async function rerenderMermaidLight() {
+    if (!window.mermaid) return;
+    
+    try {
+      // אתחול מחדש עם ערכה בהירה
+      window.mermaid.initialize({ 
+        startOnLoad: false, 
+        securityLevel: 'strict',
+        theme: 'default' // ערכה בהירה
+      });
+      
+      // מצא את כל בלוקי הקוד של mermaid שטרם רונדרו
+      const blocks = mdContent.querySelectorAll('code.language-mermaid');
+      let i = 0;
+      for (const el of blocks) {
+        const parent = el.closest('pre') || el.parentElement;
+        if (!parent) continue;
+        const code = el.textContent || '';
+        const svgId = `mermaid-classic-${i++}`;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mermaid-wrapper';
+        parent.replaceWith(wrapper);
+        try {
+          const { svg } = await window.mermaid.render(svgId, code);
+          wrapper.innerHTML = svg;
+        } catch(e) {
+          wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
+        }
+      }
+    } catch(e) {
+      console.warn('Mermaid re-render failed:', e);
+    }
+  }
+  
+  // רינדור מחדש של Mermaid עם ערכה כהה
+  async function rerenderMermaidDark() {
+    if (!window.mermaid) return;
+    
+    try {
+      window.mermaid.initialize({ 
+        startOnLoad: false, 
+        securityLevel: 'strict',
+        theme: 'dark'
+      });
+      // הדיאגרמות כבר רונדרו בטעינה הראשונה - ה-CSS ידרוס את הצבעים
+    } catch(e) {
+      console.warn('Mermaid re-init failed:', e);
+    }
+  }
+
   // הפעלת מצב קלאסי
   function enableClassicMode() {
     mdContent.classList.add('classic-mode-active');
@@ -708,6 +894,10 @@
     if (savedBgColor && typeof applyBackgroundColor === 'function') {
       applyBackgroundColor(savedBgColor);
     }
+    
+    // רינדור מחדש של Mermaid (ה-CSS ידאג לצבעים, אבל כדאי לאתחל מחדש)
+    // הערה: ה-CSS שהוספנו דורס את צבעי Mermaid, אז אין צורך ברינדור מחדש
+    // אם רוצים רינדור מחדש מלא: rerenderMermaidLight();
     
     saveState(true);
   }
@@ -790,8 +980,10 @@
 ### CSS
 1. כללי הסתרה/הצגה לכפתור לפי ערכה
 2. מחלקה `.classic-mode-active` עם כל המשתנים של הערכה הקלאסית
-3. תמיכה בצבעי רקע חומים במצב קלאסי
-4. כלל להצגת `#bgColorSwitcher` במצב קלאסי
+3. דריסת צבעים לכל האלמנטים: טקסט, כותרות, קישורים, קוד, טבלאות, ציטוטים
+4. **דיאגרמות Mermaid** - צמתים, קווים, תוויות, sequence, gantt, class, pie, state
+5. תמיכה בצבעי רקע חומים במצב קלאסי (כולל Mermaid)
+6. כלל להצגת `#bgColorSwitcher` במצב קלאסי
 
 ### JavaScript
 1. פונקציות `enableClassicMode()` ו-`disableClassicMode()`
