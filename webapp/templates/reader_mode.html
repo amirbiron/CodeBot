@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/reader.css') }}">
+    <style>
+      {{ pygments_css | safe }}
+    </style>
+  </head>
+  <body class="reader-mode reader-bg-sepia">
+    <main class="reader-container">
+      <header class="reader-header">
+        {% if back_url %}
+        <a class="reader-back-btn" href="{{ back_url }}" title="חזרה למערכת">↩️ חזרה למערכת</a>
+        {% endif %}
+        <h1 class="reader-title">{{ title }}</h1>
+        {% if subtitle %}
+        <p class="reader-subtitle">{{ subtitle }}</p>
+        {% endif %}
+      </header>
+      <article class="reader-content">
+        {{ content | safe }}
+      </article>
+    </main>
+    <script type="module">
+      const initMermaid = async () => {
+        try {
+          const mermaidModule = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+          const mermaid = mermaidModule.default || mermaidModule;
+          mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+
+          const boot = () => {
+            const blocks = document.querySelectorAll('pre code.language-mermaid, code.language-mermaid');
+            blocks.forEach((code) => {
+              const pre = code.closest('pre');
+              const wrapper = pre && pre.parentElement && pre.parentElement.classList.contains('codehilite')
+                ? pre.parentElement
+                : pre;
+              const container = document.createElement('div');
+              container.className = 'mermaid';
+              container.textContent = code.textContent || '';
+              if (wrapper) {
+                wrapper.replaceWith(container);
+              } else if (pre) {
+                pre.replaceWith(container);
+              } else {
+                code.replaceWith(container);
+              }
+            });
+            try { mermaid.run(); } catch (_) {}
+          };
+
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', boot);
+          } else {
+            boot();
+          }
+        } catch (_) {}
+      };
+
+      initMermaid();
+    </script>
+  </body>
+</html>

@@ -13039,6 +13039,83 @@ def md_preview(file_id):
     return resp
 
 
+@app.route('/read/<path:filename>')
+@login_required
+def reader_mode(filename):
+    """Reader mode for markdown files by file name."""
+    db = get_db()
+    user_id = session['user_id']
+    name = (filename or '').strip()
+    if not name:
+        abort(404)
+
+    try:
+        doc = db.code_snippets.find_one(
+            {
+                'user_id': user_id,
+                'file_name': name,
+                'is_active': True,
+            },
+            sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
+        )
+    except Exception as e:
+        logger.exception("DB error fetching file for reader mode", extra={
+            "file_name": name,
+            "user_id": user_id,
+            "error": str(e),
+        })
+        abort(500)
+
+    if not doc:
+        abort(404)
+
+    etag = _compute_file_etag(doc)
+    last_modified_dt = _safe_dt_from_doc(doc.get('updated_at') or doc.get('created_at'))
+    last_modified_str = http_date(last_modified_dt)
+    inm = request.headers.get('If-None-Match')
+    if inm and inm == etag:
+        resp = Response(status=304)
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
+    ims = request.headers.get('If-Modified-Since')
+    if ims:
+        try:
+            ims_dt = parse_date(ims)
+        except Exception:
+            ims_dt = None
+        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
+            resp = Response(status=304)
+            resp.headers['ETag'] = etag
+            resp.headers['Last-Modified'] = last_modified_str
+            return resp
+
+    file_name = (doc.get('file_name') or 'README.md').strip() or 'README.md'
+    language = (doc.get('programming_language') or '').strip().lower()
+    if (not language or language == 'text') and file_name.lower().endswith('.md'):
+        language = 'markdown'
+    is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
+    if not is_markdown:
+        return redirect(url_for('view_file', file_id=str(doc.get('_id'))))
+
+    code = (doc.get('code') or doc.get('content') or '')
+    rendered_html, pygments_css = _render_markdown_preview(code)
+    back_url = url_for('md_preview', file_id=str(doc.get('_id')))
+
+    html = render_template(
+        'reader_mode.html',
+        title=file_name,
+        subtitle=None,
+        content=rendered_html,
+        pygments_css=pygments_css,
+        back_url=back_url,
+    )
+    resp = Response(html, mimetype='text/html; charset=utf-8')
+    resp.headers['ETag'] = etag
+    resp.headers['Last-Modified'] = last_modified_str
+    return resp
+
+
 # ============================================
 # Styled HTML Export Routes
 # ============================================
