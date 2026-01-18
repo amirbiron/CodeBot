@@ -23,7 +23,8 @@ class TestPinToDashboard:
             },
             None,
         ]
-        mock_db.collection.count_documents.return_value = 2
+        mock_db.collection.aggregate.side_effect = [[{"count": 2}], [{"count": 3}]]
+        mock_db.collection.find.return_value.sort.return_value = []
 
         result = toggle_pin(mock_db, 123, "test.py")
 
@@ -41,7 +42,8 @@ class TestPinToDashboard:
             },
             None,
         ]
-        mock_db.collection.count_documents.return_value = 8  # מקסימום
+        mock_db.collection.aggregate.return_value = [{"count": 8}]  # מקסימום
+        mock_db.collection.find.return_value.sort.return_value = []
 
         result = toggle_pin(mock_db, 123, "test.py")
 
@@ -66,6 +68,7 @@ class TestPinToDashboard:
                 "is_active": True
             },
         ]
+        mock_db.collection.find.return_value.sort.return_value = []
 
         result = toggle_pin(mock_db, 123, "test.py")
 
@@ -74,7 +77,7 @@ class TestPinToDashboard:
 
     def test_get_pinned_files_ordered(self, mock_db):
         """קבלת קבצים נעוצים בסדר נכון"""
-        mock_db.collection.find.return_value.sort.return_value.limit.return_value = [
+        mock_db.collection.aggregate.return_value = [
             {"file_name": "first.py", "pin_order": 0},
             {"file_name": "second.py", "pin_order": 1},
             {"file_name": "third.py", "pin_order": 2}
@@ -94,7 +97,7 @@ class TestPinToDashboard:
             "is_pinned": True,
             "pin_order": 0
         }
-        mock_db.collection.count_documents.return_value = 4
+        mock_db.collection.aggregate.return_value = [{"count": 4}]
 
         result = reorder_pinned(mock_db, 123, "test.py", 2)
 

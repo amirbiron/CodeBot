@@ -118,7 +118,7 @@ MAX_PINNED_FILES = 8
 
 
 def _normalize_pinned_orders(self, user_id: int) -> int:
-    """איפוס סדר נעיצות לרצף תקין והסרת עודפים מעבר למקסימום."""
+    """איפוס סדר נעיצות לרצף תקין והסרת כפילויות/עודפים מעבר למקסימום."""
     try:
         cursor = self.collection.find(
             {
@@ -128,18 +128,39 @@ def _normalize_pinned_orders(self, user_id: int) -> int:
             },
             {
                 "_id": 1,
+                "file_name": 1,
+                "version": 1,
                 "pin_order": 1,
                 "pinned_at": 1,
             },
-        ).sort([("pin_order", 1), ("pinned_at", 1), ("_id", 1)])
+        ).sort([("file_name", 1), ("version", -1)])
         pinned = list(cursor)
     except Exception as e:
         logger.error(f"שגיאה ב-normalize_pinned_orders: {e}")
         return 0
 
+    seen_files = set()
+    keep: List[Dict[str, Any]] = []
+    drop_ids: List[Any] = []
+    for doc in pinned:
+        file_name = doc.get("file_name")
+        if not file_name:
+            continue
+        if file_name in seen_files:
+            if doc.get("_id") is not None:
+                drop_ids.append(doc.get("_id"))
+            continue
+        seen_files.add(file_name)
+        keep.append(doc)
+
+    keep.sort(key=lambda d: (
+        int(d.get("pin_order", 0) or 0),
+        d.get("pinned_at") or datetime.min.replace(tzinfo=timezone.utc),
+        str(d.get("_id") or "")
+    ))
+
     now = datetime.now(timezone.utc)
-    keep = pinned[:MAX_PINNED_FILES]
-    drop = pinned[MAX_PINNED_FILES:]
+    keep = keep[:MAX_PINNED_FILES]
 
     for idx, doc in enumerate(keep):
         try:
@@ -150,19 +171,17 @@ def _normalize_pinned_orders(self, user_id: int) -> int:
         except Exception:
             pass
 
-    if drop:
+    if drop_ids:
         try:
-            drop_ids = [doc.get("_id") for doc in drop if doc.get("_id") is not None]
-            if drop_ids:
-                self.collection.update_many(
-                    {"_id": {"$in": drop_ids}},
-                    {"$set": {
-                        "is_pinned": False,
-                        "pinned_at": None,
-                        "pin_order": 0,
-                        "updated_at": now,
-                    }},
-                )
+            self.collection.update_many(
+                {"_id": {"$in": drop_ids}},
+                {"$set": {
+                    "is_pinned": False,
+                    "pinned_at": None,
+                    "pin_order": 0,
+                    "updated_at": now,
+                }},
+            )
         except Exception:
             pass
 
@@ -184,11 +203,21 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
         - error: str - הודעת שגיאה (אם יש)
     """
     try:
-        snippet = self.collection.find_one({
-            "user_id": user_id,
-            "file_name": file_name,
-            "is_active": True
-        })
+        try:
+            snippet = self.collection.find_one(
+                {
+                    "user_id": user_id,
+                    "file_name": file_name,
+                    "is_active": True
+                },
+                sort=[("version", -1)],
+            )
+        except TypeError:
+            snippet = self.collection.find_one({
+                "user_id": user_id,
+                "file_name": file_name,
+                "is_active": True
+            })
 
         if not snippet:
             return {"success": False, "error": "הקובץ לא נמצא"}
@@ -213,7 +242,7 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                     "is_pinned": True
                 }
             )
-        current_pinned = bool(pinned_doc)
+        current_pinned = bool(pinned_doc) or bool(snippet.get("is_pinned", False))
 
         # אם רוצים לנעוץ - בדוק מגבלת כמות
         if not current_pinned:
@@ -227,13 +256,23 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
             # קבע סדר - אחרון בתור
             next_order = pinned_count
 
+            now = datetime.now(timezone.utc)
             self.collection.update_many(
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
+                    "is_pinned": False,
+                    "pinned_at": None,
+                    "pin_order": 0,
+                    "updated_at": now
+                }}
+            )
+            self.collection.update_one(
+                {"_id": snippet.get("_id")},
+                {"$set": {
                     "is_pinned": True,
-                    "pinned_at": datetime.now(timezone.utc),
+                    "pinned_at": now,
                     "pin_order": next_order,
-                    "updated_at": datetime.now(timezone.utc)
+                    "updated_at": now
                 }}
             )
 
@@ -246,7 +285,7 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                         "is_pinned": False,
                         "pinned_at": None,
                         "pin_order": 0,
-                        "updated_at": datetime.now(timezone.utc)
+                        "updated_at": now
                     }}
                 )
                 _normalize_pinned_orders(self, user_id)
@@ -309,15 +348,18 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
                 # ⚠️ ללא: code, content, raw_data
             }
 
-        pinned = list(self.collection.find(
-            {
-                "user_id": user_id,
-                "is_pinned": True,
-                "is_active": True
-            },
-            projection
-        ).sort("pin_order", 1).limit(MAX_PINNED_FILES))
+        pipeline = [
+            {"$match": {"user_id": user_id, "is_active": True}},
+            {"$sort": {"file_name": 1, "version": -1}},
+            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+            {"$replaceRoot": {"newRoot": "$latest"}},
+            {"$match": {"is_pinned": True}},
+            {"$sort": {"pin_order": 1}},
+            {"$limit": MAX_PINNED_FILES},
+            {"$project": projection},
+        ]
 
+        pinned = list(self.collection.aggregate(pipeline, allowDiskUse=True))
         return pinned
 
     except Exception as e:
@@ -328,11 +370,18 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
 def get_pinned_count(self, user_id: int) -> int:
     """ספירת קבצים נעוצים"""
     try:
-        return self.collection.count_documents({
-            "user_id": user_id,
-            "is_pinned": True,
-            "is_active": True
-        })
+        pipeline = [
+            {"$match": {"user_id": user_id, "is_active": True}},
+            {"$sort": {"file_name": 1, "version": -1}},
+            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+            {"$replaceRoot": {"newRoot": "$latest"}},
+            {"$match": {"is_pinned": True}},
+            {"$count": "count"},
+        ]
+        res = list(self.collection.aggregate(pipeline, allowDiskUse=True))
+        if res:
+            return int(res[0].get("count", 0) or 0)
+        return 0
     except Exception as e:
         logger.error(f"שגיאה בספירת נעוצים: {e}")
         return 0
