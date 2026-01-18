@@ -138,6 +138,17 @@ const MarkdownToolbar = {
 
     const isMarkdown = this.isMarkdownContext();
     toolbar.classList.toggle('is-visible', isMarkdown);
+    if (!isMarkdown && this._dropdownOpen) {
+      this.closeDropdown();
+    }
+  },
+
+  updateOverflowState(isOpen) {
+    const toolbar = document.querySelector('.md-toolbar-group');
+    if (!toolbar) return;
+    const host = toolbar.closest('.split-view');
+    if (!host) return;
+    host.classList.toggle('md-toolbar-open', !!isOpen);
   },
 
   // ---------- העברת הסרגל לשורת העורך ----------
@@ -286,6 +297,7 @@ const MarkdownToolbar = {
 
     this._dropdownOpen = !this._dropdownOpen;
     dropdown.classList.toggle('is-open', this._dropdownOpen);
+    this.updateOverflowState(this._dropdownOpen);
 
     // עדכון נגישות
     if (trigger) {
@@ -306,6 +318,7 @@ const MarkdownToolbar = {
       dropdown.classList.remove('is-open');
       this._dropdownOpen = false;
     }
+    this.updateOverflowState(false);
 
     // עדכון נגישות (גם אם כבר סגור)
     if (trigger) {

@@ -73,6 +73,11 @@
   transform: translateY(0);
 }
 
+/* מאפשר לתפריטים לחרוג מגבולות ה-Split View בדסקטופ */
+.split-view.md-toolbar-open {
+  overflow: visible;
+}
+
 /* פריטי תפריט */
 .md-toolbar-item {
   display: flex;
