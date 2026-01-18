@@ -22,13 +22,17 @@
 
 **Mermaid Diagram (תהליך הרינדור):**
 
-.. code-block:: mermaid
+.. code-block:: text
 
    flowchart LR
      A[Markdown Text] --> B[Python Renderer (Extensions)]
      B --> C[HTML]
      C --> D[CSS Styling (Variables)]
      D --> E[User Display]
+
+.. note::
+   הדיאגרמה כתובה ב‑Mermaid אך מוצגת כטקסט כדי למנוע אזהרות Pygments ב‑RTD.
+   אם רוצים רינדור ויזואלי, אפשר להוסיף תוסף Mermaid לתיעוד.
 
 **Extensions פעילים (מקור אמת: `app.py`):**
 
