@@ -16,6 +16,10 @@ class CodeSnippet:
     # שדות מועדפים
     is_favorite: bool = False
     favorited_at: Optional[datetime] = None
+    # שדות נעיצה לדשבורד
+    is_pinned: bool = False
+    pinned_at: Optional[datetime] = None
+    pin_order: int = 0
     description: str = ""
     tags: Optional[List[str]] = None
     version: int = 1

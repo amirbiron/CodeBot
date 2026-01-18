@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from types import SimpleNamespace
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, Protocol
 
 try:
@@ -112,6 +112,225 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 _MONGO_MONITORING_REGISTERED = False
+
+# הגבלת מספר קבצים נעוצים
+MAX_PINNED_FILES = 8
+
+
+def toggle_pin(self, user_id: int, file_name: str) -> dict:
+    """
+    נעיצה/ביטול נעיצה של קובץ לדשבורד
+
+    Args:
+        user_id: מזהה המשתמש
+        file_name: שם הקובץ
+
+    Returns:
+        dict עם:
+        - success: bool - האם הפעולה הצליחה
+        - is_pinned: bool - המצב החדש
+        - error: str - הודעת שגיאה (אם יש)
+    """
+    try:
+        snippet = self.collection.find_one({
+            "user_id": user_id,
+            "file_name": file_name
+        })
+
+        if not snippet:
+            return {"success": False, "error": "הקובץ לא נמצא"}
+
+        current_pinned = snippet.get("is_pinned", False)
+
+        # אם רוצים לנעוץ - בדוק מגבלת כמות
+        if not current_pinned:
+            pinned_count = get_pinned_count(self, user_id)
+            if pinned_count >= MAX_PINNED_FILES:
+                return {
+                    "success": False,
+                    "error": f"ניתן לנעוץ עד {MAX_PINNED_FILES} קבצים. הסר נעיצה מקובץ אחר."
+                }
+
+            # קבע סדר - אחרון בתור
+            next_order = pinned_count
+
+            self.collection.update_one(
+                {"user_id": user_id, "file_name": file_name},
+                {"$set": {
+                    "is_pinned": True,
+                    "pinned_at": datetime.now(timezone.utc),
+                    "pin_order": next_order,
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
+
+            logger.info(f"קובץ {file_name} נעוץ לדשבורד עבור משתמש {user_id}")
+            return {"success": True, "is_pinned": True}
+
+        else:
+            # ביטול נעיצה
+            old_order = snippet.get("pin_order", 0)
+
+            self.collection.update_one(
+                {"user_id": user_id, "file_name": file_name},
+                {"$set": {
+                    "is_pinned": False,
+                    "pinned_at": None,
+                    "pin_order": 0,
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
+
+            # עדכון סדר לכל הקבצים שהיו אחריו
+            self.collection.update_many(
+                {
+                    "user_id": user_id,
+                    "is_pinned": True,
+                    "pin_order": {"$gt": old_order}
+                },
+                {"$inc": {"pin_order": -1}}
+            )
+
+            logger.info(f"קובץ {file_name} הוסר מנעוצים עבור משתמש {user_id}")
+            return {"success": True, "is_pinned": False}
+
+    except Exception as e:
+        logger.error(f"שגיאה ב-toggle_pin: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def get_pinned_files(self, user_id: int) -> List[Dict]:
+    """
+    קבלת כל הקבצים הנעוצים של משתמש
+
+    Returns:
+        רשימת קבצים נעוצים ממוינים לפי סדר
+    """
+    try:
+        # Smart Projection - ללא שדות כבדים!
+        try:
+            from .repository import HEAVY_FIELDS_EXCLUDE_PROJECTION
+            projection: Dict[str, int] = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
+        except Exception:
+            projection = {
+                # שדות קלים בלבד
+                "file_name": 1,
+                "programming_language": 1,
+                "tags": 1,
+                "note": 1,
+                "pinned_at": 1,
+                "pin_order": 1,
+                "updated_at": 1,
+                "file_size": 1,
+                "lines_count": 1,
+                "_id": 1
+                # ⚠️ ללא: code, content, raw_data
+            }
+
+        pinned = list(self.collection.find(
+            {
+                "user_id": user_id,
+                "is_pinned": True
+            },
+            projection
+        ).sort("pin_order", 1).limit(MAX_PINNED_FILES))
+
+        return pinned
+
+    except Exception as e:
+        logger.error(f"שגיאה ב-get_pinned_files: {e}")
+        return []
+
+
+def get_pinned_count(self, user_id: int) -> int:
+    """ספירת קבצים נעוצים"""
+    try:
+        return self.collection.count_documents({
+            "user_id": user_id,
+            "is_pinned": True
+        })
+    except Exception as e:
+        logger.error(f"שגיאה בספירת נעוצים: {e}")
+        return 0
+
+
+def is_pinned(self, user_id: int, file_name: str) -> bool:
+    """בדיקה אם קובץ נעוץ"""
+    try:
+        snippet = self.collection.find_one(
+            {"user_id": user_id, "file_name": file_name},
+            {"is_pinned": 1}
+        )
+        return snippet.get("is_pinned", False) if snippet else False
+    except Exception as e:
+        logger.error(f"שגיאה ב-is_pinned: {e}")
+        return False
+
+
+def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
+    """
+    שינוי סדר קובץ נעוץ (drag & drop בעתיד)
+
+    Args:
+        user_id: מזהה המשתמש
+        file_name: שם הקובץ להזזה
+        new_order: המיקום החדש (0-based)
+
+    Returns:
+        True אם הצליח
+    """
+    try:
+        snippet = self.collection.find_one({
+            "user_id": user_id,
+            "file_name": file_name,
+            "is_pinned": True
+        })
+
+        if not snippet:
+            return False
+
+        old_order = snippet.get("pin_order", 0)
+        pinned_count = get_pinned_count(self, user_id)
+
+        # וידוא גבולות
+        new_order = max(0, min(new_order, pinned_count - 1))
+
+        if old_order == new_order:
+            return True
+
+        # עדכון סדרים של קבצים אחרים
+        if new_order > old_order:
+            # הזזה למטה - הקטן סדר של כל מי שבאמצע
+            self.collection.update_many(
+                {
+                    "user_id": user_id,
+                    "is_pinned": True,
+                    "pin_order": {"$gt": old_order, "$lte": new_order}
+                },
+                {"$inc": {"pin_order": -1}}
+            )
+        else:
+            # הזזה למעלה - הגדל סדר של כל מי שבאמצע
+            self.collection.update_many(
+                {
+                    "user_id": user_id,
+                    "is_pinned": True,
+                    "pin_order": {"$gte": new_order, "$lt": old_order}
+                },
+                {"$inc": {"pin_order": 1}}
+            )
+
+        # עדכון הקובץ עצמו
+        self.collection.update_one(
+            {"user_id": user_id, "file_name": file_name},
+            {"$set": {"pin_order": new_order}}
+        )
+
+        return True
+
+    except Exception as e:
+        logger.error(f"שגיאה ב-reorder_pinned: {e}")
+        return False
 
 
 class DatabaseManager:
@@ -976,6 +1195,14 @@ class DatabaseManager:
             enforce=True,
         )
 
+        # code_snippets - אינדקס לקבצים נעוצים בדשבורד
+        safe_create_index(
+            "code_snippets",
+            [("user_id", ASCENDING), ("is_pinned", ASCENDING), ("pin_order", ASCENDING), ("pinned_at", DESCENDING)],
+            name="user_pinned_pin_order_idx",
+            background=True,
+        )
+
         # code_snippets - אינדקס TEXT לחיפוש גלובלי ($text)
         # חשוב: זה אינדקס "כבד" כי הוא כולל גם code, אבל הוא קריטי כדי ש-$text יעבוד מהר
         # (ובמקום ליפול ל-$regex שמעמיס יותר).
@@ -1186,6 +1413,22 @@ class DatabaseManager:
 
     def is_favorite(self, user_id: int, file_name: str) -> bool:
         return self._get_repo().is_favorite(user_id, file_name)
+
+    # Pinned files API wrappers
+    def toggle_pin(self, user_id: int, file_name: str) -> dict:
+        return toggle_pin(self, user_id, file_name)
+
+    def get_pinned_files(self, user_id: int) -> List[Dict]:
+        return get_pinned_files(self, user_id)
+
+    def get_pinned_count(self, user_id: int) -> int:
+        return get_pinned_count(self, user_id)
+
+    def is_pinned(self, user_id: int, file_name: str) -> bool:
+        return is_pinned(self, user_id, file_name)
+
+    def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
+        return reorder_pinned(self, user_id, file_name, new_order)
 
     # Large files API
     def save_large_file(self, large_file) -> bool:
