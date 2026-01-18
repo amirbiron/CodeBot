@@ -450,6 +450,17 @@ async function initCodeViewer(content, language) {
             if (support) extensions.push(support);
         }
 
+        // Theme - load from editorManager like view_file does
+        try {
+            if (window.editorManager && typeof window.editorManager.getEditorTheme === 'function') {
+                const themeName = document.documentElement.getAttribute('data-theme') || 'dark';
+                const themeExt = await window.editorManager.getEditorTheme(themeName);
+                if (themeExt) extensions.push(themeExt);
+            }
+        } catch (e) {
+            console.warn('Failed to load editor theme:', e);
+        }
+
         // Read-only
         if (EditorView && EditorView.editable) {
             extensions.push(EditorView.editable.of(false));
@@ -475,12 +486,7 @@ async function initCodeViewer(content, language) {
 }
 
 async function ensureCodeMirrorRuntime() {
-    // CodeMirror 5 from CDN (guide)
-    if (window.CodeMirror && typeof window.CodeMirror.fromTextArea === 'function') {
-        return 'cm5';
-    }
-
-    // Fallback: use existing in-app CodeMirror 6 loader (local bundle)
+    // Prefer CodeMirror 6 (consistent with rest of webapp)
     if (window.editorManager && typeof window.editorManager.loadCodeMirror === 'function') {
         try {
             await window.editorManager.loadCodeMirror();
@@ -491,6 +497,11 @@ async function ensureCodeMirrorRuntime() {
 
     if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
         return 'cm6';
+    }
+
+    // Fallback to CodeMirror 5 from CDN (if CM6 not available)
+    if (window.CodeMirror && typeof window.CodeMirror.fromTextArea === 'function') {
+        return 'cm5';
     }
 
     return null;
