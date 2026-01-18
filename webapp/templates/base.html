@@ -3881,7 +3881,7 @@
                 
                 // עדכן בשרת (אופציונלי - אם יש endpoint)
                 try {
-                    await fetch('/api/user/preferences', {
+                    await fetch('/api/ui_prefs', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ theme: themeId })
@@ -3898,10 +3898,10 @@
             }
             
             if (themeType === 'shared') {
-                endpoint = `/api/themes/shared/${themeId}/apply`;
+                endpoint = `/api/themes/shared/${encodeURIComponent(themeId)}/apply`;
             } else {
                 // custom theme
-                endpoint = `/api/themes/${themeId}/activate`;
+                endpoint = `/api/themes/${encodeURIComponent(themeId)}/activate`;
             }
             
             const response = await fetch(endpoint, {
