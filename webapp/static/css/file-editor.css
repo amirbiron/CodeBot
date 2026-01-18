@@ -8,6 +8,16 @@ form.file-edit-form *::after {
   box-sizing: border-box;
 }
 
+form.file-edit-form {
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+form.file-edit-form > * {
+  min-width: 0;
+}
+
 .form-field {
   width: 100%;
   padding: 0.75rem;
@@ -190,6 +200,21 @@ form.file-edit-form .filename-input-wrapper .form-field {
   min-width: 0;
 }
 
+form.file-edit-form .split-view,
+form.file-edit-form #editorContainer,
+form.file-edit-form .source-url-block,
+form.file-edit-form .save-actions,
+form.file-edit-form .code-tools-group,
+form.file-edit-form .md-toolbar-group {
+  max-width: 100%;
+  min-width: 0;
+}
+
+form.file-edit-form .split-view,
+form.file-edit-form #editorContainer {
+  width: 100%;
+}
+
 /* Actions row (Edit page) */
 .file-form-actions {
   display: flex;
@@ -219,6 +244,23 @@ form.file-edit-form .filename-input-wrapper .form-field {
   form.file-edit-form .source-url-toggle__text {
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+
+  .save-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .save-actions .primary-actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .save-actions .btn,
+  .save-actions a.btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 
