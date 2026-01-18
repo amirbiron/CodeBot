@@ -526,13 +526,13 @@ body.theme-picker-open {
         
         // טען ערכות אם עדיין לא נטענו
         if (allThemes.length === 0) {
+            // loadThemes יקרא ל-detectCurrentTheme בסיום הטעינה
             loadThemes();
         } else {
+            // יש כבר ערכות טעונות - רנדר ועדכן את השם הנוכחי
             renderThemes();
+            detectCurrentTheme();
         }
-        
-        // זיהוי ערכה נוכחית
-        detectCurrentTheme();
     }
 
     /**
@@ -589,16 +589,27 @@ body.theme-picker-open {
                 });
             }
             
+            // וודא שהמודאל עדיין פתוח לפני רינדור
+            if (!modalEl.classList.contains('is-open')) {
+                return;
+            }
+            
             renderThemes();
+            
+            // עדכן את שם הערכה הנוכחית עכשיו שיש לנו את כל הנתונים
+            detectCurrentTheme();
         } catch (error) {
             console.error('Error loading themes:', error);
-            gridEl.innerHTML = `
-                <div class="theme-picker__empty">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <p>שגיאה בטעינת ערכות</p>
-                    <button class="btn btn-sm btn-outline-primary" onclick="window.__themePicker.reload()">נסה שוב</button>
-                </div>
-            `;
+            // וודא שהמודאל עדיין פתוח לפני הצגת שגיאה
+            if (modalEl.classList.contains('is-open')) {
+                gridEl.innerHTML = `
+                    <div class="theme-picker__empty">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>שגיאה בטעינת ערכות</p>
+                        <button class="btn btn-sm btn-outline-primary" onclick="window.__themePicker.reload()">נסה שוב</button>
+                    </div>
+                `;
+            }
         } finally {
             isLoading = false;
         }
@@ -608,6 +619,11 @@ body.theme-picker-open {
      * רינדור הערכות לפי הפילטר הנוכחי
      */
     function renderThemes() {
+        // וודא שהמודאל עדיין פתוח לפני רינדור
+        if (!modalEl.classList.contains('is-open')) {
+            return;
+        }
+        
         let filtered = allThemes;
         
         if (currentFilter !== 'all') {
