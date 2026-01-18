@@ -1689,6 +1689,8 @@ def manage_mongo_lock():
             pass
 
         # Start heartbeat (disabled by default in tests unless explicitly enabled)
+        if os.getenv("PYTEST_CURRENT_TEST") and not _env_bool("LOCK_ENABLE_HEARTBEAT_IN_TESTS", False):
+            return True
         try:
             hb = _MongoLockHeartbeat(
                 lock_collection=lock_collection,
