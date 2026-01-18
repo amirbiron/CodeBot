@@ -13753,8 +13753,9 @@ def api_toggle_pin(file_id):
         })
 
     except Exception as e:
-        logger.error(f"Error in api_toggle_pin: {e}")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        # Log full exception details on the server, but return a generic message to the client
+        logger.exception("Error in api_toggle_pin")
+        return jsonify({"ok": False, "error": "שגיאה פנימית בשרת"}), 500
 
 
 @app.route('/api/pinned', methods=['GET'])
