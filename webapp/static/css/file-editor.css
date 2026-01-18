@@ -209,7 +209,7 @@ form.file-edit-form .code-tools-group {
   min-width: 0;
 }
 
-form.file-edit-form .md-toolbar-group {
+form[data-file-form-config] .md-toolbar-group {
   position: relative;
   overflow: visible;
 }
