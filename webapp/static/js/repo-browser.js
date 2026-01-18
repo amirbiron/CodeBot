@@ -450,15 +450,28 @@ async function initCodeViewer(content, language) {
             if (support) extensions.push(support);
         }
 
-        // Theme - load from editorManager like view_file does
+        // Theme - use same logic as view_file (always 'dark' except for custom themes)
+        const htmlTheme = (document.documentElement.getAttribute('data-theme') || '').toLowerCase();
+        const isCustomTheme = htmlTheme === 'custom' || htmlTheme.startsWith('shared:');
+        const themeName = isCustomTheme ? 'custom' : 'dark';
+        
         try {
-            if (window.editorManager && typeof window.editorManager.getEditorTheme === 'function') {
-                const themeName = document.documentElement.getAttribute('data-theme') || 'dark';
-                const themeExt = await window.editorManager.getEditorTheme(themeName);
+            if (window.editorManager && typeof window.editorManager.getTheme === 'function') {
+                const themeExt = await window.editorManager.getTheme(themeName);
                 if (themeExt) extensions.push(themeExt);
             }
         } catch (e) {
             console.warn('Failed to load editor theme:', e);
+        }
+
+        // Custom themes: load dynamic syntax highlighter with colors from syntax_colors
+        if (isCustomTheme && window.CodeMirror6 && typeof window.CodeMirror6.getSyntaxHighlighter === 'function') {
+            try {
+                const customSyntaxHighlighter = window.CodeMirror6.getSyntaxHighlighter();
+                if (customSyntaxHighlighter) extensions.push(customSyntaxHighlighter);
+            } catch (e) {
+                console.warn('Failed to load custom syntax highlighter:', e);
+            }
         }
 
         // Read-only
