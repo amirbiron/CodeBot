@@ -710,6 +710,20 @@
   /* במובייל – אם צריך, ניתן להעביר לשורה שנייה בתוך הכותרת */
   #bgColorSwitcher { order: 2; width: auto; margin-top: 6px; }
 }
+/* כפתור Reader Mode — מוצג רק בערכות כהות */
+.md-reader-mode-btn { display: none !important; }
+:root[data-theme="custom"] .md-reader-mode-btn,
+:root[data-theme^="shared:"] .md-reader-mode-btn,
+:root[data-theme="dark"] .md-reader-mode-btn,
+:root[data-theme="dim"] .md-reader-mode-btn,
+:root[data-theme="nebula"] .md-reader-mode-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1;
+}
 /* הרחבת הקונטיינר בעמוד Markdown כדי לצמצם את הסגול בצדדים */
 .main-content > .container {
   /* מכולה רחבה כדי לצמצם "סגול" בצדדים */
@@ -1649,10 +1663,18 @@ input.md-task-checkbox {
           </div>
         </div>
       </div>
-      <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
-        <i class="fas fa-expand"></i>
-        מסך מלא
-      </button>
+      <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;">
+        <a id="mdReaderModeBtn"
+           class="btn btn-secondary btn-icon md-reader-mode-btn"
+           href="{{ url_for('reader_mode', filename=file.file_name) }}"
+           target="_blank"
+           rel="noopener noreferrer"
+           title="פתח במצב קריאה">📖</a>
+        <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
+          <i class="fas fa-expand"></i>
+          מסך מלא
+        </button>
+      </div>
     </div>
     <div class="search-bar" id="md-search">
       <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד...">
