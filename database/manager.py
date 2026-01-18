@@ -196,7 +196,8 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
             except Exception:
                 old_order = 0
 
-        return {"success": False, "error": "אירעה שגיאה בעת עדכון הנעיצה"}
+        # החזר הודעת שגיאה כללית בלבד למניעת חשיפת פרטי חריגה פנימיים
+        return {"success": False, "error": "שגיאה בעת עדכון סטטוס נעיצה"}
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_pinned": False,
