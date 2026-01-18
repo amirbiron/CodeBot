@@ -131,6 +131,7 @@ Code Keeper Bot - תיעוד API
    webapp/bulk-actions
    webapp/editor
    webapp/markdown-folding
+   markdown_style_guide
    webapp/smooth-scrolling
    webapp/system-modules
 

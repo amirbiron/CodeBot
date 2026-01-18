@@ -1664,7 +1664,14 @@ input.md-task-checkbox {
         </div>
       </div>
       <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;">
-        {% if not is_public %}
+        {% if is_public %}
+        <a id="mdReaderModeBtn"
+           class="btn btn-secondary btn-icon md-reader-mode-btn"
+           href="{{ url_for('public_reader_mode', share_id=file.id) }}"
+           target="_blank"
+           rel="noopener noreferrer"
+           title="פתח במצב קריאה">📖</a>
+        {% else %}
         <a id="mdReaderModeBtn"
            class="btn btn-secondary btn-icon md-reader-mode-btn"
            href="{{ url_for('reader_mode', filename=file.file_name) }}"
