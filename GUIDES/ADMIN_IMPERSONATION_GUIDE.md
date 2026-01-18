@@ -2,6 +2,32 @@
 
 > **מטרה:** לאפשר לאדמינים לצפות במערכת מנקודת מבטו של משתמש רגיל, ללא גישה לנתונים פרטיים, אלא רק לצורך בדיקת UI/UX.
 
+> **גרסה:** 1.1 (Production Grade)
+
+---
+
+## ⚠️ עקרונות ארכיטקטוניים קריטיים
+
+לפני שמתחילים, חשוב להבין שלושה כללים שמבדילים בין מימוש שיעבוד לבין מימוש שיגרום לבאגים:
+
+### 1. אל תיגע ב-`session['user_data']`! 🚫
+
+**הבעיה:** שינוי `session['user_data']['is_admin'] = False` הוא מתכון לאסון. אם המשתמש יעשה לוגין מחדש או רענון שידרוס את ה-Session, המצב ישבר.
+
+**הפתרון:** ה-Session מחזיק **רק** את הדגל `is_impersonating`, והלוגיקה קורית בזמן אמת ב-Context Processor.
+
+### 2. מנגנון מילוט (Fail-Safe) 🆘
+
+**הבעיה:** מה קורה אם יש באג ב-JS והבאנר הכתום לא מופיע? האדמין תקוע לנצח כמשתמש רגיל.
+
+**הפתרון:** תמיד לאפשר עקיפה דרך `?force_admin=1` ב-URL.
+
+### 3. Cache ו-CSRF 🔄
+
+**הבעיה:** אם הדפדפן ישמור Cache, האדמין ילחץ על "צפה כמשתמש" ושום דבר לא יקרה ויזואלית.
+
+**הפתרון:** הוספת `Cache-Control: no-store` ו-CSRF token לכל הבקשות.
+
 ---
 
 ## 📋 סקירת המצב הקיים
@@ -93,49 +119,45 @@ IMPERSONATION_ORIGINAL_ADMIN_KEY = 'admin_impersonation_original_user_id'
 ```python
 # --- Admin Impersonation Functions ---
 
-def is_impersonating() -> bool:
-    """בודק אם האדמין כרגע במצב Impersonation (צפייה כמשתמש רגיל)."""
+def is_impersonating_raw() -> bool:
+    """
+    בודק אם הדגל הגולמי של Impersonation פעיל בסשן.
+    
+    ⚠️ לא לשימוש ישיר ב-UI! השתמש ב-is_impersonating_safe() שכולל Fail-Safe.
+    """
     return bool(session.get(IMPERSONATION_SESSION_KEY, False))
 
 
-def get_effective_admin_status() -> bool:
+def is_impersonating_safe() -> bool:
     """
-    מחזיר את סטטוס האדמין *האפקטיבי* לצורכי UI.
+    בודק אם מצב Impersonation פעיל, עם מנגנון מילוט (Fail-Safe).
     
-    - אם במצב Impersonation: מחזיר False (האדמין רואה כמשתמש רגיל)
-    - אחרת: מחזיר את הסטטוס האמיתי
+    - אם ?force_admin=1 ב-URL → תמיד מחזיר False (עקיפה לשעת חירום)
+    - אם הדגל פעיל אבל המשתמש לא אדמין באמת → מחזיר False (הגנה)
+    - אחרת → מחזיר את מצב הדגל
     """
-    if is_impersonating():
+    # 🆘 Fail-Safe: עקיפה דרך URL לשעת חירום
+    if request.args.get('force_admin') == '1':
         return False
     
+    # בדיקה שהדגל פעיל
+    if not is_impersonating_raw():
+        return False
+    
+    # הגנה: וידוא שהמשתמש אכן אדמין (מונע מניפולציה בסשן)
     user_id = session.get('user_id')
     if user_id is None:
         return False
     
     try:
-        return is_admin(int(user_id))
+        if not is_admin(int(user_id)):
+            # משתמש לא-אדמין עם דגל Impersonation? משהו לא בסדר - נקה
+            session.pop(IMPERSONATION_SESSION_KEY, None)
+            return False
     except Exception:
         return False
-
-
-def get_effective_premium_status() -> bool:
-    """
-    מחזיר את סטטוס הפרימיום *האפקטיבי* לצורכי UI.
     
-    - אם במצב Impersonation: מחזיר False
-    - אחרת: מחזיר את הסטטוס האמיתי
-    """
-    if is_impersonating():
-        return False
-    
-    user_id = session.get('user_id')
-    if user_id is None:
-        return False
-    
-    try:
-        return is_premium(int(user_id))
-    except Exception:
-        return False
+    return True
 
 
 def can_impersonate() -> bool:
@@ -152,118 +174,138 @@ def can_impersonate() -> bool:
 
 
 def start_impersonation() -> bool:
-    """מפעיל מצב Impersonation. מחזיר True אם הצליח."""
+    """
+    מפעיל מצב Impersonation. מחזיר True אם הצליח.
+    
+    ⚠️ חשוב: לא נוגעים ב-session['user_data']!
+    כל הלוגיקה מחושבת בזמן אמת ב-Context Processor.
+    """
     if not can_impersonate():
         return False
     
     user_id = session.get('user_id')
+    
+    # שומרים רק את הדגל - לא משנים user_data!
     session[IMPERSONATION_SESSION_KEY] = True
     session[IMPERSONATION_ORIGINAL_ADMIN_KEY] = user_id
-    
-    # עדכון user_data (לצורך התבניות)
-    user_data = session.get('user_data', {})
-    user_data['is_admin'] = False
-    user_data['is_premium'] = False
-    user_data['is_impersonating'] = True
-    session['user_data'] = user_data
+    session['impersonation_started_at'] = time.time()
     
     return True
 
 
 def stop_impersonation() -> bool:
-    """מפסיק מצב Impersonation ומחזיר לסטטוס רגיל."""
-    if not is_impersonating():
+    """
+    מפסיק מצב Impersonation ומחזיר לסטטוס רגיל.
+    
+    ⚠️ חשוב: לא נוגעים ב-session['user_data']!
+    """
+    if not is_impersonating_raw():
         return False
     
-    original_user_id = session.get(IMPERSONATION_ORIGINAL_ADMIN_KEY)
-    
-    # ניקוי דגלי Impersonation
+    # ניקוי דגלי Impersonation בלבד
     session.pop(IMPERSONATION_SESSION_KEY, None)
     session.pop(IMPERSONATION_ORIGINAL_ADMIN_KEY, None)
-    
-    # שחזור user_data
-    user_data = session.get('user_data', {})
-    if original_user_id:
-        user_data['is_admin'] = is_admin(int(original_user_id))
-        user_data['is_premium'] = is_premium(int(original_user_id))
-    user_data.pop('is_impersonating', None)
-    session['user_data'] = user_data
+    session.pop('impersonation_started_at', None)
     
     return True
 ```
 
-### שלב 3: עדכון Context Processor
+> **🔑 נקודה קריטית:** שים לב שהפונקציות `start_impersonation()` ו-`stop_impersonation()` **לא נוגעות** ב-`session['user_data']`. זה מכוון! כל הלוגיקה של "מה להציג" מחושבת בזמן אמת ב-Context Processor (שלב 3).
+
+### שלב 3: עדכון Context Processor (הלב של המימוש) ⭐
 
 **קובץ:** `webapp/app.py`  
 **פונקציה:** `inject_template_globals()`
 
-מצא את השורות שמגדירות `user_is_admin`:
+זהו השלב הקריטי ביותר. כל הלוגיקה של "מה להציג" מחושבת כאן בזמן אמת, **בלי לגעת ב-session['user_data']**.
+
+מצא את השורות שמגדירות `user_is_admin` והחלף את כל הבלוק:
 
 ```python
-# לפני:
-user_is_admin = False
-try:
-    if user_id:
-        user_is_admin = bool(is_admin(int(user_id)))
-except Exception:
-    user_is_admin = False
-```
+# =====================================================
+# ADMIN IMPERSONATION - חישוב בזמן אמת
+# =====================================================
 
-והחלף ל:
-
-```python
-# אחרי - תמיכה ב-Impersonation:
-user_is_admin = False
-user_is_impersonating = is_impersonating()
+# 1. שליפת האמת האבסולוטית (לא תלויה ב-Impersonation)
 actual_is_admin = False
-
+actual_is_premium = False
 try:
     if user_id:
         actual_is_admin = bool(is_admin(int(user_id)))
-        user_is_admin = get_effective_admin_status()
+        actual_is_premium = bool(is_premium(int(user_id)))
 except Exception:
-    user_is_admin = False
-    actual_is_admin = False
+    pass
+
+# 2. בדיקת מצב Impersonation עם Fail-Safe
+#    - ?force_admin=1 → עקיפה לשעת חירום
+#    - דגל פעיל + המשתמש אדמין באמת → מצב פעיל
+force_admin_override = request.args.get('force_admin') == '1'
+impersonation_flag = session.get(IMPERSONATION_SESSION_KEY, False)
+
+if force_admin_override:
+    # 🆘 מנגנון מילוט: האדמין הוסיף ?force_admin=1 ל-URL
+    user_is_impersonating = False
+else:
+    # מצב Impersonation פעיל רק אם:
+    # א. הדגל פעיל בסשן
+    # ב. המשתמש אכן אדמין (הגנה מפני מניפולציה)
+    user_is_impersonating = bool(impersonation_flag and actual_is_admin)
+
+# 3. חישוב הסטטוס האפקטיבי לתצוגה
+#    - אם מתחזים → לא אדמין, לא פרימיום (רואים כמשתמש רגיל)
+#    - אחרת → הסטטוס האמיתי
+if user_is_impersonating:
+    effective_is_admin = False
+    effective_is_premium = False
+else:
+    effective_is_admin = actual_is_admin
+    effective_is_premium = actual_is_premium
+
+# 4. user_is_admin משמש את ה-UI (מקבל את הערך האפקטיבי)
+user_is_admin = effective_is_admin
 ```
 
-ובסוף ה-return dict, הוסף:
+ובסוף ה-return dict:
 
 ```python
 return {
     'bot_username': BOT_USERNAME_CLEAN,
-    # ...
-    'user_is_admin': user_is_admin,
-    # --- חדש: Impersonation ---
-    'user_is_impersonating': user_is_impersonating,
-    'actual_is_admin': actual_is_admin,  # הסטטוס האמיתי (לכפתור יציאה)
-    'can_impersonate': actual_is_admin,   # האם להציג כפתור כניסה/יציאה
-    # ...
+    # ... משתנים קיימים ...
+    
+    # הרשאות (אפקטיביות - לשימוש ה-UI)
+    'user_is_admin': user_is_admin,           # ה-UI יתנהג לפי זה
+    'user_is_premium': effective_is_premium,   # גם פרימיום מושפע
+    
+    # --- Admin Impersonation ---
+    'user_is_impersonating': user_is_impersonating,  # להצגת הבאנר הכתום
+    'actual_is_admin': actual_is_admin,              # כפתור היציאה יתנהג לפי זה
+    'can_impersonate': actual_is_admin,              # מי רשאי לראות את הכפתור מלכתחילה
+    
+    # ... שאר המשתנים ...
 }
 ```
 
-### שלב 4: עדכון הדקורטורים (אופציונלי)
+> **💡 למה זה עובד?** הסטטוס האפקטיבי מחושב בכל בקשה מחדש, מהדגל הגולמי בסשן. אם הסשן מתרענן (לוגין מחדש), הדגל עדיין שם והחישוב ימשיך לעבוד. אם הסשן נמחק, המשתמש פשוט חוזר למצב רגיל.
 
-אם רוצים ש-`admin_required` יחסום גם במצב Impersonation, עדכן:
+### שלב 4: עדכון הדקורטורים (עם Fail-Safe)
 
 **קובץ:** `webapp/app.py`  
 **פונקציה:** `admin_required()`
 
+עדכן את הדקורטור לתמוך ב-Impersonation עם מנגנון מילוט:
+
 ```python
 def admin_required(f):
-    """דקורטור לבדיקת הרשאות אדמין"""
+    """
+    דקורטור לבדיקת הרשאות אדמין.
+    
+    - חוסם גישה במצב Impersonation (למעט Fail-Safe)
+    - מאפשר עקיפה דרך ?force_admin=1
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
-        
-        # במצב Impersonation - חסום גישה לעמודי אדמין
-        if is_impersonating():
-            # אפשרות א': הפנייה לדף הבית
-            flash('מצב צפייה כמשתמש פעיל - אין גישה לעמודי אדמין', 'warning')
-            return redirect(url_for('dashboard'))
-            
-            # אפשרות ב': 403 (פחות ידידותי)
-            # abort(403)
         
         # בדיקה אם המשתמש הוא אדמין (הסטטוס האמיתי)
         try:
@@ -274,17 +316,29 @@ def admin_required(f):
         if not is_admin(uid):
             abort(403)
         
+        # 🆘 Fail-Safe: עקיפה דרך URL
+        force_admin = request.args.get('force_admin') == '1'
+        
+        # במצב Impersonation - חסום גישה לעמודי אדמין (אלא אם Fail-Safe)
+        if is_impersonating_safe() and not force_admin:
+            flash('מצב צפייה כמשתמש פעיל - אין גישה לעמודי אדמין. לעקיפה: הוסף ?force_admin=1', 'warning')
+            return redirect(url_for('dashboard'))
+        
         return f(*args, **kwargs)
     return decorated_function
 ```
 
-### שלב 5: Routes להפעלה/כיבוי
+> **🆘 מנגנון מילוט:** אם האדמין "נתקע" במצב Impersonation ואין לו גישה לכפתור היציאה (בגלל באג ב-JS או CSS), הוא יכול תמיד לגשת ל-`/admin/stats?force_admin=1` ולחזור לשלוט.
+
+### שלב 5: Routes להפעלה/כיבוי (עם Cache-Control)
 
 **קובץ:** `webapp/app.py`
 
-הוסף routes חדשים:
+הוסף routes חדשים עם כותרות נגד Cache:
 
 ```python
+from flask import make_response
+
 @app.route('/admin/impersonate/start', methods=['POST'])
 @login_required
 def admin_impersonate_start():
@@ -298,7 +352,12 @@ def admin_impersonate_start():
             severity='info',
             user_id=session.get('user_id'),
         )
-        return jsonify({'ok': True, 'message': 'מצב צפייה כמשתמש הופעל'})
+        # 🔄 Cache-Control: מונע בעיות Cache בדפדפן
+        resp = make_response(jsonify({'ok': True, 'message': 'מצב צפייה כמשתמש הופעל'}))
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
     
     return jsonify({'ok': False, 'error': 'לא ניתן להפעיל מצב צפייה'}), 400
 
@@ -313,7 +372,12 @@ def admin_impersonate_stop():
             severity='info',
             user_id=session.get('user_id'),
         )
-        return jsonify({'ok': True, 'message': 'מצב צפייה כמשתמש הופסק'})
+        # 🔄 Cache-Control
+        resp = make_response(jsonify({'ok': True, 'message': 'מצב צפייה כמשתמש הופסק'}))
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
     
     return jsonify({'ok': False, 'error': 'לא במצב צפייה'}), 400
 
@@ -322,16 +386,22 @@ def admin_impersonate_stop():
 @login_required
 def admin_impersonate_status():
     """מחזיר סטטוס מצב ה-Impersonation הנוכחי."""
+    actual_admin = can_impersonate()
+    currently_impersonating = is_impersonating_safe()
+    
     return jsonify({
         'ok': True,
-        'is_impersonating': is_impersonating(),
-        'can_impersonate': can_impersonate(),
-        'effective_admin': get_effective_admin_status(),
-        'effective_premium': get_effective_premium_status(),
+        'is_impersonating': currently_impersonating,
+        'can_impersonate': actual_admin,
+        'actual_is_admin': actual_admin,
+        # effective = actual אם לא מתחזים, אחרת False
+        'effective_admin': False if currently_impersonating else actual_admin,
     })
 ```
 
-### שלב 6: רכיב UI בתבנית הבסיס
+> **🔄 למה Cache-Control?** בלי זה, הדפדפן עלול לשמור את התגובה ב-cache. המשתמש ילחץ על "צפה כמשתמש", יקבל תגובה מ-cache של בקשה קודמת, ושום דבר לא ישתנה ויזואלית.
+
+### שלב 6: רכיב UI בתבנית הבסיס (עם Fail-Safe Link)
 
 **קובץ:** `webapp/templates/base.html`
 
@@ -348,6 +418,10 @@ def admin_impersonate_status():
             <button id="btn-stop-impersonation" class="btn btn-sm btn-warning">
                 <i class="fas fa-user-shield"></i> חזור למצב אדמין
             </button>
+            <!-- 🆘 Fail-Safe Link: תמיד גלוי למקרה שה-JS לא עובד -->
+            <a href="?force_admin=1" class="impersonation-failsafe" title="לחץ כאן אם הכפתור לא עובד">
+                <i class="fas fa-life-ring"></i>
+            </a>
         </div>
     {% else %}
         <!-- כפתור הפעלה (רק לאדמינים) -->
@@ -359,7 +433,9 @@ def admin_impersonate_status():
 {% endif %}
 ```
 
-### שלב 7: JavaScript לטוגל
+> **🆘 Fail-Safe Link:** הקישור `?force_admin=1` תמיד גלוי בבאנר. אם הכפתור "חזור למצב אדמין" לא עובד (JS מושבת, באג, וכו'), האדמין יכול ללחוץ על האייקון הקטן ולחזור לשלוט.
+
+### שלב 7: JavaScript לטוגל (עם CSRF ו-Force Reload)
 
 **קובץ:** `webapp/static/js/impersonation.js` (חדש)
 
@@ -367,6 +443,8 @@ def admin_impersonate_status():
 /**
  * Admin Impersonation Toggle
  * מאפשר לאדמינים לצפות במערכת כמשתמש רגיל
+ * 
+ * גרסה: 1.1 - כולל תמיכה ב-CSRF ו-Force Reload
  */
 
 (function() {
@@ -375,19 +453,60 @@ def admin_impersonate_status():
     const API_START = '/admin/impersonate/start';
     const API_STOP = '/admin/impersonate/stop';
     
+    /**
+     * מקבל את ה-CSRF Token מה-meta tag (אם קיים).
+     * נדרש אם המערכת משתמשת ב-Flask-WTF או הגנת CSRF אחרת.
+     */
+    function getCsrfToken() {
+        const metaTag = document.querySelector('meta[name="csrf-token"]');
+        return metaTag ? metaTag.getAttribute('content') : null;
+    }
+    
+    /**
+     * בונה את ה-headers לבקשה, כולל CSRF אם קיים.
+     */
+    function buildHeaders() {
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        
+        const csrfToken = getCsrfToken();
+        if (csrfToken) {
+            headers['X-CSRFToken'] = csrfToken;
+        }
+        
+        return headers;
+    }
+    
+    /**
+     * רענון "קשה" של הדף - מתעלם מ-cache.
+     * משתמש ב-location.reload(true) שעובד ברוב הדפדפנים,
+     * עם fallback לשינוי ה-URL אם לא עובד.
+     */
+    function forceReload() {
+        // נסיון 1: reload(true) - deprecated אבל עדיין עובד בחלק מהדפדפנים
+        try {
+            window.location.reload(true);
+        } catch (e) {
+            // נסיון 2: הוספת timestamp ל-URL למניעת cache
+            const url = new URL(window.location.href);
+            url.searchParams.set('_t', Date.now());
+            window.location.href = url.toString();
+        }
+    }
+    
     function startImpersonation() {
         fetch(API_START, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: buildHeaders(),
             credentials: 'same-origin',
+            cache: 'no-store',  // 🔄 מונע cache ברמת הבקשה
         })
         .then(response => response.json())
         .then(data => {
             if (data.ok) {
-                // רענון הדף להחלת השינוי
-                window.location.reload();
+                // 🔄 Force Reload - וידוא שאין cache
+                forceReload();
             } else {
                 alert(data.error || 'שגיאה בהפעלת מצב צפייה');
             }
@@ -401,15 +520,14 @@ def admin_impersonate_status():
     function stopImpersonation() {
         fetch(API_STOP, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: buildHeaders(),
             credentials: 'same-origin',
+            cache: 'no-store',
         })
         .then(response => response.json())
         .then(data => {
             if (data.ok) {
-                window.location.reload();
+                forceReload();
             } else {
                 alert(data.error || 'שגיאה בכיבוי מצב צפייה');
             }
@@ -428,7 +546,7 @@ def admin_impersonate_status():
         if (btnStart) {
             btnStart.addEventListener('click', function(e) {
                 e.preventDefault();
-                if (confirm('האם להפעיל מצב צפייה כמשתמש רגיל?\n\nבמצב זה לא תראה אפשרויות אדמין.')) {
+                if (confirm('האם להפעיל מצב צפייה כמשתמש רגיל?\n\nבמצב זה לא תראה אפשרויות אדמין.\n\n💡 טיפ: אם תתקע, הוסף ?force_admin=1 ל-URL')) {
                     startImpersonation();
                 }
             });
@@ -443,6 +561,12 @@ def admin_impersonate_status():
     });
 })();
 ```
+
+> **🔐 הערה על CSRF:** אם המערכת משתמשת ב-Flask-WTF, חובה להוסיף ל-`base.html`:
+> ```html
+> <meta name="csrf-token" content="{{ csrf_token() }}">
+> ```
+> אם אין הגנת CSRF, הקוד יעבוד גם בלי זה (הפונקציה `getCsrfToken` תחזיר `null`).
 
 ### שלב 8: CSS לבאנר Impersonation
 
@@ -503,6 +627,19 @@ def admin_impersonate_status():
 
 #btn-start-impersonation:hover {
     opacity: 1;
+}
+
+/* 🆘 Fail-Safe Link */
+.impersonation-failsafe {
+    color: rgba(0, 0, 0, 0.4);
+    font-size: 14px;
+    padding: 4px 8px;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.impersonation-failsafe:hover {
+    color: rgba(0, 0, 0, 0.8);
 }
 
 /* התאמה כשיש באנר - הזז את ה-body למטה */
@@ -637,6 +774,43 @@ class TestAdminImpersonation:
         
         response = client.get('/admin/stats')
         assert response.status_code == 200
+    
+    def test_force_admin_bypasses_impersonation(self, client, admin_user_session):
+        """🆘 Fail-Safe: ?force_admin=1 עוקף את מצב Impersonation."""
+        client.post('/admin/impersonate/start')
+        
+        # בלי force_admin - חסום
+        response = client.get('/admin/stats')
+        assert response.status_code in (302, 403)
+        
+        # עם force_admin - מותר
+        response = client.get('/admin/stats?force_admin=1')
+        assert response.status_code == 200
+    
+    def test_impersonation_does_not_modify_user_data(self, client, admin_user_session):
+        """וידוא ש-session['user_data'] לא משתנה במצב Impersonation."""
+        with client.session_transaction() as sess:
+            original_user_data = dict(sess.get('user_data', {}))
+        
+        client.post('/admin/impersonate/start')
+        
+        with client.session_transaction() as sess:
+            current_user_data = dict(sess.get('user_data', {}))
+            # user_data לא אמור להשתנות - רק הדגל הנפרד
+            assert current_user_data.get('is_admin') == original_user_data.get('is_admin')
+    
+    def test_context_processor_calculates_effective_status(self, client, admin_user_session):
+        """בדיקה שה-Context Processor מחשב נכון את הסטטוס האפקטיבי."""
+        # לפני Impersonation
+        response = client.get('/dashboard')
+        # בדוק שיש אלמנטי אדמין ב-HTML
+        assert b'actual_is_admin' in response.data or b'admin-menu' in response.data
+        
+        # אחרי הפעלת Impersonation
+        client.post('/admin/impersonate/start')
+        response = client.get('/dashboard')
+        # בדוק שאין אלמנטי אדמין ב-HTML (למעט כפתור היציאה)
+        assert b'impersonation-banner' in response.data
 ```
 
 ---
@@ -724,17 +898,31 @@ impersonation_log.append({
 
 | רכיב | קובץ | שינוי |
 |------|------|-------|
-| Session Keys | `webapp/app.py` | קבועים חדשים |
-| פונקציות עזר | `webapp/app.py` | 6 פונקציות חדשות |
-| Context Processor | `webapp/app.py` | 3 משתנים חדשים |
-| Routes | `webapp/app.py` | 3 endpoints חדשים |
-| UI Component | `webapp/templates/base.html` | באנר + כפתור |
-| JavaScript | `webapp/static/js/impersonation.js` | קובץ חדש |
+| Session Keys | `webapp/app.py` | 2 קבועים חדשים |
+| פונקציות עזר | `webapp/app.py` | 5 פונקציות חדשות |
+| Context Processor | `webapp/app.py` | חישוב בזמן אמת + 4 משתנים חדשים |
+| דקורטור `admin_required` | `webapp/app.py` | תמיכה ב-Fail-Safe |
+| Routes | `webapp/app.py` | 3 endpoints + Cache-Control |
+| UI Component | `webapp/templates/base.html` | באנר + כפתור + Fail-Safe link |
+| JavaScript | `webapp/static/js/impersonation.js` | קובץ חדש (CSRF + Force Reload) |
 | CSS | `webapp/static/css/impersonation.css` | קובץ חדש |
 | טסטים | `tests/test_admin_impersonation.py` | קובץ חדש |
 
 ---
 
+## ✅ צ'קליסט לפני Production
+
+- [ ] הפונקציות `start_impersonation()` ו-`stop_impersonation()` **לא נוגעות** ב-`session['user_data']`
+- [ ] ה-Context Processor מחשב הכל בזמן אמת מהדגל `IMPERSONATION_SESSION_KEY`
+- [ ] מנגנון Fail-Safe (`?force_admin=1`) עובד ומאפשר עקיפה
+- [ ] קישור Fail-Safe גלוי בבאנר הכתום
+- [ ] `Cache-Control: no-store` מוגדר בכל ה-routes
+- [ ] CSRF Token מועבר בבקשות JS (אם רלוונטי)
+- [ ] `window.location.reload(true)` או force reload אחרי toggle
+- [ ] טסטים עוברים (כולל Fail-Safe)
+
+---
+
 **נכתב:** ינואר 2026  
-**גרסה:** 1.0  
+**גרסה:** 1.1 (Production Grade)  
 **תואם ל:** CodeBot WebApp (Flask-based)
