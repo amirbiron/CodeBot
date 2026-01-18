@@ -3718,11 +3718,13 @@
                 });
             }
             
+            isLoading = false;
+
             // וודא שהמודאל עדיין פתוח לפני רינדור
             if (!modalEl.classList.contains('is-open')) {
                 return;
             }
-            
+
             renderThemes();
             
             // עדכן את שם הערכה הנוכחית עכשיו שיש לנו את כל הנתונים
@@ -3840,7 +3842,7 @@
             custom: 'אישית',
             imported: 'מיובאת'
         };
-        return labels[type] || type;
+        return labels[type] || escapeHtml(type);
     }
 
     /**
