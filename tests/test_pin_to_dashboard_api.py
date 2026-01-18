@@ -10,6 +10,7 @@ class _StubDB:
         self.code_snippets.find_one.return_value = snippet
         self.code_snippets.count_documents.return_value = 0
         self.code_snippets.find.return_value.sort.return_value.limit.return_value = pinned_docs or []
+        self.code_snippets.aggregate.return_value = pinned_docs or []
 
 
 def _login(client, user_id=42):
@@ -35,6 +36,7 @@ def test_api_toggle_pin_success(client, monkeypatch):
     snippet = {"_id": "507f1f77bcf86cd799439011", "file_name": "test.py", "is_pinned": False, "is_active": True}
     stub_db = _StubDB(snippet=snippet)
     stub_db.code_snippets.find_one.side_effect = [snippet, snippet, None]
+    stub_db.code_snippets.aggregate.side_effect = [[{"count": 0}], [{"count": 1}]]
     monkeypatch.setattr(webapp_app, "get_db", lambda: stub_db)
     _login(client, user_id=123)
 
