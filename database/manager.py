@@ -134,13 +134,34 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
     try:
         snippet = self.collection.find_one({
             "user_id": user_id,
-            "file_name": file_name
+            "file_name": file_name,
+            "is_active": True
         })
 
         if not snippet:
             return {"success": False, "error": "הקובץ לא נמצא"}
 
-        current_pinned = snippet.get("is_pinned", False)
+        pinned_doc = None
+        try:
+            pinned_doc = self.collection.find_one(
+                {
+                    "user_id": user_id,
+                    "file_name": file_name,
+                    "is_active": True,
+                    "is_pinned": True
+                },
+                {"pin_order": 1}
+            )
+        except TypeError:
+            pinned_doc = self.collection.find_one(
+                {
+                    "user_id": user_id,
+                    "file_name": file_name,
+                    "is_active": True,
+                    "is_pinned": True
+                }
+            )
+        current_pinned = bool(pinned_doc)
 
         # אם רוצים לנעוץ - בדוק מגבלת כמות
         if not current_pinned:
@@ -154,8 +175,8 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
             # קבע סדר - אחרון בתור
             next_order = pinned_count
 
-            self.collection.update_one(
-                {"user_id": user_id, "file_name": file_name},
+            self.collection.update_many(
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_pinned": True,
                     "pinned_at": datetime.now(timezone.utc),
@@ -169,10 +190,14 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
 
         else:
             # ביטול נעיצה
-            old_order = snippet.get("pin_order", 0)
+            old_order = 0
+            try:
+                old_order = int(pinned_doc.get("pin_order", 0)) if isinstance(pinned_doc, dict) else 0
+            except Exception:
+                old_order = 0
 
-            self.collection.update_one(
-                {"user_id": user_id, "file_name": file_name},
+            self.collection.update_many(
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_pinned": False,
                     "pinned_at": None,
@@ -186,6 +211,7 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                 {
                     "user_id": user_id,
                     "is_pinned": True,
+                    "is_active": True,
                     "pin_order": {"$gt": old_order}
                 },
                 {"$inc": {"pin_order": -1}}
@@ -217,7 +243,7 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
                 "file_name": 1,
                 "programming_language": 1,
                 "tags": 1,
-                "note": 1,
+                "description": 1,
                 "pinned_at": 1,
                 "pin_order": 1,
                 "updated_at": 1,
@@ -230,7 +256,8 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
         pinned = list(self.collection.find(
             {
                 "user_id": user_id,
-                "is_pinned": True
+                "is_pinned": True,
+                "is_active": True
             },
             projection
         ).sort("pin_order", 1).limit(MAX_PINNED_FILES))
@@ -247,7 +274,8 @@ def get_pinned_count(self, user_id: int) -> int:
     try:
         return self.collection.count_documents({
             "user_id": user_id,
-            "is_pinned": True
+            "is_pinned": True,
+            "is_active": True
         })
     except Exception as e:
         logger.error(f"שגיאה בספירת נעוצים: {e}")
@@ -258,10 +286,10 @@ def is_pinned(self, user_id: int, file_name: str) -> bool:
     """בדיקה אם קובץ נעוץ"""
     try:
         snippet = self.collection.find_one(
-            {"user_id": user_id, "file_name": file_name},
-            {"is_pinned": 1}
+            {"user_id": user_id, "file_name": file_name, "is_active": True, "is_pinned": True},
+            {"_id": 1}
         )
-        return snippet.get("is_pinned", False) if snippet else False
+        return bool(snippet)
     except Exception as e:
         logger.error(f"שגיאה ב-is_pinned: {e}")
         return False
@@ -283,7 +311,8 @@ def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
         snippet = self.collection.find_one({
             "user_id": user_id,
             "file_name": file_name,
-            "is_pinned": True
+            "is_pinned": True,
+            "is_active": True
         })
 
         if not snippet:
@@ -305,6 +334,7 @@ def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
                 {
                     "user_id": user_id,
                     "is_pinned": True,
+                    "is_active": True,
                     "pin_order": {"$gt": old_order, "$lte": new_order}
                 },
                 {"$inc": {"pin_order": -1}}
@@ -315,14 +345,15 @@ def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
                 {
                     "user_id": user_id,
                     "is_pinned": True,
+                    "is_active": True,
                     "pin_order": {"$gte": new_order, "$lt": old_order}
                 },
                 {"$inc": {"pin_order": 1}}
             )
 
         # עדכון הקובץ עצמו
-        self.collection.update_one(
-            {"user_id": user_id, "file_name": file_name},
+        self.collection.update_many(
+            {"user_id": user_id, "file_name": file_name, "is_active": True},
             {"$set": {"pin_order": new_order}}
         )
 

@@ -67,8 +67,8 @@
                     <span class="pinned-card__lines">{{ file.lines }} שורות</span>
                     {% endif %}
                 </div>
-                {% if file.note %}
-                <div class="pinned-card__note">{{ file.note }}</div>
+                {% if file.description %}
+                <div class="pinned-card__note">{{ file.description }}</div>
                 {% endif %}
             </div>
             <button type="button"
@@ -636,20 +636,20 @@
 }
 
 /* Rose Pine Dawn overrides */
-::root[data-theme="rose-pine-dawn"] .pinned-section {
+:root[data-theme="rose-pine-dawn"] .pinned-section {
     border-right-color: #ea9d34;
 }
 
-::root[data-theme="rose-pine-dawn"] .pinned-header .section-title i {
+:root[data-theme="rose-pine-dawn"] .pinned-header .section-title i {
     color: #ea9d34;
 }
 
-::root[data-theme="rose-pine-dawn"] .pinned-card {
+:root[data-theme="rose-pine-dawn"] .pinned-card {
     background: rgba(234, 157, 52, 0.1);
     border-color: rgba(234, 157, 52, 0.25);
 }
 
-::root[data-theme="rose-pine-dawn"] .pinned-card:hover {
+:root[data-theme="rose-pine-dawn"] .pinned-card:hover {
     background: rgba(234, 157, 52, 0.18);
     border-color: rgba(234, 157, 52, 0.4);
 }

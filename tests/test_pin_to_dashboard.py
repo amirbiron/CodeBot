@@ -14,11 +14,15 @@ class TestPinToDashboard:
 
     def test_toggle_pin_success(self, mock_db):
         """נעיצת קובץ מצליחה"""
-        mock_db.collection.find_one.return_value = {
-            "user_id": 123,
-            "file_name": "test.py",
-            "is_pinned": False
-        }
+        mock_db.collection.find_one.side_effect = [
+            {
+                "user_id": 123,
+                "file_name": "test.py",
+                "is_pinned": False,
+                "is_active": True
+            },
+            None,
+        ]
         mock_db.collection.count_documents.return_value = 2
 
         result = toggle_pin(mock_db, 123, "test.py")
@@ -28,11 +32,15 @@ class TestPinToDashboard:
 
     def test_toggle_pin_limit_reached(self, mock_db):
         """מגבלת נעיצות - 8 קבצים"""
-        mock_db.collection.find_one.return_value = {
-            "user_id": 123,
-            "file_name": "test.py",
-            "is_pinned": False
-        }
+        mock_db.collection.find_one.side_effect = [
+            {
+                "user_id": 123,
+                "file_name": "test.py",
+                "is_pinned": False,
+                "is_active": True
+            },
+            None,
+        ]
         mock_db.collection.count_documents.return_value = 8  # מקסימום
 
         result = toggle_pin(mock_db, 123, "test.py")
@@ -42,12 +50,22 @@ class TestPinToDashboard:
 
     def test_toggle_unpin_success(self, mock_db):
         """ביטול נעיצה מצליח"""
-        mock_db.collection.find_one.return_value = {
-            "user_id": 123,
-            "file_name": "test.py",
-            "is_pinned": True,
-            "pin_order": 2
-        }
+        mock_db.collection.find_one.side_effect = [
+            {
+                "user_id": 123,
+                "file_name": "test.py",
+                "is_pinned": True,
+                "pin_order": 2,
+                "is_active": True
+            },
+            {
+                "user_id": 123,
+                "file_name": "test.py",
+                "is_pinned": True,
+                "pin_order": 2,
+                "is_active": True
+            },
+        ]
 
         result = toggle_pin(mock_db, 123, "test.py")
 
