@@ -12,6 +12,9 @@
   <body class="reader-mode reader-bg-sepia">
     <main class="reader-container">
       <header class="reader-header">
+        {% if back_url %}
+        <a class="reader-back-btn" href="{{ back_url }}" title="חזרה למערכת">↩️ חזרה למערכת</a>
+        {% endif %}
         <h1 class="reader-title">{{ title }}</h1>
         {% if subtitle %}
         <p class="reader-subtitle">{{ subtitle }}</p>

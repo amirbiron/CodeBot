@@ -13100,6 +13100,7 @@ def reader_mode(filename):
 
     code = (doc.get('code') or doc.get('content') or '')
     rendered_html, pygments_css = _render_markdown_preview(code)
+    back_url = url_for('md_preview', file_id=str(doc.get('_id')))
 
     html = render_template(
         'reader_mode.html',
@@ -13107,6 +13108,7 @@ def reader_mode(filename):
         subtitle=None,
         content=rendered_html,
         pygments_css=pygments_css,
+        back_url=back_url,
     )
     resp = Response(html, mimetype='text/html; charset=utf-8')
     resp.headers['ETag'] = etag
