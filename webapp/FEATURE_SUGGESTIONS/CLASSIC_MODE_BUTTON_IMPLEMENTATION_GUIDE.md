@@ -80,6 +80,52 @@
 
 ---
 
+## הבעיה המרכזית שהפתרון פותר
+
+### מה קורה היום?
+
+בערכות כהות (כמו ערכה מותאמת אישית סגולה, או ערכה ציבורית), כשהמשתמש בוחר צבע רקע בהיר:
+
+```css
+/* הערכה הכהה מגדירה: */
+[data-theme="custom"] #md-content {
+  background: var(--bg-primary);      /* רקע כהה */
+  color: var(--text-primary);         /* טקסט בהיר! */
+}
+
+/* כשבוחרים רקע חום: */
+#md-content.bg-light {
+  background: #f5e6d3;                /* רקע משתנה */
+  /* אבל color נשאר var(--text-primary) = בהיר! */
+}
+```
+
+**התוצאה**: טקסט בהיר על רקע בהיר = לא קריא! 😖
+
+### מה הפתרון עושה?
+
+ה-CSS של `.classic-mode-active` דורס **את כל** הצבעים עם `!important`:
+
+```css
+#md-content.classic-mode-active {
+  background: #ffffff !important;     /* רקע בהיר */
+  color: #111111 !important;          /* טקסט כהה! ✅ */
+}
+
+#md-content.classic-mode-active h1 {
+  color: #111111 !important;          /* כותרות כהות! ✅ */
+}
+
+#md-content.classic-mode-active a {
+  color: #0366d6 !important;          /* קישורים כחולים! ✅ */
+}
+/* וכו'... */
+```
+
+**התוצאה**: כל האלמנטים מקבלים צבעים מותאמים לרקע הבהיר = קריא! 😊
+
+---
+
 ## קבצים לעריכה
 
 ### 1. `webapp/templates/md_preview.html`
@@ -106,6 +152,8 @@
 ```
 
 #### ב. הוספת CSS (בבלוק `<style>` הקיים, אחרי שורה ~700)
+
+> **חשוב מאוד**: ה-CSS הזה דורס את **כל** צבעי הערכה הכהה - לא רק רקע, אלא גם טקסט, כותרות, קישורים, קוד, טבלאות וכו'.
 
 ```css
 /* ========================================
@@ -144,14 +192,20 @@
 
 /* ========================================
    מצב קלאסי - Classic Mode Overrides
+   ========================================
+   
+   הסבר: בערכות כהות (custom, shared:*, dark, dim, nebula)
+   הטקסט מוגדר כ-color: var(--text-primary) שהוא בהיר.
+   כאשר מפעילים מצב קלאסי, חייבים לדרוס את כל הצבעים
+   עם !important כדי לגבור על הגדרות הערכה.
    ======================================== */
 
-/* כאשר מצב קלאסי פעיל, דריסת צבעי הערכה הכהה */
+/* === 1. צבעי בסיס - רקע וטקסט ראשי === */
 #md-content.classic-mode-active {
   background: #ffffff !important;
   color: #111111 !important;
   
-  /* משתנים מהערכה הקלאסית */
+  /* משתני CSS מהערכה הקלאסית */
   --md-mark-bg: #fff2a8;
   --md-inline-code-bg: #f6f8fa;
   --md-inline-code-border: #d0d7de;
@@ -178,36 +232,398 @@
   --hljs-comment: #6e7781;
   --hljs-number: #0550ae;
   --hljs-operator: #24292f;
+  --hljs-addition-text: #1a7f37;
+  --hljs-addition-bg: rgba(26, 127, 55, 0.12);
+  --hljs-deletion-text: #cf222e;
+  --hljs-deletion-bg: rgba(207, 34, 46, 0.15);
   --md-blockquote-bg: #eef2f7;
   --md-blockquote-border: #cbd5e1;
   --md-blockquote-color: #0f172a;
   --md-table-border: #e5e7eb;
   --md-table-header-bg: #f8fafc;
+  --md-fold-bg: #f6f6f6;
+  --md-fold-border: rgba(0,0,0,0.06);
 }
 
-/* תמיכה בצבעי רקע חומים גם במצב קלאסי */
-#md-content.classic-mode-active.bg-sepia {
-  background: #fdf6e3 !important;
-  color: #586e75 !important;
-}
-
-#md-content.classic-mode-active.bg-light {
-  background: #f5e6d3 !important;
-  color: #2b2b2b !important;
-}
-
-#md-content.classic-mode-active.bg-medium {
-  background: #e8d4b0 !important;
-  color: #1f1f1f !important;
-}
-
-#md-content.classic-mode-active.bg-dark {
-  background: #d4b896 !important;
+/* === 2. כותרות - צבע כהה וגבולות === */
+#md-content.classic-mode-active h1,
+#md-content.classic-mode-active h2,
+#md-content.classic-mode-active h3,
+#md-content.classic-mode-active h4,
+#md-content.classic-mode-active h5,
+#md-content.classic-mode-active h6 {
   color: #111111 !important;
 }
 
-/* הצגת כפתור צבע רקע במצב קלאסי */
-.classic-mode-active ~ .section-title-wrap #bgColorSwitcher,
+#md-content.classic-mode-active h1,
+#md-content.classic-mode-active h2 {
+  border-bottom-color: #e1e4e8 !important;
+}
+
+/* === 3. פסקאות ורשימות === */
+#md-content.classic-mode-active p,
+#md-content.classic-mode-active li,
+#md-content.classic-mode-active span,
+#md-content.classic-mode-active div {
+  color: inherit !important;
+}
+
+/* === 4. קישורים - כחול קלאסי === */
+#md-content.classic-mode-active a {
+  color: #0366d6 !important;
+}
+
+#md-content.classic-mode-active a:hover {
+  color: #0256c7 !important;
+}
+
+#md-content.classic-mode-active a::after {
+  background: #0366d6 !important;
+}
+
+/* === 5. קוד inline === */
+#md-content.classic-mode-active code:not(pre code) {
+  background: #f6f8fa !important;
+  color: #1f2328 !important;
+  border: 1px solid #d0d7de !important;
+}
+
+/* === 6. בלוקי קוד (pre) === */
+#md-content.classic-mode-active pre {
+  background: #f6f8fa !important;
+  border: 1px solid #d0d7de !important;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+#md-content.classic-mode-active pre code,
+#md-content.classic-mode-active code.hljs {
+  color: #24292f !important;
+  background: transparent !important;
+}
+
+/* === 7. Syntax Highlighting (highlight.js) === */
+#md-content.classic-mode-active .hljs-keyword { color: #cf222e !important; }
+#md-content.classic-mode-active .hljs-string { color: #0a3069 !important; }
+#md-content.classic-mode-active .hljs-function,
+#md-content.classic-mode-active .hljs-title { color: #8250df !important; }
+#md-content.classic-mode-active .hljs-comment { color: #6e7781 !important; }
+#md-content.classic-mode-active .hljs-number { color: #0550ae !important; }
+#md-content.classic-mode-active .hljs-operator { color: #24292f !important; }
+#md-content.classic-mode-active .hljs-variable { color: #953800 !important; }
+#md-content.classic-mode-active .hljs-built_in { color: #0550ae !important; }
+#md-content.classic-mode-active .hljs-attr { color: #0550ae !important; }
+#md-content.classic-mode-active .hljs-tag { color: #116329 !important; }
+#md-content.classic-mode-active .hljs-name { color: #116329 !important; }
+#md-content.classic-mode-active .hljs-selector-tag { color: #116329 !important; }
+#md-content.classic-mode-active .hljs-selector-class { color: #6639ba !important; }
+#md-content.classic-mode-active .hljs-addition { 
+  color: #1a7f37 !important;
+  background: rgba(26, 127, 55, 0.12) !important;
+}
+#md-content.classic-mode-active .hljs-deletion { 
+  color: #cf222e !important;
+  background: rgba(207, 34, 46, 0.15) !important;
+}
+
+/* === 8. ציטוטים (blockquote) === */
+#md-content.classic-mode-active blockquote {
+  background: #eef2f7 !important;
+  border-inline-start-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* === 9. טבלאות === */
+#md-content.classic-mode-active table {
+  border-color: #e5e7eb !important;
+}
+
+#md-content.classic-mode-active table th,
+#md-content.classic-mode-active table td {
+  border-color: #e5e7eb !important;
+  color: #111111 !important;
+}
+
+#md-content.classic-mode-active table thead {
+  background: #f8fafc !important;
+}
+
+#md-content.classic-mode-active table thead th {
+  color: #111111 !important;
+}
+
+/* === 10. רשימות משימות (checkboxes) === */
+#md-content.classic-mode-active input[type="checkbox"] {
+  accent-color: #0366d6 !important;
+}
+
+/* === 11. קווים אופקיים (hr) === */
+#md-content.classic-mode-active hr {
+  border-color: #e1e4e8 !important;
+  background: #e1e4e8 !important;
+}
+
+/* === 12. הדגשה (mark) === */
+#md-content.classic-mode-active mark {
+  background: #fff2a8 !important;
+  color: #111111 !important;
+}
+
+/* === 13. Admonitions/Callouts === */
+#md-content.classic-mode-active .admonition,
+#md-content.classic-mode-active .callout {
+  color: #111111 !important;
+}
+
+/* === 14. כותרת בלוק קוד (שם קובץ/שפה) === */
+#md-content.classic-mode-active .code-block-header,
+#md-content.classic-mode-active .code-header {
+  background: #e6edf4 !important;
+  color: #57606a !important;
+}
+
+#md-content.classic-mode-active .code-lang-badge {
+  background: #dce3eb !important;
+  color: #24292f !important;
+}
+
+/* === 15. כפתור העתקה בבלוקי קוד === */
+#md-content.classic-mode-active .copy-btn,
+#md-content.classic-mode-active .code-copy-btn {
+  background: #ffffff !important;
+  border-color: #d0d7de !important;
+  color: #57606a !important;
+}
+
+#md-content.classic-mode-active .copy-btn:hover,
+#md-content.classic-mode-active .code-copy-btn:hover {
+  background: #e6ebf1 !important;
+}
+
+/* === 16. קיפולים (details/summary) === */
+#md-content.classic-mode-active details {
+  border-color: rgba(0,0,0,0.1) !important;
+}
+
+#md-content.classic-mode-active details > summary {
+  color: #111111 !important;
+}
+
+#md-content.classic-mode-active details > .md-section-content {
+  background: #f6f6f6 !important;
+}
+
+/* ========================================
+   צבעי רקע חומים במצב קלאסי
+   (משחזר את כל גווני הטקסט לכהים)
+   ======================================== */
+
+/* --- נייר חם (Sepia) --- */
+#md-content.classic-mode-active.bg-sepia {
+  background: #fdf6e3 !important;
+  color: #586e75 !important;
+  --md-code-bg: #eee8d5;
+  --md-code-text: #657b83;
+  --hljs-text: #657b83;
+  --hljs-keyword: #859900;
+  --hljs-string: #2aa198;
+  --hljs-function: #268bd2;
+  --hljs-comment: #93a1a1;
+  --hljs-number: #b58900;
+  --md-fold-bg: #fff3dc;
+}
+
+#md-content.classic-mode-active.bg-sepia h1,
+#md-content.classic-mode-active.bg-sepia h2,
+#md-content.classic-mode-active.bg-sepia h3,
+#md-content.classic-mode-active.bg-sepia h4 {
+  color: #073642 !important;
+}
+
+#md-content.classic-mode-active.bg-sepia code:not(pre code) {
+  background: rgba(255, 255, 255, 0.45) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #2c2520 !important;
+}
+
+#md-content.classic-mode-active.bg-sepia pre {
+  background: #eee8d5 !important;
+  border-color: #d3cbb7 !important;
+}
+
+#md-content.classic-mode-active.bg-sepia blockquote {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-inline-start-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+#md-content.classic-mode-active.bg-sepia table thead {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+#md-content.classic-mode-active.bg-sepia table th,
+#md-content.classic-mode-active.bg-sepia table td {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #586e75 !important;
+}
+
+/* --- חום בהיר --- */
+#md-content.classic-mode-active.bg-light {
+  background: #f5e6d3 !important;
+  color: #2b2b2b !important;
+  --md-code-bg: #eddcc4;
+  --md-code-text: #5a4a3a;
+  --hljs-text: #5a4a3a;
+  --hljs-keyword: #a67c52;
+  --hljs-string: #6b8e23;
+  --hljs-function: #4682b4;
+  --hljs-comment: #8b7d6b;
+  --hljs-number: #c97b63;
+  --md-fold-bg: #fbf2e6;
+}
+
+#md-content.classic-mode-active.bg-light h1,
+#md-content.classic-mode-active.bg-light h2,
+#md-content.classic-mode-active.bg-light h3,
+#md-content.classic-mode-active.bg-light h4 {
+  color: #1a1a1a !important;
+}
+
+#md-content.classic-mode-active.bg-light code:not(pre code) {
+  background: rgba(255, 255, 255, 0.4) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #2b2b2b !important;
+}
+
+#md-content.classic-mode-active.bg-light pre {
+  background: #eddcc4 !important;
+  border-color: #e6d4bc !important;
+}
+
+#md-content.classic-mode-active.bg-light pre code {
+  color: #5a4a3a !important;
+}
+
+#md-content.classic-mode-active.bg-light blockquote {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-inline-start-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+#md-content.classic-mode-active.bg-light table thead {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+#md-content.classic-mode-active.bg-light table th,
+#md-content.classic-mode-active.bg-light table td {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #2b2b2b !important;
+}
+
+/* --- חום בינוני --- */
+#md-content.classic-mode-active.bg-medium {
+  background: #e8d4b0 !important;
+  color: #1f1f1f !important;
+  --md-code-bg: #dcc9a8;
+  --md-code-text: #4a3d2f;
+  --hljs-text: #4a3d2f;
+  --hljs-keyword: #8b6914;
+  --hljs-string: #2e8b57;
+  --hljs-function: #4169e1;
+  --hljs-comment: #7a6e5d;
+  --hljs-number: #c97b63;
+  --md-fold-bg: #f2e2c8;
+}
+
+#md-content.classic-mode-active.bg-medium h1,
+#md-content.classic-mode-active.bg-medium h2,
+#md-content.classic-mode-active.bg-medium h3,
+#md-content.classic-mode-active.bg-medium h4 {
+  color: #111111 !important;
+}
+
+#md-content.classic-mode-active.bg-medium code:not(pre code) {
+  background: rgba(255, 255, 255, 0.35) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  color: #2b241b !important;
+}
+
+#md-content.classic-mode-active.bg-medium pre {
+  background: #dcc9a8 !important;
+  border-color: #d4c19c !important;
+}
+
+#md-content.classic-mode-active.bg-medium pre code {
+  color: #4a3d2f !important;
+}
+
+#md-content.classic-mode-active.bg-medium blockquote {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-inline-start-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+#md-content.classic-mode-active.bg-medium table thead {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+#md-content.classic-mode-active.bg-medium table th,
+#md-content.classic-mode-active.bg-medium table td {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #1f1f1f !important;
+}
+
+/* --- חום כהה --- */
+#md-content.classic-mode-active.bg-dark {
+  background: #d4b896 !important;
+  color: #111111 !important;
+  --md-code-bg: #c9ae88;
+  --md-code-text: #3d3020;
+  --hljs-text: #3d3020;
+  --hljs-keyword: #8b4513;
+  --hljs-string: #228b22;
+  --hljs-function: #4682b4;
+  --hljs-comment: #6b5d4f;
+  --hljs-number: #d2691e;
+  --md-fold-bg: #e8d2b4;
+}
+
+#md-content.classic-mode-active.bg-dark h1,
+#md-content.classic-mode-active.bg-dark h2,
+#md-content.classic-mode-active.bg-dark h3,
+#md-content.classic-mode-active.bg-dark h4 {
+  color: #0a0a0a !important;
+}
+
+#md-content.classic-mode-active.bg-dark code:not(pre code) {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+  color: #2b1f16 !important;
+}
+
+#md-content.classic-mode-active.bg-dark pre {
+  background: #c9ae88 !important;
+  border-color: #c4a882 !important;
+}
+
+#md-content.classic-mode-active.bg-dark pre code {
+  color: #3d3020 !important;
+}
+
+#md-content.classic-mode-active.bg-dark blockquote {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-inline-start-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+#md-content.classic-mode-active.bg-dark table thead {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+#md-content.classic-mode-active.bg-dark table th,
+#md-content.classic-mode-active.bg-dark table td {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  color: #111111 !important;
+}
+
+/* ========================================
+   הצגת כפתור צבע רקע במצב קלאסי
+   ======================================== */
 #mdCard.classic-mode-enabled #bgColorSwitcher {
   display: inline-flex !important;
 }
