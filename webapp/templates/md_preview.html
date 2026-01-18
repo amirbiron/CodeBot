@@ -12,7 +12,7 @@
   padding: 0.5rem 0; /* את הריווח הצדדי ניתן דרך הכרטיס הפנימי */
 }
 #md-content {
-  background-color: #ffffff;
+  background: #ffffff;
   color: #111111;
   border-radius: 12px;
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
@@ -59,7 +59,7 @@
 [data-theme="dark"] #md-content,
 [data-theme="dim"] #md-content,
 [data-theme="nebula"] #md-content {
-  background-color: var(--bg-primary);
+  background: var(--bg-primary);
   color: var(--text-primary);
 }
 
@@ -383,128 +383,9 @@
   border: 1px solid var(--code-border, var(--glass-border, rgba(255, 255, 255, 0.15)));
 }
 
-/* ========================================
-   כפתור מצב קלאסי - Classic Mode Button
-   ======================================== */
-
-/* הסתרת הכפתור כברירת מחדל */
-.md-classic-mode-btn {
-  display: none !important;
-}
-
-/* הצגת הכפתור בערכות כהות בלבד */
-:root[data-theme="custom"] .md-classic-mode-btn,
-:root[data-theme^="shared:"] .md-classic-mode-btn,
-:root[data-theme="dark"] .md-classic-mode-btn,
-:root[data-theme="dim"] .md-classic-mode-btn,
-:root[data-theme="nebula"] .md-classic-mode-btn {
-  display: inline-flex !important;
-}
-
-/* עיצוב הכפתור */
-.md-classic-mode-btn {
-  gap: 0.4rem;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-/* מצב פעיל (כשבמצב קלאסי) */
-.md-classic-mode-btn.is-active {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.4);
-}
-
-/* ========================================
-   מצב קלאסי - Classic Mode Overrides
-   ======================================== */
-
-/* כאשר מצב קלאסי פעיל, דריסת צבעי הערכה הכהה */
-#md-content.classic-mode-active {
-  background-color: #ffffff !important;
-  color: #111111 !important;
-
-  /* משתנים מהערכה הקלאסית */
-  --md-mark-bg: #fff2a8;
-  --md-inline-code-bg: #f6f8fa;
-  --md-inline-code-border: #d0d7de;
-  --md-inline-code-color: #1f2328;
-  --md-code-border: #d0d7de;
-  --md-code-shell-bg: #e6edf4;
-  --md-code-header-bg: #e6edf4;
-  --md-code-header-text: #57606a;
-  --md-code-bg: #f6f8fa;
-  --md-code-text: #24292f;
-  --md-code-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
-  --md-code-copy-bg: #ffffff;
-  --md-code-copy-border: #d0d7de;
-  --md-code-copy-color: #57606a;
-  --md-code-copy-hover-bg: #e6ebf1;
-  --md-code-copy-success-color: #1a7f37;
-  --md-code-copy-error-color: #b42318;
-  --md-code-lang-bg: #dce3eb;
-  --md-code-lang-text: #24292f;
-  --hljs-text: #24292f;
-  --hljs-keyword: #cf222e;
-  --hljs-string: #0a3069;
-  --hljs-function: #8250df;
-  --hljs-comment: #6e7781;
-  --hljs-number: #0550ae;
-  --hljs-operator: #24292f;
-  --hljs-addition-text: #1a7f37;
-  --hljs-addition-bg: rgba(26, 127, 55, 0.12);
-  --hljs-deletion-text: #cf222e;
-  --hljs-deletion-bg: rgba(207, 34, 46, 0.15);
-  --md-blockquote-bg: #eef2f7;
-  --md-blockquote-border: #cbd5e1;
-  --md-blockquote-color: #0f172a;
-  --md-table-border: #e5e7eb;
-  --md-table-header-bg: #f8fafc;
-}
-
-/* תיקון: צבעי רקע במצב קלאסי חייבים לנצח את ברירת המחדל הלבנה */
-#md-content.classic-mode-active.bg-sepia {
-  background-color: #fdf6e3 !important;
-  color: #586e75 !important;
-}
-
-#md-content.classic-mode-active.bg-light {
-  background-color: #f5e6d3 !important;
-  color: #2b2b2b !important;
-}
-
-#md-content.classic-mode-active.bg-medium {
-  background-color: #e8d4b0 !important;
-  color: #1f1f1f !important;
-}
-
-#md-content.classic-mode-active.bg-dark {
-  background-color: #d4b896 !important;
-  color: #111111 !important;
-}
-
-/* דריסה נקודתית לכללי ערכות כהות (ספציפיות גבוהה) */
-#md-content.classic-mode-active code:not(pre code) {
-  background-color: var(--md-inline-code-bg);
-  color: var(--md-inline-code-color);
-  border: 1px solid var(--md-inline-code-border);
-}
-
-#md-content.classic-mode-active pre {
-  background-color: var(--md-code-bg);
-  border: 1px solid var(--md-code-border);
-}
-
-/* הצגת כפתור צבע רקע במצב קלאסי (Fallback ל-CSS, מעבר לשליטה ב-JS) */
-#mdCard.classic-mode-enabled #bgColorSwitcher {
-  display: inline-flex !important;
-}
-
 /* צבעי רקע חומים לתצוגת מארקדאון — גוונים בהירים ונעימים */
 #md-content.bg-light {
-  background-color: #f5e6d3;
+  background: #f5e6d3;
   color: #2b2b2b;
   --md-inline-code-bg: rgba(255, 255, 255, 0.4);
   --md-inline-code-border: rgba(0, 0, 0, 0.08);
@@ -536,7 +417,7 @@
 }
 
 #md-content.bg-medium {
-  background-color: #e8d4b0;
+  background: #e8d4b0;
   color: #1f1f1f;
   --md-inline-code-bg: rgba(255, 255, 255, 0.35);
   --md-inline-code-border: rgba(0, 0, 0, 0.12);
@@ -568,7 +449,7 @@
 }
 
 #md-content.bg-dark {
-  background-color: #d4b896;
+  background: #d4b896;
   color: #111111;
   --md-inline-code-bg: rgba(255, 255, 255, 0.3);
   --md-inline-code-border: rgba(0, 0, 0, 0.15);
@@ -600,7 +481,7 @@
 }
 
 #md-content.bg-sepia {
-  background-color: #fdf6e3;
+  background: #fdf6e3;
   color: #586e75;
   --md-inline-code-bg: rgba(255, 255, 255, 0.45);
   --md-inline-code-border: rgba(0, 0, 0, 0.08);
@@ -1768,19 +1649,10 @@ input.md-task-checkbox {
           </div>
         </div>
       </div>
-      <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-        <button id="mdClassicModeBtn"
-                class="btn btn-secondary btn-icon md-classic-mode-btn"
-                title="עבור לתצוגה קלאסית"
-                style="display:none;">
-          <span class="classic-mode-icon">🎨</span>
-          <span class="classic-mode-label">קלאסי</span>
-        </button>
-        <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
-          <i class="fas fa-expand"></i>
-          מסך מלא
-        </button>
-      </div>
+      <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
+        <i class="fas fa-expand"></i>
+        מסך מלא
+      </button>
     </div>
     <div class="search-bar" id="md-search">
       <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד...">
@@ -3253,7 +3125,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   }
 
   // החלת צבע רקע
-  function applyBackgroundColor(color, persist = true) {
+  function applyBackgroundColor(color) {
    const mdContent = document.getElementById('md-content');
    if (!mdContent) return;
  
@@ -3288,52 +3160,32 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
      }
    });
    
-   // שמירת ההעדפה (אופציונלי – לפעמים רוצים רק לשחזר UI בלי לגעת ב-localStorage)
-   if (persist) {
-     saveColorPreference(color);
-   }
+   // שמירת ההעדפה
+   saveColorPreference(color);
  }
-
-  // חשיפה ל-scope גלובלי (נדרש עבור מצב קלאסי)
-  try { window.applyBackgroundColor = applyBackgroundColor; } catch(_) {}
-
-  function isClassicModeActive() {
-    try {
-      const mdContent = document.getElementById('md-content');
-      return !!(mdContent && mdContent.classList.contains('classic-mode-active'));
-    } catch(_) {
-      return false;
-    }
-  }
-
-  function shouldEnableSwitcher() {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || '';
-    return ALLOWED_THEMES.has(currentTheme) || isClassicModeActive();
-  }
   
   // אתחול המערכת
   function init() {
     const bgColorBtn = document.getElementById('bgColorBtn');
     const bgColorOptions = document.getElementById('bgColorOptions');
     const bgColorSwitcher = document.getElementById('bgColorSwitcher');
-    const mdContent = document.getElementById('md-content');
     
     if (!bgColorBtn || !bgColorOptions || !bgColorSwitcher) return;
 
-    function syncVisibilityAndState() {
-      const enabled = shouldEnableSwitcher();
-      if (enabled) {
-        // נדאג שהכפתור יופיע גם אם CSS לא נטען עדיין
-        try { bgColorSwitcher.style.display = 'inline-flex'; } catch(_) {}
-        // טעינת העדפה שמורה
-        const savedColor = getSavedColorPreference();
-        applyBackgroundColor(savedColor, false);
-      } else {
-        try { bgColorOptions.style.display = 'none'; } catch(_) {}
-        try { bgColorSwitcher.style.display = 'none'; } catch(_) {}
-        clearAppliedBackground();
-      }
+    // הכפתור פעיל רק בערכות ספציפיות (אחרת גם לא מיישמים צבע שמור)
+    const currentTheme = document.documentElement.getAttribute('data-theme') || '';
+    if (!ALLOWED_THEMES.has(currentTheme)) {
+      try { bgColorSwitcher.style.display = 'none'; } catch(_) {}
+      clearAppliedBackground();
+      return;
+    } else {
+      // אם הגיעו לכאן זה אומר שה-Theme מאפשר, לכן נדאג שהכפתור יופיע גם אם CSS לא נטען עדיין
+      try { bgColorSwitcher.style.display = 'inline-flex'; } catch(_) {}
     }
+    
+    // טעינת העדפה שמורה
+   const savedColor = getSavedColorPreference();
+   applyBackgroundColor(savedColor);
     
     // פתיחה/סגירה של התפריט
     bgColorBtn.addEventListener('click', (e) => {
@@ -3347,7 +3199,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const color = btn.dataset.color;
-        applyBackgroundColor(color, true);
+        applyBackgroundColor(color);
         bgColorOptions.style.display = 'none';
       });
     });
@@ -3370,7 +3222,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     `;
     defaultBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      applyBackgroundColor(null, true); // שימוש בפונקציה המרכזית
+      applyBackgroundColor(null); // שימוש בפונקציה המרכזית
       bgColorOptions.style.display = 'none';
     });
     
@@ -3378,162 +3230,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     bgColorOptions.insertBefore(defaultBtn, bgColorOptions.firstChild);
     
     // סימון ברירת המחדל אם אין צבע שמור - יעשה אוטומטית דרך applyBackgroundColor
-
-    // סנכרון תצוגה ראשוני + האזנה לשינויים (ערכה/מצב קלאסי)
-    syncVisibilityAndState();
-    try {
-      const themeObserver = new MutationObserver(() => { syncVisibilityAndState(); });
-      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    } catch(_) {}
   }
   
   // הפעלת המערכת לאחר טעינת הדף
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
-
-// ========================================
-// Classic Mode Toggle - מצב קלאסי
-// ========================================
-(function initClassicModeToggle() {
-  'use strict';
-  const STORAGE_KEY = 'md_classic_mode_enabled';
-  const DARK_THEMES = new Set(['custom', 'dark', 'dim', 'nebula']);
-  const NATIVE_BG_THEMES = new Set(['classic', 'ocean', 'rose-pine-dawn']);
-
-  const classicBtn = document.getElementById('mdClassicModeBtn');
-  const mdContent = document.getElementById('md-content');
-  const mdCard = document.getElementById('mdCard');
-  const bgColorSwitcher = document.getElementById('bgColorSwitcher');
-
-  if (!classicBtn || !mdContent) return;
-
-  function isDarkTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || '';
-    if (DARK_THEMES.has(currentTheme)) return true;
-    if (currentTheme.startsWith('shared:')) return true;
-    return false;
-  }
-
-  function getSavedState() {
-    try { return localStorage.getItem(STORAGE_KEY) === 'true'; } catch(_) { return false; }
-  }
-
-  function saveState(enabled) {
-    try {
-      if (enabled) localStorage.setItem(STORAGE_KEY, 'true');
-      else localStorage.removeItem(STORAGE_KEY);
-    } catch(_) {}
-  }
-
-  function updateButtonUi(enabled) {
-    try { classicBtn.setAttribute('aria-pressed', enabled ? 'true' : 'false'); } catch(_) {}
-    const icon = classicBtn.querySelector('.classic-mode-icon');
-    const label = classicBtn.querySelector('.classic-mode-label');
-    if (enabled) {
-      classicBtn.classList.add('is-active');
-      if (icon) icon.textContent = '🌙';
-      if (label) label.textContent = 'חזור לערכה';
-      classicBtn.title = 'חזור לתצוגת הערכה הכהה';
-    } else {
-      classicBtn.classList.remove('is-active');
-      if (icon) icon.textContent = '🎨';
-      if (label) label.textContent = 'קלאסי';
-      classicBtn.title = 'עבור לתצוגה קלאסית';
-    }
-  }
-
-  function enableClassicMode() {
-    mdContent.classList.add('classic-mode-active');
-    if (mdCard) mdCard.classList.add('classic-mode-enabled');
-    updateButtonUi(true);
-
-    // הצגת כפתור צבע רקע
-    if (bgColorSwitcher) {
-      try { bgColorSwitcher.style.display = 'inline-flex'; } catch(_) {}
-    }
-
-    // טעינת צבע רקע שמור (אם יש)
-    let savedBgColor = null;
-    try { savedBgColor = localStorage.getItem('md_bg_color_preference'); } catch(_) {}
-    if (savedBgColor && typeof window.applyBackgroundColor === 'function') {
-      try { window.applyBackgroundColor(savedBgColor, false); } catch(_) {}
-    }
-
-    saveState(true);
-  }
-
-  function disableClassicMode() {
-    mdContent.classList.remove('classic-mode-active');
-    if (mdCard) mdCard.classList.remove('classic-mode-enabled');
-    updateButtonUi(false);
-
-    // קביעה לפי הערכה הנוכחית (אחרי שינוי): האם כפתור צבע רקע אמור להיות זמין "טבעית"
-    const currentTheme = document.documentElement.getAttribute('data-theme') || '';
-    const isNativeAllowed = NATIVE_BG_THEMES.has(currentTheme);
-
-    // אם הערכה לא תומכת באופן טבעי – ננקה את ההחלה (בלי למחוק העדפה) ונחביא את הכפתור
-    if (bgColorSwitcher && !isNativeAllowed) {
-      if (typeof window.applyBackgroundColor === 'function') {
-        // איפוס ויזואלי + UI (אינדיקטור/active) בלי לגעת ב-localStorage
-        try { window.applyBackgroundColor(null, false); } catch(_) {}
-      } else {
-        // Fallback
-        try { mdContent.classList.remove('bg-sepia', 'bg-light', 'bg-medium', 'bg-dark'); } catch(_) {}
-      }
-      try { bgColorSwitcher.style.display = 'none'; } catch(_) {}
-    }
-
-    // אם הערכה כן תומכת באופן טבעי – נשאיר את הכפתור גלוי (והמודול של צבע רקע יטפל בהחלה)
-    if (bgColorSwitcher && isNativeAllowed) {
-      try { bgColorSwitcher.style.display = 'inline-flex'; } catch(_) {}
-    }
-
-    saveState(false);
-  }
-
-  function updateButtonVisibility() {
-    if (isDarkTheme()) {
-      try { classicBtn.style.display = 'inline-flex'; } catch(_) {}
-    } else {
-      try { classicBtn.style.display = 'none'; } catch(_) {}
-      // אם לא בערכה כהה, נקה מצב קלאסי
-      disableClassicMode();
-    }
-  }
-
-  function toggleClassicMode() {
-    if (mdContent.classList.contains('classic-mode-active')) disableClassicMode();
-    else enableClassicMode();
-  }
-
-  function init() {
-    updateButtonVisibility();
-
-    // שחזור מצב שמור
-    if (isDarkTheme() && getSavedState()) {
-      enableClassicMode();
-    }
-
-    classicBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      toggleClassicMode();
-    });
-
-    // האזנה לשינוי ערכה (אם המשתמש מחליף ערכה)
-    try {
-      const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.attributeName === 'data-theme') updateButtonVisibility();
-        });
-      });
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    } catch(_) {}
-  }
-
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
