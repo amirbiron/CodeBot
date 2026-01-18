@@ -1283,6 +1283,22 @@ if Counter and Histogram and Gauge:
     search_cache_hits = _ensure_metric('search_cache_hits_total', lambda: Counter('search_cache_hits_total', 'Total number of cache hits'))
     search_cache_misses = _ensure_metric('search_cache_misses_total', lambda: Counter('search_cache_misses_total', 'Total number of cache misses'))
     active_indexes_gauge = _ensure_metric('search_active_indexes', lambda: Gauge('search_active_indexes', 'Number of active search indexes'))
+    impersonation_sessions_total = _ensure_metric(
+        'admin_impersonation_sessions_total',
+        lambda: Counter(
+            'admin_impersonation_sessions_total',
+            'Total admin impersonation sessions started',
+            ['admin_id']
+        )
+    )
+    impersonation_duration_seconds = _ensure_metric(
+        'admin_impersonation_duration_seconds',
+        lambda: Histogram(
+            'admin_impersonation_duration_seconds',
+            'Duration of admin impersonation sessions',
+            buckets=[60, 300, 600, 1800, 3600]
+        )
+    )
 else:
     search_counter = _MetricNoop()
     search_duration = _MetricNoop()
@@ -1290,6 +1306,8 @@ else:
     search_cache_hits = _MetricNoop()
     search_cache_misses = _MetricNoop()
     active_indexes_gauge = _MetricNoop()
+    impersonation_sessions_total = _MetricNoop()
+    impersonation_duration_seconds = _MetricNoop()
 
 # Optional Sentry init (non-fatal if missing)
 try:
@@ -1457,6 +1475,10 @@ except Exception:
     PERSISTENT_LOGIN_DAYS = 180
 REMEMBER_COOKIE_NAME = 'remember_me'
 
+# --- Admin Impersonation ---
+IMPERSONATION_SESSION_KEY = 'admin_impersonation_active'
+IMPERSONATION_ORIGINAL_ADMIN_KEY = 'admin_impersonation_original_user_id'
+
  
 
 # חיבור ל-MongoDB
@@ -1600,12 +1622,48 @@ def inject_globals():
     # ערכת נושא מותאמת (אם קיימת) — מועברת לתבניות כדי לאפשר injection ב-base.html
     # תומך גם במבנה חדש (custom_themes[]) וגם בישן (custom_theme).
     custom_theme = None
-    user_is_admin = False
+
+    # =====================================================
+    # ADMIN IMPERSONATION - חישוב בזמן אמת
+    # =====================================================
+
+    # 1. שליפת האמת האבסולוטית (לא תלויה ב-Impersonation)
+    actual_is_admin = False
+    actual_is_premium = False
     try:
         if user_id:
-            user_is_admin = bool(is_admin(int(user_id)))
+            actual_is_admin = bool(is_admin(int(user_id)))
+            actual_is_premium = bool(is_premium(int(user_id)))
     except Exception:
-        user_is_admin = False
+        pass
+
+    # 2. בדיקת מצב Impersonation עם Fail-Safe
+    #    - ?force_admin=1 → עקיפה לשעת חירום
+    #    - דגל פעיל + המשתמש אדמין באמת → מצב פעיל
+    force_admin_override = request.args.get('force_admin') == '1'
+    impersonation_flag = session.get(IMPERSONATION_SESSION_KEY, False)
+
+    if force_admin_override:
+        # 🆘 מנגנון מילוט: האדמין הוסיף ?force_admin=1 ל-URL
+        user_is_impersonating = False
+    else:
+        # מצב Impersonation פעיל רק אם:
+        # א. הדגל פעיל בסשן
+        # ב. המשתמש אכן אדמין (הגנה מפני מניפולציה)
+        user_is_impersonating = bool(impersonation_flag and actual_is_admin)
+
+    # 3. חישוב הסטטוס האפקטיבי לתצוגה
+    #    - אם מתחזים → לא אדמין, לא פרימיום (רואים כמשתמש רגיל)
+    #    - אחרת → הסטטוס האמיתי
+    if user_is_impersonating:
+        effective_is_admin = False
+        effective_is_premium = False
+    else:
+        effective_is_admin = actual_is_admin
+        effective_is_premium = actual_is_premium
+
+    # 4. user_is_admin משמש את ה-UI (מקבל את הערך האפקטיבי)
+    user_is_admin = effective_is_admin
     try:
         if user_id and user_doc:
             # מבנה חדש (מערך) – עדיפות
@@ -1716,8 +1774,14 @@ def inject_globals():
         'ui_theme': theme,
         'custom_theme': custom_theme,
         'shared_theme': shared_theme,
-        # הרשאות
+        # הרשאות (אפקטיביות - לשימוש ה-UI)
         'user_is_admin': user_is_admin,
+        'user_is_premium': effective_is_premium,
+        
+        # --- Admin Impersonation ---
+        'user_is_impersonating': user_is_impersonating,
+        'actual_is_admin': actual_is_admin,
+        'can_impersonate': actual_is_admin,
         # Feature flags
         'announcement_enabled': WEEKLY_TIP_ENABLED,
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
@@ -3228,6 +3292,36 @@ def _metrics_after(resp):
     return resp
 
 
+@app.after_request
+def _impersonation_action_event(resp):
+    try:
+        method = str(getattr(request, "method", "") or "").upper()
+        if method in ("GET", "HEAD", "OPTIONS"):
+            return resp
+        if not is_impersonating_safe():
+            return resp
+        endpoint = getattr(request, "endpoint", None) or getattr(request, "path", "") or "unknown"
+        target_id = None
+        try:
+            view_args = getattr(request, "view_args", None) or {}
+            for key in ("file_id", "id", "snippet_id", "collection_id", "share_id"):
+                if key in view_args:
+                    target_id = view_args.get(key)
+                    break
+        except Exception:
+            target_id = None
+        emit_event(
+            "action_performed_while_impersonating",
+            severity="info",
+            user_id=session.get("user_id"),
+            action=endpoint,
+            target_id=target_id,
+        )
+    except Exception:
+        pass
+    return resp
+
+
 @app.teardown_request
 def _metrics_teardown(_exc):
     try:
@@ -3484,19 +3578,33 @@ def alertmanager_webhook():
         return jsonify({"status": "error"}), 200
 
 def admin_required(f):
-    """דקורטור לבדיקת הרשאות אדמין"""
+    """
+    דקורטור לבדיקת הרשאות אדמין.
+    
+    - חוסם גישה במצב Impersonation (למעט Fail-Safe)
+    - מאפשר עקיפה דרך ?force_admin=1
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         
-        # בדיקה אם המשתמש הוא אדמין
-        admin_ids_env = os.getenv('ADMIN_USER_IDS', '')
-        admin_ids_list = admin_ids_env.split(',') if admin_ids_env else []
-        admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
+        # בדיקה אם המשתמש הוא אדמין (הסטטוס האמיתי)
+        try:
+            uid = int(session['user_id'])
+        except Exception:
+            abort(403)
+            
+        if not is_admin(uid):
+            abort(403)
         
-        if session['user_id'] not in admin_ids:
-            abort(403)  # Forbidden
+        # 🆘 Fail-Safe: עקיפה דרך URL
+        force_admin = request.args.get('force_admin') == '1'
+        
+        # במצב Impersonation - חסום גישה לעמודי אדמין (אלא אם Fail-Safe)
+        if is_impersonating_safe() and not force_admin:
+            flash('מצב צפייה כמשתמש פעיל - אין גישה לעמודי אדמין. לעקיפה: הוסף ?force_admin=1', 'warning')
+            return redirect(url_for('dashboard'))
         
         return f(*args, **kwargs)
     return decorated_function
@@ -3535,6 +3643,99 @@ def is_premium(user_id: int) -> bool:
         return user_id in premium_ids
     except Exception:
         return False
+
+
+# --- Admin Impersonation Functions ---
+
+def is_impersonating_raw() -> bool:
+    """
+    בודק אם הדגל הגולמי של Impersonation פעיל בסשן.
+    
+    ⚠️ לא לשימוש ישיר ב-UI! השתמש ב-is_impersonating_safe() שכולל Fail-Safe.
+    """
+    return bool(session.get(IMPERSONATION_SESSION_KEY, False))
+
+
+def is_impersonating_safe() -> bool:
+    """
+    בודק אם מצב Impersonation פעיל, עם מנגנון מילוט (Fail-Safe).
+    
+    - אם ?force_admin=1 ב-URL → תמיד מחזיר False (עקיפה לשעת חירום)
+    - אם הדגל פעיל אבל המשתמש לא אדמין באמת → מחזיר False (הגנה)
+    - אחרת → מחזיר את מצב הדגל
+    """
+    # 🆘 Fail-Safe: עקיפה דרך URL לשעת חירום
+    if request.args.get('force_admin') == '1':
+        return False
+    
+    # בדיקה שהדגל פעיל
+    if not is_impersonating_raw():
+        return False
+    
+    # הגנה: וידוא שהמשתמש אכן אדמין (מונע מניפולציה בסשן)
+    user_id = session.get('user_id')
+    if user_id is None:
+        return False
+    
+    try:
+        if not is_admin(int(user_id)):
+            # משתמש לא-אדמין עם דגל Impersonation? משהו לא בסדר - נקה
+            session.pop(IMPERSONATION_SESSION_KEY, None)
+            return False
+    except Exception:
+        return False
+    
+    return True
+
+
+def can_impersonate() -> bool:
+    """בודק אם המשתמש הנוכחי יכול להפעיל מצב Impersonation (רק אדמינים)."""
+    user_id = session.get('user_id')
+    if user_id is None:
+        return False
+    
+    try:
+        # בודק את הסטטוס האמיתי (לא האפקטיבי!)
+        return is_admin(int(user_id))
+    except Exception:
+        return False
+
+
+def start_impersonation() -> bool:
+    """
+    מפעיל מצב Impersonation. מחזיר True אם הצליח.
+    
+    ⚠️ חשוב: לא נוגעים ב-session['user_data']!
+    כל הלוגיקה מחושבת בזמן אמת ב-Context Processor.
+    """
+    if not can_impersonate():
+        return False
+    
+    user_id = session.get('user_id')
+    
+    # שומרים רק את הדגל - לא משנים user_data!
+    session[IMPERSONATION_SESSION_KEY] = True
+    session[IMPERSONATION_ORIGINAL_ADMIN_KEY] = user_id
+    session['impersonation_started_at'] = time.time()
+    
+    return True
+
+
+def stop_impersonation() -> bool:
+    """
+    מפסיק מצב Impersonation ומחזיר לסטטוס רגיל.
+    
+    ⚠️ חשוב: לא נוגעים ב-session['user_data']!
+    """
+    if not is_impersonating_raw():
+        return False
+    
+    # ניקוי דגלי Impersonation בלבד
+    session.pop(IMPERSONATION_SESSION_KEY, None)
+    session.pop(IMPERSONATION_ORIGINAL_ADMIN_KEY, None)
+    session.pop('impersonation_started_at', None)
+    
+    return True
 
 
 def _parse_iso_arg(name: str) -> Optional[datetime]:
@@ -3641,6 +3842,83 @@ def _log_webapp_user_activity() -> bool:
         return bool(logged)
     except Exception:
         return False
+
+
+@app.route('/admin/impersonate/start', methods=['POST'])
+@login_required
+def admin_impersonate_start():
+    """הפעלת מצב צפייה כמשתמש רגיל (Impersonation)."""
+    if not can_impersonate():
+        return jsonify({'ok': False, 'error': 'לא מורשה'}), 403
+    
+    if start_impersonation():
+        emit_event(
+            'admin_impersonation_started',
+            severity='info',
+            user_id=session.get('user_id'),
+        )
+        try:
+            impersonation_sessions_total.labels(admin_id=str(session.get('user_id'))).inc()
+        except Exception:
+            pass
+        # 🔄 Cache-Control: מונע בעיות Cache בדפדפן
+        resp = make_response(jsonify({'ok': True, 'message': 'מצב צפייה כמשתמש הופעל'}))
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
+    
+    return jsonify({'ok': False, 'error': 'לא ניתן להפעיל מצב צפייה'}), 400
+
+
+@app.route('/admin/impersonate/stop', methods=['POST'])
+@login_required
+def admin_impersonate_stop():
+    """כיבוי מצב צפייה כמשתמש רגיל."""
+    started_at = session.get('impersonation_started_at')
+    if stop_impersonation():
+        elapsed_time = None
+        try:
+            if started_at:
+                elapsed_time = max(0.0, float(time.time() - float(started_at)))
+        except Exception:
+            elapsed_time = None
+        emit_event(
+            'admin_impersonation_stopped',
+            severity='info',
+            user_id=session.get('user_id'),
+            duration_seconds=elapsed_time,
+        )
+        try:
+            if elapsed_time is not None:
+                impersonation_duration_seconds.observe(float(elapsed_time))
+        except Exception:
+            pass
+        # 🔄 Cache-Control
+        resp = make_response(jsonify({'ok': True, 'message': 'מצב צפייה כמשתמש הופסק'}))
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
+    
+    return jsonify({'ok': False, 'error': 'לא במצב צפייה'}), 400
+
+
+@app.route('/admin/impersonate/status', methods=['GET'])
+@login_required
+def admin_impersonate_status():
+    """מחזיר סטטוס מצב ה-Impersonation הנוכחי."""
+    actual_admin = can_impersonate()
+    currently_impersonating = is_impersonating_safe()
+    
+    return jsonify({
+        'ok': True,
+        'is_impersonating': currently_impersonating,
+        'can_impersonate': actual_admin,
+        'actual_is_admin': actual_admin,
+        # effective = actual אם לא מתחזים, אחרת False
+        'effective_admin': False if currently_impersonating else actual_admin,
+    })
 
 
 @app.route('/db-health')
@@ -9587,8 +9865,16 @@ def dashboard():
         db = get_db()
         user_id = session['user_id']
 
-        # בדיקה אם המשתמש אדמין
-        user_is_admin = is_admin(user_id)
+        # בדיקה אם המשתמש אדמין (סטטוס אפקטיבי)
+        actual_is_admin = False
+        try:
+            actual_is_admin = bool(is_admin(int(user_id)))
+        except Exception:
+            actual_is_admin = False
+        if is_impersonating_safe():
+            user_is_admin = False
+        else:
+            user_is_admin = actual_is_admin
         
         # שליפת סטטיסטיקות - רק קבצים פעילים
         active_query = {
@@ -10598,15 +10884,21 @@ def view_file(file_id):
     user_id = session['user_id']
 
     # הרשאות UI (לכפתורים/מודאלים) - Premium/Admin
-    user_is_admin = False
-    user_is_premium = False
+    actual_is_admin = False
+    actual_is_premium = False
     try:
         uid_int = int(user_id)
-        user_is_admin = bool(is_admin(uid_int))
-        user_is_premium = bool(is_premium(uid_int))
+        actual_is_admin = bool(is_admin(uid_int))
+        actual_is_premium = bool(is_premium(uid_int))
     except Exception:
+        actual_is_admin = False
+        actual_is_premium = False
+    if is_impersonating_safe():
         user_is_admin = False
         user_is_premium = False
+    else:
+        user_is_admin = actual_is_admin
+        user_is_premium = actual_is_premium
     
     try:
         file, kind = _get_user_any_file_by_id(db, user_id, file_id)
@@ -12695,7 +12987,15 @@ def md_preview(file_id):
     }
     # העבר את התוכן ללקוח בתור JSON כדי למנוע בעיות escaping
     # בדיקת הרשאת אדמין כדי לאפשר פיצ'רים ייעודיים בצד לקוח (ללא שינוי תוכן)
-    user_is_admin = is_admin(user_id)
+    actual_is_admin = False
+    try:
+        actual_is_admin = bool(is_admin(int(user_id)))
+    except Exception:
+        actual_is_admin = False
+    if is_impersonating_safe():
+        user_is_admin = False
+    else:
+        user_is_admin = actual_is_admin
 
     html = render_template(
         'md_preview.html',
@@ -14487,6 +14787,13 @@ def settings():
         user_data['is_premium'] = user_is_premium
         session.modified = True
 
+    if is_impersonating_safe():
+        effective_is_admin = False
+        effective_is_premium = False
+    else:
+        effective_is_admin = bool(user_is_admin)
+        effective_is_premium = bool(user_is_premium)
+
     # ✅ בדיקת persistent token עם cache
     has_persistent = _check_persistent_login_cached(user_id)
 
@@ -14496,8 +14803,8 @@ def settings():
     return render_template(
         'settings.html',
         user=user_data,
-        is_admin=user_is_admin,
-        is_premium=user_is_premium,
+        is_admin=effective_is_admin,
+        is_premium=effective_is_premium,
         persistent_login_enabled=has_persistent,
         persistent_days=PERSISTENT_LOGIN_DAYS,
         push_enabled=push_enabled
@@ -14580,11 +14887,20 @@ def settings_push_debug():
     except Exception:
         ua = ""
 
+    actual_is_admin = bool(user_data.get('is_admin', False))
+    actual_is_premium = bool(user_data.get('is_premium', False))
+    if is_impersonating_safe():
+        effective_is_admin = False
+        effective_is_premium = False
+    else:
+        effective_is_admin = actual_is_admin
+        effective_is_premium = actual_is_premium
+
     return render_template(
         'settings_push_debug.html',
         user=user_data,
-        is_admin=user_data.get('is_admin', False),
-        is_premium=user_data.get('is_premium', False),
+        is_admin=effective_is_admin,
+        is_premium=effective_is_premium,
         push_enabled=push_enabled,
         vapid_public_set=bool(vapid_public),
         vapid_private_set=bool(vapid_private),
@@ -14623,13 +14939,27 @@ def settings_push_test():
 def theme_builder():
     """דף בונה ערכת נושא מותאמת אישית (זמין לכל משתמש מחובר)."""
     user_id = session['user_id']
-    user_is_admin = is_admin(user_id)
+    actual_is_admin = False
+    actual_is_premium = False
+    try:
+        uid_int = int(user_id)
+        actual_is_admin = bool(is_admin(uid_int))
+        actual_is_premium = bool(is_premium(uid_int))
+    except Exception:
+        actual_is_admin = False
+        actual_is_premium = False
+    if is_impersonating_safe():
+        user_is_admin = False
+        user_is_premium = False
+    else:
+        user_is_admin = actual_is_admin
+        user_is_premium = actual_is_premium
 
     return render_template(
         'settings/theme_builder.html',
         user=session.get('user_data', {}),
         is_admin=user_is_admin,
-        is_premium=is_premium(user_id),
+        is_premium=user_is_premium,
         saved_theme=None,
     )
 
@@ -14639,12 +14969,26 @@ def theme_builder():
 def theme_gallery():
     """דף ייעודי: גלריית Presets + ייבוא ערכות (VS Code/JSON)."""
     user_id = session['user_id']
-    user_is_admin = is_admin(user_id)
+    actual_is_admin = False
+    actual_is_premium = False
+    try:
+        uid_int = int(user_id)
+        actual_is_admin = bool(is_admin(uid_int))
+        actual_is_premium = bool(is_premium(uid_int))
+    except Exception:
+        actual_is_admin = False
+        actual_is_premium = False
+    if is_impersonating_safe():
+        user_is_admin = False
+        user_is_premium = False
+    else:
+        user_is_admin = actual_is_admin
+        user_is_premium = actual_is_premium
     return render_template(
         'settings/theme_gallery.html',
         user=session.get('user_data', {}),
         is_admin=user_is_admin,
-        is_premium=is_premium(user_id),
+        is_premium=user_is_premium,
     )
 
 @app.route('/health')
@@ -16155,9 +16499,18 @@ def api_me():
             user_data['is_premium'] = user_is_premium
             session.modified = True
 
+        actual_is_admin = bool(user_is_admin)
+        actual_is_premium = bool(user_is_premium)
+        if is_impersonating_safe():
+            effective_is_admin = False
+            effective_is_premium = False
+        else:
+            effective_is_admin = actual_is_admin
+            effective_is_premium = actual_is_premium
+
         role_flags = {
-            'is_admin': bool(user_is_admin),
-            'is_premium': bool(user_is_premium),
+            'is_admin': bool(effective_is_admin),
+            'is_premium': bool(effective_is_premium),
         }
         # קביעת תפקיד עיקרי ותווית ידידותית
         if role_flags['is_admin']:
