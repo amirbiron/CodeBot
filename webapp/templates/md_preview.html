@@ -1664,12 +1664,14 @@ input.md-task-checkbox {
         </div>
       </div>
       <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;">
+        {% if not is_public %}
         <a id="mdReaderModeBtn"
            class="btn btn-secondary btn-icon md-reader-mode-btn"
            href="{{ url_for('reader_mode', filename=file.file_name) }}"
            target="_blank"
            rel="noopener noreferrer"
            title="פתח במצב קריאה">📖</a>
+        {% endif %}
         <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
           <i class="fas fa-expand"></i>
           מסך מלא
