@@ -12,7 +12,7 @@
   padding: 0.5rem 0; /* את הריווח הצדדי ניתן דרך הכרטיס הפנימי */
 }
 #md-content {
-  background: #ffffff;
+  background-color: #ffffff;
   color: #111111;
   border-radius: 12px;
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
@@ -59,7 +59,7 @@
 [data-theme="dark"] #md-content,
 [data-theme="dim"] #md-content,
 [data-theme="nebula"] #md-content {
-  background: var(--bg-primary);
+  background-color: var(--bg-primary);
   color: var(--text-primary);
 }
 
@@ -423,8 +423,8 @@
 
 /* כאשר מצב קלאסי פעיל, דריסת צבעי הערכה הכהה */
 #md-content.classic-mode-active {
-  background: #ffffff;
-  color: #111111;
+  background-color: #ffffff !important;
+  color: #111111 !important;
 
   /* משתנים מהערכה הקלאסית */
   --md-mark-bg: #fff2a8;
@@ -466,13 +466,13 @@
 
 /* דריסה נקודתית לכללי ערכות כהות (ספציפיות גבוהה) */
 #md-content.classic-mode-active code:not(pre code) {
-  background: var(--md-inline-code-bg);
+  background-color: var(--md-inline-code-bg);
   color: var(--md-inline-code-color);
   border: 1px solid var(--md-inline-code-border);
 }
 
 #md-content.classic-mode-active pre {
-  background: var(--md-code-bg);
+  background-color: var(--md-code-bg);
   border: 1px solid var(--md-code-border);
 }
 
@@ -483,7 +483,7 @@
 
 /* צבעי רקע חומים לתצוגת מארקדאון — גוונים בהירים ונעימים */
 #md-content.bg-light {
-  background: #f5e6d3;
+  background-color: #f5e6d3;
   color: #2b2b2b;
   --md-inline-code-bg: rgba(255, 255, 255, 0.4);
   --md-inline-code-border: rgba(0, 0, 0, 0.08);
@@ -515,7 +515,7 @@
 }
 
 #md-content.bg-medium {
-  background: #e8d4b0;
+  background-color: #e8d4b0;
   color: #1f1f1f;
   --md-inline-code-bg: rgba(255, 255, 255, 0.35);
   --md-inline-code-border: rgba(0, 0, 0, 0.12);
@@ -547,7 +547,7 @@
 }
 
 #md-content.bg-dark {
-  background: #d4b896;
+  background-color: #d4b896;
   color: #111111;
   --md-inline-code-bg: rgba(255, 255, 255, 0.3);
   --md-inline-code-border: rgba(0, 0, 0, 0.15);
@@ -579,7 +579,7 @@
 }
 
 #md-content.bg-sepia {
-  background: #fdf6e3;
+  background-color: #fdf6e3;
   color: #586e75;
   --md-inline-code-bg: rgba(255, 255, 255, 0.45);
   --md-inline-code-border: rgba(0, 0, 0, 0.08);
