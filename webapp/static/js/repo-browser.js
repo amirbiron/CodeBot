@@ -450,11 +450,13 @@ async function initCodeViewer(content, language) {
             if (support) extensions.push(support);
         }
 
-        // Theme - load from editorManager like view_file does
+        // Theme - use same logic as view_file (always 'dark' except for custom themes)
         try {
-            if (window.editorManager && typeof window.editorManager.getEditorTheme === 'function') {
-                const themeName = document.documentElement.getAttribute('data-theme') || 'dark';
-                const themeExt = await window.editorManager.getEditorTheme(themeName);
+            if (window.editorManager && typeof window.editorManager.getTheme === 'function') {
+                const htmlTheme = (document.documentElement.getAttribute('data-theme') || '').toLowerCase();
+                // Custom theme uses CSS classes, others use oneDark
+                const themeName = (htmlTheme === 'custom') ? 'custom' : 'dark';
+                const themeExt = await window.editorManager.getTheme(themeName);
                 if (themeExt) extensions.push(themeExt);
             }
         } catch (e) {
