@@ -3605,6 +3605,12 @@
         { id: 'rose-pine-dawn', name: 'Rose Pine Dawn', type: 'builtin', emoji: '🌹', colors: ['#faf4ed', '#575279', '#907aa9', '#d7827e'] }
     ];
 
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = String(value || '');
+        return div.innerHTML;
+    }
+
     /**
      * פתיחת המודאל
      */
@@ -3721,6 +3727,10 @@
         if (!modalEl.classList.contains('is-open')) {
             return;
         }
+
+        if (isLoading) {
+            return;
+        }
         
         let filtered = allThemes;
         
@@ -3743,6 +3753,9 @@
             const typeLabel = getTypeLabel(theme.type);
             const typeIcon = getTypeIcon(theme.type);
             const colors = getPreviewColors(theme);
+            const safeName = escapeHtml(theme.name || '');
+            const safeEmoji = escapeHtml(theme.emoji || '');
+            const displayName = safeEmoji ? `${safeEmoji} ${safeName}` : safeName;
             
             return `
                 <div class="theme-picker__card ${isActive ? 'is-active' : ''}" 
@@ -3754,7 +3767,7 @@
                     <div class="theme-picker__preview">
                         ${colors.map(c => `<div class="theme-picker__preview-color" style="background: ${c}"></div>`).join('')}
                     </div>
-                    <div class="theme-picker__name">${theme.emoji || ''} ${theme.name}</div>
+                    <div class="theme-picker__name">${displayName}</div>
                     <div class="theme-picker__type">
                         <i class="${typeIcon}"></i>
                         ${typeLabel}
@@ -3861,7 +3874,10 @@
                 // עדכון ישיר של data-theme ושמירה ב-localStorage
                 document.documentElement.setAttribute('data-theme', themeId);
                 localStorage.setItem('user_theme', themeId);
-                localStorage.setItem('dark_mode_preference', themeId);
+                const darkModePreference = (themeId === 'classic' || themeId === 'rose-pine-dawn')
+                    ? 'light'
+                    : 'dark';
+                localStorage.setItem('dark_mode_preference', darkModePreference);
                 
                 // עדכן בשרת (אופציונלי - אם יש endpoint)
                 try {
@@ -3961,7 +3977,9 @@
         if (saved) {
             currentFilter = saved;
             tabBtns.forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.filter === saved);
+                const isActive = btn.dataset.filter === saved;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
             });
         }
     }
