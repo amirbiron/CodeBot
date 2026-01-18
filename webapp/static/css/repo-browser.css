@@ -565,15 +565,10 @@
     line-height: 1.5;
 }
 
-/* CodeMirror 6 Overrides - Override max-height and add background for all themes */
+/* CodeMirror 6 Overrides - Override max-height from codemirror-custom.css */
 #code-editor-wrapper .cm-editor {
     height: 100% !important;
     max-height: none !important;
-    background: var(--code-bg, var(--bg-primary, #1e1e2e));
-}
-
-#code-editor-wrapper .cm-gutters {
-    background: var(--code-bg, var(--bg-secondary, #181825));
 }
 
 

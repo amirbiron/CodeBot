@@ -450,6 +450,17 @@ async function initCodeViewer(content, language) {
             if (support) extensions.push(support);
         }
 
+        // Theme - load from editorManager like view_file does
+        try {
+            if (window.editorManager && typeof window.editorManager.getEditorTheme === 'function') {
+                const themeName = document.documentElement.getAttribute('data-theme') || 'dark';
+                const themeExt = await window.editorManager.getEditorTheme(themeName);
+                if (themeExt) extensions.push(themeExt);
+            }
+        } catch (e) {
+            console.warn('Failed to load editor theme:', e);
+        }
+
         // Read-only
         if (EditorView && EditorView.editable) {
             extensions.push(EditorView.editable.of(false));
