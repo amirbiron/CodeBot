@@ -220,6 +220,21 @@ class Repository:
                             pass
                 except Exception:
                     pass
+                # שמור סטטוס נעיצה מהגרסה הקודמת אם לא סופק מפורשות
+                try:
+                    prev_is_pinned = bool(existing.get('is_pinned', False))
+                    if prev_is_pinned and not bool(getattr(snippet, 'is_pinned', False)):
+                        snippet.is_pinned = True
+                        try:
+                            snippet.pinned_at = existing.get('pinned_at')
+                        except Exception:
+                            pass
+                        try:
+                            snippet.pin_order = int(existing.get('pin_order', 0) or 0)
+                        except Exception:
+                            snippet.pin_order = 0
+                except Exception:
+                    pass
             snippet.updated_at = datetime.now(timezone.utc)
             # הוסף שדות מטא קלים למסכי רשימות כדי לא למשוך `code` רק בשביל סטטיסטיקות.
             # זה שומר תאימות למסמכים ישנים (ללא שדות אלו) ומשפר ביצועים למסמכים חדשים.
@@ -240,6 +255,25 @@ class Repository:
 
             result = self.manager.collection.insert_one(doc)
             if result.inserted_id:
+                # אם הקובץ נעוץ, ודא שרק הגרסה החדשה נשארת נעוצה
+                if bool(doc.get("is_pinned", False)):
+                    try:
+                        self.manager.collection.update_many(
+                            {
+                                "user_id": snippet.user_id,
+                                "file_name": snippet.file_name,
+                                "is_active": True,
+                                "_id": {"$ne": result.inserted_id},
+                            },
+                            {"$set": {
+                                "is_pinned": False,
+                                "pinned_at": None,
+                                "pin_order": 0,
+                                "updated_at": snippet.updated_at,
+                            }},
+                        )
+                    except Exception:
+                        pass
                 # Invalidate user-level and file-related caches
                 try:
                     cache.invalidate_user_cache(snippet.user_id)

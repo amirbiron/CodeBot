@@ -43,55 +43,54 @@
     </div>
 </div>
 
-{% if pinned_files %}
-<section class="pinned-section glass-card" id="pinnedFiles">
-    <div class="pinned-header">
-        <h2 class="section-title">
-            <i class="fas fa-thumbtack"></i>
-            קבצים נעוצים
-        </h2>
-        <span class="badge" data-pinned-count data-max-pinned="{{ max_pinned }}">{{ pinned_files|length }}/{{ max_pinned }}</span>
-    </div>
-    
-    <div class="pinned-grid" data-pinned-grid>
-        {% for file in pinned_files %}
-        <a href="/file/{{ file.id }}" class="pinned-card" data-pinned-card data-file-id="{{ file.id }}">
-            <div class="pinned-card__icon">{{ file.icon }}</div>
-            <div class="pinned-card__content">
-                <div class="pinned-card__name" title="{{ file.file_name }}">
-                    {{ file.file_name }}
-                </div>
-                <div class="pinned-card__meta">
-                    <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
-                    {% if file.lines %}
-                    <span class="pinned-card__lines">{{ file.lines }} שורות</span>
+<div class="dashboard-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem;">
+    {% if pinned_files %}
+    <section class="pinned-section glass-card" id="pinnedFiles">
+        <div class="pinned-header">
+            <h2 class="section-title">
+                <i class="fas fa-thumbtack"></i>
+                קבצים נעוצים
+            </h2>
+            <span class="badge" data-pinned-count data-max-pinned="{{ max_pinned }}">{{ pinned_files|length }}/{{ max_pinned }}</span>
+        </div>
+        
+        <div class="pinned-grid" data-pinned-grid>
+            {% for file in pinned_files %}
+            <a href="/file/{{ file.id }}" class="pinned-card" data-pinned-card data-file-id="{{ file.id }}">
+                <div class="pinned-card__icon">{{ file.icon }}</div>
+                <div class="pinned-card__content">
+                    <div class="pinned-card__name" title="{{ file.file_name }}">
+                        {{ file.file_name }}
+                    </div>
+                    <div class="pinned-card__meta">
+                        <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
+                        {% if file.lines %}
+                        <span class="pinned-card__lines">{{ file.lines }} שורות</span>
+                        {% endif %}
+                    </div>
+                    {% if file.description %}
+                    <div class="pinned-card__note">{{ file.description }}</div>
                     {% endif %}
                 </div>
-                {% if file.description %}
-                <div class="pinned-card__note">{{ file.description }}</div>
-                {% endif %}
-            </div>
-            <button type="button"
-                    class="pinned-card__unpin"
-                    data-unpin-file="{{ file.id }}"
-                    title="הסר מנעוצים"
-                    aria-label="הסר מנעוצים"
-                    onclick="event.preventDefault(); event.stopPropagation(); unpinFile('{{ file.id }}');">
-                ✕
-            </button>
-        </a>
-        {% endfor %}
-    </div>
-    
-    {% if pinned_files|length < max_pinned %}
-    <p class="pinned-hint">
-        💡 ניתן לנעוץ עד {{ max_pinned }} קבצים. נעץ קבצים דרך תפריט ⋮ בעמוד הקובץ.
-    </p>
+                <button type="button"
+                        class="pinned-card__unpin"
+                        data-unpin-file="{{ file.id }}"
+                        title="הסר מנעוצים"
+                        aria-label="הסר מנעוצים"
+                        onclick="event.preventDefault(); event.stopPropagation(); unpinFile('{{ file.id }}');">
+                    ✕
+                </button>
+            </a>
+            {% endfor %}
+        </div>
+        
+        {% if pinned_files|length < max_pinned %}
+        <p class="pinned-hint">
+            💡 ניתן לנעוץ עד {{ max_pinned }} קבצים. נעץ קבצים דרך תפריט ⋮ בעמוד הקובץ.
+        </p>
+        {% endif %}
+    </section>
     {% endif %}
-</section>
-{% endif %}
-
-<div class="dashboard-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem;">
     <div class="glass-card">
         <h2 class="section-title">
             <i class="fas fa-code"></i>
@@ -512,7 +511,7 @@
 
 /* === Pinned Files Section === */
 .pinned-section {
-    margin-bottom: 2rem;
+    margin-bottom: 0;
     border-right: 3px solid #f59e0b;
 }
 
@@ -538,6 +537,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 1rem;
+    width: 100%;
 }
 
 .pinned-card {
@@ -551,6 +551,10 @@
     text-decoration: none;
     color: inherit;
     transition: all 0.2s ease;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
 }
 
 .pinned-card:hover {
@@ -791,6 +795,12 @@
 @media (max-width: 768px) {
     .dashboard-grid {
         grid-template-columns: 1fr !important;
+    }
+}
+
+@media (min-width: 769px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
 }
 
