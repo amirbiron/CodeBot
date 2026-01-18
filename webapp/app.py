@@ -13754,7 +13754,7 @@ def api_toggle_pin(file_id):
 
     except Exception as e:
         # Log full exception details on the server, but return a generic message to the client
-        logger.exception("Error in api_toggle_pin")
+        return jsonify({"ok": False, "error": "אירעה שגיאה בשרת"}), 500
         return jsonify({"ok": False, "error": "שגיאה פנימית בשרת"}), 500
 
 

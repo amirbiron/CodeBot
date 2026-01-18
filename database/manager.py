@@ -196,7 +196,7 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
             except Exception:
                 old_order = 0
 
-            self.collection.update_many(
+        return {"success": False, "error": "אירעה שגיאה בעת עדכון הנעיצה"}
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_pinned": False,
