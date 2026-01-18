@@ -3253,7 +3253,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   }
 
   // החלת צבע רקע
-  function applyBackgroundColor(color) {
+  function applyBackgroundColor(color, persist = true) {
    const mdContent = document.getElementById('md-content');
    if (!mdContent) return;
  
@@ -3288,8 +3288,10 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
      }
    });
    
-   // שמירת ההעדפה
-   saveColorPreference(color);
+   // שמירת ההעדפה (אופציונלי – לפעמים רוצים רק לשחזר UI בלי לגעת ב-localStorage)
+   if (persist) {
+     saveColorPreference(color);
+   }
  }
 
   // חשיפה ל-scope גלובלי (נדרש עבור מצב קלאסי)
@@ -3325,7 +3327,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         try { bgColorSwitcher.style.display = 'inline-flex'; } catch(_) {}
         // טעינת העדפה שמורה
         const savedColor = getSavedColorPreference();
-        applyBackgroundColor(savedColor);
+        applyBackgroundColor(savedColor, false);
       } else {
         try { bgColorOptions.style.display = 'none'; } catch(_) {}
         try { bgColorSwitcher.style.display = 'none'; } catch(_) {}
@@ -3345,7 +3347,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const color = btn.dataset.color;
-        applyBackgroundColor(color);
+        applyBackgroundColor(color, true);
         bgColorOptions.style.display = 'none';
       });
     });
@@ -3368,7 +3370,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     `;
     defaultBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      applyBackgroundColor(null); // שימוש בפונקציה המרכזית
+      applyBackgroundColor(null, true); // שימוש בפונקציה המרכזית
       bgColorOptions.style.display = 'none';
     });
     
@@ -3400,6 +3402,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   'use strict';
   const STORAGE_KEY = 'md_classic_mode_enabled';
   const DARK_THEMES = new Set(['custom', 'dark', 'dim', 'nebula']);
+  const NATIVE_BG_THEMES = new Set(['classic', 'ocean', 'rose-pine-dawn']);
 
   const classicBtn = document.getElementById('mdClassicModeBtn');
   const mdContent = document.getElementById('md-content');
@@ -3457,7 +3460,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     let savedBgColor = null;
     try { savedBgColor = localStorage.getItem('md_bg_color_preference'); } catch(_) {}
     if (savedBgColor && typeof window.applyBackgroundColor === 'function') {
-      try { window.applyBackgroundColor(savedBgColor); } catch(_) {}
+      try { window.applyBackgroundColor(savedBgColor, false); } catch(_) {}
     }
 
     saveState(true);
@@ -3465,13 +3468,28 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
 
   function disableClassicMode() {
     mdContent.classList.remove('classic-mode-active');
-    mdContent.classList.remove('bg-sepia', 'bg-light', 'bg-medium', 'bg-dark');
     if (mdCard) mdCard.classList.remove('classic-mode-enabled');
     updateButtonUi(false);
 
-    // הסתרת כפתור צבע רקע (רק בערכות כהות)
-    if (bgColorSwitcher && isDarkTheme()) {
+    // קביעה לפי הערכה הנוכחית (אחרי שינוי): האם כפתור צבע רקע אמור להיות זמין "טבעית"
+    const currentTheme = document.documentElement.getAttribute('data-theme') || '';
+    const isNativeAllowed = NATIVE_BG_THEMES.has(currentTheme);
+
+    // אם הערכה לא תומכת באופן טבעי – ננקה את ההחלה (בלי למחוק העדפה) ונחביא את הכפתור
+    if (bgColorSwitcher && !isNativeAllowed) {
+      if (typeof window.applyBackgroundColor === 'function') {
+        // איפוס ויזואלי + UI (אינדיקטור/active) בלי לגעת ב-localStorage
+        try { window.applyBackgroundColor(null, false); } catch(_) {}
+      } else {
+        // Fallback
+        try { mdContent.classList.remove('bg-sepia', 'bg-light', 'bg-medium', 'bg-dark'); } catch(_) {}
+      }
       try { bgColorSwitcher.style.display = 'none'; } catch(_) {}
+    }
+
+    // אם הערכה כן תומכת באופן טבעי – נשאיר את הכפתור גלוי (והמודול של צבע רקע יטפל בהחלה)
+    if (bgColorSwitcher && isNativeAllowed) {
+      try { bgColorSwitcher.style.display = 'inline-flex'; } catch(_) {}
     }
 
     saveState(false);
