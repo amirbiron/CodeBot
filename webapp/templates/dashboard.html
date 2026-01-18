@@ -813,109 +813,6 @@
     background: linear-gradient(135deg, #907aa9 0%, #b4a7c7 100%);
 }
 
-.dashboard-grid {
-    display: grid;
-    gap: 2rem;
-    grid-template-columns: 1fr;
-    grid-template-areas:
-        "pinned"
-        "lastcommit"
-        "whatsnew";
-}
-
-.dashboard-grid.no-last-commit {
-    grid-template-areas:
-        "pinned"
-        "whatsnew";
-}
-
-.widget-pinned { grid-area: pinned; }
-.widget-whats-new { grid-area: whatsnew; }
-.widget-last-commit { grid-area: lastcommit; }
-.widget-languages--top { grid-area: languages-top; display: none; }
-.widget-languages--activity { display: block; }
-
-@media (min-width: 769px) and (max-width: 1199px) {
-    .dashboard-grid.has-last-commit {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-areas:
-            "pinned whatsnew"
-            "lastcommit languages-top";
-    }
-
-    .dashboard-grid.no-last-commit {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-areas:
-            "pinned whatsnew"
-            "pinned languages-top";
-    }
-
-    .widget-languages--top { display: block; }
-    .widget-languages--activity { display: none; }
-
-    .activity-cards {
-        display: grid;
-        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-        grid-template-areas:
-            "timeline push"
-            "timeline notes";
-        gap: 1rem;
-        overflow-x: visible;
-        scroll-snap-type: none;
-    }
-
-    .widget-timeline { grid-area: timeline; }
-    .widget-push { grid-area: push; }
-    .widget-notes { grid-area: notes; }
-}
-
-@media (min-width: 1200px) {
-    .dashboard-grid.has-last-commit {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        grid-template-areas: "pinned whatsnew lastcommit";
-    }
-
-    .dashboard-grid.no-last-commit {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        grid-template-areas: "pinned whatsnew languages-top";
-    }
-
-    .dashboard-grid.no-last-commit .widget-languages--top { display: block; }
-    .dashboard-grid.has-last-commit .widget-languages--top { display: none; }
-
-    .widget-languages--activity { display: block; }
-    .activity-section.no-last-commit .widget-languages--activity { display: none; }
-
-    .activity-cards {
-        display: grid;
-        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-        grid-template-areas:
-            "timeline push"
-            "timeline notes"
-            "timeline languages";
-        gap: 1rem;
-        overflow-x: visible;
-        scroll-snap-type: none;
-    }
-
-    .activity-section.no-last-commit .activity-cards {
-        grid-template-areas:
-            "timeline push"
-            "timeline notes";
-    }
-
-    .widget-timeline { grid-area: timeline; }
-    .widget-push { grid-area: push; }
-    .widget-notes { grid-area: notes; }
-    .widget-languages--activity { grid-area: languages; }
-
-    .activity-cards .widget-push,
-    .activity-cards .widget-notes,
-    .activity-cards .widget-languages--activity {
-        align-self: start;
-    }
-}
-
 /* === Last Commit Card (Admin Only) === */
 .last-commit-card {
     border-right: 3px solid #10b981;
@@ -1478,6 +1375,110 @@
     .desktop-only {
         display: flex !important;
         gap: 0.5rem;
+    }
+}
+
+/* === Dashboard grid layout === */
+.dashboard-grid {
+    display: grid;
+    gap: 2rem;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+        "pinned"
+        "lastcommit"
+        "whatsnew";
+}
+
+.dashboard-grid.no-last-commit {
+    grid-template-areas:
+        "pinned"
+        "whatsnew";
+}
+
+.widget-pinned { grid-area: pinned; }
+.widget-whats-new { grid-area: whatsnew; }
+.widget-last-commit { grid-area: lastcommit; }
+.widget-languages--top { grid-area: languages-top; display: none; }
+.widget-languages--activity { display: block; }
+
+@media (min-width: 769px) and (max-width: 1199px) {
+    .dashboard-grid.has-last-commit {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-areas:
+            "pinned whatsnew"
+            "lastcommit languages-top";
+    }
+
+    .dashboard-grid.no-last-commit {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-areas:
+            "pinned whatsnew"
+            "pinned languages-top";
+    }
+
+    .widget-languages--top { display: block; }
+    .widget-languages--activity { display: none; }
+
+    .activity-cards {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        grid-template-areas:
+            "timeline push"
+            "timeline notes";
+        gap: 1rem;
+        overflow-x: visible;
+        scroll-snap-type: none;
+    }
+
+    .widget-timeline { grid-area: timeline; }
+    .widget-push { grid-area: push; }
+    .widget-notes { grid-area: notes; }
+}
+
+@media (min-width: 1200px) {
+    .dashboard-grid.has-last-commit {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-areas: "pinned whatsnew lastcommit";
+    }
+
+    .dashboard-grid.no-last-commit {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-areas: "pinned whatsnew languages-top";
+    }
+
+    .dashboard-grid.no-last-commit .widget-languages--top { display: block; }
+    .dashboard-grid.has-last-commit .widget-languages--top { display: none; }
+
+    .widget-languages--activity { display: block; }
+    .activity-section.no-last-commit .widget-languages--activity { display: none; }
+
+    .activity-cards {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        grid-template-areas:
+            "timeline push"
+            "timeline notes"
+            "timeline languages";
+        gap: 1rem;
+        overflow-x: visible;
+        scroll-snap-type: none;
+    }
+
+    .activity-section.no-last-commit .activity-cards {
+        grid-template-areas:
+            "timeline push"
+            "timeline notes";
+    }
+
+    .widget-timeline { grid-area: timeline; }
+    .widget-push { grid-area: push; }
+    .widget-notes { grid-area: notes; }
+    .widget-languages--activity { grid-area: languages; }
+
+    .activity-cards .widget-push,
+    .activity-cards .widget-notes,
+    .activity-cards .widget-languages--activity {
+        align-self: start;
     }
 }
 
