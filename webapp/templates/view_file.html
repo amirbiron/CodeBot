@@ -859,7 +859,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                     <button type="button" class="file-actions__menu-item" data-menu-action="share">
                         <span>📤 שתף קובץ</span>
                     </button>
-                    {% if not file.is_large %}
+                    {% if file.can_pin %}
                     <button type="button"
                             class="file-actions__menu-item"
                             data-menu-action="pin"

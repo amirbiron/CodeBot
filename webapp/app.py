@@ -10700,6 +10700,7 @@ def view_file(file_id):
                                  'updated_at': format_datetime_display(file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
+                                 'can_pin': False,
                                  'is_pinned': bool(file.get('is_pinned', False)),
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
@@ -10731,6 +10732,7 @@ def view_file(file_id):
                                  'updated_at': format_datetime_display(file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
+                                 'can_pin': False,
                                  'is_pinned': bool(file.get('is_pinned', False)),
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
@@ -10791,6 +10793,7 @@ def view_file(file_id):
         'updated_at': format_datetime_display(file.get('updated_at')),
         'version': (file.get('version', 1) if not is_large else None),
         'is_large': is_large,
+        'can_pin': not is_large,
         'is_favorite': bool(file.get('is_favorite', False)),
         'is_pinned': bool(file.get('is_pinned', False)),
         'source_url': file.get('source_url') or '',
@@ -16304,6 +16307,7 @@ def public_share(share_id):
         'created_at': created_at_str,
         'updated_at': created_at_str,
         'version': 1,
+        'can_pin': False,
     }
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
 

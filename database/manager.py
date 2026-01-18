@@ -117,6 +117,58 @@ _MONGO_MONITORING_REGISTERED = False
 MAX_PINNED_FILES = 8
 
 
+def _normalize_pinned_orders(self, user_id: int) -> int:
+    """איפוס סדר נעיצות לרצף תקין והסרת עודפים מעבר למקסימום."""
+    try:
+        cursor = self.collection.find(
+            {
+                "user_id": user_id,
+                "is_pinned": True,
+                "is_active": True,
+            },
+            {
+                "_id": 1,
+                "pin_order": 1,
+                "pinned_at": 1,
+            },
+        ).sort([("pin_order", 1), ("pinned_at", 1), ("_id", 1)])
+        pinned = list(cursor)
+    except Exception as e:
+        logger.error(f"שגיאה ב-normalize_pinned_orders: {e}")
+        return 0
+
+    now = datetime.now(timezone.utc)
+    keep = pinned[:MAX_PINNED_FILES]
+    drop = pinned[MAX_PINNED_FILES:]
+
+    for idx, doc in enumerate(keep):
+        try:
+            self.collection.update_one(
+                {"_id": doc.get("_id")},
+                {"$set": {"pin_order": idx}},
+            )
+        except Exception:
+            pass
+
+    if drop:
+        try:
+            drop_ids = [doc.get("_id") for doc in drop if doc.get("_id") is not None]
+            if drop_ids:
+                self.collection.update_many(
+                    {"_id": {"$in": drop_ids}},
+                    {"$set": {
+                        "is_pinned": False,
+                        "pinned_at": None,
+                        "pin_order": 0,
+                        "updated_at": now,
+                    }},
+                )
+        except Exception:
+            pass
+
+    return len(keep)
+
+
 def toggle_pin(self, user_id: int, file_name: str) -> dict:
     """
     נעיצה/ביטול נעיצה של קובץ לדשבורד
@@ -185,17 +237,31 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                 }}
             )
 
+            # בדיקה נוספת נגד רייס קונדישנס + איפוס סדר
+            new_count = get_pinned_count(self, user_id)
+            if new_count > MAX_PINNED_FILES:
+                self.collection.update_many(
+                    {"user_id": user_id, "file_name": file_name, "is_active": True},
+                    {"$set": {
+                        "is_pinned": False,
+                        "pinned_at": None,
+                        "pin_order": 0,
+                        "updated_at": datetime.now(timezone.utc)
+                    }}
+                )
+                _normalize_pinned_orders(self, user_id)
+                return {
+                    "success": False,
+                    "error": f"ניתן לנעוץ עד {MAX_PINNED_FILES} קבצים. הסר נעיצה מקובץ אחר."
+                }
+
+            _normalize_pinned_orders(self, user_id)
+
             logger.info(f"קובץ {file_name} נעוץ לדשבורד עבור משתמש {user_id}")
             return {"success": True, "is_pinned": True}
 
         else:
             # ביטול נעיצה
-            old_order = 0
-            try:
-                old_order = int(pinned_doc.get("pin_order", 0)) if isinstance(pinned_doc, dict) else 0
-            except Exception:
-                old_order = 0
-            
             self.collection.update_many(
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
@@ -205,17 +271,7 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                     "updated_at": datetime.now(timezone.utc)
                 }}
             )
-
-            # עדכון סדר לכל הקבצים שהיו אחריו
-            self.collection.update_many(
-                {
-                    "user_id": user_id,
-                    "is_pinned": True,
-                    "is_active": True,
-                    "pin_order": {"$gt": old_order}
-                },
-                {"$inc": {"pin_order": -1}}
-            )
+            _normalize_pinned_orders(self, user_id)
 
             logger.info(f"קובץ {file_name} הוסר מנעוצים עבור משתמש {user_id}")
             return {"success": True, "is_pinned": False}
