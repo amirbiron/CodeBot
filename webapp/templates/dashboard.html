@@ -272,7 +272,7 @@
         {% endif %}
     </div>
 
-    <div class="activity-cards" data-activity-cards data-active-filter="all">
+    <div class="activity-cards{% if files_need_attention and files_need_attention.has_items %} has-attention{% endif %}" data-activity-cards data-active-filter="all">
         <article class="activity-card timeline-card glass-card widget-timeline" data-card="timeline" data-expanded="false">
             <header class="timeline-card-header">
                 <div>
@@ -450,6 +450,128 @@
             <a class="note-link" href="/files">פתח קובץ חדש</a>
             {% endif %}
         </article>
+        {# === ווידג'ט: קבצים שדורשים טיפול === #}
+        {% if files_need_attention and files_need_attention.has_items %}
+        <article class="activity-card glass-card attention-card widget-attention" data-attention-widget>
+            <header class="attention-header">
+                <h2 class="section-title">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    קבצים שדורשים טיפול
+                </h2>
+                <span class="badge badge-warning" data-attention-total-badge>
+                    {{ files_need_attention.total_missing + files_need_attention.total_stale }}
+                </span>
+            </header>
+
+            {# --- קבוצה 1: חסר תיאור/תגיות --- #}
+            {% if files_need_attention.missing_metadata %}
+            <section class="attention-group" data-group="missing">
+                <h3 class="attention-group__title">
+                    <span class="attention-group__icon">📝</span>
+                    חסר תיאור או תגיות
+                    <span class="attention-group__count" data-group-count="missing">
+                        ({{ files_need_attention.shown_missing }}{% if files_need_attention.total_missing > files_need_attention.shown_missing %}/{{ files_need_attention.total_missing }}{% endif %})
+                    </span>
+                </h3>
+                <ul class="attention-list" data-attention-list="missing">
+                    {% for file in files_need_attention.missing_metadata %}
+                    <li class="attention-item" data-file-id="{{ file.id }}">
+                        <div class="attention-item__info">
+                            <span class="attention-item__icon">{{ file.icon }}</span>
+                            <div class="attention-item__details">
+                                <a href="/file/{{ file.id }}" class="attention-item__name">{{ file.file_name }}</a>
+                                <span class="attention-item__reason">{{ file.reason_text }}</span>
+                            </div>
+                        </div>
+                        <div class="attention-item__actions">
+                            <button type="button" 
+                                    class="btn btn-sm btn-icon attention-quick-edit"
+                                    data-action="quick-edit"
+                                    data-file-id="{{ file.id }}"
+                                    data-file-name="{{ file.file_name | e }}"
+                                    data-current-desc="{{ file.description | tojson | forceescape }}"
+                                    data-current-tags="{{ (file.tags_full | join(',')) | tojson | forceescape }}"
+                                    title="עריכה מהירה">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button type="button"
+                                    class="btn btn-sm btn-icon attention-dismiss"
+                                    data-action="dismiss"
+                                    data-file-id="{{ file.id }}"
+                                    title="טפל מאוחר יותר">
+                                <i class="fas fa-clock"></i>
+                            </button>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% if files_need_attention.total_missing > files_need_attention.shown_missing %}
+                <p class="attention-more">
+                    ועוד {{ files_need_attention.total_missing - files_need_attention.shown_missing }} קבצים נוספים...
+                    <a href="/files?filter=missing_metadata" class="attention-more-link">הצג הכל</a>
+                </p>
+                {% endif %}
+            </section>
+            {% endif %}
+
+            {# --- קבוצה 2: לא עודכן זמן רב --- #}
+            {% if files_need_attention.stale_files %}
+            <section class="attention-group" data-group="stale">
+                <h3 class="attention-group__title">
+                    <span class="attention-group__icon">⏰</span>
+                    לא עודכן זמן רב
+                    <span class="attention-group__count" data-group-count="stale">
+                        ({{ files_need_attention.shown_stale }}{% if files_need_attention.total_stale > files_need_attention.shown_stale %}/{{ files_need_attention.total_stale }}{% endif %})
+                    </span>
+                </h3>
+                <ul class="attention-list" data-attention-list="stale">
+                    {% for file in files_need_attention.stale_files %}
+                    <li class="attention-item" data-file-id="{{ file.id }}">
+                        <div class="attention-item__info">
+                            <span class="attention-item__icon">{{ file.icon }}</span>
+                            <div class="attention-item__details">
+                                <a href="/file/{{ file.id }}" class="attention-item__name">{{ file.file_name }}</a>
+                                <span class="attention-item__reason">{{ file.reason_text }}</span>
+                            </div>
+                        </div>
+                        <div class="attention-item__actions">
+                            <a href="/edit/{{ file.id }}" 
+                               class="btn btn-sm btn-icon"
+                               title="פתח לעריכה">
+                                <i class="fas fa-external-link-alt"></i>
+                            </a>
+                            <button type="button"
+                                    class="btn btn-sm btn-icon attention-dismiss"
+                                    data-action="dismiss"
+                                    data-file-id="{{ file.id }}"
+                                    title="טפל מאוחר יותר">
+                                <i class="fas fa-clock"></i>
+                            </button>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% if files_need_attention.total_stale > files_need_attention.shown_stale %}
+                <p class="attention-more">
+                    ועוד {{ files_need_attention.total_stale - files_need_attention.shown_stale }} קבצים נוספים...
+                    <a href="/files?filter=stale&days={{ files_need_attention.settings.stale_days }}" class="attention-more-link">הצג הכל</a>
+                </p>
+                {% endif %}
+            </section>
+            {% endif %}
+
+            {# --- הגדרות --- #}
+            <footer class="attention-footer">
+                <span class="attention-footer-hint">
+                    ⚙️ קובץ נחשב "ישן" אחרי {{ files_need_attention.settings.stale_days }} ימים
+                </span>
+                <a href="/settings#attention" class="attention-settings-link">
+                    <i class="fas fa-cog"></i>
+                    הגדרות
+                </a>
+            </footer>
+        </article>
+        {% endif %}
         <article class="activity-card languages-card glass-card widget-languages widget-languages--activity">
             <h2 class="section-title">
                 <i class="fas fa-code"></i>
@@ -472,6 +594,72 @@
             {% endif %}
         </article>
     </div>
+    {% if files_need_attention and files_need_attention.has_items %}
+
+    {# --- מודל עריכה מהירה (Quick Edit Modal) --- #}
+    <div class="modal attention-modal" id="attentionQuickEditModal" data-quick-edit-modal hidden>
+        <div class="modal-backdrop" data-modal-close></div>
+        <div class="modal-content glass-card">
+            <header class="modal-header">
+                <h3>עריכה מהירה</h3>
+                <button type="button" class="modal-close" data-modal-close aria-label="סגור">
+                    <i class="fas fa-times"></i>
+                </button>
+            </header>
+            <form class="modal-body" data-quick-edit-form>
+                <input type="hidden" name="file_id" data-field="file_id">
+                <p class="quick-edit-file-name" data-field="file_name_display"></p>
+                <div class="form-group">
+                    <label for="quickEditDescription">תיאור</label>
+                    <input type="text" 
+                           id="quickEditDescription" 
+                           name="description" 
+                           class="form-field"
+                           maxlength="500"
+                           placeholder="מה הקובץ עושה? (תיאור קצר)">
+                </div>
+                <div class="form-group">
+                    <label for="quickEditTags">תגיות</label>
+                    <input type="text" 
+                           id="quickEditTags" 
+                           name="tags" 
+                           class="form-field"
+                           placeholder="utils, helper, api">
+                    <small class="form-hint">הפרד תגיות בפסיקים (Comma-separated)</small>
+                </div>
+            </form>
+            <footer class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-modal-close>ביטול</button>
+                <button type="button" class="btn btn-primary" data-action="save-quick-edit">
+                    <i class="fas fa-save"></i>
+                    שמור
+                </button>
+            </footer>
+        </div>
+    </div>
+
+    {# --- מודל דחייה (Dismiss Modal) --- #}
+    <div class="modal attention-modal" id="attentionDismissModal" data-dismiss-modal hidden>
+        <div class="modal-backdrop" data-modal-close></div>
+        <div class="modal-content glass-card modal-content--small">
+            <header class="modal-header">
+                <h3>דחה לטיפול מאוחר</h3>
+                <button type="button" class="modal-close" data-modal-close aria-label="סגור">
+                    <i class="fas fa-times"></i>
+                </button>
+            </header>
+            <div class="modal-body">
+                <input type="hidden" data-field="dismiss_file_id">
+                <p>הסתר קובץ זה מהרשימה למשך:</p>
+                <div class="dismiss-options">
+                    <button type="button" class="btn btn-secondary dismiss-option" data-days="7">שבוע</button>
+                    <button type="button" class="btn btn-secondary dismiss-option" data-days="30">חודש</button>
+                    <button type="button" class="btn btn-secondary dismiss-option" data-days="90">3 חודשים</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </section>
 
 <div class="quick-actions glass-card" style="margin-top: 2rem; text-align: center;">
@@ -1628,6 +1816,394 @@
     background: rgba(255, 255, 255, 0.5);
     border-right-color: rgba(144, 122, 169, 0.15);
 }
+/* === Attention Widget === */
+.attention-card {
+    border-right: 3px solid #f59e0b;
+}
+
+.attention-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.attention-header .section-title {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.attention-header .section-title i {
+    color: #f59e0b;
+}
+
+.badge-warning {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.attention-group {
+    margin-bottom: 1.5rem;
+}
+
+.attention-group:last-of-type {
+    margin-bottom: 0.5rem;
+}
+
+.attention-group__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.attention-group__icon {
+    font-size: 1.2rem;
+}
+
+.attention-group__count {
+    font-weight: 400;
+    opacity: 0.7;
+    font-size: 0.9rem;
+}
+
+.attention-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.attention-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.2s ease;
+}
+
+.attention-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.attention-item__info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.attention-item__icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.attention-item__details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.attention-item__name {
+    font-weight: 500;
+    color: inherit;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attention-item__name:hover {
+    color: #fbbf24;
+}
+
+.attention-item__reason {
+    font-size: 0.8rem;
+    opacity: 0.7;
+    color: #f59e0b;
+}
+
+.attention-item__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.attention-item__actions .btn {
+    padding: 0.4rem 0.6rem;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.attention-item:hover .attention-item__actions .btn {
+    opacity: 1;
+}
+
+.attention-more {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    text-align: center;
+    margin-top: 0.75rem;
+}
+
+.attention-more-link {
+    color: #fbbf24;
+    margin-right: 0.5rem;
+}
+
+.attention-footer {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.attention-footer-hint {
+    font-size: 0.8rem;
+    opacity: 0.6;
+}
+
+.attention-settings-link {
+    font-size: 0.85rem;
+    color: inherit;
+    opacity: 0.7;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.attention-settings-link:hover {
+    opacity: 1;
+    color: #fbbf24;
+}
+
+/* Quick Edit Modal */
+.attention-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attention-modal[hidden] {
+    display: none;
+}
+
+.attention-modal .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+}
+
+.attention-modal .modal-content {
+    position: relative;
+    width: 90%;
+    max-width: 450px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.attention-modal .modal-content--small {
+    max-width: 320px;
+}
+
+.attention-modal .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.attention-modal .modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.attention-modal .modal-close {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 1.2rem;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.attention-modal .modal-close:hover {
+    opacity: 1;
+}
+
+.attention-modal .modal-body {
+    padding: 1.5rem;
+}
+
+.attention-modal .form-group {
+    margin-bottom: 1rem;
+}
+
+.attention-modal .form-group:last-child {
+    margin-bottom: 0;
+}
+
+.attention-modal .form-group label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-weight: 500;
+}
+
+.attention-modal .form-hint {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.attention-modal .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.quick-edit-file-name {
+    font-weight: 600;
+    margin: 0 0 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: monospace;
+}
+
+/* Dismiss Modal */
+.dismiss-options {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.dismiss-option {
+    flex: 1;
+}
+
+/* Rose Pine Dawn overrides */
+::root[data-theme="rose-pine-dawn"] .attention-card {
+    border-right-color: #ea9d34;
+}
+
+::root[data-theme="rose-pine-dawn"] .attention-header .section-title i {
+    color: #ea9d34;
+}
+
+::root[data-theme="rose-pine-dawn"] .badge-warning {
+    background: rgba(234, 157, 52, 0.15);
+    color: #ea9d34;
+}
+
+::root[data-theme="rose-pine-dawn"] .attention-item {
+    background: rgba(255, 255, 255, 0.4);
+    border-color: rgba(87, 82, 121, 0.15);
+}
+
+::root[data-theme="rose-pine-dawn"] .attention-item:hover {
+    background: rgba(255, 255, 255, 0.5);
+    border-color: rgba(234, 157, 52, 0.4);
+}
+
+::root[data-theme="rose-pine-dawn"] .attention-item__reason {
+    color: #ea9d34;
+}
+
+::root[data-theme="rose-pine-dawn"] .attention-item__name:hover,
+::root[data-theme="rose-pine-dawn"] .attention-settings-link:hover,
+::root[data-theme="rose-pine-dawn"] .attention-more-link {
+    color: #ea9d34;
+}
+
+/* Animation for item removal */
+.attention-item.is-removing {
+    opacity: 0;
+    transform: translateX(-10px);
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+/* Grid placement */
+.widget-attention {
+    grid-area: attention;
+}
+
+@media (min-width: 769px) and (max-width: 1199px) {
+    .activity-cards.has-attention {
+        grid-template-areas:
+            "timeline push"
+            "timeline notes"
+            "timeline attention";
+    }
+}
+
+@media (min-width: 1200px) {
+    .activity-cards.has-attention {
+        grid-template-areas:
+            "timeline push"
+            "timeline notes"
+            "timeline attention"
+            "timeline languages";
+    }
+    
+    .activity-section.no-last-commit .activity-cards.has-attention {
+        grid-template-areas:
+            "timeline push"
+            "timeline notes"
+            "timeline attention";
+    }
+    
+    .activity-cards .widget-attention {
+        align-self: start;
+    }
+}
+
+@media (max-width: 768px) {
+    .attention-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+    
+    .attention-item__actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+    
+    .dismiss-options {
+        flex-direction: column;
+    }
+}
 </style>
 
 <script>
@@ -2104,6 +2680,241 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> נסה שוב';
         }
     });
+});
+
+// === Attention Widget: Quick Edit & Dismiss ===
+document.addEventListener('DOMContentLoaded', () => {
+    const widget = document.querySelector('[data-attention-widget]');
+    if (!widget) return;
+
+    const quickEditModal = document.getElementById('attentionQuickEditModal');
+    const dismissModal = document.getElementById('attentionDismissModal');
+    const quickEditForm = quickEditModal?.querySelector('[data-quick-edit-form]');
+    const saveBtn = quickEditModal?.querySelector('[data-action="save-quick-edit"]');
+
+    // === פתיחת מודל עריכה מהירה ===
+    // משתנים לשמירת הערכים המקוריים (למניעת איבוד נתונים)
+    // חשוב: אם המשתמש לא שינה שדה, לא נשלח אותו לשרת
+    let originalDescription = '';
+    let originalTags = '';
+
+    widget.addEventListener('click', (e) => {
+        const editBtn = e.target.closest('[data-action="quick-edit"]');
+        if (editBtn && quickEditModal && quickEditForm) {
+            const fileId = editBtn.dataset.fileId;
+            const fileName = editBtn.dataset.fileName || '';
+            // הערכים מגיעים כ-JSON escaped, צריך לפרסר
+            let currentDesc = '';
+            let currentTags = '';
+            try {
+                currentDesc = JSON.parse(editBtn.dataset.currentDesc || '""');
+            } catch { currentDesc = ''; }
+            try {
+                // כאן מגיעות כל התגיות (tags_full), לא רק 5 הראשונות
+                currentTags = JSON.parse(editBtn.dataset.currentTags || '""');
+            } catch { currentTags = ''; }
+
+            // שמירת הערכים המקוריים להשוואה בעת שמירה
+            originalDescription = currentDesc;
+            originalTags = currentTags;
+
+            quickEditForm.querySelector('[data-field="file_id"]').value = fileId;
+            quickEditForm.querySelector('[data-field="file_name_display"]').textContent = fileName;
+            quickEditForm.querySelector('#quickEditDescription').value = currentDesc;
+            quickEditForm.querySelector('#quickEditTags').value = currentTags;
+
+            quickEditModal.hidden = false;
+            quickEditForm.querySelector('#quickEditDescription').focus();
+        }
+    });
+
+    // === סגירת מודלים ===
+    [quickEditModal, dismissModal].forEach(modal => {
+        modal?.querySelectorAll('[data-modal-close]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                modal.hidden = true;
+            });
+        });
+    });
+
+    // === ESC לסגירת מודלים ===
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (quickEditModal && !quickEditModal.hidden) quickEditModal.hidden = true;
+            if (dismissModal && !dismissModal.hidden) dismissModal.hidden = true;
+        }
+    });
+
+    // === שמירה מהירה ===
+    saveBtn?.addEventListener('click', async () => {
+        if (!quickEditForm) return;
+
+        const fileId = quickEditForm.querySelector('[data-field="file_id"]').value;
+        const newDescription = quickEditForm.querySelector('#quickEditDescription').value.trim();
+        const newTagsRaw = quickEditForm.querySelector('#quickEditTags').value.trim();
+
+        // בניית payload - שולחים רק שדות שהשתנו!
+        // זה מונע איבוד נתונים (למשל תגיות שלא הוצגו במלואן)
+        const payload = {};
+        
+        if (newDescription !== originalDescription) {
+            payload.description = newDescription;
+        }
+        
+        if (newTagsRaw !== originalTags) {
+            payload.tags = newTagsRaw ? newTagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+        }
+
+        // אם לא השתנה כלום, אין מה לשמור
+        if (Object.keys(payload).length === 0) {
+            quickEditModal.hidden = true;
+            showToast('לא בוצעו שינויים', 'info');
+            return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> שומר...';
+
+        try {
+            const resp = await fetch(`/api/file/${fileId}/quick-update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+
+            if (!resp.ok || !data.ok) {
+                throw new Error(data.error || 'שגיאה בשמירה');
+            }
+
+            // הסרת הפריט מהרשימה (ויזואלית)
+            removeAttentionItem(fileId);
+            quickEditModal.hidden = true;
+
+            showToast('נשמר בהצלחה!', 'success');
+
+        } catch (err) {
+            console.error('Quick update failed:', err);
+            showToast(err.message || 'שגיאה בשמירה', 'error');
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> שמור';
+        }
+    });
+
+    // === פתיחת מודל דחייה ===
+    widget.addEventListener('click', (e) => {
+        const dismissBtn = e.target.closest('[data-action="dismiss"]');
+        if (!dismissBtn || !dismissModal) return;
+
+        const fileId = dismissBtn.dataset.fileId;
+        dismissModal.querySelector('[data-field="dismiss_file_id"]').value = fileId;
+        dismissModal.hidden = false;
+    });
+
+    // === בחירת תקופת דחייה ===
+    dismissModal?.querySelectorAll('.dismiss-option[data-days]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const fileId = dismissModal.querySelector('[data-field="dismiss_file_id"]').value;
+            const days = parseInt(btn.dataset.days, 10) || 30;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            try {
+                const resp = await fetch(`/api/file/${fileId}/dismiss-attention`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days })
+                });
+                const data = await resp.json();
+
+                if (!resp.ok || !data.ok) {
+                    throw new Error(data.error || 'שגיאה בדחייה');
+                }
+
+                removeAttentionItem(fileId);
+                dismissModal.hidden = true;
+                
+                const daysText = days === 7 ? 'שבוע' : days === 30 ? 'חודש' : `${days} ימים`;
+                showToast(`נדחה ל-${daysText}`, 'info');
+
+            } catch (err) {
+                console.error('Dismiss failed:', err);
+                showToast(err.message || 'שגיאה בדחייה', 'error');
+            } finally {
+                btn.disabled = false;
+                // Reset button text based on days
+                const daysMap = { 7: 'שבוע', 30: 'חודש', 90: '3 חודשים' };
+                btn.textContent = daysMap[btn.dataset.days] || `${btn.dataset.days} ימים`;
+            }
+        });
+    });
+
+    /**
+     * הסרת פריט מהרשימה (ויזואלית בלבד).
+     * 
+     * הערה חשובה: הספירות (total) שמגיעות מהשרת לא מתעדכנות כאן.
+     * ה-Badge הכולל מופחת ויזואלית, אבל הספירות בכותרות הקבוצות
+     * נשארות כפי שהיו (או מציגות "מוצגים X מתוך Y").
+     * לסנכרון מלא יש לרענן את הדף.
+     */
+    function removeAttentionItem(fileId) {
+        const item = widget.querySelector(`.attention-item[data-file-id="${fileId}"]`);
+        if (item) {
+            item.classList.add('is-removing');
+            setTimeout(() => {
+                item.remove();
+                updateVisualCounts();
+            }, 300);
+        }
+    }
+
+    /**
+     * עדכון ספירות ויזואלי בלבד.
+     * מעדכן את ה-Badge הכולל בהתבסס על מספר הפריטים שנותרו ב-DOM.
+     * הספירות בכותרות הקבוצות לא משתנות (כי הן מציגות total מהשרת).
+     */
+    function updateVisualCounts() {
+        const allItems = widget.querySelectorAll('.attention-item:not(.is-removing)');
+        const totalBadge = widget.querySelector('[data-attention-total-badge]');
+        
+        if (totalBadge) {
+            totalBadge.textContent = allItems.length;
+        }
+
+        // הסתר קבוצה ריקה
+        widget.querySelectorAll('[data-attention-list]').forEach(list => {
+            const group = list.closest('.attention-group');
+            const items = list.querySelectorAll('.attention-item:not(.is-removing)');
+            
+            if (items.length === 0 && group) {
+                group.style.display = 'none';
+            }
+        });
+
+        // הסתר את כל הווידג'ט אם אין פריטים
+        if (allItems.length === 0) {
+            widget.style.display = 'none';
+        }
+    }
+
+    function showToast(message, type = 'info') {
+        // שימוש במערכת Toast קיימת אם יש
+        if (typeof window.showNotification === 'function') {
+            window.showNotification(message, type);
+        } else if (typeof window.Toastify === 'function') {
+            Toastify({
+                text: message,
+                duration: 3000,
+                gravity: 'bottom',
+                position: 'right',
+                className: `toast-${type}`
+            }).showToast();
+        } else {
+            console.log(`[${type}] ${message}`);
+        }
+    }
 });
 </script>
 {% endblock %}

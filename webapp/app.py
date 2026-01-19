@@ -9632,6 +9632,207 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     }
 
 
+def _build_files_need_attention(
+    db,
+    user_id: int,
+    max_items: int = 10,
+    stale_days: int = 60,
+    dismissed_ids: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    בונה נתונים עבור ווידג'ט "קבצים שדורשים טיפול".
+    
+    Args:
+        db: חיבור למסד הנתונים
+        user_id: מזהה המשתמש
+        max_items: מקסימום פריטים להצגה בכל קבוצה
+        stale_days: מספר ימים לאחריהם קובץ נחשב "לא עודכן זמן רב"
+        dismissed_ids: רשימת מזהים שהמשתמש דחה (להסתרה זמנית)
+    
+    Returns:
+        מילון עם נתוני הווידג'ט
+    """
+    from datetime import datetime, timezone, timedelta
+    from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION
+    
+    dismissed_ids = dismissed_ids or []
+    dismissed_oids = []
+    for did in dismissed_ids:
+        try:
+            dismissed_oids.append(ObjectId(did))
+        except Exception:
+            pass
+    
+    missing_metadata: List[Dict[str, Any]] = []
+    stale_files: List[Dict[str, Any]] = []
+    result: Dict[str, Any] = {
+        'missing_metadata': missing_metadata,
+        'stale_files': stale_files,
+        'total_missing': 0,
+        'total_stale': 0,
+        'shown_missing': 0,
+        'shown_stale': 0,
+        'has_items': False,
+        'settings': {
+            'stale_days': stale_days,
+            'max_items': max_items
+        }
+    }
+    
+    # === בסיס שאילתה משותף ===
+    base_query: Dict[str, Any] = {
+        'user_id': user_id,
+        'is_active': True
+    }
+    
+    if dismissed_oids:
+        base_query['_id'] = {'$nin': dismissed_oids}
+    
+    # === Projection קל (בלי code/content) ===
+    # משתמשים בהחרגת שדות כבדים בלבד כדי להימנע מערבוב inclusion/exclusion
+    projection = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
+    
+    # =====================================================
+    # קבוצה 1: קבצים חסרי תיאור או תגיות
+    # =====================================================
+    # תנאי: description ריק/חסר או tags ריק/חסר
+    missing_query = dict(base_query)
+    missing_query['$or'] = [
+        # תיאור חסר או ריק
+        {'description': {'$exists': False}},
+        {'description': None},
+        {'description': ''},
+        # תגיות חסרות או ריקות
+        {'tags': {'$exists': False}},
+        {'tags': None},
+        {'tags': []},
+    ]
+    
+    # ספירה כוללת
+    result['total_missing'] = db.code_snippets.count_documents(missing_query)
+    
+    # שליפה מוגבלת
+    missing_docs = list(db.code_snippets.find(
+        missing_query,
+        projection
+    ).sort('updated_at', -1).limit(max_items))
+    
+    result['shown_missing'] = len(missing_docs)
+    
+    for doc in missing_docs:
+        reasons = []
+        desc = (doc.get('description') or '').strip()
+        tags = doc.get('tags') or []
+        
+        if not desc:
+            reasons.append('חסר תיאור')
+        if not tags:
+            reasons.append('חסרות תגיות')
+        
+        missing_metadata.append({
+            'id': str(doc['_id']),
+            'file_name': doc.get('file_name', ''),
+            'language': doc.get('programming_language', 'text'),
+            'icon': get_language_icon(doc.get('programming_language', '')),
+            'description': desc[:100],
+            'tags': tags[:5],  # לתצוגה ברשימה בלבד
+            'tags_full': tags,  # כל התגיות - לשימוש ב-quick edit
+            'tags_count': len(tags),
+            'updated_at': doc.get('updated_at'),
+            'reasons': reasons,
+            'reason_text': ' + '.join(reasons) if reasons else 'חסר מידע'
+        })
+    
+    # =====================================================
+    # קבוצה 2: קבצים שלא עודכנו זמן רב
+    # =====================================================
+    # תנאי מפתח: רק קבצים עם מטא-דאטה תקין!
+    # קובץ נחשב "stale" רק אם:
+    #   - updated_at ישן
+    #   - description קיים ולא ריק
+    #   - tags קיים ויש בו לפחות איבר אחד
+    
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=stale_days)
+    
+    stale_query = dict(base_query)
+    stale_query['updated_at'] = {'$lt': cutoff_date}
+    
+    # החרגה מפורשת של קבצים חסרי מטא-דאטה
+    # שימוש ב-$and כדי לוודא שגם description וגם tags תקינים
+    stale_query['$and'] = [
+        # description קיים ולא ריק
+        {'description': {'$exists': True}},
+        {'description': {'$ne': None}},
+        {'description': {'$ne': ''}},
+        # tags קיים ויש לפחות איבר אחד (pattern מומלץ למונגו)
+        {'tags.0': {'$exists': True}}
+    ]
+    
+    # ספירה כוללת
+    result['total_stale'] = db.code_snippets.count_documents(stale_query)
+    
+    # שליפה מוגבלת - הישנים קודם
+    stale_docs = list(db.code_snippets.find(
+        stale_query,
+        projection
+    ).sort('updated_at', 1).limit(max_items))
+    
+    result['shown_stale'] = len(stale_docs)
+    
+    for doc in stale_docs:
+        updated = doc.get('updated_at')
+        days_ago = 0
+        if updated:
+            try:
+                delta = datetime.now(timezone.utc) - updated
+                days_ago = delta.days
+            except Exception:
+                days_ago = stale_days
+        
+        stale_files.append({
+            'id': str(doc['_id']),
+            'file_name': doc.get('file_name', ''),
+            'language': doc.get('programming_language', 'text'),
+            'icon': get_language_icon(doc.get('programming_language', '')),
+            'description': (doc.get('description') or '')[:100],
+            'tags': (doc.get('tags') or [])[:5],
+            'updated_at': updated,
+            'days_ago': days_ago,
+            'reason_text': f'לא עודכן {days_ago} ימים'
+        })
+    
+    result['has_items'] = bool(result['missing_metadata'] or result['stale_files'])
+    
+    return result
+
+
+def _get_active_dismissals(db, user_id: int) -> List[str]:
+    """
+    שולף את רשימת ה-file_ids שהמשתמש דחה ועדיין לא פגו.
+    
+    Returns:
+        רשימת מזהי קבצים (כ-strings)
+    """
+    from datetime import datetime, timezone
+    
+    now = datetime.now(timezone.utc)
+    
+    try:
+        # שליפת כל הדחיות שעדיין בתוקף
+        dismissals = db.attention_dismissals.find(
+            {
+                'user_id': user_id,
+                'expires_at': {'$gt': now}
+            },
+            {'file_id': 1}
+        )
+        
+        return [str(d['file_id']) for d in dismissals if d.get('file_id')]
+    except Exception as e:
+        logger.warning(f"Failed to get dismissals for user {user_id}: {e}")
+        return []
+
+
 def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     push_enabled = (os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'})
@@ -10049,6 +10250,19 @@ def dashboard():
         push_card = _build_push_card(db, user_id)
         notes_snapshot = _build_notes_snapshot(db, user_id)
         whats_new = _load_whats_new(limit=5)
+        
+        # === ווידג'ט: קבצים שדורשים טיפול ===
+        # שליפת דחיות פעילות
+        dismissed_ids = _get_active_dismissals(db, user_id)
+        
+        # בניית נתוני הווידג'ט
+        files_need_attention = _build_files_need_attention(
+            db,
+            user_id,
+            max_items=10,
+            stale_days=60,  # ניתן לקרוא מהעדפות המשתמש בעתיד
+            dismissed_ids=dismissed_ids
+        )
 
         return render_template('dashboard.html', 
                              user=session['user_data'],
@@ -10057,6 +10271,7 @@ def dashboard():
                              push_card=push_card,
                              notes_snapshot=notes_snapshot,
                              whats_new=whats_new,
+                             files_need_attention=files_need_attention,
                              bot_username=BOT_USERNAME_CLEAN,
                              pinned_files=pinned_data,
                              max_pinned=max_pinned,
@@ -10079,6 +10294,19 @@ def dashboard():
         }
         fallback_card = {'feature_enabled': False, 'subscriptions': 0, 'status_text': "לא זמין", 'status_variant': 'danger', 'pending_count': 0, 'last_push': None, 'next_reminder': None, 'cta_href': '/settings#push', 'cta_label': 'נהל התראות'}
         fallback_notes = {'notes': [], 'total': 0, 'has_notes': False}
+        fallback_attention = {
+            'missing_metadata': [],
+            'stale_files': [],
+            'total_missing': 0,
+            'total_stale': 0,
+            'shown_missing': 0,
+            'shown_stale': 0,
+            'has_items': False,
+            'settings': {
+                'stale_days': 60,
+                'max_items': 10
+            }
+        }
 
         return render_template('dashboard.html', 
                              user=session.get('user_data', {}),
@@ -10094,6 +10322,7 @@ def dashboard():
                              push_card=fallback_card,
                              notes_snapshot=fallback_notes,
                              whats_new={'features': [], 'has_features': False, 'total': 0},
+                             files_need_attention=fallback_attention,
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
                              bot_username=BOT_USERNAME_CLEAN,
                              user_is_admin=False,
@@ -11760,6 +11989,134 @@ def file_preview(file_id):
         'language': language,
         'has_more': total_lines > preview_lines,
     })
+
+
+@app.route('/api/file/<file_id>/quick-update', methods=['POST'])
+@login_required
+def api_file_quick_update(file_id):
+    """
+    עדכון מהיר של תיאור ו/או תגיות לקובץ.
+    Body: { "description": "...", "tags": ["tag1", "tag2"] }
+    
+    הערה: עדכון מוצלח גם מעדכן את updated_at, מה שיגרום לקובץ
+    לצאת מרשימת "לא עודכן זמן רב" (וזו התנהגות רצויה).
+    """
+    try:
+        user_id = session['user_id']
+        db = get_db()
+        
+        try:
+            oid = ObjectId(file_id)
+        except Exception:
+            return jsonify({'ok': False, 'error': 'מזהה לא תקין'}), 400
+        
+        # וידוא בעלות
+        doc = db.code_snippets.find_one({
+            '_id': oid,
+            'user_id': user_id,
+            'is_active': True
+        }, {'_id': 1})
+        
+        if not doc:
+            return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
+        
+        data = request.get_json() or {}
+        updates = {'updated_at': datetime.now(timezone.utc)}
+        
+        if 'description' in data:
+            desc = (data.get('description') or '').strip()[:500]
+            updates['description'] = desc
+        
+        if 'tags' in data:
+            raw_tags = data.get('tags') or []
+            if isinstance(raw_tags, str):
+                # תמיכה בקלט comma-separated
+                raw_tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
+            # ניקוי ונורמליזציה
+            clean_tags = []
+            for t in raw_tags[:20]:  # מקסימום 20 תגיות
+                tag = str(t).strip().lower()[:50]
+                if tag and tag not in clean_tags:
+                    clean_tags.append(tag)
+            updates['tags'] = clean_tags
+        
+        if len(updates) <= 1:  # רק updated_at
+            return jsonify({'ok': False, 'error': 'לא סופקו שדות לעדכון'}), 400
+        
+        db.code_snippets.update_one({'_id': oid}, {'$set': updates})
+        
+        # Invalidate cache
+        try:
+            cache.invalidate_file_related(file_id, user_id)
+        except Exception:
+            pass
+        
+        return jsonify({
+            'ok': True,
+            'updated_fields': list(updates.keys())
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error in quick update: {e}")
+        return jsonify({'ok': False, 'error': 'שגיאה בעדכון'}), 500
+
+
+@app.route('/api/file/<file_id>/dismiss-attention', methods=['POST'])
+@login_required
+def api_file_dismiss_attention(file_id):
+    """
+    דוחה קובץ מרשימת "דורש טיפול" (הסתרה זמנית).
+    Body: { "days": 30 } - מספר ימים להסתרה (ברירת מחדל: 30)
+    
+    אפשרויות מומלצות: 7, 30, 90 ימים.
+    """
+    try:
+        user_id = session['user_id']
+        db = get_db()
+        
+        try:
+            oid = ObjectId(file_id)
+        except Exception:
+            return jsonify({'ok': False, 'error': 'מזהה לא תקין'}), 400
+        
+        # וידוא בעלות
+        doc = db.code_snippets.find_one({
+            '_id': oid,
+            'user_id': user_id,
+            'is_active': True
+        }, {'_id': 1})
+        
+        if not doc:
+            return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
+        
+        data = request.get_json() or {}
+        days = min(max(int(data.get('days', 30)), 1), 365)  # 1-365 ימים
+        
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=days)
+        
+        # שמירה ב-collection ייעודי
+        db.attention_dismissals.update_one(
+            {'user_id': user_id, 'file_id': oid},
+            {
+                '$set': {
+                    'dismissed_at': now,
+                    'expires_at': expires_at,
+                    'days': days
+                }
+            },
+            upsert=True
+        )
+        
+        return jsonify({
+            'ok': True,
+            'dismissed_until': expires_at.isoformat(),
+            'days': days
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error in dismiss attention: {e}")
+        return jsonify({'ok': False, 'error': 'שגיאה בדחייה'}), 500
 
 
 @app.route('/api/file/<file_id>/history', methods=['GET'])
@@ -16444,6 +16801,41 @@ def update_user_preferences():
         return jsonify({'ok': True, 'editor_type': editor_type})
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+@app.route('/api/settings/attention', methods=['PUT'])
+@login_required
+def api_update_attention_settings():
+    """עדכון הגדרות ווידג'ט 'קבצים שדורשים טיפול'"""
+    user_id = session['user_id']
+    data = request.get_json() or {}
+    
+    allowed_fields = {
+        'enabled', 'stale_days', 'max_items_per_group',
+        'show_missing_description', 'show_missing_tags', 'show_stale_files'
+    }
+    
+    updates = {}
+    for field in allowed_fields:
+        if field in data:
+            value = data[field]
+            if field == 'stale_days':
+                value = min(max(int(value), 7), 365)
+            elif field == 'max_items_per_group':
+                value = min(max(int(value), 3), 50)
+            elif field in ('enabled', 'show_missing_description', 'show_missing_tags', 'show_stale_files'):
+                value = bool(value)
+            updates[f'attention_settings.{field}'] = value
+    
+    if updates:
+        db = get_db()
+        db.user_preferences.update_one(
+            {'user_id': user_id},
+            {'$set': updates},
+            upsert=True
+        )
+    
+    return jsonify({'ok': True})
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
