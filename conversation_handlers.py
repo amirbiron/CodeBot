@@ -6,7 +6,6 @@ import inspect
 import hashlib
 import secrets
 import time
-import sys
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Type, cast, Any
@@ -22,9 +21,6 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-
-class DatabaseManager:  # type: ignore
-    ...
 
 from file_manager import backup_manager
 # Reporter מוזרק בזמן ריצה כדי להימנע מפתיחת חיבור בעת import
@@ -4335,7 +4331,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 def get_save_conversation_handler(
-    db: DatabaseManager,
     callback_query_handler_cls: Optional[Type[CallbackQueryHandler]] = None,
 ) -> ConversationHandler:
     """יוצר ConversationHandler מתקדם וחכם"""
