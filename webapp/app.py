@@ -4075,7 +4075,14 @@ def _run_profiler(awaitable):
         return await awaitable
 
     def _run_in_new_loop():
-        return asyncio.run(_runner())
+        try:
+            # ניסיון לקבל את הלופ הקיים ב-thread הזה
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # אם אין לופ, יוצרים אחד חדש ומגדירים אותו כנוכחי
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(_runner())
 
     # תחת gevent (או בכל thread שיש בו event loop פעיל), אסור לקרוא asyncio.run/AsyncToSync.
     # הפתרון היציב: לברוח ל-OS thread "נקי" ולהריץ שם event loop חדש.
