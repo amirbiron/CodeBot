@@ -1,6 +1,8 @@
-# מדריך מימוש: ווידג'ט "קבצים שדורשים טיפול" בדשבורד
+# מדריך מימוש: ווידג'ט "קבצים שדורשים טיפול" בדשבורד (v2)
 
-> **מטרה:** ווידג'ט בדשבורד שמרכז קבצים "בעייתיים" (חסרי תיאור/תגיות, או לא נפתחו זמן רב) עם אפשרות לתיקון מהיר ישירות מהדשבורד.
+> **מטרה:** ווידג'ט בדשבורד שמרכז קבצים "בעייתיים" (חסרי תיאור/תגיות, או לא עודכנו זמן רב) עם אפשרות לתיקון מהיר ישירות מהדשבורד.
+>
+> **גרסה:** 2.0 | **עדכון אחרון:** 19/01/2026
 
 ---
 
@@ -8,12 +10,12 @@
 
 ### מה הווידג'ט עושה
 - **מרכז קבצים שדורשים טיפול** בכרטיס אחד בדשבורד
-- **מחולק לשתי קבוצות:**
-  1. "חסר תיאור/תגיות" — קבצים שאין להם `description` או שרשימת ה-`tags` ריקה
-  2. "לא נפתח זמן רב" — קבצים שה-`updated_at` שלהם ישן מ-X ימים (ברירת מחדל: 60)
+- **מחולק לשתי קבוצות בלתי-חופפות:**
+  1. **"חסר תיאור/תגיות"** — קבצים שאין להם `description` או שרשימת ה-`tags` ריקה/חסרה
+  2. **"לא עודכן זמן רב"** — קבצים שה-`updated_at` שלהם ישן מ-X ימים (ברירת מחדל: 60), **ויש להם מטא-דאטה תקין**
 - **מציע תיקון מהיר (Quick Fix):**
   - הוספת תיאור inline
-  - הוספת תגיות (chip input)
+  - הוספת תגיות (קלט טקסט מופרד בפסיקים)
   - פתיחה לעריכה מלאה
   - דחייה/הסתרה זמנית ("טפל מאוחר יותר")
 
@@ -21,6 +23,11 @@
 - מצמצם "זיהום" של קבצים לא מתועדים
 - עוזר לזכור קבצים שננטשו בלי לפתוח חיפוש ידני
 - מקצר זמן: תיקון קטן (תיאור/תגיות) בלחיצה אחת
+
+### הבהרה חשובה: "לא עודכן" vs "לא נפתח"
+הווידג'ט מבוסס על שדה `updated_at` (מתי הקובץ נשמר/עודכן לאחרונה).
+**אין לנו כרגע שדה `last_viewed_at`**, ולכן המונח הנכון הוא **"לא עודכן זמן רב"** ולא "לא נפתח".
+אם בעתיד נרצה לעקוב אחרי צפיות, יש להוסיף שדה נפרד ולעדכן אותו ב-route `/file/<id>`.
 
 ---
 
@@ -44,37 +51,14 @@ class CodeSnippet:
     # ... שאר השדות ...
 ```
 
-### שאילתות DB נדרשות
+### עיקרון מפתח: הפרדה לוגית מוחלטת בין הקבוצות
 
-#### 2.1 קבצים חסרי תיאור או תגיות
+| קבוצה | תנאי הכללה | תנאי החרגה |
+|-------|------------|------------|
+| **חסר מטא-דאטה** | `description` ריק/חסר **או** `tags` ריק/חסר | - |
+| **לא עודכן זמן רב** | `updated_at` < cutoff | קובץ שנמצא בקבוצה 1 (חסר מטא-דאטה) |
 
-```python
-# שאילתה לקבצים חסרי תיאור או תגיות
-missing_metadata_query = {
-    'user_id': user_id,
-    'is_active': True,
-    '$or': [
-        {'description': {'$in': [None, '']}},
-        {'tags': {'$in': [None, []]}},
-        {'tags': {'$exists': False}}
-    ]
-}
-```
-
-#### 2.2 קבצים ישנים (לא עודכנו זמן רב)
-
-```python
-from datetime import datetime, timezone, timedelta
-
-stale_days = 60  # ניתן להגדרה ע"י המשתמש
-cutoff_date = datetime.now(timezone.utc) - timedelta(days=stale_days)
-
-stale_files_query = {
-    'user_id': user_id,
-    'is_active': True,
-    'updated_at': {'$lt': cutoff_date}
-}
-```
+**המטרה:** קובץ יכול להופיע **רק בקבוצה אחת**.
 
 ---
 
@@ -99,7 +83,7 @@ def _build_files_need_attention(
         db: חיבור למסד הנתונים
         user_id: מזהה המשתמש
         max_items: מקסימום פריטים להצגה בכל קבוצה
-        stale_days: מספר ימים לאחריהם קובץ נחשב "ישן"
+        stale_days: מספר ימים לאחריהם קובץ נחשב "לא עודכן זמן רב"
         dismissed_ids: רשימת מזהים שהמשתמש דחה (להסתרה זמנית)
     
     Returns:
@@ -121,6 +105,8 @@ def _build_files_need_attention(
         'stale_files': [],
         'total_missing': 0,
         'total_stale': 0,
+        'shown_missing': 0,
+        'shown_stale': 0,
         'has_items': False,
         'settings': {
             'stale_days': stale_days,
@@ -128,8 +114,8 @@ def _build_files_need_attention(
         }
     }
     
-    # === קבצים חסרי תיאור או תגיות ===
-    base_query = {
+    # === בסיס שאילתה משותף ===
+    base_query: Dict[str, Any] = {
         'user_id': user_id,
         'is_active': True
     }
@@ -137,17 +123,7 @@ def _build_files_need_attention(
     if dismissed_oids:
         base_query['_id'] = {'$nin': dismissed_oids}
     
-    missing_query = dict(base_query)
-    missing_query['$or'] = [
-        {'description': {'$in': [None, '']}},
-        {'tags': {'$in': [None, []]}},
-        {'tags': {'$exists': False}}
-    ]
-    
-    # ספירה
-    result['total_missing'] = db.code_snippets.count_documents(missing_query)
-    
-    # שליפה עם projection קל (בלי code/content)
+    # === Projection קל (בלי code/content) ===
     projection = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
     projection.update({
         'file_name': 1,
@@ -158,16 +134,40 @@ def _build_files_need_attention(
         'created_at': 1
     })
     
+    # =====================================================
+    # קבוצה 1: קבצים חסרי תיאור או תגיות
+    # =====================================================
+    # תנאי: description ריק/חסר או tags ריק/חסר
+    missing_query = dict(base_query)
+    missing_query['$or'] = [
+        # תיאור חסר או ריק
+        {'description': {'$exists': False}},
+        {'description': None},
+        {'description': ''},
+        # תגיות חסרות או ריקות
+        {'tags': {'$exists': False}},
+        {'tags': None},
+        {'tags': []},
+    ]
+    
+    # ספירה כוללת
+    result['total_missing'] = db.code_snippets.count_documents(missing_query)
+    
+    # שליפה מוגבלת
     missing_docs = list(db.code_snippets.find(
         missing_query,
         projection
     ).sort('updated_at', -1).limit(max_items))
     
+    result['shown_missing'] = len(missing_docs)
+    
     for doc in missing_docs:
         reasons = []
-        if not (doc.get('description') or '').strip():
-            reasons.append('חסר תיאור')
+        desc = (doc.get('description') or '').strip()
         tags = doc.get('tags') or []
+        
+        if not desc:
+            reasons.append('חסר תיאור')
         if not tags:
             reasons.append('חסרות תגיות')
         
@@ -176,30 +176,48 @@ def _build_files_need_attention(
             'file_name': doc.get('file_name', ''),
             'language': doc.get('programming_language', 'text'),
             'icon': get_language_icon(doc.get('programming_language', '')),
-            'description': (doc.get('description') or '')[:100],
+            'description': desc[:100],
             'tags': tags[:5],
             'updated_at': doc.get('updated_at'),
             'reasons': reasons,
-            'reason_text': ' + '.join(reasons)
+            'reason_text': ' + '.join(reasons) if reasons else 'חסר מידע'
         })
     
-    # === קבצים ישנים ===
+    # =====================================================
+    # קבוצה 2: קבצים שלא עודכנו זמן רב
+    # =====================================================
+    # תנאי מפתח: רק קבצים עם מטא-דאטה תקין!
+    # קובץ נחשב "stale" רק אם:
+    #   - updated_at ישן
+    #   - description קיים ולא ריק
+    #   - tags קיים ויש בו לפחות איבר אחד
+    
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=stale_days)
     
     stale_query = dict(base_query)
     stale_query['updated_at'] = {'$lt': cutoff_date}
-    # לא להציג קבצים שכבר נספרו כ"חסרי מטא-דאטה"
+    
+    # החרגה מפורשת של קבצים חסרי מטא-דאטה
+    # שימוש ב-$and כדי לוודא שגם description וגם tags תקינים
     stale_query['$and'] = [
-        {'description': {'$nin': [None, '']}},
-        {'tags': {'$nin': [None, []]}}
+        # description קיים ולא ריק
+        {'description': {'$exists': True}},
+        {'description': {'$ne': None}},
+        {'description': {'$ne': ''}},
+        # tags קיים ויש לפחות איבר אחד (pattern מומלץ למונגו)
+        {'tags.0': {'$exists': True}}
     ]
     
+    # ספירה כוללת
     result['total_stale'] = db.code_snippets.count_documents(stale_query)
     
+    # שליפה מוגבלת - הישנים קודם
     stale_docs = list(db.code_snippets.find(
         stale_query,
         projection
-    ).sort('updated_at', 1).limit(max_items))  # הישנים קודם
+    ).sort('updated_at', 1).limit(max_items))
+    
+    result['shown_stale'] = len(stale_docs)
     
     for doc in stale_docs:
         updated = doc.get('updated_at')
@@ -228,18 +246,52 @@ def _build_files_need_attention(
     return result
 ```
 
-### 3.2 עדכון route של `/dashboard`
-
-בפונקציית `dashboard()` (בסביבות שורה 10048), הוסף קריאה לפונקציה החדשה:
+### 3.2 פונקציית עזר לשליפת Dismissals
 
 ```python
-# לפני הקריאה ל-render_template:
+def _get_active_dismissals(db, user_id: int) -> List[str]:
+    """
+    שולף את רשימת ה-file_ids שהמשתמש דחה ועדיין לא פגו.
+    
+    Returns:
+        רשימת מזהי קבצים (כ-strings)
+    """
+    from datetime import datetime, timezone
+    
+    now = datetime.now(timezone.utc)
+    
+    try:
+        # שליפת כל הדחיות שעדיין בתוקף
+        dismissals = db.attention_dismissals.find(
+            {
+                'user_id': user_id,
+                'expires_at': {'$gt': now}
+            },
+            {'file_id': 1}
+        )
+        
+        return [str(d['file_id']) for d in dismissals if d.get('file_id')]
+    except Exception as e:
+        logger.warning(f"Failed to get dismissals for user {user_id}: {e}")
+        return []
+```
+
+### 3.3 עדכון route של `/dashboard`
+
+בפונקציית `dashboard()` (בסביבות שורה 10048), הוסף קריאה לפונקציות החדשות:
+
+```python
+# === ווידג'ט: קבצים שדורשים טיפול ===
+# שליפת דחיות פעילות
+dismissed_ids = _get_active_dismissals(db, user_id)
+
+# בניית נתוני הווידג'ט
 files_need_attention = _build_files_need_attention(
     db,
     user_id,
     max_items=10,
-    stale_days=60,  # TODO: לקרוא מהעדפות המשתמש
-    dismissed_ids=[]  # TODO: לקרוא מ-session או DB
+    stale_days=60,  # ניתן לקרוא מהעדפות המשתמש בעתיד
+    dismissed_ids=dismissed_ids
 )
 
 return render_template('dashboard.html',
@@ -248,9 +300,9 @@ return render_template('dashboard.html',
 )
 ```
 
-### 3.3 API Endpoints חדשים
+### 3.4 API Endpoints חדשים
 
-#### 3.3.1 Quick Update (עדכון מהיר של תיאור/תגיות)
+#### 3.4.1 Quick Update (עדכון מהיר של תיאור/תגיות)
 
 ```python
 @app.route('/api/file/<file_id>/quick-update', methods=['POST'])
@@ -259,6 +311,9 @@ def api_file_quick_update(file_id):
     """
     עדכון מהיר של תיאור ו/או תגיות לקובץ.
     Body: { "description": "...", "tags": ["tag1", "tag2"] }
+    
+    הערה: עדכון מוצלח גם מעדכן את updated_at, מה שיגרום לקובץ
+    לצאת מרשימת "לא עודכן זמן רב" (וזו התנהגות רצויה).
     """
     try:
         user_id = session['user_id']
@@ -289,6 +344,7 @@ def api_file_quick_update(file_id):
         if 'tags' in data:
             raw_tags = data.get('tags') or []
             if isinstance(raw_tags, str):
+                # תמיכה בקלט comma-separated
                 raw_tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
             # ניקוי ונורמליזציה
             clean_tags = []
@@ -325,6 +381,8 @@ def api_file_dismiss_attention(file_id):
     """
     דוחה קובץ מרשימת "דורש טיפול" (הסתרה זמנית).
     Body: { "days": 30 } - מספר ימים להסתרה (ברירת מחדל: 30)
+    
+    אפשרויות מומלצות: 7, 30, 90 ימים.
     """
     try:
         user_id = session['user_id']
@@ -348,15 +406,17 @@ def api_file_dismiss_attention(file_id):
         data = request.get_json() or {}
         days = min(max(int(data.get('days', 30)), 1), 365)  # 1-365 ימים
         
-        expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=days)
         
-        # שמירה ב-collection ייעודי (או כשדה על המשתמש)
+        # שמירה ב-collection ייעודי
         db.attention_dismissals.update_one(
             {'user_id': user_id, 'file_id': oid},
             {
                 '$set': {
-                    'dismissed_at': datetime.now(timezone.utc),
-                    'expires_at': expires_at
+                    'dismissed_at': now,
+                    'expires_at': expires_at,
+                    'days': days
                 }
             },
             upsert=True
@@ -364,7 +424,8 @@ def api_file_dismiss_attention(file_id):
         
         return jsonify({
             'ok': True,
-            'dismissed_until': expires_at.isoformat()
+            'dismissed_until': expires_at.isoformat(),
+            'days': days
         })
         
     except Exception as e:
@@ -380,6 +441,8 @@ def api_file_dismiss_attention(file_id):
 
 הוסף את הקוד הבא **לפני** סגירת ה-`</div>` של `dashboard-grid` (בסביבות שורה 250):
 
+**שים לב:** שימוש ב-`tojson` עבור ערכי `data-*` למניעת בעיות escaping.
+
 ```html
 {# === ווידג'ט: קבצים שדורשים טיפול === #}
 {% if files_need_attention and files_need_attention.has_items %}
@@ -389,7 +452,7 @@ def api_file_dismiss_attention(file_id):
             <i class="fas fa-exclamation-triangle"></i>
             קבצים שדורשים טיפול
         </h2>
-        <span class="badge badge-warning">
+        <span class="badge badge-warning" data-attention-total-badge>
             {{ files_need_attention.total_missing + files_need_attention.total_stale }}
         </span>
     </header>
@@ -400,7 +463,9 @@ def api_file_dismiss_attention(file_id):
         <h3 class="attention-group__title">
             <span class="attention-group__icon">📝</span>
             חסר תיאור או תגיות
-            <span class="attention-group__count">({{ files_need_attention.total_missing }})</span>
+            <span class="attention-group__count" data-group-count="missing">
+                ({{ files_need_attention.shown_missing }}{% if files_need_attention.total_missing > files_need_attention.shown_missing %}/{{ files_need_attention.total_missing }}{% endif %})
+            </span>
         </h3>
         <ul class="attention-list" data-attention-list="missing">
             {% for file in files_need_attention.missing_metadata %}
@@ -417,8 +482,9 @@ def api_file_dismiss_attention(file_id):
                             class="btn btn-sm btn-icon attention-quick-edit"
                             data-action="quick-edit"
                             data-file-id="{{ file.id }}"
-                            data-current-desc="{{ file.description }}"
-                            data-current-tags="{{ file.tags | join(',') }}"
+                            data-file-name="{{ file.file_name | e }}"
+                            data-current-desc={{ file.description | tojson }}
+                            data-current-tags={{ (file.tags | join(',')) | tojson }}
                             title="עריכה מהירה">
                         <i class="fas fa-edit"></i>
                     </button>
@@ -433,21 +499,24 @@ def api_file_dismiss_attention(file_id):
             </li>
             {% endfor %}
         </ul>
-        {% if files_need_attention.total_missing > files_need_attention.missing_metadata|length %}
+        {% if files_need_attention.total_missing > files_need_attention.shown_missing %}
         <p class="attention-more">
-            ועוד {{ files_need_attention.total_missing - files_need_attention.missing_metadata|length }} קבצים נוספים...
+            ועוד {{ files_need_attention.total_missing - files_need_attention.shown_missing }} קבצים נוספים...
+            <a href="/files?filter=missing_metadata" class="attention-more-link">הצג הכל</a>
         </p>
         {% endif %}
     </section>
     {% endif %}
 
-    {# --- קבוצה 2: לא נפתח זמן רב --- #}
+    {# --- קבוצה 2: לא עודכן זמן רב --- #}
     {% if files_need_attention.stale_files %}
     <section class="attention-group" data-group="stale">
         <h3 class="attention-group__title">
             <span class="attention-group__icon">⏰</span>
             לא עודכן זמן רב
-            <span class="attention-group__count">({{ files_need_attention.total_stale }})</span>
+            <span class="attention-group__count" data-group-count="stale">
+                ({{ files_need_attention.shown_stale }}{% if files_need_attention.total_stale > files_need_attention.shown_stale %}/{{ files_need_attention.total_stale }}{% endif %})
+            </span>
         </h3>
         <ul class="attention-list" data-attention-list="stale">
             {% for file in files_need_attention.stale_files %}
@@ -476,16 +545,20 @@ def api_file_dismiss_attention(file_id):
             </li>
             {% endfor %}
         </ul>
-        {% if files_need_attention.total_stale > files_need_attention.stale_files|length %}
+        {% if files_need_attention.total_stale > files_need_attention.shown_stale %}
         <p class="attention-more">
-            ועוד {{ files_need_attention.total_stale - files_need_attention.stale_files|length }} קבצים נוספים...
+            ועוד {{ files_need_attention.total_stale - files_need_attention.shown_stale }} קבצים נוספים...
+            <a href="/files?filter=stale&days={{ files_need_attention.settings.stale_days }}" class="attention-more-link">הצג הכל</a>
         </p>
         {% endif %}
     </section>
     {% endif %}
 
-    {# --- הגדרות (אופציונלי) --- #}
+    {# --- הגדרות --- #}
     <footer class="attention-footer">
+        <span class="attention-footer-hint">
+            ⚙️ קובץ נחשב "ישן" אחרי {{ files_need_attention.settings.stale_days }} ימים
+        </span>
         <a href="/settings#attention" class="attention-settings-link">
             <i class="fas fa-cog"></i>
             הגדרות
@@ -505,6 +578,7 @@ def api_file_dismiss_attention(file_id):
         </header>
         <form class="modal-body" data-quick-edit-form>
             <input type="hidden" name="file_id" data-field="file_id">
+            <p class="quick-edit-file-name" data-field="file_name_display"></p>
             <div class="form-group">
                 <label for="quickEditDescription">תיאור</label>
                 <input type="text" 
@@ -512,7 +586,7 @@ def api_file_dismiss_attention(file_id):
                        name="description" 
                        class="form-field"
                        maxlength="500"
-                       placeholder="תיאור קצר של הקובץ...">
+                       placeholder="מה הקובץ עושה? (תיאור קצר)">
             </div>
             <div class="form-group">
                 <label for="quickEditTags">תגיות</label>
@@ -520,8 +594,8 @@ def api_file_dismiss_attention(file_id):
                        id="quickEditTags" 
                        name="tags" 
                        class="form-field"
-                       placeholder="tag1, tag2, tag3">
-                <small class="form-hint">הפרד תגיות בפסיקים</small>
+                       placeholder="utils, helper, api">
+                <small class="form-hint">הפרד תגיות בפסיקים (Comma-separated)</small>
             </div>
         </form>
         <footer class="modal-footer">
@@ -531,6 +605,28 @@ def api_file_dismiss_attention(file_id):
                 שמור
             </button>
         </footer>
+    </div>
+</div>
+
+{# --- מודל דחייה (Dismiss Modal) --- #}
+<div class="modal attention-modal" id="attentionDismissModal" data-dismiss-modal hidden>
+    <div class="modal-backdrop" data-modal-close></div>
+    <div class="modal-content glass-card modal-content--small">
+        <header class="modal-header">
+            <h3>דחה לטיפול מאוחר</h3>
+            <button type="button" class="modal-close" data-modal-close aria-label="סגור">
+                <i class="fas fa-times"></i>
+            </button>
+        </header>
+        <div class="modal-body">
+            <input type="hidden" data-field="dismiss_file_id">
+            <p>הסתר קובץ זה מהרשימה למשך:</p>
+            <div class="dismiss-options">
+                <button type="button" class="btn btn-secondary dismiss-option" data-days="7">שבוע</button>
+                <button type="button" class="btn btn-secondary dismiss-option" data-days="30">חודש</button>
+                <button type="button" class="btn btn-secondary dismiss-option" data-days="90">3 חודשים</button>
+            </div>
+        </div>
     </div>
 </div>
 {% endif %}
@@ -689,11 +785,25 @@ def api_file_dismiss_attention(file_id):
     margin-top: 0.75rem;
 }
 
+.attention-more-link {
+    color: #fbbf24;
+    margin-right: 0.5rem;
+}
+
 .attention-footer {
     margin-top: 1rem;
     padding-top: 1rem;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.attention-footer-hint {
+    font-size: 0.8rem;
+    opacity: 0.6;
 }
 
 .attention-settings-link {
@@ -739,6 +849,10 @@ def api_file_dismiss_attention(file_id):
     max-height: 90vh;
     overflow-y: auto;
     padding: 0;
+}
+
+.attention-modal .modal-content--small {
+    max-width: 320px;
 }
 
 .attention-modal .modal-header {
@@ -800,6 +914,25 @@ def api_file_dismiss_attention(file_id):
     border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.quick-edit-file-name {
+    font-weight: 600;
+    margin: 0 0 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: monospace;
+}
+
+/* Dismiss Modal */
+.dismiss-options {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.dismiss-option {
+    flex: 1;
+}
+
 /* Rose Pine Dawn overrides */
 :root[data-theme="rose-pine-dawn"] .attention-card {
     border-right-color: #ea9d34;
@@ -829,7 +962,8 @@ def api_file_dismiss_attention(file_id):
 }
 
 :root[data-theme="rose-pine-dawn"] .attention-item__name:hover,
-:root[data-theme="rose-pine-dawn"] .attention-settings-link:hover {
+:root[data-theme="rose-pine-dawn"] .attention-settings-link:hover,
+:root[data-theme="rose-pine-dawn"] .attention-more-link {
     color: #ea9d34;
 }
 
@@ -870,6 +1004,10 @@ def api_file_dismiss_attention(file_id):
         width: 100%;
         justify-content: flex-end;
     }
+    
+    .dismiss-options {
+        flex-direction: column;
+    }
 }
 ```
 
@@ -883,41 +1021,61 @@ document.addEventListener('DOMContentLoaded', () => {
     const widget = document.querySelector('[data-attention-widget]');
     if (!widget) return;
 
-    const modal = document.getElementById('attentionQuickEditModal');
-    const form = modal?.querySelector('[data-quick-edit-form]');
-    const saveBtn = modal?.querySelector('[data-action="save-quick-edit"]');
+    const quickEditModal = document.getElementById('attentionQuickEditModal');
+    const dismissModal = document.getElementById('attentionDismissModal');
+    const quickEditForm = quickEditModal?.querySelector('[data-quick-edit-form]');
+    const saveBtn = quickEditModal?.querySelector('[data-action="save-quick-edit"]');
 
-    // פתיחת מודל עריכה מהירה
+    // === פתיחת מודל עריכה מהירה ===
     widget.addEventListener('click', (e) => {
         const editBtn = e.target.closest('[data-action="quick-edit"]');
-        if (editBtn && modal && form) {
+        if (editBtn && quickEditModal && quickEditForm) {
             const fileId = editBtn.dataset.fileId;
-            const currentDesc = editBtn.dataset.currentDesc || '';
-            const currentTags = editBtn.dataset.currentTags || '';
+            const fileName = editBtn.dataset.fileName || '';
+            // הערכים מגיעים כ-JSON escaped, צריך לפרסר
+            let currentDesc = '';
+            let currentTags = '';
+            try {
+                currentDesc = JSON.parse(editBtn.dataset.currentDesc || '""');
+            } catch { currentDesc = ''; }
+            try {
+                currentTags = JSON.parse(editBtn.dataset.currentTags || '""');
+            } catch { currentTags = ''; }
 
-            form.querySelector('[data-field="file_id"]').value = fileId;
-            form.querySelector('#quickEditDescription').value = currentDesc;
-            form.querySelector('#quickEditTags').value = currentTags;
+            quickEditForm.querySelector('[data-field="file_id"]').value = fileId;
+            quickEditForm.querySelector('[data-field="file_name_display"]').textContent = fileName;
+            quickEditForm.querySelector('#quickEditDescription').value = currentDesc;
+            quickEditForm.querySelector('#quickEditTags').value = currentTags;
 
-            modal.hidden = false;
-            form.querySelector('#quickEditDescription').focus();
+            quickEditModal.hidden = false;
+            quickEditForm.querySelector('#quickEditDescription').focus();
         }
     });
 
-    // סגירת מודל
-    modal?.querySelectorAll('[data-modal-close]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            modal.hidden = true;
+    // === סגירת מודלים ===
+    [quickEditModal, dismissModal].forEach(modal => {
+        modal?.querySelectorAll('[data-modal-close]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                modal.hidden = true;
+            });
         });
     });
 
-    // שמירה מהירה
-    saveBtn?.addEventListener('click', async () => {
-        if (!form) return;
+    // === ESC לסגירת מודלים ===
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (quickEditModal && !quickEditModal.hidden) quickEditModal.hidden = true;
+            if (dismissModal && !dismissModal.hidden) dismissModal.hidden = true;
+        }
+    });
 
-        const fileId = form.querySelector('[data-field="file_id"]').value;
-        const description = form.querySelector('#quickEditDescription').value.trim();
-        const tagsRaw = form.querySelector('#quickEditTags').value.trim();
+    // === שמירה מהירה ===
+    saveBtn?.addEventListener('click', async () => {
+        if (!quickEditForm) return;
+
+        const fileId = quickEditForm.querySelector('[data-field="file_id"]').value;
+        const description = quickEditForm.querySelector('#quickEditDescription').value.trim();
+        const tagsRaw = quickEditForm.querySelector('#quickEditTags').value.trim();
         const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
 
         saveBtn.disabled = true;
@@ -935,11 +1093,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(data.error || 'שגיאה בשמירה');
             }
 
-            // הסרת הפריט מהרשימה
+            // הסרת הפריט מהרשימה (ויזואלית)
             removeAttentionItem(fileId);
-            modal.hidden = true;
+            quickEditModal.hidden = true;
 
-            // הודעת הצלחה
             showToast('נשמר בהצלחה!', 'success');
 
         } catch (err) {
@@ -951,74 +1108,96 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // דחייה (Dismiss)
-    widget.addEventListener('click', async (e) => {
+    // === פתיחת מודל דחייה ===
+    widget.addEventListener('click', (e) => {
         const dismissBtn = e.target.closest('[data-action="dismiss"]');
-        if (!dismissBtn) return;
+        if (!dismissBtn || !dismissModal) return;
 
         const fileId = dismissBtn.dataset.fileId;
-        const days = 30; // ברירת מחדל
-
-        dismissBtn.disabled = true;
-        dismissBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-        try {
-            const resp = await fetch(`/api/file/${fileId}/dismiss-attention`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ days })
-            });
-            const data = await resp.json();
-
-            if (!resp.ok || !data.ok) {
-                throw new Error(data.error || 'שגיאה בדחייה');
-            }
-
-            removeAttentionItem(fileId);
-            showToast('נדחה ל-30 ימים', 'info');
-
-        } catch (err) {
-            console.error('Dismiss failed:', err);
-            showToast(err.message || 'שגיאה בדחייה', 'error');
-            dismissBtn.disabled = false;
-            dismissBtn.innerHTML = '<i class="fas fa-clock"></i>';
-        }
+        dismissModal.querySelector('[data-field="dismiss_file_id"]').value = fileId;
+        dismissModal.hidden = false;
     });
 
+    // === בחירת תקופת דחייה ===
+    dismissModal?.querySelectorAll('.dismiss-option[data-days]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const fileId = dismissModal.querySelector('[data-field="dismiss_file_id"]').value;
+            const days = parseInt(btn.dataset.days, 10) || 30;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            try {
+                const resp = await fetch(`/api/file/${fileId}/dismiss-attention`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days })
+                });
+                const data = await resp.json();
+
+                if (!resp.ok || !data.ok) {
+                    throw new Error(data.error || 'שגיאה בדחייה');
+                }
+
+                removeAttentionItem(fileId);
+                dismissModal.hidden = true;
+                
+                const daysText = days === 7 ? 'שבוע' : days === 30 ? 'חודש' : `${days} ימים`;
+                showToast(`נדחה ל-${daysText}`, 'info');
+
+            } catch (err) {
+                console.error('Dismiss failed:', err);
+                showToast(err.message || 'שגיאה בדחייה', 'error');
+            } finally {
+                btn.disabled = false;
+                // Reset button text based on days
+                const daysMap = { 7: 'שבוע', 30: 'חודש', 90: '3 חודשים' };
+                btn.textContent = daysMap[btn.dataset.days] || `${btn.dataset.days} ימים`;
+            }
+        });
+    });
+
+    /**
+     * הסרת פריט מהרשימה (ויזואלית בלבד).
+     * 
+     * הערה חשובה: הספירות (total) שמגיעות מהשרת לא מתעדכנות כאן.
+     * ה-Badge הכולל מופחת ויזואלית, אבל הספירות בכותרות הקבוצות
+     * נשארות כפי שהיו (או מציגות "מוצגים X מתוך Y").
+     * לסנכרון מלא יש לרענן את הדף.
+     */
     function removeAttentionItem(fileId) {
         const item = widget.querySelector(`.attention-item[data-file-id="${fileId}"]`);
         if (item) {
             item.classList.add('is-removing');
             setTimeout(() => {
                 item.remove();
-                updateCounts();
+                updateVisualCounts();
             }, 300);
         }
     }
 
-    function updateCounts() {
-        // עדכון ספירות
+    /**
+     * עדכון ספירות ויזואלי בלבד.
+     * מעדכן את ה-Badge הכולל בהתבסס על מספר הפריטים שנותרו ב-DOM.
+     * הספירות בכותרות הקבוצות לא משתנות (כי הן מציגות total מהשרת).
+     */
+    function updateVisualCounts() {
+        const allItems = widget.querySelectorAll('.attention-item:not(.is-removing)');
+        const totalBadge = widget.querySelector('[data-attention-total-badge]');
+        
+        if (totalBadge) {
+            totalBadge.textContent = allItems.length;
+        }
+
+        // הסתר קבוצה ריקה
         widget.querySelectorAll('[data-attention-list]').forEach(list => {
             const group = list.closest('.attention-group');
-            const countEl = group?.querySelector('.attention-group__count');
             const items = list.querySelectorAll('.attention-item:not(.is-removing)');
             
-            if (countEl) {
-                countEl.textContent = `(${items.length})`;
-            }
-            
-            // הסתר קבוצה ריקה
             if (items.length === 0 && group) {
                 group.style.display = 'none';
             }
         });
-
-        // עדכון badge בכותרת
-        const totalBadge = widget.querySelector('.attention-header .badge');
-        const allItems = widget.querySelectorAll('.attention-item:not(.is-removing)');
-        if (totalBadge) {
-            totalBadge.textContent = allItems.length;
-        }
 
         // הסתר את כל הווידג'ט אם אין פריטים
         if (allItems.length === 0) {
@@ -1027,9 +1206,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showToast(message, type = 'info') {
-        // שימוש במערכת Toast קיימת אם יש, אחרת fallback
+        // שימוש במערכת Toast קיימת אם יש
         if (typeof window.showNotification === 'function') {
             window.showNotification(message, type);
+        } else if (typeof window.Toastify === 'function') {
+            Toastify({
+                text: message,
+                duration: 3000,
+                gravity: 'bottom',
+                position: 'right',
+                className: `toast-${type}`
+            }).showToast();
         } else {
             console.log(`[${type}] ${message}`);
         }
@@ -1049,11 +1236,11 @@ document.addEventListener('DOMContentLoaded', () => {
 # ב-user preferences / settings:
 attention_settings = {
     'enabled': True,                    # הפעלה/כיבוי הווידג'ט
-    'stale_days': 60,                   # מספר ימים לקובץ "ישן"
+    'stale_days': 60,                   # מספר ימים לקובץ "לא עודכן"
     'max_items_per_group': 10,          # מקסימום פריטים לכל קבוצה
     'show_missing_description': True,   # הצג קבצים חסרי תיאור
     'show_missing_tags': True,          # הצג קבצים חסרי תגיות
-    'show_stale_files': True            # הצג קבצים ישנים
+    'show_stale_files': True            # הצג קבצים שלא עודכנו
 }
 ```
 
@@ -1105,24 +1292,26 @@ def api_update_attention_settings():
 # ב-scripts/create_repo_indexes.py או בסקריפט אתחול
 
 # אינדקס לשאילתת קבצים חסרי מטא-דאטה
+# הערה: אינדקס על שדות אופציונליים עם $or לא תמיד יעיל.
+# מומלץ לבדוק עם explain() ולשקול הוספת שדה מחושב בעתיד.
 db.code_snippets.create_index(
     [
         ('user_id', 1),
         ('is_active', 1),
-        ('description', 1),
-        ('tags', 1)
+        ('updated_at', -1)
     ],
-    name='idx_attention_missing_metadata'
+    name='idx_attention_base'
 )
 
-# אינדקס לשאילתת קבצים ישנים
+# אינדקס לשאילתת קבצים שלא עודכנו (כולל תנאי tags.0)
 db.code_snippets.create_index(
     [
         ('user_id', 1),
         ('is_active', 1),
-        ('updated_at', 1)
+        ('updated_at', 1),
+        ('tags.0', 1)
     ],
-    name='idx_attention_stale_files'
+    name='idx_attention_stale_with_tags'
 )
 
 # אינדקס ל-dismissals
@@ -1135,23 +1324,47 @@ db.attention_dismissals.create_index(
     name='idx_attention_dismissals_unique'
 )
 
+# TTL index - מחיקה אוטומטית כש-expires_at עובר
 db.attention_dismissals.create_index(
     [('expires_at', 1)],
-    expireAfterSeconds=0,  # TTL index - מחיקה אוטומטית כש-expires_at עובר
+    expireAfterSeconds=0,
     name='idx_attention_dismissals_ttl'
 )
+```
+
+### הערה לגבי ביצועי שאילתות
+
+השאילתה של `missing_metadata` משתמשת ב-`$or` על שדות אופציונליים, מה שלא תמיד מנצל אינדקסים ביעילות.
+
+**אופציה לשיפור עתידי:** הוספת שדה מחושב `has_complete_metadata: true/false` שמתעדכן בעת שמירה:
+
+```python
+# בזמן save/update של קובץ:
+has_complete_metadata = bool(
+    (doc.get('description') or '').strip() and 
+    (doc.get('tags') or [])
+)
+doc['has_complete_metadata'] = has_complete_metadata
+```
+
+אז השאילתה הופכת לפשוטה:
+```python
+{'has_complete_metadata': False}  # קבצים חסרי מטא-דאטה
+{'has_complete_metadata': True, 'updated_at': {'$lt': cutoff}}  # קבצים ישנים
 ```
 
 ---
 
 ## 7. זרימת עבודה לדוגמה
 
-1. **משתמש נכנס לדשבורד** → רואה 5 קבצים "חסרי תיאור/תגיות"
-2. **לוחץ על כפתור העריכה המהירה** (עיפרון) → נפתח מודל
-3. **מוסיף תיאור קצר** → לוחץ "שמור"
-4. **הקובץ נעלם מהרשימה** → התצוגה מתעדכנת בזמן אמת
-5. **לוחץ על כפתור "שעון"** על קובץ אחר → הקובץ נדחה ל-30 ימים
-6. **ממשיך לקובץ הבא** — הכל בלי לעזוב את הדשבורד
+1. **משתמש נכנס לדשבורד** → רואה כרטיס "קבצים שדורשים טיפול"
+2. **רואה 3 קבצים "חסרי תיאור/תגיות"** ו-2 קבצים "לא עודכנו זמן רב"
+3. **לוחץ על כפתור העריכה המהירה** (עיפרון) על קובץ חסר תיאור
+4. **נפתח מודל** → מוסיף תיאור ותגיות → לוחץ "שמור"
+5. **הקובץ נעלם מהרשימה** → ה-Badge יורד ב-1
+6. **לוחץ על כפתור "שעון"** על קובץ אחר → נפתח מודל בחירת תקופה
+7. **בוחר "חודש"** → הקובץ נדחה ל-30 ימים ונעלם מהרשימה
+8. **ממשיך לקובץ הבא** — הכל בלי לעזוב את הדשבורד
 
 ---
 
@@ -1160,33 +1373,56 @@ db.attention_dismissals.create_index(
 | קובץ | סוג שינוי | תיאור |
 |------|-----------|--------|
 | `webapp/app.py` | פונקציה חדשה | `_build_files_need_attention()` |
+| `webapp/app.py` | פונקציה חדשה | `_get_active_dismissals()` |
 | `webapp/app.py` | עדכון route | `/dashboard` - הוספת נתוני הווידג'ט |
 | `webapp/app.py` | API חדש | `/api/file/<id>/quick-update` |
 | `webapp/app.py` | API חדש | `/api/file/<id>/dismiss-attention` |
-| `webapp/templates/dashboard.html` | HTML חדש | תבנית הווידג'ט + מודל |
+| `webapp/templates/dashboard.html` | HTML חדש | תבנית הווידג'ט + 2 מודלים |
 | `webapp/templates/dashboard.html` | CSS חדש | סגנונות לווידג'ט |
 | `webapp/templates/dashboard.html` | JS חדש | לוגיקת Quick Edit + Dismiss |
-| MongoDB | אינדקסים | 3 אינדקסים חדשים |
+| MongoDB | אינדקסים | 4 אינדקסים חדשים |
 | MongoDB | Collection חדש | `attention_dismissals` |
 
 ---
 
-## 9. הערות נוספות
+## 9. נקודות חשובות למימוש
 
-### שיקולי ביצועים
-- השאילתות משתמשות ב-`HEAVY_FIELDS_EXCLUDE_PROJECTION` כדי לא לשלוף את תוכן הקבצים
-- מומלץ להגביל את מספר הפריטים ל-10-15 לכל קבוצה
-- ה-TTL index על `attention_dismissals` מנקה אוטומטית רשומות שפג תוקפן
+### 9.1 הפרדה לוגית בין הקבוצות
+- קובץ **לא יכול להופיע בשתי הקבוצות** בו-זמנית
+- קבוצת "לא עודכן" כוללת **רק** קבצים עם מטא-דאטה מלא
+- השימוש ב-`{'tags.0': {'$exists': True}}` מבטיח שיש לפחות תגית אחת
 
-### נגישות
-- כל הכפתורים כוללים `title` ו-`aria-label`
-- המודל ניתן לסגירה עם ESC
-- תמיכה בניווט מקלדת
+### 9.2 Escaping ב-Template
+- כל ערך שמוזרק ל-`data-*` attribute עובר דרך `| tojson`
+- זה מונע שבירת HTML מתווים מיוחדים (גרשיים, סוגריים וכו')
 
-### Mobile
-- הווידג'ט responsive ומותאם למסכים קטנים
-- בגרסת mobile הכפתורים מוצגים בשורה נפרדת
+### 9.3 ספירות ב-UI
+- ה-Badge הכולל מתעדכן ויזואלית בעת הסרת פריטים
+- הספירות בכותרות הקבוצות מציגות "מוצגים X מתוך Y"
+- לסנכרון מלא של הספירות יש לרענן את הדף
+
+### 9.4 "לא עודכן" vs "לא נפתח"
+- הווידג'ט מבוסס על `updated_at` בלבד
+- המונח הנכון הוא **"לא עודכן זמן רב"**
+- אם נרצה לעקוב אחרי צפיות בעתיד, יש להוסיף שדה `last_viewed_at` נפרד
+
+### 9.5 תגיות
+- הקלט הוא **טקסט מופרד בפסיקים** (Comma-separated)
+- לא chip UI מלא בשלב זה
+- התגיות מנורמלות ל-lowercase ומוגבלות ל-20 תגיות, 50 תווים כל אחת
 
 ---
 
-*מסמך זה נוצר ב-19/01/2026 ומותאם לארכיטקטורה הקיימת של CodeBot.*
+## 10. שדרוגים עתידיים אפשריים
+
+1. **Chip Input אמיתי** — רכיב UI מתקדם לבחירת תגיות
+2. **שדה `last_viewed_at`** — מעקב אחרי צפיות ולא רק עדכונים
+3. **שדה `has_complete_metadata`** — לשיפור ביצועי שאילתות
+4. **Auto-suggest לתיאור** — הצעה אוטומטית על בסיס שם הקובץ
+5. **Bulk actions** — תיקון מהיר של מספר קבצים בבת אחת
+6. **סינון לפי שפה** — הצגת קבצים חסרי מטא-דאטה לפי שפת תכנות
+
+---
+
+*מסמך זה (v2) נוצר ב-19/01/2026 ומותאם לארכיטקטורה הקיימת של CodeBot.*
+*עודכן על בסיס ביקורת ארכיטקטורה.*
