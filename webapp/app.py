@@ -15412,6 +15412,16 @@ def api_ui_prefs():
         # עדכון קוקיז רק עבור שדות שסופקו
         resp = jsonify(resp_payload)
         try:
+            # CodeQL hardening: לא מאפשרים ערכי Cookie עם תווי שליטה/תווים אסורים
+            if font_scale_cookie_value is not None:
+                # ערך צפוי אחרי format: "0.85".."1.60"
+                if not re.fullmatch(r"[0-9]\.[0-9]{2}", str(font_scale_cookie_value)):
+                    font_scale_cookie_value = None
+            if theme_cookie_value is not None:
+                # ערכים מתוך ALLOWED_UI_THEMES בלבד, אבל נחזק גם כאן כדי ש-CodeQL יזהה ולידציה
+                if not re.fullmatch(r"[a-z0-9-]{1,32}", str(theme_cookie_value)):
+                    theme_cookie_value = None
+
             if font_scale_cookie_value is not None:
                 resp.set_cookie(
                     'ui_font_scale',
