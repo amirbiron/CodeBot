@@ -70,12 +70,12 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
 /* Upload/Edit pages: Larger code editor on mobile */
 @media (max-width: 767px) {
   /* Increase editor height for upload/edit forms (+~3cm / ~113px) */
-  /* Use max() to ensure the larger value wins */
+  /* Use max() to ensure max-height >= min-height on short viewports (landscape) */
   form[data-file-form-config] .cm-editor,
   form[data-file-form-config] textarea[name="code"],
   form[data-file-form-config] textarea.code-field {
     min-height: max(320px, 55vh);
-    max-height: 65vh;
+    max-height: max(320px, 65vh);
   }
 }
 
