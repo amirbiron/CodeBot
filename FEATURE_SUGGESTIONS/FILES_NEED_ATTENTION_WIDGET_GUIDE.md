@@ -177,7 +177,9 @@ def _build_files_need_attention(
             'language': doc.get('programming_language', 'text'),
             'icon': get_language_icon(doc.get('programming_language', '')),
             'description': desc[:100],
-            'tags': tags[:5],
+            'tags': tags[:5],  # לתצוגה ברשימה בלבד
+            'tags_full': tags,  # כל התגיות - לשימוש ב-quick edit
+            'tags_count': len(tags),
             'updated_at': doc.get('updated_at'),
             'reasons': reasons,
             'reason_text': ' + '.join(reasons) if reasons else 'חסר מידע'
@@ -484,7 +486,7 @@ def api_file_dismiss_attention(file_id):
                             data-file-id="{{ file.id }}"
                             data-file-name="{{ file.file_name | e }}"
                             data-current-desc={{ file.description | tojson }}
-                            data-current-tags={{ (file.tags | join(',')) | tojson }}
+                            data-current-tags={{ (file.tags_full | join(',')) | tojson }}
                             title="עריכה מהירה">
                         <i class="fas fa-edit"></i>
                     </button>
@@ -1027,6 +1029,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveBtn = quickEditModal?.querySelector('[data-action="save-quick-edit"]');
 
     // === פתיחת מודל עריכה מהירה ===
+    // משתנים לשמירת הערכים המקוריים (למניעת איבוד נתונים)
+    // חשוב: אם המשתמש לא שינה שדה, לא נשלח אותו לשרת
+    let originalDescription = '';
+    let originalTags = '';
+
     widget.addEventListener('click', (e) => {
         const editBtn = e.target.closest('[data-action="quick-edit"]');
         if (editBtn && quickEditModal && quickEditForm) {
@@ -1039,8 +1046,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentDesc = JSON.parse(editBtn.dataset.currentDesc || '""');
             } catch { currentDesc = ''; }
             try {
+                // כאן מגיעות כל התגיות (tags_full), לא רק 5 הראשונות
                 currentTags = JSON.parse(editBtn.dataset.currentTags || '""');
             } catch { currentTags = ''; }
+
+            // שמירת הערכים המקוריים להשוואה בעת שמירה
+            originalDescription = currentDesc;
+            originalTags = currentTags;
 
             quickEditForm.querySelector('[data-field="file_id"]').value = fileId;
             quickEditForm.querySelector('[data-field="file_name_display"]').textContent = fileName;
@@ -1074,9 +1086,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!quickEditForm) return;
 
         const fileId = quickEditForm.querySelector('[data-field="file_id"]').value;
-        const description = quickEditForm.querySelector('#quickEditDescription').value.trim();
-        const tagsRaw = quickEditForm.querySelector('#quickEditTags').value.trim();
-        const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+        const newDescription = quickEditForm.querySelector('#quickEditDescription').value.trim();
+        const newTagsRaw = quickEditForm.querySelector('#quickEditTags').value.trim();
+
+        // בניית payload - שולחים רק שדות שהשתנו!
+        // זה מונע איבוד נתונים (למשל תגיות שלא הוצגו במלואן)
+        const payload = {};
+        
+        if (newDescription !== originalDescription) {
+            payload.description = newDescription;
+        }
+        
+        if (newTagsRaw !== originalTags) {
+            payload.tags = newTagsRaw ? newTagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+        }
+
+        // אם לא השתנה כלום, אין מה לשמור
+        if (Object.keys(payload).length === 0) {
+            quickEditModal.hidden = true;
+            showToast('לא בוצעו שינויים', 'info');
+            return;
+        }
 
         saveBtn.disabled = true;
         saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> שומר...';
@@ -1085,7 +1115,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const resp = await fetch(`/api/file/${fileId}/quick-update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ description, tags })
+                body: JSON.stringify(payload)
             });
             const data = await resp.json();
 
@@ -1410,6 +1440,27 @@ doc['has_complete_metadata'] = has_complete_metadata
 - הקלט הוא **טקסט מופרד בפסיקים** (Comma-separated)
 - לא chip UI מלא בשלב זה
 - התגיות מנורמלות ל-lowercase ומוגבלות ל-20 תגיות, 50 תווים כל אחת
+
+### 9.6 מניעת איבוד נתונים ב-Quick Edit
+**בעיה פוטנציאלית:** אם המשתמש פותח עריכה מהירה על קובץ עם 10 תגיות, משנה רק את התיאור ושומר, התגיות עלולות להיחתך.
+
+**הפתרון המיושם:**
+1. **Backend:** שולח את **כל** התגיות (`tags_full`) ב-data attribute, לא רק 5 לתצוגה
+2. **Frontend:** שומר את הערכים המקוריים (`originalDescription`, `originalTags`) בעת פתיחת המודל
+3. **בעת שמירה:** משווה את הערכים החדשים למקוריים ושולח **רק שדות שהשתנו**
+4. אם המשתמש שינה רק את התיאור — התגיות לא נשלחות ולא נפגעות
+
+```javascript
+// דוגמה: payload נבנה רק משדות שהשתנו
+const payload = {};
+if (newDescription !== originalDescription) {
+    payload.description = newDescription;
+}
+if (newTagsRaw !== originalTags) {
+    payload.tags = newTagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+}
+// אם payload ריק — לא נשלח כלום
+```
 
 ---
 
