@@ -11,28 +11,17 @@ async def test_broadcast_counts_and_summary(monkeypatch):
     # Ensure admin
     monkeypatch.setenv("ADMIN_USER_IDS", "999")
 
-    # Stub DB: recipients 111 (ok), 222 (RetryAfter then ok), 333 (Forbidden), 444 (Chat not found)
     removed_updates = {}
-    class _Users:
-        def find(self, *_a, **_k):
-            return [
-                {"user_id": 111},
-                {"user_id": 222},
-                {"user_id": 333},
-                {"user_id": 444},
-            ]
-        def update_many(self, query, update):
-            removed_updates["query"] = query
-            removed_updates["update"] = update
-            return types.SimpleNamespace(modified_count=len(query.get("user_id", {}).get("$in", [])))
+    class _Facade:
+        def list_active_user_ids(self):
+            return [111, 222, 333, 444]
 
-    class _DB:
-        users = _Users()
+        def mark_users_blocked(self, user_ids):
+            removed_updates["ids"] = list(user_ids or [])
+            return len(removed_updates["ids"])
 
-    class _DBRoot:
-        db = _DB()
-
-    monkeypatch.setattr(bh, "db", _DBRoot())
+    facade = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: facade)
 
     # Stub reporter to avoid external IO
     monkeypatch.setattr(bh.reporter, "report_activity", lambda *a, **k: None, raising=False)
@@ -112,8 +101,7 @@ async def test_broadcast_db_failure_shows_error(monkeypatch):
     monkeypatch.setenv("ADMIN_USER_IDS", "999")
     monkeypatch.setattr(bh.reporter, "report_activity", lambda *a, **k: None, raising=False)
 
-    # Force no facade + no injected db (simulate DB connectivity issue / missing wiring)
-    monkeypatch.setattr(bh, "db", None, raising=False)
+    # Force no facade (simulate DB connectivity issue / missing wiring)
     monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: None, raising=True)
 
     class DummyMessage:
@@ -148,7 +136,6 @@ async def test_broadcast_db_failure_shows_error(monkeypatch):
 async def test_recent_uses_html_and_escapes(monkeypatch):
     import bot_handlers as bh
 
-    # Stub db for recent
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
 
@@ -159,7 +146,12 @@ async def test_recent_uses_html_and_escapes(monkeypatch):
             'updated_at': now
         }]
 
-    monkeypatch.setattr(bh, "db", types.SimpleNamespace(get_user_files=_get_user_files))
+    monkeypatch.setattr(
+        bh,
+        "_get_files_facade_or_none",
+        lambda: types.SimpleNamespace(get_user_files=_get_user_files),
+        raising=True,
+    )
     monkeypatch.setattr(bh.reporter, "report_activity", lambda *a, **k: None, raising=False)
 
     class Msg:
@@ -206,7 +198,12 @@ async def test_info_uses_html(monkeypatch):
             'updated_at': datetime.now()
         }
 
-    monkeypatch.setattr(bh, "db", types.SimpleNamespace(get_latest_version=_get_latest_version))
+    monkeypatch.setattr(
+        bh,
+        "_get_files_facade_or_none",
+        lambda: types.SimpleNamespace(get_latest_version=_get_latest_version),
+        raising=True,
+    )
 
     class Msg:
         def __init__(self):

@@ -54,8 +54,6 @@ def set_activity_reporter(new_reporter):
     reporter = new_reporter or _NoopReporter()
     
 # ---- DB access via composition facade --------------------------------------
-# Backwards-compatibility: tests often monkeypatch `bot_handlers.db`
-db = None  # type: ignore
 
 def _get_files_facade_or_none():
     """Best-effort access to FilesFacade without breaking older tests."""
@@ -66,197 +64,20 @@ def _get_files_facade_or_none():
         return None
 
 
-def _get_legacy_db():
-    """
-    Best-effort access to legacy DB object **without importing** the `database` package.
-
-    - Prefer explicit injection via `bot_handlers.db` (tests patch this a lot).
-
-    הערה: בעבר תמכנו גם ב-`sys.modules['database'].db`, אבל זה עדיין "עוקף" את הפסאדה
-    ומעודד תלות עקיפה ב-DB מתוך handlers. המטרה היא שהאפליקציה תיגש ל-DB רק דרך
-    `FilesFacade`/`SnippetService`, ובבדיקות נעשה injection מפורש דרך המשתנה `db`.
-    """
-    try:
-        patched = globals().get("db")
-        if patched is not None:
-            return patched
-    except Exception:
-        pass
-    return None
-
-
-_FACADE_SENTINEL = object()
-
-
-def _should_retry_with_legacy(method_name: str, value) -> bool:
-    """
-    האם לנסות fallback ל-legacy אחרי קריאה ל-FilesFacade.
-
-    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה,
-    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים.
-    """
-    if value is _FACADE_SENTINEL:
-        return True
-    if value is None:
-        return True
-    if method_name in {"toggle_favorite"} and isinstance(value, bool):
-        return False
-    if value is False:
-        return True
-    if isinstance(value, (list, dict)) and not value:
-        return True
-    if isinstance(value, tuple):
-        # חשוב: תוצאות כמו ([], 0) הן תוצאה תקינה (אין נתונים), ולא כשל שצריך retry.
-        if len(value) == 0:
-            return True
-        if all(v is None for v in value):
-            return True
-    return False
-
-
 def _call_files_api(method_name: str, *args, **kwargs):
     """
-    Invoke FilesFacade method by name, with legacy fallback (best-effort).
-
-    Note: Bot handlers must not import/use the legacy `database` package directly.
+    Invoke FilesFacade method by name (no legacy DB fallback).
     """
-    def _get_mongo_db_from_injected() -> Optional[object]:
-        """
-        Best-effort access to an underlying mongo-like db object from injected legacy db.
-
-        Tests commonly patch `bot_handlers.db = SimpleNamespace(db=<mongo_db_stub>)`.
-        """
-        legacy_obj = _get_legacy_db()
-        if legacy_obj is None:
-            return None
-        # Most common: wrapper with `.db` attribute
-        try:
-            inner = getattr(legacy_obj, "db", None)
-            if inner is not None:
-                return inner
-        except Exception:
-            pass
-        # Some stubs may expose `get_mongo_db()`
-        try:
-            fn = getattr(legacy_obj, "get_mongo_db", None)
-            if callable(fn):
-                out = fn()
-                if out is not None:
-                    return out
-        except Exception:
-            pass
-        # As a last resort, treat legacy as mongo db itself
-        return legacy_obj
-
-    # Transitional fallbacks for tests/legacy stubs:
-    # These methods exist on FilesFacade in runtime, but older tests only patch `bot_handlers.db.db.users.*`.
-    if method_name == "list_active_user_ids":
-        mongo_db = _get_mongo_db_from_injected()
-        try:
-            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
-            if users is not None and hasattr(users, "find"):
-                cursor = users.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
-                # אם stub/driver החזיר None במקום cursor, זה לא "אין משתמשים" אלא כשל גישה/מימוש.
-                if cursor is None:
-                    raise RuntimeError("users.find returned None")
-                out: List[int] = []
-                for doc in cursor or []:
-                    try:
-                        uid = int((doc or {}).get("user_id") or 0)
-                        if uid:
-                            out.append(uid)
-                    except Exception:
-                        continue
-                # Success path (even if empty list)
-                return out
-        except Exception:
-            pass
-        # Fall through to normal facade/legacy dispatch
-
-    if method_name == "mark_users_blocked":
-        mongo_db = _get_mongo_db_from_injected()
-        try:
-            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
-            if users is not None and hasattr(users, "update_many"):
-                ids = list(args[0]) if args else list(kwargs.get("user_ids") or [])
-                res = users.update_many({"user_id": {"$in": ids}}, {"$set": {"blocked": True}})
-                try:
-                    return int(getattr(res, "modified_count", None) or 0)
-                except Exception:
-                    return 0
-        except Exception:
-            pass
-        # Fall through
-
-    if method_name == "find_user_id_by_username":
-        mongo_db = _get_mongo_db_from_injected()
-        try:
-            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
-            if users is not None and hasattr(users, "find_one"):
-                uname = ""
-                if args:
-                    uname = str(args[0] or "")
-                else:
-                    uname = str(kwargs.get("username") or "")
-                uname = uname[1:] if uname.startswith("@") else uname
-                if not uname:
-                    return None
-                doc = users.find_one({"username": uname}) or users.find_one({"username": uname.lower()})
-                if isinstance(doc, dict) and doc.get("user_id") is not None:
-                    return int(doc.get("user_id"))
-        except Exception:
-            pass
-        # Fall through
-
-    if method_name == "mark_user_blocked":
-        mongo_db = _get_mongo_db_from_injected()
-        try:
-            users = getattr(mongo_db, "users", None) if mongo_db is not None else None
-            if users is not None and hasattr(users, "update_one"):
-                uid = args[0] if args else kwargs.get("user_id")
-                users.update_one({"user_id": int(uid)}, {"$set": {"blocked": True}})
-                return True
-        except Exception:
-            pass
-        # Fall through
-
-    # Prefer injected legacy db (tests), then facade, then fallback to legacy.
-    legacy = _get_legacy_db()
-    if legacy is not None:
-        method = getattr(legacy, method_name, None)
-        if callable(method):
-            try:
-                legacy_result = method(*args, **kwargs)
-                if legacy_result is not None:
-                    return legacy_result
-            except Exception:
-                pass
-
-    facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
-    if facade is not None:
-        method = getattr(facade, method_name, None)
-        if callable(method):
-            try:
-                facade_result = method(*args, **kwargs)
-            except Exception:
-                facade_result = _FACADE_SENTINEL
-
-    if _should_retry_with_legacy(method_name, facade_result):
-        legacy = _get_legacy_db()
-        if legacy is not None:
-            method = getattr(legacy, method_name, None)
-            if callable(method):
-                try:
-                    legacy_result = method(*args, **kwargs)
-                    if legacy_result is not None:
-                        return legacy_result
-                except Exception:
-                    pass
-
-    if facade_result is _FACADE_SENTINEL:
+    if facade is None:
         return None
-    return facade_result
+    method = getattr(facade, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        return method(*args, **kwargs)
+    except Exception:
+        return None
 
 
 # Rate limiter לפיצ'ר יצירת תמונות (10 פעולות בדקה למשתמש)

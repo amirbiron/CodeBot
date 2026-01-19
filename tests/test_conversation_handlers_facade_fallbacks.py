@@ -12,7 +12,6 @@ async def test_show_by_repo_menu_uses_facade_when_available(monkeypatch):
         ]
     )
     monkeypatch.setattr(ch, "_get_files_facade_or_none", lambda: stub_facade)
-    monkeypatch.setattr(ch, "_get_legacy_db", lambda: None)
 
     class DummyMessage:
         def __init__(self):
@@ -41,24 +40,20 @@ async def test_show_by_repo_menu_uses_facade_when_available(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_show_by_repo_menu_falls_back_to_db(monkeypatch):
+async def test_show_by_repo_menu_empty_when_facade_has_no_tags(monkeypatch):
     import conversation_handlers as ch
-
-    class LegacyDB:
-        def get_repo_tags_with_counts(self, user_id, max_tags=20):
-            return [{"tag": "repo:legacy/app", "count": 1}]
 
     # Facade returns empty list to trigger fallback
     stub_facade = types.SimpleNamespace(
         get_repo_tags_with_counts=lambda *a, **k: []
     )
     monkeypatch.setattr(ch, "_get_files_facade_or_none", lambda: stub_facade)
-    monkeypatch.setattr(ch, "_get_legacy_db", lambda: LegacyDB())
 
     captured = {}
 
     class DummyMessage:
         async def reply_text(self, text=None, reply_markup=None):
+            captured["text"] = text
             captured["reply_markup"] = reply_markup
 
     class DummyUpdate:
@@ -71,7 +66,4 @@ async def test_show_by_repo_menu_falls_back_to_db(monkeypatch):
 
     await ch.show_by_repo_menu(DummyUpdate(), types.SimpleNamespace(user_data={}))
 
-    markup = captured.get("reply_markup")
-    assert markup is not None
-    callbacks = [row[0].callback_data for row in markup.inline_keyboard[:-1]]
-    assert "by_repo:repo:legacy/app" in callbacks
+    assert captured.get("text") == "ℹ️ אין קבצים עם תגית ריפו."

@@ -34,8 +34,6 @@ def set_activity_reporter(new_reporter):
     global reporter
     reporter = new_reporter or _NoopReporter()
 
-# Backwards-compatibility: some tests monkeypatch `conversation_handlers.db`
-db = None  # type: ignore
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from html import escape as html_escape
@@ -106,116 +104,27 @@ def _get_files_facade_or_none():
         return None
 
 
-def _get_legacy_db():
-    """
-    Best-effort access to legacy DB object **without importing** the `database` package.
-
-    - Prefer explicit injection via `conversation_handlers.db` (tests often patch this).
-
-    הערה: בעבר תמכנו גם ב-`sys.modules['database'].db`, אבל זה עדיין "עוקף" את הפסאדה
-    ומעודד תלות עקיפה ב-DB מתוך handlers. המטרה היא שכל הגישה ל-DB תעבור דרך
-    `FilesFacade`/`SnippetService`, ובבדיקות נעשה injection מפורש דרך המשתנה `db`.
-    """
-    try:
-        patched = globals().get("db")
-        if patched is not None:
-            return patched
-    except Exception:
-        pass
-    return None
-
-
-_FACADE_SENTINEL = object()
-
-
-def _should_retry_with_legacy(method_name: str, value) -> bool:
-    """
-    האם לנסות fallback ל-legacy אחרי קריאה ל-FilesFacade.
-
-    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה,
-    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים.
-    """
-    if value is _FACADE_SENTINEL:
-        return True
-    if value is None:
-        return True
-    if method_name in {"toggle_favorite"} and isinstance(value, bool):
-        return False
-    if value is False:
-        return True
-    if isinstance(value, (list, dict)) and not value:
-        return True
-    if isinstance(value, tuple):
-        # חשוב: תוצאות כמו ([], 0) הן תוצאה תקינה (אין נתונים), ולא כשל שצריך retry.
-        if len(value) == 0:
-            return True
-        if all(v is None for v in value):
-            return True
-    return False
-
-
 def _call_files_api(method_name: str, *args, **kwargs):
     """
-    Invoke FilesFacade method by name, with legacy fallback (best-effort).
-
-    Note: Handlers must not reach into the legacy `database` package directly.
-    Legacy fallback is supported only via explicit injection / already-loaded modules.
+    Invoke FilesFacade method by name (no legacy DB fallback).
     """
-    facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
-    if facade is not None:
-        method = getattr(facade, method_name, None)
-        if callable(method):
-            try:
-                facade_result = method(*args, **kwargs)
-            except Exception:
-                facade_result = _FACADE_SENTINEL
-
-    if _should_retry_with_legacy(method_name, facade_result):
-        legacy = _get_legacy_db()
-        if legacy is not None:
-            method = getattr(legacy, method_name, None)
-            if callable(method):
-                try:
-                    legacy_result = method(*args, **kwargs)
-                    if legacy_result is not None:
-                        return legacy_result
-                except Exception:
-                    pass
-
-    if facade_result is _FACADE_SENTINEL:
+    if facade is None:
+        return None
+    method = getattr(facade, method_name, None)
+    if not callable(method):
         return None
     try:
-        return facade_result
+        return method(*args, **kwargs)
     except Exception:
-        return facade_result
+        return None
 
 
 def _call_repo_api(method_name: str, *args, **kwargs):
     """
-    Invoke repository-level APIs (recycle bin helpers).
-
-    - Prefer FilesFacade when available.
-    - Fall back to legacy db._get_repo() when facade returns empty/None or fails.
+    Invoke repository-level APIs (recycle bin helpers) via FilesFacade only.
     """
-    result = _call_files_api(method_name, *args, **kwargs)
-    if not _should_retry_with_legacy(method_name, result):
-        return result
-    legacy = _get_legacy_db()
-    if legacy is None:
-        return result
-    repo_getter = getattr(legacy, "_get_repo", None)
-    if not callable(repo_getter):
-        return result
-    try:
-        repo = repo_getter()
-    except Exception:
-        return result
-    method = getattr(repo, method_name, None)
-    if not callable(method):
-        return result
-    # let exceptions bubble to caller so UI can show ❌
-    return method(*args, **kwargs)
+    return _call_files_api(method_name, *args, **kwargs)
 
 
 def _get_owned_document_by_id(user_id: int, file_id: str):
@@ -1947,7 +1856,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
 
 async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """הצגת מועדפים (רשימת קבצים מסומנים is_favorite=True) עם עימוד קל בצד הבוט.
-    משתמש ב-db.get_favorites ומחלק לעמודים בגודל FILES_PAGE_SIZE.
+    משתמש ב-FilesFacade ומחלק לעמודים בגודל FILES_PAGE_SIZE.
     """
     query = update.callback_query
     try:
