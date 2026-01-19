@@ -4096,7 +4096,11 @@ def _run_profiler(awaitable):
         except RuntimeError as e:
             # Fall back בטוח: אם asyncio עדיין חושב שיש loop פעיל (נראה לעתים עם gevent),
             # נריץ ב-threadpool.
-            if "asyncio.run() cannot be called from a running event loop" in str(e):
+            err = str(e).lower()
+            if (
+                "asyncio.run() cannot be called from a running event loop" in err
+                or "event loop is already running" in err
+            ):
                 return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
             raise
 
@@ -4436,7 +4440,11 @@ def _run_db_health(awaitable):
         try:
             return _run_in_new_loop()
         except RuntimeError as e:
-            if "asyncio.run() cannot be called from a running event loop" in str(e):
+            err = str(e).lower()
+            if (
+                "asyncio.run() cannot be called from a running event loop" in err
+                or "event loop is already running" in err
+            ):
                 return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
             raise
 
