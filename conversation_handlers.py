@@ -4403,7 +4403,7 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception:
             message_text = ""
 
-        if not message_text:
+        def _build_html_payload() -> str:
             header_html = (
                 f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version_num}\n\n"
             )
@@ -4425,14 +4425,47 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
                     step = max(50, len(safe_code) - available_for_code)
                     preview_raw_limit = max(0, preview_raw_limit - step)
                     safe_code = html_escape(code[:preview_raw_limit])
-            message_text = f"{header_html}<pre><code>{safe_code}</code></pre>"
+            return f"{header_html}<pre><code>{safe_code}</code></pre>"
+
+        html_fallback_text = ""
+        if not message_text:
+            html_fallback_text = _build_html_payload()
+            message_text = html_fallback_text
             parse_mode = ParseMode.HTML
 
-        await query.edit_message_text(
-            message_text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode,
-        )
+        try:
+            await query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        except telegram.error.BadRequest as br:
+            msg = str(br).lower()
+            if "message is not modified" in msg:
+                return ConversationHandler.END
+            if "can't parse entities" in msg or "can't find end of precode entity" in msg:
+                try:
+                    if not html_fallback_text:
+                        html_fallback_text = _build_html_payload()
+                    await query.edit_message_text(
+                        html_fallback_text,
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return ConversationHandler.END
+                except telegram.error.BadRequest as br2:
+                    if "message is not modified" in str(br2).lower():
+                        return ConversationHandler.END
+                    # fallback אחרון: טקסט פשוט ללא parse_mode
+                    header_plain = f"📄 {file_name} ({language}) - גרסה {version_num}\n\n"
+                    available_for_code = max(100, 4096 - len(header_plain) - 10)
+                    plain_code = (code or "")[:available_for_code]
+                    await query.edit_message_text(
+                        header_plain + plain_code,
+                        reply_markup=reply_markup,
+                    )
+                    return ConversationHandler.END
+            raise
         
     except Exception as e:
         logger.error(f"Error in handle_view_version: {e}")
