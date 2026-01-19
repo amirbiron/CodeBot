@@ -9689,15 +9689,8 @@ def _build_files_need_attention(
         base_query['_id'] = {'$nin': dismissed_oids}
     
     # === Projection קל (בלי code/content) ===
+    # משתמשים בהחרגת שדות כבדים בלבד כדי להימנע מערבוב inclusion/exclusion
     projection = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
-    projection.update({
-        'file_name': 1,
-        'programming_language': 1,
-        'description': 1,
-        'tags': 1,
-        'updated_at': 1,
-        'created_at': 1
-    })
     
     # =====================================================
     # קבוצה 1: קבצים חסרי תיאור או תגיות
