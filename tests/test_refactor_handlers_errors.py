@@ -12,12 +12,11 @@ async def test_refactor_callback_missing_file(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB שמחזיר None
-    class _DB:
-        def get_file(self, user_id, filename):
+    # Facade שמחזיר None
+    class _Facade:
+        def get_latest_version(self, user_id, filename):
             return None
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     class _Msg:
         async def reply_text(self, *a, **k):
@@ -50,12 +49,11 @@ async def test_refactor_callback_invalid_type(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB בסיסי
-    class _DB:
-        def get_file(self, user_id, filename):
+    # Facade בסיסי
+    class _Facade:
+        def get_latest_version(self, user_id, filename):
             return {"code": "def a():\n    return 1\n", "file_name": filename}
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     class _Msg:
         async def reply_text(self, *a, **k):

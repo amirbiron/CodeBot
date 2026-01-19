@@ -12,17 +12,13 @@ async def test_refactor_action_edit_alert(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # Stub DB to ensure a proposal is created first
-    class _DB:
-        def get_file(self, user_id, filename):
+    # Stub facade to ensure a proposal is created first
+    class _Facade:
+        def get_latest_version(self, user_id, filename):
             return {"code": "def x():\n    return 1\n\ndef y():\n    return 2\n", "file_name": filename, "programming_language": "python"}
-        def collection(self, name):
-            class _C:
-                def insert_one(self, doc):
-                    return type('R', (), {"inserted_id": "1"})
-            return _C()
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+        def insert_refactor_metadata(self, doc):
+            return True
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     class _Msg:
         async def reply_text(self, *a, **k):

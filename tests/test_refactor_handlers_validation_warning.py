@@ -1,5 +1,4 @@
 import sys
-import types
 import pytest
 
 
@@ -31,23 +30,15 @@ async def test_display_proposal_with_validation_warning(monkeypatch):
             self.message = _Msg()
     class _Ctx: pass
 
-    # Stub DB and build a proposal; נכריח ולידציה להחשב False באמצעות monkeypatch
-    class _DB:
-        def __init__(self):
-            class _C:
-                def insert_one(self, doc):
-                    return types.SimpleNamespace(inserted_id="1")
-            self._c = _C()
-        def get_file(self, user_id, filename):
+    # Stub facade and build a proposal; נכריח ולידציה להחשב False באמצעות monkeypatch
+    class _Facade:
+        def get_latest_version(self, user_id, filename):
             code = (
                 "def user_a():\n    return 1\n\n"
                 "def data_b():\n    return 2\n"
             )
             return {"code": code, "file_name": filename, "programming_language": "python"}
-        def collection(self, name):
-            return self._c
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     # כפה ולידציה False בזמן יצירת ההצעה
     rh_engine = getattr(mod, 'refactoring_engine')

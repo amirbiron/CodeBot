@@ -1,5 +1,4 @@
 import sys
-import types
 import pytest
 
 
@@ -15,15 +14,11 @@ async def test_refactor_split_preview_approve_success(monkeypatch):
         def add_handler(self, *a, **k):
             self.handlers.append((a, k))
 
-    # DB stub: code designed to split by prefix into 2 groups (user_*, data_*)
-    class _DB:
+    # Facade stub: code designed to split by prefix into 2 groups (user_*, data_*)
+    class _Facade:
         def __init__(self):
             self.saved = {}
-            class _Coll:
-                def insert_one(self, doc):
-                    return types.SimpleNamespace(inserted_id="1")
-            self._coll = _Coll()
-        def get_file(self, user_id, filename):
+        def get_latest_version(self, user_id, filename):
             code = (
                 "def user_login(x):\n    return True\n\n"
                 "def user_logout(x):\n    return True\n\n"
@@ -34,10 +29,9 @@ async def test_refactor_split_preview_approve_success(monkeypatch):
         def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags=None):
             self.saved[file_name] = code
             return True
-        def collection(self, name):
-            return self._coll
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+        def insert_refactor_metadata(self, doc):
+            return True
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     # Stubs for telegram
     class _Msg:

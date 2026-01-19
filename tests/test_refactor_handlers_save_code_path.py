@@ -1,5 +1,4 @@
 import sys
-import types
 import pytest
 
 
@@ -13,28 +12,22 @@ async def test_approve_uses_save_code_when_available(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    class _DB:
+    class _Facade:
         def __init__(self):
-            self.save_code_called = False
-            class _C:
-                def insert_one(self, doc):
-                    return types.SimpleNamespace(inserted_id="1")
-            self._c = _C()
-        def get_file(self, user_id, filename):
+            self.save_file_called = False
+        def get_latest_version(self, user_id, filename):
             code = (
                 "def user_a():\n    return 1\n\n"
                 "def data_b():\n    return 2\n"
             )
             return {"code": code, "file_name": filename, "programming_language": "python"}
-        def save_code(self, **kwargs):
-            # path should reach here without exceptions
-            self.save_code_called = True
+        def save_file(self, *a, **k):
+            self.save_file_called = True
             return True
-        def collection(self, name):
-            return self._c
-    db_mod = __import__('database', fromlist=['db'])
-    inst = _DB()
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
+        def insert_refactor_metadata(self, doc):
+            return True
+    inst = _Facade()
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: inst)
 
     class _Msg:
         async def reply_text(self, *a, **k):
@@ -62,5 +55,5 @@ async def test_approve_uses_save_code_when_available(monkeypatch):
     upd.callback_query.data = 'refactor_action:approve'
     await rh.handle_proposal_callback(upd, _Ctx())
 
-    assert inst.save_code_called is True
+    assert inst.save_file_called is True
 
