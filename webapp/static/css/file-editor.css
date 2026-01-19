@@ -469,7 +469,12 @@ form.file-edit-form #editorContainer {
   }
 
   /* Expand editor width: reduce side margins on upload/edit pages (~0.5cm each side) */
-  .glass-card--file-form,
+  /* Split rules: fallback class separate from :has() to avoid invalidation in older browsers */
+  .glass-card--file-form {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
   .glass-card:has(form[data-file-form-config]) {
     padding-left: 0.75rem;
     padding-right: 0.75rem;
@@ -494,8 +499,12 @@ form.file-edit-form #editorContainer {
     padding: 0.5rem;
   }
 
-  /* Even more compact on very small screens */
-  .glass-card--file-form,
+  /* Even more compact on very small screens - separate rules for cross-browser support */
+  .glass-card--file-form {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
   .glass-card:has(form[data-file-form-config]) {
     padding-left: 0.5rem;
     padding-right: 0.5rem;
