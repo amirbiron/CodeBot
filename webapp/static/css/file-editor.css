@@ -510,9 +510,10 @@ form.file-edit-form #editorContainer {
     padding-right: 0.5rem;
   }
 
+  /* Negative margin must be <= parent padding (0.25rem) to avoid overflow */
   form[data-file-form-config] .codemirror-container,
   form[data-file-form-config] #editorContainer {
-    margin-left: -0.35rem;
-    margin-right: -0.35rem;
+    margin-left: -0.2rem;
+    margin-right: -0.2rem;
   }
 }
