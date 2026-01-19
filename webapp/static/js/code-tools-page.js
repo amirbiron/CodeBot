@@ -141,6 +141,13 @@
     return data;
   }
 
+  function syncCopyButtons(mode) {
+    const copyOutputBtn = document.getElementById('btn-copy-output');
+    const copyRunOutputBtn = document.getElementById('btn-copy-run-output');
+    if (copyOutputBtn) copyOutputBtn.hidden = mode === 'output';
+    if (copyRunOutputBtn) copyRunOutputBtn.hidden = mode !== 'output';
+  }
+
   function setViewMode(mode) {
     const viewButtons = Array.from(document.querySelectorAll('.view-btn[data-view]'));
     const views = ['code', 'diff', 'issues', 'output'];
@@ -149,6 +156,7 @@
       if (el) el.classList.toggle('active', v === mode);
     });
     viewButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === mode));
+    syncCopyButtons(mode);
   }
 
   let mergeViewInstance = null;
@@ -260,6 +268,52 @@
       return div.innerHTML;
     }
 
+    function cacheCopyDefaults(btn) {
+      if (!btn) return {};
+      const iconEl = btn.querySelector('.copy-icon');
+      const textEl = btn.querySelector('.copy-text');
+      if (iconEl && !btn.dataset.defaultIcon) btn.dataset.defaultIcon = iconEl.textContent || '📋';
+      if (textEl && !btn.dataset.defaultText) btn.dataset.defaultText = textEl.textContent || 'העתק';
+      return { iconEl, textEl };
+    }
+
+    function markCopySuccess(btn) {
+      if (!btn) return;
+      const { iconEl, textEl } = cacheCopyDefaults(btn);
+      btn.classList.add('copied');
+      if (iconEl) iconEl.textContent = '✓';
+      if (textEl) textEl.textContent = 'הועתק!';
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        if (iconEl) iconEl.textContent = btn.dataset.defaultIcon || '📋';
+        if (textEl) textEl.textContent = btn.dataset.defaultText || 'העתק';
+      }, 2000);
+    }
+
+    async function copyTextWithFeedback(btn, text, emptyMessage, successMessage) {
+      const value = typeof text === 'string' ? text : '';
+      if (!value.trim()) {
+        showStatus(emptyMessage, 'warning');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(value);
+        markCopySuccess(btn);
+        showStatus(successMessage, 'success');
+      } catch (e) {
+        showStatus('לא הצלחנו להעתיק', 'error');
+      }
+    }
+
+    function buildRunOutputCopyText(result) {
+      if (!result) return '';
+      const parts = [];
+      if (typeof result.stdout === 'string' && result.stdout) parts.push(result.stdout);
+      if (typeof result.stderr === 'string' && result.stderr) parts.push(result.stderr);
+      if (result.error && !result.success) parts.push(`❌ ${result.error}`);
+      return parts.join('\n');
+    }
+
     // View toggle
     Array.from(document.querySelectorAll('.view-btn[data-view]')).forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -313,7 +367,10 @@
 
       showStatus('מריץ...', 'loading');
       setViewMode('output');
-      if (runOutput) runOutput.innerHTML = '<div class="console-loading">⏳ מריץ קוד...</div>';
+      if (runOutput) {
+        runOutput.innerHTML = '<div class="console-loading">⏳ מריץ קוד...</div>';
+        runOutput.dataset.copyText = '';
+      }
 
       try {
         const maxTimeout = executionLimits?.limits?.max_timeout_seconds ?? 30;
@@ -340,6 +397,7 @@
           </div>`;
 
           runOutput.innerHTML = html;
+          runOutput.dataset.copyText = buildRunOutputCopyText(result);
         }
 
         if (result.success) {
@@ -349,7 +407,10 @@
         }
       } catch (e) {
         const msg = e && e.message ? e.message : 'שגיאה בהרצה';
-        if (runOutput) runOutput.innerHTML = `<div class="console-error">❌ ${escapeHtml(msg)}</div>`;
+        if (runOutput) {
+          runOutput.innerHTML = `<div class="console-error">❌ ${escapeHtml(msg)}</div>`;
+          runOutput.dataset.copyText = msg ? `❌ ${msg}` : '';
+        }
         showStatus(msg, 'error');
       } finally {
         if (btnRun) {
@@ -476,31 +537,17 @@
     btnLint?.addEventListener('click', runLint);
 
     // Copy output to clipboard
-    const btnCopy = document.getElementById('btn-copy-output');
-    btnCopy?.addEventListener('click', async () => {
+    const btnCopyOutput = document.getElementById('btn-copy-output');
+    const btnCopyRunOutput = document.getElementById('btn-copy-run-output');
+
+    btnCopyOutput?.addEventListener('click', async () => {
       const code = getDoc(outputEditor);
-      if (!code.trim()) {
-        showStatus('אין קוד להעתקה', 'warning');
-        return;
-      }
+      await copyTextWithFeedback(btnCopyOutput, code, 'אין קוד להעתקה', 'הקוד הועתק ללוח');
+    });
 
-      try {
-        await navigator.clipboard.writeText(code);
-        btnCopy.classList.add('copied');
-        const iconEl = btnCopy.querySelector('.copy-icon');
-        const textEl = btnCopy.querySelector('.copy-text');
-        if (iconEl) iconEl.textContent = '✓';
-        if (textEl) textEl.textContent = 'הועתק!';
-        showStatus('הקוד הועתק ללוח', 'success');
-
-        setTimeout(() => {
-          btnCopy.classList.remove('copied');
-          if (iconEl) iconEl.textContent = '📋';
-          if (textEl) textEl.textContent = 'העתק';
-        }, 2000);
-      } catch (e) {
-        showStatus('לא הצלחנו להעתיק', 'error');
-      }
+    btnCopyRunOutput?.addEventListener('click', async () => {
+      const outputText = runOutput?.dataset.copyText || '';
+      await copyTextWithFeedback(btnCopyRunOutput, outputText, 'אין פלט להעתקה', 'הפלט הועתק ללוח');
     });
 
     document.querySelectorAll('.dropdown-item[data-level]').forEach((btn) => {
