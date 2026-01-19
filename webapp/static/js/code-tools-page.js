@@ -145,7 +145,7 @@
     const copyOutputBtn = document.getElementById('btn-copy-output');
     const copyRunOutputBtn = document.getElementById('btn-copy-run-output');
     if (copyOutputBtn) copyOutputBtn.hidden = mode === 'output';
-    if (copyRunOutputBtn) copyRunOutputBtn.hidden = mode !== 'output';
+    if (copyRunOutputBtn) copyRunOutputBtn.classList.toggle('is-active', mode === 'output');
   }
 
   function setViewMode(mode) {
