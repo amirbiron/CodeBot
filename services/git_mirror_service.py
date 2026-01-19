@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,62 @@ class GitMirrorService:
         """
         self.base_path = Path(base_path or os.getenv("REPO_MIRROR_PATH", "/var/data/repos"))
         self._ensure_base_path()
+
+        # הגבלות best-effort כדי להקשיח הרצת subprocess מול קלט משתמש
+        self._allowed_git_subcommands: Set[str] = {
+            "clone",
+            "fetch",
+            "rev-parse",
+            "diff-tree",
+            "show",
+            "ls-tree",
+            "grep",
+            "log",
+            "rev-list",
+        }
+
+    _GITHUB_HTTPS_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+(?:\.git)?/?$", re.IGNORECASE)
+    _GITHUB_SSH_RE = re.compile(r"^git@github\.com:[^/\s]+/[^/\s]+(?:\.git)?$", re.IGNORECASE)
+
+    def _validate_repo_name(self, repo_name: str) -> bool:
+        """ולידציה strict לשם ריפו מקומי (מונע path traversal / שמות מסוכנים)."""
+        if not isinstance(repo_name, str):
+            return False
+        name = repo_name.strip()
+        if not name:
+            return False
+        if "\x00" in name:
+            return False
+        # בלי רווחים/תווי שליטה
+        if any(ch.isspace() for ch in name):
+            return False
+        # בלי מפרידי נתיב
+        if "/" in name or "\\" in name:
+            return False
+        if name in {".", ".."}:
+            return False
+        # מניעת שימוש ב-prefix שנראה כמו flag
+        if name.startswith("-"):
+            return False
+        # allowlist תווים (פשוט וברור)
+        return bool(re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name))
+
+    def _validate_repo_url(self, repo_url: str) -> bool:
+        """ולידציה ל-URL ריפו. כרגע תומך ב-GitHub בלבד (תואם token injection)."""
+        if not isinstance(repo_url, str):
+            return False
+        url = repo_url.strip()
+        if not url:
+            return False
+        if len(url) > 2048:
+            return False
+        if "\x00" in url:
+            return False
+        if any(ch.isspace() for ch in url):
+            return False
+        if url.startswith("-"):
+            return False
+        return bool(self._GITHUB_HTTPS_RE.fullmatch(url) or self._GITHUB_SSH_RE.fullmatch(url))
 
     def _get_authenticated_url(self, url: str) -> str:
         """
@@ -225,6 +282,16 @@ class GitMirrorService:
             stdout/stderr מנוקים מטוקנים רגישים!
         """
         try:
+            # hardening: לא מאפשרים להריץ פקודה שאינה git או תת-פקודה לא צפויה
+            if not isinstance(cmd, list) or not cmd:
+                return GitCommandResult(success=False, stdout="", stderr="Invalid git command", return_code=-2)
+            if cmd[0] != "git":
+                return GitCommandResult(success=False, stdout="", stderr="Refusing to run non-git command", return_code=-2)
+            if len(cmd) < 2 or cmd[1] not in self._allowed_git_subcommands:
+                return GitCommandResult(success=False, stdout="", stderr="Unsupported git subcommand", return_code=-2)
+            if any("\x00" in str(part) for part in cmd):
+                return GitCommandResult(success=False, stdout="", stderr="Invalid NUL in command", return_code=-2)
+
             result = subprocess.run(
                 cmd,
                 cwd=str(cwd) if cwd else None,
@@ -291,6 +358,13 @@ class GitMirrorService:
         Note:
             תומך ב-Private Repos אם GITHUB_TOKEN מוגדר בסביבה.
         """
+        repo_url = str(repo_url or "").strip()
+        repo_name = str(repo_name or "").strip()
+        if not self._validate_repo_name(repo_name):
+            return {"success": False, "path": None, "message": "Invalid repo name"}
+        if not self._validate_repo_url(repo_url):
+            return {"success": False, "path": None, "message": "Invalid repo URL"}
+
         repo_path = self._get_repo_path(repo_name)
 
         # בדיקה אם כבר קיים
@@ -308,13 +382,14 @@ class GitMirrorService:
             self._safe_rmtree(repo_path)
 
         # לוג ללא ה-token!
-        logger.info(f"Creating mirror: {repo_url} -> {repo_path}")
+        logger.info(f"Creating mirror: {self._sanitize_output(repo_url)} -> {repo_path}")
 
         # הזרקת token ל-Private Repos
         auth_url = self._get_authenticated_url(repo_url)
 
         # Clone as bare mirror
-        result = self._run_git_command(["git", "clone", "--mirror", auth_url, str(repo_path)], timeout=timeout)
+        # שימוש ב-"--" כדי למנוע פרשנות של URL/נתיב כ-flag במקרה קצה
+        result = self._run_git_command(["git", "clone", "--mirror", "--", auth_url, str(repo_path)], timeout=timeout)
 
         if result.success:
             logger.info(f"Mirror created successfully: {repo_path}")
@@ -348,6 +423,10 @@ class GitMirrorService:
         Returns:
             dict עם success, message, ופרטי שגיאה אם יש
         """
+        repo_name = str(repo_name or "").strip()
+        if not self._validate_repo_name(repo_name):
+            return {"success": False, "error": "invalid_repo_name", "message": "Invalid repo name"}
+
         repo_path = self._get_repo_path(repo_name)
 
         if not repo_path.exists():
@@ -617,6 +696,13 @@ class GitMirrorService:
         Returns:
             רשימת נתיבי קבצים
         """
+        repo_name = str(repo_name or "").strip()
+        ref = str(ref or "").strip() or "HEAD"
+        if not self._validate_repo_name(repo_name):
+            return None
+        if not self._validate_repo_ref(ref):
+            return None
+
         repo_path = self._get_repo_path(repo_name)
 
         result = self._run_git_command(["git", "ls-tree", "-r", "--name-only", ref], cwd=repo_path, timeout=60)
@@ -690,6 +776,10 @@ class GitMirrorService:
         file_pattern = file_pattern.strip() if isinstance(file_pattern, str) else None
         ref = ref.strip() if isinstance(ref, str) else None
 
+        repo_name = str(repo_name or "").strip()
+        if not self._validate_repo_name(repo_name):
+            return {"error": "invalid_repo_name", "results": []}
+
         repo_path = self._get_repo_path(repo_name)
 
         if not repo_path.exists():
@@ -702,6 +792,8 @@ class GitMirrorService:
             # ברירת מחדל - אם לא הועבר ref, נשתמש ב-HEAD
             # אבל עדיף שהקורא יעביר את ה-ref הנכון מה-DB!
             ref = "HEAD"
+        if not self._validate_repo_ref(ref):
+            return {"error": "invalid_ref", "results": []}
 
         # בניית הפקודה - סדר נכון ל-Bare Repository!
         # git grep [options] <pattern> <revision> -- <pathspec>

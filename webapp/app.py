@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response
+from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
 import threading
 import atexit
 import time as _time
@@ -375,6 +375,13 @@ app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
 app.config['COMPRESS_LEVEL'] = 6
 app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
+
+
+@app.get("/favicon.ico")
+def favicon():
+    """favicon ברירת מחדל (לכל האתר). דפים ספציפיים יכולים להגדיר icon אחר ב-HTML."""
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon", max_age=31536000)
+
 
 # OpenTelemetry (best-effort, fail-open)
 try:
@@ -15405,6 +15412,16 @@ def api_ui_prefs():
         # עדכון קוקיז רק עבור שדות שסופקו
         resp = jsonify(resp_payload)
         try:
+            # CodeQL hardening: לא מאפשרים ערכי Cookie עם תווי שליטה/תווים אסורים
+            if font_scale_cookie_value is not None:
+                # ערך צפוי אחרי format: "0.85".."1.60"
+                if not re.fullmatch(r"[0-9]\.[0-9]{2}", str(font_scale_cookie_value)):
+                    font_scale_cookie_value = None
+            if theme_cookie_value is not None:
+                # ערכים מתוך ALLOWED_UI_THEMES בלבד, אבל נחזק גם כאן כדי ש-CodeQL יזהה ולידציה
+                if not re.fullmatch(r"[a-z0-9-]{1,32}", str(theme_cookie_value)):
+                    theme_cookie_value = None
+
             if font_scale_cookie_value is not None:
                 resp.set_cookie(
                     'ui_font_scale',
