@@ -9663,9 +9663,11 @@ def _build_files_need_attention(
         except Exception:
             pass
     
-    result = {
-        'missing_metadata': [],
-        'stale_files': [],
+    missing_metadata: List[Dict[str, Any]] = []
+    stale_files: List[Dict[str, Any]] = []
+    result: Dict[str, Any] = {
+        'missing_metadata': missing_metadata,
+        'stale_files': stale_files,
         'total_missing': 0,
         'total_stale': 0,
         'shown_missing': 0,
@@ -9734,7 +9736,7 @@ def _build_files_need_attention(
         if not tags:
             reasons.append('חסרות תגיות')
         
-        result['missing_metadata'].append({
+        missing_metadata.append({
             'id': str(doc['_id']),
             'file_name': doc.get('file_name', ''),
             'language': doc.get('programming_language', 'text'),
@@ -9794,7 +9796,7 @@ def _build_files_need_attention(
             except Exception:
                 days_ago = stale_days
         
-        result['stale_files'].append({
+        stale_files.append({
             'id': str(doc['_id']),
             'file_name': doc.get('file_name', ''),
             'language': doc.get('programming_language', 'text'),
