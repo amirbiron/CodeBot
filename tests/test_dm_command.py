@@ -217,7 +217,7 @@ async def test_dm_username_resolution(monkeypatch):
 
     class _Facade:
         def find_user_id_by_username(self, username):
-            if username in {"USERA", "usera"}:
+            if str(username or "").lower() == "usera":
                 return 555
             return None
     monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: _Facade())
