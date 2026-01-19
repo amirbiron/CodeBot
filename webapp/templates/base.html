@@ -119,6 +119,11 @@
 
     <!-- PWA Manifest (cache-busted) -->
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}?v={{ static_version }}">
+    {% block favicons %}
+    <!-- Default favicon for non-repo pages (prevents browser from reusing last-seen icon) -->
+    <link rel="icon" type="image/x-icon" href="{{ url_for('favicon') }}?v={{ static_version }}">
+    <link rel="shortcut icon" href="{{ url_for('favicon') }}?v={{ static_version }}">
+    {% endblock %}
     <!-- iOS Home Screen Icon -->
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/apple-touch-icon-180.png') }}">
 

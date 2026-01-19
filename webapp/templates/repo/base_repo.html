@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 
-{% block extra_head %}
+{% block favicons %}
 <!-- Repo Browser Favicon (only for /repo/*) -->
 <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icons/favicon-32.png') }}?v={{ static_version }}">
 <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='icons/favicon-16.png') }}?v={{ static_version }}">
 <link rel="shortcut icon" href="{{ url_for('static', filename='icons/favicon-32.png') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block extra_head %}
 <!-- CodeMirror 5 (פשוט יותר לשימוש) -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
