@@ -655,6 +655,7 @@
                     <button type="button" class="btn btn-secondary dismiss-option" data-days="7">שבוע</button>
                     <button type="button" class="btn btn-secondary dismiss-option" data-days="30">חודש</button>
                     <button type="button" class="btn btn-secondary dismiss-option" data-days="90">3 חודשים</button>
+                    <button type="button" class="btn btn-secondary dismiss-option" data-days="0" data-forever="true">לתמיד</button>
                 </div>
             </div>
         </div>
@@ -2816,7 +2817,8 @@ document.addEventListener('DOMContentLoaded', () => {
     dismissModal?.querySelectorAll('.dismiss-option[data-days]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const fileId = dismissModal.querySelector('[data-field="dismiss_file_id"]').value;
-            const days = parseInt(btn.dataset.days, 10) || 30;
+            const isForever = btn.dataset.forever === 'true';
+            const days = isForever ? 3650 : Math.max(parseInt(btn.dataset.days, 10) || 30, 1);
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -2825,7 +2827,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const resp = await fetch(`/api/file/${fileId}/dismiss-attention`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ days })
+                    body: JSON.stringify({ days, forever: isForever })
                 });
                 const data = await resp.json();
 
@@ -2836,7 +2838,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 removeAttentionItem(fileId);
                 dismissModal.hidden = true;
                 
-                const daysText = days === 7 ? 'שבוע' : days === 30 ? 'חודש' : `${days} ימים`;
+                const daysText = isForever ? 'לתמיד' : (days === 7 ? 'שבוע' : days === 30 ? 'חודש' : `${days} ימים`);
                 showToast(`נדחה ל-${daysText}`, 'info');
 
             } catch (err) {
@@ -2846,7 +2848,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.disabled = false;
                 // Reset button text based on days
                 const daysMap = { 7: 'שבוע', 30: 'חודש', 90: '3 חודשים' };
-                btn.textContent = daysMap[btn.dataset.days] || `${btn.dataset.days} ימים`;
+                if (btn.dataset.forever === 'true') {
+                    btn.textContent = 'לתמיד';
+                } else {
+                    btn.textContent = daysMap[btn.dataset.days] || `${btn.dataset.days} ימים`;
+                }
             }
         });
     });

@@ -12124,7 +12124,11 @@ def api_file_dismiss_attention(file_id):
             return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
         
         data = request.get_json() or {}
-        days = min(max(int(data.get('days', 30)), 1), 365)  # 1-365 ימים
+        is_forever = bool(data.get('forever'))
+        if is_forever:
+            days = 3650  # 10 שנים - "לתמיד" בפועל
+        else:
+            days = min(max(int(data.get('days', 30)), 1), 365)  # 1-365 ימים
         
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=days)
