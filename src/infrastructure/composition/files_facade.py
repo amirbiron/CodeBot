@@ -163,7 +163,7 @@ class FilesFacade:
                         "large_files": list(combined.get("large_files") or []),
                     }
             except Exception:
-                return {"regular_files": [], "large_files": []}
+                pass
 
         regular = self.get_user_files(user_id, limit=limit_regular)
         large, _ = self.get_user_large_files(user_id, page=1, per_page=limit_large)
