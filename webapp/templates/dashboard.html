@@ -655,6 +655,7 @@
                     <button type="button" class="btn btn-secondary dismiss-option" data-days="7">שבוע</button>
                     <button type="button" class="btn btn-secondary dismiss-option" data-days="30">חודש</button>
                     <button type="button" class="btn btn-secondary dismiss-option" data-days="90">3 חודשים</button>
+                    <button type="button" class="btn btn-secondary dismiss-option" data-days="0" data-forever="true">לתמיד</button>
                 </div>
             </div>
         </div>
@@ -1908,6 +1909,7 @@
     gap: 0.75rem;
     flex: 1;
     min-width: 0;
+    width: 100%;
 }
 
 .attention-item__icon {
@@ -1920,6 +1922,7 @@
     flex-direction: column;
     gap: 0.2rem;
     min-width: 0;
+    width: 100%;
 }
 
 .attention-item__name {
@@ -1929,6 +1932,8 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: block;
+    max-width: 100%;
 }
 
 .attention-item__name:hover {
@@ -2816,16 +2821,18 @@ document.addEventListener('DOMContentLoaded', () => {
     dismissModal?.querySelectorAll('.dismiss-option[data-days]').forEach(btn => {
         btn.addEventListener('click', async () => {
             const fileId = dismissModal.querySelector('[data-field="dismiss_file_id"]').value;
-            const days = parseInt(btn.dataset.days, 10) || 30;
+            const isForever = btn.dataset.forever === 'true';
+            const days = isForever ? 0 : Math.max(parseInt(btn.dataset.days, 10) || 30, 1);
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
+                const payload = isForever ? { forever: true } : { days };
                 const resp = await fetch(`/api/file/${fileId}/dismiss-attention`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ days })
+                    body: JSON.stringify(payload)
                 });
                 const data = await resp.json();
 
@@ -2836,7 +2843,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 removeAttentionItem(fileId);
                 dismissModal.hidden = true;
                 
-                const daysText = days === 7 ? 'שבוע' : days === 30 ? 'חודש' : `${days} ימים`;
+                const daysText = isForever ? 'לתמיד' : (days === 7 ? 'שבוע' : days === 30 ? 'חודש' : `${days} ימים`);
                 showToast(`נדחה ל-${daysText}`, 'info');
 
             } catch (err) {
@@ -2846,10 +2853,51 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.disabled = false;
                 // Reset button text based on days
                 const daysMap = { 7: 'שבוע', 30: 'חודש', 90: '3 חודשים' };
-                btn.textContent = daysMap[btn.dataset.days] || `${btn.dataset.days} ימים`;
+                if (btn.dataset.forever === 'true') {
+                    btn.textContent = 'לתמיד';
+                } else {
+                    btn.textContent = daysMap[btn.dataset.days] || `${btn.dataset.days} ימים`;
+                }
             }
         });
     });
+
+    /**
+     * כיווץ שם קובץ כך שייכנס בשורה אחת,
+     * ורק אם מגיע לגודל מינימלי ועדיין אין מקום - נשאיר ... (ellipsis).
+     */
+    function fitAttentionNames() {
+        const nameEls = widget.querySelectorAll('.attention-item__name');
+        nameEls.forEach((el) => {
+            if (!el || el.clientWidth === 0) return;
+            const computed = window.getComputedStyle(el);
+            const baseSize = parseFloat(el.dataset.baseFontSize || computed.fontSize || '16');
+            if (!el.dataset.baseFontSize) {
+                el.dataset.baseFontSize = String(baseSize);
+            }
+            const minSize = 12; // מינימום קריא
+            let size = baseSize;
+            el.style.fontSize = `${size}px`;
+            // אם כבר נכנס, אין צורך לכווץ
+            if (el.scrollWidth <= el.clientWidth) return;
+            // כיווץ הדרגתי עד שמתאים או עד מינימום
+            while (size > minSize && el.scrollWidth > el.clientWidth) {
+                size -= 0.5;
+                el.style.fontSize = `${size}px`;
+            }
+        });
+    }
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        if (resizeTimer) window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+            fitAttentionNames();
+        }, 150);
+    });
+
+    // ריצה ראשונית
+    fitAttentionNames();
 
     /**
      * הסרת פריט מהרשימה (ויזואלית בלבד).
@@ -2897,6 +2945,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (allItems.length === 0) {
             widget.style.display = 'none';
         }
+
+        fitAttentionNames();
     }
 
     function showToast(message, type = 'info') {

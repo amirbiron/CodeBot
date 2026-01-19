@@ -9852,11 +9852,14 @@ def _get_active_dismissals(db, user_id: int) -> List[str]:
     now = datetime.now(timezone.utc)
     
     try:
-        # שליפת כל הדחיות שעדיין בתוקף
+        # שליפת כל הדחיות שעדיין בתוקף (כולל דחיות "לתמיד")
         dismissals = db.attention_dismissals.find(
             {
                 'user_id': user_id,
-                'expires_at': {'$gt': now}
+                '$or': [
+                    {'forever': True},
+                    {'expires_at': {'$gt': now}}
+                ]
             },
             {'file_id': 1}
         )
@@ -12124,29 +12127,46 @@ def api_file_dismiss_attention(file_id):
             return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
         
         data = request.get_json() or {}
-        days = min(max(int(data.get('days', 30)), 1), 365)  # 1-365 ימים
-        
+        is_forever = bool(data.get('forever'))
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=days)
+        
+        if is_forever:
+            update = {
+                '$set': {
+                    'dismissed_at': now,
+                    'forever': True
+                },
+                '$unset': {
+                    'expires_at': '',
+                    'days': ''
+                }
+            }
+        else:
+            days = min(max(int(data.get('days', 30)), 1), 365)  # 1-365 ימים
+            expires_at = now + timedelta(days=days)
+            update = {
+                '$set': {
+                    'dismissed_at': now,
+                    'expires_at': expires_at,
+                    'days': days,
+                    'forever': False
+                }
+            }
         
         # שמירה ב-collection ייעודי
         db.attention_dismissals.update_one(
             {'user_id': user_id, 'file_id': oid},
-            {
-                '$set': {
-                    'dismissed_at': now,
-                    'expires_at': expires_at,
-                    'days': days
-                }
-            },
+            update,
             upsert=True
         )
         
-        return jsonify({
-            'ok': True,
-            'dismissed_until': expires_at.isoformat(),
-            'days': days
-        })
+        payload = {'ok': True, 'forever': is_forever}
+        if not is_forever:
+            payload.update({
+                'dismissed_until': expires_at.isoformat(),
+                'days': days
+            })
+        return jsonify(payload)
         
     except Exception as e:
         logger.exception(f"Error in dismiss attention: {e}")
