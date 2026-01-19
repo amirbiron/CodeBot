@@ -2,9 +2,10 @@
 
 {% block favicons %}
 <!-- Repo Browser Favicon (only for /repo/*) -->
+<link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='icons/repo-favicon.ico') }}?v={{ static_version }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icons/favicon-32.png') }}?v={{ static_version }}">
 <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='icons/favicon-16.png') }}?v={{ static_version }}">
-<link rel="shortcut icon" href="{{ url_for('static', filename='icons/favicon-32.png') }}?v={{ static_version }}">
+<link rel="shortcut icon" href="{{ url_for('static', filename='icons/repo-favicon.ico') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_head %}
