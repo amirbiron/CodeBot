@@ -9685,12 +9685,44 @@ def _build_files_need_attention(
         'is_active': True
     }
     
-    if dismissed_oids:
-        base_query['_id'] = {'$nin': dismissed_oids}
-    
     # === Projection קל (בלי code/content) ===
     # משתמשים בהחרגת שדות כבדים בלבד כדי להימנע מערבוב inclusion/exclusion
     projection = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
+
+    def _latest_files_pipeline(match_extra: Optional[Dict[str, Any]], sort_after: Dict[str, int]) -> List[Dict[str, Any]]:
+        pipeline: List[Dict[str, Any]] = [
+            {'$match': base_query},
+            {'$sort': {'file_name': 1, 'version': -1}},
+            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+        ]
+        if dismissed_oids:
+            pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
+        if match_extra:
+            pipeline.append({'$match': match_extra})
+        pipeline.append({'$sort': sort_after})
+        pipeline.append({'$project': projection})
+        return pipeline
+
+    def _count_latest(match_extra: Optional[Dict[str, Any]]) -> int:
+        pipeline: List[Dict[str, Any]] = [
+            {'$match': base_query},
+            {'$sort': {'file_name': 1, 'version': -1}},
+            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+        ]
+        if dismissed_oids:
+            pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
+        if match_extra:
+            pipeline.append({'$match': match_extra})
+        pipeline.append({'$count': 'count'})
+        try:
+            docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+            if docs and isinstance(docs[0], dict):
+                return int(docs[0].get('count') or 0)
+        except Exception:
+            return 0
+        return 0
     
     # =====================================================
     # קבוצה 1: קבצים חסרי תיאור או תגיות
@@ -9708,14 +9740,15 @@ def _build_files_need_attention(
         {'tags': []},
     ]
     
-    # ספירה כוללת
-    result['total_missing'] = db.code_snippets.count_documents(missing_query)
+    # ספירה כוללת (רק הגרסה האחרונה לכל קובץ)
+    result['total_missing'] = _count_latest(missing_query)
     
-    # שליפה מוגבלת
-    missing_docs = list(db.code_snippets.find(
-        missing_query,
-        projection
-    ).sort('updated_at', -1).limit(max_items))
+    # שליפה מוגבלת (רק הגרסה האחרונה לכל קובץ)
+    missing_pipeline = _latest_files_pipeline(missing_query, {'updated_at': -1})
+    missing_docs = list(db.code_snippets.aggregate(
+        missing_pipeline + [{'$limit': max_items}],
+        allowDiskUse=True
+    ))
     
     result['shown_missing'] = len(missing_docs)
     
@@ -9768,14 +9801,15 @@ def _build_files_need_attention(
         {'tags.0': {'$exists': True}}
     ]
     
-    # ספירה כוללת
-    result['total_stale'] = db.code_snippets.count_documents(stale_query)
+    # ספירה כוללת (רק הגרסה האחרונה לכל קובץ)
+    result['total_stale'] = _count_latest(stale_query)
     
-    # שליפה מוגבלת - הישנים קודם
-    stale_docs = list(db.code_snippets.find(
-        stale_query,
-        projection
-    ).sort('updated_at', 1).limit(max_items))
+    # שליפה מוגבלת - הישנים קודם (רק הגרסה האחרונה לכל קובץ)
+    stale_pipeline = _latest_files_pipeline(stale_query, {'updated_at': 1})
+    stale_docs = list(db.code_snippets.aggregate(
+        stale_pipeline + [{'$limit': max_items}],
+        allowDiskUse=True
+    ))
     
     result['shown_stale'] = len(stale_docs)
     
