@@ -4075,7 +4075,14 @@ def _run_profiler(awaitable):
         return await awaitable
 
     def _run_in_new_loop():
-        return asyncio.run(_runner())
+        try:
+            # ניסיון לקבל את הלופ הקיים ב-thread הזה
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # אם אין לופ, יוצרים אחד חדש ומגדירים אותו כנוכחי
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(_runner())
 
     # תחת gevent (או בכל thread שיש בו event loop פעיל), אסור לקרוא asyncio.run/AsyncToSync.
     # הפתרון היציב: לברוח ל-OS thread "נקי" ולהריץ שם event loop חדש.
@@ -4089,7 +4096,11 @@ def _run_profiler(awaitable):
         except RuntimeError as e:
             # Fall back בטוח: אם asyncio עדיין חושב שיש loop פעיל (נראה לעתים עם gevent),
             # נריץ ב-threadpool.
-            if "asyncio.run() cannot be called from a running event loop" in str(e):
+            err = str(e).lower()
+            if (
+                "asyncio.run() cannot be called from a running event loop" in err
+                or "event loop is already running" in err
+            ):
                 return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
             raise
 
@@ -4412,7 +4423,14 @@ def _run_db_health(awaitable):
         return await awaitable
 
     def _run_in_new_loop():
-        return asyncio.run(_runner())
+        try:
+            # ניסיון לקבל את הלופ הקיים ב-thread הזה
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # אם אין לופ, יוצרים אחד חדש ומגדירים אותו כנוכחי
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(_runner())
 
     # אותו עיקרון כמו ב-Query Profiler: תחת gevent אי אפשר להריץ event loop באותו thread.
     try:
@@ -4422,7 +4440,11 @@ def _run_db_health(awaitable):
         try:
             return _run_in_new_loop()
         except RuntimeError as e:
-            if "asyncio.run() cannot be called from a running event loop" in str(e):
+            err = str(e).lower()
+            if (
+                "asyncio.run() cannot be called from a running event loop" in err
+                or "event loop is already running" in err
+            ):
                 return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
             raise
 
