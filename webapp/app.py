@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response
+from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
 import threading
 import atexit
 import time as _time
@@ -375,6 +375,13 @@ app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
 app.config['COMPRESS_LEVEL'] = 6
 app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
+
+
+@app.get("/favicon.ico")
+def favicon():
+    """favicon ברירת מחדל (לכל האתר). דפים ספציפיים יכולים להגדיר icon אחר ב-HTML."""
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon", max_age=31536000)
+
 
 # OpenTelemetry (best-effort, fail-open)
 try:
