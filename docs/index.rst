@@ -151,6 +151,7 @@ Code Keeper Bot - תיעוד API
    observability/observability_dashboard
    observability/query-performance-profiler
    observability/quick_fix_rules
+   observability/asyncio-loop-safety
    visual-rule-engine
    observability/coverage_report
    api/ai_explain
