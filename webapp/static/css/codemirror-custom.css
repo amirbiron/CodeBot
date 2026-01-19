@@ -67,6 +67,18 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
   .editor-info-primary { margin-left: 0; width: 100%; justify-content: center; text-align: center; }
 }
 
+/* Upload/Edit pages: Larger code editor on mobile */
+@media (max-width: 767px) {
+  /* Increase editor height for upload/edit forms (+~3cm / ~113px) */
+  /* Use max() to ensure max-height >= min-height on short viewports (landscape) */
+  form[data-file-form-config] .cm-editor,
+  form[data-file-form-config] textarea[name="code"],
+  form[data-file-form-config] textarea.code-field {
+    min-height: max(320px, 55vh);
+    max-height: max(320px, 65vh);
+  }
+}
+
 /* Hide keyboard shortcuts hint on small mobile devices only */
 @media (max-width: 767px) {
   .editor-info-primary.is-keyboard-hint { display: none; }

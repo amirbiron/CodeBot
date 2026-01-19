@@ -467,6 +467,25 @@ form.file-edit-form #editorContainer {
   .split-preview-content {
     padding: 0.75rem;
   }
+
+  /* Expand editor width: reduce side margins on upload/edit pages (~0.5cm each side) */
+  /* Split rules: fallback class separate from :has() to avoid invalidation in older browsers */
+  .glass-card--file-form {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .glass-card:has(form[data-file-form-config]) {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  /* CodeMirror container: full width with minimal margins */
+  form[data-file-form-config] .codemirror-container,
+  form[data-file-form-config] #editorContainer {
+    margin-left: -0.25rem;
+    margin-right: -0.25rem;
+  }
 }
 
 /* Very small screens */
@@ -478,5 +497,23 @@ form.file-edit-form #editorContainer {
 
   .split-preview-content {
     padding: 0.5rem;
+  }
+
+  /* Even more compact on very small screens - separate rules for cross-browser support */
+  .glass-card--file-form {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .glass-card:has(form[data-file-form-config]) {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  /* Negative margin must be <= parent padding (0.25rem) to avoid overflow */
+  form[data-file-form-config] .codemirror-container,
+  form[data-file-form-config] #editorContainer {
+    margin-left: -0.2rem;
+    margin-right: -0.2rem;
   }
 }
