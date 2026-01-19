@@ -1,16 +1,17 @@
-import pytest
-
-
-def test_refactor_should_retry_does_not_retry_on_empty_tuple_result():
+def test_refactor_call_files_api_returns_none_without_facade(monkeypatch):
     import refactor_handlers as rh
 
-    assert rh._should_retry_with_legacy("get_user_large_files", ([], 0)) is False
-    assert rh._should_retry_with_legacy("get_regular_files_paginated", ([], 0)) is False
-    assert rh._should_retry_with_legacy("some_other_tuple", ([], 0)) is False
+    monkeypatch.setattr(rh, "_get_files_facade_or_none", lambda: None)
+    assert rh._call_files_api("get_latest_version", 1, "x") is None
 
 
-def test_refactor_should_retry_retries_on_tuple_all_none():
+def test_refactor_call_files_api_returns_facade_value(monkeypatch):
     import refactor_handlers as rh
 
-    assert rh._should_retry_with_legacy("x", (None, None)) is True
+    class _Facade:
+        def get_regular_files_paginated(self, user_id, page=1, per_page=10):
+            return ([], 0)
+
+    monkeypatch.setattr(rh, "_get_files_facade_or_none", lambda: _Facade())
+    assert rh._call_files_api("get_regular_files_paginated", 1, page=1, per_page=10) == ([], 0)
 

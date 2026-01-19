@@ -47,10 +47,6 @@ logger = logging.getLogger(__name__)
 # reporter יוגדר ב-main בזמן ריצה דרך set_activity_reporter
 
 # ---- DB access via composition facade --------------------------------------
-# Backwards-compatibility: tests may monkeypatch `refactor_handlers.db`
-db = None  # type: ignore
-
-
 def _get_files_facade_or_none():
     """Best-effort access to FilesFacade without importing `database` in handlers."""
     try:
@@ -60,83 +56,19 @@ def _get_files_facade_or_none():
         return None
 
 
-def _get_legacy_db():
-    """
-    Best-effort access to legacy DB object **without importing** the `database` package.
-
-    Tests can inject a stub via `refactor_handlers.db`.
-    """
-    try:
-        patched = globals().get("db")
-        if patched is not None:
-            return patched
-    except Exception:
-        pass
-    return None
-
-
-_FACADE_SENTINEL = object()
-
-
-def _should_retry_with_legacy(method_name: str, value) -> bool:
-    if value is _FACADE_SENTINEL:
-        return True
-    if value is None:
-        return True
-    if value is False:
-        return True
-    if isinstance(value, (list, dict)) and not value:
-        return True
-    if isinstance(value, tuple):
-        # חשוב: תוצאות כמו ([], 0) הן תוצאה תקינה (אין נתונים), ולא כשל שצריך retry.
-        # Retry רק אם זה tuple ריק או שכל הערכים בו הם None.
-        if len(value) == 0:
-            return True
-        if all(v is None for v in value):
-            return True
-    return False
-
-
 def _call_files_api(method_name: str, *args, **kwargs):
     """
-    Invoke FilesFacade method by name, with legacy fallback (best-effort).
+    Invoke FilesFacade method by name (no legacy DB fallback).
     """
-    legacy = _get_legacy_db()
-    if legacy is not None:
-        method = getattr(legacy, method_name, None)
-        if callable(method):
-            try:
-                out = method(*args, **kwargs)
-                if out is not None:
-                    return out
-            except Exception:
-                pass
-
-    facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
     if facade is not None:
         method = getattr(facade, method_name, None)
         if callable(method):
             try:
-                facade_result = method(*args, **kwargs)
+                return method(*args, **kwargs)
             except Exception:
-                facade_result = _FACADE_SENTINEL
-
-    if _should_retry_with_legacy(method_name, facade_result):
-        legacy = _get_legacy_db()
-        if legacy is not None:
-            method = getattr(legacy, method_name, None)
-            if callable(method):
-                try:
-                    out = method(*args, **kwargs)
-                    if out is not None:
-                        return out
-                except Exception:
-                    pass
-
-    if facade_result is _FACADE_SENTINEL:
-        return None
-    return facade_result
+                return None
+    return None
 
 
 class RefactorHandlers:
