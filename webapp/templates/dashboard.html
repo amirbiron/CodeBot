@@ -489,8 +489,8 @@
                                     data-action="quick-edit"
                                     data-file-id="{{ file.id }}"
                                     data-file-name="{{ file.file_name | e }}"
-                                    data-current-desc={{ file.description | tojson }}
-                                    data-current-tags={{ (file.tags_full | join(',')) | tojson }}
+                                    data-current-desc="{{ file.description | tojson | forceescape }}"
+                                    data-current-tags="{{ (file.tags_full | join(',')) | tojson | forceescape }}"
                                     title="עריכה מהירה">
                                 <i class="fas fa-edit"></i>
                             </button>
