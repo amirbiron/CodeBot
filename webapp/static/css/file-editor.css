@@ -480,8 +480,8 @@ form.file-edit-form #editorContainer {
     padding-right: 0.75rem;
   }
 
-  /* CodeMirror container: full width with minimal margins */
-  form[data-file-form-config] .codemirror-container,
+  /* Editor container: expand width with negative margins */
+  /* Only apply to #editorContainer (outer), not .codemirror-container (nested inside) */
   form[data-file-form-config] #editorContainer {
     margin-left: -0.25rem;
     margin-right: -0.25rem;
@@ -511,7 +511,7 @@ form.file-edit-form #editorContainer {
   }
 
   /* Negative margin must be <= parent padding (0.25rem) to avoid overflow */
-  form[data-file-form-config] .codemirror-container,
+  /* Only apply to #editorContainer to prevent compounding with nested .codemirror-container */
   form[data-file-form-config] #editorContainer {
     margin-left: -0.2rem;
     margin-right: -0.2rem;
