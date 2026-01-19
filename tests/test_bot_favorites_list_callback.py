@@ -38,13 +38,11 @@ class _Ctx:
 @pytest.fixture
 def bot(monkeypatch):
     import bot_handlers as bh
-    class _DB:
+    class _Facade:
         def get_favorites(self, uid, limit=50):
             return [{'file_name': 'rep.py', 'programming_language': 'python'}]
-    db_mod = __import__('database', fromlist=['db'])
-    inst = _DB()
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
-    monkeypatch.setattr(bh, 'db', inst, raising=True)
+    inst = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: inst)
     return bh.AdvancedBotHandlers(_App())
 
 @pytest.mark.asyncio

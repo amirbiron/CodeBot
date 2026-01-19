@@ -9,22 +9,22 @@ from handlers import documents as documents_mod
 
 
 @pytest.fixture
-def dummy_db(monkeypatch):
-    class _DB:
+def dummy_facade():
+    class _Facade:
         def __init__(self):
             self.saved_snippets = []
             self.saved_large_files = []
             self.saved_selected_repo = None
 
-        def save_code_snippet(self, snippet):
-            self.saved_snippets.append(snippet)
+        def save_code_snippet(self, **kwargs):
+            self.saved_snippets.append(dict(kwargs))
             return True
 
         def get_latest_version(self, user_id, file_name):
             return {"_id": "snippet-id"}
 
-        def save_large_file(self, large_file):
-            self.saved_large_files.append(large_file)
+        def save_large_file(self, **kwargs):
+            self.saved_large_files.append(dict(kwargs))
             return True
 
         def get_large_file(self, user_id, file_name):
@@ -32,10 +32,9 @@ def dummy_db(monkeypatch):
 
         def save_selected_repo(self, user_id, repo_full):
             self.saved_selected_repo = (user_id, repo_full)
+            return True
 
-    db = _DB()
-    monkeypatch.setattr(documents_mod, "db", db, raising=False)
-    return db
+    return _Facade()
 
 
 @pytest.fixture
@@ -61,7 +60,7 @@ def dummy_backup(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def handler_env(dummy_db, dummy_backup):
+def handler_env(dummy_facade, dummy_backup):
     notifications = []
     events = []
     error_increments = []
@@ -92,12 +91,15 @@ def handler_env(dummy_db, dummy_backup):
         errors_total=_Errors(),
     )
 
+    handler._files_facade = dummy_facade
+    handler._files_facade_initialized = True
+
     return {
         "handler": handler,
         "notifications": notifications,
         "events": events,
         "errors": error_increments,
-        "db": dummy_db,
+        "facade": dummy_facade,
         "backup": dummy_backup,
     }
 
@@ -162,7 +164,7 @@ async def test_handle_document_saves_small_snippet(handler_env):
 
     await handler_env["handler"].handle_document(update, context)
 
-    assert handler_env["db"].saved_snippets, "קובץ טקסט קטן צריך להישמר כ-CodeSnippet"
+    assert handler_env["facade"].saved_snippets, "קובץ טקסט קטן צריך להישמר כ-CodeSnippet"
     assert any(evt[0] == "file_saved" for evt in handler_env["events"])
     assert replies.messages, "צפויה הודעת הצלחה למשתמש"
 
@@ -181,7 +183,7 @@ async def test_handle_document_saves_large_file(handler_env):
 
     await handler_env["handler"].handle_document(update, context)
 
-    assert handler_env["db"].saved_large_files, "קובץ ארוך צריך להישמר כ-LargeFile"
+    assert handler_env["facade"].saved_large_files, "קובץ ארוך צריך להישמר כ-LargeFile"
     assert replies.messages and replies.messages[-1][0], "צפויה הודעת הצלחה לקובץ גדול"
 
 
@@ -208,7 +210,7 @@ async def test_handle_document_records_activity_with_reporter(handler_env):
     await handler_env["handler"].handle_document(update, context)
 
     assert reports == [1]
-    assert handler_env["db"].saved_large_files, "עדיין צריך לשמור כקובץ גדול"
+    assert handler_env["facade"].saved_large_files, "עדיין צריך לשמור כקובץ גדול"
 
 
 @pytest.mark.asyncio
@@ -509,7 +511,7 @@ async def test_handle_document_github_create_repo_empty_repo(monkeypatch, handle
 
     assert created_files, "צפויה יצירת קובץ באמצעות Contents API לריפו ריק"
     assert created_files[0][0] == "file.txt"
-    assert handler_env["db"].saved_selected_repo == (1, repo_instance.full_name)
+    assert handler_env["facade"].saved_selected_repo == (1, repo_instance.full_name)
     assert any("✅" in msg for msg, _ in replies.messages), "צפויה הודעת הצלחה על יצירת הריפו"
     assert context.user_data.get("upload_mode") is None
 
@@ -634,7 +636,7 @@ async def test_handle_document_github_create_repo_with_base_commit(monkeypatch, 
     assert repo_instance.edited_sha == "new-sha"
     assert repo_instance.last_tree is not None and repo_instance.last_tree[1] == "base-tree"
     assert len(repo_instance.last_tree[0]) == 2
-    assert handler_env["db"].saved_selected_repo == (1, repo_instance.full_name)
+    assert handler_env["facade"].saved_selected_repo == (1, repo_instance.full_name)
     assert any("✅" in msg for msg, _ in replies.messages)
     assert context.user_data.get("upload_mode") is None
 

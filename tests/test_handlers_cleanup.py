@@ -11,10 +11,11 @@ async def test_image_command_calls_cleanup(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB returns code
-    def _get_latest_version(uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    # Facade returns code
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     captured = {}
 
@@ -57,9 +58,10 @@ async def test_preview_command_calls_cleanup(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    def _get_latest_version(uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     captured = {}
     class _FakeGen:
@@ -100,13 +102,12 @@ async def test_image_all_cleanup_called_once(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    def _get_user_files(uid, limit=20):
-        return [{'file_name': 'a.py'}, {'file_name': 'b.py'}]
-    def _get_latest_version(uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-    # Patch db APIs on module
-    db_ns = SimpleNamespace(get_user_files=_get_user_files, get_latest_version=_get_latest_version)
-    monkeypatch.setattr(mod, 'db', db_ns, raising=True)
+    class _Facade:
+        def get_user_files(self, uid, limit=20, projection=None):
+            return [{'file_name': 'a.py'}, {'file_name': 'b.py'}]
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     calls = {'cleanup': 0}
     class _FakeGen:
@@ -154,18 +155,12 @@ async def test_image_all_status_edit_succeeds(monkeypatch):
 
     files = [{'file_name': f'f{i}.py'} for i in range(5)]
 
-    def _get_user_files(_uid, limit=20):
-        return files
-
-    def _get_latest_version(_uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-
-    monkeypatch.setattr(
-        mod,
-        'db',
-        SimpleNamespace(get_user_files=_get_user_files, get_latest_version=_get_latest_version),
-        raising=True,
-    )
+    class _Facade:
+        def get_user_files(self, _uid, limit=20, projection=None):
+            return files
+        def get_latest_version(self, _uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     tracker = {'cleanup': 0}
 
@@ -240,18 +235,12 @@ async def test_image_all_status_fallback_to_reply_text(monkeypatch):
 
     files = [{'file_name': 'a.py'}, {'file_name': 'b.py'}]
 
-    def _get_user_files(_uid, limit=20):
-        return files
-
-    def _get_latest_version(_uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-
-    monkeypatch.setattr(
-        mod,
-        'db',
-        SimpleNamespace(get_user_files=_get_user_files, get_latest_version=_get_latest_version),
-        raising=True,
-    )
+    class _Facade:
+        def get_user_files(self, _uid, limit=20, projection=None):
+            return files
+        def get_latest_version(self, _uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     tracker = {'cleanup': 0}
 

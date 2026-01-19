@@ -11,12 +11,11 @@ async def test_image_command_keyboard_labels(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB returns code
-    def _get_latest_version(uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    # Facade returns code
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     # Stub image generator to avoid heavy work
     class _FakeGen:

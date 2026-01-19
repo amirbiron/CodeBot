@@ -1,5 +1,4 @@
 import sys
-import types
 import pytest
 
 
@@ -13,12 +12,11 @@ async def test_handlers_engine_failure_message(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB returns minimal code but we'll force engine to error by choosing feature not implemented
-    class _DB:
-        def get_file(self, user_id, filename):
+    # Facade returns minimal code but we'll force engine to error by choosing feature not implemented
+    class _Facade:
+        def get_latest_version(self, user_id, filename):
             return {"code": "def a():\n    return 1\n", "file_name": filename}
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     class _Msg:
         async def reply_text(self, *a, **k):

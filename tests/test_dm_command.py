@@ -171,17 +171,12 @@ async def test_dm_forbidden_marks_blocked(monkeypatch):
     async def send_message(chat_id, text, **kwargs):
         raise bh.telegram.error.Forbidden("blocked")
 
-    updated = {}
-    class _Users:
-        def update_one(self, query, update):
-            updated["query"] = query
-            updated["update"] = update
-            return types.SimpleNamespace(modified_count=1)
-
-    class _DB:
-        users = _Users()
-
-    monkeypatch.setattr(bh, "db", types.SimpleNamespace(db=_DB()))
+    marked = {}
+    class _Facade:
+        def mark_user_blocked(self, user_id):
+            marked["user_id"] = user_id
+            return True
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: _Facade())
 
     class Msg:
         def __init__(self):
@@ -206,8 +201,7 @@ async def test_dm_forbidden_marks_blocked(monkeypatch):
     c = Ctx()
     await adv.dm_command(u, c)
 
-    assert updated.get("query", {}).get("user_id") == 7
-    assert updated.get("update", {}).get("$set", {}).get("blocked") is True
+    assert marked.get("user_id") == 7
     assert any("סומן כ-blocked" in s for s in u.message.calls)
 
 
@@ -221,14 +215,12 @@ async def test_dm_username_resolution(monkeypatch):
     async def send_message(chat_id, text, **kwargs):
         captured["chat_id"] = chat_id
 
-    class _Users:
-        def find_one(self, query):
-            # Support both exact/lowercase attempts
-            if query.get("username") in {"USERA", "usera"}:
-                return {"user_id": 555}
+    class _Facade:
+        def find_user_id_by_username(self, username):
+            if str(username or "").lower() == "usera":
+                return 555
             return None
-
-    monkeypatch.setattr(bh, "db", types.SimpleNamespace(db=types.SimpleNamespace(users=_Users())))
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: _Facade())
 
     class Msg:
         def __init__(self):

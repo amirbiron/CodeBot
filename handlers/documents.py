@@ -7,14 +7,11 @@ import json
 import logging
 import os
 import re
-import sys
 import tempfile
 import time
 import zipfile
-from dataclasses import dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from io import BytesIO
-from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Iterable, List, Optional, Protocol, Sequence
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -28,30 +25,6 @@ from html import escape as html_escape
 
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class _LegacyCodeSnippet:
-    """דאטה-קלאס מינימלי לתאימות עם legacy Repository.save_code_snippet (asdict)."""
-
-    user_id: int
-    file_name: str
-    code: str
-    programming_language: str
-    description: str = ""
-    tags: list[str] = field(default_factory=list)
-
-
-@dataclass
-class _LegacyLargeFile:
-    """דאטה-קלאס מינימלי לתאימות עם legacy Repository.save_large_file (asdict)."""
-
-    user_id: int
-    file_name: str
-    content: str
-    programming_language: str
-    file_size: int
-    lines_count: int
-
 
 class _ReporterProto(Protocol):
     """Protocol for activity reporter."""
@@ -100,9 +73,6 @@ class DocumentHandler:
         self._errors_total = errors_total
         self._files_facade: Optional[Any] = None
         self._files_facade_initialized = False
-        self._legacy_db: Optional[Any] = globals().get("db")
-        self._legacy_db_checked = self._legacy_db is not None
-        self._prefer_legacy_first: Optional[bool] = None
 
     @staticmethod
     def _normalize_encodings(values: Sequence[str] | Iterable[str]) -> tuple[str, ...]:
@@ -149,29 +119,6 @@ class DocumentHandler:
             self._files_facade = None
         return self._files_facade
 
-    def _resolve_legacy_db(self) -> Optional[Any]:
-        if self._legacy_db_checked:
-            return self._legacy_db
-        self._legacy_db_checked = True
-        if self._legacy_db is not None:
-            return self._legacy_db
-        # Legacy DB is injected at runtime/tests via `handlers.documents.db`.
-        # We intentionally avoid importing the legacy `database` package from handlers.
-        legacy = globals().get("db")
-        self._legacy_db = legacy
-        return legacy
-
-    def _legacy_backend_first(self) -> bool:
-        if self._prefer_legacy_first is not None:
-            return self._prefer_legacy_first
-        # Heuristic:
-        # - If a legacy DB object was injected into this module (common in tests),
-        #   prefer it first to avoid touching a real facade/DB.
-        # - Otherwise, prefer facade-first and use legacy only as fallback.
-        legacy_db = self._resolve_legacy_db()
-        self._prefer_legacy_first = legacy_db is not None
-        return self._prefer_legacy_first
-
     def _save_code_snippet(
         self,
         *,
@@ -182,29 +129,7 @@ class DocumentHandler:
         description: str = "",
         tags: Optional[List[str]] = None,
     ) -> bool:
-        legacy_db = self._resolve_legacy_db()
-        prefer_legacy = self._legacy_backend_first()
-        if prefer_legacy and self._save_code_snippet_via_legacy(
-            legacy_db,
-            user_id=user_id,
-            file_name=file_name,
-            language=language,
-            content=content,
-            description=description,
-            tags=tags,
-        ):
-            return True
         if self._save_code_snippet_via_facade(
-            user_id=user_id,
-            file_name=file_name,
-            language=language,
-            content=content,
-            description=description,
-            tags=tags,
-        ):
-            return True
-        if not prefer_legacy and self._save_code_snippet_via_legacy(
-            legacy_db,
             user_id=user_id,
             file_name=file_name,
             language=language,
@@ -243,36 +168,6 @@ class DocumentHandler:
             logger.warning("FilesFacade save_code_snippet failed: %s", exc)
             return False
 
-    def _save_code_snippet_via_legacy(
-        self,
-        legacy_db: Optional[Any],
-        *,
-        user_id: int,
-        file_name: str,
-        language: str,
-        content: str,
-        description: str = "",
-        tags: Optional[List[str]] = None,
-    ) -> bool:
-        db_obj = legacy_db or self._resolve_legacy_db()
-        if db_obj is None:
-            return False
-        snippet = self._build_legacy_snippet_payload(
-            user_id=user_id,
-            file_name=file_name,
-            content=content,
-            language=language,
-            description=description,
-            tags=tags,
-        )
-        if snippet is None:
-            return False
-        try:
-            return bool(db_obj.save_code_snippet(snippet))
-        except Exception as exc:
-            logger.warning("Legacy DB save_code_snippet failed: %s", exc)
-            return False
-
     def _save_large_file(
         self,
         *,
@@ -283,29 +178,7 @@ class DocumentHandler:
         file_size: int,
         lines_count: int,
     ) -> bool:
-        legacy_db = self._resolve_legacy_db()
-        prefer_legacy = self._legacy_backend_first()
-        if prefer_legacy and self._save_large_file_via_legacy(
-            legacy_db,
-            user_id=user_id,
-            file_name=file_name,
-            language=language,
-            content=content,
-            file_size=file_size,
-            lines_count=lines_count,
-        ):
-            return True
         if self._save_large_file_via_facade(
-            user_id=user_id,
-            file_name=file_name,
-            language=language,
-            content=content,
-            file_size=file_size,
-            lines_count=lines_count,
-        ):
-            return True
-        if not prefer_legacy and self._save_large_file_via_legacy(
-            legacy_db,
             user_id=user_id,
             file_name=file_name,
             language=language,
@@ -344,59 +217,11 @@ class DocumentHandler:
             logger.warning("FilesFacade save_large_file failed: %s", exc)
             return False
 
-    def _save_large_file_via_legacy(
-        self,
-        legacy_db: Optional[Any],
-        *,
-        user_id: int,
-        file_name: str,
-        language: str,
-        content: str,
-        file_size: int,
-        lines_count: int,
-    ) -> bool:
-        db_obj = legacy_db or self._resolve_legacy_db()
-        if db_obj is None:
-            return False
-        large_file = self._build_legacy_large_file_payload(
-            user_id=user_id,
-            file_name=file_name,
-            content=content,
-            language=language,
-            file_size=file_size,
-            lines_count=lines_count,
-        )
-        if large_file is None:
-            return False
-        try:
-            return bool(db_obj.save_large_file(large_file))
-        except Exception as exc:
-            logger.warning("Legacy DB save_large_file failed: %s", exc)
-            return False
-
     def _get_latest_version_entry(self, user_id: int, file_name: str) -> Optional[dict]:
-        prefer_legacy = self._legacy_backend_first()
-        legacy_db = self._resolve_legacy_db() if prefer_legacy else None
-        if prefer_legacy:
-            doc = self._get_latest_version_via_legacy(legacy_db, user_id, file_name)
-            if doc:
-                return doc
-        doc = self._get_latest_version_via_facade(user_id, file_name)
-        if doc:
-            return doc
-        return self._get_latest_version_via_legacy(legacy_db, user_id, file_name) if not prefer_legacy else None
+        return self._get_latest_version_via_facade(user_id, file_name)
 
     def _get_large_file_entry(self, user_id: int, file_name: str) -> Optional[dict]:
-        prefer_legacy = self._legacy_backend_first()
-        legacy_db = self._resolve_legacy_db() if prefer_legacy else None
-        if prefer_legacy:
-            doc = self._get_large_file_via_legacy(legacy_db, user_id, file_name)
-            if doc:
-                return doc
-        doc = self._get_large_file_via_facade(user_id, file_name)
-        if doc:
-            return doc
-        return self._get_large_file_via_legacy(legacy_db, user_id, file_name) if not prefer_legacy else None
+        return self._get_large_file_via_facade(user_id, file_name)
 
     def _get_latest_version_via_facade(self, user_id: int, file_name: str) -> Optional[dict]:
         facade = self._resolve_files_facade()
@@ -405,20 +230,6 @@ class DocumentHandler:
         try:
             doc = facade.get_latest_version(user_id, file_name)  # type: ignore[attr-defined]
             return doc or None
-        except Exception:
-            return None
-
-    def _get_latest_version_via_legacy(
-        self,
-        legacy_db: Optional[Any],
-        user_id: int,
-        file_name: str,
-    ) -> Optional[dict]:
-        db_obj = legacy_db or self._resolve_legacy_db()
-        if db_obj is None or not hasattr(db_obj, "get_latest_version"):
-            return None
-        try:
-            return db_obj.get_latest_version(user_id, file_name) or None
         except Exception:
             return None
 
@@ -432,30 +243,8 @@ class DocumentHandler:
         except Exception:
             return None
 
-    def _get_large_file_via_legacy(
-        self,
-        legacy_db: Optional[Any],
-        user_id: int,
-        file_name: str,
-    ) -> Optional[dict]:
-        db_obj = legacy_db or self._resolve_legacy_db()
-        if db_obj is None or not hasattr(db_obj, "get_large_file"):
-            return None
-        try:
-            return db_obj.get_large_file(user_id, file_name) or None
-        except Exception:
-            return None
-
     def _save_selected_repo(self, user_id: int, repo_full: str) -> bool:
-        legacy_db = self._resolve_legacy_db()
-        prefer_legacy = self._legacy_backend_first()
-        if prefer_legacy and self._save_selected_repo_via_legacy(legacy_db, user_id, repo_full):
-            return True
-        if self._save_selected_repo_via_facade(user_id, repo_full):
-            return True
-        if not prefer_legacy and self._save_selected_repo_via_legacy(legacy_db, user_id, repo_full):
-            return True
-        return False
+        return self._save_selected_repo_via_facade(user_id, repo_full)
 
     def _save_selected_repo_via_facade(self, user_id: int, repo_full: str) -> bool:
         facade = self._resolve_files_facade()
@@ -468,74 +257,6 @@ class DocumentHandler:
             logger.warning("FilesFacade save_selected_repo failed: %s", exc)
             return False
 
-    def _save_selected_repo_via_legacy(
-        self,
-        legacy_db: Optional[Any],
-        user_id: int,
-        repo_full: str,
-    ) -> bool:
-        db_obj = legacy_db or self._resolve_legacy_db()
-        if db_obj is None or not hasattr(db_obj, "save_selected_repo"):
-            return False
-        try:
-            logger.debug("Trying to save selected repo via legacy DB for %s", repo_full)
-            result = db_obj.save_selected_repo(user_id, repo_full)
-            if result is None:
-                return True
-            return bool(result)
-        except Exception as exc:
-            logger.warning("Legacy DB save_selected_repo failed: %s", exc)
-            return False
-    def _build_legacy_snippet_payload(
-        self,
-        *,
-        user_id: int,
-        file_name: str,
-        content: str,
-        language: str,
-        description: str = "",
-        tags: Optional[List[str]] = None,
-    ) -> Optional[Any]:
-        payload = {
-            "user_id": user_id,
-            "file_name": file_name,
-            "code": content,
-            "programming_language": language,
-            "description": description,
-            "tags": list(tags or []),
-        }
-        # הימנע מתלות ב-`sys.modules["database.models"]` מתוך handlers.
-        # עבור legacy DB נבנה דאטה-קלאס מקומי שמתאים ל-asdict; בטסטים אפשר גם SimpleNamespace.
-        try:
-            obj = _LegacyCodeSnippet(**payload)
-            return obj
-        except Exception:
-            return SimpleNamespace(**payload)
-
-    def _build_legacy_large_file_payload(
-        self,
-        *,
-        user_id: int,
-        file_name: str,
-        content: str,
-        language: str,
-        file_size: int,
-        lines_count: int,
-    ) -> Optional[Any]:
-        payload = {
-            "user_id": user_id,
-            "file_name": file_name,
-            "content": content,
-            "programming_language": language,
-            "file_size": file_size,
-            "lines_count": lines_count,
-        }
-        # הימנע מתלות ב-`sys.modules["database.models"]` מתוך handlers.
-        try:
-            obj = _LegacyLargeFile(**payload)
-            return obj
-        except Exception:
-            return SimpleNamespace(**payload)
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""
 
@@ -819,7 +540,7 @@ class DocumentHandler:
                     except Exception as err:
                         logger.warning("Failed updating github session after repo save: %s", err)
                 else:
-                    logger.warning("Saving selected repo failed (facade and legacy)")
+                    logger.warning("Saving selected repo failed via facade")
             except Exception as err:
                 logger.warning("Failed saving selected repo: %s", err)
 

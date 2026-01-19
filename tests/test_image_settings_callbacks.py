@@ -14,13 +14,13 @@ async def test_image_settings_callbacks_and_persist(monkeypatch):
         calls["kb"].append(reply_markup)
     monkeypatch.setattr(mod.TelegramUtils, 'safe_edit_message_reply_markup', _safe_edit_reply_markup, raising=True)
 
-    # Stub DB persist
+    # Stub facade persist
     saved = {}
-    class _DBStub:
+    class _Facade:
         def save_image_prefs(self, user_id, prefs):
             saved['payload'] = (user_id, dict(prefs))
             return True
-    monkeypatch.setattr(mod, 'db', _DBStub(), raising=True)
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     class _App:
         def add_handler(self, *a, **k):

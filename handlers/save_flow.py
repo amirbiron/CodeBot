@@ -1,6 +1,5 @@
 import re
 import os
-import sys
 import logging
 import inspect
 from io import BytesIO
@@ -17,28 +16,13 @@ from utils import normalize_code  # נרמול קלט כדי להסיר תווי
 
 logger = logging.getLogger(__name__)
 
-# Backwards-compatibility: some tests may monkeypatch `handlers.save_flow.db`
-db = None  # type: ignore
-
-# NOTE: We intentionally avoid importing the legacy `database` package here.
-# All persistence access goes through the composition facade / application services.
-# For backwards-compatibility in tests, we support reading a pre-injected
-# `sys.modules["database"].db` object (no dynamic import).
-
-
-def _get_legacy_db():
-    """Best-effort access to legacy db object without importing `database`.
-
-    נשתמש רק ב-injection מפורש דרך `handlers.save_flow.db` (בעיקר עבור טסטים),
-    ולא דרך `sys.modules['database']` כדי לא לעודד תלות עקיפה ב-DB מתוך handlers.
-    """
+def _get_files_facade_or_none():
+    """Best-effort access to FilesFacade without importing legacy DB."""
     try:
-        patched = globals().get("db")
-        if patched is not None:
-            return patched
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        return get_files_facade()
     except Exception:
-        pass
-    return None
+        return None
 # Observability (fail-open): unify error/event reporting
 try:  # type: ignore
     from observability import emit_event  # type: ignore
@@ -207,26 +191,14 @@ async def _save_via_layered_flow(update, context, filename, user_id, code, note)
         return False
     fid = ''
     # נסיון 1: FilesFacade (אם זמין)
-    try:
-        from src.infrastructure.composition import get_files_facade  # type: ignore
+    facade = _get_files_facade_or_none()
+    if facade is not None:
         try:
-            saved_doc = (get_files_facade().get_latest_version(user_id, filename) or {}) if get_files_facade else {}
+            saved_doc = facade.get_latest_version(user_id, filename) or {}
         except Exception:
             saved_doc = {}
         try:
             fid = str(saved_doc.get('_id') or '')
-        except Exception:
-            fid = ''
-    except Exception:
-        fid = ''
-
-    # נסיון 2: legacy DB (אם אין fid, או אם facade נכשל בריצה)
-    if not fid:
-        try:
-            legacy = _get_legacy_db()
-            if legacy is not None:
-                saved_doc = legacy.get_latest_version(user_id, filename) or {}
-                fid = str(saved_doc.get('_id') or '')
         except Exception:
             fid = ''
     detected_language = getattr(saved, "language", None) or getattr(saved, "detected_language", None) or ""
@@ -567,27 +539,18 @@ async def get_filename(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if existing_entity is not None:
             existing_file = existing_entity
         if existing_file is None:
-            try:
-                from src.infrastructure.composition import get_files_facade  # type: ignore
-                existing_doc = get_files_facade().get_latest_version(user_id, filename) if get_files_facade else None
-                existing_file = bool(existing_doc)
-            except Exception:
-                existing_file = None
+            facade = _get_files_facade_or_none()
+            if facade is not None:
                 try:
-                    legacy = _get_legacy_db()
-                    existing_doc = legacy.get_latest_version(user_id, filename) if legacy is not None else None
+                    existing_doc = facade.get_latest_version(user_id, filename)
                     existing_file = bool(existing_doc)
                 except Exception:
                     existing_file = None
     else:
-        try:
-            from src.infrastructure.composition import get_files_facade  # type: ignore
-            existing_file = get_files_facade().get_latest_version(user_id, filename) if get_files_facade else None
-        except Exception:
-            existing_file = None
+        facade = _get_files_facade_or_none()
+        if facade is not None:
             try:
-                legacy = _get_legacy_db()
-                existing_file = legacy.get_latest_version(user_id, filename) if legacy is not None else None
+                existing_file = facade.get_latest_version(user_id, filename)
             except Exception:
                 existing_file = None
     if existing_file:

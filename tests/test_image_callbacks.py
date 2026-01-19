@@ -34,10 +34,11 @@ async def test_img_settings_and_regenerate(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB returns code
-    def _get_latest_version(uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    # Facade returns code
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     # Stub image generator
     class _FakeGen:
@@ -86,9 +87,10 @@ async def test_save_to_drive_success(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    def _get_latest_version(uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     class _FakeGen:
         def __init__(self, *a, **k):

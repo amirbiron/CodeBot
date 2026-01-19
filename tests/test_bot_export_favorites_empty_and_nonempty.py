@@ -67,26 +67,22 @@ async def test_export_favorites_nonempty(bot_nonempty):
 @pytest.fixture
 def bot_empty(monkeypatch):
     import bot_handlers as bh
-    class _DB:
+    class _Facade:
         def get_favorites(self, uid, limit=200):
             return []
-    inst = _DB()
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
-    monkeypatch.setattr(bh, 'db', inst, raising=True)
+    inst = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: inst)
     return bh.AdvancedBotHandlers(_App())
 
 @pytest.fixture
 def bot_nonempty(monkeypatch):
     import bot_handlers as bh
-    class _DB:
+    class _Facade:
         def get_favorites(self, uid, limit=200):
             return [
                 {'file_name': 'a.py', 'programming_language': 'python'},
                 {'file_name': 'b.js', 'programming_language': 'javascript'}
             ]
-    inst = _DB()
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
-    monkeypatch.setattr(bh, 'db', inst, raising=True)
+    inst = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: inst)
     return bh.AdvancedBotHandlers(_App())

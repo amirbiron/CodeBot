@@ -34,27 +34,40 @@ def _make_fake_mongo(docs_holder):
                 return sum(1 for d in self._docs if d.get("updated_at", datetime.now(timezone.utc)) >= threshold)
             return 0
 
-    class FakeDBTop:
-        def __init__(self, users_coll):
-            self.db = types.SimpleNamespace(users=users_coll)
-            self.saved = []
+    users = FakeUsersCollection()
 
+    class FakeMongoDB:
+        def __init__(self, users_coll):
+            self.users = users_coll
+        def __getitem__(self, name):
+            if name == "users":
+                return self.users
+            raise KeyError(name)
+
+    class FakeFacade:
+        def __init__(self, users_coll):
+            self._mongo = FakeMongoDB(users_coll)
+            self.saved = []
         def save_user(self, user_id, username=None):
             self.saved.append((user_id, username))
+            return True
+        def get_mongo_db(self):
+            return self._mongo
 
-    users = FakeUsersCollection()
-    top = FakeDBTop(users)
-    return top, users
+    facade = FakeFacade(users)
+    return facade, users
 
 
 @pytest.mark.asyncio
 async def test_log_user_updates_and_increments(monkeypatch):
-    # Arrange fake database module before import
+    # Arrange fake facade before import
     docs = []
-    top, users = _make_fake_mongo(docs)
-    mod = types.ModuleType("database")
-    mod.db = top
-    monkeypatch.setitem(__import__("sys").modules, "database", mod)
+    facade, users = _make_fake_mongo(docs)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "src.infrastructure.composition",
+        types.SimpleNamespace(get_files_facade=lambda: facade),
+    )
 
     # Import module under test (reload to bind our mocked database)
     us_mod = importlib.reload(importlib.import_module("user_stats"))
@@ -66,7 +79,7 @@ async def test_log_user_updates_and_increments(monkeypatch):
     stats.log_user(7, username="alice", weight=3)
 
     # Assert save_user called
-    assert top.saved == [(7, "alice")]
+    assert facade.saved == [(7, "alice")]
     assert users.last_update is not None
     update = users.last_update["update"]
     assert users.last_update["upsert"] is True
@@ -89,10 +102,12 @@ def test_get_weekly_stats_filters_and_sorts(monkeypatch):
         # old user beyond week
         {"user_id": 3, "username": "c", "usage_days": [(now - timedelta(days=10)).strftime("%Y-%m-%d")], "total_actions": 30, "updated_at": now - timedelta(days=10)},
     ]
-    top, users = _make_fake_mongo(docs)
-    mod = types.ModuleType("database")
-    mod.db = top
-    monkeypatch.setitem(__import__("sys").modules, "database", mod)
+    facade, users = _make_fake_mongo(docs)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "src.infrastructure.composition",
+        types.SimpleNamespace(get_files_facade=lambda: facade),
+    )
 
     import importlib
     us_mod = importlib.reload(importlib.import_module("user_stats"))
@@ -111,10 +126,12 @@ def test_get_all_time_stats_counts(monkeypatch):
         {"user_id": 2, "last_seen": today, "updated_at": now},
         {"user_id": 3, "last_seen": (now - timedelta(days=1)).strftime("%Y-%m-%d"), "updated_at": now - timedelta(days=8)},
     ]
-    top, users = _make_fake_mongo(docs)
-    mod = types.ModuleType("database")
-    mod.db = top
-    monkeypatch.setitem(__import__("sys").modules, "database", mod)
+    facade, users = _make_fake_mongo(docs)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "src.infrastructure.composition",
+        types.SimpleNamespace(get_files_facade=lambda: facade),
+    )
 
     us_mod = importlib.reload(importlib.import_module("user_stats"))
     stats = us_mod.UserStats()

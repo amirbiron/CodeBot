@@ -40,11 +40,10 @@ async def test_handlers_file_not_found_in_type_callback(monkeypatch):
     class _App:
         def add_handler(self, *a, **k):
             pass
-    class _DB:
-        def get_file(self, *a, **k):
+    class _Facade:
+        def get_latest_version(self, *a, **k):
             return None
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
     class _Msg:
         async def reply_text(self, *a, **k):
             return None

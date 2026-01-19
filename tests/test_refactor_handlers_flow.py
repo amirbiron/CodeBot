@@ -4,20 +4,24 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def stub_db(monkeypatch):
-    class _DB:
+def stub_facade(monkeypatch):
+    class _Facade:
         def __init__(self):
             self.saved = {}
-        def get_file(self, user_id, filename):
+        def get_latest_version(self, user_id, filename):
             return {"code": "def a():\n    return 1\n\ndef b():\n    return 2\n", "file_name": filename, "programming_language": "python"}
         def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags=None):
             self.saved[file_name] = code
             return True
-        def collection(self, name):
-            return types.SimpleNamespace(insert_one=lambda doc: types.SimpleNamespace(inserted_id="1"))
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
-    return db_mod.db
+        def insert_refactor_metadata(self, doc):
+            return True
+    facade = _Facade()
+    monkeypatch.setitem(
+        sys.modules,
+        "src.infrastructure.composition",
+        types.SimpleNamespace(get_files_facade=lambda: facade),
+    )
+    return facade
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,4 @@
 import sys
-import types
 import pytest
 
 
@@ -13,13 +12,8 @@ async def test_refactor_approve_collects_errors_and_completes(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    class _DB:
-        def __init__(self):
-            class _C:
-                def insert_one(self, doc):
-                    return types.SimpleNamespace(inserted_id="1")
-            self._c = _C()
-        def get_file(self, user_id, filename):
+    class _Facade:
+        def get_latest_version(self, user_id, filename):
             code = (
                 "def user_a():\n    return True\n\n"
                 "def data_a():\n    return []\n"
@@ -27,10 +21,9 @@ async def test_refactor_approve_collects_errors_and_completes(monkeypatch):
             return {"code": code, "file_name": filename, "programming_language": "python"}
         def save_file(self, *a, **k):
             raise RuntimeError("db error")
-        def collection(self, name):
-            return self._c
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+        def insert_refactor_metadata(self, doc):
+            return True
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     class _Msg:
         async def reply_text(self, *a, **k):

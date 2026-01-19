@@ -11,11 +11,11 @@ async def test_image_command_no_args(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # Stub DB
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', SimpleNamespace(get_latest_version=lambda uid, fn: None), raising=True)
-    # גם בקונטקסט של המודול עצמו
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=lambda uid, fn: None), raising=True)
+    # Stub facade
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return None
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     sent = {}
     class _Msg:
@@ -44,10 +44,11 @@ async def test_image_command_file_not_found(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB returns None
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', SimpleNamespace(get_latest_version=lambda uid, fn: None), raising=True)
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=lambda uid, fn: None), raising=True)
+    # Facade returns None
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return None
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     captured = {}
     class _Msg:
@@ -76,12 +77,11 @@ async def test_image_command_success(monkeypatch):
         def add_handler(self, *a, **k):
             pass
 
-    # DB returns code
-    def _get_latest_version(uid, fn):
-        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    # Facade returns code
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     # Stub image generator to avoid heavy work
     class _FakeGen:
@@ -121,9 +121,10 @@ async def test_image_command_with_note(monkeypatch):
     def _get_latest_version(uid, fn):
         return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
 
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
-    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    class _Facade:
+        def get_latest_version(self, uid, fn):
+            return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     captured_note = {}
 

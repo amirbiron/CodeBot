@@ -3,7 +3,33 @@ import os
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import logging
-from database import db as mongodb
+
+
+def _get_files_facade_or_none():
+    try:
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        return get_files_facade()
+    except Exception:
+        return None
+
+
+def _get_users_collection():
+    facade = _get_files_facade_or_none()
+    if facade is None:
+        return None
+    try:
+        mongo_db = facade.get_mongo_db()
+    except Exception:
+        return None
+    if mongo_db is None:
+        return None
+    coll = getattr(mongo_db, "users", None)
+    if coll is not None:
+        return coll
+    try:
+        return mongo_db["users"]  # type: ignore[index]
+    except Exception:
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +42,15 @@ class UserStats:
         """רישום משתמש ב-MongoDB עם משקל לדגימה (weight)."""
         try:
             # שמור או עדכן משתמש ב-MongoDB
-            mongodb.save_user(user_id, username)
+            facade = _get_files_facade_or_none()
+            if facade is None:
+                return
+            facade.save_user(user_id, username)
             
             # עדכן את הזמן האחרון שהמשתמש היה פעיל
-            users_collection = mongodb.db.users
+            users_collection = _get_users_collection()
+            if users_collection is None:
+                return
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             
             # עדכון המשתמש עם פעילות אחרונה
@@ -50,7 +81,9 @@ class UserStats:
     def get_weekly_stats(self):
         """סטטיסטיקת שבוע אחרון מ-MongoDB"""
         try:
-            users_collection = mongodb.db.users
+            users_collection = _get_users_collection()
+            if users_collection is None:
+                return []
             week_ago = datetime.now(timezone.utc) - timedelta(days=7)
             # השוואת ימים תתבצע לפי אובייקטי date כדי להימנע מהשוואת naive מול aware
             week_ago_date = week_ago.date()
@@ -87,7 +120,13 @@ class UserStats:
     def get_all_time_stats(self):
         """סטטיסטיקות כלליות מ-MongoDB"""
         try:
-            users_collection = mongodb.db.users
+            users_collection = _get_users_collection()
+            if users_collection is None:
+                return {
+                    "total_users": 0,
+                    "active_today": 0,
+                    "active_week": 0
+                }
             
             # סה"כ משתמשים
             total_users = users_collection.count_documents({})

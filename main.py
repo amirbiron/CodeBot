@@ -3104,7 +3104,6 @@ class CodeKeeperBot:
 
         # Add conversation handler
         conversation_handler = get_save_conversation_handler(
-            db,
             callback_query_handler_cls=CallbackQueryHandler,
         )
         self.application.add_handler(conversation_handler)
