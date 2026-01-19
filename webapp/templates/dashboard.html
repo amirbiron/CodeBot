@@ -2818,16 +2818,17 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', async () => {
             const fileId = dismissModal.querySelector('[data-field="dismiss_file_id"]').value;
             const isForever = btn.dataset.forever === 'true';
-            const days = isForever ? 3650 : Math.max(parseInt(btn.dataset.days, 10) || 30, 1);
+            const days = isForever ? 0 : Math.max(parseInt(btn.dataset.days, 10) || 30, 1);
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
+                const payload = isForever ? { forever: true } : { days };
                 const resp = await fetch(`/api/file/${fileId}/dismiss-attention`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ days, forever: isForever })
+                    body: JSON.stringify(payload)
                 });
                 const data = await resp.json();
 
