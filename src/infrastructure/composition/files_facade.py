@@ -138,6 +138,36 @@ class FilesFacade:
             return list(db.get_user_files(user_id) or [])
         except Exception:
             return []
+
+    def get_all_user_files_combined(
+        self,
+        user_id: int,
+        *,
+        limit_regular: int = 100,
+        limit_large: int = 100,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Return a combined view of regular + large files.
+
+        Prefers a dedicated DB method when available; otherwise falls back to
+        separate list calls with safe limits.
+        """
+        db = self._get_db()
+        fn = getattr(db, "get_all_user_files_combined", None)
+        if callable(fn):
+            try:
+                combined = fn(user_id)
+                if isinstance(combined, dict):
+                    return {
+                        "regular_files": list(combined.get("regular_files") or []),
+                        "large_files": list(combined.get("large_files") or []),
+                    }
+            except Exception:
+                return {"regular_files": [], "large_files": []}
+
+        regular = self.get_user_files(user_id, limit=limit_regular)
+        large, _ = self.get_user_large_files(user_id, page=1, per_page=limit_large)
+        return {"regular_files": list(regular or []), "large_files": list(large or [])}
     def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict[str, Any]], int]:
         try:
             db = self._get_db()

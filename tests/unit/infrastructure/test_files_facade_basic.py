@@ -192,6 +192,9 @@ def test_files_facade_basic_wrappers(monkeypatch):
     assert "a.py" in names
     small = fac.get_user_files(1, limit=1)
     assert isinstance(small, list)
+    combined = fac.get_all_user_files_combined(1, limit_regular=2, limit_large=1)
+    assert isinstance(combined, dict)
+    assert "regular_files" in combined and "large_files" in combined
     large, total = fac.get_user_large_files(1, page=1, per_page=1)
     assert isinstance(large, list) and isinstance(total, int)
 
