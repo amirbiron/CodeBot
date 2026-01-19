@@ -38,15 +38,13 @@ class _Ctx:
 @pytest.fixture
 def bot(monkeypatch):
     import bot_handlers as bh
-    class _DB:
+    class _Facade:
         def get_file_by_id(self, fid):
             return None
         def toggle_favorite(self, uid, name):
             return True
-    inst = _DB()
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
-    monkeypatch.setattr(bh, 'db', inst, raising=True)
+    inst = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: inst)
     return bh.AdvancedBotHandlers(_App())
 
 @pytest.mark.asyncio
@@ -60,13 +58,11 @@ async def test_fav_toggle_id_file_not_found(bot):
 @pytest.mark.asyncio
 async def test_favorite_command_snippet_not_found(monkeypatch):
     import bot_handlers as bh
-    class _DB:
+    class _Facade:
         def get_latest_version(self, uid, name):
             return None
-    inst = _DB()
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
-    monkeypatch.setattr(bh, 'db', inst, raising=True)
+    inst = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: inst)
     b = bh.AdvancedBotHandlers(_App())
     upd = _Upd(); ctx = _Ctx(); ctx.args = ['nope.py']
     await b.favorite_command(upd, ctx)

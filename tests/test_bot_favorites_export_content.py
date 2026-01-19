@@ -42,7 +42,7 @@ class _Ctx:
 @pytest.fixture
 def bot(monkeypatch):
     import bot_handlers as bh
-    class _DB:
+    class _Facade:
         def __init__(self):
             self._fav = True
         def get_favorites(self, uid, limit=50):
@@ -54,11 +54,8 @@ def bot(monkeypatch):
             return True
         def get_latest_version(self, uid, name):
             return {'_id': '507f1f77bcf86cd799439011', 'file_name': name, 'code': 'x', 'programming_language': 'python'}
-    db_mod = __import__('database', fromlist=['db'])
-    inst = _DB()
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
-    # חשוב: עדכון גם במודול bot_handlers כדי לעקוף bind בזמן import
-    monkeypatch.setattr(bh, 'db', inst, raising=True)
+    inst = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: inst)
     return bh.AdvancedBotHandlers(_App())
 
 @pytest.mark.asyncio

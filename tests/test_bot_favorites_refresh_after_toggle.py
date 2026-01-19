@@ -40,7 +40,7 @@ class _Ctx:
 @pytest.fixture
 def bot_and_db(monkeypatch):
     import bot_handlers as bh
-    class _DB:
+    class _Facade:
         def __init__(self):
             self._fav = False
             self._docs = {
@@ -56,10 +56,8 @@ def bot_and_db(monkeypatch):
             return self._fav
         def get_latest_version(self, uid, name):
             return self._docs.get(name)
-    inst = _DB()
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
-    monkeypatch.setattr(bh, 'db', inst, raising=True)
+    inst = _Facade()
+    monkeypatch.setattr(bh, "_get_files_facade_or_none", lambda: inst)
     return bh.AdvancedBotHandlers(_App()), inst
 
 @pytest.mark.asyncio

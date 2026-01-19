@@ -20,12 +20,12 @@ async def test_image_all_respects_limits_and_truncates(monkeypatch):
     # Create very long code (more than 200 lines) to trigger truncation path
     long_code = "\n".join([f"print({i})" for i in range(500)])
 
-    db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', SimpleNamespace(
-        get_user_files=lambda uid, limit=20, projection=None: list(files),
-        get_latest_version=lambda uid, fn: {"file_name": fn, "code": long_code, "programming_language": "python"}
-    ), raising=True)
-    monkeypatch.setattr(mod, 'db', db_mod.db, raising=True)
+    class _Facade:
+        def get_user_files(self, uid, limit=20, projection=None):
+            return list(files)
+        def get_latest_version(self, uid, fn):
+            return {"file_name": fn, "code": long_code, "programming_language": "python"}
+    monkeypatch.setattr(mod, "_get_files_facade_or_none", lambda: _Facade())
 
     # Stub generator to avoid heavy work
     class _Gen:
