@@ -8,7 +8,7 @@ Asyncio תחת WSGI: הרצת קורוטינות בבטחה
 חריגה ותפיל את הבקשה, ולעתים תשאיר קורוטינה "תלויה" ללא await.
 
 תסמינים נפוצים
--------------
+---------------
 - ``RuntimeError: asyncio.run() cannot be called from a running event loop``
 - ``RuntimeError: This event loop is already running``
 - ``RuntimeWarning: coroutine was never awaited``
