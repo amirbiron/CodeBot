@@ -44,6 +44,42 @@ BUILTIN_THEMES: List[Dict[str, str]] = [
     {"id": "high-contrast", "name": "ניגודיות גבוהה", "type": "builtin"},
 ]
 
+_PREVIEW_COLOR_KEYS: Tuple[str, ...] = (
+    "--bg-primary",
+    "--bg-secondary",
+    "--primary",
+    "--secondary",
+    "--text-primary",
+    "--card-bg",
+)
+_PREVIEW_FALLBACK = ["#1a1b26", "#7aa2f7", "#bb9af7", "#f7768e"]
+
+
+def _extract_preview_colors(variables: Dict[str, Any]) -> List[str]:
+    if not isinstance(variables, dict):
+        return list(_PREVIEW_FALLBACK)
+    colors: List[str] = []
+    for key in _PREVIEW_COLOR_KEYS:
+        raw = variables.get(key)
+        if raw is None:
+            continue
+        try:
+            value = str(raw).strip()
+        except Exception:
+            continue
+        if not value or not is_valid_color(value):
+            continue
+        colors.append(value)
+        if len(colors) >= 4:
+            break
+    if len(colors) < 4:
+        for fallback in _PREVIEW_FALLBACK:
+            if len(colors) >= 4:
+                break
+            if fallback not in colors:
+                colors.append(fallback)
+    return colors[:4]
+
 
 class SharedThemeService:
     """שירות לניהול ערכות נושא ציבוריות."""
@@ -177,6 +213,7 @@ class SharedThemeService:
                     "is_featured": 1,
                     "created_at": 1,
                     "order": 1,
+                    "colors": 1,
                 },
             ).sort([("order", 1), ("created_at", -1)])
 
@@ -184,6 +221,10 @@ class SharedThemeService:
             for doc in cursor:
                 created_at = doc.get("created_at")
                 theme_id = doc.get("_id")
+                colors = doc.get("colors", {})
+                if not isinstance(colors, dict):
+                    colors = {}
+                preview_colors = _extract_preview_colors(colors)
                 themes.append(
                     {
                         # ⚠️ JSON safety: ObjectId לא תמיד סיריאליזבילי, אז ממירים ל-str
@@ -193,6 +234,7 @@ class SharedThemeService:
                         "is_featured": bool(doc.get("is_featured", False)),
                         "created_at": created_at.isoformat() if isinstance(created_at, datetime) else None,
                         "type": "shared",
+                        "preview_colors": preview_colors,
                     }
                 )
             # Save to cache
@@ -405,12 +447,17 @@ class SharedThemeService:
             for t in user_custom_themes:
                 if not isinstance(t, dict):
                     continue
+                variables = t.get("variables")
+                if not isinstance(variables, dict):
+                    variables = {}
+                preview_colors = _extract_preview_colors(variables)
                 merged.append(
                     {
                         "id": t.get("id"),
                         "name": t.get("name"),
                         "is_active": bool(t.get("is_active", False)),
                         "type": "custom",
+                        "preview_colors": preview_colors,
                     }
                 )
         return merged
