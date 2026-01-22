@@ -13140,9 +13140,12 @@ def edit_file_page(file_id):
                         pinned_source_name = None
                     if pinned_info is None:
                         try:
-                            if bool((prev or {}).get('is_pinned', False)):
+                            same_name = True
+                            if original_file_name and file_name and original_file_name != file_name:
+                                same_name = False
+                            if same_name and bool((prev or {}).get('is_pinned', False)):
                                 pinned_info = prev
-                                pinned_source_name = (prev or {}).get('file_name') or file_name
+                                pinned_source_name = (prev or {}).get('file_name') or original_file_name or file_name
                         except Exception:
                             pinned_info = None
                             pinned_source_name = None
