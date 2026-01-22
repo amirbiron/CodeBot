@@ -105,10 +105,10 @@ def handle_push_event(payload: dict, delivery_id: str):
         # default branch דינמי: קודם DB (initial_import), ואז payload; רק אם לא יודעים בכלל ניפול ל-main/master.
         default_branch = ""
         try:
-            from database.db_manager import get_db
+            from src.infrastructure.composition import get_files_facade
 
-            db = get_db()
-            meta = db.repo_metadata.find_one({"repo_name": repo_name}) if repo_name else None
+            db = get_files_facade().get_mongo_db()
+            meta = db.repo_metadata.find_one({"repo_name": repo_name}) if db and repo_name else None
             if meta and meta.get("default_branch"):
                 default_branch = str(meta["default_branch"])
         except Exception:

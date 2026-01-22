@@ -306,9 +306,8 @@ def test_webapp_routes_database_imports_progress():
     violations = _violations(files, forbidden_prefixes=forbidden, allowed_prefixes=allowed)
 
     # Current known violations (baseline)
-    # repo_browser.py: from database.db_manager
-    # webhooks.py: from database.db_manager (conditional)
-    KNOWN_VIOLATIONS_COUNT = 2  # Update as we clean up
+    # All route modules cleaned up! They now use FilesFacade.
+    KNOWN_VIOLATIONS_COUNT = 0  # Target achieved!
 
     total_violations = len(violations)
 
