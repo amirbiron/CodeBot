@@ -3651,7 +3651,7 @@
                 return `rgb(${r}, ${g}, ${b})`;
             }
         }
-        const rgbaMatch = v.match(/^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1|0?\.\d+)\s*\)$/i);
+        const rgbaMatch = v.match(/^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|1(?:\.0+)?|0?\.\d+)\s*\)$/i);
         if (rgbaMatch) {
             const r = Number(rgbaMatch[1]);
             const g = Number(rgbaMatch[2]);
