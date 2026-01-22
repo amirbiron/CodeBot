@@ -13191,6 +13191,7 @@ def edit_file_page(file_id):
                                     unpin_query = {
                                         'user_id': user_id,
                                         'file_name': file_name,
+                                        'is_pinned': True,
                                         'is_active': True,
                                         '_id': {'$ne': res.inserted_id},
                                     }
@@ -13211,6 +13212,7 @@ def edit_file_page(file_id):
                                             {
                                                 'user_id': user_id,
                                                 'file_name': pinned_source_name,
+                                                'is_pinned': True,
                                                 'is_active': True,
                                                 '_id': {'$ne': res.inserted_id},
                                             },
