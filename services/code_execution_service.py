@@ -216,8 +216,9 @@ class CodeExecutionService:
                 stderr = pull.stderr.decode("utf-8", errors="replace").strip()
                 if len(stderr) > 200:
                     stderr = stderr[:200].rstrip() + "..."
-                msg = stderr or "שגיאה בהורדת Docker image"
-                return f"שגיאה בהורדת Docker image: {msg}"
+                if stderr:
+                    return f"שגיאה בהורדת Docker image: {stderr}"
+                return "שגיאה בהורדת Docker image"
         except subprocess.TimeoutExpired:
             return f"תם הזמן להורדת Docker image ({self._docker_pull_timeout} שניות)"
         except (subprocess.SubprocessError, FileNotFoundError):
