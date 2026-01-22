@@ -211,3 +211,110 @@ def test_infrastructure_does_not_depend_on_handlers():
     violations = _violations(files, forbidden_prefixes=forbidden)
     assert not violations, f"Infrastructure layer import violations:\n" + "\n".join(f"- {p}: {mod}" for p, mod in violations)
 
+
+# ---- WebApp Architecture Tests ------------------------------------------------
+
+
+def _count_webapp_database_violations() -> Tuple[int, List[Tuple[pathlib.Path, str]]]:
+    """
+    Count database import violations in webapp.
+
+    Returns (total_violations, list_of_violations).
+    This helper is used both for tracking progress and for the eventual strict test.
+    """
+    files = list(_python_files_under("webapp"))
+
+    # Allowed: composition root, existing services that are already factored out
+    allowed = (
+        "src.infrastructure.composition",
+        "services.shared_theme_service",
+        "services.theme_presets_service",
+        "services.rules_storage",
+    )
+
+    # Forbidden: direct database imports
+    forbidden = ("database",)
+
+    static_violations = _violations(files, forbidden_prefixes=forbidden, allowed_prefixes=allowed)
+    dynamic_violations = _dynamic_database_import_violations(files)
+
+    all_violations = [*static_violations, *dynamic_violations]
+    return len(all_violations), all_violations
+
+
+def test_webapp_database_import_violations_tracking():
+    """
+    Track the number of database import violations in webapp.
+
+    This test documents the current state and tracks progress as we migrate
+    webapp to use the composition root instead of direct database imports.
+
+    Target: 0 violations (all imports via src.infrastructure.composition)
+    Current: ~20 violations (as of January 2026)
+
+    When we reach 0 violations, this test should be replaced with
+    test_webapp_does_not_import_database_directly().
+    """
+    count, violations = _count_webapp_database_violations()
+
+    # Document current state - update this as we make progress
+    # This is not a strict assertion, just tracking
+    KNOWN_VIOLATION_FILES = {
+        "webapp/app.py",
+        "webapp/bookmarks_api.py",
+        "webapp/collections_api.py",
+        "webapp/routes/repo_browser.py",
+        "webapp/routes/webhooks.py",
+    }
+
+    violation_files = {str(p.relative_to(ROOT)) for p, _ in violations}
+
+    # Log for visibility
+    if violations:
+        print(f"\n[WebApp Layering] Found {count} database import violations:")
+        for p, mod in violations[:10]:  # Show first 10
+            print(f"  - {p.relative_to(ROOT)}: {mod}")
+        if count > 10:
+            print(f"  ... and {count - 10} more")
+
+    # This assertion will fail if new violations are introduced
+    # (files not in KNOWN_VIOLATION_FILES start importing database directly)
+    new_violation_files = violation_files - KNOWN_VIOLATION_FILES
+    assert not new_violation_files, (
+        f"New database import violations detected in previously clean files:\n"
+        + "\n".join(f"- {f}" for f in sorted(new_violation_files))
+        + "\n\nUse src.infrastructure.composition instead of direct database imports."
+    )
+
+
+def test_webapp_does_not_import_database_directly():
+    """
+    WebApp must not import the legacy `database` package directly.
+
+    Access to persistence should go through:
+    - src.infrastructure.composition.get_files_facade()
+    - src.infrastructure.composition.get_bookmarks_manager()
+    - src.infrastructure.composition.get_collections_manager()
+    - src.infrastructure.composition.get_rules_storage()
+    - services.shared_theme_service.get_shared_theme_service()
+
+    NOTE: This test is currently expected to fail (xfail).
+    It will pass once we complete the webapp layering migration.
+    See docs/WEBAPP_LAYERING_ANALYSIS.md for the migration plan.
+    """
+    import pytest
+
+    count, violations = _count_webapp_database_violations()
+
+    if count > 0:
+        pytest.xfail(
+            f"WebApp layering migration in progress: {count} violations remaining. "
+            f"See docs/WEBAPP_LAYERING_ANALYSIS.md"
+        )
+
+    # This will only run when count == 0
+    assert not violations, (
+        "WebApp must not import database directly:\n"
+        + "\n".join(f"- {p}: {mod}" for p, mod in violations)
+    )
+
