@@ -143,7 +143,8 @@ except Exception:
 
 # מגבלות ייבוא ריפו (ייבוא תוכן, לא גיבוי)
 IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
-IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לכל הייבוא
+IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לתוכן המיובא בפועל
+IMPORT_MAX_ZIP_BYTES = 100 * 1024 * 1024  # 100MB ל‑ZIP שמורידים לצורך ייבוא
 IMPORT_MAX_FILES = 2000  # הגבלה סבירה למספר קבצים
 # הרחבת רשימת תיקיות כבדות לדילוג בכל עומק עץ – משפר סריקה/קריאה לאחר חליצה
 IMPORT_SKIP_DIRS = {
@@ -929,13 +930,15 @@ class GitHubMenuHandler:
             # עבודה ב-/tmp בלבד
             tmp_dir = tempfile.mkdtemp(prefix="codebot-gh-import-")
             zip_path = os.path.join(tmp_dir, "repo.zip")
-            # בדיקת Content-Length מול תקרת IMPORT_MAX_TOTAL_BYTES (safety)
+            # בדיקת Content-Length מול תקרת IMPORT_MAX_ZIP_BYTES (safety)
             try:
                 _cl = int(resp.headers.get("Content-Length", "0"))
             except Exception:
                 _cl = 0
-            if _cl and _cl > IMPORT_MAX_TOTAL_BYTES:
-                await query.edit_message_text("❌ ה‑ZIP גדול מדי לייבוא ישיר ברמת התוכן (מעל 20MB). נסה ייבוא סלקטיבי או ZIP חלקי.")
+            if _cl and _cl > IMPORT_MAX_ZIP_BYTES:
+                await query.edit_message_text(
+                    f"❌ ה‑ZIP גדול מדי להורדה לייבוא (מעל {format_bytes(IMPORT_MAX_ZIP_BYTES)}). נסה ייבוא סלקטיבי."
+                )
                 return
             # כתיבה בזרם לדיסק תוך שמירה על תקרה
             written = 0
@@ -945,8 +948,10 @@ class GitHubMenuHandler:
                         continue
                     f.write(chunk)
                     written += len(chunk)
-                    if written > IMPORT_MAX_TOTAL_BYTES:
-                        await query.edit_message_text("❌ ה‑ZIP חורג ממגבלת ייבוא התוכן (20MB). נסה ייבוא סלקטיבי.")
+                    if written > IMPORT_MAX_ZIP_BYTES:
+                        await query.edit_message_text(
+                            f"❌ ה‑ZIP גדול מדי להורדה לייבוא (מעל {format_bytes(IMPORT_MAX_ZIP_BYTES)}). נסה ייבוא סלקטיבי."
+                        )
                         return
             # חליצה לתת-תיקייה ייעודית
             extracted_dir = os.path.join(tmp_dir, "repo")
@@ -1111,7 +1116,7 @@ class GitHubMenuHandler:
             )
             # כפתור ייבוא ריפו (ZIP רשמי → ייבוא קבצים ל-DB)
             keyboard.append(
-                [InlineKeyboardButton("⬇️ הורד ריפו", callback_data="github_import_repo")]
+                [InlineKeyboardButton("⬇️ ייבוא ריפו", callback_data="github_import_repo")]
             )
             # ריכוז פעולות מחיקה בתפריט משנה
             keyboard.append(
