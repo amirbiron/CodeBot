@@ -2185,30 +2185,10 @@
         <span class="theme-wizard-option__name">Nebula</span>
         <span class="theme-wizard-option__desc">גוונים קוסמיים עמוקים עם ניגודיות עשירה.</span>
       </button>
-      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="dark" aria-pressed="false">
-        <span class="theme-wizard-option__emoji" aria-hidden="true">🌙</span>
-        <span class="theme-wizard-option__name">Dark</span>
-        <span class="theme-wizard-option__desc">מראה כהה קלאסי לעבודה בלילה.</span>
-      </button>
-      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="dim" aria-pressed="false">
-        <span class="theme-wizard-option__emoji" aria-hidden="true">🌆</span>
-        <span class="theme-wizard-option__name">Dim</span>
-        <span class="theme-wizard-option__desc">כהה רך יותר עם פחות ניגודיות.</span>
-      </button>
-      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="rose-pine-dawn" aria-pressed="false">
-        <span class="theme-wizard-option__emoji" aria-hidden="true">🌹</span>
-        <span class="theme-wizard-option__name">Rose Pine Dawn</span>
-        <span class="theme-wizard-option__desc">פלטה רגועה ובהירה בהשראת בוקר ורוד.</span>
-      </button>
       <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="classic" aria-pressed="false">
         <span class="theme-wizard-option__emoji" aria-hidden="true">🏛️</span>
         <span class="theme-wizard-option__name">Classic</span>
         <span class="theme-wizard-option__desc">המראה המוכר והמאוזן של CodeKeeper.</span>
-      </button>
-      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="ocean" aria-pressed="false">
-        <span class="theme-wizard-option__emoji" aria-hidden="true">🌊</span>
-        <span class="theme-wizard-option__name">Ocean</span>
-        <span class="theme-wizard-option__desc">גווני כחול עמוקים עם תחושת ים.</span>
       </button>
       <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="high-contrast" aria-pressed="false">
         <span class="theme-wizard-option__emoji" aria-hidden="true">⚫️</span>
@@ -3606,14 +3586,11 @@
     const tabBtns = modalEl.querySelectorAll('.theme-picker__tab');
 
     // ערכות מובנות (Built-in) עם צבעים לתצוגה מקדימה
+    const HIDDEN_BUILTIN_THEME_IDS = new Set(['dark', 'dim', 'ocean', 'rose-pine-dawn']);
     const BUILTIN_THEMES = [
         { id: 'nebula', name: 'Nebula', type: 'builtin', emoji: '🌌', colors: ['#1a1b26', '#7aa2f7', '#bb9af7', '#f7768e'] },
-        { id: 'dark', name: 'Dark', type: 'builtin', emoji: '🌙', colors: ['#1e1e2e', '#cdd6f4', '#89b4fa', '#f38ba8'] },
-        { id: 'dim', name: 'Dim', type: 'builtin', emoji: '🌆', colors: ['#2d2d3a', '#e0e0e0', '#8ab4f8', '#f28b82'] },
         { id: 'classic', name: 'Classic', type: 'builtin', emoji: '🏛️', colors: ['#ffffff', '#333333', '#667eea', '#48bb78'] },
-        { id: 'ocean', name: 'Ocean', type: 'builtin', emoji: '🌊', colors: ['#0d1b2a', '#e0e1dd', '#3d5a80', '#ee6c4d'] },
-        { id: 'high-contrast', name: 'High Contrast', type: 'builtin', emoji: '⚫️', colors: ['#000000', '#ffffff', '#ffcc00', '#00ff00'] },
-        { id: 'rose-pine-dawn', name: 'Rose Pine Dawn', type: 'builtin', emoji: '🌹', colors: ['#faf4ed', '#575279', '#907aa9', '#d7827e'] }
+        { id: 'high-contrast', name: 'High Contrast', type: 'builtin', emoji: '⚫️', colors: ['#000000', '#ffffff', '#ffcc00', '#00ff00'] }
     ];
 
     function escapeHtml(value) {
@@ -3834,6 +3811,9 @@
                 data.themes.forEach(theme => {
                     const themeId = normalizeThemeId(theme.id || theme.slug);
                     if (!themeId) {
+                        return;
+                    }
+                    if (theme.type === 'builtin' && HIDDEN_BUILTIN_THEME_IDS.has(themeId)) {
                         return;
                     }
                     // בדוק שזו לא ערכה מובנית כפולה
