@@ -2820,7 +2820,6 @@
     <script src="{{ url_for('static', filename='js/fun-mode.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/utils/animations.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
-    <script src="{{ url_for('static', filename='js/dark-mode.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/smooth-scroll.js') }}?v={{ static_version }}" defer></script>
     <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/collections.js') }}?v={{ static_version }}" defer></script>
@@ -3813,11 +3812,15 @@
                     if (!themeId) {
                         return;
                     }
-                    if (theme.type === 'builtin' && HIDDEN_BUILTIN_THEME_IDS.has(themeId)) {
+                    const themeIdLower = String(themeId).trim().toLowerCase();
+                    if (theme.type === 'builtin' && HIDDEN_BUILTIN_THEME_IDS.has(themeIdLower)) {
                         return;
                     }
                     // בדוק שזו לא ערכה מובנית כפולה
-                    const isBuiltin = BUILTIN_THEMES.some(b => normalizeThemeId(b.id) === themeId);
+                    const isBuiltin = BUILTIN_THEMES.some(b => {
+                        const builtinId = normalizeThemeId(b.id);
+                        return builtinId && builtinId.toLowerCase() === themeIdLower;
+                    });
                     if (!isBuiltin) {
                         allThemes.push({
                             id: themeId,
