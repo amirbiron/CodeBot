@@ -3698,6 +3698,52 @@
         } catch (_) {}
     }
 
+    function captureThemeState() {
+        const html = document.documentElement;
+        const state = {
+            themeAttr: html.getAttribute('data-theme') || '',
+            themeType: html.getAttribute('data-theme-type') || '',
+            userTheme: null,
+            darkPref: null
+        };
+        try { state.userTheme = localStorage.getItem('user_theme'); } catch (_) {}
+        try { state.darkPref = localStorage.getItem('dark_mode_preference'); } catch (_) {}
+        return state;
+    }
+
+    function restoreThemeState(state) {
+        if (!state) return;
+        const html = document.documentElement;
+        try {
+            if (state.themeAttr) {
+                html.setAttribute('data-theme', state.themeAttr);
+            } else {
+                html.removeAttribute('data-theme');
+            }
+        } catch (_) {}
+        try {
+            if (state.themeType) {
+                html.setAttribute('data-theme-type', state.themeType);
+            } else {
+                html.removeAttribute('data-theme-type');
+            }
+        } catch (_) {}
+        try {
+            if (state.userTheme === null) {
+                localStorage.removeItem('user_theme');
+            } else {
+                localStorage.setItem('user_theme', state.userTheme);
+            }
+        } catch (_) {}
+        try {
+            if (state.darkPref === null) {
+                localStorage.removeItem('dark_mode_preference');
+            } else {
+                localStorage.setItem('dark_mode_preference', state.darkPref);
+            }
+        } catch (_) {}
+    }
+
     function rememberThemeTransition(themeAttr, themeType) {
         try {
             sessionStorage.setItem('__ck_theme_transition', JSON.stringify({
@@ -4005,6 +4051,7 @@
             card.style.pointerEvents = 'none';
         }
         
+        let previousState = null;
         try {
             let endpoint = '';
             let body = null;
@@ -4026,6 +4073,7 @@
 
             const shouldReload = resolvedType === 'shared' || resolvedType === 'custom';
 
+            previousState = captureThemeState();
             applyThemeAttributes(themeAttr, resolvedType);
             persistLocalTheme(themeAttr);
             if (shouldReload) {
@@ -4064,7 +4112,10 @@
             }
         } catch (error) {
             console.error('Error applying theme:', error);
+            try { restoreThemeState(previousState); } catch (_) {}
             try { sessionStorage.removeItem('__ck_theme_transition'); } catch (_) {}
+            renderThemes();
+            detectCurrentTheme();
             showToast('שגיאה בהחלת הערכה', 'error');
         } finally {
             if (card) {
