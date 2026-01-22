@@ -13249,40 +13249,6 @@ def edit_file_page(file_id):
                                         )
                                     except Exception:
                                         pass
-                                    try:
-                                        db.code_snippets.update_one(
-                                            {'_id': res.inserted_id, 'user_id': user_id},
-                                            {'$set': {
-                                                'is_pinned': False,
-                                                'pinned_at': None,
-                                                'pin_order': 0,
-                                                'updated_at': now,
-                                            }},
-                                        )
-                                    except Exception as rollback_exc:
-                                        try:
-                                            emit_event(
-                                                "edit_file_unpin_rollback_failed",
-                                                severity="warning",
-                                                user_id=int(user_id),
-                                                file_id=str(res.inserted_id),
-                                                file_name=str(file_name),
-                                                error=str(rollback_exc),
-                                            )
-                                        except Exception:
-                                            pass
-                                        try:
-                                            logger.warning(
-                                                "Failed to rollback pinned status after unpin error",
-                                                extra={
-                                                    "user_id": int(user_id),
-                                                    "file_id": str(res.inserted_id),
-                                                    "file_name": str(file_name),
-                                                    "error": str(rollback_exc),
-                                                },
-                                            )
-                                        except Exception:
-                                            pass
                             try:
                                 # איפוס טיוטת עריכה מקומית רק לאחר שמירה מוצלחת (redirect ל-view)
                                 session[_EDIT_CLEAR_DRAFT_SESSION_KEY] = str(file_id)
