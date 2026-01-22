@@ -195,34 +195,6 @@ const MarkdownToolbar = {
         this.closeDropdown();
       }
     });
-
-    // סגירה אוטומטית בגלילה/ריסייז (מונע חפיפה עם כפתורי שמירה במובייל)
-    window.addEventListener(
-      'scroll',
-      () => {
-        if (this._dropdownOpen) {
-          this.closeDropdown();
-        }
-      },
-      { passive: true }
-    );
-    window.addEventListener('resize', () => {
-      if (this._dropdownOpen) {
-        this.closeDropdown();
-      }
-    });
-
-    // סגירה כשעוברים לפוקוס מחוץ לכלים
-    document.addEventListener('focusin', (e) => {
-      if (!this._dropdownOpen) return;
-      const target = e && e.target;
-      const inside = target && typeof target.closest === 'function'
-        ? target.closest('.md-toolbar-group')
-        : null;
-      if (!inside) {
-        this.closeDropdown();
-      }
-    });
   },
 
   // ---------- טיפול בלחיצות ----------
