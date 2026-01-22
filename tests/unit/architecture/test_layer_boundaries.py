@@ -266,9 +266,8 @@ def test_webapp_api_modules_database_imports_progress():
     dyn = _dynamic_database_import_violations(files)
 
     # Current known violations (baseline - update as we clean up)
-    # collections_api.py: from database.collections_manager
-    # Note: bookmarks_api.py was cleaned up - now uses FilesFacade
-    KNOWN_VIOLATIONS_COUNT = 1  # Update this as we clean up
+    # All API modules cleaned up! They now use FilesFacade.
+    KNOWN_VIOLATIONS_COUNT = 0  # Target achieved!
 
     total_violations = len(violations) + len(dyn)
 
