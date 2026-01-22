@@ -19,7 +19,7 @@ from telegram.ext import (
 )
 
 from .models import Reminder, ReminderConfig, ReminderStatus
-from .database import RemindersDB
+from reminders.database import RemindersDB
 from .validators import ReminderValidator
 from .utils import parse_time
 from utils import TextUtils
