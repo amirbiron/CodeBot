@@ -166,3 +166,13 @@ Endpoint אחד (למשל `GET /api/files` או `POST /save`):
 - [ ] יש Roadmap הדרגתי + בדיקות + Rollback
 - [ ] מודגש שימוש בתשתית הקיימת (לא בנייה מאפס)
 - [ ] נשמרת תאימות לאחור; אין סודות; הדוגמאות קצרות וברורות
+
+---
+
+## קבצי עזר
+
+- `src/infrastructure/composition/files_facade.py` – ה-Facade הקיים
+- `src/infrastructure/composition/container.py` – Composition Root
+- `tests/unit/architecture/test_layer_boundaries.py` – טסטים ארכיטקטוניים
+- `docs/ARCHITECTURE_LAYER_RULES.md` – כללי שכבות
+- `docs/BOT_TEST_PLAN_CONTAINER.md` – תרחישי בדיקה
