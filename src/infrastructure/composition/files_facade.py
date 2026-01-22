@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Constants exposed for WebApp use (avoid importing from database package)
+BOOKMARK_VALID_COLORS = ["yellow", "red", "green", "blue", "purple", "orange", "pink"]
+
 
 class FilesFacade:
     """
