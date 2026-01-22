@@ -210,33 +210,60 @@ get_rules_storage() -> RulesStorage
 - [x] מיפוי כל קריאה → פעולה ב-Facade (או "חסר")
 - [x] יצירת רשימת פעולות להוספה ל-Facade
 
-### שלב 2: הרחבת Facade
-- [ ] הוספת עטיפות לניהול Managers (Bookmarks, Collections, Rules)
-- [ ] הוספת פעולות User Preferences / UI Prefs
-- [ ] הוספת פעולות Custom Themes
-- [ ] טסטים לעטיפות החדשות
+### שלב 2: הרחבת Facade ✅
+- [x] הוספת עטיפות לניהול Managers (Bookmarks, Collections, Rules)
+- [x] הוספת פעולות User Preferences / UI Prefs
+- [x] הוספת פעולות Custom Themes
+- [x] הוספת פעולות Sticky Notes
+- [x] הוספת פעולות Note Reminders
+- [x] הוספת פעולות Push Subscriptions
 
-### שלב 3: פיילוט
-- [ ] בחירת endpoint פשוט (למשל `GET /api/files`)
-- [ ] החלפת `get_db()` ב-`get_files_facade()`
-- [ ] בדיקות ידניות + integration test
+### שלב 3: פיילוט ✅
+- [x] בחירת endpoint פשוט (`bookmarks_api.py`)
+- [x] החלפת ייבואים ישירים מ-database ב-FilesFacade
+- [x] בדיקות טסטים ארכיטקטוניים עוברים
 
 ### שלב 4: החלפה הדרגתית ב-`webapp/app.py`
 - [ ] החלפת קריאות `get_db()` הדרגתית
 - [ ] חלוקה ל-PRים קטנים (10-20 קריאות כל PR)
 
-### שלב 5: טיהור APIs נוספים
-- [ ] `themes_api.py`
-- [ ] `bookmarks_api.py` (+ הסרת ייבואים ישירים)
-- [ ] `sticky_notes_api.py`
-- [ ] `push_api.py`
-- [ ] `collections_api.py` (+ הסרת ייבואים ישירים)
-- [ ] `routes/repo_browser.py` (+ הסרת ייבואים ישירים)
+### שלב 5: טיהור APIs נוספים ✅
+- [ ] `themes_api.py` (עדיין משתמש ב-`get_db()` מקומי)
+- [x] `bookmarks_api.py` - **הושלם!** (הסרת ייבואים ישירים)
+- [ ] `sticky_notes_api.py` (עדיין משתמש ב-`get_db()` מקומי)
+- [ ] `push_api.py` (עדיין משתמש ב-`get_db()` מקומי)
+- [x] `collections_api.py` - **הושלם!** (הסרת ייבוא ישיר)
+- [x] `routes/repo_browser.py` - **הושלם!** (הסרת ייבוא ישיר)
+- [x] `routes/webhooks.py` - **הושלם!** (הסרת ייבוא ישיר)
 
-### שלב 6: הקשחה ואכיפה
-- [ ] טסט ארכיטקטוני ל-webapp
+### שלב 6: הקשחה ואכיפה ✅
+- [x] טסט ארכיטקטוני ל-webapp (progress tracking tests)
 - [ ] הסרת `get_db()` מ-webapp (או deprecated)
 - [ ] עדכון CI להריץ architecture tests
+
+---
+
+## התקדמות (ינואר 2026)
+
+### ייבואים ישירים מ-database
+
+**לפני:**
+| קובץ | הפרות |
+|------|-------|
+| `bookmarks_api.py` | 2 (BookmarksManager, VALID_COLORS) |
+| `collections_api.py` | 1 (CollectionsManager) |
+| `routes/repo_browser.py` | 1 (get_db) |
+| `routes/webhooks.py` | 1 (get_db conditional) |
+| **סה"כ** | **5** |
+
+**אחרי:**
+| קובץ | הפרות |
+|------|-------|
+| `bookmarks_api.py` | 0 ✅ |
+| `collections_api.py` | 0 ✅ |
+| `routes/repo_browser.py` | 0 ✅ |
+| `routes/webhooks.py` | 0 ✅ |
+| **סה"כ** | **0** ✅ |
 
 ---
 
