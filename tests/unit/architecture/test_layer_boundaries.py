@@ -173,13 +173,21 @@ def test_top_level_handler_like_modules_do_not_import_database_directly():
         "file_manager.py",
     )
     files = [ROOT / f for f in explicit if (ROOT / f).exists()]
-    # Also include any root-level handler-like modules we might add later
-    # (keeps the rule enforceable without maintaining a manual list).
-    for pat in ("*handler*.py", "*handlers.py"):
-        try:
-            files.extend(list(ROOT.glob(pat)))
-        except Exception:
-            continue
+    # Also include any handler-like modules under root (excluding handlers/ and tests/)
+    # to avoid missing nested handler files like reminders/handlers.py.
+    try:
+        for f in ROOT.rglob("*handler*.py"):
+            if "tests" in f.parts:
+                continue
+            if "node_modules" in f.parts:
+                continue
+            if ".venv" in f.parts or "venv" in f.parts:
+                continue
+            if (ROOT / "handlers") in f.parents:
+                continue
+            files.append(f)
+    except Exception:
+        pass
     # De-dup while preserving order
     seen = set()
     uniq = []
