@@ -13107,6 +13107,49 @@ def edit_file_page(file_id):
                 # אם ולידציית תמונות (או כל ולידציה אחרת) קבעה error – לא נשמור גרסה חדשה
                 if not error:
                     now = datetime.now(timezone.utc)
+                    pinned_info = None
+                    pinned_source_name = None
+                    try:
+                        if bool(file.get('is_pinned', False)):
+                            pinned_info = file
+                            pinned_source_name = file.get('file_name') or original_file_name or file_name
+                        else:
+                            candidate_name = original_file_name or file.get('file_name') or file_name
+                            if candidate_name:
+                                try:
+                                    pinned_info = db.code_snippets.find_one(
+                                        {
+                                            'user_id': user_id,
+                                            'file_name': candidate_name,
+                                            'is_active': True,
+                                            'is_pinned': True,
+                                        },
+                                        sort=[('version', -1)],
+                                    )
+                                except TypeError:
+                                    pinned_info = db.code_snippets.find_one({
+                                        'user_id': user_id,
+                                        'file_name': candidate_name,
+                                        'is_active': True,
+                                        'is_pinned': True,
+                                    })
+                                if pinned_info:
+                                    pinned_source_name = pinned_info.get('file_name') or candidate_name
+                    except Exception:
+                        pinned_info = None
+                        pinned_source_name = None
+                    if pinned_info is None:
+                        try:
+                            same_name = True
+                            if original_file_name and file_name and original_file_name != file_name:
+                                same_name = False
+                            if same_name and bool((prev or {}).get('is_pinned', False)):
+                                pinned_info = prev
+                                pinned_source_name = (prev or {}).get('file_name') or original_file_name or file_name
+                        except Exception:
+                            pinned_info = None
+                            pinned_source_name = None
+
                     new_doc = {
                         'user_id': user_id,
                         'file_name': file_name,
@@ -13119,6 +13162,17 @@ def edit_file_page(file_id):
                         'updated_at': now,
                         'is_active': True,
                     }
+                    if pinned_info:
+                        new_doc['is_pinned'] = True
+                        try:
+                            pinned_at = pinned_info.get('pinned_at')
+                        except Exception:
+                            pinned_at = None
+                        new_doc['pinned_at'] = pinned_at if pinned_at is not None else now
+                        try:
+                            new_doc['pin_order'] = int(pinned_info.get('pin_order', 0) or 0)
+                        except Exception:
+                            new_doc['pin_order'] = 0
                     prev_source = None
                     try:
                         prev_source = (prev or file or {}).get('source_url')
@@ -13131,6 +13185,72 @@ def edit_file_page(file_id):
                     try:
                         res = db.code_snippets.insert_one(new_doc)
                         if res and getattr(res, 'inserted_id', None):
+                            if new_doc.get('is_pinned'):
+                                unpin_errors: List[Dict[str, Any]] = []
+                                try:
+                                    unpin_query = {
+                                        'user_id': user_id,
+                                        'file_name': file_name,
+                                        'is_pinned': True,
+                                        'is_active': True,
+                                        '_id': {'$ne': res.inserted_id},
+                                    }
+                                    db.code_snippets.update_many(
+                                        unpin_query,
+                                        {'$set': {
+                                            'is_pinned': False,
+                                            'pinned_at': None,
+                                            'pin_order': 0,
+                                            'updated_at': now,
+                                        }},
+                                    )
+                                except Exception as exc:
+                                    unpin_errors.append({"scope": "same_name", "error": str(exc)})
+                                if pinned_source_name and pinned_source_name != file_name:
+                                    try:
+                                        db.code_snippets.update_many(
+                                            {
+                                                'user_id': user_id,
+                                                'file_name': pinned_source_name,
+                                                'is_pinned': True,
+                                                'is_active': True,
+                                                '_id': {'$ne': res.inserted_id},
+                                            },
+                                            {'$set': {
+                                                'is_pinned': False,
+                                                'pinned_at': None,
+                                                'pin_order': 0,
+                                                'updated_at': now,
+                                            }},
+                                        )
+                                    except Exception as exc:
+                                        unpin_errors.append({"scope": "old_name", "error": str(exc)})
+                                if unpin_errors:
+                                    try:
+                                        emit_event(
+                                            "edit_file_unpin_failed",
+                                            severity="warning",
+                                            user_id=int(user_id),
+                                            file_id=str(res.inserted_id),
+                                            file_name=str(file_name),
+                                            pinned_source_name=str(pinned_source_name or ""),
+                                            errors=unpin_errors,
+                                        )
+                                    except Exception:
+                                        pass
+                                    try:
+                                        logger.warning(
+                                            "Failed to unpin previous pinned docs after edit",
+                                            extra={
+                                                "user_id": int(user_id),
+                                                "file_id": str(res.inserted_id),
+                                                "file_name": str(file_name),
+                                                "pinned_source_name": str(pinned_source_name or ""),
+                                                "errors": unpin_errors,
+                                            },
+                                        )
+                                    except Exception:
+                                        pass
                             try:
                                 # איפוס טיוטת עריכה מקומית רק לאחר שמירה מוצלחת (redirect ל-view)
                                 session[_EDIT_CLEAR_DRAFT_SESSION_KEY] = str(file_id)
