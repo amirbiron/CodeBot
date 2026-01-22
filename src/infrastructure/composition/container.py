@@ -5,7 +5,6 @@ from typing import Optional
 
 
 _snippet_service_singleton = None  # type: Optional["SnippetService"]
-_files_facade_singleton = None  # type: Optional["FilesFacade"]
 _singleton_lock = threading.Lock()
 
 
@@ -44,24 +43,4 @@ def get_snippet_service():
             language_detector=detector,
         )
         return _snippet_service_singleton
-
-
-def get_files_facade():
-    """
-    Composition Root: build and return a singleton FilesFacade.
-    Provides a clean API for WebApp/handlers to access DB operations
-    without importing the database package directly.
-    """
-    global _files_facade_singleton
-    if _files_facade_singleton is not None:
-        return _files_facade_singleton
-
-    with _singleton_lock:
-        if _files_facade_singleton is not None:
-            return _files_facade_singleton
-
-        from src.infrastructure.composition.files_facade import FilesFacade  # type: ignore
-
-        _files_facade_singleton = FilesFacade()
-        return _files_facade_singleton
 
