@@ -1,85 +1,290 @@
-את/ה פועל/ת כ-Software Architect מנוסה לארכיטקטורה שכבתית (Layered Architecture) בפרויקטי Python Web (Flask/FastAPI/Quart/AioHTTP), עם שילוב ושיתוף שכבת Domain/Services מול בוט Telegram.
+# פרומפט: פיצול WebApp לשכבות (גרסה מעודכנת - ינואר 2026)
 
-המטרה: לנסח מדריך מפורט ומעשי לפיצול ה-WebApp לשכבות ברורות, תואמות לפרויקט הקיים, ולהגדיר מפת דרכים הדרגתית. לא נוגעים כעת בקוד בפועל – מתכננים ארכיטקטורה, מיפוי וקווים מנחים (ללא WebApp צד-לקוח בלבד).
+> **עדכון חשוב:** פרומפט זה עודכן לאחר השלמת פיצול שכבות הבוט.  
+> קיימת כבר תשתית Domain/Application/Infrastructure מוכנה לשימוש משותף.
 
-הֶקשר על הפרויקט:
-- יש ריפו Python קיים עם בוט Telegram ושכבות שנבנות כעת (Domain/Application/Infrastructure).
-- יש WebApp המגיש ממשק (routes/controllers/templates/static), ייתכן שימוש ב-Flask/FastAPI/Quart/AioHTTP.
-- MongoDB דרך PyMongo; קיים קוד DB בתיקיית database/ ורכיבי Utilities מפוזרים.
-- קיימת אפשרות לקוד “שמן” ב-routes (לוגיקה עסקית + DB + עיבוד תצוגה).
+---
 
-מה אני רוצה לקבל:
+את/ה פועל/ת כ-Software Architect מנוסה לארכיטקטורה שכבתית (Layered Architecture) בפרויקטי Python Web (Flask), עם שילוב ושיתוף שכבת Domain/Services מול בוט Telegram.
 
-1) סריקה ראשונית של ה-WebApp:
-   - תאר/י את המבנה הנוכחי (routes/controllers/templates/static/schemas אם יש).
-   - זהה/י “ריחות קוד” של ערבוב שכבות: DB בקריאה ישירה מה-route, business logic ב-controller, שימוש יתר ב-utils “God Object”, היעדר DTOs/שכבת Schemas.
+## המטרה
 
-2) הצעת ארכיטקטורה שכבתית מותאמת ל-Web:
-   - שכבות:
-     - Presentation (web): routes/controllers, request/response schemas (Pydantic), view models, templates.
-     - Application (services): orchestration של use-cases, עבודה עם DTOs, קריאה ל-domain ול-repositories.
-     - Domain: entities/value objects/validators/services טהורים – ללא תלות ב-web/DB.
-     - Infrastructure: repositories ל-MongoDB/clients ל-APIs/אחסון קבצים.
-     - Shared: utils/text/time/constants – ללא תלות ב-framework.
-   - תרשים שכבות קצר + דוגמה לזרימה (HTTP → route → service → repo → DB → חזרה).
-   - כללי זהב: 
-     - routes לא מדברים DB/ORM, ולא מבצעים business logic.
-     - services לא תלויים ב-web framework, עובדים עם DTOs בלבד.
-     - domain טהור – ללא ייבוא מ-framework/DB.
-     - repos מממשים interfaces מה-domain.
+לחבר את ה-WebApp לתשתית השכבות הקיימת (שנבנתה עבור הבוט), ולהסיר גישות DB ישירות מה-routes.  
+**לא בונים ארכיטקטורה מאפס** – משתמשים בתשתית הקיימת ומרחיבים לפי הצורך.
 
-3) עץ תיקיות מוצע (תחת src/ או המבנה הקיים), לדוגמה:
-   - src/presentation/web/
-     - routes/ (קבצי endpoints לפי אזורים/מודולים)
-     - controllers/ (אופציונלי – פיצול לוגיקה קלה מה-route)
-     - schemas/ (Pydantic request/response)
-     - templates/ (אם server-side rendering)
-   - src/application/services/
-   - src/domain/(entities/value_objects/services/validation/interfaces)
-   - src/infrastructure/database/(mongodb/.../repositories)
-   - src/shared/utils|constants|types
+---
 
-4) מיפוי מהריפו הקיים → שכבות:
-   - טבלת “קובץ/מודול קיים → יעד חדש ותפקיד”.
-   - התייחסות מיוחדת: routes קיימים, גישות DB, helpers (formatters/validators), config/settings.
+## הקשר על הפרויקט
 
-5) כללים ברורים להפרדה + דוגמאות before/after:
-   - לפני: route שמקבל request, עושה normalizing/validation ידני, ניגש ל-DB, ובונה response.
-   - אחרי: route → schema (Pydantic) → service (use-case) → repository → DB; route מחזיר DTO/ViewModel ל-render/json.
-   - דוגמאות קצרות בסגנון הקוד הקיים, כולל import “נכון/לא נכון”.
+### תשתית קיימת (הושלמה)
 
-6) מפת דרכים (Roadmap) הדרגתית ל-WebApp:
-   - שלב 1: סידור תיקיות והוספת schemas (בלי לשנות לוגיקה) + wiring מינימלי.
-   - שלב 2: העברת use-case אחד (למשל “שמירת סניפט”) ל-service ו-repo, routes משתמש ב-service.
-   - שלב 3: פיצול utilities; הוצאת business rules ל-domain; שימוש ב-DTOs/ViewModels.
-   - שלב 4: הכנסה של interfaces ב-domain למימושי repos; החלפת גישות DB ישירות.
-   - שלב 5: חיזוק גבולות: בדיקות אוטומטיות/linters/בדיקת הפרות שכבות (hook).
-   - לכל שלב: אילו קבצים לגעת, איך לבדוק (unit/app/integration), ו-Rollback פשוט.
+הבוט עבר פיצול מלא לשכבות. קיימים:
 
-7) דוגמה מלאה end-to-end:
-   - Endpoint POST /snippets (או דומה): איך נראה היום מול איך ייראה בשכבות (schemas → service → repo).
-   - דוגמה json request/response schemas.
-   - שימוש ב-DTOs בין שכבות.
+```
+src/
+├── domain/                          # שכבת Domain (טהורה)
+│   ├── entities/snippet.py          # Snippet entity
+│   ├── interfaces/                  # Repository interfaces
+│   └── services/
+│       ├── language_detector.py     # מקור אמת לזיהוי שפה
+│       └── code_normalizer.py       # נרמול קוד
+│
+├── application/                     # שכבת Application
+│   ├── dto/create_snippet_dto.py    # DTOs
+│   └── services/snippet_service.py  # SnippetService
+│
+└── infrastructure/                  # שכבת Infrastructure
+    ├── composition/
+    │   ├── container.py             # Composition Root: get_snippet_service()
+    │   └── files_facade.py          # FilesFacade: 50+ פעולות DB
+    └── database/mongodb/repositories/
+        └── snippet_repository.py    # מימוש Repository
+```
 
-8) בדיקות ותחזוקה:
-   - Unit: services (ללא web/DB) עם Repo mock.
-   - Integration: repo מול DB זמני/מזויף; routes עם test client (Flask/FastAPI).
-   - שיתוף Domain/Services עם הבוט – בלי לשכפל לוגיקה.
-   - הנחיות DI פשוטות (factory/wiring), רישום תלותים במקום אחד.
+**נקודות כניסה זמינות:**
+- `get_snippet_service()` – שירות מלא לניהול snippets (save, get, versions, language detection)
+- `get_files_facade()` – facade ל-DB עם 50+ פעולות (favorites, large files, search, Drive/GitHub tokens, etc.)
 
-אילוצים וסגנון:
-- הכל בעברית, שפה פשוטה וברורה, רשימות/טבלאות היכן שמועיל.
-- שאלות/הנחות מפורשות כשחסר מידע.
-- אין לכלול סודות/PII; אין הרצות בזמן build; אין תלות ב-framework בתוך domain.
-- שמור/י תאימות לאחור עם Feature Flags/Adapters כצורך.
-- סיים/י עם ROI: פחות באגים, פיתוח מהיר, בדיקות קלות, Onboarding נוח; והצעדים הבאים (פיילוט של endpoint אחד).
+**טסטים ארכיטקטוניים:** 6 טסטים ב-`tests/unit/architecture/test_layer_boundaries.py` אוכפים גבולות שכבות.
 
-פורמט יציאה:
-- כותרות Markdown (Part 1–4/5), תקצירים תמציתיים, דוגמאות קצרות, טבלת מיפוי, Checklists, Next Steps, Rollback.
+### מצב ה-WebApp כרגע (ינואר 2026)
 
-Self-check לפני מסירה:
-- [ ] יש שכבות ברורות והסבר “מה מותר/אסור”.
-- [ ] יש עץ תיקיות + טבלת מיפוי.
-- [ ] יש before/after קצר ל-route אחד לפחות.
-- [ ] יש Roadmap הדרגתי + בדיקות + Rollback.
-- [ ] נשמרת תאימות לאחור; אין סודות; הדוגמאות קצרות וברורות.
+| קובץ | קריאות `get_db()` | הערות |
+|------|-------------------|-------|
+| `webapp/app.py` | ~112 | קובץ ראשי, רוב הלוגיקה |
+| `webapp/themes_api.py` | ~19 | ניהול themes |
+| `webapp/sticky_notes_api.py` | ~18 | פתקים |
+| `webapp/bookmarks_api.py` | ~7 | + ייבוא ישיר מ-`database.bookmarks_manager` |
+| `webapp/push_api.py` | ~14 | Push notifications |
+| שאר ה-APIs | ~19 | rules, collections, routes |
+| **סה"כ** | **~189** | גישות DB ישירות |
+
+**בעיות נוכחיות:**
+- אפס שימוש ב-`get_files_facade()` או `get_snippet_service()`
+- ייבואים ישירים מ-`database.*` בחלק מה-APIs
+- לוגיקה עסקית מעורבבת ב-routes (validation, formatting, DB)
+- אין DTOs/Schemas – עבודה ישירה עם dicts
+
+---
+
+## מה אני רוצה לקבל
+
+### 1) ניתוח פערים: Facade מול צרכי WebApp
+
+בדוק אילו פעולות DB נדרשות ב-WebApp ואילו כבר קיימות ב-`FilesFacade`:
+
+| פעולה נדרשת | קיים ב-Facade? | הערות |
+|-------------|----------------|-------|
+| `get_user_files()` | ✅ | כולל pagination |
+| `save_file()` | ✅ | |
+| `toggle_favorite()` | ✅ | |
+| `get_themes()` | ❓ | לבדוק |
+| `save_bookmark()` | ❓ | יש BookmarksManager נפרד |
+| ... | | |
+
+**פלט מצופה:** רשימת פעולות חסרות שצריך להוסיף ל-Facade.
+
+### 2) הרחבת FilesFacade (אם נדרש)
+
+אם יש פעולות חסרות:
+- הוסף עטיפות ל-`files_facade.py`
+- שמור על אותו סגנון (lazy import, fallback בטוח, type hints)
+- אל תשכפל לוגיקה – עטוף את הקיים
+
+### 3) החלפה הדרגתית של `get_db()` ל-Facade
+
+**לפני:**
+```python
+# webapp/app.py
+def get_user_files():
+    db = get_db()
+    return list(db.code_snippets.find({'user_id': user_id}))
+```
+
+**אחרי:**
+```python
+# webapp/app.py
+from src.infrastructure.composition import get_files_facade
+
+def get_user_files():
+    facade = get_files_facade()
+    return facade.get_user_files(user_id)
+```
+
+### 4) מיפוי routes → שכבות
+
+| Route/Endpoint | מצב נוכחי | יעד |
+|----------------|-----------|-----|
+| `GET /files` | `get_db().code_snippets.find()` | `get_files_facade().get_user_files()` |
+| `POST /save` | validation + DB ב-route | schema → `get_snippet_service().save()` |
+| `GET /api/bookmarks` | `BookmarksManager(get_db())` | `get_files_facade().get_bookmarks()` |
+| ... | | |
+
+### 5) Schemas (Pydantic) – אופציונלי בשלב ראשון
+
+אם יש זמן, הוסף request/response schemas:
+
+```python
+# webapp/schemas/snippet_schemas.py
+from pydantic import BaseModel
+
+class SaveSnippetRequest(BaseModel):
+    file_name: str
+    code: str
+    language: str | None = None
+
+class SnippetResponse(BaseModel):
+    id: str
+    file_name: str
+    language: str
+    created_at: datetime
+```
+
+### 6) טסטים ארכיטקטוניים ל-WebApp
+
+הרחב את `test_layer_boundaries.py` כך שיבדוק גם webapp:
+
+```python
+def test_webapp_does_not_import_database_directly():
+    """WebApp routes must not import database directly."""
+    files = list(_python_files_under("webapp"))
+    # מותר: src.infrastructure.composition
+    # אסור: database, database.*
+    forbidden = ("database",)
+    allowed = ("src.infrastructure.composition",)
+    violations = _violations(files, forbidden, allowed)
+    assert not violations
+```
+
+---
+
+## מפת דרכים (Roadmap) מעודכנת
+
+### שלב 1: מיפוי וניתוח (ללא שינוי קוד)
+- [ ] סרוק את כל קריאות `get_db()` ב-webapp
+- [ ] מפה כל קריאה → פעולה ב-Facade (או "חסר")
+- [ ] צור רשימת פעולות להוספה ל-Facade
+- **בדיקה:** אין שינוי, רק תיעוד
+- **Rollback:** לא נדרש
+
+### שלב 2: הרחבת Facade (אם נדרש)
+- [ ] הוסף עטיפות חסרות ל-`files_facade.py`
+- [ ] הוסף טסטים לעטיפות החדשות
+- **בדיקה:** `pytest tests/unit/` + טסטים חדשים
+- **Rollback:** `git revert` – הוספה בלבד, לא שובר קיים
+
+### שלב 3: פיילוט – endpoint אחד
+- [ ] בחר endpoint פשוט (למשל `GET /api/files`)
+- [ ] החלף `get_db()` ב-`get_files_facade()`
+- [ ] בדוק ידנית + הוסף integration test
+- **בדיקה:** WebApp עולה, endpoint מחזיר תוצאות נכונות
+- **Rollback:** `git revert` של commit בודד
+
+### שלב 4: החלפה מלאה ב-`webapp/app.py`
+- [ ] החלף את כל 112 קריאות `get_db()` הדרגתית
+- [ ] חלק ל-PRים קטנים (10-20 קריאות כל PR)
+- **בדיקה:** CI ירוק, בדיקות ידניות לפי `BOT_TEST_PLAN_CONTAINER.md`
+- **Rollback:** PRים קטנים מאפשרים revert נקודתי
+
+### שלב 5: טיהור APIs נוספים
+- [ ] `themes_api.py` (19 קריאות)
+- [ ] `bookmarks_api.py` (7 קריאות + ייבוא ישיר)
+- [ ] `sticky_notes_api.py` (18 קריאות)
+- [ ] שאר ה-APIs
+- **בדיקה:** כל API בנפרד
+
+### שלב 6: הקשחה ואכיפה
+- [ ] הוסף טסט ארכיטקטוני ל-webapp
+- [ ] הסר את `get_db()` מ-`webapp/app.py` (או הפוך ל-deprecated)
+- [ ] עדכן CI להריץ architecture tests
+- **בדיקה:** CI נכשל על הפרות שכבות
+
+---
+
+## דוגמה מלאה: GET /api/files
+
+### לפני (מצב נוכחי)
+
+```python
+# webapp/app.py
+@app.route('/api/files')
+@require_auth
+def api_get_files():
+    user_id = session['user_id']
+    db = get_db()
+    
+    # לוגיקה ב-route
+    files = list(db.code_snippets.find(
+        {'user_id': user_id, 'deleted': {'$ne': True}},
+        {'code': 0}  # projection ידני
+    ).sort('updated_at', -1).limit(50))
+    
+    # עיבוד ידני
+    for f in files:
+        f['_id'] = str(f['_id'])
+        f['created_at'] = f.get('created_at', '').isoformat() if f.get('created_at') else None
+    
+    return jsonify({'ok': True, 'files': files})
+```
+
+### אחרי (עם Facade)
+
+```python
+# webapp/app.py
+from src.infrastructure.composition import get_files_facade
+
+@app.route('/api/files')
+@require_auth
+def api_get_files():
+    user_id = session['user_id']
+    facade = get_files_facade()
+    
+    # הכל עובר דרך Facade
+    files = facade.get_user_files(user_id, limit=50)
+    
+    # Facade כבר מחזיר dicts מעובדים
+    return jsonify({'ok': True, 'files': files})
+```
+
+---
+
+## אילוצים וסגנון
+
+- **עברית** – שפה פשוטה וברורה
+- **אין סודות/PII** – לא בקוד ולא בדוגמאות
+- **תאימות לאחור** – שינויים הדרגתיים, Feature Flags לפי הצורך
+- **אין Prettier על Jinja** – `webapp/templates/**` לא נוגעים בפורמט
+- **מחיקות רק ב-tmp** – לפי כללי הפרויקט
+
+---
+
+## ROI צפוי
+
+| תועלת | הסבר |
+|-------|------|
+| **קוד DRY** | אותה לוגיקה לבוט ול-WebApp |
+| **בדיקות קלות** | Mock ל-Facade במקום DB אמיתי |
+| **פחות באגים** | מקור אמת אחד (LanguageDetector, validation) |
+| **Onboarding** | מפתח חדש לומד API אחד (Facade) |
+| **Rollback בטוח** | PRים קטנים, שינויים הפיכים |
+
+---
+
+## Self-check לפני מסירה
+
+- [ ] יש ניתוח פערים: Facade מול צרכי WebApp
+- [ ] יש רשימת פעולות להוספה (אם יש)
+- [ ] יש דוגמת before/after ל-endpoint אחד
+- [ ] יש Roadmap עם שלבים + בדיקות + Rollback
+- [ ] נשמרת תאימות לאחור
+- [ ] אין ייבואי `database` ישירים ב-routes (יעד סופי)
+
+---
+
+## קבצי עזר
+
+- `src/infrastructure/composition/files_facade.py` – ה-Facade הקיים
+- `src/infrastructure/composition/container.py` – Composition Root
+- `tests/unit/architecture/test_layer_boundaries.py` – טסטים ארכיטקטוניים
+- `docs/ARCHITECTURE_LAYER_RULES.md` – כללי שכבות
+- `docs/BOT_TEST_PLAN_CONTAINER.md` – תרחישי בדיקה
