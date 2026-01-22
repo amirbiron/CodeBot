@@ -157,7 +157,7 @@ class CodeExecutionService:
         self._max_output_bytes = _get_env_int("CODE_EXEC_MAX_OUTPUT_BYTES", 100 * 1024)
         self._max_code_length = _get_env_int("CODE_EXEC_MAX_CODE_LENGTH", 50 * 1024)
         self._docker_image = os.environ.get("CODE_EXEC_DOCKER_IMAGE", "python:3.11-slim")
-        self._docker_pull_timeout = _get_env_int("CODE_EXEC_DOCKER_PULL_TIMEOUT", 60)
+        self._docker_pull_timeout = max(5, _get_env_int("CODE_EXEC_DOCKER_PULL_TIMEOUT", 60))
         self._docker_image_ready = False
 
         self._docker_available = self._check_docker()
