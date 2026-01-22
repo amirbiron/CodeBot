@@ -159,17 +159,10 @@ class MultiSelectManager {
     }
     
     setupSelectAllButton() {
-        // הוסף כפתור "בחר הכל" אם לא קיים
-        const filtersSection = document.querySelector('.filters-section');
-        if (filtersSection && !document.getElementById('selectAllBtn')) {
-            const selectAllBtn = document.createElement('button');
-            selectAllBtn.id = 'selectAllBtn';
-            selectAllBtn.className = 'btn btn-secondary btn-icon';
-            selectAllBtn.innerHTML = '<i class="fas fa-check-square"></i> בחר הכל';
-            selectAllBtn.onclick = () => this.selectAll();
-            
-            filtersSection.appendChild(selectAllBtn);
-        }
+        // חיבור כפתור "בחר הכל" הקיים ב-HTML
+        const selectAllBtn = document.getElementById('selectAllBtn');
+        if (!selectAllBtn) return;
+        selectAllBtn.addEventListener('click', () => this.selectAll());
     }
     
     selectAll() {
