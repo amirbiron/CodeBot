@@ -107,6 +107,10 @@
             } catch (_) { /* ignore */ }
         })();
     </script>
+    <script>
+        // רשימת ערכות מובנות שמוסתרות מהממשק (משותפת לכל המסכים)
+        window.__ckHiddenBuiltinThemes = ['dark', 'dim', 'ocean', 'rose-pine-dawn'];
+    </script>
 
     <!-- Icons -->
     <link rel="stylesheet"
@@ -3586,7 +3590,14 @@
     const tabBtns = modalEl.querySelectorAll('.theme-picker__tab');
 
     // ערכות מובנות (Built-in) עם צבעים לתצוגה מקדימה
-    const HIDDEN_BUILTIN_THEME_IDS = new Set(['dark', 'dim', 'ocean', 'rose-pine-dawn']);
+    const hiddenBuiltinThemeIds = Array.isArray(window.__ckHiddenBuiltinThemes)
+        ? window.__ckHiddenBuiltinThemes
+        : [];
+    const HIDDEN_BUILTIN_THEME_IDS = new Set(
+        hiddenBuiltinThemeIds
+            .map((id) => String(id).trim().toLowerCase())
+            .filter(Boolean)
+    );
     const BUILTIN_THEMES = [
         { id: 'nebula', name: 'Nebula', type: 'builtin', emoji: '🌌', colors: ['#1a1b26', '#7aa2f7', '#bb9af7', '#f7768e'] },
         { id: 'classic', name: 'Classic', type: 'builtin', emoji: '🏛️', colors: ['#ffffff', '#333333', '#667eea', '#48bb78'] },

@@ -1519,7 +1519,14 @@
             throw new Error((data && data.error) || 'load_failed');
           }
           const themes = Array.isArray(data.themes) ? data.themes : [];
-          const hiddenBuiltin = new Set(['dark', 'dim', 'ocean', 'rose-pine-dawn']);
+          const hiddenBuiltinIds = Array.isArray(window.__ckHiddenBuiltinThemes)
+            ? window.__ckHiddenBuiltinThemes
+            : [];
+          const hiddenBuiltin = new Set(
+            hiddenBuiltinIds
+              .map((id) => String(id).trim().toLowerCase())
+              .filter(Boolean)
+          );
           const builtin = themes.filter(t => {
             if (!t || t.type !== 'builtin' || !t.id) return false;
             const id = String(t.id).trim().toLowerCase();
