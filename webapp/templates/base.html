@@ -3671,9 +3671,11 @@
         const t = String(themeAttr || '').trim().toLowerCase();
         try { localStorage.setItem('user_theme', t); } catch (_) {}
         try {
-            if (t === 'dark' || t === 'dim') {
-                localStorage.setItem('dark_mode_preference', t);
-            } else if (t === 'classic' || t === 'rose-pine-dawn') {
+            const darkThemes = ['dark', 'dim', 'ocean', 'nebula', 'high-contrast'];
+            const lightThemes = ['classic', 'rose-pine-dawn'];
+            if (darkThemes.includes(t)) {
+                localStorage.setItem('dark_mode_preference', 'dark');
+            } else if (lightThemes.includes(t)) {
                 localStorage.setItem('dark_mode_preference', 'light');
             } else {
                 localStorage.removeItem('dark_mode_preference');
