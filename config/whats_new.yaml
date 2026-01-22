@@ -65,6 +65,18 @@ features:
     icon: "🔄"
     date: "2025-12-10"
 
+  - title: "ספריית סניפטים"
+    description: "ספריית קטעי קוד לשימוש הציבור - כל משתמש יכול להוסיף סניפטים לספרייה"  
+    icon: "📃"
+    date: "2025-11-11"
+    link: "/snippets"
+
+  - title: "ממשקי משתמשים"
+    description: "אוסף קהילתי של כלים שפרסמו משתמשי CodeKeeper"  
+    icon: "📳"
+    date: "2025-11-06"
+    link: "/community-library"
+    
 # ========================================
 # איך להוסיף פיצ'ר חדש:
 # ========================================
