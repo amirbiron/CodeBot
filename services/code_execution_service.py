@@ -15,6 +15,7 @@ Code Execution Service
     CODE_EXEC_MAX_OUTPUT_BYTES=102400  # פלט מקסימלי (bytes)
     CODE_EXEC_MAX_CODE_LENGTH=51200  # אורך קוד מקסימלי (bytes)
     CODE_EXEC_DOCKER_IMAGE=python:3.11-slim
+    CODE_EXEC_DOCKER_PULL_TIMEOUT=60  # timeout להורדת image כשחסר
 """
 
 from __future__ import annotations
@@ -156,6 +157,8 @@ class CodeExecutionService:
         self._max_output_bytes = _get_env_int("CODE_EXEC_MAX_OUTPUT_BYTES", 100 * 1024)
         self._max_code_length = _get_env_int("CODE_EXEC_MAX_CODE_LENGTH", 50 * 1024)
         self._docker_image = os.environ.get("CODE_EXEC_DOCKER_IMAGE", "python:3.11-slim")
+        self._docker_pull_timeout = max(5, _get_env_int("CODE_EXEC_DOCKER_PULL_TIMEOUT", 60))
+        self._docker_image_ready = False
 
         self._docker_available = self._check_docker()
 
@@ -181,6 +184,48 @@ class CodeExecutionService:
             return result.returncode == 0
         except (subprocess.SubprocessError, FileNotFoundError):
             return False
+
+    def _ensure_docker_image(self) -> Optional[str]:
+        """מוודא שה-image קיים מקומית כדי למנוע timeout בזמן הרצה."""
+        if self._docker_image_ready:
+            return None
+        if not self._docker_image:
+            return "לא הוגדר Docker image להרצת קוד"
+
+        try:
+            inspect = subprocess.run(
+                ["docker", "image", "inspect", self._docker_image],
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if inspect.returncode == 0:
+                self._docker_image_ready = True
+                return None
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return "Docker אינו זמין לבדיקת image"
+
+        try:
+            pull = subprocess.run(
+                ["docker", "pull", self._docker_image],
+                capture_output=True,
+                timeout=self._docker_pull_timeout,
+                check=False,
+            )
+            if pull.returncode != 0:
+                stderr = pull.stderr.decode("utf-8", errors="replace").strip()
+                if len(stderr) > 200:
+                    stderr = stderr[:200].rstrip() + "..."
+                if stderr:
+                    return f"שגיאה בהורדת Docker image: {stderr}"
+                return "שגיאה בהורדת Docker image"
+        except subprocess.TimeoutExpired:
+            return f"תם הזמן להורדת Docker image ({self._docker_pull_timeout} שניות)"
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return "שגיאה בהורדת Docker image"
+
+        self._docker_image_ready = True
+        return None
 
     def is_docker_available(self) -> bool:
         return self._docker_available
@@ -282,8 +327,18 @@ class CodeExecutionService:
         timeout = min(max(1, int(timeout)), self._max_timeout)
         memory_limit_mb = min(max(32, int(memory_limit_mb)), self._max_memory_mb)
 
-        start_time = time.monotonic()
         use_docker = self._use_docker and self._docker_available
+        if use_docker:
+            image_error = self._ensure_docker_image()
+            if image_error:
+                return ExecutionResult(
+                    success=False,
+                    error_message=image_error,
+                    exit_code=-1,
+                    used_docker=True,
+                )
+
+        start_time = time.monotonic()
 
         try:
             if use_docker:
@@ -602,6 +657,7 @@ class CodeExecutionService:
             "docker_required": self._use_docker,
             "fallback_allowed": self._allow_fallback,
             "docker_image": self._docker_image,
+            "docker_pull_timeout_seconds": self._docker_pull_timeout,
         }
 
 
