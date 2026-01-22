@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
 from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple, Set
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, Future
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
 import threading
@@ -4075,41 +4075,96 @@ def _profiler_rate_limit_ok() -> bool:
         return True
 
 
-def _run_profiler(awaitable):
-    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI."""
+def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
+    """הרצה בטוחה של awaitable בסביבה סינכרונית (Flask/WSGI).
+
+    - אם יש event loop פעיל ב-thread הנוכחי: מריצים ב-thread נקי עם לולאה חדשה.
+    - אחרת: מריצים לולאה חדשה באותו thread.
+    """
+
+    def _is_running_loop_error(exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        return (
+            "event loop is already running" in msg
+            or "cannot run the event loop while another loop is running" in msg
+            or "asyncio.run() cannot be called from a running event loop" in msg
+        )
 
     async def _runner():
         return await awaitable
 
     def _run_in_new_loop():
         try:
-            # ניסיון לקבל את הלופ הקיים ב-thread הזה
-            loop = asyncio.get_event_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
-            # אם אין לופ, יוצרים אחד חדש ומגדירים אותו כנוכחי
+            pass
+        else:
+            raise RuntimeError("event loop is already running")
+
+        prev_loop = None
+        loop = None
+        try:
+            try:
+                prev_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                prev_loop = None
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_runner())
+            return loop.run_until_complete(_runner())
+        finally:
+            if loop is not None:
+                try:
+                    loop.close()
+                finally:
+                    try:
+                        if prev_loop is None or (prev_loop.is_closed() if prev_loop else True):
+                            asyncio.set_event_loop(None)
+                        else:
+                            asyncio.set_event_loop(prev_loop)
+                    except Exception:
+                        pass
 
-    # תחת gevent (או בכל thread שיש בו event loop פעיל), אסור לקרוא asyncio.run/AsyncToSync.
-    # הפתרון היציב: לברוח ל-OS thread "נקי" ולהריץ שם event loop חדש.
+    def _run_in_fresh_thread():
+        future: Future = Future()
+
+        def _target():
+            try:
+                future.set_result(_run_in_new_loop())
+            except BaseException as exc:
+                future.set_exception(exc)
+
+        thread = threading.Thread(target=_target, name=f"{thread_label}_loop", daemon=True)
+        thread.start()
+        return future.result()
+
+    def _run_in_threadpool():
+        return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
+
+    def _run_in_threadpool_with_fallback():
+        try:
+            return _run_in_threadpool()
+        except RuntimeError as exc:
+            if _is_running_loop_error(exc):
+                return _run_in_fresh_thread()
+            raise
+
+    # תחת gevent/asyncio: אם יש event loop פעיל, נברח ל-thread "נקי".
     try:
         asyncio.get_running_loop()
-        return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
+        return _run_in_threadpool_with_fallback()
     except RuntimeError:
         # אין event loop פעיל ב-thread הנוכחי => מותר להריץ לולאה חדשה כאן.
         try:
             return _run_in_new_loop()
-        except RuntimeError as e:
-            # Fall back בטוח: אם asyncio עדיין חושב שיש loop פעיל (נראה לעתים עם gevent),
-            # נריץ ב-threadpool.
-            err = str(e).lower()
-            if (
-                "asyncio.run() cannot be called from a running event loop" in err
-                or "event loop is already running" in err
-            ):
-                return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
+        except RuntimeError as exc:
+            if _is_running_loop_error(exc):
+                return _run_in_threadpool_with_fallback()
             raise
+
+
+def _run_profiler(awaitable):
+    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI."""
+    return _run_awaitable_blocking(awaitable, thread_label="profiler")
 
 
 @app.route("/admin/profiler")
@@ -4424,36 +4479,9 @@ _DB_HEALTH_COLLECTIONS_COOLDOWN_LOCK = threading.Lock()
 def _run_db_health(awaitable):
     """הרצת קורוטינה בצורה תואמת Flask תחת WSGI.
 
-    אם asgiref קיים (Flask[async]) נשתמש בו; אחרת נריץ asyncio.run כדי להימנע מ-async views ב-WSGI.
+    אם יש event loop פעיל נברח ל-thread נקי עם לולאה חדשה.
     """
-    async def _runner():
-        return await awaitable
-
-    def _run_in_new_loop():
-        try:
-            # ניסיון לקבל את הלופ הקיים ב-thread הזה
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            # אם אין לופ, יוצרים אחד חדש ומגדירים אותו כנוכחי
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_runner())
-
-    # אותו עיקרון כמו ב-Query Profiler: תחת gevent אי אפשר להריץ event loop באותו thread.
-    try:
-        asyncio.get_running_loop()
-        return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
-    except RuntimeError:
-        try:
-            return _run_in_new_loop()
-        except RuntimeError as e:
-            err = str(e).lower()
-            if (
-                "asyncio.run() cannot be called from a running event loop" in err
-                or "event loop is already running" in err
-            ):
-                return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
-            raise
+    return _run_awaitable_blocking(awaitable, thread_label="db_health")
 
 
 def _get_webapp_db_health_service():
