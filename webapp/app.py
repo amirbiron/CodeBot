@@ -4117,7 +4117,7 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
                     loop.close()
                 finally:
                     try:
-                        if prev_loop is None or (prev_loop.is_closed() if prev_loop else True):
+                        if prev_loop is None or prev_loop.is_closed():
                             asyncio.set_event_loop(None)
                         else:
                             asyncio.set_event_loop(prev_loop)
