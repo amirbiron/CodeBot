@@ -4073,9 +4073,15 @@
                 themeAttr = normalizedThemeId;
             }
 
-            const shouldReload = resolvedType === 'shared' || resolvedType === 'custom';
-
             previousState = captureThemeState();
+            
+            // בדיקה אם הערכה הקודמת הייתה custom/shared - במקרה כזה צריך reload גם אם עוברים לערכת builtin
+            const prevTheme = (previousState.themeAttr || '').toLowerCase();
+            const wasCustomOrShared = prevTheme === 'custom' || prevTheme.startsWith('shared:') || previousState.themeType === 'custom';
+            
+            // צריך reload אם עוברים ל/מ-ערכות custom/shared
+            const shouldReload = resolvedType === 'shared' || resolvedType === 'custom' || wasCustomOrShared;
+
             applyThemeAttributes(themeAttr, resolvedType);
             persistLocalTheme(themeAttr);
             if (shouldReload) {
