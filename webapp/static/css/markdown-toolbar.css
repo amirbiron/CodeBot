@@ -64,6 +64,7 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(-8px);
+  pointer-events: none;
   transition: all 0.2s ease;
 }
 
@@ -71,6 +72,7 @@
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+  pointer-events: auto;
 }
 
 /* מאפשר לתפריטים לחרוג מגבולות ה-Split View בדסקטופ */
