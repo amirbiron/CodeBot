@@ -484,9 +484,21 @@
     margin-top: 0.5rem;
 }
 
-/* כפתור בחר הכל */
+/* כפתורי בחירה מרובה */
+.multi-select-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* כפתור בחר הכל מוצג רק במצב בחירה מרובה */
 #selectAllBtn {
-    margin-left: auto;
+    display: none;
+}
+
+body.multi-select-active #selectAllBtn {
+    display: inline-flex;
 }
 
 /* Responsive styles */
