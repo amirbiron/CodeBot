@@ -6,6 +6,10 @@
 
 from __future__ import annotations
 
+# חשוב: gevent חייב לרוץ לפני ייבוא ספריות סטנדרטיות כדי ש-sockets ייסגרו נכון ב-shutdown.
+from gevent import monkey as _gevent_monkey
+_gevent_monkey.patch_all()
+
 # הגדרות מתקדמות
 import os
 import functools
