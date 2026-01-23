@@ -91,8 +91,8 @@
       const t = String(htmlTheme || '').toLowerCase();
       // Custom theme: don't load oneDark, let syntax_css CSS classes work
       if (t === 'custom') return 'custom';
-      // Same logic as editor-manager.js (dark/dim/nebula/indigo-violet => oneDark)
-      if (t === 'dark' || t === 'dim' || t === 'nebula' || t === 'indigo-violet') return 'dark';
+      // Same logic as editor-manager.js (dark/dim/nebula => oneDark)
+      if (t === 'dark' || t === 'dim' || t === 'nebula') return 'dark';
     } catch (_) {}
     return 'dark';
   }
