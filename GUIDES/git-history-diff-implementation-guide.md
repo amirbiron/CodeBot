@@ -2222,15 +2222,35 @@ const RepoHistory = (function() {
 
         } catch (error) {
             console.error('Error loading history:', error);
-            container.innerHTML = `
-                <div class="history-error">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    <p>${escapeHtml(error.message)}</p>
-                    <button class="retry-btn">נסה שוב</button>
-                </div>
-            `;
-            container.querySelector('.retry-btn')
-                .addEventListener('click', () => loadHistory());
+
+            if (append) {
+                // במצב append - לא למחוק commits קיימים, רק להציג toast
+                showToast(error.message, 'error');
+
+                // הסרת כפתור "טען עוד" הקודם והוספת כפתור retry
+                const loadMoreBtn = container.querySelector('.history-load-more');
+                if (loadMoreBtn) loadMoreBtn.remove();
+
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'history-load-more error';
+                retryBtn.innerHTML = `
+                    <i class="bi bi-arrow-clockwise"></i>
+                    נסה שוב לטעון
+                `;
+                retryBtn.addEventListener('click', () => loadHistory(true));
+                container.appendChild(retryBtn);
+            } else {
+                // טעינה ראשונית - הצג שגיאה מלאה
+                container.innerHTML = `
+                    <div class="history-error">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <p>${escapeHtml(error.message)}</p>
+                        <button class="retry-btn">נסה שוב</button>
+                    </div>
+                `;
+                container.querySelector('.retry-btn')
+                    .addEventListener('click', () => loadHistory());
+            }
         } finally {
             state.isLoading = false;
         }
@@ -2250,7 +2270,7 @@ const RepoHistory = (function() {
 
         commitsToRender.forEach((commit, index) => {
             const globalIndex = startIndex + index;
-            const commitEl = createCommitElement(commit, globalIndex);
+            const commitEl = createCommitElement(commit, globalIndex, state.commits.length);
             container.appendChild(commitEl);
         });
 
@@ -2267,9 +2287,10 @@ const RepoHistory = (function() {
         }
     }
 
-    function createCommitElement(commit, index) {
+    function createCommitElement(commit, index, totalCommits) {
         const el = document.createElement('div');
         el.className = 'history-commit';
+        const hasParent = index < totalCommits - 1;  // יש commit ישן יותר במערך
         el.dataset.hash = commit.hash;
         el.dataset.index = index;
 
@@ -2295,7 +2316,7 @@ const RepoHistory = (function() {
                     <i class="bi bi-file-diff"></i>
                     VS HEAD
                 </button>
-                ${index > 0 ? `
+                ${hasParent ? `
                     <button class="commit-action-btn diff-prev-btn" title="השווה ל-commit הקודם">
                         <i class="bi bi-arrow-left-right"></i>
                         VS קודם
@@ -2453,14 +2474,17 @@ const RepoHistory = (function() {
     function backToHead() {
         if (!state.currentFile) return;
 
-        // Remove version badge
+        // וידוא שניתן לטעון את הקובץ לפני הסרת ה-badge
+        if (!window.selectFile) {
+            showToast('לא ניתן לטעון מחדש - רענן את הדף', 'error');
+            return;
+        }
+
+        // הסרת badge וטעינה מחדש - רק אם שניהם אפשריים
         const badge = document.querySelector('.version-badge');
         if (badge) badge.remove();
 
-        // Reload current file from HEAD
-        if (window.selectFile) {
-            window.selectFile(state.currentFile);
-        }
+        window.selectFile(state.currentFile);
     }
 
     // ============================================
