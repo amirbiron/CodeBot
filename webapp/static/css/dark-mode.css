@@ -16,6 +16,7 @@
 [data-theme="dark"] .navbar .nav-link,
 [data-theme="dim"] .navbar .nav-link,
 [data-theme="nebula"] .navbar .nav-link,
+[data-theme="indigo-violet"] .navbar .nav-link,
 [data-theme="custom"] .navbar .nav-link,
 [data-theme^="shared:"] .navbar .nav-link {
     color: var(--text-primary);
@@ -24,6 +25,7 @@
 [data-theme="dark"] .navbar .nav-link:hover,
 [data-theme="dim"] .navbar .nav-link:hover,
 [data-theme="nebula"] .navbar .nav-link:hover,
+[data-theme="indigo-violet"] .navbar .nav-link:hover,
 [data-theme="custom"] .navbar .nav-link:hover,
 [data-theme^="shared:"] .navbar .nav-link:hover {
     color: var(--text-primary);
@@ -308,11 +310,13 @@
 [data-theme="dark"] .quick-access-item,
 [data-theme="dim"] .quick-access-item,
 [data-theme="nebula"] .quick-access-item,
+[data-theme="indigo-violet"] .quick-access-item,
 [data-theme="custom"] .quick-access-item,
 [data-theme^="shared:"] .quick-access-item,
 [data-theme="dark"] .fun-mode-item,
 [data-theme="dim"] .fun-mode-item,
 [data-theme="nebula"] .fun-mode-item,
+[data-theme="indigo-violet"] .fun-mode-item,
 [data-theme="custom"] .fun-mode-item,
 [data-theme^="shared:"] .fun-mode-item {
     color: var(--text-primary);
