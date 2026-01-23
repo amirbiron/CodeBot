@@ -4106,10 +4106,16 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
                     self._args = tuple(args or ())
                     self._kwargs = dict(kwargs or {})
                     self.name = name or "native_thread"
+                    # start_new_thread לא תומך ב-daemon; נשמר לשקיפות בלבד.
                     self.daemon = bool(daemon) if daemon is not None else False
 
                 def start(self):
                     def _runner():
+                        # ננסה להצמיד שם לת׳רד (best-effort).
+                        try:
+                            threading.current_thread().name = self.name
+                        except Exception:
+                            pass
                         if self._target is not None:
                             self._target(*self._args, **self._kwargs)
 
