@@ -1103,7 +1103,7 @@ def _default_host_label() -> str:
 def _compute_heartbeat_interval_seconds(*, lease_seconds: int, explicit: float | None) -> float:
     if explicit is not None and explicit > 0:
         return max(3.0, float(explicit))
-    # default: 40% of lease, minimum 3 seconds
+    # fallback: 40% of lease, minimum 3 seconds
     return max(3.0, float(lease_seconds) * 0.4)
 
 
@@ -1664,6 +1664,7 @@ def manage_mongo_lock():
             hb_explicit = float(hb_override) if (hb_override is not None and str(hb_override).strip()) else None
         except Exception:
             hb_explicit = None
+        # ברירת מחדל אגרסיבית: 3 שניות (מונע חלון חפיפה גדול). אם הוגדר ערך ב-ENV נכבד אותו.
         if hb_explicit is None or hb_explicit <= 0:
             hb_explicit = 3.0
         heartbeat_interval = _compute_heartbeat_interval_seconds(lease_seconds=lease_seconds, explicit=hb_explicit)
@@ -4635,12 +4636,10 @@ class CodeKeeperBot:
             supported = poll_kwargs
             try:
                 sig = inspect.signature(start_polling)
-                if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-                    supported = poll_kwargs
-                else:
+                if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
                     supported = {k: v for k, v in poll_kwargs.items() if k in sig.parameters}
             except (TypeError, ValueError):
-                supported = poll_kwargs
+                pass
             await start_polling(**supported)
         except TypeError:
             # Fallback for minimal stubs that do not accept kwargs
@@ -4674,21 +4673,6 @@ class CodeKeeperBot:
         db.close()
         
         logger.info("הבוט נעצר.")
-
-def signal_handler(signum, frame):
-    """טיפול בסיגנלי עצירה"""
-    logger.info(f"התקבל סיגנל {signum}, עוצר את הבוט...")
-    try:
-        service_id = _LOCK_SERVICE_ID or (os.getenv("SERVICE_ID") or LOCK_ID)
-        owner_id = _LOCK_OWNER_ID or _default_owner_id()
-        _stop_bot_polling_now(reason=f"signal_{int(signum)}", service_id=service_id, owner_id=owner_id)
-    except Exception:
-        pass
-    try:
-        cleanup_mongo_lock()
-    except Exception:
-        pass
-    sys.exit(0)
 
 # ---------------------------------------------------------------------------
 # Helper to register the basic command handlers with the Application instance.
@@ -4974,13 +4958,11 @@ def main() -> None:
                 try:
                     sig = inspect.signature(fn)
                     # אם הפונקציה מקבלת **kwargs, תעביר הכל (זה המקרה בהרבה stubs/tests)
-                    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-                        supported = kwargs
-                    else:
+                    if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
                         supported = {k: v for k, v in kwargs.items() if k in sig.parameters}
                 except (TypeError, ValueError):
                     # signature לא זמין (builtins/partials/monkeypatch) – ננסה להעביר הכל
-                    supported = kwargs
+                    pass
                 return fn(**supported)
 
             # Best-effort swallow & backoff on Conflict (אם זה נזרק החוצה)
