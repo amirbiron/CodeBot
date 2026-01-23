@@ -226,6 +226,12 @@ def _validate_theme_schedule(schedule):
         if not isinstance(tz, str) or len(tz) > 50:
             return False
 
+    # ולידציה: זמני יום ולילה לא יכולים להיות זהים
+    day_minutes = schedule['dayStartHour'] * 60 + schedule['dayStartMinute']
+    night_minutes = schedule['nightStartHour'] * 60 + schedule['nightStartMinute']
+    if day_minutes == night_minutes:
+        return False
+
     return True
 ```
 
@@ -978,9 +984,9 @@ function ensureThemeSync() {
         <!-- תצוגה מקדימה -->
         <div class="schedule-preview">
             <div class="preview-timeline">
-                <div class="timeline-bar">
-                    <div class="day-segment" id="day-segment"></div>
-                    <div class="night-segment" id="night-segment"></div>
+                <!-- שימוש ב-position absolute לסגמנטים כדי להציג בזמנים הנכונים -->
+                <div class="timeline-bar" id="timeline-bar">
+                    <!-- הסגמנטים יתווספו דינמית -->
                 </div>
                 <div class="timeline-labels">
                     <span>00:00</span>
@@ -988,6 +994,10 @@ function ensureThemeSync() {
                     <span>12:00</span>
                     <span>18:00</span>
                     <span>24:00</span>
+                </div>
+                <!-- מחוונים לזמני מעבר -->
+                <div class="timeline-markers" id="timeline-markers">
+                    <!-- יתווספו דינמית -->
                 </div>
             </div>
             <p class="current-status" id="schedule-status">
@@ -1070,21 +1080,51 @@ function ensureThemeSync() {
     height: 2rem;
     border-radius: 4px;
     overflow: hidden;
-    display: flex;
     position: relative;
     background: var(--bg-tertiary);
 }
 
-.day-segment {
-    background: linear-gradient(135deg, #FFD93D, #FF9F1C);
+/* סגמנטים עם position absolute לפוזיציה מדויקת */
+.timeline-segment {
+    position: absolute;
+    top: 0;
     height: 100%;
-    transition: width 0.3s ease;
+    transition: left 0.3s ease, width 0.3s ease;
 }
 
-.night-segment {
+.timeline-segment.day {
+    background: linear-gradient(135deg, #FFD93D, #FF9F1C);
+}
+
+.timeline-segment.night {
     background: linear-gradient(135deg, #4A4E69, #22223B);
-    height: 100%;
-    transition: width 0.3s ease;
+}
+
+/* מחוונים לזמני מעבר */
+.timeline-markers {
+    position: relative;
+    height: 0.5rem;
+}
+
+.timeline-marker {
+    position: absolute;
+    width: 2px;
+    height: 0.75rem;
+    background: var(--primary);
+    transform: translateX(-50%);
+    top: -0.25rem;
+}
+
+.timeline-marker::after {
+    content: attr(data-time);
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    color: var(--primary);
+    white-space: nowrap;
+    margin-top: 2px;
 }
 
 .timeline-labels {
@@ -1224,9 +1264,8 @@ function ensureThemeSync() {
             nightTheme: document.getElementById('night-theme'),
             dayStartTime: document.getElementById('day-start-time'),
             nightStartTime: document.getElementById('night-start-time'),
-            status: document.getElementById('schedule-status'),
-            daySegment: document.getElementById('day-segment'),
-            nightSegment: document.getElementById('night-segment')
+            status: document.getElementById('schedule-status')
+            // timelineBar ו-markersContainer נגישים דרך getElementById ישירות ב-updatePreview
         };
 
         // בדוק שכל האלמנטים קיימים
@@ -1358,37 +1397,85 @@ function ensureThemeSync() {
 
     /**
      * עדכון תצוגה מקדימה
+     * מציג סגמנטים בפוזיציות המדויקות על ציר 24 שעות
      */
     function updatePreview() {
         const schedule = window.ThemeScheduler.getSchedule();
+        const timelineBar = document.getElementById('timeline-bar');
+        const markersContainer = document.getElementById('timeline-markers');
 
-        // חשב אחוזי יום ולילה
+        if (!timelineBar) return;
+
+        // נקה סגמנטים קודמים
+        timelineBar.innerHTML = '';
+        if (markersContainer) markersContainer.innerHTML = '';
+
         const dayStart = schedule.dayStartHour * 60 + schedule.dayStartMinute;
         const nightStart = schedule.nightStartHour * 60 + schedule.nightStartMinute;
         const totalMinutes = 24 * 60;
 
-        let dayPercent, nightPercent;
+        // חשב אחוזי פוזיציה
+        const dayStartPercent = (dayStart / totalMinutes) * 100;
+        const nightStartPercent = (nightStart / totalMinutes) * 100;
 
         if (dayStart < nightStart) {
-            // מצב רגיל: יום לפני לילה
-            dayPercent = ((nightStart - dayStart) / totalMinutes) * 100;
-            nightPercent = 100 - dayPercent;
+            // מצב רגיל: לילה-יום-לילה
+            // לילה מ-00:00 עד dayStart
+            if (dayStartPercent > 0) {
+                createSegment(timelineBar, 'night', 0, dayStartPercent);
+            }
+            // יום מ-dayStart עד nightStart
+            createSegment(timelineBar, 'day', dayStartPercent, nightStartPercent - dayStartPercent);
+            // לילה מ-nightStart עד 24:00
+            if (nightStartPercent < 100) {
+                createSegment(timelineBar, 'night', nightStartPercent, 100 - nightStartPercent);
+            }
         } else {
-            // לילה עובר חצות
-            nightPercent = ((dayStart - nightStart) / totalMinutes) * 100;
-            dayPercent = 100 - nightPercent;
+            // מצב הפוך: יום-לילה-יום (יום חוצה חצות)
+            // יום מ-00:00 עד nightStart
+            if (nightStartPercent > 0) {
+                createSegment(timelineBar, 'day', 0, nightStartPercent);
+            }
+            // לילה מ-nightStart עד dayStart
+            createSegment(timelineBar, 'night', nightStartPercent, dayStartPercent - nightStartPercent);
+            // יום מ-dayStart עד 24:00
+            if (dayStartPercent < 100) {
+                createSegment(timelineBar, 'day', dayStartPercent, 100 - dayStartPercent);
+            }
         }
 
-        // עדכן סגמנטים
-        if (elements.daySegment) {
-            elements.daySegment.style.width = dayPercent + '%';
-        }
-        if (elements.nightSegment) {
-            elements.nightSegment.style.width = nightPercent + '%';
+        // הוסף מחוונים לזמני מעבר
+        if (markersContainer) {
+            createMarker(markersContainer, dayStartPercent,
+                formatTime(schedule.dayStartHour, schedule.dayStartMinute) + ' ☀️');
+            createMarker(markersContainer, nightStartPercent,
+                formatTime(schedule.nightStartHour, schedule.nightStartMinute) + ' 🌙');
         }
 
         // עדכן סטטוס
         updateStatus(schedule);
+    }
+
+    /**
+     * יצירת סגמנט בציר הזמן
+     */
+    function createSegment(container, type, leftPercent, widthPercent) {
+        const segment = document.createElement('div');
+        segment.className = `timeline-segment ${type}`;
+        segment.style.left = leftPercent + '%';
+        segment.style.width = widthPercent + '%';
+        container.appendChild(segment);
+    }
+
+    /**
+     * יצירת מחוון זמן
+     */
+    function createMarker(container, leftPercent, label) {
+        const marker = document.createElement('div');
+        marker.className = 'timeline-marker';
+        marker.style.left = leftPercent + '%';
+        marker.setAttribute('data-time', label);
+        container.appendChild(marker);
     }
 
     /**
@@ -1665,6 +1752,19 @@ class TestThemeScheduleValidation:
         assert _validate_theme_schedule([]) is False
         assert _validate_theme_schedule("string") is False
 
+    def test_identical_day_and_night_times(self):
+        """זמני יום ולילה זהים"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'classic',
+            'nightTheme': 'dark',
+            'dayStartHour': 7,
+            'dayStartMinute': 30,
+            'nightStartHour': 7,
+            'nightStartMinute': 30  # זהה לזמן התחלת יום!
+        }
+        assert _validate_theme_schedule(schedule) is False
+
 
 class TestThemeScheduleAPI:
     """בדיקות API"""
@@ -1807,25 +1907,48 @@ describe('ThemeScheduler', () => {
             expect(isDay).toBe(false);
         });
 
-        test('isDayTime handles overnight schedule', () => {
-            // Schedule: night from 22:00, day from 06:00
-            const dayStart = 6 * 60;
-            const nightStart = 22 * 60;
+        test('isDayTime handles normal schedule (day before night)', () => {
+            // Schedule: day from 06:00, night from 22:00
+            // dayStart < nightStart → use AND logic
+            const dayStart = 6 * 60;   // 360
+            const nightStart = 22 * 60; // 1320
 
             // Test at 23:00 (should be night)
-            const time23 = 23 * 60;
-            const isDay23 = time23 >= dayStart || time23 < nightStart;
-            expect(isDay23).toBe(false); // Actually this is night
+            const time23 = 23 * 60; // 1380
+            const isDay23 = time23 >= dayStart && time23 < nightStart;
+            expect(isDay23).toBe(false); // 1380 >= 360 && 1380 < 1320 = false
 
-            // Test at 03:00 (should be night)
-            const time03 = 3 * 60;
-            const isDay03 = time03 >= dayStart || time03 < nightStart;
-            expect(isDay03).toBe(false);
+            // Test at 03:00 (should be night - before day starts)
+            const time03 = 3 * 60; // 180
+            const isDay03 = time03 >= dayStart && time03 < nightStart;
+            expect(isDay03).toBe(false); // 180 >= 360 = false
 
             // Test at 12:00 (should be day)
-            const time12 = 12 * 60;
+            const time12 = 12 * 60; // 720
+            const isDay12 = time12 >= dayStart && time12 < nightStart;
+            expect(isDay12).toBe(true); // 720 >= 360 && 720 < 1320 = true
+        });
+
+        test('isDayTime handles inverted schedule (day crosses midnight)', () => {
+            // Schedule: night from 06:00, day from 20:00 (day crosses midnight)
+            // dayStart > nightStart → use OR logic
+            const dayStart = 20 * 60;  // 1200
+            const nightStart = 6 * 60; // 360
+
+            // Test at 23:00 (should be day - after day starts)
+            const time23 = 23 * 60; // 1380
+            const isDay23 = time23 >= dayStart || time23 < nightStart;
+            expect(isDay23).toBe(true); // 1380 >= 1200 = true
+
+            // Test at 03:00 (should be day - before night starts)
+            const time03 = 3 * 60; // 180
+            const isDay03 = time03 >= dayStart || time03 < nightStart;
+            expect(isDay03).toBe(true); // 180 < 360 = true
+
+            // Test at 12:00 (should be night)
+            const time12 = 12 * 60; // 720
             const isDay12 = time12 >= dayStart || time12 < nightStart;
-            expect(isDay12).toBe(true);
+            expect(isDay12).toBe(false); // 720 >= 1200 = false, 720 < 360 = false
         });
     });
 
