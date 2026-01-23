@@ -108,6 +108,27 @@ class AutocompleteManager:
         except Exception as e:
             logger.error(f"שגיאה בקבלת תגיות לאוטו-השלמה: {e}")
             return []
+
+    @cached(expire_seconds=300, key_prefix="autocomplete_langs")
+    def get_user_languages(self, user_id: int) -> List[str]:
+        """קבלת כל השפות של משתמש לאוטו-השלמה"""
+        try:
+            try:
+                rows = db.get_user_files(user_id, limit=500, projection={"programming_language": 1})
+            except TypeError:
+                rows = db.get_user_files(user_id, 500)
+            langs: Set[str] = set()
+            for doc in rows:
+                try:
+                    lang = str(doc.get("programming_language") or "").strip()
+                    if lang:
+                        langs.add(lang)
+                except Exception:
+                    continue
+            return sorted(langs)
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת שפות לאוטו-השלמה: {e}")
+            return []
     
     def suggest_filenames(self, user_id: int, partial_name: str, limit: int = 5) -> List[Dict[str, Any]]:
         """הצעות שמות קבצים בהתבסס על קלט חלקי"""
