@@ -46,7 +46,14 @@ let state = {
     editorView6: null, // CodeMirror 6 EditorView instance (fallback)
     expandedFolders: new Set(),
     selectedElement: null,
-    searchTimeout: null
+    searchTimeout: null,
+    // File type filter
+    fileTypes: [],           // All available file types with counts
+    selectedTypes: new Set(), // Currently selected types for filtering
+    // AbortController למניעת race conditions
+    treeAbortController: null,
+    fileTypesAbortController: null,
+    fileTypesLoading: false   // flag למניעת קריאות מקבילות
 };
 
 // ========================================
@@ -54,6 +61,8 @@ let state = {
 // ========================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // חשוב: initFileTypeFilter קודם כדי לטעון העדפות מ-localStorage לפני initTree
+    initFileTypeFilter();
     initTree();
     initSearch();
     initResizer();
@@ -123,12 +132,30 @@ async function initTree() {
     const treeContainer = document.getElementById('file-tree');
     if (!treeContainer) return;
 
+    // ביטול בקשה קודמת אם קיימת (מניעת race condition)
+    if (state.treeAbortController) {
+        state.treeAbortController.abort();
+    }
+    state.treeAbortController = new AbortController();
+    const signal = state.treeAbortController.signal;
+
     try {
-        const response = await fetch(`${CONFIG.apiBase}/tree`);
+        // Build URL with filter parameter
+        let url = `${CONFIG.apiBase}/tree`;
+        const filterParam = getFilterQueryParam();
+        if (filterParam) {
+            url += `?types=${encodeURIComponent(filterParam)}`;
+        }
+        
+        const response = await fetch(url, { signal });
         const data = await response.json();
         state.treeData = data;
         renderTree(treeContainer, data);
     } catch (error) {
+        // התעלמות משגיאת abort (זה בכוונה)
+        if (error.name === 'AbortError') {
+            return;
+        }
         console.error('Failed to load tree:', error);
         treeContainer.innerHTML = `
             <div class="error-message">
@@ -226,7 +253,15 @@ async function toggleFolder(node, item) {
             if (children.children.length === 0) {
                 // spinner זמני בזמן טעינת children
                 icon.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div>';
-                const response = await fetch(`${CONFIG.apiBase}/tree?path=${encodeURIComponent(item.path)}`);
+                
+                // Build URL with path and filter parameters
+                let url = `${CONFIG.apiBase}/tree?path=${encodeURIComponent(item.path)}`;
+                const filterParam = getFilterQueryParam();
+                if (filterParam) {
+                    url += `&types=${encodeURIComponent(filterParam)}`;
+                }
+                
+                const response = await fetch(url);
                 if (!response.ok) throw new Error('Network error');
                 const data = await response.json();
                 renderTree(children, data, getLevel(node) + 1);
@@ -310,6 +345,265 @@ function getIcon(item) {
         'sql': '<i class="bi bi-filetype-sql"></i>'
     };
     return icons[ext] || '<i class="bi bi-file-earmark-code"></i>';
+}
+
+// ========================================
+// File Type Filter
+// ========================================
+
+async function initFileTypeFilter() {
+    const filterToggle = document.getElementById('filter-toggle');
+    const filterPanel = document.getElementById('filter-panel');
+    const filterList = document.getElementById('filter-list');
+    const selectAllBtn = document.getElementById('filter-select-all');
+    const clearAllBtn = document.getElementById('filter-clear-all');
+    
+    if (!filterToggle || !filterPanel) return;
+    
+    // Load saved filter preferences
+    loadFilterPreferences();
+    
+    // Toggle filter panel
+    filterToggle.addEventListener('click', async () => {
+        const isOpen = filterPanel.style.display !== 'none';
+        
+        if (isOpen) {
+            filterPanel.style.display = 'none';
+            // שמירה על active class אם יש פילטרים פעילים
+            if (state.selectedTypes.size === 0) {
+                filterToggle.classList.remove('active');
+            }
+        } else {
+            filterPanel.style.display = 'flex';
+            filterToggle.classList.add('active');
+            
+            // Load file types if not loaded yet
+            if (state.fileTypes.length === 0) {
+                await loadFileTypes();
+            }
+        }
+    });
+    
+    // Select all button
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+            state.selectedTypes.clear();
+            state.fileTypes.forEach(ft => state.selectedTypes.add(ft.language));
+            renderFilterList();
+            applyFilter();
+            saveFilterPreferences();
+        });
+    }
+    
+    // Clear all button
+    if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', () => {
+            state.selectedTypes.clear();
+            renderFilterList();
+            applyFilter();
+            saveFilterPreferences();
+        });
+    }
+}
+
+async function loadFileTypes() {
+    const filterList = document.getElementById('filter-list');
+    
+    // מניעת קריאות מקבילות
+    if (state.fileTypesLoading) {
+        return;
+    }
+    
+    // ביטול בקשה קודמת אם קיימת
+    if (state.fileTypesAbortController) {
+        state.fileTypesAbortController.abort();
+    }
+    state.fileTypesAbortController = new AbortController();
+    const signal = state.fileTypesAbortController.signal;
+    
+    state.fileTypesLoading = true;
+    
+    try {
+        const response = await fetch(`${CONFIG.apiBase}/file-types`, { signal });
+        
+        // בדיקת HTTP errors (500, 404 וכו')
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // בדיקה שהתגובה היא מערך ולא אובייקט שגיאה
+        if (Array.isArray(data)) {
+            state.fileTypes = data;
+            renderFilterList();
+        } else if (data && data.error) {
+            // טיפול בשגיאת API (JSON תקין עם שדה error)
+            throw new Error(data.error);
+        } else {
+            throw new Error('Invalid response format');
+        }
+    } catch (error) {
+        // התעלמות משגיאת abort (זה בכוונה)
+        if (error.name === 'AbortError') {
+            return;
+        }
+        console.error('Failed to load file types:', error);
+        // הצגת שגיאה רק אם אין כבר נתונים טעונים
+        if (state.fileTypes.length === 0) {
+            filterList.innerHTML = `
+                <div class="error-message" style="color: var(--text-muted); font-size: 12px;">
+                    Failed to load file types
+                </div>
+            `;
+        }
+    } finally {
+        state.fileTypesLoading = false;
+    }
+}
+
+function renderFilterList() {
+    const filterList = document.getElementById('filter-list');
+    if (!filterList) return;
+    
+    if (state.fileTypes.length === 0) {
+        filterList.innerHTML = '<div class="loading-filters">No file types found</div>';
+        return;
+    }
+    
+    // Language display names and icons
+    const langInfo = {
+        'python': { name: 'Python', icon: 'bi-filetype-py', ext: '.py' },
+        'javascript': { name: 'JavaScript', icon: 'bi-filetype-js', ext: '.js' },
+        'typescript': { name: 'TypeScript', icon: 'bi-filetype-ts', ext: '.ts' },
+        'html': { name: 'HTML', icon: 'bi-filetype-html', ext: '.html' },
+        'css': { name: 'CSS', icon: 'bi-filetype-css', ext: '.css' },
+        'scss': { name: 'SCSS', icon: 'bi-filetype-scss', ext: '.scss' },
+        'json': { name: 'JSON', icon: 'bi-filetype-json', ext: '.json' },
+        'yaml': { name: 'YAML', icon: 'bi-filetype-yml', ext: '.yml' },
+        'markdown': { name: 'Markdown', icon: 'bi-filetype-md', ext: '.md' },
+        'shell': { name: 'Shell', icon: 'bi-terminal', ext: '.sh' },
+        'sql': { name: 'SQL', icon: 'bi-filetype-sql', ext: '.sql' },
+        'text': { name: 'Text', icon: 'bi-file-text', ext: '.txt' },
+        'rst': { name: 'RST', icon: 'bi-file-text', ext: '.rst' },
+        'go': { name: 'Go', icon: 'bi-file-code', ext: '.go' },
+        'rust': { name: 'Rust', icon: 'bi-file-code', ext: '.rs' },
+        'java': { name: 'Java', icon: 'bi-file-code', ext: '.java' },
+        'kotlin': { name: 'Kotlin', icon: 'bi-file-code', ext: '.kt' },
+        'c': { name: 'C', icon: 'bi-file-code', ext: '.c' },
+        'cpp': { name: 'C++', icon: 'bi-file-code', ext: '.cpp' },
+        'ruby': { name: 'Ruby', icon: 'bi-file-code', ext: '.rb' },
+        'php': { name: 'PHP', icon: 'bi-file-code', ext: '.php' },
+        'vue': { name: 'Vue', icon: 'bi-file-code', ext: '.vue' },
+        'svelte': { name: 'Svelte', icon: 'bi-file-code', ext: '.svelte' }
+    };
+    
+    filterList.innerHTML = state.fileTypes.map(ft => {
+        const info = langInfo[ft.language] || { name: ft.language, icon: 'bi-file-code', ext: '' };
+        const isActive = state.selectedTypes.has(ft.language);
+        
+        return `
+            <label class="filter-item ${isActive ? 'active' : ''}" data-type="${escapeHtml(ft.language)}">
+                <input type="checkbox" ${isActive ? 'checked' : ''}>
+                <span class="filter-checkbox"></span>
+                <i class="bi ${info.icon}"></i>
+                <span class="filter-label">${escapeHtml(info.ext || ft.language)}</span>
+                <span class="filter-count">(${ft.count})</span>
+            </label>
+        `;
+    }).join('');
+    
+    // Add click handlers
+    filterList.querySelectorAll('.filter-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const type = item.dataset.type;
+            
+            if (state.selectedTypes.has(type)) {
+                state.selectedTypes.delete(type);
+                item.classList.remove('active');
+            } else {
+                state.selectedTypes.add(type);
+                item.classList.add('active');
+            }
+            
+            // Update checkbox state
+            const checkbox = item.querySelector('input[type="checkbox"]');
+            if (checkbox) checkbox.checked = state.selectedTypes.has(type);
+            
+            applyFilter();
+            saveFilterPreferences();
+        });
+    });
+    
+    updateFilterBadge();
+}
+
+function applyFilter() {
+    updateFilterBadge();
+    
+    // Re-fetch tree with filter
+    initTree();
+    
+    // Collapse all expanded folders (they need to be re-fetched with filter)
+    state.expandedFolders.clear();
+}
+
+function updateFilterBadge() {
+    const badge = document.getElementById('filter-badge');
+    const filterToggle = document.getElementById('filter-toggle');
+    
+    if (!badge) return;
+    
+    // ספירה רק של סוגים שקיימים בפועל ב-fileTypes (לא stale מ-localStorage)
+    let count = state.selectedTypes.size;
+    if (state.fileTypes.length > 0) {
+        const validTypes = new Set(state.fileTypes.map(ft => ft.language));
+        count = Array.from(state.selectedTypes).filter(t => validTypes.has(t)).length;
+    }
+    
+    if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'flex';
+        if (filterToggle) filterToggle.classList.add('active');
+    } else {
+        badge.style.display = 'none';
+        // Only remove active class if panel is closed
+        const filterPanel = document.getElementById('filter-panel');
+        if (filterToggle && (!filterPanel || filterPanel.style.display === 'none')) {
+            filterToggle.classList.remove('active');
+        }
+    }
+}
+
+function getFilterQueryParam() {
+    if (state.selectedTypes.size === 0) {
+        return '';
+    }
+    return Array.from(state.selectedTypes).join(',');
+}
+
+function saveFilterPreferences() {
+    try {
+        localStorage.setItem('repoFilterTypes', JSON.stringify(Array.from(state.selectedTypes)));
+    } catch (e) {
+        console.warn('Failed to save filter preferences:', e);
+    }
+}
+
+function loadFilterPreferences() {
+    try {
+        const saved = localStorage.getItem('repoFilterTypes');
+        if (saved) {
+            const types = JSON.parse(saved);
+            if (Array.isArray(types)) {
+                state.selectedTypes = new Set(types);
+                updateFilterBadge();
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load filter preferences:', e);
+    }
 }
 
 // ========================================
