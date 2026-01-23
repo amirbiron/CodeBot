@@ -70,7 +70,7 @@
 
 class UndoToastManager {
     constructor() {
-        this.activeToasts = new Map(); // operationId -> { element, timeout, onUndo }
+        this.activeToasts = new Map(); // operationId -> { element, timeout, onUndo, cleanupTimeouts }
         this.container = this.createContainer();
     }
 
@@ -99,6 +99,13 @@ class UndoToastManager {
      */
     sanitizeIconName(icon) {
         return String(icon || 'check').replace(/[^a-zA-Z0-9-]/g, '');
+    }
+
+    /**
+     * יצירת מזהה ייחודי לפעולה (helper משותף)
+     */
+    static generateOperationId(prefix = 'op') {
+        return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     }
 
     /**
@@ -229,12 +236,17 @@ class UndoToastManager {
         const toastData = this.activeToasts.get(operationId);
         if (!toastData) return;
 
+        // מנע לחיצות כפולות - בדוק אם כבר בתהליך ביטול
+        if (toastData.isUndoing) {
+            return;
+        }
+
         const { element, timeout, onUndo } = toastData;
 
-        // סמן שהפעולה בתהליך ביטול (למניעת קריאת onExpire)
+        // סמן שהפעולה בתהליך ביטול (למניעת קריאת onExpire ולחיצות כפולות)
         toastData.isUndoing = true;
 
-        // עצור את הטיימר
+        // עצור את הטיימר הראשי
         clearTimeout(timeout);
 
         // עדכן UI - הצג טוען
@@ -252,10 +264,11 @@ class UndoToastManager {
             element.classList.remove('undoing');
             element.classList.add('undone');
 
-            // סגור אחרי שנייה
-            setTimeout(() => {
+            // סגור אחרי שנייה - שמור reference ל-timeout
+            const cleanupTimeout = setTimeout(() => {
                 this.remove(operationId);
             }, 1500);
+            toastData.cleanupTimeout = cleanupTimeout;
 
         } catch (error) {
             console.error('Undo failed:', error);
@@ -263,9 +276,11 @@ class UndoToastManager {
             element.classList.remove('undoing');
             element.classList.add('error');
 
-            setTimeout(() => {
+            // שמור reference ל-timeout
+            const cleanupTimeout = setTimeout(() => {
                 this.remove(operationId);
             }, 2000);
+            toastData.cleanupTimeout = cleanupTimeout;
         }
     }
 
@@ -276,12 +291,21 @@ class UndoToastManager {
         const toastData = this.activeToasts.get(operationId);
         if (!toastData) return;
 
-        const { timeout, onExpire, isUndoing } = toastData;
+        const { timeout, onExpire, isUndoing, cleanupTimeout } = toastData;
         clearTimeout(timeout);
+        
+        // בטל גם cleanup timeout אם קיים
+        if (cleanupTimeout) {
+            clearTimeout(cleanupTimeout);
+        }
 
         // אל תקרא onExpire אם הפעולה בתהליך ביטול או כבר בוטלה
         if (triggerExpire && !isUndoing && typeof onExpire === 'function') {
-            onExpire();
+            try {
+                onExpire();
+            } catch (error) {
+                console.error('onExpire callback failed:', error);
+            }
         }
 
         this.remove(operationId);
@@ -294,22 +318,29 @@ class UndoToastManager {
         const toastData = this.activeToasts.get(operationId);
         if (!toastData) return;
 
-        const { element, timeout } = toastData;
+        const { element, timeout, cleanupTimeout, fallbackTimeout } = toastData;
+        
+        // בטל כל ה-timeouts הפעילים
         clearTimeout(timeout);
+        if (cleanupTimeout) clearTimeout(cleanupTimeout);
+        if (fallbackTimeout) clearTimeout(fallbackTimeout);
+
+        // מחק מהמפה קודם כדי למנוע קריאות כפולות
+        this.activeToasts.delete(operationId);
 
         element.classList.add('hiding');
         element.addEventListener('animationend', () => {
-            element.remove();
+            if (element.parentNode) {
+                element.remove();
+            }
         }, { once: true });
 
-        // Fallback אם אנימציה לא רצה
+        // Fallback אם אנימציה לא רצה - שמור reference (לא נשמר כי כבר מחקנו מהמפה)
         setTimeout(() => {
             if (element.parentNode) {
                 element.remove();
             }
         }, 400);
-
-        this.activeToasts.delete(operationId);
     }
 
     /**
@@ -342,8 +373,8 @@ async deleteSelected() {
 
     const fileIds = files.map(f => f.id);
     
-    // יצירת מזהה ייחודי לפעולה (slice במקום substr שהוא deprecated)
-    const operationId = `delete_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    // יצירת מזהה ייחודי לפעולה (שימוש ב-helper משותף)
+    const operationId = UndoToastManager.generateOperationId('delete');
     
     this.showProcessing(`מעביר ${count} קבצים לסל...`);
     
@@ -358,7 +389,17 @@ async deleteSelected() {
             })
         });
         
-        const result = await response.json();
+        // בדוק סטטוס HTTP קודם
+        if (!response.ok) {
+            throw new Error(`שגיאת שרת: ${response.status} ${response.statusText}`);
+        }
+        
+        let result;
+        try {
+            result = await response.json();
+        } catch (parseError) {
+            throw new Error('שגיאה בפענוח תשובת השרת');
+        }
         
         if (!result.success) {
             throw new Error(result.error || 'שגיאה במחיקה');
@@ -397,7 +438,6 @@ async deleteSelected() {
 
 /**
  * הסתרת קבצים מה-UI באופן אופטימיסטי
- * שימוש ב-AbortController לביטול אנימציה אם נדרש שחזור מהיר
  */
 hideFilesFromUI(fileIds) {
     // אתחול מפת timeouts אם לא קיימת
@@ -408,6 +448,11 @@ hideFilesFromUI(fileIds) {
     fileIds.forEach(id => {
         const card = document.querySelector(`.file-card[data-file-id="${id}"]`);
         if (card) {
+            // בטל timeout קודם אם קיים (מונע timeout leak)
+            if (this._hideTimeouts.has(id)) {
+                clearTimeout(this._hideTimeouts.get(id));
+            }
+            
             // סמן מיד שהקובץ בתהליך מחיקה (לפני האנימציה)
             card.dataset.pendingDelete = 'true';
             
@@ -466,6 +511,7 @@ restoreFilesToUI(fileIds) {
  * ביטול מחיקה
  */
 async undoDelete(operationId, fileIds) {
+    // בדוק סטטוס HTTP קודם
     const response = await fetch('/api/files/bulk-restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -475,14 +521,31 @@ async undoDelete(operationId, fileIds) {
         })
     });
     
-    const result = await response.json();
+    if (!response.ok) {
+        throw new Error(`שגיאת שרת: ${response.status} ${response.statusText}`);
+    }
+    
+    let result;
+    try {
+        result = await response.json();
+    } catch (parseError) {
+        throw new Error('שגיאה בפענוח תשובת השרת');
+    }
     
     if (!result.success) {
         throw new Error(result.error || 'שגיאה בשחזור');
     }
     
-    // שחזר ב-UI
-    this.restoreFilesToUI(fileIds);
+    // שחזר ב-UI רק את הקבצים שהצליחו (טיפול בהצלחה חלקית)
+    if (result.restored === fileIds.length) {
+        // כל הקבצים שוחזרו
+        this.restoreFilesToUI(fileIds);
+    } else if (result.restored > 0) {
+        // הצלחה חלקית - שחזר הכל ב-UI והודע למשתמש
+        this.restoreFilesToUI(fileIds);
+        console.warn(`Partial restore: ${result.restored}/${result.total} files restored`);
+    }
+    // אם restored === 0 לא נשחזר כלום ב-UI
     
     return result;
 }
@@ -504,8 +567,8 @@ async addTags() {
     const newTags = await this.showTagDialog();
     if (!newTags || newTags.length === 0) return;
     
-    // יצירת מזהה ייחודי לפעולה (slice במקום substr שהוא deprecated)
-    const operationId = `tag_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    // יצירת מזהה ייחודי לפעולה (שימוש ב-helper משותף)
+    const operationId = UndoToastManager.generateOperationId('tag');
     
     this.showProcessing(`מוסיף תגיות ל-${fileIds.length} קבצים...`);
     
@@ -530,7 +593,17 @@ async addTags() {
             })
         });
         
-        const result = await response.json();
+        // בדוק סטטוס HTTP קודם
+        if (!response.ok) {
+            throw new Error(`שגיאת שרת: ${response.status} ${response.statusText}`);
+        }
+        
+        let result;
+        try {
+            result = await response.json();
+        } catch (parseError) {
+            throw new Error('שגיאה בפענוח תשובת השרת');
+        }
         
         if (!result.success) {
             throw new Error(result.error || 'שגיאה בהוספת תגיות');
@@ -611,9 +684,20 @@ async undoTagChange(fileIds, previousState) {
         })
     });
     
-    const result = await response.json();
+    // בדוק סטטוס HTTP קודם
+    if (!response.ok) {
+        throw new Error(`שגיאת שרת: ${response.status} ${response.statusText}`);
+    }
+    
+    let result;
+    try {
+        result = await response.json();
+    } catch (parseError) {
+        throw new Error('שגיאה בפענוח תשובת השרת');
+    }
+    
     if (!result.success) {
-        throw new Error(result.error);
+        throw new Error(result.error || 'שגיאה בשחזור תגיות');
     }
     
     // רענן UI
@@ -891,7 +975,16 @@ async undoTagChange(fileIds, previousState) {
     .undo-toast-close {
         position: absolute;
         top: 8px;
+        /* תמיכה ב-RTL למובייל */
         left: 8px;
+        right: auto;
+    }
+    
+    /* RTL support for mobile close button */
+    [dir="rtl"] .undo-toast-close,
+    :root[dir="rtl"] .undo-toast-close {
+        left: auto;
+        right: 8px;
     }
 }
 ```
