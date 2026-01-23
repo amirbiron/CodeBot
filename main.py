@@ -6,6 +6,18 @@
 
 from __future__ import annotations
 
+# חשוב: gevent חייב לרוץ לפני ייבוא ספריות סטנדרטיות כדי ש-sockets ייסגרו נכון ב-shutdown.
+from gevent import monkey as _gevent_monkey
+import os as _os
+
+def _should_patch_gevent() -> bool:
+    disable = str(_os.getenv("CODEBOT_DISABLE_GEVENT_PATCH", "")).strip().lower()
+    return disable not in {"1", "true", "yes"}
+
+# חשוב: patch מוקדם כדי שסוקטים ייסגרו נכון; בבדיקות אפשר לכבות כדי למנוע התנגשויות.
+if _should_patch_gevent():
+    _gevent_monkey.patch_all()
+
 # הגדרות מתקדמות
 import os
 import functools

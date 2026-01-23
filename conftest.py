@@ -8,6 +8,9 @@ from typing import AsyncIterator, Dict, List, Optional
 import pytest
 import pytest_asyncio
 
+# בדיקות: כיבוי gevent monkey patch כדי למנוע התנגשויות עם xdist/threads.
+os.environ.setdefault("CODEBOT_DISABLE_GEVENT_PATCH", "1")
+
 # -----------------------------------------------------------------------------
 # Telegram module isolation (safe)
 # -----------------------------------------------------------------------------
