@@ -99,10 +99,13 @@ def api_tree():
     
     Query params:
         path: נתיב לתיקייה ספציפית (אופציונלי)
+        types: סינון לפי סוגי קבצים, מופרד בפסיקים (אופציונלי)
+               לדוגמה: types=python,javascript,html
     """
     db = get_db()
     repo_name = "CodeBot"
     path = request.args.get('path', '')
+    types_param = request.args.get('types', '').strip()
     
     # Build tree from MongoDB
     if path:
@@ -113,12 +116,21 @@ def api_tree():
         # Get root level
         pattern = "^[^/]+$"
     
+    # Build query
+    query = {
+        "repo_name": repo_name,
+        "path": {"$regex": pattern}
+    }
+    
+    # Add language filter if specified
+    if types_param:
+        types_list = [t.strip() for t in types_param.split(',') if t.strip()]
+        if types_list:
+            query["language"] = {"$in": types_list}
+    
     # Get files matching pattern
     files = list(db.repo_files.find(
-        {
-            "repo_name": repo_name,
-            "path": {"$regex": pattern}
-        },
+        query,
         {"path": 1, "language": 1, "size": 1, "lines": 1}
     ).sort("path", 1))
     
@@ -131,12 +143,19 @@ def api_tree():
     else:
         dir_pattern = "^[^/]+/"
 
+    # Build query for directories (same filters apply)
+    dir_query: dict = {
+        "repo_name": repo_name,
+        "path": {"$regex": dir_pattern},
+    }
+    if types_param:
+        types_list = [t.strip() for t in types_param.split(',') if t.strip()]
+        if types_list:
+            dir_query["language"] = {"$in": types_list}
+
     all_paths = db.repo_files.distinct(
         "path",
-        {
-            "repo_name": repo_name,
-            "path": {"$regex": dir_pattern},
-        },
+        dir_query,
     )
     
     # Extract unique directories at this level
@@ -265,6 +284,39 @@ def api_search():
             "message": error_msg[:200],
             "results": []
         }), 500
+
+
+@repo_bp.route('/api/file-types')
+def api_file_types():
+    """
+    API לקבלת רשימת סוגי קבצים עם כמויות
+    
+    Returns:
+        רשימת סוגי קבצים וכמותם, ממוינת לפי כמות יורדת
+    """
+    db = get_db()
+    repo_name = "CodeBot"
+    
+    try:
+        # Aggregate by language
+        cursor = db.repo_files.aggregate([
+            {"$match": {"repo_name": repo_name}},
+            {"$group": {"_id": "$language", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ])
+        
+        file_types = []
+        for doc in cursor:
+            if doc["_id"]:
+                file_types.append({
+                    "language": doc["_id"],
+                    "count": doc["count"]
+                })
+        
+        return jsonify(file_types)
+    except Exception as e:
+        logger.exception(f"File types API error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @repo_bp.route('/api/stats')
