@@ -376,6 +376,10 @@ const RepoHistory = (function() {
             container.appendChild(commitEl);
         });
 
+        if (append) {
+            ensurePrevButtonForIndex(previousCount - 1);
+        }
+
         // Add load more button
         if (state.hasMore) {
             const loadMoreBtn = document.createElement('button');
@@ -386,6 +390,39 @@ const RepoHistory = (function() {
             `;
             loadMoreBtn.addEventListener('click', () => loadHistory(true));
             container.appendChild(loadMoreBtn);
+        }
+    }
+
+    function ensurePrevButtonForIndex(index) {
+        if (index < 0 || index >= state.commits.length - 1) return;
+        const commitEl = historyPanel.querySelector(`.history-commit[data-index="${index}"]`);
+        if (!commitEl) return;
+        if (commitEl.querySelector('.diff-prev-btn')) return;
+
+        const actions = commitEl.querySelector('.commit-actions');
+        if (!actions) return;
+
+        const button = document.createElement('button');
+        button.className = 'commit-action-btn diff-prev-btn';
+        button.title = 'השווה ל-commit הקודם';
+        button.innerHTML = `
+            <i class="bi bi-arrow-left-right"></i>
+            VS קודם
+        `;
+        button.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const prevCommit = state.commits[index + 1];
+            if (prevCommit) {
+                const currentCommit = state.commits[index];
+                showDiff(prevCommit.hash, currentCommit.hash, prevCommit.message, currentCommit.message);
+            }
+        });
+
+        const compareBtn = actions.querySelector('.compare-select-btn');
+        if (compareBtn) {
+            actions.insertBefore(button, compareBtn);
+        } else {
+            actions.appendChild(button);
         }
     }
 

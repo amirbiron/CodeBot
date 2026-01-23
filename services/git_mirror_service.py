@@ -73,6 +73,7 @@ class GitMirrorService:
     FILE_PATH_PATTERN = re.compile(
         r'^(?!.*//)'              # No //
         r'(?!/)'                 # No leading /
+        r'(?!-)'                 # No leading '-' (avoid git flags)
         r'(?!.*\x00)'            # No NUL
         r'[a-zA-Z0-9._/-]+'      # Allowed chars
         r'(?<!/)'                # No trailing /
@@ -596,6 +597,8 @@ class GitMirrorService:
             return False
         if '\x00' in file_path:
             return False
+        if file_path.startswith('-'):
+            return False
 
         # Normalize and check for traversal
         # normpath מנרמל ../foo ל-../foo, foo/../bar ל-bar
@@ -857,9 +860,15 @@ class GitMirrorService:
         # וולידציה בסיסית
         if not self._validate_repo_name(repo_name):
             return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
+        if not self._validate_basic_ref(commit):
+            return {"error": "invalid_commit", "message": "Commit לא תקין"}
 
         if not self._validate_repo_file_path(file_path):
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        if not self._validate_basic_ref(commit):
+            return {"error": "invalid_commit", "message": "Commit לא תקין"}
+        if not self._validate_basic_ref(ref):
+            return {"error": "invalid_ref", "message": "Reference לא תקין"}
 
         # וולידציה ל-limit ו-skip
         limit = max(1, min(int(limit) if isinstance(limit, (int, str)) else 20, 100))
@@ -1121,6 +1130,10 @@ class GitMirrorService:
 
         if file_path and not self._validate_repo_file_path(file_path):
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        if not self._validate_basic_ref(commit1):
+            return {"error": "invalid_commit1", "message": f"Commit ראשון לא תקין: {commit1}"}
+        if not self._validate_basic_ref(commit2):
+            return {"error": "invalid_commit2", "message": f"Commit שני לא תקין: {commit2}"}
 
         # וולידציה ל-context_lines
         context_lines = max(0, min(int(context_lines) if isinstance(context_lines, (int, str)) else 3, 20))
