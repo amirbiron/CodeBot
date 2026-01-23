@@ -951,6 +951,7 @@ LOCK_TIMEOUT_MINUTES = 5  # legacy fallback (deprecated)
 _LOCK_SERVICE_ID: str | None = None
 _LOCK_OWNER_ID: str | None = None
 _LOCK_HEARTBEAT: "_MongoLockHeartbeat | None" = None
+_LOCK_PORT_GUARD_SOCKET: socket.socket | None = None
 
 def get_lock_collection():
     """
@@ -1101,9 +1102,9 @@ def _default_host_label() -> str:
 
 def _compute_heartbeat_interval_seconds(*, lease_seconds: int, explicit: float | None) -> float:
     if explicit is not None and explicit > 0:
-        return max(5.0, float(explicit))
-    # default: 40% of lease, minimum 5 seconds
-    return max(5.0, float(lease_seconds) * 0.4)
+        return max(3.0, float(explicit))
+    # default: 40% of lease, minimum 3 seconds
+    return max(3.0, float(lease_seconds) * 0.4)
 
 
 def _compute_passive_wait_seconds(min_seconds: float, max_seconds: float) -> float:
@@ -1112,6 +1113,132 @@ def _compute_passive_wait_seconds(min_seconds: float, max_seconds: float) -> flo
     if hi <= lo:
         return lo
     return float(random.uniform(lo, hi))
+
+
+def _stop_bot_polling_now(*, reason: str, service_id: str, owner_id: str) -> None:
+    """ניסיון best-effort לעצור polling מיד לפני שחרור לוק."""
+    try:
+        emit_event(
+            "lock_signal_stop_polling",
+            severity="warn",
+            reason=str(reason),
+            service_id=service_id,
+            owner=owner_id,
+            pid=int(os.getpid()),
+        )
+    except Exception:
+        pass
+
+    try:
+        bot = CURRENT_BOT
+    except Exception:
+        bot = None
+    if bot is None:
+        return
+
+    app = getattr(bot, "application", None) or bot
+
+    # Best-effort: stop run_polling loop (sync if available)
+    try:
+        stop_running = getattr(app, "stop_running", None)
+        if callable(stop_running):
+            stop_running()
+    except Exception:
+        pass
+
+    updater = getattr(app, "updater", None)
+    stop_fn = getattr(updater, "stop", None) if updater is not None else None
+    if not callable(stop_fn):
+        return
+
+    try:
+        res = stop_fn()
+    except Exception:
+        return
+
+    try:
+        if inspect.isawaitable(res):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # אין לופ רץ -> נריץ בצורה סינכרונית עם timeout קצר
+                try:
+                    async def _stop_with_timeout():
+                        try:
+                            await asyncio.wait_for(res, timeout=1.0)
+                        except Exception:
+                            pass
+                    asyncio.run(_stop_with_timeout())
+                except Exception:
+                    pass
+            else:
+                # לופ רץ -> מתזמנים ולא חוסמים את ה-signal handler
+                try:
+                    loop.call_soon_threadsafe(asyncio.create_task, res)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _maybe_acquire_local_port_guard() -> bool:
+    """תופס פורט לוקאלי כדי למנוע שני תהליכים באותו worker (אופציונלי)."""
+    global _LOCK_PORT_GUARD_SOCKET
+    if _LOCK_PORT_GUARD_SOCKET is not None:
+        return True
+    if not _env_bool("LOCK_PORT_GUARD_ENABLED", False):
+        return True
+
+    port = int(_env_int("LOCK_PORT_GUARD_PORT", 9999))
+    if port <= 0:
+        return True
+
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", int(port)))
+        _LOCK_PORT_GUARD_SOCKET = sock
+        logger.info(f"Local port guard acquired on 127.0.0.1:{port}")
+        try:
+            emit_event(
+                "lock_port_guard_acquired",
+                severity="info",
+                port=int(port),
+                pid=int(os.getpid()),
+            )
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        try:
+            if sock is not None:
+                sock.close()
+        except Exception:
+            pass
+        logger.critical(f"❌ Port guard failed on 127.0.0.1:{port}. Another process is alive. err={e}")
+        try:
+            emit_event(
+                "lock_port_guard_failed",
+                severity="critical",
+                port=int(port),
+                error=str(e),
+            )
+        except Exception:
+            pass
+        return False
+
+
+def _release_local_port_guard() -> None:
+    """שחרור הפורט שננעל ל-Nuclear Option."""
+    global _LOCK_PORT_GUARD_SOCKET
+    sock = _LOCK_PORT_GUARD_SOCKET
+    _LOCK_PORT_GUARD_SOCKET = None
+    if sock is None:
+        return
+    try:
+        sock.close()
+    except Exception:
+        pass
 
 
 _LOCK_SIGNALS_INSTALLED = False
@@ -1133,12 +1260,21 @@ def _install_lock_signal_handlers(*, service_id: str, owner_id: str) -> None:
     def _handler(signum, _frame):  # noqa: ANN001
         try:
             try:
+                logger.info(f"🛑 Received signal {signum}. Shutting down bot immediately...")
                 emit_event(
                     "lock_signal_received",
                     severity="warn",
                     signal=int(signum),
                     service_id=service_id,
                     owner=owner_id,
+                )
+            except Exception:
+                pass
+            try:
+                _stop_bot_polling_now(
+                    reason=f"signal_{int(signum)}",
+                    service_id=service_id,
+                    owner_id=owner_id,
                 )
             except Exception:
                 pass
@@ -1447,6 +1583,10 @@ def cleanup_mongo_lock() -> bool:
                 hb.stop()
         except Exception:
             pass
+        try:
+            _release_local_port_guard()
+        except Exception:
+            pass
 
         # If DB client is not available, skip quietly (נחשב כהצלחה — אין מה לנקות)
         try:
@@ -1517,13 +1657,15 @@ def manage_mongo_lock():
         pid = int(os.getpid())
 
         # Config
-        lease_seconds = max(5, _env_int("LOCK_LEASE_SECONDS", 60))
+        lease_seconds = max(5, _env_int("LOCK_LEASE_SECONDS", 10))
         hb_override = os.getenv("LOCK_HEARTBEAT_INTERVAL")
         hb_explicit = None
         try:
             hb_explicit = float(hb_override) if (hb_override is not None and str(hb_override).strip()) else None
         except Exception:
             hb_explicit = None
+        if hb_explicit is None or hb_explicit <= 0:
+            hb_explicit = 3.0
         heartbeat_interval = _compute_heartbeat_interval_seconds(lease_seconds=lease_seconds, explicit=hb_explicit)
 
         wait_for_acquire = _env_bool("LOCK_WAIT_FOR_ACQUIRE", False)
@@ -4487,7 +4629,22 @@ class CodeKeeperBot:
         logger.info("מתחיל את הבוט...")
         await self.application.initialize()
         await self.application.start()
-        await self.application.updater.start_polling()
+        poll_kwargs = {"drop_pending_updates": True}
+        start_polling = self.application.updater.start_polling
+        try:
+            supported = poll_kwargs
+            try:
+                sig = inspect.signature(start_polling)
+                if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                    supported = poll_kwargs
+                else:
+                    supported = {k: v for k, v in poll_kwargs.items() if k in sig.parameters}
+            except (TypeError, ValueError):
+                supported = poll_kwargs
+            await start_polling(**supported)
+        except TypeError:
+            # Fallback for minimal stubs that do not accept kwargs
+            await start_polling()
         
         logger.info("הבוט פועל! לחץ Ctrl+C להפסקה.")
     
@@ -4521,6 +4678,16 @@ class CodeKeeperBot:
 def signal_handler(signum, frame):
     """טיפול בסיגנלי עצירה"""
     logger.info(f"התקבל סיגנל {signum}, עוצר את הבוט...")
+    try:
+        service_id = _LOCK_SERVICE_ID or (os.getenv("SERVICE_ID") or LOCK_ID)
+        owner_id = _LOCK_OWNER_ID or _default_owner_id()
+        _stop_bot_polling_now(reason=f"signal_{int(signum)}", service_id=service_id, owner_id=owner_id)
+    except Exception:
+        pass
+    try:
+        cleanup_mongo_lock()
+    except Exception:
+        pass
     sys.exit(0)
 
 # ---------------------------------------------------------------------------
@@ -4672,6 +4839,11 @@ def main() -> None:
             logger.warning("Another bot instance is already running. Exiting gracefully.")
             # יציאה נקייה ללא שגיאה
             sys.exit(0)
+
+        # Nuclear option (optional): block if another local process is already running
+        if not _maybe_acquire_local_port_guard():
+            logger.critical("Local port guard is busy; exiting to avoid double polling.")
+            raise SystemExit(1)
 
         # --- המשך הקוד הקיים שלך ---
         logger.info("Lock acquired. Initializing CodeKeeperBot...")
