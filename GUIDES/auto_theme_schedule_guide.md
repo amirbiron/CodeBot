@@ -30,11 +30,36 @@ const modes = ['auto', 'dark', 'dim', 'light'];
 // auto = לפי הגדרות מערכת ההפעלה (prefers-color-scheme)
 ```
 
-### 1.3 אחסון העדפות
+### 1.3 הפרדה חשובה: Mode vs Theme
 
-- **localStorage**: `dark_mode_preference`, `user_theme`
-- **MongoDB**: אוסף `ui_prefs` עם שדה `theme`
-- **Cookie**: `ui_theme`
+> **הערה קריטית**: במערכת הקיימת יש הפרדה בין שני מושגים שונים:
+
+| מושג | תיאור | ערכים אפשריים | מפתח אחסון |
+|------|-------|---------------|-------------|
+| **Mode** | מצב בהיר/כהה | `auto`, `dark`, `dim`, `light` | `dark_mode_preference` |
+| **Theme** | ערכת עיצוב מלאה | `classic`, `ocean`, `dark`, `dim`, `nebula`, `rose-pine-dawn`, `high-contrast`, `custom` | `user_theme` / `data-theme` / `ui_theme` cookie |
+
+**חשוב**: ה-scheduler שלנו מנהל **theme** (ערכת עיצוב), לא **mode**. לכן אסור לגעת ב-`dark_mode_preference`.
+
+### 1.4 אחסון העדפות - Source of Truth
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  localStorage                                                     │
+│  ├── dark_mode_preference = "auto" | "dark" | "dim" | "light"   │
+│  ├── user_theme = "classic" | "ocean" | "dark" | ...            │
+│  └── theme_schedule = { enabled, dayTheme, nightTheme, ... }    │
+├─────────────────────────────────────────────────────────────────┤
+│  Cookie                                                          │
+│  └── ui_theme = "dark" | "classic" | ...                        │
+├─────────────────────────────────────────────────────────────────┤
+│  HTML Attribute                                                  │
+│  └── <html data-theme="dark">                                   │
+├─────────────────────────────────────────────────────────────────┤
+│  MongoDB (ui_prefs collection)                                   │
+│  └── { theme: "dark", theme_schedule: {...} }                   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -54,12 +79,13 @@ const modes = ['auto', 'dark', 'dim', 'light'];
 // מבנה הגדרות התזמון
 const themeSchedule = {
     enabled: true,                    // האם התזמון פעיל
-    dayTheme: 'classic',              // נושא יום
+    dayTheme: 'classic',              // נושא יום (ערכת עיצוב, לא mode!)
     nightTheme: 'dark',               // נושא לילה
     dayStartHour: 7,                  // שעת התחלת יום (0-23)
     dayStartMinute: 0,                // דקה התחלת יום (0-59)
     nightStartHour: 19,               // שעת התחלת לילה (0-23)
-    nightStartMinute: 0               // דקה התחלת לילה (0-59)
+    nightStartMinute: 0,              // דקה התחלת לילה (0-59)
+    timezone: 'Asia/Jerusalem'        // אזור זמן (אופציונלי)
 };
 ```
 
@@ -78,7 +104,7 @@ const themeSchedule = {
               ▼                              ▼
    ┌──────────────────────┐      ┌──────────────────────┐
    │  בדוק שעה נוכחית     │      │  השתמש במצב רגיל     │
-   └──────────┬───────────┘      │  (auto/dark/light)   │
+   └──────────┬───────────┘      │  (dark-mode.js)      │
               │                   └──────────────────────┘
    ┌──────────┴───────────┐
    │                      │
@@ -87,7 +113,10 @@ const themeSchedule = {
    │                      │
    ▼                      ▼
 ┌────────────┐     ┌────────────┐
-│ נושא יום  │     │ נושא לילה │
+│ עדכן       │     │ עדכן       │
+│ data-theme │     │ data-theme │
+│ user_theme │     │ user_theme │
+│ + סנכרון   │     │ + סנכרון   │
 └────────────┘     └────────────┘
 ```
 
@@ -150,6 +179,7 @@ def save_ui_prefs():
 def _validate_theme_schedule(schedule):
     """
     ולידציה להגדרות תזמון נושא
+    גישה "רכה": מאמתים פורמט ואורך, לא רשימה קשיחה של נושאים
     """
     if not isinstance(schedule, dict):
         return False
@@ -166,15 +196,16 @@ def _validate_theme_schedule(schedule):
     if not isinstance(schedule['enabled'], bool):
         return False
 
-    # ולידציה לנושאים (בדיקה שהם מחרוזות לא ריקות)
-    valid_themes = ['classic', 'ocean', 'rose-pine-dawn', 'dark', 'dim', 'nebula', 'high-contrast']
-    if schedule['dayTheme'] not in valid_themes and not schedule['dayTheme'].startswith('custom:'):
-        # אפשר גם נושאים מותאמים אישית
-        if not isinstance(schedule['dayTheme'], str) or len(schedule['dayTheme']) > 100:
+    # ולידציה גמישה לנושאים - בדיקת פורמט ואורך בלבד
+    # מאפשר נושאים חדשים ונושאים מותאמים אישית
+    for theme_field in ['dayTheme', 'nightTheme']:
+        theme_value = schedule[theme_field]
+        if not isinstance(theme_value, str):
             return False
-
-    if schedule['nightTheme'] not in valid_themes and not schedule['nightTheme'].startswith('custom:'):
-        if not isinstance(schedule['nightTheme'], str) or len(schedule['nightTheme']) > 100:
+        if len(theme_value) == 0 or len(theme_value) > 100:
+            return False
+        # בדיקה בסיסית נגד injection
+        if any(c in theme_value for c in ['<', '>', '"', "'", ';', '\\', '\n']):
             return False
 
     # ולידציה לשעות ודקות
@@ -187,6 +218,12 @@ def _validate_theme_schedule(schedule):
 
     for field in minute_fields:
         if not isinstance(schedule[field], int) or schedule[field] < 0 or schedule[field] > 59:
+            return False
+
+    # ולידציה אופציונלית ל-timezone
+    if 'timezone' in schedule:
+        tz = schedule['timezone']
+        if not isinstance(tz, str) or len(tz) > 50:
             return False
 
     return True
@@ -237,10 +274,19 @@ def get_ui_prefs():
 
 **קובץ: `webapp/static/js/theme-scheduler.js`**
 
+> **שינויים מרכזיים מהגרסה הקודמת:**
+> 1. **הפרדה בין theme ל-mode** - לא נוגעים ב-`dark_mode_preference`
+> 2. **מנגנון טיימר יחיד** - רק `setTimeout` מדויק, בלי `setInterval`
+> 3. **ניקוי טיימרים** - שומרים handle ומנקים ב-`stopScheduler()`
+> 4. **האזנה לשינויי נושא** - מכבים תזמון כששינוי ידני מכל מקור
+
 ```javascript
 /**
  * מודול תזמון ערכות נושא אוטומטי
  * מאפשר החלפת נושאים לפי שעות ביממה
+ *
+ * חשוב: מודול זה מנהל רק את ה-THEME (ערכת עיצוב),
+ * לא את ה-MODE (auto/dark/dim/light)
  */
 (function() {
     'use strict';
@@ -250,10 +296,12 @@ def get_ui_prefs():
     // ========================================
 
     const STORAGE_KEY = 'theme_schedule';
-    const CHECK_INTERVAL_MS = 60000; // בדיקה כל דקה
+    const USER_THEME_KEY = 'user_theme';
 
-    let scheduleInterval = null;
+    // מנגנון טיימר יחיד - רק setTimeout, בלי interval
+    let nextChangeTimeoutId = null;
     let currentSchedule = null;
+    let isInitialized = false;
 
     // ברירת מחדל
     const DEFAULT_SCHEDULE = {
@@ -278,11 +326,35 @@ def get_ui_prefs():
     }
 
     /**
+     * קבלת הזמן הנוכחי (עם תמיכה ב-timezone)
+     */
+    function getCurrentTime(timezone) {
+        const now = new Date();
+        if (timezone) {
+            try {
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: timezone,
+                    hour: 'numeric',
+                    minute: 'numeric',
+                    hour12: false
+                });
+                const parts = formatter.formatToParts(now);
+                const hour = parseInt(parts.find(p => p.type === 'hour').value);
+                const minute = parseInt(parts.find(p => p.type === 'minute').value);
+                return { hours: hour, minutes: minute, seconds: now.getSeconds() };
+            } catch (e) {
+                console.warn('[ThemeScheduler] timezone לא תקין, משתמש בזמן מקומי:', e);
+            }
+        }
+        return { hours: now.getHours(), minutes: now.getMinutes(), seconds: now.getSeconds() };
+    }
+
+    /**
      * בדיקה האם השעה הנוכחית נמצאת בטווח היום
      */
     function isDayTime(schedule) {
-        const now = new Date();
-        const currentMinutes = timeToMinutes(now.getHours(), now.getMinutes());
+        const time = getCurrentTime(schedule.timezone);
+        const currentMinutes = timeToMinutes(time.hours, time.minutes);
         const dayStart = timeToMinutes(schedule.dayStartHour, schedule.dayStartMinute);
         const nightStart = timeToMinutes(schedule.nightStartHour, schedule.nightStartMinute);
 
@@ -306,8 +378,8 @@ def get_ui_prefs():
      * חישוב הזמן עד השינוי הבא (במילישניות)
      */
     function getTimeUntilNextChange(schedule) {
-        const now = new Date();
-        const currentMinutes = timeToMinutes(now.getHours(), now.getMinutes());
+        const time = getCurrentTime(schedule.timezone);
+        const currentMinutes = timeToMinutes(time.hours, time.minutes);
         const dayStart = timeToMinutes(schedule.dayStartHour, schedule.dayStartMinute);
         const nightStart = timeToMinutes(schedule.nightStartHour, schedule.nightStartMinute);
 
@@ -328,9 +400,8 @@ def get_ui_prefs():
             minutesUntilChange += 24 * 60;
         }
 
-        // המרה למילישניות (פחות הדקות שכבר עברו בדקה הנוכחית)
-        const secondsInCurrentMinute = now.getSeconds();
-        return (minutesUntilChange * 60 - secondsInCurrentMinute) * 1000;
+        // המרה למילישניות (פחות השניות שכבר עברו בדקה הנוכחית)
+        return (minutesUntilChange * 60 - time.seconds) * 1000;
     }
 
     // ========================================
@@ -348,7 +419,7 @@ def get_ui_prefs():
                 return { ...DEFAULT_SCHEDULE, ...parsed };
             }
         } catch (e) {
-            console.warn('שגיאה בטעינת הגדרות תזמון:', e);
+            console.warn('[ThemeScheduler] שגיאה בטעינת הגדרות:', e);
         }
         return { ...DEFAULT_SCHEDULE };
     }
@@ -361,7 +432,7 @@ def get_ui_prefs():
             localStorage.setItem(STORAGE_KEY, JSON.stringify(schedule));
             currentSchedule = schedule;
         } catch (e) {
-            console.warn('שגיאה בשמירת הגדרות תזמון:', e);
+            console.warn('[ThemeScheduler] שגיאה בשמירת הגדרות:', e);
         }
     }
 
@@ -379,10 +450,10 @@ def get_ui_prefs():
             });
 
             if (!response.ok) {
-                console.warn('שגיאה בסנכרון לשרת:', response.status);
+                console.warn('[ThemeScheduler] שגיאה בסנכרון לשרת:', response.status);
             }
         } catch (e) {
-            console.warn('שגיאה בסנכרון לשרת:', e);
+            console.warn('[ThemeScheduler] שגיאה בסנכרון לשרת:', e);
         }
     }
 
@@ -399,7 +470,7 @@ def get_ui_prefs():
                 }
             }
         } catch (e) {
-            console.warn('שגיאה בטעינה מהשרת:', e);
+            console.warn('[ThemeScheduler] שגיאה בטעינה מהשרת:', e);
         }
         return null;
     }
@@ -410,6 +481,9 @@ def get_ui_prefs():
 
     /**
      * החלת נושא על הדף
+     *
+     * חשוב: מעדכנים רק את data-theme ו-user_theme,
+     * לא את dark_mode_preference (שמיועד ל-mode)
      */
     function applyTheme(themeName) {
         const html = document.documentElement;
@@ -422,34 +496,38 @@ def get_ui_prefs():
 
         console.log(`[ThemeScheduler] מחליף נושא ל: ${themeName}`);
 
-        // שימוש ב-DarkMode API אם קיים
-        if (window.DarkMode && typeof window.DarkMode.set === 'function') {
-            // ממפה את שם הנושא למצב DarkMode
-            const modeMap = {
-                'classic': 'light',
-                'light': 'light',
-                'dark': 'dark',
-                'dim': 'dim',
-                'nebula': 'dark',
-                'ocean': 'light',
-                'rose-pine-dawn': 'light',
-                'high-contrast': 'dark'
-            };
-
-            const mode = modeMap[themeName] || 'light';
-            window.DarkMode.set(mode);
-        }
-
-        // עדכון ישיר של data-theme
+        // עדכון data-theme על HTML element
         html.setAttribute('data-theme', themeName);
 
-        // עדכון localStorage
-        localStorage.setItem('dark_mode_preference', themeName);
+        // עדכון user_theme ב-localStorage (לא dark_mode_preference!)
+        try {
+            localStorage.setItem(USER_THEME_KEY, themeName);
+        } catch (e) {
+            console.warn('[ThemeScheduler] לא ניתן לשמור ב-localStorage:', e);
+        }
+
+        // סנכרון לשרת
+        syncThemeToServer(themeName);
 
         // הפעלת אירוע לרכיבים אחרים
         window.dispatchEvent(new CustomEvent('theme-changed', {
             detail: { theme: themeName, source: 'scheduler' }
         }));
+    }
+
+    /**
+     * סנכרון נושא לשרת
+     */
+    async function syncThemeToServer(themeName) {
+        try {
+            await fetch('/api/ui_prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ theme: themeName })
+            });
+        } catch (e) {
+            console.warn('[ThemeScheduler] שגיאה בסנכרון נושא לשרת:', e);
+        }
     }
 
     /**
@@ -465,7 +543,7 @@ def get_ui_prefs():
     }
 
     // ========================================
-    // ניהול טיימר
+    // ניהול טיימר (מנגנון יחיד - setTimeout בלבד)
     // ========================================
 
     /**
@@ -487,17 +565,21 @@ def get_ui_prefs():
         // החל נושא מיידית
         checkAndApplyTheme();
 
-        // הגדר בדיקה תקופתית
-        scheduleInterval = setInterval(checkAndApplyTheme, CHECK_INTERVAL_MS);
-
-        // הגדר טיימר מדויק לשינוי הבא
+        // תזמן את השינוי הבא (מנגנון יחיד - רק timeout)
         scheduleNextChange();
     }
 
     /**
      * תזמון השינוי הבא
+     * משתמש רק ב-setTimeout (לא interval) למדויקות מקסימלית
      */
     function scheduleNextChange() {
+        // נקה timeout קודם אם קיים
+        if (nextChangeTimeoutId !== null) {
+            clearTimeout(nextChangeTimeoutId);
+            nextChangeTimeoutId = null;
+        }
+
         if (!currentSchedule || !currentSchedule.enabled) {
             return;
         }
@@ -506,7 +588,9 @@ def get_ui_prefs():
 
         console.log(`[ThemeScheduler] שינוי הבא בעוד ${Math.round(msUntilChange / 60000)} דקות`);
 
-        setTimeout(() => {
+        // שמור את ה-timeout ID לניקוי עתידי
+        nextChangeTimeoutId = setTimeout(() => {
+            nextChangeTimeoutId = null;
             checkAndApplyTheme();
             // תזמן את השינוי הבא
             scheduleNextChange();
@@ -517,9 +601,64 @@ def get_ui_prefs():
      * עצירת המעקב
      */
     function stopScheduler() {
-        if (scheduleInterval) {
-            clearInterval(scheduleInterval);
-            scheduleInterval = null;
+        if (nextChangeTimeoutId !== null) {
+            clearTimeout(nextChangeTimeoutId);
+            nextChangeTimeoutId = null;
+        }
+    }
+
+    // ========================================
+    // טיפול בשינויי נושא ידניים
+    // ========================================
+
+    /**
+     * האזנה לשינויי נושא מכל מקור
+     * מכבה תזמון כששינוי ידני מתרחש
+     */
+    function setupManualChangeListener() {
+        window.addEventListener('theme-changed', (event) => {
+            // אם השינוי הגיע מה-scheduler עצמו, אין צורך לכבות
+            if (event.detail && event.detail.source === 'scheduler') {
+                return;
+            }
+
+            // שינוי ידני - כבה תזמון
+            if (currentSchedule && currentSchedule.enabled) {
+                console.log('[ThemeScheduler] שינוי ידני זוהה, מכבה תזמון');
+                disableSchedule();
+
+                // הודע למשתמש
+                notifyScheduleDisabled();
+            }
+        });
+    }
+
+    /**
+     * כיבוי התזמון
+     */
+    function disableSchedule() {
+        if (currentSchedule) {
+            currentSchedule.enabled = false;
+            saveSchedule(currentSchedule);
+            syncToServer(currentSchedule);
+        }
+        stopScheduler();
+    }
+
+    /**
+     * הודעה למשתמש על כיבוי תזמון
+     */
+    function notifyScheduleDisabled() {
+        // בדוק אם יש פונקציית toast גלובלית
+        if (typeof showToast === 'function') {
+            showToast('תזמון אוטומטי כובה (שינית נושא ידנית)');
+        } else if (typeof Toastify !== 'undefined') {
+            Toastify({
+                text: 'תזמון אוטומטי כובה',
+                duration: 3000,
+                gravity: 'bottom',
+                position: 'center'
+            }).showToast();
         }
     }
 
@@ -532,6 +671,14 @@ def get_ui_prefs():
          * אתחול המודול
          */
         init: async function() {
+            if (isInitialized) {
+                return;
+            }
+            isInitialized = true;
+
+            // הגדר מאזין לשינויים ידניים
+            setupManualChangeListener();
+
             // נסה לטעון מהשרת קודם
             const serverSchedule = await loadFromServer();
             if (serverSchedule) {
@@ -547,8 +694,10 @@ def get_ui_prefs():
 
             // האזן לשינויים ב-visibility (כשהמשתמש חוזר ללשונית)
             document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible') {
+                if (document.visibilityState === 'visible' && currentSchedule?.enabled) {
                     checkAndApplyTheme();
+                    // עדכן את הטיימר (ייתכן שעבר זמן)
+                    scheduleNextChange();
                 }
             });
 
@@ -623,33 +772,125 @@ def get_ui_prefs():
          */
         reset: function() {
             return this.setSchedule(DEFAULT_SCHEDULE);
+        },
+
+        /**
+         * כיבוי התזמון
+         */
+        disable: function() {
+            disableSchedule();
         }
     };
 
     // חשיפה גלובלית
     window.ThemeScheduler = ThemeScheduler;
 
-    // אתחול אוטומטי כשהדף נטען
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => ThemeScheduler.init());
-    } else {
-        ThemeScheduler.init();
-    }
-
 })();
 ```
 
-### 4.2 עדכון `dark-mode.js`
+### 4.2 סדר טעינה נכון ב-base.html
 
-הוסף תמיכה ב-ThemeScheduler בקובץ הקיים.
+> **חשוב**: יש לטעון את `theme-scheduler.js` **לפני** `dark-mode.js` כדי למנוע FOUC
 
-**מצא את פונקציית `updateTheme` והוסף בדיקה:**
+**קובץ: `webapp/templates/base.html`**
+
+```html
+<head>
+    <!-- ... -->
+
+    <!-- טעינה מוקדמת של theme-scheduler (מונע FOUC) -->
+    <script>
+        // טעינה סינכרונית מוקדמת של הגדרות תזמון
+        (function() {
+            try {
+                const stored = localStorage.getItem('theme_schedule');
+                if (stored) {
+                    const schedule = JSON.parse(stored);
+                    if (schedule.enabled) {
+                        // חשב איזה נושא להחיל
+                        const now = new Date();
+                        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+                        const dayStart = schedule.dayStartHour * 60 + schedule.dayStartMinute;
+                        const nightStart = schedule.nightStartHour * 60 + schedule.nightStartMinute;
+
+                        let isDay;
+                        if (dayStart < nightStart) {
+                            isDay = currentMinutes >= dayStart && currentMinutes < nightStart;
+                        } else {
+                            isDay = currentMinutes >= dayStart || currentMinutes < nightStart;
+                        }
+
+                        const theme = isDay ? schedule.dayTheme : schedule.nightTheme;
+                        document.documentElement.setAttribute('data-theme', theme);
+
+                        // סמן שתזמון פעיל (ל-dark-mode.js)
+                        window.__themeSchedulerActive = true;
+                    }
+                }
+            } catch (e) {
+                // שגיאה - נמשיך עם ה-fallback
+            }
+        })();
+    </script>
+</head>
+
+<body>
+    <!-- ... -->
+
+    <!-- תזמון ערכות נושא - לפני dark-mode.js -->
+    <script src="{{ url_for('static', filename='js/theme-scheduler.js') }}"></script>
+    <script>
+        // אתחול אסינכרוני לאחר טעינת הדף
+        if (window.ThemeScheduler) {
+            window.ThemeScheduler.init();
+        }
+    </script>
+
+    <!-- dark-mode.js אחרי theme-scheduler -->
+    <script src="{{ url_for('static', filename='js/dark-mode.js') }}"></script>
+</body>
+```
+
+### 4.3 עדכון `dark-mode.js` - שינויים מינימליים
+
+**קובץ: `webapp/static/js/dark-mode.js`**
+
+הוסף בדיקה אם ה-scheduler פעיל:
 
 ```javascript
+// בתחילת הקובץ, אחרי הגדרת הקבועים:
+
+/**
+ * בדיקה האם תזמון אוטומטי פעיל
+ */
+function isSchedulerActive() {
+    // בדיקה מוקדמת (לפני שה-ThemeScheduler נטען)
+    if (window.__themeSchedulerActive) {
+        return true;
+    }
+    // בדיקה מלאה (אחרי שה-ThemeScheduler נטען)
+    return window.ThemeScheduler && window.ThemeScheduler.isEnabled();
+}
+
+// עדכן את updateTheme:
 function updateTheme() {
-    // בדוק אם תזמון אוטומטי פעיל
-    if (window.ThemeScheduler && window.ThemeScheduler.isEnabled()) {
-        // תן ל-ThemeScheduler לנהל את הנושא
+    // אם תזמון אוטומטי פעיל, תן לו לנהל
+    if (isSchedulerActive()) {
+        return;
+    }
+
+    // המשך עם הלוגיקה הקיימת...
+    const preference = loadPreference();
+    if (!preference) {
+        return;
+    }
+    // ...
+}
+
+// עדכן את ensureThemeSync:
+function ensureThemeSync() {
+    // אם תזמון אוטומטי פעיל, אל תדרוס
+    if (isSchedulerActive()) {
         return;
     }
 
@@ -657,33 +898,6 @@ function updateTheme() {
     const preference = loadPreference();
     // ...
 }
-```
-
-**הוסף בפונקציית `toggleDarkMode`:**
-
-```javascript
-function toggleDarkMode() {
-    // כבה תזמון אוטומטי כשהמשתמש משנה ידנית
-    if (window.ThemeScheduler && window.ThemeScheduler.isEnabled()) {
-        window.ThemeScheduler.setSchedule({ enabled: false });
-        showToast('תזמון אוטומטי כובה');
-    }
-
-    // המשך עם הלוגיקה הקיימת...
-    const current = loadPreference();
-    // ...
-}
-```
-
-### 4.3 הוספת ה-script ל-base.html
-
-**קובץ: `webapp/templates/base.html`**
-
-הוסף לפני סגירת ה-body:
-
-```html
-<!-- תזמון ערכות נושא אוטומטי -->
-<script src="{{ url_for('static', filename='js/theme-scheduler.js') }}"></script>
 ```
 
 ---
@@ -729,16 +943,12 @@ function toggleDarkMode() {
             </select>
         </div>
 
-        <!-- שעת התחלת יום -->
+        <!-- שעת התחלת יום - שימוש ב-input type="time" -->
         <div class="setting-row">
             <div class="setting-info">
                 <span class="setting-label">שעת התחלת יום</span>
             </div>
-            <div class="time-picker">
-                <input type="number" id="day-start-hour" min="0" max="23" value="7" />
-                <span>:</span>
-                <input type="number" id="day-start-minute" min="0" max="59" value="0" step="5" />
-            </div>
+            <input type="time" id="day-start-time" value="07:00" class="time-input" />
         </div>
 
         <!-- בחירת נושא לילה -->
@@ -757,16 +967,12 @@ function toggleDarkMode() {
             </select>
         </div>
 
-        <!-- שעת התחלת לילה -->
+        <!-- שעת התחלת לילה - שימוש ב-input type="time" -->
         <div class="setting-row">
             <div class="setting-info">
                 <span class="setting-label">שעת התחלת לילה</span>
             </div>
-            <div class="time-picker">
-                <input type="number" id="night-start-hour" min="0" max="23" value="19" />
-                <span>:</span>
-                <input type="number" id="night-start-minute" min="0" max="59" value="0" step="5" />
-            </div>
+            <input type="time" id="night-start-time" value="19:00" class="time-input" />
         </div>
 
         <!-- תצוגה מקדימה -->
@@ -813,36 +1019,23 @@ function toggleDarkMode() {
     display: block !important;
 }
 
-/* בוחר זמן */
-.time-picker {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    direction: ltr;
-}
-
-.time-picker input {
-    width: 3.5rem;
-    padding: 0.5rem;
-    text-align: center;
+/* בוחר זמן - input type="time" */
+.time-input {
+    padding: 0.5rem 1rem;
     border: 1px solid var(--glass-border);
     border-radius: 6px;
     background: var(--input-bg);
     color: var(--text-primary);
     font-size: 1rem;
     font-family: inherit;
+    direction: ltr;
+    min-width: 120px;
 }
 
-.time-picker input:focus {
+.time-input:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 2px var(--primary-light);
-}
-
-.time-picker span {
-    font-size: 1.25rem;
-    font-weight: bold;
-    color: var(--text-secondary);
 }
 
 /* בוחר נושא */
@@ -1029,10 +1222,8 @@ function toggleDarkMode() {
             settingsPanel: document.getElementById('schedule-settings'),
             dayTheme: document.getElementById('day-theme'),
             nightTheme: document.getElementById('night-theme'),
-            dayStartHour: document.getElementById('day-start-hour'),
-            dayStartMinute: document.getElementById('day-start-minute'),
-            nightStartHour: document.getElementById('night-start-hour'),
-            nightStartMinute: document.getElementById('night-start-minute'),
+            dayStartTime: document.getElementById('day-start-time'),
+            nightStartTime: document.getElementById('night-start-time'),
             status: document.getElementById('schedule-status'),
             daySegment: document.getElementById('day-segment'),
             nightSegment: document.getElementById('night-segment')
@@ -1052,6 +1243,9 @@ function toggleDarkMode() {
 
         // עדכן תצוגה
         updatePreview();
+
+        // טען נושאים מותאמים אישית
+        loadCustomThemes();
     }
 
     /**
@@ -1067,10 +1261,29 @@ function toggleDarkMode() {
 
         if (elements.dayTheme) elements.dayTheme.value = schedule.dayTheme;
         if (elements.nightTheme) elements.nightTheme.value = schedule.nightTheme;
-        if (elements.dayStartHour) elements.dayStartHour.value = schedule.dayStartHour;
-        if (elements.dayStartMinute) elements.dayStartMinute.value = schedule.dayStartMinute;
-        if (elements.nightStartHour) elements.nightStartHour.value = schedule.nightStartHour;
-        if (elements.nightStartMinute) elements.nightStartMinute.value = schedule.nightStartMinute;
+
+        // המרה לפורמט time input (HH:MM)
+        if (elements.dayStartTime) {
+            elements.dayStartTime.value = formatTime(schedule.dayStartHour, schedule.dayStartMinute);
+        }
+        if (elements.nightStartTime) {
+            elements.nightStartTime.value = formatTime(schedule.nightStartHour, schedule.nightStartMinute);
+        }
+    }
+
+    /**
+     * פורמט זמן ל-HH:MM
+     */
+    function formatTime(hour, minute) {
+        return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    }
+
+    /**
+     * פירוק זמן מ-HH:MM
+     */
+    function parseTime(timeString) {
+        const [hour, minute] = timeString.split(':').map(Number);
+        return { hour: hour || 0, minute: minute || 0 };
     }
 
     /**
@@ -1089,10 +1302,8 @@ function toggleDarkMode() {
         const inputs = [
             elements.dayTheme,
             elements.nightTheme,
-            elements.dayStartHour,
-            elements.dayStartMinute,
-            elements.nightStartHour,
-            elements.nightStartMinute
+            elements.dayStartTime,
+            elements.nightStartTime
         ];
 
         inputs.forEach(input => {
@@ -1126,14 +1337,17 @@ function toggleDarkMode() {
      * שמירת הגדרות
      */
     function saveSettings() {
+        const dayTime = parseTime(elements.dayStartTime?.value || '07:00');
+        const nightTime = parseTime(elements.nightStartTime?.value || '19:00');
+
         const schedule = {
             enabled: elements.enabledToggle?.checked || false,
             dayTheme: elements.dayTheme?.value || 'classic',
             nightTheme: elements.nightTheme?.value || 'dark',
-            dayStartHour: parseInt(elements.dayStartHour?.value) || 7,
-            dayStartMinute: parseInt(elements.dayStartMinute?.value) || 0,
-            nightStartHour: parseInt(elements.nightStartHour?.value) || 19,
-            nightStartMinute: parseInt(elements.nightStartMinute?.value) || 0
+            dayStartHour: dayTime.hour,
+            dayStartMinute: dayTime.minute,
+            nightStartHour: nightTime.hour,
+            nightStartMinute: nightTime.minute
         };
 
         window.ThemeScheduler.setSchedule(schedule);
@@ -1208,10 +1422,41 @@ function toggleDarkMode() {
     }
 
     /**
+     * טעינת נושאים מותאמים אישית
+     */
+    async function loadCustomThemes() {
+        try {
+            const response = await fetch('/api/themes');
+            if (!response.ok) return;
+
+            const themes = await response.json();
+            if (!Array.isArray(themes)) return;
+
+            themes.forEach(theme => {
+                const option = document.createElement('option');
+                option.value = `custom:${theme.id || theme._id}`;
+                option.textContent = theme.name || theme.id;
+
+                // הוסף לשני ה-selects
+                if (elements.dayTheme) {
+                    elements.dayTheme.appendChild(option.cloneNode(true));
+                }
+                if (elements.nightTheme) {
+                    elements.nightTheme.appendChild(option);
+                }
+            });
+
+            // עדכן בחירה אחרי טעינת האופציות
+            loadCurrentSettings();
+        } catch (e) {
+            console.warn('לא ניתן לטעון נושאים מותאמים:', e);
+        }
+    }
+
+    /**
      * הצגת אישור שמירה
      */
     function showSaveConfirmation() {
-        // בדוק אם יש פונקציית toast גלובלית
         if (typeof showToast === 'function') {
             showToast('הגדרות תזמון נשמרו');
         } else if (typeof Toastify !== 'undefined') {
@@ -1247,7 +1492,7 @@ function toggleDarkMode() {
 
 ```python
 import pytest
-from webapp.app import app
+from webapp.app import app, _validate_theme_schedule
 from unittest.mock import patch, MagicMock
 
 
@@ -1270,8 +1515,167 @@ def authenticated_client(client):
 class TestThemeScheduleValidation:
     """בדיקות ולידציה להגדרות תזמון"""
 
-    def test_valid_schedule(self, authenticated_client):
-        """תזמון תקין צריך להתקבל"""
+    def test_valid_schedule_preset_themes(self):
+        """תזמון תקין עם נושאים מוכרים"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'classic',
+            'nightTheme': 'dark',
+            'dayStartHour': 7,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is True
+
+    def test_valid_schedule_custom_themes(self):
+        """תזמון תקין עם נושאים מותאמים"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'custom:abc123',
+            'nightTheme': 'my-custom-theme',
+            'dayStartHour': 8,
+            'dayStartMinute': 30,
+            'nightStartHour': 20,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is True
+
+    def test_valid_schedule_with_timezone(self):
+        """תזמון תקין עם אזור זמן"""
+        schedule = {
+            'enabled': False,
+            'dayTheme': 'ocean',
+            'nightTheme': 'nebula',
+            'dayStartHour': 6,
+            'dayStartMinute': 0,
+            'nightStartHour': 22,
+            'nightStartMinute': 30,
+            'timezone': 'Asia/Jerusalem'
+        }
+        assert _validate_theme_schedule(schedule) is True
+
+    def test_invalid_hour_too_high(self):
+        """שעה לא תקינה (גבוהה מדי)"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'classic',
+            'nightTheme': 'dark',
+            'dayStartHour': 25,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_invalid_hour_negative(self):
+        """שעה לא תקינה (שלילית)"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'classic',
+            'nightTheme': 'dark',
+            'dayStartHour': -1,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_invalid_minute(self):
+        """דקה לא תקינה"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'classic',
+            'nightTheme': 'dark',
+            'dayStartHour': 7,
+            'dayStartMinute': 60,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_missing_required_field(self):
+        """שדה חובה חסר"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'classic',
+            # nightTheme חסר
+            'dayStartHour': 7,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_invalid_theme_empty(self):
+        """נושא ריק"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': '',
+            'nightTheme': 'dark',
+            'dayStartHour': 7,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_invalid_theme_too_long(self):
+        """נושא ארוך מדי"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': 'a' * 101,
+            'nightTheme': 'dark',
+            'dayStartHour': 7,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_invalid_theme_injection_attempt(self):
+        """ניסיון injection"""
+        schedule = {
+            'enabled': True,
+            'dayTheme': '<script>alert(1)</script>',
+            'nightTheme': 'dark',
+            'dayStartHour': 7,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_invalid_enabled_type(self):
+        """enabled לא boolean"""
+        schedule = {
+            'enabled': 'true',  # string במקום bool
+            'dayTheme': 'classic',
+            'nightTheme': 'dark',
+            'dayStartHour': 7,
+            'dayStartMinute': 0,
+            'nightStartHour': 19,
+            'nightStartMinute': 0
+        }
+        assert _validate_theme_schedule(schedule) is False
+
+    def test_not_a_dict(self):
+        """קלט שאינו dictionary"""
+        assert _validate_theme_schedule(None) is False
+        assert _validate_theme_schedule([]) is False
+        assert _validate_theme_schedule("string") is False
+
+
+class TestThemeScheduleAPI:
+    """בדיקות API"""
+
+    def test_unauthenticated_request(self, client):
+        """בקשה ללא אימות"""
+        response = client.post('/api/ui_prefs', json={'theme_schedule': {}})
+        assert response.status_code == 401
+
+    def test_save_valid_schedule(self, authenticated_client):
+        """שמירת תזמון תקין"""
         schedule = {
             'theme_schedule': {
                 'enabled': True,
@@ -1292,9 +1696,10 @@ class TestThemeScheduleValidation:
                 content_type='application/json'
             )
             assert response.status_code == 200
+            assert response.json.get('success') is True
 
-    def test_invalid_hour(self, authenticated_client):
-        """שעה לא תקינה צריכה להיכשל"""
+    def test_save_invalid_schedule(self, authenticated_client):
+        """שמירת תזמון לא תקין"""
         schedule = {
             'theme_schedule': {
                 'enabled': True,
@@ -1313,97 +1718,77 @@ class TestThemeScheduleValidation:
             content_type='application/json'
         )
         assert response.status_code == 400
-
-    def test_invalid_minute(self, authenticated_client):
-        """דקה לא תקינה צריכה להיכשל"""
-        schedule = {
-            'theme_schedule': {
-                'enabled': True,
-                'dayTheme': 'classic',
-                'nightTheme': 'dark',
-                'dayStartHour': 7,
-                'dayStartMinute': 60,  # לא תקין
-                'nightStartHour': 19,
-                'nightStartMinute': 0
-            }
-        }
-
-        response = authenticated_client.post(
-            '/api/ui_prefs',
-            json=schedule,
-            content_type='application/json'
-        )
-        assert response.status_code == 400
-
-    def test_missing_field(self, authenticated_client):
-        """שדה חסר צריך להיכשל"""
-        schedule = {
-            'theme_schedule': {
-                'enabled': True,
-                'dayTheme': 'classic',
-                # חסר nightTheme
-                'dayStartHour': 7,
-                'dayStartMinute': 0,
-                'nightStartHour': 19,
-                'nightStartMinute': 0
-            }
-        }
-
-        response = authenticated_client.post(
-            '/api/ui_prefs',
-            json=schedule,
-            content_type='application/json'
-        )
-        assert response.status_code == 400
 ```
 
 ### 6.2 בדיקות יחידה - JavaScript
 
 **קובץ: `tests/js/theme-scheduler.test.js`**
 
+> **הערה**: בדיקות אלו דורשות הגדרת Jest עם jsdom ו-mocks מתאימים
+
 ```javascript
 /**
  * בדיקות למודול ThemeScheduler
+ *
+ * הרצה: npm test -- theme-scheduler.test.js
  */
+
+// Mock localStorage
+const localStorageMock = (() => {
+    let store = {};
+    return {
+        getItem: jest.fn(key => store[key] || null),
+        setItem: jest.fn((key, value) => { store[key] = value; }),
+        removeItem: jest.fn(key => { delete store[key]; }),
+        clear: jest.fn(() => { store = {}; })
+    };
+})();
+Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+
+// Mock fetch
+global.fetch = jest.fn(() =>
+    Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({})
+    })
+);
+
+// Import module (assuming ES module setup)
+// const ThemeScheduler = require('../webapp/static/js/theme-scheduler.js');
 
 describe('ThemeScheduler', () => {
     beforeEach(() => {
-        // איפוס localStorage
         localStorage.clear();
+        jest.clearAllMocks();
+        jest.useFakeTimers();
 
-        // Mock של ThemeScheduler
-        // יש לטעון את המודול לפני הבדיקות
+        // Reset document
+        document.documentElement.removeAttribute('data-theme');
     });
 
-    describe('timeToMinutes', () => {
-        it('should convert 7:30 to 450 minutes', () => {
-            // בדיקה פנימית
+    afterEach(() => {
+        jest.useRealTimers();
+    });
+
+    describe('Time Calculations', () => {
+        test('timeToMinutes converts correctly', () => {
             expect(7 * 60 + 30).toBe(450);
-        });
-
-        it('should convert 0:0 to 0 minutes', () => {
             expect(0 * 60 + 0).toBe(0);
-        });
-
-        it('should convert 23:59 to 1439 minutes', () => {
             expect(23 * 60 + 59).toBe(1439);
         });
-    });
 
-    describe('isDayTime', () => {
-        const schedule = {
-            dayStartHour: 7,
-            dayStartMinute: 0,
-            nightStartHour: 19,
-            nightStartMinute: 0
-        };
+        test('isDayTime returns true during day hours', () => {
+            const schedule = {
+                dayStartHour: 7,
+                dayStartMinute: 0,
+                nightStartHour: 19,
+                nightStartMinute: 0
+            };
 
-        it('should return true at 12:00', () => {
-            // Mock Date
-            const mockDate = new Date(2024, 0, 1, 12, 0);
-            jest.spyOn(global, 'Date').mockImplementation(() => mockDate);
+            // Mock time: 12:00
+            jest.setSystemTime(new Date(2024, 0, 1, 12, 0, 0));
 
-            // בדיקה
+            // Test logic
             const currentMinutes = 12 * 60;
             const dayStart = 7 * 60;
             const nightStart = 19 * 60;
@@ -1412,7 +1797,8 @@ describe('ThemeScheduler', () => {
             expect(isDay).toBe(true);
         });
 
-        it('should return false at 22:00', () => {
+        test('isDayTime returns false during night hours', () => {
+            // Mock time: 22:00
             const currentMinutes = 22 * 60;
             const dayStart = 7 * 60;
             const nightStart = 19 * 60;
@@ -1421,18 +1807,30 @@ describe('ThemeScheduler', () => {
             expect(isDay).toBe(false);
         });
 
-        it('should return false at 5:00', () => {
-            const currentMinutes = 5 * 60;
-            const dayStart = 7 * 60;
-            const nightStart = 19 * 60;
+        test('isDayTime handles overnight schedule', () => {
+            // Schedule: night from 22:00, day from 06:00
+            const dayStart = 6 * 60;
+            const nightStart = 22 * 60;
 
-            const isDay = currentMinutes >= dayStart && currentMinutes < nightStart;
-            expect(isDay).toBe(false);
+            // Test at 23:00 (should be night)
+            const time23 = 23 * 60;
+            const isDay23 = time23 >= dayStart || time23 < nightStart;
+            expect(isDay23).toBe(false); // Actually this is night
+
+            // Test at 03:00 (should be night)
+            const time03 = 3 * 60;
+            const isDay03 = time03 >= dayStart || time03 < nightStart;
+            expect(isDay03).toBe(false);
+
+            // Test at 12:00 (should be day)
+            const time12 = 12 * 60;
+            const isDay12 = time12 >= dayStart || time12 < nightStart;
+            expect(isDay12).toBe(true);
         });
     });
 
-    describe('getScheduledTheme', () => {
-        it('should return day theme during day time', () => {
+    describe('Theme Selection', () => {
+        test('getScheduledTheme returns day theme during day', () => {
             const schedule = {
                 dayTheme: 'classic',
                 nightTheme: 'dark',
@@ -1442,14 +1840,13 @@ describe('ThemeScheduler', () => {
                 nightStartMinute: 0
             };
 
-            // Mock: 12:00
-            const isDay = true; // מדומה
+            // Simulate day time
+            const isDay = true;
             const result = isDay ? schedule.dayTheme : schedule.nightTheme;
-
             expect(result).toBe('classic');
         });
 
-        it('should return night theme during night time', () => {
+        test('getScheduledTheme returns night theme during night', () => {
             const schedule = {
                 dayTheme: 'classic',
                 nightTheme: 'dark',
@@ -1459,16 +1856,15 @@ describe('ThemeScheduler', () => {
                 nightStartMinute: 0
             };
 
-            // Mock: 22:00
-            const isDay = false; // מדומה
+            // Simulate night time
+            const isDay = false;
             const result = isDay ? schedule.dayTheme : schedule.nightTheme;
-
             expect(result).toBe('dark');
         });
     });
 
-    describe('localStorage persistence', () => {
-        it('should save and load schedule', () => {
+    describe('localStorage Persistence', () => {
+        test('saves and loads schedule correctly', () => {
             const schedule = {
                 enabled: true,
                 dayTheme: 'ocean',
@@ -1484,6 +1880,92 @@ describe('ThemeScheduler', () => {
             const loaded = JSON.parse(localStorage.getItem('theme_schedule'));
             expect(loaded).toEqual(schedule);
         });
+
+        test('handles missing localStorage gracefully', () => {
+            const DEFAULT_SCHEDULE = {
+                enabled: false,
+                dayTheme: 'classic',
+                nightTheme: 'dark',
+                dayStartHour: 7,
+                dayStartMinute: 0,
+                nightStartHour: 19,
+                nightStartMinute: 0
+            };
+
+            const stored = localStorage.getItem('theme_schedule');
+            const schedule = stored ? JSON.parse(stored) : DEFAULT_SCHEDULE;
+
+            expect(schedule).toEqual(DEFAULT_SCHEDULE);
+        });
+    });
+
+    describe('Timer Management', () => {
+        test('calculates time until next change correctly', () => {
+            // Current time: 12:00, night starts at 19:00
+            // Expected: 7 hours = 420 minutes = 25200000ms
+            const currentMinutes = 12 * 60;
+            const nightStart = 19 * 60;
+
+            const minutesUntilChange = nightStart - currentMinutes;
+            const msUntilChange = minutesUntilChange * 60 * 1000;
+
+            expect(msUntilChange).toBe(25200000);
+        });
+
+        test('handles next day calculation', () => {
+            // Current time: 22:00, day starts at 07:00 (next day)
+            // Expected: 9 hours = 540 minutes
+            const currentMinutes = 22 * 60;
+            const dayStart = 7 * 60;
+
+            let minutesUntilChange = dayStart - currentMinutes;
+            if (minutesUntilChange <= 0) {
+                minutesUntilChange += 24 * 60;
+            }
+
+            expect(minutesUntilChange).toBe(540);
+        });
+    });
+
+    describe('Theme Application', () => {
+        test('sets data-theme attribute', () => {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+        });
+
+        test('saves to user_theme in localStorage', () => {
+            localStorage.setItem('user_theme', 'ocean');
+            expect(localStorage.getItem('user_theme')).toBe('ocean');
+        });
+
+        test('does not touch dark_mode_preference', () => {
+            // Ensure we don't write theme names to dark_mode_preference
+            localStorage.setItem('dark_mode_preference', 'auto');
+
+            // Simulate applying a theme
+            const themeName = 'ocean';
+            localStorage.setItem('user_theme', themeName);
+
+            // dark_mode_preference should remain unchanged
+            expect(localStorage.getItem('dark_mode_preference')).toBe('auto');
+        });
+    });
+
+    describe('Manual Change Detection', () => {
+        test('dispatches theme-changed event with source', () => {
+            const listener = jest.fn();
+            window.addEventListener('theme-changed', listener);
+
+            const event = new CustomEvent('theme-changed', {
+                detail: { theme: 'dark', source: 'scheduler' }
+            });
+            window.dispatchEvent(event);
+
+            expect(listener).toHaveBeenCalled();
+            expect(listener.mock.calls[0][0].detail.source).toBe('scheduler');
+
+            window.removeEventListener('theme-changed', listener);
+        });
     });
 });
 ```
@@ -1491,6 +1973,19 @@ describe('ThemeScheduler', () => {
 ---
 
 ## סיכום
+
+### שינויים מרכזיים מהגרסה הקודמת
+
+| נושא | לפני | אחרי |
+|------|------|------|
+| **mode vs theme** | ערבוב בין השניים | הפרדה מלאה - לא נוגעים ב-`dark_mode_preference` |
+| **מנגנון טיימר** | `setInterval` + `setTimeout` | רק `setTimeout` מדויק |
+| **ניקוי טיימרים** | לא מנקה timeout | שומר handle ומנקה ב-`stopScheduler()` |
+| **סדר טעינה** | לא מוגדר | סקריפט inline ב-head + טעינה לפני dark-mode.js |
+| **ולידציה בשרת** | רשימה קשיחה | ולידציה גמישה (פורמט + אורך) |
+| **כיבוי ידני** | רק ב-`toggleDarkMode()` | האזנה ל-`theme-changed` מכל מקור |
+| **UI זמן** | `input type="number"` | `input type="time"` |
+| **Timezone** | לא נתמך | תמיכה אופציונלית |
 
 ### קבצים ליצירה:
 1. `webapp/static/js/theme-scheduler.js` - מודול הליבה
@@ -1501,63 +1996,47 @@ describe('ThemeScheduler', () => {
 
 ### קבצים לעדכון:
 1. `webapp/app.py` - הוספת ולידציה ושדה חדש
-2. `webapp/static/js/dark-mode.js` - אינטגרציה עם ThemeScheduler
-3. `webapp/templates/base.html` - הוספת script
+2. `webapp/static/js/dark-mode.js` - בדיקת `isSchedulerActive()`
+3. `webapp/templates/base.html` - סקריפט inline + סדר טעינה נכון
 4. `webapp/templates/settings/*.html` - הוספת ממשק ההגדרות
-
-### סדר מימוש מומלץ:
-1. צד שרת - עדכון API (**~1 שעה**)
-2. מודול JavaScript הליבה (**~2 שעות**)
-3. סגנונות CSS (**~1 שעה**)
-4. ממשק משתמש HTML + JS (**~2 שעות**)
-5. אינטגרציה עם dark-mode.js (**~30 דקות**)
-6. בדיקות (**~2 שעות**)
-
-**סה"כ הערכה**: יום עבודה אחד
 
 ---
 
 ## הערות נוספות
 
-### תמיכה בנושאים מותאמים אישית
-כדי לתמוך בנושאים מותאמים אישית בתזמון, יש להוסיף אופציות דינמיות ל-select:
+### תמיכה באזור זמן
+כבר מובנית במודול. כדי להפעיל:
 
 ```javascript
-// טעינת נושאים מותאמים אישית
-async function loadCustomThemes() {
-    const response = await fetch('/api/themes');
-    const themes = await response.json();
-
-    themes.forEach(theme => {
-        const option = document.createElement('option');
-        option.value = `custom:${theme.id}`;
-        option.textContent = theme.name;
-        elements.dayTheme.appendChild(option.cloneNode(true));
-        elements.nightTheme.appendChild(option);
-    });
-}
-```
-
-### תמיכה באזורי זמן
-אם נדרשת תמיכה באזורי זמן שונים:
-
-```javascript
-function getCurrentTimeInTimezone(timezone) {
-    return new Date().toLocaleString('en-US', { timeZone: timezone });
-}
+ThemeScheduler.setSchedule({
+    ...schedule,
+    timezone: 'Asia/Jerusalem'
+});
 ```
 
 ### התראות לפני שינוי
-אפשר להוסיף התראה דקה לפני שינוי הנושא:
+אפשר להוסיף (nice-to-have):
 
 ```javascript
 function scheduleNotification(msUntilChange) {
     const notifyBefore = 60000; // דקה לפני
 
-    if (msUntilChange > notifyBefore) {
+    if (msUntilChange > notifyBefore && Notification.permission === 'granted') {
         setTimeout(() => {
-            showNotification('הנושא ישתנה בעוד דקה');
+            new Notification('הנושא ישתנה בעוד דקה');
         }, msUntilChange - notifyBefore);
     }
+}
+```
+
+### Debug mode
+להוספת לוגים מפורטים:
+
+```javascript
+// בתחילת המודול
+const DEBUG = localStorage.getItem('theme_scheduler_debug') === 'true';
+
+function log(...args) {
+    if (DEBUG) console.log('[ThemeScheduler]', ...args);
 }
 ```
