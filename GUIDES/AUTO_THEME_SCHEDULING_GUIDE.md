@@ -1,7 +1,7 @@
 # מדריך מימוש - תחלופת ערכות נושא אוטומטית לפי שעות ביממה
 
 **תאריך**: ינואר 2026  
-**גרסה**: 1.0  
+**גרסה**: 1.1  
 **סטטוס**: מדריך מימוש
 
 ---
@@ -9,15 +9,16 @@
 ## 📋 תוכן עניינים
 
 1. [סקירה כללית](#סקירה-כללית)
-2. [ארכיטקטורה](#ארכיטקטורה)
-3. [שלב 1: עדכון מבנה הנתונים](#שלב-1-עדכון-מבנה-הנתונים)
-4. [שלב 2: יצירת API Backend](#שלב-2-יצירת-api-backend)
-5. [שלב 3: מימוש הלוגיקה בצד הלקוח](#שלב-3-מימוש-הלוגיקה-בצד-הלקוח)
-6. [שלב 4: עדכון ממשק המשתמש](#שלב-4-עדכון-ממשק-המשתמש)
-7. [שלב 5: אינטגרציה עם המערכת הקיימת](#שלב-5-אינטגרציה-עם-המערכת-הקיימת)
-8. [שלב 6: בדיקות](#שלב-6-בדיקות)
-9. [שיקולי UX ונגישות](#שיקולי-ux-ונגישות)
-10. [סיכום](#סיכום)
+2. [החלטות עיצוב מרכזיות](#החלטות-עיצוב-מרכזיות)
+3. [ארכיטקטורה](#ארכיטקטורה)
+4. [שלב 1: עדכון מבנה הנתונים](#שלב-1-עדכון-מבנה-הנתונים)
+5. [שלב 2: יצירת API Backend](#שלב-2-יצירת-api-backend)
+6. [שלב 3: מימוש הלוגיקה בצד הלקוח](#שלב-3-מימוש-הלוגיקה-בצד-הלקוח)
+7. [שלב 4: עדכון ממשק המשתמש](#שלב-4-עדכון-ממשק-המשתמש)
+8. [שלב 5: אינטגרציה עם המערכת הקיימת](#שלב-5-אינטגרציה-עם-המערכת-הקיימת)
+9. [שלב 6: בדיקות](#שלב-6-בדיקות)
+10. [שיקולי UX ונגישות](#שיקולי-ux-ונגישות)
+11. [סיכום](#סיכום)
 
 ---
 
@@ -43,6 +44,86 @@
 - ✅ התאמה אוטומטית ללא צורך בהחלפה ידנית
 - ✅ גמישות מלאה לבחירת שעות וערכות
 - ✅ תמיכה בכל סוגי הערכות (Built-in, Shared, Custom)
+
+---
+
+## החלטות עיצוב מרכזיות
+
+לפני המימוש, חשוב להגדיר מספר החלטות מוצריות:
+
+### 1. מקור האמת לזמן: הלקוח (Client-Side)
+
+**הבעיה**: השרת רץ ב-UTC, אבל המשתמש רואה שעון מקומי.
+
+**ההחלטה**: 
+- **הלקוח** הוא מקור האמת לחישוב התקופה הנוכחית (יום/לילה)
+- השרת **לא מחשב** ולא מעדכן את `ui_prefs.theme` בזמן שמירת הגדרות
+- השרת רק שומר את ההגדרות ומחזיר אותן ללקוח
+
+**יתרונות**:
+- ✅ המשתמש רואה את מה שהוא מצפה לראות לפי השעון שלו
+- ✅ אין צורך לשמור timezone בהעדפות
+- ✅ פשוט יותר למימוש ולתחזוקה
+
+### 2. טווח שעות יום: ללא חציית חצות
+
+**הבעיה**: אם המשתמש מגדיר יום = `20:00 → 07:00`, זה מבלבל - האם זה "יום" או "לילה"?
+
+**ההחלטה**:
+- **שעות יום חייבות להיות רציפות** (day_start < day_end)
+- לא מאפשרים הגדרת יום שחוצה חצות
+- וולידציה חוסמת: אם `day_start >= day_end` → שגיאה
+
+**דוגמאות חוקיות**:
+- יום: 06:00 → 20:00 ✅
+- יום: 08:00 → 18:00 ✅
+- יום: 00:00 → 12:00 ✅ (משמרת לילה הפוכה)
+
+**דוגמאות לא חוקיות**:
+- יום: 20:00 → 07:00 ❌ (חוצה חצות)
+- יום: 12:00 → 12:00 ❌ (0 דקות)
+
+### 3. התנהגות בעת שינוי ידני (Override)
+
+**הבעיה**: מה קורה אם המשתמש לוחץ ידנית על "כהה" בזמן שהתזמון פעיל?
+
+**ההחלטה**: **Override זמני עד המעבר הבא**
+- המשתמש יכול לשנות ידנית בכל רגע
+- השינוי הידני נשמר ב-`localStorage` כ-`manual_override`
+- ברגע שמגיע זמן המעבר הבא, ה-override מתבטל והתזמון חוזר לפעול
+- הודעת UI מיידעת: "התזמון פעיל. השינוי יחזיק עד XX:XX"
+
+### 4. שמירת מזהה ערכה מלא
+
+**הבעיה**: "custom" הוא לא מזהה ערכה אמיתי, אלא קטגוריה.
+
+**ההחלטה**:
+- לשמור תמיד את המזהה המלא של הערכה
+- פורמט: `builtin:<name>`, `shared:<id>`, `custom:<id>`
+- לוולידציה מול DB אם הערכה קיימת (shared/custom)
+
+**דוגמאות**:
+```json
+{
+  "day_theme": "builtin:classic",
+  "night_theme": "builtin:dark"
+}
+// או
+{
+  "day_theme": "shared:abc123",
+  "night_theme": "custom:my-theme-uuid"
+}
+```
+
+### 5. טיימר חכם במקום Polling
+
+**הבעיה**: `setInterval` כל דקה זה עובד, אבל לא אופטימלי.
+
+**ההחלטה**:
+- לחשב את הזמן המדויק עד המעבר הבא
+- להגדיר `setTimeout` לאירוע הספציפי
+- לאחר כל מעבר, לחשב מחדש את הטיימר הבא
+- Timer גיבוי כל 5 דקות למקרה של drift
 
 ---
 
@@ -126,14 +207,19 @@ webapp/
     // 🆕 הגדרות תזמון ערכות
     "theme_schedule": {
       "enabled": false,           // האם התזמון מופעל
-      "day_theme": "classic",     // ערכת יום
-      "night_theme": "dark",      // ערכת לילה
+      "day_theme": "builtin:classic",   // ערכת יום (מזהה מלא)
+      "night_theme": "builtin:dark",    // ערכת לילה (מזהה מלא)
       "day_start": "07:00",       // שעת התחלת יום (HH:MM)
-      "day_end": "20:00"          // שעת סיום יום (HH:MM)
+      "day_end": "20:00"          // שעת סיום יום (HH:MM) - חייב להיות > day_start
     }
   }
 }
 ```
+
+**פורמט מזהה ערכה**:
+- `builtin:<name>` - ערכות מובנות (classic, dark, dim, etc.)
+- `shared:<id>` - ערכות ציבוריות מהספרייה
+- `custom:<uuid>` - ערכות מותאמות אישית של המשתמש
 
 ### 1.2 ערכי ברירת מחדל
 
@@ -142,17 +228,20 @@ webapp/
 
 DEFAULT_THEME_SCHEDULE = {
     "enabled": False,
-    "day_theme": "classic",
-    "night_theme": "dark",
+    "day_theme": "builtin:classic",
+    "night_theme": "builtin:dark",
     "day_start": "07:00",
     "day_end": "20:00",
 }
 
-# ערכות נושא מותרות (כולל shared וcustom)
-ALLOWED_SCHEDULE_THEMES = {
+# ערכות נושא מובנות (Built-in)
+BUILTIN_THEMES = {
     "classic", "dark", "dim", "nebula", "ocean", 
-    "forest", "rose-pine-dawn", "high-contrast", "custom"
+    "forest", "rose-pine-dawn", "high-contrast"
 }
+
+# Prefixes חוקיים למזהה ערכה
+VALID_THEME_PREFIXES = ("builtin:", "shared:", "custom:")
 ```
 
 ### 1.3 וולידציה
@@ -160,6 +249,7 @@ ALLOWED_SCHEDULE_THEMES = {
 ```python
 import re
 from datetime import datetime
+from typing import Optional
 
 def validate_time_format(time_str: str) -> bool:
     """בודק שפורמט השעה תקין (HH:MM)."""
@@ -168,7 +258,69 @@ def validate_time_format(time_str: str) -> bool:
     pattern = r"^([01]?[0-9]|2[0-3]):([0-5][0-9])$"
     return bool(re.match(pattern, time_str.strip()))
 
-def validate_theme_schedule(schedule: dict) -> tuple[bool, str]:
+
+def time_to_minutes(time_str: str) -> int:
+    """ממיר מחרוזת שעה למספר דקות מחצות."""
+    parts = time_str.strip().split(":")
+    return int(parts[0]) * 60 + int(parts[1])
+
+
+def validate_theme_identifier(theme_id: str, db=None, user_id: Optional[int] = None) -> tuple[bool, str]:
+    """
+    מאמת מזהה ערכה מלא.
+    
+    Args:
+        theme_id: מזהה בפורמט prefix:value
+        db: חיבור ל-DB (אופציונלי, לבדיקת קיום)
+        user_id: מזהה משתמש (נדרש לבדיקת custom themes)
+    
+    Returns:
+        (is_valid, error_message)
+    """
+    if not theme_id or not isinstance(theme_id, str):
+        return False, "missing_theme_id"
+    
+    theme_id = theme_id.strip().lower()
+    
+    # בדיקת prefix
+    if not any(theme_id.startswith(p) for p in VALID_THEME_PREFIXES):
+        return False, "invalid_theme_prefix"
+    
+    # בדיקת builtin
+    if theme_id.startswith("builtin:"):
+        name = theme_id.split(":", 1)[1]
+        if name not in BUILTIN_THEMES:
+            return False, "unknown_builtin_theme"
+        return True, ""
+    
+    # בדיקת shared (אופציונלי - נגד DB)
+    if theme_id.startswith("shared:"):
+        if db is not None:
+            shared_id = theme_id.split(":", 1)[1]
+            exists = db.shared_themes.find_one(
+                {"_id": shared_id, "is_active": True},
+                {"_id": 1}
+            )
+            if not exists:
+                return False, "shared_theme_not_found"
+        return True, ""
+    
+    # בדיקת custom (אופציונלי - נגד DB)
+    if theme_id.startswith("custom:"):
+        if db is not None and user_id:
+            custom_id = theme_id.split(":", 1)[1]
+            exists = db.users.find_one(
+                {"user_id": user_id, "custom_themes.id": custom_id},
+                {"_id": 1}
+            )
+            if not exists:
+                return False, "custom_theme_not_found"
+        return True, ""
+    
+    return False, "invalid_theme_id"
+
+
+def validate_theme_schedule(schedule: dict, db=None, user_id: Optional[int] = None) -> tuple[bool, str]:
     """
     מאמת את הגדרות תזמון הערכות.
     
@@ -185,20 +337,35 @@ def validate_theme_schedule(schedule: dict) -> tuple[bool, str]:
     # בדיקת ערכות נושא
     for key in ("day_theme", "night_theme"):
         if key in schedule:
-            theme = schedule[key]
-            if not isinstance(theme, str):
-                return False, f"invalid_{key}"
-            # אפשר גם ערכות shared:xxx או custom
-            if not (theme in ALLOWED_SCHEDULE_THEMES or 
-                    theme.startswith("shared:") or
-                    theme == "custom"):
-                return False, f"invalid_{key}"
+            is_valid, error = validate_theme_identifier(
+                schedule[key], db=db, user_id=user_id
+            )
+            if not is_valid:
+                return False, f"{key}_{error}"
     
     # בדיקת שעות
-    for key in ("day_start", "day_end"):
-        if key in schedule:
-            if not validate_time_format(schedule[key]):
-                return False, f"invalid_{key}_format"
+    day_start = schedule.get("day_start")
+    day_end = schedule.get("day_end")
+    
+    if day_start is not None:
+        if not validate_time_format(day_start):
+            return False, "invalid_day_start_format"
+    
+    if day_end is not None:
+        if not validate_time_format(day_end):
+            return False, "invalid_day_end_format"
+    
+    # 🔒 וולידציה קריטית: day_start חייב להיות קטן מ-day_end
+    if day_start and day_end:
+        start_mins = time_to_minutes(day_start)
+        end_mins = time_to_minutes(day_end)
+        
+        if start_mins >= end_mins:
+            return False, "day_start_must_be_before_day_end"
+        
+        # מינימום שעה אחת של יום
+        if end_mins - start_mins < 60:
+            return False, "day_range_too_short"
     
     return True, ""
 ```
@@ -317,8 +484,8 @@ def update_theme_schedule():
     Request body:
     {
         "enabled": true,
-        "day_theme": "classic",
-        "night_theme": "dark",
+        "day_theme": "builtin:classic",
+        "night_theme": "builtin:dark",
         "day_start": "07:00",
         "day_end": "20:00"
     }
@@ -329,6 +496,11 @@ def update_theme_schedule():
         "message": "הגדרות התזמון נשמרו",
         "schedule": { ... }
     }
+    
+    הערה חשובה:
+    - השרת לא מחשב את הערכה הנוכחית ולא מעדכן ui_prefs.theme
+    - הלקוח הוא מקור האמת לזמן (שעון מקומי של המשתמש)
+    - day_start חייב להיות קטן מ-day_end (אין תמיכה בטווח שחוצה חצות)
     """
     user_id = get_current_user_id()
     if not user_id:
@@ -336,13 +508,36 @@ def update_theme_schedule():
 
     data = request.get_json(silent=True) or {}
 
-    # וולידציה
-    is_valid, error_msg = _validate_theme_schedule(data)
-    if not is_valid:
-        return jsonify({"ok": False, "error": error_msg}), 400
-
     try:
         db_ref = get_db()
+        
+        # וולידציה מלאה כולל בדיקת קיום ערכות ב-DB
+        is_valid, error_msg = _validate_theme_schedule(
+            data, db=db_ref, user_id=int(user_id)
+        )
+        if not is_valid:
+            # מיפוי שגיאות לעברית
+            error_messages = {
+                "invalid_format": "פורמט לא תקין",
+                "invalid_enabled_value": "ערך enabled לא תקין",
+                "day_theme_missing_theme_id": "חסר מזהה ערכת יום",
+                "day_theme_invalid_theme_prefix": "פורמט ערכת יום לא תקין",
+                "day_theme_unknown_builtin_theme": "ערכת יום לא קיימת",
+                "day_theme_shared_theme_not_found": "ערכת יום שיתופית לא נמצאה",
+                "day_theme_custom_theme_not_found": "ערכת יום מותאמת לא נמצאה",
+                "night_theme_missing_theme_id": "חסר מזהה ערכת לילה",
+                "night_theme_invalid_theme_prefix": "פורמט ערכת לילה לא תקין",
+                "night_theme_unknown_builtin_theme": "ערכת לילה לא קיימת",
+                "night_theme_shared_theme_not_found": "ערכת לילה שיתופית לא נמצאה",
+                "night_theme_custom_theme_not_found": "ערכת לילה מותאמת לא נמצאה",
+                "invalid_day_start_format": "פורמט שעת התחלה לא תקין (נדרש HH:MM)",
+                "invalid_day_end_format": "פורמט שעת סיום לא תקין (נדרש HH:MM)",
+                "day_start_must_be_before_day_end": "שעת התחלה חייבת להיות לפני שעת הסיום",
+                "day_range_too_short": "טווח היום חייב להיות לפחות שעה",
+            }
+            message = error_messages.get(error_msg, error_msg)
+            return jsonify({"ok": False, "error": error_msg, "message": message}), 400
+
         now_utc = datetime.now(timezone.utc)
 
         # קריאה קודמת לקבלת ערכים קיימים
@@ -371,7 +566,7 @@ def update_theme_schedule():
         if "day_end" in data:
             new_schedule["day_end"] = str(data["day_end"]).strip()
 
-        # שמירה
+        # שמירה - ללא עדכון ui_prefs.theme (הלקוח יעשה זאת)
         db_ref.users.update_one(
             {"user_id": int(user_id)},
             {
@@ -382,15 +577,6 @@ def update_theme_schedule():
             },
             upsert=True,
         )
-
-        # אם התזמון מופעל, עדכן גם את הערכה הנוכחית
-        if new_schedule.get("enabled"):
-            current_theme = _calculate_current_scheduled_theme(new_schedule)
-            if current_theme:
-                db_ref.users.update_one(
-                    {"user_id": int(user_id)},
-                    {"$set": {"ui_prefs.theme": current_theme}},
-                )
 
         return jsonify({
             "ok": True,
@@ -403,119 +589,22 @@ def update_theme_schedule():
         return jsonify({"ok": False, "error": "database_error"}), 500
 
 
-@themes_bp.route("/schedule/current", methods=["GET"])
-@require_auth
-def get_current_scheduled_theme():
+def _extract_theme_name(theme_id: str) -> str:
     """
-    קבלת הערכה הנוכחית לפי התזמון (ללא שינוי ב-DB).
-    שימושי ללוגיקה צד לקוח.
+    מחלץ את שם הערכה מהמזהה המלא.
+    לדוגמה: "builtin:dark" -> "dark", "shared:abc123" -> "shared:abc123"
+    """
+    if not theme_id:
+        return "classic"
     
-    Response:
-    {
-        "ok": true,
-        "is_scheduled": true,
-        "current_theme": "dark",
-        "period": "night",
-        "next_change_at": "07:00"
-    }
-    """
-    user_id = get_current_user_id()
-    if not user_id:
-        return jsonify({"ok": False, "error": "unauthorized"}), 401
-
-    try:
-        db_ref = get_db()
-        user_doc = db_ref.users.find_one(
-            {"user_id": int(user_id)},
-            {"ui_prefs.theme_schedule": 1}
-        ) or {}
-
-        schedule = (user_doc.get("ui_prefs") or {}).get("theme_schedule") or {}
-
-        if not schedule.get("enabled"):
-            return jsonify({
-                "ok": True,
-                "is_scheduled": False,
-                "current_theme": None,
-                "period": None,
-                "next_change_at": None,
-            })
-
-        current_theme, period, next_change = _calculate_scheduled_theme_details(schedule)
-
-        return jsonify({
-            "ok": True,
-            "is_scheduled": True,
-            "current_theme": current_theme,
-            "period": period,
-            "next_change_at": next_change,
-        })
-
-    except Exception as e:
-        logger.exception("get_current_scheduled_theme failed: %s", e)
-        return jsonify({"ok": False, "error": "database_error"}), 500
-
-
-def _calculate_current_scheduled_theme(schedule: dict) -> Optional[str]:
-    """מחשב את הערכה הנוכחית לפי תזמון ושעה נוכחית."""
-    if not schedule or not schedule.get("enabled"):
-        return None
-
-    try:
-        from datetime import datetime
-
-        now = datetime.now()
-        current_time = now.strftime("%H:%M")
-
-        day_start = schedule.get("day_start", "07:00")
-        day_end = schedule.get("day_end", "20:00")
-
-        # בדיקה אם אנחנו בטווח היום
-        if day_start <= day_end:
-            # טווח רגיל (למשל 07:00-20:00)
-            is_day = day_start <= current_time < day_end
-        else:
-            # טווח עובר חצות (למשל 20:00-07:00 = לילה)
-            is_day = current_time >= day_start or current_time < day_end
-
-        if is_day:
-            return schedule.get("day_theme", "classic")
-        else:
-            return schedule.get("night_theme", "dark")
-
-    except Exception:
-        return None
-
-
-def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
-    """
-    מחשב פרטים מלאים על התזמון הנוכחי.
+    if theme_id.startswith("builtin:"):
+        return theme_id.split(":", 1)[1]
     
-    Returns:
-        (current_theme, period, next_change_time)
-    """
-    from datetime import datetime
-
-    now = datetime.now()
-    current_time = now.strftime("%H:%M")
-
-    day_start = schedule.get("day_start", "07:00")
-    day_end = schedule.get("day_end", "20:00")
-    day_theme = schedule.get("day_theme", "classic")
-    night_theme = schedule.get("night_theme", "dark")
-
-    if day_start <= day_end:
-        is_day = day_start <= current_time < day_end
-        next_change = day_end if is_day else day_start
-    else:
-        is_day = current_time >= day_start or current_time < day_end
-        next_change = day_end if is_day else day_start
-
-    if is_day:
-        return day_theme, "day", next_change
-    else:
-        return night_theme, "night", next_change
+    # עבור shared/custom, מחזירים את המזהה המלא (ה-JS יטפל בזה)
+    return theme_id
 ```
+
+**הערה חשובה**: השרת לא מחשב את הערכה הנוכחית לפי זמן. כל החישובים מתבצעים בצד הלקוח (ראה שלב 3).
 
 ---
 
@@ -529,128 +618,36 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
 /**
  * Theme Scheduler - תזמון אוטומטי של ערכות נושא לפי שעות
  * 
- * הפיצ'ר מאפשר למשתמש להגדיר ערכת יום וערכת לילה,
- * והמערכת מחליפה ביניהן אוטומטית לפי השעות שהוגדרו.
+ * עקרונות מרכזיים:
+ * 1. הלקוח הוא מקור האמת לזמן (שעון מקומי)
+ * 2. day_start < day_end תמיד (אין חציית חצות)
+ * 3. טיימר חכם - setTimeout לאירוע הבא, לא polling
+ * 4. תמיכה ב-override ידני זמני
  */
 
 (function() {
     'use strict';
 
+    // === קבועים ===
     const STORAGE_KEY = 'theme_schedule_cache';
-    const CHECK_INTERVAL = 60000; // בדיקה כל דקה
-    let checkTimer = null;
+    const OVERRIDE_KEY = 'theme_manual_override';
+    const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 שעות
+    const BACKUP_CHECK_INTERVAL = 5 * 60 * 1000; // גיבוי כל 5 דקות
+
+    // === מצב ===
     let currentSchedule = null;
+    let nextChangeTimer = null;
+    let backupTimer = null;
+
+    // === עזר: זמן ===
 
     /**
-     * טעינת הגדרות תזמון מהשרת
-     */
-    async function loadSchedule() {
-        try {
-            const response = await fetch('/api/themes/schedule', {
-                method: 'GET',
-                credentials: 'same-origin',
-            });
-
-            if (!response.ok) {
-                console.warn('Failed to load theme schedule');
-                return null;
-            }
-
-            const data = await response.json();
-            if (data.ok && data.schedule) {
-                currentSchedule = data.schedule;
-                // שמירה במטמון מקומי
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(data.schedule));
-                } catch (e) {
-                    // ignore localStorage errors
-                }
-                return data.schedule;
-            }
-        } catch (e) {
-            console.warn('Error loading theme schedule:', e);
-        }
-
-        // ניסיון לטעון ממטמון מקומי
-        try {
-            const cached = localStorage.getItem(STORAGE_KEY);
-            if (cached) {
-                currentSchedule = JSON.parse(cached);
-                return currentSchedule;
-            }
-        } catch (e) {
-            // ignore
-        }
-
-        return null;
-    }
-
-    /**
-     * המרת מחרוזת שעה למספר דקות מתחילת היום
-     * @param {string} timeStr - שעה בפורמט "HH:MM"
-     * @returns {number} - מספר דקות מחצות
+     * המרת מחרוזת שעה למספר דקות מחצות
      */
     function timeToMinutes(timeStr) {
         if (!timeStr || typeof timeStr !== 'string') return 0;
         const parts = timeStr.split(':');
-        const hours = parseInt(parts[0], 10) || 0;
-        const minutes = parseInt(parts[1], 10) || 0;
-        return hours * 60 + minutes;
-    }
-
-    /**
-     * קבלת השעה הנוכחית כמספר דקות
-     * @returns {number}
-     */
-    function getCurrentMinutes() {
-        const now = new Date();
-        return now.getHours() * 60 + now.getMinutes();
-    }
-
-    /**
-     * חישוב אם אנחנו בתקופת יום או לילה
-     * @param {Object} schedule - הגדרות התזמון
-     * @returns {Object} - { period: 'day'|'night', theme: string, nextChangeIn: number }
-     */
-    function calculateCurrentPeriod(schedule) {
-        if (!schedule || !schedule.enabled) {
-            return { period: null, theme: null, nextChangeIn: null };
-        }
-
-        const currentMins = getCurrentMinutes();
-        const dayStart = timeToMinutes(schedule.day_start || '07:00');
-        const dayEnd = timeToMinutes(schedule.day_end || '20:00');
-        const dayTheme = schedule.day_theme || 'classic';
-        const nightTheme = schedule.night_theme || 'dark';
-
-        let isDay;
-        let nextChangeAt;
-
-        if (dayStart <= dayEnd) {
-            // טווח רגיל (למשל 07:00-20:00)
-            isDay = currentMins >= dayStart && currentMins < dayEnd;
-            nextChangeAt = isDay ? dayEnd : dayStart;
-        } else {
-            // טווח עובר חצות (למשל 22:00-06:00 = לילה)
-            isDay = currentMins >= dayStart || currentMins < dayEnd;
-            nextChangeAt = isDay ? dayEnd : dayStart;
-        }
-
-        // חישוב זמן עד השינוי הבא (בדקות)
-        let nextChangeIn;
-        if (nextChangeAt > currentMins) {
-            nextChangeIn = nextChangeAt - currentMins;
-        } else {
-            // השינוי הבא מחר
-            nextChangeIn = (24 * 60 - currentMins) + nextChangeAt;
-        }
-
-        return {
-            period: isDay ? 'day' : 'night',
-            theme: isDay ? dayTheme : nightTheme,
-            nextChangeIn: nextChangeIn, // בדקות
-            nextChangeAt: formatMinutesToTime(nextChangeAt),
-        };
+        return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
     }
 
     /**
@@ -663,19 +660,210 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
     }
 
     /**
-     * החלת ערכת נושא
-     * @param {string} theme - שם הערכה
+     * קבלת השעה הנוכחית כמספר דקות
      */
-    function applyTheme(theme) {
-        if (!theme) return;
+    function getCurrentMinutes() {
+        const now = new Date();
+        return now.getHours() * 60 + now.getMinutes();
+    }
 
+    /**
+     * חישוב מספר מילישניות עד שעה מסוימת
+     */
+    function getMillisecondsUntil(targetMinutes) {
+        const now = new Date();
+        const currentMins = now.getHours() * 60 + now.getMinutes();
+        const currentSecs = now.getSeconds();
+        
+        let diffMins;
+        if (targetMinutes > currentMins) {
+            diffMins = targetMinutes - currentMins;
+        } else {
+            // מחר
+            diffMins = (24 * 60 - currentMins) + targetMinutes;
+        }
+        
+        // המרה למילישניות, מינוס השניות שכבר עברו
+        return (diffMins * 60 - currentSecs) * 1000;
+    }
+
+    // === עזר: מזהה ערכה ===
+
+    /**
+     * חילוץ שם הערכה מהמזהה המלא
+     * "builtin:dark" -> "dark"
+     * "shared:abc123" -> נשאר כמו שהוא (נטפל ב-applyTheme)
+     */
+    function extractThemeName(themeId) {
+        if (!themeId) return 'classic';
+        
+        if (themeId.startsWith('builtin:')) {
+            return themeId.split(':', 2)[1];
+        }
+        // shared/custom - מחזירים את ה-id המלא
+        return themeId;
+    }
+
+    // === לוגיקה מרכזית ===
+
+    /**
+     * חישוב התקופה הנוכחית (יום/לילה) והערכה המתאימה
+     * 
+     * הנחה: day_start < day_end (כבר עבר וולידציה בשרת)
+     */
+    function calculateCurrentPeriod(schedule) {
+        if (!schedule || !schedule.enabled) {
+            return { period: null, theme: null, nextChangeIn: null, nextChangeAt: null };
+        }
+
+        const currentMins = getCurrentMinutes();
+        const dayStart = timeToMinutes(schedule.day_start || '07:00');
+        const dayEnd = timeToMinutes(schedule.day_end || '20:00');
+        
+        // לוגיקה פשוטה: יום = בתוך הטווח [dayStart, dayEnd)
+        const isDay = currentMins >= dayStart && currentMins < dayEnd;
+        
+        // הערכה הנוכחית
+        const themeId = isDay ? schedule.day_theme : schedule.night_theme;
+        const theme = extractThemeName(themeId || (isDay ? 'builtin:classic' : 'builtin:dark'));
+        
+        // זמן המעבר הבא
+        const nextChangeAt = isDay ? dayEnd : dayStart;
+        const nextChangeIn = getMillisecondsUntil(nextChangeAt);
+
+        return {
+            period: isDay ? 'day' : 'night',
+            theme: theme,
+            themeId: themeId, // המזהה המלא
+            nextChangeIn: nextChangeIn, // במילישניות
+            nextChangeAt: formatMinutesToTime(nextChangeAt),
+        };
+    }
+
+    // === Override ידני ===
+
+    /**
+     * בדיקה אם יש override ידני פעיל
+     */
+    function getManualOverride() {
+        try {
+            const data = localStorage.getItem(OVERRIDE_KEY);
+            if (!data) return null;
+            
+            const override = JSON.parse(data);
+            const now = Date.now();
+            
+            // בדיקה אם ה-override עדיין תקף
+            if (override.expiresAt && override.expiresAt > now) {
+                return override;
+            }
+            
+            // פג תוקף - מוחקים
+            localStorage.removeItem(OVERRIDE_KEY);
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * הגדרת override ידני (זמני עד המעבר הבא)
+     */
+    function setManualOverride(theme) {
+        if (!currentSchedule || !currentSchedule.enabled) return;
+        
+        const result = calculateCurrentPeriod(currentSchedule);
+        if (!result.nextChangeIn) return;
+        
+        const override = {
+            theme: theme,
+            setAt: Date.now(),
+            expiresAt: Date.now() + result.nextChangeIn,
+            expiresAtFormatted: result.nextChangeAt,
+        };
+        
+        try {
+            localStorage.setItem(OVERRIDE_KEY, JSON.stringify(override));
+        } catch (e) {
+            // ignore
+        }
+        
+        // הודעה למשתמש
+        showOverrideNotification(result.nextChangeAt);
+    }
+
+    /**
+     * ביטול override ידני
+     */
+    function clearManualOverride() {
+        try {
+            localStorage.removeItem(OVERRIDE_KEY);
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    /**
+     * הצגת הודעה על override
+     */
+    function showOverrideNotification(expiresAt) {
+        // בדיקה אם כבר יש toast
+        const existing = document.querySelector('.theme-override-toast');
+        if (existing) existing.remove();
+        
+        const toast = document.createElement('div');
+        toast.className = 'theme-override-toast';
+        toast.innerHTML = `
+            <i class="fas fa-info-circle"></i>
+            <span>התזמון האוטומטי פעיל. השינוי הידני יתבטל ב-${expiresAt}</span>
+            <button onclick="this.parentElement.remove()" class="toast-close">&times;</button>
+        `;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--warning, #f59e0b);
+            color: #000;
+            padding: 0.75rem 1rem;
+            border-radius: 10px;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            animation: fadeInUp 0.3s ease-out;
+        `;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 5000);
+    }
+
+    // === החלת ערכה ===
+
+    /**
+     * החלת ערכת נושא
+     */
+    function applyTheme(theme, options = {}) {
+        if (!theme) return;
+        
+        const { source = 'scheduler', force = false } = options;
         const html = document.documentElement;
         const currentTheme = html.getAttribute('data-theme');
 
-        // רק אם יש שינוי
-        if (currentTheme === theme) return;
+        // בדיקת override ידני (רק אם לא force)
+        if (!force && source === 'scheduler') {
+            const override = getManualOverride();
+            if (override) {
+                // יש override פעיל - לא משנים
+                console.log(`[ThemeScheduler] Manual override active until ${override.expiresAtFormatted}`);
+                return;
+            }
+        }
 
-        console.log(`[ThemeScheduler] Switching to ${theme} theme`);
+        // רק אם יש שינוי
+        if (currentTheme === theme && !force) return;
+
+        console.log(`[ThemeScheduler] Applying theme: ${theme} (source: ${source})`);
 
         // עדכון ה-HTML attribute
         html.setAttribute('data-theme', theme);
@@ -689,79 +877,108 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
 
         // אירוע לעדכון קומפוננטים אחרים
         window.dispatchEvent(new CustomEvent('themeChanged', {
-            detail: { theme, source: 'scheduler' }
+            detail: { theme, source }
         }));
 
-        // עדכון ה-DarkMode module אם קיים
-        if (window.DarkMode && typeof window.DarkMode.set === 'function') {
-            // לא נקרא ל-set כדי למנוע לולאה אינסופית
-            // רק נעדכן את ה-toggle button
-            const toggleBtn = document.getElementById('darkModeToggle');
-            const icon = document.getElementById('darkModeIcon');
-            if (toggleBtn && icon) {
-                const icons = {
-                    'classic': 'fa-sun',
-                    'dark': 'fa-moon',
-                    'dim': 'fa-cloud-moon',
-                };
-                icon.className = 'fas ' + (icons[theme] || 'fa-palette');
+        // עדכון ה-DarkMode toggle button
+        updateToggleButton(theme);
+    }
+
+    /**
+     * עדכון כפתור toggle
+     */
+    function updateToggleButton(theme) {
+        const toggleBtn = document.getElementById('darkModeToggle');
+        const icon = document.getElementById('darkModeIcon');
+        if (!toggleBtn || !icon) return;
+        
+        const icons = {
+            'classic': 'fa-sun',
+            'dark': 'fa-moon',
+            'dim': 'fa-cloud-moon',
+            'ocean': 'fa-water',
+            'forest': 'fa-tree',
+            'nebula': 'fa-star',
+        };
+        icon.className = 'fas ' + (icons[theme] || 'fa-palette');
+    }
+
+    // === מטמון ===
+
+    /**
+     * שמירה במטמון מקומי
+     */
+    function saveToCache(schedule) {
+        try {
+            const cacheData = {
+                schedule: schedule,
+                fetchedAt: Date.now(),
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cacheData));
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    /**
+     * טעינה ממטמון מקומי
+     */
+    function loadFromCache() {
+        try {
+            const data = localStorage.getItem(STORAGE_KEY);
+            if (!data) return null;
+            
+            const cached = JSON.parse(data);
+            
+            // בדיקת תוקף (24 שעות)
+            if (cached.fetchedAt && (Date.now() - cached.fetchedAt) > CACHE_MAX_AGE_MS) {
+                console.log('[ThemeScheduler] Cache expired, will fetch fresh data');
+                return null;
             }
+            
+            return cached.schedule;
+        } catch (e) {
+            return null;
         }
     }
 
+    // === תקשורת עם השרת ===
+
     /**
-     * בדיקה ועדכון הערכה לפי התזמון
+     * טעינת הגדרות מהשרת
      */
-    async function checkAndApply() {
-        // טעינה ראשונית אם צריך
-        if (!currentSchedule) {
-            await loadSchedule();
+    async function loadSchedule() {
+        try {
+            const response = await fetch('/api/themes/schedule', {
+                method: 'GET',
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) {
+                console.warn('[ThemeScheduler] Failed to load schedule, using cache');
+                return loadFromCache();
+            }
+
+            const data = await response.json();
+            if (data.ok && data.schedule) {
+                currentSchedule = data.schedule;
+                saveToCache(data.schedule);
+                return data.schedule;
+            }
+        } catch (e) {
+            console.warn('[ThemeScheduler] Network error, using cache:', e.message);
         }
 
-        if (!currentSchedule || !currentSchedule.enabled) {
-            return;
+        // Fallback למטמון
+        const cached = loadFromCache();
+        if (cached) {
+            currentSchedule = cached;
         }
-
-        const result = calculateCurrentPeriod(currentSchedule);
-        if (result.theme) {
-            applyTheme(result.theme);
-        }
-
-        // לוג לדיבוג
-        if (result.nextChangeAt) {
-            console.log(`[ThemeScheduler] Current: ${result.period}, Next change at: ${result.nextChangeAt}`);
-        }
+        return cached;
     }
 
     /**
-     * התחלת מעקב אוטומטי
-     */
-    function startMonitoring() {
-        // עצירת טיימר קיים
-        if (checkTimer) {
-            clearInterval(checkTimer);
-        }
-
-        // בדיקה ראשונית
-        checkAndApply();
-
-        // בדיקה תקופתית
-        checkTimer = setInterval(checkAndApply, CHECK_INTERVAL);
-    }
-
-    /**
-     * עצירת מעקב
-     */
-    function stopMonitoring() {
-        if (checkTimer) {
-            clearInterval(checkTimer);
-            checkTimer = null;
-        }
-    }
-
-    /**
-     * עדכון הגדרות תזמון לשרת
-     * @param {Object} schedule - הגדרות חדשות
+     * שמירת הגדרות לשרת
      */
     async function saveSchedule(schedule) {
         try {
@@ -775,13 +992,12 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
             const data = await response.json();
             if (data.ok) {
                 currentSchedule = data.schedule || schedule;
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(currentSchedule));
-                } catch (e) {
-                    // ignore
-                }
+                saveToCache(currentSchedule);
+                
+                // ביטול override קודם
+                clearManualOverride();
 
-                // הפעלה/כיבוי מעקב לפי הצורך
+                // עדכון מעקב
                 if (currentSchedule.enabled) {
                     startMonitoring();
                 } else {
@@ -790,22 +1006,121 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
 
                 return { success: true, schedule: currentSchedule };
             } else {
-                return { success: false, error: data.error };
+                return { success: false, error: data.error, message: data.message };
             }
         } catch (e) {
-            console.error('Error saving theme schedule:', e);
+            console.error('[ThemeScheduler] Save error:', e);
             return { success: false, error: 'network_error' };
         }
     }
 
+    // === ניהול טיימרים ===
+
     /**
-     * אתחול
+     * הגדרת טיימר לאירוע הבא
      */
+    function scheduleNextChange() {
+        // ניקוי טיימר קודם
+        if (nextChangeTimer) {
+            clearTimeout(nextChangeTimer);
+            nextChangeTimer = null;
+        }
+
+        if (!currentSchedule || !currentSchedule.enabled) return;
+
+        const result = calculateCurrentPeriod(currentSchedule);
+        if (!result.nextChangeIn) return;
+
+        console.log(`[ThemeScheduler] Next change in ${Math.round(result.nextChangeIn / 60000)} minutes (at ${result.nextChangeAt})`);
+
+        // טיימר לאירוע הבא
+        nextChangeTimer = setTimeout(() => {
+            console.log(`[ThemeScheduler] Time to switch!`);
+            
+            // ביטול override (הגיע זמן המעבר)
+            clearManualOverride();
+            
+            // החלת הערכה החדשה
+            const newResult = calculateCurrentPeriod(currentSchedule);
+            if (newResult.theme) {
+                applyTheme(newResult.theme, { force: true });
+            }
+            
+            // תזמון האירוע הבא
+            scheduleNextChange();
+            
+        }, result.nextChangeIn + 1000); // +1 שנייה לוודא שעברנו את נקודת המעבר
+    }
+
+    /**
+     * התחלת מעקב
+     */
+    function startMonitoring() {
+        // עצירת טיימרים קודמים
+        stopMonitoring();
+
+        if (!currentSchedule || !currentSchedule.enabled) return;
+
+        // החלת הערכה הנוכחית
+        const result = calculateCurrentPeriod(currentSchedule);
+        if (result.theme) {
+            applyTheme(result.theme);
+        }
+
+        // תזמון המעבר הבא
+        scheduleNextChange();
+
+        // Timer גיבוי (למקרה של drift או חזרה מ-sleep)
+        backupTimer = setInterval(() => {
+            if (!currentSchedule?.enabled) return;
+            
+            const override = getManualOverride();
+            if (override) {
+                // בדיקה אם ה-override פג
+                if (override.expiresAt <= Date.now()) {
+                    clearManualOverride();
+                    const newResult = calculateCurrentPeriod(currentSchedule);
+                    if (newResult.theme) {
+                        applyTheme(newResult.theme, { force: true });
+                    }
+                }
+                return;
+            }
+            
+            // בדיקת התאמה
+            const result = calculateCurrentPeriod(currentSchedule);
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            if (result.theme && result.theme !== currentTheme) {
+                console.log('[ThemeScheduler] Backup check detected mismatch, fixing...');
+                applyTheme(result.theme);
+                scheduleNextChange();
+            }
+        }, BACKUP_CHECK_INTERVAL);
+    }
+
+    /**
+     * עצירת מעקב
+     */
+    function stopMonitoring() {
+        if (nextChangeTimer) {
+            clearTimeout(nextChangeTimer);
+            nextChangeTimer = null;
+        }
+        if (backupTimer) {
+            clearInterval(backupTimer);
+            backupTimer = null;
+        }
+    }
+
+    // === אתחול ===
+
     async function init() {
+        console.log('[ThemeScheduler] Initializing...');
+        
         // טעינת הגדרות
         await loadSchedule();
 
-        // התחלת מעקב אם התזמון מופעל
+        // התחלת מעקב אם מופעל
         if (currentSchedule && currentSchedule.enabled) {
             startMonitoring();
         }
@@ -818,22 +1133,46 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
         init();
     }
 
-    // האזנה לשינויי visibility (כשהמשתמש חוזר לטאב)
+    // האזנה לשינויי visibility (חזרה לטאב)
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && currentSchedule?.enabled) {
-            checkAndApply();
+            // בדיקה אם צריך לעדכן
+            const override = getManualOverride();
+            if (!override) {
+                const result = calculateCurrentPeriod(currentSchedule);
+                const currentTheme = document.documentElement.getAttribute('data-theme');
+                if (result.theme && result.theme !== currentTheme) {
+                    applyTheme(result.theme);
+                }
+            }
+            // רענון טיימר
+            scheduleNextChange();
         }
     });
 
-    // חשיפת API גלובלי
+    // === API גלובלי ===
+
     window.ThemeScheduler = {
+        // פעולות בסיסיות
         load: loadSchedule,
         save: saveSchedule,
-        check: checkAndApply,
-        getCurrentPeriod: () => calculateCurrentPeriod(currentSchedule),
+        
+        // מצב נוכחי
         getSchedule: () => currentSchedule,
+        getCurrentPeriod: () => calculateCurrentPeriod(currentSchedule),
+        isEnabled: () => currentSchedule?.enabled ?? false,
+        
+        // מעקב
         start: startMonitoring,
         stop: stopMonitoring,
+        
+        // Override ידני
+        setOverride: setManualOverride,
+        clearOverride: clearManualOverride,
+        getOverride: getManualOverride,
+        
+        // החלת ערכה (לשימוש חיצוני)
+        applyTheme: (theme) => applyTheme(theme, { source: 'manual' }),
     };
 
 })();
@@ -905,10 +1244,18 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
                         ערכת יום
                     </label>
                     <select id="dayTheme" class="form-control theme-select">
-                        <option value="classic">קלאסי (בהיר)</option>
-                        <option value="ocean">אוקיינוס</option>
-                        <option value="forest">יער</option>
-                        <option value="rose-pine-dawn">Rose Pine Dawn</option>
+                        <optgroup label="ערכות בהירות">
+                            <option value="builtin:classic">קלאסי (בהיר)</option>
+                            <option value="builtin:ocean">אוקיינוס</option>
+                            <option value="builtin:forest">יער</option>
+                            <option value="builtin:rose-pine-dawn">Rose Pine Dawn</option>
+                        </optgroup>
+                        <optgroup label="ערכות כהות">
+                            <option value="builtin:dark">כהה</option>
+                            <option value="builtin:dim">מעומעם</option>
+                            <option value="builtin:nebula">ערפילית</option>
+                        </optgroup>
+                        <!-- ערכות מותאמות/שיתופיות יתווספו דינמית -->
                     </select>
                 </div>
 
@@ -919,10 +1266,18 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
                         ערכת לילה
                     </label>
                     <select id="nightTheme" class="form-control theme-select">
-                        <option value="dark">כהה</option>
-                        <option value="dim">מעומעם</option>
-                        <option value="nebula">ערפילית</option>
-                        <option value="high-contrast">ניגודיות גבוהה</option>
+                        <optgroup label="ערכות כהות">
+                            <option value="builtin:dark">כהה</option>
+                            <option value="builtin:dim">מעומעם</option>
+                            <option value="builtin:nebula">ערפילית</option>
+                            <option value="builtin:high-contrast">ניגודיות גבוהה</option>
+                        </optgroup>
+                        <optgroup label="ערכות בהירות">
+                            <option value="builtin:classic">קלאסי (בהיר)</option>
+                            <option value="builtin:ocean">אוקיינוס</option>
+                            <option value="builtin:forest">יער</option>
+                        </optgroup>
+                        <!-- ערכות מותאמות/שיתופיות יתווספו דינמית -->
                     </select>
                 </div>
 
@@ -943,9 +1298,13 @@ def _calculate_scheduled_theme_details(schedule: dict) -> tuple[str, str, str]:
                             <input type="time" id="dayEnd" class="form-control time-input" value="20:00">
                         </div>
                     </div>
-                    <small class="text-muted">
+                    <small class="text-muted" id="timeRangeHint">
                         כל השעות מחוץ לטווח זה ייחשבו כלילה
                     </small>
+                    <div id="timeRangeError" class="form-error" style="display: none;">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>שעת ההתחלה חייבת להיות לפני שעת הסיום</span>
+                    </div>
                 </div>
 
                 <!-- תצוגה מקדימה -->
@@ -1371,6 +1730,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     const nightThemeSelect = document.getElementById('nightTheme');
     const dayStartInput = document.getElementById('dayStart');
     const dayEndInput = document.getElementById('dayEnd');
+    const timeRangeError = document.getElementById('timeRangeError');
+    const timeRangeHint = document.getElementById('timeRangeHint');
     const saveBtn = document.getElementById('saveScheduleBtn');
     const testBtn = document.getElementById('testScheduleBtn');
     const currentStatus = document.getElementById('currentStatus');
@@ -1379,15 +1740,89 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Theme names mapping
     const themeNames = {
-        'classic': 'קלאסי',
-        'dark': 'כהה',
-        'dim': 'מעומעם',
-        'nebula': 'ערפילית',
-        'ocean': 'אוקיינוס',
-        'forest': 'יער',
-        'rose-pine-dawn': 'Rose Pine Dawn',
-        'high-contrast': 'ניגודיות גבוהה',
+        'builtin:classic': 'קלאסי',
+        'builtin:dark': 'כהה',
+        'builtin:dim': 'מעומעם',
+        'builtin:nebula': 'ערפילית',
+        'builtin:ocean': 'אוקיינוס',
+        'builtin:forest': 'יער',
+        'builtin:rose-pine-dawn': 'Rose Pine Dawn',
+        'builtin:high-contrast': 'ניגודיות גבוהה',
     };
+
+    // המרת שעה למספר דקות לצורך השוואה
+    function timeToMinutes(timeStr) {
+        if (!timeStr) return 0;
+        const parts = timeStr.split(':');
+        return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+
+    // וולידציה של טווח שעות
+    function validateTimeRange() {
+        const startMins = timeToMinutes(dayStartInput.value);
+        const endMins = timeToMinutes(dayEndInput.value);
+        
+        const isValid = startMins < endMins;
+        const isTooShort = (endMins - startMins) < 60;
+        
+        if (!isValid) {
+            timeRangeError.style.display = 'flex';
+            timeRangeError.querySelector('span').textContent = 
+                'שעת ההתחלה חייבת להיות לפני שעת הסיום';
+            timeRangeHint.style.display = 'none';
+            saveBtn.disabled = true;
+            return false;
+        }
+        
+        if (isTooShort) {
+            timeRangeError.style.display = 'flex';
+            timeRangeError.querySelector('span').textContent = 
+                'טווח היום חייב להיות לפחות שעה אחת';
+            timeRangeHint.style.display = 'none';
+            saveBtn.disabled = true;
+            return false;
+        }
+        
+        timeRangeError.style.display = 'none';
+        timeRangeHint.style.display = 'block';
+        saveBtn.disabled = false;
+        return true;
+    }
+
+    // טעינת ערכות מותאמות/שיתופיות לתוך ה-select
+    async function loadCustomThemes() {
+        try {
+            // טעינת ערכות מותאמות אישית
+            const customResp = await fetch('/api/themes', { credentials: 'same-origin' });
+            if (customResp.ok) {
+                const customData = await customResp.json();
+                if (customData.ok && customData.themes?.length > 0) {
+                    addThemesToSelect(customData.themes, 'custom', 'ערכות מותאמות אישית');
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load custom themes:', e);
+        }
+    }
+
+    // הוספת ערכות ל-select
+    function addThemesToSelect(themes, prefix, groupLabel) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupLabel;
+        
+        themes.forEach(theme => {
+            const option = document.createElement('option');
+            option.value = `${prefix}:${theme.id}`;
+            option.textContent = theme.name;
+            optgroup.appendChild(option);
+            
+            // הוספה למיפוי שמות
+            themeNames[`${prefix}:${theme.id}`] = theme.name;
+        });
+        
+        dayThemeSelect.appendChild(optgroup.cloneNode(true));
+        nightThemeSelect.appendChild(optgroup);
+    }
 
     // טעינת הגדרות קיימות
     async function loadSettings() {
@@ -1395,10 +1830,11 @@ document.addEventListener('DOMContentLoaded', async function() {
             const schedule = await ThemeScheduler.load();
             if (schedule) {
                 enabledToggle.checked = schedule.enabled;
-                dayThemeSelect.value = schedule.day_theme || 'classic';
-                nightThemeSelect.value = schedule.night_theme || 'dark';
+                dayThemeSelect.value = schedule.day_theme || 'builtin:classic';
+                nightThemeSelect.value = schedule.night_theme || 'builtin:dark';
                 dayStartInput.value = schedule.day_start || '07:00';
                 dayEndInput.value = schedule.day_end || '20:00';
+                validateTimeRange();
                 updateUI();
             }
         }
@@ -1425,28 +1861,50 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         document.getElementById('dayPreviewTime').textContent = `${dayStart} - ${dayEnd}`;
         document.getElementById('nightPreviewTime').textContent = `${dayEnd} - ${dayStart}`;
-        document.getElementById('dayPreviewTheme').textContent = themeNames[dayTheme] || dayTheme;
-        document.getElementById('nightPreviewTheme').textContent = themeNames[nightTheme] || nightTheme;
+        document.getElementById('dayPreviewTheme').textContent = 
+            themeNames[dayTheme] || dayTheme.split(':').pop();
+        document.getElementById('nightPreviewTheme').textContent = 
+            themeNames[nightTheme] || nightTheme.split(':').pop();
     }
 
     // עדכון סטטוס נוכחי
     function updateCurrentStatus() {
-        if (typeof ThemeScheduler !== 'undefined') {
+        if (typeof ThemeScheduler !== 'undefined' && ThemeScheduler.isEnabled()) {
             const result = ThemeScheduler.getCurrentPeriod();
+            const override = ThemeScheduler.getOverride();
+            
             if (result && result.period) {
                 currentStatus.style.display = 'flex';
                 const periodName = result.period === 'day' ? 'יום' : 'לילה';
-                const themeName = themeNames[result.theme] || result.theme;
-                statusText.textContent = `כרגע: ערכת ${periodName} (${themeName})`;
-                nextChangeText.textContent = `שינוי הבא: ${result.nextChangeAt}`;
+                const themeName = themeNames[result.themeId] || result.theme;
+                
+                if (override) {
+                    statusText.innerHTML = `
+                        <span style="color: var(--warning);">
+                            <i class="fas fa-hand-paper"></i>
+                            שינוי ידני פעיל
+                        </span>`;
+                    nextChangeText.textContent = `יתבטל ב-${override.expiresAtFormatted}`;
+                } else {
+                    statusText.textContent = `כרגע: ערכת ${periodName} (${themeName})`;
+                    nextChangeText.textContent = `שינוי הבא: ${result.nextChangeAt}`;
+                }
             } else {
                 currentStatus.style.display = 'none';
             }
+        } else {
+            currentStatus.style.display = 'none';
         }
     }
 
     // שמירה
     async function saveSettings() {
+        // וולידציה לפני שמירה
+        if (!validateTimeRange()) {
+            showToast('אנא תקן את טווח השעות', 'error');
+            return;
+        }
+        
         const schedule = {
             enabled: enabledToggle.checked,
             day_theme: dayThemeSelect.value,
@@ -1465,7 +1923,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                     showToast('ההגדרות נשמרו בהצלחה!', 'success');
                     updateCurrentStatus();
                 } else {
-                    showToast('שגיאה בשמירה: ' + (result.error || 'אנא נסה שוב'), 'error');
+                    showToast(result.message || result.error || 'שגיאה בשמירה', 'error');
                 }
             }
         } catch (e) {
@@ -1479,7 +1937,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     // בדיקה עכשיו
     function testNow() {
         if (typeof ThemeScheduler !== 'undefined') {
-            ThemeScheduler.check();
+            // ביטול override אם יש
+            ThemeScheduler.clearOverride();
+            
+            // החלת הערכה לפי התזמון
+            const result = ThemeScheduler.getCurrentPeriod();
+            if (result.theme) {
+                ThemeScheduler.applyTheme(result.theme);
+            }
+            
             updateCurrentStatus();
             showToast('הערכה עודכנה לפי התזמון הנוכחי', 'success');
         }
@@ -1487,36 +1953,55 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Toast
     function showToast(message, type = 'info') {
+        // הסרת toast קודם
+        document.querySelectorAll('.schedule-toast').forEach(t => t.remove());
+        
         const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check' : 'exclamation-circle'}"></i> ${message}`;
+        toast.className = `schedule-toast toast-${type}`;
+        toast.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i> 
+            ${message}
+        `;
         toast.style.cssText = `
             position: fixed;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
             padding: 0.75rem 1.5rem;
-            background: ${type === 'success' ? 'var(--success)' : 'var(--error)'};
+            background: ${type === 'success' ? 'var(--success, #22c55e)' : 'var(--error, #ef4444)'};
             color: white;
             border-radius: 10px;
             z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
             animation: fadeInUp 0.3s ease-out;
         `;
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
+        setTimeout(() => toast.remove(), 4000);
     }
 
     // Event Listeners
     enabledToggle.addEventListener('change', updateUI);
     dayThemeSelect.addEventListener('change', updatePreview);
     nightThemeSelect.addEventListener('change', updatePreview);
-    dayStartInput.addEventListener('change', updatePreview);
-    dayEndInput.addEventListener('change', updatePreview);
+    dayStartInput.addEventListener('change', () => {
+        validateTimeRange();
+        updatePreview();
+    });
+    dayEndInput.addEventListener('change', () => {
+        validateTimeRange();
+        updatePreview();
+    });
     saveBtn.addEventListener('click', saveSettings);
     testBtn.addEventListener('click', testNow);
 
     // טעינה ראשונית
+    await loadCustomThemes();
     await loadSettings();
+    
+    // עדכון סטטוס כל 30 שניות
+    setInterval(updateCurrentStatus, 30000);
 });
 </script>
 
@@ -1530,6 +2015,23 @@ document.addEventListener('DOMContentLoaded', async function() {
         opacity: 1;
         transform: translateX(-50%) translateY(0);
     }
+}
+
+.form-error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px;
+    color: var(--error, #ef4444);
+    font-size: 0.85rem;
+}
+
+.form-error i {
+    flex-shrink: 0;
 }
 </style>
 {% endblock %}
@@ -1564,22 +2066,66 @@ def theme_schedule_page():
 
 ### 5.1 עדכון `dark-mode.js`
 
-הוסף תמיכה בתזמון למודול הקיים:
+הוסף תמיכה בתזמון ו-override למודול הקיים:
 
 ```javascript
-// הוסף בתוך הפונקציה updateTheme() ב-dark-mode.js
+// עדכן את הפונקציה toggleDarkMode() ב-dark-mode.js
 
-function updateTheme() {
-    // בדיקה אם יש תזמון פעיל
-    if (typeof ThemeScheduler !== 'undefined') {
-        const schedule = ThemeScheduler.getSchedule();
-        if (schedule && schedule.enabled) {
-            // התזמון פעיל - לא נדרוס את הבחירה שלו
-            return;
-        }
+function toggleDarkMode() {
+    const current = loadPreference();
+    let next;
+    switch (current) {
+        case 'auto': next = 'dark'; break;
+        case 'dark': next = 'dim'; break;
+        case 'dim': next = 'light'; break;
+        case 'light':
+        default: next = 'auto'; break;
     }
     
-    // ... שאר הקוד הקיים ...
+    savePreference(next);
+    
+    // 🆕 אם יש תזמון פעיל, הגדר override זמני
+    if (typeof ThemeScheduler !== 'undefined' && ThemeScheduler.isEnabled()) {
+        const themeName = (next === 'auto') 
+            ? (getSystemPreference() === 'dark' ? 'dark' : 'classic')
+            : (next === 'light' ? 'classic' : next);
+        
+        ThemeScheduler.setOverride(themeName);
+        applyTheme(themeName);
+    } else {
+        // התנהגות רגילה
+        if (loadPreference()) { updateTheme(); }
+    }
+    
+    updateToggleButton(next);
+    syncToServer(next);
+}
+
+// עדכן את הפונקציה updateTheme()
+
+function updateTheme() {
+    // 🆕 בדיקה אם יש תזמון פעיל (ולא override)
+    if (typeof ThemeScheduler !== 'undefined' && ThemeScheduler.isEnabled()) {
+        const override = ThemeScheduler.getOverride();
+        if (!override) {
+            // התזמון פעיל ואין override - ה-scheduler מטפל בזה
+            return;
+        }
+        // יש override - נמשיך לטפל כרגיל
+    }
+    
+    const preference = loadPreference();
+    if (!preference) {
+        return; // אין העדפה שמורה - נכבד את ערך השרת
+    }
+    
+    if (preference === 'auto') {
+        applyTheme('auto');
+        // ... האזנה לשינויי מערכת ...
+    } else {
+        const normalized = normalizePreferenceValue(preference);
+        applyTheme(normalized || preference);
+    }
 }
 ```
 
@@ -1614,33 +2160,65 @@ def _inject_globals():
 ```html
 <script>
     // Theme Schedule - מניעת FOUC
+    // הערה: הלוגיקה מניחה ש-day_start < day_end תמיד (אין חציית חצות)
     (function() {
         try {
-            var schedule = localStorage.getItem('theme_schedule_cache');
-            if (schedule) {
-                schedule = JSON.parse(schedule);
-                if (schedule && schedule.enabled) {
-                    var now = new Date();
-                    var currentMins = now.getHours() * 60 + now.getMinutes();
-                    
-                    function timeTomins(t) {
-                        var p = t.split(':');
-                        return parseInt(p[0],10)*60 + parseInt(p[1],10);
-                    }
-                    
-                    var dayStart = timeTomins(schedule.day_start || '07:00');
-                    var dayEnd = timeTomins(schedule.day_end || '20:00');
-                    var isDay = (dayStart <= dayEnd) 
-                        ? (currentMins >= dayStart && currentMins < dayEnd)
-                        : (currentMins >= dayStart || currentMins < dayEnd);
-                    
-                    var theme = isDay ? schedule.day_theme : schedule.night_theme;
-                    if (theme) {
-                        document.documentElement.setAttribute('data-theme', theme);
-                    }
+            // בדיקת override ידני קודם
+            var override = localStorage.getItem('theme_manual_override');
+            if (override) {
+                override = JSON.parse(override);
+                if (override && override.expiresAt > Date.now() && override.theme) {
+                    document.documentElement.setAttribute('data-theme', override.theme);
+                    return;
                 }
             }
-        } catch(e) {}
+            
+            // טעינת הגדרות תזמון
+            var cached = localStorage.getItem('theme_schedule_cache');
+            if (!cached) return;
+            
+            var data = JSON.parse(cached);
+            var schedule = data.schedule || data; // תמיכה בפורמט ישן וחדש
+            
+            if (!schedule || !schedule.enabled) return;
+            
+            // בדיקת תוקף cache (24 שעות)
+            if (data.fetchedAt && (Date.now() - data.fetchedAt) > 86400000) return;
+            
+            var now = new Date();
+            var currentMins = now.getHours() * 60 + now.getMinutes();
+            
+            function timeToMins(t) {
+                if (!t) return 0;
+                var p = t.split(':');
+                return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+            }
+            
+            var dayStart = timeToMins(schedule.day_start || '07:00');
+            var dayEnd = timeToMins(schedule.day_end || '20:00');
+            
+            // לוגיקה פשוטה: יום = בתוך הטווח [dayStart, dayEnd)
+            var isDay = currentMins >= dayStart && currentMins < dayEnd;
+            
+            var themeId = isDay ? schedule.day_theme : schedule.night_theme;
+            if (!themeId) return;
+            
+            // חילוץ שם הערכה מהמזהה המלא
+            var theme = themeId.indexOf(':') > -1 
+                ? themeId.split(':')[1] 
+                : themeId;
+            
+            // עבור shared/custom, נשתמש במזהה כמו שהוא (ה-CSS יטפל)
+            if (themeId.startsWith('shared:') || themeId.startsWith('custom:')) {
+                theme = themeId;
+            }
+            
+            if (theme) {
+                document.documentElement.setAttribute('data-theme', theme);
+            }
+        } catch(e) {
+            // שקט - לא נרצה לשבור את הדף
+        }
     })();
 </script>
 ```
@@ -1661,33 +2239,77 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 
-class TestThemeScheduleValidation:
-    """בדיקות וולידציה."""
+class TestTimeValidation:
+    """בדיקות וולידציה של שעות."""
 
     def test_valid_time_format(self):
-        from webapp.themes_api import _validate_time_format
+        from webapp.themes_api import validate_time_format
         
-        assert _validate_time_format("07:00") is True
-        assert _validate_time_format("23:59") is True
-        assert _validate_time_format("00:00") is True
-        assert _validate_time_format("12:30") is True
+        assert validate_time_format("07:00") is True
+        assert validate_time_format("23:59") is True
+        assert validate_time_format("00:00") is True
+        assert validate_time_format("12:30") is True
+        assert validate_time_format("9:00") is True  # חד-ספרתי
 
     def test_invalid_time_format(self):
-        from webapp.themes_api import _validate_time_format
+        from webapp.themes_api import validate_time_format
         
-        assert _validate_time_format("25:00") is False
-        assert _validate_time_format("12:60") is False
-        assert _validate_time_format("abc") is False
-        assert _validate_time_format("") is False
-        assert _validate_time_format(None) is False
+        assert validate_time_format("25:00") is False
+        assert validate_time_format("12:60") is False
+        assert validate_time_format("abc") is False
+        assert validate_time_format("") is False
+        assert validate_time_format(None) is False
+        assert validate_time_format("12:00:00") is False  # עם שניות
+
+
+class TestThemeIdentifierValidation:
+    """בדיקות וולידציה של מזהי ערכות."""
+
+    def test_valid_builtin_themes(self):
+        from webapp.themes_api import validate_theme_identifier
+        
+        assert validate_theme_identifier("builtin:classic")[0] is True
+        assert validate_theme_identifier("builtin:dark")[0] is True
+        assert validate_theme_identifier("builtin:dim")[0] is True
+        assert validate_theme_identifier("builtin:nebula")[0] is True
+
+    def test_invalid_builtin_theme(self):
+        from webapp.themes_api import validate_theme_identifier
+        
+        is_valid, error = validate_theme_identifier("builtin:nonexistent")
+        assert is_valid is False
+        assert error == "unknown_builtin_theme"
+
+    def test_invalid_prefix(self):
+        from webapp.themes_api import validate_theme_identifier
+        
+        is_valid, error = validate_theme_identifier("invalid:theme")
+        assert is_valid is False
+        assert error == "invalid_theme_prefix"
+
+    def test_shared_theme_format(self):
+        from webapp.themes_api import validate_theme_identifier
+        
+        # בלי DB, מחזיר תקין (לא יכולים לבדוק קיום)
+        assert validate_theme_identifier("shared:abc123")[0] is True
+
+    def test_custom_theme_format(self):
+        from webapp.themes_api import validate_theme_identifier
+        
+        # בלי DB, מחזיר תקין
+        assert validate_theme_identifier("custom:my-uuid")[0] is True
+
+
+class TestScheduleValidation:
+    """בדיקות וולידציה של תזמון מלא."""
 
     def test_valid_schedule(self):
         from webapp.themes_api import _validate_theme_schedule
         
         schedule = {
             "enabled": True,
-            "day_theme": "classic",
-            "night_theme": "dark",
+            "day_theme": "builtin:classic",
+            "night_theme": "builtin:dark",
             "day_start": "07:00",
             "day_end": "20:00",
         }
@@ -1696,74 +2318,44 @@ class TestThemeScheduleValidation:
         assert is_valid is True
         assert error == ""
 
-    def test_invalid_theme(self):
+    def test_day_start_after_day_end_rejected(self):
+        """וולידציה: day_start חייב להיות לפני day_end."""
         from webapp.themes_api import _validate_theme_schedule
         
         schedule = {
-            "day_theme": "invalid_theme",
+            "day_start": "20:00",
+            "day_end": "07:00",  # לפני day_start!
         }
         
         is_valid, error = _validate_theme_schedule(schedule)
         assert is_valid is False
-        assert "invalid_day_theme" in error
+        assert error == "day_start_must_be_before_day_end"
 
-
-class TestThemeCalculation:
-    """בדיקות חישוב ערכה נוכחית."""
-
-    def test_daytime_normal_range(self):
-        """בדיקה בטווח רגיל (יום בשעות בוקר)."""
-        from webapp.themes_api import _calculate_current_scheduled_theme
+    def test_day_range_too_short(self):
+        """וולידציה: טווח יום מינימלי שעה."""
+        from webapp.themes_api import _validate_theme_schedule
         
         schedule = {
-            "enabled": True,
-            "day_theme": "classic",
-            "night_theme": "dark",
-            "day_start": "07:00",
-            "day_end": "20:00",
+            "day_start": "12:00",
+            "day_end": "12:30",  # רק 30 דקות
         }
         
-        # Mock datetime לשעה 12:00
-        with patch('webapp.themes_api.datetime') as mock_dt:
-            mock_now = MagicMock()
-            mock_now.strftime.return_value = "12:00"
-            mock_dt.now.return_value = mock_now
-            
-            result = _calculate_current_scheduled_theme(schedule)
-            assert result == "classic"
+        is_valid, error = _validate_theme_schedule(schedule)
+        assert is_valid is False
+        assert error == "day_range_too_short"
 
-    def test_nighttime_normal_range(self):
-        """בדיקה בטווח רגיל (לילה)."""
-        from webapp.themes_api import _calculate_current_scheduled_theme
+    def test_same_start_and_end_rejected(self):
+        """וולידציה: אותה שעה התחלה וסיום."""
+        from webapp.themes_api import _validate_theme_schedule
         
         schedule = {
-            "enabled": True,
-            "day_theme": "classic",
-            "night_theme": "dark",
-            "day_start": "07:00",
-            "day_end": "20:00",
+            "day_start": "12:00",
+            "day_end": "12:00",
         }
         
-        with patch('webapp.themes_api.datetime') as mock_dt:
-            mock_now = MagicMock()
-            mock_now.strftime.return_value = "22:00"
-            mock_dt.now.return_value = mock_now
-            
-            result = _calculate_current_scheduled_theme(schedule)
-            assert result == "dark"
-
-    def test_disabled_schedule(self):
-        """בדיקה כשהתזמון מכובה."""
-        from webapp.themes_api import _calculate_current_scheduled_theme
-        
-        schedule = {
-            "enabled": False,
-            "day_theme": "classic",
-            "night_theme": "dark",
-        }
-        
-        result = _calculate_current_scheduled_theme(schedule)
-        assert result is None
+        is_valid, error = _validate_theme_schedule(schedule)
+        assert is_valid is False
+        assert error == "day_start_must_be_before_day_end"
 
 
 class TestAPIEndpoints:
@@ -1785,19 +2377,44 @@ class TestAPIEndpoints:
         data = response.get_json()
         assert data['ok'] is True
         assert 'schedule' in data
+        # בדיקת ערכי ברירת מחדל
+        assert data['schedule']['enabled'] is False
+        assert data['schedule']['day_theme'] == 'builtin:classic'
 
-    def test_update_schedule(self, client, logged_in_user):
-        """בדיקת עדכון הגדרות."""
+    def test_update_schedule_valid(self, client, logged_in_user):
+        """בדיקת עדכון הגדרות תקינות."""
         response = client.post('/api/themes/schedule', json={
             "enabled": True,
-            "day_theme": "classic",
-            "night_theme": "dark",
+            "day_theme": "builtin:ocean",
+            "night_theme": "builtin:dim",
             "day_start": "08:00",
             "day_end": "19:00",
         })
         assert response.status_code == 200
         data = response.get_json()
         assert data['ok'] is True
+        assert data['schedule']['enabled'] is True
+
+    def test_update_schedule_invalid_time_range(self, client, logged_in_user):
+        """בדיקת דחיית טווח שעות לא תקין."""
+        response = client.post('/api/themes/schedule', json={
+            "day_start": "20:00",
+            "day_end": "08:00",  # לפני day_start
+        })
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['ok'] is False
+        assert "day_start_must_be_before_day_end" in data['error']
+
+    def test_update_schedule_invalid_theme(self, client, logged_in_user):
+        """בדיקת דחיית ערכה לא קיימת."""
+        response = client.post('/api/themes/schedule', json={
+            "day_theme": "builtin:nonexistent",
+        })
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['ok'] is False
+        assert "unknown_builtin_theme" in data['error']
 ```
 
 ### 6.2 Integration Tests
@@ -1945,6 +2562,22 @@ Timer runs every minute → Checks if period changed
 
 ---
 
+## Changelog
+
+### v1.1 (ינואר 2026)
+- **תיקון**: הלקוח הוא מקור האמת לזמן (לא השרת)
+- **תיקון**: חסימת טווח יום שחוצה חצות בוולידציה
+- **שיפור**: טיימר חכם (`setTimeout`) במקום polling
+- **שיפור**: תמיכה ב-override ידני זמני
+- **שיפור**: מזהה ערכה מלא (builtin:/shared:/custom:)
+- **שיפור**: cache עם last_fetched_at
+- **שיפור**: הודעות שגיאה בעברית
+
+### v1.0 (ינואר 2026)
+- מימוש ראשוני
+
+---
+
 **נוצר על ידי**: Background Agent  
 **תאריך**: ינואר 2026  
-**גרסה**: 1.0
+**גרסה**: 1.1
