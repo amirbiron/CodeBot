@@ -47,6 +47,8 @@ let state = {
     expandedFolders: new Set(),
     selectedElement: null,
     searchTimeout: null,
+    searchAbortController: null,
+    searchLastQuery: '',
     // File type filter
     fileTypes: [],           // All available file types with counts
     selectedTypes: new Set(), // Currently selected types for filtering
@@ -94,8 +96,7 @@ function applyInitialNavigationFromUrl() {
             const searchInput = document.getElementById('global-search');
             if (searchInput) {
                 searchInput.value = searchValue;
-                // Trigger the existing input listener to execute the search
-                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                performRepoSearch(searchValue);
                 searchInput.focus();
             }
         }
@@ -848,23 +849,21 @@ function updateFileHeader(filePath) {
     const fileHeader = document.querySelector('.file-header');
     if (!fileHeader) return;
 
-    const fileName = filePath.split('/').pop();
-
     fileHeader.innerHTML = `
         <div class="file-info">
             <i class="bi bi-file-earmark-code"></i>
-            <span class="file-name">${escapeHtml(fileName)}</span>
-            <span class="file-path-full" title="${escapeHtml(filePath)}">
+            <span class="file-path" dir="ltr" title="${escapeHtml(filePath)}">
                 ${escapeHtml(filePath)}
             </span>
         </div>
-        <div class="file-actions">
-            <button class="file-history-btn" data-path="${escapeHtml(filePath)}" title="היסטוריית קובץ">
+        <div class="file-actions file-header-actions">
+            <button class="file-history-btn" data-path="${escapeHtml(filePath)}" title="היסטוריית קובץ" aria-label="היסטוריית קובץ">
                 <i class="bi bi-clock-history"></i>
                 היסטוריה
             </button>
-            <button class="file-copy-btn" title="העתק תוכן">
+            <button class="btn-icon file-copy-btn" type="button" title="העתק תוכן" aria-label="העתק תוכן">
                 <i class="bi bi-clipboard"></i>
+                <span class="sr-only">העתק</span>
             </button>
         </div>
     `;
@@ -904,17 +903,19 @@ function updateBreadcrumbs(path) {
     const breadcrumb = document.getElementById('file-breadcrumb');
     const parts = path.split('/');
     
-    breadcrumb.innerHTML = parts.map((part, index) => {
-        const isLast = index === parts.length - 1;
-        const partPath = parts.slice(0, index + 1).join('/');
-        const safePart = escapeHtml(part);
-        const safeJsPartPath = escapeJsStr(partPath);
-        
-        if (isLast) {
-            return `<li class="breadcrumb-item active">${safePart}</li>`;
-        }
-        return `<li class="breadcrumb-item"><a href="#" onclick="navigateToFolder('${safeJsPartPath}')">${safePart}</a></li>`;
-    }).join('');
+    if (breadcrumb) {
+        breadcrumb.innerHTML = parts.map((part, index) => {
+            const isLast = index === parts.length - 1;
+            const partPath = parts.slice(0, index + 1).join('/');
+            const safePart = escapeHtml(part);
+            const safeJsPartPath = escapeJsStr(partPath);
+            
+            if (isLast) {
+                return `<li class="breadcrumb-item active">${safePart}</li>`;
+            }
+            return `<li class="breadcrumb-item"><a href="#" onclick="navigateToFolder('${safeJsPartPath}')">${safePart}</a></li>`;
+        }).join('');
+    }
 
     // Update copy path button
     document.getElementById('copy-path').onclick = () => {
@@ -962,6 +963,92 @@ function formatBytes(bytes) {
 // Search
 // ========================================
 
+async function performRepoSearch(query) {
+    const searchInput = document.getElementById('global-search');
+    const dropdown = document.getElementById('search-results-dropdown');
+
+    if (!searchInput || !dropdown) return;
+
+    const resultsList = dropdown.querySelector('.search-results-list');
+    const raw = typeof query === 'string' ? query : searchInput.value;
+    const clean = (raw || '').trim();
+
+    if (clean.length < 2) {
+        if (state.searchAbortController) {
+            state.searchAbortController.abort();
+            state.searchAbortController = null;
+        }
+        state.searchLastQuery = '';
+        dropdown.classList.add('hidden');
+        if (resultsList) resultsList.innerHTML = '';
+        dropdown.dataset.hasResults = 'false';
+        return;
+    }
+
+    dropdown.classList.remove('hidden');
+    if (resultsList) {
+        resultsList.innerHTML = `
+            <div class="search-result-item">
+                <span class="text-muted">מחפש...</span>
+            </div>
+        `;
+    }
+    state.searchLastQuery = clean;
+
+    if (state.searchAbortController) {
+        state.searchAbortController.abort();
+    }
+    const controller = new AbortController();
+    state.searchAbortController = controller;
+
+    try {
+        const response = await fetch(`${CONFIG.apiBase}/search?q=${encodeURIComponent(clean)}&type=content`, {
+            signal: controller.signal
+        });
+        const data = await response.json();
+
+        if (!resultsList) return;
+        const currentInput = (searchInput.value || '').trim();
+        if (currentInput !== clean) {
+            return;
+        }
+
+        if (data.error) {
+            resultsList.innerHTML = `
+                <div class="search-result-item">
+                    <span class="text-muted">${escapeHtml(data.error)}</span>
+                </div>
+            `;
+            dropdown.dataset.hasResults = 'false';
+        } else {
+            renderSearchResults(resultsList, data.results || [], clean);
+            dropdown.dataset.hasResults = 'true';
+        }
+        dropdown.classList.remove('hidden');
+    } catch (error) {
+        if (error && error.name === 'AbortError') {
+            return;
+        }
+        console.error('Search failed:', error);
+        if (resultsList) {
+            resultsList.innerHTML = `
+                <div class="search-result-item">
+                    <span class="text-muted">Search unavailable</span>
+                </div>
+            `;
+        }
+        dropdown.dataset.hasResults = 'false';
+        const currentInput = (searchInput.value || '').trim();
+        if (currentInput === clean) {
+            dropdown.classList.remove('hidden');
+        }
+    } finally {
+        if (state.searchAbortController === controller) {
+            state.searchAbortController = null;
+        }
+    }
+}
+
 function initSearch() {
     const searchInput = document.getElementById('global-search');
     const dropdown = document.getElementById('search-results-dropdown');
@@ -984,40 +1071,42 @@ function initSearch() {
         const query = e.target.value.trim();
 
         if (query.length < 2) {
+            if (state.searchAbortController) {
+                state.searchAbortController.abort();
+                state.searchAbortController = null;
+            }
+            state.searchLastQuery = '';
             dropdown.classList.add('hidden');
+            if (resultsList) resultsList.innerHTML = '';
+            dropdown.dataset.hasResults = 'false';
             return;
         }
 
-        state.searchTimeout = setTimeout(async () => {
-            try {
-                const response = await fetch(`${CONFIG.apiBase}/search?q=${encodeURIComponent(query)}&type=content`);
-                const data = await response.json();
-                
-                if (data.error) {
-                    resultsList.innerHTML = `
-                        <div class="search-result-item">
-                            <span class="text-muted">${escapeHtml(data.error)}</span>
-                        </div>
-                    `;
-                } else {
-                    renderSearchResults(resultsList, data.results || [], query);
-                }
-                dropdown.classList.remove('hidden');
-            } catch (error) {
-                console.error('Search failed:', error);
-                resultsList.innerHTML = `
-                    <div class="search-result-item">
-                        <span class="text-muted">Search unavailable</span>
-                    </div>
-                `;
-                dropdown.classList.remove('hidden');
+        if (query !== state.searchLastQuery) {
+            if (state.searchAbortController) {
+                state.searchAbortController.abort();
+                state.searchAbortController = null;
             }
-        }, CONFIG.searchDebounceMs);
+            dropdown.dataset.hasResults = 'false';
+            if (resultsList) resultsList.innerHTML = '';
+            dropdown.classList.add('hidden');
+        }
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            performRepoSearch();
+        } else if (e.key === 'Escape') {
+            dropdown.classList.add('hidden');
+        }
     });
 
     searchInput.addEventListener('focus', () => {
         updateShortcutsVisibility();
-        if (searchInput.value.length >= 2) {
+        if (searchInput.value.length >= 2
+            && dropdown.dataset.hasResults === 'true'
+            && searchInput.value.trim() === state.searchLastQuery) {
             dropdown.classList.remove('hidden');
         }
     });
