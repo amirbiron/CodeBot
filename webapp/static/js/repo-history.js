@@ -587,12 +587,13 @@ const RepoHistory = (function() {
             const fileHeader = document.querySelector('.file-header .file-info');
             if (fileHeader) {
                 const shortHash = commit.substring(0, 7);
+                const safeShortHash = escapeHtml(shortHash);
 
                 // Add version indicator
                 const versionBadge = document.createElement('span');
                 versionBadge.className = 'version-badge';
                 versionBadge.innerHTML = `
-                    <span class="badge">@ ${shortHash}</span>
+                    <span class="badge">@ ${safeShortHash}</span>
                     <button class="back-to-head-btn">חזור ל-HEAD</button>
                 `;
 
