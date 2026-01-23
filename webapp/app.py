@@ -4082,6 +4082,47 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
     - אחרת: מריצים לולאה חדשה באותו thread.
     """
 
+    def _get_native_thread_class():
+        try:
+            from gevent import monkey as gevent_monkey  # type: ignore
+        except Exception:
+            return threading.Thread
+        try:
+            return gevent_monkey.get_original("threading", "Thread")
+        except Exception:
+            start_fn = None
+            for module_name in ("thread", "_thread"):
+                try:
+                    start_fn = gevent_monkey.get_original(module_name, "start_new_thread")
+                    break
+                except Exception:
+                    continue
+            if start_fn is None:
+                return threading.Thread
+
+            class _NativeThread:
+                def __init__(self, *, target=None, name=None, daemon=None, args=None, kwargs=None):
+                    self._target = target
+                    self._args = tuple(args or ())
+                    self._kwargs = dict(kwargs or {})
+                    self.name = name or "native_thread"
+                    # start_new_thread לא תומך ב-daemon; נשמר לשקיפות בלבד.
+                    self.daemon = bool(daemon) if daemon is not None else False
+
+                def start(self):
+                    def _runner():
+                        # ננסה להצמיד שם לת׳רד (best-effort).
+                        try:
+                            threading.current_thread().name = self.name
+                        except Exception:
+                            pass
+                        if self._target is not None:
+                            self._target(*self._args, **self._kwargs)
+
+                    start_fn(_runner, ())
+
+            return _NativeThread
+
     def _is_running_loop_error(exc: BaseException) -> bool:
         msg = str(exc).lower()
         return (
@@ -4133,7 +4174,8 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
             except BaseException as exc:
                 future.set_exception(exc)
 
-        thread = threading.Thread(target=_target, name=f"{thread_label}_loop", daemon=True)
+        native_thread = _get_native_thread_class()
+        thread = native_thread(target=_target, name=f"{thread_label}_loop", daemon=True)
         thread.start()
         return future.result()
 
