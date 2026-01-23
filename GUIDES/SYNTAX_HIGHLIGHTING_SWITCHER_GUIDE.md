@@ -12,10 +12,13 @@
 2. [ארכיטקטורת המערכת הקיימת](#ארכיטקטורת-המערכת-הקיימת)
 3. [תכנון הפיצ'ר](#תכנון-הפיצ'ר)
 4. [שלבי מימוש](#שלבי-מימוש)
+   - [שלב 0: שינויים ב-codemirror.local.js](#שלב-0-שינויים-ב-codemirrorlocaljs)
    - [שלב 1: הגדרת ערכות ההדגשה](#שלב-1-הגדרת-ערכות-ההדגשה)
    - [שלב 2: יצירת המודאל](#שלב-2-יצירת-המודאל)
-   - [שלב 3: לוגיקת החלפת ערכה](#שלב-3-לוגיקת-החלפת-ערכה)
-   - [שלב 4: אינטגרציה עם CodeMirror](#שלב-4-אינטגרציה-עם-codemirror)
+   - [שלב 3: סגנונות המודאל](#שלב-3-סגנונות-המודאל)
+   - [שלב 4: לוגיקת החלפת ערכה](#שלב-4-לוגיקת-החלפת-ערכה)
+   - [שלב 5: אינטגרציה עם view-codemirror-toggle.js](#שלב-5-אינטגרציה-עם-view-codemirror-togglejs)
+   - [שלב 6: סדר טעינת הקבצים](#שלב-6-סדר-טעינת-הקבצים)
 5. [מיפוי צבעים: Tech Guide Dark](#מיפוי-צבעים-tech-guide-dark)
 6. [ערכת One Dark](#ערכת-one-dark)
 7. [בדיקות](#בדיקות)
@@ -84,6 +87,17 @@
 └─────────────────────────────────────────────────┘
 ```
 
+### הבדל חשוב: Editor Theme vs Syntax Highlighting
+
+> ⚠️ **חשוב להבין:** ב-CodeMirror 6 יש הפרדה בין שני סוגי ערכות:
+
+| סוג | תיאור | Compartment |
+|-----|-------|-------------|
+| **Editor Theme** | צבעי רקע, גאטר, בחירה, פונט, קווי הפרדה | `themeCompartment` |
+| **Syntax Highlighting** | צבעי טוקנים (keywords, strings, comments) | `syntaxCompartment` (חדש) |
+
+ערכת `oneDark` המובנית כוללת **את שניהם** יחד. כשאנחנו רוצים להחליף רק את הדגשת התחביר, אנחנו צריכים **שני compartments נפרדים**.
+
 ### הפונקציות הקיימות הרלוונטיות
 
 **`view-codemirror-toggle.js`:**
@@ -131,15 +145,77 @@ function getSyntaxHighlighter() {
 
 - אם אין ערך שמור: **One Dark** (הערכה הקיימת)
 - הערך נשמר ב-`localStorage` ומשותף לכל עמודי התצוגה
+- סנכרון בין טאבים דרך `storage` event
 
 ### רספונסיביות
 
 - במובייל: המודאל יוצג כ-bottom sheet
 - בדסקטופ: מודאל ממורכז רגיל
 
+### הפרדה בין UI Theme ל-Syntax Theme
+
+> ⚠️ **חשוב:** הפיצ'ר הזה מחליף **רק** את הדגשת התחביר (Syntax Highlighting), ולא את ערכת האתר/עורך הכללית.
+
+- `data-theme` של ה-HTML = ערכת UI (dark/light/custom)
+- `ck_syntax_theme` ב-localStorage = ערכת syntax בלבד
+
+לא לערבב בין השניים!
+
 ---
 
 ## שלבי מימוש
+
+### שלב 0: שינויים ב-codemirror.local.js
+
+> ⚠️ **שלב קריטי:** יש להוסיף `syntaxCompartment` נפרד כדי לאפשר החלפה דינמית של הדגשת תחביר.
+
+**שינויים נדרשים בסוף הבאנדל (לפני ה-export):**
+
+```javascript
+// === SYNTAX THEME COMPARTMENT ===
+// Compartment נפרד להדגשת תחביר (מאפשר החלפה דינמית)
+const syntaxCompartment = new Compartment();
+
+// ייצוא ה-compartment החדש
+window.CodeMirror6.syntaxCompartment = syntaxCompartment;
+
+// פונקציה ליצירת extensions עם syntax compartment
+window.CodeMirror6.createSyntaxExtension = function(highlightStyle) {
+  if (!highlightStyle) return syntaxCompartment.of([]);
+  return syntaxCompartment.of(syntaxHighlighting(highlightStyle));
+};
+
+// פונקציה להחלפת syntax בזמן ריצה
+window.CodeMirror6.reconfigureSyntax = function(view, highlightStyle) {
+  if (!view || !view.dispatch) return false;
+  try {
+    const ext = highlightStyle 
+      ? syntaxHighlighting(highlightStyle)
+      : [];
+    view.dispatch({
+      effects: syntaxCompartment.reconfigure(ext)
+    });
+    return true;
+  } catch (err) {
+    console.error('[CM6] reconfigureSyntax failed:', err);
+    return false;
+  }
+};
+```
+
+**עדכון ה-basicSetup להשתמש ב-syntaxCompartment:**
+
+```javascript
+// במקום להוסיף syntaxHighlighting ישירות ל-basicSetup,
+// נעטוף אותו ב-compartment
+const basicSetup = [
+  // ... extensions קיימים ...
+  syntaxCompartment.of(syntaxHighlighting(classHighlighter)),
+  // ... extensions נוספים ...
+];
+```
+
+---
 
 ### שלב 1: הגדרת ערכות ההדגשה
 
@@ -181,67 +257,68 @@ const SYNTAX_THEMES = {
 };
 
 // מיפוי Tech Guide Dark tokenColors ל-CodeMirror tags
+// ⚠️ הערה: אין כפילויות של keys! כל key מופיע פעם אחת בלבד.
 const TECH_GUIDE_DARK_SYNTAX = {
-  // Comments
+  // === Comments ===
   'comment': { color: '#6a9955', fontStyle: 'italic' },
   'docComment': { color: '#6a9955', fontStyle: 'italic' },
   
-  // Keywords
+  // === Keywords ===
   'keyword': { color: '#c586c0' },
   'controlKeyword': { color: '#c586c0' },
   'moduleKeyword': { color: '#c586c0' },
   'definitionKeyword': { color: '#c586c0' },
   
-  // Storage (def, class, function)
+  // === Types and Classes ===
   'typeName': { color: '#4ec9b0' },
   'className': { color: '#4ec9b0' },
   'definition(className)': { color: '#4ec9b0' },
   'namespace': { color: '#4ec9b0' },
   
-  // Strings
+  // === Strings ===
   'string': { color: '#ce9178' },
   'string2': { color: '#ce9178' },
   
-  // Numbers and Constants
+  // === Numbers and Constants ===
   'number': { color: '#b5cea8' },
   'bool': { color: '#b5cea8' },
   'atom': { color: '#b5cea8' },
   'literal': { color: '#b5cea8' },
   
-  // Variables
+  // === Variables ===
   'variableName': { color: '#9cdcfe' },
   'local(variableName)': { color: '#9cdcfe', fontStyle: 'italic' },
   'definition(variableName)': { color: '#9cdcfe' },
   'self': { color: '#9cdcfe' },
   
-  // Functions
+  // === Functions ===
   'function(variableName)': { color: '#dcdcaa' },
   'function(definition(variableName))': { color: '#dcdcaa' },
   'standard(function(variableName))': { color: '#dcdcaa' },
   
-  // Operators and Punctuation
+  // === Operators and Punctuation ===
   'operator': { color: '#d4d4d4' },
   'punctuation': { color: '#d4d4d4' },
   
-  // Properties
+  // === Properties (כולל CSS properties ו-JSON keys) ===
   'propertyName': { color: '#9cdcfe' },
   'definition(propertyName)': { color: '#9cdcfe' },
   
-  // HTML/XML
+  // === HTML/XML ===
   'tagName': { color: '#569cd6' },
   'attributeName': { color: '#9cdcfe' },
   'attributeValue': { color: '#ce9178' },
   'angleBracket': { color: '#808080' },
   
-  // Regex
+  // === Regex and Escapes ===
   'regexp': { color: '#d16969' },
   'escape': { color: '#d7ba7d' },
   
-  // Special
+  // === Special ===
   'meta': { color: '#c586c0' },
   'invalid': { color: '#f44747', textDecoration: 'underline' },
   
-  // Markdown
+  // === Markdown ===
   'heading': { color: '#0088cc', fontWeight: 'bold' },
   'emphasis': { fontStyle: 'italic' },
   'strong': { color: '#dcdcaa', fontWeight: 'bold' },
@@ -249,11 +326,10 @@ const TECH_GUIDE_DARK_SYNTAX = {
   'url': { color: '#0088cc' },
   'monospace': { color: '#7fdbca' },
   
-  // CSS
-  'propertyName': { color: '#9cdcfe' },
+  // === CSS Units ===
   'unit': { color: '#b5cea8' },
   
-  // JSON
+  // === JSON Labels ===
   'labelName': { color: '#9cdcfe' },
 };
 
@@ -293,7 +369,7 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
      aria-modal="true" 
      aria-labelledby="syntaxThemeModalTitle" 
      hidden>
-  <div class="syntax-theme-modal__surface">
+  <div class="syntax-theme-modal__surface" role="document">
     <div class="syntax-theme-modal__header">
       <h3 id="syntaxThemeModalTitle">🎨 בחר ערכת הדגשה</h3>
       <button type="button" 
@@ -305,7 +381,7 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
       <p class="syntax-theme-modal__subtitle">
         בחרו את סגנון ההדגשה המועדף עליכם לתצוגת הקוד
       </p>
-      <div class="syntax-theme-modal__grid" id="syntaxThemeGrid">
+      <div class="syntax-theme-modal__grid" id="syntaxThemeGrid" role="listbox">
         <!-- יאוכלס דינמית -->
       </div>
     </div>
@@ -330,10 +406,16 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
   background: rgba(0, 0, 0, 0.6);
   z-index: 10000;
   padding: 1rem;
+  opacity: 1;
+  transition: opacity 0.15s ease;
 }
 
 .syntax-theme-modal[hidden] {
   display: none;
+}
+
+.syntax-theme-modal.is-closing {
+  opacity: 0;
 }
 
 .syntax-theme-modal__surface {
@@ -347,6 +429,12 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
   flex-direction: column;
   gap: 1rem;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  transform: scale(1);
+  transition: transform 0.15s ease;
+}
+
+.syntax-theme-modal.is-closing .syntax-theme-modal__surface {
+  transform: scale(0.95);
 }
 
 .syntax-theme-modal__header {
@@ -406,6 +494,11 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
   background: rgba(255, 255, 255, 0.06);
 }
 
+.syntax-theme-card:focus-visible {
+  outline: 2px solid var(--primary, #569cd6);
+  outline-offset: 2px;
+}
+
 .syntax-theme-card.is-active {
   border-color: var(--primary, #569cd6);
   background: rgba(86, 156, 214, 0.1);
@@ -422,6 +515,9 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
   font-size: 9px;
   line-height: 1.4;
   padding: 6px;
+  /* קוד תמיד LTR */
+  direction: ltr;
+  text-align: left;
 }
 
 .syntax-theme-card__info {
@@ -466,15 +562,22 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
 }
 
 @media (max-width: 500px) {
+  .syntax-theme-modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+  
   .syntax-theme-modal__surface {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    position: relative;
     width: 100%;
     max-height: 70vh;
     border-radius: 16px 16px 0 0;
+    transform: translateY(0);
     animation: slideUp 0.25s ease-out;
+  }
+  
+  .syntax-theme-modal.is-closing .syntax-theme-modal__surface {
+    transform: translateY(100%);
   }
   
   @keyframes slideUp {
@@ -494,6 +597,10 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
 /**
  * Syntax Theme Picker
  * מנהל את בחירת ערכת ההדגשה בעמוד תצוגת הקוד
+ * 
+ * ⚠️ תלויות:
+ * - syntax-themes.js (window.SYNTAX_THEMES)
+ * - codemirror.local.js (window.CodeMirror6)
  */
 
 (function() {
@@ -501,11 +608,17 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
   
   const STORAGE_KEY = 'ck_syntax_theme';
   const DEFAULT_THEME = 'one-dark';
+  const THEME_CHANGED_EVENT = 'ck:syntax-theme-changed';
   
   // State
   let currentTheme = DEFAULT_THEME;
   let modal = null;
   let grid = null;
+  let triggerButton = null; // לשמירת focus בסגירה
+  
+  // ========================================
+  // Storage & State
+  // ========================================
   
   /**
    * קבלת הערכה השמורה
@@ -529,6 +642,67 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
     } catch (_) {}
   }
   
+  // ========================================
+  // Theme Application
+  // ========================================
+  
+  /**
+   * הפעלת ערכה על CodeMirror
+   */
+  function applyTheme(themeId) {
+    const theme = window.SYNTAX_THEMES && window.SYNTAX_THEMES[themeId];
+    if (!theme) return;
+    
+    const CM = window.CodeMirror6;
+    if (!CM) {
+      console.warn('[SyntaxThemePicker] CodeMirror6 not loaded');
+      return;
+    }
+    
+    // יצירת HighlightStyle מתאים
+    let highlightStyle = null;
+    
+    if (theme.type === 'builtin' || theme.id === 'one-dark') {
+      // One Dark - משתמשים ב-oneDarkHighlightStyle המובנה
+      highlightStyle = CM.oneDarkHighlightStyle || null;
+    } else if (theme.type === 'custom' && theme.syntaxColors) {
+      // ערכה מותאמת - יוצרים HighlightStyle דינמי
+      if (CM.createDynamicHighlightStyle) {
+        highlightStyle = CM.createDynamicHighlightStyle(theme.syntaxColors);
+      }
+    }
+    
+    // החלפת ה-syntax ב-view instance הפעיל (אם קיים)
+    const viewInstance = window.__ck_view_cm_view;
+    if (viewInstance && CM.reconfigureSyntax) {
+      const success = CM.reconfigureSyntax(viewInstance, highlightStyle);
+      if (success) {
+        console.log('[SyntaxThemePicker] Applied theme:', themeId);
+      }
+    }
+    
+    // עדכון כפתור
+    updateThemeButton();
+    
+    // שליחת event לרכיבים אחרים (כולל טאבים אחרים)
+    dispatchThemeChangedEvent(themeId);
+  }
+  
+  /**
+   * שליחת event על שינוי ערכה
+   */
+  function dispatchThemeChangedEvent(themeId) {
+    try {
+      window.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT, {
+        detail: { themeId, theme: window.SYNTAX_THEMES[themeId] }
+      }));
+    } catch (_) {}
+  }
+  
+  // ========================================
+  // UI Rendering
+  // ========================================
+  
   /**
    * יצירת תצוגה מקדימה לערכה
    */
@@ -539,8 +713,9 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
     const string = preview.string || '#98c379';
     const comment = preview.comment || '#5c6370';
     
+    // dir="ltr" כדי שהקוד לא יתבלבל בממשק RTL
     return `
-      <div class="syntax-theme-card__preview" style="background: ${bg};">
+      <div class="syntax-theme-card__preview" dir="ltr" style="background: ${bg};">
         <span style="color: ${keyword}">def</span>
         <span style="color: #d4d4d4"> hello():</span>
         <span style="color: ${comment}">  # hi</span>
@@ -563,9 +738,9 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
       const card = document.createElement('div');
       card.className = `syntax-theme-card ${isActive ? 'is-active' : ''}`;
       card.dataset.themeId = id;
-      card.setAttribute('role', 'button');
+      card.setAttribute('role', 'option');
       card.setAttribute('tabindex', '0');
-      card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      card.setAttribute('aria-selected', isActive ? 'true' : 'false');
       
       card.innerHTML = `
         ${createPreview(theme)}
@@ -589,90 +764,6 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
   }
   
   /**
-   * בחירת ערכה
-   */
-  function selectTheme(themeId) {
-    if (!window.SYNTAX_THEMES || !window.SYNTAX_THEMES[themeId]) return;
-    
-    currentTheme = themeId;
-    saveTheme(themeId);
-    renderThemes();
-    
-    // הפעלת הערכה החדשה
-    applyTheme(themeId);
-    
-    // סגירת המודאל אחרי עיכוב קצר
-    setTimeout(() => closeModal(), 200);
-  }
-  
-  /**
-   * הפעלת ערכה על CodeMirror
-   */
-  function applyTheme(themeId) {
-    const theme = window.SYNTAX_THEMES[themeId];
-    if (!theme) return;
-    
-    // עדכון משתנה גלובלי שישמש את CodeMirror
-    window.__ck_active_syntax_theme = themeId;
-    
-    // אם יש view instance פעיל, נרענן אותו
-    const viewInstance = window.__ck_view_cm_view;
-    if (viewInstance && window.CodeMirror6) {
-      try {
-        reloadCodeMirrorWithTheme(viewInstance, theme);
-      } catch (err) {
-        console.error('[SyntaxThemePicker] Failed to apply theme:', err);
-      }
-    }
-    
-    // עדכון כפתור הערכה
-    updateThemeButton();
-  }
-  
-  /**
-   * טעינה מחדש של CodeMirror עם הערכה החדשה
-   */
-  function reloadCodeMirrorWithTheme(view, theme) {
-    const CM = window.CodeMirror6;
-    if (!CM || !CM.themeCompartment) {
-      console.warn('[SyntaxThemePicker] CodeMirror6 not fully loaded');
-      return;
-    }
-    
-    let themeExt = [];
-    let syntaxExt = [];
-    
-    if (theme.type === 'builtin' || theme.id === 'one-dark') {
-      // ערכת One Dark מובנית
-      if (CM.oneDark) {
-        themeExt = CM.oneDark;
-      }
-    } else if (theme.type === 'custom' && theme.syntaxColors) {
-      // ערכה מותאמת
-      if (CM.createDynamicHighlightStyle) {
-        const dynamicStyle = CM.createDynamicHighlightStyle(theme.syntaxColors);
-        if (dynamicStyle && CM.syntaxHighlighting) {
-          syntaxExt = [CM.syntaxHighlighting(dynamicStyle)];
-        }
-      }
-    }
-    
-    // החלפת ה-compartment
-    if (CM.themeCompartment && view.dispatch) {
-      view.dispatch({
-        effects: CM.themeCompartment.reconfigure(themeExt)
-      });
-    }
-    
-    // אם יש syntax extension חדש, נצטרך ליצור state חדש
-    // (זה מורכב יותר, לכן בגרסה ראשונה נעשה reload)
-    if (syntaxExt.length > 0) {
-      // Trigger re-render by dispatching empty transaction
-      view.dispatch({});
-    }
-  }
-  
-  /**
    * עדכון טקסט כפתור הערכה
    */
   function updateThemeButton() {
@@ -686,28 +777,130 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
     btn.title = `ערכה נוכחית: ${name}`;
   }
   
+  // ========================================
+  // Theme Selection
+  // ========================================
+  
+  /**
+   * בחירת ערכה
+   */
+  function selectTheme(themeId) {
+    if (!window.SYNTAX_THEMES || !window.SYNTAX_THEMES[themeId]) return;
+    
+    currentTheme = themeId;
+    saveTheme(themeId);
+    renderThemes();
+    
+    // הפעלת הערכה החדשה
+    applyTheme(themeId);
+    
+    // סגירת המודאל עם אנימציה
+    closeModalWithAnimation();
+  }
+  
+  // ========================================
+  // Modal Management
+  // ========================================
+  
   /**
    * פתיחת המודאל
    */
   function openModal() {
     if (!modal) return;
+    
+    // שמירת האלמנט שפתח את המודאל לצורך החזרת focus
+    triggerButton = document.activeElement;
+    
     modal.hidden = false;
+    modal.classList.remove('is-closing');
     renderThemes();
     
-    // Focus על הכרטיס הפעיל
+    // Focus trap - התמקדות על הכרטיס הפעיל
     setTimeout(() => {
       const active = modal.querySelector('.syntax-theme-card.is-active');
-      if (active) active.focus();
-    }, 100);
+      if (active) {
+        active.focus();
+      } else {
+        const firstCard = modal.querySelector('.syntax-theme-card');
+        if (firstCard) firstCard.focus();
+      }
+    }, 50);
   }
   
   /**
-   * סגירת המודאל
+   * סגירת המודאל מיידית
    */
   function closeModal() {
     if (!modal) return;
     modal.hidden = true;
+    modal.classList.remove('is-closing');
+    
+    // החזרת focus לכפתור שפתח את המודאל
+    if (triggerButton && typeof triggerButton.focus === 'function') {
+      try { triggerButton.focus(); } catch (_) {}
+    }
+    triggerButton = null;
   }
+  
+  /**
+   * סגירת המודאל עם אנימציה
+   */
+  function closeModalWithAnimation() {
+    if (!modal) return;
+    
+    modal.classList.add('is-closing');
+    
+    // המתנה לסיום האנימציה (150ms)
+    setTimeout(() => {
+      closeModal();
+    }, 150);
+  }
+  
+  /**
+   * Focus Trap - מונע יציאה מהמודאל בטאב
+   */
+  function handleTabKey(e) {
+    if (!modal || modal.hidden) return;
+    
+    const focusableElements = modal.querySelectorAll(
+      'button, [tabindex]:not([tabindex="-1"])'
+    );
+    
+    if (focusableElements.length === 0) return;
+    
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    
+    if (e.shiftKey && document.activeElement === firstElement) {
+      e.preventDefault();
+      lastElement.focus();
+    } else if (!e.shiftKey && document.activeElement === lastElement) {
+      e.preventDefault();
+      firstElement.focus();
+    }
+  }
+  
+  // ========================================
+  // Cross-Tab Sync
+  // ========================================
+  
+  /**
+   * סנכרון בין טאבים
+   */
+  function handleStorageChange(e) {
+    if (e.key !== STORAGE_KEY) return;
+    
+    const newTheme = e.newValue;
+    if (newTheme && window.SYNTAX_THEMES && window.SYNTAX_THEMES[newTheme]) {
+      currentTheme = newTheme;
+      applyTheme(newTheme);
+      renderThemes(); // עדכון UI אם המודאל פתוח
+    }
+  }
+  
+  // ========================================
+  // Initialization
+  // ========================================
   
   /**
    * אתחול
@@ -724,33 +917,47 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
     
     // טעינת ערכה שמורה
     currentTheme = getSavedTheme();
-    window.__ck_active_syntax_theme = currentTheme;
     
     // עדכון כפתור
     updateThemeButton();
     
-    // אירועים
+    // אירועי כפתור
     btn.addEventListener('click', openModal);
     
     if (modal) {
       // סגירה בלחיצה על רקע
       modal.addEventListener('click', (e) => {
-        if (e.target === modal) closeModal();
+        if (e.target === modal) closeModalWithAnimation();
       });
       
       // סגירה בכפתור X
       modal.querySelectorAll('[data-syntax-modal-close]').forEach((el) => {
-        el.addEventListener('click', closeModal);
+        el.addEventListener('click', closeModalWithAnimation);
       });
       
-      // סגירה ב-Escape
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !modal.hidden) {
+      // מקלדת: Escape לסגירה, Tab ל-focus trap
+      modal.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
           e.preventDefault();
-          closeModal();
+          closeModalWithAnimation();
+        } else if (e.key === 'Tab') {
+          handleTabKey(e);
         }
       });
     }
+    
+    // סנכרון בין טאבים
+    window.addEventListener('storage', handleStorageChange);
+    
+    // האזנה לשינויי ערכה מרכיבים אחרים
+    window.addEventListener(THEME_CHANGED_EVENT, (e) => {
+      const { themeId } = e.detail || {};
+      if (themeId && themeId !== currentTheme) {
+        currentTheme = themeId;
+        updateThemeButton();
+        renderThemes();
+      }
+    });
   }
   
   // ייצוא לשימוש חיצוני
@@ -759,6 +966,7 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
     close: closeModal,
     getCurrentTheme: () => currentTheme,
     setTheme: selectTheme,
+    THEME_CHANGED_EVENT,
   };
   
   // הרצה בטעינת הדף
@@ -776,52 +984,183 @@ window.TECH_GUIDE_DARK_SYNTAX = TECH_GUIDE_DARK_SYNTAX;
 
 **שינויים נדרשים ב-`view-codemirror-toggle.js`:**
 
+> ⚠️ **חשוב:** שמירה על הפרדה בין UI theme ל-syntax theme!
+
 ```javascript
-// הוספה בראש הקובץ
-function getActiveSyntaxTheme() {
-  return window.__ck_active_syntax_theme || 'one-dark';
+// === הוספה בראש הקובץ ===
+
+/**
+ * קבלת ערכת syntax פעילה מ-localStorage
+ * נפרד מ-UI theme!
+ */
+function getActiveSyntaxThemeId() {
+  try {
+    const saved = localStorage.getItem('ck_syntax_theme');
+    if (saved && window.SYNTAX_THEMES && window.SYNTAX_THEMES[saved]) {
+      return saved;
+    }
+  } catch (_) {}
+  return 'one-dark';
 }
 
-// שינוי בפונקציה resolveEffectiveThemeForEditorParity
-function resolveEffectiveThemeForEditorParity() {
-  // בדיקת ערכת syntax פעילה
-  const syntaxTheme = getActiveSyntaxTheme();
+/**
+ * יצירת HighlightStyle לפי ערכת syntax
+ */
+function getSyntaxHighlightStyle() {
+  const syntaxThemeId = getActiveSyntaxThemeId();
+  const CM = window.CodeMirror6;
   
-  // אם נבחרה ערכה מותאמת (לא one-dark) - נחזיר 'custom'
-  if (syntaxTheme && syntaxTheme !== 'one-dark') {
-    return 'custom';
+  if (!CM) return null;
+  
+  if (syntaxThemeId === 'one-dark') {
+    // One Dark - HighlightStyle מובנה
+    return CM.oneDarkHighlightStyle || null;
   }
   
-  // לוגיקה קיימת
-  const htmlTheme = document.documentElement.getAttribute('data-theme');
-  if (htmlTheme === 'custom') return 'custom';
-  if (['dark', 'dim', 'nebula'].includes(htmlTheme)) return 'dark';
+  // ערכה מותאמת
+  const theme = window.SYNTAX_THEMES && window.SYNTAX_THEMES[syntaxThemeId];
+  if (theme && theme.syntaxColors && CM.createDynamicHighlightStyle) {
+    return CM.createDynamicHighlightStyle(theme.syntaxColors);
+  }
+  
+  return null;
+}
+
+// === שינוי בפונקציה resolveEffectiveThemeForEditorParity ===
+// ⚠️ פונקציה זו נשארת בלי שינוי! היא עוסקת רק ב-UI theme (רקע, גאטר וכו')
+// ולא ב-syntax highlighting.
+
+function resolveEffectiveThemeForEditorParity() {
+  // לוגיקה קיימת - ללא שינוי
+  try {
+    const htmlTheme = document.documentElement.getAttribute('data-theme') || '';
+    const t = String(htmlTheme).toLowerCase();
+    if (t === 'custom') return 'custom';
+    if (t === 'dark' || t === 'dim' || t === 'nebula') return 'dark';
+  } catch (_) {}
   return 'dark';
 }
 
-// עדכון createReadOnlyCodeMirror
+// === שינוי בפונקציה createReadOnlyCodeMirror ===
+
 async function createReadOnlyCodeMirror({ mountEl, docText, language }) {
-  // ... קוד קיים ...
-  
-  // הוספת תמיכה בערכת syntax מותאמת
-  const syntaxTheme = getActiveSyntaxTheme();
-  let customSyntaxHighlighter = null;
-  
-  if (syntaxTheme !== 'one-dark' && window.SYNTAX_THEMES) {
-    const theme = window.SYNTAX_THEMES[syntaxTheme];
-    if (theme && theme.syntaxColors && window.CodeMirror6.createDynamicHighlightStyle) {
-      const dynamicStyle = window.CodeMirror6.createDynamicHighlightStyle(theme.syntaxColors);
-      if (dynamicStyle && window.CodeMirror6.syntaxHighlighting) {
-        customSyntaxHighlighter = window.CodeMirror6.syntaxHighlighting(dynamicStyle);
-      }
-    }
-  } else if (themeName === 'custom' && window.CodeMirror6.getSyntaxHighlighter) {
-    // לוגיקה קיימת לערכות custom מהמערכת
-    customSyntaxHighlighter = window.CodeMirror6.getSyntaxHighlighter();
+  const ok = await ensureCodeMirrorLoaded();
+  if (!ok) {
+    throw new Error('codemirror_not_available');
   }
+
+  const { EditorState, EditorView, languageCompartment, themeCompartment, syntaxCompartment } = window.CodeMirror6;
+  const mods = (window.CodeMirror6 && window.CodeMirror6._mods) || {};
+  const viewMod = mods.viewMod;
+
+  // === UI Theme (רקע, גאטר) ===
+  const uiThemeName = resolveEffectiveThemeForEditorParity();
+  let themeExt = [];
+  try {
+    if (window.editorManager && typeof window.editorManager.getTheme === 'function') {
+      themeExt = (await window.editorManager.getTheme(uiThemeName)) || [];
+    }
+  } catch (_) {
+    themeExt = [];
+  }
+
+  // === Language Support ===
+  let langSupport = [];
+  try {
+    if (window.editorManager && typeof window.editorManager.getLanguageSupport === 'function') {
+      langSupport = (await window.editorManager.getLanguageSupport(language)) || [];
+    }
+  } catch (_) {
+    langSupport = [];
+  }
+
+  // === Syntax Highlighting (נפרד מ-UI theme!) ===
+  const syntaxHighlightStyle = getSyntaxHighlightStyle();
+  let syntaxExt = [];
+  if (syntaxHighlightStyle && window.CodeMirror6.syntaxHighlighting) {
+    syntaxExt = [window.CodeMirror6.syntaxHighlighting(syntaxHighlightStyle)];
+  }
+
+  // === בניית Extensions ===
+  const extensions = [
+    ...(window.CodeMirror6.basicSetup || []),
+    languageCompartment ? languageCompartment.of(langSupport || []) : (langSupport || []),
+    themeCompartment ? themeCompartment.of(themeExt || []) : (themeExt || []),
+    // Syntax Highlighting - ב-compartment נפרד לאפשר החלפה דינמית
+    syntaxCompartment ? syntaxCompartment.of(syntaxExt) : syntaxExt,
+    EditorView.lineWrapping,
+    EditorState.readOnly.of(true),
+    (viewMod && viewMod.EditorView && viewMod.EditorView.editable) 
+      ? viewMod.EditorView.editable.of(false) 
+      : EditorView.editable.of(false),
+  ];
+
+  const state = EditorState.create({
+    doc: docText || '',
+    extensions,
+  });
+
+  const view = new EditorView({ state, parent: mountEl });
   
-  // ... המשך קוד קיים ...
+  // שמירת ה-view instance לשימוש ע"י syntax-theme-picker
+  window.__ck_view_cm_view = view;
+  
+  return view;
 }
+
+// === האזנה לשינויי syntax theme ===
+// מוסיפים בסוף הקובץ, בתוך ready() או ב-init
+
+window.addEventListener('ck:syntax-theme-changed', (e) => {
+  // ה-syntax-theme-picker כבר מטפל בעדכון ה-view
+  // אפשר להוסיף כאן לוגיקה נוספת אם צריך
+});
+```
+
+---
+
+### שלב 6: סדר טעינת הקבצים
+
+> ⚠️ **קריטי:** סדר הטעינה חשוב לתפקוד תקין!
+
+**ב-`view_file.html`, בתוך `{% block extra_js %}`:**
+
+```html
+{% block extra_js %}
+<!-- 1. הגדרות ערכות (חייב להיות ראשון) -->
+<script src="{{ url_for('static', filename='js/syntax-themes.js') }}?v={{ static_version }}" defer></script>
+
+<!-- 2. לוגיקת המודאל (תלוי ב-syntax-themes.js) -->
+<script src="{{ url_for('static', filename='js/syntax-theme-picker.js') }}?v={{ static_version }}" defer></script>
+
+<!-- 3. לוגיקת CodeMirror toggle (תלוי ב-syntax-themes.js) -->
+<script src="{{ url_for('static', filename='js/view-codemirror-toggle.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}
+```
+
+**דיאגרמת תלויות:**
+
+```
+┌─────────────────────┐
+│   syntax-themes.js  │  ← חייב להיטען ראשון
+│   (SYNTAX_THEMES)   │
+└──────────┬──────────┘
+           │
+     ┌─────┴─────┐
+     ▼           ▼
+┌─────────────┐  ┌──────────────────────┐
+│ syntax-     │  │ view-codemirror-     │
+│ theme-      │  │ toggle.js            │
+│ picker.js   │  │                      │
+└─────────────┘  └──────────────────────┘
+           │                │
+           └────────┬───────┘
+                    ▼
+           ┌─────────────────┐
+           │ codemirror.     │
+           │ local.js        │  ← נטען ע"י editor-manager
+           │ (CodeMirror6)   │
+           └─────────────────┘
 ```
 
 ---
@@ -858,6 +1197,9 @@ async function createReadOnlyCodeMirror({ mountEl, docText, language }) {
 | `markup.italic` | `emphasis` | - | italic |
 | `markup.underline.link` | `link` | `#0088cc` | - |
 | `markup.inline.raw` | `monospace` | `#7fdbca` | - |
+| `support.type.property-name.css` | `propertyName` | `#9cdcfe` | - |
+| `keyword.other.unit.css` | `unit` | `#b5cea8` | - |
+| `support.type.property-name.json` | `labelName` | `#9cdcfe` | - |
 
 ---
 
@@ -878,7 +1220,7 @@ var oneDarkHighlightStyle = HighlightStyle.define([
 ]);
 ```
 
-אין צורך לממש אותה מחדש - היא זמינה דרך `window.CodeMirror6.oneDark`.
+אין צורך לממש אותה מחדש - היא זמינה דרך `window.CodeMirror6.oneDarkHighlightStyle`.
 
 ---
 
@@ -890,24 +1232,42 @@ var oneDarkHighlightStyle = HighlightStyle.define([
    - לחיצה על כפתור "🎨 ערכה" פותחת את המודאל
    - המודאל מציג את שתי הערכות
    - הערכה הפעילה מסומנת
+   - Focus נמצא על הכרטיס הפעיל
 
 2. **החלפת ערכה:**
    - לחיצה על ערכה אחרת מחליפה אותה
-   - הקוד מתעדכן מיידית
+   - **הקוד מתעדכן מיידית** (לא צריך רענון!)
    - ההעדפה נשמרת ב-localStorage
+   - המודאל נסגר עם אנימציה
 
 3. **שמירת העדפה:**
    - רענון העמוד שומר את הערכה שנבחרה
    - מעבר לעמוד קובץ אחר שומר את הערכה
 
-4. **רספונסיביות:**
+4. **סנכרון בין טאבים:**
+   - פתיחת עמוד קובץ בטאב חדש
+   - שינוי ערכה בטאב אחד
+   - הטאב השני מתעדכן אוטומטית
+
+5. **רספונסיביות:**
    - במובייל המודאל עולה מלמטה (bottom sheet)
    - בדסקטופ המודאל ממורכז
+
+6. **נגישות:**
+   - ניווט במקלדת עובד (Tab, Enter, Escape)
+   - Focus trap פעיל במודאל
+   - Focus חוזר לכפתור בסגירה
 
 ### בדיקות אוטומטיות
 
 ```python
 # tests/test_syntax_theme_picker.py (לדוגמה)
+
+def test_syntax_themes_no_duplicate_keys():
+    """וידוא שאין keys כפולים ב-TECH_GUIDE_DARK_SYNTAX"""
+    # פרסור syntax-themes.js
+    # בדיקה שכל key מופיע פעם אחת
+    pass
 
 def test_syntax_themes_defined():
     """וידוא שכל הערכות מוגדרות עם השדות הנדרשים"""
@@ -925,6 +1285,12 @@ def test_tech_guide_dark_colors():
         # ...
     }
     # בדיקה שהמיפוי ב-TECH_GUIDE_DARK_SYNTAX תואם
+    pass
+
+def test_codemirror_syntax_compartment_exists():
+    """וידוא ש-syntaxCompartment קיים ב-codemirror.local.js"""
+    # בדיקה שהקוד מייצא syntaxCompartment
+    # בדיקה ש-reconfigureSyntax קיים
     pass
 ```
 
@@ -958,26 +1324,58 @@ def test_tech_guide_dark_colors():
 
 | קובץ | פעולה | תיאור |
 |------|-------|-------|
-| `webapp/templates/view_file.html` | עריכה | הוספת כפתור ומודאל |
-| `webapp/static/js/syntax-themes.js` | יצירה | הגדרת הערכות |
+| `webapp/static/js/codemirror.local.js` | עריכה | הוספת `syntaxCompartment` ו-`reconfigureSyntax` |
+| `webapp/templates/view_file.html` | עריכה | הוספת כפתור, מודאל, CSS, וטעינת scripts |
+| `webapp/static/js/syntax-themes.js` | יצירה | הגדרת ערכות ההדגשה |
 | `webapp/static/js/syntax-theme-picker.js` | יצירה | לוגיקת המודאל |
-| `webapp/static/js/view-codemirror-toggle.js` | עריכה | אינטגרציה |
+| `webapp/static/js/view-codemirror-toggle.js` | עריכה | אינטגרציה עם syntax themes |
 
 ### נספח ג׳: קישורים רלוונטיים
 
 - [מדריך ערכות מותאמות](../docs/webapp/custom_themes_guide.rst)
 - [מיפוי VS Code ל-CodeMirror](../services/theme_parser_service.py)
 - [תיעוד CodeMirror HighlightStyle](https://codemirror.net/docs/ref/#language.HighlightStyle)
+- [תיעוד CodeMirror Compartment](https://codemirror.net/docs/ref/#state.Compartment)
+
+### נספח ד׳: טיפול בבעיות נפוצות
+
+#### הקוד לא מתעדכן בהחלפת ערכה
+
+**בעיה:** בחרתי ערכה חדשה אבל הצבעים לא השתנו.
+
+**פתרון:** וודא ש:
+1. `syntaxCompartment` קיים ב-`codemirror.local.js`
+2. `reconfigureSyntax` מיוצא ב-`window.CodeMirror6`
+3. `window.__ck_view_cm_view` מאותחל בזמן יצירת ה-view
+
+#### ערכה לא נשמרת בין רענונים
+
+**בעיה:** אחרי רענון העמוד, חוזרת ערכת ברירת המחדל.
+
+**פתרון:** וודא ש-`localStorage` עובד (לא פרטי/incognito) ושהקוד קורא מ-`getSavedTheme()` בזמן init.
+
+#### תצוגה מקדימה (Preview) הפוכה
+
+**בעיה:** הקוד ב-preview מוצג מימין לשמאל.
+
+**פתרון:** וודא שיש `dir="ltr"` על ה-preview element.
 
 ---
 
 ## סיכום
 
-המדריך הזה מתאר את כל השלבים הנדרשים למימוש הפיצ'ר של שינוי הדגשת תחביר בעמוד תצוגת הקוד. המימוש כולל:
+המדריך הזה מתאר את כל השלבים הנדרשים למימוש הפיצ'ר של שינוי הדגשת תחביר בעמוד תצוגת הקוד.
 
-1. **UI** - כפתור ומודאל לבחירת ערכה
-2. **לוגיקה** - ניהול מצב ושמירת העדפות
-3. **אינטגרציה** - חיבור ל-CodeMirror הקיים
-4. **ערכות** - Tech Guide Dark מותאמת + One Dark מובנית
+### נקודות מפתח:
 
-המימוש משתמש בתשתית הקיימת ואינו דורש שינויים מבניים גדולים.
+1. **הפרדת Compartments** - `themeCompartment` לעיצוב עורך, `syntaxCompartment` להדגשת תחביר
+2. **הפרדת Concerns** - UI theme (data-theme) נפרד מ-syntax theme (localStorage)
+3. **תקשורת ע"י Events** - `ck:syntax-theme-changed` לסנכרון בין רכיבים
+4. **סדר טעינה** - syntax-themes.js → syntax-theme-picker.js → view-codemirror-toggle.js
+
+### המימוש כולל:
+
+- **UI** - כפתור ומודאל עם אנימציות ונגישות
+- **לוגיקה** - ניהול מצב, שמירת העדפות, סנכרון בין טאבים
+- **אינטגרציה** - חיבור ל-CodeMirror עם החלפה דינמית
+- **ערכות** - Tech Guide Dark מותאמת + One Dark מובנית
