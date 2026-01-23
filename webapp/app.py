@@ -15440,6 +15440,12 @@ def theme_preview():
     """תצוגה מקדימה של ערכות נושא מוצעות"""
     return render_template('theme_preview.html', static_version=_STATIC_VERSION)
 
+@app.route('/font-preview')
+@login_required
+def font_preview():
+    """תצוגה מקדימה והשוואת פונטים לקוד (Fira Code vs JetBrains Mono)"""
+    return render_template('font_preview.html', static_version=_STATIC_VERSION)
+
 @app.route('/settings')
 @login_required
 def settings():
