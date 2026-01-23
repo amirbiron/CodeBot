@@ -2181,6 +2181,8 @@ const RepoHistory = (function() {
         state.isLoading = true;
 
         const container = historyPanel.querySelector('.history-commits');
+        // שמירת הקובץ הנוכחי לבדיקת race condition
+        const requestedFile = state.currentFile;
 
         if (!append) {
             container.innerHTML = `
@@ -2194,12 +2196,18 @@ const RepoHistory = (function() {
         try {
             // בניית URL עם file כ-query param
             const url = buildApiUrl('/repo/api/history', {
-                file: state.currentFile,
+                file: requestedFile,
                 limit: state.limit,
                 skip: state.skip
             });
 
             const response = await fetch(url);
+
+            // בדיקת race condition: האם המשתמש עבר לקובץ אחר?
+            if (state.currentFile !== requestedFile) {
+                console.log('Race condition avoided: user switched to different file');
+                return;  // התעלם מהתגובה - כבר לא רלוונטית
+            }
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
@@ -2207,6 +2215,12 @@ const RepoHistory = (function() {
             }
 
             const data = await response.json();
+
+            // בדיקת race condition נוספת אחרי parse
+            if (state.currentFile !== requestedFile) {
+                console.log('Race condition avoided: user switched to different file');
+                return;
+            }
 
             if (!data.success) {
                 throw new Error(data.message || 'שגיאה בטעינת היסטוריה');
@@ -2252,7 +2266,11 @@ const RepoHistory = (function() {
                     .addEventListener('click', () => loadHistory());
             }
         } finally {
-            state.isLoading = false;
+            // אפס isLoading רק אם זה עדיין אותו קובץ
+            // (אם המשתמש עבר לקובץ אחר, openHistoryPanel כבר איפס)
+            if (state.currentFile === requestedFile) {
+                state.isLoading = false;
+            }
         }
     }
 
