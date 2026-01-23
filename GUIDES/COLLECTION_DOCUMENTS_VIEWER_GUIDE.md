@@ -997,12 +997,22 @@ document.addEventListener('DOMContentLoaded', () => {
     initDocumentsEditor();
 });
 
+// Reference ל-MutationObserver לניקוי
+let _documentsEditorObserver = null;
+
 /**
  * אתחול CodeMirror לתצוגת מסמכים.
+ * בטוח לקריאה חוזרת - לא יוצר instances כפולים.
  */
 function initDocumentsEditor() {
     if (typeof CodeMirror === 'undefined') {
         console.log('CodeMirror not available, using fallback <pre>');
+        return;
+    }
+
+    // ⚠️ מניעת אתחול כפול - בדוק אם כבר קיים
+    if (window.documentsEditor) {
+        console.log('CodeMirror already initialized');
         return;
     }
 
@@ -1036,9 +1046,9 @@ function initDocumentsEditor() {
     }
 
     // עדכן theme כש-theme הדף משתנה
-    const observer = new MutationObserver((mutations) => {
+    _documentsEditorObserver = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
-            if (mutation.attributeName === 'data-theme') {
+            if (mutation.attributeName === 'data-theme' && window.documentsEditor) {
                 const newTheme = document.documentElement.dataset.theme || 'dark';
                 const newCmTheme = newTheme.includes('dawn') || newTheme.includes('light')
                     ? 'default'
@@ -1047,7 +1057,22 @@ function initDocumentsEditor() {
             }
         });
     });
-    observer.observe(document.documentElement, { attributes: true });
+    _documentsEditorObserver.observe(document.documentElement, { attributes: true });
+}
+
+/**
+ * ניקוי CodeMirror ו-observer (לשימוש ב-SPA או cleanup).
+ */
+function destroyDocumentsEditor() {
+    if (_documentsEditorObserver) {
+        _documentsEditorObserver.disconnect();
+        _documentsEditorObserver = null;
+    }
+    
+    if (window.documentsEditor) {
+        window.documentsEditor.toTextArea();  // מחזיר ל-textarea רגיל
+        window.documentsEditor = null;
+    }
 }
 ```
 
