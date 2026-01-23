@@ -57,12 +57,13 @@ let state = {
 // ========================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // חשוב: initFileTypeFilter קודם כדי לטעון העדפות מ-localStorage לפני initTree
+    initFileTypeFilter();
     initTree();
     initSearch();
     initResizer();
     initKeyboardShortcuts();
     loadRecentFiles();
-    initFileTypeFilter();
     applyInitialNavigationFromUrl();
 });
 
@@ -392,11 +393,23 @@ async function loadFileTypes() {
     
     try {
         const response = await fetch(`${CONFIG.apiBase}/file-types`);
+        
+        // בדיקת HTTP errors (500, 404 וכו')
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
         const data = await response.json();
         
+        // בדיקה שהתגובה היא מערך ולא אובייקט שגיאה
         if (Array.isArray(data)) {
             state.fileTypes = data;
             renderFilterList();
+        } else if (data && data.error) {
+            // טיפול בשגיאת API (JSON תקין עם שדה error)
+            throw new Error(data.error);
+        } else {
+            throw new Error('Invalid response format');
         }
     } catch (error) {
         console.error('Failed to load file types:', error);
