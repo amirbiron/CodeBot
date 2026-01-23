@@ -392,31 +392,63 @@ async deleteSelected() {
 
 /**
  * הסתרת קבצים מה-UI באופן אופטימיסטי
+ * שימוש ב-AbortController לביטול אנימציה אם נדרש שחזור מהיר
  */
 hideFilesFromUI(fileIds) {
+    // אתחול מפת timeouts אם לא קיימת
+    if (!this._hideTimeouts) {
+        this._hideTimeouts = new Map();
+    }
+    
     fileIds.forEach(id => {
         const card = document.querySelector(`.file-card[data-file-id="${id}"]`);
         if (card) {
+            // סמן מיד שהקובץ בתהליך מחיקה (לפני האנימציה)
+            card.dataset.pendingDelete = 'true';
+            
             card.style.transition = 'opacity 0.3s, transform 0.3s';
             card.style.opacity = '0';
             card.style.transform = 'scale(0.9)';
-            setTimeout(() => {
+            
+            // שמור את ה-timeout כדי שנוכל לבטל אותו
+            const timeoutId = setTimeout(() => {
                 card.style.display = 'none';
                 card.dataset.hiddenByDelete = 'true';
+                card.dataset.pendingDelete = '';
+                this._hideTimeouts.delete(id);
             }, 300);
+            
+            this._hideTimeouts.set(id, timeoutId);
         }
     });
 }
 
 /**
  * שחזור קבצים ל-UI
+ * מטפל גם במקרה שהשחזור נקרא תוך כדי אנימציית ההסתרה
  */
 restoreFilesToUI(fileIds) {
     fileIds.forEach(id => {
         const card = document.querySelector(`.file-card[data-file-id="${id}"]`);
-        if (card && card.dataset.hiddenByDelete === 'true') {
-            card.style.display = '';
+        if (!card) return;
+        
+        // בטל timeout של הסתרה אם עדיין פעיל (race condition fix)
+        if (this._hideTimeouts?.has(id)) {
+            clearTimeout(this._hideTimeouts.get(id));
+            this._hideTimeouts.delete(id);
+        }
+        
+        // שחזר אם הקובץ מוסתר או בתהליך הסתרה
+        const isHidden = card.dataset.hiddenByDelete === 'true';
+        const isPending = card.dataset.pendingDelete === 'true';
+        
+        if (isHidden || isPending) {
+            // נקה דגלים
             card.dataset.hiddenByDelete = '';
+            card.dataset.pendingDelete = '';
+            
+            // שחזר תצוגה
+            card.style.display = '';
             requestAnimationFrame(() => {
                 card.style.opacity = '1';
                 card.style.transform = 'scale(1)';
