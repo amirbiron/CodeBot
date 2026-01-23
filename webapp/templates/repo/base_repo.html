@@ -24,8 +24,17 @@
 
 {% block content %}
 <div class="repo-browser-container">
+    <!-- Sidebar Overlay (for mobile) -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
     <!-- Top Search Bar -->
     <div class="repo-search-bar">
+        <!-- Mobile sidebar toggle button -->
+        <button class="mobile-sidebar-toggle" id="mobile-sidebar-toggle" title="פתח תפריט קבצים">
+            <i class="bi bi-list"></i>
+            <span>קבצים</span>
+        </button>
+        
         <div class="search-wrapper">
             <i class="bi bi-search search-icon"></i>
             <input type="text" 
@@ -71,6 +80,10 @@
                     </button>
                     <button class="btn-icon" id="collapse-all" title="Collapse All">
                         <i class="bi bi-arrows-collapse"></i>
+                    </button>
+                    <!-- Close button for mobile -->
+                    <button class="btn-icon sidebar-close-btn" id="sidebar-close" title="סגור">
+                        <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
             </div>

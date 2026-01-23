@@ -67,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSearch();
     initResizer();
     initKeyboardShortcuts();
+    initMobileSidebar();
     loadRecentFiles();
     applyInitialNavigationFromUrl();
 });
@@ -621,6 +622,11 @@ async function selectFile(path, element) {
     }
 
     state.currentFile = path;
+    
+    // Close mobile sidebar when file is selected
+    if (window.innerWidth <= 768) {
+        closeMobileSidebar();
+    }
 
     // Show loading
     const wrapper = document.getElementById('code-editor-wrapper');
@@ -1307,6 +1313,95 @@ function initResizer() {
         }
     });
 }
+
+// ========================================
+// Mobile Sidebar Toggle
+// ========================================
+
+function initMobileSidebar() {
+    const sidebar = document.getElementById('repo-sidebar');
+    const toggleBtn = document.getElementById('mobile-sidebar-toggle');
+    const closeBtn = document.getElementById('sidebar-close');
+    const overlay = document.getElementById('sidebar-overlay');
+    
+    if (!sidebar) return;
+    
+    // Open sidebar
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            openMobileSidebar();
+        });
+    }
+    
+    // Close sidebar with X button
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            closeMobileSidebar();
+        });
+    }
+    
+    // Close sidebar by clicking overlay
+    if (overlay) {
+        overlay.addEventListener('click', () => {
+            closeMobileSidebar();
+        });
+    }
+    
+    // Close sidebar when selecting a file (on mobile)
+    document.addEventListener('fileSelected', () => {
+        if (window.innerWidth <= 768) {
+            closeMobileSidebar();
+        }
+    });
+    
+    // Handle escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) {
+            closeMobileSidebar();
+        }
+    });
+    
+    // Handle window resize - close sidebar when going to desktop
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768 && sidebar.classList.contains('open')) {
+            closeMobileSidebar();
+        }
+    });
+}
+
+function openMobileSidebar() {
+    const sidebar = document.getElementById('repo-sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    
+    if (sidebar) {
+        sidebar.classList.add('open');
+    }
+    if (overlay) {
+        overlay.classList.add('visible');
+    }
+    
+    // Prevent body scroll when sidebar is open
+    document.body.style.overflow = 'hidden';
+}
+
+function closeMobileSidebar() {
+    const sidebar = document.getElementById('repo-sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    
+    if (sidebar) {
+        sidebar.classList.remove('open');
+    }
+    if (overlay) {
+        overlay.classList.remove('visible');
+    }
+    
+    // Restore body scroll
+    document.body.style.overflow = '';
+}
+
+// Make functions available globally
+window.openMobileSidebar = openMobileSidebar;
+window.closeMobileSidebar = closeMobileSidebar;
 
 // ========================================
 // Recent Files
