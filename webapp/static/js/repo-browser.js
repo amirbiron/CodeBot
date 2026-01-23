@@ -48,6 +48,7 @@ let state = {
     selectedElement: null,
     searchTimeout: null,
     searchAbortController: null,
+    searchLastQuery: '',
     // File type filter
     fileTypes: [],           // All available file types with counts
     selectedTypes: new Set(), // Currently selected types for filtering
@@ -977,6 +978,7 @@ async function performRepoSearch(query) {
             state.searchAbortController.abort();
             state.searchAbortController = null;
         }
+        state.searchLastQuery = '';
         dropdown.classList.add('hidden');
         if (resultsList) resultsList.innerHTML = '';
         dropdown.dataset.hasResults = 'false';
@@ -991,6 +993,7 @@ async function performRepoSearch(query) {
             </div>
         `;
     }
+    state.searchLastQuery = clean;
 
     if (state.searchAbortController) {
         state.searchAbortController.abort();
@@ -1005,6 +1008,10 @@ async function performRepoSearch(query) {
         const data = await response.json();
 
         if (!resultsList) return;
+        const currentInput = (searchInput.value || '').trim();
+        if (currentInput !== clean) {
+            return;
+        }
 
         if (data.error) {
             resultsList.innerHTML = `
@@ -1031,7 +1038,10 @@ async function performRepoSearch(query) {
             `;
         }
         dropdown.dataset.hasResults = 'false';
-        dropdown.classList.remove('hidden');
+        const currentInput = (searchInput.value || '').trim();
+        if (currentInput === clean) {
+            dropdown.classList.remove('hidden');
+        }
     } finally {
         if (state.searchAbortController === controller) {
             state.searchAbortController = null;
@@ -1061,8 +1071,18 @@ function initSearch() {
         const query = e.target.value.trim();
 
         if (query.length < 2) {
+            if (state.searchAbortController) {
+                state.searchAbortController.abort();
+                state.searchAbortController = null;
+            }
+            state.searchLastQuery = '';
             dropdown.classList.add('hidden');
             if (resultsList) resultsList.innerHTML = '';
+            dropdown.dataset.hasResults = 'false';
+            return;
+        }
+
+        if (query !== state.searchLastQuery) {
             dropdown.dataset.hasResults = 'false';
         }
     });
@@ -1078,7 +1098,9 @@ function initSearch() {
 
     searchInput.addEventListener('focus', () => {
         updateShortcutsVisibility();
-        if (searchInput.value.length >= 2 && dropdown.dataset.hasResults === 'true') {
+        if (searchInput.value.length >= 2
+            && dropdown.dataset.hasResults === 'true'
+            && searchInput.value.trim() === state.searchLastQuery) {
             dropdown.classList.remove('hidden');
         }
     });
