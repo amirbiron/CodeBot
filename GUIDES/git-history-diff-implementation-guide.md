@@ -1248,7 +1248,7 @@ def get_commit_info(commit):
     max-width: 90vw;
     height: 100vh;
     background: var(--bg-secondary, #181825);
-    border-right: 1px solid var(--border-color, #45475a);
+    border-left: 1px solid var(--border-color, #45475a);  /* גבול בצד התוכן */
     z-index: 1000;
     transform: translateX(100%);
     transition: transform 0.3s ease;
@@ -1259,8 +1259,8 @@ def get_commit_info(commit):
 html[dir="rtl"] .history-panel {
     right: auto;
     left: 0;
-    border-right: none;
-    border-left: 1px solid var(--border-color, #45475a);
+    border-left: none;
+    border-right: 1px solid var(--border-color, #45475a);  /* גבול בצד התוכן */
     transform: translateX(-100%);
 }
 
@@ -2151,6 +2151,7 @@ const RepoHistory = (function() {
         state.commits = [];
         state.skip = 0;
         state.hasMore = true;
+        state.isLoading = false;  // חשוב! מאפשר טעינה מחדש
         state.compareMode = false;
         state.compareBase = null;
         state.compareTarget = null;
@@ -2211,11 +2212,13 @@ const RepoHistory = (function() {
                 throw new Error(data.message || 'שגיאה בטעינת היסטוריה');
             }
 
+            // שמירת מספר ה-commits הקודם לפני הוספה
+            const previousCount = state.commits.length;
             state.commits = append ? [...state.commits, ...data.commits] : data.commits;
             state.hasMore = data.has_more;
             state.skip += data.commits.length;
 
-            renderCommits(container, append);
+            renderCommits(container, append, previousCount);
 
         } catch (error) {
             console.error('Error loading history:', error);
@@ -2233,7 +2236,7 @@ const RepoHistory = (function() {
         }
     }
 
-    function renderCommits(container, append = false) {
+    function renderCommits(container, append = false, previousCount = 0) {
         if (!append) {
             container.innerHTML = '';
         } else {
@@ -2241,12 +2244,12 @@ const RepoHistory = (function() {
             if (loadMoreBtn) loadMoreBtn.remove();
         }
 
-        const commitsToRender = append
-            ? state.commits.slice(-state.limit)
-            : state.commits;
+        // כשמוסיפים - רנדר רק את ה-commits החדשים (מ-previousCount והלאה)
+        const startIndex = append ? previousCount : 0;
+        const commitsToRender = state.commits.slice(startIndex);
 
         commitsToRender.forEach((commit, index) => {
-            const globalIndex = append ? state.commits.length - state.limit + index : index;
+            const globalIndex = startIndex + index;
             const commitEl = createCommitElement(commit, globalIndex);
             container.appendChild(commitEl);
         });
@@ -2424,7 +2427,6 @@ const RepoHistory = (function() {
             const fileHeader = document.querySelector('.file-header .file-info');
             if (fileHeader) {
                 const shortHash = commit.substring(0, 7);
-                const originalHtml = fileHeader.innerHTML;
 
                 // Add version indicator
                 const versionBadge = document.createElement('span');
