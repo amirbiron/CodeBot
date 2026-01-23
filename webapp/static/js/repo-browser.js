@@ -50,8 +50,10 @@ let state = {
     // File type filter
     fileTypes: [],           // All available file types with counts
     selectedTypes: new Set(), // Currently selected types for filtering
-    // AbortController למניעת race conditions בטעינת עץ
-    treeAbortController: null
+    // AbortController למניעת race conditions
+    treeAbortController: null,
+    fileTypesAbortController: null,
+    fileTypesLoading: false   // flag למניעת קריאות מקבילות
 };
 
 // ========================================
@@ -407,8 +409,22 @@ async function initFileTypeFilter() {
 async function loadFileTypes() {
     const filterList = document.getElementById('filter-list');
     
+    // מניעת קריאות מקבילות
+    if (state.fileTypesLoading) {
+        return;
+    }
+    
+    // ביטול בקשה קודמת אם קיימת
+    if (state.fileTypesAbortController) {
+        state.fileTypesAbortController.abort();
+    }
+    state.fileTypesAbortController = new AbortController();
+    const signal = state.fileTypesAbortController.signal;
+    
+    state.fileTypesLoading = true;
+    
     try {
-        const response = await fetch(`${CONFIG.apiBase}/file-types`);
+        const response = await fetch(`${CONFIG.apiBase}/file-types`, { signal });
         
         // בדיקת HTTP errors (500, 404 וכו')
         if (!response.ok) {
@@ -428,12 +444,21 @@ async function loadFileTypes() {
             throw new Error('Invalid response format');
         }
     } catch (error) {
+        // התעלמות משגיאת abort (זה בכוונה)
+        if (error.name === 'AbortError') {
+            return;
+        }
         console.error('Failed to load file types:', error);
-        filterList.innerHTML = `
-            <div class="error-message" style="color: var(--text-muted); font-size: 12px;">
-                Failed to load file types
-            </div>
-        `;
+        // הצגת שגיאה רק אם אין כבר נתונים טעונים
+        if (state.fileTypes.length === 0) {
+            filterList.innerHTML = `
+                <div class="error-message" style="color: var(--text-muted); font-size: 12px;">
+                    Failed to load file types
+                </div>
+            `;
+        }
+    } finally {
+        state.fileTypesLoading = false;
     }
 }
 
