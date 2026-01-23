@@ -176,9 +176,10 @@ class GitMirrorService:
         if not output:
             return ''
         # Remove tokens from URLs
+        # Preserve username (e.g., oauth2) and mask only the secret
         sanitized = re.sub(
-            r'https://[^:]+:[^@]+@',
-            'https://***:***@',
+            r'https://([^:]+):[^@]+@',
+            r'https://\1:***@',
             output
         )
         # Remove other potential secrets
@@ -600,7 +601,7 @@ class GitMirrorService:
         # normpath מנרמל ../foo ל-../foo, foo/../bar ל-bar
         # אם אחרי נורמליזציה יש .. בהתחלה = ניסיון traversal מעבר לroot
         normalized = os.path.normpath(file_path)
-        if normalized.startswith('..') or normalized.startswith('/'):
+        if normalized == '..' or normalized.startswith('..' + os.sep) or normalized.startswith('/'):
             return False
         # הערה: לא בודקים '..' in normalized כי a..b.txt הוא שם קובץ תקין!
 
