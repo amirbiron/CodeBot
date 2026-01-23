@@ -42,7 +42,6 @@ BUILTIN_THEMES: List[Dict[str, str]] = [
     {"id": "dim", "name": "עמום", "type": "builtin"},
     {"id": "rose-pine-dawn", "name": "Rose Pine Dawn", "type": "builtin"},
     {"id": "high-contrast", "name": "ניגודיות גבוהה", "type": "builtin"},
-    {"id": "indigo-violet", "name": "אינדיגו סגול", "type": "builtin"},
 ]
 
 _PREVIEW_COLOR_KEYS: Tuple[str, ...] = (
