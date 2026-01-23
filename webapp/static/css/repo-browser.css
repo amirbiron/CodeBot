@@ -956,29 +956,222 @@
 }
 
 /* ========================================
+   Mobile Toggle Button
+   ======================================== */
+
+.mobile-sidebar-toggle {
+    display: none;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.mobile-sidebar-toggle:hover {
+    background: var(--bg-hover);
+}
+
+.mobile-sidebar-toggle:active {
+    background: var(--bg-active);
+}
+
+.mobile-sidebar-toggle i {
+    font-size: 18px;
+}
+
+/* Sidebar Overlay (for closing on mobile) */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 99;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.visible {
+    display: block;
+    opacity: 1;
+}
+
+/* ========================================
    Responsive
    ======================================== */
 
 @media (max-width: 768px) {
+    /* Show mobile toggle button */
+    .mobile-sidebar-toggle {
+        display: flex;
+    }
+    
+    /* Hide resizer on mobile */
+    .resizer {
+        display: none;
+    }
+    
+    /* Sidebar as overlay from the right (RTL support) */
     .repo-sidebar {
-        position: absolute;
-        left: 0;
-        top: var(--search-height);
+        position: fixed;
+        right: 0;
+        left: auto;
+        top: 0;
         bottom: 0;
-        z-index: 100;
-        transform: translateX(-100%);
+        width: 85vw !important;
+        max-width: 320px;
+        min-width: auto;
+        z-index: 200;
+        transform: translateX(100%);
         transition: transform 0.3s ease;
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
     }
     
     .repo-sidebar.open {
         transform: translateX(0);
     }
     
+    /* Add close button to sidebar header on mobile */
+    .sidebar-close-btn {
+        display: flex;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        padding: 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 20px;
+        transition: all 0.15s ease;
+    }
+    
+    .sidebar-close-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+    
+    /* Search bar adjustments */
     .search-shortcuts {
         display: none;
     }
     
     .repo-info {
+        display: none;
+    }
+    
+    .repo-search-bar {
+        padding: 8px 12px;
+        gap: 10px;
+    }
+    
+    .search-wrapper {
+        flex: 1;
+    }
+    
+    .search-input {
+        font-size: 16px; /* Prevent zoom on iOS */
+    }
+    
+    /* Code viewer adjustments */
+    .code-header {
+        padding: 8px 12px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .file-breadcrumb {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+    }
+    
+    .file-breadcrumb .breadcrumb {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    
+    .file-breadcrumb .breadcrumb::-webkit-scrollbar {
+        display: none;
+    }
+    
+    .file-actions {
+        flex-shrink: 0;
+    }
+    
+    /* Code footer adjustments */
+    .code-footer {
+        padding: 6px 12px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .file-info {
+        gap: 10px;
+        font-size: 11px;
+    }
+    
+    /* Welcome screen adjustments */
+    .welcome-screen {
+        padding: 20px;
+    }
+    
+    .welcome-icon {
+        font-size: 48px;
+    }
+    
+    .welcome-screen h3 {
+        font-size: 18px;
+    }
+    
+    .recent-files {
+        margin-top: 24px;
+    }
+    
+    /* In-file search adjustments */
+    .in-file-search {
+        padding: 8px 10px;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    
+    .in-file-search input {
+        flex: 1 1 100%;
+        min-width: 0;
+        font-size: 16px; /* Prevent zoom on iOS */
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .repo-sidebar {
+        width: 100vw !important;
+        max-width: none;
+    }
+    
+    .code-header {
+        padding: 6px 10px;
+    }
+    
+    .file-actions .btn-icon {
+        padding: 4px 6px;
+    }
+    
+    .btn-icon {
+        padding: 6px 8px;
+    }
+}
+
+/* Hide close button on desktop */
+@media (min-width: 769px) {
+    .sidebar-close-btn {
         display: none;
     }
 }
@@ -1076,7 +1269,6 @@ html[dir="rtl"] .history-panel {
 html[dir="rtl"] .history-panel.open {
     transform: translateX(0);
 }
-
 .history-panel-header {
     display: flex;
     justify-content: space-between;
