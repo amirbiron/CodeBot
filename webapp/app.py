@@ -4090,7 +4090,32 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
         try:
             return gevent_monkey.get_original("threading", "Thread")
         except Exception:
-            return threading.Thread
+            start_fn = None
+            for module_name in ("thread", "_thread"):
+                try:
+                    start_fn = gevent_monkey.get_original(module_name, "start_new_thread")
+                    break
+                except Exception:
+                    continue
+            if start_fn is None:
+                return threading.Thread
+
+            class _NativeThread:
+                def __init__(self, *, target=None, name=None, daemon=None, args=None, kwargs=None):
+                    self._target = target
+                    self._args = tuple(args or ())
+                    self._kwargs = dict(kwargs or {})
+                    self.name = name or "native_thread"
+                    self.daemon = bool(daemon) if daemon is not None else False
+
+                def start(self):
+                    def _runner():
+                        if self._target is not None:
+                            self._target(*self._args, **self._kwargs)
+
+                    start_fn(_runner, ())
+
+            return _NativeThread
 
     def _is_running_loop_error(exc: BaseException) -> bool:
         msg = str(exc).lower()
