@@ -86,6 +86,22 @@ class UndoToastManager {
     }
 
     /**
+     * Escape HTML למניעת XSS
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Sanitize icon name - רק אותיות, מספרים ומקפים
+     */
+    sanitizeIconName(icon) {
+        return String(icon || 'check').replace(/[^a-zA-Z0-9-]/g, '');
+    }
+
+    /**
      * הצגת Toast עם כפתור ביטול
      * @param {Object} options - אפשרויות
      * @param {string} options.operationId - מזהה ייחודי לפעולה
@@ -96,6 +112,12 @@ class UndoToastManager {
      * @param {string} options.icon - אייקון FontAwesome (ברירת מחדל: 'check')
      */
     show(options) {
+        // וידוא שהפרמטר קיים
+        if (!options || typeof options !== 'object') {
+            console.error('UndoToastManager.show: options parameter is required');
+            return null;
+        }
+
         const {
             operationId,
             message,
@@ -104,6 +126,12 @@ class UndoToastManager {
             onExpire,
             icon = 'check'
         } = options;
+
+        // וידוא פרמטרים חובה
+        if (!operationId || !message) {
+            console.error('UndoToastManager.show: operationId and message are required');
+            return null;
+        }
 
         // אם יש Toast קודם לאותה פעולה - הסר אותו
         if (this.activeToasts.has(operationId)) {
@@ -118,11 +146,15 @@ class UndoToastManager {
 
         // Progress bar לספירה לאחור
         const progressPercent = 100;
+
+        // Sanitize inputs למניעת XSS
+        const safeIcon = this.sanitizeIconName(icon);
+        const safeMessage = this.escapeHtml(message);
         
         toast.innerHTML = `
             <div class="undo-toast-content">
-                <i class="fas fa-${icon} undo-toast-icon"></i>
-                <span class="undo-toast-message">${message}</span>
+                <i class="fas fa-${safeIcon} undo-toast-icon"></i>
+                <span class="undo-toast-message">${safeMessage}</span>
             </div>
             <button class="undo-toast-button" type="button" aria-label="בטל פעולה">
                 <i class="fas fa-undo"></i>
@@ -194,7 +226,6 @@ class UndoToastManager {
         // עדכן UI - הצג טוען
         element.classList.add('undoing');
         const messageEl = element.querySelector('.undo-toast-message');
-        const originalMessage = messageEl.textContent;
         messageEl.textContent = 'מבטל...';
 
         try {
@@ -296,10 +327,9 @@ async deleteSelected() {
     }
 
     const fileIds = files.map(f => f.id);
-    const fileNames = files.map(f => f.name || f.id);
     
-    // יצירת מזהה ייחודי לפעולה
-    const operationId = `delete_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // יצירת מזהה ייחודי לפעולה (slice במקום substr שהוא deprecated)
+    const operationId = `delete_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     
     this.showProcessing(`מעביר ${count} קבצים לסל...`);
     
@@ -416,7 +446,7 @@ async undoDelete(operationId, fileIds) {
 
 ```javascript
 async addTags() {
-    const files = window.multiSelect.getSelectedFiles();
+    const files = window.multiSelect?.getSelectedFiles?.() || [];
     const fileIds = files.map(f => f.id);
     
     if (fileIds.length === 0) {
@@ -428,7 +458,8 @@ async addTags() {
     const newTags = await this.showTagDialog();
     if (!newTags || newTags.length === 0) return;
     
-    const operationId = `tag_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // יצירת מזהה ייחודי לפעולה (slice במקום substr שהוא deprecated)
+    const operationId = `tag_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     
     this.showProcessing(`מוסיף תגיות ל-${fileIds.length} קבצים...`);
     
@@ -794,6 +825,11 @@ async undoTagChange(fileIds, previousState) {
 
 הוסף ל-`webapp/app.py`:
 
+> **הערה:** וודא שיש לך את ה-import הבא בראש הקובץ:
+> ```python
+> from bson.errors import InvalidId
+> ```
+
 ```python
 @app.route('/api/files/bulk-restore', methods=['POST'])
 @login_required
@@ -804,6 +840,10 @@ def api_files_bulk_restore():
         data = request.get_json() or {}
         file_ids = data.get('file_ids', [])
         operation_id = data.get('operation_id')
+        
+        # וידוא שfile_ids הוא רשימה
+        if not isinstance(file_ids, list):
+            return jsonify({"success": False, "error": "file_ids חייב להיות רשימה"}), 400
         
         if not file_ids:
             return jsonify({"success": False, "error": "לא סופקו מזהי קבצים"}), 400
@@ -827,6 +867,9 @@ def api_files_bulk_restore():
                 )
                 if result.modified_count > 0:
                     restored_count += 1
+            except (ValueError, TypeError, InvalidId) as e:
+                app.logger.warning(f"Invalid file_id {file_id}: {e}")
+                continue
             except Exception as e:
                 app.logger.warning(f"Failed to restore file {file_id}: {e}")
                 continue
@@ -856,6 +899,10 @@ def api_files_get_tags():
         data = request.get_json() or {}
         file_ids = data.get('file_ids', [])
         
+        # וידוא שfile_ids הוא רשימה
+        if not isinstance(file_ids, list):
+            return jsonify({"error": "file_ids חייב להיות רשימה"}), 400
+        
         if not file_ids:
             return jsonify({}), 200
         
@@ -870,7 +917,8 @@ def api_files_get_tags():
                 )
                 if doc:
                     result[file_id] = doc.get("tags", [])
-            except:
+            except (ValueError, TypeError, InvalidId) as e:
+                app.logger.debug(f"Invalid file_id {file_id}: {e}")
                 continue
         
         return jsonify(result)
@@ -889,6 +937,10 @@ def api_files_bulk_set_tags():
         data = request.get_json() or {}
         files_tags = data.get('files_tags', {})  # { file_id: [tags], ... }
         
+        # וידוא שfiles_tags הוא dict
+        if not isinstance(files_tags, dict):
+            return jsonify({"success": False, "error": "files_tags חייב להיות אובייקט"}), 400
+        
         if not files_tags:
             return jsonify({"success": True, "updated": 0})
         
@@ -897,13 +949,22 @@ def api_files_bulk_set_tags():
         
         for file_id, tags in files_tags.items():
             try:
+                # וידוא שtags הוא רשימה
+                if not isinstance(tags, list):
+                    app.logger.warning(f"Invalid tags format for {file_id}")
+                    continue
+                    
                 result = db_manager.code_snippets.update_one(
                     {"_id": ObjectId(file_id), "user_id": user_id},
                     {"$set": {"tags": tags}}
                 )
                 if result.modified_count > 0:
                     updated_count += 1
-            except:
+            except (ValueError, TypeError, InvalidId) as e:
+                app.logger.debug(f"Invalid file_id {file_id}: {e}")
+                continue
+            except Exception as e:
+                app.logger.warning(f"Failed to set tags for {file_id}: {e}")
                 continue
         
         return jsonify({
