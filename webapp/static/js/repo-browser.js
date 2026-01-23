@@ -47,6 +47,7 @@ let state = {
     expandedFolders: new Set(),
     selectedElement: null,
     searchTimeout: null,
+    searchAbortController: null,
     // File type filter
     fileTypes: [],           // All available file types with counts
     selectedTypes: new Set(), // Currently selected types for filtering
@@ -972,6 +973,10 @@ async function performRepoSearch(query) {
     const clean = (raw || '').trim();
 
     if (clean.length < 2) {
+        if (state.searchAbortController) {
+            state.searchAbortController.abort();
+            state.searchAbortController = null;
+        }
         dropdown.classList.add('hidden');
         if (resultsList) resultsList.innerHTML = '';
         dropdown.dataset.hasResults = 'false';
@@ -987,8 +992,16 @@ async function performRepoSearch(query) {
         `;
     }
 
+    if (state.searchAbortController) {
+        state.searchAbortController.abort();
+    }
+    const controller = new AbortController();
+    state.searchAbortController = controller;
+
     try {
-        const response = await fetch(`${CONFIG.apiBase}/search?q=${encodeURIComponent(clean)}&type=content`);
+        const response = await fetch(`${CONFIG.apiBase}/search?q=${encodeURIComponent(clean)}&type=content`, {
+            signal: controller.signal
+        });
         const data = await response.json();
 
         if (!resultsList) return;
@@ -1006,6 +1019,9 @@ async function performRepoSearch(query) {
         }
         dropdown.classList.remove('hidden');
     } catch (error) {
+        if (error && error.name === 'AbortError') {
+            return;
+        }
         console.error('Search failed:', error);
         if (resultsList) {
             resultsList.innerHTML = `
@@ -1016,6 +1032,10 @@ async function performRepoSearch(query) {
         }
         dropdown.dataset.hasResults = 'false';
         dropdown.classList.remove('hidden');
+    } finally {
+        if (state.searchAbortController === controller) {
+            state.searchAbortController = null;
+        }
     }
 }
 
