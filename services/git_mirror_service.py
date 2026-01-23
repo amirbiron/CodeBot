@@ -732,6 +732,12 @@ class GitMirrorService:
         Returns:
             Dict עם resolved_sha או error
         """
+        if not self._validate_basic_ref(ref):
+            return {
+                "valid": False,
+                "error": "invalid_ref",
+                "message": "Reference לא תקין"
+            }
         mirror_path = self._get_mirror_path(repo_name)
 
         try:
@@ -763,7 +769,16 @@ class GitMirrorService:
         except subprocess.TimeoutExpired:
             return {"valid": False, "error": "timeout"}
         except Exception as e:
-            return {"valid": False, "error": "internal_error", "message": str(e)}
+            self.logger.exception(
+                "Unexpected error validating ref %s in repo %s",
+                ref,
+                repo_name,
+            )
+            return {
+                "valid": False,
+                "error": "internal_error",
+                "message": "שגיאה פנימית באימות ה-ref"
+            }
 
     def _detect_binary_content(self, content: bytes) -> bool:
         """
