@@ -1924,6 +1924,189 @@ html[dir="rtl"] .history-commit.selected {
     animation: slideUp 0.3s ease;
 }
 
+/* ============================================
+   Diff View Toggle
+   ============================================ */
+
+.diff-view-toggle {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-tertiary, #313244);
+    border-radius: 6px;
+    margin-left: 16px;
+    margin-right: auto;
+}
+
+html[dir="rtl"] .diff-view-toggle {
+    margin-left: auto;
+    margin-right: 16px;
+}
+
+.diff-view-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted, #6c7086);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.diff-view-btn:hover {
+    background: var(--bg-hover, #45475a);
+    color: var(--text-secondary, #bac2de);
+}
+
+.diff-view-btn.active {
+    background: var(--accent-blue, #89b4fa);
+    color: var(--bg-primary, #1e1e2e);
+}
+
+.diff-view-btn i {
+    font-size: 14px;
+}
+
+/* ============================================
+   CodeMirror MergeView Container
+   ============================================ */
+
+.diff-advanced-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.diff-advanced-content .cm-mergeView {
+    height: 100%;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+}
+
+.diff-advanced-content .cm-editor {
+    height: 100%;
+}
+
+/* MergeView panels */
+.diff-advanced-content .cm-mergeView > div {
+    height: 100%;
+}
+
+/* שינויים בתוך MergeView */
+.diff-advanced-content .cm-changedLine {
+    background: rgba(249, 226, 175, 0.1);
+}
+
+.diff-advanced-content .cm-deletedChunk {
+    background: rgba(243, 139, 168, 0.2);
+}
+
+.diff-advanced-content .cm-insertedChunk {
+    background: rgba(166, 227, 161, 0.2);
+}
+
+/* Gutter colors */
+.diff-advanced-content .cm-changeGutter .cm-gutterElement {
+    padding: 0 4px;
+}
+
+.diff-advanced-content .cm-deletedGutter {
+    background: rgba(243, 139, 168, 0.3);
+}
+
+.diff-advanced-content .cm-insertedGutter {
+    background: rgba(166, 227, 161, 0.3);
+}
+
+/* Fallback message */
+.diff-advanced-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px;
+    text-align: center;
+    color: var(--text-secondary, #bac2de);
+    direction: rtl;
+}
+
+.diff-advanced-fallback i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    color: var(--accent-blue, #89b4fa);
+}
+
+.diff-advanced-fallback p {
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+.switch-to-basic-btn {
+    padding: 8px 16px;
+    background: var(--accent-blue, #89b4fa);
+    color: var(--bg-primary, #1e1e2e);
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.switch-to-basic-btn:hover {
+    filter: brightness(1.1);
+}
+
+/* ============================================
+   Mobile MergeView Adjustments
+   ============================================ */
+
+.merge-view-mobile .cm-mergeView {
+    flex-direction: column !important;
+}
+
+.merge-view-mobile .cm-mergeView > div {
+    width: 100% !important;
+    min-height: 200px;
+}
+
+.merge-view-mobile .cm-mergeViewGutter {
+    display: none;
+}
+
+/* Labels for mobile panels */
+.merge-view-mobile::before {
+    content: 'ישן';
+    display: block;
+    padding: 8px 12px;
+    background: var(--bg-tertiary, #313244);
+    color: var(--accent-red, #f38ba8);
+    font-size: 12px;
+    font-weight: 500;
+    direction: rtl;
+}
+
+.merge-view-mobile .cm-mergeView > div:last-child::before {
+    content: 'חדש';
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    padding: 8px 12px;
+    background: var(--bg-tertiary, #313244);
+    color: var(--accent-green, #a6e3a1);
+    font-size: 12px;
+    font-weight: 500;
+    direction: rtl;
+    z-index: 10;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .history-panel {
@@ -1943,5 +2126,46 @@ html[dir="rtl"] .history-commit.selected {
 
     .commit-action-btn {
         flex: 1 1 45%;
+    }
+
+    /* Toggle buttons on mobile */
+    .diff-view-toggle {
+        margin-left: 8px;
+        margin-right: 8px;
+    }
+
+    html[dir="rtl"] .diff-view-toggle {
+        margin-left: 8px;
+        margin-right: 8px;
+    }
+
+    .diff-view-btn {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .diff-view-btn span {
+        display: none;
+    }
+
+    /* Modal header adjustments */
+    .diff-modal-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px;
+    }
+
+    .diff-modal-title {
+        flex: 1 1 100%;
+        order: 1;
+    }
+
+    .diff-view-toggle {
+        order: 2;
+        flex: 0 0 auto;
+    }
+
+    .diff-modal-close {
+        order: 3;
     }
 }

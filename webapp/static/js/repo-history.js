@@ -22,7 +22,11 @@ const RepoHistory = (function() {
         // Compare mode
         compareMode: false,
         compareBase: null,    // commit ישן (אדום)
-        compareTarget: null   // commit חדש (ירוק)
+        compareTarget: null,  // commit חדש (ירוק)
+        // Diff view mode
+        diffViewMode: 'basic',  // 'basic' | 'advanced'
+        mergeViewInstance: null,  // CodeMirror MergeView instance
+        lastDiffData: null  // שמירת נתוני ה-diff האחרונים למעבר בין תצוגות
     };
 
     // DOM Elements
@@ -188,12 +192,23 @@ const RepoHistory = (function() {
                             </div>
                         </div>
                     </div>
+                    <div class="diff-view-toggle">
+                        <button class="diff-view-btn active" data-view="basic">
+                            <i class="bi bi-list"></i>
+                            בסיסי
+                        </button>
+                        <button class="diff-view-btn" data-view="advanced">
+                            <i class="bi bi-code-square"></i>
+                            מתקדם
+                        </button>
+                    </div>
                     <button class="diff-modal-close" aria-label="סגור">
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
                 <div class="diff-stats"></div>
                 <div class="diff-content"></div>
+                <div class="diff-advanced-content" style="display: none;"></div>
             </div>
         `;
         document.body.appendChild(diffModal);
@@ -204,6 +219,15 @@ const RepoHistory = (function() {
 
         diffModal.addEventListener('click', (e) => {
             if (e.target === diffModal) closeDiffModal();
+        });
+
+        // Toggle view buttons
+        diffModal.querySelectorAll('.diff-view-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const view = btn.dataset.view;
+                if (view === state.diffViewMode) return;
+                switchDiffView(view);
+            });
         });
     }
 
@@ -635,6 +659,7 @@ const RepoHistory = (function() {
         diffModal.classList.add('open');
 
         const content = diffModal.querySelector('.diff-content');
+        const advancedContent = diffModal.querySelector('.diff-advanced-content');
         const stats = diffModal.querySelector('.diff-stats');
         const commitsInfo = diffModal.querySelector('.diff-commits-info');
 
@@ -649,29 +674,65 @@ const RepoHistory = (function() {
         commitsInfo.querySelector('.commit-info.new .commit-message-preview').textContent =
             truncate(message2, 40);
 
+        // איפוס תצוגה
+        content.style.display = state.diffViewMode === 'basic' ? '' : 'none';
+        advancedContent.style.display = state.diffViewMode === 'advanced' ? '' : 'none';
+
         content.innerHTML = `
             <div class="diff-loading">
                 <div class="spinner"></div>
                 <span>טוען השוואה...</span>
             </div>
         `;
+        if (state.diffViewMode === 'advanced') {
+            advancedContent.innerHTML = `
+                <div class="diff-loading">
+                    <div class="spinner"></div>
+                    <span>טוען השוואה...</span>
+                </div>
+            `;
+        }
         stats.innerHTML = '';
 
         try {
-            const url = buildApiUrl(`/repo/api/diff/${encodeURIComponent(commit1)}/${encodeURIComponent(commit2)}`, {
-                file: state.currentFile,
-                format: 'both'
-            });
+            // טעינת diff + תוכן הקבצים במקביל
+            const [diffResponse, oldContentResponse, newContentResponse] = await Promise.all([
+                fetch(buildApiUrl(`/repo/api/diff/${encodeURIComponent(commit1)}/${encodeURIComponent(commit2)}`, {
+                    file: state.currentFile,
+                    format: 'both'
+                })),
+                fetch(buildApiUrl(`/repo/api/file-at-commit/${encodeURIComponent(commit1)}`, {
+                    file: state.currentFile
+                })),
+                commit2 === 'HEAD' 
+                    ? fetch(buildApiUrl(`/repo/api/file-at-commit/HEAD`, { file: state.currentFile }))
+                    : fetch(buildApiUrl(`/repo/api/file-at-commit/${encodeURIComponent(commit2)}`, { file: state.currentFile }))
+            ]);
 
-            const response = await fetch(url);
-            const data = await response.json();
+            const data = await diffResponse.json();
+            const oldData = await oldContentResponse.json();
+            const newData = await newContentResponse.json();
 
             if (!data.success) {
                 throw new Error(data.message || 'שגיאה בטעינת diff');
             }
 
+            // שמירת נתונים ל-state עבור מעבר בין תצוגות
+            state.lastDiffData = {
+                parsed: data.parsed,
+                stats: data.stats,
+                is_truncated: data.is_truncated,
+                old_content: oldData.success && !oldData.is_binary ? oldData.content : '',
+                new_content: newData.success && !newData.is_binary ? newData.content : ''
+            };
+
             renderDiffStats(stats, data.stats, data.is_truncated);
             renderDiff(content, data.parsed);
+
+            // אם במצב מתקדם - יצירת MergeView
+            if (state.diffViewMode === 'advanced') {
+                createMergeView(state.lastDiffData);
+            }
 
         } catch (error) {
             console.error('Error loading diff:', error);
@@ -681,11 +742,234 @@ const RepoHistory = (function() {
                     <p>${escapeHtml(error.message)}</p>
                 </div>
             `;
+            if (state.diffViewMode === 'advanced') {
+                advancedContent.innerHTML = `
+                    <div class="diff-error">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <p>${escapeHtml(error.message)}</p>
+                    </div>
+                `;
+            }
         }
     }
 
     function closeDiffModal() {
         diffModal.classList.remove('open');
+        destroyMergeView();
+        // איפוס state
+        state.diffViewMode = 'basic';
+        state.lastDiffData = null;
+        // איפוס כפתורי Toggle
+        const buttons = diffModal.querySelectorAll('.diff-view-btn');
+        buttons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === 'basic');
+        });
+        // הצגת תצוגה בסיסית, הסתרת מתקדמת
+        const basicContent = diffModal.querySelector('.diff-content');
+        const advancedContent = diffModal.querySelector('.diff-advanced-content');
+        if (basicContent) basicContent.style.display = '';
+        if (advancedContent) advancedContent.style.display = 'none';
+    }
+
+    /**
+     * מעבר בין תצוגה בסיסית למתקדמת
+     */
+    function switchDiffView(view) {
+        if (view === state.diffViewMode) return;
+        state.diffViewMode = view;
+
+        // עדכון כפתורים
+        const buttons = diffModal.querySelectorAll('.diff-view-btn');
+        buttons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === view);
+        });
+
+        const basicContent = diffModal.querySelector('.diff-content');
+        const advancedContent = diffModal.querySelector('.diff-advanced-content');
+
+        if (view === 'advanced') {
+            // מעבר לתצוגה מתקדמת
+            basicContent.style.display = 'none';
+            advancedContent.style.display = '';
+            
+            if (state.lastDiffData) {
+                createMergeView(state.lastDiffData);
+            }
+        } else {
+            // מעבר לתצוגה בסיסית
+            destroyMergeView();
+            advancedContent.style.display = 'none';
+            basicContent.style.display = '';
+        }
+    }
+
+    /**
+     * יצירת CodeMirror MergeView
+     */
+    function createMergeView(diffData) {
+        const CM = window.CodeMirror6;
+        if (!CM || !CM.MergeView) {
+            console.warn('CodeMirror MergeView not available');
+            showAdvancedFallback('CodeMirror MergeView לא זמין');
+            return;
+        }
+
+        destroyMergeView();
+
+        const container = diffModal.querySelector('.diff-advanced-content');
+        if (!container) return;
+
+        // ניקוי הקונטיינר
+        container.innerHTML = '';
+
+        // בדיקה אם יש תוכן להשוואה
+        if (!diffData.old_content && !diffData.new_content) {
+            showAdvancedFallback('אין תוכן טקסטואלי להשוואה');
+            return;
+        }
+
+        try {
+            // בדיקת רוחב מסך - במובייל נציג Unified (שורה אחת מתחת לשנייה)
+            const isMobile = window.innerWidth < 768;
+            
+            // יצירת theme extensions
+            const themeExtensions = [];
+            const htmlTheme = document.documentElement.getAttribute('data-theme');
+            if (htmlTheme === 'dark' || htmlTheme === 'dim') {
+                const darkTheme = CM.getTheme ? CM.getTheme('dark') : [];
+                if (darkTheme && darkTheme.length) themeExtensions.push(...darkTheme);
+            }
+
+            // הגדרת שפה לפי סיומת הקובץ
+            const langSupport = getLanguageSupportForFile(state.currentFile);
+            if (langSupport) themeExtensions.push(langSupport);
+
+            // יצירת MergeView
+            state.mergeViewInstance = new CM.MergeView({
+                parent: container,
+                a: {
+                    doc: diffData.old_content || '',
+                    extensions: [
+                        CM.EditorView.editable.of(false),
+                        CM.EditorState.readOnly.of(true),
+                        ...themeExtensions
+                    ]
+                },
+                b: {
+                    doc: diffData.new_content || '',
+                    extensions: [
+                        CM.EditorView.editable.of(false),
+                        CM.EditorState.readOnly.of(true),
+                        ...themeExtensions
+                    ]
+                },
+                orientation: isMobile ? 'a-b' : 'a-b',  // תמיד side-by-side, CSS ידאג למובייל
+                revertControls: null,  // ללא כפתורי revert
+                highlightChanges: true,
+                gutter: true
+            });
+
+            // הוספת class למובייל
+            if (isMobile) {
+                container.classList.add('merge-view-mobile');
+            } else {
+                container.classList.remove('merge-view-mobile');
+            }
+
+            // האזנה לשינוי גודל מסך
+            window.addEventListener('resize', handleMergeViewResize);
+
+        } catch (error) {
+            console.error('Error creating MergeView:', error);
+            showAdvancedFallback('שגיאה ביצירת תצוגה מתקדמת: ' + error.message);
+        }
+    }
+
+    /**
+     * קבלת language support לפי שם הקובץ
+     */
+    function getLanguageSupportForFile(filePath) {
+        if (!filePath) return null;
+        const CM = window.CodeMirror6;
+        if (!CM || !CM.getLanguageSupport) return null;
+
+        const ext = filePath.split('.').pop()?.toLowerCase();
+        const langMap = {
+            'py': 'python',
+            'js': 'javascript',
+            'mjs': 'javascript',
+            'ts': 'typescript',
+            'tsx': 'typescript',
+            'html': 'html',
+            'htm': 'html',
+            'css': 'css',
+            'json': 'json',
+            'md': 'markdown',
+            'sql': 'sql',
+            'xml': 'xml'
+        };
+        const lang = langMap[ext];
+        return lang ? CM.getLanguageSupport(lang) : null;
+    }
+
+    /**
+     * הצגת הודעת fallback בתצוגה מתקדמת
+     */
+    function showAdvancedFallback(message) {
+        const container = diffModal.querySelector('.diff-advanced-content');
+        if (!container) return;
+        container.innerHTML = `
+            <div class="diff-advanced-fallback">
+                <i class="bi bi-info-circle"></i>
+                <p>${escapeHtml(message)}</p>
+                <button class="switch-to-basic-btn">עבור לתצוגה בסיסית</button>
+            </div>
+        `;
+        container.querySelector('.switch-to-basic-btn')?.addEventListener('click', () => {
+            switchDiffView('basic');
+        });
+    }
+
+    /**
+     * ניקוי MergeView instance
+     */
+    function destroyMergeView() {
+        window.removeEventListener('resize', handleMergeViewResize);
+        
+        if (state.mergeViewInstance) {
+            try {
+                state.mergeViewInstance.destroy();
+            } catch (e) {
+                console.warn('Error destroying MergeView:', e);
+            }
+            state.mergeViewInstance = null;
+        }
+
+        // ניקוי הקונטיינר
+        const container = diffModal?.querySelector('.diff-advanced-content');
+        if (container) {
+            container.innerHTML = '';
+            container.classList.remove('merge-view-mobile');
+        }
+    }
+
+    /**
+     * טיפול בשינוי גודל מסך - עדכון תצוגת MergeView
+     */
+    let resizeTimeout = null;
+    function handleMergeViewResize() {
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            const container = diffModal?.querySelector('.diff-advanced-content');
+            if (!container) return;
+            
+            const isMobile = window.innerWidth < 768;
+            if (isMobile) {
+                container.classList.add('merge-view-mobile');
+            } else {
+                container.classList.remove('merge-view-mobile');
+            }
+        }, 150);
     }
 
     function renderDiffStats(container, stats, isTruncated) {
