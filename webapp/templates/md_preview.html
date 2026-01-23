@@ -702,7 +702,8 @@
 
 :root[data-theme="classic"] #bgColorSwitcher,
 :root[data-theme="ocean"] #bgColorSwitcher,
-:root[data-theme="rose-pine-dawn"] #bgColorSwitcher {
+:root[data-theme="rose-pine-dawn"] #bgColorSwitcher,
+:root[data-theme="indigo-violet"] #bgColorSwitcher {
   display: inline-flex;
   align-items: center;
 }
@@ -3125,7 +3126,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   };
   
   const STORAGE_KEY = 'md_bg_color_preference';
-  const ALLOWED_THEMES = new Set(['classic', 'ocean', 'rose-pine-dawn']);
+  const ALLOWED_THEMES = new Set(['classic', 'ocean', 'rose-pine-dawn', 'indigo-violet']);
   
   // שליפת העדפה שמורה
   function getSavedColorPreference() {
