@@ -211,6 +211,11 @@ class CodeIndexer:
             ".gitignore",
             ".env.example",
             ".coveragerc",
+            ".cursorrules",
+            ".editorconfig",
+            ".prettierrc",
+            ".eslintrc",
+            ".babelrc",
         ]:
             return True
 
