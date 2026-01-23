@@ -4082,6 +4082,16 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
     - אחרת: מריצים לולאה חדשה באותו thread.
     """
 
+    def _get_native_thread_class():
+        try:
+            from gevent import monkey as gevent_monkey  # type: ignore
+        except Exception:
+            return threading.Thread
+        try:
+            return gevent_monkey.get_original("threading", "Thread")
+        except Exception:
+            return threading.Thread
+
     def _is_running_loop_error(exc: BaseException) -> bool:
         msg = str(exc).lower()
         return (
@@ -4133,7 +4143,8 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
             except BaseException as exc:
                 future.set_exception(exc)
 
-        thread = threading.Thread(target=_target, name=f"{thread_label}_loop", daemon=True)
+        native_thread = _get_native_thread_class()
+        thread = native_thread(target=_target, name=f"{thread_label}_loop", daemon=True)
         thread.start()
         return future.result()
 
