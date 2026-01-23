@@ -49,7 +49,9 @@ let state = {
     searchTimeout: null,
     // File type filter
     fileTypes: [],           // All available file types with counts
-    selectedTypes: new Set() // Currently selected types for filtering
+    selectedTypes: new Set(), // Currently selected types for filtering
+    // AbortController למניעת race conditions בטעינת עץ
+    treeAbortController: null
 };
 
 // ========================================
@@ -128,6 +130,13 @@ async function initTree() {
     const treeContainer = document.getElementById('file-tree');
     if (!treeContainer) return;
 
+    // ביטול בקשה קודמת אם קיימת (מניעת race condition)
+    if (state.treeAbortController) {
+        state.treeAbortController.abort();
+    }
+    state.treeAbortController = new AbortController();
+    const signal = state.treeAbortController.signal;
+
     try {
         // Build URL with filter parameter
         let url = `${CONFIG.apiBase}/tree`;
@@ -136,11 +145,15 @@ async function initTree() {
             url += `?types=${encodeURIComponent(filterParam)}`;
         }
         
-        const response = await fetch(url);
+        const response = await fetch(url, { signal });
         const data = await response.json();
         state.treeData = data;
         renderTree(treeContainer, data);
     } catch (error) {
+        // התעלמות משגיאת abort (זה בכוונה)
+        if (error.name === 'AbortError') {
+            return;
+        }
         console.error('Failed to load tree:', error);
         treeContainer.innerHTML = `
             <div class="error-message">
@@ -354,7 +367,10 @@ async function initFileTypeFilter() {
         
         if (isOpen) {
             filterPanel.style.display = 'none';
-            filterToggle.classList.remove('active');
+            // שמירה על active class אם יש פילטרים פעילים
+            if (state.selectedTypes.size === 0) {
+                filterToggle.classList.remove('active');
+            }
         } else {
             filterPanel.style.display = 'flex';
             filterToggle.classList.add('active');
@@ -514,7 +530,12 @@ function updateFilterBadge() {
     
     if (!badge) return;
     
-    const count = state.selectedTypes.size;
+    // ספירה רק של סוגים שקיימים בפועל ב-fileTypes (לא stale מ-localStorage)
+    let count = state.selectedTypes.size;
+    if (state.fileTypes.length > 0) {
+        const validTypes = new Set(state.fileTypes.map(ft => ft.language));
+        count = Array.from(state.selectedTypes).filter(t => validTypes.has(t)).length;
+    }
     
     if (count > 0) {
         badge.textContent = count;
