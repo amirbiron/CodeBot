@@ -573,10 +573,21 @@ async getFilesTags(fileIds) {
         body: JSON.stringify({ file_ids: fileIds })
     });
     
-    const result = await response.json();
+    // בדוק סטטוס HTTP קודם - לפני ניסיון לפרסר JSON
+    if (!response.ok) {
+        throw new Error(`שגיאת שרת: ${response.status} ${response.statusText}`);
+    }
     
-    // בדוק שהבקשה הצליחה
-    if (!response.ok || !result.success) {
+    // רק אחרי בדיקת הסטטוס - נסה לפרסר JSON
+    let result;
+    try {
+        result = await response.json();
+    } catch (parseError) {
+        throw new Error('שגיאה בפענוח תשובת השרת');
+    }
+    
+    // בדוק שהפעולה הצליחה
+    if (!result.success) {
         throw new Error(result.error || 'שגיאה בקבלת תגיות קיימות');
     }
     
