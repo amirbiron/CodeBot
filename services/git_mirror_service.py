@@ -920,22 +920,6 @@ class GitMirrorService:
         if not match:
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
         safe_file_path = match.group(0)
-        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
-        if not match:
-            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        safe_file_path = match.group(0)
-        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
-        if not match:
-            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        safe_file_path = match.group(0)
-        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
-        if not match:
-            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        safe_file_path = match.group(0)
-        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
-        if not match:
-            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        safe_file_path = match.group(0)
         if not self._validate_basic_ref(ref):
             return {"error": "invalid_ref", "message": "Reference לא תקין"}
 
@@ -1067,6 +1051,10 @@ class GitMirrorService:
 
         if not self._validate_repo_file_path(file_path):
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
+        if not match:
+            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        safe_file_path = match.group(0)
 
         mirror_path = self._get_mirror_path(repo_name)
         if not mirror_path.exists():
