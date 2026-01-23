@@ -1,0 +1,581 @@
+{% extends "base.html" %}
+
+{% block title %}תצוגה מקדימה - פונטים לקוד{% endblock %}
+
+{% block extra_css %}
+<!-- Load monospace fonts for code display -->
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+.font-preview-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.font-preview-intro {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
+.font-preview-intro h1 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+.font-preview-intro p {
+    font-size: 1.1rem;
+    opacity: 0.85;
+    max-width: 700px;
+    margin: 0 auto;
+    line-height: 1.6;
+}
+
+.font-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-bottom: 3rem;
+}
+
+@media (max-width: 900px) {
+    .font-comparison {
+        grid-template-columns: 1fr;
+    }
+}
+
+.font-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: border-color 0.3s ease, transform 0.2s ease;
+}
+
+.font-card:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+.font-card.selected {
+    border-color: var(--primary, #667eea);
+    box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+}
+
+.font-card-header {
+    padding: 1.25rem 1.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.font-card-header h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.font-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.6rem;
+    background: rgba(102, 126, 234, 0.2);
+    border-radius: 20px;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.font-card-body {
+    padding: 0;
+}
+
+.code-sample {
+    margin: 0;
+    padding: 1.5rem;
+    background: #1e1e1e;
+    font-size: 14px;
+    line-height: 1.7;
+    overflow-x: auto;
+    direction: ltr;
+    text-align: left;
+    color: #d4d4d4;
+}
+
+.code-sample.fira-code {
+    font-family: 'Fira Code', monospace;
+}
+
+.code-sample.jetbrains-mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Syntax highlighting simulation */
+.code-sample .keyword { color: #569cd6; }
+.code-sample .string { color: #ce9178; }
+.code-sample .number { color: #b5cea8; }
+.code-sample .comment { color: #6a9955; }
+.code-sample .function { color: #dcdcaa; }
+.code-sample .class { color: #4ec9b0; }
+.code-sample .variable { color: #9cdcfe; }
+.code-sample .operator { color: #d4d4d4; }
+.code-sample .property { color: #9cdcfe; }
+.code-sample .decorator { color: #dcdcaa; }
+
+/* Ligatures showcase */
+.ligatures-row {
+    padding: 1rem 1.5rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ligatures-row h4 {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+    opacity: 0.7;
+}
+
+.ligatures-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    direction: ltr;
+}
+
+.ligature-item {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 18px;
+    color: #e8eaed;
+}
+
+.ligature-item.fira-code {
+    font-family: 'Fira Code', monospace;
+}
+
+.ligature-item.jetbrains-mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Feature comparison table */
+.features-section {
+    margin-top: 3rem;
+}
+
+.features-section h2 {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.features-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.features-table th,
+.features-table td {
+    padding: 1rem 1.25rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.features-table th {
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+}
+
+.features-table td:first-child {
+    text-align: right;
+    font-weight: 500;
+}
+
+.features-table tr:last-child td {
+    border-bottom: none;
+}
+
+.check-mark {
+    color: #4ade80;
+    font-size: 1.2rem;
+}
+
+/* Size comparison */
+.size-section {
+    margin-top: 3rem;
+}
+
+.size-comparison {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 700px) {
+    .size-comparison {
+        grid-template-columns: 1fr;
+    }
+}
+
+.size-sample {
+    background: #1e1e1e;
+    padding: 1.25rem;
+    border-radius: 12px;
+    text-align: center;
+    direction: ltr;
+}
+
+.size-sample h4 {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+    opacity: 0.7;
+    direction: rtl;
+}
+
+.size-sample code {
+    display: block;
+    color: #e8eaed;
+}
+
+.size-sample.fira-code code {
+    font-family: 'Fira Code', monospace;
+}
+
+.size-sample.jetbrains-mono code {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.size-12 code { font-size: 12px; }
+.size-14 code { font-size: 14px; }
+.size-16 code { font-size: 16px; }
+
+/* Action buttons */
+.preview-actions {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 3rem;
+    flex-wrap: wrap;
+}
+
+.preview-actions .btn {
+    min-width: 180px;
+}
+
+/* Current font indicator */
+.current-font-badge {
+    background: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
+    border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+/* Hebrew text test */
+.hebrew-test {
+    margin-top: 3rem;
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+}
+
+.hebrew-test h3 {
+    margin: 0 0 1rem;
+}
+
+.hebrew-test p {
+    margin: 0.5rem 0;
+    opacity: 0.85;
+}
+
+.mixed-code {
+    background: #1e1e1e;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+    direction: ltr;
+    text-align: left;
+    color: #d4d4d4;
+}
+
+.mixed-code.fira-code {
+    font-family: 'Fira Code', monospace;
+}
+
+.mixed-code.jetbrains-mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="font-preview-page">
+    <div class="font-preview-intro glass-card">
+        <h1><i class="fas fa-font"></i> השוואת פונטים לקוד</h1>
+        <p>
+            בדף זה תוכלו לראות תצוגה מקדימה של שני פונטים פופולריים לקוד:
+            <strong>Fira Code</strong> ו-<strong>JetBrains Mono</strong>.
+            שני הפונטים תומכים ב-Ligatures (תווים מחוברים) ומיועדים לקריאות מיטבית של קוד.
+        </p>
+    </div>
+
+    <div class="font-comparison">
+        <!-- Fira Code -->
+        <div class="font-card" id="firaCard">
+            <div class="font-card-header">
+                <h2>
+                    <span>Fira Code</span>
+                    <span class="font-badge">פופולרי</span>
+                </h2>
+            </div>
+            <div class="font-card-body">
+                <pre class="code-sample fira-code"><span class="comment">// Python example with Fira Code</span>
+<span class="keyword">def</span> <span class="function">calculate_fibonacci</span>(<span class="variable">n</span>: <span class="class">int</span>) <span class="operator">-></span> <span class="class">list</span>:
+    <span class="string">"""Calculate Fibonacci sequence"""</span>
+    <span class="keyword">if</span> <span class="variable">n</span> <span class="operator"><=</span> <span class="number">0</span>:
+        <span class="keyword">return</span> []
+    <span class="keyword">elif</span> <span class="variable">n</span> <span class="operator">==</span> <span class="number">1</span>:
+        <span class="keyword">return</span> [<span class="number">0</span>]
+    
+    <span class="variable">result</span> <span class="operator">=</span> [<span class="number">0</span>, <span class="number">1</span>]
+    <span class="keyword">for</span> <span class="variable">i</span> <span class="keyword">in</span> <span class="function">range</span>(<span class="number">2</span>, <span class="variable">n</span>):
+        <span class="variable">result</span>.<span class="function">append</span>(
+            <span class="variable">result</span>[<span class="variable">i</span><span class="operator">-</span><span class="number">1</span>] <span class="operator">+</span> <span class="variable">result</span>[<span class="variable">i</span><span class="operator">-</span><span class="number">2</span>]
+        )
+    <span class="keyword">return</span> <span class="variable">result</span>
+
+<span class="comment"># Test: fib != None && len >= 10</span>
+<span class="variable">fib</span> <span class="operator">=</span> <span class="function">calculate_fibonacci</span>(<span class="number">15</span>)</pre>
+                <div class="ligatures-row">
+                    <h4>Ligatures (תווים מחוברים)</h4>
+                    <div class="ligatures-list">
+                        <span class="ligature-item fira-code">=></span>
+                        <span class="ligature-item fira-code">-></span>
+                        <span class="ligature-item fira-code">!==</span>
+                        <span class="ligature-item fira-code">===</span>
+                        <span class="ligature-item fira-code"><=</span>
+                        <span class="ligature-item fira-code">>=</span>
+                        <span class="ligature-item fira-code">&&</span>
+                        <span class="ligature-item fira-code">||</span>
+                        <span class="ligature-item fira-code">www</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JetBrains Mono -->
+        <div class="font-card" id="jetbrainsCard">
+            <div class="font-card-header">
+                <h2>
+                    <span>JetBrains Mono</span>
+                    <span class="font-badge">מומלץ</span>
+                </h2>
+            </div>
+            <div class="font-card-body">
+                <pre class="code-sample jetbrains-mono"><span class="comment">// Python example with JetBrains Mono</span>
+<span class="keyword">def</span> <span class="function">calculate_fibonacci</span>(<span class="variable">n</span>: <span class="class">int</span>) <span class="operator">-></span> <span class="class">list</span>:
+    <span class="string">"""Calculate Fibonacci sequence"""</span>
+    <span class="keyword">if</span> <span class="variable">n</span> <span class="operator"><=</span> <span class="number">0</span>:
+        <span class="keyword">return</span> []
+    <span class="keyword">elif</span> <span class="variable">n</span> <span class="operator">==</span> <span class="number">1</span>:
+        <span class="keyword">return</span> [<span class="number">0</span>]
+    
+    <span class="variable">result</span> <span class="operator">=</span> [<span class="number">0</span>, <span class="number">1</span>]
+    <span class="keyword">for</span> <span class="variable">i</span> <span class="keyword">in</span> <span class="function">range</span>(<span class="number">2</span>, <span class="variable">n</span>):
+        <span class="variable">result</span>.<span class="function">append</span>(
+            <span class="variable">result</span>[<span class="variable">i</span><span class="operator">-</span><span class="number">1</span>] <span class="operator">+</span> <span class="variable">result</span>[<span class="variable">i</span><span class="operator">-</span><span class="number">2</span>]
+        )
+    <span class="keyword">return</span> <span class="variable">result</span>
+
+<span class="comment"># Test: fib != None && len >= 10</span>
+<span class="variable">fib</span> <span class="operator">=</span> <span class="function">calculate_fibonacci</span>(<span class="number">15</span>)</pre>
+                <div class="ligatures-row">
+                    <h4>Ligatures (תווים מחוברים)</h4>
+                    <div class="ligatures-list">
+                        <span class="ligature-item jetbrains-mono">=></span>
+                        <span class="ligature-item jetbrains-mono">-></span>
+                        <span class="ligature-item jetbrains-mono">!==</span>
+                        <span class="ligature-item jetbrains-mono">===</span>
+                        <span class="ligature-item jetbrains-mono"><=</span>
+                        <span class="ligature-item jetbrains-mono">>=</span>
+                        <span class="ligature-item jetbrains-mono">&&</span>
+                        <span class="ligature-item jetbrains-mono">||</span>
+                        <span class="ligature-item jetbrains-mono">www</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Example -->
+    <div class="glass-card" style="margin-bottom: 2rem;">
+        <h2 style="margin-bottom: 1.5rem;"><i class="fas fa-code"></i> דוגמת JavaScript</h2>
+        <div class="font-comparison" style="margin-bottom: 0;">
+            <div>
+                <h4 style="margin-bottom: 0.75rem; opacity: 0.8;">Fira Code</h4>
+                <pre class="code-sample fira-code"><span class="keyword">const</span> <span class="function">fetchUserData</span> <span class="operator">=</span> <span class="keyword">async</span> (<span class="variable">userId</span>) <span class="operator">=></span> {
+  <span class="keyword">const</span> <span class="variable">response</span> <span class="operator">=</span> <span class="keyword">await</span> <span class="function">fetch</span>(<span class="string">`/api/users/${<span class="variable">userId</span>}`</span>);
+  <span class="keyword">if</span> (<span class="operator">!</span><span class="variable">response</span>.<span class="property">ok</span>) {
+    <span class="keyword">throw</span> <span class="keyword">new</span> <span class="class">Error</span>(<span class="string">'User not found'</span>);
+  }
+  <span class="keyword">return</span> <span class="variable">response</span>.<span class="function">json</span>();
+};
+
+<span class="comment">// Arrow function with destructuring</span>
+<span class="keyword">const</span> <span class="function">formatUser</span> <span class="operator">=</span> ({ <span class="variable">name</span>, <span class="variable">email</span> }) <span class="operator">=></span> <span class="string">`${<span class="variable">name</span>} &lt;${<span class="variable">email</span>}&gt;`</span>;</pre>
+            </div>
+            <div>
+                <h4 style="margin-bottom: 0.75rem; opacity: 0.8;">JetBrains Mono</h4>
+                <pre class="code-sample jetbrains-mono"><span class="keyword">const</span> <span class="function">fetchUserData</span> <span class="operator">=</span> <span class="keyword">async</span> (<span class="variable">userId</span>) <span class="operator">=></span> {
+  <span class="keyword">const</span> <span class="variable">response</span> <span class="operator">=</span> <span class="keyword">await</span> <span class="function">fetch</span>(<span class="string">`/api/users/${<span class="variable">userId</span>}`</span>);
+  <span class="keyword">if</span> (<span class="operator">!</span><span class="variable">response</span>.<span class="property">ok</span>) {
+    <span class="keyword">throw</span> <span class="keyword">new</span> <span class="class">Error</span>(<span class="string">'User not found'</span>);
+  }
+  <span class="keyword">return</span> <span class="variable">response</span>.<span class="function">json</span>();
+};
+
+<span class="comment">// Arrow function with destructuring</span>
+<span class="keyword">const</span> <span class="function">formatUser</span> <span class="operator">=</span> ({ <span class="variable">name</span>, <span class="variable">email</span> }) <span class="operator">=></span> <span class="string">`${<span class="variable">name</span>} &lt;${<span class="variable">email</span>}&gt;`</span>;</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Size comparison -->
+    <div class="glass-card size-section">
+        <h2 style="text-align: center; margin-bottom: 1.5rem;"><i class="fas fa-text-height"></i> השוואת גדלים</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+            <div>
+                <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">Fira Code</h3>
+                <div class="size-comparison" style="grid-template-columns: 1fr;">
+                    <div class="size-sample size-12 fira-code">
+                        <h4>12px</h4>
+                        <code>const sum = (a, b) => a + b;</code>
+                    </div>
+                    <div class="size-sample size-14 fira-code">
+                        <h4>14px</h4>
+                        <code>const sum = (a, b) => a + b;</code>
+                    </div>
+                    <div class="size-sample size-16 fira-code">
+                        <h4>16px</h4>
+                        <code>const sum = (a, b) => a + b;</code>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">JetBrains Mono</h3>
+                <div class="size-comparison" style="grid-template-columns: 1fr;">
+                    <div class="size-sample size-12 jetbrains-mono">
+                        <h4>12px</h4>
+                        <code>const sum = (a, b) => a + b;</code>
+                    </div>
+                    <div class="size-sample size-14 jetbrains-mono">
+                        <h4>14px</h4>
+                        <code>const sum = (a, b) => a + b;</code>
+                    </div>
+                    <div class="size-sample size-16 jetbrains-mono">
+                        <h4>16px</h4>
+                        <code>const sum = (a, b) => a + b;</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Features comparison -->
+    <div class="glass-card features-section">
+        <h2><i class="fas fa-list-check"></i> השוואת תכונות</h2>
+        <table class="features-table">
+            <thead>
+                <tr>
+                    <th>תכונה</th>
+                    <th>Fira Code</th>
+                    <th>JetBrains Mono</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Ligatures (תווים מחוברים)</td>
+                    <td><span class="check-mark">✓</span></td>
+                    <td><span class="check-mark">✓</span></td>
+                </tr>
+                <tr>
+                    <td>גובה שורה מותאם לקוד</td>
+                    <td><span class="check-mark">✓</span></td>
+                    <td><span class="check-mark">✓</span></td>
+                </tr>
+                <tr>
+                    <td>הבחנה בין 0/O ו-1/l/I</td>
+                    <td><span class="check-mark">✓</span></td>
+                    <td><span class="check-mark">✓</span></td>
+                </tr>
+                <tr>
+                    <td>משקלי פונט (weights)</td>
+                    <td>6 משקלים</td>
+                    <td>8 משקלים</td>
+                </tr>
+                <tr>
+                    <td>רוחב תווים</td>
+                    <td>רחב יותר</td>
+                    <td>צר יותר (יותר תוכן בשורה)</td>
+                </tr>
+                <tr>
+                    <td>עיצוב כללי</td>
+                    <td>עגול, ידידותי</td>
+                    <td>חד, מקצועי</td>
+                </tr>
+                <tr>
+                    <td>מקור</td>
+                    <td>Mozilla</td>
+                    <td>JetBrains</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Hebrew text test -->
+    <div class="glass-card hebrew-test">
+        <h3><i class="fas fa-language"></i> בדיקת תצוגה עם עברית</h3>
+        <p>בדיקה איך הפונטים מתנהגים בקוד שמכיל גם הערות בעברית:</p>
+        
+        <h4 style="margin-top: 1.5rem; margin-bottom: 0.75rem; opacity: 0.8;">Fira Code</h4>
+        <pre class="mixed-code fira-code"><span class="comment">// פונקציה לחישוב ממוצע</span>
+<span class="keyword">function</span> <span class="function">calculateAverage</span>(<span class="variable">numbers</span>) {
+    <span class="comment">// בדיקה אם המערך ריק</span>
+    <span class="keyword">if</span> (<span class="variable">numbers</span>.<span class="property">length</span> <span class="operator">===</span> <span class="number">0</span>) <span class="keyword">return</span> <span class="number">0</span>;
+    
+    <span class="keyword">const</span> <span class="variable">sum</span> <span class="operator">=</span> <span class="variable">numbers</span>.<span class="function">reduce</span>((<span class="variable">a</span>, <span class="variable">b</span>) <span class="operator">=></span> <span class="variable">a</span> <span class="operator">+</span> <span class="variable">b</span>, <span class="number">0</span>);
+    <span class="keyword">return</span> <span class="variable">sum</span> <span class="operator">/</span> <span class="variable">numbers</span>.<span class="property">length</span>;
+}</pre>
+
+        <h4 style="margin-top: 1.5rem; margin-bottom: 0.75rem; opacity: 0.8;">JetBrains Mono</h4>
+        <pre class="mixed-code jetbrains-mono"><span class="comment">// פונקציה לחישוב ממוצע</span>
+<span class="keyword">function</span> <span class="function">calculateAverage</span>(<span class="variable">numbers</span>) {
+    <span class="comment">// בדיקה אם המערך ריק</span>
+    <span class="keyword">if</span> (<span class="variable">numbers</span>.<span class="property">length</span> <span class="operator">===</span> <span class="number">0</span>) <span class="keyword">return</span> <span class="number">0</span>;
+    
+    <span class="keyword">const</span> <span class="variable">sum</span> <span class="operator">=</span> <span class="variable">numbers</span>.<span class="function">reduce</span>((<span class="variable">a</span>, <span class="variable">b</span>) <span class="operator">=></span> <span class="variable">a</span> <span class="operator">+</span> <span class="variable">b</span>, <span class="number">0</span>);
+    <span class="keyword">return</span> <span class="variable">sum</span> <span class="operator">/</span> <span class="variable">numbers</span>.<span class="property">length</span>;
+}</pre>
+    </div>
+
+    <!-- Recommendation -->
+    <div class="glass-card" style="margin-top: 2rem; text-align: center;">
+        <h3 style="margin-bottom: 1rem;"><i class="fas fa-lightbulb"></i> המלצה</h3>
+        <p style="max-width: 700px; margin: 0 auto 1.5rem; opacity: 0.9; line-height: 1.7;">
+            <strong>JetBrains Mono</strong> מומלץ למפתחים שרוצים לראות יותר קוד בשורה ומעדיפים עיצוב חד ומקצועי.
+            <br><br>
+            <strong>Fira Code</strong> מתאים למי שמעדיף תווים רחבים יותר ועיצוב עגול וידידותי.
+            <br><br>
+            שני הפונטים נטענים מ-Google Fonts ותומכים ב-Ligatures שמשפרים את קריאות הקוד.
+        </p>
+        <div class="preview-actions">
+            <a href="/files" class="btn btn-secondary btn-icon">
+                <i class="fas fa-arrow-right"></i>
+                חזרה לקבצים
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
