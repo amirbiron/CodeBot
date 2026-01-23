@@ -8,7 +8,6 @@ import logging
 import re
 from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app
 from functools import lru_cache
-from urllib.parse import unquote
 
 from services.git_mirror_service import get_mirror_service
 from services.repo_search_service import create_search_service
@@ -272,9 +271,6 @@ def get_file_history():
                 "message": "חסר פרמטר file"
             }), 400
 
-        # Decode URL encoding
-        file_path = unquote(file_path)
-
         git_service = get_git_service()
         if not git_service:
             return jsonify({
@@ -346,8 +342,6 @@ def get_file_at_commit(commit):
                 "message": "חסר פרמטר file"
             }), 400
 
-        file_path = unquote(file_path)
-
         git_service = get_git_service()
         if not git_service:
             return jsonify({
@@ -412,9 +406,6 @@ def get_diff(commit1, commit2):
     """
     try:
         file_path = request.args.get('file')
-        if file_path:
-            file_path = unquote(file_path)
-
         context_lines = request.args.get('context', 3, type=int)
         output_format = request.args.get('format', 'parsed')
         max_bytes = request.args.get('max_bytes', 1024 * 1024, type=int)
@@ -422,7 +413,7 @@ def get_diff(commit1, commit2):
             max_bytes = 1024 * 1024
 
         # Limit max_bytes to reasonable value
-        max_bytes = min(max_bytes, 10 * 1024 * 1024)  # Max 10MB
+        max_bytes = max(1, min(max_bytes, 10 * 1024 * 1024))  # Max 10MB
 
         git_service = get_git_service()
         if not git_service:

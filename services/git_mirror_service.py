@@ -660,6 +660,15 @@ class GitMirrorService:
 
         return bool(self.BASIC_REF_PATTERN.match(ref))
 
+    def _get_safe_file_path(self, file_path: str) -> Optional[str]:
+        """החזרת נתיב קובץ תקין לשימוש בפקודות git."""
+        if not self._validate_repo_file_path(file_path):
+            return None
+        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
+        if not match:
+            return None
+        return match.group(0)
+
     def _validate_repo_ref(self, ref: str) -> bool:
         """ולידציה בסיסית ל-ref לפני שילוב בפקודות git (best-effort)."""
         ref = ref.strip() if isinstance(ref, str) else ref
@@ -914,12 +923,9 @@ class GitMirrorService:
         # וולידציה בסיסית
         if not self._validate_repo_name(repo_name):
             return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
-        if not self._validate_repo_file_path(file_path):
+        safe_file_path = self._get_safe_file_path(file_path)
+        if not safe_file_path:
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
-        if not match:
-            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        safe_file_path = match.group(0)
         if not self._validate_basic_ref(ref):
             return {"error": "invalid_ref", "message": "Reference לא תקין"}
 
@@ -1049,12 +1055,9 @@ class GitMirrorService:
         if not self._validate_repo_name(repo_name):
             return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
 
-        if not self._validate_repo_file_path(file_path):
+        safe_file_path = self._get_safe_file_path(file_path)
+        if not safe_file_path:
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
-        if not match:
-            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        safe_file_path = match.group(0)
 
         mirror_path = self._get_mirror_path(repo_name)
         if not mirror_path.exists():
@@ -1204,6 +1207,9 @@ class GitMirrorService:
         # וולידציה ל-format
         if output_format not in ('raw', 'parsed', 'both'):
             output_format = 'parsed'
+        if not isinstance(max_bytes, int):
+            max_bytes = MAX_DIFF_BYTES
+        max_bytes = max(1, max_bytes)
 
         mirror_path = self._get_mirror_path(repo_name)
         if not mirror_path.exists():
