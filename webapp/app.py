@@ -1823,6 +1823,7 @@ ALLOWED_UI_THEMES = {
     'dim',
     'rose-pine-dawn',
     'nebula',
+    'indigo-violet',
     'custom',
 }
 
@@ -15892,7 +15893,7 @@ def api_ui_prefs():
 
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
-    - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
+    - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","indigo-violet","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     - onboarding: אובייקט flags (walkthrough_v1_seen, theme_wizard_seen)
