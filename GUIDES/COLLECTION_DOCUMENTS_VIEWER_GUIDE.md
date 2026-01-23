@@ -282,13 +282,18 @@ class AsyncDatabaseHealthService:
             if redact_sensitive:
                 serialized = [_redact_sensitive_fields(doc) for doc in serialized]
 
+            # ⚠️ חישוב has_more: בודקים אם קיבלנו עמוד מלא
+            # זה יותר אמין מ-(skip + len) < total כי count יכול להשתנות
+            # בין הקריאה ל-count_documents לבין ה-find
+            has_more = len(documents) == limit
+
             return {
                 "collection": collection_name,
                 "documents": serialized,
                 "total": total,
                 "skip": skip,
                 "limit": limit,
-                "has_more": (skip + len(documents)) < total,
+                "has_more": has_more,
                 "returned_count": len(documents),
             }
 
@@ -336,13 +341,16 @@ class SyncDatabaseHealthService:
         if redact_sensitive:
             serialized = [_redact_sensitive_fields(doc) for doc in serialized]
 
+        # ⚠️ חישוב has_more: בודקים אם קיבלנו עמוד מלא
+        has_more = len(documents) == limit
+
         return {
             "collection": collection_name,
             "documents": serialized,
             "total": total,
             "skip": skip,
             "limit": limit,
-            "has_more": (skip + len(documents)) < total,
+            "has_more": has_more,
             "returned_count": len(documents),
         }
 
@@ -563,11 +571,18 @@ async function loadDocuments(collectionName, skip = 0) {
     try {
         const url = `/api/db/${encodeURIComponent(collectionName)}/documents?skip=${skip}&limit=${DOCS_LIMIT}`;
         const resp = await fetch(url, { headers: authHeaders() });
-        const data = await resp.json().catch(() => ({}));
+        
+        // פרסור JSON עם טיפול בשגיאות
+        let data;
+        try {
+            data = await resp.json();
+        } catch (parseError) {
+            throw new Error('תשובה לא תקינה מהשרת');
+        }
 
         if (!resp.ok) {
             // הצגת שגיאה מתאימה לפי סטטוס
-            let errorMsg = data.message || `שגיאה ${resp.status}`;
+            let errorMsg = data?.message || `שגיאה ${resp.status}`;
             if (resp.status === 403) {
                 errorMsg = `גישה ל-${collectionName} חסומה`;
             } else if (resp.status === 400) {
@@ -576,12 +591,20 @@ async function loadDocuments(collectionName, skip = 0) {
             throw new Error(errorMsg);
         }
 
+        // וולידציה של מבנה התשובה
+        if (typeof data?.total !== 'number' || !Array.isArray(data?.documents)) {
+            throw new Error('מבנה תשובה לא תקין מהשרת');
+        }
+
         // עדכון state
         currentCollection = collectionName;
         currentSkip = skip;
 
+        const total = data.total;
+        const returnedCount = data.returned_count ?? data.documents.length;
+
         // בדיקת empty state
-        if (data.total === 0) {
+        if (total === 0 || returnedCount === 0) {
             codeContainer.style.display = 'none';
             emptyState.style.display = 'block';
             emptyState.textContent = `אין מסמכים ב-${collectionName}`;
@@ -596,12 +619,12 @@ async function loadDocuments(collectionName, skip = 0) {
 
             // עדכון מידע pagination
             const startDoc = skip + 1;
-            const endDoc = skip + data.returned_count;
-            paginationInfo.textContent = `מציג ${startDoc}-${endDoc} מתוך ${data.total.toLocaleString()} מסמכים`;
+            const endDoc = skip + returnedCount;
+            paginationInfo.textContent = `מציג ${startDoc}-${endDoc} מתוך ${total.toLocaleString()} מסמכים`;
 
-            // עדכון כפתורים
+            // עדכון כפתורים - has_more מבוסס על האם קיבלנו עמוד מלא
             prevBtn.disabled = skip === 0;
-            nextBtn.disabled = !data.has_more;
+            nextBtn.disabled = returnedCount < DOCS_LIMIT;
             copyBtn.disabled = false;
 
             // אם יש CodeMirror, עדכן אותו
@@ -1146,20 +1169,18 @@ class TestGetDocuments:
         svc._db = AsyncMock()
         return svc
 
-    async def test_get_documents_success(self, service_with_mock_db):
-        """בדיקת שליפה תקינה."""
+    async def test_get_documents_success_with_more_pages(self, service_with_mock_db):
+        """בדיקת שליפה תקינה עם עמודים נוספים (עמוד מלא)."""
         svc = service_with_mock_db
 
         # Mock collection
         mock_collection = AsyncMock()
         mock_collection.count_documents = AsyncMock(return_value=100)
 
-        # Mock cursor with sort
+        # Mock cursor with sort - מחזיר עמוד מלא (20 מסמכים)
         mock_cursor = AsyncMock()
-        mock_cursor.to_list = AsyncMock(return_value=[
-            {'_id': ObjectId(), 'name': 'Alice'},
-            {'_id': ObjectId(), 'name': 'Bob'},
-        ])
+        mock_docs = [{'_id': ObjectId(), 'name': f'User{i}'} for i in range(20)]
+        mock_cursor.to_list = AsyncMock(return_value=mock_docs)
         mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = mock_cursor
 
         svc._db.__getitem__ = MagicMock(return_value=mock_collection)
@@ -1168,10 +1189,33 @@ class TestGetDocuments:
 
         assert result['collection'] == 'users'
         assert result['total'] == 100
-        assert len(result['documents']) == 2
+        assert len(result['documents']) == 20
+        # has_more=True כי קיבלנו עמוד מלא (len == limit)
         assert result['has_more'] is True
         assert result['skip'] == 0
         assert result['limit'] == 20
+
+    async def test_get_documents_last_page(self, service_with_mock_db):
+        """בדיקת שליפה בעמוד האחרון (עמוד חלקי)."""
+        svc = service_with_mock_db
+
+        mock_collection = AsyncMock()
+        mock_collection.count_documents = AsyncMock(return_value=25)
+
+        # Mock cursor - מחזיר רק 5 מסמכים (עמוד חלקי)
+        mock_cursor = AsyncMock()
+        mock_docs = [{'_id': ObjectId(), 'name': f'User{i}'} for i in range(5)]
+        mock_cursor.to_list = AsyncMock(return_value=mock_docs)
+        mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = mock_cursor
+
+        svc._db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        result = await svc.get_documents('users', skip=20, limit=20)
+
+        assert len(result['documents']) == 5
+        # has_more=False כי קיבלנו פחות מ-limit
+        assert result['has_more'] is False
+        assert result['returned_count'] == 5
 
     async def test_get_documents_with_redaction(self, service_with_mock_db):
         """בדיקה שהשדות הרגישים מוסתרים."""
