@@ -1083,7 +1083,13 @@ function initSearch() {
         }
 
         if (query !== state.searchLastQuery) {
+            if (state.searchAbortController) {
+                state.searchAbortController.abort();
+                state.searchAbortController = null;
+            }
             dropdown.dataset.hasResults = 'false';
+            if (resultsList) resultsList.innerHTML = '';
+            dropdown.classList.add('hidden');
         }
     });
 
