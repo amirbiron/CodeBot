@@ -205,7 +205,8 @@ class UndoToastManager {
             element: toast,
             timeout,
             onUndo,
-            onExpire
+            onExpire,
+            isUndoing: false  // דגל למניעת קריאת onExpire בזמן undo
         });
 
         return operationId;
@@ -229,6 +230,9 @@ class UndoToastManager {
         if (!toastData) return;
 
         const { element, timeout, onUndo } = toastData;
+
+        // סמן שהפעולה בתהליך ביטול (למניעת קריאת onExpire)
+        toastData.isUndoing = true;
 
         // עצור את הטיימר
         clearTimeout(timeout);
@@ -272,10 +276,11 @@ class UndoToastManager {
         const toastData = this.activeToasts.get(operationId);
         if (!toastData) return;
 
-        const { timeout, onExpire } = toastData;
+        const { timeout, onExpire, isUndoing } = toastData;
         clearTimeout(timeout);
 
-        if (triggerExpire && typeof onExpire === 'function') {
+        // אל תקרא onExpire אם הפעולה בתהליך ביטול או כבר בוטלה
+        if (triggerExpire && !isUndoing && typeof onExpire === 'function') {
             onExpire();
         }
 
