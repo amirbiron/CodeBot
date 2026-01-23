@@ -93,6 +93,7 @@ from bson.json_util import dumps as bson_dumps
 # מגבלות Pagination
 DEFAULT_DOCUMENTS_LIMIT = 20
 MAX_DOCUMENTS_LIMIT = 100
+MAX_SKIP = 10000  # מניעת DoS - MongoDB skip סורק כל מסמך עד ה-offset
 
 # ========== הגדרות אבטחה ==========
 
@@ -151,32 +152,38 @@ class InvalidCollectionNameError(Exception):
 ### 1.3 פונקציית Redaction
 
 ```python
-def _redact_sensitive_fields(doc: Dict[str, Any], sensitive: Set[str] = SENSITIVE_FIELDS) -> Dict[str, Any]:
-    """הסתרת שדות רגישים ממסמך (רקורסיבי).
+def _redact_sensitive_fields(doc: Any, sensitive: Set[str] = SENSITIVE_FIELDS) -> Any:
+    """הסתרת שדות רגישים ממסמך (רקורסיבי מלא).
+    
+    מטפל ב:
+    - מילונים (dict) - בודק מפתחות רגישים
+    - רשימות (list) - רקורסיה על כל איבר (כולל רשימות מקוננות)
+    - ערכים פשוטים - מחזיר כמו שהם
     
     Args:
-        doc: המסמך המקורי
+        doc: המסמך/ערך המקורי
         sensitive: קבוצת שמות שדות להסתרה
         
     Returns:
-        עותק של המסמך עם שדות רגישים מוחלפים ב-"[REDACTED]"
+        עותק עם שדות רגישים מוחלפים ב-"[REDACTED]"
     """
+    # טיפול ברשימות - רקורסיה על כל איבר (כולל רשימות מקוננות!)
+    if isinstance(doc, list):
+        return [_redact_sensitive_fields(item, sensitive) for item in doc]
+    
+    # ערכים שאינם dict - החזר כמו שהם
     if not isinstance(doc, dict):
         return doc
     
+    # טיפול במילון
+    sensitive_lower = {s.lower() for s in sensitive}
     result = {}
     for key, value in doc.items():
-        if key.lower() in {s.lower() for s in sensitive}:
+        if key.lower() in sensitive_lower:
             result[key] = "[REDACTED]"
-        elif isinstance(value, dict):
-            result[key] = _redact_sensitive_fields(value, sensitive)
-        elif isinstance(value, list):
-            result[key] = [
-                _redact_sensitive_fields(item, sensitive) if isinstance(item, dict) else item
-                for item in value
-            ]
         else:
-            result[key] = value
+            # רקורסיה על הערך (יטפל ב-dict, list, או יחזיר כמו שהוא)
+            result[key] = _redact_sensitive_fields(value, sensitive)
     return result
 ```
 
@@ -259,9 +266,9 @@ class AsyncDatabaseHealthService:
         # וולידציה של שם ה-collection (כולל whitelist/denylist)
         _validate_collection_name(collection_name)
 
-        # הגבלת limit למניעת עומס
+        # הגבלת limit ו-skip למניעת עומס/DoS
         limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
-        skip = max(0, skip)
+        skip = min(max(0, skip), MAX_SKIP)  # ⚠️ הגבלה עליונה למניעת DoS
 
         try:
             collection = self._db[collection_name]
@@ -325,8 +332,9 @@ class SyncDatabaseHealthService:
         # וולידציה
         _validate_collection_name(collection_name)
 
+        # הגבלת limit ו-skip למניעת עומס/DoS
         limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
-        skip = max(0, skip)
+        skip = min(max(0, skip), MAX_SKIP)  # ⚠️ הגבלה עליונה
 
         collection = db[collection_name]
         total = collection.count_documents({})
@@ -427,6 +435,14 @@ async def db_collection_documents_view(request: web.Request) -> web.Response:
         if skip < 0 or limit < 1:
             return web.json_response(
                 {"error": "invalid_params", "message": "skip >= 0, limit >= 1"},
+                status=400,
+            )
+        
+        # ⚠️ הגנה מפני DoS: skip גדול מדי גורם ל-MongoDB לסרוק מיליוני מסמכים
+        MAX_SKIP = 10000
+        if skip > MAX_SKIP:
+            return web.json_response(
+                {"error": "invalid_params", "message": f"skip cannot exceed {MAX_SKIP}"},
                 status=400,
             )
 
@@ -538,6 +554,7 @@ app.router.add_get("/api/db/{collection}/documents", db_collection_documents_vie
 // ========== State לצפייה במסמכים ==========
 let currentCollection = null;
 let currentSkip = 0;
+let currentRequestId = 0;  // מונע race conditions
 const DOCS_LIMIT = 20;
 
 // ========== פונקציות טעינה ==========
@@ -557,21 +574,37 @@ async function loadDocuments(collectionName, skip = 0) {
     const copyBtn = document.getElementById('copy-json-btn');
     const emptyState = document.getElementById('documents-empty-state');
 
+    // ⚠️ מניעת race condition: שמור מזהה בקשה ייחודי
+    const thisRequestId = ++currentRequestId;
+
     // הצג loading
     viewer.style.display = 'block';
     viewerTitle.textContent = collectionName;
-    codeContainer.textContent = 'טוען מסמכים...';
-    codeContainer.style.display = 'block';
     emptyState.style.display = 'none';
-    paginationInfo.textContent = '';
+    paginationInfo.textContent = 'טוען...';
     prevBtn.disabled = true;
     nextBtn.disabled = true;
     copyBtn.disabled = true;
+
+    // הצג loading ב-CodeMirror או ב-pre (לא שניהם!)
+    if (window.documentsEditor) {
+        window.documentsEditor.setValue('טוען מסמכים...');
+        codeContainer.style.display = 'none';  // הסתר pre כש-CM פעיל
+    } else {
+        codeContainer.textContent = 'טוען מסמכים...';
+        codeContainer.style.display = 'block';
+    }
 
     try {
         const url = `/api/db/${encodeURIComponent(collectionName)}/documents?skip=${skip}&limit=${DOCS_LIMIT}`;
         const resp = await fetch(url, { headers: authHeaders() });
         
+        // ⚠️ בדיקת race condition: אם הגיעה בקשה חדשה בינתיים, התעלם מתשובה זו
+        if (thisRequestId !== currentRequestId) {
+            console.log('Ignoring stale response for:', collectionName);
+            return;
+        }
+
         // פרסור JSON עם טיפול בשגיאות
         let data;
         try {
@@ -602,9 +635,13 @@ async function loadDocuments(collectionName, skip = 0) {
 
         const total = data.total;
         const returnedCount = data.returned_count ?? data.documents.length;
+        const hasMore = data.has_more ?? false;  // שימוש בשדה מה-backend
 
         // בדיקת empty state
         if (total === 0 || returnedCount === 0) {
+            if (window.documentsEditor) {
+                window.documentsEditor.setValue('');
+            }
             codeContainer.style.display = 'none';
             emptyState.style.display = 'block';
             emptyState.textContent = `אין מסמכים ב-${collectionName}`;
@@ -613,8 +650,15 @@ async function loadDocuments(collectionName, skip = 0) {
         } else {
             // הצגת JSON מעוצב
             const formatted = JSON.stringify(data.documents, null, 2);
-            codeContainer.textContent = formatted;
-            codeContainer.style.display = 'block';
+            
+            // הצג ב-CodeMirror או ב-pre (לא שניהם!)
+            if (window.documentsEditor) {
+                window.documentsEditor.setValue(formatted);
+                codeContainer.style.display = 'none';  // הסתר pre
+            } else {
+                codeContainer.textContent = formatted;
+                codeContainer.style.display = 'block';
+            }
             emptyState.style.display = 'none';
 
             // עדכון מידע pagination
@@ -622,24 +666,28 @@ async function loadDocuments(collectionName, skip = 0) {
             const endDoc = skip + returnedCount;
             paginationInfo.textContent = `מציג ${startDoc}-${endDoc} מתוך ${total.toLocaleString()} מסמכים`;
 
-            // עדכון כפתורים - has_more מבוסס על האם קיבלנו עמוד מלא
+            // עדכון כפתורים - שימוש ב-has_more מה-backend
             prevBtn.disabled = skip === 0;
-            nextBtn.disabled = returnedCount < DOCS_LIMIT;
+            nextBtn.disabled = !hasMore;
             copyBtn.disabled = false;
-
-            // אם יש CodeMirror, עדכן אותו
-            if (window.documentsEditor) {
-                window.documentsEditor.setValue(formatted);
-            }
         }
 
         // הדגשת השורה הנבחרת בטבלה
         highlightSelectedCollection(collectionName);
 
     } catch (e) {
+        // ⚠️ בדיקת race condition גם בשגיאה
+        if (thisRequestId !== currentRequestId) return;
+        
         console.error('loadDocuments error:', e);
-        codeContainer.textContent = `שגיאה: ${e.message}`;
-        codeContainer.style.display = 'block';
+        const errorText = `שגיאה: ${e.message}`;
+        if (window.documentsEditor) {
+            window.documentsEditor.setValue(errorText);
+            codeContainer.style.display = 'none';
+        } else {
+            codeContainer.textContent = errorText;
+            codeContainer.style.display = 'block';
+        }
         emptyState.style.display = 'none';
     }
 }
