@@ -2777,10 +2777,11 @@ class GitMirrorService:
 
     # נתיב קובץ - ללא path traversal
     # מאפשר: a-z, A-Z, 0-9, ., _, -, /
-    # אוסר: .., //, leading/trailing /, NUL
+    # אוסר: //, leading/trailing /, NUL
+    # הערה: בדיקת ".." כקומפוננטה נעשית ב-_validate_repo_file_path
+    #        עם os.path.normpath (לא כאן, כי a..b.txt הוא שם קובץ תקין)
     FILE_PATH_PATTERN = re.compile(
-        r'^(?!.*\.\.)'           # No ..
-        r'(?!.*//)'              # No //
+        r'^(?!.*//)'              # No //
         r'(?!/)'                 # No leading /
         r'(?!.*\x00)'            # No NUL
         r'[a-zA-Z0-9._/-]+'      # Allowed chars
@@ -2812,11 +2813,12 @@ class GitMirrorService:
             return False
 
         # Normalize and check for traversal
+        # normpath מנרמל ../foo ל-../foo, foo/../bar ל-bar
+        # אם אחרי נורמליזציה יש .. בהתחלה = ניסיון traversal מעבר לroot
         normalized = os.path.normpath(path)
         if normalized.startswith('..') or normalized.startswith('/'):
             return False
-        if '..' in normalized:
-            return False
+        # הערה: לא בודקים '..' in normalized כי a..b.txt הוא שם קובץ תקין!
 
         return bool(self.FILE_PATH_PATTERN.match(path))
 
@@ -2947,20 +2949,25 @@ class TestValidation:
             'path/to/file.js',
             'file-name_123.txt',
             '.gitignore',
+            # קבצים עם ".." בשם - תקינים! (לא path traversal)
+            'a..b.txt',
+            'backup..old.py',
+            '...',
+            'file....name',
+            'test..spec.js',
         ]
         for path in valid_paths:
             assert git_service._validate_repo_file_path(path) is True, f"Failed for: {path}"
 
     def test_validate_file_path_invalid_traversal(self, git_service):
         invalid_paths = [
-            '../etc/passwd',
-            'path/../../../etc',
-            '/absolute/path',
-            'path//double',
-            '',
-            None,
-            'file\x00.txt',
-            '...',
+            '../etc/passwd',         # path traversal
+            'path/../../../etc',     # path traversal (normpath יטפל)
+            '/absolute/path',        # absolute path
+            'path//double',          # double slash
+            '',                      # empty
+            None,                    # null
+            'file\x00.txt',          # NUL byte
         ]
         for path in invalid_paths:
             assert git_service._validate_repo_file_path(path) is False, f"Should fail for: {path}"
