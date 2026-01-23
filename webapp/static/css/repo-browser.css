@@ -1073,6 +1073,10 @@ html[dir="rtl"] .history-panel {
     transform: translateX(0);
 }
 
+html[dir="rtl"] .history-panel.open {
+    transform: translateX(0);
+}
+
 .history-panel-header {
     display: flex;
     justify-content: space-between;
