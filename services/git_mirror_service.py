@@ -1326,8 +1326,10 @@ class GitMirrorService:
         last_hunk = truncated.rfind('\n@@')
 
         cut_point = max(last_diff, last_hunk)
-        if cut_point > max_bytes // 2:  # רק אם זה הגיוני
-            truncated = truncated[:cut_point]
+        if cut_point > -1:
+            cut_bytes = len(truncated[:cut_point].encode('utf-8'))
+            if cut_bytes > max_bytes // 2:  # רק אם זה הגיוני
+                truncated = truncated[:cut_point]
 
         truncated += "\n\n... [Diff truncated due to size limit] ..."
         return truncated

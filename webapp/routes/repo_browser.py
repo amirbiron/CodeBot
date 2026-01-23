@@ -397,7 +397,7 @@ def get_file_at_commit(commit):
         }), 500
 
 
-@repo_bp.route('/api/diff/<commit1>/<commit2>', methods=['GET'])
+@repo_bp.route('/api/diff/<path:commit1>/<path:commit2>', methods=['GET'])
 def get_diff(commit1, commit2):
     """
     שליפת diff בין שני commits.
