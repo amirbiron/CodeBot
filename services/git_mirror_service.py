@@ -860,13 +860,8 @@ class GitMirrorService:
         # וולידציה בסיסית
         if not self._validate_repo_name(repo_name):
             return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
-        if not self._validate_basic_ref(commit):
-            return {"error": "invalid_commit", "message": "Commit לא תקין"}
-
         if not self._validate_repo_file_path(file_path):
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
-        if not self._validate_basic_ref(commit):
-            return {"error": "invalid_commit", "message": "Commit לא תקין"}
         if not self._validate_basic_ref(ref):
             return {"error": "invalid_ref", "message": "Reference לא תקין"}
 
