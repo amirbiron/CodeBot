@@ -651,6 +651,7 @@ async function selectFile(path, element) {
 
         // Update breadcrumbs
         updateBreadcrumbs(path);
+        updateFileHeader(path);
 
         // Update file info
         updateFileInfo(data);
@@ -837,6 +838,62 @@ function detectLanguage(path) {
     return langMap[ext] || 'text';
 }
 
+function updateFileHeader(filePath) {
+    const fileHeader = document.querySelector('.file-header');
+    if (!fileHeader) return;
+
+    const fileName = filePath.split('/').pop();
+
+    fileHeader.innerHTML = `
+        <div class="file-info">
+            <i class="bi bi-file-earmark-code"></i>
+            <span class="file-name">${escapeHtml(fileName)}</span>
+            <span class="file-path-full" title="${escapeHtml(filePath)}">
+                ${escapeHtml(filePath)}
+            </span>
+        </div>
+        <div class="file-actions">
+            <button class="file-history-btn" data-path="${escapeHtml(filePath)}" title="היסטוריית קובץ">
+                <i class="bi bi-clock-history"></i>
+                היסטוריה
+            </button>
+            <button class="file-copy-btn" title="העתק תוכן">
+                <i class="bi bi-clipboard"></i>
+            </button>
+        </div>
+    `;
+
+    // Event listener - NO inline onclick
+    fileHeader.querySelector('.file-history-btn').addEventListener('click', function() {
+        const path = this.dataset.path;
+        if (path && window.RepoHistory) {
+            RepoHistory.openHistoryPanel(path);
+        }
+    });
+
+    fileHeader.querySelector('.file-copy-btn').addEventListener('click', copyFileContent);
+}
+
+function copyFileContent() {
+    let content = null;
+
+    // Try CodeMirror 5 first
+    if (state.editor && typeof state.editor.getValue === 'function') {
+        content = state.editor.getValue();
+    }
+    // Fallback to CodeMirror 6
+    else if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
+        content = state.editorView6.state.doc.toString();
+    }
+
+    if (content !== null) {
+        navigator.clipboard.writeText(content);
+        showToast('Content copied!');
+    } else {
+        showToast('No content to copy');
+    }
+}
+
 function updateBreadcrumbs(path) {
     const breadcrumb = document.getElementById('file-breadcrumb');
     const parts = path.split('/');
@@ -862,25 +919,7 @@ function updateBreadcrumbs(path) {
     // Update copy content button
     const copyContentBtn = document.getElementById('copy-content');
     if (copyContentBtn) {
-        copyContentBtn.onclick = () => {
-            let content = null;
-            
-            // Try CodeMirror 5 first
-            if (state.editor && typeof state.editor.getValue === 'function') {
-                content = state.editor.getValue();
-            }
-            // Fallback to CodeMirror 6
-            else if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
-                content = state.editorView6.state.doc.toString();
-            }
-            
-            if (content !== null) {
-                navigator.clipboard.writeText(content);
-                showToast('Content copied!');
-            } else {
-                showToast('No content to copy');
-            }
-        };
+        copyContentBtn.onclick = copyFileContent;
     }
     
     // Update GitHub link (encode path for special characters)
@@ -1243,6 +1282,31 @@ window.searchInFile = searchInFile;
 window.closeInFileSearch = closeInFileSearch;
 window.findNextMatch = findNextMatch;
 window.findPrevMatch = findPrevMatch;
+window.selectFile = selectFile;
+
+window.RepoState = {
+    get editor() {
+        if (state.editor && typeof state.editor.setValue === 'function') {
+            return state.editor;
+        }
+        if (state.editorView6) {
+            return {
+                setValue(value) {
+                    const view = state.editorView6;
+                    if (!view) return;
+                    const docLength = view.state.doc.length;
+                    view.dispatch({
+                        changes: { from: 0, to: docLength, insert: String(value || '') }
+                    });
+                }
+            };
+        }
+        return null;
+    },
+    get editorView6() {
+        return state.editorView6;
+    }
+};
 
 // ========================================
 // Keyboard Shortcuts

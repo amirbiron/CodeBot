@@ -6,7 +6,7 @@ UI לגלישה בקוד הריפו עם API מתקדם
 
 import logging
 import re
-from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app
 from functools import lru_cache
 
 from services.git_mirror_service import get_mirror_service
@@ -16,6 +16,18 @@ from database.db_manager import get_db
 logger = logging.getLogger(__name__)
 
 repo_bp = Blueprint('repo', __name__, url_prefix='/repo')
+
+# הגדרות
+DEFAULT_REPO_NAME = "CodeBot"
+
+
+def get_git_service():
+    """Helper לקבלת ה-Git service."""
+    service = current_app.extensions.get('git_mirror_service')
+    if not service:
+        service = get_mirror_service()
+        current_app.extensions['git_mirror_service'] = service
+    return service
 
 
 # ========================================
@@ -232,6 +244,273 @@ def api_get_file(file_path: str):
         "size": metadata.get("size", len(content)) if metadata else len(content),
         "lines": metadata.get("lines", content.count("\n") + 1) if metadata else content.count("\n") + 1
     })
+
+
+# ============================================
+# Routes חדשים - היסטוריה ו-Diff
+# ============================================
+
+@repo_bp.route('/api/history', methods=['GET'])
+def get_file_history():
+    """
+    שליפת היסטוריית commits לקובץ ספציפי.
+
+    Query params:
+        - file: נתיב הקובץ (required)
+        - limit: מספר commits מקסימלי (default: 20, max: 100)
+        - skip: כמה commits לדלג (default: 0)
+        - ref: branch/tag/commit להתחיל ממנו (default: HEAD)
+    """
+    try:
+        # שליפת file_path מ-query parameter
+        file_path = request.args.get('file', '')
+        if not file_path:
+            return jsonify({
+                "success": False,
+                "error": "missing_file",
+                "message": "חסר פרמטר file"
+            }), 400
+
+        git_service = get_git_service()
+        if not git_service:
+            return jsonify({
+                "success": False,
+                "error": "service_unavailable",
+                "message": "שירות Git לא זמין"
+            }), 503
+
+        if not git_service._validate_repo_file_path(file_path):
+            return jsonify({
+                "success": False,
+                "error": "invalid_file_path",
+                "message": "נתיב קובץ לא תקין"
+            }), 400
+
+        limit = request.args.get('limit', 20, type=int)
+        skip = request.args.get('skip', 0, type=int)
+        ref = request.args.get('ref', 'HEAD')
+
+        result = git_service.get_file_history(
+            repo_name=DEFAULT_REPO_NAME,
+            file_path=file_path,
+            ref=ref,
+            limit=limit,
+            skip=skip
+        )
+
+        if "error" in result:
+            status_codes = {
+                "invalid_repo_name": 400,
+                "invalid_file_path": 400,
+                "invalid_ref": 400,
+                "repo_not_found": 404,
+                "file_not_found": 404,
+                "timeout": 504,
+                "git_error": 500,
+                "internal_error": 500
+            }
+            return jsonify({
+                "success": False,
+                **result
+            }), status_codes.get(result["error"], 500)
+
+        return jsonify(result)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in get_file_history: {e}")
+        return jsonify({
+            "success": False,
+            "error": "internal_error",
+            "message": "שגיאה פנימית"
+        }), 500
+
+
+@repo_bp.route('/api/file-at-commit/<commit>', methods=['GET'])
+def get_file_at_commit(commit):
+    """
+    שליפת תוכן קובץ ב-commit ספציפי.
+
+    Query params:
+        - file: נתיב הקובץ (required)
+    """
+    try:
+        file_path = request.args.get('file', '')
+        if not file_path:
+            return jsonify({
+                "success": False,
+                "error": "missing_file",
+                "message": "חסר פרמטר file"
+            }), 400
+
+        git_service = get_git_service()
+        if not git_service:
+            return jsonify({
+                "success": False,
+                "error": "service_unavailable",
+                "message": "שירות Git לא זמין"
+            }), 503
+
+        if not git_service._validate_repo_file_path(file_path):
+            return jsonify({
+                "success": False,
+                "error": "invalid_file_path",
+                "message": "נתיב קובץ לא תקין"
+            }), 400
+
+        result = git_service.get_file_at_commit(
+            repo_name=DEFAULT_REPO_NAME,
+            file_path=file_path,
+            commit=commit
+        )
+
+        if "error" in result:
+            status_codes = {
+                "invalid_repo_name": 400,
+                "invalid_file_path": 400,
+                "invalid_commit": 400,
+                "repo_not_found": 404,
+                "file_not_in_commit": 404,
+                "file_too_large": 413,
+                "timeout": 504,
+                "git_error": 500,
+                "internal_error": 500
+            }
+            return jsonify({
+                "success": False,
+                **result
+            }), status_codes.get(result["error"], 500)
+
+        return jsonify(result)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in get_file_at_commit: {e}")
+        return jsonify({
+            "success": False,
+            "error": "internal_error",
+            "message": "שגיאה פנימית"
+        }), 500
+
+
+@repo_bp.route('/api/diff/<path:commit1>/<path:commit2>', methods=['GET'])
+def get_diff(commit1, commit2):
+    """
+    שליפת diff בין שני commits.
+
+    Semantics: מראה מה השתנה מ-commit1 (ישן) ל-commit2 (חדש).
+
+    Query params:
+        - file: נתיב קובץ ספציפי (optional)
+        - context: מספר שורות הקשר (default: 3, max: 20)
+        - format: 'raw', 'parsed', או 'both' (default: 'parsed')
+        - max_bytes: הגבלת גודל (default: 1MB)
+    """
+    try:
+        file_path = request.args.get('file')
+        context_lines = request.args.get('context', 3, type=int)
+        output_format = request.args.get('format', 'parsed')
+        max_bytes = request.args.get('max_bytes', 1024 * 1024, type=int)
+        if max_bytes is None:
+            max_bytes = 1024 * 1024
+
+        # Limit max_bytes to reasonable value
+        max_bytes = max(1, min(max_bytes, 10 * 1024 * 1024))  # Max 10MB
+
+        git_service = get_git_service()
+        if not git_service:
+            return jsonify({
+                "success": False,
+                "error": "service_unavailable",
+                "message": "שירות Git לא זמין"
+            }), 503
+
+        if file_path and not git_service._validate_repo_file_path(file_path):
+            return jsonify({
+                "success": False,
+                "error": "invalid_file_path",
+                "message": "נתיב קובץ לא תקין"
+            }), 400
+
+        result = git_service.get_diff(
+            repo_name=DEFAULT_REPO_NAME,
+            commit1=commit1,
+            commit2=commit2,
+            file_path=file_path,
+            context_lines=context_lines,
+            output_format=output_format,
+            max_bytes=max_bytes
+        )
+
+        if "error" in result:
+            status_codes = {
+                "invalid_repo_name": 400,
+                "invalid_commit1": 400,
+                "invalid_commit2": 400,
+                "invalid_file_path": 400,
+                "invalid_commits": 404,
+                "repo_not_found": 404,
+                "timeout": 504,
+                "git_error": 500,
+                "internal_error": 500
+            }
+            return jsonify({
+                "success": False,
+                **result
+            }), status_codes.get(result["error"], 500)
+
+        return jsonify(result)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in get_diff: {e}")
+        return jsonify({
+            "success": False,
+            "error": "internal_error",
+            "message": "שגיאה פנימית"
+        }), 500
+
+
+@repo_bp.route('/api/commit/<commit>', methods=['GET'])
+def get_commit_info(commit):
+    """
+    שליפת פרטי commit בודד.
+    """
+    try:
+        git_service = get_git_service()
+        if not git_service:
+            return jsonify({
+                "success": False,
+                "error": "service_unavailable",
+                "message": "שירות Git לא זמין"
+            }), 503
+
+        result = git_service.get_commit_info(
+            repo_name=DEFAULT_REPO_NAME,
+            commit=commit
+        )
+
+        if "error" in result:
+            status_codes = {
+                "invalid_repo_name": 400,
+                "invalid_commit": 400,
+                "commit_not_found": 404,
+                "timeout": 504,
+                "git_error": 500,
+                "parse_error": 500,
+                "internal_error": 500
+            }
+            return jsonify({
+                "success": False,
+                **result
+            }), status_codes.get(result["error"], 500)
+
+        return jsonify(result)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in get_commit_info: {e}")
+        return jsonify({
+            "success": False,
+            "error": "internal_error",
+            "message": "שגיאה פנימית"
+        }), 500
 
 
 @repo_bp.route('/api/search')
