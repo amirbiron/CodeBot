@@ -270,6 +270,7 @@
 [data-theme="dark"] a,
 [data-theme="dim"] a,
 [data-theme="nebula"] a,
+[data-theme="indigo-violet"] a,
 [data-theme="custom"] a,
 [data-theme^="shared:"] a {
     color: var(--primary);
@@ -278,6 +279,7 @@
 [data-theme="dark"] a:hover,
 [data-theme="dim"] a:hover,
 [data-theme="nebula"] a:hover,
+[data-theme="indigo-violet"] a:hover,
 [data-theme="custom"] a:hover,
 [data-theme^="shared:"] a:hover {
     color: var(--primary-dark);
