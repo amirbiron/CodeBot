@@ -417,7 +417,9 @@ def get_diff(commit1, commit2):
 
         context_lines = request.args.get('context', 3, type=int)
         output_format = request.args.get('format', 'parsed')
-        max_bytes = request.args.get('max_bytes', 1024*1024, type=int)
+        max_bytes = request.args.get('max_bytes', 1024 * 1024, type=int)
+        if max_bytes is None:
+            max_bytes = 1024 * 1024
 
         # Limit max_bytes to reasonable value
         max_bytes = min(max_bytes, 10 * 1024 * 1024)  # Max 10MB
