@@ -736,40 +736,108 @@ class AdvancedSearchEngine:
             relevance_score=float(score)
         )
     
+    def _suggest_from_text_search(self, user_id: int, partial_query: str, limit: int = 10) -> List[str]:
+        """הצעות השלמה מהירות על בסיס $text (ללא Regex ב-DB)."""
+        q = (partial_query or "").strip()
+        if not q:
+            return []
+        try:
+            search_code = getattr(db, "search_code", None)
+            if not callable(search_code):
+                return []
+            try:
+                candidate_limit = min(max(int(limit or 10) * 5, 20), 100)
+            except Exception:
+                candidate_limit = 20
+            rows = search_code(user_id, q, limit=candidate_limit)
+        except Exception:
+            return []
+        if not rows:
+            return []
+        prefix = q.lower()
+        suggestions: Set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("file_name") or "").strip()
+            if name and name.lower().startswith(prefix):
+                suggestions.add(name)
+            lang = str(row.get("programming_language") or "").strip()
+            if lang and lang.lower().startswith(prefix):
+                suggestions.add(lang)
+            try:
+                for tag in list(row.get("tags") or []):
+                    tag_value = str(tag or "").strip()
+                    if tag_value and tag_value.lower().startswith(prefix):
+                        suggestions.add(f"#{tag_value}")
+            except Exception:
+                pass
+            desc = str(row.get("description") or "").strip()
+            if desc:
+                for token in re.findall(r"\b\w+\b", desc.lower()):
+                    if token.startswith(prefix):
+                        suggestions.add(token)
+            if len(suggestions) >= max(limit * 3, 15):
+                break
+        if not suggestions:
+            return []
+        out = sorted(suggestions, key=len)
+        return out[:limit]
+
     def suggest_completions(self, user_id: int, partial_query: str, limit: int = 10) -> List[str]:
         """הצעות השלמה לחיפוש"""
         
         if len(partial_query) < 2:
             return []
         
-        index = self.get_index(user_id)
-        suggestions = []
-        
-        # השלמות מאינדקס המילים
-        for word in index.word_index.keys():
-            if word.startswith(partial_query.lower()):
-                suggestions.append(word)
-        
-        # השלמות משמות פונקציות
-        for func_name in index.function_index.keys():
-            if func_name.startswith(partial_query.lower()):
-                suggestions.append(func_name)
-        
-        # השלמות משפות
-        for lang in index.language_index.keys():
-            if lang.startswith(partial_query.lower()):
-                suggestions.append(lang)
-        
-        # השלמות מתגיות
-        for tag in index.tag_index.keys():
-            if tag.startswith(partial_query.lower()):
-                suggestions.append(f"#{tag}")
-        
-        # מיון והגבלה
-        suggestions = list(set(suggestions))
-        suggestions.sort(key=len)
-        
-        return suggestions[:limit]
+        # ניסיון ראשון: $text ב-DB כדי להימנע מסריקה כבדה/Regex
+        suggestions = self._suggest_from_text_search(user_id, partial_query, limit=limit)
+        if suggestions:
+            return suggestions
+
+        # fallback קל: תגיות/שפות בלבד מהאינדקס הקיים (בלי rebuild כבד)
+        suggestions_set: Set[str] = set()
+        prefix = (partial_query or "").lower()
+        try:
+            index = self.indexes.get(user_id)
+        except Exception:
+            index = None
+        if index is not None:
+            try:
+                for lang in index.language_index.keys():
+                    if str(lang).lower().startswith(prefix):
+                        suggestions_set.add(str(lang))
+            except Exception:
+                pass
+            try:
+                for tag in index.tag_index.keys():
+                    if str(tag).lower().startswith(prefix):
+                        suggestions_set.add(f"#{tag}")
+            except Exception:
+                pass
+
+        # fallback נוסף: שמות קבצים/תגיות מה-cache הקל של autocomplete
+        try:
+            from autocomplete_manager import autocomplete
+            try:
+                for name in autocomplete.get_user_filenames(user_id):
+                    if str(name).lower().startswith(prefix):
+                        suggestions_set.add(str(name))
+            except Exception:
+                pass
+            try:
+                for tag in autocomplete.get_user_tags(user_id):
+                    if str(tag).lower().startswith(prefix):
+                        suggestions_set.add(f"#{tag}")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        if not suggestions_set:
+            return []
+        out = sorted(suggestions_set, key=len)
+        return out[:limit]
     
     def get_search_statistics(self, user_id: int) -> Dict[str, Any]:
         """סטטיסטיקות חיפוש"""

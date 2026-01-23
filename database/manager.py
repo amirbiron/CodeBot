@@ -1393,6 +1393,51 @@ class DatabaseManager:
                     error=msg,
                 )
 
+        # large_files - אינדקס TEXT לחיפוש מהיר בתוכן קבצים גדולים
+        try:
+            large_files = db.large_files
+            large_files.create_indexes(
+                [
+                    IndexModel(
+                        [("content", TEXT)],
+                        name="large_files_content_text_idx",
+                        background=True,
+                    )
+                ]
+            )
+            emit_event(
+                "db_text_index_created",
+                severity="info",
+                collection="large_files",
+                index_name="large_files_content_text_idx",
+            )
+        except Exception as e:
+            msg = str(e or "")
+            msg_l = msg.lower()
+            code = getattr(e, "code", None)
+            is_conflict = bool(
+                code in {85, 86}
+                or "indexoptionsconflict" in msg_l
+                or "indexkeyspecsconflict" in msg_l
+                or "already exists" in msg_l
+            )
+            if is_conflict:
+                emit_event(
+                    "db_text_index_exists",
+                    severity="info",
+                    collection="large_files",
+                    index_name="large_files_content_text_idx",
+                    error=msg,
+                )
+            else:
+                emit_event(
+                    "db_create_indexes_error",
+                    severity="warn",
+                    collection="large_files",
+                    index_name="large_files_content_text_idx",
+                    error=msg,
+                )
+
         # Snippets library collection: שמירה על תאימות לטסטים/קוד שקיים.
         # לא מוסיפים אינדקסים נוספים מעבר לרשימה האופטימלית — כאן אנו רק מוודאים
         # קריאה ל-create_indexes באופן בטוח (האינדקס _id_ קיים תמיד).
