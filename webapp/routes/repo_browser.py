@@ -316,7 +316,7 @@ def api_file_types():
         return jsonify(file_types)
     except Exception as e:
         logger.exception(f"File types API error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @repo_bp.route('/api/stats')
