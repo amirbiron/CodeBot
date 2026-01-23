@@ -7,6 +7,7 @@ import logging
 import math
 import re
 import hashlib
+from itertools import islice
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -828,7 +829,10 @@ class AdvancedSearchEngine:
                         cursor = cursor.limit(candidate_limit)
                     except Exception:
                         pass
-                    rows = list(cursor)
+                    try:
+                        rows = list(islice(cursor, candidate_limit))
+                    except Exception:
+                        rows = list(cursor)[:candidate_limit]
                 for row in rows or []:
                     if isinstance(row, dict):
                         self._add_suggestions_from_row(suggestions, row, prefix)
