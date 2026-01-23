@@ -1394,23 +1394,88 @@ class DatabaseManager:
                 )
 
         # large_files - אינדקס TEXT לחיפוש מהיר בתוכן קבצים גדולים
+        # כולל user_id + is_active כדי לצמצם סריקה לאחר התאמת $text
         try:
             large_files = db.large_files
-            large_files.create_indexes(
-                [
-                    IndexModel(
-                        [("content", TEXT)],
-                        name="large_files_content_text_idx",
-                        background=True,
-                    )
-                ]
-            )
-            emit_event(
-                "db_text_index_created",
-                severity="info",
-                collection="large_files",
-                index_name="large_files_content_text_idx",
-            )
+            desired_name = "large_files_content_text_idx"
+            desired_keys = [("user_id", ASCENDING), ("is_active", ASCENDING), ("content", TEXT)]
+
+            def _matches_large_files_text(idx: Dict[str, Any]) -> bool:
+                try:
+                    key_doc = idx.get("key", {})
+                    if not isinstance(key_doc, dict):
+                        return False
+                    if int(key_doc.get("user_id", 0)) != 1:
+                        return False
+                    if int(key_doc.get("is_active", 0)) != 1:
+                        return False
+                    weights = idx.get("weights", {})
+                    if not isinstance(weights, dict):
+                        return False
+                    return "content" in weights
+                except Exception:
+                    return False
+
+            try:
+                existing_indexes = list(large_files.list_indexes())
+            except Exception:
+                existing_indexes = []
+
+            match_found = False
+            for idx in existing_indexes:
+                if isinstance(idx, dict) and _matches_large_files_text(idx):
+                    match_found = True
+                    break
+
+            if match_found:
+                emit_event(
+                    "db_text_index_exists",
+                    severity="info",
+                    collection="large_files",
+                    index_name=desired_name,
+                )
+            else:
+                # אם קיימת אינדקס טקסט אחר על content, נחליף אותו כדי לאפשר compound עם user_id
+                for idx in existing_indexes:
+                    if not isinstance(idx, dict):
+                        continue
+                    weights = idx.get("weights")
+                    if isinstance(weights, dict) and "content" in weights:
+                        old_name = str(idx.get("name") or "")
+                        if not old_name:
+                            continue
+                        try:
+                            large_files.drop_index(old_name)
+                            emit_event(
+                                "db_index_dropped",
+                                severity="warn",
+                                collection="large_files",
+                                index_name=old_name,
+                                reason="text_index_mismatch",
+                            )
+                        except Exception as drop_e:
+                            emit_event(
+                                "db_drop_index_error",
+                                severity="warn",
+                                collection="large_files",
+                                index_name=old_name,
+                                error=str(drop_e),
+                            )
+                large_files.create_indexes(
+                    [
+                        IndexModel(
+                            desired_keys,
+                            name=desired_name,
+                            background=True,
+                        )
+                    ]
+                )
+                emit_event(
+                    "db_text_index_created",
+                    severity="info",
+                    collection="large_files",
+                    index_name=desired_name,
+                )
         except Exception as e:
             msg = str(e or "")
             msg_l = msg.lower()
