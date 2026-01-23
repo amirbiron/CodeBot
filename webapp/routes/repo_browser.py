@@ -275,10 +275,6 @@ def get_file_history():
         # Decode URL encoding
         file_path = unquote(file_path)
 
-        limit = request.args.get('limit', 20, type=int)
-        skip = request.args.get('skip', 0, type=int)
-        ref = request.args.get('ref', 'HEAD')
-
         git_service = get_git_service()
         if not git_service:
             return jsonify({
@@ -286,6 +282,17 @@ def get_file_history():
                 "error": "service_unavailable",
                 "message": "שירות Git לא זמין"
             }), 503
+
+        if not git_service._validate_repo_file_path(file_path):
+            return jsonify({
+                "success": False,
+                "error": "invalid_file_path",
+                "message": "נתיב קובץ לא תקין"
+            }), 400
+
+        limit = request.args.get('limit', 20, type=int)
+        skip = request.args.get('skip', 0, type=int)
+        ref = request.args.get('ref', 'HEAD')
 
         result = git_service.get_file_history(
             repo_name=DEFAULT_REPO_NAME,
@@ -348,6 +355,13 @@ def get_file_at_commit(commit):
                 "error": "service_unavailable",
                 "message": "שירות Git לא זמין"
             }), 503
+
+        if not git_service._validate_repo_file_path(file_path):
+            return jsonify({
+                "success": False,
+                "error": "invalid_file_path",
+                "message": "נתיב קובץ לא תקין"
+            }), 400
 
         result = git_service.get_file_at_commit(
             repo_name=DEFAULT_REPO_NAME,
@@ -415,6 +429,13 @@ def get_diff(commit1, commit2):
                 "error": "service_unavailable",
                 "message": "שירות Git לא זמין"
             }), 503
+
+        if file_path and not git_service._validate_repo_file_path(file_path):
+            return jsonify({
+                "success": False,
+                "error": "invalid_file_path",
+                "message": "נתיב קובץ לא תקין"
+            }), 400
 
         result = git_service.get_diff(
             repo_name=DEFAULT_REPO_NAME,
