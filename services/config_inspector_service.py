@@ -283,14 +283,14 @@ class ConfigService:
         ),
         "LOCK_LEASE_SECONDS": ConfigDefinition(
             key="LOCK_LEASE_SECONDS",
-            default="60",
+            default="10",
             description="משך ה-lease של הלוק (שניות).",
             category="locking",
         ),
         "LOCK_HEARTBEAT_INTERVAL": ConfigDefinition(
             key="LOCK_HEARTBEAT_INTERVAL",
-            default="",
-            description="תדירות heartbeat (שניות). אם ריק: 40% מה-lease, מינימום 5.",
+            default="3",
+            description="תדירות heartbeat (שניות) לרענון ה-lease. ברירת מחדל: 3 (מינימום 3).",
             category="locking",
         ),
         "LOCK_WAIT_FOR_ACQUIRE": ConfigDefinition(
@@ -333,6 +333,18 @@ class ConfigService:
             key="LOCK_WAIT_HEALTH_SERVER_ENABLED",
             default="true",
             description="אם true: בעת המתנה ללוק ותוך קיום PORT, מפעיל שרת HTTP מינימלי ל-/health כדי לעבור health checks.",
+            category="locking",
+        ),
+        "LOCK_PORT_GUARD_ENABLED": ConfigDefinition(
+            key="LOCK_PORT_GUARD_ENABLED",
+            default="false",
+            description="אם true: תופס פורט לוקאלי כדי למנוע שני תהליכים באותו worker. אם הפורט תפוס → יציאה.",
+            category="locking",
+        ),
+        "LOCK_PORT_GUARD_PORT": ConfigDefinition(
+            key="LOCK_PORT_GUARD_PORT",
+            default="9999",
+            description="פורט לוקאלי לשמירה על בלעדיות תהליך (נדרש רק אם LOCK_PORT_GUARD_ENABLED=true).",
             category="locking",
         ),
         "LOCK_COLLECTION": ConfigDefinition(

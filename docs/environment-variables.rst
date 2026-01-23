@@ -1925,14 +1925,14 @@
    * - ``LOCK_LEASE_SECONDS``
      - משך ה־lease (שניות) של נעילה מבוזרת ב־MongoDB.
      - לא
-     - ``60``
-     - ``120``
+     - ``10``
+     - ``10``
      - Bot
    * - ``LOCK_HEARTBEAT_INTERVAL``
-     - תדירות heartbeat (שניות) לרענון ה־lease. אם ריק: 40% מה־lease (מינימום 5 שניות).
+     - תדירות heartbeat (שניות) לרענון ה־lease. ברירת מחדל: ``3`` (מינימום 3).
      - לא
-     - "" (אוטומטי)
-     - ``20``
+     - ``3``
+     - ``3``
      - Bot
    * - ``LOCK_WAIT_FOR_ACQUIRE``
      - אם ``true``: המתנה אקטיבית ללוק עם retries קצרים; אם ``false``: המתנה פסיבית עם jitter (ברירת מחדל) כדי למנוע restart-loop.
@@ -1969,6 +1969,18 @@
      - לא
      - ``true``
      - ``false``
+     - Bot
+   * - ``LOCK_PORT_GUARD_ENABLED``
+     - אם ``true``: תופס פורט לוקאלי כדי למנוע שני תהליכים באותו worker. אם הפורט תפוס → יציאה.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``LOCK_PORT_GUARD_PORT``
+     - פורט לוקאלי לשמירה על בלעדיות תהליך (נדרש רק אם ``LOCK_PORT_GUARD_ENABLED=true``).
+     - לא
+     - ``9999``
+     - ``9999``
      - Bot
    * - ``LOCK_COLLECTION``
      - שם קולקציית ה־locks ב־MongoDB (ברירת מחדל legacy: ``locks``).
