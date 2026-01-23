@@ -212,6 +212,16 @@ class UndoToastManager {
     }
 
     /**
+     * עדכון טקסט ההודעה בצורה בטוחה
+     */
+    updateMessage(element, text) {
+        const messageEl = element?.querySelector('.undo-toast-message');
+        if (messageEl) {
+            messageEl.textContent = text;
+        }
+    }
+
+    /**
      * טיפול בלחיצה על "בטל"
      */
     async handleUndo(operationId) {
@@ -225,8 +235,7 @@ class UndoToastManager {
 
         // עדכן UI - הצג טוען
         element.classList.add('undoing');
-        const messageEl = element.querySelector('.undo-toast-message');
-        messageEl.textContent = 'מבטל...';
+        this.updateMessage(element, 'מבטל...');
 
         try {
             // הפעל callback
@@ -235,7 +244,7 @@ class UndoToastManager {
             }
 
             // הצג הצלחה
-            messageEl.textContent = 'הפעולה בוטלה בהצלחה';
+            this.updateMessage(element, 'הפעולה בוטלה בהצלחה');
             element.classList.remove('undoing');
             element.classList.add('undone');
 
@@ -246,7 +255,7 @@ class UndoToastManager {
 
         } catch (error) {
             console.error('Undo failed:', error);
-            messageEl.textContent = 'שגיאה בביטול הפעולה';
+            this.updateMessage(element, 'שגיאה בביטול הפעולה');
             element.classList.remove('undoing');
             element.classList.add('error');
 
@@ -464,8 +473,15 @@ async addTags() {
     this.showProcessing(`מוסיף תגיות ל-${fileIds.length} קבצים...`);
     
     try {
-        // שמור מצב קודם (לביטול)
-        const previousState = await this.getFilesTags(fileIds);
+        // שמור מצב קודם (לביטול) - חשוב לטפל בשגיאות כאן
+        let previousState;
+        try {
+            previousState = await this.getFilesTags(fileIds);
+        } catch (err) {
+            console.warn('Failed to save previous tags state:', err);
+            // נמשיך בלי אפשרות ביטול אם לא הצלחנו לשמור את המצב הקודם
+            previousState = null;
+        }
         
         const response = await fetch('/api/files/bulk-tag', {
             method: 'POST',
@@ -488,16 +504,22 @@ async addTags() {
         // עדכן UI אופטימיסטי
         this.updateTagsInUI(fileIds, newTags, 'add');
         
-        // הצג Toast עם ביטול
-        window.undoToast.show({
-            operationId,
-            message: `תגיות נוספו ל-${result.updated} קבצים`,
-            duration: 5000,
-            icon: 'tags',
-            onUndo: async () => {
-                await this.undoTagChange(fileIds, previousState);
-            }
-        });
+        // הצג Toast - עם או בלי אפשרות ביטול
+        if (previousState && Object.keys(previousState).length > 0) {
+            // יש מצב קודם - אפשר לבטל
+            window.undoToast.show({
+                operationId,
+                message: `תגיות נוספו ל-${result.updated} קבצים`,
+                duration: 5000,
+                icon: 'tags',
+                onUndo: async () => {
+                    await this.undoTagChange(fileIds, previousState);
+                }
+            });
+        } else {
+            // אין מצב קודם - הצג notification רגיל בלי undo
+            this.showNotification(`תגיות נוספו ל-${result.updated} קבצים`, 'success');
+        }
         
         window.multiSelect?.clearSelection();
         
@@ -510,6 +532,7 @@ async addTags() {
 
 /**
  * קבלת תגיות נוכחיות של קבצים (לשמירת מצב קודם)
+ * @throws {Error} אם הבקשה נכשלת
  */
 async getFilesTags(fileIds) {
     const response = await fetch('/api/files/get-tags', {
@@ -517,7 +540,15 @@ async getFilesTags(fileIds) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_ids: fileIds })
     });
-    return await response.json();
+    
+    const result = await response.json();
+    
+    // בדוק שהבקשה הצליחה
+    if (!response.ok || !result.success) {
+        throw new Error(result.error || 'שגיאה בקבלת תגיות קיימות');
+    }
+    
+    return result.tags;
 }
 
 /**
@@ -901,10 +932,10 @@ def api_files_get_tags():
         
         # וידוא שfile_ids הוא רשימה
         if not isinstance(file_ids, list):
-            return jsonify({"error": "file_ids חייב להיות רשימה"}), 400
+            return jsonify({"success": False, "error": "file_ids חייב להיות רשימה"}), 400
         
         if not file_ids:
-            return jsonify({}), 200
+            return jsonify({"success": True, "tags": {}}), 200
         
         user_id = str(current_user.id)
         result = {}
@@ -921,11 +952,11 @@ def api_files_get_tags():
                 app.logger.debug(f"Invalid file_id {file_id}: {e}")
                 continue
         
-        return jsonify(result)
+        return jsonify({"success": True, "tags": result})
         
     except Exception as e:
         app.logger.error(f"Error getting tags: {e}")
-        return jsonify({}), 200
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/files/bulk-set-tags', methods=['POST'])
