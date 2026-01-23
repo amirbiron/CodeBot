@@ -17,10 +17,16 @@ import re
 import subprocess
 import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
+
+# הגדרות קבועות
+MAX_DIFF_BYTES = 1 * 1024 * 1024  # 1MB
+MAX_DIFF_LINES = 10000
+MAX_FILE_SIZE_FOR_DISPLAY = 500 * 1024  # 500KB
 
 
 @dataclass
@@ -56,13 +62,46 @@ class GitMirrorService:
         הגדר GITHUB_TOKEN בסביבה, והשירות יזריק אותו אוטומטית ל-URL.
     """
 
-    def __init__(self, base_path: Optional[str] = None):
+    # שם ריפו: a-z, 0-9, -, _ בלבד, 1-100 תווים
+    REPO_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$')
+
+    # נתיב קובץ - ללא path traversal
+    # מאפשר: a-z, A-Z, 0-9, ., _, -, /
+    # אוסר: //, leading/trailing /, NUL
+    # הערה: בדיקת ".." כקומפוננטה נעשית ב-_validate_repo_file_path
+    #        עם os.path.normpath (לא כאן, כי a..b.txt הוא שם קובץ תקין)
+    FILE_PATH_PATTERN = re.compile(
+        r'^(?!.*//)'              # No //
+        r'(?!/)'                 # No leading /
+        r'(?!.*\x00)'            # No NUL
+        r'[a-zA-Z0-9._/-]+'      # Allowed chars
+        r'(?<!/)'                # No trailing /
+        r'$'
+    )
+
+    # Basic ref pattern - לבדיקה מקדימה בלבד
+    # הבדיקה האמיתית נעשית עם git rev-parse
+    BASIC_REF_PATTERN = re.compile(
+        r'^[a-zA-Z0-9][a-zA-Z0-9._/^~-]{0,150}$'
+    )
+
+    _GITHUB_HTTPS_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+(?:\.git)?/?$", re.IGNORECASE)
+    _GITHUB_SSH_RE = re.compile(r"^git@github\.com:[^/\s]+/[^/\s]+(?:\.git)?$", re.IGNORECASE)
+
+    def __init__(
+        self,
+        base_path: Optional[str] = None,
+        mirrors_base_path: Optional[str] = None,
+        github_token: Optional[str] = None,
+    ):
         """
         Args:
             base_path: נתיב בסיסי לאחסון mirrors.
                        ברירת מחדל: REPO_MIRROR_PATH או /var/data/repos
         """
-        self.base_path = Path(base_path or os.getenv("REPO_MIRROR_PATH", "/var/data/repos"))
+        self.base_path = Path(mirrors_base_path or base_path or os.getenv("REPO_MIRROR_PATH", "/var/data/repos"))
+        self.github_token = github_token
+        self.logger = logger
         self._ensure_base_path()
 
         # הגבלות best-effort כדי להקשיח הרצת subprocess מול קלט משתמש
@@ -78,31 +117,13 @@ class GitMirrorService:
             "rev-list",
         }
 
-    _GITHUB_HTTPS_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+(?:\.git)?/?$", re.IGNORECASE)
-    _GITHUB_SSH_RE = re.compile(r"^git@github\.com:[^/\s]+/[^/\s]+(?:\.git)?$", re.IGNORECASE)
-
-    def _validate_repo_name(self, repo_name: str) -> bool:
-        """ולידציה strict לשם ריפו מקומי (מונע path traversal / שמות מסוכנים)."""
-        if not isinstance(repo_name, str):
+    def _validate_repo_name(self, name: str) -> bool:
+        """וולידציה של שם ריפו."""
+        if not name or not isinstance(name, str):
             return False
-        name = repo_name.strip()
-        if not name:
+        if '\x00' in name:
             return False
-        if "\x00" in name:
-            return False
-        # בלי רווחים/תווי שליטה
-        if any(ch.isspace() for ch in name):
-            return False
-        # בלי מפרידי נתיב
-        if "/" in name or "\\" in name:
-            return False
-        if name in {".", ".."}:
-            return False
-        # מניעת שימוש ב-prefix שנראה כמו flag
-        if name.startswith("-"):
-            return False
-        # allowlist תווים (פשוט וברור)
-        return bool(re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name))
+        return bool(self.REPO_NAME_PATTERN.match(name))
 
     def _validate_repo_url(self, repo_url: str) -> bool:
         """ולידציה ל-URL ריפו. כרגע תומך ב-GitHub בלבד (תואם token injection)."""
@@ -134,7 +155,7 @@ class GitMirrorService:
         Note:
             לא לרשום את ה-URL המאומת ללוגים!
         """
-        token = os.getenv("GITHUB_TOKEN")
+        token = self.github_token or os.getenv("GITHUB_TOKEN")
 
         if not token:
             return url
@@ -150,70 +171,24 @@ class GitMirrorService:
 
         return url
 
-    def _sanitize_output(self, text: str) -> str:
-        """
-        מחיקת טוקנים רגישים מפלט/לוגים
-
-        חשוב! אם git clone/fetch נכשל, stderr יכול להכיל את ה-URL
-        כולל הטוקן. חובה לנקות לפני לוג/החזרה ל-API.
-
-        Args:
-            text: טקסט שעלול להכיל טוקן
-
-        Returns:
-            טקסט נקי (הטוקן מוחלף ב-***)
-        """
-        if not text:
-            return ""
-        # הימנעות מ-regex כאן (CodeQL: ReDoS). נבצע סניטציה לינארית על טקסט.
-        # נזהה תבניות של credentials ב-URL בסגנון:
-        #   https://user:SECRET@host/...
-        # ונחליף את SECRET ב-*** (נשמור את user ואת ה-host).
-        s = str(text)
-        out: list[str] = []
-        i = 0
-        needle = "https://"
-        n = len(s)
-
-        while True:
-            j = s.find(needle, i)
-            if j == -1:
-                out.append(s[i:])
-                break
-
-            out.append(s[i:j])
-            k = j + len(needle)
-
-            # חיפוש '@' רק בתוך ה-authority (לפני '/'), ובתוך חלון מוגבל.
-            # זה מונע מצב של סריקה עד סוף טקסט ענק.
-            max_end = min(n, k + 2048)
-
-            # עצירה גם על whitespace (URLs בפלט לרוב לא חוצים רווחים)
-            ws_positions = []
-            for ch in (" ", "\n", "\r", "\t"):
-                p = s.find(ch, k, max_end)
-                if p != -1:
-                    ws_positions.append(p)
-            segment_end = min(ws_positions) if ws_positions else max_end
-
-            slash_pos = s.find("/", k, segment_end)
-            at_pos = s.find("@", k, segment_end)
-
-            # credentials קיימים רק אם יש '@' לפני ה-slash הראשון (או שאין slash)
-            if at_pos != -1 and (slash_pos == -1 or at_pos < slash_pos):
-                colon_pos = s.rfind(":", k, at_pos)
-                if colon_pos != -1:
-                    # נשמור את "https://user:" ונחליף את הסיסמה/טוקן
-                    out.append(s[j : colon_pos + 1])
-                    out.append("***@")
-                    i = at_pos + 1
-                    continue
-
-            # אין תבנית credentials מוכרת — נשמור את הסכמה ונמשיך.
-            out.append(needle)
-            i = k
-
-        return "".join(out)
+    def _sanitize_output(self, output: str) -> str:
+        """הסרת מידע רגיש מפלט Git."""
+        if not output:
+            return ''
+        # Remove tokens from URLs
+        sanitized = re.sub(
+            r'https://[^:]+:[^@]+@',
+            'https://***:***@',
+            output
+        )
+        # Remove other potential secrets
+        sanitized = re.sub(
+            r'(token|password|secret|key)[\s]*[=:][\s]*[^\s]+',
+            r'\1=***',
+            sanitized,
+            flags=re.IGNORECASE
+        )
+        return sanitized
 
     def _ensure_base_path(self) -> None:
         """יצירת תיקיית הבסיס אם לא קיימת"""
@@ -227,6 +202,10 @@ class GitMirrorService:
     def _get_repo_path(self, repo_name: str) -> Path:
         """נתיב ל-mirror של ריפו ספציפי"""
         return self.base_path / f"{repo_name}.git"
+
+    def _get_mirror_path(self, repo_name: str) -> Path:
+        """Alias לשם אחיד במדריך (mirror path)."""
+        return self._get_repo_path(repo_name)
 
     def _is_valid_mirror(self, repo_path: Path) -> bool:
         """בדיקה שהספרייה היא bare git repository תקין (best-effort)."""
@@ -609,50 +588,46 @@ class GitMirrorService:
     # ========== File Content ==========
 
     def _validate_repo_file_path(self, file_path: str) -> bool:
-        """ולידציה בסיסית לנתיב קובץ בריפו לפני שימוש בפקודות git.
-
-        המטרה היא למנוע נתיבים מסוכנים (למשל כאלה שיכולים להתפרש כאופציות של git
-        או להכיל ניסיון traversal).
         """
-        if not isinstance(file_path, str):
+        וולידציה של נתיב קובץ - מונע path traversal.
+        """
+        if not file_path or not isinstance(file_path, str):
+            return False
+        if '\x00' in file_path:
             return False
 
-        file_path = file_path.strip()
-        if not file_path:
+        # Normalize and check for traversal
+        # normpath מנרמל ../foo ל-../foo, foo/../bar ל-bar
+        # אם אחרי נורמליזציה יש .. בהתחלה = ניסיון traversal מעבר לroot
+        normalized = os.path.normpath(file_path)
+        if normalized.startswith('..') or normalized.startswith('/'):
+            return False
+        # הערה: לא בודקים '..' in normalized כי a..b.txt הוא שם קובץ תקין!
+
+        return bool(self.FILE_PATH_PATTERN.match(file_path))
+
+    def _validate_basic_ref(self, ref: str) -> bool:
+        """
+        בדיקה בסיסית של ref - לפני שליחה ל-git.
+        הבדיקה המלאה נעשית עם _validate_ref_with_git.
+        """
+        if not ref or not isinstance(ref, str):
+            return False
+        if '\x00' in ref:
+            return False
+        if len(ref) > 200:
             return False
 
-        # מניעת תווים בעייתיים בסיסיים
-        if "\x00" in file_path or "\\" in file_path:
-            return False
+        # HEAD is always valid
+        if ref == 'HEAD':
+            return True
 
-        # לא לאפשר שהנתיב יתחיל ב-'-' כדי שלא יתפרש כאופציה של git
-        if file_path.startswith("-"):
-            return False
-
-        # מניעת path traversal וקטעי נתיב ריקים (//)
-        parts = file_path.split("/")
-        for part in parts:
-            if part in ("", ".", ".."):
-                return False
-
-        return True
+        return bool(self.BASIC_REF_PATTERN.match(ref))
 
     def _validate_repo_ref(self, ref: str) -> bool:
         """ולידציה בסיסית ל-ref לפני שילוב בפקודות git (best-effort)."""
-        if not isinstance(ref, str):
-            return False
-        ref = ref.strip()
-        if not ref:
-            return False
-        if "\x00" in ref:
-            return False
-        # מניעת מצב שבו ref מזוהה כ-flag
-        if ref.startswith("-"):
-            return False
-        # הימנעות מרווחים/תווי שליטה
-        if any(ch.isspace() for ch in ref):
-            return False
-        return True
+        ref = ref.strip() if isinstance(ref, str) else ref
+        return self._validate_basic_ref(ref)
 
     def get_file_content(self, repo_name: str, file_path: str, ref: str = "HEAD") -> Optional[str]:
         """
@@ -736,6 +711,867 @@ class GitMirrorService:
             }
 
         return None
+
+    # ============================================
+    # מתודות חדשות להיסטוריה ו-Diff
+    # ============================================
+
+    def _validate_ref_with_git(self, repo_name: str, ref: str) -> Dict[str, Any]:
+        """
+        וולידציה של ref באמצעות git rev-parse.
+        זו הדרך ה-canonical לוודא ש-ref תקין.
+
+        Args:
+            repo_name: שם הריפו
+            ref: Reference לבדיקה
+
+        Returns:
+            Dict עם resolved_sha או error
+        """
+        mirror_path = self._get_mirror_path(repo_name)
+
+        try:
+            cmd = [
+                "git", "-C", str(mirror_path),
+                "rev-parse", "--verify", "--quiet",
+                f"{ref}^{{commit}}"  # ודא שזה commit
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                return {
+                    "valid": False,
+                    "error": "invalid_ref",
+                    "message": f"Reference '{ref}' לא נמצא"
+                }
+
+            return {
+                "valid": True,
+                "resolved_sha": result.stdout.strip()
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"valid": False, "error": "timeout"}
+        except Exception as e:
+            return {"valid": False, "error": "internal_error", "message": str(e)}
+
+    def _detect_binary_content(self, content: bytes) -> bool:
+        """
+        זיהוי תוכן בינארי באמצעות בדיקת NUL bytes.
+
+        קובץ נחשב בינארי אם:
+        1. מכיל NUL bytes (\x00)
+        2. יחס גבוה של תווים לא-printable
+
+        Args:
+            content: תוכן הקובץ כ-bytes
+
+        Returns:
+            True אם הקובץ בינארי
+        """
+        # בדיקה מהירה: NUL bytes = בינארי
+        if b'\x00' in content:
+            return True
+
+        # בדיקה משנית: יחס תווים לא-printable
+        # (אופציונלי - ל-edge cases)
+        if len(content) > 0:
+            # דוגמה: בדיקת 8KB ראשונים
+            sample = content[:8192]
+            non_printable = sum(
+                1 for byte in sample
+                if byte < 32 and byte not in (9, 10, 13)  # tab, newline, CR
+            )
+            if non_printable / len(sample) > 0.3:  # יותר מ-30% non-printable
+                return True
+
+        return False
+
+    def _try_decode_content(self, content: bytes) -> Dict[str, Any]:
+        """
+        ניסיון פענוח תוכן עם זיהוי encoding.
+
+        Args:
+            content: תוכן הקובץ כ-bytes
+
+        Returns:
+            Dict עם decoded content או סימון בינארי
+        """
+        # בדיקת בינארי קודם
+        if self._detect_binary_content(content):
+            return {
+                "is_binary": True,
+                "content": None,
+                "encoding": None
+            }
+
+        # ניסיון encodings נפוצים
+        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1255']  # cp1255 לעברית
+
+        for encoding in encodings:
+            try:
+                decoded = content.decode(encoding)
+                return {
+                    "is_binary": False,
+                    "content": decoded,
+                    "encoding": encoding
+                }
+            except (UnicodeDecodeError, LookupError):
+                continue
+
+        # Fallback: UTF-8 עם replacement
+        return {
+            "is_binary": False,
+            "content": content.decode('utf-8', errors='replace'),
+            "encoding": "utf-8 (with replacements)"
+        }
+
+    def get_file_history(
+        self,
+        repo_name: str,
+        file_path: str,
+        ref: str = "HEAD",
+        limit: int = 20,
+        skip: int = 0
+    ) -> Dict[str, Any]:
+        """
+        שליפת היסטוריית commits לקובץ ספציפי.
+
+        Args:
+            repo_name: שם הריפו
+            file_path: נתיב הקובץ
+            ref: Branch, tag, commit או expressions כמו HEAD~5
+            limit: מספר commits מקסימלי (1-100)
+            skip: כמה commits לדלג
+
+        Returns:
+            Dict עם רשימת commits או שגיאה
+        """
+        # וולידציה בסיסית
+        if not self._validate_repo_name(repo_name):
+            return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
+
+        if not self._validate_repo_file_path(file_path):
+            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+
+        # וולידציה ל-limit ו-skip
+        limit = max(1, min(int(limit) if isinstance(limit, (int, str)) else 20, 100))
+        skip = max(0, int(skip) if isinstance(skip, (int, str)) else 0)
+
+        mirror_path = self._get_mirror_path(repo_name)
+        if not mirror_path.exists():
+            return {"error": "repo_not_found", "message": "ריפו לא נמצא"}
+
+        # וולידציה של ref באמצעות git
+        ref_validation = self._validate_ref_with_git(repo_name, ref)
+        if not ref_validation.get("valid"):
+            return {
+                "error": ref_validation.get("error", "invalid_ref"),
+                "message": ref_validation.get("message", "Reference לא תקין")
+            }
+
+        resolved_ref = ref_validation["resolved_sha"]
+
+        try:
+            # פורמט מיוחד לפענוח קל
+            # %H = hash מלא, %h = hash קצר
+            # %an = שם author, %ae = email author
+            # %at = timestamp author (unix)
+            # %s = subject, %b = body
+            format_str = "%H%x00%h%x00%an%x00%ae%x00%at%x00%s%x00%b%x1E"
+
+            cmd = [
+                "git", "-C", str(mirror_path),
+                "log",
+                "--follow",           # עקוב אחרי שינויי שם
+                f"--max-count={limit}",
+                f"--skip={skip}",
+                f"--format={format_str}",
+                resolved_ref,
+                "--",
+                file_path
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                stderr = self._sanitize_output(result.stderr)
+                if "does not exist" in stderr or "unknown revision" in stderr:
+                    return {
+                        "error": "file_not_found",
+                        "message": "הקובץ לא נמצא בהיסטוריה"
+                    }
+                return {"error": "git_error", "message": stderr}
+
+            # פענוח התוצאות
+            commits = []
+            raw_commits = result.stdout.strip().split("\x1E")
+
+            for raw in raw_commits:
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                parts = raw.split("\x00")
+                if len(parts) < 6:
+                    continue
+
+                try:
+                    timestamp = int(parts[4])
+                except ValueError:
+                    timestamp = 0
+
+                commits.append({
+                    "hash": parts[0],
+                    "short_hash": parts[1],
+                    "author": parts[2],
+                    "author_email": parts[3],
+                    "timestamp": timestamp,
+                    "date": datetime.fromtimestamp(timestamp).isoformat() if timestamp else None,
+                    "message": parts[5],
+                    "body": parts[6].strip() if len(parts) > 6 else ""
+                })
+
+            return {
+                "success": True,
+                "file_path": file_path,
+                "ref": ref,
+                "resolved_ref": resolved_ref,
+                "commits": commits,
+                "total_returned": len(commits),
+                "skip": skip,
+                "limit": limit,
+                "has_more": len(commits) == limit
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"error": "timeout", "message": "הפעולה ארכה יותר מדי זמן"}
+        except Exception as e:
+            self.logger.error(f"Error getting file history: {e}")
+            return {"error": "internal_error", "message": "שגיאה פנימית"}
+
+    def get_file_at_commit(
+        self,
+        repo_name: str,
+        file_path: str,
+        commit: str,
+        max_size: int = MAX_FILE_SIZE_FOR_DISPLAY
+    ) -> Dict[str, Any]:
+        """
+        שליפת תוכן קובץ ב-commit ספציפי.
+
+        Args:
+            repo_name: שם הריפו
+            file_path: נתיב הקובץ
+            commit: Hash, tag, branch או expression
+            max_size: גודל מקסימלי להחזרה (bytes)
+
+        Returns:
+            Dict עם תוכן הקובץ או שגיאה
+        """
+        # וולידציה
+        if not self._validate_repo_name(repo_name):
+            return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
+
+        if not self._validate_repo_file_path(file_path):
+            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+
+        mirror_path = self._get_mirror_path(repo_name)
+        if not mirror_path.exists():
+            return {"error": "repo_not_found", "message": "ריפו לא נמצא"}
+
+        # וולידציה של commit
+        ref_validation = self._validate_ref_with_git(repo_name, commit)
+        if not ref_validation.get("valid"):
+            return {
+                "error": "invalid_commit",
+                "message": ref_validation.get("message", "Commit לא תקין")
+            }
+
+        resolved_commit = ref_validation["resolved_sha"]
+
+        try:
+            # שליפת תוכן כ-bytes (לא text) לזיהוי בינארי נכון
+            cmd = [
+                "git", "-C", str(mirror_path),
+                "show",
+                f"{resolved_commit}:{file_path}"
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr.decode('utf-8', errors='replace')
+                stderr = self._sanitize_output(stderr)
+
+                if "does not exist" in stderr or "exists on disk" in stderr:
+                    return {
+                        "error": "file_not_in_commit",
+                        "message": "הקובץ לא קיים ב-commit זה"
+                    }
+                if "unknown revision" in stderr or "bad revision" in stderr:
+                    return {
+                        "error": "invalid_commit",
+                        "message": "Commit לא נמצא"
+                    }
+                return {"error": "git_error", "message": stderr}
+
+            raw_content = result.stdout
+            file_size = len(raw_content)
+
+            # בדיקת גודל
+            if file_size > max_size:
+                return {
+                    "error": "file_too_large",
+                    "message": f"הקובץ גדול מדי ({file_size:,} bytes)",
+                    "size": file_size,
+                    "max_size": max_size
+                }
+
+            # זיהוי וקידוד
+            decode_result = self._try_decode_content(raw_content)
+
+            if decode_result["is_binary"]:
+                return {
+                    "success": True,
+                    "file_path": file_path,
+                    "commit": commit,
+                    "resolved_commit": resolved_commit,
+                    "is_binary": True,
+                    "content": None,
+                    "size": file_size,
+                    "message": "זהו קובץ בינארי"
+                }
+
+            content = decode_result["content"]
+
+            return {
+                "success": True,
+                "file_path": file_path,
+                "commit": commit,
+                "resolved_commit": resolved_commit,
+                "is_binary": False,
+                "content": content,
+                "encoding": decode_result["encoding"],
+                "size": file_size,
+                "lines": content.count('\n') + 1 if content else 0
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"error": "timeout", "message": "הפעולה ארכה יותר מדי זמן"}
+        except Exception as e:
+            self.logger.error(f"Error getting file at commit: {e}")
+            return {"error": "internal_error", "message": "שגיאה פנימית"}
+
+    def get_diff(
+        self,
+        repo_name: str,
+        commit1: str,
+        commit2: str,
+        file_path: Optional[str] = None,
+        context_lines: int = 3,
+        output_format: str = "parsed",
+        max_bytes: int = MAX_DIFF_BYTES
+    ) -> Dict[str, Any]:
+        """
+        יצירת diff בין שני commits.
+
+        סמנטיקה: מציג שינויים מ-commit1 ל-commit2.
+        - commit1 = הגרסה הישנה (base)
+        - commit2 = הגרסה החדשה (target)
+
+        שימושים נפוצים:
+        - "השווה X ל-HEAD": get_diff(X, "HEAD")
+        - "מה השתנה ב-commit": get_diff("commit^", "commit")
+        - "השווה branches": get_diff("main", "feature")
+
+        Args:
+            repo_name: שם הריפו
+            commit1: Commit ראשון - base (הישן)
+            commit2: Commit שני - target (החדש)
+            file_path: נתיב קובץ ספציפי (אופציונלי)
+            context_lines: מספר שורות הקשר (0-20)
+            output_format: 'raw', 'parsed', או 'both'
+            max_bytes: הגבלת גודל diff
+
+        Returns:
+            Dict עם ה-diff או שגיאה
+        """
+        # וולידציה
+        if not self._validate_repo_name(repo_name):
+            return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
+
+        if file_path and not self._validate_repo_file_path(file_path):
+            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+
+        # וולידציה ל-context_lines
+        context_lines = max(0, min(int(context_lines) if isinstance(context_lines, (int, str)) else 3, 20))
+
+        # וולידציה ל-format
+        if output_format not in ('raw', 'parsed', 'both'):
+            output_format = 'parsed'
+
+        mirror_path = self._get_mirror_path(repo_name)
+        if not mirror_path.exists():
+            return {"error": "repo_not_found", "message": "ריפו לא נמצא"}
+
+        # וולידציה של commits
+        ref1_validation = self._validate_ref_with_git(repo_name, commit1)
+        if not ref1_validation.get("valid"):
+            return {
+                "error": "invalid_commit1",
+                "message": f"Commit ראשון לא תקין: {commit1}"
+            }
+
+        ref2_validation = self._validate_ref_with_git(repo_name, commit2)
+        if not ref2_validation.get("valid"):
+            return {
+                "error": "invalid_commit2",
+                "message": f"Commit שני לא תקין: {commit2}"
+            }
+
+        resolved_commit1 = ref1_validation["resolved_sha"]
+        resolved_commit2 = ref2_validation["resolved_sha"]
+
+        try:
+            # שימוש ב-commit1..commit2 לסמנטיקה ברורה
+            cmd = [
+                "git", "-C", str(mirror_path),
+                "diff",
+                f"-U{context_lines}",
+                "--no-color",
+                "--find-renames",      # זיהוי rename
+                "--find-copies",       # זיהוי copy
+                "--stat-width=120",
+                f"{resolved_commit1}..{resolved_commit2}"  # סינטקס מפורש
+            ]
+
+            if file_path:
+                cmd.extend(["--", file_path])
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=60
+            )
+
+            if result.returncode != 0:
+                stderr = self._sanitize_output(result.stderr)
+                if "unknown revision" in stderr or "bad revision" in stderr:
+                    return {
+                        "error": "invalid_commits",
+                        "message": "אחד או יותר מה-commits לא נמצאו"
+                    }
+                return {"error": "git_error", "message": stderr}
+
+            diff_output = result.stdout
+            diff_size = len(diff_output.encode('utf-8'))
+
+            # בדיקת גודל
+            is_truncated = False
+            if diff_size > max_bytes:
+                # קיצוץ ושמירה על hunks שלמים
+                diff_output = self._truncate_diff(diff_output, max_bytes)
+                is_truncated = True
+
+            # בניית response לפי format
+            response = {
+                "success": True,
+                "commit1": commit1,
+                "commit2": commit2,
+                "resolved_commit1": resolved_commit1,
+                "resolved_commit2": resolved_commit2,
+                "file_path": file_path,
+                "is_truncated": is_truncated,
+                "diff_size_bytes": diff_size
+            }
+
+            if output_format in ('raw', 'both'):
+                response["raw_diff"] = diff_output
+
+            if output_format in ('parsed', 'both'):
+                parsed_diff = self._parse_diff(diff_output)
+                response["parsed"] = parsed_diff
+                response["stats"] = {
+                    "files_changed": len(parsed_diff.get("files", [])),
+                    "additions": sum(f.get("additions", 0) for f in parsed_diff.get("files", [])),
+                    "deletions": sum(f.get("deletions", 0) for f in parsed_diff.get("files", []))
+                }
+
+            return response
+
+        except subprocess.TimeoutExpired:
+            return {"error": "timeout", "message": "הפעולה ארכה יותר מדי זמן"}
+        except Exception as e:
+            self.logger.error(f"Error getting diff: {e}")
+            return {"error": "internal_error", "message": "שגיאה פנימית"}
+
+    def _truncate_diff(self, diff_output: str, max_bytes: int) -> str:
+        """
+        קיצוץ diff תוך שמירה על מבנה תקין.
+
+        Args:
+            diff_output: הdiff המלא
+            max_bytes: גודל מקסימלי
+
+        Returns:
+            Diff מקוצץ עם הודעה
+        """
+        encoded = diff_output.encode('utf-8')
+        if len(encoded) <= max_bytes:
+            return diff_output
+
+        # חתוך ומצא סוף hunk/file אחרון
+        truncated = encoded[:max_bytes].decode('utf-8', errors='ignore')
+
+        # נסה למצוא סוף קובץ או hunk
+        last_diff = truncated.rfind('\ndiff --git')
+        last_hunk = truncated.rfind('\n@@')
+
+        cut_point = max(last_diff, last_hunk)
+        if cut_point > max_bytes // 2:  # רק אם זה הגיוני
+            truncated = truncated[:cut_point]
+
+        truncated += "\n\n... [Diff truncated due to size limit] ..."
+        return truncated
+
+    def _parse_diff(self, diff_output: str) -> Dict[str, Any]:
+        """
+        פרסור פלט diff לפורמט מובנה.
+
+        תומך ב:
+        - קבצים חדשים/מחוקים/משונים
+        - rename עם similarity
+        - copy
+        - binary files
+
+        Returns:
+            Dict עם מבנה ה-diff המפורסר
+        """
+        files = []
+        current_file = None
+        current_hunks = []
+        current_hunk = None
+
+        lines = diff_output.split('\n')
+        i = 0
+
+        while i < len(lines):
+            line = lines[i]
+
+            # התחלת קובץ חדש
+            if line.startswith('diff --git'):
+                # שמור קובץ קודם
+                if current_file:
+                    if current_hunk:
+                        current_hunks.append(current_hunk)
+                    current_file['hunks'] = current_hunks
+                    files.append(current_file)
+
+                # התחל קובץ חדש
+                match = re.match(r'diff --git a/(.+) b/(.+)', line)
+                if match:
+                    current_file = {
+                        'old_path': match.group(1),
+                        'new_path': match.group(2),
+                        'status': 'modified',
+                        'additions': 0,
+                        'deletions': 0,
+                        'is_binary': False,
+                        'similarity': None,
+                        'rename_from': None,
+                        'rename_to': None
+                    }
+                else:
+                    current_file = {
+                        'old_path': '',
+                        'new_path': '',
+                        'status': 'modified',
+                        'additions': 0,
+                        'deletions': 0,
+                        'is_binary': False
+                    }
+                current_hunks = []
+                current_hunk = None
+
+            # זיהוי סוג שינוי
+            elif line.startswith('new file mode'):
+                if current_file:
+                    current_file['status'] = 'added'
+
+            elif line.startswith('deleted file mode'):
+                if current_file:
+                    current_file['status'] = 'deleted'
+
+            elif line.startswith('rename from '):
+                if current_file:
+                    current_file['status'] = 'renamed'
+                    current_file['rename_from'] = line[12:]
+
+            elif line.startswith('rename to '):
+                if current_file:
+                    current_file['rename_to'] = line[10:]
+
+            elif line.startswith('similarity index '):
+                if current_file:
+                    match = re.match(r'similarity index (\d+)%', line)
+                    if match:
+                        current_file['similarity'] = int(match.group(1))
+
+            elif line.startswith('copy from '):
+                if current_file:
+                    current_file['status'] = 'copied'
+                    current_file['copy_from'] = line[10:]
+
+            elif line.startswith('copy to '):
+                if current_file:
+                    current_file['copy_to'] = line[8:]
+
+            elif 'Binary files' in line:
+                if current_file:
+                    current_file['is_binary'] = True
+                    current_file['status'] = 'binary'
+
+            # Header של hunk
+            elif line.startswith('@@'):
+                if current_hunk:
+                    current_hunks.append(current_hunk)
+
+                # @@ -start,count +start,count @@ optional context
+                match = re.match(
+                    r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)',
+                    line
+                )
+                if match:
+                    current_hunk = {
+                        'old_start': int(match.group(1)),
+                        'old_count': int(match.group(2) or 1),
+                        'new_start': int(match.group(3)),
+                        'new_count': int(match.group(4) or 1),
+                        'header': match.group(5).strip(),
+                        'lines': []
+                    }
+                else:
+                    current_hunk = {
+                        'old_start': 0,
+                        'old_count': 0,
+                        'new_start': 0,
+                        'new_count': 0,
+                        'header': '',
+                        'lines': []
+                    }
+
+            # שורות תוכן ב-hunk
+            elif current_hunk is not None:
+                if line.startswith('+') and not line.startswith('+++'):
+                    current_hunk['lines'].append({
+                        'type': 'addition',
+                        'content': line[1:]
+                    })
+                    if current_file:
+                        current_file['additions'] += 1
+                elif line.startswith('-') and not line.startswith('---'):
+                    current_hunk['lines'].append({
+                        'type': 'deletion',
+                        'content': line[1:]
+                    })
+                    if current_file:
+                        current_file['deletions'] += 1
+                elif line.startswith(' '):
+                    current_hunk['lines'].append({
+                        'type': 'context',
+                        'content': line[1:]
+                    })
+                elif line == '\\ No newline at end of file':
+                    current_hunk['lines'].append({
+                        'type': 'info',
+                        'content': 'No newline at end of file'
+                    })
+
+            i += 1
+
+        # שמור קובץ אחרון
+        if current_file:
+            if current_hunk:
+                current_hunks.append(current_hunk)
+            current_file['hunks'] = current_hunks
+            files.append(current_file)
+
+        return {'files': files}
+
+    def get_commit_info(
+        self,
+        repo_name: str,
+        commit: str
+    ) -> Dict[str, Any]:
+        """
+        שליפת פרטי commit בודד.
+
+        Args:
+            repo_name: שם הריפו
+            commit: Hash, tag, branch או expression
+
+        Returns:
+            Dict עם פרטי ה-commit
+        """
+        if not self._validate_repo_name(repo_name):
+            return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
+
+        mirror_path = self._get_mirror_path(repo_name)
+        if not mirror_path.exists():
+            return {"error": "repo_not_found", "message": "ריפו לא נמצא"}
+
+        # וולידציה
+        ref_validation = self._validate_ref_with_git(repo_name, commit)
+        if not ref_validation.get("valid"):
+            return {
+                "error": "commit_not_found",
+                "message": ref_validation.get("message", "Commit לא נמצא")
+            }
+
+        resolved_commit = ref_validation["resolved_sha"]
+
+        try:
+            # פרטי commit
+            format_str = "%H%x00%h%x00%an%x00%ae%x00%at%x00%cn%x00%ce%x00%ct%x00%s%x00%b%x00%P"
+            cmd = [
+                "git", "-C", str(mirror_path),
+                "log", "-1",
+                f"--format={format_str}",
+                resolved_commit
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                stderr = self._sanitize_output(result.stderr)
+                return {"error": "git_error", "message": stderr}
+
+            parts = result.stdout.strip().split("\x00")
+            if len(parts) < 11:
+                return {"error": "parse_error", "message": "שגיאה בפענוח פרטי commit"}
+
+            # רשימת קבצים שהשתנו
+            files_cmd = [
+                "git", "-C", str(mirror_path),
+                "diff-tree", "--no-commit-id",
+                "--name-status", "-r", "-M", "-C",  # עם rename/copy detection
+                resolved_commit
+            ]
+
+            files_result = subprocess.run(
+                files_cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=10
+            )
+
+            changed_files = []
+            if files_result.returncode == 0:
+                for line in files_result.stdout.strip().split('\n'):
+                    if not line:
+                        continue
+                    parts_file = line.split('\t')
+                    if len(parts_file) >= 2:
+                        status_code = parts_file[0]
+
+                        # פענוח סטטוס (כולל rename/copy עם אחוזים)
+                        status_map = {
+                            'A': 'added',
+                            'M': 'modified',
+                            'D': 'deleted',
+                        }
+
+                        if status_code.startswith('R'):
+                            status = 'renamed'
+                            similarity = int(status_code[1:]) if len(status_code) > 1 else None
+                            if len(parts_file) >= 3:
+                                changed_files.append({
+                                    'old_path': parts_file[1],
+                                    'new_path': parts_file[2],
+                                    'status': status,
+                                    'similarity': similarity
+                                })
+                                continue
+                        elif status_code.startswith('C'):
+                            status = 'copied'
+                            if len(parts_file) >= 3:
+                                changed_files.append({
+                                    'old_path': parts_file[1],
+                                    'new_path': parts_file[2],
+                                    'status': status
+                                })
+                                continue
+                        else:
+                            status = status_map.get(status_code[0], 'modified')
+
+                        changed_files.append({
+                            'path': parts_file[1],
+                            'status': status
+                        })
+
+            try:
+                author_ts = int(parts[4])
+                committer_ts = int(parts[7])
+            except ValueError:
+                author_ts = committer_ts = 0
+
+            return {
+                "success": True,
+                "hash": parts[0],
+                "short_hash": parts[1],
+                "author": {
+                    "name": parts[2],
+                    "email": parts[3],
+                    "timestamp": author_ts,
+                    "date": datetime.fromtimestamp(author_ts).isoformat() if author_ts else None
+                },
+                "committer": {
+                    "name": parts[5],
+                    "email": parts[6],
+                    "timestamp": committer_ts,
+                    "date": datetime.fromtimestamp(committer_ts).isoformat() if committer_ts else None
+                },
+                "message": parts[8],
+                "body": parts[9].strip(),
+                "parents": parts[10].split() if parts[10] else [],
+                "changed_files": changed_files
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"error": "timeout", "message": "הפעולה ארכה יותר מדי זמן"}
+        except Exception as e:
+            self.logger.error(f"Error getting commit info: {e}")
+            return {"error": "internal_error", "message": "שגיאה פנימית"}
 
     # ========== Search with git grep ==========
 
