@@ -257,7 +257,7 @@
           // זיהוי theme אפקטיבי מה-HTML (dark/dim => oneDark, custom => no theme)
           // 🎨 Custom themes: לא טוענים oneDark כדי לתת ל-syntax_css CSS classes לעבוד
           const htmlTheme = (typeof document !== 'undefined' && document.documentElement) ? document.documentElement.getAttribute('data-theme') : '';
-          const effectiveTheme = (htmlTheme === 'custom') ? 'custom' : ((htmlTheme === 'dark' || htmlTheme === 'dim' || htmlTheme === 'nebula') ? 'dark' : theme);
+          const effectiveTheme = (htmlTheme === 'custom') ? 'custom' : ((htmlTheme === 'dark' || htmlTheme === 'dim' || htmlTheme === 'nebula' || htmlTheme === 'indigo-violet') ? 'dark' : theme);
           const themeExt = await this.withTimeout(this.getTheme(effectiveTheme), 12000, 'codemirror_theme_load');
 
           // 🎨 Custom themes: טוען dynamic syntax highlighter במקום classHighlighter
