@@ -176,13 +176,45 @@ class GitMirrorService:
         """הסרת מידע רגיש מפלט Git."""
         if not output:
             return ''
-        # Remove tokens from URLs
-        # Preserve username (e.g., oauth2) and mask only the secret
-        sanitized = re.sub(
-            r'https://([^:]+):[^@]+@',
-            r'https://\1:***@',
-            output
-        )
+        # Remove tokens from URLs without regex-heavy parsing
+        sanitized_parts: List[str] = []
+        text = str(output)
+        needle = "https://"
+        i = 0
+        n = len(text)
+        while True:
+            j = text.find(needle, i)
+            if j == -1:
+                sanitized_parts.append(text[i:])
+                break
+            sanitized_parts.append(text[i:j])
+            k = j + len(needle)
+
+            max_end = min(n, k + 2048)
+            segment_end = max_end
+            for ch in (" ", "\n", "\r", "\t"):
+                p = text.find(ch, k, max_end)
+                if p != -1 and p < segment_end:
+                    segment_end = p
+            slash_pos = text.find("/", k, segment_end)
+            if slash_pos == -1:
+                slash_pos = segment_end
+
+            at_pos = text.find("@", k, slash_pos)
+            if at_pos != -1:
+                colon_pos = text.find(":", k, at_pos)
+                if colon_pos != -1:
+                    # Keep username, mask secret
+                    sanitized_parts.append(needle)
+                    sanitized_parts.append(text[k:colon_pos + 1])
+                    sanitized_parts.append("***@")
+                    i = at_pos + 1
+                    continue
+
+            sanitized_parts.append(needle)
+            i = k
+
+        sanitized = "".join(sanitized_parts)
         # Remove other potential secrets
         sanitized = re.sub(
             r'(token|password|secret|key)[\s]*[=:][\s]*[^\s]+',
@@ -732,7 +764,14 @@ class GitMirrorService:
         Returns:
             Dict עם resolved_sha או error
         """
-        if not self._validate_basic_ref(ref):
+        safe_ref: Optional[str] = None
+        if ref == 'HEAD':
+            safe_ref = ref
+        else:
+            match = self.BASIC_REF_PATTERN.fullmatch(ref or "")
+            if match:
+                safe_ref = match.group(0)
+        if not safe_ref:
             return {
                 "valid": False,
                 "error": "invalid_ref",
@@ -744,7 +783,7 @@ class GitMirrorService:
             cmd = [
                 "git", "-C", str(mirror_path),
                 "rev-parse", "--verify", "--quiet",
-                f"{ref}^{{commit}}"  # ודא שזה commit
+                f"{safe_ref}^{{commit}}"  # ודא שזה commit
             ]
 
             result = subprocess.run(
@@ -758,7 +797,7 @@ class GitMirrorService:
                 return {
                     "valid": False,
                     "error": "invalid_ref",
-                    "message": f"Reference '{ref}' לא נמצא"
+                    "message": f"Reference '{safe_ref}' לא נמצא"
                 }
 
             return {
@@ -877,6 +916,14 @@ class GitMirrorService:
             return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
         if not self._validate_repo_file_path(file_path):
             return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
+        if not match:
+            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        safe_file_path = match.group(0)
+        match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
+        if not match:
+            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        safe_file_path = match.group(0)
         if not self._validate_basic_ref(ref):
             return {"error": "invalid_ref", "message": "Reference לא תקין"}
 
@@ -915,7 +962,7 @@ class GitMirrorService:
                 f"--format={format_str}",
                 resolved_ref,
                 "--",
-                file_path
+                safe_file_path
             ]
 
             result = subprocess.run(
@@ -1028,7 +1075,7 @@ class GitMirrorService:
             cmd = [
                 "git", "-C", str(mirror_path),
                 "show",
-                f"{resolved_commit}:{file_path}"
+                f"{resolved_commit}:{safe_file_path}"
             ]
 
             result = subprocess.run(
@@ -1138,8 +1185,14 @@ class GitMirrorService:
         if not self._validate_repo_name(repo_name):
             return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
 
-        if file_path and not self._validate_repo_file_path(file_path):
-            return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+        safe_file_path = None
+        if file_path:
+            if not self._validate_repo_file_path(file_path):
+                return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+            match = self.FILE_PATH_PATTERN.fullmatch(file_path or "")
+            if not match:
+                return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+            safe_file_path = match.group(0)
         if not self._validate_basic_ref(commit1):
             return {"error": "invalid_commit1", "message": f"Commit ראשון לא תקין: {commit1}"}
         if not self._validate_basic_ref(commit2):
@@ -1187,8 +1240,8 @@ class GitMirrorService:
                 f"{resolved_commit1}..{resolved_commit2}"  # סינטקס מפורש
             ]
 
-            if file_path:
-                cmd.extend(["--", file_path])
+            if safe_file_path:
+                cmd.extend(["--", safe_file_path])
 
             result = subprocess.run(
                 cmd,
