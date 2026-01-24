@@ -613,6 +613,9 @@ function loadFilterPreferences() {
 // ========================================
 
 async function selectFile(path, element) {
+    // Close any active in-file search when switching files
+    closeInFileSearch();
+    
     // Update selection UI
     if (state.selectedElement) {
         state.selectedElement.classList.remove('selected');
