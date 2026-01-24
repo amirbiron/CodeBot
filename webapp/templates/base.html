@@ -4,7 +4,7 @@
 {% set _session_user_id = session.get('user_id') %}
 {% set _session_user_data = session.get('user_data') or {} %}
 {% set _session_first_name = (_session_user_data.get('first_name') if _session_user_data is mapping else none) %}
-<html dir="rtl" lang="he"{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if _announcement_enabled else 'off' }}" data-weekly-tip="{{ 'on' if _announcement_enabled else 'off' }}"{% endif %}>
+<html dir="rtl" lang="he" data-theme-scope="{{ ui_theme_scope }}"{% if ui_theme_custom_id %} data-theme-custom-id="{{ ui_theme_custom_id }}"{% endif %}{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if _announcement_enabled else 'off' }}" data-weekly-tip="{{ 'on' if _announcement_enabled else 'off' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -3677,9 +3677,16 @@
         } catch (_) {}
     }
 
-    function applyThemeAttributes(themeAttr, themeType) {
+    function applyThemeAttributes(themeAttr, themeType, themeId) {
         const html = document.documentElement;
         try { html.setAttribute('data-theme', themeAttr); } catch (_) {}
+        try {
+            if (themeType === 'custom' && themeId) {
+                html.setAttribute('data-theme-custom-id', themeId);
+            } else {
+                html.removeAttribute('data-theme-custom-id');
+            }
+        } catch (_) {}
         try {
             const raw = String(themeAttr || '').trim().toLowerCase();
             const isCustomType = themeType === 'shared'
@@ -3699,6 +3706,7 @@
         const state = {
             themeAttr: html.getAttribute('data-theme') || '',
             themeType: html.getAttribute('data-theme-type') || '',
+            themeCustomId: html.getAttribute('data-theme-custom-id') || '',
             userTheme: null,
             darkPref: null
         };
@@ -3722,6 +3730,13 @@
                 html.setAttribute('data-theme-type', state.themeType);
             } else {
                 html.removeAttribute('data-theme-type');
+            }
+        } catch (_) {}
+        try {
+            if (state.themeCustomId) {
+                html.setAttribute('data-theme-custom-id', state.themeCustomId);
+            } else {
+                html.removeAttribute('data-theme-custom-id');
             }
         } catch (_) {}
         try {
@@ -3750,13 +3765,19 @@
         } catch (_) {}
     }
 
+    function getThemeScope() {
+        const raw = String(document.documentElement.getAttribute('data-theme-scope') || '').trim().toLowerCase();
+        return raw === 'device' ? 'device' : 'global';
+    }
+
     function getActiveThemeInfo() {
         const raw = normalizeThemeId(document.documentElement.getAttribute('data-theme') || '');
         if (raw.toLowerCase().startsWith('shared:')) {
             return { type: 'shared', id: raw.slice('shared:'.length), raw: raw };
         }
         if (raw.toLowerCase() === 'custom') {
-            return { type: 'custom', id: '', raw: raw };
+            const customId = String(document.documentElement.getAttribute('data-theme-custom-id') || '').trim();
+            return { type: 'custom', id: customId, raw: raw };
         }
         return { type: 'builtin', id: raw, raw: raw };
     }
@@ -4009,7 +4030,10 @@
             return active.type === 'shared' && normalizeThemeId(active.id) === themeId;
         }
         if (theme.type === 'custom') {
-            return active.type === 'custom' && !!theme.is_active;
+            if (active.type === 'custom' && active.id) {
+                return normalizeThemeId(active.id) === themeId;
+            }
+            return !!theme.is_active;
         }
         if (theme.is_active) return true;
         if (active.type === 'builtin' && active.id) {
@@ -4028,7 +4052,12 @@
         if (active.type === 'shared') {
             theme = allThemes.find(t => t.type === 'shared' && normalizeThemeId(t.id) === normalizeThemeId(active.id));
         } else if (active.type === 'custom') {
-            theme = allThemes.find(t => t.type === 'custom' && t.is_active);
+            if (active.id) {
+                theme = allThemes.find(t => t.type === 'custom' && normalizeThemeId(t.id) === normalizeThemeId(active.id));
+            }
+            if (!theme) {
+                theme = allThemes.find(t => t.type === 'custom' && t.is_active);
+            }
         } else {
             theme = allThemes.find(t => normalizeThemeId(t.id) === normalizeThemeId(active.id || active.raw));
         }
@@ -4060,17 +4089,20 @@
             let body = null;
             let themeAttr = '';
             let resolvedType = themeType;
+            const themeScope = getThemeScope();
 
             if (resolvedType === 'shared') {
                 endpoint = `/api/themes/shared/${encodeURIComponent(normalizedThemeId)}/apply`;
+                body = { theme_scope: themeScope };
                 themeAttr = `shared:${normalizedThemeId}`;
             } else if (resolvedType === 'custom') {
                 endpoint = `/api/themes/${encodeURIComponent(normalizedThemeId)}/activate`;
+                body = { theme_scope: themeScope };
                 themeAttr = 'custom';
             } else {
                 resolvedType = 'builtin';
                 endpoint = '/api/ui_prefs';
-                body = { theme: normalizedThemeId };
+                body = { theme: normalizedThemeId, theme_scope: themeScope };
                 themeAttr = normalizedThemeId;
             }
 
@@ -4083,7 +4115,7 @@
             // צריך reload אם עוברים ל/מ-ערכות custom/shared
             const shouldReload = resolvedType === 'shared' || resolvedType === 'custom' || wasCustomOrShared;
 
-            applyThemeAttributes(themeAttr, resolvedType);
+            applyThemeAttributes(themeAttr, resolvedType, resolvedType === 'custom' ? normalizedThemeId : '');
             persistLocalTheme(themeAttr);
             if (shouldReload) {
                 rememberThemeTransition(themeAttr, resolvedType);
