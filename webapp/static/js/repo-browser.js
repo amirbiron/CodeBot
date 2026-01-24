@@ -867,8 +867,8 @@ function updateFileHeader(filePath) {
                 <i class="bi bi-clock-history"></i>
                 היסטוריה
             </button>
-            <button class="btn-icon file-copy-btn" type="button" title="העתק תוכן הקוד" aria-label="העתק תוכן הקוד">
-                <i class="bi bi-file-earmark-code"></i>
+            <button class="btn-icon file-copy-btn" type="button" title="העתק תוכן" aria-label="העתק תוכן">
+                <i class="bi bi-copy"></i>
                 <span class="sr-only">העתק תוכן</span>
             </button>
         </div>
