@@ -1256,9 +1256,6 @@
 /* כפתור עריכה - סגנון אייקון תואם לשאר הכפתורים */
 .file-edit-btn {
     text-decoration: none;
-    transition: all 0.2s ease;
-    text-decoration: none;
-    font-weight: 500;
 }
 
 .file-edit-btn:hover {
