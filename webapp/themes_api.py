@@ -37,6 +37,7 @@ THEME_SCOPE_DEVICE = "device"
 _THEME_SCOPE_VALUES = {THEME_SCOPE_GLOBAL, THEME_SCOPE_DEVICE}
 _THEME_ID_SAFE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _COOKIE_THEME_ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
+THEME_SCOPE_TS_COOKIE = "ui_theme_scope_ts"
 
 
 # ==========================================
@@ -202,6 +203,19 @@ def _set_theme_scope_cookies(resp: Response, theme_value: str, scope: str) -> No
         secure=True,
         httponly=True,
     )
+    if scope_value == THEME_SCOPE_DEVICE:
+        ts_value = str(int(time.time()))
+        if re.fullmatch(r"\d{9,12}", ts_value):
+            resp.set_cookie(
+                THEME_SCOPE_TS_COOKIE,
+                ts_value,
+                max_age=365 * 24 * 3600,
+                samesite="Lax",
+                secure=True,
+                httponly=True,
+            )
+    else:
+        resp.delete_cookie(THEME_SCOPE_TS_COOKIE)
 
 
 def require_auth(f):
@@ -428,7 +442,7 @@ def apply_shared_theme(theme_id: str):
         # עדכן את ההעדפה
         db_ref.users.update_one(
             {"user_id": int(user_id)},
-            {"$set": {"ui_prefs.theme": f"shared:{theme_id}", "updated_at": now_utc}},
+            {"$set": {"ui_prefs.theme": f"shared:{theme_id}", "ui_prefs.theme_updated_at": now_utc, "updated_at": now_utc}},
             upsert=True,
         )
 
@@ -836,6 +850,7 @@ def activate_theme_endpoint(theme_id: str):
     try:
         theme_scope = _get_theme_scope_from_request()
         db_ref = get_db()
+        now_utc = datetime.now(timezone.utc)
         user_doc = db_ref.users.find_one({"user_id": user_id, "custom_themes.id": theme_id}, {"custom_themes.$": 1})
         if not user_doc or not user_doc.get("custom_themes"):
             return jsonify({"ok": False, "error": "theme_not_found"}), 404
@@ -848,6 +863,14 @@ def activate_theme_endpoint(theme_id: str):
 
         success = _activate_theme_simple(db_ref, user_id, theme_id)
         if success:
+            if theme_scope != THEME_SCOPE_DEVICE:
+                try:
+                    db_ref.users.update_one(
+                        {"user_id": user_id},
+                        {"$set": {"ui_prefs.theme_updated_at": now_utc, "updated_at": now_utc}},
+                    )
+                except Exception:
+                    pass
             resp = jsonify({"ok": True, "message": "הערכה הופעלה בהצלחה", "active_theme_id": theme_id})
             _set_theme_scope_cookies(resp, theme_cookie_value, theme_scope)
             return resp
