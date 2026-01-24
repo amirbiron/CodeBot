@@ -841,11 +841,17 @@
     border-radius: 2px;
 }
 
-/* Current match highlight (more prominent) */
+/* Current selected match - orange/gold to stand out from other yellow matches */
 .CodeMirror-focused .cm-matchhighlight,
 .CodeMirror-selectedtext {
-    background: #fff176 !important;
-    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.9);
+    background: #ff9800 !important;
+    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.9);
+}
+
+/* CodeMirror 5: Selection background when navigating search results */
+.CodeMirror-focused .CodeMirror-selected,
+.CodeMirror .CodeMirror-selected {
+    background: #ff9800 !important;
 }
 
 /* CodeMirror 6 search match highlighting - strong yellow for all themes */
@@ -855,10 +861,16 @@
     border-radius: 2px;
 }
 
+/* Current selected match in CM6 - orange/gold */
 .cm-searchMatch-selected,
 .cm-searchMatch.cm-searchMatch-selected {
-    background: #fff176 !important;
-    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.9), 0 0 10px rgba(255, 235, 59, 0.5);
+    background: #ff9800 !important;
+    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.9), 0 0 10px rgba(255, 152, 0, 0.5);
+}
+
+/* CodeMirror 6: Selection background when navigating search results */
+.cm-selectionBackground {
+    background: #ff9800 !important;
 }
 
 /* Code Footer */
