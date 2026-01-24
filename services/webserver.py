@@ -43,6 +43,7 @@ from aiohttp import web
 import json
 import time
 from services.db_health_service import get_db_health_service
+from services.sentry_utils import first_int
 try:
     # Correlation for web requests
     from observability import generate_request_id, bind_request_id  # type: ignore
@@ -483,6 +484,15 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     display_id = short_id or (issue_id[:8] if issue_id else "issue")
     name = _truncate(f"Sentry: {display_id}", 128)
 
+    occurrence_count = first_int(
+        issue.get("count"),
+        issue.get("eventCount"),
+        issue.get("occurrence_count"),
+        payload.get("occurrence_count"),
+        payload.get("count"),
+        event.get("count"),
+    )
+
     # Important: order matters for UI display. Put alert_type and Sentry IDs first.
     details: Dict[str, Any] = {
         "alert_type": "sentry_issue",
@@ -496,6 +506,7 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
         "logger": str(event.get("logger") or payload.get("logger") or "").strip() or None,
         "culprit": str(issue.get("culprit") or event.get("culprit") or "").strip() or None,
         "environment": str(event.get("environment") or payload.get("environment") or "").strip() or None,
+        "occurrence_count": occurrence_count,
     }
     # Remove None values to keep storage clean
     details = {k: v for k, v in details.items() if v not in (None, "")}
