@@ -623,7 +623,10 @@
         <div>
           <div style="font-weight: 600">ערכת נושא</div>
           <div style="opacity: 0.8; font-size: 0.95rem">
-            בחר סגנון צבעים — כולל הנוכחית
+            בחר סגנון צבעים
+          </div>
+          <div style="opacity: 0.75; font-size: 0.9rem; margin-top: 0.2rem;">
+            בחר אם הערכות יחולו על כל המכשירים המחוברים שלך / רק על המכשיר הנוכחי
           </div>
         </div>
       </div>
@@ -642,19 +645,18 @@
           <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
         </select>
         <div style="margin-top: 0.6rem;">
-          <label for="themeScopeSelect" style="opacity: 0.8; font-size: 0.9rem; margin-bottom: 0.35rem; display: block;">
-            תחולת ערכת נושא
+          <label for="themeScopeSelect" style="position: absolute; left: -9999px;">
+            בחירת תחולת ערכות
           </label>
           <select
             id="themeScopeSelect"
             class="filter-select"
-            aria-label="תחולת ערכת נושא"
+            aria-label="תחולת ערכות"
             style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
           >
             <option value="global" {% if ui_theme_scope != 'device' %}selected{% endif %}>לכל המכשירים</option>
             <option value="device" {% if ui_theme_scope == 'device' %}selected{% endif %}>רק במכשיר הזה</option>
           </select>
-          <small style="opacity: 0.7; display: block; margin-top: 0.35rem;">הבחירה תשפיע על הערכה שתבחר כאן.</small>
         </div>
         <div style="margin-top: 0.75rem; opacity: 0.85; font-size: 0.95rem;">
           <a class="btn btn-secondary btn-icon" href="/settings/theme-builder">
@@ -1615,6 +1617,23 @@
         return v === 'device' ? 'device' : 'global';
       }
 
+      async function persistThemeScope(scope) {
+        const normalized = normalizeThemeScope(scope);
+        try {
+          const res = await fetch('/api/ui_prefs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme_scope: normalized })
+          });
+          const data = await res.json();
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && (data.error || data.message)) || 'theme_scope_save_failed');
+          }
+        } catch (err) {
+          console.error('Failed to persist theme scope:', err);
+        }
+      }
+
       function getThemeScope() {
         if (themeScopeSel) return normalizeThemeScope(themeScopeSel.value);
         return normalizeThemeScope(document.documentElement.getAttribute('data-theme-scope'));
@@ -1630,7 +1649,11 @@
 
       if (themeScopeSel) {
         syncThemeScope(themeScopeSel.value);
-        themeScopeSel.addEventListener('change', () => syncThemeScope(themeScopeSel.value));
+        themeScopeSel.addEventListener('change', async () => {
+          const nextScope = themeScopeSel.value;
+          syncThemeScope(nextScope);
+          await persistThemeScope(nextScope);
+        });
       }
 
       function persistLocalTheme(theme) {
