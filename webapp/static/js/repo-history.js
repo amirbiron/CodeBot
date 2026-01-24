@@ -190,22 +190,25 @@ const RepoHistory = (function() {
         const searchInput = historyPanel.querySelector('.history-search-input');
         const searchClear = historyPanel.querySelector('.history-search-clear');
         
-        let searchDebounce = null;
         searchInput.addEventListener('input', () => {
             const query = searchInput.value.trim();
             searchClear.style.display = query ? '' : 'none';
             
-            if (searchDebounce) clearTimeout(searchDebounce);
-            
-            if (query.length >= 2) {
-                searchDebounce = setTimeout(() => searchHistory(query), 300);
-            } else if (query.length === 0) {
+            // אם נמחק הטקסט - נקה תוצאות
+            if (query.length === 0) {
                 clearSearchResults();
             }
         });
 
         searchInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
+            if (e.key === 'Enter') {
+                const query = searchInput.value.trim();
+                if (query.length >= 2) {
+                    searchHistory(query);
+                } else if (query.length > 0) {
+                    showToast('מינימום 2 תווים לחיפוש', 'error', 2000);
+                }
+            } else if (e.key === 'Escape') {
                 searchInput.value = '';
                 searchClear.style.display = 'none';
                 clearSearchResults();
@@ -487,8 +490,12 @@ const RepoHistory = (function() {
     async function searchHistory(query) {
         const resultsContainer = historyPanel.querySelector('.history-search-results');
         const commitsContainer = historyPanel.querySelector('.history-commits');
+        const searchInput = historyPanel.querySelector('.history-search-input');
         const searchTypeBtn = historyPanel.querySelector('.search-type-btn.active');
         const searchType = searchTypeBtn?.dataset.type || 'message';
+
+        // שמירת ה-query הנוכחי לבדיקת race condition
+        const requestedQuery = query;
 
         // הצגת מצב טעינה
         resultsContainer.style.display = '';
@@ -511,6 +518,13 @@ const RepoHistory = (function() {
             const response = await fetch(url);
             const data = await response.json();
 
+            // בדיקת race condition: האם ה-query השתנה בינתיים?
+            const currentQuery = searchInput?.value.trim() || '';
+            if (currentQuery !== requestedQuery) {
+                console.log('Search race condition avoided: query changed');
+                return;  // התעלם מהתוצאות - כבר לא רלוונטיות
+            }
+
             if (!data.success) {
                 throw new Error(data.message || 'שגיאה בחיפוש');
             }
@@ -519,6 +533,13 @@ const RepoHistory = (function() {
 
         } catch (error) {
             console.error('Error searching history:', error);
+            
+            // בדיקת race condition גם במקרה של שגיאה
+            const currentQuery = searchInput?.value.trim() || '';
+            if (currentQuery !== requestedQuery) {
+                return;
+            }
+            
             resultsContainer.innerHTML = `
                 <div class="history-error">
                     <i class="bi bi-exclamation-triangle"></i>
@@ -951,6 +972,10 @@ const RepoHistory = (function() {
 
         } catch (error) {
             console.error('Error loading diff:', error);
+            
+            // ניקוי lastDiffData כדי למנוע הצגת נתונים ישנים
+            state.lastDiffData = null;
+            
             content.innerHTML = `
                 <div class="diff-error">
                     <i class="bi bi-exclamation-triangle"></i>
