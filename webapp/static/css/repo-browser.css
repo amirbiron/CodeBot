@@ -747,6 +747,67 @@
     position: relative;
 }
 
+/* View Mode Toggle */
+.view-mode-toggle {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    background: var(--bg-tertiary, #313244);
+    border-radius: 4px;
+    margin-left: 8px;
+}
+
+.view-mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--text-muted, #6c7086);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.view-mode-btn:hover {
+    background: var(--bg-hover, #45475a);
+    color: var(--text-secondary, #bac2de);
+}
+
+.view-mode-btn.active {
+    background: var(--accent-blue, #89b4fa);
+    color: var(--bg-primary, #1e1e2e);
+}
+
+.view-mode-btn i {
+    font-size: 14px;
+}
+
+/* Basic Code Viewer (textarea for easy text selection) */
+.basic-code-viewer {
+    width: 100%;
+    height: 100%;
+    padding: 16px;
+    background: var(--bg-primary, #1e1e2e);
+    color: var(--text-primary, #cdd6f4);
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;  /* smooth scrolling on iOS */
+}
+
+.basic-code-viewer::selection {
+    background: var(--accent-blue, #89b4fa);
+    color: var(--bg-primary, #1e1e2e);
+}
+
 /* CodeMirror Overrides */
 .CodeMirror {
     height: 100% !important;
