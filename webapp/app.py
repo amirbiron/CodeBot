@@ -26,7 +26,7 @@ import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
 from werkzeug.utils import secure_filename
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse, quote as url_quote
 from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING, ASCENDING
@@ -14373,7 +14373,7 @@ def upload_from_repo():
         description_value=f'מקור: {file_path}',
         tags_value='',
         code_value=content,
-        source_url_value=f'https://github.com/amirbiron/CodeBot/blob/main/{file_path}',
+        source_url_value=f'https://github.com/amirbiron/CodeBot/blob/main/{url_quote(file_path, safe="/")}',
         clear_local_draft=True,
         from_repo=True,  # flag להראות שזה מגיע מהריפו
     )

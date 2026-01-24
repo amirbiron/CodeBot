@@ -1911,11 +1911,26 @@ class GitMirrorService:
 
                     current_file = file_line
 
-            # ניקוי
+            # ניקוי והמתנה לסיום התהליך
             try:
                 process.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 process.kill()
+                process.wait()
+
+            # בדיקת קוד יציאה - git grep מחזיר 1 כשאין תוצאות (תקין)
+            # קוד יציאה אחר (2+) מציין שגיאה
+            returncode = process.returncode
+            if returncode is not None and returncode > 1:
+                # קריאת stderr לקבלת הודעת השגיאה
+                stderr_output = ""
+                try:
+                    stderr_output = process.stderr.read() if process.stderr else ""
+                except Exception:
+                    pass
+                error_msg = stderr_output[:200] if stderr_output else f"git grep failed with code {returncode}"
+                logger.warning(f"git grep error (code {returncode}): {error_msg}")
+                return {"error": "search_failed", "message": error_msg, "results": []}
 
             return results
 
