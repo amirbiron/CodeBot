@@ -2035,6 +2035,151 @@ class GitMirrorService:
             "truncated": truncated,
         }
 
+    def search_history(
+        self,
+        repo_name: str,
+        query: str,
+        search_type: str = "message",
+        file_path: Optional[str] = None,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        חיפוש בהיסטוריית commits.
+
+        Args:
+            repo_name: שם הריפו
+            query: מילת חיפוש
+            search_type: סוג החיפוש:
+                - "message": חיפוש בהודעות commit
+                - "code": חיפוש בקוד (pickaxe - מי הוסיף/הסיר את המילה)
+            file_path: הגבלה לקובץ ספציפי (אופציונלי)
+            limit: מספר תוצאות מקסימלי (1-50)
+
+        Returns:
+            Dict עם רשימת commits או שגיאה
+        """
+        # וולידציה בסיסית
+        if not self._validate_repo_name(repo_name):
+            return {"error": "invalid_repo_name", "message": "שם ריפו לא תקין"}
+
+        if not query or len(query.strip()) < 2:
+            return {"error": "invalid_query", "message": "מילת החיפוש קצרה מדי (מינימום 2 תווים)"}
+
+        # ניקוי query מתווים מסוכנים
+        safe_query = re.sub(r'[^\w\s\-_.@#]', '', query.strip())
+        if not safe_query:
+            return {"error": "invalid_query", "message": "מילת החיפוש מכילה תווים לא תקינים"}
+
+        if search_type not in ("message", "code"):
+            return {"error": "invalid_search_type", "message": "סוג חיפוש לא תקין"}
+
+        limit = max(1, min(int(limit) if isinstance(limit, (int, str)) else 20, 50))
+
+        mirror_path = self._get_mirror_path(repo_name)
+        if not mirror_path.exists():
+            return {"error": "repo_not_found", "message": "ריפו לא נמצא"}
+
+        # וולידציה לנתיב קובץ אם צוין
+        safe_file_path = None
+        if file_path:
+            safe_file_path = self._get_safe_file_path(file_path)
+            if not safe_file_path:
+                return {"error": "invalid_file_path", "message": "נתיב קובץ לא תקין"}
+
+        try:
+            # פורמט לפענוח קל
+            format_str = "%H%x00%h%x00%an%x00%ae%x00%at%x00%s%x00%b%x1E"
+
+            cmd = [
+                "git", "-C", str(mirror_path),
+                "log",
+                f"--max-count={limit}",
+                f"--format={format_str}",
+            ]
+
+            # הוספת פרמטר חיפוש לפי סוג
+            if search_type == "message":
+                cmd.extend(["--grep", safe_query, "-i"])  # case insensitive
+            else:  # code
+                cmd.extend([f"-S{safe_query}"])  # pickaxe
+
+            # הוספת ref ברירת מחדל
+            cmd.append("HEAD")
+
+            # הגבלה לקובץ ספציפי
+            if safe_file_path:
+                cmd.extend(["--", safe_file_path])
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=60  # timeout ארוך יותר לחיפוש בקוד
+            )
+
+            if result.returncode != 0:
+                stderr = self._sanitize_output(result.stderr)
+                return {"error": "git_error", "message": stderr}
+
+            # פענוח התוצאות
+            commits = []
+            raw_commits = result.stdout.strip().split("\x1E")
+
+            for raw in raw_commits:
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                parts = raw.split("\x00")
+                if len(parts) < 6:
+                    continue
+
+                try:
+                    timestamp = int(parts[4])
+                except ValueError:
+                    timestamp = 0
+
+                message = parts[5]
+                # הדגשת מילת החיפוש בהודעה (לחיפוש בהודעות)
+                highlighted_message = message
+                if search_type == "message":
+                    # הדגשה case-insensitive
+                    pattern = re.compile(re.escape(safe_query), re.IGNORECASE)
+                    highlighted_message = pattern.sub(
+                        lambda m: f"<mark>{m.group()}</mark>",
+                        message
+                    )
+
+                commits.append({
+                    "hash": parts[0],
+                    "short_hash": parts[1],
+                    "author": parts[2],
+                    "author_email": parts[3],
+                    "timestamp": timestamp,
+                    "date": datetime.fromtimestamp(timestamp).isoformat() if timestamp else None,
+                    "message": message,
+                    "highlighted_message": highlighted_message,
+                    "body": parts[6].strip() if len(parts) > 6 else ""
+                })
+
+            return {
+                "success": True,
+                "query": query,
+                "search_type": search_type,
+                "file_path": file_path,
+                "commits": commits,
+                "total_returned": len(commits),
+                "limit": limit
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"error": "timeout", "message": "החיפוש ארך יותר מדי זמן"}
+        except Exception as e:
+            self.logger.error(f"Error searching history: {e}")
+            return {"error": "internal_error", "message": "שגיאה פנימית"}
+
 
 # Singleton instance
 _mirror_service: Optional[GitMirrorService] = None

@@ -513,6 +513,81 @@ def get_commit_info(commit):
         }), 500
 
 
+@repo_bp.route('/api/search-history', methods=['GET'])
+def api_search_history():
+    """
+    חיפוש בהיסטוריית commits.
+
+    Query params:
+        - q: מילת החיפוש (required, min 2 chars)
+        - type: סוג החיפוש - "message" (ברירת מחדל) או "code"
+        - file: הגבלה לקובץ ספציפי (optional)
+        - limit: מספר תוצאות מקסימלי (default: 20, max: 50)
+    """
+    try:
+        query = request.args.get('q', '').strip()
+        if not query or len(query) < 2:
+            return jsonify({
+                "success": False,
+                "error": "invalid_query",
+                "message": "מילת החיפוש קצרה מדי (מינימום 2 תווים)"
+            }), 400
+
+        search_type = request.args.get('type', 'message')
+        file_path = request.args.get('file')
+        limit = request.args.get('limit', 20, type=int)
+
+        git_service = get_git_service()
+        if not git_service:
+            return jsonify({
+                "success": False,
+                "error": "service_unavailable",
+                "message": "שירות Git לא זמין"
+            }), 503
+
+        # וולידציה לנתיב קובץ אם צוין
+        if file_path and not git_service._validate_repo_file_path(file_path):
+            return jsonify({
+                "success": False,
+                "error": "invalid_file_path",
+                "message": "נתיב קובץ לא תקין"
+            }), 400
+
+        result = git_service.search_history(
+            repo_name=DEFAULT_REPO_NAME,
+            query=query,
+            search_type=search_type,
+            file_path=file_path,
+            limit=limit
+        )
+
+        if "error" in result:
+            status_codes = {
+                "invalid_repo_name": 400,
+                "invalid_query": 400,
+                "invalid_search_type": 400,
+                "invalid_file_path": 400,
+                "repo_not_found": 404,
+                "timeout": 504,
+                "git_error": 500,
+                "internal_error": 500
+            }
+            return jsonify({
+                "success": False,
+                **result
+            }), status_codes.get(result["error"], 500)
+
+        return jsonify(result)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in search_history: {e}")
+        return jsonify({
+            "success": False,
+            "error": "internal_error",
+            "message": "שגיאה פנימית"
+        }), 500
+
+
 @repo_bp.route('/api/search')
 def api_search():
     """API לחיפוש משופר"""

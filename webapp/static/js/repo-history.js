@@ -22,7 +22,11 @@ const RepoHistory = (function() {
         // Compare mode
         compareMode: false,
         compareBase: null,    // commit ישן (אדום)
-        compareTarget: null   // commit חדש (ירוק)
+        compareTarget: null,  // commit חדש (ירוק)
+        // Diff view mode
+        diffViewMode: 'basic',  // 'basic' | 'advanced'
+        mergeViewInstance: null,  // CodeMirror MergeView instance
+        lastDiffData: null  // שמירת נתוני ה-diff האחרונים למעבר בין תצוגות
     };
 
     // DOM Elements
@@ -140,6 +144,23 @@ const RepoHistory = (function() {
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
+            <div class="history-search-bar">
+                <div class="history-search-input-wrapper">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="history-search-input" placeholder="חפש בהיסטוריה..." />
+                    <button class="history-search-clear" style="display: none;" title="נקה">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div class="history-search-type-toggle">
+                    <button class="search-type-btn active" data-type="message" title="חיפוש בהודעות commit">
+                        <i class="bi bi-chat-text"></i>
+                    </button>
+                    <button class="search-type-btn" data-type="code" title="חיפוש בקוד (מי הוסיף/הסיר)">
+                        <i class="bi bi-code-slash"></i>
+                    </button>
+                </div>
+            </div>
             <div class="compare-mode-banner" style="display: none;">
                 <span class="instructions">בחר שני commits להשוואה</span>
                 <div class="selection">
@@ -150,6 +171,7 @@ const RepoHistory = (function() {
                 <button class="compare-execute-btn" disabled>השווה</button>
                 <button class="compare-cancel-btn">ביטול</button>
             </div>
+            <div class="history-search-results" style="display: none;"></div>
             <div class="history-commits"></div>
         `;
         document.body.appendChild(historyPanel);
@@ -163,6 +185,56 @@ const RepoHistory = (function() {
 
         historyPanel.querySelector('.compare-cancel-btn')
             .addEventListener('click', cancelCompareMode);
+
+        // Search event listeners
+        const searchInput = historyPanel.querySelector('.history-search-input');
+        const searchClear = historyPanel.querySelector('.history-search-clear');
+        
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            searchClear.style.display = query ? '' : 'none';
+            
+            // אם נמחק הטקסט - נקה תוצאות
+            if (query.length === 0) {
+                clearSearchResults();
+            }
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const query = searchInput.value.trim();
+                if (query.length >= 2) {
+                    searchHistory(query);
+                } else if (query.length > 0) {
+                    showToast('מינימום 2 תווים לחיפוש', 'error', 2000);
+                }
+            } else if (e.key === 'Escape') {
+                searchInput.value = '';
+                searchClear.style.display = 'none';
+                clearSearchResults();
+            }
+        });
+
+        searchClear.addEventListener('click', () => {
+            searchInput.value = '';
+            searchClear.style.display = 'none';
+            clearSearchResults();
+            searchInput.focus();
+        });
+
+        // Search type toggle
+        historyPanel.querySelectorAll('.search-type-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                historyPanel.querySelectorAll('.search-type-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // אם יש טקסט בחיפוש, חפש מחדש עם הסוג החדש
+                const query = searchInput.value.trim();
+                if (query.length >= 2) {
+                    searchHistory(query);
+                }
+            });
+        });
     }
 
     function createDiffModal() {
@@ -188,12 +260,21 @@ const RepoHistory = (function() {
                             </div>
                         </div>
                     </div>
+                    <div class="diff-view-toggle">
+                        <button class="diff-view-btn active" data-view="basic" title="תצוגה בסיסית">
+                            <i class="bi bi-file-diff"></i>
+                        </button>
+                        <button class="diff-view-btn" data-view="advanced" title="תצוגה מתקדמת">
+                            <i class="bi bi-code-square"></i>
+                        </button>
+                    </div>
                     <button class="diff-modal-close" aria-label="סגור">
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
                 <div class="diff-stats"></div>
                 <div class="diff-content"></div>
+                <div class="diff-advanced-content" style="display: none;"></div>
             </div>
         `;
         document.body.appendChild(diffModal);
@@ -204,6 +285,15 @@ const RepoHistory = (function() {
 
         diffModal.addEventListener('click', (e) => {
             if (e.target === diffModal) closeDiffModal();
+        });
+
+        // Toggle view buttons
+        diffModal.querySelectorAll('.diff-view-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const view = btn.dataset.view;
+                if (view === state.diffViewMode) return;
+                switchDiffView(view);
+            });
         });
     }
 
@@ -391,6 +481,176 @@ const RepoHistory = (function() {
             loadMoreBtn.addEventListener('click', () => loadHistory(true));
             container.appendChild(loadMoreBtn);
         }
+    }
+
+    // ============================================
+    // History Search
+    // ============================================
+
+    async function searchHistory(query) {
+        const resultsContainer = historyPanel.querySelector('.history-search-results');
+        const commitsContainer = historyPanel.querySelector('.history-commits');
+        const searchInput = historyPanel.querySelector('.history-search-input');
+        const searchTypeBtn = historyPanel.querySelector('.search-type-btn.active');
+        const searchType = searchTypeBtn?.dataset.type || 'message';
+
+        // שמירת ה-query הנוכחי לבדיקת race condition
+        const requestedQuery = query;
+
+        // הצגת מצב טעינה
+        resultsContainer.style.display = '';
+        commitsContainer.style.display = 'none';
+        resultsContainer.innerHTML = `
+            <div class="history-loading">
+                <div class="spinner"></div>
+                <span>מחפש...</span>
+            </div>
+        `;
+
+        try {
+            const url = buildApiUrl('/repo/api/search-history', {
+                q: query,
+                type: searchType,
+                file: state.currentFile,
+                limit: 30
+            });
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            // בדיקת race condition: האם ה-query השתנה בינתיים?
+            const currentQuery = searchInput?.value.trim() || '';
+            if (currentQuery !== requestedQuery) {
+                console.log('Search race condition avoided: query changed');
+                return;  // התעלם מהתוצאות - כבר לא רלוונטיות
+            }
+
+            if (!data.success) {
+                throw new Error(data.message || 'שגיאה בחיפוש');
+            }
+
+            renderSearchResults(resultsContainer, data.commits, query, searchType);
+
+        } catch (error) {
+            console.error('Error searching history:', error);
+            
+            // בדיקת race condition גם במקרה של שגיאה
+            const currentQuery = searchInput?.value.trim() || '';
+            if (currentQuery !== requestedQuery) {
+                return;
+            }
+            
+            resultsContainer.innerHTML = `
+                <div class="history-error">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <p>${escapeHtml(error.message)}</p>
+                </div>
+            `;
+        }
+    }
+
+    function clearSearchResults() {
+        const resultsContainer = historyPanel.querySelector('.history-search-results');
+        const commitsContainer = historyPanel.querySelector('.history-commits');
+        
+        resultsContainer.style.display = 'none';
+        resultsContainer.innerHTML = '';
+        commitsContainer.style.display = '';
+    }
+
+    function renderSearchResults(container, commits, query, searchType) {
+        if (!commits || commits.length === 0) {
+            container.innerHTML = `
+                <div class="history-search-empty">
+                    <i class="bi bi-search"></i>
+                    <p>לא נמצאו תוצאות עבור "${escapeHtml(query)}"</p>
+                    <span class="search-hint">
+                        ${searchType === 'message' 
+                            ? 'נסה לחפש בקוד (לחץ על <i class="bi bi-code-slash"></i>)' 
+                            : 'נסה לחפש בהודעות (לחץ על <i class="bi bi-chat-text"></i>)'}
+                    </span>
+                </div>
+            `;
+            return;
+        }
+
+        const searchTypeLabel = searchType === 'message' ? 'הודעות' : 'קוד';
+        
+        let html = `
+            <div class="history-search-header">
+                <span class="results-count">${commits.length} תוצאות בחיפוש ${searchTypeLabel}</span>
+                <button class="clear-search-btn">
+                    <i class="bi bi-x"></i>
+                    נקה חיפוש
+                </button>
+            </div>
+            <div class="history-search-list">
+        `;
+
+        commits.forEach(commit => {
+            const relativeDate = formatRelativeDate(commit.timestamp);
+            const fullDate = formatFullDate(commit.timestamp);
+            
+            // שימוש בהודעה המודגשת אם קיימת
+            const displayMessage = searchType === 'message' && commit.highlighted_message 
+                ? commit.highlighted_message 
+                : escapeHtml(commit.message);
+
+            html += `
+                <div class="history-search-item" data-hash="${commit.hash}">
+                    <div class="search-item-header">
+                        <span class="commit-hash" title="לחץ להעתקה">${escapeHtml(commit.short_hash)}</span>
+                        <span class="commit-date" title="${fullDate}">${relativeDate}</span>
+                    </div>
+                    <div class="search-item-message">${displayMessage}</div>
+                    <div class="search-item-author">
+                        <i class="bi bi-person-circle"></i>
+                        ${escapeHtml(commit.author)}
+                    </div>
+                    <div class="search-item-actions">
+                        <button class="commit-action-btn view-btn" title="צפה בגרסה זו">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                        <button class="commit-action-btn diff-head-btn" title="השווה ל-HEAD">
+                            <i class="bi bi-file-diff"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Event listeners לתוצאות
+        container.querySelector('.clear-search-btn')?.addEventListener('click', () => {
+            const searchInput = historyPanel.querySelector('.history-search-input');
+            const searchClear = historyPanel.querySelector('.history-search-clear');
+            searchInput.value = '';
+            searchClear.style.display = 'none';
+            clearSearchResults();
+        });
+
+        container.querySelectorAll('.history-search-item').forEach(item => {
+            const hash = item.dataset.hash;
+            const commit = commits.find(c => c.hash === hash);
+            if (!commit) return;
+
+            item.querySelector('.commit-hash')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                copyToClipboard(hash);
+            });
+
+            item.querySelector('.view-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                viewFileAtCommit(hash);
+            });
+
+            item.querySelector('.diff-head-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showDiff(hash, 'HEAD', commit.message, 'HEAD');
+            });
+        });
     }
 
     function ensurePrevButtonForIndex(index) {
@@ -635,6 +895,7 @@ const RepoHistory = (function() {
         diffModal.classList.add('open');
 
         const content = diffModal.querySelector('.diff-content');
+        const advancedContent = diffModal.querySelector('.diff-advanced-content');
         const stats = diffModal.querySelector('.diff-stats');
         const commitsInfo = diffModal.querySelector('.diff-commits-info');
 
@@ -649,43 +910,308 @@ const RepoHistory = (function() {
         commitsInfo.querySelector('.commit-info.new .commit-message-preview').textContent =
             truncate(message2, 40);
 
+        // איפוס תצוגה
+        content.style.display = state.diffViewMode === 'basic' ? '' : 'none';
+        advancedContent.style.display = state.diffViewMode === 'advanced' ? '' : 'none';
+
         content.innerHTML = `
             <div class="diff-loading">
                 <div class="spinner"></div>
                 <span>טוען השוואה...</span>
             </div>
         `;
+        if (state.diffViewMode === 'advanced') {
+            advancedContent.innerHTML = `
+                <div class="diff-loading">
+                    <div class="spinner"></div>
+                    <span>טוען השוואה...</span>
+                </div>
+            `;
+        }
         stats.innerHTML = '';
 
         try {
-            const url = buildApiUrl(`/repo/api/diff/${encodeURIComponent(commit1)}/${encodeURIComponent(commit2)}`, {
-                file: state.currentFile,
-                format: 'both'
-            });
+            // טעינת diff + תוכן הקבצים במקביל
+            const [diffResponse, oldContentResponse, newContentResponse] = await Promise.all([
+                fetch(buildApiUrl(`/repo/api/diff/${encodeURIComponent(commit1)}/${encodeURIComponent(commit2)}`, {
+                    file: state.currentFile,
+                    format: 'both'
+                })),
+                fetch(buildApiUrl(`/repo/api/file-at-commit/${encodeURIComponent(commit1)}`, {
+                    file: state.currentFile
+                })),
+                commit2 === 'HEAD' 
+                    ? fetch(buildApiUrl(`/repo/api/file-at-commit/HEAD`, { file: state.currentFile }))
+                    : fetch(buildApiUrl(`/repo/api/file-at-commit/${encodeURIComponent(commit2)}`, { file: state.currentFile }))
+            ]);
 
-            const response = await fetch(url);
-            const data = await response.json();
+            const data = await diffResponse.json();
+            const oldData = await oldContentResponse.json();
+            const newData = await newContentResponse.json();
 
             if (!data.success) {
                 throw new Error(data.message || 'שגיאה בטעינת diff');
             }
 
+            // שמירת נתונים ל-state עבור מעבר בין תצוגות
+            state.lastDiffData = {
+                parsed: data.parsed,
+                stats: data.stats,
+                is_truncated: data.is_truncated,
+                old_content: oldData.success && !oldData.is_binary ? oldData.content : '',
+                new_content: newData.success && !newData.is_binary ? newData.content : ''
+            };
+
             renderDiffStats(stats, data.stats, data.is_truncated);
             renderDiff(content, data.parsed);
 
+            // אם במצב מתקדם - יצירת MergeView
+            if (state.diffViewMode === 'advanced') {
+                createMergeView(state.lastDiffData);
+            }
+
         } catch (error) {
             console.error('Error loading diff:', error);
+            
+            // ניקוי lastDiffData כדי למנוע הצגת נתונים ישנים
+            state.lastDiffData = null;
+            
             content.innerHTML = `
                 <div class="diff-error">
                     <i class="bi bi-exclamation-triangle"></i>
                     <p>${escapeHtml(error.message)}</p>
                 </div>
             `;
+            if (state.diffViewMode === 'advanced') {
+                advancedContent.innerHTML = `
+                    <div class="diff-error">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <p>${escapeHtml(error.message)}</p>
+                    </div>
+                `;
+            }
         }
     }
 
     function closeDiffModal() {
         diffModal.classList.remove('open');
+        destroyMergeView();
+        // איפוס state
+        state.diffViewMode = 'basic';
+        state.lastDiffData = null;
+        // איפוס כפתורי Toggle
+        const buttons = diffModal.querySelectorAll('.diff-view-btn');
+        buttons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === 'basic');
+        });
+        // הצגת תצוגה בסיסית, הסתרת מתקדמת
+        const basicContent = diffModal.querySelector('.diff-content');
+        const advancedContent = diffModal.querySelector('.diff-advanced-content');
+        if (basicContent) basicContent.style.display = '';
+        if (advancedContent) advancedContent.style.display = 'none';
+    }
+
+    /**
+     * מעבר בין תצוגה בסיסית למתקדמת
+     */
+    function switchDiffView(view) {
+        if (view === state.diffViewMode) return;
+        state.diffViewMode = view;
+
+        // עדכון כפתורים
+        const buttons = diffModal.querySelectorAll('.diff-view-btn');
+        buttons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === view);
+        });
+
+        const basicContent = diffModal.querySelector('.diff-content');
+        const advancedContent = diffModal.querySelector('.diff-advanced-content');
+
+        if (view === 'advanced') {
+            // מעבר לתצוגה מתקדמת
+            basicContent.style.display = 'none';
+            advancedContent.style.display = '';
+            
+            if (state.lastDiffData) {
+                createMergeView(state.lastDiffData);
+            } else {
+                // אם אין נתונים (למשל אחרי שגיאת API) - הצג הודעה
+                showAdvancedFallback('אין נתונים להצגה. נסה לרענן את ההשוואה.');
+            }
+        } else {
+            // מעבר לתצוגה בסיסית
+            destroyMergeView();
+            advancedContent.style.display = 'none';
+            basicContent.style.display = '';
+        }
+    }
+
+    /**
+     * יצירת CodeMirror MergeView
+     */
+    function createMergeView(diffData) {
+        const CM = window.CodeMirror6;
+        if (!CM || !CM.MergeView) {
+            console.warn('CodeMirror MergeView not available');
+            showAdvancedFallback('CodeMirror MergeView לא זמין');
+            return;
+        }
+
+        destroyMergeView();
+
+        const container = diffModal.querySelector('.diff-advanced-content');
+        if (!container) return;
+
+        // ניקוי הקונטיינר
+        container.innerHTML = '';
+
+        // בדיקה אם יש תוכן להשוואה
+        if (!diffData.old_content && !diffData.new_content) {
+            showAdvancedFallback('אין תוכן טקסטואלי להשוואה');
+            return;
+        }
+
+        try {
+            // בדיקת רוחב מסך - במובייל נציג Unified (שורה אחת מתחת לשנייה)
+            const isMobile = window.innerWidth < 768;
+            
+            // יצירת theme extensions
+            const themeExtensions = [];
+            const htmlTheme = document.documentElement.getAttribute('data-theme');
+            if (htmlTheme === 'dark' || htmlTheme === 'dim') {
+                const darkTheme = CM.getTheme ? CM.getTheme('dark') : [];
+                if (darkTheme && darkTheme.length) themeExtensions.push(...darkTheme);
+            }
+
+            // הגדרת שפה לפי סיומת הקובץ
+            const langSupport = getLanguageSupportForFile(state.currentFile);
+            if (langSupport) themeExtensions.push(langSupport);
+
+            // יצירת MergeView עם basicSetup (מספרי שורות, bracket matching וכו')
+            const editorExtensions = [
+                ...(CM.basicSetup || []),
+                CM.EditorView.editable.of(false),
+                CM.EditorState.readOnly.of(true),
+                ...themeExtensions
+            ];
+
+            state.mergeViewInstance = new CM.MergeView({
+                parent: container,
+                a: {
+                    doc: diffData.old_content || '',
+                    extensions: editorExtensions
+                },
+                b: {
+                    doc: diffData.new_content || '',
+                    extensions: [...editorExtensions]  // clone לכל צד
+                },
+                orientation: isMobile ? 'a-b' : 'a-b',  // תמיד side-by-side, CSS ידאג למובייל
+                revertControls: null,  // ללא כפתורי revert
+                highlightChanges: true,
+                gutter: true
+            });
+
+            // הוספת class למובייל
+            if (isMobile) {
+                container.classList.add('merge-view-mobile');
+            } else {
+                container.classList.remove('merge-view-mobile');
+            }
+
+            // האזנה לשינוי גודל מסך
+            window.addEventListener('resize', handleMergeViewResize);
+
+        } catch (error) {
+            console.error('Error creating MergeView:', error);
+            showAdvancedFallback('שגיאה ביצירת תצוגה מתקדמת: ' + error.message);
+        }
+    }
+
+    /**
+     * קבלת language support לפי שם הקובץ
+     */
+    function getLanguageSupportForFile(filePath) {
+        if (!filePath) return null;
+        const CM = window.CodeMirror6;
+        if (!CM || !CM.getLanguageSupport) return null;
+
+        const ext = filePath.split('.').pop()?.toLowerCase();
+        const langMap = {
+            'py': 'python',
+            'js': 'javascript',
+            'mjs': 'javascript',
+            'ts': 'typescript',
+            'tsx': 'typescript',
+            'html': 'html',
+            'htm': 'html',
+            'css': 'css',
+            'json': 'json',
+            'md': 'markdown',
+            'sql': 'sql',
+            'xml': 'xml'
+        };
+        const lang = langMap[ext];
+        return lang ? CM.getLanguageSupport(lang) : null;
+    }
+
+    /**
+     * הצגת הודעת fallback בתצוגה מתקדמת
+     */
+    function showAdvancedFallback(message) {
+        const container = diffModal.querySelector('.diff-advanced-content');
+        if (!container) return;
+        container.innerHTML = `
+            <div class="diff-advanced-fallback">
+                <i class="bi bi-info-circle"></i>
+                <p>${escapeHtml(message)}</p>
+                <button class="switch-to-basic-btn">עבור לתצוגה בסיסית</button>
+            </div>
+        `;
+        container.querySelector('.switch-to-basic-btn')?.addEventListener('click', () => {
+            switchDiffView('basic');
+        });
+    }
+
+    /**
+     * ניקוי MergeView instance
+     */
+    function destroyMergeView() {
+        window.removeEventListener('resize', handleMergeViewResize);
+        
+        if (state.mergeViewInstance) {
+            try {
+                state.mergeViewInstance.destroy();
+            } catch (e) {
+                console.warn('Error destroying MergeView:', e);
+            }
+            state.mergeViewInstance = null;
+        }
+
+        // ניקוי הקונטיינר
+        const container = diffModal?.querySelector('.diff-advanced-content');
+        if (container) {
+            container.innerHTML = '';
+            container.classList.remove('merge-view-mobile');
+        }
+    }
+
+    /**
+     * טיפול בשינוי גודל מסך - עדכון תצוגת MergeView
+     */
+    let resizeTimeout = null;
+    function handleMergeViewResize() {
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            const container = diffModal?.querySelector('.diff-advanced-content');
+            if (!container) return;
+            
+            const isMobile = window.innerWidth < 768;
+            if (isMobile) {
+                container.classList.add('merge-view-mobile');
+            } else {
+                container.classList.remove('merge-view-mobile');
+            }
+        }, 150);
     }
 
     function renderDiffStats(container, stats, isTruncated) {
