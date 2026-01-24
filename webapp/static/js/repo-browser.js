@@ -857,7 +857,7 @@ function updateFileHeader(filePath) {
             </span>
         </div>
         <div class="file-actions file-header-actions">
-            <a class="file-edit-btn" href="/upload/from-repo?path=${encodeURIComponent(filePath)}" title="ערוך / העתק קטעים" aria-label="ערוך קובץ">
+            <a class="file-edit-btn" href="/upload/from-repo?path=${encodeURIComponent(filePath)}" target="_blank" title="ערוך / העתק קטעים (נפתח בכרטיסייה חדשה)" aria-label="ערוך קובץ">
                 <i class="bi bi-pencil-square"></i>
                 ערוך
             </a>
