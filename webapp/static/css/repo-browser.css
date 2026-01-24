@@ -1253,27 +1253,13 @@
    היסטוריה ו-Diff Viewer
    ============================================ */
 
-/* כפתור עריכה */
+/* כפתור עריכה - סגנון אייקון תואם לשאר הכפתורים */
 .file-edit-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    font-size: 12px;
-    background: var(--accent-green, #a6e3a1);
-    border: 1px solid var(--accent-green, #a6e3a1);
-    border-radius: 4px;
-    color: var(--bg-primary, #1e1e2e);
-    cursor: pointer;
-    transition: all 0.2s ease;
     text-decoration: none;
-    font-weight: 500;
 }
 
 .file-edit-btn:hover {
-    background: var(--accent-teal, #94e2d5);
-    border-color: var(--accent-teal, #94e2d5);
-    color: var(--bg-primary, #1e1e2e);
+    text-decoration: none;
 }
 
 /* כפתור היסטוריה */
