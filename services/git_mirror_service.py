@@ -1758,15 +1758,20 @@ class GitMirrorService:
         try:
             # שימוש בשיטת streaming כדי להגביל את צריכת הזיכרון
             # עוצרים מוקדם כשמגיעים למספיק תוצאות
-            results = self._run_grep_with_streaming(cmd, repo_path, max_results, timeout)
+            streaming_result = self._run_grep_with_streaming(cmd, repo_path, max_results, timeout)
 
-            if isinstance(results, dict) and "error" in results:
-                return results
+            if "error" in streaming_result:
+                return streaming_result
+
+            results = streaming_result.get("results", [])
+            truncated = streaming_result.get("truncated", False)
+            truncation_reason = streaming_result.get("truncation_reason")
 
             return {
                 "results": results,
                 "total_count": len(results),
-                "truncated": len(results) >= max_results,
+                "truncated": truncated,
+                "truncation_reason": truncation_reason,
                 "query": query,
             }
 
@@ -1780,7 +1785,7 @@ class GitMirrorService:
         repo_path: Path,
         max_results: int,
         timeout: int
-    ) -> List[Dict[str, Any]] | Dict[str, Any]:
+    ) -> Dict[str, Any]:
         """
         הרצת git grep עם streaming לצמצום צריכת זיכרון.
 
@@ -1794,7 +1799,7 @@ class GitMirrorService:
             timeout: timeout בשניות
 
         Returns:
-            רשימת תוצאות או dict עם שגיאה
+            dict עם results, truncated, truncation_reason או error
         """
         # וולידציה בסיסית (ממומש כבר ב-_run_git_command אבל נבדוק גם פה)
         if not cmd or cmd[0] != "git":
@@ -1804,6 +1809,8 @@ class GitMirrorService:
         current_file: Optional[str] = None
         lines_read = 0
         max_lines = max_results * 50  # הגבלת קריאה גם אם אין מספיק התאמות
+        truncated = False
+        truncation_reason: Optional[str] = None
 
         def _looks_like_git_sha(text: str) -> bool:
             t = (text or "").strip()
@@ -1811,6 +1818,7 @@ class GitMirrorService:
                 return False
             return all(c in "0123456789abcdefABCDEF" for c in t)
 
+        process: Optional[subprocess.Popen] = None
         try:
             process = subprocess.Popen(
                 cmd,
@@ -1833,6 +1841,8 @@ class GitMirrorService:
                 if elapsed >= timeout:
                     process.kill()
                     logger.warning(f"git grep timeout after {elapsed:.1f}s")
+                    truncated = True
+                    truncation_reason = "timeout"
                     break
 
                 # בדיקה אם יש עוד פלט
@@ -1862,6 +1872,8 @@ class GitMirrorService:
                     # הגבלת קריאה למקרה של פלט אינסופי
                     process.kill()
                     logger.warning(f"git grep output limit reached ({max_lines} lines)")
+                    truncated = True
+                    truncation_reason = "output_limit"
                     break
 
                 # פרסור השורה
@@ -1888,6 +1900,8 @@ class GitMirrorService:
                             if len(results) >= max_results:
                                 # מספיק תוצאות - עוצרים מוקדם!
                                 process.kill()
+                                truncated = True
+                                truncation_reason = "max_results"
                                 break
 
                         except ValueError:
@@ -1911,13 +1925,6 @@ class GitMirrorService:
 
                     current_file = file_line
 
-            # ניקוי והמתנה לסיום התהליך
-            try:
-                process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-
             # בדיקת קוד יציאה - git grep מחזיר 1 כשאין תוצאות (תקין)
             # קוד יציאה אחר (2+) מציין שגיאה
             returncode = process.returncode
@@ -1932,13 +1939,35 @@ class GitMirrorService:
                 logger.warning(f"git grep error (code {returncode}): {error_msg}")
                 return {"error": "search_failed", "message": error_msg, "results": []}
 
-            return results
+            return {
+                "results": results,
+                "truncated": truncated,
+                "truncation_reason": truncation_reason
+            }
 
         except FileNotFoundError:
             return {"error": "git_not_found", "results": []}
         except Exception as e:
             logger.exception(f"Streaming grep error: {e}")
             return {"error": "search_error", "message": str(e)[:200], "results": []}
+        finally:
+            # ניקוי subprocess בכל מקרה - מונע דליפות
+            if process is not None:
+                try:
+                    # וידוא שהתהליך נהרג
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=1)
+                except Exception:
+                    pass
+                # סגירת file handles
+                try:
+                    if process.stdout:
+                        process.stdout.close()
+                    if process.stderr:
+                        process.stderr.close()
+                except Exception:
+                    pass
 
     def _is_regex(self, query: str) -> bool:
         """בדיקה אם ה-query הוא regex"""
