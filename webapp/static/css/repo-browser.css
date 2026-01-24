@@ -848,9 +848,9 @@
     box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.9);
 }
 
-/* CodeMirror 5: Selection background when navigating search results */
-.CodeMirror-focused .CodeMirror-selected,
-.CodeMirror .CodeMirror-selected {
+/* CodeMirror 5: Selection background ONLY when in-file search is active */
+.search-active .CodeMirror-focused .CodeMirror-selected,
+.search-active .CodeMirror .CodeMirror-selected {
     background: #ff9800 !important;
 }
 
@@ -868,8 +868,8 @@
     box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.9), 0 0 10px rgba(255, 152, 0, 0.5);
 }
 
-/* CodeMirror 6: Selection background when navigating search results */
-.cm-selectionBackground {
+/* CodeMirror 6: Selection background ONLY when in-file search is active */
+.search-active .cm-selectionBackground {
     background: #ff9800 !important;
 }
 

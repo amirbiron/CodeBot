@@ -1226,11 +1226,14 @@ function searchInFile() {
     // Show custom search bar (works on mobile too)
     const searchBar = document.getElementById('in-file-search');
     const searchInput = document.getElementById('in-file-search-input');
+    const wrapper = document.getElementById('code-editor-wrapper');
     
     if (searchBar && searchInput) {
         searchBar.style.display = 'flex';
         searchInput.focus();
         searchInput.select();
+        // Add search-active class for CSS styling
+        if (wrapper) wrapper.classList.add('search-active');
         // Recalculate height after search bar appears
         setTimeout(recalculateEditorHeight, 50);
     } else if (state.editor) {
@@ -1246,9 +1249,12 @@ function searchInFile() {
 
 function closeInFileSearch() {
     const searchBar = document.getElementById('in-file-search');
+    const wrapper = document.getElementById('code-editor-wrapper');
     if (searchBar) {
         searchBar.style.display = 'none';
     }
+    // Remove search-active class
+    if (wrapper) wrapper.classList.remove('search-active');
     clearSearchHighlights();
     searchState = { matches: [], currentIndex: -1, query: '' };
     document.getElementById('in-file-search-count').textContent = '';
