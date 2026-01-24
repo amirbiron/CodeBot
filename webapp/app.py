@@ -26,7 +26,7 @@ import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
 from werkzeug.utils import secure_filename
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse, quote as url_quote
 from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING, ASCENDING
@@ -14319,6 +14319,64 @@ def _save_markdown_images(db, user_id, snippet_id, images_payload):
             'user_id': user_id,
             'error': str(exc),
         })
+
+
+@app.route('/upload/from-repo')
+@login_required
+def upload_from_repo():
+    """פתיחת עמוד העלאה עם תוכן קובץ מהריפו - לעריכה מהירה או העתקת קטעים."""
+    from services.git_mirror_service import get_mirror_service
+    
+    file_path = request.args.get('path', '').strip()
+    if not file_path:
+        return redirect(url_for('upload_file_web'))
+    
+    # קריאת הקובץ מהריפו
+    git_service = get_mirror_service()
+    content = git_service.get_file_content('CodeBot', file_path)
+    
+    if content is None:
+        flash('הקובץ לא נמצא בריפו', 'error')
+        return redirect(url_for('upload_file_web'))
+    
+    # זיהוי שפה לפי סיומת
+    ext = file_path.split('.')[-1].lower() if '.' in file_path else 'text'
+    lang_map = {
+        'py': 'python', 'js': 'javascript', 'ts': 'typescript',
+        'html': 'html', 'css': 'css', 'json': 'json',
+        'md': 'markdown', 'yml': 'yaml', 'yaml': 'yaml',
+        'sh': 'shell', 'sql': 'sql'
+    }
+    language = lang_map.get(ext, 'text')
+    
+    # שם הקובץ מהנתיב
+    file_name = file_path.split('/')[-1]
+    
+    # שליפת שפות קיימות
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        raw_languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
+    except Exception:
+        raw_languages = []
+    languages = _build_language_choices(raw_languages)
+    
+    return render_template(
+        'upload.html',
+        bot_username=BOT_USERNAME_CLEAN,
+        user=session['user_data'],
+        languages=languages,
+        error=None,
+        success=None,
+        file_name_value=file_name,
+        language_value=language,
+        description_value=f'מקור: {file_path}',
+        tags_value='',
+        code_value=content,
+        source_url_value=f'https://github.com/amirbiron/CodeBot/blob/main/{url_quote(file_path, safe="/")}',
+        clear_local_draft=True,
+        from_repo=True,  # flag להראות שזה מגיע מהריפו
+    )
 
 
 @app.route('/upload', methods=['GET', 'POST'])

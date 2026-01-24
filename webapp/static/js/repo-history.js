@@ -26,7 +26,8 @@ const RepoHistory = (function() {
         // Diff view mode
         diffViewMode: 'basic',  // 'basic' | 'advanced'
         mergeViewInstance: null,  // CodeMirror MergeView instance
-        lastDiffData: null  // שמירת נתוני ה-diff האחרונים למעבר בין תצוגות
+        lastDiffData: null,  // שמירת נתוני ה-diff האחרונים למעבר בין תצוגות
+        scrollSyncCleanup: null  // פונקציית ניקוי ל-scroll sync
     };
 
     // DOM Elements
@@ -1111,6 +1112,9 @@ const RepoHistory = (function() {
                 gutter: true
             });
 
+            // הוספת synchronized scrolling
+            setupMergeViewScrollSync(state.mergeViewInstance);
+
             // הוספת class למובייל
             if (isMobile) {
                 container.classList.add('merge-view-mobile');
@@ -1173,10 +1177,86 @@ const RepoHistory = (function() {
     }
 
     /**
+     * הגדרת synchronized scrolling חכם בין שני העורכים
+     * מונע רעידות, עובד גם עם מקלדת
+     */
+    function setupMergeViewScrollSync(mergeView) {
+        if (!mergeView || !mergeView.a || !mergeView.b) return;
+
+        const scrollerA = mergeView.a.scrollDOM;
+        const scrollerB = mergeView.b.scrollDOM;
+
+        if (!scrollerA || !scrollerB) return;
+
+        let activeSide = null;
+        let resetTimeout = null;
+
+        // 1. זיהוי צד אקטיבי לפי עכבר/מגע
+        const setActiveA = () => { activeSide = 'a'; };
+        const setActiveB = () => { activeSide = 'b'; };
+
+        scrollerA.addEventListener('mouseenter', setActiveA);
+        scrollerB.addEventListener('mouseenter', setActiveB);
+        scrollerA.addEventListener('touchstart', setActiveA, { passive: true });
+        scrollerB.addEventListener('touchstart', setActiveB, { passive: true });
+
+        // 2. פונקציית סנכרון ראשית
+        function sync(source, target, side) {
+            // הגנה: אם הצד השני הוא המפקד, התעלם (זה הד של הגלילה)
+            if (activeSide && activeSide !== side) {
+                return;
+            }
+
+            // אם אין מפקד (גלילת מקלדת), לוקחים פיקוד
+            activeSide = side;
+
+            // חישוב יחסי (למקרה שהגבהים שונים)
+            const denom = (source.scrollHeight - source.clientHeight) || 1;
+            const percentage = source.scrollTop / denom;
+            const targetPos = percentage * (target.scrollHeight - target.clientHeight);
+
+            // ביצוע הגלילה בצד השני
+            requestAnimationFrame(() => {
+                target.scrollTop = targetPos;
+            });
+
+            // שחרור הפיקוד כשמפסיקים לגלול (Debounce)
+            clearTimeout(resetTimeout);
+            resetTimeout = setTimeout(() => {
+                activeSide = null;
+            }, 150);
+        }
+
+        // 3. האזנה לאירועי גלילה
+        const syncAtoB = () => sync(scrollerA, scrollerB, 'a');
+        const syncBtoA = () => sync(scrollerB, scrollerA, 'b');
+
+        scrollerA.addEventListener('scroll', syncAtoB, { passive: true });
+        scrollerB.addEventListener('scroll', syncBtoA, { passive: true });
+
+        // שמירת פונקציית ניקוי
+        state.scrollSyncCleanup = () => {
+            clearTimeout(resetTimeout);
+            scrollerA.removeEventListener('mouseenter', setActiveA);
+            scrollerB.removeEventListener('mouseenter', setActiveB);
+            scrollerA.removeEventListener('touchstart', setActiveA);
+            scrollerB.removeEventListener('touchstart', setActiveB);
+            scrollerA.removeEventListener('scroll', syncAtoB);
+            scrollerB.removeEventListener('scroll', syncBtoA);
+        };
+    }
+
+    /**
      * ניקוי MergeView instance
      */
     function destroyMergeView() {
         window.removeEventListener('resize', handleMergeViewResize);
+        
+        // ניקוי scroll sync
+        if (state.scrollSyncCleanup) {
+            state.scrollSyncCleanup();
+            state.scrollSyncCleanup = null;
+        }
         
         if (state.mergeViewInstance) {
             try {
