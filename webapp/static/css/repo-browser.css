@@ -219,23 +219,14 @@
     text-overflow: ellipsis;
 }
 
+/* Search result highlight - strong yellow for all themes */
 .search-result-preview mark {
-    background: var(--accent-yellow, #f9e2af);
-    color: var(--bg-primary, #1e1e2e);
-    padding: 1px 3px;
+    background: #ffeb3b;
+    color: #000;
+    padding: 1px 4px;
     border-radius: 3px;
-    font-weight: 600;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
-}
-
-/* Enhanced highlight for custom themes - ensure visibility */
-[data-theme="custom"] .search-result-preview mark,
-[data-theme^="shared:"] .search-result-preview mark {
-    background: #ffeb3b !important;
-    color: #000 !important;
     font-weight: 700;
-    box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
-    text-shadow: none;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .search-result-line {
@@ -843,58 +834,31 @@
     font-size: 12px;
 }
 
-/* Search match highlighting in CodeMirror */
+/* Search match highlighting in CodeMirror 5 - strong yellow for all themes */
 .cm-searching {
-    background: rgba(249, 226, 175, 0.6) !important;
-    box-shadow: 0 0 0 2px rgba(249, 226, 175, 0.8);
+    background: #ffeb3b !important;
+    box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.7), 0 0 6px rgba(255, 235, 59, 0.4);
     border-radius: 2px;
 }
 
 /* Current match highlight (more prominent) */
 .CodeMirror-focused .cm-matchhighlight,
 .CodeMirror-selectedtext {
-    background: rgba(249, 226, 175, 0.8) !important;
-}
-
-/* Enhanced search highlighting for custom themes */
-[data-theme="custom"] .cm-searching,
-[data-theme^="shared:"] .cm-searching {
-    background: #ffeb3b !important;
-    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.6), inset 0 0 0 1px rgba(0,0,0,0.2);
-    border-radius: 2px;
-}
-
-[data-theme="custom"] .CodeMirror-focused .cm-matchhighlight,
-[data-theme^="shared:"] .CodeMirror-focused .cm-matchhighlight {
     background: #fff176 !important;
+    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.9);
 }
 
-/* CodeMirror 6 search match highlighting */
+/* CodeMirror 6 search match highlighting - strong yellow for all themes */
 .cm-searchMatch {
-    background: rgba(249, 226, 175, 0.5) !important;
-    box-shadow: 0 0 0 1px rgba(249, 226, 175, 0.8);
+    background: #ffeb3b !important;
+    box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.7), 0 0 6px rgba(255, 235, 59, 0.4);
     border-radius: 2px;
 }
 
 .cm-searchMatch-selected,
 .cm-searchMatch.cm-searchMatch-selected {
-    background: rgba(249, 226, 175, 0.85) !important;
-    box-shadow: 0 0 0 2px rgba(249, 226, 175, 1);
-}
-
-/* Enhanced CM6 search highlighting for custom themes */
-[data-theme="custom"] .cm-searchMatch,
-[data-theme^="shared:"] .cm-searchMatch {
-    background: #ffeb3b !important;
-    box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.6);
-}
-
-[data-theme="custom"] .cm-searchMatch-selected,
-[data-theme^="shared:"] .cm-searchMatch-selected,
-[data-theme="custom"] .cm-searchMatch.cm-searchMatch-selected,
-[data-theme^="shared:"] .cm-searchMatch.cm-searchMatch-selected {
     background: #fff176 !important;
-    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.8), 0 0 8px rgba(255, 235, 59, 0.5);
+    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.9), 0 0 10px rgba(255, 235, 59, 0.5);
 }
 
 /* Code Footer */
@@ -1620,22 +1584,14 @@ html[dir="rtl"] .history-panel.open {
     line-height: 1.4;
 }
 
+/* History search highlight - strong yellow for all themes */
 .search-item-message mark {
-    background: var(--accent-yellow, #f9e2af);
-    color: var(--bg-primary, #1e1e2e);
+    background: #ffeb3b;
+    color: #000;
     padding: 1px 4px;
     border-radius: 3px;
-    font-weight: 600;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
-}
-
-/* Enhanced highlight for custom themes in history search */
-[data-theme="custom"] .search-item-message mark,
-[data-theme^="shared:"] .search-item-message mark {
-    background: #ffeb3b !important;
-    color: #000 !important;
     font-weight: 700;
-    box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .search-item-author {
