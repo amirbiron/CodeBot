@@ -857,6 +857,10 @@ function updateFileHeader(filePath) {
             </span>
         </div>
         <div class="file-actions file-header-actions">
+            <a class="file-edit-btn" href="/upload/from-repo?path=${encodeURIComponent(filePath)}" title="ערוך / העתק קטעים" aria-label="ערוך קובץ">
+                <i class="bi bi-pencil-square"></i>
+                ערוך
+            </a>
             <button class="file-history-btn" data-path="${escapeHtml(filePath)}" title="היסטוריית קובץ" aria-label="היסטוריית קובץ">
                 <i class="bi bi-clock-history"></i>
                 היסטוריה
