@@ -131,6 +131,19 @@
     <!-- iOS Home Screen Icon -->
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/apple-touch-icon-180.png') }}">
 
+    {# Favicons (אפשר להחליף לכל עמוד ע"י favicon_filename ב-context processor) #}
+    {% set _favicon_file = (favicon_filename if favicon_filename is defined and favicon_filename else 'icons/favicon-default.svg') %}
+    {% set _favicon_type = ('image/svg+xml' if _favicon_file.endswith('.svg') else ('image/png' if _favicon_file.endswith('.png') else none)) %}
+    <link rel="icon"
+          {% if _favicon_type %}type="{{ _favicon_type }}"{% endif %}
+          href="{{ url_for('static', filename=_favicon_file) }}?v={{ static_version }}">
+    {# fallback לדפדפנים שלא תומכים SVG favicons #}
+    <link rel="icon"
+          type="image/png"
+          sizes="192x192"
+          href="{{ url_for('static', filename='icons/app-icon-192.png') }}?v={{ static_version }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/app-icon-192.png') }}?v={{ static_version }}">
+
     <style>
         :root {
             --primary: #667eea;

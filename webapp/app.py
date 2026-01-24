@@ -1775,6 +1775,31 @@ def inject_globals():
     except Exception:
         static_ver = _STATIC_VERSION
 
+    # favicon per-page (ברירת מחדל + התאמה לפי נתיב)
+    favicon_filename = 'icons/favicon-default.svg'
+    try:
+        path = (request.path or '').strip() or '/'
+        if path == '/':
+            favicon_filename = 'icons/favicon-home.svg'
+        elif path.startswith('/dashboard'):
+            favicon_filename = 'icons/favicon-dashboard.svg'
+        elif (
+            path.startswith('/files')
+            or path.startswith('/file/')
+            or path.startswith('/upload')
+            or path.startswith('/edit')
+            or path.startswith('/compare')
+            or path.startswith('/collections')
+            or path.startswith('/trash')
+        ):
+            favicon_filename = 'icons/favicon-files.svg'
+        elif path.startswith('/settings'):
+            favicon_filename = 'icons/favicon-settings.svg'
+        elif path.startswith('/repo'):
+            favicon_filename = 'icons/favicon-repo.svg'
+    except Exception:
+        favicon_filename = 'icons/favicon-default.svg'
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -1794,6 +1819,8 @@ def inject_globals():
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
         'static_version': static_ver,
+        # favicon per-page (ניתן להחליף גם ע"י העברה ל-render_template)
+        'favicon_filename': favicon_filename,
         # קישור לתיעוד (לשימוש בתבניות)
         'documentation_url': DOCUMENTATION_URL,
         # External uptime config for templates (non-sensitive only)
