@@ -55,10 +55,7 @@ let state = {
     // AbortController למניעת race conditions
     treeAbortController: null,
     fileTypesAbortController: null,
-    fileTypesLoading: false,   // flag למניעת קריאות מקבילות
-    // View mode: 'editor' (CodeMirror) or 'basic' (textarea for easy selection)
-    viewMode: 'editor',
-    currentFileContent: ''  // שמירת התוכן למעבר בין תצוגות
+    fileTypesLoading: false   // flag למניעת קריאות מקבילות
 };
 
 // ========================================
@@ -666,15 +663,8 @@ async function selectFile(path, element) {
         // Update file info
         updateFileInfo(data);
 
-        // שמירת התוכן למעבר בין תצוגות
-        state.currentFileContent = data.content;
-
-        // Initialize or update viewer based on current mode
-        if (state.viewMode === 'basic') {
-            showBasicViewer(data.content);
-        } else {
-            await initCodeViewer(data.content, data.language || detectLanguage(path));
-        }
+        // Initialize or update CodeMirror
+        await initCodeViewer(data.content, data.language || detectLanguage(path));
 
         // Save to recent files
         addToRecentFiles(path);
@@ -859,8 +849,6 @@ function updateFileHeader(filePath) {
     const fileHeader = document.querySelector('.file-header');
     if (!fileHeader) return;
 
-    const isBasicMode = state.viewMode === 'basic';
-
     fileHeader.innerHTML = `
         <div class="file-info">
             <i class="bi bi-file-earmark-code"></i>
@@ -869,14 +857,6 @@ function updateFileHeader(filePath) {
             </span>
         </div>
         <div class="file-actions file-header-actions">
-            <div class="view-mode-toggle" title="מעבר לתצוגה בסיסית (קל יותר לסמן טקסט)">
-                <button class="view-mode-btn ${!isBasicMode ? 'active' : ''}" data-mode="editor" title="עורך קוד">
-                    <i class="bi bi-code-square"></i>
-                </button>
-                <button class="view-mode-btn ${isBasicMode ? 'active' : ''}" data-mode="basic" title="תצוגה בסיסית (קל לסמן)">
-                    <i class="bi bi-textarea-t"></i>
-                </button>
-            </div>
             <button class="file-history-btn" data-path="${escapeHtml(filePath)}" title="היסטוריית קובץ" aria-label="היסטוריית קובץ">
                 <i class="bi bi-clock-history"></i>
                 היסטוריה
@@ -897,27 +877,13 @@ function updateFileHeader(filePath) {
     });
 
     fileHeader.querySelector('.file-copy-btn').addEventListener('click', copyFileContent);
-
-    // View mode toggle
-    fileHeader.querySelectorAll('.view-mode-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const mode = btn.dataset.mode;
-            if (mode !== state.viewMode) {
-                switchViewMode(mode);
-            }
-        });
-    });
 }
 
 function copyFileContent() {
     let content = null;
 
-    // Try stored content first (works for both modes)
-    if (state.currentFileContent) {
-        content = state.currentFileContent;
-    }
-    // Fallback to CodeMirror 5
-    else if (state.editor && typeof state.editor.getValue === 'function') {
+    // Try CodeMirror 5 first
+    if (state.editor && typeof state.editor.getValue === 'function') {
         content = state.editor.getValue();
     }
     // Fallback to CodeMirror 6
@@ -930,61 +896,6 @@ function copyFileContent() {
         showToast('Content copied!');
     } else {
         showToast('No content to copy');
-    }
-}
-
-/**
- * הצגת תוכן בתצוגה בסיסית (textarea) - קל לסמן טקסט
- */
-function showBasicViewer(content) {
-    const wrapper = document.getElementById('code-editor-wrapper');
-    if (!wrapper) return;
-
-    // הסתרת CodeMirror instances
-    destroyEditorInstances();
-
-    // יצירת textarea לתצוגה בסיסית
-    wrapper.innerHTML = `
-        <textarea class="basic-code-viewer" readonly dir="ltr">${escapeHtml(content)}</textarea>
-    `;
-}
-
-/**
- * מעבר בין תצוגת עורך לתצוגה בסיסית
- */
-async function switchViewMode(mode) {
-    if (mode === state.viewMode) return;
-    
-    state.viewMode = mode;
-
-    // עדכון כפתורי Toggle
-    document.querySelectorAll('.view-mode-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.mode === mode);
-    });
-
-    const wrapper = document.getElementById('code-editor-wrapper');
-    if (!wrapper || !state.currentFileContent) return;
-
-    if (mode === 'basic') {
-        showBasicViewer(state.currentFileContent);
-    } else {
-        // חזרה לעורך קוד
-        const lang = state.currentFile ? detectLanguage(state.currentFile) : 'text';
-        await initCodeViewer(state.currentFileContent, lang);
-    }
-}
-
-/**
- * הריסת instances של CodeMirror
- */
-function destroyEditorInstances() {
-    if (state.editor) {
-        try { state.editor.toTextArea(); } catch (_) {}
-        state.editor = null;
-    }
-    if (state.editorView6) {
-        try { state.editorView6.destroy(); } catch (_) {}
-        state.editorView6 = null;
     }
 }
 
