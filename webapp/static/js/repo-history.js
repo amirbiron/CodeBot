@@ -144,6 +144,23 @@ const RepoHistory = (function() {
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
+            <div class="history-search-bar">
+                <div class="history-search-input-wrapper">
+                    <i class="bi bi-search"></i>
+                    <input type="text" class="history-search-input" placeholder="חפש בהיסטוריה..." />
+                    <button class="history-search-clear" style="display: none;" title="נקה">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+                <div class="history-search-type-toggle">
+                    <button class="search-type-btn active" data-type="message" title="חיפוש בהודעות commit">
+                        <i class="bi bi-chat-text"></i>
+                    </button>
+                    <button class="search-type-btn" data-type="code" title="חיפוש בקוד (מי הוסיף/הסיר)">
+                        <i class="bi bi-code-slash"></i>
+                    </button>
+                </div>
+            </div>
             <div class="compare-mode-banner" style="display: none;">
                 <span class="instructions">בחר שני commits להשוואה</span>
                 <div class="selection">
@@ -154,6 +171,7 @@ const RepoHistory = (function() {
                 <button class="compare-execute-btn" disabled>השווה</button>
                 <button class="compare-cancel-btn">ביטול</button>
             </div>
+            <div class="history-search-results" style="display: none;"></div>
             <div class="history-commits"></div>
         `;
         document.body.appendChild(historyPanel);
@@ -167,6 +185,53 @@ const RepoHistory = (function() {
 
         historyPanel.querySelector('.compare-cancel-btn')
             .addEventListener('click', cancelCompareMode);
+
+        // Search event listeners
+        const searchInput = historyPanel.querySelector('.history-search-input');
+        const searchClear = historyPanel.querySelector('.history-search-clear');
+        
+        let searchDebounce = null;
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            searchClear.style.display = query ? '' : 'none';
+            
+            if (searchDebounce) clearTimeout(searchDebounce);
+            
+            if (query.length >= 2) {
+                searchDebounce = setTimeout(() => searchHistory(query), 300);
+            } else if (query.length === 0) {
+                clearSearchResults();
+            }
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                searchInput.value = '';
+                searchClear.style.display = 'none';
+                clearSearchResults();
+            }
+        });
+
+        searchClear.addEventListener('click', () => {
+            searchInput.value = '';
+            searchClear.style.display = 'none';
+            clearSearchResults();
+            searchInput.focus();
+        });
+
+        // Search type toggle
+        historyPanel.querySelectorAll('.search-type-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                historyPanel.querySelectorAll('.search-type-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // אם יש טקסט בחיפוש, חפש מחדש עם הסוג החדש
+                const query = searchInput.value.trim();
+                if (query.length >= 2) {
+                    searchHistory(query);
+                }
+            });
+        });
     }
 
     function createDiffModal() {
@@ -413,6 +478,158 @@ const RepoHistory = (function() {
             loadMoreBtn.addEventListener('click', () => loadHistory(true));
             container.appendChild(loadMoreBtn);
         }
+    }
+
+    // ============================================
+    // History Search
+    // ============================================
+
+    async function searchHistory(query) {
+        const resultsContainer = historyPanel.querySelector('.history-search-results');
+        const commitsContainer = historyPanel.querySelector('.history-commits');
+        const searchTypeBtn = historyPanel.querySelector('.search-type-btn.active');
+        const searchType = searchTypeBtn?.dataset.type || 'message';
+
+        // הצגת מצב טעינה
+        resultsContainer.style.display = '';
+        commitsContainer.style.display = 'none';
+        resultsContainer.innerHTML = `
+            <div class="history-loading">
+                <div class="spinner"></div>
+                <span>מחפש...</span>
+            </div>
+        `;
+
+        try {
+            const url = buildApiUrl('/repo/api/search-history', {
+                q: query,
+                type: searchType,
+                file: state.currentFile,
+                limit: 30
+            });
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.message || 'שגיאה בחיפוש');
+            }
+
+            renderSearchResults(resultsContainer, data.commits, query, searchType);
+
+        } catch (error) {
+            console.error('Error searching history:', error);
+            resultsContainer.innerHTML = `
+                <div class="history-error">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <p>${escapeHtml(error.message)}</p>
+                </div>
+            `;
+        }
+    }
+
+    function clearSearchResults() {
+        const resultsContainer = historyPanel.querySelector('.history-search-results');
+        const commitsContainer = historyPanel.querySelector('.history-commits');
+        
+        resultsContainer.style.display = 'none';
+        resultsContainer.innerHTML = '';
+        commitsContainer.style.display = '';
+    }
+
+    function renderSearchResults(container, commits, query, searchType) {
+        if (!commits || commits.length === 0) {
+            container.innerHTML = `
+                <div class="history-search-empty">
+                    <i class="bi bi-search"></i>
+                    <p>לא נמצאו תוצאות עבור "${escapeHtml(query)}"</p>
+                    <span class="search-hint">
+                        ${searchType === 'message' 
+                            ? 'נסה לחפש בקוד (לחץ על <i class="bi bi-code-slash"></i>)' 
+                            : 'נסה לחפש בהודעות (לחץ על <i class="bi bi-chat-text"></i>)'}
+                    </span>
+                </div>
+            `;
+            return;
+        }
+
+        const searchTypeLabel = searchType === 'message' ? 'הודעות' : 'קוד';
+        
+        let html = `
+            <div class="history-search-header">
+                <span class="results-count">${commits.length} תוצאות בחיפוש ${searchTypeLabel}</span>
+                <button class="clear-search-btn">
+                    <i class="bi bi-x"></i>
+                    נקה חיפוש
+                </button>
+            </div>
+            <div class="history-search-list">
+        `;
+
+        commits.forEach(commit => {
+            const relativeDate = formatRelativeDate(commit.timestamp);
+            const fullDate = formatFullDate(commit.timestamp);
+            
+            // שימוש בהודעה המודגשת אם קיימת
+            const displayMessage = searchType === 'message' && commit.highlighted_message 
+                ? commit.highlighted_message 
+                : escapeHtml(commit.message);
+
+            html += `
+                <div class="history-search-item" data-hash="${commit.hash}">
+                    <div class="search-item-header">
+                        <span class="commit-hash" title="לחץ להעתקה">${escapeHtml(commit.short_hash)}</span>
+                        <span class="commit-date" title="${fullDate}">${relativeDate}</span>
+                    </div>
+                    <div class="search-item-message">${displayMessage}</div>
+                    <div class="search-item-author">
+                        <i class="bi bi-person-circle"></i>
+                        ${escapeHtml(commit.author)}
+                    </div>
+                    <div class="search-item-actions">
+                        <button class="commit-action-btn view-btn" title="צפה בגרסה זו">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                        <button class="commit-action-btn diff-head-btn" title="השווה ל-HEAD">
+                            <i class="bi bi-file-diff"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Event listeners לתוצאות
+        container.querySelector('.clear-search-btn')?.addEventListener('click', () => {
+            const searchInput = historyPanel.querySelector('.history-search-input');
+            const searchClear = historyPanel.querySelector('.history-search-clear');
+            searchInput.value = '';
+            searchClear.style.display = 'none';
+            clearSearchResults();
+        });
+
+        container.querySelectorAll('.history-search-item').forEach(item => {
+            const hash = item.dataset.hash;
+            const commit = commits.find(c => c.hash === hash);
+            if (!commit) return;
+
+            item.querySelector('.commit-hash')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                copyToClipboard(hash);
+            });
+
+            item.querySelector('.view-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                viewFileAtCommit(hash);
+            });
+
+            item.querySelector('.diff-head-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showDiff(hash, 'HEAD', commit.message, 'HEAD');
+            });
+        });
     }
 
     function ensurePrevButtonForIndex(index) {
