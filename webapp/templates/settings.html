@@ -1633,7 +1633,6 @@
           console.error('Failed to persist theme scope:', err);
         }
       }
-
       function getThemeScope() {
         if (themeScopeSel) return normalizeThemeScope(themeScopeSel.value);
         return normalizeThemeScope(document.documentElement.getAttribute('data-theme-scope'));
