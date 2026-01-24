@@ -1609,17 +1609,29 @@ function addToRecentFiles(path) {
 /**
  * Update the URL hash with current file path (and optionally search query)
  * This allows the page state to persist across browser refresh
+ * Preserves existing hash parameters that are not being updated
  */
 function updateUrlHash(filePath, searchQuery) {
     try {
-        const params = new URLSearchParams();
+        // Parse existing hash parameters to preserve them
+        const hashRaw = (window.location.hash || '').replace(/^#/, '');
+        const params = new URLSearchParams(hashRaw);
         
+        // Update or set file parameter
         if (filePath) {
             params.set('file', filePath);
+        } else if (filePath === null) {
+            // Explicitly remove if null
+            params.delete('file');
         }
         
-        if (searchQuery) {
-            params.set('search', searchQuery);
+        // Update or set search parameter (only if explicitly provided)
+        if (searchQuery !== undefined) {
+            if (searchQuery) {
+                params.set('search', searchQuery);
+            } else {
+                params.delete('search');
+            }
         }
         
         const newHash = params.toString();
