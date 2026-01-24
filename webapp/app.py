@@ -1568,13 +1568,8 @@ def inject_globals():
     cookie_theme = ''
     use_cookie_theme = False
     theme_raw = ''
-    cookie_scope_ts = _parse_theme_scope_ts_cookie(request.cookies.get(THEME_SCOPE_TS_COOKIE))
     try:
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        if theme_scope == THEME_SCOPE_DEVICE and cookie_theme and user_doc:
-            theme_updated_at = _get_theme_updated_at(user_doc)
-            if theme_updated_at and cookie_scope_ts and theme_updated_at > cookie_scope_ts:
-                theme_scope = THEME_SCOPE_GLOBAL
         use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
         if cookie_theme:
             theme_raw = cookie_theme
@@ -1855,58 +1850,11 @@ THEME_SCOPE_GLOBAL = "global"
 THEME_SCOPE_DEVICE = "device"
 _THEME_SCOPE_VALUES = {THEME_SCOPE_GLOBAL, THEME_SCOPE_DEVICE}
 _THEME_ID_SAFE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
-THEME_SCOPE_TS_COOKIE = "ui_theme_scope_ts"
 
 
 def _normalize_theme_scope(value: Optional[str]) -> str:
     v = str(value or "").strip().lower()
     return v if v in _THEME_SCOPE_VALUES else THEME_SCOPE_GLOBAL
-
-
-def _coerce_datetime(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    if isinstance(value, (int, float)):
-        try:
-            ts = float(value)
-            if ts <= 0:
-                return None
-            return datetime.fromtimestamp(ts, tz=timezone.utc)
-        except Exception:
-            return None
-    if isinstance(value, str):
-        raw = value.strip()
-        try:
-            if re.fullmatch(r"\d{9,12}(\.\d+)?", raw):
-                ts = float(raw)
-                if ts > 0:
-                    return datetime.fromtimestamp(ts, tz=timezone.utc)
-        except Exception:
-            pass
-        try:
-            dt = datetime.fromisoformat(raw)
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            return None
-    return None
-
-
-def _parse_theme_scope_ts_cookie(raw: Optional[str]) -> Optional[datetime]:
-    try:
-        return _coerce_datetime(raw)
-    except Exception:
-        return None
-
-
-def _get_theme_updated_at(user_doc: Optional[dict]) -> Optional[datetime]:
-    if not isinstance(user_doc, dict):
-        return None
-    ui_prefs = user_doc.get('ui_prefs')
-    if not isinstance(ui_prefs, dict):
-        return None
-    return _coerce_datetime(ui_prefs.get('theme_updated_at'))
 
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
@@ -1991,32 +1939,16 @@ def get_current_theme() -> str:
     try:
         theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        cookie_scope_ts = _parse_theme_scope_ts_cookie(request.cookies.get(THEME_SCOPE_TS_COOKIE))
         uid = session.get('user_id')
-        udoc = None
 
         if cookie_theme:
             t = cookie_theme
 
-        if theme_scope == THEME_SCOPE_DEVICE and cookie_theme and uid and cookie_scope_ts:
-            try:
-                dbref = get_db()
-                udoc = dbref.users.find_one(
-                    {'user_id': uid},
-                    {'ui_prefs.theme': 1, 'ui_prefs.theme_updated_at': 1},
-                ) or {}
-                theme_updated_at = _get_theme_updated_at(udoc)
-                if theme_updated_at and theme_updated_at > cookie_scope_ts:
-                    theme_scope = THEME_SCOPE_GLOBAL
-            except Exception:
-                udoc = None
-
         use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
         if uid and not use_cookie_theme:
             try:
-                if udoc is None:
-                    dbref = get_db()
-                    udoc = dbref.users.find_one({'user_id': uid}) or {}
+                dbref = get_db()
+                udoc = dbref.users.find_one({'user_id': uid}) or {}
                 pref = ((udoc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
                 if pref:
                     t = pref
@@ -16094,8 +16026,6 @@ def api_ui_prefs():
         font_scale_cookie_value: Optional[str] = None
         theme_cookie_value: Optional[str] = None
         theme_scope_cookie_value: Optional[str] = None
-        theme_scope_ts_cookie_value: Optional[str] = None
-        theme_scope_ts_cookie_delete = False
         theme_scope: Optional[str] = None
 
         # עדכון גודל גופן במידת הצורך
@@ -16118,14 +16048,6 @@ def api_ui_prefs():
             theme_scope_cookie_value = (
                 THEME_SCOPE_DEVICE if theme_scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
             )
-            if theme_scope_cookie_value == THEME_SCOPE_DEVICE:
-                theme_scope_ts_cookie_value = str(int(now_utc.timestamp()))
-                theme_scope_ts_cookie_delete = False
-            else:
-                theme_scope_ts_cookie_value = None
-                theme_scope_ts_cookie_delete = True
-                if 'theme' not in payload:
-                    update_fields['ui_prefs.theme_updated_at'] = now_utc
 
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
@@ -16144,16 +16066,9 @@ def api_ui_prefs():
                 )
                 if resolved_scope != THEME_SCOPE_DEVICE:
                     update_fields['ui_prefs.theme'] = theme
-                    update_fields['ui_prefs.theme_updated_at'] = now_utc
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
                 theme_scope_cookie_value = resolved_scope
-                if resolved_scope == THEME_SCOPE_DEVICE:
-                    theme_scope_ts_cookie_value = str(int(now_utc.timestamp()))
-                    theme_scope_ts_cookie_delete = False
-                else:
-                    theme_scope_ts_cookie_value = None
-                    theme_scope_ts_cookie_delete = True
 
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
@@ -16277,20 +16192,6 @@ def api_ui_prefs():
                     secure=True,
                     httponly=True,
                 )
-            if theme_scope_ts_cookie_value is not None:
-                if not re.fullmatch(r"\d{9,12}", str(theme_scope_ts_cookie_value)):
-                    theme_scope_ts_cookie_value = None
-            if theme_scope_ts_cookie_value is not None:
-                resp.set_cookie(
-                    THEME_SCOPE_TS_COOKIE,
-                    theme_scope_ts_cookie_value,
-                    max_age=365*24*3600,
-                    samesite='Lax',
-                    secure=True,
-                    httponly=True,
-                )
-            elif theme_scope_ts_cookie_delete:
-                resp.delete_cookie(THEME_SCOPE_TS_COOKIE)
         except Exception:
             pass
         return resp
