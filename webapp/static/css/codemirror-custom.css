@@ -229,3 +229,42 @@ textarea[name="code"]::placeholder,
 [data-theme^="shared:"] .cm-editor.cm-focused {
   outline: 2px solid var(--primary, rgba(100, 100, 255, 0.5));
 }
+
+/* ============================================
+   Search Highlighting for all themes
+   ============================================ */
+
+/* Default search match highlighting */
+.cm-searchMatch {
+  background: rgba(249, 226, 175, 0.5) !important;
+  box-shadow: 0 0 0 1px rgba(249, 226, 175, 0.8);
+  border-radius: 2px;
+}
+
+.cm-searchMatch-selected,
+.cm-searchMatch.cm-searchMatch-selected {
+  background: rgba(249, 226, 175, 0.85) !important;
+  box-shadow: 0 0 0 2px rgba(249, 226, 175, 1);
+}
+
+/* Custom themes: Enhanced search highlighting for better visibility */
+[data-theme="custom"] .cm-searchMatch,
+[data-theme^="shared:"] .cm-searchMatch {
+  background: #ffeb3b !important;
+  box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.6), 0 0 4px rgba(255, 235, 59, 0.4);
+  border-radius: 2px;
+}
+
+[data-theme="custom"] .cm-searchMatch-selected,
+[data-theme^="shared:"] .cm-searchMatch-selected,
+[data-theme="custom"] .cm-searchMatch.cm-searchMatch-selected,
+[data-theme^="shared:"] .cm-searchMatch.cm-searchMatch-selected {
+  background: #fff176 !important;
+  box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.8), 0 0 8px rgba(255, 235, 59, 0.5);
+}
+
+/* In-file search selection highlight */
+[data-theme="custom"] .cm-selectionMatch,
+[data-theme^="shared:"] .cm-selectionMatch {
+  background: rgba(255, 235, 59, 0.25) !important;
+}
