@@ -792,6 +792,9 @@ const RepoHistory = (function() {
             
             if (state.lastDiffData) {
                 createMergeView(state.lastDiffData);
+            } else {
+                // אם אין נתונים (למשל אחרי שגיאת API) - הצג הודעה
+                showAdvancedFallback('אין נתונים להצגה. נסה לרענן את ההשוואה.');
             }
         } else {
             // מעבר לתצוגה בסיסית
@@ -842,24 +845,23 @@ const RepoHistory = (function() {
             const langSupport = getLanguageSupportForFile(state.currentFile);
             if (langSupport) themeExtensions.push(langSupport);
 
-            // יצירת MergeView
+            // יצירת MergeView עם basicSetup (מספרי שורות, bracket matching וכו')
+            const editorExtensions = [
+                ...(CM.basicSetup || []),
+                CM.EditorView.editable.of(false),
+                CM.EditorState.readOnly.of(true),
+                ...themeExtensions
+            ];
+
             state.mergeViewInstance = new CM.MergeView({
                 parent: container,
                 a: {
                     doc: diffData.old_content || '',
-                    extensions: [
-                        CM.EditorView.editable.of(false),
-                        CM.EditorState.readOnly.of(true),
-                        ...themeExtensions
-                    ]
+                    extensions: editorExtensions
                 },
                 b: {
                     doc: diffData.new_content || '',
-                    extensions: [
-                        CM.EditorView.editable.of(false),
-                        CM.EditorState.readOnly.of(true),
-                        ...themeExtensions
-                    ]
+                    extensions: [...editorExtensions]  // clone לכל צד
                 },
                 orientation: isMobile ? 'a-b' : 'a-b',  // תמיד side-by-side, CSS ידאג למובייל
                 revertControls: null,  // ללא כפתורי revert
