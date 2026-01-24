@@ -1569,7 +1569,7 @@ def inject_globals():
     use_cookie_theme = False
     theme_raw = ''
     try:
-        cookie_theme = (request.cookies.get('ui_theme') or '').strip()
+        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
         use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
         if cookie_theme:
             theme_raw = cookie_theme
@@ -1864,12 +1864,12 @@ def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
         return "builtin", "", "classic"
     low = val.lower()
     if low.startswith("shared:"):
-        theme_id = val.split(":", 1)[1].strip()
+        theme_id = low.split(":", 1)[1].strip()
         if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
             return "shared", theme_id, f"shared:{theme_id}"
         return "builtin", "", "classic"
     if low.startswith("custom:"):
-        theme_id = val.split(":", 1)[1].strip()
+        theme_id = low.split(":", 1)[1].strip()
         if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
             return "custom", theme_id, "custom"
         return "builtin", "", "classic"
@@ -16043,7 +16043,9 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme_scope' in payload:
             theme_scope = _normalize_theme_scope(payload.get('theme_scope'))
-            theme_scope_cookie_value = theme_scope
+            theme_scope_cookie_value = (
+                THEME_SCOPE_DEVICE if theme_scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+            )
 
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
@@ -16057,7 +16059,9 @@ def api_ui_prefs():
                     return jsonify({'ok': False, 'error': 'custom_theme_not_active'}), 400
 
             if theme in ALLOWED_UI_THEMES:
-                resolved_scope = theme_scope or THEME_SCOPE_GLOBAL
+                resolved_scope = (
+                    THEME_SCOPE_DEVICE if theme_scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+                )
                 if resolved_scope != THEME_SCOPE_DEVICE:
                     update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
@@ -16177,9 +16181,10 @@ def api_ui_prefs():
                     httponly=True,
                 )
             if theme_scope_cookie_value is not None:
+                scope_value = THEME_SCOPE_DEVICE if theme_scope_cookie_value == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
                 resp.set_cookie(
                     'ui_theme_scope',
-                    theme_scope_cookie_value,
+                    scope_value,
                     max_age=365*24*3600,
                     samesite='Lax',
                     secure=True,

@@ -36,6 +36,7 @@ THEME_SCOPE_GLOBAL = "global"
 THEME_SCOPE_DEVICE = "device"
 _THEME_SCOPE_VALUES = {THEME_SCOPE_GLOBAL, THEME_SCOPE_DEVICE}
 _THEME_ID_SAFE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
+_COOKIE_THEME_ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 
 
 # ==========================================
@@ -170,12 +171,12 @@ def _sanitize_theme_cookie_value(value: str) -> Optional[str]:
     raw = str(value or "").strip().lower()
     if raw.startswith("shared:"):
         theme_id = raw.split("shared:", 1)[1].strip()
-        if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
+        if theme_id and _COOKIE_THEME_ID_RE.fullmatch(theme_id):
             return f"shared:{theme_id}"
         return None
     if raw.startswith("custom:"):
         theme_id = raw.split("custom:", 1)[1].strip()
-        if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
+        if theme_id and _COOKIE_THEME_ID_RE.fullmatch(theme_id):
             return f"custom:{theme_id}"
         return None
     return None
@@ -192,15 +193,15 @@ def _set_theme_scope_cookies(resp: Response, theme_value: str, scope: str) -> No
             secure=True,
             httponly=True,
         )
-    if scope in _THEME_SCOPE_VALUES:
-        resp.set_cookie(
-            "ui_theme_scope",
-            scope,
-            max_age=365 * 24 * 3600,
-            samesite="Lax",
-            secure=True,
-            httponly=True,
-        )
+    scope_value = THEME_SCOPE_DEVICE if scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+    resp.set_cookie(
+        "ui_theme_scope",
+        scope_value,
+        max_age=365 * 24 * 3600,
+        samesite="Lax",
+        secure=True,
+        httponly=True,
+    )
 
 
 def require_auth(f):
