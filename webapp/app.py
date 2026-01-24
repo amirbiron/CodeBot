@@ -1939,10 +1939,12 @@ def get_current_theme() -> str:
     try:
         theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
+        uid = session.get('user_id')
+
         if cookie_theme:
             t = cookie_theme
-        uid = session.get('user_id')
+
+        use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
         if uid and not use_cookie_theme:
             try:
                 dbref = get_db()
