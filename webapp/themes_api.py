@@ -32,6 +32,12 @@ from services.shared_theme_service import get_shared_theme_service
 
 logger = logging.getLogger(__name__)
 
+THEME_SCOPE_GLOBAL = "global"
+THEME_SCOPE_DEVICE = "device"
+_THEME_SCOPE_VALUES = {THEME_SCOPE_GLOBAL, THEME_SCOPE_DEVICE}
+_THEME_ID_SAFE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
+_COOKIE_THEME_ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
+
 
 # ==========================================
 # Rate Limiting for Theme Details
@@ -153,6 +159,49 @@ def get_current_user_id() -> Optional[int]:
         return int(uid)
     except Exception:
         return None
+
+
+def _get_theme_scope_from_request() -> str:
+    data = request.get_json(silent=True) or {}
+    raw = (data.get("theme_scope") or data.get("scope") or request.args.get("scope") or "").strip().lower()
+    return THEME_SCOPE_DEVICE if raw == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+
+
+def _sanitize_theme_cookie_value(value: str) -> Optional[str]:
+    raw = str(value or "").strip().lower()
+    if raw.startswith("shared:"):
+        theme_id = raw.split("shared:", 1)[1].strip()
+        if theme_id and _COOKIE_THEME_ID_RE.fullmatch(theme_id):
+            return f"shared:{theme_id}"
+        return None
+    if raw.startswith("custom:"):
+        theme_id = raw.split("custom:", 1)[1].strip()
+        if theme_id and _COOKIE_THEME_ID_RE.fullmatch(theme_id):
+            return f"custom:{theme_id}"
+        return None
+    return None
+
+
+def _set_theme_scope_cookies(resp: Response, theme_value: str, scope: str) -> None:
+    safe_theme = _sanitize_theme_cookie_value(theme_value)
+    if safe_theme:
+        resp.set_cookie(
+            "ui_theme",
+            safe_theme,
+            max_age=365 * 24 * 3600,
+            samesite="Lax",
+            secure=True,
+            httponly=True,
+        )
+    scope_value = THEME_SCOPE_DEVICE if scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+    resp.set_cookie(
+        "ui_theme_scope",
+        scope_value,
+        max_age=365 * 24 * 3600,
+        samesite="Lax",
+        secure=True,
+        httponly=True,
+    )
 
 
 def require_auth(f):
@@ -344,10 +393,24 @@ def apply_shared_theme(theme_id: str):
         return jsonify({"ok": False, "error": "unauthorized"}), 401
 
     try:
+        theme_scope = _get_theme_scope_from_request()
         service = get_shared_theme_service()
         theme = service.get_by_id(theme_id)
         if not theme:
             return jsonify({"ok": False, "error": "theme_not_found"}), 404
+
+        theme_cookie_value = f"shared:{theme_id}"
+        if theme_scope == THEME_SCOPE_DEVICE:
+            resp = jsonify(
+                {
+                    "ok": True,
+                    "message": "הערכה הוחלה למכשיר הנוכחי",
+                    "applied_theme": theme_id,
+                    "scope": theme_scope,
+                }
+            )
+            _set_theme_scope_cookies(resp, theme_cookie_value, theme_scope)
+            return resp
 
         db_ref = get_db()
         now_utc = datetime.now(timezone.utc)
@@ -369,7 +432,9 @@ def apply_shared_theme(theme_id: str):
             upsert=True,
         )
 
-        return jsonify({"ok": True, "message": "הערכה הוחלה!", "applied_theme": theme_id})
+        resp = jsonify({"ok": True, "message": "הערכה הוחלה!", "applied_theme": theme_id})
+        _set_theme_scope_cookies(resp, theme_cookie_value, theme_scope)
+        return resp
     except Exception as e:
         logger.exception("apply_shared_theme failed: %s", e)
         return jsonify({"ok": False, "error": "database_error"}), 500
@@ -769,14 +834,23 @@ def activate_theme_endpoint(theme_id: str):
         return jsonify({"ok": False, "error": "unauthorized"}), 401
 
     try:
+        theme_scope = _get_theme_scope_from_request()
         db_ref = get_db()
         user_doc = db_ref.users.find_one({"user_id": user_id, "custom_themes.id": theme_id}, {"custom_themes.$": 1})
         if not user_doc or not user_doc.get("custom_themes"):
             return jsonify({"ok": False, "error": "theme_not_found"}), 404
 
+        theme_cookie_value = f"custom:{theme_id}"
+        if theme_scope == THEME_SCOPE_DEVICE:
+            resp = jsonify({"ok": True, "message": "הערכה הוחלה למכשיר הנוכחי", "active_theme_id": theme_id, "scope": theme_scope})
+            _set_theme_scope_cookies(resp, theme_cookie_value, theme_scope)
+            return resp
+
         success = _activate_theme_simple(db_ref, user_id, theme_id)
         if success:
-            return jsonify({"ok": True, "message": "הערכה הופעלה בהצלחה", "active_theme_id": theme_id})
+            resp = jsonify({"ok": True, "message": "הערכה הופעלה בהצלחה", "active_theme_id": theme_id})
+            _set_theme_scope_cookies(resp, theme_cookie_value, theme_scope)
+            return resp
         return jsonify({"ok": False, "error": "activation_failed"}), 500
     except Exception as e:
         logger.exception("activate_theme_endpoint failed: %s", e)

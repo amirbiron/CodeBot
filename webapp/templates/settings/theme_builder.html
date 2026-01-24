@@ -977,6 +977,21 @@
     const themesMax = document.getElementById('themesMax');
     const createNewBtn = document.getElementById('createNewThemeBtn');
 
+    function normalizeThemeScope(value) {
+        const v = String(value || '').trim().toLowerCase();
+        return v === 'device' ? 'device' : 'global';
+    }
+
+    function getThemeScope() {
+        return normalizeThemeScope(document.documentElement.getAttribute('data-theme-scope'));
+    }
+
+    function getActiveCustomThemeId() {
+        const currentTheme = String(document.documentElement.getAttribute('data-theme') || '').trim().toLowerCase();
+        if (currentTheme !== 'custom') return '';
+        return String(document.documentElement.getAttribute('data-theme-custom-id') || '').trim();
+    }
+
     const previewContainer = document.getElementById('theme-preview-container');
     const pickrInstances = {};
 
@@ -1365,7 +1380,10 @@
                 return;
             }
 
-            const activeTheme = currentThemes.find(t => t.is_active);
+            const activeCustomId = getActiveCustomThemeId();
+            const activeTheme = activeCustomId
+                ? currentThemes.find(t => t && t.id === activeCustomId)
+                : currentThemes.find(t => t && t.is_active);
             if (activeTheme) {
                 await selectTheme(activeTheme.id);
             } else if (currentThemes.length > 0) {
@@ -1452,7 +1470,12 @@
 
     async function activateTheme(themeId) {
         try {
-            const res = await fetch(`/api/themes/${themeId}/activate`, { method: 'POST' });
+            const payload = { theme_scope: getThemeScope() };
+            const res = await fetch(`/api/themes/${themeId}/activate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
             const data = await res.json();
 
             if (!res.ok || !data.ok) {
@@ -1499,6 +1522,8 @@
     function renderThemesList() {
         if (!themesList) return;
         if (themesCount) themesCount.textContent = currentThemes.length;
+        const activeCustomId = getActiveCustomThemeId();
+        const useDeviceActive = !!activeCustomId;
 
         if (currentThemes.length === 0) {
             themesList.innerHTML = `
@@ -1511,19 +1536,21 @@
             return;
         }
 
-        themesList.innerHTML = currentThemes.map(theme => `
-            <div class="theme-item ${theme.is_active ? 'active' : ''} ${selectedThemeId === theme.id ? 'selected' : ''}"
+        themesList.innerHTML = currentThemes.map(theme => {
+            const isActive = useDeviceActive ? activeCustomId === theme.id : !!theme.is_active;
+            return `
+            <div class="theme-item ${isActive ? 'active' : ''} ${selectedThemeId === theme.id ? 'selected' : ''}"
                  data-theme-id="${theme.id}">
-                <div class="theme-item-indicator" title="${theme.is_active ? 'ערכה פעילה' : ''}"></div>
+                <div class="theme-item-indicator" title="${isActive ? 'ערכה פעילה' : ''}"></div>
                 <div class="theme-item-content">
                     <div class="theme-item-name">${escapeHtml(theme.name)}</div>
                     <div class="theme-item-meta">
-                        ${theme.is_active ? '<i class="fas fa-check-circle"></i> פעילה' : ''}
-                        ${!theme.is_active && theme.updated_at ? formatDate(theme.updated_at) : ''}
+                        ${isActive ? '<i class="fas fa-check-circle"></i> פעילה' : ''}
+                        ${!isActive && theme.updated_at ? formatDate(theme.updated_at) : ''}
                     </div>
                 </div>
                 <div class="theme-item-actions">
-                    ${!theme.is_active ? `
+                    ${!isActive ? `
                         <button type="button" class="theme-item-btn activate-btn"
                                 title="הפעל ערכה" data-action="activate">
                             <i class="fas fa-check"></i>
@@ -1535,7 +1562,7 @@
                     </button>
                 </div>
             </div>
-        `).join('');
+        `;}).join('');
 
         themesList.querySelectorAll('.theme-item').forEach(item => {
             item.addEventListener('click', (e) => {

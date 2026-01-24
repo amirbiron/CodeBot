@@ -641,6 +641,21 @@
           <option value="nebula" {% if ui_theme == 'nebula' %}selected{% endif %}>🌌 Nebula{% if ui_theme == 'nebula' %} (נוכחית){% endif %}</option>
           <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
         </select>
+        <div style="margin-top: 0.6rem;">
+          <label for="themeScopeSelect" style="opacity: 0.8; font-size: 0.9rem; margin-bottom: 0.35rem; display: block;">
+            תחולת ערכת נושא
+          </label>
+          <select
+            id="themeScopeSelect"
+            class="filter-select"
+            aria-label="תחולת ערכת נושא"
+            style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
+          >
+            <option value="global" {% if ui_theme_scope != 'device' %}selected{% endif %}>לכל המכשירים</option>
+            <option value="device" {% if ui_theme_scope == 'device' %}selected{% endif %}>רק במכשיר הזה</option>
+          </select>
+          <small style="opacity: 0.7; display: block; margin-top: 0.35rem;">הבחירה תשפיע על הערכה שתבחר כאן.</small>
+        </div>
         <div style="margin-top: 0.75rem; opacity: 0.85; font-size: 0.95rem;">
           <a class="btn btn-secondary btn-icon" href="/settings/theme-builder">
             <i class="fas fa-palette"></i>
@@ -1508,6 +1523,7 @@
       const btnMinus = document.getElementById('fontMinus');
       const btnPlus = document.getElementById('fontPlus');
       const themeSel = document.getElementById('themeSelect');
+      const themeScopeSel = document.getElementById('themeScopeSelect');
 
       // ========== Theme Selection (Shared Theme Library) ==========
       async function loadThemesList() {
@@ -1537,6 +1553,7 @@
 
           // שמור את הערכה הנוכחית כדי לבחור נכון אחרי רינדור
           const currentTheme = (document.documentElement.getAttribute('data-theme') || 'classic').trim().toLowerCase();
+          const currentCustomId = (document.documentElement.getAttribute('data-theme-custom-id') || '').trim();
 
           // בונים את הרשימה מחדש (במקרה של כשל נשאיר את הסטטי מהשרת)
           themeSel.innerHTML = '';
@@ -1576,8 +1593,12 @@
           if (currentTheme.startsWith('shared:')) {
             selectedValue = currentTheme;
           } else if (currentTheme === 'custom') {
-            const activeCustom = custom.find(t => t && t.is_active === true && t.id);
-            selectedValue = activeCustom ? `custom:${String(activeCustom.id).trim()}` : '';
+            if (currentCustomId) {
+              selectedValue = `custom:${currentCustomId}`;
+            } else {
+              const activeCustom = custom.find(t => t && t.is_active === true && t.id);
+              selectedValue = activeCustom ? `custom:${String(activeCustom.id).trim()}` : '';
+            }
           } else {
             selectedValue = currentTheme;
           }
@@ -1587,6 +1608,29 @@
         } catch (err) {
           console.error('Error loading themes:', err);
         }
+      }
+
+      function normalizeThemeScope(value) {
+        const v = String(value || '').trim().toLowerCase();
+        return v === 'device' ? 'device' : 'global';
+      }
+
+      function getThemeScope() {
+        if (themeScopeSel) return normalizeThemeScope(themeScopeSel.value);
+        return normalizeThemeScope(document.documentElement.getAttribute('data-theme-scope'));
+      }
+
+      function syncThemeScope(scope) {
+        const normalized = normalizeThemeScope(scope);
+        try { document.documentElement.setAttribute('data-theme-scope', normalized); } catch (_) {}
+        if (themeScopeSel && themeScopeSel.value !== normalized) {
+          themeScopeSel.value = normalized;
+        }
+      }
+
+      if (themeScopeSel) {
+        syncThemeScope(themeScopeSel.value);
+        themeScopeSel.addEventListener('change', () => syncThemeScope(themeScopeSel.value));
       }
 
       function persistLocalTheme(theme) {
@@ -1610,16 +1654,19 @@
           let endpoint = '';
           let body = null;
           let themeAttr = '';
+          const themeScope = getThemeScope();
 
           if (themeType === 'shared') {
             endpoint = `/api/themes/shared/${encodeURIComponent(themeId)}/apply`;
+            body = { theme_scope: themeScope };
             themeAttr = `shared:${themeId}`;
           } else if (themeType === 'custom') {
             endpoint = `/api/themes/${encodeURIComponent(themeId)}/activate`;
+            body = { theme_scope: themeScope };
             themeAttr = 'custom';
           } else {
             endpoint = '/api/ui_prefs';
-            body = { theme: themeId };
+            body = { theme: themeId, theme_scope: themeScope };
             themeAttr = String(themeId);
           }
 
@@ -1630,6 +1677,11 @@
               document.documentElement.setAttribute('data-theme-type', 'custom');
             } else {
               document.documentElement.removeAttribute('data-theme-type');
+            }
+            if (themeType === 'custom' && themeId) {
+              document.documentElement.setAttribute('data-theme-custom-id', themeId);
+            } else {
+              document.documentElement.removeAttribute('data-theme-custom-id');
             }
           } catch (_) {}
           persistLocalTheme(themeAttr);

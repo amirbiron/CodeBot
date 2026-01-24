@@ -1564,34 +1564,32 @@ def inject_globals():
 
     # ערכת נושא
     theme = 'classic'
+    theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
+    cookie_theme = ''
+    use_cookie_theme = False
+    theme_raw = ''
     try:
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+        use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
         if cookie_theme:
-            theme = cookie_theme
-        if user_id and user_doc:
+            theme_raw = cookie_theme
+        if user_id and user_doc and not use_cookie_theme:
             try:
                 t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
                 if t:
-                    theme = t
+                    theme_raw = t
             except Exception:
                 pass
     except Exception:
         pass
+    if not theme_raw:
+        theme_raw = theme
+
+    theme_type, theme_id, theme = _parse_theme_token(theme_raw)
 
     # Shared Theme (ui_prefs.theme = "shared:<slug>")
     shared_theme = None
-    try:
-        is_shared_pref = isinstance(theme, str) and theme.startswith("shared:")
-    except Exception:
-        is_shared_pref = False
-
-    if is_shared_pref:
-        theme_id = ""
-        try:
-            theme_id = (theme.split("shared:", 1)[1] or "").strip()
-        except Exception:
-            theme_id = ""
-
+    if theme_type == "shared":
         if theme_id and db_ref is not None:
             try:
                 doc = db_ref.shared_themes.find_one({"_id": theme_id, "is_active": True})
@@ -1616,19 +1614,20 @@ def inject_globals():
                     }
                 else:
                     theme = "classic"
+                    theme_type = "builtin"
             except Exception:
                 theme = "classic"
+                theme_type = "builtin"
                 shared_theme = None
         else:
             theme = "classic"
+            theme_type = "builtin"
             shared_theme = None
-    else:
-        if theme not in ALLOWED_UI_THEMES:
-            theme = 'classic'
 
     # ערכת נושא מותאמת (אם קיימת) — מועברת לתבניות כדי לאפשר injection ב-base.html
     # תומך גם במבנה חדש (custom_themes[]) וגם בישן (custom_theme).
     custom_theme = None
+    custom_theme_id = ""
 
     # =====================================================
     # ADMIN IMPERSONATION - חישוב בזמן אמת
@@ -1671,40 +1670,51 @@ def inject_globals():
 
     # 4. user_is_admin משמש את ה-UI (מקבל את הערך האפקטיבי)
     user_is_admin = effective_is_admin
+    def _normalize_custom_theme_doc(doc: dict, *, force_active: bool = False) -> dict:
+        tdoc = dict(doc or {})
+        if not isinstance(tdoc.get('variables'), dict):
+            tdoc = {**tdoc, 'variables': {}}
+        if not isinstance(tdoc.get('syntax_css', ''), str):
+            tdoc = {**tdoc, 'syntax_css': ''}
+        if not isinstance(tdoc.get('syntax_colors'), dict):
+            tdoc = {**tdoc, 'syntax_colors': {}}
+        if force_active:
+            tdoc = {**tdoc, 'is_active': True}
+        return tdoc
+
     try:
         if user_id and user_doc:
-            # מבנה חדש (מערך) – עדיפות
             themes = user_doc.get('custom_themes')
-            if isinstance(themes, list) and themes:
+            # בחירה לפי מזהה (כשנבחר custom:<id> במכשיר הנוכחי)
+            if theme_type == "custom" and theme_id and isinstance(themes, list):
+                for tdoc in themes:
+                    if not isinstance(tdoc, dict):
+                        continue
+                    t_id = str(tdoc.get('id') or '').strip()
+                    if t_id and t_id == str(theme_id).strip():
+                        custom_theme = _normalize_custom_theme_doc(tdoc, force_active=True)
+                        custom_theme_id = t_id
+                        break
+
+            # מבנה חדש (מערך) – עדיפות
+            if not custom_theme and isinstance(themes, list) and themes:
                 for tdoc in themes:
                     if isinstance(tdoc, dict) and tdoc.get('is_active'):
-                        if not isinstance(tdoc.get('variables'), dict):
-                            tdoc = {**tdoc, 'variables': {}}
-                        # וולידציה של syntax_css - חשוב לצביעת קוד בערכות מותאמות
-                        if not isinstance(tdoc.get('syntax_css', ''), str):
-                            tdoc = {**tdoc, 'syntax_css': ''}
-                        # וולידציה של syntax_colors - מילון צבעים ל-HighlightStyle דינמי
-                        if not isinstance(tdoc.get('syntax_colors'), dict):
-                            tdoc = {**tdoc, 'syntax_colors': {}}
-                        custom_theme = tdoc
+                        custom_theme = _normalize_custom_theme_doc(tdoc)
+                        custom_theme_id = str(tdoc.get('id') or '').strip()
                         break
 
             # Fallback למבנה ישן (אובייקט בודד)
             if not custom_theme:
                 ct = user_doc.get('custom_theme')
                 if isinstance(ct, dict) and ct:
-                    # Normalize minimal structure to avoid template errors
-                    if not isinstance(ct.get('variables'), dict):
-                        ct = {**ct, 'variables': {}}
-                    # וולידציה של syntax_css - חשוב לצביעת קוד בערכות מותאמות
-                    if not isinstance(ct.get('syntax_css', ''), str):
-                        ct = {**ct, 'syntax_css': ''}
-                    # וולידציה של syntax_colors - מילון צבעים ל-HighlightStyle דינמי
-                    if not isinstance(ct.get('syntax_colors'), dict):
-                        ct = {**ct, 'syntax_colors': {}}
-                    custom_theme = ct
+                    custom_theme = _normalize_custom_theme_doc(ct, force_active=(theme_type == "custom"))
+                    ct_id = str(ct.get('id') or '').strip()
+                    if ct_id:
+                        custom_theme_id = ct_id
     except Exception:
         custom_theme = None
+        custom_theme_id = ""
 
     # Safety: אל תאפשר theme=custom בלי custom_theme פעיל.
     try:
@@ -1713,6 +1723,7 @@ def inject_globals():
         ct_active = False
     if theme == 'custom' and not ct_active:
         theme = 'classic'
+        theme_type = "builtin"
 
     show_welcome_modal = False
     if user_id:
@@ -1732,6 +1743,11 @@ def inject_globals():
         ui_theme_pref_set = bool((ui_prefs.get('theme') or '').strip())
     except Exception:
         ui_theme_pref_set = False
+    if not ui_theme_pref_set and theme_scope == THEME_SCOPE_DEVICE:
+        try:
+            ui_theme_pref_set = bool((cookie_theme or '').strip())
+        except Exception:
+            ui_theme_pref_set = False
 
     onboarding = ui_prefs.get('onboarding') if isinstance(ui_prefs, dict) else None
     if not isinstance(onboarding, dict):
@@ -1775,10 +1791,14 @@ def inject_globals():
     except Exception:
         static_ver = _STATIC_VERSION
 
+    ui_theme_custom_id = custom_theme_id if theme == "custom" else ""
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        'ui_theme_scope': theme_scope,
+        'ui_theme_custom_id': ui_theme_custom_id,
         'custom_theme': custom_theme,
         'shared_theme': shared_theme,
         # הרשאות (אפקטיביות - לשימוש ה-UI)
@@ -1825,6 +1845,39 @@ ALLOWED_UI_THEMES = {
     'nebula',
     'custom',
 }
+
+THEME_SCOPE_GLOBAL = "global"
+THEME_SCOPE_DEVICE = "device"
+_THEME_SCOPE_VALUES = {THEME_SCOPE_GLOBAL, THEME_SCOPE_DEVICE}
+_THEME_ID_SAFE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
+
+
+def _normalize_theme_scope(value: Optional[str]) -> str:
+    v = str(value or "").strip().lower()
+    return v if v in _THEME_SCOPE_VALUES else THEME_SCOPE_GLOBAL
+
+
+def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
+    """מפרק ערכת נושא: (type, id, theme_attr)."""
+    val = str(raw or "").strip()
+    if not val:
+        return "builtin", "", "classic"
+    low = val.lower()
+    if low.startswith("shared:"):
+        theme_id = low.split(":", 1)[1].strip()
+        if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
+            return "shared", theme_id, f"shared:{theme_id}"
+        return "builtin", "", "classic"
+    if low.startswith("custom:"):
+        theme_id = low.split(":", 1)[1].strip()
+        if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
+            return "custom", theme_id, "custom"
+        return "builtin", "", "classic"
+    if low == "custom":
+        return "custom", "", "custom"
+    if low in ALLOWED_UI_THEMES:
+        return "builtin", low, low
+    return "builtin", "", "classic"
 
 #
 # NOTE:
@@ -1884,11 +1937,13 @@ def get_current_theme() -> str:
     """
     t = 'classic'
     try:
+        theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+        use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
         if cookie_theme:
             t = cookie_theme
         uid = session.get('user_id')
-        if uid:
+        if uid and not use_cookie_theme:
             try:
                 dbref = get_db()
                 udoc = dbref.users.find_one({'user_id': uid}) or {}
@@ -1899,9 +1954,10 @@ def get_current_theme() -> str:
                 pass
     except Exception:
         pass
-    if t not in ALLOWED_UI_THEMES:
-        t = 'classic'
-    return t
+    _, _, theme_attr = _parse_theme_token(t)
+    if theme_attr not in ALLOWED_UI_THEMES:
+        theme_attr = 'classic'
+    return theme_attr
 
 @lru_cache(maxsize=32)
 def _style_exists(style: str) -> bool:
@@ -15967,6 +16023,8 @@ def api_ui_prefs():
         # נשמור ערכים בטוחים בלבד עבור קובצי cookie
         font_scale_cookie_value: Optional[str] = None
         theme_cookie_value: Optional[str] = None
+        theme_scope_cookie_value: Optional[str] = None
+        theme_scope: Optional[str] = None
 
         # עדכון גודל גופן במידת הצורך
         if 'font_scale' in payload:
@@ -15983,6 +16041,12 @@ def api_ui_prefs():
                 return jsonify({'ok': False, 'error': 'font_scale must be a number'}), 400
 
         # עדכון ערכת צבעים במידת הצורך
+        if 'theme_scope' in payload:
+            theme_scope = _normalize_theme_scope(payload.get('theme_scope'))
+            theme_scope_cookie_value = (
+                THEME_SCOPE_DEVICE if theme_scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+            )
+
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
             # 'custom' זמין לכל משתמש מחובר, רק אם קיימת ערכה פעילה ב-DB.
@@ -15994,14 +16058,15 @@ def api_ui_prefs():
                 except Exception:
                     return jsonify({'ok': False, 'error': 'custom_theme_not_active'}), 400
 
-            if theme in ALLOWED_UI_THEMES and theme != 'custom':
-                update_fields['ui_prefs.theme'] = theme
+            if theme in ALLOWED_UI_THEMES:
+                resolved_scope = (
+                    THEME_SCOPE_DEVICE if theme_scope == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+                )
+                if resolved_scope != THEME_SCOPE_DEVICE:
+                    update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
-            elif theme == 'custom':
-                update_fields['ui_prefs.theme'] = theme
-                resp_payload['theme'] = theme
-                theme_cookie_value = theme
+                theme_scope_cookie_value = resolved_scope
 
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
@@ -16064,15 +16129,22 @@ def api_ui_prefs():
             except Exception:
                 return jsonify({'ok': False, 'error': 'invalid_onboarding'}), 400
 
-        # אם לא התקבל אף שדה עדכני – אין מה לעדכן
-        if len(update_fields) == 1:  # רק updated_at
+        needs_db_update = len(update_fields) > 1  # יותר מ-updated_at
+        needs_cookie_update = any(
+            v is not None
+            for v in (font_scale_cookie_value, theme_cookie_value, theme_scope_cookie_value)
+        )
+
+        # אם לא התקבל אף שדה עדכני ואין צורך בקוקיז – אין מה לעדכן
+        if not needs_db_update and not needs_cookie_update:
             return jsonify({'ok': True})
 
-        db.users.update_one(
-            {'user_id': user_id},
-            {'$set': update_fields, '$setOnInsert': {'created_at': datetime.now(timezone.utc)}},
-            upsert=True,
-        )
+        if needs_db_update:
+            db.users.update_one(
+                {'user_id': user_id},
+                {'$set': update_fields, '$setOnInsert': {'created_at': datetime.now(timezone.utc)}},
+                upsert=True,
+            )
 
         # עדכון קוקיז רק עבור שדות שסופקו
         resp = jsonify(resp_payload)
@@ -16086,6 +16158,9 @@ def api_ui_prefs():
                 # ערכים מתוך ALLOWED_UI_THEMES בלבד, אבל נחזק גם כאן כדי ש-CodeQL יזהה ולידציה
                 if not re.fullmatch(r"[a-z0-9-]{1,32}", str(theme_cookie_value)):
                     theme_cookie_value = None
+            if theme_scope_cookie_value is not None:
+                if theme_scope_cookie_value not in _THEME_SCOPE_VALUES:
+                    theme_scope_cookie_value = None
 
             if font_scale_cookie_value is not None:
                 resp.set_cookie(
@@ -16100,6 +16175,16 @@ def api_ui_prefs():
                 resp.set_cookie(
                     'ui_theme',
                     theme_cookie_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if theme_scope_cookie_value is not None:
+                scope_value = THEME_SCOPE_DEVICE if theme_scope_cookie_value == THEME_SCOPE_DEVICE else THEME_SCOPE_GLOBAL
+                resp.set_cookie(
+                    'ui_theme_scope',
+                    scope_value,
                     max_age=365*24*3600,
                     samesite='Lax',
                     secure=True,
