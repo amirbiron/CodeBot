@@ -849,8 +849,11 @@
 }
 
 /* CodeMirror 5: Selection background ONLY when in-file search is active */
-.search-active .CodeMirror-focused .CodeMirror-selected,
-.search-active .CodeMirror .CodeMirror-selected {
+/* Higher specificity to override theme rules */
+.repo-content .search-active .CodeMirror-focused .CodeMirror-selected,
+.repo-content .search-active .CodeMirror .CodeMirror-selected,
+#code-editor-wrapper.search-active .CodeMirror-focused .CodeMirror-selected,
+#code-editor-wrapper.search-active .CodeMirror .CodeMirror-selected {
     background: #ff9800 !important;
 }
 
@@ -869,7 +872,9 @@
 }
 
 /* CodeMirror 6: Selection background ONLY when in-file search is active */
-.search-active .cm-selectionBackground {
+/* Higher specificity to override theme rules */
+.repo-content .search-active .cm-selectionBackground,
+#code-editor-wrapper.search-active .cm-selectionBackground {
     background: #ff9800 !important;
 }
 
