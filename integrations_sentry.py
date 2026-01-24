@@ -94,6 +94,9 @@ async def get_recent_issues(limit: int = 10) -> List[Dict[str, Any]]:
                 "permalink": str(item.get("permalink") or ""),
                 "lastSeen": str(item.get("lastSeen") or ""),
                 "firstSeen": str(item.get("firstSeen") or ""),
+                # pass through counts when provided by Sentry API
+                "count": item.get("count"),
+                "eventCount": item.get("eventCount"),
             }
         )
     return results
