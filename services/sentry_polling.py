@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from services.sentry_utils import first_int
+
 
 def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -149,6 +151,11 @@ class SentryPoller:
             short_id = str(issue.get("shortId") or "").strip()
             title = str(issue.get("title") or "").strip()
             link = str(issue.get("permalink") or "").strip()
+            occurrence_count = first_int(
+                issue.get("count"),
+                issue.get("eventCount"),
+                issue.get("occurrence_count"),
+            )
 
             name = f"Sentry: {short_id or issue_id[:8]}"
             summary = title or "Sentry issue activity"
@@ -163,6 +170,7 @@ class SentryPoller:
                 "sentry_last_seen": last_seen.isoformat(),
                 "source": "sentry_poll",
                 "is_new_error": True,
+                "occurrence_count": occurrence_count,
             }
             details = {k: v for k, v in details.items() if v not in (None, "")}
 
