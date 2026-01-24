@@ -193,13 +193,11 @@ const RepoHistory = (function() {
                         </div>
                     </div>
                     <div class="diff-view-toggle">
-                        <button class="diff-view-btn active" data-view="basic">
-                            <i class="bi bi-list"></i>
-                            בסיסי
+                        <button class="diff-view-btn active" data-view="basic" title="תצוגה בסיסית">
+                            <i class="bi bi-file-diff"></i>
                         </button>
-                        <button class="diff-view-btn" data-view="advanced">
+                        <button class="diff-view-btn" data-view="advanced" title="תצוגה מתקדמת">
                             <i class="bi bi-code-square"></i>
-                            מתקדם
                         </button>
                     </div>
                     <button class="diff-modal-close" aria-label="סגור">

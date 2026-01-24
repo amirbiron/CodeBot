@@ -1946,16 +1946,14 @@ html[dir="rtl"] .diff-view-toggle {
 .diff-view-btn {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    justify-content: center;
+    padding: 8px 10px;
     border: none;
     border-radius: 4px;
     background: transparent;
     color: var(--text-muted, #6c7086);
-    font-size: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
-    white-space: nowrap;
 }
 
 .diff-view-btn:hover {
@@ -1969,7 +1967,7 @@ html[dir="rtl"] .diff-view-toggle {
 }
 
 .diff-view-btn i {
-    font-size: 14px;
+    font-size: 16px;
 }
 
 /* ============================================
@@ -2140,12 +2138,11 @@ html[dir="rtl"] .diff-view-toggle {
     }
 
     .diff-view-btn {
-        padding: 6px 10px;
-        font-size: 11px;
+        padding: 6px 8px;
     }
 
-    .diff-view-btn span {
-        display: none;
+    .diff-view-btn i {
+        font-size: 14px;
     }
 
     /* Modal header adjustments */
