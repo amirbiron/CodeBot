@@ -3527,10 +3527,17 @@ def _add_default_csp(resp):
 
 @app.after_request
 def _disable_html_cache(resp):
-    """Force browsers to revalidate HTML responses and pick up fresh assets."""
+    """Force browsers to revalidate HTML responses unless ETag is present."""
     try:
         content_type = resp.headers.get('Content-Type', '')
         if isinstance(content_type, str) and 'text/html' in content_type:
+            # Respect explicit cache directives set by endpoints.
+            if 'Cache-Control' in resp.headers:
+                return resp
+            # Allow ETag-based revalidation for pages that set validators.
+            if 'ETag' in resp.headers:
+                resp.headers['Cache-Control'] = 'private, max-age=0, must-revalidate'
+                return resp
             resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             resp.headers['Pragma'] = 'no-cache'
             resp.headers['Expires'] = '0'
