@@ -2,7 +2,7 @@
   "name": "Code Keeper",
   "short_name": "CodeKeeper",
   "start_url": "/",
-  "display": "standalone",
+  "display": "browser",
   "capture_links": "none",
   "background_color": "#5337A8",
   "theme_color": "#5337A8",
