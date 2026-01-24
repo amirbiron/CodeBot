@@ -841,11 +841,12 @@
     border-radius: 2px;
 }
 
-/* Current selected match - orange/gold to stand out from other yellow matches */
+/* Current selected match - bright glow effect to stand out */
 .CodeMirror-focused .cm-matchhighlight,
 .CodeMirror-selectedtext {
-    background: #ff9800 !important;
-    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.9);
+    background: rgba(255, 255, 255, 0.35) !important;
+    box-shadow: 0 0 0 2px rgba(100, 200, 255, 0.8), 0 0 12px rgba(100, 200, 255, 0.6);
+    border-radius: 2px;
 }
 
 /* CodeMirror 5: Selection background ONLY when in-file search is active */
@@ -854,7 +855,9 @@
 .repo-content .search-active .CodeMirror .CodeMirror-selected,
 #code-editor-wrapper.search-active .CodeMirror-focused .CodeMirror-selected,
 #code-editor-wrapper.search-active .CodeMirror .CodeMirror-selected {
-    background: #ff9800 !important;
+    background: rgba(255, 255, 255, 0.35) !important;
+    box-shadow: 0 0 0 2px rgba(100, 200, 255, 0.8), 0 0 12px rgba(100, 200, 255, 0.6);
+    border-radius: 2px;
 }
 
 /* CodeMirror 6 search match highlighting - strong yellow for all themes */
@@ -864,18 +867,21 @@
     border-radius: 2px;
 }
 
-/* Current selected match in CM6 - orange/gold */
+/* Current selected match in CM6 - bright glow effect */
 .cm-searchMatch-selected,
 .cm-searchMatch.cm-searchMatch-selected {
-    background: #ff9800 !important;
-    box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.9), 0 0 10px rgba(255, 152, 0, 0.5);
+    background: rgba(255, 255, 255, 0.35) !important;
+    box-shadow: 0 0 0 2px rgba(100, 200, 255, 0.8), 0 0 12px rgba(100, 200, 255, 0.6);
+    border-radius: 2px;
 }
 
 /* CodeMirror 6: Selection background ONLY when in-file search is active */
 /* Higher specificity to override theme rules */
 .repo-content .search-active .cm-selectionBackground,
 #code-editor-wrapper.search-active .cm-selectionBackground {
-    background: #ff9800 !important;
+    background: rgba(255, 255, 255, 0.35) !important;
+    box-shadow: 0 0 0 2px rgba(100, 200, 255, 0.8), 0 0 12px rgba(100, 200, 255, 0.6);
+    border-radius: 2px;
 }
 
 /* Code Footer */
