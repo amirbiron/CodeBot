@@ -43,6 +43,7 @@ from aiohttp import web
 import json
 import time
 from services.db_health_service import get_db_health_service
+from services.sentry_utils import first_int
 try:
     # Correlation for web requests
     from observability import generate_request_id, bind_request_id  # type: ignore
@@ -413,24 +414,6 @@ def _truncate(text: str, limit: int) -> str:
     return s
 
 
-def _coerce_int(value: Any) -> int | None:
-    try:
-        if value is None or isinstance(value, bool):
-            return None
-        if isinstance(value, (int, float)):
-            parsed = int(value)
-        else:
-            text = str(value).strip()
-            if not text:
-                return None
-            parsed = int(float(text))
-        if parsed < 0:
-            return None
-        return parsed
-    except Exception:
-        return None
-
-
 def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     if not isinstance(payload, dict) or not payload:
         return None
@@ -501,13 +484,13 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     display_id = short_id or (issue_id[:8] if issue_id else "issue")
     name = _truncate(f"Sentry: {display_id}", 128)
 
-    occurrence_count = _coerce_int(
-        issue.get("count")
-        or issue.get("eventCount")
-        or issue.get("occurrence_count")
-        or payload.get("occurrence_count")
-        or payload.get("count")
-        or event.get("count")
+    occurrence_count = first_int(
+        issue.get("count"),
+        issue.get("eventCount"),
+        issue.get("occurrence_count"),
+        payload.get("occurrence_count"),
+        payload.get("count"),
+        event.get("count"),
     )
 
     # Important: order matters for UI display. Put alert_type and Sentry IDs first.
