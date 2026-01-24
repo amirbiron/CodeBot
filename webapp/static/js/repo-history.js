@@ -1177,63 +1177,70 @@ const RepoHistory = (function() {
     }
 
     /**
-     * הגדרת synchronized scrolling בין שני העורכים
+     * הגדרת synchronized scrolling חכם בין שני העורכים
+     * מונע רעידות, עובד גם עם מקלדת
      */
     function setupMergeViewScrollSync(mergeView) {
         if (!mergeView || !mergeView.a || !mergeView.b) return;
 
-        const editorA = mergeView.a;
-        const editorB = mergeView.b;
-        
-        // מניעת לולאה אינסופית
-        let isSyncing = false;
-
-        // קבלת ה-scroll container של כל עורך
-        const scrollerA = editorA.scrollDOM;
-        const scrollerB = editorB.scrollDOM;
+        const scrollerA = mergeView.a.scrollDOM;
+        const scrollerB = mergeView.b.scrollDOM;
 
         if (!scrollerA || !scrollerB) return;
 
-        // סנכרון מ-A ל-B
-        const syncAtoB = () => {
-            if (isSyncing) return;
-            isSyncing = true;
-            
-            // חישוב יחס הגלילה
-            const scrollTopA = scrollerA.scrollTop;
-            const scrollHeightA = scrollerA.scrollHeight - scrollerA.clientHeight;
-            const scrollHeightB = scrollerB.scrollHeight - scrollerB.clientHeight;
-            
-            if (scrollHeightA > 0 && scrollHeightB > 0) {
-                const ratio = scrollTopA / scrollHeightA;
-                scrollerB.scrollTop = ratio * scrollHeightB;
+        let activeSide = null;
+        let resetTimeout = null;
+
+        // 1. זיהוי צד אקטיבי לפי עכבר/מגע
+        const setActiveA = () => { activeSide = 'a'; };
+        const setActiveB = () => { activeSide = 'b'; };
+
+        scrollerA.addEventListener('mouseenter', setActiveA);
+        scrollerB.addEventListener('mouseenter', setActiveB);
+        scrollerA.addEventListener('touchstart', setActiveA, { passive: true });
+        scrollerB.addEventListener('touchstart', setActiveB, { passive: true });
+
+        // 2. פונקציית סנכרון ראשית
+        function sync(source, target, side) {
+            // הגנה: אם הצד השני הוא המפקד, התעלם (זה הד של הגלילה)
+            if (activeSide && activeSide !== side) {
+                return;
             }
-            
-            requestAnimationFrame(() => { isSyncing = false; });
-        };
 
-        // סנכרון מ-B ל-A
-        const syncBtoA = () => {
-            if (isSyncing) return;
-            isSyncing = true;
-            
-            const scrollTopB = scrollerB.scrollTop;
-            const scrollHeightB = scrollerB.scrollHeight - scrollerB.clientHeight;
-            const scrollHeightA = scrollerA.scrollHeight - scrollerA.clientHeight;
-            
-            if (scrollHeightB > 0 && scrollHeightA > 0) {
-                const ratio = scrollTopB / scrollHeightB;
-                scrollerA.scrollTop = ratio * scrollHeightA;
-            }
-            
-            requestAnimationFrame(() => { isSyncing = false; });
-        };
+            // אם אין מפקד (גלילת מקלדת), לוקחים פיקוד
+            activeSide = side;
 
-        scrollerA.addEventListener('scroll', syncAtoB);
-        scrollerB.addEventListener('scroll', syncBtoA);
+            // חישוב יחסי (למקרה שהגבהים שונים)
+            const denom = (source.scrollHeight - source.clientHeight) || 1;
+            const percentage = source.scrollTop / denom;
+            const targetPos = percentage * (target.scrollHeight - target.clientHeight);
 
-        // שמירת ה-handlers לניקוי
+            // ביצוע הגלילה בצד השני
+            requestAnimationFrame(() => {
+                target.scrollTop = targetPos;
+            });
+
+            // שחרור הפיקוד כשמפסיקים לגלול (Debounce)
+            clearTimeout(resetTimeout);
+            resetTimeout = setTimeout(() => {
+                activeSide = null;
+            }, 150);
+        }
+
+        // 3. האזנה לאירועי גלילה
+        const syncAtoB = () => sync(scrollerA, scrollerB, 'a');
+        const syncBtoA = () => sync(scrollerB, scrollerA, 'b');
+
+        scrollerA.addEventListener('scroll', syncAtoB, { passive: true });
+        scrollerB.addEventListener('scroll', syncBtoA, { passive: true });
+
+        // שמירת פונקציית ניקוי
         state.scrollSyncCleanup = () => {
+            clearTimeout(resetTimeout);
+            scrollerA.removeEventListener('mouseenter', setActiveA);
+            scrollerB.removeEventListener('mouseenter', setActiveB);
+            scrollerA.removeEventListener('touchstart', setActiveA);
+            scrollerB.removeEventListener('touchstart', setActiveB);
             scrollerA.removeEventListener('scroll', syncAtoB);
             scrollerB.removeEventListener('scroll', syncBtoA);
         };
