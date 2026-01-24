@@ -26,7 +26,8 @@ const RepoHistory = (function() {
         // Diff view mode
         diffViewMode: 'basic',  // 'basic' | 'advanced'
         mergeViewInstance: null,  // CodeMirror MergeView instance
-        lastDiffData: null  // שמירת נתוני ה-diff האחרונים למעבר בין תצוגות
+        lastDiffData: null,  // שמירת נתוני ה-diff האחרונים למעבר בין תצוגות
+        scrollSyncCleanup: null  // פונקציית ניקוי ל-scroll sync
     };
 
     // DOM Elements
@@ -1111,6 +1112,9 @@ const RepoHistory = (function() {
                 gutter: true
             });
 
+            // הוספת synchronized scrolling
+            setupMergeViewScrollSync(state.mergeViewInstance);
+
             // הוספת class למובייל
             if (isMobile) {
                 container.classList.add('merge-view-mobile');
@@ -1173,10 +1177,79 @@ const RepoHistory = (function() {
     }
 
     /**
+     * הגדרת synchronized scrolling בין שני העורכים
+     */
+    function setupMergeViewScrollSync(mergeView) {
+        if (!mergeView || !mergeView.a || !mergeView.b) return;
+
+        const editorA = mergeView.a;
+        const editorB = mergeView.b;
+        
+        // מניעת לולאה אינסופית
+        let isSyncing = false;
+
+        // קבלת ה-scroll container של כל עורך
+        const scrollerA = editorA.scrollDOM;
+        const scrollerB = editorB.scrollDOM;
+
+        if (!scrollerA || !scrollerB) return;
+
+        // סנכרון מ-A ל-B
+        const syncAtoB = () => {
+            if (isSyncing) return;
+            isSyncing = true;
+            
+            // חישוב יחס הגלילה
+            const scrollTopA = scrollerA.scrollTop;
+            const scrollHeightA = scrollerA.scrollHeight - scrollerA.clientHeight;
+            const scrollHeightB = scrollerB.scrollHeight - scrollerB.clientHeight;
+            
+            if (scrollHeightA > 0 && scrollHeightB > 0) {
+                const ratio = scrollTopA / scrollHeightA;
+                scrollerB.scrollTop = ratio * scrollHeightB;
+            }
+            
+            requestAnimationFrame(() => { isSyncing = false; });
+        };
+
+        // סנכרון מ-B ל-A
+        const syncBtoA = () => {
+            if (isSyncing) return;
+            isSyncing = true;
+            
+            const scrollTopB = scrollerB.scrollTop;
+            const scrollHeightB = scrollerB.scrollHeight - scrollerB.clientHeight;
+            const scrollHeightA = scrollerA.scrollHeight - scrollerA.clientHeight;
+            
+            if (scrollHeightB > 0 && scrollHeightA > 0) {
+                const ratio = scrollTopB / scrollHeightB;
+                scrollerA.scrollTop = ratio * scrollHeightA;
+            }
+            
+            requestAnimationFrame(() => { isSyncing = false; });
+        };
+
+        scrollerA.addEventListener('scroll', syncAtoB);
+        scrollerB.addEventListener('scroll', syncBtoA);
+
+        // שמירת ה-handlers לניקוי
+        state.scrollSyncCleanup = () => {
+            scrollerA.removeEventListener('scroll', syncAtoB);
+            scrollerB.removeEventListener('scroll', syncBtoA);
+        };
+    }
+
+    /**
      * ניקוי MergeView instance
      */
     function destroyMergeView() {
         window.removeEventListener('resize', handleMergeViewResize);
+        
+        // ניקוי scroll sync
+        if (state.scrollSyncCleanup) {
+            state.scrollSyncCleanup();
+            state.scrollSyncCleanup = null;
+        }
         
         if (state.mergeViewInstance) {
             try {
