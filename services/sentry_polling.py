@@ -26,6 +26,24 @@ def _is_true(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _coerce_int(value: Any) -> int | None:
+    try:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            parsed = int(value)
+        else:
+            text = str(value).strip()
+            if not text:
+                return None
+            parsed = int(float(text))
+        if parsed < 0:
+            return None
+        return parsed
+    except Exception:
+        return None
+
+
 @dataclass
 class SentryPollerConfig:
     enabled: bool = False
@@ -149,6 +167,7 @@ class SentryPoller:
             short_id = str(issue.get("shortId") or "").strip()
             title = str(issue.get("title") or "").strip()
             link = str(issue.get("permalink") or "").strip()
+            occurrence_count = _coerce_int(issue.get("count") or issue.get("eventCount") or issue.get("occurrence_count"))
 
             name = f"Sentry: {short_id or issue_id[:8]}"
             summary = title or "Sentry issue activity"
@@ -163,6 +182,7 @@ class SentryPoller:
                 "sentry_last_seen": last_seen.isoformat(),
                 "source": "sentry_poll",
                 "is_new_error": True,
+                "occurrence_count": occurrence_count,
             }
             details = {k: v for k, v in details.items() if v not in (None, "")}
 

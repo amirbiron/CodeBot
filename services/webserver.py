@@ -413,6 +413,24 @@ def _truncate(text: str, limit: int) -> str:
     return s
 
 
+def _coerce_int(value: Any) -> int | None:
+    try:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            parsed = int(value)
+        else:
+            text = str(value).strip()
+            if not text:
+                return None
+            parsed = int(float(text))
+        if parsed < 0:
+            return None
+        return parsed
+    except Exception:
+        return None
+
+
 def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     if not isinstance(payload, dict) or not payload:
         return None
@@ -483,6 +501,15 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     display_id = short_id or (issue_id[:8] if issue_id else "issue")
     name = _truncate(f"Sentry: {display_id}", 128)
 
+    occurrence_count = _coerce_int(
+        issue.get("count")
+        or issue.get("eventCount")
+        or issue.get("occurrence_count")
+        or payload.get("occurrence_count")
+        or payload.get("count")
+        or event.get("count")
+    )
+
     # Important: order matters for UI display. Put alert_type and Sentry IDs first.
     details: Dict[str, Any] = {
         "alert_type": "sentry_issue",
@@ -496,6 +523,7 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
         "logger": str(event.get("logger") or payload.get("logger") or "").strip() or None,
         "culprit": str(issue.get("culprit") or event.get("culprit") or "").strip() or None,
         "environment": str(event.get("environment") or payload.get("environment") or "").strip() or None,
+        "occurrence_count": occurrence_count,
     }
     # Remove None values to keep storage clean
     details = {k: v for k, v in details.items() if v not in (None, "")}
