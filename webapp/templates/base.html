@@ -2048,6 +2048,12 @@
                             <span class="qa-icon">🎨</span>
                             <span class="qa-label">ערכת נושא</span>
                         </button>
+                        {% if user_is_admin %}
+                        <a href="/repo/" class="quick-access-item" title="דפדפן קוד הפרויקט">
+                            <span class="qa-icon">💻</span>
+                            <span class="qa-label">דפדפן קוד</span>
+                        </a>
+                        {% endif %}
                         <!-- הוסר: כפתור הגדרות בתוך חלונית קיצורי הדרך -->
                     </div>
                 </div>
