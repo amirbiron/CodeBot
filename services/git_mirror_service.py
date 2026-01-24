@@ -1720,6 +1720,13 @@ class GitMirrorService:
         # git grep [options] <pattern> <revision> -- <pathspec>
         cmd = ["git", "grep", "-n", "-I", "--break", "--heading"]
 
+        # *** הגבלת זיכרון: מגבילים את מספר ההתאמות לכל קובץ ***
+        # זה מונע מצב שחיפוש מונח נפוץ (כמו "import") יחזיר
+        # אלפי התאמות ויגרום לחריגת זיכרון (512MB limit on Render)
+        # -m N = מקסימום N התאמות לכל קובץ
+        matches_per_file = min(max_results, 20)  # מקסימום 20 התאמות לקובץ
+        cmd.extend(["-m", str(matches_per_file)])
+
         # Case sensitivity
         if not case_sensitive:
             cmd.append("-i")
@@ -1749,17 +1756,12 @@ class GitMirrorService:
         # אם אין file_pattern, לא צריך -- ולא צריך "."
 
         try:
-            result = self._run_git_command(cmd, cwd=repo_path, timeout=timeout)
+            # שימוש בשיטת streaming כדי להגביל את צריכת הזיכרון
+            # עוצרים מוקדם כשמגיעים למספיק תוצאות
+            results = self._run_grep_with_streaming(cmd, repo_path, max_results, timeout)
 
-            if result.return_code == 1:
-                # git grep מחזיר 1 כשאין תוצאות
-                return {"results": [], "total_count": 0, "truncated": False}
-
-            if not result.success:
-                return {"error": "search_failed", "message": result.stderr[:200], "results": []}
-
-            # פרסור התוצאות
-            results = self._parse_grep_output(result.stdout, max_results)
+            if isinstance(results, dict) and "error" in results:
+                return results
 
             return {
                 "results": results,
@@ -1771,6 +1773,157 @@ class GitMirrorService:
         except Exception as e:
             logger.exception(f"Search error: {e}")
             return {"error": "search_error", "results": []}
+
+    def _run_grep_with_streaming(
+        self,
+        cmd: List[str],
+        repo_path: Path,
+        max_results: int,
+        timeout: int
+    ) -> List[Dict[str, Any]] | Dict[str, Any]:
+        """
+        הרצת git grep עם streaming לצמצום צריכת זיכרון.
+
+        במקום לקרוא את כל הפלט לזיכרון, קוראים שורה-שורה
+        ועוצרים מוקדם כשמגיעים למספיק תוצאות.
+
+        Args:
+            cmd: פקודת git grep
+            repo_path: נתיב לריפו
+            max_results: מקסימום תוצאות
+            timeout: timeout בשניות
+
+        Returns:
+            רשימת תוצאות או dict עם שגיאה
+        """
+        # וולידציה בסיסית (ממומש כבר ב-_run_git_command אבל נבדוק גם פה)
+        if not cmd or cmd[0] != "git":
+            return {"error": "invalid_command", "results": []}
+
+        results: List[Dict[str, Any]] = []
+        current_file: Optional[str] = None
+        lines_read = 0
+        max_lines = max_results * 50  # הגבלת קריאה גם אם אין מספיק התאמות
+
+        def _looks_like_git_sha(text: str) -> bool:
+            t = (text or "").strip()
+            if len(t) < 7 or len(t) > 64:
+                return False
+            return all(c in "0123456789abcdefABCDEF" for c in t)
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(repo_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,  # Line buffered
+            )
+
+            # קריאה עם timeout
+            import select
+            import time
+
+            start_time = time.time()
+
+            while True:
+                # בדיקת timeout
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    process.kill()
+                    logger.warning(f"git grep timeout after {elapsed:.1f}s")
+                    break
+
+                # בדיקה אם יש עוד פלט
+                remaining_timeout = max(0.1, timeout - elapsed)
+
+                # שימוש ב-select לבדוק אם יש נתונים לקריאה
+                # (עובד על Linux/Mac)
+                try:
+                    ready, _, _ = select.select([process.stdout], [], [], min(0.5, remaining_timeout))
+                except (ValueError, OSError):
+                    # במקרה של בעיה, נמשיך בדרך הפשוטה
+                    ready = [process.stdout]
+
+                if not ready:
+                    # בדיקה אם התהליך הסתיים
+                    if process.poll() is not None:
+                        break
+                    continue
+
+                line = process.stdout.readline()
+                if not line:
+                    # סוף הפלט
+                    break
+
+                lines_read += 1
+                if lines_read > max_lines:
+                    # הגבלת קריאה למקרה של פלט אינסופי
+                    process.kill()
+                    logger.warning(f"git grep output limit reached ({max_lines} lines)")
+                    break
+
+                # פרסור השורה
+                line = line.rstrip('\n')
+                if not line:
+                    continue
+
+                # בדיקה אם זו שורת תוצאה (מספר:תוכן)
+                parts = line.split(":", 1)
+                is_match_line = len(parts) == 2 and parts[0].strip().isdigit()
+
+                if is_match_line:
+                    if current_file:
+                        try:
+                            line_num = int(parts[0].strip())
+                            content = parts[1]
+
+                            results.append({
+                                "path": current_file,
+                                "line": line_num,
+                                "content": content.strip()[:500]
+                            })
+
+                            if len(results) >= max_results:
+                                # מספיק תוצאות - עוצרים מוקדם!
+                                process.kill()
+                                break
+
+                        except ValueError:
+                            continue
+                else:
+                    # שורת Heading (שם קובץ)
+                    file_line = line.strip()
+
+                    # הסרת ref prefix אם קיים
+                    if ":" in file_line:
+                        colon_pos = file_line.find(":")
+                        before_colon = file_line[:colon_pos]
+
+                        if (
+                            "/" in before_colon
+                            or before_colon in ["HEAD", "main", "master", "develop"]
+                            or before_colon.startswith("refs/")
+                            or _looks_like_git_sha(before_colon)
+                        ):
+                            file_line = file_line[colon_pos + 1:]
+
+                    current_file = file_line
+
+            # ניקוי
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+            return results
+
+        except FileNotFoundError:
+            return {"error": "git_not_found", "results": []}
+        except Exception as e:
+            logger.exception(f"Streaming grep error: {e}")
+            return {"error": "search_error", "message": str(e)[:200], "results": []}
 
     def _is_regex(self, query: str) -> bool:
         """בדיקה אם ה-query הוא regex"""
