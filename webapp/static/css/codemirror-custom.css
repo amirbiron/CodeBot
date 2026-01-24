@@ -229,3 +229,26 @@ textarea[name="code"]::placeholder,
 [data-theme^="shared:"] .cm-editor.cm-focused {
   outline: 2px solid var(--primary, rgba(100, 100, 255, 0.5));
 }
+
+/* ============================================
+   Search Highlighting - strong yellow for all themes
+   ============================================ */
+
+/* Search match highlighting - strong yellow */
+.cm-searchMatch {
+  background: #ffeb3b !important;
+  box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.7), 0 0 6px rgba(255, 235, 59, 0.4);
+  border-radius: 2px;
+}
+
+/* Currently selected search match - even more prominent */
+.cm-searchMatch-selected,
+.cm-searchMatch.cm-searchMatch-selected {
+  background: #fff176 !important;
+  box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.9), 0 0 10px rgba(255, 235, 59, 0.5);
+}
+
+/* Selection match highlight (when selecting text that matches search) */
+.cm-selectionMatch {
+  background: rgba(255, 235, 59, 0.35) !important;
+}

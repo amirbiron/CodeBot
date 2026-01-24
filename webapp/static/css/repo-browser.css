@@ -219,11 +219,14 @@
     text-overflow: ellipsis;
 }
 
+/* Search result highlight - strong yellow for all themes */
 .search-result-preview mark {
-    background: var(--accent-yellow);
-    color: var(--bg-primary);
-    padding: 0 2px;
-    border-radius: 2px;
+    background: #ffeb3b;
+    color: #000;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 700;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .search-result-line {
@@ -831,9 +834,31 @@
     font-size: 12px;
 }
 
-/* Search match highlighting */
+/* Search match highlighting in CodeMirror 5 - strong yellow for all themes */
 .cm-searching {
-    background: rgba(249, 226, 175, 0.4) !important;
+    background: #ffeb3b !important;
+    box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.7), 0 0 6px rgba(255, 235, 59, 0.4);
+    border-radius: 2px;
+}
+
+/* Current match highlight (more prominent) */
+.CodeMirror-focused .cm-matchhighlight,
+.CodeMirror-selectedtext {
+    background: #fff176 !important;
+    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.9);
+}
+
+/* CodeMirror 6 search match highlighting - strong yellow for all themes */
+.cm-searchMatch {
+    background: #ffeb3b !important;
+    box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.7), 0 0 6px rgba(255, 235, 59, 0.4);
+    border-radius: 2px;
+}
+
+.cm-searchMatch-selected,
+.cm-searchMatch.cm-searchMatch-selected {
+    background: #fff176 !important;
+    box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.9), 0 0 10px rgba(255, 235, 59, 0.5);
 }
 
 /* Code Footer */
@@ -1559,11 +1584,14 @@ html[dir="rtl"] .history-panel.open {
     line-height: 1.4;
 }
 
+/* History search highlight - strong yellow for all themes */
 .search-item-message mark {
-    background: var(--accent-yellow, #f9e2af);
-    color: var(--bg-primary, #1e1e2e);
-    padding: 0 3px;
-    border-radius: 2px;
+    background: #ffeb3b;
+    color: #000;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 700;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .search-item-author {

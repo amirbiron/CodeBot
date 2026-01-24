@@ -624,6 +624,9 @@ async function selectFile(path, element) {
 
     state.currentFile = path;
     
+    // Update URL hash to persist state across refresh
+    updateUrlHash(path);
+    
     // Close mobile sidebar when file is selected
     if (window.innerWidth <= 768) {
         closeMobileSidebar();
@@ -1602,6 +1605,48 @@ function addToRecentFiles(path) {
 // ========================================
 // Utilities
 // ========================================
+
+/**
+ * Update the URL hash with current file path (and optionally search query)
+ * This allows the page state to persist across browser refresh
+ * Preserves existing hash parameters that are not being updated
+ */
+function updateUrlHash(filePath, searchQuery) {
+    try {
+        // Parse existing hash parameters to preserve them
+        const hashRaw = (window.location.hash || '').replace(/^#/, '');
+        const params = new URLSearchParams(hashRaw);
+        
+        // Update or set file parameter
+        if (filePath) {
+            params.set('file', filePath);
+        } else if (filePath === null) {
+            // Explicitly remove if null
+            params.delete('file');
+        }
+        
+        // Update or set search parameter (only if explicitly provided)
+        if (searchQuery !== undefined) {
+            if (searchQuery) {
+                params.set('search', searchQuery);
+            } else {
+                params.delete('search');
+            }
+        }
+        
+        const newHash = params.toString();
+        
+        // Use replaceState to avoid adding to browser history for each file selection
+        if (newHash) {
+            history.replaceState(null, '', '#' + newHash);
+        } else {
+            // Clear hash if no params
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+    } catch (e) {
+        console.warn('Failed to update URL hash:', e);
+    }
+}
 
 function showToast(message, duration = 2000) {
     const toast = document.createElement('div');
