@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
@@ -523,8 +522,6 @@ class AsyncDatabaseHealthService:
                 "returned_count": len(documents),
             }
 
-        except (InvalidCollectionNameError, CollectionAccessDeniedError):
-            raise  # העבר הלאה שגיאות ספציפיות
         except Exception as e:
             logger.error(f"Failed to get documents from {collection_name}: {e}")
             raise RuntimeError(f"get_documents failed: {e}") from e
@@ -749,31 +746,35 @@ class SyncDatabaseHealthService:
         limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
         skip = min(max(0, skip), MAX_SKIP)  # ⚠️ הגבלה עליונה
 
-        collection = db[collection_name]
-        total = collection.count_documents({})
-        
-        # ⚠️ חשוב: sort(_id) לדטרמיניזם!
-        documents = list(collection.find({}).sort("_id", 1).skip(skip).limit(limit))
+        try:
+            collection = db[collection_name]
+            total = collection.count_documents({})
+            
+            # ⚠️ חשוב: sort(_id) לדטרמיניזם!
+            documents = list(collection.find({}).sort("_id", 1).skip(skip).limit(limit))
 
-        # סריאליזציה
-        serialized = json.loads(bson_dumps(documents))
+            # סריאליזציה
+            serialized = json.loads(bson_dumps(documents))
 
-        # הסתרת שדות רגישים
-        if redact_sensitive:
-            serialized = [_redact_sensitive_fields(doc) for doc in serialized]
+            # הסתרת שדות רגישים
+            if redact_sensitive:
+                serialized = [_redact_sensitive_fields(doc) for doc in serialized]
 
-        # ⚠️ חישוב has_more: בודקים אם קיבלנו עמוד מלא
-        has_more = len(documents) == limit
+            # ⚠️ חישוב has_more: בודקים אם קיבלנו עמוד מלא
+            has_more = len(documents) == limit
 
-        return {
-            "collection": collection_name,
-            "documents": serialized,
-            "total": total,
-            "skip": skip,
-            "limit": limit,
-            "has_more": has_more,
-            "returned_count": len(documents),
-        }
+            return {
+                "collection": collection_name,
+                "documents": serialized,
+                "total": total,
+                "skip": skip,
+                "limit": limit,
+                "has_more": has_more,
+                "returned_count": len(documents),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get documents from {collection_name}: {e}")
+            raise RuntimeError(f"get_documents failed: {e}") from e
 
 
 class ThreadPoolDatabaseHealthService:
