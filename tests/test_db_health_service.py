@@ -338,7 +338,7 @@ class TestGetDocuments:
         svc = service_with_mock_db
 
         # Mock collection
-        mock_collection = AsyncMock()
+        mock_collection = MagicMock()
         mock_collection.count_documents = AsyncMock(return_value=100)
 
         # Mock cursor with sort - מחזיר עמוד מלא (20 מסמכים)
@@ -363,7 +363,7 @@ class TestGetDocuments:
         """בדיקת שליפה בעמוד האחרון (עמוד חלקי)."""
         svc = service_with_mock_db
 
-        mock_collection = AsyncMock()
+        mock_collection = MagicMock()
         mock_collection.count_documents = AsyncMock(return_value=25)
 
         # Mock cursor - מחזיר רק 5 מסמכים (עמוד חלקי)
@@ -385,7 +385,7 @@ class TestGetDocuments:
         """בדיקה שהשדות הרגישים מוסתרים."""
         svc = service_with_mock_db
 
-        mock_collection = AsyncMock()
+        mock_collection = MagicMock()
         mock_collection.count_documents = AsyncMock(return_value=1)
 
         mock_cursor = AsyncMock()
@@ -412,7 +412,7 @@ class TestGetDocuments:
         """בדיקה שה-limit מוגבל ל-100."""
         svc = service_with_mock_db
 
-        mock_collection = AsyncMock()
+        mock_collection = MagicMock()
         mock_collection.count_documents = AsyncMock(return_value=500)
         mock_cursor = AsyncMock()
         mock_cursor.to_list = AsyncMock(return_value=[])
@@ -428,7 +428,7 @@ class TestGetDocuments:
         """בדיקה של collection ריק."""
         svc = service_with_mock_db
 
-        mock_collection = AsyncMock()
+        mock_collection = MagicMock()
         mock_collection.count_documents = AsyncMock(return_value=0)
         mock_cursor = AsyncMock()
         mock_cursor.to_list = AsyncMock(return_value=[])
