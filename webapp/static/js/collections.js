@@ -1073,7 +1073,7 @@
       let itemsContainer = null;
       if (isWorkspace) {
         hydrateWorkspaceBoard(container, collectionId, baseItems);
-        autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16 });
+        autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
       } else {
         itemsContainer = container.querySelector('#collectionItems');
         wireDnd(itemsContainer, collectionId);
@@ -1993,11 +1993,19 @@
   // --- התאמת טקסט דינמית לאורכים משתנים ---
   function autoFitText(selector, opts){
     try {
-      const { minPx = 12, maxPx = 16 } = opts || {};
+      const {
+        minPx = 12,
+        maxPx = 16,
+        allowWrap = false,
+        wrapClass = 'is-wrapped',
+      } = opts || {};
       const els = document.querySelectorAll(selector);
       if (!els || !els.length) return;
       els.forEach(el => {
         if (!(el instanceof HTMLElement)) return;
+        if (allowWrap && wrapClass) {
+          el.classList.remove(wrapClass);
+        }
         // שחזור גודל בסיסי אם נשמר, אחרת קבע ושמור
         let base = Number(el.dataset.baseFontPx || '');
         if (!base || Number.isNaN(base)) {
@@ -2020,6 +2028,11 @@
         const ratio = Math.max(minPx / base, Math.min(1, available / Math.max(1, needed)));
         const next = Math.max(minPx, Math.min(maxPx, Math.floor(base * ratio)));
         el.style.fontSize = next + 'px';
+        if (allowWrap && wrapClass && next <= minPx) {
+          if (el.scrollWidth > el.clientWidth + 1) {
+            el.classList.add(wrapClass);
+          }
+        }
       });
     } catch(_e){ /* ignore */ }
   }
@@ -2037,6 +2050,7 @@
   const onResize = throttle(() => {
     autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
     autoFitText('#collectionsSidebar .sidebar-item .name', { minPx: 12, maxPx: 16 });
+    autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
   }, 150);
   window.addEventListener('resize', onResize);
 
