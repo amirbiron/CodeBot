@@ -369,6 +369,24 @@ class FilesFacade:
         except Exception:
             return None
 
+    def bulk_set_favorite(self, user_id: int, object_ids: List[Any], is_favorite: bool) -> int:
+        if not object_ids:
+            return 0
+        db = self._get_db()
+        now = datetime.now(timezone.utc)
+        update = {
+            "$set": {
+                "is_favorite": bool(is_favorite),
+                "updated_at": now,
+                "favorited_at": now if is_favorite else None,
+            }
+        }
+        res = db.code_snippets.update_many(
+            {"_id": {"$in": object_ids}, "user_id": user_id, "is_active": True},
+            update,
+        )
+        return int(getattr(res, "modified_count", 0) or 0)
+
     def get_favorites(self, user_id: int, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict[str, Any]]:
         db = self._get_db()
         # Support multiple legacy signatures:

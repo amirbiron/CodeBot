@@ -7,6 +7,7 @@ import asyncio
 import logging
 from functools import wraps
 
+from bson import ObjectId
 from flask import Blueprint, jsonify, request, session, redirect, url_for
 
 from src.infrastructure.composition.webapp_container import get_files_facade
@@ -155,3 +156,29 @@ def api_recent_files():
         except Exception:
             pass
         return jsonify({"error": "Failed to fetch recent files"}), 500
+
+
+@files_bp.route("/bulk-favorite", methods=["POST"])
+@login_required
+@traced("files.bulk_favorite")
+def api_files_bulk_favorite():
+    """הוספת is_favorite=True לקבוצת קבצים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get("file_ids") or [])
+        if not file_ids:
+            return jsonify({"success": False, "error": "No files selected"}), 400
+        if len(file_ids) > 100:
+            return jsonify({"success": False, "error": "Too many files (max 100)"}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid file id"}), 400
+
+        facade = get_files_facade()
+        user_id = session["user_id"]
+        updated = facade.bulk_set_favorite(user_id, object_ids, True)
+        return jsonify({"success": True, "updated": int(updated)})
+    except Exception:
+        return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
