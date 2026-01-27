@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -409,6 +409,48 @@ class FilesFacade:
             return list(cursor)
         except Exception:
             return []
+
+    def count_user_files_by_ids(self, user_id: int, object_ids: List[Any]) -> int:
+        if not object_ids:
+            return 0
+        db = self._get_db()
+        try:
+            return int(
+                db.code_snippets.count_documents(
+                    {"_id": {"$in": object_ids}, "user_id": user_id}
+                )
+            )
+        except Exception:
+            return 0
+
+    def create_share_link(
+        self,
+        user_id: int,
+        object_ids: List[Any],
+        ttl_days: int,
+        token: str,
+        created_at: datetime,
+    ) -> Optional[Dict[str, Any]]:
+        if not object_ids:
+            return None
+        db = self._get_db()
+        try:
+            expires_at = created_at + timedelta(days=int(ttl_days))
+        except Exception:
+            expires_at = created_at
+        try:
+            doc = {
+                "token": token,
+                "file_ids": object_ids,
+                "user_id": user_id,
+                "created_at": created_at,
+                "expires_at": expires_at,
+                "view_count": 0,
+            }
+            db.share_links.insert_one(doc)
+            return doc
+        except Exception:
+            return None
 
     def get_favorites(self, user_id: int, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict[str, Any]]:
         db = self._get_db()

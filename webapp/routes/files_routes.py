@@ -5,13 +5,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import secrets
 import time
+from datetime import datetime, timezone
 from functools import wraps
 
 from bson import ObjectId
 from flask import Blueprint, jsonify, request, session, redirect, url_for, send_file
 
 from src.infrastructure.composition.webapp_container import get_files_facade
+try:  # keep config optional for docs/CI
+    from config import config as _cfg  # type: ignore
+except Exception:  # pragma: no cover
+    _cfg = None
 
 # Manual tracing decorator (fail-open)
 try:  # type: ignore
@@ -26,6 +33,28 @@ except Exception:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 files_bp = Blueprint("files_api", __name__, url_prefix="/api/files")
+
+DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
+
+
+def _get_webapp_url() -> str:
+    value = None
+    if _cfg is not None:
+        try:
+            value = getattr(_cfg, "WEBAPP_URL", None)
+        except Exception:
+            value = None
+    if value in (None, ""):
+        value = os.getenv("WEBAPP_URL") or DEFAULT_WEBAPP_URL
+    return str(value)
+
+
+def _get_public_share_ttl_days() -> int:
+    raw = os.getenv("PUBLIC_SHARE_TTL_DAYS", "7")
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return 7
 
 
 def login_required(f):
@@ -302,6 +331,58 @@ def api_files_create_zip():
             mimetype="application/zip",
             as_attachment=True,
             download_name=f"code_files_{ts}.zip",
+        )
+    except Exception:
+        return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
+
+
+@files_bp.route("/create-share-link", methods=["POST"])
+@login_required
+@traced("share.create_multi")
+def api_files_create_share_link():
+    """יוצר קישור שיתוף ציבורי לקבצים נבחרים ומחזיר URL."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get("file_ids") or [])
+        if not file_ids:
+            return jsonify({"success": False, "error": "No files selected"}), 400
+        if len(file_ids) > 100:
+            return jsonify({"success": False, "error": "Too many files (max 100)"}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid file id"}), 400
+
+        facade = get_files_facade()
+        user_id = session["user_id"]
+
+        owned_count = facade.count_user_files_by_ids(user_id, object_ids)
+        if owned_count != len(object_ids):
+            return jsonify({"success": False, "error": "Some files not found"}), 404
+
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        share_doc = facade.create_share_link(
+            user_id=user_id,
+            object_ids=object_ids,
+            ttl_days=_get_public_share_ttl_days(),
+            token=token,
+            created_at=now,
+        )
+        if not share_doc:
+            return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
+
+        base_url = (_get_webapp_url() or request.host_url.rstrip("/")).rstrip("/")
+        share_url = f"{base_url}/shared/{token}"
+        expires_at = share_doc.get("expires_at", now)
+        return jsonify(
+            {
+                "success": True,
+                "share_url": share_url,
+                "expires_at": expires_at.isoformat(),
+                "token": token,
+            }
         )
     except Exception:
         return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500

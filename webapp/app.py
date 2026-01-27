@@ -14763,54 +14763,6 @@ def api_get_pinned_files():
         return jsonify({"ok": False, "error": "אירעה שגיאה בעת טעינת הקבצים הנעוצים"}), 500
 
 
-@app.route('/api/files/create-share-link', methods=['POST'])
-@login_required
-@traced("share.create_multi")
-def api_files_create_share_link():
-    """יוצר קישור שיתוף ציבורי לקבצים נבחרים ומחזיר URL."""
-    try:
-        data = request.get_json(silent=True) or {}
-        file_ids = list(data.get('file_ids') or [])
-        if not file_ids:
-            return jsonify({'success': False, 'error': 'No files selected'}), 400
-        if len(file_ids) > 100:
-            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
-
-        try:
-            object_ids = [ObjectId(fid) for fid in file_ids]
-        except Exception:
-            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
-
-        db = get_db()
-        user_id = session['user_id']
-
-        # אימות שהקבצים שייכים למשתמש
-        owned_count = db.code_snippets.count_documents({
-            '_id': {'$in': object_ids},
-            'user_id': user_id
-        })
-        if owned_count != len(object_ids):
-            return jsonify({'success': False, 'error': 'Some files not found'}), 404
-
-        token = secrets.token_urlsafe(32)
-        now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
-
-        db.share_links.insert_one({
-            'token': token,
-            'file_ids': object_ids,
-            'user_id': user_id,
-            'created_at': now,
-            'expires_at': expires_at,
-            'view_count': 0,
-        })
-
-        base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
-        share_url = f"{base_url}/shared/{token}"
-        return jsonify({'success': True, 'share_url': share_url, 'expires_at': expires_at.isoformat(), 'token': token})
-    except Exception:
-        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
-
 @app.route('/api/files/bulk-delete', methods=['POST'])
 @login_required
 @traced("files.bulk_delete")
