@@ -42,7 +42,12 @@ except Exception as e:
 from aiohttp import web
 import json
 import time
-from services.db_health_service import get_db_health_service
+from services.db_health_service import (
+    get_db_health_service,
+    InvalidCollectionNameError,
+    CollectionAccessDeniedError,
+    CollectionNotFoundError,
+)
 from services.sentry_utils import first_int
 try:
     # Correlation for web requests
@@ -1196,6 +1201,85 @@ def create_app() -> web.Application:
             logger.error(f"db_health_collections error: {e}")
             return web.json_response({"error": "failed", "message": "internal_error"}, status=500)
 
+    async def db_collection_documents_view(request: web.Request) -> web.Response:
+        """GET /api/db/{collection}/documents - שליפת מסמכים מ-collection.
+
+        Query Parameters:
+            skip: מספר מסמכים לדלג (ברירת מחדל: 0)
+            limit: מספר מסמכים להחזיר (ברירת מחדל: 20, מקסימום: 100)
+
+        Returns:
+            JSON עם documents, total, skip, limit, has_more
+
+        Status Codes:
+            200: הצלחה
+            400: פרמטרים לא תקינים / שם collection לא תקין
+            403: גישה ל-collection חסומה
+            404: collection לא קיים (או ריק - מחזיר total=0)
+            500: שגיאת שרת
+        """
+        try:
+            collection_name = request.match_info.get("collection", "")
+
+            # פרסור פרמטרים עם ברירות מחדל
+            try:
+                skip = int(request.query.get("skip", "0"))
+                limit = int(request.query.get("limit", "20"))
+            except ValueError:
+                return web.json_response(
+                    {"error": "invalid_params", "message": "skip and limit must be integers"},
+                    status=400,
+                )
+
+            # וולידציה בסיסית
+            if skip < 0 or limit < 1:
+                return web.json_response(
+                    {"error": "invalid_params", "message": "skip >= 0, limit >= 1"},
+                    status=400,
+                )
+            
+            # ⚠️ הגנה מפני DoS: skip גדול מדי גורם ל-MongoDB לסרוק מיליוני מסמכים
+            MAX_SKIP = 10000
+            if skip > MAX_SKIP:
+                return web.json_response(
+                    {"error": "invalid_params", "message": f"skip cannot exceed {MAX_SKIP}"},
+                    status=400,
+                )
+
+            svc = await get_db_health_service()
+            result = await svc.get_documents(
+                collection_name=collection_name,
+                skip=skip,
+                limit=limit,
+            )
+
+            return web.json_response(result)
+
+        except InvalidCollectionNameError as e:
+            # שם collection לא תקין → 400 Bad Request
+            return web.json_response(
+                {"error": "invalid_collection_name", "message": str(e)},
+                status=400,
+            )
+        except CollectionAccessDeniedError as e:
+            # גישה חסומה → 403 Forbidden
+            return web.json_response(
+                {"error": "access_denied", "message": str(e)},
+                status=403,
+            )
+        except CollectionNotFoundError as e:
+            # Collection לא קיים → 404 Not Found
+            return web.json_response(
+                {"error": "not_found", "message": str(e)},
+                status=404,
+            )
+        except Exception as e:
+            logger.error(f"db_collection_documents error: {e}")
+            return web.json_response(
+                {"error": "internal_error", "message": "An unexpected error occurred"},
+                status=500,
+            )
+
     async def db_health_summary_view(request: web.Request) -> web.Response:
         """GET /api/db/health - סיכום בריאות כללי."""
         try:
@@ -1515,6 +1599,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/db/pool", db_health_pool_view)
     app.router.add_get("/api/db/ops", db_health_ops_view)
     app.router.add_get("/api/db/collections", db_health_collections_view)
+    app.router.add_get("/api/db/{collection}/documents", db_collection_documents_view)
     app.router.add_get("/api/db/health", db_health_summary_view)
 
     # Jobs Monitor routes
