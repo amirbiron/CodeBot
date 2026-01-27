@@ -182,3 +182,29 @@ def api_files_bulk_favorite():
         return jsonify({"success": True, "updated": int(updated)})
     except Exception:
         return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
+
+
+@files_bp.route("/bulk-unfavorite", methods=["POST"])
+@login_required
+@traced("files.bulk_unfavorite")
+def api_files_bulk_unfavorite():
+    """ביטול is_favorite לקבוצת קבצים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get("file_ids") or [])
+        if not file_ids:
+            return jsonify({"success": False, "error": "No files selected"}), 400
+        if len(file_ids) > 100:
+            return jsonify({"success": False, "error": "Too many files (max 100)"}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid file id"}), 400
+
+        facade = get_files_facade()
+        user_id = session["user_id"]
+        updated = facade.bulk_set_favorite(user_id, object_ids, False)
+        return jsonify({"success": True, "updated": int(updated)})
+    except Exception:
+        return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
