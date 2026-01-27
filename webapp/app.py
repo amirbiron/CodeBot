@@ -4597,18 +4597,90 @@ def _maintenance_cleanup_is_authorized() -> bool:
 
 
 _WEBAPP_DB_HEALTH_SERVICE = None
+_DB_HEALTH_ASYNC_LOOP = None
+_DB_HEALTH_ASYNC_LOOP_THREAD = None
+_DB_HEALTH_ASYNC_LOOP_LOCK = threading.Lock()
 
 # Throttling ל-collStats (Per-process). מגן על DB מפני הרצות תכופות.
 _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO: Optional[float] = None
 _DB_HEALTH_COLLECTIONS_COOLDOWN_LOCK = threading.Lock()
 
 
+def _get_db_health_native_thread_class():
+    try:
+        from gevent import monkey as gevent_monkey  # type: ignore
+    except Exception:
+        return threading.Thread
+    try:
+        return gevent_monkey.get_original("threading", "Thread")
+    except Exception:
+        start_fn = None
+        for module_name in ("thread", "_thread"):
+            try:
+                start_fn = gevent_monkey.get_original(module_name, "start_new_thread")
+                break
+            except Exception:
+                continue
+        if start_fn is None:
+            return threading.Thread
+
+        class _NativeThread:
+            def __init__(self, *, target=None, name=None, daemon=None, args=None, kwargs=None):
+                self._target = target
+                self._args = tuple(args or ())
+                self._kwargs = dict(kwargs or {})
+                self.name = name or "native_thread"
+                self.daemon = bool(daemon) if daemon is not None else False
+
+            def start(self):
+                def _runner():
+                    try:
+                        threading.current_thread().name = self.name
+                    except Exception:
+                        pass
+                    if self._target is not None:
+                        self._target(*self._args, **self._kwargs)
+
+                start_fn(_runner, ())
+
+        return _NativeThread
+
+
+def _ensure_db_health_async_loop():
+    global _DB_HEALTH_ASYNC_LOOP, _DB_HEALTH_ASYNC_LOOP_THREAD
+    loop = _DB_HEALTH_ASYNC_LOOP
+    if loop is not None and not loop.is_closed() and loop.is_running():
+        return loop
+    with _DB_HEALTH_ASYNC_LOOP_LOCK:
+        loop = _DB_HEALTH_ASYNC_LOOP
+        if loop is not None and not loop.is_closed() and loop.is_running():
+            return loop
+        loop = asyncio.new_event_loop()
+
+        def _run_loop():
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        native_thread = _get_db_health_native_thread_class()
+        thread = native_thread(target=_run_loop, name="db_health_async_loop", daemon=True)
+        thread.start()
+        _DB_HEALTH_ASYNC_LOOP = loop
+        _DB_HEALTH_ASYNC_LOOP_THREAD = thread
+        return loop
+
+
 def _run_db_health(awaitable):
     """הרצת קורוטינה בצורה תואמת Flask תחת WSGI.
 
-    אם יש event loop פעיל נברח ל-thread נקי עם לולאה חדשה.
+    אם מתקבל awaitable – נריץ אותו בלולאה ייעודית ברקע.
     """
     if inspect.isawaitable(awaitable):
+        try:
+            loop = _ensure_db_health_async_loop()
+            if asyncio.iscoroutine(awaitable):
+                return asyncio.run_coroutine_threadsafe(awaitable, loop).result()
+        except Exception:
+            logger.exception("db_health_async_loop_failed")
         return _run_awaitable_blocking(awaitable, thread_label="db_health")
     return awaitable
 
