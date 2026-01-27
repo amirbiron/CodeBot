@@ -15269,27 +15269,55 @@ def api_files_create_zip():
         db = get_db()
         user_id = session['user_id']
 
-        # שליפת הקבצים השייכים למשתמש בלבד
+        # שליפת הקבצים השייכים למשתמש בלבד (רגילים + קבצים גדולים)
+        docs_by_id: Dict[ObjectId, Dict[str, Any]] = {}
+        found_ids: set[ObjectId] = set()
+
         cursor = db.code_snippets.find({
             '_id': {'$in': object_ids},
             'user_id': user_id,
             'is_active': True
-        })
+        }, {'_id': 1, 'file_name': 1, 'code': 1})
+        for doc in cursor:
+            if isinstance(doc, dict) and doc.get('_id') is not None:
+                docs_by_id[doc['_id']] = doc
+                found_ids.add(doc['_id'])
+
+        remaining_ids = [oid for oid in object_ids if oid not in found_ids]
+        large_coll = getattr(db, 'large_files', None)
+        if remaining_ids and large_coll is not None:
+            cursor = large_coll.find({
+                '_id': {'$in': remaining_ids},
+                'user_id': user_id,
+                'is_active': True
+            }, {'_id': 1, 'file_name': 1, 'content': 1})
+            for doc in cursor:
+                if isinstance(doc, dict) and doc.get('_id') is not None:
+                    docs_by_id.setdefault(doc['_id'], doc)
 
         from io import BytesIO
         import zipfile
 
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for doc in cursor:
+            for oid in object_ids:
+                doc = docs_by_id.get(oid)
+                if not doc:
+                    continue
                 filename = (doc.get('file_name') or f"file_{str(doc.get('_id'))}.txt").strip() or f"file_{str(doc.get('_id'))}.txt"
-                # ודא שם ייחודי אם יש כפילויות
                 try:
                     # מניעת שמות תיקיה מסוכנים
                     filename = filename.replace('..', '_').replace('/', '_').replace('\\', '_')
                 except Exception:
                     filename = f"file_{str(doc.get('_id'))}.txt"
                 content = doc.get('code')
+                if content is None:
+                    content = doc.get('content')
+                if isinstance(content, bytes):
+                    try:
+                        content = content.decode('utf-8', errors='ignore')
+                    except Exception:
+                        content = ''
                 if not isinstance(content, str):
                     content = ''
                 zf.writestr(filename, content)
