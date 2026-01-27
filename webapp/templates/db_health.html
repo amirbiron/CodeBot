@@ -731,9 +731,13 @@ async function loadDocuments(collectionName, skip = 0) {
             // הצגת שגיאה מתאימה לפי סטטוס
             let errorMsg = data?.message || `שגיאה ${resp.status}`;
             if (resp.status === 403) {
-                errorMsg = `גישה ל-${collectionName} חסומה`;
+                errorMsg = data?.message || `גישה ל-${collectionName} חסומה`;
             } else if (resp.status === 400) {
-                errorMsg = `שם collection לא תקין: ${collectionName}`;
+                if (data?.error === 'invalid_params') {
+                    errorMsg = data?.message || 'פרמטרים לא תקינים';
+                } else if (data?.error === 'invalid_collection_name') {
+                    errorMsg = data?.message || `שם collection לא תקין: ${collectionName}`;
+                }
             }
             throw new Error(errorMsg);
         }
