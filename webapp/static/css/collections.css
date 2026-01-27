@@ -484,20 +484,20 @@
 .workspace-board__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}
 @media(max-width:1200px){.workspace-board__grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:768px){.workspace-board__grid{grid-template-columns:1fr}}
-.workspace-column{background:var(--collections-btn-bg);border:1px solid var(--collections-card-border);border-radius:14px;display:flex;flex-direction:column;min-height:260px}
+.workspace-column{background:var(--collections-btn-bg);border:1px solid var(--collections-card-border);border-radius:14px;display:flex;flex-direction:column;min-height:260px;min-width:0;max-width:100%}
 .workspace-column__header{padding:.85rem 1rem;border-bottom:1px solid var(--collections-card-border);display:flex;flex-direction:column;gap:.2rem}
 .workspace-column__title{font-weight:700;font-size:1rem;color:var(--collections-dark-text);display:flex;align-items:center;justify-content:space-between;gap:.4rem}
 .workspace-column__meta{font-size:.85rem;color:var(--collections-secondary-text);display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
 .workspace-column__list{flex:1;padding:.85rem 1rem;display:flex;flex-direction:column;gap:.5rem}
 .workspace-column__list[data-empty="1"]::after{content:"אין פריטים בסטטוס זה";font-size:.9rem;color:var(--collections-muted);text-align:center;border:1px dashed var(--collections-accent-border);border-radius:10px;padding:.6rem}
 .workspace-board__live{position:absolute;left:-9999px;height:1px;width:1px;overflow:hidden}
-.workspace-card{background:var(--collections-card-bg);border:1px solid var(--collections-card-border);border-radius:12px;padding:.6rem .65rem;display:flex;flex-direction:column;gap:.45rem;box-shadow:0 6px 14px var(--collections-card-shadow);min-height:82px}
-.workspace-card__top{display:flex;align-items:flex-start;gap:.5rem}
+.workspace-card{background:var(--collections-card-bg);border:1px solid var(--collections-card-border);border-radius:12px;padding:.6rem .65rem;display:flex;flex-direction:column;gap:.45rem;box-shadow:0 6px 14px var(--collections-card-shadow);min-height:82px;min-width:0;max-width:100%}
+.workspace-card__top{display:flex;align-items:flex-start;gap:.5rem;min-width:0}
 .workspace-card__drag{background:transparent;border:none;color:var(--collections-muted);cursor:grab;font-size:1.3rem;line-height:1;padding:.1rem;display:flex;align-items:center;touch-action:none}
 .workspace-card__drag:focus-visible{outline:2px solid var(--collections-accent);border-radius:6px}
 .workspace-card__drag:active{cursor:grabbing}
 .workspace-card__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.15rem}
-.workspace-card__name{font-weight:600;color:var(--collections-dark-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workspace-card__name{font-weight:600;color:var(--collections-dark-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .workspace-card__name.is-wrapped{
   white-space:normal;
   text-overflow:clip;
@@ -506,6 +506,7 @@
   -webkit-box-orient:vertical;
   overflow:hidden;
   word-break:break-word;
+  overflow-wrap:anywhere;
 }
 .workspace-card__link{text-decoration:none;color:inherit}
 .workspace-card__meta{font-size:.82rem;color:var(--collections-secondary-text);display:flex;align-items:center;gap:.35rem;flex-wrap:wrap}
