@@ -387,6 +387,17 @@ class FilesFacade:
         )
         return int(getattr(res, "modified_count", 0) or 0)
 
+    def bulk_add_tags(self, user_id: int, object_ids: List[Any], tags: List[str]) -> int:
+        if not object_ids or not tags:
+            return 0
+        db = self._get_db()
+        now = datetime.now(timezone.utc)
+        res = db.code_snippets.update_many(
+            {"_id": {"$in": object_ids}, "user_id": user_id, "is_active": True},
+            {"$addToSet": {"tags": {"$each": list(tags)}}, "$set": {"updated_at": now}},
+        )
+        return int(getattr(res, "modified_count", 0) or 0)
+
     def get_favorites(self, user_id: int, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict[str, Any]]:
         db = self._get_db()
         # Support multiple legacy signatures:

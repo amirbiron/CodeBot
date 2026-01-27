@@ -208,3 +208,44 @@ def api_files_bulk_unfavorite():
         return jsonify({"success": True, "updated": int(updated)})
     except Exception:
         return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
+
+
+@files_bp.route("/bulk-tag", methods=["POST"])
+@login_required
+@traced("files.bulk_tag")
+def api_files_bulk_tag():
+    """הוספת תגיות לקבוצת קבצים של המשתמש ללא כפילויות."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get("file_ids") or [])
+        tags = list(data.get("tags") or [])
+        if not file_ids:
+            return jsonify({"success": False, "error": "No files selected"}), 400
+        if len(file_ids) > 100:
+            return jsonify({"success": False, "error": "Too many files (max 100)"}), 400
+        # נרמול תגיות – מחרוזות לא ריקות בלבד
+        safe_tags = []
+        for t in tags:
+            try:
+                s = str(t).strip()
+            except Exception:
+                s = ""
+            if s:
+                safe_tags.append(s)
+        # הסר כפילויות תוך שמירה על סדר יחסי
+        seen = set()
+        norm_tags = [x for x in safe_tags if not (x in seen or seen.add(x))]
+        if not norm_tags:
+            return jsonify({"success": False, "error": "No tags provided"}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid file id"}), 400
+
+        facade = get_files_facade()
+        user_id = session["user_id"]
+        updated = facade.bulk_add_tags(user_id, object_ids, norm_tags)
+        return jsonify({"success": True, "updated": int(updated)})
+    except Exception:
+        return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
