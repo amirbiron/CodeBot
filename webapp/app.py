@@ -4201,11 +4201,13 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
 
     def _run_in_new_loop():
         try:
-            asyncio.get_running_loop()
+            running_loop = asyncio.get_running_loop()
         except RuntimeError:
-            pass
-        else:
-            raise RuntimeError("event loop is already running")
+            running_loop = None
+        if running_loop is not None:
+            loop_thread_id = getattr(running_loop, "_thread_id", None)
+            if loop_thread_id == threading.get_ident():
+                raise RuntimeError("event loop is already running")
 
         prev_loop = None
         loop = None
@@ -4257,16 +4259,21 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
 
     # תחת gevent/asyncio: אם יש event loop פעיל, נברח ל-thread "נקי".
     try:
-        asyncio.get_running_loop()
-        return _run_in_threadpool_with_fallback()
+        running_loop = asyncio.get_running_loop()
     except RuntimeError:
-        # אין event loop פעיל ב-thread הנוכחי => מותר להריץ לולאה חדשה כאן.
-        try:
-            return _run_in_new_loop()
-        except RuntimeError as exc:
-            if _is_running_loop_error(exc):
-                return _run_in_threadpool_with_fallback()
-            raise
+        running_loop = None
+    if running_loop is not None:
+        loop_thread_id = getattr(running_loop, "_thread_id", None)
+        if loop_thread_id == threading.get_ident():
+            return _run_in_threadpool_with_fallback()
+
+    # אין event loop פעיל ב-thread הנוכחי => מותר להריץ לולאה חדשה כאן.
+    try:
+        return _run_in_new_loop()
+    except RuntimeError as exc:
+        if _is_running_loop_error(exc):
+            return _run_in_threadpool_with_fallback()
+        raise
 
 
 def _run_profiler(awaitable):
