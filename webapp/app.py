@@ -987,6 +987,14 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
+# Files API (resolve by name)
+try:
+    from webapp.routes.files_routes import files_bp  # noqa: E402
+    app.register_blueprint(files_bp)
+except Exception:
+    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
 # GitHub Webhooks (Repo Sync Engine) - לפי המדריך
 try:
     from webapp.routes.webhooks import webhooks_bp  # noqa: E402
@@ -12766,71 +12774,6 @@ def api_recent_files():
         except Exception:
             pass
         return jsonify({'error': 'Failed to fetch recent files'}), 500
-
-@app.route('/api/files/resolve')
-@login_required
-def api_resolve_file_by_name():
-    """Resolve latest active file id by exact file_name for current user.
-
-    Returns JSON: {ok: bool, id?: str, language?: str, file_name?: str}
-    """
-    try:
-        db = get_db()
-        user_id = session['user_id']
-        name = (request.args.get('name') or '').strip()
-        if not name:
-            return jsonify({'ok': False, 'error': 'missing name'}), 400
-
-        try:
-            # Prefer the latest version for this user and file name
-            doc = db.code_snippets.find_one(
-                {
-                    'user_id': user_id,
-                    'file_name': name,
-'is_active': True,
-                },
-                sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
-            )
-        except Exception:
-            doc = None
-
-        if not doc:
-            trashed_doc = None
-            try:
-                trashed_doc = db.code_snippets.find_one(
-                    {
-                        'user_id': user_id,
-                        'file_name': name,
-                        '$or': [
-                            {'is_active': False},
-                            {'deleted_at': {'$exists': True}},
-                            {'deleted_expires_at': {'$exists': True}},
-                        ],
-                    },
-                    sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
-                )
-            except Exception:
-                trashed_doc = None
-
-            if trashed_doc:
-                return jsonify({
-                    'ok': False,
-                    'error': 'in_recycle_bin',
-                    'file_name': trashed_doc.get('file_name'),
-                    'deleted_at': safe_iso(trashed_doc.get('deleted_at'), 'deleted_at'),
-                    'recycle_expires_at': safe_iso(trashed_doc.get('deleted_expires_at'), 'deleted_expires_at'),
-                })
-            return jsonify({'ok': False, 'error': 'not_found'})
-
-        lang = (doc.get('programming_language') or 'text').lower()
-        return jsonify({'ok': True, 'id': str(doc.get('_id')), 'file_name': doc.get('file_name'), 'language': lang})
-    except Exception as e:
-        try:
-            logger.error('api_resolve_file_by_name failed: %s', e)
-        except Exception:
-            pass
-        return jsonify({'ok': False, 'error': 'internal_error'}), 500
-
 
 def _sync_collection_items_after_web_rename(db, user_id: int, old_name: str, new_name: str) -> None:
     """Ensure My Collections reflect renamed files when שינוי שם נעשה מהווב."""

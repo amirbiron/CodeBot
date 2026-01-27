@@ -104,6 +104,62 @@ class FilesFacade:
                 raise
         return None
 
+    def resolve_file_by_name(self, user_id: int, file_name: str) -> Dict[str, Any]:
+        """
+        Resolve a file by exact name for a user.
+
+        Returns a status dict:
+            {"status": "found", "doc": {...}}    -> active file found
+            {"status": "trashed", "doc": {...}}  -> found only in recycle bin
+            {"status": "not_found"}              -> no matching doc
+        """
+        db = self._get_db()
+        projection = {
+            "file_name": 1,
+            "programming_language": 1,
+            "deleted_at": 1,
+            "deleted_expires_at": 1,
+        }
+        doc = None
+        try:
+            doc = db.code_snippets.find_one(
+                {
+                    "user_id": user_id,
+                    "file_name": file_name,
+                    "is_active": True,
+                },
+                projection=projection,
+                sort=[("version", -1), ("updated_at", -1), ("_id", -1)],
+            )
+        except Exception:
+            doc = None
+
+        if doc:
+            return {"status": "found", "doc": doc}
+
+        trashed_doc = None
+        try:
+            trashed_doc = db.code_snippets.find_one(
+                {
+                    "user_id": user_id,
+                    "file_name": file_name,
+                    "$or": [
+                        {"is_active": False},
+                        {"deleted_at": {"$exists": True}},
+                        {"deleted_expires_at": {"$exists": True}},
+                    ],
+                },
+                projection=projection,
+                sort=[("version", -1), ("updated_at", -1), ("_id", -1)],
+            )
+        except Exception:
+            trashed_doc = None
+
+        if trashed_doc:
+            return {"status": "trashed", "doc": trashed_doc}
+
+        return {"status": "not_found"}
+
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict[str, Any]]:
         db = self._get_db()
         return list(db.get_all_versions(user_id, file_name) or [])
