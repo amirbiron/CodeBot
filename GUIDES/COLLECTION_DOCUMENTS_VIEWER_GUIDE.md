@@ -139,11 +139,6 @@ class CollectionAccessDeniedError(Exception):
     pass
 
 
-class CollectionNotFoundError(Exception):
-    """נזרקת כש-collection לא קיים."""
-    pass
-
-
 class InvalidCollectionNameError(Exception):
     """נזרקת כששם collection לא תקין."""
     pass
@@ -258,7 +253,6 @@ class AsyncDatabaseHealthService:
             RuntimeError: אם אין חיבור פעיל למסד
             InvalidCollectionNameError: אם שם ה-collection לא תקין
             CollectionAccessDeniedError: אם הגישה ל-collection חסומה
-            CollectionNotFoundError: אם ה-collection לא קיים
         """
         if self._db is None:
             raise RuntimeError("No MongoDB database available - call connect() first")
@@ -304,7 +298,7 @@ class AsyncDatabaseHealthService:
                 "returned_count": len(documents),
             }
 
-        except (InvalidCollectionNameError, CollectionAccessDeniedError, CollectionNotFoundError):
+        except (InvalidCollectionNameError, CollectionAccessDeniedError):
             raise  # העבר הלאה שגיאות ספציפיות
         except Exception as e:
             logger.error(f"Failed to get documents from {collection_name}: {e}")
@@ -395,7 +389,6 @@ from services.db_health_service import (
     get_db_health_service,
     InvalidCollectionNameError,
     CollectionAccessDeniedError,
-    CollectionNotFoundError,
 )
 
 
@@ -411,12 +404,11 @@ async def db_collection_documents_view(request: web.Request) -> web.Response:
     Returns:
         JSON עם documents, total, skip, limit, has_more
 
-    Status Codes:
-        200: הצלחה
-        400: פרמטרים לא תקינים / שם collection לא תקין
-        403: גישה ל-collection חסומה
-        404: collection לא קיים (או ריק - מחזיר total=0)
-        500: שגיאת שרת
+        Status Codes:
+            200: הצלחה
+            400: פרמטרים לא תקינים / שם collection לא תקין
+            403: גישה ל-collection חסומה
+            500: שגיאת שרת
     """
     try:
         collection_name = request.match_info.get("collection", "")
@@ -466,12 +458,6 @@ async def db_collection_documents_view(request: web.Request) -> web.Response:
         return web.json_response(
             {"error": "access_denied", "message": str(e)},
             status=403,
-        )
-    except CollectionNotFoundError as e:
-        # Collection לא קיים → 404 Not Found
-        return web.json_response(
-            {"error": "not_found", "message": str(e)},
-            status=404,
         )
     except Exception as e:
         logger.error(f"db_collection_documents error: {e}")
@@ -536,7 +522,6 @@ app.router.add_get("/api/db/{collection}/documents", db_collection_documents_vie
 | 400 | `invalid_params` | skip/limit לא תקינים |
 | 400 | `invalid_collection_name` | שם collection מכיל תווים אסורים |
 | 403 | `access_denied` | collection ב-denylist או לא ב-whitelist |
-| 404 | `not_found` | collection לא קיים (אופציונלי - ראה הערה) |
 | 500 | `internal_error` | שגיאת שרת |
 
 > **הערה:** ב-MongoDB, `find()` על collection שלא קיים מחזיר 0 תוצאות.  
@@ -1378,7 +1363,7 @@ class TestDocumentsEndpoint:
 ### Backend:
 - [ ] הוסף imports חדשים (`re`, `json`, `bson.json_util`, `Set`)
 - [ ] הוסף קבועים (`DEFAULT_DOCUMENTS_LIMIT`, `MAX_DOCUMENTS_LIMIT`, `SENSITIVE_FIELDS`, `ALLOWED_COLLECTIONS`, `DENIED_COLLECTIONS`)
-- [ ] הוסף Custom Exceptions (`InvalidCollectionNameError`, `CollectionAccessDeniedError`, `CollectionNotFoundError`)
+- [ ] הוסף Custom Exceptions (`InvalidCollectionNameError`, `CollectionAccessDeniedError`)
 - [ ] הוסף `_redact_sensitive_fields()`
 - [ ] הוסף `_validate_collection_name()`
 - [ ] הוסף `get_documents()` ל-`AsyncDatabaseHealthService` **עם `sort("_id", 1)`**
@@ -1387,7 +1372,7 @@ class TestDocumentsEndpoint:
 
 ### API:
 - [ ] הוסף import של Exceptions ל-webserver
-- [ ] הוסף `db_collection_documents_view` handler **עם טיפול נפרד ב-400/403/404**
+- [ ] הוסף `db_collection_documents_view` handler **עם טיפול נפרד ב-400/403**
 - [ ] הוסף route: `app.router.add_get("/api/db/{collection}/documents", ...)`
 
 ### Frontend:

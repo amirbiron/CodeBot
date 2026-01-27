@@ -11,11 +11,12 @@ Database Health Service - ניטור בריאות MongoDB (Async).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 # Motor - async MongoDB driver
 try:
@@ -26,10 +27,49 @@ except ImportError:  # pragma: no cover
     MOTOR_AVAILABLE = False
     AsyncIOMotorClient = None  # type: ignore
 
+from bson import ObjectId
+from bson.json_util import dumps as bson_dumps
+
 logger = logging.getLogger(__name__)
 
 # סף לזיהוי slow queries (באלפיות שנייה)
 SLOW_QUERY_THRESHOLD_MS = int(os.getenv("DB_HEALTH_SLOW_THRESHOLD_MS", "1000"))
+
+# מגבלות Pagination
+DEFAULT_DOCUMENTS_LIMIT = 20
+MAX_DOCUMENTS_LIMIT = 100
+MAX_SKIP = 10000  # מניעת DoS - MongoDB skip סורק כל מסמך עד ה-offset
+
+# ========== הגדרות אבטחה ==========
+
+# רשימת collections מותרים לצפייה (None = הכל מותר)
+# שנה לפי הצורך שלך!
+ALLOWED_COLLECTIONS: Optional[Set[str]] = None
+# דוגמה להגבלה: ALLOWED_COLLECTIONS = {"users", "logs", "snippets", "configs"}
+
+# רשימת collections חסומים (אם ALLOWED_COLLECTIONS הוא None)
+DENIED_COLLECTIONS: Set[str] = {
+    "sessions",
+    "tokens",
+    "api_keys",
+    "secrets",
+}
+
+# שדות רגישים שיוסתרו מהתצוגה (redaction)
+SENSITIVE_FIELDS: Set[str] = {
+    "password",
+    "password_hash",
+    "hashed_password",
+    "token",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "apiKey",
+    "secret",
+    "secret_key",
+    "private_key",
+    "credentials",
+}
 
 
 @dataclass
@@ -121,6 +161,86 @@ class CollectionStat:
             "total_index_size_mb": round(self.total_index_size_bytes / (1024 * 1024), 2),
             "avg_obj_size_kb": round(self.avg_obj_size_bytes / 1024, 2),
         }
+
+
+# ========== Custom Exceptions ==========
+
+class CollectionAccessDeniedError(Exception):
+    """נזרקת כשגישה ל-collection חסומה."""
+    pass
+
+
+class InvalidCollectionNameError(Exception):
+    """נזרקת כששם collection לא תקין."""
+    pass
+
+
+def _redact_sensitive_fields(doc: Any, sensitive: Set[str] = SENSITIVE_FIELDS) -> Any:
+    """הסתרת שדות רגישים ממסמך (רקורסיבי מלא).
+    
+    מטפל ב:
+    - מילונים (dict) - בודק מפתחות רגישים
+    - רשימות (list) - רקורסיה על כל איבר (כולל רשימות מקוננות)
+    - ערכים פשוטים - מחזיר כמו שהם
+    
+    Args:
+        doc: המסמך/ערך המקורי
+        sensitive: קבוצת שמות שדות להסתרה
+        
+    Returns:
+        עותק עם שדות רגישים מוחלפים ב-"[REDACTED]"
+    """
+    # טיפול ברשימות - רקורסיה על כל איבר (כולל רשימות מקוננות!)
+    if isinstance(doc, list):
+        return [_redact_sensitive_fields(item, sensitive) for item in doc]
+    
+    # ערכים שאינם dict - החזר כמו שהם
+    if not isinstance(doc, dict):
+        return doc
+    
+    # טיפול במילון
+    sensitive_lower = {s.lower() for s in sensitive}
+    result = {}
+    for key, value in doc.items():
+        if key.lower() in sensitive_lower:
+            result[key] = "[REDACTED]"
+        else:
+            # רקורסיה על הערך (יטפל ב-dict, list, או יחזיר כמו שהוא)
+            result[key] = _redact_sensitive_fields(value, sensitive)
+    return result
+
+
+def _validate_collection_name(name: str) -> None:
+    """וולידציה של שם collection.
+    
+    MongoDB naming rules:
+    - לא יכול להתחיל ב-$ או להכיל \0
+    - לא יכול להיות ריק
+    - מומלץ להימנע מ-.. או תווים מיוחדים
+    
+    Raises:
+        InvalidCollectionNameError: אם השם לא תקין
+        CollectionAccessDeniedError: אם הגישה חסומה
+    """
+    if not name or not isinstance(name, str):
+        raise InvalidCollectionNameError("Collection name cannot be empty")
+    
+    # תווים אסורים ב-MongoDB
+    if name.startswith("$"):
+        raise InvalidCollectionNameError("Collection name cannot start with $")
+    if "\0" in name or ".." in name:
+        raise InvalidCollectionNameError("Collection name contains invalid characters")
+    
+    # הגבלת אורך סבירה
+    if len(name) > 120:
+        raise InvalidCollectionNameError("Collection name too long")
+    
+    # בדיקת whitelist/denylist
+    if ALLOWED_COLLECTIONS is not None:
+        if name not in ALLOWED_COLLECTIONS:
+            raise CollectionAccessDeniedError(f"Access to collection '{name}' is not allowed")
+    elif name in DENIED_COLLECTIONS:
+        raise CollectionAccessDeniedError(f"Access to collection '{name}' is denied")
 
 
 class AsyncDatabaseHealthService:
@@ -328,6 +448,84 @@ class AsyncDatabaseHealthService:
             logger.error(f"Failed to get collection stats: {e}")
             raise RuntimeError(f"collStats failed: {e}") from e
 
+    async def get_documents(
+        self,
+        collection_name: str,
+        skip: int = 0,
+        limit: int = DEFAULT_DOCUMENTS_LIMIT,
+        redact_sensitive: bool = True,
+    ) -> Dict[str, Any]:
+        """שליפת מסמכים מ-collection עם pagination.
+
+        Args:
+            collection_name: שם ה-collection
+            skip: כמה מסמכים לדלג (ברירת מחדל: 0)
+            limit: כמה מסמכים להחזיר (ברירת מחדל: 20, מקסימום: 100)
+            redact_sensitive: האם להסתיר שדות רגישים (ברירת מחדל: True)
+
+        Returns:
+            מילון עם:
+            - collection: שם ה-collection
+            - documents: רשימת המסמכים (כ-JSON-serializable dicts)
+            - total: סה"כ מסמכים ב-collection
+            - skip: ה-skip שהתקבל
+            - limit: ה-limit שהתקבל
+            - has_more: האם יש עוד מסמכים אחרי
+            - returned_count: כמה מסמכים הוחזרו בפועל
+
+        Raises:
+            RuntimeError: אם אין חיבור פעיל למסד
+            InvalidCollectionNameError: אם שם ה-collection לא תקין
+            CollectionAccessDeniedError: אם הגישה ל-collection חסומה
+        """
+        if self._db is None:
+            raise RuntimeError("No MongoDB database available - call connect() first")
+
+        # וולידציה של שם ה-collection (כולל whitelist/denylist)
+        _validate_collection_name(collection_name)
+
+        # הגבלת limit ו-skip למניעת עומס/DoS
+        limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
+        skip = min(max(0, skip), MAX_SKIP)  # ⚠️ הגבלה עליונה למניעת DoS
+
+        try:
+            collection = self._db[collection_name]
+
+            # ספירת סה"כ מסמכים
+            # הערה: count_documents({}) יחזיר 0 אם ה-collection לא קיים (זה בסדר)
+            total = await collection.count_documents({})
+
+            # שליפת מסמכים עם pagination + SORT לדטרמיניזם!
+            # ⚠️ חשוב: sort(_id) מבטיח סדר עקבי בין עמודים
+            cursor = collection.find({}).sort("_id", 1).skip(skip).limit(limit)
+            documents = await cursor.to_list(length=limit)
+
+            # המרת ObjectId ו-datetime לפורמט JSON-safe
+            serialized = json.loads(bson_dumps(documents))
+
+            # הסתרת שדות רגישים
+            if redact_sensitive:
+                serialized = [_redact_sensitive_fields(doc) for doc in serialized]
+
+            # ⚠️ חישוב has_more: בודקים אם קיבלנו עמוד מלא
+            # זה יותר אמין מ-(skip + len) < total כי count יכול להשתנות
+            # בין הקריאה ל-count_documents לבין ה-find
+            has_more = len(documents) == limit
+
+            return {
+                "collection": collection_name,
+                "documents": serialized,
+                "total": total,
+                "skip": skip,
+                "limit": limit,
+                "has_more": has_more,
+                "returned_count": len(documents),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get documents from {collection_name}: {e}")
+            raise RuntimeError(f"get_documents failed: {e}") from e
+
     async def get_health_summary(self) -> Dict[str, Any]:
         """סיכום בריאות כללי לדשבורד.
 
@@ -529,6 +727,55 @@ class SyncDatabaseHealthService:
         stats.sort(key=lambda x: x.size_bytes, reverse=True)
         return stats
 
+    def get_documents_sync(
+        self,
+        collection_name: str,
+        skip: int = 0,
+        limit: int = DEFAULT_DOCUMENTS_LIMIT,
+        redact_sensitive: bool = True,
+    ) -> Dict[str, Any]:
+        """גרסה סינכרונית - לא לקרוא ישירות מ-aiohttp!"""
+        db = self._db
+        if db is None:
+            raise RuntimeError("No MongoDB database available")
+
+        # וולידציה
+        _validate_collection_name(collection_name)
+
+        # הגבלת limit ו-skip למניעת עומס/DoS
+        limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
+        skip = min(max(0, skip), MAX_SKIP)  # ⚠️ הגבלה עליונה
+
+        try:
+            collection = db[collection_name]
+            total = collection.count_documents({})
+            
+            # ⚠️ חשוב: sort(_id) לדטרמיניזם!
+            documents = list(collection.find({}).sort("_id", 1).skip(skip).limit(limit))
+
+            # סריאליזציה
+            serialized = json.loads(bson_dumps(documents))
+
+            # הסתרת שדות רגישים
+            if redact_sensitive:
+                serialized = [_redact_sensitive_fields(doc) for doc in serialized]
+
+            # ⚠️ חישוב has_more: בודקים אם קיבלנו עמוד מלא
+            has_more = len(documents) == limit
+
+            return {
+                "collection": collection_name,
+                "documents": serialized,
+                "total": total,
+                "skip": skip,
+                "limit": limit,
+                "has_more": has_more,
+                "returned_count": len(documents),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get documents from {collection_name}: {e}")
+            raise RuntimeError(f"get_documents failed: {e}") from e
+
 
 class ThreadPoolDatabaseHealthService:
     """Async wrapper שמריץ PyMongo ב-thread pool.
@@ -560,6 +807,22 @@ class ThreadPoolDatabaseHealthService:
     async def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
         """שליפת סטטיסטיקות - רץ ב-thread pool."""
         return await asyncio.to_thread(self._sync_service.get_collection_stats_sync, collection_name)
+
+    async def get_documents(
+        self,
+        collection_name: str,
+        skip: int = 0,
+        limit: int = DEFAULT_DOCUMENTS_LIMIT,
+        redact_sensitive: bool = True,
+    ) -> Dict[str, Any]:
+        """שליפת מסמכים - רץ ב-thread pool."""
+        return await asyncio.to_thread(
+            self._sync_service.get_documents_sync,
+            collection_name,
+            skip,
+            limit,
+            redact_sensitive,
+        )
 
     async def get_health_summary(self) -> Dict[str, Any]:
         """סיכום בריאות - רץ ב-thread pool."""
@@ -650,6 +913,26 @@ class _NoopDatabaseHealthService:
 
     async def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
         return []
+
+    async def get_documents(
+        self,
+        collection_name: str,
+        skip: int = 0,
+        limit: int = DEFAULT_DOCUMENTS_LIMIT,
+        redact_sensitive: bool = True,
+    ) -> Dict[str, Any]:
+        _validate_collection_name(collection_name)
+        limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
+        skip = min(max(0, skip), MAX_SKIP)
+        return {
+            "collection": collection_name,
+            "documents": [],
+            "total": 0,
+            "skip": skip,
+            "limit": limit,
+            "has_more": False,
+            "returned_count": 0,
+        }
 
     async def get_health_summary(self) -> Dict[str, Any]:
         return {

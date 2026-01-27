@@ -2,13 +2,19 @@ import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from bson import ObjectId
 
 from services.db_health_service import (
     AsyncDatabaseHealthService,
     CollectionStat,
+    CollectionAccessDeniedError,
+    InvalidCollectionNameError,
     PoolStatus,
     SlowOperation,
     ThreadPoolDatabaseHealthService,
+    SENSITIVE_FIELDS,
+    _redact_sensitive_fields,
+    _validate_collection_name,
 )
 
 
@@ -259,4 +265,244 @@ class TestDatabaseHealthServiceIntegration:
             assert isinstance(stat, CollectionStat)
             assert stat.name
             assert stat.count >= 0
+
+
+class TestRedactSensitiveFields:
+    """בדיקות לפונקציית _redact_sensitive_fields."""
+
+    def test_sensitive_fields_contains_password(self):
+        assert "password" in SENSITIVE_FIELDS
+
+    def test_redacts_password_field(self):
+        doc = {"name": "Alice", "password": "secret123"}
+        result = _redact_sensitive_fields(doc)
+        assert result["name"] == "Alice"
+        assert result["password"] == "[REDACTED]"
+
+    def test_redacts_nested_fields(self):
+        doc = {"user": {"name": "Bob", "api_key": "key123"}}
+        result = _redact_sensitive_fields(doc)
+        assert result["user"]["name"] == "Bob"
+        assert result["user"]["api_key"] == "[REDACTED]"
+
+    def test_redacts_in_arrays(self):
+        doc = {"users": [{"name": "A", "token": "t1"}, {"name": "B", "token": "t2"}]}
+        result = _redact_sensitive_fields(doc)
+        assert result["users"][0]["token"] == "[REDACTED]"
+        assert result["users"][1]["token"] == "[REDACTED]"
+
+    def test_case_insensitive_redaction(self):
+        doc = {"Password": "secret", "API_KEY": "key"}
+        result = _redact_sensitive_fields(doc)
+        assert result["Password"] == "[REDACTED]"
+        assert result["API_KEY"] == "[REDACTED]"
+
+
+class TestValidateCollectionName:
+    """בדיקות לפונקציית _validate_collection_name."""
+
+    def test_valid_name_passes(self):
+        _validate_collection_name("users")  # לא זורק
+
+    def test_empty_name_raises(self):
+        with pytest.raises(InvalidCollectionNameError):
+            _validate_collection_name("")
+
+    def test_dollar_prefix_raises(self):
+        with pytest.raises(InvalidCollectionNameError):
+            _validate_collection_name("$system")
+
+    def test_null_char_raises(self):
+        with pytest.raises(InvalidCollectionNameError):
+            _validate_collection_name("users\0test")
+
+    def test_double_dot_raises(self):
+        with pytest.raises(InvalidCollectionNameError):
+            _validate_collection_name("users..test")
+
+
+@pytest.mark.asyncio
+class TestGetDocuments:
+    """בדיקות לפונקציית get_documents."""
+
+    @pytest.fixture
+    async def service_with_mock_db(self):
+        """Service עם DB מוק."""
+        svc = AsyncDatabaseHealthService.__new__(AsyncDatabaseHealthService)
+        svc._client = AsyncMock()
+        svc._db = AsyncMock()
+        return svc
+
+    async def test_get_documents_success_with_more_pages(self, service_with_mock_db):
+        """בדיקת שליפה תקינה עם עמודים נוספים (עמוד מלא)."""
+        svc = service_with_mock_db
+
+        # Mock collection
+        mock_collection = MagicMock()
+        mock_collection.count_documents = AsyncMock(return_value=100)
+
+        # Mock cursor with sort - מחזיר עמוד מלא (20 מסמכים)
+        mock_cursor = AsyncMock()
+        mock_docs = [{'_id': ObjectId(), 'name': f'User{i}'} for i in range(20)]
+        mock_cursor.to_list = AsyncMock(return_value=mock_docs)
+        mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = mock_cursor
+
+        svc._db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        result = await svc.get_documents('users', skip=0, limit=20)
+
+        assert result['collection'] == 'users'
+        assert result['total'] == 100
+        assert len(result['documents']) == 20
+        # has_more=True כי קיבלנו עמוד מלא (len == limit)
+        assert result['has_more'] is True
+        assert result['skip'] == 0
+        assert result['limit'] == 20
+
+    async def test_get_documents_last_page(self, service_with_mock_db):
+        """בדיקת שליפה בעמוד האחרון (עמוד חלקי)."""
+        svc = service_with_mock_db
+
+        mock_collection = MagicMock()
+        mock_collection.count_documents = AsyncMock(return_value=25)
+
+        # Mock cursor - מחזיר רק 5 מסמכים (עמוד חלקי)
+        mock_cursor = AsyncMock()
+        mock_docs = [{'_id': ObjectId(), 'name': f'User{i}'} for i in range(5)]
+        mock_cursor.to_list = AsyncMock(return_value=mock_docs)
+        mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = mock_cursor
+
+        svc._db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        result = await svc.get_documents('users', skip=20, limit=20)
+
+        assert len(result['documents']) == 5
+        # has_more=False כי קיבלנו פחות מ-limit
+        assert result['has_more'] is False
+        assert result['returned_count'] == 5
+
+    async def test_get_documents_with_redaction(self, service_with_mock_db):
+        """בדיקה שהשדות הרגישים מוסתרים."""
+        svc = service_with_mock_db
+
+        mock_collection = MagicMock()
+        mock_collection.count_documents = AsyncMock(return_value=1)
+
+        mock_cursor = AsyncMock()
+        mock_cursor.to_list = AsyncMock(return_value=[
+            {'_id': ObjectId(), 'name': 'Alice', 'password': 'secret123'},
+        ])
+        mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = mock_cursor
+
+        svc._db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        result = await svc.get_documents('users', skip=0, limit=20, redact_sensitive=True)
+
+        assert result['documents'][0]['name'] == 'Alice'
+        assert result['documents'][0]['password'] == '[REDACTED]'
+
+    async def test_get_documents_invalid_name(self, service_with_mock_db):
+        """בדיקת שגיאה עם שם collection לא תקין."""
+        svc = service_with_mock_db
+
+        with pytest.raises(InvalidCollectionNameError):
+            await svc.get_documents("$system", skip=0, limit=20)
+
+    async def test_get_documents_limit_capping(self, service_with_mock_db):
+        """בדיקה שה-limit מוגבל ל-100."""
+        svc = service_with_mock_db
+
+        mock_collection = MagicMock()
+        mock_collection.count_documents = AsyncMock(return_value=500)
+        mock_cursor = AsyncMock()
+        mock_cursor.to_list = AsyncMock(return_value=[])
+        mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = mock_cursor
+        svc._db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        result = await svc.get_documents('users', skip=0, limit=500)
+
+        # וודא שה-limit הוגבל ל-100
+        assert result['limit'] == 100
+
+    async def test_get_documents_empty_collection(self, service_with_mock_db):
+        """בדיקה של collection ריק."""
+        svc = service_with_mock_db
+
+        mock_collection = MagicMock()
+        mock_collection.count_documents = AsyncMock(return_value=0)
+        mock_cursor = AsyncMock()
+        mock_cursor.to_list = AsyncMock(return_value=[])
+        mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = mock_cursor
+        svc._db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        result = await svc.get_documents('empty_collection', skip=0, limit=20)
+
+        assert result['total'] == 0
+        assert result['documents'] == []
+        assert result['has_more'] is False
+        assert result['returned_count'] == 0
+
+
+@pytest.mark.asyncio
+class TestDocumentsEndpoint:
+    """בדיקות ל-API endpoint."""
+
+    async def test_invalid_skip_returns_400(self, monkeypatch):
+        """skip שלילי מחזיר 400."""
+        import services.webserver as ws
+        from aiohttp import web
+        import aiohttp
+
+        monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
+
+        app = ws.create_app()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, host="127.0.0.1", port=0)
+        await site.start()
+        try:
+            port = list(site._server.sockets)[0].getsockname()[1]
+            async with aiohttp.ClientSession() as session:
+                resp = await session.get(
+                    f"http://127.0.0.1:{port}/api/db/users/documents?skip=-1",
+                    headers={"Authorization": "Bearer test-db-health-token"},
+                )
+                assert resp.status == 400
+        finally:
+            await runner.cleanup()
+
+    async def test_access_denied_returns_403(self, monkeypatch):
+        """גישה ל-collection חסום מחזירה 403."""
+        import services.webserver as ws
+        from aiohttp import web
+        import aiohttp
+
+        monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
+
+        class _Svc:
+            async def get_documents(self, *args, **kwargs):
+                raise CollectionAccessDeniedError("denied")
+
+        async def _get_service():
+            return _Svc()
+
+        monkeypatch.setattr(ws, "get_db_health_service", _get_service, raising=True)
+
+        app = ws.create_app()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, host="127.0.0.1", port=0)
+        await site.start()
+        try:
+            port = list(site._server.sockets)[0].getsockname()[1]
+            async with aiohttp.ClientSession() as session:
+                resp = await session.get(
+                    f"http://127.0.0.1:{port}/api/db/secrets/documents?skip=0&limit=20",
+                    headers={"Authorization": "Bearer test-db-health-token"},
+                )
+                assert resp.status == 403
+                payload = await resp.json()
+                assert payload.get("error") == "access_denied"
+        finally:
+            await runner.cleanup()
 
