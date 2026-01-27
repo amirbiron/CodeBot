@@ -4632,6 +4632,8 @@ def _get_db_health_native_thread_class():
                 self._kwargs = dict(kwargs or {})
                 self.name = name or "native_thread"
                 self.daemon = bool(daemon) if daemon is not None else False
+                self._started = threading.Event()
+                self._finished = threading.Event()
 
             def start(self):
                 def _runner():
@@ -4639,10 +4641,17 @@ def _get_db_health_native_thread_class():
                         threading.current_thread().name = self.name
                     except Exception:
                         pass
+                    self._started.set()
                     if self._target is not None:
-                        self._target(*self._args, **self._kwargs)
+                        try:
+                            self._target(*self._args, **self._kwargs)
+                        finally:
+                            self._finished.set()
 
                 start_fn(_runner, ())
+
+            def is_alive(self) -> bool:
+                return self._started.is_set() and not self._finished.is_set()
 
         return _NativeThread
 
@@ -4671,7 +4680,7 @@ def _ensure_db_health_async_loop():
 
         def _run_loop():
             asyncio.set_event_loop(loop)
-            _DB_HEALTH_ASYNC_LOOP_READY.set()
+            loop.call_soon(_DB_HEALTH_ASYNC_LOOP_READY.set)
             loop.run_forever()
 
         native_thread = _get_db_health_native_thread_class()
