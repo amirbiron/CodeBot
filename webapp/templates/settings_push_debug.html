@@ -18,6 +18,8 @@
       <div><strong>PUSH_NOTIFICATIONS_ENABLED:</strong> {{ '🟢 true' if push_enabled else '🔴 false' }}</div>
       <div><strong>VAPID_PUBLIC_KEY:</strong> {{ '🟢 מוגדר' if vapid_public_set else '🔴 חסר' }}</div>
       <div><strong>VAPID_PRIVATE_KEY:</strong> {{ '🟢 מוגדר' if vapid_private_set else '🔴 חסר' }}</div>
+      <div><strong>WORKER_VAPID_PUBLIC_KEY:</strong> {{ '🟢 מוגדר' if worker_vapid_public_set else '🔴 חסר' }}</div>
+      <div><strong>WORKER_VAPID_PRIVATE_KEY:</strong> {{ '🟢 מוגדר' if worker_vapid_private_set else '🔴 חסר' }}</div>
       <div><strong>PUSH_REMOTE_DELIVERY_ENABLED:</strong> {{ remote_enabled_env if remote_enabled_env else '—' }}</div>
       <div><strong>PUSH_DELIVERY_URL:</strong> {{ remote_url if remote_url else '—' }}</div>
       <div><strong>PUSH_DELIVERY_TOKEN:</strong> {{ '🟢 מוגדר' if remote_token_set else '🔴 חסר' }}</div>
