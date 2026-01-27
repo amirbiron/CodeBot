@@ -49,6 +49,7 @@ import secrets
 import yaml
 import threading
 import base64
+import contextvars
 import traceback
 import asyncio
 
@@ -4204,33 +4205,44 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
             running_loop = asyncio.get_running_loop()
         except RuntimeError:
             running_loop = None
+        run_in_clean_context = False
         if running_loop is not None:
             loop_thread_id = getattr(running_loop, "_thread_id", None)
-            if loop_thread_id == threading.get_ident():
+            if loop_thread_id is None or loop_thread_id != threading.get_ident():
+                # Loop context leaked from a different thread (gevent/contextvars).
+                # Run in a clean context to avoid false "loop already running".
+                run_in_clean_context = True
+                running_loop = None
+            elif running_loop.is_running():
                 raise RuntimeError("event loop is already running")
 
-        prev_loop = None
-        loop = None
-        try:
+        def _run_in_new_loop_inner():
+            prev_loop = None
+            loop = None
             try:
-                prev_loop = asyncio.get_event_loop()
-            except RuntimeError:
-                prev_loop = None
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(_runner())
-        finally:
-            if loop is not None:
                 try:
-                    loop.close()
-                finally:
+                    prev_loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    prev_loop = None
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                return loop.run_until_complete(_runner())
+            finally:
+                if loop is not None:
                     try:
-                        if prev_loop is None or prev_loop.is_closed():
-                            asyncio.set_event_loop(None)
-                        else:
-                            asyncio.set_event_loop(prev_loop)
-                    except Exception:
-                        pass
+                        loop.close()
+                    finally:
+                        try:
+                            if prev_loop is None or prev_loop.is_closed():
+                                asyncio.set_event_loop(None)
+                            else:
+                                asyncio.set_event_loop(prev_loop)
+                        except Exception:
+                            pass
+
+        if run_in_clean_context:
+            return contextvars.Context().run(_run_in_new_loop_inner)
+        return _run_in_new_loop_inner()
 
     def _run_in_fresh_thread():
         future: Future = Future()
@@ -4264,7 +4276,7 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
         running_loop = None
     if running_loop is not None:
         loop_thread_id = getattr(running_loop, "_thread_id", None)
-        if loop_thread_id == threading.get_ident():
+        if loop_thread_id is not None and loop_thread_id == threading.get_ident():
             return _run_in_threadpool_with_fallback()
 
     # אין event loop פעיל ב-thread הנוכחי => מותר להריץ לולאה חדשה כאן.
