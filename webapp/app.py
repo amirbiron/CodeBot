@@ -4642,11 +4642,11 @@ def _get_db_health_native_thread_class():
                     except Exception:
                         pass
                     self._started.set()
-                    if self._target is not None:
-                        try:
+                    try:
+                        if self._target is not None:
                             self._target(*self._args, **self._kwargs)
-                        finally:
-                            self._finished.set()
+                    finally:
+                        self._finished.set()
 
                 start_fn(_runner, ())
 
