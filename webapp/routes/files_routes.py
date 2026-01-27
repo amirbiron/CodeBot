@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from functools import wraps
 
 from bson import ObjectId
-from flask import Blueprint, jsonify, request, session, redirect, url_for
+from flask import Blueprint, jsonify, request, session, redirect, url_for, send_file
 
 from src.infrastructure.composition.webapp_container import get_files_facade
 
@@ -247,5 +248,60 @@ def api_files_bulk_tag():
         user_id = session["user_id"]
         updated = facade.bulk_add_tags(user_id, object_ids, norm_tags)
         return jsonify({"success": True, "updated": int(updated)})
+    except Exception:
+        return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
+
+
+@files_bp.route("/create-zip", methods=["POST"])
+@login_required
+@traced("files.create_zip")
+def api_files_create_zip():
+    """יצירת קובץ ZIP עם קבצים נבחרים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get("file_ids") or [])
+        if not file_ids:
+            return jsonify({"success": False, "error": "No files selected"}), 400
+        if len(file_ids) > 100:
+            return jsonify({"success": False, "error": "Too many files (max 100)"}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid file id"}), 400
+
+        facade = get_files_facade()
+        user_id = session["user_id"]
+        docs = facade.get_user_files_by_ids(user_id, object_ids)
+
+        from io import BytesIO
+        import zipfile
+
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for doc in docs:
+                filename = (
+                    doc.get("file_name")
+                    or f"file_{str(doc.get('_id'))}.txt"
+                ).strip() or f"file_{str(doc.get('_id'))}.txt"
+                # ודא שם ייחודי אם יש כפילויות
+                try:
+                    # מניעת שמות תיקיה מסוכנים
+                    filename = filename.replace("..", "_").replace("/", "_").replace("\\", "_")
+                except Exception:
+                    filename = f"file_{str(doc.get('_id'))}.txt"
+                content = doc.get("code")
+                if not isinstance(content, str):
+                    content = ""
+                zf.writestr(filename, content)
+
+        zip_buffer.seek(0)
+        ts = int(time.time())
+        return send_file(
+            zip_buffer,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"code_files_{ts}.zip",
+        )
     except Exception:
         return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500

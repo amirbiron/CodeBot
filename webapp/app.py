@@ -14763,58 +14763,6 @@ def api_get_pinned_files():
         return jsonify({"ok": False, "error": "אירעה שגיאה בעת טעינת הקבצים הנעוצים"}), 500
 
 
-@app.route('/api/files/create-zip', methods=['POST'])
-@login_required
-@traced("files.create_zip")
-def api_files_create_zip():
-    """יצירת קובץ ZIP עם קבצים נבחרים של המשתמש."""
-    try:
-        data = request.get_json(silent=True) or {}
-        file_ids = list(data.get('file_ids') or [])
-        if not file_ids:
-            return jsonify({'success': False, 'error': 'No files selected'}), 400
-        if len(file_ids) > 100:
-            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
-
-        try:
-            object_ids = [ObjectId(fid) for fid in file_ids]
-        except Exception:
-            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
-
-        db = get_db()
-        user_id = session['user_id']
-
-        # שליפת הקבצים השייכים למשתמש בלבד
-        cursor = db.code_snippets.find({
-            '_id': {'$in': object_ids},
-            'user_id': user_id,
-            'is_active': True
-        })
-
-        from io import BytesIO
-        import zipfile
-
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for doc in cursor:
-                filename = (doc.get('file_name') or f"file_{str(doc.get('_id'))}.txt").strip() or f"file_{str(doc.get('_id'))}.txt"
-                # ודא שם ייחודי אם יש כפילויות
-                try:
-                    # מניעת שמות תיקיה מסוכנים
-                    filename = filename.replace('..', '_').replace('/', '_').replace('\\', '_')
-                except Exception:
-                    filename = f"file_{str(doc.get('_id'))}.txt"
-                content = doc.get('code')
-                if not isinstance(content, str):
-                    content = ''
-                zf.writestr(filename, content)
-
-        zip_buffer.seek(0)
-        ts = int(time.time())
-        return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name=f'code_files_{ts}.zip')
-    except Exception:
-        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
-
 @app.route('/api/files/create-share-link', methods=['POST'])
 @login_required
 @traced("share.create_multi")

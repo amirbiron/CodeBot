@@ -398,6 +398,18 @@ class FilesFacade:
         )
         return int(getattr(res, "modified_count", 0) or 0)
 
+    def get_user_files_by_ids(self, user_id: int, object_ids: List[Any]) -> List[Dict[str, Any]]:
+        if not object_ids:
+            return []
+        db = self._get_db()
+        try:
+            cursor = db.code_snippets.find(
+                {"_id": {"$in": object_ids}, "user_id": user_id, "is_active": True}
+            )
+            return list(cursor)
+        except Exception:
+            return []
+
     def get_favorites(self, user_id: int, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict[str, Any]]:
         db = self._get_db()
         # Support multiple legacy signatures:
