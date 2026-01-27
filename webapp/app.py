@@ -4757,12 +4757,16 @@ def _get_webapp_db_health_service():
                     logger.warning("db_health_service_close_failed", exc_info=True)
 
     # ודא שה-client/db של ה-WebApp מאותחל
-    _db = get_db()
-    _client = globals().get("client")
+    get_db()
 
     class _ManagerLike:
-        client = _client
-        db = _db
+        @property
+        def client(self):
+            return globals().get("client")
+
+        @property
+        def db(self):
+            return get_db()
 
     _WEBAPP_DB_HEALTH_SERVICE = SyncDatabaseHealthService(_ManagerLike())
     return _WEBAPP_DB_HEALTH_SERVICE

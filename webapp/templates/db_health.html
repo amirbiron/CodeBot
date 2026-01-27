@@ -17,6 +17,7 @@
             רענן הכל
         </button>
     </div>
+    <div id="health-errors" style="display: none; color: #ef4444; margin-top: 1rem; background: rgba(239, 68, 68, 0.1); padding: 0.75rem; border-radius: 6px; font-size: 0.9rem;"></div>
 </div>
 
 <!-- Metrics Grid -->
@@ -546,11 +547,27 @@ async function loadHealthSummary() {
         const indicator = document.querySelector('.status-indicator');
         indicator.dataset.status = data.status || 'unknown';
         indicator.querySelector('.status-text').textContent = getStatusText(data.status);
+
+        const errorContainer = document.getElementById('health-errors');
+        if (data.status === 'error' && data.errors && data.errors.length > 0) {
+            errorContainer.style.display = 'block';
+            errorContainer.innerHTML = '<strong>שגיאות זוהו:</strong><br>' + data.errors.map(e => escapeHtml(e)).join('<br>');
+        } else if (data.error) {
+             // Handle 500/403 API errors
+            errorContainer.style.display = 'block';
+            errorContainer.textContent = data.message || data.error;
+        } else {
+            errorContainer.style.display = 'none';
+        }
     } catch (e) {
         console.error('loadHealthSummary error:', e);
         const indicator = document.querySelector('.status-indicator');
         indicator.dataset.status = 'error';
         indicator.querySelector('.status-text').textContent = 'שגיאה';
+        
+        const errorContainer = document.getElementById('health-errors');
+        errorContainer.style.display = 'block';
+        errorContainer.textContent = 'שגיאת תקשורת עם השרת';
     }
 }
 
