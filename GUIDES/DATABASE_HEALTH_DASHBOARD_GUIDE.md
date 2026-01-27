@@ -1900,7 +1900,32 @@ def update_prometheus_metrics(self):
 
 ---
 
-## 10. פתרון תקלות
+## 10. צפייה במסמכי Collection (Database Explorer)
+
+פיצ'ר חדש בדשבורד מאפשר לצפות במסמכים מתוך כל collection בלי לצאת ל-Compass.
+הצפייה היא לקריאה בלבד, עם Pagination והסתרת שדות רגישים.
+
+**Endpoint חדש:**
+- `GET /api/db/{collection}/documents?skip=0&limit=20`
+- `limit` מקסימלי: 100
+- `skip` מקסימלי: 10000
+
+**אבטחה:**
+- בדיקת תקינות שם collection
+- Whitelist/Denylist לפי קונפיג
+- Redaction לשדות כמו `password`, `token`, `secret`
+
+**UI:**
+- לחיצה על שורה בטבלת ה-Collections פותחת Viewer
+- כפתורי "הקודם/הבא" לדפדוף
+- כפתור "העתק JSON"
+
+למידע מפורט וקוד דוגמה:  
+[`COLLECTION_DOCUMENTS_VIEWER_GUIDE.md`](./COLLECTION_DOCUMENTS_VIEWER_GUIDE.md)
+
+---
+
+## 11. פתרון תקלות
 
 | סימפטום | סיבה אפשרית | פתרון |
 |:---|:---|:---|
@@ -1912,17 +1937,18 @@ def update_prometheus_metrics(self):
 
 ---
 
-## 11. קישורים רלוונטיים
+## 12. קישורים רלוונטיים
 
 - [GUIDE_CONNECTION_POOLING.md](./GUIDE_CONNECTION_POOLING.md) - הגדרות Connection Pool
 - [MongoDB serverStatus](https://www.mongodb.com/docs/manual/reference/command/serverStatus/)
 - [MongoDB currentOp](https://www.mongodb.com/docs/manual/reference/command/currentOp/)
 - [MongoDB collStats](https://www.mongodb.com/docs/manual/reference/command/collStats/)
 - [database/manager.py](/database/manager.py) - מימוש החיבור הנוכחי
+- [COLLECTION_DOCUMENTS_VIEWER_GUIDE.md](./COLLECTION_DOCUMENTS_VIEWER_GUIDE.md) - צפייה במסמכי collection
 
 ---
 
-## 12. רשימת תיוג למימוש
+## 13. רשימת תיוג למימוש
 
 - [ ] התקן `motor>=3.0.0` (או השתמש ב-PyMongo עם thread pool)
 - [ ] צור קובץ `services/db_health_service.py` (גרסה async)

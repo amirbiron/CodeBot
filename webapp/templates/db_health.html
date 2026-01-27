@@ -118,6 +118,53 @@
     </div>
 </div>
 
+<!-- Documents Viewer (נפתח בלחיצה על collection) -->
+<div class="glass-card documents-viewer" id="documents-viewer" style="display: none; margin-top: 2rem;">
+    <div class="card-header">
+        <div class="card-title">
+            <span class="card-icon">📄</span>
+            <h2>צפייה במסמכים — <code id="viewer-collection-name">-</code></h2>
+        </div>
+        <div class="card-actions">
+            <button class="btn btn-secondary btn-icon" id="copy-json-btn" onclick="copyJsonToClipboard()" disabled>
+                <i class="fas fa-copy"></i>
+                העתק JSON
+            </button>
+            <button class="btn btn-secondary btn-icon" onclick="closeDocumentsViewer()">
+                <i class="fas fa-times"></i>
+                סגור
+            </button>
+        </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div class="pagination-controls">
+        <button class="btn btn-secondary" id="prev-btn" onclick="prevPage()" disabled>
+            <i class="fas fa-chevron-right"></i>
+            הקודם
+        </button>
+        <span class="pagination-info" id="pagination-info">-</span>
+        <button class="btn btn-secondary" id="next-btn" onclick="nextPage()" disabled>
+            הבא
+            <i class="fas fa-chevron-left"></i>
+        </button>
+    </div>
+
+    <!-- Code Display -->
+    <div class="documents-code-wrapper">
+        <!-- Empty State -->
+        <div class="documents-empty-state" id="documents-empty-state" style="display: none;">
+            אין מסמכים להצגה
+        </div>
+        
+        <!-- Fallback: pre element (ללא CodeMirror) -->
+        <pre class="documents-code" id="documents-code">בחר collection מהטבלה למעלה</pre>
+        
+        <!-- CodeMirror container (אם זמין) -->
+        <textarea id="documents-code-editor" style="display: none;"></textarea>
+    </div>
+</div>
+
 <style>
 .health-summary {
     padding: 1.5rem;
@@ -345,6 +392,124 @@
 .collections-table tr:hover {
     background: rgba(255, 255, 255, 0.03);
 }
+
+/* ========== Documents Viewer ========== */
+.documents-viewer {
+    padding: 1.5rem;
+}
+
+.card-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.card-header code {
+    font-family: 'Fira Code', ui-monospace, monospace;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pagination-info {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    min-width: 220px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.documents-code-wrapper {
+    max-height: 500px;
+    overflow: auto;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    position: relative;
+}
+
+.documents-code {
+    margin: 0;
+    padding: 1rem;
+    font-family: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #e2e8f0;
+    tab-size: 2;
+}
+
+.documents-empty-state {
+    text-align: center;
+    padding: 3rem;
+    opacity: 0.6;
+    font-size: 1.1rem;
+}
+
+/* כפתור Copy - מצב הצלחה */
+.btn-success {
+    background: rgba(34, 197, 94, 0.3) !important;
+    border-color: #22c55e !important;
+}
+
+/* הדגשת שורה נבחרת בטבלה */
+.collections-table tr.selected {
+    background: rgba(59, 130, 246, 0.2) !important;
+}
+
+.collections-table tr:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Rose Pine Dawn overrides */
+:root[data-theme="rose-pine-dawn"] .documents-code-wrapper {
+    background: rgba(242, 233, 225, 0.5);
+}
+
+:root[data-theme="rose-pine-dawn"] .documents-code {
+    color: #575279;
+}
+
+:root[data-theme="rose-pine-dawn"] .card-header code {
+    background: rgba(87, 82, 121, 0.1);
+}
+
+:root[data-theme="rose-pine-dawn"] .collections-table tr.selected {
+    background: rgba(215, 130, 126, 0.15) !important;
+}
+
+:root[data-theme="rose-pine-dawn"] .pagination-controls {
+    border-bottom-color: rgba(87, 82, 121, 0.15);
+}
+
+/* CodeMirror container styling */
+.documents-code-wrapper .CodeMirror {
+    height: 100%;
+    max-height: 500px;
+    font-family: 'Fira Code', ui-monospace, monospace;
+    font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+    .card-actions {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    
+    .pagination-controls {
+        flex-wrap: wrap;
+    }
+}
 </style>
 
 <script>
@@ -362,6 +527,12 @@ let poolInterval;
 let opsInterval;
 let collectionsCooldownTimer;
 let collectionsCooldownEndMs = 0;
+
+// ========== State לצפייה במסמכים ==========
+let currentCollection = null;
+let currentSkip = 0;
+let currentRequestId = 0;  // מונע race conditions
+const DOCS_LIMIT = 20;
 
 async function refreshAll() {
     await Promise.all([
@@ -504,6 +675,297 @@ function startCollectionsCooldown(seconds) {
     collectionsCooldownTimer = setInterval(tick, 250);
 }
 
+// ========== פונקציות טעינה ==========
+
+/**
+ * טעינת מסמכים מ-collection.
+ * @param {string} collectionName - שם ה-collection
+ * @param {number} skip - כמה מסמכים לדלג (ברירת מחדל: 0)
+ */
+async function loadDocuments(collectionName, skip = 0) {
+    const viewer = document.getElementById('documents-viewer');
+    const viewerTitle = document.getElementById('viewer-collection-name');
+    const codeContainer = document.getElementById('documents-code');
+    const paginationInfo = document.getElementById('pagination-info');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const copyBtn = document.getElementById('copy-json-btn');
+    const emptyState = document.getElementById('documents-empty-state');
+
+    // ⚠️ מניעת race condition: שמור מזהה בקשה ייחודי
+    const thisRequestId = ++currentRequestId;
+
+    // הצג loading
+    viewer.style.display = 'block';
+    viewerTitle.textContent = collectionName;
+    emptyState.style.display = 'none';
+    paginationInfo.textContent = 'טוען...';
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+    copyBtn.disabled = true;
+
+    // הצג loading ב-CodeMirror או ב-pre (לא שניהם!)
+    if (window.documentsEditor) {
+        window.documentsEditor.setValue('טוען מסמכים...');
+        codeContainer.style.display = 'none';  // הסתר pre כש-CM פעיל
+    } else {
+        codeContainer.textContent = 'טוען מסמכים...';
+        codeContainer.style.display = 'block';
+    }
+
+    try {
+        const url = `/api/db/${encodeURIComponent(collectionName)}/documents?skip=${skip}&limit=${DOCS_LIMIT}`;
+        const resp = await fetch(url, { headers: authHeaders() });
+        
+        // ⚠️ בדיקת race condition: אם הגיעה בקשה חדשה בינתיים, התעלם מתשובה זו
+        if (thisRequestId !== currentRequestId) {
+            console.log('Ignoring stale response for:', collectionName);
+            return;
+        }
+
+        // פרסור JSON עם טיפול בשגיאות
+        let data;
+        try {
+            data = await resp.json();
+        } catch (parseError) {
+            throw new Error('תשובה לא תקינה מהשרת');
+        }
+
+        if (!resp.ok) {
+            // הצגת שגיאה מתאימה לפי סטטוס
+            let errorMsg = data?.message || `שגיאה ${resp.status}`;
+            if (resp.status === 403) {
+                errorMsg = `גישה ל-${collectionName} חסומה`;
+            } else if (resp.status === 400) {
+                errorMsg = `שם collection לא תקין: ${collectionName}`;
+            }
+            throw new Error(errorMsg);
+        }
+
+        // וולידציה של מבנה התשובה
+        if (typeof data?.total !== 'number' || !Array.isArray(data?.documents)) {
+            throw new Error('מבנה תשובה לא תקין מהשרת');
+        }
+
+        // עדכון state
+        currentCollection = collectionName;
+        currentSkip = skip;
+
+        const total = data.total;
+        const returnedCount = data.returned_count ?? data.documents.length;
+        const hasMore = data.has_more ?? false;  // שימוש בשדה מה-backend
+
+        // בדיקת empty state
+        if (total === 0 || returnedCount === 0) {
+            if (window.documentsEditor) {
+                window.documentsEditor.setValue('');
+            }
+            codeContainer.style.display = 'none';
+            emptyState.style.display = 'block';
+            emptyState.textContent = `אין מסמכים ב-${collectionName}`;
+            paginationInfo.textContent = '0 מסמכים';
+            copyBtn.disabled = true;
+        } else {
+            // הצגת JSON מעוצב
+            const formatted = JSON.stringify(data.documents, null, 2);
+            
+            // הצג ב-CodeMirror או ב-pre (לא שניהם!)
+            if (window.documentsEditor) {
+                window.documentsEditor.setValue(formatted);
+                codeContainer.style.display = 'none';  // הסתר pre
+            } else {
+                codeContainer.textContent = formatted;
+                codeContainer.style.display = 'block';
+            }
+            emptyState.style.display = 'none';
+
+            // עדכון מידע pagination
+            const startDoc = skip + 1;
+            const endDoc = skip + returnedCount;
+            paginationInfo.textContent = `מציג ${startDoc}-${endDoc} מתוך ${total.toLocaleString()} מסמכים`;
+
+            // עדכון כפתורים - שימוש ב-has_more מה-backend
+            prevBtn.disabled = skip === 0;
+            nextBtn.disabled = !hasMore;
+            copyBtn.disabled = false;
+        }
+
+        // הדגשת השורה הנבחרת בטבלה
+        highlightSelectedCollection(collectionName);
+
+    } catch (e) {
+        // ⚠️ בדיקת race condition גם בשגיאה
+        if (thisRequestId !== currentRequestId) return;
+        
+        console.error('loadDocuments error:', e);
+        const errorText = `שגיאה: ${e.message}`;
+        if (window.documentsEditor) {
+            window.documentsEditor.setValue(errorText);
+            codeContainer.style.display = 'none';
+        } else {
+            codeContainer.textContent = errorText;
+            codeContainer.style.display = 'block';
+        }
+        emptyState.style.display = 'none';
+    }
+}
+
+/**
+ * דפדוף לעמוד הקודם.
+ */
+function prevPage() {
+    if (!currentCollection || currentSkip === 0) return;
+    const newSkip = Math.max(0, currentSkip - DOCS_LIMIT);
+    loadDocuments(currentCollection, newSkip);
+}
+
+/**
+ * דפדוף לעמוד הבא.
+ */
+function nextPage() {
+    if (!currentCollection) return;
+    loadDocuments(currentCollection, currentSkip + DOCS_LIMIT);
+}
+
+/**
+ * העתקת ה-JSON ל-clipboard.
+ */
+async function copyJsonToClipboard() {
+    const codeContainer = document.getElementById('documents-code');
+    const copyBtn = document.getElementById('copy-json-btn');
+    
+    try {
+        const text = window.documentsEditor 
+            ? window.documentsEditor.getValue() 
+            : codeContainer.textContent;
+        
+        await navigator.clipboard.writeText(text);
+        
+        // פידבק ויזואלי
+        const originalText = copyBtn.innerHTML;
+        copyBtn.innerHTML = '<i class="fas fa-check"></i> הועתק!';
+        copyBtn.classList.add('btn-success');
+        
+        setTimeout(() => {
+            copyBtn.innerHTML = originalText;
+            copyBtn.classList.remove('btn-success');
+        }, 2000);
+    } catch (e) {
+        console.error('Copy failed:', e);
+        alert('ההעתקה נכשלה');
+    }
+}
+
+/**
+ * הדגשת השורה הנבחרת בטבלת ה-collections.
+ */
+function highlightSelectedCollection(collectionName) {
+    // הסר הדגשה קודמת
+    document.querySelectorAll('.collections-table tr.selected').forEach(tr => {
+        tr.classList.remove('selected');
+    });
+
+    // הוסף הדגשה לשורה הנוכחית
+    document.querySelectorAll('.collections-table tbody tr').forEach(tr => {
+        const nameCell = tr.querySelector('td:first-child');
+        if (nameCell && nameCell.textContent === collectionName) {
+            tr.classList.add('selected');
+        }
+    });
+}
+
+/**
+ * סגירת חלון הצפייה במסמכים.
+ */
+function closeDocumentsViewer() {
+    document.getElementById('documents-viewer').style.display = 'none';
+    currentCollection = null;
+    currentSkip = 0;
+
+    // הסר הדגשה
+    document.querySelectorAll('.collections-table tr.selected').forEach(tr => {
+        tr.classList.remove('selected');
+    });
+}
+
+// Reference ל-MutationObserver לניקוי
+let _documentsEditorObserver = null;
+
+/**
+ * אתחול CodeMirror לתצוגת מסמכים.
+ * בטוח לקריאה חוזרת - לא יוצר instances כפולים.
+ */
+function initDocumentsEditor() {
+    if (typeof CodeMirror === 'undefined') {
+        console.log('CodeMirror not available, using fallback <pre>');
+        return;
+    }
+
+    // ⚠️ מניעת אתחול כפול - בדוק אם כבר קיים
+    if (window.documentsEditor) {
+        console.log('CodeMirror already initialized');
+        return;
+    }
+
+    const textarea = document.getElementById('documents-code-editor');
+    const preFallback = document.getElementById('documents-code');
+    
+    if (!textarea) return;
+
+    // קבע theme לפי ה-theme הנוכחי של הדף
+    const currentTheme = document.documentElement.dataset.theme || 'dark';
+    const cmTheme = currentTheme.includes('dawn') || currentTheme.includes('light') 
+        ? 'default'  // או theme בהיר אחר שיש לך
+        : 'dracula'; // או theme כהה אחר
+
+    textarea.style.display = 'block';
+    
+    window.documentsEditor = CodeMirror.fromTextArea(textarea, {
+        mode: { name: 'javascript', json: true },
+        theme: cmTheme,
+        readOnly: true,
+        lineNumbers: true,
+        foldGutter: true,
+        gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+        lineWrapping: true,
+        matchBrackets: true,
+    });
+
+    // הסתר את ה-pre fallback
+    if (preFallback) {
+        preFallback.style.display = 'none';
+    }
+
+    // עדכן theme כש-theme הדף משתנה
+    _documentsEditorObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.attributeName === 'data-theme' && window.documentsEditor) {
+                const newTheme = document.documentElement.dataset.theme || 'dark';
+                const newCmTheme = newTheme.includes('dawn') || newTheme.includes('light')
+                    ? 'default'
+                    : 'dracula';
+                window.documentsEditor.setOption('theme', newCmTheme);
+            }
+        });
+    });
+    _documentsEditorObserver.observe(document.documentElement, { attributes: true });
+}
+
+/**
+ * ניקוי CodeMirror ו-observer (לשימוש ב-SPA או cleanup).
+ */
+function destroyDocumentsEditor() {
+    if (_documentsEditorObserver) {
+        _documentsEditorObserver.disconnect();
+        _documentsEditorObserver = null;
+    }
+    
+    if (window.documentsEditor) {
+        window.documentsEditor.toTextArea();  // מחזיר ל-textarea רגיל
+        window.documentsEditor = null;
+    }
+}
+
 async function loadCollections() {
     const btn = document.getElementById('load-collections-btn');
     btn.disabled = true;
@@ -531,10 +993,15 @@ async function loadCollections() {
 
         (data.collections || []).forEach(c => {
             const tr = document.createElement('tr');
+            
+            // הוספת אירוע לחיצה
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', () => loadDocuments(c.name));
+            tr.title = 'לחץ לצפייה במסמכים';
 
             const cells = [
                 c.name,
-                c.count,
+                c.count.toLocaleString(),
                 c.size_mb,
                 c.storage_size_mb,
                 c.index_count,
@@ -551,7 +1018,7 @@ async function loadCollections() {
         });
 
         document.getElementById('collections-wrapper').style.display = 'block';
-        setCollectionsNotice('', 'muted');
+        setCollectionsNotice('💡 לחץ על שורה לצפייה במסמכים', 'muted');
         btn.innerHTML = getCollectionsBaseLabel();
     } catch (e) {
         console.error('loadCollections error:', e);
@@ -578,6 +1045,7 @@ function getStatusText(status) {
 
 // Start polling
 document.addEventListener('DOMContentLoaded', async () => {
+    initDocumentsEditor();
     await refreshAll();
     poolInterval = setInterval(loadPoolStatus, 5000);
     opsInterval = setInterval(loadCurrentOps, 10000);
