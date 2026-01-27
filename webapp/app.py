@@ -4566,7 +4566,7 @@ def _db_health_is_authorized() -> bool:
         # fallback: admin session (webapp)
         try:
             uid = session.get("user_id")
-            if uid is not None and is_admin(int(uid)):
+            if uid is not None and is_admin(int(uid)) and not is_impersonating_safe():
                 return True
         except Exception:
             pass
