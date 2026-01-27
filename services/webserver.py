@@ -46,7 +46,7 @@ from services.db_health_service import (
     get_db_health_service,
     InvalidCollectionNameError,
     CollectionAccessDeniedError,
-    CollectionNotFoundError,
+    MAX_SKIP,
 )
 from services.sentry_utils import first_int
 try:
@@ -1215,7 +1215,6 @@ def create_app() -> web.Application:
             200: הצלחה
             400: פרמטרים לא תקינים / שם collection לא תקין
             403: גישה ל-collection חסומה
-            404: collection לא קיים (או ריק - מחזיר total=0)
             500: שגיאת שרת
         """
         try:
@@ -1238,8 +1237,6 @@ def create_app() -> web.Application:
                     status=400,
                 )
             
-            # ⚠️ הגנה מפני DoS: skip גדול מדי גורם ל-MongoDB לסרוק מיליוני מסמכים
-            MAX_SKIP = 10000
             if skip > MAX_SKIP:
                 return web.json_response(
                     {"error": "invalid_params", "message": f"skip cannot exceed {MAX_SKIP}"},
@@ -1266,12 +1263,6 @@ def create_app() -> web.Application:
             return web.json_response(
                 {"error": "access_denied", "message": str(e)},
                 status=403,
-            )
-        except CollectionNotFoundError as e:
-            # Collection לא קיים → 404 Not Found
-            return web.json_response(
-                {"error": "not_found", "message": str(e)},
-                status=404,
             )
         except Exception as e:
             logger.error(f"db_collection_documents error: {e}")

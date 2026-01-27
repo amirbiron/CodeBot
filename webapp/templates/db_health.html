@@ -756,7 +756,7 @@ async function loadDocuments(collectionName, skip = 0) {
         const hasMore = data.has_more ?? false;  // שימוש בשדה מה-backend
 
         // בדיקת empty state
-        if (total === 0 || returnedCount === 0) {
+        if (total === 0) {
             if (window.documentsEditor) {
                 window.documentsEditor.setValue('');
             }
@@ -764,6 +764,19 @@ async function loadDocuments(collectionName, skip = 0) {
             emptyState.style.display = 'block';
             emptyState.textContent = `אין מסמכים ב-${collectionName}`;
             paginationInfo.textContent = '0 מסמכים';
+            prevBtn.disabled = skip === 0;
+            nextBtn.disabled = true;
+            copyBtn.disabled = true;
+        } else if (returnedCount === 0) {
+            if (window.documentsEditor) {
+                window.documentsEditor.setValue('');
+            }
+            codeContainer.style.display = 'none';
+            emptyState.style.display = 'block';
+            emptyState.textContent = 'אין מסמכים נוספים';
+            paginationInfo.textContent = `סה"כ ${total.toLocaleString()} מסמכים`;
+            prevBtn.disabled = skip === 0;
+            nextBtn.disabled = true;
             copyBtn.disabled = true;
         } else {
             // הצגת JSON מעוצב

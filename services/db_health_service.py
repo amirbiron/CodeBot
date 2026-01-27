@@ -171,11 +171,6 @@ class CollectionAccessDeniedError(Exception):
     pass
 
 
-class CollectionNotFoundError(Exception):
-    """נזרקת כש-collection לא קיים."""
-    pass
-
-
 class InvalidCollectionNameError(Exception):
     """נזרקת כששם collection לא תקין."""
     pass
@@ -483,7 +478,6 @@ class AsyncDatabaseHealthService:
             RuntimeError: אם אין חיבור פעיל למסד
             InvalidCollectionNameError: אם שם ה-collection לא תקין
             CollectionAccessDeniedError: אם הגישה ל-collection חסומה
-            CollectionNotFoundError: אם ה-collection לא קיים
         """
         if self._db is None:
             raise RuntimeError("No MongoDB database available - call connect() first")
@@ -529,7 +523,7 @@ class AsyncDatabaseHealthService:
                 "returned_count": len(documents),
             }
 
-        except (InvalidCollectionNameError, CollectionAccessDeniedError, CollectionNotFoundError):
+        except (InvalidCollectionNameError, CollectionAccessDeniedError):
             raise  # העבר הלאה שגיאות ספציפיות
         except Exception as e:
             logger.error(f"Failed to get documents from {collection_name}: {e}")
@@ -918,6 +912,26 @@ class _NoopDatabaseHealthService:
 
     async def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
         return []
+
+    async def get_documents(
+        self,
+        collection_name: str,
+        skip: int = 0,
+        limit: int = DEFAULT_DOCUMENTS_LIMIT,
+        redact_sensitive: bool = True,
+    ) -> Dict[str, Any]:
+        _validate_collection_name(collection_name)
+        limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
+        skip = min(max(0, skip), MAX_SKIP)
+        return {
+            "collection": collection_name,
+            "documents": [],
+            "total": 0,
+            "skip": skip,
+            "limit": limit,
+            "has_more": False,
+            "returned_count": 0,
+        }
 
     async def get_health_summary(self) -> Dict[str, Any]:
         return {
