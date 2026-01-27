@@ -4206,7 +4206,13 @@ def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
             running_loop = None
         if running_loop is not None:
             loop_thread_id = getattr(running_loop, "_thread_id", None)
-            if loop_thread_id == threading.get_ident():
+            if loop_thread_id is not None and loop_thread_id != threading.get_ident():
+                try:
+                    asyncio.events._set_running_loop(None)
+                except Exception:
+                    pass
+                running_loop = None
+            elif running_loop.is_running():
                 raise RuntimeError("event loop is already running")
 
         prev_loop = None
