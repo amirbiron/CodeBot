@@ -176,7 +176,12 @@ from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
-from services.db_health_service import SyncDatabaseHealthService  # noqa: E402
+from services.db_health_service import (  # noqa: E402
+    SyncDatabaseHealthService,
+    InvalidCollectionNameError,
+    CollectionAccessDeniedError,
+    MAX_SKIP,
+)
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
     get_export_theme,
@@ -4859,6 +4864,39 @@ def api_db_collections():
         return jsonify({"count": len(stats), "collections": [s.to_dict() for s in stats]})
     except Exception as e:
         logger.exception("api_db_collections_failed")
+        return jsonify({"error": "failed", "message": "internal_error"}), 500
+
+
+@app.route('/api/db/<collection>/documents', methods=['GET'])
+def api_db_collection_documents(collection: str):
+    """GET /api/db/{collection}/documents - שליפת מסמכים מ-collection."""
+    if not _db_health_token():
+        return jsonify({"error": "disabled"}), 403
+    if not _db_health_is_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+
+    # פרסור פרמטרים עם ברירות מחדל
+    try:
+        skip = int(request.args.get("skip", "0"))
+        limit = int(request.args.get("limit", "20"))
+    except Exception:
+        return jsonify({"error": "invalid_params", "message": "skip and limit must be integers"}), 400
+
+    if skip < 0 or limit < 1:
+        return jsonify({"error": "invalid_params", "message": "skip >= 0, limit >= 1"}), 400
+    if skip > MAX_SKIP:
+        return jsonify({"error": "invalid_params", "message": f"skip cannot exceed {MAX_SKIP}"}), 400
+
+    try:
+        svc = _get_webapp_db_health_service()
+        result = _run_db_health(svc.get_documents(collection_name=collection, skip=skip, limit=limit))
+        return jsonify(result)
+    except InvalidCollectionNameError as e:
+        return jsonify({"error": "invalid_collection_name", "message": str(e)}), 400
+    except CollectionAccessDeniedError as e:
+        return jsonify({"error": "access_denied", "message": str(e)}), 403
+    except Exception:
+        logger.exception("api_db_collection_documents_failed")
         return jsonify({"error": "failed", "message": "internal_error"}), 500
 
 
