@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -18,6 +19,7 @@ class FilesFacade:
         # Lazy to avoid import-time failures in tests without DB
         from database import db  # type: ignore
         self._db = db
+        self._recent_opens_indexes_ready = False
 
     def _get_db(self):
         """
@@ -159,6 +161,127 @@ class FilesFacade:
             return {"status": "trashed", "doc": trashed_doc}
 
         return {"status": "not_found"}
+
+    def _ensure_recent_opens_indexes(self) -> None:
+        if self._recent_opens_indexes_ready:
+            return
+        try:
+            db = self._get_db()
+        except Exception:
+            return
+        try:
+            coll = db.recent_opens
+        except Exception:
+            return
+        try:
+            from pymongo import ASCENDING, DESCENDING
+
+            coll.create_index(
+                [("user_id", ASCENDING), ("file_name", ASCENDING)],
+                name="user_file_unique",
+                unique=True,
+            )
+            coll.create_index(
+                [("user_id", ASCENDING), ("last_opened_at", DESCENDING)],
+                name="user_last_opened_idx",
+            )
+        except Exception:
+            pass
+        self._recent_opens_indexes_ready = True
+
+    def get_recent_files(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        db = self._get_db()
+        self._ensure_recent_opens_indexes()
+
+        try:
+            max_results = max(1, int(limit or 10))
+        except Exception:
+            max_results = 10
+        fetch_limit = max(max_results, max_results * 3)
+
+        projection = {
+            "file_name": 1,
+            "programming_language": 1,
+            "file_size": 1,
+            "lines_count": 1,
+        }
+
+        raw_cursor = db.recent_opens.find(
+            {"user_id": user_id},
+            {
+                "last_opened_file_id": 1,
+                "file_name": 1,
+                "language": 1,
+                "last_opened_at": 1,
+            },
+        ).sort("last_opened_at", -1).limit(fetch_limit)
+
+        results: List[Dict[str, Any]] = []
+        seen_ids = set()
+
+        for rdoc in raw_cursor:
+            if len(results) >= max_results:
+                break
+            try:
+                last_file_id = rdoc.get("last_opened_file_id")
+                file_name_hint = (rdoc.get("file_name") or "").strip()
+
+                file_doc = None
+                if last_file_id:
+                    try:
+                        file_doc = db.code_snippets.find_one(
+                            {"_id": last_file_id, "user_id": user_id, "is_active": True},
+                            projection=projection,
+                        )
+                    except Exception:
+                        file_doc = None
+
+                if file_doc is None and file_name_hint:
+                    try:
+                        file_doc = db.code_snippets.find_one(
+                            {"user_id": user_id, "file_name": file_name_hint, "is_active": True},
+                            projection=projection,
+                            sort=[("version", -1), ("updated_at", -1), ("_id", -1)],
+                        )
+                    except Exception:
+                        file_doc = None
+
+                if not file_doc or not file_doc.get("_id"):
+                    continue
+
+                fid = file_doc.get("_id")
+                sid = str(fid)
+                if sid in seen_ids:
+                    continue
+                seen_ids.add(sid)
+
+                try:
+                    size_bytes = int(file_doc.get("file_size") or 0)
+                except Exception:
+                    size_bytes = 0
+                try:
+                    lines_count = int(file_doc.get("lines_count") or 0)
+                except Exception:
+                    lines_count = 0
+
+                lang = file_doc.get("programming_language") or rdoc.get("language") or "text"
+                accessed = rdoc.get("last_opened_at") or datetime.now(timezone.utc)
+
+                results.append(
+                    {
+                        "id": sid,
+                        "filename": str(file_doc.get("file_name") or file_name_hint or ""),
+                        "language": str(lang).lower(),
+                        "size": size_bytes,
+                        "file_size": size_bytes,
+                        "lines_count": lines_count,
+                        "accessed_at": accessed.isoformat(),
+                    }
+                )
+            except Exception:
+                continue
+
+        return results
 
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict[str, Any]]:
         db = self._get_db()

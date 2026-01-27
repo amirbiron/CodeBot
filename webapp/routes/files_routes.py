@@ -138,3 +138,20 @@ def api_resolve_file_by_name():
         except Exception:
             pass
         return jsonify({"ok": False, "error": "internal_error"}), 500
+
+
+@files_bp.route("/recent")
+@login_required
+def api_recent_files():
+    """Return recently opened files for the current user."""
+    try:
+        user_id = session["user_id"]
+        facade = get_files_facade()
+        results = facade.get_recent_files(user_id, limit=10)
+        return jsonify(results)
+    except Exception as e:
+        try:
+            logger.exception("Error fetching recent files", extra={"error": str(e)})
+        except Exception:
+            pass
+        return jsonify({"error": "Failed to fetch recent files"}), 500
