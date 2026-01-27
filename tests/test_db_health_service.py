@@ -188,6 +188,99 @@ class TestAsyncDatabaseHealthService:
         assert result["slow_queries_count"] == 0
         assert result["collections_count"] == 2
         assert len(result["errors"]) == 0
+        assert "warnings" in result  # וודא שהשדה קיים
+
+    async def test_get_health_summary_with_permission_error(self, service, mock_motor_client):
+        """בדיקת סיכום בריאות עם שגיאת הרשאה."""
+        # serverStatus נכשל עם שגיאת הרשאה
+        mock_motor_client.admin.command.side_effect = Exception("not authorized on admin to execute command")
+        service._db.list_collection_names = AsyncMock(return_value=["users", "logs"])
+
+        result = await service.get_health_summary()
+
+        assert result["status"] == "healthy"  # עדיין healthy כי זו רק שגיאת הרשאה
+        assert len(result["errors"]) == 0
+        assert len(result["warnings"]) > 0
+        assert result["collections_count"] == 2
+
+
+class TestSyncDatabaseHealthServicePermissions:
+    """בדיקות לטיפול בשגיאות הרשאה ב-SyncDatabaseHealthService."""
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        """Mock של DatabaseManager הסינכרוני."""
+        manager = MagicMock()
+        manager.client = MagicMock()
+        manager.db = MagicMock()
+        return manager
+
+    @pytest.fixture
+    def sync_service(self, mock_db_manager):
+        """Service סינכרוני עם mock."""
+        from services.db_health_service import SyncDatabaseHealthService
+        return SyncDatabaseHealthService(mock_db_manager)
+
+    def test_is_permission_error_detects_not_authorized(self, sync_service):
+        """בדיקה שזיהוי שגיאת הרשאה עובד."""
+        from services.db_health_service import _is_permission_error
+        e = Exception("not authorized on admin to execute command")
+        assert _is_permission_error(e) is True
+        # גם דרך המתודה של המחלקה
+        assert sync_service._is_permission_error(e) is True
+
+    def test_is_permission_error_detects_unauthorized(self, sync_service):
+        """בדיקה שזיהוי unauthorized עובד."""
+        from services.db_health_service import _is_permission_error
+        e = Exception("Unauthorized access")
+        assert _is_permission_error(e) is True
+
+    def test_is_permission_error_false_for_other_errors(self, sync_service):
+        """בדיקה ששגיאות אחרות לא מזוהות כשגיאות הרשאה."""
+        from services.db_health_service import _is_permission_error
+        e = Exception("Connection timeout")
+        assert _is_permission_error(e) is False
+
+    def test_health_summary_with_permission_errors_returns_healthy(self, sync_service, mock_db_manager):
+        """בדיקה שסטטוס הוא healthy כאשר יש רק שגיאות הרשאה."""
+        # serverStatus נכשל עם שגיאת הרשאה
+        mock_db_manager.client.admin.command.side_effect = Exception("not authorized on admin to execute command serverStatus")
+        # list_collection_names מצליח
+        mock_db_manager.db.list_collection_names.return_value = ["users", "logs"]
+
+        result = sync_service.get_health_summary()
+
+        assert result["status"] == "healthy"
+        assert len(result["errors"]) == 0
+        assert len(result["warnings"]) > 0
+        assert any("serverStatus" in w for w in result["warnings"])
+        assert result["collections_count"] == 2
+
+    def test_health_summary_with_critical_error_returns_error(self, sync_service, mock_db_manager):
+        """בדיקה שסטטוס הוא error כאשר יש שגיאה קריטית (לא הרשאה)."""
+        # serverStatus נכשל עם שגיאת חיבור
+        mock_db_manager.client.admin.command.side_effect = Exception("Connection refused")
+        mock_db_manager.db.list_collection_names.return_value = ["users"]
+
+        result = sync_service.get_health_summary()
+
+        assert result["status"] == "error"
+        assert len(result["errors"]) > 0
+        assert any("Connection refused" in e for e in result["errors"])
+
+    def test_health_summary_no_client_returns_error(self):
+        """בדיקה שסטטוס הוא error כאשר אין client."""
+        from services.db_health_service import SyncDatabaseHealthService
+
+        class _EmptyManager:
+            client = None
+            db = None
+
+        service = SyncDatabaseHealthService(_EmptyManager())
+        result = service.get_health_summary()
+
+        assert result["status"] == "error"
+        assert any("no_client" in e for e in result["errors"])
 
 
 @pytest.mark.asyncio

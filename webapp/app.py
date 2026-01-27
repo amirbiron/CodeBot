@@ -4743,7 +4743,14 @@ def _get_webapp_db_health_service():
     current_service = _WEBAPP_DB_HEALTH_SERVICE
     if current_service is not None:
         if isinstance(current_service, SyncDatabaseHealthService):
-            return current_service
+            # בדוק שה-service עדיין תקף (ה-client לא None)
+            try:
+                if current_service._client is not None:
+                    return current_service
+                # אם ה-client הוא None, נאתחל מחדש
+                logger.warning("db_health_service_client_is_none, reinitializing")
+            except Exception:
+                pass  # אם יש שגיאה, נאתחל מחדש
         # Avoid closing a new instance created by another thread.
         if current_service is _WEBAPP_DB_HEALTH_SERVICE:
             _WEBAPP_DB_HEALTH_SERVICE = None
@@ -4760,11 +4767,16 @@ def _get_webapp_db_health_service():
     _db = get_db()
     _client = globals().get("client")
 
+    # שימוש ב-instance attributes במקום class attributes לאמינות
     class _ManagerLike:
-        client = _client
-        db = _db
+        def __init__(self, mongo_client, mongo_db):
+            self.client = mongo_client
+            self.db = mongo_db
 
-    _WEBAPP_DB_HEALTH_SERVICE = SyncDatabaseHealthService(_ManagerLike())
+    if _client is None:
+        logger.error("db_health_service: client is None after get_db()")
+
+    _WEBAPP_DB_HEALTH_SERVICE = SyncDatabaseHealthService(_ManagerLike(_client, _db))
     return _WEBAPP_DB_HEALTH_SERVICE
 
 

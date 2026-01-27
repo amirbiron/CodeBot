@@ -243,6 +243,24 @@ def _validate_collection_name(name: str) -> None:
         raise CollectionAccessDeniedError(f"Access to collection '{name}' is denied")
 
 
+def _is_permission_error(e: Exception) -> bool:
+    """בדיקה אם השגיאה היא שגיאת הרשאה (לא קריטית).
+    
+    פקודות admin כמו serverStatus ו-currentOp דורשות הרשאות מיוחדות
+    (clusterMonitor role). אם המשתמש לא מורשה, זו לא שגיאה קריטית.
+    """
+    error_str = str(e).lower()
+    permission_indicators = [
+        "not authorized",
+        "unauthorized",
+        "permission denied",
+        "requires authentication",
+        "command serverstatus requires authentication",
+        "command currentop requires authentication",
+    ]
+    return any(indicator in error_str for indicator in permission_indicators)
+
+
 class AsyncDatabaseHealthService:
     """שירות ניטור בריאות MongoDB - גרסה אסינכרונית.
 
@@ -529,6 +547,9 @@ class AsyncDatabaseHealthService:
     async def get_health_summary(self) -> Dict[str, Any]:
         """סיכום בריאות כללי לדשבורד.
 
+        מבחין בין שגיאות קריטיות (אין חיבור ל-DB) לבין שגיאות הרשאה
+        (פקודות admin לא זמינות) כדי להציג סטטוס מדויק יותר.
+
         Returns:
             מילון עם כל המטריקות הקריטיות.
         """
@@ -539,32 +560,62 @@ class AsyncDatabaseHealthService:
             "slow_queries_count": 0,
             "collections_count": 0,
             "errors": [],
+            "warnings": [],  # שגיאות לא קריטיות (הרשאות)
         }
 
+        has_critical_error = False
+        has_permission_error = False
+
+        # בדיקת חיבור בסיסי
+        if self._client is None:
+            summary["errors"].append("no_client: MongoDB client not available")
+            has_critical_error = True
+        elif self._db is None:
+            summary["errors"].append("no_db: MongoDB database not available")
+            has_critical_error = True
+
         # Pool status
-        try:
-            pool = await self.get_pool_status()
-            summary["pool"] = pool.to_dict()
-        except Exception as e:
-            summary["errors"].append(f"pool: {e}")
+        if not has_critical_error:
+            try:
+                pool = await self.get_pool_status()
+                summary["pool"] = pool.to_dict()
+            except Exception as e:
+                if _is_permission_error(e):
+                    summary["warnings"].append("pool: serverStatus requires clusterMonitor role")
+                    has_permission_error = True
+                else:
+                    summary["errors"].append(f"pool: {e}")
+                    has_critical_error = True
 
         # Slow queries count
-        try:
-            ops = await self.get_current_operations()
-            summary["slow_queries_count"] = len(ops)
-        except Exception as e:
-            summary["errors"].append(f"ops: {e}")
+        if not has_critical_error:
+            try:
+                ops = await self.get_current_operations()
+                summary["slow_queries_count"] = len(ops)
+            except Exception as e:
+                if _is_permission_error(e):
+                    summary["warnings"].append("ops: currentOp requires inprog privilege")
+                    has_permission_error = True
+                else:
+                    summary["errors"].append(f"ops: {e}")
+                    has_critical_error = True
 
         # Collections count
-        try:
-            if self._db:
-                coll_names = await self._db.list_collection_names()
-                summary["collections_count"] = len([n for n in coll_names if not n.startswith("system.")])
-        except Exception as e:
-            summary["errors"].append(f"collections: {e}")
+        if not has_critical_error:
+            try:
+                if self._db:
+                    coll_names = await self._db.list_collection_names()
+                    summary["collections_count"] = len([n for n in coll_names if not n.startswith("system.")])
+            except Exception as e:
+                if _is_permission_error(e):
+                    summary["warnings"].append("collections: list_collection_names failed")
+                    has_permission_error = True
+                else:
+                    summary["errors"].append(f"collections: {e}")
+                    has_critical_error = True
 
         # קביעת סטטוס כללי
-        if summary["errors"]:
+        if has_critical_error:
             summary["status"] = "error"
         elif (summary.get("pool") or {}).get("status") == "critical":
             summary["status"] = "critical"
@@ -572,6 +623,8 @@ class AsyncDatabaseHealthService:
             summary["status"] = "warning"
         elif (summary.get("pool") or {}).get("status") == "warning":
             summary["status"] = "warning"
+        elif has_permission_error:
+            summary["status"] = "healthy"
         else:
             summary["status"] = "healthy"
 
@@ -621,11 +674,23 @@ class SyncDatabaseHealthService:
 
     @property
     def _client(self):
-        return getattr(self.db_manager, "client", None)
+        # תמיכה גם ב-class attributes וגם ב-instance attributes
+        client = getattr(self.db_manager, "client", None)
+        if client is None and hasattr(self.db_manager, "__class__"):
+            client = getattr(self.db_manager.__class__, "client", None)
+        return client
 
     @property
     def _db(self):
-        return getattr(self.db_manager, "db", None)
+        # תמיכה גם ב-class attributes וגם ב-instance attributes
+        db = getattr(self.db_manager, "db", None)
+        if db is None and hasattr(self.db_manager, "__class__"):
+            db = getattr(self.db_manager.__class__, "db", None)
+        return db
+
+    def _is_permission_error(self, e: Exception) -> bool:
+        """בדיקה אם השגיאה היא שגיאת הרשאה (לא קריטית)."""
+        return _is_permission_error(e)
 
     def get_pool_status_sync(self) -> PoolStatus:
         """גרסה סינכרונית - לא לקרוא ישירות מ-aiohttp!"""
@@ -744,7 +809,11 @@ class SyncDatabaseHealthService:
         return self.get_collection_stats_sync(collection_name=collection_name)
 
     def get_health_summary(self) -> Dict[str, Any]:
-        """סיכום בריאות כללי לדשבורד (סינכרוני)."""
+        """סיכום בריאות כללי לדשבורד (סינכרוני).
+
+        מבחין בין שגיאות קריטיות (אין חיבור ל-DB) לבין שגיאות הרשאה
+        (פקודות admin לא זמינות) כדי להציג סטטוס מדויק יותר.
+        """
         summary: Dict[str, Any] = {
             "timestamp": time.time(),
             "status": "unknown",
@@ -752,28 +821,62 @@ class SyncDatabaseHealthService:
             "slow_queries_count": 0,
             "collections_count": 0,
             "errors": [],
+            "warnings": [],  # שגיאות לא קריטיות (הרשאות)
         }
 
-        try:
-            pool = self.get_pool_status_sync()
-            summary["pool"] = pool.to_dict()
-        except Exception as e:
-            summary["errors"].append(f"pool: {e}")
+        has_critical_error = False
+        has_permission_error = False
 
-        try:
-            ops = self.get_current_operations_sync()
-            summary["slow_queries_count"] = len(ops)
-        except Exception as e:
-            summary["errors"].append(f"ops: {e}")
+        # בדיקת חיבור בסיסי - אם נכשל, זו שגיאה קריטית
+        if self._client is None:
+            summary["errors"].append("no_client: MongoDB client not available")
+            has_critical_error = True
+        elif self._db is None:
+            summary["errors"].append("no_db: MongoDB database not available")
+            has_critical_error = True
 
-        try:
-            if self._db:
-                coll_names = self._db.list_collection_names()
-                summary["collections_count"] = len([n for n in coll_names if not n.startswith("system.")])
-        except Exception as e:
-            summary["errors"].append(f"collections: {e}")
+        # בדיקת pool status
+        if not has_critical_error:
+            try:
+                pool = self.get_pool_status_sync()
+                summary["pool"] = pool.to_dict()
+            except Exception as e:
+                if self._is_permission_error(e):
+                    summary["warnings"].append(f"pool: serverStatus requires clusterMonitor role")
+                    has_permission_error = True
+                else:
+                    summary["errors"].append(f"pool: {e}")
+                    has_critical_error = True
 
-        if summary["errors"]:
+        # בדיקת slow queries
+        if not has_critical_error:
+            try:
+                ops = self.get_current_operations_sync()
+                summary["slow_queries_count"] = len(ops)
+            except Exception as e:
+                if self._is_permission_error(e):
+                    summary["warnings"].append(f"ops: currentOp requires inprog privilege")
+                    has_permission_error = True
+                else:
+                    summary["errors"].append(f"ops: {e}")
+                    has_critical_error = True
+
+        # ספירת collections - פעולה בסיסית שלא דורשת הרשאות מיוחדות
+        if not has_critical_error:
+            try:
+                if self._db:
+                    coll_names = self._db.list_collection_names()
+                    summary["collections_count"] = len([n for n in coll_names if not n.startswith("system.")])
+            except Exception as e:
+                if self._is_permission_error(e):
+                    summary["warnings"].append(f"collections: list_collection_names failed")
+                    has_permission_error = True
+                else:
+                    summary["errors"].append(f"collections: {e}")
+                    has_critical_error = True
+
+        # קביעת סטטוס כללי
+        if has_critical_error:
             summary["status"] = "error"
         elif (summary.get("pool") or {}).get("status") == "critical":
             summary["status"] = "critical"
@@ -781,6 +884,9 @@ class SyncDatabaseHealthService:
             summary["status"] = "warning"
         elif (summary.get("pool") or {}).get("status") == "warning":
             summary["status"] = "warning"
+        elif has_permission_error:
+            # אם יש רק שגיאות הרשאה, הסטטוס הוא "healthy" עם אזהרות
+            summary["status"] = "healthy"
         else:
             summary["status"] = "healthy"
 
@@ -899,44 +1005,12 @@ class ThreadPoolDatabaseHealthService:
         )
 
     async def get_health_summary(self) -> Dict[str, Any]:
-        """סיכום בריאות - רץ ב-thread pool."""
-        # הרצה מקבילית של כל הבדיקות
-        pool_task = asyncio.create_task(self.get_pool_status())
-        ops_task = asyncio.create_task(self.get_current_operations())
-
-        summary: Dict[str, Any] = {
-            "timestamp": __import__("time").time(),
-            "status": "unknown",
-            "pool": None,
-            "slow_queries_count": 0,
-            "errors": [],
-        }
-
-        try:
-            pool = await pool_task
-            summary["pool"] = pool.to_dict()
-        except Exception as e:
-            summary["errors"].append(f"pool: {e}")
-
-        try:
-            ops = await ops_task
-            summary["slow_queries_count"] = len(ops)
-        except Exception as e:
-            summary["errors"].append(f"ops: {e}")
-
-        # קביעת סטטוס
-        if summary["errors"]:
-            summary["status"] = "error"
-        elif (summary.get("pool") or {}).get("status") == "critical":
-            summary["status"] = "critical"
-        elif summary["slow_queries_count"] > 5:
-            summary["status"] = "warning"
-        elif (summary.get("pool") or {}).get("status") == "warning":
-            summary["status"] = "warning"
-        else:
-            summary["status"] = "healthy"
-
-        return summary
+        """סיכום בריאות - רץ ב-thread pool.
+        
+        מאציל ל-SyncDatabaseHealthService.get_health_summary שכבר מכיל
+        את כל הלוגיקה לטיפול בשגיאות הרשאה.
+        """
+        return await asyncio.to_thread(self._sync_service.get_health_summary)
 
 
 # Factory function לבחירת הגרסה המתאימה עם הגנה מפני race condition
@@ -1015,6 +1089,7 @@ class _NoopDatabaseHealthService:
             "pool": None,
             "slow_queries_count": 0,
             "errors": ["disabled"],
+            "warnings": [],
         }
 
 

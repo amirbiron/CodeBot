@@ -545,13 +545,55 @@ async function loadHealthSummary() {
 
         const indicator = document.querySelector('.status-indicator');
         indicator.dataset.status = data.status || 'unknown';
-        indicator.querySelector('.status-text').textContent = getStatusText(data.status);
+        
+        // הצג סטטוס עם אזהרות אם יש
+        let statusText = getStatusText(data.status);
+        if (data.warnings && data.warnings.length > 0 && data.status === 'healthy') {
+            statusText = '✅ תקין (הרשאות חלקיות)';
+        }
+        indicator.querySelector('.status-text').textContent = statusText;
+        
+        // הצג אזהרות או שגיאות אם יש
+        showHealthMessages(data);
     } catch (e) {
         console.error('loadHealthSummary error:', e);
         const indicator = document.querySelector('.status-indicator');
         indicator.dataset.status = 'error';
         indicator.querySelector('.status-text').textContent = 'שגיאה';
+        // נקה הודעות ישנות כדי למנוע מצב לא עקבי
+        clearHealthMessages();
     }
+}
+
+function clearHealthMessages() {
+    const existingMessages = document.getElementById('health-messages');
+    if (existingMessages) existingMessages.remove();
+}
+
+function showHealthMessages(data) {
+    // הסר הודעות קודמות
+    clearHealthMessages();
+    
+    const errors = data.errors || [];
+    const warnings = data.warnings || [];
+    
+    if (errors.length === 0 && warnings.length === 0) return;
+    
+    const messagesDiv = document.createElement('div');
+    messagesDiv.id = 'health-messages';
+    messagesDiv.style.cssText = 'margin-top: 1rem; font-size: 0.9rem;';
+    
+    if (errors.length > 0) {
+        const errorsHtml = errors.map(e => `<div style="color: #ef4444; margin: 0.25rem 0;">❌ ${escapeHtml(e)}</div>`).join('');
+        messagesDiv.innerHTML += errorsHtml;
+    }
+    
+    if (warnings.length > 0) {
+        const warningsHtml = warnings.map(w => `<div style="color: #f59e0b; margin: 0.25rem 0;">⚠️ ${escapeHtml(w)}</div>`).join('');
+        messagesDiv.innerHTML += warningsHtml;
+    }
+    
+    document.getElementById('health-summary').appendChild(messagesDiv);
 }
 
 async function loadPoolStatus() {
