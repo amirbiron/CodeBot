@@ -13,6 +13,7 @@ import math
 import time
 import mimetypes
 import uuid
+import inspect
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
@@ -175,7 +176,7 @@ from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
-from services.db_health_service import ThreadPoolDatabaseHealthService  # noqa: E402
+from services.db_health_service import SyncDatabaseHealthService  # noqa: E402
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
     get_export_theme,
@@ -4607,14 +4608,16 @@ def _run_db_health(awaitable):
 
     אם יש event loop פעיל נברח ל-thread נקי עם לולאה חדשה.
     """
-    return _run_awaitable_blocking(awaitable, thread_label="db_health")
+    if inspect.isawaitable(awaitable):
+        return _run_awaitable_blocking(awaitable, thread_label="db_health")
+    return awaitable
 
 
 def _get_webapp_db_health_service():
     """מחזיר service יציב ל-WebApp (Flask).
 
     הערה: ב-Flask תחת WSGI, שימוש ב-Motor יכול להישבר בגלל event loop שונה בין בקשות.
-    לכן אנחנו מכריחים כאן wrapper שמריץ PyMongo ב-thread pool (לא חוסם ויציב).
+    לכן אנחנו משתמשים בגרסה סינכרונית כדי להימנע מ-asyncio ב-WSGI.
     """
     global _WEBAPP_DB_HEALTH_SERVICE
     if _WEBAPP_DB_HEALTH_SERVICE is not None:
@@ -4628,7 +4631,7 @@ def _get_webapp_db_health_service():
         client = _client
         db = _db
 
-    _WEBAPP_DB_HEALTH_SERVICE = ThreadPoolDatabaseHealthService(_ManagerLike())
+    _WEBAPP_DB_HEALTH_SERVICE = SyncDatabaseHealthService(_ManagerLike())
     return _WEBAPP_DB_HEALTH_SERVICE
 
 

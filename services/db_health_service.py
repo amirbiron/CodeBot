@@ -651,6 +651,10 @@ class SyncDatabaseHealthService:
             utilization_pct=utilization,
         )
 
+    def get_pool_status(self) -> PoolStatus:
+        """Alias סינכרוני לשימוש ב-WebApp."""
+        return self.get_pool_status_sync()
+
     def get_current_operations_sync(
         self,
         threshold_ms: int = SLOW_QUERY_THRESHOLD_MS,
@@ -695,6 +699,14 @@ class SyncDatabaseHealthService:
         slow_ops.sort(key=lambda x: x.running_secs, reverse=True)
         return slow_ops
 
+    def get_current_operations(
+        self,
+        threshold_ms: int = SLOW_QUERY_THRESHOLD_MS,
+        include_system: bool = False,
+    ) -> List[SlowOperation]:
+        """Alias סינכרוני לשימוש ב-WebApp."""
+        return self.get_current_operations_sync(threshold_ms=threshold_ms, include_system=include_system)
+
     def get_collection_stats_sync(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
         """גרסה סינכרונית - לא לקרוא ישירות מ-aiohttp!"""
         db = self._db
@@ -726,6 +738,53 @@ class SyncDatabaseHealthService:
 
         stats.sort(key=lambda x: x.size_bytes, reverse=True)
         return stats
+
+    def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
+        """Alias סינכרוני לשימוש ב-WebApp."""
+        return self.get_collection_stats_sync(collection_name=collection_name)
+
+    def get_health_summary(self) -> Dict[str, Any]:
+        """סיכום בריאות כללי לדשבורד (סינכרוני)."""
+        summary: Dict[str, Any] = {
+            "timestamp": time.time(),
+            "status": "unknown",
+            "pool": None,
+            "slow_queries_count": 0,
+            "collections_count": 0,
+            "errors": [],
+        }
+
+        try:
+            pool = self.get_pool_status_sync()
+            summary["pool"] = pool.to_dict()
+        except Exception as e:
+            summary["errors"].append(f"pool: {e}")
+
+        try:
+            ops = self.get_current_operations_sync()
+            summary["slow_queries_count"] = len(ops)
+        except Exception as e:
+            summary["errors"].append(f"ops: {e}")
+
+        try:
+            if self._db:
+                coll_names = self._db.list_collection_names()
+                summary["collections_count"] = len([n for n in coll_names if not n.startswith("system.")])
+        except Exception as e:
+            summary["errors"].append(f"collections: {e}")
+
+        if summary["errors"]:
+            summary["status"] = "error"
+        elif (summary.get("pool") or {}).get("status") == "critical":
+            summary["status"] = "critical"
+        elif summary["slow_queries_count"] > 5:
+            summary["status"] = "warning"
+        elif (summary.get("pool") or {}).get("status") == "warning":
+            summary["status"] = "warning"
+        else:
+            summary["status"] = "healthy"
+
+        return summary
 
     def get_documents_sync(
         self,
@@ -775,6 +834,21 @@ class SyncDatabaseHealthService:
         except Exception as e:
             logger.error(f"Failed to get documents from {collection_name}: {e}")
             raise RuntimeError(f"get_documents failed: {e}") from e
+
+    def get_documents(
+        self,
+        collection_name: str,
+        skip: int = 0,
+        limit: int = DEFAULT_DOCUMENTS_LIMIT,
+        redact_sensitive: bool = True,
+    ) -> Dict[str, Any]:
+        """Alias סינכרוני לשימוש ב-WebApp."""
+        return self.get_documents_sync(
+            collection_name=collection_name,
+            skip=skip,
+            limit=limit,
+            redact_sensitive=redact_sensitive,
+        )
 
 
 class ThreadPoolDatabaseHealthService:
