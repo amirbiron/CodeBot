@@ -603,7 +603,7 @@ class AsyncDatabaseHealthService:
         # Collections count
         if not has_critical_error:
             try:
-                if self._db:
+                if self._db is not None:
                     coll_names = await self._db.list_collection_names()
                     summary["collections_count"] = len([n for n in coll_names if not n.startswith("system.")])
             except Exception as e:
@@ -864,7 +864,7 @@ class SyncDatabaseHealthService:
         # ספירת collections - פעולה בסיסית שלא דורשת הרשאות מיוחדות
         if not has_critical_error:
             try:
-                if self._db:
+                if self._db is not None:
                     coll_names = self._db.list_collection_names()
                     summary["collections_count"] = len([n for n in coll_names if not n.startswith("system.")])
             except Exception as e:
