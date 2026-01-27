@@ -4623,7 +4623,16 @@ def _get_webapp_db_health_service():
     if _WEBAPP_DB_HEALTH_SERVICE is not None:
         if isinstance(_WEBAPP_DB_HEALTH_SERVICE, SyncDatabaseHealthService):
             return _WEBAPP_DB_HEALTH_SERVICE
+        old_service = _WEBAPP_DB_HEALTH_SERVICE
         _WEBAPP_DB_HEALTH_SERVICE = None
+        close_fn = getattr(old_service, "close", None)
+        if callable(close_fn):
+            try:
+                close_result = close_fn()
+                if inspect.isawaitable(close_result):
+                    _run_awaitable_blocking(close_result, thread_label="db_health_close")
+            except Exception:
+                logger.warning("db_health_service_close_failed", exc_info=True)
 
     # ודא שה-client/db של ה-WebApp מאותחל
     _db = get_db()
