@@ -498,6 +498,15 @@
 .workspace-card__drag:active{cursor:grabbing}
 .workspace-card__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:.15rem}
 .workspace-card__name{font-weight:600;color:var(--collections-dark-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workspace-card__name.is-wrapped{
+  white-space:normal;
+  text-overflow:clip;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  word-break:break-word;
+}
 .workspace-card__link{text-decoration:none;color:inherit}
 .workspace-card__meta{font-size:.82rem;color:var(--collections-secondary-text);display:flex;align-items:center;gap:.35rem;flex-wrap:wrap}
 .workspace-card__actions{display:flex;gap:.35rem;flex-wrap:wrap}
