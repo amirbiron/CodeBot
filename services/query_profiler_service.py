@@ -505,7 +505,7 @@ class QueryProfilerService:
             cursor = coll.find(query)
             try:
                 # נסיון להריץ עם רמת הפירוט המבוקשת
-                return cursor.explain(verbosity)
+                return cursor.explain(verbosity=verbosity)
             except TypeError:
                 # Fallback לגרסאות ישנות של pymongo שלא מקבלות ארגומנטים
                 logger.warning(
