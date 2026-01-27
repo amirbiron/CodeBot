@@ -452,6 +452,47 @@ class FilesFacade:
         except Exception:
             return None
 
+    def bulk_soft_delete(self, user_id: int, object_ids: List[Any], ttl_days: int) -> Dict[str, Any]:
+        if not object_ids:
+            return {"found": 0, "deleted": 0, "skipped_already_deleted": 0}
+        db = self._get_db()
+        now = datetime.now(timezone.utc)
+        try:
+            expires_at = now + timedelta(days=int(ttl_days))
+        except Exception:
+            expires_at = now
+
+        docs = list(
+            db.code_snippets.find(
+                {"_id": {"$in": object_ids}, "user_id": user_id},
+                {"_id": 1, "is_active": 1},
+            )
+        )
+        found_ids = {doc["_id"] for doc in docs}
+        active_ids = [doc["_id"] for doc in docs if bool(doc.get("is_active", True))]
+        skipped_already_deleted = len(object_ids) - len(active_ids)
+
+        deleted = 0
+        if active_ids:
+            res = db.code_snippets.update_many(
+                {"_id": {"$in": active_ids}, "user_id": user_id, "is_active": True},
+                {
+                    "$set": {
+                        "is_active": False,
+                        "deleted_at": now,
+                        "deleted_expires_at": expires_at,
+                        "updated_at": now,
+                    }
+                },
+            )
+            deleted = int(getattr(res, "modified_count", 0) or 0)
+
+        return {
+            "found": len(found_ids),
+            "deleted": deleted,
+            "skipped_already_deleted": skipped_already_deleted,
+        }
+
     def get_favorites(self, user_id: int, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict[str, Any]]:
         db = self._get_db()
         # Support multiple legacy signatures:

@@ -57,6 +57,14 @@ def _get_public_share_ttl_days() -> int:
         return 7
 
 
+def _get_recycle_ttl_days_default() -> int:
+    raw = os.getenv("RECYCLE_TTL_DAYS", "7") or "7"
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return 7
+
+
 def login_required(f):
     """Local login guard for API routes."""
     try:
@@ -382,6 +390,56 @@ def api_files_create_share_link():
                 "share_url": share_url,
                 "expires_at": expires_at.isoformat(),
                 "token": token,
+            }
+        )
+    except Exception:
+        return jsonify({"success": False, "error": "שגיאה לא צפויה"}), 500
+
+
+@files_bp.route("/bulk-delete", methods=["POST"])
+@login_required
+@traced("files.bulk_delete")
+def api_files_bulk_delete():
+    """מחיקה רכה (soft delete) לקבוצת קבצים – מסמן is_active=False עם תוקף שחזור."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get("file_ids") or [])
+        raw_ttl = data.get("ttl_days")
+        if raw_ttl is None or str(raw_ttl).strip() == "":
+            ttl_days = _get_recycle_ttl_days_default()
+        else:
+            try:
+                ttl_days = int(raw_ttl)
+            except Exception:
+                ttl_days = _get_recycle_ttl_days_default()
+        if ttl_days < 1:
+            ttl_days = _get_recycle_ttl_days_default()
+        if ttl_days > 30:
+            ttl_days = 30
+
+        if not file_ids:
+            return jsonify({"success": False, "error": "No files selected"}), 400
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid file id"}), 400
+        unique_object_ids = list(dict.fromkeys(object_ids))
+        if len(unique_object_ids) > 100:
+            return jsonify({"success": False, "error": "Too many files (max 100)"}), 400
+
+        facade = get_files_facade()
+        user_id = session["user_id"]
+        result = facade.bulk_soft_delete(user_id, unique_object_ids, ttl_days)
+        if int(result.get("found", 0)) != len(unique_object_ids):
+            return jsonify({"success": False, "error": "Some files not found"}), 404
+
+        return jsonify(
+            {
+                "success": True,
+                "deleted": int(result.get("deleted", 0)),
+                "skipped_already_deleted": int(result.get("skipped_already_deleted", 0)),
+                "requested": len(unique_object_ids),
+                "message": f"הקבצים הועברו לסל המחזור ל-{ttl_days} ימים",
             }
         )
     except Exception:
