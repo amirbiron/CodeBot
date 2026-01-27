@@ -4621,7 +4621,9 @@ def _get_webapp_db_health_service():
     """
     global _WEBAPP_DB_HEALTH_SERVICE
     if _WEBAPP_DB_HEALTH_SERVICE is not None:
-        return _WEBAPP_DB_HEALTH_SERVICE
+        if isinstance(_WEBAPP_DB_HEALTH_SERVICE, SyncDatabaseHealthService):
+            return _WEBAPP_DB_HEALTH_SERVICE
+        _WEBAPP_DB_HEALTH_SERVICE = None
 
     # ודא שה-client/db של ה-WebApp מאותחל
     _db = get_db()
