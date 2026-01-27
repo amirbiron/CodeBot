@@ -815,6 +815,7 @@ class SyncDatabaseHealthService:
                     has_permission_error = True
                 else:
                     summary["errors"].append(f"ops: {e}")
+                    has_critical_error = True
 
         # ספירת collections - פעולה בסיסית שלא דורשת הרשאות מיוחדות
         if not has_critical_error:

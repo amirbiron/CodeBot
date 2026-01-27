@@ -560,13 +560,19 @@ async function loadHealthSummary() {
         const indicator = document.querySelector('.status-indicator');
         indicator.dataset.status = 'error';
         indicator.querySelector('.status-text').textContent = 'שגיאה';
+        // נקה הודעות ישנות כדי למנוע מצב לא עקבי
+        clearHealthMessages();
     }
+}
+
+function clearHealthMessages() {
+    const existingMessages = document.getElementById('health-messages');
+    if (existingMessages) existingMessages.remove();
 }
 
 function showHealthMessages(data) {
     // הסר הודעות קודמות
-    const existingMessages = document.getElementById('health-messages');
-    if (existingMessages) existingMessages.remove();
+    clearHealthMessages();
     
     const errors = data.errors || [];
     const warnings = data.warnings || [];
