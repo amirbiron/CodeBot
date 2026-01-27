@@ -4599,6 +4599,7 @@ def _maintenance_cleanup_is_authorized() -> bool:
 _WEBAPP_DB_HEALTH_SERVICE = None
 _DB_HEALTH_ASYNC_LOOP = None
 _DB_HEALTH_ASYNC_LOOP_THREAD = None
+_DB_HEALTH_ASYNC_LOOP_READY = threading.Event()
 _DB_HEALTH_ASYNC_LOOP_LOCK = threading.Lock()
 
 # Throttling ל-collStats (Per-process). מגן על DB מפני הרצות תכופות.
@@ -4653,12 +4654,24 @@ def _ensure_db_health_async_loop():
         return loop
     with _DB_HEALTH_ASYNC_LOOP_LOCK:
         loop = _DB_HEALTH_ASYNC_LOOP
-        if loop is not None and not loop.is_closed() and loop.is_running():
-            return loop
+        if loop is not None and not loop.is_closed():
+            if loop.is_running():
+                return loop
+            thread = _DB_HEALTH_ASYNC_LOOP_THREAD
+            if thread is not None and thread.is_alive():
+                _DB_HEALTH_ASYNC_LOOP_READY.wait(timeout=0.25)
+                if loop.is_running():
+                    return loop
+            try:
+                loop.close()
+            except Exception:
+                logger.warning("db_health_loop_close_failed", exc_info=True)
+        _DB_HEALTH_ASYNC_LOOP_READY.clear()
         loop = asyncio.new_event_loop()
 
         def _run_loop():
             asyncio.set_event_loop(loop)
+            _DB_HEALTH_ASYNC_LOOP_READY.set()
             loop.run_forever()
 
         native_thread = _get_db_health_native_thread_class()
@@ -4677,11 +4690,16 @@ def _run_db_health(awaitable):
     if inspect.isawaitable(awaitable):
         try:
             loop = _ensure_db_health_async_loop()
-            if asyncio.iscoroutine(awaitable):
-                return asyncio.run_coroutine_threadsafe(awaitable, loop).result()
         except Exception:
             logger.exception("db_health_async_loop_failed")
-        return _run_awaitable_blocking(awaitable, thread_label="db_health")
+            return _run_awaitable_blocking(awaitable, thread_label="db_health")
+        try:
+            async def _await_wrapper(item):
+                return await item
+            return asyncio.run_coroutine_threadsafe(_await_wrapper(awaitable), loop).result()
+        except Exception:
+            logger.exception("db_health_async_loop_failed")
+            raise
     return awaitable
 
 
