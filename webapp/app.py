@@ -4563,6 +4563,13 @@ def _db_health_is_authorized() -> bool:
         return False
     auth = str(request.headers.get("Authorization", "") or "")
     if not auth.startswith("Bearer "):
+        # fallback: admin session (webapp)
+        try:
+            uid = session.get("user_id")
+            if uid is not None and is_admin(int(uid)) and not is_impersonating_safe():
+                return True
+        except Exception:
+            pass
         return False
     provided = auth[7:].strip()
     try:
