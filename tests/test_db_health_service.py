@@ -188,6 +188,20 @@ class TestAsyncDatabaseHealthService:
         assert result["slow_queries_count"] == 0
         assert result["collections_count"] == 2
         assert len(result["errors"]) == 0
+        assert "warnings" in result  # וודא שהשדה קיים
+
+    async def test_get_health_summary_with_permission_error(self, service, mock_motor_client):
+        """בדיקת סיכום בריאות עם שגיאת הרשאה."""
+        # serverStatus נכשל עם שגיאת הרשאה
+        mock_motor_client.admin.command.side_effect = Exception("not authorized on admin to execute command")
+        service._db.list_collection_names = AsyncMock(return_value=["users", "logs"])
+
+        result = await service.get_health_summary()
+
+        assert result["status"] == "healthy"  # עדיין healthy כי זו רק שגיאת הרשאה
+        assert len(result["errors"]) == 0
+        assert len(result["warnings"]) > 0
+        assert result["collections_count"] == 2
 
 
 class TestSyncDatabaseHealthServicePermissions:
@@ -209,18 +223,23 @@ class TestSyncDatabaseHealthServicePermissions:
 
     def test_is_permission_error_detects_not_authorized(self, sync_service):
         """בדיקה שזיהוי שגיאת הרשאה עובד."""
+        from services.db_health_service import _is_permission_error
         e = Exception("not authorized on admin to execute command")
+        assert _is_permission_error(e) is True
+        # גם דרך המתודה של המחלקה
         assert sync_service._is_permission_error(e) is True
 
     def test_is_permission_error_detects_unauthorized(self, sync_service):
         """בדיקה שזיהוי unauthorized עובד."""
+        from services.db_health_service import _is_permission_error
         e = Exception("Unauthorized access")
-        assert sync_service._is_permission_error(e) is True
+        assert _is_permission_error(e) is True
 
     def test_is_permission_error_false_for_other_errors(self, sync_service):
         """בדיקה ששגיאות אחרות לא מזוהות כשגיאות הרשאה."""
+        from services.db_health_service import _is_permission_error
         e = Exception("Connection timeout")
-        assert sync_service._is_permission_error(e) is False
+        assert _is_permission_error(e) is False
 
     def test_health_summary_with_permission_errors_returns_healthy(self, sync_service, mock_db_manager):
         """בדיקה שסטטוס הוא healthy כאשר יש רק שגיאות הרשאה."""
