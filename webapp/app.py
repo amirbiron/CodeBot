@@ -12104,6 +12104,13 @@ _LIVE_PREVIEW_BASE_ALLOWED_TAGS = {
 }
 _LIVE_PREVIEW_HTML_ALLOWED_TAGS = _LIVE_PREVIEW_BASE_ALLOWED_TAGS.union(
     {
+        # מבנה מסמך HTML בסיסי
+        "html",
+        "head",
+        "body",
+        "title",
+        "meta",
+        # תגיות מבניות
         "section",
         "article",
         "header",
@@ -12119,7 +12126,13 @@ _LIVE_PREVIEW_HTML_ALLOWED_TAGS = _LIVE_PREVIEW_BASE_ALLOWED_TAGS.union(
         "svg",
         "path",
         "circle",
+        "rect",
+        "line",
+        "polyline",
+        "polygon",
         "g",
+        "defs",
+        "use",
         "small",
         "sup",
         "sub",
@@ -12156,16 +12169,35 @@ _LIVE_PREVIEW_GLOBAL_ATTRS = {
     "aria-live",
 }
 _LIVE_PREVIEW_ELEMENT_ATTRS = {
+    # מבנה מסמך HTML
+    "html": {"lang", "dir"},
+    # הערה: http-equiv הוסר כי מאפשר open redirect דרך meta refresh
+    "meta": {"charset", "name", "content", "property"},
+    # קישורים ותמונות
     "a": {"href", "target", "rel"},
     "img": {"src", "alt", "title", "width", "height", "loading"},
+    # קוד וטבלאות
     "code": {"class"},
     "pre": {"class"},
     "table": {"class"},
     "td": {"colspan", "rowspan"},
     "th": {"colspan", "rowspan", "scope"},
+    # מדיה
     "video": {"controls", "autoplay", "loop", "muted", "poster"},
     "audio": {"controls", "autoplay", "loop", "muted"},
     "source": {"src", "type"},
+    # SVG
+    "svg": {"xmlns", "width", "height", "viewBox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"},
+    "path": {"d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"},
+    "rect": {"x", "y", "width", "height", "rx", "ry", "fill", "stroke", "stroke-width"},
+    "circle": {"cx", "cy", "r", "fill", "stroke", "stroke-width"},
+    "line": {"x1", "y1", "x2", "y2", "stroke", "stroke-width"},
+    "polyline": {"points", "fill", "stroke", "stroke-width"},
+    "polygon": {"points", "fill", "stroke", "stroke-width"},
+    "g": {"fill", "stroke", "transform"},
+    # הערה: xlink:href הוסר כי עוקף סניטציית URL
+    "use": {"href"},
+    # טפסים
     "button": {"type", "disabled"},
     "input": {"type", "name", "value", "placeholder", "checked", "disabled"},
     "textarea": {"name", "rows", "cols", "placeholder", "disabled"},
@@ -12179,6 +12211,10 @@ _LIVE_PREVIEW_URL_ATTRS = {
     "src": True,
     "poster": True,
     "action": False,
+}
+# SVG attributes שדורשים case-preservation (lowercase -> correct case)
+_LIVE_PREVIEW_CASE_SENSITIVE_ATTRS = {
+    "viewbox": "viewBox",
 }
 _PYGMENTS_PREVIEW_FORMATTER = HtmlFormatter(style="friendly", cssclass="codehilite", wrapcode=True)
 _PYGMENTS_PREVIEW_CSS = _PYGMENTS_PREVIEW_FORMATTER.get_style_defs(".codehilite")
@@ -12236,13 +12272,15 @@ def _sanitize_preview_html(
         cleaned_attrs: Dict[str, Any] = {}
         tag_attrs = dict(tag.attrs or {})
         allowed_for_tag = _LIVE_PREVIEW_ELEMENT_ATTRS.get(name, set())
+        # יצירת set של lowercase לבדיקה
+        allowed_for_tag_lower = {a.lower() for a in allowed_for_tag}
         for attr_name, attr_value in tag_attrs.items():
             attr_lower = attr_name.lower()
             if attr_lower.startswith("on"):
                 continue
             if attr_lower == "style" and not allow_inline_styles:
                 continue
-            if attr_lower not in allowed_for_tag and attr_lower not in _LIVE_PREVIEW_GLOBAL_ATTRS:
+            if attr_lower not in allowed_for_tag_lower and attr_lower not in _LIVE_PREVIEW_GLOBAL_ATTRS:
                 if attr_lower.startswith("aria-") or attr_lower.startswith("data-"):
                     pass
                 elif not (allow_inline_styles and attr_lower == "style"):
@@ -12255,7 +12293,9 @@ def _sanitize_preview_html(
                 allow_data = _LIVE_PREVIEW_URL_ATTRS[attr_lower]
                 if not _is_safe_preview_url(value_str, allow_data_uri=allow_data):
                     continue
-            cleaned_attrs[attr_lower] = value_str
+            # שמירה על casing מקורי עבור SVG attributes כמו viewBox
+            final_attr_name = _LIVE_PREVIEW_CASE_SENSITIVE_ATTRS.get(attr_lower, attr_lower)
+            cleaned_attrs[final_attr_name] = value_str
         tag.attrs = cleaned_attrs
     return soup.decode()
 
