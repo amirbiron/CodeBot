@@ -80,13 +80,14 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
 # מיפוי בין VS Code keys לבין CSS Variables שלנו
 # ⚠️ הערה: חלק מהמפתחות ממופים לרשימה של משתנים (כאשר ערך אחד צריך למלא כמה טוקנים)
 VSCODE_TO_CSS_MAP = {
-    # רקעים - editor.background ממלא גם את --md-surface למניעת "לבן מסנוור" ב-Markdown
-    "editor.background": ["--bg-primary", "--md-surface"],
+    # רקעים - editor.background ממלא גם את --code-bg (CodeMirror) ו--md-surface (Markdown)
+    "editor.background": ["--bg-primary", "--code-bg", "--md-surface"],
     "sideBar.background": "--bg-secondary",
     "activityBar.background": "--bg-tertiary",
     "tab.activeBackground": "--bg-primary",
     "input.background": "--input-bg",
     "dropdown.background": "--bg-secondary",
+    "dropdown.foreground": "--text-primary",  # 🆕 חסר מקודם
     "panel.background": "--bg-secondary",
 
     # טקסט - editor.foreground ממלא גם את --md-text לעקביות ב-Markdown Preview
