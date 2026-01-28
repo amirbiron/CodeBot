@@ -1157,6 +1157,42 @@ class GitHubMenuHandler:
             await update.message.reply_text(
                 status_msg, reply_markup=reply_markup, parse_mode="HTML"
             )
+
+    async def _apply_repo_selection(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, repo_name: str
+    ) -> None:
+        """עדכון ריפו נבחר ואיפוס מצבים תלויים."""
+        user_id = update.effective_user.id
+        session = self.get_user_session(user_id)
+        session["selected_repo"] = repo_name
+        # איפוס תיקיות יעד ישנות בעת בחירת ריפו חדש
+        session["selected_folder"] = None
+        context.user_data.pop("upload_target_folder", None)
+        context.user_data.pop("upload_target_branch", None)
+        context.user_data.pop("waiting_for_manual_repo", None)
+
+        # נקה סטייטים זמניים של זרם שחזור/גיבוי כדי למנוע נעילה לריפו קודם
+        try:
+            context.user_data.pop("zip_restore_expected_repo_full", None)
+            context.user_data.pop("github_restore_zip_purge", None)
+            context.user_data.pop("pending_repo_restore_zip_path", None)
+            context.user_data.pop("upload_mode", None)
+        except Exception:
+            pass
+
+        # שמור במסד נתונים
+        try:
+            facade = _get_files_facade()
+            if facade is not None:
+                facade.save_selected_repo(user_id, repo_name)
+                # איפוס תיקיית יעד נשמר גם במסד נתונים (root)
+                if hasattr(facade, "save_selected_folder"):
+                    facade.save_selected_folder(user_id, None)
+        except Exception:
+            pass
+
+        # הצג את התפריט המלא אחרי בחירת הריפו
+        await self.github_menu_command(update, context)
     async def handle_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle menu button clicks"""
         query = update.callback_query
@@ -2357,6 +2393,7 @@ class GitHubMenuHandler:
 
         elif query.data.startswith("repo_"):
             if query.data == "repo_manual":
+                context.user_data["waiting_for_manual_repo"] = True
                 await query.edit_message_text(
                     "✏️ הקלד שם ריפו בפורמט:\n"
                     "<code>owner/repository</code>\n\n"
@@ -2366,34 +2403,7 @@ class GitHubMenuHandler:
                 return REPO_SELECT
             else:
                 repo_name = query.data.replace("repo_", "")
-                session["selected_repo"] = repo_name
-                # איפוס תיקיות יעד ישנות בעת בחירת ריפו חדש
-                session["selected_folder"] = None
-                context.user_data.pop("upload_target_folder", None)
-                context.user_data.pop("upload_target_branch", None)
-
-                # נקה סטייטים זמניים של זרם שחזור/גיבוי כדי למנוע נעילה לריפו קודם
-                try:
-                    context.user_data.pop("zip_restore_expected_repo_full", None)
-                    context.user_data.pop("github_restore_zip_purge", None)
-                    context.user_data.pop("pending_repo_restore_zip_path", None)
-                    context.user_data.pop("upload_mode", None)
-                except Exception:
-                    pass
-
-                # שמור במסד נתונים
-                try:
-                    facade = _get_files_facade()
-                    if facade is not None:
-                        facade.save_selected_repo(user_id, repo_name)
-                        # איפוס תיקיית יעד נשמר גם במסד נתונים (root)
-                        if hasattr(facade, "save_selected_folder"):
-                            facade.save_selected_folder(user_id, None)
-                except Exception:
-                    pass
-
-                # הצג את התפריט המלא אחרי בחירת הריפו
-                await self.github_menu_command(update, context)
+                await self._apply_repo_selection(update, context, repo_name)
                 return
 
         elif query.data == "danger_delete_menu":
@@ -4479,6 +4489,34 @@ class GitHubMenuHandler:
         logger.info(
             f"📝 GitHub text input handler: user={user_id}, waiting_for_repo={context.user_data.get('waiting_for_repo_url')}"
         )
+
+        # הזנת שם ריפו ידנית מתוך "בחר ריפו"
+        if context.user_data.get("waiting_for_manual_repo"):
+            context.user_data["waiting_for_manual_repo"] = False
+            repo_raw = (text or "").strip()
+            repo_candidate = repo_raw
+            if "github.com/" in repo_candidate:
+                repo_candidate = repo_candidate.split("github.com/", 1)[1]
+            repo_candidate = repo_candidate.strip().strip("/")
+            repo_candidate = repo_candidate.split("?", 1)[0].split("#", 1)[0]
+            if repo_candidate.endswith(".git"):
+                repo_candidate = repo_candidate[:-4]
+            repo_candidate = repo_candidate.strip().strip("/")
+            if not repo_candidate:
+                await update.message.reply_text(
+                    "❌ שם ריפו ריק. נסה שוב בפורמט owner/repository."
+                )
+                context.user_data["waiting_for_manual_repo"] = True
+                return True
+            if not re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", repo_candidate):
+                await update.message.reply_text(
+                    "❌ שם ריפו לא תקין. השתמש בפורמט owner/repository "
+                    "ובאותיות/מספרים/._- בלבד."
+                )
+                context.user_data["waiting_for_manual_repo"] = True
+                return True
+            await self._apply_repo_selection(update, context, repo_candidate)
+            return True
 
         # הזנת נתיב יעד ידני עבור העלאה (מתוך '✏️ הזן נתיב ידנית')
         if context.user_data.get("waiting_for_upload_folder"):

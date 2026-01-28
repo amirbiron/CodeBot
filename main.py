@@ -3399,6 +3399,7 @@ class CodeKeeperBot:
                 context.user_data.pop('waiting_for_repo_url', None)
                 context.user_data.pop('waiting_for_delete_file_path', None)
                 context.user_data.pop('waiting_for_download_file_path', None)
+                context.user_data.pop('waiting_for_manual_repo', None)
                 context.user_data.pop('waiting_for_new_repo_name', None)
                 context.user_data.pop('waiting_for_selected_folder', None)
                 context.user_data.pop('waiting_for_new_folder_path', None)
@@ -3435,6 +3436,7 @@ class CodeKeeperBot:
             if context.user_data.get('waiting_for_repo_url') or \
                context.user_data.get('waiting_for_delete_file_path') or \
                context.user_data.get('waiting_for_download_file_path') or \
+               context.user_data.get('waiting_for_manual_repo') or \
                context.user_data.get('waiting_for_new_repo_name') or \
                context.user_data.get('waiting_for_selected_folder') or \
                context.user_data.get('waiting_for_new_folder_path') or \
