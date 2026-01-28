@@ -5033,6 +5033,9 @@ def api_db_collection_documents(collection: str):
     user_id_raw = _clean_filter_value(request.args.get("userId") or request.args.get("user_id"), 40)
     status_raw = _clean_filter_value(request.args.get("status"), 40)
     file_id_raw = _clean_filter_value(request.args.get("fileId") or request.args.get("file_id"), 120)
+    sort_raw = _clean_filter_value(request.args.get("sort"), 20).lower()
+
+    sort_value = sort_raw if sort_raw in {"newest", "oldest", "asc", "desc", "created_at_asc", "created_at_desc"} else None
 
     if user_id_raw:
         try:
@@ -5052,6 +5055,7 @@ def api_db_collection_documents(collection: str):
                 skip=skip,
                 limit=limit,
                 filters=filters or None,
+                sort=sort_value,
             )
         )
         return jsonify(result)

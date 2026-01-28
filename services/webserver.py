@@ -1258,6 +1258,9 @@ def create_app() -> web.Application:
             user_id_raw = _clean_filter_value(request.query.get("userId") or request.query.get("user_id"), 40)
             status_raw = _clean_filter_value(request.query.get("status"), 40)
             file_id_raw = _clean_filter_value(request.query.get("fileId") or request.query.get("file_id"), 120)
+            sort_raw = _clean_filter_value(request.query.get("sort"), 20).lower()
+
+            sort_value = sort_raw if sort_raw in {"newest", "oldest", "asc", "desc", "created_at_asc", "created_at_desc"} else None
 
             if user_id_raw:
                 try:
@@ -1275,6 +1278,7 @@ def create_app() -> web.Application:
                 skip=skip,
                 limit=limit,
                 filters=filters or None,
+                sort=sort_value,
             )
 
             return web.json_response(result)
