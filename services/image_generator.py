@@ -179,9 +179,9 @@ class CodeImageGenerator:
         self._note_font_cache: dict[str, FreeTypeFont] = {}
         self._logo_cache: Optional[Image.Image] = None
 
-        # Playwright (מועדף) – שימוש ב-Async API כדי להימנע מקונפליקט עם event loop
+        # Playwright (מועדף) – שימוש ב-Sync API כדי לעבוד עם gevent monkey patching
         try:  # pragma: no cover - תלות אופציונלית
-            from playwright.async_api import async_playwright  # noqa: F401
+            from playwright.sync_api import sync_playwright  # noqa: F401
             self._has_playwright = True
         except Exception:
             self._has_playwright = False
@@ -573,43 +573,38 @@ class CodeImageGenerator:
 
     def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
         if not self._has_playwright:
-            raise RuntimeError("Playwright async API is not available")
+            raise RuntimeError("Playwright sync API is not available")
 
-        from playwright.async_api import async_playwright  # type: ignore
+        # שימוש ב-sync API של Playwright כדי לעקוף בעיות עם gevent monkey patching.
+        # ה-async API לא עובד טוב עם gevent כי asyncio.run() נשבר.
+        from playwright.sync_api import sync_playwright  # type: ignore
 
-        async def _render_async() -> bytes:
-            async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True)
+        def _render_sync() -> bytes:
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
                 page = None
                 try:
-                    page = await browser.new_page(
+                    page = browser.new_page(
                         viewport={'width': width, 'height': height},
                         device_scale_factor=2,
                     )
-                    await page.set_content(html_content, wait_until='load')
-                    await page.wait_for_timeout(300)
-                    return await page.screenshot(type='png', full_page=True)
+                    page.set_content(html_content, wait_until='load')
+                    page.wait_for_timeout(300)
+                    return page.screenshot(type='png', full_page=True)
                 finally:
                     if page is not None:
                         try:
-                            await page.close()
+                            page.close()
                         except Exception:
                             pass
                     try:
-                        await browser.close()
+                        browser.close()
                     except Exception:
                         pass
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="code-image-playwright") as executor:
-                png_bytes = executor.submit(lambda: asyncio.run(_render_async())).result()
-        else:
-            png_bytes = asyncio.run(_render_async())
+        # הרצה ב-thread נפרד כדי לא לחסום את ה-event loop הראשי
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="code-image-playwright") as executor:
+            png_bytes = executor.submit(_render_sync).result()
 
         return Image.open(io.BytesIO(png_bytes))
 
