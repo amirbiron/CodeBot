@@ -524,6 +524,16 @@
             list-style: none;
             align-items: center;
         }
+
+        .navbar,
+        .navbar * {
+            scrollbar-width: thin;
+        }
+
+        .navbar ::-webkit-scrollbar {
+            width: var(--scrollbar-width);
+            height: var(--scrollbar-width);
+        }
         
         .nav-link {
             color: var(--text-primary, white);
