@@ -126,6 +126,14 @@
             <h2>צפייה במסמכים — <code id="viewer-collection-name">-</code></h2>
         </div>
         <div class="card-actions">
+            <div class="documents-view-toggle" role="group" aria-label="תצוגת JSON">
+                <button class="btn btn-secondary btn-sm" id="docs-view-pretty" type="button" aria-pressed="true" disabled>
+                    תצוגה יפה
+                </button>
+                <button class="btn btn-secondary btn-sm" id="docs-view-raw" type="button" aria-pressed="false" disabled>
+                    גולמי
+                </button>
+            </div>
             <button class="btn btn-secondary btn-icon" id="copy-json-btn" onclick="copyJsonToClipboard()" disabled>
                 <i class="fas fa-copy"></i>
                 העתק JSON
@@ -433,6 +441,25 @@
     gap: 0.5rem;
 }
 
+.documents-view-toggle {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    padding: 0.15rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.documents-view-toggle .btn {
+    font-size: 0.8rem;
+}
+
+.documents-view-toggle .btn.is-active {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
 .card-header code {
     font-family: 'Fira Code', ui-monospace, monospace;
     background: rgba(0, 0, 0, 0.2);
@@ -623,6 +650,82 @@ const DOCS_LIMIT = 20;
 const DOCS_SORT_DEFAULT = 'newest';
 let currentDocFilters = { userId: '', status: '', fileId: '' };
 let currentDocSort = DOCS_SORT_DEFAULT;
+let currentDocumentsViewMode = 'pretty';
+let currentDocumentsPretty = '';
+let currentDocumentsRaw = '';
+let documentsViewHasData = false;
+
+function _getDocumentsViewToggleButtons() {
+    return {
+        prettyBtn: document.getElementById('docs-view-pretty'),
+        rawBtn: document.getElementById('docs-view-raw'),
+    };
+}
+
+function updateDocumentsViewToggle() {
+    const { prettyBtn, rawBtn } = _getDocumentsViewToggleButtons();
+    if (prettyBtn) {
+        const isActive = currentDocumentsViewMode === 'pretty';
+        prettyBtn.classList.toggle('is-active', isActive);
+        prettyBtn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+    if (rawBtn) {
+        const isActive = currentDocumentsViewMode === 'raw';
+        rawBtn.classList.toggle('is-active', isActive);
+        rawBtn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+}
+
+function setDocumentsViewHasData(hasData) {
+    documentsViewHasData = !!hasData;
+    const { prettyBtn, rawBtn } = _getDocumentsViewToggleButtons();
+    if (prettyBtn) {
+        prettyBtn.disabled = !documentsViewHasData;
+    }
+    if (rawBtn) {
+        rawBtn.disabled = !documentsViewHasData;
+    }
+    updateDocumentsViewToggle();
+}
+
+function renderDocumentsContent() {
+    if (!documentsViewHasData) {
+        return;
+    }
+    const content = currentDocumentsViewMode === 'raw'
+        ? currentDocumentsRaw
+        : currentDocumentsPretty;
+    const codeContainer = document.getElementById('documents-code');
+    if (window.documentsEditor) {
+        window.documentsEditor.setValue(content);
+        if (codeContainer) codeContainer.style.display = 'none';
+    } else if (codeContainer) {
+        codeContainer.textContent = content;
+        codeContainer.style.display = 'block';
+    }
+}
+
+function setDocumentsViewMode(mode) {
+    const normalized = mode === 'raw' ? 'raw' : 'pretty';
+    if (currentDocumentsViewMode === normalized) {
+        return;
+    }
+    currentDocumentsViewMode = normalized;
+    updateDocumentsViewToggle();
+    renderDocumentsContent();
+}
+
+function initDocumentsViewToggle() {
+    const { prettyBtn, rawBtn } = _getDocumentsViewToggleButtons();
+    if (prettyBtn) {
+        prettyBtn.addEventListener('click', () => setDocumentsViewMode('pretty'));
+    }
+    if (rawBtn) {
+        rawBtn.addEventListener('click', () => setDocumentsViewMode('raw'));
+    }
+    updateDocumentsViewToggle();
+    setDocumentsViewHasData(false);
+}
 
 function _safeInputValue(value, maxLen = 120) {
     if (value === null || value === undefined) return '';
@@ -941,6 +1044,7 @@ async function loadDocuments(collectionName, skip = 0) {
     prevBtn.disabled = true;
     nextBtn.disabled = true;
     copyBtn.disabled = true;
+    setDocumentsViewHasData(false);
 
     // הצג loading ב-CodeMirror או ב-pre (לא שניהם!)
     if (window.documentsEditor) {
@@ -1010,6 +1114,7 @@ async function loadDocuments(collectionName, skip = 0) {
             prevBtn.disabled = skip === 0;
             nextBtn.disabled = true;
             copyBtn.disabled = true;
+            setDocumentsViewHasData(false);
         } else if (returnedCount === 0) {
             if (window.documentsEditor) {
                 window.documentsEditor.setValue('');
@@ -1021,18 +1126,13 @@ async function loadDocuments(collectionName, skip = 0) {
             prevBtn.disabled = skip === 0;
             nextBtn.disabled = true;
             copyBtn.disabled = true;
+            setDocumentsViewHasData(false);
         } else {
             // הצגת JSON מעוצב
-            const formatted = JSON.stringify(data.documents, null, 2);
-            
-            // הצג ב-CodeMirror או ב-pre (לא שניהם!)
-            if (window.documentsEditor) {
-                window.documentsEditor.setValue(formatted);
-                codeContainer.style.display = 'none';  // הסתר pre
-            } else {
-                codeContainer.textContent = formatted;
-                codeContainer.style.display = 'block';
-            }
+            currentDocumentsPretty = JSON.stringify(data.documents, null, 2);
+            currentDocumentsRaw = JSON.stringify(data.documents);
+            setDocumentsViewHasData(true);
+            renderDocumentsContent();
             emptyState.style.display = 'none';
 
             // עדכון מידע pagination
@@ -1063,6 +1163,7 @@ async function loadDocuments(collectionName, skip = 0) {
             codeContainer.style.display = 'block';
         }
         emptyState.style.display = 'none';
+        setDocumentsViewHasData(false);
     }
 }
 
@@ -1091,15 +1192,27 @@ async function copyJsonToClipboard() {
     const copyBtn = document.getElementById('copy-json-btn');
     
     try {
-        const text = window.documentsEditor 
-            ? window.documentsEditor.getValue() 
-            : codeContainer.textContent;
+        let text = '';
+        if (documentsViewHasData) {
+            text = currentDocumentsViewMode === 'raw'
+                ? currentDocumentsRaw
+                : currentDocumentsPretty;
+        } else if (window.documentsEditor) {
+            text = window.documentsEditor.getValue();
+        } else {
+            text = codeContainer.textContent;
+        }
         
         await navigator.clipboard.writeText(text);
         
         // פידבק ויזואלי
         const originalText = copyBtn.innerHTML;
-        copyBtn.innerHTML = '<i class="fas fa-check"></i> הועתק!';
+        const modeLabel = documentsViewHasData
+            ? (currentDocumentsViewMode === 'raw' ? 'גולמי' : 'תצוגה יפה')
+            : '';
+        copyBtn.innerHTML = modeLabel
+            ? `<i class="fas fa-check"></i> הועתק (${modeLabel})`
+            : '<i class="fas fa-check"></i> הועתק!';
         copyBtn.classList.add('btn-success');
         
         setTimeout(() => {
@@ -1137,6 +1250,7 @@ function closeDocumentsViewer() {
     document.getElementById('documents-viewer').style.display = 'none';
     currentCollection = null;
     currentSkip = 0;
+    setDocumentsViewHasData(false);
 
     // הסר הדגשה
     document.querySelectorAll('.collections-table tr.selected').forEach(tr => {
@@ -1303,6 +1417,7 @@ function getStatusText(status) {
 document.addEventListener('DOMContentLoaded', async () => {
     initDocumentsEditor();
     initDocumentsFilters();
+    initDocumentsViewToggle();
     await refreshAll();
     poolInterval = setInterval(loadPoolStatus, 5000);
     opsInterval = setInterval(loadCurrentOps, 10000);
