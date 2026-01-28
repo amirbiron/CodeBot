@@ -162,6 +162,8 @@
             --btn-primary-hover-shadow: 0 10px 20px rgba(0,0,0,0.2);
             --md-surface: #1b1e24;
             --md-text: #f0f0f0;
+            --scrollbar-width-base: 10px;
+            --scrollbar-width: calc(var(--scrollbar-width-base) / 3);
         }
 
         /* Theme palettes */
@@ -522,6 +524,16 @@
             list-style: none;
             align-items: center;
         }
+
+        .navbar,
+        .navbar * {
+            scrollbar-width: thin;
+        }
+
+        .navbar ::-webkit-scrollbar {
+            width: var(--scrollbar-width);
+            height: var(--scrollbar-width);
+        }
         
         .nav-link {
             color: var(--text-primary, white);
@@ -845,8 +857,14 @@
         }
         
         /* Scrollbar styling */
+        @media (min-width: 768px) {
+            :root {
+                --scrollbar-width: calc(var(--scrollbar-width-base) / 2);
+            }
+        }
+
         ::-webkit-scrollbar {
-            width: 10px;
+            width: var(--scrollbar-width);
         }
         
         ::-webkit-scrollbar-track {
