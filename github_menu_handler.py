@@ -18,6 +18,7 @@ from io import BytesIO
 from typing import Any, Dict, Optional
 from http_sync import request as _http_sync_request
 import errno
+from urllib.parse import urlparse
 
 # Shim: expose a 'requests' object for tests and route GETs through it.
 # This allows monkeypatching gh.requests.get in tests while still using
@@ -4495,8 +4496,15 @@ class GitHubMenuHandler:
             context.user_data["waiting_for_manual_repo"] = False
             repo_raw = (text or "").strip()
             repo_candidate = repo_raw
-            if "github.com/" in repo_candidate:
-                repo_candidate = repo_candidate.split("github.com/", 1)[1]
+            try:
+                parsed = urlparse(repo_raw)
+                if parsed.scheme and parsed.netloc:
+                    host = (parsed.hostname or "").lower()
+                    if host in ("github.com", "www.github.com"):
+                        path = (parsed.path or "").strip().strip("/")
+                        repo_candidate = path
+            except Exception:
+                pass
             repo_candidate = repo_candidate.strip().strip("/")
             repo_candidate = repo_candidate.split("?", 1)[0].split("#", 1)[0]
             if repo_candidate.endswith(".git"):

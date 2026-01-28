@@ -6,6 +6,7 @@ class _Msg:
     def __init__(self, text):
         self.text = text
         self.replies = []
+        self.from_user = types.SimpleNamespace(id=1)
 
     async def reply_text(self, text, **kwargs):
         self.replies.append((text, kwargs))
