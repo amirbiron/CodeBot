@@ -7,7 +7,7 @@
 <style>
 
 .source {
-    background: #1e1e1e !important;
+    background: var(--code-bg, #1e1e1e) !important;
     border-radius: 10px;
     padding: 1.5rem !important;
     overflow-x: auto;
@@ -98,14 +98,14 @@
     min-width: 240px;
     padding: 6px 10px;
     border-radius: 10px;
-    background: rgba(0, 0, 0, 0.25);
-    border: 1px solid transparent;
+    background: var(--input-bg, rgba(0, 0, 0, 0.25));
+    border: 1px solid var(--input-border, transparent);
     transition: border-color 0.2s ease, background 0.2s ease;
 }
 
 .search-capsule:focus-within {
-    border-color: rgba(255, 255, 255, 0.5);
-    background: rgba(0, 0, 0, 0.4);
+    border-color: var(--primary, rgba(255, 255, 255, 0.5));
+    background: var(--input-bg, rgba(0, 0, 0, 0.4));
 }
 
 .search-input {
@@ -113,18 +113,18 @@
     min-width: 0;
     border: none;
     background: transparent;
-    color: #ffffff;
+    color: var(--text-primary, #ffffff);
     font-size: 15px;
     padding: 6px 4px;
     outline: none;
 }
 
 .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--text-muted, rgba(255, 255, 255, 0.6));
 }
 
 .search-count {
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--text-secondary, rgba(255, 255, 255, 0.85));
     font-size: 13px;
     white-space: nowrap;
     min-width: 48px;
