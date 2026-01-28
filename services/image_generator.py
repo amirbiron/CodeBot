@@ -4,17 +4,20 @@ Code Image Generator Service
 
 מסלול מועדף:
 1) Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה (DPR=2)
+   הערה: Playwright רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent monkey patching.
 2) WeasyPrint (אם מותקן) – רינדור HTML איכותי
 3) PIL fallback – ציור ידני (קיים כיום), עם סקייל x2 לשיפור חדות
 """
 
 from __future__ import annotations
 
-import asyncio
+import base64
 import io
+import json
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
+import subprocess
+import sys
 from pathlib import Path
 from bs4 import BeautifulSoup
 from typing import Optional, Tuple, List
@@ -179,9 +182,9 @@ class CodeImageGenerator:
         self._note_font_cache: dict[str, FreeTypeFont] = {}
         self._logo_cache: Optional[Image.Image] = None
 
-        # Playwright (מועדף) – שימוש ב-Sync API כדי לעבוד עם gevent monkey patching
+        # Playwright (מועדף) – רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent
         try:  # pragma: no cover - תלות אופציונלית
-            from playwright.sync_api import sync_playwright  # noqa: F401
+            import playwright  # noqa: F401
             self._has_playwright = True
         except Exception:
             self._has_playwright = False
@@ -573,47 +576,72 @@ class CodeImageGenerator:
 
     def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
         if not self._has_playwright:
-            raise RuntimeError("Playwright sync API is not available")
+            raise RuntimeError("Playwright is not available")
 
-        # שימוש ב-sync API של Playwright כדי לעקוף בעיות עם gevent monkey patching.
-        # ה-async API לא עובד טוב עם gevent כי asyncio.run() נשבר.
-        from playwright.sync_api import sync_playwright  # type: ignore
+        # מריץ את Playwright ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent monkey patching.
+        # התהליך הנפרד לא יורש את ה-monkey patching ולכן Playwright יעבוד נכון.
+        logger.debug("Playwright: running in subprocess to avoid gevent conflicts...")
 
-        def _render_sync() -> bytes:
-            logger.debug("Playwright: starting sync_playwright context...")
-            with sync_playwright() as playwright:
-                logger.debug("Playwright: launching Chromium...")
-                browser = playwright.chromium.launch(headless=True)
-                page = None
-                try:
-                    logger.debug("Playwright: creating new page...")
-                    page = browser.new_page(
-                        viewport={'width': width, 'height': height},
-                        device_scale_factor=2,
-                    )
-                    logger.debug("Playwright: setting content...")
-                    page.set_content(html_content, wait_until='load')
-                    page.wait_for_timeout(300)
-                    logger.debug("Playwright: taking screenshot...")
-                    return page.screenshot(type='png', full_page=True)
-                finally:
-                    if page is not None:
-                        try:
-                            page.close()
-                        except Exception:
-                            pass
-                    try:
-                        browser.close()
-                    except Exception:
-                        pass
+        # Script Python שרץ בתהליך נפרד ומבצע את הרנדור
+        subprocess_script = '''
+import sys
+import base64
+from playwright.sync_api import sync_playwright
 
-        # הרצה ב-thread נפרד כדי לא לחסום את ה-event loop הראשי
-        logger.debug("Playwright: submitting to ThreadPoolExecutor...")
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="code-image-playwright") as executor:
-            png_bytes = executor.submit(_render_sync).result()
-        logger.debug("Playwright: got %d bytes of PNG data", len(png_bytes))
+def render(html_content, width, height):
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(
+                viewport={'width': width, 'height': height},
+                device_scale_factor=2,
+            )
+            page.set_content(html_content, wait_until='load')
+            page.wait_for_timeout(300)
+            png_bytes = page.screenshot(type='png', full_page=True)
+            page.close()
+            return png_bytes
+        finally:
+            browser.close()
 
-        return Image.open(io.BytesIO(png_bytes))
+if __name__ == '__main__':
+    import json
+    data = json.loads(sys.stdin.read())
+    png_bytes = render(data['html'], data['width'], data['height'])
+    # Output as base64 to avoid encoding issues
+    sys.stdout.write(base64.b64encode(png_bytes).decode('ascii'))
+'''
+
+        # Prepare input data
+        input_data = json.dumps({
+            'html': html_content,
+            'width': width,
+            'height': height,
+        })
+
+        logger.debug("Playwright subprocess: starting...")
+        try:
+            result = subprocess.run(
+                [sys.executable, '-c', subprocess_script],
+                input=input_data,
+                capture_output=True,
+                text=True,
+                timeout=60,  # 60 seconds timeout
+            )
+
+            if result.returncode != 0:
+                stderr = result.stderr or ''
+                logger.warning("Playwright subprocess failed: %s", stderr[:500])
+                raise RuntimeError(f"Playwright subprocess failed: {stderr[:200]}")
+
+            # Decode base64 output
+            png_bytes = base64.b64decode(result.stdout)
+            logger.debug("Playwright subprocess: got %d bytes of PNG data", len(png_bytes))
+            return Image.open(io.BytesIO(png_bytes))
+
+        except subprocess.TimeoutExpired:
+            logger.warning("Playwright subprocess timed out after 60s")
+            raise RuntimeError("Playwright subprocess timed out")
 
     def _render_html_with_weasyprint(self, html_content: str, width: int, height: int) -> Image.Image:
         from weasyprint import HTML, CSS  # type: ignore
@@ -749,10 +777,10 @@ class CodeImageGenerator:
 
         full_html = self._create_professional_html(highlighted_html, lines, image_width, image_height)
 
-        # 1) Playwright (מועדף)
+        # 1) Playwright (מועדף) - רץ ב-subprocess נפרד
         if self._has_playwright:
             try:
-                logger.info("Attempting Playwright render (sync API)...")
+                logger.info("Attempting Playwright render (subprocess)...")
                 img = self._render_html_with_playwright(full_html, image_width, image_height)
                 logger.info("Playwright render succeeded!")
                 img = self._add_annotation_overlay(img, note)
