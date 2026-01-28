@@ -47,6 +47,7 @@ from services.db_health_service import (
     InvalidCollectionNameError,
     CollectionAccessDeniedError,
     MAX_SKIP,
+    clean_db_health_filter_value,
 )
 from services.sentry_utils import first_int
 try:
@@ -1243,24 +1244,13 @@ def create_app() -> web.Application:
                     status=400,
                 )
 
-            def _clean_filter_value(value: Any, max_len: int = 120) -> str:
-                if value is None:
-                    return ""
-                try:
-                    text = str(value).strip()
-                except Exception:
-                    return ""
-                if not text:
-                    return ""
-                return text[:max_len]
-
             filters: Dict[str, Any] = {}
-            user_id_raw = _clean_filter_value(request.query.get("userId") or request.query.get("user_id"), 40)
-            status_raw = _clean_filter_value(request.query.get("status"), 40)
-            file_id_raw = _clean_filter_value(request.query.get("fileId") or request.query.get("file_id"), 120)
-            sort_raw = _clean_filter_value(request.query.get("sort"), 20).lower()
+            user_id_raw = clean_db_health_filter_value(request.query.get("userId") or request.query.get("user_id"), 40)
+            status_raw = clean_db_health_filter_value(request.query.get("status"), 40)
+            file_id_raw = clean_db_health_filter_value(request.query.get("fileId") or request.query.get("file_id"), 120)
+            sort_raw = clean_db_health_filter_value(request.query.get("sort"), 20)
 
-            sort_value = sort_raw if sort_raw in {"newest", "oldest", "asc", "desc", "created_at_asc", "created_at_desc"} else None
+            sort_value = sort_raw or None
 
             if user_id_raw:
                 try:

@@ -211,6 +211,18 @@ def _redact_sensitive_fields(doc: Any, sensitive: Set[str] = SENSITIVE_FIELDS) -
     return result
 
 
+def clean_db_health_filter_value(value: Any, max_len: int = 120) -> str:
+    if value is None:
+        return ""
+    try:
+        text = str(value).strip()
+    except Exception:
+        return ""
+    if not text:
+        return ""
+    return text[:max_len]
+
+
 def _iso_from_millis(value: Any) -> Any:
     """המרת millis מאז epoch ל-ISO 8601 (UTC), best-effort."""
     try:
@@ -1141,6 +1153,8 @@ class _NoopDatabaseHealthService:
         skip: int = 0,
         limit: int = DEFAULT_DOCUMENTS_LIMIT,
         redact_sensitive: bool = True,
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[str] = None,
     ) -> Dict[str, Any]:
         _validate_collection_name(collection_name)
         limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)
