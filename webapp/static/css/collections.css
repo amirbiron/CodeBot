@@ -347,7 +347,7 @@
 .sidebar-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
 .sidebar-header .title{font-weight:700}
 .sidebar-search{margin:.5rem 0}
-.sidebar-search input{width:100%;padding:.5rem .6rem;border-radius:8px;border:1px solid var(--input-border, var(--glass-border));background:var(--input-bg, rgba(255,255,255,.1));color:var(--text-primary)}
+.sidebar-search input{width:100%;padding:.5rem .6rem;border-radius:8px;border:1px solid var(--glass-border);background:rgba(255,255,255,.1);color:var(--text-primary)}
 .sidebar-list{display:flex;flex-direction:column;gap:.25rem;max-height:60vh;overflow:auto}
 .sidebar-item{display:flex;align-items:center;gap:.5rem;justify-content:space-between;border:1px solid transparent;background:rgba(255,255,255,.06);color:var(--text-primary);border-radius:8px;padding:.4rem .6rem;cursor:pointer;text-align:right}
 .sidebar-item:hover{background:rgba(255,255,255,.14)}
