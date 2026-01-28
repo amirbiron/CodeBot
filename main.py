@@ -15,8 +15,10 @@ def _should_patch_gevent() -> bool:
     return disable not in {"1", "true", "yes"}
 
 # חשוב: patch מוקדם כדי שסוקטים ייסגרו נכון; בבדיקות אפשר לכבות כדי למנוע התנגשויות.
+# הערה: thread=False חיוני כדי ש-Playwright/asyncio יעבדו נכון עם ThreadPoolExecutor.
+# ללא זה, gevent monkey patching משבש את asyncio.run() ויצירת תמונות קוד נופלת ל-PIL fallback.
 if _should_patch_gevent():
-    _gevent_monkey.patch_all()
+    _gevent_monkey.patch_all(thread=False)
 
 # הגדרות מתקדמות
 import os
