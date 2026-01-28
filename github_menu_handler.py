@@ -4503,6 +4503,12 @@ class GitHubMenuHandler:
                     if host in ("github.com", "www.github.com"):
                         path = (parsed.path or "").strip().strip("/")
                         repo_candidate = path
+                        try:
+                            parts = [p for p in path.split("/") if p]
+                            if len(parts) >= 2:
+                                repo_candidate = f"{parts[0]}/{parts[1]}"
+                        except Exception:
+                            repo_candidate = path
             except Exception:
                 pass
             repo_candidate = repo_candidate.strip().strip("/")

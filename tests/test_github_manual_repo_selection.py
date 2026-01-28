@@ -48,3 +48,28 @@ async def test_manual_repo_input_sets_selected_repo(monkeypatch):
     assert session["selected_repo"] == "owner/repo"
     assert context.user_data.get("waiting_for_manual_repo") is None
     assert called["menu"] == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_repo_input_trims_github_tree_path(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = _Update("https://github.com/owner/repo/tree/main")
+    context = _Context()
+    context.user_data["waiting_for_manual_repo"] = True
+
+    called = {"menu": 0}
+
+    async def _fake_menu(update, context):
+        called["menu"] += 1
+
+    monkeypatch.setattr(handler, "github_menu_command", _fake_menu)
+
+    handled = await handler.handle_text_input(update, context)
+
+    session = handler.get_user_session(1)
+    assert handled is True
+    assert session["selected_repo"] == "owner/repo"
+    assert context.user_data.get("waiting_for_manual_repo") is None
+    assert called["menu"] == 1
