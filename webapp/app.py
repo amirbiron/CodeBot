@@ -12287,7 +12287,8 @@ def _sanitize_preview_html(
                     continue
             value = attr_value
             if isinstance(value, list):
-                value = value[0]
+                # BeautifulSoup מחזיר class כרשימה - צריך לאחד את כל הערכים
+                value = ' '.join(str(v) for v in value)
             value_str = str(value)
             if attr_lower in _LIVE_PREVIEW_URL_ATTRS:
                 allow_data = _LIVE_PREVIEW_URL_ATTRS[attr_lower]
