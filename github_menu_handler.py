@@ -2398,7 +2398,8 @@ class GitHubMenuHandler:
                 await query.edit_message_text(
                     "✏️ הקלד שם ריפו בפורמט:\n"
                     "<code>owner/repository</code>\n\n"
-                    "לדוגמה: <code>amirbiron/CodeBot</code>",
+                    "לדוגמה: <code>amirbiron/CodeBot</code>\n\n"
+                    "או לחילופין: הדבק קישור לריפו",
                     parse_mode="HTML",
                 )
                 return REPO_SELECT
