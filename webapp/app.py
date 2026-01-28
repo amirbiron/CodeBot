@@ -181,6 +181,7 @@ from services.db_health_service import (  # noqa: E402
     InvalidCollectionNameError,
     CollectionAccessDeniedError,
     MAX_SKIP,
+    clean_db_health_filter_value,
 )
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
@@ -5018,9 +5019,35 @@ def api_db_collection_documents(collection: str):
     if skip > MAX_SKIP:
         return jsonify({"error": "invalid_params", "message": f"skip cannot exceed {MAX_SKIP}"}), 400
 
+    filters: Dict[str, Any] = {}
+    user_id_raw = clean_db_health_filter_value(request.args.get("userId") or request.args.get("user_id"), 40)
+    status_raw = clean_db_health_filter_value(request.args.get("status"), 40)
+    file_id_raw = clean_db_health_filter_value(request.args.get("fileId") or request.args.get("file_id"), 120)
+    sort_raw = clean_db_health_filter_value(request.args.get("sort"), 20)
+
+    sort_value = sort_raw or None
+
+    if user_id_raw:
+        try:
+            filters["user_id"] = int(user_id_raw)
+        except Exception:
+            filters["user_id"] = user_id_raw
+    if status_raw:
+        filters["status"] = status_raw
+    if file_id_raw:
+        filters["file_id"] = file_id_raw
+
     try:
         svc = _get_webapp_db_health_service()
-        result = _run_db_health(svc.get_documents(collection_name=collection, skip=skip, limit=limit))
+        result = _run_db_health(
+            svc.get_documents(
+                collection_name=collection,
+                skip=skip,
+                limit=limit,
+                filters=filters or None,
+                sort=sort_value,
+            )
+        )
         return jsonify(result)
     except InvalidCollectionNameError as e:
         return jsonify({"error": "invalid_collection_name", "message": str(e)}), 400

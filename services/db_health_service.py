@@ -16,7 +16,8 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Motor - async MongoDB driver
 try:
@@ -208,6 +209,70 @@ def _redact_sensitive_fields(doc: Any, sensitive: Set[str] = SENSITIVE_FIELDS) -
             # רקורסיה על הערך (יטפל ב-dict, list, או יחזיר כמו שהוא)
             result[key] = _redact_sensitive_fields(value, sensitive)
     return result
+
+
+def clean_db_health_filter_value(value: Any, max_len: int = 120) -> str:
+    if value is None:
+        return ""
+    try:
+        text = str(value).strip()
+    except Exception:
+        return ""
+    if not text:
+        return ""
+    return text[:max_len]
+
+
+def _iso_from_millis(value: Any) -> Any:
+    """המרת millis מאז epoch ל-ISO 8601 (UTC), best-effort."""
+    try:
+        millis = int(value)
+    except Exception:
+        return value
+    try:
+        return datetime.fromtimestamp(millis / 1000.0, tz=timezone.utc).isoformat()
+    except Exception:
+        return value
+
+
+def _normalize_extended_date(value: Any) -> Any:
+    """המרת Extended JSON date לערך ISO string."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        return _iso_from_millis(value)
+    if isinstance(value, dict):
+        number_val = value.get("$numberLong")
+        if number_val is not None:
+            return _iso_from_millis(number_val)
+    return value
+
+
+def _flatten_extended_json(value: Any) -> Any:
+    """המרת Extended JSON לפורמט קריא (ללא $oid/$date)."""
+    if isinstance(value, list):
+        return [_flatten_extended_json(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if len(value) == 1:
+        if "$oid" in value:
+            return value.get("$oid")
+        if "$date" in value:
+            return _normalize_extended_date(value.get("$date"))
+    return {key: _flatten_extended_json(val) for key, val in value.items()}
+
+
+def _build_documents_sort(sort: Optional[str]) -> List[Tuple[str, int]]:
+    """בניית sort spec בטוח למסמכי DB Health."""
+    try:
+        raw = str(sort or "").strip().lower()
+    except Exception:
+        raw = ""
+    if raw in {"oldest", "asc", "created_at_asc"}:
+        return [("created_at", 1), ("_id", 1)]
+    if raw in {"newest", "desc", "created_at_desc"}:
+        return [("created_at", -1), ("_id", -1)]
+    return [("created_at", -1), ("_id", -1)]
 
 
 def _validate_collection_name(name: str) -> None:
@@ -472,6 +537,8 @@ class AsyncDatabaseHealthService:
         skip: int = 0,
         limit: int = DEFAULT_DOCUMENTS_LIMIT,
         redact_sensitive: bool = True,
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """שליפת מסמכים מ-collection עם pagination.
 
@@ -480,6 +547,8 @@ class AsyncDatabaseHealthService:
             skip: כמה מסמכים לדלג (ברירת מחדל: 0)
             limit: כמה מסמכים להחזיר (ברירת מחדל: 20, מקסימום: 100)
             redact_sensitive: האם להסתיר שדות רגישים (ברירת מחדל: True)
+            filters: פילטרים אופציונליים (למשל user_id/status/file_id)
+            sort: מיון אופציונלי (newest/oldest)
 
         Returns:
             מילון עם:
@@ -508,18 +577,21 @@ class AsyncDatabaseHealthService:
 
         try:
             collection = self._db[collection_name]
+            query: Dict[str, Any] = dict(filters) if isinstance(filters, dict) else {}
+            sort_spec = _build_documents_sort(sort)
 
             # ספירת סה"כ מסמכים
             # הערה: count_documents({}) יחזיר 0 אם ה-collection לא קיים (זה בסדר)
-            total = await collection.count_documents({})
+            total = await collection.count_documents(query)
 
             # שליפת מסמכים עם pagination + SORT לדטרמיניזם!
-            # ⚠️ חשוב: sort(_id) מבטיח סדר עקבי בין עמודים
-            cursor = collection.find({}).sort("_id", 1).skip(skip).limit(limit)
+            # ⚠️ חשוב: מיון לפי created_at ואז _id מבטיח סדר עקבי בין עמודים
+            cursor = collection.find(query).sort(sort_spec).skip(skip).limit(limit)
             documents = await cursor.to_list(length=limit)
 
             # המרת ObjectId ו-datetime לפורמט JSON-safe
             serialized = json.loads(bson_dumps(documents))
+            serialized = _flatten_extended_json(serialized)
 
             # הסתרת שדות רגישים
             if redact_sensitive:
@@ -898,6 +970,8 @@ class SyncDatabaseHealthService:
         skip: int = 0,
         limit: int = DEFAULT_DOCUMENTS_LIMIT,
         redact_sensitive: bool = True,
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """גרסה סינכרונית - לא לקרוא ישירות מ-aiohttp!"""
         db = self._db
@@ -913,13 +987,16 @@ class SyncDatabaseHealthService:
 
         try:
             collection = db[collection_name]
-            total = collection.count_documents({})
+            query: Dict[str, Any] = dict(filters) if isinstance(filters, dict) else {}
+            sort_spec = _build_documents_sort(sort)
+            total = collection.count_documents(query)
             
-            # ⚠️ חשוב: sort(_id) לדטרמיניזם!
-            documents = list(collection.find({}).sort("_id", 1).skip(skip).limit(limit))
+            # ⚠️ חשוב: מיון לפי created_at ואז _id לדטרמיניזם!
+            documents = list(collection.find(query).sort(sort_spec).skip(skip).limit(limit))
 
             # סריאליזציה
             serialized = json.loads(bson_dumps(documents))
+            serialized = _flatten_extended_json(serialized)
 
             # הסתרת שדות רגישים
             if redact_sensitive:
@@ -947,6 +1024,8 @@ class SyncDatabaseHealthService:
         skip: int = 0,
         limit: int = DEFAULT_DOCUMENTS_LIMIT,
         redact_sensitive: bool = True,
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Alias סינכרוני לשימוש ב-WebApp."""
         return self.get_documents_sync(
@@ -954,6 +1033,8 @@ class SyncDatabaseHealthService:
             skip=skip,
             limit=limit,
             redact_sensitive=redact_sensitive,
+            filters=filters,
+            sort=sort,
         )
 
 
@@ -994,6 +1075,8 @@ class ThreadPoolDatabaseHealthService:
         skip: int = 0,
         limit: int = DEFAULT_DOCUMENTS_LIMIT,
         redact_sensitive: bool = True,
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """שליפת מסמכים - רץ ב-thread pool."""
         return await asyncio.to_thread(
@@ -1002,6 +1085,8 @@ class ThreadPoolDatabaseHealthService:
             skip,
             limit,
             redact_sensitive,
+            filters,
+            sort,
         )
 
     async def get_health_summary(self) -> Dict[str, Any]:
@@ -1068,6 +1153,8 @@ class _NoopDatabaseHealthService:
         skip: int = 0,
         limit: int = DEFAULT_DOCUMENTS_LIMIT,
         redact_sensitive: bool = True,
+        filters: Optional[Dict[str, Any]] = None,
+        sort: Optional[str] = None,
     ) -> Dict[str, Any]:
         _validate_collection_name(collection_name)
         limit = min(max(1, limit), MAX_DOCUMENTS_LIMIT)

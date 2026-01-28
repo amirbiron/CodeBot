@@ -137,6 +137,36 @@
         </div>
     </div>
 
+    <!-- Filters & Sorting -->
+    <div class="documents-filters" aria-label="סינון מסמכים">
+        <div class="documents-filters__field">
+            <label for="docFilterUserId">user_id</label>
+            <input id="docFilterUserId" type="text" placeholder="user_id">
+        </div>
+        <div class="documents-filters__field">
+            <label for="docFilterStatus">status</label>
+            <input id="docFilterStatus" type="text" placeholder="status">
+        </div>
+        <div class="documents-filters__field">
+            <label for="docFilterFileId">file_id</label>
+            <input id="docFilterFileId" type="text" placeholder="file_id">
+        </div>
+        <div class="documents-filters__field">
+            <label for="docSort">מיון</label>
+            <select id="docSort">
+                <option value="newest" selected>חדשים למעלה</option>
+                <option value="oldest">ישנים למעלה</option>
+            </select>
+        </div>
+        <div class="documents-filters__actions">
+            <button class="btn btn-secondary" id="apply-doc-filters" type="button">סנן</button>
+            <button class="btn btn-secondary" id="clear-doc-filters" type="button">נקה</button>
+        </div>
+        <div class="documents-filters__hint">
+            אפשר לסנן לפי <span>user_id</span>, <span>status</span>, או <span>file_id</span>.
+        </div>
+    </div>
+
     <!-- Pagination Controls -->
     <div class="pagination-controls">
         <button class="btn btn-secondary" id="prev-btn" onclick="prevPage()" disabled>
@@ -411,6 +441,59 @@
     font-size: 0.9em;
 }
 
+.documents-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+    margin: 1rem 0 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.documents-filters__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 160px;
+}
+
+.documents-filters__field label {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.documents-filters__field input,
+.documents-filters__field select {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    padding: 0.45rem 0.6rem;
+    background: rgba(0, 0, 0, 0.25);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.documents-filters__field input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.documents-filters__actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.documents-filters__hint {
+    flex-basis: 100%;
+    font-size: 0.82rem;
+    opacity: 0.7;
+}
+
+.documents-filters__hint span {
+    font-weight: 600;
+}
+
 .pagination-controls {
     display: flex;
     justify-content: center;
@@ -505,6 +588,14 @@
     .pagination-controls {
         flex-wrap: wrap;
     }
+
+    .documents-filters {
+        align-items: stretch;
+    }
+
+    .documents-filters__field {
+        min-width: 100%;
+    }
 }
 </style>
 
@@ -529,6 +620,115 @@ let currentCollection = null;
 let currentSkip = 0;
 let currentRequestId = 0;  // מונע race conditions
 const DOCS_LIMIT = 20;
+const DOCS_SORT_DEFAULT = 'newest';
+let currentDocFilters = { userId: '', status: '', fileId: '' };
+let currentDocSort = DOCS_SORT_DEFAULT;
+
+function _safeInputValue(value, maxLen = 120) {
+    if (value === null || value === undefined) return '';
+    const text = String(value).trim();
+    if (!text) return '';
+    return text.slice(0, maxLen);
+}
+
+function _getDocumentsFilterElements() {
+    return {
+        userInput: document.getElementById('docFilterUserId'),
+        statusInput: document.getElementById('docFilterStatus'),
+        fileInput: document.getElementById('docFilterFileId'),
+        sortSelect: document.getElementById('docSort'),
+        applyBtn: document.getElementById('apply-doc-filters'),
+        clearBtn: document.getElementById('clear-doc-filters'),
+    };
+}
+
+function _readDocumentsFiltersFromInputs() {
+    const { userInput, statusInput, fileInput, sortSelect } = _getDocumentsFilterElements();
+    const filters = {
+        userId: _safeInputValue(userInput ? userInput.value : '', 40),
+        status: _safeInputValue(statusInput ? statusInput.value : '', 40),
+        fileId: _safeInputValue(fileInput ? fileInput.value : '', 120),
+    };
+    const sort = _safeInputValue(sortSelect ? sortSelect.value : DOCS_SORT_DEFAULT, 20) || DOCS_SORT_DEFAULT;
+    return { filters, sort };
+}
+
+function _writeDocumentsFiltersToInputs(filters, sort) {
+    const { userInput, statusInput, fileInput, sortSelect } = _getDocumentsFilterElements();
+    if (userInput) userInput.value = filters.userId || '';
+    if (statusInput) statusInput.value = filters.status || '';
+    if (fileInput) fileInput.value = filters.fileId || '';
+    if (sortSelect) sortSelect.value = sort || DOCS_SORT_DEFAULT;
+}
+
+function _buildDocumentsQuery(skip) {
+    const params = new URLSearchParams();
+    params.set('skip', String(skip || 0));
+    params.set('limit', String(DOCS_LIMIT));
+    if (currentDocSort) {
+        params.set('sort', currentDocSort);
+    }
+    if (currentDocFilters.userId) {
+        params.set('userId', currentDocFilters.userId);
+    }
+    if (currentDocFilters.status) {
+        params.set('status', currentDocFilters.status);
+    }
+    if (currentDocFilters.fileId) {
+        params.set('fileId', currentDocFilters.fileId);
+    }
+    return params.toString();
+}
+
+function applyDocumentsFilters() {
+    const { filters, sort } = _readDocumentsFiltersFromInputs();
+    currentDocFilters = filters;
+    currentDocSort = sort || DOCS_SORT_DEFAULT;
+    if (!currentCollection) {
+        return;
+    }
+    loadDocuments(currentCollection, 0);
+}
+
+function clearDocumentsFilters() {
+    currentDocFilters = { userId: '', status: '', fileId: '' };
+    currentDocSort = DOCS_SORT_DEFAULT;
+    _writeDocumentsFiltersToInputs(currentDocFilters, currentDocSort);
+    if (!currentCollection) {
+        return;
+    }
+    loadDocuments(currentCollection, 0);
+}
+
+function initDocumentsFilters() {
+    const { applyBtn, clearBtn, userInput, statusInput, fileInput, sortSelect } = _getDocumentsFilterElements();
+    if (!applyBtn || !clearBtn) return;
+
+    applyBtn.addEventListener('click', applyDocumentsFilters);
+    clearBtn.addEventListener('click', clearDocumentsFilters);
+
+    const onEnter = (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            applyDocumentsFilters();
+        }
+    };
+    [userInput, statusInput, fileInput].forEach((input) => {
+        if (!input) return;
+        input.addEventListener('keydown', onEnter);
+    });
+
+    if (sortSelect) {
+        sortSelect.addEventListener('change', () => {
+            currentDocSort = String(sortSelect.value || DOCS_SORT_DEFAULT) || DOCS_SORT_DEFAULT;
+            if (currentCollection) {
+                loadDocuments(currentCollection, 0);
+            }
+        });
+    }
+
+    _writeDocumentsFiltersToInputs(currentDocFilters, currentDocSort);
+}
 
 async function refreshAll() {
     await Promise.all([
@@ -752,7 +952,8 @@ async function loadDocuments(collectionName, skip = 0) {
     }
 
     try {
-        const url = `/api/db/${encodeURIComponent(collectionName)}/documents?skip=${skip}&limit=${DOCS_LIMIT}`;
+        const query = _buildDocumentsQuery(skip);
+        const url = `/api/db/${encodeURIComponent(collectionName)}/documents?${query}`;
         const resp = await fetch(url, { headers: authHeaders() });
         
         // ⚠️ בדיקת race condition: אם הגיעה בקשה חדשה בינתיים, התעלם מתשובה זו
@@ -1101,6 +1302,7 @@ function getStatusText(status) {
 // Start polling
 document.addEventListener('DOMContentLoaded', async () => {
     initDocumentsEditor();
+    initDocumentsFilters();
     await refreshAll();
     poolInterval = setInterval(loadPoolStatus, 5000);
     opsInterval = setInterval(loadCurrentOps, 10000);

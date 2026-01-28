@@ -47,6 +47,7 @@ from services.db_health_service import (
     InvalidCollectionNameError,
     CollectionAccessDeniedError,
     MAX_SKIP,
+    clean_db_health_filter_value,
 )
 from services.sentry_utils import first_int
 try:
@@ -1243,11 +1244,31 @@ def create_app() -> web.Application:
                     status=400,
                 )
 
+            filters: Dict[str, Any] = {}
+            user_id_raw = clean_db_health_filter_value(request.query.get("userId") or request.query.get("user_id"), 40)
+            status_raw = clean_db_health_filter_value(request.query.get("status"), 40)
+            file_id_raw = clean_db_health_filter_value(request.query.get("fileId") or request.query.get("file_id"), 120)
+            sort_raw = clean_db_health_filter_value(request.query.get("sort"), 20)
+
+            sort_value = sort_raw or None
+
+            if user_id_raw:
+                try:
+                    filters["user_id"] = int(user_id_raw)
+                except Exception:
+                    filters["user_id"] = user_id_raw
+            if status_raw:
+                filters["status"] = status_raw
+            if file_id_raw:
+                filters["file_id"] = file_id_raw
+
             svc = await get_db_health_service()
             result = await svc.get_documents(
                 collection_name=collection_name,
                 skip=skip,
                 limit=limit,
+                filters=filters or None,
+                sort=sort_value,
             )
 
             return web.json_response(result)
