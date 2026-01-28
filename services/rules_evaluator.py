@@ -6,6 +6,7 @@ Rules Evaluator - הערכת כללים על התראות נכנסות
 🔧 הערה: סינכרוני לחלוטין (PyMongo).
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -19,6 +20,12 @@ import re
 logger = logging.getLogger(__name__)
 
 _SENSITIVE_KEYS = ("token", "password", "secret", "authorization", "api_key", "apikey", "private_key", "key")
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _track_background_task(task: asyncio.Task) -> None:
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
 def _truthy_env(name: str) -> bool:
@@ -441,8 +448,6 @@ def _create_github_issue(action: Dict, alert_data: Dict, matched_rule: Dict) -> 
     - אם אין loop פעיל: asyncio.run() עם timeout.
     """
     try:
-        import asyncio
-
         from services.github_issue_action import GitHubIssueAction
 
         handler = GitHubIssueAction()
@@ -473,7 +478,8 @@ def _create_github_issue(action: Dict, alert_data: Dict, matched_rule: Dict) -> 
             running_loop = None
 
         if running_loop and running_loop.is_running():
-            running_loop.create_task(_execute())
+            task = running_loop.create_task(_execute())
+            _track_background_task(task)
             return
 
         asyncio.run(_execute())
