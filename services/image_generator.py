@@ -580,16 +580,21 @@ class CodeImageGenerator:
         from playwright.sync_api import sync_playwright  # type: ignore
 
         def _render_sync() -> bytes:
+            logger.debug("Playwright: starting sync_playwright context...")
             with sync_playwright() as playwright:
+                logger.debug("Playwright: launching Chromium...")
                 browser = playwright.chromium.launch(headless=True)
                 page = None
                 try:
+                    logger.debug("Playwright: creating new page...")
                     page = browser.new_page(
                         viewport={'width': width, 'height': height},
                         device_scale_factor=2,
                     )
+                    logger.debug("Playwright: setting content...")
                     page.set_content(html_content, wait_until='load')
                     page.wait_for_timeout(300)
+                    logger.debug("Playwright: taking screenshot...")
                     return page.screenshot(type='png', full_page=True)
                 finally:
                     if page is not None:
@@ -603,8 +608,10 @@ class CodeImageGenerator:
                         pass
 
         # הרצה ב-thread נפרד כדי לא לחסום את ה-event loop הראשי
+        logger.debug("Playwright: submitting to ThreadPoolExecutor...")
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="code-image-playwright") as executor:
             png_bytes = executor.submit(_render_sync).result()
+        logger.debug("Playwright: got %d bytes of PNG data", len(png_bytes))
 
         return Image.open(io.BytesIO(png_bytes))
 
@@ -745,24 +752,29 @@ class CodeImageGenerator:
         # 1) Playwright (מועדף)
         if self._has_playwright:
             try:
+                logger.info("Attempting Playwright render (sync API)...")
                 img = self._render_html_with_playwright(full_html, image_width, image_height)
+                logger.info("Playwright render succeeded!")
                 img = self._add_annotation_overlay(img, note)
                 img = self.optimize_image_size(img)
                 return self.save_optimized_png(img)
             except Exception as e:
-                logger.warning("Playwright render failed, falling back. %s", e)
+                logger.warning("Playwright render failed, falling back. Error: %s (type: %s)", e, type(e).__name__)
 
         # 2) WeasyPrint (fallback)
         if self._has_weasyprint:
             try:
+                logger.info("Attempting WeasyPrint render...")
                 img = self._render_html_with_weasyprint(full_html, image_width, image_height)
+                logger.info("WeasyPrint render succeeded!")
                 img = self._add_annotation_overlay(img, note)
                 img = self.optimize_image_size(img)
                 return self.save_optimized_png(img)
             except Exception as e:
-                logger.warning("WeasyPrint render failed, falling back to PIL. %s", e)
+                logger.warning("WeasyPrint render failed, falling back to PIL. Error: %s (type: %s)", e, type(e).__name__)
 
         # 3) Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
+        logger.info("Using PIL fallback for rendering (Playwright=%s, WeasyPrint=%s)", self._has_playwright, self._has_weasyprint)
         scale = 2
         s = scale
         # מידות בסקייל גבוה
