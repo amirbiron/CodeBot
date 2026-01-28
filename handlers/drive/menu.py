@@ -19,6 +19,7 @@ from services import google_drive_service as gdrive
 from config import config
 from file_manager import backup_manager
 from handlers.drive.utils import extract_schedule_key
+from utils import TelegramUtils
 
 logger = logging.getLogger(__name__)
 
@@ -509,7 +510,8 @@ class GoogleDriveMenuHandler:
             except Exception as e:
                 # הצג שגיאה ידידותית כאשר קונפיגורציית OAuth חסרה/שגויה או כשיש בעיית רשת
                 kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")]]
-                await query.edit_message_text(
+                await TelegramUtils.safe_edit_message_text(
+                    query,
                     f"❌ לא ניתן להתחבר ל‑Drive.\n{e}\n\nבדוק שהוגדר GOOGLE_CLIENT_ID (ו‑GOOGLE_CLIENT_SECRET אם נדרש) ושההרשאות תקינות.",
                     reply_markup=InlineKeyboardMarkup(kb)
                 )
@@ -603,7 +605,12 @@ class GoogleDriveMenuHandler:
                 [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
                 [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
             ]
-            await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                text,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
             return
         if data == "drive_poll_once":
             __import__('logging').getLogger(__name__).debug(f"Drive: manual poll token by user {user_id}")
@@ -628,7 +635,11 @@ class GoogleDriveMenuHandler:
                     [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
                     [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
                 ]
-                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
+                await TelegramUtils.safe_edit_message_text(
+                    query,
+                    text,
+                    reply_markup=InlineKeyboardMarkup(kb),
+                )
                 return
             if isinstance(tokens, dict) and tokens.get("error"):
                 err = tokens.get("error")
@@ -637,7 +648,11 @@ class GoogleDriveMenuHandler:
                     [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
                     [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
                 ]
-                await query.edit_message_text(f"❌ שגיאה: {err}\n{desc}", reply_markup=InlineKeyboardMarkup(kb))
+                await TelegramUtils.safe_edit_message_text(
+                    query,
+                    f"❌ שגיאה: {err}\n{desc}",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                )
                 return
             gdrive.save_tokens(user_id, tokens)
             # cancel background job if exists
@@ -649,7 +664,7 @@ class GoogleDriveMenuHandler:
                 except Exception:
                     pass
             __import__('logging').getLogger(__name__).warning(f"Drive: auth completed for user {user_id}")
-            await query.edit_message_text("✅ חיבור ל‑Drive הושלם!")
+            await TelegramUtils.safe_edit_message_text(query, "✅ חיבור ל‑Drive הושלם!")
             await self.menu(update, context)
             return
         if data == "drive_cancel_auth":
@@ -662,7 +677,7 @@ class GoogleDriveMenuHandler:
                     job.schedule_removal()
                 except Exception:
                     pass
-            await query.edit_message_text("ביטלת את ההתחברות ל‑Drive.")
+            await TelegramUtils.safe_edit_message_text(query, "ביטלת את ההתחברות ל‑Drive.")
             return
         if data == "drive_backup_now":
             await self._render_simple_selection(update, context)
