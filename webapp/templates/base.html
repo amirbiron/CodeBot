@@ -2539,7 +2539,6 @@
                 '    <div class="file-name">' + escapeHtml(file.filename || '') + '</div>' +
                 '    <div class="file-meta">' +
                 '      <span>' + formatDate(file.accessed_at) + '</span>' +
-                '      <span>' + formatSize(Number(file.size || 0)) + '</span>' +
                 '    </div>' +
                 '  </div>' +
                 '</a>'
@@ -2610,16 +2609,6 @@
                 if (hours < 24) return `לפני ${hours} שעות`;
                 return `לפני ${days} ימים`;
             } catch (e) { return ''; }
-        }
-
-        function formatSize(bytes) {
-            try {
-                const sizes = ['B', 'KB', 'MB', 'GB'];
-                if (!bytes || bytes <= 0) return '0 B';
-                const i = Math.floor(Math.log(bytes) / Math.log(1024));
-                const v = Math.round((bytes / Math.pow(1024, i)) * 100) / 100;
-                return v + ' ' + sizes[i];
-            } catch (e) { return '0 B'; }
         }
 
         // פוקוס אוטומטי על חיפוש גלובלי אם הגיעו עם פרמטר מתאים
