@@ -545,7 +545,9 @@
 
 :root[data-theme="dark"],
 :root[data-theme="dim"],
-:root[data-theme="nebula"]{
+:root[data-theme="nebula"],
+:root[data-theme="custom"],
+:root[data-theme^="shared:"]{
   --search-card-shadow: 0 25px 55px rgba(4,7,18,0.65);
   --search-card-shadow-hover: 0 32px 72px rgba(4,7,18,0.75);
   --search-highlight-text: #ffffff;

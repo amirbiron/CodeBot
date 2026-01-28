@@ -163,6 +163,8 @@
 :root[data-theme="dark"] .lang-badge,
 :root[data-theme="dim"] .lang-badge,
 :root[data-theme="nebula"] .lang-badge,
-:root[data-theme="classic"] .lang-badge {
+:root[data-theme="classic"] .lang-badge,
+:root[data-theme="custom"] .lang-badge,
+:root[data-theme^="shared:"] .lang-badge {
     border-color: rgba(255, 255, 255, 0.2);
 }

@@ -161,6 +161,28 @@
     color: var(--text-muted);
 }
 
+/* Custom/Shared themes - כל שדות הקלט משתמשים ב-tokens מהערכה */
+[data-theme="custom"] input,
+[data-theme="custom"] textarea,
+[data-theme="custom"] select,
+[data-theme^="shared:"] input,
+[data-theme^="shared:"] textarea,
+[data-theme^="shared:"] select {
+    background: var(--input-bg, var(--bg-tertiary, #3c3c3c));
+    color: var(--text-primary);
+    border: 1px solid var(--input-border, var(--glass-border, rgba(255, 255, 255, 0.1)));
+}
+
+[data-theme="custom"] input:focus,
+[data-theme="custom"] textarea:focus,
+[data-theme="custom"] select:focus,
+[data-theme^="shared:"] input:focus,
+[data-theme^="shared:"] textarea:focus,
+[data-theme^="shared:"] select:focus {
+    outline: 2px solid var(--primary, #569cd6);
+    border-color: var(--primary, #569cd6);
+}
+
 /* Custom/Shared themes - placeholder יחסי לצבע הטקסט הראשי של הערכה */
 [data-theme="custom"] input::placeholder,
 [data-theme="custom"] textarea::placeholder,

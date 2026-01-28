@@ -339,6 +339,56 @@
   --collections-error-border: #ff0000;
 }
 
+/* Custom/Shared themes - uses CSS variables from imported theme */
+:root[data-theme="custom"],
+:root[data-theme^="shared:"] {
+  --collections-bg: var(--bg-secondary, #252526);
+  --collections-surface: var(--card-bg, rgba(255, 255, 255, 0.05));
+  --collections-card-bg: var(--card-bg, rgba(255, 255, 255, 0.05));
+  --collections-card-border: var(--card-border, rgba(255, 255, 255, 0.1));
+  --collections-card-hover-border: var(--primary, #569cd6);
+  --collections-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+
+  --collections-text: var(--text-primary, #d4d4d4);
+  --collections-secondary-text: var(--text-secondary, #9d9d9d);
+  --collections-muted: var(--text-muted, #6d6d6d);
+  --collections-accent: var(--primary, #569cd6);
+  --collections-accent-hover: var(--primary-hover, #6cb6ff);
+  --collections-accent-bg: var(--primary-light, rgba(86, 156, 214, 0.15));
+
+  --collections-pinned-bg: color-mix(in srgb, var(--warning, #dcdcaa) 15%, transparent);
+  --collections-pinned-border: var(--warning, #dcdcaa);
+  --collections-pinned-text: var(--warning, #dcdcaa);
+
+  --collections-modal-bg: var(--bg-secondary, #252526);
+  --collections-modal-text: var(--text-primary, #d4d4d4);
+  --collections-modal-input-border: var(--input-border, var(--glass-border, rgba(255, 255, 255, 0.1)));
+  --collections-modal-input-bg: var(--input-bg, var(--bg-tertiary, #3c3c3c));
+
+  --collections-viewer-bg: var(--code-bg, #1e1e1e);
+  --collections-viewer-text: var(--code-text, #d4d4d4);
+  --collections-viewer-muted: var(--text-muted, #6d6d6d);
+  --collections-viewer-accent: var(--primary, #569cd6);
+
+  --collections-badge-link-bg: color-mix(in srgb, var(--primary, #569cd6) 20%, transparent);
+  --collections-badge-link-text: var(--primary, #569cd6);
+  --collections-badge-private-bg: color-mix(in srgb, var(--error, #f44747) 20%, transparent);
+  --collections-badge-private-text: var(--error, #f44747);
+  --collections-badge-pinned-bg: color-mix(in srgb, var(--warning, #dcdcaa) 20%, transparent);
+  --collections-badge-pinned-text: var(--warning, #dcdcaa);
+
+  --collections-action-bg: var(--primary, #569cd6);
+  --collections-action-hover-bg: var(--primary-hover, #6cb6ff);
+  --collections-action-disabled-bg: var(--bg-tertiary, #3c3c3c);
+
+  --collections-download-bg: var(--primary, #569cd6);
+  --collections-download-hover-bg: var(--primary-hover, #6cb6ff);
+
+  --collections-error-text: var(--error, #f44747);
+  --collections-error-bg: color-mix(in srgb, var(--error, #f44747) 15%, transparent);
+  --collections-error-border: var(--error, #f44747);
+}
+
 /* ==============================================
    Collections Layout Styles
    ============================================== */
