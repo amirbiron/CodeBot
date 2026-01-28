@@ -12171,7 +12171,8 @@ _LIVE_PREVIEW_GLOBAL_ATTRS = {
 _LIVE_PREVIEW_ELEMENT_ATTRS = {
     # מבנה מסמך HTML
     "html": {"lang", "dir"},
-    "meta": {"charset", "name", "content", "property", "http-equiv"},
+    # הערה: http-equiv הוסר כי מאפשר open redirect דרך meta refresh
+    "meta": {"charset", "name", "content", "property"},
     # קישורים ותמונות
     "a": {"href", "target", "rel"},
     "img": {"src", "alt", "title", "width", "height", "loading"},
@@ -12194,7 +12195,8 @@ _LIVE_PREVIEW_ELEMENT_ATTRS = {
     "polyline": {"points", "fill", "stroke", "stroke-width"},
     "polygon": {"points", "fill", "stroke"},
     "g": {"fill", "stroke", "transform"},
-    "use": {"href", "xlink:href"},
+    # הערה: xlink:href הוסר כי עוקף סניטציית URL
+    "use": {"href"},
     # טפסים
     "button": {"type", "disabled"},
     "input": {"type", "name", "value", "placeholder", "checked", "disabled"},
