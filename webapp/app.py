@@ -12104,6 +12104,13 @@ _LIVE_PREVIEW_BASE_ALLOWED_TAGS = {
 }
 _LIVE_PREVIEW_HTML_ALLOWED_TAGS = _LIVE_PREVIEW_BASE_ALLOWED_TAGS.union(
     {
+        # מבנה מסמך HTML בסיסי
+        "html",
+        "head",
+        "body",
+        "title",
+        "meta",
+        # תגיות מבניות
         "section",
         "article",
         "header",
@@ -12119,7 +12126,13 @@ _LIVE_PREVIEW_HTML_ALLOWED_TAGS = _LIVE_PREVIEW_BASE_ALLOWED_TAGS.union(
         "svg",
         "path",
         "circle",
+        "rect",
+        "line",
+        "polyline",
+        "polygon",
         "g",
+        "defs",
+        "use",
         "small",
         "sup",
         "sub",
@@ -12156,16 +12169,33 @@ _LIVE_PREVIEW_GLOBAL_ATTRS = {
     "aria-live",
 }
 _LIVE_PREVIEW_ELEMENT_ATTRS = {
+    # מבנה מסמך HTML
+    "html": {"lang", "dir"},
+    "meta": {"charset", "name", "content", "property", "http-equiv"},
+    # קישורים ותמונות
     "a": {"href", "target", "rel"},
     "img": {"src", "alt", "title", "width", "height", "loading"},
+    # קוד וטבלאות
     "code": {"class"},
     "pre": {"class"},
     "table": {"class"},
     "td": {"colspan", "rowspan"},
     "th": {"colspan", "rowspan", "scope"},
+    # מדיה
     "video": {"controls", "autoplay", "loop", "muted", "poster"},
     "audio": {"controls", "autoplay", "loop", "muted"},
     "source": {"src", "type"},
+    # SVG
+    "svg": {"xmlns", "width", "height", "viewbox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"},
+    "path": {"d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"},
+    "rect": {"x", "y", "width", "height", "rx", "ry", "fill", "stroke", "stroke-width"},
+    "circle": {"cx", "cy", "r", "fill", "stroke", "stroke-width"},
+    "line": {"x1", "y1", "x2", "y2", "stroke", "stroke-width"},
+    "polyline": {"points", "fill", "stroke", "stroke-width"},
+    "polygon": {"points", "fill", "stroke"},
+    "g": {"fill", "stroke", "transform"},
+    "use": {"href", "xlink:href"},
+    # טפסים
     "button": {"type", "disabled"},
     "input": {"type", "name", "value", "placeholder", "checked", "disabled"},
     "textarea": {"name", "rows", "cols", "placeholder", "disabled"},
