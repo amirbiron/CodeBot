@@ -1192,15 +1192,27 @@ async function copyJsonToClipboard() {
     const copyBtn = document.getElementById('copy-json-btn');
     
     try {
-        const text = window.documentsEditor 
-            ? window.documentsEditor.getValue() 
-            : codeContainer.textContent;
+        let text = '';
+        if (documentsViewHasData) {
+            text = currentDocumentsViewMode === 'raw'
+                ? currentDocumentsRaw
+                : currentDocumentsPretty;
+        } else if (window.documentsEditor) {
+            text = window.documentsEditor.getValue();
+        } else {
+            text = codeContainer.textContent;
+        }
         
         await navigator.clipboard.writeText(text);
         
         // פידבק ויזואלי
         const originalText = copyBtn.innerHTML;
-        copyBtn.innerHTML = '<i class="fas fa-check"></i> הועתק!';
+        const modeLabel = documentsViewHasData
+            ? (currentDocumentsViewMode === 'raw' ? 'גולמי' : 'תצוגה יפה')
+            : '';
+        copyBtn.innerHTML = modeLabel
+            ? `<i class="fas fa-check"></i> הועתק (${modeLabel})`
+            : '<i class="fas fa-check"></i> הועתק!';
         copyBtn.classList.add('btn-success');
         
         setTimeout(() => {
