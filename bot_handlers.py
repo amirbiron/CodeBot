@@ -322,7 +322,7 @@ class AdvancedBotHandlers:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
         # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/סגנון/שמירה)
-        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_style:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_)'
+        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_style:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_|img_section:)'
         image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=image_pattern)
         try:
             self.application.add_handler(image_handler, group=-5)
@@ -544,7 +544,11 @@ class AdvancedBotHandlers:
         def _lbl(selected: bool, selected_label: str, default_label: str) -> str:
             return (f"✅ {selected_label}" if selected else default_label)
 
+        def _section_row(label: str, key: str) -> List[InlineKeyboardButton]:
+            return [InlineKeyboardButton(label, callback_data=f"img_section:{key}")]
+
         rows: List[List[InlineKeyboardButton]] = [
+            _section_row("ערכות תמה", "themes"),
             [
                 InlineKeyboardButton(
                     _lbl(current_theme == 'dark', 'Dark', '🎨 Dark'),
@@ -589,6 +593,7 @@ class AdvancedBotHandlers:
 
         # שורת "סגנון" (Pygments) – אחראית על צבעי התחביר.
         rows.extend([
+            _section_row("צבעי תחביר", "syntax"),
             [
                 InlineKeyboardButton(
                     _lbl(current_style == 'banner_tech', 'Tech Guide', '💜 Tech Guide'),
@@ -611,6 +616,7 @@ class AdvancedBotHandlers:
             ],
         ])
 
+        rows.append(_section_row("גודל תמונה", "size"))
         width_buttons: List[InlineKeyboardButton] = []
         for opt in self._get_configured_width_options():
             width_buttons.append(
@@ -638,6 +644,7 @@ class AdvancedBotHandlers:
             )
         rows.append(note_row)
 
+        rows.append(_section_row("סוגי פונטים", "fonts"))
         rows.append([
             InlineKeyboardButton(
                 _lbl(current_font == 'dejavu', 'DejaVu', '📝 DejaVu Sans Mono'),
@@ -4390,6 +4397,12 @@ class AdvancedBotHandlers:
                 await self._send_file_download(query, user_id, file_name)
             
             # --- Image generation callbacks ---
+            elif data.startswith("img_section:"):
+                try:
+                    await query.answer()
+                except Exception:
+                    pass
+                return
             elif data.startswith("regenerate_image_"):
                 _suffix = data.replace("regenerate_image_", "")
                 file_name = self._resolve_image_target(context, _suffix)
