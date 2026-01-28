@@ -1577,19 +1577,11 @@ def inject_globals():
     theme_raw = ''
     try:
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
-        if cookie_theme:
-            theme_raw = cookie_theme
-        if user_id and user_doc and not use_cookie_theme:
-            try:
-                t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-                if t:
-                    theme_raw = t
-            except Exception:
-                pass
+        theme_raw, theme_scope, use_cookie_theme, _ = _resolve_theme_raw_token(
+            user_id,
+            user_doc=user_doc,
+        )
     except Exception:
-        pass
-    if not theme_raw:
         theme_raw = theme
 
     theme_type, theme_id, theme = _parse_theme_token(theme_raw)
@@ -1886,7 +1878,44 @@ def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
         return "builtin", low, low
     return "builtin", "", "classic"
 
-#
+
+def _resolve_theme_raw_token(
+    user_id: Optional[int],
+    *,
+    user_doc: Optional[Dict[str, Any]] = None,
+    projection: Optional[Dict[str, int]] = None,
+) -> Tuple[str, str, bool, Optional[Dict[str, Any]]]:
+    """מחזיר theme_raw לפי cookie/DB, כולל scope ומסמך משתמש (אם נשלף)."""
+    theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
+    cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+    use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
+    theme_raw = cookie_theme or ''
+
+    if user_id and not use_cookie_theme:
+        if user_doc is None:
+            try:
+                db_ref = get_db()
+                if projection is None:
+                    projection = {'ui_prefs.theme': 1}
+                elif 'ui_prefs.theme' not in projection:
+                    projection = dict(projection)
+                    projection['ui_prefs.theme'] = 1
+                user_doc = db_ref.users.find_one(
+                    {'user_id': int(user_id)},
+                    projection,
+                ) or {}
+            except Exception:
+                user_doc = None
+        if isinstance(user_doc, dict):
+            pref = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+            if pref:
+                theme_raw = pref
+
+    if not theme_raw:
+        theme_raw = 'classic'
+    return theme_raw, theme_scope, use_cookie_theme, user_doc
+
+
 # NOTE:
 # כל הלוגיקה של Themes API (כולל validation + activate) הועברה ל-`webapp/themes_api.py`
 # כדי למנוע פיצול בין `app.py` לבין Blueprint ייעודי.
@@ -1944,23 +1973,10 @@ def get_current_theme() -> str:
     """
     t = 'classic'
     try:
-        theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
-        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
         uid = session.get('user_id')
-
-        if cookie_theme:
-            t = cookie_theme
-
-        use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
-        if uid and not use_cookie_theme:
-            try:
-                dbref = get_db()
-                udoc = dbref.users.find_one({'user_id': uid}) or {}
-                pref = ((udoc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-                if pref:
-                    t = pref
-            except Exception:
-                pass
+        theme_raw, _, _, _ = _resolve_theme_raw_token(uid)
+        if theme_raw:
+            t = theme_raw
     except Exception:
         pass
     _, _, theme_attr = _parse_theme_token(t)
@@ -2277,40 +2293,25 @@ def _safe_dt_from_doc(value) -> datetime:
 
 def _get_theme_etag_key(user_id: Optional[int]) -> str:
     """מפתח קצר שמייצג את ערכת הנושא הנוכחית (כולל שינויי גרסה)."""
-    theme_raw = ''
-    theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
-    cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-    use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
-    if cookie_theme:
-        theme_raw = cookie_theme
-
+    theme_raw = 'classic'
     user_doc = None
-    db_ref = None
-    if user_id and not use_cookie_theme:
-        try:
-            db_ref = get_db()
-            user_doc = db_ref.users.find_one(
-                {'user_id': int(user_id)},
-                {'ui_prefs.theme': 1, 'custom_themes': 1, 'custom_theme': 1},
-            ) or {}
-            pref = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-            if pref:
-                theme_raw = pref
-        except Exception:
-            user_doc = None
-
-    if not theme_raw:
+    try:
+        theme_raw, _, _, user_doc = _resolve_theme_raw_token(
+            user_id,
+            projection={'ui_prefs.theme': 1, 'custom_themes': 1, 'custom_theme': 1},
+        )
+    except Exception:
         theme_raw = 'classic'
+        user_doc = None
 
     theme_type, theme_id, theme_attr = _parse_theme_token(theme_raw)
+    base = theme_attr if theme_attr in ALLOWED_UI_THEMES else 'classic'
     if theme_type == 'shared' and theme_id:
         base = f"shared:{theme_id}"
     elif theme_type == 'custom' and theme_id:
         base = f"custom:{theme_id}"
     elif theme_type == 'custom':
         base = 'custom'
-    else:
-        base = theme_attr if theme_attr in ALLOWED_UI_THEMES else 'classic'
 
     version_parts = []
     if theme_type == 'custom':
@@ -2325,12 +2326,14 @@ def _get_theme_etag_key(user_id: Optional[int]) -> str:
                 ) or {}
             except Exception:
                 user_doc = None
+        found_custom = False
         if isinstance(user_doc, dict):
             themes = user_doc.get('custom_themes')
             if theme_id and isinstance(themes, list):
                 for tdoc in themes:
                     if isinstance(tdoc, dict) and str(tdoc.get('id') or '').strip() == theme_id:
                         updated_at = tdoc.get('updated_at')
+                        found_custom = True
                         break
             if updated_at is None and isinstance(themes, list):
                 for tdoc in themes:
@@ -2338,13 +2341,17 @@ def _get_theme_etag_key(user_id: Optional[int]) -> str:
                         updated_at = tdoc.get('updated_at')
                         if not theme_id:
                             theme_ident = str(tdoc.get('id') or '').strip()
+                        found_custom = True
                         break
             if updated_at is None:
                 ct = user_doc.get('custom_theme')
-                if isinstance(ct, dict):
+                if isinstance(ct, dict) and (ct.get('is_active') or theme_id):
                     updated_at = ct.get('updated_at')
                     if not theme_id:
                         theme_ident = str(ct.get('id') or '').strip()
+                    found_custom = True
+        if not found_custom:
+            base = 'classic'
         if theme_ident:
             version_parts.append(theme_ident)
         if updated_at:
@@ -2356,15 +2363,21 @@ def _get_theme_etag_key(user_id: Optional[int]) -> str:
                 version_parts.append(updated_str)
     elif theme_type == 'shared' and theme_id:
         try:
-            db_ref = db_ref or get_db()
-            doc = db_ref.shared_themes.find_one({'_id': theme_id}, {'updated_at': 1}) or {}
-            updated_at = doc.get('updated_at')
-            if updated_at:
-                updated_str = _safe_dt_from_doc(updated_at).isoformat()
-                if updated_str:
-                    version_parts.append(updated_str)
+            db_ref = get_db()
+            doc = db_ref.shared_themes.find_one(
+                {'_id': theme_id, 'is_active': True},
+                {'updated_at': 1},
+            ) or {}
+            if not doc:
+                base = 'classic'
+            else:
+                updated_at = doc.get('updated_at')
+                if updated_at:
+                    updated_str = _safe_dt_from_doc(updated_at).isoformat()
+                    if updated_str:
+                        version_parts.append(updated_str)
         except Exception:
-            pass
+            base = 'classic'
 
     if version_parts:
         return f"{base}|{'|'.join(version_parts)}"
@@ -13970,7 +13983,11 @@ def md_preview(file_id):
                 resp.headers['Last-Modified'] = last_modified_str
                 return resp
         except Exception:
-            md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:fallback"
+            try:
+                fallback_hash = hashlib.sha256(str(theme_key).encode('utf-8')).hexdigest()[:12]
+            except Exception:
+                fallback_hash = "theme"
+            md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:{fallback_hash}:fallback"
 
     # הצג תצוגת Markdown רק אם זה אכן Markdown
     is_md = language == 'markdown' or file_name.lower().endswith('.md')
