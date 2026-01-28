@@ -569,32 +569,26 @@ class ConfigService:
         ),
         "WEB_CONCURRENCY": ConfigDefinition(
             key="WEB_CONCURRENCY",
-            default="1",
+            default="2",
             description="מספר ה-workers של Gunicorn ב-WebApp; אם מוגדר, גובר על ברירת המחדל ומקטין queue_delay תחת עומס",
             category="gunicorn",
         ),
         "WEBAPP_GUNICORN_WORKERS": ConfigDefinition(
             key="WEBAPP_GUNICORN_WORKERS",
-            default="1",
+            default="2",
             description="מספר ה-workers של Gunicorn (חלופה ל-WEB_CONCURRENCY)",
             category="gunicorn",
         ),
         "WEBAPP_GUNICORN_THREADS": ConfigDefinition(
             key="WEBAPP_GUNICORN_THREADS",
-            default="4",
-            description="מספר Threads לכל worker כאשר משתמשים ב-gthread (לא רלוונטי ל-gevent)",
+            default="2",
+            description="מספר Threads לכל worker כאשר משתמשים ב-gthread (משפר מקביליות לבקשות I/O)",
             category="gunicorn",
         ),
         "WEBAPP_GUNICORN_WORKER_CLASS": ConfigDefinition(
             key="WEBAPP_GUNICORN_WORKER_CLASS",
-            default="gevent",
+            default="gthread",
             description="Worker class של Gunicorn",
-            category="gunicorn",
-        ),
-        "WEBAPP_GUNICORN_WORKER_CONNECTIONS": ConfigDefinition(
-            key="WEBAPP_GUNICORN_WORKER_CONNECTIONS",
-            default="100",
-            description="מספר חיבורים מקסימלי ל-worker כאשר משתמשים ב-gevent",
             category="gunicorn",
         ),
         "WEBAPP_GUNICORN_TIMEOUT": ConfigDefinition(
