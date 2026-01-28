@@ -436,14 +436,11 @@ def _create_github_issue(action: Dict, alert_data: Dict, matched_rule: Dict) -> 
     """
     יוצר GitHub Issue (ראה github_issue_action.py).
 
-    🔧 תיקון באג: asyncio.run() נכשל ב-nested event loop!
-    - Flask עם ASGI (Hypercorn/uvicorn) כבר מריץ event loop
-    - asyncio.run() יזרוק RuntimeError במקרה כזה
-
-    פתרון: שימוש ב-ThreadPoolExecutor להרצת async code.
+    🔧 תיקון באג: אין להריץ event loop בתוך loop רץ.
+    - אם יש loop פעיל: מריצים כ-task ברקע.
+    - אם אין loop פעיל: asyncio.run() עם timeout.
     """
     try:
-        from concurrent.futures import ThreadPoolExecutor
         import asyncio
 
         from services.github_issue_action import GitHubIssueAction
@@ -451,25 +448,35 @@ def _create_github_issue(action: Dict, alert_data: Dict, matched_rule: Dict) -> 
         handler = GitHubIssueAction()
         triggered = matched_rule.get("triggered_conditions", [])
 
-        def run_async():
-            """הרצה בתוך thread חדש עם event loop נקי."""
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        async def _execute() -> Optional[Dict[str, Any]]:
             try:
-                return loop.run_until_complete(handler.execute(action, alert_data, triggered))
-            finally:
-                loop.close()
-
-        # הרצה ב-thread pool כדי לא לחסום את ה-request
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(run_async)
-            result = future.result(timeout=30)  # timeout לבטיחות
+                result = await asyncio.wait_for(
+                    handler.execute(action, alert_data, triggered),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("GitHub issue creation timed out")
+                return None
+            except Exception as exc:
+                logger.error(f"Error creating GitHub issue: {exc}")
+                return None
 
             if result and not result.get("success"):
                 logger.warning(f"GitHub issue creation failed: {result.get('error')}")
             elif result and result.get("success"):
                 logger.info(f"GitHub issue created: {result.get('issue_url')}")
+            return result
 
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop and running_loop.is_running():
+            running_loop.create_task(_execute())
+            return
+
+        asyncio.run(_execute())
     except Exception as e:
         logger.error(f"Error creating GitHub issue: {e}")
 
