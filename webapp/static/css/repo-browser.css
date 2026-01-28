@@ -94,8 +94,8 @@
 .search-input {
     width: 100%;
     padding: 8px 12px 8px 36px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+    background: var(--input-bg, var(--bg-tertiary));
+    border: 1px solid var(--input-border, var(--border-color));
     border-radius: 8px;
     color: var(--text-primary);
     font-size: 14px;

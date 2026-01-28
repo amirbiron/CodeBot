@@ -135,6 +135,14 @@
 
 המערכת ממפה אוטומטית את צבעי VS Code למשתני CSS שלנו:
 
+.. tip::
+
+   **מפתחות חשובים:**
+
+   - ``editor.background`` – משפיע על **רקע בלוק הקוד** (CodeMirror) בנוסף למעטפת הכללית
+   - ``input.background`` / ``input.border`` – משפיעים על **תיבות חיפוש** ושדות קלט בכל האתר
+   - ``dropdown.foreground`` – צבע טקסט בתפריטים נפתחים (selects)
+
 .. list-table::
    :header-rows: 1
    :widths: 35 35 30
@@ -143,8 +151,8 @@
      - CSS Variable(s)
      - תיאור
    * - ``editor.background``
-     - ``--bg-primary``, ``--md-surface``
-     - רקע ראשי
+     - ``--bg-primary``, ``--code-bg``, ``--md-surface``
+     - רקע ראשי + רקע בלוק קוד
    * - ``editor.foreground``
      - ``--text-primary``, ``--md-text``
      - טקסט ראשי
@@ -165,10 +173,19 @@
      - כפתור בריחוף
    * - ``input.background``
      - ``--input-bg``
-     - רקע שדה קלט
+     - רקע שדות קלט וחיפוש
    * - ``input.border``
      - ``--input-border``
-     - גבול שדה קלט
+     - גבול שדות קלט וחיפוש
+   * - ``input.foreground``
+     - ``--text-primary``
+     - טקסט בשדות קלט
+   * - ``dropdown.background``
+     - ``--bg-secondary``
+     - רקע תפריטים נפתחים
+   * - ``dropdown.foreground``
+     - ``--text-primary``
+     - טקסט בתפריטים נפתחים
    * - ``panel.border``
      - ``--border-color``
      - גבולות כלליים

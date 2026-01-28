@@ -21,8 +21,8 @@
   width:100%;
   padding:0.75rem 2.5rem 0.75rem 0.9rem; /* מרחב לאייקון מצד ימין (RTL) ולשוליים משמאל */
   border-radius:10px; /* יישור לעיצוב של תיבת החיפוש התחתונה */
-  border:1px solid var(--glass-border);
-  background: var(--bg-tertiary);
+  border:1px solid var(--input-border, var(--glass-border));
+  background: var(--input-bg, var(--bg-tertiary));
   color: var(--text-primary);
   font-size:1rem;
   outline:none;
@@ -238,8 +238,8 @@
 .search-and-filters select.form-control{
   padding: 0.75rem;
   border-radius: 10px;
-  border: 1px solid var(--glass-border);
-  background: var(--bg-tertiary);
+  border: 1px solid var(--input-border, var(--glass-border));
+  background: var(--input-bg, var(--bg-tertiary));
   color: var(--text-primary);
   font-size: 1rem;
   height: auto;

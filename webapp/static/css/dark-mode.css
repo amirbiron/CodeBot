@@ -492,10 +492,14 @@
     border-color: var(--glass-border);
 }
 
-/* Custom theme: רק צבע טקסט, בלי background */
+/* Custom theme: משתמש ב-input tokens מהערכה המיובאת */
 [data-theme="custom"] .search-input,
-[data-theme="custom"] .filter-select {
+[data-theme="custom"] .filter-select,
+[data-theme^="shared:"] .search-input,
+[data-theme^="shared:"] .filter-select {
+    background: var(--input-bg, var(--bg-tertiary));
     color: var(--text-primary);
+    border-color: var(--input-border, var(--glass-border));
 }
 
 /* ============================================
