@@ -96,6 +96,10 @@
      - Level 1
      - בסיס ל‑Glassmorphism navbar, badges, מודלים
      - ``webapp/static/css/variables.css`` (קטע ``:root``) + Overrides ב‑תמות בהירות
+   * - ``--scrollbar-width-base`` / ``--scrollbar-width``
+     - Level 1
+     - רוחב פס גלילה גלובלי לפי מכשיר (מובייל שליש, טאבלט/דסקטופ חצי)
+     - ``webapp/templates/base.html`` (בלוק ``:root`` + media query)
    * - ``--btn-primary-bg`` / ``--btn-primary-color`` / ``--btn-primary-border`` / ``--btn-primary-shadow``
      - Level 2
      - כל כפתור ראשי, כולל מצבי hover (`--btn-primary-hover-*`)
@@ -203,6 +207,9 @@ Markdown Viewer ו‑Split View
 
 - ❌ אין לציין HEX בקבצי רכיבים (למעט חריגים מתועדים).  
   ✅ תמיד להשתמש ב‑``var(--token-name)`` ולוודא שהטוקן עלה לטבלת הרפרנס.
+- כשצריך פס גלילה צר ברכיב מקומי:  
+  - הגדירו ``::-webkit-scrollbar`` עם ``width``/``height`` על בסיס ``var(--scrollbar-width)``.  
+  - הוסיפו ``scrollbar-width: thin`` כדי לכסות גם Firefox.
 - כלל אצבע:  
   - צריך צבע שחוזר בכמה קומפוננטות → טוקן סמנטי (Level 2).  
   - צריך גוון שמזוהה עם רכיב מסוים (צלחמת חיפוש, טאב מסוים) → טוקן רכיב (Level 3) + Overrides.  
