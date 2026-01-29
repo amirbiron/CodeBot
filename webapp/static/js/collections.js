@@ -737,29 +737,42 @@
     }
   }
 
+  function escapeCsvField(value) {
+    const raw = String(value == null ? '' : value);
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+
+  async function fetchAllCollectionItems(collectionId, perPage = 200) {
+    const allItems = [];
+    let page = 1;
+    while (true) {
+      const resp = await api.getItems(collectionId, page, perPage);
+      if (!resp || !resp.ok) {
+        throw new Error((resp && resp.error) || 'שגיאה בטעינת פריטים');
+      }
+      const items = Array.isArray(resp.items) ? resp.items : [];
+      allItems.push(...items);
+      const total = Number(resp.total_items || resp.total_manual || items.length);
+      if (allItems.length >= total || items.length === 0) {
+        break;
+      }
+      page += 1;
+    }
+    return allItems;
+  }
+
   async function exportCollectionWithTags(collectionId) {
     try {
-      const allItems = [];
-      let page = 1;
-      const perPage = 200;
-      while (true) {
-        const resp = await api.getItems(collectionId, page, perPage);
-        if (!resp || !resp.ok) {
-          throw new Error((resp && resp.error) || 'שגיאה ביצוא תגיות');
-        }
-        const items = Array.isArray(resp.items) ? resp.items : [];
-        allItems.push(...items);
-        const total = Number(resp.total_items || resp.total_manual || items.length);
-        if (allItems.length >= total || items.length === 0) {
-          break;
-        }
-        page += 1;
-      }
+      const allItems = await fetchAllCollectionItems(collectionId, 200);
       const rows = allItems.map(item => {
         const fileName = String(item.file_name || '');
         const tags = (item.tags || []).join(',');
-        const note = String(item.note || '').replace(/"/g, '""');
-        return `${fileName},"${tags}","${note}"`;
+        const note = String(item.note || '');
+        return [
+          escapeCsvField(fileName),
+          escapeCsvField(tags),
+          escapeCsvField(note),
+        ].join(',');
       });
       const csv = ['file_name,tags,note', ...rows].join('\n');
       downloadFile('collection_export.csv', csv, 'text/csv;charset=utf-8');
@@ -799,7 +812,9 @@
     try {
       const text = await file.text();
       const itemsByName = new Map();
-      lastCollectionItems.forEach((item) => {
+      const allItems = await fetchAllCollectionItems(collectionId, 200);
+      allItems.forEach((item) => {
+        if (!item || !item.id) return;
         const key = String(item.file_name || '');
         if (!itemsByName.has(key)) {
           itemsByName.set(key, []);
