@@ -134,13 +134,13 @@
   // מטא-מידע על תגיות (default עד שיטען מהשרת)
   const DEFAULT_TAGS_METADATA = {
     allowed_tags: [
-      "🐢", "🔥", "🔮", "♥️", "🔐", "💭",
+      "🐢", "🔥", "🔮", "♥️", "💎", "🔐", "💭",
       "⏸️", "🎯", "🐛", "🗄️", "🧪",
       "1️⃣", "2️⃣", "3️⃣",
     ],
     categories: {
       priority: ["🐢", "🔥"],
-      sentiment: ["🔮", "♥️"],
+      sentiment: ["🔮", "♥️", "💎"],
       security: ["🔐"],
       status: ["💭", "⏸️", "🎯"],
       category: ["🐛", "🗄️", "🧪"],
@@ -151,6 +151,7 @@
       "🔥": { name_he: "דחוף", name_en: "urgent", category: "priority" },
       "🔮": { name_he: "קסום", name_en: "magic", category: "sentiment" },
       "♥️": { name_he: "מועדף", name_en: "favorite", category: "sentiment" },
+      "💎": { name_he: "איכותי", name_en: "quality", category: "sentiment" },
       "🔐": { name_he: "סודי", name_en: "secret", category: "security" },
       "💭": { name_he: "רעיון", name_en: "idea", category: "status" },
       "⏸️": { name_he: "מושהה", name_en: "paused", category: "status" },
@@ -339,7 +340,7 @@
     }
     const safeTags = Array.isArray(tags) ? tags : [];
     if (!safeTags || safeTags.length === 0) {
-      return `<span class="item-tags-empty" data-item-id="${escapeHtml(itemId || '')}">אין תגיות</span>`;
+      return '';
     }
 
     const meta = resolveTagsMetadata();
@@ -684,7 +685,7 @@
     ];
     const selectedTagsHtml = selectedTags.length
       ? selectedTags.map(t => `<span class="selected-tag-chip">${escapeHtml(t)}</span>`).join('')
-      : '<span class="no-tags">אין סינון פעיל</span>';
+      : '';
 
     return `
       <div class="tags-toolbar" data-tags-toolbar="1">
