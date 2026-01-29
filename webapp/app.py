@@ -14838,8 +14838,10 @@ def _pop_pwa_share_payload_db(token: str) -> Optional[Dict[str, Any]]:
 
 
 def _store_pwa_share_payload(payload: Dict[str, Any]) -> str:
+    last_token = ''
     for _ in range(3):
         token = secrets.token_urlsafe(12)
+        last_token = token
         cache_key = f"{_PWA_SHARE_PAYLOAD_CACHE_PREFIX}:{token}"
         stored = False
         if getattr(cache, 'is_enabled', False):
@@ -14849,17 +14851,16 @@ def _store_pwa_share_payload(payload: Dict[str, Any]) -> str:
                 stored = False
         if not stored:
             stored = _store_pwa_share_payload_db(token, payload)
-        if not stored:
-            now = time.time()
-            with _pwa_share_payload_lock:
-                _pwa_share_payload_store[token] = {
-                    'payload': payload,
-                    'expires_at': now + _PWA_SHARE_PAYLOAD_TTL_SECONDS,
-                }
-            _cleanup_pwa_share_payload_store(now)
-            stored = True
         if stored:
             return token
+    token = last_token or secrets.token_urlsafe(12)
+    now = time.time()
+    with _pwa_share_payload_lock:
+        _pwa_share_payload_store[token] = {
+            'payload': payload,
+            'expires_at': now + _PWA_SHARE_PAYLOAD_TTL_SECONDS,
+        }
+    _cleanup_pwa_share_payload_store(now)
     return token
 
 
@@ -14924,8 +14925,6 @@ def _suggest_share_filename(title: str, url: str) -> str:
         if len(base) > max_base_len:
             base = base[:max_base_len]
         final_name = f"{base}{ext}"
-        if len(final_name) > max_len:
-            final_name = final_name[:max_len]
         return final_name
     return "shared-snippet.txt"
 
