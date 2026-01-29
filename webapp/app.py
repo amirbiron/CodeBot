@@ -14741,6 +14741,224 @@ def api_save_shared_file():
 
 _UPLOAD_CLEAR_DRAFT_SESSION_KEY = 'upload_should_clear_draft'
 _EDIT_CLEAR_DRAFT_SESSION_KEY = 'edit_should_clear_draft_for_file_id'
+_PWA_SHARE_PAYLOAD_SESSION_KEY = 'pwa_share_payload_token'
+_PWA_SHARE_PAYLOAD_TTL_SECONDS = 15 * 60
+_PWA_SHARE_PAYLOAD_TEXT_LIMIT = 200_000
+_PWA_SHARE_PAYLOAD_TITLE_LIMIT = 300
+_PWA_SHARE_PAYLOAD_URL_LIMIT = 2000
+_PWA_SHARE_PAYLOAD_CACHE_PREFIX = 'webapp:pwa_share'
+_PWA_SHARE_PAYLOAD_DB_COLLECTION = 'pwa_share_payloads'
+
+_pwa_share_payload_lock = threading.Lock()
+_pwa_share_payload_store: Dict[str, Dict[str, Any]] = {}
+_pwa_share_payload_index_lock = threading.Lock()
+_pwa_share_payload_index_ready = False
+
+
+def _limit_share_value(value: Any, max_len: int, *, strip: bool = True) -> Tuple[str, bool]:
+    try:
+        raw = '' if value is None else str(value)
+    except Exception:
+        raw = ''
+    if strip:
+        raw = raw.strip()
+    if max_len and len(raw) > max_len:
+        return raw[:max_len], True
+    return raw, False
+
+
+def _cleanup_pwa_share_payload_store(now_ts: Optional[float] = None) -> None:
+    now = float(now_ts if now_ts is not None else time.time())
+    with _pwa_share_payload_lock:
+        expired = [key for key, item in _pwa_share_payload_store.items() if float(item.get('expires_at') or 0) <= now]
+        for key in expired:
+            _pwa_share_payload_store.pop(key, None)
+
+
+def _ensure_pwa_share_payload_indexes(db) -> None:
+    global _pwa_share_payload_index_ready
+    if _pwa_share_payload_index_ready:
+        return
+    with _pwa_share_payload_index_lock:
+        if _pwa_share_payload_index_ready:
+            return
+        try:
+            coll = db[_PWA_SHARE_PAYLOAD_DB_COLLECTION]
+            coll.create_index([('token', ASCENDING)], name='token_unique', unique=True)
+            coll.create_index([('expires_at', ASCENDING)], name='expires_ttl', expireAfterSeconds=0)
+        except Exception:
+            return
+        _pwa_share_payload_index_ready = True
+
+
+def _store_pwa_share_payload_db(token: str, payload: Dict[str, Any]) -> bool:
+    try:
+        db = get_db()
+    except Exception:
+        return False
+    try:
+        _ensure_pwa_share_payload_indexes(db)
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(seconds=_PWA_SHARE_PAYLOAD_TTL_SECONDS)
+        db[_PWA_SHARE_PAYLOAD_DB_COLLECTION].insert_one({
+            'token': token,
+            'payload': payload,
+            'created_at': now,
+            'expires_at': expires_at,
+        })
+        return True
+    except Exception:
+        return False
+
+
+def _pop_pwa_share_payload_db(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        db = get_db()
+    except Exception:
+        return None
+    try:
+        coll = db[_PWA_SHARE_PAYLOAD_DB_COLLECTION]
+        doc = coll.find_one_and_delete({'token': token})
+    except Exception:
+        return None
+    if not doc:
+        return None
+    expires_at = doc.get('expires_at')
+    if isinstance(expires_at, datetime):
+        try:
+            exp = expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if exp <= datetime.now(timezone.utc):
+                return None
+        except Exception:
+            return None
+    payload = doc.get('payload')
+    return payload if isinstance(payload, dict) else None
+
+
+def _store_pwa_share_payload(payload: Dict[str, Any]) -> str:
+    for _ in range(3):
+        token = secrets.token_urlsafe(12)
+        cache_key = f"{_PWA_SHARE_PAYLOAD_CACHE_PREFIX}:{token}"
+        stored = False
+        if getattr(cache, 'is_enabled', False):
+            try:
+                stored = bool(cache.set(cache_key, payload, _PWA_SHARE_PAYLOAD_TTL_SECONDS))
+            except Exception:
+                stored = False
+        if not stored:
+            stored = _store_pwa_share_payload_db(token, payload)
+        if not stored:
+            now = time.time()
+            with _pwa_share_payload_lock:
+                _pwa_share_payload_store[token] = {
+                    'payload': payload,
+                    'expires_at': now + _PWA_SHARE_PAYLOAD_TTL_SECONDS,
+                }
+            _cleanup_pwa_share_payload_store(now)
+            stored = True
+        if stored:
+            return token
+    return token
+
+
+def _pop_pwa_share_payload(token: str) -> Optional[Dict[str, Any]]:
+    safe_token = (token or '').strip()
+    if not safe_token:
+        return None
+    cache_key = f"{_PWA_SHARE_PAYLOAD_CACHE_PREFIX}:{safe_token}"
+    if getattr(cache, 'is_enabled', False):
+        try:
+            payload = cache.get(cache_key)
+        except Exception:
+            payload = None
+        if isinstance(payload, dict) and payload:
+            try:
+                cache.delete(cache_key)
+            except Exception:
+                pass
+            return payload
+    payload = _pop_pwa_share_payload_db(safe_token)
+    if payload:
+        return payload
+    now = time.time()
+    with _pwa_share_payload_lock:
+        item = _pwa_share_payload_store.pop(safe_token, None)
+    if not item:
+        return None
+    if float(item.get('expires_at') or 0) <= now:
+        return None
+    payload = item.get('payload')
+    return payload if isinstance(payload, dict) else None
+
+
+def _suggest_share_filename(title: str, url: str) -> str:
+    candidates: List[str] = []
+    if isinstance(title, str) and title.strip():
+        candidates.append(title.strip())
+    if isinstance(url, str) and url.strip():
+        try:
+            parsed = urlparse(url.strip())
+            if parsed.path:
+                last_segment = parsed.path.rsplit('/', 1)[-1]
+                if last_segment:
+                    candidates.append(last_segment)
+        except Exception:
+            pass
+    max_len = 120
+    for candidate in candidates:
+        safe_name = secure_filename(candidate)
+        safe_name = safe_name.strip("._-")
+        if not safe_name:
+            continue
+        base, ext = os.path.splitext(safe_name)
+        if not ext:
+            ext = ".txt"
+            base = base or safe_name
+        if not base:
+            continue
+        max_base_len = max_len - len(ext)
+        if max_base_len < 1:
+            return (base + ext)[:max_len]
+        if len(base) > max_base_len:
+            base = base[:max_base_len]
+        final_name = f"{base}{ext}"
+        if len(final_name) > max_len:
+            final_name = final_name[:max_len]
+        return final_name
+    return "shared-snippet.txt"
+
+
+def _build_share_prefill(payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        title = str(payload.get('title') or '').strip()
+    except Exception:
+        title = ''
+    try:
+        text = str(payload.get('text') or '')
+    except Exception:
+        text = ''
+    try:
+        url = str(payload.get('url') or '').strip()
+    except Exception:
+        url = ''
+    file_name_value = _suggest_share_filename(title, url) if (title or url or text) else ''
+    language_value = ''
+    if file_name_value:
+        try:
+            language_value = detect_language_from_filename(file_name_value) or ''
+        except Exception:
+            language_value = ''
+    code_value = text or url or title or ''
+    return {
+        'file_name': file_name_value,
+        'description': title,
+        'code': code_value,
+        'source_url': url,
+        'language': language_value,
+        'truncated': bool(payload.get('truncated')),
+    }
 
 
 def _save_markdown_images(db, user_id, snippet_id, images_payload):
@@ -14772,6 +14990,37 @@ def _save_markdown_images(db, user_id, snippet_id, images_payload):
             'user_id': user_id,
             'error': str(exc),
         })
+
+
+@app.route('/share', methods=['POST'])
+def pwa_share_target():
+    """יעד Share Target של ה-PWA — קולט title/text/url ומפנה למסך שמירה."""
+    try:
+        payload_src = request.form or {}
+    except Exception:
+        payload_src = {}
+    if not payload_src:
+        try:
+            payload_src = request.get_json(silent=True) or {}
+        except Exception:
+            payload_src = {}
+    title, title_truncated = _limit_share_value(payload_src.get('title'), _PWA_SHARE_PAYLOAD_TITLE_LIMIT, strip=True)
+    text, text_truncated = _limit_share_value(payload_src.get('text'), _PWA_SHARE_PAYLOAD_TEXT_LIMIT, strip=False)
+    url, url_truncated = _limit_share_value(payload_src.get('url'), _PWA_SHARE_PAYLOAD_URL_LIMIT, strip=True)
+    if text:
+        try:
+            text = normalize_code(text)
+        except Exception:
+            pass
+    if not (title or text or url):
+        flash('לא התקבל תוכן לשיתוף', 'error')
+        return redirect(url_for('upload_file_web'), code=303)
+    payload = {'title': title, 'text': text, 'url': url}
+    if title_truncated or text_truncated or url_truncated:
+        payload['truncated'] = True
+    token = _store_pwa_share_payload(payload)
+    session[_PWA_SHARE_PAYLOAD_SESSION_KEY] = token
+    return redirect(url_for('upload_file_web', share_token=token), code=303)
 
 
 @app.route('/upload/from-repo')
@@ -14849,6 +15098,23 @@ def upload_file_web():
     tags_value = ''
     code_value = ''
     source_url_value = ''
+    if request.method == 'GET':
+        share_token = (request.args.get('share_token') or '').strip()
+        if share_token:
+            session.pop(_PWA_SHARE_PAYLOAD_SESSION_KEY, None)
+        else:
+            share_token = str(session.pop(_PWA_SHARE_PAYLOAD_SESSION_KEY, '') or '')
+        share_payload = _pop_pwa_share_payload(share_token) if share_token else None
+        if share_payload:
+            prefill = _build_share_prefill(share_payload)
+            file_name_value = prefill.get('file_name') or file_name_value
+            description_value = prefill.get('description') or description_value
+            code_value = prefill.get('code') or code_value
+            source_url_value = prefill.get('source_url') or source_url_value
+            if prefill.get('language'):
+                language_value = prefill.get('language') or language_value
+            if prefill.get('truncated'):
+                flash('התוכן לשיתוף קוצץ כדי להתאים למגבלת שיתוף', 'warning')
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()
