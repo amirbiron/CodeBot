@@ -3068,6 +3068,13 @@
       ev.preventDefault();
       ev.stopPropagation();
 
+      // Debug: וידוא שהלחיצה נתפסה
+      console.log('[collections] tag button clicked', {
+        itemId: tagBtn.dataset.itemId,
+        tagsEnabled: TAGS_FEATURE_ENABLED,
+        target: ev.target
+      });
+
       if (!TAGS_FEATURE_ENABLED) {
         showToast('תיוג קבצים כבוי כרגע', 'warning');
         return;
@@ -3075,6 +3082,7 @@
 
       const itemId = tagBtn.dataset.itemId || '';
       if (!itemId) {
+        showToast('שגיאה: חסר מזהה פריט', 'error');
         console.warn('[collections] tag button click: missing itemId');
         return;
       }
@@ -3085,7 +3093,13 @@
                      document.querySelector(`[data-item-id="${itemId}"]`);
       const currentTags = collectTagsFromElement(itemEl);
 
-      openTagsEditorModal(itemId, currentTags);
+      console.log('[collections] opening tags modal', { itemId, currentTags, itemEl });
+      try {
+        openTagsEditorModal(itemId, currentTags);
+      } catch (err) {
+        console.error('[collections] error opening tags modal:', err);
+        showToast('שגיאה בפתיחת עורך התגיות', 'error');
+      }
     }, true); // capture phase כדי לתפוס לפני handlers אחרים
   });
 })();
