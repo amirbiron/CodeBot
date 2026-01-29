@@ -87,6 +87,45 @@
     "🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️"
   ];
 
+  /**
+   * הצגת הודעת Toast
+   * @param {string} message - ההודעה להצגה
+   * @param {string} type - סוג ההודעה: 'info', 'success', 'error', 'warning'
+   */
+  function showToast(message, type = 'info') {
+    // נסה להשתמש ב-toast גלובלי אם קיים
+    if (typeof window.showNotification === 'function') {
+      window.showNotification(message, type);
+      return;
+    }
+    // fallback - יצירת toast פשוט
+    const toast = document.createElement('div');
+    const bgColor = {
+      success: '#10b981',
+      error: '#ef4444',
+      warning: '#f59e0b',
+      info: '#3b82f6'
+    }[type] || '#3b82f6';
+    
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 0.75rem 1.5rem;
+      background: ${bgColor};
+      color: white;
+      border-radius: 8px;
+      z-index: 20000;
+      font-size: 0.9rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      direction: rtl;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  }
+
   // תגיות זמינות (יטען מהשרת)
   let TAGS_METADATA = null;
   let TAGS_FEATURE_ENABLED = true;
@@ -1795,7 +1834,7 @@
           : '';
         const tagsHtml = buildItemTagsHtml(it.tags || [], itemId);
         const tagBtn = (TAGS_FEATURE_ENABLED && hasItemId)
-          ? `<button class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
+          ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
           : '';
         const selectBox = hasItemId
           ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
@@ -3057,5 +3096,42 @@
   // אתחול אוטומטי אם קיימים אזורים בעמוד
   window.addEventListener('DOMContentLoaded', () => {
     initCollectionsPage().catch(() => {});
+
+    // Global fallback handler לכפתור עריכת תגיות
+    // מטפל בלחיצות שלא נתפסות על ידי handlers ספציפיים
+    document.addEventListener('click', (ev) => {
+      const tagBtn = ev.target.closest('.btn-tag-edit');
+      if (!tagBtn) return;
+
+      // DEBUG: alert לבדיקה שהלחיצה נתפסת (יוסר לאחר דיבוג)
+      alert('כפתור תגית נלחץ! itemId=' + (tagBtn.dataset.itemId || 'חסר'));
+
+      // מונע התנהגות ברירת מחדל ועצירת propagation
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      if (!TAGS_FEATURE_ENABLED) {
+        showToast('תיוג קבצים כבוי כרגע', 'warning');
+        return;
+      }
+
+      const itemId = tagBtn.dataset.itemId || '';
+      if (!itemId) {
+        showToast('שגיאה: חסר מזהה פריט', 'error');
+        return;
+      }
+
+      // מציאת האלמנט המכיל (card או row) לקבלת התגיות הנוכחיות
+      const itemEl = tagBtn.closest('.workspace-card') ||
+                     tagBtn.closest('.collection-item') ||
+                     document.querySelector(`[data-item-id="${itemId}"]`);
+      const currentTags = collectTagsFromElement(itemEl);
+
+      try {
+        openTagsEditorModal(itemId, currentTags);
+      } catch (err) {
+        showToast('שגיאה בפתיחת עורך התגיות: ' + (err.message || err), 'error');
+      }
+    }, true); // capture phase כדי לתפוס לפני handlers אחרים
   });
 })();
