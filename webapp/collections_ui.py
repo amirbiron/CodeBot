@@ -3,6 +3,8 @@ Collections UI routes (server-rendered pages).
 """
 from __future__ import annotations
 
+import os
+
 from flask import Blueprint, render_template, redirect, session
 
 try:
@@ -13,6 +15,12 @@ except Exception:  # pragma: no cover
 collections_ui = Blueprint('collections_ui', __name__)
 
 def _tags_feature_enabled() -> bool:
+    try:
+        env_val = os.getenv("FEATURE_COLLECTIONS_TAGS")
+        if env_val is not None:
+            return str(env_val or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+    except Exception:
+        pass
     try:
         if _cfg is None:
             return True

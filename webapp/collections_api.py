@@ -785,13 +785,14 @@ def log_tags_filtered():
         return jsonify({"ok": False, "error": "feature_disabled"}), 404
     user_id = session["user_id"]
     data = request.get_json(silent=True) or {}
-    tags = data.get("tags", []) if isinstance(data, dict) else []
+    raw_tags = data.get("tags") if isinstance(data, dict) else None
+    tags = raw_tags if isinstance(raw_tags, list) else []
     collection_id = data.get("collection_id") if isinstance(data, dict) else None
     emit_event(
         "collections_tags_filtered",
         user_id=int(user_id),
         collection_id=str(collection_id) if collection_id else None,
-        tags=list(tags or []),
+        tags=list(tags),
         count=int(len(tags or [])),
     )
     return jsonify({"ok": True})
