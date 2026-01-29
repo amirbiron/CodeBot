@@ -542,10 +542,12 @@
       btn.addEventListener('click', () => closeModal());
     });
 
-    // סגירה בלחיצה מחוץ למודל
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeModal();
-    });
+    // סגירה בלחיצה מחוץ למודל - מעוכב כדי למנוע סגירה מיידית מהלחיצה המקורית
+    setTimeout(() => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+      });
+    }, 100);
 
     // סגירה ב-Escape
     modal.addEventListener('keydown', (e) => {
