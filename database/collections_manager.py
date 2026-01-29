@@ -782,8 +782,10 @@ class CollectionsManager:
             cache_obj = cache
             if cache_obj is not None:
                 try:
-                    cache_obj.delete_pattern(f"collections_items:{user_id}:{cid}:*")
-                    cache_obj.delete_pattern(f"collections_detail:{user_id}:{cid}")
+                    uid = str(user_id).strip()
+                    cid_str = str(cid).strip()
+                    if uid and cid_str:
+                        cache_obj.delete_pattern(f"collections_detail:{uid}:-api-collections-{cid_str}*")
                 except Exception:
                     pass
 
