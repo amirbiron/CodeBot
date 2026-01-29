@@ -418,8 +418,8 @@
     });
 
     const modalHtml = `
-      <div class="modal tags-editor-modal" id="tagsEditorModal" role="dialog" aria-modal="true" aria-label="עריכת תגיות" style="display:flex !important; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.7); align-items:center; justify-content:center;">
-        <div class="modal-content" style="background:white; color:black; padding:20px; border-radius:12px; max-width:600px; max-height:80vh; overflow:auto;">
+      <div class="tags-editor-modal" id="tagsEditorModal" role="dialog" aria-modal="true" aria-label="עריכת תגיות">
+        <div class="modal-content">
           <div class="modal-header">
             <h3>${escapeHtml(modalTitle)}</h3>
             <button class="modal-close" aria-label="סגירה">&times;</button>
@@ -452,12 +452,8 @@
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     const modal = document.getElementById('tagsEditorModal');
     if (!modal) {
-      alert('DEBUG: המודל לא נוצר!');
       return;
     }
-    
-    // DEBUG: וידוא שהמודל נוצר
-    alert('DEBUG: המודל נוצר! categoriesHtml length=' + categoriesHtml.length);
 
     const previousFocus = document.activeElement;
 
@@ -3111,9 +3107,6 @@
     document.addEventListener('click', (ev) => {
       const tagBtn = ev.target.closest('.btn-tag-edit');
       if (!tagBtn) return;
-
-      // DEBUG: alert לבדיקה שהלחיצה נתפסת (יוסר לאחר דיבוג)
-      alert('כפתור תגית נלחץ! itemId=' + (tagBtn.dataset.itemId || 'חסר'));
 
       // מונע התנהגות ברירת מחדל ועצירת propagation
       ev.preventDefault();
