@@ -2057,6 +2057,10 @@
       markSidebarSelection('');
       return;
     }
+    if (collectionId !== lastCollectionId) {
+      currentTagsFilter = [];
+      currentTagsSort = 'default';
+    }
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
       const perPage = lastCollectionPerPage || 200;
