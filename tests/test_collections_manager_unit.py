@@ -430,6 +430,17 @@ def test_add_items_invalid_tags_raises(mgr: CollectionsManager):
         mgr.add_items(61, c["id"], [{"source": "regular", "file_name": "bad2.py", "tags": ["INVALID"]}])
 
 
+def test_add_items_invalid_tags_no_partial_writes(mgr: CollectionsManager):
+    c = mgr.create_collection(63, "NoPartial")["collection"]
+    items = [
+        {"source": "regular", "file_name": "ok.py", "tags": ["🔥"]},
+        {"source": "regular", "file_name": "bad.py", "tags": ["🔥", "🔥"]},
+    ]
+    with pytest.raises(ValueError):
+        mgr.add_items(63, c["id"], items)
+    assert not mgr.items.docs  # type: ignore[attr-defined]
+
+
 def test_update_item_tags_and_metadata(mgr: CollectionsManager):
     c = mgr.create_collection(62, "UpdateTags")["collection"]
     mgr.add_items(62, c["id"], [{"source": "regular", "file_name": "b.py"}])

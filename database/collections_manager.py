@@ -564,6 +564,19 @@ class CollectionsManager:
             return {"ok": False, "error": "collection_id לא תקין"}
         if not isinstance(items, list) or not items:
             return {"ok": False, "error": "items חסר"}
+        # ולידציית תגיות מוקדמת כדי למנוע כתיבות חלקיות
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            file_name = str(it.get("file_name") or "").strip()
+            if not file_name:
+                continue
+            tags_provided = "tags" in it
+            tags = it.get("tags") if tags_provided else None
+            is_valid, error = self._validate_tags(tags)
+            if not is_valid:
+                raise ValueError(f"Invalid tags for {file_name}: {error}")
+
         # מגבלה: עד 5000 פריטים ידניים למשתמש בכלל האוספים
         try:
             current_total = int(self.items.count_documents({"user_id": int(user_id)}))
