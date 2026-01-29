@@ -66,3 +66,9 @@ def test_collections_manager_creates_user_active_name_index():
         for d in docs
     )
 
+    assert any(
+        (d.get("name") == "collection_tags")
+        and (_key_pairs(d) == [("collection_id", 1), ("tags", 1)])
+        for d in docs
+    )
+
