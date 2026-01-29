@@ -1795,7 +1795,7 @@
           : '';
         const tagsHtml = buildItemTagsHtml(it.tags || [], itemId);
         const tagBtn = (TAGS_FEATURE_ENABLED && hasItemId)
-          ? `<button class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
+          ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
           : '';
         const selectBox = hasItemId
           ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
