@@ -2060,6 +2060,7 @@
     if (collectionId !== lastCollectionId) {
       currentTagsFilter = [];
       currentTagsSort = 'default';
+      setBulkMode(container, false);
     }
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
