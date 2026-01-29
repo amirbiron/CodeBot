@@ -14747,17 +14747,21 @@ _PWA_SHARE_PAYLOAD_TEXT_LIMIT = 200_000
 _PWA_SHARE_PAYLOAD_TITLE_LIMIT = 300
 _PWA_SHARE_PAYLOAD_URL_LIMIT = 2000
 _PWA_SHARE_PAYLOAD_CACHE_PREFIX = 'webapp:pwa_share'
+_PWA_SHARE_PAYLOAD_DB_COLLECTION = 'pwa_share_payloads'
 
 _pwa_share_payload_lock = threading.Lock()
 _pwa_share_payload_store: Dict[str, Dict[str, Any]] = {}
+_pwa_share_payload_index_lock = threading.Lock()
+_pwa_share_payload_index_ready = False
 
 
-def _limit_share_value(value: Any, max_len: int) -> Tuple[str, bool]:
+def _limit_share_value(value: Any, max_len: int, *, strip: bool = True) -> Tuple[str, bool]:
     try:
         raw = '' if value is None else str(value)
     except Exception:
         raw = ''
-    raw = raw.strip()
+    if strip:
+        raw = raw.strip()
     if max_len and len(raw) > max_len:
         return raw[:max_len], True
     return raw, False
@@ -14771,23 +14775,91 @@ def _cleanup_pwa_share_payload_store(now_ts: Optional[float] = None) -> None:
             _pwa_share_payload_store.pop(key, None)
 
 
-def _store_pwa_share_payload(payload: Dict[str, Any]) -> str:
-    token = secrets.token_urlsafe(12)
-    cache_key = f"{_PWA_SHARE_PAYLOAD_CACHE_PREFIX}:{token}"
-    stored = False
-    if getattr(cache, 'is_enabled', False):
+def _ensure_pwa_share_payload_indexes(db) -> None:
+    global _pwa_share_payload_index_ready
+    if _pwa_share_payload_index_ready:
+        return
+    with _pwa_share_payload_index_lock:
+        if _pwa_share_payload_index_ready:
+            return
         try:
-            stored = bool(cache.set(cache_key, payload, _PWA_SHARE_PAYLOAD_TTL_SECONDS))
+            coll = db[_PWA_SHARE_PAYLOAD_DB_COLLECTION]
+            coll.create_index([('token', ASCENDING)], name='token_unique', unique=True)
+            coll.create_index([('expires_at', ASCENDING)], name='expires_ttl', expireAfterSeconds=0)
         except Exception:
-            stored = False
-    if not stored:
-        now = time.time()
-        with _pwa_share_payload_lock:
-            _pwa_share_payload_store[token] = {
-                'payload': payload,
-                'expires_at': now + _PWA_SHARE_PAYLOAD_TTL_SECONDS,
-            }
-        _cleanup_pwa_share_payload_store(now)
+            return
+        _pwa_share_payload_index_ready = True
+
+
+def _store_pwa_share_payload_db(token: str, payload: Dict[str, Any]) -> bool:
+    try:
+        db = get_db()
+    except Exception:
+        return False
+    try:
+        _ensure_pwa_share_payload_indexes(db)
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(seconds=_PWA_SHARE_PAYLOAD_TTL_SECONDS)
+        db[_PWA_SHARE_PAYLOAD_DB_COLLECTION].insert_one({
+            'token': token,
+            'payload': payload,
+            'created_at': now,
+            'expires_at': expires_at,
+        })
+        return True
+    except Exception:
+        return False
+
+
+def _pop_pwa_share_payload_db(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        db = get_db()
+    except Exception:
+        return None
+    try:
+        coll = db[_PWA_SHARE_PAYLOAD_DB_COLLECTION]
+        doc = coll.find_one_and_delete({'token': token})
+    except Exception:
+        return None
+    if not doc:
+        return None
+    expires_at = doc.get('expires_at')
+    if isinstance(expires_at, datetime):
+        try:
+            exp = expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if exp <= datetime.now(timezone.utc):
+                return None
+        except Exception:
+            return None
+    payload = doc.get('payload')
+    return payload if isinstance(payload, dict) else None
+
+
+def _store_pwa_share_payload(payload: Dict[str, Any]) -> str:
+    for _ in range(3):
+        token = secrets.token_urlsafe(12)
+        cache_key = f"{_PWA_SHARE_PAYLOAD_CACHE_PREFIX}:{token}"
+        stored = False
+        if getattr(cache, 'is_enabled', False):
+            try:
+                stored = bool(cache.set(cache_key, payload, _PWA_SHARE_PAYLOAD_TTL_SECONDS))
+            except Exception:
+                stored = False
+        if not stored:
+            stored = _store_pwa_share_payload_db(token, payload)
+        if not stored:
+            now = time.time()
+            with _pwa_share_payload_lock:
+                _pwa_share_payload_store[token] = {
+                    'payload': payload,
+                    'expires_at': now + _PWA_SHARE_PAYLOAD_TTL_SECONDS,
+                }
+            _cleanup_pwa_share_payload_store(now)
+            stored = True
+        if stored:
+            return token
     return token
 
 
@@ -14807,6 +14879,9 @@ def _pop_pwa_share_payload(token: str) -> Optional[Dict[str, Any]]:
             except Exception:
                 pass
             return payload
+    payload = _pop_pwa_share_payload_db(safe_token)
+    if payload:
+        return payload
     now = time.time()
     with _pwa_share_payload_lock:
         item = _pwa_share_payload_store.pop(safe_token, None)
@@ -14831,16 +14906,27 @@ def _suggest_share_filename(title: str, url: str) -> str:
                     candidates.append(last_segment)
         except Exception:
             pass
+    max_len = 120
     for candidate in candidates:
         safe_name = secure_filename(candidate)
         safe_name = safe_name.strip("._-")
         if not safe_name:
             continue
-        if "." not in safe_name:
-            safe_name = f"{safe_name}.txt"
-        if len(safe_name) > 120:
-            safe_name = safe_name[:120]
-        return safe_name
+        base, ext = os.path.splitext(safe_name)
+        if not ext:
+            ext = ".txt"
+            base = base or safe_name
+        if not base:
+            continue
+        max_base_len = max_len - len(ext)
+        if max_base_len < 1:
+            return (base + ext)[:max_len]
+        if len(base) > max_base_len:
+            base = base[:max_base_len]
+        final_name = f"{base}{ext}"
+        if len(final_name) > max_len:
+            final_name = final_name[:max_len]
+        return final_name
     return "shared-snippet.txt"
 
 
@@ -14850,7 +14936,7 @@ def _build_share_prefill(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         title = ''
     try:
-        text = str(payload.get('text') or '').strip()
+        text = str(payload.get('text') or '')
     except Exception:
         text = ''
     try:
@@ -14918,9 +15004,9 @@ def pwa_share_target():
             payload_src = request.get_json(silent=True) or {}
         except Exception:
             payload_src = {}
-    title, title_truncated = _limit_share_value(payload_src.get('title'), _PWA_SHARE_PAYLOAD_TITLE_LIMIT)
-    text, text_truncated = _limit_share_value(payload_src.get('text'), _PWA_SHARE_PAYLOAD_TEXT_LIMIT)
-    url, url_truncated = _limit_share_value(payload_src.get('url'), _PWA_SHARE_PAYLOAD_URL_LIMIT)
+    title, title_truncated = _limit_share_value(payload_src.get('title'), _PWA_SHARE_PAYLOAD_TITLE_LIMIT, strip=True)
+    text, text_truncated = _limit_share_value(payload_src.get('text'), _PWA_SHARE_PAYLOAD_TEXT_LIMIT, strip=False)
+    url, url_truncated = _limit_share_value(payload_src.get('url'), _PWA_SHARE_PAYLOAD_URL_LIMIT, strip=True)
     if text:
         try:
             text = normalize_code(text)
