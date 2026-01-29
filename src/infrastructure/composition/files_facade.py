@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Constants exposed for WebApp use (avoid importing from database package)
+BOOKMARK_VALID_COLORS = ["yellow", "red", "green", "blue", "purple", "orange", "pink"]
+
 
 class FilesFacade:
     """
@@ -849,4 +852,587 @@ class FilesFacade:
         except Exception:
             pass
         return None, False
+
+    # ---- User Preferences / UI Prefs (for WebApp themes/settings) --------
+    def get_user_prefs(self, user_id: int) -> Dict[str, Any]:
+        """
+        Return user preferences document (ui_prefs, bookmark_prefs, etc.).
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return {}
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return {}
+            doc = coll.find_one({"user_id": int(user_id)})
+            if not isinstance(doc, dict):
+                return {}
+            # Return relevant prefs fields
+            return {
+                "ui_prefs": doc.get("ui_prefs") or {},
+                "bookmark_prefs": doc.get("bookmark_prefs") or {},
+                "image_prefs": doc.get("image_prefs") or {},
+                "notification_prefs": doc.get("notification_prefs") or {},
+            }
+        except Exception:
+            logger.error("get_user_prefs failed", exc_info=True)
+            return {}
+
+    def get_ui_prefs(self, user_id: int) -> Dict[str, Any]:
+        """
+        Return UI preferences (theme, etc.) for the user.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return {}
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return {}
+            doc = coll.find_one({"user_id": int(user_id)}, {"ui_prefs": 1})
+            if not isinstance(doc, dict):
+                return {}
+            return doc.get("ui_prefs") or {}
+        except Exception:
+            logger.error("get_ui_prefs failed", exc_info=True)
+            return {}
+
+    def save_ui_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
+        """
+        Save/update UI preferences for the user.
+        """
+        try:
+            from datetime import datetime, timezone
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return False
+            now_utc = datetime.now(timezone.utc)
+            coll.update_one(
+                {"user_id": int(user_id)},
+                {
+                    "$set": {"ui_prefs": prefs, "updated_at": now_utc},
+                    "$setOnInsert": {"created_at": now_utc},
+                },
+                upsert=True,
+            )
+            return True
+        except Exception:
+            logger.error("save_ui_prefs failed", exc_info=True)
+            return False
+
+    # ---- Custom Themes (for WebApp) -------------------------------------
+    def get_user_themes(self, user_id: int) -> List[Dict[str, Any]]:
+        """
+        Return list of custom themes for the user.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return []
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return []
+            doc = coll.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
+            if not isinstance(doc, dict):
+                return []
+            themes = doc.get("custom_themes")
+            if not isinstance(themes, list):
+                return []
+            return list(themes)
+        except Exception:
+            logger.error("get_user_themes failed", exc_info=True)
+            return []
+
+    def get_user_theme(self, user_id: int, theme_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Return a specific custom theme by id.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return None
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return None
+            doc = coll.find_one(
+                {"user_id": int(user_id), "custom_themes.id": theme_id},
+                {"custom_themes.$": 1}
+            )
+            if not isinstance(doc, dict):
+                return None
+            themes = doc.get("custom_themes")
+            if not isinstance(themes, list) or not themes:
+                return None
+            return themes[0] if isinstance(themes[0], dict) else None
+        except Exception:
+            logger.error("get_user_theme failed", exc_info=True)
+            return None
+
+    def save_user_theme(self, user_id: int, theme_doc: Dict[str, Any]) -> Optional[str]:
+        """
+        Add a new custom theme for the user. Returns theme_id or None.
+        """
+        try:
+            from datetime import datetime, timezone
+            import uuid
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return None
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return None
+            theme_id = theme_doc.get("id") or str(uuid.uuid4())
+            theme_doc["id"] = theme_id
+            now_utc = datetime.now(timezone.utc)
+            if "created_at" not in theme_doc:
+                theme_doc["created_at"] = now_utc
+            theme_doc["updated_at"] = now_utc
+            coll.update_one(
+                {"user_id": int(user_id)},
+                {"$push": {"custom_themes": theme_doc}},
+                upsert=True,
+            )
+            return theme_id
+        except Exception:
+            logger.error("save_user_theme failed", exc_info=True)
+            return None
+
+    def update_user_theme(self, user_id: int, theme_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Update an existing custom theme.
+        """
+        try:
+            from datetime import datetime, timezone
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return False
+            now_utc = datetime.now(timezone.utc)
+            set_fields = {"custom_themes.$.updated_at": now_utc}
+            for key, value in updates.items():
+                if key not in ("id", "created_at"):
+                    set_fields[f"custom_themes.$.{key}"] = value
+            result = coll.update_one(
+                {"user_id": int(user_id), "custom_themes.id": theme_id},
+                {"$set": set_fields}
+            )
+            return bool(getattr(result, "modified_count", 0) > 0)
+        except Exception:
+            logger.error("update_user_theme failed", exc_info=True)
+            return False
+
+    def delete_user_theme(self, user_id: int, theme_id: str) -> bool:
+        """
+        Delete a custom theme by id.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return False
+            result = coll.update_one(
+                {"user_id": int(user_id)},
+                {"$pull": {"custom_themes": {"id": theme_id}}}
+            )
+            return bool(getattr(result, "modified_count", 0) > 0)
+        except Exception:
+            logger.error("delete_user_theme failed", exc_info=True)
+            return False
+
+    def activate_user_theme(self, user_id: int, theme_id: str) -> bool:
+        """
+        Activate a custom theme (set is_active=True, deactivate others).
+        """
+        try:
+            from datetime import datetime, timezone
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "users", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["users"]  # type: ignore[index]
+                except Exception:
+                    return False
+            now_utc = datetime.now(timezone.utc)
+            # Deactivate all themes first
+            coll.update_one(
+                {"user_id": int(user_id), "custom_themes": {"$exists": True}},
+                {"$set": {"custom_themes.$[].is_active": False}},
+            )
+            # Activate the specific theme
+            result = coll.update_one(
+                {"user_id": int(user_id), "custom_themes.id": theme_id},
+                {"$set": {
+                    "custom_themes.$.is_active": True,
+                    "ui_prefs.theme": "custom",
+                    "updated_at": now_utc,
+                }}
+            )
+            return bool(getattr(result, "modified_count", 0) > 0)
+        except Exception:
+            logger.error("activate_user_theme failed", exc_info=True)
+            return False
+
+    # ---- Manager Wrappers (for WebApp) ----------------------------------
+    def get_bookmarks_manager(self) -> Any:
+        """
+        Return a BookmarksManager instance. Lazy import to avoid circular deps.
+        """
+        try:
+            from database.bookmarks_manager import BookmarksManager  # type: ignore
+            db = self._get_db()
+            return BookmarksManager(db)
+        except Exception:
+            logger.error("get_bookmarks_manager failed", exc_info=True)
+            return None
+
+    def get_collections_manager(self) -> Any:
+        """
+        Return a CollectionsManager instance. Lazy import to avoid circular deps.
+        """
+        try:
+            from database.collections_manager import CollectionsManager  # type: ignore
+            db = self._get_db()
+            return CollectionsManager(db)
+        except Exception:
+            logger.error("get_collections_manager failed", exc_info=True)
+            return None
+
+    def get_rules_storage(self) -> Any:
+        """
+        Return a RulesStorage instance. Lazy import to avoid circular deps.
+        """
+        try:
+            from services.rules_storage import get_rules_storage  # type: ignore
+            db = self._get_db()
+            return get_rules_storage(db)
+        except Exception:
+            logger.error("get_rules_storage failed", exc_info=True)
+            return None
+
+    # ---- Sticky Notes (for WebApp) --------------------------------------
+    def get_sticky_notes(self, user_id: int, file_id: str) -> List[Dict[str, Any]]:
+        """
+        Return sticky notes for a file.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return []
+            coll = getattr(mongo_db, "sticky_notes", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["sticky_notes"]  # type: ignore[index]
+                except Exception:
+                    return []
+            cursor = coll.find({"user_id": int(user_id), "file_id": str(file_id)}).sort("created_at", 1)
+            return list(cursor) if cursor else []
+        except Exception:
+            logger.error("get_sticky_notes failed", exc_info=True)
+            return []
+
+    def create_sticky_note(self, user_id: int, file_id: str, data: Dict[str, Any]) -> Optional[str]:
+        """
+        Create a sticky note. Returns the note id or None.
+        """
+        try:
+            from datetime import datetime, timezone
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return None
+            coll = getattr(mongo_db, "sticky_notes", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["sticky_notes"]  # type: ignore[index]
+                except Exception:
+                    return None
+            now_utc = datetime.now(timezone.utc)
+            doc = {
+                "user_id": int(user_id),
+                "file_id": str(file_id),
+                "content": data.get("content", ""),
+                "position_x": int(data.get("position", {}).get("x", 100) or 100),
+                "position_y": int(data.get("position", {}).get("y", 100) or 100),
+                "width": int(data.get("size", {}).get("width", 240) or 240),
+                "height": int(data.get("size", {}).get("height", 180) or 180),
+                "color": data.get("color", "#FFFFCC"),
+                "is_minimized": bool(data.get("is_minimized", False)),
+                "line_start": data.get("line_start"),
+                "line_end": data.get("line_end"),
+                "anchor_id": data.get("anchor_id"),
+                "anchor_text": data.get("anchor_text"),
+                "created_at": now_utc,
+                "updated_at": now_utc,
+            }
+            result = coll.insert_one(doc)
+            inserted_id = getattr(result, "inserted_id", None)
+            return str(inserted_id) if inserted_id else None
+        except Exception:
+            logger.error("create_sticky_note failed", exc_info=True)
+            return None
+
+    def update_sticky_note(self, user_id: int, note_id: str, data: Dict[str, Any]) -> bool:
+        """
+        Update a sticky note.
+        """
+        try:
+            from datetime import datetime, timezone
+            from bson import ObjectId  # type: ignore
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "sticky_notes", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["sticky_notes"]  # type: ignore[index]
+                except Exception:
+                    return False
+            try:
+                oid = ObjectId(note_id)
+            except Exception:
+                return False
+            now_utc = datetime.now(timezone.utc)
+            updates: Dict[str, Any] = {"updated_at": now_utc}
+            if "content" in data:
+                updates["content"] = data["content"]
+            if "position" in data:
+                updates["position_x"] = int(data["position"].get("x", 100) or 100)
+                updates["position_y"] = int(data["position"].get("y", 100) or 100)
+            if "size" in data:
+                updates["width"] = int(data["size"].get("width", 240) or 240)
+                updates["height"] = int(data["size"].get("height", 180) or 180)
+            if "color" in data:
+                updates["color"] = data["color"]
+            if "is_minimized" in data:
+                updates["is_minimized"] = bool(data["is_minimized"])
+            result = coll.update_one(
+                {"_id": oid, "user_id": int(user_id)},
+                {"$set": updates}
+            )
+            return bool(getattr(result, "modified_count", 0) > 0)
+        except Exception:
+            logger.error("update_sticky_note failed", exc_info=True)
+            return False
+
+    def delete_sticky_note(self, user_id: int, note_id: str) -> bool:
+        """
+        Delete a sticky note.
+        """
+        try:
+            from bson import ObjectId  # type: ignore
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "sticky_notes", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["sticky_notes"]  # type: ignore[index]
+                except Exception:
+                    return False
+            try:
+                oid = ObjectId(note_id)
+            except Exception:
+                return False
+            result = coll.delete_one({"_id": oid, "user_id": int(user_id)})
+            return bool(getattr(result, "deleted_count", 0) > 0)
+        except Exception:
+            logger.error("delete_sticky_note failed", exc_info=True)
+            return False
+
+    # ---- Note Reminders (for WebApp) ------------------------------------
+    def get_note_reminder(self, user_id: int, note_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get reminder for a sticky note.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return None
+            coll = getattr(mongo_db, "note_reminders", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["note_reminders"]  # type: ignore[index]
+                except Exception:
+                    return None
+            doc = coll.find_one({
+                "user_id": int(user_id),
+                "note_id": str(note_id),
+                "status": {"$in": ["pending", "snoozed"]}
+            })
+            return doc if isinstance(doc, dict) else None
+        except Exception:
+            logger.error("get_note_reminder failed", exc_info=True)
+            return None
+
+    def set_note_reminder(self, user_id: int, note_id: str, remind_at: Any, file_id: str = "") -> bool:
+        """
+        Set or update a reminder for a sticky note.
+        """
+        try:
+            from datetime import datetime, timezone
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "note_reminders", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["note_reminders"]  # type: ignore[index]
+                except Exception:
+                    return False
+            now_utc = datetime.now(timezone.utc)
+            set_fields = {
+                "user_id": int(user_id),
+                "note_id": str(note_id),
+                "file_id": str(file_id),
+                "status": "pending",
+                "remind_at": remind_at,
+                "snooze_until": None,
+                "ack_at": None,
+                "updated_at": now_utc,
+                "needs_push": True,
+            }
+            coll.update_one(
+                {"user_id": int(user_id), "note_id": str(note_id)},
+                {"$set": set_fields, "$setOnInsert": {"created_at": now_utc}},
+                upsert=True,
+            )
+            return True
+        except Exception:
+            logger.error("set_note_reminder failed", exc_info=True)
+            return False
+
+    def delete_note_reminder(self, user_id: int, note_id: str) -> bool:
+        """
+        Delete a reminder for a sticky note.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "note_reminders", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["note_reminders"]  # type: ignore[index]
+                except Exception:
+                    return False
+            coll.delete_one({"user_id": int(user_id), "note_id": str(note_id)})
+            return True
+        except Exception:
+            logger.error("delete_note_reminder failed", exc_info=True)
+            return False
+
+    # ---- Push Subscriptions (for WebApp) --------------------------------
+    def get_push_subscriptions(self, user_id: int) -> List[Dict[str, Any]]:
+        """
+        Return push subscriptions for a user.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return []
+            coll = getattr(mongo_db, "push_subscriptions", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["push_subscriptions"]  # type: ignore[index]
+                except Exception:
+                    return []
+            # Support both int and string user_id
+            cursor = coll.find({"user_id": {"$in": [int(user_id), str(user_id)]}})
+            return list(cursor) if cursor else []
+        except Exception:
+            logger.error("get_push_subscriptions failed", exc_info=True)
+            return []
+
+    def save_push_subscription(self, user_id: int, subscription: Dict[str, Any]) -> bool:
+        """
+        Save or update a push subscription.
+        """
+        try:
+            from datetime import datetime, timezone
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "push_subscriptions", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["push_subscriptions"]  # type: ignore[index]
+                except Exception:
+                    return False
+            endpoint = str(subscription.get("endpoint", "")).strip()
+            if not endpoint:
+                return False
+            now_utc = datetime.now(timezone.utc)
+            keys = subscription.get("keys") or {}
+            set_fields = {
+                "user_id": int(user_id),
+                "endpoint": endpoint,
+                "keys": {"p256dh": keys.get("p256dh", ""), "auth": keys.get("auth", "")},
+                "subscription": subscription,
+                "updated_at": now_utc,
+            }
+            coll.update_one(
+                {"user_id": {"$in": [int(user_id), str(user_id)]}, "endpoint": endpoint},
+                {"$set": set_fields, "$setOnInsert": {"created_at": now_utc}},
+                upsert=True,
+            )
+            return True
+        except Exception:
+            logger.error("save_push_subscription failed", exc_info=True)
+            return False
+
+    def delete_push_subscription(self, user_id: int, endpoint: str) -> bool:
+        """
+        Delete a push subscription.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return False
+            coll = getattr(mongo_db, "push_subscriptions", None)
+            if coll is None:
+                try:
+                    coll = mongo_db["push_subscriptions"]  # type: ignore[index]
+                except Exception:
+                    return False
+            coll.delete_many({
+                "user_id": {"$in": [int(user_id), str(user_id)]},
+                "endpoint": str(endpoint)
+            })
+            return True
+        except Exception:
+            logger.error("delete_push_subscription failed", exc_info=True)
+            return False
 

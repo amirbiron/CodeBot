@@ -211,3 +211,128 @@ def test_infrastructure_does_not_depend_on_handlers():
     violations = _violations(files, forbidden_prefixes=forbidden)
     assert not violations, f"Infrastructure layer import violations:\n" + "\n".join(f"- {p}: {mod}" for p, mod in violations)
 
+
+# ============================================================================
+# WebApp Architecture Tests (Progress Tracking)
+# ============================================================================
+# These tests track progress toward the goal of having WebApp access DB
+# only through composition/facades/services.
+# They document current violations and will start failing as we clean up.
+# ============================================================================
+
+
+def _webapp_files_excluding_feature_suggestions() -> List[pathlib.Path]:
+    """
+    Return webapp Python files, excluding FEATURE_SUGGESTIONS directories.
+    """
+    files = []
+    for f in _python_files_under("webapp"):
+        parts = f.parts
+        if "FEATURE_SUGGESTIONS" in parts:
+            continue
+        files.append(f)
+    return files
+
+
+def test_webapp_api_modules_database_imports_progress():
+    """
+    Track progress: WebApp API modules should not import database directly.
+
+    Target: 0 violations (all DB access through FilesFacade).
+    Current: Known violations documented below. As we clean up, update baseline.
+
+    This test documents the current state and tracks improvement.
+    """
+    # API modules we're tracking (not the main app.py which has many)
+    api_modules = (
+        "bookmarks_api.py",
+        "collections_api.py",
+        "themes_api.py",
+        "sticky_notes_api.py",
+        "push_api.py",
+        "rules_api.py",
+    )
+
+    files = []
+    webapp_root = ROOT / "webapp"
+    for mod in api_modules:
+        p = webapp_root / mod
+        if p.exists():
+            files.append(p)
+
+    forbidden = ("database",)
+    allowed = ("src.infrastructure.composition",)
+    violations = _violations(files, forbidden_prefixes=forbidden, allowed_prefixes=allowed)
+    dyn = _dynamic_database_import_violations(files)
+
+    # Current known violations (baseline - update as we clean up)
+    # All API modules cleaned up! They now use FilesFacade.
+    KNOWN_VIOLATIONS_COUNT = 0  # Target achieved!
+
+    total_violations = len(violations) + len(dyn)
+
+    # This test passes as long as we don't regress (add new violations)
+    # It will fail if violations INCREASE, alerting us to new database imports
+    if total_violations > KNOWN_VIOLATIONS_COUNT:
+        assert False, (
+            f"WebApp API modules: NEW database imports detected! "
+            f"Expected max {KNOWN_VIOLATIONS_COUNT}, found {total_violations}.\n"
+            f"Violations:\n" +
+            "\n".join(f"- {p}: {mod}" for p, mod in violations) +
+            ("\n" if violations and dyn else "") +
+            "\n".join(f"- {p}: {mod} (dynamic)" for p, mod in dyn)
+        )
+
+    # Report progress (informational, not a failure)
+    if total_violations < KNOWN_VIOLATIONS_COUNT:
+        # Update the baseline in the test when violations decrease!
+        pass  # Good progress!
+
+    # Document current state
+    # When total_violations reaches 0, change this test to assert no violations
+
+
+def test_webapp_routes_database_imports_progress():
+    """
+    Track progress: WebApp route modules should not import database directly.
+
+    Target: 0 violations.
+    """
+    routes_dir = ROOT / "webapp" / "routes"
+    files = list(routes_dir.rglob("*.py")) if routes_dir.exists() else []
+
+    forbidden = ("database",)
+    allowed = ("src.infrastructure.composition",)
+    violations = _violations(files, forbidden_prefixes=forbidden, allowed_prefixes=allowed)
+
+    # Current known violations (baseline)
+    # All route modules cleaned up! They now use FilesFacade.
+    KNOWN_VIOLATIONS_COUNT = 0  # Target achieved!
+
+    total_violations = len(violations)
+
+    if total_violations > KNOWN_VIOLATIONS_COUNT:
+        assert False, (
+            f"WebApp routes: NEW database imports detected! "
+            f"Expected max {KNOWN_VIOLATIONS_COUNT}, found {total_violations}.\n"
+            f"Violations:\n" +
+            "\n".join(f"- {p}: {mod}" for p, mod in violations)
+        )
+
+
+def test_webapp_should_use_composition_facade():
+    """
+    Verify that get_files_facade / get_snippet_service are available and importable.
+
+    This is a sanity check to ensure the composition layer is correctly set up
+    for WebApp to use.
+    """
+    try:
+        from src.infrastructure.composition import get_files_facade, get_snippet_service
+    except ImportError as e:
+        assert False, f"Could not import composition functions: {e}"
+
+    # Verify these are callable
+    assert callable(get_files_facade), "get_files_facade should be callable"
+    assert callable(get_snippet_service), "get_snippet_service should be callable"
+

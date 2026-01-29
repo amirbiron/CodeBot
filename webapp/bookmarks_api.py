@@ -1,5 +1,7 @@
 """
 Bookmarks API Endpoints for WebApp
+
+Architecture: Uses FilesFacade from composition layer for DB access.
 """
 from flask import Blueprint, jsonify, request, session
 from bson import ObjectId
@@ -8,8 +10,10 @@ from typing import Optional, Dict
 import logging
 import html
 
-from database.bookmarks_manager import BookmarksManager
-from database.bookmark import VALID_COLORS as MODEL_VALID_COLORS
+# Use composition layer instead of direct database imports
+from src.infrastructure.composition import get_files_facade, BOOKMARK_VALID_COLORS
+MODEL_VALID_COLORS = BOOKMARK_VALID_COLORS  # Alias for backward compatibility
+
 from cache_manager import dynamic_cache, cache
 
 logger = logging.getLogger(__name__)
@@ -76,14 +80,17 @@ def _get_file_info(file_id: str) -> Optional[Dict[str, str]]:
 
 
 def get_db():
-    """Get database instance - implement based on your setup"""
-    from webapp.app import get_db as _get_db
-    return _get_db()
+    """Get database instance via FilesFacade.
+
+    Note: This is kept for backward compatibility with code that still uses get_db().
+    New code should use get_files_facade() directly.
+    """
+    return get_files_facade().get_mongo_db()
 
 
 def get_bookmarks_manager():
-    """Get bookmarks manager instance"""
-    return BookmarksManager(get_db())
+    """Get bookmarks manager instance via FilesFacade."""
+    return get_files_facade().get_bookmarks_manager()
 
 
 # ==================== Decorators ====================

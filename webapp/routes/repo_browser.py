@@ -2,6 +2,8 @@
 Repository Browser Routes - Extended API
 
 UI לגלישה בקוד הריפו עם API מתקדם
+
+Architecture: Uses FilesFacade from composition layer for DB access.
 """
 
 import logging
@@ -11,9 +13,14 @@ from functools import lru_cache
 
 from services.git_mirror_service import get_mirror_service
 from services.repo_search_service import create_search_service
-from database.db_manager import get_db
 
 logger = logging.getLogger(__name__)
+
+
+def get_db():
+    """Get database instance via FilesFacade."""
+    from src.infrastructure.composition import get_files_facade
+    return get_files_facade().get_mongo_db()
 
 repo_bp = Blueprint('repo', __name__, url_prefix='/repo')
 

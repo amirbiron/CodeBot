@@ -93,13 +93,19 @@ def _get_request_id() -> str:
 
 
 def get_db():
-    from webapp.app import get_db as _get_db
-    return _get_db()
+    """Get database instance via FilesFacade.
+
+    Note: This is kept for backward compatibility with code that still uses get_db().
+    New code should use get_files_facade() directly.
+    """
+    from src.infrastructure.composition import get_files_facade
+    return get_files_facade().get_mongo_db()
 
 
 def get_manager():
-    from database.collections_manager import CollectionsManager
-    return CollectionsManager(get_db())
+    """Get collections manager instance via FilesFacade."""
+    from src.infrastructure.composition import get_files_facade
+    return get_files_facade().get_collections_manager()
 
 
 def require_auth(f):

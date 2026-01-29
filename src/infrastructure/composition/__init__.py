@@ -4,7 +4,7 @@ import threading
 
 # Public API of the composition root
 from .container import get_snippet_service  # noqa: F401
-from .files_facade import FilesFacade  # noqa: F401
+from .files_facade import FilesFacade, BOOKMARK_VALID_COLORS  # noqa: F401
 
 _files_facade_singleton = None
 _files_facade_lock = threading.Lock()
