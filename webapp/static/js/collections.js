@@ -419,7 +419,7 @@
 
     const modalHtml = `
       <div class="modal tags-editor-modal" id="tagsEditorModal" role="dialog" aria-modal="true" aria-label="עריכת תגיות" style="display:flex !important; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.7); align-items:center; justify-content:center;">
-        <div class="modal-content">
+        <div class="modal-content" style="background:white; color:black; padding:20px; border-radius:12px; max-width:600px; max-height:80vh; overflow:auto;">
           <div class="modal-header">
             <h3>${escapeHtml(modalTitle)}</h3>
             <button class="modal-close" aria-label="סגירה">&times;</button>
