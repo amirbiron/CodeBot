@@ -78,6 +78,7 @@ ALLOWED_TAGS: List[str] = [
     # סנטימנט
     "🔮",  # קסום
     "♥️",  # מועדף
+    "💎",  # איכותי
 
     # אבטחה
     "🔐",  # סודי
@@ -101,7 +102,7 @@ ALLOWED_TAGS: List[str] = [
 # קטגוריות תגיות
 TAG_CATEGORIES: Dict[str, List[str]] = {
     "priority": ["🐢", "🔥"],
-    "sentiment": ["🔮", "♥️"],
+    "sentiment": ["🔮", "♥️", "💎"],
     "security": ["🔐"],
     "status": ["💭", "⏸️", "🎯"],
     "category": ["🐛", "🗄️", "🧪"],
@@ -114,6 +115,7 @@ TAG_METADATA: Dict[str, Dict[str, str]] = {
     "🔥": {"name_he": "דחוף", "name_en": "urgent", "category": "priority"},
     "🔮": {"name_he": "קסום", "name_en": "magic", "category": "sentiment"},
     "♥️": {"name_he": "מועדף", "name_en": "favorite", "category": "sentiment"},
+    "💎": {"name_he": "איכותי", "name_en": "quality", "category": "sentiment"},
     "🔐": {"name_he": "סודי", "name_en": "secret", "category": "security"},
     "💭": {"name_he": "רעיון", "name_en": "idea", "category": "status"},
     "⏸️": {"name_he": "מושהה", "name_en": "paused", "category": "status"},
