@@ -452,8 +452,12 @@
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     const modal = document.getElementById('tagsEditorModal');
     if (!modal) {
+      alert('DEBUG: המודל לא נוצר!');
       return;
     }
+    
+    // DEBUG: וידוא שהמודל נוצר
+    alert('DEBUG: המודל נוצר! categoriesHtml length=' + categoriesHtml.length);
 
     const previousFocus = document.activeElement;
 
