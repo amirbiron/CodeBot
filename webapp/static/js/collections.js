@@ -3057,5 +3057,35 @@
   // אתחול אוטומטי אם קיימים אזורים בעמוד
   window.addEventListener('DOMContentLoaded', () => {
     initCollectionsPage().catch(() => {});
+
+    // Global fallback handler לכפתור עריכת תגיות
+    // מטפל בלחיצות שלא נתפסות על ידי handlers ספציפיים
+    document.addEventListener('click', (ev) => {
+      const tagBtn = ev.target.closest('.btn-tag-edit');
+      if (!tagBtn) return;
+
+      // מונע התנהגות ברירת מחדל ועצירת propagation
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      if (!TAGS_FEATURE_ENABLED) {
+        showToast('תיוג קבצים כבוי כרגע', 'warning');
+        return;
+      }
+
+      const itemId = tagBtn.dataset.itemId || '';
+      if (!itemId) {
+        console.warn('[collections] tag button click: missing itemId');
+        return;
+      }
+
+      // מציאת האלמנט המכיל (card או row) לקבלת התגיות הנוכחיות
+      const itemEl = tagBtn.closest('.workspace-card') ||
+                     tagBtn.closest('.collection-item') ||
+                     document.querySelector(`[data-item-id="${itemId}"]`);
+      const currentTags = collectTagsFromElement(itemEl);
+
+      openTagsEditorModal(itemId, currentTags);
+    }, true); // capture phase כדי לתפוס לפני handlers אחרים
   });
 })();
