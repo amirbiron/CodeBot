@@ -11,7 +11,7 @@
     <aside class="collections-sidebar">
       <div id="collectionsSidebar"></div>
     </aside>
-    <section class="collections-content" id="collectionsContent" data-default-collection-id="{{ default_collection_id|default('', true)|e }}">
+    <section class="collections-content" id="collectionsContent" data-default-collection-id="{{ default_collection_id|default('', true)|e }}" data-tags-enabled="{{ '1' if tags_enabled else '0' }}">
       <div class="empty">בחר אוסף כדי לצפות בפריטים</div>
     </section>
   </div>

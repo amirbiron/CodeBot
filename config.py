@@ -323,6 +323,10 @@ class BotConfig(BaseSettings):
         default=True,
         description="Enable 'My Collections' feature (API/UI)"
     )
+    FEATURE_COLLECTIONS_TAGS: bool = Field(
+        default=True,
+        description="Enable tags for items in 'My Collections' (API/UI)"
+    )
 
     # Community Library (bots/apps) feature flag
     COMMUNITY_LIBRARY_ENABLED: bool = Field(

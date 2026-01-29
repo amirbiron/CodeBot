@@ -1399,6 +1399,12 @@ class ConfigService:
             description="הפעלת הרצת קוד (Playground) ב-WebApp: /api/code/run",
             category="features",
         ),
+        "FEATURE_COLLECTIONS_TAGS": ConfigDefinition(
+            key="FEATURE_COLLECTIONS_TAGS",
+            default="true",
+            description="הפעלת תגיות לפריטים ב'אוספים שלי' (API/UI)",
+            category="features",
+        ),
         "CODE_EXEC_USE_DOCKER": ConfigDefinition(
             key="CODE_EXEC_USE_DOCKER",
             default="true",

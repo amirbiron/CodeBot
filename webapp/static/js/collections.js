@@ -40,6 +40,26 @@
       const r = await fetch(`/api/collections/${encodeURIComponent(id)}/share`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{})});
       return r.json();
     },
+    async updateItemTags(itemId, tags) {
+      const r = await fetch(`/api/collections/items/${encodeURIComponent(itemId)}/tags`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags }),
+      });
+      return r.json();
+    },
+    async getTagsMetadata() {
+      const r = await fetch('/api/collections/tags/metadata');
+      return r.json();
+    },
+    async logTagsFiltered(collectionId, tags) {
+      const r = await fetch('/api/collections/tags/filtered', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collection_id: collectionId, tags }),
+      });
+      return r.json();
+    },
     async updateWorkspaceState(itemId, state){
       const r = await fetch(`/api/workspace/items/${encodeURIComponent(itemId)}/state`, {
         method: 'PATCH',
@@ -67,9 +87,60 @@
     "🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️"
   ];
 
+  // תגיות זמינות (יטען מהשרת)
+  let TAGS_METADATA = null;
+  let TAGS_FEATURE_ENABLED = true;
+  const MAX_TAGS_PER_ITEM = 10;
+
+  // מטא-מידע על תגיות (default עד שיטען מהשרת)
+  const DEFAULT_TAGS_METADATA = {
+    allowed_tags: [
+      "🐢", "🔥", "🔮", "♥️", "🔐", "💭",
+      "⏸️", "🎯", "🐛", "🗄️", "🧪",
+      "1️⃣", "2️⃣", "3️⃣",
+    ],
+    categories: {
+      priority: ["🐢", "🔥"],
+      sentiment: ["🔮", "♥️"],
+      security: ["🔐"],
+      status: ["💭", "⏸️", "🎯"],
+      category: ["🐛", "🗄️", "🧪"],
+      order: ["1️⃣", "2️⃣", "3️⃣"],
+    },
+    metadata: {
+      "🐢": { name_he: "לא דחוף", name_en: "low priority", category: "priority" },
+      "🔥": { name_he: "דחוף", name_en: "urgent", category: "priority" },
+      "🔮": { name_he: "קסום", name_en: "magic", category: "sentiment" },
+      "♥️": { name_he: "מועדף", name_en: "favorite", category: "sentiment" },
+      "🔐": { name_he: "סודי", name_en: "secret", category: "security" },
+      "💭": { name_he: "רעיון", name_en: "idea", category: "status" },
+      "⏸️": { name_he: "מושהה", name_en: "paused", category: "status" },
+      "🎯": { name_he: "מטרה", name_en: "goal", category: "status" },
+      "🐛": { name_he: "באג", name_en: "bug", category: "category" },
+      "🗄️": { name_he: "דאטה-בייס", name_en: "database", category: "category" },
+      "🧪": { name_he: "ניסיוני", name_en: "experimental", category: "category" },
+      "1️⃣": { name_he: "ראשון", name_en: "first", category: "order" },
+      "2️⃣": { name_he: "שני", name_en: "second", category: "order" },
+      "3️⃣": { name_he: "שלישי", name_en: "third", category: "order" },
+    },
+  };
+
+  let currentTagsFilter = [];
+  let currentTagsSort = 'default';
+  let lastCollectionItems = [];
+  let lastCollectionMeta = null;
+  let lastCollectionIsWorkspace = false;
+  let lastCollectionId = '';
+  let lastCollectionTotal = 0;
+  let lastCollectionPage = 1;
+  let lastCollectionPerPage = 200;
+  let isLoadingMoreItems = false;
+  const tagsFilterCache = new Map();
+
   const resolvedFileIdCache = new Map();
   const RECYCLE_BIN_ALERT = 'הקובץ הועבר לסל מיחזור, ניתן לשחזר דרך סל מיחזור דרך הבוט';
   let currentCollectionId = '';
+  let isBulkMode = false;
   let initialCollectionIdConsumed = false;
   const WORKSPACE_STATE_META = {
     todo: { label: 'לטיפול', description: 'משימות שטרם התחלת', shortcut: 'Shift+1' },
@@ -167,6 +238,755 @@
       } catch (_err) {}
     }
     return val;
+  }
+
+  function initTagsFeatureFlag() {
+    try {
+      const container = document.getElementById('collectionsContent');
+      if (container && container.hasAttribute('data-tags-enabled')) {
+        const raw = container.getAttribute('data-tags-enabled') || '';
+        TAGS_FEATURE_ENABLED = String(raw).trim() !== '0';
+      }
+    } catch (_err) {}
+  }
+
+  function resolveTagsMetadata() {
+    return TAGS_METADATA || DEFAULT_TAGS_METADATA;
+  }
+
+  function getTagLabel(tag) {
+    const meta = resolveTagsMetadata();
+    const info = (meta && meta.metadata && meta.metadata[tag]) || {};
+    let lang = 'he';
+    try {
+      lang = String(document.documentElement.lang || 'he').toLowerCase();
+    } catch (_err) {
+      lang = 'he';
+    }
+    const labelKey = lang.startsWith('en') ? 'name_en' : 'name_he';
+    return info[labelKey] || info.name_he || info.name_en || tag;
+  }
+
+  /**
+   * אתחול מטאדאטה של תגיות
+   */
+  async function initTagsMetadata() {
+    if (!TAGS_FEATURE_ENABLED) {
+      TAGS_METADATA = DEFAULT_TAGS_METADATA;
+      return;
+    }
+    try {
+      const resp = await api.getTagsMetadata();
+      if (resp && resp.ok) {
+        TAGS_METADATA = resp;
+      } else {
+        TAGS_METADATA = DEFAULT_TAGS_METADATA;
+      }
+    } catch (err) {
+      console.error('Failed to load tags metadata:', err);
+      TAGS_METADATA = DEFAULT_TAGS_METADATA;
+    }
+  }
+
+  /**
+   * בניית HTML לתגיות של פריט
+   * @param {Array} tags - רשימת תגיות (אימוג'ים)
+   * @param {String} itemId - מזהה הפריט
+   * @returns {String} HTML
+   */
+  function buildItemTagsHtml(tags, itemId) {
+    if (!TAGS_FEATURE_ENABLED) {
+      return '';
+    }
+    const safeTags = Array.isArray(tags) ? tags : [];
+    if (!safeTags || safeTags.length === 0) {
+      return `<span class="item-tags-empty" data-item-id="${escapeHtml(itemId || '')}">אין תגיות</span>`;
+    }
+
+    const meta = resolveTagsMetadata();
+    const tagsHtml = safeTags.map(tag => {
+      const tooltip = getTagLabel(tag);
+      return `<span class="item-tag" data-tag="${escapeHtml(tag)}" title="${escapeHtml(tooltip)}">${escapeHtml(tag)}</span>`;
+    }).join('');
+
+    return `<div class="item-tags" data-item-id="${escapeHtml(itemId || '')}">${tagsHtml}</div>`;
+  }
+
+  function collectTagsFromElement(itemEl) {
+    if (!itemEl) return [];
+    const tagsContainer = itemEl.querySelector('.item-tags');
+    if (!tagsContainer) {
+      return [];
+    }
+    return Array.from(tagsContainer.querySelectorAll('.item-tag'))
+      .map(el => el.dataset.tag)
+      .filter(Boolean);
+  }
+
+  /**
+   * פתיחת מודל לעריכת תגיות של פריט
+   * @param {String} itemId - מזהה הפריט
+   * @param {Array} currentTags - תגיות נוכחיות
+   */
+  function openTagsEditorModal(itemId, currentTags = [], options = {}) {
+    if (!TAGS_FEATURE_ENABLED) {
+      showToast('תיוג קבצים כבוי כרגע', 'warning');
+      return;
+    }
+    const meta = resolveTagsMetadata();
+    const uniqueTags = Array.from(new Set((currentTags || []).filter(Boolean)));
+    const modalTitle = options.title || 'עריכת תגיות';
+    const saveLabel = options.saveLabel || 'שמור';
+    const onSave = typeof options.onSave === 'function' ? options.onSave : null;
+
+    // בניית HTML של בוחר תגיות לפי קטגוריות
+    let categoriesHtml = '';
+    Object.entries(meta.categories || {}).forEach(([catKey, catTags]) => {
+      const categoryNames = {
+        priority: 'עדיפות',
+        sentiment: 'סנטימנט',
+        security: 'אבטחה',
+        status: 'סטטוס',
+        category: 'קטגוריה',
+        order: 'סדר',
+      };
+
+      const catName = categoryNames[catKey] || catKey;
+      const tagsHtml = (catTags || []).map(tag => {
+        const selected = uniqueTags.includes(tag) ? 'selected' : '';
+        const label = getTagLabel(tag);
+        return `
+          <button class="tag-option ${selected}"
+                  data-tag="${escapeHtml(tag)}"
+                  role="checkbox"
+                  aria-checked="${selected ? 'true' : 'false'}"
+                  aria-label="${escapeHtml(label)}">
+            ${escapeHtml(tag)}
+            <span class="tag-name">${escapeHtml(label)}</span>
+            <span class="sr-only">${escapeHtml(label)}</span>
+          </button>
+        `;
+      }).join('');
+
+      categoriesHtml += `
+        <div class="tag-category">
+          <h4 class="tag-category-title">${escapeHtml(catName)}</h4>
+          <div class="tag-category-options">
+            ${tagsHtml}
+          </div>
+        </div>
+      `;
+    });
+
+    const modalHtml = `
+      <div class="modal tags-editor-modal" id="tagsEditorModal" role="dialog" aria-modal="true" aria-label="עריכת תגיות">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>${escapeHtml(modalTitle)}</h3>
+            <button class="modal-close" aria-label="סגירה">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="tags-selected-preview" aria-live="polite">
+              <strong>תגיות נבחרות:</strong>
+              <div class="selected-tags-container">
+                ${uniqueTags.length > 0
+                  ? uniqueTags.map(t => `<span class="selected-tag">${escapeHtml(t)}</span>`).join('')
+                  : '<span class="no-tags">לא נבחרו תגיות</span>'}
+              </div>
+            </div>
+            <div class="tags-categories">
+              ${categoriesHtml}
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-primary" id="saveTagsBtn">${escapeHtml(saveLabel)}</button>
+            <button class="btn btn-secondary modal-close">ביטול</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // הוספת המודל ל-DOM
+    const existingModal = document.getElementById('tagsEditorModal');
+    if (existingModal) existingModal.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modal = document.getElementById('tagsEditorModal');
+    if (!modal) {
+      return;
+    }
+
+    const previousFocus = document.activeElement;
+
+    // Selected tags state
+    let selectedTags = [...uniqueTags];
+
+    // Event listeners לבחירת תגיות
+    modal.querySelectorAll('.tag-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.tag;
+        if (!tag) return;
+
+        if (selectedTags.includes(tag)) {
+          // הסרת תגית
+          selectedTags = selectedTags.filter(t => t !== tag);
+          btn.classList.remove('selected');
+          btn.setAttribute('aria-checked', 'false');
+        } else {
+          // הוספת תגית
+          if (selectedTags.length >= MAX_TAGS_PER_ITEM) {
+            showToast(`ניתן לבחור עד ${MAX_TAGS_PER_ITEM} תגיות`, 'warning');
+            return;
+          }
+          selectedTags.push(tag);
+          btn.classList.add('selected');
+          btn.setAttribute('aria-checked', 'true');
+        }
+
+        // עדכון תצוגת תגיות נבחרות
+        updateSelectedTagsPreview();
+      });
+    });
+
+    // עדכון תצוגה
+    function updateSelectedTagsPreview() {
+      const container = modal.querySelector('.selected-tags-container');
+      if (!container) return;
+      if (selectedTags.length === 0) {
+        container.innerHTML = '<span class="no-tags">לא נבחרו תגיות</span>';
+      } else {
+        container.innerHTML = selectedTags
+          .map(t => `<span class="selected-tag">${escapeHtml(t)}</span>`)
+          .join('');
+      }
+    }
+
+    const closeModal = () => {
+      modal.remove();
+      if (previousFocus && typeof previousFocus.focus === 'function') {
+        try { previousFocus.focus(); } catch (_err) {}
+      }
+    };
+
+    // שמירת תגיות
+    const saveBtn = modal.querySelector('#saveTagsBtn');
+    if (saveBtn) {
+      const debouncedSave = debounce(async () => {
+        try {
+          if (onSave) {
+            await onSave(selectedTags);
+            closeModal();
+          } else {
+            const resp = await api.updateItemTags(itemId, selectedTags);
+            if (resp && resp.ok) {
+              showToast('התגיות עודכנו בהצלחה', 'success');
+              closeModal();
+              await renderCollectionItems(currentCollectionId);
+            } else {
+              showToast((resp && resp.error) || 'שגיאה בעדכון תגיות', 'error');
+            }
+          }
+        } catch (err) {
+          console.error('Error updating tags:', err);
+          showToast('שגיאה בעדכון תגיות', 'error');
+        }
+      }, 300);
+      saveBtn.addEventListener('click', () => debouncedSave());
+    }
+
+    // סגירת מודל
+    modal.querySelectorAll('.modal-close').forEach(btn => {
+      btn.addEventListener('click', () => closeModal());
+    });
+
+    // סגירה בלחיצה מחוץ למודל
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // סגירה ב-Escape
+    modal.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeModal();
+      }
+    });
+
+    // הצגת המודל
+    modal.style.display = 'flex';
+    const firstTag = modal.querySelector('.tag-option');
+    if (firstTag && typeof firstTag.focus === 'function') {
+      firstTag.focus();
+    }
+  }
+
+  /**
+   * Wire up tags editor button clicks
+   */
+  function wireTagsEditorButtons(container) {
+    if (!container || container.dataset.tagsWired === '1') {
+      return;
+    }
+    container.dataset.tagsWired = '1';
+    container.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-tag-edit');
+      if (!btn) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const itemId = btn.dataset.itemId;
+      const itemEl = container.querySelector(`[data-item-id="${itemId}"]`);
+      const currentTags = collectTagsFromElement(itemEl);
+
+      openTagsEditorModal(itemId, currentTags);
+    });
+  }
+
+  /**
+   * סינון פריטים לפי תגיות
+   * @param {Array} items - כל הפריטים
+   * @param {Array} filterTags - תגיות לסינון
+   * @returns {Array} פריטים מסוננים
+   */
+  function filterItemsByTags(items, filterTags) {
+    if (!filterTags || filterTags.length === 0) {
+      return items;
+    }
+    return (items || []).filter(item => {
+      const itemTags = item.tags || [];
+      // בדיקה אם הפריט מכיל לפחות אחת מהתגיות
+      return filterTags.some(tag => itemTags.includes(tag));
+    });
+  }
+
+  function sortItemsByTags(items, mode) {
+    if (!Array.isArray(items) || !items.length) {
+      return items || [];
+    }
+    if (!mode || mode === 'default') {
+      return items.slice();
+    }
+    const priorityWeight = (tags) => {
+      if (tags.includes('🔥')) return 0;
+      if (tags.includes('🐢')) return 1;
+      return 2;
+    };
+    const orderWeight = (tags) => {
+      if (tags.includes('1️⃣')) return 1;
+      if (tags.includes('2️⃣')) return 2;
+      if (tags.includes('3️⃣')) return 3;
+      return 99;
+    };
+    return items
+      .map((item, idx) => ({ item, idx }))
+      .sort((a, b) => {
+        const tagsA = a.item.tags || [];
+        const tagsB = b.item.tags || [];
+        let cmp = 0;
+        if (mode === 'priority') {
+          cmp = priorityWeight(tagsA) - priorityWeight(tagsB);
+        } else if (mode === 'order') {
+          cmp = orderWeight(tagsA) - orderWeight(tagsB);
+        }
+        if (cmp !== 0) return cmp;
+        const nameA = String(a.item.file_name || '').toLowerCase();
+        const nameB = String(b.item.file_name || '').toLowerCase();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        return a.idx - b.idx;
+      })
+      .map(entry => entry.item);
+  }
+
+  function buildTagsFilterCacheKey(filterTags, sortMode) {
+    const tagsKey = (filterTags || []).slice().sort().join('|');
+    return `${tagsKey}::${sortMode || 'default'}`;
+  }
+
+  function applyTagsFilterAndSort(items) {
+    const key = buildTagsFilterCacheKey(currentTagsFilter, currentTagsSort);
+    if (tagsFilterCache.has(key)) {
+      return tagsFilterCache.get(key);
+    }
+    const filtered = filterItemsByTags(items || [], currentTagsFilter);
+    const sorted = sortItemsByTags(filtered, currentTagsSort);
+    tagsFilterCache.set(key, sorted);
+    return sorted;
+  }
+
+  function buildTagsFilterPanelHtml() {
+    const meta = resolveTagsMetadata();
+    let categoriesHtml = '';
+    Object.entries(meta.categories || {}).forEach(([catKey, catTags]) => {
+      const categoryNames = {
+        priority: 'עדיפות',
+        sentiment: 'סנטימנט',
+        security: 'אבטחה',
+        status: 'סטטוס',
+        category: 'קטגוריה',
+        order: 'סדר',
+      };
+      const catName = categoryNames[catKey] || catKey;
+      const tagsHtml = (catTags || []).map(tag => {
+        const selected = currentTagsFilter.includes(tag) ? 'selected' : '';
+        const label = getTagLabel(tag);
+        return `
+          <button type="button" class="tag-filter-option ${selected}"
+                  data-tag="${escapeHtml(tag)}"
+                  aria-pressed="${selected ? 'true' : 'false'}"
+                  aria-label="${escapeHtml(label)}">
+            ${escapeHtml(tag)}
+            <span class="tag-name">${escapeHtml(label)}</span>
+          </button>
+        `;
+      }).join('');
+      categoriesHtml += `
+        <div class="tag-category">
+          <h4 class="tag-category-title">${escapeHtml(catName)}</h4>
+          <div class="tag-category-options">
+            ${tagsHtml}
+          </div>
+        </div>
+      `;
+    });
+    return categoriesHtml;
+  }
+
+  function buildTagsToolbarHtml() {
+    if (!TAGS_FEATURE_ENABLED) {
+      return '';
+    }
+    const selectedTags = currentTagsFilter || [];
+    const filterLabel = selectedTags.length ? `סינון (${selectedTags.length})` : 'סינון תגיות';
+    const sortOptions = [
+      { value: 'default', label: 'מיון רגיל' },
+      { value: 'priority', label: 'מיון לפי עדיפות' },
+      { value: 'order', label: 'מיון לפי סדר' },
+    ];
+    const selectedTagsHtml = selectedTags.length
+      ? selectedTags.map(t => `<span class="selected-tag-chip">${escapeHtml(t)}</span>`).join('')
+      : '<span class="no-tags">אין סינון פעיל</span>';
+
+    return `
+      <div class="tags-toolbar" data-tags-toolbar="1">
+        <div class="tags-toolbar__row">
+          <button type="button" class="btn btn-secondary btn-sm tags-filter-toggle" aria-expanded="false">${escapeHtml(filterLabel)}</button>
+          <select class="tags-sort-select" aria-label="מיון תגיות">
+            ${sortOptions.map(opt => `<option value="${opt.value}" ${currentTagsSort === opt.value ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm tags-clear-filter" ${selectedTags.length ? '' : 'disabled'}>נקה סינון</button>
+          <button type="button" class="btn btn-secondary btn-sm tags-export-btn">ייצוא תגיות</button>
+          <label class="btn btn-secondary btn-sm tags-import-btn">
+            ייבוא תגיות
+            <input class="tags-import-input" type="file" accept=".csv,application/json" hidden>
+          </label>
+          <button type="button" class="btn btn-secondary btn-sm tags-bulk-toggle">${isBulkMode ? 'בטל בחירה' : 'בחירה מרובה'}</button>
+          <button type="button" class="btn btn-secondary btn-sm tags-bulk-edit" ${isBulkMode ? '' : 'disabled'}>עדכן תגיות</button>
+        </div>
+        <div class="tags-filter-panel" data-tags-filter-panel="1" hidden>
+          ${buildTagsFilterPanelHtml()}
+        </div>
+        <div class="tags-selected-summary" data-tags-summary="1">
+          ${selectedTagsHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  function setBulkMode(container, enabled) {
+    isBulkMode = !!enabled;
+    if (container) {
+      container.classList.toggle('bulk-mode', isBulkMode);
+      if (!isBulkMode) {
+        container.querySelectorAll('.item-select:checked').forEach((cb) => {
+          cb.checked = false;
+        });
+      }
+    }
+  }
+
+  function getSelectedItemIds(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.item-select:checked'))
+      .map(cb => cb.getAttribute('data-item-id'))
+      .filter(Boolean);
+  }
+
+  function updateBulkActionsState(toolbar, container) {
+    if (!toolbar) return;
+    const bulkEditBtn = toolbar.querySelector('.tags-bulk-edit');
+    if (!bulkEditBtn) return;
+    const selected = getSelectedItemIds(container);
+    bulkEditBtn.disabled = selected.length === 0;
+  }
+
+  function downloadFile(filename, content, mimeType) {
+    try {
+      const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename || 'download.txt';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (_err) {
+      showToast('שגיאה בהורדת הקובץ', 'error');
+    }
+  }
+
+  async function exportCollectionWithTags(collectionId) {
+    try {
+      const allItems = [];
+      let page = 1;
+      const perPage = 200;
+      while (true) {
+        const resp = await api.getItems(collectionId, page, perPage);
+        if (!resp || !resp.ok) {
+          throw new Error((resp && resp.error) || 'שגיאה ביצוא תגיות');
+        }
+        const items = Array.isArray(resp.items) ? resp.items : [];
+        allItems.push(...items);
+        const total = Number(resp.total_items || resp.total_manual || items.length);
+        if (allItems.length >= total || items.length === 0) {
+          break;
+        }
+        page += 1;
+      }
+      const rows = allItems.map(item => {
+        const fileName = String(item.file_name || '');
+        const tags = (item.tags || []).join(',');
+        const note = String(item.note || '').replace(/"/g, '""');
+        return `${fileName},"${tags}","${note}"`;
+      });
+      const csv = ['file_name,tags,note', ...rows].join('\n');
+      downloadFile('collection_export.csv', csv, 'text/csv;charset=utf-8');
+      showToast('היצוא הושלם', 'success');
+    } catch (err) {
+      console.error('Export error:', err);
+      showToast('שגיאה בייצוא תגיות', 'error');
+    }
+  }
+
+  function parseCsvLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  async function importCollectionWithTags(collectionId, file, container) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const itemsByName = new Map();
+      lastCollectionItems.forEach((item) => {
+        const key = String(item.file_name || '');
+        if (!itemsByName.has(key)) {
+          itemsByName.set(key, []);
+        }
+        itemsByName.get(key).push(item);
+      });
+
+      let rows = [];
+      if (file.name.endsWith('.json')) {
+        const parsed = JSON.parse(text || '[]');
+        rows = Array.isArray(parsed) ? parsed : [];
+      } else {
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        const dataLines = lines[0] && lines[0].includes('file_name') ? lines.slice(1) : lines;
+        rows = dataLines.map(line => {
+          const [fileName, tagsRaw, note] = parseCsvLine(line);
+          return { file_name: fileName, tags: tagsRaw, note };
+        });
+      }
+
+      const updates = [];
+      rows.forEach((row) => {
+        const fileName = String(row.file_name || '').trim();
+        if (!fileName) return;
+        const tagsRaw = row.tags || row.tags_raw || '';
+        const tags = String(tagsRaw).split(',').map(t => t.trim()).filter(Boolean);
+        const targets = itemsByName.get(fileName) || [];
+        targets.forEach((item) => {
+          if (item && item.id) {
+            updates.push({ itemId: item.id, tags });
+          }
+        });
+      });
+
+      if (!updates.length) {
+        showToast('לא נמצאו פריטים לעדכון', 'warning');
+        return;
+      }
+      const results = await Promise.all(updates.map(u => api.updateItemTags(u.itemId, u.tags)));
+      const failed = results.filter(r => !r || !r.ok).length;
+      if (failed > 0) {
+        showToast(`עודכנו ${updates.length - failed}, נכשלו ${failed}`, 'warning');
+      } else {
+        showToast('התגיות יובאו בהצלחה', 'success');
+      }
+      await renderCollectionItems(collectionId);
+    } catch (err) {
+      console.error('Import error:', err);
+      showToast('שגיאה בייבוא תגיות', 'error');
+    } finally {
+      if (container) {
+        const input = container.querySelector('.tags-import-input');
+        if (input) {
+          input.value = '';
+        }
+      }
+    }
+  }
+
+  function wireTagsToolbar(container, collectionId) {
+    if (!container) return;
+    const toolbar = container.querySelector('[data-tags-toolbar="1"]');
+    if (!toolbar) return;
+
+    const filterToggle = toolbar.querySelector('.tags-filter-toggle');
+    const filterPanel = toolbar.querySelector('[data-tags-filter-panel="1"]');
+    const clearBtn = toolbar.querySelector('.tags-clear-filter');
+    const sortSelect = toolbar.querySelector('.tags-sort-select');
+    const exportBtn = toolbar.querySelector('.tags-export-btn');
+    const importInput = toolbar.querySelector('.tags-import-input');
+    const bulkToggle = toolbar.querySelector('.tags-bulk-toggle');
+    const bulkEdit = toolbar.querySelector('.tags-bulk-edit');
+
+    const debouncedLogFilter = debounce(() => {
+      if (currentTagsFilter.length) {
+        api.logTagsFiltered(collectionId, currentTagsFilter).catch(() => {});
+      }
+    }, 300);
+
+    const rerender = () => {
+      renderCollectionItemsFromCache();
+      debouncedLogFilter();
+    };
+
+    if (filterToggle && filterPanel) {
+      filterToggle.addEventListener('click', () => {
+        const isHidden = filterPanel.hasAttribute('hidden');
+        if (isHidden) {
+          filterPanel.removeAttribute('hidden');
+          filterToggle.setAttribute('aria-expanded', 'true');
+        } else {
+          filterPanel.setAttribute('hidden', '');
+          filterToggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    if (filterPanel) {
+      filterPanel.querySelectorAll('.tag-filter-option').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const tag = btn.dataset.tag;
+          if (!tag) return;
+          if (currentTagsFilter.includes(tag)) {
+            currentTagsFilter = currentTagsFilter.filter(t => t !== tag);
+            btn.classList.remove('selected');
+            btn.setAttribute('aria-pressed', 'false');
+          } else {
+            currentTagsFilter = [...currentTagsFilter, tag];
+            btn.classList.add('selected');
+            btn.setAttribute('aria-pressed', 'true');
+          }
+          tagsFilterCache.clear();
+          rerender();
+        });
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        currentTagsFilter = [];
+        tagsFilterCache.clear();
+        rerender();
+      });
+    }
+
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => {
+        currentTagsSort = sortSelect.value || 'default';
+        tagsFilterCache.clear();
+        renderCollectionItemsFromCache();
+      });
+    }
+
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => exportCollectionWithTags(collectionId));
+    }
+
+    if (importInput) {
+      importInput.addEventListener('change', () => {
+        const file = importInput.files && importInput.files[0];
+        if (file) {
+          importCollectionWithTags(collectionId, file, toolbar);
+        }
+      });
+    }
+
+    if (bulkToggle) {
+      bulkToggle.addEventListener('click', () => {
+        setBulkMode(container, !isBulkMode);
+        bulkToggle.textContent = isBulkMode ? 'בטל בחירה' : 'בחירה מרובה';
+        updateBulkActionsState(toolbar, container);
+      });
+    }
+
+    if (bulkEdit) {
+      bulkEdit.addEventListener('click', () => {
+        const selectedIds = getSelectedItemIds(container);
+        if (!selectedIds.length) {
+          showToast('לא נבחרו פריטים', 'warning');
+          return;
+        }
+        const selectedItems = lastCollectionItems.filter(it => selectedIds.includes(String(it.id)));
+        const unionTags = Array.from(new Set(selectedItems.flatMap(it => it.tags || [])));
+        openTagsEditorModal('bulk', unionTags, {
+          title: 'עדכון תגיות מרובה',
+          saveLabel: 'עדכן',
+          onSave: async (tags) => {
+            const results = await Promise.all(selectedIds.map(id => api.updateItemTags(id, tags)));
+            const failed = results.filter(r => !r || !r.ok).length;
+            if (failed > 0) {
+              showToast(`עודכנו ${selectedIds.length - failed}, נכשלו ${failed}`, 'warning');
+            } else {
+              showToast('התגיות עודכנו בהצלחה', 'success');
+            }
+            await renderCollectionItems(collectionId);
+          },
+        });
+      });
+    }
+
+    container.addEventListener('change', (ev) => {
+      const target = ev.target;
+      if (target && target.classList && target.classList.contains('item-select')) {
+        updateBulkActionsState(toolbar, container);
+      }
+    });
+    updateBulkActionsState(toolbar, container);
   }
 
   function markSidebarSelection(cid){
@@ -559,6 +1379,7 @@
   }
 
   function beginCollectionItemDrag(row, collectionId, listEl, origin){
+    if (isBulkMode) return;
     const payload = buildItemPayloadFromRow(row);
     if (!payload) return;
     const ctx = {
@@ -678,6 +1499,10 @@
       source: row.getAttribute('data-source') || 'regular',
       file_name: fileName,
     };
+    const tags = collectTagsFromElement(row);
+    if (tags && tags.length) {
+      payload.tags = tags;
+    }
     const pinnedAttr = row.getAttribute('data-pinned');
     if (pinnedAttr === '1') {
       payload.pinned = true;
@@ -892,265 +1717,352 @@
     handleSidebarDropRequest(cid, btn).catch(() => {});
   }
 
-  async function renderCollectionItems(cid){
+  async function loadMoreCollectionItems(collectionId) {
+    if (isLoadingMoreItems) return;
+    if (lastCollectionItems.length >= lastCollectionTotal) return;
     const container = document.getElementById('collectionsContent');
+    if (!container) return;
+    const nextPage = lastCollectionPage + 1;
+    isLoadingMoreItems = true;
+    try {
+      const resp = await api.getItems(collectionId, nextPage, lastCollectionPerPage);
+      if (!resp || !resp.ok) {
+        throw new Error((resp && resp.error) || 'שגיאה בטעינת פריטים נוספים');
+      }
+      const items = Array.isArray(resp.items) ? resp.items : [];
+      lastCollectionItems = [...lastCollectionItems, ...items];
+      lastCollectionPage = nextPage;
+      lastCollectionTotal = Number(resp.total_items || resp.total_manual || lastCollectionItems.length);
+      tagsFilterCache.clear();
+      renderCollectionItemsView(container, collectionId, lastCollectionMeta || {}, lastCollectionItems, lastCollectionIsWorkspace);
+    } catch (err) {
+      console.error('Load more error:', err);
+      showToast('שגיאה בטעינת פריטים נוספים', 'error');
+    } finally {
+      isLoadingMoreItems = false;
+    }
+  }
+
+  function renderCollectionItemsFromCache() {
+    const container = document.getElementById('collectionsContent');
+    if (!container || !lastCollectionMeta || !lastCollectionId) {
+      return;
+    }
+    renderCollectionItemsView(container, lastCollectionId, lastCollectionMeta, lastCollectionItems, lastCollectionIsWorkspace);
+  }
+
+  function renderCollectionItemsView(container, collectionId, col, baseItems, isWorkspace) {
     if (!container) return;
     resetDragUi();
     activeDragContext = null;
+    teardownWorkspaceBoard();
+    markSidebarSelection(collectionId);
+
+    const displayItems = applyTagsFilterAndSort(baseItems || []);
+    const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
+    const share = col.share || {};
+    const shareEnabled = !!share.enabled;
+    const shareUrl = resolvePublicUrl(col);
+    const tagsToolbarHtml = buildTagsToolbarHtml();
+    const headerHtml = `
+      <div class="collection-header">
+        <div class="title">
+          <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
+          <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
+        </div>
+        <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
+          <label class="share-toggle">
+            <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
+            <span class="share-toggle__text">שיתוף</span>
+          </label>
+          <span class="share-divider" aria-hidden="true">|</span>
+          <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}" title="העתק קישור לשיתוף" aria-label="העתק קישור לשיתוף">
+            <span class="share-copy__text">העתק</span>
+          </button>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary rename">שנה שם</button>
+          <button class="btn btn-danger delete">מחק</button>
+        </div>
+      </div>`;
+
+    if (isWorkspace) {
+      const boardHtml = buildWorkspaceBoardHtml(displayItems);
+      container.innerHTML = `${headerHtml}${tagsToolbarHtml}${boardHtml}`;
+    } else {
+      const itemsHtml = displayItems.map((it) => {
+        const fileName = String(it.file_name || '').trim();
+        const fileNameEsc = escapeHtml(fileName);
+        const rawItemId = it.id || it._id || '';
+        const itemId = String(rawItemId || '');
+        const hasItemId = Boolean(itemId);
+        const mode = getDirectViewMode(fileName);
+        const btnLabel = directViewTitle(mode);
+        const directBtn = mode
+          ? `<button class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
+          : '';
+        const tagsHtml = buildItemTagsHtml(it.tags || [], itemId);
+        const tagBtn = (TAGS_FEATURE_ENABLED && hasItemId)
+          ? `<button class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
+          : '';
+        const selectBox = hasItemId
+          ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
+          : '';
+        const tagsAttr = Array.isArray(it.tags) ? it.tags.join(',') : '';
+        return `
+          <div class="collection-item" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(it.source || 'regular')}" data-name="${fileNameEsc}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(it.file_id || '')}" data-pinned="${it.pinned ? '1' : '0'}">
+            ${selectBox}
+            <span class="drag" draggable="true">⋮⋮</span>
+            <a class="file" href="#" draggable="false" data-open="${fileNameEsc}">${fileNameEsc}</a>
+            ${tagsHtml}
+            <div class="item-actions">
+              ${tagBtn}
+              ${directBtn}
+              <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
+              <button class="remove" title="הסר">✕</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      const loadMoreHtml = (lastCollectionItems.length < lastCollectionTotal)
+        ? '<div class="collection-load-more"><button type="button" class="btn btn-secondary load-more">טען עוד</button></div>'
+        : '';
+      container.innerHTML = `${headerHtml}${tagsToolbarHtml}<div class="collection-items stagger-feed" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>${loadMoreHtml}`;
+    }
+
+    setBulkMode(container, isBulkMode);
+    if (TAGS_FEATURE_ENABLED) {
+      wireTagsEditorButtons(container);
+      wireTagsToolbar(container, collectionId);
+    }
+
+    const iconBtn = container.querySelector('.collection-icon-btn');
+    if (iconBtn) {
+      iconBtn.addEventListener('click', async () => {
+        try {
+          const nextIcon = await openIconPicker(iconChar);
+          if (!nextIcon || nextIcon === iconChar) {
+            return;
+          }
+          const res = await api.updateCollection(collectionId, { icon: nextIcon });
+          if (!res || !res.ok) {
+            alert((res && res.error) || 'שגיאה בעדכון האייקון');
+            return;
+          }
+          ensureCollectionsSidebar();
+          await renderCollectionItems(collectionId);
+        } catch (_err) {
+          alert('שגיאה בעדכון האייקון');
+        }
+      });
+    }
+
+    const shareControls = container.querySelector('.share-controls');
+    const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
+    const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
+    const shareCopyLabel = shareCopyBtn ? shareCopyBtn.querySelector('.share-copy__text') : null;
+    if (shareCopyBtn && !shareCopyBtn.dataset.label) {
+      const labelText = shareCopyLabel ? shareCopyLabel.textContent : shareCopyBtn.textContent;
+      shareCopyBtn.dataset.label = labelText && labelText.trim() ? labelText.trim() : 'העתק';
+    }
+    setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
+
+    if (shareCopyBtn) {
+      shareCopyBtn.addEventListener('click', async () => {
+        const url = shareCopyBtn.getAttribute('data-url') || '';
+        if (!url) {
+          alert('אין קישור שיתוף פעיל');
+          return;
+        }
+        const original = shareCopyBtn.dataset.label || (shareCopyLabel ? shareCopyLabel.textContent : '') || 'העתק';
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(url);
+          } else {
+            throw new Error('clipboard_unavailable');
+          }
+          if (shareCopyLabel) {
+            shareCopyLabel.textContent = 'הועתק!';
+          } else {
+            shareCopyBtn.textContent = 'הועתק!';
+          }
+          setTimeout(() => {
+            if (shareCopyLabel) {
+              shareCopyLabel.textContent = original;
+            } else {
+              shareCopyBtn.textContent = original;
+            }
+          }, 1600);
+        } catch (_err) {
+          try {
+            const manual = prompt('העתק את הקישור הבא:', url);
+            if (manual !== null) {
+              if (shareCopyLabel) {
+                shareCopyLabel.textContent = 'הועתק!';
+              } else {
+                shareCopyBtn.textContent = 'הועתק!';
+              }
+              setTimeout(() => {
+                if (shareCopyLabel) {
+                  shareCopyLabel.textContent = original;
+                } else {
+                  shareCopyBtn.textContent = original;
+                }
+              }, 1600);
+            }
+          } catch (_) {
+            alert('לא ניתן להעתיק את הקישור אוטומטית');
+          }
+        }
+      });
+    }
+
+    if (shareToggleEl) {
+      shareToggleEl.addEventListener('change', async () => {
+        const enabled = shareToggleEl.checked;
+        let errorMessage = '';
+        setShareControlsBusy(shareToggleEl, shareCopyBtn, true);
+        try {
+          const res = await api.updateShare(collectionId, { enabled });
+          if (!res || !res.ok) {
+            errorMessage = (res && res.error) || '';
+            throw new Error(errorMessage || 'share_update_failed');
+          }
+        } catch (_err) {
+          shareToggleEl.checked = !enabled;
+          alert(errorMessage || 'שגיאה בעדכון שיתוף');
+        } finally {
+          setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
+        }
+        ensureCollectionsSidebar();
+        await renderCollectionItems(collectionId);
+      });
+    }
+
+    let itemsContainer = null;
+    if (isWorkspace) {
+      hydrateWorkspaceBoard(container, collectionId, displayItems);
+      autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
+    } else {
+      itemsContainer = container.querySelector('#collectionItems');
+      wireDnd(itemsContainer, collectionId);
+      autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+      const loadMoreBtn = container.querySelector('.load-more');
+      if (loadMoreBtn) {
+        loadMoreBtn.addEventListener('click', async () => {
+          loadMoreBtn.disabled = true;
+          loadMoreBtn.textContent = 'טוען...';
+          await loadMoreCollectionItems(collectionId);
+        });
+      }
+    }
+
+    // Header actions
+    const renameBtn = container.querySelector('.collection-header .rename');
+    const deleteBtn = container.querySelector('.collection-header .delete');
+    if (renameBtn) renameBtn.addEventListener('click', async () => {
+      const current = String(col.name || '');
+      const name = prompt('שם חדש לאוסף:', current);
+      if (!name) return;
+      const res = await api.updateCollection(collectionId, { name: name.slice(0, 80) });
+      if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון שם');
+      ensureCollectionsSidebar();
+      await renderCollectionItems(collectionId);
+    });
+    if (deleteBtn) deleteBtn.addEventListener('click', async () => {
+      if (!confirm('למחוק את האוסף? הפעולה תסיר את האוסף ואת הקישורים שבו, אבל הקבצים עצמם יישארו זמינים בבוט ובקבצים.')) return;
+      const res = await api.deleteCollection(collectionId);
+      if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
+      ensureCollectionsSidebar();
+      container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
+    });
+
+    if (!isWorkspace && itemsContainer) {
+      itemsContainer.addEventListener('click', async (ev) => {
+        const row = ev.target.closest('.collection-item');
+        if (!row) return;
+        if (ev.target.closest('.btn-tag-edit') || ev.target.closest('.item-select')) {
+          return;
+        }
+        const source = row.getAttribute('data-source') || 'regular';
+        const name = row.getAttribute('data-name') || '';
+
+        const rm = ev.target.closest('.remove');
+        if (rm) {
+          if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
+          const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
+          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
+          await removeElementWithAnimation(row);
+          if (!itemsContainer.querySelector('.collection-item')) {
+            itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
+          }
+          return;
+        }
+
+        const openBtn = ev.target.closest('.open-view');
+        if (openBtn) {
+          ev.preventDefault();
+          await handleDirectViewClick(row, openBtn, name);
+          return;
+        }
+
+        const previewBtn = ev.target.closest('.preview');
+        if (previewBtn) {
+          ev.preventDefault();
+          await handlePreviewClick(row, previewBtn, name);
+          return;
+        }
+
+        if (ev.target.closest('.card-code-preview-wrapper')) {
+          return;
+        }
+        const link = ev.target.closest('a.file[data-open]');
+        if (link) {
+          ev.preventDefault();
+          const fname = link.getAttribute('data-open') || '';
+          await openFileByName(fname);
+          return;
+        }
+        if (!ev.target.closest('.drag') && !ev.target.closest('button')) {
+          const fname = name;
+          await openFileByName(fname);
+        }
+      });
+    }
+
+    currentCollectionId = collectionId;
+  }
+
+  async function renderCollectionItems(cid){
+    const container = document.getElementById('collectionsContent');
+    if (!container) return;
     const collectionId = String(cid || '').trim();
     if (!collectionId) {
       container.innerHTML = '<div class="error">האוסף לא נמצא</div>';
       markSidebarSelection('');
       return;
     }
-    markSidebarSelection(collectionId);
-    teardownWorkspaceBoard();
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
+      const perPage = lastCollectionPerPage || 200;
       const [colRes, data] = await Promise.all([
         api.getCollection(collectionId),
-        api.getItems(collectionId, 1, 200),
+        api.getItems(collectionId, 1, perPage),
       ]);
       if (!data || !data.ok) throw new Error((data && data.error) || 'שגיאה');
       if (!colRes || !colRes.ok) throw new Error((colRes && colRes.error) || 'שגיאה');
       const col = colRes.collection || {};
       const isWorkspace = isWorkspaceCollection(col);
-
       const baseItems = Array.isArray(data.items) ? data.items : [];
-      const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
-      const share = col.share || {};
-      const shareEnabled = !!share.enabled;
-      const shareUrl = resolvePublicUrl(col);
-      const headerHtml = `
-        <div class="collection-header">
-          <div class="title">
-            <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
-            <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
-          </div>
-          <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
-            <label class="share-toggle">
-              <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
-              <span class="share-toggle__text">שיתוף</span>
-            </label>
-            <span class="share-divider" aria-hidden="true">|</span>
-            <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}" title="העתק קישור לשיתוף" aria-label="העתק קישור לשיתוף">
-              <span class="share-copy__text">העתק</span>
-            </button>
-          </div>
-          <div class="actions">
-            <button class="btn btn-secondary rename">שנה שם</button>
-            <button class="btn btn-danger delete">מחק</button>
-          </div>
-        </div>`;
-      if (isWorkspace) {
-        const boardHtml = buildWorkspaceBoardHtml(baseItems);
-        container.innerHTML = `${headerHtml}${boardHtml}`;
-      } else {
-        const itemsHtml = baseItems.map((it) => {
-          const fileName = String(it.file_name || '').trim();
-          const fileNameEsc = escapeHtml(fileName);
-          const mode = getDirectViewMode(fileName);
-          const btnLabel = directViewTitle(mode);
-          const directBtn = mode
-            ? `<button class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
-            : '';
-          return `
-            <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${fileNameEsc}" data-file-id="${escapeHtml(it.file_id || '')}" data-pinned="${it.pinned ? '1' : '0'}">
-              <span class="drag" draggable="true">⋮⋮</span>
-              <a class="file" href="#" draggable="false" data-open="${fileNameEsc}">${fileNameEsc}</a>
-              ${directBtn}
-              <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
-              <button class="remove" title="הסר">✕</button>
-            </div>
-          `;
-        }).join('');
-        container.innerHTML = `${headerHtml}<div class="collection-items stagger-feed" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>`;
-      }
-
-      const iconBtn = container.querySelector('.collection-icon-btn');
-      if (iconBtn) {
-        iconBtn.addEventListener('click', async () => {
-          try {
-            const nextIcon = await openIconPicker(iconChar);
-            if (!nextIcon || nextIcon === iconChar) {
-              return;
-            }
-            const res = await api.updateCollection(collectionId, { icon: nextIcon });
-            if (!res || !res.ok) {
-              alert((res && res.error) || 'שגיאה בעדכון האייקון');
-              return;
-            }
-            ensureCollectionsSidebar();
-            await renderCollectionItems(collectionId);
-          } catch (_err) {
-            alert('שגיאה בעדכון האייקון');
-          }
-        });
-      }
-
-      const shareControls = container.querySelector('.share-controls');
-      const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
-      const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
-      const shareCopyLabel = shareCopyBtn ? shareCopyBtn.querySelector('.share-copy__text') : null;
-      if (shareCopyBtn && !shareCopyBtn.dataset.label) {
-        const labelText = shareCopyLabel ? shareCopyLabel.textContent : shareCopyBtn.textContent;
-        shareCopyBtn.dataset.label = labelText && labelText.trim() ? labelText.trim() : 'העתק';
-      }
-      setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
-
-      if (shareCopyBtn) {
-        shareCopyBtn.addEventListener('click', async () => {
-          const url = shareCopyBtn.getAttribute('data-url') || '';
-          if (!url) {
-            alert('אין קישור שיתוף פעיל');
-            return;
-          }
-          const original = shareCopyBtn.dataset.label || (shareCopyLabel ? shareCopyLabel.textContent : '') || 'העתק';
-          try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(url);
-            } else {
-              throw new Error('clipboard_unavailable');
-            }
-            if (shareCopyLabel) {
-              shareCopyLabel.textContent = 'הועתק!';
-            } else {
-              shareCopyBtn.textContent = 'הועתק!';
-            }
-            setTimeout(() => {
-              if (shareCopyLabel) {
-                shareCopyLabel.textContent = original;
-              } else {
-                shareCopyBtn.textContent = original;
-              }
-            }, 1600);
-          } catch (_err) {
-            try {
-              const manual = prompt('העתק את הקישור הבא:', url);
-              if (manual !== null) {
-                if (shareCopyLabel) {
-                  shareCopyLabel.textContent = 'הועתק!';
-                } else {
-                  shareCopyBtn.textContent = 'הועתק!';
-                }
-                setTimeout(() => {
-                  if (shareCopyLabel) {
-                    shareCopyLabel.textContent = original;
-                  } else {
-                    shareCopyBtn.textContent = original;
-                  }
-                }, 1600);
-              }
-            } catch (_) {
-              alert('לא ניתן להעתיק את הקישור אוטומטית');
-            }
-          }
-        });
-      }
-
-      if (shareToggleEl) {
-        shareToggleEl.addEventListener('change', async () => {
-          const enabled = shareToggleEl.checked;
-          let errorMessage = '';
-          setShareControlsBusy(shareToggleEl, shareCopyBtn, true);
-          try {
-            const res = await api.updateShare(collectionId, { enabled });
-            if (!res || !res.ok) {
-              errorMessage = (res && res.error) || '';
-              throw new Error(errorMessage || 'share_update_failed');
-            }
-          } catch (_err) {
-            shareToggleEl.checked = !enabled;
-            alert(errorMessage || 'שגיאה בעדכון שיתוף');
-          } finally {
-            setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
-          }
-          ensureCollectionsSidebar();
-          await renderCollectionItems(collectionId);
-        });
-      }
-
-      let itemsContainer = null;
-      if (isWorkspace) {
-        hydrateWorkspaceBoard(container, collectionId, baseItems);
-        autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
-      } else {
-        itemsContainer = container.querySelector('#collectionItems');
-        wireDnd(itemsContainer, collectionId);
-        autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
-      }
-
-      // Header actions
-      const renameBtn = container.querySelector('.collection-header .rename');
-      const deleteBtn = container.querySelector('.collection-header .delete');
-      if (renameBtn) renameBtn.addEventListener('click', async () => {
-        const current = String(col.name || '');
-        const name = prompt('שם חדש לאוסף:', current);
-        if (!name) return;
-        const res = await api.updateCollection(collectionId, { name: name.slice(0, 80) });
-        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון שם');
-        ensureCollectionsSidebar();
-        await renderCollectionItems(collectionId);
-      });
-      if (deleteBtn) deleteBtn.addEventListener('click', async () => {
-        if (!confirm('למחוק את האוסף? הפעולה תסיר את האוסף ואת הקישורים שבו, אבל הקבצים עצמם יישארו זמינים בבוט ובקבצים.')) return;
-        const res = await api.deleteCollection(collectionId);
-        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
-        ensureCollectionsSidebar();
-        container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
-      });
-
-      if (!isWorkspace && itemsContainer) {
-        itemsContainer.addEventListener('click', async (ev) => {
-          const row = ev.target.closest('.collection-item');
-          if (!row) return;
-          const source = row.getAttribute('data-source') || 'regular';
-          const name = row.getAttribute('data-name') || '';
-
-          const rm = ev.target.closest('.remove');
-          if (rm) {
-            if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
-            const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
-            if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
-            await removeElementWithAnimation(row);
-            if (!itemsContainer.querySelector('.collection-item')) {
-              itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
-            }
-            return;
-          }
-
-          const openBtn = ev.target.closest('.open-view');
-          if (openBtn) {
-            ev.preventDefault();
-            await handleDirectViewClick(row, openBtn, name);
-            return;
-          }
-
-          const previewBtn = ev.target.closest('.preview');
-          if (previewBtn) {
-            ev.preventDefault();
-            await handlePreviewClick(row, previewBtn, name);
-            return;
-          }
-
-          if (ev.target.closest('.card-code-preview-wrapper')) {
-            return;
-          }
-          const link = ev.target.closest('a.file[data-open]');
-          if (link) {
-            ev.preventDefault();
-            const fname = link.getAttribute('data-open') || '';
-            await openFileByName(fname);
-            return;
-          }
-          if (!ev.target.closest('.drag') && !ev.target.closest('button')) {
-            const fname = name;
-            await openFileByName(fname);
-          }
-        });
-      }
-
-      currentCollectionId = collectionId;
+      lastCollectionItems = baseItems;
+      lastCollectionMeta = col;
+      lastCollectionIsWorkspace = isWorkspace;
+      lastCollectionId = collectionId;
+      lastCollectionPage = 1;
+      lastCollectionPerPage = perPage;
+      lastCollectionTotal = Number(data.total_items || data.total_manual || baseItems.length);
+      tagsFilterCache.clear();
+      renderCollectionItemsView(container, collectionId, col, baseItems, isWorkspace);
     } catch (e) {
       container.innerHTML = '<div class="error">שגיאה בטעינת פריטים</div>';
     }
@@ -1408,16 +2320,26 @@
 
   function renderWorkspaceCard(item){
     const state = normalizeWorkspaceState(item.workspace_state);
-    const itemId = String(item.id || item._id || item.file_name || '');
+    const rawItemId = item.id || item._id || '';
+    const itemId = String(rawItemId || '');
     const fileName = String(item.file_name || '').trim();
     const mode = getDirectViewMode(fileName);
     const btnLabel = directViewTitle(mode);
     const directBtn = mode
       ? `<button type="button" class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
       : '';
+    const tagsHtml = buildItemTagsHtml(item.tags || [], itemId);
+    const tagBtn = (TAGS_FEATURE_ENABLED && itemId)
+      ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
+      : '';
+    const tagsAttr = Array.isArray(item.tags) ? item.tags.join(',') : '';
+    const selectBox = itemId
+      ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
+      : '';
     return `
-      <article class="workspace-card" data-item-id="${escapeHtml(itemId)}" data-state="${escapeHtml(state)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(item.file_name || '')}" data-file-id="${escapeHtml(item.file_id || '')}">
+      <article class="workspace-card" data-item-id="${escapeHtml(itemId)}" data-state="${escapeHtml(state)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(item.file_name || '')}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(item.file_id || '')}">
         <div class="workspace-card__top">
+          ${selectBox}
           <button class="workspace-card__drag" type="button" aria-label="גרור להזזת הפריט">⋮⋮</button>
           <div class="workspace-card__body">
             <div class="workspace-card__name">
@@ -1428,11 +2350,13 @@
                 <span class="workspace-card__status-indicator" data-state="${escapeHtml(state)}"></span>
                 <span class="workspace-card__tag-text">${escapeHtml(workspaceStateLabel(state))}</span>
               </span>
+              ${tagsHtml}
               ${item.note ? `<span>📝 ${escapeHtml(item.note)}</span>` : ''}
             </div>
           </div>
         </div>
         <div class="workspace-card__actions">
+          ${tagBtn}
           ${directBtn}
           <button type="button" class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
           <button type="button" class="remove" title="הסר">✕</button>
@@ -1483,6 +2407,9 @@
         workspaceActiveCard = card;
       }
       if (!card) return;
+      if (ev.target.closest('.btn-tag-edit') || ev.target.closest('.item-select')) {
+        return;
+      }
       const source = card.getAttribute('data-source') || 'regular';
       const name = card.getAttribute('data-name') || '';
       const itemId = card.getAttribute('data-item-id') || '';
@@ -2038,6 +2965,17 @@
   }
 
   // תזמון/חסימה של ארועי resize כדי לא להציף חישובים
+  function debounce(fn, wait){
+    let t = null;
+    return function(...args){
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        t = null;
+        try { fn.apply(this, args); } catch(_) {}
+      }, wait);
+    };
+  }
+
   function throttle(fn, wait){
     let t = null;
     return function(){
@@ -2056,14 +2994,22 @@
 
   // חשיפת API מינימלי לכפתור "הוסף לאוסף"
   window.CollectionsUI = {
-    async addFilesToCollection(collectionId, fileNames){
+    async addFilesToCollection(collectionId, fileNames, tags = []){
       if (!Array.isArray(fileNames) || !fileNames.length) return {ok:false, error:'אין קבצים'};
-      const items = fileNames.map(fn => ({source:'regular', file_name: String(fn)}));
+      const tagList = Array.isArray(tags) ? tags : [];
+      const items = fileNames.map(fn => ({source:'regular', file_name: String(fn), tags: tagList}));
+      return api.addItems(String(collectionId), items);
+    },
+    async addFileToCollection(collectionId, fileName, tags = []){
+      const tagList = Array.isArray(tags) ? tags : [];
+      const items = [{ source: 'regular', file_name: String(fileName), tags: tagList }];
       return api.addItems(String(collectionId), items);
     },
     refreshSidebar: ensureCollectionsSidebar,
   };
   async function initCollectionsPage(){
+    initTagsFeatureFlag();
+    await initTagsMetadata();
     const initialId = consumeInitialCollectionId();
     // טען את הסיידבר במקביל לטעינת הפריטים כדי לא "לשרשר" שתי בקשות ברצף בתחילת העמוד.
     const sidebarPromise = ensureCollectionsSidebar().catch(() => {});

@@ -35,8 +35,8 @@ def test_compute_tags_only(mgr: CollectionsManager):
     rules = { 'tags': ['t1', 't2'] }
     _ = mgr.compute_smart_items(1, rules, limit=5)
     mt = _get_match_from_pipeline(mgr)
-    assert isinstance(mt.get('tags'), dict) and '$in' in mt['tags']
-    assert set(mt['tags']['$in']) == {'t1', 't2'}
+    assert isinstance(mt.get('tags'), dict) and '$all' in mt['tags']
+    assert set(mt['tags']['$all']) == {'t1', 't2'}
 
 
 def test_compute_repo_tag_only(mgr: CollectionsManager):
@@ -50,5 +50,5 @@ def test_compute_tags_and_repo_tag_appends(mgr: CollectionsManager):
     rules = { 'tags': ['t1'], 'repo_tag': 'repo:core' }
     _ = mgr.compute_smart_items(3, rules, limit=5)
     mt = _get_match_from_pipeline(mgr)
-    assert isinstance(mt.get('tags'), dict) and '$in' in mt['tags']
-    assert set(mt['tags']['$in']) == {'t1', 'repo:core'}
+    assert isinstance(mt.get('tags'), dict) and '$all' in mt['tags']
+    assert set(mt['tags']['$all']) == {'t1', 'repo:core'}

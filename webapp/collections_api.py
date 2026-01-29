@@ -117,6 +117,79 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
     s = str(text)[:max_length]
     return html.escape(s)
 
+def _tags_feature_enabled() -> bool:
+    """Feature flag for collections item tags."""
+    try:
+        env_val = os.getenv("FEATURE_COLLECTIONS_TAGS")
+        if env_val is not None:
+            return str(env_val or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+    except Exception:
+        pass
+    try:
+        if _cfg is None:
+            return True
+        return bool(getattr(_cfg, "FEATURE_COLLECTIONS_TAGS", True))
+    except Exception:
+        return True
+
+# Simple in-memory rate limiter per user/IP and endpoint key
+_TAGS_RATE_LOG: Dict[Tuple[str, str], List[float]] = {}
+
+def _rate_limit_scope_id() -> str:
+    try:
+        uid = session.get("user_id")
+        if uid:
+            return f"user:{int(uid)}"
+    except Exception:
+        pass
+    try:
+        ip = request.headers.get("X-Forwarded-For") or request.remote_addr or ""
+    except Exception:
+        ip = ""
+    return f"ip:{ip or 'anonymous'}"
+
+def _tags_rate_limit_check(key: str, max_per_minute: int) -> Tuple[bool, int]:
+    now = time.time()
+    window_start = now - 60.0
+    scope_id = _rate_limit_scope_id()
+    bucket_key = (str(scope_id), str(key or ""))
+    try:
+        entries = _TAGS_RATE_LOG.get(bucket_key, [])
+        # drop old timestamps
+        i = 0
+        for i, ts in enumerate(entries):
+            if ts > window_start:
+                break
+        if entries:
+            if entries[0] <= window_start:
+                cutoff = i if entries[i] > window_start else (i + 1)
+                entries = entries[cutoff:]
+        allowed = len(entries) < max(1, int(max_per_minute or 1))
+        if allowed:
+            entries.append(now)
+            _TAGS_RATE_LOG[bucket_key] = entries
+            return True, 0
+        retry_after = int(max(1.0, 60.0 - (now - (entries[0] if entries else window_start))))
+        return False, retry_after
+    except Exception:
+        return True, 0
+
+def tags_rate_limit(key: str, max_per_minute: int):
+    def _decorator(f):
+        @wraps(f)
+        def _inner(*args, **kwargs):
+            allowed, retry_after = _tags_rate_limit_check(key, max_per_minute)
+            if not allowed:
+                resp = jsonify({"ok": False, "error": "rate_limited"})
+                try:
+                    resp.headers["Retry-After"] = str(int(retry_after))
+                except Exception:
+                    pass
+                return resp, 429
+            return f(*args, **kwargs)
+        return _inner
+    return _decorator
+
 
 def _get_public_base_url() -> str:
     """הפקת בסיס כתובת ציבורית לפעולות שיתוף (UI ו-API)."""
@@ -543,7 +616,10 @@ def add_items(collection_id: str):
             if isinstance(it, dict) and 'note' in it and isinstance(it['note'], str):
                 it['note'] = sanitize_input(it['note'], 500)
         mgr = get_manager()
-        result = mgr.add_items(user_id, collection_id, items)
+        try:
+            result = mgr.add_items(user_id, collection_id, items)
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
         if result.get('ok'):
             try:
                 uid = str(user_id)
@@ -622,6 +698,81 @@ def reorder_items(collection_id: str):
             pass
         logger.error("Error reordering items: %s", e)
         return jsonify({'ok': False, 'error': 'שגיאה בסידור פריטים'}), 500
+
+
+@collections_bp.route('/items/<item_id>/tags', methods=['PATCH'])
+@require_auth
+@traced("collections.items_tags_update")
+@tags_rate_limit("update_tags", 120)
+def update_item_tags(item_id: str):
+    """
+    עדכון תגיות של פריט באוסף.
+
+    Body: {"tags": ["🔥", "🐛"]}
+    """
+    if not _tags_feature_enabled():
+        return jsonify({"ok": False, "error": "feature_disabled"}), 404
+    user_id = session["user_id"]
+    data = request.get_json(silent=True) or {}
+    tags = data.get("tags", [])
+
+    mgr = get_manager()
+    try:
+        updated_item = mgr.update_item_tags(user_id, item_id, tags)
+        if not updated_item:
+            return jsonify({"ok": False, "error": "Item not found"}), 404
+        return jsonify({"ok": True, "item": updated_item})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Error updating item tags: %s", e)
+        emit_event(
+            "collections_item_tags_update_error",
+            severity="anomaly",
+            operation="collections.items_tags_update",
+            handled=True,
+            request_id=_get_request_id(),
+            user_id=int(user_id),
+            item_id=str(item_id),
+            error=str(e),
+        )
+        return jsonify({"ok": False, "error": "Internal error"}), 500
+
+
+@collections_bp.route('/tags/metadata', methods=['GET'])
+@traced("collections.tags_metadata")
+@tags_rate_limit("tags_metadata", 300)
+def get_tags_metadata():
+    """
+    קבלת מטאדאטה של תגיות זמינות.
+    """
+    if not _tags_feature_enabled():
+        return jsonify({"ok": False, "error": "feature_disabled"}), 404
+    mgr = get_manager()
+    metadata = mgr.get_tags_metadata()
+    return jsonify({"ok": True, **metadata})
+
+
+@collections_bp.route('/tags/filtered', methods=['POST'])
+@require_auth
+@traced("collections.tags_filtered")
+@tags_rate_limit("tags_filtered", 300)
+def log_tags_filtered():
+    """Log filtering usage for analytics/observability."""
+    if not _tags_feature_enabled():
+        return jsonify({"ok": False, "error": "feature_disabled"}), 404
+    user_id = session["user_id"]
+    data = request.get_json(silent=True) or {}
+    tags = data.get("tags", []) if isinstance(data, dict) else []
+    collection_id = data.get("collection_id") if isinstance(data, dict) else None
+    emit_event(
+        "collections_tags_filtered",
+        user_id=int(user_id),
+        collection_id=str(collection_id) if collection_id else None,
+        tags=list(tags or []),
+        count=int(len(tags or [])),
+    )
+    return jsonify({"ok": True})
 
 
 # --- Phase 2: Share ---
