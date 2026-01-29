@@ -723,7 +723,7 @@ def update_item_tags(item_id: str):
     """
     if not _tags_feature_enabled():
         return jsonify({"ok": False, "error": "feature_disabled"}), 404
-    user_id = session["user_id"]
+    user_id = int(session["user_id"])
     data = request.get_json(silent=True) or {}
     tags = data.get("tags", [])
 
