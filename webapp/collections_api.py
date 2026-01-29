@@ -619,7 +619,18 @@ def add_items(collection_id: str):
         try:
             result = mgr.add_items(user_id, collection_id, items)
         except ValueError as e:
-            return jsonify({"ok": False, "error": str(e)}), 400
+            rid = _get_request_id()
+            try:
+                logger.error(
+                    "Validation error adding items (request_id=%s, user_id=%s, collection_id=%s): %s",
+                    rid,
+                    user_id,
+                    collection_id,
+                    e,
+                )
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": "קלט לא חוקי"}), 400
         if result.get('ok'):
             try:
                 uid = str(user_id)
@@ -723,7 +734,18 @@ def update_item_tags(item_id: str):
             return jsonify({"ok": False, "error": "Item not found"}), 404
         return jsonify({"ok": True, "item": updated_item})
     except ValueError as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
+        rid = _get_request_id()
+        try:
+            logger.error(
+                "Validation error updating item tags (request_id=%s, user_id=%s, item_id=%s): %s",
+                rid,
+                user_id,
+                item_id,
+                e,
+            )
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": "קלט לא חוקי"}), 400
     except Exception as e:
         logger.exception("Error updating item tags: %s", e)
         emit_event(

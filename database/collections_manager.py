@@ -290,6 +290,10 @@ class CollectionsManager:
         if len(tags) > MAX_TAGS_PER_ITEM:
             return False, f"maximum {MAX_TAGS_PER_ITEM} tags allowed per item"
 
+        for tag in tags:
+            if not isinstance(tag, str):
+                return False, "tags must be strings"
+
         # בדיקת uniqueness
         if len(tags) != len(set(tags)):
             return False, "duplicate tags not allowed"
@@ -644,6 +648,8 @@ class CollectionsManager:
                     except Exception:
                         # התעלם מפריט בעייתי כדי לא לחסום אחרים
                         continue
+            except ValueError:
+                raise
             except Exception:
                 continue
         # עדכון מונים באוסף — תחום למשתמש ולאוסף כדי למנוע פגיעה צולבת
