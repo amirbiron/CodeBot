@@ -521,29 +521,6 @@
   }
 
   /**
-   * Wire up tags editor button clicks
-   */
-  function wireTagsEditorButtons(container) {
-    if (!container || container.dataset.tagsWired === '1') {
-      return;
-    }
-    container.dataset.tagsWired = '1';
-    container.addEventListener('click', (e) => {
-      const btn = e.target.closest('.btn-tag-edit');
-      if (!btn) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const itemId = btn.dataset.itemId;
-      const itemEl = container.querySelector(`[data-item-id="${itemId}"]`);
-      const currentTags = collectTagsFromElement(itemEl);
-
-      openTagsEditorModal(itemId, currentTags);
-    });
-  }
-
-  /**
    * סינון פריטים לפי תגיות
    * @param {Array} items - כל הפריטים
    * @param {Array} filterTags - תגיות לסינון
@@ -1847,7 +1824,6 @@
 
     setBulkMode(container, isBulkMode);
     if (TAGS_FEATURE_ENABLED) {
-      wireTagsEditorButtons(container);
       wireTagsToolbar(container, collectionId);
     }
 
