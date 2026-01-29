@@ -6219,19 +6219,19 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     try:
                         from cache_manager import cache as _cache
                     except Exception:  # pragma: no cover
-                        _cache = None
+                        _cache = None  # type: ignore[assignment]
                     try:
                         from cache_manager import build_cache_key as _build_cache_key
                     except Exception:  # pragma: no cover
-                        _build_cache_key = None
+                        _build_cache_key = None  # type: ignore[assignment]
                     try:
                         from webapp.app import get_db as _get_db
                     except Exception:  # pragma: no cover
-                        _get_db = None
+                        _get_db = None  # type: ignore[assignment]
                     try:
                         from webapp.app import search_engine as _search_engine
                     except Exception:  # pragma: no cover
-                        _search_engine = None
+                        _search_engine = None  # type: ignore[assignment]
 
                     if _cache is None or not getattr(_cache, "is_enabled", False) or _get_db is None:
                         tracker.skip_run(run.run_id, "cache_disabled_or_db_unavailable")
@@ -6390,7 +6390,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                     files_cache_key = f"web:files:user:{uid}:fallback"
 
                                 # בניית user_data מינימלי שתואם ל-session של ה-webapp
-                                user_doc = {}
+                                user_doc: dict[str, Any] = {}
                                 try:
                                     user_doc = db.users.find_one({"user_id": int(uid)}) or {}
                                 except Exception:
