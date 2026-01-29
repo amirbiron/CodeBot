@@ -3103,16 +3103,12 @@
       const tagBtn = ev.target.closest('.btn-tag-edit');
       if (!tagBtn) return;
 
+      // DEBUG: alert לבדיקה שהלחיצה נתפסת (יוסר לאחר דיבוג)
+      alert('כפתור תגית נלחץ! itemId=' + (tagBtn.dataset.itemId || 'חסר'));
+
       // מונע התנהגות ברירת מחדל ועצירת propagation
       ev.preventDefault();
       ev.stopPropagation();
-
-      // Debug: וידוא שהלחיצה נתפסה
-      console.log('[collections] tag button clicked', {
-        itemId: tagBtn.dataset.itemId,
-        tagsEnabled: TAGS_FEATURE_ENABLED,
-        target: ev.target
-      });
 
       if (!TAGS_FEATURE_ENABLED) {
         showToast('תיוג קבצים כבוי כרגע', 'warning');
@@ -3122,7 +3118,6 @@
       const itemId = tagBtn.dataset.itemId || '';
       if (!itemId) {
         showToast('שגיאה: חסר מזהה פריט', 'error');
-        console.warn('[collections] tag button click: missing itemId');
         return;
       }
 
@@ -3132,12 +3127,10 @@
                      document.querySelector(`[data-item-id="${itemId}"]`);
       const currentTags = collectTagsFromElement(itemEl);
 
-      console.log('[collections] opening tags modal', { itemId, currentTags, itemEl });
       try {
         openTagsEditorModal(itemId, currentTags);
       } catch (err) {
-        console.error('[collections] error opening tags modal:', err);
-        showToast('שגיאה בפתיחת עורך התגיות', 'error');
+        showToast('שגיאה בפתיחת עורך התגיות: ' + (err.message || err), 'error');
       }
     }, true); // capture phase כדי לתפוס לפני handlers אחרים
   });
