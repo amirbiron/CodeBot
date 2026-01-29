@@ -521,29 +521,6 @@
   }
 
   /**
-   * Wire up tags editor button clicks
-   */
-  function wireTagsEditorButtons(container) {
-    if (!container || container.dataset.tagsWired === '1') {
-      return;
-    }
-    container.dataset.tagsWired = '1';
-    container.addEventListener('click', (e) => {
-      const btn = e.target.closest('.btn-tag-edit');
-      if (!btn) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const itemId = btn.dataset.itemId;
-      const itemEl = container.querySelector(`[data-item-id="${itemId}"]`);
-      const currentTags = collectTagsFromElement(itemEl);
-
-      openTagsEditorModal(itemId, currentTags);
-    });
-  }
-
-  /**
    * סינון פריטים לפי תגיות
    * @param {Array} items - כל הפריטים
    * @param {Array} filterTags - תגיות לסינון
@@ -1847,7 +1824,6 @@
 
     setBulkMode(container, isBulkMode);
     if (TAGS_FEATURE_ENABLED) {
-      wireTagsEditorButtons(container);
       wireTagsToolbar(container, collectionId);
     }
 
@@ -1996,7 +1972,21 @@
       itemsContainer.addEventListener('click', async (ev) => {
         const row = ev.target.closest('.collection-item');
         if (!row) return;
-        if (ev.target.closest('.btn-tag-edit') || ev.target.closest('.item-select')) {
+
+        // טיפול ישיר בלחיצה על כפתור עריכת תגיות
+        const tagBtn = ev.target.closest('.btn-tag-edit');
+        if (tagBtn) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const itemId = tagBtn.dataset.itemId || row.getAttribute('data-item-id') || '';
+          if (itemId && TAGS_FEATURE_ENABLED) {
+            const currentTags = collectTagsFromElement(row);
+            openTagsEditorModal(itemId, currentTags);
+          }
+          return;
+        }
+
+        if (ev.target.closest('.item-select')) {
           return;
         }
         const source = row.getAttribute('data-source') || 'regular';
@@ -2427,7 +2417,21 @@
         workspaceActiveCard = card;
       }
       if (!card) return;
-      if (ev.target.closest('.btn-tag-edit') || ev.target.closest('.item-select')) {
+
+      // טיפול ישיר בלחיצה על כפתור עריכת תגיות
+      const tagBtn = ev.target.closest('.btn-tag-edit');
+      if (tagBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const itemId = tagBtn.dataset.itemId || card.getAttribute('data-item-id') || '';
+        if (itemId && TAGS_FEATURE_ENABLED) {
+          const currentTags = collectTagsFromElement(card);
+          openTagsEditorModal(itemId, currentTags);
+        }
+        return;
+      }
+
+      if (ev.target.closest('.item-select')) {
         return;
       }
       const source = card.getAttribute('data-source') || 'regular';
