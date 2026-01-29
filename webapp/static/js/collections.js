@@ -1996,7 +1996,21 @@
       itemsContainer.addEventListener('click', async (ev) => {
         const row = ev.target.closest('.collection-item');
         if (!row) return;
-        if (ev.target.closest('.btn-tag-edit') || ev.target.closest('.item-select')) {
+
+        // טיפול ישיר בלחיצה על כפתור עריכת תגיות
+        const tagBtn = ev.target.closest('.btn-tag-edit');
+        if (tagBtn) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const itemId = tagBtn.dataset.itemId || row.getAttribute('data-item-id') || '';
+          if (itemId && TAGS_FEATURE_ENABLED) {
+            const currentTags = collectTagsFromElement(row);
+            openTagsEditorModal(itemId, currentTags);
+          }
+          return;
+        }
+
+        if (ev.target.closest('.item-select')) {
           return;
         }
         const source = row.getAttribute('data-source') || 'regular';
@@ -2427,7 +2441,21 @@
         workspaceActiveCard = card;
       }
       if (!card) return;
-      if (ev.target.closest('.btn-tag-edit') || ev.target.closest('.item-select')) {
+
+      // טיפול ישיר בלחיצה על כפתור עריכת תגיות
+      const tagBtn = ev.target.closest('.btn-tag-edit');
+      if (tagBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const itemId = tagBtn.dataset.itemId || card.getAttribute('data-item-id') || '';
+        if (itemId && TAGS_FEATURE_ENABLED) {
+          const currentTags = collectTagsFromElement(card);
+          openTagsEditorModal(itemId, currentTags);
+        }
+        return;
+      }
+
+      if (ev.target.closest('.item-select')) {
         return;
       }
       const source = card.getAttribute('data-source') || 'regular';
