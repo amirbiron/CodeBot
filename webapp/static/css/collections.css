@@ -507,7 +507,7 @@
 .tag-filter-option.selected{border-color:var(--collections-accent);background:var(--collections-accent-bg);box-shadow:0 0 0 3px rgba(99,102,241,.2)}
 
 /* ========== Tags Editor Modal ========== */
-.tags-editor-modal{display:flex !important;align-items:center;justify-content:center;position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,0.45);padding:1rem}
+.modal.tags-editor-modal{display:flex !important;align-items:center;justify-content:center;position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,0.45);padding:1rem}
 .tags-editor-modal .modal-content{max-width:600px;max-height:80vh;overflow-y:auto;background:var(--collections-modal-bg);color:var(--collections-modal-text);border-radius:16px;padding:1.25rem;box-shadow:0 18px 40px rgba(15,23,42,0.2)}
 
 .tags-selected-preview{margin-bottom:20px;padding:12px;background:var(--collections-btn-bg);border-radius:8px}
