@@ -87,6 +87,45 @@
     "🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️"
   ];
 
+  /**
+   * הצגת הודעת Toast
+   * @param {string} message - ההודעה להצגה
+   * @param {string} type - סוג ההודעה: 'info', 'success', 'error', 'warning'
+   */
+  function showToast(message, type = 'info') {
+    // נסה להשתמש ב-toast גלובלי אם קיים
+    if (typeof window.showNotification === 'function') {
+      window.showNotification(message, type);
+      return;
+    }
+    // fallback - יצירת toast פשוט
+    const toast = document.createElement('div');
+    const bgColor = {
+      success: '#10b981',
+      error: '#ef4444',
+      warning: '#f59e0b',
+      info: '#3b82f6'
+    }[type] || '#3b82f6';
+    
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 0.75rem 1.5rem;
+      background: ${bgColor};
+      color: white;
+      border-radius: 8px;
+      z-index: 20000;
+      font-size: 0.9rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      direction: rtl;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  }
+
   // תגיות זמינות (יטען מהשרת)
   let TAGS_METADATA = null;
   let TAGS_FEATURE_ENABLED = true;
