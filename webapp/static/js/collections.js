@@ -501,13 +501,10 @@
     }
 
     const closeModal = () => {
-      // DEBUG: מושבת זמנית לבדיקה
-      alert('DEBUG: מישהו מנסה לסגור את המודל!');
-      return;
-      // modal.remove();
-      // if (previousFocus && typeof previousFocus.focus === 'function') {
-      //   try { previousFocus.focus(); } catch (_err) {}
-      // }
+      modal.remove();
+      if (previousFocus && typeof previousFocus.focus === 'function') {
+        try { previousFocus.focus(); } catch (_err) {}
+      }
     };
 
     // שמירת תגיות
