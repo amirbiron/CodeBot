@@ -407,3 +407,48 @@ def test_update_without_fields(mgr: CollectionsManager):
     c = mgr.create_collection(16, "U")["collection"]
     res = mgr.update_collection(16, c["id"])  # no fields
     assert not res["ok"]
+
+
+def test_add_items_with_tags_and_public_item(mgr: CollectionsManager):
+    c = mgr.create_collection(60, "Tagged")["collection"]
+    tags = ["🔥", "🐛", "1️⃣"]
+    res = mgr.add_items(60, c["id"], [{"source": "regular", "file_name": "a.py", "tags": tags}])
+    assert res["ok"]
+    stored = next(d for d in mgr.items.docs if d.get("file_name") == "a.py")  # type: ignore[attr-defined]
+    assert stored.get("tags") == tags
+    items_res = mgr.get_collection_items(60, c["id"], page=1, per_page=10, include_computed=True)
+    assert items_res["ok"]
+    out_item = next(it for it in items_res["items"] if it.get("file_name") == "a.py")
+    assert out_item.get("tags") == tags
+
+
+def test_add_items_invalid_tags_raises(mgr: CollectionsManager):
+    c = mgr.create_collection(61, "BadTags")["collection"]
+    with pytest.raises(ValueError):
+        mgr.add_items(61, c["id"], [{"source": "regular", "file_name": "bad.py", "tags": ["🔥", "🔥"]}])
+    with pytest.raises(ValueError):
+        mgr.add_items(61, c["id"], [{"source": "regular", "file_name": "bad2.py", "tags": ["INVALID"]}])
+
+
+def test_add_items_invalid_tags_no_partial_writes(mgr: CollectionsManager):
+    c = mgr.create_collection(63, "NoPartial")["collection"]
+    items = [
+        {"source": "regular", "file_name": "ok.py", "tags": ["🔥"]},
+        {"source": "regular", "file_name": "bad.py", "tags": ["🔥", "🔥"]},
+    ]
+    with pytest.raises(ValueError):
+        mgr.add_items(63, c["id"], items)
+    assert not mgr.items.docs  # type: ignore[attr-defined]
+
+
+def test_update_item_tags_and_metadata(mgr: CollectionsManager):
+    c = mgr.create_collection(62, "UpdateTags")["collection"]
+    mgr.add_items(62, c["id"], [{"source": "regular", "file_name": "b.py"}])
+    stored = next(d for d in mgr.items.docs if d.get("file_name") == "b.py")  # type: ignore[attr-defined]
+    updated = mgr.update_item_tags(62, stored.get("_id"), ["🔐", "2️⃣"])
+    assert updated and updated.get("tags") == ["🔐", "2️⃣"]
+    with pytest.raises(ValueError):
+        mgr.update_item_tags(62, stored.get("_id"), ["not_valid"])
+    meta = mgr.get_tags_metadata()
+    assert "allowed_tags" in meta and "metadata" in meta
+    assert "🔥" in meta.get("allowed_tags", [])

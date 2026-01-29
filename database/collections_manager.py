@@ -68,6 +68,66 @@ ALLOWED_ICONS: List[str] = [
 COLLECTION_COLORS: List[str] = [
     "blue","green","purple","orange","red","teal","pink","yellow"
 ]
+
+# תגיות מותרות (whitelist)
+ALLOWED_TAGS: List[str] = [
+    # עדיפות
+    "🐢",  # לא דחוף
+    "🔥",  # דחוף
+
+    # סנטימנט
+    "🔮",  # קסום
+    "♥️",  # מועדף
+
+    # אבטחה
+    "🔐",  # סודי
+
+    # סטטוס
+    "💭",  # רעיון
+    "⏸️",  # מושהה
+    "🎯",  # מטרה
+
+    # קטגוריה
+    "🐛",  # באג
+    "🗄️",  # דאטה-בייס
+    "🧪",  # ניסיוני
+
+    # סדר
+    "1️⃣",  # ראשון
+    "2️⃣",  # שני
+    "3️⃣",  # שלישי
+]
+
+# קטגוריות תגיות
+TAG_CATEGORIES: Dict[str, List[str]] = {
+    "priority": ["🐢", "🔥"],
+    "sentiment": ["🔮", "♥️"],
+    "security": ["🔐"],
+    "status": ["💭", "⏸️", "🎯"],
+    "category": ["🐛", "🗄️", "🧪"],
+    "order": ["1️⃣", "2️⃣", "3️⃣"],
+}
+
+# מטאדאטה לכל תגית
+TAG_METADATA: Dict[str, Dict[str, str]] = {
+    "🐢": {"name_he": "לא דחוף", "name_en": "low priority", "category": "priority"},
+    "🔥": {"name_he": "דחוף", "name_en": "urgent", "category": "priority"},
+    "🔮": {"name_he": "קסום", "name_en": "magic", "category": "sentiment"},
+    "♥️": {"name_he": "מועדף", "name_en": "favorite", "category": "sentiment"},
+    "🔐": {"name_he": "סודי", "name_en": "secret", "category": "security"},
+    "💭": {"name_he": "רעיון", "name_en": "idea", "category": "status"},
+    "⏸️": {"name_he": "מושהה", "name_en": "paused", "category": "status"},
+    "🎯": {"name_he": "מטרה", "name_en": "goal", "category": "status"},
+    "🐛": {"name_he": "באג", "name_en": "bug", "category": "category"},
+    "🗄️": {"name_he": "דאטה-בייס", "name_en": "database", "category": "category"},
+    "🧪": {"name_he": "ניסיוני", "name_en": "experimental", "category": "category"},
+    "1️⃣": {"name_he": "ראשון", "name_en": "first", "category": "order"},
+    "2️⃣": {"name_he": "שני", "name_en": "second", "category": "order"},
+    "3️⃣": {"name_he": "שלישי", "name_en": "third", "category": "order"},
+}
+
+# מגבלות
+MAX_TAGS_PER_ITEM = 10  # מקסימום תגיות לפריט
 WORKSPACE_STATES: Tuple[str, ...] = ("todo", "in_progress", "done")
 DEFAULT_WORKSPACE_STATE: str = WORKSPACE_STATES[0]
 
@@ -141,6 +201,7 @@ class CollectionsManager:
                 IndexModel([("collection_id", ASCENDING), ("source", ASCENDING), ("file_name", ASCENDING)], name="unique_item", unique=True),
                 IndexModel([("collection_id", ASCENDING), ("custom_order", ASCENDING), ("pinned", DESCENDING)], name="order_pin"),
                 IndexModel([("user_id", ASCENDING)], name="by_user"),
+                IndexModel([("collection_id", ASCENDING), ("tags", ASCENDING)], name="collection_tags"),
             ])
         except Exception:
             pass
@@ -209,6 +270,40 @@ class CollectionsManager:
     def _normalize_color(self, color: Optional[str]) -> str:
         c = str(color or "").lower()
         return c if c in COLLECTION_COLORS else ""
+
+    def _validate_tags(self, tags: Any) -> Tuple[bool, Optional[str]]:
+        """
+        מוודא שרשימת התגיות תקינה.
+
+        Args:
+            tags: רשימת תגיות (אימוג'ים)
+
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        if tags is None:
+            return True, None
+
+        if not isinstance(tags, list):
+            return False, "tags must be a list"
+
+        if len(tags) > MAX_TAGS_PER_ITEM:
+            return False, f"maximum {MAX_TAGS_PER_ITEM} tags allowed per item"
+
+        for tag in tags:
+            if not isinstance(tag, str):
+                return False, "tags must be strings"
+
+        # בדיקת uniqueness
+        if len(tags) != len(set(tags)):
+            return False, "duplicate tags not allowed"
+
+        # בדיקת whitelist
+        for tag in tags:
+            if tag not in ALLOWED_TAGS:
+                return False, f"invalid tag: {tag}"
+
+        return True, None
 
     def _normalize_workspace_state(self, state: Optional[str], *, allow_default: bool = True) -> str:
         try:
@@ -469,6 +564,19 @@ class CollectionsManager:
             return {"ok": False, "error": "collection_id לא תקין"}
         if not isinstance(items, list) or not items:
             return {"ok": False, "error": "items חסר"}
+        # ולידציית תגיות מוקדמת כדי למנוע כתיבות חלקיות
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            file_name = str(it.get("file_name") or "").strip()
+            if not file_name:
+                continue
+            tags_provided = "tags" in it
+            tags = it.get("tags") if tags_provided else None
+            is_valid, error = self._validate_tags(tags)
+            if not is_valid:
+                raise ValueError(f"Invalid tags for {file_name}: {error}")
+
         # מגבלה: עד 5000 פריטים ידניים למשתמש בכלל האוספים
         try:
             current_total = int(self.items.count_documents({"user_id": int(user_id)}))
@@ -488,6 +596,16 @@ class CollectionsManager:
                 if not file_name:
                     continue
 
+                tags_provided = isinstance(it, dict) and "tags" in it
+                tags = it.get("tags") if tags_provided else None
+
+                # ולידציית תגיות
+                is_valid, error = self._validate_tags(tags)
+                if not is_valid:
+                    raise ValueError(f"Invalid tags for {file_name}: {error}")
+
+                tags_to_store = [] if tags is None else tags
+
                 # נסה קודם לעדכן פריט קיים; אם לא קיים – נכניס חדש
                 query = {
                     "collection_id": cid,
@@ -505,6 +623,8 @@ class CollectionsManager:
                     set_fields["custom_order"] = it.get("custom_order")
                 if "workspace_state" in it:
                     set_fields["workspace_state"] = self._normalize_workspace_state(it.get("workspace_state"))
+                if tags_provided:
+                    set_fields["tags"] = tags_to_store
 
                 try:
                     upd_res = self.items.update_one(query, {"$set": set_fields})
@@ -523,6 +643,7 @@ class CollectionsManager:
                     "source": source,
                     "file_name": file_name,
                     "note": str(it.get("note") or "")[:500],
+                    "tags": tags_to_store,
                     "pinned": bool(it.get("pinned") or False),
                     "custom_order": it.get("custom_order"),
                     "workspace_state": self._normalize_workspace_state(it.get("workspace_state")),
@@ -540,6 +661,8 @@ class CollectionsManager:
                     except Exception:
                         # התעלם מפריט בעייתי כדי לא לחסום אחרים
                         continue
+            except ValueError:
+                raise
             except Exception:
                 continue
         # עדכון מונים באוסף — תחום למשתמש ולאוסף כדי למנוע פגיעה צולבת
@@ -589,6 +712,110 @@ class CollectionsManager:
             pass
         emit_event("collections_items_remove", user_id=int(user_id), collection_id=str(collection_id), count=int(deleted))
         return {"ok": True, "deleted": deleted}
+
+    def update_item_tags(self, user_id: int, item_id: str, tags: Any) -> Optional[Dict[str, Any]]:
+        """
+        עדכון תגיות של פריט קיים באוסף.
+
+        Args:
+            user_id: מזהה משתמש
+            item_id: מזהה הפריט (collection_item _id)
+            tags: רשימת תגיות חדשה
+
+        Returns:
+            dict: הפריט המעודכן או None
+        """
+        # ולידציה
+        is_valid, error = self._validate_tags(tags)
+        if not is_valid:
+            raise ValueError(f"Invalid tags: {error}")
+
+        try:
+            item_id_obj = ObjectId(item_id)
+        except Exception:
+            return None
+
+        new_tags = [] if tags is None else list(tags)
+
+        # שליפת מצב קודם לצורך דלתא/אנליטיקה
+        try:
+            current_item = self.items.find_one({"_id": item_id_obj, "user_id": user_id})
+        except Exception:
+            current_item = None
+        if not current_item:
+            return None
+        old_tags = list(current_item.get("tags") or [])
+
+        # עדכון במסד הנתונים
+        result = self.items.update_one(
+            {
+                "_id": item_id_obj,
+                "user_id": user_id,  # ACL check
+            },
+            {
+                "$set": {
+                    "tags": new_tags,
+                    "updated_at": _now(),
+                }
+            },
+        )
+
+        matched = int(getattr(result, "matched_count", 0) or 0)
+        if matched <= 0:
+            matched = int(getattr(result, "modified_count", 0) or 0)
+        if matched <= 0:
+            return None
+
+        # קריאת הפריט המעודכן
+        try:
+            item = self.items.find_one({"_id": item_id_obj})
+        except Exception:
+            item = None
+
+        # ביטול cache
+        if item:
+            cid = item.get("collection_id")
+            try:
+                self._invalidate_collection_items_cache(user_id, cid)
+            except Exception:
+                pass
+            cache_obj = cache
+            if cache_obj is not None:
+                try:
+                    uid = str(user_id).strip()
+                    cid_str = str(cid).strip()
+                    if uid and cid_str:
+                        cache_obj.delete_pattern(f"collections_detail:{uid}:-api-collections-{cid_str}*")
+                except Exception:
+                    pass
+
+        # אירועים אנליטיים
+        emit_event(
+            "collections_item_tags_update",
+            user_id=int(user_id),
+            item_id=str(item_id),
+            tags=list(new_tags),
+        )
+        added = sorted(set(new_tags) - set(old_tags))
+        removed = sorted(set(old_tags) - set(new_tags))
+        if added:
+            emit_event(
+                "collections_tags_added",
+                user_id=int(user_id),
+                item_id=str(item_id),
+                tags=list(added),
+                count=int(len(added)),
+            )
+        if removed:
+            emit_event(
+                "collections_tags_removed",
+                user_id=int(user_id),
+                item_id=str(item_id),
+                tags=list(removed),
+                count=int(len(removed)),
+            )
+
+        return self._public_item(item) if item else None
 
     def reorder_items(self, user_id: int, collection_id: str, order: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Reorder items within a collection.
@@ -686,6 +913,38 @@ class CollectionsManager:
         emit_event("collections_reorder", user_id=int(user_id), collection_id=str(collection_id), count=int(updated_count))
         return {"ok": True, "updated": updated_count, "items": new_items}
 
+    def get_tags_metadata(self) -> Dict[str, Any]:
+        """
+        החזרת מטאדאטה על כל התגיות הזמינות.
+
+        Returns:
+            dict: {
+                "allowed_tags": [...],
+                "categories": {...},
+                "metadata": {...}
+            }
+        """
+        cache_key = "collections:tags_metadata"
+        cache_obj = cache
+        if cache_obj is not None:
+            try:
+                cached = cache_obj.get(cache_key)
+                if isinstance(cached, dict) and cached.get("allowed_tags"):
+                    return cached
+            except Exception:
+                pass
+        payload = {
+            "allowed_tags": ALLOWED_TAGS,
+            "categories": TAG_CATEGORIES,
+            "metadata": TAG_METADATA,
+        }
+        if cache_obj is not None:
+            try:
+                cache_obj.set(cache_key, payload, expire_seconds=3600)
+            except Exception:
+                pass
+        return payload
+
     def get_collection_items(
         self,
         user_id: int,
@@ -732,6 +991,7 @@ class CollectionsManager:
                 "source": 1,
                 "file_name": 1,
                 "note": 1,
+                "tags": 1,
                 "pinned": 1,
                 "custom_order": 1,
                 "workspace_state": 1,
@@ -1047,17 +1307,18 @@ class CollectionsManager:
             if lang:
                 flt["programming_language"] = lang
             tags = rules.get("tags")
-            if isinstance(tags, list) and tags:
-                flt["tags"] = {"$in": [str(t) for t in tags if isinstance(t, str) and t]}
+            tag_values = [str(t) for t in tags if isinstance(t, str) and t] if isinstance(tags, list) else []
+            if tag_values:
+                flt["tags"] = {"$all": tag_values}
             repo_tag = str(rules.get("repo_tag") or "").strip()
             if repo_tag:
                 flt.setdefault("tags", {})
-                # אם כבר יש $in, ודא שהתנאי כולל גם repo_tag; אחרת קבע חיתוך פשוט
-                if isinstance(flt["tags"], dict) and "$in" in flt["tags"]:
-                    arr = list(flt["tags"]["$in"])
+                # אם כבר יש $all, ודא שהתנאי כולל גם repo_tag; אחרת קבע חיתוך פשוט
+                if isinstance(flt["tags"], dict) and "$all" in flt["tags"]:
+                    arr = list(flt["tags"]["$all"])
                     if repo_tag not in arr:
                         arr.append(repo_tag)
-                    flt["tags"]["$in"] = arr
+                    flt["tags"]["$all"] = arr
                 else:
                     flt["tags"] = repo_tag
 
@@ -1128,6 +1389,7 @@ class CollectionsManager:
             "source": str(d.get("source") or "regular"),
             "file_name": d.get("file_name"),
             "note": d.get("note") or "",
+            "tags": list(d.get("tags") or []),
             "pinned": bool(d.get("pinned", False)),
             "custom_order": d.get("custom_order"),
             "workspace_state": self._normalize_workspace_state(d.get("workspace_state")),
