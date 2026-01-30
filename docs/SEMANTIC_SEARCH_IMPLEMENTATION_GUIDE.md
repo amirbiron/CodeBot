@@ -140,14 +140,15 @@ SNIPPET_CHUNK_SCHEMA = {
 
 """
 שירות יצירת Embeddings באמצעות Gemini API
+תיקון: גרסה אסינכרונית למניעת חסימת event loop
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
-import time
 from typing import List, Optional, Sequence
 
 import httpx
@@ -172,28 +173,30 @@ class EmbeddingError(Exception):
 
 
 class EmbeddingService:
-    """שירות יצירת embeddings עבור טקסט וקוד"""
+    """שירות יצירת embeddings עבור טקסט וקוד - גרסה אסינכרונית"""
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or GEMINI_API_KEY
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not configured - semantic search disabled")
 
-        self._client: Optional[httpx.Client] = None
+        # תיקון: שימוש ב-AsyncClient במקום Client סינכרוני
+        self._client: Optional[httpx.AsyncClient] = None
 
     @property
-    def client(self) -> httpx.Client:
-        if self._client is None:
-            self._client = httpx.Client(timeout=REQUEST_TIMEOUT)
+    def client(self) -> httpx.AsyncClient:
+        """Lazy initialization של AsyncClient"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
         return self._client
 
     def is_available(self) -> bool:
         """בדיקה האם השירות זמין"""
         return bool(self.api_key)
 
-    def generate_embedding(self, text: str) -> Optional[List[float]]:
+    async def generate_embedding(self, text: str) -> Optional[List[float]]:
         """
-        יצירת embedding עבור טקסט בודד
+        יצירת embedding עבור טקסט בודד (אסינכרוני)
 
         Args:
             text: הטקסט ליצירת embedding
@@ -222,7 +225,8 @@ class EmbeddingService:
 
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.client.post(
+                # תיקון: שימוש ב-await
+                response = await self.client.post(
                     url,
                     json=payload,
                     params={"key": self.api_key},
@@ -241,7 +245,7 @@ class EmbeddingService:
                     # Rate limit - המתנה וניסיון חוזר
                     wait_time = RETRY_DELAY_SECONDS * (2 ** attempt)
                     logger.warning(f"Rate limited, waiting {wait_time}s...")
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)  # תיקון: await במקום time.sleep
                     continue
 
                 else:
@@ -251,7 +255,7 @@ class EmbeddingService:
             except httpx.TimeoutException:
                 logger.warning(f"Timeout on attempt {attempt + 1}")
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(RETRY_DELAY_SECONDS)
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)  # תיקון: await
                     continue
                 return None
 
@@ -261,17 +265,17 @@ class EmbeddingService:
 
         return None
 
-    def generate_embeddings_batch(
+    async def generate_embeddings_batch(
         self,
         texts: Sequence[str],
         batch_size: int = 10
     ) -> List[Optional[List[float]]]:
         """
-        יצירת embeddings עבור מספר טקסטים
+        יצירת embeddings עבור מספר טקסטים (אסינכרוני)
 
         Args:
             texts: רשימת טקסטים
-            batch_size: גודל batch (Gemini לא תומך ב-batch אמיתי, אז זה רק rate limiting)
+            batch_size: גודל batch (rate limiting)
 
         Returns:
             רשימת embeddings (או None עבור כל כישלון)
@@ -279,19 +283,19 @@ class EmbeddingService:
         results: List[Optional[List[float]]] = []
 
         for i, text in enumerate(texts):
-            embedding = self.generate_embedding(text)
+            embedding = await self.generate_embedding(text)  # תיקון: await
             results.append(embedding)
 
             # Rate limiting בין בקשות
             if (i + 1) % batch_size == 0:
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)  # תיקון: await
 
         return results
 
-    def close(self):
+    async def close(self):
         """סגירת החיבור"""
-        if self._client:
-            self._client.close()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()  # תיקון: aclose לסגירה אסינכרונית
             self._client = None
 
 
@@ -580,14 +584,15 @@ async def save_snippet_chunks(
     Returns:
         מספר chunks שנשמרו
     """
-    if not chunks:
-        return 0
-
-    # מחיקת chunks ישנים
+    # תיקון: מחיקת chunks ישנים תמיד, גם אם אין חדשים
+    # זה מונע מצב שבו chunks ישנים עם קוד לא עדכני נשארים ב-DB
     await db.snippet_chunks.delete_many({
         "userId": user_id,
         "snippetId": snippet_id
     })
+
+    if not chunks:
+        return 0
 
     # הוספת chunks חדשים
     now = datetime.now(timezone.utc)
@@ -658,13 +663,18 @@ RRF_K = 60  # קבוע למיזוג
 TEXT_WEIGHT = 1.0
 VECTOR_WEIGHT = 1.2  # משקל גבוה יותר לחיפוש וקטורי
 
+# סף ציון מינימלי - מותאם ל-RRF scores
+# RRF max score ≈ (1.2 + 1.0) / (60 + 1) ≈ 0.036
+# לכן הסף צריך להיות נמוך בהרבה מ-0.5!
+MIN_RRF_SCORE = 0.005
+
 
 async def semantic_search(
     user_id: int,
     query: str,
     limit: int = 20,
     language_filter: Optional[str] = None,
-    min_score: float = 0.5
+    min_score: float = MIN_RRF_SCORE  # תוקן! היה 0.5 שסינן הכל
 ) -> List[SearchResult]:
     """
     חיפוש סמנטי היברידי (Text + Vector)
@@ -791,7 +801,7 @@ def _build_hybrid_search_pipeline(
             }
         },
 
-        # שלב 3: קיבוץ לפי snippet ומיזוג ציונים
+        # שלב 3: קיבוץ לפי snippet ומיזוג ציונים מ-vector ו-text
         {
             "$group": {
                 "_id": {
@@ -809,30 +819,57 @@ def _build_hybrid_search_pipeline(
             }
         },
 
-        # שלב 4: חישוב RRF Score
+        # שלב 4: חישוב Vector Rank באמצעות $setWindowFields
+        # תיקון: חייבים לחשב ranks לפני RRF, אחרת כל התוצאות מקבלות ציון זהה!
+        {
+            "$setWindowFields": {
+                "sortBy": {"vectorScore": -1},
+                "output": {
+                    "vectorRank": {
+                        "$rank": {}
+                    }
+                }
+            }
+        },
+
+        # שלב 5: חישוב Text Rank באמצעות $setWindowFields
+        {
+            "$setWindowFields": {
+                "sortBy": {"textScore": -1},
+                "output": {
+                    "textRank": {
+                        "$rank": {}
+                    }
+                }
+            }
+        },
+
+        # שלב 6: חישוב RRF Score (עכשיו עם ranks אמיתיים!)
         {
             "$addFields": {
                 "rrfScore": {
                     "$add": [
+                        # Vector component
                         {
                             "$cond": {
                                 "if": {"$gt": ["$vectorScore", 0]},
                                 "then": {
                                     "$multiply": [
                                         VECTOR_WEIGHT,
-                                        {"$divide": [1, {"$add": [RRF_K, {"$ifNull": ["$vectorRank", 100]}]}]}
+                                        {"$divide": [1, {"$add": [RRF_K, "$vectorRank"]}]}
                                     ]
                                 },
                                 "else": 0
                             }
                         },
+                        # Text component
                         {
                             "$cond": {
                                 "if": {"$gt": ["$textScore", 0]},
                                 "then": {
                                     "$multiply": [
                                         TEXT_WEIGHT,
-                                        {"$divide": [1, {"$add": [RRF_K, {"$ifNull": ["$textRank", 100]}]}]}
+                                        {"$divide": [1, {"$add": [RRF_K, "$textRank"]}]}
                                     ]
                                 },
                                 "else": 0
@@ -843,11 +880,11 @@ def _build_hybrid_search_pipeline(
             }
         },
 
-        # שלב 5: מיון ו-limit
+        # שלב 7: מיון ו-limit
         {"$sort": {"rrfScore": -1}},
         {"$limit": limit},
 
-        # שלב 6: Lookup לפרטי ה-snippet המקורי
+        # שלב 8: Lookup לפרטי ה-snippet המקורי
         {
             "$lookup": {
                 "from": "files",
@@ -863,7 +900,7 @@ def _build_hybrid_search_pipeline(
             }
         },
 
-        # שלב 7: פרויקציה סופית
+        # שלב 9: פרויקציה סופית
         {
             "$project": {
                 "snippetId": 1,
@@ -1121,7 +1158,14 @@ class EmbeddingWorker:
         # בדיקה אם התוכן השתנה
         current_hash = compute_content_hash(content)
         if current_hash == snippet.get("contentHash"):
-            logger.debug(f"Snippet {snippet_id} unchanged, skipping")
+            # תיקון: עדכון דגלים גם כשהתוכן לא השתנה
+            # אחרת ה-snippet יישאר בתור לנצח (לולאה אינסופית)
+            logger.debug(f"Snippet {snippet_id} unchanged, clearing flags")
+            await update_snippet_embedding_status(
+                snippet_id=snippet_id,
+                content_hash=current_hash,
+                chunk_count=snippet.get("chunkCount", 0)
+            )
             return
 
         # פיצול לחלקים
@@ -1146,7 +1190,8 @@ class EmbeddingWorker:
                 language=snippet.get("programming_language")
             )
 
-            embedding = self.embedding_service.generate_embedding(embedding_text)
+            # תיקון: קריאה אסינכרונית
+            embedding = await self.embedding_service.generate_embedding(embedding_text)
 
             if embedding:
                 chunk_docs.append({
@@ -1158,9 +1203,9 @@ class EmbeddingWorker:
                     "chunkEmbedding": embedding
                 })
 
-        # שמירה ל-DB
-        if chunk_docs:
-            await save_snippet_chunks(
+        # תיקון: שמירה ל-DB תמיד (תמחק chunks ישנים גם אם אין חדשים)
+        # זה מונע מצב שבו chunks ישנים נשארים אחרי שכל ה-embeddings נכשלו
+        await save_snippet_chunks(
                 user_id=user_id,
                 snippet_id=snippet_id,
                 chunks=chunk_docs
@@ -1677,6 +1722,20 @@ class TestEmbeddingService:
 2. בחירת "Atlas Vector Search"
 3. הדבקת הקונפיגורציה מסעיף 1.3
 4. שם האינדקס: `vector_index`
+
+---
+
+## תיקוני באגים (v1.1)
+
+### באגים שתוקנו בגרסה זו:
+
+| באג | תיאור | תיקון |
+|-----|-------|-------|
+| **RRF Ranks חסרים** | ה-pipeline השתמש ב-`$vectorRank` ו-`$textRank` שמעולם לא חושבו, כך שכל התוצאות קיבלו ציון זהה | נוספו שלבי `$setWindowFields` עם `$rank` לפני חישוב RRF |
+| **min_score גבוה מדי** | ברירת המחדל `0.5` סיננה את כל התוצאות כי RRF scores הם בסקאלה של ~0.036 מקסימום | הורד ל-`0.005` עם הסבר על הסקאלה |
+| **חסימת Event Loop** | השימוש ב-`httpx.Client` סינכרוני חסם את ה-event loop ב-worker | הוחלף ב-`httpx.AsyncClient` + `await` בכל הקריאות |
+| **לולאת עיבוד אינסופית** | כש-hash התוכן לא השתנה, ה-worker דילג בלי לעדכן דגלים, והשאיר את ה-snippet בתור לנצח | נוסף עדכון `update_snippet_embedding_status` גם במקרה של תוכן זהה |
+| **chunks ישנים לא נמחקו** | כשכל ה-embeddings נכשלו, chunks ישנים עם קוד לא עדכני נשארו ב-DB | `save_snippet_chunks` מוחק chunks ישנים **לפני** הבדיקה אם יש חדשים |
 
 ---
 
