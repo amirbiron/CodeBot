@@ -11,7 +11,7 @@
 
 features:
   - title: "חיפוש סמנטי בקוד"
-    description: "חיפוש בכל הקוד לפי משמעות התוכן (ai) - יש לבחור בתיבת החיפוש (Selector): "חיפוש חכם""
+    description: 'חיפוש בכל הקוד לפי משמעות התוכן (ai) - יש לבחור בתיבת החיפוש (Selector): "חיפוש חכם"'
     icon: "🧠"
     date: "2026-01-30"
     link: "/files"
