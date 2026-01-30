@@ -26,10 +26,7 @@ const CONFIG = {
         }
         if (fromHtml) return fromHtml;
 
-        // 2. מ-localStorage
-        if (fromStorage) return fromStorage;
-
-        // 3. ברירת מחדל
+        // 2. ברירת מחדל
         return 'CodeBot';
     },
     apiBase: '/repo/api',
