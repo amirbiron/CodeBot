@@ -233,6 +233,12 @@ function updateRepoDisplay(repoName) {
     document.querySelectorAll('.repo-dropdown-item').forEach(item => {
         item.classList.toggle('active', item.dataset.repo === repoName);
     });
+
+    // עדכון אלמנט נסתר עבור repo-history
+    const currentRepoEl = document.getElementById('current-repo-name');
+    if (currentRepoEl) {
+        currentRepoEl.dataset.repo = repoName;
+    }
 }
 
 /**

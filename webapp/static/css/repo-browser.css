@@ -2497,7 +2497,7 @@ html[dir="rtl"] .diff-view-toggle {
 
 .repo-dropdown-toggle:hover {
     background: var(--bg-hover);
-    border-color: var(--accent-color);
+    border-color: var(--accent-blue);
 }
 
 .repo-dropdown-toggle .bi-chevron-down {
@@ -2548,8 +2548,8 @@ html[dir="rtl"] .diff-view-toggle {
 }
 
 .repo-dropdown-item.active {
-    background: var(--accent-color-alpha);
-    border-right: 3px solid var(--accent-color);
+    background: rgba(137, 180, 250, 0.15);
+    border-right: 3px solid var(--accent-blue);
 }
 
 .repo-item-name {

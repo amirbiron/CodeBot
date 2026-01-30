@@ -3,14 +3,15 @@ import sys
 from types import ModuleType, SimpleNamespace
 from flask import Flask
 
-from services.git_mirror_service import GitMirrorService
-from webapp.routes import repo_browser
-
-
-if "flask_login" not in sys.modules:
+try:
+    import flask_login  # noqa: F401
+except ModuleNotFoundError:
     flask_login_stub = ModuleType("flask_login")
     flask_login_stub.current_user = SimpleNamespace(is_authenticated=False)
     sys.modules["flask_login"] = flask_login_stub
+
+from services.git_mirror_service import GitMirrorService
+from webapp.routes import repo_browser
 
 
 class _Cursor:
@@ -64,10 +65,12 @@ def app(tmp_path, monkeypatch) -> Flask:
     app = Flask(__name__)
     app.config["TESTING"] = True
     app.config["SECRET_KEY"] = "test"
-    app.extensions['git_mirror_service'] = GitMirrorService(mirrors_base_path=str(tmp_path))
+    git_service = GitMirrorService(mirrors_base_path=str(tmp_path))
+    app.extensions['git_mirror_service'] = git_service
 
     stub_db = _StubDB()
     monkeypatch.setattr(repo_browser, "get_db", lambda: stub_db)
+    monkeypatch.setattr(repo_browser, "get_mirror_service", lambda: git_service)
     app.register_blueprint(repo_browser.repo_bp)
     return app
 
