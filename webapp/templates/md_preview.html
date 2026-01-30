@@ -2700,19 +2700,6 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         setTimeout(() => { try { document.body.removeChild(announcement); } catch(_){} }, 1000);
       } catch(_) {}
     }
-    function fallbackCopy(text) {
-      try {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        const success = document.execCommand('copy');
-        document.body.removeChild(textarea);
-        return success;
-      } catch(_) { return false; }
-    }
     // כפתור העתקה משופר לכל בלוק קוד + נגישות מלאה
     try {
       const FALLBACK_LANG = (document.documentElement && document.documentElement.dir === 'rtl') ? 'טקסט' : 'Text';
@@ -3699,6 +3686,22 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   } catch(_) {}
 })();
 
+function fallbackCopy(text) {
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const success = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return success;
+  } catch(_) {
+    return false;
+  }
+}
+
 function copyMarkdownSource(ev){
   try { if (ev) ev.preventDefault(); } catch(_){ }
   const text = (typeof MD_TEXT === 'string') ? MD_TEXT : '';
@@ -3718,28 +3721,13 @@ function copyMarkdownSource(ev){
       labelEl.textContent = value;
     }
   }
-  function fallbackCopyText(value){
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = value;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return ok;
-    } catch(_) {
-      return false;
-    }
-  }
   (async function(){
     let success = false;
     try {
       await navigator.clipboard.writeText(text);
       success = true;
     } catch(_) {
-      success = fallbackCopyText(text);
+      success = fallbackCopy(text);
     }
     if (success) {
       setLabel('הועתק!');
