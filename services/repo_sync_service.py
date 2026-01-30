@@ -399,7 +399,28 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
             preferred = next((r for r in refs if not r.endswith("/HEAD")), "")
         default_branch = _strip_origin_prefix(preferred)
 
+    # Fallback 2: ב-mirror אין refs/remotes/origin - חפש ישירות ב-refs/heads
     if not default_branch:
+        logger.info("No refs/remotes/origin found, checking refs/heads directly (mirror mode)")
+        refs_result = git_service._run_git_command(
+            ["git", "for-each-ref", "--format=%(refname)", "refs/heads"],
+            cwd=repo_path,
+        )
+        refs = [r.strip() for r in (refs_result.stdout or "").splitlines() if r.strip()]
+        logger.info(f"Available refs/heads: {refs}")
+        preferred = (
+            next((r for r in refs if r.endswith("/main")), "")
+            or next((r for r in refs if r.endswith("/master")), "")
+        )
+        if not preferred:
+            preferred = next((r for r in refs if r.strip()), "")
+        if preferred:
+            # refs/heads/main -> main
+            default_branch = preferred.replace("refs/heads/", "")
+            logger.info(f"Found branch in refs/heads: {default_branch}")
+
+    if not default_branch:
+        logger.warning("Could not detect any branch, falling back to 'main'")
         default_branch = "main"
 
     logger.info(f"Detected default branch: {default_branch}")
