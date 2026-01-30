@@ -217,7 +217,7 @@ def _build_hybrid_search_pipeline(
     if language_filter:
         base_filter["language"] = language_filter
 
-    pipeline = [
+    pipeline: List[Dict[str, Any]] = [
         {
             "$vectorSearch": {
                 "index": "vector_index",
@@ -351,7 +351,8 @@ def _build_hybrid_search_pipeline(
                 "pipeline": [
                     {
                         "$match": {
-                            "$expr": {"$eq": ["$_id", "$$snippet_id"]}
+                            "$expr": {"$eq": ["$_id", "$$snippet_id"]},
+                            "is_active": True,
                         }
                     },
                     {"$project": dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)},
@@ -365,6 +366,39 @@ def _build_hybrid_search_pipeline(
                 "preserveNullAndEmptyArrays": True,
             }
         },
+        {"$match": {"snippetDetails": {"$ne": None}}},
+        {
+            "$lookup": {
+                "from": "code_snippets",
+                "let": {
+                    "file_name": "$snippetDetails.file_name",
+                    "user_id": "$snippetDetails.user_id",
+                },
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$file_name", "$$file_name"]},
+                                    {"$eq": ["$user_id", "$$user_id"]},
+                                    {"$eq": ["$is_active", True]},
+                                ]
+                            }
+                        }
+                    },
+                    {"$sort": {"version": -1, "updated_at": -1, "_id": -1}},
+                    {"$limit": 1},
+                    {"$project": {"_id": 1}},
+                ],
+                "as": "latestSnippet",
+            }
+        },
+        {
+            "$addFields": {
+                "latestSnippetId": {"$arrayElemAt": ["$latestSnippet._id", 0]}
+            }
+        },
+        {"$match": {"$expr": {"$eq": ["$snippetId", "$latestSnippetId"]}}},
         {
             "$project": {
                 "snippetId": 1,

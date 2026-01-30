@@ -195,11 +195,12 @@ async def get_snippets_needing_processing(limit: int = 50) -> List[Dict[str, Any
     def _fetch() -> List[Dict[str, Any]]:
         cursor = files_collection.find(
             {
+                "is_active": True,
                 "$or": [
                     {"needs_embedding": True},
                     {"needs_chunking": True},
                     {"contentHash": {"$exists": False}},
-                ]
+                ],
             },
             {
                 "_id": 1,
@@ -277,6 +278,9 @@ async def update_snippet_embedding_status(
     content_hash: str,
     chunk_count: int,
     snippet_embedding: Optional[List[float]] = None,
+    *,
+    needs_embedding: Optional[bool] = None,
+    needs_chunking: Optional[bool] = None,
 ) -> bool:
     """
     Update embedding status for a snippet.
@@ -289,10 +293,12 @@ async def update_snippet_embedding_status(
         return False
 
     def _update() -> bool:
+        resolved_needs_embedding = False if needs_embedding is None else needs_embedding
+        resolved_needs_chunking = False if needs_chunking is None else needs_chunking
         update_doc: Dict[str, Any] = {
             "$set": {
-                "needs_embedding": False,
-                "needs_chunking": False,
+                "needs_embedding": resolved_needs_embedding,
+                "needs_chunking": resolved_needs_chunking,
                 "contentHash": content_hash,
                 "chunkCount": chunk_count,
                 "embeddingUpdatedAt": datetime.now(timezone.utc),

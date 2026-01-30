@@ -98,7 +98,10 @@ class EmbeddingWorker:
             return
 
         current_hash = compute_content_hash(content)
-        if current_hash == snippet.get("contentHash"):
+        needs_processing = bool(
+            snippet.get("needs_embedding") or snippet.get("needs_chunking")
+        )
+        if current_hash == snippet.get("contentHash") and not needs_processing:
             logger.debug("Snippet %s unchanged, clearing flags", snippet_id)
             await update_snippet_embedding_status(
                 snippet_id=snippet_id,
@@ -154,11 +157,14 @@ class EmbeddingWorker:
         )
         snippet_embedding = await self.embedding_service.generate_embedding(metadata_text)
 
+        should_retry = len(chunk_docs) < len(chunks) or snippet_embedding is None
         await update_snippet_embedding_status(
             snippet_id=snippet_id,
             content_hash=current_hash,
             chunk_count=len(chunk_docs),
             snippet_embedding=snippet_embedding,
+            needs_embedding=should_retry,
+            needs_chunking=False,
         )
 
         logger.info("Processed snippet %s: %s chunks", snippet_id, len(chunk_docs))
