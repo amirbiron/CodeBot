@@ -594,103 +594,224 @@
   max-width: 100%;
   height: auto;
 }
-/* מיקום כפתור "צבע רקע" – העברה לכותרת ומניעת חפיפה */
-#md-search {
-  position: relative;
+/* ==========================================================================
+   MD Editor Toolbar - עיצוב חדש כמו view_file
+   ========================================================================== */
+.md-editor-toolbar {
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
   align-items: center;
-  padding: 0.25rem 0;
-  border-radius: 0;
-  margin: 0 0 0.75rem;
+  gap: 10px;
+  padding: 8px;
+  margin: 0 0 1rem;
+  background: var(--glass, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.md-search-capsule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 320px;
+  min-width: 240px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-primary, #000) 25%, transparent);
+  border: 1px solid transparent;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.md-search-capsule:focus-within {
+  border-color: color-mix(in srgb, var(--text-primary, #fff) 50%, transparent);
+  background: color-mix(in srgb, var(--bg-primary, #000) 40%, transparent);
+}
+
+.md-search-capsule .md-search-input {
+  flex: 1 1 200px;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, #ffffff);
+  font-size: 15px;
+  padding: 6px 4px;
+  outline: none;
+}
+
+.md-search-capsule .md-search-input::placeholder {
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.md-search-capsule .md-search-count {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.85));
+  font-size: 13px;
+  white-space: nowrap;
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.md-search-capsule .md-divider {
+  width: 1px;
+  height: 22px;
+  background: color-mix(in srgb, var(--text-primary, #fff) 25%, transparent);
+}
+
+.md-search-capsule .md-icon-btn {
   background: transparent;
   border: none;
-  box-shadow: none;
-}
-
-#md-search input {
-  flex: 1 1 220px;
-  min-width: 0;
-  border-radius: 8px;
-  padding: 0.6rem 0.8rem;
-  font-size: 0.95rem;
-  background: var(--md-search-input-bg, var(--bg-tertiary, rgba(255, 255, 255, 0.85)));
-  border: 1px solid var(--md-search-input-border, var(--glass-border, rgba(0, 0, 0, 0.1)));
-  color: var(--text-primary, #1f2933);
-  outline: none;
-  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-}
-
-#md-search input::placeholder {
-  color: var(--text-muted, rgba(15, 23, 42, 0.55));
-}
-
-#md-search input:focus {
-  border-color: var(--primary, #9775fa);
-  box-shadow: 0 0 0 3px rgba(151, 117, 250, 0.2);
-  background: var(--md-search-input-focus-bg, #ffffff);
-}
-
-:root[data-theme="classic"] #md-search input {
-  color: #ffffff;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 99, 255, 0.95) 100%);
-  border-color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 6px 18px rgba(20, 0, 61, 0.35);
-}
-
-:root[data-theme="classic"] #md-search input::placeholder {
-  color: rgba(255, 255, 255, 0.85);
-}
-
-:root[data-theme="classic"] #md-search input:focus {
-  border-color: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
-  background: linear-gradient(135deg, rgba(118, 99, 255, 0.95) 0%, rgba(150, 115, 255, 0.98) 100%);
-}
-
-#md-search .result-count {
-  color: var(--text-secondary, var(--text-primary, #1f2933));
-  font-size: 0.85rem;
-  padding: 0.35rem 0.6rem;
-  background: var(--md-search-pill-bg, var(--glass, rgba(0, 0, 0, 0.04)));
+  color: var(--text-primary, rgba(255, 255, 255, 0.9));
+  width: 34px;
+  height: 34px;
   border-radius: 6px;
-  min-width: 60px;
-  text-align: center;
-  border: 1px solid var(--glass-border, rgba(0, 0, 0, 0.08));
-  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  font-size: 16px;
 }
 
-#md-search button {
-  flex: 0 0 auto;
-  min-width: 0;
-  border-radius: 8px;
-  background: var(--md-search-btn-bg, var(--glass, rgba(0, 0, 0, 0.04)));
-  border: 1px solid var(--md-search-btn-border, var(--glass-border, rgba(0, 0, 0, 0.12)));
-  color: var(--md-search-btn-color, var(--text-primary, #1f2933));
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+.md-search-capsule .md-icon-btn:hover,
+.md-search-capsule .md-icon-btn:focus-visible {
+  background: color-mix(in srgb, var(--text-primary, #fff) 15%, transparent);
 }
 
-#md-search button:hover,
-#md-search button:focus-visible {
-  background: var(--glass-hover, rgba(0, 0, 0, 0.1));
-  border-color: var(--primary, rgba(151, 117, 250, 0.5));
-  color: var(--primary, #9775fa);
+.md-fullscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.25));
+  background: var(--glass, rgba(255, 255, 255, 0.12));
+  color: var(--text-primary, #ffffff);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  white-space: nowrap;
+  margin-inline-start: auto;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-:root[data-theme="classic"] #md-search input {
-  color: #1c1f3a;
-  background: rgba(255, 255, 255, 0.98);
+.md-fullscreen-btn:hover,
+.md-fullscreen-btn:focus-visible {
+  background: color-mix(in srgb, var(--text-primary, #fff) 22%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary, #fff) 40%, transparent);
 }
 
-:root[data-theme="classic"] #md-search input::placeholder {
-  color: rgba(28, 31, 58, 0.65);
+/* Classic Theme */
+:root[data-theme="classic"] .md-editor-toolbar {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.25) 0%, rgba(118, 99, 255, 0.3) 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+:root[data-theme="classic"] .md-search-capsule {
+  background: rgba(0, 0, 0, 0.2);
+}
+:root[data-theme="classic"] .md-search-capsule:focus-within {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="classic"] .md-fullscreen-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+:root[data-theme="classic"] .md-fullscreen-btn:hover,
+:root[data-theme="classic"] .md-fullscreen-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
-:root[data-theme="classic"] #md-search input:focus {
-  color: #12142b;
-  border-color: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
+/* Dark/Dim/Nebula themes - Default dark styling works */
+:root[data-theme="dark"] .md-editor-toolbar,
+:root[data-theme="dim"] .md-editor-toolbar,
+:root[data-theme="nebula"] .md-editor-toolbar {
+  background: var(--glass, rgba(255, 255, 255, 0.08));
+  border-color: var(--glass-border, rgba(255, 255, 255, 0.18));
+}
+
+/* Ocean Theme */
+:root[data-theme="ocean"] .md-editor-toolbar {
+  background: rgba(49, 130, 206, 0.2);
+  border-color: rgba(49, 130, 206, 0.4);
+}
+:root[data-theme="ocean"] .md-search-capsule {
+  background: rgba(0, 0, 0, 0.25);
+}
+:root[data-theme="ocean"] .md-search-capsule:focus-within {
+  border-color: rgba(49, 130, 206, 0.6);
+  background: rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="ocean"] .md-fullscreen-btn {
+  background: rgba(49, 130, 206, 0.15);
+  border-color: rgba(49, 130, 206, 0.35);
+}
+:root[data-theme="ocean"] .md-fullscreen-btn:hover,
+:root[data-theme="ocean"] .md-fullscreen-btn:focus-visible {
+  background: rgba(49, 130, 206, 0.3);
+  border-color: rgba(49, 130, 206, 0.5);
+}
+
+/* Rose Pine Dawn - Light Theme */
+:root[data-theme="rose-pine-dawn"] .md-editor-toolbar {
+  background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%);
+  border-color: var(--glass-border);
+}
+:root[data-theme="rose-pine-dawn"] .md-search-capsule {
+  background: color-mix(in srgb, var(--bg-primary) 30%, rgba(0,0,0,0.1));
+}
+:root[data-theme="rose-pine-dawn"] .md-search-capsule:focus-within {
+  border-color: rgba(144, 122, 169, 0.5);
+  background: color-mix(in srgb, var(--bg-primary) 40%, rgba(0,0,0,0.15));
+}
+:root[data-theme="rose-pine-dawn"] .md-fullscreen-btn {
+  background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%);
+  border-color: var(--glass-border);
+  color: var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .md-fullscreen-btn:hover,
+:root[data-theme="rose-pine-dawn"] .md-fullscreen-btn:focus-visible {
+  background: color-mix(in srgb, var(--bg-secondary) 45%, #ffffff 55%);
+  border-color: rgba(144, 122, 169, 0.5);
+}
+
+/* Custom/Shared Theme support */
+:root[data-theme="custom"] .md-editor-toolbar,
+:root[data-theme^="shared:"] .md-editor-toolbar {
+  background: var(--glass, color-mix(in srgb, var(--text-primary, #fff) 10%, transparent));
+  border-color: var(--glass-border, color-mix(in srgb, var(--text-primary, #fff) 20%, transparent));
+}
+:root[data-theme="custom"] .md-search-capsule,
+:root[data-theme^="shared:"] .md-search-capsule {
+  background: color-mix(in srgb, var(--bg-primary, #000) 25%, transparent);
+}
+:root[data-theme="custom"] .md-search-capsule:focus-within,
+:root[data-theme^="shared:"] .md-search-capsule:focus-within {
+  border-color: color-mix(in srgb, var(--primary, var(--text-primary, #fff)) 50%, transparent);
+  background: color-mix(in srgb, var(--bg-primary, #000) 40%, transparent);
+}
+
+/* Responsive - Mobile */
+@media (max-width: 500px) {
+  .md-search-capsule {
+    flex-basis: 100%;
+    width: 100%;
+    min-width: 0;
+    order: 2;
+  }
+  .md-fullscreen-btn {
+    width: auto;
+    order: 1;
+    margin-inline-start: auto;
+  }
 }
 /* כפתור "צבע רקע" — יוצג רק בערכות: classic/ocean/rose-pine-dawn */
 #bgColorSwitcher {
@@ -1622,10 +1743,28 @@ input.md-task-checkbox {
         <div class="muted" style="margin-top:.25rem;">Markdown</div>
       </div>
     </div>
-  <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+  <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
       {% if not is_public %}
       <a href="#" onclick="return goBackToFile(event)" class="btn btn-secondary btn-icon">↩️ חזרה לתצוגת קוד</a>
       <a href="#" onclick="return goBackTwoSteps(event)" class="btn btn-secondary btn-icon" title="חזור למסך קודם"><i class="fas fa-arrow-right"></i> חזור</a>
+      <!-- מפריד ויזואלי -->
+      <span style="width:1px;height:24px;background:var(--glass-border,rgba(255,255,255,0.2));margin:0 0.25rem;"></span>
+      <!-- כפתורי ערוך והעתק קוד -->
+      <a href="/edit/{{ file.id }}"
+         class="btn btn-primary btn-icon"
+         title="ערוך">
+        <i class="fas fa-edit"></i>
+        <span class="btn-text">ערוך</span>
+      </a>
+      <button id="mdCopySourceBtn"
+              type="button"
+              class="btn btn-primary btn-icon"
+              title="העתק קוד"
+              aria-label="העתק קוד"
+              onclick="return copyMarkdownSource(event)">
+        <i class="fas fa-copy"></i>
+        <span class="btn-text">העתק קוד</span>
+      </button>
       {% endif %}
     </div>
   </div>
@@ -1664,23 +1803,6 @@ input.md-task-checkbox {
         </div>
       </div>
       <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-        {% if not is_public %}
-        <a href="/edit/{{ file.id }}"
-           class="btn btn-primary btn-icon"
-           title="ערוך">
-          <i class="fas fa-edit"></i>
-          <span class="btn-text">ערוך</span>
-        </a>
-        {% endif %}
-        <button id="mdCopySourceBtn"
-                type="button"
-                class="btn btn-primary btn-icon"
-                title="העתק קוד"
-                aria-label="העתק קוד"
-                onclick="return copyMarkdownSource(event)">
-          <i class="fas fa-copy"></i>
-          <span class="btn-text" data-copy-label="1">העתק קוד</span>
-        </button>
         {% if is_public %}
         <a id="mdReaderModeBtn"
            class="btn btn-secondary btn-icon md-reader-mode-btn"
@@ -1696,17 +1818,22 @@ input.md-task-checkbox {
            rel="noopener noreferrer"
            title="פתח במצב קריאה">📖</a>
         {% endif %}
-        <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
-          <i class="fas fa-expand"></i>
-          מסך מלא
-        </button>
       </div>
     </div>
-    <div class="search-bar" id="md-search">
-      <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד...">
-      <span id="mdSearchCount" class="result-count"></span>
-      <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא">▶</button>
-      <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה">✕</button>
+    <!-- Editor Toolbar - עיצוב חדש -->
+    <div class="md-editor-toolbar" id="md-search">
+      <div class="md-search-capsule">
+        <input type="text" class="md-search-input" id="mdSearchInput" placeholder="חפש בקוד...">
+        <span class="md-search-count" id="mdSearchCount"></span>
+        <div class="md-divider"></div>
+        <button class="md-icon-btn" id="mdSearchPrev" type="button" title="הקודם">▲</button>
+        <button class="md-icon-btn" id="mdSearchNext" type="button" title="הבא">▼</button>
+        <button class="md-icon-btn" id="mdSearchClear" type="button" title="נקה">✕</button>
+      </div>
+      <button class="md-fullscreen-btn" id="mdFullscreenBtn2" type="button" title="מסך מלא">
+        <i class="fas fa-expand"></i>
+        <span>מסך מלא</span>
+      </button>
     </div>
     <div id="md-content" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
   </div>
@@ -2589,6 +2716,16 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         justAutoFocused = false;
       });
 
+      function focusPrev(){
+        const all = Array.from(container.querySelectorAll('.md-highlight'));
+        if (all.length === 0) return;
+        const current = container.querySelector('.md-highlight.is-active');
+        const idx = current ? all.indexOf(current) : 0;
+        const prev = all[(idx - 1 + all.length) % all.length];
+        setActiveAndScroll(prev);
+        updateCount(all.length, input.value.trim());
+      }
+
       if (nextBtn) {
         nextBtn.addEventListener('click', () => {
           const term = (input.value || '').trim();
@@ -2602,6 +2739,16 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           } else {
             focusNext();
           }
+        });
+      }
+
+      const prevBtn = document.getElementById('mdSearchPrev');
+      if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+          const term = (input.value || '').trim();
+          if (!term) return;
+          focusPrev();
+          justAutoFocused = false;
         });
       }
 
@@ -3644,13 +3791,13 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
 // מסך מלא ל- Markdown Card
 (function(){
   try {
-    const btn = document.getElementById('mdFullscreenBtn');
+    const btn = document.getElementById('mdFullscreenBtn2');
     const card = document.getElementById('mdCard');
     if (!btn || !card) return;
     function isFullscreen(){ return document.fullscreenElement === card; }
     function updateButton(){
       if (isFullscreen()) {
-        btn.innerHTML = '<i class="fas fa-compress"></i> יציאה ממסך מלא';
+        btn.innerHTML = '<i class="fas fa-compress"></i><span>יציאה</span>';
         // Fallback: הסתרת TOC במצב מסך מלא גם אם כלל ה-CSS לא תופס
         try {
           const toc = document.getElementById('mdToc');
@@ -3659,7 +3806,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           if (mini) { mini.dataset.prevDisplay = mini.style.display || ''; mini.style.display = 'none'; }
         } catch(_) {}
       } else {
-        btn.innerHTML = '<i class="fas fa-expand"></i> מסך מלא';
+        btn.innerHTML = '<i class="fas fa-expand"></i><span>מסך מלא</span>';
         // Fallback: שחזור מצב ה-TOC לאחר יציאה ממסך מלא
         try {
           const toc = document.getElementById('mdToc');
