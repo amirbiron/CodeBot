@@ -297,7 +297,6 @@ function getRepoDefaultBranch(repoName) {
     const branch = meta && meta.default_branch ? String(meta.default_branch).trim() : '';
     return branch || 'main';
 }
-
 // ========================================
 // Initialization
 // ========================================
