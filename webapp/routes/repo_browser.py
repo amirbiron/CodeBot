@@ -733,6 +733,9 @@ def api_list_repos():
     Returns:
         רשימת ריפויים עם מטא-דאטה בסיסי
     """
+    from flask_login import current_user
+    from database import db as repo_manager
+
     db = get_db()
 
     try:
@@ -749,10 +752,22 @@ def api_list_repos():
             }
         ).sort("repo_name", 1))
 
+        current_repo = get_current_repo_name()
+        current_source = "default"
+        if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
+            try:
+                saved_repo = repo_manager.get_selected_repo(current_user.id)
+                if saved_repo:
+                    current_repo = saved_repo
+                    current_source = "user"
+            except Exception as e:
+                logger.warning(f"Could not get saved repo for list: {e}")
+
         return jsonify({
             "success": True,
             "repos": repos,
-            "current": get_current_repo_name()
+            "current": current_repo,
+            "current_source": current_source
         })
     except Exception as e:
         logger.exception(f"List repos API error: {e}")

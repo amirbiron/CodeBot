@@ -88,7 +88,7 @@ async function loadAvailableRepos() {
         const data = await response.json();
 
         if (data.success && data.repos) {
-            if (data.current && data.current !== 'CodeBot') {
+            if (data.current && data.current_source === 'user') {
                 currentRepo = data.current;
                 localStorage.setItem('selectedRepo', data.current);
             }
@@ -207,6 +207,7 @@ async function switchRepo(repoName) {
     state.selectedTypes.clear();
     saveFilterPreferences();
     clearSearchState();
+    updateUrlHash(null);
 
     // טעינה מחדש של העץ
     await initTree();
