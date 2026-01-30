@@ -18,10 +18,13 @@ const CONFIG = {
     get repoName() {
         // 1. מ-HTML (הוזרק מה-template)
         const fromHtml = document.getElementById('current-repo-name')?.dataset?.repo;
+        const fromStorage = localStorage.getItem('selectedRepo');
+        if (fromStorage && (!fromHtml || fromHtml === 'CodeBot')) {
+            return fromStorage;
+        }
         if (fromHtml) return fromHtml;
 
         // 2. מ-localStorage
-        const fromStorage = localStorage.getItem('selectedRepo');
         if (fromStorage) return fromStorage;
 
         // 3. ברירת מחדל
