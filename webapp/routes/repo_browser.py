@@ -30,14 +30,23 @@ def get_git_service():
     return service
 
 
-def get_current_repo_name() -> str:
+def _get_current_user():
+    try:
+        from flask_login import current_user
+        return current_user
+    except ModuleNotFoundError:
+        from types import SimpleNamespace
+        return SimpleNamespace(is_authenticated=False)
+
+
+def get_current_repo_name(return_source: bool = False):
     """
     מחזיר את שם הריפו הנוכחי לפי סדר עדיפויות:
     1. Query parameter 'repo' מה-URL
     2. Session (אם המשתמש מחובר)
     3. ברירת מחדל: CodeBot
     """
-    from flask_login import current_user
+    current_user = _get_current_user()
     from database import db as repo_manager
 
     # 1. מ-query parameter
@@ -45,19 +54,19 @@ def get_current_repo_name() -> str:
     if repo_from_query:
         # ולידציה בסיסית של שם ריפו
         if re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$', repo_from_query):
-            return repo_from_query
+            return (repo_from_query, "query") if return_source else repo_from_query
 
     # 2. מה-session (למשתמש מחובר)
     if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
         try:
             saved_repo = repo_manager.get_selected_repo(current_user.id)
             if saved_repo:
-                return saved_repo
+                return (saved_repo, "user") if return_source else saved_repo
         except Exception as e:
             logger.warning(f"Could not get saved repo: {e}")
 
     # 3. ברירת מחדל
-    return DEFAULT_REPO_NAME
+    return (DEFAULT_REPO_NAME, "default") if return_source else DEFAULT_REPO_NAME
 
 
 # ========================================
@@ -733,9 +742,6 @@ def api_list_repos():
     Returns:
         רשימת ריפויים עם מטא-דאטה בסיסי
     """
-    from flask_login import current_user
-    from database import db as repo_manager
-
     db = get_db()
 
     try:
@@ -752,16 +758,7 @@ def api_list_repos():
             }
         ).sort("repo_name", 1))
 
-        current_repo = get_current_repo_name()
-        current_source = "default"
-        if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
-            try:
-                saved_repo = repo_manager.get_selected_repo(current_user.id)
-                if saved_repo:
-                    current_repo = saved_repo
-                    current_source = "user"
-            except Exception as e:
-                logger.warning(f"Could not get saved repo for list: {e}")
+        current_repo, current_source = get_current_repo_name(return_source=True)
 
         return jsonify({
             "success": True,
@@ -783,7 +780,7 @@ def api_select_repo():
     """
     API לשמירת הריפו הנבחר למשתמש מחובר.
     """
-    from flask_login import current_user
+    current_user = _get_current_user()
     from database import db as repo_manager
 
     if not hasattr(current_user, 'is_authenticated') or not current_user.is_authenticated:

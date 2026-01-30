@@ -753,6 +753,48 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     except Exception:
         pass
 
+
+async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """קבלת דיווח משתמש ושליחה לאדמינים."""
+    try:
+        message = update.message or update.effective_message
+        if message is None:
+            return
+
+        args_text = ""
+        try:
+            args_text = " ".join(getattr(context, "args", None) or []).strip()
+        except Exception:
+            args_text = ""
+
+        if not args_text:
+            await message.reply_text(
+                "כדי לדווח לאדמין, כתבו: /admin <תיאור הבעיה>\n"
+                "דוגמה: /admin קיבלתי 500 בדפדפן הריפו"
+            )
+            return
+
+        user = update.effective_user
+        user_id = getattr(user, "id", None)
+        username = getattr(user, "username", None)
+        full_name = getattr(user, "full_name", None)
+        display = f"@{username}" if username else (full_name or "unknown")
+
+        report = (
+            "📣 דיווח משתמש\n"
+            f"• משתמש: {display}\n"
+            f"• user_id: {user_id}\n"
+            f"• הודעה: {args_text}"
+        )
+        await notify_admins(context, report)
+        await message.reply_text("תודה! הדיווח נשלח לאדמין.")
+    except Exception:
+        try:
+            if update and update.message:
+                await update.message.reply_text("לא הצלחתי לשלוח את הדיווח כרגע.")
+        except Exception:
+            pass
+
 # ===== Admin: /recycle_backfill =====
 async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ממלא deleted_at ו-deleted_expires_at לרשומות מחוקות רכות וחושב TTL.
@@ -3752,6 +3794,7 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
+        self.application.add_handler(CommandHandler("admin", admin_report_command))
 
         # ChatOps: /jobs (Background Jobs Monitor)
         async def jobs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
