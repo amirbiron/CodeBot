@@ -741,6 +741,7 @@ def api_list_repos():
             {
                 "repo_name": 1,
                 "repo_url": 1,
+                "default_branch": 1,
                 "total_files": 1,
                 "last_sync_time": 1,
                 "sync_status": 1,

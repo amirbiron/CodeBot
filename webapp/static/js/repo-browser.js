@@ -84,7 +84,7 @@ let state = {
  */
 async function loadAvailableRepos() {
     try {
-        const response = await fetch(`${CONFIG.apiBase}/repos?${getRepoParam()}`);
+        const response = await fetch(`${CONFIG.apiBase}/repos`);
         const data = await response.json();
 
         if (data.success && data.repos) {
@@ -289,6 +289,12 @@ function getRepoBaseUrl(repoName) {
     const meta = repoMetadataByName[repoName];
     const repoUrl = meta && meta.repo_url ? meta.repo_url : '';
     return normalizeRepoBaseUrl(repoUrl);
+}
+
+function getRepoDefaultBranch(repoName) {
+    const meta = repoMetadataByName[repoName];
+    const branch = meta && meta.default_branch ? String(meta.default_branch).trim() : '';
+    return branch || 'main';
 }
 
 // ========================================
@@ -1194,7 +1200,8 @@ function updateBreadcrumbs(path) {
         // Encode each path segment separately to preserve slashes
         const encodedPath = path.split('/').map(segment => encodeURIComponent(segment)).join('/');
         const repoBaseUrl = getRepoBaseUrl(currentRepo) || `https://github.com/amirbiron/${currentRepo}`;
-        githubLink.href = `${repoBaseUrl}/blob/main/${encodedPath}`;
+        const defaultBranch = encodeURIComponent(getRepoDefaultBranch(currentRepo));
+        githubLink.href = `${repoBaseUrl}/blob/${defaultBranch}/${encodedPath}`;
     }
 }
 
