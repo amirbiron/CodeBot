@@ -364,7 +364,6 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
         if not branch:
             return False
         return _ref_exists(f"refs/heads/{branch}") or _ref_exists(f"refs/remotes/origin/{branch}")
-
     default_branch = ""
     branch_result = git_service._run_git_command(["git", "symbolic-ref", "--short", "HEAD"], cwd=repo_path)
     if branch_result.success:
