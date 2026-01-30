@@ -381,7 +381,7 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
             "error": "Failed to list repository files",
             "details": "Check if branch ref exists or mirror repo is corrupt",
             "repo_name": repo_name,
-            "ref": tree_ref_candidates,
+            "ref": ", ".join(tree_ref_candidates),
         }
 
     # 3. סינון קבצי קוד
