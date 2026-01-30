@@ -154,6 +154,20 @@
   }
   window.clearSearch = clearSearch;
 
+  async function performSemanticSearch(query, options = {}){
+    const { limit = 20, language = null } = options;
+    const response = await fetch('/api/search/semantic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ query, limit, language })
+    });
+    if (!response.ok) {
+      throw new Error('Semantic search failed: ' + response.status);
+    }
+    return await response.json();
+  }
+
   async function performGlobalSearch(page){
     page = page || 1;
     const input = $('globalSearchInput');
@@ -178,6 +192,43 @@
         filters: { languages: getSelectedLanguages() }
       };
       if (!payload.filters.languages || payload.filters.languages.length === 0) delete payload.filters;
+
+      if (payload.search_type === 'semantic') {
+        const perPage = Math.max(1, payload.limit || 20);
+        const totalLimit = Math.min(50, perPage * page);
+        const languages = (payload.filters && payload.filters.languages) ? payload.filters.languages : [];
+        const language = (languages && languages.length) ? languages[0] : null;
+        try {
+          const semanticData = await performSemanticSearch(q, { limit: totalLimit, language });
+          const semanticResults = Array.isArray(semanticData.results) ? semanticData.results : [];
+          const startIdx = (page - 1) * perPage;
+          const endIdx = startIdx + perPage;
+          const mappedResults = semanticResults.map(r => ({
+            file_id: r.file_id || '',
+            file_name: r.file_name || '',
+            language: r.language || '',
+            tags: Array.isArray(r.tags) ? r.tags : [],
+            score: typeof r.score === 'number' ? r.score : 0,
+            snippet: r.preview || '',
+            highlights: [],
+            matches: Array.isArray(r.matches) ? r.matches : [],
+            updated_at: r.updated_at || ''
+          }));
+          displayResults({
+            success: true,
+            query: q,
+            total_results: semanticData.total || mappedResults.length,
+            page: page,
+            per_page: perPage,
+            results: mappedResults.slice(startIdx, endIdx)
+          });
+          return;
+        } catch (err) {
+          console.error('Semantic search error:', err);
+          // fallback to standard search
+        }
+      }
+
       const res = await fetch('/api/search/global', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },

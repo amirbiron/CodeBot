@@ -194,6 +194,28 @@ class BotConfig(BaseSettings):
     GITHUB_TOKEN: Optional[str] = Field(default=None, description="GitHub token")
     PASTEBIN_API_KEY: Optional[str] = Field(default=None, description="Pastebin API key")
 
+    # Semantic Search / Embeddings
+    GEMINI_API_KEY: Optional[str] = Field(
+        default=None, description="Gemini API key for embeddings"
+    )
+    EMBEDDING_DIMENSIONS: int = Field(
+        default=768,
+        ge=256,
+        le=3072,
+        description="Embedding vector dimensions (768 or 1536)",
+    )
+    SEMANTIC_SEARCH_ENABLED: bool = Field(
+        default=True, description="Enable/disable semantic search feature"
+    )
+    CHUNK_SIZE_LINES: int = Field(
+        default=220,
+        ge=10,
+        description="Number of lines per code chunk",
+    )
+    CHUNK_OVERLAP_LINES: int = Field(
+        default=40, description="Overlap between consecutive chunks"
+    )
+
     # מגבלות ושדות כלליים
     MAX_CODE_SIZE: int = Field(
         default=100_000,

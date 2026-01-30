@@ -20,6 +20,12 @@ services:
         value: code-keeper-alertmanager.onrender.com:443
       - key: PORT
         value: 9090
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SEMANTIC_SEARCH_ENABLED
+        value: "true"
+      - key: EMBEDDING_DIMENSIONS
+        value: "768"
     autoDeploy: true
     healthCheckPath: /-/ready
 

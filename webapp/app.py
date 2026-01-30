@@ -287,7 +287,13 @@ def _cfg_or_env(attr: str, default: Any = None, *, env_name: str | None = None) 
 
 # Search engine & types
 try:
-    from search_engine import search_engine, SearchType, SearchFilter, SortOrder
+    from search_engine import (
+        search_engine,
+        SearchType,
+        SearchFilter,
+        SortOrder,
+        semantic_search,
+    )
 except Exception:
     search_engine = None
     class _Missing:
@@ -295,6 +301,7 @@ except Exception:
     SearchType = _Missing
     SearchFilter = _Missing
     SortOrder = _Missing
+    semantic_search = None
 
 # Structured logging (optional and safe-noop fallbacks)
 try:
@@ -8879,6 +8886,83 @@ def _safe_search(user_id: int, query: str, **kwargs):
                 lines_count=int(doc.get('lines_count') or 0),
             ))
         return results
+
+
+@app.route("/api/search/semantic", methods=["POST"])
+@login_required
+@_search_limiter_decorator("30 per minute")
+async def api_semantic_search():
+    """
+    Semantic search for code snippets.
+    """
+    if semantic_search is None:
+        return jsonify({"error": "Semantic search is unavailable"}), 503
+
+    try:
+        data = request.get_json() or {}
+        query = (data.get("query") or "").strip()
+
+        if not query:
+            return jsonify({"error": "Query is required"}), 400
+
+        if len(query) > 500:
+            return jsonify({"error": "Query too long (max 500 chars)"}), 400
+
+        try:
+            limit = min(int(data.get("limit", 20)), 50)
+        except Exception:
+            limit = 20
+
+        language = data.get("language")
+        if isinstance(language, list):
+            language = language[0] if language else None
+
+        user_id = get_current_user_id()
+        if not user_id:
+            return jsonify({"error": "נדרש להתחבר"}), 401
+
+        results = await semantic_search(
+            user_id=user_id,
+            query=query,
+            limit=limit,
+            language_filter=language,
+        )
+
+        def _result_file_id(result_obj):
+            snippet_id = getattr(result_obj, "snippet_id", None)
+            if snippet_id:
+                return str(snippet_id)
+            try:
+                key = f"{user_id}:{getattr(result_obj, 'file_name', '')}"
+                return hashlib.sha256(key.encode("utf-8")).hexdigest()
+            except Exception:
+                return ""
+
+        return jsonify(
+            {
+                "results": [
+                    {
+                        "file_id": _result_file_id(r),
+                        "file_name": r.file_name,
+                        "language": r.programming_language,
+                        "tags": r.tags,
+                        "score": round(r.relevance_score, 4),
+                        "preview": r.snippet_preview,
+                        "matches": r.matches,
+                        "updated_at": safe_iso(
+                            getattr(r, "updated_at", datetime.now(timezone.utc))
+                        ),
+                    }
+                    for r in results
+                ],
+                "total": len(results),
+                "query": query,
+                "search_type": "semantic",
+            }
+        )
+    except Exception as exc:
+        logger.error("Semantic search error: %s", exc)
+        return jsonify({"error": "Search failed"}), 500
 
 
 @app.route('/api/search/global', methods=['POST'])
