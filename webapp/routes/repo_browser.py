@@ -37,9 +37,8 @@ def get_current_repo_name() -> str:
     2. Session (אם המשתמש מחובר)
     3. ברירת מחדל: CodeBot
     """
-    from flask import session
     from flask_login import current_user
-    from database.repository import RepositoryManager
+    from database import db as repo_manager
 
     # 1. מ-query parameter
     repo_from_query = request.args.get('repo', '').strip()
@@ -51,7 +50,6 @@ def get_current_repo_name() -> str:
     # 2. מה-session (למשתמש מחובר)
     if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
         try:
-            repo_manager = RepositoryManager()
             saved_repo = repo_manager.get_selected_repo(current_user.id)
             if saved_repo:
                 return saved_repo
@@ -770,7 +768,7 @@ def api_select_repo():
     API לשמירת הריפו הנבחר למשתמש מחובר.
     """
     from flask_login import current_user
-    from database.repository import RepositoryManager
+    from database import db as repo_manager
 
     if not hasattr(current_user, 'is_authenticated') or not current_user.is_authenticated:
         return jsonify({
@@ -796,7 +794,6 @@ def api_select_repo():
         }), 404
 
     try:
-        repo_manager = RepositoryManager()
         success = repo_manager.save_selected_repo(current_user.id, repo_name)
 
         return jsonify({

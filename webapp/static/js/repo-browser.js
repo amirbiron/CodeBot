@@ -86,7 +86,12 @@ async function loadAvailableRepos() {
         const data = await response.json();
 
         if (data.success && data.repos) {
-            renderRepoSelector(data.repos, data.current);
+            if (data.current && data.current !== 'CodeBot') {
+                currentRepo = data.current;
+                localStorage.setItem('selectedRepo', data.current);
+            }
+            renderRepoSelector(data.repos, currentRepo);
+            updateRepoDisplay(currentRepo);
         }
     } catch (error) {
         console.error('Failed to load repos:', error);
@@ -245,6 +250,13 @@ function getRepoParam() {
 // ========================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    const serverRepo = document.getElementById('current-repo-name')?.dataset?.repo;
+    const savedRepo = localStorage.getItem('selectedRepo');
+    if (savedRepo && (!serverRepo || serverRepo === 'CodeBot')) {
+        currentRepo = savedRepo;
+        updateRepoDisplay(currentRepo);
+    }
+
     // טען ריפויים זמינים
     loadAvailableRepos();
 

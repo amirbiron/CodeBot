@@ -87,9 +87,24 @@ const RepoHistory = (function() {
      * בניית URL עם file כ-query parameter
      * פותר את בעיית ה-encodeURIComponent עם slashes
      */
+    function getCurrentRepoName() {
+        const fromHtml = document.getElementById('current-repo-name')?.dataset?.repo;
+        const fromStorage = localStorage.getItem('selectedRepo');
+        if (fromStorage && (!fromHtml || fromHtml === 'CodeBot')) {
+            return fromStorage;
+        }
+        if (fromHtml) return fromHtml;
+        if (fromStorage) return fromStorage;
+        return 'CodeBot';
+    }
+
     function buildApiUrl(endpoint, params = {}) {
         const url = new URL(endpoint, window.location.origin);
-        Object.entries(params).forEach(([key, value]) => {
+        const finalParams = {
+            ...params,
+            repo: params.repo || getCurrentRepoName()
+        };
+        Object.entries(finalParams).forEach(([key, value]) => {
             if (value !== undefined && value !== null) {
                 url.searchParams.set(key, value);
             }

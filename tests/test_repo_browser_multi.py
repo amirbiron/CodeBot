@@ -1,5 +1,76 @@
 import pytest
-from webapp.routes.repo_browser import get_current_repo_name
+from flask import Flask
+from flask_login import LoginManager
+
+from services.git_mirror_service import GitMirrorService
+from webapp.routes import repo_browser
+
+
+class _Cursor:
+    def __init__(self, items):
+        self._items = items
+
+    def sort(self, *_args, **_kwargs):
+        return self
+
+    def __iter__(self):
+        return iter(self._items)
+
+
+class _RepoMetadata:
+    def __init__(self, repos):
+        self._repos = repos
+
+    def find(self, *_args, **_kwargs):
+        return _Cursor(self._repos)
+
+    def find_one(self, query):
+        repo_name = query.get("repo_name")
+        for repo in self._repos:
+            if repo.get("repo_name") == repo_name:
+                return repo
+        return None
+
+
+class _RepoFiles:
+    def find(self, *_args, **_kwargs):
+        return _Cursor([])
+
+    def distinct(self, *_args, **_kwargs):
+        return []
+
+    def aggregate(self, *_args, **_kwargs):
+        return _Cursor([])
+
+    def find_one(self, *_args, **_kwargs):
+        return None
+
+
+class _StubDB:
+    def __init__(self):
+        self.repo_metadata = _RepoMetadata([])
+        self.repo_files = _RepoFiles()
+
+
+@pytest.fixture
+def app(tmp_path, monkeypatch) -> Flask:
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    app.config["SECRET_KEY"] = "test"
+    app.extensions['git_mirror_service'] = GitMirrorService(mirrors_base_path=str(tmp_path))
+
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+
+    stub_db = _StubDB()
+    monkeypatch.setattr(repo_browser, "get_db", lambda: stub_db)
+    app.register_blueprint(repo_browser.repo_bp)
+    return app
+
+
+@pytest.fixture
+def client(app: Flask):
+    return app.test_client()
 
 
 class TestMultiRepoSupport:
