@@ -36,6 +36,7 @@ def _get_current_user():
     except ModuleNotFoundError:
         from types import SimpleNamespace
         return SimpleNamespace(is_authenticated=False)
+
 def get_current_repo_name(return_source: bool = False):
     """
     מחזיר את שם הריפו הנוכחי לפי סדר עדיפויות:
