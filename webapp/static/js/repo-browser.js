@@ -295,16 +295,18 @@ function getRepoBaseUrl(repoName) {
 // Initialization
 // ========================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     const serverRepo = document.getElementById('current-repo-name')?.dataset?.repo;
     const savedRepo = localStorage.getItem('selectedRepo');
     if (savedRepo && (!serverRepo || serverRepo === 'CodeBot')) {
         currentRepo = savedRepo;
-        updateRepoDisplay(currentRepo);
+    } else if (serverRepo) {
+        currentRepo = serverRepo;
     }
+    updateRepoDisplay(currentRepo);
 
     // טען ריפויים זמינים
-    loadAvailableRepos();
+    await loadAvailableRepos();
 
     // המשך אתחול רגיל
     initFileTypeFilter();
