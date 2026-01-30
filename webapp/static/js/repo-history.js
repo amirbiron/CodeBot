@@ -89,11 +89,8 @@ const RepoHistory = (function() {
      */
     function getCurrentRepoName() {
         const fromHtml = document.getElementById('current-repo-name')?.dataset?.repo;
-        const fromStorage = localStorage.getItem('selectedRepo');
-        if (fromStorage && (!fromHtml || fromHtml === 'CodeBot')) {
-            return fromStorage;
-        }
         if (fromHtml) return fromHtml;
+        const fromStorage = localStorage.getItem('selectedRepo');
         return fromStorage || 'CodeBot';
     }
 
