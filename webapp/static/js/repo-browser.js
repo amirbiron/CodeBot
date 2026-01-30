@@ -98,6 +98,14 @@ async function loadAvailableRepos() {
                     repoMetadataByName[repo.repo_name] = repo;
                 }
             });
+            const repoNames = new Set(data.repos.map(repo => repo.repo_name).filter(Boolean));
+            if (repoNames.size > 0 && !repoNames.has(currentRepo)) {
+                const fallback = repoNames.has(data.current)
+                    ? data.current
+                    : Array.from(repoNames)[0];
+                currentRepo = fallback;
+                localStorage.setItem('selectedRepo', currentRepo);
+            }
             renderRepoSelector(data.repos, currentRepo);
             updateRepoDisplay(currentRepo);
         }
