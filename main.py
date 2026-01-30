@@ -727,7 +727,7 @@ def get_admin_ids() -> list[int]:
     except Exception:
         return []
 
-async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     try:
         # Alert Pipeline Consolidation:
         # לא שולחים הודעות "אדמין" ישירות דרך bot.send_message (זה עוקף suppress/Rule Engine).
@@ -738,7 +738,7 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
             emit_internal_alert = None  # type: ignore
 
         if emit_internal_alert is None:
-            return
+            return False
 
         # שומרים את הטקסט בתור summary; פרטים נוספים (כמו רשימת אדמינים) רק להקשר.
         # NOTE: לא מעבירים token/chat_id וכד' כדי לא להדליף מידע רגיש.
@@ -750,8 +750,77 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
             source="main.notify_admins",
             admin_ids=admin_ids,
         )
+        return True
     except Exception:
-        pass
+        return False
+
+
+async def _send_direct_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    """Fallback לשליחת הודעה ישירה לאדמינים בטלגרם."""
+    try:
+        admin_ids = get_admin_ids()
+        if not admin_ids:
+            return False
+        bot = getattr(context, "bot", None)
+        if bot is None:
+            return False
+        sent_any = False
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(chat_id=admin_id, text=str(text or ""))
+                sent_any = True
+            except Exception:
+                continue
+        return sent_any
+    except Exception:
+        return False
+
+
+async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """קבלת דיווח משתמש ושליחה לאדמינים."""
+    try:
+        message = update.message or update.effective_message
+        if message is None:
+            return
+
+        args_text = ""
+        try:
+            args_text = " ".join(getattr(context, "args", None) or []).strip()
+        except Exception:
+            args_text = ""
+
+        if not args_text:
+            await message.reply_text(
+                "כדי לדווח לאדמין, כתבו: /admin <תיאור הבעיה>\n"
+                "דוגמה: /admin קיבלתי 500 בדפדפן הריפו"
+            )
+            return
+
+        user = update.effective_user
+        user_id = getattr(user, "id", None)
+        username = getattr(user, "username", None)
+        full_name = getattr(user, "full_name", None)
+        display = f"@{username}" if username else (full_name or "unknown")
+
+        report = (
+            "📣 דיווח משתמש\n"
+            f"• משתמש: {display}\n"
+            f"• user_id: {user_id}\n"
+            f"• הודעה: {args_text}"
+        )
+        sent = await notify_admins(context, report)
+        if not sent:
+            sent = await _send_direct_admins(context, report)
+        if sent:
+            await message.reply_text("תודה! הדיווח נשלח לאדמין.")
+        else:
+            await message.reply_text("לא הצלחתי לשלוח את הדיווח כרגע.")
+    except Exception:
+        try:
+            if update and update.message:
+                await update.message.reply_text("לא הצלחתי לשלוח את הדיווח כרגע.")
+        except Exception:
+            pass
 
 
 async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
