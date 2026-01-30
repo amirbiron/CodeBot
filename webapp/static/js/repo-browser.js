@@ -205,6 +205,8 @@ async function switchRepo(repoName) {
     state.currentFile = null;
     state.expandedFolders.clear();
     state.selectedTypes.clear();
+    saveFilterPreferences();
+    clearSearchState();
 
     // טעינה מחדש של העץ
     await initTree();
@@ -1305,6 +1307,23 @@ async function performRepoSearch(query) {
         if (state.searchAbortController === controller) {
             state.searchAbortController = null;
         }
+    }
+}
+
+function clearSearchState() {
+    state.searchLastQuery = '';
+    if (state.searchAbortController) {
+        state.searchAbortController.abort();
+        state.searchAbortController = null;
+    }
+    const dropdown = document.getElementById('search-results-dropdown');
+    const resultsList = dropdown?.querySelector('.search-results-list');
+    if (dropdown) {
+        dropdown.classList.add('hidden');
+        dropdown.dataset.hasResults = 'false';
+    }
+    if (resultsList) {
+        resultsList.innerHTML = '';
     }
 }
 
