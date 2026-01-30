@@ -59,7 +59,7 @@
             </span>
             {% endif %}
             <!-- Hidden element to pass repo name to JS -->
-            <span id="current-repo-name" data-repo="{{ repo_name }}" style="display: none;"></span>
+            <span id="current-repo-name" data-repo="{{ repo_name }}" data-source="{{ current_source | default('default') }}" style="display: none;"></span>
         </div>
     </div>
 
