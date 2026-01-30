@@ -20,6 +20,7 @@
 
 <!-- Custom Repo Browser Styles -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/repo-browser.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -181,5 +182,6 @@
 
 <!-- Custom Scripts -->
 <script src="{{ url_for('static', filename='js/repo-history.js') }}"></script>
+<script src="{{ url_for('static', filename='js/live-preview.js') }}"></script>
 <script src="{{ url_for('static', filename='js/repo-browser.js') }}"></script>
 {% endblock %}

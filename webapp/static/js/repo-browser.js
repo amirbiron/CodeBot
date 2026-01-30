@@ -52,6 +52,24 @@ const CONFIG = {
     }
 };
 
+/**
+ * בודק אם הקובץ הוא קובץ Markdown
+ */
+function isMarkdownFile(path) {
+    if (!path) return false;
+    const ext = path.split('.').pop().toLowerCase();
+    return ext === 'md' || ext === 'markdown';
+}
+
+/**
+ * בודק אם השפה היא Markdown
+ */
+function isMarkdownLanguage(language) {
+    if (!language) return false;
+    const lang = language.toLowerCase();
+    return lang === 'markdown' || lang === 'md';
+}
+
 // Current repo state (can change during session)
 let currentRepo = CONFIG.repoName;
 let repoMetadataByName = {};
@@ -77,8 +95,162 @@ let state = {
     // AbortController למניעת race conditions
     treeAbortController: null,
     fileTypesAbortController: null,
-    fileTypesLoading: false   // flag למניעת קריאות מקבילות
+    fileTypesLoading: false,   // flag למניעת קריאות מקבילות
+    // הוספה חדשה:
+    markdownPreviewEnabled: false,
+    currentFileContent: null,  // שמירת התוכן לשימוש חוזר
+    currentFileLanguage: null
 };
+
+// ========================================
+// Markdown Preview
+// ========================================
+
+/**
+ * מציג/מסתיר את כפתור תצוגת Markdown
+ */
+function updateMarkdownToggleVisibility(path, language) {
+    const toggleBtn = document.getElementById('markdown-preview-toggle');
+    if (!toggleBtn) return;
+
+    const isMarkdown = isMarkdownFile(path) || isMarkdownLanguage(language);
+    toggleBtn.style.display = isMarkdown ? 'flex' : 'none';
+
+    // אם עברנו לקובץ שאינו Markdown, כבה את התצוגה
+    if (!isMarkdown && state.markdownPreviewEnabled) {
+        disableMarkdownPreview();
+    }
+}
+
+/**
+ * מפעיל תצוגת Markdown
+ */
+async function enableMarkdownPreview() {
+    const editorWrapper = document.getElementById('code-editor-wrapper');
+    const previewContainer = document.getElementById('markdown-preview-container');
+    const toggleBtn = document.getElementById('markdown-preview-toggle');
+    const previewContent = document.getElementById('markdown-preview-content');
+
+    if (!editorWrapper || !previewContainer || !previewContent) return;
+
+    state.markdownPreviewEnabled = true;
+
+    // עדכון UI
+    editorWrapper.style.display = 'none';
+    previewContainer.style.display = 'block';
+    toggleBtn?.classList.add('active');
+
+    // רינדור התוכן
+    await renderMarkdownPreview(state.currentFileContent);
+}
+
+/**
+ * מכבה תצוגת Markdown
+ */
+function disableMarkdownPreview() {
+    const editorWrapper = document.getElementById('code-editor-wrapper');
+    const previewContainer = document.getElementById('markdown-preview-container');
+    const toggleBtn = document.getElementById('markdown-preview-toggle');
+
+    if (!editorWrapper || !previewContainer) return;
+
+    state.markdownPreviewEnabled = false;
+
+    // עדכון UI
+    editorWrapper.style.display = 'block';
+    previewContainer.style.display = 'none';
+    toggleBtn?.classList.remove('active');
+
+    // רענון CodeMirror
+    setTimeout(() => {
+        if (state.editor) {
+            state.editor.refresh();
+        }
+    }, 100);
+}
+
+/**
+ * Toggle בין תצוגת קוד לתצוגת Markdown
+ */
+async function toggleMarkdownPreview() {
+    if (state.markdownPreviewEnabled) {
+        disableMarkdownPreview();
+        await ensureCodeViewerInitialized();
+    } else {
+        await enableMarkdownPreview();
+    }
+
+    // שמירת העדפה ב-localStorage
+    localStorage.setItem('repo-browser-markdown-preview', state.markdownPreviewEnabled);
+}
+
+/**
+ * מבטיח שה-editor מאותחל לפני מעבר לקוד
+ */
+async function ensureCodeViewerInitialized() {
+    if (state.editor || state.editorView6) {
+        return;
+    }
+    if (!state.currentFileContent) {
+        return;
+    }
+    const language = state.currentFileLanguage || detectLanguage(state.currentFile);
+    await initCodeViewer(state.currentFileContent, language);
+}
+
+/**
+ * רינדור תוכן Markdown
+ */
+async function renderMarkdownPreview(content) {
+    const previewContent = document.getElementById('markdown-preview-content');
+    if (!previewContent || !content) return;
+
+    try {
+        // בדיקה שה-MarkdownLiveRenderer זמין
+        if (typeof MarkdownLiveRenderer === 'undefined' || !MarkdownLiveRenderer.isSupported()) {
+            // Fallback: טעינת markdown-it אם לא נטען
+            await loadMarkdownDependencies();
+        }
+
+        // רינדור ה-Markdown ל-HTML
+        const html = await MarkdownLiveRenderer.render(content);
+        previewContent.innerHTML = html;
+
+        // שיפורים: syntax highlighting, math, mermaid
+        await MarkdownLiveRenderer.enhance(previewContent);
+
+    } catch (error) {
+        console.error('Failed to render markdown:', error);
+        previewContent.innerHTML = `
+            <div class="error-message" style="padding: 20px; color: var(--accent-red);">
+                <i class="bi bi-exclamation-triangle"></i>
+                <span>שגיאה ברינדור Markdown: ${escapeHtml(error.message)}</span>
+            </div>
+        `;
+    }
+}
+
+/**
+ * טעינת תלויות Markdown (אם לא נטענו)
+ */
+async function loadMarkdownDependencies() {
+    const scripts = [
+        'https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js',
+        'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js'
+    ];
+
+    for (const src of scripts) {
+        if (!document.querySelector(`script[src="${src}"]`)) {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+    }
+}
 
 // ========================================
 // Repo Management
@@ -268,11 +440,16 @@ function showWelcomeScreen() {
     const wrapper = document.getElementById('code-editor-wrapper');
     const header = document.getElementById('code-header');
     const footer = document.getElementById('code-footer');
+    const previewContainer = document.getElementById('markdown-preview-container');
+    const toggleBtn = document.getElementById('markdown-preview-toggle');
 
     if (welcome) welcome.style.display = 'block';
     if (wrapper) wrapper.style.display = 'none';
     if (header) header.style.display = 'none';
     if (footer) footer.style.display = 'none';
+    if (previewContainer) previewContainer.style.display = 'none';
+    if (toggleBtn) toggleBtn.classList.remove('active');
+    state.markdownPreviewEnabled = false;
 }
 
 /**
@@ -314,7 +491,7 @@ function getRepoDefaultBranch(repoName) {
 // Initialization
 // ========================================
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function initRepoBrowser() {
     const repoElement = document.getElementById('current-repo-name');
     const serverRepo = repoElement?.dataset?.repo;
     const serverSource = repoElement?.dataset?.source || 'default';
@@ -329,6 +506,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     // טען ריפויים זמינים
     await loadAvailableRepos();
 
+    // רישום כפתור Markdown Preview
+    const markdownToggle = document.getElementById('markdown-preview-toggle');
+    if (markdownToggle) {
+        markdownToggle.addEventListener('click', toggleMarkdownPreview);
+    }
+
+    // קיצור מקלדת: Ctrl+Shift+M
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') {
+            const toggleBtn = document.getElementById('markdown-preview-toggle');
+            if (toggleBtn && toggleBtn.style.display !== 'none') {
+                e.preventDefault();
+                toggleMarkdownPreview();
+            }
+        }
+    });
+
     // המשך אתחול רגיל
     initFileTypeFilter();
     initTree();
@@ -338,6 +532,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     initMobileSidebar();
     loadRecentFiles();
     applyInitialNavigationFromUrl();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await initRepoBrowser();
 });
 
 function applyInitialNavigationFromUrl() {
@@ -892,6 +1090,8 @@ async function selectFile(path, element) {
     }
 
     state.currentFile = path;
+    state.currentFileContent = null;
+    state.currentFileLanguage = null;
     
     // Update URL hash to persist state across refresh
     updateUrlHash(path);
@@ -906,11 +1106,16 @@ async function selectFile(path, element) {
     const welcome = document.getElementById('welcome-screen');
     const header = document.getElementById('code-header');
     const footer = document.getElementById('code-footer');
+    const previewContainer = document.getElementById('markdown-preview-container');
+    const toggleBtn = document.getElementById('markdown-preview-toggle');
 
     welcome.style.display = 'none';
     wrapper.style.display = 'block';
     header.style.display = 'flex';
     footer.style.display = 'flex';
+    if (previewContainer) previewContainer.style.display = 'none';
+    if (toggleBtn) toggleBtn.classList.remove('active');
+    state.markdownPreviewEnabled = false;
     
     // Force the container to recalculate layout
     const container = document.getElementById('code-viewer-container');
@@ -928,6 +1133,12 @@ async function selectFile(path, element) {
             throw new Error(data.error);
         }
 
+        // שמירת התוכן ל-state (הוספה חדשה)
+        state.currentFileContent = data.content;
+
+        const language = data.language || detectLanguage(path);
+        state.currentFileLanguage = language;
+
         // Update breadcrumbs
         updateBreadcrumbs(path);
         updateFileHeader(path);
@@ -935,8 +1146,21 @@ async function selectFile(path, element) {
         // Update file info
         updateFileInfo(data);
 
-        // Initialize or update CodeMirror
-        await initCodeViewer(data.content, data.language || detectLanguage(path));
+        // עדכון נראות כפתור Markdown (הוספה חדשה)
+        updateMarkdownToggleVisibility(path, language);
+
+        // בדיקה אם להציג Markdown או קוד
+        const isMarkdown = isMarkdownFile(path) || isMarkdownLanguage(language);
+        const savedPreference = localStorage.getItem('repo-browser-markdown-preview') === 'true';
+
+        if (isMarkdown && savedPreference) {
+            // המשתמש העדיף תצוגת Markdown - הצג אותה
+            await enableMarkdownPreview();
+        } else {
+            // הצג קוד רגיל
+            disableMarkdownPreview();
+            await initCodeViewer(data.content, language);
+        }
 
         // Save to recent files
         addToRecentFiles(path);
@@ -1687,6 +1911,9 @@ window.findNextMatch = findNextMatch;
 window.findPrevMatch = findPrevMatch;
 window.selectFile = selectFile;
 window.showWelcomeScreen = showWelcomeScreen;
+window.toggleMarkdownPreview = toggleMarkdownPreview;
+window.enableMarkdownPreview = enableMarkdownPreview;
+window.disableMarkdownPreview = disableMarkdownPreview;
 
 window.RepoState = {
     get editor() {
