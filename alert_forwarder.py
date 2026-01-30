@@ -5,6 +5,7 @@ Environment variables used:
 - SLACK_WEBHOOK_URL: Incoming webhook URL for Slack (optional)
 - ALERT_TELEGRAM_BOT_TOKEN: Bot token for Telegram (optional)
 - ALERT_TELEGRAM_CHAT_ID: Chat ID (or channel) to send alerts to (optional)
+- ALERT_TELEGRAM_SUPPRESS_ALERTS: Comma-separated alert names to skip on Telegram (optional)
 
 If none are configured, alerts will still be emitted as structured events.
 """
@@ -61,6 +62,10 @@ _IGNORED_ON_STARTUP = {
     "SlowMongoConnection",
     "HighLatency",
 }
+_DEFAULT_TELEGRAM_SUPPRESS_ALERTS = {
+    # Noisy anomaly alert: keep in Slack, suppress in Telegram by default.
+    "AppLatencyEWMARegression",
+}
 
 _ANOMALY_WINDOW_SECONDS = max(
     0.0,
@@ -68,6 +73,41 @@ _ANOMALY_WINDOW_SECONDS = max(
 )
 _ANOMALY_LOCK: Lock = Lock()
 _DIGIT_RE = re.compile(r"\d+")
+
+
+def _parse_alert_list(raw: Optional[str], *, default: Optional[set[str]] = None) -> set[str]:
+    if raw is None:
+        return set(default or set())
+    try:
+        value = str(raw or "")
+    except Exception:
+        value = ""
+    value = value.strip()
+    if not value:
+        return set()
+    parts = value.replace("\n", ",").replace(";", ",").split(",")
+    items: set[str] = set()
+    for part in parts:
+        name = part.strip()
+        if name:
+            items.add(name.lower())
+    return items
+
+
+_TELEGRAM_SUPPRESS_ALERTS = _parse_alert_list(
+    os.getenv("ALERT_TELEGRAM_SUPPRESS_ALERTS"),
+    default=_DEFAULT_TELEGRAM_SUPPRESS_ALERTS,
+)
+
+
+def _is_telegram_suppressed(alert_name: str) -> bool:
+    try:
+        name = str(alert_name or "").strip().lower()
+    except Exception:
+        return False
+    if not name:
+        return False
+    return name in _TELEGRAM_SUPPRESS_ALERTS
 
 
 @dataclass
@@ -904,13 +944,13 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
     for alert in alerts:
         try:
             labels = alert.get("labels", {}) or {}
-            name = str(labels.get("alertname") or labels.get("name") or "")
-            if is_startup and name in _IGNORED_ON_STARTUP:
+            alert_name = str(labels.get("alertname") or labels.get("name") or "")
+            if is_startup and alert_name in _IGNORED_ON_STARTUP:
                 try:
                     emit_event(
                         "alert_suppressed_startup",
                         severity="info",
-                        alertname=name,
+                        alertname=alert_name,
                         grace_seconds=float(_STARTUP_GRACE_PERIOD_SECONDS),
                         handled=True,
                     )
@@ -928,7 +968,7 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
             emit_event(
                 "alert_received",
                 severity=mapped_severity,
-                alertname=str(labels.get("alertname") or labels.get("name") or ""),
+                alertname=alert_name,
                 severity_label=str(severity),
                 status=str(alert.get("status") or ""),
                 handled=False,
@@ -936,7 +976,7 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
             # Silence enforcement (pattern on name). Fail-open on errors.
             try:
                 from monitoring.silences import is_silenced  # type: ignore
-                name = str(labels.get("alertname") or labels.get("name") or "")
+                name = alert_name
                 sev_norm = str(severity or "").lower() or None
                 silenced, silence_info = is_silenced(name=name, severity=sev_norm)
             except Exception:
@@ -957,6 +997,17 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
             _post_to_slack(text_slack)
             # Send to Telegram only if severity >= configured minimum
             if _severity_rank(severity) >= min_tg_rank:
+                if _is_telegram_suppressed(alert_name):
+                    try:
+                        emit_event(
+                            "alert_telegram_suppressed",
+                            severity="info",
+                            alertname=alert_name,
+                            reason="suppressed_list",
+                        )
+                    except Exception:
+                        pass
+                    continue
                 sev_norm = str(severity or "").strip().lower()
                 if sev_norm == "anomaly" and _queue_anomaly_alert(alert):
                     continue

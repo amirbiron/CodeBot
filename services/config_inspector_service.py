@@ -386,6 +386,15 @@ class ConfigService:
             description="רמת חומרה מינימלית להתראות טלגרם",
             category="alerts",
         ),
+        "ALERT_TELEGRAM_SUPPRESS_ALERTS": ConfigDefinition(
+            key="ALERT_TELEGRAM_SUPPRESS_ALERTS",
+            default="AppLatencyEWMARegression",
+            description=(
+                "שמות alerts (מופרדים בפסיקים) שלא יישלחו לטלגרם. "
+                "השאר ריק כדי לאפשר את כולם."
+            ),
+            category="alerts",
+        ),
         "ALERT_STARTUP_GRACE_PERIOD_SECONDS": ConfigDefinition(
             key="ALERT_STARTUP_GRACE_PERIOD_SECONDS",
             default="1200",
