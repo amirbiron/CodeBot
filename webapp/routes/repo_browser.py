@@ -30,6 +30,15 @@ def get_git_service():
     return service
 
 
+def _get_current_user():
+    try:
+        from flask_login import current_user
+        return current_user
+    except ModuleNotFoundError:
+        from types import SimpleNamespace
+        return SimpleNamespace(is_authenticated=False)
+
+
 def get_current_repo_name(return_source: bool = False):
     """
     מחזיר את שם הריפו הנוכחי לפי סדר עדיפויות:
@@ -37,11 +46,7 @@ def get_current_repo_name(return_source: bool = False):
     2. Session (אם המשתמש מחובר)
     3. ברירת מחדל: CodeBot
     """
-    try:
-        from flask_login import current_user
-    except ModuleNotFoundError:
-        from types import SimpleNamespace
-        current_user = SimpleNamespace(is_authenticated=False)
+    current_user = _get_current_user()
     from database import db as repo_manager
 
     # 1. מ-query parameter
@@ -775,11 +780,7 @@ def api_select_repo():
     """
     API לשמירת הריפו הנבחר למשתמש מחובר.
     """
-    try:
-        from flask_login import current_user
-    except ModuleNotFoundError:
-        from types import SimpleNamespace
-        current_user = SimpleNamespace(is_authenticated=False)
+    current_user = _get_current_user()
     from database import db as repo_manager
 
     if not hasattr(current_user, 'is_authenticated') or not current_user.is_authenticated:
