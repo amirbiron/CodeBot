@@ -1749,13 +1749,15 @@ input.md-task-checkbox {
       <a href="#" onclick="return goBackTwoSteps(event)" class="btn btn-secondary btn-icon" title="חזור למסך קודם"><i class="fas fa-arrow-right"></i> חזור</a>
       <!-- מפריד ויזואלי -->
       <span style="width:1px;height:24px;background:var(--glass-border,rgba(255,255,255,0.2));margin:0 0.25rem;"></span>
-      <!-- כפתורי ערוך והעתק קוד -->
+      <!-- כפתור ערוך - רק למשתמשים מחוברים -->
       <a href="/edit/{{ file.id }}"
          class="btn btn-primary btn-icon"
          title="ערוך">
         <i class="fas fa-edit"></i>
         <span class="btn-text">ערוך</span>
       </a>
+      {% endif %}
+      <!-- כפתור העתק קוד - זמין לכל המשתמשים -->
       <button id="mdCopySourceBtn"
               type="button"
               class="btn btn-primary btn-icon"
@@ -1765,7 +1767,6 @@ input.md-task-checkbox {
         <i class="fas fa-copy"></i>
         <span class="btn-text">העתק קוד</span>
       </button>
-      {% endif %}
     </div>
   </div>
 
@@ -2758,14 +2759,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           const all = container.querySelectorAll('.md-highlight');
           if (all.length === 0) return;
           if (ev.shiftKey) {
-            const arr = Array.from(all);
-            const current = container.querySelector('.md-highlight.is-active');
-            const idx = current ? arr.indexOf(current) : 0;
-            const prev = arr[(idx - 1 + arr.length) % arr.length];
-            setActiveAndScroll(prev);
-            // reset auto-focus state so forward navigation advances
+            // Shift+Enter: navigate to previous result
+            focusPrev();
             justAutoFocused = false;
-            updateCount(arr.length, input.value.trim());
           } else {
             const active = container.querySelector('.md-highlight.is-active');
             if (justAutoFocused || !active) {
