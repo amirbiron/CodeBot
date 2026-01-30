@@ -88,9 +88,11 @@ const RepoHistory = (function() {
      * פותר את בעיית ה-encodeURIComponent עם slashes
      */
     function getCurrentRepoName() {
-        const fromHtml = document.getElementById('current-repo-name')?.dataset?.repo;
+        const repoElement = document.getElementById('current-repo-name');
+        const fromHtml = repoElement?.dataset?.repo;
+        const source = repoElement?.dataset?.source || 'default';
         const fromStorage = localStorage.getItem('selectedRepo');
-        if (fromStorage && (!fromHtml || fromHtml === 'CodeBot')) {
+        if (fromStorage && (!fromHtml || source === 'default')) {
             return fromStorage;
         }
         if (fromHtml) return fromHtml;

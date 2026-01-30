@@ -17,11 +17,16 @@ const CONFIG = {
     // repoName יוגדר דינמית מה-HTML או מ-localStorage
     get repoName() {
         // 1. מ-HTML (הוזרק מה-template)
-        const fromHtml = document.getElementById('current-repo-name')?.dataset?.repo;
+        const repoElement = document.getElementById('current-repo-name');
+        const fromHtml = repoElement?.dataset?.repo;
+        const source = repoElement?.dataset?.source || 'default';
+        const fromStorage = localStorage.getItem('selectedRepo');
+        if (fromStorage && (!fromHtml || source === 'default')) {
+            return fromStorage;
+        }
         if (fromHtml) return fromHtml;
 
         // 2. מ-localStorage
-        const fromStorage = localStorage.getItem('selectedRepo');
         if (fromStorage) return fromStorage;
 
         // 3. ברירת מחדל
@@ -310,9 +315,11 @@ function getRepoDefaultBranch(repoName) {
 // ========================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const serverRepo = document.getElementById('current-repo-name')?.dataset?.repo;
+    const repoElement = document.getElementById('current-repo-name');
+    const serverRepo = repoElement?.dataset?.repo;
+    const serverSource = repoElement?.dataset?.source || 'default';
     const savedRepo = localStorage.getItem('selectedRepo');
-    if (savedRepo && (!serverRepo || serverRepo === 'CodeBot')) {
+    if (savedRepo && (!serverRepo || serverSource === 'default')) {
         currentRepo = savedRepo;
     } else if (serverRepo) {
         currentRepo = serverRepo;

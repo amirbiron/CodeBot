@@ -37,15 +37,6 @@ def _get_current_user():
         from types import SimpleNamespace
         return SimpleNamespace(is_authenticated=False)
 
-def _get_current_user():
-    try:
-        from flask_login import current_user
-        return current_user
-    except ModuleNotFoundError:
-        from types import SimpleNamespace
-        return SimpleNamespace(is_authenticated=False)
-
-
 def get_current_repo_name(return_source: bool = False):
     """
     מחזיר את שם הריפו הנוכחי לפי סדר עדיפויות:
@@ -104,8 +95,7 @@ def repo_index():
     try:
         db = get_db()
         git_service = get_mirror_service()
-        
-        repo_name = get_current_repo_name()
+        repo_name, current_source = get_current_repo_name(return_source=True)
         
         metadata = None
         mirror_info = None
@@ -136,14 +126,17 @@ def repo_index():
         return render_template(
             'repo/index.html',
             repo_name=repo_name,
+            current_source=current_source,
             metadata=metadata,
             mirror_info=mirror_info
         )
     except Exception as e:
         logger.exception(f"Repo index error: {e}")
+        repo_name, current_source = get_current_repo_name(return_source=True)
         return render_template(
             'repo/index.html',
-            repo_name=get_current_repo_name(),
+            repo_name=repo_name,
+            current_source=current_source,
             metadata=None,
             mirror_info=None,
             error=str(e)

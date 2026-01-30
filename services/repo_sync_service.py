@@ -353,10 +353,24 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
             return ref.split("/", 1)[1]
         return ref
 
+    def _ref_exists(ref: str) -> bool:
+        result = git_service._run_git_command(
+            ["git", "show-ref", "--verify", "--quiet", ref],
+            cwd=repo_path,
+        )
+        return result.success
+
+    def _branch_exists(branch: str) -> bool:
+        if not branch:
+            return False
+        return _ref_exists(f"refs/heads/{branch}") or _ref_exists(f"refs/remotes/origin/{branch}")
     default_branch = ""
     branch_result = git_service._run_git_command(["git", "symbolic-ref", "--short", "HEAD"], cwd=repo_path)
     if branch_result.success:
         default_branch = _strip_origin_prefix(branch_result.stdout.strip())
+        if not _branch_exists(default_branch):
+            logger.info(f"HEAD pointed to missing branch: {default_branch}")
+            default_branch = ""
 
     # אם HEAD לא תקין, נסה origin/HEAD (נוצר ב-mirror)
     if not default_branch:
@@ -366,6 +380,9 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
         )
         if head_result.success:
             default_branch = _strip_origin_prefix(head_result.stdout.strip())
+            if not _branch_exists(default_branch):
+                logger.info(f"origin/HEAD pointed to missing branch: {default_branch}")
+                default_branch = ""
 
     # Fallback: בחר ברנץ' ראשון מ-origin (עדיף main/master)
     if not default_branch:
