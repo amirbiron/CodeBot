@@ -236,6 +236,7 @@ def test_default_startup_grace_period_is_20_minutes(monkeypatch):
 def test_telegram_suppression_default_and_override(monkeypatch):
     monkeypatch.delenv("ALERT_TELEGRAM_SUPPRESS_ALERTS", raising=False)
     monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "info")
+    monkeypatch.setenv("ALERT_STARTUP_GRACE_PERIOD_SECONDS", "0")
     import importlib
     import alert_forwarder as af
     importlib.reload(af)
