@@ -730,14 +730,6 @@
   border-color: rgba(255, 255, 255, 0.5);
 }
 
-/* Dark/Dim/Nebula themes - Default dark styling works */
-:root[data-theme="dark"] .md-editor-toolbar,
-:root[data-theme="dim"] .md-editor-toolbar,
-:root[data-theme="nebula"] .md-editor-toolbar {
-  background: var(--glass, rgba(255, 255, 255, 0.08));
-  border-color: var(--glass-border, rgba(255, 255, 255, 0.18));
-}
-
 /* Ocean Theme */
 :root[data-theme="ocean"] .md-editor-toolbar {
   background: rgba(49, 130, 206, 0.2);
@@ -2689,15 +2681,19 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         if (first) setActiveAndScroll(first);
       }
 
-      function focusNext(){
+      // פונקציה מאוחדת לניווט בין תוצאות - direction: 1 להבא, -1 להקודם
+      function navigateHighlight(direction){
         const all = Array.from(container.querySelectorAll('.md-highlight'));
         if (all.length === 0) return;
         const current = container.querySelector('.md-highlight.is-active');
-        const idx = current ? all.indexOf(current) : -1;
-        const next = all[(idx + 1) % all.length];
-        setActiveAndScroll(next);
+        const idx = current ? all.indexOf(current) : (direction === 1 ? -1 : 0);
+        const target = all[(idx + direction + all.length) % all.length];
+        setActiveAndScroll(target);
         updateCount(all.length, input.value.trim());
       }
+
+      function focusNext(){ navigateHighlight(1); }
+      function focusPrev(){ navigateHighlight(-1); }
 
       input.addEventListener('input', () => {
         const term = (input.value || '').trim();
@@ -2716,16 +2712,6 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         updateCount(0, '');
         justAutoFocused = false;
       });
-
-      function focusPrev(){
-        const all = Array.from(container.querySelectorAll('.md-highlight'));
-        if (all.length === 0) return;
-        const current = container.querySelector('.md-highlight.is-active');
-        const idx = current ? all.indexOf(current) : 0;
-        const prev = all[(idx - 1 + all.length) % all.length];
-        setActiveAndScroll(prev);
-        updateCount(all.length, input.value.trim());
-      }
 
       if (nextBtn) {
         nextBtn.addEventListener('click', () => {
