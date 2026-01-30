@@ -82,7 +82,7 @@ let state = {
  */
 async function loadAvailableRepos() {
     try {
-        const response = await fetch(`${CONFIG.apiBase}/repos`);
+        const response = await fetch(`${CONFIG.apiBase}/repos?${getRepoParam()}`);
         const data = await response.json();
 
         if (data.success && data.repos) {
