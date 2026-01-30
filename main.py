@@ -755,6 +755,27 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
         return False
 
 
+async def _send_direct_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    """Fallback לשליחת הודעה ישירה לאדמינים בטלגרם."""
+    try:
+        admin_ids = get_admin_ids()
+        if not admin_ids:
+            return False
+        bot = getattr(context, "bot", None)
+        if bot is None:
+            return False
+        sent_any = False
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(chat_id=admin_id, text=str(text or ""))
+                sent_any = True
+            except Exception:
+                continue
+        return sent_any
+    except Exception:
+        return False
+
+
 async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """קבלת דיווח משתמש ושליחה לאדמינים."""
     try:
@@ -788,6 +809,8 @@ async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYP
             f"• הודעה: {args_text}"
         )
         sent = await notify_admins(context, report)
+        if not sent:
+            sent = await _send_direct_admins(context, report)
         if sent:
             await message.reply_text("תודה! הדיווח נשלח לאדמין.")
         else:
