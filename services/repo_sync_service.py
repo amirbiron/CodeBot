@@ -358,17 +358,30 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
     logger.info(f"Detected default branch: {default_branch}")
 
     # 3. רשימת כל הקבצים
-    # ב-git clone --mirror ה-refs לרוב נמצאים תחת refs/heads/<branch>
-    # (ולא בהכרח origin/<branch>), לכן נשתמש בפורמט יציב.
-    tree_ref = f"refs/heads/{default_branch}"
-    all_files = git_service.list_all_files(repo_name, ref=tree_ref)
+    # ב-mirror, ה-refs יכולים להיות תחת refs/remotes/origin/<branch>.
+    # ננסה כמה אפשרויות לפי סדר עדיפות ונשתמש בראשון שעובד.
+    tree_ref_candidates = [
+        f"refs/heads/{default_branch}",
+        f"refs/remotes/origin/{default_branch}",
+        f"origin/{default_branch}",
+        default_branch,
+    ]
+    all_files = None
+    tree_ref = ""
+    for candidate in tree_ref_candidates:
+        all_files = git_service.list_all_files(repo_name, ref=candidate)
+        if all_files is not None:
+            tree_ref = candidate
+            break
     if all_files is None:
-        logger.error(f"Failed to list files for {repo_name} at {tree_ref}")
+        logger.error(
+            f"Failed to list files for {repo_name} at refs: {', '.join(tree_ref_candidates)}"
+        )
         return {
             "error": "Failed to list repository files",
             "details": "Check if branch ref exists or mirror repo is corrupt",
             "repo_name": repo_name,
-            "ref": tree_ref,
+            "ref": tree_ref_candidates,
         }
 
     # 3. סינון קבצי קוד
