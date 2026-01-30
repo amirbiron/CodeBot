@@ -345,14 +345,44 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
 
     # 2. זיהוי ה-Default Branch האמיתי
     # ב-Mirror, HEAD מצביע על ה-default branch של origin
+    def _strip_origin_prefix(ref: str) -> str:
+        ref = str(ref or "").strip()
+        if ref.startswith("refs/remotes/origin/"):
+            return ref[len("refs/remotes/origin/"):]
+        if ref.startswith("origin/"):
+            return ref.split("/", 1)[1]
+        return ref
+
+    default_branch = ""
     branch_result = git_service._run_git_command(["git", "symbolic-ref", "--short", "HEAD"], cwd=repo_path)
-    default_branch = branch_result.stdout.strip() if branch_result.success else ""
-    # `--short` מחזיר שם "קצר" (למשל: main, develop, feature/login או origin/main).
-    # חשוב: לא לחתוך על "/" באופן כללי כי זה שובר ברנצ'ים היררכיים כמו feature/foo.
-    # אם HEAD מצביע על origin/<branch>, נחלץ רק את <branch> (כולל סלאשים).
-    if default_branch.startswith("origin/"):
-        default_branch = default_branch.split("/", 1)[1]
-    if not default_branch or not branch_result.success:
+    if branch_result.success:
+        default_branch = _strip_origin_prefix(branch_result.stdout.strip())
+
+    # אם HEAD לא תקין, נסה origin/HEAD (נוצר ב-mirror)
+    if not default_branch:
+        head_result = git_service._run_git_command(
+            ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            cwd=repo_path,
+        )
+        if head_result.success:
+            default_branch = _strip_origin_prefix(head_result.stdout.strip())
+
+    # Fallback: בחר ברנץ' ראשון מ-origin (עדיף main/master)
+    if not default_branch:
+        refs_result = git_service._run_git_command(
+            ["git", "for-each-ref", "--format=%(refname)", "refs/remotes/origin"],
+            cwd=repo_path,
+        )
+        refs = [r.strip() for r in (refs_result.stdout or "").splitlines() if r.strip()]
+        preferred = (
+            next((r for r in refs if r.endswith("/main")), "")
+            or next((r for r in refs if r.endswith("/master")), "")
+        )
+        if not preferred:
+            preferred = next((r for r in refs if not r.endswith("/HEAD")), "")
+        default_branch = _strip_origin_prefix(preferred)
+
+    if not default_branch:
         default_branch = "main"
 
     logger.info(f"Detected default branch: {default_branch}")
