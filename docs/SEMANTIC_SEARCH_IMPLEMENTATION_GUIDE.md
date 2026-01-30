@@ -338,6 +338,7 @@ SEMANTIC_SEARCH_ENABLED: bool = Field(
 )
 CHUNK_SIZE_LINES: int = Field(
     default=220,
+    ge=10,  # תיקון: מינימום 10 שורות למניעת לולאה אינסופית ב-chunking
     description="Number of lines per code chunk"
 )
 CHUNK_OVERLAP_LINES: int = Field(
@@ -427,8 +428,9 @@ def split_code_to_chunks(
     chunks: List[CodeChunk] = []
     step = chunk_size - overlap  # צעד בין התחלות chunks
 
+    # תיקון: הבטחת step חיובי למניעת לולאה אינסופית
     if step <= 0:
-        step = chunk_size // 2  # fallback אם overlap גדול מדי
+        step = max(1, chunk_size // 2)  # fallback אם overlap גדול מדי
 
     chunk_index = 0
     start = 0
@@ -695,8 +697,8 @@ async def semantic_search(
         logger.warning("Embedding service unavailable, falling back to text search")
         return await _fallback_text_search(user_id, query, limit, language_filter)
 
-    # יצירת embedding לשאילתה
-    query_embedding = embedding_service.generate_embedding(query)
+    # יצירת embedding לשאילתה (async!)
+    query_embedding = await embedding_service.generate_embedding(query)
 
     if not query_embedding:
         logger.warning("Failed to generate query embedding, falling back to text search")
@@ -814,6 +816,7 @@ def _build_hybrid_search_pipeline(
                 "codeChunk": {"$first": "$codeChunk"},
                 "startLine": {"$first": "$startLine"},
                 "endLine": {"$first": "$endLine"},
+                "chunkIndex": {"$first": "$chunkIndex"},  # תיקון: שמירת chunkIndex
                 "vectorScore": {"$max": "$vectorScore"},
                 "textScore": {"$max": "$textScore"}
             }
@@ -909,6 +912,7 @@ def _build_hybrid_search_pipeline(
                 "codeChunk": 1,
                 "startLine": 1,
                 "endLine": 1,
+                "chunkIndex": 1,  # תיקון: הוספת chunkIndex
                 "rrfScore": 1,
                 "vectorScore": 1,
                 "textScore": 1,
@@ -1219,7 +1223,7 @@ class EmbeddingWorker:
             tags=snippet.get("tags", []),
             language=snippet.get("programming_language")
         )
-        snippet_embedding = self.embedding_service.generate_embedding(metadata_text)
+        snippet_embedding = await self.embedding_service.generate_embedding(metadata_text)
 
         # עדכון סטטוס
         await update_snippet_embedding_status(
@@ -1725,7 +1729,7 @@ class TestEmbeddingService:
 
 ---
 
-## תיקוני באגים (v1.1)
+## תיקוני באגים (v1.2)
 
 ### באגים שתוקנו בגרסה זו:
 
@@ -1736,6 +1740,10 @@ class TestEmbeddingService:
 | **חסימת Event Loop** | השימוש ב-`httpx.Client` סינכרוני חסם את ה-event loop ב-worker | הוחלף ב-`httpx.AsyncClient` + `await` בכל הקריאות |
 | **לולאת עיבוד אינסופית** | כש-hash התוכן לא השתנה, ה-worker דילג בלי לעדכן דגלים, והשאיר את ה-snippet בתור לנצח | נוסף עדכון `update_snippet_embedding_status` גם במקרה של תוכן זהה |
 | **chunks ישנים לא נמחקו** | כשכל ה-embeddings נכשלו, chunks ישנים עם קוד לא עדכני נשארו ב-DB | `save_snippet_chunks` מוחק chunks ישנים **לפני** הבדיקה אם יש חדשים |
+| **await חסר ב-query embedding** | קריאה ל-`generate_embedding` בלי `await` החזירה coroutine במקום וקטור | נוסף `await` בקריאה ל-embedding של השאילתה |
+| **await חסר ב-snippet embedding** | אותה בעיה ביצירת embedding למטא-דאטה של snippet | נוסף `await` בקריאה |
+| **chunkIndex חסר בתוצאות** | שדה `chunkIndex` לא נשמר ב-`$group` ולא נכלל ב-`$project`, כל התוצאות הציגו chunk 0 | נוסף `chunkIndex` ל-`$group` ול-`$project` |
+| **לולאה אינסופית ב-chunking** | אם `CHUNK_SIZE_LINES=0` או `1`, ה-step היה 0 והלולאה לא הסתיימה | נוסף `ge=10` בקונפיג + `max(1, ...)` ב-fallback |
 
 ---
 
