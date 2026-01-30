@@ -1,9 +1,16 @@
 import pytest
+import sys
+from types import ModuleType, SimpleNamespace
 from flask import Flask
-from flask_login import LoginManager
 
 from services.git_mirror_service import GitMirrorService
 from webapp.routes import repo_browser
+
+
+if "flask_login" not in sys.modules:
+    flask_login_stub = ModuleType("flask_login")
+    flask_login_stub.current_user = SimpleNamespace(is_authenticated=False)
+    sys.modules["flask_login"] = flask_login_stub
 
 
 class _Cursor:
@@ -58,10 +65,6 @@ def app(tmp_path, monkeypatch) -> Flask:
     app.config["TESTING"] = True
     app.config["SECRET_KEY"] = "test"
     app.extensions['git_mirror_service'] = GitMirrorService(mirrors_base_path=str(tmp_path))
-
-    login_manager = LoginManager()
-    login_manager.init_app(app)
-    login_manager.user_loader(lambda _user_id: None)
 
     stub_db = _StubDB()
     monkeypatch.setattr(repo_browser, "get_db", lambda: stub_db)
