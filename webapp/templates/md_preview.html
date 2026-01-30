@@ -1663,7 +1663,24 @@ input.md-task-checkbox {
           </div>
         </div>
       </div>
-      <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;">
+      <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+        {% if not is_public %}
+        <a href="/edit/{{ file.id }}"
+           class="btn btn-primary btn-icon"
+           title="ערוך">
+          <i class="fas fa-edit"></i>
+          <span class="btn-text">ערוך</span>
+        </a>
+        {% endif %}
+        <button id="mdCopySourceBtn"
+                type="button"
+                class="btn btn-primary btn-icon"
+                title="העתק קוד"
+                aria-label="העתק קוד"
+                onclick="return copyMarkdownSource(event)">
+          <i class="fas fa-copy"></i>
+          <span class="btn-text" data-copy-label="1">העתק קוד</span>
+        </button>
         {% if is_public %}
         <a id="mdReaderModeBtn"
            class="btn btn-secondary btn-icon md-reader-mode-btn"
@@ -2683,19 +2700,6 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         setTimeout(() => { try { document.body.removeChild(announcement); } catch(_){} }, 1000);
       } catch(_) {}
     }
-    function fallbackCopy(text) {
-      try {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        const success = document.execCommand('copy');
-        document.body.removeChild(textarea);
-        return success;
-      } catch(_) { return false; }
-    }
     // כפתור העתקה משופר לכל בלוק קוד + נגישות מלאה
     try {
       const FALLBACK_LANG = (document.documentElement && document.documentElement.dir === 'rtl') ? 'טקסט' : 'Text';
@@ -3681,6 +3685,59 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     updateButton();
   } catch(_) {}
 })();
+
+function fallbackCopy(text) {
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const success = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return success;
+  } catch(_) {
+    return false;
+  }
+}
+
+function copyMarkdownSource(ev){
+  try { if (ev) ev.preventDefault(); } catch(_){ }
+  const text = (typeof MD_TEXT === 'string') ? MD_TEXT : '';
+  if (!text) {
+    alert('לא נמצא קוד להעתקה');
+    return false;
+  }
+  const btn = document.getElementById('mdCopySourceBtn');
+  const labelEl = btn ? (btn.querySelector('[data-copy-label]') || btn.querySelector('.btn-text') || btn) : null;
+  const originalLabel = (btn && btn.dataset && btn.dataset.originalLabel) ? btn.dataset.originalLabel
+    : (labelEl ? labelEl.textContent : 'העתק קוד');
+  if (btn && btn.dataset && !btn.dataset.originalLabel) {
+    btn.dataset.originalLabel = originalLabel;
+  }
+  function setLabel(value){
+    if (labelEl && value) {
+      labelEl.textContent = value;
+    }
+  }
+  (async function(){
+    let success = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      success = true;
+    } catch(_) {
+      success = fallbackCopy(text);
+    }
+    if (success) {
+      setLabel('הועתק!');
+      setTimeout(() => setLabel(originalLabel), 1800);
+    } else {
+      alert('לא הצלחנו להעתיק את הקוד');
+    }
+  })();
+  return false;
+}
 
 let shareLinkModalKeyHandlerMd = null;
 
