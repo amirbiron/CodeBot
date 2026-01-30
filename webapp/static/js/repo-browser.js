@@ -99,6 +99,7 @@ let state = {
     // הוספה חדשה:
     markdownPreviewEnabled: false,
     currentFileContent: null,  // שמירת התוכן לשימוש חוזר
+    currentFileLanguage: null
 };
 
 // ========================================
@@ -171,15 +172,30 @@ function disableMarkdownPreview() {
 /**
  * Toggle בין תצוגת קוד לתצוגת Markdown
  */
-function toggleMarkdownPreview() {
+async function toggleMarkdownPreview() {
     if (state.markdownPreviewEnabled) {
         disableMarkdownPreview();
+        await ensureCodeViewerInitialized();
     } else {
-        enableMarkdownPreview();
+        await enableMarkdownPreview();
     }
 
     // שמירת העדפה ב-localStorage
     localStorage.setItem('repo-browser-markdown-preview', state.markdownPreviewEnabled);
+}
+
+/**
+ * מבטיח שה-editor מאותחל לפני מעבר לקוד
+ */
+async function ensureCodeViewerInitialized() {
+    if (state.editor || state.editorView6) {
+        return;
+    }
+    if (!state.currentFileContent) {
+        return;
+    }
+    const language = state.currentFileLanguage || detectLanguage(state.currentFile);
+    await initCodeViewer(state.currentFileContent, language);
 }
 
 /**
@@ -424,11 +440,16 @@ function showWelcomeScreen() {
     const wrapper = document.getElementById('code-editor-wrapper');
     const header = document.getElementById('code-header');
     const footer = document.getElementById('code-footer');
+    const previewContainer = document.getElementById('markdown-preview-container');
+    const toggleBtn = document.getElementById('markdown-preview-toggle');
 
     if (welcome) welcome.style.display = 'block';
     if (wrapper) wrapper.style.display = 'none';
     if (header) header.style.display = 'none';
     if (footer) footer.style.display = 'none';
+    if (previewContainer) previewContainer.style.display = 'none';
+    if (toggleBtn) toggleBtn.classList.remove('active');
+    state.markdownPreviewEnabled = false;
 }
 
 /**
@@ -1069,6 +1090,8 @@ async function selectFile(path, element) {
     }
 
     state.currentFile = path;
+    state.currentFileContent = null;
+    state.currentFileLanguage = null;
     
     // Update URL hash to persist state across refresh
     updateUrlHash(path);
@@ -1083,11 +1106,16 @@ async function selectFile(path, element) {
     const welcome = document.getElementById('welcome-screen');
     const header = document.getElementById('code-header');
     const footer = document.getElementById('code-footer');
+    const previewContainer = document.getElementById('markdown-preview-container');
+    const toggleBtn = document.getElementById('markdown-preview-toggle');
 
     welcome.style.display = 'none';
     wrapper.style.display = 'block';
     header.style.display = 'flex';
     footer.style.display = 'flex';
+    if (previewContainer) previewContainer.style.display = 'none';
+    if (toggleBtn) toggleBtn.classList.remove('active');
+    state.markdownPreviewEnabled = false;
     
     // Force the container to recalculate layout
     const container = document.getElementById('code-viewer-container');
@@ -1109,6 +1137,7 @@ async function selectFile(path, element) {
         state.currentFileContent = data.content;
 
         const language = data.language || detectLanguage(path);
+        state.currentFileLanguage = language;
 
         // Update breadcrumbs
         updateBreadcrumbs(path);
