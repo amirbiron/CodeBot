@@ -30,6 +30,36 @@ def get_git_service():
     return service
 
 
+def get_current_repo_name() -> str:
+    """
+    מחזיר את שם הריפו הנוכחי לפי סדר עדיפויות:
+    1. Query parameter 'repo' מה-URL
+    2. Session (אם המשתמש מחובר)
+    3. ברירת מחדל: CodeBot
+    """
+    from flask_login import current_user
+    from database import db as repo_manager
+
+    # 1. מ-query parameter
+    repo_from_query = request.args.get('repo', '').strip()
+    if repo_from_query:
+        # ולידציה בסיסית של שם ריפו
+        if re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$', repo_from_query):
+            return repo_from_query
+
+    # 2. מה-session (למשתמש מחובר)
+    if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
+        try:
+            saved_repo = repo_manager.get_selected_repo(current_user.id)
+            if saved_repo:
+                return saved_repo
+        except Exception as e:
+            logger.warning(f"Could not get saved repo: {e}")
+
+    # 3. ברירת מחדל
+    return DEFAULT_REPO_NAME
+
+
 # ========================================
 # Legacy Routes Redirects (מ-גרסה ישנה)
 # ========================================
@@ -59,7 +89,7 @@ def repo_index():
         db = get_db()
         git_service = get_mirror_service()
         
-        repo_name = "CodeBot"
+        repo_name = get_current_repo_name()
         
         metadata = None
         mirror_info = None
@@ -97,7 +127,7 @@ def repo_index():
         logger.exception(f"Repo index error: {e}")
         return render_template(
             'repo/index.html',
-            repo_name="CodeBot",
+            repo_name=get_current_repo_name(),
             metadata=None,
             mirror_info=None,
             error=str(e)
@@ -115,7 +145,7 @@ def api_tree():
                לדוגמה: types=python,javascript,html
     """
     db = get_db()
-    repo_name = "CodeBot"
+    repo_name = get_current_repo_name()
     path = request.args.get('path', '')
     types_param = request.args.get('types', '').strip()
     
@@ -214,7 +244,7 @@ def api_get_file(file_path: str):
     """API לקבלת תוכן קובץ"""
     db = get_db()
     git_service = get_mirror_service()
-    repo_name = "CodeBot"
+    repo_name = get_current_repo_name()
     
     # Get metadata from MongoDB
     metadata = db.repo_files.find_one({
@@ -291,7 +321,7 @@ def get_file_history():
         ref = request.args.get('ref', 'HEAD')
 
         result = git_service.get_file_history(
-            repo_name=DEFAULT_REPO_NAME,
+            repo_name=get_current_repo_name(),
             file_path=file_path,
             ref=ref,
             limit=limit,
@@ -358,7 +388,7 @@ def get_file_at_commit(commit):
             }), 400
 
         result = git_service.get_file_at_commit(
-            repo_name=DEFAULT_REPO_NAME,
+            repo_name=get_current_repo_name(),
             file_path=file_path,
             commit=commit
         )
@@ -431,7 +461,7 @@ def get_diff(commit1, commit2):
             }), 400
 
         result = git_service.get_diff(
-            repo_name=DEFAULT_REPO_NAME,
+            repo_name=get_current_repo_name(),
             commit1=commit1,
             commit2=commit2,
             file_path=file_path,
@@ -483,7 +513,7 @@ def get_commit_info(commit):
             }), 503
 
         result = git_service.get_commit_info(
-            repo_name=DEFAULT_REPO_NAME,
+            repo_name=get_current_repo_name(),
             commit=commit
         )
 
@@ -554,7 +584,7 @@ def api_search_history():
             }), 400
 
         result = git_service.search_history(
-            repo_name=DEFAULT_REPO_NAME,
+            repo_name=get_current_repo_name(),
             query=query,
             search_type=search_type,
             file_path=file_path,
@@ -602,7 +632,7 @@ def api_search():
     try:
         db = get_db()
         git_service = get_mirror_service()
-        repo_name = "CodeBot"
+        repo_name = get_current_repo_name()
         
         # בדיקה אם ה-mirror קיים
         if not git_service.mirror_exists(repo_name):
@@ -649,7 +679,7 @@ def api_file_types():
         רשימת סוגי קבצים וכמותם, ממוינת לפי כמות יורדת
     """
     db = get_db()
-    repo_name = "CodeBot"
+    repo_name = get_current_repo_name()
     
     try:
         # Aggregate by language
@@ -678,7 +708,7 @@ def api_stats():
     """API לסטטיסטיקות"""
     db = get_db()
     git_service = get_mirror_service()
-    repo_name = "CodeBot"
+    repo_name = get_current_repo_name()
     
     # Get from git service
     stats = git_service.get_repo_stats(repo_name)
@@ -693,3 +723,102 @@ def api_stats():
         stats["sync_status"] = metadata.get("sync_status")
     
     return jsonify(stats)
+
+
+@repo_bp.route('/api/repos')
+def api_list_repos():
+    """
+    API לקבלת רשימת כל הריפויים הזמינים.
+
+    Returns:
+        רשימת ריפויים עם מטא-דאטה בסיסי
+    """
+    from flask_login import current_user
+    from database import db as repo_manager
+
+    db = get_db()
+
+    try:
+        repos = list(db.repo_metadata.find(
+            {},  # כל הריפויים
+            {
+                "repo_name": 1,
+                "repo_url": 1,
+                "default_branch": 1,
+                "total_files": 1,
+                "last_sync_time": 1,
+                "sync_status": 1,
+                "_id": 0
+            }
+        ).sort("repo_name", 1))
+
+        current_repo = get_current_repo_name()
+        current_source = "default"
+        if hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
+            try:
+                saved_repo = repo_manager.get_selected_repo(current_user.id)
+                if saved_repo:
+                    current_repo = saved_repo
+                    current_source = "user"
+            except Exception as e:
+                logger.warning(f"Could not get saved repo for list: {e}")
+
+        return jsonify({
+            "success": True,
+            "repos": repos,
+            "current": current_repo,
+            "current_source": current_source
+        })
+    except Exception as e:
+        logger.exception(f"List repos API error: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to fetch repos",
+            "repos": []
+        }), 500
+
+
+@repo_bp.route('/api/select-repo', methods=['POST'])
+def api_select_repo():
+    """
+    API לשמירת הריפו הנבחר למשתמש מחובר.
+    """
+    from flask_login import current_user
+    from database import db as repo_manager
+
+    if not hasattr(current_user, 'is_authenticated') or not current_user.is_authenticated:
+        return jsonify({
+            "success": False,
+            "error": "Authentication required"
+        }), 401
+
+    data = request.get_json() or {}
+    repo_name = data.get('repo_name', '').strip()
+
+    if not repo_name or not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$', repo_name):
+        return jsonify({
+            "success": False,
+            "error": "Invalid repo name"
+        }), 400
+
+    # בדיקה שהריפו קיים
+    db = get_db()
+    if not db.repo_metadata.find_one({"repo_name": repo_name}):
+        return jsonify({
+            "success": False,
+            "error": "Repo not found"
+        }), 404
+
+    try:
+        success = repo_manager.save_selected_repo(current_user.id, repo_name)
+
+        return jsonify({
+            "success": success,
+            "repo_name": repo_name
+        })
+    except Exception as e:
+        logger.exception(f"Select repo error: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to save selection"
+        }), 500

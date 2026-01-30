@@ -14,7 +14,19 @@
 // ========================================
 
 const CONFIG = {
-    repoName: 'CodeBot',  // יוחלף דינמית
+    // repoName יוגדר דינמית מה-HTML או מ-localStorage
+    get repoName() {
+        // 1. מ-HTML (הוזרק מה-template)
+        const fromHtml = document.getElementById('current-repo-name')?.dataset?.repo;
+        if (fromHtml) return fromHtml;
+
+        // 2. מ-localStorage
+        const fromStorage = localStorage.getItem('selectedRepo');
+        if (fromStorage) return fromStorage;
+
+        // 3. ברירת מחדל
+        return 'CodeBot';
+    },
     apiBase: '/repo/api',
     maxRecentFiles: 5,
     searchDebounceMs: 300,
@@ -34,6 +46,11 @@ const CONFIG = {
         'text': 'null'
     }
 };
+
+// Current repo state (can change during session)
+let currentRepo = CONFIG.repoName;
+let repoMetadataByName = {};
+let repoDropdownDocListenerAttached = false;
 
 // ========================================
 // State
@@ -59,11 +76,246 @@ let state = {
 };
 
 // ========================================
+// Repo Management
+// ========================================
+
+/**
+ * טוען את רשימת הריפויים הזמינים
+ */
+async function loadAvailableRepos() {
+    try {
+        const response = await fetch(`${CONFIG.apiBase}/repos`);
+        const data = await response.json();
+
+        if (data.success && data.repos) {
+            if (data.current && data.current_source === 'user') {
+                currentRepo = data.current;
+                localStorage.setItem('selectedRepo', data.current);
+            }
+            repoMetadataByName = {};
+            data.repos.forEach(repo => {
+                if (repo && repo.repo_name) {
+                    repoMetadataByName[repo.repo_name] = repo;
+                }
+            });
+            renderRepoSelector(data.repos, currentRepo);
+            updateRepoDisplay(currentRepo);
+        }
+    } catch (error) {
+        console.error('Failed to load repos:', error);
+    }
+}
+
+/**
+ * מרנדר את בורר הריפויים
+ */
+function renderRepoSelector(repos, currentRepoName) {
+    const container = document.getElementById('repo-selector');
+    if (!container) return;
+
+    if (repos.length <= 1) {
+        // אם יש רק ריפו אחד, אין צורך בבורר
+        container.style.display = 'none';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="repo-dropdown">
+            <button class="repo-dropdown-toggle" id="repo-dropdown-toggle">
+                <i class="bi bi-github"></i>
+                <span class="current-repo-name">${escapeHtml(currentRepoName)}</span>
+                <i class="bi bi-chevron-down"></i>
+            </button>
+            <div class="repo-dropdown-menu" id="repo-dropdown-menu">
+                ${repos.map(repo => `
+                    <div class="repo-dropdown-item ${repo.repo_name === currentRepoName ? 'active' : ''}"
+                         data-repo="${escapeHtml(repo.repo_name)}">
+                        <div class="repo-item-name">
+                            <i class="bi bi-folder2"></i>
+                            ${escapeHtml(repo.repo_name)}
+                        </div>
+                        <div class="repo-item-stats">
+                            <span>${repo.total_files || 0} files</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    // Event listeners
+    const toggle = container.querySelector('#repo-dropdown-toggle');
+    const menu = container.querySelector('#repo-dropdown-menu');
+
+    toggle?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.toggle('open');
+        toggle.classList.toggle('open');
+    });
+
+    // סגירה בלחיצה מחוץ ל-dropdown
+    if (!repoDropdownDocListenerAttached) {
+        document.addEventListener('click', () => {
+            const currentMenu = document.getElementById('repo-dropdown-menu');
+            currentMenu?.classList.remove('open');
+            const currentToggle = document.getElementById('repo-dropdown-toggle');
+            currentToggle?.classList.remove('open');
+        });
+        repoDropdownDocListenerAttached = true;
+    }
+
+    // בחירת ריפו
+    container.querySelectorAll('.repo-dropdown-item').forEach(item => {
+        item.addEventListener('click', async () => {
+            const repoName = item.dataset.repo;
+            if (repoName && repoName !== currentRepo) {
+                await switchRepo(repoName);
+            }
+            menu?.classList.remove('open');
+        });
+    });
+}
+
+/**
+ * מחליף לריפו אחר
+ */
+async function switchRepo(repoName) {
+    if (!repoName || repoName === currentRepo) return;
+
+    // שמירה ב-localStorage
+    localStorage.setItem('selectedRepo', repoName);
+    currentRepo = repoName;
+
+    // שמירה בשרת (למשתמש מחובר)
+    try {
+        await fetch(`${CONFIG.apiBase}/select-repo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repo_name: repoName })
+        });
+    } catch (e) {
+        // לא קריטי - localStorage מספיק
+        console.warn('Could not save repo selection to server:', e);
+    }
+
+    // עדכון UI
+    updateRepoDisplay(repoName);
+
+    // איפוס state
+    state.currentFile = null;
+    state.expandedFolders.clear();
+    state.selectedTypes.clear();
+    saveFilterPreferences();
+    clearSearchState();
+    updateUrlHash(null);
+
+    // טעינה מחדש של העץ
+    await initTree();
+    await loadFileTypes();
+
+    // הצגת מסך פתיחה
+    showWelcomeScreen();
+
+    showToast(`Switched to ${repoName}`);
+}
+
+/**
+ * עדכון תצוגת שם הריפו ב-UI
+ */
+function updateRepoDisplay(repoName) {
+    // עדכון בכותרת
+    const repoNameEl = document.querySelector('.repo-name');
+    if (repoNameEl) {
+        repoNameEl.innerHTML = `<i class="bi bi-github"></i> ${escapeHtml(repoName)}`;
+    }
+
+    // עדכון ב-dropdown
+    const currentNameEl = document.querySelector('.current-repo-name');
+    if (currentNameEl) {
+        currentNameEl.textContent = repoName;
+    }
+
+    // עדכון ה-active item
+    document.querySelectorAll('.repo-dropdown-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.repo === repoName);
+    });
+
+    // עדכון אלמנט נסתר עבור repo-history
+    const currentRepoEl = document.getElementById('current-repo-name');
+    if (currentRepoEl) {
+        currentRepoEl.dataset.repo = repoName;
+    }
+}
+
+/**
+ * מציג מסך פתיחה
+ */
+function showWelcomeScreen() {
+    const welcome = document.getElementById('welcome-screen');
+    const wrapper = document.getElementById('code-editor-wrapper');
+    const header = document.getElementById('code-header');
+    const footer = document.getElementById('code-footer');
+
+    if (welcome) welcome.style.display = 'block';
+    if (wrapper) wrapper.style.display = 'none';
+    if (header) header.style.display = 'none';
+    if (footer) footer.style.display = 'none';
+}
+
+/**
+ * מחזיר פרמטר repo לקריאות API
+ */
+function getRepoParam() {
+    return `repo=${encodeURIComponent(currentRepo)}`;
+}
+
+function normalizeRepoBaseUrl(repoUrl) {
+    const raw = String(repoUrl || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('git@')) {
+        const match = raw.match(/^git@([^:]+):(.+)$/);
+        if (match) {
+            const host = match[1];
+            const path = match[2].replace(/\.git$/, '');
+            return `https://${host}/${path}`;
+        }
+    }
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+        return raw.replace(/\.git$/, '').replace(/\/$/, '');
+    }
+    return raw.replace(/\.git$/, '').replace(/\/$/, '');
+}
+
+function getRepoBaseUrl(repoName) {
+    const meta = repoMetadataByName[repoName];
+    const repoUrl = meta && meta.repo_url ? meta.repo_url : '';
+    return normalizeRepoBaseUrl(repoUrl);
+}
+
+function getRepoDefaultBranch(repoName) {
+    const meta = repoMetadataByName[repoName];
+    const branch = meta && meta.default_branch ? String(meta.default_branch).trim() : '';
+    return branch || 'main';
+}
+
+// ========================================
 // Initialization
 // ========================================
 
-document.addEventListener('DOMContentLoaded', () => {
-    // חשוב: initFileTypeFilter קודם כדי לטעון העדפות מ-localStorage לפני initTree
+document.addEventListener('DOMContentLoaded', async () => {
+    const serverRepo = document.getElementById('current-repo-name')?.dataset?.repo;
+    const savedRepo = localStorage.getItem('selectedRepo');
+    if (savedRepo && (!serverRepo || serverRepo === 'CodeBot')) {
+        currentRepo = savedRepo;
+    } else if (serverRepo) {
+        currentRepo = serverRepo;
+    }
+    updateRepoDisplay(currentRepo);
+
+    // טען ריפויים זמינים
+    await loadAvailableRepos();
+
+    // המשך אתחול רגיל
     initFileTypeFilter();
     initTree();
     initSearch();
@@ -142,11 +394,11 @@ async function initTree() {
     const signal = state.treeAbortController.signal;
 
     try {
-        // Build URL with filter parameter
-        let url = `${CONFIG.apiBase}/tree`;
+        // Build URL with repo and filter parameters
+        let url = `${CONFIG.apiBase}/tree?${getRepoParam()}`;
         const filterParam = getFilterQueryParam();
         if (filterParam) {
-            url += `?types=${encodeURIComponent(filterParam)}`;
+            url += `&types=${encodeURIComponent(filterParam)}`;
         }
         
         const response = await fetch(url, { signal });
@@ -257,7 +509,7 @@ async function toggleFolder(node, item) {
                 icon.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div>';
                 
                 // Build URL with path and filter parameters
-                let url = `${CONFIG.apiBase}/tree?path=${encodeURIComponent(item.path)}`;
+                let url = `${CONFIG.apiBase}/tree?${getRepoParam()}&path=${encodeURIComponent(item.path)}`;
                 const filterParam = getFilterQueryParam();
                 if (filterParam) {
                     url += `&types=${encodeURIComponent(filterParam)}`;
@@ -426,7 +678,7 @@ async function loadFileTypes() {
     state.fileTypesLoading = true;
     
     try {
-        const response = await fetch(`${CONFIG.apiBase}/file-types`, { signal });
+        const response = await fetch(`${CONFIG.apiBase}/file-types?${getRepoParam()}`, { signal });
         
         // בדיקת HTTP errors (500, 404 וכו')
         if (!response.ok) {
@@ -655,7 +907,7 @@ async function selectFile(path, element) {
 
     try {
         // Fetch file content
-        const response = await fetch(`${CONFIG.apiBase}/file/${encodeURIComponent(path)}`);
+        const response = await fetch(`${CONFIG.apiBase}/file/${encodeURIComponent(path)}?${getRepoParam()}`);
         const data = await response.json();
 
         if (data.error) {
@@ -913,7 +1165,10 @@ function updateBreadcrumbs(path) {
     const parts = path.split('/');
     
     if (breadcrumb) {
-        breadcrumb.innerHTML = parts.map((part, index) => {
+        // הוסף שם ריפו כקישור ראשון
+        const repoLink = `<li class="breadcrumb-item"><a href="#" onclick="showWelcomeScreen(); return false;">${escapeHtml(currentRepo)}</a></li>`;
+
+        const pathLinks = parts.map((part, index) => {
             const isLast = index === parts.length - 1;
             const partPath = parts.slice(0, index + 1).join('/');
             const safePart = escapeHtml(part);
@@ -924,11 +1179,13 @@ function updateBreadcrumbs(path) {
             }
             return `<li class="breadcrumb-item"><a href="#" onclick="navigateToFolder('${safeJsPartPath}')">${safePart}</a></li>`;
         }).join('');
+
+        breadcrumb.innerHTML = repoLink + pathLinks;
     }
 
     // Update copy path button
     document.getElementById('copy-path').onclick = () => {
-        navigator.clipboard.writeText(path);
+        navigator.clipboard.writeText(`${currentRepo}/${path}`);
         showToast('Path copied!');
     };
     
@@ -943,7 +1200,9 @@ function updateBreadcrumbs(path) {
     if (githubLink) {
         // Encode each path segment separately to preserve slashes
         const encodedPath = path.split('/').map(segment => encodeURIComponent(segment)).join('/');
-        githubLink.href = `https://github.com/amirbiron/CodeBot/blob/main/${encodedPath}`;
+        const repoBaseUrl = getRepoBaseUrl(currentRepo) || `https://github.com/amirbiron/${currentRepo}`;
+        const defaultBranch = encodeURIComponent(getRepoDefaultBranch(currentRepo));
+        githubLink.href = `${repoBaseUrl}/blob/${defaultBranch}/${encodedPath}`;
     }
 }
 
@@ -1011,9 +1270,12 @@ async function performRepoSearch(query) {
     state.searchAbortController = controller;
 
     try {
-        const response = await fetch(`${CONFIG.apiBase}/search?q=${encodeURIComponent(clean)}&type=content`, {
+        const response = await fetch(
+            `${CONFIG.apiBase}/search?${getRepoParam()}&q=${encodeURIComponent(clean)}&type=content`,
+            {
             signal: controller.signal
-        });
+            }
+        );
         const data = await response.json();
 
         if (!resultsList) return;
@@ -1055,6 +1317,23 @@ async function performRepoSearch(query) {
         if (state.searchAbortController === controller) {
             state.searchAbortController = null;
         }
+    }
+}
+
+function clearSearchState() {
+    state.searchLastQuery = '';
+    if (state.searchAbortController) {
+        state.searchAbortController.abort();
+        state.searchAbortController = null;
+    }
+    const dropdown = document.getElementById('search-results-dropdown');
+    const resultsList = dropdown?.querySelector('.search-results-list');
+    if (dropdown) {
+        dropdown.classList.add('hidden');
+        dropdown.dataset.hasResults = 'false';
+    }
+    if (resultsList) {
+        resultsList.innerHTML = '';
     }
 }
 
@@ -1393,6 +1672,7 @@ window.closeInFileSearch = closeInFileSearch;
 window.findNextMatch = findNextMatch;
 window.findPrevMatch = findPrevMatch;
 window.selectFile = selectFile;
+window.showWelcomeScreen = showWelcomeScreen;
 
 window.RepoState = {
     get editor() {
