@@ -5179,6 +5179,16 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אל תכשיל startup אם מודול הניטור לא זמין
         pass
 
+    # Semantic search embedding worker (best-effort)
+    if getattr(config, "SEMANTIC_SEARCH_ENABLED", True):
+        try:
+            from services.embedding_worker import get_embedding_worker
+
+            worker = get_embedding_worker()
+            asyncio.create_task(worker.start())
+        except Exception as e:
+            logger.warning("Embedding worker failed to start: %s", e)
+
     # Scheduler: "צינור" MongoDB נפרד ל-thread של ה-bot/scheduler, כדי לא לחלוק Pool עם ה-Webapp.
     def _scheduler_db_disabled() -> bool:
         try:

@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, Protocol
 
+from bson import ObjectId
+
 try:
     from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
     from pymongo import monitoring as _pymongo_monitoring
@@ -115,6 +117,202 @@ _MONGO_MONITORING_REGISTERED = False
 
 # הגבלת מספר קבצים נעוצים
 MAX_PINNED_FILES = 8
+
+
+def _get_raw_db():
+    try:
+        from database import db as _db_manager  # local import to avoid circular
+    except Exception:
+        _db_manager = None
+    try:
+        raw_db = getattr(_db_manager, "db", None) if _db_manager is not None else None
+        if raw_db is not None:
+            return raw_db
+    except Exception:
+        pass
+    try:
+        from services.db_provider import get_db as _get_db  # fallback
+        return _get_db()
+    except Exception:
+        return None
+
+
+def _get_files_collection(raw_db):
+    try:
+        return raw_db.code_snippets
+    except Exception:
+        return getattr(raw_db, "code_snippets", getattr(raw_db, "files", None))
+
+
+def _get_snippet_chunks_collection(raw_db):
+    try:
+        return raw_db.snippet_chunks
+    except Exception:
+        return getattr(raw_db, "snippet_chunks", None)
+
+
+async def mark_snippet_for_reprocessing(user_id: int, file_name: str) -> bool:
+    """
+    Mark a snippet for reprocessing (after content update).
+    """
+    raw_db = _get_raw_db()
+    if raw_db is None:
+        return False
+    files_collection = _get_files_collection(raw_db)
+    if files_collection is None:
+        return False
+
+    def _update() -> bool:
+        result = files_collection.update_one(
+            {"user_id": user_id, "file_name": file_name},
+            {
+                "$set": {
+                    "needs_embedding": True,
+                    "needs_chunking": True,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+        try:
+            return result.modified_count > 0
+        except Exception:
+            return False
+
+    return await asyncio.to_thread(_update)
+
+
+async def get_snippets_needing_processing(limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Fetch snippets that require embedding/chunking processing.
+    """
+    raw_db = _get_raw_db()
+    if raw_db is None:
+        return []
+    files_collection = _get_files_collection(raw_db)
+    if files_collection is None:
+        return []
+
+    def _fetch() -> List[Dict[str, Any]]:
+        cursor = files_collection.find(
+            {
+                "is_active": True,
+                "$or": [
+                    {"needs_embedding": True},
+                    {"needs_chunking": True},
+                    {"contentHash": {"$exists": False}},
+                ],
+            },
+            {
+                "_id": 1,
+                "user_id": 1,
+                "file_name": 1,
+                "code": 1,
+                "content": 1,
+                "description": 1,
+                "tags": 1,
+                "programming_language": 1,
+                "contentHash": 1,
+                "chunkCount": 1,
+            },
+        ).limit(limit)
+        return list(cursor)
+
+    return await asyncio.to_thread(_fetch)
+
+
+async def save_snippet_chunks(
+    user_id: int,
+    snippet_id: ObjectId,
+    chunks: List[Dict[str, Any]],
+) -> int:
+    """
+    Save snippet chunks (always clears existing chunks first).
+
+    Args:
+        user_id: user id
+        snippet_id: original snippet id
+        chunks: chunks with embeddings
+
+    Returns:
+        number of chunks saved
+    """
+    raw_db = _get_raw_db()
+    if raw_db is None:
+        return 0
+    chunks_collection = _get_snippet_chunks_collection(raw_db)
+    if chunks_collection is None:
+        return 0
+
+    def _save() -> int:
+        chunks_collection.delete_many({"userId": user_id, "snippetId": snippet_id})
+        if not chunks:
+            return 0
+        now = datetime.now(timezone.utc)
+        documents = []
+        for chunk in chunks:
+            documents.append(
+                {
+                    "userId": user_id,
+                    "snippetId": snippet_id,
+                    "language": chunk.get("language", "unknown"),
+                    "chunkIndex": chunk["chunkIndex"],
+                    "codeChunk": chunk["codeChunk"],
+                    "startLine": chunk["startLine"],
+                    "endLine": chunk["endLine"],
+                    "chunkEmbedding": chunk["chunkEmbedding"],
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+            )
+        result = chunks_collection.insert_many(documents)
+        try:
+            return len(result.inserted_ids)
+        except Exception:
+            return 0
+
+    return await asyncio.to_thread(_save)
+
+
+async def update_snippet_embedding_status(
+    snippet_id: ObjectId,
+    content_hash: str,
+    chunk_count: int,
+    snippet_embedding: Optional[List[float]] = None,
+    *,
+    needs_embedding: Optional[bool] = None,
+    needs_chunking: Optional[bool] = None,
+) -> bool:
+    """
+    Update embedding status for a snippet.
+    """
+    raw_db = _get_raw_db()
+    if raw_db is None:
+        return False
+    files_collection = _get_files_collection(raw_db)
+    if files_collection is None:
+        return False
+
+    def _update() -> bool:
+        resolved_needs_embedding = False if needs_embedding is None else needs_embedding
+        resolved_needs_chunking = False if needs_chunking is None else needs_chunking
+        update_doc: Dict[str, Any] = {
+            "$set": {
+                "needs_embedding": resolved_needs_embedding,
+                "needs_chunking": resolved_needs_chunking,
+                "contentHash": content_hash,
+                "chunkCount": chunk_count,
+                "embeddingUpdatedAt": datetime.now(timezone.utc),
+            }
+        }
+        if snippet_embedding:
+            update_doc["$set"]["snippetEmbedding"] = snippet_embedding
+        result = files_collection.update_one({"_id": snippet_id}, update_doc)
+        try:
+            return result.modified_count > 0
+        except Exception:
+            return False
+
+    return await asyncio.to_thread(_update)
 
 
 def _normalize_pinned_orders(self, user_id: int) -> int:

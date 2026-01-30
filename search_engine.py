@@ -3,6 +3,7 @@
 Advanced Search Engine for Code Snippets
 """
 
+import asyncio
 import logging
 import math
 import re
@@ -28,6 +29,8 @@ except Exception:  # pragma: no cover
 from services import code_service as code_processor
 from config import config
 from database import db
+from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION
+from services.embedding_service import get_embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +117,416 @@ class SearchResult:
     updated_at: datetime
     version: int
     relevance_score: float
+    snippet_id: Optional[str] = None
     matches: List[Dict[str, Any]] = field(default_factory=list)
     snippet_preview: str = ""
     highlight_ranges: List[Tuple[int, int]] = field(default_factory=list)
+
+
+# RRF (Reciprocal Rank Fusion) parameters
+RRF_K = 60
+TEXT_WEIGHT = 1.0
+VECTOR_WEIGHT = 1.2
+
+# RRF max score ≈ (1.2 + 1.0) / (60 + 1) ≈ 0.036
+MIN_RRF_SCORE = 0.005
+
+
+def _get_semantic_raw_db():
+    try:
+        raw_db = getattr(db, "db", None)
+        if raw_db is not None:
+            return raw_db
+    except Exception:
+        pass
+    try:
+        from services.db_provider import get_db as _get_db  # local import
+        return _get_db()
+    except Exception:
+        return None
+
+
+async def semantic_search(
+    user_id: int,
+    query: str,
+    limit: int = 20,
+    language_filter: Optional[str] = None,
+    min_score: float = MIN_RRF_SCORE,
+) -> List[SearchResult]:
+    """
+    Hybrid semantic search (Text + Vector).
+    """
+    if not query or not query.strip():
+        return []
+    if not getattr(config, "SEMANTIC_SEARCH_ENABLED", True):
+        return await _fallback_text_search(user_id, query, limit, language_filter)
+
+    embedding_service = get_embedding_service()
+    if not embedding_service.is_available():
+        logger.warning("Embedding service unavailable, falling back to text search")
+        return await _fallback_text_search(user_id, query, limit, language_filter)
+
+    query_embedding = await embedding_service.generate_embedding(query)
+    if not query_embedding:
+        logger.warning("Failed to generate query embedding, falling back to text search")
+        return await _fallback_text_search(user_id, query, limit, language_filter)
+
+    raw_db = _get_semantic_raw_db()
+    if raw_db is None:
+        logger.warning("Database unavailable, falling back to text search")
+        return await _fallback_text_search(user_id, query, limit, language_filter)
+
+    chunks_collection = getattr(raw_db, "snippet_chunks", None)
+    if chunks_collection is None:
+        logger.warning("snippet_chunks collection unavailable, falling back to text search")
+        return await _fallback_text_search(user_id, query, limit, language_filter)
+
+    pipeline = _build_hybrid_search_pipeline(
+        user_id=user_id,
+        query=query,
+        query_embedding=query_embedding,
+        limit=limit,
+        language_filter=language_filter,
+    )
+
+    try:
+        def _aggregate():
+            return list(chunks_collection.aggregate(pipeline))
+
+        raw_results = await asyncio.to_thread(_aggregate)
+    except Exception as exc:
+        logger.error("Hybrid search failed: %s", exc)
+        return await _fallback_text_search(user_id, query, limit, language_filter)
+
+    results = await _process_hybrid_results(raw_results, query, min_score, limit)
+    return results
+
+
+def _build_hybrid_search_pipeline(
+    user_id: int,
+    query: str,
+    query_embedding: List[float],
+    limit: int,
+    language_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Build MongoDB aggregation pipeline for hybrid search.
+    """
+    num_candidates = limit * 20
+    base_filter: Dict[str, Any] = {"userId": user_id}
+    if language_filter:
+        base_filter["language"] = language_filter
+
+    pipeline: List[Dict[str, Any]] = [
+        {
+            "$vectorSearch": {
+                "index": "vector_index",
+                "path": "chunkEmbedding",
+                "queryVector": query_embedding,
+                "numCandidates": num_candidates,
+                "limit": limit * 2,
+                "filter": base_filter,
+            }
+        },
+        {
+            "$addFields": {
+                "vectorScore": {"$meta": "vectorSearchScore"},
+                "searchType": "vector",
+            }
+        },
+        {
+            "$unionWith": {
+                "coll": "snippet_chunks",
+                "pipeline": [
+                    {
+                        "$search": {
+                            "index": "default",
+                            "compound": {
+                                "must": [
+                                    {
+                                        "text": {
+                                            "query": query,
+                                            "path": "codeChunk",
+                                            "fuzzy": {"maxEdits": 1},
+                                        }
+                                    }
+                                ],
+                                "filter": [
+                                    {
+                                        "equals": {
+                                            "path": "userId",
+                                            "value": user_id,
+                                        }
+                                    }
+                                ]
+                                + (
+                                    [
+                                        {
+                                            "equals": {
+                                                "path": "language",
+                                                "value": language_filter,
+                                            }
+                                        }
+                                    ]
+                                    if language_filter
+                                    else []
+                                ),
+                            },
+                        }
+                    },
+                    {
+                        "$addFields": {
+                            "textScore": {"$meta": "searchScore"},
+                            "searchType": "text",
+                        }
+                    },
+                    {"$limit": limit * 2},
+                ],
+            }
+        },
+        {
+            "$group": {
+                "_id": {"snippetId": "$snippetId", "chunkIndex": "$chunkIndex"},
+                "snippetId": {"$first": "$snippetId"},
+                "userId": {"$first": "$userId"},
+                "language": {"$first": "$language"},
+                "codeChunk": {"$first": "$codeChunk"},
+                "startLine": {"$first": "$startLine"},
+                "endLine": {"$first": "$endLine"},
+                "chunkIndex": {"$first": "$chunkIndex"},
+                "vectorScore": {"$max": "$vectorScore"},
+                "textScore": {"$max": "$textScore"},
+            }
+        },
+        {
+            "$setWindowFields": {
+                "sortBy": {"vectorScore": -1},
+                "output": {"vectorRank": {"$rank": {}}},
+            }
+        },
+        {
+            "$setWindowFields": {
+                "sortBy": {"textScore": -1},
+                "output": {"textRank": {"$rank": {}}},
+            }
+        },
+        {
+            "$addFields": {
+                "rrfScore": {
+                    "$add": [
+                        {
+                            "$cond": {
+                                "if": {"$gt": ["$vectorScore", 0]},
+                                "then": {
+                                    "$multiply": [
+                                        VECTOR_WEIGHT,
+                                        {"$divide": [1, {"$add": [RRF_K, "$vectorRank"]}]},
+                                    ]
+                                },
+                                "else": 0,
+                            }
+                        },
+                        {
+                            "$cond": {
+                                "if": {"$gt": ["$textScore", 0]},
+                                "then": {
+                                    "$multiply": [
+                                        TEXT_WEIGHT,
+                                        {"$divide": [1, {"$add": [RRF_K, "$textRank"]}]},
+                                    ]
+                                },
+                                "else": 0,
+                            }
+                        },
+                    ]
+                }
+            }
+        },
+        {"$sort": {"rrfScore": -1}},
+        {"$limit": limit},
+        {
+            "$lookup": {
+                "from": "code_snippets",
+                "let": {"snippet_id": "$snippetId"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {"$eq": ["$_id", "$$snippet_id"]},
+                            "is_active": True,
+                        }
+                    },
+                    {"$project": dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)},
+                ],
+                "as": "snippetDetails",
+            }
+        },
+        {
+            "$unwind": {
+                "path": "$snippetDetails",
+                "preserveNullAndEmptyArrays": True,
+            }
+        },
+        {"$match": {"snippetDetails": {"$ne": None}}},
+        {
+            "$lookup": {
+                "from": "code_snippets",
+                "let": {
+                    "file_name": "$snippetDetails.file_name",
+                    "user_id": "$snippetDetails.user_id",
+                },
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$file_name", "$$file_name"]},
+                                    {"$eq": ["$user_id", "$$user_id"]},
+                                    {"$eq": ["$is_active", True]},
+                                ]
+                            }
+                        }
+                    },
+                    {"$sort": {"version": -1, "updated_at": -1, "_id": -1}},
+                    {"$limit": 1},
+                    {"$project": {"_id": 1}},
+                ],
+                "as": "latestSnippet",
+            }
+        },
+        {
+            "$addFields": {
+                "latestSnippetId": {"$arrayElemAt": ["$latestSnippet._id", 0]}
+            }
+        },
+        {"$match": {"$expr": {"$eq": ["$snippetId", "$latestSnippetId"]}}},
+        {
+            "$project": {
+                "snippetId": 1,
+                "userId": 1,
+                "language": 1,
+                "codeChunk": 1,
+                "startLine": 1,
+                "endLine": 1,
+                "chunkIndex": 1,
+                "rrfScore": 1,
+                "vectorScore": 1,
+                "textScore": 1,
+                "fileId": "$snippetDetails._id",
+                "fileName": "$snippetDetails.file_name",
+                "title": "$snippetDetails.file_name",
+                "description": "$snippetDetails.description",
+                "tags": "$snippetDetails.tags",
+                "createdAt": "$snippetDetails.created_at",
+                "updatedAt": "$snippetDetails.updated_at",
+            }
+        },
+    ]
+
+    return pipeline
+
+
+async def _process_hybrid_results(
+    raw_results: List[Dict[str, Any]],
+    query: str,
+    min_score: float,
+    limit: int,
+) -> List[SearchResult]:
+    """
+    Convert raw results into SearchResult objects.
+    """
+    results: List[SearchResult] = []
+    seen_snippets: set = set()
+
+    for doc in raw_results:
+        snippet_id = str(doc.get("snippetId", ""))
+        if snippet_id in seen_snippets:
+            continue
+        seen_snippets.add(snippet_id)
+
+        score = doc.get("rrfScore", 0)
+        if score < min_score:
+            continue
+
+        preview = _create_context_preview(
+            code_chunk=doc.get("codeChunk", ""),
+            query=query,
+            context_lines=10,
+        )
+
+        results.append(
+            SearchResult(
+                file_name=doc.get("fileName", "unknown"),
+                content="",
+                programming_language=doc.get("language", "unknown"),
+                tags=doc.get("tags", []) or [],
+                created_at=doc.get("createdAt", datetime.now(timezone.utc)),
+                updated_at=doc.get("updatedAt", datetime.now(timezone.utc)),
+                version=1,
+                relevance_score=score,
+                snippet_id=snippet_id or None,
+                snippet_preview=preview,
+                matches=[
+                    {
+                        "startLine": doc.get("startLine", 1),
+                        "endLine": doc.get("endLine", 1),
+                        "chunkIndex": doc.get("chunkIndex", 0),
+                    }
+                ],
+            )
+        )
+
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _create_context_preview(
+    code_chunk: str,
+    query: str,
+    context_lines: int = 10,
+) -> str:
+    """
+    Build a preview with context around query terms.
+    """
+    if not code_chunk:
+        return ""
+    lines = code_chunk.splitlines()
+    query_terms = query.lower().split()
+
+    best_line_idx = 0
+    best_match_count = 0
+    for idx, line in enumerate(lines):
+        line_lower = line.lower()
+        match_count = sum(1 for term in query_terms if term in line_lower)
+        if match_count > best_match_count:
+            best_match_count = match_count
+            best_line_idx = idx
+
+    start = max(0, best_line_idx - context_lines)
+    end = min(len(lines), best_line_idx + context_lines + 1)
+    return "\n".join(lines[start:end])
+
+
+async def _fallback_text_search(
+    user_id: int,
+    query: str,
+    limit: int,
+    language_filter: Optional[str],
+) -> List[SearchResult]:
+    """
+    Fallback to regular text search when semantic search isn't available.
+    """
+    def _run():
+        return search_engine.search(
+            user_id=user_id,
+            query=query,
+            search_type=SearchType.FUZZY,
+            limit=limit,
+            filters=SearchFilter(languages=[language_filter] if language_filter else []),
+        )
+
+    return await asyncio.to_thread(_run)
 
 class SearchIndex:
     """אינדקס חיפוש לביצועים טובים יותר"""
