@@ -221,7 +221,8 @@ def test_startup_grace_period_suppresses_noisy_alerts(monkeypatch):
     # After grace: should be forwarded to both sinks
     monkeypatch.setattr(af, "_MODULE_START_MONOTONIC", af.monotonic() - 301.0)
     af.forward_alerts([alert])
-    assert len(calls["posts"]) == 2
+    # Telegram suppresses AppLatencyEWMARegression by default; Slack still receives it.
+    assert len(calls["posts"]) == 1
 
 
 def test_default_startup_grace_period_is_20_minutes(monkeypatch):
@@ -230,6 +231,45 @@ def test_default_startup_grace_period_is_20_minutes(monkeypatch):
     import alert_forwarder as af
     importlib.reload(af)
     assert float(af._STARTUP_GRACE_PERIOD_SECONDS) == 1200.0  # noqa: SLF001
+
+
+def test_telegram_suppression_default_and_override(monkeypatch):
+    monkeypatch.delenv("ALERT_TELEGRAM_SUPPRESS_ALERTS", raising=False)
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "info")
+    monkeypatch.setenv("ALERT_STARTUP_GRACE_PERIOD_SECONDS", "0")
+    import importlib
+    import alert_forwarder as af
+    importlib.reload(af)
+
+    sent = []
+
+    def _fake_slack(text):
+        sent.append(("slack", text))
+
+    def _fake_tg(text):
+        sent.append(("telegram", text))
+
+    monkeypatch.setattr(af, "_post_to_slack", _fake_slack)
+    monkeypatch.setattr(af, "_post_to_telegram", _fake_tg)
+
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "AppLatencyEWMARegression", "severity": "warning"},
+        "annotations": {"summary": "noise"},
+    }
+
+    af.forward_alerts([alert])
+    assert [c for c in sent if c[0] == "slack"]
+    assert not [c for c in sent if c[0] == "telegram"]
+
+    monkeypatch.setenv("ALERT_TELEGRAM_SUPPRESS_ALERTS", "")
+    importlib.reload(af)
+    sent = []
+    monkeypatch.setattr(af, "_post_to_slack", _fake_slack)
+    monkeypatch.setattr(af, "_post_to_telegram", _fake_tg)
+
+    af.forward_alerts([alert])
+    assert [c for c in sent if c[0] == "telegram"]
 
 
 def test_startup_grace_period_does_not_suppress_non_allowlisted_alerts(monkeypatch):
