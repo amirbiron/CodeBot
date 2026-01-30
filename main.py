@@ -727,6 +727,7 @@ def get_admin_ids() -> list[int]:
     except Exception:
         return []
 
+
 async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     try:
         # Alert Pipeline Consolidation:
@@ -821,7 +822,6 @@ async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_text("לא הצלחתי לשלוח את הדיווח כרגע.")
         except Exception:
             pass
-
 
 # ===== Admin: /recycle_backfill =====
 async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
