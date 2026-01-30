@@ -90,6 +90,11 @@ class EmbeddingWorker:
         content = snippet.get("code") or snippet.get("content") or ""
 
         if not content:
+            await save_snippet_chunks(
+                user_id=user_id,
+                snippet_id=snippet_id,
+                chunks=[],
+            )
             await update_snippet_embedding_status(
                 snippet_id=snippet_id,
                 content_hash="empty",
