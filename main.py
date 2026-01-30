@@ -727,7 +727,7 @@ def get_admin_ids() -> list[int]:
     except Exception:
         return []
 
-async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     try:
         # Alert Pipeline Consolidation:
         # לא שולחים הודעות "אדמין" ישירות דרך bot.send_message (זה עוקף suppress/Rule Engine).
@@ -738,7 +738,7 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
             emit_internal_alert = None  # type: ignore
 
         if emit_internal_alert is None:
-            return
+            return False
 
         # שומרים את הטקסט בתור summary; פרטים נוספים (כמו רשימת אדמינים) רק להקשר.
         # NOTE: לא מעבירים token/chat_id וכד' כדי לא להדליף מידע רגיש.
@@ -750,8 +750,9 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
             source="main.notify_admins",
             admin_ids=admin_ids,
         )
+        return True
     except Exception:
-        pass
+        return False
 
 
 async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -786,8 +787,11 @@ async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYP
             f"• user_id: {user_id}\n"
             f"• הודעה: {args_text}"
         )
-        await notify_admins(context, report)
-        await message.reply_text("תודה! הדיווח נשלח לאדמין.")
+        sent = await notify_admins(context, report)
+        if sent:
+            await message.reply_text("תודה! הדיווח נשלח לאדמין.")
+        else:
+            await message.reply_text("לא הצלחתי לשלוח את הדיווח כרגע.")
     except Exception:
         try:
             if update and update.message:
