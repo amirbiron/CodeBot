@@ -46,6 +46,8 @@
                 <kbd>Ctrl</kbd><kbd>K</kbd>
             </div>
         </div>
+        <!-- Repo Selector (will be populated by JS if multiple repos exist) -->
+        <div id="repo-selector" class="repo-selector"></div>
         <div class="repo-info">
             <span class="repo-name">
                 <i class="bi bi-github"></i>
@@ -56,6 +58,8 @@
                 <i class="bi bi-file-code"></i> {{ metadata.total_files | default(0) }} files
             </span>
             {% endif %}
+            <!-- Hidden element to pass repo name to JS -->
+            <span id="current-repo-name" data-repo="{{ repo_name }}" style="display: none;"></span>
         </div>
     </div>
 
