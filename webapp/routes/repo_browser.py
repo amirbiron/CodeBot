@@ -37,7 +37,11 @@ def get_current_repo_name(return_source: bool = False):
     2. Session (אם המשתמש מחובר)
     3. ברירת מחדל: CodeBot
     """
-    from flask_login import current_user
+    try:
+        from flask_login import current_user
+    except ModuleNotFoundError:
+        from types import SimpleNamespace
+        current_user = SimpleNamespace(is_authenticated=False)
     from database import db as repo_manager
 
     # 1. מ-query parameter
@@ -771,7 +775,11 @@ def api_select_repo():
     """
     API לשמירת הריפו הנבחר למשתמש מחובר.
     """
-    from flask_login import current_user
+    try:
+        from flask_login import current_user
+    except ModuleNotFoundError:
+        from types import SimpleNamespace
+        current_user = SimpleNamespace(is_authenticated=False)
     from database import db as repo_manager
 
     if not hasattr(current_user, 'is_authenticated') or not current_user.is_authenticated:
