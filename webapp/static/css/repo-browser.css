@@ -2505,8 +2505,7 @@ html[dir="rtl"] .diff-view-toggle {
     transition: transform 0.2s ease;
 }
 
-.repo-dropdown-menu.open + .repo-dropdown-toggle .bi-chevron-down,
-.repo-dropdown-toggle:focus + .repo-dropdown-menu .bi-chevron-down {
+.repo-dropdown-toggle.open .bi-chevron-down {
     transform: rotate(180deg);
 }
 

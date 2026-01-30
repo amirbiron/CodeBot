@@ -150,6 +150,7 @@ function renderRepoSelector(repos, currentRepoName) {
     toggle?.addEventListener('click', (e) => {
         e.stopPropagation();
         menu.classList.toggle('open');
+        toggle.classList.toggle('open');
     });
 
     // סגירה בלחיצה מחוץ ל-dropdown
@@ -157,6 +158,8 @@ function renderRepoSelector(repos, currentRepoName) {
         document.addEventListener('click', () => {
             const currentMenu = document.getElementById('repo-dropdown-menu');
             currentMenu?.classList.remove('open');
+            const currentToggle = document.getElementById('repo-dropdown-toggle');
+            currentToggle?.classList.remove('open');
         });
         repoDropdownDocListenerAttached = true;
     }
@@ -1640,6 +1643,7 @@ window.closeInFileSearch = closeInFileSearch;
 window.findNextMatch = findNextMatch;
 window.findPrevMatch = findPrevMatch;
 window.selectFile = selectFile;
+window.showWelcomeScreen = showWelcomeScreen;
 
 window.RepoState = {
     get editor() {
