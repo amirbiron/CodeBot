@@ -8936,7 +8936,11 @@ async def api_semantic_search():
             file_name = getattr(result_obj, 'file_name', '')
             if file_name:
                 try:
-                    doc = _db.get_latest_version(user_id, file_name)
+                    db_ref = get_db()
+                    doc = db_ref.code_snippets.find_one(
+                        {"user_id": user_id, "file_name": file_name, "is_active": True},
+                        sort=[("version", -1)],
+                    )
                     if doc and doc.get('_id'):
                         return str(doc['_id'])
                 except Exception:
