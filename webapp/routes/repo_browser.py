@@ -29,6 +29,13 @@ def get_git_service():
         current_app.extensions['git_mirror_service'] = service
     return service
 
+def _get_current_user():
+    try:
+        from flask_login import current_user
+        return current_user
+    except ModuleNotFoundError:
+        from types import SimpleNamespace
+        return SimpleNamespace(is_authenticated=False)
 
 def _get_current_user():
     try:
