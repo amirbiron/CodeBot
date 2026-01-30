@@ -61,6 +61,7 @@ def app(tmp_path, monkeypatch) -> Flask:
 
     login_manager = LoginManager()
     login_manager.init_app(app)
+    login_manager.user_loader(lambda _user_id: None)
 
     stub_db = _StubDB()
     monkeypatch.setattr(repo_browser, "get_db", lambda: stub_db)

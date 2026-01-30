@@ -94,8 +94,7 @@ const RepoHistory = (function() {
             return fromStorage;
         }
         if (fromHtml) return fromHtml;
-        if (fromStorage) return fromStorage;
-        return 'CodeBot';
+        return fromStorage || 'CodeBot';
     }
 
     function buildApiUrl(endpoint, params = {}) {

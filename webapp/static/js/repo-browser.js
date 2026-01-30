@@ -49,6 +49,8 @@ const CONFIG = {
 
 // Current repo state (can change during session)
 let currentRepo = CONFIG.repoName;
+let repoMetadataByName = {};
+let repoDropdownDocListenerAttached = false;
 
 // ========================================
 // State
@@ -90,6 +92,12 @@ async function loadAvailableRepos() {
                 currentRepo = data.current;
                 localStorage.setItem('selectedRepo', data.current);
             }
+            repoMetadataByName = {};
+            data.repos.forEach(repo => {
+                if (repo && repo.repo_name) {
+                    repoMetadataByName[repo.repo_name] = repo;
+                }
+            });
             renderRepoSelector(data.repos, currentRepo);
             updateRepoDisplay(currentRepo);
         }
@@ -145,9 +153,13 @@ function renderRepoSelector(repos, currentRepoName) {
     });
 
     // סגירה בלחיצה מחוץ ל-dropdown
-    document.addEventListener('click', () => {
-        menu?.classList.remove('open');
-    });
+    if (!repoDropdownDocListenerAttached) {
+        document.addEventListener('click', () => {
+            const currentMenu = document.getElementById('repo-dropdown-menu');
+            currentMenu?.classList.remove('open');
+        });
+        repoDropdownDocListenerAttached = true;
+    }
 
     // בחירת ריפו
     container.querySelectorAll('.repo-dropdown-item').forEach(item => {
@@ -243,6 +255,29 @@ function showWelcomeScreen() {
  */
 function getRepoParam() {
     return `repo=${encodeURIComponent(currentRepo)}`;
+}
+
+function normalizeRepoBaseUrl(repoUrl) {
+    const raw = String(repoUrl || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('git@')) {
+        const match = raw.match(/^git@([^:]+):(.+)$/);
+        if (match) {
+            const host = match[1];
+            const path = match[2].replace(/\.git$/, '');
+            return `https://${host}/${path}`;
+        }
+    }
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+        return raw.replace(/\.git$/, '').replace(/\/$/, '');
+    }
+    return raw.replace(/\.git$/, '').replace(/\/$/, '');
+}
+
+function getRepoBaseUrl(repoName) {
+    const meta = repoMetadataByName[repoName];
+    const repoUrl = meta && meta.repo_url ? meta.repo_url : '';
+    return normalizeRepoBaseUrl(repoUrl);
 }
 
 // ========================================
@@ -1145,8 +1180,8 @@ function updateBreadcrumbs(path) {
     if (githubLink) {
         // Encode each path segment separately to preserve slashes
         const encodedPath = path.split('/').map(segment => encodeURIComponent(segment)).join('/');
-        // TODO: לשלוף את ה-repo_url מה-metadata
-        githubLink.href = `https://github.com/amirbiron/${currentRepo}/blob/main/${encodedPath}`;
+        const repoBaseUrl = getRepoBaseUrl(currentRepo) || `https://github.com/amirbiron/${currentRepo}`;
+        githubLink.href = `${repoBaseUrl}/blob/main/${encodedPath}`;
     }
 }
 
