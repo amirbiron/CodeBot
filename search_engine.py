@@ -1136,15 +1136,25 @@ class AdvancedSearchEngine:
         except Exception:
             safe_version = 1
 
+        # חילוץ snippet_id מה-ObjectId של המסמך
+        raw_id = file_data.get('_id')
+        snippet_id_str = str(raw_id) if raw_id else None
+
+        # יצירת preview עם הקשר מסביב לquery terms
+        code_content = str(file_data.get('code') or '')
+        snippet_preview = _create_context_preview(code_content, query, context_lines=10)
+
         return SearchResult(
             file_name=str(file_data.get('file_name') or ''),
-            content=str(file_data.get('code') or ''),
+            content=code_content,
             programming_language=str(file_data.get('programming_language') or ''),
             tags=safe_tags,
             created_at=file_data.get('created_at') or datetime.now(timezone.utc),
             updated_at=file_data.get('updated_at') or datetime.now(timezone.utc),
             version=safe_version,
-            relevance_score=float(score)
+            relevance_score=float(score),
+            snippet_id=snippet_id_str,
+            snippet_preview=snippet_preview,
         )
 
     def _split_query_terms(self, query: str) -> Tuple[List[str], str]:

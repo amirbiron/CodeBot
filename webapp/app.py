@@ -8932,11 +8932,16 @@ async def api_semantic_search():
             snippet_id = getattr(result_obj, "snippet_id", None)
             if snippet_id:
                 return str(snippet_id)
-            try:
-                key = f"{user_id}:{getattr(result_obj, 'file_name', '')}"
-                return hashlib.sha256(key.encode("utf-8")).hexdigest()
-            except Exception:
-                return ""
+            # Fallback: try to find the file by name in the database
+            file_name = getattr(result_obj, 'file_name', '')
+            if file_name:
+                try:
+                    doc = _db.get_latest_version(user_id, file_name)
+                    if doc and doc.get('_id'):
+                        return str(doc['_id'])
+                except Exception:
+                    pass
+            return ""
 
         return jsonify(
             {
