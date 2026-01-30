@@ -75,9 +75,17 @@ _ANOMALY_LOCK: Lock = Lock()
 _DIGIT_RE = re.compile(r"\d+")
 
 
+def _normalize_alert_name(value: Any) -> str:
+    try:
+        return str(value or "").strip().lower()
+    except Exception:
+        return ""
+
+
 def _parse_alert_list(raw: Optional[str], *, default: Optional[set[str]] = None) -> set[str]:
     if raw is None:
-        return set(default or set())
+        items = {_normalize_alert_name(item) for item in (default or set())}
+        return {item for item in items if item}
     try:
         value = str(raw or "")
     except Exception:
@@ -90,7 +98,9 @@ def _parse_alert_list(raw: Optional[str], *, default: Optional[set[str]] = None)
     for part in parts:
         name = part.strip()
         if name:
-            items.add(name.lower())
+            normalized = _normalize_alert_name(name)
+            if normalized:
+                items.add(normalized)
     return items
 
 
@@ -101,13 +111,8 @@ _TELEGRAM_SUPPRESS_ALERTS = _parse_alert_list(
 
 
 def _is_telegram_suppressed(alert_name: str) -> bool:
-    try:
-        name = str(alert_name or "").strip().lower()
-    except Exception:
-        return False
-    if not name:
-        return False
-    return name in _TELEGRAM_SUPPRESS_ALERTS
+    name = _normalize_alert_name(alert_name)
+    return bool(name and name in _TELEGRAM_SUPPRESS_ALERTS)
 
 
 @dataclass
