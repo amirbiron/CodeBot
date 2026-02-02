@@ -853,8 +853,13 @@ async function applyInitialNavigationFromUrl() {
         // בדיקה אם יש פרמטר repo ב-URL
         const targetRepo = (repoFromQuery || repoFromHash || '').trim();
         if (targetRepo && targetRepo !== currentRepo) {
-            // החלף ריפו לפני פתיחת הקובץ
-            await switchRepo(targetRepo);
+            // וידוא שהריפו קיים ברשימת הריפויים הזמינים
+            if (repoMetadataByName && repoMetadataByName[targetRepo]) {
+                // החלף ריפו לפני פתיחת הקובץ
+                await switchRepo(targetRepo);
+            } else {
+                console.warn(`Repo "${targetRepo}" not found in available repos, staying with "${currentRepo}"`);
+            }
         }
 
         const initialFile = (fileFromQuery || fileFromHash || '').trim();

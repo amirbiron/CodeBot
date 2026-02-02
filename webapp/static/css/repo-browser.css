@@ -2583,9 +2583,15 @@ html[dir="rtl"] .diff-view-toggle {
         display: block;
     }
 
+    /* תיקון layout של sidebar header במובייל */
+    .sidebar-header {
+        flex-wrap: wrap;
+    }
+
     .sidebar-header .repo-selector.mobile-only {
         width: 100%;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
+        order: -1; /* הצג את בורר הריפו מעל שאר האלמנטים */
     }
 
     .sidebar-header .repo-selector.mobile-only .repo-dropdown {
