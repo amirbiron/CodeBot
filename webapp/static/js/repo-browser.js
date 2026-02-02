@@ -342,12 +342,18 @@ function enhanceMarkdownFallback(root) {
  */
 async function loadMarkdownDependencies() {
     const scripts = [
-        'https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js',
-        'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js'
+        {
+            src: 'https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js',
+            isReady: () => typeof window.markdownit === 'function'
+        },
+        {
+            src: 'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
+            isReady: () => window.hljs && typeof window.hljs.highlightElement === 'function'
+        }
     ];
 
-    for (const src of scripts) {
-        await loadExternalScript(src);
+    for (const { src, isReady } of scripts) {
+        await loadExternalScript(src, isReady);
     }
 }
 
@@ -355,19 +361,34 @@ async function ensureHighlightJsLoaded() {
     if (window.hljs && typeof window.hljs.highlightElement === 'function') {
         return;
     }
-    await loadExternalScript('https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js');
+    await loadExternalScript(
+        'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
+        () => window.hljs && typeof window.hljs.highlightElement === 'function'
+    );
 }
 
 const scriptLoadPromises = new Map();
 
-async function loadExternalScript(src) {
+async function loadExternalScript(src, isReady) {
+    const readyCheck = typeof isReady === 'function' ? isReady : null;
+    if (readyCheck && readyCheck()) {
+        return;
+    }
     if (scriptLoadPromises.has(src)) {
         return scriptLoadPromises.get(src);
     }
 
     const existing = document.querySelector(`script[src="${src}"]`);
     if (existing) {
+        if (readyCheck && readyCheck()) {
+            existing.dataset.loaded = '1';
+            return;
+        }
         if (existing.dataset.loaded === '1') {
+            return;
+        }
+        if (!readyCheck && (existing.readyState === 'complete' || existing.readyState === 'loaded')) {
+            existing.dataset.loaded = '1';
             return;
         }
         const existingPromise = new Promise((resolve, reject) => {
