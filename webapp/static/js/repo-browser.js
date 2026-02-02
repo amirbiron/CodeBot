@@ -835,7 +835,7 @@ async function initRepoBrowser() {
     initKeyboardShortcuts();
     initMobileSidebar();
     loadRecentFiles();
-    applyInitialNavigationFromUrl();
+    await applyInitialNavigationFromUrl();
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
