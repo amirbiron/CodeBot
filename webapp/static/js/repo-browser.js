@@ -237,8 +237,6 @@ async function renderMarkdownPreview(content) {
             await loadMarkdownDependencies();
         }
 
-        await ensureHighlightJsLoaded();
-
         if (typeof MarkdownLiveRenderer !== 'undefined' && MarkdownLiveRenderer.isSupported()) {
             // רינדור ה-Markdown ל-HTML
             const html = await MarkdownLiveRenderer.render(content);
@@ -342,80 +340,21 @@ function enhanceMarkdownFallback(root) {
  */
 async function loadMarkdownDependencies() {
     const scripts = [
-        {
-            src: 'https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js',
-            isReady: () => typeof window.markdownit === 'function'
-        },
-        {
-            src: 'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
-            isReady: () => window.hljs && typeof window.hljs.highlightElement === 'function'
-        }
+        'https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js',
+        'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js'
     ];
 
-    for (const { src, isReady } of scripts) {
-        await loadExternalScript(src, isReady);
-    }
-}
-
-async function ensureHighlightJsLoaded() {
-    if (window.hljs && typeof window.hljs.highlightElement === 'function') {
-        return;
-    }
-    await loadExternalScript(
-        'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
-        () => window.hljs && typeof window.hljs.highlightElement === 'function'
-    );
-}
-
-const scriptLoadPromises = new Map();
-
-async function loadExternalScript(src, isReady) {
-    const readyCheck = typeof isReady === 'function' ? isReady : null;
-    if (readyCheck && readyCheck()) {
-        return;
-    }
-    if (scriptLoadPromises.has(src)) {
-        return scriptLoadPromises.get(src);
-    }
-
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-        if (readyCheck && readyCheck()) {
-            existing.dataset.loaded = '1';
-            return;
+    for (const src of scripts) {
+        if (!document.querySelector(`script[src="${src}"]`)) {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
         }
-        if (existing.dataset.loaded === '1') {
-            return;
-        }
-        if (!readyCheck && (existing.readyState === 'complete' || existing.readyState === 'loaded')) {
-            existing.dataset.loaded = '1';
-            return;
-        }
-        const existingPromise = new Promise((resolve, reject) => {
-            existing.addEventListener('load', () => {
-                existing.dataset.loaded = '1';
-                resolve();
-            }, { once: true });
-            existing.addEventListener('error', (event) => {
-                reject(event);
-            }, { once: true });
-        });
-        scriptLoadPromises.set(src, existingPromise);
-        return existingPromise;
     }
-
-    const promise = new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = () => {
-            script.dataset.loaded = '1';
-            resolve();
-        };
-        script.onerror = reject;
-        document.head.appendChild(script);
-    });
-    scriptLoadPromises.set(src, promise);
-    return promise;
 }
 
 // ========================================
