@@ -255,10 +255,10 @@ async function renderMarkdownPreview(content) {
             // שיפורים: syntax highlighting, math, mermaid
             try {
                 await MarkdownLiveRenderer.enhance(previewContent);
-                applySyntaxHighlighting(previewContent);
             } catch (err) {
                 console.warn('Markdown enhancements failed', err);
             }
+            applySyntaxHighlighting(previewContent);
             return;
         }
     } catch (error) {
