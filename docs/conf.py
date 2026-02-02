@@ -168,5 +168,18 @@ def setup(app):
     # כפתור העתקת דף מלא (ראו docs/_static/copy-page.js)
     app.add_js_file('vendor/turndown.umd.js')
     app.add_js_file('vendor/turndown-plugin-gfm.js')
-    app.add_js_file('copy-page.js')
+    # cache-busting: מבטיח שהדפדפן לא ישתמש ב-JS ישן אחרי דיפלוי/PR
+    # סדר עדיפויות: commit hash > מזהה גרסה > fallback לגרסת הפרויקט.
+    # חשוב במיוחד ב-RTD: READTHEDOCS_VERSION לרוב נשאר "latest" ולכן לא מספיק ל-cache busting.
+    asset_version = (
+        os.getenv('GITHUB_SHA')
+        or os.getenv('READTHEDOCS_GIT_COMMIT_HASH')
+        or os.getenv('READTHEDOCS_GIT_IDENTIFIER')
+        or os.getenv('READTHEDOCS_VERSION')
+        or release
+        or version
+        or 'dev'
+    )
+    asset_version = re.sub(r'[^a-zA-Z0-9._-]+', '', str(asset_version))
+    app.add_js_file(f'copy-page.js?v={asset_version}')
 
