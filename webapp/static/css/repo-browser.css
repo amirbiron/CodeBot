@@ -2667,7 +2667,7 @@ html[dir="rtl"] .diff-view-toggle {
 
 /* בלוקי קוד */
 .markdown-preview-content pre {
-    background: var(--bg-secondary);
+    background: #22272e;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 16px;
@@ -2755,7 +2755,7 @@ html[dir="rtl"] .diff-view-toggle {
 
 .markdown-preview-content .hljs {
     color: #adbac7;
-    background: transparent;
+    background: #22272e;
 }
 
 .markdown-preview-content .hljs-doctag,
@@ -2861,7 +2861,7 @@ html[dir="rtl"] .diff-view-toggle {
 
 [data-theme="light"] .markdown-preview-content .hljs {
     color: #24292f;
-    background: transparent;
+    background: #f6f8fa;
 }
 
 [data-theme="light"] .markdown-preview-content .hljs-doctag,
