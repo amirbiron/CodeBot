@@ -358,17 +358,43 @@ async function ensureHighlightJsLoaded() {
     await loadExternalScript('https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js');
 }
 
+const scriptLoadPromises = new Map();
+
 async function loadExternalScript(src) {
-    if (document.querySelector(`script[src="${src}"]`)) {
-        return;
+    if (scriptLoadPromises.has(src)) {
+        return scriptLoadPromises.get(src);
     }
-    await new Promise((resolve, reject) => {
+
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+        if (existing.dataset.loaded === '1') {
+            return;
+        }
+        const existingPromise = new Promise((resolve, reject) => {
+            existing.addEventListener('load', () => {
+                existing.dataset.loaded = '1';
+                resolve();
+            }, { once: true });
+            existing.addEventListener('error', (event) => {
+                reject(event);
+            }, { once: true });
+        });
+        scriptLoadPromises.set(src, existingPromise);
+        return existingPromise;
+    }
+
+    const promise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
-        script.onload = resolve;
+        script.onload = () => {
+            script.dataset.loaded = '1';
+            resolve();
+        };
         script.onerror = reject;
         document.head.appendChild(script);
     });
+    scriptLoadPromises.set(src, promise);
+    return promise;
 }
 
 // ========================================
