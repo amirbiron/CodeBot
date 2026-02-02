@@ -168,6 +168,33 @@
         'admonition',
       ]);
 
+      // התאמה לפורמט ה-Markdown של הווב-אפ (containers עם :::).
+      // מיפוי סוגים של Sphinx → סוגים שהווב-אפ יודע להציג בצורה עקבית.
+      const WEBAPP_ADMONITION_TYPE_ALIASES = {
+        attention: 'warning',
+        caution: 'warning',
+        error: 'danger',
+        hint: 'tip',
+        seealso: 'info',
+        admonition: 'info',
+      };
+      const WEBAPP_ADMONITION_TYPES = new Set([
+        'note',
+        'warning',
+        'tip',
+        'important',
+        'danger',
+        'info',
+        'success',
+        'question',
+        'example',
+        'quote',
+        'experimental',
+        'deprecated',
+        'todo',
+        'abstract',
+      ]);
+
       const detectAdmonitionType = (node) => {
         if (!node) {
           return 'note';
@@ -186,27 +213,22 @@
         return tokens.find((token) => token && token !== 'admonition') || 'note';
       };
 
-      const escapeQuotes = (text) => {
-        const normalized = (text || '').replace(/\s+/g, ' ').trim();
-        return normalized.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      };
-
-      const indentMarkdown = (markdown) => {
-        if (!markdown) {
-          return '    ';
+      const normalizeAdmonitionTypeForWebapp = (rawType) => {
+        const normalized = (rawType || '').toString().trim().toLowerCase();
+        if (!normalized) {
+          return 'note';
         }
-        return markdown
-          .split('\n')
-          .map((line) => (line ? `    ${line}` : ''))
-          .join('\n');
+        const aliased = WEBAPP_ADMONITION_TYPE_ALIASES[normalized] || normalized;
+        if (WEBAPP_ADMONITION_TYPES.has(aliased)) {
+          return aliased;
+        }
+        return 'info';
       };
 
       const renderAdmonitionBlock = (node, fallbackContent) => {
         if (!node) {
           return fallbackContent;
         }
-        const titleNode = node.querySelector('.admonition-title');
-        const titleText = titleNode ? titleNode.textContent || '' : '';
         const clone = node.cloneNode(true);
         clone
           .querySelectorAll('.admonition-title')
@@ -226,14 +248,20 @@
           bodyMarkdown = fallbackContent.trim();
         }
 
-        const type = detectAdmonitionType(node);
-        const titlePart = escapeQuotes(titleText);
-        const headerLine = titlePart
-          ? `!!! ${type} "${titlePart}"`
-          : `!!! ${type}`;
+        const rawType = detectAdmonitionType(node);
+        const type = normalizeAdmonitionTypeForWebapp(rawType);
+        const normalizedBody = (bodyMarkdown || '')
+          .replace(/\u00a0/g, ' ')
+          .replace(/\r\n/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
 
-        const body = indentMarkdown(bodyMarkdown);
-        return `\n\n${headerLine}\n${body}\n\n`;
+        // חשוב: לא מוסיפים כותרת אחרי הסוג כדי לשמור תאימות למימושים שונים בווב-אפ.
+        // פורמט יעד:
+        // ::: warning
+        // תוכן...
+        // :::
+        return `\n\n::: ${type}\n${normalizedBody}\n:::\n\n`;
       };
 
       const formatTableCell = (cell) => {
