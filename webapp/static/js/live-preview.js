@@ -128,8 +128,22 @@
         linkify: true,
         typographer: true,
         html: false,
-        highlight: function () {
-          return '';
+        highlight: function (str, lang) {
+          // הדגשת תחביר באמצעות highlight.js
+          if (lang && window.hljs) {
+            try {
+              if (window.hljs.getLanguage(lang)) {
+                return window.hljs.highlight(str, { language: lang }).value;
+              }
+            } catch (_) {}
+          }
+          // אם אין שפה מזוהה, ננסה זיהוי אוטומטי
+          if (window.hljs) {
+            try {
+              return window.hljs.highlightAuto(str).value;
+            } catch (_) {}
+          }
+          return ''; // fallback - ללא הדגשה
         },
       });
       const defaultInlineCode = md.renderer.rules.code_inline;

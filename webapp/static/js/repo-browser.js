@@ -271,7 +271,21 @@ function renderMarkdownFallback(content) {
         linkify: true,
         typographer: true,
         html: false,
-        highlight: function () {
+        highlight: function (str, lang) {
+            // הדגשת תחביר באמצעות highlight.js
+            if (lang && window.hljs) {
+                try {
+                    if (window.hljs.getLanguage(lang)) {
+                        return window.hljs.highlight(str, { language: lang }).value;
+                    }
+                } catch (_) {}
+            }
+            // זיהוי אוטומטי אם אין שפה
+            if (window.hljs) {
+                try {
+                    return window.hljs.highlightAuto(str).value;
+                } catch (_) {}
+            }
             return '';
         }
     });
