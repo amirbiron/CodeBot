@@ -2667,7 +2667,7 @@ html[dir="rtl"] .diff-view-toggle {
 
 /* בלוקי קוד */
 .markdown-preview-content pre {
-    background: #22272e;
+    background: var(--code-bg, #22272e);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 16px;
@@ -2680,7 +2680,7 @@ html[dir="rtl"] .diff-view-toggle {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 0.9em;
     color: #adbac7;
-    background: transparent;
+    background: transparent !important;
     padding: 0;
 }
 
@@ -2851,16 +2851,29 @@ html[dir="rtl"] .diff-view-toggle {
 
 /* Light theme syntax highlighting (github-light theme) */
 [data-theme="light"] .markdown-preview-content pre {
-    background: #f6f8fa;
+    background: var(--code-bg, #f6f8fa);
 }
 
 [data-theme="light"] .markdown-preview-content pre code {
     color: #24292f;
+    background: transparent !important;
 }
 
 [data-theme="light"] .markdown-preview-content :not(pre) > code {
     background: #eff1f3;
     color: #cf222e;
+}
+
+/* תמות מותאמות אישית - שימוש במשתני CSS */
+[data-theme="custom"] .markdown-preview-content pre,
+[data-theme^="shared:"] .markdown-preview-content pre {
+    background: var(--code-bg, var(--bg-secondary, #1e1e1e));
+}
+
+[data-theme="custom"] .markdown-preview-content pre code,
+[data-theme^="shared:"] .markdown-preview-content pre code {
+    color: var(--text-primary, #e5e7eb);
+    background: transparent !important;
 }
 
 /* דריסת הרקע מה-bundle של highlight.js - למנוע ריבוע כפול */
@@ -2957,6 +2970,19 @@ html[dir="rtl"] .diff-view-toggle {
 [data-theme="light"] .markdown-preview-content .hljs-deletion {
     color: #82071e;
     background-color: #ffebe9;
+}
+
+/* תמות מותאמות אישית - דריסת רקע hljs */
+[data-theme="custom"] .markdown-preview-content .hljs,
+[data-theme="custom"] .markdown-preview-content code.hljs,
+[data-theme="custom"] .markdown-preview-content pre code,
+[data-theme="custom"] .markdown-preview-content pre code.hljs,
+[data-theme^="shared:"] .markdown-preview-content .hljs,
+[data-theme^="shared:"] .markdown-preview-content code.hljs,
+[data-theme^="shared:"] .markdown-preview-content pre code,
+[data-theme^="shared:"] .markdown-preview-content pre code.hljs {
+    color: var(--text-primary, #e5e7eb);
+    background: transparent !important;
 }
 
 /* טבלאות */
