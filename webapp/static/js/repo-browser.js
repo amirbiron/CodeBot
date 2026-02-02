@@ -234,10 +234,18 @@ async function renderMarkdownPreview(content) {
         // בדיקה שה-MarkdownLiveRenderer זמין
         if (typeof MarkdownLiveRenderer === 'undefined' || !MarkdownLiveRenderer.isSupported()) {
             // Fallback: טעינת markdown-it אם לא נטען
-            await loadMarkdownDependencies();
+            try {
+                await loadMarkdownDependencies();
+            } catch (err) {
+                console.warn('Markdown dependencies failed to load', err);
+            }
         }
 
-        await ensureHighlightJsLoaded();
+        try {
+            await ensureHighlightJsLoaded();
+        } catch (err) {
+            console.warn('Highlight.js failed to load', err);
+        }
 
         if (typeof MarkdownLiveRenderer !== 'undefined' && MarkdownLiveRenderer.isSupported()) {
             // רינדור ה-Markdown ל-HTML
@@ -245,14 +253,22 @@ async function renderMarkdownPreview(content) {
             previewContent.innerHTML = html;
 
             // שיפורים: syntax highlighting, math, mermaid
-            await MarkdownLiveRenderer.enhance(previewContent);
-        } else {
-            // Fallback: רינדור בסיסי עם markdown-it
-            const html = renderMarkdownFallback(content);
-            previewContent.innerHTML = html;
-            enhanceMarkdownFallback(previewContent);
+            try {
+                await MarkdownLiveRenderer.enhance(previewContent);
+            } catch (err) {
+                console.warn('Markdown enhancements failed', err);
+            }
+            return;
         }
+    } catch (error) {
+        console.warn('MarkdownLiveRenderer failed, falling back', error);
+    }
 
+    try {
+        // Fallback: רינדור בסיסי עם markdown-it
+        const html = renderMarkdownFallback(content);
+        previewContent.innerHTML = html;
+        enhanceMarkdownFallback(previewContent);
     } catch (error) {
         console.error('Failed to render markdown:', error);
         previewContent.innerHTML = `
