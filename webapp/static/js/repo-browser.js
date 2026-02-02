@@ -56,6 +56,9 @@ const CONFIG = {
  * בודק אם הקובץ הוא קובץ Markdown
  */
 function isMarkdownFile(path) {
+    if (window.MarkdownLiveRenderer && typeof MarkdownLiveRenderer.isMarkdownFile === 'function') {
+        return MarkdownLiveRenderer.isMarkdownFile(path);
+    }
     if (!path) return false;
     const ext = path.split('.').pop().toLowerCase();
     return ext === 'md' || ext === 'markdown';
@@ -65,6 +68,9 @@ function isMarkdownFile(path) {
  * בודק אם השפה היא Markdown
  */
 function isMarkdownLanguage(language) {
+    if (window.MarkdownLiveRenderer && typeof MarkdownLiveRenderer.isMarkdownLanguage === 'function') {
+        return MarkdownLiveRenderer.isMarkdownLanguage(language);
+    }
     if (!language) return false;
     const lang = language.toLowerCase();
     return lang === 'markdown' || lang === 'md';
@@ -99,7 +105,8 @@ let state = {
     // הוספה חדשה:
     markdownPreviewEnabled: false,
     currentFileContent: null,  // שמירת התוכן לשימוש חוזר
-    currentFileLanguage: null
+    currentFileLanguage: null,
+    editorFilePath: null
 };
 
 // ========================================
@@ -189,9 +196,27 @@ async function toggleMarkdownPreview() {
  */
 async function ensureCodeViewerInitialized() {
     if (state.editor || state.editorView6) {
-        return;
+        if (state.editorFilePath !== state.currentFile) {
+            const language = state.currentFileLanguage || detectLanguage(state.currentFile);
+            await initCodeViewer(state.currentFileContent, language);
+            return;
+        }
+        if (state.editor) {
+            state.editor.setValue(state.currentFileContent);
+            state.editorFilePath = state.currentFile;
+            return;
+        }
+        if (state.editorView6) {
+            const view = state.editorView6;
+            const docLength = view.state.doc.length;
+            view.dispatch({
+                changes: { from: 0, to: docLength, insert: String(state.currentFileContent || '') }
+            });
+            state.editorFilePath = state.currentFile;
+            return;
+        }
     }
-    if (!state.currentFileContent) {
+    if (state.currentFileContent === null || state.currentFileContent === undefined) {
         return;
     }
     const language = state.currentFileLanguage || detectLanguage(state.currentFile);
@@ -203,7 +228,7 @@ async function ensureCodeViewerInitialized() {
  */
 async function renderMarkdownPreview(content) {
     const previewContent = document.getElementById('markdown-preview-content');
-    if (!previewContent || !content) return;
+    if (!previewContent || content === null || content === undefined) return;
 
     try {
         // בדיקה שה-MarkdownLiveRenderer זמין
@@ -212,12 +237,19 @@ async function renderMarkdownPreview(content) {
             await loadMarkdownDependencies();
         }
 
-        // רינדור ה-Markdown ל-HTML
-        const html = await MarkdownLiveRenderer.render(content);
-        previewContent.innerHTML = html;
+        if (typeof MarkdownLiveRenderer !== 'undefined' && MarkdownLiveRenderer.isSupported()) {
+            // רינדור ה-Markdown ל-HTML
+            const html = await MarkdownLiveRenderer.render(content);
+            previewContent.innerHTML = html;
 
-        // שיפורים: syntax highlighting, math, mermaid
-        await MarkdownLiveRenderer.enhance(previewContent);
+            // שיפורים: syntax highlighting, math, mermaid
+            await MarkdownLiveRenderer.enhance(previewContent);
+        } else {
+            // Fallback: רינדור בסיסי עם markdown-it
+            const html = renderMarkdownFallback(content);
+            previewContent.innerHTML = html;
+            enhanceMarkdownFallback(previewContent);
+        }
 
     } catch (error) {
         console.error('Failed to render markdown:', error);
@@ -228,6 +260,34 @@ async function renderMarkdownPreview(content) {
             </div>
         `;
     }
+}
+
+function renderMarkdownFallback(content) {
+    if (typeof window.markdownit !== 'function') {
+        return `<pre>${escapeHtml(content)}</pre>`;
+    }
+    const md = window.markdownit({
+        breaks: true,
+        linkify: true,
+        typographer: true,
+        html: false,
+        highlight: function () {
+            return '';
+        }
+    });
+    return md.render(content || '');
+}
+
+function enhanceMarkdownFallback(root) {
+    if (!root || !window.hljs) return;
+    const blocks = root.querySelectorAll('pre code');
+    blocks.forEach(block => {
+        try {
+            window.hljs.highlightElement(block);
+        } catch (err) {
+            console.warn('hljs highlight failed', err);
+        }
+    });
 }
 
 /**
@@ -448,8 +508,15 @@ function showWelcomeScreen() {
     if (header) header.style.display = 'none';
     if (footer) footer.style.display = 'none';
     if (previewContainer) previewContainer.style.display = 'none';
-    if (toggleBtn) toggleBtn.classList.remove('active');
+    if (toggleBtn) {
+        toggleBtn.classList.remove('active');
+        toggleBtn.style.display = 'none';
+    }
     state.markdownPreviewEnabled = false;
+    state.currentFile = null;
+    state.currentFileContent = null;
+    state.currentFileLanguage = null;
+    state.editorFilePath = null;
 }
 
 /**
@@ -1092,6 +1159,7 @@ async function selectFile(path, element) {
     state.currentFile = path;
     state.currentFileContent = null;
     state.currentFileLanguage = null;
+    state.editorFilePath = null;
     
     // Update URL hash to persist state across refresh
     updateUrlHash(path);
@@ -1114,7 +1182,10 @@ async function selectFile(path, element) {
     header.style.display = 'flex';
     footer.style.display = 'flex';
     if (previewContainer) previewContainer.style.display = 'none';
-    if (toggleBtn) toggleBtn.classList.remove('active');
+    if (toggleBtn) {
+        toggleBtn.classList.remove('active');
+        toggleBtn.style.display = 'none';
+    }
     state.markdownPreviewEnabled = false;
     
     // Force the container to recalculate layout
@@ -1227,6 +1298,7 @@ async function initCodeViewer(content, language) {
         });
 
         state.editor.setValue(content);
+        state.editorFilePath = state.currentFile;
         
         // Refresh editor after DOM update
         setTimeout(recalculateEditorHeight, 100);
@@ -1289,6 +1361,7 @@ async function initCodeViewer(content, language) {
             state: cmState,
             parent: mountEl
         });
+        state.editorFilePath = state.currentFile;
 
         return;
     }
@@ -1912,8 +1985,6 @@ window.findPrevMatch = findPrevMatch;
 window.selectFile = selectFile;
 window.showWelcomeScreen = showWelcomeScreen;
 window.toggleMarkdownPreview = toggleMarkdownPreview;
-window.enableMarkdownPreview = enableMarkdownPreview;
-window.disableMarkdownPreview = disableMarkdownPreview;
 
 window.RepoState = {
     get editor() {

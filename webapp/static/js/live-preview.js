@@ -341,6 +341,12 @@
       isSupported() {
         return !!ensureRenderer();
       },
+      isMarkdownLanguage(value) {
+        return isMarkdownLanguage(value);
+      },
+      isMarkdownFile(value) {
+        return isMarkdownExtension(value);
+      },
       async render(text) {
         const md = ensureRenderer();
         if (!md) {
