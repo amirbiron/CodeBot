@@ -168,5 +168,7 @@ def setup(app):
     # כפתור העתקת דף מלא (ראו docs/_static/copy-page.js)
     app.add_js_file('vendor/turndown.umd.js')
     app.add_js_file('vendor/turndown-plugin-gfm.js')
+    # חשוב: אסור להוסיף query strings ב-add_js_file (Sphinx 7+ יזרוק ThemeError).
+    # Sphinx עצמו מטפל ב-cache busting לקבצים מקומיים באמצעות checksum בזמן יצירת ה-HTML.
     app.add_js_file('copy-page.js')
 
