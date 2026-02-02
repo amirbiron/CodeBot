@@ -234,10 +234,18 @@ async function renderMarkdownPreview(content) {
         // בדיקה שה-MarkdownLiveRenderer זמין
         if (typeof MarkdownLiveRenderer === 'undefined' || !MarkdownLiveRenderer.isSupported()) {
             // Fallback: טעינת markdown-it אם לא נטען
-            await loadMarkdownDependencies();
+            try {
+                await loadMarkdownDependencies();
+            } catch (err) {
+                console.warn('Markdown dependencies failed to load', err);
+            }
         }
 
-        await ensureHighlightJsLoaded();
+        try {
+            await ensureHighlightJsLoaded();
+        } catch (err) {
+            console.warn('Highlight.js failed to load', err);
+        }
 
         if (typeof MarkdownLiveRenderer !== 'undefined' && MarkdownLiveRenderer.isSupported()) {
             // רינדור ה-Markdown ל-HTML
@@ -245,14 +253,24 @@ async function renderMarkdownPreview(content) {
             previewContent.innerHTML = html;
 
             // שיפורים: syntax highlighting, math, mermaid
-            await MarkdownLiveRenderer.enhance(previewContent);
-        } else {
-            // Fallback: רינדור בסיסי עם markdown-it
-            const html = renderMarkdownFallback(content);
-            previewContent.innerHTML = html;
-            enhanceMarkdownFallback(previewContent);
+            try {
+                await MarkdownLiveRenderer.enhance(previewContent);
+            } catch (err) {
+                console.warn('Markdown enhancements failed', err);
+            }
+            applySyntaxHighlighting(previewContent);
+            return;
         }
+    } catch (error) {
+        console.warn('MarkdownLiveRenderer failed, falling back', error);
+    }
 
+    try {
+        // Fallback: רינדור בסיסי עם markdown-it
+        const html = renderMarkdownFallback(content);
+        previewContent.innerHTML = html;
+        enhanceMarkdownFallback(previewContent);
+        applySyntaxHighlighting(previewContent);
     } catch (error) {
         console.error('Failed to render markdown:', error);
         previewContent.innerHTML = `
@@ -337,10 +355,27 @@ function enhanceMarkdownFallback(root) {
     });
 }
 
+function applySyntaxHighlighting(root) {
+    if (!root || !window.hljs || typeof window.hljs.highlightElement !== 'function') {
+        return;
+    }
+    root.querySelectorAll('pre code').forEach((block) => {
+        if (block && block.dataset && block.dataset.highlighted === 'yes') {
+            return;
+        }
+        try {
+            window.hljs.highlightElement(block);
+        } catch (err) {
+            console.warn('hljs highlight failed', err);
+        }
+    });
+}
+
 /**
  * טעינת תלויות Markdown (אם לא נטענו)
  */
 async function loadMarkdownDependencies() {
+    const localBundleSrc = '/static/js/md_preview.bundle.js';
     const scripts = [
         {
             src: 'https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js',
@@ -353,7 +388,16 @@ async function loadMarkdownDependencies() {
     ];
 
     for (const { src, isReady } of scripts) {
-        await loadExternalScript(src, isReady);
+        try {
+            await loadExternalScript(src, isReady);
+        } catch (err) {
+            console.warn('Markdown CDN failed, using local bundle', err);
+            await loadExternalScript(
+                localBundleSrc,
+                () => typeof window.markdownit === 'function' && window.hljs
+            );
+            break;
+        }
     }
 }
 
@@ -361,10 +405,18 @@ async function ensureHighlightJsLoaded() {
     if (window.hljs && typeof window.hljs.highlightElement === 'function') {
         return;
     }
-    await loadExternalScript(
-        'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
-        () => window.hljs && typeof window.hljs.highlightElement === 'function'
-    );
+    try {
+        await loadExternalScript(
+            'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
+            () => window.hljs && typeof window.hljs.highlightElement === 'function'
+        );
+    } catch (err) {
+        console.warn('Highlight CDN failed, using local bundle', err);
+        await loadExternalScript(
+            '/static/js/md_preview.bundle.js',
+            () => window.hljs && typeof window.hljs.highlightElement === 'function'
+        );
+    }
 }
 
 const scriptLoadPromises = new Map();
@@ -392,30 +444,50 @@ async function loadExternalScript(src, isReady) {
             return;
         }
         const existingPromise = new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error(`script_load_timeout:${src}`));
+            }, 8000);
             existing.addEventListener('load', () => {
+                clearTimeout(timeoutId);
                 existing.dataset.loaded = '1';
                 resolve();
             }, { once: true });
             existing.addEventListener('error', (event) => {
+                clearTimeout(timeoutId);
                 reject(event);
             }, { once: true });
         });
-        scriptLoadPromises.set(src, existingPromise);
-        return existingPromise;
+        const wrappedPromise = existingPromise.catch((err) => {
+            scriptLoadPromises.delete(src);
+            throw err;
+        });
+        scriptLoadPromises.set(src, wrappedPromise);
+        return wrappedPromise;
     }
 
     const promise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
+        const timeoutId = setTimeout(() => {
+            reject(new Error(`script_load_timeout:${src}`));
+        }, 8000);
         script.onload = () => {
+            clearTimeout(timeoutId);
             script.dataset.loaded = '1';
             resolve();
         };
-        script.onerror = reject;
+        script.onerror = (event) => {
+            clearTimeout(timeoutId);
+            reject(event);
+        };
         document.head.appendChild(script);
     });
-    scriptLoadPromises.set(src, promise);
-    return promise;
+    const wrappedPromise = promise.catch((err) => {
+        scriptLoadPromises.delete(src);
+        throw err;
+    });
+    scriptLoadPromises.set(src, wrappedPromise);
+    return wrappedPromise;
 }
 
 // ========================================
