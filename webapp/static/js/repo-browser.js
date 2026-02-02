@@ -392,30 +392,50 @@ async function loadExternalScript(src, isReady) {
             return;
         }
         const existingPromise = new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error(`script_load_timeout:${src}`));
+            }, 8000);
             existing.addEventListener('load', () => {
+                clearTimeout(timeoutId);
                 existing.dataset.loaded = '1';
                 resolve();
             }, { once: true });
             existing.addEventListener('error', (event) => {
+                clearTimeout(timeoutId);
                 reject(event);
             }, { once: true });
         });
-        scriptLoadPromises.set(src, existingPromise);
-        return existingPromise;
+        const wrappedPromise = existingPromise.catch((err) => {
+            scriptLoadPromises.delete(src);
+            throw err;
+        });
+        scriptLoadPromises.set(src, wrappedPromise);
+        return wrappedPromise;
     }
 
     const promise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
+        const timeoutId = setTimeout(() => {
+            reject(new Error(`script_load_timeout:${src}`));
+        }, 8000);
         script.onload = () => {
+            clearTimeout(timeoutId);
             script.dataset.loaded = '1';
             resolve();
         };
-        script.onerror = reject;
+        script.onerror = (event) => {
+            clearTimeout(timeoutId);
+            reject(event);
+        };
         document.head.appendChild(script);
     });
-    scriptLoadPromises.set(src, promise);
-    return promise;
+    const wrappedPromise = promise.catch((err) => {
+        scriptLoadPromises.delete(src);
+        throw err;
+    });
+    scriptLoadPromises.set(src, wrappedPromise);
+    return wrappedPromise;
 }
 
 // ========================================
