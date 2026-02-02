@@ -2696,6 +2696,56 @@ html[dir="rtl"] .diff-view-toggle {
     color: #f47067;
 }
 
+/* כפתור העתקה לבלוקי קוד */
+.markdown-preview-content pre {
+    position: relative;
+}
+
+.markdown-preview-content .code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 6px 8px;
+    background: rgba(110, 118, 129, 0.4);
+    border: none;
+    border-radius: 6px;
+    color: #adbac7;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+    font-size: 14px;
+    line-height: 1;
+    z-index: 10;
+}
+
+.markdown-preview-content pre:hover .code-copy-btn {
+    opacity: 1;
+}
+
+.markdown-preview-content .code-copy-btn:hover {
+    background: rgba(110, 118, 129, 0.6);
+}
+
+.markdown-preview-content .code-copy-btn.copied {
+    background: rgba(46, 160, 67, 0.6);
+    color: #3fb950;
+}
+
+/* Light theme - כפתור העתקה */
+[data-theme="light"] .markdown-preview-content .code-copy-btn {
+    background: rgba(175, 184, 193, 0.4);
+    color: #57606a;
+}
+
+[data-theme="light"] .markdown-preview-content .code-copy-btn:hover {
+    background: rgba(175, 184, 193, 0.6);
+}
+
+[data-theme="light"] .markdown-preview-content .code-copy-btn.copied {
+    background: rgba(46, 160, 67, 0.4);
+    color: #1a7f37;
+}
+
 /* Syntax highlighting for code blocks (highlight.js github-dark-dimmed theme) */
 .markdown-preview-content pre code.hljs {
     display: block;

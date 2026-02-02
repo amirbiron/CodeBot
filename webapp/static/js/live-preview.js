@@ -251,16 +251,46 @@
     }
 
     function highlightBlocks(root) {
-      if (!root || typeof window === 'undefined' || !window.hljs) {
+      if (!root || typeof window === 'undefined') {
         return;
       }
       root.querySelectorAll('pre code').forEach((block) => {
         try {
-          window.hljs.highlightElement(block);
+          // הדגשת תחביר אם hljs זמין
+          if (window.hljs) {
+            window.hljs.highlightElement(block);
+          }
           const parent = block.closest('pre');
           if (parent) {
             parent.style.direction = 'ltr';
             parent.style.textAlign = 'left';
+            parent.style.position = 'relative';
+
+            // הוספת כפתור העתקה אם לא קיים
+            if (!parent.querySelector('.code-copy-btn')) {
+              const copyBtn = document.createElement('button');
+              copyBtn.className = 'code-copy-btn';
+              copyBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+              copyBtn.title = 'העתק קוד';
+              copyBtn.setAttribute('aria-label', 'העתק קוד');
+              copyBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const code = block.textContent || '';
+                try {
+                  await navigator.clipboard.writeText(code);
+                  copyBtn.innerHTML = '<i class="bi bi-check2"></i>';
+                  copyBtn.classList.add('copied');
+                  setTimeout(() => {
+                    copyBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+                    copyBtn.classList.remove('copied');
+                  }, 2000);
+                } catch (err) {
+                  console.warn('Copy failed', err);
+                }
+              });
+              parent.appendChild(copyBtn);
+            }
           }
         } catch (err) {
           console.warn('hljs highlight failed', err);
