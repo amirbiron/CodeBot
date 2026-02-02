@@ -391,12 +391,19 @@ function setupMarkdownAnchorScrolling(root) {
             const href = anchor.getAttribute('href');
             if (!href || href === '#') return;
 
-            const targetId = decodeURIComponent(href.slice(1));
+            // מניעת התנהגות ברירת מחדל תמיד כדי לא לדרוס את ה-URL hash
+            e.preventDefault();
+
+            let targetId;
+            try {
+                targetId = decodeURIComponent(href.slice(1));
+            } catch (err) {
+                // במקרה של קידוד URL לא תקין, נשתמש ב-href כמו שהוא
+                targetId = href.slice(1);
+            }
+
             const targetElement = document.getElementById(targetId);
-
             if (targetElement) {
-                e.preventDefault();
-
                 // חישוב המיקום היחסי בתוך ה-container
                 const containerRect = container.getBoundingClientRect();
                 const targetRect = targetElement.getBoundingClientRect();
@@ -407,8 +414,6 @@ function setupMarkdownAnchorScrolling(root) {
                     top: relativeTop - 20,
                     behavior: 'smooth'
                 });
-
-                // לא מעדכנים את ה-URL hash כדי לא לדרוס את פרמטר ה-file
             }
         });
     });
@@ -707,11 +712,10 @@ function updateRepoDisplay(repoName) {
         repoNameEl.innerHTML = `<i class="bi bi-github"></i> ${escapeHtml(repoName)}`;
     }
 
-    // עדכון ב-dropdown
-    const currentNameEl = document.querySelector('.current-repo-name');
-    if (currentNameEl) {
-        currentNameEl.textContent = repoName;
-    }
+    // עדכון ב-dropdown (בדסקטופ ובמובייל)
+    document.querySelectorAll('.current-repo-name').forEach(el => {
+        el.textContent = repoName;
+    });
 
     // עדכון ה-active item
     document.querySelectorAll('.repo-dropdown-item').forEach(item => {
