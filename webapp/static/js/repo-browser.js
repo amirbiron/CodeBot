@@ -255,6 +255,7 @@ async function renderMarkdownPreview(content) {
             // שיפורים: syntax highlighting, math, mermaid
             try {
                 await MarkdownLiveRenderer.enhance(previewContent);
+                applySyntaxHighlighting(previewContent);
             } catch (err) {
                 console.warn('Markdown enhancements failed', err);
             }
@@ -269,6 +270,7 @@ async function renderMarkdownPreview(content) {
         const html = renderMarkdownFallback(content);
         previewContent.innerHTML = html;
         enhanceMarkdownFallback(previewContent);
+        applySyntaxHighlighting(previewContent);
     } catch (error) {
         console.error('Failed to render markdown:', error);
         previewContent.innerHTML = `
@@ -353,10 +355,27 @@ function enhanceMarkdownFallback(root) {
     });
 }
 
+function applySyntaxHighlighting(root) {
+    if (!root || !window.hljs || typeof window.hljs.highlightElement !== 'function') {
+        return;
+    }
+    root.querySelectorAll('pre code').forEach((block) => {
+        if (block && block.dataset && block.dataset.highlighted === 'yes') {
+            return;
+        }
+        try {
+            window.hljs.highlightElement(block);
+        } catch (err) {
+            console.warn('hljs highlight failed', err);
+        }
+    });
+}
+
 /**
  * טעינת תלויות Markdown (אם לא נטענו)
  */
 async function loadMarkdownDependencies() {
+    const localBundleSrc = '/static/js/md_preview.bundle.js';
     const scripts = [
         {
             src: 'https://cdn.jsdelivr.net/npm/markdown-it@14/dist/markdown-it.min.js',
@@ -369,7 +388,16 @@ async function loadMarkdownDependencies() {
     ];
 
     for (const { src, isReady } of scripts) {
-        await loadExternalScript(src, isReady);
+        try {
+            await loadExternalScript(src, isReady);
+        } catch (err) {
+            console.warn('Markdown CDN failed, using local bundle', err);
+            await loadExternalScript(
+                localBundleSrc,
+                () => typeof window.markdownit === 'function' && window.hljs
+            );
+            break;
+        }
     }
 }
 
@@ -377,10 +405,18 @@ async function ensureHighlightJsLoaded() {
     if (window.hljs && typeof window.hljs.highlightElement === 'function') {
         return;
     }
-    await loadExternalScript(
-        'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
-        () => window.hljs && typeof window.hljs.highlightElement === 'function'
-    );
+    try {
+        await loadExternalScript(
+            'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
+            () => window.hljs && typeof window.hljs.highlightElement === 'function'
+        );
+    } catch (err) {
+        console.warn('Highlight CDN failed, using local bundle', err);
+        await loadExternalScript(
+            '/static/js/md_preview.bundle.js',
+            () => window.hljs && typeof window.hljs.highlightElement === 'function'
+        );
+    }
 }
 
 const scriptLoadPromises = new Map();
