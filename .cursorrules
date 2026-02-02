@@ -1,9 +1,9 @@
 # Android & AI Style Rules
 
-> **מתי להשתמש:** בכל שינוי/PR – כללי סגנון ותשובות  
+> **מתי להשתמש:** בכל שינוי/PR – כללי סגנון ותשובות
 > **ראו גם:** Commit/PR
 
---- 
+---
 
 ## כללי כתיבה
 
@@ -25,7 +25,7 @@
 
 ## הימנעות ממחיקות קבצים בטסטים ובסקריפטים
 
-> **מתי להשתמש:** טסטים/סקריפטים שנוגעים לקבצים או ניקוי  
+> **מתי להשתמש:** טסטים/סקריפטים שנוגעים לקבצים או ניקוי
 > **ראו גם:** CI / Required Checks, מעטפת Bash למחיקה בטוחה
 
 ### 1. עבוד רק על תיקיות זמניות
@@ -92,7 +92,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 - קרא והסתמך על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
 - קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד
-- **בסיום משימה:** הצע למשתמש האם להוסיף עמודים חדשים לאתר התיעוד
 - ⚠️ **לפני כל תיקון טסטים פתח את [CodeBot Docs](https://amirbiron.github.io/CodeBot/) וקרא את הנחיות הטסטים הרלוונטיות (async, aiohttp, cleanup וכו') לפני ביצוע שינוי**
 
 ---
@@ -132,7 +131,7 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 ## Android/Kotlin/Compose
 
-> **מתי להשתמש:** בפיתוח Android/Kotlin/Compose – סגנון, ארכיטקטורה וטסטים  
+> **מתי להשתמש:** בפיתוח Android/Kotlin/Compose – סגנון, ארכיטקטורה וטסטים
 > **ראו גם:** CI / Required Checks
 
 ### Kotlin
@@ -165,7 +164,7 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 ## Commit/PR
 
-> **מתי להשתמש:** כשכותבים קומיטים או פותחים Pull Request  
+> **מתי להשתמש:** כשכותבים קומיטים או פותחים Pull Request
 > **ראו גם:** CI / Required Checks, קישור לתיעוד והקשר
 
 ### שמות ענפים
@@ -196,7 +195,7 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 ## CI / Required Checks
 
-> **מתי להשתמש:** לפני merge ובבדיקת סטטוסי CI  
+> **מתי להשתמש:** לפני merge ובבדיקת סטטוסי CI
 > **ראו גם:** הימנעות ממחיקות קבצים בטסטים ובסקריפטים
 
 ### חובות
@@ -236,19 +235,19 @@ IFS=$'\n\t'
 safe_rmrf() {
   local target="${1:-}"
   local allow_under="${2:-}"
-  
+
   [[ -z "$target" || -z "$allow_under" ]] && { echo "empty path"; exit 1; }
-  
+
   local rp_target rp_base
   rp_target="$(readlink -f -- "$target")"
   rp_base="$(readlink -f -- "$allow_under")"
-  
-  [[ "$rp_target" == "/" || "$rp_target" == "$HOME" || "$rp_target" == "$PWD" ]] && { 
-    echo "unsafe"; exit 1; 
+
+  [[ "$rp_target" == "/" || "$rp_target" == "$HOME" || "$rp_target" == "$PWD" ]] && {
+    echo "unsafe"; exit 1;
   }
-  
+
   [[ "$rp_target" != "$rp_base"/* ]] && { echo "outside allowlist"; exit 1; }
-  
+
   rm -rf -- "$rp_target"
 }
 ```
