@@ -446,6 +446,16 @@ body.reader-mode.reader-bg-dark {
   color: #7d4e00;
 }
 
+.admonition-important {
+  border-color: #9a6700;
+  background: #fff8c5;
+}
+
+.admonition-important .admonition-title {
+  background: #ffec99;
+  color: #7d4e00;
+}
+
 .admonition-danger {
   border-color: #cf222e;
   background: #ffebe9;
@@ -567,6 +577,7 @@ body.reader-mode.reader-bg-dark {
 }
 
 .reader-content .admonition-warning .admonition-content,
+.reader-content .admonition-important .admonition-content,
 .reader-content .admonition-experimental .admonition-content {
   background: color-mix(in srgb, #9a6700 8%, #ffffff 92%);
   color: #24292e;

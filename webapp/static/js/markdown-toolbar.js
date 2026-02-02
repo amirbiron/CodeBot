@@ -40,6 +40,10 @@ const MarkdownToolbar = {
 נסה ללחוץ על הקיפול ולראות איך הוא מתנהג!
 :::
 `,
+      important: `::: important
+חשוב! זה בלוק **important** — דגש על נקודה קריטית.
+:::
+`,
       warning: `::: warning
 ⚠️ זה בלוק אזהרה — משהו שכדאי לשים לב אליו במיוחד.
 :::
@@ -565,6 +569,7 @@ const MarkdownToolbar = {
       'alert:note': 'התראה - Note',
       'alert:tip': 'התראה - Tip',
       'alert:warning': 'התראה - Warning',
+      'alert:important': 'התראה - Important',
       'alert:danger': 'התראה - Danger',
       'alert:info': 'התראה - Info',
       'alert:success': 'התראה - Success',

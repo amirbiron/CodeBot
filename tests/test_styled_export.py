@@ -12,6 +12,18 @@ from services.theme_presets_service import list_presets
 
 
 class TestPreprocessMarkdown:
+    def test_converts_note_to_info_alert(self):
+        text = "::: note\nהערה קצרה\n:::"
+        result = preprocess_markdown(text)
+        assert 'class="alert alert-info"' in result
+        assert "הערה קצרה" in result
+
+    def test_converts_important_to_warning_alert(self):
+        text = "::: important\nזה חשוב\n:::"
+        result = preprocess_markdown(text)
+        assert 'class="alert alert-warning"' in result
+        assert "זה חשוב" in result
+
     def test_converts_info_alert(self):
         text = "::: info\nזו הודעת מידע\n:::"
         result = preprocess_markdown(text)
