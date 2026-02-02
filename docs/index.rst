@@ -117,6 +117,7 @@ Code Keeper Bot - תיעוד API
    :caption: WebApp:
 
    webapp/overview
+   webapp/code-browser
    DEV_WEB_PUSH
    webapp/user-interfaces
    webapp/snippet-library

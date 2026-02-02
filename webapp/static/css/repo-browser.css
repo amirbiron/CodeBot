@@ -2755,7 +2755,7 @@ html[dir="rtl"] .diff-view-toggle {
 
 .markdown-preview-content .hljs {
     color: #adbac7;
-    background: #22272e;
+    background: transparent;
 }
 
 .markdown-preview-content .hljs-doctag,
@@ -2861,7 +2861,7 @@ html[dir="rtl"] .diff-view-toggle {
 
 [data-theme="light"] .markdown-preview-content .hljs {
     color: #24292f;
-    background: #f6f8fa;
+    background: transparent;
 }
 
 [data-theme="light"] .markdown-preview-content .hljs-doctag,
