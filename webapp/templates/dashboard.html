@@ -223,6 +223,7 @@
                     data-sha="{{ last_commit.sha }}"
                     data-offset="{{ last_commit.files|length }}"
                     data-total="{{ last_commit.total_files }}"
+                    data-repo="{{ repo_name }}"
                 >
                     <i class="fas fa-plus"></i>
                     טען עוד {{ last_commit.total_files - last_commit.files|length }} קבצים
@@ -2351,13 +2352,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const list = document.querySelector('[data-last-commit-files]');
     if (!btn || !list) return;
 
+    const repoName = btn.dataset.repo || 'CodeBot';
+
     const appendFileRow = (file) => {
         const path = (file && file.path ? String(file.path) : '').trim();
         if (!path) return;
 
         const a = document.createElement('a');
         a.className = `changed-file-item status-${file.status || 'unknown'}`;
-        a.href = `/repo/?file=${encodeURIComponent(path)}`;
+        a.href = `/repo/?repo=${encodeURIComponent(repoName)}&file=${encodeURIComponent(path)}`;
         a.title = path;
 
         const info = document.createElement('div');
