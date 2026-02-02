@@ -1451,17 +1451,25 @@ function updateFileHeader(filePath) {
     fileHeader.querySelector('.file-copy-btn').addEventListener('click', copyFileContent);
 }
 
-function copyFileContent() {
-    let content = null;
+function getCurrentFileContentForActions() {
+    if (state.currentFileContent !== null && state.currentFileContent !== undefined) {
+        return state.currentFileContent;
+    }
 
     // Try CodeMirror 5 first
     if (state.editor && typeof state.editor.getValue === 'function') {
-        content = state.editor.getValue();
+        return state.editor.getValue();
     }
     // Fallback to CodeMirror 6
-    else if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
-        content = state.editorView6.state.doc.toString();
+    if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
+        return state.editorView6.state.doc.toString();
     }
+
+    return null;
+}
+
+function copyFileContent() {
+    const content = getCurrentFileContentForActions();
 
     if (content !== null) {
         navigator.clipboard.writeText(content);
@@ -1867,16 +1875,9 @@ function performInFileSearch(query) {
     searchState.matches = [];
     searchState.currentIndex = -1;
     
-    let content = '';
+    const content = getCurrentFileContentForActions();
     
-    // Get content from editor
-    if (state.editor && typeof state.editor.getValue === 'function') {
-        content = state.editor.getValue();
-    } else if (state.editorView6 && state.editorView6.state && state.editorView6.state.doc) {
-        content = state.editorView6.state.doc.toString();
-    }
-    
-    if (!content) return;
+    if (content === null || content === undefined) return;
     
     // Find all matches (case insensitive)
     const regex = new RegExp(escapeRegex(query), 'gi');
