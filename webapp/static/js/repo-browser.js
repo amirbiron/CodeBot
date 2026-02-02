@@ -259,6 +259,8 @@ async function renderMarkdownPreview(content) {
                 console.warn('Markdown enhancements failed', err);
             }
             applySyntaxHighlighting(previewContent);
+            // הוספת גלילה חלקה לאנקורים בתפריט התוכן
+            setupMarkdownAnchorScrolling(previewContent);
             return;
         }
     } catch (error) {
@@ -271,6 +273,8 @@ async function renderMarkdownPreview(content) {
         previewContent.innerHTML = html;
         enhanceMarkdownFallback(previewContent);
         applySyntaxHighlighting(previewContent);
+        // הוספת גלילה חלקה לאנקורים בתפריט התוכן
+        setupMarkdownAnchorScrolling(previewContent);
     } catch (error) {
         console.error('Failed to render markdown:', error);
         previewContent.innerHTML = `
@@ -368,6 +372,46 @@ function applySyntaxHighlighting(root) {
         } catch (err) {
             console.warn('hljs highlight failed', err);
         }
+    });
+}
+
+/**
+ * הגדרת גלילה חלקה לקישורי עוגן בתוך תצוגת ה-Markdown
+ * מאפשר לחיצה על פריטים בתפריט תוכן לגלול למקום הנכון
+ */
+function setupMarkdownAnchorScrolling(root) {
+    if (!root) return;
+
+    const container = document.getElementById('markdown-preview-container');
+    if (!container) return;
+
+    // מציאת כל קישורי העוגן הפנימיים
+    root.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', (e) => {
+            const href = anchor.getAttribute('href');
+            if (!href || href === '#') return;
+
+            const targetId = decodeURIComponent(href.slice(1));
+            const targetElement = document.getElementById(targetId);
+
+            if (targetElement) {
+                e.preventDefault();
+
+                // חישוב המיקום היחסי בתוך ה-container
+                const containerRect = container.getBoundingClientRect();
+                const targetRect = targetElement.getBoundingClientRect();
+                const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
+
+                // גלילה חלקה למיקום (עם מרווח קטן מלמעלה)
+                container.scrollTo({
+                    top: relativeTop - 20,
+                    behavior: 'smooth'
+                });
+
+                // עדכון ה-URL hash (אופציונלי)
+                history.replaceState(null, '', href);
+            }
+        });
     });
 }
 
@@ -530,26 +574,29 @@ async function loadAvailableRepos() {
 }
 
 /**
- * מרנדר את בורר הריפויים
+ * מרנדר את בורר הריפויים (בדסקטופ ובמובייל)
  */
 function renderRepoSelector(repos, currentRepoName) {
-    const container = document.getElementById('repo-selector');
-    if (!container) return;
+    const desktopContainer = document.getElementById('repo-selector');
+    const mobileContainer = document.getElementById('repo-selector-mobile');
+
+    if (!desktopContainer && !mobileContainer) return;
 
     if (repos.length <= 1) {
         // אם יש רק ריפו אחד, אין צורך בבורר
-        container.style.display = 'none';
+        if (desktopContainer) desktopContainer.style.display = 'none';
+        if (mobileContainer) mobileContainer.style.display = 'none';
         return;
     }
 
-    container.innerHTML = `
+    const dropdownHtml = (idSuffix) => `
         <div class="repo-dropdown">
-            <button class="repo-dropdown-toggle" id="repo-dropdown-toggle">
+            <button class="repo-dropdown-toggle" id="repo-dropdown-toggle${idSuffix}">
                 <i class="bi bi-github"></i>
                 <span class="current-repo-name">${escapeHtml(currentRepoName)}</span>
                 <i class="bi bi-chevron-down"></i>
             </button>
-            <div class="repo-dropdown-menu" id="repo-dropdown-menu">
+            <div class="repo-dropdown-menu" id="repo-dropdown-menu${idSuffix}">
                 ${repos.map(repo => `
                     <div class="repo-dropdown-item ${repo.repo_name === currentRepoName ? 'active' : ''}"
                          data-repo="${escapeHtml(repo.repo_name)}">
@@ -566,37 +613,46 @@ function renderRepoSelector(repos, currentRepoName) {
         </div>
     `;
 
-    // Event listeners
-    const toggle = container.querySelector('#repo-dropdown-toggle');
-    const menu = container.querySelector('#repo-dropdown-menu');
+    // רנדור לשני המיקומים
+    if (desktopContainer) {
+        desktopContainer.innerHTML = dropdownHtml('');
+    }
+    if (mobileContainer) {
+        mobileContainer.innerHTML = dropdownHtml('-mobile');
+    }
 
-    toggle?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.toggle('open');
-        toggle.classList.toggle('open');
+    // הוספת event listeners לכל container
+    [desktopContainer, mobileContainer].filter(Boolean).forEach(container => {
+        const toggle = container.querySelector('.repo-dropdown-toggle');
+        const menu = container.querySelector('.repo-dropdown-menu');
+
+        toggle?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.classList.toggle('open');
+            toggle.classList.toggle('open');
+        });
+
+        // בחירת ריפו
+        container.querySelectorAll('.repo-dropdown-item').forEach(item => {
+            item.addEventListener('click', async () => {
+                const repoName = item.dataset.repo;
+                if (repoName && repoName !== currentRepo) {
+                    await switchRepo(repoName);
+                }
+                menu?.classList.remove('open');
+                toggle?.classList.remove('open');
+            });
+        });
     });
 
-    // סגירה בלחיצה מחוץ ל-dropdown
+    // סגירה בלחיצה מחוץ ל-dropdown (פעם אחת בלבד)
     if (!repoDropdownDocListenerAttached) {
         document.addEventListener('click', () => {
-            const currentMenu = document.getElementById('repo-dropdown-menu');
-            currentMenu?.classList.remove('open');
-            const currentToggle = document.getElementById('repo-dropdown-toggle');
-            currentToggle?.classList.remove('open');
+            document.querySelectorAll('.repo-dropdown-menu').forEach(m => m.classList.remove('open'));
+            document.querySelectorAll('.repo-dropdown-toggle').forEach(t => t.classList.remove('open'));
         });
         repoDropdownDocListenerAttached = true;
     }
-
-    // בחירת ריפו
-    container.querySelectorAll('.repo-dropdown-item').forEach(item => {
-        item.addEventListener('click', async () => {
-            const repoName = item.dataset.repo;
-            if (repoName && repoName !== currentRepo) {
-                await switchRepo(repoName);
-            }
-            menu?.classList.remove('open');
-        });
-    });
 }
 
 /**
@@ -783,14 +839,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     await initRepoBrowser();
 });
 
-function applyInitialNavigationFromUrl() {
+async function applyInitialNavigationFromUrl() {
     try {
         const url = new URL(window.location.href);
         const fileFromQuery = url.searchParams.get('file');
+        const repoFromQuery = url.searchParams.get('repo');
         const hashRaw = (window.location.hash || '').replace(/^#/, '');
         const hashParams = new URLSearchParams(hashRaw);
         const fileFromHash = hashParams.get('file');
         const searchFromHash = hashParams.get('search');
+        const repoFromHash = hashParams.get('repo');
+
+        // בדיקה אם יש פרמטר repo ב-URL
+        const targetRepo = (repoFromQuery || repoFromHash || '').trim();
+        if (targetRepo && targetRepo !== currentRepo) {
+            // החלף ריפו לפני פתיחת הקובץ
+            await switchRepo(targetRepo);
+        }
 
         const initialFile = (fileFromQuery || fileFromHash || '').trim();
         if (initialFile) {

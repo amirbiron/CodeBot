@@ -204,7 +204,7 @@
                 <span class="files-count badge">{{ last_commit.total_files }}</span>
             </div>
             {% for file in last_commit.files %}
-            <a class="changed-file-item status-{{ file.status }}" href="/repo/?file={{ file.path|urlencode }}" title="{{ file.path }}">
+            <a class="changed-file-item status-{{ file.status }}" href="/repo/?repo=CodeBot&file={{ file.path|urlencode }}" title="{{ file.path }}">
                 <div class="file-info">
                     <span class="file-icon">{{ file.file_icon }}</span>
                     <span class="file-name" title="{{ file.path }}">{{ file.name }}</span>

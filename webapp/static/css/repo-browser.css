@@ -2567,13 +2567,40 @@ html[dir="rtl"] .diff-view-toggle {
 
 /* Mobile adjustments */
 @media (max-width: 768px) {
-    .repo-selector {
-        display: none; /* הסתר במובייל - יוצג בסיידבר */
+    /* הסתר את הבורר בסרגל העליון במובייל */
+    .repo-search-bar > .repo-selector {
+        display: none;
+    }
+}
+
+/* בורר ריפו בסיידבר (מובייל בלבד) */
+.mobile-only {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .mobile-only {
+        display: block;
     }
 
-    .sidebar-header .repo-selector {
-        display: block;
-        margin: 8px 0;
+    .sidebar-header .repo-selector.mobile-only {
+        width: 100%;
+        margin-bottom: 12px;
+    }
+
+    .sidebar-header .repo-selector.mobile-only .repo-dropdown {
+        width: 100%;
+    }
+
+    .sidebar-header .repo-selector.mobile-only .repo-dropdown-toggle {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .sidebar-header .repo-selector.mobile-only .repo-dropdown-menu {
+        width: 100%;
+        left: 0;
+        right: 0;
     }
 }
 
