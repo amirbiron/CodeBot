@@ -136,7 +136,7 @@ def preprocess_markdown(text: str) -> str:
     עיבוד מקדים של Markdown לפני המרה ל-HTML.
 
     ממיר סינטקס מיוחד:
-    - ::: info/warning/danger/success/tip → <div class="alert alert-*">
+    - ::: note/info/warning/important/danger/success/tip → <div class="alert alert-*">
     """
     if not text:
         return ""
@@ -144,7 +144,11 @@ def preprocess_markdown(text: str) -> str:
     # Pattern for ::: type ... :::
     # הסוגר ::: חייב להופיע בתחילת שורה (אחרי newline או בסוף) כדי למנוע חיתוך מוקדם
     # אם התוכן מכיל ::: באמצע, זה לא יתפוס כסוגר
-    pattern = r"^:::\s?(info|warning|danger|success|tip)\s*\n(.*?)\n:::$"
+    # תומך גם ב-title אופציונלי אחרי הסוג (מושלך) כדי לא לשבור שימושים עתידיים:
+    # ::: warning כותרת
+    # תוכן...
+    # :::
+    pattern = r"^:::\s*(note|info|warning|important|danger|success|tip)\b[^\n]*\n(.*?)\n:::$"
 
     def replacer(match):
         alert_type = match.group(1).lower()
@@ -152,9 +156,11 @@ def preprocess_markdown(text: str) -> str:
 
         # מיפוי סוגים ל-CSS classes
         type_map = {
+            "note": "info",
             "tip": "success",
             "info": "info",
             "warning": "warning",
+            "important": "warning",
             "danger": "danger",
             "success": "success",
         }

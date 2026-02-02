@@ -226,6 +226,9 @@
 .admonition-warning { border-color: #9a6700; background: #fff8c5; }
 .admonition-warning .admonition-title { background: #ffec99; color: #7d4e00; }
 
+.admonition-important { border-color: #9a6700; background: #fff8c5; }
+.admonition-important .admonition-title { background: #ffec99; color: #7d4e00; }
+
 .admonition-danger { border-color: #cf222e; background: #ffebe9; }
 .admonition-danger .admonition-title { background: #ffcecb; color: #a40e26; }
 
@@ -291,6 +294,7 @@
 }
 
 :root[data-theme="classic"] .admonition-warning .admonition-content,
+:root[data-theme="classic"] .admonition-important .admonition-content,
 :root[data-theme="classic"] .admonition-experimental .admonition-content {
   background: color-mix(in srgb, #9a6700 8%, #ffffff 92%);
   color: #24292e;
@@ -329,6 +333,7 @@
 }
 
 :root[data-theme="rose-pine-dawn"] .admonition-warning .admonition-content,
+:root[data-theme="rose-pine-dawn"] .admonition-important .admonition-content,
 :root[data-theme="rose-pine-dawn"] .admonition-experimental .admonition-content {
   background: color-mix(in srgb, #ea9d34 10%, #faf4ed 90%);
   color: #575279;
@@ -381,6 +386,9 @@
 :root[data-theme="dark"] .admonition-warning .admonition-content,
 :root[data-theme="dim"] .admonition-warning .admonition-content,
 :root[data-theme="nebula"] .admonition-warning .admonition-content,
+:root[data-theme="dark"] .admonition-important .admonition-content,
+:root[data-theme="dim"] .admonition-important .admonition-content,
+:root[data-theme="nebula"] .admonition-important .admonition-content,
 :root[data-theme="dark"] .admonition-experimental .admonition-content,
 :root[data-theme="dim"] .admonition-experimental .admonition-content,
 :root[data-theme="nebula"] .admonition-experimental .admonition-content {
@@ -431,6 +439,7 @@
 }
 
 :root[data-theme="ocean"] .admonition-warning .admonition-content,
+:root[data-theme="ocean"] .admonition-important .admonition-content,
 :root[data-theme="ocean"] .admonition-experimental .admonition-content {
   background: color-mix(in srgb, #eab308 12%, #1a365d 88%);
   color: #e2e8f0;
@@ -469,6 +478,7 @@
 }
 
 :root[data-theme="forest"] .admonition-warning .admonition-content,
+:root[data-theme="forest"] .admonition-important .admonition-content,
 :root[data-theme="forest"] .admonition-experimental .admonition-content {
   background: color-mix(in srgb, #eab308 12%, #14532d 88%);
   color: #e2e8f0;
@@ -620,6 +630,8 @@ mark {
 
 :root[data-theme="custom"] .admonition-warning .admonition-content,
 :root[data-theme^="shared:"] .admonition-warning .admonition-content,
+:root[data-theme="custom"] .admonition-important .admonition-content,
+:root[data-theme^="shared:"] .admonition-important .admonition-content,
 :root[data-theme="custom"] .admonition-experimental .admonition-content,
 :root[data-theme^="shared:"] .admonition-experimental .admonition-content {
   background: color-mix(in srgb, #eab308 8%, var(--bg-primary, #111827) 92%);
