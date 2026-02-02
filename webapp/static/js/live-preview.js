@@ -341,6 +341,12 @@
       isSupported() {
         return !!ensureRenderer();
       },
+      isMarkdownLanguage(value) {
+        return isMarkdownLanguage(value);
+      },
+      isMarkdownFile(value) {
+        return isMarkdownExtension(value);
+      },
       async render(text) {
         const md = ensureRenderer();
         if (!md) {
@@ -351,6 +357,10 @@
       enhance,
     };
   })();
+
+  if (typeof window !== 'undefined') {
+    window.MarkdownLiveRenderer = MarkdownLiveRenderer;
+  }
 
   class LivePreviewController {
     constructor(root) {
