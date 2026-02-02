@@ -408,8 +408,7 @@ function setupMarkdownAnchorScrolling(root) {
                     behavior: 'smooth'
                 });
 
-                // עדכון ה-URL hash (אופציונלי)
-                history.replaceState(null, '', href);
+                // לא מעדכנים את ה-URL hash כדי לא לדרוס את פרמטר ה-file
             }
         });
     });
