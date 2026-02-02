@@ -2747,15 +2747,19 @@ html[dir="rtl"] .diff-view-toggle {
 }
 
 /* Syntax highlighting for code blocks (highlight.js github-dark-dimmed theme) */
+/* דריסת הרקע מה-bundle של highlight.js - למנוע ריבוע כפול */
 .markdown-preview-content pre code.hljs {
     display: block;
     overflow-x: auto;
     padding: 0; /* padding is on parent pre element */
+    background: transparent !important;
 }
 
-.markdown-preview-content .hljs {
+.markdown-preview-content .hljs,
+.markdown-preview-content code.hljs,
+.markdown-preview-content pre code {
     color: #adbac7;
-    background: transparent;
+    background: transparent !important;
 }
 
 .markdown-preview-content .hljs-doctag,
@@ -2859,9 +2863,13 @@ html[dir="rtl"] .diff-view-toggle {
     color: #cf222e;
 }
 
-[data-theme="light"] .markdown-preview-content .hljs {
+/* דריסת הרקע מה-bundle של highlight.js - למנוע ריבוע כפול */
+[data-theme="light"] .markdown-preview-content .hljs,
+[data-theme="light"] .markdown-preview-content code.hljs,
+[data-theme="light"] .markdown-preview-content pre code,
+[data-theme="light"] .markdown-preview-content pre code.hljs {
     color: #24292f;
-    background: transparent;
+    background: transparent !important;
 }
 
 [data-theme="light"] .markdown-preview-content .hljs-doctag,
