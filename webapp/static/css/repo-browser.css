@@ -2700,7 +2700,7 @@ html[dir="rtl"] .diff-view-toggle {
 .markdown-preview-content pre code.hljs {
     display: block;
     overflow-x: auto;
-    padding: 1em;
+    padding: 0; /* padding is on parent pre element */
 }
 
 .markdown-preview-content .hljs {
@@ -2793,6 +2793,112 @@ html[dir="rtl"] .diff-view-toggle {
 .markdown-preview-content .hljs-deletion {
     color: #ffd8d3;
     background-color: #78191b;
+}
+
+/* Light theme syntax highlighting (github-light theme) */
+[data-theme="light"] .markdown-preview-content pre {
+    background: #f6f8fa;
+}
+
+[data-theme="light"] .markdown-preview-content pre code {
+    color: #24292f;
+}
+
+[data-theme="light"] .markdown-preview-content :not(pre) > code {
+    background: #eff1f3;
+    color: #cf222e;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs {
+    color: #24292f;
+    background: #f6f8fa;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-doctag,
+[data-theme="light"] .markdown-preview-content .hljs-keyword,
+[data-theme="light"] .markdown-preview-content .hljs-meta .hljs-keyword,
+[data-theme="light"] .markdown-preview-content .hljs-template-tag,
+[data-theme="light"] .markdown-preview-content .hljs-template-variable,
+[data-theme="light"] .markdown-preview-content .hljs-type,
+[data-theme="light"] .markdown-preview-content .hljs-variable.language_ {
+    color: #cf222e;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-title,
+[data-theme="light"] .markdown-preview-content .hljs-title.class_,
+[data-theme="light"] .markdown-preview-content .hljs-title.class_.inherited__,
+[data-theme="light"] .markdown-preview-content .hljs-title.function_ {
+    color: #8250df;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-attr,
+[data-theme="light"] .markdown-preview-content .hljs-attribute,
+[data-theme="light"] .markdown-preview-content .hljs-literal,
+[data-theme="light"] .markdown-preview-content .hljs-meta,
+[data-theme="light"] .markdown-preview-content .hljs-number,
+[data-theme="light"] .markdown-preview-content .hljs-operator,
+[data-theme="light"] .markdown-preview-content .hljs-variable,
+[data-theme="light"] .markdown-preview-content .hljs-selector-attr,
+[data-theme="light"] .markdown-preview-content .hljs-selector-class,
+[data-theme="light"] .markdown-preview-content .hljs-selector-id {
+    color: #0550ae;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-regexp,
+[data-theme="light"] .markdown-preview-content .hljs-string,
+[data-theme="light"] .markdown-preview-content .hljs-meta .hljs-string {
+    color: #0a3069;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-built_in,
+[data-theme="light"] .markdown-preview-content .hljs-symbol {
+    color: #953800;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-comment,
+[data-theme="light"] .markdown-preview-content .hljs-code,
+[data-theme="light"] .markdown-preview-content .hljs-formula {
+    color: #6e7781;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-name,
+[data-theme="light"] .markdown-preview-content .hljs-quote,
+[data-theme="light"] .markdown-preview-content .hljs-selector-tag,
+[data-theme="light"] .markdown-preview-content .hljs-selector-pseudo {
+    color: #116329;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-subst {
+    color: #24292f;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-section {
+    color: #0550ae;
+    font-weight: bold;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-bullet {
+    color: #953800;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-emphasis {
+    color: #24292f;
+    font-style: italic;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-strong {
+    color: #24292f;
+    font-weight: bold;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-addition {
+    color: #116329;
+    background-color: #dafbe1;
+}
+
+[data-theme="light"] .markdown-preview-content .hljs-deletion {
+    color: #82071e;
+    background-color: #ffebe9;
 }
 
 /* טבלאות */
