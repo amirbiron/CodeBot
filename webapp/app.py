@@ -10868,7 +10868,7 @@ def dashboard():
             dismissed_ids=dismissed_ids
         )
 
-        return render_template('dashboard.html', 
+        return render_template('dashboard.html',
                              user=session['user_data'],
                              stats=stats,
                              activity_timeline=activity_timeline,
@@ -10881,7 +10881,8 @@ def dashboard():
                              max_pinned=max_pinned,
                              # חדש:
                              user_is_admin=user_is_admin,
-                             last_commit=last_commit)
+                             last_commit=last_commit,
+                             repo_name=os.getenv("REPO_NAME", "CodeBot"))
                              
     except Exception as e:
         logger.exception("Error in dashboard")
@@ -10912,7 +10913,7 @@ def dashboard():
             }
         }
 
-        return render_template('dashboard.html', 
+        return render_template('dashboard.html',
                              user=session.get('user_data', {}),
                              stats={
                                  'total_files': 0,
@@ -10930,7 +10931,8 @@ def dashboard():
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
                              bot_username=BOT_USERNAME_CLEAN,
                              user_is_admin=False,
-                             last_commit=None)
+                             last_commit=None,
+                             repo_name=os.getenv("REPO_NAME", "CodeBot"))
 
 @app.route('/files')
 @app.route('/files', endpoint='files_page')
