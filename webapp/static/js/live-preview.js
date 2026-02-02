@@ -358,6 +358,10 @@
     };
   })();
 
+  if (typeof window !== 'undefined') {
+    window.MarkdownLiveRenderer = MarkdownLiveRenderer;
+  }
+
   class LivePreviewController {
     constructor(root) {
       this.root = root;
