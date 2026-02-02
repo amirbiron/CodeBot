@@ -237,6 +237,8 @@ async function renderMarkdownPreview(content) {
             await loadMarkdownDependencies();
         }
 
+        await ensureHighlightJsLoaded();
+
         if (typeof MarkdownLiveRenderer !== 'undefined' && MarkdownLiveRenderer.isSupported()) {
             // רינדור ה-Markdown ל-HTML
             const html = await MarkdownLiveRenderer.render(content);
@@ -345,16 +347,28 @@ async function loadMarkdownDependencies() {
     ];
 
     for (const src of scripts) {
-        if (!document.querySelector(`script[src="${src}"]`)) {
-            await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = src;
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-            });
-        }
+        await loadExternalScript(src);
     }
+}
+
+async function ensureHighlightJsLoaded() {
+    if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+        return;
+    }
+    await loadExternalScript('https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js');
+}
+
+async function loadExternalScript(src) {
+    if (document.querySelector(`script[src="${src}"]`)) {
+        return;
+    }
+    await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
 }
 
 // ========================================
