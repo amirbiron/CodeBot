@@ -336,7 +336,7 @@ def dashboard():
 def api_dashboard_last_commit_files():
     """API: Load more files from last commit (Admin only)."""
     if "user_id" not in session:
-        return jsonify({"ok": False, "error": "not_logged_in"}), 401
+        return jsonify({"error": "נדרש להתחבר"}), 401
 
     helpers = _get_app_helpers()
     user_id = session["user_id"]
@@ -397,7 +397,7 @@ def api_dashboard_last_commit_files():
 def api_dashboard_activity_files():
     """API: Load more file events for the activity feed (up to 7 days back)."""
     if "user_id" not in session:
-        return jsonify({"ok": False, "error": "not_logged_in"}), 401
+        return jsonify({"error": "נדרש להתחבר"}), 401
 
     helpers = _get_app_helpers()
     user_id = session["user_id"]
@@ -531,7 +531,7 @@ def api_dashboard_activity_files():
 def api_dashboard_whats_new():
     """API: Load more new features (pagination)."""
     if "user_id" not in session:
-        return jsonify({"ok": False, "error": "not_logged_in"}), 401
+        return jsonify({"error": "נדרש להתחבר"}), 401
 
     helpers = _get_app_helpers()
 

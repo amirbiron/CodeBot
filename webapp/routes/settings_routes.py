@@ -236,7 +236,7 @@ def settings_push_debug():
 def settings_push_test():
     """POST that returns JSON from /api/push/test."""
     if "user_id" not in session:
-        return jsonify({"ok": False, "error": "not_logged_in"}), 401
+        return jsonify({"error": "נדרש להתחבר"}), 401
 
     try:
         from webapp.push_api import test_push as _test_push
@@ -319,7 +319,7 @@ def theme_gallery():
 def api_update_attention_settings():
     """Update attention widget settings."""
     if "user_id" not in session:
-        return jsonify({"ok": False, "error": "not_logged_in"}), 401
+        return jsonify({"error": "נדרש להתחבר"}), 401
 
     helpers = _get_app_helpers()
     user_id = session["user_id"]
