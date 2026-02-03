@@ -30,13 +30,6 @@ logger = logging.getLogger(__name__)
 dashboard_bp = Blueprint("dashboard", __name__)
 
 
-def _get_files_facade():
-    """Lazy import of FilesFacade to avoid circular imports."""
-    from src.infrastructure.composition.webapp_container import get_files_facade
-
-    return get_files_facade()
-
-
 def _get_app_helpers():
     """
     Lazy import of helper functions from app.py.

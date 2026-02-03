@@ -28,13 +28,6 @@ logger = logging.getLogger(__name__)
 settings_bp = Blueprint("settings", __name__)
 
 
-def _get_files_facade():
-    """Lazy import of FilesFacade to avoid circular imports."""
-    from src.infrastructure.composition.webapp_container import get_files_facade
-
-    return get_files_facade()
-
-
 def _get_app_helpers():
     """
     Lazy import of helper functions from app.py.
@@ -248,10 +241,7 @@ def settings_push_test():
     try:
         from webapp.push_api import test_push as _test_push
 
-        resp = _test_push()
-        if isinstance(resp, tuple) and len(resp) >= 1:
-            return resp
-        return resp
+        return _test_push()
     except Exception:
         return jsonify({"ok": False, "error": "internal_error"}), 500
 
@@ -348,17 +338,20 @@ def api_update_attention_settings():
     for field in allowed_fields:
         if field in data:
             value = data[field]
-            if field == "stale_days":
-                value = min(max(int(value), 7), 365)
-            elif field == "max_items_per_group":
-                value = min(max(int(value), 3), 50)
-            elif field in (
-                "enabled",
-                "show_missing_description",
-                "show_missing_tags",
-                "show_stale_files",
-            ):
-                value = bool(value)
+            try:
+                if field == "stale_days":
+                    value = min(max(int(value), 7), 365)
+                elif field == "max_items_per_group":
+                    value = min(max(int(value), 3), 50)
+                elif field in (
+                    "enabled",
+                    "show_missing_description",
+                    "show_missing_tags",
+                    "show_stale_files",
+                ):
+                    value = bool(value)
+            except (ValueError, TypeError):
+                return jsonify({"ok": False, "error": f"Invalid value for {field}"}), 400
             updates[f"attention_settings.{field}"] = value
 
     if updates:
