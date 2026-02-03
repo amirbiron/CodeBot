@@ -98,6 +98,8 @@ def get_webapp_container() -> WebappContainer:
     global _container
     if _container is not None:
         return _container
+
+    # Ensure singleton creation is thread-safe under concurrent first requests
     with _container_lock:
         if _container is None:
             _container = WebappContainer()
