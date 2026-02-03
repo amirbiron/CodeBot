@@ -110,6 +110,7 @@ exclude_patterns = [
     'auto-updates-and-auto-merge.md', 'auto-updates-and-auto-merge.md.rst',
     'oncall_rotation.md', 'oncall_rotation.md.rst',
     'sequence_diagrams.md', 'sequence_diagrams.md.rst',
+    'manual-testing-step3.md',  # מדריך בדיקות ידניות ל-Step 3 migration (לא ב-toctree)
 ]
 
 # The language for content

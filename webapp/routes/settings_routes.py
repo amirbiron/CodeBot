@@ -349,7 +349,18 @@ def api_update_attention_settings():
                     "show_missing_tags",
                     "show_stale_files",
                 ):
-                    value = bool(value)
+                    # Proper boolean parsing - handle both JSON booleans and string values
+                    if isinstance(value, bool):
+                        pass  # Already a boolean
+                    elif isinstance(value, str):
+                        if value.lower() in ("true", "1", "yes", "on"):
+                            value = True
+                        elif value.lower() in ("false", "0", "no", "off", ""):
+                            value = False
+                        else:
+                            raise ValueError(f"Invalid boolean string: {value}")
+                    else:
+                        value = bool(value)
             except (ValueError, TypeError):
                 return jsonify({"ok": False, "error": f"Invalid value for {field}"}), 400
             updates[f"attention_settings.{field}"] = value

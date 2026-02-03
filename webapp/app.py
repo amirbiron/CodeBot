@@ -2950,7 +2950,12 @@ def get_internal_share(share_id: str, *, include_code: bool = True) -> Optional[
 
 # Telegram Login Widget Verification
 def verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
-    """מאמת את הנתונים מ-Telegram Login Widget"""
+    """מאמת את הנתונים מ-Telegram Login Widget
+
+    DEPRECATED: Use webapp.routes.auth_routes._verify_telegram_auth instead.
+    That version has better error handling for missing BOT_TOKEN.
+    This function will be removed when route migration is complete.
+    """
     check_hash = auth_data.get('hash')
     if not check_hash:
         return False
@@ -9718,13 +9723,15 @@ def index():
         uptime=uptime_summary,
     )
 
-@app.route('/login')
-def login():
-    """דף התחברות"""
+# NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
+# @app.route('/login')
+def _legacy_login():
+    """דף התחברות - LEGACY: use auth_bp.login instead"""
     return render_template('login.html', bot_username=BOT_USERNAME_CLEAN)
 
-@app.route('/auth/telegram', methods=['GET', 'POST'])
-def telegram_auth():
+# NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
+# @app.route('/auth/telegram', methods=['GET', 'POST'])
+def _legacy_telegram_auth():
     """טיפול באימות Telegram"""
     auth_data = dict(request.args) if request.method == 'GET' else request.get_json()
     
@@ -9789,8 +9796,9 @@ def telegram_auth():
     
     return redirect(url_for('dashboard'))
 
-@app.route('/auth/token')
-def token_auth():
+# NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
+# @app.route('/auth/token')
+def _legacy_token_auth():
     """טיפול באימות עם טוקן מהבוט"""
     token = request.args.get('token')
     user_id = request.args.get('user_id')
@@ -9879,9 +9887,10 @@ def token_auth():
                              bot_username=BOT_USERNAME_CLEAN,
                              error="שגיאה בהתחברות. אנא נסה שנית.")
 
-@app.route('/logout')
-def logout():
-    """התנתקות"""
+# NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
+# @app.route('/logout')
+def _legacy_logout():
+    """התנתקות - LEGACY: use auth_bp.logout instead"""
     try:
         token = request.cookies.get(REMEMBER_COOKIE_NAME)
         if token:
@@ -10720,10 +10729,11 @@ def _load_whats_new(limit: int = 5, offset: int = 0, max_days: int = 180) -> Dic
     }
 
 
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    """דשבורד עם סטטיסטיקות"""
+# NOTE: Route migrated to dashboard_bp (webapp/routes/dashboard_routes.py)
+# @app.route('/dashboard')
+# @login_required
+def _legacy_dashboard():
+    """דשבורד עם סטטיסטיקות - LEGACY: use dashboard_bp.dashboard instead"""
     try:
         db = get_db()
         user_id = session['user_id']
@@ -16144,9 +16154,10 @@ def api_stats():
         return jsonify(stats)
 
 
-@app.route('/api/dashboard/last-commit-files', methods=['GET'])
-@login_required
-def api_dashboard_last_commit_files():
+# NOTE: Route migrated to dashboard_bp (webapp/routes/dashboard_routes.py)
+# @app.route('/api/dashboard/last-commit-files', methods=['GET'])
+# @login_required
+def _legacy_api_dashboard_last_commit_files():
     """API: טעינת 'טען עוד' לקבצי הקומיט האחרון (Admin only)."""
     user_id = session.get("user_id")
     try:
@@ -16198,9 +16209,10 @@ def api_dashboard_last_commit_files():
         return jsonify({"ok": False, "error": "load_failed"}), 500
 
 
-@app.route('/api/dashboard/activity/files', methods=['GET'])
-@login_required
-def api_dashboard_activity_files():
+# NOTE: Route migrated to dashboard_bp (webapp/routes/dashboard_routes.py)
+# @app.route('/api/dashboard/activity/files', methods=['GET'])
+# @login_required
+def _legacy_api_dashboard_activity_files():
     """API: טען עוד 12 אירועי קבצים לפיד אחרון (עד 7 ימים אחורה)."""
     user_id = session.get("user_id")
     try:
@@ -16311,9 +16323,10 @@ def api_dashboard_activity_files():
     )
 
 
-@app.route('/api/dashboard/whats-new', methods=['GET'])
-@login_required
-def api_dashboard_whats_new():
+# NOTE: Route migrated to dashboard_bp (webapp/routes/dashboard_routes.py)
+# @app.route('/api/dashboard/whats-new', methods=['GET'])
+# @login_required
+def _legacy_api_dashboard_whats_new():
     """API: טען עוד פיצ'רים חדשים (pagination)."""
     try:
         offset = max(0, int(request.args.get('offset', 0)))
@@ -16405,10 +16418,11 @@ def font_preview():
     """תצוגה מקדימה והשוואת פונטים לקוד (Fira Code vs JetBrains Mono)"""
     return render_template('font_preview.html', static_version=_STATIC_VERSION)
 
-@app.route('/settings')
-@login_required
-def settings():
-    """דף הגדרות - אופטימלי עם תמיכה בsessions ישנים"""
+# NOTE: Route migrated to settings_bp (webapp/routes/settings_routes.py)
+# @app.route('/settings')
+# @login_required
+def _legacy_settings():
+    """דף הגדרות - LEGACY: use settings_bp.settings instead"""
     user_id = session['user_id']
     user_data = session.get('user_data') or {}
     if not isinstance(user_data, dict):
@@ -16452,9 +16466,10 @@ def settings():
     )
 
 
-@app.route('/settings/push-debug')
-@login_required
-def settings_push_debug():
+# NOTE: Route migrated to settings_bp (webapp/routes/settings_routes.py)
+# @app.route('/settings/push-debug')
+# @login_required
+def _legacy_settings_push_debug():
     """עמוד דיבוג פשוט ל-Web Push (למי שאין DevTools)."""
     user_id = session.get('user_id')
     user_data = session.get('user_data') or {}
@@ -16558,9 +16573,10 @@ def settings_push_debug():
     )
 
 
-@app.route('/settings/push-test', methods=['POST'])
-@login_required
-def settings_push_test():
+# NOTE: Route migrated to settings_bp (webapp/routes/settings_routes.py)
+# @app.route('/settings/push-test', methods=['POST'])
+# @login_required
+def _legacy_settings_push_test():
     """POST שמחזיר JSON של /api/push/test (ללא DevTools)."""
     try:
         # Reuse the existing API handler to keep behavior consistent.
@@ -16575,9 +16591,10 @@ def settings_push_test():
         return jsonify({"ok": False, "error": "internal_error"}), 500
 
 
-@app.route('/settings/theme-builder')
-@login_required
-def theme_builder():
+# NOTE: Route migrated to settings_bp (webapp/routes/settings_routes.py)
+# @app.route('/settings/theme-builder')
+# @login_required
+def _legacy_theme_builder():
     """דף בונה ערכת נושא מותאמת אישית (זמין לכל משתמש מחובר)."""
     user_id = session['user_id']
     actual_is_admin = False
@@ -16605,9 +16622,10 @@ def theme_builder():
     )
 
 
-@app.route('/settings/theme-gallery')
-@login_required
-def theme_gallery():
+# NOTE: Route migrated to settings_bp (webapp/routes/settings_routes.py)
+# @app.route('/settings/theme-gallery')
+# @login_required
+def _legacy_theme_gallery():
     """דף ייעודי: גלריית Presets + ייבוא ערכות (VS Code/JSON)."""
     user_id = session['user_id']
     actual_is_admin = False
@@ -18010,9 +18028,10 @@ def update_user_preferences():
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 
-@app.route('/api/settings/attention', methods=['PUT'])
-@login_required
-def api_update_attention_settings():
+# NOTE: Route migrated to settings_bp (webapp/routes/settings_routes.py)
+# @app.route('/api/settings/attention', methods=['PUT'])
+# @login_required
+def _legacy_api_update_attention_settings():
     """עדכון הגדרות ווידג'ט 'קבצים שדורשים טיפול'"""
     user_id = session['user_id']
     data = request.get_json() or {}
