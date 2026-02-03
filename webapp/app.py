@@ -1018,6 +1018,14 @@ except Exception:
     # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
 
+# Files API (Layered Architecture Pilot - Issue #2871)
+try:
+    from webapp.routes.files_routes import files_bp  # noqa: E402
+    app.register_blueprint(files_bp)
+except Exception:
+    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
 # Themes API (Presets/Import/Export) - לפי המדריך
 try:
     from webapp.themes_api import themes_bp  # noqa: E402
