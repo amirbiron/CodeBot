@@ -673,44 +673,8 @@
   }
 
   function buildTagsToolbarHtml() {
-    if (!TAGS_FEATURE_ENABLED) {
-      return '';
-    }
-    const selectedTags = currentTagsFilter || [];
-    const filterLabel = selectedTags.length ? `סינון (${selectedTags.length})` : 'סינון תגיות';
-    const sortOptions = [
-      { value: 'default', label: 'מיון רגיל' },
-      { value: 'priority', label: 'מיון לפי עדיפות' },
-      { value: 'order', label: 'מיון לפי סדר' },
-    ];
-    const selectedTagsHtml = selectedTags.length
-      ? selectedTags.map(t => `<span class="selected-tag-chip">${escapeHtml(t)}</span>`).join('')
-      : '';
-
-    return `
-      <div class="tags-toolbar" data-tags-toolbar="1">
-        <div class="tags-toolbar__row">
-          <button type="button" class="btn btn-secondary btn-sm tags-filter-toggle" aria-expanded="false">${escapeHtml(filterLabel)}</button>
-          <select class="tags-sort-select" aria-label="מיון תגיות">
-            ${sortOptions.map(opt => `<option value="${opt.value}" ${currentTagsSort === opt.value ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
-          </select>
-          <button type="button" class="btn btn-secondary btn-sm tags-clear-filter" ${selectedTags.length ? '' : 'disabled'}>נקה סינון</button>
-          <button type="button" class="btn btn-secondary btn-sm tags-export-btn">ייצוא תגיות</button>
-          <label class="btn btn-secondary btn-sm tags-import-btn">
-            ייבוא תגיות
-            <input class="tags-import-input" type="file" accept=".csv,application/json" hidden>
-          </label>
-          <button type="button" class="btn btn-secondary btn-sm tags-bulk-toggle">${isBulkMode ? 'בטל בחירה' : 'בחירה מרובה'}</button>
-          <button type="button" class="btn btn-secondary btn-sm tags-bulk-edit" ${isBulkMode ? '' : 'disabled'}>עדכן תגיות</button>
-        </div>
-        <div class="tags-filter-panel" data-tags-filter-panel="1" hidden>
-          ${buildTagsFilterPanelHtml()}
-        </div>
-        <div class="tags-selected-summary" data-tags-summary="1">
-          ${selectedTagsHtml}
-        </div>
-      </div>
-    `;
+    // Tags toolbar removed from My Collections view
+    return '';
   }
 
   function setBulkMode(container, enabled) {
