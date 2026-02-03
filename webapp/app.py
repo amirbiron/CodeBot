@@ -3820,25 +3820,25 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
-            return redirect(url_for('login'))
-        
+            return redirect(url_for('auth.login'))
+
         # בדיקה אם המשתמש הוא אדמין (הסטטוס האמיתי)
         try:
             uid = int(session['user_id'])
         except Exception:
             abort(403)
-            
+
         if not is_admin(uid):
             abort(403)
-        
+
         # 🆘 Fail-Safe: עקיפה דרך URL
         force_admin = request.args.get('force_admin') == '1'
-        
+
         # במצב Impersonation - חסום גישה לעמודי אדמין (אלא אם Fail-Safe)
         if is_impersonating_safe() and not force_admin:
             flash('מצב צפייה כמשתמש פעיל - אין גישה לעמודי אדמין. לעקיפה: הוסף ?force_admin=1', 'warning')
-            return redirect(url_for('dashboard'))
-        
+            return redirect(url_for('dashboard.dashboard'))
+
         return f(*args, **kwargs)
     return decorated_function
 
@@ -3847,7 +3847,7 @@ def premium_or_admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
-            return redirect(url_for('login'))
+            return redirect(url_for('auth.login'))
 
         try:
             uid = int(session['user_id'])
@@ -9794,7 +9794,7 @@ def _legacy_telegram_auth():
     
     # אפשר להוסיף כאן הגדרות נוספות לאדמינים בעתיד
     
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('dashboard.dashboard'))
 
 # NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
 # @app.route('/auth/token')
@@ -9876,11 +9876,11 @@ def _legacy_token_auth():
         
         # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
         session.permanent = True
-        
+
         # אפשר להוסיף כאן הגדרות נוספות לאדמינים בעתיד
-        
-        return redirect(url_for('dashboard'))
-        
+
+        return redirect(url_for('dashboard.dashboard'))
+
     except Exception as e:
         logger.exception("Error in token auth")
         return render_template('login.html', 
