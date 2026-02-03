@@ -284,7 +284,7 @@ def token_auth():
             "id": user_id_int,
             "first_name": user.get("first_name", token_doc.get("first_name", "")),
             "last_name": user.get("last_name", token_doc.get("last_name", "")),
-            "username": token_doc.get("username", ""),
+            "username": token_doc.get("username", user.get("username", "")),
             "photo_url": user.get("photo_url", ""),
             "has_seen_welcome_modal": bool(user.get("has_seen_welcome_modal", False)),
             "is_admin": helpers.is_admin(user_id_int),
