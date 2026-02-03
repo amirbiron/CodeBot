@@ -308,8 +308,6 @@ def dashboard():
             "settings": {"stale_days": 60, "max_items": 10},
         }
 
-        helpers = _get_app_helpers()
-
         return render_template(
             "dashboard.html",
             user=session.get("user_data", {}),

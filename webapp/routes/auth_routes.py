@@ -196,7 +196,7 @@ def telegram_auth():
     # Make session permanent (30 days)
     session.permanent = True
 
-    return redirect("/dashboard")
+    return redirect(url_for("dashboard.dashboard"))
 
 
 @auth_bp.route("/auth/token")
