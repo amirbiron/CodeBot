@@ -22,7 +22,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from flask import Blueprint, jsonify, redirect, render_template, request, session
+from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 from pymongo import DESCENDING
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ def _get_app_helpers():
 def dashboard():
     """Dashboard with statistics."""
     if "user_id" not in session:
-        return redirect("/login")
+        return redirect(url_for("login", next=request.url))
 
     helpers = _get_app_helpers()
 
@@ -343,7 +343,7 @@ def dashboard():
 
 @dashboard_bp.route("/api/dashboard/last-commit-files", methods=["GET"])
 def api_dashboard_last_commit_files():
-    """Get files from last commit (admin only)."""
+    """API: Load more files from last commit (Admin only)."""
     if "user_id" not in session:
         return jsonify({"ok": False, "error": "not_logged_in"}), 401
 
@@ -351,10 +351,25 @@ def api_dashboard_last_commit_files():
     user_id = session["user_id"]
 
     try:
-        if not helpers.is_admin(int(user_id)):
-            return jsonify({"ok": False, "error": "forbidden"}), 403
+        if user_id is None or not helpers.is_admin(int(user_id)):
+            return jsonify({"ok": False, "error": "admin_only"}), 403
     except Exception:
-        return jsonify({"ok": False, "error": "forbidden"}), 403
+        return jsonify({"ok": False, "error": "admin_only"}), 403
+
+    sha = (request.args.get("sha") or "").strip()
+    raw_offset = request.args.get("offset", "0")
+    raw_limit = request.args.get("limit", "50")
+    try:
+        offset = int(raw_offset)
+    except Exception:
+        offset = 0
+    try:
+        limit = int(raw_limit)
+    except Exception:
+        limit = 50
+
+    offset = max(0, offset)
+    limit = max(1, min(200, limit))
 
     try:
         from services.git_mirror_service import get_mirror_service
@@ -365,31 +380,26 @@ def api_dashboard_last_commit_files():
         if not git_service.mirror_exists(repo_name):
             return jsonify({"ok": False, "error": "mirror_not_found"}), 404
 
-        last_commit = git_service.get_last_commit_info(repo_name)
+        last_commit = git_service.get_last_commit_info(
+            repo_name, ref=sha or "HEAD", offset=offset, max_files=limit
+        )
         if not last_commit:
-            return jsonify({"ok": False, "error": "no_commits"}), 404
-
-        commit_sha = last_commit.get("sha", "")
-        if not commit_sha:
-            return jsonify({"ok": False, "error": "no_sha"}), 404
-
-        files = git_service.get_commit_files(repo_name, commit_sha)
+            return jsonify({"ok": False, "error": "commit_not_found"}), 404
 
         return jsonify(
             {
                 "ok": True,
-                "commit": {
-                    "sha": commit_sha[:7],
-                    "message": last_commit.get("message", ""),
-                    "date": last_commit.get("date", ""),
-                },
-                "files": files,
+                "sha": last_commit.get("sha"),
+                "files": last_commit.get("files") or [],
+                "total_files": int(last_commit.get("total_files") or 0),
+                "truncated": bool(last_commit.get("truncated")),
+                "offset": offset,
             }
         )
 
     except Exception:
-        logger.exception("Error fetching last commit files")
-        return jsonify({"ok": False, "error": "internal_error"}), 500
+        logger.warning("Failed to load last commit files")
+        return jsonify({"ok": False, "error": "load_failed"}), 500
 
 
 @dashboard_bp.route("/api/dashboard/activity/files", methods=["GET"])

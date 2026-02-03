@@ -21,7 +21,7 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, redirect, render_template, request, session
+from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def settings():
 
     # Apply login_required
     if "user_id" not in session:
-        return redirect("/login")
+        return redirect(url_for("login", next=request.url))
 
     user_id = session["user_id"]
     user_data = session.get("user_data") or {}
@@ -128,7 +128,7 @@ def settings_push_debug():
     helpers = _get_app_helpers()
 
     if "user_id" not in session:
-        return redirect("/login")
+        return redirect(url_for("login", next=request.url))
 
     user_id = session.get("user_id")
     user_data = session.get("user_data") or {}
@@ -262,7 +262,7 @@ def theme_builder():
     helpers = _get_app_helpers()
 
     if "user_id" not in session:
-        return redirect("/login")
+        return redirect(url_for("login", next=request.url))
 
     user_id = session["user_id"]
     actual_is_admin = False
@@ -297,7 +297,7 @@ def theme_gallery():
     helpers = _get_app_helpers()
 
     if "user_id" not in session:
-        return redirect("/login")
+        return redirect(url_for("login", next=request.url))
 
     user_id = session["user_id"]
     actual_is_admin = False
