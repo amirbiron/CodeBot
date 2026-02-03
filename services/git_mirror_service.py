@@ -692,17 +692,21 @@ class GitMirrorService:
         if not ref:
             ref = "HEAD"
 
-        # ולידציה של נתיבים לפני הרצת git (מניעת uncontrolled command line)
-        if not self._validate_repo_file_path(file_path):
+        # ולידציה חזקה של נתיב הקובץ לפני שילוב בפקודת git
+        safe_file_path = self._get_safe_file_path(file_path)
+        if not safe_file_path:
             logger.warning("Rejected invalid repo file path: %r", file_path)
             return None
+
+        # ולידציה של ref לפני שילוב בפקודת git (מניעת uncontrolled command line)
         if not self._validate_repo_ref(ref):
             logger.warning("Rejected invalid repo ref: %r", ref)
             return None
 
         repo_path = self._get_repo_path(repo_name)
 
-        result = self._run_git_command(["git", "show", f"{ref}:{file_path}"], cwd=repo_path, timeout=30)
+        # שימוש רק בערכים שעברו ולידציה בקומנד עצמו
+        result = self._run_git_command(["git", "show", f"{ref}:{safe_file_path}"], cwd=repo_path, timeout=30)
 
         if result.success:
             return result.stdout
