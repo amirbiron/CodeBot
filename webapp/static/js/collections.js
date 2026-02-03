@@ -129,6 +129,8 @@
   // תגיות זמינות (יטען מהשרת)
   let TAGS_METADATA = null;
   let TAGS_FEATURE_ENABLED = true;
+  // סרגל תגיות (סינון/מיון/ייבוא/ייצוא/בחירה מרובה) – ניתן לכיבוי ברמת מסך
+  let TAGS_TOOLBAR_ENABLED = true;
   const MAX_TAGS_PER_ITEM = 10;
 
   // מטא-מידע על תגיות (default עד שיטען מהשרת)
@@ -286,6 +288,16 @@
       if (container && container.hasAttribute('data-tags-enabled')) {
         const raw = container.getAttribute('data-tags-enabled') || '';
         TAGS_FEATURE_ENABLED = String(raw).trim() !== '0';
+      }
+    } catch (_err) {}
+  }
+
+  function initTagsToolbarFlag() {
+    try {
+      const container = document.getElementById('collectionsContent');
+      if (container && container.hasAttribute('data-tags-toolbar-enabled')) {
+        const raw = container.getAttribute('data-tags-toolbar-enabled') || '';
+        TAGS_TOOLBAR_ENABLED = String(raw).trim() !== '0';
       }
     } catch (_err) {}
   }
@@ -624,6 +636,9 @@
   }
 
   function applyTagsFilterAndSort(items) {
+    if (!TAGS_FEATURE_ENABLED || !TAGS_TOOLBAR_ENABLED) {
+      return items || [];
+    }
     const key = buildTagsFilterCacheKey(currentTagsFilter, currentTagsSort);
     if (tagsFilterCache.has(key)) {
       return tagsFilterCache.get(key);
@@ -673,7 +688,7 @@
   }
 
   function buildTagsToolbarHtml() {
-    if (!TAGS_FEATURE_ENABLED) {
+    if (!TAGS_FEATURE_ENABLED || !TAGS_TOOLBAR_ENABLED) {
       return '';
     }
     const selectedTags = currentTagsFilter || [];
@@ -1839,7 +1854,7 @@
         const tagBtn = (TAGS_FEATURE_ENABLED && hasItemId)
           ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
           : '';
-        const selectBox = hasItemId
+        const selectBox = (TAGS_TOOLBAR_ENABLED && hasItemId)
           ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
           : '';
         const tagsAttr = Array.isArray(it.tags) ? it.tags.join(',') : '';
@@ -1865,7 +1880,7 @@
     }
 
     setBulkMode(container, isBulkMode);
-    if (TAGS_FEATURE_ENABLED) {
+    if (TAGS_FEATURE_ENABLED && TAGS_TOOLBAR_ENABLED) {
       wireTagsToolbar(container, collectionId);
     }
 
@@ -2385,7 +2400,7 @@
       ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
       : '';
     const tagsAttr = Array.isArray(item.tags) ? item.tags.join(',') : '';
-    const selectBox = itemId
+    const selectBox = (TAGS_TOOLBAR_ENABLED && itemId)
       ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
       : '';
     return `
@@ -3075,6 +3090,7 @@
   };
   async function initCollectionsPage(){
     initTagsFeatureFlag();
+    initTagsToolbarFlag();
     await initTagsMetadata();
     const initialId = consumeInitialCollectionId();
     // טען את הסיידבר במקביל לטעינת הפריטים כדי לא "לשרשר" שתי בקשות ברצף בתחילת העמוד.
