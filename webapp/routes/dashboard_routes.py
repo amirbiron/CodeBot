@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -46,8 +46,11 @@ def _get_app_helpers():
         _build_files_need_attention,
         _build_notes_snapshot,
         _build_push_card,
+        _build_timeline_event,
+        _finalize_events,
         _get_active_dismissals,
         _load_whats_new,
+        _MIN_DT,
         BOT_USERNAME_CLEAN,
         format_file_size,
         get_db,
@@ -72,6 +75,9 @@ def _get_app_helpers():
         _load_whats_new=_load_whats_new,
         _get_active_dismissals=_get_active_dismissals,
         _build_files_need_attention=_build_files_need_attention,
+        _build_timeline_event=_build_timeline_event,
+        _finalize_events=_finalize_events,
+        _MIN_DT=_MIN_DT,
         BOT_USERNAME_CLEAN=BOT_USERNAME_CLEAN,
     )
 
@@ -357,15 +363,15 @@ def api_dashboard_last_commit_files():
         git_service = get_mirror_service()
 
         if not git_service.mirror_exists(repo_name):
-            return jsonify({"ok": False, "error": "mirror_not_found"})
+            return jsonify({"ok": False, "error": "mirror_not_found"}), 404
 
         last_commit = git_service.get_last_commit_info(repo_name)
         if not last_commit:
-            return jsonify({"ok": False, "error": "no_commits"})
+            return jsonify({"ok": False, "error": "no_commits"}), 404
 
         commit_sha = last_commit.get("sha", "")
         if not commit_sha:
-            return jsonify({"ok": False, "error": "no_sha"})
+            return jsonify({"ok": False, "error": "no_sha"}), 404
 
         files = git_service.get_commit_files(repo_name, commit_sha)
 
@@ -381,14 +387,14 @@ def api_dashboard_last_commit_files():
             }
         )
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error fetching last commit files")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": "internal_error"}), 500
 
 
 @dashboard_bp.route("/api/dashboard/activity/files", methods=["GET"])
 def api_dashboard_activity_files():
-    """Get activity files feed with pagination."""
+    """API: Load more file events for the activity feed (up to 7 days back)."""
     if "user_id" not in session:
         return jsonify({"ok": False, "error": "not_logged_in"}), 401
 
@@ -396,100 +402,160 @@ def api_dashboard_activity_files():
     user_id = session["user_id"]
 
     try:
-        limit = min(50, max(1, int(request.args.get("limit", 20))))
-    except (ValueError, TypeError):
-        limit = 20
+        user_id_int = int(user_id) if user_id is not None else None
+    except Exception:
+        user_id_int = None
+    if not user_id_int:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
 
+    raw_offset = request.args.get("offset", "0")
+    raw_limit = request.args.get("limit", "12")
     try:
-        offset = max(0, int(request.args.get("offset", 0)))
-    except (ValueError, TypeError):
+        offset = int(raw_offset)
+    except Exception:
         offset = 0
+    try:
+        limit = int(raw_limit)
+    except Exception:
+        limit = 12
+
+    offset = max(0, offset)
+    limit = max(1, min(50, limit))
+
+    now = datetime.now(timezone.utc)
+    recent_cutoff = now - timedelta(days=7)
+
+    db = helpers.get_db()
+    base_query = {
+        "user_id": user_id_int,
+        "is_active": True,
+    }
+    recent_query: Dict[str, Any] = dict(base_query)
+    recent_query["$or"] = [
+        {"updated_at": {"$gte": recent_cutoff}},
+        {"updated_at": {"$exists": False}, "created_at": {"$gte": recent_cutoff}},
+        {"updated_at": None, "created_at": {"$gte": recent_cutoff}},
+    ]
 
     try:
-        db = helpers.get_db()
+        total_recent = int(db.code_snippets.count_documents(recent_query))
+    except Exception:
+        total_recent = 0
 
-        # Fetch recent files with offset and limit
+    try:
         cursor = (
             db.code_snippets.find(
-                {"user_id": user_id, "is_active": True},
+                recent_query,
                 {
                     "file_name": 1,
                     "programming_language": 1,
-                    "created_at": 1,
                     "updated_at": 1,
+                    "created_at": 1,
+                    "version": 1,
                     "description": 1,
-                    "tags": 1,
                 },
             )
             .sort("updated_at", DESCENDING)
             .skip(offset)
-            .limit(limit + 1)
+            .limit(limit)
+        )
+        docs = list(cursor or [])
+    except Exception:
+        logger.warning("Failed to fetch timeline files")
+        return jsonify({"ok": False, "error": "load_failed"}), 500
+
+    items: List[Dict[str, Any]] = []
+    for doc in docs:
+        dt = doc.get("updated_at") or doc.get("created_at")
+        version = doc.get("version") or 1
+        is_new = version == 1
+        action = "נוצר" if is_new else "עודכן"
+        file_name = doc.get("file_name") or "ללא שם"
+        language = helpers.resolve_file_language(
+            doc.get("programming_language"), file_name
+        )
+        title = f"{action} {file_name}"
+        details: List[str] = []
+        if doc.get("programming_language"):
+            details.append(doc["programming_language"])
+        elif language and language != "text":
+            details.append(language)
+        if version:
+            details.append(f"גרסה {version}")
+        description = (doc.get("description") or "").strip()
+        subtitle = (
+            description
+            if description
+            else (" · ".join(details) if details else "ללא פרטים נוספים")
+        )
+        href = f"/file/{doc.get('_id')}"
+        file_badge = doc.get("programming_language") or (
+            language if language and language != "text" else None
+        )
+        items.append(
+            helpers._build_timeline_event(
+                "files",
+                title=title,
+                subtitle=subtitle,
+                dt=dt,
+                icon=helpers.get_language_icon(language),
+                badge=file_badge,
+                badge_variant="code",
+                href=href,
+                meta={"details": " · ".join(details)},
+            )
         )
 
-        files = list(cursor)
-        has_more = len(files) > limit
-        if has_more:
-            files = files[:limit]
+    # Maintain format consistency with dashboard
+    finalized = helpers._finalize_events(
+        sorted(items, key=lambda ev: ev.get("_dt") or helpers._MIN_DT, reverse=True)
+    )
+    next_offset = offset + len(finalized)
+    remaining = max(0, total_recent - next_offset)
 
-        # Process files for display
-        result_files = []
-        for f in files:
-            language = helpers.resolve_file_language(
-                f.get("programming_language"), f.get("file_name", "")
-            )
-            result_files.append(
-                {
-                    "id": str(f["_id"]),
-                    "file_name": f.get("file_name", ""),
-                    "language": language,
-                    "icon": helpers.get_language_icon(language),
-                    "created_at": (
-                        f["created_at"].isoformat() if f.get("created_at") else None
-                    ),
-                    "updated_at": (
-                        f["updated_at"].isoformat() if f.get("updated_at") else None
-                    ),
-                    "description": (f.get("description", "") or "")[:100],
-                    "tags": (f.get("tags") or [])[:5],
-                }
-            )
-
-        return jsonify(
-            {
-                "ok": True,
-                "files": result_files,
-                "has_more": has_more,
-                "offset": offset,
-                "limit": limit,
-            }
-        )
-
-    except Exception as e:
-        logger.exception("Error fetching activity files")
-        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify(
+        {
+            "ok": True,
+            "events": finalized,
+            "total_recent": total_recent,
+            "offset": offset,
+            "next_offset": next_offset,
+            "remaining": remaining,
+            "has_more": bool(remaining > 0),
+        }
+    )
 
 
 @dashboard_bp.route("/api/dashboard/whats-new", methods=["GET"])
 def api_dashboard_whats_new():
-    """Get what's new feed with pagination."""
+    """API: Load more new features (pagination)."""
     if "user_id" not in session:
         return jsonify({"ok": False, "error": "not_logged_in"}), 401
 
     helpers = _get_app_helpers()
 
     try:
-        limit = min(20, max(1, int(request.args.get("limit", 5))))
-    except (ValueError, TypeError):
-        limit = 5
-
-    try:
         offset = max(0, int(request.args.get("offset", 0)))
+        limit = min(10, max(1, int(request.args.get("limit", 5))))
+        max_days = min(180, max(7, int(request.args.get("max_days", 30))))
     except (ValueError, TypeError):
         offset = 0
+        limit = 5
+        max_days = 30
 
     try:
-        whats_new = helpers._load_whats_new(limit=limit, offset=offset)
-        return jsonify({"ok": True, **whats_new})
-    except Exception as e:
+        data = helpers._load_whats_new(limit=limit, offset=offset, max_days=max_days)
+        return jsonify(
+            {
+                "ok": True,
+                "features": data["features"],
+                "total": data["total"],
+                "offset": data["offset"],
+                "next_offset": data["next_offset"],
+                "remaining": data["remaining"],
+                "has_more": data["has_more"],
+            }
+        )
+    except Exception:
         logger.exception("Error fetching what's new")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": "internal_error"}), 500

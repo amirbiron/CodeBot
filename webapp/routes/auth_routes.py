@@ -92,23 +92,15 @@ def _verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
     return True
 
 
-def _is_admin(user_id: int) -> bool:
-    """Check if user is admin."""
-    admin_ids_env = os.getenv("ADMIN_USER_IDS", "")
-    admin_ids_list = admin_ids_env.split(",") if admin_ids_env else []
-    admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
-    return user_id in admin_ids
+def _get_app_helpers():
+    """Lazy import of helper functions from app.py to avoid duplication."""
+    from webapp.app import is_admin, is_premium
+    from types import SimpleNamespace
 
-
-def _is_premium(user_id: int) -> bool:
-    """Check if user is premium."""
-    try:
-        premium_ids_env = os.getenv("PREMIUM_USER_IDS", "")
-        premium_ids_list = premium_ids_env.split(",") if premium_ids_env else []
-        premium_ids = [int(x.strip()) for x in premium_ids_list if x.strip().isdigit()]
-        return user_id in premium_ids
-    except Exception:
-        return False
+    return SimpleNamespace(
+        is_admin=is_admin,
+        is_premium=is_premium,
+    )
 
 
 def _get_db_for_auth():
@@ -188,6 +180,7 @@ def telegram_auth():
         except Exception:
             pass
 
+    helpers = _get_app_helpers()
     session["user_id"] = user_id
     session["user_data"] = {
         "id": user_id,
@@ -196,8 +189,8 @@ def telegram_auth():
         "username": auth_data.get("username", ""),
         "photo_url": auth_data.get("photo_url", ""),
         "has_seen_welcome_modal": bool((user_doc or {}).get("has_seen_welcome_modal", False)),
-        "is_admin": _is_admin(user_id),
-        "is_premium": _is_premium(user_id),
+        "is_admin": helpers.is_admin(user_id),
+        "is_premium": helpers.is_premium(user_id),
     }
 
     # Make session permanent (30 days)
@@ -284,6 +277,7 @@ def token_auth():
             pass
 
         # Save user data to session
+        helpers = _get_app_helpers()
         user_id_int = int(user_id)
         session["user_id"] = user_id_int
         session["user_data"] = {
@@ -293,8 +287,8 @@ def token_auth():
             "username": token_doc.get("username", ""),
             "photo_url": user.get("photo_url", ""),
             "has_seen_welcome_modal": bool(user.get("has_seen_welcome_modal", False)),
-            "is_admin": _is_admin(user_id_int),
-            "is_premium": _is_premium(user_id_int),
+            "is_admin": helpers.is_admin(user_id_int),
+            "is_premium": helpers.is_premium(user_id_int),
         }
 
         # Make session permanent (30 days)
