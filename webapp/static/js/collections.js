@@ -2435,7 +2435,7 @@
           <span class="collection-card__drag" draggable="true">⋮⋮</span>
           <div class="collection-card__body">
             <div class="collection-card__name">
-              <a class="collection-card__link" href="#" data-open="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a>
+              <a class="collection-card__link" href="#" draggable="false" data-open="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a>
             </div>
             <div class="collection-card__meta">
               ${tagsHtml}
@@ -2851,14 +2851,15 @@
             if (!pointerDragging) return;
             if (e.pointerId !== activePointerId) return;
             try { e.preventDefault(); } catch(_) {}
+            const clientX = e.clientX;
             const clientY = e.clientY;
-            const after = getDragAfterElement(container, clientY);
+            const after = getDragAfterElement(container, clientY, clientX);
             if (!after) {
               container.appendChild(dragEl);
             } else {
               container.insertBefore(dragEl, after);
             }
-            updateSidebarHoverFromPoint(e.clientX, e.clientY);
+            updateSidebarHoverFromPoint(clientX, clientY);
           };
 
           upHandler = async (e) => {
@@ -2937,14 +2938,15 @@
               }
             }
             if (!t) return;
+            const clientX = t.clientX;
             const clientY = t.clientY;
-            const after = getDragAfterElement(container, clientY);
+            const after = getDragAfterElement(container, clientY, clientX);
             if (!after) {
               container.appendChild(dragEl);
             } else {
               container.insertBefore(dragEl, after);
             }
-            updateSidebarHoverFromPoint(t.clientX, t.clientY);
+            updateSidebarHoverFromPoint(clientX, clientY);
           };
           endHandler = async (e) => {
             if (!touchDragging) return;
@@ -2997,7 +2999,7 @@
     container.addEventListener('dragover', (e) => {
       e.preventDefault();
       if (!dragEl) return;
-      const after = getDragAfterElement(container, e.clientY);
+      const after = getDragAfterElement(container, e.clientY, e.clientX);
       if (after == null) {
         container.appendChild(dragEl);
       } else {
@@ -3006,9 +3008,36 @@
     });
   }
 
-  function getDragAfterElement(container, y){
+  function getDragAfterElement(container, y, x){
     // Support both old and new card classes
     const els = [...container.querySelectorAll('.collection-card:not(.dragging), .collection-item:not(.dragging)')];
+
+    // Check if container uses grid layout (for collection-cards)
+    const isGrid = container.classList.contains('collection-cards');
+
+    if (isGrid && typeof x === 'number') {
+      // For grid layouts, find the element closest to cursor position in 2D
+      let closest = null;
+      let closestDist = Infinity;
+
+      for (const child of els) {
+        const box = child.getBoundingClientRect();
+        const centerX = box.left + box.width / 2;
+        const centerY = box.top + box.height / 2;
+
+        // Only consider elements below or to the right of cursor
+        if (y < box.bottom && x < box.right) {
+          const dist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+          if (dist < closestDist) {
+            closestDist = dist;
+            closest = child;
+          }
+        }
+      }
+      return closest;
+    }
+
+    // For vertical list layouts, use original Y-based logic
     return els.reduce((closest, child) => {
       const box = child.getBoundingClientRect();
       const offset = y - box.top - box.height / 2;
