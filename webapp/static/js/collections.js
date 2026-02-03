@@ -1561,7 +1561,8 @@
 
   function ensureItemsContainerState(container){
     if (!container || !container.isConnected) return;
-    if (container.querySelector('.collection-item')) {
+    // Support both old and new card classes
+    if (container.querySelector('.collection-card') || container.querySelector('.collection-item')) {
       return;
     }
     container.innerHTML = '<div class="empty">אין פריטים</div>';
@@ -1839,44 +1840,12 @@
       const boardHtml = buildWorkspaceBoardHtml(displayItems);
       container.innerHTML = `${headerHtml}${tagsToolbarHtml}${boardHtml}`;
     } else {
-      const itemsHtml = displayItems.map((it) => {
-        const fileName = String(it.file_name || '').trim();
-        const fileNameEsc = escapeHtml(fileName);
-        const rawItemId = it.id || it._id || '';
-        const itemId = String(rawItemId || '');
-        const hasItemId = Boolean(itemId);
-        const mode = getDirectViewMode(fileName);
-        const btnLabel = directViewTitle(mode);
-        const directBtn = mode
-          ? `<button class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
-          : '';
-        const tagsHtml = buildItemTagsHtml(it.tags || [], itemId);
-        const tagBtn = (TAGS_FEATURE_ENABLED && hasItemId)
-          ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
-          : '';
-        const selectBox = (TAGS_TOOLBAR_ENABLED && hasItemId)
-          ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
-          : '';
-        const tagsAttr = Array.isArray(it.tags) ? it.tags.join(',') : '';
-        return `
-          <div class="collection-item" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(it.source || 'regular')}" data-name="${fileNameEsc}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(it.file_id || '')}" data-pinned="${it.pinned ? '1' : '0'}">
-            ${selectBox}
-            <span class="drag" draggable="true">⋮⋮</span>
-            <a class="file" href="#" draggable="false" data-open="${fileNameEsc}">${fileNameEsc}</a>
-            ${tagsHtml}
-            <div class="item-actions">
-              ${tagBtn}
-              ${directBtn}
-              <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
-              <button class="remove" title="הסר">✕</button>
-            </div>
-          </div>
-        `;
-      }).join('');
+      // Use card layout for regular collections (similar to workspace cards but without kanban columns)
+      const itemsHtml = displayItems.map(renderCollectionCard).join('');
       const loadMoreHtml = (lastCollectionItems.length < lastCollectionTotal)
         ? '<div class="collection-load-more"><button type="button" class="btn btn-secondary load-more">טען עוד</button></div>'
         : '';
-      container.innerHTML = `${headerHtml}${tagsToolbarHtml}<div class="collection-items stagger-feed" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>${loadMoreHtml}`;
+      container.innerHTML = `${headerHtml}${tagsToolbarHtml}<div class="collection-cards stagger-feed" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>${loadMoreHtml}`;
     }
 
     setBulkMode(container, isBulkMode);
@@ -1994,6 +1963,8 @@
     } else {
       itemsContainer = container.querySelector('#collectionItems');
       wireDnd(itemsContainer, collectionId);
+      // Auto fit text for both old and new card styles
+      autoFitText('#collectionItems .collection-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
       autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
       const loadMoreBtn = container.querySelector('.load-more');
       if (loadMoreBtn) {
@@ -2027,7 +1998,8 @@
 
     if (!isWorkspace && itemsContainer) {
       itemsContainer.addEventListener('click', async (ev) => {
-        const row = ev.target.closest('.collection-item');
+        // Support both old .collection-item and new .collection-card classes
+        const row = ev.target.closest('.collection-card') || ev.target.closest('.collection-item');
         if (!row) return;
 
         // טיפול ישיר בלחיצה על כפתור עריכת תגיות
@@ -2055,7 +2027,7 @@
           const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
           if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
           await removeElementWithAnimation(row);
-          if (!itemsContainer.querySelector('.collection-item')) {
+          if (!itemsContainer.querySelector('.collection-card') && !itemsContainer.querySelector('.collection-item')) {
             itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
           }
           return;
@@ -2078,14 +2050,15 @@
         if (ev.target.closest('.card-code-preview-wrapper')) {
           return;
         }
-        const link = ev.target.closest('a.file[data-open]');
+        // Support both old and new link selectors
+        const link = ev.target.closest('a.collection-card__link[data-open]') || ev.target.closest('a.file[data-open]');
         if (link) {
           ev.preventDefault();
           const fname = link.getAttribute('data-open') || '';
           await openFileByName(fname);
           return;
         }
-        if (!ev.target.closest('.drag') && !ev.target.closest('button')) {
+        if (!ev.target.closest('.collection-card__drag') && !ev.target.closest('.drag') && !ev.target.closest('button')) {
           const fname = name;
           await openFileByName(fname);
         }
@@ -2432,6 +2405,54 @@
     `;
   }
 
+  /**
+   * Renders a collection item as a card (similar to workspace card but without workspace-specific features)
+   * @param {Object} item - The collection item to render
+   * @returns {string} HTML string for the card
+   */
+  function renderCollectionCard(item){
+    const rawItemId = item.id || item._id || '';
+    const itemId = String(rawItemId || '');
+    const fileName = String(item.file_name || '').trim();
+    const mode = getDirectViewMode(fileName);
+    const btnLabel = directViewTitle(mode);
+    const directBtn = mode
+      ? `<button type="button" class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
+      : '';
+    const tagsHtml = buildItemTagsHtml(item.tags || [], itemId);
+    const tagBtn = (TAGS_FEATURE_ENABLED && itemId)
+      ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
+      : '';
+    const tagsAttr = Array.isArray(item.tags) ? item.tags.join(',') : '';
+    const selectBox = (TAGS_TOOLBAR_ENABLED && itemId)
+      ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
+      : '';
+    const pinnedClass = item.pinned ? ' collection-card--pinned' : '';
+    return `
+      <article class="collection-card${pinnedClass}" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(fileName)}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(item.file_id || '')}" data-pinned="${item.pinned ? '1' : '0'}">
+        <div class="collection-card__top">
+          ${selectBox}
+          <span class="collection-card__drag" draggable="true">⋮⋮</span>
+          <div class="collection-card__body">
+            <div class="collection-card__name">
+              <a class="collection-card__link" href="#" data-open="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a>
+            </div>
+            <div class="collection-card__meta">
+              ${tagsHtml}
+              ${item.note ? `<span class="collection-card__note">📝 ${escapeHtml(item.note)}</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="collection-card__actions">
+          ${tagBtn}
+          ${directBtn}
+          <button type="button" class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
+          <button type="button" class="remove" title="הסר">✕</button>
+        </div>
+      </article>
+    `;
+  }
+
   function hydrateWorkspaceBoard(container, collectionId, items){
     const board = container.querySelector('.workspace-board');
     if (!board) {
@@ -2766,8 +2787,9 @@
 
   function wireDnd(container, cid){
     let dragEl = null;
-    container.querySelectorAll('.collection-item').forEach(el => {
-      const handle = el.querySelector('.drag');
+    // Support both old .collection-item and new .collection-card classes
+    container.querySelectorAll('.collection-card, .collection-item').forEach(el => {
+      const handle = el.querySelector('.collection-card__drag') || el.querySelector('.drag');
       if (!handle) return;
       // גרירה מותרת רק מהידית כדי לא לחסום לחיצות על שם הקובץ
       handle.addEventListener('dragstart', (event) => {
@@ -2787,8 +2809,8 @@
           return;
         }
         clearActiveDragContext();
-        // שליחת סדר חדש לשרת
-        const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
+        // שליחת סדר חדש לשרת - support both old and new card classes
+        const order = Array.from(container.querySelectorAll('.collection-card, .collection-item')).map(x => ({
           source: x.getAttribute('data-source')||'regular',
           file_name: x.getAttribute('data-name')||''
         }));
@@ -2867,8 +2889,8 @@
 
             clearActiveDragContext();
 
-            // שליחת סדר חדש לשרת
-            const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
+            // שליחת סדר חדש לשרת - support both old and new card classes
+            const order = Array.from(container.querySelectorAll('.collection-card, .collection-item')).map(x => ({
               source: x.getAttribute('data-source')||'regular',
               file_name: x.getAttribute('data-name')||''
             }));
@@ -2957,7 +2979,8 @@
 
             clearActiveDragContext();
 
-            const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
+            // Support both old and new card classes
+            const order = Array.from(container.querySelectorAll('.collection-card, .collection-item')).map(x => ({
               source: x.getAttribute('data-source')||'regular',
               file_name: x.getAttribute('data-name')||''
             }));
@@ -2984,7 +3007,8 @@
   }
 
   function getDragAfterElement(container, y){
-    const els = [...container.querySelectorAll('.collection-item:not(.dragging)')];
+    // Support both old and new card classes
+    const els = [...container.querySelectorAll('.collection-card:not(.dragging), .collection-item:not(.dragging)')];
     return els.reduce((closest, child) => {
       const box = child.getBoundingClientRect();
       const offset = y - box.top - box.height / 2;
@@ -3068,6 +3092,7 @@
   // עדכון אוטומטי בהתאמת חלון
   const onResize = throttle(() => {
     autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+    autoFitText('#collectionItems .collection-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
     autoFitText('#collectionsSidebar .sidebar-item .name', { minPx: 12, maxPx: 16 });
     autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
   }, 150);
@@ -3139,6 +3164,7 @@
 
       // מציאת האלמנט המכיל (card או row) לקבלת התגיות הנוכחיות
       const itemEl = tagBtn.closest('.workspace-card') ||
+                     tagBtn.closest('.collection-card') ||
                      tagBtn.closest('.collection-item') ||
                      document.querySelector(`[data-item-id="${itemId}"]`);
       const currentTags = collectTagsFromElement(itemEl);
