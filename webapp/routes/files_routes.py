@@ -10,45 +10,13 @@ Issue: #2871 (Step 2 - Pilot)
 from __future__ import annotations
 
 import logging
-from functools import wraps
 from typing import Any, Dict
 
-from flask import Blueprint, jsonify, request, session, redirect, url_for
+from flask import Blueprint, jsonify, request, session
 
 logger = logging.getLogger(__name__)
 
 files_bp = Blueprint("files_api", __name__, url_prefix="/api")
-
-
-def login_required(f):
-    """
-    Decorator to verify user authentication.
-
-    For API endpoints: returns JSON 401 if not authenticated.
-    For regular endpoints: redirects to login page.
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if "user_id" not in session:
-            # API endpoints expect JSON response
-            try:
-                wants_json = (
-                    (request.path or "").startswith("/api/")
-                    or ("application/json" in (request.headers.get("Accept") or ""))
-                )
-            except Exception:
-                wants_json = True
-
-            if wants_json:
-                return jsonify({"error": "Authentication required"}), 401
-
-            next_url = request.full_path if request.query_string else request.path
-            return redirect(url_for("login", next=next_url))
-
-        return f(*args, **kwargs)
-
-    return decorated_function
-
 
 def _get_files_facade():
     """
@@ -62,8 +30,19 @@ def _get_files_facade():
 
 
 @files_bp.route("/files", methods=["GET"])
-@login_required
 def api_get_files():
+    """
+    Authentication is enforced by the shared `login_required` decorator from `webapp.app`.
+
+    We import it lazily inside the request handler to avoid circular imports during app startup:
+    `webapp.app` registers this Blueprint (imports this module) after defining `login_required`.
+    """
+    from webapp.app import login_required  # late import to avoid circular imports
+
+    return login_required(_api_get_files_impl)()
+
+
+def _api_get_files_impl():
     """
     GET /api/files - Paginated list of user's regular files.
 
@@ -121,12 +100,11 @@ def api_get_files():
             "total_pages": total_pages,
         })
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error in api_get_files")
         return jsonify({
             "ok": False,
             "error": "Failed to fetch files",
-            "detail": str(e) if logger.isEnabledFor(logging.DEBUG) else None,
         }), 500
 
 
