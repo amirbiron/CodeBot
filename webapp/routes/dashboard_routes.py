@@ -79,7 +79,8 @@ def _get_app_helpers():
 def dashboard():
     """Dashboard with statistics."""
     if "user_id" not in session:
-        return redirect(url_for("auth.login", next=request.url))
+        next_url = request.full_path if request.query_string else request.path
+        return redirect(url_for("auth.login", next=next_url))
 
     helpers = _get_app_helpers()
 

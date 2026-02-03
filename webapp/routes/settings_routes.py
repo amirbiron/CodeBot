@@ -65,7 +65,8 @@ def settings():
 
     # Apply login_required
     if "user_id" not in session:
-        return redirect(url_for("auth.login", next=request.url))
+        next_url = request.full_path if request.query_string else request.path
+        return redirect(url_for("auth.login", next=next_url))
 
     user_id = session["user_id"]
     user_data = session.get("user_data") or {}
@@ -121,7 +122,8 @@ def settings_push_debug():
     helpers = _get_app_helpers()
 
     if "user_id" not in session:
-        return redirect(url_for("auth.login", next=request.url))
+        next_url = request.full_path if request.query_string else request.path
+        return redirect(url_for("auth.login", next=next_url))
 
     user_id = session.get("user_id")
     user_data = session.get("user_data") or {}
@@ -252,7 +254,8 @@ def theme_builder():
     helpers = _get_app_helpers()
 
     if "user_id" not in session:
-        return redirect(url_for("auth.login", next=request.url))
+        next_url = request.full_path if request.query_string else request.path
+        return redirect(url_for("auth.login", next=next_url))
 
     user_id = session["user_id"]
     actual_is_admin = False
@@ -287,7 +290,8 @@ def theme_gallery():
     helpers = _get_app_helpers()
 
     if "user_id" not in session:
-        return redirect(url_for("auth.login", next=request.url))
+        next_url = request.full_path if request.query_string else request.path
+        return redirect(url_for("auth.login", next=next_url))
 
     user_id = session["user_id"]
     actual_is_admin = False
