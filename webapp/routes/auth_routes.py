@@ -70,6 +70,11 @@ def _verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
 
     # Calculate hash
     bot_token = _get_bot_token()
+    if not bot_token:
+        # Refuse verification if server is misconfigured.
+        # Otherwise we'd verify against a constant secret derived from an empty token.
+        logger.error("BOT_TOKEN is not set; refusing Telegram auth verification")
+        return False
     secret_key = hashlib.sha256(bot_token.encode()).digest()
     calculated_hash = hmac.new(
         secret_key, data_check_string.encode(), hashlib.sha256
@@ -124,13 +129,22 @@ def login():
 @auth_bp.route("/auth/telegram", methods=["GET", "POST"])
 def telegram_auth():
     """Handle Telegram widget authentication."""
-    auth_data = dict(request.args) if request.method == "GET" else request.get_json()
+    if request.method == "GET":
+        auth_data: Any = dict(request.args)
+    else:
+        auth_data = request.get_json(silent=True) or {}
+
+    if not isinstance(auth_data, dict):
+        return jsonify({"error": "Invalid payload"}), 400
 
     if not _verify_telegram_auth(auth_data):
         return jsonify({"error": "Invalid authentication"}), 401
 
     # Save user data to session
-    user_id = int(auth_data["id"])
+    try:
+        user_id = int(auth_data.get("id"))  # type: ignore[arg-type]
+    except Exception:
+        return jsonify({"error": "Invalid authentication"}), 401
     user_doc: Dict[str, Any] = {}
 
     try:
@@ -189,7 +203,7 @@ def telegram_auth():
     # Make session permanent (30 days)
     session.permanent = True
 
-    return redirect(url_for("dashboard"))
+    return redirect("/dashboard")
 
 
 @auth_bp.route("/auth/token")
@@ -286,7 +300,7 @@ def token_auth():
         # Make session permanent (30 days)
         session.permanent = True
 
-        return redirect(url_for("dashboard"))
+        return redirect("/dashboard")
 
     except Exception:
         logger.exception("Error in token auth")
