@@ -65,9 +65,9 @@ def _api_get_files_impl():
 
         # Parse pagination parameters with defaults and limits
         try:
-            page = max(1, int(request.args.get("page", 1)))
+            requested_page = max(1, int(request.args.get("page", 1)))
         except (ValueError, TypeError):
-            page = 1
+            requested_page = 1
 
         try:
             per_page = min(100, max(1, int(request.args.get("per_page", 20))))
@@ -76,25 +76,19 @@ def _api_get_files_impl():
 
         # Use FilesFacade instead of direct DB access
         facade = _get_files_facade()
-        files, total = facade.get_regular_files_paginated(
-            user_id=user_id,
-            page=page,
-            per_page=per_page,
-        )
 
-        # Calculate total pages
+        # We may need at most one re-fetch if the requested page is out-of-bounds.
+        # Keep pagination metadata consistent by deriving it from the final fetch.
+        page = requested_page
+        files, total = facade.get_regular_files_paginated(user_id=user_id, page=page, per_page=per_page)
         total_pages = (total + per_page - 1) // per_page if total > 0 else 1
-
-        # Ensure `page` in response matches the actual returned data.
-        # Some DB implementations clamp out-of-range pages to the last valid page.
-        actual_page = min(max(1, page), total_pages)
-        if actual_page != page:
-            page = actual_page
-            files, total = facade.get_regular_files_paginated(
-                user_id=user_id,
-                page=page,
-                per_page=per_page,
-            )
+        clamped_page = min(max(1, page), total_pages)
+        if clamped_page != page:
+            page = clamped_page
+            files, total = facade.get_regular_files_paginated(user_id=user_id, page=page, per_page=per_page)
+            total_pages = (total + per_page - 1) // per_page if total > 0 else 1
+            # In case the dataset changed between the two calls, re-clamp the page for consistency.
+            page = min(max(1, page), total_pages)
 
         # Serialize files for JSON response (convert ObjectId to string)
         serialized_files = []
@@ -125,16 +119,34 @@ def _serialize_file(file_doc: Dict[str, Any]) -> Dict[str, Any]:
 
     Converts ObjectId to string and handles None values.
     """
+    import datetime as _dt
+
+    def _json_safe(v: Any) -> Any:
+        # Handle common non-JSON types
+        try:
+            if isinstance(v, (_dt.datetime, _dt.date)):
+                return v.isoformat()
+        except Exception:
+            pass
+        # ObjectId (avoid importing bson in environments without it)
+        try:
+            if type(v).__name__ == "ObjectId":
+                return str(v)
+        except Exception:
+            pass
+        # Recursive structures
+        if isinstance(v, dict):
+            return {str(k): _json_safe(val) for k, val in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [_json_safe(x) for x in v]
+        return v
+
     result = {}
 
     for key, value in file_doc.items():
         if key == "_id":
             result["id"] = str(value)
-        elif hasattr(value, "__str__") and type(value).__name__ == "ObjectId":
-            result[key] = str(value)
-        elif value is None:
-            result[key] = None
         else:
-            result[key] = value
+            result[key] = _json_safe(value)
 
     return result
