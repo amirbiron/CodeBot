@@ -85,16 +85,20 @@ class WebappContainer:
 
 # Module-level singleton for convenience
 _container: Optional[WebappContainer] = None
+_container_lock = threading.Lock()
 
 
 def get_webapp_container() -> WebappContainer:
     """
-    Get the webapp container singleton.
+    Get the webapp container singleton (thread-safe).
 
     Returns a WebappContainer instance that provides access to all
     infrastructure services needed by webapp routes.
     """
     global _container
-    if _container is None:
-        _container = WebappContainer()
+    if _container is not None:
+        return _container
+    with _container_lock:
+        if _container is None:
+            _container = WebappContainer()
     return _container

@@ -10,13 +10,6 @@ from .webapp_container import (  # noqa: F401
     get_webapp_container,
 )
 
-# Re-export _files_facade_singleton and _files_facade_lock for backward compatibility
-# with any code that directly accesses these (e.g., tests that reset singletons)
-from .webapp_container import (
-    _files_facade_lock,
-    _files_facade_singleton,
-)
-
 __all__ = [
     "FilesFacade",
     "WebappContainer",

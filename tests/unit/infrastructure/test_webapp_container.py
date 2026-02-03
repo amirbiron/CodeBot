@@ -5,8 +5,6 @@ and singleton behavior for the webapp composition root.
 import sys
 import types
 
-import pytest
-
 from src.infrastructure.composition.webapp_container import (
     WebappContainer,
     get_files_facade,
