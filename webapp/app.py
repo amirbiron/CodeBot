@@ -1026,6 +1026,27 @@ except Exception:
     # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
 
+# Auth Routes (Layered Architecture - Issue #2871 Step 3)
+try:
+    from webapp.routes.auth_routes import auth_bp  # noqa: E402
+    app.register_blueprint(auth_bp)
+except Exception:
+    pass
+
+# Settings Routes (Layered Architecture - Issue #2871 Step 3)
+try:
+    from webapp.routes.settings_routes import settings_bp  # noqa: E402
+    app.register_blueprint(settings_bp)
+except Exception:
+    pass
+
+# Dashboard Routes (Layered Architecture - Issue #2871 Step 3)
+try:
+    from webapp.routes.dashboard_routes import dashboard_bp  # noqa: E402
+    app.register_blueprint(dashboard_bp)
+except Exception:
+    pass
+
 # Themes API (Presets/Import/Export) - לפי המדריך
 try:
     from webapp.themes_api import themes_bp  # noqa: E402
