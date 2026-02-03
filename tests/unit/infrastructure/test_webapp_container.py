@@ -37,13 +37,25 @@ def _install_dummy_database(monkeypatch):
         """Stub class for `database.manager.DatabaseManager` imports."""
 
     class CodeSnippet:
-        def __init__(self, user_id, file_name, code, programming_language, description="", tags=None):
+        def __init__(
+            self,
+            user_id,
+            file_name,
+            code,
+            programming_language,
+            description="",
+            tags=None,
+            *,
+            is_favorite: bool = False,
+            **_kwargs,
+        ):
             self.user_id = user_id
             self.file_name = file_name
             self.code = code
             self.programming_language = programming_language
             self.description = description
             self.tags = list(tags or [])
+            self.is_favorite = bool(is_favorite)
 
     class LargeFile:
         def __init__(self, user_id, file_name, content, programming_language, file_size, lines_count):
