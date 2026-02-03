@@ -31,6 +31,11 @@ def _install_dummy_database(monkeypatch):
 
     models_mod = types.ModuleType("database.models")
 
+    manager_mod = types.ModuleType("database.manager")
+
+    class DatabaseManager:  # noqa: D401 - minimal stub for import-time typing
+        """Stub class for `database.manager.DatabaseManager` imports."""
+
     class CodeSnippet:
         def __init__(self, user_id, file_name, code, programming_language, description="", tags=None):
             self.user_id = user_id
@@ -51,11 +56,13 @@ def _install_dummy_database(monkeypatch):
 
     models_mod.CodeSnippet = CodeSnippet
     models_mod.LargeFile = LargeFile
+    manager_mod.DatabaseManager = DatabaseManager
     db_mod.CodeSnippet = CodeSnippet
     db_mod.LargeFile = LargeFile
 
     monkeypatch.setitem(sys.modules, "database", db_mod)
     monkeypatch.setitem(sys.modules, "database.models", models_mod)
+    monkeypatch.setitem(sys.modules, "database.manager", manager_mod)
     return dummy_db
 
 
@@ -98,6 +105,21 @@ def test_webapp_container_class_provides_facade_access(monkeypatch):
     assert hasattr(facade, "get_user_files")
 
 
+def test_webapp_container_class_provides_snippet_service_access(monkeypatch):
+    """Verify WebappContainer class provides access to snippet_service."""
+    _install_dummy_database(monkeypatch)
+
+    # Reset singleton for clean test
+    import src.infrastructure.composition.container as c
+    monkeypatch.setattr(c, "_snippet_service_singleton", None)
+
+    container = WebappContainer()
+    svc = container.snippet_service
+    assert svc is not None
+    assert hasattr(svc, "create_snippet")
+    assert hasattr(svc, "get_snippet")
+
+
 def test_get_webapp_container_returns_singleton(monkeypatch):
     """Verify get_webapp_container returns the same singleton instance."""
     _install_dummy_database(monkeypatch)
@@ -108,6 +130,54 @@ def test_get_webapp_container_returns_singleton(monkeypatch):
     container1 = get_webapp_container()
     container2 = get_webapp_container()
     assert container1 is container2
+
+
+def test_get_webapp_container_double_check_lock_branch(monkeypatch):
+    """
+    Cover the "double-check inside lock" branch when another thread populates the
+    singleton between the outer check and lock acquisition.
+    """
+    _install_dummy_database(monkeypatch)
+
+    import src.infrastructure.composition.webapp_container as wc
+    monkeypatch.setattr(wc, "_container", None)
+
+    class _LockThatSetsContainer:
+        def __enter__(self):
+            wc._container = WebappContainer()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(wc, "_container_lock", _LockThatSetsContainer())
+
+    container = wc.get_webapp_container()
+    assert container is wc._container
+
+
+def test_get_files_facade_double_check_lock_branch(monkeypatch):
+    """
+    Cover the "double-check inside lock" branch when another thread populates the
+    singleton between the outer check and lock acquisition.
+    """
+    _install_dummy_database(monkeypatch)
+
+    import src.infrastructure.composition.webapp_container as wc
+    monkeypatch.setattr(wc, "_files_facade_singleton", None)
+
+    class _LockThatSetsFacade:
+        def __enter__(self):
+            wc._files_facade_singleton = wc.FilesFacade()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(wc, "_files_facade_lock", _LockThatSetsFacade())
+
+    facade = wc.get_files_facade()
+    assert facade is wc._files_facade_singleton
 
 
 def test_webapp_container_files_facade_can_call_methods(monkeypatch):
