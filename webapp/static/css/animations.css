@@ -86,7 +86,9 @@
 /* אל תשבור Drag & Drop (Sortable/HTML5 DnD) */
 .stagger-feed > *.dragging,
 .stagger-feed > *.workspace-card--dragging,
-.stagger-feed > *.workspace-card--ghost {
+.stagger-feed > *.workspace-card--ghost,
+.stagger-feed > *.collection-card--dragging,
+.stagger-feed > *.collection-card--ghost {
   opacity: 1 !important;
   animation: none !important;
   transform: none !important;
@@ -132,6 +134,7 @@
 /* 4. Item Specific Styles (עיצוב הכרטיסיות)
    ========================================================================== */
 .collection-item,
+.collection-card,
 .file-card,
 .search-result-card,
 .bookmark-item,
@@ -145,6 +148,7 @@
 
 /* Hover Effect */
 .collection-item:hover,
+.collection-card:hover,
 .file-card:hover,
 .search-result-card:hover,
 .bookmark-item:hover,
@@ -155,6 +159,7 @@
 
 /* מחיקה */
 .collection-item.is-removing,
+.collection-card.is-removing,
 .bookmark-item.is-removing,
 .workspace-card.is-removing {
   animation: slideRightFadeOut var(--duration-fast) var(--ease-in-out) forwards;
@@ -163,6 +168,7 @@
 
 /* הוספה חדשה */
 .collection-item.is-new,
+.collection-card.is-new,
 .bookmark-item.is-new,
 .workspace-card.is-new {
   animation: popIn var(--duration-normal) var(--ease-spring) forwards;
