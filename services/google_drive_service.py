@@ -5,6 +5,7 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, List
 import zipfile as _zipfile
 from types import SimpleNamespace as _SimpleNamespace
@@ -281,29 +282,35 @@ def _get_file_metadata(service, file_id: str, fields: str = "id, name, trashed, 
 
 
 def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None) -> Optional[str]:
-    service = get_drive_service(user_id)
-    if not service:
-        return None
-    try:
-        safe_name = name.replace("'", "\\'")
-        q = "name = '{0}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false".format(safe_name)
-        if parent_id:
-            safe_parent = str(parent_id).replace("'", "\\'")
-            q += f" and '{safe_parent}' in parents"
-        results = service.files().list(q=q, fields="files(id, name)").execute()
-        files = results.get("files", [])
-        if files:
-            return files[0]["id"]
-        metadata = {
-            "name": name,
-            "mimeType": "application/vnd.google-apps.folder",
-        }
-        if parent_id:
-            metadata["parents"] = [parent_id]
-        folder = service.files().create(body=metadata, fields="id").execute()
-        return folder.get("id")
-    except HttpError:
-        return None
+    for auth_attempt in range(0, 2):
+        service = get_drive_service(user_id)
+        if not service:
+            return None
+        try:
+            safe_name = name.replace("'", "\\'")
+            q = "name = '{0}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false".format(safe_name)
+            if parent_id:
+                safe_parent = str(parent_id).replace("'", "\\'")
+                q += f" and '{safe_parent}' in parents"
+            results = service.files().list(q=q, fields="files(id, name)").execute()
+            files = results.get("files", [])
+            if files:
+                return files[0]["id"]
+            metadata = {
+                "name": name,
+                "mimeType": "application/vnd.google-apps.folder",
+            }
+            if parent_id:
+                metadata["parents"] = [parent_id]
+            folder = service.files().create(body=metadata, fields="id").execute()
+            return folder.get("id")
+        except HttpError as e:
+            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+                continue
+            return None
+        except Exception:
+            return None
+    return None
 
 
 def get_or_create_default_folder(user_id: int) -> Optional[str]:
@@ -509,6 +516,61 @@ def _parse_http_error_status_reason(err: Exception) -> Tuple[Optional[int], Opti
     return (int(status) if status else None, reason if isinstance(reason, str) else None)
 
 
+def _is_auth_http_error(err: Exception) -> bool:
+    """Auth failure that may be resolved by refreshing tokens."""
+    status, _reason = _parse_http_error_status_reason(err)
+    # Only 401: 403 is often a permissions issue and refresh will not help.
+    return bool(status == 401)
+
+
+def _clear_service_cache(user_id: int) -> None:
+    try:
+        _SERVICE_CACHE.pop(int(user_id), None)
+    except Exception:
+        pass
+
+
+def _force_refresh_credentials(user_id: int) -> bool:
+    """Force-refresh access token using refresh_token.
+
+    Used on mid-flight 401 failures where local expiry tracking may be stale.
+    Returns True when refresh succeeded.
+    """
+    if Credentials is None or Request is None:
+        return False
+    tokens = _load_tokens(user_id) or {}
+    if not tokens or not tokens.get("refresh_token"):
+        return False
+    try:
+        creds = _credentials_from_tokens(tokens)
+    except Exception:
+        return False
+    try:
+        creds.refresh(Request())  # type: ignore[misc]
+    except Exception as e:
+        text = str(e).lower()
+        if "invalid_grant" in text or "access_denied" in text:
+            logging.getLogger(__name__).warning("Drive forced refresh invalid_grant; user re-auth required")
+            return False
+        logging.getLogger(__name__).warning("Drive forced refresh failed: %s", str(e))
+        return False
+    try:
+        updated = {
+            "access_token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "token_type": "Bearer",
+            "scope": " ".join(creds.scopes or []),
+            "expires_in": int((creds.expiry - _now_utc()).total_seconds()) if creds.expiry else 3600,
+            "expiry": creds.expiry.isoformat() if creds.expiry else (_now_utc() + timedelta(hours=1)).isoformat(),
+        }
+        save_tokens(user_id, updated)
+    except Exception:
+        # Refresh succeeded even if persistence failed; try to proceed anyway
+        pass
+    _clear_service_cache(user_id)
+    return True
+
+
 def _is_retryable_http_error(err: Exception) -> Tuple[bool, Optional[float]]:
     """Return (should_retry, retry_after_seconds)."""
     status, reason = _parse_http_error_status_reason(err)
@@ -558,42 +620,59 @@ def _sleep_backoff(attempt: int, retry_after_s: Optional[float] = None) -> None:
 
 
 def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
-    service = get_drive_service(user_id)
-    if not service:
-        return None
-    if sub_path:
-        folder_id = ensure_subpath(user_id, sub_path)
-    if not folder_id:
-        folder_id = _get_root_folder(user_id)
-    if not folder_id:
-        return None
     if MediaIoBaseUpload is None:
         return None
-    # Use resumable upload with chunks to improve reliability for larger files
-    try:
-        chunksize = 8 * 1024 * 1024  # 8MB
-    except Exception:
-        chunksize = None  # type: ignore[assignment]
-    media = MediaIoBaseUpload(
-        io.BytesIO(data),
-        mimetype="application/zip",
-        resumable=True,
-        chunksize=chunksize if isinstance(chunksize, int) else None,  # type: ignore[arg-type]
-    )
-    body: Dict[str, Any] = {"name": filename}
-    if folder_id:
-        body["parents"] = [folder_id]
-    try:
-        request = service.files().create(body=body, media_body=media, fields="id")
+    for auth_attempt in range(0, 2):
+        service = get_drive_service(user_id)
+        if not service:
+            return None
+
+        folder_id_eff = folder_id
+        if sub_path:
+            folder_id_eff = ensure_subpath(user_id, sub_path)
+        if not folder_id_eff:
+            folder_id_eff = _get_root_folder(user_id)
+        if not folder_id_eff:
+            return None
+
+        # Use resumable upload with chunks to improve reliability for larger files
+        try:
+            chunksize = 8 * 1024 * 1024  # 8MB
+        except Exception:
+            chunksize = None  # type: ignore[assignment]
+        media = MediaIoBaseUpload(
+            io.BytesIO(data),
+            mimetype="application/zip",
+            resumable=True,
+            chunksize=chunksize if isinstance(chunksize, int) else None,  # type: ignore[arg-type]
+        )
+        body: Dict[str, Any] = {"name": filename}
+        if folder_id_eff:
+            body["parents"] = [folder_id_eff]
+        try:
+            request = service.files().create(body=body, media_body=media, fields="id")
+        except HttpError as e:
+            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+                continue
+            return None
+        except Exception:
+            return None
+
         response = None
         consecutive_failures = 0
         max_failures = 6
+        auth_retry = False
+
         # Drive SDK: call next_chunk() until the upload completes
         while response is None:
             try:
                 _status, response = request.next_chunk()
                 consecutive_failures = 0  # reset on progress
             except HttpError as e:  # retryable Drive errors
+                # Auth failure: force refresh and restart upload once
+                if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+                    auth_retry = True
+                    break
                 should_retry, retry_after = _is_retryable_http_error(e)
                 if should_retry and consecutive_failures < max_failures:
                     _sleep_backoff(consecutive_failures, retry_after)
@@ -607,9 +686,11 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
                     consecutive_failures += 1
                     continue
                 return None
+
+        if auth_retry:
+            continue
         return response.get("id") if isinstance(response, dict) else None
-    except Exception:
-        return None
+    return None
 
 
 def upload_file(
@@ -623,37 +704,52 @@ def upload_file(
 
     Falls back to None if Drive libraries are unavailable.
     """
-    service = get_drive_service(user_id)
-    if not service:
-        return None
-    if sub_path:
-        folder_id = ensure_subpath(user_id, sub_path)
-    if not folder_id:
-        folder_id = _get_root_folder(user_id)
-    if not folder_id:
-        return None
     if MediaFileUpload is None:
         return None
-    # Chunked, resumable upload
-    try:
-        media = MediaFileUpload(
-            file_path,
-            mimetype="application/zip",
-            resumable=True,
-            chunksize=8 * 1024 * 1024,  # 8MB
-        )
-        body: Dict[str, Any] = {"name": filename}
-        if folder_id:
-            body["parents"] = [folder_id]
-        request = service.files().create(body=body, media_body=media, fields="id")
+    for auth_attempt in range(0, 2):
+        service = get_drive_service(user_id)
+        if not service:
+            return None
+
+        folder_id_eff = folder_id
+        if sub_path:
+            folder_id_eff = ensure_subpath(user_id, sub_path)
+        if not folder_id_eff:
+            folder_id_eff = _get_root_folder(user_id)
+        if not folder_id_eff:
+            return None
+
+        # Chunked, resumable upload
+        try:
+            media = MediaFileUpload(
+                file_path,
+                mimetype="application/zip",
+                resumable=True,
+                chunksize=8 * 1024 * 1024,  # 8MB
+            )
+            body: Dict[str, Any] = {"name": filename}
+            if folder_id_eff:
+                body["parents"] = [folder_id_eff]
+            request = service.files().create(body=body, media_body=media, fields="id")
+        except HttpError as e:
+            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+                continue
+            return None
+        except Exception:
+            return None
+
         response = None
         consecutive_failures = 0
         max_failures = 6
+        auth_retry = False
         while response is None:
             try:
                 _status, response = request.next_chunk()
                 consecutive_failures = 0
             except HttpError as e:
+                if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+                    auth_retry = True
+                    break
                 should_retry, retry_after = _is_retryable_http_error(e)
                 if should_retry and consecutive_failures < max_failures:
                     _sleep_backoff(consecutive_failures, retry_after)
@@ -666,19 +762,33 @@ def upload_file(
                     consecutive_failures += 1
                     continue
                 return None
+
+        if auth_retry:
+            continue
         return response.get("id") if isinstance(response, dict) else None
-    except Exception:
-        return None
+    return None
 
 
-def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
-    """Upload only ZIP backups that were not uploaded before for this user.
+@dataclass(frozen=True)
+class UploadSavedZipResult:
+    uploaded: int
+    ids: List[str]
+    attempted: int
+    failed: int
+    skipped_nonzip: int
+    skipped_dedup: int
 
-    Uses db.drive_prefs.uploaded_backup_ids (set) to deduplicate uploads.
-    """
+
+def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult:
+    """Upload ZIP backups and return detailed stats (for scheduler semantics)."""
     backups = backup_manager.list_backups(user_id)
     uploaded = 0
     ids: List[str] = []
+    attempted = 0
+    failed = 0
+    skipped_nonzip = 0
+    skipped_dedup = 0
+
     # Load previously uploaded backup ids
     try:
         prefs = db.get_drive_prefs(user_id) or {}
@@ -686,6 +796,7 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
     except Exception:
         prefs = {}
         uploaded_set = set()
+
     # Resolve/validate root; if it changed, drop uploaded_set to allow re‑upload
     old_root_id = prefs.get('target_folder_id')
     try:
@@ -698,6 +809,7 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             db.save_drive_prefs(user_id, {"uploaded_backup_ids": []})
         except Exception:
             pass
+
     # Also deduplicate by content hash against existing files in Drive (folder: zip)
     existing_md5: Optional[set[str]] = set()
     try:
@@ -728,15 +840,17 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                         break
     except Exception:
         existing_md5 = None
+
     new_uploaded: List[str] = []
     for b in backups:
         try:
             b_id = getattr(b, 'backup_id', None)
             path = getattr(b, "file_path", None)
             if not path or not str(path).endswith(".zip"):
+                skipped_nonzip += 1
                 continue
-            # Compute MD5 without loading entire file into memory, and capture small content sample for filename stability
-            data = None  # type: ignore[assignment]
+
+            # Compute MD5 without loading entire file into memory, and capture a small content sample
             md5_local: Optional[str] = None
             content_sample: Optional[bytes] = None
             try:
@@ -749,17 +863,21 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 md5_local = h.hexdigest()
             except Exception:
                 md5_local = None
+
             # If a file with the same content already exists in Drive, mark as uploaded and skip
             try:
                 if isinstance(existing_md5, set) and md5_local in existing_md5:
+                    skipped_dedup += 1
                     if b_id:
                         new_uploaded.append(b_id)
                     continue
                 # If we could not list Drive files (existing_md5 is None), fallback to uploaded_set guard
                 if existing_md5 is None and b_id and b_id in uploaded_set:
+                    skipped_dedup += 1
                     continue
             except Exception:
                 pass
+
             from config import config as _cfg
             # Build entity name
             try:
@@ -791,14 +909,19 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 entity = f"{base_name}_{path_hint.replace('/', '_')}" if path_hint else base_name
             else:
                 entity = getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot'
+
             # Derive rating emoji
             try:
                 rating = db.get_backup_rating(user_id, b_id) if b_id else None
             except Exception:
                 rating = None
-            # Build friendly filename ONCE using the captured content sample (if any) to keep names consistent across fallbacks
+
+            # Build friendly filename once (stable across fallbacks)
             fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=content_sample)
             sub_path = compute_subpath("zip")
+
+            attempted += 1
+
             # Prefer streaming from file when possible; fall back to bytes if needed
             fid: Optional[str] = None
             try:
@@ -808,7 +931,6 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             if not fid:
                 try:
                     with open(path, "rb") as f_bytes:
-                        # Read full data for non-streaming API
                         data_bytes = f_bytes.read()
                     fid = upload_bytes(user_id, filename=fname, data=data_bytes, sub_path=sub_path)
                 except Exception:
@@ -818,8 +940,12 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 ids.append(fid)
                 if b_id:
                     new_uploaded.append(b_id)
+            else:
+                failed += 1
         except Exception:
+            failed += 1
             continue
+
     # Persist uploaded ids and last backup time for next-run calc
     if new_uploaded:
         try:
@@ -828,7 +954,24 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             db.save_drive_prefs(user_id, {"uploaded_backup_ids": all_ids, "last_backup_at": now_iso})
         except Exception:
             pass
-    return uploaded, ids
+
+    return UploadSavedZipResult(
+        uploaded=uploaded,
+        ids=ids,
+        attempted=attempted,
+        failed=failed,
+        skipped_nonzip=skipped_nonzip,
+        skipped_dedup=skipped_dedup,
+    )
+
+
+def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
+    """Upload only ZIP backups that were not uploaded before for this user.
+
+    Uses db.drive_prefs.uploaded_backup_ids (set) to deduplicate uploads.
+    """
+    res = _upload_all_saved_zip_backups_detailed(user_id)
+    return res.uploaded, list(res.ids)
 
 
 # Expose a local proxy for zipfile so tests can safely monkeypatch
@@ -1005,10 +1148,18 @@ def perform_scheduled_backup(user_id: int) -> bool:
     try:
         now_iso = _now_utc().isoformat()
         if category == "zip":
+            # If there are no ZIP backups locally, treat as success (nothing to do).
+            try:
+                backups = backup_manager.list_backups(user_id) or []
+                has_zip = any(str(getattr(b, 'file_path', '')).endswith('.zip') for b in backups)
+            except Exception:
+                has_zip = True
+            if not has_zip:
+                return True
             # Upload any saved ZIP backups that were not uploaded yet
-            count, _ids = upload_all_saved_zip_backups(user_id)
-            ok = bool(count and count > 0)
-            if ok:
+            res = _upload_all_saved_zip_backups_detailed(user_id)
+            ok = bool(res.failed == 0)
+            if ok and res.uploaded > 0:
                 try:
                     db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
                 except Exception:
