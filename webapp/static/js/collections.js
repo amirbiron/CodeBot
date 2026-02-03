@@ -2400,7 +2400,7 @@
       ? `<button type="button" class="btn-tag-edit" data-item-id="${escapeHtml(itemId)}" title="ערוך תגיות" aria-label="ערוך תגיות">🏷️</button>`
       : '';
     const tagsAttr = Array.isArray(item.tags) ? item.tags.join(',') : '';
-    const selectBox = itemId
+    const selectBox = (TAGS_TOOLBAR_ENABLED && itemId)
       ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
       : '';
     return `
