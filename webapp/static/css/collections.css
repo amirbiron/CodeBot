@@ -491,6 +491,27 @@
 .btn-tag-edit{padding:4px 8px;font-size:16px;border:none;background:transparent;cursor:pointer;border-radius:4px;transition:background .2s}
 .btn-tag-edit:hover{background:var(--collections-btn-hover-bg)}
 
+/* Mobile: hide tag editing controls and move tags to second row */
+@media(max-width:640px){
+  /* Hide tag edit button on items */
+  .btn-tag-edit{display:none}
+  /* Move tags to second row */
+  .collection-item{flex-wrap:wrap}
+  .collection-item .item-tags{
+    order:10;
+    width:100%;
+    margin:4px 0 0 0;
+    padding-inline-start:1.5rem /* align with file name (after drag handle) */
+  }
+  /* Hide tag editing controls in toolbar (keep filter/sort) */
+  .tags-bulk-toggle,
+  .tags-bulk-edit,
+  .tags-export-btn,
+  .tags-import-btn{display:none}
+  /* Hide bulk mode checkboxes on mobile (controls are hidden anyway) */
+  .bulk-mode .item-select{display:none}
+}
+
 .item-select{display:none;accent-color:var(--collections-accent);margin-top:2px}
 .bulk-mode .item-select{display:inline-flex}
 
