@@ -85,6 +85,17 @@ def _api_get_files_impl():
         # Calculate total pages
         total_pages = (total + per_page - 1) // per_page if total > 0 else 1
 
+        # Ensure `page` in response matches the actual returned data.
+        # Some DB implementations clamp out-of-range pages to the last valid page.
+        actual_page = min(max(1, page), total_pages)
+        if actual_page != page:
+            page = actual_page
+            files, total = facade.get_regular_files_paginated(
+                user_id=user_id,
+                page=page,
+                per_page=per_page,
+            )
+
         # Serialize files for JSON response (convert ObjectId to string)
         serialized_files = []
         for f in files:
