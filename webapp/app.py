@@ -3008,7 +3008,7 @@ def login_required(f):
                 if wants_json:
                     return jsonify({'error': 'נדרש להתחבר'}), 401
                 next_url = request.full_path if request.query_string else request.path
-                return redirect(url_for('login', next=next_url))
+                return redirect(url_for('auth.login', next=next_url))
             return await f(*args, **kwargs)
         return decorated_function
 
@@ -3027,7 +3027,7 @@ def login_required(f):
                 return jsonify({'error': 'נדרש להתחבר'}), 401
             # אחרת: הפניה רגילה לעמוד ההתחברות, עם next לחזרה
             next_url = request.full_path if request.query_string else request.path
-            return redirect(url_for('login', next=next_url))
+            return redirect(url_for('auth.login', next=next_url))
         return f(*args, **kwargs)
     return decorated_function
 
