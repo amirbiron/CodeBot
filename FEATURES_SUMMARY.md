@@ -2586,32 +2586,18 @@ docker-compose up -d
 - 🧠 **Semantic Code Search** - חיפוש סמנטי בקוד מבוסס AI - מאפשר חיפוש לפי משמעות התוכן
 - 🔀 **Multi-Repo Browser** - דפדפן ריפויים מרובים ב-GitHub עם מעבר חלק בין repos
 - 📖 **Repository Markdown Preview** - תצוגה מקדימה של קבצי Markdown בתוך דפדפן הריפו
-- 🎨 **Markdown Code Colors** - צבעי הדגשת תחביר משופרים בבלוקי קוד
 
 **אוספים (Collections):**
 - 🎴 **Collection Cards Redesign** - עיצוב מחדש של כרטיסי אוספים בסגנון Workspace
-- 📄 **Collection Document Viewer** - צופה מסמכים מובנה באוספים עם תצוגה מקדימה
+- 📄 **Collection Document Viewer** - צופה מסמכים של קולקשיינים ב-MongoDB
 - 🏷️ **Collection File Tagging** - מערכת תיוג קבצים באוספים לארגון משופר
-- 🧹 **Collection Tags Cleanup** - ניקוי וארגון אוטומטי של תגיות
-- 📱 **Mobile Collection Display** - שיפור תצוגת פריטי אוספים במובייל
 
 **PWA ושיתוף:**
 - 📲 **PWA Code Sharing** - שיתוף קוד ישירות מאפליקציית PWA לאפליקציות אחרות
-- 🔗 **Search Results Routing** - ניתוב משופר לתוצאות חיפוש
-
-**תצוגה ועריכה:**
-- 🖼️ **HTML Preview Rendering** - רינדור תצוגה מקדימה לקבצי HTML
-- ✏️ **Edit & Copy Buttons** - כפתורי עריכה והעתקה משופרים בתצוגת קוד
-- 🎨 **Theme Settings Scope** - היקף הגדרות ערכת נושא מורחב
-
-**תיעוד:**
-- 📚 **Code Browser Documentation** - תיעוד מקיף לדפדפן הקוד
-- 📝 **Doc Site Markdown Blocks** - בלוקי מארקדאון משופרים באתר התיעוד
 
 #### תכונות בוט חדשות:
 
 **ניטור והתראות:**
-- 📊 **EWMA Telegram Alerts** - התראות בטלגרם מבוססות EWMA (Exponentially Weighted Moving Average)
 - 🔧 **Bot Operational Failures Handling** - טיפול משופר בכשלים תפעוליים
 - 🤖 **Manual Repo Response** - תגובת בוט ידנית לריפו
 
