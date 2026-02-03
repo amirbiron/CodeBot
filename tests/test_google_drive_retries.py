@@ -82,6 +82,78 @@ def test_upload_bytes_retries_on_429_then_success(monkeypatch):
     fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip")
     assert fid == "fid-429-ok"
 
+
+def test_upload_bytes_retries_on_401_forced_refresh_then_success(monkeypatch):
+    gds = _import_fresh()
+
+    calls = {"svc": 0, "refresh": 0}
+
+    # Force-refresh should be invoked once on 401
+    def _refresh(uid):
+        calls["refresh"] += 1
+        return True
+    monkeypatch.setattr(gds, "_force_refresh_credentials", _refresh, raising=True)
+
+    class _Req401:
+        def next_chunk(self):
+            raise _make_http_error(gds, status=401, reason="authError", retry_after=0)
+
+    class _ReqOK:
+        def next_chunk(self):
+            return None, {"id": "fid-401-ok"}
+
+    class _Files:
+        def __init__(self, req_factory):
+            self._req_factory = req_factory
+        def create(self, body=None, media_body=None, fields=None):
+            assert getattr(media_body, 'resumable', False) is True
+            return self._req_factory()
+
+    class _Svc:
+        def __init__(self, req_factory):
+            self._files = _Files(req_factory)
+        def files(self):
+            return self._files
+
+    def _get_svc(uid):
+        calls["svc"] += 1
+        return _Svc(_Req401 if calls["svc"] == 1 else _ReqOK)
+
+    monkeypatch.setattr(gds, "get_drive_service", _get_svc, raising=True)
+    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub: "folder123", raising=True)
+
+    class _MediaIoBaseUpload:
+        def __init__(self, fh, mimetype=None, resumable=False, chunksize=None):
+            assert isinstance(fh, io.BytesIO)
+            self.resumable = resumable
+            self.chunksize = chunksize
+    monkeypatch.setattr(gds, "MediaIoBaseUpload", _MediaIoBaseUpload, raising=True)
+
+    fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip")
+    assert fid == "fid-401-ok"
+    assert calls["refresh"] == 1
+    assert calls["svc"] >= 2
+
+
+def test_perform_scheduled_backup_zip_no_local_zip_is_ok(monkeypatch):
+    gds = _import_fresh()
+
+    # Force zip category
+    class _DB:
+        def get_drive_prefs(self, user_id):
+            return {"schedule_category": "zip"}
+        def save_drive_prefs(self, user_id, prefs):
+            return True
+    monkeypatch.setattr(gds, "db", _DB(), raising=True)
+
+    # No local ZIPs
+    monkeypatch.setattr(gds.backup_manager, "list_backups", lambda uid: [SimpleNamespace(file_path="a.txt")], raising=True)
+
+    # Should not call Drive at all when nothing to upload
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid: (_ for _ in ()).throw(AssertionError("should not call Drive")), raising=True)
+
+    assert gds.perform_scheduled_backup(123) is True
+
 def test_retryable_and_parse_helpers(monkeypatch):
     gds = _import_fresh()
 
