@@ -553,19 +553,36 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
                 # ⚠️ ללא: code, content, raw_data
             }
 
-        pipeline = [
-            {"$match": {"user_id": user_id, "is_active": True}},
-            {"$sort": {"file_name": 1, "version": -1}},
-            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-            {"$replaceRoot": {"newRoot": "$latest"}},
-            {"$match": {"is_pinned": True}},
-            {"$sort": {"pin_order": 1}},
-            {"$limit": MAX_PINNED_FILES},
-            {"$project": projection},
-        ]
+        # NOTE:
+        # `is_pinned: true` אמור להופיע רק על הגרסה האחרונה של הקובץ (נכפה ב-toggle_pin וב-save_code_snippet),
+        # ולכן אין צורך ב-$sort/$group/$first על כל הגרסאות של המשתמש.
+        query = {
+            "user_id": user_id,
+            "is_active": True,
+            "is_pinned": True,
+        }
 
-        pinned = list(self.collection.aggregate(pipeline, allowDiskUse=True))
-        return pinned
+        # הגנה: אם יש דאטה ישן/תקול שבו כמה גרסאות עדיין נעוצות, נמשוך קצת יותר ונסנן כפילויות לפי file_name.
+        soft_limit = max(MAX_PINNED_FILES, 1) * 3
+        cursor = (
+            self.collection.find(query, projection)
+            .sort([("pin_order", 1), ("pinned_at", -1), ("version", -1)])
+            .limit(soft_limit)
+        )
+        docs = list(cursor or [])
+
+        # Dedup by file_name (keep first by sort order)
+        out: List[Dict[str, Any]] = []
+        seen = set()
+        for d in docs:
+            fn = (d or {}).get("file_name")
+            if not fn or fn in seen:
+                continue
+            seen.add(fn)
+            out.append(d)
+            if len(out) >= MAX_PINNED_FILES:
+                break
+        return out
 
     except Exception as e:
         logger.error(f"שגיאה ב-get_pinned_files: {e}")
@@ -575,18 +592,13 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
 def get_pinned_count(self, user_id: int) -> int:
     """ספירת קבצים נעוצים"""
     try:
-        pipeline = [
-            {"$match": {"user_id": user_id, "is_active": True}},
-            {"$sort": {"file_name": 1, "version": -1}},
-            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-            {"$replaceRoot": {"newRoot": "$latest"}},
-            {"$match": {"is_pinned": True}},
-            {"$count": "count"},
-        ]
-        res = list(self.collection.aggregate(pipeline, allowDiskUse=True))
-        if res:
-            return int(res[0].get("count", 0) or 0)
-        return 0
+        # `is_pinned:true` אמור להיות ייחודי לכל (user_id, file_name), ולכן count_documents הוא O(pinned).
+        return int(
+            self.collection.count_documents(
+                {"user_id": user_id, "is_active": True, "is_pinned": True}
+            )
+            or 0
+        )
     except Exception as e:
         logger.error(f"שגיאה בספירת נעוצים: {e}")
         return 0
@@ -1541,6 +1553,23 @@ class DatabaseManager:
             "code_snippets",
             [("user_id", ASCENDING), ("is_pinned", ASCENDING), ("pin_order", ASCENDING), ("pinned_at", DESCENDING)],
             name="user_pinned_pin_order_idx",
+            background=True,
+        )
+
+        # code_snippets - אינדקס אופטימלי לשליפת נעוצים בדשבורד עם פילטר is_active
+        # תומך ב:
+        # match: user_id + is_active + is_pinned
+        # sort: pin_order ASC (+ pinned_at DESC כ-tie-breaker)
+        safe_create_index(
+            "code_snippets",
+            [
+                ("user_id", ASCENDING),
+                ("is_active", ASCENDING),
+                ("is_pinned", ASCENDING),
+                ("pin_order", ASCENDING),
+                ("pinned_at", DESCENDING),
+            ],
+            name="user_active_pinned_pin_order_idx",
             background=True,
         )
 
