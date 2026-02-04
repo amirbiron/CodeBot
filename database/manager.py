@@ -62,6 +62,21 @@ class DBLike(Protocol):
 class _StubCollection:
     """מימוש מינימלי שתואם את PyMongo לצורך אתחול מוקדם והימנעות מ-None."""
 
+    class _StubCursor:
+        """Cursor מדומה שתומך בשרשור sort/limit/skip ומחזיר 0 מסמכים."""
+
+        def sort(self, *args: Any, **kwargs: Any) -> "_StubCollection._StubCursor":
+            return self
+
+        def limit(self, *args: Any, **kwargs: Any) -> "_StubCollection._StubCursor":
+            return self
+
+        def skip(self, *args: Any, **kwargs: Any) -> "_StubCollection._StubCursor":
+            return self
+
+        def __iter__(self):
+            return iter(())
+
     def insert_one(self, *args: Any, **kwargs: Any) -> Any:
         return SimpleNamespace(inserted_id=None)
 
@@ -102,7 +117,8 @@ class _StubCollection:
         return None
 
     def find(self, *args: Any, **kwargs: Any) -> Any:
-        return []
+        # חיקוי PyMongo cursor כדי לתמוך בשרשור (find().sort().limit()) גם במצב Stub
+        return _StubCollection._StubCursor()
 
     def distinct(self, *args: Any, **kwargs: Any) -> Any:
         return []

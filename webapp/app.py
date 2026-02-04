@@ -2641,28 +2641,18 @@ def ensure_code_snippets_indexes() -> None:
                     info = coll.index_information() or {}
                     meta = info.get(desired_name) if isinstance(info, dict) else None
                     existing_key = meta.get('key') if isinstance(meta, dict) else None
-                    def _normalize_key_spec(spec):
-                        """
-                        Normalize a PyMongo index key spec into a list of (field, direction) tuples.
+                    normalized_desired = [(str(k), int(v)) for (k, v) in desired_keys]
+                    normalized_existing = None
+                    try:
+                        if isinstance(existing_key, list):
+                            normalized_existing = [(str(k), int(v)) for (k, v) in existing_key]
+                        elif isinstance(existing_key, dict):
+                            # SON preserves insertion order; for normal dicts (py3.7+) order is also stable.
+                            normalized_existing = [(str(k), int(v)) for (k, v) in existing_key.items()]
+                    except Exception:
+                        normalized_existing = None
 
-                        `index_information()` usually returns `key` as a list of tuples, but in some environments
-                        it may be represented as a SON/dict-like mapping. Handle both to avoid false mismatches.
-                        """
-                        if not spec:
-                            return None
-                        try:
-                            if isinstance(spec, list):
-                                return [(str(k), int(v)) for (k, v) in spec]
-                            if isinstance(spec, dict):
-                                # SON preserves insertion order; for normal dicts (py3.7+) order is also stable.
-                                return [(str(k), int(v)) for (k, v) in spec.items()]
-                        except Exception:
-                            return None
-                        return None
-
-                    normalized_existing = _normalize_key_spec(existing_key)
-                    normalized_desired = _normalize_key_spec(desired_keys)
-                    if normalized_existing and normalized_desired and normalized_existing != normalized_desired:
+                    if normalized_existing and normalized_existing != normalized_desired:
                         try:
                             coll.drop_index(desired_name)
                         except Exception:
