@@ -2627,17 +2627,8 @@ def ensure_code_snippets_indexes() -> None:
                 pass
             try:
                 coll.create_index(
-                    [('user_id', ASCENDING), ('is_pinned', ASCENDING), ('pin_order', ASCENDING), ('pinned_at', DESCENDING)],
-                    name='user_pinned_pin_order',
-                    background=True,
-                )
-            except Exception:
-                pass
-            # אינדקס אופטימלי לנעוצים בדשבורד (כולל is_active לסינון בקשות)
-            try:
-                coll.create_index(
                     [('user_id', ASCENDING), ('is_active', ASCENDING), ('is_pinned', ASCENDING), ('pin_order', ASCENDING), ('pinned_at', DESCENDING)],
-                    name='user_active_pinned_pin_order',
+                    name='user_pinned_pin_order_idx',
                     background=True,
                 )
             except Exception:

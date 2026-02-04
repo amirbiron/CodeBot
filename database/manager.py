@@ -592,13 +592,20 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
 def get_pinned_count(self, user_id: int) -> int:
     """ספירת קבצים נעוצים"""
     try:
-        # `is_pinned:true` אמור להיות ייחודי לכל (user_id, file_name), ולכן count_documents הוא O(pinned).
-        return int(
-            self.collection.count_documents(
-                {"user_id": user_id, "is_active": True, "is_pinned": True}
-            )
-            or 0
-        )
+        # NOTE:
+        # ברירת המחדל: is_pinned אמור להיות true רק על גרסה אחת לכל file_name,
+        # אבל אם יש "dirty data" (כמה גרסאות עדיין נעוצות) count_documents ייתן ספירה גבוהה מדי
+        # ויחסום נעיצה חדשה בטעות. לכן נספור ייחודי לפי file_name.
+        query = {"user_id": user_id, "is_active": True, "is_pinned": True}
+        try:
+            distinct = getattr(self.collection, "distinct", None)
+            if callable(distinct):
+                names = distinct("file_name", query) or []
+                return int(len(names))
+        except Exception:
+            # fallback ל-count_documents אם distinct לא זמין/נכשל
+            pass
+        return int(self.collection.count_documents(query) or 0)
     except Exception as e:
         logger.error(f"שגיאה בספירת נעוצים: {e}")
         return 0
@@ -1548,18 +1555,7 @@ class DatabaseManager:
             enforce=True,
         )
 
-        # code_snippets - אינדקס לקבצים נעוצים בדשבורד
-        safe_create_index(
-            "code_snippets",
-            [("user_id", ASCENDING), ("is_pinned", ASCENDING), ("pin_order", ASCENDING), ("pinned_at", DESCENDING)],
-            name="user_pinned_pin_order_idx",
-            background=True,
-        )
-
-        # code_snippets - אינדקס אופטימלי לשליפת נעוצים בדשבורד עם פילטר is_active
-        # תומך ב:
-        # match: user_id + is_active + is_pinned
-        # sort: pin_order ASC (+ pinned_at DESC כ-tie-breaker)
+        # code_snippets - אינדקס לקבצים נעוצים בדשבורד (כולל is_active לסינון יעיל)
         safe_create_index(
             "code_snippets",
             [
@@ -1569,8 +1565,9 @@ class DatabaseManager:
                 ("pin_order", ASCENDING),
                 ("pinned_at", DESCENDING),
             ],
-            name="user_active_pinned_pin_order_idx",
+            name="user_pinned_pin_order_idx",
             background=True,
+            enforce=True,
         )
 
         # code_snippets - אינדקס TEXT לחיפוש גלובלי ($text)

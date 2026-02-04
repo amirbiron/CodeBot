@@ -23,7 +23,7 @@ class TestPinToDashboard:
             },
             None,
         ]
-        mock_db.collection.count_documents.return_value = 2
+        mock_db.collection.distinct.return_value = ["a.py", "b.py"]
         mock_db.collection.find.return_value.sort.return_value = []
 
         result = toggle_pin(mock_db, 123, "test.py")
@@ -42,7 +42,7 @@ class TestPinToDashboard:
             },
             None,
         ]
-        mock_db.collection.count_documents.return_value = 8  # מקסימום
+        mock_db.collection.distinct.return_value = [f"f{i}.py" for i in range(8)]  # מקסימום
         mock_db.collection.find.return_value.sort.return_value = []
 
         result = toggle_pin(mock_db, 123, "test.py")
@@ -103,7 +103,7 @@ class TestPinToDashboard:
             "is_pinned": True,
             "pin_order": 0
         }
-        mock_db.collection.count_documents.return_value = 4
+        mock_db.collection.distinct.return_value = ["a.py", "b.py", "c.py", "d.py"]
 
         result = reorder_pinned(mock_db, 123, "test.py", 2)
 
