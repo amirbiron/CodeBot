@@ -2626,40 +2626,32 @@ def ensure_code_snippets_indexes() -> None:
             except Exception:
                 pass
             try:
-                # Pinned files (Dashboard): keep index definition consistent by name
-                desired_name = 'user_pinned_pin_order_idx'
-                desired_keys = [
-                    ('user_id', ASCENDING),
-                    ('is_active', ASCENDING),
-                    ('is_pinned', ASCENDING),
-                    ('pin_order', ASCENDING),
-                    ('pinned_at', DESCENDING),
-                ]
-                # If an older deployment created this index name with a different key order,
-                # drop+recreate best-effort to avoid silently keeping a suboptimal index.
-                try:
-                    info = coll.index_information() or {}
-                    meta = info.get(desired_name) if isinstance(info, dict) else None
-                    existing_key = meta.get('key') if isinstance(meta, dict) else None
-                    normalized_desired = [(str(k), int(v)) for (k, v) in desired_keys]
-                    normalized_existing = None
-                    try:
-                        if isinstance(existing_key, list):
-                            normalized_existing = [(str(k), int(v)) for (k, v) in existing_key]
-                        elif isinstance(existing_key, dict):
-                            # SON preserves insertion order; for normal dicts (py3.7+) order is also stable.
-                            normalized_existing = [(str(k), int(v)) for (k, v) in existing_key.items()]
-                    except Exception:
-                        normalized_existing = None
+                # Pinned files (Dashboard): use the shared safe_create_index utility (enforce=True)
+                # to avoid duplicating index comparison / drop+recreate logic here.
+                from database.manager import DatabaseManager
 
-                    if normalized_existing and normalized_existing != normalized_desired:
-                        try:
-                            coll.drop_index(desired_name)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                coll.create_index(desired_keys, name=desired_name, background=True)
+                desired_name = "user_pinned_pin_order_idx"
+                desired_keys = [
+                    ("user_id", ASCENDING),
+                    ("is_active", ASCENDING),
+                    ("is_pinned", ASCENDING),
+                    ("pin_order", ASCENDING),
+                    ("pinned_at", DESCENDING),
+                ]
+
+                class _DbProxy:
+                    def __getitem__(self, _name: str):
+                        return coll
+
+                dm_like = type("_DmLike", (), {"db": _DbProxy()})()
+                DatabaseManager.safe_create_index(
+                    dm_like,
+                    "code_snippets",
+                    desired_keys,
+                    name=desired_name,
+                    background=True,
+                    enforce=True,
+                )
             except Exception:
                 pass
 
