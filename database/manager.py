@@ -563,7 +563,7 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
         }
 
         # הגנה: אם יש דאטה ישן/תקול שבו כמה גרסאות עדיין נעוצות, נמשוך קצת יותר ונסנן כפילויות לפי file_name.
-        soft_limit = max(MAX_PINNED_FILES, 1) * 3
+        soft_limit = MAX_PINNED_FILES * 3
         cursor = (
             self.collection.find(query, projection)
             .sort([("pin_order", 1), ("pinned_at", -1), ("version", -1)])
@@ -1555,20 +1555,9 @@ class DatabaseManager:
             enforce=True,
         )
 
-        # code_snippets - אינדקס לקבצים נעוצים בדשבורד (כולל is_active לסינון יעיל)
-        safe_create_index(
-            "code_snippets",
-            [
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("is_pinned", ASCENDING),
-                ("pin_order", ASCENDING),
-                ("pinned_at", DESCENDING),
-            ],
-            name="user_pinned_pin_order_idx",
-            background=True,
-            enforce=True,
-        )
+        # NOTE:
+        # אינדקס נעוצים `user_pinned_pin_order_idx` נוצר ומטופל ב-webapp (ensure_code_snippets_indexes)
+        # כדי למנוע כפילות והסטה של "מקור אמת" בין שני מנגנוני אתחול שונים.
 
         # code_snippets - אינדקס TEXT לחיפוש גלובלי ($text)
         # חשוב: זה אינדקס "כבד" כי הוא כולל גם code, אבל הוא קריטי כדי ש-$text יעבוד מהר

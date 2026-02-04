@@ -2626,11 +2626,29 @@ def ensure_code_snippets_indexes() -> None:
             except Exception:
                 pass
             try:
-                coll.create_index(
-                    [('user_id', ASCENDING), ('is_active', ASCENDING), ('is_pinned', ASCENDING), ('pin_order', ASCENDING), ('pinned_at', DESCENDING)],
-                    name='user_pinned_pin_order_idx',
-                    background=True,
-                )
+                # Pinned files (Dashboard): keep index definition consistent by name
+                desired_name = 'user_pinned_pin_order_idx'
+                desired_keys = [
+                    ('user_id', ASCENDING),
+                    ('is_active', ASCENDING),
+                    ('is_pinned', ASCENDING),
+                    ('pin_order', ASCENDING),
+                    ('pinned_at', DESCENDING),
+                ]
+                # If an older deployment created this index name with a different key order,
+                # drop+recreate best-effort to avoid silently keeping a suboptimal index.
+                try:
+                    info = coll.index_information() or {}
+                    meta = info.get(desired_name) if isinstance(info, dict) else None
+                    existing_key = meta.get('key') if isinstance(meta, dict) else None
+                    if existing_key and list(existing_key) != desired_keys:
+                        try:
+                            coll.drop_index(desired_name)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                coll.create_index(desired_keys, name=desired_name, background=True)
             except Exception:
                 pass
 
