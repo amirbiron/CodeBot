@@ -92,15 +92,24 @@ def _verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
     return True
 
 
+# Cache for lazy-loaded helpers (loaded once per process)
+_helpers_cache = None
+
+
 def _get_app_helpers():
-    """Lazy import of helper functions from app.py to avoid duplication."""
+    """Lazy import of helper functions from app.py. Cached after first call."""
+    global _helpers_cache
+    if _helpers_cache is not None:
+        return _helpers_cache
+
     from webapp.app import is_admin, is_premium
     from types import SimpleNamespace
 
-    return SimpleNamespace(
+    _helpers_cache = SimpleNamespace(
         is_admin=is_admin,
         is_premium=is_premium,
     )
+    return _helpers_cache
 
 
 def _get_db_for_auth():

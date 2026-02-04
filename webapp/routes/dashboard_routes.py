@@ -29,11 +29,19 @@ logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
+# Cache for lazy-loaded helpers (loaded once per process)
+_helpers_cache = None
+
 
 def _get_app_helpers():
     """
     Lazy import of helper functions from app.py.
+    Cached after first call to avoid re-import overhead.
     """
+    global _helpers_cache
+    if _helpers_cache is not None:
+        return _helpers_cache
+
     from webapp.app import (
         _build_activity_timeline,
         _build_files_need_attention,
@@ -54,7 +62,7 @@ def _get_app_helpers():
         resolve_file_language,
     )
 
-    return SimpleNamespace(
+    _helpers_cache = SimpleNamespace(
         is_admin=is_admin,
         is_premium=is_premium,
         is_impersonating_safe=is_impersonating_safe,
@@ -73,6 +81,7 @@ def _get_app_helpers():
         _MIN_DT=_MIN_DT,
         BOT_USERNAME_CLEAN=BOT_USERNAME_CLEAN,
     )
+    return _helpers_cache
 
 
 @dashboard_bp.route("/dashboard")
