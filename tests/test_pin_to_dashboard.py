@@ -23,7 +23,7 @@ class TestPinToDashboard:
             },
             None,
         ]
-        mock_db.collection.aggregate.side_effect = [[{"count": 2}], [{"count": 3}]]
+        mock_db.collection.distinct.return_value = ["a.py", "b.py"]
         mock_db.collection.find.return_value.sort.return_value = []
 
         result = toggle_pin(mock_db, 123, "test.py")
@@ -42,7 +42,7 @@ class TestPinToDashboard:
             },
             None,
         ]
-        mock_db.collection.aggregate.return_value = [{"count": 8}]  # מקסימום
+        mock_db.collection.distinct.return_value = [f"f{i}.py" for i in range(8)]  # מקסימום
         mock_db.collection.find.return_value.sort.return_value = []
 
         result = toggle_pin(mock_db, 123, "test.py")
@@ -77,11 +77,17 @@ class TestPinToDashboard:
 
     def test_get_pinned_files_ordered(self, mock_db):
         """קבלת קבצים נעוצים בסדר נכון"""
-        mock_db.collection.aggregate.return_value = [
+        pinned = [
             {"file_name": "first.py", "pin_order": 0},
             {"file_name": "second.py", "pin_order": 1},
             {"file_name": "third.py", "pin_order": 2}
         ]
+        # get_pinned_files משתמש ב-find().sort().limit()
+        find_result = MagicMock()
+        sort_result = MagicMock()
+        sort_result.limit.return_value = pinned
+        find_result.sort.return_value = sort_result
+        mock_db.collection.find.return_value = find_result
 
         result = get_pinned_files(mock_db, 123)
 
@@ -97,7 +103,7 @@ class TestPinToDashboard:
             "is_pinned": True,
             "pin_order": 0
         }
-        mock_db.collection.aggregate.return_value = [{"count": 4}]
+        mock_db.collection.distinct.return_value = ["a.py", "b.py", "c.py", "d.py"]
 
         result = reorder_pinned(mock_db, 123, "test.py", 2)
 

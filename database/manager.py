@@ -62,6 +62,21 @@ class DBLike(Protocol):
 class _StubCollection:
     """מימוש מינימלי שתואם את PyMongo לצורך אתחול מוקדם והימנעות מ-None."""
 
+    class _StubCursor:
+        """Cursor מדומה שתומך בשרשור sort/limit/skip ומחזיר 0 מסמכים."""
+
+        def sort(self, *args: Any, **kwargs: Any) -> "_StubCollection._StubCursor":
+            return self
+
+        def limit(self, *args: Any, **kwargs: Any) -> "_StubCollection._StubCursor":
+            return self
+
+        def skip(self, *args: Any, **kwargs: Any) -> "_StubCollection._StubCursor":
+            return self
+
+        def __iter__(self):
+            return iter(())
+
     def insert_one(self, *args: Any, **kwargs: Any) -> Any:
         return SimpleNamespace(inserted_id=None)
 
@@ -102,6 +117,10 @@ class _StubCollection:
         return None
 
     def find(self, *args: Any, **kwargs: Any) -> Any:
+        # חיקוי PyMongo cursor כדי לתמוך בשרשור (find().sort().limit()) גם במצב Stub
+        return _StubCollection._StubCursor()
+
+    def distinct(self, *args: Any, **kwargs: Any) -> Any:
         return []
 
 from config import config
@@ -553,19 +572,36 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
                 # ⚠️ ללא: code, content, raw_data
             }
 
-        pipeline = [
-            {"$match": {"user_id": user_id, "is_active": True}},
-            {"$sort": {"file_name": 1, "version": -1}},
-            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-            {"$replaceRoot": {"newRoot": "$latest"}},
-            {"$match": {"is_pinned": True}},
-            {"$sort": {"pin_order": 1}},
-            {"$limit": MAX_PINNED_FILES},
-            {"$project": projection},
-        ]
+        # NOTE:
+        # `is_pinned: true` אמור להופיע רק על הגרסה האחרונה של הקובץ (נכפה ב-toggle_pin וב-save_code_snippet),
+        # ולכן אין צורך ב-$sort/$group/$first על כל הגרסאות של המשתמש.
+        query = {
+            "user_id": user_id,
+            "is_active": True,
+            "is_pinned": True,
+        }
 
-        pinned = list(self.collection.aggregate(pipeline, allowDiskUse=True))
-        return pinned
+        # הגנה: אם יש דאטה ישן/תקול שבו כמה גרסאות עדיין נעוצות, נמשוך קצת יותר ונסנן כפילויות לפי file_name.
+        soft_limit = MAX_PINNED_FILES * 3
+        cursor = (
+            self.collection.find(query, projection)
+            .sort([("pin_order", 1), ("pinned_at", -1), ("version", -1)])
+            .limit(soft_limit)
+        )
+        docs = list(cursor or [])
+
+        # Dedup by file_name (keep first by sort order)
+        out: List[Dict[str, Any]] = []
+        seen = set()
+        for d in docs:
+            fn = (d or {}).get("file_name")
+            if not fn or fn in seen:
+                continue
+            seen.add(fn)
+            out.append(d)
+            if len(out) >= MAX_PINNED_FILES:
+                break
+        return out
 
     except Exception as e:
         logger.error(f"שגיאה ב-get_pinned_files: {e}")
@@ -575,18 +611,17 @@ def get_pinned_files(self, user_id: int) -> List[Dict]:
 def get_pinned_count(self, user_id: int) -> int:
     """ספירת קבצים נעוצים"""
     try:
-        pipeline = [
-            {"$match": {"user_id": user_id, "is_active": True}},
-            {"$sort": {"file_name": 1, "version": -1}},
-            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-            {"$replaceRoot": {"newRoot": "$latest"}},
-            {"$match": {"is_pinned": True}},
-            {"$count": "count"},
-        ]
-        res = list(self.collection.aggregate(pipeline, allowDiskUse=True))
-        if res:
-            return int(res[0].get("count", 0) or 0)
-        return 0
+        # NOTE:
+        # ברירת המחדל: is_pinned אמור להיות true רק על גרסה אחת לכל file_name,
+        # אבל אם יש "dirty data" (כמה גרסאות עדיין נעוצות) count_documents ייתן ספירה גבוהה מדי
+        # ויחסום נעיצה חדשה בטעות. לכן נספור ייחודי לפי file_name.
+        query = {"user_id": user_id, "is_active": True, "is_pinned": True}
+        try:
+            names = self.collection.distinct("file_name", query) or []
+            return int(len(names))
+        except Exception:
+            # fallback: אם distinct נכשל, נחזור לספירת מסמכים (ייתכן overcount בדאטה מלוכלך)
+            return int(self.collection.count_documents(query) or 0)
     except Exception as e:
         logger.error(f"שגיאה בספירת נעוצים: {e}")
         return 0
@@ -1536,13 +1571,9 @@ class DatabaseManager:
             enforce=True,
         )
 
-        # code_snippets - אינדקס לקבצים נעוצים בדשבורד
-        safe_create_index(
-            "code_snippets",
-            [("user_id", ASCENDING), ("is_pinned", ASCENDING), ("pin_order", ASCENDING), ("pinned_at", DESCENDING)],
-            name="user_pinned_pin_order_idx",
-            background=True,
-        )
+        # NOTE:
+        # אינדקס נעוצים `user_pinned_pin_order_idx` נוצר ומטופל ב-webapp (ensure_code_snippets_indexes)
+        # כדי למנוע כפילות והסטה של "מקור אמת" בין שני מנגנוני אתחול שונים.
 
         # code_snippets - אינדקס TEXT לחיפוש גלובלי ($text)
         # חשוב: זה אינדקס "כבד" כי הוא כולל גם code, אבל הוא קריטי כדי ש-$text יעבוד מהר
