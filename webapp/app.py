@@ -2641,7 +2641,28 @@ def ensure_code_snippets_indexes() -> None:
                     info = coll.index_information() or {}
                     meta = info.get(desired_name) if isinstance(info, dict) else None
                     existing_key = meta.get('key') if isinstance(meta, dict) else None
-                    if existing_key and list(existing_key) != desired_keys:
+                    def _normalize_key_spec(spec):
+                        """
+                        Normalize a PyMongo index key spec into a list of (field, direction) tuples.
+
+                        `index_information()` usually returns `key` as a list of tuples, but in some environments
+                        it may be represented as a SON/dict-like mapping. Handle both to avoid false mismatches.
+                        """
+                        if not spec:
+                            return None
+                        try:
+                            if isinstance(spec, list):
+                                return [(str(k), int(v)) for (k, v) in spec]
+                            if isinstance(spec, dict):
+                                # SON preserves insertion order; for normal dicts (py3.7+) order is also stable.
+                                return [(str(k), int(v)) for (k, v) in spec.items()]
+                        except Exception:
+                            return None
+                        return None
+
+                    normalized_existing = _normalize_key_spec(existing_key)
+                    normalized_desired = _normalize_key_spec(desired_keys)
+                    if normalized_existing and normalized_desired and normalized_existing != normalized_desired:
                         try:
                             coll.drop_index(desired_name)
                         except Exception:

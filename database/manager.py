@@ -104,6 +104,9 @@ class _StubCollection:
     def find(self, *args: Any, **kwargs: Any) -> Any:
         return []
 
+    def distinct(self, *args: Any, **kwargs: Any) -> Any:
+        return []
+
 from config import config
 try:
     # Structured logging events
@@ -598,14 +601,11 @@ def get_pinned_count(self, user_id: int) -> int:
         # ויחסום נעיצה חדשה בטעות. לכן נספור ייחודי לפי file_name.
         query = {"user_id": user_id, "is_active": True, "is_pinned": True}
         try:
-            distinct = getattr(self.collection, "distinct", None)
-            if callable(distinct):
-                names = distinct("file_name", query) or []
-                return int(len(names))
+            names = self.collection.distinct("file_name", query) or []
+            return int(len(names))
         except Exception:
-            # fallback ל-count_documents אם distinct לא זמין/נכשל
-            pass
-        return int(self.collection.count_documents(query) or 0)
+            # fallback: אם distinct נכשל, נחזור לספירת מסמכים (ייתכן overcount בדאטה מלוכלך)
+            return int(self.collection.count_documents(query) or 0)
     except Exception as e:
         logger.error(f"שגיאה בספירת נעוצים: {e}")
         return 0
