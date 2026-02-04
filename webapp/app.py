@@ -2626,32 +2626,29 @@ def ensure_code_snippets_indexes() -> None:
             except Exception:
                 pass
             try:
-                # Pinned files (Dashboard): use the shared safe_create_index utility (enforce=True)
-                # to avoid duplicating index comparison / drop+recreate logic here.
-                from database.manager import DatabaseManager
-
-                desired_name = "user_pinned_pin_order_idx"
+                # Pinned files (Dashboard): ensure correct index by name.
+                # If an older deployment created this index name with a different key order,
+                # drop+recreate best-effort to avoid silently keeping a suboptimal index.
+                desired_name = 'user_pinned_pin_order_idx'
                 desired_keys = [
-                    ("user_id", ASCENDING),
-                    ("is_active", ASCENDING),
-                    ("is_pinned", ASCENDING),
-                    ("pin_order", ASCENDING),
-                    ("pinned_at", DESCENDING),
+                    ('user_id', ASCENDING),
+                    ('is_active', ASCENDING),
+                    ('is_pinned', ASCENDING),
+                    ('pin_order', ASCENDING),
+                    ('pinned_at', DESCENDING),
                 ]
-
-                class _DbProxy:
-                    def __getitem__(self, _name: str):
-                        return coll
-
-                dm_like = type("_DmLike", (), {"db": _DbProxy()})()
-                DatabaseManager.safe_create_index(
-                    dm_like,
-                    "code_snippets",
-                    desired_keys,
-                    name=desired_name,
-                    background=True,
-                    enforce=True,
-                )
+                try:
+                    info = coll.index_information() or {}
+                    meta = info.get(desired_name) if isinstance(info, dict) else None
+                    existing_key = meta.get('key') if isinstance(meta, dict) else None
+                    if existing_key and existing_key != desired_keys:
+                        try:
+                            coll.drop_index(desired_name)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                coll.create_index(desired_keys, name=desired_name, background=True)
             except Exception:
                 pass
 
