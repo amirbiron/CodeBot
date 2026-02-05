@@ -2025,10 +2025,24 @@ def get_current_theme() -> str:
     except Exception:
         pass
     _, _, theme_attr = _parse_theme_token(t)
+
+    # Shared themes (shared:<id>) אינם חלק מ-ALLOWED_UI_THEMES, אבל הם ערכים תקינים ל-UI.
+    try:
+        if str(theme_attr).lower().startswith("shared:"):
+            return theme_attr
+    except Exception:
+        pass
+
     if theme_attr not in ALLOWED_UI_THEMES:
-        # אם ברירת המחדל היא builtin – נחזור אליה; אחרת fallback ל-classic
+        # אם ברירת המחדל היא builtin – נחזור אליה; אם היא shared – נאפשר גם אותה; אחרת fallback ל-classic
         _, _, default_attr = get_default_ui_theme_parts()
-        theme_attr = default_attr if default_attr in ALLOWED_UI_THEMES else "classic"
+        try:
+            if default_attr in ALLOWED_UI_THEMES or str(default_attr).lower().startswith("shared:"):
+                return default_attr
+        except Exception:
+            pass
+        return "classic"
+
     return theme_attr
 
 @lru_cache(maxsize=32)
