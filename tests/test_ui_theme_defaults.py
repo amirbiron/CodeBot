@@ -13,7 +13,7 @@ import pytest
         ("custom", "classic"),  # לא נתמך כברירת מחדל
         ("shared:tokyo-night", "shared:tokyo-night"),
         ("shared:ab", "shared:ab"),
-        ("shared:INVALID", "classic"),
+        ("shared:INVALID", "shared:invalid"),  # מנורמל לאותיות קטנות
         ("shared:..", "classic"),
         ("shared:", "classic"),
         ("not-a-theme", "classic"),
