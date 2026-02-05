@@ -1204,6 +1204,12 @@ class ConfigService:
             description="ערכת נושא להדגשת תחביר",
             category="display",
         ),
+        "DEFAULT_UI_THEME": ConfigDefinition(
+            key="DEFAULT_UI_THEME",
+            default="classic",
+            description="ערכת ברירת מחדל ל-UI ב-WebApp. תומך בערכת builtin או בערכה ציבורית בפורמט shared:<slug> (ללא רווחים).",
+            category="display",
+        ),
         "DOCUMENTATION_URL": ConfigDefinition(
             key="DOCUMENTATION_URL",
             default="https://amirbiron.github.io/CodeBot/",
