@@ -1607,7 +1607,12 @@ def inject_globals():
         pass
 
     # ערכת נושא
-    theme = 'classic'
+    try:
+        from webapp.ui_theme_defaults import get_default_ui_theme_parts
+
+        theme = get_default_ui_theme_parts()[2]
+    except Exception:
+        theme = "classic"
     theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
     cookie_theme = ''
     use_cookie_theme = False
@@ -1887,6 +1892,8 @@ THEME_SCOPE_DEVICE = "device"
 _THEME_SCOPE_VALUES = {THEME_SCOPE_GLOBAL, THEME_SCOPE_DEVICE}
 _THEME_ID_SAFE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 
+from webapp.ui_theme_defaults import get_default_ui_theme_parts, get_default_ui_theme_raw
+
 
 def _normalize_theme_scope(value: Optional[str]) -> str:
     v = str(value or "").strip().lower()
@@ -1895,25 +1902,26 @@ def _normalize_theme_scope(value: Optional[str]) -> str:
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
     """מפרק ערכת נושא: (type, id, theme_attr)."""
+    default_type, default_id, default_attr = get_default_ui_theme_parts()
     val = str(raw or "").strip()
     if not val:
-        return "builtin", "", "classic"
+        return default_type, default_id, default_attr
     low = val.lower()
     if low.startswith("shared:"):
         theme_id = low.split(":", 1)[1].strip()
         if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
             return "shared", theme_id, f"shared:{theme_id}"
-        return "builtin", "", "classic"
+        return default_type, default_id, default_attr
     if low.startswith("custom:"):
         theme_id = low.split(":", 1)[1].strip()
         if theme_id and _THEME_ID_SAFE_RE.fullmatch(theme_id):
             return "custom", theme_id, "custom"
-        return "builtin", "", "classic"
+        return default_type, default_id, default_attr
     if low == "custom":
         return "custom", "", "custom"
     if low in ALLOWED_UI_THEMES:
         return "builtin", low, low
-    return "builtin", "", "classic"
+    return default_type, default_id, default_attr
 
 
 def _resolve_theme_raw_token(
@@ -1949,7 +1957,7 @@ def _resolve_theme_raw_token(
                 theme_raw = pref
 
     if not theme_raw:
-        theme_raw = 'classic'
+        theme_raw = get_default_ui_theme_raw()
     return theme_raw, theme_scope, use_cookie_theme, user_doc
 
 
@@ -2008,7 +2016,7 @@ def get_current_theme() -> str:
     """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
     נופל חזרה ל-classic אם הערך לא חוקי.
     """
-    t = 'classic'
+    t = get_default_ui_theme_raw()
     try:
         uid = session.get('user_id')
         theme_raw, _, _, _ = _resolve_theme_raw_token(uid)
@@ -2018,7 +2026,9 @@ def get_current_theme() -> str:
         pass
     _, _, theme_attr = _parse_theme_token(t)
     if theme_attr not in ALLOWED_UI_THEMES:
-        theme_attr = 'classic'
+        # אם ברירת המחדל היא builtin – נחזור אליה; אחרת fallback ל-classic
+        _, _, default_attr = get_default_ui_theme_parts()
+        theme_attr = default_attr if default_attr in ALLOWED_UI_THEMES else "classic"
     return theme_attr
 
 @lru_cache(maxsize=32)
@@ -2330,7 +2340,7 @@ def _safe_dt_from_doc(value) -> datetime:
 
 def _get_theme_etag_key(user_id: Optional[int]) -> str:
     """מפתח קצר שמייצג את ערכת הנושא הנוכחית (כולל שינויי גרסה)."""
-    theme_raw = 'classic'
+    theme_raw = get_default_ui_theme_raw()
     user_doc = None
     try:
         theme_raw, _, _, user_doc = _resolve_theme_raw_token(
@@ -2338,7 +2348,7 @@ def _get_theme_etag_key(user_id: Optional[int]) -> str:
             projection={'ui_prefs.theme': 1, 'custom_themes': 1, 'custom_theme': 1},
         )
     except Exception:
-        theme_raw = 'classic'
+        theme_raw = get_default_ui_theme_raw()
         user_doc = None
 
     theme_type, theme_id, theme_attr = _parse_theme_token(theme_raw)

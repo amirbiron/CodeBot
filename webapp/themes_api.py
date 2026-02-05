@@ -16,6 +16,8 @@ from typing import Dict, Optional
 
 from flask import Blueprint, Response, jsonify, request, session
 
+from webapp.ui_theme_defaults import get_default_ui_theme_raw
+
 from services.theme_parser_service import (
     export_theme_to_json,
     generate_codemirror_css_from_tokens,
@@ -586,7 +588,10 @@ def _activate_theme_simple(db_ref, user_id: int, theme_id: str) -> bool:
     except Exception as e:
         logger.error("activate_theme_simple fallback failed: %s", e)
         try:
-            db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": "classic", "updated_at": now_utc}})
+            db_ref.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"ui_prefs.theme": get_default_ui_theme_raw(), "updated_at": now_utc}},
+            )
         except Exception:
             pass
         return False
@@ -868,12 +873,13 @@ def deactivate_all_themes():
     try:
         db_ref = get_db()
         now_utc = datetime.now(timezone.utc)
-        db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": "classic", "updated_at": now_utc}})
+        default_theme = get_default_ui_theme_raw()
+        db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": default_theme, "updated_at": now_utc}})
         db_ref.users.update_one(
             {"user_id": user_id, "custom_themes": {"$exists": True}},
             {"$set": {"custom_themes.$[].is_active": False, "updated_at": now_utc}},
         )
-        return jsonify({"ok": True, "message": "הערכות המותאמות בוטלו", "reset_to": "classic"})
+        return jsonify({"ok": True, "message": "הערכות המותאמות בוטלו", "reset_to": default_theme})
     except Exception as e:
         logger.exception("deactivate_all_themes failed: %s", e)
         return jsonify({"ok": False, "error": "database_error"}), 500
@@ -901,10 +907,15 @@ def delete_theme(theme_id: str):
 
         db_ref.users.update_one({"user_id": user_id}, {"$pull": {"custom_themes": {"id": theme_id}}})
         if was_active:
-            db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": "classic"}})
+            db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": get_default_ui_theme_raw()}})
 
         return jsonify(
-            {"ok": True, "message": "הערכה נמחקה בהצלחה", "was_active": was_active, "reset_to": "classic" if was_active else None}
+            {
+                "ok": True,
+                "message": "הערכה נמחקה בהצלחה",
+                "was_active": was_active,
+                "reset_to": get_default_ui_theme_raw() if was_active else None,
+            }
         )
     except Exception as e:
         logger.exception("delete_theme failed: %s", e)
@@ -983,16 +994,17 @@ def delete_custom_theme():
     try:
         db = get_db()
         now_utc = datetime.now(timezone.utc)
+        default_theme = get_default_ui_theme_raw()
         db.users.update_one(
             {"user_id": user_id},
             {
                 "$unset": {"custom_theme": ""},
-                "$set": {"ui_prefs.theme": "classic", "updated_at": now_utc},
+                "$set": {"ui_prefs.theme": default_theme, "updated_at": now_utc},
                 "$setOnInsert": {"created_at": now_utc},
             },
             upsert=True,
         )
-        return jsonify({"ok": True, "reset_to": "classic"})
+        return jsonify({"ok": True, "reset_to": default_theme})
     except Exception as e:
         logger.exception("delete_custom_theme failed: %s", e)
         return jsonify({"ok": False, "error": "database_error"}), 500
