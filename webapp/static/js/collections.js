@@ -2058,10 +2058,6 @@
           await openFileByName(fname);
           return;
         }
-        if (!ev.target.closest('.collection-card__drag') && !ev.target.closest('.drag') && !ev.target.closest('button')) {
-          const fname = name;
-          await openFileByName(fname);
-        }
       });
     }
 
@@ -2259,11 +2255,8 @@
     const url = (mode === 'md')
       ? `/md/${encodeURIComponent(fileId)}`
       : `/html/${encodeURIComponent(fileId)}`;
-    try {
-      window.open(url, '_blank', 'noopener');
-    } catch (_err) {
-      window.location.href = url;
-    }
+    // דרישת UX: לפתוח באותו טאב (לא בכרטיסייה חדשה)
+    window.location.href = url;
   }
 
   // פתיחת קובץ לפי שם הקובץ (שימושי גם ללחיצה על כל השורה)
@@ -2552,9 +2545,6 @@
         const fname = link.getAttribute('data-open') || '';
         await openFileByName(fname);
         return;
-      }
-      if (!ev.target.closest('button')) {
-        await openFileByName(name);
       }
     });
   }

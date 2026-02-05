@@ -56,12 +56,12 @@
         
         <div class="pinned-grid" data-pinned-grid>
             {% for file in pinned_files %}
-            <a href="/file/{{ file.id }}" class="pinned-card" data-pinned-card data-file-id="{{ file.id }}">
+            <div class="pinned-card" data-pinned-card data-file-id="{{ file.id }}">
                 <div class="pinned-card__icon">{{ file.icon }}</div>
                 <div class="pinned-card__content">
-                    <div class="pinned-card__name" title="{{ file.file_name }}">
+                    <a class="pinned-card__name" href="/file/{{ file.id }}" title="{{ file.file_name }}">
                         {{ file.file_name }}
-                    </div>
+                    </a>
                     <div class="pinned-card__meta">
                         <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
                         {% if file.lines %}
@@ -77,10 +77,10 @@
                         data-unpin-file="{{ file.id }}"
                         title="הסר מנעוצים"
                         aria-label="הסר מנעוצים"
-                        onclick="event.preventDefault(); event.stopPropagation(); unpinFile('{{ file.id }}');">
+                        onclick="event.stopPropagation(); unpinFile('{{ file.id }}');">
                     ✕
                 </button>
-            </a>
+            </div>
             {% endfor %}
         </div>
         
@@ -794,6 +794,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.pinned-card__name:hover {
+    text-decoration: underline;
 }
 
 .pinned-card__meta {
