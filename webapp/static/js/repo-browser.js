@@ -432,6 +432,10 @@ async function loadMarkdownDependencies() {
         {
             src: 'https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js',
             isReady: () => window.hljs && typeof window.hljs.highlightElement === 'function'
+        },
+        {
+            src: 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js',
+            isReady: () => typeof window.mermaid !== 'undefined'
         }
     ];
 
@@ -442,7 +446,7 @@ async function loadMarkdownDependencies() {
             console.warn('Markdown CDN failed, using local bundle', err);
             await loadExternalScript(
                 localBundleSrc,
-                () => typeof window.markdownit === 'function' && window.hljs
+                () => typeof window.markdownit === 'function' && window.hljs && window.mermaid
             );
             break;
         }
