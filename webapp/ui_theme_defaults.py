@@ -11,7 +11,7 @@ webapp/ui_theme_defaults.py
 - ENV: DEFAULT_UI_THEME
   - ערכים נתמכים:
     - ערכת builtin: classic/ocean/high-contrast/dark/dim/rose-pine-dawn/nebula
-    - ערכה ציבורית: shared:<slug> (אותיות קטנות/מספרים/מקף/קו תחתון)
+    - ערכה ציבורית: shared:<slug> (ה-slug הוא ה-ID שנשמר ב-DB; ללא רווחים. בדרך כלל אותיות קטנות/מספרים/קו תחתון, ולעיתים גם מקף)
   - כל ערך לא תקין → classic
 """
 

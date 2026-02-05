@@ -760,6 +760,12 @@
      - ``github-dark``
      - ``monokai``
      - WebApp
+   * - ``DEFAULT_UI_THEME``
+     - ערכת ברירת מחדל לממשק ה-WebApp. תומך בערכות מובנות (למשל ``classic``/``ocean``/``dark`` וכו') או בערכה ציבורית בפורמט ``shared:<slug>`` (ללא רווחים).
+     - לא
+     - ``classic``
+     - ``shared:monzo_light``
+     - WebApp
    * - ``GIT_CHECKPOINT_PREFIX``
      - קידומת לשמירת checkpoints
      - לא
