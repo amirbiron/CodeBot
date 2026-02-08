@@ -269,6 +269,16 @@ async def save_snippet_chunks(
         now = datetime.now(timezone.utc)
         documents = []
         for chunk in chunks:
+            # Optional semantic metadata (used to avoid mixing embeddings across model versions)
+            embedding_meta: Dict[str, Any] = {}
+            for k in ("embeddingModelKey", "embeddingModel", "embeddingApiVersion", "embeddingDim"):
+                try:
+                    v = chunk.get(k)
+                except Exception:
+                    v = None
+                if v is None:
+                    continue
+                embedding_meta[k] = v
             documents.append(
                 {
                     "userId": user_id,
@@ -279,6 +289,7 @@ async def save_snippet_chunks(
                     "startLine": chunk["startLine"],
                     "endLine": chunk["endLine"],
                     "chunkEmbedding": chunk["chunkEmbedding"],
+                    **embedding_meta,
                     "createdAt": now,
                     "updatedAt": now,
                 }
@@ -300,6 +311,10 @@ async def update_snippet_embedding_status(
     *,
     needs_embedding: Optional[bool] = None,
     needs_chunking: Optional[bool] = None,
+    embedding_model_key: Optional[str] = None,
+    embedding_model: Optional[str] = None,
+    embedding_api_version: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
 ) -> bool:
     """
     Update embedding status for a snippet.
@@ -325,6 +340,18 @@ async def update_snippet_embedding_status(
         }
         if snippet_embedding:
             update_doc["$set"]["snippetEmbedding"] = snippet_embedding
+        # Optional semantic metadata
+        if embedding_model_key:
+            update_doc["$set"]["embeddingModelKey"] = str(embedding_model_key)
+        if embedding_model:
+            update_doc["$set"]["embeddingModel"] = str(embedding_model)
+        if embedding_api_version:
+            update_doc["$set"]["embeddingApiVersion"] = str(embedding_api_version)
+        if embedding_dim:
+            try:
+                update_doc["$set"]["embeddingDim"] = int(embedding_dim)
+            except Exception:
+                pass
         result = files_collection.update_one({"_id": snippet_id}, update_doc)
         try:
             return result.modified_count > 0

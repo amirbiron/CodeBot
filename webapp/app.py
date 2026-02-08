@@ -421,6 +421,52 @@ try:
 except Exception:
     pass
 
+# --- Embedding model health-check (best-effort, background) ---
+# כדי לא להיתקע על מודל שירד מהמדף (404), נריץ בדיקה קצרה ונאפשר שדרוג אוטומטי + סימון reindex.
+_EMBEDDING_HEALTH_THREAD: Optional[threading.Thread] = None
+_EMBEDDING_HEALTH_LOCK = threading.Lock()
+
+
+def _maybe_start_embedding_health_check() -> None:
+    global _EMBEDDING_HEALTH_THREAD
+    try:
+        enabled = True
+        if cfg is not None:
+            enabled = bool(getattr(cfg, "SEMANTIC_SEARCH_ENABLED", True))
+        if not enabled:
+            return
+    except Exception:
+        return
+    try:
+        if not str(os.getenv("GEMINI_API_KEY", "") or "").strip():
+            return
+    except Exception:
+        return
+
+    with _EMBEDDING_HEALTH_LOCK:
+        if _EMBEDDING_HEALTH_THREAD is not None and _EMBEDDING_HEALTH_THREAD.is_alive():
+            return
+
+        def _runner():
+            try:
+                from services.semantic_embedding_health import (
+                    maybe_upgrade_embedding_model_on_startup,
+                )
+
+                asyncio.run(maybe_upgrade_embedding_model_on_startup())
+            except Exception:
+                return
+
+        t = threading.Thread(target=_runner, daemon=True, name="embedding-healthcheck")
+        _EMBEDDING_HEALTH_THREAD = t
+        t.start()
+
+
+try:
+    _maybe_start_embedding_health_check()
+except Exception:
+    pass
+
 # --- Background warmup: heavy observability reports (fire & forget) ---
 _OBS_WARMUP_THREAD: Optional[threading.Thread] = None
 _OBS_WARMUP_LOCK = threading.Lock()

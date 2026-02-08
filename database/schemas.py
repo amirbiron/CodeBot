@@ -17,6 +17,11 @@ SNIPPET_SEMANTIC_FIELDS = {
     # Change tracking
     "contentHash": str,  # SHA256 of content to avoid duplicate processing
     "embeddingUpdatedAt": datetime,
+    # Embedding version metadata (to avoid mixing vectors)
+    "embeddingModelKey": str,  # e.g. "text-embedding-005/768"
+    "embeddingModel": str,
+    "embeddingApiVersion": str,  # v1beta/v1 (transport)
+    "embeddingDim": int,
 
     # Number of chunks created
     "chunkCount": int,
@@ -37,6 +42,11 @@ SNIPPET_CHUNK_SCHEMA = {
 
     # Embedding
     "chunkEmbedding": List[float],  # vector 768/1536 dimensions
+    # Embedding metadata
+    "embeddingModelKey": str,
+    "embeddingModel": str,
+    "embeddingApiVersion": str,
+    "embeddingDim": int,
 
     # Metadata
     "createdAt": datetime,

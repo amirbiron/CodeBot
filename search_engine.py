@@ -31,6 +31,7 @@ from config import config
 from database import db
 from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION
 from services.embedding_service import get_embedding_service
+from services.semantic_embedding_settings import get_embedding_settings_cached
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,13 @@ async def semantic_search(
         logger.warning("Failed to generate query embedding, falling back to text search")
         return await _fallback_text_search(user_id, query, limit, language_filter)
 
+    # Embedding version gating (avoid mixing vectors across model changes).
+    # Note: we keep the $vectorSearch filter unchanged (index supports only userId/language),
+    # and gate vectors via a $match immediately after the vectorSearch stage.
+    settings = get_embedding_settings_cached(allow_db=True)
+    embedding_active_key = str(getattr(settings, "active_key", "") or "").strip()
+    embedding_legacy_key = str(getattr(settings, "legacy_key", "") or "").strip()
+
     raw_db = _get_semantic_raw_db()
     if raw_db is None:
         logger.warning("Database unavailable, falling back to text search")
@@ -187,6 +195,8 @@ async def semantic_search(
         query_embedding=query_embedding,
         limit=limit,
         language_filter=language_filter,
+        embedding_active_key=embedding_active_key,
+        embedding_legacy_key=embedding_legacy_key,
     )
 
     try:
@@ -208,6 +218,9 @@ def _build_hybrid_search_pipeline(
     query_embedding: List[float],
     limit: int,
     language_filter: Optional[str] = None,
+    *,
+    embedding_active_key: str = "",
+    embedding_legacy_key: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Build MongoDB aggregation pipeline for hybrid search.
@@ -234,6 +247,21 @@ def _build_hybrid_search_pipeline(
                 "searchType": "vector",
             }
         },
+        # Gate vector results by embedding model key to avoid mixing versions.
+        # We cannot add embeddingModelKey to $vectorSearch.filter without updating Atlas index definition,
+        # so we filter immediately after vectorSearch.
+        {
+            "$addFields": {
+                "embeddingModelKeyEffective": {
+                    "$ifNull": ["$embeddingModelKey", embedding_legacy_key or ""]
+                }
+            }
+        },
+        *(
+            [{"$match": {"embeddingModelKeyEffective": embedding_active_key}}]
+            if (embedding_active_key and embedding_legacy_key)
+            else []
+        ),
         {
             "$unionWith": {
                 "coll": "snippet_chunks",
