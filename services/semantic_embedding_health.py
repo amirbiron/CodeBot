@@ -683,9 +683,23 @@ def sync_probe_and_upgrade() -> None:
             )
             if r.status_code == 200:
                 try:
-                    return r.json()["embedding"]["values"], 200
+                    values = r.json()["embedding"]["values"]
                 except Exception:
                     return None, 200
+                # Validate dimensions match (like async path)
+                if (
+                    values
+                    and dim
+                    and int(dim) > 0
+                    and len(values) != int(dim)
+                ):
+                    logger.warning(
+                        "sync_probe: dimension mismatch for %s: "
+                        "expected=%s actual=%s",
+                        m, dim, len(values),
+                    )
+                    return None, 422
+                return values, 200
             return None, int(r.status_code)
 
         with _httpx.Client(timeout=15) as client:
