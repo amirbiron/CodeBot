@@ -597,6 +597,29 @@ html[dir="rtl"] .split-preview-content code {
   }
 }
 
+@media (max-width: 767px) {
+    /* כשאנחנו בטאב תצוגה - בטל את הגבלת הגובה של הקונטיינר */
+    .split-view[data-active-panel="preview"] {
+        height: auto !important;
+        max-height: none !important;
+    }
+
+    /* הפאנל עצמו והתוכן שלו יגדלו לפי הטקסט */
+    .split-view[data-active-panel="preview"] .split-panels,
+    .split-view[data-active-panel="preview"] .split-panel--preview,
+    .split-view[data-active-panel="preview"] .split-preview-content {
+        height: auto !important;
+        max-height: none !important;
+        min-height: 400px; /* מינימום כדי שלא יהיה קטן מדי */
+        overflow: visible !important; /* מאפשר לתוכן לזרום למטה */
+    }
+
+    /* מבטל גלילה פנימית של התוכן - הגלילה תהיה של כל הדף */
+    .split-view[data-active-panel="preview"] .split-preview-canvas {
+        height: auto !important;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .split-view,
   .split-toggle,
