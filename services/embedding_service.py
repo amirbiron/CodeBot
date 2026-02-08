@@ -8,6 +8,8 @@ import asyncio
 import hashlib
 import logging
 import os
+import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import httpx
@@ -19,6 +21,11 @@ try:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 except Exception:
     pass
+
+# Self-heal throttling (avoid thundering herd on 404)
+# None means "never ran" (avoid blocking first attempt).
+_LAST_SELF_HEAL_TS: Optional[float] = None
+_SELF_HEAL_COOLDOWN_SECONDS = float(os.getenv("EMBEDDING_SELF_HEAL_COOLDOWN_SECONDS", "60") or 60)
 
 # Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -262,6 +269,118 @@ class EmbeddingService:
             out.append(item)
         return out
 
+    def _model_supports_embed_content(self, model_doc: Dict[str, Any]) -> bool:
+        try:
+            methods = model_doc.get("supportedGenerationMethods")
+        except Exception:
+            methods = None
+        if not isinstance(methods, list):
+            return False
+        try:
+            return any(str(m).strip() == "embedContent" for m in methods)
+        except Exception:
+            return False
+
+    async def _self_heal_on_404(
+        self,
+        *,
+        text: str,
+        preferred_dimensions: int,
+        preferred_allowlist: Optional[List[str]] = None,
+        existing_legacy_key: Optional[str] = None,
+        existing_active_key: Optional[str] = None,
+    ) -> Optional[List[float]]:
+        """
+        If current model is 404, attempt to auto-select a working embedding model from ListModels
+        and use it immediately. Best-effort persist to DB.
+        """
+        global _LAST_SELF_HEAL_TS
+        try:
+            now = float(time.monotonic())
+        except Exception:
+            now = 0.0
+        try:
+            if (
+                _LAST_SELF_HEAL_TS is not None
+                and now
+                and (now - float(_LAST_SELF_HEAL_TS)) < float(_SELF_HEAL_COOLDOWN_SECONDS)
+            ):
+                return None
+        except Exception:
+            pass
+        _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
+
+        allow = [normalize_model_name(x) for x in (preferred_allowlist or []) if str(x).strip()]
+        legacy_to_keep = (str(existing_legacy_key or "").strip()) or (str(existing_active_key or "").strip())
+        # list models (try v1beta then v1)
+        for api_version in ["v1beta", "v1"]:
+            models = await self.list_models_detailed(api_version=api_version)
+            if not models:
+                continue
+            # candidates: embedContent-capable + contains "embedding"
+            embed_models: List[str] = []
+            for m in models:
+                if not isinstance(m, dict):
+                    continue
+                if not self._model_supports_embed_content(m):
+                    continue
+                name = normalize_model_name(str(m.get("name") or ""))
+                if not name:
+                    continue
+                if "embedding" not in name.lower():
+                    continue
+                embed_models.append(name)
+            # order: allowlist intersection first, else provider order
+            if allow:
+                ordered = [m for m in allow if m in set(embed_models)]
+            else:
+                ordered = []
+            if not ordered:
+                ordered = embed_models
+            # probe using the real text (already trimmed in generate_embedding_with_status)
+            for candidate in ordered[:20]:
+                emb, status, body = await self.generate_embedding_with_status(
+                    text,
+                    model=candidate,
+                    api_version=api_version,
+                    dimensions=int(preferred_dimensions or 0),
+                )
+                # If candidate exists but dimensionality differs, retry without requesting a fixed dimension.
+                if (not emb) and int(status or 0) == 422 and "dimension_mismatch" in str(body or ""):
+                    emb2, status_b, body_b = await self.generate_embedding_with_status(
+                        text,
+                        model=candidate,
+                        api_version=api_version,
+                        dimensions=0,
+                    )
+                    _ = status_b
+                    _ = body_b
+                    if emb2:
+                        emb = emb2
+                if emb:
+                    # Persist best-effort so future calls don't need self-heal
+                    try:
+                        from services.semantic_embedding_settings import upsert_embedding_settings  # type: ignore
+
+                        upsert_embedding_settings(
+                            api_version=api_version,
+                            model=candidate,
+                            # Prefer the actual returned dimension (safe) over the old preferred dimension.
+                            dimensions=int(len(emb) or 0),
+                            allowlist=allow or None,
+                            # חשוב: לא לדרוס legacy_key - נשמור את הערך הקיים כדי לא לאבד מעקב על embeddings ישנים.
+                            legacy_key=legacy_to_keep or None,
+                            active_key=None,
+                            reason="self_heal_404",
+                            extra={"lastSelfHealAt": datetime.now(timezone.utc)},
+                        )
+                    except Exception:
+                        pass
+                    return emb
+                _ = status
+                _ = body
+        return None
+
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
         """
         Generate an embedding for a single text (async).
@@ -283,12 +402,14 @@ class EmbeddingService:
             model = getattr(settings, "model", "") or GEMINI_EMBEDDING_MODEL
             api_version = getattr(settings, "api_version", "") or GEMINI_API_VERSION
             dimensions = int(getattr(settings, "dimensions", 0) or EMBEDDING_DIMENSIONS)
+            allowlist = list(getattr(settings, "allowlist", []) or [])
         else:
             model = GEMINI_EMBEDDING_MODEL
             api_version = GEMINI_API_VERSION
             dimensions = EMBEDDING_DIMENSIONS
+            allowlist = []
 
-        embedding, status, _body = await self.generate_embedding_with_status(
+        embedding, status1, _body1 = await self.generate_embedding_with_status(
             text,
             model=str(model),
             api_version=str(api_version),
@@ -296,22 +417,37 @@ class EmbeddingService:
         )
         # Fail-open fallback: אם הוגדר v1beta אבל המודל לא קיים שם (404),
         # נסה פעם אחת v1 (גם אם עדכון קונפיג ב-DB נכשל).
+        status2 = None
         try:
-            if embedding is None and int(status or 0) == 404 and str(api_version or "").strip() != "v1":
+            if embedding is None and int(status1 or 0) == 404 and str(api_version or "").strip() != "v1":
                 embedding2, status2, _body2 = await self.generate_embedding_with_status(
                     text,
                     model=str(model),
                     api_version="v1",
                     dimensions=int(dimensions),
                 )
-                _ = status2
                 if embedding2:
                     return embedding2
         except Exception:
             pass
+        # Self-heal: if current model is 404 (and v1 fallback didn't return an embedding),
+        # try to pick a working model from ListModels automatically.
+        try:
+            if embedding is None and int(status1 or 0) == 404:
+                healed = await self._self_heal_on_404(
+                    text=text,
+                    preferred_dimensions=int(dimensions),
+                    preferred_allowlist=allowlist,
+                    existing_legacy_key=str(getattr(settings, "legacy_key", "") or "") if settings is not None else "",
+                    existing_active_key=str(getattr(settings, "active_key", "") or "") if settings is not None else "",
+                )
+                if healed:
+                    return healed
+        except Exception:
+            pass
         # Keep old behavior: just return embedding or None.
         # Special case: if model is missing (404), callers may run startup health check to auto-upgrade.
-        _ = status
+        _ = status1
         return embedding
 
     async def generate_embeddings_batch(
