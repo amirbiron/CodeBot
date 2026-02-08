@@ -464,6 +464,16 @@ def _maybe_start_embedding_health_check() -> None:
                 except (AttributeError, Exception):
                     pass
                 loop = asyncio.new_event_loop()
+                # In some deployments (gunicorn, module imported inside a
+                # running event loop) the thread-local running_loop is
+                # non-None even in a fresh daemon thread.  Bypass the
+                # check only — run_forever() will still call
+                # _set_running_loop(self) so httpx/sniffio detect asyncio.
+                # Guard: uvloop uses __slots__ and rejects new attributes.
+                try:
+                    loop._check_running = lambda: None
+                except (AttributeError, TypeError):
+                    pass
                 asyncio.set_event_loop(loop)
                 try:
                     loop.run_until_complete(coro)
