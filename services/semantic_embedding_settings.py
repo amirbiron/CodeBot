@@ -132,7 +132,7 @@ class EmbeddingSettings:
         )
 
 
-def _get_raw_db_best_effort():
+def get_raw_db_best_effort():
     """
     Best-effort raw DB accessor (PyMongo Database).
     Fail-open: returns None when DB is disabled/unavailable.
@@ -150,25 +150,6 @@ def _get_raw_db_best_effort():
         return None
 
     # Prefer the standalone provider to avoid heavy imports / circular deps.
-    try:
-        from services.db_provider import get_db as _get_db  # type: ignore
-
-        raw = _get_db()
-        # No-op DB is still truthy; accept it (it will return None on find_one anyway).
-        return raw
-    except Exception:
-        pass
-
-    try:
-        from database import db as _db_manager  # local import
-    except Exception:
-        _db_manager = None
-    try:
-        raw_db = getattr(_db_manager, "db", None) if _db_manager is not None else None
-        if raw_db is not None:
-            return raw_db
-    except Exception:
-        pass
     try:
         from services.db_provider import get_db as _get_db  # type: ignore
 
@@ -247,7 +228,7 @@ def get_embedding_settings_cached(*, allow_db: bool = True) -> EmbeddingSettings
     settings = None
     if allow_db:
         try:
-            raw_db = _get_raw_db_best_effort()
+            raw_db = get_raw_db_best_effort()
             if raw_db is not None:
                 coll = _get_system_config_collection(raw_db)
                 if coll is not None and hasattr(coll, "find_one"):
@@ -279,7 +260,7 @@ def upsert_embedding_settings(
     """
     עדכון קונפיג ב-DB (best-effort). Sync.
     """
-    raw_db = _get_raw_db_best_effort()
+    raw_db = get_raw_db_best_effort()
     if raw_db is None:
         return False
     coll = _get_system_config_collection(raw_db)

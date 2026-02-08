@@ -33,6 +33,7 @@ from services.embedding_service import EmbeddingService
 from services.semantic_embedding_settings import (
     EmbeddingSettings,
     get_embedding_settings_cached,
+    get_raw_db_best_effort,
     make_embedding_key,
     normalize_model_name,
     upsert_embedding_settings,
@@ -42,6 +43,12 @@ logger = logging.getLogger(__name__)
 
 _LOCK_ID = "semantic_embedding_model_upgrade"
 _LOCK_LEASE_SECONDS = int(os.getenv("EMBEDDING_MODEL_UPGRADE_LOCK_LEASE_SECONDS", "90") or 90)
+_AUTO_DIMENSION_UPGRADE = str(os.getenv("EMBEDDING_AUTO_DIMENSION_UPGRADE", "") or "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 def _utcnow() -> datetime:
@@ -60,41 +67,6 @@ def _owner_id() -> str:
     return f"{host}:{pid}:{uuid.uuid4().hex[:8]}"
 
 
-def _get_raw_db_best_effort():
-    try:
-        if str(os.getenv("DISABLE_DB", "") or "").strip().lower() in {"1", "true", "yes", "on"}:
-            return None
-    except Exception:
-        return None
-    try:
-        if not str(os.getenv("MONGODB_URL", "") or "").strip():
-            return None
-    except Exception:
-        return None
-    try:
-        from services.db_provider import get_db as _get_db  # type: ignore
-
-        return _get_db()
-    except Exception:
-        pass
-    try:
-        from database import db as _db_manager  # local import
-    except Exception:
-        _db_manager = None
-    try:
-        raw_db = getattr(_db_manager, "db", None) if _db_manager is not None else None
-        if raw_db is not None:
-            return raw_db
-    except Exception:
-        pass
-    try:
-        from services.db_provider import get_db as _get_db  # type: ignore
-
-        return _get_db()
-    except Exception:
-        return None
-
-
 def _get_collection(raw_db, name: str):
     try:
         return raw_db[name]
@@ -107,7 +79,7 @@ def _acquire_short_lock(*, lock_id: str, lease_seconds: int) -> Tuple[bool, str]
     Acquire a short-lived distributed lock in `bot_locks`.
     Returns (acquired, owner_id).
     """
-    raw_db = _get_raw_db_best_effort()
+    raw_db = get_raw_db_best_effort()
     if raw_db is None:
         # no DB => run without lock (best-effort)
         return True, _owner_id()
@@ -160,7 +132,7 @@ def _acquire_short_lock(*, lock_id: str, lease_seconds: int) -> Tuple[bool, str]
 
 
 def _release_short_lock(*, lock_id: str, owner: str) -> None:
-    raw_db = _get_raw_db_best_effort()
+    raw_db = get_raw_db_best_effort()
     if raw_db is None:
         return
     coll = _get_collection(raw_db, "bot_locks")
@@ -176,7 +148,7 @@ def _mark_all_snippets_for_reindex(*, target_key: str, reason: str) -> int:
     """
     Mark all active snippets for re-embedding. Returns modified_count (best-effort).
     """
-    raw_db = _get_raw_db_best_effort()
+    raw_db = get_raw_db_best_effort()
     if raw_db is None:
         return 0
     files = _get_collection(raw_db, "code_snippets") or _get_collection(raw_db, "files")
@@ -224,6 +196,34 @@ def _pick_best_candidate(allowlist: List[str], available: List[str]) -> List[str
 
     candidates.sort(key=_score, reverse=True)
     return candidates
+
+
+def _parse_dimension_mismatch(body: str) -> Optional[Tuple[int, int]]:
+    """
+    Parse internal diagnostic body like: "dimension_mismatch expected=768 actual=1536"
+    """
+    try:
+        text = str(body or "").strip().lower()
+    except Exception:
+        return None
+    if "dimension_mismatch" not in text:
+        return None
+    exp = None
+    act = None
+    for part in text.split():
+        if part.startswith("expected="):
+            try:
+                exp = int(part.split("=", 1)[1])
+            except Exception:
+                exp = None
+        if part.startswith("actual="):
+            try:
+                act = int(part.split("=", 1)[1])
+            except Exception:
+                act = None
+    if exp and act:
+        return int(exp), int(act)
+    return None
 
 
 async def maybe_upgrade_embedding_model_on_startup() -> None:
@@ -334,13 +334,122 @@ async def maybe_upgrade_embedding_model_on_startup() -> None:
         candidates = _pick_best_candidate(settings.allowlist, available_models)
         for candidate in candidates:
             for api_version in [settings.api_version, "v1"] if settings.api_version != "v1" else ["v1"]:
-                emb_c, st_c, _body_c = await service.generate_embedding_with_status(
+                emb_c, st_c, body_c = await service.generate_embedding_with_status(
                     test_text,
                     model=candidate,
                     api_version=api_version,
                     dimensions=settings.dimensions,
                 )
                 if not emb_c:
+                    # Dimension mismatch: optionally retry without outputDimensionality and upgrade dims.
+                    mm = _parse_dimension_mismatch(body_c)
+                    if mm:
+                        exp_dim, act_dim = mm
+                        msg = (
+                            f"Embedding dimension mismatch while probing candidate={candidate}: "
+                            f"expected={exp_dim} actual={act_dim}. "
+                            + ("Auto-upgrading dimensions." if _AUTO_DIMENSION_UPGRADE else "Skipping (set EMBEDDING_AUTO_DIMENSION_UPGRADE=1 to allow).")
+                        )
+                        logger.warning(msg)
+                        try:
+                            emit_event(
+                                "embedding_dimension_mismatch_detected",
+                                severity="warn",
+                                candidate=str(candidate),
+                                api_version=str(api_version),
+                                expected=int(exp_dim),
+                                actual=int(act_dim),
+                                auto_upgrade=bool(_AUTO_DIMENSION_UPGRADE),
+                            )
+                        except Exception:
+                            pass
+
+                        if not _AUTO_DIMENSION_UPGRADE:
+                            continue
+
+                        # Retry without requesting a fixed dimensionality (provider default),
+                        # then adopt returned dimension.
+                        emb_free, st_free, _body_free = await service.generate_embedding_with_status(
+                            test_text,
+                            model=candidate,
+                            api_version=api_version,
+                            dimensions=0,
+                        )
+                        if not emb_free:
+                            continue
+
+                        new_dim = int(len(emb_free) or 0)
+                        if new_dim <= 0:
+                            continue
+
+                        prev_key = settings.active_key
+                        new_key = make_embedding_key(
+                            api_version=api_version,
+                            model=normalize_model_name(candidate),
+                            dimensions=new_dim,
+                        )
+
+                        ok = upsert_embedding_settings(
+                            api_version=api_version,
+                            model=candidate,
+                            dimensions=new_dim,
+                            allowlist=list(settings.allowlist),
+                            legacy_key=prev_key,
+                            active_key=new_key,
+                            reason="auto_upgrade_model_dim_change",
+                            extra={
+                                "lastValidatedAt": _utcnow(),
+                                "lastUpgrade": {
+                                    "from": {
+                                        "api_version": settings.api_version,
+                                        "model": settings.model,
+                                        "key": prev_key,
+                                        "dimensions": int(settings.dimensions),
+                                    },
+                                    "to": {
+                                        "api_version": api_version,
+                                        "model": candidate,
+                                        "key": new_key,
+                                        "dimensions": int(new_dim),
+                                    },
+                                    "note": "dimension_changed_requires_vector_index_update",
+                                },
+                            },
+                        )
+                        if not ok:
+                            continue
+
+                        marked = _mark_all_snippets_for_reindex(
+                            target_key=new_key,
+                            reason=f"auto_upgrade_model_dim_change:{settings.model}->{candidate}",
+                        )
+                        logger.warning(
+                            "שדרוג מודל embeddings כלל שינוי מימד (%s→%s). "
+                            "יתכן שצריך לעדכן את Mongo Atlas vector index (`vector_index`) כדי שהחיפוש הסמנטי יחזור לעבוד. "
+                            "מסמן Re-index (marked=%s).",
+                            int(settings.dimensions),
+                            int(new_dim),
+                            int(marked),
+                        )
+                        try:
+                            emit_event(
+                                "embedding_model_upgraded",
+                                severity="warn",
+                                kind="model_dim_change",
+                                from_model=settings.model,
+                                to_model=candidate,
+                                from_key=prev_key,
+                                to_key=new_key,
+                                api_version=api_version,
+                                from_dim=int(settings.dimensions),
+                                to_dim=int(new_dim),
+                                marked=int(marked),
+                                requires_vector_index_update=True,
+                            )
+                        except Exception:
+                            pass
+                        return
+
                     continue
 
                 prev_key = settings.active_key

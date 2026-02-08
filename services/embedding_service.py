@@ -99,8 +99,10 @@ class EmbeddingService:
         payload: Dict[str, Any] = {
             "model": f"models/{model_n}",
             "content": {"parts": [{"text": text}]},
-            "outputDimensionality": dim,
         }
+        # outputDimensionality optional. If <=0, omit and accept provider default dimension.
+        if int(dim or 0) > 0:
+            payload["outputDimensionality"] = int(dim)
 
         last_body = ""
         for attempt in range(MAX_RETRIES):
@@ -125,7 +127,7 @@ class EmbeddingService:
                     if embedding and isinstance(embedding, list):
                         # Ensure expected dim (fail-safe)
                         try:
-                            if dim and len(embedding) != int(dim):
+                            if int(dim or 0) > 0 and len(embedding) != int(dim):
                                 logger.warning(
                                     "Embedding dimensions mismatch: expected=%s actual=%s model=%s api=%s",
                                     int(dim),
@@ -133,7 +135,8 @@ class EmbeddingService:
                                     model_n,
                                     str(api_version),
                                 )
-                                return None, 200, last_body
+                                # Use internal status code to allow upgrade logic to react.
+                                return None, 422, f"dimension_mismatch expected={int(dim)} actual={int(len(embedding))}"
                         except Exception:
                             pass
                         return embedding, 200, last_body

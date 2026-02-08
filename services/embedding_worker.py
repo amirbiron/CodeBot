@@ -91,6 +91,21 @@ class EmbeddingWorker:
         content = snippet.get("code") or snippet.get("content") or ""
         settings = get_embedding_settings_cached(allow_db=True)
 
+        async def _embed_with_settings(text: str) -> Optional[list[float]]:
+            # חשוב: לא להשתמש ב-generate_embedding() כאן, כי הוא קורא settings שוב
+            # ועלול להחליף מודל באמצע ולגרום לחוסר התאמה בין metadata לווקטור.
+            try:
+                embedding, status, _body = await self.embedding_service.generate_embedding_with_status(
+                    text,
+                    model=str(getattr(settings, "model", "") or ""),
+                    api_version=str(getattr(settings, "api_version", "") or "v1beta"),
+                    dimensions=int(getattr(settings, "dimensions", 0) or 768),
+                )
+                _ = status
+                return embedding
+            except Exception:
+                return None
+
         if not content:
             await save_snippet_chunks(
                 user_id=user_id,
@@ -148,7 +163,7 @@ class EmbeddingWorker:
                 language=snippet.get("programming_language"),
             )
 
-            embedding = await self.embedding_service.generate_embedding(embedding_text)
+            embedding = await _embed_with_settings(embedding_text)
             if embedding:
                 chunk_docs.append(
                     {
@@ -178,7 +193,7 @@ class EmbeddingWorker:
             tags=snippet.get("tags", []),
             language=snippet.get("programming_language"),
         )
-        snippet_embedding = await self.embedding_service.generate_embedding(metadata_text)
+        snippet_embedding = await _embed_with_settings(metadata_text)
 
         should_retry = len(chunk_docs) < len(chunks) or snippet_embedding is None
         await update_snippet_embedding_status(
