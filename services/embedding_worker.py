@@ -90,6 +90,10 @@ class EmbeddingWorker:
         user_id = snippet["user_id"]
         content = snippet.get("code") or snippet.get("content") or ""
         settings = get_embedding_settings_cached(allow_db=True)
+
+        class _RestartSnippetProcessing(Exception):
+            """Internal signal: model/dim changed, restart snippet processing."""
+
         # Keep an "effective" metadata snapshot for this snippet processing.
         effective_model = str(getattr(settings, "model", "") or "")
         effective_api_version = str(getattr(settings, "api_version", "") or "v1beta")
@@ -139,29 +143,10 @@ class EmbeddingWorker:
                     pass
                 return embedding
 
-            # Only if model is missing: trigger self-heal via the standard API.
+            # Model missing mid-processing: do not self-heal in-place (would mix vectors within snippet).
+            # Signal outer loop to restart snippet processing after self-heal updates config.
             if int(status or 0) == 404:
-                try:
-                    healed = await self.embedding_service.generate_embedding(text)
-                except Exception:
-                    healed = None
-                if healed:
-                    # Refresh settings so metadata reflects the working model.
-                    try:
-                        settings = get_embedding_settings_cached(allow_db=True)
-                        effective_model = str(getattr(settings, "model", "") or effective_model)
-                        effective_api_version = str(
-                            getattr(settings, "api_version", "") or effective_api_version
-                        )
-                        effective_dim = int(getattr(settings, "dimensions", 0) or len(healed) or effective_dim)
-                        effective_key = str(getattr(settings, "active_key", "") or "") or make_embedding_key(
-                            api_version=effective_api_version,
-                            model=effective_model,
-                            dimensions=effective_dim,
-                        )
-                    except Exception:
-                        pass
-                    return healed
+                raise _RestartSnippetProcessing()
 
             # Dimension mismatch (best-effort): retry without fixed dimensionality.
             try:
@@ -210,9 +195,7 @@ class EmbeddingWorker:
             return
 
         current_hash = compute_content_hash(content)
-        needs_processing = bool(
-            snippet.get("needs_embedding") or snippet.get("needs_chunking")
-        )
+        needs_processing = bool(snippet.get("needs_embedding") or snippet.get("needs_chunking"))
         if current_hash == snippet.get("contentHash") and not needs_processing:
             logger.debug("Snippet %s unchanged, clearing flags", snippet_id)
             await update_snippet_embedding_status(
@@ -222,74 +205,110 @@ class EmbeddingWorker:
             )
             return
 
-        chunks = split_code_to_chunks(content)
-        if not chunks:
-            await update_snippet_embedding_status(
-                snippet_id=snippet_id,
-                content_hash=current_hash,
-                chunk_count=0,
-                embedding_model_key=effective_key,
-                embedding_model=effective_model,
-                embedding_api_version=effective_api_version,
-                embedding_dim=effective_dim,
-            )
-            return
+        # Protect against mid-processing model switches: allow one restart per snippet.
+        for attempt in range(2):
+            if attempt > 0:
+                # Trigger self-heal once, then refresh settings snapshot.
+                try:
+                    # Use a tiny text to trigger ListModels+pick if needed.
+                    _ = await self.embedding_service.generate_embedding("healthcheck")
+                except Exception:
+                    pass
+                settings = get_embedding_settings_cached(allow_db=True)
+                effective_model = str(getattr(settings, "model", "") or "")
+                effective_api_version = str(getattr(settings, "api_version", "") or "v1beta")
+                # Prefer actual embedding length if model switched without persistence.
+                effective_dim = int(getattr(settings, "dimensions", 0) or 0) or 768
+                effective_key = str(getattr(settings, "active_key", "") or "") or make_embedding_key(
+                    api_version=effective_api_version,
+                    model=effective_model,
+                    dimensions=effective_dim,
+                )
 
-        chunk_docs = []
-        for chunk in chunks:
-            embedding_text = create_embedding_text(
-                code_chunk=chunk.content,
+            chunks = split_code_to_chunks(content)
+            if not chunks:
+                await update_snippet_embedding_status(
+                    snippet_id=snippet_id,
+                    content_hash=current_hash,
+                    chunk_count=0,
+                    embedding_model_key=effective_key,
+                    embedding_model=effective_model,
+                    embedding_api_version=effective_api_version,
+                    embedding_dim=effective_dim,
+                )
+                return
+
+            chunk_docs = []
+            try:
+                for chunk in chunks:
+                    embedding_text = create_embedding_text(
+                        code_chunk=chunk.content,
+                        title=snippet.get("file_name"),
+                        description=snippet.get("description"),
+                        tags=snippet.get("tags", []),
+                        language=snippet.get("programming_language"),
+                    )
+
+                    embedding = await _embed_with_settings(embedding_text)
+                    if embedding:
+                        chunk_docs.append(
+                            {
+                                "chunkIndex": chunk.index,
+                                "codeChunk": chunk.content,
+                                "startLine": chunk.start_line,
+                                "endLine": chunk.end_line,
+                                "language": snippet.get("programming_language", "unknown"),
+                                "chunkEmbedding": embedding,
+                                "embeddingModelKey": effective_key,
+                                "embeddingModel": effective_model,
+                                "embeddingApiVersion": effective_api_version,
+                                "embeddingDim": effective_dim,
+                            }
+                        )
+            except _RestartSnippetProcessing:
+                # Model disappeared mid-run: restart (once).
+                if attempt == 0:
+                    continue
+                # second failure: give up for now (leave needs_embedding True)
+                await update_snippet_embedding_status(
+                    snippet_id=snippet_id,
+                    content_hash=current_hash,
+                    chunk_count=0,
+                    needs_embedding=True,
+                    needs_chunking=False,
+                )
+                return
+
+            await save_snippet_chunks(user_id=user_id, snippet_id=snippet_id, chunks=chunk_docs)
+
+            metadata_text = create_embedding_text(
+                code_chunk="",
                 title=snippet.get("file_name"),
                 description=snippet.get("description"),
                 tags=snippet.get("tags", []),
                 language=snippet.get("programming_language"),
             )
+            try:
+                snippet_embedding = await _embed_with_settings(metadata_text)
+            except _RestartSnippetProcessing:
+                if attempt == 0:
+                    continue
+                snippet_embedding = None
 
-            embedding = await _embed_with_settings(embedding_text)
-            if embedding:
-                chunk_docs.append(
-                    {
-                        "chunkIndex": chunk.index,
-                        "codeChunk": chunk.content,
-                        "startLine": chunk.start_line,
-                        "endLine": chunk.end_line,
-                        "language": snippet.get("programming_language", "unknown"),
-                        "chunkEmbedding": embedding,
-                        "embeddingModelKey": effective_key,
-                        "embeddingModel": effective_model,
-                        "embeddingApiVersion": effective_api_version,
-                        "embeddingDim": effective_dim,
-                    }
-                )
-
-        await save_snippet_chunks(
-            user_id=user_id,
-            snippet_id=snippet_id,
-            chunks=chunk_docs,
-        )
-
-        metadata_text = create_embedding_text(
-            code_chunk="",
-            title=snippet.get("file_name"),
-            description=snippet.get("description"),
-            tags=snippet.get("tags", []),
-            language=snippet.get("programming_language"),
-        )
-        snippet_embedding = await _embed_with_settings(metadata_text)
-
-        should_retry = len(chunk_docs) < len(chunks) or snippet_embedding is None
-        await update_snippet_embedding_status(
-            snippet_id=snippet_id,
-            content_hash=current_hash,
-            chunk_count=len(chunk_docs),
-            snippet_embedding=snippet_embedding,
-            needs_embedding=should_retry,
-            needs_chunking=False,
-            embedding_model_key=effective_key,
-            embedding_model=effective_model,
-            embedding_api_version=effective_api_version,
-            embedding_dim=effective_dim,
-        )
+            should_retry = len(chunk_docs) < len(chunks) or snippet_embedding is None
+            await update_snippet_embedding_status(
+                snippet_id=snippet_id,
+                content_hash=current_hash,
+                chunk_count=len(chunk_docs),
+                snippet_embedding=snippet_embedding,
+                needs_embedding=should_retry,
+                needs_chunking=False,
+                embedding_model_key=effective_key,
+                embedding_model=effective_model,
+                embedding_api_version=effective_api_version,
+                embedding_dim=effective_dim,
+            )
+            break
 
         logger.info("Processed snippet %s: %s chunks", snippet_id, len(chunk_docs))
 
