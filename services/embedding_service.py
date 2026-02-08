@@ -311,6 +311,8 @@ class EmbeddingService:
         except Exception:
             pass
 
+        # Set cooldown immediately so exceptions/early-exits don't cause hammering.
+        _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
         logger.warning("Self-heal triggered: attempting to find a working embedding model")
 
         allow = [normalize_model_name(x) for x in (preferred_allowlist or []) if str(x).strip()]
@@ -377,8 +379,6 @@ class EmbeddingService:
                         "Self-heal SUCCESS: switched to model=%s api=%s dim=%d",
                         candidate, api_version, actual_dim,
                     )
-                    # Set cooldown AFTER success to avoid blocking retries on failure.
-                    _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
                     # Persist best-effort so future calls don't need self-heal
                     try:
                         from services.semantic_embedding_settings import upsert_embedding_settings  # type: ignore
@@ -402,8 +402,6 @@ class EmbeddingService:
                     return emb
                 logger.info("Self-heal: candidate %s/%s failed (status=%s)", candidate, api_version, status)
 
-        # All candidates failed: set cooldown to avoid hammering the API.
-        _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
         logger.error("Self-heal FAILED: no working embedding model found after probing all candidates")
         return None
 
