@@ -448,48 +448,14 @@ def _maybe_start_embedding_health_check() -> None:
             return
 
         def _runner():
-            coro = None
             try:
                 from services.semantic_embedding_health import (
-                    maybe_upgrade_embedding_model_on_startup,
+                    sync_probe_and_upgrade,
                 )
 
-                coro = maybe_upgrade_embedding_model_on_startup()
-                # In some deployments (gunicorn async workers, module imported
-                # inside a running event loop) Python's thread-local
-                # _running_loop is non-None even in a fresh thread.  Clear it
-                # so run_until_complete() accepts our new loop.
-                try:
-                    asyncio._set_running_loop(None)
-                except (AttributeError, Exception):
-                    pass
-                loop = asyncio.new_event_loop()
-                # In some deployments (gunicorn, module imported inside a
-                # running event loop) the thread-local running_loop is
-                # non-None even in a fresh daemon thread.  Bypass the
-                # check only — run_forever() will still call
-                # _set_running_loop(self) so httpx/sniffio detect asyncio.
-                # Guard: uvloop uses __slots__ and rejects new attributes.
-                try:
-                    loop._check_running = lambda: None
-                except (AttributeError, TypeError):
-                    pass
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(coro)
-                    coro = None  # successfully ran
-                finally:
-                    try:
-                        loop.close()
-                    finally:
-                        asyncio.set_event_loop(None)
+                sync_probe_and_upgrade()
             except Exception as exc:
                 logger.warning("Embedding health-check thread failed: %s", exc)
-            finally:
-                # Prevent "coroutine was never awaited" if run_until_complete
-                # raised before the coroutine started executing.
-                if coro is not None:
-                    coro.close()
 
         t = threading.Thread(target=_runner, daemon=True, name="embedding-healthcheck")
         _EMBEDDING_HEALTH_THREAD = t

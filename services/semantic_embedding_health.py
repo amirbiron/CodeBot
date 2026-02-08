@@ -631,3 +631,173 @@ async def maybe_upgrade_embedding_model_on_startup() -> None:
         except Exception:
             pass
 
+
+def sync_probe_and_upgrade() -> None:
+    """
+    Sync version of the embedding health-check for contexts where asyncio
+    is unavailable (e.g. Flask/gunicorn webapp thread).  Uses httpx.Client
+    (sync) so no event loop is needed.
+    """
+    import httpx as _httpx
+
+    acquired, owner = _acquire_short_lock(
+        lock_id=_LOCK_ID, lease_seconds=_LOCK_LEASE_SECONDS,
+    )
+    if not acquired:
+        return
+
+    try:
+        api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+        if not api_key:
+            return
+
+        settings = get_embedding_settings_cached(allow_db=True)
+        model_n = normalize_model_name(settings.model)
+        if not model_n:
+            return
+
+        def _base(av: str) -> str:
+            return f"https://generativelanguage.googleapis.com/{av}/models"
+
+        def _probe(client, m: str, av: str, dim: int):
+            url = f"{_base(av)}/{m}:embedContent"
+            payload: Dict[str, Any] = {
+                "model": f"models/{m}",
+                "content": {"parts": [{"text": "healthcheck"}]},
+            }
+            if dim and int(dim) > 0:
+                payload["outputDimensionality"] = int(dim)
+            r = client.post(
+                url, json=payload, params={"key": api_key},
+                headers={"Content-Type": "application/json"},
+            )
+            if r.status_code == 200:
+                try:
+                    return r.json()["embedding"]["values"], 200
+                except Exception:
+                    return None, 200
+            return None, int(r.status_code)
+
+        with _httpx.Client(timeout=15) as client:
+            # 1. Test current model
+            emb, st = _probe(client, model_n, settings.api_version,
+                             settings.dimensions)
+            if emb:
+                upsert_embedding_settings(
+                    api_version=settings.api_version,
+                    model=model_n,
+                    dimensions=settings.dimensions,
+                    allowlist=list(settings.allowlist),
+                    legacy_key=settings.legacy_key,
+                    active_key=settings.active_key,
+                    reason="startup_validated_webapp",
+                    extra={"lastValidatedAt": _utcnow()},
+                )
+                return
+
+            if st != 404:
+                return
+
+            # 2. Same model, v1 fallback
+            if settings.api_version != "v1":
+                emb2, _ = _probe(client, model_n, "v1",
+                                 settings.dimensions)
+                if emb2:
+                    upsert_embedding_settings(
+                        api_version="v1",
+                        model=model_n,
+                        dimensions=settings.dimensions,
+                        allowlist=list(settings.allowlist),
+                        legacy_key=settings.legacy_key,
+                        active_key=settings.active_key,
+                        reason="auto_upgrade_api_version_webapp",
+                    )
+                    logger.warning(
+                        "Webapp health-check: model %s switched to v1",
+                        model_n,
+                    )
+                    return
+
+            # 3. List models & pick candidates
+            candidates: List[Tuple[str, str]] = []
+            api_versions = (
+                [settings.api_version, "v1"]
+                if settings.api_version != "v1" else ["v1"]
+            )
+            for av in api_versions:
+                r = client.get(
+                    _base(av), params={"key": api_key},
+                    headers={"Content-Type": "application/json"},
+                )
+                if r.status_code != 200:
+                    continue
+                for m in (r.json().get("models") or []):
+                    name = normalize_model_name(str(m.get("name") or ""))
+                    methods = m.get("supportedGenerationMethods") or []
+                    if ("embedContent" in methods
+                            and "embedding" in name.lower()):
+                        candidates.append((name, av))
+                if candidates:
+                    break
+
+            if not candidates:
+                logger.warning("Webapp health-check: no candidates found")
+                return
+
+            # Sort: allowlist first, then by version suffix descending
+            allow_set = set(settings.allowlist)
+
+            def _score(item):
+                n, _ = item
+                in_allow = 1 if n in allow_set else 0
+                ver = 0
+                parts = n.split("-")
+                if parts and parts[-1].isdigit():
+                    ver = int(parts[-1])
+                return (in_allow, ver)
+
+            candidates.sort(key=_score, reverse=True)
+
+            # 4. Probe candidates
+            for cand_name, cand_av in candidates[:10]:
+                emb_c, _ = _probe(
+                    client, cand_name, cand_av, settings.dimensions,
+                )
+                if not emb_c:
+                    continue
+                new_dim = len(emb_c)
+                new_key = make_embedding_key(
+                    api_version=cand_av,
+                    model=cand_name,
+                    dimensions=new_dim,
+                )
+                ok = upsert_embedding_settings(
+                    api_version=cand_av,
+                    model=cand_name,
+                    dimensions=new_dim,
+                    allowlist=list(settings.allowlist),
+                    legacy_key=settings.active_key,
+                    active_key=new_key,
+                    reason="auto_upgrade_model_404_webapp",
+                    extra={"lastValidatedAt": _utcnow()},
+                )
+                if not ok:
+                    continue
+                _mark_all_snippets_for_reindex(
+                    target_key=new_key,
+                    reason=f"auto_upgrade_webapp:{model_n}->{cand_name}",
+                )
+                logger.warning(
+                    "Webapp health-check: upgraded %s -> %s (api=%s)",
+                    model_n, cand_name, cand_av,
+                )
+                return
+
+            logger.warning(
+                "Webapp health-check: no working model found"
+            )
+    finally:
+        try:
+            _release_short_lock(lock_id=_LOCK_ID, owner=owner)
+        except Exception:
+            pass
