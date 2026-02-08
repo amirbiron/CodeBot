@@ -455,6 +455,14 @@ def _maybe_start_embedding_health_check() -> None:
                 )
 
                 coro = maybe_upgrade_embedding_model_on_startup()
+                # In some deployments (gunicorn async workers, module imported
+                # inside a running event loop) Python's thread-local
+                # _running_loop is non-None even in a fresh thread.  Clear it
+                # so run_until_complete() accepts our new loop.
+                try:
+                    asyncio._set_running_loop(None)
+                except (AttributeError, Exception):
+                    pass
                 loop = asyncio.new_event_loop()
                 # In some deployments (gunicorn, module imported inside a
                 # running event loop) the thread-local running_loop is
