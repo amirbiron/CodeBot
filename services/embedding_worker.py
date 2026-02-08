@@ -15,7 +15,7 @@ from database.manager import (
 )
 from services.embedding_service import get_embedding_service, compute_content_hash
 from services.chunking_service import split_code_to_chunks, create_embedding_text
-from services.semantic_embedding_settings import get_embedding_settings_cached
+from services.semantic_embedding_settings import get_embedding_settings_cached, make_embedding_key
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,15 @@ class EmbeddingWorker:
         user_id = snippet["user_id"]
         content = snippet.get("code") or snippet.get("content") or ""
         settings = get_embedding_settings_cached(allow_db=True)
+        # Keep an "effective" metadata snapshot for this snippet processing.
+        effective_model = str(getattr(settings, "model", "") or "")
+        effective_api_version = str(getattr(settings, "api_version", "") or "v1beta")
+        effective_dim = int(getattr(settings, "dimensions", 0) or 768)
+        effective_key = str(getattr(settings, "active_key", "") or "") or make_embedding_key(
+            api_version=effective_api_version,
+            model=effective_model,
+            dimensions=effective_dim,
+        )
 
         async def _embed_with_settings(text: str) -> Optional[list[float]]:
             """
@@ -100,6 +109,7 @@ class EmbeddingWorker:
             we refresh `settings` so metadata matches the actual model going forward.
             """
             nonlocal settings
+            nonlocal effective_model, effective_api_version, effective_dim, effective_key
             model = str(getattr(settings, "model", "") or "")
             api_version = str(getattr(settings, "api_version", "") or "v1beta")
             dimensions = int(getattr(settings, "dimensions", 0) or 768)
@@ -115,6 +125,18 @@ class EmbeddingWorker:
                 return None
 
             if embedding:
+                # Ensure effective metadata matches actual settings used.
+                try:
+                    effective_model = model
+                    effective_api_version = api_version
+                    effective_dim = int(len(embedding) or dimensions or 0) or int(dimensions or 0) or 768
+                    effective_key = make_embedding_key(
+                        api_version=effective_api_version,
+                        model=effective_model,
+                        dimensions=effective_dim,
+                    )
+                except Exception:
+                    pass
                 return embedding
 
             # Only if model is missing: trigger self-heal via the standard API.
@@ -127,6 +149,16 @@ class EmbeddingWorker:
                     # Refresh settings so metadata reflects the working model.
                     try:
                         settings = get_embedding_settings_cached(allow_db=True)
+                        effective_model = str(getattr(settings, "model", "") or effective_model)
+                        effective_api_version = str(
+                            getattr(settings, "api_version", "") or effective_api_version
+                        )
+                        effective_dim = int(getattr(settings, "dimensions", 0) or len(healed) or effective_dim)
+                        effective_key = str(getattr(settings, "active_key", "") or "") or make_embedding_key(
+                            api_version=effective_api_version,
+                            model=effective_model,
+                            dimensions=effective_dim,
+                        )
                     except Exception:
                         pass
                     return healed
@@ -142,6 +174,18 @@ class EmbeddingWorker:
                     )
                     _ = st2
                     if emb2:
+                        # Update effective metadata to match the actual returned dimension.
+                        try:
+                            effective_model = model
+                            effective_api_version = api_version
+                            effective_dim = int(len(emb2) or 0) or effective_dim
+                            effective_key = make_embedding_key(
+                                api_version=effective_api_version,
+                                model=effective_model,
+                                dimensions=effective_dim,
+                            )
+                        except Exception:
+                            pass
                         return emb2
             except Exception:
                 pass
@@ -158,10 +202,10 @@ class EmbeddingWorker:
                 snippet_id=snippet_id,
                 content_hash="empty",
                 chunk_count=0,
-                embedding_model_key=getattr(settings, "active_key", None),
-                embedding_model=getattr(settings, "model", None),
-                embedding_api_version=getattr(settings, "api_version", None),
-                embedding_dim=getattr(settings, "dimensions", None),
+                embedding_model_key=effective_key,
+                embedding_model=effective_model,
+                embedding_api_version=effective_api_version,
+                embedding_dim=effective_dim,
             )
             return
 
@@ -184,10 +228,10 @@ class EmbeddingWorker:
                 snippet_id=snippet_id,
                 content_hash=current_hash,
                 chunk_count=0,
-                embedding_model_key=getattr(settings, "active_key", None),
-                embedding_model=getattr(settings, "model", None),
-                embedding_api_version=getattr(settings, "api_version", None),
-                embedding_dim=getattr(settings, "dimensions", None),
+                embedding_model_key=effective_key,
+                embedding_model=effective_model,
+                embedding_api_version=effective_api_version,
+                embedding_dim=effective_dim,
             )
             return
 
@@ -211,10 +255,10 @@ class EmbeddingWorker:
                         "endLine": chunk.end_line,
                         "language": snippet.get("programming_language", "unknown"),
                         "chunkEmbedding": embedding,
-                        "embeddingModelKey": getattr(settings, "active_key", None),
-                        "embeddingModel": getattr(settings, "model", None),
-                        "embeddingApiVersion": getattr(settings, "api_version", None),
-                        "embeddingDim": getattr(settings, "dimensions", None),
+                        "embeddingModelKey": effective_key,
+                        "embeddingModel": effective_model,
+                        "embeddingApiVersion": effective_api_version,
+                        "embeddingDim": effective_dim,
                     }
                 )
 
@@ -241,10 +285,10 @@ class EmbeddingWorker:
             snippet_embedding=snippet_embedding,
             needs_embedding=should_retry,
             needs_chunking=False,
-            embedding_model_key=getattr(settings, "active_key", None),
-            embedding_model=getattr(settings, "model", None),
-            embedding_api_version=getattr(settings, "api_version", None),
-            embedding_dim=getattr(settings, "dimensions", None),
+            embedding_model_key=effective_key,
+            embedding_model=effective_model,
+            embedding_api_version=effective_api_version,
+            embedding_dim=effective_dim,
         )
 
         logger.info("Processed snippet %s: %s chunks", snippet_id, len(chunk_docs))
