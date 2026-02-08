@@ -112,7 +112,6 @@ class EmbeddingWorker:
             includes self-heal (ListModels pick) and persistence. After it returns an embedding,
             we refresh `settings` so metadata matches the actual model going forward.
             """
-            nonlocal settings
             nonlocal effective_model, effective_api_version, effective_dim, effective_key
             model = str(getattr(settings, "model", "") or "")
             api_version = str(getattr(settings, "api_version", "") or "v1beta")
