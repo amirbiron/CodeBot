@@ -230,6 +230,9 @@ async def get_snippets_needing_processing(limit: int = 50) -> List[Dict[str, Any
                 "description": 1,
                 "tags": 1,
                 "programming_language": 1,
+                # חשוב: בלי זה ה-EmbeddingWorker לא יראה את הדגלים ולא יבצע reindex אחרי שדרוג מודל
+                "needs_embedding": 1,
+                "needs_chunking": 1,
                 "contentHash": 1,
                 "chunkCount": 1,
             },
