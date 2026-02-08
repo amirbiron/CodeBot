@@ -720,17 +720,57 @@ def sync_probe_and_upgrade() -> None:
                 )
                 return
 
-            if st != 404:
+            if st != 404 and st != 422:
                 logger.warning(
-                    "sync_probe_and_upgrade: model %s returned status %s (not 404), skipping",
+                    "sync_probe_and_upgrade: model %s returned status %s, skipping",
                     model_n, st,
                 )
                 return
 
-            logger.warning(
-                "sync_probe_and_upgrade: model %s returned 404, starting self-heal",
-                model_n,
-            )
+            # Current model dimension mismatch: try without fixed dim
+            if st == 422 and _AUTO_DIMENSION_UPGRADE:
+                emb_free, st_free = _probe(
+                    client, model_n, settings.api_version, 0,
+                )
+                if emb_free:
+                    new_dim = len(emb_free)
+                    prev_key = settings.active_key
+                    new_key = make_embedding_key(
+                        api_version=settings.api_version,
+                        model=model_n,
+                        dimensions=new_dim,
+                    )
+                    ok = upsert_embedding_settings(
+                        api_version=settings.api_version,
+                        model=model_n,
+                        dimensions=new_dim,
+                        allowlist=list(settings.allowlist),
+                        legacy_key=prev_key,
+                        active_key=new_key,
+                        reason="auto_upgrade_dim_current_model_webapp",
+                        extra={"lastValidatedAt": _utcnow()},
+                    )
+                    if ok:
+                        _mark_all_snippets_for_reindex(
+                            target_key=new_key,
+                            reason=f"auto_dim_upgrade_webapp:{model_n}",
+                        )
+                        logger.warning(
+                            "sync_probe_and_upgrade: model %s dim upgraded %s->%s",
+                            model_n, settings.dimensions, new_dim,
+                        )
+                        return
+
+            if st == 404:
+                logger.warning(
+                    "sync_probe_and_upgrade: model %s returned 404, starting self-heal",
+                    model_n,
+                )
+            else:
+                logger.warning(
+                    "sync_probe_and_upgrade: model %s dimension mismatch, searching candidates",
+                    model_n,
+                )
 
             # 2. Same model, v1 fallback
             if settings.api_version != "v1":
