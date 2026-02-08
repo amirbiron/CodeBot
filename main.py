@@ -5182,15 +5182,17 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Semantic search embedding worker (best-effort)
     if getattr(config, "SEMANTIC_SEARCH_ENABLED", True):
         try:
-            # Validate/upgrade embedding model on startup (best-effort, quick).
+            # Validate/upgrade embedding model on startup (best-effort).
             try:
                 from services.semantic_embedding_health import (
                     maybe_upgrade_embedding_model_on_startup,
                 )
 
-                await asyncio.wait_for(maybe_upgrade_embedding_model_on_startup(), timeout=8.0)
-            except Exception:
-                pass
+                await asyncio.wait_for(maybe_upgrade_embedding_model_on_startup(), timeout=30.0)
+            except asyncio.TimeoutError:
+                logger.warning("Embedding model startup health check timed out (30s) - worker will self-heal on demand")
+            except Exception as exc:
+                logger.warning("Embedding model startup health check failed: %s", exc)
 
             from services.embedding_worker import get_embedding_worker
 

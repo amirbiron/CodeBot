@@ -305,10 +305,13 @@ class EmbeddingService:
                 and now
                 and (now - float(_LAST_SELF_HEAL_TS)) < float(_SELF_HEAL_COOLDOWN_SECONDS)
             ):
+                logger.info("Self-heal skipped (cooldown: %.1fs remaining)",
+                            float(_SELF_HEAL_COOLDOWN_SECONDS) - (now - float(_LAST_SELF_HEAL_TS)))
                 return None
         except Exception:
             pass
-        _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
+
+        logger.warning("Self-heal triggered: attempting to find a working embedding model")
 
         allow = [normalize_model_name(x) for x in (preferred_allowlist or []) if str(x).strip()]
         legacy_to_keep = (str(existing_legacy_key or "").strip()) or (str(existing_active_key or "").strip())
@@ -316,6 +319,7 @@ class EmbeddingService:
         for api_version in ["v1beta", "v1"]:
             models = await self.list_models_detailed(api_version=api_version)
             if not models:
+                logger.info("Self-heal: list_models returned empty for api_version=%s", api_version)
                 continue
             # candidates: embedContent-capable + contains "embedding"
             embed_models: List[str] = []
@@ -330,6 +334,10 @@ class EmbeddingService:
                 if "embedding" not in name.lower():
                     continue
                 embed_models.append(name)
+
+            logger.info("Self-heal: found %d embedding-capable models on %s: %s",
+                        len(embed_models), api_version, embed_models[:10])
+
             # order: allowlist intersection first, else provider order
             if allow:
                 ordered = [m for m in allow if m in set(embed_models)]
@@ -337,6 +345,10 @@ class EmbeddingService:
                 ordered = []
             if not ordered:
                 ordered = embed_models
+
+            logger.info("Self-heal: probing %d candidates (api=%s): %s",
+                        len(ordered[:20]), api_version, ordered[:20])
+
             # probe using the real text (already trimmed in generate_embedding_with_status)
             for candidate in ordered[:20]:
                 emb, status, body = await self.generate_embedding_with_status(
@@ -347,6 +359,8 @@ class EmbeddingService:
                 )
                 # If candidate exists but dimensionality differs, retry without requesting a fixed dimension.
                 if (not emb) and int(status or 0) == 422 and "dimension_mismatch" in str(body or ""):
+                    logger.info("Self-heal: dimension mismatch for %s/%s, retrying without fixed dim",
+                                candidate, api_version)
                     emb2, status_b, body_b = await self.generate_embedding_with_status(
                         text,
                         model=candidate,
@@ -358,15 +372,22 @@ class EmbeddingService:
                     if emb2:
                         emb = emb2
                 if emb:
+                    actual_dim = len(emb)
+                    logger.warning(
+                        "Self-heal SUCCESS: switched to model=%s api=%s dim=%d",
+                        candidate, api_version, actual_dim,
+                    )
+                    # Set cooldown AFTER success to avoid blocking retries on failure.
+                    _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
                     # Persist best-effort so future calls don't need self-heal
                     try:
                         from services.semantic_embedding_settings import upsert_embedding_settings  # type: ignore
 
-                        upsert_embedding_settings(
+                        persisted = upsert_embedding_settings(
                             api_version=api_version,
                             model=candidate,
                             # Prefer the actual returned dimension (safe) over the old preferred dimension.
-                            dimensions=int(len(emb) or 0),
+                            dimensions=int(actual_dim or 0),
                             allowlist=allow or None,
                             # חשוב: לא לדרוס legacy_key - נשמור את הערך הקיים כדי לא לאבד מעקב על embeddings ישנים.
                             legacy_key=legacy_to_keep or None,
@@ -374,11 +395,16 @@ class EmbeddingService:
                             reason="self_heal_404",
                             extra={"lastSelfHealAt": datetime.now(timezone.utc)},
                         )
-                    except Exception:
-                        pass
+                        if not persisted:
+                            logger.warning("Self-heal: embedding found but failed to persist config to DB")
+                    except Exception as exc:
+                        logger.warning("Self-heal: failed to persist config: %s", exc)
                     return emb
-                _ = status
-                _ = body
+                logger.info("Self-heal: candidate %s/%s failed (status=%s)", candidate, api_version, status)
+
+        # All candidates failed: set cooldown to avoid hammering the API.
+        _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
+        logger.error("Self-heal FAILED: no working embedding model found after probing all candidates")
         return None
 
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
@@ -420,6 +446,7 @@ class EmbeddingService:
         status2 = None
         try:
             if embedding is None and int(status1 or 0) == 404 and str(api_version or "").strip() != "v1":
+                logger.info("Model %s returned 404 on %s, trying v1 fallback", model, api_version)
                 embedding2, status2, _body2 = await self.generate_embedding_with_status(
                     text,
                     model=str(model),
@@ -427,13 +454,16 @@ class EmbeddingService:
                     dimensions=int(dimensions),
                 )
                 if embedding2:
+                    logger.info("v1 fallback succeeded for model %s", model)
                     return embedding2
-        except Exception:
-            pass
+                logger.info("v1 fallback also failed for model %s (status=%s)", model, status2)
+        except Exception as exc:
+            logger.warning("v1 fallback raised exception: %s", exc)
         # Self-heal: if current model is 404 (and v1 fallback didn't return an embedding),
         # try to pick a working model from ListModels automatically.
         try:
             if embedding is None and int(status1 or 0) == 404:
+                logger.warning("Model %s is 404 on all API versions, initiating self-heal", model)
                 healed = await self._self_heal_on_404(
                     text=text,
                     preferred_dimensions=int(dimensions),
@@ -443,8 +473,9 @@ class EmbeddingService:
                 )
                 if healed:
                     return healed
-        except Exception:
-            pass
+                logger.warning("Self-heal returned no embedding for model %s", model)
+        except Exception as exc:
+            logger.error("Self-heal raised unexpected exception: %s", exc, exc_info=True)
         # Keep old behavior: just return embedding or None.
         # Special case: if model is missing (404), callers may run startup health check to auto-upgrade.
         _ = status1
