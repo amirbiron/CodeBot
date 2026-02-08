@@ -640,21 +640,31 @@ def sync_probe_and_upgrade() -> None:
     """
     import httpx as _httpx
 
+    logger.info("sync_probe_and_upgrade: starting webapp embedding health-check")
+
     acquired, owner = _acquire_short_lock(
         lock_id=_LOCK_ID, lease_seconds=_LOCK_LEASE_SECONDS,
     )
     if not acquired:
+        logger.info("sync_probe_and_upgrade: lock not acquired, skipping")
         return
 
     try:
         api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
         if not api_key:
+            logger.warning("sync_probe_and_upgrade: no GEMINI_API_KEY set, skipping")
             return
 
         settings = get_embedding_settings_cached(allow_db=True)
         model_n = normalize_model_name(settings.model)
         if not model_n:
+            logger.warning("sync_probe_and_upgrade: empty model name, skipping")
             return
+
+        logger.info(
+            "sync_probe_and_upgrade: testing model=%s api=%s dim=%s",
+            model_n, settings.api_version, settings.dimensions,
+        )
 
         def _base(av: str) -> str:
             return f"https://generativelanguage.googleapis.com/{av}/models"
@@ -683,6 +693,7 @@ def sync_probe_and_upgrade() -> None:
             emb, st = _probe(client, model_n, settings.api_version,
                              settings.dimensions)
             if emb:
+                logger.info("sync_probe_and_upgrade: current model works OK")
                 upsert_embedding_settings(
                     api_version=settings.api_version,
                     model=model_n,
@@ -696,7 +707,16 @@ def sync_probe_and_upgrade() -> None:
                 return
 
             if st != 404:
+                logger.warning(
+                    "sync_probe_and_upgrade: model %s returned status %s (not 404), skipping",
+                    model_n, st,
+                )
                 return
+
+            logger.warning(
+                "sync_probe_and_upgrade: model %s returned 404, starting self-heal",
+                model_n,
+            )
 
             # 2. Same model, v1 fallback
             if settings.api_version != "v1":
