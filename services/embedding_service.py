@@ -430,9 +430,10 @@ class EmbeddingService:
                     return embedding2
         except Exception:
             pass
-        # Self-heal: if still 404, try to pick a working model from ListModels automatically.
+        # Self-heal: if current model is 404 (and v1 fallback didn't return an embedding),
+        # try to pick a working model from ListModels automatically.
         try:
-            if embedding is None and int(status1 or 0) == 404 and (status2 is None or int(status2 or 0) == 404):
+            if embedding is None and int(status1 or 0) == 404:
                 healed = await self._self_heal_on_404(
                     text=text,
                     preferred_dimensions=int(dimensions),
