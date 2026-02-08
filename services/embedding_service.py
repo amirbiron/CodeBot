@@ -13,6 +13,12 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import httpx
 
 logger = logging.getLogger(__name__)
+# חשוב: httpx יכול להדפיס URL מלא (כולל API key בפרמטרים).
+# כדי למנוע דליפת סודות בלוגים, נוריד את הלוגר שלו ל-WARNING כברירת מחדל.
+try:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+except Exception:
+    pass
 
 # Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -213,6 +219,48 @@ class EmbeddingService:
             seen.add(x)
             deduped.append(x)
         return deduped
+
+    async def list_models_detailed(self, *, api_version: str) -> List[Dict[str, Any]]:
+        """
+        Best-effort list of available models with metadata (e.g. supportedGenerationMethods).
+        Returns raw dicts with normalized name (no "models/" prefix) when possible.
+        """
+        if not self.is_available():
+            return []
+        base_url = self._base_url(api_version)
+        try:
+            resp = await self.client.get(
+                base_url,
+                params={"key": self.api_key},
+                headers={"Content-Type": "application/json"},
+            )
+        except Exception:
+            return []
+        if int(getattr(resp, "status_code", 0) or 0) != 200:
+            return []
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        models = data.get("models")
+        if not isinstance(models, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for m in models:
+            if not isinstance(m, dict):
+                continue
+            try:
+                name = str(m.get("name") or "").strip()
+            except Exception:
+                name = ""
+            if name.startswith("models/"):
+                name = name[len("models/") :]
+            if not name:
+                continue
+            item = dict(m)
+            item["name"] = name
+            out.append(item)
+        return out
 
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
         """

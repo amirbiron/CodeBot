@@ -198,14 +198,20 @@ def _mark_all_snippets_for_reindex(*, target_key: str, reason: str) -> int:
         return 0
 
 
-def _pick_best_candidate(allowlist: List[str], available: List[str]) -> List[str]:
+def _pick_best_candidate(
+    allowlist: List[str],
+    available: List[str],
+    *,
+    fallback_to_allowlist_if_no_match: bool = True,
+) -> List[str]:
     """
     Returns candidates in preferred order (latest first).
     We keep it simple: sort by numeric suffix if present, otherwise lexical.
     """
     allow = [normalize_model_name(x) for x in (allowlist or []) if str(x).strip()]
     avail = {normalize_model_name(x) for x in (available or []) if str(x).strip()}
-    candidates = [m for m in allow if m in avail] or allow
+    matched = [m for m in allow if m in avail]
+    candidates = matched if matched else (allow if fallback_to_allowlist_if_no_match else [])
 
     def _score(name: str) -> Tuple[int, str]:
         # text-embedding-006 => 6
@@ -221,6 +227,52 @@ def _pick_best_candidate(allowlist: List[str], available: List[str]) -> List[str
 
     candidates.sort(key=_score, reverse=True)
     return candidates
+
+
+def _supports_embed_content(model_doc: Dict[str, Any]) -> bool:
+    """
+    True if model supports embedContent according to supportedGenerationMethods (when present).
+    If field missing, return False (be conservative).
+    """
+    if not isinstance(model_doc, dict):
+        return False
+    methods = model_doc.get("supportedGenerationMethods")
+    if not isinstance(methods, list):
+        return False
+    try:
+        return any(str(m).strip() == "embedContent" for m in methods)
+    except Exception:
+        return False
+
+
+def _auto_pick_from_provider(models: List[Dict[str, Any]]) -> List[str]:
+    """
+    Pick candidates directly from provider list (embedContent-capable), sorted by heuristic.
+    """
+    names: List[str] = []
+    for m in models or []:
+        if not _supports_embed_content(m):
+            continue
+        try:
+            name = normalize_model_name(str(m.get("name") or ""))
+        except Exception:
+            name = ""
+        if not name:
+            continue
+        # Prefer obvious embedding models
+        if "embedding" not in name.lower():
+            continue
+        names.append(name)
+    # de-dup
+    seen = set()
+    uniq: List[str] = []
+    for n in names:
+        if n in seen:
+            continue
+        seen.add(n)
+        uniq.append(n)
+    # reuse scoring from allowlist picker by treating provider list as "available"
+    return _pick_best_candidate(allowlist=uniq, available=uniq, fallback_to_allowlist_if_no_match=False)
 
 
 def _parse_dimension_mismatch(body: str) -> Optional[Tuple[int, int]]:
@@ -355,13 +407,48 @@ async def maybe_upgrade_embedding_model_on_startup() -> None:
                     "Embedding API version v1 seems to work, but failed to persist config; continuing with model fallback search."
                 )
 
-        # Otherwise: list available models and pick newest from allowlist
-        available_models = await service.list_models(api_version=settings.api_version) or []
+        # Otherwise: list available models and pick candidates.
+        # We prefer allowlist∩available, but if it doesn't match reality we can auto-pick
+        # embedContent-capable models directly from the provider list.
+        models_docs = await service.list_models_detailed(api_version=settings.api_version) or []
         # If listing fails on v1beta, try v1
-        if not available_models and settings.api_version != "v1":
-            available_models = await service.list_models(api_version="v1") or []
+        if not models_docs and settings.api_version != "v1":
+            models_docs = await service.list_models_detailed(api_version="v1") or []
 
-        candidates = _pick_best_candidate(settings.allowlist, available_models)
+        available_models: List[str] = []
+        embed_capable: List[str] = []
+        try:
+            for m in models_docs:
+                if not isinstance(m, dict):
+                    continue
+                name = normalize_model_name(str(m.get("name") or ""))
+                if not name:
+                    continue
+                available_models.append(name)
+                if _supports_embed_content(m):
+                    embed_capable.append(name)
+        except Exception:
+            available_models = []
+            embed_capable = []
+
+        # 1) Prefer allowlist ∩ embedContent-capable models (when list_models succeeded)
+        candidates = _pick_best_candidate(
+            settings.allowlist,
+            embed_capable or available_models,
+            fallback_to_allowlist_if_no_match=False,
+        )
+
+        # 2) If allowlist doesn't match reality, auto-pick from provider list
+        if not candidates:
+            candidates = _auto_pick_from_provider(models_docs)
+
+        # 3) Last resort: try any embedContent-capable model (even if name doesn't include "embedding")
+        if not candidates and embed_capable:
+            candidates = _pick_best_candidate(
+                embed_capable,
+                embed_capable,
+                fallback_to_allowlist_if_no_match=False,
+            )
         for candidate in candidates:
             for api_version in [settings.api_version, "v1"] if settings.api_version != "v1" else ["v1"]:
                 emb_c, st_c, body_c = await service.generate_embedding_with_status(
