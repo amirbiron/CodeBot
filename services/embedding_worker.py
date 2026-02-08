@@ -145,6 +145,10 @@ class EmbeddingWorker:
             # Model missing mid-processing: do not self-heal in-place (would mix vectors within snippet).
             # Signal outer loop to restart snippet processing after self-heal updates config.
             if int(status or 0) == 404:
+                logger.warning(
+                    "Snippet %s: model returned 404 mid-processing, signalling restart",
+                    snippet_id,
+                )
                 raise _RestartSnippetProcessing()
 
             # Dimension mismatch (best-effort): retry without fixed dimensionality.
@@ -208,11 +212,19 @@ class EmbeddingWorker:
         for attempt in range(2):
             if attempt > 0:
                 # Trigger self-heal once, then refresh settings snapshot.
+                logger.info("Snippet %s: retry attempt %d - triggering self-heal",
+                            snippet_id, attempt)
                 try:
                     # Use a tiny text to trigger ListModels+pick if needed.
-                    _ = await self.embedding_service.generate_embedding("healthcheck")
-                except Exception:
-                    pass
+                    heal_result = await self.embedding_service.generate_embedding("healthcheck")
+                    if heal_result:
+                        logger.info("Snippet %s: self-heal produced embedding, refreshing settings", snippet_id)
+                    else:
+                        logger.warning(
+                            "Snippet %s: self-heal returned None, retrying anyway",
+                            snippet_id)
+                except Exception as exc:
+                    logger.warning("Snippet %s: self-heal raised exception: %s", snippet_id, exc)
                 settings = get_embedding_settings_cached(allow_db=True)
                 effective_model = str(getattr(settings, "model", "") or "")
                 effective_api_version = str(getattr(settings, "api_version", "") or "v1beta")
@@ -223,6 +235,8 @@ class EmbeddingWorker:
                     model=effective_model,
                     dimensions=effective_dim,
                 )
+                logger.info("Snippet %s: retry using model=%s api=%s dim=%d key=%s",
+                            snippet_id, effective_model, effective_api_version, effective_dim, effective_key)
 
             chunks = split_code_to_chunks(content)
             if not chunks:
@@ -267,8 +281,13 @@ class EmbeddingWorker:
             except _RestartSnippetProcessing:
                 # Model disappeared mid-run: restart (once).
                 if attempt == 0:
+                    logger.info("Snippet %s: 404 during chunk processing (attempt 0), will restart", snippet_id)
                     continue
                 # second failure: give up for now (leave needs_embedding True)
+                logger.warning("Snippet %s: 404 during chunk processing (attempt 1), giving up", snippet_id)
+                # Clear any orphaned chunks from a previous attempt that may have saved chunks
+                # before the metadata embedding triggered a restart.
+                await save_snippet_chunks(user_id=user_id, snippet_id=snippet_id, chunks=[])
                 await update_snippet_embedding_status(
                     snippet_id=snippet_id,
                     content_hash=current_hash,
@@ -291,7 +310,13 @@ class EmbeddingWorker:
                 snippet_embedding = await _embed_with_settings(metadata_text)
             except _RestartSnippetProcessing:
                 if attempt == 0:
+                    logger.info(
+                        "Snippet %s: 404 during metadata embed (attempt 0), restart",
+                        snippet_id)
                     continue
+                logger.warning(
+                    "Snippet %s: 404 during metadata embed (attempt 1), skipping",
+                    snippet_id)
                 snippet_embedding = None
 
             should_retry = len(chunk_docs) < len(chunks) or snippet_embedding is None
