@@ -448,22 +448,30 @@ def _maybe_start_embedding_health_check() -> None:
             return
 
         def _runner():
+            coro = None
             try:
                 from services.semantic_embedding_health import (
                     maybe_upgrade_embedding_model_on_startup,
                 )
 
+                coro = maybe_upgrade_embedding_model_on_startup()
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    loop.run_until_complete(maybe_upgrade_embedding_model_on_startup())
+                    loop.run_until_complete(coro)
+                    coro = None  # successfully ran
                 finally:
                     try:
                         loop.close()
                     finally:
                         asyncio.set_event_loop(None)
-            except Exception:
-                return
+            except Exception as exc:
+                logger.warning("Embedding health-check thread failed: %s", exc)
+            finally:
+                # Prevent "coroutine was never awaited" if run_until_complete
+                # raised before the coroutine started executing.
+                if coro is not None:
+                    coro.close()
 
         t = threading.Thread(target=_runner, daemon=True, name="embedding-healthcheck")
         _EMBEDDING_HEALTH_THREAD = t
