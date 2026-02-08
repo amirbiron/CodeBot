@@ -15,6 +15,7 @@ from database.manager import (
 )
 from services.embedding_service import get_embedding_service, compute_content_hash
 from services.chunking_service import split_code_to_chunks, create_embedding_text
+from services.semantic_embedding_settings import get_embedding_settings_cached
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,22 @@ class EmbeddingWorker:
         snippet_id = snippet["_id"]
         user_id = snippet["user_id"]
         content = snippet.get("code") or snippet.get("content") or ""
+        settings = get_embedding_settings_cached(allow_db=True)
+
+        async def _embed_with_settings(text: str) -> Optional[list[float]]:
+            # חשוב: לא להשתמש ב-generate_embedding() כאן, כי הוא קורא settings שוב
+            # ועלול להחליף מודל באמצע ולגרום לחוסר התאמה בין metadata לווקטור.
+            try:
+                embedding, status, _body = await self.embedding_service.generate_embedding_with_status(
+                    text,
+                    model=str(getattr(settings, "model", "") or ""),
+                    api_version=str(getattr(settings, "api_version", "") or "v1beta"),
+                    dimensions=int(getattr(settings, "dimensions", 0) or 768),
+                )
+                _ = status
+                return embedding
+            except Exception:
+                return None
 
         if not content:
             await save_snippet_chunks(
@@ -99,6 +116,10 @@ class EmbeddingWorker:
                 snippet_id=snippet_id,
                 content_hash="empty",
                 chunk_count=0,
+                embedding_model_key=getattr(settings, "active_key", None),
+                embedding_model=getattr(settings, "model", None),
+                embedding_api_version=getattr(settings, "api_version", None),
+                embedding_dim=getattr(settings, "dimensions", None),
             )
             return
 
@@ -121,6 +142,10 @@ class EmbeddingWorker:
                 snippet_id=snippet_id,
                 content_hash=current_hash,
                 chunk_count=0,
+                embedding_model_key=getattr(settings, "active_key", None),
+                embedding_model=getattr(settings, "model", None),
+                embedding_api_version=getattr(settings, "api_version", None),
+                embedding_dim=getattr(settings, "dimensions", None),
             )
             return
 
@@ -134,7 +159,7 @@ class EmbeddingWorker:
                 language=snippet.get("programming_language"),
             )
 
-            embedding = await self.embedding_service.generate_embedding(embedding_text)
+            embedding = await _embed_with_settings(embedding_text)
             if embedding:
                 chunk_docs.append(
                     {
@@ -144,6 +169,10 @@ class EmbeddingWorker:
                         "endLine": chunk.end_line,
                         "language": snippet.get("programming_language", "unknown"),
                         "chunkEmbedding": embedding,
+                        "embeddingModelKey": getattr(settings, "active_key", None),
+                        "embeddingModel": getattr(settings, "model", None),
+                        "embeddingApiVersion": getattr(settings, "api_version", None),
+                        "embeddingDim": getattr(settings, "dimensions", None),
                     }
                 )
 
@@ -160,7 +189,7 @@ class EmbeddingWorker:
             tags=snippet.get("tags", []),
             language=snippet.get("programming_language"),
         )
-        snippet_embedding = await self.embedding_service.generate_embedding(metadata_text)
+        snippet_embedding = await _embed_with_settings(metadata_text)
 
         should_retry = len(chunk_docs) < len(chunks) or snippet_embedding is None
         await update_snippet_embedding_status(
@@ -170,6 +199,10 @@ class EmbeddingWorker:
             snippet_embedding=snippet_embedding,
             needs_embedding=should_retry,
             needs_chunking=False,
+            embedding_model_key=getattr(settings, "active_key", None),
+            embedding_model=getattr(settings, "model", None),
+            embedding_api_version=getattr(settings, "api_version", None),
+            embedding_dim=getattr(settings, "dimensions", None),
         )
 
         logger.info("Processed snippet %s: %s chunks", snippet_id, len(chunk_docs))
