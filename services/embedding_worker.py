@@ -92,19 +92,61 @@ class EmbeddingWorker:
         settings = get_embedding_settings_cached(allow_db=True)
 
         async def _embed_with_settings(text: str) -> Optional[list[float]]:
-            # חשוב: לא להשתמש ב-generate_embedding() כאן, כי הוא קורא settings שוב
-            # ועלול להחליף מודל באמצע ולגרום לחוסר התאמה בין metadata לווקטור.
+            """
+            Embed using the *current* settings snapshot for consistency of metadata.
+
+            If the model is missing (404), we trigger EmbeddingService.generate_embedding() which
+            includes self-heal (ListModels pick) and persistence. After it returns an embedding,
+            we refresh `settings` so metadata matches the actual model going forward.
+            """
+            nonlocal settings
+            model = str(getattr(settings, "model", "") or "")
+            api_version = str(getattr(settings, "api_version", "") or "v1beta")
+            dimensions = int(getattr(settings, "dimensions", 0) or 768)
+
             try:
-                embedding, status, _body = await self.embedding_service.generate_embedding_with_status(
+                embedding, status, body = await self.embedding_service.generate_embedding_with_status(
                     text,
-                    model=str(getattr(settings, "model", "") or ""),
-                    api_version=str(getattr(settings, "api_version", "") or "v1beta"),
-                    dimensions=int(getattr(settings, "dimensions", 0) or 768),
+                    model=model,
+                    api_version=api_version,
+                    dimensions=dimensions,
                 )
-                _ = status
-                return embedding
             except Exception:
                 return None
+
+            if embedding:
+                return embedding
+
+            # Only if model is missing: trigger self-heal via the standard API.
+            if int(status or 0) == 404:
+                try:
+                    healed = await self.embedding_service.generate_embedding(text)
+                except Exception:
+                    healed = None
+                if healed:
+                    # Refresh settings so metadata reflects the working model.
+                    try:
+                        settings = get_embedding_settings_cached(allow_db=True)
+                    except Exception:
+                        pass
+                    return healed
+
+            # Dimension mismatch (best-effort): retry without fixed dimensionality.
+            try:
+                if int(status or 0) == 422 and "dimension_mismatch" in str(body or ""):
+                    emb2, st2, _b2 = await self.embedding_service.generate_embedding_with_status(
+                        text,
+                        model=model,
+                        api_version=api_version,
+                        dimensions=0,
+                    )
+                    _ = st2
+                    if emb2:
+                        return emb2
+            except Exception:
+                pass
+
+            return None
 
         if not content:
             await save_snippet_chunks(
