@@ -335,6 +335,18 @@ class EmbeddingService:
                     api_version=api_version,
                     dimensions=int(preferred_dimensions or 0),
                 )
+                # If candidate exists but dimensionality differs, retry without requesting a fixed dimension.
+                if (not emb) and int(status or 0) == 422 and "dimension_mismatch" in str(body or ""):
+                    emb2, status_b, body_b = await self.generate_embedding_with_status(
+                        text,
+                        model=candidate,
+                        api_version=api_version,
+                        dimensions=0,
+                    )
+                    _ = status_b
+                    _ = body_b
+                    if emb2:
+                        emb = emb2
                 if emb:
                     # Persist best-effort so future calls don't need self-heal
                     try:
@@ -343,7 +355,8 @@ class EmbeddingService:
                         upsert_embedding_settings(
                             api_version=api_version,
                             model=candidate,
-                            dimensions=int(preferred_dimensions or len(emb) or 0),
+                            # Prefer the actual returned dimension (safe) over the old preferred dimension.
+                            dimensions=int(len(emb) or 0),
                             allowlist=allow or None,
                             legacy_key=None,
                             active_key=None,
