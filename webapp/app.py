@@ -453,7 +453,15 @@ def _maybe_start_embedding_health_check() -> None:
                     maybe_upgrade_embedding_model_on_startup,
                 )
 
-                asyncio.run(maybe_upgrade_embedding_model_on_startup())
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(maybe_upgrade_embedding_model_on_startup())
+                finally:
+                    try:
+                        loop.close()
+                    finally:
+                        asyncio.set_event_loop(None)
             except Exception:
                 return
 
