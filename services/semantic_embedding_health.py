@@ -91,10 +91,12 @@ def _acquire_short_lock(*, lock_id: str, lease_seconds: int) -> Tuple[bool, str]
     now = _utcnow()
     exp = now + timedelta(seconds=max(10, int(lease_seconds)))
 
+    # DuplicateKeyError may be unavailable in minimal environments.
+    # Keep detection narrow so we don't accidentally treat all exceptions as "duplicate key".
     try:
-        from pymongo.errors import DuplicateKeyError  # type: ignore
+        from pymongo.errors import DuplicateKeyError as _DuplicateKeyError  # type: ignore
     except Exception:  # pragma: no cover
-        DuplicateKeyError = Exception  # type: ignore
+        _DuplicateKeyError = None  # type: ignore
 
     try:
         coll.insert_one(
@@ -107,7 +109,33 @@ def _acquire_short_lock(*, lock_id: str, lease_seconds: int) -> Tuple[bool, str]
             }
         )
         return True, owner
-    except DuplicateKeyError:
+    except Exception as e:
+        # Handle "duplicate key" (lock already exists) specially; otherwise fail-open.
+        is_dup = False
+        try:
+            if _DuplicateKeyError is not None and isinstance(e, _DuplicateKeyError):
+                is_dup = True
+        except Exception:
+            is_dup = False
+        if not is_dup:
+            # Heuristic: sometimes we don't have the exact exception type
+            try:
+                code = getattr(e, "code", None)
+                if int(code or 0) == 11000:
+                    is_dup = True
+            except Exception:
+                pass
+        if not is_dup:
+            try:
+                msg = str(e or "").lower()
+                if "duplicate key" in msg or "e11000" in msg:
+                    is_dup = True
+            except Exception:
+                pass
+
+        if not is_dup:
+            return True, owner
+
         # try takeover if expired
         try:
             try:
@@ -126,8 +154,6 @@ def _acquire_short_lock(*, lock_id: str, lease_seconds: int) -> Tuple[bool, str]
         except Exception:
             pass
         return False, owner
-    except Exception:
-        return True, owner
 
 
 def _release_short_lock(*, lock_id: str, owner: str) -> None:

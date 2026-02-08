@@ -133,10 +133,6 @@ class EmbeddingWorker:
                 snippet_id=snippet_id,
                 content_hash=current_hash,
                 chunk_count=int(snippet.get("chunkCount", 0) or 0),
-                embedding_model_key=getattr(settings, "active_key", None),
-                embedding_model=getattr(settings, "model", None),
-                embedding_api_version=getattr(settings, "api_version", None),
-                embedding_dim=getattr(settings, "dimensions", None),
             )
             return
 
