@@ -323,7 +323,12 @@ async def maybe_upgrade_embedding_model_on_startup() -> None:
                         )
                     except Exception:
                         pass
-                return
+                    return
+                # אם לא הצלחנו לשמור קונפיג (DB תקול/הרשאות), אל נחזור כאן.
+                # נמשיך לנסות מודלים חלופיים שעשויים להצליח להישמר.
+                logger.warning(
+                    "Embedding API version v1 seems to work, but failed to persist config; continuing with model fallback search."
+                )
 
         # Otherwise: list available models and pick newest from allowlist
         available_models = await service.list_models(api_version=settings.api_version) or []

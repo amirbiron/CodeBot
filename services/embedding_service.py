@@ -246,6 +246,21 @@ class EmbeddingService:
             api_version=str(api_version),
             dimensions=int(dimensions),
         )
+        # Fail-open fallback: אם הוגדר v1beta אבל המודל לא קיים שם (404),
+        # נסה פעם אחת v1 (גם אם עדכון קונפיג ב-DB נכשל).
+        try:
+            if embedding is None and int(status or 0) == 404 and str(api_version or "").strip() != "v1":
+                embedding2, status2, _body2 = await self.generate_embedding_with_status(
+                    text,
+                    model=str(model),
+                    api_version="v1",
+                    dimensions=int(dimensions),
+                )
+                _ = status2
+                if embedding2:
+                    return embedding2
+        except Exception:
+            pass
         # Keep old behavior: just return embedding or None.
         # Special case: if model is missing (404), callers may run startup health check to auto-upgrade.
         _ = status
