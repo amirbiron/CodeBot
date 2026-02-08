@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import httpx
@@ -284,6 +285,8 @@ class EmbeddingService:
         text: str,
         preferred_dimensions: int,
         preferred_allowlist: Optional[List[str]] = None,
+        existing_legacy_key: Optional[str] = None,
+        existing_active_key: Optional[str] = None,
     ) -> Optional[List[float]]:
         """
         If current model is 404, attempt to auto-select a working embedding model from ListModels
@@ -302,6 +305,7 @@ class EmbeddingService:
         _LAST_SELF_HEAL_TS = now or _LAST_SELF_HEAL_TS
 
         allow = [normalize_model_name(x) for x in (preferred_allowlist or []) if str(x).strip()]
+        legacy_to_keep = (str(existing_legacy_key or "").strip()) or (str(existing_active_key or "").strip())
         # list models (try v1beta then v1)
         for api_version in ["v1beta", "v1"]:
             models = await self.list_models_detailed(api_version=api_version)
@@ -358,10 +362,11 @@ class EmbeddingService:
                             # Prefer the actual returned dimension (safe) over the old preferred dimension.
                             dimensions=int(len(emb) or 0),
                             allowlist=allow or None,
-                            legacy_key=None,
+                            # חשוב: לא לדרוס legacy_key - נשמור את הערך הקיים כדי לא לאבד מעקב על embeddings ישנים.
+                            legacy_key=legacy_to_keep or None,
                             active_key=None,
                             reason="self_heal_404",
-                            extra={"lastSelfHealAt": None},
+                            extra={"lastSelfHealAt": datetime.now(timezone.utc)},
                         )
                     except Exception:
                         pass
@@ -426,6 +431,8 @@ class EmbeddingService:
                     text=text,
                     preferred_dimensions=int(dimensions),
                     preferred_allowlist=allowlist,
+                    existing_legacy_key=str(getattr(settings, "legacy_key", "") or "") if settings is not None else "",
+                    existing_active_key=str(getattr(settings, "active_key", "") or "") if settings is not None else "",
                 )
                 if healed:
                     return healed
