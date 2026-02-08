@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -22,7 +23,8 @@ except Exception:
     pass
 
 # Self-heal throttling (avoid thundering herd on 404)
-_LAST_SELF_HEAL_TS: float = 0.0
+# None means "never ran" (avoid blocking first attempt).
+_LAST_SELF_HEAL_TS: Optional[float] = None
 _SELF_HEAL_COOLDOWN_SECONDS = float(os.getenv("EMBEDDING_SELF_HEAL_COOLDOWN_SECONDS", "60") or 60)
 
 # Configuration
@@ -294,15 +296,19 @@ class EmbeddingService:
         """
         global _LAST_SELF_HEAL_TS
         try:
-            now = float(asyncio.get_running_loop().time())
+            now = float(time.monotonic())
         except Exception:
             now = 0.0
         try:
-            if now and (now - float(_LAST_SELF_HEAL_TS)) < float(_SELF_HEAL_COOLDOWN_SECONDS):
+            if (
+                _LAST_SELF_HEAL_TS is not None
+                and now
+                and (now - float(_LAST_SELF_HEAL_TS)) < float(_SELF_HEAL_COOLDOWN_SECONDS)
+            ):
                 return None
         except Exception:
             pass
-        _LAST_SELF_HEAL_TS = now or _LAST_SELF_HEAL_TS
+        _LAST_SELF_HEAL_TS = now if now else _LAST_SELF_HEAL_TS
 
         allow = [normalize_model_name(x) for x in (preferred_allowlist or []) if str(x).strip()]
         legacy_to_keep = (str(existing_legacy_key or "").strip()) or (str(existing_active_key or "").strip())
