@@ -273,8 +273,6 @@ def _auto_pick_from_provider(models: List[Dict[str, Any]]) -> List[str]:
         uniq.append(n)
     # reuse scoring from allowlist picker by treating provider list as "available"
     return _pick_best_candidate(allowlist=uniq, available=uniq, fallback_to_allowlist_if_no_match=False)
-
-
 def _parse_dimension_mismatch(body: str) -> Optional[Tuple[int, int]]:
     """
     Parse internal diagnostic body like: "dimension_mismatch expected=768 actual=1536"
