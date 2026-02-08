@@ -703,7 +703,7 @@ def sync_probe_and_upgrade() -> None:
                 emb2, _ = _probe(client, model_n, "v1",
                                  settings.dimensions)
                 if emb2:
-                    upsert_embedding_settings(
+                    ok = upsert_embedding_settings(
                         api_version="v1",
                         model=model_n,
                         dimensions=settings.dimensions,
@@ -712,11 +712,18 @@ def sync_probe_and_upgrade() -> None:
                         active_key=settings.active_key,
                         reason="auto_upgrade_api_version_webapp",
                     )
+                    if ok:
+                        logger.warning(
+                            "Webapp health-check: model %s switched to v1",
+                            model_n,
+                        )
+                        return
+                    # Persist failed – fall through to candidate search
                     logger.warning(
-                        "Webapp health-check: model %s switched to v1",
+                        "Webapp health-check: v1 works for %s but "
+                        "failed to persist config; trying candidates",
                         model_n,
                     )
-                    return
 
             # 3. List models & pick candidates
             candidates: List[Tuple[str, str]] = []
@@ -760,11 +767,38 @@ def sync_probe_and_upgrade() -> None:
 
             # 4. Probe candidates
             for cand_name, cand_av in candidates[:10]:
-                emb_c, _ = _probe(
+                emb_c, st_c = _probe(
                     client, cand_name, cand_av, settings.dimensions,
                 )
                 if not emb_c:
-                    continue
+                    # Dimension mismatch: retry without fixed
+                    # dimensionality if auto-upgrade is enabled.
+                    if st_c == 400 or st_c == 422:
+                        if _AUTO_DIMENSION_UPGRADE:
+                            emb_free, st_free = _probe(
+                                client, cand_name, cand_av, 0,
+                            )
+                            if emb_free:
+                                emb_c = emb_free
+                                logger.warning(
+                                    "Webapp health-check: candidate "
+                                    "%s succeeded without fixed dim "
+                                    "(auto-dimension upgrade)",
+                                    cand_name,
+                                )
+                            else:
+                                continue
+                        else:
+                            logger.info(
+                                "Webapp health-check: candidate %s "
+                                "failed (status=%s), set "
+                                "EMBEDDING_AUTO_DIMENSION_UPGRADE=1 "
+                                "to retry without fixed dim",
+                                cand_name, st_c,
+                            )
+                            continue
+                    else:
+                        continue
                 new_dim = len(emb_c)
                 new_key = make_embedding_key(
                     api_version=cand_av,
