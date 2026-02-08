@@ -247,6 +247,7 @@ async def maybe_upgrade_embedding_model_on_startup() -> None:
                 active_key=settings.active_key,
                 reason="startup_baseline",
                 extra={"lastValidatedAt": None},
+                create_only=True,
             )
         except Exception:
             pass

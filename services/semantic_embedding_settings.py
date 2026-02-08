@@ -274,6 +274,7 @@ def upsert_embedding_settings(
     active_key: Optional[str] = None,
     reason: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
+    create_only: bool = False,
 ) -> bool:
     """
     עדכון קונפיג ב-DB (best-effort). Sync.
@@ -318,7 +319,19 @@ def upsert_embedding_settings(
         update.update(extra)
 
     try:
-        coll.update_one({"_id": SYSTEM_CONFIG_ID}, {"$set": update, "$setOnInsert": {"createdAt": now}}, upsert=True)
+        if create_only:
+            # יצירה בלבד: לא לשנות מסמך קיים (כדי לא "לגעת" בקונפיג בכל startup)
+            coll.update_one(
+                {"_id": SYSTEM_CONFIG_ID},
+                {"$setOnInsert": {**update, "createdAt": now}},
+                upsert=True,
+            )
+        else:
+            coll.update_one(
+                {"_id": SYSTEM_CONFIG_ID},
+                {"$set": update, "$setOnInsert": {"createdAt": now}},
+                upsert=True,
+            )
     except Exception:
         return False
 
