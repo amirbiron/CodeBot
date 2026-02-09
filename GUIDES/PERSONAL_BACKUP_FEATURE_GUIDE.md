@@ -428,7 +428,7 @@ class PersonalBackupService:
         Args:
             user_id: מזהה המשתמש המשחזר
             zip_bytes: תוכן קובץ ה-ZIP
-            overwrite: אם True, דורס קבצים קיימים עם אותו שם
+            overwrite: אם True, יוצר גרסה חדשה לקבצים קיימים (ההיסטוריה נשמרת)
 
         Returns:
             dict עם סיכום: {"ok": bool, "restored": {...}, "errors": [...]}
@@ -526,7 +526,14 @@ class PersonalBackupService:
         overwrite: bool,
         errors: List[str],
     ) -> int:
-        """משחזר קבצי קוד רגילים."""
+        """משחזר קבצי קוד רגילים.
+
+        הערה חשובה לגבי overwrite:
+        save_code_snippet תמיד עושה insert_one (גרסה חדשה) — זו מערכת versioning.
+        - overwrite=False: מדלג על קבצים שכבר קיימים.
+        - overwrite=True: יוצר גרסה חדשה (version N+1) של הקובץ הקיים,
+          כך שהתוכן מהגיבוי הופך לגרסה האחרונה, אבל ההיסטוריה נשמרת.
+        """
         from database.models import CodeSnippet
 
         count = 0
@@ -536,12 +543,11 @@ class PersonalBackupService:
                 continue
 
             # בדיקת קיום
-            if not overwrite:
-                existing = self.db.get_file(user_id, file_name)
-                if existing:
-                    continue
+            existing = self.db.get_file(user_id, file_name)
+            if existing and not overwrite:
+                continue
 
-            # קריאת תוכן מה-ZIP
+            # אם overwrite=True וקובץ קיים — נבדוק אם התוכן זהה, ונדלג אם כן
             zip_path = _safe_zip_path(f"files/{file_name}")
             try:
                 code = zf.read(zip_path).decode("utf-8", errors="replace")
@@ -552,7 +558,13 @@ class PersonalBackupService:
                 errors.append(f"שגיאה בקריאת {zip_path}: {e}")
                 continue
 
-            # שמירה
+            # דלג אם התוכן זהה לגרסה הקיימת (מונע גרסאות כפולות מיותרות)
+            if existing and overwrite:
+                existing_code = existing.get("code", "")
+                if existing_code == code:
+                    continue
+
+            # שמירה — save_code_snippet ימצא גרסה קיימת ויעלה version אוטומטית
             try:
                 snippet = CodeSnippet(
                     user_id=user_id,
@@ -580,7 +592,12 @@ class PersonalBackupService:
         overwrite: bool,
         errors: List[str],
     ) -> int:
-        """משחזר קבצים גדולים."""
+        """משחזר קבצים גדולים.
+
+        הערה: save_large_file עושה delete + insert (upsert אמיתי),
+        כך שב-overwrite=True הקובץ הקיים יוחלף בתוכן מהגיבוי.
+        כדי להימנע מהחלפה מיותרת, בודקים אם התוכן זהה.
+        """
         from database.models import LargeFile
 
         count = 0
@@ -589,10 +606,9 @@ class PersonalBackupService:
             if not file_name:
                 continue
 
-            if not overwrite:
-                existing = self.db.get_large_file(user_id, file_name)
-                if existing:
-                    continue
+            existing = self.db.get_large_file(user_id, file_name)
+            if existing and not overwrite:
+                continue
 
             zip_path = _safe_zip_path(f"large_files/{file_name}")
             try:
@@ -603,6 +619,12 @@ class PersonalBackupService:
             except Exception as e:
                 errors.append(f"שגיאה בקריאת {zip_path}: {e}")
                 continue
+
+            # דלג אם התוכן זהה (מונע delete + insert מיותרים)
+            if existing and overwrite:
+                existing_content = existing.get("content", "")
+                if existing_content == content:
+                    continue
 
             try:
                 large_file = LargeFile(
@@ -862,13 +884,30 @@ class PersonalBackupService:
 # ==================== פונקציות עזר ====================
 
 def _to_json(obj: Any) -> str:
-    """המרה ל-JSON עם תמיכה ב-datetime ו-ObjectId."""
+    """המרה ל-JSON עם תמיכה ב-datetime ו-ObjectId.
+
+    רשימה סגורה של טיפוסים מותרים — כל טיפוס לא מוכר יגרום ל-TypeError
+    כדי לזהות נתונים פגומים מוקדם ולא לייצר גיבויים שקטים אבל שבורים.
+    """
+    # טיפוסים מוכרים שיש להמיר במפורש
+    try:
+        from bson import ObjectId as BsonObjectId
+        _bson_types = (BsonObjectId,)
+    except Exception:
+        _bson_types = ()
+
     def _default(o):
         if isinstance(o, datetime):
             return o.isoformat()
-        if hasattr(o, "__str__"):
+        if _bson_types and isinstance(o, _bson_types):
             return str(o)
-        raise TypeError(f"Object of type {type(o)} is not JSON serializable")
+        # bytes — הודעה ברורה
+        if isinstance(o, bytes):
+            raise TypeError(
+                f"bytes object found in backup data (len={len(o)}). "
+                "Ensure all content is decoded to str before export."
+            )
+        raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
     return json.dumps(obj, ensure_ascii=False, indent=2, default=_default)
 
@@ -1119,7 +1158,7 @@ app.register_blueprint(backup_bp)
         <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem;
                        font-size: 0.85rem; opacity: 0.8; cursor: pointer">
           <input type="checkbox" id="restore-overwrite">
-          דרוס קבצים קיימים עם אותו שם
+          עדכן קבצים קיימים (יווצר גרסה חדשה, ההיסטוריה נשמרת)
         </label>
 
         <div id="restore-status" style="margin-top: 0.75rem; display: none"></div>
@@ -1190,8 +1229,8 @@ async function handleRestoreFile(input) {
 
   // אישור מהמשתמש
   const msg = overwrite
-    ? 'שחזור עם דריסת קבצים קיימים. להמשיך?'
-    : 'שחזור מגיבוי — קבצים קיימים לא יידרסו. להמשיך?';
+    ? 'שחזור עם עדכון קבצים קיימים (תיווצר גרסה חדשה). להמשיך?'
+    : 'שחזור מגיבוי — קבצים קיימים לא ישתנו. להמשיך?';
   if (!confirm(msg)) {
     input.value = '';
     return;
