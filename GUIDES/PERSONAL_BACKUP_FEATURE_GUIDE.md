@@ -105,8 +105,14 @@ except Exception:
 # גרסת פורמט הגיבוי — מאפשר לזהות שינויים עתידיים במבנה
 BACKUP_FORMAT_VERSION = 1
 
-# גודל מקסימלי של ZIP לשחזור (100MB)
+# גודל מקסימלי של ZIP לשחזור (100MB דחוס)
 MAX_RESTORE_ZIP_SIZE = 100 * 1024 * 1024
+
+# גודל מקסימלי של תוכן לא-דחוס (500MB) — הגנה מפני zip bombs
+MAX_UNCOMPRESSED_SIZE = 500 * 1024 * 1024
+
+# גודל מקסימלי לקובץ בודד לא-דחוס (50MB)
+MAX_SINGLE_FILE_SIZE = 50 * 1024 * 1024
 
 
 class PersonalBackupService:
@@ -457,6 +463,28 @@ class PersonalBackupService:
             return {"ok": False, "error": "קובץ ZIP לא תקין"}
 
         with zf:
+            # הגנה מפני zip bomb — בדיקת גודל לא-דחוס מצטבר
+            total_uncompressed = sum(info.file_size for info in zf.infolist())
+            if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"גודל לא-דחוס ({total_uncompressed // (1024*1024)}MB) "
+                        f"חורג מהמקסימום ({MAX_UNCOMPRESSED_SIZE // (1024*1024)}MB)"
+                    ),
+                }
+
+            # בדיקת קובץ בודד חריג
+            for info in zf.infolist():
+                if info.file_size > MAX_SINGLE_FILE_SIZE:
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"הקובץ {info.filename} גדול מדי "
+                            f"({info.file_size // (1024*1024)}MB, מקסימום {MAX_SINGLE_FILE_SIZE // (1024*1024)}MB)"
+                        ),
+                    }
+
             # בדיקת גרסה
             try:
                 info_raw = zf.read("backup_info.json")
