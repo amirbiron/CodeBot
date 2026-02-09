@@ -1237,6 +1237,13 @@ app.register_blueprint(backup_bp)
 
 ```html
 <script>
+// XSS-safe: escape HTML entities לפני הזרקה ל-innerHTML
+function _esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
 async function exportBackup() {
   const btn = document.getElementById('btn-export-backup');
   const status = document.getElementById('export-status');
@@ -1273,7 +1280,7 @@ async function exportBackup() {
     status.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי הורד בהצלחה</span>';
   } catch (err) {
     status.style.display = 'block';
-    status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + err.message + '</span>';
+    status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + _esc(err.message) + '</span>';
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-download"></i> הורד גיבוי מלא';
@@ -1337,7 +1344,7 @@ async function handleRestoreFile(input) {
     status.innerHTML = '<div style="color: #4ade80">' + summary + '</div>';
   } catch (err) {
     status.style.display = 'block';
-    status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + err.message + '</span>';
+    status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + _esc(err.message) + '</span>';
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-upload"></i> שחזר מקובץ ZIP';
