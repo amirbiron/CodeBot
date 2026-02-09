@@ -448,6 +448,7 @@ class PersonalBackupService:
             "bookmarks": 0,
             "sticky_notes": 0,
             "preferences": False,
+            "drive_prefs": False,
         }
 
         try:
@@ -507,6 +508,11 @@ class PersonalBackupService:
             prefs_data = self._read_json_from_zip(zf, "metadata/preferences.json", errors)
             if isinstance(prefs_data, dict) and prefs_data:
                 restored["preferences"] = self._restore_preferences(user_id, prefs_data, errors)
+
+            # 7) שחזור העדפות Drive
+            drive_data = self._read_json_from_zip(zf, "metadata/drive_prefs.json", errors)
+            if isinstance(drive_data, dict) and drive_data:
+                restored["drive_prefs"] = self._restore_drive_prefs(user_id, drive_data, errors)
 
         emit_event(
             "personal_backup_restore",
@@ -650,7 +656,11 @@ class PersonalBackupService:
         data: Dict[str, Any],
         errors: List[str],
     ) -> tuple:
-        """משחזר אוספים ופריטים."""
+        """משחזר אוספים ופריטים.
+
+        בדיקת כפילות: אם אוסף עם אותו שם כבר קיים, ממפים את ה-ID הישן
+        לאוסף הקיים ומדלגים על היצירה — כך שחזור חוזר לא יוצר כפילויות.
+        """
         collections_count = 0
         items_count = 0
 
@@ -664,14 +674,35 @@ class PersonalBackupService:
             errors.append(f"שגיאה באתחול CollectionsManager: {e}")
             return 0, 0
 
+        # טען אוספים קיימים לבדיקת כפילות לפי שם
+        existing_collections = {}
+        try:
+            existing_result = mgr.list_collections(user_id, limit=500)
+            if existing_result.get("ok"):
+                for ec in existing_result.get("collections", []):
+                    name = (ec.get("name") or "").strip()
+                    if name:
+                        existing_collections[name] = ec.get("id", "")
+        except Exception:
+            pass
+
         old_to_new_id = {}  # מיפוי ID ישן → חדש
 
         for coll in data.get("collections", []):
             try:
                 old_id = coll.get("id", "")
+                coll_name = (coll.get("name") or "אוסף משוחזר").strip()
+
+                # בדיקת כפילות — אם אוסף עם אותו שם כבר קיים, מפה ודלג
+                if coll_name in existing_collections:
+                    existing_id = existing_collections[coll_name]
+                    if old_id and existing_id:
+                        old_to_new_id[old_id] = existing_id
+                    continue
+
                 result = mgr.create_collection(
                     user_id=user_id,
-                    name=coll.get("name", "אוסף משוחזר"),
+                    name=coll_name,
                     description=coll.get("description", ""),
                     mode=coll.get("mode", "manual"),
                     icon=coll.get("icon"),
@@ -815,12 +846,27 @@ class PersonalBackupService:
                         normalized = re.sub(r"\s+", " ", str(file_name).strip()).lower()
                         scope_id = f"{user_id}:{normalized}"
 
+                    content = note.get("content", "")
+
+                    # בדיקת כפילות — דלג אם כבר קיימת פתקית עם אותו תוכן ומיקום
+                    dup_query = {
+                        "user_id": int(user_id),
+                        "content": content,
+                    }
+                    if scope_id:
+                        dup_query["scope_id"] = scope_id
+                    elif new_file_id:
+                        dup_query["file_id"] = new_file_id
+                    existing_note = raw_db.sticky_notes.find_one(dup_query)
+                    if existing_note:
+                        continue
+
                     doc = {
                         "user_id": int(user_id),
                         "file_id": new_file_id or "",
                         "file_name": file_name,
                         "scope_id": scope_id,
-                        "content": note.get("content", ""),
+                        "content": content,
                         "color": note.get("color", "#FFFFCC"),
                         "position_x": note.get("position_x", 100),
                         "position_y": note.get("position_y", 100),
@@ -862,6 +908,21 @@ class PersonalBackupService:
             return True
         except Exception as e:
             errors.append(f"שגיאה בשחזור העדפות: {e}")
+            return False
+
+    def _restore_drive_prefs(
+        self, user_id: int, prefs: Dict[str, Any], errors: List[str]
+    ) -> bool:
+        """משחזר העדפות Drive.
+
+        משתמש ב-save_drive_prefs שעושה merge עם הקיים (לא דריסה מלאה).
+        """
+        try:
+            if not prefs:
+                return False
+            return self.db.save_drive_prefs(user_id, prefs)
+        except Exception as e:
+            errors.append(f"שגיאה בשחזור העדפות Drive: {e}")
             return False
 
     # ================================================================
@@ -1265,6 +1326,7 @@ async function handleRestoreFile(input) {
     if (r.bookmarks > 0) summary += `סימניות: ${r.bookmarks}<br>`;
     if (r.sticky_notes > 0) summary += `פתקיות: ${r.sticky_notes}<br>`;
     if (r.preferences) summary += `העדפות: שוחזרו<br>`;
+    if (r.drive_prefs) summary += `העדפות Drive: שוחזרו<br>`;
 
     if (data.errors && data.errors.length > 0) {
       summary += `<br><span style="color: #fbbf24">${data.errors.length} שגיאות (ראה console)</span>`;
