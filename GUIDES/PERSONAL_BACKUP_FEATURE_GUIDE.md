@@ -309,7 +309,13 @@ class PersonalBackupService:
             return {"collections": [], "items": []}
 
     def _export_bookmarks(self, user_id: int) -> List[Dict]:
-        """מייצא סימניות."""
+        """מייצא סימניות.
+
+        get_user_bookmarks מחזיר מבנה מקובץ לפי קבצים:
+        {"files": [{"file_id", "file_name", "file_path", "bookmarks": [...]}]}
+
+        אנחנו משטחים את המבנה לרשימה אחת שקל לשחזר אותה.
+        """
         try:
             from database.bookmarks_manager import BookmarksManager
             raw_db = getattr(self.db, "db", None)
@@ -317,14 +323,35 @@ class PersonalBackupService:
                 return []
             mgr = BookmarksManager(raw_db)
             result = mgr.get_user_bookmarks(user_id, limit=5000)
-            bookmarks = result.get("bookmarks", []) if isinstance(result, dict) else []
-            return bookmarks if isinstance(bookmarks, list) else []
+            if not result.get("ok"):
+                return []
+
+            # שטח את המבנה המקובץ לרשימה שטוחה
+            flat_bookmarks = []
+            for file_group in result.get("files", []):
+                file_name = file_group.get("file_name", "")
+                file_path = file_group.get("file_path", "")
+                for bm in file_group.get("bookmarks", []):
+                    flat_bookmarks.append({
+                        "file_name": file_name,
+                        "file_path": file_path,
+                        "line_number": bm.get("line_number", 1),
+                        "line_text": bm.get("line_text", ""),
+                        "note": bm.get("note", ""),
+                        "color": bm.get("color", "yellow"),
+                        "created_at": _dt_to_str(bm.get("created_at")),
+                    })
+            return flat_bookmarks
         except Exception as e:
             logger.error(f"שגיאה בייצוא סימניות: {e}")
             return []
 
     def _export_sticky_notes(self, user_id: int) -> List[Dict]:
-        """מייצא פתקיות."""
+        """מייצא פתקיות.
+
+        חשוב: שומרים file_name ו-scope_id (לא רק file_id) כדי שנוכל
+        לעשות resolve בשחזור — כי file_id (ObjectId) ישתנה.
+        """
         try:
             raw_db = getattr(self.db, "db", None)
             if raw_db is None:
@@ -340,6 +367,18 @@ class PersonalBackupService:
                 for key in ("created_at", "updated_at", "remind_at"):
                     if key in note and isinstance(note[key], datetime):
                         note[key] = note[key].isoformat()
+                # ודא ש-file_name קיים — הוא הכרחי לשחזור
+                if "file_name" not in note and "file_id" in note:
+                    try:
+                        file_id = note["file_id"]
+                        doc = raw_db.code_snippets.find_one(
+                            {"_id": file_id, "user_id": int(user_id)},
+                            {"file_name": 1},
+                        )
+                        if doc and isinstance(doc, dict):
+                            note["file_name"] = doc.get("file_name", "")
+                    except Exception:
+                        pass
             return notes
         except Exception as e:
             logger.error(f"שגיאה בייצוא פתקיות: {e}")
@@ -656,23 +695,25 @@ class PersonalBackupService:
     def _restore_bookmarks(
         self, user_id: int, bookmarks: List[Dict], errors: List[str]
     ) -> int:
-        """משחזר סימניות (best-effort)."""
-        # שחזור סימניות דורש file_id תקף — מותנה בקבצים שכבר שוחזרו
-        # לכן מוגבל ל-best-effort
+        """משחזר סימניות (best-effort).
+
+        חשוב:
+        - לא משתמשים ב-toggle_bookmark כי הוא מוחק סימניה קיימת באותו מיקום.
+        - במקום זה, עושים insert ישיר לקולקציה (אחרי בדיקת כפילות).
+        - toggle_bookmark גם דורש file_name ו-file_path כפרמטרים חובה.
+        """
         count = 0
         try:
-            from database.bookmarks_manager import BookmarksManager
             raw_db = getattr(self.db, "db", None)
             if raw_db is None:
                 return 0
-            mgr = BookmarksManager(raw_db)
 
             for bm in bookmarks:
                 try:
                     file_name = bm.get("file_name", "")
                     if not file_name:
                         continue
-                    # מצא את הקובץ המשוחזר
+                    # מצא את הקובץ המשוחזר כדי לקבל file_id חדש
                     file_doc = self.db.get_file(user_id, file_name)
                     if not file_doc:
                         continue
@@ -680,14 +721,34 @@ class PersonalBackupService:
                     if not file_id:
                         continue
 
-                    mgr.toggle_bookmark(
-                        user_id=user_id,
-                        file_id=file_id,
-                        line_number=bm.get("line_number", 1),
-                        line_text=bm.get("line_text", ""),
-                        note=bm.get("note", ""),
-                        color=bm.get("color", "blue"),
-                    )
+                    line_number = bm.get("line_number", 1)
+
+                    # בדיקת כפילות — לא נוסיף אם כבר קיימת סימניה באותו מיקום
+                    existing = raw_db.file_bookmarks.find_one({
+                        "user_id": user_id,
+                        "file_id": file_id,
+                        "line_number": line_number,
+                    })
+                    if existing:
+                        continue
+
+                    # insert ישיר (לא toggle!) כדי לא למחוק סימניות קיימות
+                    doc = {
+                        "user_id": user_id,
+                        "file_id": file_id,
+                        "file_name": file_name,
+                        "file_path": bm.get("file_path", file_name),
+                        "line_number": line_number,
+                        "line_text": bm.get("line_text", ""),
+                        "note": bm.get("note", ""),
+                        "color": bm.get("color", "yellow"),
+                        "anchor_id": bm.get("anchor_id"),
+                        "anchor_text": bm.get("anchor_text"),
+                        "anchor_type": bm.get("anchor_type"),
+                        "created_at": datetime.now(timezone.utc),
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                    raw_db.file_bookmarks.insert_one(doc)
                     count += 1
                 except Exception:
                     continue
@@ -699,7 +760,12 @@ class PersonalBackupService:
     def _restore_sticky_notes(
         self, user_id: int, notes: List[Dict], errors: List[str]
     ) -> int:
-        """משחזר פתקיות (best-effort)."""
+        """משחזר פתקיות (best-effort).
+
+        חשוב: ה-file_id מהגיבוי הוא ObjectId ישן שכבר לא תקף.
+        חייבים לעשות resolve לפי file_name כדי לקבל את ה-file_id החדש,
+        וגם לחשב scope_id חדש (כמו ב-sticky_notes_api._resolve_scope).
+        """
         count = 0
         try:
             raw_db = getattr(self.db, "db", None)
@@ -707,13 +773,42 @@ class PersonalBackupService:
                 return 0
             for note in notes:
                 try:
+                    # resolve file_id חדש לפי file_name
+                    file_name = note.get("file_name", "")
+                    new_file_id = None
+
+                    if file_name:
+                        file_doc = self.db.get_file(user_id, file_name)
+                        if file_doc and isinstance(file_doc, dict):
+                            new_file_id = str(file_doc.get("_id", ""))
+
+                    # אם אין file_name, ננסה להשתמש ב-scope_id ישן (best-effort)
+                    if not new_file_id and not file_name:
+                        continue  # לא ניתן לשייך את הפתקית
+
+                    # חישוב scope_id חדש (כמו ב-sticky_notes_api)
+                    import re
+                    scope_id = None
+                    if file_name:
+                        normalized = re.sub(r"\s+", " ", str(file_name).strip()).lower()
+                        scope_id = f"{user_id}:{normalized}"
+
                     doc = {
                         "user_id": int(user_id),
-                        "file_id": note.get("file_id", ""),
+                        "file_id": new_file_id or "",
+                        "file_name": file_name,
+                        "scope_id": scope_id,
                         "content": note.get("content", ""),
-                        "color": note.get("color", "yellow"),
-                        "position_x": note.get("position_x", 0),
-                        "position_y": note.get("position_y", 0),
+                        "color": note.get("color", "#FFFFCC"),
+                        "position_x": note.get("position_x", 100),
+                        "position_y": note.get("position_y", 100),
+                        "width": note.get("width", 250),
+                        "height": note.get("height", 200),
+                        "is_minimized": bool(note.get("is_minimized", False)),
+                        "line_start": note.get("line_start"),
+                        "line_end": note.get("line_end"),
+                        "anchor_id": note.get("anchor_id"),
+                        "anchor_text": note.get("anchor_text"),
                         "created_at": datetime.now(timezone.utc),
                         "updated_at": datetime.now(timezone.utc),
                     }
