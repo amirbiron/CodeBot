@@ -15249,19 +15249,25 @@ def pwa_share_target():
 def upload_from_repo():
     """פתיחת עמוד העלאה עם תוכן קובץ מהריפו - לעריכה מהירה או העתקת קטעים."""
     from services.git_mirror_service import get_mirror_service
-    
+
     file_path = request.args.get('path', '').strip()
     if not file_path:
         return redirect(url_for('upload_file_web'))
-    
-    # קריאת הקובץ מהריפו
+
+    # שליפת שם הריפו מ-query param (נשלח מדפדפן הריפו), ברירת מחדל CodeBot
+    import re as _re
+    repo_name = request.args.get('repo', '').strip()
+    if not repo_name or not _re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$', repo_name):
+        repo_name = 'CodeBot'
+
+    # קריאת הקובץ מהריפו הנכון
     git_service = get_mirror_service()
-    content = git_service.get_file_content('CodeBot', file_path)
-    
+    content = git_service.get_file_content(repo_name, file_path)
+
     if content is None:
         flash('הקובץ לא נמצא בריפו', 'error')
         return redirect(url_for('upload_file_web'))
-    
+
     # זיהוי שפה לפי סיומת
     ext = file_path.split('.')[-1].lower() if '.' in file_path else 'text'
     lang_map = {
@@ -15271,19 +15277,30 @@ def upload_from_repo():
         'sh': 'shell', 'sql': 'sql'
     }
     language = lang_map.get(ext, 'text')
-    
+
     # שם הקובץ מהנתיב
     file_name = file_path.split('/')[-1]
-    
-    # שליפת שפות קיימות
+
+    # בניית URL למקור על-פי מטא-דאטה של הריפו (לא hard-coded)
     db = get_db()
+    repo_meta = db.repo_metadata.find_one({"repo_name": repo_name}) if db is not None else None
+    repo_url = (repo_meta or {}).get("repo_url", "") if repo_meta else ""
+    default_branch = (repo_meta or {}).get("default_branch", "main") if repo_meta else "main"
+    if repo_url:
+        # הסרת .git מהסוף אם קיים
+        source_url = repo_url.rstrip('/').removesuffix('.git')
+        source_url = f'{source_url}/blob/{default_branch}/{url_quote(file_path, safe="/")}'
+    else:
+        source_url = ''
+
+    # שליפת שפות קיימות
     user_id = session['user_id']
     try:
         raw_languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
     except Exception:
         raw_languages = []
     languages = _build_language_choices(raw_languages)
-    
+
     return render_template(
         'upload.html',
         bot_username=BOT_USERNAME_CLEAN,
@@ -15296,7 +15313,7 @@ def upload_from_repo():
         description_value=f'מקור: {file_path}',
         tags_value='',
         code_value=content,
-        source_url_value=f'https://github.com/amirbiron/CodeBot/blob/main/{url_quote(file_path, safe="/")}',
+        source_url_value=source_url,
         clear_local_draft=True,
         from_repo=True,  # flag להראות שזה מגיע מהריפו
     )
