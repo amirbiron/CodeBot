@@ -350,7 +350,7 @@
       try {
         // Choose Mermaid theme based on current page theme (like md_preview.html)
         const currentTheme = (document.documentElement && document.documentElement.getAttribute('data-theme')) || 'dark';
-        const knownLightThemes = ['classic', 'rose-pine-dawn'];
+        const knownLightThemes = ['light', 'classic', 'rose-pine-dawn'];
         let mermaidTheme = 'dark';
         if (knownLightThemes.includes(currentTheme)) {
           mermaidTheme = 'default';
