@@ -3092,6 +3092,246 @@ html[dir="rtl"] .diff-view-toggle {
     margin: 2em 0;
 }
 
+/* ========================================
+   Mermaid Diagrams - readable colors
+   ======================================== */
+
+/* Default dark theme overrides */
+.markdown-preview-content .mermaid-diagram,
+.markdown-preview-content .mermaid,
+.markdown-preview-content [class*="mermaid"] {
+    background: transparent;
+    text-align: center;
+    margin: 1em 0;
+}
+
+/* Node shapes */
+.markdown-preview-content .node rect,
+.markdown-preview-content .node polygon,
+.markdown-preview-content .node circle,
+.markdown-preview-content .node ellipse {
+    fill: var(--bg-secondary, #2d333b) !important;
+    stroke: var(--accent-blue, #539bf5) !important;
+}
+
+/* Node labels */
+.markdown-preview-content .node .label,
+.markdown-preview-content .nodeLabel,
+.markdown-preview-content .label,
+.markdown-preview-content .label text {
+    color: var(--text-primary, #adbac7) !important;
+    fill: var(--text-primary, #adbac7) !important;
+}
+
+/* Edge labels */
+.markdown-preview-content .edgeLabel {
+    background-color: var(--bg-primary, #1c2128) !important;
+    color: var(--text-primary, #adbac7) !important;
+    fill: var(--text-primary, #adbac7) !important;
+}
+
+/* Edge paths */
+.markdown-preview-content .edgePath path,
+.markdown-preview-content .flowchart-link {
+    stroke: var(--text-secondary, #768390) !important;
+}
+
+/* Arrow markers */
+.markdown-preview-content .marker,
+.markdown-preview-content marker path {
+    fill: var(--text-secondary, #768390) !important;
+    stroke: var(--text-secondary, #768390) !important;
+}
+
+/* Sequence diagram: actors */
+.markdown-preview-content .actor {
+    fill: var(--bg-secondary, #2d333b) !important;
+    stroke: var(--accent-blue, #539bf5) !important;
+}
+
+.markdown-preview-content text.actor,
+.markdown-preview-content .messageText,
+.markdown-preview-content .loopText {
+    fill: var(--text-primary, #adbac7) !important;
+}
+
+.markdown-preview-content .actor-line {
+    stroke: var(--text-secondary, #768390) !important;
+}
+
+.markdown-preview-content .messageLine0,
+.markdown-preview-content .messageLine1 {
+    stroke: var(--text-secondary, #768390) !important;
+}
+
+/* Notes */
+.markdown-preview-content .note {
+    fill: var(--bg-tertiary, #373e47) !important;
+    stroke: var(--border-color, #444c56) !important;
+}
+
+.markdown-preview-content .noteText {
+    fill: var(--text-primary, #adbac7) !important;
+}
+
+/* Clusters / subgraphs */
+.markdown-preview-content .cluster rect {
+    fill: var(--bg-tertiary, #373e47) !important;
+    stroke: var(--border-color, #444c56) !important;
+}
+
+.markdown-preview-content .cluster text {
+    fill: var(--text-primary, #adbac7) !important;
+}
+
+/* Light theme: explicit light colors for Mermaid */
+[data-theme="light"] .markdown-preview-content .node rect,
+[data-theme="light"] .markdown-preview-content .node polygon,
+[data-theme="light"] .markdown-preview-content .node circle,
+[data-theme="light"] .markdown-preview-content .node ellipse,
+[data-theme="classic"] .markdown-preview-content .node rect,
+[data-theme="classic"] .markdown-preview-content .node polygon,
+[data-theme="classic"] .markdown-preview-content .node circle,
+[data-theme="classic"] .markdown-preview-content .node ellipse,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .node rect,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .node polygon,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .node circle,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .node ellipse {
+    fill: #ffffff !important;
+    stroke: #333333 !important;
+}
+
+[data-theme="light"] .markdown-preview-content .node .label,
+[data-theme="light"] .markdown-preview-content .nodeLabel,
+[data-theme="light"] .markdown-preview-content .label,
+[data-theme="light"] .markdown-preview-content .label text,
+[data-theme="classic"] .markdown-preview-content .node .label,
+[data-theme="classic"] .markdown-preview-content .nodeLabel,
+[data-theme="classic"] .markdown-preview-content .label,
+[data-theme="classic"] .markdown-preview-content .label text,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .node .label,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .nodeLabel,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .label,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .label text {
+    color: #111111 !important;
+    fill: #111111 !important;
+}
+
+[data-theme="light"] .markdown-preview-content .edgeLabel,
+[data-theme="classic"] .markdown-preview-content .edgeLabel,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .edgeLabel {
+    background-color: #ffffff !important;
+    color: #111111 !important;
+    fill: #111111 !important;
+}
+
+[data-theme="light"] .markdown-preview-content .edgePath path,
+[data-theme="light"] .markdown-preview-content .flowchart-link,
+[data-theme="classic"] .markdown-preview-content .edgePath path,
+[data-theme="classic"] .markdown-preview-content .flowchart-link,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .edgePath path,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .flowchart-link {
+    stroke: #333333 !important;
+}
+
+[data-theme="light"] .markdown-preview-content .marker,
+[data-theme="light"] .markdown-preview-content marker path,
+[data-theme="classic"] .markdown-preview-content .marker,
+[data-theme="classic"] .markdown-preview-content marker path,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .marker,
+[data-theme="rose-pine-dawn"] .markdown-preview-content marker path {
+    fill: #333333 !important;
+    stroke: #333333 !important;
+}
+
+/* Custom/Shared themes: derive colors from CSS variables */
+[data-theme="custom"] .markdown-preview-content .node rect,
+[data-theme="custom"] .markdown-preview-content .node polygon,
+[data-theme="custom"] .markdown-preview-content .node circle,
+[data-theme="custom"] .markdown-preview-content .node ellipse,
+[data-theme^="shared:"] .markdown-preview-content .node rect,
+[data-theme^="shared:"] .markdown-preview-content .node polygon,
+[data-theme^="shared:"] .markdown-preview-content .node circle,
+[data-theme^="shared:"] .markdown-preview-content .node ellipse {
+    fill: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23)) !important;
+    stroke: color-mix(in srgb, var(--primary, var(--text-primary, #ffffff)) 50%, transparent) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .node .label,
+[data-theme="custom"] .markdown-preview-content .nodeLabel,
+[data-theme="custom"] .markdown-preview-content .label,
+[data-theme="custom"] .markdown-preview-content .label text,
+[data-theme^="shared:"] .markdown-preview-content .node .label,
+[data-theme^="shared:"] .markdown-preview-content .nodeLabel,
+[data-theme^="shared:"] .markdown-preview-content .label,
+[data-theme^="shared:"] .markdown-preview-content .label text {
+    color: var(--text-primary, #e5eaf7) !important;
+    fill: var(--text-primary, #e5eaf7) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .edgeLabel,
+[data-theme^="shared:"] .markdown-preview-content .edgeLabel {
+    background-color: var(--bg-primary, #1a1c23) !important;
+    color: var(--text-primary, #e5eaf7) !important;
+    fill: var(--text-primary, #e5eaf7) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .edgePath path,
+[data-theme="custom"] .markdown-preview-content .flowchart-link,
+[data-theme^="shared:"] .markdown-preview-content .edgePath path,
+[data-theme^="shared:"] .markdown-preview-content .flowchart-link {
+    stroke: color-mix(in srgb, var(--text-primary, #ffffff) 40%, transparent) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content text.actor,
+[data-theme="custom"] .markdown-preview-content .messageText,
+[data-theme="custom"] .markdown-preview-content .loopText,
+[data-theme^="shared:"] .markdown-preview-content text.actor,
+[data-theme^="shared:"] .markdown-preview-content .messageText,
+[data-theme^="shared:"] .markdown-preview-content .loopText {
+    fill: var(--text-primary, #e5eaf7) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .actor,
+[data-theme^="shared:"] .markdown-preview-content .actor {
+    fill: color-mix(in srgb, var(--text-primary, #ffffff) 15%, var(--bg-primary, #1a1c23)) !important;
+    stroke: color-mix(in srgb, var(--primary, var(--text-primary, #ffffff)) 50%, transparent) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .actor-line,
+[data-theme^="shared:"] .markdown-preview-content .actor-line {
+    stroke: color-mix(in srgb, var(--text-primary, #ffffff) 30%, transparent) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .messageLine0,
+[data-theme="custom"] .markdown-preview-content .messageLine1,
+[data-theme^="shared:"] .markdown-preview-content .messageLine0,
+[data-theme^="shared:"] .markdown-preview-content .messageLine1 {
+    stroke: color-mix(in srgb, var(--text-primary, #ffffff) 50%, transparent) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .note,
+[data-theme^="shared:"] .markdown-preview-content .note {
+    fill: color-mix(in srgb, var(--text-primary, #ffffff) 10%, var(--bg-primary, #1a1c23)) !important;
+    stroke: color-mix(in srgb, var(--text-primary, #ffffff) 25%, transparent) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .noteText,
+[data-theme^="shared:"] .markdown-preview-content .noteText {
+    fill: var(--text-primary, #e5eaf7) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .cluster rect,
+[data-theme^="shared:"] .markdown-preview-content .cluster rect {
+    fill: color-mix(in srgb, var(--text-primary, #ffffff) 8%, var(--bg-primary, #1a1c23)) !important;
+    stroke: color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent) !important;
+}
+
+[data-theme="custom"] .markdown-preview-content .cluster text,
+[data-theme^="shared:"] .markdown-preview-content .cluster text {
+    fill: var(--text-primary, #e5eaf7) !important;
+}
+
 /* מעבר חלק בין תצוגות */
 .code-editor-wrapper,
 .markdown-preview-container {
