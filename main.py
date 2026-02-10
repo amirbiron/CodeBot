@@ -890,6 +890,9 @@ async def _send_admin_report_via_alertmanager(
                     )
                 except Exception:
                     pass
+                # אם קיבלנו תשובה מהשרת (גם אם דחייה), לא ננסה לשלוח שוב ב-sync fallback
+                # כדי לא ליצור כפילות/latency מיותרת.
+                return False
     except Exception as e:
         last_err = str(e)
         try:
