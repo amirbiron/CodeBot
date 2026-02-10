@@ -912,7 +912,16 @@ async def _send_admin_report_via_alertmanager(
 
         def _do_sync() -> bool:
             try:
-                resp = http_sync_request("POST", url, json=[alert], headers=headers, timeout=6)
+                resp = http_sync_request(
+                    "POST",
+                    url,
+                    json=[alert],
+                    headers=headers,
+                    timeout=6,
+                    service="alertmanager",
+                    endpoint="/api/v2/alerts",
+                    max_attempts=2,
+                )
                 code = int(getattr(resp, "status_code", 0) or 0)
                 return 200 <= code < 300
             except Exception:
