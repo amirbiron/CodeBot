@@ -11197,6 +11197,14 @@ def files():
             return q2
         except Exception:
             return curr_query
+
+    def _aggregate_code_snippets(curr_pipeline: List[Dict[str, Any]]):
+        """הרצת aggregation עם allowDiskUse כדי למנוע חריגות זיכרון בשלב sort."""
+        try:
+            return db.code_snippets.aggregate(curr_pipeline, allowDiskUse=True)
+        except TypeError:
+            # תאימות לסטאבים/מוקים בטסטים שלא מקבלים allowDiskUse
+            return db.code_snippets.aggregate(curr_pipeline)
     
     if search_query:
         # חיפוש טקסטואלי ב-UI: נעדיף $text במקום $regex כדי לאפשר שימוש באינדקס טקסט
@@ -11243,7 +11251,7 @@ def files():
                     {'$group': {'_id': '$repo_tag', 'count': {'$sum': 1}}},
                     {'$sort': {'_id': 1}},
                 ]
-                repos_raw = list(db.code_snippets.aggregate(repo_pipeline))
+                repos_raw = list(_aggregate_code_snippets(repo_pipeline))
                 repos_list = []
                 for r in repos_raw:
                     try:
@@ -11336,13 +11344,13 @@ def files():
                     _mongo_add_size_lines_stage,
                     {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
                 ]
-                files_cursor = db.code_snippets.aggregate(pipeline + [
+                files_cursor = _aggregate_code_snippets(pipeline + [
                     {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
                     {'$sort': {sort_by.lstrip('-'): -1 if sort_by.startswith('-') else 1}},
                     {'$skip': (page - 1) * per_page},
                     {'$limit': per_page}
                 ])
-                count_result = list(db.code_snippets.aggregate(pipeline + [{'$count': 'total'}]))
+                count_result = list(_aggregate_code_snippets(pipeline + [{'$count': 'total'}]))
                 total_count = count_result[0]['total'] if count_result else 0
         elif category_filter == 'favorites':
             # קטגוריית "מועדפים" – השתמש בשדה is_favorite
@@ -11373,12 +11381,12 @@ def files():
             {'$count': 'total'}
         ]
         try:
-            count_result = list(db.code_snippets.aggregate(count_pipeline))
+            count_result = list(_aggregate_code_snippets(count_pipeline))
         except Exception:
             query = _with_regex_fallback(query)
             count_pipeline[0] = {'$match': query}
             try:
-                count_result = list(db.code_snippets.aggregate(count_pipeline))
+                count_result = list(_aggregate_code_snippets(count_pipeline))
             except Exception:
                 count_result = []
         total_count = count_result[0]['total'] if count_result else 0
@@ -11392,12 +11400,12 @@ def files():
             {'$count': 'total'}
         ]
         try:
-            count_result = list(db.code_snippets.aggregate(count_pipeline))
+            count_result = list(_aggregate_code_snippets(count_pipeline))
         except Exception:
             query = _with_regex_fallback(query)
             count_pipeline[0] = {'$match': query}
             try:
-                count_result = list(db.code_snippets.aggregate(count_pipeline))
+                count_result = list(_aggregate_code_snippets(count_pipeline))
             except Exception:
                 count_result = []
         total_count = count_result[0]['total'] if count_result else 0
@@ -11511,13 +11519,13 @@ def files():
             pipeline.append({'$sort': {sort_field_local: sort_dir}})
 
         try:
-            latest_items = list(db.code_snippets.aggregate(pipeline))
+            latest_items = list(_aggregate_code_snippets(pipeline))
         except Exception:
             # fallback אם $text נכשל
             try:
                 recent_query_fallback = _with_regex_fallback(recent_query)
                 pipeline[0] = {'$match': recent_query_fallback}
-                latest_items = list(db.code_snippets.aggregate(pipeline))
+                latest_items = list(_aggregate_code_snippets(pipeline))
             except Exception:
                 latest_items = []
 
@@ -11636,7 +11644,7 @@ def files():
             # מיון יציב + חיתוך ל-page+1 כדי לזהות אם יש עוד
             pipeline.append({'$sort': {'created_at': sort_dir, '_id': sort_dir}})
             pipeline.append({'$limit': per_page + 1})
-            docs = list(db.code_snippets.aggregate(pipeline))
+            docs = list(_aggregate_code_snippets(pipeline))
             if len(docs) > per_page:
                 anchor = docs[per_page - 1]
                 try:
@@ -11650,11 +11658,11 @@ def files():
             pipeline.append({'$sort': {sort_field_local: sort_dir}})
             pipeline.append({'$skip': (page - 1) * per_page})
             pipeline.append({'$limit': per_page})
-            files_cursor = db.code_snippets.aggregate(pipeline)
+            files_cursor = _aggregate_code_snippets(pipeline)
     elif category_filter not in ('large', 'other'):
         # קטגוריות רגילות (ללא recent/large/other): עימוד לפי מסמכים,
         # אבל עם Smart Projection כדי לא להחזיר `code` למסך רשימה.
-        files_cursor = db.code_snippets.aggregate([
+        files_cursor = _aggregate_code_snippets([
             {'$match': query},
             _mongo_add_size_lines_stage,
             {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
@@ -11680,7 +11688,7 @@ def files():
             {'$skip': (page - 1) * per_page},
             {'$limit': per_page},
         ]
-        files_cursor = db.code_snippets.aggregate(pipeline)
+        files_cursor = _aggregate_code_snippets(pipeline)
     
     files_list = []
     for file in files_cursor:
