@@ -1677,7 +1677,7 @@ function updateFileHeader(filePath) {
             </span>
         </div>
         <div class="file-actions file-header-actions">
-            <a class="btn-icon file-edit-btn" href="/upload/from-repo?path=${encodeURIComponent(filePath)}" target="_blank" title="ערוך / העתק קטעים" aria-label="ערוך קובץ">
+            <a class="btn-icon file-edit-btn" href="/upload/from-repo?path=${encodeURIComponent(filePath)}&repo=${encodeURIComponent(currentRepo)}" target="_blank" title="ערוך / העתק קטעים" aria-label="ערוך קובץ">
                 <i class="bi bi-pencil-square"></i>
             </a>
             <button class="file-history-btn" data-path="${escapeHtml(filePath)}" title="היסטוריית קובץ" aria-label="היסטוריית קובץ">
@@ -2259,6 +2259,29 @@ window.RepoState = {
     },
     get editorView6() {
         return state.editorView6;
+    },
+    /**
+     * עדכון תוכן הקובץ המוצג – מעדכן את ה-state, ה-editor, ותצוגת Markdown אם פעילה.
+     * משמש את viewFileAtCommit כדי להבטיח שהתוכן מתעדכן בכל מצב תצוגה.
+     */
+    async setFileContent(content) {
+        state.currentFileContent = content;
+
+        // עדכון ה-editor אם קיים
+        if (state.editor && typeof state.editor.setValue === 'function') {
+            state.editor.setValue(content);
+        } else if (state.editorView6) {
+            const view = state.editorView6;
+            const docLength = view.state.doc.length;
+            view.dispatch({
+                changes: { from: 0, to: docLength, insert: String(content || '') }
+            });
+        }
+
+        // אם תצוגת Markdown פעילה – עדכון הרינדור
+        if (state.markdownPreviewEnabled) {
+            await renderMarkdownPreview(content);
+        }
     }
 };
 
