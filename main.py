@@ -838,24 +838,37 @@ async def _send_admin_report_via_alertmanager(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
+    ok = False
+    last_err: str | None = None
+
+    # Prefer the project's resilient async HTTP helper (aiohttp + retries/circuit breaker).
     try:
-        # Prefer the project's resilient async HTTP helper (aiohttp + retries/circuit breaker).
         try:
             from http_async import request as http_request  # type: ignore
         except Exception:
             http_request = None  # type: ignore
 
+        # aiohttp דורש ClientTimeout, לא int. אם aiohttp לא זמין, לא נעביר timeout כלל.
+        timeout_obj = None
+        try:
+            import aiohttp  # type: ignore
+
+            timeout_obj = aiohttp.ClientTimeout(total=6)  # type: ignore[attr-defined]
+        except Exception:
+            timeout_obj = None
+
         if http_request is not None:
-            async with http_request(
-                "POST",
-                url,
-                json=[alert],
-                headers=headers,
-                timeout=6,
-                service="alertmanager",
-                endpoint="/api/v2/alerts",
-                max_attempts=2,
-            ) as resp:
+            req_kwargs = {
+                "json": [alert],
+                "headers": headers,
+                "service": "alertmanager",
+                "endpoint": "/api/v2/alerts",
+                "max_attempts": 2,
+            }
+            if timeout_obj is not None:
+                req_kwargs["timeout"] = timeout_obj
+
+            async with http_request("POST", url, **req_kwargs) as resp:
                 try:
                     status = int(getattr(resp, "status", 0) or 0)
                 except Exception:
@@ -878,9 +891,20 @@ async def _send_admin_report_via_alertmanager(
                     )
                 except Exception:
                     pass
-                return False
+                ok = False
+    except Exception as e:
+        last_err = str(e)
+        try:
+            logger.warning("alertmanager_admin_report_async_exception error=%s", last_err)
+        except Exception:
+            pass
+        ok = False
 
-        # Fallback: synchronous request in a thread
+    if ok:
+        return True
+
+    # Fallback: synchronous request in a thread (do not skip if async path failed)
+    try:
         try:
             from http_sync import request as http_sync_request  # type: ignore
         except Exception:
@@ -900,7 +924,11 @@ async def _send_admin_report_via_alertmanager(
         return bool(await asyncio.to_thread(_do_sync))
     except Exception as e:
         try:
-            logger.warning("alertmanager_admin_report_exception error=%s", str(e))
+            logger.warning(
+                "alertmanager_admin_report_sync_exception error=%s prev=%s",
+                str(e),
+                last_err or "",
+            )
         except Exception:
             pass
         return False
