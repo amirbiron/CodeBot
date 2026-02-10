@@ -3204,12 +3204,15 @@ html[dir="rtl"] .diff-view-toggle {
 [data-theme="light"] .markdown-preview-content .node .label,
 [data-theme="light"] .markdown-preview-content .nodeLabel,
 [data-theme="light"] .markdown-preview-content .label,
+[data-theme="light"] .markdown-preview-content .label text,
 [data-theme="classic"] .markdown-preview-content .node .label,
 [data-theme="classic"] .markdown-preview-content .nodeLabel,
 [data-theme="classic"] .markdown-preview-content .label,
+[data-theme="classic"] .markdown-preview-content .label text,
 [data-theme="rose-pine-dawn"] .markdown-preview-content .node .label,
 [data-theme="rose-pine-dawn"] .markdown-preview-content .nodeLabel,
-[data-theme="rose-pine-dawn"] .markdown-preview-content .label {
+[data-theme="rose-pine-dawn"] .markdown-preview-content .label,
+[data-theme="rose-pine-dawn"] .markdown-preview-content .label text {
     color: #111111 !important;
     fill: #111111 !important;
 }
@@ -3257,9 +3260,11 @@ html[dir="rtl"] .diff-view-toggle {
 [data-theme="custom"] .markdown-preview-content .node .label,
 [data-theme="custom"] .markdown-preview-content .nodeLabel,
 [data-theme="custom"] .markdown-preview-content .label,
+[data-theme="custom"] .markdown-preview-content .label text,
 [data-theme^="shared:"] .markdown-preview-content .node .label,
 [data-theme^="shared:"] .markdown-preview-content .nodeLabel,
-[data-theme^="shared:"] .markdown-preview-content .label {
+[data-theme^="shared:"] .markdown-preview-content .label,
+[data-theme^="shared:"] .markdown-preview-content .label text {
     color: var(--text-primary, #e5eaf7) !important;
     fill: var(--text-primary, #e5eaf7) !important;
 }
