@@ -348,7 +348,27 @@
         return;
       }
       try {
-        window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+        // Choose Mermaid theme based on current page theme (like md_preview.html)
+        const currentTheme = (document.documentElement && document.documentElement.getAttribute('data-theme')) || 'dark';
+        const knownLightThemes = ['classic', 'rose-pine-dawn'];
+        let mermaidTheme = 'dark';
+        if (knownLightThemes.includes(currentTheme)) {
+          mermaidTheme = 'default';
+        } else if (currentTheme === 'custom' || currentTheme.startsWith('shared:')) {
+          // For custom/shared themes, check actual background color brightness
+          const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
+          if (bgColor) {
+            const hex = bgColor.replace('#', '');
+            if (hex.length >= 6) {
+              const r = parseInt(hex.substr(0, 2), 16);
+              const g = parseInt(hex.substr(2, 2), 16);
+              const b = parseInt(hex.substr(4, 2), 16);
+              const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+              mermaidTheme = brightness > 128 ? 'default' : 'dark';
+            }
+          }
+        }
+        window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: mermaidTheme });
       } catch (err) {
         console.warn('mermaid initialize failed', err);
       }
