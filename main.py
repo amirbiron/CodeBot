@@ -838,7 +838,6 @@ async def _send_admin_report_via_alertmanager(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    ok = False
     last_err: str | None = None
 
     # Prefer the project's resilient async HTTP helper (aiohttp + retries/circuit breaker).
@@ -891,17 +890,12 @@ async def _send_admin_report_via_alertmanager(
                     )
                 except Exception:
                     pass
-                ok = False
     except Exception as e:
         last_err = str(e)
         try:
             logger.warning("alertmanager_admin_report_async_exception error=%s", last_err)
         except Exception:
             pass
-        ok = False
-
-    if ok:
-        return True
 
     # Fallback: synchronous request in a thread (do not skip if async path failed)
     try:
