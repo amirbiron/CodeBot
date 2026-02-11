@@ -11644,7 +11644,10 @@ def files():
             # מיון יציב + חיתוך ל-page+1 כדי לזהות אם יש עוד
             pipeline.append({'$sort': {'created_at': sort_dir, '_id': sort_dir}})
             pipeline.append({'$limit': per_page + 1})
-            docs = list(_aggregate_code_snippets(pipeline))
+            try:
+                docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+            except TypeError:
+                docs = list(db.code_snippets.aggregate(pipeline))
             if len(docs) > per_page:
                 anchor = docs[per_page - 1]
                 try:

@@ -1,6 +1,4 @@
 from datetime import datetime, timezone
-
-from bson import ObjectId
 from webapp import app as webapp_app
 
 
@@ -20,7 +18,7 @@ class _CodeSnippetsAllowDiskUse:
         self.allow_disk_use_values = []
         self.calls = 0
         self._doc = {
-            "_id": ObjectId("0123456789abcdef01234567"),
+            "_id": "0123456789abcdef01234567",
             "file_name": "demo.py",
             "programming_language": "python",
             "description": "demo",
@@ -46,7 +44,7 @@ class _CodeSnippetsNoAllowDiskUseArg:
     def __init__(self):
         self.calls = 0
         self._doc = {
-            "_id": ObjectId("fedcba987654321001234567"),
+            "_id": "fedcba987654321001234567",
             "file_name": "fallback.py",
             "programming_language": "python",
             "description": "fallback",
