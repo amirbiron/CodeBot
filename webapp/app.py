@@ -32,7 +32,7 @@ from urllib.parse import urlparse, urlunparse, quote as url_quote
 from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING, ASCENDING
-from pymongo.errors import PyMongoError
+from pymongo.errors import PyMongoError, OperationFailure
 from pygments import highlight
 from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
@@ -11213,6 +11213,94 @@ def files():
         except TypeError:
             # תאימות לסטאבים/מוקים בטסטים שלא מקבלים allowDiskUse
             return db.code_snippets.aggregate(curr_pipeline)
+
+    def _fallback_files_created_at_page(
+        curr_query: Dict[str, Any],
+        curr_sort_dir: int,
+        curr_last_dt: Optional[datetime],
+        curr_last_oid: Optional[Any],
+    ) -> List[Dict[str, Any]]:
+        """Fallback ללא aggregate במקרה של קוד 292 במסלול /files.
+
+        המטרה: למנוע 500 גם אם allowDiskUse לא נאכף בפועל ע"י השרת/פרוקסי.
+        נחזיר רשימה מדורגת לפי created_at עם דה-דופ לפי file_name.
+        """
+        try:
+            fallback_query: Dict[str, Any] = dict(curr_query)
+            and_list = list(fallback_query.get('$and') or [])
+            if curr_last_dt is not None and curr_last_oid is not None:
+                if curr_sort_dir == -1:
+                    and_list.append({
+                        '$or': [
+                            {'created_at': {'$lt': curr_last_dt}},
+                            {'$and': [
+                                {'created_at': {'$eq': curr_last_dt}},
+                                {'_id': {'$lt': curr_last_oid}},
+                            ]},
+                        ]
+                    })
+                else:
+                    and_list.append({
+                        '$or': [
+                            {'created_at': {'$gt': curr_last_dt}},
+                            {'$and': [
+                                {'created_at': {'$eq': curr_last_dt}},
+                                {'_id': {'$gt': curr_last_oid}},
+                            ]},
+                        ]
+                    })
+            fallback_query['$and'] = and_list
+
+            # exclude-projection: משאיר רק מטא-דאטה, בלי code/content כבדים
+            projection = dict(LIST_EXCLUDE_HEAVY_PROJECTION)
+            batch_size = max(120, per_page * 6)
+            max_scan = 4000
+            scanned = 0
+            skip_local = 0
+            seen_names: Set[str] = set()
+            out: List[Dict[str, Any]] = []
+
+            while len(out) < (per_page + 1) and scanned < max_scan:
+                batch = list(
+                    db.code_snippets.find(fallback_query, projection)
+                    .sort([('created_at', curr_sort_dir), ('_id', curr_sort_dir)])
+                    .skip(skip_local)
+                    .limit(batch_size)
+                )
+                if not batch:
+                    break
+                skip_local += len(batch)
+                scanned += len(batch)
+                for doc in batch:
+                    fname = str(doc.get('file_name') or '').strip()
+                    if not fname:
+                        continue
+                    # שמור על "קובץ לא ריק" בלי למשוך code:
+                    # אם file_size קיים ומשמש כ-0 -> דלג.
+                    size_val = doc.get('file_size')
+                    if size_val is not None:
+                        try:
+                            if int(size_val) <= 0:
+                                continue
+                        except Exception:
+                            continue
+                    if fname in seen_names:
+                        continue
+                    seen_names.add(fname)
+                    out.append(doc)
+                    if len(out) >= (per_page + 1):
+                        break
+
+            logger.warning(
+                "files.aggregate_fallback_used request_id=%s scanned=%s returned=%s",
+                getattr(g, "request_id", None),
+                scanned,
+                len(out),
+            )
+            return out
+        except Exception:
+            logger.exception("files.aggregate_fallback_failed request_id=%s", getattr(g, "request_id", None))
+            return []
     
     if search_query:
         # חיפוש טקסטואלי ב-UI: נעדיף $text במקום $regex כדי לאפשר שימוש באינדקס טקסט
@@ -11654,6 +11742,16 @@ def files():
             pipeline.append({'$limit': per_page + 1})
             try:
                 docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+            except OperationFailure as exc:
+                if int(getattr(exc, "code", 0) or 0) == 292:
+                    logger.warning(
+                        "files.aggregate_memory_limit request_id=%s fallback=find code=%s",
+                        getattr(g, "request_id", None),
+                        getattr(exc, "code", None),
+                    )
+                    docs = _fallback_files_created_at_page(query, sort_dir, last_dt, last_oid)
+                else:
+                    raise
             except TypeError:
                 docs = list(db.code_snippets.aggregate(pipeline))
             if len(docs) > per_page:
