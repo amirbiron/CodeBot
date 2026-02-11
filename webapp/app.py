@@ -14,6 +14,7 @@ import time
 import mimetypes
 import uuid
 import inspect
+import socket
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
@@ -11069,6 +11070,13 @@ def files():
     """רשימת כל הקבצים של המשתמש"""
     db = get_db()
     user_id = session['user_id']
+    logger.info(
+        "FILES_HANDLER_ENTERED build=%s host=%s pid=%s request_id=%s",
+        _STATIC_VERSION,
+        socket.gethostname(),
+        os.getpid(),
+        getattr(g, "request_id", None),
+    )
     # --- Cache: בדיקת HTML שמור לפי משתמש ופרמטרים ---
     should_cache = getattr(cache, 'is_enabled', False)
     
