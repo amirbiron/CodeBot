@@ -38,9 +38,14 @@ from pymongo.errors import (  # type: ignore
     ConnectionFailure,
     NetworkTimeout,
     NotPrimaryError,
-    PrimarySteppedDown,
     ServerSelectionTimeoutError,
 )
+
+# תאימות בין גרסאות PyMongo: בחלק מהגרסאות אין PrimarySteppedDown.
+try:  # pragma: no cover
+    from pymongo.errors import PrimarySteppedDown as _PrimarySteppedDown  # type: ignore
+except Exception:  # pragma: no cover
+    _PrimarySteppedDown = NotPrimaryError  # type: ignore[misc,assignment]
 from tenacity import (  # type: ignore
     before_sleep_log,
     retry,
@@ -62,7 +67,7 @@ _RETRYABLE_MONGO_ERRORS = (
     ServerSelectionTimeoutError,
     AutoReconnect,
     NotPrimaryError,
-    PrimarySteppedDown,
+    _PrimarySteppedDown,
     ConnectionFailure,
     NetworkTimeout,
 )
