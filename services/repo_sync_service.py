@@ -72,22 +72,31 @@ _RETRYABLE_MONGO_ERRORS = (
     NetworkTimeout,
 )
 
+def _claim_next_job(db: Any) -> Optional[Dict[str, Any]]:
+    """תפיסת job בצורה אטומית ללא retry חיצוני.
 
-@retry(
-    reraise=True,
-    stop=stop_after_attempt(3),
-    wait=wait_exponential_jitter(initial=0.5, max=4.0),
-    retry=retry_if_exception_type(_RETRYABLE_MONGO_ERRORS),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-)
-def _find_next_job_with_retry(db: Any) -> Optional[Dict[str, Any]]:
-    """תפיסת job בצורה אטומית, עם retry עדין בזמן failover/election של Mongo."""
-    return db.sync_jobs.find_one_and_update(
-        {"status": "pending"},
-        {"$set": {"status": "running", "started_at": datetime.utcnow()}},
-        sort=[("created_at", 1)],  # FIFO - הישן קודם
-        return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
-    )
+    חשוב: לא עושים retry סביב find_one_and_update (לא idempotent).
+    אם השרת ביצע את הכתיבה אבל הלקוח איבד את התשובה (AutoReconnect/NetworkTimeout),
+    retry נוסף עלול לתפוס job נוסף ולהשאיר את הראשון תקוע ב-running.
+
+    כדי לצמצם את הסיכון ל-job "תקוע" במקרה של תשובה שאבדה, אנחנו כותבים claim_id
+    ייחודי, ואם הייתה שגיאת תשתית ננסה לאתר את ה-job לפי claim_id (קריאה היא idempotent).
+    """
+    claim_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    try:
+        return db.sync_jobs.find_one_and_update(
+            {"status": "pending"},
+            {"$set": {"status": "running", "started_at": now, "claim_id": claim_id}},
+            sort=[("created_at", 1)],  # FIFO - הישן קודם
+            return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
+        )
+    except _RETRYABLE_MONGO_ERRORS:
+        # ייתכן שהכתיבה הושלמה אבל לא קיבלנו תשובה; ננסה לשחזר לפי claim_id.
+        try:
+            return db.sync_jobs.find_one({"claim_id": claim_id, "status": "running"})
+        except Exception:
+            raise
 
 
 @retry(
@@ -208,7 +217,7 @@ def _sync_worker() -> None:
 
             # Atomic: מצא job pending ותפוס אותו
             # חשוב: return_document הוא Enum ב-PyMongo, לא True/False!
-            job = _find_next_job_with_retry(db)
+            job = _claim_next_job(db)
 
             if not job:
                 # אין jobs - ישן 5 שניות
