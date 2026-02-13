@@ -33,6 +33,26 @@ from typing import Any, Dict, Optional
 
 # חשוב! ReturnDocument הוא Enum, לא בוליאני
 from pymongo import ReturnDocument
+from pymongo.errors import (  # type: ignore
+    AutoReconnect,
+    ConnectionFailure,
+    NetworkTimeout,
+    NotPrimaryError,
+    ServerSelectionTimeoutError,
+)
+
+# תאימות בין גרסאות PyMongo: בחלק מהגרסאות אין PrimarySteppedDown.
+try:  # pragma: no cover
+    from pymongo.errors import PrimarySteppedDown as _PrimarySteppedDown  # type: ignore
+except Exception:  # pragma: no cover
+    _PrimarySteppedDown = NotPrimaryError  # type: ignore[misc,assignment]
+from tenacity import (  # type: ignore
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from services.code_indexer import CodeIndexer
 from services.git_mirror_service import get_mirror_service
@@ -42,6 +62,52 @@ logger = logging.getLogger(__name__)
 # Flag לוודא worker אחד per process
 _worker_started = False
 _worker_lock = threading.Lock()
+
+_RETRYABLE_MONGO_ERRORS = (
+    ServerSelectionTimeoutError,
+    AutoReconnect,
+    NotPrimaryError,
+    _PrimarySteppedDown,
+    ConnectionFailure,
+    NetworkTimeout,
+)
+
+def _claim_next_job(db: Any) -> Optional[Dict[str, Any]]:
+    """תפיסת job בצורה אטומית ללא retry חיצוני.
+
+    חשוב: לא עושים retry סביב find_one_and_update (לא idempotent).
+    אם השרת ביצע את הכתיבה אבל הלקוח איבד את התשובה (AutoReconnect/NetworkTimeout),
+    retry נוסף עלול לתפוס job נוסף ולהשאיר את הראשון תקוע ב-running.
+
+    כדי לצמצם את הסיכון ל-job "תקוע" במקרה של תשובה שאבדה, אנחנו כותבים claim_id
+    ייחודי, ואם הייתה שגיאת תשתית ננסה לאתר את ה-job לפי claim_id (קריאה היא idempotent).
+    """
+    claim_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    try:
+        return db.sync_jobs.find_one_and_update(
+            {"status": "pending"},
+            {"$set": {"status": "running", "started_at": now, "claim_id": claim_id}},
+            sort=[("created_at", 1)],  # FIFO - הישן קודם
+            return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
+        )
+    except _RETRYABLE_MONGO_ERRORS:
+        # ייתכן שהכתיבה הושלמה אבל לא קיבלנו תשובה; ננסה לשחזר לפי claim_id.
+        try:
+            return db.sync_jobs.find_one({"claim_id": claim_id, "status": "running"})
+        except Exception:
+            raise
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.5, max=4.0),
+    retry=retry_if_exception_type(_RETRYABLE_MONGO_ERRORS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+)
+def _update_job_with_retry(db: Any, job_id: str, update_doc: Dict[str, Any]) -> None:
+    db.sync_jobs.update_one({"_id": job_id}, update_doc)
 
 
 def trigger_sync(
@@ -151,12 +217,7 @@ def _sync_worker() -> None:
 
             # Atomic: מצא job pending ותפוס אותו
             # חשוב: return_document הוא Enum ב-PyMongo, לא True/False!
-            job = db.sync_jobs.find_one_and_update(
-                {"status": "pending"},
-                {"$set": {"status": "running", "started_at": datetime.utcnow()}},
-                sort=[("created_at", 1)],  # FIFO - הישן קודם
-                return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
-            )
+            job = _claim_next_job(db)
 
             if not job:
                 # אין jobs - ישן 5 שניות
@@ -170,8 +231,9 @@ def _sync_worker() -> None:
                 result = _run_sync_from_doc(job, db)
 
                 # עדכון סטטוס - completed
-                db.sync_jobs.update_one(
-                    {"_id": job_id},
+                _update_job_with_retry(
+                    db,
+                    job_id,
                     {"$set": {"status": "completed", "completed_at": datetime.utcnow(), "result": result}},
                 )
 
@@ -181,10 +243,15 @@ def _sync_worker() -> None:
                 logger.exception(f"Sync job failed: {job_id}")
 
                 # עדכון סטטוס - failed
-                db.sync_jobs.update_one(
-                    {"_id": job_id},
-                    {"$set": {"status": "failed", "completed_at": datetime.utcnow(), "error": str(e)}},
-                )
+                try:
+                    _update_job_with_retry(
+                        db,
+                        job_id,
+                        {"$set": {"status": "failed", "completed_at": datetime.utcnow(), "error": str(e)}},
+                    )
+                except Exception:
+                    # אם אפילו עדכון הסטטוס נכשל (למשל בזמן failover), אל תפיל את ה-thread
+                    logger.exception("Failed to update failed status for job %s", job_id)
 
         except Exception as e:
             logger.exception(f"Worker error: {e}")
