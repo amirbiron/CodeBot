@@ -2136,11 +2136,18 @@ def get_db():
                 if not MONGODB_URL:
                     raise Exception("MONGODB_URL is not configured")
                 try:
+                    # חשוב: ב-ENV יש MONGODB_SERVER_SELECTION_TIMEOUT_MS, אבל בעבר לא חיווטנו אותו לכאן
+                    # ולכן בפועל נשאר timeout קשיח של 5 שניות.
+                    try:
+                        _raw_ms = str(os.getenv("MONGODB_SERVER_SELECTION_TIMEOUT_MS", "5000")).strip()
+                        _server_selection_timeout_ms = int(_raw_ms) if _raw_ms else 5000
+                    except Exception:
+                        _server_selection_timeout_ms = 5000
                     # החזר אובייקטי זמן tz-aware כדי למנוע השוואות naive/aware
                     _t0 = _time.perf_counter()
                     client = MongoClient(
                         MONGODB_URL,
-                        serverSelectionTimeoutMS=5000,
+                        serverSelectionTimeoutMS=_server_selection_timeout_ms,
                         tz_aware=True,
                         tzinfo=timezone.utc,
                     )

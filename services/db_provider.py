@@ -93,6 +93,19 @@ _CLIENT: Optional[Any] = None
 _DB: Optional[Any] = None
 _LOCK = threading.Lock()
 
+def _get_int_env(key: str, default: int) -> int:
+    """קריאה בטוחה של int מ-ENV עם fallback."""
+    try:
+        raw = os.getenv(key, "")
+        if raw is None:
+            return int(default)
+        raw_s = str(raw).strip()
+        if not raw_s:
+            return int(default)
+        return int(raw_s)
+    except Exception:
+        return int(default)
+
 
 def get_db() -> Any:
     """מחזיר אובייקט DB (PyMongo) עם lazy init, או No-Op DB."""
@@ -116,9 +129,10 @@ def get_db() -> Any:
 
         try:
             # Minimal, safe defaults: no reliance on webapp/app.py globals.
+            server_selection_timeout_ms = _get_int_env("MONGODB_SERVER_SELECTION_TIMEOUT_MS", 5000)
             _CLIENT = MongoClient(  # type: ignore[misc]
                 mongo_url,
-                serverSelectionTimeoutMS=5000,
+                serverSelectionTimeoutMS=server_selection_timeout_ms,
                 tz_aware=True,
                 tzinfo=timezone.utc,
             )

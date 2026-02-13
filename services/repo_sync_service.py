@@ -33,6 +33,21 @@ from typing import Any, Dict, Optional
 
 # חשוב! ReturnDocument הוא Enum, לא בוליאני
 from pymongo import ReturnDocument
+from pymongo.errors import (  # type: ignore
+    AutoReconnect,
+    ConnectionFailure,
+    NetworkTimeout,
+    NotPrimaryError,
+    PrimarySteppedDown,
+    ServerSelectionTimeoutError,
+)
+from tenacity import (  # type: ignore
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from services.code_indexer import CodeIndexer
 from services.git_mirror_service import get_mirror_service
@@ -42,6 +57,43 @@ logger = logging.getLogger(__name__)
 # Flag לוודא worker אחד per process
 _worker_started = False
 _worker_lock = threading.Lock()
+
+_RETRYABLE_MONGO_ERRORS = (
+    ServerSelectionTimeoutError,
+    AutoReconnect,
+    NotPrimaryError,
+    PrimarySteppedDown,
+    ConnectionFailure,
+    NetworkTimeout,
+)
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.5, max=4.0),
+    retry=retry_if_exception_type(_RETRYABLE_MONGO_ERRORS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+)
+def _find_next_job_with_retry(db: Any) -> Optional[Dict[str, Any]]:
+    """תפיסת job בצורה אטומית, עם retry עדין בזמן failover/election של Mongo."""
+    return db.sync_jobs.find_one_and_update(
+        {"status": "pending"},
+        {"$set": {"status": "running", "started_at": datetime.utcnow()}},
+        sort=[("created_at", 1)],  # FIFO - הישן קודם
+        return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
+    )
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.5, max=4.0),
+    retry=retry_if_exception_type(_RETRYABLE_MONGO_ERRORS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+)
+def _update_job_with_retry(db: Any, job_id: str, update_doc: Dict[str, Any]) -> None:
+    db.sync_jobs.update_one({"_id": job_id}, update_doc)
 
 
 def trigger_sync(
@@ -151,12 +203,7 @@ def _sync_worker() -> None:
 
             # Atomic: מצא job pending ותפוס אותו
             # חשוב: return_document הוא Enum ב-PyMongo, לא True/False!
-            job = db.sync_jobs.find_one_and_update(
-                {"status": "pending"},
-                {"$set": {"status": "running", "started_at": datetime.utcnow()}},
-                sort=[("created_at", 1)],  # FIFO - הישן קודם
-                return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
-            )
+            job = _find_next_job_with_retry(db)
 
             if not job:
                 # אין jobs - ישן 5 שניות
@@ -170,8 +217,9 @@ def _sync_worker() -> None:
                 result = _run_sync_from_doc(job, db)
 
                 # עדכון סטטוס - completed
-                db.sync_jobs.update_one(
-                    {"_id": job_id},
+                _update_job_with_retry(
+                    db,
+                    job_id,
                     {"$set": {"status": "completed", "completed_at": datetime.utcnow(), "result": result}},
                 )
 
@@ -181,10 +229,15 @@ def _sync_worker() -> None:
                 logger.exception(f"Sync job failed: {job_id}")
 
                 # עדכון סטטוס - failed
-                db.sync_jobs.update_one(
-                    {"_id": job_id},
-                    {"$set": {"status": "failed", "completed_at": datetime.utcnow(), "error": str(e)}},
-                )
+                try:
+                    _update_job_with_retry(
+                        db,
+                        job_id,
+                        {"$set": {"status": "failed", "completed_at": datetime.utcnow(), "error": str(e)}},
+                    )
+                except Exception:
+                    # אם אפילו עדכון הסטטוס נכשל (למשל בזמן failover), אל תפיל את ה-thread
+                    logger.exception("Failed to update failed status for job %s", job_id)
 
         except Exception as e:
             logger.exception(f"Worker error: {e}")
