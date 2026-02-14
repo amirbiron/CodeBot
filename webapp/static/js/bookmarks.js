@@ -728,14 +728,13 @@ class BookmarkManager {
     scrollToLine(lineNumber) {
         // אם אנחנו בתצוגת Markdown ויש אלמנט עם data-md-line תואם – גלול אליו
         try {
-            const mdRoot = document.getElementById('md-content');
-            if (mdRoot) {
-                const el = mdRoot.querySelector(`[data-md-line="${lineNumber}"]`);
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    this.ui.highlightLine(lineNumber);
-                    return;
-                }
+            const el = this.ui && typeof this.ui.getMarkdownLineElement === 'function'
+                ? this.ui.getMarkdownLineElement(lineNumber)
+                : null;
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                this.ui.highlightLine(lineNumber);
+                return;
             }
         } catch (_) {}
 
@@ -1016,6 +1015,55 @@ class BookmarkUI {
         // ביטול טיפ אוטומטי כברירת מחדל כדי לא להפריע במסכים קטנים
         // אם תרצה להחזיר: קבע דגל והפעל this.maybeShowFirstRunHint()
     }
+
+    /**
+     * החזרת אלמנט "שורה" מתאים בתצוגת Markdown לפי data-md-line.
+     * חשוב: יש מצב שאלמנטים מקוננים יקבלו אותו data-md-line (למשל ul/li/p).
+     * כדי שהאינדיקטור/גלילה יהיו עקביים, נבחר את האלמנט הכי פנימי (deepest) בעץ.
+     */
+    getMarkdownLineElement(lineNumber, contextEl = null) {
+        try {
+            const root = document.getElementById('md-content');
+            if (!root) return null;
+            if (!lineNumber || lineNumber <= 0) return null;
+
+            const all = Array.from(root.querySelectorAll(`[data-md-line="${lineNumber}"]`));
+            if (!all.length) return null;
+
+            // אם קיים context (למשל אלמנט שנלחץ) — נעדיף מועמדים שמכילים אותו
+            let candidates = all;
+            if (contextEl && contextEl.nodeType === 1) {
+                const filtered = all.filter(el => {
+                    try { return el === contextEl || el.contains(contextEl); } catch (_) { return false; }
+                });
+                if (filtered.length) {
+                    candidates = filtered;
+                }
+            }
+
+            let best = null;
+            let bestDepth = -1;
+
+            for (const el of candidates) {
+                if (!el || el.nodeType !== 1) continue;
+                let depth = 0;
+                let p = el;
+                // עומק יחסי ל-root
+                while (p && p !== root) {
+                    depth += 1;
+                    p = p.parentElement;
+                }
+                if (depth > bestDepth) {
+                    best = el;
+                    bestDepth = depth;
+                }
+            }
+
+            return best || candidates[candidates.length - 1] || null;
+        } catch (_) {
+            return null;
+        }
+    }
     
     createNotificationContainer() {
         let container = document.getElementById('notificationContainer');
@@ -1276,9 +1324,7 @@ class BookmarkUI {
 
         // תצוגת Markdown: נסה לפי data-md-line
         try {
-            const mdRoot = document.getElementById('md-content');
-            if (!mdRoot) return;
-            const el = mdRoot.querySelector(`[data-md-line="${lineNumber}"]`);
+            const el = this.getMarkdownLineElement(lineNumber);
             if (!el) return;
             this.addAnchorIndicator(el, color);
         } catch (_) {}
@@ -1370,8 +1416,7 @@ class BookmarkUI {
 
         // תצוגת Markdown: נסה לפי data-md-line
         try {
-            const mdRoot = document.getElementById('md-content');
-            const el = mdRoot && mdRoot.querySelector(`[data-md-line="${lineNumber}"]`);
+            const el = this.getMarkdownLineElement(lineNumber);
             if (el) {
                 this.removeAnchorIndicator(el);
             }
@@ -1487,8 +1532,7 @@ class BookmarkUI {
 
         // תצוגת Markdown: נסה לפי data-md-line
         try {
-            const mdRoot = document.getElementById('md-content');
-            const el = mdRoot && mdRoot.querySelector(`[data-md-line="${lineNumber}"]`);
+            const el = this.getMarkdownLineElement(lineNumber);
             if (!el) return;
             if (show) el.classList.add('loading');
             else el.classList.remove('loading');
@@ -1503,8 +1547,7 @@ class BookmarkUI {
         
         // תצוגת Markdown
         try {
-            const mdRoot = document.getElementById('md-content');
-            const mdEl = mdRoot && mdRoot.querySelector(`[data-md-line="${lineNumber}"]`);
+            const mdEl = this.getMarkdownLineElement(lineNumber);
             if (mdEl) {
                 mdEl.classList.add('line-highlighted');
                 setTimeout(() => {
@@ -1539,8 +1582,7 @@ class BookmarkUI {
         }
         // תצוגת Markdown: נסה לפי data-md-line
         try {
-            const mdRoot = document.getElementById('md-content');
-            const el = mdRoot && mdRoot.querySelector(`[data-md-line="${lineNumber}"]`);
+            const el = this.getMarkdownLineElement(lineNumber);
             if (el) {
                 el.setAttribute('data-bookmark-color', color);
             }
