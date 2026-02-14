@@ -4425,107 +4425,30 @@
   }
   async function poll(){
     try {
-      if (!document || (document.visibilityState && document.visibilityState !== 'visible')) {
-        return false;
-      }
-      const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store', credentials: 'same-origin' });
-      if (r && r.status === 429) {
-        // Rate limited: אל נשנה UI (כדי לא "להעלים" בועה קיימת), פשוט ננסה שוב מאוחר יותר.
-        try { backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS; } catch(_) {}
-        return true;
-      }
-      if (!r.ok) { removeDot(); return true; }
+      const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store' });
+      if (!r.ok) { removeDot(); return; }
       const j = await r.json();
-      if (!j || j.ok === false || !j.has_due) { removeDot(); return true; }
+      if (!j || j.ok === false || !j.has_due) { removeDot(); return; }
       const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
       const bubble = ensureBubble(target);
-      if (!bubble) return true;
+      if (!bubble) return;
       // Update counter
       try { bubble.setAttribute('data-count', String(j.count_due || 0)); } catch(_) {}
       bubble.textContent = String(j.count_due || 1);
       bubble.onclick = async (ev) => {
         ev.preventDefault();
         try {
-          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', { cache: 'no-store', credentials: 'same-origin' });
+          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', { cache: 'no-store' });
           const lj = await lr.json().catch(()=>null);
           openPopover(target, (lj && lj.ok) ? lj : { items: [], count: 0 });
         } catch(_) { /* ignore */ }
       };
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
-      return true;
-    } catch(_) {
-      removeDot();
-      return false;
-    }
+    } catch(_) { removeDot(); }
   }
-  // חשוב: אל נבצע polling כל דקה – זה חוצה את ה-limit (50/שעה) מהר מאוד, במיוחד אם יש כמה טאבים פתוחים.
-  const BASE_POLL_MS = 5 * 60 * 1000; // 5 דקות
-  const RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000; // 15 דקות במקרה של 429
-  let pollTimer = null;
-  let lastPollAt = 0;
-  let backoffUntil = 0;
-
-  function scheduleNext(delayMs){
-    try { if (pollTimer) clearTimeout(pollTimer); } catch(_) {}
-    pollTimer = null;
-    // לא נרצה "לנעול" כל דיליי למינימום 30 שניות, כי יש מצבים (טעינה/חזרה לטאב)
-    // שבהם כן חשוב לנסות מהר. עדיין נשמור מינימום קטן כדי לא לייצר לופ משוגע.
-    const d = Math.max(1000, Number(delayMs || BASE_POLL_MS) || BASE_POLL_MS);
-    try { pollTimer = setTimeout(tick, d); } catch(_) {}
-  }
-
-  async function tick(){
-    const now = Date.now();
-    // אם הטאב מוסתר – אל נעדכן lastPollAt (כדי לא ליצור "phantom poll")
-    try {
-      if (document && document.visibilityState && document.visibilityState !== 'visible') {
-        scheduleNext(BASE_POLL_MS);
-        return;
-      }
-    } catch(_) {}
-
-    if (backoffUntil && now < backoffUntil) {
-      scheduleNext(backoffUntil - now);
-      return;
-    }
-
-    // guard: אל תרוץ לעיתים קרובות מדי גם אם schedule/visibility עשה trigger
-    if (lastPollAt && (now - lastPollAt) < 30_000) {
-      scheduleNext(30_000 - (now - lastPollAt));
-      return;
-    }
-
-    const didFetch = await poll();
-    if (didFetch) {
-      lastPollAt = Date.now();
-    }
-
-    const now2 = Date.now();
-    if (backoffUntil && now2 < backoffUntil) {
-      scheduleNext(backoffUntil - now2);
-    } else {
-      scheduleNext(BASE_POLL_MS);
-    }
-  }
-
-  try {
-    document.addEventListener('visibilitychange', () => {
-      try {
-        if (document.visibilityState === 'visible') {
-          // לא מאפסים backoff על 429 רק בגלל מעבר טאבים.
-          // אם אנחנו עדיין בחלון backoff – נכבד אותו ונתזמן לפי הזמן שנותר.
-          const now = Date.now();
-          if (backoffUntil && now < backoffUntil) {
-            scheduleNext(backoffUntil - now);
-          } else {
-            scheduleNext(1000);
-          }
-        }
-      } catch(_) {}
-    });
-  } catch(_) {}
-
-  scheduleNext(1000);
+  try { setInterval(poll, 60000); } catch(_) {}
+  try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); }); } catch(_) {}
+  poll();
 })();
 </script>
 

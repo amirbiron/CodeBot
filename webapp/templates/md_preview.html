@@ -862,14 +862,6 @@
   border: 1px solid var(--md-table-border, #e5e7eb);
   padding: 0.5rem 0.75rem;
 }
-#md-content table th[align="left"],
-#md-content table td[align="left"],
-#md-content table th:not([align]),
-#md-content table td:not([align]) {
-  /* ברירת מחדל: יישור לפי כיוון (RTL=ימין, LTR=שמאל).
-     זה גם דורס align="left" שמגיע לפעמים מ-renderers של Markdown. */
-  text-align: start;
-}
 #md-content table thead {
   background: var(--md-table-header-bg, #f8fafc);
 }
@@ -1836,7 +1828,7 @@ input.md-task-checkbox {
         <span>מסך מלא</span>
       </button>
     </div>
-    <div id="md-content" dir="auto" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
+    <div id="md-content" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
   </div>
 
   <!-- תוכן עניינים צף מתקדם עם כל הפיצ'רים (ממוקם אחרי #mdCard כדי שכללי CSS של fullscreen יעבדו) -->
