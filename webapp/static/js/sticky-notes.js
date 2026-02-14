@@ -50,6 +50,38 @@
 
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
 
+  function base64EncodeUtf8(str){
+    try {
+      const s = (typeof str === 'string') ? str : String(str || '');
+      const bytes = new TextEncoder().encode(s);
+      let binary = '';
+      // התוכן מוגבל ל-5K בצד שרת, לכן לולאה פשוטה היא מספיק מהירה וגם בטוחה (ללא apply/spread גדולים)
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function wirePayload(payload){
+    try {
+      if (!payload || typeof payload !== 'object') return payload;
+      if (!Object.prototype.hasOwnProperty.call(payload, 'content')) return payload;
+      const content = payload.content;
+      if (typeof content !== 'string') return payload;
+      const b64 = base64EncodeUtf8(content);
+      if (!b64 && content) return payload;
+      const out = Object.assign({}, payload);
+      out.content_b64 = b64 || '';
+      try { delete out.content; } catch(_) { out.content = undefined; }
+      return out;
+    } catch (_) {
+      return payload;
+    }
+  }
+
   function getScrollOffsets(){
     if (typeof window === 'undefined') return { x: 0, y: 0 };
     const doc = window.document || {};
@@ -248,7 +280,7 @@
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(wirePayload(payload))
         });
         const data = await resp.json();
         if (!data || data.ok === false) return;
@@ -767,14 +799,13 @@
         for (const [id, data] of combined.entries()){
           try {
             if (!data) continue;
-            const body = JSON.stringify(data);
             if (typeof fetch === 'function') {
               try {
                 fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
                   method: 'PUT',
                   credentials: 'same-origin',
                   headers: { 'Content-Type': 'application/json' },
-                  body,
+                  body: JSON.stringify(wirePayload(data)),
                   keepalive: true,
                 }).catch(()=>{});
               } catch(e) {
@@ -868,7 +899,7 @@
           method: 'PUT',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payloadObj),
+          body: JSON.stringify(wirePayload(payloadObj)),
         });
         let json = null;
         try { json = await resp.json(); } catch(_) {}
@@ -947,7 +978,7 @@
         seq: (this._pendingSeq.get(String(id)) || 0),
         payload: this._clonePayload(fragment) || {}
       }));
-      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, s.payload));
+      const batchPayload = snapshots.map(s => wirePayload(Object.assign({ id: s.id }, s.payload)));
       const url = `/api/sticky-notes/batch`;
       let usedBatch = false;
       try {

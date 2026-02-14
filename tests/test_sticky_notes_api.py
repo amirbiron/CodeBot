@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from webapp.sticky_notes_api import _as_note_response, _resolve_scope, _sanitize_text
+from webapp.sticky_notes_api import _as_note_response, _resolve_scope, _sanitize_text, _content_from_payload
 
 
 class TestStickyNotesSanitize(unittest.TestCase):
@@ -34,6 +34,22 @@ class TestStickyNotesSanitize(unittest.TestCase):
     def test_sanitize_strips_control_chars(self):
         dirty = "טקסט\x00\x07ניקוי"
         self.assertEqual(_sanitize_text(dirty), "טקסטניקוי")
+
+
+class TestStickyNotesContentDecoding(unittest.TestCase):
+    def test_content_from_payload_plain(self):
+        payload = {"content": "`curl -s https://example.com`"}
+        self.assertEqual(_content_from_payload(payload), "`curl -s https://example.com`")
+
+    def test_content_from_payload_base64_utf8(self):
+        import base64
+        text = "`curl` בדיקה"
+        payload = {"content_b64": base64.b64encode(text.encode("utf-8")).decode("ascii")}
+        self.assertEqual(_content_from_payload(payload), text)
+
+    def test_content_from_payload_invalid_base64_falls_back(self):
+        payload = {"content_b64": "!!!not-base64!!!", "content": "fallback"}
+        self.assertEqual(_content_from_payload(payload), "fallback")
 
 
 class TestNoteResponse(unittest.TestCase):

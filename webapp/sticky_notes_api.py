@@ -13,6 +13,7 @@ import time
 import html
 import re
 import hashlib
+import base64
 import threading
 import asyncio
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
@@ -300,6 +301,40 @@ def _sanitize_text(text: Any, max_length: int = 20000) -> str:
     if max_length and max_length > 0:
         s = s[:max_length]
     return s
+
+
+_MAX_CONTENT_B64_LEN = 30000  # defensive: base64-encoded payload length cap
+
+
+def _content_from_payload(payload: Any) -> str:
+    """Extract note content from request payload.
+
+    Supports:
+    - payload["content"] (plain text)
+    - payload["content_b64"] (UTF-8 base64) to bypass overly-aggressive proxies/WAFs
+    """
+    if not isinstance(payload, dict):
+        return ""
+    if "content_b64" in payload and payload.get("content_b64"):
+        try:
+            raw_b64 = payload.get("content_b64")
+            if not isinstance(raw_b64, str):
+                raw_b64 = str(raw_b64)
+            raw_b64 = raw_b64.strip()
+            if len(raw_b64) > _MAX_CONTENT_B64_LEN:
+                raw_b64 = raw_b64[:_MAX_CONTENT_B64_LEN]
+            decoded = base64.b64decode(raw_b64.encode("ascii", errors="ignore"), validate=True)
+            try:
+                return decoded.decode("utf-8", errors="replace")
+            except Exception:
+                return str(decoded)
+        except Exception:
+            # Fall back to plain content if base64 decode failed
+            pass
+    try:
+        return str(payload.get("content", "") or "")
+    except Exception:
+        return ""
 
 
 def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Optional[int] = None) -> int:
@@ -888,7 +923,7 @@ def create_note(file_id: str):
         db = get_db()
         scope_id, scope_file_name, _ = _resolve_scope(db, user_id, file_id)
         data = request.get_json(silent=True) or {}
-        content = _sanitize_text(data.get('content', ''), 5000)
+        content = _sanitize_text(_content_from_payload(data), 5000)
         pos = data.get('position') or {}
         size = data.get('size') or {}
         color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
@@ -949,8 +984,8 @@ def update_note(note_id: str):
         user_id = int(session['user_id'])
         data = request.get_json(silent=True) or {}
         updates: Dict[str, Any] = {}
-        if 'content' in data:
-            updates['content'] = _sanitize_text(data.get('content'), 5000)
+        if 'content' in data or 'content_b64' in data:
+            updates['content'] = _sanitize_text(_content_from_payload(data), 5000)
         if 'position' in data and isinstance(data.get('position'), dict):
             pos = data['position']
             updates['position_x'] = _coerce_int(pos.get('x'), 100, 0, 100000)
@@ -1136,8 +1171,8 @@ def batch_update_notes():
 
                 fragment = item
                 updates: Dict[str, Any] = {}
-                if 'content' in fragment:
-                    updates['content'] = _sanitize_text(fragment.get('content'), 5000)
+                if 'content' in fragment or 'content_b64' in fragment:
+                    updates['content'] = _sanitize_text(_content_from_payload(fragment), 5000)
                 if 'position' in fragment and isinstance(fragment.get('position'), dict):
                     pos = fragment['position']
                     updates['position_x'] = _coerce_int(pos.get('x'), 100, 0, 100000)
