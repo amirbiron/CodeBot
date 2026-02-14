@@ -91,7 +91,8 @@
     opacity: 1 !important;
 }
 
-/* כותרות/אלמנטים מסומנים בעוגן במצבי Markdown/HTML */
+/* תצוגת Markdown/HTML: אלמנטים מסומנים (כותרות + בלוקים עם data-md-line) */
+#md-content [data-md-line].bookmarked,
 #md-content h1.bookmarked,
 #md-content h2.bookmarked,
 #md-content h3.bookmarked,
@@ -101,6 +102,75 @@
 iframe .bookmarked {
     position: relative;
     background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);
+}
+
+/* צבעים דינמיים לתצוגת Markdown לפי data-bookmark-color */
+#md-content [data-md-line].bookmarked[data-bookmark-color="yellow"],
+#md-content h1.bookmarked[data-bookmark-color="yellow"],
+#md-content h2.bookmarked[data-bookmark-color="yellow"],
+#md-content h3.bookmarked[data-bookmark-color="yellow"],
+#md-content h4.bookmarked[data-bookmark-color="yellow"],
+#md-content h5.bookmarked[data-bookmark-color="yellow"],
+#md-content h6.bookmarked[data-bookmark-color="yellow"] {
+    background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);
+}
+#md-content [data-md-line].bookmarked[data-bookmark-color="red"],
+#md-content h1.bookmarked[data-bookmark-color="red"],
+#md-content h2.bookmarked[data-bookmark-color="red"],
+#md-content h3.bookmarked[data-bookmark-color="red"],
+#md-content h4.bookmarked[data-bookmark-color="red"],
+#md-content h5.bookmarked[data-bookmark-color="red"],
+#md-content h6.bookmarked[data-bookmark-color="red"] {
+    background: linear-gradient(90deg, var(--bookmark-red) 3px, transparent 3px);
+}
+#md-content [data-md-line].bookmarked[data-bookmark-color="green"],
+#md-content h1.bookmarked[data-bookmark-color="green"],
+#md-content h2.bookmarked[data-bookmark-color="green"],
+#md-content h3.bookmarked[data-bookmark-color="green"],
+#md-content h4.bookmarked[data-bookmark-color="green"],
+#md-content h5.bookmarked[data-bookmark-color="green"],
+#md-content h6.bookmarked[data-bookmark-color="green"] {
+    background: linear-gradient(90deg, var(--bookmark-green) 3px, transparent 3px);
+}
+#md-content [data-md-line].bookmarked[data-bookmark-color="blue"],
+#md-content h1.bookmarked[data-bookmark-color="blue"],
+#md-content h2.bookmarked[data-bookmark-color="blue"],
+#md-content h3.bookmarked[data-bookmark-color="blue"],
+#md-content h4.bookmarked[data-bookmark-color="blue"],
+#md-content h5.bookmarked[data-bookmark-color="blue"],
+#md-content h6.bookmarked[data-bookmark-color="blue"] {
+    background: linear-gradient(90deg, var(--bookmark-blue) 3px, transparent 3px);
+}
+#md-content [data-md-line].bookmarked[data-bookmark-color="purple"],
+#md-content h1.bookmarked[data-bookmark-color="purple"],
+#md-content h2.bookmarked[data-bookmark-color="purple"],
+#md-content h3.bookmarked[data-bookmark-color="purple"],
+#md-content h4.bookmarked[data-bookmark-color="purple"],
+#md-content h5.bookmarked[data-bookmark-color="purple"],
+#md-content h6.bookmarked[data-bookmark-color="purple"] {
+    background: linear-gradient(90deg, var(--bookmark-purple) 3px, transparent 3px);
+}
+#md-content [data-md-line].bookmarked[data-bookmark-color="orange"],
+#md-content h1.bookmarked[data-bookmark-color="orange"],
+#md-content h2.bookmarked[data-bookmark-color="orange"],
+#md-content h3.bookmarked[data-bookmark-color="orange"],
+#md-content h4.bookmarked[data-bookmark-color="orange"],
+#md-content h5.bookmarked[data-bookmark-color="orange"],
+#md-content h6.bookmarked[data-bookmark-color="orange"] {
+    background: linear-gradient(90deg, var(--bookmark-orange) 3px, transparent 3px);
+}
+#md-content [data-md-line].bookmarked[data-bookmark-color="pink"],
+#md-content h1.bookmarked[data-bookmark-color="pink"],
+#md-content h2.bookmarked[data-bookmark-color="pink"],
+#md-content h3.bookmarked[data-bookmark-color="pink"],
+#md-content h4.bookmarked[data-bookmark-color="pink"],
+#md-content h5.bookmarked[data-bookmark-color="pink"],
+#md-content h6.bookmarked[data-bookmark-color="pink"] {
+    background: linear-gradient(90deg, var(--bookmark-pink) 3px, transparent 3px);
+}
+
+#md-content [data-md-line].loading {
+    opacity: 0.65;
 }
 
 /* Indicators */
