@@ -2409,52 +2409,6 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       }
     }
 
-    // מיפוי שורות מקור -> אלמנטים מרונדרים (כדי לאפשר סימניות גם על שורות שאינן כותרות)
-    // הערה: markdown-it מספק token.map לבלוקים (שורת התחלה/סיום). אנחנו מוסיפים data-md-line ל-*open tokens.
-    ;(function enableMarkdownSourceLineAttributes(){
-      try {
-        // הוספת data-md-line לכל טוקן פתיחה עם map (p_open, li_open, blockquote_open וכו')
-        md.core.ruler.push('source_line_attrs', function(state){
-          try {
-            const toks = (state && state.tokens) ? state.tokens : [];
-            for (const tok of toks) {
-              if (!tok || !tok.type || !tok.map || typeof tok.map[0] !== 'number') continue;
-              const line = tok.map[0] + 1; // 1-based
-              if (!(line > 0)) continue;
-              if (tok.type.endsWith('_open')) {
-                tok.attrSet('data-md-line', String(line));
-              }
-            }
-          } catch(_) {}
-          return false;
-        });
-
-        // Fence/code_block: ה-renderer של markdown-it לא תמיד מדפיס attrs, אז נעטוף כדי להזריק data-md-line ל-<pre>.
-        function wrapPreRule(ruleName) {
-          const orig = md.renderer.rules[ruleName];
-          md.renderer.rules[ruleName] = function(tokens, idx, options, env, self) {
-            let out = '';
-            try {
-              if (typeof orig === 'function') out = orig(tokens, idx, options, env, self);
-              else out = self.renderToken(tokens, idx, options);
-            } catch (_) {
-              try { out = self.renderToken(tokens, idx, options); } catch(__) { out = ''; }
-            }
-            try {
-              const t = tokens && tokens[idx];
-              const line0 = t && t.map && typeof t.map[0] === 'number' ? (t.map[0] + 1) : null;
-              if (line0 && typeof out === 'string' && out.startsWith('<pre') && !/data-md-line=/.test(out)) {
-                out = out.replace('<pre', `<pre data-md-line="${line0}"`);
-              }
-            } catch (_) {}
-            return out;
-          };
-        }
-        wrapPreRule('fence');
-        wrapPreRule('code_block');
-      } catch(_) {}
-    })();
-
     // רינדור ראשוני
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
