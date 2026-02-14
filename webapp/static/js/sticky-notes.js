@@ -162,6 +162,16 @@
       if (this._didSetupLifecycleGuards) return;
       this._didSetupLifecycleGuards = true;
       const flush = () => {
+        // קודם כל: לשמור לוקאלית מיידית כדי לא לאבד הקלדה מהירה לפני ריענון/סגירה
+        try {
+          if (this._saveCacheDebounced && typeof this._saveCacheDebounced.flush === 'function') {
+            this._saveCacheDebounced.flush();
+          } else if (typeof this._saveCacheFromState === 'function') {
+            this._saveCacheFromState();
+          }
+        } catch(err) {
+          console.warn('sticky note: lifecycle cache flush failed', err);
+        }
         try {
           this._flushPendingKeepalive();
         } catch(err) {

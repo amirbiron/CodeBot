@@ -4426,20 +4426,20 @@
   async function poll(){
     try {
       if (!document || (document.visibilityState && document.visibilityState !== 'visible')) {
-        return;
+        return false;
       }
       const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store', credentials: 'same-origin' });
       if (r && r.status === 429) {
         // Rate limited: אל נשנה UI (כדי לא "להעלים" בועה קיימת), פשוט ננסה שוב מאוחר יותר.
         try { backoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS; } catch(_) {}
-        return;
+        return true;
       }
-      if (!r.ok) { removeDot(); return; }
+      if (!r.ok) { removeDot(); return true; }
       const j = await r.json();
-      if (!j || j.ok === false || !j.has_due) { removeDot(); return; }
+      if (!j || j.ok === false || !j.has_due) { removeDot(); return true; }
       const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
       const bubble = ensureBubble(target);
-      if (!bubble) return;
+      if (!bubble) return true;
       // Update counter
       try { bubble.setAttribute('data-count', String(j.count_due || 0)); } catch(_) {}
       bubble.textContent = String(j.count_due || 1);
@@ -4452,7 +4452,11 @@
         } catch(_) { /* ignore */ }
       };
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
-    } catch(_) { removeDot(); }
+      return true;
+    } catch(_) {
+      removeDot();
+      return false;
+    }
   }
   // חשוב: אל נבצע polling כל דקה – זה חוצה את ה-limit (50/שעה) מהר מאוד, במיוחד אם יש כמה טאבים פתוחים.
   const BASE_POLL_MS = 5 * 60 * 1000; // 5 דקות
@@ -4464,38 +4468,43 @@
   function scheduleNext(delayMs){
     try { if (pollTimer) clearTimeout(pollTimer); } catch(_) {}
     pollTimer = null;
-    const d = Math.max(30_000, Number(delayMs || BASE_POLL_MS) || BASE_POLL_MS);
+    // לא נרצה "לנעול" כל דיליי למינימום 30 שניות, כי יש מצבים (טעינה/חזרה לטאב)
+    // שבהם כן חשוב לנסות מהר. עדיין נשמור מינימום קטן כדי לא לייצר לופ משוגע.
+    const d = Math.max(1000, Number(delayMs || BASE_POLL_MS) || BASE_POLL_MS);
     try { pollTimer = setTimeout(tick, d); } catch(_) {}
   }
 
   async function tick(){
     const now = Date.now();
+    // אם הטאב מוסתר – אל נעדכן lastPollAt (כדי לא ליצור "phantom poll")
+    try {
+      if (document && document.visibilityState && document.visibilityState !== 'visible') {
+        scheduleNext(BASE_POLL_MS);
+        return;
+      }
+    } catch(_) {}
+
     if (backoffUntil && now < backoffUntil) {
       scheduleNext(backoffUntil - now);
       return;
     }
+
     // guard: אל תרוץ לעיתים קרובות מדי גם אם schedule/visibility עשה trigger
     if (lastPollAt && (now - lastPollAt) < 30_000) {
-      scheduleNext(BASE_POLL_MS);
+      scheduleNext(30_000 - (now - lastPollAt));
       return;
     }
-    lastPollAt = now;
-    try {
-      await poll();
-      const now2 = Date.now();
-      if (backoffUntil && now2 < backoffUntil) {
-        scheduleNext(backoffUntil - now2);
-      } else {
-        scheduleNext(BASE_POLL_MS);
-      }
-    } catch(_) {
-      try { await poll(); } catch(__) {}
-      const now2 = Date.now();
-      if (backoffUntil && now2 < backoffUntil) {
-        scheduleNext(backoffUntil - now2);
-      } else {
-        scheduleNext(BASE_POLL_MS);
-      }
+
+    const didFetch = await poll();
+    if (didFetch) {
+      lastPollAt = Date.now();
+    }
+
+    const now2 = Date.now();
+    if (backoffUntil && now2 < backoffUntil) {
+      scheduleNext(backoffUntil - now2);
+    } else {
+      scheduleNext(BASE_POLL_MS);
     }
   }
 
