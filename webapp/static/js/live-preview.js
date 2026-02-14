@@ -700,10 +700,16 @@
       }
       if (isMarkdown) {
         this.previewCanvas.setAttribute('id', 'md-content');
+        // חשוב ל-RTL: מאפשר לכיווניות להיקבע אוטומטית לפי תוכן (עברית=RTL, אנגלית=LTR)
+        // וכך גם טבלאות לא "ננעלות" ליישור שמאל.
+        this.previewCanvas.setAttribute('dir', 'auto');
         this.previewCanvas.dataset.mode = 'markdown';
       } else {
         if (this.previewCanvas.id === 'md-content') {
           this.previewCanvas.removeAttribute('id');
+        }
+        if (this.previewCanvas.getAttribute('dir') === 'auto') {
+          this.previewCanvas.removeAttribute('dir');
         }
         this.previewCanvas.removeAttribute('data-mode');
       }
