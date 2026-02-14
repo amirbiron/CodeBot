@@ -103,6 +103,8 @@
       this.fileId = fileId;
       this.notes = new Map();
       this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
+      // שמירת cache מקומי כדי למנוע איבוד טקסט במקרה של רענון מהיר/כשל רשת זמני
+      this._saveCacheDebounced = debounce(this._saveCacheFromState.bind(this), 350);
       this._pending = new Map();
       this._inFlight = new Map();
       this._autoFlushTimer = null;
@@ -138,7 +140,7 @@
     async loadNotes(){
       try {
         const url = `/api/sticky-notes/${encodeURIComponent(this.fileId)}?_=${Date.now()}`;
-        const resp = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+        const resp = await fetch(url, { cache: 'no-store', credentials: 'same-origin', headers: { 'Cache-Control': 'no-cache' } });
         const data = await resp.json();
         if (!data || data.ok === false) return;
         // החלף תוכן מהרשימה העדכנית מהשרת
@@ -160,6 +162,16 @@
       if (this._didSetupLifecycleGuards) return;
       this._didSetupLifecycleGuards = true;
       const flush = () => {
+        // קודם כל: לשמור לוקאלית מיידית כדי לא לאבד הקלדה מהירה לפני ריענון/סגירה
+        try {
+          if (this._saveCacheDebounced && typeof this._saveCacheDebounced.flush === 'function') {
+            this._saveCacheDebounced.flush();
+          } else if (typeof this._saveCacheFromState === 'function') {
+            this._saveCacheFromState();
+          }
+        } catch(err) {
+          console.warn('sticky note: lifecycle cache flush failed', err);
+        }
         try {
           this._flushPendingKeepalive();
         } catch(err) {
@@ -233,12 +245,16 @@
           anchor_text: undefined
         };
         const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
         });
         const data = await resp.json();
         if (!data || data.ok === false) return;
         const note = Object.assign({ id: data.id, file_id: this.fileId }, payload, { is_minimized: false, created_at: null, updated_at: null });
         this._renderNote(note, true);
+        try { this._saveCacheDebounced(); } catch(_) {}
       } catch(e){ console.error('createNote error', e); }
     }
 
@@ -722,6 +738,8 @@
         const nextSeq = (this._pendingSeq.get(id) || 0) + 1;
         this._pendingSeq.set(id, nextSeq);
       } catch(_) {}
+      // שמירה מקומית של מצב הפתקים כדי שגם אם השרת לא הספיק לשמור לפני רענון – הפתק לא יחזור ריק.
+      try { this._saveCacheDebounced(); } catch(_) {}
       this._saveDebounced();
       this._ensureBackgroundAutoFlush();
     }
@@ -754,6 +772,7 @@
               try {
                 fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
                   method: 'PUT',
+                  credentials: 'same-origin',
                   headers: { 'Content-Type': 'application/json' },
                   body,
                   keepalive: true,
@@ -847,9 +866,9 @@
       const send = async (payloadObj) => {
         const resp = await fetch(url, {
           method: 'PUT',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payloadObj),
-          keepalive: true,
         });
         let json = null;
         try { json = await resp.json(); } catch(_) {}
@@ -934,9 +953,9 @@
       try {
         const resp = await fetch(url, {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ updates: batchPayload }),
-          keepalive: true,
         });
         if (resp.ok) {
           const json = await resp.json().catch(() => null);
@@ -1349,6 +1368,32 @@
       try {
         const payload = { ts: Date.now(), notes: Array.isArray(notesArray) ? notesArray : [] };
         localStorage.setItem(this._cacheKey, JSON.stringify(payload));
+      } catch(_) {}
+    }
+
+    _saveCacheFromState(){
+      try {
+        const notes = [];
+        for (const [id, entry] of this.notes.entries()){
+          if (!id || !entry || !entry.data) continue;
+          const d = entry.data || {};
+          notes.push({
+            id: String(id),
+            file_id: String(d.file_id || this.fileId || ''),
+            content: (typeof d.content === 'string') ? d.content : '',
+            position: d.position && typeof d.position === 'object' ? { x: d.position.x, y: d.position.y } : undefined,
+            size: d.size && typeof d.size === 'object' ? { width: d.size.width, height: d.size.height } : undefined,
+            color: d.color,
+            is_minimized: !!d.is_minimized,
+            line_start: (Number.isInteger(d.line_start) ? d.line_start : null),
+            line_end: (Number.isInteger(d.line_end) ? d.line_end : null),
+            anchor_id: d.anchor_id || '',
+            anchor_text: d.anchor_text || '',
+            updated_at: d.updated_at || null,
+            created_at: d.created_at || null,
+          });
+        }
+        this._saveCache(notes);
       } catch(_) {}
     }
   }
