@@ -647,19 +647,6 @@ class BackupManager:
                     except Exception:
                         pass
                     try:
-                        if not zipfile.is_zipfile(str(backup_file)):
-                            if resolved_path not in _invalid_warned:
-                                logger.info(f"דלג על קובץ גיבוי שאינו ZIP: {resolved_path}")
-                                _invalid_warned.add(resolved_path)
-                                try:
-                                    setattr(self, "_warned_invalid_zips", _invalid_warned)
-                                except Exception:
-                                    pass
-                            continue
-                    except Exception:
-                        # אם הבדיקה נכשלה, נמשיך לקרוא כרגיל ונתפוס בחריגה למטה
-                        pass
-                    try:
                         # ערכי ברירת מחדל
                         metadata: Optional[Dict[str, Any]] = None
                         backup_id: str = os.path.splitext(os.path.basename(backup_file))[0]
@@ -670,6 +657,7 @@ class BackupManager:
                         repo: Optional[str] = None
                         path: Optional[str] = None
 
+                        zip_entries: Optional[List[str]] = None
                         with zipfile.ZipFile(backup_file, 'r') as zf:
                             # נסה לקרוא metadata.json, אם קיים
                             try:
@@ -765,9 +753,10 @@ class BackupManager:
                             # אם אין file_count – מנה את הקבצים שאינם תיקיות
                             if file_count == 0:
                                 try:
-                                    with zipfile.ZipFile(resolved_path, 'r') as _zf_count:
-                                        non_dirs = [n for n in _zf_count.namelist() if not n.endswith('/')]
-                                        file_count = len(non_dirs)
+                                    if zip_entries is None:
+                                        zip_entries = zf.namelist()
+                                    non_dirs = [n for n in zip_entries if not n.endswith('/')]
+                                    file_count = len(non_dirs)
                                 except Exception:
                                     file_count = 0
 
@@ -787,6 +776,15 @@ class BackupManager:
 
                         backups.append(backup_info)
 
+                    except zipfile.BadZipFile:
+                        try:
+                            if resolved_path not in _invalid_warned:
+                                logger.info(f"דלג על קובץ גיבוי שאינו ZIP: {resolved_path}")
+                                _invalid_warned.add(resolved_path)
+                                setattr(self, "_warned_invalid_zips", _invalid_warned)
+                        except Exception:
+                            logger.info(f"דלג על קובץ גיבוי שאינו ZIP: {resolved_path}")
+                        continue
                     except Exception as e:
                         # הורדת רמת הלוג למניעת הצפה; דה-דופ לפי נתיב
                         try:

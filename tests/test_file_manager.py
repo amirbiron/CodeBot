@@ -136,3 +136,32 @@ def test_list_backups_fs_regex_fallback_and_count(tmp_path, monkeypatch):
     match = next(b for b in lst if b.backup_id == name)
     assert match.file_count == 3
 
+
+def test_list_backups_reads_zip_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKUPS_STORAGE", "fs")
+    monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
+
+    mgr = BackupManager()
+    name = "backup_777_single"
+    path = Path(mgr.backup_dir) / f"{name}.zip"
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("a.py", "print('a')")
+        # file_count=0 כדי להכריח ספירה מאותו ZipFile ולוודא את אופטימיזציית הפתיחה הבודדת
+        zf.writestr("metadata.json", json.dumps({"backup_id": name, "user_id": 777, "file_count": 0}))
+    path.write_bytes(mem.getvalue())
+
+    real_zipfile_cls = zipfile.ZipFile
+    open_counts = {}
+
+    class CountingZip(real_zipfile_cls):  # type: ignore[misc]
+        def __init__(self, file, *args, **kwargs):
+            key = Path(file).name
+            open_counts[key] = open_counts.get(key, 0) + 1
+            super().__init__(file, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile, "ZipFile", CountingZip)
+
+    lst = mgr.list_backups(777)
+    assert any(b.backup_id == name for b in lst)
+    assert open_counts.get(f"{name}.zip") == 1
