@@ -4512,8 +4512,14 @@
     document.addEventListener('visibilitychange', () => {
       try {
         if (document.visibilityState === 'visible') {
-          backoffUntil = 0; // כשחוזרים לטאב, ננסה שוב (אבל עדיין עם guard)
-          scheduleNext(1000);
+          // לא מאפסים backoff על 429 רק בגלל מעבר טאבים.
+          // אם אנחנו עדיין בחלון backoff – נכבד אותו ונתזמן לפי הזמן שנותר.
+          const now = Date.now();
+          if (backoffUntil && now < backoffUntil) {
+            scheduleNext(backoffUntil - now);
+          } else {
+            scheduleNext(1000);
+          }
         }
       } catch(_) {}
     });
