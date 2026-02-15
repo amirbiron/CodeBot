@@ -961,6 +961,32 @@ class PersonalBackupService:
                     raw_db.file_bookmarks.insert_one(doc)
                     count += 1
                 except Exception:
+                    try:
+                        # log full details server-side, keep user-facing error sanitized
+                        logger.exception("שגיאה בשחזור סימנייה (פריט בודד)", exc_info=True)
+                    except Exception:
+                        pass
+                    try:
+                        ctx_file = str((bm or {}).get("file_name") or "")
+                    except Exception:
+                        ctx_file = ""
+                    try:
+                        ctx_ln = int((bm or {}).get("line_number") or 0)
+                    except Exception:
+                        ctx_ln = 0
+                    try:
+                        ctx_anchor = (bm or {}).get("anchor_id")
+                        ctx_anchor = str(ctx_anchor).strip() if isinstance(ctx_anchor, str) else ""
+                    except Exception:
+                        ctx_anchor = ""
+                    if ctx_anchor:
+                        errors.append(f"שגיאה בשחזור סימנייה עבור {ctx_file} (anchor_id={ctx_anchor})")
+                    elif ctx_file and ctx_ln:
+                        errors.append(f"שגיאה בשחזור סימנייה עבור {ctx_file} (שורה {ctx_ln})")
+                    elif ctx_file:
+                        errors.append(f"שגיאה בשחזור סימנייה עבור {ctx_file}")
+                    else:
+                        errors.append("שגיאה בשחזור סימנייה")
                     continue
         except Exception as e:
             try:
@@ -1044,6 +1070,18 @@ class PersonalBackupService:
                     raw_db.sticky_notes.insert_one(doc)
                     count += 1
                 except Exception:
+                    try:
+                        logger.exception("שגיאה בשחזור פתקית (פריט בודד)", exc_info=True)
+                    except Exception:
+                        pass
+                    try:
+                        ctx_file = str((note or {}).get("file_name") or "")
+                    except Exception:
+                        ctx_file = ""
+                    if ctx_file:
+                        errors.append(f"שגיאה בשחזור פתקית עבור {ctx_file}")
+                    else:
+                        errors.append("שגיאה בשחזור פתקית")
                     continue
         except Exception as e:
             try:
