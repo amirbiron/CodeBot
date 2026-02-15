@@ -116,8 +116,28 @@ def restore_backup():
     if not uploaded.filename.lower().endswith(".zip"):
         return jsonify({"ok": False, "error": "יש להעלות קובץ ZIP בלבד"}), 400
 
-    # קריאת התוכן
-    zip_bytes = uploaded.read()
+    # הגנה: אל תקרא קובץ ענק לזיכרון לפני בדיקת גודל
+    try:
+        content_len = int(request.content_length or 0)
+    except Exception:
+        content_len = 0
+    if content_len and content_len > MAX_UPLOAD_SIZE:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": f"הקובץ גדול מדי (מקסימום {MAX_UPLOAD_SIZE // (1024*1024)}MB)",
+                }
+            ),
+            413,
+        )
+
+    # קריאת התוכן עד MAX_UPLOAD_SIZE+1 כדי לזהות חריגה בלי OOM
+    try:
+        zip_bytes = uploaded.stream.read(MAX_UPLOAD_SIZE + 1)
+    except Exception:
+        # fallback
+        zip_bytes = uploaded.read(MAX_UPLOAD_SIZE + 1)
     if len(zip_bytes) > MAX_UPLOAD_SIZE:
         return (
             jsonify(

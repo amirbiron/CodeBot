@@ -314,6 +314,9 @@ class TestRestore:
         assert "line_text_preview" in doc
         assert doc["line_text_preview"] == "print('hi')"
         assert "line_text" not in doc
+        assert "anchor_id" not in doc
+        assert "anchor_text" not in doc
+        assert "anchor_type" not in doc
 
     def test_restore_overwrite_does_not_toggle_metadata_when_zip_file_missing(self, backup_service, mock_db):
         """אם קובץ חסר ב-ZIP, לא משנים מועדפים/נעיצה לפני continue."""

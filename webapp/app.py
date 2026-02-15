@@ -390,6 +390,9 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000  # שנה לסטטיקה
 app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
 app.config['COMPRESS_LEVEL'] = 6
 app.config['COMPRESS_BR_LEVEL'] = 5
+# הגנה מפני העלאות ענק (כולל ZIP שחזור גיבוי אישי).
+# תואם למגבלה ב-webapp/backup_api.py (100MB).
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 Compress(app)
 
 

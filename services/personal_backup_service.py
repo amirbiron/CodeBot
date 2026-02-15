@@ -31,6 +31,10 @@ MAX_UNCOMPRESSED_SIZE = 500 * 1024 * 1024
 # גודל מקסימלי לקובץ בודד לא-דחוס (50MB)
 MAX_SINGLE_FILE_SIZE = 50 * 1024 * 1024
 
+# מגבלות ייצוא כדי להימנע מ-OOM
+BOOKMARKS_EXPORT_LIMIT = 5000
+STICKY_NOTES_EXPORT_LIMIT = 5000
+
 
 class PersonalBackupService:
     """מנגנון ייצוא ושחזור גיבוי אישי."""
@@ -246,12 +250,20 @@ class PersonalBackupService:
             # The grouped API (`get_user_bookmarks`) does not include anchor_id/text/type,
             # so relying only on it would drop anchor bookmarks details.
             try:
-                raw_docs = list(
-                    raw_db.file_bookmarks.find(
-                        {"user_id": int(user_id), "valid": {"$ne": False}},
-                        {"_id": 0},
-                    )
+                cur = raw_db.file_bookmarks.find(
+                    {"user_id": int(user_id), "valid": {"$ne": False}},
+                    {"_id": 0},
                 )
+                # attempt to sort/limit on cursor; fall back to slicing list in stubs
+                try:
+                    cur = cur.sort([("created_at", -1)])
+                except Exception:
+                    pass
+                try:
+                    cur = cur.limit(int(BOOKMARKS_EXPORT_LIMIT))
+                except Exception:
+                    pass
+                raw_docs = list(cur) if not isinstance(cur, list) else list(cur)[: int(BOOKMARKS_EXPORT_LIMIT)]
                 out: List[Dict[str, Any]] = []
                 for d in raw_docs:
                     if not isinstance(d, dict):
@@ -263,6 +275,12 @@ class PersonalBackupService:
                         line_number = int(d.get("line_number") or 1)
                     except Exception:
                         line_number = 1
+                    anchor_id_val = d.get("anchor_id")
+                    anchor_id_str = (
+                        str(anchor_id_val).strip()
+                        if isinstance(anchor_id_val, str) and str(anchor_id_val).strip()
+                        else ""
+                    )
                     out.append(
                         {
                             "file_name": file_name,
@@ -271,12 +289,16 @@ class PersonalBackupService:
                             "line_text_preview": str(d.get("line_text_preview") or ""),
                             "note": str(d.get("note") or ""),
                             "color": str(d.get("color") or "yellow"),
-                            "anchor_id": d.get("anchor_id") or None,
-                            "anchor_text": d.get("anchor_text") or None,
-                            "anchor_type": d.get("anchor_type") or None,
                             "created_at": _dt_to_str(d.get("created_at")),
                         }
                     )
+                    # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
+                    if anchor_id_str:
+                        out[-1]["anchor_id"] = anchor_id_str
+                        if d.get("anchor_text"):
+                            out[-1]["anchor_text"] = d.get("anchor_text")
+                        if d.get("anchor_type"):
+                            out[-1]["anchor_type"] = d.get("anchor_type")
                 return out
             except Exception:
                 # Fallback to grouped API (may miss anchor metadata)
@@ -320,12 +342,19 @@ class PersonalBackupService:
             raw_db = getattr(self.db, "db", None)
             if raw_db is None:
                 return []
-            notes = list(
-                raw_db.sticky_notes.find(
-                    {"user_id": int(user_id)},
-                    {"_id": 0},  # ללא ObjectId שלא ניתן לסריאליזציה
-                )
+            cur = raw_db.sticky_notes.find(
+                {"user_id": int(user_id)},
+                {"_id": 0},  # ללא ObjectId שלא ניתן לסריאליזציה
             )
+            try:
+                cur = cur.sort([("updated_at", -1)])
+            except Exception:
+                pass
+            try:
+                cur = cur.limit(int(STICKY_NOTES_EXPORT_LIMIT))
+            except Exception:
+                pass
+            notes = list(cur) if not isinstance(cur, list) else list(cur)[: int(STICKY_NOTES_EXPORT_LIMIT)]
             # המרת datetime ל-string
             for note in notes:
                 for key in ("created_at", "updated_at", "remind_at"):
@@ -638,36 +667,7 @@ class PersonalBackupService:
                 if existing_code == code:
                     # אם התוכן זהה אבל מטאדאטה שונה (שפה/תיאור/תגיות) —
                     # עדיין ניצור גרסה חדשה כדי לעדכן את המטאדאטה לפי הגיבוי.
-                    try:
-                        existing_lang = str(existing.get("programming_language", "") or "")
-                    except Exception:
-                        existing_lang = ""
-                    try:
-                        desired_lang = str(meta.get("programming_language", "text") or "text")
-                    except Exception:
-                        desired_lang = "text"
-                    try:
-                        existing_desc = str(existing.get("description", "") or "")
-                    except Exception:
-                        existing_desc = ""
-                    try:
-                        desired_desc = str(meta.get("description", "") or "")
-                    except Exception:
-                        desired_desc = ""
-                    try:
-                        existing_tags = sorted(list(existing.get("tags") or []))
-                    except Exception:
-                        existing_tags = []
-                    try:
-                        desired_tags = sorted(list(meta.get("tags") or []))
-                    except Exception:
-                        desired_tags = []
-
-                    if (
-                        existing_lang == desired_lang
-                        and existing_desc == desired_desc
-                        and existing_tags == desired_tags
-                    ):
+                    if _metadata_equivalent(existing, meta, default_lang="text"):
                         continue
 
             # שמירה — save_code_snippet ימצא גרסה קיימת ויעלה version אוטומטית
@@ -743,36 +743,7 @@ class PersonalBackupService:
             if existing and overwrite:
                 existing_content = existing.get("content", "")
                 if existing_content == content:
-                    try:
-                        existing_lang = str(existing.get("programming_language", "") or "")
-                    except Exception:
-                        existing_lang = ""
-                    try:
-                        desired_lang = str(meta.get("programming_language", "text") or "text")
-                    except Exception:
-                        desired_lang = "text"
-                    try:
-                        existing_desc = str(existing.get("description", "") or "")
-                    except Exception:
-                        existing_desc = ""
-                    try:
-                        desired_desc = str(meta.get("description", "") or "")
-                    except Exception:
-                        desired_desc = ""
-                    try:
-                        existing_tags = sorted(list(existing.get("tags") or []))
-                    except Exception:
-                        existing_tags = []
-                    try:
-                        desired_tags = sorted(list(meta.get("tags") or []))
-                    except Exception:
-                        desired_tags = []
-
-                    if (
-                        existing_lang == desired_lang
-                        and existing_desc == desired_desc
-                        and existing_tags == desired_tags
-                    ):
+                    if _metadata_equivalent(existing, meta, default_lang="text"):
                         continue
 
             try:
@@ -934,11 +905,16 @@ class PersonalBackupService:
 
                     line_number = bm.get("line_number", 1)
                     anchor_id = bm.get("anchor_id")
+                    anchor_id_str = (
+                        str(anchor_id).strip()
+                        if isinstance(anchor_id, str) and str(anchor_id).strip()
+                        else ""
+                    )
 
                     # בדיקת כפילות — לפי anchor_id אם קיים, אחרת לפי line_number
-                    if anchor_id:
+                    if anchor_id_str:
                         existing = raw_db.file_bookmarks.find_one(
-                            {"user_id": user_id, "file_id": file_id, "anchor_id": anchor_id}
+                            {"user_id": user_id, "file_id": file_id, "anchor_id": anchor_id_str}
                         )
                     else:
                         existing = raw_db.file_bookmarks.find_one(
@@ -954,15 +930,19 @@ class PersonalBackupService:
                         "file_name": file_name,
                         "file_path": bm.get("file_path", file_name),
                         "line_number": line_number,
-                        "line_text_preview": bm.get("line_text_preview") or bm.get("line_text", "") or "",
+                        "line_text_preview": (bm.get("line_text_preview") or bm.get("line_text", "") or "")[:100],
                         "note": bm.get("note", ""),
                         "color": bm.get("color", "yellow"),
-                        "anchor_id": anchor_id,
-                        "anchor_text": bm.get("anchor_text"),
-                        "anchor_type": bm.get("anchor_type"),
                         "created_at": datetime.now(timezone.utc),
                         "updated_at": datetime.now(timezone.utc),
                     }
+                    # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
+                    if anchor_id_str:
+                        doc["anchor_id"] = anchor_id_str
+                        if bm.get("anchor_text"):
+                            doc["anchor_text"] = bm.get("anchor_text")
+                        if bm.get("anchor_type"):
+                            doc["anchor_type"] = bm.get("anchor_type")
                     raw_db.file_bookmarks.insert_one(doc)
                     count += 1
                 except Exception:
@@ -1227,4 +1207,33 @@ def _read_zip_member_bytes_limited(
             if len(out) > max_b:
                 raise ValueError("קובץ גדול מדי בשחזור")
     return bytes(out)
+
+
+def _metadata_equivalent(existing: Dict[str, Any], meta: Dict[str, Any], *, default_lang: str = "text") -> bool:
+    """השוואת מטאדאטה בסיסית (שפה/תיאור/תגיות) כדי להחליט אם לדלג על כתיבה."""
+    try:
+        existing_lang = str(existing.get("programming_language", "") or "")
+    except Exception:
+        existing_lang = ""
+    try:
+        desired_lang = str(meta.get("programming_language", default_lang) or default_lang)
+    except Exception:
+        desired_lang = default_lang
+    try:
+        existing_desc = str(existing.get("description", "") or "")
+    except Exception:
+        existing_desc = ""
+    try:
+        desired_desc = str(meta.get("description", "") or "")
+    except Exception:
+        desired_desc = ""
+    try:
+        existing_tags = sorted(list(existing.get("tags") or []))
+    except Exception:
+        existing_tags = []
+    try:
+        desired_tags = sorted(list(meta.get("tags") or []))
+    except Exception:
+        desired_tags = []
+    return existing_lang == desired_lang and existing_desc == desired_desc and existing_tags == desired_tags
 
