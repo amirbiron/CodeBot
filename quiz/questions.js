@@ -69,12 +69,12 @@ export const questions = [
     question: 'אילו אחסונים (Storage backends) משמשים את המערכת?',
     options: [
       'MySQL, Memcached, S3',
-      'PostgreSQL, Redis Cache, File System',
-      'MongoDB, Redis, File System',
+      'MongoDB, Redis Cache, File System',
+      'PostgreSQL, Redis, File System',
       'SQLite, Redis, Cloud Storage'
     ],
     correct: 1,
-    explanation: 'המערכת משתמשת ב-PostgreSQL, Redis Cache ו-File System כ-Storage backends'
+    explanation: 'המערכת משתמשת ב-MongoDB כבסיס נתונים ראשי, Redis Cache לקאשינג, ו-File System לאחסון קבצים'
   },
 
   // ===== בסיס נתונים =====
@@ -425,15 +425,15 @@ export const questions = [
     id: 'config_1',
     category: 'configuration',
     type: 'multiple',
-    question: 'מהו סדר העדיפויות של קבצי הגדרות?',
+    question: 'מהו סדר העדיפויות של מקורות ההגדרות (מהגבוה לנמוך)?',
     options: [
-      'environment variables → .env → .env.local',
       '.env → .env.local → environment variables',
+      'environment variables → .env.local → .env',
       '.env.local → .env → environment variables',
       '.env.local → environment variables → .env'
     ],
-    correct: 2,
-    explanation: 'סדר העדיפויות הוא: .env.local → .env → environment variables (הראשון גובר)'
+    correct: 1,
+    explanation: 'סדר העדיפויות (מהגבוה לנמוך): environment variables (הגבוה ביותר) → .env.local → .env. משתני סביבה תמיד גוברים'
   },
   {
     id: 'config_2',
@@ -646,12 +646,12 @@ export const questions = [
     question: 'אילו Conventional Commit types מוכרים בפרויקט?',
     options: [
       'add, remove, change, update',
-      'feat, fix, chore, docs, refactor, test, build',
+      'feat, fix, chore, docs, refactor, test, build, perf',
       'new, fix, update, delete',
       'feature, bugfix, hotfix, release'
     ],
     correct: 1,
-    explanation: 'הסוגים המוכרים: feat, fix, chore, docs, refactor, test, build (ו-perf)'
+    explanation: 'הסוגים המוכרים: feat, fix, chore, docs, refactor, test, build, perf'
   },
   {
     id: 'docs_4',
