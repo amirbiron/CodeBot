@@ -143,7 +143,7 @@ from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from bot_handlers import set_activity_reporter as set_bh_activity_reporter
-from conversation_handlers import MAIN_KEYBOARD, MAIN_REPLY_MARKUP, get_save_conversation_handler
+from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from conversation_handlers import set_activity_reporter as set_ch_activity_reporter
 # ייבוא דחוי של ה-activity_reporter בתוך ה-run-time בלבד כדי למנוע יצירת חיבורים בזמן import
 from github_menu_handler import GitHubMenuHandler
@@ -4279,7 +4279,7 @@ class CodeKeeperBot:
             else:
                 message += "אין משתמשים פעילים בשבוע האחרון"
             
-            await update.message.reply_text(message, parse_mode=ParseMode.HTML, reply_markup=MAIN_REPLY_MARKUP)
+            await update.message.reply_text(message, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
         else:
             # סטטיסטיקות רגילות למשתמש רגיל
             stats = db.get_user_stats(user_id)
@@ -4288,7 +4288,7 @@ class CodeKeeperBot:
                 await update.message.reply_text(
                     "📊 עדיין אין לך קטעי קוד שמורים.\n"
                     "התחל עם /save!",
-                    reply_markup=MAIN_REPLY_MARKUP
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
                 )
                 return
             
@@ -4308,7 +4308,7 @@ class CodeKeeperBot:
                 "💡 <b>טיפ:</b> השתמש בתגיות לארגון טוב יותר!"
             )
             
-            await update.message.reply_text(response, parse_mode=ParseMode.HTML, reply_markup=MAIN_REPLY_MARKUP)
+            await update.message.reply_text(response, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מטפל בקבצים באמצעות DocumentHandler הייעודי."""
@@ -4782,7 +4782,7 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         if context.args and len(context.args) > 0:
             if context.args[0] == "add_file":
                 # המשתמש רוצה להוסיף קובץ חדש
-                reply_markup = MAIN_REPLY_MARKUP
+                reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
                 await update.message.reply_text(
                     "📁 <b>הוספת קובץ חדש</b>\n\n"
                     "שלח לי קובץ קוד או טקסט כדי לשמור אותו.\n"
@@ -4835,7 +4835,7 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
                 )
                 return
         
-        reply_markup = MAIN_REPLY_MARKUP
+        reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text(
             "🤖 שלום וברוך הבא לבוט שומר הקוד המתקדם!\n\n"
             "🔹 שמור ונהל קטעי קוד בחכמה\n"
