@@ -10,7 +10,7 @@ from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Type, cast, Any
 
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton
 from telegram.constants import ParseMode
 import telegram.error
 from telegram.ext import (
@@ -448,6 +448,29 @@ MAIN_KEYBOARD = [
     ["🗃️ אוסף הקהילה"]
 ]
 
+# Bot API 9.4 – icon_custom_emoji_id לכפתור GitHub
+_GITHUB_CUSTOM_EMOJI_ID = "5368324170671202305"
+
+def _build_main_keyboard_buttons() -> list[list[KeyboardButton]]:
+    """בונה את כפתורי המקלדת הראשית עם Custom Emoji עבור GitHub."""
+    rows: list[list[KeyboardButton]] = []
+    for row in MAIN_KEYBOARD:
+        btn_row: list[KeyboardButton] = []
+        for text in row:
+            if text == "🔧 GitHub":
+                btn_row.append(KeyboardButton(
+                    text=text,
+                    api_kwargs={"icon_custom_emoji_id": _GITHUB_CUSTOM_EMOJI_ID},
+                ))
+            else:
+                btn_row.append(KeyboardButton(text=text))
+        rows.append(btn_row)
+    return rows
+
+MAIN_REPLY_MARKUP = ReplyKeyboardMarkup(
+    _build_main_keyboard_buttons(), resize_keyboard=True
+)
+
 # ה-reporters יוגדרו ב-main בזמן ריצה
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -483,7 +506,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     safe_user_name = html_escape(user_name) if user_name else ""
     from i18n.strings_he import MESSAGES
     welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
-    keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    keyboard = MAIN_REPLY_MARKUP
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
     try:
         reporter.report_activity(user_id)
@@ -564,7 +587,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:
         pass
     try:
-        await query.message.reply_text("בחר/י פעולה:", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+        await query.message.reply_text("בחר/י פעולה:", reply_markup=MAIN_REPLY_MARKUP)
     except Exception:
         pass
     return ConversationHandler.END
@@ -955,7 +978,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"שגיאה בהצגת כל הקבצים: {e}")
         await update.message.reply_text(
             "❌ אירעה שגיאה בעת ניסיון לשלוף את הקבצים שלך. נסה שוב מאוחר יותר.",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=MAIN_REPLY_MARKUP
         )
     
     try:
@@ -2263,7 +2286,7 @@ async def handle_duplicate_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text("🚫 השמירה בוטלה!")
         await query.message.reply_text(
             "🏠 חוזרים לתפריט הראשי:",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=MAIN_REPLY_MARKUP
         )
         return ConversationHandler.END
     
@@ -2544,7 +2567,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text(
                 f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n"
                 f"💡 אנא וודא שהקוד תקין ונסה שוב.",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                reply_markup=MAIN_REPLY_MARKUP
             )
             return EDIT_CODE  # חזרה למצב עריכה
         
@@ -2597,7 +2620,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         else:
             await update.message.reply_text(
                 "❌ שגיאה בעדכון הקוד",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                reply_markup=MAIN_REPLY_MARKUP
             )
     
     except Exception as e:
@@ -2628,7 +2651,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"📝 **פרטים:** {error_details}\n"
             f"🔄 אנא נסה שוב או פנה לתמיכה\n"
             f"🏠 חזרה לתפריט הראשי",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            reply_markup=MAIN_REPLY_MARKUP,
             parse_mode='Markdown'
         )
     
@@ -2763,14 +2786,14 @@ async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         else:
             await update.message.reply_text(
                 "❌ שגיאה בשינוי השם",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                reply_markup=MAIN_REPLY_MARKUP
             )
     
     except Exception as e:
         logger.error(f"Error renaming file: {e}")
         await update.message.reply_text(
             "❌ שגיאה בשינוי השם",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=MAIN_REPLY_MARKUP
         )
     
     context.user_data.clear()
@@ -3686,7 +3709,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("🏠 חוזר לבית החכם:")
             await query.message.reply_text(
                 "🎮 בחר פעולה מתקדמת:",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                reply_markup=MAIN_REPLY_MARKUP
             )
             return ConversationHandler.END
         elif data == "cancel":
@@ -3702,7 +3725,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
                 await query.message.reply_text(
                     "🎮 בחר פעולה מתקדמת:",
-                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                    reply_markup=MAIN_REPLY_MARKUP
                 )
             try:
                 job = context.user_data.get('long_collect_job')
@@ -3722,7 +3745,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("🚫 יצירת ה‑ZIP בוטלה.")
             await query.message.reply_text(
                 "🎮 בחר פעולה מתקדמת:",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                reply_markup=MAIN_REPLY_MARKUP
             )
             return ConversationHandler.END
         elif data == "zip_create_finish":
@@ -4235,7 +4258,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "🚫 התהליך בוטל בהצלחה!\n"
         "🏠 חוזרים לבית החכם שלנו.",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        reply_markup=MAIN_REPLY_MARKUP
     )
     return ConversationHandler.END
 
@@ -4545,7 +4568,7 @@ async def handle_preview_button(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(
             "📂 אין קבצים זמינים לתצוגה מקדימה\n\n"
             "💡 צור קבצים חדשים כדי להשתמש בפיצ'ר זה",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=MAIN_REPLY_MARKUP
         )
         return
     
@@ -4584,7 +4607,7 @@ async def handle_autocomplete_button(update: Update, context: ContextTypes.DEFAU
         "• <code>/autocomplete test</code> - יציע test_utils.py, testing.js\n\n"
         "💡 <b>טיפ:</b> ככל שתכתוב יותר תווים, ההצעות יהיו מדויקות יותר!",
         parse_mode=ParseMode.HTML,
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        reply_markup=MAIN_REPLY_MARKUP
     )
 
 async def handle_batch_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
