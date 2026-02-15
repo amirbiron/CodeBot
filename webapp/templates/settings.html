@@ -3126,6 +3126,17 @@ async function handleRestoreFile(input) {
   const status = document.getElementById('restore-status');
   const btn = document.getElementById('btn-restore-backup');
   const overwrite = document.getElementById('restore-overwrite').checked;
+  const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
+
+  // בדיקת גודל מוקדמת כדי למנוע 413/HTML מהשרת
+  try {
+    if (typeof file.size === 'number' && file.size > MAX_UPLOAD_SIZE) {
+      status.style.display = 'block';
+      status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + _esc('הקובץ גדול מדי (מקסימום 100MB)') + '</span>';
+      input.value = '';
+      return;
+    }
+  } catch (_) {}
 
   // אישור מהמשתמש
   const msg = overwrite
@@ -3150,10 +3161,28 @@ async function handleRestoreFile(input) {
       body: formData,
     });
 
-    const data = await resp.json();
+    // Flask עשוי להחזיר 413 כ-HTML (MAX_CONTENT_LENGTH), לכן לא מניחים JSON תמיד
+    let data = null;
+    try {
+      const ct = (resp.headers.get('Content-Type') || '').toLowerCase();
+      if (ct.includes('application/json')) {
+        data = await resp.json();
+      } else {
+        const txt = await resp.text();
+        try { data = txt ? JSON.parse(txt) : null; } catch (_) { data = null; }
+      }
+    } catch (_) {
+      data = null;
+    }
 
-    if (!data.ok) {
-      throw new Error(data.error || 'שגיאה בשחזור');
+    if (!resp.ok) {
+      if (resp.status === 413) {
+        throw new Error('הקובץ גדול מדי (מקסימום 100MB)');
+      }
+      throw new Error((data && data.error) ? data.error : 'שגיאה בשחזור');
+    }
+    if (!data || !data.ok) {
+      throw new Error((data && data.error) ? data.error : 'שגיאה בשחזור');
     }
 
     const r = data.restored || {};
