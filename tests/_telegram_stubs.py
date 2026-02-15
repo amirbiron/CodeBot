@@ -26,6 +26,10 @@ class ReplyKeyboardMarkup:
     def __init__(self, *a, **k):
         pass
 
+class KeyboardButton:
+    def __init__(self, text, *a, **k):
+        self.text = text
+
 class ReplyKeyboardRemove:
     def __init__(self, *a, **k):
         pass
@@ -62,6 +66,7 @@ telegram.InlineKeyboardButton = InlineKeyboardButton
 telegram.InlineKeyboardMarkup = InlineKeyboardMarkup
 telegram.InputFile = InputFile
 telegram.ReplyKeyboardMarkup = ReplyKeyboardMarkup
+telegram.KeyboardButton = KeyboardButton
 telegram.ReplyKeyboardRemove = ReplyKeyboardRemove
 telegram.Update = Update
 telegram.BotCommand = BotCommand
