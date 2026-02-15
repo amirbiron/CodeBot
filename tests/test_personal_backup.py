@@ -283,6 +283,59 @@ class TestRestore:
         assert result["restored"]["files"] == 1
         assert mock_db.save_code_snippet.call_count == 1
 
+    def test_restore_preserves_empty_programming_language(self, backup_service, mock_db):
+        """אם programming_language הוא מחרוזת ריקה בגיבוי, לא ממירים ל-'text'."""
+        mock_db.get_file.return_value = None
+        mock_db.save_code_snippet.return_value = True
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {
+                    "regular_files": [{"file_name": "x.txt", "programming_language": "", "description": "", "tags": []}],
+                    "large_files": [],
+                },
+                "files/x.txt": "hi",
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=False)
+        assert result["ok"] is True
+        assert result["restored"]["files"] == 1
+        args, _kwargs = mock_db.save_code_snippet.call_args
+        snippet = args[0]
+        assert getattr(snippet, "programming_language", None) == ""
+
+    def test_restore_large_files_does_not_rewrite_when_language_empty_matches(self, backup_service, mock_db):
+        """large_files: אם התוכן זהה והמטאדאטה זהה כולל שפה ריקה, לא עושים save_large_file."""
+        mock_db.get_large_file.return_value = {
+            "_id": "lf1",
+            "file_name": "big.txt",
+            "content": "same",
+            "programming_language": "",
+            "description": "",
+            "tags": [],
+        }
+        mock_db.save_large_file.return_value = True
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {
+                    "regular_files": [],
+                    "large_files": [
+                        {"file_name": "big.txt", "programming_language": "", "description": "", "tags": []}
+                    ],
+                },
+                "large_files/big.txt": "same",
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=True)
+        assert result["ok"] is True
+        assert result["restored"]["large_files"] == 0
+        assert mock_db.save_large_file.call_count == 0
+
     def test_restore_bookmarks_use_line_text_preview(self, backup_service, mock_db):
         """שחזור סימניות צריך לכתוב line_text_preview (ולא line_text)."""
         # file exists so we can resolve file_id

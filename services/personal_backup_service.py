@@ -676,7 +676,7 @@ class PersonalBackupService:
                     user_id=user_id,
                     file_name=file_name,
                     code=code,
-                    programming_language=str(meta.get("programming_language", "text") or "text"),
+                    programming_language=_restore_programming_language(meta, default_lang="text"),
                     description=str(meta.get("description", "") or ""),
                     tags=list(meta.get("tags") or []),
                     is_favorite=desired_is_favorite,
@@ -751,7 +751,7 @@ class PersonalBackupService:
                     user_id=user_id,
                     file_name=file_name,
                     content=content,
-                    programming_language=meta.get("programming_language", "text"),
+                    programming_language=_restore_programming_language(meta, default_lang="text"),
                     file_size=len(content.encode("utf-8")),
                     lines_count=len(content.split("\n")),
                     description=meta.get("description", ""),
@@ -1213,9 +1213,14 @@ def _metadata_equivalent(existing: Dict[str, Any], meta: Dict[str, Any], *, defa
     except Exception:
         existing_lang = ""
     try:
-        desired_lang = str(meta.get("programming_language", default_lang) or default_lang)
+        # שמור סימטריה: אם המפתח קיים במטאדאטה — אל תכפה default על מחרוזת ריקה.
+        # זה מונע "שכתוב" מיותר כאשר גם בקיים וגם בגיבוי הערך ריק ("").
+        if "programming_language" in meta:
+            desired_lang = str(meta.get("programming_language") or "")
+        else:
+            desired_lang = str(default_lang)
     except Exception:
-        desired_lang = default_lang
+        desired_lang = str(default_lang)
     try:
         existing_desc = str(existing.get("description", "") or "")
     except Exception:
@@ -1233,4 +1238,18 @@ def _metadata_equivalent(existing: Dict[str, Any], meta: Dict[str, Any], *, defa
     except Exception:
         desired_tags = []
     return existing_lang == desired_lang and existing_desc == desired_desc and existing_tags == desired_tags
+
+
+def _restore_programming_language(meta: Dict[str, Any], *, default_lang: str = "text") -> str:
+    """שחזור programming_language בצורה נאמנה לגיבוי.
+
+    - אם המפתח קיים במטאדאטה, נשמר הערך כפי שהוא (כולל מחרוזת ריקה).
+    - אם המפתח חסר (גיבוי ישן/חלקי), נשתמש ב-default.
+    """
+    try:
+        if "programming_language" in meta:
+            return str(meta.get("programming_language") or "")
+        return str(default_lang)
+    except Exception:
+        return str(default_lang)
 
