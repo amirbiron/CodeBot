@@ -1092,6 +1092,24 @@
      - "" (ריק)
      - ``secret123``
      - WebApp
+   * - ``ALERTMANAGER_API_URL``
+     - כתובת בסיס של Alertmanager API (כולל ``https://``). משמשת את הבוט כדי לשלוח התראה ל־``POST /api/v2/alerts`` (למשל עבור הפקודה ``/admin``).
+     - לא
+     - "" (ריק)
+     - ``https://code-keeper-alertmanager.onrender.com``
+     - Bot
+   * - ``ALERTMANAGER_API_TOKEN``
+     - טוקן Bearer אופציונלי ל־Alertmanager API (יישלח כ־``Authorization: Bearer ...``) עבור ``/api/v2/alerts``.
+     - לא
+     - "" (ריק)
+     - ``secret123``
+     - Bot
+   * - ``ALERTMANAGER_TARGET``
+     - יעד Alertmanager בפורמט ``host:port`` (נפוץ בפריסת Prometheus). הבוט יכול להשתמש בו כ-fallback לבניית URL ל־``/api/v2/alerts`` אם ``ALERTMANAGER_API_URL`` לא מוגדר.
+     - לא
+     - "" (ריק)
+     - ``code-keeper-alertmanager.onrender.com:443``
+     - Prometheus/Bot
    * - ``SENTRY_WEBHOOK_SECRET``
      - סוד לאימות קריאות ל־``/webhooks/sentry`` (אם ריק, השירות מאפשר קריאות ללא אימות – מומלץ להגדיר). נבדק כ-``Authorization: Bearer`` או ``?token=`` וגם תומך בחתימת HMAC כאשר קיימת.
      - לא
