@@ -58,9 +58,11 @@ def _require_auth(f):
 
 
 def _get_db():
-    from webapp.app import get_db
+    # חשוב: PersonalBackupService מצפה ל-DatabaseManager (database/manager.py),
+    # ולא ל-pymongo Database שמוחזר מ-webapp.app.get_db().
+    from database import db as _db
 
-    return get_db()
+    return _db
 
 
 def _get_backup_service():
