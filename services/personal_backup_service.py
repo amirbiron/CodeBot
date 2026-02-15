@@ -991,19 +991,9 @@ class PersonalBackupService:
                         continue
 
                     # חישוב scope_id חדש — חייב להתאים ל-_make_scope_id בדיוק:
-                    # normalized = re.sub(r"\s+", " ", file_name.strip()).lower()
-                    # digest = sha256(f"{user_id}::{normalized}").hexdigest()[:16]
-                    # scope_id = f"user:{user_id}:file:{digest}"
-                    import re
-                    import hashlib
-
-                    scope_id = None
-                    if file_name:
-                        normalized = re.sub(r"\s+", " ", str(file_name).strip()).lower()
-                        digest = hashlib.sha256(f"{user_id}::{normalized}".encode("utf-8")).hexdigest()[
-                            :16
-                        ]
-                        scope_id = f"user:{user_id}:file:{digest}"
+                    # שימוש בפונקציה קנונית כדי להימנע מסטיות עתידיות
+                    from sticky_notes_scope import make_scope_id
+                    scope_id = make_scope_id(int(user_id), file_name)
 
                     content = note.get("content", "")
 

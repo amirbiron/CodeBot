@@ -36,6 +36,16 @@ except Exception:
 
 backup_bp = Blueprint("backup", __name__)
 
+# Per-route upload limit (avoid global MAX_CONTENT_LENGTH side effects)
+@backup_bp.before_request
+def _limit_restore_upload_size():
+    try:
+        # Limit only the restore endpoint; export is GET anyway.
+        if request.endpoint == "backup.restore_backup":
+            request.max_content_length = MAX_UPLOAD_SIZE
+    except Exception:
+        pass
+
 
 def _require_auth(f):
     @wraps(f)

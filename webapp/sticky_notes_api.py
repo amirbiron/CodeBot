@@ -315,16 +315,9 @@ def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Op
 
 
 def _make_scope_id(user_id: int, file_name: Optional[str]) -> Optional[str]:
-    if not file_name:
-        return None
-    try:
-        normalized = re.sub(r"\s+", " ", str(file_name).strip()).lower()
-    except Exception:
-        normalized = str(file_name or "").strip().lower()
-    if not normalized:
-        return None
-    digest = hashlib.sha256(f"{user_id}::{normalized}".encode('utf-8')).hexdigest()[:16]
-    return f"user:{user_id}:file:{digest}"
+    # פונקציה קנונית (ללא תלות ב-Flask) כדי למנוע סטיות בין שירותים.
+    from sticky_notes_scope import make_scope_id
+    return make_scope_id(int(user_id), file_name)
 
 
 def _resolve_scope(db, user_id: int, file_id: Any) -> Tuple[Optional[str], Optional[str], List[str]]:
