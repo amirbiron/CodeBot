@@ -303,7 +303,7 @@ def _sanitize_text(text: Any, max_length: int = 20000) -> str:
     return s
 
 
-def _decode_content_b64(value: Any, *, max_decoded_chars: int = 5000, max_b64_len: int = 20000) -> str:
+def _decode_content_b64(value: Any, *, max_decoded_chars: int = 5000, max_b64_len: int = 120000) -> str:
     """Decode Base64 UTF-8 content safely.
 
     מיועד ל-`content_b64` כדי למנוע חסימות/פילטרים על מילים "חשודות" בזמן העברה.
@@ -316,7 +316,10 @@ def _decode_content_b64(value: Any, *, max_decoded_chars: int = 5000, max_b64_le
     s = value.strip()
     if not s:
         return ""
-    # Best-effort safety: avoid decoding extremely large blobs
+    # Best-effort safety: avoid decoding extremely large blobs.
+    # Note: Base64 is ~4/3 expansion. UTF-8 can be up to 4 bytes per char.
+    # We keep this limit comfortably above the 5k-char sticky-note cap to avoid
+    # rejecting valid UTF-8 (e.g., emoji-heavy notes).
     if max_b64_len and len(s) > int(max_b64_len):
         raise ValueError("content_b64 too large")
     # Remove whitespace and normalize urlsafe variants
