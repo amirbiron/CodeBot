@@ -245,13 +245,9 @@ class PersonalBackupService:
             if raw_db is None:
                 return []
             mgr = BookmarksManager(raw_db)
-            result = mgr.get_user_bookmarks(user_id, limit=5000)
-            if not result.get("ok"):
-                return []
-
-            # Enrich with raw bookmark docs to capture fields not returned by aggregation
-            # (line_text_preview / anchor_*), while still following the grouped API shape.
-            raw_index: Dict[tuple, Dict[str, Any]] = {}
+            # Prefer raw documents to preserve anchor-based bookmarks metadata.
+            # The grouped API (`get_user_bookmarks`) does not include anchor_id/text/type,
+            # so relying only on it would drop anchor bookmarks details.
             try:
                 raw_docs = list(
                     raw_db.file_bookmarks.find(
@@ -259,63 +255,57 @@ class PersonalBackupService:
                         {"_id": 0},
                     )
                 )
+                out: List[Dict[str, Any]] = []
                 for d in raw_docs:
-                    try:
-                        fid = str((d or {}).get("file_id") or "")
-                    except Exception:
-                        fid = ""
-                    if not fid:
+                    if not isinstance(d, dict):
                         continue
-                    anchor_id = (d or {}).get("anchor_id")
-                    if anchor_id:
-                        raw_index[(fid, str(anchor_id))] = d
+                    file_name = str(d.get("file_name") or "")
+                    if not file_name:
                         continue
                     try:
-                        ln = int((d or {}).get("line_number") or 0)
+                        line_number = int(d.get("line_number") or 1)
                     except Exception:
-                        ln = 0
-                    raw_index[(fid, ln)] = d
-            except Exception:
-                raw_index = {}
-
-            # שטח את המבנה המקובץ לרשימה שטוחה
-            flat_bookmarks = []
-            for file_group in result.get("files", []):
-                file_id = str(file_group.get("file_id", "") or "")
-                file_name = file_group.get("file_name", "")
-                file_path = file_group.get("file_path", "")
-                for bm in file_group.get("bookmarks", []):
-                    anchor_id = bm.get("anchor_id") if isinstance(bm, dict) else None
-                    if anchor_id:
-                        full = raw_index.get((file_id, str(anchor_id)), {}) if file_id else {}
-                    else:
-                        try:
-                            ln = int(bm.get("line_number", 1) or 1)
-                        except Exception:
-                            ln = 1
-                        full = raw_index.get((file_id, ln), {}) if file_id else {}
-
-                    line_text_preview = (
-                        (full or {}).get("line_text_preview")
-                        or bm.get("line_text_preview", "")
-                        or bm.get("line_text", "")
-                        or ""
-                    )
-                    flat_bookmarks.append(
+                        line_number = 1
+                    out.append(
                         {
                             "file_name": file_name,
-                            "file_path": file_path,
-                            "line_number": bm.get("line_number", 1),
-                            "line_text_preview": line_text_preview,
-                            "note": bm.get("note", ""),
-                            "color": bm.get("color", "yellow"),
-                            "anchor_id": (full or {}).get("anchor_id") or bm.get("anchor_id"),
-                            "anchor_text": (full or {}).get("anchor_text") or bm.get("anchor_text"),
-                            "anchor_type": (full or {}).get("anchor_type") or bm.get("anchor_type"),
-                            "created_at": _dt_to_str((full or {}).get("created_at") or bm.get("created_at")),
+                            "file_path": str(d.get("file_path") or file_name),
+                            "line_number": line_number,
+                            "line_text_preview": str(d.get("line_text_preview") or ""),
+                            "note": str(d.get("note") or ""),
+                            "color": str(d.get("color") or "yellow"),
+                            "anchor_id": d.get("anchor_id") or None,
+                            "anchor_text": d.get("anchor_text") or None,
+                            "anchor_type": d.get("anchor_type") or None,
+                            "created_at": _dt_to_str(d.get("created_at")),
                         }
                     )
-            return flat_bookmarks
+                return out
+            except Exception:
+                # Fallback to grouped API (may miss anchor metadata)
+                result = mgr.get_user_bookmarks(user_id, limit=5000)
+                if not result.get("ok"):
+                    return []
+                flat_bookmarks: List[Dict[str, Any]] = []
+                for file_group in result.get("files", []):
+                    file_name = file_group.get("file_name", "")
+                    file_path = file_group.get("file_path", "")
+                    for bm in file_group.get("bookmarks", []):
+                        flat_bookmarks.append(
+                            {
+                                "file_name": file_name,
+                                "file_path": file_path,
+                                "line_number": bm.get("line_number", 1),
+                                "line_text_preview": bm.get("line_text_preview", "") or "",
+                                "note": bm.get("note", ""),
+                                "color": bm.get("color", "yellow"),
+                                "anchor_id": bm.get("anchor_id"),
+                                "anchor_text": bm.get("anchor_text"),
+                                "anchor_type": bm.get("anchor_type"),
+                                "created_at": _dt_to_str(bm.get("created_at")),
+                            }
+                        )
+                return flat_bookmarks
         except Exception as e:
             logger.error(f"שגיאה בייצוא סימניות: {e}")
             return []
@@ -633,7 +623,39 @@ class PersonalBackupService:
             if existing and overwrite:
                 existing_code = existing.get("code", "")
                 if existing_code == code:
-                    continue
+                    # אם התוכן זהה אבל מטאדאטה שונה (שפה/תיאור/תגיות) —
+                    # עדיין ניצור גרסה חדשה כדי לעדכן את המטאדאטה לפי הגיבוי.
+                    try:
+                        existing_lang = str(existing.get("programming_language", "") or "")
+                    except Exception:
+                        existing_lang = ""
+                    try:
+                        desired_lang = str(meta.get("programming_language", "text") or "text")
+                    except Exception:
+                        desired_lang = "text"
+                    try:
+                        existing_desc = str(existing.get("description", "") or "")
+                    except Exception:
+                        existing_desc = ""
+                    try:
+                        desired_desc = str(meta.get("description", "") or "")
+                    except Exception:
+                        desired_desc = ""
+                    try:
+                        existing_tags = sorted(list(existing.get("tags") or []))
+                    except Exception:
+                        existing_tags = []
+                    try:
+                        desired_tags = sorted(list(meta.get("tags") or []))
+                    except Exception:
+                        desired_tags = []
+
+                    if (
+                        existing_lang == desired_lang
+                        and existing_desc == desired_desc
+                        and existing_tags == desired_tags
+                    ):
+                        continue
 
             # שמירה — save_code_snippet ימצא גרסה קיימת ויעלה version אוטומטית
             try:
@@ -641,8 +663,8 @@ class PersonalBackupService:
                     user_id=user_id,
                     file_name=file_name,
                     code=code,
-                    programming_language=meta.get("programming_language", "text"),
-                    description=meta.get("description", ""),
+                    programming_language=str(meta.get("programming_language", "text") or "text"),
+                    description=str(meta.get("description", "") or ""),
                     tags=list(meta.get("tags") or []),
                     is_favorite=desired_is_favorite,
                     is_pinned=desired_is_pinned,

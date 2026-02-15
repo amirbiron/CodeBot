@@ -100,6 +100,37 @@ class TestExport:
             assert regular[0]["file_name"] == "hello.py"
             assert regular[0]["is_favorite"] is True
 
+    def test_export_includes_anchor_bookmark_fields(self, backup_service, mock_db):
+        """ייצוא סימניות צריך לכלול שדות anchor_* ו-line_text_preview."""
+        # provide raw bookmark doc with anchor fields
+        mock_db.db.file_bookmarks.find.return_value = [
+            {
+                "user_id": 12345,
+                "file_id": "file1",
+                "file_name": "hello.py",
+                "file_path": "hello.py",
+                "line_number": 1000000123,
+                "line_text_preview": "Heading",
+                "note": "n",
+                "color": "green",
+                "anchor_id": "section-intro",
+                "anchor_text": "Introduction",
+                "anchor_type": "md_heading",
+                "created_at": None,
+                "valid": True,
+            }
+        ]
+
+        buffer = backup_service.export_user_data(user_id=12345)
+        with zipfile.ZipFile(buffer, "r") as zf:
+            bms = json.loads(zf.read("metadata/bookmarks.json"))
+            assert isinstance(bms, list)
+            assert len(bms) == 1
+            assert bms[0]["anchor_id"] == "section-intro"
+            assert bms[0]["anchor_text"] == "Introduction"
+            assert bms[0]["anchor_type"] == "md_heading"
+            assert bms[0]["line_text_preview"] == "Heading"
+
 
 class TestRestore:
     def _make_zip(self, files_dict: dict) -> bytes:
@@ -211,6 +242,46 @@ class TestRestore:
         assert result["ok"] is True
         assert mock_db.toggle_favorite.call_count == 1
         assert mock_db.toggle_pin.call_count == 1
+
+    def test_restore_overwrite_updates_metadata_even_if_content_matches(self, backup_service, mock_db):
+        """כש-overwrite=True והתוכן זהה, עדיין צריך לשחזר מטאדאטה (שפה/תיאור/תגיות)."""
+        mock_db.get_file.return_value = {
+            "_id": "file1",
+            "file_name": "test.py",
+            "code": "same",
+            "programming_language": "python",
+            "description": "old",
+            "tags": ["a"],
+        }
+        mock_db.save_code_snippet.return_value = True
+        mock_db.is_favorite.return_value = False
+        mock_db.is_pinned.return_value = False
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {
+                    "regular_files": [
+                        {
+                            "file_name": "test.py",
+                            "programming_language": "text",
+                            "description": "new",
+                            "tags": ["b"],
+                            "is_favorite": False,
+                            "is_pinned": False,
+                            "pin_order": 0,
+                        }
+                    ],
+                    "large_files": [],
+                },
+                "files/test.py": "same",
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=True)
+        assert result["ok"] is True
+        assert result["restored"]["files"] == 1
+        assert mock_db.save_code_snippet.call_count == 1
 
     def test_restore_bookmarks_use_line_text_preview(self, backup_service, mock_db):
         """שחזור סימניות צריך לכתוב line_text_preview (ולא line_text)."""
