@@ -48,6 +48,9 @@ def mock_db():
 
     # DB object (for direct collection access)
     mock_raw_db = MagicMock()
+    mock_raw_db.file_bookmarks = MagicMock()
+    mock_raw_db.file_bookmarks.find.return_value = []
+    mock_raw_db.file_bookmarks.find_one.return_value = None
     mock_raw_db.sticky_notes.find.return_value = []
     mock_raw_db.user_preferences.find_one.return_value = {}
     db.db = mock_raw_db
@@ -171,4 +174,73 @@ class TestRestore:
         result = backup_service.restore_user_data(12345, zip_bytes, overwrite=False)
         assert result["ok"] is True
         assert result["restored"]["files"] == 0  # לא נשמר כי כבר קיים
+
+    def test_restore_overwrite_can_unfavorite_and_unpin(self, backup_service, mock_db):
+        """כש-overwrite=True ניתן להסיר מועדף/נעוץ לפי מטאדאטה של הגיבוי."""
+        mock_db.get_file.return_value = {"file_name": "test.py", "code": "old"}
+        mock_db.save_code_snippet.return_value = True
+
+        # current state in DB
+        mock_db.is_favorite.return_value = True
+        mock_db.is_pinned.return_value = True
+        mock_db.toggle_favorite.return_value = False
+        mock_db.toggle_pin.return_value = {"success": True, "is_pinned": False}
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {
+                    "regular_files": [
+                        {
+                            "file_name": "test.py",
+                            "programming_language": "python",
+                            "description": "",
+                            "tags": [],
+                            "is_favorite": False,
+                            "is_pinned": False,
+                            "pin_order": 0,
+                        }
+                    ],
+                    "large_files": [],
+                },
+                "files/test.py": "new content",
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=True)
+        assert result["ok"] is True
+        assert mock_db.toggle_favorite.call_count == 1
+        assert mock_db.toggle_pin.call_count == 1
+
+    def test_restore_bookmarks_use_line_text_preview(self, backup_service, mock_db):
+        """שחזור סימניות צריך לכתוב line_text_preview (ולא line_text)."""
+        # file exists so we can resolve file_id
+        mock_db.get_file.return_value = {"_id": "file1", "file_name": "test.py", "code": "x"}
+        mock_db.save_code_snippet.return_value = True
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {"regular_files": [], "large_files": []},
+                "metadata/bookmarks.json": [
+                    {
+                        "file_name": "test.py",
+                        "file_path": "test.py",
+                        "line_number": 12,
+                        "line_text_preview": "print('hi')",
+                        "note": "n",
+                        "color": "yellow",
+                    }
+                ],
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=False)
+        assert result["ok"] is True
+        assert result["restored"]["bookmarks"] == 1
+        args, _kwargs = mock_db.db.file_bookmarks.insert_one.call_args
+        doc = args[0]
+        assert "line_text_preview" in doc
+        assert doc["line_text_preview"] == "print('hi')"
+        assert "line_text" not in doc
 

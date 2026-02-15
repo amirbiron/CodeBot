@@ -249,21 +249,70 @@ class PersonalBackupService:
             if not result.get("ok"):
                 return []
 
+            # Enrich with raw bookmark docs to capture fields not returned by aggregation
+            # (line_text_preview / anchor_*), while still following the grouped API shape.
+            raw_index: Dict[tuple, Dict[str, Any]] = {}
+            try:
+                raw_docs = list(
+                    raw_db.file_bookmarks.find(
+                        {"user_id": int(user_id), "valid": {"$ne": False}},
+                        {"_id": 0},
+                    )
+                )
+                for d in raw_docs:
+                    try:
+                        fid = str((d or {}).get("file_id") or "")
+                    except Exception:
+                        fid = ""
+                    if not fid:
+                        continue
+                    anchor_id = (d or {}).get("anchor_id")
+                    if anchor_id:
+                        raw_index[(fid, str(anchor_id))] = d
+                        continue
+                    try:
+                        ln = int((d or {}).get("line_number") or 0)
+                    except Exception:
+                        ln = 0
+                    raw_index[(fid, ln)] = d
+            except Exception:
+                raw_index = {}
+
             # שטח את המבנה המקובץ לרשימה שטוחה
             flat_bookmarks = []
             for file_group in result.get("files", []):
+                file_id = str(file_group.get("file_id", "") or "")
                 file_name = file_group.get("file_name", "")
                 file_path = file_group.get("file_path", "")
                 for bm in file_group.get("bookmarks", []):
+                    anchor_id = bm.get("anchor_id") if isinstance(bm, dict) else None
+                    if anchor_id:
+                        full = raw_index.get((file_id, str(anchor_id)), {}) if file_id else {}
+                    else:
+                        try:
+                            ln = int(bm.get("line_number", 1) or 1)
+                        except Exception:
+                            ln = 1
+                        full = raw_index.get((file_id, ln), {}) if file_id else {}
+
+                    line_text_preview = (
+                        (full or {}).get("line_text_preview")
+                        or bm.get("line_text_preview", "")
+                        or bm.get("line_text", "")
+                        or ""
+                    )
                     flat_bookmarks.append(
                         {
                             "file_name": file_name,
                             "file_path": file_path,
                             "line_number": bm.get("line_number", 1),
-                            "line_text": bm.get("line_text", ""),
+                            "line_text_preview": line_text_preview,
                             "note": bm.get("note", ""),
                             "color": bm.get("color", "yellow"),
-                            "created_at": _dt_to_str(bm.get("created_at")),
+                            "anchor_id": (full or {}).get("anchor_id") or bm.get("anchor_id"),
+                            "anchor_text": (full or {}).get("anchor_text") or bm.get("anchor_text"),
+                            "anchor_type": (full or {}).get("anchor_type") or bm.get("anchor_type"),
+                            "created_at": _dt_to_str((full or {}).get("created_at") or bm.get("created_at")),
                         }
                     )
             return flat_bookmarks
@@ -416,7 +465,11 @@ class PersonalBackupService:
                 # אין backup_info — נמשיך בזהירות
                 backup_info = {}
             except Exception as e:
-                errors.append(f"שגיאה בקריאת backup_info: {e}")
+                try:
+                    logger.exception("שגיאה בקריאת backup_info", exc_info=True)
+                except Exception:
+                    pass
+                errors.append("שגיאה בקריאת backup_info")
                 backup_info = {}
 
             # 1) שחזור קבצים רגילים
@@ -510,6 +563,57 @@ class PersonalBackupService:
             if existing and not overwrite:
                 continue
 
+            desired_is_favorite = bool(meta.get("is_favorite", False))
+            desired_is_pinned = bool(meta.get("is_pinned", False))
+            try:
+                desired_pin_order = int(meta.get("pin_order", 0) or 0)
+            except Exception:
+                desired_pin_order = 0
+
+            # חשוב: כש-overwrite=True, ניישר מועדפים/נעיצה *לפני* יצירת גרסה חדשה
+            # כדי להתגבר על לוגיקת "sticky" ב-repository (שלא מאפשרת להסיר).
+            if existing and overwrite:
+                # Favorites: set desired state using toggle (updates all versions)
+                try:
+                    current_fav = bool(self.db.is_favorite(user_id, file_name))
+                    if current_fav != desired_is_favorite:
+                        new_state = self.db.toggle_favorite(user_id, file_name)
+                        if new_state is None:
+                            errors.append(f"לא ניתן לעדכן מצב מועדפים עבור {file_name}")
+                except Exception:
+                    try:
+                        logger.exception("שגיאה בעדכון מצב מועדפים בשחזור: %s", file_name, exc_info=True)
+                    except Exception:
+                        pass
+                    errors.append(f"שגיאה בעדכון מצב מועדפים עבור {file_name}")
+
+                # Pinned: set desired state using toggle (updates all versions)
+                try:
+                    current_pinned = bool(self.db.is_pinned(user_id, file_name))
+                    if current_pinned != desired_is_pinned:
+                        out = self.db.toggle_pin(user_id, file_name)
+                        if not isinstance(out, dict) or not bool(out.get("success", False)):
+                            errors.append(f"לא ניתן לעדכן מצב נעיצה עבור {file_name}")
+                except Exception:
+                    try:
+                        logger.exception("שגיאה בעדכון מצב נעיצה בשחזור: %s", file_name, exc_info=True)
+                    except Exception:
+                        pass
+                    errors.append(f"שגיאה בעדכון מצב נעיצה עבור {file_name}")
+
+                # Enforce pin order when pinned (even if content is identical and we skip saving)
+                if desired_is_pinned:
+                    try:
+                        ok = self.db.reorder_pinned(user_id, file_name, desired_pin_order)
+                        if ok is False:
+                            errors.append(f"לא ניתן לעדכן סדר נעיצה עבור {file_name}")
+                    except Exception:
+                        try:
+                            logger.exception("שגיאה בעדכון סדר נעיצה בשחזור: %s", file_name, exc_info=True)
+                        except Exception:
+                            pass
+                        errors.append(f"שגיאה בעדכון סדר נעיצה עבור {file_name}")
+
             # אם overwrite=True וקובץ קיים — נבדוק אם התוכן זהה, ונדלג אם כן
             zip_path = _safe_zip_path(f"files/{file_name}")
             try:
@@ -518,7 +622,11 @@ class PersonalBackupService:
                 errors.append(f"קובץ חסר ב-ZIP: {zip_path}")
                 continue
             except Exception as e:
-                errors.append(f"שגיאה בקריאת {zip_path}: {e}")
+                try:
+                    logger.exception("שגיאה בקריאת קובץ מהגיבוי: %s", zip_path, exc_info=True)
+                except Exception:
+                    pass
+                errors.append(f"שגיאה בקריאת קובץ מהגיבוי: {zip_path}")
                 continue
 
             # דלג אם התוכן זהה לגרסה הקיימת (מונע גרסאות כפולות מיותרות)
@@ -536,14 +644,18 @@ class PersonalBackupService:
                     programming_language=meta.get("programming_language", "text"),
                     description=meta.get("description", ""),
                     tags=list(meta.get("tags") or []),
-                    is_favorite=bool(meta.get("is_favorite", False)),
-                    is_pinned=bool(meta.get("is_pinned", False)),
-                    pin_order=int(meta.get("pin_order", 0)),
+                    is_favorite=desired_is_favorite,
+                    is_pinned=desired_is_pinned,
+                    pin_order=desired_pin_order,
                 )
                 self.db.save_code_snippet(snippet)
                 count += 1
             except Exception as e:
-                errors.append(f"שגיאה בשמירת {file_name}: {e}")
+                try:
+                    logger.exception("שגיאה בשמירת קובץ משוחזר: %s", file_name, exc_info=True)
+                except Exception:
+                    pass
+                errors.append(f"שגיאה בשמירת {file_name}")
 
         return count
 
@@ -580,7 +692,11 @@ class PersonalBackupService:
                 errors.append(f"קובץ גדול חסר ב-ZIP: {zip_path}")
                 continue
             except Exception as e:
-                errors.append(f"שגיאה בקריאת {zip_path}: {e}")
+                try:
+                    logger.exception("שגיאה בקריאת קובץ גדול מהגיבוי: %s", zip_path, exc_info=True)
+                except Exception:
+                    pass
+                errors.append(f"שגיאה בקריאת קובץ גדול מהגיבוי: {zip_path}")
                 continue
 
             # דלג אם התוכן זהה (מונע delete + insert מיותרים)
@@ -603,7 +719,11 @@ class PersonalBackupService:
                 self.db.save_large_file(large_file)
                 count += 1
             except Exception as e:
-                errors.append(f"שגיאה בשמירת קובץ גדול {file_name}: {e}")
+                try:
+                    logger.exception("שגיאה בשמירת קובץ גדול משוחזר: %s", file_name, exc_info=True)
+                except Exception:
+                    pass
+                errors.append(f"שגיאה בשמירת קובץ גדול {file_name}")
 
         return count
 
@@ -629,7 +749,11 @@ class PersonalBackupService:
                 return 0, 0
             mgr = CollectionsManager(raw_db)
         except Exception as e:
-            errors.append(f"שגיאה באתחול CollectionsManager: {e}")
+            try:
+                logger.exception("שגיאה באתחול CollectionsManager", exc_info=True)
+            except Exception:
+                pass
+            errors.append("שגיאה באתחול CollectionsManager")
             return 0, 0
 
         # טען אוספים קיימים לבדיקת כפילות לפי שם
@@ -673,7 +797,11 @@ class PersonalBackupService:
                         old_to_new_id[old_id] = new_id
                     collections_count += 1
             except Exception as e:
-                errors.append(f"שגיאה ביצירת אוסף '{coll.get('name', '')}': {e}")
+                try:
+                    logger.exception("שגיאה ביצירת אוסף בשחזור", exc_info=True)
+                except Exception:
+                    pass
+                errors.append(f"שגיאה ביצירת אוסף '{coll.get('name', '')}'")
 
         # שחזור פריטים
         items_by_collection: Dict[str, List[Dict]] = {}
@@ -699,7 +827,11 @@ class PersonalBackupService:
                     result = mgr.add_items(user_id, new_cid, add_items)
                     items_count += result.get("added", 0)
             except Exception as e:
-                errors.append(f"שגיאה בהוספת פריטים לאוסף: {e}")
+                try:
+                    logger.exception("שגיאה בהוספת פריטים לאוסף בשחזור", exc_info=True)
+                except Exception:
+                    pass
+                errors.append("שגיאה בהוספת פריטים לאוסף")
 
         return collections_count, items_count
 
@@ -731,11 +863,17 @@ class PersonalBackupService:
                         continue
 
                     line_number = bm.get("line_number", 1)
+                    anchor_id = bm.get("anchor_id")
 
-                    # בדיקת כפילות — לא נוסיף אם כבר קיימת סימניה באותו מיקום
-                    existing = raw_db.file_bookmarks.find_one(
-                        {"user_id": user_id, "file_id": file_id, "line_number": line_number}
-                    )
+                    # בדיקת כפילות — לפי anchor_id אם קיים, אחרת לפי line_number
+                    if anchor_id:
+                        existing = raw_db.file_bookmarks.find_one(
+                            {"user_id": user_id, "file_id": file_id, "anchor_id": anchor_id}
+                        )
+                    else:
+                        existing = raw_db.file_bookmarks.find_one(
+                            {"user_id": user_id, "file_id": file_id, "line_number": line_number}
+                        )
                     if existing:
                         continue
 
@@ -746,10 +884,10 @@ class PersonalBackupService:
                         "file_name": file_name,
                         "file_path": bm.get("file_path", file_name),
                         "line_number": line_number,
-                        "line_text": bm.get("line_text", ""),
+                        "line_text_preview": bm.get("line_text_preview") or bm.get("line_text", "") or "",
                         "note": bm.get("note", ""),
                         "color": bm.get("color", "yellow"),
-                        "anchor_id": bm.get("anchor_id"),
+                        "anchor_id": anchor_id,
                         "anchor_text": bm.get("anchor_text"),
                         "anchor_type": bm.get("anchor_type"),
                         "created_at": datetime.now(timezone.utc),
@@ -760,7 +898,11 @@ class PersonalBackupService:
                 except Exception:
                     continue
         except Exception as e:
-            errors.append(f"שגיאה בשחזור סימניות: {e}")
+            try:
+                logger.exception("שגיאה בשחזור סימניות", exc_info=True)
+            except Exception:
+                pass
+            errors.append("שגיאה בשחזור סימניות")
 
         return count
 
@@ -842,7 +984,11 @@ class PersonalBackupService:
                 except Exception:
                     continue
         except Exception as e:
-            errors.append(f"שגיאה בשחזור פתקיות: {e}")
+            try:
+                logger.exception("שגיאה בשחזור פתקיות", exc_info=True)
+            except Exception:
+                pass
+            errors.append("שגיאה בשחזור פתקיות")
 
         return count
 
@@ -862,7 +1008,11 @@ class PersonalBackupService:
             )
             return True
         except Exception as e:
-            errors.append(f"שגיאה בשחזור העדפות: {e}")
+            try:
+                logger.exception("שגיאה בשחזור העדפות", exc_info=True)
+            except Exception:
+                pass
+            errors.append("שגיאה בשחזור העדפות")
             return False
 
     def _restore_drive_prefs(self, user_id: int, prefs: Dict[str, Any], errors: List[str]) -> bool:
@@ -875,7 +1025,11 @@ class PersonalBackupService:
                 return False
             return self.db.save_drive_prefs(user_id, prefs)
         except Exception as e:
-            errors.append(f"שגיאה בשחזור העדפות Drive: {e}")
+            try:
+                logger.exception("שגיאה בשחזור העדפות Drive", exc_info=True)
+            except Exception:
+                pass
+            errors.append("שגיאה בשחזור העדפות Drive")
             return False
 
     # ================================================================
@@ -891,7 +1045,11 @@ class PersonalBackupService:
             # קובץ לא קיים — לא שגיאה קריטית
             return None
         except Exception as e:
-            errors.append(f"שגיאה בקריאת {path}: {e}")
+            try:
+                logger.exception("שגיאה בקריאת JSON מהגיבוי: %s", path, exc_info=True)
+            except Exception:
+                pass
+            errors.append(f"שגיאה בקריאת {path}")
             return None
 
 
