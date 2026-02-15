@@ -58,9 +58,73 @@ def _require_auth(f):
 
 
 def _get_db():
-    from webapp.app import get_db
+    # NOTE:
+    # webapp.app.get_db מחזיר PyMongo DB גולמי. שירות הגיבוי מצפה ל-DatabaseManager (עם get_user_files וכו').
+    # לכן אנחנו עוטפים את ה-DB הגולמי באדפטר קל שמדלג על יצירת MongoClient נוסף.
+    from webapp.app import get_db as _get_raw_db
 
-    return get_db()
+    raw_db = _get_raw_db()
+
+    class _BackupDbManagerAdapter:
+        def __init__(self, db):
+            self.db = db
+            # Repository expects these fields on manager
+            self.collection = getattr(db, "code_snippets")
+            self.large_files_collection = getattr(db, "large_files")
+            from database.repository import Repository
+            self._repo = Repository(self)
+
+        def _get_repo(self):
+            return self._repo
+
+        # --- Files (regular) ---
+        def get_user_files(self, user_id: int, limit: int = 50, *, skip: int = 0, projection=None):
+            return self._get_repo().get_user_files(int(user_id), int(limit), skip=int(skip), projection=projection)
+
+        def get_file(self, user_id: int, file_name: str):
+            return self._get_repo().get_file(int(user_id), str(file_name))
+
+        def save_code_snippet(self, snippet) -> bool:
+            return self._get_repo().save_code_snippet(snippet)
+
+        # Favorites
+        def toggle_favorite(self, user_id: int, file_name: str):
+            return self._get_repo().toggle_favorite(int(user_id), str(file_name))
+
+        def is_favorite(self, user_id: int, file_name: str) -> bool:
+            return bool(self._get_repo().is_favorite(int(user_id), str(file_name)))
+
+        # --- Pinned (implemented in database.manager helpers) ---
+        def toggle_pin(self, user_id: int, file_name: str) -> dict:
+            from database.manager import toggle_pin as _toggle_pin
+            return _toggle_pin(self, int(user_id), str(file_name))
+
+        def is_pinned(self, user_id: int, file_name: str) -> bool:
+            from database.manager import is_pinned as _is_pinned
+            return bool(_is_pinned(self, int(user_id), str(file_name)))
+
+        def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
+            from database.manager import reorder_pinned as _reorder_pinned
+            return bool(_reorder_pinned(self, int(user_id), str(file_name), int(new_order)))
+
+        # --- Large files ---
+        def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8):
+            return self._get_repo().get_user_large_files(int(user_id), page=int(page), per_page=int(per_page))
+
+        def get_large_file(self, user_id: int, file_name: str):
+            return self._get_repo().get_large_file(int(user_id), str(file_name))
+
+        def save_large_file(self, large_file) -> bool:
+            return self._get_repo().save_large_file(large_file)
+
+        # --- Drive prefs ---
+        def get_drive_prefs(self, user_id: int):
+            return self._get_repo().get_drive_prefs(int(user_id))
+
+        def save_drive_prefs(self, user_id: int, prefs) -> bool:
+            return bool(self._get_repo().save_drive_prefs(int(user_id), prefs))
+
+    return _BackupDbManagerAdapter(raw_db)
 
 
 def _get_backup_service():
