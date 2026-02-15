@@ -22,7 +22,7 @@
       }
     } catch(_) {}
     // fallback for older browsers
-    try { return btoa(unescape(encodeURIComponent(s))); } catch(_) { return ''; }
+    try { return btoa(unescape(encodeURIComponent(s))); } catch(_) { return null; }
   }
 
   function withContentB64(payload){
@@ -32,7 +32,14 @@
     if (!Object.prototype.hasOwnProperty.call(payload, 'content')) return payload;
     const next = Object.assign({}, payload);
     const content = next.content == null ? '' : String(next.content);
-    next.content_b64 = encodeUtf8ToB64(content);
+    const b64 = encodeUtf8ToB64(content);
+    // If encoding failed, keep plain `content` and drop any existing content_b64
+    // to avoid sending stale/empty base64 that would override server-side content.
+    if (b64 === null) {
+      try { delete next.content_b64; } catch(_) { next.content_b64 = undefined; }
+      return next;
+    }
+    next.content_b64 = b64;
     try { delete next.content; } catch(_) { next.content = undefined; }
     return next;
   }
