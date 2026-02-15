@@ -239,12 +239,9 @@ class PersonalBackupService:
         אנחנו משטחים את המבנה לרשימה אחת שקל לשחזר אותה.
         """
         try:
-            from database.bookmarks_manager import BookmarksManager
-
             raw_db = getattr(self.db, "db", None)
             if raw_db is None:
                 return []
-            mgr = BookmarksManager(raw_db)
             # Prefer raw documents to preserve anchor-based bookmarks metadata.
             # The grouped API (`get_user_bookmarks`) does not include anchor_id/text/type,
             # so relying only on it would drop anchor bookmarks details.
@@ -283,6 +280,9 @@ class PersonalBackupService:
                 return out
             except Exception:
                 # Fallback to grouped API (may miss anchor metadata)
+                from database.bookmarks_manager import BookmarksManager
+
+                mgr = BookmarksManager(raw_db)
                 result = mgr.get_user_bookmarks(user_id, limit=5000)
                 if not result.get("ok"):
                     return []
