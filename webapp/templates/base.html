@@ -4413,7 +4413,7 @@
         const noteId = a.getAttribute('data-note-id') || '';
         const fileId = a.getAttribute('data-file-id') || '';
         // best-effort ack
-        try { fetch('/api/sticky-notes/reminders/ack', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: noteId }) }).catch(()=>{}); } catch(_) {}
+        try { fetch('/api/sticky-notes/reminders/ack', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: noteId }), credentials: 'same-origin' }).catch(()=>{}); } catch(_) {}
         // navigate to rendered markdown with deep-link to note
         if (fileId) { window.location.href = '/md/' + encodeURIComponent(fileId) + '?note=' + encodeURIComponent(noteId); }
       });
@@ -4425,7 +4425,20 @@
   }
   async function poll(){
     try {
-      const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store' });
+      if (document.visibilityState && document.visibilityState !== 'visible') { return; }
+      if (typeof window.__stickyRemindersBackoffUntil === 'number' && Date.now() < window.__stickyRemindersBackoffUntil) { return; }
+      const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store', credentials: 'same-origin' });
+      if (r.status === 429) {
+        let backoffMs = 15 * 60 * 1000;
+        try {
+          const ra = parseInt(r.headers.get('Retry-After') || '', 10);
+          if (Number.isFinite(ra) && ra > 0) {
+            backoffMs = Math.max(backoffMs, ra * 1000);
+          }
+        } catch(_) {}
+        window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;
+        return;
+      }
       if (!r.ok) { removeDot(); return; }
       const j = await r.json();
       if (!j || j.ok === false || !j.has_due) { removeDot(); return; }
@@ -4438,7 +4451,7 @@
       bubble.onclick = async (ev) => {
         ev.preventDefault();
         try {
-          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', { cache: 'no-store' });
+          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', { cache: 'no-store', credentials: 'same-origin' });
           const lj = await lr.json().catch(()=>null);
           openPopover(target, (lj && lj.ok) ? lj : { items: [], count: 0 });
         } catch(_) { /* ignore */ }
@@ -4446,7 +4459,7 @@
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
     } catch(_) { removeDot(); }
   }
-  try { setInterval(poll, 60000); } catch(_) {}
+  try { setInterval(poll, 5 * 60 * 1000); } catch(_) {}
   try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); }); } catch(_) {}
   poll();
 })();
