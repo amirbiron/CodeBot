@@ -315,3 +315,72 @@ class TestRestore:
         assert doc["line_text_preview"] == "print('hi')"
         assert "line_text" not in doc
 
+    def test_restore_overwrite_does_not_toggle_metadata_when_zip_file_missing(self, backup_service, mock_db):
+        """אם קובץ חסר ב-ZIP, לא משנים מועדפים/נעיצה לפני continue."""
+        mock_db.get_file.return_value = {"file_name": "test.py", "code": "old"}
+        mock_db.is_favorite.return_value = True
+        mock_db.is_pinned.return_value = True
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {
+                    "regular_files": [
+                        {
+                            "file_name": "test.py",
+                            "programming_language": "python",
+                            "description": "",
+                            "tags": [],
+                            "is_favorite": False,
+                            "is_pinned": False,
+                            "pin_order": 0,
+                        }
+                    ],
+                    "large_files": [],
+                },
+                # בכוונה אין "files/test.py"
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=True)
+        assert result["ok"] is True
+        assert result["restored"]["files"] == 0
+        assert mock_db.toggle_favorite.call_count == 0
+        assert mock_db.toggle_pin.call_count == 0
+        assert mock_db.reorder_pinned.call_count == 0
+
+    def test_restore_large_files_overwrite_updates_metadata_when_content_matches(self, backup_service, mock_db):
+        """ב-large_files, אם התוכן זהה אבל מטאדאטה שונה, עדיין צריך לשמור כדי לעדכן."""
+        mock_db.get_large_file.return_value = {
+            "_id": "lf1",
+            "file_name": "big.txt",
+            "content": "same",
+            "programming_language": "text",
+            "description": "old",
+            "tags": ["a"],
+        }
+        mock_db.save_large_file.return_value = True
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {
+                    "regular_files": [],
+                    "large_files": [
+                        {
+                            "file_name": "big.txt",
+                            "programming_language": "markdown",
+                            "description": "new",
+                            "tags": ["b"],
+                        }
+                    ],
+                },
+                "large_files/big.txt": "same",
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=True)
+        assert result["ok"] is True
+        assert result["restored"]["large_files"] == 1
+        assert mock_db.save_large_file.call_count == 1
+

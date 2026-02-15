@@ -419,7 +419,8 @@ class PersonalBackupService:
             return {"ok": False, "error": "קובץ ZIP לא תקין"}
 
         with zf:
-            # הגנה מפני zip bomb — בדיקת גודל לא-דחוס מצטבר
+            # הגנה מפני zip bomb — בדיקת גודל לא-דחוס מצטבר (best-effort לפי header)
+            # בנוסף, כל קריאה בפועל מה-ZIP מוגבלת בגודל וב-budget מצטבר (ראה _ZipReadBudget).
             total_uncompressed = sum(info.file_size for info in zf.infolist())
             if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
                 return {
@@ -430,7 +431,7 @@ class PersonalBackupService:
                     ),
                 }
 
-            # בדיקת קובץ בודד חריג
+            # בדיקת קובץ בודד חריג (best-effort לפי header)
             for info in zf.infolist():
                 if info.file_size > MAX_SINGLE_FILE_SIZE:
                     return {
@@ -441,9 +442,14 @@ class PersonalBackupService:
                         ),
                     }
 
+            # Budget מצטבר לפי bytes לא-דחוסים שנקראים בפועל
+            budget = _ZipReadBudget(MAX_UNCOMPRESSED_SIZE)
+
             # בדיקת גרסה
             try:
-                info_raw = zf.read("backup_info.json")
+                info_raw = _read_zip_member_bytes_limited(
+                    zf, "backup_info.json", max_bytes=MAX_SINGLE_FILE_SIZE, budget=budget
+                )
                 backup_info = json.loads(info_raw)
                 version = backup_info.get("version", 0)
                 if version > BACKUP_FORMAT_VERSION:
@@ -463,12 +469,12 @@ class PersonalBackupService:
                 backup_info = {}
 
             # 1) שחזור קבצים רגילים
-            files_meta = self._read_json_from_zip(zf, "metadata/files.json", errors)
+            files_meta = self._read_json_from_zip(zf, "metadata/files.json", errors, budget=budget)
             regular_meta = (
                 files_meta.get("regular_files", []) if isinstance(files_meta, dict) else []
             )
             restored["files"] = self._restore_regular_files(
-                zf, user_id, regular_meta, overwrite, errors
+                zf, user_id, regular_meta, overwrite, errors, budget=budget
             )
 
             # 2) שחזור קבצים גדולים
@@ -476,12 +482,12 @@ class PersonalBackupService:
                 files_meta.get("large_files", []) if isinstance(files_meta, dict) else []
             )
             restored["large_files"] = self._restore_large_files(
-                zf, user_id, large_meta, overwrite, errors
+                zf, user_id, large_meta, overwrite, errors, budget=budget
             )
 
             # 3) שחזור אוספים
             collections_data = self._read_json_from_zip(
-                zf, "metadata/collections.json", errors
+                zf, "metadata/collections.json", errors, budget=budget
             )
             if isinstance(collections_data, dict):
                 c, ci = self._restore_collections(user_id, collections_data, errors)
@@ -489,13 +495,13 @@ class PersonalBackupService:
                 restored["collection_items"] = ci
 
             # 4) שחזור סימניות
-            bookmarks_data = self._read_json_from_zip(zf, "metadata/bookmarks.json", errors)
+            bookmarks_data = self._read_json_from_zip(zf, "metadata/bookmarks.json", errors, budget=budget)
             if isinstance(bookmarks_data, list):
                 restored["bookmarks"] = self._restore_bookmarks(user_id, bookmarks_data, errors)
 
             # 5) שחזור פתקיות
             notes_data = self._read_json_from_zip(
-                zf, "metadata/sticky_notes.json", errors
+                zf, "metadata/sticky_notes.json", errors, budget=budget
             )
             if isinstance(notes_data, list):
                 restored["sticky_notes"] = self._restore_sticky_notes(
@@ -504,13 +510,13 @@ class PersonalBackupService:
 
             # 6) שחזור העדפות
             prefs_data = self._read_json_from_zip(
-                zf, "metadata/preferences.json", errors
+                zf, "metadata/preferences.json", errors, budget=budget
             )
             if isinstance(prefs_data, dict) and prefs_data:
                 restored["preferences"] = self._restore_preferences(user_id, prefs_data, errors)
 
             # 7) שחזור העדפות Drive
-            drive_data = self._read_json_from_zip(zf, "metadata/drive_prefs.json", errors)
+            drive_data = self._read_json_from_zip(zf, "metadata/drive_prefs.json", errors, budget=budget)
             if isinstance(drive_data, dict) and drive_data:
                 restored["drive_prefs"] = self._restore_drive_prefs(user_id, drive_data, errors)
 
@@ -531,6 +537,8 @@ class PersonalBackupService:
         meta_list: List[Dict],
         overwrite: bool,
         errors: List[str],
+        *,
+        budget: "_ZipReadBudget",
     ) -> int:
         """משחזר קבצי קוד רגילים.
 
@@ -560,8 +568,26 @@ class PersonalBackupService:
             except Exception:
                 desired_pin_order = 0
 
-            # חשוב: כש-overwrite=True, ניישר מועדפים/נעיצה *לפני* יצירת גרסה חדשה
-            # כדי להתגבר על לוגיקת "sticky" ב-repository (שלא מאפשרת להסיר).
+            # קריאת תוכן מה-ZIP *לפני* פעולות כתיבה, כדי למנוע partial-update אם הקריאה נכשלת
+            zip_path = _safe_zip_path(f"files/{file_name}")
+            try:
+                code_bytes = _read_zip_member_bytes_limited(
+                    zf, zip_path, max_bytes=MAX_SINGLE_FILE_SIZE, budget=budget
+                )
+                code = code_bytes.decode("utf-8", errors="replace")
+            except KeyError:
+                errors.append(f"קובץ חסר ב-ZIP: {zip_path}")
+                continue
+            except Exception as e:
+                try:
+                    logger.exception("שגיאה בקריאת קובץ מהגיבוי: %s", zip_path, exc_info=True)
+                except Exception:
+                    pass
+                errors.append(f"שגיאה בקריאת קובץ מהגיבוי: {zip_path}")
+                continue
+
+            # חשוב: כש-overwrite=True, ניישר מועדפים/נעיצה רק אחרי שהצלחנו לקרוא מה-ZIP
+            # כדי למנוע שינוי מצב קיים כאשר שחזור התוכן נכשל.
             if existing and overwrite:
                 # Favorites: set desired state using toggle (updates all versions)
                 try:
@@ -572,7 +598,9 @@ class PersonalBackupService:
                             errors.append(f"לא ניתן לעדכן מצב מועדפים עבור {file_name}")
                 except Exception:
                     try:
-                        logger.exception("שגיאה בעדכון מצב מועדפים בשחזור: %s", file_name, exc_info=True)
+                        logger.exception(
+                            "שגיאה בעדכון מצב מועדפים בשחזור: %s", file_name, exc_info=True
+                        )
                     except Exception:
                         pass
                     errors.append(f"שגיאה בעדכון מצב מועדפים עבור {file_name}")
@@ -603,21 +631,6 @@ class PersonalBackupService:
                         except Exception:
                             pass
                         errors.append(f"שגיאה בעדכון סדר נעיצה עבור {file_name}")
-
-            # אם overwrite=True וקובץ קיים — נבדוק אם התוכן זהה, ונדלג אם כן
-            zip_path = _safe_zip_path(f"files/{file_name}")
-            try:
-                code = zf.read(zip_path).decode("utf-8", errors="replace")
-            except KeyError:
-                errors.append(f"קובץ חסר ב-ZIP: {zip_path}")
-                continue
-            except Exception as e:
-                try:
-                    logger.exception("שגיאה בקריאת קובץ מהגיבוי: %s", zip_path, exc_info=True)
-                except Exception:
-                    pass
-                errors.append(f"שגיאה בקריאת קובץ מהגיבוי: {zip_path}")
-                continue
 
             # דלג אם התוכן זהה לגרסה הקיימת (מונע גרסאות כפולות מיותרות)
             if existing and overwrite:
@@ -688,6 +701,8 @@ class PersonalBackupService:
         meta_list: List[Dict],
         overwrite: bool,
         errors: List[str],
+        *,
+        budget: "_ZipReadBudget",
     ) -> int:
         """משחזר קבצים גדולים.
 
@@ -709,7 +724,10 @@ class PersonalBackupService:
 
             zip_path = _safe_zip_path(f"large_files/{file_name}")
             try:
-                content = zf.read(zip_path).decode("utf-8", errors="replace")
+                content_bytes = _read_zip_member_bytes_limited(
+                    zf, zip_path, max_bytes=MAX_SINGLE_FILE_SIZE, budget=budget
+                )
+                content = content_bytes.decode("utf-8", errors="replace")
             except KeyError:
                 errors.append(f"קובץ גדול חסר ב-ZIP: {zip_path}")
                 continue
@@ -725,7 +743,37 @@ class PersonalBackupService:
             if existing and overwrite:
                 existing_content = existing.get("content", "")
                 if existing_content == content:
-                    continue
+                    try:
+                        existing_lang = str(existing.get("programming_language", "") or "")
+                    except Exception:
+                        existing_lang = ""
+                    try:
+                        desired_lang = str(meta.get("programming_language", "text") or "text")
+                    except Exception:
+                        desired_lang = "text"
+                    try:
+                        existing_desc = str(existing.get("description", "") or "")
+                    except Exception:
+                        existing_desc = ""
+                    try:
+                        desired_desc = str(meta.get("description", "") or "")
+                    except Exception:
+                        desired_desc = ""
+                    try:
+                        existing_tags = sorted(list(existing.get("tags") or []))
+                    except Exception:
+                        existing_tags = []
+                    try:
+                        desired_tags = sorted(list(meta.get("tags") or []))
+                    except Exception:
+                        desired_tags = []
+
+                    if (
+                        existing_lang == desired_lang
+                        and existing_desc == desired_desc
+                        and existing_tags == desired_tags
+                    ):
+                        continue
 
             try:
                 large_file = LargeFile(
@@ -1058,10 +1106,18 @@ class PersonalBackupService:
     #  עזרים
     # ================================================================
     @staticmethod
-    def _read_json_from_zip(zf: zipfile.ZipFile, path: str, errors: List[str]) -> Any:
+    def _read_json_from_zip(
+        zf: zipfile.ZipFile,
+        path: str,
+        errors: List[str],
+        *,
+        budget: "_ZipReadBudget",
+    ) -> Any:
         """קורא וממיר קובץ JSON מתוך ה-ZIP."""
         try:
-            raw = zf.read(path)
+            raw = _read_zip_member_bytes_limited(
+                zf, path, max_bytes=MAX_SINGLE_FILE_SIZE, budget=budget
+            )
             return json.loads(raw)
         except KeyError:
             # קובץ לא קיים — לא שגיאה קריטית
@@ -1123,4 +1179,52 @@ def _safe_zip_path(path: str) -> str:
     clean = path.replace("\\", "/")
     parts = [p for p in clean.split("/") if p and p != ".."]
     return "/".join(parts)
+
+
+class _ZipReadBudget:
+    """מונה bytes לא-דחוסים שנקראים בפועל (הגנה מפני zip bombs)."""
+
+    def __init__(self, max_total_bytes: int) -> None:
+        self.max_total_bytes = int(max_total_bytes or 0)
+        self.total_bytes = 0
+
+    def add(self, n: int) -> None:
+        try:
+            inc = int(n or 0)
+        except Exception:
+            inc = 0
+        if inc <= 0:
+            return
+        self.total_bytes += inc
+        if self.max_total_bytes > 0 and self.total_bytes > self.max_total_bytes:
+            raise ValueError("חריגה ממגבלת גודל לא-דחוס בשחזור")
+
+
+def _read_zip_member_bytes_limited(
+    zf: zipfile.ZipFile,
+    path: str,
+    *,
+    max_bytes: int,
+    budget: _ZipReadBudget,
+) -> bytes:
+    """קריאה בטוחה של member מה-ZIP עם מגבלת גודל ובאדג'ט מצטבר.
+
+    לא סומך על file_size מה-header (שיכול להיות שקרי), אלא סופר bytes בפועל בזמן קריאה.
+    """
+    safe_path = _safe_zip_path(path)
+    max_b = int(max_bytes or 0)
+    if max_b <= 0:
+        raise ValueError("max_bytes לא תקין")
+
+    out = bytearray()
+    with zf.open(safe_path, "r") as fp:
+        while True:
+            chunk = fp.read(64 * 1024)
+            if not chunk:
+                break
+            budget.add(len(chunk))
+            out.extend(chunk)
+            if len(out) > max_b:
+                raise ValueError("קובץ גדול מדי בשחזור")
+    return bytes(out)
 
