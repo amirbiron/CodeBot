@@ -150,6 +150,66 @@
   </div>
 </div>
 
+<div class="glass-card" id="backup-section">
+  <h2 class="section-title">
+    <i class="fas fa-download"></i>
+    גיבוי אישי
+  </h2>
+  <p style="opacity: 0.7; margin-bottom: 1.5rem">
+    הורד עותק מלא של כל הקבצים, האוספים, הסימניות וההגדרות שלך — או שחזר מגיבוי קודם.
+  </p>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start">
+    <!-- כפתור ייצוא -->
+    <div style="flex: 1; min-width: 280px">
+      <div class="glass-card" style="background: rgba(255,255,255,0.05)">
+        <h3 style="margin: 0 0 0.75rem 0; font-size: 1.1rem">
+          <i class="fas fa-file-archive"></i>
+          הורד גיבוי
+        </h3>
+        <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 1rem">
+          קובץ ZIP עם כל הנתונים שלך. מומלץ להוריד מדי פעם לשמירה.
+        </p>
+        <button id="btn-export-backup" class="btn btn-primary" onclick="exportBackup()" style="width: 100%">
+          <i class="fas fa-download"></i>
+          הורד גיבוי מלא
+        </button>
+        <div id="export-status" style="margin-top: 0.75rem; display: none"></div>
+      </div>
+    </div>
+
+    <!-- כפתור שחזור -->
+    <div style="flex: 1; min-width: 280px">
+      <div class="glass-card" style="background: rgba(255,255,255,0.05)">
+        <h3 style="margin: 0 0 0.75rem 0; font-size: 1.1rem">
+          <i class="fas fa-upload"></i>
+          שחזור מגיבוי
+        </h3>
+        <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 1rem">
+          בחר קובץ ZIP שהורדת קודם כדי לשחזר את הנתונים.
+        </p>
+        <input type="file" id="restore-file-input" accept=".zip"
+               style="display: none" onchange="handleRestoreFile(this)">
+        <button id="btn-restore-backup" class="btn btn-secondary"
+                onclick="document.getElementById('restore-file-input').click()"
+                style="width: 100%">
+          <i class="fas fa-upload"></i>
+          שחזר מקובץ ZIP
+        </button>
+
+        <!-- אפשרות דריסה -->
+        <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem;
+                       font-size: 0.85rem; opacity: 0.8; cursor: pointer">
+          <input type="checkbox" id="restore-overwrite">
+          עדכן קבצים קיימים (יווצר גרסה חדשה, ההיסטוריה נשמרת)
+        </label>
+
+        <div id="restore-status" style="margin-top: 0.75rem; display: none"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {# Web Push נשאר במערכת. #}
 {% set show_web_push_settings = true %}
 {% if show_web_push_settings %}
@@ -3006,6 +3066,152 @@
       // so they still work even if this large settings script crashes.
 
     })();
+    </script>
+
+    <script>
+// XSS-safe: escape HTML entities לפני הזרקה ל-innerHTML
+function _esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function exportBackup() {
+  const btn = document.getElementById('btn-export-backup');
+  const status = document.getElementById('export-status');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מכין גיבוי...';
+  status.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/backup/export');
+    if (!resp.ok) {
+      let msg = 'שגיאה ביצירת הגיבוי';
+      try {
+        const data = await resp.json();
+        msg = data.error || msg;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+
+    // הורדת הקובץ
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // לקחת את שם הקובץ מה-header אם יש
+    const disposition = resp.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";\n]+)"?/);
+    a.download = match ? match[1] : 'codebot_backup.zip';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    status.style.display = 'block';
+    status.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי הורד בהצלחה</span>';
+  } catch (err) {
+    status.style.display = 'block';
+    status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + _esc(err.message) + '</span>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-download"></i> הורד גיבוי מלא';
+  }
+}
+
+async function handleRestoreFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const status = document.getElementById('restore-status');
+  const btn = document.getElementById('btn-restore-backup');
+  const overwrite = document.getElementById('restore-overwrite').checked;
+  const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
+
+  // בדיקת גודל מוקדמת כדי למנוע 413/HTML מהשרת
+  try {
+    if (typeof file.size === 'number' && file.size > MAX_UPLOAD_SIZE) {
+      status.style.display = 'block';
+      status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + _esc('הקובץ גדול מדי (מקסימום 100MB)') + '</span>';
+      input.value = '';
+      return;
+    }
+  } catch (_) {}
+
+  // אישור מהמשתמש
+  const msg = overwrite
+    ? 'שחזור עם עדכון קבצים קיימים (תיווצר גרסה חדשה). להמשיך?'
+    : 'שחזור מגיבוי — קבצים קיימים לא ישתנו. להמשיך?';
+  if (!confirm(msg)) {
+    input.value = '';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> משחזר...';
+  status.style.display = 'none';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('overwrite', overwrite ? 'true' : 'false');
+
+    const resp = await fetch('/api/backup/restore', {
+      method: 'POST',
+      body: formData,
+    });
+
+    // Flask עשוי להחזיר 413 כ-HTML (MAX_CONTENT_LENGTH), לכן לא מניחים JSON תמיד
+    let data = null;
+    try {
+      const ct = (resp.headers.get('Content-Type') || '').toLowerCase();
+      if (ct.includes('application/json')) {
+        data = await resp.json();
+      } else {
+        const txt = await resp.text();
+        try { data = txt ? JSON.parse(txt) : null; } catch (_) { data = null; }
+      }
+    } catch (_) {
+      data = null;
+    }
+
+    if (!resp.ok) {
+      if (resp.status === 413) {
+        throw new Error('הקובץ גדול מדי (מקסימום 100MB)');
+      }
+      throw new Error((data && data.error) ? data.error : 'שגיאה בשחזור');
+    }
+    if (!data || !data.ok) {
+      throw new Error((data && data.error) ? data.error : 'שגיאה בשחזור');
+    }
+
+    const r = data.restored || {};
+    let summary = '<b>שחזור הושלם:</b><br>';
+    if (r.files > 0) summary += `קבצים: ${r.files}<br>`;
+    if (r.large_files > 0) summary += `קבצים גדולים: ${r.large_files}<br>`;
+    if (r.collections > 0) summary += `אוספים: ${r.collections}<br>`;
+    if (r.collection_items > 0) summary += `פריטים באוספים: ${r.collection_items}<br>`;
+    if (r.bookmarks > 0) summary += `סימניות: ${r.bookmarks}<br>`;
+    if (r.sticky_notes > 0) summary += `פתקיות: ${r.sticky_notes}<br>`;
+    if (r.preferences) summary += `העדפות: שוחזרו<br>`;
+    if (r.drive_prefs) summary += `העדפות Drive: שוחזרו<br>`;
+
+    if (data.errors && data.errors.length > 0) {
+      summary += `<br><span style="color: #fbbf24">${data.errors.length} שגיאות (ראה console)</span>`;
+      console.warn('Restore errors:', data.errors);
+    }
+
+    status.style.display = 'block';
+    status.innerHTML = '<div style="color: #4ade80">' + summary + '</div>';
+  } catch (err) {
+    status.style.display = 'block';
+    status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + _esc(err.message) + '</span>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-upload"></i> שחזר מקובץ ZIP';
+    input.value = '';
+  }
+}
     </script>
 
     {# Web Push: bind in an isolated script so failures elsewhere won't break it #}
