@@ -923,7 +923,11 @@ def create_note(file_id: str):
             try:
                 content = _decode_content_b64(data.get('content_b64'), max_decoded_chars=5000)
             except ValueError:
-                return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
+                # Backward compatibility: if plain content is present, fall back to it.
+                if 'content' in data:
+                    content = _sanitize_text(data.get('content', ''), 5000)
+                else:
+                    return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
         else:
             content = _sanitize_text(data.get('content', ''), 5000)
         pos = data.get('position') or {}
@@ -992,7 +996,11 @@ def update_note(note_id: str):
                 try:
                     updates['content'] = _decode_content_b64(data.get('content_b64'), max_decoded_chars=5000)
                 except ValueError:
-                    return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
+                    # Backward compatibility: if plain content is present, fall back to it.
+                    if 'content' in data:
+                        updates['content'] = _sanitize_text(data.get('content'), 5000)
+                    else:
+                        return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
             elif 'content' in data:
                 updates['content'] = _sanitize_text(data.get('content'), 5000)
         if 'position' in data and isinstance(data.get('position'), dict):
@@ -1185,8 +1193,12 @@ def batch_update_notes():
                         try:
                             updates['content'] = _decode_content_b64(fragment.get('content_b64'), max_decoded_chars=5000)
                         except ValueError:
-                            results.append({'id': note_id, 'ok': False, 'status': 400, 'error': 'Invalid content_b64'})
-                            continue
+                            # Backward compatibility: if plain content is present, fall back to it.
+                            if 'content' in fragment:
+                                updates['content'] = _sanitize_text(fragment.get('content'), 5000)
+                            else:
+                                results.append({'id': note_id, 'ok': False, 'status': 400, 'error': 'Invalid content_b64'})
+                                continue
                     elif 'content' in fragment:
                         updates['content'] = _sanitize_text(fragment.get('content'), 5000)
                 if 'position' in fragment and isinstance(fragment.get('position'), dict):

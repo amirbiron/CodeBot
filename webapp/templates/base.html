@@ -4437,6 +4437,7 @@
           }
         } catch(_) {}
         window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;
+        removeDot();
         return;
       }
       if (!r.ok) { removeDot(); return; }
