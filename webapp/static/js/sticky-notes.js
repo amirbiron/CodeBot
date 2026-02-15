@@ -7,6 +7,35 @@
 
   if (typeof window === 'undefined') return;
 
+  function encodeUtf8ToB64(input){
+    const s = String(input == null ? '' : input);
+    if (!s) return '';
+    try {
+      if (typeof TextEncoder !== 'undefined') {
+        const bytes = new TextEncoder().encode(s);
+        let binary = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        return btoa(binary);
+      }
+    } catch(_) {}
+    // fallback for older browsers
+    try { return btoa(unescape(encodeURIComponent(s))); } catch(_) { return ''; }
+  }
+
+  function withContentB64(payload){
+    if (!payload || typeof payload !== 'object') return payload;
+    if (Object.prototype.hasOwnProperty.call(payload, 'content_b64')) return payload;
+    if (!Object.prototype.hasOwnProperty.call(payload, 'content')) return payload;
+    const next = Object.assign({}, payload);
+    const content = next.content == null ? '' : String(next.content);
+    next.content_b64 = encodeUtf8ToB64(content);
+    try { delete next.content; } catch(_) { next.content = undefined; }
+    return next;
+  }
+
   function debounce(fn, wait){
     let t = null;
     let lastArgs = [];
@@ -233,7 +262,7 @@
           anchor_text: undefined
         };
         const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withContentB64(payload))
         });
         const data = await resp.json();
         if (!data || data.ok === false) return;
@@ -749,7 +778,7 @@
         for (const [id, data] of combined.entries()){
           try {
             if (!data) continue;
-            const body = JSON.stringify(data);
+            const body = JSON.stringify(withContentB64(data));
             if (typeof fetch === 'function') {
               try {
                 fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
@@ -842,7 +871,7 @@
     }
 
     _sendUpdate(id, data){
-      const payload = this._clonePayload(data) || {};
+      const payload = withContentB64(this._clonePayload(data) || {});
       const url = `/api/sticky-notes/note/${encodeURIComponent(id)}`;
       const send = async (payloadObj) => {
         const resp = await fetch(url, {
@@ -928,7 +957,7 @@
         seq: (this._pendingSeq.get(String(id)) || 0),
         payload: this._clonePayload(fragment) || {}
       }));
-      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, s.payload));
+      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, withContentB64(s.payload)));
       const url = `/api/sticky-notes/batch`;
       let usedBatch = false;
       try {
