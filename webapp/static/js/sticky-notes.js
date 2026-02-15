@@ -27,7 +27,8 @@
 
   function withContentB64(payload){
     if (!payload || typeof payload !== 'object') return payload;
-    if (Object.prototype.hasOwnProperty.call(payload, 'content_b64')) return payload;
+    // If we have `content`, always (re)derive `content_b64` from it.
+    // This prevents stale content_b64 from a failed attempt causing silent data loss.
     if (!Object.prototype.hasOwnProperty.call(payload, 'content')) return payload;
     const next = Object.assign({}, payload);
     const content = next.content == null ? '' : String(next.content);
@@ -871,7 +872,8 @@
     }
 
     _sendUpdate(id, data){
-      const payload = withContentB64(this._clonePayload(data) || {});
+      const original = this._clonePayload(data) || {};
+      const payload = withContentB64(original);
       const url = `/api/sticky-notes/note/${encodeURIComponent(id)}`;
       const send = async (payloadObj) => {
         const resp = await fetch(url, {
@@ -896,16 +898,17 @@
               this._setNoteUpdatedAt(id, serverUpdatedAt);
             }
             if (serverUpdatedAt) {
-              const retryPayload = Object.assign({}, payload, { prev_updated_at: serverUpdatedAt });
+              const retryOriginal = Object.assign({}, original, { prev_updated_at: serverUpdatedAt });
+              const retryPayload = withContentB64(retryOriginal);
               try {
                 const { resp: retryResp, json: retryJson } = await send(retryPayload);
                 if (retryResp.status === 409) {
                   console.warn('sticky note update conflict persisted after retry', id);
                   if (retryJson && retryJson.updated_at) {
                     this._setNoteUpdatedAt(id, String(retryJson.updated_at));
-                    this._mergePending(id, Object.assign({}, retryPayload, { prev_updated_at: String(retryJson.updated_at) }));
+                    this._mergePending(id, Object.assign({}, retryOriginal, { prev_updated_at: String(retryJson.updated_at) }));
                   } else if (serverUpdatedAt) {
-                    this._mergePending(id, Object.assign({}, retryPayload));
+                    this._mergePending(id, Object.assign({}, retryOriginal));
                   }
                   return false;
                 }
@@ -915,29 +918,29 @@
                 return true;
               } catch(retryErr) {
                 console.warn('sticky note retry failed', id, retryErr);
-                this._mergePending(id, Object.assign({}, retryPayload));
+                this._mergePending(id, Object.assign({}, retryOriginal));
                 return false;
               }
             }
-            this._mergePending(id, Object.assign({}, payload, serverUpdatedAt ? { prev_updated_at: serverUpdatedAt } : {}));
+            this._mergePending(id, Object.assign({}, original, serverUpdatedAt ? { prev_updated_at: serverUpdatedAt } : {}));
             return false;
           }
           if (json && json.updated_at) {
             this._setNoteUpdatedAt(id, String(json.updated_at));
           }
           if (!resp.ok) {
-            this._mergePending(id, Object.assign({}, payload));
+            this._mergePending(id, Object.assign({}, original));
           }
           return resp.ok;
         } catch(err) {
           console.warn('save note failed', id, err);
-          this._mergePending(id, Object.assign({}, payload));
+          this._mergePending(id, Object.assign({}, original));
           return false;
         }
       };
 
       const promise = attempt();
-      this._registerInFlight(id, payload, promise);
+      this._registerInFlight(id, original, promise);
       return promise;
     }
 
