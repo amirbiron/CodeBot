@@ -370,6 +370,41 @@ class TestRestore:
         assert "anchor_id" not in doc
         assert "anchor_text" not in doc
         assert "anchor_type" not in doc
+        assert doc.get("valid") is True
+
+    def test_restore_preferences_allowlist_only(self, backup_service, mock_db):
+        """שחזור העדפות לא צריך להזריק שדות שרירותיים."""
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {"regular_files": [], "large_files": []},
+                "metadata/preferences.json": {
+                    "attention_settings": {
+                        "enabled": True,
+                        "stale_days": 30,
+                        "max_items_per_group": 10,
+                        "show_missing_description": True,
+                        "show_missing_tags": False,
+                        "show_stale_files": True,
+                        "evil_extra": "nope",
+                    },
+                    "is_admin": True,
+                    "role": "admin",
+                },
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=False)
+        assert result["ok"] is True
+        assert result["restored"]["preferences"] is True
+
+        _args, _kwargs = mock_db.db.user_preferences.update_one.call_args
+        update_doc = _args[1]
+        set_doc = update_doc.get("$set") or {}
+        assert "is_admin" not in set_doc
+        assert "role" not in set_doc
+        assert "attention_settings.evil_extra" not in set_doc
+        assert set_doc.get("attention_settings.enabled") is True
 
     def test_restore_overwrite_does_not_toggle_metadata_when_zip_file_missing(self, backup_service, mock_db):
         """אם קובץ חסר ב-ZIP, לא משנים מועדפים/נעיצה לפני continue."""

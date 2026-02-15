@@ -35,6 +35,18 @@ MAX_SINGLE_FILE_SIZE = 50 * 1024 * 1024
 BOOKMARKS_EXPORT_LIMIT = 5000
 STICKY_NOTES_EXPORT_LIMIT = 5000
 
+# שדות מותריים לשחזור ב-user_preferences (allowlist)
+USER_PREFERENCES_ALLOWLIST = {
+    "attention_settings": {
+        "enabled",
+        "stale_days",
+        "max_items_per_group",
+        "show_missing_description",
+        "show_missing_tags",
+        "show_stale_files",
+    }
+}
+
 
 class PersonalBackupService:
     """מנגנון ייצוא ושחזור גיבוי אישי."""
@@ -933,6 +945,9 @@ class PersonalBackupService:
                         "line_text_preview": (bm.get("line_text_preview") or bm.get("line_text", "") or "")[:100],
                         "note": bm.get("note", ""),
                         "color": bm.get("color", "yellow"),
+                        "valid": True,
+                        "sync_status": "synced",
+                        "sync_confidence": 1.0,
                         "created_at": datetime.now(timezone.utc),
                         "updated_at": datetime.now(timezone.utc),
                     }
@@ -1048,11 +1063,10 @@ class PersonalBackupService:
             # הסר שדות שלא צריך לדרוס
             prefs.pop("_id", None)
             prefs.pop("user_id", None)
-            raw_db.user_preferences.update_one(
-                {"user_id": user_id},
-                {"$set": prefs},
-                upsert=True,
-            )
+            updates = _sanitize_user_preferences(prefs)
+            if not updates:
+                return False
+            raw_db.user_preferences.update_one({"user_id": user_id}, {"$set": updates}, upsert=True)
             return True
         except Exception as e:
             try:
@@ -1252,4 +1266,48 @@ def _restore_programming_language(meta: Dict[str, Any], *, default_lang: str = "
         return str(default_lang)
     except Exception:
         return str(default_lang)
+
+
+def _sanitize_user_preferences(prefs: Dict[str, Any]) -> Dict[str, Any]:
+    """מסנן העדפות משתמש לפי allowlist כדי למנוע הזרקת שדות לא צפויים."""
+    if not isinstance(prefs, dict) or not prefs:
+        return {}
+
+    updates: Dict[str, Any] = {}
+
+    # attention_settings.* — מיושר ללוגיקה ב-settings_routes.py
+    att = prefs.get("attention_settings")
+    if isinstance(att, dict):
+        allowed = USER_PREFERENCES_ALLOWLIST.get("attention_settings", set())
+        for key in allowed:
+            if key not in att:
+                continue
+            val = att.get(key)
+            try:
+                if key == "stale_days":
+                    val = min(max(int(val), 7), 365)
+                elif key == "max_items_per_group":
+                    val = min(max(int(val), 3), 50)
+                elif key in (
+                    "enabled",
+                    "show_missing_description",
+                    "show_missing_tags",
+                    "show_stale_files",
+                ):
+                    if isinstance(val, bool):
+                        pass
+                    elif isinstance(val, str):
+                        if val.lower() in ("true", "1", "yes", "on"):
+                            val = True
+                        elif val.lower() in ("false", "0", "no", "off", ""):
+                            val = False
+                        else:
+                            continue
+                    else:
+                        val = bool(val)
+            except Exception:
+                continue
+            updates[f"attention_settings.{key}"] = val
+
+    return updates
 
