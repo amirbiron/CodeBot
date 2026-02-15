@@ -1049,6 +1049,14 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
+# Personal Backup API (Export/Restore)
+try:
+    from webapp.backup_api import backup_bp  # noqa: E402
+    app.register_blueprint(backup_bp)
+except Exception:
+    # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
 # GitHub Webhooks (Repo Sync Engine) - לפי המדריך
 try:
     from webapp.routes.webhooks import webhooks_bp  # noqa: E402
