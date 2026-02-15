@@ -112,8 +112,7 @@ async def terminal_exit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """Exit terminal mode."""
     await update.message.reply_text(
         "🔒 יצאת ממצב טרמינל.",
-        reply_markup=context.application.bot_data.get('MAIN_REPLY_MARKUP',
-                     ReplyKeyboardMarkup(context.application.bot_data.get('MAIN_KEYBOARD', [["🏠 תפריט ראשי"]]), resize_keyboard=True))
+        reply_markup=ReplyKeyboardMarkup(context.application.bot_data.get('MAIN_KEYBOARD', [["🏠 תפריט ראשי"]]), resize_keyboard=True)
     )
     return ConversationHandler.END
 

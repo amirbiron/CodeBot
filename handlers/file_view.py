@@ -185,10 +185,10 @@ def _get_files_facade():
 def _get_main_keyboard() -> list:
     """
     מחזיר את פריסת המקלדת הראשית.
-
+    
     Returns:
         list: רשימת כפתורי המקלדת הראשית
-
+    
     Note:
         מחזיר רשימה ריקה במקרה של שגיאה
     """
@@ -197,16 +197,6 @@ def _get_main_keyboard() -> list:
         return MAIN_KEYBOARD
     except Exception:
         return [[]]
-
-
-def _get_main_reply_markup():
-    """מחזיר את ה-ReplyKeyboardMarkup הראשי עם Custom Emoji."""
-    try:
-        from conversation_handlers import MAIN_REPLY_MARKUP
-        return MAIN_REPLY_MARKUP
-    except Exception:
-        from telegram import ReplyKeyboardMarkup
-        return ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True)
 
 
 async def _call_service_method(service, method_name, *args, **kwargs):
@@ -702,7 +692,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text(
                 f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n"
                 f"💡 אנא וודא שהקוד תקין ונסה שוב.",
-                reply_markup=_get_main_reply_markup(),
+                reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
             )
             return EDIT_CODE
         detected_language = code_service.detect_language(cleaned_code, file_name)
@@ -753,13 +743,13 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             await update.message.reply_text(
                 "❌ שגיאה בעדכון הקוד",
-                reply_markup=_get_main_reply_markup(),
+                reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
             )
     except Exception as e:
         logger.error(f"Error updating code: {e}")
         await update.message.reply_text(
             "❌ שגיאה בעדכון הקוד\n\n📝 **פרטים:** פרטי השגיאה לא זמינים\n🔄 אנא נסה שוב או פנה לתמיכה\n🏠 חזרה לתפריט הראשי",
-            reply_markup=_get_main_reply_markup(),
+            reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
             parse_mode='Markdown',
         )
     preserved_cache = context.user_data.get('files_cache')
@@ -884,13 +874,13 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             await update.message.reply_text(
                 "❌ שגיאה בשינוי השם",
-                reply_markup=_get_main_reply_markup(),
+                reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
             )
     except Exception as e:
         logger.error(f"Error renaming file: {e}")
         await update.message.reply_text(
             "❌ שגיאה בשינוי השם",
-            reply_markup=_get_main_reply_markup(),
+            reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
         )
     context.user_data.clear()
     return ConversationHandler.END
