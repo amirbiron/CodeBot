@@ -974,14 +974,21 @@ class PersonalBackupService:
                     file_name = note.get("file_name", "")
                     new_file_id = None
 
-                    if file_name:
-                        file_doc = self.db.get_file(user_id, file_name)
-                        if file_doc and isinstance(file_doc, dict):
-                            new_file_id = str(file_doc.get("_id", ""))
+                    if not file_name:
+                        continue  # לא ניתן לשייך את הפתקית בלי file_name
 
-                    # אם אין file_name, ננסה להשתמש ב-scope_id ישן (best-effort)
-                    if not new_file_id and not file_name:
-                        continue  # לא ניתן לשייך את הפתקית
+                    file_doc = None
+                    try:
+                        file_doc = self.db.get_file(user_id, file_name)
+                    except Exception:
+                        file_doc = None
+                    if file_doc and isinstance(file_doc, dict):
+                        new_file_id = str(file_doc.get("_id", ""))
+
+                    # אם לא הצלחנו resolve לקובץ קיים — דלג כדי לא ליצור פתקיות יתומות
+                    if not new_file_id:
+                        errors.append(f"דילגתי על פתקית: הקובץ לא נמצא ({file_name})")
+                        continue
 
                     # חישוב scope_id חדש — חייב להתאים ל-_make_scope_id בדיוק:
                     # normalized = re.sub(r"\s+", " ", file_name.strip()).lower()
@@ -1012,7 +1019,7 @@ class PersonalBackupService:
 
                     doc = {
                         "user_id": int(user_id),
-                        "file_id": new_file_id or "",
+                        "file_id": new_file_id,
                         "file_name": file_name,
                         "scope_id": scope_id,
                         "content": content,

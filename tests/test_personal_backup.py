@@ -387,3 +387,22 @@ class TestRestore:
         assert result["restored"]["large_files"] == 1
         assert mock_db.save_large_file.call_count == 1
 
+    def test_restore_skips_sticky_note_when_file_cannot_be_resolved(self, backup_service, mock_db):
+        """פתקית עם file_name שלא נפתר ל-file_id לא תישמר (כדי לא ליצור יתומות)."""
+        mock_db.get_file.return_value = None
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {"regular_files": [], "large_files": []},
+                "metadata/sticky_notes.json": [
+                    {"file_name": "missing.py", "content": "note", "color": "#fff"}
+                ],
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=False)
+        assert result["ok"] is True
+        assert result["restored"]["sticky_notes"] == 0
+        assert mock_db.db.sticky_notes.insert_one.call_count == 0
+
