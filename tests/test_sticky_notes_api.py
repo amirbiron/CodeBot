@@ -4,12 +4,16 @@ import sys
 from pathlib import Path
 import unittest
 from unittest.mock import MagicMock
+import base64
+from flask import Flask
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from webapp.sticky_notes_api import _as_note_response, _resolve_scope, _sanitize_text
+import importlib
+sticky_mod = importlib.import_module('webapp.sticky_notes_api')
+from webapp.sticky_notes_api import _as_note_response, _resolve_scope, _sanitize_text, _decode_content_b64
 
 
 class TestStickyNotesSanitize(unittest.TestCase):
@@ -84,6 +88,135 @@ class TestStickyScope(unittest.TestCase):
         self.assertIsNone(scope_id)
         self.assertIsNone(file_name)
         self.assertEqual(related_ids, ['plain-id'])
+
+
+class TestStickyNotesContentB64(unittest.TestCase):
+    def test_decode_content_b64_simple_ascii(self):
+        b64 = base64.b64encode(b"curl -s https://example.com").decode("ascii")
+        self.assertEqual(_decode_content_b64(b64), "curl -s https://example.com")
+
+    def test_decode_content_b64_utf8_and_urlsafe_no_padding(self):
+        txt = "שלום 🌍 curl"
+        b64 = base64.urlsafe_b64encode(txt.encode("utf-8")).decode("ascii").rstrip("=")
+        self.assertEqual(_decode_content_b64(b64), txt)
+
+    def test_decode_content_b64_invalid_raises(self):
+        with self.assertRaises(ValueError):
+            _decode_content_b64("!!!not-base64!!!")
+
+    def test_decode_content_b64_non_string_raises(self):
+        with self.assertRaises(ValueError):
+            _decode_content_b64(123)  # type: ignore[arg-type]
+
+
+class _StubColl:
+    def __init__(self):
+        self._docs = []
+        self.calls = []
+
+    def create_index(self, *args, **kwargs):
+        return None
+
+    def create_indexes(self, *args, **kwargs):
+        return None
+
+    def insert_one(self, doc):
+        self._docs.append(dict(doc))
+        class R:
+            inserted_id = doc.get("_id") or "1"
+        return R()
+
+    def find_one(self, query, *args, **kwargs):
+        for d in self._docs:
+            ok = True
+            for k, v in query.items():
+                if d.get(k) != v:
+                    ok = False
+                    break
+            if ok:
+                return d
+        return None
+
+    def update_one(self, filt, update, upsert=False):
+        self.calls.append(("update_one", filt, update, upsert))
+        target = self.find_one(filt)
+        if target and isinstance(update, dict) and "$set" in update:
+            target.update(update["$set"])
+        class R:
+            matched_count = 1 if target else 0
+            modified_count = 1 if target else 0
+        return R()
+
+
+class _StubDB:
+    def __init__(self):
+        self.sticky_notes = _StubColl()
+        self.note_reminders = _StubColl()
+        self.code_snippets = MagicMock()
+        self.code_snippets.find_one.return_value = None
+        self.code_snippets.find.return_value = []
+
+
+def _make_app(db_stub):
+    app = Flask(__name__)
+    app.secret_key = "test-secret"
+    app.register_blueprint(sticky_mod.sticky_notes_bp)
+    return app
+
+
+class TestStickyNotesApiContentB64(unittest.TestCase):
+    def setUp(self):
+        self.db = _StubDB()
+        self.user_id = 42
+        self.file_id = "64a000000000000000000003"
+        self.note_id = "507f1f77bcf86cd799439011"
+        # Patch module globals but restore in tearDown to avoid leaking across suite
+        self._orig_get_db = sticky_mod.get_db
+        self._orig_ensure_indexes = getattr(sticky_mod, "_ensure_indexes", None)
+        sticky_mod.get_db = lambda: self.db
+        sticky_mod._ensure_indexes = lambda: None
+        self.app = _make_app(self.db)
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        try:
+            sticky_mod.get_db = self._orig_get_db
+        except Exception:
+            pass
+        try:
+            if self._orig_ensure_indexes is not None:
+                sticky_mod._ensure_indexes = self._orig_ensure_indexes
+        except Exception:
+            pass
+
+    def _login(self):
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = self.user_id
+            sess["user_data"] = {"first_name": "Test"}
+
+    def test_create_note_accepts_content_b64_and_stores_plain_text(self):
+        self._login()
+        content = "curl שלום"
+        content_b64 = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        r = self.client.post(
+            f"/api/sticky-notes/{self.file_id}",
+            json={"content_b64": content_b64, "position": {"x": 1, "y": 2}, "size": {"width": 260, "height": 200}},
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertTrue(r.get_json()["ok"])
+        self.assertTrue(self.db.sticky_notes._docs)
+        self.assertEqual(self.db.sticky_notes._docs[-1]["content"], content)
+
+    def test_update_note_accepts_content_b64(self):
+        self._login()
+        oid = sticky_mod.ObjectId(self.note_id)
+        self.db.sticky_notes._docs.append({"_id": oid, "user_id": self.user_id, "file_id": self.file_id, "updated_at": None})
+        content = "curl update ✓"
+        content_b64 = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        r = self.client.put(f"/api/sticky-notes/note/{self.note_id}", json={"content_b64": content_b64})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["ok"])
+        self.assertEqual(self.db.sticky_notes._docs[-1]["content"], content)
 
 
 if __name__ == "__main__":

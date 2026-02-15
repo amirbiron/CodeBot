@@ -95,10 +95,6 @@ class _StubDB:
 def _make_app(db_stub):
     app = Flask(__name__)
     app.secret_key = 'test-secret'
-
-    # Monkeypatch get_db used inside the module
-    sticky_mod.get_db = lambda: db_stub
-
     app.register_blueprint(sticky_mod.sticky_notes_bp)
     return app
 
@@ -110,8 +106,17 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.user_id = 123
         self.note_id = '507f1f77bcf86cd799439011'
         self.db.sticky_notes._docs.append({'_id': self.note_id, 'user_id': self.user_id, 'file_id': 'file-1'})
+        # Patch module global but restore in tearDown to avoid leaking across suite
+        self._orig_get_db = sticky_mod.get_db
+        sticky_mod.get_db = lambda: self.db
         self.app = _make_app(self.db)
         self.client = self.app.test_client()
+
+    def tearDown(self):
+        try:
+            sticky_mod.get_db = self._orig_get_db
+        except Exception:
+            pass
 
     def _login(self):
         with self.client.session_transaction() as sess:
