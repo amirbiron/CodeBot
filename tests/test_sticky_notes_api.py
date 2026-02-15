@@ -160,9 +160,6 @@ class _StubDB:
 def _make_app(db_stub):
     app = Flask(__name__)
     app.secret_key = "test-secret"
-    # monkeypatch internal helpers so tests are deterministic and fast
-    sticky_mod.get_db = lambda: db_stub
-    sticky_mod._ensure_indexes = lambda: None
     app.register_blueprint(sticky_mod.sticky_notes_bp)
     return app
 
@@ -173,8 +170,24 @@ class TestStickyNotesApiContentB64(unittest.TestCase):
         self.user_id = 42
         self.file_id = "64a000000000000000000003"
         self.note_id = "507f1f77bcf86cd799439011"
+        # Patch module globals but restore in tearDown to avoid leaking across suite
+        self._orig_get_db = sticky_mod.get_db
+        self._orig_ensure_indexes = getattr(sticky_mod, "_ensure_indexes", None)
+        sticky_mod.get_db = lambda: self.db
+        sticky_mod._ensure_indexes = lambda: None
         self.app = _make_app(self.db)
         self.client = self.app.test_client()
+
+    def tearDown(self):
+        try:
+            sticky_mod.get_db = self._orig_get_db
+        except Exception:
+            pass
+        try:
+            if self._orig_ensure_indexes is not None:
+                sticky_mod._ensure_indexes = self._orig_ensure_indexes
+        except Exception:
+            pass
 
     def _login(self):
         with self.client.session_transaction() as sess:
