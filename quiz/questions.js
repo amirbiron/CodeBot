@@ -529,10 +529,10 @@ export const questions = [
     id: 'alert_2',
     category: 'alerts',
     type: 'multiple',
-    question: 'מהו ה-grace period של האפליקציה לפני בדיקת התראות?',
-    options: ['1 דקה', '3 דקות', '5 דקות', '10 דקות'],
+    question: 'מהו ה-Startup Grace Period של האפליקציה לפני בדיקת התראות ביצועים?',
+    options: ['5 דקות', '10 דקות', '20 דקות', '30 דקות'],
     correct: 2,
-    explanation: 'יש grace period של 5 דקות (process_start_time_seconds > 300) כדי למנוע false positives בעת עלייה'
+    explanation: 'ALERT_STARTUP_GRACE_PERIOD_SECONDS ברירת המחדל הוא 1200 שניות (20 דקות) כדי למנוע false positives אחרי deploy/cold start'
   },
   {
     id: 'alert_3',
