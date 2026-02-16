@@ -169,6 +169,56 @@
           return defaultInlineCode ? defaultInlineCode(tokens, idx, options, env, slf) : '';
         }
       };
+      // תמיכה בהדגשת "טוש" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
+      (function enableMarkdownMark() {
+        try {
+          function markdownItMarkPlugin(mdInstance) {
+            function isSpace(code) {
+              return code === 0x20 || code === 0x0A || code === 0x09;
+            }
+            function isEscaped(src, pos) {
+              let backslashes = 0;
+              let i = pos - 1;
+              while (i >= 0 && src.charCodeAt(i) === 0x5C) { backslashes += 1; i -= 1; }
+              return (backslashes % 2) === 1;
+            }
+            function tokenize(state, silent) {
+              const start = state.pos;
+              const max = state.posMax;
+              const src = state.src;
+
+              if (start + 4 > max) return false;
+              if (src.charCodeAt(start) !== 0x3D || src.charCodeAt(start + 1) !== 0x3D) return false;
+
+              const next = src.charCodeAt(start + 2);
+              if (isSpace(next)) return false;
+
+              let end = start + 2;
+              while (true) {
+                end = src.indexOf('==', end);
+                if (end < 0 || end + 2 > max) return false;
+                if (end === start + 2) { end += 2; continue; }
+                if (isSpace(src.charCodeAt(end - 1))) { end += 2; continue; }
+                if (isEscaped(src, end)) { end += 2; continue; }
+                break;
+              }
+
+              if (silent) return true;
+
+              const open = state.push('mark_open', 'mark', 1);
+              open.markup = '==';
+              const inner = src.slice(start + 2, end);
+              state.md.inline.parse(inner, state.md, state.env, state.tokens);
+              const close = state.push('mark_close', 'mark', -1);
+              close.markup = '==';
+              state.pos = end + 2;
+              return true;
+            }
+            mdInstance.inline.ruler.before('emphasis', 'mark', tokenize);
+          }
+          md.use(markdownItMarkPlugin);
+        } catch (_) {}
+      })();
       if (window.markdownitEmoji) {
         md.use(window.markdownitEmoji);
       }

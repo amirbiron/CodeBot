@@ -18,7 +18,9 @@
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
   padding: 14px; /* ריווח אחיד ועדין – לא מרחיק את הבלוק מהגבול */
   transition: background-color 0.3s ease, color 0.3s ease;
-  --md-mark-bg: #fff2a8;
+  --md-mark-bg: rgba(255, 191, 0, 0.3);
+  --md-mark-color: #1a1a1a;
+  --md-mark-border: #FFBF00;
   --md-inline-code-bg: #f6f8fa;
   --md-inline-code-border: #d0d7de;
   --md-inline-code-color: #1f2328;
@@ -64,7 +66,9 @@
 }
 
 [data-theme="dark"] #md-content {
-  --md-mark-bg: rgba(220, 204, 68, 0.28);
+  --md-mark-bg: rgba(255, 191, 0, 0.3);
+  --md-mark-color: #FFFFFF;
+  --md-mark-border: #FFBF00;
   --md-inline-code-bg: rgba(255, 255, 255, 0.08);
   --md-inline-code-border: rgba(255, 255, 255, 0.2);
   --md-inline-code-color: #e9ecff;
@@ -102,7 +106,9 @@
 }
 
 [data-theme="dim"] #md-content {
-  --md-mark-bg: rgba(220, 204, 68, 0.25);
+  --md-mark-bg: rgba(255, 191, 0, 0.3);
+  --md-mark-color: #FFFFFF;
+  --md-mark-border: #FFBF00;
   --md-inline-code-bg: rgba(236, 239, 244, 0.08);
   --md-inline-code-border: rgba(236, 239, 244, 0.18);
   --md-inline-code-color: #eceff4;
@@ -140,7 +146,9 @@
 }
 
 [data-theme="nebula"] #md-content {
-  --md-mark-bg: rgba(220, 204, 68, 0.28);
+  --md-mark-bg: rgba(255, 191, 0, 0.3);
+  --md-mark-color: #FFFFFF;
+  --md-mark-border: #FFBF00;
   --md-inline-code-bg: rgba(248, 248, 242, 0.08);
   --md-inline-code-border: rgba(248, 248, 242, 0.2);
   --md-inline-code-color: #f8f8f2;
@@ -178,7 +186,9 @@
 }
 
 :root[data-theme="rose-pine-dawn"] #md-content {
-  --md-mark-bg: rgba(234, 157, 52, 0.28);
+  --md-mark-bg: rgba(255, 191, 0, 0.3);
+  --md-mark-color: #1a1a1a;
+  --md-mark-border: #FFBF00;
   --md-inline-code-bg: rgba(244, 219, 214, 0.9);
   --md-inline-code-border: rgba(180, 99, 122, 0.4);
   --md-inline-code-color: #4a2c2a;
@@ -221,7 +231,9 @@
 [data-theme^="shared:"] #md-content {
   background: var(--bg-primary, var(--md-surface, #1a1c23));
   color: var(--text-primary, var(--md-text, #e5eaf7));
-  --md-mark-bg: color-mix(in srgb, var(--warning, #DCCC44) 30%, transparent);
+  --md-mark-bg: color-mix(in srgb, #FFBF00 30%, transparent);
+  --md-mark-color: var(--text-primary, #FFFFFF);
+  --md-mark-border: #FFBF00;
   /* Inline code: mix 12% of text color into background for visible contrast */
   --md-inline-code-bg: color-mix(in srgb, var(--text-primary, #ffffff) 12%, var(--bg-primary, #1a1c23));
   --md-inline-code-border: color-mix(in srgb, var(--text-primary, #ffffff) 20%, transparent);
@@ -265,10 +277,11 @@
 
 /* Highlight ("marker") syntax: ==text== -> <mark>text</mark> */
 #md-content mark {
-  background: var(--md-mark-bg, #fff2a8);
-  color: inherit;
-  padding: 0 0.15em;
-  border-radius: 0.25em;
+  background-color: var(--md-mark-bg, rgba(255, 191, 0, 0.3));
+  color: var(--md-mark-color, #FFFFFF);
+  border-radius: 2px;
+  padding: 0 4px;
+  border-bottom: 1.5px solid var(--md-mark-border, #FFBF00);
 }
 
 /* Mermaid diagrams - ensure readable colors for custom/shared themes */
