@@ -80,7 +80,9 @@ body.reader-mode.reader-bg-dark {
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
-  --md-mark-bg: #fff2a8;
+  --md-mark-bg: rgba(255, 191, 0, 0.3);
+  --md-mark-color: #1a1a1a;
+  --md-mark-border: #FFBF00;
   --md-inline-code-bg: #f6f8fa;
   --md-inline-code-border: #d0d7de;
   --md-inline-code-color: #1f2328;
@@ -227,10 +229,11 @@ body.reader-mode.reader-bg-dark {
 }
 
 .reader-content mark {
-  background: var(--md-mark-bg, #fff2a8);
-  color: inherit;
-  padding: 0 0.15em;
-  border-radius: 0.25em;
+  background-color: var(--md-mark-bg, rgba(255, 191, 0, 0.3));
+  color: var(--md-mark-color, #FFFFFF);
+  border-radius: 2px;
+  padding: 0 4px;
+  border-bottom: 1.5px solid var(--md-mark-border, #FFBF00);
 }
 
 .reader-content blockquote {

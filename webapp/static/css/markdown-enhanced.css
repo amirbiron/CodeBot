@@ -133,9 +133,10 @@
   --header-anchor-hover: var(--primary, #58a6ff);
   --tooltip-bg: var(--bg-tertiary, rgba(255, 255, 255, 0.9));
   --tooltip-text: var(--text-primary, #000);
-  /* mark/highlight styling - yellow for visibility */
-  --mark-bg: color-mix(in srgb, #ffd700 70%, var(--bg-primary, #0d1117) 30%);
-  --mark-text: #1a1a1a;
+  /* mark/highlight styling - amber yellow at 30% opacity */
+  --mark-bg: rgba(255, 191, 0, 0.3);
+  --mark-text: var(--text-primary, #FFFFFF);
+  --mark-border: #FFBF00;
 }
 
 /* === קטעים מתקפלים === */
@@ -570,38 +571,34 @@ h6:hover .header-anchor { opacity: 1; }
 
 /* === Mark/Highlight styling (==טקסט מודגש==) === */
 mark {
-  background: linear-gradient(120deg, #ffd700 0%, #ffec8a 100%);
-  color: #1a1a1a;
-  padding: 0.1em 0.3em;
-  border-radius: 3px;
+  background-color: rgba(255, 191, 0, 0.3);
+  color: #FFFFFF;
+  border-radius: 2px;
+  padding: 0 4px;
+  border-bottom: 1.5px solid #FFBF00;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 
-/* Custom/Shared themes - yellow highlight with theme mix */
+/* Light themes - darker text for readability on light backgrounds */
+:root[data-theme="classic"] mark,
+:root[data-theme="rose-pine-dawn"] mark {
+  color: #1a1a1a;
+}
+
+/* Custom/Shared themes */
 :root[data-theme="custom"] mark,
 :root[data-theme^="shared:"] mark {
-  background: linear-gradient(
-    120deg,
-    color-mix(in srgb, #ffd700 85%, var(--primary, #6366f1) 15%) 0%,
-    color-mix(in srgb, #ffec8a 85%, var(--primary, #6366f1) 15%) 100%
-  );
-  color: #1a1a1a;
-  font-weight: 500;
+  background-color: color-mix(in srgb, #FFBF00 30%, transparent);
+  color: var(--text-primary, #FFFFFF);
+  border-bottom-color: #FFBF00;
 }
 
-/* Dark themes - brighter yellow for visibility */
-:root[data-theme="dark"] mark,
-:root[data-theme="dim"] mark,
-:root[data-theme="nebula"] mark {
-  background: linear-gradient(120deg, #ffd700 0%, #ffe45c 100%);
-  color: #0d1117;
-}
-
-/* High contrast - pure yellow */
+/* High contrast */
 :root[data-theme="high-contrast"] mark {
-  background: #ffff00;
-  color: #000000;
+  background-color: rgba(255, 191, 0, 0.45);
+  color: #FFFFFF;
+  border-bottom: 2px solid #FFBF00;
   font-weight: bold;
 }
 

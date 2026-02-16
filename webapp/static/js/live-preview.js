@@ -169,6 +169,38 @@
           return defaultInlineCode ? defaultInlineCode(tokens, idx, options, env, slf) : '';
         }
       };
+      // תמיכה בהדגשת "טוש" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
+      (function enableMarkdownMark() {
+        try {
+          function markdownItMarkPlugin(mdInstance) {
+            function tokenize(state, silent) {
+              const src = state.src;
+              const start = state.pos;
+              if (src.charCodeAt(start) !== 0x3D /* = */ || src.charCodeAt(start + 1) !== 0x3D) return false;
+              if (silent) return false;
+              let end = start + 2;
+              while (end < src.length - 1) {
+                if (src.charCodeAt(end) === 0x3D && src.charCodeAt(end + 1) === 0x3D) break;
+                end++;
+              }
+              if (end >= src.length - 1) return false;
+              const content = src.slice(start + 2, end);
+              if (!content.trim()) return false;
+              if (silent) return true;
+              const open = state.push('mark_open', 'mark', 1);
+              open.markup = '==';
+              const inner = src.slice(start + 2, end);
+              state.md.inline.parse(inner, state.md, state.env, state.tokens);
+              const close = state.push('mark_close', 'mark', -1);
+              close.markup = '==';
+              state.pos = end + 2;
+              return true;
+            }
+            mdInstance.inline.ruler.before('emphasis', 'mark', tokenize);
+          }
+          md.use(markdownItMarkPlugin);
+        } catch (_) {}
+      })();
       if (window.markdownitEmoji) {
         md.use(window.markdownitEmoji);
       }
