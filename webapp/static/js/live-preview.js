@@ -173,20 +173,38 @@
       (function enableMarkdownMark() {
         try {
           function markdownItMarkPlugin(mdInstance) {
+            function isSpace(code) {
+              return code === 0x20 || code === 0x0A || code === 0x09;
+            }
+            function isEscaped(src, pos) {
+              let backslashes = 0;
+              let i = pos - 1;
+              while (i >= 0 && src.charCodeAt(i) === 0x5C) { backslashes += 1; i -= 1; }
+              return (backslashes % 2) === 1;
+            }
             function tokenize(state, silent) {
-              const src = state.src;
               const start = state.pos;
-              if (src.charCodeAt(start) !== 0x3D /* = */ || src.charCodeAt(start + 1) !== 0x3D) return false;
-              if (silent) return false;
+              const max = state.posMax;
+              const src = state.src;
+
+              if (start + 4 > max) return false;
+              if (src.charCodeAt(start) !== 0x3D || src.charCodeAt(start + 1) !== 0x3D) return false;
+
+              const next = src.charCodeAt(start + 2);
+              if (isSpace(next)) return false;
+
               let end = start + 2;
-              while (end < src.length - 1) {
-                if (src.charCodeAt(end) === 0x3D && src.charCodeAt(end + 1) === 0x3D) break;
-                end++;
+              while (true) {
+                end = src.indexOf('==', end);
+                if (end < 0 || end + 2 > max) return false;
+                if (end === start + 2) { end += 2; continue; }
+                if (isSpace(src.charCodeAt(end - 1))) { end += 2; continue; }
+                if (isEscaped(src, end)) { end += 2; continue; }
+                break;
               }
-              if (end >= src.length - 1) return false;
-              const content = src.slice(start + 2, end);
-              if (!content.trim()) return false;
+
               if (silent) return true;
+
               const open = state.push('mark_open', 'mark', 1);
               open.markup = '==';
               const inner = src.slice(start + 2, end);
