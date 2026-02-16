@@ -860,6 +860,25 @@ class ConfigService:
             description="רשימת IP מותרים ל-Alertmanager",
             category="alerts",
         ),
+        "ALERTMANAGER_API_URL": ConfigDefinition(
+            key="ALERTMANAGER_API_URL",
+            default="",
+            description="כתובת בסיס של Alertmanager API (למשל https://...); משמשת לשליחה ל-/api/v2/alerts (לדוגמה עבור /admin)",
+            category="alerts",
+        ),
+        "ALERTMANAGER_API_TOKEN": ConfigDefinition(
+            key="ALERTMANAGER_API_TOKEN",
+            default="",
+            description="טוקן Bearer אופציונלי ל-Alertmanager API (Authorization: Bearer ...), עבור /api/v2/alerts",
+            category="alerts",
+            sensitive=True,
+        ),
+        "ALERTMANAGER_TARGET": ConfigDefinition(
+            key="ALERTMANAGER_TARGET",
+            default="",
+            description="יעד Alertmanager בפורמט host:port (משמש גם כ-fallback לבניית URL ל-/api/v2/alerts אם ALERTMANAGER_API_URL לא מוגדר)",
+            category="alerts",
+        ),
         "ALLOWED_WEBHOOK_HOSTS": ConfigDefinition(
             key="ALLOWED_WEBHOOK_HOSTS",
             default="",

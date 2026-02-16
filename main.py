@@ -756,6 +756,190 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
         return False
 
 
+def _get_alertmanager_api_alerts_url() -> str | None:
+    """בונה URL ל-Alertmanager API עבור POST /api/v2/alerts.
+
+    תומך ב-2 מצבים:
+    - ALERTMANAGER_API_URL: URL בסיס מלא (כולל scheme), לדוגמה: https://code-keeper-alertmanager.onrender.com
+    - ALERTMANAGER_TARGET: host:port (כמו בפריסת Prometheus), לדוגמה: code-keeper-alertmanager.onrender.com:443
+    """
+    raw = (os.getenv("ALERTMANAGER_API_URL") or os.getenv("ALERTMANAGER_TARGET") or "").strip()
+    if not raw:
+        return None
+
+    base = raw
+    if "://" not in base:
+        # ניחוש scheme: 443 => https, אחרת נוטים ל-http (למשל docker-compose: alertmanager:9093)
+        scheme = "https"
+        try:
+            low = base.lower()
+            if low.endswith(":443"):
+                scheme = "https"
+            elif low.endswith(":9093") or low.endswith(":80") or low.startswith("localhost") or low.startswith("127.") or low.startswith("alertmanager"):
+                scheme = "http"
+            else:
+                # ברירת מחדל סבירה לסביבות ענן
+                scheme = "https"
+        except Exception:
+            scheme = "https"
+        base = f"{scheme}://{base}"
+
+    base = base.rstrip("/")
+    return f"{base}/api/v2/alerts"
+
+
+async def _send_admin_report_via_alertmanager(
+    report_text: str,
+    *,
+    user_id: Any = None,
+    username: Any = None,
+    display: Any = None,
+) -> bool:
+    """שולח דיווח ל-Alertmanager ומחזיר True רק אם התקבלה תשובת 2xx.
+
+    חשוב: זה "אישור קבלה" מצד Alertmanager (accepted), לא הבטחה שההודעה הגיעה ליעד הסופי.
+    """
+    url = _get_alertmanager_api_alerts_url()
+    if not url:
+        return False
+
+    if not report_text:
+        return False
+
+    def _truncate(s: Any, limit: int = 400) -> str:
+        try:
+            text = str(s or "")
+        except Exception:
+            text = ""
+        text = text.strip()
+        if limit and len(text) > limit:
+            return text[: max(0, limit - 1)] + "…"
+        return text
+
+    # Alertmanager expects a list of alerts
+    now = datetime.now(timezone.utc).isoformat()
+    alert = {
+        "labels": {
+            "alertname": "AdminUserReport",
+            "severity": "info",
+            "component": "bot",
+        },
+        "annotations": {
+            "summary": _truncate(report_text, 1800),
+            "user_id": _truncate(user_id, 80),
+            "username": _truncate(username, 120),
+            "user_display": _truncate(display, 200),
+        },
+        "startsAt": now,
+    }
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    token = (os.getenv("ALERTMANAGER_API_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    last_err: str | None = None
+
+    # Prefer the project's resilient async HTTP helper (aiohttp + retries/circuit breaker).
+    try:
+        try:
+            from http_async import request as http_request  # type: ignore
+        except Exception:
+            http_request = None  # type: ignore
+
+        # aiohttp דורש ClientTimeout, לא int. אם aiohttp לא זמין, לא נעביר timeout כלל.
+        timeout_obj = None
+        try:
+            import aiohttp  # type: ignore
+
+            timeout_obj = aiohttp.ClientTimeout(total=6)  # type: ignore[attr-defined]
+        except Exception:
+            timeout_obj = None
+
+        if http_request is not None:
+            req_kwargs = {
+                "json": [alert],
+                "headers": headers,
+                "service": "alertmanager",
+                "endpoint": "/api/v2/alerts",
+                "max_attempts": 2,
+            }
+            if timeout_obj is not None:
+                req_kwargs["timeout"] = timeout_obj
+
+            async with http_request("POST", url, **req_kwargs) as resp:
+                try:
+                    status = int(getattr(resp, "status", 0) or 0)
+                except Exception:
+                    status = 0
+
+                if 200 <= status < 300:
+                    return True
+
+                # לא מציגים למשתמש; רק לוג דיבוג קצר
+                body_preview = ""
+                try:
+                    body_preview = _truncate(await resp.text(), 300)  # type: ignore[func-returns-value]
+                except Exception:
+                    body_preview = ""
+                try:
+                    logger.warning(
+                        "alertmanager_admin_report_failed status=%s body=%s",
+                        status,
+                        body_preview or "—",
+                    )
+                except Exception:
+                    pass
+                # אם קיבלנו תשובה מהשרת (גם אם דחייה), לא ננסה לשלוח שוב ב-sync fallback
+                # כדי לא ליצור כפילות/latency מיותרת.
+                return False
+    except Exception as e:
+        last_err = str(e)
+        try:
+            logger.warning("alertmanager_admin_report_async_exception error=%s", last_err)
+        except Exception:
+            pass
+
+    # Fallback: synchronous request in a thread (do not skip if async path failed)
+    try:
+        try:
+            from http_sync import request as http_sync_request  # type: ignore
+        except Exception:
+            http_sync_request = None  # type: ignore
+
+        if http_sync_request is None:
+            return False
+
+        def _do_sync() -> bool:
+            try:
+                resp = http_sync_request(
+                    "POST",
+                    url,
+                    json=[alert],
+                    headers=headers,
+                    timeout=6,
+                    service="alertmanager",
+                    endpoint="/api/v2/alerts",
+                    max_attempts=2,
+                )
+                code = int(getattr(resp, "status_code", 0) or 0)
+                return 200 <= code < 300
+            except Exception:
+                return False
+
+        return bool(await asyncio.to_thread(_do_sync))
+    except Exception as e:
+        try:
+            logger.warning(
+                "alertmanager_admin_report_sync_exception error=%s prev=%s",
+                str(e),
+                last_err or "",
+            )
+        except Exception:
+            pass
+        return False
+
+
 async def _send_direct_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     """Fallback לשליחת הודעה ישירה לאדמינים בטלגרם."""
     try:
@@ -809,11 +993,21 @@ async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYP
             f"• user_id: {user_id}\n"
             f"• הודעה: {args_text}"
         )
-        sent = await notify_admins(context, report)
-        if not sent:
-            sent = await _send_direct_admins(context, report)
-        if sent:
+        # חשוב: נציג "נשלח" רק אם Alertmanager קיבל את ההודעה בהצלחה (2xx).
+        # אם Alertmanager לא זמין, ננסה fallback ישיר לאדמינים – אבל ננסח זאת במפורש כדי לא להטעות.
+        sent_via_am = await _send_admin_report_via_alertmanager(
+            report,
+            user_id=user_id,
+            username=username,
+            display=display,
+        )
+        if sent_via_am:
             await message.reply_text("תודה! הדיווח נשלח לאדמין.")
+            return
+
+        sent_direct = await _send_direct_admins(context, report)
+        if sent_direct:
+            await message.reply_text("כרגע Alertmanager לא זמין, אבל שלחתי את הדיווח ישירות לאדמין.")
         else:
             await message.reply_text("לא הצלחתי לשלוח את הדיווח כרגע.")
     except Exception:
