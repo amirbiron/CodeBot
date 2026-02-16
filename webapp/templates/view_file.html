@@ -2410,8 +2410,11 @@ function goBack(ev){
             meta.className = 'history-modal__meta';
             const timestamp = entry.updated_at || entry.created_at || '';
             const lines = typeof entry.line_count === 'number' ? entry.line_count : '-';
-            const size = entry.size || '';
-            meta.textContent = `${timestamp} · ${lines} שורות · ${size}`;
+            // אין צורך להציג גודל (B) בהיסטוריית גרסאות
+            const parts = [];
+            if (timestamp) parts.push(timestamp);
+            parts.push(`${lines} שורות`);
+            meta.textContent = parts.join(' · ');
             info.appendChild(meta);
             if (entry.description) {
                 const desc = document.createElement('div');
