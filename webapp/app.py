@@ -13058,13 +13058,64 @@ def api_file_history(file_id):
         return jsonify({'ok': False, 'error': 'שם קובץ חסר'}), 400
 
     try:
-        docs = list(db.code_snippets.find(
-            {
+        # תיקון: למסמכים ישנים/חסרים, lines_count/file_size לא קיימים ולכן ה-UI מציג "0".
+        # נחשב ב-DB לפי `code` (בלי להחזיר את `code`) בדומה למסכי רשימה אחרים.
+        mongo_code_is_string = {
+            '$and': [
+                {'$ne': ['$code', None]},
+                {'$eq': [{'$type': '$code'}, 'string']},
+            ]
+        }
+        mongo_file_size_from_code = {
+            '$cond': {
+                'if': mongo_code_is_string,
+                'then': {'$strLenBytes': '$code'},
+                'else': 0,
+            }
+        }
+        mongo_lines_count_from_code = {
+            '$cond': {
+                'if': mongo_code_is_string,
+                # התאמה בסיסית: טקסט ריק => 0 שורות (בדומה ל-splitlines()).
+                'then': {
+                    '$cond': [
+                        {'$eq': ['$code', '']},
+                        0,
+                        {'$size': {'$split': ['$code', '\n']}},
+                    ]
+                },
+                'else': 0,
+            }
+        }
+        add_size_lines_stage = {
+            '$addFields': {
+                'file_size': {
+                    '$cond': [
+                        {'$gt': [{'$ifNull': ['$file_size', 0]}, 0]},
+                        {'$ifNull': ['$file_size', 0]},
+                        mongo_file_size_from_code,
+                    ]
+                },
+                'lines_count': {
+                    '$cond': [
+                        {'$gt': [{'$ifNull': ['$lines_count', 0]}, 0]},
+                        {'$ifNull': ['$lines_count', 0]},
+                        mongo_lines_count_from_code,
+                    ]
+                },
+            }
+        }
+        pipeline = [
+            {'$match': {
                 'user_id': user_id,
                 'file_name': file_name,
-'is_active': True,
-            },
-            {
+                'is_active': True,
+            }},
+            {'$sort': {'version': -1}},
+            {'$limit': FILE_HISTORY_MAX_VERSIONS},
+            add_size_lines_stage,
+            # Smart projection: מטא-דאטה בלבד (בלי `code`/`content`)
+            {'$project': {
                 '_id': 1,
                 'version': 1,
                 'created_at': 1,
@@ -13072,9 +13123,9 @@ def api_file_history(file_id):
                 'description': 1,
                 'file_size': 1,
                 'lines_count': 1,
-            },
-            sort=[('version', DESCENDING)],
-        ).limit(FILE_HISTORY_MAX_VERSIONS))
+            }},
+        ]
+        docs = list(db.code_snippets.aggregate(pipeline))
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה בטעינת היסטוריה'}), 500
 
