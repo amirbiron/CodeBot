@@ -1934,7 +1934,7 @@ class GitHubMenuHandler:
         elif query.data == "show_full_analysis":
             await self.show_full_analysis(update, context)
 
-        elif query.data == "gh_download_analysis_json":
+        elif query.data in ("gh_download_analysis_json", "download_analysis_json"):
             await self.download_analysis_json(update, context)
 
         elif query.data == "github_backup_menu":
@@ -2417,16 +2417,16 @@ class GitHubMenuHandler:
         elif query.data == "delete_repo_menu":
             await self.show_delete_repo_menu(update, context)
 
-        elif query.data == "gh_confirm_delete_file":
+        elif query.data in ("gh_confirm_delete_file", "confirm_delete_file"):
             await self.confirm_delete_file(update, context)
 
-        elif query.data == "gh_confirm_delete_repo_step1":
+        elif query.data in ("gh_confirm_delete_repo_step1", "confirm_delete_repo_step1"):
             await self.confirm_delete_repo_step1(update, context)
 
-        elif query.data == "gh_confirm_delete_repo":
+        elif query.data in ("gh_confirm_delete_repo", "confirm_delete_repo"):
             await self.confirm_delete_repo(update, context)
 
-        elif query.data == "gh_download_file_menu":
+        elif query.data in ("gh_download_file_menu", "download_file_menu"):
             await self.show_download_file_menu(update, context)
 
         elif query.data.startswith("browse_open:") or query.data.startswith("browse_open_i:"):
