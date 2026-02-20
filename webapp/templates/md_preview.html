@@ -4228,7 +4228,7 @@ function copyMarkdownSource(ev){
         }
 
         const endIdx = findLastLineIndex(lastNeedle, c, endHint);
-        const expectedEnd = c + selLinesAll.length;
+        const expectedEnd = c + selLinesAll.length - 1;
         const endDelta = (endIdx >= 0) ? Math.abs(endIdx - expectedEnd) : Infinity;
 
         // ניקוד: יותר התאמות רצופות + סוף סביר באזור + העדפה לטווח קומפקטי
@@ -4331,7 +4331,8 @@ function copyMarkdownSource(ev){
 
   function positionFab(range) {
     const rect = range.getBoundingClientRect();
-    const card = container.closest('.glass-card') || container;
+    // הכפתור הוא position:absolute בתוך #mdCard, לכן חייבים לחשב ביחס ל-offset parent האמיתי
+    const card = (fab && fab.offsetParent) ? fab.offsetParent : (document.getElementById('mdCard') || container);
     const cardRect = card.getBoundingClientRect();
 
     // getBoundingClientRect נותן קואורדינטות ביחס ל-viewport.
