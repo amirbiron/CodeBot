@@ -222,8 +222,26 @@ class BookmarkManager {
         event.stopPropagation();
         const anchorId = heading.id || '';
         if (!anchorId) return;
-        const anchorText = (heading.textContent || '').trim().substring(0, 200);
-        const lineNumber = 0; // עוגן אינו תלוי מספר שורה
+        const sanitizeAnchorText = (text) => {
+            return (text || '')
+                .replace(/[\u00b6¶]/g, '') // הסרת סימן pilcrow שמתווסף ע"י עוגנים (¶)
+                .replace(/\s+/g, ' ')
+                .trim()
+                .substring(0, 200);
+        };
+        const anchorText = sanitizeAnchorText(heading.textContent || '');
+
+        // עבור סימניות עוגן במארקדון: נשתמש ב-"מספר שורה" סינתטי שמייצג את סדר ההופעה במסמך
+        // כדי שהמיון בפאנל/בשרת יהיה לפי סדר אמיתי ולא לפי hash אקראי.
+        let anchorOrderIndex = -1;
+        try {
+            const all = Array.from(document.querySelectorAll('#md-content h1[id], #md-content h2[id], #md-content h3[id], #md-content h4[id], #md-content h5[id], #md-content h6[id]'));
+            anchorOrderIndex = all.indexOf(heading);
+        } catch (_) {
+            anchorOrderIndex = -1;
+        }
+        const ANCHOR_LINE_BASE = 1000000000;
+        const anchorLineNumber = (anchorOrderIndex >= 0) ? (ANCHOR_LINE_BASE + anchorOrderIndex + 1) : 0;
 
         // בחירת צבע דרך קליק ימני
         if (event.button === 2 || event.type === 'contextmenu') {
@@ -235,13 +253,13 @@ class BookmarkManager {
                 }
             } catch(_) {}
             this.ui.showInlineColorMenu(heading, (color) => {
-                this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', color)
+                this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', color, '', anchorLineNumber)
                     .then((result) => {
                         if (result && result.ok) {
                             // עדכון מפה וזיהוי UI
                             const key = `a:${anchorId}`;
                             if (result.action === 'added') {
-                                const bm = Object.assign({}, result.bookmark, { line_number: 0 });
+                                const bm = Object.assign({}, result.bookmark);
                                 this.bookmarks.set(key, bm);
                                 this.ui.addAnchorIndicator(heading, color);
                                 this.ui.showNotification('סימנייה נוספה לכותרת', 'success');
@@ -266,11 +284,11 @@ class BookmarkManager {
             const note = prompt('הוסף/ערוך הערה לסימנייה (כותרת):', '');
             if (note === null) return;
             try {
-                const result = await this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', this.defaultColor, note);
+                const result = await this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', this.defaultColor, note, anchorLineNumber);
                 if (result.ok) {
                     const key = `a:${anchorId}`;
                     if (result.action === 'added') {
-                        const bm = Object.assign({}, result.bookmark, { line_number: 0 });
+                        const bm = Object.assign({}, result.bookmark);
                         this.bookmarks.set(key, bm);
                         this.ui.addAnchorIndicator(heading, result.bookmark?.color || this.defaultColor);
                     } else if (result.action === 'removed') {
@@ -290,11 +308,11 @@ class BookmarkManager {
 
         // קליק רגיל – toggle עוגן
         try {
-            const result = await this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', this.defaultColor);
+            const result = await this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', this.defaultColor, '', anchorLineNumber);
             const key = `a:${anchorId}`;
             if (result.ok) {
                 if (result.action === 'added') {
-                    const bm = Object.assign({}, result.bookmark, { line_number: 0 });
+                    const bm = Object.assign({}, result.bookmark);
                     this.bookmarks.set(key, bm);
                     this.ui.addAnchorIndicator(heading, result.bookmark?.color || this.defaultColor);
                     this.ui.showNotification('סימנייה נוספה לכותרת', 'success');
@@ -452,6 +470,14 @@ class BookmarkManager {
             } else {
                 this.scrollToLine(lineNumber);
             }
+        }
+
+        // כפתור סגירת פאנל
+        if (event.target.closest('#closePanel')) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.ui.closePanel();
+            return;
         }
         
         // כפתור ניקוי כל הסימניות
@@ -777,9 +803,9 @@ class BookmarkAPI {
         return this.retryableRequest('POST', `/${this.fileId}/toggle`, body);
     }
 
-    async toggleBookmarkAnchor(anchorId, anchorText = '', anchorType = 'md_heading', color = undefined, note = '') {
+    async toggleBookmarkAnchor(anchorId, anchorText = '', anchorType = 'md_heading', color = undefined, note = '', anchorLineNumber = 0) {
         const body = {
-            line_number: 0,
+            line_number: (typeof anchorLineNumber === 'number' && anchorLineNumber > 0) ? anchorLineNumber : 0,
             anchor_id: anchorId,
             anchor_text: anchorText,
             anchor_type: anchorType,
@@ -1276,12 +1302,44 @@ class BookmarkUI {
             return;
         }
         
-        // מיין לפי מספר שורה (anchors עם שורה סינתטית ענקית יהיו בסוף)
-        bookmarks.sort((a, b) => (a.line_number || 0) - (b.line_number || 0));
+        const stripPilcrow = (s) => (s || '').replace(/[\u00b6¶]/g, '').replace(/\s+/g, ' ').trim();
+
+        // מיון:
+        // - בקבצי Markdown (כאשר #md-content קיים) נעדיף מיון עוגנים לפי סדר הופעה במסמך בפועל
+        //   כדי לא ליפול על "line_number" סינתטי/אקראי מסימניות ישנות.
+        // - אחרת: מיון לפי line_number כמו קודם.
+        try {
+            const mdRoot = document.getElementById('md-content');
+            if (mdRoot) {
+                const headingEls = Array.from(mdRoot.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]'));
+                const indexById = new Map();
+                headingEls.forEach((h, i) => { if (h && h.id) indexById.set(h.id, i); });
+                bookmarks.sort((a, b) => {
+                    const aIsAnchor = !!(a && a.anchor_id);
+                    const bIsAnchor = !!(b && b.anchor_id);
+                    if (aIsAnchor && bIsAnchor) {
+                        const ai = indexById.has(a.anchor_id) ? indexById.get(a.anchor_id) : Number.MAX_SAFE_INTEGER;
+                        const bi = indexById.has(b.anchor_id) ? indexById.get(b.anchor_id) : Number.MAX_SAFE_INTEGER;
+                        if (ai !== bi) return ai - bi;
+                        return (a.line_number || 0) - (b.line_number || 0);
+                    }
+                    if (aIsAnchor !== bIsAnchor) {
+                        // במצב Markdown: קודם עוגנים (כותרות), ואז סימניות שורה (אם קיימות)
+                        return aIsAnchor ? -1 : 1;
+                    }
+                    return (a.line_number || 0) - (b.line_number || 0);
+                });
+            } else {
+                bookmarks.sort((a, b) => (a.line_number || 0) - (b.line_number || 0));
+            }
+        } catch (_) {
+            bookmarks.sort((a, b) => (a.line_number || 0) - (b.line_number || 0));
+        }
         
         listContainer.innerHTML = bookmarks.map(bm => {
             const isAnchor = !!(bm.anchor_id);
-            const title = isAnchor ? (bm.anchor_text || `#${bm.anchor_id}`) : `שורה ${bm.line_number}`;
+            const anchorTitleRaw = isAnchor ? (bm.anchor_text || `#${bm.anchor_id}`) : '';
+            const title = isAnchor ? stripPilcrow(anchorTitleRaw) : `שורה ${bm.line_number}`;
             const subtitle = isAnchor ? (bm.line_text_preview || '') : (bm.line_text_preview || '');
             const attrs = isAnchor
                 ? `data-anchor-id="${this.escapeHtml(bm.anchor_id)}" data-anchor-text="${this.escapeHtml(bm.anchor_text || '')}"`
@@ -1316,6 +1374,11 @@ class BookmarkUI {
                 const isOpen = this.panel.classList.contains('open');
                 toggleBtn.setAttribute('aria-expanded', isOpen);
             }
+            // מצב גלובלי לשימוש CSS/רכיבים אחרים (למשל: הסתרת TOC צף במובייל)
+            try {
+                const isOpen = this.panel.classList.contains('open');
+                document.body.classList.toggle('bookmarks-panel-open', !!isOpen);
+            } catch (_) {}
         }
     }
     
@@ -1324,12 +1387,16 @@ class BookmarkUI {
             this.panel.classList.add('open');
             const toggleBtn = document.getElementById('toggleBookmarksBtn');
             if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+            try { document.body.classList.add('bookmarks-panel-open'); } catch (_) {}
         }
     }
     
     closePanel() {
         if (this.panel) {
             this.panel.classList.remove('open');
+            const toggleBtn = document.getElementById('toggleBookmarksBtn');
+            if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+            try { document.body.classList.remove('bookmarks-panel-open'); } catch (_) {}
         }
     }
     

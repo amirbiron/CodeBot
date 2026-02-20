@@ -369,6 +369,11 @@ iframe .bookmarked {
     .bookmarks-panel-actions button { flex: 0 0 auto; }
     .notification-container { left: 10px; right: 10px; bottom: 10px; }
     .notification { min-width: auto; width: 100%; }
+
+    /* Markdown preview: הסתר כפתור TOC צף כשהפאנל פתוח כדי שלא יצוף מעליו */
+    body.bookmarks-panel-open #mdTocMini {
+        display: none !important;
+    }
 }
 
 @media (max-width: 480px) {
