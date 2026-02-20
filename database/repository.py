@@ -248,8 +248,8 @@ class Repository:
             except Exception:
                 doc["file_size"] = 0
             try:
-                # splitlines() תואם ללוגיקה ב-webapp (שורות תצוגה) ומחזיר 0 עבור טקסט ריק.
-                doc["lines_count"] = int(len(code_str.splitlines())) if code_str else 0
+                # עקביות עם מסלולי MongoDB ($split על '\n') ועם LargeFile: ספירה לפי '\n'
+                doc["lines_count"] = int(len(code_str.split('\n'))) if code_str else 0
             except Exception:
                 doc["lines_count"] = 0
 
