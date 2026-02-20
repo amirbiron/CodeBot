@@ -3986,18 +3986,70 @@ function copyMarkdownSource(ev){
       .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');  // links
   }
 
-  function findLineIndex(searchText, startFrom) {
+  function _countExactMatches(needleNorm) {
+    let count = 0;
+    for (let i = 0; i < sourceLines.length; i++) {
+      const hay = normalize(stripMarkdownSyntax(sourceLines[i]));
+      if (!hay) continue;
+      if (hay === needleNorm) {
+        count++;
+        if (count > 1) return count;
+      }
+    }
+    return count;
+  }
+
+  function _lineMatches(haystack, needle) {
+    const MIN_SUBSTRING_LEN = 8;
+    const MIN_UNIQUE_EXACT_LEN = 5;
+    const CONTAINS_MIN_RATIO = 0.6; // needle is substantial part of haystack
+    const REVERSE_CONTAINS_MAX_DELTA_RATIO = 0.15; // allow small expansions only
+
+    if (!haystack || !needle) return false;
+
+    if (haystack === needle) {
+      // שורות קצרות/עמומות ("a", "1.", "}") יגרמו להרבה false positives — נקבל רק אם זה ייחודי במסמך
+      if (needle.length < MIN_UNIQUE_EXACT_LEN) {
+        return _countExactMatches(needle) === 1;
+      }
+      return true;
+    }
+
+    if (haystack.length < MIN_SUBSTRING_LEN || needle.length < MIN_SUBSTRING_LEN) return false;
+
+    // הכיוון הבטוח: הטקסט המסומן (needle) הוא תת-מחרוזת של שורת המקור (haystack)
+    if (haystack.includes(needle)) {
+      if ((needle.length / haystack.length) >= CONTAINS_MIN_RATIO) return true;
+    }
+
+    // כיוון הפוך (needle כולל haystack) עלול להוביל ל-anchoring שגוי; נאפשר רק אם זה כמעט אותו אורך
+    if (needle.includes(haystack)) {
+      const deltaRatio = Math.abs(needle.length - haystack.length) / Math.max(needle.length, haystack.length);
+      if (deltaRatio <= REVERSE_CONTAINS_MAX_DELTA_RATIO) return true;
+    }
+
+    return false;
+  }
+
+  function findFirstLineIndex(searchText, startFrom) {
     const needle = normalize(searchText);
     if (!needle) return -1;
-    const MIN_SUBSTRING_LEN = 8;
     for (let i = startFrom; i < sourceLines.length; i++) {
       const haystack = normalize(stripMarkdownSyntax(sourceLines[i]));
       if (!haystack) continue;
-      // עדיפות לשוויון מלא כדי להימנע מ-false positives על שורות קצרות (למשל "1." / "a")
-      if (haystack === needle) return i;
-      if (haystack.length < MIN_SUBSTRING_LEN || needle.length < MIN_SUBSTRING_LEN) continue;
-      if (needle.includes(haystack)) return i;
-      if (haystack.includes(needle)) return i;
+      if (_lineMatches(haystack, needle)) return i;
+    }
+    return -1;
+  }
+
+  function findLastLineIndex(searchText, startFrom, endAt) {
+    const needle = normalize(searchText);
+    if (!needle) return -1;
+    const end = Math.min(sourceLines.length - 1, Math.max(startFrom, endAt));
+    for (let i = end; i >= startFrom; i--) {
+      const haystack = normalize(stripMarkdownSyntax(sourceLines[i]));
+      if (!haystack) continue;
+      if (_lineMatches(haystack, needle)) return i;
     }
     return -1;
   }
@@ -4048,13 +4100,13 @@ function copyMarkdownSource(ev){
 
     let firstSourceIdx = -1;
     for (const selLine of selLines) {
-      firstSourceIdx = findLineIndex(selLine, 0);
+      firstSourceIdx = findFirstLineIndex(selLine, 0);
       if (firstSourceIdx >= 0) break;
     }
 
     let lastSourceIdx = firstSourceIdx;
     for (let i = selLines.length - 1; i >= 0; i--) {
-      const idx = findLineIndex(selLines[i], Math.max(0, firstSourceIdx));
+      const idx = findLastLineIndex(selLines[i], Math.max(0, firstSourceIdx), sourceLines.length - 1);
       if (idx >= 0) {
         lastSourceIdx = Math.max(lastSourceIdx, idx);
         break;
@@ -4069,11 +4121,37 @@ function copyMarkdownSource(ev){
       // הרחב רק אם הטווח באמת "מכסה" את נקודת ההתאמה
       if (fenceRange.start <= firstSourceIdx && fenceRange.end >= firstSourceIdx) {
         firstSourceIdx = fenceRange.start;
-        lastSourceIdx = fenceRange.end;
+        lastSourceIdx = Math.max(lastSourceIdx, fenceRange.end);
       }
     }
 
     return sourceLines.slice(firstSourceIdx, lastSourceIdx + 1).join('\n');
+  }
+
+  let _copyFeedbackTimer = null;
+  function _getFabLabelEl() {
+    return fab.querySelector('.md-copy-selection-fab__label') || fab;
+  }
+  function _getFabOriginalLabel() {
+    const labelEl = _getFabLabelEl();
+    const original = (fab.dataset && fab.dataset.originalLabel)
+      ? fab.dataset.originalLabel
+      : (labelEl ? labelEl.textContent : 'העתק כמארקדאון');
+    if (fab.dataset && !fab.dataset.originalLabel) {
+      fab.dataset.originalLabel = original;
+    }
+    return original;
+  }
+  function _clearCopyFeedbackTimer() {
+    if (_copyFeedbackTimer) {
+      clearTimeout(_copyFeedbackTimer);
+      _copyFeedbackTimer = null;
+    }
+  }
+  function _resetFabLabel() {
+    const labelEl = _getFabLabelEl();
+    const original = _getFabOriginalLabel();
+    try { if (labelEl) labelEl.textContent = original; } catch(_) {}
   }
 
   function positionFab(range) {
@@ -4093,6 +4171,8 @@ function copyMarkdownSource(ev){
   }
 
   function showFab(range) {
+    _clearCopyFeedbackTimer();
+    _resetFabLabel();
     fab.classList.remove('is-copied');
     fab.classList.add('is-visible');
     requestAnimationFrame(() => positionFab(range));
@@ -4155,23 +4235,32 @@ function copyMarkdownSource(ev){
 
     if (!success) return;
 
-    const labelEl = fab.querySelector('.md-copy-selection-fab__label') || fab;
-    const originalLabel = fab.dataset && fab.dataset.originalLabel
-      ? fab.dataset.originalLabel
-      : (labelEl ? labelEl.textContent : 'העתק כמארקדאון');
-
-    if (fab.dataset && !fab.dataset.originalLabel) {
-      fab.dataset.originalLabel = originalLabel;
-    }
-
+    _clearCopyFeedbackTimer();
+    const labelEl = _getFabLabelEl();
+    const originalLabel = _getFabOriginalLabel();
     fab.classList.add('is-copied');
     if (labelEl) {
       labelEl.textContent = markdown ? 'הועתק כמארקדאון!' : 'הועתק!';
     }
-    setTimeout(() => {
+    _copyFeedbackTimer = setTimeout(() => {
+      _copyFeedbackTimer = null;
       try {
         if (labelEl) labelEl.textContent = originalLabel;
       } catch(_) {}
+      try { fab.classList.remove('is-copied'); } catch(_) {}
+
+      // אם עדיין יש סלקציה פעילה בתוך הקונטיינר – אל תעלים את הכפתור, רק החזר תווית ומיקום
+      try {
+        const curSel = window.getSelection();
+        if (curSel && !curSel.isCollapsed && curSel.rangeCount) {
+          const r = curSel.getRangeAt(0);
+          if (container.contains(r.commonAncestorContainer)) {
+            showFab(r);
+            return;
+          }
+        }
+      } catch(_) {}
+
       hideFab();
     }, 1500);
   });
