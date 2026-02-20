@@ -4126,14 +4126,102 @@ function copyMarkdownSource(ev){
   function mapSelectionToSource(selectedText) {
     if (!selectedText || !sourceLines.length) return '';
 
-    const selLines = selectedText.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!selLines.length) return '';
+    // חשוב לשמור שורות ריקות כדי לא "לכווץ" בחירה של כמה פסקאות / בלוקים.
+    const selLinesAll = selectedText.split('\n').map(l => (l || '').trim());
+    const selNonEmpty = selLinesAll.filter(l => l.length > 0);
+    if (!selNonEmpty.length) return '';
 
-    let firstSourceIdx = -1;
-    for (const selLine of selLines) {
-      firstSourceIdx = findFirstLineIndex(selLine, 0);
-      if (firstSourceIdx >= 0) break;
+    function findFirstLineIndexInRange(searchText, startFrom, endAt) {
+      const needle = normalize(searchText);
+      if (!needle) return -1;
+      const end = Math.min(sourceLines.length - 1, Math.max(startFrom, endAt));
+      for (let i = startFrom; i <= end; i++) {
+        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
+        if (!haystack) continue;
+        if (_lineMatches(haystack, needle)) return i;
+      }
+      return -1;
     }
+
+    function findCandidateStartIndices(searchText, maxCandidates) {
+      const needle = normalize(searchText);
+      if (!needle) return [];
+      const res = [];
+      for (let i = 0; i < sourceLines.length; i++) {
+        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
+        if (!haystack) continue;
+        if (_lineMatches(haystack, needle)) {
+          res.push(i);
+          if (res.length >= maxCandidates) break;
+        }
+      }
+      return res;
+    }
+
+    function pickBestStartIndex() {
+      const firstNeedle = selNonEmpty[0];
+      const lastNeedle = selNonEmpty[selNonEmpty.length - 1];
+      const candidates = findCandidateStartIndices(firstNeedle, 80);
+      if (!candidates.length) return -1;
+
+      const LOOKAHEAD_MIN = 200;
+      const LOOKAHEAD_PER_SEL_LINE = 120;
+      const LOOKAHEAD_MAX = 5000;
+      const baseWindow = Math.min(
+        LOOKAHEAD_MAX,
+        Math.max(LOOKAHEAD_MIN, selLinesAll.length * LOOKAHEAD_PER_SEL_LINE)
+      );
+
+      let bestIdx = candidates[0];
+      let bestScore = -Infinity;
+      let bestEndDelta = Infinity;
+
+      const prefixCount = Math.min(6, selNonEmpty.length);
+      for (const c of candidates) {
+        const endHint = Math.min(sourceLines.length - 1, c + baseWindow);
+
+        // נסה לאמת עוגן בעזרת כמה שורות רצופות מהבחירה (כדי להימנע מעיגון על שורה "נפוצה")
+        let matched = 1;
+        let cursor = c + 1;
+        let lastPrefixIdx = c;
+        for (let k = 1; k < prefixCount; k++) {
+          const idx = findFirstLineIndexInRange(selNonEmpty[k], cursor, endHint);
+          if (idx < 0) break;
+          matched++;
+          lastPrefixIdx = idx;
+          cursor = idx + 1;
+        }
+
+        const endIdx = findLastLineIndex(lastNeedle, c, endHint);
+        const expectedEnd = c + selLinesAll.length;
+        const endDelta = (endIdx >= 0) ? Math.abs(endIdx - expectedEnd) : Infinity;
+
+        // ניקוד: יותר התאמות רצופות + סוף סביר באזור + העדפה לטווח קומפקטי
+        const span = ((endIdx >= 0 ? endIdx : lastPrefixIdx) - c);
+        let score = matched * 100;
+        if (endIdx >= 0) score += 50;
+        score -= Math.min(250, Math.max(0, span - (selLinesAll.length * 2)));
+        if (endIdx >= 0) score -= Math.min(200, endDelta);
+
+        // Tie-breakers:
+        // 1) סוף קרוב יותר לאורך הבחירה
+        // 2) אם עדיין שוויון — העדף הופעה מאוחרת יותר (בדרך כלל זה מה שהמשתמש התכוון לבחור)
+        const better =
+          (score > bestScore) ||
+          (score === bestScore && endDelta < bestEndDelta) ||
+          (score === bestScore && endDelta === bestEndDelta && c > bestIdx);
+
+        if (better) {
+          bestIdx = c;
+          bestScore = score;
+          bestEndDelta = endDelta;
+        }
+      }
+      return bestIdx;
+    }
+
+    let firstSourceIdx = pickBestStartIndex();
+    if (firstSourceIdx < 0) return '';
 
     let lastSourceIdx = firstSourceIdx;
     const LOOKAHEAD_MIN = 200;
@@ -4144,24 +4232,22 @@ function copyMarkdownSource(ev){
         sourceLines.length - 1,
         firstSourceIdx + Math.min(
           LOOKAHEAD_MAX,
-          Math.max(LOOKAHEAD_MIN, selLines.length * LOOKAHEAD_PER_SEL_LINE)
+          Math.max(LOOKAHEAD_MIN, selLinesAll.length * LOOKAHEAD_PER_SEL_LINE)
         )
       )
       : (sourceLines.length - 1);
 
-    for (let i = selLines.length - 1; i >= 0; i--) {
+    for (let i = selNonEmpty.length - 1; i >= 0; i--) {
       // חפש את ההופעה האחרונה "באזור" הבחירה – לא בסוף כל המסמך כדי להימנע מהתרחבות ענקית.
-      let idx = findLastLineIndex(selLines[i], Math.max(0, firstSourceIdx), endHint);
+      let idx = findLastLineIndex(selNonEmpty[i], Math.max(0, firstSourceIdx), endHint);
       if (idx < 0 && firstSourceIdx >= 0) {
-        idx = findLastLineIndex(selLines[i], Math.max(0, firstSourceIdx), Math.min(sourceLines.length - 1, firstSourceIdx + LOOKAHEAD_MAX));
+        idx = findLastLineIndex(selNonEmpty[i], Math.max(0, firstSourceIdx), Math.min(sourceLines.length - 1, firstSourceIdx + LOOKAHEAD_MAX));
       }
       if (idx >= 0) {
         lastSourceIdx = Math.max(lastSourceIdx, idx);
         break;
       }
     }
-
-    if (firstSourceIdx < 0) return '';
 
     // הרחבה ל-fenced blocks: בדוק גם את תחילת הבחירה וגם את סופה כדי לא לייצר fences "שבורים"
     const fenceRangeStart = _getEnclosingFenceRange(firstSourceIdx);
