@@ -4346,7 +4346,11 @@ class AdvancedBotHandlers:
                 pass
 
             if data.startswith("snip_confirm_delete_"):
-                file_name = data.replace("snip_confirm_delete_", "")
+                # הסר רק את הפריפיקס (ולא מופעים פנימיים במקרה קצה)
+                try:
+                    file_name = data.removeprefix("snip_confirm_delete_")
+                except Exception:
+                    file_name = data[len("snip_confirm_delete_"):]
                 
                 if _call_files_api("delete_file", user_id, file_name):
                     await query.edit_message_text(
@@ -4359,7 +4363,10 @@ class AdvancedBotHandlers:
             elif data.startswith("confirm_delete_"):
                 # תאימות אחורה לכפתורי מחיקה ישנים של הבוט (לפני prefix ייעודי),
                 # תוך מניעת בלבול עם callbacks ישנים של GitHub.
-                file_name = data.replace("confirm_delete_", "")
+                try:
+                    file_name = data.removeprefix("confirm_delete_")
+                except Exception:
+                    file_name = data[len("confirm_delete_"):]
                 if file_name in {"file", "repo", "repo_step1"}:
                     return
                 
