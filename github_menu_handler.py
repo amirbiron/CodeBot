@@ -2411,10 +2411,10 @@ class GitHubMenuHandler:
         elif query.data == "danger_delete_menu":
             await self.show_danger_delete_menu(update, context)
 
-        elif query.data == "delete_file_menu":
+        elif query.data in ("gh_delete_file_menu", "delete_file_menu"):
             await self.show_delete_file_menu(update, context)
 
-        elif query.data == "delete_repo_menu":
+        elif query.data in ("gh_delete_repo_menu", "delete_repo_menu"):
             await self.show_delete_repo_menu(update, context)
 
         elif query.data in ("gh_confirm_delete_file", "confirm_delete_file"):
@@ -5427,8 +5427,8 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ לא נבחר ריפו")
             return
         keyboard = [
-            [InlineKeyboardButton("🗑️ מחק קובץ מהריפו", callback_data="delete_file_menu")],
-            [InlineKeyboardButton("⚠️ מחק ריפו שלם (מתקדם)", callback_data="delete_repo_menu")],
+            [InlineKeyboardButton("🗑️ מחק קובץ מהריפו", callback_data="gh_delete_file_menu")],
+            [InlineKeyboardButton("⚠️ מחק ריפו שלם (מתקדם)", callback_data="gh_delete_repo_menu")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
         ]
         await query.edit_message_text(

@@ -3106,6 +3106,29 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         data = query.data
+        # תפריט GitHub משתמש ב-callback-ים שיכולים להתנגש עם תפריטי הקבצים המקומיים (למשל delete_repo_menu).
+        # כאן אנו *לא* מטפלים ב-callback-ים הללו כדי למנוע הודעות שגויות כמו "שגיאה בזיהוי הקובץ".
+        try:
+            if isinstance(data, str):
+                # namespace חדש של GitHub
+                if data.startswith("gh_"):
+                    return ConversationHandler.END
+                # namespace/פעולות ZIP של GitHub
+                if data.startswith(("download_zip:", "download_zip_i:")):
+                    return ConversationHandler.END
+                # תאימות אחורה לכפתורי GitHub ישנים שנשלחו כבר בהודעות קודמות
+                if data in {
+                    "delete_file_menu",
+                    "delete_repo_menu",
+                    "download_file_menu",
+                    "download_analysis_json",
+                    "confirm_delete_file",
+                    "confirm_delete_repo_step1",
+                    "confirm_delete_repo",
+                }:
+                    return ConversationHandler.END
+        except Exception:
+            pass
         # יציאה אוטומטית מ"מצב חיפוש" כאשר נלחץ כל כפתור שאינו התחלת חיפוש
         try:
             if data and data != "search_files":
