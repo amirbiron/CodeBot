@@ -11284,6 +11284,40 @@ def files():
                 )
                 if not batch:
                     break
+
+                # השלמת file_size/lines_count למסמכים ישנים שלא שמרו את השדות,
+                # בלי להחזיר את `code` למסך רשימה (חישוב ב-DB בלבד).
+                try:
+                    needs_ids = []
+                    for d in batch:
+                        if not isinstance(d, dict):
+                            continue
+                        if d.get('file_size') is None or d.get('lines_count') is None:
+                            _id = d.get('_id')
+                            if _id is not None:
+                                needs_ids.append(_id)
+                    if needs_ids:
+                        meta_pipeline = [
+                            {'$match': {'_id': {'$in': needs_ids}}},
+                            _mongo_add_size_lines_stage,
+                            {'$project': {'_id': 1, 'file_size': 1, 'lines_count': 1}},
+                        ]
+                        meta_docs = list(_aggregate_code_snippets(meta_pipeline))
+                        meta_map = {m.get('_id'): m for m in meta_docs if isinstance(m, dict)}
+                        for d in batch:
+                            if not isinstance(d, dict):
+                                continue
+                            m = meta_map.get(d.get('_id'))
+                            if isinstance(m, dict):
+                                # הימנע מדריסה של שדות קיימים אם כבר קיימים במסמך
+                                if d.get('file_size') is None and m.get('file_size') is not None:
+                                    d['file_size'] = m.get('file_size')
+                                if d.get('lines_count') is None and m.get('lines_count') is not None:
+                                    d['lines_count'] = m.get('lines_count')
+                except Exception:
+                    # fallback "שקט": עדיף להחזיר תוצאות גם אם ההשלמה נכשלה
+                    pass
+
                 skip_local += len(batch)
                 scanned += len(batch)
                 for doc in batch:
