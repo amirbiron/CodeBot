@@ -66,6 +66,49 @@ def _install_stubs(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "data",
+    [
+        "confirm_delete_file",
+        "confirm_delete_repo_step1",
+        "confirm_delete_repo",
+        "download_file_menu",
+        "download_analysis_json",
+        "download_zip:",
+        "download_zip_i:tok",
+    ],
+)
+async def test_global_callback_handler_ignores_github_colliding_callbacks(monkeypatch, data):
+    _install_stubs(monkeypatch)
+
+    monkeypatch.setenv('BOT_TOKEN', 'x')
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+
+    # stub db: any accidental call means the guard failed
+    db_mod = __import__('database', fromlist=['db'])
+    class _DB:
+        def delete_file(self, uid, name):  # pragma: no cover
+            raise AssertionError("should not delete local snippet for GitHub callbacks")
+        def get_latest_version(self, uid, fn):  # pragma: no cover
+            raise AssertionError("should not read local snippet for GitHub callbacks")
+    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+
+    import sys
+    sys.modules.pop('bot_handlers', None)
+    mod = __import__('bot_handlers')
+    H = getattr(mod, 'AdvancedBotHandlers')
+
+    h = H(types.SimpleNamespace(add_handler=lambda *a, **k: None))
+    upd = _Update(); ctx = _Context()
+
+    upd.callback_query.data = data
+    await h.handle_callback_query(upd, ctx)
+
+    # No edits should be made here; GitHub handler owns these callbacks
+    assert upd.callback_query.message.texts == []
+
+
+@pytest.mark.asyncio
 async def test_confirm_delete_calls_db_and_edits_message(monkeypatch):
     _install_stubs(monkeypatch)
 
