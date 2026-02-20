@@ -3975,7 +3975,8 @@ function copyMarkdownSource(ev){
           arr[i] = false;
           continue;
         }
-        if (info.ch === open.ch && info.len >= open.len) {
+        // Closing fence must not contain non-whitespace after marker (CommonMark)
+        if (info.ch === open.ch && info.len >= open.len && info.tailIsWhitespace) {
           open = null;
           arr[i] = false;
           continue;
@@ -4088,7 +4089,8 @@ function copyMarkdownSource(ev){
     if (!m) return null;
     const marker = m[1] || '';
     if (marker.length < 3) return null;
-    return { ch: marker[0], len: marker.length };
+    const tail = (m[2] || '');
+    return { ch: marker[0], len: marker.length, tailIsWhitespace: /^\s*$/.test(tail) };
   }
 
   function _getEnclosingFenceRange(lineIndex) {
@@ -4104,7 +4106,7 @@ function copyMarkdownSource(ev){
         continue;
       }
       // בתוך בלוק: נסגור רק עם אותו marker ואורך fence תואם/ארוך יותר (markdown rule)
-      if (info.ch === open.ch && info.len >= open.len) {
+      if (info.ch === open.ch && info.len >= open.len && info.tailIsWhitespace) {
         open = null;
       }
     }
@@ -4114,7 +4116,7 @@ function copyMarkdownSource(ev){
     for (let j = lineIndex + 1; j < sourceLines.length; j++) {
       const info = _parseFenceInfo(sourceLines[j]);
       if (!info) continue;
-      if (info.ch === open.ch && info.len >= open.len) {
+      if (info.ch === open.ch && info.len >= open.len && info.tailIsWhitespace) {
         return { start: open.start, end: j };
       }
     }
@@ -4282,7 +4284,11 @@ function copyMarkdownSource(ev){
       await navigator.clipboard.writeText(textToCopy);
       success = true;
     } catch (_) {
-      success = fallbackCopy(textToCopy);
+      try {
+        success = (typeof fallbackCopy === 'function') ? fallbackCopy(textToCopy) : false;
+      } catch(_) {
+        success = false;
+      }
     }
 
     if (!success) return;
