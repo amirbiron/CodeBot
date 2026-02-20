@@ -3987,11 +3987,11 @@ function copyMarkdownSource(ev){
     return arr;
   })();
 
-  function normalize(str) {
-    return (str || '')
+  function normalize(str, caseSensitive) {
+    const s = (str || '')
       .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
+      .trim();
+    return caseSensitive ? s : s.toLowerCase();
   }
 
   function stripMarkdownSyntax(line, idx) {
@@ -4016,10 +4016,10 @@ function copyMarkdownSource(ev){
       .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');  // links
   }
 
-  function _countExactMatches(needleNorm) {
+  function _countExactMatches(needleNorm, caseSensitive) {
     let count = 0;
     for (let i = 0; i < sourceLines.length; i++) {
-      const hay = normalize(stripMarkdownSyntax(sourceLines[i], i));
+      const hay = normalize(stripMarkdownSyntax(sourceLines[i], i), caseSensitive);
       if (!hay) continue;
       if (hay === needleNorm) {
         count++;
@@ -4029,7 +4029,7 @@ function copyMarkdownSource(ev){
     return count;
   }
 
-  function _lineMatches(haystack, needle) {
+  function _lineMatches(haystack, needle, caseSensitive) {
     const MIN_SUBSTRING_LEN = 8;
     const MIN_UNIQUE_EXACT_LEN = 5;
     const CONTAINS_MIN_RATIO = 0.6; // needle is substantial part of haystack
@@ -4040,7 +4040,7 @@ function copyMarkdownSource(ev){
     if (haystack === needle) {
       // שורות קצרות/עמומות ("a", "1.", "}") יגרמו להרבה false positives — נקבל רק אם זה ייחודי במסמך
       if (needle.length < MIN_UNIQUE_EXACT_LEN) {
-        return _countExactMatches(needle) === 1;
+        return _countExactMatches(needle, !!caseSensitive) === 1;
       }
       return true;
     }
@@ -4062,34 +4062,44 @@ function copyMarkdownSource(ev){
   }
 
   function findFirstLineIndex(searchText, startFrom) {
-    const needle = normalize(searchText);
-    if (!needle) return -1;
+    const needleLower = normalize(searchText, false);
+    const needleCase = normalize(searchText, true);
+    if (!needleLower && !needleCase) return -1;
     for (let i = startFrom; i < sourceLines.length; i++) {
-      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
+      const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
+      const needle = isCode ? needleCase : needleLower;
+      if (!needle) continue;
+      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode);
       if (!haystack) continue;
-      if (_lineMatches(haystack, needle)) return i;
+      if (_lineMatches(haystack, needle, isCode)) return i;
     }
     return -1;
   }
 
   function findLastLineIndex(searchText, startFrom, endAt) {
-    const needle = normalize(searchText);
-    if (!needle) return -1;
+    const needleLower = normalize(searchText, false);
+    const needleCase = normalize(searchText, true);
+    if (!needleLower && !needleCase) return -1;
     const end = Math.min(sourceLines.length - 1, Math.max(startFrom, endAt));
     for (let i = end; i >= startFrom; i--) {
-      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
+      const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
+      const needle = isCode ? needleCase : needleLower;
+      if (!needle) continue;
+      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode);
       if (!haystack) continue;
-      if (_lineMatches(haystack, needle)) return i;
+      if (_lineMatches(haystack, needle, isCode)) return i;
     }
     return -1;
   }
 
   function _parseFenceInfo(line) {
-    const m = (line || '').trim().match(/^(```+|~~~+)(.*)$/);
+    // CommonMark: fences may be indented by up to 3 spaces (not tabs).
+    // Avoid .trim(): indented backticks inside code blocks are literal and must not open/close fences.
+    const m = (line || '').match(/^( {0,3})(```+|~~~+)(.*)$/);
     if (!m) return null;
-    const marker = m[1] || '';
+    const marker = m[2] || '';
     if (marker.length < 3) return null;
-    const tail = (m[2] || '');
+    const tail = (m[3] || '');
     return { ch: marker[0], len: marker.length, tailIsWhitespace: /^\s*$/.test(tail) };
   }
 
@@ -4132,30 +4142,55 @@ function copyMarkdownSource(ev){
     if (!selNonEmpty.length) return '';
 
     function findFirstLineIndexInRange(searchText, startFrom, endAt) {
-      const needle = normalize(searchText);
-      if (!needle) return -1;
+      const needleLower = normalize(searchText, false);
+      const needleCase = normalize(searchText, true);
+      if (!needleLower && !needleCase) return -1;
       const end = Math.min(sourceLines.length - 1, Math.max(startFrom, endAt));
       for (let i = startFrom; i <= end; i++) {
-        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
+        const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
+        const needle = isCode ? needleCase : needleLower;
+        if (!needle) continue;
+        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode);
         if (!haystack) continue;
-        if (_lineMatches(haystack, needle)) return i;
+        if (_lineMatches(haystack, needle, isCode)) return i;
       }
       return -1;
     }
 
     function findCandidateStartIndices(searchText, maxCandidates) {
-      const needle = normalize(searchText);
-      if (!needle) return [];
-      const res = [];
+      const needleLower = normalize(searchText, false);
+      const needleCase = normalize(searchText, true);
+      if (!needleLower && !needleCase) return [];
+
+      // Keep a bounded set of candidates from the start and the end of the doc,
+      // so we don't miss later occurrences while still capping work.
+      const keepFirst = Math.max(1, Math.ceil(maxCandidates / 2));
+      const keepLast = Math.max(0, maxCandidates - keepFirst);
+      const first = [];
+      const last = [];
       for (let i = 0; i < sourceLines.length; i++) {
-        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
+        const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
+        const needle = isCode ? needleCase : needleLower;
+        if (!needle) continue;
+        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode);
         if (!haystack) continue;
-        if (_lineMatches(haystack, needle)) {
-          res.push(i);
-          if (res.length >= maxCandidates) break;
+        if (_lineMatches(haystack, needle, isCode)) {
+          if (first.length < keepFirst) {
+            first.push(i);
+          } else if (keepLast > 0) {
+            last.push(i);
+            if (last.length > keepLast) last.shift();
+          }
         }
       }
-      return res;
+      if (!last.length) return first;
+      if (first.length && last.length && first[first.length - 1] >= last[0]) {
+        // Overlap, de-duplicate conservatively
+        const seen = new Set(first);
+        for (const i of last) if (!seen.has(i)) first.push(i);
+        return first;
+      }
+      return first.concat(last);
     }
 
     function pickBestStartIndex() {
