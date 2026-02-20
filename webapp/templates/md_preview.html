@@ -3989,13 +3989,55 @@ function copyMarkdownSource(ev){
   function findLineIndex(searchText, startFrom) {
     const needle = normalize(searchText);
     if (!needle) return -1;
+    const MIN_SUBSTRING_LEN = 8;
     for (let i = startFrom; i < sourceLines.length; i++) {
       const haystack = normalize(stripMarkdownSyntax(sourceLines[i]));
       if (!haystack) continue;
+      // עדיפות לשוויון מלא כדי להימנע מ-false positives על שורות קצרות (למשל "1." / "a")
+      if (haystack === needle) return i;
+      if (haystack.length < MIN_SUBSTRING_LEN || needle.length < MIN_SUBSTRING_LEN) continue;
       if (needle.includes(haystack)) return i;
       if (haystack.includes(needle)) return i;
     }
     return -1;
+  }
+
+  function _parseFenceInfo(line) {
+    const m = (line || '').trim().match(/^(```+|~~~+)(.*)$/);
+    if (!m) return null;
+    const marker = m[1] || '';
+    if (marker.length < 3) return null;
+    return { ch: marker[0], len: marker.length };
+  }
+
+  function _getEnclosingFenceRange(lineIndex) {
+    if (lineIndex < 0 || lineIndex >= sourceLines.length) return null;
+
+    // האם אנחנו "בתוך" fenced block? (סורקים מהתחלה עד השורה)
+    let open = null; // {ch,len,start}
+    for (let i = 0; i <= lineIndex; i++) {
+      const info = _parseFenceInfo(sourceLines[i]);
+      if (!info) continue;
+      if (!open) {
+        open = { ch: info.ch, len: info.len, start: i };
+        continue;
+      }
+      // בתוך בלוק: נסגור רק עם אותו marker ואורך fence תואם/ארוך יותר (markdown rule)
+      if (info.ch === open.ch && info.len >= open.len) {
+        open = null;
+      }
+    }
+    if (!open) return null;
+
+    // מצא fence סוגר
+    for (let j = lineIndex + 1; j < sourceLines.length; j++) {
+      const info = _parseFenceInfo(sourceLines[j]);
+      if (!info) continue;
+      if (info.ch === open.ch && info.len >= open.len) {
+        return { start: open.start, end: j };
+      }
+    }
+    return null;
   }
 
   function mapSelectionToSource(selectedText) {
@@ -4021,22 +4063,14 @@ function copyMarkdownSource(ev){
 
     if (firstSourceIdx < 0) return '';
 
-    const isFence = (line) => (line || '').trim().startsWith('```');
-    let fenceStart = -1;
-    let fenceEnd = -1;
-
-    for (let i = firstSourceIdx; i >= 0; i--) {
-      if (isFence(sourceLines[i])) { fenceStart = i; break; }
-    }
-    if (fenceStart >= 0) {
-      for (let i = Math.max(fenceStart + 1, lastSourceIdx); i < sourceLines.length; i++) {
-        if (isFence(sourceLines[i])) { fenceEnd = i; break; }
+    // הרחבה לבלוק קוד רק אם הבחירה באמת בתוך fenced block מאוזן
+    const fenceRange = _getEnclosingFenceRange(firstSourceIdx);
+    if (fenceRange && fenceRange.end > fenceRange.start) {
+      // הרחב רק אם הטווח באמת "מכסה" את נקודת ההתאמה
+      if (fenceRange.start <= firstSourceIdx && fenceRange.end >= firstSourceIdx) {
+        firstSourceIdx = fenceRange.start;
+        lastSourceIdx = fenceRange.end;
       }
-    }
-
-    if (fenceStart >= 0 && fenceEnd > fenceStart) {
-      firstSourceIdx = fenceStart;
-      lastSourceIdx = fenceEnd;
     }
 
     return sourceLines.slice(firstSourceIdx, lastSourceIdx + 1).join('\n');
@@ -4047,9 +4081,14 @@ function copyMarkdownSource(ev){
     const card = container.closest('.glass-card') || container;
     const cardRect = card.getBoundingClientRect();
 
-    const top = rect.top - cardRect.top - fab.offsetHeight - 8;
+    // getBoundingClientRect נותן קואורדינטות ביחס ל-viewport.
+    // ב-fullscreen ה-card נהיה scroll-container, לכן צריך להוסיף scrollTop.
+    const scrollTop = (card && typeof card.scrollTop === 'number') ? card.scrollTop : 0;
+    const scrollLeft = (card && typeof card.scrollLeft === 'number') ? Math.max(0, card.scrollLeft) : 0;
+
+    const top = rect.top - cardRect.top + scrollTop - fab.offsetHeight - 8;
     fab.style.top = Math.max(8, top) + 'px';
-    fab.style.right = Math.max(8, cardRect.right - rect.right) + 'px';
+    fab.style.right = Math.max(8, (cardRect.right - rect.right) + scrollLeft) + 'px';
     fab.style.left = '';
   }
 
