@@ -239,7 +239,8 @@ def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
                 text = bytes(code_value).decode("utf-8", errors="ignore")
             except Exception:
                 text = ""
-            lines_count = int(len(text.splitlines())) if text else 0
+            # עקביות עם מסלולי MongoDB: ספירה לפי '\n' (כולל newline בסוף).
+            lines_count = int(len(text.split('\n'))) if text else 0
         else:
             try:
                 text = "" if code_value is None else str(code_value)
@@ -251,7 +252,7 @@ def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
                 except Exception:
                     size_bytes = 0
                 try:
-                    lines_count = int(len(text.splitlines()))
+                    lines_count = int(len(text.split('\n')))
                 except Exception:
                     lines_count = 0
     except Exception:
@@ -3056,7 +3057,7 @@ def get_internal_share(share_id: str, *, include_code: bool = True) -> Optional[
                 builtin_doc = dict(builtin_doc)
                 builtin_doc['snippet_preview'] = code[:2000]
                 builtin_doc['file_size'] = int(len(code.encode('utf-8', errors='ignore'))) if code else 0
-                builtin_doc['lines_count'] = int(len(code.splitlines())) if code else 0
+                builtin_doc['lines_count'] = int(len(code.split('\n'))) if code else 0
                 builtin_doc.pop('code', None)
                 builtin_doc['mode'] = builtin_doc.get('mode') or 'preview'
             except Exception:
@@ -12193,7 +12194,7 @@ def view_file(file_id):
                                  'description': file.get('description', ''),
                                  'tags': file.get('tags', []),
                                  'size': format_file_size(len(code.encode('utf-8'))),
-                                 'lines': len(code.splitlines()),
+                                 'lines': len(code.split('\n')) if code else 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
@@ -12286,7 +12287,7 @@ def view_file(file_id):
         'description': file.get('description', ''),
         'tags': file.get('tags', []),
         'size': format_file_size(len(code.encode('utf-8'))),
-        'lines': len(code.splitlines()),
+        'lines': len(code.split('\n')) if code else 0,
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
         'version': (file.get('version', 1) if not is_large else None),
@@ -15089,7 +15090,7 @@ def create_public_share(file_id):
             except Exception:
                 size_bytes = 0
             try:
-                lines_count = int(file.get('lines_count') or len(code.splitlines()))
+                lines_count = int(file.get('lines_count') or (len(code.split('\n')) if code else 0))
             except Exception:
                 lines_count = 0
             doc.update({
@@ -18745,7 +18746,8 @@ def public_share(share_id):
             size_bytes = 0
     if lines_count <= 0:
         try:
-            lines_count = len(str(code).splitlines())
+            code_str = "" if code is None else str(code)
+            lines_count = len(code_str.split('\n')) if code_str else 0
         except Exception:
             lines_count = 0
     created_at = doc.get('created_at')
