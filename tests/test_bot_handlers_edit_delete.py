@@ -201,4 +201,4 @@ async def test_delete_command_prompts_and_confirmation_markup(monkeypatch):
     assert 'אישור מחיקה' in text
     # InlineKeyboardMarkup has inline_keyboard attribute
     buttons = getattr(rm, 'inline_keyboard', [])
-    assert buttons and buttons[0][0].callback_data.startswith('confirm_delete_')
+    assert buttons and buttons[0][0].callback_data.startswith('snip_confirm_delete_')

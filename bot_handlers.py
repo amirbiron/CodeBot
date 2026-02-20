@@ -1096,7 +1096,7 @@ class AdvancedBotHandlers:
         # כפתורי אישור
         keyboard = [
             [
-                InlineKeyboardButton("✅ כן, מחק", callback_data=f"confirm_delete_{file_name}"),
+                InlineKeyboardButton("✅ כן, מחק", callback_data=f"snip_confirm_delete_{file_name}"),
                 InlineKeyboardButton("❌ ביטול", callback_data="cancel_delete")
             ]
         ]
@@ -4328,23 +4328,40 @@ class AdvancedBotHandlers:
             # חשוב: יש callback-ים בתפריט GitHub שחופפים לתבניות כלליות כאן (confirm_delete_/download_).
             # כשה-handler הזה רץ אחרי ה-GitHub handler (בקבוצה אחרת), הוא עלול לדרוס את ההודעה ולגרום לטעויות
             # כמו "שגיאה בזיהוי הקובץ" בזמן שמוחקים ריפו/מורידים ZIP.
-            # לכן אנחנו מדלגים במפורש על callback-ים ידועים של GitHub.
+            # לכן אנחנו מדלגים במפורש על callback-ים ידועים של GitHub/Legacy שיכולים להיתפס כאן בטעות.
             try:
                 if isinstance(data, str):
+                    # download_zip_* מתחיל ב-"download_" ולכן היה נופל למסלול הורדה של קובץ מקומי.
+                    # בנוסף נשמור תאימות אחורה לכפתורי GitHub ישנים (שמות callback ישנים) כדי שלא ימחוק "קובץ מקומי" בשם repo.
                     if data in {
                         "confirm_delete_file",
                         "confirm_delete_repo_step1",
                         "confirm_delete_repo",
-                        "download_file_menu",
-                        "download_analysis_json",
+                        "download_file_menu",  # legacy GitHub callback (מתנגש עם download_)
+                        "download_analysis_json",  # legacy GitHub callback (מתנגש עם download_)
                     } or data.startswith(("download_zip:", "download_zip_i:")):
                         return
             except Exception:
                 # אם משהו השתבש בבדיקה – לא נכשיל את הזרימה, נמשיך כרגיל
                 pass
 
-            if data.startswith("confirm_delete_"):
+            if data.startswith("snip_confirm_delete_"):
+                file_name = data.replace("snip_confirm_delete_", "")
+                
+                if _call_files_api("delete_file", user_id, file_name):
+                    await query.edit_message_text(
+                        f"✅ הקובץ `{file_name}` נמחק בהצלחה!",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await query.edit_message_text("❌ שגיאה במחיקת הקובץ.")
+            
+            elif data.startswith("confirm_delete_"):
+                # תאימות אחורה לכפתורי מחיקה ישנים של הבוט (לפני prefix ייעודי),
+                # תוך מניעת בלבול עם callbacks ישנים של GitHub.
                 file_name = data.replace("confirm_delete_", "")
+                if file_name in {"file", "repo", "repo_step1"}:
+                    return
                 
                 if _call_files_api("delete_file", user_id, file_name):
                     await query.edit_message_text(
