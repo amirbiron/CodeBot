@@ -1735,6 +1735,71 @@ input.md-task-checkbox {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* === "העתק כמארקדאון" — כפתור צף להעתקת קטע מסומן === */
+#mdCard {
+  position: relative;
+}
+
+.md-copy-selection-fab {
+  position: absolute;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  transition: background 0.15s ease, transform 0.15s ease;
+  white-space: nowrap;
+  pointer-events: auto;
+  font-family: inherit;
+  direction: rtl;
+}
+
+.md-copy-selection-fab:hover {
+  background: #f3f4f6;
+  transform: translateY(-1px);
+}
+
+.md-copy-selection-fab.is-visible {
+  display: inline-flex;
+}
+
+.md-copy-selection-fab.is-copied {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+[data-theme="dark"] .md-copy-selection-fab,
+[data-theme="dim"] .md-copy-selection-fab,
+[data-theme="nebula"] .md-copy-selection-fab {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .md-copy-selection-fab:hover,
+[data-theme="dim"] .md-copy-selection-fab:hover,
+[data-theme="nebula"] .md-copy-selection-fab:hover {
+  background: #334155;
+}
+
+[data-theme="dark"] .md-copy-selection-fab.is-copied,
+[data-theme="dim"] .md-copy-selection-fab.is-copied,
+[data-theme="nebula"] .md-copy-selection-fab.is-copied {
+  background: #064e3b;
+  color: #6ee7b7;
+  border-color: #065f46;
+}
 </style>
 {% endblock %}
 
@@ -1842,6 +1907,13 @@ input.md-task-checkbox {
       </button>
     </div>
     <div id="md-content" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
+    <button type="button"
+            id="mdCopySelectionFab"
+            class="md-copy-selection-fab"
+            aria-label="העתק כמארקדאון">
+      <i class="fas fa-copy" aria-hidden="true"></i>
+      <span class="md-copy-selection-fab__label">העתק כמארקדאון</span>
+    </button>
   </div>
 
   <!-- תוכן עניינים צף מתקדם עם כל הפיצ'רים (ממוקם אחרי #mdCard כדי שכללי CSS של fullscreen יעבדו) -->
@@ -3880,6 +3952,191 @@ function copyMarkdownSource(ev){
   })();
   return false;
 }
+
+// === "העתק כמארקדאון" — העתקת קטע מסומן כ-Markdown מקורי ===
+(function initCopySelectionAsMarkdown() {
+  const container = document.getElementById('md-content');
+  const fab = document.getElementById('mdCopySelectionFab');
+  if (!container || !fab) return;
+
+  const sourceLines = (typeof MD_TEXT === 'string' ? MD_TEXT : '').split('\n');
+
+  function normalize(str) {
+    return (str || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function stripMarkdownSyntax(line) {
+    return (line || '')
+      .replace(/^#{1,6}\s+/, '')                 // כותרות
+      .replace(/^>\s?/gm, '')                    // ציטוטים
+      .replace(/^[-*+]\s+/, '')                  // רשימות
+      .replace(/^\d+\.\s+/, '')                  // רשימות ממוספרות
+      .replace(/^[-*_]{3,}\s*$/, '')             // קווים אופקיים
+      .replace(/\*\*(.+?)\*\*/g, '$1')           // bold
+      .replace(/__(.+?)__/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')               // italic
+      .replace(/_(.+?)_/g, '$1')
+      .replace(/~~(.+?)~~/g, '$1')               // strikethrough
+      .replace(/==(.+?)==/g, '$1')               // mark
+      .replace(/`([^`]+)`/g, '$1')               // inline code
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')  // images
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');  // links
+  }
+
+  function findLineIndex(searchText, startFrom) {
+    const needle = normalize(searchText);
+    if (!needle) return -1;
+    for (let i = startFrom; i < sourceLines.length; i++) {
+      const haystack = normalize(stripMarkdownSyntax(sourceLines[i]));
+      if (!haystack) continue;
+      if (needle.includes(haystack)) return i;
+      if (haystack.includes(needle)) return i;
+    }
+    return -1;
+  }
+
+  function mapSelectionToSource(selectedText) {
+    if (!selectedText || !sourceLines.length) return '';
+
+    const selLines = selectedText.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!selLines.length) return '';
+
+    let firstSourceIdx = -1;
+    for (const selLine of selLines) {
+      firstSourceIdx = findLineIndex(selLine, 0);
+      if (firstSourceIdx >= 0) break;
+    }
+
+    let lastSourceIdx = firstSourceIdx;
+    for (let i = selLines.length - 1; i >= 0; i--) {
+      const idx = findLineIndex(selLines[i], Math.max(0, firstSourceIdx));
+      if (idx >= 0) {
+        lastSourceIdx = Math.max(lastSourceIdx, idx);
+        break;
+      }
+    }
+
+    if (firstSourceIdx < 0) return '';
+
+    const isFence = (line) => (line || '').trim().startsWith('```');
+    let fenceStart = -1;
+    let fenceEnd = -1;
+
+    for (let i = firstSourceIdx; i >= 0; i--) {
+      if (isFence(sourceLines[i])) { fenceStart = i; break; }
+    }
+    if (fenceStart >= 0) {
+      for (let i = Math.max(fenceStart + 1, lastSourceIdx); i < sourceLines.length; i++) {
+        if (isFence(sourceLines[i])) { fenceEnd = i; break; }
+      }
+    }
+
+    if (fenceStart >= 0 && fenceEnd > fenceStart) {
+      firstSourceIdx = fenceStart;
+      lastSourceIdx = fenceEnd;
+    }
+
+    return sourceLines.slice(firstSourceIdx, lastSourceIdx + 1).join('\n');
+  }
+
+  function positionFab(range) {
+    const rect = range.getBoundingClientRect();
+    const card = container.closest('.glass-card') || container;
+    const cardRect = card.getBoundingClientRect();
+
+    const top = rect.top - cardRect.top - fab.offsetHeight - 8;
+    fab.style.top = Math.max(8, top) + 'px';
+    fab.style.right = Math.max(8, cardRect.right - rect.right) + 'px';
+    fab.style.left = '';
+  }
+
+  function showFab(range) {
+    fab.classList.remove('is-copied');
+    fab.classList.add('is-visible');
+    requestAnimationFrame(() => positionFab(range));
+  }
+
+  function hideFab() {
+    fab.classList.remove('is-visible', 'is-copied');
+  }
+
+  let hideTimer = null;
+
+  document.addEventListener('selectionchange', () => {
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) {
+        hideFab();
+        return;
+      }
+
+      const range = sel.getRangeAt(0);
+      if (!container.contains(range.commonAncestorContainer)) {
+        hideFab();
+        return;
+      }
+
+      const text = sel.toString().trim();
+      if (text.length < 2) {
+        hideFab();
+        return;
+      }
+
+      showFab(range);
+    }, 250);
+  });
+
+  fab.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  fab.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const sel = window.getSelection();
+    const selectedText = sel ? sel.toString().trim() : '';
+    if (!selectedText) return;
+
+    const markdown = mapSelectionToSource(selectedText);
+    const textToCopy = markdown || selectedText;
+
+    let success = false;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      success = true;
+    } catch (_) {
+      success = fallbackCopy(textToCopy);
+    }
+
+    if (!success) return;
+
+    const labelEl = fab.querySelector('.md-copy-selection-fab__label') || fab;
+    const originalLabel = fab.dataset && fab.dataset.originalLabel
+      ? fab.dataset.originalLabel
+      : (labelEl ? labelEl.textContent : 'העתק כמארקדאון');
+
+    if (fab.dataset && !fab.dataset.originalLabel) {
+      fab.dataset.originalLabel = originalLabel;
+    }
+
+    fab.classList.add('is-copied');
+    if (labelEl) {
+      labelEl.textContent = markdown ? 'הועתק כמארקדאון!' : 'הועתק!';
+    }
+    setTimeout(() => {
+      try {
+        if (labelEl) labelEl.textContent = originalLabel;
+      } catch(_) {}
+      hideFab();
+    }, 1500);
+  });
+})();
 
 let shareLinkModalKeyHandlerMd = null;
 
