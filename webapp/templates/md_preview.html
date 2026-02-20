@@ -3961,6 +3961,31 @@ function copyMarkdownSource(ev){
 
   const sourceLines = (typeof MD_TEXT === 'string' ? MD_TEXT : '').split('\n');
 
+  // Precompute whether each line is inside a fenced code block.
+  // This is important so we won't strip markdown-like syntax that is literal inside code.
+  const inFencedBlock = (function computeInFencedBlock() {
+    const arr = new Array(sourceLines.length).fill(false);
+    let open = null; // { ch, len }
+    for (let i = 0; i < sourceLines.length; i++) {
+      const info = _parseFenceInfo(sourceLines[i]);
+      if (info) {
+        if (!open) {
+          open = { ch: info.ch, len: info.len };
+          // Fence line itself is not considered "inside" for stripping purposes
+          arr[i] = false;
+          continue;
+        }
+        if (info.ch === open.ch && info.len >= open.len) {
+          open = null;
+          arr[i] = false;
+          continue;
+        }
+      }
+      arr[i] = !!open;
+    }
+    return arr;
+  })();
+
   function normalize(str) {
     return (str || '')
       .replace(/\s+/g, ' ')
@@ -3968,7 +3993,11 @@ function copyMarkdownSource(ev){
       .toLowerCase();
   }
 
-  function stripMarkdownSyntax(line) {
+  function stripMarkdownSyntax(line, idx) {
+    // בתוך fenced code block כל התווים הם ליטרליים – לא מסירים *_` וכו'
+    if (typeof idx === 'number' && idx >= 0 && idx < inFencedBlock.length && inFencedBlock[idx]) {
+      return (line || '');
+    }
     return (line || '')
       .replace(/^#{1,6}\s+/, '')                 // כותרות
       .replace(/^>\s?/gm, '')                    // ציטוטים
@@ -3989,7 +4018,7 @@ function copyMarkdownSource(ev){
   function _countExactMatches(needleNorm) {
     let count = 0;
     for (let i = 0; i < sourceLines.length; i++) {
-      const hay = normalize(stripMarkdownSyntax(sourceLines[i]));
+      const hay = normalize(stripMarkdownSyntax(sourceLines[i], i));
       if (!hay) continue;
       if (hay === needleNorm) {
         count++;
@@ -4035,7 +4064,7 @@ function copyMarkdownSource(ev){
     const needle = normalize(searchText);
     if (!needle) return -1;
     for (let i = startFrom; i < sourceLines.length; i++) {
-      const haystack = normalize(stripMarkdownSyntax(sourceLines[i]));
+      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
       if (!haystack) continue;
       if (_lineMatches(haystack, needle)) return i;
     }
@@ -4047,7 +4076,7 @@ function copyMarkdownSource(ev){
     if (!needle) return -1;
     const end = Math.min(sourceLines.length - 1, Math.max(startFrom, endAt));
     for (let i = end; i >= startFrom; i--) {
-      const haystack = normalize(stripMarkdownSyntax(sourceLines[i]));
+      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i));
       if (!haystack) continue;
       if (_lineMatches(haystack, needle)) return i;
     }
@@ -4105,8 +4134,25 @@ function copyMarkdownSource(ev){
     }
 
     let lastSourceIdx = firstSourceIdx;
+    const LOOKAHEAD_MIN = 200;
+    const LOOKAHEAD_PER_SEL_LINE = 120;
+    const LOOKAHEAD_MAX = 5000;
+    const endHint = (firstSourceIdx >= 0)
+      ? Math.min(
+        sourceLines.length - 1,
+        firstSourceIdx + Math.min(
+          LOOKAHEAD_MAX,
+          Math.max(LOOKAHEAD_MIN, selLines.length * LOOKAHEAD_PER_SEL_LINE)
+        )
+      )
+      : (sourceLines.length - 1);
+
     for (let i = selLines.length - 1; i >= 0; i--) {
-      const idx = findLastLineIndex(selLines[i], Math.max(0, firstSourceIdx), sourceLines.length - 1);
+      // חפש את ההופעה האחרונה "באזור" הבחירה – לא בסוף כל המסמך כדי להימנע מהתרחבות ענקית.
+      let idx = findLastLineIndex(selLines[i], Math.max(0, firstSourceIdx), endHint);
+      if (idx < 0 && firstSourceIdx >= 0) {
+        idx = findLastLineIndex(selLines[i], Math.max(0, firstSourceIdx), Math.min(sourceLines.length - 1, firstSourceIdx + LOOKAHEAD_MAX));
+      }
       if (idx >= 0) {
         lastSourceIdx = Math.max(lastSourceIdx, idx);
         break;
@@ -4115,13 +4161,19 @@ function copyMarkdownSource(ev){
 
     if (firstSourceIdx < 0) return '';
 
-    // הרחבה לבלוק קוד רק אם הבחירה באמת בתוך fenced block מאוזן
-    const fenceRange = _getEnclosingFenceRange(firstSourceIdx);
-    if (fenceRange && fenceRange.end > fenceRange.start) {
-      // הרחב רק אם הטווח באמת "מכסה" את נקודת ההתאמה
-      if (fenceRange.start <= firstSourceIdx && fenceRange.end >= firstSourceIdx) {
-        firstSourceIdx = fenceRange.start;
-        lastSourceIdx = Math.max(lastSourceIdx, fenceRange.end);
+    // הרחבה ל-fenced blocks: בדוק גם את תחילת הבחירה וגם את סופה כדי לא לייצר fences "שבורים"
+    const fenceRangeStart = _getEnclosingFenceRange(firstSourceIdx);
+    if (fenceRangeStart && fenceRangeStart.end > fenceRangeStart.start) {
+      if (fenceRangeStart.start <= firstSourceIdx && fenceRangeStart.end >= firstSourceIdx) {
+        firstSourceIdx = Math.min(firstSourceIdx, fenceRangeStart.start);
+        lastSourceIdx = Math.max(lastSourceIdx, fenceRangeStart.end);
+      }
+    }
+    const fenceRangeEnd = _getEnclosingFenceRange(lastSourceIdx);
+    if (fenceRangeEnd && fenceRangeEnd.end > fenceRangeEnd.start) {
+      if (fenceRangeEnd.start <= lastSourceIdx && fenceRangeEnd.end >= lastSourceIdx) {
+        firstSourceIdx = Math.min(firstSourceIdx, fenceRangeEnd.start);
+        lastSourceIdx = Math.max(lastSourceIdx, fenceRangeEnd.end);
       }
     }
 
