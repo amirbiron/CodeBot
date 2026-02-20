@@ -4325,6 +4325,24 @@ class AdvancedBotHandlers:
             user_id = 0
         
         try:
+            # חשוב: יש callback-ים בתפריט GitHub שחופפים לתבניות כלליות כאן (confirm_delete_/download_).
+            # כשה-handler הזה רץ אחרי ה-GitHub handler (בקבוצה אחרת), הוא עלול לדרוס את ההודעה ולגרום לטעויות
+            # כמו "שגיאה בזיהוי הקובץ" בזמן שמוחקים ריפו/מורידים ZIP.
+            # לכן אנחנו מדלגים במפורש על callback-ים ידועים של GitHub.
+            try:
+                if isinstance(data, str):
+                    if data in {
+                        "confirm_delete_file",
+                        "confirm_delete_repo_step1",
+                        "confirm_delete_repo",
+                        "download_file_menu",
+                        "download_analysis_json",
+                    } or data.startswith(("download_zip:", "download_zip_i:")):
+                        return
+            except Exception:
+                # אם משהו השתבש בבדיקה – לא נכשיל את הזרימה, נמשיך כרגיל
+                pass
+
             if data.startswith("confirm_delete_"):
                 file_name = data.replace("confirm_delete_", "")
                 
