@@ -236,17 +236,24 @@ markdown-it שומר על סדר הטקסט — כלומר הטקסט שמופי
 
     if (firstSourceIdx < 0) return '';
 
-    // הרחבה: אם השורה האחרונה היא חלק מבלוק קוד, כלול את כל הבלוק
-    if (lastSourceIdx < sourceLines.length - 1) {
-      const inCodeBlock = sourceLines[firstSourceIdx].startsWith('```');
-      if (inCodeBlock) {
-        for (let i = firstSourceIdx + 1; i < sourceLines.length; i++) {
-          if (sourceLines[i].startsWith('```')) {
-            lastSourceIdx = Math.max(lastSourceIdx, i);
-            break;
-          }
-        }
+    // הרחבה: אם הסלקציה נופלת בתוך fenced code block — כלול את הבלוק כולו
+    // סריקה למעלה ולמטה מנקודת ההתחלה כדי לזהות fences עוטפים
+    const isFence = (line) => (line || '').trim().startsWith('```');
+    let fenceStart = -1;
+    let fenceEnd = -1;
+
+    for (let i = firstSourceIdx; i >= 0; i--) {
+      if (isFence(sourceLines[i])) { fenceStart = i; break; }
+    }
+    if (fenceStart >= 0) {
+      for (let i = Math.max(fenceStart + 1, lastSourceIdx); i < sourceLines.length; i++) {
+        if (isFence(sourceLines[i])) { fenceEnd = i; break; }
       }
+    }
+
+    if (fenceStart >= 0 && fenceEnd > fenceStart) {
+      firstSourceIdx = fenceStart;
+      lastSourceIdx = fenceEnd;
     }
 
     return sourceLines.slice(firstSourceIdx, lastSourceIdx + 1).join('\n');
@@ -389,7 +396,7 @@ const sourceLines = (typeof MD_TEXT === 'string' ? MD_TEXT : '').split('\n');
 
 ### 1. בלוקי קוד
 
-כשהמשתמש מסמן קוד מעוצב, הטקסט שחוזר מ-`selection.toString()` הוא רק הקוד (בלי ה-` ``` `). הפונקציה `mapSelectionToSource` מזהה שהשורה הראשונה שנמצאה היא פתיחת בלוק קוד ומרחיבה עד סוף הבלוק.
+כשהמשתמש מסמן קוד מעוצב, הטקסט שחוזר מ-`selection.toString()` הוא רק הקוד עצמו (בלי ה-` ``` `). הפונקציה `mapSelectionToSource` סורקת **למעלה** מהשורה הראשונה שנמצאה עד שמוצאת fence פותח, ו**למטה** עד שמוצאת fence סוגר. כך גם כשבוחרים שורה באמצע הבלוק — ההעתקה כוללת את ה-fences ואת ה-language hint (למשל ` ```python `).
 
 ### 2. טבלאות
 
