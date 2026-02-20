@@ -1113,7 +1113,7 @@ class GitHubMenuHandler:
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             # פעולות נוספות בטוחות
             keyboard.append(
-                [InlineKeyboardButton("📥 הורד קובץ מהריפו", callback_data="download_file_menu")]
+                [InlineKeyboardButton("📥 הורד קובץ מהריפו", callback_data="gh_download_file_menu")]
             )
             # כפתור ייבוא ריפו (ZIP רשמי → ייבוא קבצים ל-DB)
             keyboard.append(
@@ -1934,7 +1934,7 @@ class GitHubMenuHandler:
         elif query.data == "show_full_analysis":
             await self.show_full_analysis(update, context)
 
-        elif query.data == "download_analysis_json":
+        elif query.data in ("gh_download_analysis_json", "download_analysis_json"):
             await self.download_analysis_json(update, context)
 
         elif query.data == "github_backup_menu":
@@ -2417,16 +2417,16 @@ class GitHubMenuHandler:
         elif query.data == "delete_repo_menu":
             await self.show_delete_repo_menu(update, context)
 
-        elif query.data == "confirm_delete_file":
+        elif query.data in ("gh_confirm_delete_file", "confirm_delete_file"):
             await self.confirm_delete_file(update, context)
 
-        elif query.data == "confirm_delete_repo_step1":
+        elif query.data in ("gh_confirm_delete_repo_step1", "confirm_delete_repo_step1"):
             await self.confirm_delete_repo_step1(update, context)
 
-        elif query.data == "confirm_delete_repo":
+        elif query.data in ("gh_confirm_delete_repo", "confirm_delete_repo"):
             await self.confirm_delete_repo(update, context)
 
-        elif query.data == "download_file_menu":
+        elif query.data in ("gh_download_file_menu", "download_file_menu"):
             await self.show_download_file_menu(update, context)
 
         elif query.data.startswith("browse_open:") or query.data.startswith("browse_open_i:"):
@@ -2588,7 +2588,7 @@ class GitHubMenuHandler:
             # דרוש אישור לפני מחיקה
             context.user_data["pending_delete_file_path"] = path
             keyboard = [
-                [InlineKeyboardButton("✅ אישור מחיקה", callback_data="confirm_delete_file")],
+                [InlineKeyboardButton("✅ אישור מחיקה", callback_data="gh_confirm_delete_file")],
                 [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
             ]
             await query.edit_message_text(
@@ -4874,7 +4874,7 @@ class GitHubMenuHandler:
             # צור כפתורים
             keyboard = [
                 [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
-                [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
+                [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="gh_download_analysis_json")],
                 [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
                 [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
             ]
@@ -5239,7 +5239,7 @@ class GitHubMenuHandler:
 
         keyboard = [
             [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
-            [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
+            [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="gh_download_analysis_json")],
             [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
             [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
         ]
@@ -5317,7 +5317,7 @@ class GitHubMenuHandler:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "✅ אני מבין/ה ומאשר/ת מחיקה", callback_data="confirm_delete_repo_step1"
+                    "✅ אני מבין/ה ומאשר/ת מחיקה", callback_data="gh_confirm_delete_repo_step1"
                 )
             ],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
@@ -5371,7 +5371,7 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ לא נבחר ריפו")
             return
         keyboard = [
-            [InlineKeyboardButton("🧨 כן, מחק לצמיתות", callback_data="confirm_delete_repo")],
+            [InlineKeyboardButton("🧨 כן, מחק לצמיתות", callback_data="gh_confirm_delete_repo")],
             [InlineKeyboardButton("🔙 ביטול", callback_data="github_menu")],
         ]
         await query.edit_message_text(
