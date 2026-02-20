@@ -221,6 +221,54 @@ except Exception:  # pragma: no cover - fallback for minimal environments
 
 LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
+def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
+    """מוסיף file_size/lines_count למסמכי CodeSnippet שנכתבים ישירות ל-DB."""
+    try:
+        if doc.get("file_size") is not None and doc.get("lines_count") is not None:
+            return
+    except Exception:
+        # אם doc לא מתנהג כמו dict סטנדרטי ננסה בכל זאת
+        pass
+
+    size_bytes = 0
+    lines_count = 0
+    try:
+        if isinstance(code_value, (bytes, bytearray)):
+            size_bytes = int(len(code_value))
+            try:
+                text = bytes(code_value).decode("utf-8", errors="ignore")
+            except Exception:
+                text = ""
+            lines_count = int(len(text.splitlines())) if text else 0
+        else:
+            try:
+                text = "" if code_value is None else str(code_value)
+            except Exception:
+                text = ""
+            if text:
+                try:
+                    size_bytes = int(len(text.encode("utf-8", errors="ignore")))
+                except Exception:
+                    size_bytes = 0
+                try:
+                    lines_count = int(len(text.splitlines()))
+                except Exception:
+                    lines_count = 0
+    except Exception:
+        size_bytes = 0
+        lines_count = 0
+
+    try:
+        if doc.get("file_size") is None:
+            doc["file_size"] = int(size_bytes)
+    except Exception:
+        doc["file_size"] = int(size_bytes)
+    try:
+        if doc.get("lines_count") is None:
+            doc["lines_count"] = int(lines_count)
+    except Exception:
+        doc["lines_count"] = int(lines_count)
+
 DEFAULT_LANGUAGE_CHOICES = [
     "python",
     "javascript",
@@ -11284,6 +11332,40 @@ def files():
                 )
                 if not batch:
                     break
+
+                # השלמת file_size/lines_count למסמכים שחסר להם מטא-דאטה,
+                # בלי להחזיר את `code` למסך רשימה (חישוב ב-DB בלבד).
+                try:
+                    needs_ids = []
+                    for d in batch:
+                        if not isinstance(d, dict):
+                            continue
+                        if d.get('file_size') is None or d.get('lines_count') is None:
+                            _id = d.get('_id')
+                            if _id is not None:
+                                needs_ids.append(_id)
+                    if needs_ids:
+                        meta_pipeline = [
+                            {'$match': {'_id': {'$in': needs_ids}}},
+                            _mongo_add_size_lines_stage,
+                            {'$project': {'_id': 1, 'file_size': 1, 'lines_count': 1}},
+                        ]
+                        meta_docs = list(_aggregate_code_snippets(meta_pipeline))
+                        meta_map = {m.get('_id'): m for m in meta_docs if isinstance(m, dict)}
+                        for d in batch:
+                            if not isinstance(d, dict):
+                                continue
+                            m = meta_map.get(d.get('_id'))
+                            if isinstance(m, dict):
+                                # הימנע מדריסה של שדות קיימים אם כבר קיימים במסמך
+                                if d.get('file_size') is None and m.get('file_size') is not None:
+                                    d['file_size'] = m.get('file_size')
+                                if d.get('lines_count') is None and m.get('lines_count') is not None:
+                                    d['lines_count'] = m.get('lines_count')
+                except Exception:
+                    # fallback "שקט": עדיף להחזיר תוצאות גם אם ההשלמה נכשלה
+                    pass
+
                 skip_local += len(batch)
                 scanned += len(batch)
                 for doc in batch:
@@ -13261,6 +13343,7 @@ def api_restore_file_version(file_id):
     source_url = version_doc.get('source_url') or file_doc.get('source_url')
     if source_url:
         new_doc['source_url'] = source_url
+    _attach_file_size_and_lines(new_doc, code_value)
 
     try:
         res = db.code_snippets.insert_one(new_doc)
@@ -14083,6 +14166,7 @@ def edit_file_page(file_id):
                         'updated_at': now,
                         'is_active': True,
                     }
+                    _attach_file_size_and_lines(new_doc, code)
                     if pinned_info:
                         new_doc['is_pinned'] = True
                         try:
@@ -15122,6 +15206,7 @@ def api_save_shared_file():
             'updated_at': now_utc,
             'is_active': True,
         }
+        _attach_file_size_and_lines(snippet_doc, code)
 
         try:
             res = db.code_snippets.insert_one(snippet_doc)
@@ -15829,6 +15914,7 @@ def upload_file_web():
                         'updated_at': now,
                         'is_active': True,
                     }
+                    _attach_file_size_and_lines(doc, code)
                     if clean_source_url:
                         doc['source_url'] = clean_source_url
                     elif not source_url_removed:
@@ -18173,6 +18259,7 @@ def _persist_story_markdown_file(
         'updated_at': now,
         'is_active': True,
     }
+    _attach_file_size_and_lines(doc, normalized_markdown)
     story_context: Dict[str, Any] = {}
     if alert_uid:
         story_context['alert_uid'] = alert_uid
