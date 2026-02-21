@@ -450,10 +450,17 @@ HTML מרונדר (חלקי):
                        || endNode.getAttribute('data-source-line'));
     }
 
-    // אם חסר אחד מהם — השתמש בשני
-    if (startLine == null && endLine != null) startLine = endLine;
-    if (endLine == null && startLine != null) endLine = startLine;
-    if (startLine == null) return null;
+    // אם חסר אחד מהם — קרא את שני ה-attributes מה-node שנמצא.
+    // חשוב: לא מעתיקים startLine ל-endLine (או להיפך) כי זה ייתן
+    // slice(n, n) = מערך ריק. במקום זה, קוראים גם start וגם end מאותו node.
+    if (!startNode && endNode) {
+      startLine = Number(endNode.getAttribute('data-source-line'));
+    }
+    if (!endNode && startNode) {
+      endLine = Number(startNode.getAttribute('data-source-line-end')
+                       || startNode.getAttribute('data-source-line'));
+    }
+    if (startLine == null || endLine == null) return null;
 
     // ודא שהטווח הגיוני
     if (endLine < startLine) {
@@ -639,6 +646,8 @@ token.map[1] → data-source-line-end="3" (שורת סיום, exclusive)
 - את ה-`data-source-line-end` של ה-end container (= שורת הסיום)
 
 אם הסלקציה כולה בתוך אלמנט אחד — שני הערכים מגיעים מאותו אלמנט. אם היא חוצה כמה אלמנטים — כל אחד נותן את הצד שלו.
+
+**טיפול ב-node חסר:** כשרק צד אחד של הסלקציה נמצא (למשל כשגוררים לסוף `#md-content` והדפדפן שם את `endContainer` על הקונטיינר עצמו), הקוד קורא **את שני ה-attributes** (`data-source-line` + `data-source-line-end`) מה-node שכן נמצא. ככה נמנעים ממצב של `slice(n, n)` שמחזיר מערך ריק.
 
 ### חלק 5: חיתוך מקור
 
