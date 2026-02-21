@@ -3988,9 +3988,14 @@ function copyMarkdownSource(ev){
   })();
 
   function normalize(str, caseSensitive, preserveWhitespace) {
-    const raw = (str || '').replace(/\u00a0/g, ' ');
+    const raw = (str || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\t/g, ' ');
     if (preserveWhitespace) {
-      return caseSensitive ? raw : raw.toLowerCase();
+      // בבלוקי קוד נרצה לשמור הזחות/רווחים, אבל עדיין להתעלם מרווחים בסוף שורה
+      // (דפדפנים לא תמיד כוללים אותם ב-selection).
+      const s = raw.replace(/[ ]+$/g, '');
+      return caseSensitive ? s : s.toLowerCase();
     }
     const s = raw
       .replace(/\s+/g, ' ')
@@ -4033,7 +4038,21 @@ function copyMarkdownSource(ev){
     return count;
   }
 
-  function _lineMatches(haystack, needle, caseSensitive) {
+  function _countSubstringMatches(needleNorm, isCode, preserveWhitespace) {
+    if (!needleNorm) return 0;
+    let count = 0;
+    for (let i = 0; i < sourceLines.length; i++) {
+      const hay = normalize(stripMarkdownSyntax(sourceLines[i], i), !!isCode, !!preserveWhitespace);
+      if (!hay) continue;
+      if (hay.includes(needleNorm)) {
+        count++;
+        if (count > 1) return count;
+      }
+    }
+    return count;
+  }
+
+  function _lineMatches(haystack, needle, isCode, preserveWhitespace) {
     const MIN_SUBSTRING_LEN = 8;
     const MIN_UNIQUE_EXACT_LEN = 5;
     const CONTAINS_MIN_RATIO = 0.6; // needle is substantial part of haystack
@@ -4044,7 +4063,7 @@ function copyMarkdownSource(ev){
     if (haystack === needle) {
       // שורות קצרות/עמומות ("a", "1.", "}") יגרמו להרבה false positives — נקבל רק אם זה ייחודי במסמך
       if (needle.length < MIN_UNIQUE_EXACT_LEN) {
-        return _countExactMatches(needle, !!caseSensitive, !!caseSensitive) === 1;
+        return _countExactMatches(needle, !!isCode, !!preserveWhitespace) === 1;
       }
       return true;
     }
@@ -4053,7 +4072,25 @@ function copyMarkdownSource(ev){
 
     // הכיוון הבטוח: הטקסט המסומן (needle) הוא תת-מחרוזת של שורת המקור (haystack)
     if (haystack.includes(needle)) {
-      if ((needle.length / haystack.length) >= CONTAINS_MIN_RATIO) return true;
+      const ratio = (needle.length / haystack.length);
+      if (ratio >= CONTAINS_MIN_RATIO) return true;
+
+      // בחירות קצרות בתוך שורה ארוכה (בעיקר בפסקאות) — נאפשר ratio נמוך יותר רק כשזה עדיין "משמעותי"
+      // או כשזה ייחודי במסמך (כדי להימנע מ-anchoring שגוי).
+      const wordCount = (needle.match(/\S+/g) || []).length;
+      if (!isCode) {
+        if (needle.length >= 24 && wordCount >= 3 && ratio >= 0.18) return true;
+        if (needle.length >= 16 && wordCount >= 2 && ratio >= 0.25) return true;
+        if ((needle.length >= 20 || (needle.length >= 12 && wordCount >= 2))) {
+          return _countSubstringMatches(needle, false, false) === 1;
+        }
+      } else {
+        // בקוד נשמור על זהירות כדי לא להיעגן על שורות דומות; אבל עדיין נרכך מעט בחירות ארוכות/ייחודיות
+        if (needle.length >= 20 && ratio >= 0.25) return true;
+        if (needle.length >= 28) {
+          return _countSubstringMatches(needle, true, !!preserveWhitespace) === 1;
+        }
+      }
     }
 
     // כיוון הפוך (needle כולל haystack) עלול להוביל ל-anchoring שגוי; נאפשר רק אם זה כמעט אותו אורך
@@ -4067,31 +4104,56 @@ function copyMarkdownSource(ev){
 
   function findFirstLineIndex(searchText, startFrom) {
     const needleLower = normalize(searchText, false, false);
-    const needleCase = normalize(searchText, true, true);
-    if (!needleLower && !needleCase) return -1;
+    const needleCodeStrict = normalize(searchText, true, true);
+    const needleCodeLoose = normalize(searchText, true, false);
+    if (!needleLower && !needleCodeStrict && !needleCodeLoose) return -1;
     for (let i = startFrom; i < sourceLines.length; i++) {
       const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
-      const needle = isCode ? needleCase : needleLower;
-      if (!needle) continue;
-      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode, isCode);
-      if (!haystack) continue;
-      if (_lineMatches(haystack, needle, isCode)) return i;
+      if (!isCode) {
+        if (!needleLower) continue;
+        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), false, false);
+        if (!haystack) continue;
+        if (_lineMatches(haystack, needleLower, false, false)) return i;
+        continue;
+      }
+
+      // קוד: קודם נסה התאמה "קפדנית" (שומר whitespace), ואם לא — התאמה "רכה" שמאחדת whitespace
+      if (needleCodeStrict) {
+        const hayStrict = normalize(stripMarkdownSyntax(sourceLines[i], i), true, true);
+        if (hayStrict && _lineMatches(hayStrict, needleCodeStrict, true, true)) return i;
+      }
+      if (needleCodeLoose) {
+        const hayLoose = normalize(stripMarkdownSyntax(sourceLines[i], i), true, false);
+        if (hayLoose && _lineMatches(hayLoose, needleCodeLoose, true, false)) return i;
+      }
     }
     return -1;
   }
 
   function findLastLineIndex(searchText, startFrom, endAt) {
     const needleLower = normalize(searchText, false, false);
-    const needleCase = normalize(searchText, true, true);
-    if (!needleLower && !needleCase) return -1;
+    const needleCodeStrict = normalize(searchText, true, true);
+    const needleCodeLoose = normalize(searchText, true, false);
+    if (!needleLower && !needleCodeStrict && !needleCodeLoose) return -1;
     const end = Math.min(sourceLines.length - 1, Math.max(startFrom, endAt));
     for (let i = end; i >= startFrom; i--) {
       const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
-      const needle = isCode ? needleCase : needleLower;
-      if (!needle) continue;
-      const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode, isCode);
-      if (!haystack) continue;
-      if (_lineMatches(haystack, needle, isCode)) return i;
+      if (!isCode) {
+        if (!needleLower) continue;
+        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), false, false);
+        if (!haystack) continue;
+        if (_lineMatches(haystack, needleLower, false, false)) return i;
+        continue;
+      }
+
+      if (needleCodeStrict) {
+        const hayStrict = normalize(stripMarkdownSyntax(sourceLines[i], i), true, true);
+        if (hayStrict && _lineMatches(hayStrict, needleCodeStrict, true, true)) return i;
+      }
+      if (needleCodeLoose) {
+        const hayLoose = normalize(stripMarkdownSyntax(sourceLines[i], i), true, false);
+        if (hayLoose && _lineMatches(hayLoose, needleCodeLoose, true, false)) return i;
+      }
     }
     return -1;
   }
@@ -4150,24 +4212,37 @@ function copyMarkdownSource(ev){
 
     function findFirstLineIndexInRange(searchText, startFrom, endAt) {
       const needleLower = normalize(searchText, false, false);
-      const needleCase = normalize(searchText, true, true);
-      if (!needleLower && !needleCase) return -1;
+      const needleCodeStrict = normalize(searchText, true, true);
+      const needleCodeLoose = normalize(searchText, true, false);
+      if (!needleLower && !needleCodeStrict && !needleCodeLoose) return -1;
       const end = Math.min(sourceLines.length - 1, Math.max(startFrom, endAt));
       for (let i = startFrom; i <= end; i++) {
         const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
-        const needle = isCode ? needleCase : needleLower;
-        if (!needle) continue;
-        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode, isCode);
-        if (!haystack) continue;
-        if (_lineMatches(haystack, needle, isCode)) return i;
+        if (!isCode) {
+          if (!needleLower) continue;
+          const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), false, false);
+          if (!haystack) continue;
+          if (_lineMatches(haystack, needleLower, false, false)) return i;
+          continue;
+        }
+
+        if (needleCodeStrict) {
+          const hayStrict = normalize(stripMarkdownSyntax(sourceLines[i], i), true, true);
+          if (hayStrict && _lineMatches(hayStrict, needleCodeStrict, true, true)) return i;
+        }
+        if (needleCodeLoose) {
+          const hayLoose = normalize(stripMarkdownSyntax(sourceLines[i], i), true, false);
+          if (hayLoose && _lineMatches(hayLoose, needleCodeLoose, true, false)) return i;
+        }
       }
       return -1;
     }
 
     function findCandidateStartIndices(searchText, maxCandidates) {
       const needleLower = normalize(searchText, false, false);
-      const needleCase = normalize(searchText, true, true);
-      if (!needleLower && !needleCase) return [];
+      const needleCodeStrict = normalize(searchText, true, true);
+      const needleCodeLoose = normalize(searchText, true, false);
+      if (!needleLower && !needleCodeStrict && !needleCodeLoose) return [];
 
       // Keep a bounded set of candidates from the start and the end of the doc,
       // so we don't miss later occurrences while still capping work.
@@ -4177,17 +4252,29 @@ function copyMarkdownSource(ev){
       const last = [];
       for (let i = 0; i < sourceLines.length; i++) {
         const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
-        const needle = isCode ? needleCase : needleLower;
-        if (!needle) continue;
-        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), isCode, isCode);
-        if (!haystack) continue;
-        if (_lineMatches(haystack, needle, isCode)) {
-          if (first.length < keepFirst) {
-            first.push(i);
-          } else if (keepLast > 0) {
-            last.push(i);
-            if (last.length > keepLast) last.shift();
+        if (!isCode) {
+          if (!needleLower) continue;
+          const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), false, false);
+          if (!haystack) continue;
+          if (!_lineMatches(haystack, needleLower, false, false)) continue;
+        } else {
+          let ok = false;
+          if (needleCodeStrict) {
+            const hayStrict = normalize(stripMarkdownSyntax(sourceLines[i], i), true, true);
+            if (hayStrict && _lineMatches(hayStrict, needleCodeStrict, true, true)) ok = true;
           }
+          if (!ok && needleCodeLoose) {
+            const hayLoose = normalize(stripMarkdownSyntax(sourceLines[i], i), true, false);
+            if (hayLoose && _lineMatches(hayLoose, needleCodeLoose, true, false)) ok = true;
+          }
+          if (!ok) continue;
+        }
+
+        if (first.length < keepFirst) {
+          first.push(i);
+        } else if (keepLast > 0) {
+          last.push(i);
+          if (last.length > keepLast) last.shift();
         }
       }
       if (!last.length) return first;
