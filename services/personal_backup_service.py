@@ -127,8 +127,24 @@ class PersonalBackupService:
         """מייצא את כל קבצי הקוד הרגילים — תוכן + מטאדאטה."""
         meta_list = []
         try:
-            # שליפה ללא projection כדי לקבל מטאדאטה מלאה (אבל בלי code עצמו ברשימה)
-            files = self.db.get_user_files(user_id, limit=10000)
+            # קריטי לביצועים:
+            # במקום N+1 (get_user_files ואז get_file לכל קובץ),
+            # מבקשים מראש את הגרסה האחרונה לכל file_name *כולל code* ב-query אחד.
+            projection = {
+                "_id": 0,
+                "file_name": 1,
+                "code": 1,
+                "programming_language": 1,
+                "description": 1,
+                "tags": 1,
+                "is_favorite": 1,
+                "is_pinned": 1,
+                "pin_order": 1,
+                "version": 1,
+                "created_at": 1,
+                "updated_at": 1,
+            }
+            files = self.db.get_user_files(user_id, limit=10000, projection=projection)
         except Exception as e:
             logger.error(f"שגיאה בשליפת קבצים לייצוא: {e}")
             return meta_list
@@ -138,15 +154,22 @@ class PersonalBackupService:
             if not file_name:
                 continue
 
-            # שליפת תוכן מלא
-            try:
-                full_doc = self.db.get_file(user_id, file_name)
-            except Exception:
-                full_doc = None
-
-            code = ""
-            if full_doc and isinstance(full_doc, dict):
-                code = full_doc.get("code", "") or ""
+            # תוכן מלא (מגיע כבר מה-query המרוכז); fallback למקרי קצה/סטאבים.
+            code = file_doc.get("code", "")
+            if not isinstance(code, str):
+                try:
+                    code = str(code or "")
+                except Exception:
+                    code = ""
+            if "code" not in file_doc:
+                try:
+                    full_doc = self.db.get_file(user_id, file_name)
+                    if full_doc and isinstance(full_doc, dict):
+                        fallback_code = full_doc.get("code", "")
+                        if isinstance(fallback_code, str):
+                            code = fallback_code
+                except Exception:
+                    pass
 
             # כתיבת התוכן ל-ZIP
             safe_name = _safe_zip_path(f"files/{file_name}")

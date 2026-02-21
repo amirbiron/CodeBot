@@ -20,6 +20,7 @@ def mock_db():
     db.get_user_files.return_value = [
         {
             "file_name": "hello.py",
+            "code": "print('hello')",
             "programming_language": "python",
             "description": "Hello world",
             "tags": ["python", "demo"],
@@ -99,6 +100,11 @@ class TestExport:
             assert len(regular) == 1
             assert regular[0]["file_name"] == "hello.py"
             assert regular[0]["is_favorite"] is True
+
+    def test_export_does_not_call_get_file_per_file(self, backup_service, mock_db):
+        """ביצועים: export לא אמור לעשות N+1 (get_file לכל קובץ)."""
+        _ = backup_service.export_user_data(user_id=12345)
+        assert mock_db.get_file.call_count == 0
 
     def test_export_includes_anchor_bookmark_fields(self, backup_service, mock_db):
         """ייצוא סימניות צריך לכלול שדות anchor_* ו-line_text_preview."""
