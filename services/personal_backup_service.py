@@ -126,9 +126,60 @@ class PersonalBackupService:
     def _export_regular_files(self, zf: zipfile.ZipFile, user_id: int) -> List[Dict]:
         """מייצא את כל קבצי הקוד הרגילים — תוכן + מטאדאטה."""
         meta_list = []
+        projection = {
+            "_id": 0,
+            "file_name": 1,
+            "code": 1,
+            "programming_language": 1,
+            "description": 1,
+            "tags": 1,
+            "is_favorite": 1,
+            "is_pinned": 1,
+            "pin_order": 1,
+            "version": 1,
+            "created_at": 1,
+            "updated_at": 1,
+        }
         try:
-            # שליפה ללא projection כדי לקבל מטאדאטה מלאה (אבל בלי code עצמו ברשימה)
-            files = self.db.get_user_files(user_id, limit=10000)
+            # קריטי לביצועים + נכונות:
+            # - במקום N+1 (get_user_files ואז get_file לכל קובץ)
+            # - וגם כדי לא להסתמך על cache (get_user_files cached ל-120s)
+            # נבצע aggregate ישירות על הקולקשן כדי לקבל את הגרסה האחרונה לכל file_name *כולל code* בשאילתה אחת.
+            files = None
+            try:
+                collection = getattr(self.db, "collection", None)
+            except Exception:
+                collection = None
+
+            # הגנה מול MagicMock בטסטים: getattr על MagicMock "ממציא" attributes,
+            # ולכן נוודא שהשדה collection באמת הוגדר על האובייקט (ולא נוצר דינמית).
+            has_explicit_collection_attr = False
+            try:
+                db_dict = getattr(self.db, "__dict__", None)
+                has_explicit_collection_attr = isinstance(db_dict, dict) and ("collection" in db_dict)
+            except Exception:
+                has_explicit_collection_attr = False
+
+            if has_explicit_collection_attr and collection is not None and hasattr(collection, "aggregate"):
+                pipeline = [
+                    {"$match": {"user_id": int(user_id), "is_active": True}},
+                    {"$sort": {"file_name": 1, "version": -1}},
+                    {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                    {"$replaceRoot": {"newRoot": "$latest"}},
+                    # סדר יציב לדטרמיניזם (לא חובה, אבל נוח לדיבאג)
+                    {"$sort": {"file_name": 1}},
+                    {"$project": dict(projection)},
+                    {"$limit": 10000},
+                ]
+                try:
+                    files = list(collection.aggregate(pipeline, allowDiskUse=True))
+                except TypeError:
+                    # תאימות למוקים/סטאבים שלא תומכים ב-allowDiskUse
+                    files = list(collection.aggregate(pipeline))
+
+            if files is None:
+                # fallback למצב שבו אין גישה ישירה לקולקשן (למשל בטסטים עם MagicMock)
+                files = self.db.get_user_files(user_id, limit=10000, projection=projection)
         except Exception as e:
             logger.error(f"שגיאה בשליפת קבצים לייצוא: {e}")
             return meta_list
@@ -138,15 +189,22 @@ class PersonalBackupService:
             if not file_name:
                 continue
 
-            # שליפת תוכן מלא
-            try:
-                full_doc = self.db.get_file(user_id, file_name)
-            except Exception:
-                full_doc = None
-
-            code = ""
-            if full_doc and isinstance(full_doc, dict):
-                code = full_doc.get("code", "") or ""
+            # תוכן מלא (מגיע כבר מה-query המרוכז); fallback למקרי קצה/סטאבים.
+            code = file_doc.get("code", "")
+            if not isinstance(code, str):
+                try:
+                    code = str(code or "")
+                except Exception:
+                    code = ""
+            if "code" not in file_doc:
+                try:
+                    full_doc = self.db.get_file(user_id, file_name)
+                    if full_doc and isinstance(full_doc, dict):
+                        fallback_code = full_doc.get("code", "")
+                        if isinstance(fallback_code, str):
+                            code = fallback_code
+                except Exception:
+                    pass
 
             # כתיבת התוכן ל-ZIP
             safe_name = _safe_zip_path(f"files/{file_name}")
