@@ -1,8 +1,19 @@
-# 📋 מדריך מימוש: "העתק כמארקדאון" — העתקת קטע מסומן כ-Markdown מקורי
+# מדריך מימוש: "העתק כמארקדאון" — גישת Source Mapping
 
 ## סקירה כללית
 
-בתצוגת Markdown המרונדרת (`md_preview.html`) המשתמש רואה HTML יפה — כותרות, טבלאות, קוד צבעוני ועוד. כרגע קיים כפתור "העתק קוד" שמעתיק את **כל** המקור. הפיצ'ר הזה מאפשר למשתמש **לסמן קטע** בתצוגה המרונדרת ולקבל את **המארקדאון המקורי** של אותו קטע בלבד.
+בתצוגת Markdown המרונדרת (`md_preview.html`) המשתמש רואה HTML מעוצב — כותרות, טבלאות, קוד צבעוני ועוד. כרגע קיים כפתור "העתק קוד" שמעתיק את **כל** המקור. הפיצ'ר הזה מאפשר למשתמש **לסמן קטע** בתצוגה המרונדרת ולקבל את **המארקדאון המקורי** של אותו קטע בלבד.
+
+### למה Source Mapping ולא Fuzzy Matching?
+
+הגישה הקודמת ניסתה למפות טקסט מה-DOM חזרה למקור על ידי השוואת מחרוזות. זו גישה שבירה כי:
+
+- הדפדפן מנרמל רווחים, שורות חדשות ותווים מיוחדים
+- `selection.toString()` מחזיר טקסט נקי שלא תואם בהכרח לשורות המקור
+- רשימות, טבלאות ו-inline formatting דורשים ניקוי regex שתמיד מפספס מקרי קצה
+- אם שורה ראשונה לא נמצאת — אין מסלול התאוששות והכל נופל ל-fallback של טקסט רגיל
+
+**Source Mapping** פותר את זה בצורה דטרמיניסטית: markdown-it כבר מחזיק מידע `map` (שורת התחלה וסיום) על כל token ברמת הבלוק. כל מה שצריך זה לכתוב את המידע הזה כ-`data` attribute על ה-HTML המרונדר, ואז לקרוא אותו ישירות מה-DOM. אפס ניחושים, אפס regex.
 
 ---
 
@@ -10,13 +21,13 @@
 
 ### 1. תוכן Markdown גולמי זמין ב-JS
 
-ב-`md_preview.html` שורה 2022, התוכן הגולמי מוזרק כ-JSON:
+ב-`md_preview.html` שורה ~2022, התוכן הגולמי מוזרק כ-JSON:
 
 ```html
 <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
 ```
 
-ובשורה 2072 הוא נקרא למשתנה גלובלי:
+ובשורה ~2072 הוא נקרא למשתנה גלובלי:
 
 ```javascript
 const MD_TEXT = (function(){
@@ -32,7 +43,7 @@ const MD_TEXT = (function(){
 
 ### 2. רינדור בצד לקוח
 
-הרינדור מתבצע בשורה 2427:
+הרינדור מתבצע בשורה ~2427:
 
 ```javascript
 const container = document.getElementById('md-content');
@@ -41,32 +52,38 @@ container.innerHTML = md.render(MD_TEXT || '');
 
 `md` הוא אובייקט `markdown-it` עם פלאגינים (emoji, task-lists, anchor, footnote, container, admonition, hljs).
 
-### 3. פונקציית העתקה קיימת
+### 3. מידע שורות כבר קיים ב-tokens
 
-בשורות 3847–3882 יש את `copyMarkdownSource` שמעתיקה את **כל** `MD_TEXT`.
+markdown-it שומר על כל token ברמת הבלוק (paragraphs, headings, fences, list items, blockquotes, tables) מערך `map` עם `[startLine, endLine]`. המידע הזה כבר שם — רק צריך לכתוב אותו ל-DOM.
 
-### 4. פונקציית עזר fallback
+### 4. פונקציות העתקה קיימות
 
-יש כבר `fallbackCopy(text)` שמשתמשת ב-`document.execCommand('copy')` כגיבוי.
+- `copyMarkdownSource` (שורות ~3847–3882) — מעתיקה את **כל** `MD_TEXT`
+- `fallbackCopy(text)` — גיבוי עם `document.execCommand('copy')`
 
 ---
 
 ## עקרון המימוש
 
-### האתגר
+### שלב 1: הזרקת Source Map ל-HTML (Plugin)
 
-כשמשתמש מסמן טקסט בתצוגה המרונדרת, הדפדפן מחזיר לנו HTML מרונדר (או טקסט נקי). אנחנו צריכים **למפות חזרה** לשורות המארקדאון המקוריות.
+כותבים plugin ל-markdown-it שעובר על כל ה-token types הרלוונטיים ומוסיף:
+- `data-source-line` — שורת ההתחלה במקור (0-based)
+- `data-source-line-end` — שורת הסיום במקור (exclusive, 0-based)
 
-### האסטרטגיה: מיפוי לפי שורות מקור
+### שלב 2: קריאת Source Map מה-DOM
 
-1. **פיצול** `MD_TEXT` למערך שורות.
-2. **חילוץ** הטקסט הנקי מהסלקציה (`selection.toString()`).
-3. **מציאת** השורה הראשונה והאחרונה ב-`MD_TEXT` שמתאימות לטקסט המסומן.
-4. **החזרת** כל שורות המקור מהראשונה עד האחרונה (כולל).
+כשהמשתמש מסמן טקסט ולוחץ "העתק":
+1. לוקחים את ה-`Range` של הסלקציה
+2. מוצאים את האלמנט העוטף של תחילת הסלקציה וסופה
+3. עולים ב-DOM עד שמוצאים `[data-source-line]`
+4. קוראים את טווח השורות ו**חותכים** מ-`MD_TEXT` את השורות המתאימות
 
-### למה זה עובד?
+### למה זה עובד בצורה אמינה?
 
-markdown-it שומר על סדר הטקסט — כלומר הטקסט שמופיע ב-HTML תואם בסדר לטקסט שנמצא בשורות המקור. גם אם יש עיבוד (כותרות, דגשים, קישורים), הטקסט הגולמי נשמר ברצף.
+- **אין השוואת מחרוזות** — המיפוי ישיר מ-DOM למקור
+- **אין תלות בנרמול** — לא משנה איך הדפדפן מציג את הטקסט
+- **כל אלמנט יודע מאיפה הוא בא** — המידע מוצמד ברגע הרינדור
 
 ---
 
@@ -74,10 +91,10 @@ markdown-it שומר על סדר הטקסט — כלומר הטקסט שמופי
 
 ### שלב 1: הוספת CSS לכפתור הצף
 
-הוסיפו את הסגנון הבא בתוך הבלוק `{% block extra_css %}` של `md_preview.html` (בסוף ה-`<style>` הקיים, לפני `</style>`):
+הוסיפו את הסגנון הבא בתוך ה-`<style>` הקיים ב-`md_preview.html` (בסוף, לפני `</style>`):
 
 ```css
-/* כפתור צף "העתק כמארקדאון" */
+/* ──── כפתור צף "העתק כמארקדאון" ──── */
 .md-copy-selection-fab {
   position: absolute;
   z-index: 9999;
@@ -142,129 +159,367 @@ markdown-it שומר על סדר הטקסט — כלומר הטקסט שמופי
 
 ### שלב 2: הוספת אלמנט הכפתור ב-HTML
 
-הוסיפו את האלמנט הבא **אחרי** `<div id="md-content" ...></div>` (שורה 1844), עדיין בתוך ה-`#mdCard`:
+הוסיפו את האלמנט הבא **אחרי** `<div id="md-content" ...></div>` (שורה ~1844), עדיין בתוך ה-`#mdCard`:
 
 ```html
 <button type="button"
         id="mdCopySelectionFab"
         class="md-copy-selection-fab"
         aria-label="העתק כמארקדאון">
-  <i class="fas fa-markdown" aria-hidden="true"></i>
+  <i class="fas fa-copy" aria-hidden="true"></i>
   העתק כמארקדאון
 </button>
 ```
 
-> **הערה:** אם FontAwesome לא כולל אייקון markdown, אפשר להשתמש ב: `<i class="fas fa-copy"></i>` או באימוג'י `📋`.
+### שלב 3: Plugin ל-Source Mapping
 
-### שלב 3: לוגיקת ה-JavaScript
-
-הוסיפו סקריפט חדש **אחרי** הסקריפט הקיים של `copyMarkdownSource` (סביב שורה 3882), עדיין בתוך `{% block content %}`:
+הוסיפו את הקוד הבא **לפני** שורת הרינדור (`container.innerHTML = md.render(...)`) — כלומר אחרי כל ה-`md.use(...)` ולפני הקריאה ל-`md.render`:
 
 ```javascript
-// === "העתק כמארקדאון" — העתקת קטע מסומן כ-Markdown מקורי ===
+// ──── Source Mapping Plugin ────
+// מוסיף data-source-line / data-source-line-end לכל אלמנט בלוק
+// כדי לאפשר מיפוי מדויק מ-DOM חזרה לשורות מקור.
+//
+// הערה חשובה על טבלאות:
+// ב-markdown-it (14.x), th_open / td_open מגיעים עם map = null.
+// לכן תאי טבלה מקבלים טיפול מיוחד: הם יורשים את שורת ה-tr
+// ומקבלים data-col (אינדקס עמודה) כדי לאפשר חילוץ תא בודד מהמקור.
+(function sourceMapPlugin() {
+  // ── חלק א: tokens עם map מובנה ──
+  const BLOCK_OPEN_TYPES = [
+    'paragraph_open',
+    'heading_open',
+    'blockquote_open',
+    'bullet_list_open',
+    'ordered_list_open',
+    'list_item_open',
+    'table_open',
+    'thead_open',
+    'tbody_open',
+    'tr_open',
+    'fence',
+    'code_block',
+    'hr',
+  ];
+
+  BLOCK_OPEN_TYPES.forEach(function(type) {
+    const originalRule = md.renderer.rules[type];
+
+    md.renderer.rules[type] = function(tokens, idx, options, env, self) {
+      const token = tokens[idx];
+      if (token.map && token.map.length >= 2) {
+        token.attrSet('data-source-line', String(token.map[0]));
+        token.attrSet('data-source-line-end', String(token.map[1]));
+      }
+      if (originalRule) {
+        return originalRule(tokens, idx, options, env, self);
+      }
+      return self.renderToken(tokens, idx, options);
+    };
+  });
+
+  // ── חלק ב: טיפול מיוחד ב-th_open / td_open ──
+  // ל-tokens האלה אין map משלהם (map = null ב-markdown-it 14.x).
+  // אנחנו יורשים את שורת המקור מה-tr_open הקרוב למעלה,
+  // וסופרים את אינדקס העמודה (data-col) כדי שנוכל לחלץ תא ספציפי.
+  ['th_open', 'td_open'].forEach(function(type) {
+    const originalRule = md.renderer.rules[type];
+
+    md.renderer.rules[type] = function(tokens, idx, options, env, self) {
+      const token = tokens[idx];
+
+      // מצא את ה-tr_open הקרוב למעלה כדי לקבל את שורת המקור
+      var rowLine = null;
+      for (var i = idx - 1; i >= 0; i--) {
+        if (tokens[i].type === 'tr_open') {
+          if (tokens[i].map && tokens[i].map.length >= 2) {
+            rowLine = tokens[i].map[0];
+          }
+          break;
+        }
+      }
+
+      // ספור כמה th_open/td_open יש מאז ה-tr_open (= אינדקס עמודה)
+      var colIndex = 0;
+      for (var j = idx - 1; j >= 0; j--) {
+        if (tokens[j].type === 'tr_open') break;
+        if (tokens[j].type === type) colIndex++;
+      }
+
+      if (rowLine != null) {
+        token.attrSet('data-row-line', String(rowLine));
+      }
+      token.attrSet('data-col', String(colIndex));
+
+      if (originalRule) {
+        return originalRule(tokens, idx, options, env, self);
+      }
+      return self.renderToken(tokens, idx, options);
+    };
+  });
+})();
+```
+
+**מה קורה כאן:**
+
+**חלק א — tokens עם map מובנה:**
+- עוברים על כל סוגי ה-tokens שפותחים בלוק (פסקה, כותרת, רשימה, `tr_open` וכו')
+- לכל אחד — שומרים את ה-rule המקורי ועוטפים אותו
+- לפני הרינדור, כותבים את `token.map[0]` ו-`token.map[1]` כ-data attributes
+- אם אין rule מקורי — משתמשים ב-`self.renderToken` (ברירת המחדל)
+
+**חלק ב — תאי טבלה (td/th):**
+- ל-`th_open` ו-`td_open` אין `map` ב-markdown-it (הם מגיעים כ-`null`)
+- לכן אנחנו עולים אחורה בשרשרת ה-tokens עד ל-`tr_open` וקוראים את ה-`map` שלו
+- סופרים כמה `td_open`/`th_open` יש מאז ה-`tr_open` כדי לקבל אינדקס עמודה
+- כותבים `data-row-line` (שורה במקור) ו-`data-col` (עמודה) על התא
+
+**דוגמה לתוצאה:**
+
+Markdown מקורי:
+```markdown
+# כותרת ראשית
+
+פסקה עם **טקסט מודגש** ועוד דברים.
+
+| שם | גיל |
+|-----|------|
+| דני | 30  |
+| רוני | 25  |
+```
+
+HTML מרונדר (חלקי):
+```html
+<h1 data-source-line="0" data-source-line-end="1" id="...">כותרת ראשית</h1>
+<p data-source-line="2" data-source-line-end="3">פסקה עם <strong>טקסט מודגש</strong> ועוד דברים.</p>
+<table data-source-line="4" data-source-line-end="8">
+  <thead data-source-line="4" data-source-line-end="6">
+    <tr data-source-line="4" data-source-line-end="5">
+      <th data-row-line="4" data-col="0">שם</th>
+      <th data-row-line="4" data-col="1">גיל</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr data-source-line="6" data-source-line-end="7">
+      <td data-row-line="6" data-col="0">דני</td>
+      <td data-row-line="6" data-col="1">30</td>
+    </tr>
+    <tr data-source-line="7" data-source-line-end="8">
+      <td data-row-line="7" data-col="0">רוני</td>
+      <td data-row-line="7" data-col="1">25</td>
+    </tr>
+  </tbody>
+</table>
+```
+
+כל אלמנט יודע בדיוק מאיפה הוא הגיע במקור. תאי טבלה יודעים גם באיזו עמודה הם נמצאים.
+
+### שלב 4: לוגיקת העתקה עם Source Mapping
+
+הוסיפו את הסקריפט הבא **אחרי** הסקריפט הקיים של `copyMarkdownSource` (סביב שורה ~3882), עדיין בתוך `{% block content %}`:
+
+```javascript
+// === "העתק כמארקדאון" — Source Mapping ===
 (function initCopySelectionAsMarkdown() {
   const container = document.getElementById('md-content');
   const fab = document.getElementById('mdCopySelectionFab');
   if (!container || !fab) return;
 
   const sourceLines = (typeof MD_TEXT === 'string' ? MD_TEXT : '').split('\n');
+  if (!sourceLines.length) return;
 
-  // --- עזרים ---
+  // ──── Source Mapping: מ-DOM לשורות מקור ────
 
-  // ניקוי טקסט לצורך השוואה: הורדת רווחים מיותרים ותווים לא-נראים
-  function normalize(str) {
-    return (str || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-  }
-
-  // חילוץ "טקסט נקי" משורת Markdown — מסיר תחביר כמו #, *, `, -, > וכו'
-  function stripMarkdownSyntax(line) {
-    return line
-      .replace(/^#{1,6}\s+/, '')       // כותרות
-      .replace(/^>\s?/gm, '')          // ציטוטים
-      .replace(/^[-*+]\s+/, '')        // רשימות
-      .replace(/^\d+\.\s+/, '')        // רשימות ממוספרות
-      .replace(/^[-*_]{3,}\s*$/, '')   // קווים אופקיים
-      .replace(/\*\*(.+?)\*\*/g, '$1') // bold
-      .replace(/__(.+?)__/g, '$1')
-      .replace(/\*(.+?)\*/g, '$1')     // italic
-      .replace(/_(.+?)_/g, '$1')
-      .replace(/~~(.+?)~~/g, '$1')     // strikethrough
-      .replace(/==(.+?)==/g, '$1')     // mark
-      .replace(/`([^`]+)`/g, '$1')     // inline code
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // links
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1'); // images
-  }
-
-  // מציאת אינדקס השורה ב-sourceLines שמכילה טקסט מסוים
-  function findLineIndex(searchText, startFrom) {
-    const needle = normalize(searchText);
-    if (!needle) return -1;
-    for (let i = startFrom; i < sourceLines.length; i++) {
-      const haystack = normalize(stripMarkdownSyntax(sourceLines[i]));
-      if (haystack && needle.includes(haystack)) return i;
-      if (haystack && haystack.includes(needle)) return i;
+  // מוצא את האלמנט הקרוב שיש לו data-source-line
+  function findSourceNode(node) {
+    if (!node) return null;
+    var el = (node.nodeType === Node.TEXT_NODE) ? node.parentElement : node;
+    // עולים ב-DOM עד שמוצאים אלמנט עם data-source-line,
+    // אבל לא עוברים מעבר לקונטיינר
+    while (el && el !== container) {
+      if (el.hasAttribute && el.hasAttribute('data-source-line')) {
+        return el;
+      }
+      el = el.parentElement;
     }
-    return -1;
+    return null;
   }
 
-  // מיפוי טקסט מסומן חזרה לשורות מקור
-  function mapSelectionToSource(selectedText) {
-    if (!selectedText || !sourceLines.length) return '';
+  // ──── טבלאות: חילוץ תא בודד מהמקור ────
 
-    const selLines = selectedText.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!selLines.length) return '';
+  // בודק אם node נמצא בתוך תא טבלה (td/th) עם data-row-line
+  function findTableCell(node) {
+    if (!node) return null;
+    var el = (node.nodeType === Node.TEXT_NODE) ? node.parentElement : node;
+    while (el && el !== container) {
+      if (el.hasAttribute &&
+          (el.tagName === 'TD' || el.tagName === 'TH') &&
+          el.hasAttribute('data-row-line')) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
 
-    // מצא את שורת המקור הראשונה שתואמת לשורה הראשונה בסלקציה
-    let firstSourceIdx = -1;
-    for (const selLine of selLines) {
-      firstSourceIdx = findLineIndex(selLine, 0);
-      if (firstSourceIdx >= 0) break;
+  // מפרסר שורת טבלה במקור לפי | ומחזיר את התא לפי אינדקס עמודה.
+  // מתמודד עם escaped pipes (\|) ועם רווחים מיותרים.
+  function extractCellFromSourceLine(lineIndex, colIndex) {
+    var line = sourceLines[lineIndex];
+    if (!line) return null;
+
+    // פרסור: מפצלים לפי | שלא escaped
+    // regex: | שלפניו מספר זוגי (כולל 0) של backslashes
+    var cells = [];
+    var current = '';
+    for (var i = 0; i < line.length; i++) {
+      if (line[i] === '|') {
+        // בדוק כמה backslashes לפני
+        var bs = 0;
+        var k = i - 1;
+        while (k >= 0 && line[k] === '\\') { bs++; k--; }
+        if (bs % 2 === 0) {
+          // pipe אמיתי (לא escaped)
+          cells.push(current);
+          current = '';
+          continue;
+        }
+      }
+      current += line[i];
+    }
+    cells.push(current); // תא אחרון
+
+    // הסר תאים ריקים בהתחלה ובסוף (בגלל ה-| בתחילת/סוף השורה)
+    if (cells.length > 0 && cells[0].trim() === '') cells.shift();
+    if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop();
+
+    if (colIndex >= 0 && colIndex < cells.length) {
+      return cells[colIndex].trim();
+    }
+    return null;
+  }
+
+  // בודק אם הסלקציה כולה בתוך תא טבלה אחד,
+  // ואם כן — מחזיר את תוכן התא מהמקור
+  function tryExtractTableCell(range) {
+    var startCell = findTableCell(range.startContainer);
+    var endCell = findTableCell(range.endContainer);
+
+    // רק אם שני הקצוות באותו תא
+    if (!startCell || startCell !== endCell) return null;
+
+    var rowLine = Number(startCell.getAttribute('data-row-line'));
+    var col = Number(startCell.getAttribute('data-col'));
+
+    if (isNaN(rowLine) || isNaN(col)) return null;
+
+    return extractCellFromSourceLine(rowLine, col);
+  }
+
+  // ──── מיפוי כללי (לא-טבלאות) ────
+
+  // מחפש את ה-data-source-line הראשון/אחרון בתוך range
+  // כולל חיפוש באלמנטים ילדים שנמצאים בתוך הטווח
+  function getSourceRange(range) {
+    var startNode = findSourceNode(range.startContainer);
+    var endNode = findSourceNode(range.endContainer);
+
+    // אם לא מצאנו source node ישירות, ננסה למצוא
+    // את כל האלמנטים עם data-source-line בתוך ה-range
+    if (!startNode && !endNode) {
+      // fallback: מחפשים אלמנטים בתוך ה-range
+      var fragment = range.cloneContents();
+      var mapped = fragment.querySelectorAll('[data-source-line]');
+      if (mapped.length > 0) {
+        return {
+          start: Number(mapped[0].getAttribute('data-source-line')),
+          end: Number(mapped[mapped.length - 1].getAttribute('data-source-line-end')
+                      || mapped[mapped.length - 1].getAttribute('data-source-line'))
+        };
+      }
+      return null;
     }
 
-    // מצא את שורת המקור האחרונה שתואמת לשורה האחרונה בסלקציה
-    let lastSourceIdx = firstSourceIdx;
-    for (let i = selLines.length - 1; i >= 0; i--) {
-      const idx = findLineIndex(selLines[i], Math.max(0, firstSourceIdx));
-      if (idx >= 0) {
-        lastSourceIdx = Math.max(lastSourceIdx, idx);
+    var startLine, endLine;
+
+    if (startNode) {
+      startLine = Number(startNode.getAttribute('data-source-line'));
+    }
+    if (endNode) {
+      endLine = Number(endNode.getAttribute('data-source-line-end')
+                       || endNode.getAttribute('data-source-line'));
+    }
+
+    // אם חסר אחד מהם — קרא את שני ה-attributes מה-node שנמצא.
+    // חשוב: לא מעתיקים startLine ל-endLine (או להיפך) כי זה ייתן
+    // slice(n, n) = מערך ריק. במקום זה, קוראים גם start וגם end מאותו node.
+    if (!startNode && endNode) {
+      startLine = Number(endNode.getAttribute('data-source-line'));
+    }
+    if (!endNode && startNode) {
+      endLine = Number(startNode.getAttribute('data-source-line-end')
+                       || startNode.getAttribute('data-source-line'));
+    }
+    if (startLine == null || endLine == null) return null;
+
+    // ודא שהטווח הגיוני
+    if (endLine < startLine) {
+      var tmp = startLine;
+      startLine = endLine;
+      endLine = tmp;
+    }
+
+    return { start: startLine, end: endLine };
+  }
+
+  // הרחבה חכמה: אם הטווח נופל בתוך fenced code block,
+  // ודא שכוללים את ה-fences (כי ה-token של fence כבר כולל אותם)
+  function expandToFences(start, end) {
+    // token.map של fence כבר כולל את שורות הפתיחה והסגירה,
+    // אז אם ה-source mapping עובד נכון, אין צורך בהרחבה.
+    // אבל ליתר ביטחון, נבדוק אם נפלנו בתוך fence:
+    var fenceStart = -1;
+    for (var i = start; i >= 0; i--) {
+      if (sourceLines[i].trim().startsWith('```')) {
+        fenceStart = i;
         break;
       }
     }
-
-    if (firstSourceIdx < 0) return '';
-
-    // הרחבה: אם הסלקציה נופלת בתוך fenced code block — כלול את הבלוק כולו
-    // סריקה למעלה ולמטה מנקודת ההתחלה כדי לזהות fences עוטפים
-    const isFence = (line) => (line || '').trim().startsWith('```');
-    let fenceStart = -1;
-    let fenceEnd = -1;
-
-    for (let i = firstSourceIdx; i >= 0; i--) {
-      if (isFence(sourceLines[i])) { fenceStart = i; break; }
-    }
-    if (fenceStart >= 0) {
-      for (let i = Math.max(fenceStart + 1, lastSourceIdx); i < sourceLines.length; i++) {
-        if (isFence(sourceLines[i])) { fenceEnd = i; break; }
+    if (fenceStart >= 0 && fenceStart < start) {
+      // בדוק שיש fence סוגר אחרי ה-end
+      for (var j = end; j < sourceLines.length; j++) {
+        if (sourceLines[j].trim().startsWith('```')) {
+          return { start: fenceStart, end: j + 1 };
+        }
       }
     }
-
-    if (fenceStart >= 0 && fenceEnd > fenceStart) {
-      firstSourceIdx = fenceStart;
-      lastSourceIdx = fenceEnd;
-    }
-
-    return sourceLines.slice(firstSourceIdx, lastSourceIdx + 1).join('\n');
+    return { start: start, end: end };
   }
 
-  // --- מיקום הכפתור ---
+  // הפונקציה הראשית: ממפה range לשורות מקור ומחזירה Markdown
+  function mapRangeToMarkdown(range) {
+    // נסה קודם חילוץ תא טבלה בודד
+    var cellContent = tryExtractTableCell(range);
+    if (cellContent != null) return cellContent;
+
+    // מיפוי כללי לפי data-source-line
+    var sr = getSourceRange(range);
+    if (!sr) return '';
+
+    var expanded = expandToFences(sr.start, sr.end);
+    // slice עובד עם end exclusive — כמו שמגיע מ-token.map
+    var result = sourceLines.slice(expanded.start, expanded.end).join('\n');
+
+    // נקה שורות ריקות מיותרות בהתחלה ובסוף
+    return result.replace(/^\n+/, '').replace(/\n+$/, '');
+  }
+
+  // ──── מיקום הכפתור הצף ────
 
   function positionFab(range) {
-    const rect = range.getBoundingClientRect();
-    const containerRect = container.closest('.glass-card')?.getBoundingClientRect()
-                       || container.getBoundingClientRect();
+    var rect = range.getBoundingClientRect();
+    var containerRect = (container.closest('.glass-card') || container)
+                          .getBoundingClientRect();
 
     // מקם מעל הסלקציה, מיושר לימין (RTL)
     fab.style.top = (rect.top - containerRect.top - fab.offsetHeight - 8) + 'px';
@@ -276,34 +531,34 @@ markdown-it שומר על סדר הטקסט — כלומר הטקסט שמופי
     fab.classList.remove('is-copied');
     fab.classList.add('is-visible');
     // חכה פריים אחד כדי שה-fab יקבל מידות לפני מיקום
-    requestAnimationFrame(() => positionFab(range));
+    requestAnimationFrame(function() { positionFab(range); });
   }
 
   function hideFab() {
     fab.classList.remove('is-visible', 'is-copied');
   }
 
-  // --- אירועי סלקציה ---
+  // ──── אירועי סלקציה ────
 
-  let hideTimer = null;
+  var hideTimer = null;
 
-  document.addEventListener('selectionchange', () => {
+  document.addEventListener('selectionchange', function() {
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      const sel = window.getSelection();
+    hideTimer = setTimeout(function() {
+      var sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) {
         hideFab();
         return;
       }
 
-      const range = sel.getRangeAt(0);
+      var range = sel.getRangeAt(0);
       // ודא שהסלקציה בתוך #md-content
       if (!container.contains(range.commonAncestorContainer)) {
         hideFab();
         return;
       }
 
-      const text = sel.toString().trim();
+      var text = sel.toString().trim();
       if (text.length < 2) {
         hideFab();
         return;
@@ -313,49 +568,43 @@ markdown-it שומר על סדר הטקסט — כלומר הטקסט שמופי
     }, 250);
   });
 
-  // --- לחיצה על הכפתור ---
+  // ──── לחיצה על הכפתור ────
 
-  fab.addEventListener('mousedown', (e) => {
+  fab.addEventListener('mousedown', function(e) {
     // מונע מהסלקציה להתבטל בלחיצה על הכפתור
     e.preventDefault();
     e.stopPropagation();
   });
 
-  fab.addEventListener('click', async (e) => {
+  fab.addEventListener('click', async function(e) {
     e.preventDefault();
     e.stopPropagation();
 
-    const sel = window.getSelection();
-    const selectedText = sel ? sel.toString().trim() : '';
-    if (!selectedText) return;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
 
-    const markdown = mapSelectionToSource(selectedText);
-    const textToCopy = markdown || selectedText;
+    var range = sel.getRangeAt(0);
+    var markdown = mapRangeToMarkdown(range);
+    // fallback: אם Source Mapping נכשל, העתק את הטקסט הנקי
+    var textToCopy = markdown || sel.toString().trim();
 
-    let success = false;
+    var success = false;
     try {
       await navigator.clipboard.writeText(textToCopy);
       success = true;
     } catch (_) {
-      success = fallbackCopy(textToCopy);
+      success = (typeof fallbackCopy === 'function') && fallbackCopy(textToCopy);
     }
 
     if (success) {
       fab.classList.add('is-copied');
-      const label = fab.querySelector('span') || fab;
-      const originalText = label.textContent;
+      var label = fab.querySelector('span') || fab.lastChild;
+      var originalText = label.textContent;
       label.textContent = markdown ? 'הועתק כמארקדאון!' : 'הועתק!';
-      setTimeout(() => {
+      setTimeout(function() {
         label.textContent = originalText;
         hideFab();
       }, 1500);
-    }
-  });
-
-  // הסתרה בלחיצה מחוץ לכפתור
-  document.addEventListener('mousedown', (e) => {
-    if (e.target !== fab && !fab.contains(e.target)) {
-      // נתן ל-selectionchange לטפל
     }
   });
 })();
@@ -365,133 +614,204 @@ markdown-it שומר על סדר הטקסט — כלומר הטקסט שמופי
 
 ## הסבר על הלוגיקה לפי חלקים
 
-### חלק 1: פיצול המקור לשורות
+### חלק 1: ה-Plugin — הזרקת source map ל-HTML
 
-```javascript
-const sourceLines = (typeof MD_TEXT === 'string' ? MD_TEXT : '').split('\n');
+ה-Plugin עובר על כל סוגי ה-tokens שמייצגים בלוקים (פסקאות, כותרות, רשימות, טבלאות, code blocks וכו'). לכל token כזה, markdown-it כבר שומר מערך `map: [startLine, endLine]` שמציין את השורות במקור. ה-Plugin פשוט כותב את המידע הזה כ-data attributes:
+
+```
+token.map[0] → data-source-line="0"     (שורת התחלה, 0-based)
+token.map[1] → data-source-line-end="3" (שורת סיום, exclusive)
 ```
 
-ניגשים ל-`MD_TEXT` שכבר קיים כמשתנה גלובלי ומפצלים לשורות.
+**חשוב:** ה-`end` הוא exclusive — כלומר אם `map = [2, 5]`, השורות הן 2, 3, 4 (בלי 5). זה תואם בדיוק ל-`Array.slice(start, end)`.
 
-### חלק 2: ניקוי תחביר Markdown
+### חלק 2: מציאת source node / table cell
 
-הפונקציה `stripMarkdownSyntax` מסירה סימני תחביר כמו `#`, `**`, `` ` ``, `>` וכו' — כדי שנוכל להשוות טקסט נקי מהסלקציה לטקסט נקי מהמקור.
+שתי פונקציות עזר מרכזיות:
 
-### חלק 3: מיפוי חזרה למקור
+- `findSourceNode(node)` — עולה ב-DOM עד שמוצאת אלמנט עם `data-source-line`. עובד לכל הבלוקים (פסקאות, כותרות, רשימות וכו').
+- `findTableCell(node)` — עולה ב-DOM עד שמוצאת `<td>`/`<th>` עם `data-row-line`. ספציפי לטבלאות.
 
-`mapSelectionToSource` לוקחת את הטקסט המסומן, מפצלת לשורות, ומחפשת עבור השורה הראשונה והאחרונה את השורה המתאימה ב-`sourceLines`. אחר כך מחזירה את כל הבלוק מהראשונה עד האחרונה.
+### חלק 3: זרימת ההעתקה (mapRangeToMarkdown)
 
-### חלק 4: כפתור צף
+הפונקציה הראשית `mapRangeToMarkdown` עובדת בשני שלבים:
 
-הכפתור מוצב `position: absolute` ביחס ל-`#mdCard` (שהוא ה-glass-card העוטף). הוא מופיע כש:
+1. **ניסיון תא טבלה:** `tryExtractTableCell` בודקת אם שני קצוות הסלקציה באותו `<td>`/`<th>`. אם כן — מפרסרת את שורת המקור לפי `|` ומחלצת רק את העמודה הרלוונטית.
+2. **מיפוי כללי:** אם לא תא טבלה — `getSourceRange` מוצאת את טווח השורות.
 
-- יש סלקציה בתוך `#md-content`
-- הטקסט המסומן גדול מ-2 תווים
+### חלק 4: חישוב טווח שורות
 
-הוא נעלם כשהסלקציה מתבטלת.
+`getSourceRange` לוקחת את ה-Range של הסלקציה ומוצאת:
+- את ה-`data-source-line` של ה-start container (= שורת ההתחלה)
+- את ה-`data-source-line-end` של ה-end container (= שורת הסיום)
 
----
+אם הסלקציה כולה בתוך אלמנט אחד — שני הערכים מגיעים מאותו אלמנט. אם היא חוצה כמה אלמנטים — כל אחד נותן את הצד שלו.
 
-## מקרי קצה ופתרונות
+**טיפול ב-node חסר:** כשרק צד אחד של הסלקציה נמצא (למשל כשגוררים לסוף `#md-content` והדפדפן שם את `endContainer` על הקונטיינר עצמו), הקוד קורא **את שני ה-attributes** (`data-source-line` + `data-source-line-end`) מה-node שכן נמצא. ככה נמנעים ממצב של `slice(n, n)` שמחזיר מערך ריק.
 
-### 1. בלוקי קוד
+### חלק 5: חיתוך מקור
 
-כשהמשתמש מסמן קוד מעוצב, הטקסט שחוזר מ-`selection.toString()` הוא רק הקוד עצמו (בלי ה-` ``` `). הפונקציה `mapSelectionToSource` סורקת **למעלה** מהשורה הראשונה שנמצאה עד שמוצאת fence פותח, ו**למטה** עד שמוצאת fence סוגר. כך גם כשבוחרים שורה באמצע הבלוק — ההעתקה כוללת את ה-fences ואת ה-language hint (למשל ` ```python `).
+פשוט `sourceLines.slice(start, end).join('\n')`. מכיוון ש-`end` כבר exclusive, זה עובד ישירות בלי `+ 1`.
 
-### 2. טבלאות
+### חלק 6: כפתור צף
 
-טבלאות מרונדרות מאבדות את תחביר ה-`|`. אבל הטקסט בתוך התאים נשמר, כך שהמיפוי עובד. גם אם המיפוי מחזיר רק חלק מהטבלה — זה עדיף על העתקת HTML.
-
-### 3. מיפוי חלקי (fallback)
-
-אם לא מצליחים למפות — הכפתור מעתיק את הטקסט הנקי של הסלקציה (בלי תחביר Markdown, אבל גם בלי HTML).
-
-### 4. RTL וכיוון
-
-הכפתור ממוקם ביחס ל-`right` של הקונטיינר כדי להתאים ל-RTL.
-
-### 5. מסך מלא (Fullscreen)
-
-כשה-card במצב fullscreen, ה-`position: absolute` עדיין יחסי ל-card, כך שהכפתור יישאר בתוך התצוגה.
+זהה לגרסה הקודמת: `position: absolute` ביחס ל-`#mdCard`, מופיע כשיש סלקציה בתוך `#md-content`, נעלם כשהסלקציה מתבטלת.
 
 ---
 
-## שיפורים אפשריים (גרסה 2)
+## מקרי קצה ואיך Source Mapping מטפל בהם
 
-### א. מיפוי מדויק עם data attributes
+### 1. בלוקי קוד (fenced code blocks)
 
-במקום מיפוי לפי טקסט, אפשר לשנות את ה-render כך שכל אלמנט HTML יקבל `data-source-line` עם מספר השורה:
+`fence` הוא token type ש-markdown-it מטפל בו כבלוק אחד. ה-`token.map` שלו **כבר כולל** את שורות ה-fences (` ``` `) — כלומר גם הפתיחה וגם הסגירה. לכן כשמסמנים קוד, ה-source map מחזיר את הבלוק המלא כולל ה-language hint.
+
+בנוסף, יש פונקציית `expandToFences` ליתר ביטחון — אם מסיבה כלשהי ה-map לא כולל את ה-fences, היא סורקת למעלה ולמטה ומוצאת אותם.
+
+### 2. טבלאות — מיפוי ברמת תא
+
+ב-markdown-it, `th_open`/`td_open` מגיעים עם `map = null` — כלומר אין להם מיפוי שורות ישיר. זה יוצר בעיה: אם היינו מסתמכים רק על `data-source-line`, סלקציה בתוך תא הייתה "נופלת" לשורה/טבלה שלמה.
+
+**הפתרון שלנו — מיפוי תא אמיתי:**
+
+1. ב-Plugin, כל `td_open`/`th_open` מקבל:
+   - `data-row-line` — שורת המקור של ה-`tr_open` (שכן יש לו `map`)
+   - `data-col` — אינדקס העמודה (0-based, נספר מ-`tr_open` הקרוב)
+
+2. בלוגיקת ההעתקה, `tryExtractTableCell` בודקת אם הסלקציה כולה בתוך תא אחד:
+   - אם כן — `extractCellFromSourceLine` לוקחת את השורה מהמקור ומפרסרת לפי `|` (עם טיפול ב-`\|` escaped)
+   - מחזירה רק את תוכן התא הספציפי
+
+3. אם הסלקציה חוצה כמה תאים/שורות — נופלים ל-`getSourceRange` הרגיל, שמוצא את ה-`tr_open` או `table_open` העוטף ומחזיר את כל השורות הרלוונטיות
+
+**דוגמה:**
+
+מקור:
+```markdown
+| שם | גיל | עיר |
+|-----|------|------|
+| דני | 30  | ת"א |
+```
+
+אם המשתמש סימן רק את "30" בטבלה המרונדרת:
+- `findTableCell` מוצא `<td data-row-line="2" data-col="1">`
+- `extractCellFromSourceLine(2, 1)` מפרסר את `| דני | 30  | ת"א |` ומחזיר `30`
+
+אם סימן את כל השורה "דני 30 ת"א":
+- `tryExtractTableCell` מחזיר `null` (כי start ≠ end cell, או שהסלקציה חוצה תאים)
+- `getSourceRange` עולה ל-`tr_open` ומחזיר את השורה המלאה: `| דני | 30  | ת"א |`
+
+### 3. רשימות מקוננות
+
+`list_item_open` מקבל `map` משלו, כך שכל פריט ברשימה ממופה בנפרד. גם רשימות מקוננות עובדות כי כל רמת קינון היא `list_item_open` עם `map` משלו.
+
+### 4. ציטוטים (blockquotes)
+
+`blockquote_open` מקבל `map` שמכסה את כל הציטוט, כולל סימני `>`. לכן הטקסט שחוזר כולל את תחביר הציטוט.
+
+### 5. סלקציה שחוצה כמה בלוקים
+
+למשל אם המשתמש סימן מאמצע פסקה עד תחילת הבאה:
+- `range.startContainer` → מוצא את הפסקה הראשונה (למשל שורות 3–5)
+- `range.endContainer` → מוצא את הפסקה השנייה (למשל שורות 7–9)
+- התוצאה: שורות 3–9 (כולל שורות ריקות ביניהן)
+
+### 6. Inline elements (bold, italic, links)
+
+ל-inline tokens אין `map` משלהם (ב-markdown-it, מיפוי שורות קיים רק ברמת הבלוק). אבל `findSourceNode` פשוט עולה מה-`<strong>` או `<a>` עד הפסקה העוטפת — שיש לה `map`. כך הסלקציה מחזירה את כל הפסקה, כולל ה-inline markup.
+
+### 7. RTL וכיוון
+
+הכפתור ממוקם ביחס ל-`right` של הקונטיינר — מתאים ל-RTL.
+
+### 8. מסך מלא (Fullscreen)
+
+כשה-card במצב fullscreen, ה-`position: absolute` עדיין יחסי ל-card, כך שהכפתור נשאר בתוך התצוגה.
+
+### 9. Fallback
+
+אם Source Mapping נכשל (למשל אלמנט בלי `data-source-line` — מקרה נדיר), הכפתור מעתיק את הטקסט הנקי של הסלקציה. זה לא אידיאלי, אבל עדיף על כלום, וברוב המוחלט של המקרים זה לא יקרה.
+
+---
+
+## סדר הכנסה בקוד
+
+חשוב לשים את הקוד במיקום הנכון ב-`md_preview.html`:
+
+```
+... md.use(markdownitFootnote) ...
+... md.use(markdownitTocDoneRight) ...
+
+◄── כאן: Source Mapping Plugin (שלב 3) ──►
+
+const container = document.getElementById('md-content');
+container.innerHTML = md.render(MD_TEXT || '');
+
+... (בהמשך, אחרי copyMarkdownSource) ...
+
+◄── כאן: לוגיקת העתקה (שלב 4) ──►
+```
+
+ה-Plugin **חייב** להירשם לפני `md.render()`. הלוגיקה של ההעתקה יכולה להיות בכל מקום אחרי שה-DOM מרונדר.
+
+---
+
+## tokens שחסר להם map — מה לעשות?
+
+רוב ה-block tokens ב-markdown-it מקבלים `map` באופן אוטומטי. הנה מצב לכל סוג:
+
+| Token | יש map? | הטיפול שלנו |
+|-------|---------|-------------|
+| `paragraph_open` | כן | `data-source-line` + `data-source-line-end` |
+| `heading_open` | כן | `data-source-line` + `data-source-line-end` |
+| `fence` | כן | כולל שורות ` ``` ` |
+| `code_block` | כן | בלוק קוד עם הזחה |
+| `blockquote_open` | כן | כולל סימני `>` |
+| `bullet_list_open` | כן | `data-source-line` + `data-source-line-end` |
+| `ordered_list_open` | כן | `data-source-line` + `data-source-line-end` |
+| `list_item_open` | כן | פריט ברשימה |
+| `table_open` | כן | `data-source-line` + `data-source-line-end` |
+| `tr_open` | כן | `data-source-line` + `data-source-line-end` |
+| `th_open` / `td_open` | **לא** (`map = null`) | `data-row-line` + `data-col` (יורש מ-`tr_open`) |
+| `hr` | כן | קו אופקי |
+| `html_block` | כן | HTML גולמי (אם `html: true`) |
+| inline tokens | **לא** | `strong_open`, `em_open`, `link_open` — אין map, עולים לבלוק העוטף |
+
+> **הערה:** מכיוון שאצלנו `html: false` (בהגדרות markdown-it), אין `html_block` ולכן לא נדרש טיפול מיוחד.
+>
+> **הערה חשובה על טבלאות:** ב-markdown-it 14.x, תאי טבלה (`th_open`/`td_open`) מגיעים עם `map = null`. לכן הם מקבלים טיפול מיוחד: ה-Plugin יורש את שורת המקור מה-`tr_open` ומוסיף אינדקס עמודה. בצד ההעתקה, הפונקציה `extractCellFromSourceLine` מפרסרת את שורת המקור לפי `|` ומחלצת את התא הרלוונטי.
+
+---
+
+## שיפורים אפשריים
+
+### א. קיצור מקלדת
 
 ```javascript
-md.use(function sourceLinePlugin(mdInstance) {
-  const defaultRender = mdInstance.renderer.rules.paragraph_open ||
-    function(tokens, idx, options, env, self) {
-      return self.renderToken(tokens, idx, options);
-    };
-
-  mdInstance.renderer.rules.paragraph_open = function(tokens, idx, options, env, self) {
-    const token = tokens[idx];
-    if (token.map && token.map.length) {
-      token.attrSet('data-source-line', token.map[0]);
-      token.attrSet('data-source-line-end', token.map[1]);
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
+    var sel = window.getSelection();
+    if (sel && !sel.isCollapsed && container.contains(sel.anchorNode)) {
+      e.preventDefault();
+      // הפעל את אותה לוגיקה של fab.click
     }
-    return defaultRender(tokens, idx, options, env, self);
-  };
-  // חזור על heading_open, blockquote_open, list_item_open, fence וכו'
+  }
 });
 ```
 
-אז המיפוי יהפוך למדויק לחלוטין:
-
-```javascript
-function mapSelectionToSourceV2(range) {
-  const startEl = range.startContainer.nodeType === Node.TEXT_NODE
-    ? range.startContainer.parentElement
-    : range.startContainer;
-  const endEl = range.endContainer.nodeType === Node.TEXT_NODE
-    ? range.endContainer.parentElement
-    : range.endContainer;
-
-  const startLine = startEl.closest('[data-source-line]')
-    ?.getAttribute('data-source-line');
-  const endLine = endEl.closest('[data-source-line-end]')
-    ?.getAttribute('data-source-line-end');
-
-  if (startLine != null && endLine != null) {
-    return sourceLines.slice(Number(startLine), Number(endLine)).join('\n');
-  }
-  return null; // fallback לשיטה הקודמת
-}
-```
-
-> **הערה:** markdown-it כבר מכניס `map` על רוב ה-tokens (למשל paragraphs, headings, fences). כל מה שצריך זה hook שכותב אותו כ-data attribute.
-
 ### ב. תפריט הקשר (Context Menu)
 
-במקום כפתור צף, אפשר להוסיף אפשרות ל-context menu (קליק ימני):
-
 ```javascript
-container.addEventListener('contextmenu', (e) => {
-  const sel = window.getSelection();
+container.addEventListener('contextmenu', function(e) {
+  var sel = window.getSelection();
   if (sel && !sel.isCollapsed && container.contains(sel.anchorNode)) {
     // הצג תפריט מותאם עם אפשרות "העתק כמארקדאון"
   }
 });
 ```
 
-### ג. קיצור מקלדת
+### ג. Tooltip עם תצוגה מקדימה
 
-```javascript
-document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
-    const sel = window.getSelection();
-    if (sel && !sel.isCollapsed && container.contains(sel.anchorNode)) {
-      e.preventDefault();
-      // הפעל העתקה כמארקדאון
-    }
-  }
-});
-```
+לפני ההעתקה, אפשר להציג tooltip קטן שמראה את ה-Markdown שייכנס ללוח — כדי שהמשתמש יוודא שזה מה שהוא רוצה.
 
 ---
 
@@ -499,23 +819,29 @@ document.addEventListener('keydown', (e) => {
 
 | קובץ | סוג שינוי |
 |-------|-----------|
-| `webapp/templates/md_preview.html` | הוספת CSS, HTML ו-JS |
+| `webapp/templates/md_preview.html` | הוספת CSS, HTML, Plugin ו-JS |
 
-> זהו! הפיצ'ר כולו ממומש ב-**קובץ אחד בלבד** — `md_preview.html`. אין צורך בשינוי בצד שרת, אין endpoint חדש, ואין תלות חדשה.
+> זהו. הפיצ'ר כולו ממומש ב-**קובץ אחד בלבד** — `md_preview.html`. אין צורך בשינוי בצד שרת, אין endpoint חדש, ואין תלות חדשה.
 
 ---
 
 ## צ'קליסט למימוש
 
-- [ ] הוספת CSS לכפתור הצף (בתוך `{% block extra_css %}`)
+- [ ] הוספת CSS לכפתור הצף (בתוך ה-`<style>` הקיים)
 - [ ] הוספת אלמנט הכפתור (אחרי `#md-content`)
+- [ ] הוספת Source Mapping Plugin (לפני `md.render()`)
 - [ ] הוספת סקריפט המיפוי והאירועים (אחרי `copyMarkdownSource`)
 - [ ] בדיקות:
   - [ ] סימון כותרת → מוחזר `# כותרת`
-  - [ ] סימון טקסט מודגש → מוחזר `**טקסט**`
-  - [ ] סימון בלוק קוד → מוחזר הבלוק עם הגדרות
+  - [ ] סימון טקסט מודגש → מוחזרת הפסקה עם `**טקסט**`
+  - [ ] סימון בלוק קוד → מוחזר הבלוק עם ` ``` ` ו-language hint
   - [ ] סימון ציטוט → מוחזר עם `>`
-  - [ ] סימון קטע שלא ממופה → מוחזר טקסט נקי כ-fallback
+  - [ ] סימון תא בודד בטבלה → מוחזר תוכן התא בלבד (בלי `|`)
+  - [ ] סימון שורה בטבלה → מוחזרת השורה המלאה עם `|` ומפרידים
+  - [ ] סימון טבלה שלמה → מוחזרת הטבלה כולה כולל כותרות ומפרידים
+  - [ ] סימון רשימה → מוחזר עם `-` או `1.`
+  - [ ] סימון חוצה בלוקים → מוחזרות כל השורות כולל ריקות
+  - [ ] בדיקה שאלמנטים ב-DOM מכילים `data-source-line` (DevTools → Elements)
   - [ ] עובד בערכות כהות
   - [ ] עובד במצב מסך מלא
   - [ ] עובד במובייל (long-press לסימון)
@@ -523,13 +849,16 @@ document.addEventListener('keydown', (e) => {
 
 ---
 
-## סיכום
+## סיכום — למה Source Mapping עדיף?
 
-הפיצ'ר הזה פשוט למימוש כי:
+| קריטריון | Fuzzy Matching (גרסה ישנה) | Source Mapping (גרסה זו) |
+|-----------|---------------------------|--------------------------|
+| דיוק כללי | תלוי באורך טקסט, ייחודיות, ratio | **מיפוי ישיר מ-DOM למקור** |
+| טבלאות | שבור — `|` לא מנוקים, אין התאמה | **מיפוי ברמת תא** עם `data-row-line` + `data-col` |
+| רשימות | שבור — בולטים/אינדנטציה שוברים | **`list_item_open` עם `map`** |
+| inline (bold/links) | regex שביר | **עולה לבלוק העוטף** — מחזיר פסקה מלאה |
+| תחזוקה | כל שינוי ב-MD format דורש עדכון regex | **אפס** — Plugin גנרי |
+| ביצועים | O(n*m) השוואות מחרוזות | **O(1)** — קריאת attribute |
+| Fallback | טקסט רגיל (שקט, בלי אזהרה) | טקסט רגיל (נדיר שנגיע לשם) |
 
-1. **המקור כבר נגיש ב-JS** — `MD_TEXT` קיים.
-2. **אין צורך בשרת** — הכל בצד לקוח.
-3. **הלוגיקה מינימלית** — מיפוי לפי טקסט + חיפוש שורות.
-4. **ה-fallback טוב** — אם מיפוי נכשל, מעתיקים טקסט נקי.
-
-השיפור העיקרי לגרסה 2 (data attributes) יהפוך את המיפוי למדויק ב-100%, אבל גם גרסה 1 עם מיפוי טקסטואלי נותנת חוויה טובה מאוד לרוב המקרים.
+> **הערה על מגבלות:** ברמת inline (למשל סימון מילה אחת בתוך פסקה), ה-Source Mapping מחזיר את כל הפסקה ולא רק את המילה — כי ל-inline tokens אין `map` ב-markdown-it. זה תמיד היה ככה וזה לא באג: ה-Markdown של מילה אחת אין לו משמעות בלי הקונטקסט של הפסקה.
