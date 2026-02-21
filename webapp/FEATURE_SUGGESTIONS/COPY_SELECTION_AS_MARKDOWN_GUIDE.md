@@ -178,9 +178,14 @@ markdown-it שומר על כל token ברמת הבלוק (paragraphs, headings, 
 ```javascript
 // ──── Source Mapping Plugin ────
 // מוסיף data-source-line / data-source-line-end לכל אלמנט בלוק
-// כדי לאפשר מיפוי מדויק מ-DOM חזרה לשורות מקור
+// כדי לאפשר מיפוי מדויק מ-DOM חזרה לשורות מקור.
+//
+// הערה חשובה על טבלאות:
+// ב-markdown-it (14.x), th_open / td_open מגיעים עם map = null.
+// לכן תאי טבלה מקבלים טיפול מיוחד: הם יורשים את שורת ה-tr
+// ומקבלים data-col (אינדקס עמודה) כדי לאפשר חילוץ תא בודד מהמקור.
 (function sourceMapPlugin() {
-  // רשימת כל ה-token types שפותחים אלמנט בלוק ומכילים map
+  // ── חלק א: tokens עם map מובנה ──
   const BLOCK_OPEN_TYPES = [
     'paragraph_open',
     'heading_open',
@@ -192,8 +197,6 @@ markdown-it שומר על כל token ברמת הבלוק (paragraphs, headings, 
     'thead_open',
     'tbody_open',
     'tr_open',
-    'th_open',
-    'td_open',
     'fence',
     'code_block',
     'hr',
@@ -214,14 +217,62 @@ markdown-it שומר על כל token ברמת הבלוק (paragraphs, headings, 
       return self.renderToken(tokens, idx, options);
     };
   });
+
+  // ── חלק ב: טיפול מיוחד ב-th_open / td_open ──
+  // ל-tokens האלה אין map משלהם (map = null ב-markdown-it 14.x).
+  // אנחנו יורשים את שורת המקור מה-tr_open הקרוב למעלה,
+  // וסופרים את אינדקס העמודה (data-col) כדי שנוכל לחלץ תא ספציפי.
+  ['th_open', 'td_open'].forEach(function(type) {
+    const originalRule = md.renderer.rules[type];
+
+    md.renderer.rules[type] = function(tokens, idx, options, env, self) {
+      const token = tokens[idx];
+
+      // מצא את ה-tr_open הקרוב למעלה כדי לקבל את שורת המקור
+      var rowLine = null;
+      for (var i = idx - 1; i >= 0; i--) {
+        if (tokens[i].type === 'tr_open') {
+          if (tokens[i].map && tokens[i].map.length >= 2) {
+            rowLine = tokens[i].map[0];
+          }
+          break;
+        }
+      }
+
+      // ספור כמה th_open/td_open יש מאז ה-tr_open (= אינדקס עמודה)
+      var colIndex = 0;
+      for (var j = idx - 1; j >= 0; j--) {
+        if (tokens[j].type === 'tr_open') break;
+        if (tokens[j].type === type) colIndex++;
+      }
+
+      if (rowLine != null) {
+        token.attrSet('data-row-line', String(rowLine));
+      }
+      token.attrSet('data-col', String(colIndex));
+
+      if (originalRule) {
+        return originalRule(tokens, idx, options, env, self);
+      }
+      return self.renderToken(tokens, idx, options);
+    };
+  });
 })();
 ```
 
 **מה קורה כאן:**
-- עוברים על כל סוגי ה-tokens שפותחים בלוק (פסקה, כותרת, רשימה וכו')
+
+**חלק א — tokens עם map מובנה:**
+- עוברים על כל סוגי ה-tokens שפותחים בלוק (פסקה, כותרת, רשימה, `tr_open` וכו')
 - לכל אחד — שומרים את ה-rule המקורי ועוטפים אותו
-- לפני הרינדור, כותבים את `token.map[0]` (שורת התחלה) ו-`token.map[1]` (שורת סיום) כ-data attributes
+- לפני הרינדור, כותבים את `token.map[0]` ו-`token.map[1]` כ-data attributes
 - אם אין rule מקורי — משתמשים ב-`self.renderToken` (ברירת המחדל)
+
+**חלק ב — תאי טבלה (td/th):**
+- ל-`th_open` ו-`td_open` אין `map` ב-markdown-it (הם מגיעים כ-`null`)
+- לכן אנחנו עולים אחורה בשרשרת ה-tokens עד ל-`tr_open` וקוראים את ה-`map` שלו
+- סופרים כמה `td_open`/`th_open` יש מאז ה-`tr_open` כדי לקבל אינדקס עמודה
+- כותבים `data-row-line` (שורה במקור) ו-`data-col` (עמודה) על התא
 
 **דוגמה לתוצאה:**
 
@@ -231,21 +282,37 @@ Markdown מקורי:
 
 פסקה עם **טקסט מודגש** ועוד דברים.
 
-- פריט א
-- פריט ב
+| שם | גיל |
+|-----|------|
+| דני | 30  |
+| רוני | 25  |
 ```
 
 HTML מרונדר (חלקי):
 ```html
 <h1 data-source-line="0" data-source-line-end="1" id="...">כותרת ראשית</h1>
 <p data-source-line="2" data-source-line-end="3">פסקה עם <strong>טקסט מודגש</strong> ועוד דברים.</p>
-<ul data-source-line="4" data-source-line-end="6">
-  <li data-source-line="4" data-source-line-end="5">פריט א</li>
-  <li data-source-line="5" data-source-line-end="6">פריט ב</li>
-</ul>
+<table data-source-line="4" data-source-line-end="8">
+  <thead data-source-line="4" data-source-line-end="6">
+    <tr data-source-line="4" data-source-line-end="5">
+      <th data-row-line="4" data-col="0">שם</th>
+      <th data-row-line="4" data-col="1">גיל</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr data-source-line="6" data-source-line-end="7">
+      <td data-row-line="6" data-col="0">דני</td>
+      <td data-row-line="6" data-col="1">30</td>
+    </tr>
+    <tr data-source-line="7" data-source-line-end="8">
+      <td data-row-line="7" data-col="0">רוני</td>
+      <td data-row-line="7" data-col="1">25</td>
+    </tr>
+  </tbody>
+</table>
 ```
 
-כל אלמנט יודע בדיוק מאיפה הוא הגיע במקור.
+כל אלמנט יודע בדיוק מאיפה הוא הגיע במקור. תאי טבלה יודעים גם באיזו עמודה הם נמצאים.
 
 ### שלב 4: לוגיקת העתקה עם Source Mapping
 
@@ -277,6 +344,79 @@ HTML מרונדר (חלקי):
     }
     return null;
   }
+
+  // ──── טבלאות: חילוץ תא בודד מהמקור ────
+
+  // בודק אם node נמצא בתוך תא טבלה (td/th) עם data-row-line
+  function findTableCell(node) {
+    if (!node) return null;
+    var el = (node.nodeType === Node.TEXT_NODE) ? node.parentElement : node;
+    while (el && el !== container) {
+      if (el.hasAttribute &&
+          (el.tagName === 'TD' || el.tagName === 'TH') &&
+          el.hasAttribute('data-row-line')) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  // מפרסר שורת טבלה במקור לפי | ומחזיר את התא לפי אינדקס עמודה.
+  // מתמודד עם escaped pipes (\|) ועם רווחים מיותרים.
+  function extractCellFromSourceLine(lineIndex, colIndex) {
+    var line = sourceLines[lineIndex];
+    if (!line) return null;
+
+    // פרסור: מפצלים לפי | שלא escaped
+    // regex: | שלפניו מספר זוגי (כולל 0) של backslashes
+    var cells = [];
+    var current = '';
+    for (var i = 0; i < line.length; i++) {
+      if (line[i] === '|') {
+        // בדוק כמה backslashes לפני
+        var bs = 0;
+        var k = i - 1;
+        while (k >= 0 && line[k] === '\\') { bs++; k--; }
+        if (bs % 2 === 0) {
+          // pipe אמיתי (לא escaped)
+          cells.push(current);
+          current = '';
+          continue;
+        }
+      }
+      current += line[i];
+    }
+    cells.push(current); // תא אחרון
+
+    // הסר תאים ריקים בהתחלה ובסוף (בגלל ה-| בתחילת/סוף השורה)
+    if (cells.length > 0 && cells[0].trim() === '') cells.shift();
+    if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop();
+
+    if (colIndex >= 0 && colIndex < cells.length) {
+      return cells[colIndex].trim();
+    }
+    return null;
+  }
+
+  // בודק אם הסלקציה כולה בתוך תא טבלה אחד,
+  // ואם כן — מחזיר את תוכן התא מהמקור
+  function tryExtractTableCell(range) {
+    var startCell = findTableCell(range.startContainer);
+    var endCell = findTableCell(range.endContainer);
+
+    // רק אם שני הקצוות באותו תא
+    if (!startCell || startCell !== endCell) return null;
+
+    var rowLine = Number(startCell.getAttribute('data-row-line'));
+    var col = Number(startCell.getAttribute('data-col'));
+
+    if (isNaN(rowLine) || isNaN(col)) return null;
+
+    return extractCellFromSourceLine(rowLine, col);
+  }
+
+  // ──── מיפוי כללי (לא-טבלאות) ────
 
   // מחפש את ה-data-source-line הראשון/אחרון בתוך range
   // כולל חיפוש באלמנטים ילדים שנמצאים בתוך הטווח
@@ -351,6 +491,11 @@ HTML מרונדר (חלקי):
 
   // הפונקציה הראשית: ממפה range לשורות מקור ומחזירה Markdown
   function mapRangeToMarkdown(range) {
+    // נסה קודם חילוץ תא טבלה בודד
+    var cellContent = tryExtractTableCell(range);
+    if (cellContent != null) return cellContent;
+
+    // מיפוי כללי לפי data-source-line
     var sr = getSourceRange(range);
     if (!sr) return '';
 
@@ -473,11 +618,21 @@ token.map[1] → data-source-line-end="3" (שורת סיום, exclusive)
 
 **חשוב:** ה-`end` הוא exclusive — כלומר אם `map = [2, 5]`, השורות הן 2, 3, 4 (בלי 5). זה תואם בדיוק ל-`Array.slice(start, end)`.
 
-### חלק 2: מציאת source node
+### חלק 2: מציאת source node / table cell
 
-הפונקציה `findSourceNode` מקבלת DOM node (יכול להיות text node) ועולה למעלה ב-DOM עד שמוצאת אלמנט עם `data-source-line`. זה תמיד יצליח כי כל אלמנט בלוק מקבל את ה-attribute מה-Plugin.
+שתי פונקציות עזר מרכזיות:
 
-### חלק 3: חישוב טווח שורות
+- `findSourceNode(node)` — עולה ב-DOM עד שמוצאת אלמנט עם `data-source-line`. עובד לכל הבלוקים (פסקאות, כותרות, רשימות וכו').
+- `findTableCell(node)` — עולה ב-DOM עד שמוצאת `<td>`/`<th>` עם `data-row-line`. ספציפי לטבלאות.
+
+### חלק 3: זרימת ההעתקה (mapRangeToMarkdown)
+
+הפונקציה הראשית `mapRangeToMarkdown` עובדת בשני שלבים:
+
+1. **ניסיון תא טבלה:** `tryExtractTableCell` בודקת אם שני קצוות הסלקציה באותו `<td>`/`<th>`. אם כן — מפרסרת את שורת המקור לפי `|` ומחלצת רק את העמודה הרלוונטית.
+2. **מיפוי כללי:** אם לא תא טבלה — `getSourceRange` מוצאת את טווח השורות.
+
+### חלק 4: חישוב טווח שורות
 
 `getSourceRange` לוקחת את ה-Range של הסלקציה ומוצאת:
 - את ה-`data-source-line` של ה-start container (= שורת ההתחלה)
@@ -485,11 +640,11 @@ token.map[1] → data-source-line-end="3" (שורת סיום, exclusive)
 
 אם הסלקציה כולה בתוך אלמנט אחד — שני הערכים מגיעים מאותו אלמנט. אם היא חוצה כמה אלמנטים — כל אחד נותן את הצד שלו.
 
-### חלק 4: חיתוך מקור
+### חלק 5: חיתוך מקור
 
 פשוט `sourceLines.slice(start, end).join('\n')`. מכיוון ש-`end` כבר exclusive, זה עובד ישירות בלי `+ 1`.
 
-### חלק 5: כפתור צף
+### חלק 6: כפתור צף
 
 זהה לגרסה הקודמת: `position: absolute` ביחס ל-`#mdCard`, מופיע כשיש סלקציה בתוך `#md-content`, נעלם כשהסלקציה מתבטלת.
 
@@ -503,12 +658,38 @@ token.map[1] → data-source-line-end="3" (שורת סיום, exclusive)
 
 בנוסף, יש פונקציית `expandToFences` ליתר ביטחון — אם מסיבה כלשהי ה-map לא כולל את ה-fences, היא סורקת למעלה ולמטה ומוצאת אותם.
 
-### 2. טבלאות
+### 2. טבלאות — מיפוי ברמת תא
 
-טבלאות ב-markdown-it מקבלות `map` על `table_open`. כשמסמנים תא בטבלה:
-- `findSourceNode` עולה מה-`<td>` ← `<tr>` ← `<tbody>` ← `<table>`
-- כל אחד מהם מכיל `data-source-line`, אז ה-map מדויק
-- ה-Plugin מכסה `table_open`, `tr_open`, `th_open`, `td_open` — כך שגם בחירה בתוך תא בודד עובדת
+ב-markdown-it, `th_open`/`td_open` מגיעים עם `map = null` — כלומר אין להם מיפוי שורות ישיר. זה יוצר בעיה: אם היינו מסתמכים רק על `data-source-line`, סלקציה בתוך תא הייתה "נופלת" לשורה/טבלה שלמה.
+
+**הפתרון שלנו — מיפוי תא אמיתי:**
+
+1. ב-Plugin, כל `td_open`/`th_open` מקבל:
+   - `data-row-line` — שורת המקור של ה-`tr_open` (שכן יש לו `map`)
+   - `data-col` — אינדקס העמודה (0-based, נספר מ-`tr_open` הקרוב)
+
+2. בלוגיקת ההעתקה, `tryExtractTableCell` בודקת אם הסלקציה כולה בתוך תא אחד:
+   - אם כן — `extractCellFromSourceLine` לוקחת את השורה מהמקור ומפרסרת לפי `|` (עם טיפול ב-`\|` escaped)
+   - מחזירה רק את תוכן התא הספציפי
+
+3. אם הסלקציה חוצה כמה תאים/שורות — נופלים ל-`getSourceRange` הרגיל, שמוצא את ה-`tr_open` או `table_open` העוטף ומחזיר את כל השורות הרלוונטיות
+
+**דוגמה:**
+
+מקור:
+```markdown
+| שם | גיל | עיר |
+|-----|------|------|
+| דני | 30  | ת"א |
+```
+
+אם המשתמש סימן רק את "30" בטבלה המרונדרת:
+- `findTableCell` מוצא `<td data-row-line="2" data-col="1">`
+- `extractCellFromSourceLine(2, 1)` מפרסר את `| דני | 30  | ת"א |` ומחזיר `30`
+
+אם סימן את כל השורה "דני 30 ת"א":
+- `tryExtractTableCell` מחזיר `null` (כי start ≠ end cell, או שהסלקציה חוצה תאים)
+- `getSourceRange` עולה ל-`tr_open` ומחזיר את השורה המלאה: `| דני | 30  | ת"א |`
 
 ### 3. רשימות מקוננות
 
@@ -569,24 +750,26 @@ container.innerHTML = md.render(MD_TEXT || '');
 
 רוב ה-block tokens ב-markdown-it מקבלים `map` באופן אוטומטי. הנה מצב לכל סוג:
 
-| Token | יש map? | הערות |
-|-------|---------|-------|
-| `paragraph_open` | כן | תמיד |
-| `heading_open` | כן | תמיד |
+| Token | יש map? | הטיפול שלנו |
+|-------|---------|-------------|
+| `paragraph_open` | כן | `data-source-line` + `data-source-line-end` |
+| `heading_open` | כן | `data-source-line` + `data-source-line-end` |
 | `fence` | כן | כולל שורות ` ``` ` |
 | `code_block` | כן | בלוק קוד עם הזחה |
 | `blockquote_open` | כן | כולל סימני `>` |
-| `bullet_list_open` | כן | רשימה לא ממוספרת |
-| `ordered_list_open` | כן | רשימה ממוספרת |
+| `bullet_list_open` | כן | `data-source-line` + `data-source-line-end` |
+| `ordered_list_open` | כן | `data-source-line` + `data-source-line-end` |
 | `list_item_open` | כן | פריט ברשימה |
-| `table_open` | כן | |
-| `tr_open` | כן | |
-| `th_open` / `td_open` | כן | |
+| `table_open` | כן | `data-source-line` + `data-source-line-end` |
+| `tr_open` | כן | `data-source-line` + `data-source-line-end` |
+| `th_open` / `td_open` | **לא** (`map = null`) | `data-row-line` + `data-col` (יורש מ-`tr_open`) |
 | `hr` | כן | קו אופקי |
 | `html_block` | כן | HTML גולמי (אם `html: true`) |
 | inline tokens | **לא** | `strong_open`, `em_open`, `link_open` — אין map, עולים לבלוק העוטף |
 
 > **הערה:** מכיוון שאצלנו `html: false` (בהגדרות markdown-it), אין `html_block` ולכן לא נדרש טיפול מיוחד.
+>
+> **הערה חשובה על טבלאות:** ב-markdown-it 14.x, תאי טבלה (`th_open`/`td_open`) מגיעים עם `map = null`. לכן הם מקבלים טיפול מיוחד: ה-Plugin יורש את שורת המקור מה-`tr_open` ומוסיף אינדקס עמודה. בצד ההעתקה, הפונקציה `extractCellFromSourceLine` מפרסרת את שורת המקור לפי `|` ומחלצת את התא הרלוונטי.
 
 ---
 
@@ -644,7 +827,9 @@ container.addEventListener('contextmenu', function(e) {
   - [ ] סימון טקסט מודגש → מוחזרת הפסקה עם `**טקסט**`
   - [ ] סימון בלוק קוד → מוחזר הבלוק עם ` ``` ` ו-language hint
   - [ ] סימון ציטוט → מוחזר עם `>`
-  - [ ] סימון טבלה → מוחזר עם `|` ומפרידים
+  - [ ] סימון תא בודד בטבלה → מוחזר תוכן התא בלבד (בלי `|`)
+  - [ ] סימון שורה בטבלה → מוחזרת השורה המלאה עם `|` ומפרידים
+  - [ ] סימון טבלה שלמה → מוחזרת הטבלה כולה כולל כותרות ומפרידים
   - [ ] סימון רשימה → מוחזר עם `-` או `1.`
   - [ ] סימון חוצה בלוקים → מוחזרות כל השורות כולל ריקות
   - [ ] בדיקה שאלמנטים ב-DOM מכילים `data-source-line` (DevTools → Elements)
@@ -659,8 +844,12 @@ container.addEventListener('contextmenu', function(e) {
 
 | קריטריון | Fuzzy Matching (גרסה ישנה) | Source Mapping (גרסה זו) |
 |-----------|---------------------------|--------------------------|
-| דיוק | תלוי באורך טקסט, ייחודיות, ratio | **100% — מיפוי ישיר** |
-| מקרי קצה | רשימות, טבלאות, HTML, אינדנטציה שוברים | **אין** — כל בלוק ממופה |
+| דיוק כללי | תלוי באורך טקסט, ייחודיות, ratio | **מיפוי ישיר מ-DOM למקור** |
+| טבלאות | שבור — `|` לא מנוקים, אין התאמה | **מיפוי ברמת תא** עם `data-row-line` + `data-col` |
+| רשימות | שבור — בולטים/אינדנטציה שוברים | **`list_item_open` עם `map`** |
+| inline (bold/links) | regex שביר | **עולה לבלוק העוטף** — מחזיר פסקה מלאה |
 | תחזוקה | כל שינוי ב-MD format דורש עדכון regex | **אפס** — Plugin גנרי |
 | ביצועים | O(n*m) השוואות מחרוזות | **O(1)** — קריאת attribute |
 | Fallback | טקסט רגיל (שקט, בלי אזהרה) | טקסט רגיל (נדיר שנגיע לשם) |
+
+> **הערה על מגבלות:** ברמת inline (למשל סימון מילה אחת בתוך פסקה), ה-Source Mapping מחזיר את כל הפסקה ולא רק את המילה — כי ל-inline tokens אין `map` ב-markdown-it. זה תמיד היה ככה וזה לא באג: ה-Markdown של מילה אחת אין לו משמעות בלי הקונטקסט של הפסקה.
