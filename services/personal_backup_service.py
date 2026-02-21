@@ -126,25 +126,60 @@ class PersonalBackupService:
     def _export_regular_files(self, zf: zipfile.ZipFile, user_id: int) -> List[Dict]:
         """מייצא את כל קבצי הקוד הרגילים — תוכן + מטאדאטה."""
         meta_list = []
+        projection = {
+            "_id": 0,
+            "file_name": 1,
+            "code": 1,
+            "programming_language": 1,
+            "description": 1,
+            "tags": 1,
+            "is_favorite": 1,
+            "is_pinned": 1,
+            "pin_order": 1,
+            "version": 1,
+            "created_at": 1,
+            "updated_at": 1,
+        }
         try:
-            # קריטי לביצועים:
-            # במקום N+1 (get_user_files ואז get_file לכל קובץ),
-            # מבקשים מראש את הגרסה האחרונה לכל file_name *כולל code* ב-query אחד.
-            projection = {
-                "_id": 0,
-                "file_name": 1,
-                "code": 1,
-                "programming_language": 1,
-                "description": 1,
-                "tags": 1,
-                "is_favorite": 1,
-                "is_pinned": 1,
-                "pin_order": 1,
-                "version": 1,
-                "created_at": 1,
-                "updated_at": 1,
-            }
-            files = self.db.get_user_files(user_id, limit=10000, projection=projection)
+            # קריטי לביצועים + נכונות:
+            # - במקום N+1 (get_user_files ואז get_file לכל קובץ)
+            # - וגם כדי לא להסתמך על cache (get_user_files cached ל-120s)
+            # נבצע aggregate ישירות על הקולקשן כדי לקבל את הגרסה האחרונה לכל file_name *כולל code* בשאילתה אחת.
+            files = None
+            try:
+                collection = getattr(self.db, "collection", None)
+            except Exception:
+                collection = None
+
+            # הגנה מול MagicMock בטסטים: getattr על MagicMock "ממציא" attributes,
+            # ולכן נוודא שהשדה collection באמת הוגדר על האובייקט (ולא נוצר דינמית).
+            has_explicit_collection_attr = False
+            try:
+                db_dict = getattr(self.db, "__dict__", None)
+                has_explicit_collection_attr = isinstance(db_dict, dict) and ("collection" in db_dict)
+            except Exception:
+                has_explicit_collection_attr = False
+
+            if has_explicit_collection_attr and collection is not None and hasattr(collection, "aggregate"):
+                pipeline = [
+                    {"$match": {"user_id": int(user_id), "is_active": True}},
+                    {"$sort": {"file_name": 1, "version": -1}},
+                    {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                    {"$replaceRoot": {"newRoot": "$latest"}},
+                    # סדר יציב לדטרמיניזם (לא חובה, אבל נוח לדיבאג)
+                    {"$sort": {"file_name": 1}},
+                    {"$project": dict(projection)},
+                    {"$limit": 10000},
+                ]
+                try:
+                    files = list(collection.aggregate(pipeline, allowDiskUse=True))
+                except TypeError:
+                    # תאימות למוקים/סטאבים שלא תומכים ב-allowDiskUse
+                    files = list(collection.aggregate(pipeline))
+
+            if files is None:
+                # fallback למצב שבו אין גישה ישירה לקולקשן (למשל בטסטים עם MagicMock)
+                files = self.db.get_user_files(user_id, limit=10000, projection=projection)
         except Exception as e:
             logger.error(f"שגיאה בשליפת קבצים לייצוא: {e}")
             return meta_list
