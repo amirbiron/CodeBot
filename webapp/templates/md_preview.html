@@ -4102,34 +4102,6 @@ function copyMarkdownSource(ev){
     return false;
   }
 
-  function findFirstLineIndex(searchText, startFrom) {
-    const needleLower = normalize(searchText, false, false);
-    const needleCodeStrict = normalize(searchText, true, true);
-    const needleCodeLoose = normalize(searchText, true, false);
-    if (!needleLower && !needleCodeStrict && !needleCodeLoose) return -1;
-    for (let i = startFrom; i < sourceLines.length; i++) {
-      const isCode = !!(i >= 0 && i < inFencedBlock.length && inFencedBlock[i]);
-      if (!isCode) {
-        if (!needleLower) continue;
-        const haystack = normalize(stripMarkdownSyntax(sourceLines[i], i), false, false);
-        if (!haystack) continue;
-        if (_lineMatches(haystack, needleLower, false, false)) return i;
-        continue;
-      }
-
-      // קוד: קודם נסה התאמה "קפדנית" (שומר whitespace), ואם לא — התאמה "רכה" שמאחדת whitespace
-      if (needleCodeStrict) {
-        const hayStrict = normalize(stripMarkdownSyntax(sourceLines[i], i), true, true);
-        if (hayStrict && _lineMatches(hayStrict, needleCodeStrict, true, true)) return i;
-      }
-      if (needleCodeLoose) {
-        const hayLoose = normalize(stripMarkdownSyntax(sourceLines[i], i), true, false);
-        if (hayLoose && _lineMatches(hayLoose, needleCodeLoose, true, false)) return i;
-      }
-    }
-    return -1;
-  }
-
   function findLastLineIndex(searchText, startFrom, endAt) {
     const needleLower = normalize(searchText, false, false);
     const needleCodeStrict = normalize(searchText, true, true);
@@ -4171,6 +4143,10 @@ function copyMarkdownSource(ev){
 
   function _getEnclosingFenceRange(lineIndex) {
     if (lineIndex < 0 || lineIndex >= sourceLines.length) return null;
+
+    // שורת fence עצמה (```/~~~) לא נחשבת "בתוך" הבלוק לצורך הרחבת טווח.
+    // אחרת, בחירה של שורת fence בלבד יכולה להתרחב בטעות לכל בלוק הקוד.
+    if (_parseFenceInfo(sourceLines[lineIndex])) return null;
 
     // האם אנחנו "בתוך" fenced block? (סורקים מהתחלה עד השורה)
     let open = null; // {ch,len,start}
