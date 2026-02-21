@@ -4063,19 +4063,26 @@ function copyMarkdownSource(ev){
     var open = null; // { start, ch, len }
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i] || '';
-      var m = line.match(/^\s*(`{3,}|~{3,})/);
+      // CommonMark: fenced blocks יכולים להיות מוזחים עד 3 רווחים בלבד.
+      // בנוסף, שורת סגירה חייבת להיות "ריקה" אחרי ה-fence (בלי info string).
+      var m = line.match(/^[ \t]{0,3}(`{3,}|~{3,})(.*)$/);
       if (!m) continue;
       var marker = m[1];
+      var rest = m[2] || '';
       var ch = marker[0];
       var len = marker.length;
 
       if (!open) {
+        // CommonMark: info string של ``` לא יכול להכיל backticks.
+        // אם הוא כן מכיל, markdown-it לא יחשיב את זה כ-fence תקין.
+        if (ch === '`' && rest.indexOf('`') !== -1) continue;
         open = { start: i, ch: ch, len: len };
         continue;
       }
 
       // fence נסגר רק ע"י אותו תו (``` / ~~~) ובאורך >= הפותח
-      if (open.ch === ch && len >= open.len) {
+      // ושורת הסגירה חייבת להיות "ריקה" אחרי ה-fence
+      if (open.ch === ch && len >= open.len && rest.trim() === '') {
         ranges.push({ start: open.start, end: i + 1 }); // end הוא exclusive
         open = null;
       }
@@ -4206,6 +4213,20 @@ function copyMarkdownSource(ev){
     var startNode = findSourceNode(range.startContainer);
     var endNode = findSourceNode(range.endContainer);
 
+    function readSourceLine(el) {
+      var n = Number(el && el.getAttribute ? el.getAttribute('data-source-line') : NaN);
+      return isNaN(n) ? null : n;
+    }
+
+    function readSourceEndExclusive(el) {
+      if (!el || !el.getAttribute) return null;
+      var nEnd = Number(el.getAttribute('data-source-line-end'));
+      if (!isNaN(nEnd)) return nEnd;
+      var nStart = Number(el.getAttribute('data-source-line'));
+      if (!isNaN(nStart)) return nStart + 1;
+      return null;
+    }
+
     // אם לא מצאנו source node ישירות, ננסה למצוא
     // את כל האלמנטים עם data-source-line בתוך ה-range
     if (!startNode && !endNode) {
@@ -4213,10 +4234,12 @@ function copyMarkdownSource(ev){
       var fragment = range.cloneContents();
       var mapped = fragment.querySelectorAll('[data-source-line]');
       if (mapped.length > 0) {
+        var startFallback = readSourceLine(mapped[0]);
+        var endFallback = readSourceEndExclusive(mapped[mapped.length - 1]);
+        if (startFallback == null || endFallback == null) return null;
         return {
-          start: Number(mapped[0].getAttribute('data-source-line')),
-          end: Number(mapped[mapped.length - 1].getAttribute('data-source-line-end')
-                      || mapped[mapped.length - 1].getAttribute('data-source-line'))
+          start: startFallback,
+          end: endFallback
         };
       }
       return null;
@@ -4225,22 +4248,20 @@ function copyMarkdownSource(ev){
     var startLine, endLine;
 
     if (startNode) {
-      startLine = Number(startNode.getAttribute('data-source-line'));
+      startLine = readSourceLine(startNode);
     }
     if (endNode) {
-      endLine = Number(endNode.getAttribute('data-source-line-end')
-                       || endNode.getAttribute('data-source-line'));
+      endLine = readSourceEndExclusive(endNode);
     }
 
     // אם חסר אחד מהם — קרא את שני ה-attributes מה-node שנמצא.
     // חשוב: לא מעתיקים startLine ל-endLine (או להיפך) כי זה ייתן
     // slice(n, n) = מערך ריק. במקום זה, קוראים גם start וגם end מאותו node.
     if (!startNode && endNode) {
-      startLine = Number(endNode.getAttribute('data-source-line'));
+      startLine = readSourceLine(endNode);
     }
     if (!endNode && startNode) {
-      endLine = Number(startNode.getAttribute('data-source-line-end')
-                       || startNode.getAttribute('data-source-line'));
+      endLine = readSourceEndExclusive(startNode);
     }
     if (startLine == null || endLine == null) return null;
 
