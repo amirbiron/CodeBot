@@ -4042,6 +4042,57 @@ function copyMarkdownSource(ev){
   const sourceLines = (typeof MD_TEXT === 'string' ? MD_TEXT : '').split('\n');
   if (!sourceLines.length) return;
 
+  var labelEl = fab.querySelector('.md-copy-selection-label') || fab.querySelector('span');
+  var originalFabLabel = labelEl ? labelEl.textContent : '';
+  var resetFabTimer = null;
+  function setFabLabel(value) {
+    if (labelEl && typeof value === 'string') {
+      labelEl.textContent = value;
+    }
+  }
+  function resetFabLabel() {
+    if (originalFabLabel) setFabLabel(originalFabLabel);
+  }
+
+  // ──── Precompute fenced code block ranges (CommonMark-ish) ────
+  // זה משמש רק כ-"belt and suspenders" למקרה נדיר שבו טווח השורות
+  // יוצא מתוך fenced block בלי לכלול את ה-fences.
+  // חשוב: ההרחבה נעשית רק אם ה-selection באמת בתוך אותו fenced block.
+  var fencedRanges = (function buildFencedRanges(lines) {
+    var ranges = [];
+    var open = null; // { start, ch, len }
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i] || '';
+      var m = line.match(/^\s*(`{3,}|~{3,})/);
+      if (!m) continue;
+      var marker = m[1];
+      var ch = marker[0];
+      var len = marker.length;
+
+      if (!open) {
+        open = { start: i, ch: ch, len: len };
+        continue;
+      }
+
+      // fence נסגר רק ע"י אותו תו (``` / ~~~) ובאורך >= הפותח
+      if (open.ch === ch && len >= open.len) {
+        ranges.push({ start: open.start, end: i + 1 }); // end הוא exclusive
+        open = null;
+      }
+    }
+    return ranges;
+  })(sourceLines);
+
+  function findEnclosingFencedRange(start, end) {
+    // מחפשים fenced block שמכיל את הטווח כולו.
+    // דרישה "strictly inside" מונעת מצב שבו טקסט בין שני fences יבלע בטעות.
+    for (var i = 0; i < fencedRanges.length; i++) {
+      var r = fencedRanges[i];
+      if (start > r.start && end < r.end) return r;
+    }
+    return null;
+  }
+
   // ──── Source Mapping: מ-DOM לשורות מקור ────
 
   // מוצא את האלמנט הקרוב שיש לו data-source-line
@@ -4080,14 +4131,31 @@ function copyMarkdownSource(ev){
   // מתמודד עם escaped pipes (\|) ועם רווחים מיותרים.
   function extractCellFromSourceLine(lineIndex, colIndex) {
     var line = sourceLines[lineIndex];
-    if (!line) return null;
+    if (line == null) return null;
 
     // פרסור: מפצלים לפי | שלא escaped
-    // regex: | שלפניו מספר זוגי (כולל 0) של backslashes
     var cells = [];
     var current = '';
+    var inCode = false;
+    var codeTicks = 0;
     for (var i = 0; i < line.length; i++) {
-      if (line[i] === '|') {
+      if (line[i] === '`') {
+        // תמיכה ב-code spans עם מספר backticks משתנה (למשל ``code`with`ticks``)
+        var run = 1;
+        while (i + run < line.length && line[i + run] === '`') run++;
+        if (!inCode) {
+          inCode = true;
+          codeTicks = run;
+        } else if (run === codeTicks) {
+          inCode = false;
+          codeTicks = 0;
+        }
+        current += line.slice(i, i + run);
+        i += run - 1;
+        continue;
+      }
+
+      if (!inCode && line[i] === '|') {
         // בדוק כמה backslashes לפני
         var bs = 0;
         var k = i - 1;
@@ -4189,25 +4257,9 @@ function copyMarkdownSource(ev){
   // הרחבה חכמה: אם הטווח נופל בתוך fenced code block,
   // ודא שכוללים את ה-fences (כי ה-token של fence כבר כולל אותם)
   function expandToFences(start, end) {
-    // token.map של fence כבר כולל את שורות הפתיחה והסגירה,
-    // אז אם ה-source mapping עובד נכון, אין צורך בהרחבה.
-    // אבל ליתר ביטחון, נבדוק אם נפלנו בתוך fence:
-    var fenceStart = -1;
-    for (var i = start; i >= 0; i--) {
-      if (sourceLines[i].trim().startsWith('```')) {
-        fenceStart = i;
-        break;
-      }
-    }
-    if (fenceStart >= 0 && fenceStart < start) {
-      // בדוק שיש fence סוגר אחרי ה-end
-      for (var j = end; j < sourceLines.length; j++) {
-        if (sourceLines[j].trim().startsWith('```')) {
-          return { start: fenceStart, end: j + 1 };
-        }
-      }
-    }
-    return { start: start, end: end };
+    var r = findEnclosingFencedRange(start, end);
+    if (!r) return { start: start, end: end };
+    return { start: r.start, end: r.end };
   }
 
   // הפונקציה הראשית: ממפה range לשורות מקור ומחזירה Markdown
@@ -4230,26 +4282,35 @@ function copyMarkdownSource(ev){
 
   // ──── מיקום הכפתור הצף ────
 
+  var fabHost = fab.offsetParent || document.getElementById('mdCard') || container.closest('.glass-card') || container;
+
   function positionFab(range) {
     var rect = range.getBoundingClientRect();
-    var containerRect = (container.closest('.glass-card') || container)
-                          .getBoundingClientRect();
+    var hostRect = (fabHost && fabHost.getBoundingClientRect) ? fabHost.getBoundingClientRect() : container.getBoundingClientRect();
+    var scrollTop = (fabHost && typeof fabHost.scrollTop === 'number') ? fabHost.scrollTop : 0;
+    var scrollLeft = (fabHost && typeof fabHost.scrollLeft === 'number') ? fabHost.scrollLeft : 0;
 
     // מקם מעל הסלקציה, מיושר לימין (RTL)
-    fab.style.top = (rect.top - containerRect.top - fab.offsetHeight - 8) + 'px';
-    fab.style.right = Math.max(8, containerRect.right - rect.right) + 'px';
+    var top = (rect.top - hostRect.top + scrollTop - fab.offsetHeight - 8);
+    var right = (hostRect.right - rect.right + scrollLeft);
+    fab.style.top = Math.max(8, top) + 'px';
+    fab.style.right = Math.max(8, right) + 'px';
     fab.style.left = '';
   }
 
   function showFab(range) {
+    if (resetFabTimer) { clearTimeout(resetFabTimer); resetFabTimer = null; }
     fab.classList.remove('is-copied');
     fab.classList.add('is-visible');
+    resetFabLabel();
     // חכה פריים אחד כדי שה-fab יקבל מידות לפני מיקום
     requestAnimationFrame(function() { positionFab(range); });
   }
 
   function hideFab() {
+    if (resetFabTimer) { clearTimeout(resetFabTimer); resetFabTimer = null; }
     fab.classList.remove('is-visible', 'is-copied');
+    resetFabLabel();
   }
 
   // ──── אירועי סלקציה ────
@@ -4290,6 +4351,22 @@ function copyMarkdownSource(ev){
     e.stopPropagation();
   });
 
+  // כשה-card נגלל (למשל במסך מלא), צריך לעדכן מיקום לפי scrollTop
+  try {
+    if (fabHost && fabHost.addEventListener) {
+      fabHost.addEventListener('scroll', function() {
+        try {
+          if (!fab.classList.contains('is-visible')) return;
+          var sel = window.getSelection();
+          if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+          var r = sel.getRangeAt(0);
+          if (!container.contains(r.commonAncestorContainer)) return;
+          positionFab(r);
+        } catch (_) {}
+      }, { passive: true });
+    }
+  } catch (_) {}
+
   fab.addEventListener('click', async function(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -4311,12 +4388,11 @@ function copyMarkdownSource(ev){
     }
 
     if (success) {
+      if (resetFabTimer) { clearTimeout(resetFabTimer); resetFabTimer = null; }
       fab.classList.add('is-copied');
-      var labelEl = fab.querySelector('.md-copy-selection-label') || fab.querySelector('span');
-      var originalText = labelEl ? labelEl.textContent : '';
-      if (labelEl) labelEl.textContent = markdown ? 'הועתק כמארקדאון!' : 'הועתק!';
-      setTimeout(function() {
-        if (labelEl) labelEl.textContent = originalText;
+      setFabLabel(markdown ? 'הועתק כמארקדאון!' : 'הועתק!');
+      resetFabTimer = setTimeout(function() {
+        resetFabTimer = null;
         hideFab();
       }, 1500);
     }
