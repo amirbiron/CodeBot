@@ -1289,6 +1289,68 @@ input.md-task-checkbox {
 #md-content h3:hover .header-anchor {
   opacity: 1;
 }
+
+/* ──── כפתור צף "העתק כמארקדאון" ──── */
+.md-copy-selection-fab {
+  position: absolute;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  transition: background 0.15s ease, transform 0.15s ease;
+  white-space: nowrap;
+  pointer-events: auto;
+  font-family: inherit;
+  direction: rtl;
+}
+
+.md-copy-selection-fab:hover {
+  background: #f3f4f6;
+  transform: translateY(-1px);
+}
+
+.md-copy-selection-fab.is-visible {
+  display: inline-flex;
+}
+
+.md-copy-selection-fab.is-copied {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+/* התאמה לערכות כהות */
+[data-theme="dark"] .md-copy-selection-fab,
+[data-theme="dim"] .md-copy-selection-fab,
+[data-theme="nebula"] .md-copy-selection-fab {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .md-copy-selection-fab:hover,
+[data-theme="dim"] .md-copy-selection-fab:hover,
+[data-theme="nebula"] .md-copy-selection-fab:hover {
+  background: #334155;
+}
+
+[data-theme="dark"] .md-copy-selection-fab.is-copied,
+[data-theme="dim"] .md-copy-selection-fab.is-copied,
+[data-theme="nebula"] .md-copy-selection-fab.is-copied {
+  background: #064e3b;
+  color: #6ee7b7;
+  border-color: #065f46;
+}
 </style>
 <style>
 /* === תוכן עניינים צף מתקדם === */
@@ -1775,7 +1837,7 @@ input.md-task-checkbox {
     </div>
   </div>
 
-  <div class="glass-card" id="mdCard" style="padding:1rem;">
+  <div class="glass-card" id="mdCard" style="padding:1rem;position:relative;">
     <div class="section-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.5rem;flex-wrap:wrap;">
       <div class="section-title-wrap" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
         <h2 class="section-title" style="margin:0;display:flex;align-items:center;gap:.5rem;">
@@ -1842,6 +1904,13 @@ input.md-task-checkbox {
       </button>
     </div>
     <div id="md-content" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
+    <button type="button"
+            id="mdCopySelectionFab"
+            class="md-copy-selection-fab"
+            aria-label="העתק כמארקדאון">
+      <i class="fas fa-copy" aria-hidden="true"></i>
+      <span class="md-copy-selection-label">העתק כמארקדאון</span>
+    </button>
   </div>
 
   <!-- תוכן עניינים צף מתקדם עם כל הפיצ'רים (ממוקם אחרי #mdCard כדי שכללי CSS של fullscreen יעבדו) -->
@@ -2421,6 +2490,89 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         try { md.use(window.markdownitTocDoneRight); } catch(__) {}
       }
     }
+
+    // ──── Source Mapping Plugin ────
+    // מוסיף data-source-line / data-source-line-end לכל אלמנט בלוק
+    // כדי לאפשר מיפוי מדויק מ-DOM חזרה לשורות מקור.
+    //
+    // הערה חשובה על טבלאות:
+    // ב-markdown-it (14.x), th_open / td_open מגיעים עם map = null.
+    // לכן תאי טבלה מקבלים טיפול מיוחד: הם יורשים את שורת ה-tr
+    // ומקבלים data-col (אינדקס עמודה) כדי לאפשר חילוץ תא בודד מהמקור.
+    (function sourceMapPlugin() {
+      // ── חלק א: tokens עם map מובנה ──
+      const BLOCK_OPEN_TYPES = [
+        'paragraph_open',
+        'heading_open',
+        'blockquote_open',
+        'bullet_list_open',
+        'ordered_list_open',
+        'list_item_open',
+        'table_open',
+        'thead_open',
+        'tbody_open',
+        'tr_open',
+        'fence',
+        'code_block',
+        'hr',
+      ];
+
+      BLOCK_OPEN_TYPES.forEach(function(type) {
+        const originalRule = md.renderer.rules[type];
+
+        md.renderer.rules[type] = function(tokens, idx, options, env, self) {
+          const token = tokens[idx];
+          if (token.map && token.map.length >= 2) {
+            token.attrSet('data-source-line', String(token.map[0]));
+            token.attrSet('data-source-line-end', String(token.map[1]));
+          }
+          if (originalRule) {
+            return originalRule(tokens, idx, options, env, self);
+          }
+          return self.renderToken(tokens, idx, options);
+        };
+      });
+
+      // ── חלק ב: טיפול מיוחד ב-th_open / td_open ──
+      // ל-tokens האלה אין map משלהם (map = null ב-markdown-it 14.x).
+      // אנחנו יורשים את שורת המקור מה-tr_open הקרוב למעלה,
+      // וסופרים את אינדקס העמודה (data-col) כדי שנוכל לחלץ תא ספציפי.
+      ['th_open', 'td_open'].forEach(function(type) {
+        const originalRule = md.renderer.rules[type];
+
+        md.renderer.rules[type] = function(tokens, idx, options, env, self) {
+          const token = tokens[idx];
+
+          // מצא את ה-tr_open הקרוב למעלה כדי לקבל את שורת המקור
+          var rowLine = null;
+          for (var i = idx - 1; i >= 0; i--) {
+            if (tokens[i].type === 'tr_open') {
+              if (tokens[i].map && tokens[i].map.length >= 2) {
+                rowLine = tokens[i].map[0];
+              }
+              break;
+            }
+          }
+
+          // ספור כמה th_open/td_open יש מאז ה-tr_open (= אינדקס עמודה)
+          var colIndex = 0;
+          for (var j = idx - 1; j >= 0; j--) {
+            if (tokens[j].type === 'tr_open') break;
+            if (tokens[j].type === type) colIndex++;
+          }
+
+          if (rowLine != null) {
+            token.attrSet('data-row-line', String(rowLine));
+          }
+          token.attrSet('data-col', String(colIndex));
+
+          if (originalRule) {
+            return originalRule(tokens, idx, options, env, self);
+          }
+          return self.renderToken(tokens, idx, options);
+        };
+      });
+    })();
 
     // רינדור ראשוני
     const container = document.getElementById('md-content');
@@ -3880,6 +4032,409 @@ function copyMarkdownSource(ev){
   })();
   return false;
 }
+
+// === "העתק כמארקדאון" — Source Mapping ===
+(function initCopySelectionAsMarkdown() {
+  const container = document.getElementById('md-content');
+  const fab = document.getElementById('mdCopySelectionFab');
+  if (!container || !fab) return;
+
+  const sourceLines = (typeof MD_TEXT === 'string' ? MD_TEXT : '').split('\n');
+  if (!sourceLines.length) return;
+
+  var labelEl = fab.querySelector('.md-copy-selection-label') || fab.querySelector('span');
+  var originalFabLabel = labelEl ? labelEl.textContent : '';
+  var resetFabTimer = null;
+  function setFabLabel(value) {
+    if (labelEl && typeof value === 'string') {
+      labelEl.textContent = value;
+    }
+  }
+  function resetFabLabel() {
+    if (originalFabLabel) setFabLabel(originalFabLabel);
+  }
+
+  // ──── Precompute fenced code block ranges (CommonMark-ish) ────
+  // זה משמש רק כ-"belt and suspenders" למקרה נדיר שבו טווח השורות
+  // יוצא מתוך fenced block בלי לכלול את ה-fences.
+  // חשוב: ההרחבה נעשית רק אם ה-selection באמת בתוך אותו fenced block.
+  var fencedRanges = (function buildFencedRanges(lines) {
+    var ranges = [];
+    var open = null; // { start, ch, len }
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i] || '';
+      // CommonMark: fenced blocks יכולים להיות מוזחים עד 3 רווחים בלבד.
+      // בנוסף, שורת סגירה חייבת להיות "ריקה" אחרי ה-fence (בלי info string).
+      var m = line.match(/^[ \t]{0,3}(`{3,}|~{3,})(.*)$/);
+      if (!m) continue;
+      var marker = m[1];
+      var rest = m[2] || '';
+      var ch = marker[0];
+      var len = marker.length;
+
+      if (!open) {
+        // CommonMark: info string של ``` לא יכול להכיל backticks.
+        // אם הוא כן מכיל, markdown-it לא יחשיב את זה כ-fence תקין.
+        if (ch === '`' && rest.indexOf('`') !== -1) continue;
+        open = { start: i, ch: ch, len: len };
+        continue;
+      }
+
+      // fence נסגר רק ע"י אותו תו (``` / ~~~) ובאורך >= הפותח
+      // ושורת הסגירה חייבת להיות "ריקה" אחרי ה-fence
+      if (open.ch === ch && len >= open.len && rest.trim() === '') {
+        ranges.push({ start: open.start, end: i + 1 }); // end הוא exclusive
+        open = null;
+      }
+    }
+    return ranges;
+  })(sourceLines);
+
+  function findEnclosingFencedRange(start, end) {
+    // מחפשים fenced block שמכיל את הטווח כולו.
+    // דרישה "strictly inside" מונעת מצב שבו טקסט בין שני fences יבלע בטעות.
+    for (var i = 0; i < fencedRanges.length; i++) {
+      var r = fencedRanges[i];
+      if (start > r.start && end < r.end) return r;
+    }
+    return null;
+  }
+
+  // ──── Source Mapping: מ-DOM לשורות מקור ────
+
+  // מוצא את האלמנט הקרוב שיש לו data-source-line
+  function findSourceNode(node) {
+    if (!node) return null;
+    var el = (node.nodeType === Node.TEXT_NODE) ? node.parentElement : node;
+    // עולים ב-DOM עד שמוצאים אלמנט עם data-source-line,
+    // אבל לא עוברים מעבר לקונטיינר
+    while (el && el !== container) {
+      if (el.hasAttribute && el.hasAttribute('data-source-line')) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  // ──── טבלאות: חילוץ תא בודד מהמקור ────
+
+  // בודק אם node נמצא בתוך תא טבלה (td/th) עם data-row-line
+  function findTableCell(node) {
+    if (!node) return null;
+    var el = (node.nodeType === Node.TEXT_NODE) ? node.parentElement : node;
+    while (el && el !== container) {
+      if (el.hasAttribute &&
+          (el.tagName === 'TD' || el.tagName === 'TH') &&
+          el.hasAttribute('data-row-line')) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  // מפרסר שורת טבלה במקור לפי | ומחזיר את התא לפי אינדקס עמודה.
+  // מתמודד עם escaped pipes (\|) ועם רווחים מיותרים.
+  function extractCellFromSourceLine(lineIndex, colIndex) {
+    var line = sourceLines[lineIndex];
+    if (line == null) return null;
+
+    // פרסור: מפצלים לפי | שלא escaped
+    var cells = [];
+    var current = '';
+    var inCode = false;
+    var codeTicks = 0;
+    for (var i = 0; i < line.length; i++) {
+      if (line[i] === '`') {
+        // תמיכה ב-code spans עם מספר backticks משתנה (למשל ``code`with`ticks``)
+        var run = 1;
+        while (i + run < line.length && line[i + run] === '`') run++;
+        if (!inCode) {
+          // אם אין backticks תואמים בהמשך השורה, זה לא code span אמיתי (CommonMark)
+          // ולכן לא אמור "להשתיק" את זיהוי ה-| של הטבלה.
+          var delim = line.slice(i, i + run);
+          if (line.indexOf(delim, i + run) !== -1) {
+            inCode = true;
+            codeTicks = run;
+          }
+        } else if (run === codeTicks) {
+          inCode = false;
+          codeTicks = 0;
+        }
+        current += line.slice(i, i + run);
+        i += run - 1;
+        continue;
+      }
+
+      if (!inCode && line[i] === '|') {
+        // בדוק כמה backslashes לפני
+        var bs = 0;
+        var k = i - 1;
+        while (k >= 0 && line[k] === '\\') { bs++; k--; }
+        if (bs % 2 === 0) {
+          // pipe אמיתי (לא escaped)
+          cells.push(current);
+          current = '';
+          continue;
+        }
+      }
+      current += line[i];
+    }
+    cells.push(current); // תא אחרון
+
+    // הסר תאים ריקים בהתחלה ובסוף (בגלל ה-| בתחילת/סוף השורה)
+    if (cells.length > 0 && cells[0].trim() === '') cells.shift();
+    if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop();
+
+    if (colIndex >= 0 && colIndex < cells.length) {
+      return cells[colIndex].trim();
+    }
+    return null;
+  }
+
+  // בודק אם הסלקציה כולה בתוך תא טבלה אחד,
+  // ואם כן — מחזיר את תוכן התא מהמקור
+  function tryExtractTableCell(range) {
+    var startCell = findTableCell(range.startContainer);
+    var endCell = findTableCell(range.endContainer);
+
+    // רק אם שני הקצוות באותו תא
+    if (!startCell || startCell !== endCell) return null;
+
+    var rowLine = Number(startCell.getAttribute('data-row-line'));
+    var col = Number(startCell.getAttribute('data-col'));
+
+    if (isNaN(rowLine) || isNaN(col)) return null;
+
+    return extractCellFromSourceLine(rowLine, col);
+  }
+
+  // ──── מיפוי כללי (לא-טבלאות) ────
+
+  // מחפש את ה-data-source-line הראשון/אחרון בתוך range
+  // כולל חיפוש באלמנטים ילדים שנמצאים בתוך הטווח
+  function getSourceRange(range) {
+    var startNode = findSourceNode(range.startContainer);
+    var endNode = findSourceNode(range.endContainer);
+
+    function readSourceLine(el) {
+      if (!el || !el.getAttribute) return null;
+      var raw = el.getAttribute('data-source-line');
+      if (raw == null || raw === '') return null;
+      var n = Number(raw);
+      return isNaN(n) ? null : n;
+    }
+
+    function readSourceEndExclusive(el) {
+      if (!el || !el.getAttribute) return null;
+      var rawEnd = el.getAttribute('data-source-line-end');
+      if (rawEnd != null && rawEnd !== '') {
+        var nEnd = Number(rawEnd);
+        if (!isNaN(nEnd)) return nEnd;
+      }
+
+      var rawStart = el.getAttribute('data-source-line');
+      if (rawStart != null && rawStart !== '') {
+        var nStart = Number(rawStart);
+        if (!isNaN(nStart)) return nStart + 1;
+      }
+      return null;
+    }
+
+    // אם לא מצאנו source node ישירות, ננסה למצוא
+    // את כל האלמנטים עם data-source-line בתוך ה-range
+    if (!startNode && !endNode) {
+      // fallback: מחפשים אלמנטים בתוך ה-range
+      var fragment = range.cloneContents();
+      var mapped = fragment.querySelectorAll('[data-source-line]');
+      if (mapped.length > 0) {
+        var startFallback = readSourceLine(mapped[0]);
+        var endFallback = readSourceEndExclusive(mapped[mapped.length - 1]);
+        if (startFallback == null || endFallback == null) return null;
+        return {
+          start: startFallback,
+          end: endFallback
+        };
+      }
+      return null;
+    }
+
+    var startLine, endLine;
+
+    if (startNode) {
+      startLine = readSourceLine(startNode);
+    }
+    if (endNode) {
+      endLine = readSourceEndExclusive(endNode);
+    }
+
+    // אם חסר אחד מהם — קרא את שני ה-attributes מה-node שנמצא.
+    // חשוב: לא מעתיקים startLine ל-endLine (או להיפך) כי זה ייתן
+    // slice(n, n) = מערך ריק. במקום זה, קוראים גם start וגם end מאותו node.
+    if (!startNode && endNode) {
+      startLine = readSourceLine(endNode);
+    }
+    if (!endNode && startNode) {
+      endLine = readSourceEndExclusive(startNode);
+    }
+    if (startLine == null || endLine == null) return null;
+
+    // ודא שהטווח הגיוני
+    if (endLine < startLine) {
+      var tmp = startLine;
+      startLine = endLine;
+      endLine = tmp;
+    }
+
+    return { start: startLine, end: endLine };
+  }
+
+  // הרחבה חכמה: אם הטווח נופל בתוך fenced code block,
+  // ודא שכוללים את ה-fences (כי ה-token של fence כבר כולל אותם)
+  function expandToFences(start, end) {
+    var r = findEnclosingFencedRange(start, end);
+    if (!r) return { start: start, end: end };
+    return { start: r.start, end: r.end };
+  }
+
+  // הפונקציה הראשית: ממפה range לשורות מקור ומחזירה Markdown
+  function mapRangeToMarkdown(range) {
+    // נסה קודם חילוץ תא טבלה בודד
+    var cellContent = tryExtractTableCell(range);
+    if (cellContent != null) return cellContent;
+
+    // מיפוי כללי לפי data-source-line
+    var sr = getSourceRange(range);
+    if (!sr) return '';
+
+    var expanded = expandToFences(sr.start, sr.end);
+    // slice עובד עם end exclusive — כמו שמגיע מ-token.map
+    var result = sourceLines.slice(expanded.start, expanded.end).join('\n');
+
+    // נקה שורות ריקות מיותרות בהתחלה ובסוף
+    return result.replace(/^\n+/, '').replace(/\n+$/, '');
+  }
+
+  // ──── מיקום הכפתור הצף ────
+
+  var fabHost = fab.offsetParent || document.getElementById('mdCard') || container.closest('.glass-card') || container;
+
+  function positionFab(range) {
+    var rect = range.getBoundingClientRect();
+    var hostRect = (fabHost && fabHost.getBoundingClientRect) ? fabHost.getBoundingClientRect() : container.getBoundingClientRect();
+    var scrollTop = (fabHost && typeof fabHost.scrollTop === 'number') ? fabHost.scrollTop : 0;
+    var scrollLeft = (fabHost && typeof fabHost.scrollLeft === 'number') ? fabHost.scrollLeft : 0;
+
+    // מקם מעל הסלקציה, מיושר לימין (RTL)
+    var top = (rect.top - hostRect.top + scrollTop - fab.offsetHeight - 8);
+    // right גדל שמאלה, scrollLeft גדל ימינה — סימנים הפוכים
+    var right = (hostRect.right - rect.right - scrollLeft);
+    fab.style.top = Math.max(8, top) + 'px';
+    fab.style.right = Math.max(8, right) + 'px';
+    fab.style.left = '';
+  }
+
+  function showFab(range) {
+    if (resetFabTimer) { clearTimeout(resetFabTimer); resetFabTimer = null; }
+    fab.classList.remove('is-copied');
+    fab.classList.add('is-visible');
+    resetFabLabel();
+    // חכה פריים אחד כדי שה-fab יקבל מידות לפני מיקום
+    requestAnimationFrame(function() { positionFab(range); });
+  }
+
+  function hideFab() {
+    if (resetFabTimer) { clearTimeout(resetFabTimer); resetFabTimer = null; }
+    fab.classList.remove('is-visible', 'is-copied');
+    resetFabLabel();
+  }
+
+  // ──── אירועי סלקציה ────
+
+  var hideTimer = null;
+
+  document.addEventListener('selectionchange', function() {
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(function() {
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) {
+        hideFab();
+        return;
+      }
+
+      var range = sel.getRangeAt(0);
+      // ודא שהסלקציה בתוך #md-content
+      if (!container.contains(range.commonAncestorContainer)) {
+        hideFab();
+        return;
+      }
+
+      var text = sel.toString().trim();
+      if (text.length < 2) {
+        hideFab();
+        return;
+      }
+
+      showFab(range);
+    }, 250);
+  });
+
+  // ──── לחיצה על הכפתור ────
+
+  fab.addEventListener('mousedown', function(e) {
+    // מונע מהסלקציה להתבטל בלחיצה על הכפתור
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  // כשה-card נגלל (למשל במסך מלא), צריך לעדכן מיקום לפי scrollTop
+  try {
+    if (fabHost && fabHost.addEventListener) {
+      fabHost.addEventListener('scroll', function() {
+        try {
+          if (!fab.classList.contains('is-visible')) return;
+          var sel = window.getSelection();
+          if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+          var r = sel.getRangeAt(0);
+          if (!container.contains(r.commonAncestorContainer)) return;
+          positionFab(r);
+        } catch (_) {}
+      }, { passive: true });
+    }
+  } catch (_) {}
+
+  fab.addEventListener('click', async function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+
+    var range = sel.getRangeAt(0);
+    var markdown = mapRangeToMarkdown(range);
+    // fallback: אם Source Mapping נכשל, העתק את הטקסט הנקי
+    var textToCopy = markdown || sel.toString().trim();
+
+    var success = false;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      success = true;
+    } catch (_) {
+      success = (typeof fallbackCopy === 'function') && fallbackCopy(textToCopy);
+    }
+
+    if (success) {
+      if (resetFabTimer) { clearTimeout(resetFabTimer); resetFabTimer = null; }
+      fab.classList.add('is-copied');
+      setFabLabel(markdown ? 'הועתק כמארקדאון!' : 'הועתק!');
+      resetFabTimer = setTimeout(function() {
+        resetFabTimer = null;
+        hideFab();
+      }, 1500);
+    }
+  });
+})();
 
 let shareLinkModalKeyHandlerMd = null;
 
