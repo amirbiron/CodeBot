@@ -4151,8 +4151,13 @@ function copyMarkdownSource(ev){
         var run = 1;
         while (i + run < line.length && line[i + run] === '`') run++;
         if (!inCode) {
-          inCode = true;
-          codeTicks = run;
+          // אם אין backticks תואמים בהמשך השורה, זה לא code span אמיתי (CommonMark)
+          // ולכן לא אמור "להשתיק" את זיהוי ה-| של הטבלה.
+          var delim = line.slice(i, i + run);
+          if (line.indexOf(delim, i + run) !== -1) {
+            inCode = true;
+            codeTicks = run;
+          }
         } else if (run === codeTicks) {
           inCode = false;
           codeTicks = 0;
@@ -4323,7 +4328,8 @@ function copyMarkdownSource(ev){
 
     // מקם מעל הסלקציה, מיושר לימין (RTL)
     var top = (rect.top - hostRect.top + scrollTop - fab.offsetHeight - 8);
-    var right = (hostRect.right - rect.right + scrollLeft);
+    // right גדל שמאלה, scrollLeft גדל ימינה — סימנים הפוכים
+    var right = (hostRect.right - rect.right - scrollLeft);
     fab.style.top = Math.max(8, top) + 'px';
     fab.style.right = Math.max(8, right) + 'px';
     fab.style.left = '';
