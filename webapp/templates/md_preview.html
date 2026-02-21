@@ -4214,16 +4214,26 @@ function copyMarkdownSource(ev){
     var endNode = findSourceNode(range.endContainer);
 
     function readSourceLine(el) {
-      var n = Number(el && el.getAttribute ? el.getAttribute('data-source-line') : NaN);
+      if (!el || !el.getAttribute) return null;
+      var raw = el.getAttribute('data-source-line');
+      if (raw == null || raw === '') return null;
+      var n = Number(raw);
       return isNaN(n) ? null : n;
     }
 
     function readSourceEndExclusive(el) {
       if (!el || !el.getAttribute) return null;
-      var nEnd = Number(el.getAttribute('data-source-line-end'));
-      if (!isNaN(nEnd)) return nEnd;
-      var nStart = Number(el.getAttribute('data-source-line'));
-      if (!isNaN(nStart)) return nStart + 1;
+      var rawEnd = el.getAttribute('data-source-line-end');
+      if (rawEnd != null && rawEnd !== '') {
+        var nEnd = Number(rawEnd);
+        if (!isNaN(nEnd)) return nEnd;
+      }
+
+      var rawStart = el.getAttribute('data-source-line');
+      if (rawStart != null && rawStart !== '') {
+        var nStart = Number(rawStart);
+        if (!isNaN(nStart)) return nStart + 1;
+      }
       return null;
     }
 
