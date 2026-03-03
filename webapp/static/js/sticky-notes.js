@@ -759,11 +759,15 @@
         const nextSeq = (this._pendingSeq.get(id) || 0) + 1;
         this._pendingSeq.set(id, nextSeq);
       } catch(_) {}
+      this._persistCacheFromMemory();
       this._saveDebounced();
       this._ensureBackgroundAutoFlush();
     }
 
     _flushPendingKeepalive(){
+      try {
+        this._persistCacheFromMemory();
+      } catch(_) {}
       try {
         const combined = new Map();
         try {
@@ -1021,6 +1025,7 @@
           }
         }
       }
+      this._persistCacheFromMemory();
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }
@@ -1038,6 +1043,7 @@
       }
       this._pending.delete(id);
       await this._sendUpdate(id, data);
+      this._persistCacheFromMemory();
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }
@@ -1388,6 +1394,16 @@
       try {
         const payload = { ts: Date.now(), notes: Array.isArray(notesArray) ? notesArray : [] };
         localStorage.setItem(this._cacheKey, JSON.stringify(payload));
+      } catch(_) {}
+    }
+
+    _persistCacheFromMemory(){
+      try {
+        const all = [];
+        for (const [, entry] of this.notes.entries()) {
+          if (entry && entry.data) all.push(entry.data);
+        }
+        this._saveCache(all);
       } catch(_) {}
     }
   }
