@@ -16861,6 +16861,8 @@ def _legacy_settings_push_debug():
     # Server config signals (do not expose secrets)
     vapid_public = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
     vapid_private = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+    worker_vapid_public = (os.getenv("WORKER_VAPID_PUBLIC_KEY") or "").strip()
+    worker_vapid_private = (os.getenv("WORKER_VAPID_PRIVATE_KEY") or "").strip()
     remote_enabled_env = (os.getenv("PUSH_REMOTE_DELIVERY_ENABLED") or "").strip()
     remote_url = (os.getenv("PUSH_DELIVERY_URL") or "").strip()
     remote_token_set = bool((os.getenv("PUSH_DELIVERY_TOKEN") or "").strip())
@@ -16935,6 +16937,8 @@ def _legacy_settings_push_debug():
         push_enabled=push_enabled,
         vapid_public_set=bool(vapid_public),
         vapid_private_set=bool(vapid_private),
+        worker_vapid_public_set=bool(worker_vapid_public),
+        worker_vapid_private_set=bool(worker_vapid_private),
         remote_enabled_env=remote_enabled_env,
         remote_url=remote_url,
         remote_token_set=remote_token_set,
