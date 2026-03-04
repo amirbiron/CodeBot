@@ -9677,6 +9677,16 @@ def format_file_size(size_bytes: float | int) -> str:
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
 
+def _is_markdown_file(language: str | None, file_name: str | None) -> bool:
+    """בודק אם קובץ הוא Markdown לפי שפה או סיומת שם קובץ."""
+    lang = (language or '').lower()
+    if lang in ('markdown', 'md'):
+        return True
+    if isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown')):
+        return True
+    return False
+
+
 def is_binary_file(content: str | bytes, filename: str = "") -> bool:
     """בודק אם קובץ הוא בינארי"""
     # רשימת סיומות בינאריות
@@ -14269,6 +14279,11 @@ def edit_file_page(file_id):
                                     pass
                             if original_file_name and original_file_name != file_name:
                                 _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                            # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
+                            if _is_markdown_file(language, file_name):
+                                if _log_webapp_user_activity():
+                                    session['_skip_view_activity_once'] = True
+                                return redirect(url_for('md_preview', file_id=str(res.inserted_id)))
                             if _log_webapp_user_activity():
                                 session['_skip_view_activity_once'] = True
                             return redirect(url_for('view_file', file_id=str(res.inserted_id)))
@@ -14548,8 +14563,7 @@ def md_preview(file_id):
             md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:{fallback_hash}:fallback"
 
     # הצג תצוגת Markdown רק אם זה אכן Markdown
-    is_md = language == 'markdown' or file_name.lower().endswith('.md')
-    if not is_md:
+    if not _is_markdown_file(language, file_name):
         return redirect(url_for('view_file', file_id=file_id))
 
     file_data = {
@@ -14667,8 +14681,7 @@ def reader_mode(filename):
     language = (doc.get('programming_language') or '').strip().lower()
     if (not language or language == 'text') and file_name.lower().endswith('.md'):
         language = 'markdown'
-    is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
-    if not is_markdown:
+    if not _is_markdown_file(language, file_name):
         return redirect(url_for('view_file', file_id=str(doc.get('_id'))))
 
     code = (doc.get('code') or doc.get('content') or '')
@@ -14726,9 +14739,8 @@ def export_styled_html(file_id):
     # וידוא שזה קובץ Markdown
     language = (file.get('programming_language') or '').lower()
     file_name = file.get('file_name') or ''  # טיפול גם ב-None וגם בחסר
-    is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
 
-    if not is_markdown:
+    if not _is_markdown_file(language, file_name):
         flash('ייצוא HTML מעוצב זמין רק לקבצי Markdown', 'warning')
         return redirect(url_for('view_file', file_id=file_id))
 
@@ -14903,9 +14915,8 @@ def api_create_styled_share(file_id):
         # וידוא שזה קובץ Markdown
         language = (file.get('programming_language') or '').lower()
         file_name = file.get('file_name') or ''
-        is_markdown = language == 'markdown' or file_name.lower().endswith(('.md', '.markdown'))
 
-        if not is_markdown:
+        if not _is_markdown_file(language, file_name):
             return jsonify({'ok': False, 'error': 'ייצוא HTML מעוצב זמין רק לקבצי Markdown'}), 400
 
         # פרסור הבקשה
@@ -15933,6 +15944,11 @@ def upload_file_web():
                             except Exception:
                                 pass
                         session[_UPLOAD_CLEAR_DRAFT_SESSION_KEY] = True
+                        # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
+                        if _is_markdown_file(language, file_name):
+                            if _log_webapp_user_activity():
+                                session['_skip_view_activity_once'] = True
+                            return redirect(url_for('md_preview', file_id=str(res.inserted_id)))
                         if _log_webapp_user_activity():
                             session['_skip_view_activity_once'] = True
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))
@@ -18699,7 +18715,7 @@ def public_share(share_id):
         view = (request.args.get('view') or '').strip().lower()
     except Exception:
         view = ''
-    is_markdown = (language == 'markdown') or (isinstance(file_name, str) and file_name.lower().endswith('.md'))
+    is_markdown = _is_markdown_file(language, file_name)
     if view == 'md' and is_markdown:
         file_data = {
             'id': share_id,
@@ -18786,8 +18802,7 @@ def public_reader_mode(share_id):
     code = doc.get('snippet_preview') or doc.get('code') or ''
     file_name = str(doc.get('file_name') or 'snippet.md').strip() or 'snippet.md'
     language = resolve_file_language(doc.get('language'), file_name)
-    is_markdown = (language == 'markdown') or (file_name.lower().endswith(('.md', '.markdown')))
-    if not is_markdown:
+    if not _is_markdown_file(language, file_name):
         return redirect(url_for('public_share', share_id=share_id))
 
     rendered_html, pygments_css = _render_markdown_preview(code)
