@@ -14269,12 +14269,14 @@ def edit_file_page(file_id):
                                     pass
                             if original_file_name and original_file_name != file_name:
                                 _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                            # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
+                            _lang_lower = (language or '').lower()
+                            _is_md = _lang_lower in ('markdown', 'md') or (isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown')))
+                            if _is_md:
+                                session.pop('_skip_view_activity_once', None)
+                                return redirect(url_for('md_preview', file_id=str(res.inserted_id)))
                             if _log_webapp_user_activity():
                                 session['_skip_view_activity_once'] = True
-                            # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
-                            _is_md = (language or '').lower() == 'markdown' or (isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown')))
-                            if _is_md:
-                                return redirect(url_for('md_preview', file_id=str(res.inserted_id)))
                             return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                         error = 'שמירת הקובץ נכשלה'
                     except Exception as _e:
@@ -15937,12 +15939,14 @@ def upload_file_web():
                             except Exception:
                                 pass
                         session[_UPLOAD_CLEAR_DRAFT_SESSION_KEY] = True
+                        # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
+                        _lang_lower = (language or '').lower()
+                        _is_md = _lang_lower in ('markdown', 'md') or (isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown')))
+                        if _is_md:
+                            session.pop('_skip_view_activity_once', None)
+                            return redirect(url_for('md_preview', file_id=str(res.inserted_id)))
                         if _log_webapp_user_activity():
                             session['_skip_view_activity_once'] = True
-                        # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
-                        _is_md = (language or '').lower() == 'markdown' or (isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown')))
-                        if _is_md:
-                            return redirect(url_for('md_preview', file_id=str(res.inserted_id)))
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                     error = 'שמירת הקובץ נכשלה'
         except Exception as e:
