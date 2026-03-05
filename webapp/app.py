@@ -13712,11 +13712,11 @@ def api_resolve_file_by_name():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
-def _sync_sticky_notes_after_rename(db, user_id: int, old_name: str, new_name: str, new_file_id: str = '') -> None:
+def _sync_sticky_notes_after_rename(db, user_id: int, old_name: str, new_name: str, new_file_id: str = '', old_file_ids=None) -> None:
     """העברת פתקים דביקים לשם הקובץ החדש לאחר שינוי שם."""
     try:
         from sticky_notes_scope import sync_sticky_notes_on_rename
-        sync_sticky_notes_on_rename(db, user_id, old_name, new_name, new_file_id=new_file_id)
+        sync_sticky_notes_on_rename(db, user_id, old_name, new_name, old_file_ids=old_file_ids, new_file_id=new_file_id)
     except Exception:
         pass
 
@@ -13836,7 +13836,7 @@ def edit_file_page(file_id):
                             pass
                         if original_file_name and original_file_name != file_name:
                             try:
-                                _sync_sticky_notes_after_rename(db, user_id, original_file_name, file_name, str(file_id))
+                                _sync_sticky_notes_after_rename(db, user_id, original_file_name, file_name, str(file_id), old_file_ids=[str(file_id)])
                             except Exception:
                                 pass
                         try:

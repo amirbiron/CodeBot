@@ -296,6 +296,21 @@ class TestSyncStickyNotesOnRename(unittest.TestCase):
         self.assertTrue(file_id_clause)
         self.assertIn("custom_id", file_id_clause[0]["file_id"]["$in"])
 
+    def test_works_when_code_snippets_returns_empty(self):
+        """כשה-DB לא מחזיר file_ids (למשל אחרי rename), הסנכרון עדיין עובד דרך scope_id."""
+        self.db.code_snippets.find.return_value = []
+        self.sync(self.db, self.user_id, self.old_name, self.new_name)
+        call_args = self.db.sticky_notes.update_many.call_args
+        query = call_args[0][0]
+        or_clauses = query["$or"]
+        # scope_id clause should always be present
+        scope_clause = [c for c in or_clauses if "scope_id" in c]
+        self.assertTrue(scope_clause)
+        self.assertEqual(scope_clause[0]["scope_id"], self.old_scope)
+        # file_id clause should NOT be present when no ids found
+        file_id_clause = [c for c in or_clauses if "file_id" in c]
+        self.assertFalse(file_id_clause)
+
 
 if __name__ == "__main__":
     unittest.main()
