@@ -372,9 +372,7 @@
               this._queueSave(el, { content: textarea.value });
             }
           }
-        } catch (err) {
-          alert("שגיאה ב-keydown: " + err.message); // TODO: remove after mobile debug
-        }
+        } catch (_) { /* list continuation error – silent */ }
       });
       textarea.addEventListener('blur', () => this._flushFor(el));
 
@@ -681,8 +679,7 @@
           }
         }
         return null;
-      } catch (err) {
-        alert("שגיאה בפונקציית רשימה: " + err.message); // TODO: remove after mobile debug
+      } catch (_) {
         return null;
       }
     }
