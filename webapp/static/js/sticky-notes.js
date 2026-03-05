@@ -355,7 +355,11 @@
       textarea.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
           const result = this._handleListContinuation(textarea);
-          if (result !== null) {
+          if (result === false) {
+            // כפול אנטר → יציאה מרשימה, הטקסטריה כבר עודכנה
+            ev.preventDefault();
+            this._queueSave(el, { content: textarea.value });
+          } else if (typeof result === 'string') {
             ev.preventDefault();
             const start = textarea.selectionStart;
             const before = textarea.value.slice(0, start);
@@ -665,7 +669,7 @@
             // כפול אנטר → מחק את שורת הסמן הריקה ויוצא מהרשימה
             textarea.value = val.slice(0, lineStart) + val.slice(cur);
             textarea.selectionStart = textarea.selectionEnd = lineStart;
-            return null;
+            return false;
           }
           return '\n' + p.next(match);
         }

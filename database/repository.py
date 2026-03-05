@@ -1276,25 +1276,8 @@ class Repository:
                 pass
             # Update sticky notes scope_id so notes follow the file after rename
             try:
-                from sticky_notes_scope import make_scope_id
-                old_scope = make_scope_id(int(user_id), old_name)
-                new_scope = make_scope_id(int(user_id), new_name)
-                if old_scope and new_scope:
-                    sn_coll = getattr(self.manager.db, 'sticky_notes', None)
-                    if sn_coll is not None:
-                        match_criteria = [{'scope_id': old_scope}]
-                        try:
-                            old_ids = [str(d['_id']) for d in
-                                       self.manager.collection.find({'user_id': int(user_id), 'file_name': new_name}, {'_id': 1})]
-                            if old_ids:
-                                match_criteria.append({'file_id': {'$in': old_ids}})
-                        except Exception:
-                            pass
-                        sn_coll.update_many(
-                            {'user_id': int(user_id), '$or': match_criteria},
-                            {'$set': {'scope_id': new_scope, 'file_name': str(new_name),
-                                      'updated_at': datetime.now(timezone.utc)}},
-                        )
+                from sticky_notes_scope import sync_sticky_notes_on_rename
+                sync_sticky_notes_on_rename(self.manager.db, int(user_id), old_name, new_name)
             except Exception:
                 pass
             return bool(result.modified_count and result.modified_count > 0)
