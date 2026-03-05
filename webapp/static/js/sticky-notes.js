@@ -373,7 +373,7 @@
             }
           }
         } catch (err) {
-          console.error("שגיאה ב-keydown:", err);
+          alert("שגיאה ב-keydown: " + err.message); // TODO: remove after mobile debug
         }
       });
       textarea.addEventListener('blur', () => this._flushFor(el));
@@ -682,7 +682,7 @@
         }
         return null;
       } catch (err) {
-        console.error("שגיאה בפונקציית רשימה:", err);
+        alert("שגיאה בפונקציית רשימה: " + err.message); // TODO: remove after mobile debug
         return null;
       }
     }
