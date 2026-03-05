@@ -360,20 +360,16 @@
             if (result === false) {
               // כפול אנטר → יציאה מרשימה, הטקסטריה כבר עודכנה
               ev.preventDefault();
-              if (typeof this._queueSave === 'function') {
-                this._queueSave(el, { content: textarea.value });
-              }
+              this._queueSave(el, { content: textarea.value });
             } else if (typeof result === 'string') {
               ev.preventDefault();
               const start = textarea.selectionStart;
               const before = textarea.value.slice(0, start);
-              const after = textarea.value.slice(textarea.selectionEnd || start);
+              const after = textarea.value.slice(textarea.selectionEnd ?? start);
               textarea.value = before + result + after;
               const newPos = start + result.length;
               textarea.selectionStart = textarea.selectionEnd = newPos;
-              if (typeof this._queueSave === 'function') {
-                this._queueSave(el, { content: textarea.value });
-              }
+              this._queueSave(el, { content: textarea.value });
             }
           }
         } catch (err) {
