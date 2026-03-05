@@ -1251,7 +1251,7 @@ class Repository:
                     pass
                 return False
             # אסוף _ids לפני ה-rename כי אחרי זה file_name כבר ישתנה
-            old_file_ids: list = []
+            old_file_ids = None
             try:
                 old_file_ids = [
                     str(d['_id']) for d in
