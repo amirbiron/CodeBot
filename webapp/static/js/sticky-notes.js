@@ -353,22 +353,31 @@
         this._queueSave(el, { content: textarea.value });
       });
       textarea.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
-          const result = this._handleListContinuation(textarea);
-          if (result === false) {
-            // כפול אנטר → יציאה מרשימה, הטקסטריה כבר עודכנה
-            ev.preventDefault();
-            this._queueSave(el, { content: textarea.value });
-          } else if (typeof result === 'string') {
-            ev.preventDefault();
-            const start = textarea.selectionStart;
-            const before = textarea.value.slice(0, start);
-            const after = textarea.value.slice(textarea.selectionEnd);
-            textarea.value = before + result + after;
-            const newPos = start + result.length;
-            textarea.selectionStart = textarea.selectionEnd = newPos;
-            this._queueSave(el, { content: textarea.value });
+        try {
+          // תמיכה במקלדות מובייל/טלגרם שמשדרות key=Unidentified במקום Enter
+          if ((ev.key === 'Enter' || ev.keyCode === 13) && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
+            const result = this._handleListContinuation(textarea);
+            if (result === false) {
+              // כפול אנטר → יציאה מרשימה, הטקסטריה כבר עודכנה
+              ev.preventDefault();
+              if (typeof this._queueSave === 'function') {
+                this._queueSave(el, { content: textarea.value });
+              }
+            } else if (typeof result === 'string') {
+              ev.preventDefault();
+              const start = textarea.selectionStart;
+              const before = textarea.value.slice(0, start);
+              const after = textarea.value.slice(textarea.selectionEnd || start);
+              textarea.value = before + result + after;
+              const newPos = start + result.length;
+              textarea.selectionStart = textarea.selectionEnd = newPos;
+              if (typeof this._queueSave === 'function') {
+                this._queueSave(el, { content: textarea.value });
+              }
+            }
           }
+        } catch (err) {
+          alert("שגיאה ב-keydown: " + err.message);
         }
       });
       textarea.addEventListener('blur', () => this._flushFor(el));
@@ -649,32 +658,37 @@
     }
 
     _handleListContinuation(textarea){
-      const val = textarea.value;
-      const cur = textarea.selectionStart;
-      const lineStart = val.lastIndexOf('\n', cur - 1) + 1;
-      const line = val.slice(lineStart, cur);
-      // תבניות: - [ ] , - [x] , - , * , • , 1. , >
-      const patterns = [
-        { re: /^(\s*)- \[[ x]\]\s*/, next: (m) => m[1] + '- [ ] ' },
-        { re: /^(\s*)([-*])\s*/, next: (m) => m[1] + m[2] + ' ' },
-        { re: /^(\s*)•\s*/, next: (m) => m[1] + '• ' },
-        { re: /^(\s*)(\d+)\.\s*/, next: (m) => m[1] + (parseInt(m[2], 10) + 1) + '. ' },
-        { re: /^(\s*)>\s*/, next: (m) => m[1] + '> ' },
-      ];
-      for (const p of patterns) {
-        const match = line.match(p.re);
-        if (match) {
-          const textAfterMarker = line.slice(match[0].length);
-          if (textAfterMarker.trim() === '') {
-            // כפול אנטר → מחק את שורת הסמן הריקה ויוצא מהרשימה
-            textarea.value = val.slice(0, lineStart) + val.slice(cur);
-            textarea.selectionStart = textarea.selectionEnd = lineStart;
-            return false;
+      try {
+        const val = textarea.value;
+        const cur = textarea.selectionStart;
+        const lineStart = val.lastIndexOf('\n', cur - 1) + 1;
+        const line = val.slice(lineStart, cur);
+        // תבניות: - [ ] , - [x] , - [X] , - , * , • , 1. , >
+        const patterns = [
+          { re: /^(\s*)- \[[ xX]\]\s*/, next: (m) => m[1] + '- [ ] ' },
+          { re: /^(\s*)([-*])\s*/, next: (m) => m[1] + m[2] + ' ' },
+          { re: /^(\s*)•\s*/, next: (m) => m[1] + '• ' },
+          { re: /^(\s*)(\d+)\.\s*/, next: (m) => m[1] + (parseInt(m[2], 10) + 1) + '. ' },
+          { re: /^(\s*)>\s*/, next: (m) => m[1] + '> ' },
+        ];
+        for (const p of patterns) {
+          const match = line.match(p.re);
+          if (match) {
+            const textAfterMarker = line.slice(match[0].length);
+            if (textAfterMarker.trim() === '') {
+              // כפול אנטר → מחק את שורת הסמן הריקה ויוצא מהרשימה
+              textarea.value = val.slice(0, lineStart) + val.slice(cur);
+              textarea.selectionStart = textarea.selectionEnd = lineStart;
+              return false;
+            }
+            return '\n' + p.next(match);
           }
-          return '\n' + p.next(match);
         }
+        return null;
+      } catch (err) {
+        alert("שגיאה בפונקציית רשימה: " + err.message);
+        return null;
       }
-      return null;
     }
 
     _enableDrag(el, handle){
