@@ -377,7 +377,7 @@
             }
           }
         } catch (err) {
-          alert("שגיאה ב-keydown: " + err.message);
+          console.error("שגיאה ב-keydown:", err);
         }
       });
       textarea.addEventListener('blur', () => this._flushFor(el));
@@ -686,7 +686,7 @@
         }
         return null;
       } catch (err) {
-        alert("שגיאה בפונקציית רשימה: " + err.message);
+        console.error("שגיאה בפונקציית רשימה:", err);
         return null;
       }
     }
