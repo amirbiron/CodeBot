@@ -13712,6 +13712,55 @@ def api_resolve_file_by_name():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
+def _sync_sticky_notes_after_rename(db, user_id: int, old_name: str, new_name: str, new_file_id: str = '') -> None:
+    """העברת פתקים דביקים לשם הקובץ החדש לאחר שינוי שם."""
+    if not old_name or not new_name or old_name == new_name:
+        return
+    coll = getattr(db, 'sticky_notes', None)
+    if coll is None:
+        return
+    try:
+        from sticky_notes_scope import make_scope_id
+        old_scope = make_scope_id(int(user_id), old_name)
+        new_scope = make_scope_id(int(user_id), new_name)
+    except Exception:
+        return
+    if not old_scope or not new_scope:
+        return
+    # מצא את כל ה-file_ids הישנים שהפתקים מצביעים אליהם
+    old_file_ids: list = []
+    try:
+        old_docs = db.code_snippets.find(
+            {'user_id': int(user_id), 'file_name': old_name},
+            {'_id': 1},
+        )
+        old_file_ids = [str(d['_id']) for d in old_docs if d]
+    except Exception:
+        pass
+    # בנה קריטריון חיפוש: scope_id ישן או file_id ישן
+    match_criteria: list = [{'scope_id': old_scope}]
+    if old_file_ids:
+        match_criteria.append({'file_id': {'$in': old_file_ids}})
+    query = {'user_id': int(user_id), '$or': match_criteria}
+    update_fields: dict = {
+        'scope_id': new_scope,
+        'file_name': new_name,
+        'updated_at': datetime.now(timezone.utc),
+    }
+    if new_file_id:
+        update_fields['file_id'] = str(new_file_id)
+    try:
+        coll.update_many(query, {'$set': update_fields})
+    except Exception as exc:
+        try:
+            logger.warning(
+                "sticky notes rename sync failed",
+                extra={"user_id": user_id, "old_name": old_name, "new_name": new_name, "error": str(exc)},
+            )
+        except Exception:
+            pass
+
+
 def _sync_collection_items_after_web_rename(db, user_id: int, old_name: str, new_name: str) -> None:
     """Ensure My Collections reflect renamed files when שינוי שם נעשה מהווב."""
     if not old_name or not new_name or old_name == new_name:
@@ -13825,6 +13874,11 @@ def edit_file_page(file_id):
                             _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
                         except Exception:
                             pass
+                        if original_file_name and original_file_name != file_name:
+                            try:
+                                _sync_sticky_notes_after_rename(db, user_id, original_file_name, file_name, str(file_id))
+                            except Exception:
+                                pass
                         try:
                             cache.invalidate_user_cache(int(user_id))
                         except Exception:
@@ -14279,6 +14333,10 @@ def edit_file_page(file_id):
                                     pass
                             if original_file_name and original_file_name != file_name:
                                 _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                                try:
+                                    _sync_sticky_notes_after_rename(db, user_id, original_file_name, file_name, str(res.inserted_id))
+                                except Exception:
+                                    pass
                             # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
                             if _is_markdown_file(language, file_name):
                                 if _log_webapp_user_activity():
