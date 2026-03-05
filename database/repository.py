@@ -1250,6 +1250,16 @@ class Repository:
                 except Exception:
                     pass
                 return False
+            # אסוף _ids לפני ה-rename כי אחרי זה file_name כבר ישתנה
+            old_file_ids = None
+            try:
+                old_file_ids = [
+                    str(d['_id']) for d in
+                    self.manager.collection.find({'user_id': int(user_id), 'file_name': old_name}, {'_id': 1})
+                    if d
+                ]
+            except Exception:
+                pass
             result = self.manager.collection.update_many(
                 {"user_id": user_id, "file_name": old_name, "is_active": True},
                 {"$set": {"file_name": new_name, "updated_at": datetime.now(timezone.utc)}},
@@ -1272,6 +1282,12 @@ class Repository:
                     cache.delete_pattern(f"collections_*:{uid}:*")
                 except Exception:
                     pass
+            except Exception:
+                pass
+            # Update sticky notes scope_id so notes follow the file after rename
+            try:
+                from sticky_notes_scope import sync_sticky_notes_on_rename
+                sync_sticky_notes_on_rename(self.manager.db, int(user_id), old_name, new_name, old_file_ids=old_file_ids)
             except Exception:
                 pass
             return bool(result.modified_count and result.modified_count > 0)

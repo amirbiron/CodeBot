@@ -219,5 +219,98 @@ class TestStickyNotesApiContentB64(unittest.TestCase):
         self.assertEqual(self.db.sticky_notes._docs[-1]["content"], content)
 
 
+class TestSyncStickyNotesOnRename(unittest.TestCase):
+    """בדיקות ל-sync_sticky_notes_on_rename מ-sticky_notes_scope."""
+
+    def setUp(self):
+        from sticky_notes_scope import make_scope_id, sync_sticky_notes_on_rename
+        self.make_scope_id = make_scope_id
+        self.sync = sync_sticky_notes_on_rename
+
+        self.user_id = 12345
+        self.old_name = "notes.md"
+        self.new_name = "my_notes.md"
+        self.old_scope = make_scope_id(self.user_id, self.old_name)
+        self.new_scope = make_scope_id(self.user_id, self.new_name)
+
+        # Mock DB
+        self.db = MagicMock()
+        self.db.sticky_notes = MagicMock()
+        self.db.code_snippets = MagicMock()
+        self.db.code_snippets.find.return_value = [{"_id": "abc123"}, {"_id": "def456"}]
+
+    def test_updates_scope_and_file_name(self):
+        self.sync(self.db, self.user_id, self.old_name, self.new_name)
+        self.db.sticky_notes.update_many.assert_called_once()
+        call_args = self.db.sticky_notes.update_many.call_args
+        query = call_args[0][0]
+        update = call_args[0][1]
+        self.assertEqual(query["user_id"], self.user_id)
+        self.assertIn("$or", query)
+        self.assertEqual(update["$set"]["scope_id"], self.new_scope)
+        self.assertEqual(update["$set"]["file_name"], self.new_name)
+
+    def test_sets_new_file_id_when_provided(self):
+        self.sync(self.db, self.user_id, self.old_name, self.new_name, new_file_id="new_id_999")
+        call_args = self.db.sticky_notes.update_many.call_args
+        update = call_args[0][1]
+        self.assertEqual(update["$set"]["file_id"], "new_id_999")
+
+    def test_does_not_set_file_id_when_empty(self):
+        self.sync(self.db, self.user_id, self.old_name, self.new_name)
+        call_args = self.db.sticky_notes.update_many.call_args
+        update = call_args[0][1]
+        self.assertNotIn("file_id", update["$set"])
+
+    def test_noop_when_names_equal(self):
+        self.sync(self.db, self.user_id, "same.md", "same.md")
+        self.db.sticky_notes.update_many.assert_not_called()
+
+    def test_noop_when_old_name_empty(self):
+        self.sync(self.db, self.user_id, "", self.new_name)
+        self.db.sticky_notes.update_many.assert_not_called()
+
+    def test_noop_when_no_sticky_notes_collection(self):
+        self.db.sticky_notes = None
+        # Should not raise
+        self.sync(self.db, self.user_id, self.old_name, self.new_name)
+
+    def test_includes_old_file_ids_in_query(self):
+        self.sync(self.db, self.user_id, self.old_name, self.new_name)
+        call_args = self.db.sticky_notes.update_many.call_args
+        query = call_args[0][0]
+        or_clauses = query["$or"]
+        file_id_clause = [c for c in or_clauses if "file_id" in c]
+        self.assertTrue(file_id_clause)
+        self.assertIn("abc123", file_id_clause[0]["file_id"]["$in"])
+        self.assertIn("def456", file_id_clause[0]["file_id"]["$in"])
+
+    def test_uses_provided_old_file_ids(self):
+        self.sync(self.db, self.user_id, self.old_name, self.new_name, old_file_ids=["custom_id"])
+        # Should NOT query code_snippets when old_file_ids provided
+        self.db.code_snippets.find.assert_not_called()
+        call_args = self.db.sticky_notes.update_many.call_args
+        query = call_args[0][0]
+        or_clauses = query["$or"]
+        file_id_clause = [c for c in or_clauses if "file_id" in c]
+        self.assertTrue(file_id_clause)
+        self.assertIn("custom_id", file_id_clause[0]["file_id"]["$in"])
+
+    def test_works_when_code_snippets_returns_empty(self):
+        """כשה-DB לא מחזיר file_ids (למשל אחרי rename), הסנכרון עדיין עובד דרך scope_id."""
+        self.db.code_snippets.find.return_value = []
+        self.sync(self.db, self.user_id, self.old_name, self.new_name)
+        call_args = self.db.sticky_notes.update_many.call_args
+        query = call_args[0][0]
+        or_clauses = query["$or"]
+        # scope_id clause should always be present
+        scope_clause = [c for c in or_clauses if "scope_id" in c]
+        self.assertTrue(scope_clause)
+        self.assertEqual(scope_clause[0]["scope_id"], self.old_scope)
+        # file_id clause should NOT be present when no ids found
+        file_id_clause = [c for c in or_clauses if "file_id" in c]
+        self.assertFalse(file_id_clause)
+
+
 if __name__ == "__main__":
     unittest.main()

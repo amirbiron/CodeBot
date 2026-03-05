@@ -13712,6 +13712,15 @@ def api_resolve_file_by_name():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
+def _sync_sticky_notes_after_rename(db, user_id: int, old_name: str, new_name: str, new_file_id: str = '', old_file_ids=None) -> None:
+    """העברת פתקים דביקים לשם הקובץ החדש לאחר שינוי שם."""
+    try:
+        from sticky_notes_scope import sync_sticky_notes_on_rename
+        sync_sticky_notes_on_rename(db, user_id, old_name, new_name, old_file_ids=old_file_ids, new_file_id=new_file_id)
+    except Exception:
+        pass
+
+
 def _sync_collection_items_after_web_rename(db, user_id: int, old_name: str, new_name: str) -> None:
     """Ensure My Collections reflect renamed files when שינוי שם נעשה מהווב."""
     if not old_name or not new_name or old_name == new_name:
@@ -13825,6 +13834,11 @@ def edit_file_page(file_id):
                             _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
                         except Exception:
                             pass
+                        if original_file_name and original_file_name != file_name:
+                            try:
+                                _sync_sticky_notes_after_rename(db, user_id, original_file_name, file_name, str(file_id), old_file_ids=[str(file_id)])
+                            except Exception:
+                                pass
                         try:
                             cache.invalidate_user_cache(int(user_id))
                         except Exception:
@@ -14279,6 +14293,10 @@ def edit_file_page(file_id):
                                     pass
                             if original_file_name and original_file_name != file_name:
                                 _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                                try:
+                                    _sync_sticky_notes_after_rename(db, user_id, original_file_name, file_name, str(res.inserted_id))
+                                except Exception:
+                                    pass
                             # קבצי Markdown – מפנים ישירות לתצוגת Markdown במקום תצוגת קוד
                             if _is_markdown_file(language, file_name):
                                 if _log_webapp_user_activity():
