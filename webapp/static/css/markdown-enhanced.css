@@ -269,7 +269,7 @@
 
 /* === RTL === */
 [dir="rtl"] .admonition { border-right: none; border-left: 4px solid; }
-[dir="rtl"] .markdown-summary::before { margin-left: 0; margin-right: 0.5rem; }
+[dir="rtl"] .markdown-summary::before { margin-left: 0.5rem; margin-right: 0.5rem; }
 
 /* === מובייל === */
 @media (max-width: 768px) {
