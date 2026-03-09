@@ -2666,7 +2666,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           while (cur && cur !== endP) { const next = cur.nextSibling; frag.appendChild(cur); cur = next; }
           return frag;
         }
-        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',info:'מידע',success:'הצלחה',question:'שאלה',example:'דוגמה',quote:'ציטוט',experimental:'ניסוי',deprecated:'לא מומלץ',todo:'לעשות',abstract:'תקציר'}; return m[type]||type; }
+        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',important:'חשוב',info:'מידע',success:'הצלחה',question:'שאלה',example:'דוגמה',quote:'ציטוט',experimental:'ניסוי',deprecated:'לא מומלץ',todo:'לעשות',abstract:'תקציר'}; return m[type]||type; }
         function transformIn(root) {
           let changed = false;
           let node = root.firstElementChild;
