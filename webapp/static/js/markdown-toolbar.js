@@ -15,8 +15,6 @@ const MarkdownToolbar = {
 
     details: `::: details לחצו כאן לתוכן מוסתר
 
-### כותרת פנימית
-
 תוכן שמוסתר עד ללחיצה.
 
 :::

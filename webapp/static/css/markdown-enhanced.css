@@ -162,6 +162,7 @@
   color: var(--summary-color);
   display: flex;
   align-items: center;
+  gap: 0.5rem;
   transition: background-color var(--animation-speed) ease;
   position: relative;
 }
