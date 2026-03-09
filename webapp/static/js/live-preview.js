@@ -302,41 +302,23 @@
       return renderer;
     }
 
-    function isHebrewMajority(text) {
-      if (!text) return false;
-      const cleaned = text.replace(/\s+/g, '');
-      if (cleaned.length === 0) return false;
-      let hebrewCount = 0;
-      for (let i = 0; i < cleaned.length; i++) {
-        const code = cleaned.charCodeAt(i);
-        if (code >= 0x0590 && code <= 0x05FF) hebrewCount++;
-      }
-      return hebrewCount / cleaned.length > 0.3;
-    }
-
-    function hasLanguageClass(block) {
-      const cls = block.className || '';
-      return /\blanguage-(?!plaintext\b)\S+/.test(cls);
-    }
-
     function highlightBlocks(root) {
       if (!root || typeof window === 'undefined') {
         return;
       }
       root.querySelectorAll('pre code').forEach((block) => {
         try {
+          const parent = block.closest('pre');
+          // בדיקת עברית *לפני* hljs כדי שלא ישתנה ה-class
+          if (window.RtlCode) {
+            window.RtlCode.applyRtlIfHebrew(block);
+          }
           // הדגשת תחביר אם hljs זמין
           if (window.hljs) {
             window.hljs.highlightElement(block);
           }
-          const parent = block.closest('pre');
           if (parent) {
-            // בלוק קוד עם טקסט בעברית בלי שפת תכנות → יישור RTL
-            const isHebrew = !hasLanguageClass(block) && isHebrewMajority(block.textContent);
-            parent.style.direction = isHebrew ? 'rtl' : 'ltr';
-            parent.style.textAlign = isHebrew ? 'right' : 'left';
             parent.style.position = 'relative';
-            if (isHebrew) parent.classList.add('rtl-code');
 
             // הוספת כפתור העתקה אם לא קיים
             if (!parent.querySelector('.code-copy-btn')) {
