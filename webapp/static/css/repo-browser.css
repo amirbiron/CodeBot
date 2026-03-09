@@ -2713,6 +2713,12 @@ html[dir="rtl"] .diff-view-toggle {
     text-align: left;
 }
 
+/* בלוקי קוד עם תוכן בעברית – יישור לימין */
+.markdown-preview-content pre.rtl-code {
+    direction: rtl;
+    text-align: right;
+}
+
 .markdown-preview-content pre code {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 0.9em;

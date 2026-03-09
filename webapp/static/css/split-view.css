@@ -468,6 +468,15 @@ html[dir="rtl"] .split-preview-content code {
   text-align: left;
 }
 
+/* בלוקי קוד עם תוכן בעברית – יישור לימין */
+.split-preview-content pre.rtl-code,
+.split-preview-content pre.rtl-code code,
+html[dir="rtl"] .split-preview-content pre.rtl-code,
+html[dir="rtl"] .split-preview-content pre.rtl-code code {
+  direction: rtl;
+  text-align: right;
+}
+
 .split-preview-placeholder {
   text-align: center;
   color: var(--split-preview-placeholder);

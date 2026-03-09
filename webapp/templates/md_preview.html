@@ -924,6 +924,11 @@
   direction: ltr;
   text-align: left;
 }
+/* בלוקי קוד עם תוכן בעברית – יישור לימין */
+#md-content pre.rtl-code {
+  direction: rtl;
+  text-align: right;
+}
 #md-content .code-block pre {
   margin: 0;
   border-radius: 0;
@@ -2775,6 +2780,29 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         });
       }
     } catch(_) { }
+
+    // יישור RTL לבלוקי קוד עם תוכן בעברית (ללא שפת תכנות מוגדרת)
+    try {
+      container.querySelectorAll('pre code').forEach(function(block) {
+        var cls = block.className || '';
+        if (/\blanguage-(?!plaintext\b)\S+/.test(cls)) return;
+        var text = (block.textContent || '').replace(/\s+/g, '');
+        if (!text.length) return;
+        var hebrewCount = 0;
+        for (var i = 0; i < text.length; i++) {
+          var c = text.charCodeAt(i);
+          if (c >= 0x0590 && c <= 0x05FF) hebrewCount++;
+        }
+        if (hebrewCount / text.length > 0.3) {
+          var pre = block.closest('pre');
+          if (pre) {
+            pre.style.direction = 'rtl';
+            pre.style.textAlign = 'right';
+            pre.classList.add('rtl-code');
+          }
+        }
+      });
+    } catch(_) {}
 
     // אחרי הדגשת hljs – נשמור מקור רק לכל בלוק קוד (לא לכל הקונטיינר)
     try {
