@@ -321,6 +321,10 @@ function enhanceMarkdownFallback(root) {
     const blocks = root.querySelectorAll('pre code');
     blocks.forEach(block => {
         try {
+            // בדיקת עברית *לפני* hljs כדי שלא ישתנה ה-class
+            if (window.RtlCode) {
+                window.RtlCode.applyRtlIfHebrew(block);
+            }
             // הדגשת תחביר אם hljs זמין
             if (window.hljs) {
                 window.hljs.highlightElement(block);

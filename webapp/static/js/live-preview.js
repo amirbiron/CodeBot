@@ -308,14 +308,16 @@
       }
       root.querySelectorAll('pre code').forEach((block) => {
         try {
+          const parent = block.closest('pre');
+          // בדיקת עברית *לפני* hljs כדי שלא ישתנה ה-class
+          if (window.RtlCode) {
+            window.RtlCode.applyRtlIfHebrew(block);
+          }
           // הדגשת תחביר אם hljs זמין
           if (window.hljs) {
             window.hljs.highlightElement(block);
           }
-          const parent = block.closest('pre');
           if (parent) {
-            parent.style.direction = 'ltr';
-            parent.style.textAlign = 'left';
             parent.style.position = 'relative';
 
             // הוספת כפתור העתקה אם לא קיים
