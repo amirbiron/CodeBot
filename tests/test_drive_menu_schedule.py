@@ -261,7 +261,8 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
     _set_facade(monkeypatch, facade)
 
     # stub Drive scheduled backup to succeed
-    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: True, raising=True)
+    from services.google_drive_service import ScheduledBackupResult
+    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: ScheduledBackupResult(ok=True, uploaded=1), raising=True)
 
     # prepare a scheduled callback via _ensure_schedule_job
     scheduled = {}
@@ -317,7 +318,8 @@ async def test_scheduled_backup_callback_failure_prompts_reauth(monkeypatch):
     _set_facade(monkeypatch, _Facade())
 
     # Drive backup fails and service is None → triggers re-auth message
-    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: False, raising=True)
+    from services.google_drive_service import ScheduledBackupResult
+    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: ScheduledBackupResult(ok=False, uploaded=0), raising=True)
     monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: None, raising=True)
 
     # Prepare scheduled callback through _ensure_schedule_job

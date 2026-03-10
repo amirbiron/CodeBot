@@ -122,8 +122,9 @@ def test_perform_scheduled_backup_all_updates_prefs(monkeypatch):
     monkeypatch.setattr(gds, "compute_subpath", lambda cat, repo=None: "zip", raising=True)
     monkeypatch.setattr(gds, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None: "fid1", raising=True)
 
-    ok = gds.perform_scheduled_backup(9)
-    assert ok is True
+    result = gds.perform_scheduled_backup(9)
+    assert result.ok is True
+    assert result.uploaded == 1
     # last_backup_at and last_full_backup_at should be set in one of the calls
     merged = {}
     for p in calls["save_prefs"]:
