@@ -2100,6 +2100,7 @@ input.md-task-checkbox {
   </script>
 </div>
 
+<script src="{{ url_for('static', filename='js/admonition-icons.js') }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}"></script>
 <script>
 // מזהה קובץ לשימוש בשמירת העדפות פר-קובץ
@@ -2448,6 +2449,8 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         }
       } catch(_) {}
     })();
+    // ADMONITION_ICONS is loaded from admonition-icons.js via window.ADMONITION_ICONS
+    var ADMONITION_ICONS = (typeof window !== 'undefined' && window.ADMONITION_ICONS) || {};
     // תמיכה רשמית בתחביר ::: ע"י markdown-it-container עבור כל הסוגים וה-details
     (function(){
       try {
@@ -2480,7 +2483,8 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
                 const m = info.match(rxOpen);
                 const title = (m && m[1] && m[1].trim()) || defaultTitle(type);
                 if (tokens[idx].nesting === 1) {
-                  return `<div class="admonition admonition-${type}"><div class="admonition-title">${md.utils.escapeHtml(title)}</div><div class="admonition-content">`;
+                  const icon = ADMONITION_ICONS[type] || '';
+                  return `<div class="admonition admonition-${type}"><div class="admonition-title">${icon}${md.utils.escapeHtml(title)}</div><div class="admonition-content">`;
                 }
                 return `</div></div>\n`;
               }
@@ -2673,6 +2677,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           return frag;
         }
         function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',important:'חשוב',info:'מידע',success:'הצלחה',question:'שאלה',example:'דוגמה',quote:'ציטוט',experimental:'ניסוי',deprecated:'לא מומלץ',todo:'לעשות',abstract:'תקציר'}; return m[type]||type; }
+        function setTitleWithIcon(el, type, titleTxt) { var icon = (typeof ADMONITION_ICONS !== 'undefined' && ADMONITION_ICONS[type]) || ''; el.innerHTML = icon; el.appendChild(document.createTextNode(titleTxt)); }
         function transformIn(root) {
           let changed = false;
           let node = root.firstElementChild;
@@ -2702,7 +2707,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
                   if (!endP) { node = node.nextElementSibling; continue; }
                   const frag = extractBetween(node, endP);
                   const wrap = document.createElement('div'); wrap.className = 'admonition admonition-' + type;
-                  const title = document.createElement('div'); title.className = 'admonition-title'; title.textContent = titleTxt;
+                  const title = document.createElement('div'); title.className = 'admonition-title'; setTitleWithIcon(title, type, titleTxt);
                   const content = document.createElement('div'); content.className = 'admonition-content'; content.appendChild(frag);
                   wrap.appendChild(title); wrap.appendChild(content);
                   const parent = node.parentNode; parent.replaceChild(wrap, node);
@@ -2721,7 +2726,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
                     if (!endP) { node = node.nextElementSibling; continue; }
                     const frag = extractBetween(node, endP);
                     const details = document.createElement('details'); details.className = 'markdown-details admonition admonition-' + type; if (openFlag === '+') details.setAttribute('open', '');
-                    const summary = document.createElement('summary'); summary.className = 'markdown-summary admonition-title'; summary.textContent = titleTxt;
+                    const summary = document.createElement('summary'); summary.className = 'markdown-summary admonition-title'; setTitleWithIcon(summary, type, titleTxt);
                     const content = document.createElement('div'); content.className = 'details-content admonition-content'; content.appendChild(frag);
                     details.appendChild(summary); details.appendChild(content);
                     const parent = node.parentNode; parent.replaceChild(details, node);
@@ -2739,7 +2744,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
                       if (!endP) { node = node.nextElementSibling; continue; }
                       const frag = extractBetween(node, endP);
                       const wrap = document.createElement('div'); wrap.className = 'admonition admonition-' + type;
-                      const title = document.createElement('div'); title.className = 'admonition-title'; title.textContent = titleTxt;
+                      const title = document.createElement('div'); title.className = 'admonition-title'; setTitleWithIcon(title, type, titleTxt);
                       const content = document.createElement('div'); content.className = 'admonition-content'; content.appendChild(frag);
                       wrap.appendChild(title); wrap.appendChild(content);
                       const parent = node.parentNode; parent.replaceChild(wrap, node);

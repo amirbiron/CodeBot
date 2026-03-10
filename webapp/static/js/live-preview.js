@@ -24,6 +24,9 @@
     abstract: 'תקציר',
   };
 
+  // ADMONITION_ICONS is loaded from admonition-icons.js via window.ADMONITION_ICONS
+  const ADMONITION_ICONS = (typeof window !== 'undefined' && window.ADMONITION_ICONS) || {};
+
   function slugifyHeadingId(rawText) {
     try {
       let slug = (rawText || '')
@@ -279,7 +282,8 @@
                   const match = info.match(rxOpen);
                   const title = (match && match[1] && match[1].trim()) || MARKDOWN_DEFAULT_TITLES[type] || type;
                   if (tokens[idx].nesting === 1) {
-                    return `<div class="admonition admonition-${type}"><div class="admonition-title">${md.utils.escapeHtml(
+                    const icon = ADMONITION_ICONS[type] || '';
+                    return `<div class="admonition admonition-${type}"><div class="admonition-title">${icon}${md.utils.escapeHtml(
                       title
                     )}</div><div class="admonition-content">`;
                   }
