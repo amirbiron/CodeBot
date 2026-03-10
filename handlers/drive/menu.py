@@ -118,6 +118,9 @@ class GoogleDriveMenuHandler:
                                 if ok and result.uploaded > 0:
                                     await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
                                     tracker.add_log(run.run_id, "info", "Drive backup completed successfully")
+                                elif ok:
+                                    # אין מה להעלות — לא כישלון, פשוט אין תוכן חדש
+                                    tracker.add_log(run.run_id, "info", "Drive backup skipped — nothing new to upload")
                                 else:
                                     tracker.add_log(run.run_id, "warning", "Drive backup returned ok=False")
                                     # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
@@ -223,7 +226,7 @@ class GoogleDriveMenuHandler:
                         pass
                     if ok and result.uploaded > 0:
                         await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
-                    else:
+                    elif not ok:
                         # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
                         try:
                             from src.infrastructure.composition import get_files_facade  # type: ignore
