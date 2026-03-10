@@ -102,8 +102,9 @@ class GoogleDriveMenuHandler:
                         try:
                             with tracker.track(job_id, trigger="scheduled", user_id=int(uid)) as run:
                                 tracker.add_log(run.run_id, "info", f"Starting scheduled Drive backup (key={sched_key})")
-                                ok = gdrive.perform_scheduled_backup(uid)
-                                logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
+                                result = gdrive.perform_scheduled_backup(uid)
+                                ok = result.ok
+                                logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok} uploaded={result.uploaded}")
                                 try:
                                     emit_event(
                                         "drive_scheduled_backup_result",
@@ -114,9 +115,12 @@ class GoogleDriveMenuHandler:
                                 except Exception:
                                     pass
 
-                                if ok:
+                                if ok and result.uploaded > 0:
                                     await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
                                     tracker.add_log(run.run_id, "info", "Drive backup completed successfully")
+                                elif ok:
+                                    # אין מה להעלות — לא כישלון, פשוט אין תוכן חדש
+                                    tracker.add_log(run.run_id, "info", "Drive backup skipped — nothing new to upload")
                                 else:
                                     tracker.add_log(run.run_id, "warning", "Drive backup returned ok=False")
                                     # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
@@ -213,15 +217,16 @@ class GoogleDriveMenuHandler:
                             pass
                         return
                 else:
-                    ok = gdrive.perform_scheduled_backup(uid)
-                    logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
+                    result = gdrive.perform_scheduled_backup(uid)
+                    ok = result.ok
+                    logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok} uploaded={result.uploaded}")
                     try:
                         emit_event("drive_scheduled_backup_result", severity=("info" if ok else "warn"), user_id=int(uid), ok=bool(ok))
                     except Exception:
                         pass
-                    if ok:
+                    if ok and result.uploaded > 0:
                         await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
-                    else:
+                    elif not ok:
                         # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
                         try:
                             from src.infrastructure.composition import get_files_facade  # type: ignore

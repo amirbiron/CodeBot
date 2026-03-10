@@ -770,6 +770,13 @@ def upload_file(
 
 
 @dataclass(frozen=True)
+class ScheduledBackupResult:
+    """Result of a scheduled backup to Drive."""
+    ok: bool
+    uploaded: int = 0
+
+
+@dataclass(frozen=True)
 class UploadSavedZipResult:
     uploaded: int
     ids: List[str]
@@ -1124,7 +1131,7 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
     return f"{backup_id}.zip", buf.getvalue()
 
 
-def perform_scheduled_backup(user_id: int) -> bool:
+def perform_scheduled_backup(user_id: int) -> ScheduledBackupResult:
     """Runs a scheduled backup to Drive according to user's selected category.
 
     Category resolution priority:
@@ -1134,6 +1141,9 @@ def perform_scheduled_backup(user_id: int) -> bool:
 
     Updates last_backup_at on any successful scheduled upload.
     Updates last_full_backup_at only if category == "all".
+
+    Returns ScheduledBackupResult with ok=True/False and uploaded count.
+    When there is nothing to back up, ok=True but uploaded=0.
     """
     try:
         prefs = db.get_drive_prefs(user_id) or {}
@@ -1145,6 +1155,7 @@ def perform_scheduled_backup(user_id: int) -> bool:
         category = "all"
 
     ok = False
+    uploaded = 0
     try:
         now_iso = _now_utc().isoformat()
         if category == "zip":
@@ -1155,10 +1166,11 @@ def perform_scheduled_backup(user_id: int) -> bool:
             except Exception:
                 has_zip = True
             if not has_zip:
-                return True
+                return ScheduledBackupResult(ok=True, uploaded=0)
             # Upload any saved ZIP backups that were not uploaded yet
             res = _upload_all_saved_zip_backups_detailed(user_id)
             ok = bool(res.failed == 0)
+            uploaded = res.uploaded
             if ok and res.uploaded > 0:
                 try:
                     db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
@@ -1171,7 +1183,9 @@ def perform_scheduled_backup(user_id: int) -> bool:
                 # Use suggested friendly name and by_repo subpath
                 sub_path = compute_subpath("by_repo", repo_name)
                 fid = upload_bytes(user_id, suggested, data_bytes, sub_path=sub_path)
-                ok_any = ok_any or bool(fid)
+                if fid:
+                    ok_any = True
+                    uploaded += 1
             ok = ok_any
             if ok:
                 try:
@@ -1187,6 +1201,7 @@ def perform_scheduled_backup(user_id: int) -> bool:
             fid = upload_bytes(user_id, friendly, data, sub_path=sub_path)
             ok = bool(fid)
             if ok:
+                uploaded = 1
                 update = {"last_backup_at": now_iso}
                 if category == "all":
                     update["last_full_backup_at"] = now_iso
@@ -1196,5 +1211,5 @@ def perform_scheduled_backup(user_id: int) -> bool:
                     pass
     except Exception:
         ok = False
-    return ok
+    return ScheduledBackupResult(ok=ok, uploaded=uploaded)
 

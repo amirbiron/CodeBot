@@ -152,7 +152,9 @@ def test_perform_scheduled_backup_zip_no_local_zip_is_ok(monkeypatch):
     # Should not call Drive at all when nothing to upload
     monkeypatch.setattr(gds, "get_drive_service", lambda uid: (_ for _ in ()).throw(AssertionError("should not call Drive")), raising=True)
 
-    assert gds.perform_scheduled_backup(123) is True
+    result = gds.perform_scheduled_backup(123)
+    assert result.ok is True
+    assert result.uploaded == 0
 
 def test_retryable_and_parse_helpers(monkeypatch):
     gds = _import_fresh()
