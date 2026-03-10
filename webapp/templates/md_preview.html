@@ -2457,7 +2457,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         const containerPlugin = (window.markdownitContainer || window.markdownItContainer || null);
         if (!containerPlugin) return;
         const types = ['details','note','tip','warning','danger','important','info','success','question','example','quote','experimental','deprecated','todo','abstract'];
-        const DEFAULT_TITLES = { note:'הערה', tip:'טיפ', warning:'אזהרה', danger:'סכנה', important:'חשוב', info:'מידע', success:'הצלחה', question:'שאלה', example:'דוגמה', quote:'ציטוט', experimental:'ניסוי', deprecated:'לא מומלץ', todo:'לעשות', abstract:'תקציר' };
+        const DEFAULT_TITLES = { note:'הערה', tip:'טיפ', warning:'אזהרה', danger:'סכנה', important:'חשוב', info:'מידע', success:'הצלחה', question:'שאלה', example:'דוגמה', quote:'ציטוט', experimental:'ניסוי', deprecated:'לא מומלץ', todo:'משימות לביצוע', abstract:'תקציר' };
         function defaultTitle(type){ return DEFAULT_TITLES[type] || type; }
 
         types.forEach(function(type){
@@ -2676,7 +2676,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           while (cur && cur !== endP) { const next = cur.nextSibling; frag.appendChild(cur); cur = next; }
           return frag;
         }
-        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',important:'חשוב',info:'מידע',success:'הצלחה',question:'שאלה',example:'דוגמה',quote:'ציטוט',experimental:'ניסוי',deprecated:'לא מומלץ',todo:'לעשות',abstract:'תקציר'}; return m[type]||type; }
+        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',important:'חשוב',info:'מידע',success:'הצלחה',question:'שאלה',example:'דוגמה',quote:'ציטוט',experimental:'ניסוי',deprecated:'לא מומלץ',todo:'משימות לביצוע',abstract:'תקציר'}; return m[type]||type; }
         function setTitleWithIcon(el, type, titleTxt) { var icon = (typeof ADMONITION_ICONS !== 'undefined' && ADMONITION_ICONS[type]) || ''; el.innerHTML = icon; el.appendChild(document.createTextNode(titleTxt)); }
         function transformIn(root) {
           let changed = false;
