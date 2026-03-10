@@ -20,7 +20,7 @@
     quote: 'ציטוט',
     experimental: 'ניסוי',
     deprecated: 'לא מומלץ',
-    todo: 'לבצע',
+    todo: 'משימות לביצוע',
     abstract: 'תקציר',
   };
 
