@@ -10,10 +10,7 @@
   --summary-color: #24292e;
   --summary-bg: linear-gradient(to right, #f8f9fa, transparent);
   --summary-arrow-color: #586069;
-  --admonition-radius: 8px;
   --animation-speed: 0.3s;
-  --admonition-content-bg: rgba(255, 255, 255, 0.8);
-  --admonition-content-text: inherit;
   --header-anchor-color: #6c757d;
   --header-anchor-hover: #0366d6;
   --tooltip-bg: rgba(0, 0, 0, 0.8);
@@ -30,8 +27,6 @@
   --summary-color: #c9d1d9;
   --summary-bg: linear-gradient(to right, rgba(22, 27, 34, 0.8), transparent);
   --summary-arrow-color: #8b949e;
-  --admonition-content-bg: rgba(0, 0, 0, 0.3);
-  --admonition-content-text: #c9d1d9;
   --header-anchor-color: #8b949e;
   --header-anchor-hover: #58a6ff;
   --tooltip-bg: rgba(255, 255, 255, 0.9);
@@ -46,8 +41,6 @@
   --summary-color: #ffffff;
   --summary-bg: linear-gradient(to right, rgba(49, 130, 206, 0.15), transparent);
   --summary-arrow-color: rgba(255, 255, 255, 0.65);
-  --admonition-content-bg: rgba(26, 54, 93, 0.5);
-  --admonition-content-text: #e2e8f0;
   --header-anchor-color: rgba(255, 255, 255, 0.65);
   --header-anchor-hover: #63b3ed;
   --tooltip-bg: rgba(26, 54, 93, 0.95);
@@ -62,8 +55,6 @@
   --summary-color: #ffffff;
   --summary-bg: linear-gradient(to right, rgba(72, 187, 120, 0.15), transparent);
   --summary-arrow-color: rgba(255, 255, 255, 0.65);
-  --admonition-content-bg: rgba(20, 83, 45, 0.5);
-  --admonition-content-text: #e2e8f0;
   --header-anchor-color: rgba(255, 255, 255, 0.65);
   --header-anchor-hover: #68d391;
   --tooltip-bg: rgba(20, 83, 45, 0.95);
@@ -78,8 +69,6 @@
   --summary-color: #575279;
   --summary-bg: linear-gradient(to right, rgba(242, 233, 225, 0.8), transparent);
   --summary-arrow-color: #9893a5;
-  --admonition-content-bg: rgba(250, 244, 237, 0.8);
-  --admonition-content-text: #575279;
   --header-anchor-color: #9893a5;
   --header-anchor-hover: #907aa9;
   --tooltip-bg: rgba(87, 82, 121, 0.9);
@@ -94,8 +83,6 @@
   --summary-color: #ffffff;
   --summary-bg: linear-gradient(to right, rgba(255, 255, 255, 0.1), transparent);
   --summary-arrow-color: #ffffff;
-  --admonition-content-bg: rgba(0, 0, 0, 0.8);
-  --admonition-content-text: #ffffff;
   --header-anchor-color: #ffffff;
   --header-anchor-hover: #ffff00;
   --tooltip-bg: #ffffff;
@@ -110,8 +97,6 @@
   --summary-color: #24292e;
   --summary-bg: linear-gradient(to right, #f8f9fa, transparent);
   --summary-arrow-color: #586069;
-  --admonition-content-bg: rgba(255, 255, 255, 0.8);
-  --admonition-content-text: inherit;
   --header-anchor-color: #6c757d;
   --header-anchor-hover: #0366d6;
   --tooltip-bg: rgba(0, 0, 0, 0.8);
@@ -127,8 +112,6 @@
   --summary-color: var(--text-primary, #c9d1d9);
   --summary-bg: linear-gradient(to right, color-mix(in srgb, var(--bg-tertiary, #161b22) 80%, transparent), transparent);
   --summary-arrow-color: var(--text-muted, #8b949e);
-  --admonition-content-bg: color-mix(in srgb, var(--bg-primary, #0d1117) 70%, transparent);
-  --admonition-content-text: var(--text-primary, #c9d1d9);
   --header-anchor-color: var(--text-muted, #8b949e);
   --header-anchor-hover: var(--primary, #58a6ff);
   --tooltip-bg: var(--bg-tertiary, rgba(255, 255, 255, 0.9));
@@ -277,7 +260,8 @@
 /* === מובייל === */
 @media (max-width: 768px) {
   .markdown-details, .admonition { margin: 0.75rem -0.5rem; border-radius: 0; }
-  .admonition-content, .details-content { padding: 0.75rem; }
+  .admonition { padding: 0.75rem; }
+  .details-content { padding: 0.75rem; }
 }
 
 /* === מצב כהה מוגדר כעת ב-data-theme למעלה === */
