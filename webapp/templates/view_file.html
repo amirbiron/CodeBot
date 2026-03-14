@@ -1721,18 +1721,16 @@ function goBack(ev){
                     root.setAttribute('data-original-html', original);
                     if (!term) { root.innerHTML = original; return; }
                     const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    // רגקס שמדלג על תגי HTML – מחליף רק טקסט גלוי
-                    const rxSkipTags = new RegExp(`(<[^>]*>)|(${safe})`, 'gi');
-                    const replaced = original.replace(rxSkipTags, (m, tag, matched) => {
-                        if (tag) return tag;
+                    // רגקס שמדלג על תגי HTML ועל HTML entities – מחליף רק טקסט גלוי
+                    const rxSkipTags = new RegExp(`(<[^>]*>|&[a-zA-Z0-9#]+;)|(${safe})`, 'gi');
+                    let rootCount = 0;
+                    const replaced = original.replace(rxSkipTags, (m, skip, matched) => {
+                        if (skip) return skip;
+                        rootCount++;
                         return '<span class="md-highlight">' + m + '</span>';
                     });
                     root.innerHTML = replaced;
-                    // ספירה לפי textContent בלבד כדי לא לספור התאמות ב-attributes
-                    const tmp = document.createElement('div');
-                    tmp.innerHTML = original;
-                    const rxCount = new RegExp(safe, 'gi');
-                    total += (tmp.textContent.match(rxCount) || []).length;
+                    total += rootCount;
                 } catch(_) {}
             });
             return total;

@@ -2834,8 +2834,18 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const rx = new RegExp(safe, 'gi');
         let total = 0;
-        // אוסף את כל ה-text nodes
-        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+        // אוסף את כל ה-text nodes – דילוג על style/script/svg כדי לא לשבור סגנונות ודיאגרמות
+        const SKIP_TAGS = new Set(['STYLE', 'SCRIPT', 'SVG', 'NOSCRIPT']);
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+          acceptNode: function(n) {
+            var p = n.parentNode;
+            while (p && p !== container) {
+              if (SKIP_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
+              p = p.parentNode;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        });
         const textNodes = [];
         let node;
         while ((node = walker.nextNode())) {
