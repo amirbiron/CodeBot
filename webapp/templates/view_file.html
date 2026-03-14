@@ -1712,6 +1712,7 @@ function goBack(ev){
 
         function highlightTerm(term){
             // בתוך הקוד בלבד: הדגשה בתוך התאים של ה-highlighttable/ .highlight
+            // דילוג על תגי HTML כדי לא להדגיש בתוך attributes (כמו מספרי שורות)
             let total = 0;
             const codeRoots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
             codeRoots.forEach(root => {
@@ -1720,10 +1721,18 @@ function goBack(ev){
                     root.setAttribute('data-original-html', original);
                     if (!term) { root.innerHTML = original; return; }
                     const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const rx = new RegExp(`(${safe})`, 'gi');
-                    const replaced = original.replace(rx, '<span class="md-highlight">$1</span>');
+                    // רגקס שמדלג על תגי HTML – מחליף רק טקסט גלוי
+                    const rxSkipTags = new RegExp(`(<[^>]*>)|(${safe})`, 'gi');
+                    const replaced = original.replace(rxSkipTags, (m, tag, matched) => {
+                        if (tag) return tag;
+                        return '<span class="md-highlight">' + m + '</span>';
+                    });
                     root.innerHTML = replaced;
-                    total += (original.match(rx) || []).length;
+                    // ספירה לפי textContent בלבד כדי לא לספור התאמות ב-attributes
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = original;
+                    const rxCount = new RegExp(safe, 'gi');
+                    total += (tmp.textContent.match(rxCount) || []).length;
                 } catch(_) {}
             });
             return total;

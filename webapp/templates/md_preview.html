@@ -1896,7 +1896,7 @@ input.md-task-checkbox {
     <!-- Editor Toolbar - עיצוב חדש -->
     <div class="md-editor-toolbar" id="md-search">
       <div class="md-search-capsule">
-        <input type="text" class="md-search-input" id="mdSearchInput" placeholder="חפש בקוד...">
+        <input type="text" class="md-search-input" id="mdSearchInput" placeholder="חפש במסמך...">
         <span class="md-search-count" id="mdSearchCount"></span>
         <div class="md-divider"></div>
         <button class="md-icon-btn" id="mdSearchPrev" type="button" title="הקודם">▲</button>
@@ -2806,7 +2806,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       });
     } catch(_) {}
 
-    // חיפוש והדגשה בתוך קטעי קוד בלבד
+    // חיפוש והדגשה בכל תוכן המסמך (טקסט + קוד) באמצעות סריקת text nodes
     (function(){
       const input = document.getElementById('mdSearchInput');
       const clearBtn = document.getElementById('mdSearchClear');
@@ -2816,33 +2816,55 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       let justAutoFocused = false;
 
       function restore() {
-        // משחזר כל בלוק קוד מהמקור שנשמר בו, בלי לגעת בשאר ה-HTML והדגשות hljs
-        const blocks = container.querySelectorAll('pre code');
-        blocks.forEach(code => {
+        // הסרת כל ה-highlight spans ומיזוג text nodes חזרה
+        container.querySelectorAll('.md-highlight').forEach(span => {
           try {
-            const orig = code.getAttribute('data-original-html');
-            if (orig != null) {
-              code.innerHTML = orig;
-            }
+            const parent = span.parentNode;
+            if (!parent) return;
+            const text = document.createTextNode(span.textContent);
+            parent.replaceChild(text, span);
+            parent.normalize();
           } catch(_) {}
         });
       }
 
       function highlightTerm(term) {
-        // מדגיש רק בתוך pre > code כדי לא לשבור HTML מחוץ לקוד
-        const blocks = container.querySelectorAll('pre code');
+        // סורק את כל ה-text nodes בתוך הקונטיינר ומדגיש התאמות
+        if (!term) return 0;
+        const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const rx = new RegExp(safe, 'gi');
         let total = 0;
-        blocks.forEach(code => {
-          try {
-            const original = code.getAttribute('data-original-html') || code.innerHTML;
-            code.setAttribute('data-original-html', original);
-            if (!term) { code.innerHTML = original; return; }
-            const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const rx = new RegExp(`(${safe})`, 'gi');
-            const replaced = original.replace(rx, '<span class="md-highlight">$1</span>');
-            code.innerHTML = replaced;
-            total += (original.match(rx) || []).length;
-          } catch(_) {}
+        // אוסף את כל ה-text nodes
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+        const textNodes = [];
+        let node;
+        while ((node = walker.nextNode())) {
+          if (rx.test(node.textContent)) {
+            textNodes.push(node);
+          }
+          rx.lastIndex = 0;
+        }
+        textNodes.forEach(textNode => {
+          const text = textNode.textContent;
+          const fragment = document.createDocumentFragment();
+          let lastIndex = 0;
+          let match;
+          rx.lastIndex = 0;
+          while ((match = rx.exec(text)) !== null) {
+            if (match.index > lastIndex) {
+              fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+            }
+            const span = document.createElement('span');
+            span.className = 'md-highlight';
+            span.textContent = match[0];
+            fragment.appendChild(span);
+            total++;
+            lastIndex = rx.lastIndex;
+          }
+          if (lastIndex < text.length) {
+            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+          }
+          textNode.parentNode.replaceChild(fragment, textNode);
         });
         return total;
       }

@@ -12,11 +12,20 @@
     var cleaned = text.replace(/\s+/g, '');
     if (cleaned.length === 0) return false;
     var hebrewCount = 0;
+    var letterCount = 0;
     for (var i = 0; i < cleaned.length; i++) {
       var c = cleaned.charCodeAt(i);
-      if (c >= 0x0590 && c <= 0x05FF) hebrewCount++;
+      if (c >= 0x0590 && c <= 0x05FF) {
+        hebrewCount++;
+        letterCount++;
+      } else if ((c >= 0x0041 && c <= 0x005A) || (c >= 0x0061 && c <= 0x007A)) {
+        // אותיות לטיניות (A-Z, a-z)
+        letterCount++;
+      }
+      // סימנים, חיצים, מספרים וסימני פיסוק לא נספרים – כך הם לא מדללים את היחס
     }
-    return hebrewCount / cleaned.length > HEBREW_THRESHOLD;
+    if (letterCount === 0) return false;
+    return hebrewCount / letterCount > HEBREW_THRESHOLD;
   }
 
   function hasExplicitLanguage(block) {
