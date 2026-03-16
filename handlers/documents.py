@@ -549,13 +549,17 @@ class DocumentHandler:
             ):
                 context.user_data.pop(_key, None)
             # שמור למסד נתונים (ריפו + איפוס תיקיית יעד)
-            try:
-                self._save_selected_repo(user_id, repo_full)
-                facade = self._resolve_files_facade()
-                if facade is not None and hasattr(facade, "save_selected_folder"):
-                    facade.save_selected_folder(user_id, None)
-            except Exception as err:
-                logger.warning("Failed saving selected repo to DB: %s", err)
+            # _save_selected_repo בולע exceptions ומחזיר False בכישלון,
+            # לכן בודקים את ערך ההחזרה ולא מסתמכים על try/except
+            if self._save_selected_repo(user_id, repo_full):
+                try:
+                    facade = self._resolve_files_facade()
+                    if facade is not None and hasattr(facade, "save_selected_folder"):
+                        facade.save_selected_folder(user_id, None)
+                except Exception as err:
+                    logger.warning("Failed saving selected folder to DB: %s", err)
+            else:
+                logger.warning("Failed saving selected repo to DB for user %s", user_id)
 
             await update.message.reply_text("📤 מעלה את קבצי ה‑ZIP לריפו החדש...")
             buf.seek(0)
