@@ -30,7 +30,8 @@
 
   function hasExplicitLanguage(block) {
     var cls = block.className || '';
-    return /\blanguage-(?!plaintext\b)\S+/.test(cls);
+    // שפות שאינן שפות תכנות אמיתיות – לא חוסמות זיהוי RTL
+    return /\blanguage-(?!plaintext\b|text\b|nohighlight\b|none\b|txt\b)\S+/.test(cls);
   }
 
   /**
