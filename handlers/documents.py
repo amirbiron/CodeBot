@@ -532,17 +532,34 @@ class DocumentHandler:
                 auto_init=False,
             )
             repo_full = repo.full_name
+            # עדכן סשן בזיכרון תמיד (הריפו נוצר בגיטהאב בפועל),
+            # ובצע ניקוי מצבים תלויים כמו _apply_repo_selection
             try:
-                if self._save_selected_repo(user_id, repo_full):
-                    try:
-                        sess = github_handler.get_user_session(user_id)
-                        sess["selected_repo"] = repo_full
-                    except Exception as err:
-                        logger.warning("Failed updating github session after repo save: %s", err)
-                else:
-                    logger.warning("Saving selected repo failed via facade")
+                sess = github_handler.get_user_session(user_id)
+                sess["selected_repo"] = repo_full
+                sess["selected_folder"] = None
             except Exception as err:
-                logger.warning("Failed saving selected repo: %s", err)
+                logger.warning("Failed updating github session after repo creation: %s", err)
+            # נקה מצבים ישנים ב-context כדי שפעולות הבאות ישתמשו בריפו החדש
+            for _key in (
+                "upload_target_folder", "upload_target_branch",
+                "waiting_for_manual_repo", "zip_restore_expected_repo_full",
+                "github_restore_zip_purge", "pending_repo_restore_zip_path",
+                "repos", "repos_cache_time",
+            ):
+                context.user_data.pop(_key, None)
+            # שמור למסד נתונים (ריפו + איפוס תיקיית יעד)
+            # _save_selected_repo בולע exceptions ומחזיר False בכישלון,
+            # לכן בודקים את ערך ההחזרה ולא מסתמכים על try/except
+            if self._save_selected_repo(user_id, repo_full):
+                try:
+                    facade = self._resolve_files_facade()
+                    if facade is not None and hasattr(facade, "save_selected_folder"):
+                        facade.save_selected_folder(user_id, None)
+                except Exception as err:
+                    logger.warning("Failed saving selected folder to DB: %s", err)
+            else:
+                logger.warning("Failed saving selected repo to DB for user %s", user_id)
 
             await update.message.reply_text("📤 מעלה את קבצי ה‑ZIP לריפו החדש...")
             buf.seek(0)
