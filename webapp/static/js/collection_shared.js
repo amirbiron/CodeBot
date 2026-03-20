@@ -220,7 +220,7 @@
   }
 
   function renderCollection(collection, items, itemsTotal){
-    const allowedIcons = ["📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀"];
+    const allowedIcons = ["📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀","🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️","🛒","📦","⚡","📢","🤖","💬","📨","🔔","🧰","🎵","🎥","📤","📥","📜","🪄"];
     const icon = collection && allowedIcons.includes(collection.icon) ? collection.icon : '📂';
     const name = collection && collection.name ? collection.name : 'אוסף משותף';
     const description = collection && collection.description ? collection.description : '';
