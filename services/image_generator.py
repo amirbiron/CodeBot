@@ -183,11 +183,21 @@ class CodeImageGenerator:
         self._logo_cache: Optional[Image.Image] = None
 
         # Playwright (מועדף) – רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent
+        self._has_playwright = False
         try:  # pragma: no cover - תלות אופציונלית
             import playwright  # noqa: F401
-            self._has_playwright = True
-        except Exception:
-            self._has_playwright = False
+            # בדיקה שדפדפן Chromium באמת מותקן (לא רק החבילה)
+            from playwright._impl._driver import compute_driver_executable  # type: ignore
+            driver_exec = compute_driver_executable()
+            if Path(driver_exec).exists():
+                self._has_playwright = True
+                logger.info("Playwright available: driver found at %s", driver_exec)
+            else:
+                logger.warning("Playwright package installed but driver not found at %s – run 'playwright install chromium'", driver_exec)
+        except ImportError:
+            logger.debug("Playwright not installed")
+        except Exception as exc:
+            logger.warning("Playwright check failed: %s", exc)
 
         # WeasyPrint (fallback) – אופציונלי
         try:  # pragma: no cover - תלות אופציונלית
@@ -592,6 +602,7 @@ class CodeImageGenerator:
         subprocess_script = '''
 import sys
 import base64
+import traceback
 from playwright.sync_api import sync_playwright
 
 def render(html_content, width, height):
@@ -600,7 +611,7 @@ def render(html_content, width, height):
         try:
             page = browser.new_page(
                 viewport={'width': width, 'height': height},
-                device_scale_factor=2,
+                device_scale_factor=3,
             )
             page.set_content(html_content, wait_until='load')
             page.wait_for_timeout(300)
@@ -612,10 +623,13 @@ def render(html_content, width, height):
 
 if __name__ == '__main__':
     import json
-    data = json.loads(sys.stdin.read())
-    png_bytes = render(data['html'], data['width'], data['height'])
-    # Output as base64 to avoid encoding issues
-    sys.stdout.write(base64.b64encode(png_bytes).decode('ascii'))
+    try:
+        data = json.loads(sys.stdin.read())
+        png_bytes = render(data['html'], data['width'], data['height'])
+        sys.stdout.write(base64.b64encode(png_bytes).decode('ascii'))
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
 '''
 
         # Prepare input data
@@ -793,7 +807,8 @@ if __name__ == '__main__':
                 img = self.optimize_image_size(img)
                 return self.save_optimized_png(img)
             except Exception as e:
-                logger.warning("Playwright render failed, falling back. Error: %s (type: %s)", e, type(e).__name__)
+                logger.warning("Playwright render failed, falling back to PIL. Error: %s (type: %s). "
+                               "If browsers are missing run: python -m playwright install chromium", e, type(e).__name__)
 
         # 2) WeasyPrint (fallback)
         if self._has_weasyprint:
