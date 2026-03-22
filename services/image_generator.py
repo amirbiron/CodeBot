@@ -337,33 +337,39 @@ class CodeImageGenerator:
     def _html_to_text_colors(self, html_str: str) -> List[Tuple[str, str]]:
         """Extract (text,color) segments from a single highlighted HTML line, preserving whitespace.
         We intentionally do not strip() so that leading spaces/tabs remain intact.
+
+        Note: We work directly on the raw HTML string instead of passing it through
+        BeautifulSoup, because the html.parser collapses leading whitespace (e.g.
+        4 spaces become 1), which destroys code indentation in the PIL fallback.
         """
-        # Remove style/script safely
-        soup = BeautifulSoup(html_str, "html.parser")
-        for tag in soup(["style", "script"]):
-            tag.decompose()
-        s = str(soup)
+        import html as _html_mod
+
+        s = html_str
         text_colors: List[Tuple[str, str]] = []
-        pattern = r'<span[^>]*style=\"[^\"]*color:\s*([^;\"\s]+)[^\\\"]*\"[^>]*>(.*?)</span>'
+        pattern = r'<span[^>]*style="[^"]*color:\s*([^;"\s]+)[^"]*"[^>]*>(.*?)</span>'
         last = 0
         for m in re.finditer(pattern, s, flags=re.DOTALL):
             before = s[last:m.start()]
             if before:
                 clean = re.sub(r'<[^>]+>', '', before)
+                clean = _html_mod.unescape(clean)
                 if clean != "":
                     text_colors.append((clean, self.colors['text']))
             color = m.group(1).strip()
             inner = re.sub(r'<[^>]+>', '', m.group(2))
+            inner = _html_mod.unescape(inner)
             if inner != "":
                 text_colors.append((inner, color))
             last = m.end()
         tail = s[last:]
         if tail:
             clean = re.sub(r'<[^>]+>', '', tail)
+            clean = _html_mod.unescape(clean)
             if clean != "":
                 text_colors.append((clean, self.colors['text']))
         if not text_colors:
             clean_all = re.sub(r'<[^>]+>', '', s)
+            clean_all = _html_mod.unescape(clean_all)
             if clean_all != "":
                 text_colors.append((clean_all, self.colors['text']))
         return text_colors
@@ -801,9 +807,9 @@ if __name__ == '__main__':
             except Exception as e:
                 logger.warning("WeasyPrint render failed, falling back to PIL. Error: %s (type: %s)", e, type(e).__name__)
 
-        # 3) Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
+        # 3) Manual rendering via PIL (ברירת מחדל) עם DPR=3 לשיפור חדות
         logger.info("Using PIL fallback for rendering (Playwright=%s, WeasyPrint=%s)", self._has_playwright, self._has_weasyprint)
-        scale = 2
+        scale = 3
         s = scale
         # מידות בסקייל גבוה
         w2 = int(image_width * s)
