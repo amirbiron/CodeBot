@@ -1,12 +1,14 @@
 """
-שירות ליצירת תמונות קוד עם היילייטינג (Playwright → WeasyPrint → PIL)
+שירות ליצירת תמונות קוד עם היילייטינג (Playwright → WeasyPrint → PIL).
+
 Code Image Generator Service
 
 מסלול מועדף:
-1) Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה (DPR=2)
-   הערה: Playwright רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent monkey patching.
-2) WeasyPrint (אם מותקן) – רינדור HTML איכותי
-3) PIL fallback – ציור ידני (קיים כיום), עם סקייל x2 לשיפור חדות
+
+- Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה.
+  Playwright רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent monkey patching.
+- WeasyPrint (אם מותקן) – רינדור HTML איכותי.
+- PIL fallback – ציור ידני עם סקייל x3 לשיפור חדות.
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from bs4 import BeautifulSoup
 from typing import Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
@@ -183,11 +184,35 @@ class CodeImageGenerator:
         self._logo_cache: Optional[Image.Image] = None
 
         # Playwright (מועדף) – רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent
+        self._has_playwright = False
         try:  # pragma: no cover - תלות אופציונלית
             import playwright  # noqa: F401
-            self._has_playwright = True
-        except Exception:
-            self._has_playwright = False
+            # בדיקה שדפדפן Chromium באמת מותקן (לא רק החבילה)
+            pw_browsers_path = Path(playwright.__file__).parent / 'driver' / 'package' / '.local-browsers'
+            if not pw_browsers_path.is_dir():
+                # Fallback: בדיקה דרך env var או נתיב ברירת מחדל לפי מערכת הפעלה
+                import os, platform
+                env_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
+                if env_path:
+                    check_path = Path(env_path)
+                elif platform.system() == 'Darwin':
+                    check_path = Path.home() / 'Library' / 'Caches' / 'ms-playwright'
+                elif platform.system() == 'Windows':
+                    check_path = Path(os.environ.get('USERPROFILE', '~')) / 'AppData' / 'Local' / 'ms-playwright'
+                else:
+                    check_path = Path.home() / '.cache' / 'ms-playwright'
+                has_browsers = check_path.is_dir() and any(check_path.iterdir())
+            else:
+                has_browsers = any(pw_browsers_path.iterdir())
+            if has_browsers:
+                self._has_playwright = True
+                logger.info("Playwright available with browser binaries")
+            else:
+                logger.warning("Playwright package installed but no browser binaries found – run 'playwright install chromium'")
+        except ImportError:
+            logger.debug("Playwright not installed")
+        except Exception as exc:
+            logger.warning("Playwright check failed: %s", exc)
 
         # WeasyPrint (fallback) – אופציונלי
         try:  # pragma: no cover - תלות אופציונלית
@@ -337,33 +362,40 @@ class CodeImageGenerator:
     def _html_to_text_colors(self, html_str: str) -> List[Tuple[str, str]]:
         """Extract (text,color) segments from a single highlighted HTML line, preserving whitespace.
         We intentionally do not strip() so that leading spaces/tabs remain intact.
+
+        Note: We work directly on the raw HTML string instead of passing it through
+        BeautifulSoup, because the html.parser collapses leading whitespace (e.g.
+        4 spaces become 1), which destroys code indentation in the PIL fallback.
         """
-        # Remove style/script safely
-        soup = BeautifulSoup(html_str, "html.parser")
-        for tag in soup(["style", "script"]):
-            tag.decompose()
-        s = str(soup)
+        import html as _html_mod
+
+        # הסרת תגיות style/script עם תוכנן (ללא BeautifulSoup כדי לשמור על רווחים)
+        s = re.sub(r'<(style|script)\b[^>]*>.*?</\1>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
         text_colors: List[Tuple[str, str]] = []
-        pattern = r'<span[^>]*style=\"[^\"]*color:\s*([^;\"\s]+)[^\\\"]*\"[^>]*>(.*?)</span>'
+        pattern = r'<span[^>]*style="[^"]*color:\s*([^;"\s]+)[^"]*"[^>]*>(.*?)</span>'
         last = 0
         for m in re.finditer(pattern, s, flags=re.DOTALL):
             before = s[last:m.start()]
             if before:
                 clean = re.sub(r'<[^>]+>', '', before)
+                clean = _html_mod.unescape(clean)
                 if clean != "":
                     text_colors.append((clean, self.colors['text']))
             color = m.group(1).strip()
             inner = re.sub(r'<[^>]+>', '', m.group(2))
+            inner = _html_mod.unescape(inner)
             if inner != "":
                 text_colors.append((inner, color))
             last = m.end()
         tail = s[last:]
         if tail:
             clean = re.sub(r'<[^>]+>', '', tail)
+            clean = _html_mod.unescape(clean)
             if clean != "":
                 text_colors.append((clean, self.colors['text']))
         if not text_colors:
             clean_all = re.sub(r'<[^>]+>', '', s)
+            clean_all = _html_mod.unescape(clean_all)
             if clean_all != "":
                 text_colors.append((clean_all, self.colors['text']))
         return text_colors
@@ -586,6 +618,7 @@ class CodeImageGenerator:
         subprocess_script = '''
 import sys
 import base64
+import traceback
 from playwright.sync_api import sync_playwright
 
 def render(html_content, width, height):
@@ -606,10 +639,13 @@ def render(html_content, width, height):
 
 if __name__ == '__main__':
     import json
-    data = json.loads(sys.stdin.read())
-    png_bytes = render(data['html'], data['width'], data['height'])
-    # Output as base64 to avoid encoding issues
-    sys.stdout.write(base64.b64encode(png_bytes).decode('ascii'))
+    try:
+        data = json.loads(sys.stdin.read())
+        png_bytes = render(data['html'], data['width'], data['height'])
+        sys.stdout.write(base64.b64encode(png_bytes).decode('ascii'))
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
 '''
 
         # Prepare input data
@@ -787,7 +823,8 @@ if __name__ == '__main__':
                 img = self.optimize_image_size(img)
                 return self.save_optimized_png(img)
             except Exception as e:
-                logger.warning("Playwright render failed, falling back. Error: %s (type: %s)", e, type(e).__name__)
+                logger.warning("Playwright render failed, falling back to PIL. Error: %s (type: %s). "
+                               "If browsers are missing run: python -m playwright install chromium", e, type(e).__name__)
 
         # 2) WeasyPrint (fallback)
         if self._has_weasyprint:
@@ -801,9 +838,9 @@ if __name__ == '__main__':
             except Exception as e:
                 logger.warning("WeasyPrint render failed, falling back to PIL. Error: %s (type: %s)", e, type(e).__name__)
 
-        # 3) Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
+        # 3) Manual rendering via PIL (ברירת מחדל) עם DPR=3 לשיפור חדות
         logger.info("Using PIL fallback for rendering (Playwright=%s, WeasyPrint=%s)", self._has_playwright, self._has_weasyprint)
-        scale = 2
+        scale = 3
         s = scale
         # מידות בסקייל גבוה
         w2 = int(image_width * s)
