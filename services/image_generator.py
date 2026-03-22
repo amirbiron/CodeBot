@@ -627,7 +627,7 @@ def render(html_content, width, height):
         try:
             page = browser.new_page(
                 viewport={'width': width, 'height': height},
-                device_scale_factor=3,
+                device_scale_factor=2,
             )
             page.set_content(html_content, wait_until='load')
             page.wait_for_timeout(300)
