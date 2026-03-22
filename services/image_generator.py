@@ -187,13 +187,21 @@ class CodeImageGenerator:
         try:  # pragma: no cover - תלות אופציונלית
             import playwright  # noqa: F401
             # בדיקה שדפדפן Chromium באמת מותקן (לא רק החבילה)
-            from playwright._impl._driver import compute_driver_executable  # type: ignore
-            driver_exec = compute_driver_executable()
-            if Path(driver_exec).exists():
-                self._has_playwright = True
-                logger.info("Playwright available: driver found at %s", driver_exec)
+            pw_browsers_path = Path(playwright.__file__).parent / 'driver' / 'package' / '.local-browsers'
+            if not pw_browsers_path.is_dir():
+                # Fallback: בדיקה דרך env var או נתיב ברירת מחדל של Playwright
+                import os
+                env_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
+                default_path = Path.home() / '.cache' / 'ms-playwright'
+                check_path = Path(env_path) if env_path else default_path
+                has_browsers = check_path.is_dir() and any(check_path.iterdir())
             else:
-                logger.warning("Playwright package installed but driver not found at %s – run 'playwright install chromium'", driver_exec)
+                has_browsers = any(pw_browsers_path.iterdir())
+            if has_browsers:
+                self._has_playwright = True
+                logger.info("Playwright available with browser binaries")
+            else:
+                logger.warning("Playwright package installed but no browser binaries found – run 'playwright install chromium'")
         except ImportError:
             logger.debug("Playwright not installed")
         except Exception as exc:
@@ -354,7 +362,8 @@ class CodeImageGenerator:
         """
         import html as _html_mod
 
-        s = html_str
+        # הסרת תגיות style/script עם תוכנן (ללא BeautifulSoup כדי לשמור על רווחים)
+        s = re.sub(r'<(style|script)\b[^>]*>.*?</\1>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
         text_colors: List[Tuple[str, str]] = []
         pattern = r'<span[^>]*style="[^"]*color:\s*([^;"\s]+)[^"]*"[^>]*>(.*?)</span>'
         last = 0
