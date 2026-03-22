@@ -19,7 +19,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from bs4 import BeautifulSoup
 from typing import Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
@@ -189,11 +188,17 @@ class CodeImageGenerator:
             # בדיקה שדפדפן Chromium באמת מותקן (לא רק החבילה)
             pw_browsers_path = Path(playwright.__file__).parent / 'driver' / 'package' / '.local-browsers'
             if not pw_browsers_path.is_dir():
-                # Fallback: בדיקה דרך env var או נתיב ברירת מחדל של Playwright
-                import os
+                # Fallback: בדיקה דרך env var או נתיב ברירת מחדל לפי מערכת הפעלה
+                import os, platform
                 env_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
-                default_path = Path.home() / '.cache' / 'ms-playwright'
-                check_path = Path(env_path) if env_path else default_path
+                if env_path:
+                    check_path = Path(env_path)
+                elif platform.system() == 'Darwin':
+                    check_path = Path.home() / 'Library' / 'Caches' / 'ms-playwright'
+                elif platform.system() == 'Windows':
+                    check_path = Path(os.environ.get('USERPROFILE', '~')) / 'AppData' / 'Local' / 'ms-playwright'
+                else:
+                    check_path = Path.home() / '.cache' / 'ms-playwright'
                 has_browsers = check_path.is_dir() and any(check_path.iterdir())
             else:
                 has_browsers = any(pw_browsers_path.iterdir())
