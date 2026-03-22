@@ -1,12 +1,14 @@
 """
-שירות ליצירת תמונות קוד עם היילייטינג (Playwright → WeasyPrint → PIL)
+שירות ליצירת תמונות קוד עם היילייטינג (Playwright → WeasyPrint → PIL).
+
 Code Image Generator Service
 
 מסלול מועדף:
-1) Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה (DPR=2)
-   הערה: Playwright רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent monkey patching.
-2) WeasyPrint (אם מותקן) – רינדור HTML איכותי
-3) PIL fallback – ציור ידני (קיים כיום), עם סקייל x2 לשיפור חדות
+
+- Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה.
+  Playwright רץ ב-subprocess נפרד כדי להימנע מקונפליקט עם gevent monkey patching.
+- WeasyPrint (אם מותקן) – רינדור HTML איכותי.
+- PIL fallback – ציור ידני עם סקייל x3 לשיפור חדות.
 """
 
 from __future__ import annotations
