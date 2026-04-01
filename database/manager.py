@@ -1149,8 +1149,14 @@ class DatabaseManager:
                 self.db_name = ""
 
             # Retry with exponential backoff for transient network / Atlas issues
-            max_retries = max(int(os.getenv("MONGODB_CONNECT_MAX_RETRIES", "4")), 1)
-            retry_base_delay = float(os.getenv("MONGODB_CONNECT_RETRY_BASE_DELAY", "2"))
+            try:
+                max_retries = max(int(os.getenv("MONGODB_CONNECT_MAX_RETRIES", "4")), 1)
+            except (ValueError, TypeError):
+                max_retries = 4
+            try:
+                retry_base_delay = float(os.getenv("MONGODB_CONNECT_RETRY_BASE_DELAY", "2"))
+            except (ValueError, TypeError):
+                retry_base_delay = 2.0
 
             last_err: Optional[Exception] = None
             for attempt in range(1, max_retries + 1):
@@ -1184,6 +1190,12 @@ class DatabaseManager:
                     break
                 except Exception as conn_err:
                     last_err = conn_err
+                    # Close stale client to avoid orphaned threads
+                    try:
+                        if self.client is not None:
+                            self.client.close()
+                    except Exception:
+                        pass
                     if attempt < max_retries:
                         delay = retry_base_delay * (2 ** (attempt - 1))
                         emit_event(
@@ -1195,12 +1207,6 @@ class DatabaseManager:
                             error=str(conn_err),
                         )
                         time.sleep(delay)
-                        # Close stale client before retry
-                        try:
-                            if self.client is not None:
-                                self.client.close()
-                        except Exception:
-                            pass
 
             if last_err is not None:
                 raise last_err
