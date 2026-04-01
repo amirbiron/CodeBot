@@ -1571,18 +1571,6 @@ class _MongoLockHeartbeat:
 
     def _tick_once(self) -> None:
         """ריצת heartbeat אחת (מופרדת לטסטים)."""
-        # Skip ownership verification when DB is in NoOp/degraded mode —
-        # NoOpCollection.update_one always returns matched_count=1 but
-        # there is no real lock document. Extending the local lease keeps
-        # the single instance alive until the DB reconnects.
-        try:
-            if not db.is_connected:
-                self._local_expires_at = _utcnow() + timedelta(seconds=self._lease_seconds)
-                self._last_ok_monotonic = time.monotonic()
-                return
-        except Exception:
-            pass
-
         now = _utcnow()
         # מחשבים יעד חדש, אבל לא "מאריכים" מקומית לפני שהעדכון הצליח בפועל ב-MongoDB.
         # אחרת: תקלה רגעית (timeout/failover) יכולה לגרום לנו לחשוב שיש לנו lease,
@@ -4932,6 +4920,20 @@ def main() -> None:
         # נשתמש באינסטנס קיים אם כבר נוצר (למשל ע"י טסט), אחרת ניצור חדש
         bot = CURRENT_BOT or CodeKeeperBot()
         
+        # If DB is in NoOp/degraded mode, wait for background reconnect
+        # before starting Telegram polling. This prevents multiple instances
+        # from polling concurrently (NoOp lock is non-authoritative).
+        _db_wait_max = int(os.getenv("DB_RECONNECT_WAIT_BEFORE_POLL", "120"))
+        _db_waited = 0
+        while not getattr(db, 'is_connected', True) and _db_waited < _db_wait_max:
+            if _db_waited == 0:
+                logger.warning("DB not connected; waiting for background reconnect before polling...")
+            time.sleep(5)
+            _db_waited += 5
+        if not getattr(db, 'is_connected', True):
+            logger.critical("DB still unreachable after %ds; exiting to prevent unsafe polling.", _db_wait_max)
+            raise SystemExit(1)
+
         logger.info("Bot is starting to poll...")
         # Cache warming: הפעלת עבודה רקע קצרה לאתחול קאש עבור משתמשים/תפריטים נפוצים
         try:
