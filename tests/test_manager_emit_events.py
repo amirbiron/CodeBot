@@ -55,10 +55,16 @@ def test_manager_connect_error_emits(monkeypatch):
     monkeypatch.delenv("DISABLE_DB", raising=False)
     monkeypatch.setattr(mgr_mod, "_PYMONGO_AVAILABLE", True, raising=False)
 
-    # DatabaseManager.__init__ calls connect() internally; wrap instantiation
-    try:
-        mgr = mgr_mod.DatabaseManager()
-    except Exception:
-        pass
+    # Force single retry to speed up the test
+    monkeypatch.setenv("MONGODB_CONNECT_MAX_RETRIES", "1")
 
-    assert any(e[0] == "db_connection_failed" for e in captured["events"])  # event emitted
+    # DatabaseManager.__init__ calls connect() internally.
+    # With graceful degradation it no longer raises — it falls back to NoOp.
+    mgr = mgr_mod.DatabaseManager()
+
+    # Cancel any background reconnect timer so it doesn't leak into other tests
+    if hasattr(mgr, '_reconnect_timer') and mgr._reconnect_timer is not None:
+        mgr._reconnect_timer.cancel()
+
+    # Graceful degradation emits db_connection_fallback_noop instead of raising
+    assert any(e[0] == "db_connection_fallback_noop" for e in captured["events"])
