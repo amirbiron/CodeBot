@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from types import SimpleNamespace
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, Protocol
@@ -1103,7 +1104,7 @@ class DatabaseManager:
                 minPoolSize=getattr(config, "MONGODB_MIN_POOL_SIZE", 5),
                 maxIdleTimeMS=getattr(config, "MONGODB_MAX_IDLE_TIME_MS", 30_000),
                 waitQueueTimeoutMS=getattr(config, "MONGODB_WAIT_QUEUE_TIMEOUT_MS", 5_000),
-                serverSelectionTimeoutMS=getattr(config, "MONGODB_SERVER_SELECTION_TIMEOUT_MS", 3_000),
+                serverSelectionTimeoutMS=getattr(config, "MONGODB_SERVER_SELECTION_TIMEOUT_MS", 5_000),
                 socketTimeoutMS=getattr(config, "MONGODB_SOCKET_TIMEOUT_MS", 20_000),
                 connectTimeoutMS=getattr(config, "MONGODB_CONNECT_TIMEOUT_MS", 10_000),
                 retryWrites=getattr(config, "MONGODB_RETRY_WRITES", True),
@@ -1147,31 +1148,69 @@ class DatabaseManager:
             except Exception:
                 self.db_name = ""
 
-            self.client = MongoClient(
-                mongo_url,
-                **kwargs,
-            )
-            self.db = self.client[database_name]
-            self.collection = self.db.code_snippets
-            self.large_files_collection = self.db.large_files
-            self.backup_ratings_collection = self.db.backup_ratings
-            self.internal_shares_collection = self.db.internal_shares
-            # Shared Themes public catalog
+            # Retry with exponential backoff for transient network / Atlas issues
             try:
-                self.shared_themes_collection = self.db.shared_themes
-            except Exception:
-                self.shared_themes_collection = None
-            # Community Library public catalog
+                max_retries = max(int(os.getenv("MONGODB_CONNECT_MAX_RETRIES", "4")), 1)
+            except (ValueError, TypeError):
+                max_retries = 4
             try:
-                self.community_library_collection = self.db.community_library_items
-            except Exception:
-                self.community_library_collection = None
-            # Snippets library collection
-            try:
-                self.snippets_collection = self.db.snippets
-            except Exception:
-                self.snippets_collection = None
-            self.client.admin.command('ping')
+                retry_base_delay = float(os.getenv("MONGODB_CONNECT_RETRY_BASE_DELAY", "2"))
+            except (ValueError, TypeError):
+                retry_base_delay = 2.0
+
+            last_err: Optional[Exception] = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    self.client = MongoClient(
+                        mongo_url,
+                        **kwargs,
+                    )
+                    self.db = self.client[database_name]
+                    self.collection = self.db.code_snippets
+                    self.large_files_collection = self.db.large_files
+                    self.backup_ratings_collection = self.db.backup_ratings
+                    self.internal_shares_collection = self.db.internal_shares
+                    # Shared Themes public catalog
+                    try:
+                        self.shared_themes_collection = self.db.shared_themes
+                    except Exception:
+                        self.shared_themes_collection = None
+                    # Community Library public catalog
+                    try:
+                        self.community_library_collection = self.db.community_library_items
+                    except Exception:
+                        self.community_library_collection = None
+                    # Snippets library collection
+                    try:
+                        self.snippets_collection = self.db.snippets
+                    except Exception:
+                        self.snippets_collection = None
+                    self.client.admin.command('ping')
+                    last_err = None
+                    break
+                except Exception as conn_err:
+                    last_err = conn_err
+                    # Close stale client to avoid orphaned threads
+                    try:
+                        if self.client is not None:
+                            self.client.close()
+                    except Exception:
+                        pass
+                    if attempt < max_retries:
+                        delay = retry_base_delay * (2 ** (attempt - 1))
+                        emit_event(
+                            "db_connection_retry",
+                            severity="warn",
+                            attempt=attempt,
+                            max_retries=max_retries,
+                            delay=delay,
+                            error=str(conn_err),
+                        )
+                        time.sleep(delay)
+
+            if last_err is not None:
+                raise last_err
+
             # יצירת אינדקסים קריטיים (בנייה ברקע) לשיפור ביצועים ולמניעת COLLSCAN
             self._create_indexes()
             emit_event("db_connected", severity="info")
