@@ -854,10 +854,10 @@ class DatabaseManager:
             self.collection = NoOpCollection()
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
+            self.internal_shares_collection = NoOpCollection()
             self.community_library_collection = NoOpCollection()
             self.snippets_collection = NoOpCollection()
             self.shared_themes_collection = NoOpCollection()
-            emit_event("db_disabled", reason="docs_or_ci_mode")
 
         # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
         if not _PYMONGO_AVAILABLE:
@@ -867,6 +867,7 @@ class DatabaseManager:
 
         if disable_db:
             _init_noop_collections()
+            emit_event("db_disabled", reason="docs_or_ci_mode")
             return
 
         try:
@@ -1251,6 +1252,10 @@ class DatabaseManager:
                 # החיבור הצליח — עדכון כל ה-collections
                 self.client = client
                 self.db = client[database_name]
+                try:
+                    self.db_name = str(database_name or "")
+                except Exception:
+                    self.db_name = ""
                 self.collection = self.db.code_snippets
                 self.large_files_collection = self.db.large_files
                 self.backup_ratings_collection = self.db.backup_ratings
@@ -1287,7 +1292,7 @@ class DatabaseManager:
                 except Exception:
                     pass
                 if _attempt < max_bg_attempts:
-                    next_delay = min(delay * (1.5 ** (_attempt - 1)), 300.0)
+                    next_delay = min(delay * 1.5, 300.0)
                     self._schedule_background_reconnect(
                         kwargs, mongo_url, database_name,
                         delay=next_delay, max_bg_attempts=max_bg_attempts,
