@@ -862,11 +862,17 @@ class DatabaseManager:
         # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
         if not _PYMONGO_AVAILABLE:
             _init_noop_collections()
+            # Intentional disable: mark as "connected" so the app doesn't
+            # try to wait for background reconnect.
+            self._db_connected = True
             emit_event("db_disabled", reason="pymongo_not_available")
             return
 
         if disable_db:
             _init_noop_collections()
+            # Intentional disable: mark as "connected" so the app doesn't
+            # try to wait for background reconnect.
+            self._db_connected = True
             emit_event("db_disabled", reason="docs_or_ci_mode")
             return
 

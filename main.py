@@ -4902,7 +4902,25 @@ def main() -> None:
         # השתמש ב-DatabaseManager הגלובלי (database.db) כדי לא ליצור instance חדש
         from database import db as _db  # type: ignore
         db = _db
-        
+
+        # If DB is in NoOp/degraded mode (e.g. MongoDB unreachable at startup),
+        # wait for background reconnect BEFORE attempting lock acquisition.
+        # This prevents the heartbeat from killing the process in NoOp mode
+        # (NoOpCollection.update_one has no matched_count → heartbeat triggers exit).
+        # Skip the wait if DB is intentionally disabled (DISABLE_DB / docs / CI).
+        _db_intentionally_disabled = str(os.getenv("DISABLE_DB", "")).lower() in {"1", "true", "yes"}
+        if not _db_intentionally_disabled and not getattr(db, 'is_connected', True):
+            _db_wait_max = int(os.getenv("DB_RECONNECT_WAIT_BEFORE_POLL", "120"))
+            _db_waited = 0
+            logger.warning("DB not connected at startup; waiting up to %ds for background reconnect...", _db_wait_max)
+            while not getattr(db, 'is_connected', True) and _db_waited < _db_wait_max:
+                time.sleep(5)
+                _db_waited += 5
+            if not getattr(db, 'is_connected', True):
+                logger.critical("DB still unreachable after %ds; exiting to prevent unsafe operation.", _db_wait_max)
+                raise SystemExit(1)
+            logger.info("DB reconnected after %ds wait; proceeding with lock acquisition.", _db_waited)
+
         # MongoDB connection and lock management
         if not manage_mongo_lock():
             logger.warning("Another bot instance is already running. Exiting gracefully.")
