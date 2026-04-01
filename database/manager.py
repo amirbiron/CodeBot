@@ -1149,7 +1149,7 @@ class DatabaseManager:
                 self.db_name = ""
 
             # Retry with exponential backoff for transient network / Atlas issues
-            max_retries = int(os.getenv("MONGODB_CONNECT_MAX_RETRIES", "4"))
+            max_retries = max(int(os.getenv("MONGODB_CONNECT_MAX_RETRIES", "4")), 1)
             retry_base_delay = float(os.getenv("MONGODB_CONNECT_RETRY_BASE_DELAY", "2"))
 
             last_err: Optional[Exception] = None
