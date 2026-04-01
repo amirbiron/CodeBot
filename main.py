@@ -1571,6 +1571,18 @@ class _MongoLockHeartbeat:
 
     def _tick_once(self) -> None:
         """ריצת heartbeat אחת (מופרדת לטסטים)."""
+        # Skip ownership verification when DB is in NoOp/degraded mode —
+        # NoOpCollection.update_one always returns matched_count=1 but
+        # there is no real lock document. Extending the local lease keeps
+        # the single instance alive until the DB reconnects.
+        try:
+            if not db.is_connected:
+                self._local_expires_at = _utcnow() + timedelta(seconds=self._lease_seconds)
+                self._last_ok_monotonic = time.monotonic()
+                return
+        except Exception:
+            pass
+
         now = _utcnow()
         # מחשבים יעד חדש, אבל לא "מאריכים" מקומית לפני שהעדכון הצליח בפועל ב-MongoDB.
         # אחרת: תקלה רגעית (timeout/failover) יכולה לגרום לנו לחשוב שיש לנו lease,

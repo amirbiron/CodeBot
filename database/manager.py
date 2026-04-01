@@ -803,7 +803,7 @@ class DatabaseManager:
                 def insert_one(self, *args, **kwargs):
                     return SimpleNamespace(inserted_id=None)
                 def update_one(self, *args, **kwargs):
-                    return SimpleNamespace(acknowledged=True, modified_count=0)
+                    return SimpleNamespace(acknowledged=True, matched_count=1, modified_count=0)
                 def update_many(self, *args, **kwargs):
                     return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
                 def delete_one(self, *args, **kwargs):
