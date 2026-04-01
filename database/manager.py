@@ -1283,15 +1283,14 @@ class DatabaseManager:
                     error=str(e),
                 )
                 try:
-                    if self.client is not None and not self._db_connected:
-                        client.close()
+                    client.close()
                 except Exception:
                     pass
                 if _attempt < max_bg_attempts:
                     next_delay = min(delay * (1.5 ** (_attempt - 1)), 300.0)
                     self._schedule_background_reconnect(
                         kwargs, mongo_url, database_name,
-                        delay=delay, max_bg_attempts=max_bg_attempts,
+                        delay=next_delay, max_bg_attempts=max_bg_attempts,
                         _attempt=_attempt + 1,
                     )
 
