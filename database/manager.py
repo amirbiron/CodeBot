@@ -1905,6 +1905,11 @@ class DatabaseManager:
             pass
 
     def close(self):
+        # Cancel any pending background reconnect timer
+        timer = getattr(self, '_reconnect_timer', None)
+        if timer is not None:
+            timer.cancel()
+            self._reconnect_timer = None
         if self.client:
             self.client.close()
 
