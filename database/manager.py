@@ -1912,6 +1912,7 @@ class DatabaseManager:
             self._reconnect_timer = None
         if self.client:
             self.client.close()
+        self._db_connected = False
 
     def close_connection(self):
         self.close()
