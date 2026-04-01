@@ -1249,29 +1249,25 @@ class DatabaseManager:
             try:
                 client = MongoClient(mongo_url, **kwargs)
                 client.admin.command('ping')
-                # החיבור הצליח — עדכון כל ה-collections
+                # Build all new state into locals first — if anything fails,
+                # self stays in NoOp mode (no partial/corrupted state).
+                db = client[database_name]
+                new_db_name = str(database_name or "")
+                new_collections = {
+                    "collection": db.code_snippets,
+                    "large_files_collection": db.large_files,
+                    "backup_ratings_collection": db.backup_ratings,
+                    "internal_shares_collection": db.internal_shares,
+                    "shared_themes_collection": db.shared_themes,
+                    "community_library_collection": db.community_library_items,
+                    "snippets_collection": db.snippets,
+                }
+                # Swap onto self atomically (as atomic as Python allows).
                 self.client = client
-                self.db = client[database_name]
-                try:
-                    self.db_name = str(database_name or "")
-                except Exception:
-                    self.db_name = ""
-                self.collection = self.db.code_snippets
-                self.large_files_collection = self.db.large_files
-                self.backup_ratings_collection = self.db.backup_ratings
-                self.internal_shares_collection = self.db.internal_shares
-                try:
-                    self.shared_themes_collection = self.db.shared_themes
-                except Exception:
-                    pass
-                try:
-                    self.community_library_collection = self.db.community_library_items
-                except Exception:
-                    pass
-                try:
-                    self.snippets_collection = self.db.snippets
-                except Exception:
-                    pass
+                self.db = db
+                self.db_name = new_db_name
+                for attr, col in new_collections.items():
+                    setattr(self, attr, col)
                 self._db_connected = True
                 self._repo = None  # Reset so it re-creates with live DB
                 try:
