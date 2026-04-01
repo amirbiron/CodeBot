@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import threading
 import time
 from types import SimpleNamespace
 from datetime import datetime, timezone
@@ -781,6 +782,8 @@ class DatabaseManager:
         self.snippets_collection = _StubCollection()
         self.shared_themes_collection = _StubCollection()
         self._repo = None
+        self._db_connected = False
+        self._reconnect_timer: Optional[threading.Timer] = None
         self.connect()
 
     @classmethod
@@ -1213,14 +1216,95 @@ class DatabaseManager:
 
             # יצירת אינדקסים קריטיים (בנייה ברקע) לשיפור ביצועים ולמניעת COLLSCAN
             self._create_indexes()
+            self._db_connected = True
             emit_event("db_connected", severity="info")
         except Exception as e:
-            if disable_db:
-                _init_noop_collections()
-                emit_event("db_connection_fallback_noop", severity="warn", error=str(e))
-                return
-            emit_event("db_connection_failed", severity="error", error=str(e))
-            raise
+            # Graceful degradation: fall back to NoOp so the app can start,
+            # then attempt to reconnect in the background.
+            _init_noop_collections()
+            self._db_connected = False
+            emit_event(
+                "db_connection_fallback_noop",
+                severity="error",
+                error=str(e),
+                will_retry_in_background=True,
+            )
+            self._schedule_background_reconnect(kwargs if 'kwargs' in dir() else {}, mongo_url if 'mongo_url' in dir() else None, database_name if 'database_name' in dir() else None)
+
+    def _schedule_background_reconnect(
+        self,
+        kwargs: Dict[str, Any],
+        mongo_url: Optional[str],
+        database_name: Optional[str],
+        delay: float = 30.0,
+        max_bg_attempts: int = 10,
+        _attempt: int = 1,
+    ) -> None:
+        """רץ ברקע ומנסה להתחבר מחדש ל-MongoDB בלי לחסום את האפליקציה."""
+        if not mongo_url or not database_name:
+            return
+
+        def _try_reconnect():
+            try:
+                client = MongoClient(mongo_url, **kwargs)
+                client.admin.command('ping')
+                # החיבור הצליח — עדכון כל ה-collections
+                self.client = client
+                self.db = client[database_name]
+                self.collection = self.db.code_snippets
+                self.large_files_collection = self.db.large_files
+                self.backup_ratings_collection = self.db.backup_ratings
+                self.internal_shares_collection = self.db.internal_shares
+                try:
+                    self.shared_themes_collection = self.db.shared_themes
+                except Exception:
+                    pass
+                try:
+                    self.community_library_collection = self.db.community_library_items
+                except Exception:
+                    pass
+                try:
+                    self.snippets_collection = self.db.snippets
+                except Exception:
+                    pass
+                self._db_connected = True
+                self._repo = None  # Reset so it re-creates with live DB
+                try:
+                    self._create_indexes()
+                except Exception:
+                    pass
+                emit_event("db_reconnected_background", severity="info", attempt=_attempt)
+            except Exception as e:
+                emit_event(
+                    "db_background_reconnect_failed",
+                    severity="warn",
+                    attempt=_attempt,
+                    max_attempts=max_bg_attempts,
+                    error=str(e),
+                )
+                try:
+                    if self.client is not None and not self._db_connected:
+                        client.close()
+                except Exception:
+                    pass
+                if _attempt < max_bg_attempts:
+                    next_delay = min(delay * (1.5 ** (_attempt - 1)), 300.0)
+                    self._schedule_background_reconnect(
+                        kwargs, mongo_url, database_name,
+                        delay=delay, max_bg_attempts=max_bg_attempts,
+                        _attempt=_attempt + 1,
+                    )
+
+        timer = threading.Timer(delay, _try_reconnect)
+        timer.daemon = True
+        timer.name = f"mongodb-reconnect-{_attempt}"
+        self._reconnect_timer = timer
+        timer.start()
+
+    @property
+    def is_connected(self) -> bool:
+        """האם יש חיבור חי ל-MongoDB (לא NoOp)."""
+        return self._db_connected
 
     # --- Lazy repository accessor to avoid circular imports ---
     def _get_repo(self):
