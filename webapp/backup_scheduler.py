@@ -300,19 +300,21 @@ def _reset_disk_schedule(db, claimed: dict):
 
 
 def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:
-    """מחלץ את ה-schedule key מתוך drive_prefs (תואם לפורמטים שונים)."""
+    """מחלץ את ה-schedule key מתוך drive_prefs (תואם לפורמטים שונים).
+
+    משתמש בפונקציה המשותפת מ-handlers/drive/utils.py כדי להבטיח
+    עקביות בסדר שדות וכיסוי פורמטים (camelCase, name, וכו').
+    """
     # אם המשתמש כיבה מפורשות — לא ליפול לשדות legacy
     if drive_prefs.get("schedule_key") == "off":
         return None
-    for field in ("schedule_key", "schedule"):
-        val = drive_prefs.get(field)
-        if isinstance(val, str) and val in SCHEDULE_INTERVALS:
-            return val
-        if isinstance(val, dict):
-            for inner_field in ("key", "value"):
-                inner = val.get(inner_field)
-                if isinstance(inner, str) and inner in SCHEDULE_INTERVALS:
-                    return inner
+    try:
+        from handlers.drive.utils import extract_schedule_key
+        raw = extract_schedule_key(drive_prefs)
+    except ImportError:
+        raw = None
+    if isinstance(raw, str) and raw in SCHEDULE_INTERVALS:
+        return raw
     return None
 
 
