@@ -94,16 +94,16 @@ def drive_callback():
     state = request.args.get("state", "")
     expected_state = session.pop("drive_oauth_state", "")
     if not state or not expected_state or state != expected_state:
-        return _settings_redirect("drive_error=csrf")
+        return _settings_redirect(f"drive_error={_url_encode('csrf')}")
 
     error = request.args.get("error")
     if error:
         logger.warning("Drive OAuth error: %s", error)
-        return _settings_redirect(f"drive_error={error}")
+        return _settings_redirect(f"drive_error={_url_encode(error)}")
 
     code = request.args.get("code")
     if not code:
-        return _settings_redirect("drive_error=no_code")
+        return _settings_redirect(f"drive_error={_url_encode('no_code')}")
 
     # Exchange code for tokens
     try:
@@ -118,11 +118,11 @@ def drive_callback():
         tokens = resp.json()
     except Exception as e:
         logger.exception("Drive token exchange failed")
-        return _settings_redirect("drive_error=token_exchange")
+        return _settings_redirect(f"drive_error={_url_encode('token_exchange')}")
 
     if "access_token" not in tokens:
         logger.error("No access_token in response: %s", tokens.get("error"))
-        return _settings_redirect("drive_error=no_token")
+        return _settings_redirect(f"drive_error={_url_encode('no_token')}")
 
     # שמירת טוקנים
     user_id = session["user_id"]
@@ -145,7 +145,7 @@ def drive_callback():
             db.save_drive_tokens(int(user_id), token_data)
         except Exception:
             logger.exception("Failed to save Drive tokens")
-            return _settings_redirect("drive_error=save_failed")
+            return _settings_redirect(f"drive_error={_url_encode('save_failed')}")
 
     # Get user email for display
     try:

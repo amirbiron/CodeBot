@@ -47,14 +47,16 @@ _restore_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="restor
 _active_restores: dict = {}  # restore_id -> {status, progress, step, result, user_id, created_at}
 _restores_lock = Lock()
 _RESTORE_MAX_AGE = 3600  # שעה — entries ישנים יותר ינוקו
+_RESTORE_FETCH_GRACE = 300  # 5 דקות grace אחרי שהלקוח קרא תוצאה סופית
 
 
 def _cleanup_stale_restores():
-    """מנקה entries ישנים מעל שעה שלא נקראו (מניעת דליפת זיכרון)."""
+    """מנקה entries ישנים מעל שעה, או שנקראו לפני 5+ דקות (מניעת דליפת זיכרון)."""
     now = time.time()
     with _restores_lock:
         stale = [rid for rid, e in _active_restores.items()
-                 if now - e.get("created_at", 0) > _RESTORE_MAX_AGE]
+                 if (now - e.get("created_at", 0) > _RESTORE_MAX_AGE) or
+                    (e.get("fetched_at") and now - e["fetched_at"] > _RESTORE_FETCH_GRACE)]
         for rid in stale:
             _active_restores.pop(rid, None)
 
@@ -322,9 +324,10 @@ def restore_progress(restore_id):
             "step": entry["step"],
             "result": entry.get("result"),
         }
-        # ניקוי אם סיים — בתוך אותו lock, אחרי שוידאנו בעלות
+        # סימון שנקרא — לא מוחקים מיד, grace period של 5 דקות
+        # כדי שאם ה-response אבד ברשת הלקוח יוכל לקרוא שוב
         if entry["status"] in ("done", "error"):
-            _active_restores.pop(restore_id, None)
+            entry.setdefault("fetched_at", time.time())
 
     resp = {
         "ok": True,
