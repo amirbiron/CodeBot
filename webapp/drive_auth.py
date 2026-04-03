@@ -157,7 +157,11 @@ def drive_callback():
         email = user_info.get("email", "")
         if email:
             try:
-                db.save_drive_prefs(int(user_id), {"drive_email": email})
+                # $set ישיר — לא save_drive_prefs שעושה read-modify-write ויכול לדרוס sentinel
+                db.db.users.update_one(
+                    {"user_id": int(user_id)},
+                    {"$set": {"drive_prefs.drive_email": email}},
+                )
             except Exception:
                 pass
     except Exception:
