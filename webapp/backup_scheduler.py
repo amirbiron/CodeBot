@@ -88,7 +88,7 @@ def _perform_disk_backup(user_id: int) -> bool:
         backup_dir = Path(DISK_BACKUP_DIR)
         backup_dir.mkdir(parents=True, exist_ok=True)
 
-        ts = _now_utc().strftime("%Y%m%d_%H%M%S")
+        ts = _now_utc().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"webapp_backup_{user_id}_{ts}.zip"
         filepath = backup_dir / filename
         filepath.write_bytes(zip_bytes)

@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import wraps
 
+from pymongo.errors import DuplicateKeyError
+
 from flask import Blueprint, jsonify, request, send_file, session
 
 logger = logging.getLogger(__name__)
@@ -46,15 +48,22 @@ _RESTORE_TTL_SECONDS = 3600  # MongoDB TTL — ניקוי אוטומטי אחר�
 
 
 def _ensure_restore_indexes():
-    """יוצר TTL index על restore_jobs (idempotent)."""
+    """יוצר TTL index + unique partial index על restore_jobs (idempotent)."""
     try:
         db = _get_db()
         db.db.restore_jobs.create_index(
             "created_at", expireAfterSeconds=_RESTORE_TTL_SECONDS,
             name="restore_jobs_ttl",
         )
+        # Unique partial index — מונע שני restore-ים במקביל לאותו משתמש
+        db.db.restore_jobs.create_index(
+            "user_id",
+            unique=True,
+            partialFilterExpression={"status": "running"},
+            name="restore_jobs_one_running_per_user",
+        )
     except Exception:
-        logger.debug("restore_jobs TTL index already exists or DB unavailable")
+        logger.debug("restore_jobs indexes already exist or DB unavailable")
 
 
 def _create_restore_job(restore_id: str, user_id) -> None:
@@ -316,21 +325,12 @@ def restore_backup_async():
 
     overwrite = request.form.get("overwrite", "false").lower() in ("true", "1", "yes")
 
-    # בדיקה שאין restore פעיל כבר לאותו משתמש
-    try:
-        db = _get_db()
-        existing = db.db.restore_jobs.find_one(
-            {"user_id": int(user_id), "status": "running"},
-            projection={"_id": 1},
-        )
-        if existing:
-            return jsonify({"ok": False, "error": "שחזור כבר רץ — המתן לסיומו"}), 409
-    except Exception:
-        pass  # best-effort — אם הבדיקה נכשלת, ממשיכים
-
-    # יצירת restore job ב-MongoDB והפעלת ריצה ברקע
+    # יצירת restore job ב-MongoDB — atomic claim דרך unique partial index
     restore_id = uuid.uuid4().hex[:12]
-    _create_restore_job(restore_id, user_id)
+    try:
+        _create_restore_job(restore_id, user_id)
+    except DuplicateKeyError:
+        return jsonify({"ok": False, "error": "שחזור כבר רץ — המתן לסיומו"}), 409
 
     _restore_executor.submit(_run_restore_in_background, restore_id, int(user_id), zip_bytes, overwrite)
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import Blueprint, jsonify, request, session
@@ -95,10 +96,34 @@ def set_drive_schedule():
         return jsonify({"ok": False, "error": "שגיאה בהגדרת תזמון"}), 500
 
 
+def _run_drive_backup_bg(user_id: int):
+    """רץ ב-thread — מבצע גיבוי Drive ומעדכן סטטוס ב-DB."""
+    try:
+        from webapp.backup_scheduler import trigger_drive_backup_now
+        result = trigger_drive_backup_now(user_id)
+        ok = result.get("ok", False) if isinstance(result, dict) else False
+    except Exception:
+        logger.exception("Background Drive backup error for user %s", user_id)
+        ok = False
+
+    # עדכון סטטוס — ה-UI עושה polling דרך backup-status
+    try:
+        db = _get_db()
+        db.db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "drive_prefs.manual_backup_status": "done" if ok else "error",
+                "drive_prefs.manual_backup_finished_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+    except Exception:
+        pass
+
+
 @drive_backup_bp.route("/api/drive/backup-now", methods=["POST"])
 @_require_auth
 def drive_backup_now():
-    """גיבוי מיידי ל-Drive (רץ ב-thread)."""
+    """גיבוי מיידי ל-Drive — רץ ברקע, מחזיר מיד."""
     user_id = session["user_id"]
     db = _get_db()
 
@@ -110,13 +135,17 @@ def drive_backup_now():
     except Exception:
         return jsonify({"ok": False, "error": "שגיאה בבדיקת חיבור"}), 500
 
+    # סימון "running" ב-DB והפעלה ברקע
     try:
-        from webapp.backup_scheduler import trigger_drive_backup_now
-        # רץ ב-thread כדי לא לחסום את הבקשה
-        future = _backup_executor.submit(trigger_drive_backup_now, int(user_id))
-        # מחכים עד 60 שניות
-        result = future.result(timeout=60)
-        return jsonify(result)
+        db.db.users.update_one(
+            {"user_id": int(user_id)},
+            {"$set": {
+                "drive_prefs.manual_backup_status": "running",
+                "drive_prefs.manual_backup_finished_at": None,
+            }},
+        )
+        _backup_executor.submit(_run_drive_backup_bg, int(user_id))
+        return jsonify({"ok": True, "status": "running"})
     except Exception as e:
         logger.exception("Error triggering Drive backup")
         return jsonify({"ok": False, "error": "שגיאה בהפעלת גיבוי"}), 500
@@ -136,6 +165,7 @@ def drive_backup_status():
             "last_backup_at": prefs.get("last_backup_at"),
             "last_full_backup_at": prefs.get("last_full_backup_at"),
             "schedule_next_at": prefs.get("schedule_next_at"),
+            "manual_backup_status": prefs.get("manual_backup_status"),
         })
     except Exception:
         return jsonify({"ok": True, "last_backup_at": None})
