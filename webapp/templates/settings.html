@@ -3428,14 +3428,48 @@ async function driveBackupNow() {
   try {
     const resp = await fetch('/api/drive/backup-now', { method: 'POST' });
     const data = await resp.json();
-    if (msg) {
-      msg.style.display = 'block';
-      if (data.ok) {
-        msg.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי ל-Drive הושלם בהצלחה</span>';
-        loadDriveStatus(); // רענן תאריך גיבוי אחרון
-      } else {
+    if (!data.ok) {
+      if (msg) {
+        msg.style.display = 'block';
         msg.innerHTML = `<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ${_esc(data.error || 'שגיאה')}</span>`;
       }
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
+      return;
+    }
+
+    // Polling עד שהגיבוי יסתיים
+    const maxPolls = 120; // עד 2 דקות
+    for (let i = 0; i < maxPolls; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const statusResp = await fetch('/api/drive/backup-status');
+        const statusData = await statusResp.json();
+        if (statusData.manual_backup_status === 'done') {
+          if (msg) {
+            msg.style.display = 'block';
+            msg.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי ל-Drive הושלם בהצלחה</span>';
+          }
+          loadDriveStatus();
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
+          return;
+        }
+        if (statusData.manual_backup_status === 'error') {
+          if (msg) {
+            msg.style.display = 'block';
+            msg.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> הגיבוי נכשל</span>';
+          }
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
+          return;
+        }
+      } catch (_) { /* ממשיכים polling */ }
+    }
+    // timeout
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML = '<span style="color: #f59e0b"><i class="fas fa-clock"></i> הגיבוי עדיין רץ ברקע</span>';
     }
   } catch (err) {
     if (msg) {
