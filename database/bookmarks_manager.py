@@ -62,6 +62,11 @@ class BookmarksManager:
                 self.collection.drop_index("unique_user_file_anchor")
             except Exception:
                 pass
+            # מחיקת אינדקס ישן שהוחלף בשם חדש
+            try:
+                self.collection.drop_index("user_file_lookup")
+            except Exception:
+                pass
 
             indexes = [
                 # אינדקס ייחודי למניעת כפילויות בשורה
@@ -85,7 +90,7 @@ class BookmarksManager:
                 # אינדקס לחיפוש מהיר לפי משתמש וקובץ
                 IndexModel(
                     [("user_id", ASCENDING), ("file_id", ASCENDING)],
-                    name="user_file_lookup",
+                    name="file_bookmarks_user_file_idx",
                 ),
                 # אינדקס לחיפוש לפי משתמש בלבד
                 IndexModel(

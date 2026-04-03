@@ -2,12 +2,16 @@
 Personal Backup API — ייצוא ושחזור גיבוי אישי.
 
 Endpoints:
-- GET  /api/backup/export   — הורדת ZIP עם כל נתוני המשתמש
-- POST /api/backup/restore  — שחזור נתונים מקובץ ZIP
+- GET  /api/backup/export           — הורדת ZIP עם כל נתוני המשתמש
+- POST /api/backup/restore          — שחזור נתונים מקובץ ZIP (סינכרוני)
+- POST /api/backup/restore-async    — שחזור ברקע עם דיווח התקדמות
+- GET  /api/backup/restore-progress/<id> — מצב התקדמות שחזור
 """
 from __future__ import annotations
 
 import logging
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -36,12 +40,79 @@ except Exception:
 
 backup_bp = Blueprint("backup", __name__)
 
+# --- Async restore state (MongoDB-backed, multi-worker safe) ---
+_restore_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="restore")
+_RESTORE_TTL_SECONDS = 3600  # MongoDB TTL — ניקוי אוטומטי אחרי שעה
+
+
+def _ensure_restore_indexes():
+    """יוצר TTL index על restore_jobs (idempotent)."""
+    try:
+        db = _get_db()
+        db.db.restore_jobs.create_index(
+            "created_at", expireAfterSeconds=_RESTORE_TTL_SECONDS,
+            name="restore_jobs_ttl",
+        )
+    except Exception:
+        logger.debug("restore_jobs TTL index already exists or DB unavailable")
+
+
+def _create_restore_job(restore_id: str, user_id) -> None:
+    db = _get_db()
+    db.db.restore_jobs.insert_one({
+        "_id": restore_id,
+        "user_id": int(user_id),
+        "status": "running",
+        "progress": 0,
+        "step": "מתחיל שחזור...",
+        "result": None,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+
+def _update_restore_progress(restore_id: str, progress: int, step: str) -> None:
+    try:
+        db = _get_db()
+        db.db.restore_jobs.update_one(
+            {"_id": restore_id},
+            {"$set": {"progress": progress, "step": step}},
+        )
+    except Exception:
+        pass  # best-effort — אל תשבור את ה-restore בגלל עדכון progress
+
+
+def _complete_restore_job(restore_id: str, status: str, result, step: str) -> None:
+    try:
+        db = _get_db()
+        update_fields = {
+            "status": status,
+            "result": result,
+            "step": step,
+            "completed_at": datetime.now(timezone.utc),
+        }
+        # בהצלחה: progress = 100. בשגיאה: לא משנים — שומרים על ה-progress שהגיע אליו
+        if status == "done":
+            update_fields["progress"] = 100
+        db.db.restore_jobs.update_one(
+            {"_id": restore_id},
+            {"$set": update_fields},
+        )
+    except Exception:
+        logger.exception("Failed to update restore job %s to status %s", restore_id, status)
+
+
+def _get_restore_job(restore_id: str, user_id):
+    db = _get_db()
+    return db.db.restore_jobs.find_one(
+        {"_id": restore_id, "user_id": int(user_id)},
+    )
+
 # Per-route upload limit (avoid global MAX_CONTENT_LENGTH side effects)
 @backup_bp.before_request
 def _limit_restore_upload_size():
     try:
-        # Limit only the restore endpoint; export is GET anyway.
-        if request.endpoint == "backup.restore_backup":
+        # Limit restore endpoints (both sync and async); export is GET anyway.
+        if request.endpoint in ("backup.restore_backup", "backup.restore_backup_async"):
             request.max_content_length = MAX_UPLOAD_SIZE
     except Exception:
         pass
@@ -178,4 +249,113 @@ def restore_backup():
             error=str(e),
         )
         return jsonify({"ok": False, "error": "שגיאה בשחזור הגיבוי"}), 500
+
+
+# --- Async restore ---
+
+def _run_restore_in_background(restore_id: str, user_id: int, zip_bytes: bytes, overwrite: bool):
+    """רץ ב-thread — מבצע שחזור ומעדכן progress ב-MongoDB."""
+    def _progress(pct: int, step: str):
+        _update_restore_progress(restore_id, pct, step)
+
+    restore_ok = False
+    result = None
+    try:
+        service = _get_backup_service()
+        result = service.restore_user_data(
+            int(user_id), zip_bytes, overwrite=overwrite, progress_cb=_progress,
+        )
+        restore_ok = not (isinstance(result, dict) and result.get("ok") is False)
+    except Exception as e:
+        logger.error(f"שגיאה בשחזור אסינכרוני: {e}")
+        result = {"ok": False, "error": str(e)}
+
+    if restore_ok:
+        _complete_restore_job(restore_id, "done", result, "השחזור הושלם")
+    else:
+        _complete_restore_job(restore_id, "error", result, "שגיאה בשחזור")
+
+
+@backup_bp.route("/api/backup/restore-async", methods=["POST"])
+@_require_auth
+@traced("backup.restore_async")
+def restore_backup_async():
+    """שחזור מגיבוי ZIP — רץ ברקע עם דיווח התקדמות."""
+    user_id = session["user_id"]
+
+    # בדיקת קובץ (אותה לוגיקה כמו restore רגיל)
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "לא נבחר קובץ"}), 400
+
+    uploaded = request.files["file"]
+    if not uploaded.filename:
+        return jsonify({"ok": False, "error": "לא נבחר קובץ"}), 400
+
+    if not uploaded.filename.lower().endswith(".zip"):
+        return jsonify({"ok": False, "error": "יש להעלות קובץ ZIP בלבד"}), 400
+
+    try:
+        content_len = int(request.content_length or 0)
+    except Exception:
+        content_len = 0
+    if content_len and content_len > MAX_UPLOAD_SIZE:
+        return (
+            jsonify({"ok": False, "error": f"הקובץ גדול מדי (מקסימום {MAX_UPLOAD_SIZE // (1024*1024)}MB)"}),
+            413,
+        )
+
+    try:
+        zip_bytes = uploaded.stream.read(MAX_UPLOAD_SIZE + 1)
+    except Exception:
+        zip_bytes = uploaded.read(MAX_UPLOAD_SIZE + 1)
+    if len(zip_bytes) > MAX_UPLOAD_SIZE:
+        return (
+            jsonify({"ok": False, "error": f"הקובץ גדול מדי (מקסימום {MAX_UPLOAD_SIZE // (1024*1024)}MB)"}),
+            413,
+        )
+
+    overwrite = request.form.get("overwrite", "false").lower() in ("true", "1", "yes")
+
+    # בדיקה שאין restore פעיל כבר לאותו משתמש
+    try:
+        db = _get_db()
+        existing = db.db.restore_jobs.find_one(
+            {"user_id": int(user_id), "status": "running"},
+            projection={"_id": 1},
+        )
+        if existing:
+            return jsonify({"ok": False, "error": "שחזור כבר רץ — המתן לסיומו"}), 409
+    except Exception:
+        pass  # best-effort — אם הבדיקה נכשלת, ממשיכים
+
+    # יצירת restore job ב-MongoDB והפעלת ריצה ברקע
+    restore_id = uuid.uuid4().hex[:12]
+    _create_restore_job(restore_id, user_id)
+
+    _restore_executor.submit(_run_restore_in_background, restore_id, int(user_id), zip_bytes, overwrite)
+
+    return jsonify({"ok": True, "restore_id": restore_id})
+
+
+@backup_bp.route("/api/backup/restore-progress/<restore_id>", methods=["GET"])
+@_require_auth
+@traced("backup.restore_progress")
+def restore_progress(restore_id):
+    """מחזיר מצב התקדמות שחזור (מ-MongoDB — multi-worker safe)."""
+    user_id = session["user_id"]
+
+    entry = _get_restore_job(restore_id, user_id)
+    if not entry:
+        return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
+
+    resp = {
+        "ok": True,
+        "status": entry["status"],
+        "progress": entry["progress"],
+        "step": entry["step"],
+    }
+    if entry["status"] in ("done", "error"):
+        resp["result"] = entry.get("result")
+
+    return jsonify(resp)
 
