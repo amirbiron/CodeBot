@@ -49,12 +49,16 @@ _RESTORE_TTL_SECONDS = 3600  # MongoDB TTL — ניקוי אוטומטי אחר�
 
 def _ensure_restore_indexes():
     """יוצר TTL index + unique partial index על restore_jobs (idempotent)."""
+    db = _get_db()
     try:
-        db = _get_db()
         db.db.restore_jobs.create_index(
             "created_at", expireAfterSeconds=_RESTORE_TTL_SECONDS,
             name="restore_jobs_ttl",
         )
+    except Exception:
+        logger.debug("restore_jobs TTL index already exists or DB unavailable")
+
+    try:
         # Unique partial index — מונע שני restore-ים במקביל לאותו משתמש
         db.db.restore_jobs.create_index(
             "user_id",
@@ -63,7 +67,7 @@ def _ensure_restore_indexes():
             name="restore_jobs_one_running_per_user",
         )
     except Exception:
-        logger.debug("restore_jobs indexes already exist or DB unavailable")
+        logger.debug("restore_jobs dedup index already exists or DB unavailable")
 
 
 def _create_restore_job(restore_id: str, user_id) -> None:
