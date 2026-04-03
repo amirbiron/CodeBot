@@ -102,7 +102,11 @@ def _perform_disk_backup(user_id: int) -> bool:
 
 
 def _cleanup_disk_backups(user_id: int, backup_dir: Path):
-    """מנקה גיבויים ישנים לפי retention ו-max per user."""
+    """מנקה גיבויים ישנים לפי retention ו-max per user.
+
+    לוגיקה: ה-N הכי חדשים (עד DISK_BACKUP_MAX_PER_USER) נשמרים תמיד.
+    מעבר ל-max — נמחקים רק אם גם עברו את ה-retention.
+    """
     try:
         pattern = f"webapp_backup_{user_id}_*.zip"
         user_backups = sorted(backup_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -110,16 +114,12 @@ def _cleanup_disk_backups(user_id: int, backup_dir: Path):
         cutoff = _now_utc() - timedelta(days=DISK_BACKUP_RETENTION_DAYS)
         for i, bp in enumerate(user_backups):
             try:
-                should_delete = False
-                # מחיקה לפי max per user
-                if i >= DISK_BACKUP_MAX_PER_USER:
-                    should_delete = True
-                # מחיקה לפי retention
+                # ה-N הכי חדשים נשמרים תמיד
+                if i < DISK_BACKUP_MAX_PER_USER:
+                    continue
+                # מעבר ל-max — מוחקים אם עברו retention
                 mtime = datetime.fromtimestamp(bp.stat().st_mtime, tz=timezone.utc)
                 if mtime < cutoff:
-                    should_delete = True
-
-                if should_delete:
                     bp.unlink()
                     logger.info("Cleaned up old backup: %s", bp.name)
             except Exception:
