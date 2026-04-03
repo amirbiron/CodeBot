@@ -62,8 +62,8 @@ def _cleanup_stale_restores():
 @backup_bp.before_request
 def _limit_restore_upload_size():
     try:
-        # Limit only the restore endpoint; export is GET anyway.
-        if request.endpoint == "backup.restore_backup":
+        # Limit restore endpoints (both sync and async); export is GET anyway.
+        if request.endpoint in ("backup.restore_backup", "backup.restore_backup_async"):
             request.max_content_length = MAX_UPLOAD_SIZE
     except Exception:
         pass
