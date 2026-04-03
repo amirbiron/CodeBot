@@ -225,7 +225,7 @@
   </div>
 
   <div id="drive-not-connected" style="display: none">
-    <button class="btn btn-primary" onclick="window.location.href='/api/drive/auth'" style="width: 100%">
+    <button class="btn btn-primary" onclick="window.location.href='/api/drive/auth'">
       <i class="fab fa-google-drive"></i>
       חבר Google Drive
     </button>
@@ -237,10 +237,10 @@
       <span id="drive-email-display">מחובר ל-Drive</span>
     </div>
 
-    <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start">
-      <div style="flex: 1; min-width: 200px">
+    <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end">
+      <div>
         <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">תדירות גיבוי:</label>
-        <select id="drive-schedule-select" onchange="setDriveSchedule(this.value)" class="btn btn-secondary" style="width: 100%; text-align: center">
+        <select id="drive-schedule-select" onchange="setDriveSchedule(this.value)" class="btn btn-secondary" style="text-align: center">
           <option value="off">כבוי</option>
           <option value="daily">יומי</option>
           <option value="every3">כל 3 ימים</option>
@@ -249,9 +249,8 @@
           <option value="monthly">חודשי</option>
         </select>
       </div>
-      <div style="flex: 1; min-width: 200px">
-        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">&nbsp;</label>
-        <button id="btn-drive-backup-now" class="btn btn-primary" onclick="driveBackupNow()" style="width: 100%">
+      <div>
+        <button id="btn-drive-backup-now" class="btn btn-primary" onclick="driveBackupNow()">
           <i class="fas fa-cloud-upload-alt"></i>
           גבה עכשיו ל-Drive
         </button>
@@ -284,10 +283,10 @@
     גיבוי אוטומטי לדיסק המקומי של השרת. שומר עותקים מקומיים למקרה חירום.
   </p>
 
-  <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start">
-    <div style="flex: 1; min-width: 200px">
+  <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end">
+    <div>
       <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">תדירות גיבוי:</label>
-      <select id="disk-schedule-select" onchange="setDiskSchedule(this.value)" class="btn btn-secondary" style="width: 100%; text-align: center">
+      <select id="disk-schedule-select" onchange="setDiskSchedule(this.value)" class="btn btn-secondary" style="text-align: center">
         <option value="off">כבוי</option>
         <option value="daily">יומי</option>
         <option value="every3">כל 3 ימים</option>
@@ -296,9 +295,8 @@
         <option value="monthly">חודשי</option>
       </select>
     </div>
-    <div style="flex: 1; min-width: 200px">
-      <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">&nbsp;</label>
-      <button id="btn-disk-backup-now" class="btn btn-primary" onclick="diskBackupNow()" style="width: 100%">
+    <div>
+      <button id="btn-disk-backup-now" class="btn btn-primary" onclick="diskBackupNow()">
         <i class="fas fa-hdd"></i>
         גבה עכשיו לדיסק
       </button>
@@ -3430,14 +3428,48 @@ async function driveBackupNow() {
   try {
     const resp = await fetch('/api/drive/backup-now', { method: 'POST' });
     const data = await resp.json();
-    if (msg) {
-      msg.style.display = 'block';
-      if (data.ok) {
-        msg.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי ל-Drive הושלם בהצלחה</span>';
-        loadDriveStatus(); // רענן תאריך גיבוי אחרון
-      } else {
+    if (!data.ok) {
+      if (msg) {
+        msg.style.display = 'block';
         msg.innerHTML = `<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ${_esc(data.error || 'שגיאה')}</span>`;
       }
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
+      return;
+    }
+
+    // Polling עד שהגיבוי יסתיים
+    const maxPolls = 120; // עד 2 דקות
+    for (let i = 0; i < maxPolls; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const statusResp = await fetch('/api/drive/backup-status');
+        const statusData = await statusResp.json();
+        if (statusData.manual_backup_status === 'done') {
+          if (msg) {
+            msg.style.display = 'block';
+            msg.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי ל-Drive הושלם בהצלחה</span>';
+          }
+          loadDriveStatus();
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
+          return;
+        }
+        if (statusData.manual_backup_status === 'error') {
+          if (msg) {
+            msg.style.display = 'block';
+            msg.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> הגיבוי נכשל</span>';
+          }
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
+          return;
+        }
+      } catch (_) { /* ממשיכים polling */ }
+    }
+    // timeout
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML = '<span style="color: #f59e0b"><i class="fas fa-clock"></i> הגיבוי עדיין רץ ברקע</span>';
     }
   } catch (err) {
     if (msg) {
