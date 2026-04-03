@@ -53,7 +53,7 @@ def _get_db():
 
 def _get_redirect_uri():
     """חישוב redirect URI דינמי."""
-    base = os.getenv("WEBAPP_BASE_URL", "").rstrip("/")
+    base = os.getenv("WEBAPP_URL", "").rstrip("/")
     if not base:
         base = request.url_root.rstrip("/")
     return f"{base}/api/drive/callback"
@@ -242,7 +242,7 @@ def _url_encode(val: str) -> str:
 
 def _settings_redirect(query: str) -> str:
     """Redirect back to settings page with query params."""
-    base = os.getenv("WEBAPP_BASE_URL", "").rstrip("/")
+    base = os.getenv("WEBAPP_URL", "").rstrip("/")
     if not base:
         base = request.url_root.rstrip("/")
     return redirect(f"{base}/settings?{query}#backup-section")
