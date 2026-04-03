@@ -10,6 +10,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -43,8 +44,19 @@ backup_bp = Blueprint("backup", __name__)
 
 # --- Async restore state ---
 _restore_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="restore")
-_active_restores: dict = {}  # restore_id -> {status, progress, step, result, user_id}
+_active_restores: dict = {}  # restore_id -> {status, progress, step, result, user_id, created_at}
 _restores_lock = Lock()
+_RESTORE_MAX_AGE = 3600  # שעה — entries ישנים יותר ינוקו
+
+
+def _cleanup_stale_restores():
+    """מנקה entries ישנים מעל שעה שלא נקראו (מניעת דליפת זיכרון)."""
+    now = time.time()
+    with _restores_lock:
+        stale = [rid for rid, e in _active_restores.items()
+                 if now - e.get("created_at", 0) > _RESTORE_MAX_AGE]
+        for rid in stale:
+            _active_restores.pop(rid, None)
 
 # Per-route upload limit (avoid global MAX_CONTENT_LENGTH side effects)
 @backup_bp.before_request
@@ -272,6 +284,7 @@ def restore_backup_async():
             "step": "מתחיל שחזור...",
             "result": None,
             "user_id": user_id,
+            "created_at": time.time(),
         }
 
     _restore_executor.submit(_run_restore_in_background, restore_id, user_id, zip_bytes, overwrite)
@@ -286,27 +299,41 @@ def restore_progress(restore_id):
     """מחזיר מצב התקדמות שחזור."""
     user_id = session["user_id"]
 
+    # ניקוי entries ישנים (best-effort)
+    try:
+        _cleanup_stale_restores()
+    except Exception:
+        pass
+
+    # Snapshot כל השדות בתוך ה-lock כדי למנוע race condition
     with _restores_lock:
         entry = _active_restores.get(restore_id)
+        if not entry:
+            return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
 
-    if not entry:
-        return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
+        snapshot = {
+            "status": entry["status"],
+            "progress": entry["progress"],
+            "step": entry["step"],
+            "result": entry.get("result"),
+            "user_id": entry.get("user_id"),
+        }
+        # ניקוי אם סיים — בתוך אותו lock כדי שלא ייעלם לפני שנקרא
+        if entry["status"] in ("done", "error"):
+            _active_restores.pop(restore_id, None)
 
     # בדיקת בעלות
-    if str(entry.get("user_id")) != str(user_id):
+    if str(snapshot.get("user_id")) != str(user_id):
         return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
 
     resp = {
         "ok": True,
-        "status": entry["status"],
-        "progress": entry["progress"],
-        "step": entry["step"],
+        "status": snapshot["status"],
+        "progress": snapshot["progress"],
+        "step": snapshot["step"],
     }
-    if entry["status"] in ("done", "error"):
-        resp["result"] = entry["result"]
-        # ניקוי אחרי שהלקוח קרא את התוצאה
-        with _restores_lock:
-            _active_restores.pop(restore_id, None)
+    if snapshot["status"] in ("done", "error"):
+        resp["result"] = snapshot["result"]
 
     return jsonify(resp)
 

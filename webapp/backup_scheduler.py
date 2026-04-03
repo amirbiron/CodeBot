@@ -203,15 +203,17 @@ def _scan_and_run():
 
                 logger.info("Running scheduled Disk backup for user %s", uid)
                 ok = _perform_disk_backup(uid)
-                now_iso = _now_utc().isoformat()
-                update = {"disk_backup_prefs.last_backup_at": now_iso}
                 if ok:
-                    new_next = _compute_next_at(schedule_key)
-                    update["disk_backup_prefs.schedule_next_at"] = new_next
-                try:
-                    users_collection.update_one({"user_id": uid}, {"$set": update})
-                except Exception:
-                    logger.exception("Failed to update disk backup prefs for user %s", uid)
+                    now_iso = _now_utc().isoformat()
+                    update = {
+                        "disk_backup_prefs.last_backup_at": now_iso,
+                        "disk_backup_prefs.schedule_next_at": _compute_next_at(schedule_key),
+                    }
+                    try:
+                        users_collection.update_one({"user_id": uid}, {"$set": update})
+                    except Exception:
+                        logger.exception("Failed to update disk backup prefs for user %s", uid)
+                # אם נכשל, לא מזיזים — יינסה שוב בסריקה הבאה
             except Exception:
                 logger.exception("Error processing Disk schedule for user %s", user_doc.get("user_id"))
     except Exception:
