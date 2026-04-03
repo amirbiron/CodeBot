@@ -312,7 +312,14 @@ def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:
         from handlers.drive.utils import extract_schedule_key
         raw = extract_schedule_key(drive_prefs)
     except ImportError:
-        raw = None
+        # fallback מקומי — אם ה-import נכשל, בודקים ישירות
+        raw = drive_prefs.get("schedule_key") or drive_prefs.get("scheduleKey")
+        if not isinstance(raw, str):
+            val = drive_prefs.get("schedule")
+            if isinstance(val, str):
+                raw = val
+            elif isinstance(val, dict):
+                raw = val.get("key") or val.get("value") or val.get("name")
     if isinstance(raw, str) and raw in SCHEDULE_INTERVALS:
         return raw
     return None
