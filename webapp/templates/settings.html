@@ -3290,7 +3290,12 @@ async function handleRestoreFile(input) {
     // שלב 2: polling על התקדמות
     let done = false;
     let finalResult = null;
+    let pollCount = 0;
+    const maxPolls = 300; // timeout: 10 דקות (300 × 2 שניות)
     while (!done) {
+      if (++pollCount > maxPolls) {
+        throw new Error('זמן ההמתנה לשחזור עבר — נסה שנית');
+      }
       await new Promise(r => setTimeout(r, 2000));
       try {
         const progResp = await fetch(`/api/backup/restore-progress/${restoreId}`);

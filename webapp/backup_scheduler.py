@@ -295,9 +295,10 @@ def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:
         if isinstance(val, str) and val in SCHEDULE_INTERVALS:
             return val
         if isinstance(val, dict):
-            inner = val.get("key") or val.get("value")
-            if isinstance(inner, str) and inner in SCHEDULE_INTERVALS:
-                return inner
+            for inner_field in ("key", "value"):
+                inner = val.get(inner_field)
+                if isinstance(inner, str) and inner in SCHEDULE_INTERVALS:
+                    return inner
     return None
 
 
