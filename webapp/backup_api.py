@@ -306,9 +306,14 @@ def restore_progress(restore_id):
         pass
 
     # Snapshot כל השדות בתוך ה-lock כדי למנוע race condition
+    # בדיקת בעלות *לפני* מחיקה — כדי שלא למחוק entry של משתמש אחר
     with _restores_lock:
         entry = _active_restores.get(restore_id)
         if not entry:
+            return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
+
+        # בדיקת בעלות בתוך ה-lock, לפני pop
+        if str(entry.get("user_id")) != str(user_id):
             return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
 
         snapshot = {
@@ -316,15 +321,10 @@ def restore_progress(restore_id):
             "progress": entry["progress"],
             "step": entry["step"],
             "result": entry.get("result"),
-            "user_id": entry.get("user_id"),
         }
-        # ניקוי אם סיים — בתוך אותו lock כדי שלא ייעלם לפני שנקרא
+        # ניקוי אם סיים — בתוך אותו lock, אחרי שוידאנו בעלות
         if entry["status"] in ("done", "error"):
             _active_restores.pop(restore_id, None)
-
-    # בדיקת בעלות
-    if str(snapshot.get("user_id")) != str(user_id):
-        return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
 
     resp = {
         "ok": True,
