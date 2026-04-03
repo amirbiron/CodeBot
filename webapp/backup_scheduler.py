@@ -35,6 +35,9 @@ DISK_BACKUP_DIR = os.getenv("WEBAPP_BACKUPS_DIR", "/var/data/repos/backups")
 DISK_BACKUP_RETENTION_DAYS = int(os.getenv("DISK_BACKUP_RETENTION_DAYS", "30"))
 DISK_BACKUP_MAX_PER_USER = int(os.getenv("DISK_BACKUP_MAX_PER_USER", "10"))
 
+# מקסימום גיבויים לכל סוג בסריקה אחת — מונע הרעבה של disk כש-drive תקוע
+MAX_BACKUPS_PER_SCAN = int(os.getenv("MAX_BACKUPS_PER_SCAN", "10"))
+
 _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_lock = threading.Lock()
 
@@ -173,7 +176,8 @@ def _scan_and_run():
 def _scan_drive_backups(db, now_iso: str):
     """סורק ומריץ גיבויי Drive עם atomic claiming."""
     valid_keys = list(SCHEDULE_INTERVALS.keys())
-    while True:
+    processed = 0
+    while processed < MAX_BACKUPS_PER_SCAN:
         # תפוס אטומית משתמש שהגיע זמנו — מזיז schedule_next_at קדימה
         # כך ש-worker אחר לא יתפוס אותו
         claimed = db.db.users.find_one_and_update(
@@ -193,6 +197,7 @@ def _scan_drive_backups(db, now_iso: str):
         )
         if not claimed:
             break  # אין עוד משתמשים שצריכים גיבוי Drive
+        processed += 1
 
         uid = claimed.get("user_id")
         prefs = claimed.get("drive_prefs") or {}
@@ -232,7 +237,8 @@ def _scan_drive_backups(db, now_iso: str):
 def _scan_disk_backups(db, now_iso: str):
     """סורק ומריץ גיבויי דיסק עם atomic claiming."""
     valid_keys = list(SCHEDULE_INTERVALS.keys())
-    while True:
+    processed = 0
+    while processed < MAX_BACKUPS_PER_SCAN:
         claimed = db.db.users.find_one_and_update(
             {
                 "disk_backup_prefs.schedule_key": {"$in": valid_keys},
@@ -243,6 +249,7 @@ def _scan_disk_backups(db, now_iso: str):
         )
         if not claimed:
             break
+        processed += 1
 
         uid = claimed.get("user_id")
         disk_prefs = claimed.get("disk_backup_prefs") or {}

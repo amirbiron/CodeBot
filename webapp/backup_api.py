@@ -316,6 +316,18 @@ def restore_backup_async():
 
     overwrite = request.form.get("overwrite", "false").lower() in ("true", "1", "yes")
 
+    # בדיקה שאין restore פעיל כבר לאותו משתמש
+    try:
+        db = _get_db()
+        existing = db.db.restore_jobs.find_one(
+            {"user_id": int(user_id), "status": "running"},
+            projection={"_id": 1},
+        )
+        if existing:
+            return jsonify({"ok": False, "error": "שחזור כבר רץ — המתן לסיומו"}), 409
+    except Exception:
+        pass  # best-effort — אם הבדיקה נכשלת, ממשיכים
+
     # יצירת restore job ב-MongoDB והפעלת ריצה ברקע
     restore_id = uuid.uuid4().hex[:12]
     _create_restore_job(restore_id, user_id)
