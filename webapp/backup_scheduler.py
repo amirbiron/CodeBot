@@ -164,7 +164,8 @@ def _scan_drive_backups(db, now_iso: str):
         # כך ש-worker אחר לא יתפוס אותו
         claimed = db.db.users.find_one_and_update(
             {
-                "drive_prefs.schedule_next_at": {"$lte": now_iso},
+                "drive_prefs.schedule_next_at": {"$lte": now_iso, "$ne": None},
+                "drive_prefs.schedule_key": {"$ne": "off"},
                 "$or": [
                     {"drive_prefs.schedule_key": {"$in": valid_keys}},
                     {"drive_prefs.schedule.key": {"$in": valid_keys}},
@@ -286,6 +287,9 @@ def _reset_disk_schedule(db, claimed: dict):
 
 def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:
     """מחלץ את ה-schedule key מתוך drive_prefs (תואם לפורמטים שונים)."""
+    # אם המשתמש כיבה מפורשות — לא ליפול לשדות legacy
+    if drive_prefs.get("schedule_key") == "off":
+        return None
     for field in ("schedule_key", "schedule"):
         val = drive_prefs.get(field)
         if isinstance(val, str) and val in SCHEDULE_INTERVALS:

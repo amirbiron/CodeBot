@@ -78,6 +78,14 @@ def set_drive_schedule():
             update["schedule_next_at"] = None
 
         db.save_drive_prefs(int(user_id), update)
+
+        # ניקוי שדות legacy כדי שה-scheduler לא יתפוס משתמש שכיבה schedule
+        if schedule == "off":
+            db.db.users.update_one(
+                {"user_id": int(user_id)},
+                {"$unset": {"drive_prefs.schedule": ""}},
+            )
+
         emit_event("webapp_drive_schedule_set", user_id=int(user_id), schedule=schedule)
         return jsonify({"ok": True, "schedule": schedule})
     except Exception as e:

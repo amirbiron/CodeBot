@@ -82,17 +82,20 @@ def _update_restore_progress(restore_id: str, progress: int, step: str) -> None:
 
 
 def _complete_restore_job(restore_id: str, status: str, result, step: str) -> None:
-    db = _get_db()
-    db.db.restore_jobs.update_one(
-        {"_id": restore_id},
-        {"$set": {
-            "status": status,
-            "result": result,
-            "step": step,
-            "progress": 100 if status == "done" else 0,
-            "completed_at": datetime.now(timezone.utc),
-        }},
-    )
+    try:
+        db = _get_db()
+        db.db.restore_jobs.update_one(
+            {"_id": restore_id},
+            {"$set": {
+                "status": status,
+                "result": result,
+                "step": step,
+                "progress": 100 if status == "done" else 0,
+                "completed_at": datetime.now(timezone.utc),
+            }},
+        )
+    except Exception:
+        logger.exception("Failed to update restore job %s to status %s", restore_id, status)
 
 
 def _get_restore_job(restore_id: str, user_id):
@@ -252,15 +255,22 @@ def _run_restore_in_background(restore_id: str, user_id: int, zip_bytes: bytes, 
     def _progress(pct: int, step: str):
         _update_restore_progress(restore_id, pct, step)
 
+    restore_ok = False
+    result = None
     try:
         service = _get_backup_service()
         result = service.restore_user_data(
             int(user_id), zip_bytes, overwrite=overwrite, progress_cb=_progress,
         )
-        _complete_restore_job(restore_id, "done", result, "השחזור הושלם")
+        restore_ok = True
     except Exception as e:
         logger.error(f"שגיאה בשחזור אסינכרוני: {e}")
-        _complete_restore_job(restore_id, "error", {"ok": False, "error": str(e)}, "שגיאה בשחזור")
+        result = {"ok": False, "error": str(e)}
+
+    if restore_ok:
+        _complete_restore_job(restore_id, "done", result, "השחזור הושלם")
+    else:
+        _complete_restore_job(restore_id, "error", result, "שגיאה בשחזור")
 
 
 @backup_bp.route("/api/backup/restore-async", methods=["POST"])
