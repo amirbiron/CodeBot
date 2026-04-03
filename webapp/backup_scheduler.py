@@ -218,7 +218,7 @@ def _scan_disk_backups(db, now_iso: str):
         claimed = db.db.users.find_one_and_update(
             {
                 "disk_backup_prefs.schedule_key": {"$in": valid_keys},
-                "disk_backup_prefs.schedule_next_at": {"$lte": now_iso},
+                "disk_backup_prefs.schedule_next_at": {"$lte": now_iso, "$ne": None},
             },
             {"$set": {"disk_backup_prefs.schedule_next_at": "2099-01-01T00:00:00+00:00"}},
             projection={"user_id": 1, "disk_backup_prefs": 1},

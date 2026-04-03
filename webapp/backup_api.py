@@ -262,7 +262,7 @@ def _run_restore_in_background(restore_id: str, user_id: int, zip_bytes: bytes, 
         result = service.restore_user_data(
             int(user_id), zip_bytes, overwrite=overwrite, progress_cb=_progress,
         )
-        restore_ok = True
+        restore_ok = not (isinstance(result, dict) and result.get("ok") is False)
     except Exception as e:
         logger.error(f"שגיאה בשחזור אסינכרוני: {e}")
         result = {"ok": False, "error": str(e)}

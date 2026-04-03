@@ -166,7 +166,6 @@ def set_disk_schedule():
         db.db.users.update_one(
             {"user_id": int(user_id)},
             {"$set": update},
-            upsert=True,
         )
         emit_event("webapp_disk_schedule_set", user_id=int(user_id), schedule=schedule)
         return jsonify({"ok": True, "schedule": schedule})

@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Blueprint, jsonify, redirect, request, session, url_for
+from flask import Blueprint, Response, jsonify, redirect, request, session, url_for
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ def _url_encode(val: str) -> str:
     return quote(str(val), safe="")
 
 
-def _settings_redirect(query: str) -> str:
+def _settings_redirect(query: str) -> Response:
     """Redirect back to settings page with query params."""
     base = os.getenv("WEBAPP_URL", "").rstrip("/")
     if not base:
