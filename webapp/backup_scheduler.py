@@ -124,7 +124,11 @@ def _cleanup_disk_backups(user_id: int, backup_dir: Path):
 
 
 def _scan_and_run():
-    """סורק את כל המשתמשים ומריץ גיבויים לפי הצורך."""
+    """סורק וממריץ גיבויים עם atomic claiming (multi-worker safe).
+
+    משתמש ב-find_one_and_update כדי "לתפוס" כל משתמש אטומית —
+    רק scheduler אחד יכול להריץ גיבוי לכל משתמש, גם עם N workers.
+    """
     try:
         from database import db
     except Exception:
@@ -132,92 +136,121 @@ def _scan_and_run():
         return
 
     now = _now_utc()
+    now_iso = now.isoformat()
 
-    # --- Drive backups ---
+    # --- Drive backups (atomic claim) ---
     try:
-        users_with_drive = db.get_users_with_active_drive_schedule()
-        for user_doc in (users_with_drive or []):
-            try:
-                uid = user_doc.get("user_id")
-                if not uid:
-                    continue
-                prefs = user_doc.get("drive_prefs") or {}
-                next_at_str = prefs.get("schedule_next_at")
-                schedule_key = _extract_schedule_key(prefs)
-
-                if not schedule_key or schedule_key not in SCHEDULE_INTERVALS:
-                    continue
-
-                # בדוק אם הגיע הזמן
-                if next_at_str:
-                    try:
-                        next_at = datetime.fromisoformat(next_at_str)
-                        if next_at.tzinfo is None:
-                            next_at = next_at.replace(tzinfo=timezone.utc)
-                        if next_at > now:
-                            continue
-                    except Exception:
-                        pass  # אם לא ניתן לפרסר, נריץ עכשיו
-
-                logger.info("Running scheduled Drive backup for user %s", uid)
-                ok = _perform_drive_backup(uid)
-                if ok:
-                    new_next = _compute_next_at(schedule_key)
-                    try:
-                        db.save_drive_prefs(uid, {"schedule_next_at": new_next})
-                    except Exception:
-                        logger.exception("Failed to update schedule_next_at for user %s", uid)
-                # אם נכשל, לא מזיזים את schedule_next_at — יינסה שוב בסריקה הבאה
-            except Exception:
-                logger.exception("Error processing Drive schedule for user %s", user_doc.get("user_id"))
+        _scan_drive_backups(db, now_iso)
     except Exception:
         logger.exception("Error scanning Drive schedules")
 
-    # --- Disk backups ---
+    # --- Disk backups (atomic claim) ---
     try:
-        users_collection = db.db.users
-        cursor = users_collection.find(
-            {"disk_backup_prefs.schedule_key": {"$in": list(SCHEDULE_INTERVALS.keys())}},
-            {"user_id": 1, "disk_backup_prefs": 1},
-        )
-        for user_doc in cursor:
-            try:
-                uid = user_doc.get("user_id")
-                if not uid:
-                    continue
-                disk_prefs = user_doc.get("disk_backup_prefs") or {}
-                schedule_key = disk_prefs.get("schedule_key")
-                if not schedule_key or schedule_key not in SCHEDULE_INTERVALS:
-                    continue
-
-                next_at_str = disk_prefs.get("schedule_next_at")
-                if next_at_str:
-                    try:
-                        next_at = datetime.fromisoformat(next_at_str)
-                        if next_at.tzinfo is None:
-                            next_at = next_at.replace(tzinfo=timezone.utc)
-                        if next_at > now:
-                            continue
-                    except Exception:
-                        pass
-
-                logger.info("Running scheduled Disk backup for user %s", uid)
-                ok = _perform_disk_backup(uid)
-                if ok:
-                    now_iso = _now_utc().isoformat()
-                    update = {
-                        "disk_backup_prefs.last_backup_at": now_iso,
-                        "disk_backup_prefs.schedule_next_at": _compute_next_at(schedule_key),
-                    }
-                    try:
-                        users_collection.update_one({"user_id": uid}, {"$set": update})
-                    except Exception:
-                        logger.exception("Failed to update disk backup prefs for user %s", uid)
-                # אם נכשל, לא מזיזים — יינסה שוב בסריקה הבאה
-            except Exception:
-                logger.exception("Error processing Disk schedule for user %s", user_doc.get("user_id"))
+        _scan_disk_backups(db, now_iso)
     except Exception:
         logger.exception("Error scanning Disk schedules")
+
+
+def _scan_drive_backups(db, now_iso: str):
+    """סורק ומריץ גיבויי Drive עם atomic claiming."""
+    valid_keys = list(SCHEDULE_INTERVALS.keys())
+    while True:
+        # תפוס אטומית משתמש שהגיע זמנו — מזיז schedule_next_at קדימה
+        # כך ש-worker אחר לא יתפוס אותו
+        claimed = db.db.users.find_one_and_update(
+            {
+                "drive_prefs.schedule_next_at": {"$lte": now_iso},
+                "$or": [
+                    {"drive_prefs.schedule_key": {"$in": valid_keys}},
+                    {"drive_prefs.schedule.key": {"$in": valid_keys}},
+                    {"drive_prefs.schedule.value": {"$in": valid_keys}},
+                    {"drive_prefs.schedule": {"$in": valid_keys}},
+                ],
+            },
+            # מזיז את next_at רחוק קדימה (1 שעה) כ-placeholder עד שנחשב את הזמן האמיתי
+            {"$set": {"drive_prefs.schedule_next_at": "2099-01-01T00:00:00+00:00"}},
+            projection={"user_id": 1, "drive_prefs": 1},
+        )
+        if not claimed:
+            break  # אין עוד משתמשים שצריכים גיבוי Drive
+
+        uid = claimed.get("user_id")
+        prefs = claimed.get("drive_prefs") or {}
+        schedule_key = _extract_schedule_key(prefs)
+        if not uid or not schedule_key:
+            continue
+
+        try:
+            logger.info("Running scheduled Drive backup for user %s", uid)
+            ok = _perform_drive_backup(uid)
+            # עדכון schedule_next_at — אם הצליח, הזמן הבא; אם נכשל, מחזירים את הישן
+            if ok:
+                new_next = _compute_next_at(schedule_key)
+            else:
+                # החזרת הערך המקורי כדי שיינסה שוב בסריקה הבאה
+                new_next = prefs.get("schedule_next_at", now_iso)
+            db.db.users.update_one(
+                {"user_id": uid},
+                {"$set": {"drive_prefs.schedule_next_at": new_next}},
+            )
+        except Exception:
+            logger.exception("Error processing Drive schedule for user %s", uid)
+            # החזרת next_at כדי לא לאבד את ה-entry
+            try:
+                original_next = prefs.get("schedule_next_at", now_iso)
+                db.db.users.update_one(
+                    {"user_id": uid},
+                    {"$set": {"drive_prefs.schedule_next_at": original_next}},
+                )
+            except Exception:
+                pass
+
+
+def _scan_disk_backups(db, now_iso: str):
+    """סורק ומריץ גיבויי דיסק עם atomic claiming."""
+    valid_keys = list(SCHEDULE_INTERVALS.keys())
+    while True:
+        claimed = db.db.users.find_one_and_update(
+            {
+                "disk_backup_prefs.schedule_key": {"$in": valid_keys},
+                "disk_backup_prefs.schedule_next_at": {"$lte": now_iso},
+            },
+            {"$set": {"disk_backup_prefs.schedule_next_at": "2099-01-01T00:00:00+00:00"}},
+            projection={"user_id": 1, "disk_backup_prefs": 1},
+        )
+        if not claimed:
+            break
+
+        uid = claimed.get("user_id")
+        disk_prefs = claimed.get("disk_backup_prefs") or {}
+        schedule_key = disk_prefs.get("schedule_key")
+        if not uid or not schedule_key or schedule_key not in SCHEDULE_INTERVALS:
+            continue
+
+        try:
+            logger.info("Running scheduled Disk backup for user %s", uid)
+            ok = _perform_disk_backup(uid)
+            if ok:
+                update = {
+                    "disk_backup_prefs.last_backup_at": _now_utc().isoformat(),
+                    "disk_backup_prefs.schedule_next_at": _compute_next_at(schedule_key),
+                }
+            else:
+                # החזרת הערך המקורי
+                update = {
+                    "disk_backup_prefs.schedule_next_at": disk_prefs.get("schedule_next_at", now_iso),
+                }
+            db.db.users.update_one({"user_id": uid}, {"$set": update})
+        except Exception:
+            logger.exception("Error processing Disk schedule for user %s", uid)
+            try:
+                original_next = disk_prefs.get("schedule_next_at", now_iso)
+                db.db.users.update_one(
+                    {"user_id": uid},
+                    {"$set": {"disk_backup_prefs.schedule_next_at": original_next}},
+                )
+            except Exception:
+                pass
 
 
 def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:

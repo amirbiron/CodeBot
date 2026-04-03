@@ -10,12 +10,10 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import wraps
-from threading import Lock
 
 from flask import Blueprint, jsonify, request, send_file, session
 
@@ -42,23 +40,66 @@ except Exception:
 
 backup_bp = Blueprint("backup", __name__)
 
-# --- Async restore state ---
+# --- Async restore state (MongoDB-backed, multi-worker safe) ---
 _restore_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="restore")
-_active_restores: dict = {}  # restore_id -> {status, progress, step, result, user_id, created_at}
-_restores_lock = Lock()
-_RESTORE_MAX_AGE = 3600  # שעה — entries ישנים יותר ינוקו
-_RESTORE_FETCH_GRACE = 300  # 5 דקות grace אחרי שהלקוח קרא תוצאה סופית
+_RESTORE_TTL_SECONDS = 3600  # MongoDB TTL — ניקוי אוטומטי אחרי שעה
 
 
-def _cleanup_stale_restores():
-    """מנקה entries ישנים מעל שעה, או שנקראו לפני 5+ דקות (מניעת דליפת זיכרון)."""
-    now = time.time()
-    with _restores_lock:
-        stale = [rid for rid, e in _active_restores.items()
-                 if (e["status"] != "running" and now - e.get("created_at", 0) > _RESTORE_MAX_AGE) or
-                    (e.get("fetched_at") and now - e["fetched_at"] > _RESTORE_FETCH_GRACE)]
-        for rid in stale:
-            _active_restores.pop(rid, None)
+def _ensure_restore_indexes():
+    """יוצר TTL index על restore_jobs (idempotent)."""
+    try:
+        db = _get_db()
+        db.db.restore_jobs.create_index(
+            "created_at", expireAfterSeconds=_RESTORE_TTL_SECONDS,
+            name="restore_jobs_ttl",
+        )
+    except Exception:
+        logger.debug("restore_jobs TTL index already exists or DB unavailable")
+
+
+def _create_restore_job(restore_id: str, user_id) -> None:
+    db = _get_db()
+    db.db.restore_jobs.insert_one({
+        "_id": restore_id,
+        "user_id": int(user_id),
+        "status": "running",
+        "progress": 0,
+        "step": "מתחיל שחזור...",
+        "result": None,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+
+def _update_restore_progress(restore_id: str, progress: int, step: str) -> None:
+    try:
+        db = _get_db()
+        db.db.restore_jobs.update_one(
+            {"_id": restore_id},
+            {"$set": {"progress": progress, "step": step}},
+        )
+    except Exception:
+        pass  # best-effort — אל תשבור את ה-restore בגלל עדכון progress
+
+
+def _complete_restore_job(restore_id: str, status: str, result, step: str) -> None:
+    db = _get_db()
+    db.db.restore_jobs.update_one(
+        {"_id": restore_id},
+        {"$set": {
+            "status": status,
+            "result": result,
+            "step": step,
+            "progress": 100 if status == "done" else 0,
+            "completed_at": datetime.now(timezone.utc),
+        }},
+    )
+
+
+def _get_restore_job(restore_id: str, user_id):
+    db = _get_db()
+    return db.db.restore_jobs.find_one(
+        {"_id": restore_id, "user_id": int(user_id)},
+    )
 
 # Per-route upload limit (avoid global MAX_CONTENT_LENGTH side effects)
 @backup_bp.before_request
@@ -207,34 +248,19 @@ def restore_backup():
 # --- Async restore ---
 
 def _run_restore_in_background(restore_id: str, user_id: int, zip_bytes: bytes, overwrite: bool):
-    """רץ ב-thread — מבצע שחזור ומעדכן progress."""
+    """רץ ב-thread — מבצע שחזור ומעדכן progress ב-MongoDB."""
     def _progress(pct: int, step: str):
-        with _restores_lock:
-            entry = _active_restores.get(restore_id)
-            if entry:
-                entry["progress"] = pct
-                entry["step"] = step
+        _update_restore_progress(restore_id, pct, step)
 
     try:
         service = _get_backup_service()
         result = service.restore_user_data(
             int(user_id), zip_bytes, overwrite=overwrite, progress_cb=_progress,
         )
-        with _restores_lock:
-            entry = _active_restores.get(restore_id)
-            if entry:
-                entry["status"] = "done"
-                entry["progress"] = 100
-                entry["step"] = "השחזור הושלם"
-                entry["result"] = result
+        _complete_restore_job(restore_id, "done", result, "השחזור הושלם")
     except Exception as e:
         logger.error(f"שגיאה בשחזור אסינכרוני: {e}")
-        with _restores_lock:
-            entry = _active_restores.get(restore_id)
-            if entry:
-                entry["status"] = "error"
-                entry["step"] = "שגיאה בשחזור"
-                entry["result"] = {"ok": False, "error": str(e)}
+        _complete_restore_job(restore_id, "error", {"ok": False, "error": str(e)}, "שגיאה בשחזור")
 
 
 @backup_bp.route("/api/backup/restore-async", methods=["POST"])
@@ -277,19 +303,11 @@ def restore_backup_async():
 
     overwrite = request.form.get("overwrite", "false").lower() in ("true", "1", "yes")
 
-    # יצירת restore_id והפעלת ריצה ברקע
+    # יצירת restore job ב-MongoDB והפעלת ריצה ברקע
     restore_id = uuid.uuid4().hex[:12]
-    with _restores_lock:
-        _active_restores[restore_id] = {
-            "status": "running",
-            "progress": 0,
-            "step": "מתחיל שחזור...",
-            "result": None,
-            "user_id": user_id,
-            "created_at": time.time(),
-        }
+    _create_restore_job(restore_id, user_id)
 
-    _restore_executor.submit(_run_restore_in_background, restore_id, user_id, zip_bytes, overwrite)
+    _restore_executor.submit(_run_restore_in_background, restore_id, int(user_id), zip_bytes, overwrite)
 
     return jsonify({"ok": True, "restore_id": restore_id})
 
@@ -298,45 +316,21 @@ def restore_backup_async():
 @_require_auth
 @traced("backup.restore_progress")
 def restore_progress(restore_id):
-    """מחזיר מצב התקדמות שחזור."""
+    """מחזיר מצב התקדמות שחזור (מ-MongoDB — multi-worker safe)."""
     user_id = session["user_id"]
 
-    # ניקוי entries ישנים (best-effort)
-    try:
-        _cleanup_stale_restores()
-    except Exception:
-        pass
-
-    # Snapshot כל השדות בתוך ה-lock כדי למנוע race condition
-    # בדיקת בעלות *לפני* מחיקה — כדי שלא למחוק entry של משתמש אחר
-    with _restores_lock:
-        entry = _active_restores.get(restore_id)
-        if not entry:
-            return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
-
-        # בדיקת בעלות בתוך ה-lock, לפני pop
-        if str(entry.get("user_id")) != str(user_id):
-            return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
-
-        snapshot = {
-            "status": entry["status"],
-            "progress": entry["progress"],
-            "step": entry["step"],
-            "result": entry.get("result"),
-        }
-        # סימון שנקרא — לא מוחקים מיד, grace period של 5 דקות
-        # כדי שאם ה-response אבד ברשת הלקוח יוכל לקרוא שוב
-        if entry["status"] in ("done", "error"):
-            entry.setdefault("fetched_at", time.time())
+    entry = _get_restore_job(restore_id, user_id)
+    if not entry:
+        return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
 
     resp = {
         "ok": True,
-        "status": snapshot["status"],
-        "progress": snapshot["progress"],
-        "step": snapshot["step"],
+        "status": entry["status"],
+        "progress": entry["progress"],
+        "step": entry["step"],
     }
-    if snapshot["status"] in ("done", "error"):
-        resp["result"] = snapshot["result"]
+    if entry["status"] in ("done", "error"):
+        resp["result"] = entry.get("result")
 
     return jsonify(resp)
 

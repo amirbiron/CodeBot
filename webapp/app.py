@@ -683,6 +683,13 @@ if str(os.getenv("DISABLE_STARTUP_WARMUP", "true")).lower() not in {"1", "true",
     start_background_observability_warmup()
 
 
+# --- Backup restore jobs TTL index ---
+try:
+    from webapp.backup_api import _ensure_restore_indexes  # noqa: E402
+    _ensure_restore_indexes()
+except Exception:
+    pass
+
 # --- Backup Scheduler (auto-backup to Drive & Disk) ---
 try:
     if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
