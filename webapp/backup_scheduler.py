@@ -51,6 +51,11 @@ def _compute_next_at(schedule_key: str, from_dt: Optional[datetime] = None) -> s
     return next_dt.isoformat()
 
 
+def _retry_next_at() -> str:
+    """מחזיר timestamp של SCAN_INTERVAL קדימה — retry בסריקה הבאה, לא בלולאה הנוכחית."""
+    return (_now_utc() + timedelta(seconds=SCAN_INTERVAL_SECONDS)).isoformat()
+
+
 def _perform_drive_backup(user_id: int) -> bool:
     """מבצע גיבוי ל-Drive עבור משתמש."""
     try:
@@ -179,30 +184,27 @@ def _scan_drive_backups(db, now_iso: str):
         schedule_key = _extract_schedule_key(prefs)
         if not uid or not schedule_key:
             # החזרת sentinel — אחרת הגיבוי תקוע לנצח ב-2099
-            _reset_drive_schedule(db, claimed, prefs, now_iso)
+            _reset_drive_schedule(db, claimed)
             continue
 
         try:
             logger.info("Running scheduled Drive backup for user %s", uid)
             ok = _perform_drive_backup(uid)
-            # עדכון schedule_next_at — אם הצליח, הזמן הבא; אם נכשל, מחזירים את הישן
             if ok:
                 new_next = _compute_next_at(schedule_key)
             else:
-                # החזרת הערך המקורי כדי שיינסה שוב בסריקה הבאה
-                new_next = prefs.get("schedule_next_at", now_iso)
+                # דחייה קדימה — retry בסריקה הבאה, לא בלולאה הנוכחית
+                new_next = _retry_next_at()
             db.db.users.update_one(
                 {"user_id": uid},
                 {"$set": {"drive_prefs.schedule_next_at": new_next}},
             )
         except Exception:
             logger.exception("Error processing Drive schedule for user %s", uid)
-            # החזרת next_at כדי לא לאבד את ה-entry
             try:
-                original_next = prefs.get("schedule_next_at", now_iso)
                 db.db.users.update_one(
                     {"user_id": uid},
-                    {"$set": {"drive_prefs.schedule_next_at": original_next}},
+                    {"$set": {"drive_prefs.schedule_next_at": _retry_next_at()}},
                 )
             except Exception:
                 pass
@@ -228,7 +230,7 @@ def _scan_disk_backups(db, now_iso: str):
         schedule_key = disk_prefs.get("schedule_key")
         if not uid or not schedule_key or schedule_key not in SCHEDULE_INTERVALS:
             # החזרת sentinel — אחרת הגיבוי תקוע לנצח ב-2099
-            _reset_disk_schedule(db, claimed, disk_prefs, now_iso)
+            _reset_disk_schedule(db, claimed)
             continue
 
         try:
@@ -240,46 +242,43 @@ def _scan_disk_backups(db, now_iso: str):
                     "disk_backup_prefs.schedule_next_at": _compute_next_at(schedule_key),
                 }
             else:
-                # החזרת הערך המקורי
+                # דחייה קדימה — retry בסריקה הבאה, לא בלולאה הנוכחית
                 update = {
-                    "disk_backup_prefs.schedule_next_at": disk_prefs.get("schedule_next_at", now_iso),
+                    "disk_backup_prefs.schedule_next_at": _retry_next_at(),
                 }
             db.db.users.update_one({"user_id": uid}, {"$set": update})
         except Exception:
             logger.exception("Error processing Disk schedule for user %s", uid)
             try:
-                original_next = disk_prefs.get("schedule_next_at", now_iso)
                 db.db.users.update_one(
                     {"user_id": uid},
-                    {"$set": {"disk_backup_prefs.schedule_next_at": original_next}},
+                    {"$set": {"disk_backup_prefs.schedule_next_at": _retry_next_at()}},
                 )
             except Exception:
                 pass
 
 
-def _reset_drive_schedule(db, claimed: dict, prefs: dict, now_iso: str):
-    """מחזיר schedule_next_at מ-sentinel לערך המקורי (Drive)."""
+def _reset_drive_schedule(db, claimed: dict):
+    """מחזיר schedule_next_at מ-sentinel ל-retry delay (Drive)."""
     try:
         uid = claimed.get("user_id")
         if uid:
-            original = prefs.get("schedule_next_at", now_iso)
             db.db.users.update_one(
                 {"user_id": uid},
-                {"$set": {"drive_prefs.schedule_next_at": original}},
+                {"$set": {"drive_prefs.schedule_next_at": _retry_next_at()}},
             )
     except Exception:
         logger.exception("Failed to reset Drive sentinel for user %s", claimed.get("user_id"))
 
 
-def _reset_disk_schedule(db, claimed: dict, disk_prefs: dict, now_iso: str):
-    """מחזיר schedule_next_at מ-sentinel לערך המקורי (Disk)."""
+def _reset_disk_schedule(db, claimed: dict):
+    """מחזיר schedule_next_at מ-sentinel ל-retry delay (Disk)."""
     try:
         uid = claimed.get("user_id")
         if uid:
-            original = disk_prefs.get("schedule_next_at", now_iso)
             db.db.users.update_one(
                 {"user_id": uid},
-                {"$set": {"disk_backup_prefs.schedule_next_at": original}},
+                {"$set": {"disk_backup_prefs.schedule_next_at": _retry_next_at()}},
             )
     except Exception:
         logger.exception("Failed to reset Disk sentinel for user %s", claimed.get("user_id"))
