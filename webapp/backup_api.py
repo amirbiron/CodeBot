@@ -2,14 +2,19 @@
 Personal Backup API — ייצוא ושחזור גיבוי אישי.
 
 Endpoints:
-- GET  /api/backup/export   — הורדת ZIP עם כל נתוני המשתמש
-- POST /api/backup/restore  — שחזור נתונים מקובץ ZIP
+- GET  /api/backup/export           — הורדת ZIP עם כל נתוני המשתמש
+- POST /api/backup/restore          — שחזור נתונים מקובץ ZIP (סינכרוני)
+- POST /api/backup/restore-async    — שחזור ברקע עם דיווח התקדמות
+- GET  /api/backup/restore-progress/<id> — מצב התקדמות שחזור
 """
 from __future__ import annotations
 
 import logging
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import wraps
+from threading import Lock
 
 from flask import Blueprint, jsonify, request, send_file, session
 
@@ -35,6 +40,11 @@ except Exception:
 
 
 backup_bp = Blueprint("backup", __name__)
+
+# --- Async restore state ---
+_restore_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="restore")
+_active_restores: dict = {}  # restore_id -> {status, progress, step, result, user_id}
+_restores_lock = Lock()
 
 # Per-route upload limit (avoid global MAX_CONTENT_LENGTH side effects)
 @backup_bp.before_request
@@ -178,4 +188,125 @@ def restore_backup():
             error=str(e),
         )
         return jsonify({"ok": False, "error": "שגיאה בשחזור הגיבוי"}), 500
+
+
+# --- Async restore ---
+
+def _run_restore_in_background(restore_id: str, user_id: int, zip_bytes: bytes, overwrite: bool):
+    """רץ ב-thread — מבצע שחזור ומעדכן progress."""
+    def _progress(pct: int, step: str):
+        with _restores_lock:
+            entry = _active_restores.get(restore_id)
+            if entry:
+                entry["progress"] = pct
+                entry["step"] = step
+
+    try:
+        service = _get_backup_service()
+        result = service.restore_user_data(
+            int(user_id), zip_bytes, overwrite=overwrite, progress_cb=_progress,
+        )
+        with _restores_lock:
+            entry = _active_restores.get(restore_id)
+            if entry:
+                entry["status"] = "done"
+                entry["progress"] = 100
+                entry["step"] = "השחזור הושלם"
+                entry["result"] = result
+    except Exception as e:
+        logger.error(f"שגיאה בשחזור אסינכרוני: {e}")
+        with _restores_lock:
+            entry = _active_restores.get(restore_id)
+            if entry:
+                entry["status"] = "error"
+                entry["step"] = "שגיאה בשחזור"
+                entry["result"] = {"ok": False, "error": str(e)}
+
+
+@backup_bp.route("/api/backup/restore-async", methods=["POST"])
+@_require_auth
+@traced("backup.restore_async")
+def restore_backup_async():
+    """שחזור מגיבוי ZIP — רץ ברקע עם דיווח התקדמות."""
+    user_id = session["user_id"]
+
+    # בדיקת קובץ (אותה לוגיקה כמו restore רגיל)
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "לא נבחר קובץ"}), 400
+
+    uploaded = request.files["file"]
+    if not uploaded.filename:
+        return jsonify({"ok": False, "error": "לא נבחר קובץ"}), 400
+
+    if not uploaded.filename.lower().endswith(".zip"):
+        return jsonify({"ok": False, "error": "יש להעלות קובץ ZIP בלבד"}), 400
+
+    try:
+        content_len = int(request.content_length or 0)
+    except Exception:
+        content_len = 0
+    if content_len and content_len > MAX_UPLOAD_SIZE:
+        return (
+            jsonify({"ok": False, "error": f"הקובץ גדול מדי (מקסימום {MAX_UPLOAD_SIZE // (1024*1024)}MB)"}),
+            413,
+        )
+
+    try:
+        zip_bytes = uploaded.stream.read(MAX_UPLOAD_SIZE + 1)
+    except Exception:
+        zip_bytes = uploaded.read(MAX_UPLOAD_SIZE + 1)
+    if len(zip_bytes) > MAX_UPLOAD_SIZE:
+        return (
+            jsonify({"ok": False, "error": f"הקובץ גדול מדי (מקסימום {MAX_UPLOAD_SIZE // (1024*1024)}MB)"}),
+            413,
+        )
+
+    overwrite = request.form.get("overwrite", "false").lower() in ("true", "1", "yes")
+
+    # יצירת restore_id והפעלת ריצה ברקע
+    restore_id = uuid.uuid4().hex[:12]
+    with _restores_lock:
+        _active_restores[restore_id] = {
+            "status": "running",
+            "progress": 0,
+            "step": "מתחיל שחזור...",
+            "result": None,
+            "user_id": user_id,
+        }
+
+    _restore_executor.submit(_run_restore_in_background, restore_id, user_id, zip_bytes, overwrite)
+
+    return jsonify({"ok": True, "restore_id": restore_id})
+
+
+@backup_bp.route("/api/backup/restore-progress/<restore_id>", methods=["GET"])
+@_require_auth
+@traced("backup.restore_progress")
+def restore_progress(restore_id):
+    """מחזיר מצב התקדמות שחזור."""
+    user_id = session["user_id"]
+
+    with _restores_lock:
+        entry = _active_restores.get(restore_id)
+
+    if not entry:
+        return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
+
+    # בדיקת בעלות
+    if str(entry.get("user_id")) != str(user_id):
+        return jsonify({"ok": False, "error": "שחזור לא נמצא"}), 404
+
+    resp = {
+        "ok": True,
+        "status": entry["status"],
+        "progress": entry["progress"],
+        "step": entry["step"],
+    }
+    if entry["status"] in ("done", "error"):
+        resp["result"] = entry["result"]
+        # ניקוי אחרי שהלקוח קרא את התוצאה
+        with _restores_lock:
+            _active_restores.pop(restore_id, None)
+
+    return jsonify(resp)
 

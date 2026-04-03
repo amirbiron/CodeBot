@@ -210,6 +210,106 @@
   </div>
 </div>
 
+<!-- ===== גיבוי אוטומטי ל-Drive ===== -->
+<div class="glass-card" id="drive-backup-section">
+  <h2 class="section-title">
+    <i class="fas fa-cloud-upload-alt"></i>
+    גיבוי אוטומטי ל-Drive
+  </h2>
+  <p style="opacity: 0.7; margin-bottom: 1.5rem">
+    חבר את Google Drive כדי לגבות אוטומטית את כל הנתונים שלך.
+  </p>
+
+  <div id="drive-status-container" style="display: none">
+    <!-- ממולא דינמית -->
+  </div>
+
+  <div id="drive-not-connected" style="display: none">
+    <button class="btn btn-primary" onclick="window.location.href='/api/drive/auth'" style="width: 100%">
+      <i class="fab fa-google-drive"></i>
+      חבר Google Drive
+    </button>
+  </div>
+
+  <div id="drive-connected" style="display: none">
+    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: #4ade80">
+      <i class="fas fa-check-circle"></i>
+      <span id="drive-email-display">מחובר ל-Drive</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start">
+      <div style="flex: 1; min-width: 200px">
+        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">תדירות גיבוי:</label>
+        <select id="drive-schedule-select" onchange="setDriveSchedule(this.value)" class="btn btn-secondary" style="width: 100%; text-align: center">
+          <option value="off">כבוי</option>
+          <option value="daily">יומי</option>
+          <option value="every3">כל 3 ימים</option>
+          <option value="weekly">שבועי</option>
+          <option value="biweekly">דו-שבועי</option>
+          <option value="monthly">חודשי</option>
+        </select>
+      </div>
+      <div style="flex: 1; min-width: 200px">
+        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">&nbsp;</label>
+        <button id="btn-drive-backup-now" class="btn btn-primary" onclick="driveBackupNow()" style="width: 100%">
+          <i class="fas fa-cloud-upload-alt"></i>
+          גבה עכשיו ל-Drive
+        </button>
+      </div>
+    </div>
+
+    <div id="drive-last-backup" style="margin-top: 0.75rem; font-size: 0.85rem; opacity: 0.7; display: none"></div>
+    <div id="drive-backup-status-msg" style="margin-top: 0.75rem; display: none"></div>
+
+    <div style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.75rem">
+      <button class="btn btn-secondary" onclick="disconnectDrive()" style="font-size: 0.85rem; opacity: 0.7">
+        <i class="fas fa-unlink"></i>
+        נתק Drive
+      </button>
+    </div>
+  </div>
+
+  <div id="drive-loading" style="text-align: center; padding: 1rem">
+    <i class="fas fa-spinner fa-spin"></i> טוען...
+  </div>
+</div>
+
+<!-- ===== גיבוי אוטומטי לדיסק ===== -->
+<div class="glass-card" id="disk-backup-section">
+  <h2 class="section-title">
+    <i class="fas fa-hdd"></i>
+    גיבוי אוטומטי לדיסק
+  </h2>
+  <p style="opacity: 0.7; margin-bottom: 1.5rem">
+    גיבוי אוטומטי לדיסק המקומי של השרת. שומר עותקים מקומיים למקרה חירום.
+  </p>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start">
+    <div style="flex: 1; min-width: 200px">
+      <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">תדירות גיבוי:</label>
+      <select id="disk-schedule-select" onchange="setDiskSchedule(this.value)" class="btn btn-secondary" style="width: 100%; text-align: center">
+        <option value="off">כבוי</option>
+        <option value="daily">יומי</option>
+        <option value="every3">כל 3 ימים</option>
+        <option value="weekly">שבועי</option>
+        <option value="biweekly">דו-שבועי</option>
+        <option value="monthly">חודשי</option>
+      </select>
+    </div>
+    <div style="flex: 1; min-width: 200px">
+      <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">&nbsp;</label>
+      <button id="btn-disk-backup-now" class="btn btn-primary" onclick="diskBackupNow()" style="width: 100%">
+        <i class="fas fa-hdd"></i>
+        גבה עכשיו לדיסק
+      </button>
+    </div>
+  </div>
+
+  <div id="disk-last-backup" style="margin-top: 0.75rem; font-size: 0.85rem; opacity: 0.7; display: none"></div>
+  <div id="disk-backup-count" style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.7; display: none"></div>
+  <div id="disk-backup-status-msg" style="margin-top: 0.75rem; display: none"></div>
+</div>
+
 {# Web Push נשאר במערכת. #}
 {% set show_web_push_settings = true %}
 {% if show_web_push_settings %}
@@ -3128,7 +3228,7 @@ async function handleRestoreFile(input) {
   const overwrite = document.getElementById('restore-overwrite').checked;
   const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
 
-  // בדיקת גודל מוקדמת כדי למנוע 413/HTML מהשרת
+  // בדיקת גודל מוקדמת
   try {
     if (typeof file.size === 'number' && file.size > MAX_UPLOAD_SIZE) {
       status.style.display = 'block';
@@ -3138,7 +3238,6 @@ async function handleRestoreFile(input) {
     }
   } catch (_) {}
 
-  // אישור מהמשתמש
   const msg = overwrite
     ? 'שחזור עם עדכון קבצים קיימים (תיווצר גרסה חדשה). להמשיך?'
     : 'שחזור מגיבוי — קבצים קיימים לא ישתנו. להמשיך?';
@@ -3148,44 +3247,82 @@ async function handleRestoreFile(input) {
   }
 
   btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> משחזר...';
-  status.style.display = 'none';
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מעלה קובץ...';
+  status.style.display = 'block';
+  status.innerHTML = '<div style="margin-bottom: 0.5rem"><i class="fas fa-spinner fa-spin"></i> <span id="restore-step">מתחיל שחזור...</span></div>' +
+    '<div style="background: rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; height: 8px">' +
+    '<div id="restore-progress-bar" style="background: linear-gradient(90deg, #818cf8, #6366f1); height: 100%; width: 0%; transition: width 0.5s ease; border-radius: 8px"></div></div>' +
+    '<div id="restore-percent" style="text-align: center; font-size: 0.8rem; margin-top: 0.25rem; opacity: 0.7">0%</div>';
 
   try {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('overwrite', overwrite ? 'true' : 'false');
 
-    const resp = await fetch('/api/backup/restore', {
+    // שלב 1: התחלת שחזור אסינכרוני
+    const startResp = await fetch('/api/backup/restore-async', {
       method: 'POST',
       body: formData,
     });
 
-    // Flask עשוי להחזיר 413 כ-HTML (MAX_CONTENT_LENGTH), לכן לא מניחים JSON תמיד
-    let data = null;
+    let startData = null;
     try {
-      const ct = (resp.headers.get('Content-Type') || '').toLowerCase();
+      const ct = (startResp.headers.get('Content-Type') || '').toLowerCase();
       if (ct.includes('application/json')) {
-        data = await resp.json();
+        startData = await startResp.json();
       } else {
-        const txt = await resp.text();
-        try { data = txt ? JSON.parse(txt) : null; } catch (_) { data = null; }
+        const txt = await startResp.text();
+        try { startData = txt ? JSON.parse(txt) : null; } catch (_) { startData = null; }
       }
-    } catch (_) {
-      data = null;
+    } catch (_) { startData = null; }
+
+    if (!startResp.ok) {
+      if (startResp.status === 413) throw new Error('הקובץ גדול מדי (מקסימום 100MB)');
+      throw new Error((startData && startData.error) ? startData.error : 'שגיאה בהתחלת שחזור');
+    }
+    if (!startData || !startData.ok) {
+      throw new Error((startData && startData.error) ? startData.error : 'שגיאה בהתחלת שחזור');
     }
 
-    if (!resp.ok) {
-      if (resp.status === 413) {
-        throw new Error('הקובץ גדול מדי (מקסימום 100MB)');
+    const restoreId = startData.restore_id;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> משחזר...';
+
+    // שלב 2: polling על התקדמות
+    let done = false;
+    let finalResult = null;
+    while (!done) {
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const progResp = await fetch(`/api/backup/restore-progress/${restoreId}`);
+        const progData = await progResp.json();
+        if (!progData.ok && progData.error === 'שחזור לא נמצא') {
+          throw new Error('השחזור אבד — נסה שנית');
+        }
+        // עדכון progress bar
+        const pct = progData.progress || 0;
+        const step = progData.step || '';
+        const bar = document.getElementById('restore-progress-bar');
+        const pctEl = document.getElementById('restore-percent');
+        const stepEl = document.getElementById('restore-step');
+        if (bar) bar.style.width = pct + '%';
+        if (pctEl) pctEl.textContent = pct + '%';
+        if (stepEl) stepEl.textContent = step;
+
+        if (progData.status === 'done' || progData.status === 'error') {
+          done = true;
+          finalResult = progData.result;
+        }
+      } catch (pollErr) {
+        if (pollErr.message.includes('אבד')) throw pollErr;
+        // network hiccup — continue polling
       }
-      throw new Error((data && data.error) ? data.error : 'שגיאה בשחזור');
-    }
-    if (!data || !data.ok) {
-      throw new Error((data && data.error) ? data.error : 'שגיאה בשחזור');
     }
 
-    const r = data.restored || {};
+    if (!finalResult || !finalResult.ok) {
+      throw new Error((finalResult && finalResult.error) ? finalResult.error : 'שגיאה בשחזור');
+    }
+
+    const r = finalResult.restored || {};
     let summary = '<b>שחזור הושלם:</b><br>';
     if (r.files > 0) summary += `קבצים: ${r.files}<br>`;
     if (r.large_files > 0) summary += `קבצים גדולים: ${r.large_files}<br>`;
@@ -3196,15 +3333,13 @@ async function handleRestoreFile(input) {
     if (r.preferences) summary += `העדפות: שוחזרו<br>`;
     if (r.drive_prefs) summary += `העדפות Drive: שוחזרו<br>`;
 
-    if (data.errors && data.errors.length > 0) {
-      summary += `<br><span style="color: #fbbf24">${data.errors.length} שגיאות (ראה console)</span>`;
-      console.warn('Restore errors:', data.errors);
+    if (finalResult.errors && finalResult.errors.length > 0) {
+      summary += `<br><span style="color: #fbbf24">${finalResult.errors.length} שגיאות (ראה console)</span>`;
+      console.warn('Restore errors:', finalResult.errors);
     }
 
-    status.style.display = 'block';
     status.innerHTML = '<div style="color: #4ade80">' + summary + '</div>';
   } catch (err) {
-    status.style.display = 'block';
     status.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ' + _esc(err.message) + '</span>';
   } finally {
     btn.disabled = false;
@@ -3212,6 +3347,230 @@ async function handleRestoreFile(input) {
     input.value = '';
   }
 }
+
+// ==================== Drive Backup ====================
+
+async function loadDriveStatus() {
+  const loading = document.getElementById('drive-loading');
+  const notConnected = document.getElementById('drive-not-connected');
+  const connected = document.getElementById('drive-connected');
+
+  try {
+    const resp = await fetch('/api/drive/status');
+    const data = await resp.json();
+    if (loading) loading.style.display = 'none';
+
+    if (data.connected) {
+      if (notConnected) notConnected.style.display = 'none';
+      if (connected) connected.style.display = 'block';
+      const emailEl = document.getElementById('drive-email-display');
+      if (emailEl && data.email) emailEl.textContent = `מחובר: ${data.email}`;
+
+      const select = document.getElementById('drive-schedule-select');
+      if (select && data.schedule) select.value = data.schedule;
+
+      if (data.last_backup_at) {
+        const el = document.getElementById('drive-last-backup');
+        if (el) {
+          el.style.display = 'block';
+          try {
+            const d = new Date(data.last_backup_at);
+            el.textContent = `גיבוי אחרון: ${d.toLocaleDateString('he-IL')} ${d.toLocaleTimeString('he-IL')}`;
+          } catch (_) {
+            el.textContent = `גיבוי אחרון: ${data.last_backup_at}`;
+          }
+        }
+      }
+    } else {
+      if (notConnected) notConnected.style.display = 'block';
+      if (connected) connected.style.display = 'none';
+    }
+  } catch (err) {
+    if (loading) loading.style.display = 'none';
+    if (notConnected) notConnected.style.display = 'block';
+  }
+}
+
+async function setDriveSchedule(schedule) {
+  try {
+    const resp = await fetch('/api/drive/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule }),
+    });
+    const data = await resp.json();
+    const msg = document.getElementById('drive-backup-status-msg');
+    if (msg) {
+      msg.style.display = 'block';
+      if (data.ok) {
+        const labels = { off: 'כבוי', daily: 'יומי', every3: 'כל 3 ימים', weekly: 'שבועי', biweekly: 'דו-שבועי', monthly: 'חודשי' };
+        msg.innerHTML = `<span style="color: #4ade80"><i class="fas fa-check-circle"></i> תזמון עודכן: ${labels[schedule] || schedule}</span>`;
+      } else {
+        msg.innerHTML = `<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ${_esc(data.error || 'שגיאה')}</span>`;
+      }
+      setTimeout(() => { msg.style.display = 'none'; }, 4000);
+    }
+  } catch (err) {
+    console.error('setDriveSchedule error:', err);
+  }
+}
+
+async function driveBackupNow() {
+  const btn = document.getElementById('btn-drive-backup-now');
+  const msg = document.getElementById('drive-backup-status-msg');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מגבה...';
+  if (msg) msg.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/drive/backup-now', { method: 'POST' });
+    const data = await resp.json();
+    if (msg) {
+      msg.style.display = 'block';
+      if (data.ok) {
+        msg.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי ל-Drive הושלם בהצלחה</span>';
+        loadDriveStatus(); // רענן תאריך גיבוי אחרון
+      } else {
+        msg.innerHTML = `<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ${_esc(data.error || 'שגיאה')}</span>`;
+      }
+    }
+  } catch (err) {
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> שגיאה בגיבוי</span>';
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
+  }
+}
+
+async function disconnectDrive() {
+  if (!confirm('לנתק את Google Drive? הגיבויים האוטומטיים ייפסקו.')) return;
+  try {
+    await fetch('/api/drive/disconnect', { method: 'POST' });
+    loadDriveStatus();
+  } catch (err) {
+    console.error('disconnectDrive error:', err);
+  }
+}
+
+// ==================== Disk Backup ====================
+
+async function loadDiskStatus() {
+  try {
+    const resp = await fetch('/api/disk-backup/status');
+    const data = await resp.json();
+
+    const select = document.getElementById('disk-schedule-select');
+    if (select && data.schedule) select.value = data.schedule;
+
+    if (data.last_backup_at) {
+      const el = document.getElementById('disk-last-backup');
+      if (el) {
+        el.style.display = 'block';
+        try {
+          const d = new Date(data.last_backup_at);
+          el.textContent = `גיבוי אחרון: ${d.toLocaleDateString('he-IL')} ${d.toLocaleTimeString('he-IL')}`;
+        } catch (_) {
+          el.textContent = `גיבוי אחרון: ${data.last_backup_at}`;
+        }
+      }
+    }
+
+    if (typeof data.count === 'number' && data.count > 0) {
+      const el = document.getElementById('disk-backup-count');
+      if (el) {
+        el.style.display = 'block';
+        const sizeMB = ((data.total_size || 0) / (1024 * 1024)).toFixed(1);
+        el.textContent = `${data.count} גיבויים שמורים (${sizeMB} MB)`;
+      }
+    }
+  } catch (err) {
+    console.error('loadDiskStatus error:', err);
+  }
+}
+
+async function setDiskSchedule(schedule) {
+  try {
+    const resp = await fetch('/api/disk-backup/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schedule }),
+    });
+    const data = await resp.json();
+    const msg = document.getElementById('disk-backup-status-msg');
+    if (msg) {
+      msg.style.display = 'block';
+      if (data.ok) {
+        const labels = { off: 'כבוי', daily: 'יומי', every3: 'כל 3 ימים', weekly: 'שבועי', biweekly: 'דו-שבועי', monthly: 'חודשי' };
+        msg.innerHTML = `<span style="color: #4ade80"><i class="fas fa-check-circle"></i> תזמון עודכן: ${labels[schedule] || schedule}</span>`;
+      } else {
+        msg.innerHTML = `<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ${_esc(data.error || 'שגיאה')}</span>`;
+      }
+      setTimeout(() => { msg.style.display = 'none'; }, 4000);
+    }
+  } catch (err) {
+    console.error('setDiskSchedule error:', err);
+  }
+}
+
+async function diskBackupNow() {
+  const btn = document.getElementById('btn-disk-backup-now');
+  const msg = document.getElementById('disk-backup-status-msg');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מגבה...';
+  if (msg) msg.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/disk-backup/now', { method: 'POST' });
+    const data = await resp.json();
+    if (msg) {
+      msg.style.display = 'block';
+      if (data.ok) {
+        msg.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> הגיבוי לדיסק הושלם בהצלחה</span>';
+        loadDiskStatus();
+      } else {
+        msg.innerHTML = `<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> ${_esc(data.error || 'שגיאה')}</span>`;
+      }
+    }
+  } catch (err) {
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> שגיאה בגיבוי</span>';
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-hdd"></i> גבה עכשיו לדיסק';
+  }
+}
+
+// Load statuses on page load
+document.addEventListener('DOMContentLoaded', function() {
+  loadDriveStatus();
+  loadDiskStatus();
+
+  // בדיקת URL params לאחר OAuth redirect
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('drive_connected') === '1') {
+    const msg = document.getElementById('drive-backup-status-msg');
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML = '<span style="color: #4ade80"><i class="fas fa-check-circle"></i> Google Drive חובר בהצלחה!</span>';
+      setTimeout(() => { msg.style.display = 'none'; }, 5000);
+    }
+    // נקה URL params
+    history.replaceState({}, '', window.location.pathname + '#backup-section');
+  }
+  if (params.get('drive_error')) {
+    const msg = document.getElementById('drive-backup-status-msg');
+    if (msg) {
+      msg.style.display = 'block';
+      msg.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> שגיאה בחיבור Drive: ' + _esc(params.get('drive_error')) + '</span>';
+    }
+    history.replaceState({}, '', window.location.pathname + '#backup-section');
+  }
+});
     </script>
 
     {# Web Push: bind in an isolated script so failures elsewhere won't break it #}

@@ -1629,12 +1629,7 @@ class DatabaseManager:
             name="announcements_is_active_idx",
         )
 
-        # file_bookmarks - אינדקס משולב user_id+file_id לצמצום חיפושים לפי משתמש+קובץ
-        safe_create_index(
-            "file_bookmarks",
-            [("user_id", ASCENDING), ("file_id", ASCENDING)],
-            name="file_bookmarks_user_file_idx",
-        )
+        # file_bookmarks — האינדקס user_id+file_id מנוהל ב-BookmarksManager._ensure_indexes()
 
         # recent_opens - אינדקס משולב user_id+file_name לשליפה מהירה של "נפתח לאחרונה"
         safe_create_index(

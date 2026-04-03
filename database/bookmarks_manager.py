@@ -85,7 +85,7 @@ class BookmarksManager:
                 # אינדקס לחיפוש מהיר לפי משתמש וקובץ
                 IndexModel(
                     [("user_id", ASCENDING), ("file_id", ASCENDING)],
-                    name="user_file_lookup",
+                    name="file_bookmarks_user_file_idx",
                 ),
                 # אינדקס לחיפוש לפי משתמש בלבד
                 IndexModel(

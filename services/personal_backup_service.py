@@ -3,10 +3,11 @@ Personal Backup Service – ייצוא ושחזור גיבוי אישי מלא.
 """
 import json
 import logging
+import time
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +483,7 @@ class PersonalBackupService:
         zip_bytes: bytes,
         *,
         overwrite: bool = False,
+        progress_cb: Optional[Callable[[int, str], None]] = None,
     ) -> Dict[str, Any]:
         """
         משחזר נתוני משתמש מקובץ ZIP.
@@ -490,6 +492,7 @@ class PersonalBackupService:
             user_id: מזהה המשתמש המשחזר
             zip_bytes: תוכן קובץ ה-ZIP
             overwrite: אם True, יוצר גרסה חדשה לקבצים קיימים (ההיסטוריה נשמרת)
+            progress_cb: callback אופציונלי (percent: int, step: str) לדיווח התקדמות
 
         Returns:
             dict עם סיכום: {"ok": bool, "restored": {...}, "errors": [...]}
@@ -567,24 +570,44 @@ class PersonalBackupService:
                 errors.append("שגיאה בקריאת backup_info")
                 backup_info = {}
 
+            def _report(pct: int, step: str):
+                if progress_cb:
+                    try:
+                        progress_cb(pct, step)
+                    except Exception:
+                        pass
+
+            _report(5, "קורא מטאדאטה...")
+
             # 1) שחזור קבצים רגילים
             files_meta = self._read_json_from_zip(zf, "metadata/files.json", errors, budget=budget)
             regular_meta = (
                 files_meta.get("regular_files", []) if isinstance(files_meta, dict) else []
             )
+            _report(10, f"משחזר קבצים (0/{len(regular_meta)})...")
             restored["files"] = self._restore_regular_files(
-                zf, user_id, regular_meta, overwrite, errors, budget=budget
+                zf, user_id, regular_meta, overwrite, errors, budget=budget,
+                progress_cb=lambda done, total: _report(
+                    10 + int(40 * done / max(total, 1)),
+                    f"משחזר קבצים ({done}/{total})...",
+                ),
             )
 
             # 2) שחזור קבצים גדולים
             large_meta = (
                 files_meta.get("large_files", []) if isinstance(files_meta, dict) else []
             )
+            _report(50, f"משחזר קבצים גדולים (0/{len(large_meta)})...")
             restored["large_files"] = self._restore_large_files(
-                zf, user_id, large_meta, overwrite, errors, budget=budget
+                zf, user_id, large_meta, overwrite, errors, budget=budget,
+                progress_cb=lambda done, total: _report(
+                    50 + int(15 * done / max(total, 1)),
+                    f"משחזר קבצים גדולים ({done}/{total})...",
+                ),
             )
 
             # 3) שחזור אוספים
+            _report(65, "משחזר אוספים...")
             collections_data = self._read_json_from_zip(
                 zf, "metadata/collections.json", errors, budget=budget
             )
@@ -594,11 +617,13 @@ class PersonalBackupService:
                 restored["collection_items"] = ci
 
             # 4) שחזור סימניות
+            _report(75, "משחזר סימניות...")
             bookmarks_data = self._read_json_from_zip(zf, "metadata/bookmarks.json", errors, budget=budget)
             if isinstance(bookmarks_data, list):
                 restored["bookmarks"] = self._restore_bookmarks(user_id, bookmarks_data, errors)
 
             # 5) שחזור פתקיות
+            _report(85, "משחזר פתקיות...")
             notes_data = self._read_json_from_zip(
                 zf, "metadata/sticky_notes.json", errors, budget=budget
             )
@@ -608,6 +633,7 @@ class PersonalBackupService:
                 )
 
             # 6) שחזור העדפות
+            _report(92, "משחזר העדפות...")
             prefs_data = self._read_json_from_zip(
                 zf, "metadata/preferences.json", errors, budget=budget
             )
@@ -615,9 +641,12 @@ class PersonalBackupService:
                 restored["preferences"] = self._restore_preferences(user_id, prefs_data, errors)
 
             # 7) שחזור העדפות Drive
+            _report(96, "משחזר העדפות Drive...")
             drive_data = self._read_json_from_zip(zf, "metadata/drive_prefs.json", errors, budget=budget)
             if isinstance(drive_data, dict) and drive_data:
                 restored["drive_prefs"] = self._restore_drive_prefs(user_id, drive_data, errors)
+
+            _report(100, "השחזור הושלם")
 
         emit_event(
             "personal_backup_restore",
@@ -638,6 +667,8 @@ class PersonalBackupService:
         errors: List[str],
         *,
         budget: "_ZipReadBudget",
+        progress_cb: Optional[Callable[[int, int], None]] = None,
+        batch_size: int = 20,
     ) -> int:
         """משחזר קבצי קוד רגילים.
 
@@ -650,7 +681,16 @@ class PersonalBackupService:
         from database.models import CodeSnippet
 
         count = 0
-        for meta in meta_list:
+        total = len(meta_list)
+        for idx, meta in enumerate(meta_list):
+            # דיווח התקדמות + הפוגה בין מנות לתת ל-DB לנשום
+            if progress_cb and idx % batch_size == 0:
+                try:
+                    progress_cb(idx, total)
+                except Exception:
+                    pass
+            if idx > 0 and idx % batch_size == 0:
+                time.sleep(0.05)
             file_name = meta.get("file_name", "")
             if not file_name:
                 continue
@@ -773,6 +813,8 @@ class PersonalBackupService:
         errors: List[str],
         *,
         budget: "_ZipReadBudget",
+        progress_cb: Optional[Callable[[int, int], None]] = None,
+        batch_size: int = 20,
     ) -> int:
         """משחזר קבצים גדולים.
 
@@ -783,7 +825,15 @@ class PersonalBackupService:
         from database.models import LargeFile
 
         count = 0
-        for meta in meta_list:
+        total = len(meta_list)
+        for idx, meta in enumerate(meta_list):
+            if progress_cb and idx % batch_size == 0:
+                try:
+                    progress_cb(idx, total)
+                except Exception:
+                    pass
+            if idx > 0 and idx % batch_size == 0:
+                time.sleep(0.05)
             file_name = meta.get("file_name", "")
             if not file_name:
                 continue

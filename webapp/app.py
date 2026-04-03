@@ -683,6 +683,15 @@ if str(os.getenv("DISABLE_STARTUP_WARMUP", "true")).lower() not in {"1", "true",
     start_background_observability_warmup()
 
 
+# --- Backup Scheduler (auto-backup to Drive & Disk) ---
+try:
+    if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
+        from webapp.backup_scheduler import start_backup_scheduler  # noqa: E402
+        start_backup_scheduler()
+except Exception:
+    pass
+
+
 # --- Observability: Alert Tags indexes warmup (best-effort) ---
 def start_background_alert_tags_indexes() -> None:
     """מנסה להבטיח אינדקסים ל-alert_tags ברקע (לא חוסם את השרת)."""
@@ -1104,6 +1113,20 @@ try:
     app.register_blueprint(backup_bp)
 except Exception:
     # אל תפיל את השרת אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
+# Google Drive Auth (OAuth redirect flow)
+try:
+    from webapp.drive_auth import drive_auth_bp  # noqa: E402
+    app.register_blueprint(drive_auth_bp)
+except Exception:
+    pass
+
+# Drive & Disk Backup API (schedule, trigger, status)
+try:
+    from webapp.drive_backup_api import drive_backup_bp  # noqa: E402
+    app.register_blueprint(drive_backup_bp)
+except Exception:
     pass
 
 # GitHub Webhooks (Repo Sync Engine) - לפי המדריך
