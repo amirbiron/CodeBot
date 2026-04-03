@@ -85,9 +85,12 @@ def drive_auth():
 
 
 @drive_auth_bp.route("/api/drive/callback")
-@_require_auth
 def drive_callback():
     """Google מחזיר authorization code — מחליפים לטוקנים."""
+    # redirect-based auth check — הדפדפן מגיע ישירות, לא AJAX
+    if "user_id" not in session:
+        return _settings_redirect(f"drive_error={_url_encode('session_expired')}")
+
     import requests as req
 
     # CSRF check

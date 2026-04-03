@@ -84,15 +84,18 @@ def _update_restore_progress(restore_id: str, progress: int, step: str) -> None:
 def _complete_restore_job(restore_id: str, status: str, result, step: str) -> None:
     try:
         db = _get_db()
+        update_fields = {
+            "status": status,
+            "result": result,
+            "step": step,
+            "completed_at": datetime.now(timezone.utc),
+        }
+        # בהצלחה: progress = 100. בשגיאה: לא משנים — שומרים על ה-progress שהגיע אליו
+        if status == "done":
+            update_fields["progress"] = 100
         db.db.restore_jobs.update_one(
             {"_id": restore_id},
-            {"$set": {
-                "status": status,
-                "result": result,
-                "step": step,
-                "progress": 100 if status == "done" else 0,
-                "completed_at": datetime.now(timezone.utc),
-            }},
+            {"$set": update_fields},
         )
     except Exception:
         logger.exception("Failed to update restore job %s to status %s", restore_id, status)
