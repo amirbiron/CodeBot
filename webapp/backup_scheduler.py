@@ -128,30 +128,18 @@ def _cleanup_disk_backups(user_id: int, backup_dir: Path):
         logger.exception("Error in disk backup cleanup for user %s", user_id)
 
 
-_SENTINEL_VALUE = "2099-01-01T00:00:00+00:00"
+# TTL ל-sentinel — אחרי כמה זמן claim שלא הושלם פוקע טבעית
+SENTINEL_TTL_SECONDS = int(os.getenv("BACKUP_SENTINEL_TTL", "1800"))  # 30 דקות
 
 
-def _recover_orphaned_sentinels(db):
-    """מאפס sentinels יתומים שנשארו מ-process שקרס.
+def _sentinel_value() -> str:
+    """מחזיר sentinel שפוקע טבעית אחרי SENTINEL_TTL.
 
-    אם schedule_next_at == sentinel, כנראה ה-process קרס אחרי claim
-    ולפני העדכון. מאפסים ל-retry כדי שהגיבוי לא ייתקע לנצח.
+    במקום ערך קבוע "2099", משתמשים ב-now + TTL.
+    אם ה-backup מסתיים — הערך מוחלף בזמן הבא האמיתי.
+    אם ה-process קרס — אחרי TTL הערך הופך ל-$lte now ונתפס מחדש.
     """
-    retry = _retry_next_at()
-    try:
-        db.db.users.update_many(
-            {"drive_prefs.schedule_next_at": _SENTINEL_VALUE},
-            {"$set": {"drive_prefs.schedule_next_at": retry}},
-        )
-    except Exception:
-        logger.exception("Failed to recover orphaned Drive sentinels")
-    try:
-        db.db.users.update_many(
-            {"disk_backup_prefs.schedule_next_at": _SENTINEL_VALUE},
-            {"$set": {"disk_backup_prefs.schedule_next_at": retry}},
-        )
-    except Exception:
-        logger.exception("Failed to recover orphaned Disk sentinels")
+    return (_now_utc() + timedelta(seconds=SENTINEL_TTL_SECONDS)).isoformat()
 
 
 def _scan_and_run():
@@ -168,11 +156,6 @@ def _scan_and_run():
 
     now = _now_utc()
     now_iso = now.isoformat()
-
-    # --- ניקוי sentinels יתומים (process crash recovery) ---
-    # אם sentinel "2099" קיים, כנראה ה-process קרס לפני שעדכן.
-    # מאפסים ל-retry כדי ש-backup לא ייתקע לנצח.
-    _recover_orphaned_sentinels(db)
 
     # --- Drive backups (atomic claim) ---
     try:
@@ -205,7 +188,7 @@ def _scan_drive_backups(db, now_iso: str):
                 ],
             },
             # מזיז את next_at רחוק קדימה (1 שעה) כ-placeholder עד שנחשב את הזמן האמיתי
-            {"$set": {"drive_prefs.schedule_next_at": _SENTINEL_VALUE}},
+            {"$set": {"drive_prefs.schedule_next_at": _sentinel_value()}},
             projection={"user_id": 1, "drive_prefs": 1},
         )
         if not claimed:
@@ -251,7 +234,7 @@ def _scan_disk_backups(db, now_iso: str):
                 "disk_backup_prefs.schedule_key": {"$in": valid_keys},
                 "disk_backup_prefs.schedule_next_at": {"$lte": now_iso, "$ne": None},
             },
-            {"$set": {"disk_backup_prefs.schedule_next_at": _SENTINEL_VALUE}},
+            {"$set": {"disk_backup_prefs.schedule_next_at": _sentinel_value()}},
             projection={"user_id": 1, "disk_backup_prefs": 1},
         )
         if not claimed:
@@ -361,17 +344,12 @@ def start_backup_scheduler():
 # --- פונקציות עזר לגיבוי מיידי (נקראות מה-API) ---
 
 def trigger_drive_backup_now(user_id: int) -> dict:
-    """מבצע גיבוי מיידי ל-Drive."""
+    """מבצע גיבוי מיידי ל-Drive.
+
+    הערה: perform_scheduled_backup כבר מעדכן last_backup_at דרך save_drive_prefs,
+    אז לא מעדכנים שוב כאן כדי להימנע מ-race condition.
+    """
     ok = _perform_drive_backup(user_id)
-    if ok:
-        try:
-            from database import db
-            db.db.users.update_one(
-                {"user_id": int(user_id)},
-                {"$set": {"drive_prefs.last_backup_at": _now_utc().isoformat()}},
-            )
-        except Exception:
-            logger.warning("Failed to update Drive last_backup_at for user %s", user_id)
     return {"ok": ok}
 
 
