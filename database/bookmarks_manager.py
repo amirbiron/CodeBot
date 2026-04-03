@@ -62,6 +62,11 @@ class BookmarksManager:
                 self.collection.drop_index("unique_user_file_anchor")
             except Exception:
                 pass
+            # מחיקת אינדקס ישן שהוחלף בשם חדש
+            try:
+                self.collection.drop_index("user_file_lookup")
+            except Exception:
+                pass
 
             indexes = [
                 # אינדקס ייחודי למניעת כפילויות בשורה
