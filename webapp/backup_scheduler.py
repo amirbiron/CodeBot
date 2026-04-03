@@ -178,6 +178,8 @@ def _scan_drive_backups(db, now_iso: str):
         prefs = claimed.get("drive_prefs") or {}
         schedule_key = _extract_schedule_key(prefs)
         if not uid or not schedule_key:
+            # החזרת sentinel — אחרת הגיבוי תקוע לנצח ב-2099
+            _reset_drive_schedule(db, claimed, prefs, now_iso)
             continue
 
         try:
@@ -225,6 +227,8 @@ def _scan_disk_backups(db, now_iso: str):
         disk_prefs = claimed.get("disk_backup_prefs") or {}
         schedule_key = disk_prefs.get("schedule_key")
         if not uid or not schedule_key or schedule_key not in SCHEDULE_INTERVALS:
+            # החזרת sentinel — אחרת הגיבוי תקוע לנצח ב-2099
+            _reset_disk_schedule(db, claimed, disk_prefs, now_iso)
             continue
 
         try:
@@ -251,6 +255,34 @@ def _scan_disk_backups(db, now_iso: str):
                 )
             except Exception:
                 pass
+
+
+def _reset_drive_schedule(db, claimed: dict, prefs: dict, now_iso: str):
+    """מחזיר schedule_next_at מ-sentinel לערך המקורי (Drive)."""
+    try:
+        uid = claimed.get("user_id")
+        if uid:
+            original = prefs.get("schedule_next_at", now_iso)
+            db.db.users.update_one(
+                {"user_id": uid},
+                {"$set": {"drive_prefs.schedule_next_at": original}},
+            )
+    except Exception:
+        logger.exception("Failed to reset Drive sentinel for user %s", claimed.get("user_id"))
+
+
+def _reset_disk_schedule(db, claimed: dict, disk_prefs: dict, now_iso: str):
+    """מחזיר schedule_next_at מ-sentinel לערך המקורי (Disk)."""
+    try:
+        uid = claimed.get("user_id")
+        if uid:
+            original = disk_prefs.get("schedule_next_at", now_iso)
+            db.db.users.update_one(
+                {"user_id": uid},
+                {"$set": {"disk_backup_prefs.schedule_next_at": original}},
+            )
+    except Exception:
+        logger.exception("Failed to reset Disk sentinel for user %s", claimed.get("user_id"))
 
 
 def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:
