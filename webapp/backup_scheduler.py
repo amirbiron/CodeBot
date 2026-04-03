@@ -196,7 +196,11 @@ def _scan_drive_backups(db, now_iso: str):
 
         uid = claimed.get("user_id")
         prefs = claimed.get("drive_prefs") or {}
-        schedule_key = _extract_schedule_key(prefs)
+        try:
+            schedule_key = _extract_schedule_key(prefs)
+        except Exception:
+            logger.exception("Error extracting schedule key for user %s", uid)
+            schedule_key = None
         if not uid or not schedule_key:
             # החזרת sentinel — אחרת הגיבוי תקוע לנצח ב-2099
             _reset_drive_schedule(db, claimed)
@@ -311,7 +315,7 @@ def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:
     try:
         from handlers.drive.utils import extract_schedule_key
         raw = extract_schedule_key(drive_prefs)
-    except ImportError:
+    except Exception:
         # fallback מקומי — אם ה-import נכשל, בודקים ישירות
         raw = drive_prefs.get("schedule_key") or drive_prefs.get("scheduleKey")
         if not isinstance(raw, str):
