@@ -332,12 +332,30 @@ def start_backup_scheduler():
 def trigger_drive_backup_now(user_id: int) -> dict:
     """מבצע גיבוי מיידי ל-Drive."""
     ok = _perform_drive_backup(user_id)
+    if ok:
+        try:
+            from database import db
+            db.db.users.update_one(
+                {"user_id": int(user_id)},
+                {"$set": {"drive_prefs.last_backup_at": _now_utc().isoformat()}},
+            )
+        except Exception:
+            logger.warning("Failed to update Drive last_backup_at for user %s", user_id)
     return {"ok": ok}
 
 
 def trigger_disk_backup_now(user_id: int) -> dict:
     """מבצע גיבוי מיידי לדיסק."""
     ok = _perform_disk_backup(user_id)
+    if ok:
+        try:
+            from database import db
+            db.db.users.update_one(
+                {"user_id": int(user_id)},
+                {"$set": {"disk_backup_prefs.last_backup_at": _now_utc().isoformat()}},
+            )
+        except Exception:
+            logger.warning("Failed to update Disk last_backup_at for user %s", user_id)
     return {"ok": ok}
 
 

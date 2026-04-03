@@ -77,14 +77,16 @@ def set_drive_schedule():
         else:
             update["schedule_next_at"] = None
 
-        db.save_drive_prefs(int(user_id), update)
-
+        # $set ישיר על שדות ספציפיים — לא read-modify-write שיכול לדרוס sentinel
+        set_fields = {
+            "drive_prefs.schedule_key": schedule,
+            "drive_prefs.schedule_next_at": update["schedule_next_at"],
+        }
+        update_ops = {"$set": set_fields}
         # ניקוי שדות legacy כדי שה-scheduler לא יתפוס משתמש שכיבה schedule
         if schedule == "off":
-            db.db.users.update_one(
-                {"user_id": int(user_id)},
-                {"$unset": {"drive_prefs.schedule": ""}},
-            )
+            update_ops["$unset"] = {"drive_prefs.schedule": ""}
+        db.db.users.update_one({"user_id": int(user_id)}, update_ops)
 
         emit_event("webapp_drive_schedule_set", user_id=int(user_id), schedule=schedule)
         return jsonify({"ok": True, "schedule": schedule})
