@@ -55,7 +55,7 @@ def _cleanup_stale_restores():
     now = time.time()
     with _restores_lock:
         stale = [rid for rid, e in _active_restores.items()
-                 if (now - e.get("created_at", 0) > _RESTORE_MAX_AGE) or
+                 if (e["status"] != "running" and now - e.get("created_at", 0) > _RESTORE_MAX_AGE) or
                     (e.get("fetched_at") and now - e["fetched_at"] > _RESTORE_FETCH_GRACE)]
         for rid in stale:
             _active_restores.pop(rid, None)
