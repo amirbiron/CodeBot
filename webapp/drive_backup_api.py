@@ -35,7 +35,7 @@ _backup_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="backup-
 
 VALID_SCHEDULES = {"daily", "every3", "weekly", "biweekly", "monthly", "off"}
 DISK_BACKUP_DIR = os.getenv("WEBAPP_BACKUPS_DIR", "/var/data/repos/backups")
-_SAFE_BACKUP_NAME = re.compile(r"^webapp_backup_\d+_\d{8}_\d{6}_\d+\.zip$")
+_SAFE_BACKUP_NAME = re.compile(r"^webapp_backup_\d+_\d{8}_\d{6}(_\d+)?\.zip$")
 
 
 def _require_auth(f):
