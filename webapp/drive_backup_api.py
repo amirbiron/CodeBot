@@ -271,8 +271,14 @@ def disk_backup_download(filename):
     if not filename.startswith(expected_prefix):
         return jsonify({"ok": False, "error": "אין הרשאה"}), 403
 
-    filepath = Path(DISK_BACKUP_DIR) / filename
+    backup_dir = Path(DISK_BACKUP_DIR).resolve()
+    filepath = (backup_dir / filename).resolve()
+
+    # Defense-in-depth: וידוא שהנתיב resolved נשאר בתוך תיקיית הגיבויים
+    if not str(filepath).startswith(str(backup_dir) + os.sep):
+        return jsonify({"ok": False, "error": "נתיב לא תקין"}), 400
+
     if not filepath.is_file():
         return jsonify({"ok": False, "error": "קובץ לא נמצא"}), 404
 
-    return send_file(filepath, as_attachment=True, download_name=filename)
+    return send_file(str(filepath), as_attachment=True, download_name=filename)
