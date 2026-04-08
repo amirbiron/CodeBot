@@ -2513,13 +2513,18 @@
     `;
   }
 
+  let _folderEventsController = null;
   function wireFolderEvents(container, collectionId) {
     if (!container) return;
+    // ניקוי handlers קודמים כדי למנוע כפילויות בכל render
+    if (_folderEventsController) _folderEventsController.abort();
+    _folderEventsController = new AbortController();
+    const signal = _folderEventsController.signal;
 
     // כפתור יצירת תיקיה
     const addFolderBtn = container.querySelector('.add-folder-btn');
     if (addFolderBtn) {
-      addFolderBtn.addEventListener('click', () => openCreateFolderDialog(collectionId));
+      addFolderBtn.addEventListener('click', () => openCreateFolderDialog(collectionId), { signal });
     }
 
     // אירועי תיקיות
@@ -2552,7 +2557,7 @@
         ensureCollectionsSidebar();
         return;
       }
-    });
+    }, { signal });
 
     // Drag & drop על תיקיות
     container.querySelectorAll('.collection-folder__header').forEach((header) => {
@@ -2563,13 +2568,13 @@
         ev.preventDefault();
         if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
         folderEl.classList.add('collection-folder--drop-target');
-      });
+      }, { signal });
       header.addEventListener('dragleave', (ev) => {
         // התעלם מ-dragleave כשעוברים בין ילדים של ה-header (כמו ב-sidebar)
         const related = ev.relatedTarget;
         if (related && header.contains(related)) return;
         folderEl.classList.remove('collection-folder--drop-target');
-      });
+      }, { signal });
       header.addEventListener('drop', async (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -2601,7 +2606,7 @@
         } finally {
           clearActiveDragContext();
         }
-      });
+      }, { signal });
     });
 
     // Drop zone על root area
@@ -2612,10 +2617,10 @@
           ev.preventDefault();
           rootCards.classList.add('collection-folder--drop-target');
         }
-      });
+      }, { signal });
       rootCards.addEventListener('dragleave', () => {
         rootCards.classList.remove('collection-folder--drop-target');
-      });
+      }, { signal });
       rootCards.addEventListener('drop', async (ev) => {
         ev.preventDefault();
         rootCards.classList.remove('collection-folder--drop-target');
@@ -2645,7 +2650,7 @@
         } finally {
           clearActiveDragContext();
         }
-      });
+      }, { signal });
     }
   }
 
@@ -3174,7 +3179,7 @@
       // גרירה מהידית וגם מהכרטיס עצמו (ה-article הוא draggable)
       if (handle) handle.addEventListener('dragstart', onDragStart);
       el.addEventListener('dragstart', onDragStart);
-      handle.addEventListener('dragend', async () => {
+      async function onDragEnd() {
         el.classList.remove('dragging');
         if (activeDragContext && activeDragContext.dropInProgress) {
           return;
@@ -3188,7 +3193,9 @@
           folder: x.getAttribute('data-folder')||''
         }));
         try{ await api.reorder(cid, order); } catch(_){ /* ignore */ }
-      });
+      }
+      if (handle) handle.addEventListener('dragend', onDragEnd);
+      el.addEventListener('dragend', onDragEnd);
 
       // --- Fallback לתמיכת מסכי מגע באמצעות Pointer Events ---
       // HTML5 Drag & Drop אינו נתמך היטב במכשירי מגע. נשתמש ב-pointer events כדי לאפשר סידור.
