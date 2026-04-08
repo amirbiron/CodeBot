@@ -262,7 +262,7 @@ def disk_backup_download(filename):
     """הורדת קובץ גיבוי דיסק ספציפי (רק של המשתמש המחובר)."""
     user_id = session["user_id"]
 
-    # וידוא שם קובץ תקין — מונע path traversal
+    # וידוא שם קובץ תקין
     if not _SAFE_BACKUP_NAME.match(filename):
         return jsonify({"ok": False, "error": "שם קובץ לא תקין"}), 400
 
@@ -271,14 +271,12 @@ def disk_backup_download(filename):
     if not filename.startswith(expected_prefix):
         return jsonify({"ok": False, "error": "אין הרשאה"}), 403
 
+    # חיפוש הקובץ מתוך רשימת הגיבויים בפועל — ללא בניית נתיב מ-user input
     backup_dir = Path(DISK_BACKUP_DIR).resolve()
-    filepath = (backup_dir / filename).resolve()
+    safe_glob = f"webapp_backup_{int(user_id)}_*.zip"
+    matched = [p for p in backup_dir.glob(safe_glob) if p.name == filename]
 
-    # Defense-in-depth: וידוא שהנתיב resolved נשאר בתוך תיקיית הגיבויים
-    if not str(filepath).startswith(str(backup_dir) + os.sep):
-        return jsonify({"ok": False, "error": "נתיב לא תקין"}), 400
-
-    if not filepath.is_file():
+    if not matched:
         return jsonify({"ok": False, "error": "קובץ לא נמצא"}), 404
 
-    return send_file(str(filepath), as_attachment=True, download_name=filename)
+    return send_file(str(matched[0]), as_attachment=True, download_name=matched[0].name)
