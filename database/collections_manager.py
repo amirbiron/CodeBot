@@ -181,6 +181,8 @@ class _CollectionDoc:
 class CollectionsManager:
     """מנהל אוספים – CRUD + אינטגרציות בסיסיות לחוקים חכמים."""
 
+    _migration_done: bool = False
+
     def __init__(self, db):
         self.db = db
         self.collections = db.user_collections
@@ -220,20 +222,23 @@ class CollectionsManager:
             ])
         except Exception:
             pass
-        # מיגרציה: הסרת אינדקס ישן (ללא folder) אם קיים
-        try:
-            self.items.drop_index("unique_item")
-        except Exception:
-            pass
-        # מיגרציה: backfill — פריטים קיימים ללא folder יקבלו "" (root)
-        # ב-MongoDB, שדה חסר מאונדקס כ-null שזה שונה מ-"", אז חייבים לעדכן
-        try:
-            self.items.update_many(
-                {"$or": [{"folder": None}, {"folder": {"$exists": False}}]},
-                {"$set": {"folder": ""}},
-            )
-        except Exception:
-            pass
+        # מיגרציה חד-פעמית: רצה רק פעם אחת לכל תהליך
+        if not CollectionsManager._migration_done:
+            CollectionsManager._migration_done = True
+            # הסרת אינדקס ישן (ללא folder) אם קיים
+            try:
+                self.items.drop_index("unique_item")
+            except Exception:
+                pass
+            # backfill — פריטים קיימים ללא folder יקבלו "" (root)
+            # ב-MongoDB, שדה חסר מאונדקס כ-null שזה שונה מ-"", אז חייבים לעדכן
+            try:
+                self.items.update_many(
+                    {"$or": [{"folder": None}, {"folder": {"$exists": False}}]},
+                    {"$set": {"folder": ""}},
+                )
+            except Exception:
+                pass
 
     def ensure_default_collections(self, user_id: int) -> bool:
         """מאבטח יצירה של אוספים מובנים עבור משתמש חדש.
