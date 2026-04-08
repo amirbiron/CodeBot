@@ -221,6 +221,15 @@ class CollectionsManager:
             self.items.drop_index("unique_item")
         except Exception:
             pass
+        # מיגרציה: backfill — פריטים קיימים ללא folder יקבלו "" (root)
+        # ב-MongoDB, שדה חסר מאונדקס כ-null שזה שונה מ-"", אז חייבים לעדכן
+        try:
+            self.items.update_many(
+                {"$or": [{"folder": None}, {"folder": {"$exists": False}}]},
+                {"$set": {"folder": ""}},
+            )
+        except Exception:
+            pass
 
     def ensure_default_collections(self, user_id: int) -> bool:
         """מאבטח יצירה של אוספים מובנים עבור משתמש חדש.
@@ -949,6 +958,34 @@ class CollectionsManager:
             pass
         emit_event("collections_items_add", user_id=int(user_id), collection_id=str(collection_id), count=int(added_count))
         return {"ok": True, "added": int(added_count), "updated": int(updated_count)}
+
+    def move_item_folder(
+        self, user_id: int, collection_id: str,
+        source: str, file_name: str,
+        old_folder: str, new_folder: str,
+    ) -> Dict[str, Any]:
+        """העברת פריט מתיקיה אחת לאחרת, תוך שמירה על כל המטאדאטה."""
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+        source = str(source or "regular").lower()
+        file_name = str(file_name or "").strip()
+        if not file_name:
+            return {"ok": False, "error": "file_name חסר"}
+        old_f = self._normalize_folder(old_folder)
+        new_f = self._normalize_folder(new_folder)
+        if old_f == new_f:
+            return {"ok": True, "moved": 0}
+        try:
+            res = self.items.update_one(
+                {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": old_f},
+                {"$set": {"folder": new_f, "updated_at": _now()}},
+            )
+            matched = int(getattr(res, "matched_count", 0) or 0)
+            return {"ok": True, "moved": matched}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     def remove_items(self, user_id: int, collection_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         try:

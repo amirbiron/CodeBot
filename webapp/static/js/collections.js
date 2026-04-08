@@ -77,6 +77,10 @@
       const r = await fetch(`/api/collections/${encodeURIComponent(collectionId)}/folders/reorder`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order})});
       return r.json();
     },
+    async moveItemFolder(collectionId, payload){
+      const r = await fetch(`/api/collections/${encodeURIComponent(collectionId)}/items/move-folder`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      return r.json();
+    },
     async updateWorkspaceState(itemId, state){
       const r = await fetch(`/api/workspace/items/${encodeURIComponent(itemId)}/state`, {
         method: 'PATCH',
@@ -2455,11 +2459,9 @@
 
     let html = '';
 
-    // קבצים ב-root
-    if (rootItems.length > 0) {
-      const cardsHtml = rootItems.map(renderCollectionCard).join('');
-      html += `<div class="collection-cards stagger-feed" data-folder="">${cardsHtml}</div>`;
-    }
+    // קבצים ב-root — תמיד מרנדרים את ה-container כדי שיהיה drop zone גם כשריק
+    const rootCardsHtml = rootItems.map(renderCollectionCard).join('');
+    html += `<div class="collection-cards stagger-feed" data-folder="">${rootCardsHtml}</div>`;
 
     // תיקיות - לפי סדר ה-folders metadata
     const sortedFolders = (folders || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -2575,22 +2577,17 @@
         if (!dragData || !dragData.file_name) return;
         const sourceFolder = String(dragData.folder || '');
         if (sourceFolder === targetFolder) return; // כבר באותה תיקיה
-        // הוסף לתיקיה היעד
-        const addRes = await api.addItems(collectionId, [{
+        // העברה עם שמירת מטאדאטה (note, tags, pinned וכו')
+        const moveRes = await api.moveItemFolder(collectionId, {
           source: dragData.source || 'regular',
           file_name: dragData.file_name,
-          folder: targetFolder,
-        }]);
-        if (!addRes || !addRes.ok) {
-          alert((addRes && addRes.error) || 'שגיאה בהעברת קובץ');
+          old_folder: sourceFolder,
+          new_folder: targetFolder,
+        });
+        if (!moveRes || !moveRes.ok) {
+          alert((moveRes && moveRes.error) || 'שגיאה בהעברת קובץ');
           return;
         }
-        // הסר מתיקיית המקור
-        await api.removeItems(collectionId, [{
-          source: dragData.source || 'regular',
-          file_name: dragData.file_name,
-          folder: sourceFolder,
-        }]);
         await renderCollectionItems(collectionId);
       });
     });
@@ -2619,20 +2616,17 @@
         if (!dragData || !dragData.file_name) return;
         const sourceFolder = String(dragData.folder || '');
         if (!sourceFolder) return; // כבר ב-root
-        const addRes = await api.addItems(collectionId, [{
+        // העברה ל-root עם שמירת מטאדאטה
+        const moveRes = await api.moveItemFolder(collectionId, {
           source: dragData.source || 'regular',
           file_name: dragData.file_name,
-          folder: '',
-        }]);
-        if (!addRes || !addRes.ok) {
-          alert((addRes && addRes.error) || 'שגיאה בהעברת קובץ');
+          old_folder: sourceFolder,
+          new_folder: '',
+        });
+        if (!moveRes || !moveRes.ok) {
+          alert((moveRes && moveRes.error) || 'שגיאה בהעברת קובץ');
           return;
         }
-        await api.removeItems(collectionId, [{
-          source: dragData.source || 'regular',
-          file_name: dragData.file_name,
-          folder: sourceFolder,
-        }]);
         await renderCollectionItems(collectionId);
       });
     }

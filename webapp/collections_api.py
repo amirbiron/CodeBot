@@ -841,6 +841,41 @@ def reorder_folders(collection_id: str):
         return jsonify({'ok': False, 'error': 'שגיאה בסידור תיקיות'}), 500
 
 
+@collections_bp.route('/<collection_id>/items/move-folder', methods=['PUT'])
+@require_auth
+@traced("collections.item_move_folder")
+def move_item_folder(collection_id: str):
+    """העברת פריט מתיקיה לתיקיה, תוך שמירה על מטאדאטה. Body: {source, file_name, old_folder, new_folder}"""
+    try:
+        user_id = int(session['user_id'])
+        data = request.get_json(silent=True) or {}
+        source = data.get('source', 'regular')
+        file_name = data.get('file_name', '')
+        old_folder = data.get('old_folder', '')
+        new_folder = data.get('new_folder', '')
+        if not file_name:
+            return jsonify({'ok': False, 'error': 'file_name חסר'}), 400
+        mgr = get_manager()
+        result = mgr.move_item_folder(user_id, collection_id, source, file_name, old_folder, new_folder)
+        if result.get('ok'):
+            try:
+                uid = str(user_id)
+                cache.delete_pattern(f"collections_detail:{uid}:-api-collections-{collection_id}*")
+                cache.delete_pattern(f"collections_items:{uid}:-api-collections-{collection_id}-items*")
+                cache.delete_pattern(f"collections_list:{uid}:*")
+            except Exception:
+                pass
+        return jsonify(result)
+    except Exception as e:
+        rid = _get_request_id()
+        try:
+            emit_event("collections_item_move_folder_error", severity="anomaly", operation="collections.item_move_folder", handled=True, request_id=rid, collection_id=str(collection_id), error=str(e))
+        except Exception:
+            pass
+        logger.error("Error moving item folder: %s", e)
+        return jsonify({'ok': False, 'error': 'שגיאה בהעברת פריט'}), 500
+
+
 @collections_bp.route('/items/<item_id>/tags', methods=['PATCH'])
 @require_auth
 @traced("collections.items_tags_update")
