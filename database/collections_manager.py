@@ -986,10 +986,23 @@ class CollectionsManager:
             matched = int(getattr(res, "matched_count", 0) or 0)
             return {"ok": True, "moved": matched}
         except DuplicateKeyError:
-            # הפריט כבר קיים בתיקיית היעד – מוחקים את המקור
-            self.items.delete_one(
+            # הפריט כבר קיים בתיקיית היעד – ממזגים מטא-דאטה ומוחקים את המקור
+            src = self.items.find_one(
                 {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": old_f},
             )
+            if src:
+                merge: dict = {}
+                for field in ("note", "tags", "pinned", "workspace_state"):
+                    val = src.get(field)
+                    if val:
+                        merge[field] = val
+                if merge:
+                    merge["updated_at"] = _now()
+                    self.items.update_one(
+                        {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": new_f},
+                        {"$set": merge},
+                    )
+                self.items.delete_one({"_id": src["_id"]})
             return {"ok": True, "moved": 1}
         except Exception as e:
             logger.error("move_item_folder error: %s", e)
@@ -1352,13 +1365,10 @@ class CollectionsManager:
                 out_items = computed
             else:  # mixed
                 seen: set[Tuple[str, str]] = set()
-                # שמור סדר: pinned > custom_order > updated_at > file_name
-                # dedup לפי (source, file_name) בלבד — computed items לא מכילים folder,
-                # אז אם הקובץ כבר קיים ידנית (בכל תיקיה) אין צורך בעותק מחושב.
+                # כל הפריטים הידניים נכנסים — אותו קובץ יכול להופיע בתיקיות שונות.
+                # ה-seen משמש רק לסנן computed כפולים של פריטים ידניים.
                 for m in manual_list:
                     key = (str(m.get("source") or "regular"), str(m.get("file_name") or ""))
-                    if key in seen:
-                        continue
                     seen.add(key)
                     out_items.append(m)
                 for c in computed:
