@@ -137,6 +137,7 @@ ALLOWED_FOLDER_ICONS: List[str] = [
     "📁", "📂", "📘", "🎨", "🧩", "🐛", "⚙️", "📝", "🧪", "💡",
     "⭐", "🔖", "🚀", "🖥️", "💼", "📦", "⚡", "🤖", "🧰", "📜",
 ]
+RESERVED_FOLDER_NAMES: set = {"reorder"}
 WORKSPACE_STATES: Tuple[str, ...] = ("todo", "in_progress", "done")
 DEFAULT_WORKSPACE_STATE: str = WORKSPACE_STATES[0]
 
@@ -329,6 +330,8 @@ class CollectionsManager:
         name = name.strip()
         if len(name) < 1 or len(name) > FOLDER_NAME_MAX_LEN:
             return False, f"folder name must be 1..{FOLDER_NAME_MAX_LEN} characters"
+        if name.lower() in RESERVED_FOLDER_NAMES:
+            return False, "שם תיקיה שמור ולא ניתן לשימוש"
         return True, None
 
     def _normalize_folder(self, folder: Any) -> str:
@@ -1303,16 +1306,18 @@ class CollectionsManager:
             elif mode == "smart":
                 out_items = computed
             else:  # mixed
-                seen: set[Tuple[str, str, str]] = set()
+                seen: set[Tuple[str, str]] = set()
                 # שמור סדר: pinned > custom_order > updated_at > file_name
+                # dedup לפי (source, file_name) בלבד — computed items לא מכילים folder,
+                # אז אם הקובץ כבר קיים ידנית (בכל תיקיה) אין צורך בעותק מחושב.
                 for m in manual_list:
-                    key = (str(m.get("source") or "regular"), str(m.get("file_name") or ""), str(m.get("folder") or ""))
+                    key = (str(m.get("source") or "regular"), str(m.get("file_name") or ""))
                     if key in seen:
                         continue
                     seen.add(key)
                     out_items.append(m)
                 for c in computed:
-                    key = (str(c.get("source") or "regular"), str(c.get("file_name") or ""), str(c.get("folder") or ""))
+                    key = (str(c.get("source") or "regular"), str(c.get("file_name") or ""))
                     if key in seen:
                         continue
                     seen.add(key)

@@ -3166,8 +3166,9 @@
           return;
         }
         clearActiveDragContext();
-        // שליחת סדר חדש לשרת - support both old and new card classes
-        const order = Array.from(container.querySelectorAll('.collection-card, .collection-item')).map(x => ({
+        // שליחת סדר חדש לשרת — אוספים מכל ה-sections (root + תיקיות) כדי לא לאבד פריטים
+        const allContainer = container.closest('#collectionItems') || container;
+        const order = Array.from(allContainer.querySelectorAll('.collection-cards .collection-card, .collection-cards .collection-item')).map(x => ({
           source: x.getAttribute('data-source')||'regular',
           file_name: x.getAttribute('data-name')||'',
           folder: x.getAttribute('data-folder')||''
@@ -3248,10 +3249,12 @@
 
             clearActiveDragContext();
 
-            // שליחת סדר חדש לשרת - support both old and new card classes
-            const order = Array.from(container.querySelectorAll('.collection-card, .collection-item')).map(x => ({
+            // שליחת סדר חדש לשרת — אוספים מכל ה-sections (root + תיקיות)
+            const allCont = container.closest('#collectionItems') || container;
+            const order = Array.from(allCont.querySelectorAll('.collection-cards .collection-card, .collection-cards .collection-item')).map(x => ({
               source: x.getAttribute('data-source')||'regular',
-              file_name: x.getAttribute('data-name')||''
+              file_name: x.getAttribute('data-name')||'',
+              folder: x.getAttribute('data-folder')||''
             }));
             try { await api.reorder(cid, order); } catch(_){ /* ignore */ }
           };
