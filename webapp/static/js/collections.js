@@ -1705,7 +1705,8 @@
     setSidebarDropHover(targetBtn || sidebarHoverBtn, 'hover');
     const stopBusy = withSidebarDropBusy(targetBtn || sidebarHoverBtn);
     try {
-      const addRes = await api.addItems(targetCollectionId, [payload]);
+      const crossPayload = Object.assign({}, payload, {folder: ''});
+      const addRes = await api.addItems(targetCollectionId, [crossPayload]);
       if (!addRes || !addRes.ok) {
         throw new Error((addRes && addRes.error) || 'שגיאה בהעברת הפריט');
       }

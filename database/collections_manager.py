@@ -1003,6 +1003,7 @@ class CollectionsManager:
                         {"$set": merge},
                     )
                 self.items.delete_one({"_id": src["_id"]})
+                self._refresh_collection_counts(cid, int(user_id))
             return {"ok": True, "moved": 1}
         except Exception as e:
             logger.error("move_item_folder error: %s", e)
