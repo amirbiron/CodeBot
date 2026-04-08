@@ -2559,16 +2559,20 @@
       const folderEl = header.closest('.collection-folder');
       if (!folderEl) return;
       const targetFolder = folderEl.getAttribute('data-folder') || '';
-
       header.addEventListener('dragover', (ev) => {
         ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
         folderEl.classList.add('collection-folder--drop-target');
       });
-      header.addEventListener('dragleave', () => {
+      header.addEventListener('dragleave', (ev) => {
+        // התעלם מ-dragleave כשעוברים בין ילדים של ה-header (כמו ב-sidebar)
+        const related = ev.relatedTarget;
+        if (related && header.contains(related)) return;
         folderEl.classList.remove('collection-folder--drop-target');
       });
       header.addEventListener('drop', async (ev) => {
         ev.preventDefault();
+        ev.stopPropagation();
         folderEl.classList.remove('collection-folder--drop-target');
         let dragData;
         try {
@@ -2791,7 +2795,7 @@
     const pinnedClass = item.pinned ? ' collection-card--pinned' : '';
     const folderAttr = String(item.folder || '');
     return `
-      <article class="collection-card${pinnedClass}" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(fileName)}" data-folder="${escapeHtml(folderAttr)}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(item.file_id || '')}" data-pinned="${item.pinned ? '1' : '0'}">
+      <article class="collection-card${pinnedClass}" draggable="true" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(fileName)}" data-folder="${escapeHtml(folderAttr)}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(item.file_id || '')}" data-pinned="${item.pinned ? '1' : '0'}">
         <div class="collection-card__top">
           ${selectBox}
           <span class="collection-card__drag" draggable="true">⋮⋮</span>
@@ -3150,9 +3154,8 @@
     // Support both old .collection-item and new .collection-card classes
     container.querySelectorAll('.collection-card, .collection-item').forEach(el => {
       const handle = el.querySelector('.collection-card__drag') || el.querySelector('.drag');
-      if (!handle) return;
-      // גרירה מותרת רק מהידית כדי לא לחסום לחיצות על שם הקובץ
-      handle.addEventListener('dragstart', (event) => {
+      // פונקציית drag משותפת לידית ולכרטיס
+      function onDragStart(event) {
         dragEl = el;
         el.classList.add('dragging');
         beginCollectionItemDrag(el, cid, container, 'html');
@@ -3167,7 +3170,10 @@
             event.dataTransfer.setData('text/plain', dragPayload);
           } catch (_err) {}
         }
-      });
+      }
+      // גרירה מהידית וגם מהכרטיס עצמו (ה-article הוא draggable)
+      if (handle) handle.addEventListener('dragstart', onDragStart);
+      el.addEventListener('dragstart', onDragStart);
       handle.addEventListener('dragend', async () => {
         el.classList.remove('dragging');
         if (activeDragContext && activeDragContext.dropInProgress) {
