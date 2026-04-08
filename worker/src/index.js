@@ -70,7 +70,7 @@ export default {
       }
 
       // Send the notification
-      const resp = await webpush.sendNotification(
+      await webpush.sendNotification(
         subscription,
         JSON.stringify(payload),
         {
@@ -81,52 +81,10 @@ export default {
         }
       );
 
-      // IMPORTANT: In some runtimes, non-2xx responses may not throw.
-      // Treat non-2xx as failure and propagate back to server for cleanup/diagnosis.
-      try {
-        const st =
-          (resp && typeof resp.statusCode === "number" ? resp.statusCode : 0) ||
-          (resp && typeof resp.status === "number" ? resp.status : 0) ||
-          0;
-        if (st && (st < 200 || st >= 300)) {
-          let details = "";
-          try {
-            // web-push (Node) returns { statusCode, body, headers }.
-            // In some runtimes it may return a fetch Response-like object.
-            if (resp && typeof resp.body === "string") {
-              details = resp.body || "";
-            } else if (resp && typeof resp.text === "function") {
-              details = (await resp.text()) || "";
-            } else {
-              details = "";
-            }
-          } catch (_) {
-            details = "";
-          }
-          console.error("push_error", {
-            endpoint_hash: endpointHash,
-            status: st,
-            error: details ? details.slice(0, 300) : "non_2xx",
-          });
-          return json(
-            {
-              ok: false,
-              status: st,
-              error: "upstream_error",
-              details: details ? details.slice(0, 300) : "",
-            },
-            200
-          );
-        }
-      } catch (_) {}
-
       console.log(JSON.stringify({ 
         event: "push_sent", 
         endpoint_hash: endpointHash,
-        status:
-          (resp && typeof resp.statusCode === "number" ? resp.statusCode : 0) ||
-          (resp && typeof resp.status === "number" ? resp.status : 0) ||
-          201
+        status: 201 
       }));
 
       return json({ ok: true });
