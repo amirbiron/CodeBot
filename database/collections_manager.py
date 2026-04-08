@@ -1010,16 +1010,19 @@ class CollectionsManager:
                 {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": old_f},
             )
             if src:
+                dst = self.items.find_one(
+                    {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": new_f},
+                )
                 merge: dict = {}
-                # מעתיקים רק ערכים משמעותיים מהמקור — לא דורסים מטא-דאטה קיים ביעד
-                if src.get("note"):
+                # מעתיקים רק ערכים משמעותיים מהמקור שחסרים ביעד
+                if src.get("note") and not (dst and dst.get("note")):
                     merge["note"] = src["note"]
-                if src.get("tags"):
+                if src.get("tags") and not (dst and dst.get("tags")):
                     merge["tags"] = src["tags"]
-                if src.get("pinned") is True:
+                if src.get("pinned") is True and not (dst and dst.get("pinned")):
                     merge["pinned"] = True
                 ws = src.get("workspace_state")
-                if ws and isinstance(ws, str) and ws != "none":
+                if ws and isinstance(ws, str) and ws != "none" and not (dst and dst.get("workspace_state") and dst["workspace_state"] != "none"):
                     merge["workspace_state"] = ws
                 if merge:
                     merge["updated_at"] = _now()
