@@ -60,15 +60,34 @@ def _retry_next_at() -> str:
 
 
 def _perform_drive_backup(user_id: int) -> bool:
-    """מבצע גיבוי ל-Drive עבור משתמש."""
+    """מבצע גיבוי מלא אישי ל-Drive (קבצים, אוספים, סימניות, הגדרות)."""
     try:
-        from services.google_drive_service import perform_scheduled_backup
-        result = perform_scheduled_backup(user_id)
-        if result.ok:
-            logger.info("Drive backup completed for user %s (uploaded=%d)", user_id, result.uploaded)
+        from services.personal_backup_service import PersonalBackupService
+        from services.google_drive_service import upload_bytes
+        from database import db
+
+        service = PersonalBackupService(db)
+        buffer = service.export_user_data(int(user_id))
+        zip_bytes = buffer.getvalue()
+
+        ts = _now_utc().strftime("%Y%m%d_%H%M%S")
+        filename = f"codebot_full_backup_{user_id}_{ts}.zip"
+
+        file_id = upload_bytes(int(user_id), filename, zip_bytes)
+        if file_id:
+            logger.info("Drive full backup uploaded for user %s (%d bytes)", user_id, len(zip_bytes))
+            # עדכון last_backup_at — best-effort, כשל DB לא אמור לגרום לretry ושכפול גיבוי
+            try:
+                db.db.users.update_one(
+                    {"user_id": int(user_id)},
+                    {"$set": {"drive_prefs.last_backup_at": _now_utc().isoformat()}},
+                )
+            except Exception:
+                pass
+            return True
         else:
-            logger.warning("Drive backup failed for user %s", user_id)
-        return result.ok
+            logger.warning("Drive full backup upload failed for user %s", user_id)
+            return False
     except Exception:
         logger.exception("Drive backup error for user %s", user_id)
         return False
