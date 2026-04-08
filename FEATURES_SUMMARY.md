@@ -1,8 +1,8 @@
 # מסמך מסכם - כל הפיצ'רים של CodeBot
 
 > תיעוד מקיף של כל התכונות והיכולות של הבוט וה-Web App
-> תאריך עדכון: ינואר 2026
-> גרסה: 2.1.0
+> תאריך עדכון: פברואר 2026
+> גרסה: 2.2.0
 
 ---
 
@@ -2578,7 +2578,44 @@ docker-compose up -d
 ✅ **DevOps מקצועי (Docker, CI/CD, Monitoring)**
 ✅ **תיעוד מקיף ובדיקות**
 
-### 🆕 תכונות חדשות בגרסה 2.1 (ינואר 2026)
+### 🆕 תכונות חדשות בגרסה 2.2 (פברואר 2026)
+
+#### תכונות WebApp חדשות:
+
+**חיפוש ודפדפן קוד:**
+- 🧠 **Semantic Code Search** - חיפוש סמנטי בקוד מבוסס AI - מאפשר חיפוש לפי משמעות התוכן
+- 🔀 **Multi-Repo Browser** - דפדפן ריפויים מרובים ב-GitHub עם מעבר חלק בין repos
+- 📖 **Repository Markdown Preview** - תצוגה מקדימה של קבצי Markdown בתוך דפדפן הריפו
+
+**אוספים (Collections):**
+- 🎴 **Collection Cards Redesign** - עיצוב מחדש של כרטיסי אוספים בסגנון Workspace
+- 📄 **Collection Document Viewer** - צופה מסמכים של קולקשיינים ב-MongoDB
+- 🏷️ **Collection File Tagging** - מערכת תיוג קבצים באוספים לארגון משופר
+
+**PWA ושיתוף:**
+- 📲 **PWA Code Sharing** - שיתוף קוד ישירות מאפליקציית PWA לאפליקציות אחרות
+
+#### תכונות בוט חדשות:
+
+**ניטור והתראות:**
+- 🔧 **Bot Operational Failures Handling** - טיפול משופר בכשלים תפעוליים
+- 🤖 **Manual Repo Response** - תגובת בוט ידנית לריפו
+
+**שיפורי גיבוי:**
+- 🔄 **Drive Backup Recovery** - שחזור גיבוי Google Drive אחרי שגיאת 401
+
+#### תיקוני באגים ושיפורים:
+
+- 🎯 **Collection Item Mobile Display** - תיקון תצוגת פריטי אוספים במובייל
+- 📊 **Dashboard Database Errors** - תיקון שגיאות מסד נתונים בדשבורד
+- 🎨 **UI Color Mapping** - מיפוי צבעי ממשק משופר
+- 📏 **Reduced Scrollbar Width** - רוחב פס גלילה מופחת
+- 📦 **Large Files in ZIP Export** - הכללת קבצים גדולים בייצוא ZIP
+- ⚡ **HTML ETag Revalidation** - שיפור ביצועי מטמון HTML
+
+---
+
+### תכונות מגרסה 2.1 (ינואר 2026)
 
 #### תכונות WebApp חדשות:
 
@@ -2672,8 +2709,8 @@ docker-compose up -d
 ---
 
 **נוצר ב-:** נובמבר 2025
-**עודכן לאחרונה:** ינואר 2026
-**גרסה:** 2.1.0
+**עודכן לאחרונה:** פברואר 2026
+**גרסה:** 2.2.0
 **Repository:** [github.com/amirbiron/CodeBot](https://github.com/amirbiron/CodeBot)
 **רישיון:** MIT
 
