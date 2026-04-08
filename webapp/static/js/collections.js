@@ -3350,10 +3350,12 @@
 
             clearActiveDragContext();
 
-            // Support both old and new card classes
-            const order = Array.from(container.querySelectorAll('.collection-card, .collection-item')).map(x => ({
+            // שליחת סדר חדש לשרת — אוספים מכל ה-sections (root + תיקיות)
+            const allCont2 = container.closest('#collectionItems') || container;
+            const order = Array.from(allCont2.querySelectorAll('.collection-cards .collection-card, .collection-cards .collection-item')).map(x => ({
               source: x.getAttribute('data-source')||'regular',
-              file_name: x.getAttribute('data-name')||''
+              file_name: x.getAttribute('data-name')||'',
+              folder: x.getAttribute('data-folder')||''
             }));
             try { await api.reorder(cid, order); } catch(_){ /* ignore */ }
           };
