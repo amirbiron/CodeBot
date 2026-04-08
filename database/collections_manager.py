@@ -985,7 +985,8 @@ class CollectionsManager:
             matched = int(getattr(res, "matched_count", 0) or 0)
             return {"ok": True, "moved": matched}
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            logger.error("move_item_folder error: %s", e)
+            return {"ok": False, "error": "שגיאה בהעברת פריט"}
 
     def remove_items(self, user_id: int, collection_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         try:
