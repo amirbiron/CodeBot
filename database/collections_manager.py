@@ -994,7 +994,7 @@ class CollectionsManager:
                 merge: dict = {}
                 for field in ("note", "tags", "pinned", "workspace_state"):
                     val = src.get(field)
-                    if val:
+                    if val is not None:
                         merge[field] = val
                 if merge:
                     merge["updated_at"] = _now()
