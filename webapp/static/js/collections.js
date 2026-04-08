@@ -2868,11 +2868,12 @@
       const source = card.getAttribute('data-source') || 'regular';
       const name = card.getAttribute('data-name') || '';
       const itemId = card.getAttribute('data-item-id') || '';
+      const folder = card.getAttribute('data-folder') || '';
 
       const removeBtn = ev.target.closest('.remove');
       if (removeBtn) {
         if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
-        const res = await api.removeItems(ctx.collectionId, [{ source, file_name: name }]);
+        const res = await api.removeItems(ctx.collectionId, [{ source, file_name: name, folder }]);
         if (!res || !res.ok) {
           alert((res && res.error) || 'שגיאה במחיקה');
           return;
