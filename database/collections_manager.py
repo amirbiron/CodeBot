@@ -464,11 +464,14 @@ class CollectionsManager:
                         {"$set": {"folder": new_name, "updated_at": _now()}},
                     )
                 except Exception:
-                    # fallback: עדכון אחד אחד
+                    # fallback: עדכון אחד אחד — ממשיכים גם אם פריט בודד נכשל
                     try:
                         items_to_update = list(self.items.find({"collection_id": cid, "user_id": int(user_id), "folder": old_name}))
                         for it in items_to_update:
-                            self.items.update_one({"_id": it["_id"]}, {"$set": {"folder": new_name, "updated_at": _now()}})
+                            try:
+                                self.items.update_one({"_id": it["_id"]}, {"$set": {"folder": new_name, "updated_at": _now()}})
+                            except Exception:
+                                pass
                     except Exception:
                         pass
             emit_event("collections_folder_rename", user_id=int(user_id), collection_id=str(collection_id), old_name=old_name, new_name=new_name)

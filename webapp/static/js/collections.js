@@ -2570,8 +2570,6 @@
       header.addEventListener('drop', async (ev) => {
         ev.preventDefault();
         folderEl.classList.remove('collection-folder--drop-target');
-        // סימון שה-drop בוצע כדי שה-dragend לא ישלח reorder מיותר
-        if (activeDragContext) activeDragContext.dropInProgress = true;
         let dragData;
         try {
           dragData = JSON.parse(ev.dataTransfer.getData('text/plain'));
@@ -2581,6 +2579,8 @@
         if (!dragData || !dragData.file_name) return;
         const sourceFolder = String(dragData.folder || '');
         if (sourceFolder === targetFolder) return; // כבר באותה תיקיה
+        // סימון שה-drop בוצע כדי שה-dragend לא ישלח reorder מיותר
+        if (activeDragContext) activeDragContext.dropInProgress = true;
         // העברה עם שמירת מטאדאטה (note, tags, pinned וכו')
         const moveRes = await api.moveItemFolder(collectionId, {
           source: dragData.source || 'regular',
@@ -2611,7 +2611,6 @@
       rootCards.addEventListener('drop', async (ev) => {
         ev.preventDefault();
         rootCards.classList.remove('collection-folder--drop-target');
-        if (activeDragContext) activeDragContext.dropInProgress = true;
         let dragData;
         try {
           dragData = JSON.parse(ev.dataTransfer.getData('text/plain'));
@@ -2621,6 +2620,7 @@
         if (!dragData || !dragData.file_name) return;
         const sourceFolder = String(dragData.folder || '');
         if (!sourceFolder) return; // כבר ב-root
+        if (activeDragContext) activeDragContext.dropInProgress = true;
         // העברה ל-root עם שמירת מטאדאטה
         const moveRes = await api.moveItemFolder(collectionId, {
           source: dragData.source || 'regular',
