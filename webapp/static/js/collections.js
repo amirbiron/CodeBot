@@ -60,6 +60,23 @@
       });
       return r.json();
     },
+    // --- Folder API ---
+    async createFolder(collectionId, payload){
+      const r = await fetch(`/api/collections/${encodeURIComponent(collectionId)}/folders`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{})});
+      return r.json();
+    },
+    async updateFolder(collectionId, folderName, payload){
+      const r = await fetch(`/api/collections/${encodeURIComponent(collectionId)}/folders/${encodeURIComponent(folderName)}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{})});
+      return r.json();
+    },
+    async deleteFolder(collectionId, folderName){
+      const r = await fetch(`/api/collections/${encodeURIComponent(collectionId)}/folders/${encodeURIComponent(folderName)}`, {method:'DELETE'});
+      return r.json();
+    },
+    async reorderFolders(collectionId, order){
+      const r = await fetch(`/api/collections/${encodeURIComponent(collectionId)}/folders/reorder`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order})});
+      return r.json();
+    },
     async updateWorkspaceState(itemId, state){
       const r = await fetch(`/api/workspace/items/${encodeURIComponent(itemId)}/state`, {
         method: 'PATCH',
@@ -86,6 +103,11 @@
     "📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀",
     "🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️",
     "🛒","📦","⚡","📢","🤖","💬","📨","🔔","🧰","🎵","🎥","📤","📥","📜","🪄"
+  ];
+
+  const ALLOWED_FOLDER_ICONS = [
+    "📁","📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡",
+    "⭐","🔖","🚀","🖥️","💼","📦","⚡","🤖","🧰","📜"
   ];
 
   /**
@@ -1548,6 +1570,7 @@
     const payload = {
       source: row.getAttribute('data-source') || 'regular',
       file_name: fileName,
+      folder: row.getAttribute('data-folder') || '',
     };
     const tags = collectTagsFromElement(row);
     if (tags && tags.length) {
@@ -1682,7 +1705,7 @@
       if (!addRes || !addRes.ok) {
         throw new Error((addRes && addRes.error) || 'שגיאה בהעברת הפריט');
       }
-      const removeRes = await api.removeItems(ctx.collectionId, [{ source: ctx.payload.source || 'regular', file_name: ctx.payload.file_name }]);
+      const removeRes = await api.removeItems(ctx.collectionId, [{ source: ctx.payload.source || 'regular', file_name: ctx.payload.file_name, folder: ctx.payload.folder || '' }]);
       if (!removeRes || !removeRes.ok) {
         throw new Error((removeRes && removeRes.error) || 'שגיאה בהעברת הפריט');
       }
@@ -1832,6 +1855,7 @@
           </button>
         </div>
         <div class="actions">
+          <button class="btn btn-secondary add-folder-btn" title="תיקיה חדשה">📁 תיקיה חדשה</button>
           <button class="btn btn-secondary rename">שנה שם</button>
           <button class="btn btn-danger delete">מחק</button>
         </div>
@@ -1841,17 +1865,22 @@
       const boardHtml = buildWorkspaceBoardHtml(displayItems);
       container.innerHTML = `${headerHtml}${tagsToolbarHtml}${boardHtml}`;
     } else {
-      // Use card layout for regular collections (similar to workspace cards but without kanban columns)
-      const itemsHtml = displayItems.map(renderCollectionCard).join('');
+      // קיבוץ פריטים לפי תיקיה
+      const folders = Array.isArray(col.folders) ? col.folders : [];
+      const folderItemsHtml = buildFolderGroupedHtml(displayItems, folders, collectionId);
       const loadMoreHtml = (lastCollectionItems.length < lastCollectionTotal)
         ? '<div class="collection-load-more"><button type="button" class="btn btn-secondary load-more">טען עוד</button></div>'
         : '';
-      container.innerHTML = `${headerHtml}${tagsToolbarHtml}<div class="collection-cards stagger-feed" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>${loadMoreHtml}`;
+      container.innerHTML = `${headerHtml}${tagsToolbarHtml}<div id="collectionItems">${folderItemsHtml || '<div class="empty">אין פריטים</div>'}</div>${loadMoreHtml}`;
     }
 
     setBulkMode(container, isBulkMode);
     if (TAGS_FEATURE_ENABLED && TAGS_TOOLBAR_ENABLED) {
       wireTagsToolbar(container, collectionId);
+    }
+    // חיבור אירועי תיקיות (לא ב-workspace)
+    if (!isWorkspace) {
+      wireFolderEvents(container, collectionId);
     }
 
     const iconBtn = container.querySelector('.collection-icon-btn');
@@ -1963,7 +1992,10 @@
       autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
     } else {
       itemsContainer = container.querySelector('#collectionItems');
-      wireDnd(itemsContainer, collectionId);
+      // Wire DnD on each card section (root + each folder)
+      itemsContainer.querySelectorAll('.collection-cards').forEach(section => {
+        wireDnd(section, collectionId);
+      });
       // Auto fit text for both old and new card styles
       autoFitText('#collectionItems .collection-card__name', { minPx: 12, maxPx: 16, allowWrap: true });
       autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
@@ -2021,11 +2053,12 @@
         }
         const source = row.getAttribute('data-source') || 'regular';
         const name = row.getAttribute('data-name') || '';
+        const folder = row.getAttribute('data-folder') || '';
 
         const rm = ev.target.closest('.remove');
         if (rm) {
           if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
-          const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
+          const res = await api.removeItems(collectionId, [{ source, file_name: name, folder }]);
           if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
           await removeElementWithAnimation(row);
           if (!itemsContainer.querySelector('.collection-card') && !itemsContainer.querySelector('.collection-item')) {
@@ -2404,6 +2437,333 @@
    * @param {Object} item - The collection item to render
    * @returns {string} HTML string for the card
    */
+  // --- Folder rendering ---
+
+  function buildFolderGroupedHtml(items, folders, collectionId) {
+    // הפרדת פריטים: root vs תיקיות
+    const rootItems = [];
+    const folderMap = {}; // folderName -> [items]
+    for (const item of items) {
+      const f = String(item.folder || '').trim();
+      if (!f) {
+        rootItems.push(item);
+      } else {
+        if (!folderMap[f]) folderMap[f] = [];
+        folderMap[f].push(item);
+      }
+    }
+
+    let html = '';
+
+    // קבצים ב-root
+    if (rootItems.length > 0) {
+      const cardsHtml = rootItems.map(renderCollectionCard).join('');
+      html += `<div class="collection-cards stagger-feed" data-folder="">${cardsHtml}</div>`;
+    }
+
+    // תיקיות - לפי סדר ה-folders metadata
+    const sortedFolders = (folders || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const renderedFolders = new Set();
+
+    for (const folderMeta of sortedFolders) {
+      const name = String(folderMeta.name || '').trim();
+      if (!name) continue;
+      renderedFolders.add(name);
+      const folderItems = folderMap[name] || [];
+      html += renderFolderSection(name, folderMeta.icon || '📁', folderItems, collectionId);
+    }
+
+    // תיקיות שיש להן פריטים אבל לא הוגדרו ב-metadata (backward compat)
+    for (const [name, fItems] of Object.entries(folderMap)) {
+      if (renderedFolders.has(name)) continue;
+      html += renderFolderSection(name, '📁', fItems, collectionId);
+    }
+
+    // אם אין פריטים בכלל ואין root
+    if (!html) {
+      html = '<div class="empty">אין פריטים</div>';
+    }
+
+    return html;
+  }
+
+  function renderFolderSection(folderName, icon, items, collectionId) {
+    const cardsHtml = items.length > 0
+      ? items.map(renderCollectionCard).join('')
+      : '<div class="collection-folder--empty">התיקיה ריקה</div>';
+    return `
+      <details class="collection-folder" open data-folder="${escapeHtml(folderName)}" data-collection-id="${escapeHtml(collectionId)}">
+        <summary class="collection-folder__header">
+          <span class="collection-folder__icon">${escapeHtml(icon)}</span>
+          <span class="collection-folder__name">${escapeHtml(folderName)}</span>
+          <span class="collection-folder__count">${items.length}</span>
+          <div class="collection-folder__actions">
+            <button type="button" class="rename-folder" title="שנה שם תיקיה">✏️</button>
+            <button type="button" class="delete-folder" title="מחק תיקיה">✕</button>
+          </div>
+        </summary>
+        <div class="collection-folder__items">
+          <div class="collection-cards stagger-feed" data-folder="${escapeHtml(folderName)}">${cardsHtml}</div>
+        </div>
+      </details>
+    `;
+  }
+
+  function wireFolderEvents(container, collectionId) {
+    if (!container) return;
+
+    // כפתור יצירת תיקיה
+    const addFolderBtn = container.querySelector('.add-folder-btn');
+    if (addFolderBtn) {
+      addFolderBtn.addEventListener('click', () => openCreateFolderDialog(collectionId));
+    }
+
+    // אירועי תיקיות
+    container.addEventListener('click', async (ev) => {
+      const folderEl = ev.target.closest('.collection-folder');
+      if (!folderEl) return;
+      const folderName = folderEl.getAttribute('data-folder') || '';
+
+      // שינוי שם תיקיה
+      const renameBtn = ev.target.closest('.rename-folder');
+      if (renameBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        startFolderInlineRename(folderEl, collectionId, folderName);
+        return;
+      }
+
+      // מחיקת תיקיה
+      const deleteBtn = ev.target.closest('.delete-folder');
+      if (deleteBtn) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (!confirm(`למחוק את התיקיה "${folderName}"? הקבצים יועברו לרמה הראשית.`)) return;
+        const res = await api.deleteFolder(collectionId, folderName);
+        if (!res || !res.ok) {
+          alert((res && res.error) || 'שגיאה במחיקת תיקיה');
+          return;
+        }
+        await renderCollectionItems(collectionId);
+        ensureCollectionsSidebar();
+        return;
+      }
+    });
+
+    // Drag & drop על תיקיות
+    container.querySelectorAll('.collection-folder__header').forEach((header) => {
+      const folderEl = header.closest('.collection-folder');
+      if (!folderEl) return;
+      const targetFolder = folderEl.getAttribute('data-folder') || '';
+
+      header.addEventListener('dragover', (ev) => {
+        ev.preventDefault();
+        folderEl.classList.add('collection-folder--drop-target');
+      });
+      header.addEventListener('dragleave', () => {
+        folderEl.classList.remove('collection-folder--drop-target');
+      });
+      header.addEventListener('drop', async (ev) => {
+        ev.preventDefault();
+        folderEl.classList.remove('collection-folder--drop-target');
+        let dragData;
+        try {
+          dragData = JSON.parse(ev.dataTransfer.getData('text/plain'));
+        } catch (_e) {
+          return;
+        }
+        if (!dragData || !dragData.file_name) return;
+        const sourceFolder = String(dragData.folder || '');
+        if (sourceFolder === targetFolder) return; // כבר באותה תיקיה
+        // הוסף לתיקיה היעד
+        const addRes = await api.addItems(collectionId, [{
+          source: dragData.source || 'regular',
+          file_name: dragData.file_name,
+          folder: targetFolder,
+        }]);
+        if (!addRes || !addRes.ok) {
+          alert((addRes && addRes.error) || 'שגיאה בהעברת קובץ');
+          return;
+        }
+        // הסר מתיקיית המקור
+        await api.removeItems(collectionId, [{
+          source: dragData.source || 'regular',
+          file_name: dragData.file_name,
+          folder: sourceFolder,
+        }]);
+        await renderCollectionItems(collectionId);
+      });
+    });
+
+    // Drop zone על root area
+    const rootCards = container.querySelector('.collection-cards[data-folder=""]');
+    if (rootCards) {
+      rootCards.addEventListener('dragover', (ev) => {
+        if (ev.dataTransfer.types.includes('text/plain')) {
+          ev.preventDefault();
+          rootCards.classList.add('collection-folder--drop-target');
+        }
+      });
+      rootCards.addEventListener('dragleave', () => {
+        rootCards.classList.remove('collection-folder--drop-target');
+      });
+      rootCards.addEventListener('drop', async (ev) => {
+        ev.preventDefault();
+        rootCards.classList.remove('collection-folder--drop-target');
+        let dragData;
+        try {
+          dragData = JSON.parse(ev.dataTransfer.getData('text/plain'));
+        } catch (_e) {
+          return;
+        }
+        if (!dragData || !dragData.file_name) return;
+        const sourceFolder = String(dragData.folder || '');
+        if (!sourceFolder) return; // כבר ב-root
+        const addRes = await api.addItems(collectionId, [{
+          source: dragData.source || 'regular',
+          file_name: dragData.file_name,
+          folder: '',
+        }]);
+        if (!addRes || !addRes.ok) {
+          alert((addRes && addRes.error) || 'שגיאה בהעברת קובץ');
+          return;
+        }
+        await api.removeItems(collectionId, [{
+          source: dragData.source || 'regular',
+          file_name: dragData.file_name,
+          folder: sourceFolder,
+        }]);
+        await renderCollectionItems(collectionId);
+      });
+    }
+  }
+
+  function startFolderInlineRename(folderEl, collectionId, oldName) {
+    const nameSpan = folderEl.querySelector('.collection-folder__name');
+    if (!nameSpan) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'collection-folder__name-input';
+    input.value = oldName;
+    input.maxLength = 60;
+    nameSpan.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const finish = async () => {
+      const newName = input.value.trim();
+      if (!newName || newName === oldName) {
+        // ביטול
+        const span = document.createElement('span');
+        span.className = 'collection-folder__name';
+        span.textContent = oldName;
+        input.replaceWith(span);
+        return;
+      }
+      const res = await api.updateFolder(collectionId, oldName, { name: newName });
+      if (!res || !res.ok) {
+        alert((res && res.error) || 'שגיאה בשינוי שם תיקיה');
+        const span = document.createElement('span');
+        span.className = 'collection-folder__name';
+        span.textContent = oldName;
+        input.replaceWith(span);
+        return;
+      }
+      await renderCollectionItems(collectionId);
+    };
+
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+      if (ev.key === 'Escape') { input.value = oldName; input.blur(); }
+    });
+  }
+
+  function openCreateFolderDialog(collectionId) {
+    if (document.querySelector('.collection-modal[data-modal="create-folder"]')) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'collection-modal';
+    overlay.setAttribute('data-modal', 'create-folder');
+    overlay.innerHTML = `
+      <div class="collection-modal__backdrop"></div>
+      <div class="collection-modal__panel" role="dialog" aria-modal="true">
+        <h3 class="collection-modal__title">תיקיה חדשה</h3>
+        <div class="collection-modal__field">
+          <label for="folderNameInput">שם התיקיה</label>
+          <input id="folderNameInput" type="text" maxlength="60" placeholder="לדוגמה: Frontend">
+        </div>
+        <div class="collection-modal__field">
+          <label>בחר אייקון</label>
+          <div class="icon-grid">${buildFolderIconGridHtml('📁')}</div>
+        </div>
+        <div class="collection-modal__error" aria-live="polite"></div>
+        <div class="collection-modal__actions">
+          <button type="button" class="btn btn-secondary cancel">בטל</button>
+          <button type="button" class="btn btn-primary confirm">צור</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const nameInput = overlay.querySelector('#folderNameInput');
+    const iconGrid = overlay.querySelector('.icon-grid');
+    const errorBox = overlay.querySelector('.collection-modal__error');
+    const cancelBtn = overlay.querySelector('.cancel');
+    const confirmBtn = overlay.querySelector('.confirm');
+    const backdrop = overlay.querySelector('.collection-modal__backdrop');
+    let selectedIcon = '📁';
+
+    if (iconGrid) {
+      iconGrid.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.icon-option');
+        if (!btn) return;
+        selectedIcon = btn.getAttribute('data-icon') || '📁';
+        iconGrid.querySelectorAll('.icon-option').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    }
+
+    const close = () => overlay.remove();
+    if (backdrop) backdrop.addEventListener('click', close);
+    if (cancelBtn) cancelBtn.addEventListener('click', close);
+
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', async () => {
+        const name = (nameInput ? nameInput.value : '').trim();
+        if (!name) {
+          if (errorBox) errorBox.textContent = 'יש להזין שם לתיקיה';
+          return;
+        }
+        confirmBtn.disabled = true;
+        const res = await api.createFolder(collectionId, { name, icon: selectedIcon });
+        confirmBtn.disabled = false;
+        if (!res || !res.ok) {
+          if (errorBox) errorBox.textContent = (res && res.error) || 'שגיאה ביצירת תיקיה';
+          return;
+        }
+        close();
+        await renderCollectionItems(collectionId);
+      });
+    }
+
+    if (nameInput) {
+      nameInput.focus();
+      nameInput.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && confirmBtn) confirmBtn.click();
+        if (ev.key === 'Escape') close();
+      });
+    }
+  }
+
+  function buildFolderIconGridHtml(selected) {
+    const current = ALLOWED_FOLDER_ICONS.includes(selected) ? selected : '📁';
+    return ALLOWED_FOLDER_ICONS.map(icon => {
+      const isActive = icon === current;
+      const cls = `icon-option${isActive ? ' active' : ''}`;
+      return `<button type="button" class="${cls}" data-icon="${escapeHtml(icon)}">${escapeHtml(icon)}</button>`;
+    }).join('');
+  }
+
   function renderCollectionCard(item){
     const rawItemId = item.id || item._id || '';
     const itemId = String(rawItemId || '');
@@ -2422,8 +2782,9 @@
       ? `<input type="checkbox" class="item-select" data-item-id="${escapeHtml(itemId)}" aria-label="בחר פריט">`
       : '';
     const pinnedClass = item.pinned ? ' collection-card--pinned' : '';
+    const folderAttr = String(item.folder || '');
     return `
-      <article class="collection-card${pinnedClass}" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(fileName)}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(item.file_id || '')}" data-pinned="${item.pinned ? '1' : '0'}">
+      <article class="collection-card${pinnedClass}" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(fileName)}" data-folder="${escapeHtml(folderAttr)}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(item.file_id || '')}" data-pinned="${item.pinned ? '1' : '0'}">
         <div class="collection-card__top">
           ${selectBox}
           <span class="collection-card__drag" draggable="true">⋮⋮</span>
@@ -2790,7 +3151,12 @@
         if (event && event.dataTransfer) {
           event.dataTransfer.effectAllowed = 'move';
           try {
-            event.dataTransfer.setData('text/plain', el.getAttribute('data-name') || '');
+            const dragPayload = JSON.stringify({
+              source: el.getAttribute('data-source') || 'regular',
+              file_name: el.getAttribute('data-name') || '',
+              folder: el.getAttribute('data-folder') || '',
+            });
+            event.dataTransfer.setData('text/plain', dragPayload);
           } catch (_err) {}
         }
       });
@@ -2803,7 +3169,8 @@
         // שליחת סדר חדש לשרת - support both old and new card classes
         const order = Array.from(container.querySelectorAll('.collection-card, .collection-item')).map(x => ({
           source: x.getAttribute('data-source')||'regular',
-          file_name: x.getAttribute('data-name')||''
+          file_name: x.getAttribute('data-name')||'',
+          folder: x.getAttribute('data-folder')||''
         }));
         try{ await api.reorder(cid, order); } catch(_){ /* ignore */ }
       });

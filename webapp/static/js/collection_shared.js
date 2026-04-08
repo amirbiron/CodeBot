@@ -163,6 +163,42 @@
     });
   }
 
+  function renderSharedItemHtml(item) {
+    const name = item && item.file_name ? item.file_name : item && item.name ? item.name : '';
+    const note = item && item.note ? String(item.note) : '';
+    const pinned = item && item.pinned;
+    const share = item && item.share ? item.share : {};
+    const badges = pinned ? '<span class="shared-item-badge">📌 מוצמד</span>' : '';
+    const canSave = !!(share && share.file_id);
+    const languageLabel = share.language ? `שפה: ${escapeHtml(share.language)}` : '';
+    const metaParts = [];
+    if (share.size_label) {
+      metaParts.push(`גודל: ${escapeHtml(share.size_label)}`);
+    }
+    if (Number.isFinite(share.lines_count)) {
+      metaParts.push(`${Number(share.lines_count)} שורות`);
+    }
+    const metaHtml = metaParts.length ? `<div class="shared-item-meta">${metaParts.join(' · ')}</div>` : '';
+    return `
+      <li class="shared-collection-item" tabindex="0" data-file-id="${escapeHtml(share.file_id || '')}" data-view-url="${escapeHtml(share.view_url || '')}" data-download-url="${escapeHtml(share.download_url || '')}">
+        <div class="shared-item-row">
+          <span class="shared-item-name">${escapeHtml(name || 'ללא שם')}</span>
+          <div class="shared-item-actions">
+            ${languageLabel ? `<div class="shared-item-actions-meta">${languageLabel}</div>` : ''}
+            <div class="shared-item-actions-buttons">
+              ${share.view_url ? '<button type="button" class="shared-item-action" data-action="view">👁️ הצג</button>' : ''}
+              ${share.download_url ? '<button type="button" class="shared-item-action" data-action="download">📥 הורד</button>' : ''}
+              ${canSave ? '<button type="button" class="shared-item-action" data-action="save">💾 שמור</button>' : ''}
+              ${badges}
+            </div>
+          </div>
+        </div>
+        ${note ? `<div class="shared-item-note">${escapeHtml(note)}</div>` : ''}
+        ${metaHtml}
+      </li>
+    `;
+  }
+
   function renderItems(items){
     currentItems = Array.isArray(items) ? items : [];
     if (!itemsContainer) return;
@@ -179,41 +215,46 @@
         return false;
       }
     });
-    const html = currentItems.map((item) => {
-      const name = item && item.file_name ? item.file_name : item && item.name ? item.name : '';
-      const note = item && item.note ? String(item.note) : '';
-      const pinned = item && item.pinned;
-      const share = item && item.share ? item.share : {};
-      const badges = pinned ? '<span class="shared-item-badge">📌 מוצמד</span>' : '';
-      const canSave = !!(share && share.file_id);
-      const languageLabel = share.language ? `שפה: ${escapeHtml(share.language)}` : '';
-      const metaParts = [];
-      if (share.size_label) {
-        metaParts.push(`גודל: ${escapeHtml(share.size_label)}`);
+
+    // קיבוץ לפי תיקיות
+    const rootItems = [];
+    const folderMap = {};
+    for (const item of currentItems) {
+      const folder = String((item && item.folder) || '').trim();
+      if (!folder) {
+        rootItems.push(item);
+      } else {
+        if (!folderMap[folder]) folderMap[folder] = [];
+        folderMap[folder].push(item);
       }
-      if (Number.isFinite(share.lines_count)) {
-        metaParts.push(`${Number(share.lines_count)} שורות`);
-      }
-      const metaHtml = metaParts.length ? `<div class="shared-item-meta">${metaParts.join(' · ')}</div>` : '';
-      return `
-        <li class="shared-collection-item" tabindex="0" data-file-id="${escapeHtml(share.file_id || '')}" data-view-url="${escapeHtml(share.view_url || '')}" data-download-url="${escapeHtml(share.download_url || '')}">
-          <div class="shared-item-row">
-            <span class="shared-item-name">${escapeHtml(name || 'ללא שם')}</span>
-            <div class="shared-item-actions">
-              ${languageLabel ? `<div class="shared-item-actions-meta">${languageLabel}</div>` : ''}
-              <div class="shared-item-actions-buttons">
-                ${share.view_url ? '<button type="button" class="shared-item-action" data-action="view">👁️ הצג</button>' : ''}
-                ${share.download_url ? '<button type="button" class="shared-item-action" data-action="download">📥 הורד</button>' : ''}
-                ${canSave ? '<button type="button" class="shared-item-action" data-action="save">💾 שמור</button>' : ''}
-                ${badges}
-              </div>
+    }
+
+    let html = '';
+    // Root items
+    if (rootItems.length > 0) {
+      html += rootItems.map(renderSharedItemHtml).join('');
+    }
+    // Folder sections
+    const folderNames = Object.keys(folderMap).sort();
+    for (const folderName of folderNames) {
+      const folderItems = folderMap[folderName];
+      const folderHtml = folderItems.map(renderSharedItemHtml).join('');
+      html += `
+        <li class="shared-collection-folder">
+          <details class="collection-folder" open>
+            <summary class="collection-folder__header">
+              <span class="collection-folder__icon">📁</span>
+              <span class="collection-folder__name">${escapeHtml(folderName)}</span>
+              <span class="collection-folder__count">${folderItems.length}</span>
+            </summary>
+            <div class="collection-folder__items">
+              <ul class="shared-collection-list">${folderHtml}</ul>
             </div>
-          </div>
-          ${note ? `<div class="shared-item-note">${escapeHtml(note)}</div>` : ''}
-          ${metaHtml}
+          </details>
         </li>
       `;
-    }).join('');
+    }
+
     itemsContainer.innerHTML = `<ul class="shared-collection-list">${html}</ul>`;
     markActiveItem(activeFileId);
     updateSaveAllButton(hasSavableItems);
