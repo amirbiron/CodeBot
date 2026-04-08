@@ -306,6 +306,11 @@
   <div id="disk-last-backup" style="margin-top: 0.75rem; font-size: 0.85rem; opacity: 0.7; display: none"></div>
   <div id="disk-backup-count" style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.7; display: none"></div>
   <div id="disk-backup-status-msg" style="margin-top: 0.75rem; display: none"></div>
+
+  <div id="disk-backup-list" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.75rem; display: none">
+    <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem; opacity: 0.8">גיבויים שמורים:</label>
+    <div id="disk-backup-items"></div>
+  </div>
 </div>
 
 {# Web Push נשאר במערכת. #}
@@ -3522,6 +3527,28 @@ async function loadDiskStatus() {
         const sizeMB = ((data.total_size || 0) / (1024 * 1024)).toFixed(1);
         el.textContent = `${data.count} גיבויים שמורים (${sizeMB} MB)`;
       }
+    }
+
+    // רשימת גיבויים להורדה
+    const listEl = document.getElementById('disk-backup-list');
+    const itemsEl = document.getElementById('disk-backup-items');
+    if (listEl && itemsEl && data.backups && data.backups.length > 0) {
+      listEl.style.display = 'block';
+      itemsEl.innerHTML = data.backups.map(function(b) {
+        const sizeMB = (b.size / (1024 * 1024)).toFixed(1);
+        let dateStr = '';
+        try {
+          const d = new Date(b.created_at);
+          dateStr = d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL');
+        } catch (_) { dateStr = b.created_at; }
+        return '<div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(255,255,255,0.05)">'
+          + '<span style="font-size: 0.85rem; opacity: 0.8">' + _esc(dateStr) + ' (' + sizeMB + ' MB)</span>'
+          + '<a href="/api/disk-backup/download/' + encodeURIComponent(b.name) + '" class="btn btn-secondary" style="font-size: 0.8rem; padding: 0.25rem 0.6rem">'
+          + '<i class="fas fa-download"></i> הורד</a>'
+          + '</div>';
+      }).join('');
+    } else if (listEl) {
+      listEl.style.display = 'none';
     }
   } catch (err) {
     console.error('loadDiskStatus error:', err);

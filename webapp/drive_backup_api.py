@@ -12,11 +12,14 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import wraps
+from pathlib import Path
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, send_file, session
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,8 @@ drive_backup_bp = Blueprint("drive_backup", __name__)
 _backup_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="backup-trigger")
 
 VALID_SCHEDULES = {"daily", "every3", "weekly", "biweekly", "monthly", "off"}
+DISK_BACKUP_DIR = os.getenv("WEBAPP_BACKUPS_DIR", "/var/data/repos/backups")
+_SAFE_BACKUP_NAME = re.compile(r"^webapp_backup_\d+_\d{8}_\d{6}(_\d+)?\.zip$")
 
 
 def _require_auth(f):
@@ -249,3 +254,29 @@ def disk_backup_status():
     except Exception as e:
         logger.exception("Error getting Disk backup status")
         return jsonify({"ok": True, "schedule": "off", "count": 0})
+
+
+@drive_backup_bp.route("/api/disk-backup/download/<filename>")
+@_require_auth
+def disk_backup_download(filename):
+    """הורדת קובץ גיבוי דיסק ספציפי (רק של המשתמש המחובר)."""
+    user_id = session["user_id"]
+
+    # וידוא שם קובץ תקין
+    if not _SAFE_BACKUP_NAME.match(filename):
+        return jsonify({"ok": False, "error": "שם קובץ לא תקין"}), 400
+
+    # וידוא שהקובץ שייך למשתמש הנוכחי
+    expected_prefix = f"webapp_backup_{int(user_id)}_"
+    if not filename.startswith(expected_prefix):
+        return jsonify({"ok": False, "error": "אין הרשאה"}), 403
+
+    # חיפוש הקובץ מתוך רשימת הגיבויים בפועל — ללא בניית נתיב מ-user input
+    backup_dir = Path(DISK_BACKUP_DIR).resolve()
+    safe_glob = f"webapp_backup_{int(user_id)}_*.zip"
+    matched = [p for p in backup_dir.glob(safe_glob) if p.name == filename]
+
+    if not matched:
+        return jsonify({"ok": False, "error": "קובץ לא נמצא"}), 404
+
+    return send_file(str(matched[0]), as_attachment=True, download_name=matched[0].name)
