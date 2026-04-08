@@ -37,6 +37,7 @@ except Exception:  # pragma: no cover
 
 try:
     from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
+    from pymongo.errors import DuplicateKeyError  # type: ignore
 except Exception:  # pragma: no cover
     ASCENDING = 1  # type: ignore
     DESCENDING = -1  # type: ignore
@@ -984,6 +985,12 @@ class CollectionsManager:
             )
             matched = int(getattr(res, "matched_count", 0) or 0)
             return {"ok": True, "moved": matched}
+        except DuplicateKeyError:
+            # הפריט כבר קיים בתיקיית היעד – מוחקים את המקור
+            self.items.delete_one(
+                {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": old_f},
+            )
+            return {"ok": True, "moved": 1}
         except Exception as e:
             logger.error("move_item_folder error: %s", e)
             return {"ok": False, "error": "שגיאה בהעברת פריט"}
