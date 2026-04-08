@@ -45,13 +45,21 @@ class RulesStorage:
 
     def _ensure_indexes(self) -> None:
         """יצירת אינדקסים נדרשים."""
-        try:
-            self._collection.create_index("rule_id", unique=True)
-            self._collection.create_index("enabled")
-            self._collection.create_index("metadata.tags")
-            self._collection.create_index("created_by")
-        except Exception as e:
-            logger.error(f"Failed to create indexes: {e}")
+        indexes = [
+            {"keys": "rule_id", "unique": True, "name": "rule_id_unique"},
+            {"keys": "enabled", "unique": False, "name": "visual_rules_enabled_idx"},
+            {"keys": "metadata.tags", "unique": False, "name": "metadata_tags_idx"},
+            {"keys": "created_by", "unique": False, "name": "created_by_idx"},
+        ]
+        for idx in indexes:
+            try:
+                self._collection.create_index(idx["keys"], unique=idx["unique"], name=idx["name"])
+            except Exception as e:
+                code = getattr(e, "code", None)
+                if code in (85, 86):
+                    logger.debug("Index already exists (name conflict), skipping %s: %s", idx["name"], e)
+                else:
+                    logger.error("Failed to create index %s: %s", idx["name"], e)
 
     def save_rule(self, rule: Dict[str, Any]) -> str:
         """שומר או מעדכן כלל (sync)."""

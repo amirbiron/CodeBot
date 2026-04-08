@@ -2803,7 +2803,7 @@
       <article class="collection-card${pinnedClass}" draggable="true" data-item-id="${escapeHtml(itemId)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(fileName)}" data-folder="${escapeHtml(folderAttr)}" data-tags="${escapeHtml(tagsAttr)}" data-file-id="${escapeHtml(item.file_id || '')}" data-pinned="${item.pinned ? '1' : '0'}">
         <div class="collection-card__top">
           ${selectBox}
-          <span class="collection-card__drag" draggable="true">⋮⋮</span>
+          <span class="collection-card__drag">⋮⋮</span>
           <div class="collection-card__body">
             <div class="collection-card__name">
               <a class="collection-card__link" href="#" draggable="false" data-open="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a>
@@ -3176,8 +3176,7 @@
           } catch (_err) {}
         }
       }
-      // גרירה מהידית וגם מהכרטיס עצמו (ה-article הוא draggable)
-      if (handle) handle.addEventListener('dragstart', onDragStart);
+      // הכרטיס (article) הוא draggable — listener אחד בלבד כדי למנוע double-fire
       el.addEventListener('dragstart', onDragStart);
       async function onDragEnd() {
         el.classList.remove('dragging');
@@ -3194,7 +3193,6 @@
         }));
         try{ await api.reorder(cid, order); } catch(_){ /* ignore */ }
       }
-      if (handle) handle.addEventListener('dragend', onDragEnd);
       el.addEventListener('dragend', onDragEnd);
 
       // --- Fallback לתמיכת מסכי מגע באמצעות Pointer Events ---
