@@ -477,6 +477,14 @@ class CollectionsManager:
                                 pass
                     except Exception:
                         pass
+                # בטיחות: פריטים שנשארו עם השם הישן עוברים ל-root כדי למנוע יתומים
+                try:
+                    self.items.update_many(
+                        {"collection_id": cid, "user_id": int(user_id), "folder": old_name},
+                        {"$set": {"folder": "", "updated_at": _now()}},
+                    )
+                except Exception:
+                    pass
             emit_event("collections_folder_rename", user_id=int(user_id), collection_id=str(collection_id), old_name=old_name, new_name=new_name)
             return {"ok": True, "folder": folders[found_idx], "folders": folders}
         except Exception as e:
