@@ -76,11 +76,14 @@ def _perform_drive_backup(user_id: int) -> bool:
         file_id = upload_bytes(int(user_id), filename, zip_bytes)
         if file_id:
             logger.info("Drive full backup uploaded for user %s (%d bytes)", user_id, len(zip_bytes))
-            # עדכון last_backup_at
-            db.db.users.update_one(
-                {"user_id": int(user_id)},
-                {"$set": {"drive_prefs.last_backup_at": _now_utc().isoformat()}},
-            )
+            # עדכון last_backup_at — best-effort, כשל DB לא אמור לגרום לretry ושכפול גיבוי
+            try:
+                db.db.users.update_one(
+                    {"user_id": int(user_id)},
+                    {"$set": {"drive_prefs.last_backup_at": _now_utc().isoformat()}},
+                )
+            except Exception:
+                pass
             return True
         else:
             logger.warning("Drive full backup upload failed for user %s", user_id)
