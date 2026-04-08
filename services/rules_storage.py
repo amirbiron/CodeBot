@@ -45,18 +45,21 @@ class RulesStorage:
 
     def _ensure_indexes(self) -> None:
         """יצירת אינדקסים נדרשים."""
-        try:
-            self._collection.create_index("rule_id", unique=True, name="rule_id_unique")
-            self._collection.create_index("enabled", name="visual_rules_enabled_idx")
-            self._collection.create_index("metadata.tags", name="metadata_tags_idx")
-            self._collection.create_index("created_by", name="created_by_idx")
-        except Exception as e:
-            # אינדקס עם אותם keys אבל שם אחר — לא קריטי, כבר קיים
-            code = getattr(e, "code", None)
-            if code in (85, 86):
-                logger.debug("Indexes already exist (name conflict), skipping: %s", e)
-            else:
-                logger.error("Failed to create indexes: %s", e)
+        indexes = [
+            {"keys": "rule_id", "unique": True, "name": "rule_id_unique"},
+            {"keys": "enabled", "unique": False, "name": "visual_rules_enabled_idx"},
+            {"keys": "metadata.tags", "unique": False, "name": "metadata_tags_idx"},
+            {"keys": "created_by", "unique": False, "name": "created_by_idx"},
+        ]
+        for idx in indexes:
+            try:
+                self._collection.create_index(idx["keys"], unique=idx["unique"], name=idx["name"])
+            except Exception as e:
+                code = getattr(e, "code", None)
+                if code in (85, 86):
+                    logger.debug("Index already exists (name conflict), skipping %s: %s", idx["name"], e)
+                else:
+                    logger.error("Failed to create index %s: %s", idx["name"], e)
 
     def save_rule(self, rule: Dict[str, Any]) -> str:
         """שומר או מעדכן כלל (sync)."""
