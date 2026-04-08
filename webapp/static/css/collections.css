@@ -773,3 +773,39 @@
   .shared-collection-layout{grid-template-columns:1fr}
   .shared-collection-viewer{order:2}
 }
+
+/* ===== Folder Sections (Accordion) ===== */
+.collection-folder{border:1px solid var(--collections-card-border);border-radius:12px;margin-bottom:.75rem;background:var(--collections-card-bg);overflow:hidden;transition:box-shadow .2s}
+.collection-folder[open]{box-shadow:0 2px 8px var(--collections-card-shadow)}
+.collection-folder__header{display:flex;align-items:center;gap:.5rem;padding:.65rem .85rem;cursor:pointer;list-style:none;user-select:none;font-size:.95rem;font-weight:600;color:var(--collections-dark-text);transition:background .15s}
+.collection-folder__header:hover{background:var(--collections-btn-hover-bg)}
+.collection-folder__header::-webkit-details-marker{display:none}
+.collection-folder__header::before{content:'';display:inline-block;width:0;height:0;border-left:5px solid var(--collections-muted);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .2s;flex-shrink:0}
+.collection-folder[open]>.collection-folder__header::before{transform:rotate(90deg)}
+.collection-folder__icon{font-size:1.1rem;flex-shrink:0}
+.collection-folder__name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.collection-folder__count{background:var(--collections-accent-bg);color:var(--collections-badge-link-text);border-radius:999px;padding:.1rem .5rem;font-size:.8rem;font-weight:500;flex-shrink:0}
+.collection-folder__actions{display:flex;gap:.3rem;flex-shrink:0;opacity:0;transition:opacity .15s}
+.collection-folder__header:hover .collection-folder__actions{opacity:1}
+.collection-folder__actions button{background:none;border:none;cursor:pointer;font-size:.85rem;padding:.15rem .3rem;border-radius:4px;color:var(--collections-muted);transition:background .15s,color .15s}
+.collection-folder__actions button:hover{background:var(--collections-accent-bg);color:var(--collections-dark-text)}
+.collection-folder__items{padding:.5rem .65rem .65rem}
+.collection-folder__items .collection-cards{margin:0}
+.collection-folder--drop-target{outline:2px dashed var(--collections-action-bg);outline-offset:-2px;background:color-mix(in srgb,var(--collections-action-bg) 8%,transparent)}
+.collection-folder--empty{padding:.75rem 1rem;color:var(--collections-muted);font-size:.9rem;text-align:center}
+
+/* כפתור הוספת תיקיה */
+.add-folder-btn{display:inline-flex;align-items:center;gap:.35rem;background:var(--collections-accent-bg);border:1px dashed var(--collections-accent-border);border-radius:8px;color:var(--collections-badge-link-text);padding:.35rem .7rem;font-size:.85rem;cursor:pointer;transition:background .2s,border-color .2s}
+.add-folder-btn:hover{background:var(--collections-btn-hover-bg);border-color:var(--collections-action-bg)}
+
+/* Root items section label */
+.collection-root-label{display:flex;align-items:center;gap:.4rem;padding:.35rem 0 .25rem;font-size:.85rem;color:var(--collections-muted);font-weight:500}
+
+/* Folder inline rename */
+.collection-folder__name-input{font:inherit;font-size:.95rem;font-weight:600;border:1px solid var(--collections-accent-border);border-radius:6px;padding:.15rem .4rem;width:100%;min-width:0;background:var(--collections-card-bg);color:var(--collections-dark-text);outline:none}
+.collection-folder__name-input:focus{border-color:var(--collections-action-bg);box-shadow:0 0 0 2px color-mix(in srgb,var(--collections-action-bg) 25%,transparent)}
+
+@media(max-width:640px){
+  .collection-folder__header{padding:.55rem .65rem;font-size:.9rem}
+  .collection-folder__actions{opacity:1}
+}

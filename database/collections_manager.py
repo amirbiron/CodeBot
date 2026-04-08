@@ -37,6 +37,7 @@ except Exception:  # pragma: no cover
 
 try:
     from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
+    from pymongo.errors import DuplicateKeyError  # type: ignore
 except Exception:  # pragma: no cover
     ASCENDING = 1  # type: ignore
     DESCENDING = -1  # type: ignore
@@ -44,6 +45,9 @@ except Exception:  # pragma: no cover
     class IndexModel:  # type: ignore
         def __init__(self, *args, **kwargs) -> None:
             pass
+
+    class DuplicateKeyError(Exception):  # type: ignore
+        pass
 
 # Observability (best-effort)
 try:
@@ -131,6 +135,13 @@ TAG_METADATA: Dict[str, Dict[str, str]] = {
 
 # מגבלות
 MAX_TAGS_PER_ITEM = 10  # מקסימום תגיות לפריט
+MAX_FOLDERS_PER_COLLECTION = 20  # מקסימום תיקיות לאוסף
+FOLDER_NAME_MAX_LEN = 60  # אורך מקסימלי לשם תיקיה
+ALLOWED_FOLDER_ICONS: List[str] = [
+    "📁", "📂", "📘", "🎨", "🧩", "🐛", "⚙️", "📝", "🧪", "💡",
+    "⭐", "🔖", "🚀", "🖥️", "💼", "📦", "⚡", "🤖", "🧰", "📜",
+]
+RESERVED_FOLDER_NAMES: set = {"reorder"}
 WORKSPACE_STATES: Tuple[str, ...] = ("todo", "in_progress", "done")
 DEFAULT_WORKSPACE_STATE: str = WORKSPACE_STATES[0]
 
@@ -170,6 +181,8 @@ class _CollectionDoc:
 class CollectionsManager:
     """מנהל אוספים – CRUD + אינטגרציות בסיסיות לחוקים חכמים."""
 
+    _migration_done: bool = False
+
     def __init__(self, db):
         self.db = db
         self.collections = db.user_collections
@@ -201,13 +214,31 @@ class CollectionsManager:
             pass
         try:
             self.items.create_indexes([
-                IndexModel([("collection_id", ASCENDING), ("source", ASCENDING), ("file_name", ASCENDING)], name="unique_item", unique=True),
+                IndexModel([("collection_id", ASCENDING), ("source", ASCENDING), ("file_name", ASCENDING), ("folder", ASCENDING)], name="unique_item_folder", unique=True),
                 IndexModel([("collection_id", ASCENDING), ("custom_order", ASCENDING), ("pinned", DESCENDING)], name="order_pin"),
                 IndexModel([("user_id", ASCENDING)], name="by_user"),
                 IndexModel([("collection_id", ASCENDING), ("tags", ASCENDING)], name="collection_tags"),
+                IndexModel([("collection_id", ASCENDING), ("folder", ASCENDING)], name="collection_folder"),
             ])
         except Exception:
             pass
+        # מיגרציה חד-פעמית: רצה רק פעם אחת לכל תהליך
+        if not CollectionsManager._migration_done:
+            CollectionsManager._migration_done = True
+            # הסרת אינדקס ישן (ללא folder) אם קיים
+            try:
+                self.items.drop_index("unique_item")
+            except Exception:
+                pass
+            # backfill — פריטים קיימים ללא folder יקבלו "" (root)
+            # ב-MongoDB, שדה חסר מאונדקס כ-null שזה שונה מ-"", אז חייבים לעדכן
+            try:
+                self.items.update_many(
+                    {"$or": [{"folder": None}, {"folder": {"$exists": False}}]},
+                    {"$set": {"folder": ""}},
+                )
+            except Exception:
+                pass
 
     def ensure_default_collections(self, user_id: int) -> bool:
         """מאבטח יצירה של אוספים מובנים עבור משתמש חדש.
@@ -308,6 +339,31 @@ class CollectionsManager:
 
         return True, None
 
+    def _validate_folder_name(self, name: Any) -> Tuple[bool, Optional[str]]:
+        """ולידציית שם תיקיה."""
+        if name is None or name == "":
+            return True, None  # ריק = root
+        if not isinstance(name, str):
+            return False, "folder name must be a string"
+        name = name.strip()
+        if len(name) < 1 or len(name) > FOLDER_NAME_MAX_LEN:
+            return False, f"folder name must be 1..{FOLDER_NAME_MAX_LEN} characters"
+        if name.lower() in RESERVED_FOLDER_NAMES:
+            return False, "שם תיקיה שמור ולא ניתן לשימוש"
+        return True, None
+
+    def _normalize_folder(self, folder: Any) -> str:
+        """נרמול שדה folder: ריק/None => '' (root)."""
+        if folder is None:
+            return ""
+        try:
+            return str(folder).strip()[:FOLDER_NAME_MAX_LEN]
+        except Exception:
+            return ""
+
+    def _normalize_folder_icon(self, icon: Optional[str]) -> str:
+        return icon if (icon in ALLOWED_FOLDER_ICONS) else "📁"
+
     def _normalize_workspace_state(self, state: Optional[str], *, allow_default: bool = True) -> str:
         try:
             value = str(state or "").strip().lower()
@@ -322,6 +378,243 @@ class CollectionsManager:
             return str(state or "").strip().lower() in WORKSPACE_STATES
         except Exception:
             return False
+
+    # --- Folder CRUD ---
+
+    def create_folder(self, user_id: int, collection_id: str, name: str, icon: Optional[str] = None) -> Dict[str, Any]:
+        """יצירת תיקיה חדשה באוסף."""
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+        is_valid, error = self._validate_folder_name(name)
+        if not is_valid:
+            return {"ok": False, "error": error}
+        name = str(name).strip()
+        if not name:
+            return {"ok": False, "error": "שם תיקיה חסר"}
+        try:
+            col = self.collections.find_one({"_id": cid, "user_id": int(user_id), "is_active": True})
+        except Exception:
+            col = None
+        if not col:
+            return {"ok": False, "error": "האוסף לא נמצא"}
+        folders = list(col.get("folders") or [])
+        if len(folders) >= MAX_FOLDERS_PER_COLLECTION:
+            return {"ok": False, "error": f"מקסימום {MAX_FOLDERS_PER_COLLECTION} תיקיות לאוסף"}
+        # בדיקת כפילות שם
+        existing_names = {str(f.get("name") or "").strip().lower() for f in folders if isinstance(f, dict)}
+        if name.strip().lower() in existing_names:
+            return {"ok": False, "error": "תיקיה בשם זה כבר קיימת"}
+        max_order = max((int(f.get("sort_order") or 0) for f in folders if isinstance(f, dict)), default=0)
+        new_folder = {
+            "name": name,
+            "icon": self._normalize_folder_icon(icon),
+            "sort_order": max_order + 1,
+        }
+        folders.append(new_folder)
+        try:
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"folders": folders, "updated_at": _now()}},
+            )
+            emit_event("collections_folder_create", user_id=int(user_id), collection_id=str(collection_id), folder=name)
+            return {"ok": True, "folder": new_folder, "folders": folders}
+        except Exception as e:
+            emit_event("collections_folder_create_error", severity="error", user_id=int(user_id), error=str(e))
+            return {"ok": False, "error": "שגיאה ביצירת תיקיה"}
+
+    def rename_folder(self, user_id: int, collection_id: str, old_name: str, new_name: str, icon: Optional[str] = None) -> Dict[str, Any]:
+        """שינוי שם (ואייקון) של תיקיה קיימת. מעדכן גם את הפריטים שמשויכים לתיקיה."""
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+        is_valid, error = self._validate_folder_name(new_name)
+        if not is_valid:
+            return {"ok": False, "error": error}
+        old_name = str(old_name or "").strip()
+        new_name = str(new_name or "").strip()
+        if not old_name or not new_name:
+            return {"ok": False, "error": "שם תיקיה חסר"}
+        try:
+            col = self.collections.find_one({"_id": cid, "user_id": int(user_id), "is_active": True})
+        except Exception:
+            col = None
+        if not col:
+            return {"ok": False, "error": "האוסף לא נמצא"}
+        folders = list(col.get("folders") or [])
+        found_idx = None
+        for i, f in enumerate(folders):
+            if isinstance(f, dict) and str(f.get("name") or "").strip() == old_name:
+                found_idx = i
+                break
+        if found_idx is None:
+            return {"ok": False, "error": "התיקיה לא נמצאה"}
+        # בדיקת כפילות (אם השם השתנה)
+        if old_name.lower() != new_name.lower():
+            existing_names = {str(f.get("name") or "").strip().lower() for j, f in enumerate(folders) if isinstance(f, dict) and j != found_idx}
+            if new_name.lower() in existing_names:
+                return {"ok": False, "error": "תיקיה בשם זה כבר קיימת"}
+        folders[found_idx]["name"] = new_name
+        if icon is not None:
+            folders[found_idx]["icon"] = self._normalize_folder_icon(icon)
+        try:
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"folders": folders, "updated_at": _now()}},
+            )
+            # עדכון שדה folder בכל הפריטים של התיקיה
+            if old_name != new_name:
+                try:
+                    self.items.update_many(
+                        {"collection_id": cid, "user_id": int(user_id), "folder": old_name},
+                        {"$set": {"folder": new_name, "updated_at": _now()}},
+                    )
+                except Exception:
+                    # fallback: עדכון אחד אחד — ממשיכים גם אם פריט בודד נכשל
+                    try:
+                        items_to_update = list(self.items.find({"collection_id": cid, "user_id": int(user_id), "folder": old_name}))
+                        for it in items_to_update:
+                            try:
+                                self.items.update_one({"_id": it["_id"]}, {"$set": {"folder": new_name, "updated_at": _now()}})
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                # בטיחות: פריטים שנשארו עם השם הישן עוברים ל-root כדי למנוע יתומים
+                try:
+                    self.items.update_many(
+                        {"collection_id": cid, "user_id": int(user_id), "folder": old_name},
+                        {"$set": {"folder": "", "updated_at": _now()}},
+                    )
+                except Exception:
+                    pass
+            emit_event("collections_folder_rename", user_id=int(user_id), collection_id=str(collection_id), old_name=old_name, new_name=new_name)
+            return {"ok": True, "folder": folders[found_idx], "folders": folders}
+        except Exception as e:
+            emit_event("collections_folder_rename_error", severity="error", user_id=int(user_id), error=str(e))
+            return {"ok": False, "error": "שגיאה בשינוי שם תיקיה"}
+
+    def delete_folder(self, user_id: int, collection_id: str, folder_name: str) -> Dict[str, Any]:
+        """מחיקת תיקיה. הקבצים שבתוכה מועברים ל-root (folder='')."""
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+        folder_name = str(folder_name or "").strip()
+        if not folder_name:
+            return {"ok": False, "error": "שם תיקיה חסר"}
+        try:
+            col = self.collections.find_one({"_id": cid, "user_id": int(user_id), "is_active": True})
+        except Exception:
+            col = None
+        if not col:
+            return {"ok": False, "error": "האוסף לא נמצא"}
+        folders = list(col.get("folders") or [])
+        new_folders = [f for f in folders if not (isinstance(f, dict) and str(f.get("name") or "").strip() == folder_name)]
+        if len(new_folders) == len(folders):
+            return {"ok": False, "error": "התיקיה לא נמצאה"}
+        try:
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"folders": new_folders, "updated_at": _now()}},
+            )
+            # העברת קבצים ל-root: בדיקה אם כבר קיים באותו אוסף ב-root
+            moved = 0
+            removed_duplicates = 0
+            try:
+                items_in_folder = list(self.items.find({"collection_id": cid, "user_id": int(user_id), "folder": folder_name}))
+            except Exception:
+                items_in_folder = []
+            for it in items_in_folder:
+                source = str(it.get("source") or "regular")
+                fn = str(it.get("file_name") or "")
+                # בדוק אם הפריט כבר קיים ב-root
+                existing_root = None
+                try:
+                    existing_root = self.items.find_one({
+                        "collection_id": cid, "user_id": int(user_id),
+                        "source": source, "file_name": fn, "folder": "",
+                    })
+                except Exception:
+                    pass
+                if existing_root:
+                    # הפריט כבר ב-root, מחק את זה שבתיקיה
+                    try:
+                        self.items.delete_one({"_id": it["_id"]})
+                        removed_duplicates += 1
+                    except Exception:
+                        pass
+                else:
+                    # העבר ל-root
+                    try:
+                        self.items.update_one({"_id": it["_id"]}, {"$set": {"folder": "", "updated_at": _now()}})
+                        moved += 1
+                    except Exception:
+                        pass
+            # עדכון מונים
+            self._refresh_collection_counts(cid, int(user_id))
+            emit_event("collections_folder_delete", user_id=int(user_id), collection_id=str(collection_id), folder=folder_name, moved=moved)
+            return {"ok": True, "folders": new_folders, "moved": moved, "removed_duplicates": removed_duplicates}
+        except Exception as e:
+            emit_event("collections_folder_delete_error", severity="error", user_id=int(user_id), error=str(e))
+            return {"ok": False, "error": "שגיאה במחיקת תיקיה"}
+
+    def reorder_folders(self, user_id: int, collection_id: str, order: List[str]) -> Dict[str, Any]:
+        """סידור מחדש של תיקיות לפי רשימת שמות בסדר הרצוי."""
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+        if not isinstance(order, list):
+            return {"ok": False, "error": "order חסר"}
+        try:
+            col = self.collections.find_one({"_id": cid, "user_id": int(user_id), "is_active": True})
+        except Exception:
+            col = None
+        if not col:
+            return {"ok": False, "error": "האוסף לא נמצא"}
+        folders = list(col.get("folders") or [])
+        by_name: Dict[str, Dict[str, Any]] = {}
+        for f in folders:
+            if isinstance(f, dict):
+                by_name[str(f.get("name") or "").strip()] = f
+        new_folders = []
+        for i, name in enumerate(order):
+            name = str(name or "").strip()
+            if name in by_name:
+                f = dict(by_name.pop(name))
+                f["sort_order"] = i + 1
+                new_folders.append(f)
+        # תיקיות שלא ברשימה נשארות בסוף
+        remaining = sorted(by_name.values(), key=lambda f: int(f.get("sort_order") or 0))
+        for f in remaining:
+            f["sort_order"] = len(new_folders) + 1
+            new_folders.append(f)
+        try:
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"folders": new_folders, "updated_at": _now()}},
+            )
+            emit_event("collections_folders_reorder", user_id=int(user_id), collection_id=str(collection_id))
+            return {"ok": True, "folders": new_folders}
+        except Exception as e:
+            emit_event("collections_folders_reorder_error", severity="error", user_id=int(user_id), error=str(e))
+            return {"ok": False, "error": "שגיאה בסידור תיקיות"}
+
+    def _refresh_collection_counts(self, cid: Any, user_id: int) -> None:
+        """עדכון מונים (items_count, pinned_count) לאוסף."""
+        try:
+            agg = list(self.items.aggregate([
+                {"$match": {"collection_id": cid, "user_id": int(user_id)}},
+                {"$group": {"_id": None, "cnt": {"$sum": 1}, "pinned": {"$sum": {"$cond": ["$pinned", 1, 0]}}}},
+            ]))
+            items_count = int((agg[0].get("cnt") if agg else 0) or 0)
+            pinned_count = int((agg[0].get("pinned") if agg else 0) or 0)
+            self.collections.update_one({"_id": cid, "user_id": int(user_id)}, {"$set": {"items_count": items_count, "pinned_count": pinned_count, "updated_at": _now()}})
+        except Exception:
+            pass
 
     def _invalidate_collection_items_cache(self, user_id: int | str, collection_id: Any) -> None:
         cache_obj = cache
@@ -609,12 +902,15 @@ class CollectionsManager:
 
                 tags_to_store = [] if tags is None else tags
 
+                folder = self._normalize_folder(it.get("folder"))
+
                 # נסה קודם לעדכן פריט קיים; אם לא קיים – נכניס חדש
                 query = {
                     "collection_id": cid,
                     "user_id": int(user_id),
                     "source": source,
                     "file_name": file_name,
+                    "folder": folder,
                 }
 
                 set_fields: Dict[str, Any] = {"updated_at": now}
@@ -645,6 +941,7 @@ class CollectionsManager:
                     "user_id": int(user_id),
                     "source": source,
                     "file_name": file_name,
+                    "folder": folder,
                     "note": str(it.get("note") or "")[:500],
                     "tags": tags_to_store,
                     "pinned": bool(it.get("pinned") or False),
@@ -682,6 +979,64 @@ class CollectionsManager:
         emit_event("collections_items_add", user_id=int(user_id), collection_id=str(collection_id), count=int(added_count))
         return {"ok": True, "added": int(added_count), "updated": int(updated_count)}
 
+    def move_item_folder(
+        self, user_id: int, collection_id: str,
+        source: str, file_name: str,
+        old_folder: str, new_folder: str,
+    ) -> Dict[str, Any]:
+        """העברת פריט מתיקיה אחת לאחרת, תוך שמירה על כל המטאדאטה."""
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+        source = str(source or "regular").lower()
+        file_name = str(file_name or "").strip()
+        if not file_name:
+            return {"ok": False, "error": "file_name חסר"}
+        old_f = self._normalize_folder(old_folder)
+        new_f = self._normalize_folder(new_folder)
+        if old_f == new_f:
+            return {"ok": True, "moved": 0}
+        try:
+            res = self.items.update_one(
+                {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": old_f},
+                {"$set": {"folder": new_f, "updated_at": _now()}},
+            )
+            matched = int(getattr(res, "matched_count", 0) or 0)
+            return {"ok": True, "moved": matched}
+        except DuplicateKeyError:
+            # הפריט כבר קיים בתיקיית היעד – ממזגים מטא-דאטה ומוחקים את המקור
+            src = self.items.find_one(
+                {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": old_f},
+            )
+            if src:
+                dst = self.items.find_one(
+                    {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": new_f},
+                )
+                merge: dict = {}
+                # מעתיקים רק ערכים משמעותיים מהמקור שחסרים ביעד
+                if src.get("note") and not (dst and dst.get("note")):
+                    merge["note"] = src["note"]
+                if src.get("tags") and not (dst and dst.get("tags")):
+                    merge["tags"] = src["tags"]
+                if src.get("pinned") is True and not (dst and dst.get("pinned")):
+                    merge["pinned"] = True
+                ws = src.get("workspace_state")
+                if ws and isinstance(ws, str) and ws != "none" and not (dst and dst.get("workspace_state") and dst["workspace_state"] != "none"):
+                    merge["workspace_state"] = ws
+                if merge:
+                    merge["updated_at"] = _now()
+                    self.items.update_one(
+                        {"collection_id": cid, "user_id": int(user_id), "source": source, "file_name": file_name, "folder": new_f},
+                        {"$set": merge},
+                    )
+                self.items.delete_one({"_id": src["_id"]})
+                self._refresh_collection_counts(cid, int(user_id))
+            return {"ok": True, "moved": 1}
+        except Exception as e:
+            logger.error("move_item_folder error: %s", e)
+            return {"ok": False, "error": "שגיאה בהעברת פריט"}
+
     def remove_items(self, user_id: int, collection_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         try:
             cid = ObjectId(collection_id)
@@ -698,7 +1053,8 @@ class CollectionsManager:
                 file_name = str(it.get("file_name") or "").strip()
                 if not file_name:
                     continue
-                res = self.items.delete_one({"collection_id": cid, "user_id": user_id, "source": source, "file_name": file_name})
+                folder = self._normalize_folder(it.get("folder"))
+                res = self.items.delete_one({"collection_id": cid, "user_id": user_id, "source": source, "file_name": file_name, "folder": folder})
                 deleted += int(getattr(res, "deleted_count", 0) or 0)
             except Exception:
                 continue
@@ -850,7 +1206,11 @@ class CollectionsManager:
                 file_name = str(it.get("file_name") or "").strip()
                 if not file_name:
                     continue
-                new_items.append({"source": source, "file_name": file_name})
+                folder = self._normalize_folder(it.get("folder"))
+                entry: Dict[str, Any] = {"source": source, "file_name": file_name}
+                if folder:
+                    entry["folder"] = folder
+                new_items.append(entry)
             except Exception:
                 continue
 
@@ -860,8 +1220,13 @@ class CollectionsManager:
         first_error_message: Optional[str] = None
         for it in new_items:
             try:
+                q: Dict[str, Any] = {"collection_id": cid, "user_id": user_id, "source": it["source"], "file_name": it["file_name"]}
+                if "folder" in it:
+                    q["folder"] = it["folder"]
+                else:
+                    q["folder"] = ""
                 res = self.items.update_one(
-                    {"collection_id": cid, "user_id": user_id, "source": it["source"], "file_name": it["file_name"]},
+                    q,
                     {"$set": {"custom_order": pos, "updated_at": _now()}},
                 )
                 # advance position only if an item was actually matched/updated
@@ -957,6 +1322,7 @@ class CollectionsManager:
         per_page: int = 20,
         include_computed: bool = True,
         fetch_all: bool = False,
+        folder_filter: Optional[str] = None,
     ) -> Dict[str, Any]:
         t_total_start = time.perf_counter()
         t_find_collection = 0.0
@@ -987,12 +1353,16 @@ class CollectionsManager:
 
             # פריטים ידניים
             t0 = time.perf_counter()
-            manual_query = {"collection_id": cid, "user_id": user_id}
+            manual_query: Dict[str, Any] = {"collection_id": cid, "user_id": user_id}
+            # סינון אופציונלי לפי תיקיה
+            if folder_filter is not None:
+                manual_query["folder"] = self._normalize_folder(folder_filter)
             manual_projection = {
                 "collection_id": 1,
                 "user_id": 1,
                 "source": 1,
                 "file_name": 1,
+                "folder": 1,
                 "note": 1,
                 "tags": 1,
                 "pinned": 1,
@@ -1024,11 +1394,10 @@ class CollectionsManager:
                 out_items = computed
             else:  # mixed
                 seen: set[Tuple[str, str]] = set()
-                # שמור סדר: pinned > custom_order > updated_at > file_name
+                # כל הפריטים הידניים נכנסים — אותו קובץ יכול להופיע בתיקיות שונות.
+                # ה-seen משמש רק לסנן computed כפולים של פריטים ידניים.
                 for m in manual_list:
                     key = (str(m.get("source") or "regular"), str(m.get("file_name") or ""))
-                    if key in seen:
-                        continue
                     seen.add(key)
                     out_items.append(m)
                 for c in computed:
@@ -1038,8 +1407,11 @@ class CollectionsManager:
                     seen.add(key)
                     out_items.append(c)
 
-            # מיון בסיסי
+            # מיון בסיסי: root קודם, אח"כ תיקיות לפי שם, בתוך כל קבוצה – pinned > custom_order > file_name
             def _sort_key(d: Dict[str, Any]):
+                folder_val = str(d.get("folder") or "")
+                # root items (folder ריק) קודמים
+                folder_rank = 0 if not folder_val else 1
                 # ודא שסדר מותאם אישית יילקח גם אם נשמר כמחרוזת ספרתית (למשל ע"י FakeDB)
                 co_raw = d.get("custom_order")
                 try:
@@ -1048,6 +1420,8 @@ class CollectionsManager:
                 except Exception:
                     co_val = 1_000_000
                 return (
+                    folder_rank,
+                    folder_val.lower(),
                     0 if bool(d.get("pinned")) else 1,
                     co_val,
                     str(d.get("file_name") or "").lower(),
@@ -1382,6 +1756,7 @@ class CollectionsManager:
                 "enabled": share_enabled,
                 "token": token_val,
             },
+            "folders": list(d.get("folders") or []),
         }
 
     def _public_item(self, d: Dict[str, Any]) -> Dict[str, Any]:
@@ -1391,6 +1766,7 @@ class CollectionsManager:
             "user_id": int(d.get("user_id") or 0),
             "source": str(d.get("source") or "regular"),
             "file_name": d.get("file_name"),
+            "folder": str(d.get("folder") or ""),
             "note": d.get("note") or "",
             "tags": list(d.get("tags") or []),
             "pinned": bool(d.get("pinned", False)),
