@@ -1859,7 +1859,7 @@
           </button>
         </div>
         <div class="actions">
-          <button class="btn btn-secondary add-folder-btn" title="תיקיה חדשה">📁 תיקיה חדשה</button>
+          ${isWorkspace ? '' : '<button class="btn btn-secondary add-folder-btn" title="תיקיה חדשה">📁 תיקיה חדשה</button>'}
           <button class="btn btn-secondary rename">שנה שם</button>
           <button class="btn btn-danger delete">מחק</button>
         </div>
@@ -2457,6 +2457,12 @@
       }
     }
 
+    // אם אין פריטים בכלל ואין תיקיות מוגדרות — נחזיר ריק כדי שה-caller יציג "אין פריטים"
+    const hasFolders = (folders || []).length > 0 || Object.keys(folderMap).length > 0;
+    if (items.length === 0 && !hasFolders) {
+      return '';
+    }
+
     let html = '';
 
     // קבצים ב-root — תמיד מרנדרים את ה-container כדי שיהיה drop zone גם כשריק
@@ -2479,11 +2485,6 @@
     for (const [name, fItems] of Object.entries(folderMap)) {
       if (renderedFolders.has(name)) continue;
       html += renderFolderSection(name, '📁', fItems, collectionId);
-    }
-
-    // אם אין פריטים בכלל ואין root
-    if (!html) {
-      html = '<div class="empty">אין פריטים</div>';
     }
 
     return html;
@@ -2568,6 +2569,8 @@
       header.addEventListener('drop', async (ev) => {
         ev.preventDefault();
         folderEl.classList.remove('collection-folder--drop-target');
+        // סימון שה-drop בוצע כדי שה-dragend לא ישלח reorder מיותר
+        if (activeDragContext) activeDragContext.dropInProgress = true;
         let dragData;
         try {
           dragData = JSON.parse(ev.dataTransfer.getData('text/plain'));
@@ -2607,6 +2610,7 @@
       rootCards.addEventListener('drop', async (ev) => {
         ev.preventDefault();
         rootCards.classList.remove('collection-folder--drop-target');
+        if (activeDragContext) activeDragContext.dropInProgress = true;
         let dragData;
         try {
           dragData = JSON.parse(ev.dataTransfer.getData('text/plain'));
