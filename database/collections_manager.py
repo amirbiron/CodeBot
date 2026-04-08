@@ -1005,8 +1005,9 @@ class CollectionsManager:
                     merge["tags"] = src["tags"]
                 if src.get("pinned") is True:
                     merge["pinned"] = True
-                if src.get("workspace_state") and isinstance(src["workspace_state"], dict):
-                    merge["workspace_state"] = src["workspace_state"]
+                ws = src.get("workspace_state")
+                if ws and isinstance(ws, str) and ws != "none":
+                    merge["workspace_state"] = ws
                 if merge:
                     merge["updated_at"] = _now()
                     self.items.update_one(
