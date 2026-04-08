@@ -2582,17 +2582,21 @@
         // סימון שה-drop בוצע כדי שה-dragend לא ישלח reorder מיותר
         if (activeDragContext) activeDragContext.dropInProgress = true;
         // העברה עם שמירת מטאדאטה (note, tags, pinned וכו')
-        const moveRes = await api.moveItemFolder(collectionId, {
-          source: dragData.source || 'regular',
-          file_name: dragData.file_name,
-          old_folder: sourceFolder,
-          new_folder: targetFolder,
-        });
-        if (!moveRes || !moveRes.ok) {
-          alert((moveRes && moveRes.error) || 'שגיאה בהעברת קובץ');
-          return;
+        try {
+          const moveRes = await api.moveItemFolder(collectionId, {
+            source: dragData.source || 'regular',
+            file_name: dragData.file_name,
+            old_folder: sourceFolder,
+            new_folder: targetFolder,
+          });
+          if (!moveRes || !moveRes.ok) {
+            alert((moveRes && moveRes.error) || 'שגיאה בהעברת קובץ');
+            return;
+          }
+          await renderCollectionItems(collectionId);
+        } finally {
+          clearActiveDragContext();
         }
-        await renderCollectionItems(collectionId);
       });
     });
 
@@ -2622,17 +2626,21 @@
         if (!sourceFolder) return; // כבר ב-root
         if (activeDragContext) activeDragContext.dropInProgress = true;
         // העברה ל-root עם שמירת מטאדאטה
-        const moveRes = await api.moveItemFolder(collectionId, {
-          source: dragData.source || 'regular',
-          file_name: dragData.file_name,
-          old_folder: sourceFolder,
-          new_folder: '',
-        });
-        if (!moveRes || !moveRes.ok) {
-          alert((moveRes && moveRes.error) || 'שגיאה בהעברת קובץ');
-          return;
+        try {
+          const moveRes = await api.moveItemFolder(collectionId, {
+            source: dragData.source || 'regular',
+            file_name: dragData.file_name,
+            old_folder: sourceFolder,
+            new_folder: '',
+          });
+          if (!moveRes || !moveRes.ok) {
+            alert((moveRes && moveRes.error) || 'שגיאה בהעברת קובץ');
+            return;
+          }
+          await renderCollectionItems(collectionId);
+        } finally {
+          clearActiveDragContext();
         }
-        await renderCollectionItems(collectionId);
       });
     }
   }

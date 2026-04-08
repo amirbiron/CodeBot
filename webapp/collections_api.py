@@ -723,7 +723,7 @@ def create_folder(collection_id: str):
     try:
         user_id = int(session['user_id'])
         data = request.get_json(silent=True) or {}
-        name = sanitize_input(data.get('name', ''), 60)
+        name = str(data.get('name', '')).strip()[:60]
         icon = data.get('icon')
         if not name:
             return jsonify({'ok': False, 'error': 'שם תיקיה חסר'}), 400
@@ -758,7 +758,7 @@ def update_folder(collection_id: str, folder_name: str):
         new_name = data.get('name')
         icon = data.get('icon')
         if new_name is not None:
-            new_name = sanitize_input(new_name, 60)
+            new_name = str(new_name).strip()[:60]
         else:
             new_name = folder_name  # אם לא שלחו שם חדש, השתמש בשם הנוכחי
         mgr = get_manager()
