@@ -46,6 +46,9 @@ except Exception:  # pragma: no cover
         def __init__(self, *args, **kwargs) -> None:
             pass
 
+    class DuplicateKeyError(Exception):  # type: ignore
+        pass
+
 # Observability (best-effort)
 try:
     from observability import emit_event  # type: ignore
@@ -995,10 +998,15 @@ class CollectionsManager:
             )
             if src:
                 merge: dict = {}
-                for field in ("note", "tags", "pinned", "workspace_state"):
-                    val = src.get(field)
-                    if val is not None:
-                        merge[field] = val
+                # מעתיקים רק ערכים משמעותיים מהמקור — לא דורסים מטא-דאטה קיים ביעד
+                if src.get("note"):
+                    merge["note"] = src["note"]
+                if src.get("tags"):
+                    merge["tags"] = src["tags"]
+                if src.get("pinned") is True:
+                    merge["pinned"] = True
+                if src.get("workspace_state") and isinstance(src["workspace_state"], dict):
+                    merge["workspace_state"] = src["workspace_state"]
                 if merge:
                     merge["updated_at"] = _now()
                     self.items.update_one(
