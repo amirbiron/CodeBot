@@ -2491,12 +2491,18 @@
     return html;
   }
 
+  function _folderStorageKey(collectionId, folderName) {
+    return `folder_open:${collectionId}:${folderName}`;
+  }
+
   function renderFolderSection(folderName, icon, items, collectionId) {
     const cardsHtml = items.length > 0
       ? items.map(renderCollectionCard).join('')
       : '<div class="collection-folder--empty">התיקיה ריקה</div>';
+    const stored = localStorage.getItem(_folderStorageKey(collectionId, folderName));
+    const isOpen = stored === null || stored === '1'; // ברירת מחדל: פתוח
     return `
-      <details class="collection-folder" open data-folder="${escapeHtml(folderName)}" data-collection-id="${escapeHtml(collectionId)}">
+      <details class="collection-folder"${isOpen ? ' open' : ''} data-folder="${escapeHtml(folderName)}" data-collection-id="${escapeHtml(collectionId)}">
         <summary class="collection-folder__header">
           <span class="collection-folder__icon">${escapeHtml(icon)}</span>
           <span class="collection-folder__name">${escapeHtml(folderName)}</span>
@@ -2558,6 +2564,14 @@
         return;
       }
     }, { signal });
+
+    // שמירת מצב פתיחה/סגירה של תיקיות
+    container.querySelectorAll('details.collection-folder').forEach((det) => {
+      det.addEventListener('toggle', () => {
+        const fn = det.getAttribute('data-folder') || '';
+        localStorage.setItem(_folderStorageKey(collectionId, fn), det.open ? '1' : '0');
+      }, { signal });
+    });
 
     // Drag & drop על תיקיות
     container.querySelectorAll('.collection-folder__header').forEach((header) => {
