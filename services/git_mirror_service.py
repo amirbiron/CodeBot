@@ -66,17 +66,22 @@ class GitMirrorService:
     REPO_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$')
 
     # נתיב קובץ - ללא path traversal
-    # מאפשר: a-z, A-Z, 0-9, ., _, -, /
-    # אוסר: //, leading/trailing /, NUL
+    # מאפשר: a-z, A-Z, 0-9, ., _, -, /, רווח (space)
+    # אוסר: //, leading/trailing /, leading/trailing space, NUL,
+    #        וכל whitespace שאינו רווח רגיל (tab/newline/CR/VT/FF) כי ה-char class לא כולל אותם.
+    # בטיחות: ב-subprocess.run(args_list, ...) הנתיב מועבר כארגומנט בודד ללא shell parsing,
+    #          ובקריאות git רגישות משתמשים ב-"--" כדי למנוע פירוש כ-flag.
     # הערה: בדיקת ".." כקומפוננטה נעשית ב-_validate_repo_file_path
     #        עם os.path.normpath (לא כאן, כי a..b.txt הוא שם קובץ תקין)
     FILE_PATH_PATTERN = re.compile(
         r'^(?!.*//)'              # No //
         r'(?!/)'                 # No leading /
         r'(?!-)'                 # No leading '-' (avoid git flags)
+        r'(?! )'                 # No leading space
         r'(?!.*\x00)'            # No NUL
-        r'[a-zA-Z0-9._/-]+'      # Allowed chars
+        r'[a-zA-Z0-9 ._/-]+'     # Allowed chars (includes single space)
         r'(?<!/)'                # No trailing /
+        r'(?<! )'                # No trailing space
         r'$'
     )
 

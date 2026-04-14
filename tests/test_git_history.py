@@ -58,6 +58,36 @@ class TestValidation:
         for path in invalid_paths:
             assert git_service._validate_repo_file_path(path) is False, f"Should fail for: {path}"
 
+    def test_validate_file_path_valid_with_spaces(self, git_service):
+        """קבצים ותיקיות עם רווחים בשם - תקינים."""
+        valid_paths = [
+            'My File.md',
+            'docs/All full prompts.md',
+            'folder name/sub folder/file.txt',
+            'a b c.py',
+            '.env example',
+            'file with  two spaces.txt',   # רצף של שני רווחים - תקין
+            'release notes/v1.0 final.md',
+        ]
+        for path in valid_paths:
+            assert git_service._validate_repo_file_path(path) is True, f"Failed for: {path!r}"
+
+    def test_validate_file_path_invalid_whitespace(self, git_service):
+        """רווחים בראש/סוף ו-whitespace שאינו רווח רגיל - נפסלים."""
+        invalid_paths = [
+            ' leading.txt',           # leading space
+            'trailing.txt ',          # trailing space
+            '   ',                    # only spaces
+            ' ',                      # single space
+            'a\tb.txt',               # tab
+            'a\nb.txt',               # newline
+            'a\rb.txt',               # carriage return
+            'a\vb.txt',               # vertical tab
+            'a\fb.txt',               # form feed
+        ]
+        for path in invalid_paths:
+            assert git_service._validate_repo_file_path(path) is False, f"Should fail for: {path!r}"
+
     def test_validate_basic_ref_valid(self, git_service):
         valid_refs = [
             'HEAD',
