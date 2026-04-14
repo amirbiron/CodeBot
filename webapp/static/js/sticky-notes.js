@@ -131,6 +131,9 @@
     return { x: pick(xCandidates), y: pick(yCandidates) };
   }
   const PIN_SENTINEL = '__pinned__';
+  // מסמן פתק שהמשתמש ביטל לו את הנעיצה/העיגון במפורש – כדי להבדיל בינו
+  // לבין פתק ישן שעדיין לא עבר מיגרציה ל־[data-source-line].
+  const FLOATING_SENTINEL = '__floating__';
   const AUTO_SAVE_DEBOUNCE_MS = 500;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -258,13 +261,28 @@
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
         const scroll = getScrollOffsets();
+        const noteX = isMobile ? 80 : 120;
+        const noteY = scroll.y + (isMobile ? 80 : 120);
+
+        // עיגון אוטומטי לאלמנט הקרוב עם [data-source-line] (רלוונטי ל־MD preview).
+        // הפתק יהפוך ל־anchored (position:absolute, doc-Y) ולכן יזוז יחד עם התוכן
+        // כאשר ::: details נפתח/נסגר, תמונות נטענות, וכו'.
+        let autoAnchorLine = null;
+        try {
+          const nearest = this._findNearestSourceLineElement(noteY);
+          if (nearest) {
+            const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
+            if (Number.isFinite(raw) && raw >= 0) autoAnchorLine = raw + 1;
+          }
+        } catch(_) {}
+
         const payload = {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
-          position: { x: isMobile ? 80 : 120, y: scroll.y + (isMobile ? 80 : 120) },
+          position: { x: noteX, y: noteY },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
-          line_start: null,
+          line_start: autoAnchorLine,
           // חזרה להתנהגות הישנה: ללא עיגון לכותרות כברירת מחדל
           anchor_id: '',
           anchor_text: undefined
@@ -398,6 +416,46 @@
       this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
       this._updateAnchoredNotePosition(el, note);
+
+      // ── מיגרציה רכה לפתקים ישנים ב־MD preview ──
+      // פתקים שנוצרו לפני תמיכת ה־[data-source-line] נשמרו בלי עוגן וחיו כ־
+      // position:fixed. עכשיו אנחנו מעגנים אותם אוטומטית לאלמנט הקרוב, שומרים את
+      // ה־line_start ב־DB דרך _queueSave (debounced, לא חוסם את הרינדור), ומפעילים
+      // מחדש את מצב המיקום כך שהפתק יהפוך ל־anchored וישמור על מיקום יציב מול התוכן.
+      try {
+        const isPinnedNote = note.anchor_id === PIN_SENTINEL;
+        // פתק שסומן במפורש כ־floating (המשתמש ביטל עיגון/נעיצה) לא עובר
+        // מיגרציה — אחרת היינו דורסים את הבחירה המפורשת שלו בכל טעינת דף.
+        const isExplicitFloating = note.anchor_id === FLOATING_SENTINEL;
+        const hasAnchor = isPinnedNote
+          || isExplicitFloating
+          || (Number.isInteger(note.line_start) && note.line_start > 0)
+          || (note.anchor_id && note.anchor_id !== '');
+        if (!hasAnchor) {
+          const mdEl = document.getElementById('md-content');
+          if (mdEl && mdEl.querySelector('[data-source-line]')) {
+            const targetY = (typeof note.position?.y === 'number') ? note.position.y : null;
+            if (Number.isFinite(targetY)) {
+              const nearest = this._findNearestSourceLineElement(targetY);
+              if (nearest) {
+                const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
+                if (Number.isFinite(raw) && raw >= 0) {
+                  const newLineStart = raw + 1;
+                  note.line_start = newLineStart;
+                  const entry = this.notes.get(note.id);
+                  if (entry && entry.data) entry.data.line_start = newLineStart;
+                  this._queueSave(el, { line_start: newLineStart });
+                  // החלפת מצב: floating → anchored. מחייב ניקוי relYOffset שנוצר קודם.
+                  try { if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; } } catch(_) {}
+                  this._applyPositionMode(el, note, { initial: false, reflow: false });
+                  this._updateAnchoredNotePosition(el, note);
+                }
+              }
+            }
+          }
+        }
+      } catch(_) {}
+
       return el;
     }
 
@@ -521,7 +579,7 @@
           const currentViewportX = Math.round(rect.left);
           const currentViewportY = Math.round(rect.top);
           const isPinned = note.anchor_id === PIN_SENTINEL;
-          const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
+          const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
           if (isPinned) {
             el.classList.add('is-pinned');
             el.classList.remove('is-floating');
@@ -544,7 +602,7 @@
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
             el.style.left = targetX + 'px';
             if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
-            if (note.anchor_id && note.anchor_id !== PIN_SENTINEL) {
+            if (note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL) {
               el.dataset.anchorId = String(note.anchor_id);
             } else if (Number.isInteger(note.line_start) && note.line_start > 0) {
               el.dataset.anchorLine = String(note.line_start);
@@ -613,7 +671,9 @@
       const payload = this._notePayloadFromEl(el);
       entry.data.position = payload.position;
       entry.data.size = payload.size;
-      entry.data.anchor_id = '';
+      // מסמנים את הפתק כ־floating מפורש, כדי שבטעינה הבאה המיגרציה הרכה
+      // ב־_renderNote לא תעגן אותו מחדש ותדרוס את הבחירה של המשתמש.
+      entry.data.anchor_id = FLOATING_SENTINEL;
       entry.data.anchor_text = '';
       entry.data.line_start = null;
       entry.data.line_end = null;
@@ -622,7 +682,7 @@
       if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
       if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
       this._applyPositionMode(el, entry.data, { reflow: true });
-      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null, line_start: null, line_end: null }));
+      this._queueSave(el, Object.assign({}, payload, { anchor_id: FLOATING_SENTINEL, anchor_text: null, line_start: null, line_end: null }));
       this._flushFor(el);
     }
 
@@ -1220,134 +1280,70 @@
     _setupDomObservers(){
       try {
         const md = document.getElementById('md-content');
-        if (!md || typeof MutationObserver === 'undefined') return;
-        // קישור ראשוני ל־<details> קיימים
-        this._setupDetailsToggleHandlers();
-        const obs = new MutationObserver(() => {
-          try {
-            this._rebuildLineIndex();
-            this._updateAnchoredPositions();
-            // אם נוספו <details> חדשים – נקשר אליהם גם כן
-            this._setupDetailsToggleHandlers();
-          } catch(_) {}
-        });
-        obs.observe(md, { childList: true, subtree: true, characterData: true });
-        this._domObserver = obs;
-      } catch(_) {}
-    }
-
-    _setupDetailsToggleHandlers(){
-      try {
-        const md = document.getElementById('md-content');
         if (!md) return;
-        const detailsEls = md.querySelectorAll('details');
-        detailsEls.forEach((d) => {
-          if (d.dataset.stickyBound === '1') return;
-          d.dataset.stickyBound = '1';
-          // שמירת הגובה ההתחלתי לפני toggle – רק אם האלמנט נראה כרגע.
-          // אלמנטים מקוננים בתוך <details> סגור יחזירו height=0 ו־offsetParent=null,
-          // ונרצה להשהות את האיתחול עד שהם ייראו באמת (בעת ה־toggle הראשון שלהם).
-          d._stickyLastHeight = this._measureDetailsHeight(d);
-          d.addEventListener('toggle', () => {
-            // ה־toggle נזרק אחרי שה־DOM כבר התעדכן; נמתין פריים אחד כדי שה־layout יסתיים
-            try { requestAnimationFrame(() => { try { this._handleDetailsToggle(d); } catch(_) {} }); } catch(_) {
-              try { this._handleDetailsToggle(d); } catch(_) {}
-            }
+
+        // MutationObserver – שינויים מבניים ב־DOM (תוכן חדש/מוסר). משפיע על אינדקס
+        // העוגנים עצמו ולכן מחייב rebuild + reposition.
+        if (typeof MutationObserver !== 'undefined') {
+          const mObs = new MutationObserver(() => {
+            try { this._rebuildLineIndex(); this._updateAnchoredPositions(); } catch(_) {}
           });
-        });
-      } catch(_) {}
-    }
+          mObs.observe(md, { childList: true, subtree: true, characterData: true });
+          this._domObserver = mObs;
+        }
 
-    _measureDetailsHeight(detailsEl){
-      try {
-        if (!detailsEl || !detailsEl.getBoundingClientRect) return null;
-        // אם האלמנט לא נראה (למשל בתוך details סגור), נחזיר null כדי לא לקבע גובה שגוי
-        if (detailsEl.offsetParent === null && detailsEl !== document.body) return null;
-        const h = Math.round(detailsEl.getBoundingClientRect().height);
-        return h > 0 ? h : null;
-      } catch(_) { return null; }
-    }
-
-    _handleDetailsToggle(detailsEl){
-      try {
-        if (!detailsEl || !detailsEl.getBoundingClientRect) return;
-        const scroll = getScrollOffsets();
-        const newHeight = Math.round(detailsEl.getBoundingClientRect().height);
-        const hasOldHeight = Number.isFinite(detailsEl._stickyLastHeight) && detailsEl._stickyLastHeight > 0;
-        // אם אין לנו גובה התחלתי אמין (למשל details מקונן שהיה סגור בזמן ה־bind),
-        // נעדכן את ה־baseline ונוותר על הזזה בפעם הזו – עדיף לא לזוז מאשר לזוז בדלתא שגויה.
-        if (!hasOldHeight) {
-          detailsEl._stickyLastHeight = newHeight;
-          this._rebuildLineIndex();
-          this._updateAnchoredPositions();
-          return;
+        // ResizeObserver – שינויי גובה/פריסה (פתיחת ::: details, טעינת תמונות, resize).
+        // חשוב: קורא *רק* ל־_updateAnchoredPositions, לא ל־rebuild, כדי לא לסרוק את כל
+        // האלמנטים עם [data-source-line] במסמכים ארוכים בכל פריים של אנימציה.
+        // ה־_updateAnchoredPositions עובר רק על פתקים מעוגנים וקורא את ה־rect של העוגן
+        // הספציפי שלהם on-the-fly, כך שהעלות פרופורציונלית למספר הפתקים בלבד.
+        if (typeof ResizeObserver !== 'undefined') {
+          let pending = false;
+          const rObs = new ResizeObserver(() => {
+            if (pending) return;
+            pending = true;
+            const run = () => {
+              pending = false;
+              try { this._updateAnchoredPositions(); } catch(_) {}
+            };
+            try { requestAnimationFrame(run); } catch(_) { run(); }
+          });
+          try { rObs.observe(md); } catch(_) {}
+          this._resizeObserver = rObs;
         }
-        const oldHeight = detailsEl._stickyLastHeight;
-        const delta = newHeight - oldHeight;
-        detailsEl._stickyLastHeight = newHeight;
-        if (!delta) {
-          // בכל מקרה נעדכן עוגנים – אולי תוכן פנימי השתנה
-          this._rebuildLineIndex();
-          this._updateAnchoredPositions();
-          return;
-        }
-        // doc-Y של תחתית ה־<details> לפני ה־toggle (אחרי ה־toggle הוא עצמו לא זז, רק גובהו השתנה)
-        const detailsRect = detailsEl.getBoundingClientRect();
-        const detailsTopDoc = detailsRect.top + scroll.y;
-        const detailsBottomBefore = detailsTopDoc + oldHeight;
-        // הסטת כל פתק שאיננו עוגני ונמצא מתחת ל־<details> (ואינו בתוכו)
-        for (const [id, entry] of this.notes.entries()){
-          if (!entry || !entry.el) continue;
-          const el = entry.el;
-          if (detailsEl.contains(el)) continue;
-          const data = entry.data || {};
-          const isAnchored = (Number.isInteger(data.line_start) && data.line_start > 0) || (data.anchor_id && data.anchor_id !== PIN_SENTINEL);
-          if (isAnchored) continue; // עוגנים יעודכנו ע"י _updateAnchoredPositions
-          // doc-Y של הפתק לפני ה־toggle: ה־rect הנוכחי כבר משקף את מצב אחרי (אם פתק היה ממוקם absolute הוא לא זז ע"י flow, אלא לפי top; אם fixed הוא קבוע למסך)
-          const noteRect = el.getBoundingClientRect();
-          const noteDocY = noteRect.top + scroll.y;
-          // נבחן אם הפתק "שייך" לתוכן שמתחת ל־details: נתייחס לפתק שה־doc-Y שלו גדול או שווה ל־detailsBottomBefore
-          if (noteDocY < detailsBottomBefore) continue;
-          const currentTop = parseInt(el.style.top || '0', 10) || 0;
-          const newTop = currentTop + delta;
-          el.style.top = newTop + 'px';
-          try {
-            // חישוב המיקום ב־doc-coordinates לצורך שמירה (position.y שמור כ־doc-relative).
-            // עבור פתק לא נעוץ (position:fixed) – el.style.top הוא viewport-relative,
-            // ולכן יש להוסיף scroll.y כדי לקבל doc-Y. עבור פתק נעוץ (position:absolute) – כבר doc-relative.
-            const isPinned = this._isPinned(el);
-            const pos = (data.position && typeof data.position === 'object') ? Object.assign({}, data.position) : {};
-            if (typeof pos.y === 'number') {
-              pos.y = pos.y + delta;
-            } else {
-              const docY = currentTop + (isPinned ? 0 : scroll.y);
-              pos.y = docY + delta;
-            }
-            if (entry.data) {
-              entry.data.position = Object.assign({}, entry.data.position || {}, { y: pos.y });
-            }
-            this._queueSave(el, { position: pos });
-          } catch(_) {}
-        }
-        // ריענון עוגנים – גם עוגני line/anchor_id יושפעו
-        this._rebuildLineIndex();
-        this._updateAnchoredPositions();
       } catch(_) {}
     }
 
     _rebuildLineIndex(){
       try {
+        // סמנטיקה חדשה: Map<lineNumber, Element> במקום Map<lineNumber, Y>.
+        // שמירת רפרנס בלבד – חישוב ה־Y נעשה on-demand דרך _getYForLine,
+        // כדי להימנע מ־Layout Thrashing בזמן אנימציות resize.
         this._lineIndex = new Map();
         const md = document.getElementById('md-content') || document;
-        const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
-        const nodes = Array.from(md.querySelectorAll(sel));
-        const scroll = getScrollOffsets();
-        nodes.forEach((node) => {
-          const ln = this._extractLineNumberFromNode(node);
-          if (!ln) return;
-          const y = Math.round(node.getBoundingClientRect().top + scroll.y);
-          if (!this._lineIndex.has(ln)) this._lineIndex.set(ln, y);
+
+        // ── MD preview: אלמנטים עם data-source-line מתוך ה־Source Mapping Plugin ──
+        // ה־value של data-source-line הוא 0-based (מתוך token.map[0] של markdown-it).
+        // אנחנו שומרים כמפתח את הערך +1 כדי לשמור על הקונבנציה 1-indexed שקיימת
+        // בשאר הקוד (הבדיקות `line_start > 0`).
+        const sourceLineNodes = md.querySelectorAll('[data-source-line]');
+        sourceLineNodes.forEach((node) => {
+          const raw = parseInt(node.getAttribute('data-source-line'), 10);
+          if (!Number.isFinite(raw) || raw < 0) return;
+          const key = raw + 1;
+          if (!this._lineIndex.has(key)) this._lineIndex.set(key, node);
         });
+
+        // ── Fallback: Pygments .linenos (לא בשימוש ב־MD preview, נשמר לתאימות) ──
+        if (this._lineIndex.size === 0) {
+          const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
+          const nodes = md.querySelectorAll(sel);
+          nodes.forEach((node) => {
+            const ln = this._extractLineNumberFromNode(node);
+            if (!ln) return;
+            if (!this._lineIndex.has(ln)) this._lineIndex.set(ln, node);
+          });
+        }
       } catch(_) {}
     }
 
@@ -1377,16 +1373,50 @@
 
     _getYForLine(lineNum){
       if (!Number.isInteger(lineNum) || lineNum <= 0) return null;
-      if (this._lineIndex && this._lineIndex.has(lineNum)) return this._lineIndex.get(lineNum);
       try {
-        const sel = `.highlighttable .linenos pre > span:nth-child(${lineNum}), .highlighttable .linenos pre > a:nth-child(${lineNum}), .linenodiv pre > span:nth-child(${lineNum}), .linenodiv pre > a:nth-child(${lineNum}), .linenos span:nth-child(${lineNum}), .linenos a:nth-child(${lineNum})`;
-        const node = document.querySelector(sel);
+        // קבל רפרנס מה־index; אם האלמנט התנתק מה־DOM, נרענן חיפוש טרי
+        let node = this._lineIndex ? this._lineIndex.get(lineNum) : null;
+        if (node && !node.isConnected) node = null;
+        if (!node) {
+          const md = document.getElementById('md-content') || document;
+          // MD preview: data-source-line הוא 0-based ולכן נחסר 1
+          const sourceVal = lineNum - 1;
+          if (sourceVal >= 0) {
+            node = md.querySelector(`[data-source-line="${sourceVal}"]`);
+          }
+          if (!node) {
+            // Fallback: Pygments linenos
+            const sel = `.highlighttable .linenos pre > span:nth-child(${lineNum}), .highlighttable .linenos pre > a:nth-child(${lineNum}), .linenodiv pre > span:nth-child(${lineNum}), .linenodiv pre > a:nth-child(${lineNum}), .linenos span:nth-child(${lineNum}), .linenos a:nth-child(${lineNum})`;
+            node = document.querySelector(sel);
+          }
+          if (node && this._lineIndex) this._lineIndex.set(lineNum, node);
+        }
         if (node) {
           const scroll = getScrollOffsets();
           return Math.round(node.getBoundingClientRect().top + scroll.y);
         }
       } catch(_) {}
       return null;
+    }
+
+    _findNearestSourceLineElement(targetDocY){
+      // מחזיר את האלמנט עם [data-source-line] שה־doc-Y שלו הכי קרוב ל־targetDocY.
+      // בשימוש ל: (א) עיגון אוטומטי של פתקים חדשים; (ב) מיגרציה רכה של פתקים ישנים.
+      try {
+        const md = document.getElementById('md-content');
+        if (!md || !Number.isFinite(targetDocY)) return null;
+        const nodes = md.querySelectorAll('[data-source-line]');
+        if (!nodes.length) return null;
+        const scroll = getScrollOffsets();
+        let best = null;
+        let bestDy = Infinity;
+        nodes.forEach((node) => {
+          const y = node.getBoundingClientRect().top + scroll.y;
+          const dy = Math.abs(y - targetDocY);
+          if (dy < bestDy) { bestDy = dy; best = node; }
+        });
+        return best;
+      } catch(_) { return null; }
     }
 
     _getYForAnchor(anchorId){
@@ -1431,7 +1461,7 @@
         let anchorY = null;
         if (Number.isInteger(data.line_start) && data.line_start > 0) {
           anchorY = this._getYForLine(data.line_start);
-        } else if (data.anchor_id && data.anchor_id !== PIN_SENTINEL) {
+        } else if (data.anchor_id && data.anchor_id !== PIN_SENTINEL && data.anchor_id !== FLOATING_SENTINEL) {
           anchorY = this._getYForAnchor(data.anchor_id);
         }
         if (anchorY == null) return;
@@ -1454,7 +1484,7 @@
         for (const [id, entry] of this.notes.entries()){
           if (!entry || !entry.el || !entry.data) continue;
           const d = entry.data;
-          const isAnchored = (Number.isInteger(d.line_start) && d.line_start > 0) || (d.anchor_id && d.anchor_id !== PIN_SENTINEL);
+          const isAnchored = (Number.isInteger(d.line_start) && d.line_start > 0) || (d.anchor_id && d.anchor_id !== PIN_SENTINEL && d.anchor_id !== FLOATING_SENTINEL);
           if (!isAnchored) continue;
           this._updateAnchoredNotePosition(entry.el, d);
         }
@@ -1500,7 +1530,7 @@
         const data = entry.data;
         // אם יש עוגן – גלול לעוגן, אחרת ל-top של הפתק עצמו
         let top = null;
-        if (data.anchor_id && data.anchor_id !== PIN_SENTINEL) {
+        if (data.anchor_id && data.anchor_id !== PIN_SENTINEL && data.anchor_id !== FLOATING_SENTINEL) {
           top = this._getYForAnchor(String(data.anchor_id));
         }
         if (top == null && Number.isInteger(data.line_start) && data.line_start > 0) {
