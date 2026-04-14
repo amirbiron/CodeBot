@@ -5074,6 +5074,90 @@ def main() -> None:
             except Exception:  # pragma: no cover
                 _TgConflict = None  # type: ignore
 
+            def _ensure_webhook_deleted(drop_pending: bool = True) -> bool:
+                """
+                מבטיח שהוובהוק מבוטל לפני polling, כדי למנוע 409 Conflict
+                ("can't use getUpdates method while webhook is active").
+
+                חשוב: לא משתמשים באובייקט הבוט של PTB כאן, כי הוא מבוסס HTTPX
+                אסינכרוני – קריאה עם ``asyncio.run`` תאתחל את ה-client על loop
+                שייסגר מיד אחרי, וב-``run_polling`` הוא ייכשל עם
+                ``RuntimeError: Event loop is closed``. לכן אנחנו עושים קריאת
+                HTTP סינכרונית פשוטה מול Telegram Bot API ישירות.
+
+                רץ כ-best-effort: מחזיר True בהצלחה, False בכישלון.
+                """
+                try:
+                    import json as _json
+                    import urllib.parse as _uparse
+                    import urllib.request as _urlreq
+                    import urllib.error as _urlerr
+
+                    # שליפת הטוקן – עדיפות ל-config, נפילה ל-ENV.
+                    _token: str | None = None
+                    try:
+                        from config import config as _cfg  # type: ignore
+                        _token = getattr(_cfg, "BOT_TOKEN", None)
+                    except Exception:
+                        _token = None
+                    if not _token:
+                        _token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+                    if not _token:
+                        logger.warning("Cannot delete webhook: BOT_TOKEN is not available.")
+                        return False
+
+                    _base = f"https://api.telegram.org/bot{_token}"
+
+                    def _http_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+                        _qs = f"?{_uparse.urlencode(params)}" if params else ""
+                        _req = _urlreq.Request(
+                            f"{_base}/{path}{_qs}",
+                            method="GET",
+                            headers={"User-Agent": "CodeBot/webhook-cleanup"},
+                        )
+                        with _urlreq.urlopen(_req, timeout=10) as _resp:
+                            _raw = _resp.read().decode("utf-8", errors="replace")
+                        return _json.loads(_raw)
+
+                    # בדיקה מקדימה (best-effort) כדי לדווח אם webhook אכן הוגדר
+                    try:
+                        _info_resp = _http_get("getWebhookInfo")
+                        _info = _info_resp.get("result") if isinstance(_info_resp, dict) else None
+                        _url = ""
+                        if isinstance(_info, dict):
+                            _url = str(_info.get("url") or "")
+                        if _url:
+                            logger.warning(
+                                "Active Telegram webhook detected (url=%s); deleting before polling.",
+                                _url,
+                            )
+                        else:
+                            logger.info("No active Telegram webhook; will still call deleteWebhook to clear pending updates.")
+                    except Exception as _info_e:
+                        logger.debug("getWebhookInfo failed (non-fatal): %s", _info_e)
+
+                    _params: dict[str, Any] = {}
+                    if drop_pending:
+                        _params["drop_pending_updates"] = "true"
+                    try:
+                        _del_resp = _http_get("deleteWebhook", _params)
+                    except _urlerr.HTTPError as _he:
+                        logger.warning("deleteWebhook HTTP error: %s", _he)
+                        return False
+
+                    if isinstance(_del_resp, dict) and _del_resp.get("ok"):
+                        logger.info("deleteWebhook completed successfully before polling.")
+                        return True
+                    logger.warning("deleteWebhook returned non-ok response: %s", _del_resp)
+                    return False
+                except Exception as _wh_e:
+                    logger.warning("Failed to delete webhook before polling (best-effort): %s", _wh_e)
+                    return False
+
+            # קריאה מקדימה: ננקה webhook שאולי נותר פעיל מהפעלה קודמת.
+            # זה מונע את מצב ה-409 Conflict "can't use getUpdates while webhook is active".
+            _ensure_webhook_deleted(drop_pending=True)
+
             conflict_tries = 0
             conflict_started_at: float | None = None
             while True:
@@ -5082,15 +5166,30 @@ def main() -> None:
                     break
                 except Exception as _e:
                     is_conflict = False
+                    is_webhook_conflict = False
                     try:
+                        _err_text = str(_e).lower()
                         if _TgConflict is not None and isinstance(_e, _TgConflict):
                             is_conflict = True
-                        elif "terminated by other getupdates request" in str(_e).lower():
+                        elif "terminated by other getupdates request" in _err_text:
                             is_conflict = True
+                        elif "can't use getupdates method while webhook is active" in _err_text:
+                            is_conflict = True
+                            is_webhook_conflict = True
+                        if "webhook is active" in _err_text or "deletewebhook" in _err_text:
+                            is_webhook_conflict = True
                     except Exception:
                         is_conflict = False
                     if not is_conflict:
                         raise
+
+                    # אם הקונפליקט הוא בגלל webhook פעיל – ננסה למחוק אותו מיידית
+                    # כדי שהרטרי הבא יצליח. זה מטפל בתרחיש שבו webhook הוגדר בטעות.
+                    if is_webhook_conflict:
+                        logger.warning(
+                            "Telegram webhook conflict detected; attempting explicit deleteWebhook before retry."
+                        )
+                        _ensure_webhook_deleted(drop_pending=True)
                     # Persistent conflicts likely mean another long-lived poller (or webhook) is active.
                     # Don't retry forever: release lock via finally and let the orchestrator recover.
                     try:
