@@ -5074,6 +5074,62 @@ def main() -> None:
             except Exception:  # pragma: no cover
                 _TgConflict = None  # type: ignore
 
+            def _ensure_webhook_deleted(drop_pending: bool = True) -> bool:
+                """
+                מבטיח שהוובהוק מבוטל לפני polling, כדי למנוע 409 Conflict
+                ("can't use getUpdates method while webhook is active").
+
+                רץ כ-best-effort: מחזיר True בהצלחה, False בכישלון.
+                משתמש ב-asyncio.run כי אנחנו בהקשר סינכרוני לפני run_polling.
+                """
+                try:
+                    _bot_obj = getattr(bot, "bot", None) or getattr(_app, "bot", None)
+                    if _bot_obj is None:
+                        return False
+                    _delete_wh = getattr(_bot_obj, "delete_webhook", None)
+                    if not callable(_delete_wh):
+                        return False
+                    import asyncio as _asyncio
+                    async def _do_delete():
+                        try:
+                            # קודם נבדוק אם קיים webhook כדי להימנע מקריאות מיותרות
+                            try:
+                                _get_wh_info = getattr(_bot_obj, "get_webhook_info", None)
+                                if callable(_get_wh_info):
+                                    _info = await _get_wh_info()
+                                    _url = getattr(_info, "url", "") or ""
+                                    if not _url:
+                                        # אין webhook פעיל - עדיין נבצע delete כדי לוודא drop_pending
+                                        pass
+                                    else:
+                                        logger.warning(
+                                            "Active Telegram webhook detected (url=%s); deleting before polling.",
+                                            _url,
+                                        )
+                            except Exception:
+                                pass
+                            return await _delete_wh(drop_pending_updates=drop_pending)
+                        except TypeError:
+                            # גרסאות ישנות שלא תומכות ב-drop_pending_updates
+                            return await _delete_wh()
+                    try:
+                        _loop = _asyncio.get_event_loop()
+                        if _loop.is_running():
+                            # כבר רץ loop – לא ניתן להשתמש ב-run; נוותר
+                            return False
+                    except RuntimeError:
+                        pass
+                    _asyncio.run(_do_delete())
+                    logger.info("deleteWebhook completed successfully before polling.")
+                    return True
+                except Exception as _wh_e:
+                    logger.warning("Failed to delete webhook before polling (best-effort): %s", _wh_e)
+                    return False
+
+            # קריאה מקדימה: ננקה webhook שאולי נותר פעיל מהפעלה קודמת.
+            # זה מונע את מצב ה-409 Conflict "can't use getUpdates while webhook is active".
+            _ensure_webhook_deleted(drop_pending=True)
+
             conflict_tries = 0
             conflict_started_at: float | None = None
             while True:
@@ -5082,15 +5138,30 @@ def main() -> None:
                     break
                 except Exception as _e:
                     is_conflict = False
+                    is_webhook_conflict = False
                     try:
+                        _err_text = str(_e).lower()
                         if _TgConflict is not None and isinstance(_e, _TgConflict):
                             is_conflict = True
-                        elif "terminated by other getupdates request" in str(_e).lower():
+                        elif "terminated by other getupdates request" in _err_text:
                             is_conflict = True
+                        elif "can't use getupdates method while webhook is active" in _err_text:
+                            is_conflict = True
+                            is_webhook_conflict = True
+                        if "webhook is active" in _err_text or "deletewebhook" in _err_text:
+                            is_webhook_conflict = True
                     except Exception:
                         is_conflict = False
                     if not is_conflict:
                         raise
+
+                    # אם הקונפליקט הוא בגלל webhook פעיל – ננסה למחוק אותו מיידית
+                    # כדי שהרטרי הבא יצליח. זה מטפל בתרחיש שבו webhook הוגדר בטעות.
+                    if is_webhook_conflict:
+                        logger.warning(
+                            "Telegram webhook conflict detected; attempting explicit deleteWebhook before retry."
+                        )
+                        _ensure_webhook_deleted(drop_pending=True)
                     # Persistent conflicts likely mean another long-lived poller (or webhook) is active.
                     # Don't retry forever: release lock via finally and let the orchestrator recover.
                     try:
