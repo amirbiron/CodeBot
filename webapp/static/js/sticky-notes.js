@@ -1244,8 +1244,10 @@
         detailsEls.forEach((d) => {
           if (d.dataset.stickyBound === '1') return;
           d.dataset.stickyBound = '1';
-          // שמירת הגובה ההתחלתי לפני toggle
-          try { d._stickyLastHeight = Math.round(d.getBoundingClientRect().height); } catch(_) { d._stickyLastHeight = 0; }
+          // שמירת הגובה ההתחלתי לפני toggle – רק אם האלמנט נראה כרגע.
+          // אלמנטים מקוננים בתוך <details> סגור יחזירו height=0 ו־offsetParent=null,
+          // ונרצה להשהות את האיתחול עד שהם ייראו באמת (בעת ה־toggle הראשון שלהם).
+          d._stickyLastHeight = this._measureDetailsHeight(d);
           d.addEventListener('toggle', () => {
             // ה־toggle נזרק אחרי שה־DOM כבר התעדכן; נמתין פריים אחד כדי שה־layout יסתיים
             try { requestAnimationFrame(() => { try { this._handleDetailsToggle(d); } catch(_) {} }); } catch(_) {
@@ -1256,12 +1258,31 @@
       } catch(_) {}
     }
 
+    _measureDetailsHeight(detailsEl){
+      try {
+        if (!detailsEl || !detailsEl.getBoundingClientRect) return null;
+        // אם האלמנט לא נראה (למשל בתוך details סגור), נחזיר null כדי לא לקבע גובה שגוי
+        if (detailsEl.offsetParent === null && detailsEl !== document.body) return null;
+        const h = Math.round(detailsEl.getBoundingClientRect().height);
+        return h > 0 ? h : null;
+      } catch(_) { return null; }
+    }
+
     _handleDetailsToggle(detailsEl){
       try {
         if (!detailsEl || !detailsEl.getBoundingClientRect) return;
         const scroll = getScrollOffsets();
         const newHeight = Math.round(detailsEl.getBoundingClientRect().height);
-        const oldHeight = Number.isFinite(detailsEl._stickyLastHeight) ? detailsEl._stickyLastHeight : newHeight;
+        const hasOldHeight = Number.isFinite(detailsEl._stickyLastHeight) && detailsEl._stickyLastHeight > 0;
+        // אם אין לנו גובה התחלתי אמין (למשל details מקונן שהיה סגור בזמן ה־bind),
+        // נעדכן את ה־baseline ונוותר על הזזה בפעם הזו – עדיף לא לזוז מאשר לזוז בדלתא שגויה.
+        if (!hasOldHeight) {
+          detailsEl._stickyLastHeight = newHeight;
+          this._rebuildLineIndex();
+          this._updateAnchoredPositions();
+          return;
+        }
+        const oldHeight = detailsEl._stickyLastHeight;
         const delta = newHeight - oldHeight;
         detailsEl._stickyLastHeight = newHeight;
         if (!delta) {
@@ -1291,8 +1312,17 @@
           const newTop = currentTop + delta;
           el.style.top = newTop + 'px';
           try {
+            // חישוב המיקום ב־doc-coordinates לצורך שמירה (position.y שמור כ־doc-relative).
+            // עבור פתק לא נעוץ (position:fixed) – el.style.top הוא viewport-relative,
+            // ולכן יש להוסיף scroll.y כדי לקבל doc-Y. עבור פתק נעוץ (position:absolute) – כבר doc-relative.
+            const isPinned = this._isPinned(el);
             const pos = (data.position && typeof data.position === 'object') ? Object.assign({}, data.position) : {};
-            pos.y = (typeof pos.y === 'number' ? pos.y : currentTop) + delta;
+            if (typeof pos.y === 'number') {
+              pos.y = pos.y + delta;
+            } else {
+              const docY = currentTop + (isPinned ? 0 : scroll.y);
+              pos.y = docY + delta;
+            }
             if (entry.data) {
               entry.data.position = Object.assign({}, entry.data.position || {}, { y: pos.y });
             }
