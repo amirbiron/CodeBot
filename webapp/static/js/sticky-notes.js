@@ -1221,9 +1221,87 @@
       try {
         const md = document.getElementById('md-content');
         if (!md || typeof MutationObserver === 'undefined') return;
-        const obs = new MutationObserver(() => { try { this._rebuildLineIndex(); this._updateAnchoredPositions(); } catch(_) {} });
+        // קישור ראשוני ל־<details> קיימים
+        this._setupDetailsToggleHandlers();
+        const obs = new MutationObserver(() => {
+          try {
+            this._rebuildLineIndex();
+            this._updateAnchoredPositions();
+            // אם נוספו <details> חדשים – נקשר אליהם גם כן
+            this._setupDetailsToggleHandlers();
+          } catch(_) {}
+        });
         obs.observe(md, { childList: true, subtree: true, characterData: true });
         this._domObserver = obs;
+      } catch(_) {}
+    }
+
+    _setupDetailsToggleHandlers(){
+      try {
+        const md = document.getElementById('md-content');
+        if (!md) return;
+        const detailsEls = md.querySelectorAll('details');
+        detailsEls.forEach((d) => {
+          if (d.dataset.stickyBound === '1') return;
+          d.dataset.stickyBound = '1';
+          // שמירת הגובה ההתחלתי לפני toggle
+          try { d._stickyLastHeight = Math.round(d.getBoundingClientRect().height); } catch(_) { d._stickyLastHeight = 0; }
+          d.addEventListener('toggle', () => {
+            // ה־toggle נזרק אחרי שה־DOM כבר התעדכן; נמתין פריים אחד כדי שה־layout יסתיים
+            try { requestAnimationFrame(() => { try { this._handleDetailsToggle(d); } catch(_) {} }); } catch(_) {
+              try { this._handleDetailsToggle(d); } catch(_) {}
+            }
+          });
+        });
+      } catch(_) {}
+    }
+
+    _handleDetailsToggle(detailsEl){
+      try {
+        if (!detailsEl || !detailsEl.getBoundingClientRect) return;
+        const scroll = getScrollOffsets();
+        const newHeight = Math.round(detailsEl.getBoundingClientRect().height);
+        const oldHeight = Number.isFinite(detailsEl._stickyLastHeight) ? detailsEl._stickyLastHeight : newHeight;
+        const delta = newHeight - oldHeight;
+        detailsEl._stickyLastHeight = newHeight;
+        if (!delta) {
+          // בכל מקרה נעדכן עוגנים – אולי תוכן פנימי השתנה
+          this._rebuildLineIndex();
+          this._updateAnchoredPositions();
+          return;
+        }
+        // doc-Y של תחתית ה־<details> לפני ה־toggle (אחרי ה־toggle הוא עצמו לא זז, רק גובהו השתנה)
+        const detailsRect = detailsEl.getBoundingClientRect();
+        const detailsTopDoc = detailsRect.top + scroll.y;
+        const detailsBottomBefore = detailsTopDoc + oldHeight;
+        // הסטת כל פתק שאיננו עוגני ונמצא מתחת ל־<details> (ואינו בתוכו)
+        for (const [id, entry] of this.notes.entries()){
+          if (!entry || !entry.el) continue;
+          const el = entry.el;
+          if (detailsEl.contains(el)) continue;
+          const data = entry.data || {};
+          const isAnchored = (Number.isInteger(data.line_start) && data.line_start > 0) || (data.anchor_id && data.anchor_id !== PIN_SENTINEL);
+          if (isAnchored) continue; // עוגנים יעודכנו ע"י _updateAnchoredPositions
+          // doc-Y של הפתק לפני ה־toggle: ה־rect הנוכחי כבר משקף את מצב אחרי (אם פתק היה ממוקם absolute הוא לא זז ע"י flow, אלא לפי top; אם fixed הוא קבוע למסך)
+          const noteRect = el.getBoundingClientRect();
+          const noteDocY = noteRect.top + scroll.y;
+          // נבחן אם הפתק "שייך" לתוכן שמתחת ל־details: נתייחס לפתק שה־doc-Y שלו גדול או שווה ל־detailsBottomBefore
+          if (noteDocY < detailsBottomBefore) continue;
+          const currentTop = parseInt(el.style.top || '0', 10) || 0;
+          const newTop = currentTop + delta;
+          el.style.top = newTop + 'px';
+          try {
+            const pos = (data.position && typeof data.position === 'object') ? Object.assign({}, data.position) : {};
+            pos.y = (typeof pos.y === 'number' ? pos.y : currentTop) + delta;
+            if (entry.data) {
+              entry.data.position = Object.assign({}, entry.data.position || {}, { y: pos.y });
+            }
+            this._queueSave(el, { position: pos });
+          } catch(_) {}
+        }
+        // ריענון עוגנים – גם עוגני line/anchor_id יושפעו
+        this._rebuildLineIndex();
+        this._updateAnchoredPositions();
       } catch(_) {}
     }
 
