@@ -5079,49 +5079,77 @@ def main() -> None:
                 מבטיח שהוובהוק מבוטל לפני polling, כדי למנוע 409 Conflict
                 ("can't use getUpdates method while webhook is active").
 
+                חשוב: לא משתמשים באובייקט הבוט של PTB כאן, כי הוא מבוסס HTTPX
+                אסינכרוני – קריאה עם ``asyncio.run`` תאתחל את ה-client על loop
+                שייסגר מיד אחרי, וב-``run_polling`` הוא ייכשל עם
+                ``RuntimeError: Event loop is closed``. לכן אנחנו עושים קריאת
+                HTTP סינכרונית פשוטה מול Telegram Bot API ישירות.
+
                 רץ כ-best-effort: מחזיר True בהצלחה, False בכישלון.
-                משתמש ב-asyncio.run כי אנחנו בהקשר סינכרוני לפני run_polling.
                 """
                 try:
-                    _bot_obj = getattr(bot, "bot", None) or getattr(_app, "bot", None)
-                    if _bot_obj is None:
-                        return False
-                    _delete_wh = getattr(_bot_obj, "delete_webhook", None)
-                    if not callable(_delete_wh):
-                        return False
-                    import asyncio as _asyncio
-                    async def _do_delete():
-                        try:
-                            # קודם נבדוק אם קיים webhook כדי להימנע מקריאות מיותרות
-                            try:
-                                _get_wh_info = getattr(_bot_obj, "get_webhook_info", None)
-                                if callable(_get_wh_info):
-                                    _info = await _get_wh_info()
-                                    _url = getattr(_info, "url", "") or ""
-                                    if not _url:
-                                        # אין webhook פעיל - עדיין נבצע delete כדי לוודא drop_pending
-                                        pass
-                                    else:
-                                        logger.warning(
-                                            "Active Telegram webhook detected (url=%s); deleting before polling.",
-                                            _url,
-                                        )
-                            except Exception:
-                                pass
-                            return await _delete_wh(drop_pending_updates=drop_pending)
-                        except TypeError:
-                            # גרסאות ישנות שלא תומכות ב-drop_pending_updates
-                            return await _delete_wh()
+                    import json as _json
+                    import urllib.parse as _uparse
+                    import urllib.request as _urlreq
+                    import urllib.error as _urlerr
+
+                    # שליפת הטוקן – עדיפות ל-config, נפילה ל-ENV.
+                    _token: str | None = None
                     try:
-                        _loop = _asyncio.get_event_loop()
-                        if _loop.is_running():
-                            # כבר רץ loop – לא ניתן להשתמש ב-run; נוותר
-                            return False
-                    except RuntimeError:
-                        pass
-                    _asyncio.run(_do_delete())
-                    logger.info("deleteWebhook completed successfully before polling.")
-                    return True
+                        from config import config as _cfg  # type: ignore
+                        _token = getattr(_cfg, "BOT_TOKEN", None)
+                    except Exception:
+                        _token = None
+                    if not _token:
+                        _token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+                    if not _token:
+                        logger.warning("Cannot delete webhook: BOT_TOKEN is not available.")
+                        return False
+
+                    _base = f"https://api.telegram.org/bot{_token}"
+
+                    def _http_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+                        _qs = f"?{_uparse.urlencode(params)}" if params else ""
+                        _req = _urlreq.Request(
+                            f"{_base}/{path}{_qs}",
+                            method="GET",
+                            headers={"User-Agent": "CodeBot/webhook-cleanup"},
+                        )
+                        with _urlreq.urlopen(_req, timeout=10) as _resp:
+                            _raw = _resp.read().decode("utf-8", errors="replace")
+                        return _json.loads(_raw)
+
+                    # בדיקה מקדימה (best-effort) כדי לדווח אם webhook אכן הוגדר
+                    try:
+                        _info_resp = _http_get("getWebhookInfo")
+                        _info = _info_resp.get("result") if isinstance(_info_resp, dict) else None
+                        _url = ""
+                        if isinstance(_info, dict):
+                            _url = str(_info.get("url") or "")
+                        if _url:
+                            logger.warning(
+                                "Active Telegram webhook detected (url=%s); deleting before polling.",
+                                _url,
+                            )
+                        else:
+                            logger.info("No active Telegram webhook; will still call deleteWebhook to clear pending updates.")
+                    except Exception as _info_e:
+                        logger.debug("getWebhookInfo failed (non-fatal): %s", _info_e)
+
+                    _params: dict[str, Any] = {}
+                    if drop_pending:
+                        _params["drop_pending_updates"] = "true"
+                    try:
+                        _del_resp = _http_get("deleteWebhook", _params)
+                    except _urlerr.HTTPError as _he:
+                        logger.warning("deleteWebhook HTTP error: %s", _he)
+                        return False
+
+                    if isinstance(_del_resp, dict) and _del_resp.get("ok"):
+                        logger.info("deleteWebhook completed successfully before polling.")
+                        return True
+                    logger.warning("deleteWebhook returned non-ok response: %s", _del_resp)
+                    return False
                 except Exception as _wh_e:
                     logger.warning("Failed to delete webhook before polling (best-effort): %s", _wh_e)
                     return False
