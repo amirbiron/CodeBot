@@ -420,8 +420,10 @@
       // ה־line_start ב־DB דרך _queueSave (debounced, לא חוסם את הרינדור), ומפעילים
       // מחדש את מצב המיקום כך שהפתק יהפוך ל־anchored וישמור על מיקום יציב מול התוכן.
       try {
-        const hasAnchor = (Number.isInteger(note.line_start) && note.line_start > 0)
-          || (note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== '');
+        const isPinnedNote = note.anchor_id === PIN_SENTINEL;
+        const hasAnchor = isPinnedNote
+          || (Number.isInteger(note.line_start) && note.line_start > 0)
+          || (note.anchor_id && note.anchor_id !== '');
         if (!hasAnchor) {
           const mdEl = document.getElementById('md-content');
           if (mdEl && mdEl.querySelector('[data-source-line]')) {
