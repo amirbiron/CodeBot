@@ -258,13 +258,28 @@
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
         const scroll = getScrollOffsets();
+        const noteX = isMobile ? 80 : 120;
+        const noteY = scroll.y + (isMobile ? 80 : 120);
+
+        // עיגון אוטומטי לאלמנט הקרוב עם [data-source-line] (רלוונטי ל־MD preview).
+        // הפתק יהפוך ל־anchored (position:absolute, doc-Y) ולכן יזוז יחד עם התוכן
+        // כאשר ::: details נפתח/נסגר, תמונות נטענות, וכו'.
+        let autoAnchorLine = null;
+        try {
+          const nearest = this._findNearestSourceLineElement(noteY);
+          if (nearest) {
+            const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
+            if (Number.isFinite(raw) && raw >= 0) autoAnchorLine = raw + 1;
+          }
+        } catch(_) {}
+
         const payload = {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
-          position: { x: isMobile ? 80 : 120, y: scroll.y + (isMobile ? 80 : 120) },
+          position: { x: noteX, y: noteY },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
-          line_start: null,
+          line_start: autoAnchorLine,
           // חזרה להתנהגות הישנה: ללא עיגון לכותרות כברירת מחדל
           anchor_id: '',
           anchor_text: undefined
@@ -398,6 +413,40 @@
       this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
       this._updateAnchoredNotePosition(el, note);
+
+      // ── מיגרציה רכה לפתקים ישנים ב־MD preview ──
+      // פתקים שנוצרו לפני תמיכת ה־[data-source-line] נשמרו בלי עוגן וחיו כ־
+      // position:fixed. עכשיו אנחנו מעגנים אותם אוטומטית לאלמנט הקרוב, שומרים את
+      // ה־line_start ב־DB דרך _queueSave (debounced, לא חוסם את הרינדור), ומפעילים
+      // מחדש את מצב המיקום כך שהפתק יהפוך ל־anchored וישמור על מיקום יציב מול התוכן.
+      try {
+        const hasAnchor = (Number.isInteger(note.line_start) && note.line_start > 0)
+          || (note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== '');
+        if (!hasAnchor) {
+          const mdEl = document.getElementById('md-content');
+          if (mdEl && mdEl.querySelector('[data-source-line]')) {
+            const targetY = (typeof note.position?.y === 'number') ? note.position.y : null;
+            if (Number.isFinite(targetY)) {
+              const nearest = this._findNearestSourceLineElement(targetY);
+              if (nearest) {
+                const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
+                if (Number.isFinite(raw) && raw >= 0) {
+                  const newLineStart = raw + 1;
+                  note.line_start = newLineStart;
+                  const entry = this.notes.get(note.id);
+                  if (entry && entry.data) entry.data.line_start = newLineStart;
+                  this._queueSave(el, { line_start: newLineStart });
+                  // החלפת מצב: floating → anchored. מחייב ניקוי relYOffset שנוצר קודם.
+                  try { if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; } } catch(_) {}
+                  this._applyPositionMode(el, note, { initial: false, reflow: false });
+                  this._updateAnchoredNotePosition(el, note);
+                }
+              }
+            }
+          }
+        }
+      } catch(_) {}
+
       return el;
     }
 
@@ -1220,26 +1269,70 @@
     _setupDomObservers(){
       try {
         const md = document.getElementById('md-content');
-        if (!md || typeof MutationObserver === 'undefined') return;
-        const obs = new MutationObserver(() => { try { this._rebuildLineIndex(); this._updateAnchoredPositions(); } catch(_) {} });
-        obs.observe(md, { childList: true, subtree: true, characterData: true });
-        this._domObserver = obs;
+        if (!md) return;
+
+        // MutationObserver – שינויים מבניים ב־DOM (תוכן חדש/מוסר). משפיע על אינדקס
+        // העוגנים עצמו ולכן מחייב rebuild + reposition.
+        if (typeof MutationObserver !== 'undefined') {
+          const mObs = new MutationObserver(() => {
+            try { this._rebuildLineIndex(); this._updateAnchoredPositions(); } catch(_) {}
+          });
+          mObs.observe(md, { childList: true, subtree: true, characterData: true });
+          this._domObserver = mObs;
+        }
+
+        // ResizeObserver – שינויי גובה/פריסה (פתיחת ::: details, טעינת תמונות, resize).
+        // חשוב: קורא *רק* ל־_updateAnchoredPositions, לא ל־rebuild, כדי לא לסרוק את כל
+        // האלמנטים עם [data-source-line] במסמכים ארוכים בכל פריים של אנימציה.
+        // ה־_updateAnchoredPositions עובר רק על פתקים מעוגנים וקורא את ה־rect של העוגן
+        // הספציפי שלהם on-the-fly, כך שהעלות פרופורציונלית למספר הפתקים בלבד.
+        if (typeof ResizeObserver !== 'undefined') {
+          let pending = false;
+          const rObs = new ResizeObserver(() => {
+            if (pending) return;
+            pending = true;
+            const run = () => {
+              pending = false;
+              try { this._updateAnchoredPositions(); } catch(_) {}
+            };
+            try { requestAnimationFrame(run); } catch(_) { run(); }
+          });
+          try { rObs.observe(md); } catch(_) {}
+          this._resizeObserver = rObs;
+        }
       } catch(_) {}
     }
 
     _rebuildLineIndex(){
       try {
+        // סמנטיקה חדשה: Map<lineNumber, Element> במקום Map<lineNumber, Y>.
+        // שמירת רפרנס בלבד – חישוב ה־Y נעשה on-demand דרך _getYForLine,
+        // כדי להימנע מ־Layout Thrashing בזמן אנימציות resize.
         this._lineIndex = new Map();
         const md = document.getElementById('md-content') || document;
-        const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
-        const nodes = Array.from(md.querySelectorAll(sel));
-        const scroll = getScrollOffsets();
-        nodes.forEach((node) => {
-          const ln = this._extractLineNumberFromNode(node);
-          if (!ln) return;
-          const y = Math.round(node.getBoundingClientRect().top + scroll.y);
-          if (!this._lineIndex.has(ln)) this._lineIndex.set(ln, y);
+
+        // ── MD preview: אלמנטים עם data-source-line מתוך ה־Source Mapping Plugin ──
+        // ה־value של data-source-line הוא 0-based (מתוך token.map[0] של markdown-it).
+        // אנחנו שומרים כמפתח את הערך +1 כדי לשמור על הקונבנציה 1-indexed שקיימת
+        // בשאר הקוד (הבדיקות `line_start > 0`).
+        const sourceLineNodes = md.querySelectorAll('[data-source-line]');
+        sourceLineNodes.forEach((node) => {
+          const raw = parseInt(node.getAttribute('data-source-line'), 10);
+          if (!Number.isFinite(raw) || raw < 0) return;
+          const key = raw + 1;
+          if (!this._lineIndex.has(key)) this._lineIndex.set(key, node);
         });
+
+        // ── Fallback: Pygments .linenos (לא בשימוש ב־MD preview, נשמר לתאימות) ──
+        if (this._lineIndex.size === 0) {
+          const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
+          const nodes = md.querySelectorAll(sel);
+          nodes.forEach((node) => {
+            const ln = this._extractLineNumberFromNode(node);
+            if (!ln) return;
+            if (!this._lineIndex.has(ln)) this._lineIndex.set(ln, node);
+          });
+        }
       } catch(_) {}
     }
 
@@ -1269,16 +1362,50 @@
 
     _getYForLine(lineNum){
       if (!Number.isInteger(lineNum) || lineNum <= 0) return null;
-      if (this._lineIndex && this._lineIndex.has(lineNum)) return this._lineIndex.get(lineNum);
       try {
-        const sel = `.highlighttable .linenos pre > span:nth-child(${lineNum}), .highlighttable .linenos pre > a:nth-child(${lineNum}), .linenodiv pre > span:nth-child(${lineNum}), .linenodiv pre > a:nth-child(${lineNum}), .linenos span:nth-child(${lineNum}), .linenos a:nth-child(${lineNum})`;
-        const node = document.querySelector(sel);
+        // קבל רפרנס מה־index; אם האלמנט התנתק מה־DOM, נרענן חיפוש טרי
+        let node = this._lineIndex ? this._lineIndex.get(lineNum) : null;
+        if (node && !node.isConnected) node = null;
+        if (!node) {
+          const md = document.getElementById('md-content') || document;
+          // MD preview: data-source-line הוא 0-based ולכן נחסר 1
+          const sourceVal = lineNum - 1;
+          if (sourceVal >= 0) {
+            node = md.querySelector(`[data-source-line="${sourceVal}"]`);
+          }
+          if (!node) {
+            // Fallback: Pygments linenos
+            const sel = `.highlighttable .linenos pre > span:nth-child(${lineNum}), .highlighttable .linenos pre > a:nth-child(${lineNum}), .linenodiv pre > span:nth-child(${lineNum}), .linenodiv pre > a:nth-child(${lineNum}), .linenos span:nth-child(${lineNum}), .linenos a:nth-child(${lineNum})`;
+            node = document.querySelector(sel);
+          }
+          if (node && this._lineIndex) this._lineIndex.set(lineNum, node);
+        }
         if (node) {
           const scroll = getScrollOffsets();
           return Math.round(node.getBoundingClientRect().top + scroll.y);
         }
       } catch(_) {}
       return null;
+    }
+
+    _findNearestSourceLineElement(targetDocY){
+      // מחזיר את האלמנט עם [data-source-line] שה־doc-Y שלו הכי קרוב ל־targetDocY.
+      // בשימוש ל: (א) עיגון אוטומטי של פתקים חדשים; (ב) מיגרציה רכה של פתקים ישנים.
+      try {
+        const md = document.getElementById('md-content');
+        if (!md || !Number.isFinite(targetDocY)) return null;
+        const nodes = md.querySelectorAll('[data-source-line]');
+        if (!nodes.length) return null;
+        const scroll = getScrollOffsets();
+        let best = null;
+        let bestDy = Infinity;
+        nodes.forEach((node) => {
+          const y = node.getBoundingClientRect().top + scroll.y;
+          const dy = Math.abs(y - targetDocY);
+          if (dy < bestDy) { bestDy = dy; best = node; }
+        });
+        return best;
+      } catch(_) { return null; }
     }
 
     _getYForAnchor(anchorId){
