@@ -52,6 +52,14 @@
         </div>
         <!-- Repo Selector (will be populated by JS if multiple repos exist) -->
         <div id="repo-selector" class="repo-selector"></div>
+        <!-- Refresh button – מרענן את הדף לאחר deploy/שינוי -->
+        <button type="button"
+                class="btn-icon repo-refresh-btn"
+                id="repo-refresh-btn"
+                title="רענן את הדף"
+                aria-label="רענן את הדף">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
         <div class="repo-info">
             <span class="repo-name">
                 <i class="bi bi-github"></i>
@@ -184,6 +192,22 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/jump-to-line.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
+
+<!-- Refresh button handler – מרענן את הדף עם עקיפת cache קל -->
+<script>
+(function(){
+    try {
+        var btn = document.getElementById('repo-refresh-btn');
+        if (!btn) return;
+        btn.addEventListener('click', function(){
+            try { btn.classList.add('is-spinning'); } catch(_) {}
+            // reload() בדפדפנים מודרניים מכבד את ה-cache הרגיל; זה בדיוק מה
+            // שצריך אחרי deploy כי static_version משתנה ומשאבים חדשים ייטענו.
+            window.location.reload();
+        });
+    } catch(_) {}
+})();
+</script>
 
 <!-- Custom Scripts -->
 <script src="{{ url_for('static', filename='js/repo-history.js') }}"></script>
