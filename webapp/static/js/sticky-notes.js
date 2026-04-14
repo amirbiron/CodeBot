@@ -131,6 +131,9 @@
     return { x: pick(xCandidates), y: pick(yCandidates) };
   }
   const PIN_SENTINEL = '__pinned__';
+  // מסמן פתק שהמשתמש ביטל לו את הנעיצה/העיגון במפורש – כדי להבדיל בינו
+  // לבין פתק ישן שעדיין לא עבר מיגרציה ל־[data-source-line].
+  const FLOATING_SENTINEL = '__floating__';
   const AUTO_SAVE_DEBOUNCE_MS = 500;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -421,7 +424,11 @@
       // מחדש את מצב המיקום כך שהפתק יהפוך ל־anchored וישמור על מיקום יציב מול התוכן.
       try {
         const isPinnedNote = note.anchor_id === PIN_SENTINEL;
+        // פתק שסומן במפורש כ־floating (המשתמש ביטל עיגון/נעיצה) לא עובר
+        // מיגרציה — אחרת היינו דורסים את הבחירה המפורשת שלו בכל טעינת דף.
+        const isExplicitFloating = note.anchor_id === FLOATING_SENTINEL;
         const hasAnchor = isPinnedNote
+          || isExplicitFloating
           || (Number.isInteger(note.line_start) && note.line_start > 0)
           || (note.anchor_id && note.anchor_id !== '');
         if (!hasAnchor) {
@@ -572,7 +579,7 @@
           const currentViewportX = Math.round(rect.left);
           const currentViewportY = Math.round(rect.top);
           const isPinned = note.anchor_id === PIN_SENTINEL;
-          const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
+          const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
           if (isPinned) {
             el.classList.add('is-pinned');
             el.classList.remove('is-floating');
@@ -595,7 +602,7 @@
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
             el.style.left = targetX + 'px';
             if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
-            if (note.anchor_id && note.anchor_id !== PIN_SENTINEL) {
+            if (note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL) {
               el.dataset.anchorId = String(note.anchor_id);
             } else if (Number.isInteger(note.line_start) && note.line_start > 0) {
               el.dataset.anchorLine = String(note.line_start);
@@ -664,7 +671,9 @@
       const payload = this._notePayloadFromEl(el);
       entry.data.position = payload.position;
       entry.data.size = payload.size;
-      entry.data.anchor_id = '';
+      // מסמנים את הפתק כ־floating מפורש, כדי שבטעינה הבאה המיגרציה הרכה
+      // ב־_renderNote לא תעגן אותו מחדש ותדרוס את הבחירה של המשתמש.
+      entry.data.anchor_id = FLOATING_SENTINEL;
       entry.data.anchor_text = '';
       entry.data.line_start = null;
       entry.data.line_end = null;
@@ -673,7 +682,7 @@
       if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
       if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
       this._applyPositionMode(el, entry.data, { reflow: true });
-      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null, line_start: null, line_end: null }));
+      this._queueSave(el, Object.assign({}, payload, { anchor_id: FLOATING_SENTINEL, anchor_text: null, line_start: null, line_end: null }));
       this._flushFor(el);
     }
 
@@ -1452,7 +1461,7 @@
         let anchorY = null;
         if (Number.isInteger(data.line_start) && data.line_start > 0) {
           anchorY = this._getYForLine(data.line_start);
-        } else if (data.anchor_id && data.anchor_id !== PIN_SENTINEL) {
+        } else if (data.anchor_id && data.anchor_id !== PIN_SENTINEL && data.anchor_id !== FLOATING_SENTINEL) {
           anchorY = this._getYForAnchor(data.anchor_id);
         }
         if (anchorY == null) return;
@@ -1475,7 +1484,7 @@
         for (const [id, entry] of this.notes.entries()){
           if (!entry || !entry.el || !entry.data) continue;
           const d = entry.data;
-          const isAnchored = (Number.isInteger(d.line_start) && d.line_start > 0) || (d.anchor_id && d.anchor_id !== PIN_SENTINEL);
+          const isAnchored = (Number.isInteger(d.line_start) && d.line_start > 0) || (d.anchor_id && d.anchor_id !== PIN_SENTINEL && d.anchor_id !== FLOATING_SENTINEL);
           if (!isAnchored) continue;
           this._updateAnchoredNotePosition(entry.el, d);
         }
@@ -1521,7 +1530,7 @@
         const data = entry.data;
         // אם יש עוגן – גלול לעוגן, אחרת ל-top של הפתק עצמו
         let top = null;
-        if (data.anchor_id && data.anchor_id !== PIN_SENTINEL) {
+        if (data.anchor_id && data.anchor_id !== PIN_SENTINEL && data.anchor_id !== FLOATING_SENTINEL) {
           top = this._getYForAnchor(String(data.anchor_id));
         }
         if (top == null && Number.isInteger(data.line_start) && data.line_start > 0) {
