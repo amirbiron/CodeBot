@@ -296,21 +296,7 @@ function renderMarkdownFallback(content) {
         typographer: true,
         html: false,
         highlight: function (str, lang) {
-            // הדגשת תחביר באמצעות highlight.js
-            if (lang && window.hljs) {
-                try {
-                    if (window.hljs.getLanguage(lang)) {
-                        return window.hljs.highlight(str, { language: lang }).value;
-                    }
-                } catch (_) {}
-            }
-            // זיהוי אוטומטי אם אין שפה
-            if (window.hljs) {
-                try {
-                    return window.hljs.highlightAuto(str).value;
-                } catch (_) {}
-            }
-            return '';
+            return window.SafeHighlight ? window.SafeHighlight.markdownItHighlight(str, lang) : '';
         }
     });
     return md.render(content || '');
@@ -325,9 +311,9 @@ function enhanceMarkdownFallback(root) {
             if (window.RtlCode) {
                 window.RtlCode.applyRtlIfHebrew(block);
             }
-            // הדגשת תחביר אם hljs זמין
-            if (window.hljs) {
-                window.hljs.highlightElement(block);
+            // הדגשת תחביר בטוחה (מונע זיהוי שגוי כ-diff)
+            if (window.SafeHighlight) {
+                window.SafeHighlight.highlightBlock(block);
             }
             const parent = block.closest('pre');
             if (parent) {
@@ -364,19 +350,9 @@ function enhanceMarkdownFallback(root) {
 }
 
 function applySyntaxHighlighting(root) {
-    if (!root || !window.hljs || typeof window.hljs.highlightElement !== 'function') {
-        return;
+    if (window.SafeHighlight) {
+        window.SafeHighlight.highlightAllBlocks(root);
     }
-    root.querySelectorAll('pre code').forEach((block) => {
-        if (block && block.dataset && block.dataset.highlighted === 'yes') {
-            return;
-        }
-        try {
-            window.hljs.highlightElement(block);
-        } catch (err) {
-            console.warn('hljs highlight failed', err);
-        }
-    });
 }
 
 /**

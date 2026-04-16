@@ -134,21 +134,7 @@
         typographer: true,
         html: false,
         highlight: function (str, lang) {
-          // הדגשת תחביר באמצעות highlight.js
-          if (lang && window.hljs) {
-            try {
-              if (window.hljs.getLanguage(lang)) {
-                return window.hljs.highlight(str, { language: lang }).value;
-              }
-            } catch (_) {}
-          }
-          // אם אין שפה מזוהה, ננסה זיהוי אוטומטי
-          if (window.hljs) {
-            try {
-              return window.hljs.highlightAuto(str).value;
-            } catch (_) {}
-          }
-          return ''; // fallback - ללא הדגשה
+          return window.SafeHighlight ? window.SafeHighlight.markdownItHighlight(str, lang) : '';
         },
       });
       const defaultInlineCode = md.renderer.rules.code_inline;
@@ -317,9 +303,9 @@
           if (window.RtlCode) {
             window.RtlCode.applyRtlIfHebrew(block);
           }
-          // הדגשת תחביר אם hljs זמין
-          if (window.hljs) {
-            window.hljs.highlightElement(block);
+          // הדגשת תחביר בטוחה (מונע זיהוי שגוי כ-diff)
+          if (window.SafeHighlight) {
+            window.SafeHighlight.highlightBlock(block);
           }
           if (parent) {
             parent.style.position = 'relative';
