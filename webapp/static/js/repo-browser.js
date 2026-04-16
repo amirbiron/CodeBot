@@ -296,23 +296,7 @@ function renderMarkdownFallback(content) {
         typographer: true,
         html: false,
         highlight: function (str, lang) {
-            // הדגשת תחביר באמצעות highlight.js
-            if (lang && window.hljs) {
-                try {
-                    if (window.hljs.getLanguage(lang)) {
-                        return window.hljs.highlight(str, { language: lang }).value;
-                    }
-                } catch (_) {}
-            }
-            // זיהוי אוטומטי אם אין שפה (מתעלם מ-diff כי שורות עם מקף נחשבות בטעות ל-diff)
-            if (window.hljs) {
-                try {
-                    var result = window.hljs.highlightAuto(str);
-                    if (result.language === 'diff') return '';
-                    return result.value;
-                } catch (_) {}
-            }
-            return '';
+            return window.SafeHighlight ? window.SafeHighlight.markdownItHighlight(str, lang) : '';
         }
     });
     return md.render(content || '');
@@ -327,20 +311,9 @@ function enhanceMarkdownFallback(root) {
             if (window.RtlCode) {
                 window.RtlCode.applyRtlIfHebrew(block);
             }
-            // הדגשת תחביר אם hljs זמין (מונע זיהוי שגוי כ-diff)
-            if (window.hljs) {
-                var hasExplicitLang = /\blanguage-/.test(block.className || '');
-                if (hasExplicitLang) {
-                    window.hljs.highlightElement(block);
-                } else {
-                    var autoResult = window.hljs.highlightAuto(block.textContent || '');
-                    if (autoResult.language !== 'diff') {
-                        block.innerHTML = autoResult.value;
-                        if (autoResult.language) block.classList.add('language-' + autoResult.language);
-                    }
-                    block.classList.add('hljs');
-                    block.dataset.highlighted = 'yes';
-                }
+            // הדגשת תחביר בטוחה (מונע זיהוי שגוי כ-diff)
+            if (window.SafeHighlight) {
+                window.SafeHighlight.highlightBlock(block);
             }
             const parent = block.closest('pre');
             if (parent) {
@@ -377,30 +350,9 @@ function enhanceMarkdownFallback(root) {
 }
 
 function applySyntaxHighlighting(root) {
-    if (!root || !window.hljs || typeof window.hljs.highlightElement !== 'function') {
-        return;
+    if (window.SafeHighlight) {
+        window.SafeHighlight.highlightAllBlocks(root);
     }
-    root.querySelectorAll('pre code').forEach((block) => {
-        if (block && block.dataset && block.dataset.highlighted === 'yes') {
-            return;
-        }
-        try {
-            var hasExplicitLang = /\blanguage-/.test(block.className || '');
-            if (hasExplicitLang) {
-                window.hljs.highlightElement(block);
-            } else {
-                var autoResult = window.hljs.highlightAuto(block.textContent || '');
-                if (autoResult.language !== 'diff') {
-                    block.innerHTML = autoResult.value;
-                    if (autoResult.language) block.classList.add('language-' + autoResult.language);
-                }
-                block.classList.add('hljs');
-                block.dataset.highlighted = 'yes';
-            }
-        } catch (err) {
-            console.warn('hljs highlight failed', err);
-        }
-    });
 }
 
 /**

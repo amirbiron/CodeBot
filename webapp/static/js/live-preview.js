@@ -134,23 +134,7 @@
         typographer: true,
         html: false,
         highlight: function (str, lang) {
-          // הדגשת תחביר באמצעות highlight.js
-          if (lang && window.hljs) {
-            try {
-              if (window.hljs.getLanguage(lang)) {
-                return window.hljs.highlight(str, { language: lang }).value;
-              }
-            } catch (_) {}
-          }
-          // אם אין שפה מזוהה, ננסה זיהוי אוטומטי (מתעלם מ-diff כי שורות עם מקף נחשבות בטעות ל-diff)
-          if (window.hljs) {
-            try {
-              var result = window.hljs.highlightAuto(str);
-              if (result.language === 'diff') return '';
-              return result.value;
-            } catch (_) {}
-          }
-          return ''; // fallback - ללא הדגשה
+          return window.SafeHighlight ? window.SafeHighlight.markdownItHighlight(str, lang) : '';
         },
       });
       const defaultInlineCode = md.renderer.rules.code_inline;
@@ -319,20 +303,9 @@
           if (window.RtlCode) {
             window.RtlCode.applyRtlIfHebrew(block);
           }
-          // הדגשת תחביר אם hljs זמין (מונע זיהוי שגוי כ-diff)
-          if (window.hljs) {
-            var hasExplicitLang = /\blanguage-/.test(block.className || '');
-            if (hasExplicitLang) {
-              window.hljs.highlightElement(block);
-            } else {
-              var autoResult = window.hljs.highlightAuto(block.textContent || '');
-              if (autoResult.language !== 'diff') {
-                block.innerHTML = autoResult.value;
-                if (autoResult.language) block.classList.add('language-' + autoResult.language);
-              }
-              block.classList.add('hljs');
-              block.dataset.highlighted = 'yes';
-            }
+          // הדגשת תחביר בטוחה (מונע זיהוי שגוי כ-diff)
+          if (window.SafeHighlight) {
+            window.SafeHighlight.highlightBlock(block);
           }
           if (parent) {
             parent.style.position = 'relative';

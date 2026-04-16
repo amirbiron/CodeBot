@@ -36,17 +36,9 @@
       const blocks = root.querySelectorAll('pre code');
       blocks.forEach(el => {
         try {
-          if (el.classList.contains('hljs')) return;
-          const hasLang = /\blanguage-/.test(el.className || '');
-          if (hasLang && typeof window.hljs.highlightElement === 'function') {
-            window.hljs.highlightElement(el);
-          } else if (typeof window.hljs.highlightAuto === 'function') {
-            const res = window.hljs.highlightAuto(el.textContent || '');
-            if (res.language !== 'diff') {
-              el.innerHTML = res.value;
-              if (res.language) el.classList.add('language-' + res.language);
-            }
-            el.classList.add('hljs');
+          if (el.classList.contains('hljs') || (el.dataset && el.dataset.highlighted === 'yes')) return;
+          if (window.SafeHighlight) {
+            window.SafeHighlight.highlightBlock(el);
           }
           // Line numbers
           try {
