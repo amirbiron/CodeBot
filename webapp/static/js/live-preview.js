@@ -331,6 +331,7 @@
                 if (autoResult.language) block.classList.add('language-' + autoResult.language);
               }
               block.classList.add('hljs');
+              block.dataset.highlighted = 'yes';
             }
           }
           if (parent) {

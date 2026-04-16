@@ -339,6 +339,7 @@ function enhanceMarkdownFallback(root) {
                         if (autoResult.language) block.classList.add('language-' + autoResult.language);
                     }
                     block.classList.add('hljs');
+                    block.dataset.highlighted = 'yes';
                 }
             }
             const parent = block.closest('pre');
@@ -394,6 +395,7 @@ function applySyntaxHighlighting(root) {
                     if (autoResult.language) block.classList.add('language-' + autoResult.language);
                 }
                 block.classList.add('hljs');
+                block.dataset.highlighted = 'yes';
             }
         } catch (err) {
             console.warn('hljs highlight failed', err);
