@@ -326,10 +326,11 @@
               window.hljs.highlightElement(block);
             } else {
               var autoResult = window.hljs.highlightAuto(block.textContent || '');
-              if (autoResult.language && autoResult.language !== 'diff') {
+              if (autoResult.language !== 'diff') {
                 block.innerHTML = autoResult.value;
-                block.classList.add('hljs');
+                if (autoResult.language) block.classList.add('language-' + autoResult.language);
               }
+              block.classList.add('hljs');
             }
           }
           if (parent) {

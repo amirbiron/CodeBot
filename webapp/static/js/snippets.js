@@ -44,8 +44,9 @@
             const res = window.hljs.highlightAuto(el.textContent || '');
             if (res.language !== 'diff') {
               el.innerHTML = res.value;
-              el.classList.add('hljs');
+              if (res.language) el.classList.add('language-' + res.language);
             }
+            el.classList.add('hljs');
           }
           // Line numbers
           try {

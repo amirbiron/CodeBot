@@ -334,10 +334,11 @@ function enhanceMarkdownFallback(root) {
                     window.hljs.highlightElement(block);
                 } else {
                     var autoResult = window.hljs.highlightAuto(block.textContent || '');
-                    if (autoResult.language && autoResult.language !== 'diff') {
+                    if (autoResult.language !== 'diff') {
                         block.innerHTML = autoResult.value;
-                        block.classList.add('hljs');
+                        if (autoResult.language) block.classList.add('language-' + autoResult.language);
                     }
+                    block.classList.add('hljs');
                 }
             }
             const parent = block.closest('pre');
@@ -388,10 +389,11 @@ function applySyntaxHighlighting(root) {
                 window.hljs.highlightElement(block);
             } else {
                 var autoResult = window.hljs.highlightAuto(block.textContent || '');
-                if (autoResult.language && autoResult.language !== 'diff') {
+                if (autoResult.language !== 'diff') {
                     block.innerHTML = autoResult.value;
-                    block.classList.add('hljs');
+                    if (autoResult.language) block.classList.add('language-' + autoResult.language);
                 }
+                block.classList.add('hljs');
             }
         } catch (err) {
             console.warn('hljs highlight failed', err);
