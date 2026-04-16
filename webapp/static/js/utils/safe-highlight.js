@@ -24,10 +24,15 @@
       var result = original.call(this, code, languageSubset);
       if (result && result.language === 'diff') {
         // מחזיר תוצאה ריקה – בלי הדגשת diff
+        // escapeHtml כדי ש-value יהיה בטוח ל-innerHTML (חוזה hljs API)
+        var escaped = code
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
         return {
           language: '',
           relevance: 0,
-          value: window.hljs.getLanguage ? code : result.value,
+          value: escaped,
           secondBest: result.secondBest,
           _emitError: result._emitError
         };
@@ -87,7 +92,7 @@
       window.hljs.highlightElement(block);
     } else {
       var result = window.hljs.highlightAuto(block.textContent || '');
-      if (result.language) {
+      if (result.language && result.language !== 'diff') {
         block.innerHTML = result.value;
         block.classList.add('language-' + result.language);
       }
@@ -131,7 +136,7 @@
     }
     try {
       var result = window.hljs.highlightAuto(str);
-      if (!result.language) return '';
+      if (!result.language || result.language === 'diff') return '';
       return result.value;
     } catch (_) {}
     return '';
