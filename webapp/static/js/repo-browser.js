@@ -427,10 +427,13 @@ async function loadMarkdownDependencies() {
             break;
         }
     }
+    // ודא שה-patch של diff נשמר גם אחרי טעינה דינמית של hljs
+    if (window.SafeHighlight) window.SafeHighlight.patchHighlightAuto();
 }
 
 async function ensureHighlightJsLoaded() {
     if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+        if (window.SafeHighlight) window.SafeHighlight.patchHighlightAuto();
         return;
     }
     try {
@@ -445,6 +448,8 @@ async function ensureHighlightJsLoaded() {
             () => window.hljs && typeof window.hljs.highlightElement === 'function'
         );
     }
+    // ודא שה-patch של diff נשמר גם אחרי טעינה דינמית של hljs
+    if (window.SafeHighlight) window.SafeHighlight.patchHighlightAuto();
 }
 
 const scriptLoadPromises = new Map();
