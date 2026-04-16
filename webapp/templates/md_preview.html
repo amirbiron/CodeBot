@@ -2356,6 +2356,8 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     try { await loadScript(CDN.mdContainer); } catch(_){}
     try { await loadScript(CDN.mdAdmonition); } catch(_){}
     try { await loadScript(CDN.hljs); } catch(_){}
+    // ודא שה-patch של diff נשמר אחרי טעינת hljs
+    if (window.SafeHighlight) window.SafeHighlight.patchHighlightAuto();
     try { await loadScript(CDN.katexJs); } catch(_){}
     try { await loadScript(CDN.katexAuto); } catch(_){}
     try { await loadScript(CDN.mermaid); } catch(_){}
