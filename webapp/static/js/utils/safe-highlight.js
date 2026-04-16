@@ -75,6 +75,8 @@
 
   /**
    * מדגיש בלוק קוד בודד באופן בטוח.
+   *
+   * @param {HTMLElement} block  אלמנט <code> בתוך <pre>
    */
   function highlightBlock(block) {
     if (!block || !window.hljs) return;
@@ -96,6 +98,8 @@
 
   /**
    * מדגיש את כל בלוקי pre>code בתוך root.
+   *
+   * @param {HTMLElement} root  אלמנט שורש לחיפוש בלוקי קוד
    */
   function highlightAllBlocks(root) {
     if (!root || !window.hljs) return;
@@ -110,6 +114,11 @@
 
   /**
    * פונקציית highlight callback ל-markdown-it.
+   * מדלגת על זיהוי אוטומטי של diff.
+   *
+   * @param {string} str   תוכן בלוק הקוד
+   * @param {string} lang  שפה שצוינה (או ריק)
+   * @returns {string}     HTML מודגש, או '' ל-fallback
    */
   function markdownItHighlight(str, lang) {
     if (!window.hljs) return '';
