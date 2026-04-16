@@ -304,10 +304,12 @@ function renderMarkdownFallback(content) {
                     }
                 } catch (_) {}
             }
-            // זיהוי אוטומטי אם אין שפה
+            // זיהוי אוטומטי אם אין שפה (מתעלם מ-diff כי שורות עם מקף נחשבות בטעות ל-diff)
             if (window.hljs) {
                 try {
-                    return window.hljs.highlightAuto(str).value;
+                    var result = window.hljs.highlightAuto(str);
+                    if (result.language === 'diff') return '';
+                    return result.value;
                 } catch (_) {}
             }
             return '';
@@ -325,9 +327,18 @@ function enhanceMarkdownFallback(root) {
             if (window.RtlCode) {
                 window.RtlCode.applyRtlIfHebrew(block);
             }
-            // הדגשת תחביר אם hljs זמין
+            // הדגשת תחביר אם hljs זמין (מונע זיהוי שגוי כ-diff)
             if (window.hljs) {
-                window.hljs.highlightElement(block);
+                var hasExplicitLang = /\blanguage-/.test(block.className || '');
+                if (hasExplicitLang) {
+                    window.hljs.highlightElement(block);
+                } else {
+                    var autoResult = window.hljs.highlightAuto(block.textContent || '');
+                    if (autoResult.language && autoResult.language !== 'diff') {
+                        block.innerHTML = autoResult.value;
+                        block.classList.add('hljs');
+                    }
+                }
             }
             const parent = block.closest('pre');
             if (parent) {
@@ -372,7 +383,16 @@ function applySyntaxHighlighting(root) {
             return;
         }
         try {
-            window.hljs.highlightElement(block);
+            var hasExplicitLang = /\blanguage-/.test(block.className || '');
+            if (hasExplicitLang) {
+                window.hljs.highlightElement(block);
+            } else {
+                var autoResult = window.hljs.highlightAuto(block.textContent || '');
+                if (autoResult.language && autoResult.language !== 'diff') {
+                    block.innerHTML = autoResult.value;
+                    block.classList.add('hljs');
+                }
+            }
         } catch (err) {
             console.warn('hljs highlight failed', err);
         }

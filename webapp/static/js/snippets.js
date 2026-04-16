@@ -42,8 +42,10 @@
             window.hljs.highlightElement(el);
           } else if (typeof window.hljs.highlightAuto === 'function') {
             const res = window.hljs.highlightAuto(el.textContent || '');
-            el.innerHTML = res.value;
-            el.classList.add('hljs');
+            if (res.language !== 'diff') {
+              el.innerHTML = res.value;
+              el.classList.add('hljs');
+            }
           }
           // Line numbers
           try {

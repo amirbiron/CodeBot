@@ -142,10 +142,12 @@
               }
             } catch (_) {}
           }
-          // אם אין שפה מזוהה, ננסה זיהוי אוטומטי
+          // אם אין שפה מזוהה, ננסה זיהוי אוטומטי (מתעלם מ-diff כי שורות עם מקף נחשבות בטעות ל-diff)
           if (window.hljs) {
             try {
-              return window.hljs.highlightAuto(str).value;
+              var result = window.hljs.highlightAuto(str);
+              if (result.language === 'diff') return '';
+              return result.value;
             } catch (_) {}
           }
           return ''; // fallback - ללא הדגשה
@@ -317,9 +319,18 @@
           if (window.RtlCode) {
             window.RtlCode.applyRtlIfHebrew(block);
           }
-          // הדגשת תחביר אם hljs זמין
+          // הדגשת תחביר אם hljs זמין (מונע זיהוי שגוי כ-diff)
           if (window.hljs) {
-            window.hljs.highlightElement(block);
+            var hasExplicitLang = /\blanguage-/.test(block.className || '');
+            if (hasExplicitLang) {
+              window.hljs.highlightElement(block);
+            } else {
+              var autoResult = window.hljs.highlightAuto(block.textContent || '');
+              if (autoResult.language && autoResult.language !== 'diff') {
+                block.innerHTML = autoResult.value;
+                block.classList.add('hljs');
+              }
+            }
           }
           if (parent) {
             parent.style.position = 'relative';

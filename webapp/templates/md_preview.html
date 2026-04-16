@@ -2777,9 +2777,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     } catch(_) {}
 
     // הדגשת תחביר לאחר הרינדור: הדגשה ממוקדת בתוך #md-content בלבד
+    // מתעלם מזיהוי אוטומטי של diff כי שורות עם מקף נחשבות בטעות ל-diff
     try {
       if (window.hljs) {
-        try { if (typeof window.hljs.highlightAll === 'function') window.hljs.highlightAll(); } catch(_){}
         container.querySelectorAll('pre code').forEach(el => {
           try {
             if (el.classList.contains('hljs')) return;
@@ -2788,8 +2788,10 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
               window.hljs.highlightElement(el);
             } else if (typeof window.hljs.highlightAuto === 'function') {
               var res = window.hljs.highlightAuto(el.textContent || '');
-              el.innerHTML = res.value;
-              el.classList.add('hljs');
+              if (res.language !== 'diff') {
+                el.innerHTML = res.value;
+                el.classList.add('hljs');
+              }
             }
           } catch(__) {}
         });
