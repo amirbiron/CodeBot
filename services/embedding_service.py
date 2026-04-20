@@ -63,15 +63,20 @@ _next_allowed_ts: float = 0.0
 
 
 async def _acquire_throttle_slot() -> None:
-    """Serialize outbound calls and enforce a minimum spacing between them."""
+    """Reserve the next slot under the lock, then sleep outside it.
+
+    Holding the lock across ``asyncio.sleep`` would block every other caller
+    (e.g. user-facing search query embeddings) and also prevent
+    ``_extend_cooldown_after_429`` from updating the gate promptly.
+    """
     global _next_allowed_ts
     async with _throttle_lock:
         now = time.monotonic()
-        wait = _next_allowed_ts - now
-        if wait > 0:
-            await asyncio.sleep(wait)
-            now = time.monotonic()
-        _next_allowed_ts = now + EMBEDDING_MIN_INTERVAL_SECONDS
+        slot = _next_allowed_ts if _next_allowed_ts > now else now
+        _next_allowed_ts = slot + EMBEDDING_MIN_INTERVAL_SECONDS
+        wait = slot - now
+    if wait > 0:
+        await asyncio.sleep(wait)
 
 
 async def _extend_cooldown_after_429() -> None:
