@@ -189,6 +189,18 @@ class ConfigService:
             category="database",
             sensitive=True,
         ),
+        "DB_RECONNECT_WAIT_BEFORE_POLL": ConfigDefinition(
+            key="DB_RECONNECT_WAIT_BEFORE_POLL",
+            default="120",
+            description="זמן המתנה ראשוני (שניות) להתחברות מחדש ל-DB בעלייה לפני מעבר ל-poll פסיבי",
+            category="database",
+        ),
+        "DB_RECONNECT_POLL_INTERVAL": ConfigDefinition(
+            key="DB_RECONNECT_POLL_INTERVAL",
+            default="30",
+            description="מרווח (שניות) בין בדיקות חיבור ב-poll פסיבי לאחר שחלון ההמתנה הראשוני פג",
+            category="database",
+        ),
         "DB_HEALTH_SLOW_THRESHOLD_MS": ConfigDefinition(
             key="DB_HEALTH_SLOW_THRESHOLD_MS",
             default="1000",
