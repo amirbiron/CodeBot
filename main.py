@@ -4917,9 +4917,20 @@ def main() -> None:
                 time.sleep(5)
                 _db_waited += 5
             if not getattr(db, 'is_connected', True):
-                logger.critical("DB still unreachable after %ds; exiting to prevent unsafe operation.", _db_wait_max)
-                raise SystemExit(1)
-            logger.info("DB reconnected after %ds wait; proceeding with lock acquisition.", _db_waited)
+                # Passive wait instead of SystemExit: keep the process alive and let the
+                # background reconnect keep trying. Avoids CrashLoop + Sentry storms when
+                # the DB has a transient outage.
+                _poll_interval = int(os.getenv("DB_RECONNECT_POLL_INTERVAL", "30"))
+                logger.warning(
+                    "DB still unreachable after %ds; entering passive wait (polling every %ds).",
+                    _db_wait_max, _poll_interval,
+                )
+                while not getattr(db, 'is_connected', True):
+                    time.sleep(_poll_interval)
+                    _db_waited += _poll_interval
+                logger.info("DB reconnected after %ds total wait; proceeding with lock acquisition.", _db_waited)
+            else:
+                logger.info("DB reconnected after %ds wait; proceeding with lock acquisition.", _db_waited)
 
         # MongoDB connection and lock management
         if not manage_mongo_lock():
