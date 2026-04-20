@@ -1243,7 +1243,7 @@ class DatabaseManager:
         kwargs: Dict[str, Any],
         mongo_url: Optional[str],
         database_name: Optional[str],
-        delay: float = 30.0,
+        delay: float = 5.0,
         max_bg_attempts: int = 10,
         _attempt: int = 1,
     ) -> None:
