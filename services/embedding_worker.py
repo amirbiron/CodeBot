@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 from database.manager import (
@@ -19,9 +20,10 @@ from services.semantic_embedding_settings import get_embedding_settings_cached, 
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-BATCH_SIZE = 10
-POLL_INTERVAL_SECONDS = 60
+# Configuration (overridable via env to calm Gemini rate limits)
+BATCH_SIZE = int(os.getenv("EMBEDDING_WORKER_BATCH_SIZE", "5") or 5)
+POLL_INTERVAL_SECONDS = int(os.getenv("EMBEDDING_WORKER_POLL_INTERVAL", "300") or 300)
+BATCH_COOLDOWN_SECONDS = int(os.getenv("EMBEDDING_WORKER_BATCH_COOLDOWN", "30") or 30)
 MAX_ERRORS_BEFORE_PAUSE = 5
 
 
@@ -48,7 +50,7 @@ class EmbeddingWorker:
                 if processed == 0:
                     await asyncio.sleep(POLL_INTERVAL_SECONDS)
                 else:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(BATCH_COOLDOWN_SECONDS)
                     self._error_count = 0
             except Exception as exc:
                 self._error_count += 1
