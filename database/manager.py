@@ -1293,13 +1293,24 @@ class DatabaseManager:
                     client.close()
                 except Exception:
                     pass
-                if _attempt < max_bg_attempts:
-                    next_delay = min(delay * 1.5, 300.0)
-                    self._schedule_background_reconnect(
-                        kwargs, mongo_url, database_name,
-                        delay=next_delay, max_bg_attempts=max_bg_attempts,
-                        _attempt=_attempt + 1,
+                # Never give up: main.py now does a passive wait instead of SystemExit,
+                # so if we stop scheduling here the app would spin forever without any
+                # active reconnect attempt. Exponential backoff is capped at 300s, so
+                # load stays bounded. We emit a one-time escalation event when the
+                # historical max is crossed, for observability.
+                if _attempt == max_bg_attempts:
+                    emit_event(
+                        "db_background_reconnect_escalating",
+                        severity="error",
+                        attempt=_attempt,
+                        note="continuing with capped backoff",
                     )
+                next_delay = min(delay * 1.5, 300.0)
+                self._schedule_background_reconnect(
+                    kwargs, mongo_url, database_name,
+                    delay=next_delay, max_bg_attempts=max_bg_attempts,
+                    _attempt=_attempt + 1,
+                )
 
         timer = threading.Timer(delay, _try_reconnect)
         timer.daemon = True
