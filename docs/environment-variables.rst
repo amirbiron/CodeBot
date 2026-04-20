@@ -1067,6 +1067,36 @@
      - ``0.0``
      - ``0.1``
      - Bot/WebApp
+   * - ``EMBEDDING_MIN_INTERVAL_SECONDS``
+     - מרווח מינימלי (שניות) בין קריאות ל‑Gemini Embeddings (שער גלובלי למניעת 429)
+     - לא
+     - ``1.2``
+     - ``2.0``
+     - Bot
+   * - ``EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS``
+     - cooldown גלובלי (שניות) שמוחל על כל הקוראים לאחר HTTP 429 מ‑Gemini
+     - לא
+     - ``30``
+     - ``60``
+     - Bot
+   * - ``EMBEDDING_WORKER_BATCH_SIZE``
+     - כמות snippets שה‑embedding worker מעבד בכל סבב
+     - לא
+     - ``5``
+     - ``10``
+     - Bot
+   * - ``EMBEDDING_WORKER_POLL_INTERVAL``
+     - זמן המתנה (שניות) בין סריקות של ה‑embedding worker כשהתור ריק
+     - לא
+     - ``300``
+     - ``120``
+     - Bot
+   * - ``EMBEDDING_WORKER_BATCH_COOLDOWN``
+     - זמן המתנה (שניות) בין באצ'ים שעובדו בהצלחה
+     - לא
+     - ``30``
+     - ``10``
+     - Bot
 
 התראות וניטור (הרחבה)
 ----------------------

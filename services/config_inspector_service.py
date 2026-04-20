@@ -1474,6 +1474,36 @@ class ConfigService:
             description="Docker image להרצת קוד (למשל python:3.11-slim)",
             category="code_execution",
         ),
+        "EMBEDDING_MIN_INTERVAL_SECONDS": ConfigDefinition(
+            key="EMBEDDING_MIN_INTERVAL_SECONDS",
+            default="1.2",
+            description="מרווח מינימלי (שניות) בין קריאות ל-Gemini Embeddings (שער גלובלי)",
+            category="ai",
+        ),
+        "EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS": ConfigDefinition(
+            key="EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS",
+            default="30",
+            description="Cooldown גלובלי (שניות) שמוחל על כל הקוראים לאחר HTTP 429",
+            category="ai",
+        ),
+        "EMBEDDING_WORKER_BATCH_SIZE": ConfigDefinition(
+            key="EMBEDDING_WORKER_BATCH_SIZE",
+            default="5",
+            description="כמות snippets שה-embedding worker מעבד בכל סבב",
+            category="ai",
+        ),
+        "EMBEDDING_WORKER_POLL_INTERVAL": ConfigDefinition(
+            key="EMBEDDING_WORKER_POLL_INTERVAL",
+            default="300",
+            description="זמן המתנה (שניות) בין סריקות של ה-embedding worker כשהתור ריק",
+            category="ai",
+        ),
+        "EMBEDDING_WORKER_BATCH_COOLDOWN": ConfigDefinition(
+            key="EMBEDDING_WORKER_BATCH_COOLDOWN",
+            default="30",
+            description="זמן המתנה (שניות) בין באצ'ים שעובדו בהצלחה",
+            category="ai",
+        ),
     }
 
     def __init__(self) -> None:

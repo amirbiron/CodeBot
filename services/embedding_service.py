@@ -49,6 +49,44 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2.0
 REQUEST_TIMEOUT = 30.0
 
+# Global throttling across all callers (prevents hammering Gemini's quota).
+# MIN_INTERVAL enforces a minimum spacing between requests.
+# On 429 we extend the global cooldown so *all* concurrent callers back off.
+EMBEDDING_MIN_INTERVAL_SECONDS = float(
+    os.getenv("EMBEDDING_MIN_INTERVAL_SECONDS", "1.2") or 1.2
+)
+EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS = float(
+    os.getenv("EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS", "30") or 30
+)
+_throttle_lock = asyncio.Lock()
+_next_allowed_ts: float = 0.0
+
+
+async def _acquire_throttle_slot() -> None:
+    """Reserve the next slot under the lock, then sleep outside it.
+
+    Holding the lock across ``asyncio.sleep`` would block every other caller
+    (e.g. user-facing search query embeddings) and also prevent
+    ``_extend_cooldown_after_429`` from updating the gate promptly.
+    """
+    global _next_allowed_ts
+    async with _throttle_lock:
+        now = time.monotonic()
+        slot = _next_allowed_ts if _next_allowed_ts > now else now
+        _next_allowed_ts = slot + EMBEDDING_MIN_INTERVAL_SECONDS
+        wait = slot - now
+    if wait > 0:
+        await asyncio.sleep(wait)
+
+
+async def _extend_cooldown_after_429() -> None:
+    """Push the global gate forward so all callers back off after a 429."""
+    global _next_allowed_ts
+    async with _throttle_lock:
+        target = time.monotonic() + EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS
+        if target > _next_allowed_ts:
+            _next_allowed_ts = target
+
 
 class EmbeddingError(Exception):
     """Embedding generation error."""
@@ -120,6 +158,7 @@ class EmbeddingService:
         last_body = ""
         for attempt in range(MAX_RETRIES):
             try:
+                await _acquire_throttle_slot()
                 response = await self.client.post(
                     url,
                     json=payload,
@@ -159,6 +198,7 @@ class EmbeddingService:
                 if response.status_code == 429:
                     wait_time = RETRY_DELAY_SECONDS * (2**attempt)
                     logger.warning("Rate limited, waiting %ss...", wait_time)
+                    await _extend_cooldown_after_429()
                     await asyncio.sleep(wait_time)
                     continue
 
