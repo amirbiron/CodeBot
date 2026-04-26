@@ -691,10 +691,34 @@ except Exception:
     pass
 
 # --- Backup Scheduler (auto-backup to Drive & Disk) ---
+# חשוב: ה-scheduler חייב לרוץ רק בתוך תהליך ה-webapp עצמו (gunicorn/flask),
+# ולא כש-module זה מיובא מתהליך אחר (למשל הבוט ב-main.py שעושה
+# `from webapp.app import get_db`). אחרת יקום scheduler נוסף בשירות שאין לו
+# גישה ל-persistent disk ויזרוק PermissionError על /var/data.
+def _is_webapp_runtime() -> bool:
+    # override מפורש לכל מקרה (סביבות לא סטנדרטיות / טסטים)
+    if str(os.getenv("FORCE_BACKUP_SCHEDULER", "")).lower() in {"1", "true", "yes"}:
+        return True
+    entry = (sys.argv[0] or "").lower().replace("\\", "/") if sys.argv else ""
+    if not entry:
+        return False
+    webapp_markers = ("gunicorn", "uvicorn", "hypercorn", "waitress", "flask")
+    if any(m in entry for m in webapp_markers):
+        return True
+    if entry.endswith("/webapp/app.py") or entry.endswith("webapp/app.py"):
+        return True
+    return False
+
 try:
     if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
-        from webapp.backup_scheduler import start_backup_scheduler  # noqa: E402
-        start_backup_scheduler()
+        if _is_webapp_runtime():
+            from webapp.backup_scheduler import start_backup_scheduler  # noqa: E402
+            start_backup_scheduler()
+        else:
+            logger.info(
+                "Skipping backup scheduler: webapp.app imported from non-webapp process (argv0=%s)",
+                (sys.argv[0] if sys.argv else "<empty>"),
+            )
 except Exception:
     pass
 
