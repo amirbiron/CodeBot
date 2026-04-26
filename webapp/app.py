@@ -699,13 +699,19 @@ def _is_webapp_runtime() -> bool:
     # override מפורש לכל מקרה (סביבות לא סטנדרטיות / טסטים)
     if str(os.getenv("FORCE_BACKUP_SCHEDULER", "")).lower() in {"1", "true", "yes"}:
         return True
-    entry = (sys.argv[0] or "").lower().replace("\\", "/") if sys.argv else ""
+    entry = (sys.argv[0] or "") if sys.argv else ""
     if not entry:
         return False
+    # הרצה ישירה של הקובץ הזה (python app.py / python webapp/app.py / נתיב מלא)
+    try:
+        if os.path.realpath(entry) == os.path.realpath(__file__):
+            return True
+    except Exception:
+        pass
+    # שרת WSGI/ASGI שטוען את webapp.app:app
+    entry_lower = entry.lower().replace("\\", "/")
     webapp_markers = ("gunicorn", "uvicorn", "hypercorn", "waitress", "flask")
-    if any(m in entry for m in webapp_markers):
-        return True
-    if entry.endswith("/webapp/app.py") or entry.endswith("webapp/app.py"):
+    if any(m in entry_lower for m in webapp_markers):
         return True
     return False
 
