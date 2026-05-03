@@ -4,12 +4,13 @@
 
 ## על מה זה מבוסס בפרויקט?
 
-יש בפרויקט שני מסלולי רינדור עיקריים, ושניהם נשענים על אותו רעיון: **Python‑Markdown → סניטציה ב־bleach → הדגשת קוד עם Pygments**.
+בפרויקט יש **שלושה** מסלולי רינדור שונים – חשוב להכיר את כולם כדי לבחור את הנכון לפרויקט החדש:
 
-1. **רינדור לייצוא/תצוגה מלאה** – `services/styled_export_service.py`, הפונקציה `markdown_to_html` (ברירת המחדל המומלצת).
-2. **רינדור ל־Live Preview קצר** – `webapp/app.py`, הפונקציה `_render_markdown_preview` (משתמשת ב־BeautifulSoup לסניטציה גמישה יותר).
+1. **רינדור צד שרת לייצוא** – `services/styled_export_service.py::markdown_to_html`. מבוסס על Python‑Markdown + bleach + Pygments. משמש לייצוא קובץ HTML מעוצב להורדה.
+2. **רינדור צד שרת לתצוגה מקדימה חיה** – `webapp/app.py::_render_markdown_preview`. גם הוא Python‑Markdown, אבל עם סניטציה דרך BeautifulSoup ופרופילים גמישים.
+3. **רינדור צד לקוח של תצוגת ה־MD בוובאפ** – `webapp/templates/md_preview.html` + `webapp/static_build/md-preview-entry.js`. כאן הרינדור רץ **בדפדפן** עם `markdown-it` ותוספים (כולל `markdown-it-task-lists` עבור ה־`[ ]` / `[x]`). זה גם מה שמאפשר לסמן ✓ אינטראקטיבית.
 
-מה שמופיע למטה הוא תמצית המסלול הראשון – הוא היציב, המוקשח והנקי ביותר להעברה לפרויקט אחר.
+המדריך הזה מתעד את **המסלול הראשון** ואת **המסלול השלישי** – יחד הם מכסים גם ייצוא סטטי וגם תצוגה אינטראקטיבית.
 
 ---
 
@@ -334,14 +335,220 @@ th, td { border: 1px solid #ccc; padding: 6px 10px; }
 
 ---
 
-## תקציר ההבדל בין שני המסלולים בפרויקט
+## רינדור בצד לקוח עם markdown-it (תצוגת ה־MD החיה)
 
-| היבט | `services/styled_export_service.markdown_to_html` | `webapp/app.py::_render_markdown_preview` |
-|---|---|---|
-| מטרה | ייצוא מסמך מלא, הורדת HTML מעוצב | תצוגה מקדימה חיה בעורך |
-| סניטציה | `bleach.clean` עם allowlist קשיח | `BeautifulSoup` עם פרופילים (markdown/code/html) |
-| HTML גולמי בקלט | מוסר על־ידי bleach | מוסר ע"י deregister של `html_block`/`inlinehtml` |
-| TOC | נתמך (`include_toc=True`) | לא |
-| Theming | ערכות נושא דינמיות + Pygments style ממופה | Pygments `friendly` קבוע |
+המסלול הזה הוא מה שמשמש את **תצוגת קבצי ה־Markdown בוובאפ** (`webapp/templates/md_preview.html`). הוא מאפשר תכונות שקשה להשיג בצד שרת:
 
-לרינדור "רגיל" בפרויקט אחר – לך עם המסלול הראשון. הוא פשוט, מוקשח ועצמאי.
+- **רשימות משימות (`- [ ]` / `- [x]`)** עם סימון אינטראקטיבי בעין הקורא.
+- **שמירת מצב הסימון ב־`localStorage`** לכל מסמך בנפרד.
+- KaTeX, Mermaid, highlight.js – הכל בדפדפן ללא שרת.
+
+### הסט המלא של החבילות
+
+קובץ ה־entry של ה־bundle: `webapp/static_build/md-preview-entry.js`.
+
+```js
+import MarkdownIt from 'markdown-it';
+import { full as markdownItEmoji } from 'markdown-it-emoji';
+import markdownItTaskLists from 'markdown-it-task-lists';   // ← הצ'קבוקס
+import markdownItAnchor from 'markdown-it-anchor';
+import markdownItFootnote from 'markdown-it-footnote';
+import markdownItTocDoneRight from 'markdown-it-toc-done-right';
+import markdownItContainer from 'markdown-it-container';
+import markdownItAdmonition from 'markdown-it-admonition';
+import hljs from 'highlight.js/lib/common';
+import renderMathInElement from 'katex/contrib/auto-render';
+import mermaid from 'mermaid';
+
+if (typeof window !== 'undefined') {
+  window.markdownit = (opts) => new MarkdownIt(opts);
+  window.markdownitTaskLists = markdownItTaskLists;
+  window.markdownitEmoji = markdownItEmoji;
+  window.markdownitAnchor = markdownItAnchor;
+  window.markdownitFootnote = markdownItFootnote;
+  window.markdownitTocDoneRight = markdownItTocDoneRight;
+  window.markdownitContainer = markdownItContainer;
+  window.markdownitAdmonition = markdownItAdmonition;
+  window.hljs = hljs;
+  window.renderMathInElement = renderMathInElement;
+  window.mermaid = mermaid;
+}
+```
+
+ב־CDN (אם לא משתמשים ב־bundler משלך):
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it-task-lists/dist/markdown-it-task-lists.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it-anchor/dist/markdownItAnchor.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it-footnote/dist/markdown-it-footnote.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it-emoji/dist/markdown-it-emoji.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it-container/dist/markdown-it-container.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js/lib/common.js"></script>
+```
+
+### הפעלת התוסף של רשימות משימות
+
+ב־`md_preview.html`:
+
+```js
+const md = window.markdownit({
+  html: false,        // לא מאפשרים HTML גולמי בקלט
+  linkify: true,
+  breaks: true,       // שורה חדשה = <br> (כמו GitHub/Telegram)
+  typographer: false,
+});
+
+if (window.markdownitTaskLists) {
+  md.use(window.markdownitTaskLists, {
+    label: true,      // עוטף את הטקסט ב־<label>, כך שלחיצה על הטקסט מסמנת
+    enabled: true,    // ה־checkbox פעיל ולא disabled (זה מה שמאפשר לסמן ✓)
+  });
+}
+```
+
+הפלט שמתקבל ל־`- [ ] foo` הוא:
+
+```html
+<ul class="contains-task-list">
+  <li class="task-list-item">
+    <input type="checkbox" disabled="" class="task-list-item-checkbox">
+    <label> foo</label>
+  </li>
+</ul>
+```
+
+> שים לב: גם עם `enabled: true` יש דפדפנים שמשאירים את ה־`disabled` בגלל ה־HTML שהפלאגין מייצר. הקוד של הוובאפ מטפל בזה דרך הוספת מאזין `change` ידני (ראה למטה) – ובכל מקרה, ב־`md_preview.html` יש גם CSS שמסמן ויזואלית ש־checkbox פתוח/סגור גם כשהוא disabled.
+
+### שמירת מצב הסימון ב־`localStorage`
+
+זה החלק המעניין שלא מגיע מהפלאגין – הוא לוגיקה משלנו (`md_preview.html`, שורות 2157–2165 ו־3265–3280):
+
+```js
+const FILE_ID = "{{ file.id }}";
+const STORAGE_KEY = `md_tasks_state:${FILE_ID}`;
+
+function loadTaskState(){
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
+  catch(_) { return {}; }
+}
+function saveTaskState(state){
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state || {})); }
+  catch(_) {}
+}
+
+const taskState = loadTaskState();
+
+// אחרי ש־md.render(...) הוצא ל־#md-content:
+const container = document.getElementById('md-content');
+const boxes = container.querySelectorAll('input[type="checkbox"]');
+let idx = 0;
+boxes.forEach(cb => {
+  cb.classList.add('md-task-checkbox');
+  const key = 'i' + (idx++);                       // אינדקס סדרתי לכל צ'קבוקס במסמך
+  if (Object.prototype.hasOwnProperty.call(taskState, key)) {
+    cb.checked = !!taskState[key];                 // שחזור מצב מהאחסון
+  }
+  cb.addEventListener('change', () => {
+    taskState[key] = cb.checked;
+    saveTaskState(taskState);                      // שמירת מצב על כל שינוי
+  });
+});
+```
+
+נקודות חשובות:
+- **המפתח כולל `file.id`** – לכל מסמך אחסון נפרד, כך ששינוי בקובץ אחד לא משפיע על אחר.
+- **המפתח של כל תיבה הוא אינדקס סדרתי (`i0`, `i1`, …)**. הצד הטוב: פשוט. הצד הרגיש: אם מוסיפים פריט באמצע המסמך, האינדקסים זזים והסימונים יזיזו תיקיה. בפרויקט גדול שווה לחשוב על מפתח יציב (hash של טקסט הפריט).
+- **המידע לא חוזר לשרת** – לוקאלי לדפדפן. אם נדרש סנכרון בין מכשירים, צריך להוסיף API.
+
+### עיצוב
+
+```css
+input.md-task-checkbox {
+  margin-inline-end: .5rem;
+  transform: scale(1.1);
+}
+.task-list-item { list-style: none; }
+ul.contains-task-list,
+ul:has(> li.task-list-item) { padding-inline-start: 1.2em; }
+```
+
+### דוגמה עצמאית (HTML אחד, מוכן להעתקה)
+
+```html
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>MD Preview</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+  input.md-task-checkbox { margin-inline-end: .5rem; transform: scale(1.1); }
+  .task-list-item { list-style: none; }
+  ul.contains-task-list { padding-inline-start: 1.2em; }
+  pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  code { background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }
+</style>
+</head><body>
+<article id="md-content"></article>
+
+<script src="https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it-task-lists/dist/markdown-it-task-lists.min.js"></script>
+<script>
+  const FILE_ID = "doc-123";
+  const STORAGE_KEY = `md_tasks_state:${FILE_ID}`;
+  const loadState = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(_) { return {}; } };
+  const saveState = (s) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s || {})); } catch(_) {} };
+
+  const md = window.markdownit({ html: false, linkify: true, breaks: true })
+    .use(window.markdownitTaskLists, { label: true, enabled: true });
+
+  const source = `# רשימת משימות
+- [ ] לכתוב מדריך
+- [x] לבדוק את הקוד בפרויקט
+- [ ] לדחוף לפרויקט החדש
+`;
+
+  const container = document.getElementById('md-content');
+  container.innerHTML = md.render(source);
+
+  const state = loadState();
+  let idx = 0;
+  container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.classList.add('md-task-checkbox');
+    const key = 'i' + (idx++);
+    if (Object.prototype.hasOwnProperty.call(state, key)) cb.checked = !!state[key];
+    cb.addEventListener('change', () => { state[key] = cb.checked; saveState(state); });
+  });
+</script>
+</body></html>
+```
+
+### אבטחה בצד לקוח
+
+`markdown-it` מגיע עם הגנות סבירות כברירת מחדל:
+- `html: false` – חוסם הזרקת `<script>`/`<iframe>` מתוך ה־Markdown.
+- `linkify: true` – הופך URLs לקישורים בלי לאפשר `javascript:`.
+- אם אתה כן זקוק להציג HTML גולמי – הוסף `DOMPurify.sanitize(md.render(src))` לפני `innerHTML`.
+
+לעומת המסלול בצד שרת – כאן ה־XSS מסוכן יותר אם ה־MD בא ממשתמשים אחרים, כי הסניטציה היא בדפדפן של הקורא. **תמיד** השאר `html: false` אם הקלט לא נאמן.
+
+---
+
+## תקציר ההבדל בין שלושת המסלולים בפרויקט
+
+| היבט | `services/styled_export_service.markdown_to_html` (Py, ייצוא) | `webapp/app.py::_render_markdown_preview` (Py, preview) | `md_preview.html` + `markdown-it` (JS, תצוגה) |
+|---|---|---|---|
+| מטרה | ייצוא HTML מעוצב להורדה | תצוגה מקדימה חיה בעורך | תצוגת קובץ MD בוובאפ |
+| מקום ריצה | שרת (Python) | שרת (Python) | דפדפן (JavaScript) |
+| מנוע | Python‑Markdown | Python‑Markdown | markdown-it |
+| סניטציה | `bleach.clean` עם allowlist קשיח | `BeautifulSoup` עם פרופילים | `html: false` של markdown-it |
+| Task lists `[ ]/[x]` | ❌ (אפשר להוסיף `pymdownx.tasklist`) | ❌ | ✅ עם `markdown-it-task-lists` |
+| סימון ✓ אינטראקטיבי | ❌ סטטי | ❌ סטטי | ✅ + שמירה ב־localStorage |
+| TOC | ✅ (`include_toc=True`) | ❌ | ✅ (`markdown-it-toc-done-right`) |
+| הדגשת קוד | Pygments | Pygments | highlight.js (post‑process) |
+| מתמטיקה / Mermaid | ❌ | ❌ | ✅ (KaTeX + Mermaid) |
+
+**המלצה לבחירה לפרויקט החדש:**
+- צריך לייצא HTML/PDF סטטי? → המסלול הראשון (Python).
+- צריך תצוגה אינטראקטיבית של MD עם משימות לסימון? → המסלול השלישי (markdown-it בדפדפן).
+- אפשר גם **לשלב**: רנדר בשרת עם Python‑Markdown לטעינה ראשונית מהירה, ואז להפעיל בדפדפן רק את חלק שמירת המצב של הצ'קבוקסים על ה־HTML שכבר הוחזר.
