@@ -534,6 +534,279 @@ ul:has(> li.task-list-item) { padding-inline-start: 1.2em; }
 
 ---
 
+## תוספות נוספות: Strikethrough, Highlight ו־Details
+
+שלוש תכונות שמופיעות הרבה במסמכים אבל לא תמיד מגיעות "חינם" עם המנוע. כך מפעילים אותן בכל אחד מהמסלולים.
+
+### 1. ‎`~~strikethrough~~`‏
+
+**ב־markdown-it (לקוח)** – נתמך כברירת מחדל, חלק מ־CommonMark/GFM. אין מה להפעיל. הפלט הוא `<s>...</s>`.
+
+```markdown
+- ~~משימה שבוטלה~~
+- מחיר ישן: ~~199 ש"ח~~ → **99 ש"ח**
+```
+
+**ב־Python‑Markdown (שרת)** – לא נתמך כברירת מחדל. הוסף את `pymdownx.tilde`:
+
+```bash
+pip install pymdown-extensions
+```
+
+```python
+md = markdown.Markdown(
+    extensions=[
+        "fenced_code", "tables", "nl2br", "toc", "codehilite", "attr_list",
+        "pymdownx.tilde",   # ← זה
+    ],
+)
+```
+
+הפלט הוא `<del>...</del>`. ודא שב־`bleach` יש בכלל `del`/`ins` ב־allowlist (ב־`ALLOWED_TAGS` שלנו זה כבר קיים).
+
+> **טיפ:** `pymdownx.tilde` תומך גם ב־`~subscript~` (כתב תחתון). אם אתה רוצה רק קו חוצה, השתמש בקונפיג `extension_configs={"pymdownx.tilde": {"smart_delete": True, "subscript": False}}`.
+
+עיצוב:
+
+```css
+del, s { text-decoration: line-through; opacity: .75; }
+```
+
+---
+
+### 2. ‎`==highlight==`‏ (טוש צהוב → ‎`<mark>`‏)
+
+**ב־markdown-it (לקוח)** – לא בליבה. הפרויקט משתמש בפלאגין מותאם אישית בקובץ `md_preview.html` (שורות 2376–2429), אבל לפרויקט אחר עדיף להשתמש ב־npm:
+
+```bash
+npm i markdown-it-mark
+```
+
+```js
+import markdownItMark from 'markdown-it-mark';
+md.use(markdownItMark);
+```
+
+או אם אתה רוצה להעתיק את המימוש המדויק שלנו (בלי תלות נוספת), הנה גרסה תמציתית:
+
+```js
+function markdownItMarkPlugin(mdInstance) {
+  function isSpace(c){ return c === 0x20 || c === 0x0A || c === 0x09; }
+  function isEscaped(src, pos){
+    let bs = 0, i = pos - 1;
+    while (i >= 0 && src.charCodeAt(i) === 0x5C) { bs++; i--; }
+    return (bs % 2) === 1;
+  }
+  mdInstance.inline.ruler.before('emphasis', 'mark', function(state, silent){
+    const start = state.pos, max = state.posMax, src = state.src;
+    if (start + 4 > max) return false;
+    if (src.charCodeAt(start) !== 0x3D || src.charCodeAt(start + 1) !== 0x3D) return false;
+    if (isSpace(src.charCodeAt(start + 2))) return false;
+
+    let end = start + 2;
+    while (true) {
+      end = src.indexOf('==', end);
+      if (end < 0 || end + 2 > max) return false;
+      if (end === start + 2)              { end += 2; continue; }
+      if (isSpace(src.charCodeAt(end-1))) { end += 2; continue; }
+      if (isEscaped(src, end))            { end += 2; continue; }
+      break;
+    }
+    if (silent) return true;
+
+    const open = state.push('mark_open', 'mark', 1); open.markup = '==';
+    state.md.inline.parse(src.slice(start + 2, end), state.md, state.env, state.tokens);
+    const close = state.push('mark_close', 'mark', -1); close.markup = '==';
+    state.pos = end + 2;
+    return true;
+  });
+}
+md.use(markdownItMarkPlugin);
+```
+
+הפלט: `<mark>טקסט</mark>`.
+
+**ב־Python‑Markdown (שרת)** – הוסף `pymdownx.mark`:
+
+```python
+extensions=[..., "pymdownx.mark"]
+```
+
+ודא ש־`mark` ב־`ALLOWED_TAGS` של bleach (במדריך זה כבר קיים בשורה הראשונה של ה־allowlist).
+
+עיצוב:
+
+```css
+mark {
+  background: #fff59d;     /* light theme */
+  color: inherit;
+  padding: 0 .15em;
+  border-radius: 3px;
+}
+:root[data-theme="dark"] mark {
+  background: #5c4b00;     /* dark theme */
+  color: #fff8c5;
+}
+```
+
+---
+
+### 3. ‎`::: details כותרת ... :::`‏ (קיפול)
+
+זה התחביר שהפרויקט משתמש בו במקום `<details>` גולמי – יותר נקי, ועובר את הסניטציה בלי בעיות.
+
+**ב־markdown-it (לקוח)** – דרך `markdown-it-container` עם render משלך. ככה זה מוגדר ב־`md_preview.html` (שורות 2467–2478):
+
+```bash
+npm i markdown-it-container
+```
+
+```js
+import markdownItContainer from 'markdown-it-container';
+
+md.use(markdownItContainer, 'details', {
+  validate: (params) => /^details\b/i.test((params || '').trim()),
+  render: (tokens, idx) => {
+    const m = (tokens[idx].info || '').trim().match(/^details\s+(.*)$/i);
+    const title = (m && m[1] && m[1].trim()) || 'לחצו להצגה';
+    if (tokens[idx].nesting === 1) {
+      return `<details class="markdown-details">`
+           + `<summary class="markdown-summary">${md.utils.escapeHtml(title)}</summary>`
+           + `<div class="details-content">`;
+    }
+    return `</div></details>\n`;
+  }
+});
+```
+
+תחביר:
+
+````markdown
+::: details לחצו כאן לתוכן מוסתר
+
+תוכן שמוסתר עד ללחיצה.
+
+- אפשר Markdown רגיל בפנים
+- כולל **מודגש**, _נטוי_, רשימות, קוד וכו'
+
+:::
+````
+
+**ב־Python‑Markdown (שרת)** – הכי פשוט עם `pymdownx.blocks.details`:
+
+```python
+extensions=[..., "pymdownx.blocks.details"]
+```
+
+ואז התחביר הוא:
+
+```markdown
+/// details | לחצו כאן לתוכן מוסתר
+תוכן מוסתר.
+///
+```
+
+(שים לב: `///` ולא `:::`. זה התחביר הרשמי של pymdownx.blocks.)
+
+אם אתה רוצה לשמור על אחידות עם `:::` כמו בלקוח – הנה preprocess קטן בסגנון של `preprocess_markdown` הקיים:
+
+```python
+import re
+import markdown
+import bleach
+
+_DETAILS_RE = re.compile(
+    r"^:::\s*details\s+([^\n]*)\n(.*?)\n:::$",
+    flags=re.DOTALL | re.MULTILINE,
+)
+
+def preprocess_details(text: str) -> str:
+    def repl(m):
+        title = (m.group(1) or "").strip() or "לחצו להצגה"
+        body  = m.group(2).strip()
+        inner = markdown.markdown(body, extensions=["nl2br", "fenced_code", "tables"])
+        clean_inner = bleach.clean(
+            inner, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS,
+            protocols=ALLOWED_PROTOCOLS, strip=True,
+        )
+        # escape ל־title כדי למנוע XSS דרך הכותרת
+        safe_title = (title.replace("&", "&amp;").replace("<", "&lt;")
+                            .replace(">", "&gt;").replace('"', "&quot;"))
+        return (f'<details class="markdown-details">'
+                f'<summary class="markdown-summary">{safe_title}</summary>'
+                f'<div class="details-content">{clean_inner}</div>'
+                f'</details>')
+    return _DETAILS_RE.sub(repl, text)
+```
+
+הפעלה לפני `md.convert(...)`, ביחד עם `preprocess_markdown` הקיים:
+
+```python
+processed = preprocess_markdown(text)
+processed = preprocess_details(processed)
+html = md.convert(processed)
+```
+
+**חשוב:** הוסף `details` ו־`summary` ל־`ALLOWED_TAGS` כדי שה־bleach לא יזרוק אותם:
+
+```python
+ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
+    # ... הקיימים ...
+    "details", "summary",
+]
+
+ALLOWED_ATTRS = {
+    # ... הקיימים ...
+    "details": ["open", "class"],
+    "summary": ["class"],
+}
+```
+
+עיצוב:
+
+```css
+details.markdown-details {
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 12px 0;
+  background: var(--bg-secondary, #f6f8fa);
+}
+details.markdown-details > summary.markdown-summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;          /* מסתיר את ה־▶ הדיפולטיבי */
+  padding: 4px 0;
+}
+details.markdown-details > summary.markdown-summary::-webkit-details-marker { display: none; }
+details.markdown-details > summary.markdown-summary::before {
+  content: "▶";
+  display: inline-block;
+  margin-inline-end: 8px;
+  transition: transform .15s ease;
+}
+details.markdown-details[open] > summary.markdown-summary::before {
+  transform: rotate(90deg);
+}
+details.markdown-details > .details-content {
+  padding-top: 8px;
+}
+```
+
+(זו פחות או יותר אותה מערכת CSS שיש ב־`md_preview.html` שורות 535–565, מותאמת לשימוש כללי.)
+
+---
+
+### תקציר התוספות
+
+| סימון | לקוח (markdown-it) | שרת (Python‑Markdown) |
+|---|---|---|
+| `~~strikethrough~~` | ✅ ברירת מחדל | `pymdownx.tilde` |
+| `==highlight==` | `markdown-it-mark` *או* פלאגין מותאם (מצורף) | `pymdownx.mark` |
+| `::: details כותרת ... :::` | `markdown-it-container` עם render מותאם (מצורף) | `pymdownx.blocks.details` (תחביר `///`) *או* preprocess מותאם (מצורף) |
+
+---
+
 ## תקציר ההבדל בין שלושת המסלולים בפרויקט
 
 | היבט | `services/styled_export_service.markdown_to_html` (Py, ייצוא) | `webapp/app.py::_render_markdown_preview` (Py, preview) | `md_preview.html` + `markdown-it` (JS, תצוגה) |
