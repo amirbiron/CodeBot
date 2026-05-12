@@ -1402,10 +1402,10 @@ class GitMirrorService:
         Returns:
             Dict עם מבנה ה-diff המפורסר
         """
-        files = []
-        current_file = None
-        current_hunks = []
-        current_hunk = None
+        files: List[Dict[str, Any]] = []
+        current_file: Optional[Dict[str, Any]] = None
+        current_hunks: List[Dict[str, Any]] = []
+        current_hunk: Optional[Dict[str, Any]] = None
 
         lines = diff_output.split('\n')
         i = 0
