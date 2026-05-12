@@ -55,7 +55,10 @@ jobs:
           mypy services/code_service.py services/__init__.py code_preview.py autocomplete_manager.py --config-file mypy.ini --show-error-codes
           # Run broad, permissive pass for the rest (non-blocking for now)
           mypy . --ignore-missing-imports --show-error-codes | tee mypy-output.txt || true
-          if grep -E '\[(attr-defined|return-value)\]' mypy-output.txt; then
+          # תופסים רק שורות "error:" אמיתיות. ב-mypy חדש יש שורות "note:" כמו
+          # 'Error code ... not covered by "type: ignore[attr-defined]" comment'
+          # שמכילות את הסוגריים אבל אינן שגיאה.
+          if grep -E ': error:.*\[(attr-defined|return-value)\]' mypy-output.txt; then
             echo "Found mypy attr-defined/return-value errors above"
             exit 1
           fi
