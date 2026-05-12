@@ -385,6 +385,90 @@ def _run_sync_logic(
     return {"status": "synced", "old_sha": old_sha[:7], "new_sha": new_sha[:7], "stats": stats}
 
 
+def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
+    """
+    הסרה מלאה של ריפו מה-mirror: גם מה-DB וגם מהדיסק.
+
+    מה נמחק:
+    - תיקיית ה-bare mirror בדיסק
+    - מסמכי `repo_files` של הריפו (אינדקס תוכן)
+    - המסמך ב-`repo_metadata`
+    - jobs בסטטוס pending ב-`sync_jobs` (כדי שלא יעיר worker מאוחר יותר)
+    - השדה `selected_repo` ממשתמשים שבחרו דווקא בריפו הזה
+
+    Args:
+        repo_name: שם הריפו
+        db: חיבור ל-MongoDB
+
+    Returns:
+        dict עם success, וסטטיסטיקות על מה נמחק (לטובת UI/לוגים)
+    """
+    git_service = get_mirror_service()
+
+    repo_name = str(repo_name or "").strip()
+    if not git_service._validate_repo_name(repo_name):
+        return {"success": False, "error": "invalid_repo_name", "message": "Invalid repo name"}
+
+    stats: Dict[str, Any] = {
+        "files_removed": 0,
+        "metadata_removed": 0,
+        "pending_jobs_removed": 0,
+        "users_unset": 0,
+        "mirror_existed": False,
+        "mirror_deleted": False,
+    }
+
+    # 1) מחיקת אינדקס הקבצים
+    try:
+        result = db.repo_files.delete_many({"repo_name": repo_name})
+        stats["files_removed"] = int(getattr(result, "deleted_count", 0) or 0)
+    except Exception as e:
+        logger.exception(f"Failed to delete repo_files for {repo_name}: {e}")
+        return {"success": False, "error": "db_files_failed", "message": str(e), "stats": stats}
+
+    # 2) מחיקת מטא-דאטה של הריפו
+    try:
+        result = db.repo_metadata.delete_many({"repo_name": repo_name})
+        stats["metadata_removed"] = int(getattr(result, "deleted_count", 0) or 0)
+    except Exception as e:
+        logger.exception(f"Failed to delete repo_metadata for {repo_name}: {e}")
+        return {"success": False, "error": "db_metadata_failed", "message": str(e), "stats": stats}
+
+    # 3) ניקוי jobs ממתינים (לא נוגעים ב-running/completed כדי לא להפיל worker שכרגע מעבד)
+    try:
+        result = db.sync_jobs.delete_many({"repo_name": repo_name, "status": "pending"})
+        stats["pending_jobs_removed"] = int(getattr(result, "deleted_count", 0) or 0)
+    except Exception as e:
+        # לא קריטי - רק לוג
+        logger.warning(f"Failed to clean pending sync_jobs for {repo_name}: {e}")
+
+    # 4) ניקוי בחירת ריפו מהמשתמשים
+    try:
+        result = db.users.update_many(
+            {"selected_repo": repo_name},
+            {"$unset": {"selected_repo": ""}},
+        )
+        stats["users_unset"] = int(getattr(result, "modified_count", 0) or 0)
+    except Exception as e:
+        logger.warning(f"Failed to unset selected_repo for {repo_name}: {e}")
+
+    # 5) מחיקת ה-mirror מהדיסק
+    delete_result = git_service.delete_mirror(repo_name)
+    stats["mirror_existed"] = bool(delete_result.get("existed"))
+    stats["mirror_deleted"] = bool(delete_result.get("success") and delete_result.get("existed"))
+
+    if not delete_result.get("success"):
+        return {
+            "success": False,
+            "error": "mirror_delete_failed",
+            "message": delete_result.get("message", "Failed to delete mirror directory"),
+            "stats": stats,
+        }
+
+    logger.info(f"Unmirrored {repo_name}: {stats}")
+    return {"success": True, "repo_name": repo_name, "stats": stats}
+
+
 def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
     """
     ייבוא ראשוני של ריפו

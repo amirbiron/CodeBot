@@ -494,6 +494,46 @@ class GitMirrorService:
         """בדיקה אם mirror קיים"""
         return self._get_repo_path(repo_name).exists()
 
+    def delete_mirror(self, repo_name: str) -> Dict[str, Any]:
+        """
+        מחיקת ה-mirror מהדיסק (תיקיית bare repo).
+
+        Args:
+            repo_name: שם הריפו
+
+        Returns:
+            dict עם success, existed, path, message
+        """
+        repo_name = str(repo_name or "").strip()
+        if not self._validate_repo_name(repo_name):
+            return {"success": False, "existed": False, "path": None, "message": "Invalid repo name"}
+
+        repo_path = self._get_repo_path(repo_name)
+        if not repo_path.exists():
+            return {
+                "success": True,
+                "existed": False,
+                "path": str(repo_path),
+                "message": "Mirror does not exist",
+            }
+
+        if not self._safe_rmtree(repo_path):
+            logger.error(f"Failed to delete mirror: {repo_path}")
+            return {
+                "success": False,
+                "existed": True,
+                "path": str(repo_path),
+                "message": "Failed to delete mirror directory",
+            }
+
+        logger.info(f"Mirror deleted: {repo_path}")
+        return {
+            "success": True,
+            "existed": True,
+            "path": str(repo_path),
+            "message": "Mirror deleted",
+        }
+
     def get_mirror_info(self, repo_name: str) -> Optional[Dict[str, Any]]:
         """קבלת מידע על mirror"""
         repo_path = self._get_repo_path(repo_name)
