@@ -6,11 +6,12 @@ UI לגלישה בקוד הריפו עם API מתקדם
 
 import logging
 import re
-from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app, session
 from functools import lru_cache
 
 from services.git_mirror_service import get_mirror_service
 from services.repo_search_service import create_search_service
+from services.repo_sync_service import unmirror_repo
 from database.db_manager import get_db
 
 logger = logging.getLogger(__name__)
@@ -819,3 +820,73 @@ def api_select_repo():
             "success": False,
             "error": "Failed to save selection"
         }), 500
+
+
+def _require_admin():
+    """בודק שהמשתמש מחובר וגם אדמין. מחזיר None אם בסדר, אחרת tuple של (response, status)."""
+    if "user_id" not in session:
+        return jsonify({"success": False, "error": "Authentication required"}), 401
+    try:
+        uid = int(session["user_id"])
+    except Exception:
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+
+    # Lazy import כדי למנוע circular import עם webapp.app
+    try:
+        from webapp.app import is_admin as _is_admin
+    except Exception:
+        logger.exception("Failed to import is_admin from webapp.app")
+        return jsonify({"success": False, "error": "Server misconfigured"}), 500
+
+    if not _is_admin(uid):
+        return jsonify({"success": False, "error": "Admin required"}), 403
+    return None
+
+
+@repo_bp.route('/api/repos/<repo_name>/unmirror', methods=['POST'])
+def api_unmirror_repo(repo_name: str):
+    """
+    מסיר ריפו מה-mirroring לחלוטין: מוחק את האינדקס ב-DB ואת ה-bare repo מהדיסק.
+
+    דורש הרשאות אדמין.
+    """
+    auth_error = _require_admin()
+    if auth_error is not None:
+        return auth_error
+
+    repo_name = (repo_name or '').strip()
+    if not repo_name or not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$', repo_name):
+        return jsonify({"success": False, "error": "Invalid repo name"}), 400
+
+    db = get_db()
+
+    git_service = get_mirror_service()
+    metadata_exists = bool(db.repo_metadata.find_one({"repo_name": repo_name}))
+    mirror_exists = git_service.mirror_exists(repo_name)
+    if not metadata_exists and not mirror_exists:
+        return jsonify({
+            "success": False,
+            "error": "not_found",
+            "message": "Repository not found"
+        }), 404
+
+    try:
+        result = unmirror_repo(repo_name, db)
+    except Exception:
+        logger.exception(f"Unmirror failed for {repo_name}")
+        return jsonify({
+            "success": False,
+            "error": "internal_error",
+            "message": "An internal server error occurred"
+        }), 500
+
+    if not result.get("success"):
+        status_codes = {
+            "invalid_repo_name": 400,
+            "sync_in_progress": 409,
+            "mirror_delete_failed": 500,
+            "database_error": 500,
+        }
+        return jsonify(result), status_codes.get(result.get("error", ""), 500)
+
+    return jsonify(result)

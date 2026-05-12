@@ -70,10 +70,189 @@
                 <i class="bi bi-file-code"></i> {{ metadata.total_files | default(0) }} files
             </span>
             {% endif %}
+            {% if user_is_admin %}
+            <button type="button"
+                    class="btn-icon repo-unmirror-btn"
+                    id="repo-unmirror-btn"
+                    title="בטל mirroring למסך הריפו הזה"
+                    aria-label="בטל mirroring">
+                <i class="bi bi-trash"></i>
+            </button>
+            {% endif %}
             <!-- Hidden element to pass repo name to JS -->
             <span id="current-repo-name" data-repo="{{ repo_name }}" data-source="{{ current_source | default('default') }}" style="display: none;"></span>
         </div>
     </div>
+
+    {% if user_is_admin %}
+    <!-- Unmirror Confirmation Modal -->
+    <div class="unmirror-modal-backdrop" id="unmirror-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="unmirror-modal-title">
+        <div class="unmirror-modal">
+            <h3 id="unmirror-modal-title">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                ביטול mirroring
+            </h3>
+            <p>
+                פעולה זו תמחק לחלוטין את הריפו
+                <strong id="unmirror-modal-repo-name"></strong>
+                ממערכת ה־mirroring:
+            </p>
+            <ul class="unmirror-modal-list">
+                <li>אינדקס הקבצים ב־MongoDB</li>
+                <li>מטא־דאטה של הריפו</li>
+                <li>תיקיית ה־bare mirror מהדיסק</li>
+                <li>jobs ממתינים בתור הסנכרון</li>
+            </ul>
+            <p class="unmirror-modal-warning">
+                לא ניתן לשחזר. אם תרצה לסנכרן שוב בעתיד תצטרך לבצע initial import מחדש.
+            </p>
+            <div class="unmirror-modal-error" id="unmirror-modal-error" style="display: none;"></div>
+            <div class="unmirror-modal-actions">
+                <button type="button" class="btn btn-secondary" id="unmirror-cancel-btn">ביטול</button>
+                <button type="button" class="btn btn-danger" id="unmirror-confirm-btn">
+                    <i class="bi bi-trash"></i>
+                    מחק את הריפו
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .repo-unmirror-btn {
+            color: #dc3545;
+        }
+        .repo-unmirror-btn:hover {
+            background-color: rgba(220, 53, 69, 0.12);
+        }
+        .unmirror-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1050;
+        }
+        .unmirror-modal {
+            background: var(--bs-body-bg, #1e1e1e);
+            color: var(--bs-body-color, #eaeaea);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 24px;
+            width: min(520px, 92vw);
+            max-height: 88vh;
+            overflow-y: auto;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+        }
+        .unmirror-modal h3 {
+            margin: 0 0 12px;
+            color: #ffb347;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .unmirror-modal-list {
+            margin: 8px 0 12px;
+            padding-inline-start: 1.2rem;
+        }
+        .unmirror-modal-warning {
+            color: #f1b0b7;
+            background: rgba(220, 53, 69, 0.12);
+            border: 1px solid rgba(220, 53, 69, 0.35);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.92rem;
+        }
+        .unmirror-modal-error {
+            color: #f5c2c7;
+            background: rgba(220, 53, 69, 0.18);
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 8px;
+            font-size: 0.92rem;
+        }
+        .unmirror-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 16px;
+        }
+    </style>
+
+    <script>
+    (function(){
+        const openBtn = document.getElementById('repo-unmirror-btn');
+        const modal = document.getElementById('unmirror-modal');
+        const cancelBtn = document.getElementById('unmirror-cancel-btn');
+        const confirmBtn = document.getElementById('unmirror-confirm-btn');
+        const repoNameEl = document.getElementById('unmirror-modal-repo-name');
+        const errorEl = document.getElementById('unmirror-modal-error');
+        const currentRepoEl = document.getElementById('current-repo-name');
+        if (!openBtn || !modal || !cancelBtn || !confirmBtn || !repoNameEl) return;
+
+        function getRepoName() {
+            return (currentRepoEl && currentRepoEl.dataset.repo) || '';
+        }
+
+        function openModal() {
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+            repoNameEl.textContent = getRepoName();
+            modal.style.display = 'flex';
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="bi bi-trash"></i> מחק את הריפו';
+        }
+        function closeModal() {
+            modal.style.display = 'none';
+        }
+
+        openBtn.addEventListener('click', openModal);
+        cancelBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', function(e){
+            if (e.target === modal) closeModal();
+        });
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape' && modal.style.display !== 'none') closeModal();
+        });
+
+        confirmBtn.addEventListener('click', async function(){
+            const repoName = getRepoName();
+            if (!repoName) return;
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> מוחק...';
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+            try {
+                const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                const headers = { 'Accept': 'application/json' };
+                if (csrfMeta && csrfMeta.content) headers['X-CSRFToken'] = csrfMeta.content;
+                const resp = await fetch('/repo/api/repos/' + encodeURIComponent(repoName) + '/unmirror', {
+                    method: 'POST',
+                    headers: headers,
+                    credentials: 'same-origin'
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || !data.success) {
+                    const msg = (data && (data.message || data.error)) || ('שגיאה: ' + resp.status);
+                    errorEl.textContent = msg;
+                    errorEl.style.display = 'block';
+                    confirmBtn.disabled = false;
+                    confirmBtn.innerHTML = '<i class="bi bi-trash"></i> נסה שוב';
+                    return;
+                }
+                try { localStorage.removeItem('selectedRepo'); } catch (_) {}
+                window.location.href = '/repo/';
+            } catch (err) {
+                errorEl.textContent = 'שגיאת רשת: ' + (err && err.message ? err.message : err);
+                errorEl.style.display = 'block';
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="bi bi-trash"></i> נסה שוב';
+            }
+        });
+    })();
+    </script>
+    {% endif %}
 
     <!-- Search Results Dropdown -->
     <div id="search-results-dropdown" class="search-results-dropdown hidden">
