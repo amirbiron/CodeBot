@@ -419,8 +419,17 @@ def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
         "blocked_due_to_running_job": False,
     }
 
-    # 1) חסימה אם יש sync job פעיל - אחרת worker רץ ימשיך לכתוב לאינדקס
-    #    ויחיה מחדש את ה-metadata אחרי המחיקה.
+    # 1) ניקוי jobs ממתינים *לפני* שאר השלבים, כדי שלא ייתפס job חדש
+    #    בזמן שאנחנו מוחקים. אחרי המחיקה לא קיים job בסטטוס pending עבור
+    #    הריפו, ולכן ה-worker לא יוכל לטעון אותו ולכתוב מחדש לאינדקס.
+    try:
+        result = db.sync_jobs.delete_many({"repo_name": repo_name, "status": "pending"})
+        stats["pending_jobs_removed"] = int(getattr(result, "deleted_count", 0) or 0)
+    except Exception:
+        logger.warning(f"Failed to clean pending sync_jobs for {repo_name}", exc_info=True)
+
+    # 2) חסימה אם קיים sync job פעיל בפועל. ה-find_one רץ אחרי delete_many של
+    #    pending, כך שאם יש running, הוא נטען לפני הניקוי שלנו ועדיין כותב.
     try:
         running_job = db.sync_jobs.find_one({"repo_name": repo_name, "status": "running"})
     except Exception:
@@ -443,7 +452,8 @@ def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
             "stats": stats,
         }
 
-    # 2) מחיקת ה-mirror מהדיסק *לפני* שנוגעים ב-DB. אם הדיסק נכשל - DB נשאר שלם.
+    # 3) מחיקת ה-mirror מהדיסק *לפני* שנוגעים ביתר ה-DB. אם הדיסק נכשל - DB
+    #    נשאר ברובו שלם (למעט pending שכבר נוקו - מקובל כי בלאו הכי לא רץ סנכרון).
     delete_result = git_service.delete_mirror(repo_name)
     stats["mirror_existed"] = bool(delete_result.get("existed"))
     stats["mirror_deleted"] = bool(delete_result.get("success") and delete_result.get("existed"))
@@ -460,7 +470,7 @@ def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
             "stats": stats,
         }
 
-    # 3) מחיקת אינדקס הקבצים
+    # 4) מחיקת אינדקס הקבצים
     try:
         result = db.repo_files.delete_many({"repo_name": repo_name})
         stats["files_removed"] = int(getattr(result, "deleted_count", 0) or 0)
@@ -473,7 +483,7 @@ def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
             "stats": stats,
         }
 
-    # 4) מחיקת מטא-דאטה של הריפו
+    # 5) מחיקת מטא-דאטה של הריפו
     try:
         result = db.repo_metadata.delete_many({"repo_name": repo_name})
         stats["metadata_removed"] = int(getattr(result, "deleted_count", 0) or 0)
@@ -485,14 +495,6 @@ def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
             "message": "Failed to delete repo metadata",
             "stats": stats,
         }
-
-    # 5) ניקוי jobs ממתינים
-    try:
-        result = db.sync_jobs.delete_many({"repo_name": repo_name, "status": "pending"})
-        stats["pending_jobs_removed"] = int(getattr(result, "deleted_count", 0) or 0)
-    except Exception:
-        # לא קריטי - רק לוג
-        logger.warning(f"Failed to clean pending sync_jobs for {repo_name}", exc_info=True)
 
     # 6) ניקוי בחירת ריפו מהמשתמשים
     try:

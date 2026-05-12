@@ -881,6 +881,12 @@ def api_unmirror_repo(repo_name: str):
         }), 500
 
     if not result.get("success"):
-        return jsonify(result), 500
+        status_codes = {
+            "invalid_repo_name": 400,
+            "sync_in_progress": 409,
+            "mirror_delete_failed": 500,
+            "database_error": 500,
+        }
+        return jsonify(result), status_codes.get(result.get("error", ""), 500)
 
     return jsonify(result)
