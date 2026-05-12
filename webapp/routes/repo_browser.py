@@ -872,12 +872,12 @@ def api_unmirror_repo(repo_name: str):
 
     try:
         result = unmirror_repo(repo_name, db)
-    except Exception as e:
-        logger.exception(f"Unmirror failed for {repo_name}: {e}")
+    except Exception:
+        logger.exception(f"Unmirror failed for {repo_name}")
         return jsonify({
             "success": False,
             "error": "internal_error",
-            "message": str(e)[:200]
+            "message": "An internal server error occurred"
         }), 500
 
     if not result.get("success"):
