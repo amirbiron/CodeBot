@@ -1346,8 +1346,6 @@ class GitHubMenuHandler:
                     for n in zf.namelist():
                         if n.endswith('/'):
                             continue
-                        if n == 'metadata.json':
-                            continue
                         names.append(n)
                 if not names:
                     await query.edit_message_text("ℹ️ אין קבצים ב‑ZIP")
@@ -1437,7 +1435,10 @@ class GitHubMenuHandler:
                     repo = g.get_repo(repo_name)
                     branch = target_branch_override or repo.default_branch or "main"
                     with _zip.ZipFile(zip_path, 'r') as zf:
-                        inner_names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
+                        # העלה את כל הקבצים כפי שהם בזיפ, כולל metadata.json.
+                        # רשומות תיקייה ריקות (entries שמסתיימות ב-'/') מדולגות כי
+                        # ב-Git/GitHub אין מושג של תיקייה ריקה — תיקיות נוצרות מקבצים שבתוכן.
+                        inner_names = [n for n in zf.namelist() if not n.endswith('/')]
                         for inner_path in inner_names:
                             try:
                                 raw = zf.read(inner_path)
@@ -1529,7 +1530,7 @@ class GitHubMenuHandler:
                         return
                     import zipfile as _zip
                     with _zip.ZipFile(match.file_path, 'r') as zf:
-                        all_names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
+                        all_names = [n for n in zf.namelist() if not n.endswith('/')]
                     if 0 <= idx < len(all_names):
                         inner_path = all_names[idx]
                     else:
