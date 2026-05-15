@@ -1504,8 +1504,15 @@ class GitHubMenuHandler:
                 created, updated, failed, used_branch = await asyncio.to_thread(_upload_all_files)
 
                 target_desc = target_folder if target_folder else "/"
+                total_ok = created + updated
+                if total_ok > 0 and not failed:
+                    header = f"✅ סיום העלאת תיקייה ל-<code>{escape(repo_name)}</code>"
+                elif total_ok > 0 and failed:
+                    header = f"⚠️ העלאה הסתיימה חלקית ל-<code>{escape(repo_name)}</code>"
+                else:
+                    header = f"❌ ההעלאה נכשלה ל-<code>{escape(repo_name)}</code>"
                 lines = [
-                    f"✅ סיום העלאת תיקייה ל-<code>{escape(repo_name)}</code>",
+                    header,
                     f"📁 יעד: <code>{escape(target_desc)}</code>  •  🌿 ענף: <code>{escape(used_branch)}</code>",
                     f"📤 חדשים: {created}  •  ♻️ עודכנו: {updated}",
                 ]
