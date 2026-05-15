@@ -234,9 +234,22 @@ def _zip_has_bot_manifest(zf) -> bool:
 
     נבדק לפי תוכן (קיום המפתח 'backup_id') ולא לפי שם בלבד, כדי שלא לסנן
     בטעות קבצי metadata.json לגיטימיים של המשתמש (npm, Chrome extensions וכו').
+    הקריאה מוגבלת בגודל כדי למנוע ניצול לרעה של ZIPים זדוניים.
     """
+    MAX_MANIFEST_BYTES = 64 * 1024
     try:
-        raw = zf.read('metadata.json')
+        info = zf.getinfo('metadata.json')
+    except KeyError:
+        return False
+    except Exception:
+        return False
+    try:
+        if int(getattr(info, 'file_size', 0) or 0) > MAX_MANIFEST_BYTES:
+            return False
+        with zf.open(info) as fh:
+            raw = fh.read(MAX_MANIFEST_BYTES + 1)
+        if len(raw) > MAX_MANIFEST_BYTES:
+            return False
         md = json.loads(raw.decode('utf-8'))
         return isinstance(md, dict) and 'backup_id' in md
     except Exception:
