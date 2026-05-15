@@ -1372,6 +1372,8 @@ class GitHubMenuHandler:
                     pass
                 # בנה כפתורים לבחירת קובץ להעלאה + עימוד + חזרה (לפי אינדקס)
                 kb = []
+                # אפשרות להעלאת כל הקבצים בבת אחת (תיקייה שלמה) בלי לעבור על הרשימה
+                kb.append([InlineKeyboardButton(f"📤 העלה את כל הקבצים ({total})", callback_data=f"gh_upload_zip_all:{backup_id}")])
                 for idx, n in enumerate(slice_names, start=start):
                     safe_label = n if len(n) <= 64 else (n[:30] + '…' + n[-30:])
                     kb.append([InlineKeyboardButton(safe_label, callback_data=f"gh_upload_zip_select_idx:{backup_id}:{idx}")])
@@ -1404,6 +1406,96 @@ class GitHubMenuHandler:
                 await self.handle_menu_callback(update, context)
             except Exception:
                 await query.answer("שגיאת עימוד", show_alert=True)
+        elif query.data.startswith("gh_upload_zip_all:"):
+            # העלאת כל הקבצים שב‑ZIP לתיקיית היעד בריפו, בלי להציג רשימה
+            backup_id = query.data.split(":", 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get("selected_repo")
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים (בחר ריפו עם /github)")
+                return
+            try:
+                infos = backup_manager.list_backups(user_id)
+                match = next((b for b in infos if getattr(b, 'backup_id', '') == backup_id), None)
+                if not match or not match.file_path or not os.path.exists(match.file_path):
+                    await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
+                    return
+                target_folder = (context.user_data.get("upload_target_folder") or session.get("selected_folder") or "").strip("/")
+                zip_path = match.file_path
+                target_branch_override = context.user_data.get("upload_target_branch")
+                await query.edit_message_text("⏳ מעלה את כל הקבצים מה‑ZIP, נא להמתין…")
+
+                def _upload_all_files():
+                    import zipfile as _zip
+                    import re as _re
+                    created = 0
+                    updated = 0
+                    failed: list[tuple[str, str]] = []
+                    g = Github(token)
+                    repo = g.get_repo(repo_name)
+                    branch = target_branch_override or repo.default_branch or "main"
+                    with _zip.ZipFile(zip_path, 'r') as zf:
+                        inner_names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
+                        for inner_path in inner_names:
+                            try:
+                                raw = zf.read(inner_path)
+                                try:
+                                    content_text = raw.decode('utf-8')
+                                except Exception:
+                                    try:
+                                        content_text = raw.decode('latin-1')
+                                    except Exception as de:
+                                        failed.append((inner_path, f"decode: {de}"))
+                                        continue
+                                target_path = f"{target_folder}/{inner_path}" if target_folder else inner_path
+                                target_path = _re.sub(r"/+", "/", target_path.strip("/"))
+                                try:
+                                    existing = repo.get_contents(target_path, ref=branch)
+                                    repo.update_file(
+                                        path=target_path,
+                                        message=f"Update {inner_path} via Telegram bot",
+                                        content=content_text,
+                                        sha=existing.sha,
+                                        branch=branch,
+                                    )
+                                    updated += 1
+                                except Exception:
+                                    repo.create_file(
+                                        path=target_path,
+                                        message=f"Upload {inner_path} via Telegram bot",
+                                        content=content_text,
+                                        branch=branch,
+                                    )
+                                    created += 1
+                            except Exception as ie:
+                                failed.append((inner_path, str(ie)))
+                    return created, updated, failed, branch
+
+                created, updated, failed, used_branch = await asyncio.to_thread(_upload_all_files)
+
+                target_desc = target_folder if target_folder else "/"
+                lines = [
+                    f"✅ סיום העלאת תיקייה ל-<code>{escape(repo_name)}</code>",
+                    f"📁 יעד: <code>{escape(target_desc)}</code>  •  🌿 ענף: <code>{escape(used_branch)}</code>",
+                    f"📤 חדשים: {created}  •  ♻️ עודכנו: {updated}",
+                ]
+                if failed:
+                    lines.append(f"⚠️ נכשלו: {len(failed)}")
+                    for fp, err in failed[:5]:
+                        safe_fp = fp if len(fp) <= 60 else (fp[:30] + '…' + fp[-25:])
+                        lines.append(f"• <code>{escape(safe_fp)}</code>: {escape(err[:80])}")
+                    if len(failed) > 5:
+                        lines.append(f"…ועוד {len(failed) - 5}")
+                summary = "\n".join(lines)
+                kb = [
+                    [InlineKeyboardButton("📦 חזור לרשימת הגיבויים", callback_data="gh_upload_cat:zips")],
+                    [InlineKeyboardButton("🔙 חזור לתפריט GitHub", callback_data="github_menu")],
+                ]
+                await query.edit_message_text(summary, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בהעלאת התיקייה: {e}")
         elif query.data.startswith("gh_upload_zip_select_idx:"):
             # בחירת קובץ מתוך ZIP לפי אינדקס כדי לעמוד במגבלת 64 בתים של callback_data
             try:
