@@ -1346,6 +1346,9 @@ class GitHubMenuHandler:
                     for n in zf.namelist():
                         if n.endswith('/'):
                             continue
+                        # סנן את ה-manifest הפנימי של הבוט (מכיל user_id/backup_id/timestamps)
+                        if n == 'metadata.json':
+                            continue
                         names.append(n)
                 if not names:
                     await query.edit_message_text("ℹ️ אין קבצים ב‑ZIP")
@@ -1436,10 +1439,11 @@ class GitHubMenuHandler:
                     # שלב 1: אסוף את כל הזוגות (target_path, raw_bytes) מהזיפ
                     items: list[tuple[str, bytes]] = []
                     with _zip.ZipFile(zip_path, 'r') as zf:
-                        # העלה את כל הקבצים כפי שהם בזיפ, כולל metadata.json.
-                        # רשומות תיקייה ריקות (entries שמסתיימות ב-'/') מדולגות כי
-                        # ב-Git/GitHub אין מושג של תיקייה ריקה — תיקיות נוצרות מקבצים שבתוכן.
-                        inner_names = [n for n in zf.namelist() if not n.endswith('/')]
+                        # העלה את כל הקבצים שבזיפ. רשומות תיקייה ריקות (entries שמסתיימות ב-'/')
+                        # מדולגות כי ב-Git/GitHub אין מושג של תיקייה ריקה — תיקיות נוצרות
+                        # מקבצים שבתוכן. בנוסף, ה-manifest הפנימי metadata.json לא מועלה
+                        # כדי לא לחשוף user_id/backup_id/timestamps לתוך ריפו (בייחוד ציבורי).
+                        inner_names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
                         for inner_path in inner_names:
                             try:
                                 raw = zf.read(inner_path)
@@ -1564,7 +1568,7 @@ class GitHubMenuHandler:
                         return
                     import zipfile as _zip
                     with _zip.ZipFile(match.file_path, 'r') as zf:
-                        all_names = [n for n in zf.namelist() if not n.endswith('/')]
+                        all_names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
                     if 0 <= idx < len(all_names):
                         inner_path = all_names[idx]
                     else:
