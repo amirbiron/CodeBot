@@ -229,6 +229,33 @@ def format_bytes(num: int) -> str:
     return str(num)
 
 
+def _zip_has_bot_manifest(zf) -> bool:
+    """האם הקובץ 'metadata.json' שבשורש ה-ZIP הוא ה-manifest הפנימי של הבוט.
+
+    נבדק לפי תוכן (קיום המפתח 'backup_id') ולא לפי שם בלבד, כדי שלא לסנן
+    בטעות קבצי metadata.json לגיטימיים של המשתמש (npm, Chrome extensions וכו').
+    הקריאה מוגבלת בגודל כדי למנוע ניצול לרעה של ZIPים זדוניים.
+    """
+    MAX_MANIFEST_BYTES = 64 * 1024
+    try:
+        info = zf.getinfo('metadata.json')
+    except KeyError:
+        return False
+    except Exception:
+        return False
+    try:
+        if int(getattr(info, 'file_size', 0) or 0) > MAX_MANIFEST_BYTES:
+            return False
+        with zf.open(info) as fh:
+            raw = fh.read(MAX_MANIFEST_BYTES + 1)
+        if len(raw) > MAX_MANIFEST_BYTES:
+            return False
+        md = json.loads(raw.decode('utf-8'))
+        return isinstance(md, dict) and 'backup_id' in md
+    except Exception:
+        return False
+
+
 class GitHubMenuHandler:
     def __init__(self):
         self.user_sessions: Dict[int, Dict[str, Any]] = {}
@@ -1343,8 +1370,13 @@ class GitHubMenuHandler:
                 import zipfile as _zip
                 names: list[str] = []
                 with _zip.ZipFile(match.file_path, 'r') as zf:
+                    # סנן את ה-manifest הפנימי של הבוט רק אם זה אכן הוא (לפי תוכן),
+                    # כדי לא להסתיר metadata.json לגיטימיים של המשתמש.
+                    skip_manifest = _zip_has_bot_manifest(zf)
                     for n in zf.namelist():
                         if n.endswith('/'):
+                            continue
+                        if skip_manifest and n == 'metadata.json':
                             continue
                         names.append(n)
                 if not names:
@@ -1393,13 +1425,10 @@ class GitHubMenuHandler:
             except Exception as e:
                 await query.edit_message_text(f"❌ שגיאה בקריאת ZIP: {e}")
         elif query.data.startswith("gh_upload_zip_page:"):
-            # ניווט עמודים בעיון ה‑ZIP
+            # ניווט עמודים בעיון ה‑ZIP — שנה את ה-data ל-browse של אותו backup והפעל פעם אחת
             try:
                 _, backup_id, page_str = query.data.split(":", 2)
                 context.user_data['gh_zip_browse_page'] = max(1, int(page_str))
-                # הביא מחדש את אותו מסך
-                await self.handle_menu_callback(update, context)
-                # החלף את ה-callback ל-browse כדי להפעיל את העדכון
                 update.callback_query.data = f"gh_upload_zip_browse:{backup_id}"
                 await self.handle_menu_callback(update, context)
             except Exception:
@@ -1436,10 +1465,16 @@ class GitHubMenuHandler:
                     # שלב 1: אסוף את כל הזוגות (target_path, raw_bytes) מהזיפ
                     items: list[tuple[str, bytes]] = []
                     with _zip.ZipFile(zip_path, 'r') as zf:
-                        # העלה את כל הקבצים כפי שהם בזיפ, כולל metadata.json.
-                        # רשומות תיקייה ריקות (entries שמסתיימות ב-'/') מדולגות כי
-                        # ב-Git/GitHub אין מושג של תיקייה ריקה — תיקיות נוצרות מקבצים שבתוכן.
-                        inner_names = [n for n in zf.namelist() if not n.endswith('/')]
+                        # העלה את כל הקבצים שבזיפ. רשומות תיקייה ריקות (entries שמסתיימות ב-'/')
+                        # מדולגות כי ב-Git/GitHub אין מושג של תיקייה ריקה — תיקיות נוצרות
+                        # מקבצים שבתוכן. בנוסף, ה-manifest הפנימי metadata.json לא מועלה
+                        # כדי לא לחשוף user_id/backup_id/timestamps. הסינון נעשה לפי תוכן
+                        # כדי לא לפגוע ב-metadata.json לגיטימיים של המשתמש.
+                        skip_manifest = _zip_has_bot_manifest(zf)
+                        inner_names = [
+                            n for n in zf.namelist()
+                            if not n.endswith('/') and not (skip_manifest and n == 'metadata.json')
+                        ]
                         for inner_path in inner_names:
                             try:
                                 raw = zf.read(inner_path)
@@ -1504,8 +1539,15 @@ class GitHubMenuHandler:
                 created, updated, failed, used_branch = await asyncio.to_thread(_upload_all_files)
 
                 target_desc = target_folder if target_folder else "/"
+                total_ok = created + updated
+                if total_ok > 0 and not failed:
+                    header = f"✅ סיום העלאת תיקייה ל-<code>{escape(repo_name)}</code>"
+                elif total_ok > 0 and failed:
+                    header = f"⚠️ העלאה הסתיימה חלקית ל-<code>{escape(repo_name)}</code>"
+                else:
+                    header = f"❌ ההעלאה נכשלה ל-<code>{escape(repo_name)}</code>"
                 lines = [
-                    f"✅ סיום העלאת תיקייה ל-<code>{escape(repo_name)}</code>",
+                    header,
                     f"📁 יעד: <code>{escape(target_desc)}</code>  •  🌿 ענף: <code>{escape(used_branch)}</code>",
                     f"📤 חדשים: {created}  •  ♻️ עודכנו: {updated}",
                 ]
@@ -1557,7 +1599,11 @@ class GitHubMenuHandler:
                         return
                     import zipfile as _zip
                     with _zip.ZipFile(match.file_path, 'r') as zf:
-                        all_names = [n for n in zf.namelist() if not n.endswith('/')]
+                        skip_manifest = _zip_has_bot_manifest(zf)
+                        all_names = [
+                            n for n in zf.namelist()
+                            if not n.endswith('/') and not (skip_manifest and n == 'metadata.json')
+                        ]
                     if 0 <= idx < len(all_names):
                         inner_path = all_names[idx]
                     else:
@@ -1643,6 +1689,10 @@ class GitHubMenuHandler:
                     return
                 import zipfile as _zip
                 with _zip.ZipFile(match.file_path, 'r') as zf:
+                    # סינון defense-in-depth של ה-manifest הפנימי גם אם ה-callback נבנה ידנית
+                    if inner_path == 'metadata.json' and _zip_has_bot_manifest(zf):
+                        await query.edit_message_text("❌ קובץ ה-manifest הפנימי לא ניתן להעלאה")
+                        return
                     try:
                         raw = zf.read(inner_path)
                     except Exception:
