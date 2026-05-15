@@ -1425,13 +1425,10 @@ class GitHubMenuHandler:
             except Exception as e:
                 await query.edit_message_text(f"❌ שגיאה בקריאת ZIP: {e}")
         elif query.data.startswith("gh_upload_zip_page:"):
-            # ניווט עמודים בעיון ה‑ZIP
+            # ניווט עמודים בעיון ה‑ZIP — שנה את ה-data ל-browse של אותו backup והפעל פעם אחת
             try:
                 _, backup_id, page_str = query.data.split(":", 2)
                 context.user_data['gh_zip_browse_page'] = max(1, int(page_str))
-                # הביא מחדש את אותו מסך
-                await self.handle_menu_callback(update, context)
-                # החלף את ה-callback ל-browse כדי להפעיל את העדכון
                 update.callback_query.data = f"gh_upload_zip_browse:{backup_id}"
                 await self.handle_menu_callback(update, context)
             except Exception:
