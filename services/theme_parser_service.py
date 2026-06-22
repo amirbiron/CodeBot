@@ -550,10 +550,7 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
             syntax_css_parts.append(py_css)
 
         # 🆕 Highlight.js CSS (.hljs-* classes) - for Markdown Preview
-        # מעבירים את צבעי ברירת המחדל לטקסט שלא מסומן (משתנים, קבועים וכו')
-        editor_fg = colors.get("editor.foreground")
-        editor_bg = colors.get("editor.background")
-        hljs_css = generate_hljs_css_from_tokens(token_colors, editor_fg, editor_bg)
+        hljs_css = generate_hljs_css_from_tokens(token_colors)
         if hljs_css:
             syntax_css_parts.append("\n/* Highlight.js syntax highlighting (Preview) */")
             syntax_css_parts.append(hljs_css)
@@ -1659,21 +1656,12 @@ def _find_hljs_class(scope: str) -> str | None:
     return best_match
 
 
-def generate_hljs_css_from_tokens(
-    token_colors: list[dict],
-    default_foreground: str | None = None,
-    default_background: str | None = None,
-) -> str:
+def generate_hljs_css_from_tokens(token_colors: list[dict]) -> str:
     """
     ממיר tokenColors של VS Code ל-CSS עבור highlight.js.
 
     🔑 אם יש כמה scopes שממופים לאותו hljs class,
     הכלל הראשון מנצח (הספציפי יותר בד"כ מופיע קודם בקובץ VS Code).
-
-    Args:
-        token_colors: רשימת tokenColors מערכת VS Code
-        default_foreground: צבע ברירת מחדל לטקסט (editor.foreground)
-        default_background: צבע רקע לבלוקי קוד (editor.background)
 
     Returns:
         CSS string עם כללים בפורמט:
@@ -1684,14 +1672,6 @@ def generate_hljs_css_from_tokens(
 
     # שימוש ב-dict כדי לדדופ כללים לפי selector
     css_by_selector: dict[str, str] = {}
-
-    # 🆕 הוספת צבע ברירת מחדל עבור .hljs (טקסט שלא מסומן)
-    # זה חשוב עבור משתנים, קבועים ואלמנטים ש-highlight.js לא מסמן
-    if default_foreground and is_valid_color(str(default_foreground)):
-        base_parts = [f"color: {str(default_foreground).strip()} !important"]
-        if default_background and is_valid_color(str(default_background)):
-            base_parts.append(f"background: {str(default_background).strip()} !important")
-        css_by_selector[".hljs"] = f':root[data-theme-type="custom"] .hljs {{ {"; ".join(base_parts)}; }}'
 
     for token in token_colors:
         if not isinstance(token, dict):
