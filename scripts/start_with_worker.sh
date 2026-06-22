@@ -13,6 +13,12 @@ if [ -f ".env.worker" ]; then
   set -a; . ./.env.worker; set +a
 fi
 
+# Load local worker overrides if present (not committed to git)
+if [ -f ".env.worker" ]; then
+  # shellcheck disable=SC1091
+  set -a; . ./.env.worker; set +a
+fi
+
 is_true() {
   v="${1:-}"; v=$(printf "%s" "$v" | tr '[:upper:]' '[:lower:]')
   [ "$v" = "1" ] || [ "$v" = "true" ] || [ "$v" = "yes" ] || [ "$v" = "on" ]
