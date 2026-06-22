@@ -15009,15 +15009,10 @@ def api_create_styled_share(file_id):
             if vscode_json:
                 theme = get_export_theme('vscode-import', vscode_json=vscode_json)
             else:
-                # בדיקה אם זו ערכה אישית של המשתמש
+                # שליפת ערכות המשתמש כדי לתמוך גם בערכות אישיות
                 user_data = db.users.find_one({"user_id": int(user_id)}, {"custom_themes": 1})
                 user_themes = (user_data.get("custom_themes") or []) if user_data else []
-                user_theme = next((t for t in user_themes if t.get("id") == theme_id), None)
-
-                if user_theme:
-                    theme = get_export_theme(theme_id, user_theme=user_theme)
-                else:
-                    theme = get_export_theme(theme_id)
+                theme = get_export_theme(theme_id, user_themes=user_themes)
 
             # המרת Markdown ל-HTML
             html_content, toc_html = markdown_to_html(markdown_content, include_toc=False)
