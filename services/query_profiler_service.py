@@ -809,9 +809,52 @@ class QueryProfilerService:
 
         כאשר ה-pipeline עבר נרמול (להגנת PII), ערכים מספריים הוחלפו ב-"<value>".
         MongoDB explain ייכשל אם יקבל "$limit": "<value>" במקום מספר.
+        בנוסף, ייתכן שנרמול ישן/סניטייזר החליף כיוון מיון ב-$sort למחרוזת ריקה (""), מה שגורם ל:
+        pymongo.errors.OperationFailure: Illegal key in $sort specification: <field>: "".
 
         פונקציה זו מחליפה את ה-placeholders בערכי ברירת מחדל תקינים.
         """
+        def _fix_sort_spec_for_explain(sort_spec: Any) -> Any:
+            if not isinstance(sort_spec, dict):
+                return sort_spec
+
+            fixed_sort: Dict[str, Any] = {}
+            for field, order in sort_spec.items():
+                # MongoDB מקבל כאן 1/-1 (או {$meta: ...}).
+                # אם הסניטייזר הפך את הכיוון למחרוזת (כמו "" או "<value>") נחליף לברירת מחדל 1,
+                # כדי ש-explain יצליח לרוץ.
+                if isinstance(order, str):
+                    s = order.strip()
+                    if s in ("-1", "desc", "descending"):
+                        fixed_sort[field] = -1
+                    elif s in ("1", "+1", "asc", "ascending"):
+                        fixed_sort[field] = 1
+                    else:
+                        fixed_sort[field] = 1
+                elif isinstance(order, bool):
+                    # bool הוא subclass של int - לא רוצים להעביר True/False ככיוון מיון
+                    fixed_sort[field] = 1
+                elif isinstance(order, (int, float)):
+                    fixed_sort[field] = -1 if float(order) < 0 else 1
+                else:
+                    # למשל {"$meta": "textScore"} - נשאיר כמות שזה
+                    fixed_sort[field] = order
+            return fixed_sort
+
+        def _fix_sort_placeholders_in_obj(obj: Any) -> Any:
+            """תיקון $sort גם במבנים מקוננים (למשל בתוך $facet/$lookup pipeline)."""
+            if isinstance(obj, list):
+                return [_fix_sort_placeholders_in_obj(x) for x in obj]
+            if isinstance(obj, dict):
+                new_obj: Dict[str, Any] = {}
+                for k, v in obj.items():
+                    if k == "$sort":
+                        new_obj[k] = _fix_sort_spec_for_explain(v)
+                    else:
+                        new_obj[k] = _fix_sort_placeholders_in_obj(v)
+                return new_obj
+            return obj
+
         fixed: List[Dict[str, Any]] = []
         for stage in (pipeline or []):
             if not isinstance(stage, dict):
@@ -846,8 +889,11 @@ class QueryProfilerService:
                     # מקרה 2: זה מחרוזת (Placeholder), צריך להמציא מילון חדש
                     else:
                         new_stage[key] = {"size": 10}
+                # תיקון $sort - כיוון מיון חייב להיות 1/-1 (או {$meta: ...})
+                elif key == "$sort":
+                    new_stage[key] = _fix_sort_spec_for_explain(value)
                 else:
-                    new_stage[key] = value
+                    new_stage[key] = _fix_sort_placeholders_in_obj(value)
 
             fixed.append(new_stage)
         return fixed
