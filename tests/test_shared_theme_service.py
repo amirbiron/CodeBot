@@ -94,6 +94,30 @@ def test_create_success_filters_colors_and_saves_syntax_css():
     assert 'data-theme-type="custom"' in db.shared_themes.docs[0].get("syntax_css", "")
 
 
+def test_create_fixes_unreadable_primary_button_text_contrast():
+    """
+    Regression: imported themes can end up with white-on-white button text after publish.
+    Shared theme creation should auto-fix to --primary when contrast is too low.
+    """
+    db = _MockDB()
+    svc = SharedThemeService(db)
+    ok, theme_id = svc.create(
+        slug="white_btn",
+        name="White Button",
+        created_by=123,
+        colors={
+            "--primary": "#667eea",
+            "--bg-primary": "#000000",
+            "--btn-primary-bg": "#ffffff",
+            "--btn-primary-color": "#ffffff",
+        },
+    )
+    assert ok is True
+    assert theme_id == "white_btn"
+    saved = db.shared_themes.docs[0]["colors"]
+    assert saved["--btn-primary-color"] == "#667eea"
+
+
 def test_create_duplicate_slug_rejected():
     db = _MockDB()
     db.shared_themes.docs = [{"_id": "cyber_purple", "is_active": True}]
