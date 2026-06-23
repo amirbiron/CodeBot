@@ -43,6 +43,43 @@ def test_extract_functions_no_duplicates_returns_error():
     assert res.error
 
 
+def test_extract_functions_detects_duplicate_top_level_functions_and_extracts():
+    # שתי פונקציות טופ-לבל זהות (בלי decorators), מספיק ארוכות כדי לעבור את סף המינימום.
+    code = (
+        "def foo(x: int) -> int:\n"
+        "    y = x + 1\n"
+        "    z = y * 2\n"
+        "    if z > 10:\n"
+        "        z = 10\n"
+        "    a = z - 1\n"
+        "    b = a + 2\n"
+        "    return b\n"
+        "\n"
+        "def bar(x: int) -> int:\n"
+        "    y = x + 1\n"
+        "    z = y * 2\n"
+        "    if z > 10:\n"
+        "        z = 10\n"
+        "    a = z - 1\n"
+        "    b = a + 2\n"
+        "    return b\n"
+    )
+    engine = RefactoringEngine()
+    res = engine.propose_refactoring(code=code, filename="x.py", refactor_type=RefactorType.EXTRACT_FUNCTIONS)
+    assert res.success is True
+    assert res.proposal is not None
+    assert "utils.py" in res.proposal.new_files
+    assert "x.py" in res.proposal.new_files
+    utils_code = res.proposal.new_files["utils.py"]
+    updated = res.proposal.new_files["x.py"]
+    # נוצר helper
+    assert "def _extracted_" in utils_code
+    # הפונקציות הוחלפו ב-wrapper שמחזיר את ה-helper
+    assert "def foo" in updated
+    assert "def bar" in updated
+    assert "return _extracted_" in updated
+
+
 def test_validate_proposal_invalid_syntax():
     engine = RefactoringEngine()
     from refactoring_engine import RefactorProposal
