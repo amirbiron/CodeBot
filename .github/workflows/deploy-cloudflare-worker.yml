@@ -30,12 +30,6 @@ jobs:
       - name: Install wrangler
         run: npm i -g wrangler@latest
 
-      - name: Install worker dependencies
-        working-directory: worker
-        run: |
-          set -euo pipefail
-          npm ci
-
       - name: Auth check (whoami)
         working-directory: worker
         env:

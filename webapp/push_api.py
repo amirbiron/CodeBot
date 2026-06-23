@@ -258,7 +258,18 @@ def _post_to_worker(
         except Exception:
             j = {}
         if status >= 500 or status == 0:
-            return False, status or 0, "worker_5xx"
+            # Surface worker-provided details when available (helps debug CF worker runtime issues).
+            if isinstance(j, dict) and (j.get("error") or j.get("details")):
+                err = str(j.get("error") or "worker_5xx")
+                details = str(j.get("details") or "")
+                details = details[:300] if details else ""
+                return False, status or 0, (err + (f": {details}" if details else ""))
+            try:
+                txt = str(getattr(r, "text", "") or "")
+            except Exception:
+                txt = ""
+            txt = txt[:300] if txt else ""
+            return False, status or 0, ("worker_5xx" + (f": {txt}" if txt else ""))
         if isinstance(j, dict) and j.get("ok") is True:
             return True, 200, ""
         if isinstance(j, dict) and j.get("ok") is False:
