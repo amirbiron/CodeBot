@@ -46,6 +46,23 @@ class _Context:
         self.bot_data = {}
 
 
+class _FakeGithubException(gmh.GithubException):
+    """חריגה תואמת GithubException עם status/data ניתנים להגדרה.
+
+    ב-PyGithub האמיתי (כפי שמותקן ב-CI) השדות ``status`` ו-``data`` הם
+    properties לקריאה בלבד, ולכן השמה ישירה אליהם זורקת AttributeError.
+    כאן אנחנו מצלילים אותם כתכונות מחלקה רגילות (הן קודמות ב-MRO לפרופרטי
+    של מחלקת האב), כך שאפשר להגדיר אותם בטסט בלי תלות בגרסת PyGithub.
+    """
+
+    status = None
+    data = None
+
+    def __init__(self, status, data):
+        self.status = status
+        self.data = data
+
+
 class _FakeRepoOwner:
     def __init__(self, login):
         self.login = login
@@ -93,7 +110,11 @@ def _build_handler(monkeypatch, fake_github):
     handler.user_sessions[5] = {"selected_repo": "octocat/demo", "github_token": "ghp_x"}
     monkeypatch.setattr(handler, "get_user_token", lambda uid: "ghp_x")
 
+    # נעקוב אחרי קריאות לרענון התפריט כדי לוודא שלא דורסים הודעות שגיאה/עזרה.
+    handler.menu_calls = []
+
     async def _noop_menu(update, context):
+        handler.menu_calls.append(True)
         return None
 
     monkeypatch.setattr(handler, "github_menu_command", _noop_menu)
@@ -114,6 +135,8 @@ async def test_delete_repo_blocked_when_scope_missing(monkeypatch):
     assert "delete_repo" in last
     # לא בוצעה מחיקה בפועל
     assert repo_holder["repo"].deleted is False
+    # לא דורסים את ההסבר ברענון התפריט
+    assert handler.menu_calls == []
 
 
 @pytest.mark.asyncio
@@ -127,15 +150,15 @@ async def test_delete_repo_success_when_scope_present(monkeypatch):
 
     assert repo_holder["repo"].deleted is True
     assert any("נמחק בהצלחה" in t for t in update.callback_query.message.texts)
+    # במסלול ההצלחה כן מרעננים את התפריט
+    assert handler.menu_calls == [True]
 
 
 @pytest.mark.asyncio
 async def test_delete_repo_403_admin_rights_shows_scope_help(monkeypatch):
     """אם ה-scopes לא ידועים (טוקן fine-grained) ו-GitHub מחזיר 403 admin rights –
     מציגים את הסבר ה-delete_repo במקום השגיאה הגולמית."""
-    exc = gmh.GithubException("403")
-    exc.status = 403
-    exc.data = {"message": "Must have admin rights to Repository."}
+    exc = _FakeGithubException(403, {"message": "Must have admin rights to Repository."})
     fake_github, _ = _make_fake_github(oauth_scopes=None, delete_exc=exc)
     handler = _build_handler(monkeypatch, fake_github)
     update, context = _Update(), _Context()
@@ -144,3 +167,5 @@ async def test_delete_repo_403_admin_rights_shows_scope_help(monkeypatch):
 
     last = update.callback_query.message.texts[-1]
     assert "delete_repo" in last
+    # גם כאן ההסבר נשאר על המסך ולא מרעננים את התפריט
+    assert handler.menu_calls == []

@@ -5578,13 +5578,23 @@ class GitHubMenuHandler:
         if not (token and repo_name):
             await query.edit_message_text("❌ נתונים חסרים למחיקה")
             return
+        # רענון התפריט הראשי מתבצע רק במסלול ההצלחה. במסלולי שגיאה/עזרה נשאיר
+        # את ההודעה על המסך עם כפתור חזרה, אחרת github_menu_command היה דורס
+        # את ההסבר (שניהם עורכים את אותה הודעת ה-callback).
+        refresh_menu = True
+        back_kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
+        )
         try:
             g = Github(token)
             repo = g.get_repo(repo_name)
             owner = g.get_user()
             # ודא שלמשתמש יש הרשאה למחוק
             if repo.owner.login != owner.login:
-                await query.edit_message_text("❌ ניתן למחוק רק ריפו שאתה בעליו")
+                refresh_menu = False
+                await query.edit_message_text(
+                    "❌ ניתן למחוק רק ריפו שאתה בעליו", reply_markup=back_kb
+                )
                 return
             # בדיקה מקדימה: עבור טוקני classic, GitHub מחזיר את רשימת ההרשאות בכותרת
             # X-OAuth-Scopes (נחשף ב-PyGithub כ-oauth_scopes לאחר הבקשות שלמעלה).
@@ -5593,7 +5603,10 @@ class GitHubMenuHandler:
             # fine-grained שלא מחזיר את הכותרת) – נמשיך ונסתמך על טיפול החריגות.
             scopes = getattr(g, "oauth_scopes", None)
             if isinstance(scopes, (list, tuple)) and scopes and "delete_repo" not in scopes:
-                await query.edit_message_text(self._DELETE_REPO_SCOPE_HELP, parse_mode="HTML")
+                refresh_menu = False
+                await query.edit_message_text(
+                    self._DELETE_REPO_SCOPE_HELP, parse_mode="HTML", reply_markup=back_kb
+                )
                 return
             repo.delete()
             # נקה קאש ריפוזיטוריז כדי שהרשימה תרוענן ולא תציג פריטים שנמחקו
@@ -5605,6 +5618,7 @@ class GitHubMenuHandler:
             # נקה בחירה לאחר מחיקה
             session["selected_repo"] = None
         except GithubException as ge:
+            refresh_menu = False
             status = getattr(ge, "status", None)
             data = getattr(ge, "data", {}) or {}
             err_msg = data.get("message", "") if isinstance(data, dict) else str(ge)
@@ -5612,19 +5626,30 @@ class GitHubMenuHandler:
             # 403 עם "admin rights"/"delete_repo" כמעט תמיד אומר שלטוקן חסרה הרשאת delete_repo
             err_text = str(err_msg).lower()
             if status == 403 and ("admin rights" in err_text or "delete_repo" in err_text):
-                await query.edit_message_text(self._DELETE_REPO_SCOPE_HELP, parse_mode="HTML")
+                await query.edit_message_text(
+                    self._DELETE_REPO_SCOPE_HELP, parse_mode="HTML", reply_markup=back_kb
+                )
             else:
                 await query.edit_message_text(
-                    f"❌ שגיאה במחיקת ריפו: {safe_html_escape(str(err_msg))}", parse_mode="HTML"
+                    f"❌ שגיאה במחיקת ריפו: {safe_html_escape(str(err_msg))}",
+                    parse_mode="HTML",
+                    reply_markup=back_kb,
                 )
         except Exception as e:
+            refresh_menu = False
             logger.error(f"Error deleting repository: {e}")
-            await query.edit_message_text(f"❌ שגיאה במחיקת ריפו: {safe_html_escape(str(e))}", parse_mode="HTML")
+            await query.edit_message_text(
+                f"❌ שגיאה במחיקת ריפו: {safe_html_escape(str(e))}",
+                parse_mode="HTML",
+                reply_markup=back_kb,
+            )
         finally:
             # לאחר מחיקה, ודא שקאש הרשימות אינו משאיר את הריפו הישן
             context.user_data.pop("repos", None)
             context.user_data.pop("repos_cache_time", None)
-            await self.github_menu_command(update, context)
+            # רענן את התפריט רק במסלול ההצלחה, כדי לא לדרוס הודעת שגיאה/עזרה
+            if refresh_menu:
+                await self.github_menu_command(update, context)
 
     async def show_danger_delete_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט מחיקות מסוכן"""
