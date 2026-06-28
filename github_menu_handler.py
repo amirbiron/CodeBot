@@ -2390,8 +2390,10 @@ class GitHubMenuHandler:
                 "🔑 שלח לי את הטוקן של GitHub:\n\n"
                 "הטוקן יישמר בצורה מאובטחת לחשבון שלך לצורך שימוש עתידי.\n"
                 "תוכל להסיר אותו בכל עת עם הפקודה /github_logout.\n\n"
-                "💡 טיפ: צור טוקן ב:\n"
-                "https://github.com/settings/tokens"
+                "💡 טיפ: צור טוקן (classic) ב:\n"
+                "https://github.com/settings/tokens\n\n"
+                "הרשאות מומלצות: repo, gist.\n"
+                "אם תרצה גם למחוק ריפו דרך הבוט – סמן בנוסף את delete_repo."
             )
             return REPO_SELECT
 
@@ -5552,6 +5554,20 @@ class GitHubMenuHandler:
             parse_mode="HTML",
         )
 
+    # הודעת עזרה כשחסרה הרשאת delete_repo בטוקן.
+    # GitHub מחזיר במקרה כזה 403 "Must have admin rights to Repository" גם כשאתה הבעלים,
+    # וזו דרך מבלבלת לומר שלטוקן עצמו חסרה ההרשאה למחיקה.
+    _DELETE_REPO_SCOPE_HELP = (
+        "❌ לא הצלחתי למחוק את הריפו כי לטוקן שלך חסרה ההרשאה <b>delete_repo</b>.\n\n"
+        "זה לא קשור לבעלות — אתה הבעלים של הריפו. GitHub פשוט מחזיר שגיאת 403 "
+        '("Must have admin rights") כשלטוקן אין הרשאת מחיקה.\n\n'
+        "כך מתקנים:\n"
+        "1. היכנס ל-GitHub → Settings → Developer settings → Personal access tokens (classic)\n"
+        "2. צור טוקן חדש (או ערוך קיים) וסמן גם את <b>delete_repo</b> (בנוסף ל-<b>repo</b>)\n"
+        "3. שלח לי כאן את הטוקן החדש ואז נסה למחוק שוב\n\n"
+        "🔗 https://github.com/settings/tokens"
+    )
+
     async def confirm_delete_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מבצע מחיקת ריפו שלם לאחר אישור"""
         query = update.callback_query
@@ -5570,6 +5586,15 @@ class GitHubMenuHandler:
             if repo.owner.login != owner.login:
                 await query.edit_message_text("❌ ניתן למחוק רק ריפו שאתה בעליו")
                 return
+            # בדיקה מקדימה: עבור טוקני classic, GitHub מחזיר את רשימת ההרשאות בכותרת
+            # X-OAuth-Scopes (נחשף ב-PyGithub כ-oauth_scopes לאחר הבקשות שלמעלה).
+            # אם ידוע לנו בוודאות שחסרה delete_repo – נעצור עם הסבר ברור במקום
+            # להריץ את המחיקה ולקבל 403 מבלבל. אם הרשימה לא ידועה (למשל טוקן
+            # fine-grained שלא מחזיר את הכותרת) – נמשיך ונסתמך על טיפול החריגות.
+            scopes = getattr(g, "oauth_scopes", None)
+            if isinstance(scopes, (list, tuple)) and scopes and "delete_repo" not in scopes:
+                await query.edit_message_text(self._DELETE_REPO_SCOPE_HELP, parse_mode="HTML")
+                return
             repo.delete()
             # נקה קאש ריפוזיטוריז כדי שהרשימה תרוענן ולא תציג פריטים שנמחקו
             context.user_data.pop("repos", None)
@@ -5579,9 +5604,22 @@ class GitHubMenuHandler:
             )
             # נקה בחירה לאחר מחיקה
             session["selected_repo"] = None
+        except GithubException as ge:
+            status = getattr(ge, "status", None)
+            data = getattr(ge, "data", {}) or {}
+            err_msg = data.get("message", "") if isinstance(data, dict) else str(ge)
+            logger.error(f"Error deleting repository (GithubException {status}): {err_msg}")
+            # 403 עם "admin rights"/"delete_repo" כמעט תמיד אומר שלטוקן חסרה הרשאת delete_repo
+            err_text = str(err_msg).lower()
+            if status == 403 and ("admin rights" in err_text or "delete_repo" in err_text):
+                await query.edit_message_text(self._DELETE_REPO_SCOPE_HELP, parse_mode="HTML")
+            else:
+                await query.edit_message_text(
+                    f"❌ שגיאה במחיקת ריפו: {safe_html_escape(str(err_msg))}", parse_mode="HTML"
+                )
         except Exception as e:
             logger.error(f"Error deleting repository: {e}")
-            await query.edit_message_text(f"❌ שגיאה במחיקת ריפו: {e}")
+            await query.edit_message_text(f"❌ שגיאה במחיקת ריפו: {safe_html_escape(str(e))}", parse_mode="HTML")
         finally:
             # לאחר מחיקה, ודא שקאש הרשימות אינו משאיר את הריפו הישן
             context.user_data.pop("repos", None)

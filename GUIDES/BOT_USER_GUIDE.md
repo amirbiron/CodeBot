@@ -653,7 +653,8 @@ class DataHandler:
 3. עבור ל-[GitHub Settings > Tokens](https://github.com/settings/tokens)
 4. צור Personal Access Token חדש:
    - בחר **Classic Token**
-   - הרשאות: `repo`, `gist`, `delete_repo` (אופציונלי)
+   - הרשאות: `repo`, `gist`
+   - `delete_repo` – **חובה רק אם רוצים למחוק ריפו שלם דרך הבוט** (בלעדיה GitHub יחזיר שגיאת 403 "Must have admin rights" גם לבעלים)
    - תוקף: 90 יום (או יותר)
 5. העתק את הטוקן
 6. שלח לבוט
