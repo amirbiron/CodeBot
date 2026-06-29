@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import re
 
 import pytest
 
@@ -260,13 +259,10 @@ class TestCopyButtonCspHash:
         assert "copy-btn" in html
         assert "navigator.clipboard" in html
 
-        # התוכן שבין התגיות זהה בדיוק לקבוע, ולכן ה-hash תואם ל-CSP.
-        # ה-regex מתיר attributes ו-case שונה בתגית כדי להיות עמיד (CodeQL).
-        match = re.search(
-            r"<script\b[^>]*>(.*?)</script\s*>", html, re.DOTALL | re.IGNORECASE
-        )
-        assert match is not None, "לא נמצא בלוק <script> ב-HTML המעוצב"
-        script_body = match.group(1)
-        assert script_body == COPY_CODE_SCRIPT
-        assert _sha256_csp(script_body) == COPY_CODE_SCRIPT_CSP_HASH
+        # התבנית מזריקה את הקבוע מילה-במילה בין התגיות, בלי רווחים נוספים, ולכן
+        # ה-hash שב-CSP תואם בדיוק לתוכן. בודקים זאת בהשוואת מחרוזת מדויקת (ולא
+        # ב-regex של חילוץ HTML, שמעורר את חוקת "Bad HTML filtering" של CodeQL):
+        expected_script_block = "<script>" + COPY_CODE_SCRIPT + "</script>"
+        assert expected_script_block in html
+        assert _sha256_csp(COPY_CODE_SCRIPT) == COPY_CODE_SCRIPT_CSP_HASH
 
