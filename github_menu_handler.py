@@ -5601,8 +5601,19 @@ class GitHubMenuHandler:
             # אם ידוע לנו בוודאות שחסרה delete_repo – נעצור עם הסבר ברור במקום
             # להריץ את המחיקה ולקבל 403 מבלבל. אם הרשימה לא ידועה (למשל טוקן
             # fine-grained שלא מחזיר את הכותרת) – נמשיך ונסתמך על טיפול החריגות.
-            scopes = getattr(g, "oauth_scopes", None)
-            if isinstance(scopes, (list, tuple)) and scopes and "delete_repo" not in scopes:
+            #
+            # ⚠️ חשוב: כותרת X-OAuth-Scopes ריקה (נפוצה בטוקני fine-grained / GitHub
+            # App, שאינם חושפים scopes קלאסיים) עלולה להופיע ב-PyGithub כ-[""] –
+            # ולכן נסנן ערכים ריקים ונחסום רק כשיש לפחות scope קלאסי אמיתי שמעיד
+            # שזהו טוקן classic. אחרת ניתן לטוקנים תקפים (עם הרשאת Administration)
+            # להמשיך למחיקה בפועל.
+            raw_scopes = getattr(g, "oauth_scopes", None)
+            classic_scopes = (
+                [s.strip() for s in raw_scopes if isinstance(s, str) and s.strip()]
+                if isinstance(raw_scopes, (list, tuple))
+                else []
+            )
+            if classic_scopes and "delete_repo" not in classic_scopes:
                 refresh_menu = False
                 await query.edit_message_text(
                     self._DELETE_REPO_SCOPE_HELP, parse_mode="HTML", reply_markup=back_kb
