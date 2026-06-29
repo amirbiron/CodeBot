@@ -155,6 +155,22 @@ async def test_delete_repo_success_when_scope_present(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_delete_repo_not_blocked_for_empty_scope_header(monkeypatch):
+    """טוקן fine-grained/GitHub App מחזיר כותרת X-OAuth-Scopes ריקה ש-PyGithub
+    עלול לרשום כ-[""]. אסור שזה ייחשב כ'חסר delete_repo' ויחסום – צריך להמשיך
+    למחיקה בפועל (ולהסתמך על הרשאות ה-Administration של הטוקן)."""
+    fake_github, repo_holder = _make_fake_github(oauth_scopes=[""])
+    handler = _build_handler(monkeypatch, fake_github)
+    update, context = _Update(), _Context()
+
+    await handler.confirm_delete_repo(update, context)
+
+    # לא נחסם – המחיקה בוצעה
+    assert repo_holder["repo"].deleted is True
+    assert any("נמחק בהצלחה" in t for t in update.callback_query.message.texts)
+
+
+@pytest.mark.asyncio
 async def test_delete_repo_403_admin_rights_shows_scope_help(monkeypatch):
     """אם ה-scopes לא ידועים (טוקן fine-grained) ו-GitHub מחזיר 403 admin rights –
     מציגים את הסבר ה-delete_repo במקום השגיאה הגולמית."""

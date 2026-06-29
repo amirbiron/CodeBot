@@ -186,6 +186,7 @@ from services.db_health_service import (  # noqa: E402
 )
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
+    COPY_CODE_SCRIPT_CSP_HASH,
     get_export_theme,
     list_export_presets,
     markdown_to_html,
@@ -18968,8 +18969,11 @@ def public_shared_styled(token: str):
     response = make_response(styled_html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
     response.headers['Cache-Control'] = 'public, max-age=3600'  # cache לשעה
-    # CSP restrictive - מונע הרצת סקריפטים בתוכן משתמש
-    response.headers['Content-Security-Policy'] = "script-src 'none'"
+    # CSP מחמיר: מתירים אך ורק את סקריפט כפתור ההעתקה המהימן (לפי hash),
+    # וחוסמים כל סקריפט אחר. תוכן המשתמש כבר עובר sanitization (bleach + הסרת
+    # <script>) בעת יצירת ה-HTML, כך שהסקריפט היחיד שמותר הוא שלנו. כך כפתור
+    # ההעתקה בבלוקי הקוד עובד גם בקישור הזמני/הקבוע, בלי לפתוח פרצת XSS.
+    response.headers['Content-Security-Policy'] = f"script-src '{COPY_CODE_SCRIPT_CSP_HASH}'"
     return response
 
 

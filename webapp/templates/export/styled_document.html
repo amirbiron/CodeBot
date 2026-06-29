@@ -453,75 +453,13 @@
     </footer>
 
     <!-- Copy Button Script -->
-    <script>
-    (function() {
-        'use strict';
-
-        // מוסיף כפתור "העתק" לכל בלוק קוד
-        document.querySelectorAll('pre').forEach(function(codeBlock) {
-            // יצירת הכפתור
-            var button = document.createElement('button');
-            button.className = 'copy-btn';
-            button.type = 'button';
-            button.innerHTML = '📋 <span>העתק</span>';
-            button.title = 'העתק קוד ללוח';
-            button.setAttribute('aria-label', 'העתק קוד ללוח');
-
-            button.addEventListener('click', function() {
-                // מציאת הקוד להעתקה
-                var codeEl = codeBlock.querySelector('code');
-                var textToCopy = codeEl ? codeEl.innerText : codeBlock.innerText;
-
-                // ניקוי רווחים מיותרים בסוף
-                textToCopy = textToCopy.trim();
-
-                // העתקה ללוח
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(textToCopy).then(function() {
-                        showSuccess(button);
-                    }).catch(function() {
-                        fallbackCopy(textToCopy, button);
-                    });
-                } else {
-                    fallbackCopy(textToCopy, button);
-                }
-            });
-
-            codeBlock.appendChild(button);
-        });
-
-        // פידבק ויזואלי להצלחה
-        function showSuccess(button) {
-            var originalHTML = button.innerHTML;
-            button.innerHTML = '✅ <span>הועתק!</span>';
-            button.classList.add('success');
-
-            setTimeout(function() {
-                button.innerHTML = originalHTML;
-                button.classList.remove('success');
-            }, 2000);
-        }
-
-        // fallback לדפדפנים ישנים
-        function fallbackCopy(text, button) {
-            var textarea = document.createElement('textarea');
-            textarea.value = text;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-
-            try {
-                document.execCommand('copy');
-                showSuccess(button);
-            } catch (err) {
-                alert('לא הצלחנו להעתיק את הקוד');
-            }
-
-            document.body.removeChild(textarea);
-        }
-    })();
-    </script>
+    <!--
+      הסקריפט מוזרק מתוך הקבוע COPY_CODE_SCRIPT שב-styled_export_service.py,
+      כדי שאותו תוכן ישמש גם לחישוב ה-hash ל-CSP בעמוד השיתוף הציבורי
+      (script-src 'sha256-...'). חשוב לא להוסיף רווחים בין התגיות לבין הביטוי,
+      אחרת ה-hash לא יתאים והכפתור ייחסם.
+    -->
+    <script>{{ copy_script | safe }}</script>
 </body>
 </html>
 
