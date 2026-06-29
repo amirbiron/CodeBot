@@ -1,7 +1,14 @@
+import base64
+import hashlib
+import re
+
 import pytest
 
 from services.styled_export_service import (
+    COPY_CODE_SCRIPT,
+    COPY_CODE_SCRIPT_CSP_HASH,
     generate_pygments_css,
+    get_copy_script_csp_hash,
     get_export_theme,
     get_pygments_style_for_theme,
     markdown_to_html,
@@ -202,4 +209,61 @@ class TestGetExportThemeWithMetadata:
         theme = get_export_theme("clean-light")
         assert theme.get("id") == "clean-light"
         assert theme.get("category") == "light"
+
+
+def _sha256_csp(text: str) -> str:
+    """מחשב מקור CSP מסוג sha256 כפי שדפדפן מחשב עבור סקריפט inline."""
+    return "sha256-" + base64.b64encode(
+        hashlib.sha256(text.encode("utf-8")).digest()
+    ).decode("ascii")
+
+
+class TestCopyButtonCspHash:
+    """כפתור ההעתקה בבלוקי קוד חייב לעבוד גם בקישור השיתוף הציבורי.
+
+    בעמוד השיתוף יש CSP מחמיר (``script-src 'sha256-...'``) שמתיר רק את סקריפט
+    ההעתקה ה-inline. אם ה-hash לא תואם בדיוק לתוכן שמוזרק לתבנית — הדפדפן יחסום
+    את הסקריפט והכפתור ייעלם. הטסטים האלה נועלים את ההתאמה הזו.
+    """
+
+    def test_csp_hash_is_self_consistent(self):
+        assert COPY_CODE_SCRIPT_CSP_HASH == _sha256_csp(COPY_CODE_SCRIPT)
+        assert get_copy_script_csp_hash() == COPY_CODE_SCRIPT_CSP_HASH
+        assert COPY_CODE_SCRIPT_CSP_HASH.startswith("sha256-")
+
+    def test_rendered_template_script_matches_csp_hash(self):
+        """מרנדר את התבנית האמיתית ומוודא שה-hash של הסקריפט בפועל תואם ל-CSP.
+
+        זה התרחיש שמגלה "drift" של רווחים: אם בתבנית יש רווח/שורה בין התגיות
+        ``<script>``/``</script>`` לבין ``{{ copy_script }}`` — ה-hash ישתנה.
+        """
+        jinja2 = pytest.importorskip("jinja2")
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+        env = Environment(
+            loader=FileSystemLoader("webapp/templates"),
+            autoescape=select_autoescape(["html"]),
+        )
+        tpl = env.get_template("export/styled_document.html")
+        html = tpl.render(
+            title="t",
+            content="<pre><code>x = 1</code></pre>",
+            css_variables="",
+            syntax_css="",
+            theme_name="T",
+            toc_html="",
+            footer_text="f",
+            copy_script=COPY_CODE_SCRIPT,
+        )
+
+        # הכפתור והסקריפט קיימים ב-HTML
+        assert "copy-btn" in html
+        assert "navigator.clipboard" in html
+
+        # התוכן שבין התגיות זהה בדיוק לקבוע, ולכן ה-hash תואם ל-CSP
+        match = re.search(r"<script>(.*?)</script>", html, re.DOTALL)
+        assert match is not None, "לא נמצא בלוק <script> ב-HTML המעוצב"
+        script_body = match.group(1)
+        assert script_body == COPY_CODE_SCRIPT
+        assert _sha256_csp(script_body) == COPY_CODE_SCRIPT_CSP_HASH
 

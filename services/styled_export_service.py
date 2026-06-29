@@ -9,6 +9,8 @@ Styled HTML Export Service
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import re
 from typing import Optional
@@ -741,6 +743,99 @@ def sanitize_css(css_content: str) -> str:
     return clean_css
 
 
+# ============================================
+# 📋 סקריפט כפתור "העתק" לבלוקי קוד
+# ============================================
+# הסקריפט מוטמע inline בתוך ה-HTML המעוצב כדי שכפתור ההעתקה יעבוד גם בקובץ
+# שמורד למחשב (file://) וגם בתצוגה מקדימה. הקבוע כאן הוא ה-Source of Truth
+# היחיד: התבנית מרנדרת אותו כמו שהוא, וה-hash ל-CSP מחושב ממנו (ראו מטה),
+# כך שאין סיכון לחוסר-התאמה ("drift") בין הסקריפט ל-hash.
+COPY_CODE_SCRIPT = """
+(function() {
+    'use strict';
+
+    // מוסיף כפתור "העתק" לכל בלוק קוד
+    document.querySelectorAll('pre').forEach(function(codeBlock) {
+        // יצירת הכפתור
+        var button = document.createElement('button');
+        button.className = 'copy-btn';
+        button.type = 'button';
+        button.innerHTML = '📋 <span>העתק</span>';
+        button.title = 'העתק קוד ללוח';
+        button.setAttribute('aria-label', 'העתק קוד ללוח');
+
+        button.addEventListener('click', function() {
+            // מציאת הקוד להעתקה
+            var codeEl = codeBlock.querySelector('code');
+            var textToCopy = codeEl ? codeEl.innerText : codeBlock.innerText;
+
+            // ניקוי רווחים מיותרים בסוף
+            textToCopy = textToCopy.trim();
+
+            // העתקה ללוח
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textToCopy).then(function() {
+                    showSuccess(button);
+                }).catch(function() {
+                    fallbackCopy(textToCopy, button);
+                });
+            } else {
+                fallbackCopy(textToCopy, button);
+            }
+        });
+
+        codeBlock.appendChild(button);
+    });
+
+    // פידבק ויזואלי להצלחה
+    function showSuccess(button) {
+        var originalHTML = button.innerHTML;
+        button.innerHTML = '✅ <span>הועתק!</span>';
+        button.classList.add('success');
+
+        setTimeout(function() {
+            button.innerHTML = originalHTML;
+            button.classList.remove('success');
+        }, 2000);
+    }
+
+    // fallback לדפדפנים ישנים
+    function fallbackCopy(text, button) {
+        var textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        try {
+            document.execCommand('copy');
+            showSuccess(button);
+        } catch (err) {
+            alert('לא הצלחנו להעתיק את הקוד');
+        }
+
+        document.body.removeChild(textarea);
+    }
+})();
+"""
+
+
+def get_copy_script_csp_hash() -> str:
+    """מחזיר את מקור ה-CSP מסוג hash (sha256) עבור סקריפט ההעתקה ה-inline.
+
+    בעמוד השיתוף הציבורי אנחנו שומרים CSP מחמיר שחוסם כל סקריפט, ולכן צריך
+    להתיר במפורש את הסקריפט המהימן היחיד שלנו. ה-hash מחושב מאותו מחרוזת
+    שמוזרקת לתבנית (COPY_CODE_SCRIPT), כך שהוא תמיד תואם לתוכן בפועל.
+    """
+    digest = hashlib.sha256(COPY_CODE_SCRIPT.encode("utf-8")).digest()
+    return "sha256-" + base64.b64encode(digest).decode("ascii")
+
+
+# מקור CSP מוכן לשימוש (למשל: "sha256-...."), מחושב פעם אחת בטעינת המודול.
+COPY_CODE_SCRIPT_CSP_HASH = get_copy_script_csp_hash()
+
+
 def render_styled_html(
     content_html: str,
     title: str,
@@ -802,5 +897,6 @@ def render_styled_html(
         theme_name=theme.get("name", "Custom"),
         toc_html=toc_html,
         footer_text=footer_text,
+        copy_script=COPY_CODE_SCRIPT,
     )
 
