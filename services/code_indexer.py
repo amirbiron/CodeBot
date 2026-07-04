@@ -166,6 +166,11 @@ class CodeIndexer:
     # חשוב: משתמשים בנתיב רלטיבי בפורמט POSIX (למשל webapp/app.py)
     LARGE_FILE_ALLOWLIST = {"webapp/app.py"}
 
+    # allowlist לפי שם-קובץ בלבד (basename), ללא תלות במיקום בתיקיות.
+    # שימושי למסמכים שחשוב לאנדקס גם כשהם עוברים את מגבלת הגודל
+    # (למשל ROADMAP.md שנמצא בשורש הריפו או בתיקיית docs).
+    LARGE_FILE_ALLOWLIST_BASENAMES = {"ROADMAP.md"}
+
     def __init__(self, db: Any = None):
         """
         Args:
@@ -245,7 +250,12 @@ class CodeIndexer:
 
         # בדיקת גודל
         normalized_path = file_path.replace("\\", "/").lstrip("/")
-        if len(content) > self.MAX_FILE_SIZE and normalized_path not in self.LARGE_FILE_ALLOWLIST:
+        basename = normalized_path.rsplit("/", 1)[-1]
+        allowlisted = (
+            normalized_path in self.LARGE_FILE_ALLOWLIST
+            or basename in self.LARGE_FILE_ALLOWLIST_BASENAMES
+        )
+        if len(content) > self.MAX_FILE_SIZE and not allowlisted:
             logger.info(f"Skipping large file ({len(content)} bytes): {file_path}")
             return False
 

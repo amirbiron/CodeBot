@@ -110,3 +110,34 @@ def test_index_file_allows_webapp_app_py_even_if_large():
     assert idx.index_file("Repo", "/webapp/app.py", large_content, commit_sha="b" * 40) is True
     assert idx.index_file("Repo", "webapp\\app.py", large_content, commit_sha="c" * 40) is True
 
+
+def test_index_file_allows_roadmap_md_even_if_large():
+    """ROADMAP.md מוחרג לפי שם-קובץ (basename), כך שהוא מאונדקס גם מעל המגבלה
+    וללא תלות במיקומו בתיקיות (שורש/‏docs וכו')."""
+    class _FakeRepoFiles:
+        def __init__(self):
+            self.last_set = None
+
+        def update_one(self, filt, update, upsert=False):
+            self.last_set = update.get("$set", {})
+            return None
+
+    class _FakeDb:
+        def __init__(self):
+            self.repo_files = _FakeRepoFiles()
+
+    db = _FakeDb()
+    idx = CodeIndexer(db=db)
+
+    large_content = "a" * (idx.MAX_FILE_SIZE + 1)
+
+    # ROADMAP.md בשורש הריפו – מאונדקס למרות הגודל
+    assert idx.index_file("Repo", "ROADMAP.md", large_content, commit_sha="a" * 40) is True
+    assert db.repo_files.last_set["path"] == "ROADMAP.md"
+
+    # וגם בתוך תיקייה (basename זהה) – מאונדקס
+    assert idx.index_file("Repo", "docs/ROADMAP.md", large_content, commit_sha="b" * 40) is True
+
+    # קובץ md גדול אחר (שם שונה) עדיין ידולג
+    assert idx.index_file("Repo", "docs/HUGE_NOTES.md", large_content, commit_sha="c" * 40) is False
+
