@@ -20,19 +20,16 @@
    - 9. [לוח בקרה וסטטיסטיקות](#9️⃣-לוח-בקרה-וסטטיסטיקות-dashboard) - כולל היסטוריית פעולות, פוש, פתקים
    - 10. [עמוד הגדרות](#🔟-עמוד-הגדרות-settings) - כולל 8 ערכות נושא וגלילה חלקה
    - 20. [מערכת Onboarding מקיפה](#2️⃣0️⃣-מערכת-onboarding-מקיפה-)
-   - 21. [Live Preview עם Split View](#2️⃣1️⃣-live-preview-עם-split-view)
-   - 22. [Incident Storyboard](#2️⃣2️⃣-incident-storyboard-ניהול-תקריות)
-   - 23. [Commands Catalog](#2️⃣3️⃣-commands-catalog-קטלוג-פקודות)
-   - 24. [Copy Page Button](#2️⃣4️⃣-copy-page-button-העתקת-דפי-תיעוד)
-   - 25. [תכונות נוספות](#2️⃣5️⃣-תכונות-נוספות)
-   - 26. [הרצת קוד (Code Execution)](#2️⃣6️⃣-הרצת-קוד-code-execution)
-   - 27. [ייצוא HTML מעוצב](#2️⃣7️⃣-ייצוא-html-מעוצב-styled-html-export)
-   - 28. [השוואת קוד (Paste Compare)](#2️⃣8️⃣-השוואת-קוד-paste-compare)
-   - 29. [סרגל כלים Markdown](#2️⃣9️⃣-סרגל-כלים-markdown)
-   - 30. [מצב כיף (Fun Mode)](#3️⃣0️⃣-מצב-כיף-fun-mode)
-   - 31. [ערכות נושא משותפות](#3️⃣1️⃣-ערכות-נושא-משותפות-shared-themes) - כולל ייבוא ערכות VS Code
-   - 32. [חיפוש סמנטי (Semantic Search)](#3️⃣2️⃣-חיפוש-סמנטי-semantic-search)
-5. [📝 מסמכי Markdown — מרכז מאוחד](#-מסמכי-markdown--מרכז-מאוחד)
+   - 21. [Incident Storyboard](#2️⃣1️⃣-incident-storyboard-ניהול-תקריות)
+   - 22. [Commands Catalog](#2️⃣2️⃣-commands-catalog-קטלוג-פקודות)
+   - 23. [תכונות נוספות](#2️⃣3️⃣-תכונות-נוספות)
+   - 24. [הרצת קוד (Code Execution)](#2️⃣4️⃣-הרצת-קוד-code-execution)
+   - 25. [ייצוא HTML מעוצב](#2️⃣5️⃣-ייצוא-html-מעוצב-styled-html-export)
+   - 26. [השוואת קוד (Paste Compare)](#2️⃣6️⃣-השוואת-קוד-paste-compare)
+   - 27. [מצב כיף (Fun Mode)](#2️⃣7️⃣-מצב-כיף-fun-mode)
+   - 28. [ערכות נושא משותפות](#2️⃣8️⃣-ערכות-נושא-משותפות-shared-themes) - כולל ייבוא ערכות VS Code
+   - 29. [חיפוש סמנטי (Semantic Search)](#2️⃣9️⃣-חיפוש-סמנטי-semantic-search)
+5. [📝 מסמכי Markdown — מרכז מאוחד](#-מסמכי-markdown--מרכז-מאוחד) - סרגל כלים, Live Preview, Copy Page ועוד
 6. [📚 אתר התיעוד (Documentation Site)](#-אתר-התיעוד-documentation-site)
 7. [טכנולוגיות ותשתית](#טכנולוגיות-ותשתית)
 8. [אבטחה ומעקב](#אבטחה-ומעקב)
@@ -1360,18 +1357,8 @@ CodeBot/
    - מצב מסך מלא
    - מצב עריכה
 
-3. **תצוגה מקדימה של Markdown** (`/md/<file_id>`)
-   - פלט HTML מעובד
-   - שכבת עליונה של פתקים דביקים
-   - ניווט כותרות
-   - הדגשת בלוקים של קוד
-   - תמיכה בטבלאות
-   - הטמעת תמונות
-
-4. **תצוגה מקדימה של HTML** (`/html/<file_id>`, `/raw_html/<file_id>`)
-   - עיבוד iframe בטוח
-   - פלט מסוניטז
-   - תצוגת HTML גולמי
+3. **תצוגה מקדימה של Markdown ו-HTML** (`/md/`, `/html/`, `/raw_html/`)
+   - 📝 כל היכולות (רינדור עשיר, Mermaid, KaTeX, פתקים, ניווט כותרות, iframe בטוח) מרוכזות כעת בסעיף **[📝 מסמכי Markdown — מרכז מאוחד](#-מסמכי-markdown--מרכז-מאוחד)**.
 
 ---
 
@@ -1631,74 +1618,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 2️⃣1️⃣ Live Preview עם Split View
-
-**עורך מפוצל עם רינדור בזמן אמת:**
-
-#### תכונות עיקריות
-
-**1. ממשק Split-Pane**
-- **לוחות ניתנים לשינוי גודל** - טווח 25%-75%
-- **טאבים למובייל** - Editor/Preview
-- **Resizer ניתן לגרירה** - תמיכה RTL
-- **שמירת העדפות** - localStorage
-
-**2. רינדור בזמן אמת**
-- **Client-Side Rendering** - Markdown מהיר ללא שרת
-- **עדכונים מתוזמנים** - Debounce של 500ms
-- **Server Fallback** - לתוכן מורכב
-- **Hash Deduplication** - מניעת רינדור כפול
-
-**3. שיפורי Markdown**
-- **Syntax Highlighting** - highlight.js
-- **דיאגרמות Mermaid** - כל סוגי הדיאגרמות
-- **נוסחאות מתמטיות** - KaTeX
-- **Task Lists** - תיבות סימון
-- **Footnotes & Anchors** - הערות שוליים ועוגנים
-- **Admonitions** - הערות (note, warning, tip, danger)
-- **Emoji Support** - תמיכה באמוג'י
-- **Table of Contents** - תוכן עניינים אוטומטי
-
-**4. בקרות תצוגה מקדימה**
-- **כפתור Toggle** - Shift+Ctrl+Enter (Win) / Shift+Cmd+Enter (Mac)
-- **אינדיקטורי סטטוס** - טוען, מוכן, שגיאה
-- **Meta Information** - שפה, גודל, זמן רינדור
-- **החלפת ערכת נושא** - בהירה/כהה
-
-**5. תכונות בטיחות**
-- **אימות תוכן** - בדיקות לפני רינדור
-- **Abort Controller** - ביטול בקשות תלויות
-- **טיפול בשגיאות** - Graceful fallbacks
-- **הגנת XSS** - Sanitization
-
-**6. תמיכה בדיאגרמות Mermaid**
-- **סוגי דיאגרמות נתמכים**:
-  - Flowcharts (תרשימי זרימה)
-  - Sequence diagrams (דיאגרמות רצף)
-  - Class diagrams (דיאגרמות מחלקה)
-  - State diagrams (דיאגרמות מצב)
-  - Entity-Relationship diagrams (ER)
-  - Gantt charts (תרשימי גאנט)
-  - Pie charts (תרשימי עוגה)
-  - Journey diagrams
-  - Git graphs
-  - ועוד...
-- **רינדור אסינכרוני** - טיפול בשגיאות
-- **רמת אבטחה: strict**
-- **ID ייחודי** - לכל דיאגרמה
-- **הודעות שגיאה** - Fallback messages
-
-**מימוש:**
-- `/home/user/CodeBot/webapp/static/js/live-preview.js` (816 שורות)
-- `/home/user/CodeBot/webapp/static/css/split-view.css`
-- אינטגרציה ב-`edit_file.html` ו-`upload.html`
-
-**API Endpoints:**
-- `POST /api/preview/live` - Server-side rendering fallback
-
----
-
-### 2️⃣2️⃣ Incident Storyboard (ניהול תקריות)
+### 2️⃣1️⃣ Incident Storyboard (ניהול תקריות)
 
 **מערכת תיעוד וניהול תקריות מקיפה לצוותי SRE:**
 
@@ -1757,7 +1677,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 2️⃣3️⃣ Commands Catalog (קטלוג פקודות)
+### 2️⃣2️⃣ Commands Catalog (קטלוג פקודות)
 
 **קטלוג מרכזי של כל הפקודות, סקריפטים ו-Playbooks:**
 
@@ -1809,59 +1729,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 2️⃣4️⃣ Copy Page Button (העתקת דפי תיעוד)
-
-**המרה והעתקה של דפי תיעוד Sphinx ל-Markdown:**
-
-#### תכונות המרה
-
-**1. אלמנטים נתמכים**
-- **Admonitions** - הערות (note, warning, tip, danger, etc.)
-- **טבלאות** - עם captions וכותרות
-- **בלוקי קוד** - עם זיהוי שפה
-- **Inline code** - קוד בתוך טקסט
-- **Formatting** - מודגש, נטוי, קישורים
-- **Mermaid blocks** - שימור דיאגרמות
-- **RTL/LTR** - תמיכה בטקסט דו-כיווני
-
-**2. עיבוד חכם**
-- **TurndownService** - עם GFM plugin
-- **Custom Rules** - לאלמנטי Sphinx
-- **ניקוי ניווט** - הסרת אלמנטים לא רלוונטיים
-- **Colspan Handling** - טיפול בתאי טבלה מאוחדים
-- **Quote Escaping** - בריחה נכונה של גרשיים
-- **Indentation** - שמירה על הזחה
-
-**3. ממשק משתמש**
-- **כפתור העתקה** - בכל דף תיעוד
-- **סטטוסים ויזואליים**:
-  - Idle - מוכן
-  - Busy - מעבד
-  - Success - הועתק בהצלחה
-  - Error - שגיאה
-- **Auto-Reset** - חזרה למצב idle אחרי 2.8 שניות
-- **ARIA Labels** - נגישות
-
-**מימוש:**
-- `/home/user/CodeBot/docs/_static/copy-page.js` (542 שורות)
-- `/home/user/CodeBot/docs/_static/custom.css`
-
-**תלויות:**
-- TurndownService
-- turndown-plugin-gfm
-- Font Awesome icons
-
----
-
-### 2️⃣5️⃣ תכונות נוספות
-
-#### Split View CSS Architecture
-- **CSS Custom Properties** - גודל דינמי
-- **תמיכה RTL** - מימין לשמאל
-- **טאבים Responsive** - למובייל
-- **Resizer עם גרירה** - תמיכה מלאה
-- **State-based Visibility** - מצבים שונים
-- **קובץ**: `/home/user/CodeBot/webapp/static/css/split-view.css`
+### 2️⃣3️⃣ תכונות נוספות
 
 #### AI Explanation Service
 - **תמיכה רב-לשונית** - עברית לצוותי SRE
@@ -1880,7 +1748,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 2️⃣6️⃣ הרצת קוד (Code Execution)
+### 2️⃣4️⃣ הרצת קוד (Code Execution)
 
 **סביבת הרצת קוד בטוחה ומבוקרת:**
 
@@ -1921,7 +1789,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 2️⃣7️⃣ ייצוא HTML מעוצב (Styled HTML Export)
+### 2️⃣5️⃣ ייצוא HTML מעוצב (Styled HTML Export)
 
 **ייצוא קבצים כ-HTML מעוצב עם ערכות נושא:**
 
@@ -1962,7 +1830,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 2️⃣8️⃣ השוואת קוד (Paste Compare)
+### 2️⃣6️⃣ השוואת קוד (Paste Compare)
 
 **השוואה ויזואלית בין קטעי קוד:**
 
@@ -1994,47 +1862,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 2️⃣9️⃣ סרגל כלים Markdown
-
-**סרגל כלים מתקדם לעריכת Markdown:**
-
-#### תכונות מרכזיות
-
-**1. עיצוב טקסט**
-- **Bold** - טקסט מודגש (`**text**`)
-- **Italic** - טקסט נטוי (`*text*`)
-- **Strikethrough** - קו חוצה (`~~text~~`)
-- **Mark** - הדגשה (`==text==`)
-- **Code** - קוד inline (`` `code` ``)
-
-**2. מבנה**
-- **Headers** (H1-H6) - כותרות
-- **Lists** - רשימות ממוספרות ולא ממוספרות
-- **Task Lists** - רשימות משימות
-- **Blockquotes** - ציטוטים
-- **Horizontal Rule** - קו מפריד
-
-**3. תוכן מתקדם**
-- **Links** - קישורים
-- **Images** - תמונות
-- **Tables** - טבלאות
-- **Code Blocks** - בלוקי קוד עם שפה
-- **Mermaid Diagrams** - דיאגרמות
-
-**4. קיצורי מקלדת**
-- `Ctrl/Cmd + B` - Bold
-- `Ctrl/Cmd + I` - Italic
-- `Ctrl/Cmd + K` - Link
-- `Ctrl/Cmd + Shift + C` - Code Block
-
-**מימוש:**
-- `/home/user/CodeBot/webapp/static/js/markdown-toolbar.js` (595 שורות)
-- `/home/user/CodeBot/webapp/static/css/markdown-toolbar.css`
-- `/home/user/CodeBot/webapp/templates/components/editor_components.html`
-
----
-
-### 3️⃣0️⃣ מצב כיף (Fun Mode)
+### 2️⃣7️⃣ מצב כיף (Fun Mode)
 
 **אנימציות ואפקטים ויזואליים מהנים:**
 
@@ -2068,7 +1896,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 3️⃣1️⃣ ערכות נושא משותפות (Shared Themes)
+### 2️⃣8️⃣ ערכות נושא משותפות (Shared Themes)
 
 **יצירה, שיתוף וייבוא ערכות נושא מותאמות:**
 
@@ -2143,7 +1971,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 ---
 
-### 3️⃣2️⃣ חיפוש סמנטי (Semantic Search)
+### 2️⃣9️⃣ חיפוש סמנטי (Semantic Search)
 
 **חיפוש קוד לפי משמעות ולא רק לפי מילים מדויקות:**
 
@@ -2220,12 +2048,21 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 
 ### 1. עריכה של Markdown
 
-- **סרגל כלים Markdown** — כפתורים לעיצוב טקסט (Bold, Italic, Strikethrough, Mark, Code), מבנה (כותרות, רשימות, ציטוטים), ותוכן מתקדם (קישורים, תמונות, טבלאות, בלוקי קוד, דיאגרמות Mermaid).
-  - קיצורי מקלדת: `Ctrl/Cmd+B` (Bold), `Ctrl/Cmd+I` (Italic), `Ctrl/Cmd+K` (Link), `Ctrl/Cmd+Shift+C` (Code Block).
-  - קובץ: `webapp/static/js/markdown-toolbar.js` (595 שורות).
-  - 📎 פירוט מלא: סעיף **2️⃣9️⃣ סרגל כלים Markdown**.
-- **עורך CodeMirror** — הדגשת תחביר, קיפול, השלמה אוטומטית ותמיכה בשפת Markdown.
-- **תחביר מורחב נתמך**: `~~קו חוצה~~`, `==הדגשה צהובה==` (→ `<mark>`), ובלוקי קיפול `::: details כותרת ... :::`.
+**סרגל כלים Markdown** — סרגל כלים מתקדם לעריכה, עם כפתורים וקיצורי מקלדת:
+
+- **עיצוב טקסט**: Bold (`**text**`), Italic (`*text*`), Strikethrough (`~~text~~`), Mark (`==text==`), Code inline (`` `code` ``).
+- **מבנה**: כותרות (H1-H6), רשימות (ממוספרות ולא ממוספרות), רשימות משימות, ציטוטים, קו מפריד.
+- **תוכן מתקדם**: קישורים, תמונות, טבלאות, בלוקי קוד עם שפה, דיאגרמות Mermaid.
+- **קיצורי מקלדת**: `Ctrl/Cmd+B` (Bold), `Ctrl/Cmd+I` (Italic), `Ctrl/Cmd+K` (Link), `Ctrl/Cmd+Shift+C` (Code Block).
+
+**עורך CodeMirror** — הדגשת תחביר, קיפול, השלמה אוטומטית ותמיכה בשפת Markdown.
+
+**תחביר מורחב נתמך**: `~~קו חוצה~~`, `==הדגשה צהובה==` (→ `<mark>`), ובלוקי קיפול `::: details כותרת ... :::`.
+
+**מימוש:**
+- `/home/user/CodeBot/webapp/static/js/markdown-toolbar.js` (595 שורות)
+- `/home/user/CodeBot/webapp/static/css/markdown-toolbar.css`
+- `/home/user/CodeBot/webapp/templates/components/editor_components.html`
 
 ### 2. תצוגה מקדימה (Preview)
 
@@ -2236,14 +2073,23 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
   - ניווט כותרות, הדגשת בלוקי קוד, טבלאות, והטמעת תמונות.
   - שכבת-על של פתקים דביקים (ראו סעיף 5 למטה).
 - **תצוגת HTML** — `/html/<file_id>` (iframe בטוח, פלט מסוניטז) ו-`/raw_html/<file_id>` (HTML גולמי).
-- 📎 פירוט: סעיף WebApp **1️⃣1️⃣ תכונות ממשק משתמש → הצגת קוד**.
 
 ### 3. Live Preview עם Split View (עריכה + תצוגה בו-זמנית)
 
-- עורך מפוצל עם רינדור בזמן אמת (Debounce 500ms), לוחות ניתנים לשינוי גודל, וטאבים למובייל.
-- תמיכה ב-Mermaid, KaTeX, רשימות משימות, הערות שוליים, admonitions, אמוג'י ותוכן עניינים.
-- קובץ: `webapp/static/js/live-preview.js` (816 שורות).
-- 📎 פירוט מלא: סעיף **2️⃣1️⃣ Live Preview עם Split View**.
+עורך מפוצל עם רינדור Markdown בזמן אמת:
+
+- **ממשק Split-Pane**: לוחות ניתנים לשינוי גודל (25%-75%), טאבים למובייל (Editor/Preview), Resizer נגרר עם תמיכת RTL, ושמירת העדפות ב-localStorage.
+- **רינדור בזמן אמת**: רינדור בצד הלקוח (מהיר, ללא שרת), Debounce של 500ms, נפילה לשרת לתוכן מורכב, ומניעת רינדור כפול (Hash Deduplication).
+- **שיפורי Markdown**: highlight.js, דיאגרמות Mermaid, KaTeX, רשימות משימות, הערות שוליים ועוגנים, admonitions, אמוג'י ותוכן עניינים אוטומטי.
+- **בקרות תצוגה**: כפתור Toggle (`Shift+Ctrl+Enter` / `Shift+Cmd+Enter`), אינדיקטורי סטטוס (טוען/מוכן/שגיאה), מידע מטא (שפה/גודל/זמן רינדור), והחלפת ערכת נושא בהירה/כהה.
+- **בטיחות**: אימות תוכן לפני רינדור, Abort Controller לביטול בקשות תלויות, טיפול חלק בשגיאות, והגנת XSS.
+- **CSS ייעודי** (`split-view.css`): גודל דינמי דרך CSS Custom Properties, תמיכת RTL, טאבים רספונסיביים ו-Resizer נגרר.
+
+**מימוש:**
+- `/home/user/CodeBot/webapp/static/js/live-preview.js` (816 שורות)
+- `/home/user/CodeBot/webapp/static/css/split-view.css`
+- אינטגרציה ב-`edit_file.html` ו-`upload.html`
+- API: `POST /api/preview/live` (רינדור צד-שרת כ-fallback)
 
 ### 4. תוכן מתקדם בתוך Markdown
 
@@ -2258,15 +2104,19 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 
 - **פתקים דביקים (Sticky Notes)** — הערות צפות מעל תצוגת ה-Markdown, עם מיקום/גודל/צבע מותאמים ועיגון לעוגני כותרות Markdown.
   - **תזכורות לפתקים** — 6 presets מוכנים + זמן מותאם אישית + snooze, עם תמיכה באזורי זמן.
-  - 📎 פירוט מלא: סעיף WebApp **5️⃣ פתקים דביקים**.
+  - 📎 לפירוט מלא (API, תזכורות, סכימת DB): ראו סעיף WebApp **פתקים דביקים**.
 - **סימניות (Bookmarks)** — עיגון לשורות ולעוגני כותרות Markdown, עם צבעים והערות אישיות.
-  - 📎 פירוט מלא: סעיף WebApp **4️⃣ מערכת סימניות**.
+  - 📎 לפירוט מלא: ראו סעיף WebApp **מערכת סימניות**.
 
 ### 6. ייצוא ושיתוף של Markdown
 
-- **ייצוא HTML מעוצב** — קובץ HTML עצמאי עם CSS מוטמע והדגשת קוד (Pygments); גם PDF והעתקה ללוח. 📎 סעיף **2️⃣7️⃣ ייצוא HTML מעוצב**.
-- **Incident Storyboard → Markdown** — יצירת קובץ `.md` מובנה מתקרית, עם שמירה במערכת. 📎 סעיף **2️⃣2️⃣ Incident Storyboard**.
-- **Copy Page to Markdown** — כפתור בכל דף תיעוד שממיר את הדף מ-HTML ל-Markdown ומעתיק ללוח (כולל admonitions, טבלאות ובלוקי Mermaid). 📎 סעיף **2️⃣4️⃣ Copy Page Button**.
+- **ייצוא HTML מעוצב** — קובץ HTML עצמאי עם CSS מוטמע והדגשת קוד (Pygments); גם PDF והעתקה ללוח. 📎 ראו סעיף **ייצוא HTML מעוצב**.
+- **Incident Storyboard → Markdown** — יצירת קובץ `.md` מובנה מתקרית, עם שמירה במערכת. 📎 ראו סעיף **Incident Storyboard**.
+- **Copy Page to Markdown** — כפתור בכל דף תיעוד Sphinx שממיר את הדף מ-HTML ל-Markdown ומעתיק ללוח:
+  - **אלמנטים נתמכים**: admonitions (note/warning/tip/danger), טבלאות (עם captions וכותרות), בלוקי קוד (זיהוי שפה), inline code, עיצוב (מודגש/נטוי/קישורים), בלוקי Mermaid, ותמיכת RTL/LTR.
+  - **עיבוד חכם**: `TurndownService` עם GFM plugin, כללים מותאמים לאלמנטי Sphinx, ניקוי ניווט, טיפול ב-colspan, escaping של גרשיים, ושמירת הזחה.
+  - **ממשק**: כפתור העתקה בכל דף, סטטוסים ויזואליים (Idle / Busy / Success / Error), Auto-Reset אחרי 2.8 שניות, ותוויות ARIA לנגישות.
+  - **מימוש**: `docs/_static/copy-page.js` (542 שורות) + `docs/_static/custom.css` (תלויות: TurndownService, turndown-plugin-gfm, Font Awesome).
 
 ### 7. שלושת מסלולי הרינדור (מבט טכני)
 
@@ -2337,7 +2187,7 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 
 ### תכונות מיוחדות של האתר
 
-- **כפתור "העתק תוכן הדף" (Copy Page to Markdown)** — ממיר כל דף תיעוד מ-HTML ל-Markdown (עם admonitions, טבלאות ובלוקי Mermaid) ומעתיק ללוח, דרך ספריית Turndown מוטמעת. 📎 ראו סעיף **2️⃣4️⃣ Copy Page Button**.
+- **כפתור "העתק תוכן הדף" (Copy Page to Markdown)** — ממיר כל דף תיעוד מ-HTML ל-Markdown (עם admonitions, טבלאות ובלוקי Mermaid) ומעתיק ללוח, דרך ספריית Turndown מוטמעת. 📎 פירוט מלא במרכז ה-Markdown → **[ייצוא ושיתוף של Markdown](#-מסמכי-markdown--מרכז-מאוחד)**.
 - **תמיכת RTL לעברית** — כיוון טקסט מימין לשמאל עם התאמות רספונסיביות למובייל.
 - **חיפוש מובנה** של Sphinx בסרגל הצד.
 - **קישורים חיצוניים (intersphinx)** ל-Python, python-telegram-bot ו-PyMongo.
@@ -2840,7 +2690,7 @@ docker-compose up -d
 
 עדכון זה מרכז ומרחיב את המסמך:
 
-- **📝 מרכז Markdown מאוחד** — כל המידע על מסמכי Markdown שהיה מפוזר ב-9 מקומות שונים (עריכה, תצוגה, פתקים, ייצוא, רינדור) רוכז לסעיף אחד עם הפניות לסעיפים המפורטים.
+- **📝 מרכז Markdown מאוחד** — כל המידע על מסמכי Markdown שהיה מפוזר במסמך רוכז לסעיף אחד. שלושה סעיפים שכולם Markdown (סרגל כלים, Live Preview, Copy Page) הועברו לתוך המרכז ונמחקו ממקומם, והאזכורים הכפולים בסעיפים מעורבים (הצגת קוד, פתקים, סימניות) קוצרו להפניה. שאר סעיפי ה-WebApp מוספרו מחדש לרצף (20–29).
 - **🔍 חיפוש סמנטי (Semantic Search)** — תיעוד חדש: חיפוש היברידי (וקטורי + טקסט) עם RRF, embeddings של Gemini, ו-Worker רקע.
 - **📚 אתר התיעוד** — תיעוד חדש: אתר Sphinx רב-לשוני ב-GitHub Pages, תהליך הבנייה, וכפתור Copy Page to Markdown.
 - **🎨 ייבוא ערכות נושא מ-VS Code** — תיעוד חדש (בתוך סעיף ערכות הנושא): ייבוא ערכות נושא מקובצי JSON בפורמט VS Code Color Theme.
