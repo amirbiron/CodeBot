@@ -15542,15 +15542,23 @@ def _build_local_md_payload_from_file(uploaded) -> Optional[Dict[str, Any]]:
         return None
     if not data:
         return None
-    if len(data) > _LOCAL_MD_MAX_BYTES:
+    truncated = len(data) > _LOCAL_MD_MAX_BYTES
+    if truncated:
         data = data[:_LOCAL_MD_MAX_BYTES]
     try:
         text = data.decode('utf-8')
+    except UnicodeDecodeError:
+        if truncated:
+            # חיתוך ה-2MB עלול לפצל תו UTF-8 רב-בייטי בקצה — נתעלם מהבייטים הלא-שלמים
+            # במקום ליפול ל-latin-1 (מה שהיה משבש את כל העברית/אמוג'י בקובץ)
+            text = data.decode('utf-8', errors='ignore')
+        else:
+            try:
+                text = data.decode('latin-1')
+            except Exception:
+                return None
     except Exception:
-        try:
-            text = data.decode('latin-1')
-        except Exception:
-            return None
+        return None
     if not text.strip():
         return None
     display_name, _ = _limit_share_value(name or 'document.md', 200, strip=True)
@@ -15852,6 +15860,9 @@ def upload_file_web():
                     _md_lang = 'markdown'
                 if _md_lang:
                     language_value = _md_lang
+            else:
+                # ה-token פג/נוצל/לא תקין — הודעה ברורה במקום טופס ריק ללא הסבר
+                flash('הקובץ לא נמצא או שתוקפו פג. נסו לשתף אותו שוב.', 'warning')
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()

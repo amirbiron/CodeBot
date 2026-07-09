@@ -2170,7 +2170,7 @@ const MD_TEXT = (function(){
 // כדי למנוע התנגשות מצב בין קבצים מקומיים שונים.
 const STORAGE_KEY = (function(){
   var fid = "{{ file.id }}";
-  if (fid) return 'md_tasks_state:' + fid;
+  if (fid && fid !== 'None') return 'md_tasks_state:' + fid;
   try {
     var s = (typeof MD_TEXT === 'string') ? MD_TEXT : '';
     var h = 5381;
