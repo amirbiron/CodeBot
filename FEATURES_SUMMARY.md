@@ -1,8 +1,8 @@
 # מסמך מסכם - כל הפיצ'רים של CodeBot
 
 > תיעוד מקיף של כל התכונות והיכולות של הבוט וה-Web App
-> תאריך עדכון: ינואר 2026
-> גרסה: 2.1.0
+> תאריך עדכון: יולי 2026
+> גרסה: 2.2.0
 
 ---
 
@@ -30,9 +30,12 @@
    - 28. [השוואת קוד (Paste Compare)](#2️⃣8️⃣-השוואת-קוד-paste-compare)
    - 29. [סרגל כלים Markdown](#2️⃣9️⃣-סרגל-כלים-markdown)
    - 30. [מצב כיף (Fun Mode)](#3️⃣0️⃣-מצב-כיף-fun-mode)
-   - 31. [ערכות נושא משותפות](#3️⃣1️⃣-ערכות-נושא-משותפות-shared-themes)
-5. [טכנולוגיות ותשתית](#טכנולוגיות-ותשתית)
-6. [אבטחה ומעקב](#אבטחה-ומעקב)
+   - 31. [ערכות נושא משותפות](#3️⃣1️⃣-ערכות-נושא-משותפות-shared-themes) - כולל ייבוא ערכות VS Code
+   - 32. [חיפוש סמנטי (Semantic Search)](#3️⃣2️⃣-חיפוש-סמנטי-semantic-search)
+5. [📝 מסמכי Markdown — מרכז מאוחד](#-מסמכי-markdown--מרכז-מאוחד)
+6. [📚 אתר התיעוד (Documentation Site)](#-אתר-התיעוד-documentation-site)
+7. [טכנולוגיות ותשתית](#טכנולוגיות-ותשתית)
+8. [אבטחה ומעקב](#אבטחה-ומעקב)
 
 ---
 
@@ -2094,20 +2097,274 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - **עיצוב טכני** - מותאם לתיעוד טכני
 - **ניגודיות גבוהה** - קריאות משופרת
 
+**5. 🆕 ייבוא ערכות נושא מ-JSON (בפורמט VS Code)**
+
+אפשר לייבא ערכת נושא של ה-Webapp ישירות מקובץ JSON של **VS Code Color Theme** — פשוט מורידים ערכה אהובה (למשל מ-`vscodethemes.com`) ומעלים אותה.
+
+- **שני פורמטים נתמכים** (הזיהוי אוטומטי לפי מפתח השורש ב-JSON):
+  - **VS Code Color Theme** — מזוהה לפי מפתח `colors`. נקראים גם `type` (dark/light) וגם `tokenColors` (הדגשת תחביר).
+  - **פורמט מקומי (Native)** — מזוהה לפי מפתח `variables` (משתני CSS ישירות).
+- **מיפוי צבעים חכם** — כל צבע VS Code ממופה למשתני ה-CSS של הפרויקט (`VSCODE_TO_CSS_MAP`). לדוגמה: `editor.background` → `--bg-primary`, `editor.foreground` → `--text-primary`, `button.background` → `--btn-primary-bg`. צבעים חסרים מושלמים ממילון ברירת מחדל מלא (`FALLBACK_DARK`/`FALLBACK_LIGHT`), וצבעים נגזרים (צל, primary-light) מחושבים אוטומטית.
+- **הדגשת תחביר מ-tokenColors** — אם הערכה כוללת `tokenColors`, נוצר CSS להדגשת קוד ל-CodeMirror, Pygments ו-highlight.js (כדי שגם עורך הקוד וגם תצוגת ה-Markdown יקבלו את הצבעים).
+- **תמיכה בהערות JSONC** — קבצי VS Code אמיתיים (כמו Nord) מכילים הערות `//`; הפרסר מסיר אותן לפני הפענוח.
+- **שתי דרכי ייבוא בממשק** (הגדרות → בונה ערכת נושא → גלריה → טאב "ייבוא"):
+  - העלאת קובץ `.json` (Drag & Drop, עד 512KB).
+  - הדבקת תוכן ה-JSON ישירות ל-textarea.
+- **אבטחה מחמירה (מניעת CSS Injection)**:
+  - רק ערכי צבע חוקיים מתקבלים (Hex/`rgb()`/`rgba()` בלבד — ללא `url()`, `expression()`, `javascript:` וכו').
+  - Whitelist של משתני CSS מוכרים בלבד; מפתחות לא מוכרים מדולגים.
+  - סניטציה של ה-syntax CSS (selectors מוגבלים, הגנת ReDoS על אורך שורה).
+  - שגיאות גולמיות לא מוחזרות ללקוח — רק הודעה גנרית.
+- **מגבלות**: עד 10 ערכות למשתמש, שם עד 50 תווים. ערכה מיובאת נשמרת כ-`is_active=False` — צריך להפעיל אותה בנפרד.
+
+> **הבחנה**: קיימות גם 12 "ערכות פופולריות" מוכנות מראש (Dracula, Monokai, Nord, One Dark, Solarized ועוד) — אך אלו מאוחסנות בפורמט המקומי (`variables`) ב-`theme_presets.json` ואינן עוברות דרך מסלול פענוח ה-VS Code.
+
 **API Endpoints:**
 - `GET /api/themes` - רשימת ערכות נושא
 - `POST /api/themes` - יצירת ערכת נושא
 - `GET /api/themes/<id>` - קבלת ערכת נושא
 - `GET /api/themes/shared/<token>` - ערכה משותפת
+- `POST /api/themes/import` - 🆕 ייבוא ערכה מ-JSON (קובץ או הדבקה; זיהוי אוטומטי VS Code / מקומי)
+- `GET /api/themes/presets` + `POST /api/themes/presets/<id>/apply` - ערכות מוכנות
+- `GET /api/themes/<id>/export` - ייצוא ערכה ל-JSON
 
 **מימוש:**
-- `/home/user/CodeBot/services/shared_theme_service.py` (375 שורות)
-- `/home/user/CodeBot/services/theme_parser_service.py`
-- `/home/user/CodeBot/webapp/themes_api.py`
+- `/home/user/CodeBot/services/shared_theme_service.py` (492 שורות)
+- `/home/user/CodeBot/services/theme_parser_service.py` (2,081 שורות) — ליבת הפענוח, מיפוי צבעים, ולידציה, sanitization
+- `/home/user/CodeBot/services/theme_presets_service.py` — טעינת/החלת ערכות מוכנות
+- `/home/user/CodeBot/webapp/themes_api.py` (1,230 שורות) — כל ה-REST endpoints (ייבוא ב-`import_theme`)
+- `/home/user/CodeBot/webapp/static/js/theme-importer.js` (408 שורות) — לוגיקת צד-לקוח (Drag & Drop, הדבקה, גלריה)
+- `/home/user/CodeBot/webapp/templates/settings/theme_gallery.html` — UI הייבוא (טאב "ייבוא")
 - `/home/user/CodeBot/webapp/templates/settings/theme_builder.html`
+- `/home/user/CodeBot/webapp/static/data/theme_presets.json` — 12 ערכות מוכנות
 
 **תיעוד:**
 - `/home/user/CodeBot/docs/webapp/custom_themes_guide.rst`
+
+---
+
+### 3️⃣2️⃣ חיפוש סמנטי (Semantic Search)
+
+**חיפוש קוד לפי משמעות ולא רק לפי מילים מדויקות:**
+
+בניגוד לחיפוש הרגיל (התאמת מחרוזת/Regex), החיפוש הסמנטי מבין את *המשמעות* של השאילתה ומוצא קוד רלוונטי גם כשלא הופיעו בו בדיוק אותן מילים. לדוגמה: חיפוש "התחברות למשתמש" יכול להחזיר גם קוד עם `login`, `authenticate` או `signIn`.
+
+#### איך זה עובד — חיפוש היברידי (Hybrid Search)
+
+המערכת משלבת **שני מנועים** ומאחדת את התוצאות:
+1. **חיפוש וקטורי (Vector Search)** — מבוסס embeddings דרך MongoDB Atlas `$vectorSearch`.
+2. **חיפוש טקסט מלא (Full-Text)** — דרך MongoDB Atlas `$search` עם התאמה מטושטשת.
+
+האיחוד נעשה באלגוריתם **RRF (Reciprocal Rank Fusion)**: כל תוצאה מקבלת ציון משוקלל לפי הדירוג שלה בשני המנועים (משקל גבוה יותר לתוצאה הווקטורית). כך מקבלים גם את הדיוק של החיפוש הסמנטי וגם את הביטחון של התאמת הטקסט.
+
+#### מודל ה-Embeddings
+
+- **ספק**: Google Gemini API (קריאות אסינכרוניות).
+- **מודל ברירת מחדל**: `text-embedding-004` (המודל **דינמי** — נשמר ב-DB ויכול להשתדרג אוטומטית ל-`text-embedding-005/006`).
+- **מימדים**: 768 כברירת מחדל.
+- הקונפיג נטען דינמית מ-DB (קולקציית `system_config`), וה-ENV משמש רק כ-fallback.
+
+#### עיבוד ברקע (Embedding Worker)
+
+- Worker רקע שרץ ב-startup של הבוט (כאשר `SEMANTIC_SEARCH_ENABLED=True`).
+- מפצל קבצים ל-**chunks** (עד 220 שורות עם חפיפה של 40 שורות), מייצר embedding לכל chunk, ושומר ב-MongoDB.
+- מזהה שינויים לפי `contentHash` (SHA256) — לא מעבד מחדש קבצים שלא השתנו.
+- מחשב גם embedding למטא-דאטה (כותרת+תיאור+תגיות) לכל קובץ, מה שמאפשר חיפוש חוצה-שפות.
+
+#### חוסן ו-Fallback
+
+- **נפילה חלקה**: אם השירות לא זמין (אין מפתח API, כשל ב-embedding, אין אינדקס) — המערכת נופלת אוטומטית לחיפוש טקסט רגיל. גם צד הלקוח נופל ל-`/api/search/global` בכשל.
+- **Self-heal על 404**: אם המודל הנוכחי אינו זמין, המערכת מנסה גרסת API יציבה, ואז בוחרת אוטומטית מודל תומך מה-allowlist ושומרת את הבחירה ל-DB.
+- **Health check ב-startup** + נעילה מבוזרת (`bot_locks`) שמונעת שדרוג מודל במקביל.
+
+#### Collections ושדות ב-MongoDB
+
+- **`snippet_chunks`** — ה-chunks לחיפוש: `codeChunk`, `chunkEmbedding` (הווקטור), `userId`, `snippetId`, `startLine`/`endLine`, ומטא-דאטת מודל (`embeddingModelKey`).
+- **`code_snippets`** — כולל `snippetEmbedding` (embedding מטא-דאטה) ודגלי עיבוד (`needs_embedding`, `needs_chunking`, `contentHash`).
+- **`system_config`** — קונפיג המודל הדינמי.
+- **אינדקסי Atlas** נדרשים: `default` (Search) ו-`vector_index` (Vector) — נוצרים **ידנית** ב-Atlas UI.
+
+#### API Endpoints
+
+- `POST /api/search/semantic` - חיפוש סמנטי (דורש התחברות, מוגבל ל-30 בקשות/דקה).
+  - קלט: `query` (עד 500 תווים), `limit` (עד 50), `language` (אופציונלי).
+  - פלט: `results[]` עם `file_id`, `file_name`, `score`, `preview`, `matches`, `search_type: "semantic"`.
+
+#### משתני סביבה מרכזיים
+
+- `GEMINI_API_KEY` - מפתח Gemini (בלעדיו החיפוש הסמנטי מושבת).
+- `SEMANTIC_SEARCH_ENABLED` - הפעלה/כיבוי (ברירת מחדל: `True`).
+- `EMBEDDING_DIMENSIONS` - מימדי הווקטור (ברירת מחדל: 768).
+- `CHUNK_SIZE_LINES` / `CHUNK_OVERLAP_LINES` - גודל chunk וחפיפה (220 / 40).
+
+#### מימוש
+
+- `/home/user/CodeBot/services/embedding_service.py` (570 שורות) — יצירת embeddings מול Gemini, throttling, self-heal.
+- `/home/user/CodeBot/services/embedding_worker.py` (349 שורות) — Worker רקע לעיבוד קבצים.
+- `/home/user/CodeBot/services/chunking_service.py` (120 שורות) — פיצול קוד ל-chunks.
+- `/home/user/CodeBot/services/semantic_embedding_health.py` (911 שורות) — בדיקת בריאות ושדרוג מודל.
+- `/home/user/CodeBot/services/semantic_embedding_settings.py` (324 שורות) — קונפיג דינמי.
+- `/home/user/CodeBot/search_engine.py` — `semantic_search`, בניית ה-pipeline ההיברידי, RRF.
+- `/home/user/CodeBot/scripts/migrate_semantic_search.py` — מיגרציה חד-פעמית (סימון קבצים + יצירת קולקציה).
+- `/home/user/CodeBot/webapp/static/js/global_search.js` — קריאה ל-API + fallback.
+
+> **הערה**: מקור האמת למודל הפעיל בפועל הוא מסמך ה-`system_config` ב-DB (או פקודת ChatOps מתאימה), ולא הקוד — הערך `text-embedding-004` הוא ברירת מחדל בלבד.
+
+---
+
+## 📝 מסמכי Markdown — מרכז מאוחד
+
+> **כל מה שקשור למסמכי Markdown במקום אחד.** התכונות הבאות פזורות בין סעיפים רבים במסמך (עריכה, תצוגה, פתקים, ייצוא, תיעוד) — כאן הן מרוכזות יחד, עם הפניות לסעיפים המפורטים.
+
+CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: אפשר לכתוב אותם, לראות תצוגה חיה ועשירה, להוסיף עליהם פתקים ותזכורות, לסמן משימות, וגם לייצא אותם ל-HTML/PDF. להלן כל היכולות לפי שלב בעבודה.
+
+### 1. עריכה של Markdown
+
+- **סרגל כלים Markdown** — כפתורים לעיצוב טקסט (Bold, Italic, Strikethrough, Mark, Code), מבנה (כותרות, רשימות, ציטוטים), ותוכן מתקדם (קישורים, תמונות, טבלאות, בלוקי קוד, דיאגרמות Mermaid).
+  - קיצורי מקלדת: `Ctrl/Cmd+B` (Bold), `Ctrl/Cmd+I` (Italic), `Ctrl/Cmd+K` (Link), `Ctrl/Cmd+Shift+C` (Code Block).
+  - קובץ: `webapp/static/js/markdown-toolbar.js` (595 שורות).
+  - 📎 פירוט מלא: סעיף **2️⃣9️⃣ סרגל כלים Markdown**.
+- **עורך CodeMirror** — הדגשת תחביר, קיפול, השלמה אוטומטית ותמיכה בשפת Markdown.
+- **תחביר מורחב נתמך**: `~~קו חוצה~~`, `==הדגשה צהובה==` (→ `<mark>`), ובלוקי קיפול `::: details כותרת ... :::`.
+
+### 2. תצוגה מקדימה (Preview)
+
+- **תצוגת `/md/<file_id>`** — רינדור עשיר של קובץ Markdown ישירות בדפדפן:
+  - רינדור **בצד הלקוח** עם `markdown-it` + תוספים (מהיר, ללא שרת).
+  - טעינה עצלה (Lazy Loading) לתמונות ו-render מדורג למסמכים ארוכים.
+  - קאשינג HTTP (ETag / Last-Modified) מודע לערכת הנושא.
+  - ניווט כותרות, הדגשת בלוקי קוד, טבלאות, והטמעת תמונות.
+  - שכבת-על של פתקים דביקים (ראו סעיף 5 למטה).
+- **תצוגת HTML** — `/html/<file_id>` (iframe בטוח, פלט מסוניטז) ו-`/raw_html/<file_id>` (HTML גולמי).
+- 📎 פירוט: סעיף WebApp **1️⃣1️⃣ תכונות ממשק משתמש → הצגת קוד**.
+
+### 3. Live Preview עם Split View (עריכה + תצוגה בו-זמנית)
+
+- עורך מפוצל עם רינדור בזמן אמת (Debounce 500ms), לוחות ניתנים לשינוי גודל, וטאבים למובייל.
+- תמיכה ב-Mermaid, KaTeX, רשימות משימות, הערות שוליים, admonitions, אמוג'י ותוכן עניינים.
+- קובץ: `webapp/static/js/live-preview.js` (816 שורות).
+- 📎 פירוט מלא: סעיף **2️⃣1️⃣ Live Preview עם Split View**.
+
+### 4. תוכן מתקדם בתוך Markdown
+
+- **דיאגרמות Mermaid** — כל הסוגים (Flowchart, Sequence, Class, State, ER, Gantt, Pie, Journey, Git graph ועוד). מדריך: `GUIDES/MERMAID_IN_MARKDOWN.md`.
+- **נוסחאות מתמטיות** — עיבוד KaTeX.
+- **רשימות משימות אינטראקטיביות** (`- [ ]` / `- [x]`) — אפשר לסמן ✓ ישירות בקורא, והמצב **נשמר ב-localStorage לכל מסמך בנפרד**.
+- **Admonitions** — בלוקי הערה בתחביר `::: note/info/warning/important/danger/success/tip`.
+- **הערות שוליים, עוגנים (anchors) ותוכן עניינים אוטומטי (TOC)**.
+- **אמוג'י** ותמיכה מלאה ב-RTL/LTR.
+
+### 5. פתקים, תזכורות וסימניות על גבי Markdown
+
+- **פתקים דביקים (Sticky Notes)** — הערות צפות מעל תצוגת ה-Markdown, עם מיקום/גודל/צבע מותאמים ועיגון לעוגני כותרות Markdown.
+  - **תזכורות לפתקים** — 6 presets מוכנים + זמן מותאם אישית + snooze, עם תמיכה באזורי זמן.
+  - 📎 פירוט מלא: סעיף WebApp **5️⃣ פתקים דביקים**.
+- **סימניות (Bookmarks)** — עיגון לשורות ולעוגני כותרות Markdown, עם צבעים והערות אישיות.
+  - 📎 פירוט מלא: סעיף WebApp **4️⃣ מערכת סימניות**.
+
+### 6. ייצוא ושיתוף של Markdown
+
+- **ייצוא HTML מעוצב** — קובץ HTML עצמאי עם CSS מוטמע והדגשת קוד (Pygments); גם PDF והעתקה ללוח. 📎 סעיף **2️⃣7️⃣ ייצוא HTML מעוצב**.
+- **Incident Storyboard → Markdown** — יצירת קובץ `.md` מובנה מתקרית, עם שמירה במערכת. 📎 סעיף **2️⃣2️⃣ Incident Storyboard**.
+- **Copy Page to Markdown** — כפתור בכל דף תיעוד שממיר את הדף מ-HTML ל-Markdown ומעתיק ללוח (כולל admonitions, טבלאות ובלוקי Mermaid). 📎 סעיף **2️⃣4️⃣ Copy Page Button**.
+
+### 7. שלושת מסלולי הרינדור (מבט טכני)
+
+בפרויקט קיימים **שלושה** מסלולי המרה של Markdown ל-HTML, כל אחד למטרה אחרת:
+
+| מסלול | מקום ריצה | מנוע | מטרה | סניטציה |
+|---|---|---|---|---|
+| `services/styled_export_service.py::markdown_to_html` | שרת (Python) | Python-Markdown | ייצוא HTML מעוצב להורדה | `bleach` + allowlist |
+| `webapp/app.py::_render_markdown_preview` | שרת (Python) | Python-Markdown | תצוגה מקדימה חיה בעורך | `BeautifulSoup` + פרופילים |
+| `md_preview.html` + `markdown-it` | דפדפן (JS) | markdown-it | תצוגת קובץ MD (`/md`) | `html: false` |
+
+- רק המסלול השלישי (בדפדפן) תומך ברשימות משימות אינטראקטיביות עם שמירת מצב, ב-KaTeX וב-Mermaid.
+- **אבטחה**: הסרת `<script>/<style>`, חסימת פרוטוקולים מסוכנים (`javascript:`/`data:`), הוספת `rel="noopener noreferrer"` לקישורים `target="_blank"`, והגבלות על תמונות מוטבעות (`MARKDOWN_IMAGE_LIMIT`, `MARKDOWN_IMAGE_MAX_BYTES`).
+
+### 8. ספריות Markdown בשימוש
+
+- **צד שרת (Python)**: `markdown 3.9` + הרחבות (`fenced_code`, `tables`, `nl2br`, `toc`, `codehilite`, `attr_list`), `bleach` לסניטציה, `Pygments` להדגשת קוד.
+- **צד לקוח (JS)**: `markdown-it 14.1.0` + `markdown-it-task-lists`, `-anchor`, `-footnote`, `-emoji`, `-container`, `-admonition`, `-toc-done-right`; בתוספת `highlight.js`, `KaTeX` ו-`mermaid 11.12.0`.
+
+### API Endpoints (Markdown)
+
+- `GET /md/<file_id>` — תצוגת Markdown עשירה.
+- `GET /html/<file_id>`, `GET /raw_html/<file_id>` — תצוגת HTML.
+- `POST /api/preview/live` — רינדור צד-שרת לתצוגה מקדימה חיה.
+- `GET /api/file/<file_id>/preview` — נתוני תצוגה מקדימה.
+- `POST /api/observability/stories/save_markdown` — שמירת תקרית כ-Markdown.
+
+### מדריכים רלוונטיים
+
+- `GUIDES/MARKDOWN_RENDERING_GUIDE.md` — מדריך מלא לרינדור Markdown ל-HTML (שלושת המסלולים).
+- `GUIDES/MERMAID_IN_MARKDOWN.md` — שילוב דיאגרמות Mermaid.
+- `webapp/FEATURE_SUGGESTIONS/ACCESSIBLE_MARKDOWN_DISPLAY_GUIDE.md` + `MARKDOWN_ACCESSIBILITY_EXAMPLES.md` — תצוגה נגישה.
+- `docs/webapp/markdown-folding.rst` — בלוקי קיפול בתיעוד.
+
+---
+
+## 📚 אתר התיעוד (Documentation Site)
+
+**אתר תיעוד מלא, אוטומטי ורב-לשוני לפרויקט:**
+
+- **כתובת ראשית (קנונית)**: [https://amirbiron.github.io/CodeBot/](https://amirbiron.github.io/CodeBot/) — מתארח ב-**GitHub Pages** (מוגדר כ-`DOCS_URL` ב-`config.py`).
+- **כתובת משנית (Preview)**: Read the Docs — משמש בעיקר לתצוגות מקדימות של ענפים/PRs.
+
+### טכנולוגיה
+
+- **מנוע**: Sphinx (8.2.3+).
+- **ערכת נושא**: `sphinx_rtd_theme` (Read the Docs Theme).
+- **שפה**: עברית (`language = 'he'`) עם תמיכת RTL מלאה ב-CSS מותאם (בלוקי קוד נשארים LTR).
+- **פורמטי מקור**: גם reStructuredText (`.rst`) וגם Markdown (דרך **MyST Parser**).
+- **דיאגרמות**: Mermaid (דרך `sphinxcontrib.mermaid`).
+- **היקף**: ~200 קובצי `.rst` ו-~35 קובצי `.md`.
+
+### בנייה ופרסום (Build & Deploy)
+
+- **`documentation.yml`** — ה-workflow הראשי: בונה את התיעוד ומפרסם ל-GitHub Pages ב-push ל-`main`, ב-release, וב-schedule יומי. מוסיף תגובת Preview ל-PRs, ופותח Issue אוטומטי אם הבנייה נכשלה.
+- **`docs.yml`** — בנייה ידנית (`workflow_dispatch`) עם `-W` (כישלון על אזהרות) + קישור Preview ל-RTD.
+- **Read the Docs** (`.readthedocs.yml`) — בנייה עם `fail_on_warning: true` (אפס אזהרות).
+
+### מבנה התיעוד — סקשנים מרכזיים
+
+- **למפתחים ולסוכני AI**: quickstart, architecture, ai-guidelines, contributing.
+- **מדריכים**: installation, configuration, environment-variables, performance-bible.
+- **API Reference (אוטומטי)**: נוצר מ-docstrings בקוד (`autodoc` + `napoleon`) — api, modules, handlers, services, database.
+- **WebApp**: overview, editor, caching, commands-catalog, code-execution, theming, markdown-folding.
+- **Observability**: metrics, alerts, sentry, logging, dashboards, runbooks.
+- **ChatOps**: overview, commands, playbooks, permissions, troubleshooting, faq.
+- **מדריכי משתמש** (`user/`): bookmarks, sticky_notes, reminders, my_collections, share_code.
+
+### תכונות מיוחדות של האתר
+
+- **כפתור "העתק תוכן הדף" (Copy Page to Markdown)** — ממיר כל דף תיעוד מ-HTML ל-Markdown (עם admonitions, טבלאות ובלוקי Mermaid) ומעתיק ללוח, דרך ספריית Turndown מוטמעת. 📎 ראו סעיף **2️⃣4️⃣ Copy Page Button**.
+- **תמיכת RTL לעברית** — כיוון טקסט מימין לשמאל עם התאמות רספונסיביות למובייל.
+- **חיפוש מובנה** של Sphinx בסרגל הצד.
+- **קישורים חיצוניים (intersphinx)** ל-Python, python-telegram-bot ו-PyMongo.
+
+### הגדרות מרכזיות (`docs/conf.py`)
+
+- **Extensions**: `autodoc`, `napoleon`, `viewcode`, `intersphinx`, `sphinx_autodoc_typehints`, `sphinx_rtd_theme`, `sphinxcontrib.mermaid`, `myst_parser`.
+- **`autodoc_mock_imports`** — mock לתלויות כבדות (motor, pymongo, redis, telegram, cairosvg, aiohttp ועוד) כדי שהבנייה לא תדרוש DB/סודות אמיתיים.
+- **מדיניות `:noindex:`** — בעמודי סקירה חופפים (api, database, handlers, services, configuration) למניעת כפילויות באינדקס.
+- ENV בטוח לבנייה: `DISABLE_DB=true`, `SPHINX_MOCK_IMPORTS=true`, `BOT_TOKEN=dummy`.
+
+### בנייה מקומית
+
+```bash
+# התקנת תלויות התיעוד
+pip install -r docs/requirements.txt
+
+# בנייה
+make -C docs html
+# או ישירות:
+sphinx-build -b html docs docs/_build/html
+
+# תצוגה מקומית
+python -m http.server -d docs/_build/html 8000
+```
+
+**מדריכים**: `docs/README.md`, `docs/DOCUMENTATION_GUIDE.md`.
 
 ---
 
@@ -2548,7 +2805,8 @@ docker-compose up -d
 ## 📚 משאבים נוספים
 
 ### תיעוד
-- **ReadTheDocs**: תיעוד API מלא
+- **אתר התיעוד**: [amirbiron.github.io/CodeBot](https://amirbiron.github.io/CodeBot/) — תיעוד API מלא (Sphinx + GitHub Pages). ראו סעיף [📚 אתר התיעוד](#-אתר-התיעוד-documentation-site).
+- **ReadTheDocs**: מראה משני לתצוגות Preview
 - **README.md**: מדריך התחלה מהירה
 - **CONTRIBUTING.md**: מדריך תרומה
 - **docs/**: תיעוד מפורט של כל המודולים
@@ -2571,12 +2829,21 @@ docker-compose up -d
 ✅ **100+ שפות תכנות נתמכות**
 ✅ **ניהול גרסאות מובנה**
 ✅ **אינטגרציות GitHub ו-Google Drive מלאות**
-✅ **מערכת חיפוש מתקדמת (Regex, Fuzzy, Full-Text)**
+✅ **מערכת חיפוש מתקדמת (Regex, Fuzzy, Full-Text + חיפוש סמנטי)**
 ✅ **קהילת משתמשים עם ספריית סניפטים**
 ✅ **Observability מקצועית (Logs, Metrics, Tracing)**
 ✅ **אבטחה חזקה עם סריקות אוטומטיות**
 ✅ **DevOps מקצועי (Docker, CI/CD, Monitoring)**
-✅ **תיעוד מקיף ובדיקות**
+✅ **תיעוד מקיף + אתר תיעוד אוטומטי (Sphinx + GitHub Pages)**
+
+### 🆕 עדכון תיעוד — יולי 2026 (גרסה 2.2)
+
+עדכון זה מרכז ומרחיב את המסמך:
+
+- **📝 מרכז Markdown מאוחד** — כל המידע על מסמכי Markdown שהיה מפוזר ב-9 מקומות שונים (עריכה, תצוגה, פתקים, ייצוא, רינדור) רוכז לסעיף אחד עם הפניות לסעיפים המפורטים.
+- **🔍 חיפוש סמנטי (Semantic Search)** — תיעוד חדש: חיפוש היברידי (וקטורי + טקסט) עם RRF, embeddings של Gemini, ו-Worker רקע.
+- **📚 אתר התיעוד** — תיעוד חדש: אתר Sphinx רב-לשוני ב-GitHub Pages, תהליך הבנייה, וכפתור Copy Page to Markdown.
+- **🎨 ייבוא ערכות נושא מ-VS Code** — תיעוד חדש (בתוך סעיף ערכות הנושא): ייבוא ערכות נושא מקובצי JSON בפורמט VS Code Color Theme.
 
 ### 🆕 תכונות חדשות בגרסה 2.1 (ינואר 2026)
 
