@@ -540,6 +540,17 @@ class ConfigService:
             category="repo_sync",
             sensitive=True,
         ),
+        "GITHUB_TOKENS": ConfigDefinition(
+            key="GITHUB_TOKENS",
+            default="",
+            description=(
+                "מיפוי בעלים(owner/org)→טוקן לסנכרון ריפואים ממספר ארגונים, כשטוקן יחיד לא מכסה את כולם. "
+                "פורמט JSON: {\"Org\": \"ghp_...\"} או פשוט: Org1=ghp_...,Org2=github_pat_.... "
+                "נבחר לפי הבעלים של הריפו; אם אין התאמה נופלים ל-GITHUB_TOKEN."
+            ),
+            category="repo_sync",
+            sensitive=True,
+        ),
         "BOT_JOBS_API_BASE_URL": ConfigDefinition(
             key="BOT_JOBS_API_BASE_URL",
             default="",
