@@ -1839,6 +1839,15 @@ input.md-task-checkbox {
         <i class="fas fa-copy"></i>
         <span class="btn-text">העתק קוד</span>
       </button>
+      {% if local_mode and open_token %}
+      <!-- מצב מקומי (קובץ ששותף אל ה-PWA): שמירה לחשבון -->
+      <a href="{{ url_for('upload_file_web', open_token=open_token) }}"
+         class="btn btn-primary btn-icon"
+         title="שמור לחשבון">
+        <i class="fas fa-save"></i>
+        <span class="btn-text">שמור לחשבון</span>
+      </a>
+      {% endif %}
     </div>
   </div>
 
@@ -1876,6 +1885,7 @@ input.md-task-checkbox {
         </div>
       </div>
       <div class="md-toolbar-actions" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+        {% if not local_mode %}
         {% if is_public %}
         <a id="mdReaderModeBtn"
            class="btn btn-secondary btn-icon md-reader-mode-btn"
@@ -1890,6 +1900,7 @@ input.md-task-checkbox {
            target="_blank"
            rel="noopener noreferrer"
            title="פתח במצב קריאה">📖</a>
+        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -2154,8 +2165,19 @@ const MD_TEXT = (function(){
   } catch(_) { return ""; }
 })();
 
-// שמירת מצב רשימות משימות (לפי קובץ) ב-localStorage
-const STORAGE_KEY = `md_tasks_state:{{ file.id }}`;
+// שמירת מצב רשימות משימות (לפי קובץ) ב-localStorage.
+// במצב מקומי (קובץ ששותף אל ה-PWA, ללא file.id) נשתמש במפתח סינתטי לפי hash של התוכן,
+// כדי למנוע התנגשות מצב בין קבצים מקומיים שונים.
+const STORAGE_KEY = (function(){
+  var fid = "{{ file.id }}";
+  if (fid) return 'md_tasks_state:' + fid;
+  try {
+    var s = (typeof MD_TEXT === 'string') ? MD_TEXT : '';
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
+    return 'md_tasks_state:local:' + (h >>> 0).toString(36);
+  } catch(_) { return 'md_tasks_state:local'; }
+})();
 function loadTaskState(){
   try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }catch(_){ return {}; }
 }

@@ -10,11 +10,17 @@
   "share_target": {
     "action": "/share",
     "method": "POST",
-    "enctype": "application/x-www-form-urlencoded",
+    "enctype": "multipart/form-data",
     "params": {
       "title": "title",
       "text": "text",
-      "url": "url"
+      "url": "url",
+      "files": [
+        {
+          "name": "shared_file",
+          "accept": ["text/markdown", "text/x-markdown", ".md", ".markdown"]
+        }
+      ]
     }
   },
   "icons": [

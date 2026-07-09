@@ -15470,6 +15470,95 @@ def _pop_pwa_share_payload(token: str) -> Optional[Dict[str, Any]]:
     return payload if isinstance(payload, dict) else None
 
 
+def _peek_pwa_share_payload(token: str) -> Optional[Dict[str, Any]]:
+    """קריאת payload של share ללא מחיקה (peek).
+
+    משמש את מסלול הצגת קובץ ה-Markdown המקומי (/open): התוכן נקרא לתצוגה, אך
+    ה-token נשאר זמין כדי שכפתור "שמור לחשבון" (/upload?open_token=) יוכל למשוך אותו
+    גם לאחר סבב התחברות. ה-token מתפוגג ממילא לפי ה-TTL.
+    """
+    safe_token = (token or '').strip()
+    if not safe_token:
+        return None
+    cache_key = f"{_PWA_SHARE_PAYLOAD_CACHE_PREFIX}:{safe_token}"
+    if getattr(cache, 'is_enabled', False):
+        try:
+            payload = cache.get(cache_key)
+        except Exception:
+            payload = None
+        if isinstance(payload, dict) and payload:
+            return payload
+    try:
+        db = get_db()
+        doc = db[_PWA_SHARE_PAYLOAD_DB_COLLECTION].find_one({'token': safe_token})
+    except Exception:
+        doc = None
+    if doc:
+        expires_at = doc.get('expires_at')
+        if isinstance(expires_at, datetime):
+            try:
+                exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+                if exp <= datetime.now(timezone.utc):
+                    return None
+            except Exception:
+                return None
+        payload = doc.get('payload')
+        if isinstance(payload, dict):
+            return payload
+    now = time.time()
+    with _pwa_share_payload_lock:
+        item = _pwa_share_payload_store.get(safe_token)
+    if not item:
+        return None
+    if float(item.get('expires_at') or 0) <= now:
+        return None
+    payload = item.get('payload')
+    return payload if isinstance(payload, dict) else None
+
+
+_LOCAL_MD_MAX_BYTES = 2 * 1024 * 1024  # עד ~2MB, בהתאמה למגבלת ההעלאה הרגילה
+
+
+def _build_local_md_payload_from_file(uploaded) -> Optional[Dict[str, Any]]:
+    """בונה payload לקובץ Markdown מקומי ששותף אל ה-PWA (Web Share Target).
+
+    מחזיר None אם הקובץ אינו Markdown/ריק/לא ניתן לפענוח — ואז זרימת השיתוף
+    נופלת חזרה לטיפול בטקסט/URL הרגיל.
+    """
+    try:
+        name = (getattr(uploaded, 'filename', '') or '').strip()
+    except Exception:
+        name = ''
+    try:
+        mimetype = (getattr(uploaded, 'mimetype', '') or '').strip().lower()
+    except Exception:
+        mimetype = ''
+    is_md = name.lower().endswith(('.md', '.markdown')) or mimetype in ('text/markdown', 'text/x-markdown')
+    if not is_md:
+        return None
+    try:
+        data = uploaded.read()
+    except Exception:
+        return None
+    if not data:
+        return None
+    if len(data) > _LOCAL_MD_MAX_BYTES:
+        data = data[:_LOCAL_MD_MAX_BYTES]
+    try:
+        text = data.decode('utf-8')
+    except Exception:
+        try:
+            text = data.decode('latin-1')
+        except Exception:
+            return None
+    if not text.strip():
+        return None
+    display_name, _ = _limit_share_value(name or 'document.md', 200, strip=True)
+    if not display_name.lower().endswith(('.md', '.markdown')):
+        display_name = f"{display_name}.md"
+    return {'local_md': True, 'md_content': text, 'file_name': display_name}
+
+
 def _suggest_share_filename(title: str, url: str) -> str:
     candidates: List[str] = []
     if isinstance(title, str) and title.strip():
@@ -15569,7 +15658,18 @@ def _save_markdown_images(db, user_id, snippet_id, images_payload):
 
 @app.route('/share', methods=['POST'])
 def pwa_share_target():
-    """יעד Share Target של ה-PWA — קולט title/text/url ומפנה למסך שמירה."""
+    """יעד Share Target של ה-PWA — קולט קובץ Markdown או title/text/url, ומציג/מפנה למסך שמירה."""
+    # Web Share Target עם קבצים (מובייל): אם שותף קובץ Markdown — נשמור אותו זמנית ונציגו.
+    try:
+        shared_file = request.files.get('shared_file')
+    except Exception:
+        shared_file = None
+    if shared_file is not None and getattr(shared_file, 'filename', ''):
+        local_payload = _build_local_md_payload_from_file(shared_file)
+        if local_payload is not None:
+            token = _store_pwa_share_payload(local_payload)
+            return redirect(url_for('open_local_md', token=token), code=303)
+        # לא Markdown/ריק/לא ניתן לפענוח — נמשיך לזרימת הטקסט/URL הרגילה
     try:
         payload_src = request.form or {}
     except Exception:
@@ -15596,6 +15696,35 @@ def pwa_share_target():
     token = _store_pwa_share_payload(payload)
     session[_PWA_SHARE_PAYLOAD_SESSION_KEY] = token
     return redirect(url_for('upload_file_web', share_token=token), code=303)
+
+
+@app.route('/open')
+def open_local_md():
+    """הצגת קובץ Markdown מקומי ששותף אל ה-PWA (Web Share Target), ללא צורך בהתחברות.
+
+    התוכן נשמר זמנית תחת token (ע"י pwa_share_target), וכאן מוצג ברינדור מלא
+    באותו מסלול תצוגה של /md. כפתור "שמור לחשבון" מפנה ל-/upload?open_token=.
+    """
+    token = (request.args.get('token') or '').strip()
+    payload = _peek_pwa_share_payload(token) if token else None
+    if not payload or not payload.get('local_md'):
+        flash('הקובץ לא נמצא או שתוקפו פג. נסו לשתף אותו שוב.', 'error')
+        return redirect('/')
+    content = str(payload.get('md_content') or '')
+    file_name = str(payload.get('file_name') or 'קובץ מקומי')
+    file_data = {'id': '', 'file_name': file_name, 'language': 'markdown'}
+    return render_template(
+        'md_preview.html',
+        user=session.get('user_data', {}),
+        file=file_data,
+        md_code=content,
+        bot_username=BOT_USERNAME_CLEAN,
+        can_save_shared=False,
+        is_public=True,
+        is_admin=False,
+        local_mode=True,
+        open_token=token,
+    )
 
 
 @app.route('/upload/from-repo')
@@ -15707,6 +15836,22 @@ def upload_file_web():
                 language_value = prefill.get('language') or language_value
             if prefill.get('truncated'):
                 flash('התוכן לשיתוף קוצץ כדי להתאים למגבלת שיתוף', 'warning')
+        # קובץ Markdown מקומי שהוצג ב-/open ומבקשים לשמור אותו לחשבון (Web Share Target)
+        open_token = (request.args.get('open_token') or '').strip()
+        if open_token:
+            open_payload = _pop_pwa_share_payload(open_token)
+            if open_payload and open_payload.get('local_md'):
+                file_name_value = str(open_payload.get('file_name') or '') or file_name_value
+                code_value = str(open_payload.get('md_content') or '') or code_value
+                _md_lang = ''
+                try:
+                    _md_lang = detect_language_from_filename(file_name_value) or ''
+                except Exception:
+                    _md_lang = ''
+                if not _md_lang and (file_name_value or '').lower().endswith(('.md', '.markdown')):
+                    _md_lang = 'markdown'
+                if _md_lang:
+                    language_value = _md_lang
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()
