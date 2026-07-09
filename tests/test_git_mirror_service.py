@@ -136,3 +136,66 @@ def test_get_mirror_info_ignores_deleted_files_during_size_calc(service, monkeyp
     assert info is not None
     assert info["size_bytes"] == 15
 
+
+
+# ============================================
+# ריבוי טוקנים לפי ארגון (GITHUB_TOKENS)
+# ============================================
+
+def test_extract_owner_https_and_ssh(service):
+    assert service._extract_owner("https://github.com/Campaign-AI4U/campaign-ai.git") == "Campaign-AI4U"
+    assert service._extract_owner("https://github.com/octocat/Hello-World") == "octocat"
+    assert service._extract_owner("git@github.com:MyOrg/repo.git") == "MyOrg"
+    assert service._extract_owner("not-a-url") == ""
+
+
+def test_token_map_simple_format_selects_per_owner(service, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKENS", "Campaign-AI4U=ghp_AAA,OtherOrg=github_pat_BBB")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_GLOBAL")
+
+    # ארגון ממופה → הטוקן שלו
+    assert service._token_for_url("https://github.com/Campaign-AI4U/campaign-ai.git") == "ghp_AAA"
+    # התאמת בעלים היא case-insensitive
+    assert service._token_for_url("https://github.com/otherorg/foo.git") == "github_pat_BBB"
+    # ארגון לא ממופה → נפילה ל-GITHUB_TOKEN הגלובלי
+    assert service._token_for_url("https://github.com/ThirdOrg/bar.git") == "ghp_GLOBAL"
+
+
+def test_token_map_json_format(service, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKENS", '{"Campaign-AI4U": "ghp_JSON_A", "OtherOrg": "ghp_JSON_B"}')
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert service._token_for_url("https://github.com/Campaign-AI4U/campaign-ai.git") == "ghp_JSON_A"
+    assert service._token_for_url("https://github.com/OtherOrg/x.git") == "ghp_JSON_B"
+    # ארגון לא ממופה ואין GITHUB_TOKEN → None (לא מזריקים טוקן)
+    assert service._token_for_url("https://github.com/Nobody/y.git") is None
+
+
+def test_token_fallback_to_global_when_no_map(service, monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKENS", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_GLOBAL")
+    assert service._token_for_url("https://github.com/anyone/x.git") == "ghp_GLOBAL"
+
+
+def test_invalid_json_token_map_is_ignored(service, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKENS", "{not valid json")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_GLOBAL")
+    # JSON שבור → מתעלמים מהמפה ונופלים ל-GITHUB_TOKEN
+    assert service._token_for_url("https://github.com/Campaign-AI4U/campaign-ai.git") == "ghp_GLOBAL"
+
+
+def test_authenticated_url_injects_per_owner_token(service, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKENS", "Campaign-AI4U=ghp_AAA")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_GLOBAL")
+    url = service._get_authenticated_url("https://github.com/Campaign-AI4U/campaign-ai.git")
+    assert url == "https://oauth2:ghp_AAA@github.com/Campaign-AI4U/campaign-ai.git"
+    # ארגון לא ממופה → הטוקן הגלובלי
+    url2 = service._get_authenticated_url("https://github.com/Zzz/repo.git")
+    assert url2 == "https://oauth2:ghp_GLOBAL@github.com/Zzz/repo.git"
+
+
+def test_constructor_token_overrides_map(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKENS", "Campaign-AI4U=ghp_AAA")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_GLOBAL")
+    svc = GitMirrorService(base_path=str(tmp_path), github_token="ghp_EXPLICIT")
+    # טוקן שהוזרק במפורש ל-constructor גובר על הכל
+    assert svc._token_for_url("https://github.com/Campaign-AI4U/campaign-ai.git") == "ghp_EXPLICIT"

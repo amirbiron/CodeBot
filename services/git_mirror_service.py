@@ -11,6 +11,7 @@ Git Mirror Service - ניהול מראה Git מקומי על Render Disk
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -94,6 +95,10 @@ class GitMirrorService:
     _GITHUB_HTTPS_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+(?:\.git)?/?$", re.IGNORECASE)
     _GITHUB_SSH_RE = re.compile(r"^git@github\.com:[^/\s]+/[^/\s]+(?:\.git)?$", re.IGNORECASE)
 
+    # חילוץ בעלים (owner/org) מתוך URL של GitHub – לבחירת טוקן פר-ארגון
+    _OWNER_HTTPS_RE = re.compile(r"^https://github\.com/([^/\s]+)/", re.IGNORECASE)
+    _OWNER_SSH_RE = re.compile(r"^git@github\.com:([^/\s]+)/", re.IGNORECASE)
+
     def __init__(
         self,
         base_path: Optional[str] = None,
@@ -148,6 +153,80 @@ class GitMirrorService:
             return False
         return bool(self._GITHUB_HTTPS_RE.fullmatch(url) or self._GITHUB_SSH_RE.fullmatch(url))
 
+    @staticmethod
+    def _load_github_token_map() -> Dict[str, str]:
+        """
+        טוען מיפוי בעלים(owner/org)→טוקן מתוך משתנה הסביבה ``GITHUB_TOKENS``.
+
+        זה מאפשר לסנכרן ריפואים ממספר ארגונים שונים, כל אחד עם טוקן משלו,
+        כשטוקן classic יחיד לא יכול לכסות את כולם.
+
+        פורמטים נתמכים:
+        - JSON:  ``{"Campaign-AI4U": "ghp_xxx", "OtherOrg": "github_pat_yyy"}``
+        - פשוט:  ``Campaign-AI4U=ghp_xxx,OtherOrg=github_pat_yyy``
+          (מפריד בין זוגות: פסיק/נקודה-פסיק/שורה חדשה; מפריד owner/token: ``=`` או ``:``)
+
+        המפתחות מוחזרים ב-lowercase (בעלים ב-GitHub הם case-insensitive).
+        """
+        raw = (os.getenv("GITHUB_TOKENS", "") or "").strip()
+        if not raw:
+            return {}
+
+        result: Dict[str, str] = {}
+
+        # פורמט JSON
+        if raw.startswith("{"):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                logger.warning("GITHUB_TOKENS is set but is not valid JSON; ignoring it")
+                return {}
+            if isinstance(data, dict):
+                for owner, token in data.items():
+                    owner_s = str(owner).strip().lower()
+                    token_s = str(token).strip()
+                    if owner_s and token_s:
+                        result[owner_s] = token_s
+            return result
+
+        # פורמט פשוט: owner=token,owner2=token2
+        for pair in re.split(r"[,\n;]+", raw):
+            m = re.match(r"^\s*([^=:\s]+)\s*[=:]\s*(.+?)\s*$", pair)
+            if not m:
+                continue
+            owner_s = m.group(1).strip().lower()
+            token_s = m.group(2).strip()
+            if owner_s and token_s:
+                result[owner_s] = token_s
+        return result
+
+    def _extract_owner(self, url: str) -> str:
+        """מחלץ את שם הבעלים/הארגון מ-URL של GitHub (HTTPS או SSH)."""
+        if not isinstance(url, str):
+            return ""
+        u = url.strip()
+        m = self._OWNER_HTTPS_RE.match(u) or self._OWNER_SSH_RE.match(u)
+        return m.group(1) if m else ""
+
+    def _token_for_url(self, url: str) -> Optional[str]:
+        """
+        בוחר את הטוקן המתאים ל-URL לפי סדר עדיפויות:
+        1. טוקן שהוזרק במפורש ל-constructor (override).
+        2. טוקן פר-בעלים מתוך ``GITHUB_TOKENS`` (לפי הארגון של הריפו).
+        3. ``GITHUB_TOKEN`` הגלובלי כברירת מחדל.
+        """
+        if self.github_token:
+            return self.github_token
+
+        owner = self._extract_owner(url)
+        if owner:
+            token_map = self._load_github_token_map()
+            token = token_map.get(owner.lower())
+            if token:
+                return token
+
+        return os.getenv("GITHUB_TOKEN") or None
+
     def _get_authenticated_url(self, url: str) -> str:
         """
         הזרקת GitHub Token ל-URL לתמיכה ב-Private Repos
@@ -160,8 +239,10 @@ class GitMirrorService:
 
         Note:
             לא לרשום את ה-URL המאומת ללוגים!
+            בחירת הטוקן נעשית לפי הבעלים של הריפו (ראו _token_for_url),
+            כדי לתמוך בסנכרון ריפואים ממספר ארגונים עם טוקנים שונים.
         """
-        token = self.github_token or os.getenv("GITHUB_TOKEN")
+        token = self._token_for_url(url)
 
         if not token:
             return url

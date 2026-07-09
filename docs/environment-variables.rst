@@ -166,6 +166,12 @@
      - -
      - ``ghp_xxx...``
      - Bot/WebApp
+   * - ``GITHUB_TOKENS``
+     - מיפוי בעלים(owner/org)→טוקן לסנכרון ריפואים ממספר ארגונים, כשטוקן יחיד לא מכסה את כולם. פורמט JSON (``{"Org": "ghp_..."}``) או פשוט (``Org1=ghp_...,Org2=github_pat_...``). נבחר לפי הבעלים של הריפו; אם אין התאמה נופלים ל-``GITHUB_TOKEN``.
+     - לא
+     - -
+     - ``Org1=ghp_xxx,Org2=github_pat_yyy``
+     - Bot/WebApp
    * - ``GITHUB_WEBHOOK_SECRET``
      - סוד לאימות GitHub Webhook (HMAC SHA256) עבור ``POST /api/webhooks/github``. אם לא מוגדר, ה-webhook ייחסם (401) ולא יתבצע Sync אוטומטי.
      - כן (Repo Sync)
