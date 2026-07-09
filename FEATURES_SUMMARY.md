@@ -1071,9 +1071,6 @@ CodeBot/
 }
 ```
 
-**קובץ JavaScript:** `/webapp/static/js/collections.js` (שורות 74-82)
-**תיעוד:** `/docs/user/my_collections.rst`
-
 #### שיתוף אוספים
 1. **הפעלה/השבתה של שיתוף** (`POST /<collection_id>/share`)
    - יצירת קישור שיתוף ציבורי
@@ -1712,14 +1709,8 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - **ניהול גרסאות** - מעקב שינויים
 - **Asset Versioning** - Cache busting
 
-**קובץ נתונים:**
-- `/home/user/CodeBot/webapp/static/data/commands.json`
-
-**תיעוד:**
-- `/home/user/CodeBot/docs/webapp/commands-catalog.rst`
-
 **צורך API:**
-- גישה דרך global_search.js
+- גישה דרך החיפוש הגלובלי בצד הלקוח
 - טעינה סטטית
 - ללא authentication
 
@@ -1733,7 +1724,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - **תגובות JSON מובנות** - root_cause, actions, signals
 - **Timeout ניתן להתאמה** - עד 10 שניות
 - **Fallback Responses** - אם AI לא זמין
-- **קובץ**: `/home/user/CodeBot/services/ai_explain_service.py`
 
 #### Story Save API Enhancement
 - **Enhanced Responses** - כולל URLs לניווט
@@ -1774,9 +1764,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 **API Endpoints:**
 - `POST /api/code-tools/execute` - הרצת קוד
-
-**תיעוד:**
-- `/home/user/CodeBot/GUIDES/WEB_APP_CODE_EXECUTION_GUIDE.md`
 
 ---
 
@@ -1923,7 +1910,7 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
   - שגיאות גולמיות לא מוחזרות ללקוח — רק הודעה גנרית.
 - **מגבלות**: עד 10 ערכות למשתמש, שם עד 50 תווים. ערכה מיובאת נשמרת כ-`is_active=False` — צריך להפעיל אותה בנפרד.
 
-> **הבחנה**: קיימות גם 12 "ערכות פופולריות" מוכנות מראש (Dracula, Monokai, Nord, One Dark, Solarized ועוד) — אך אלו מאוחסנות בפורמט המקומי (`variables`) ב-`theme_presets.json` ואינן עוברות דרך מסלול פענוח ה-VS Code.
+> **הבחנה**: קיימות גם 12 "ערכות פופולריות" מוכנות מראש (Dracula, Monokai, Nord, One Dark, Solarized ועוד) — אך אלו מאוחסנות בפורמט המקומי (`variables`) ואינן עוברות דרך מסלול פענוח ה-VS Code.
 
 **API Endpoints:**
 - `GET /api/themes` - רשימת ערכות נושא
@@ -1933,9 +1920,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - `POST /api/themes/import` - 🆕 ייבוא ערכה מ-JSON (קובץ או הדבקה; זיהוי אוטומטי VS Code / מקומי)
 - `GET /api/themes/presets` + `POST /api/themes/presets/<id>/apply` - ערכות מוכנות
 - `GET /api/themes/<id>/export` - ייצוא ערכה ל-JSON
-
-**תיעוד:**
-- `/home/user/CodeBot/docs/webapp/custom_themes_guide.rst`
 
 ---
 
@@ -2035,11 +2019,11 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 - **שיפורי Markdown**: highlight.js, דיאגרמות Mermaid, KaTeX, רשימות משימות, הערות שוליים ועוגנים, admonitions, אמוג'י ותוכן עניינים אוטומטי.
 - **בקרות תצוגה**: כפתור Toggle (`Shift+Ctrl+Enter` / `Shift+Cmd+Enter`), אינדיקטורי סטטוס (טוען/מוכן/שגיאה), מידע מטא (שפה/גודל/זמן רינדור), והחלפת ערכת נושא בהירה/כהה.
 - **בטיחות**: אימות תוכן לפני רינדור, Abort Controller לביטול בקשות תלויות, טיפול חלק בשגיאות, והגנת XSS.
-- **CSS ייעודי** (`split-view.css`): גודל דינמי דרך CSS Custom Properties, תמיכת RTL, טאבים רספונסיביים ו-Resizer נגרר.
+- **CSS ייעודי**: גודל דינמי דרך CSS Custom Properties, תמיכת RTL, טאבים רספונסיביים ו-Resizer נגרר.
 
 ### 4. תוכן מתקדם בתוך Markdown
 
-- **דיאגרמות Mermaid** — כל הסוגים (Flowchart, Sequence, Class, State, ER, Gantt, Pie, Journey, Git graph ועוד). מדריך: `GUIDES/MERMAID_IN_MARKDOWN.md`.
+- **דיאגרמות Mermaid** — כל הסוגים (Flowchart, Sequence, Class, State, ER, Gantt, Pie, Journey, Git graph ועוד).
 - **נוסחאות מתמטיות** — עיבוד KaTeX.
 - **רשימות משימות אינטראקטיביות** (`- [ ]` / `- [x]`) — אפשר לסמן ✓ ישירות בקורא, והמצב **נשמר ב-localStorage לכל מסמך בנפרד**.
 - **Admonitions** — בלוקי הערה בתחביר `::: note/info/warning/important/danger/success/tip`.
@@ -2069,9 +2053,9 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 
 | מסלול | מקום ריצה | מנוע | מטרה | סניטציה |
 |---|---|---|---|---|
-| `services/styled_export_service.py::markdown_to_html` | שרת (Python) | Python-Markdown | ייצוא HTML מעוצב להורדה | `bleach` + allowlist |
-| `webapp/app.py::_render_markdown_preview` | שרת (Python) | Python-Markdown | תצוגה מקדימה חיה בעורך | `BeautifulSoup` + פרופילים |
-| `md_preview.html` + `markdown-it` | דפדפן (JS) | markdown-it | תצוגת קובץ MD (`/md`) | `html: false` |
+| מסלול הייצוא | שרת (Python) | Python-Markdown | ייצוא HTML מעוצב להורדה | `bleach` + allowlist |
+| מסלול התצוגה המקדימה | שרת (Python) | Python-Markdown | תצוגה מקדימה חיה בעורך | `BeautifulSoup` + פרופילים |
+| מסלול תצוגת ה-MD | דפדפן (JS) | markdown-it | תצוגת קובץ MD (`/md`) | `html: false` |
 
 - רק המסלול השלישי (בדפדפן) תומך ברשימות משימות אינטראקטיביות עם שמירת מצב, ב-KaTeX וב-Mermaid.
 - **אבטחה**: הסרת `<script>/<style>`, חסימת פרוטוקולים מסוכנים (`javascript:`/`data:`), הוספת `rel="noopener noreferrer"` לקישורים `target="_blank"`, והגבלות על תמונות מוטבעות (`MARKDOWN_IMAGE_LIMIT`, `MARKDOWN_IMAGE_MAX_BYTES`).
@@ -2095,7 +2079,7 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 
 **אתר תיעוד מלא, אוטומטי ורב-לשוני לפרויקט:**
 
-- **כתובת ראשית (קנונית)**: [https://amirbiron.github.io/CodeBot/](https://amirbiron.github.io/CodeBot/) — מתארח ב-**GitHub Pages** (מוגדר כ-`DOCS_URL` ב-`config.py`).
+- **כתובת ראשית (קנונית)**: [https://amirbiron.github.io/CodeBot/](https://amirbiron.github.io/CodeBot/) — מתארח ב-**GitHub Pages** (מוגדר כ-`DOCS_URL`).
 - **כתובת משנית (Preview)**: Read the Docs — משמש בעיקר לתצוגות מקדימות של ענפים/PRs.
 
 ### טכנולוגיה
@@ -2130,7 +2114,7 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 - **חיפוש מובנה** של Sphinx בסרגל הצד.
 - **קישורים חיצוניים (intersphinx)** ל-Python, python-telegram-bot ו-PyMongo.
 
-### הגדרות מרכזיות (`docs/conf.py`)
+### הגדרות Sphinx מרכזיות
 
 - **Extensions**: `autodoc`, `napoleon`, `viewcode`, `intersphinx`, `sphinx_autodoc_typehints`, `sphinx_rtd_theme`, `sphinxcontrib.mermaid`, `myst_parser`.
 - **`autodoc_mock_imports`** — mock לתלויות כבדות (motor, pymongo, redis, telegram, cairosvg, aiohttp ועוד) כדי שהבנייה לא תדרוש DB/סודות אמיתיים.
