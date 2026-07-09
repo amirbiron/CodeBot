@@ -1666,10 +1666,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - `POST /api/observability/stories` - שמירת סיפור תקרית
 - `POST /api/observability/stories/save_markdown` - שמירה כ-Markdown
 
-**מימוש:**
-- `/home/user/CodeBot/webapp/templates/admin_observability.html` (שורות 1900-2049)
-- `/home/user/CodeBot/webapp/app.py` (Observability dashboard)
-
 **גישה:**
 - מנהלים בלבד
 - צוותי SRE
@@ -1779,11 +1775,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 **API Endpoints:**
 - `POST /api/code-tools/execute` - הרצת קוד
 
-**מימוש:**
-- `/home/user/CodeBot/services/code_execution_service.py` (621 שורות)
-- `/home/user/CodeBot/webapp/code_tools_api.py`
-- `/home/user/CodeBot/webapp/static/js/code-tools-page.js`
-
 **תיעוד:**
 - `/home/user/CodeBot/GUIDES/WEB_APP_CODE_EXECUTION_GUIDE.md`
 
@@ -1822,12 +1813,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - `GET /api/export/<file_id>/html` - ייצוא HTML
 - `GET /api/export/<file_id>/styled` - HTML מעוצב
 
-**מימוש:**
-- `/home/user/CodeBot/services/styled_export_service.py` (629 שורות)
-- `/home/user/CodeBot/webapp/static/css/export-modal.css`
-- `/home/user/CodeBot/webapp/static/js/export-modal.js`
-- `/home/user/CodeBot/webapp/templates/export/styled_document.html`
-
 ---
 
 ### 2️⃣6️⃣ השוואת קוד (Paste Compare)
@@ -1856,9 +1841,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 **נגישות:**
 - `/compare/paste` - דף השוואת קוד
 - אינטגרציה מדף השוואת קבצים
-
-**מימוש:**
-- `/home/user/CodeBot/webapp/templates/compare_paste.html` (935 שורות)
 
 ---
 
@@ -1889,10 +1871,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 **4. נגישות**
 - **Reduced Motion** - כיבוד `prefers-reduced-motion`
 - **מצב חיסכון** - הפחתת אנימציות למכשירים חלשים
-
-**מימוש:**
-- `/home/user/CodeBot/webapp/static/js/fun-mode.js` (407 שורות)
-- אינטגרציה ב-`base.html`
 
 ---
 
@@ -1956,16 +1934,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - `GET /api/themes/presets` + `POST /api/themes/presets/<id>/apply` - ערכות מוכנות
 - `GET /api/themes/<id>/export` - ייצוא ערכה ל-JSON
 
-**מימוש:**
-- `/home/user/CodeBot/services/shared_theme_service.py` (492 שורות)
-- `/home/user/CodeBot/services/theme_parser_service.py` (2,081 שורות) — ליבת הפענוח, מיפוי צבעים, ולידציה, sanitization
-- `/home/user/CodeBot/services/theme_presets_service.py` — טעינת/החלת ערכות מוכנות
-- `/home/user/CodeBot/webapp/themes_api.py` (1,230 שורות) — כל ה-REST endpoints (ייבוא ב-`import_theme`)
-- `/home/user/CodeBot/webapp/static/js/theme-importer.js` (408 שורות) — לוגיקת צד-לקוח (Drag & Drop, הדבקה, גלריה)
-- `/home/user/CodeBot/webapp/templates/settings/theme_gallery.html` — UI הייבוא (טאב "ייבוא")
-- `/home/user/CodeBot/webapp/templates/settings/theme_builder.html`
-- `/home/user/CodeBot/webapp/static/data/theme_presets.json` — 12 ערכות מוכנות
-
 **תיעוד:**
 - `/home/user/CodeBot/docs/webapp/custom_themes_guide.rst`
 
@@ -2025,17 +1993,6 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - `EMBEDDING_DIMENSIONS` - מימדי הווקטור (ברירת מחדל: 768).
 - `CHUNK_SIZE_LINES` / `CHUNK_OVERLAP_LINES` - גודל chunk וחפיפה (220 / 40).
 
-#### מימוש
-
-- `/home/user/CodeBot/services/embedding_service.py` (570 שורות) — יצירת embeddings מול Gemini, throttling, self-heal.
-- `/home/user/CodeBot/services/embedding_worker.py` (349 שורות) — Worker רקע לעיבוד קבצים.
-- `/home/user/CodeBot/services/chunking_service.py` (120 שורות) — פיצול קוד ל-chunks.
-- `/home/user/CodeBot/services/semantic_embedding_health.py` (911 שורות) — בדיקת בריאות ושדרוג מודל.
-- `/home/user/CodeBot/services/semantic_embedding_settings.py` (324 שורות) — קונפיג דינמי.
-- `/home/user/CodeBot/search_engine.py` — `semantic_search`, בניית ה-pipeline ההיברידי, RRF.
-- `/home/user/CodeBot/scripts/migrate_semantic_search.py` — מיגרציה חד-פעמית (סימון קבצים + יצירת קולקציה).
-- `/home/user/CodeBot/webapp/static/js/global_search.js` — קריאה ל-API + fallback.
-
 > **הערה**: מקור האמת למודל הפעיל בפועל הוא מסמך ה-`system_config` ב-DB (או פקודת ChatOps מתאימה), ולא הקוד — הערך `text-embedding-004` הוא ברירת מחדל בלבד.
 
 ---
@@ -2059,11 +2016,6 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 
 **תחביר מורחב נתמך**: `~~קו חוצה~~`, `==הדגשה צהובה==` (→ `<mark>`), ובלוקי קיפול `::: details כותרת ... :::`.
 
-**מימוש:**
-- `/home/user/CodeBot/webapp/static/js/markdown-toolbar.js` (595 שורות)
-- `/home/user/CodeBot/webapp/static/css/markdown-toolbar.css`
-- `/home/user/CodeBot/webapp/templates/components/editor_components.html`
-
 ### 2. תצוגה מקדימה (Preview)
 
 - **תצוגת `/md/<file_id>`** — רינדור עשיר של קובץ Markdown ישירות בדפדפן:
@@ -2084,12 +2036,6 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 - **בקרות תצוגה**: כפתור Toggle (`Shift+Ctrl+Enter` / `Shift+Cmd+Enter`), אינדיקטורי סטטוס (טוען/מוכן/שגיאה), מידע מטא (שפה/גודל/זמן רינדור), והחלפת ערכת נושא בהירה/כהה.
 - **בטיחות**: אימות תוכן לפני רינדור, Abort Controller לביטול בקשות תלויות, טיפול חלק בשגיאות, והגנת XSS.
 - **CSS ייעודי** (`split-view.css`): גודל דינמי דרך CSS Custom Properties, תמיכת RTL, טאבים רספונסיביים ו-Resizer נגרר.
-
-**מימוש:**
-- `/home/user/CodeBot/webapp/static/js/live-preview.js` (816 שורות)
-- `/home/user/CodeBot/webapp/static/css/split-view.css`
-- אינטגרציה ב-`edit_file.html` ו-`upload.html`
-- API: `POST /api/preview/live` (רינדור צד-שרת כ-fallback)
 
 ### 4. תוכן מתקדם בתוך Markdown
 
@@ -2116,7 +2062,6 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
   - **אלמנטים נתמכים**: admonitions (note/warning/tip/danger), טבלאות (עם captions וכותרות), בלוקי קוד (זיהוי שפה), inline code, עיצוב (מודגש/נטוי/קישורים), בלוקי Mermaid, ותמיכת RTL/LTR.
   - **עיבוד חכם**: `TurndownService` עם GFM plugin, כללים מותאמים לאלמנטי Sphinx, ניקוי ניווט, טיפול ב-colspan, escaping של גרשיים, ושמירת הזחה.
   - **ממשק**: כפתור העתקה בכל דף, סטטוסים ויזואליים (Idle / Busy / Success / Error), Auto-Reset אחרי 2.8 שניות, ותוויות ARIA לנגישות.
-  - **מימוש**: `docs/_static/copy-page.js` (542 שורות) + `docs/_static/custom.css` (תלויות: TurndownService, turndown-plugin-gfm, Font Awesome).
 
 ### 7. שלושת מסלולי הרינדור (מבט טכני)
 
@@ -2143,13 +2088,6 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 - `POST /api/preview/live` — רינדור צד-שרת לתצוגה מקדימה חיה.
 - `GET /api/file/<file_id>/preview` — נתוני תצוגה מקדימה.
 - `POST /api/observability/stories/save_markdown` — שמירת תקרית כ-Markdown.
-
-### מדריכים רלוונטיים
-
-- `GUIDES/MARKDOWN_RENDERING_GUIDE.md` — מדריך מלא לרינדור Markdown ל-HTML (שלושת המסלולים).
-- `GUIDES/MERMAID_IN_MARKDOWN.md` — שילוב דיאגרמות Mermaid.
-- `webapp/FEATURE_SUGGESTIONS/ACCESSIBLE_MARKDOWN_DISPLAY_GUIDE.md` + `MARKDOWN_ACCESSIBILITY_EXAMPLES.md` — תצוגה נגישה.
-- `docs/webapp/markdown-folding.rst` — בלוקי קיפול בתיעוד.
 
 ---
 
@@ -2213,8 +2151,6 @@ sphinx-build -b html docs docs/_build/html
 # תצוגה מקומית
 python -m http.server -d docs/_build/html 8000
 ```
-
-**מדריכים**: `docs/README.md`, `docs/DOCUMENTATION_GUIDE.md`.
 
 ---
 
