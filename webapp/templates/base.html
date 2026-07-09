@@ -5059,20 +5059,6 @@
     {% if can_impersonate %}
     <script src="{{ url_for('static', filename='js/impersonation.js') }}?v={{ static_version }}"></script>
     {% endif %}
-    <!-- רישום Service Worker גלובלי: נדרש כדי שה-PWA יהיה בר-התקנה, ובכך יופיע כיעד שיתוף (Share Target) במובייל. ה-SW עצמו מטפל ב-Push בלבד. -->
-    <script>
-      (function(){
-        if (!('serviceWorker' in navigator)) return;
-        var doReg = function(){
-          try {
-            navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-              .catch(function(){ /* רישום נכשל — לא חוסם את העמוד */ });
-          } catch (_) {}
-        };
-        if (document.readyState === 'complete') { doReg(); }
-        else { window.addEventListener('load', doReg); }
-      })();
-    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>
