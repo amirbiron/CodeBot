@@ -129,9 +129,68 @@ REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 # מגבלות קבצים גדולים
 MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
+# תקרת הורדה קשיחה לגיבוי ריפו (הגנה על דיסק השרת), נפרדת מתקרת טלגרם.
+# מעליה מפסיקים לכתוב לדיסק ומבטלים את הגיבוי; ניתן לכיול דרך ENV.
+MAX_BACKUP_BYTES = int(os.getenv("MAX_BACKUP_BYTES", str(500 * 1024 * 1024)))  # 500MB כברירת מחדל
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 TELEGRAM_SAFE_TEXT_LIMIT = 4000
 TELEGRAM_TRUNCATION_NOTICE = "\n\n(✂️ חלק מהטקסט קוצר כדי לעמוד במגבלת טלגרם)"
+
+
+class _ZipBackupError(Exception):
+    """אות פנימי מעבודת הגיבוי החוסמת שרצה ב-thread.
+
+    נושא הודעה ידידותית למשתמש (שתישלח על ידי הקורא האסינכרוני לפני שהחריגה
+    ממשיכה הלאה) ואת נתיב הקובץ הזמני (כדי שהקורא ינקה אותו). ``cause`` היא
+    החריגה המקורית שתופץ למטפל השגיאות החיצוני.
+    """
+
+    def __init__(self, user_message=None, *, zip_path=None, cause=None):
+        super().__init__(user_message or (str(cause) if cause else "zip backup error"))
+        self.user_message = user_message
+        self.zip_path = zip_path
+        self.cause = cause
+
+
+def _read_file_bytes(path: str) -> bytes:
+    """קריאת קובץ לבייטים. מיועד להרצה ב-``asyncio.to_thread`` (I/O חוסם)."""
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _safe_remove_temp_file(path: Optional[str]) -> None:
+    """מחיקה בטוחה של קובץ זמני: מוחקים אך ורק נתיב שנמצא תחת ``tempfile.gettempdir()``.
+
+    דוחה נתיבים מסוכנים (``/``, ``.``, ספריית הפרויקט/העבודה), מטפל ב-
+    ``FileNotFoundError`` פנימית ומבצע ``os.remove`` בלי בדיקת קיום נפרדת
+    (כדי למנוע מרוץ בין הבדיקה למחיקה). מיועד להרצה ב-``asyncio.to_thread``.
+    """
+    if not path:
+        return
+    try:
+        real = os.path.realpath(path)
+        tmp_root = os.path.realpath(tempfile.gettempdir())
+    except Exception:
+        return
+    # דחה נתיבים מסוכנים במפורש
+    dangerous = set()
+    for candidate in (os.sep, ".", os.getcwd()):
+        try:
+            dangerous.add(os.path.realpath(candidate))
+        except Exception:
+            pass
+    if real in dangerous:
+        return
+    # מחק רק אם הנתיב באמת מתחת לתיקיית ה-temp (ולא התיקייה עצמה)
+    if not real.startswith(tmp_root + os.sep):
+        return
+    try:
+        os.remove(real)
+    except FileNotFoundError:
+        return
+    except Exception:
+        return
+
 
 # חלון קירור מינימלי להתראות PR "עודכן" (ניתן לכיול דרך ENV)
 try:
@@ -415,6 +474,152 @@ class GitHubMenuHandler:
             except Exception:
                 pass
         return max(1, count + 1)
+
+    def _download_and_persist_repo_zip(self, repo, user_id, current_path):
+        """הורדת ה-zipball המלא של הריפו, הוספת metadata.json ושמירה כגיבוי.
+
+        פונקציה חוסמת (רשת + דיסק) שנועדה לרוץ אך ורק בתוך ``asyncio.to_thread``
+        כדי לא לחסום את ה-event loop. אסור לה לגעת ב-Telegram / בלולאת האירועים.
+        בהצלחה מחזירה dict עם פרטי הגיבוי; בכשל דיסק/יצירה זורקת ``_ZipBackupError``
+        שנושאת הודעה למשתמש ואת נתיב הקובץ הזמני (לניקוי על ידי הקורא).
+        """
+        import zipfile as _zip
+        import tempfile as _tmp
+        from datetime import datetime as _dt, timezone as _tz
+
+        # שלב מוקדם (לפני יצירת קובץ זמני) – שגיאות כאן מתפשטות כמות שהן
+        url = repo.get_archive_link("zipball")
+        headers = {"Accept-Encoding": "identity"}
+        r = http_request('GET', url, headers=headers, stream=True, timeout=180)
+        r.raise_for_status()
+        # בדיקת גודל מראש (אם ידוע)
+        try:
+            cl_header = r.headers.get("Content-Length")
+            content_length = int(cl_header) if cl_header else 0
+        except Exception:
+            content_length = 0
+        too_big_for_telegram = bool(content_length and content_length > MAX_ZIP_TOTAL_BYTES)
+
+        zip_path = None
+        try:
+            # הורדה לקובץ זמני בדיסק (בלי לטעון את כל ה-ZIP לזיכרון)
+            with _tmp.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+                zip_path = tmp_file.name
+                try:
+                    for chunk in r.iter_content(chunk_size=128 * 1024):
+                        if not chunk:
+                            continue
+                        tmp_file.write(chunk)
+                        written = tmp_file.tell()
+                        # מעל תקרת טלגרם: עדיין שומרים כגיבוי, אך נשלח קישור במקום מסמך
+                        if written > MAX_ZIP_TOTAL_BYTES:
+                            too_big_for_telegram = True
+                        # מעל התקרה הקשיחה: מפסיקים לכתוב לדיסק ומבטלים את הגיבוי
+                        if written > MAX_BACKUP_BYTES:
+                            raise _ZipBackupError(
+                                f"❌ הריפו גדול מדי לגיבוי (מעל {format_bytes(MAX_BACKUP_BYTES)}).",
+                                zip_path=zip_path,
+                                cause=RuntimeError("backup exceeds MAX_BACKUP_BYTES"),
+                            )
+                except OSError as e_os:
+                    if getattr(e_os, 'errno', None) == errno.ENOSPC:
+                        try:
+                            emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error="ENOSPC")
+                        except Exception:
+                            pass
+                        raise _ZipBackupError(
+                            "❌ אין מקום פנוי בדיסק של השרת. נא לפנות מקום ולנסות שוב.",
+                            zip_path=zip_path,
+                            cause=e_os,
+                        )
+                    raise
+
+            # ספר קבצים קיימים (ללא metadata) והוסף metadata.json במצב append
+            try:
+                with _zip.ZipFile(zip_path, "r") as zin:
+                    file_names = [n for n in zin.namelist() if not n.endswith("/")]
+                    file_count = len(file_names)
+            except Exception:
+                file_count = 0
+            metadata = {
+                "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}_{secrets.token_hex(4)}",
+                "user_id": user_id,
+                "created_at": _dt.now(_tz.utc).isoformat(),
+                "backup_type": "github_repo_zip",
+                "include_versions": False,
+                "file_count": int(file_count),
+                "created_by": "Code Keeper Bot",
+                "repo": repo.full_name,
+                "path": current_path or "",
+            }
+            try:
+                with _zip.ZipFile(zip_path, "a", compression=_zip.ZIP_DEFLATED) as zout:
+                    zout.writestr("metadata.json", json.dumps(metadata, indent=2))
+            except Exception as e_append:
+                try:
+                    code = "ENOSPC" if isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC else "zip_append_error"
+                    emit_event("github_zip_create_error", severity="error", repo=str(repo.full_name), error=str(e_append), code=code)
+                except Exception:
+                    pass
+                msg = (
+                    "❌ אין מקום פנוי בדיסק של השרת בעת כתיבת המטא-דאטה."
+                    if (isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC)
+                    else None
+                )
+                raise _ZipBackupError(msg, zip_path=zip_path, cause=e_append)
+
+            total_bytes = 0
+            try:
+                total_bytes = os.path.getsize(zip_path)
+            except Exception:
+                total_bytes = int(content_length or 0)
+
+            # Persist דרך מנהל הגיבויים – ללא קריאת הזיפ לזיכרון
+            try:
+                saved_backup_id = backup_manager.save_backup_file(zip_path)
+            except Exception as e_persist:
+                try:
+                    code = "ENOSPC" if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC else "persist_error"
+                    emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error=str(e_persist), code=code)
+                    if errors_total is not None:
+                        errors_total.labels(code="github_zip_persist_error").inc()
+                except Exception:
+                    pass
+                msg = (
+                    "❌ אין מקום פנוי בדיסק של השרת לשמירת הגיבוי."
+                    if (isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC)
+                    else None
+                )
+                raise _ZipBackupError(msg, zip_path=zip_path, cause=e_persist)
+            # save_backup_file בולע חריגות פנימית ומחזיר None בכשל — נתייחס לכך ככשל
+            # שמירה כדי לא לדווח על גיבוי שנשמר בעוד שלמעשה נכשל.
+            if not saved_backup_id:
+                try:
+                    emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error="save_returned_none", code="persist_error")
+                    if errors_total is not None:
+                        errors_total.labels(code="github_zip_persist_error").inc()
+                except Exception:
+                    pass
+                raise _ZipBackupError(
+                    None,
+                    zip_path=zip_path,
+                    cause=RuntimeError("save_backup_file returned no backup id"),
+                )
+        except _ZipBackupError:
+            raise
+        except BaseException as e_other:
+            # כל שגיאה אחרת אחרי יצירת הקובץ הזמני – נעטוף כדי שהקורא ינקה את הקובץ
+            raise _ZipBackupError(None, zip_path=zip_path, cause=e_other)
+
+        return {
+            "zip_path": zip_path,
+            "file_count": file_count,
+            "total_bytes": total_bytes,
+            "too_big_for_telegram": too_big_for_telegram,
+            "metadata": metadata,
+            "url": url,
+            "content_length": content_length,
+        }
 
     async def show_browse_ref_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """תפריט בחירת ref (ענף/תג) עם עימוד וטאבים."""
@@ -2790,98 +2995,35 @@ class GitHubMenuHandler:
                     metadata = None
                     zip_path = None
                     try:
-                        import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
-                        url = repo.get_archive_link("zipball")
-                        headers = {"Accept-Encoding": "identity"}
-                        r = http_request('GET', url, headers=headers, stream=True, timeout=180)
-                        r.raise_for_status()
-                        # בדיקת גודל מראש (אם ידוע)
+                        # כל העבודה הכבדה (הורדת ה-zipball, כתיבה לדיסק, בניית ה-ZIP
+                        # ושמירת הגיבוי) רצה ב-thread נפרד כדי לא לחסום את ה-event loop
+                        # ולגרום לזמני תגובה גבוהים ולעיכוב משימות מתוזמנות.
                         try:
-                            cl_header = r.headers.get("Content-Length")
-                            content_length = int(cl_header) if cl_header else 0
-                        except Exception:
-                            content_length = 0
-                        too_big_for_telegram = bool(content_length and content_length > MAX_ZIP_TOTAL_BYTES)
-
-                        # הורדה לקובץ זמני בדיסק
-                        import tempfile as _tmp
-                        with _tmp.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
-                            zip_path = tmp_file.name
-                            try:
-                                for chunk in r.iter_content(chunk_size=128 * 1024):
-                                    if not chunk:
-                                        continue
-                                    tmp_file.write(chunk)
-                                    if tmp_file.tell() > MAX_ZIP_TOTAL_BYTES:
-                                        too_big_for_telegram = True
-                            except OSError as e_os:
+                            result = await asyncio.to_thread(
+                                self._download_and_persist_repo_zip, repo, user_id, current_path
+                            )
+                        except _ZipBackupError as ze:
+                            # שמור את נתיב הקובץ הזמני כדי שה-finally ינקה אותו
+                            if ze.zip_path:
+                                zip_path = ze.zip_path
+                            # אם יש הודעה ידידותית — נשלח אותה ונסיים (ה-finally עדיין ינקה),
+                            # בלי לזרוק שוב, כדי לא להציף את המשתמש גם בהודעת השגיאה הכללית.
+                            if ze.user_message:
                                 try:
-                                    if getattr(e_os, 'errno', None) == errno.ENOSPC:
-                                        await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת. נא לפנות מקום ולנסות שוב.")
-                                        emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error="ENOSPC")
+                                    await query.message.reply_text(ze.user_message)
                                 except Exception:
                                     pass
-                                raise
+                                return
+                            # ללא הודעה ייעודית — נמשיך למטפל השגיאות הכללי
+                            raise (ze.cause or ze)
 
-                        # ספר קבצים קיימים (ללא metadata) והוסף metadata.json במצב append
-                        try:
-                            with _zip.ZipFile(zip_path, "r") as zin:
-                                file_names = [n for n in zin.namelist() if not n.endswith("/")]
-                                file_count = len(file_names)
-                        except Exception:
-                            file_count = 0
-                        metadata = {
-                            "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
-                            "user_id": user_id,
-                            "created_at": _dt.now(_tz.utc).isoformat(),
-                            "backup_type": "github_repo_zip",
-                            "include_versions": False,
-                            "file_count": int(file_count),
-                            "created_by": "Code Keeper Bot",
-                            "repo": repo.full_name,
-                            "path": current_path or "",
-                        }
-                        try:
-                            with _zip.ZipFile(zip_path, "a", compression=_zip.ZIP_DEFLATED) as zout:
-                                zout.writestr("metadata.json", json.dumps(metadata, indent=2))
-                        except Exception as e_append:
-                            # אירוע יצירה
-                            try:
-                                code = "ENOSPC" if isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC else "zip_append_error"
-                                emit_event("github_zip_create_error", severity="error", repo=str(repo.full_name), error=str(e_append), code=code)
-                            except Exception:
-                                pass
-                            try:
-                                if isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC:
-                                    await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת בעת כתיבת המטא-דאטה.")
-                            except Exception:
-                                pass
-                            raise
-
-                        total_bytes = 0
-                        try:
-                            total_bytes = os.path.getsize(zip_path)
-                        except Exception:
-                            total_bytes = int(content_length or 0)
-
-                        # Persist דרך מנהל הגיבויים – ללא קריאת הזיפ לזיכרון
-                        try:
-                            backup_manager.save_backup_file(zip_path)
-                        except Exception as e_persist:
-                            try:
-                                code = "ENOSPC" if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC else "persist_error"
-                                emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error=str(e_persist), code=code)
-                                if errors_total is not None:
-                                    errors_total.labels(code="github_zip_persist_error").inc()
-                            except Exception:
-                                pass
-                            try:
-                                if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC:
-                                    await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת לשמירת הגיבוי.")
-                            except Exception:
-                                pass
-                            raise
+                        zip_path = result["zip_path"]
+                        file_count = result["file_count"]
+                        total_bytes = result["total_bytes"]
+                        too_big_for_telegram = result["too_big_for_telegram"]
+                        metadata = result["metadata"]
+                        url = result["url"]
 
                         self._cache_recent_backup(
                             context,
@@ -2895,7 +3037,7 @@ class GitHubMenuHandler:
 
                         # שם ידידותי ושליחה/קישור
                         try:
-                            infos = backup_manager.list_backups(user_id)
+                            infos = await asyncio.to_thread(backup_manager.list_backups, user_id)
                         except Exception:
                             infos = []
                         version_number = self._resolve_backup_version(
@@ -2909,8 +3051,8 @@ class GitHubMenuHandler:
                         caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
                         if not too_big_for_telegram and total_bytes <= MAX_ZIP_TOTAL_BYTES:
                             try:
-                                with open(zip_path, 'rb') as fsend:
-                                    await query.message.reply_document(document=InputFile(fsend, filename=filename), filename=filename, caption=caption)
+                                data = await asyncio.to_thread(_read_file_bytes, zip_path)
+                                await query.message.reply_document(document=InputFile(BytesIO(data), filename=filename), filename=filename, caption=caption)
                             except Exception:
                                 await query.message.reply_text(
                                     f"⚠️ שליחת הקובץ נכשלה. להורדה ישירה מ‑GitHub: {url}"
@@ -2931,7 +3073,7 @@ class GitHubMenuHandler:
                                 existing_note = ""
                                 facade = _get_files_facade()
                                 if facade is not None:
-                                    existing_note = facade.get_backup_note(user_id, str(backup_id)) or ""
+                                    existing_note = await asyncio.to_thread(facade.get_backup_note, user_id, str(backup_id)) or ""
                             except Exception:
                                 existing_note = ""
                             note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -2968,9 +3110,9 @@ class GitHubMenuHandler:
                             if "message is not modified" not in str(br).lower():
                                 raise
                     finally:
+                        # ניקוי הקובץ הזמני דרך helper בטוח (מוחק רק נתיב תחת tempdir)
                         try:
-                            if zip_path and os.path.exists(zip_path):
-                                os.remove(zip_path)
+                            await asyncio.to_thread(_safe_remove_temp_file, zip_path)
                         except Exception:
                             pass
                     # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים רק אם נוצר metadata (כלומר ההורדה הצליחה)
