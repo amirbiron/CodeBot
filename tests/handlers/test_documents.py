@@ -1214,3 +1214,97 @@ async def test_github_create_repo_offloads_blocking_work_to_thread(handler_env):
     assert seen["get_user"] is not None and seen["get_user"] != main_thread
     assert seen["create_repo"] is not None and seen["create_repo"] != main_thread
     assert seen["create_file"] is not None and seen["create_file"] != main_thread
+
+
+# ---- הגנת "פצצת ZIP" ב-_parse_zip_for_import (finding 5) ----
+
+def _zip_with_files(entries):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in entries:
+            zf.writestr(name, data)
+    buf.seek(0)
+    return buf
+
+
+def test_parse_zip_for_import_accepts_normal_zip(handler_env):
+    buf = _zip_with_files([("root/a.py", "print(1)"), ("root/b.txt", "hi")])
+    files, common_root, member_count = handler_env["handler"]._parse_zip_for_import(buf)
+    assert member_count == 2
+    assert common_root == "root"
+    assert {p for p, _ in files} == {"a.py", "b.txt"}
+
+
+def test_parse_zip_for_import_rejects_too_many_members(handler_env, monkeypatch):
+    monkeypatch.setattr(documents_mod, "MAX_IMPORT_ZIP_MEMBERS", 3, raising=True)
+    buf = _zip_with_files([(f"f{i}.txt", "x") for i in range(5)])
+    with pytest.raises(ValueError):
+        handler_env["handler"]._parse_zip_for_import(buf)
+
+
+def test_parse_zip_for_import_rejects_oversized_uncompressed(handler_env, monkeypatch):
+    # מגבלה קטנה מאוד -> הסכום המצטבר של הגדלים הלא-דחוסים חורג ממנה
+    monkeypatch.setattr(documents_mod, "MAX_IMPORT_TOTAL_UNCOMPRESSED_BYTES", 8, raising=True)
+    buf = _zip_with_files([("a.txt", "12345"), ("b.txt", "67890")])
+    with pytest.raises(ValueError):
+        handler_env["handler"]._parse_zip_for_import(buf)
+
+
+# ---- טיפול שגיאות ב-_gh_upload_files (finding 6) ----
+
+def _install_fake_github_exc(monkeypatch):
+    class FakeGithubException(Exception):
+        def __init__(self, status=None, message="err"):
+            self.status = status
+            super().__init__(message)
+
+    mod = types.ModuleType("github.GithubException")
+    mod.GithubException = FakeGithubException
+    monkeypatch.setitem(sys.modules, "github.GithubException", mod)
+    igte = types.ModuleType("github.InputGitTreeElement")
+    igte.InputGitTreeElement = type("FakeIGTE", (), {"__init__": lambda self, **kw: None})
+    monkeypatch.setitem(sys.modules, "github.InputGitTreeElement", igte)
+    return FakeGithubException
+
+
+def test_gh_upload_files_reraises_non_empty_repo_github_error(handler_env, monkeypatch):
+    FakeGithubException = _install_fake_github_exc(monkeypatch)
+
+    class FakeRepo:
+        default_branch = "main"
+
+        def get_git_ref(self, name):
+            raise FakeGithubException(status=500, message="server error")
+
+        def get_git_commit(self, sha):
+            raise AssertionError("should not be reached on a hard error")
+
+        def create_file(self, **kwargs):
+            raise AssertionError("should not attempt file creation on a hard error")
+
+    with pytest.raises(FakeGithubException):
+        handler_env["handler"]._gh_upload_files(FakeRepo(), [("a.txt", b"x")])
+
+
+def test_gh_upload_files_propagates_create_file_failure(handler_env, monkeypatch):
+    FakeGithubException = _install_fake_github_exc(monkeypatch)
+
+    class BoomError(Exception):
+        pass
+
+    class FakeRepo:
+        default_branch = "main"
+
+        def get_git_ref(self, name):
+            # 409 = ריפו ריק (הצפוי) -> נכנסים למסלול create_file
+            raise FakeGithubException(status=409, message="Git Repository is empty")
+
+        def get_git_commit(self, sha):
+            raise AssertionError("not reached for empty repo")
+
+        def create_file(self, path, message, content, branch):
+            raise BoomError("GitHub API is down")
+
+    # כשל ה-API מתפשט במקום להיבלע ולהיספר כהצלחה חלקית
+    with pytest.raises(BoomError):
+        handler_env["handler"]._gh_upload_files(FakeRepo(), [("a.txt", b"x")])

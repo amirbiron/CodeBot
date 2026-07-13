@@ -27,6 +27,13 @@ from html import escape as html_escape
 
 logger = logging.getLogger(__name__)
 
+# מגבלות ייבוא ZIP — הגנה מפני "פצצת ZIP" (דקומפרסיה מתפוצצת) בעת בניית ריפו מקובץ.
+# הבדיקות נעשות מול הגודל הלא-דחוס (ZipInfo.file_size) לפני קריאת התוכן לזיכרון.
+MAX_IMPORT_ZIP_MEMBERS = 2000  # מספר קבצים מקסימלי בארכיון לייבוא
+MAX_IMPORT_FILE_UNCOMPRESSED_BYTES = 50 * 1024 * 1024  # 50MB לקובץ בודד (לא דחוס)
+MAX_IMPORT_TOTAL_UNCOMPRESSED_BYTES = 500 * 1024 * 1024  # 500MB סך הכל (לא דחוס)
+
+
 class _ReporterProto(Protocol):
     """Protocol for activity reporter."""
     def report_activity(self, user_id: int) -> None: ...
@@ -485,6 +492,23 @@ class DocumentHandler:
                 and not n.startswith("__MACOSX/")
                 and not n.split("/")[-1].startswith("._")
             ]
+            # הגנה מפני "פצצת ZIP": אכיפת מגבלות (מספר קבצים + גודל לא-דחוס) לפני
+            # קריאת התוכן לזיכרון, כדי שארכיון זדוני לא ימוטט את התהליך.
+            if len(members) > MAX_IMPORT_ZIP_MEMBERS:
+                raise ValueError(
+                    f"הארכיון מכיל יותר מדי קבצים ({len(members)} > {MAX_IMPORT_ZIP_MEMBERS})."
+                )
+            total_uncompressed = 0
+            for name in members:
+                try:
+                    entry_size = int(zf.getinfo(name).file_size)
+                except Exception:
+                    entry_size = 0
+                if entry_size > MAX_IMPORT_FILE_UNCOMPRESSED_BYTES:
+                    raise ValueError(f"קובץ בארכיון גדול מדי (לא דחוס): {name}")
+                total_uncompressed += entry_size
+                if total_uncompressed > MAX_IMPORT_TOTAL_UNCOMPRESSED_BYTES:
+                    raise ValueError("סך התוכן הלא-דחוס בארכיון חורג מהמגבלה המותרת.")
             top_levels = set()
             for name in names_all:
                 if "/" in name and not name.startswith("__MACOSX/"):
@@ -530,30 +554,34 @@ class DocumentHandler:
             base_commit = repo.get_git_commit(base_ref.object.sha)
             base_tree = base_commit.tree
         except GithubException as exc:
+            # ריפו חדש וריק מחזיר 404/409 מ-get_git_ref — זה המצב הצפוי. כל סטטוס
+            # אחר (הרשאות/רייט-לימיט/שגיאת שרת) הוא כשל אמיתי שאין לבלוע בשקט.
+            status = getattr(exc, "status", None)
+            if status is not None and status not in (404, 409):
+                raise
             logger.info("No base ref found for new repo (expected for empty repo): %s", exc)
 
         if base_commit is None:
             created_count = 0
             for path, raw in files:
+                # כשל API ביצירת קובץ מתפשט (ולא נבלע) כדי שלא נדווח על ייבוא מוצלח
+                # בעוד שחלק מהקבצים נכשלו; טיפול ה-UTF-8 מול בינארי נשמר.
                 try:
-                    try:
-                        text = raw.decode("utf-8")
-                        repo.create_file(
-                            path=path,
-                            message="Initial import from ZIP via bot",
-                            content=text,
-                            branch=target_branch,
-                        )
-                    except UnicodeDecodeError:
-                        repo.create_file(
-                            path=path,
-                            message="Initial import from ZIP via bot (binary)",
-                            content=raw,
-                            branch=target_branch,
-                        )
-                    created_count += 1
-                except Exception as err:
-                    logger.warning("[create_repo_from_zip] Failed to create file %s: %s", path, err)
+                    text = raw.decode("utf-8")
+                    repo.create_file(
+                        path=path,
+                        message="Initial import from ZIP via bot",
+                        content=text,
+                        branch=target_branch,
+                    )
+                except UnicodeDecodeError:
+                    repo.create_file(
+                        path=path,
+                        message="Initial import from ZIP via bot (binary)",
+                        content=raw,
+                        branch=target_branch,
+                    )
+                created_count += 1
             return created_count
 
         from github.InputGitTreeElement import InputGitTreeElement
