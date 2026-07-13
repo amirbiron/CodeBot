@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -467,6 +468,130 @@ class DocumentHandler:
             context.user_data.pop("github_restore_zip_purge", None)
             context.user_data.pop("zip_restore_expected_repo_full", None)
 
+    def _parse_zip_for_import(self, buf: BytesIO):
+        """מפרסר את ה-ZIP ומחזיר ``(files, common_root, member_count)``.
+
+        פונקציה חוסמת (CPU/זיכרון) שנועדה לרוץ ב-``asyncio.to_thread`` בלבד — אין
+        לגעת בלולאת האירועים. ``files`` היא רשימת ``(path נקי, bytes)`` לאחר הסרת
+        תיקיית שורש משותפת. ``member_count`` הוא מספר הקבצים ב-ZIP (לפני ניקוי).
+        """
+        buf.seek(0)
+        with zipfile.ZipFile(buf, "r") as zf:
+            names_all = zf.namelist()
+            members = [
+                n
+                for n in names_all
+                if not n.endswith("/")
+                and not n.startswith("__MACOSX/")
+                and not n.split("/")[-1].startswith("._")
+            ]
+            top_levels = set()
+            for name in names_all:
+                if "/" in name and not name.startswith("__MACOSX/"):
+                    top_levels.add(name.split("/", 1)[0])
+            common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+
+            def strip_root(path: str) -> str:
+                if common_root and path.startswith(common_root + "/"):
+                    return path[len(common_root) + 1 :]
+                return path
+
+            files = []
+            for name in members:
+                data = zf.read(name)
+                clean = strip_root(name)
+                if clean:
+                    files.append((clean, data))
+        return files, common_root, len(members)
+
+    def _gh_create_repo(self, token: str, repo_name: str, private: bool):
+        """יוצר ריפו חדש ב-GitHub. פונקציה חוסמת (רשת) ל-``asyncio.to_thread``."""
+        from github import Github
+
+        g = Github(token)
+        user = g.get_user()
+        return user.create_repo(name=repo_name, private=private, auto_init=False)
+
+    def _gh_upload_files(self, repo, files) -> int:
+        """מעלה את הקבצים לריפו החדש ומחזיר את מספר הקבצים שהוזנו.
+
+        פונקציה חוסמת (N קריאות רשת) שנועדה לרוץ ב-``asyncio.to_thread`` בלבד.
+        משמרת את ההתנהגות המקורית: לריפו ריק (ללא base commit) יוצרים כל קובץ דרך
+        Contents API; לריפו עם היסטוריה בונים blobs+tree+commit.
+        """
+        from github.GithubException import GithubException
+
+        target_branch = repo.default_branch or "main"
+        base_ref = None
+        base_commit = None
+        base_tree = None
+        try:
+            base_ref = repo.get_git_ref(f"heads/{target_branch}")
+            base_commit = repo.get_git_commit(base_ref.object.sha)
+            base_tree = base_commit.tree
+        except GithubException as exc:
+            logger.info("No base ref found for new repo (expected for empty repo): %s", exc)
+
+        if base_commit is None:
+            created_count = 0
+            for path, raw in files:
+                try:
+                    try:
+                        text = raw.decode("utf-8")
+                        repo.create_file(
+                            path=path,
+                            message="Initial import from ZIP via bot",
+                            content=text,
+                            branch=target_branch,
+                        )
+                    except UnicodeDecodeError:
+                        repo.create_file(
+                            path=path,
+                            message="Initial import from ZIP via bot (binary)",
+                            content=raw,
+                            branch=target_branch,
+                        )
+                    created_count += 1
+                except Exception as err:
+                    logger.warning("[create_repo_from_zip] Failed to create file %s: %s", path, err)
+            return created_count
+
+        from github.InputGitTreeElement import InputGitTreeElement
+
+        text_exts = (
+            ".md",
+            ".txt",
+            ".json",
+            ".yml",
+            ".yaml",
+            ".xml",
+            ".py",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".css",
+            ".scss",
+            ".html",
+            ".sh",
+            ".gitignore",
+        )
+        new_tree_elems: List[InputGitTreeElement] = []
+        for path, raw in files:
+            try:
+                if path.lower().endswith(text_exts):
+                    blob = repo.create_git_blob(raw.decode("utf-8"), "utf-8")
+                else:
+                    blob = repo.create_git_blob(base64.b64encode(raw).decode("ascii"), "base64")
+            except Exception:
+                blob = repo.create_git_blob(base64.b64encode(raw).decode("ascii"), "base64")
+            new_tree_elems.append(InputGitTreeElement(path=path, mode="100644", type="blob", sha=blob.sha))
+        new_tree = repo.create_git_tree(new_tree_elems, base_tree)
+        commit_message = "Initial import from ZIP via bot"
+        parents = [base_commit]
+        new_commit = repo.create_git_commit(commit_message, new_tree, parents)
+        base_ref.edit(new_commit.sha)
+        return len(new_tree_elems)
+
     async def _handle_github_create_repo_from_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             document = update.message.document
@@ -484,23 +609,13 @@ class DocumentHandler:
             if not zipfile.is_zipfile(buf):
                 await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
                 return
-            with zipfile.ZipFile(buf, "r") as zf:
-                names_all = zf.namelist()
-                file_names = [
-                    n
-                    for n in names_all
-                    if not n.endswith("/")
-                    and not n.startswith("__MACOSX/")
-                    and not n.split("/")[-1].startswith("._")
-                ]
-                if not file_names:
-                    await update.message.reply_text("❌ ה‑ZIP ריק.")
-                    return
-                top_levels = set()
-                for name in names_all:
-                    if "/" in name and not name.startswith("__MACOSX/"):
-                        top_levels.add(name.split("/", 1)[0])
-                common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+            # פרסור ה-ZIP (CPU/זיכרון כבד) מחוץ ל-event loop כדי לא לחסום אותו
+            files, common_root, member_count = await asyncio.to_thread(
+                self._parse_zip_for_import, buf
+            )
+            if not member_count:
+                await update.message.reply_text("❌ ה‑ZIP ריק.")
+                return
 
             repo_name = context.user_data.get("new_repo_name")
             if not repo_name:
@@ -522,14 +637,12 @@ class DocumentHandler:
             await update.message.reply_text(
                 f"📦 יוצר ריפו חדש: <code>{repo_name}</code>", parse_mode=ParseMode.HTML
             )
-            from github import Github
-
-            g = Github(token)
-            user = g.get_user()
-            repo = user.create_repo(
-                name=repo_name,
-                private=bool(context.user_data.get("new_repo_private", True)),
-                auto_init=False,
+            # יצירת הריפו ב-GitHub (רשת) מחוץ ל-event loop
+            repo = await asyncio.to_thread(
+                self._gh_create_repo,
+                token,
+                repo_name,
+                bool(context.user_data.get("new_repo_private", True)),
             )
             repo_full = repo.full_name
             # עדכן סשן בזיכרון תמיד (הריפו נוצר בגיטהאב בפועל),
@@ -562,111 +675,10 @@ class DocumentHandler:
                 logger.warning("Failed saving selected repo to DB for user %s", user_id)
 
             await update.message.reply_text("📤 מעלה את קבצי ה‑ZIP לריפו החדש...")
-            buf.seek(0)
-            with zipfile.ZipFile(buf, "r") as zf:
-                names_all = zf.namelist()
-                members = [
-                    n
-                    for n in names_all
-                    if not n.endswith("/")
-                    and not n.startswith("__MACOSX/")
-                    and not n.split("/")[-1].startswith("._")
-                ]
-                top_levels = set()
-                for name in names_all:
-                    if "/" in name and not name.startswith("__MACOSX/"):
-                        top_levels.add(name.split("/", 1)[0])
-                common_root = list(top_levels)[0] if len(top_levels) == 1 else None
-
-                def strip_root(path: str) -> str:
-                    if common_root and path.startswith(common_root + "/"):
-                        return path[len(common_root) + 1 :]
-                    return path
-
-                files = []
-                for name in members:
-                    data = zf.read(name)
-                    clean = strip_root(name)
-                    if clean:
-                        files.append((clean, data))
-
-            from github.GithubException import GithubException
-
-            target_branch = repo.default_branch or "main"
-            base_ref = None
-            base_commit = None
-            base_tree = None
-            try:
-                base_ref = repo.get_git_ref(f"heads/{target_branch}")
-                base_commit = repo.get_git_commit(base_ref.object.sha)
-                base_tree = base_commit.tree
-            except GithubException as exc:
-                logger.info("No base ref found for new repo (expected for empty repo): %s", exc)
-
-            if base_commit is None:
-                created_count = 0
-                for path, raw in files:
-                    try:
-                        try:
-                            text = raw.decode("utf-8")
-                            repo.create_file(
-                                path=path,
-                                message="Initial import from ZIP via bot",
-                                content=text,
-                                branch=target_branch,
-                            )
-                        except UnicodeDecodeError:
-                            repo.create_file(
-                                path=path,
-                                message="Initial import from ZIP via bot (binary)",
-                                content=raw,
-                                branch=target_branch,
-                            )
-                        created_count += 1
-                    except Exception as err:
-                        logger.warning("[create_repo_from_zip] Failed to create file %s: %s", path, err)
-                await update.message.reply_text(
-                    f"✅ נוצר ריפו חדש והוזנו {created_count} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
-                    parse_mode=ParseMode.HTML,
-                )
-                return
-
-            from github.InputGitTreeElement import InputGitTreeElement
-
-            text_exts = (
-                ".md",
-                ".txt",
-                ".json",
-                ".yml",
-                ".yaml",
-                ".xml",
-                ".py",
-                ".js",
-                ".ts",
-                ".tsx",
-                ".css",
-                ".scss",
-                ".html",
-                ".sh",
-                ".gitignore",
-            )
-            new_tree_elems: List[InputGitTreeElement] = []
-            for path, raw in files:
-                try:
-                    if path.lower().endswith(text_exts):
-                        blob = repo.create_git_blob(raw.decode("utf-8"), "utf-8")
-                    else:
-                        blob = repo.create_git_blob(base64.b64encode(raw).decode("ascii"), "base64")
-                except Exception:
-                    blob = repo.create_git_blob(base64.b64encode(raw).decode("ascii"), "base64")
-                new_tree_elems.append(InputGitTreeElement(path=path, mode="100644", type="blob", sha=blob.sha))
-            new_tree = repo.create_git_tree(new_tree_elems, base_tree)
-            commit_message = "Initial import from ZIP via bot"
-            parents = [base_commit]
-            new_commit = repo.create_git_commit(commit_message, new_tree, parents)
-            base_ref.edit(new_commit.sha)
+            # העלאת הקבצים ל-GitHub (N קריאות רשת) מחוץ ל-event loop כדי לא לחסום אותו
+            created_count = await asyncio.to_thread(self._gh_upload_files, repo, files)
             await update.message.reply_text(
-                f"✅ נוצר ריפו חדש והוזנו {len(new_tree_elems)} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
+                f"✅ נוצר ריפו חדש והוזנו {created_count} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
                 parse_mode=ParseMode.HTML,
             )
         except Exception as err:
