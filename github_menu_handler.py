@@ -129,6 +129,9 @@ REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 # מגבלות קבצים גדולים
 MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
+# תקרת הורדה קשיחה לגיבוי ריפו (הגנה על דיסק השרת), נפרדת מתקרת טלגרם.
+# מעליה מפסיקים לכתוב לדיסק ומבטלים את הגיבוי; ניתן לכיול דרך ENV.
+MAX_BACKUP_BYTES = int(os.getenv("MAX_BACKUP_BYTES", str(500 * 1024 * 1024)))  # 500MB כברירת מחדל
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 TELEGRAM_SAFE_TEXT_LIMIT = 4000
 TELEGRAM_TRUNCATION_NOTICE = "\n\n(✂️ חלק מהטקסט קוצר כדי לעמוד במגבלת טלגרם)"
@@ -153,6 +156,40 @@ def _read_file_bytes(path: str) -> bytes:
     """קריאת קובץ לבייטים. מיועד להרצה ב-``asyncio.to_thread`` (I/O חוסם)."""
     with open(path, "rb") as f:
         return f.read()
+
+
+def _safe_remove_temp_file(path: Optional[str]) -> None:
+    """מחיקה בטוחה של קובץ זמני: מוחקים אך ורק נתיב שנמצא תחת ``tempfile.gettempdir()``.
+
+    דוחה נתיבים מסוכנים (``/``, ``.``, ספריית הפרויקט/העבודה), מטפל ב-
+    ``FileNotFoundError`` פנימית ומבצע ``os.remove`` בלי בדיקת קיום נפרדת
+    (כדי למנוע מרוץ בין הבדיקה למחיקה). מיועד להרצה ב-``asyncio.to_thread``.
+    """
+    if not path:
+        return
+    try:
+        real = os.path.realpath(path)
+        tmp_root = os.path.realpath(tempfile.gettempdir())
+    except Exception:
+        return
+    # דחה נתיבים מסוכנים במפורש
+    dangerous = set()
+    for candidate in (os.sep, ".", os.getcwd()):
+        try:
+            dangerous.add(os.path.realpath(candidate))
+        except Exception:
+            pass
+    if real in dangerous:
+        return
+    # מחק רק אם הנתיב באמת מתחת לתיקיית ה-temp (ולא התיקייה עצמה)
+    if not real.startswith(tmp_root + os.sep):
+        return
+    try:
+        os.remove(real)
+    except FileNotFoundError:
+        return
+    except Exception:
+        return
 
 
 # חלון קירור מינימלי להתראות PR "עודכן" (ניתן לכיול דרך ENV)
@@ -473,8 +510,17 @@ class GitHubMenuHandler:
                         if not chunk:
                             continue
                         tmp_file.write(chunk)
-                        if tmp_file.tell() > MAX_ZIP_TOTAL_BYTES:
+                        written = tmp_file.tell()
+                        # מעל תקרת טלגרם: עדיין שומרים כגיבוי, אך נשלח קישור במקום מסמך
+                        if written > MAX_ZIP_TOTAL_BYTES:
                             too_big_for_telegram = True
+                        # מעל התקרה הקשיחה: מפסיקים לכתוב לדיסק ומבטלים את הגיבוי
+                        if written > MAX_BACKUP_BYTES:
+                            raise _ZipBackupError(
+                                f"❌ הריפו גדול מדי לגיבוי (מעל {format_bytes(MAX_BACKUP_BYTES)}).",
+                                zip_path=zip_path,
+                                cause=RuntimeError("backup exceeds MAX_BACKUP_BYTES"),
+                            )
                 except OSError as e_os:
                     if getattr(e_os, 'errno', None) == errno.ENOSPC:
                         try:
@@ -496,7 +542,7 @@ class GitHubMenuHandler:
             except Exception:
                 file_count = 0
             metadata = {
-                "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
+                "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}_{secrets.token_hex(4)}",
                 "user_id": user_id,
                 "created_at": _dt.now(_tz.utc).isoformat(),
                 "backup_type": "github_repo_zip",
@@ -530,7 +576,7 @@ class GitHubMenuHandler:
 
             # Persist דרך מנהל הגיבויים – ללא קריאת הזיפ לזיכרון
             try:
-                backup_manager.save_backup_file(zip_path)
+                saved_backup_id = backup_manager.save_backup_file(zip_path)
             except Exception as e_persist:
                 try:
                     code = "ENOSPC" if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC else "persist_error"
@@ -545,6 +591,20 @@ class GitHubMenuHandler:
                     else None
                 )
                 raise _ZipBackupError(msg, zip_path=zip_path, cause=e_persist)
+            # save_backup_file בולע חריגות פנימית ומחזיר None בכשל — נתייחס לכך ככשל
+            # שמירה כדי לא לדווח על גיבוי שנשמר בעוד שלמעשה נכשל.
+            if not saved_backup_id:
+                try:
+                    emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error="save_returned_none", code="persist_error")
+                    if errors_total is not None:
+                        errors_total.labels(code="github_zip_persist_error").inc()
+                except Exception:
+                    pass
+                raise _ZipBackupError(
+                    None,
+                    zip_path=zip_path,
+                    cause=RuntimeError("save_backup_file returned no backup id"),
+                )
         except _ZipBackupError:
             raise
         except BaseException as e_other:
@@ -2947,12 +3007,15 @@ class GitHubMenuHandler:
                             # שמור את נתיב הקובץ הזמני כדי שה-finally ינקה אותו
                             if ze.zip_path:
                                 zip_path = ze.zip_path
-                            # שלח הודעה ידידותית (אם יש) ואז המשך את החריגה המקורית
+                            # אם יש הודעה ידידותית — נשלח אותה ונסיים (ה-finally עדיין ינקה),
+                            # בלי לזרוק שוב, כדי לא להציף את המשתמש גם בהודעת השגיאה הכללית.
                             if ze.user_message:
                                 try:
                                     await query.message.reply_text(ze.user_message)
                                 except Exception:
                                     pass
+                                return
+                            # ללא הודעה ייעודית — נמשיך למטפל השגיאות הכללי
                             raise (ze.cause or ze)
 
                         zip_path = result["zip_path"]
@@ -3047,9 +3110,9 @@ class GitHubMenuHandler:
                             if "message is not modified" not in str(br).lower():
                                 raise
                     finally:
+                        # ניקוי הקובץ הזמני דרך helper בטוח (מוחק רק נתיב תחת tempdir)
                         try:
-                            if zip_path and os.path.exists(zip_path):
-                                await asyncio.to_thread(os.remove, zip_path)
+                            await asyncio.to_thread(_safe_remove_temp_file, zip_path)
                         except Exception:
                             pass
                     # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים רק אם נוצר metadata (כלומר ההורדה הצליחה)
