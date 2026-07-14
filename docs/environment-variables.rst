@@ -88,6 +88,18 @@
      - "" (ריק)
      - ``CodeBot``
      - Bot/WebApp
+   * - ``MONGODB_TLS_USE_CERTIFI``
+     - שימוש במאגר ה-CA של certifi עבור TLS מול Atlas (מונע כשלי לחיצת יד כש-CA של הקונטיינר חלקי/ישן). רלוונטי ל-mongodb+srv:// או tls=true
+     - לא
+     - ``true``
+     - ``true``
+     - Bot/WebApp
+   * - ``MONGODB_TLS_CA_FILE``
+     - נתיב מפורש לקובץ CA עבור TLS (מנצח את certifi). ריק = אוטומטי
+     - לא
+     - "" (ריק)
+     - ``/etc/ssl/certs/ca.pem``
+     - Bot/WebApp
    * - ``DATABASE_NAME``
      - שם בסיס נתונים
      - לא
