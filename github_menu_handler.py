@@ -126,12 +126,29 @@ logger = logging.getLogger(__name__)
 # מצבי שיחה
 REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 
+
+def _env_positive_int(name: str, default: int) -> int:
+    """קורא משתנה סביבה כמספר שלם חיובי.
+
+    נופל ל-``default`` אם המשתנה ריק, לא-מספרי, לא-תקין או אינו חיובי — כדי
+    שערך ENV שגוי לא יפיל את טעינת המודול.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
 # מגבלות קבצים גדולים
 MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
 # תקרת הורדה קשיחה לגיבוי ריפו (הגנה על דיסק השרת), נפרדת מתקרת טלגרם.
 # מעליה מפסיקים לכתוב לדיסק ומבטלים את הגיבוי; ניתן לכיול דרך ENV.
-MAX_BACKUP_BYTES = int(os.getenv("MAX_BACKUP_BYTES", str(500 * 1024 * 1024)))  # 500MB כברירת מחדל
+MAX_BACKUP_BYTES = _env_positive_int("MAX_BACKUP_BYTES", 500 * 1024 * 1024)  # 500MB כברירת מחדל
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 TELEGRAM_SAFE_TEXT_LIMIT = 4000
 TELEGRAM_TRUNCATION_NOTICE = "\n\n(✂️ חלק מהטקסט קוצר כדי לעמוד במגבלת טלגרם)"
@@ -158,20 +175,24 @@ def _read_file_bytes(path: str) -> bytes:
         return f.read()
 
 
-def _safe_remove_temp_file(path: Optional[str]) -> None:
+def _safe_remove_temp_file(path: Optional[str]) -> bool:
     """מחיקה בטוחה של קובץ זמני: מוחקים אך ורק נתיב שנמצא תחת ``tempfile.gettempdir()``.
 
     דוחה נתיבים מסוכנים (``/``, ``.``, ספריית הפרויקט/העבודה), מטפל ב-
     ``FileNotFoundError`` פנימית ומבצע ``os.remove`` בלי בדיקת קיום נפרדת
     (כדי למנוע מרוץ בין הבדיקה למחיקה). מיועד להרצה ב-``asyncio.to_thread``.
+
+    מחזיר ``True`` אם הקובץ נמחק, כבר לא היה קיים, או שאין מה למחוק/הנתיב נדחה
+    בבטחה. מחזיר ``False`` ומרשם אזהרה רק כאשר המחיקה עצמה נכשלה (למשל הרשאות),
+    כדי שכשלי ניקוי לא יישארו שקטים.
     """
     if not path:
-        return
+        return True
     try:
         real = os.path.realpath(path)
         tmp_root = os.path.realpath(tempfile.gettempdir())
     except Exception:
-        return
+        return True
     # דחה נתיבים מסוכנים במפורש
     dangerous = set()
     for candidate in (os.sep, ".", os.getcwd()):
@@ -180,16 +201,18 @@ def _safe_remove_temp_file(path: Optional[str]) -> None:
         except Exception:
             pass
     if real in dangerous:
-        return
+        return True
     # מחק רק אם הנתיב באמת מתחת לתיקיית ה-temp (ולא התיקייה עצמה)
     if not real.startswith(tmp_root + os.sep):
-        return
+        return True
     try:
         os.remove(real)
+        return True
     except FileNotFoundError:
-        return
-    except Exception:
-        return
+        return True
+    except Exception as exc:
+        logger.warning("Failed to remove temp file %s: %s", real, exc)
+        return False
 
 
 # חלון קירור מינימלי להתראות PR "עודכן" (ניתן לכיול דרך ENV)
@@ -533,6 +556,13 @@ class GitHubMenuHandler:
                             cause=e_os,
                         )
                     raise
+                finally:
+                    # שחרר תמיד את חיבור ה-HTTP (stream=True) — גם כשההורדה בוטלה
+                    # באמצע (מעל התקרה הקשיחה) — כדי לא להשאיר חיבור פתוח.
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
 
             # ספר קבצים קיימים (ללא metadata) והוסף metadata.json במצב append
             try:
@@ -2988,7 +3018,8 @@ class GitHubMenuHandler:
                     "מוריד תיקייה כ־ZIP, התהליך עשוי להימשך 1–2 דקות.", show_alert=True
                 )
                 g = Github(token)
-                repo = g.get_repo(repo_name)
+                # g.get_repo מבצע קריאת רשת חוסמת — נריץ אותה ב-thread כדי לא לחסום את הלולאה
+                repo = await asyncio.to_thread(g.get_repo, repo_name)
                 # Fast path: הורדת ZIP מלא של הריפו דרך zipball
                 if not current_path:
                     # נבנה ZIP מלא מהריפו (zipball) בספול לדיסק, נוסיף metadata.json ונ Persist דרך מנהל הגיבויים
