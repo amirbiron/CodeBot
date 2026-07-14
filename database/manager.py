@@ -140,6 +140,91 @@ _MONGO_MONITORING_REGISTERED = False
 MAX_PINNED_FILES = 8
 
 
+# --- עוזרי TLS/SSL לחיבור MongoDB (במיוחד Atlas) ---
+try:
+    import certifi  # type: ignore
+    _CERTIFI_AVAILABLE = True
+except Exception:  # pragma: no cover - certifi כמעט תמיד קיים (תלות של requests/httpx)
+    certifi = None  # type: ignore
+    _CERTIFI_AVAILABLE = False
+
+
+# טקסט רמז אחיד לשגיאות לחיצת יד TLS מול Atlas (מקור אמת יחיד לשני מסלולי החיבור)
+_TLS_HANDSHAKE_HINT = (
+    "לחיצת היד (TLS) מול MongoDB נכשלה. הסיבות הנפוצות ב-Atlas: "
+    "(1) כתובת ה-IP היוצאת של השירות אינה ברשימת ההיתר (Network Access) ב-Atlas; "
+    "(2) הקלאסטר במצב Paused/מתעורר; "
+    "(3) מאגר תעודות ה-CA בקונטיינר חלקי/ישן (מטופל כעת דרך certifi ב-tlsCAFile). "
+    "יש לוודא את רשימת ה-IP ואת מצב הקלאסטר ב-Atlas; אפשר לעקוף את מאגר ה-CA עם "
+    "MONGODB_TLS_CA_FILE במידת הצורך."
+)
+
+
+def _uri_uses_tls(mongo_url: Optional[str]) -> bool:
+    """מזהה אם מחרוזת החיבור מפעילה TLS (Atlas SRV, או tls/ssl=true מפורש)."""
+    if not mongo_url:
+        return False
+    try:
+        low = str(mongo_url).lower()
+    except Exception:
+        return False
+    # mongodb+srv:// מפעיל TLS אוטומטית ב-Atlas — אלא אם כובה במפורש
+    if low.startswith("mongodb+srv://"):
+        return ("tls=false" not in low) and ("ssl=false" not in low)
+    # mongodb:// רגיל — TLS רק אם צוין במפורש
+    return ("tls=true" in low) or ("ssl=true" in low)
+
+
+def _build_tls_kwargs(mongo_url: Optional[str]) -> Dict[str, Any]:
+    """
+    בונה פרמטרי TLS ל-MongoClient עבור חיבור מוצפן.
+
+    למה: בקונטיינרים רזים (python-slim וכד') מאגר תעודות ה-CA של המערכת לעיתים
+    חסר או ישן, מה שמפיל את לחיצת היד מול Atlas. הצבעה על מאגר ה-CA של certifi
+    מבטיחה אימות מול מאגר עדכני ואמין (ללא כיבוי אימות התעודה).
+
+    שליטה דרך משתני סביבה (כמו שאר knobs של Mongo כאן):
+    - MONGODB_TLS_CA_FILE: נתיב CA מפורש; מנצח הכול.
+    - MONGODB_TLS_USE_CERTIFI: ברירת מחדל true; false משאיר את התנהגות ברירת המחדל של pymongo.
+    """
+    if not _uri_uses_tls(mongo_url):
+        return {}
+
+    kwargs: Dict[str, Any] = {}
+
+    explicit_ca = (os.getenv("MONGODB_TLS_CA_FILE") or "").strip()
+    if explicit_ca:
+        kwargs["tlsCAFile"] = explicit_ca
+        return kwargs
+
+    use_certifi = str(os.getenv("MONGODB_TLS_USE_CERTIFI", "true")).strip().lower() in {"1", "true", "yes"}
+    if use_certifi and _CERTIFI_AVAILABLE and certifi is not None:
+        try:
+            kwargs["tlsCAFile"] = certifi.where()
+        except Exception:
+            pass
+
+    return kwargs
+
+
+def _looks_like_tls_handshake_error(err: Any) -> bool:
+    """מזהה שגיאת לחיצת יד TLS (כמו TLSV1_ALERT_INTERNAL_ERROR) לפי טקסט השגיאה."""
+    try:
+        text = str(err).lower()
+    except Exception:
+        return False
+    markers = (
+        "ssl handshake failed",
+        "tlsv1",
+        "sslv3",
+        "[ssl:",
+        "ssl: ",
+        "certificate verify failed",
+        "_ssl.c",
+    )
+    return any(m in text for m in markers)
+
+
 def _get_raw_db():
     try:
         from database import db as _db_manager  # local import to avoid circular
@@ -1158,6 +1243,21 @@ class DatabaseManager:
             except Exception:
                 self.db_name = ""
 
+            # חיזוק TLS/CA ל-Atlas (mongodb+srv / tls=true): מכוונים את אימות התעודה
+            # למאגר ה-CA של certifi, כדי שמאגר CA חלקי בקונטיינר לא ישבור את לחיצת היד.
+            # ניתן לעקוף עם MONGODB_TLS_CA_FILE / MONGODB_TLS_USE_CERTIFI.
+            try:
+                _tls_kwargs = _build_tls_kwargs(mongo_url)
+                if _tls_kwargs:
+                    kwargs.update(_tls_kwargs)
+                    emit_event(
+                        "db_tls_ca_configured",
+                        severity="info",
+                        tls_ca_file=str(_tls_kwargs.get("tlsCAFile", "")),
+                    )
+            except Exception:
+                pass
+
             # Retry with exponential backoff for transient network / Atlas issues
             try:
                 max_retries = max(int(os.getenv("MONGODB_CONNECT_MAX_RETRIES", "4")), 1)
@@ -1169,6 +1269,7 @@ class DatabaseManager:
                 retry_base_delay = 2.0
 
             last_err: Optional[Exception] = None
+            tls_hint_emitted = False
             for attempt in range(1, max_retries + 1):
                 try:
                     self.client = MongoClient(
@@ -1206,6 +1307,15 @@ class DatabaseManager:
                             self.client.close()
                     except Exception:
                         pass
+                    # רמז אבחון חד-פעמי לכשל לחיצת יד TLS (מקל על זיהוי הסיבה האמיתית)
+                    if _looks_like_tls_handshake_error(conn_err) and not tls_hint_emitted:
+                        tls_hint_emitted = True
+                        emit_event(
+                            "db_tls_handshake_hint",
+                            severity="warn",
+                            using_certifi=bool(kwargs.get("tlsCAFile")),
+                            hint=_TLS_HANDSHAKE_HINT,
+                        )
                     if attempt < max_retries:
                         delay = retry_base_delay * (2 ** (attempt - 1))
                         emit_event(
@@ -1289,6 +1399,14 @@ class DatabaseManager:
                     max_attempts=max_bg_attempts,
                     error=str(e),
                 )
+                # רמז אבחון פעם אחת (בניסיון הראשון) אם מדובר בכשל לחיצת יד TLS
+                if _attempt == 1 and _looks_like_tls_handshake_error(e):
+                    emit_event(
+                        "db_tls_handshake_hint",
+                        severity="warn",
+                        using_certifi=bool(kwargs.get("tlsCAFile")),
+                        hint=_TLS_HANDSHAKE_HINT,
+                    )
                 try:
                     client.close()
                 except Exception:
