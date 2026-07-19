@@ -57,3 +57,23 @@ def test_build_app_exposes_healthz_route():
     app = build_app(_FakeBackend(), _FakeStore())
     paths = {getattr(r, "path", None) for r in app.routes}
     assert "/healthz" in paths
+
+
+def test_transport_security_off_by_default(monkeypatch):
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+    monkeypatch.delenv("MCP_ALLOWED_ORIGINS", raising=False)
+    from mcp_server.server import _transport_security
+
+    ts = _transport_security()
+    # Public token-gated server: DNS-rebinding host check must be off so a real
+    # domain (e.g. *.onrender.com) is not rejected with HTTP 421.
+    assert ts.enable_dns_rebinding_protection is False
+
+
+def test_transport_security_locks_down_via_env(monkeypatch):
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "a.com, *.b.com")
+    from mcp_server.server import _transport_security
+
+    ts = _transport_security()
+    assert ts.enable_dns_rebinding_protection is True
+    assert ts.allowed_hosts == ["a.com", "*.b.com"]

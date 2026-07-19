@@ -2108,6 +2108,18 @@
      - ``CodeKeeper``
      - ``CodeKeeper``
      - MCP
+   * - ``MCP_ALLOWED_HOSTS``
+     - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).
+     - לא
+     - "" (כבוי)
+     - ``codekeeper-mcp.onrender.com``
+     - MCP
+   * - ``MCP_ALLOWED_ORIGINS``
+     - רשימת Origin מותרים לשרת ה-MCP (CSV). רלוונטי רק כשמפעילים הגנה דרך ``MCP_ALLOWED_HOSTS``.
+     - לא
+     - ""
+     - ``https://claude.ai``
+     - MCP
 
 דגלי בדיקות ופיתוח
 -------------------
