@@ -27,75 +27,10 @@ from mcp_server.oauth_provider import CodeKeeperOAuthProvider  # noqa: E402
 from mcp_server.oauth_routes import oauth_consent_routes  # noqa: E402
 from mcp_server.oauth_store import OAuthStore  # noqa: E402
 from mcp_server.server import build_app  # noqa: E402
+from tests._fake_mongo import FakeDB  # noqa: E402
 
 SECRET = "e2e-secret"
 BASE = "https://mcp.test"  # SDK requires an HTTPS issuer (or localhost)
-
-
-class _Res:
-    def __init__(self, m=0, up=None):
-        self.modified_count = m
-        self.upserted_id = up
-
-
-class _Coll:
-    def __init__(self):
-        self.docs = []
-        self.n = 0
-
-    def create_index(self, *a, **k):
-        return "i"
-
-    def insert_one(self, d):
-        self.n += 1
-        d = dict(d)
-        d.setdefault("_id", self.n)
-        self.docs.append(d)
-        return _Res()
-
-    @staticmethod
-    def _m(doc, q):
-        for k, v in q.items():
-            if isinstance(v, dict) and "$ne" in v:
-                if doc.get(k) == v["$ne"]:
-                    return False
-            elif doc.get(k) != v:
-                return False
-        return True
-
-    def find_one(self, q):
-        return next((d for d in self.docs if self._m(d, q)), None)
-
-    def update_one(self, q, u, upsert=False):
-        for d in self.docs:
-            if self._m(d, q):
-                d.update(u.get("$set", {}))
-                return _Res(1)
-        if upsert:
-            self.n += 1
-            nd = {"_id": self.n}
-            for k, v in q.items():
-                if not isinstance(v, dict):
-                    nd[k] = v
-            nd.update(u.get("$set", {}))
-            self.docs.append(nd)
-            return _Res(0, self.n)
-        return _Res(0)
-
-    def delete_one(self, q):
-        for i, d in enumerate(self.docs):
-            if self._m(d, q):
-                self.docs.pop(i)
-                return _Res(1)
-        return _Res(0)
-
-
-class _DB:
-    def __init__(self):
-        self.c = {}
-
-    def __getitem__(self, name):
-        return self.c.setdefault(name, _Coll())
 
 
 class _FakeBackend:
@@ -122,7 +57,7 @@ class _FakeBackend:
 
 
 def _build():
-    store = OAuthStore(_DB())
+    store = OAuthStore(FakeDB())
     provider = CodeKeeperOAuthProvider(
         store=store,
         pat_verify=lambda t: None,

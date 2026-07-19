@@ -4,7 +4,7 @@
 > **ענף פיתוח:** `claude/mcp-codekeeper-webapp-ldnzsg`
 > **מתי להשתמש:** לפני מימוש חיבור MCP; מסמך זה הוא מקור האמת לתכנון.
 > **ראו גם:** `mcp_server/README.md` (שימוש), [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/), `CLAUDE.md` (מדיניות מחייבת).
-
+>
 > **מצב מימוש (פאזות 0–1):** חבילת `mcp_server/` (שרת FastMCP קריאה‑בלבד, 7 כלים ל‑
 > `code_snippets` + `collections`). **אימות מאוחד** דרך `load_access_token`: PAT
 > (`ckmcp_`, ל‑Claude Code/Desktop) **וגם** OAuth 2.1 מלא (DCR+PKCE, ל‑Claude.ai)

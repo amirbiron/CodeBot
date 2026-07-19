@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import logging
 import os
 import time
@@ -339,8 +340,11 @@ def _oauth_login_html(txn: str, return_url: str) -> str:
     """
     from urllib.parse import quote
 
-    bot = _get_bot_username_clean()
-    auth_url = f"{request.base_url}?txn={quote(txn)}&return={quote(return_url)}"
+    # HTML-escape everything interpolated into the markup. quote() only makes the
+    # query safe for a URL; it does not neutralize an attribute breakout, so the
+    # final string still has to be html.escape'd before landing in an attribute.
+    bot = html.escape(_get_bot_username_clean())
+    auth_url = html.escape(f"{request.base_url}?txn={quote(txn)}&return={quote(return_url)}")
     return f"""<!doctype html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -369,7 +373,7 @@ def oauth_identify():
     Authenticates the user (Telegram widget or existing session) and redirects
     back to the MCP ``return`` URL with an HMAC-signed ``user_id`` assertion.
     """
-    from urllib.parse import urlencode
+    from urllib.parse import urlencode, urlparse
 
     from mcp_server.oauth_identity import sign_identity
 
@@ -378,9 +382,13 @@ def oauth_identify():
     if not txn or not return_url:
         return jsonify({"error": "missing_txn_or_return"}), 400
 
-    # Open-redirect guard: the return URL must point at our configured MCP service.
-    mcp_base = (os.getenv("MCP_SERVER_URL", "") or "").rstrip("/")
-    if not mcp_base or not return_url.startswith(mcp_base + "/"):
+    # Open-redirect guard: the return URL must share scheme+host with our
+    # configured MCP service. Compare parsed components rather than a startswith
+    # on the raw string — the latter can be fooled by lookalike hosts
+    # ("https://mcp.example.com.evil.com/…") or userinfo tricks.
+    mcp = urlparse((os.getenv("MCP_SERVER_URL", "") or "").strip())
+    ret = urlparse(return_url)
+    if not mcp.scheme or not mcp.netloc or ret.scheme != mcp.scheme or ret.netloc != mcp.netloc:
         return jsonify({"error": "invalid_return_url"}), 400
 
     user_id = None

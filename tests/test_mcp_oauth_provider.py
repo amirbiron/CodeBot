@@ -8,7 +8,7 @@ pytest.importorskip("mcp")
 
 from pydantic import AnyUrl  # noqa: E402
 
-from mcp.server.auth.provider import AuthorizationParams  # noqa: E402
+from mcp.server.auth.provider import AuthorizationParams, TokenError  # noqa: E402
 from mcp.shared.auth import OAuthClientInformationFull  # noqa: E402
 
 from mcp_server.oauth_provider import CodeKeeperOAuthProvider  # noqa: E402
@@ -18,72 +18,7 @@ from mcp_server.oauth_store import (
     OAuthStore,
     new_secret,
 )  # noqa: E402
-
-
-class _Res:
-    def __init__(self, modified=0, upserted=None):
-        self.modified_count = modified
-        self.upserted_id = upserted
-
-
-class _Coll:
-    def __init__(self):
-        self.docs = []
-        self._id = 0
-
-    def create_index(self, *a, **k):
-        return "i"
-
-    def insert_one(self, d):
-        self._id += 1
-        d = dict(d)
-        d.setdefault("_id", self._id)
-        self.docs.append(d)
-        return _Res()
-
-    @staticmethod
-    def _match(doc, q):
-        for k, v in q.items():
-            if isinstance(v, dict) and "$ne" in v:
-                if doc.get(k) == v["$ne"]:
-                    return False
-            elif doc.get(k) != v:
-                return False
-        return True
-
-    def find_one(self, q):
-        return next((d for d in self.docs if self._match(d, q)), None)
-
-    def update_one(self, q, u, upsert=False):
-        for d in self.docs:
-            if self._match(d, q):
-                d.update(u.get("$set", {}))
-                return _Res(1)
-        if upsert:
-            self._id += 1
-            nd = {"_id": self._id}
-            for k, v in q.items():
-                if not isinstance(v, dict):
-                    nd[k] = v
-            nd.update(u.get("$set", {}))
-            self.docs.append(nd)
-            return _Res(0, self._id)
-        return _Res(0)
-
-    def delete_one(self, q):
-        for i, d in enumerate(self.docs):
-            if self._match(d, q):
-                self.docs.pop(i)
-                return _Res(1)
-        return _Res(0)
-
-
-class _DB:
-    def __init__(self):
-        self.c = {}
-
-    def __getitem__(self, name):
-        return self.c.setdefault(name, _Coll())
+from tests._fake_mongo import FakeDB  # noqa: E402
 
 
 def _pat(tok):
@@ -91,7 +26,7 @@ def _pat(tok):
 
 
 def _provider():
-    store = OAuthStore(_DB())
+    store = OAuthStore(FakeDB())
     prov = CodeKeeperOAuthProvider(
         store=store,
         pat_verify=_pat,
@@ -120,7 +55,11 @@ async def test_register_and_get_client():
     _, prov = _provider()
     await prov.register_client(_client())
     got = await prov.get_client("c1")
-    assert got is not None and str(got.redirect_uris[0]).startswith("https://claude.ai")
+    assert got is not None
+    # Parse rather than startswith: "https://claude.ai.evil.com" would slip past a
+    # prefix check, so assert scheme + host exactly (also silences CodeQL).
+    parsed = up.urlparse(str(got.redirect_uris[0]))
+    assert parsed.scheme == "https" and parsed.hostname == "claude.ai"
     assert await prov.get_client("nope") is None
 
 
@@ -202,3 +141,52 @@ async def test_refresh_token_rotation():
     assert await prov.load_refresh_token(_client(), old_refresh) is None  # old revoked
     at = await prov.load_access_token(new_tok.access_token)
     assert at is not None and at.subject == "42"
+
+
+def _saved_code(store, **over):
+    code = new_secret("ckoc_")
+    data = {
+        "client_id": "c1",
+        "subject": "42",
+        "code_challenge": "c",
+        "redirect_uri": "https://claude.ai/cb",
+        "scopes": ["read"],
+    }
+    data.update(over)
+    store.save_code(code, data)
+    return code
+
+
+async def test_authorization_code_replay_is_rejected():
+    store, prov = _provider()
+    code = _saved_code(store)
+    loaded = await prov.load_authorization_code(_client(), code)
+    await prov.exchange_authorization_code(_client(), loaded)  # first use consumes it
+    with pytest.raises(TokenError) as ei:  # replaying the same code must not mint again
+        await prov.exchange_authorization_code(_client(), loaded)
+    assert ei.value.error == "invalid_grant"
+
+
+async def test_refresh_token_replay_is_rejected():
+    store, prov = _provider()
+    code = _saved_code(store)
+    loaded = await prov.load_authorization_code(_client(), code)
+    tok = await prov.exchange_authorization_code(_client(), loaded)
+    rt = await prov.load_refresh_token(_client(), tok.refresh_token)
+    await prov.exchange_refresh_token(_client(), rt, ["read"])  # rotates + revokes rt
+    with pytest.raises(TokenError) as ei:  # reusing the rotated refresh token
+        await prov.exchange_refresh_token(_client(), rt, ["read"])
+    assert ei.value.error == "invalid_grant"
+
+
+async def test_refresh_cannot_widen_scope():
+    store, prov = _provider()
+    code = _saved_code(store, scopes=["read"])
+    loaded = await prov.load_authorization_code(_client(), code)
+    tok = await prov.exchange_authorization_code(_client(), loaded)
+    rt = await prov.load_refresh_token(_client(), tok.refresh_token)
+    with pytest.raises(TokenError) as ei:  # asking for a scope the grant never had
+        await prov.exchange_refresh_token(_client(), rt, ["read", "write"])
+    assert ei.value.error == "invalid_scope"
+    # the failed attempt must not have consumed/revoked the still-valid token
+    assert await prov.load_refresh_token(_client(), tok.refresh_token) is not None

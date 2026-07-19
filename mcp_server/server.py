@@ -51,7 +51,11 @@ def _transport_security() -> TransportSecuritySettings:
     """
     hosts = [h.strip() for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
     origins = [o.strip() for o in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
-    if hosts or origins:
+    # Gate on hosts only. The host allow-list is what enforces the check; turning
+    # protection on with an empty allowed_hosts (e.g. only MCP_ALLOWED_ORIGINS
+    # set) would reject every request with HTTP 421. Origins refine an
+    # already-locked-down server, so they ride along but never enable it alone.
+    if hosts:
         return TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=hosts,

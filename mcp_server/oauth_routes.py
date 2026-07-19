@@ -102,7 +102,10 @@ def oauth_consent_routes(store: OAuthStore, secret: str) -> list[Route]:
         redirect_base = doc["redirect_uri"]
         state = doc.get("state")
 
-        if form.get("action") == "deny":
+        # Fail closed: only an explicit "approve" mints a code. Anything else
+        # (an explicit "deny", a missing/unknown action, a tampered form) is
+        # treated as denial so a code is never issued by accident.
+        if form.get("action") != "approve":
             await anyio.to_thread.run_sync(store.delete_txn, txn)
             uri = construct_redirect_uri(redirect_base, error="access_denied", state=state)
             return RedirectResponse(uri, status_code=302)

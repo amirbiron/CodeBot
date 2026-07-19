@@ -46,6 +46,19 @@ def test_open_redirect_guard(monkeypatch):
     assert r.status_code == 400
 
 
+def test_open_redirect_guard_rejects_lookalike_host(monkeypatch):
+    # A host that merely *starts with* the configured base must be rejected.
+    c = _client(monkeypatch)
+    r = c.get("/oauth/identify?txn=t1&return=https://mcp.example.com.evil.com/oauth/consent")
+    assert r.status_code == 400
+
+
+def test_open_redirect_guard_rejects_scheme_downgrade(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.get("/oauth/identify?txn=t1&return=http://mcp.example.com/oauth/consent")
+    assert r.status_code == 400
+
+
 def test_session_identity_signs_and_redirects(monkeypatch):
     c = _client(monkeypatch)
     with c.session_transaction() as sess:

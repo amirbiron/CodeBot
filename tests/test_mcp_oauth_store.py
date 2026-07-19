@@ -4,76 +4,11 @@ from datetime import datetime, timedelta, UTC
 
 from mcp_server.oauth_store import ACCESS_PREFIX, OAuthStore, new_secret
 from mcp_server.token_store import hash_token
-
-
-class _Res:
-    def __init__(self, modified=0, upserted=None):
-        self.modified_count = modified
-        self.upserted_id = upserted
-
-
-class _Coll:
-    def __init__(self):
-        self.docs = []
-        self._id = 0
-
-    def create_index(self, *a, **k):
-        return "i"
-
-    def insert_one(self, d):
-        self._id += 1
-        d = dict(d)
-        d.setdefault("_id", self._id)
-        self.docs.append(d)
-        return _Res()
-
-    @staticmethod
-    def _match(doc, q):
-        for k, v in q.items():
-            if isinstance(v, dict) and "$ne" in v:
-                if doc.get(k) == v["$ne"]:
-                    return False
-            elif doc.get(k) != v:
-                return False
-        return True
-
-    def find_one(self, q):
-        return next((d for d in self.docs if self._match(d, q)), None)
-
-    def update_one(self, q, u, upsert=False):
-        for d in self.docs:
-            if self._match(d, q):
-                d.update(u.get("$set", {}))
-                return _Res(1)
-        if upsert:
-            self._id += 1
-            nd = {"_id": self._id}
-            for k, v in q.items():
-                if not isinstance(v, dict):
-                    nd[k] = v
-            nd.update(u.get("$set", {}))
-            self.docs.append(nd)
-            return _Res(0, self._id)
-        return _Res(0)
-
-    def delete_one(self, q):
-        for i, d in enumerate(self.docs):
-            if self._match(d, q):
-                self.docs.pop(i)
-                return _Res(1)
-        return _Res(0)
-
-
-class _DB:
-    def __init__(self):
-        self.c = {}
-
-    def __getitem__(self, name):
-        return self.c.setdefault(name, _Coll())
+from tests._fake_mongo import FakeDB
 
 
 def _store():
-    return OAuthStore(_DB())
+    return OAuthStore(FakeDB())
 
 
 def _past(store_coll):
@@ -110,7 +45,8 @@ def test_code_peek_then_consume():
     assert "_id" not in peek
     # peek does not consume
     assert s.get_code(code) is not None
-    s.delete_code(code)
+    assert s.delete_code(code) is True  # first consume wins
+    assert s.delete_code(code) is False  # replay: nothing left to delete
     assert s.get_code(code) is None  # consumed
     assert s._codes.find_one({"code_hash": hash_token(code)}) is None
 
@@ -129,7 +65,8 @@ def test_token_kind_isolation_and_revoke():
     s.save_token(at, kind="access", data={"client_id": "c1", "subject": "42", "scopes": ["read"]})
     assert s.get_token(at, kind="access")["subject"] == "42"
     assert s.get_token(at, kind="refresh") is None  # wrong kind
-    s.revoke_token(at)
+    assert s.revoke_token(at) is True  # first revoke flips a live row
+    assert s.revoke_token(at) is False  # replay: already revoked
     assert s.get_token(at, kind="access") is None
 
 

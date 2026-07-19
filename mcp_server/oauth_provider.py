@@ -30,6 +30,7 @@ from mcp.server.auth.provider import (
     AuthorizationCode,
     AuthorizationParams,
     RefreshToken,
+    TokenError,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -123,7 +124,13 @@ class CodeKeeperOAuthProvider:
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
     ) -> OAuthToken:
-        await anyio.to_thread.run_sync(self._store.delete_code, authorization_code.code)
+        # Consume the code *first* and only issue if this call actually removed
+        # it. That makes the exchange atomic: a concurrent/replayed request for
+        # the same code deletes nothing and is rejected instead of minting a
+        # second token pair.
+        consumed = await anyio.to_thread.run_sync(self._store.delete_code, authorization_code.code)
+        if not consumed:
+            raise TokenError("invalid_grant", "authorization code already used or expired")
         return await anyio.to_thread.run_sync(
             self._issue,
             client.client_id,
@@ -154,8 +161,18 @@ class CodeKeeperOAuthProvider:
         refresh_token: RefreshToken,
         scopes: list[str],
     ) -> OAuthToken:
-        # Rotate: invalidate the presented refresh token, issue a fresh pair.
-        await anyio.to_thread.run_sync(self._store.revoke_token, refresh_token.token)
+        # A refresh must never widen scope: the requested set has to be a subset
+        # of what the refresh token already carries (RFC 6749 §6).
+        granted = set(refresh_token.scopes or [])
+        requested = set(scopes or [])
+        if not requested <= granted:
+            raise TokenError("invalid_scope", "requested scopes exceed the granted scopes")
+        # Rotate: revoke the presented refresh token, and only issue a fresh pair
+        # if *this* call revoked a live token. A replayed (already-rotated) token
+        # revokes nothing and is rejected — detecting refresh-token reuse.
+        rotated = await anyio.to_thread.run_sync(self._store.revoke_token, refresh_token.token)
+        if not rotated:
+            raise TokenError("invalid_grant", "refresh token already used or revoked")
         use_scopes = list(scopes or refresh_token.scopes)
         return await anyio.to_thread.run_sync(
             self._issue, client.client_id, refresh_token.subject, use_scopes

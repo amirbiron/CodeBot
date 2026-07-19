@@ -1,5 +1,7 @@
 """Unit tests for the signed identity assertion (webapp <-> MCP)."""
 
+import pytest
+
 from mcp_server.oauth_identity import sign_identity, verify_identity
 
 SECRET = "shared-secret-key"
@@ -31,3 +33,16 @@ def test_verify_rejects_non_numeric():
     exp, sig = sign_identity(SECRET, 42, "txn1")
     assert not verify_identity(SECRET, "abc", "txn1", exp, sig)
     assert not verify_identity(SECRET, 42, "txn1", "notint", sig)
+
+
+def test_empty_secret_is_refused():
+    # An empty signing key would let anyone forge an assertion, so signing must
+    # raise and verification must always fail — never silently use a blank key.
+    with pytest.raises(ValueError):
+        sign_identity("", 42, "txn1")
+    # Even a signature that "matches" an empty-key HMAC must not verify.
+    import hashlib
+    import hmac
+
+    forged = hmac.new(b"", b"42:txn1:9999999999", hashlib.sha256).hexdigest()
+    assert not verify_identity("", 42, "txn1", 9999999999, forged)

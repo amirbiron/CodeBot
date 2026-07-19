@@ -11,69 +11,13 @@ from starlette.applications import Starlette  # noqa: E402
 from mcp_server.oauth_identity import sign_identity  # noqa: E402
 from mcp_server.oauth_routes import oauth_consent_routes  # noqa: E402
 from mcp_server.oauth_store import OAuthStore  # noqa: E402
+from tests._fake_mongo import FakeDB  # noqa: E402
 
 SECRET = "s3cr3t"
 
 
-class _Res:
-    def __init__(self, modified=0, upserted=None):
-        self.modified_count = modified
-        self.upserted_id = upserted
-
-
-class _Coll:
-    def __init__(self):
-        self.docs = []
-        self._id = 0
-
-    def create_index(self, *a, **k):
-        return "i"
-
-    def insert_one(self, d):
-        self._id += 1
-        d = dict(d)
-        d.setdefault("_id", self._id)
-        self.docs.append(d)
-        return _Res()
-
-    @staticmethod
-    def _match(doc, q):
-        for k, v in q.items():
-            if isinstance(v, dict) and "$ne" in v:
-                if doc.get(k) == v["$ne"]:
-                    return False
-            elif doc.get(k) != v:
-                return False
-        return True
-
-    def find_one(self, q):
-        return next((d for d in self.docs if self._match(d, q)), None)
-
-    def update_one(self, q, u, upsert=False):
-        for d in self.docs:
-            if self._match(d, q):
-                d.update(u.get("$set", {}))
-                return _Res(1)
-        return _Res(0)
-
-    def delete_one(self, q):
-        for i, d in enumerate(self.docs):
-            if self._match(d, q):
-                self.docs.pop(i)
-                return _Res(1)
-        return _Res(0)
-
-
-class _DB:
-    def __init__(self):
-        self.c = {}
-
-    def __getitem__(self, name):
-        return self.c.setdefault(name, _Coll())
-
-
 def _app_store():
-    store = OAuthStore(_DB())
+    store = OAuthStore(FakeDB())
     app = Starlette(routes=oauth_consent_routes(store, SECRET))
     return app, store
 
@@ -146,3 +90,21 @@ async def test_consent_deny_redirects_with_error():
         )
     assert r.status_code == 302
     assert "error=access_denied" in r.headers["location"]
+
+
+async def test_consent_missing_action_fails_closed():
+    # No/unknown action must be treated as denial — never mint a code by default.
+    app, store = _app_store()
+    txn = _mk_txn(store)
+    exp, sig = sign_identity(SECRET, 42, txn)
+    async with _client(app) as c:
+        r = await c.post(
+            "/oauth/consent",
+            data={"txn": txn, "user_id": "42", "exp": str(exp), "sig": sig},
+            follow_redirects=False,
+        )
+    assert r.status_code == 302
+    loc = r.headers["location"]
+    assert "error=access_denied" in loc
+    assert "code=ckoc_" not in loc
+    assert store.get_txn(txn) is None  # txn consumed on denial

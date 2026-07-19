@@ -65,6 +65,12 @@ class OAuthStore:
             self._codes.create_index("code_hash", unique=True)
             self._tokens.create_index("token_hash", unique=True)
             self._tokens.create_index("subject")
+            # TTL: let Mongo reap expired rows automatically (we also guard on
+            # read via _expired). expireAfterSeconds=0 => delete once expires_at
+            # is in the past. Keeps codes/txns/tokens collections self-cleaning.
+            self._txns.create_index("expires_at", expireAfterSeconds=0)
+            self._codes.create_index("expires_at", expireAfterSeconds=0)
+            self._tokens.create_index("expires_at", expireAfterSeconds=0)
         except Exception:
             pass
 
@@ -116,12 +122,18 @@ class OAuthStore:
         doc.pop("_id", None)
         return doc
 
-    def delete_code(self, code: str) -> None:
-        """Consume an authorization code (single-use)."""
+    def delete_code(self, code: str) -> bool:
+        """Consume an authorization code (single-use).
+
+        Returns ``True`` only if *this* call removed the row. Callers rely on
+        that to make the exchange atomic: a replayed code deletes nothing and
+        must be rejected.
+        """
         try:
-            self._codes.delete_one({"code_hash": hash_token(code)})
+            res = self._codes.delete_one({"code_hash": hash_token(code)})
+            return bool(getattr(res, "deleted_count", 0))
         except Exception:
-            pass
+            return False
 
     # -- access + refresh tokens ------------------------------------------
     def save_token(self, token: str, *, kind: str, data: dict) -> None:
@@ -141,8 +153,18 @@ class OAuthStore:
         doc.pop("_id", None)
         return doc
 
-    def revoke_token(self, token: str) -> None:
+    def revoke_token(self, token: str) -> bool:
+        """Revoke a token. Returns ``True`` only if a *live* row was flipped.
+
+        The ``revoked != True`` filter makes this idempotency-safe: revoking an
+        already-revoked (or missing) token matches nothing, so refresh-token
+        rotation can detect replay by checking the return value.
+        """
         try:
-            self._tokens.update_one({"token_hash": hash_token(token)}, {"$set": {"revoked": True}})
+            res = self._tokens.update_one(
+                {"token_hash": hash_token(token), "revoked": {"$ne": True}},
+                {"$set": {"revoked": True}},
+            )
+            return bool(getattr(res, "modified_count", 0))
         except Exception:
-            pass
+            return False
