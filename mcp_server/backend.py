@@ -61,6 +61,15 @@ def _full(doc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _strip_heavy(value: Any) -> Any:
+    """Recursively drop heavy content fields from an already-serialized value."""
+    if isinstance(value, dict):
+        return {k: _strip_heavy(v) for k, v in value.items() if k not in _HEAVY_FIELDS}
+    if isinstance(value, list):
+        return [_strip_heavy(v) for v in value]
+    return value
+
+
 class ProductionBackend:
     """Backend backed by the real in-process ``database`` layer.
 
@@ -154,6 +163,11 @@ class ProductionBackend:
         per_page: int = 50,
         folder: str | None = None,
     ) -> dict[str, Any]:
-        return self._collections().get_collection_items(
+        result = self._collections().get_collection_items(
             user_id, collection_id, page=page, per_page=per_page, folder_filter=folder
         )
+        # Defense-in-depth: collection items are file *references* (no code today),
+        # but never let a heavy content field slip through if the manager changes.
+        if isinstance(result, dict) and isinstance(result.get("items"), list):
+            result["items"] = [_strip_heavy(item) for item in result["items"]]
+        return result

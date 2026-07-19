@@ -11,10 +11,6 @@
 > מאגר הטוקנים נמצא ב‑`mcp_server/token_store.py` (ולא `database/mcp_tokens.py`), כדי
 > שהמודולים יהיו נטולי תלויות כבדות וניתנים לבדיקה בבידוד. פקודת הבוט `/connect_claude`
 > ו‑OAuth (Claude.ai) יגיעו בפאזות הבאות.
-> **סטטוס:** תכנון (Draft) — לפני כתיבת קוד. ממתין לאישור כיוון.
-> **ענף פיתוח:** `claude/mcp-codekeeper-webapp-ldnzsg`
-> **מתי להשתמש:** לפני מימוש חיבור MCP; מסמך זה הוא מקור האמת לתכנון.
-> **ראו גם:** [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/), `CLAUDE.md` (מדיניות מחייבת).
 
 ---
 
@@ -99,7 +95,7 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 
 ## 4. ארכיטקטורה מוצעת
 
-```
+```text
 ┌────────────┐   OAuth 2.1 (PKCE)   ┌──────────────────────────┐
 │  Claude.ai │ ───────────────────► │  שרת MCP חדש (שירות נפרד) │
 │ (Connector)│   Streamable HTTP    │  Python + ASGI (uvicorn) │
@@ -128,6 +124,7 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 ## 5. הכלים והמשאבים (MCP surface)
 
 ### 5.1 Tools
+
 | כלי | קלט | פלט | נשען על |
 |-----|-----|-----|---------|
 | `list_files` | `limit`, `page`, `language?`, `tag?` | רשימת מטא‑דאטה (בלי `code`) | `get_user_files` |

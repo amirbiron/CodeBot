@@ -117,3 +117,20 @@ def test_collections_delegate_to_manager():
     assert be.get_collection_items(3, collection_id="c1", page=2, per_page=10, folder="f")[
         "seen"
     ] == (3, "c1", 2, 10, "f")
+
+
+def test_collection_items_strip_heavy_fields():
+    class _LeakyCM:
+        def get_collection_items(
+            self, user_id, collection_id, page=1, per_page=20, folder_filter=None
+        ):
+            return {
+                "ok": True,
+                "items": [{"id": "1", "file_name": "a.py", "code": "LEAK", "content": "LEAK2"}],
+            }
+
+    be = ProductionBackend(collections_manager=_LeakyCM())
+    out = be.get_collection_items(3, collection_id="c1")
+    item = out["items"][0]
+    assert "code" not in item and "content" not in item
+    assert item["file_name"] == "a.py"

@@ -17,23 +17,6 @@ import os
 import sys
 
 
-def _resolve_mongo(db_manager):
-    mongo = getattr(db_manager, "db", None)
-    if mongo is not None:
-        return mongo
-    for attr in ("connect", "_get_repo", "ensure_connection"):
-        fn = getattr(db_manager, attr, None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                pass
-            mongo = getattr(db_manager, "db", None)
-            if mongo is not None:
-                return mongo
-    return None
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Issue a CodeKeeper MCP access token")
     parser.add_argument(
@@ -54,8 +37,9 @@ def main() -> int:
 
     from database import db as db_manager  # noqa: E402
     from mcp_server.token_store import MCPTokenStore  # noqa: E402
+    from mcp_server.wiring import resolve_mongo  # noqa: E402
 
-    mongo = _resolve_mongo(db_manager)
+    mongo = resolve_mongo(db_manager)
     if mongo is None:
         print("ERROR: could not connect to MongoDB.", file=sys.stderr)
         return 3

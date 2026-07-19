@@ -10,6 +10,7 @@ This is deliberately simple (Phase 0). Phase 1 replaces it with OAuth 2.1.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from typing import Any
 
@@ -17,6 +18,8 @@ import anyio
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 # Paths that must remain reachable without a token (health checks, etc.).
 EXEMPT_PATHS = {"/healthz", "/health", "/"}
@@ -55,6 +58,9 @@ class PATAuthMiddleware(BaseHTTPMiddleware):
             # verify() is a sync DB call — keep it off the event loop.
             principal = await anyio.to_thread.run_sync(self._store.verify, token)
         except Exception:
+            # Log the failure (never the token) so DB/connectivity issues are
+            # diagnosable in production, then fail closed.
+            logger.warning("MCP token verification raised an error", exc_info=True)
             principal = None
 
         if not principal:

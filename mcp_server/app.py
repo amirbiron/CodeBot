@@ -12,36 +12,17 @@ lighter ``handlers`` / ``backend`` / ``token_store`` modules directly.
 from __future__ import annotations
 
 import os
-from typing import Any
 
 from .backend import ProductionBackend
 from .server import build_app
 from .token_store import MCPTokenStore
-
-
-def _resolve_mongo(db_manager: Any) -> Any:
-    """Return the pymongo Database handle, forcing a connection if needed."""
-    mongo = getattr(db_manager, "db", None)
-    if mongo is not None:
-        return mongo
-    # Some managers connect lazily; nudge them, then re-read.
-    for attr in ("connect", "_get_repo", "ensure_connection"):
-        fn = getattr(db_manager, attr, None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                pass
-            mongo = getattr(db_manager, "db", None)
-            if mongo is not None:
-                return mongo
-    return None
+from .wiring import resolve_mongo
 
 
 def create_app():
     from database import db as db_manager  # lazy heavy import
 
-    mongo = _resolve_mongo(db_manager)
+    mongo = resolve_mongo(db_manager)
     if mongo is None:
         raise RuntimeError(
             "MongoDB is not available (database.db is None). "
