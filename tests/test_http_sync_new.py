@@ -32,9 +32,14 @@ def test_request_uses_merged_headers_and_respects_slow_logging(monkeypatch):
 
     # Patch get_session to return our fake session
     monkeypatch.setattr(hs, "get_session", lambda: FakeSession())
-    # Force perf_counter to simulate a slow request (> HTTP_SLOW_MS)
-    seq = [100.0, 100.2]  # 200ms
-    monkeypatch.setattr(hs.time, "perf_counter", lambda: seq.pop(0))
+    # Simulate a slow request (200ms) with a NON-exhausting clock: first read is
+    # t0, every later read is t0+200ms. A plain 2-element pop() is fragile — this
+    # patches the *global* time module, so any extra perf_counter() call (an error
+    # path, metrics, logging) drains the list and raises IndexError.
+    import itertools
+
+    ticks = itertools.chain([100.0], itertools.repeat(100.2))
+    monkeypatch.setattr(hs.time, "perf_counter", lambda: next(ticks))
 
     # Ensure merged headers come from our merger
     monkeypatch.setattr(hs, "_merge_observability_headers", lambda h: {"X": "Y"})
