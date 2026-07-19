@@ -2097,16 +2097,22 @@
      - ``mongodb://localhost:27017`` / ``my_db``
      - Scripts
    * - ``MCP_SERVER_URL``
-     - ה-URL הציבורי של שירות ה-MCP. משמש את פקודת הבוט ``/connect_claude`` כדי לבנות את פקודת החיבור ל-Claude.
+     - ה-URL הציבורי (https) של שירות ה-MCP. בבוט: בניית פקודת ``/connect_claude``. בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם ``WEBAPP_URL``). בוובאפ: שער open-redirect ב-``/oauth/identify``.
      - לא
      - ``https://YOUR-MCP-HOST``
      - ``https://code-keeper-mcp.onrender.com``
-     - Bot
+     - Bot/MCP/WebApp
    * - ``MCP_SERVER_NAME``
      - שם התצוגה של שרת ה-MCP (מוצג ללקוח כשם ה-Connector).
      - לא
      - ``CodeKeeper``
      - ``CodeKeeper``
+     - MCP
+   * - ``WEBAPP_URL``
+     - שירות ה-MCP: ה-URL של הוובאפ לגשר זהות OAuth (``/oauth/identify``). מדליק מצב OAuth יחד עם ``MCP_SERVER_URL``. (משתנה קיים; זה שימוש נוסף.)
+     - לא
+     - ""
+     - ``https://code-keeper-webapp.onrender.com``
      - MCP
    * - ``MCP_ALLOWED_HOSTS``
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).

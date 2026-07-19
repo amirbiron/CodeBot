@@ -1,16 +1,17 @@
 # חיבור Claude.ai ל‑CodeKeeper דרך MCP — מסמך תכנון
 
-> **סטטוס:** פאזה 0 (MVP קריאה‑בלבד + PAT) **מומשה** — ראו `mcp_server/`. פאזות 1–3 עדיין בתכנון.
+> **סטטוס:** פאזה 0 (PAT) **+** פאזה 1 (OAuth 2.1 ל‑Claude.ai) **מומשו** — ראו `mcp_server/`. כתיבה (פאזה 3) עדיין בתכנון.
 > **ענף פיתוח:** `claude/mcp-codekeeper-webapp-ldnzsg`
 > **מתי להשתמש:** לפני מימוש חיבור MCP; מסמך זה הוא מקור האמת לתכנון.
 > **ראו גם:** `mcp_server/README.md` (שימוש), [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/), `CLAUDE.md` (מדיניות מחייבת).
 
-> **מצב מימוש (פאזה 0):** נכתבה חבילת `mcp_server/` (שרת FastMCP קריאה‑בלבד עם 7 כלים
-> ל‑`code_snippets` + `collections`), אימות PAT מעל קולקשן `mcp_tokens`, סקריפט
-> `scripts/mcp_issue_token.py`, וטסטים `tests/test_mcp_*.py`. **הערת סטייה מהמסמך:**
-> מאגר הטוקנים נמצא ב‑`mcp_server/token_store.py` (ולא `database/mcp_tokens.py`), כדי
-> שהמודולים יהיו נטולי תלויות כבדות וניתנים לבדיקה בבידוד. פקודת הבוט `/connect_claude`
-> כבר זמינה (הנפקת טוקן מתוך טלגרם); OAuth (Claude.ai) וכלי כתיבה יגיעו בפאזות הבאות.
+> **מצב מימוש (פאזות 0–1):** חבילת `mcp_server/` (שרת FastMCP קריאה‑בלבד, 7 כלים ל‑
+> `code_snippets` + `collections`). **אימות מאוחד** דרך `load_access_token`: PAT
+> (`ckmcp_`, ל‑Claude Code/Desktop) **וגם** OAuth 2.1 מלא (DCR+PKCE, ל‑Claude.ai)
+> עם גשר זהות דרך התחברות הטלגרם בוובאפ (`/oauth/identify` → `/oauth/consent`).
+> פקודת בוט `/connect_claude`. **הערת סטייה:** מאגרי הטוקנים ב‑`mcp_server/` (ולא
+> `database/`), לבדיקוּת בבידוד. נותר לפאזות הבאות: כלי כתיבה. אומת מקצה‑לקצה מקומית
+> ובפרודקשן (Claude Code על 682 קבצים אמיתיים).
 
 ---
 

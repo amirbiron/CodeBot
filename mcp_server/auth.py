@@ -71,13 +71,26 @@ class PATAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def current_user_id(ctx: Any) -> int:
-    """Return the authenticated user's id from an MCP tool ``Context``.
+def current_user_id(ctx: Any = None) -> int:
+    """Return the authenticated user's id inside an MCP tool.
 
-    Raises ``PermissionError`` if the request was not authenticated (which
-    should be impossible once :class:`PATAuthMiddleware` is installed, but we
-    fail closed rather than leak data).
+    Works in both auth modes:
+    - OAuth mode: the SDK auth layer exposes the verified access token via
+      ``get_access_token()`` (its ``subject`` carries the user id).
+    - PAT-only mode: :class:`PATAuthMiddleware` injected the id onto
+      ``request.state`` (reachable through the tool ``Context``).
+
+    Fails closed with ``PermissionError`` if neither is present.
     """
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+
+        token = get_access_token()
+    except Exception:
+        token = None
+    if token is not None and getattr(token, "subject", None) is not None:
+        return int(token.subject)
+
     request = getattr(getattr(ctx, "request_context", None), "request", None)
     user_id = getattr(getattr(request, "state", None), "user_id", None)
     if user_id is None:

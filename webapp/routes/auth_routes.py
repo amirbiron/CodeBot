@@ -329,3 +329,85 @@ def logout():
         pass
     session.clear()
     return resp
+
+
+def _oauth_login_html(txn: str, return_url: str) -> str:
+    """Minimal page hosting the Telegram Login Widget for the MCP OAuth flow.
+
+    The widget's ``data-auth-url`` points back here (preserving txn/return), so
+    Telegram redirects the browser back with the signed auth params.
+    """
+    from urllib.parse import quote
+
+    bot = _get_bot_username_clean()
+    auth_url = f"{request.base_url}?txn={quote(txn)}&return={quote(return_url)}"
+    return f"""<!doctype html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeKeeper — התחברות לחיבור Claude</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; background:#0f1115; color:#e6e6e6;
+         display:flex; min-height:100vh; align-items:center; justify-content:center; margin:0; }}
+  .card {{ background:#1a1d24; border:1px solid #2a2f3a; border-radius:14px; padding:28px;
+          max-width:420px; width:90%; text-align:center; }}
+  h1 {{ font-size:20px; }} p {{ color:#a9b1bd; line-height:1.6; }}
+</style></head><body>
+  <div class="card">
+    <h1>🔌 חיבור ל‑Claude</h1>
+    <p>התחבר עם טלגרם כדי לאשר גישת קריאה לקבצים שלך ב‑CodeKeeper.</p>
+    <script async src="https://telegram.org/js/telegram-widget.js?22"
+      data-telegram-login="{bot}" data-size="large"
+      data-auth-url="{auth_url}" data-request-access="write"></script>
+  </div>
+</body></html>"""
+
+
+@auth_bp.route("/oauth/identify", methods=["GET"])
+def oauth_identify():
+    """Identity bridge for the MCP OAuth flow.
+
+    Authenticates the user (Telegram widget or existing session) and redirects
+    back to the MCP ``return`` URL with an HMAC-signed ``user_id`` assertion.
+    """
+    from urllib.parse import urlencode
+
+    from mcp_server.oauth_identity import sign_identity
+
+    txn = request.args.get("txn", "")
+    return_url = request.args.get("return", "")
+    if not txn or not return_url:
+        return jsonify({"error": "missing_txn_or_return"}), 400
+
+    # Open-redirect guard: the return URL must point at our configured MCP service.
+    mcp_base = (os.getenv("MCP_SERVER_URL", "") or "").rstrip("/")
+    if not mcp_base or not return_url.startswith(mcp_base + "/"):
+        return jsonify({"error": "invalid_return_url"}), 400
+
+    user_id = None
+    # Telegram signs ONLY its own fields — never our txn/return — so filter to the
+    # Telegram field set before verifying, or the HMAC check would always fail.
+    _tg_fields = {"id", "first_name", "last_name", "username", "photo_url", "auth_date", "hash"}
+    tg_data: Any = {k: v for k, v in request.args.items() if k in _tg_fields}
+    if tg_data.get("hash"):  # Telegram widget redirected back with auth params
+        if not _verify_telegram_auth(tg_data):
+            return jsonify({"error": "invalid_telegram_auth"}), 401
+        try:
+            user_id = int(tg_data.get("id"))
+        except Exception:
+            return jsonify({"error": "invalid_telegram_id"}), 401
+        session["user_id"] = user_id  # convenience for subsequent visits
+    if user_id is None and session.get("user_id"):
+        try:
+            user_id = int(session["user_id"])
+        except Exception:
+            user_id = None
+    if user_id is None:
+        return _oauth_login_html(txn, return_url)  # Flask serves str as text/html
+
+    secret = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    exp, sig = sign_identity(secret, user_id, txn)
+    sep = "&" if "?" in return_url else "?"
+    dest = f"{return_url}{sep}" + urlencode(
+        {"txn": txn, "user_id": user_id, "exp": exp, "sig": sig}
+    )
+    return redirect(dest)

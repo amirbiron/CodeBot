@@ -50,13 +50,24 @@ def _transport_security() -> TransportSecuritySettings:
     return TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 
-def build_mcp(backend: Any, *, name: str = "CodeKeeper") -> FastMCP:
-    mcp: FastMCP = FastMCP(
-        name,
-        instructions=_INSTRUCTIONS,
-        stateless_http=True,
-        transport_security=_transport_security(),
-    )
+def build_mcp(
+    backend: Any,
+    *,
+    name: str = "CodeKeeper",
+    auth_provider: Any = None,
+    auth_settings: Any = None,
+) -> FastMCP:
+    kwargs: dict[str, Any] = {
+        "instructions": _INSTRUCTIONS,
+        "stateless_http": True,
+        "transport_security": _transport_security(),
+    }
+    if auth_provider is not None and auth_settings is not None:
+        # Enables the SDK's OAuth endpoints (.well-known / authorize / token /
+        # register) plus the auth layer that calls provider.load_access_token.
+        kwargs["auth_server_provider"] = auth_provider
+        kwargs["auth"] = auth_settings
+    mcp: FastMCP = FastMCP(name, **kwargs)
 
     @mcp.tool(description="List the user's saved code files (metadata only, no code).")
     def list_files(ctx: Context, page: int = 1, per_page: int = 50) -> dict:
@@ -120,12 +131,36 @@ async def _healthz(_request):
     return JSONResponse({"status": "ok", "service": "codekeeper-mcp"})
 
 
-def build_app(backend: Any, token_store: Any, *, name: str = "CodeKeeper"):
-    """Build the authenticated Streamable-HTTP ASGI app."""
-    mcp = build_mcp(backend, name=name)
+def build_app(
+    backend: Any,
+    token_store: Any = None,
+    *,
+    auth_provider: Any = None,
+    auth_settings: Any = None,
+    consent_routes: Any = None,
+    name: str = "CodeKeeper",
+):
+    """Build the authenticated Streamable-HTTP ASGI app.
+
+    Two auth modes:
+    - OAuth (auth_provider + auth_settings given): the SDK mounts the OAuth
+      endpoints and verifies via provider.load_access_token — which also accepts
+      PATs, so Claude Code and Claude.ai both work. ``consent_routes`` are mounted.
+    - PAT-only (fallback): the custom ``PATAuthMiddleware`` guards the app.
+    """
+    oauth = auth_provider is not None and auth_settings is not None
+    mcp = build_mcp(
+        backend,
+        name=name,
+        auth_provider=auth_provider if oauth else None,
+        auth_settings=auth_settings if oauth else None,
+    )
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Unauthenticated health endpoint for the hosting platform.
     app.router.routes.append(Route("/healthz", _healthz, methods=["GET"]))
-    # Auth guards everything except the exempt paths (see PATAuthMiddleware).
-    app.add_middleware(PATAuthMiddleware, token_store=token_store)
+    if oauth:
+        for route in consent_routes or []:
+            app.router.routes.append(route)
+    else:
+        app.add_middleware(PATAuthMiddleware, token_store=token_store)
     return app
