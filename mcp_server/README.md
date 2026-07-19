@@ -82,8 +82,7 @@ claude mcp add --transport http codekeeper http://localhost:8000/mcp \
 ---
 
 ## פריסה (Render)
-שירות web נפרד (ASGI). **חייב להתחבר לאותו MongoDB כמו הבוט/הוובאפ** — `/connect_claude`
-בבוט כותב את הטוקן ל‑`mcp_tokens`, ושירות ה‑MCP קורא אותו משם; DB שונה = הטוקן לא יימצא.
+שירות web נפרד (ASGI), משתף את אותו `MONGODB_URL` ואת אותם סודות:
 ```text
 Start command:  uvicorn mcp_server.app:app --host 0.0.0.0 --port $PORT
 Health check:   /healthz
@@ -96,6 +95,9 @@ Health check:   /healthz
 **לא צריך** את סודות הוובאפ (`SECRET_KEY`, VAPID/Push, Google Drive וכו').
 **על שירות הבוט** מגדירים `MCP_SERVER_URL` = ה‑URL הציבורי של שירות ה‑MCP (עבור `/connect_claude`).
 ב‑Render הכי נוח env group משותף. מומלץ שירות נפרד (לא בתוך הוובאפ) כי ה‑worker שלו יחיד ורגיש לזיכרון.
+ENV: `MONGODB_URL` (משותף), ו‑`MCP_SERVER_URL` (ה‑URL הציבורי של השירות — משמש את
+`/connect_claude` בבוט כדי לבנות את פקודת החיבור). מומלץ שירות נפרד (ולא בתוך הוובאפ)
+כי ה‑worker של הוובאפ יחיד ורגיש לזיכרון.
 
 ---
 
