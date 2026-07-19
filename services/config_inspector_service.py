@@ -513,6 +513,20 @@ class ConfigService:
             category="webserver",
         ),
 
+        # --- MCP Server (Claude integration) ---
+        "MCP_SERVER_URL": ConfigDefinition(
+            key="MCP_SERVER_URL",
+            default="",
+            description="ה-URL הציבורי של שירות ה-MCP; משמש את /connect_claude בבוט לבניית פקודת החיבור.",
+            category="mcp",
+        ),
+        "MCP_SERVER_NAME": ConfigDefinition(
+            key="MCP_SERVER_NAME",
+            default="CodeKeeper",
+            description="שם התצוגה של שרת ה-MCP (שם ה-Connector שמוצג ללקוח).",
+            category="mcp",
+        ),
+
         # --- Repo Sync Engine (Git Mirror) ---
         "REPO_NAME": ConfigDefinition(
             key="REPO_NAME",
