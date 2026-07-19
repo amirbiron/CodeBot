@@ -2096,6 +2096,18 @@
      - ``""`` / ``code_keeper_bot``
      - ``mongodb://localhost:27017`` / ``my_db``
      - Scripts
+   * - ``MCP_SERVER_URL``
+     - ה-URL הציבורי של שירות ה-MCP. משמש את פקודת הבוט ``/connect_claude`` כדי לבנות את פקודת החיבור ל-Claude.
+     - לא
+     - ``https://YOUR-MCP-HOST``
+     - ``https://code-keeper-mcp.onrender.com``
+     - Bot
+   * - ``MCP_SERVER_NAME``
+     - שם התצוגה של שרת ה-MCP (מוצג ללקוח כשם ה-Connector).
+     - לא
+     - ``CodeKeeper``
+     - ``CodeKeeper``
+     - MCP
 
 דגלי בדיקות ופיתוח
 -------------------
