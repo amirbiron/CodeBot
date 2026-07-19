@@ -35,6 +35,10 @@ class _RecordingBackend:
         self.calls.append(("items", user_id, collection_id, page, per_page, folder))
         return {}
 
+    def save_file(self, user_id, *, file_name, code, programming_language, description):
+        self.calls.append(("save", user_id, file_name, code, programming_language, description))
+        return {"ok": True, "created": True, "file": {"file_name": file_name, "version": 1}}
+
 
 def test_list_files_clamps_page_and_per_page():
     be = _RecordingBackend()
@@ -77,3 +81,42 @@ def test_collections_limit_capped():
     be = _RecordingBackend()
     handlers.list_collections(be, 1, limit=10_000)
     assert be.calls[0] == ("list_coll", 1, 500)
+
+
+def test_save_file_rejects_missing_name():
+    be = _RecordingBackend()
+    assert handlers.save_file(be, 7, file_name="  ", code="x") == {
+        "ok": False,
+        "error": "missing_file_name",
+    }
+    assert be.calls == []  # backend never touched on rejection
+
+
+def test_save_file_rejects_empty_code():
+    be = _RecordingBackend()
+    assert handlers.save_file(be, 7, file_name="a.py", code="") == {
+        "ok": False,
+        "error": "empty_code",
+    }
+    assert be.calls == []
+
+
+def test_save_file_rejects_oversize():
+    be = _RecordingBackend()
+    out = handlers.save_file(be, 7, file_name="a.py", code="x" * 100_001)
+    assert out["ok"] is False and out["error"] == "code_too_large"
+    assert be.calls == []
+
+
+def test_save_file_passes_explicit_language_and_trims_name():
+    be = _RecordingBackend()
+    out = handlers.save_file(be, 7, file_name=" a.py ", code="print(1)", language="python")
+    assert out["ok"] is True
+    assert be.calls[0] == ("save", 7, "a.py", "print(1)", "python", "")
+
+
+def test_save_file_fills_a_language_when_omitted():
+    be = _RecordingBackend()
+    handlers.save_file(be, 7, file_name="a.py", code="print(1)")
+    call = be.calls[0]
+    assert call[0] == "save" and call[4]  # a non-empty language was resolved

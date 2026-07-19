@@ -4,11 +4,13 @@ from mcp_server.backend import ProductionBackend, _full
 
 
 class _FakeDbManager:
-    def __init__(self, files=None, by_id=None, versions=None, search=None):
+    def __init__(self, files=None, by_id=None, versions=None, search=None, fail_save=False):
         self._files = files or []
         self._by_id = by_id or {}
         self._versions = versions or []
         self._search = search or []
+        self._fail_save = fail_save
+        self.saved = None  # last CodeSnippet passed to save_code_snippet
 
     def get_regular_files_paginated(self, user_id, page, per_page):
         return list(self._files), len(self._files)
@@ -34,6 +36,27 @@ class _FakeDbManager:
 
     def get_all_versions(self, user_id, file_name):
         return [v for v in self._versions if v.get("file_name") == file_name]
+
+    def save_code_snippet(self, snippet):
+        self.saved = snippet  # capture the real CodeSnippet for assertions
+        if self._fail_save:
+            return False
+        prev = self.get_latest_version(snippet.user_id, snippet.file_name)
+        version = (prev.get("version", 0) + 1) if prev else 1
+        # Replace the same-name entry so the post-save re-fetch sees the new version.
+        self._files = [f for f in self._files if f.get("file_name") != snippet.file_name]
+        self._files.append(
+            {
+                "_id": "new",
+                "file_name": snippet.file_name,
+                "programming_language": snippet.programming_language,
+                "version": version,
+                "file_size": len(snippet.code.encode("utf-8")),
+                "lines_count": len(snippet.code.split("\n")),
+                "description": snippet.description,
+            }
+        )
+        return True
 
 
 def test_list_files_excludes_heavy_code_field():
@@ -117,6 +140,41 @@ def test_collections_delegate_to_manager():
     assert be.get_collection_items(3, collection_id="c1", page=2, per_page=10, folder="f")[
         "seen"
     ] == (3, "c1", 2, 10, "f")
+
+
+def test_save_file_creates_new_file():
+    dbm = _FakeDbManager()
+    out = ProductionBackend(db_manager=dbm).save_file(
+        7,
+        file_name="new.py",
+        code="print(1)\nprint(2)",
+        programming_language="python",
+        description="hi",
+    )
+    assert out["ok"] is True and out["created"] is True
+    f = out["file"]
+    assert f["version"] == 1 and f["file_name"] == "new.py" and f["language"] == "python"
+    assert "code" not in f  # Smart Projection: never echo the body back
+    # the real CodeSnippet reached the DB with the expected fields
+    assert dbm.saved.user_id == 7 and dbm.saved.code == "print(1)\nprint(2)"
+    assert dbm.saved.programming_language == "python" and dbm.saved.description == "hi"
+
+
+def test_save_file_updates_existing_bumps_version():
+    dbm = _FakeDbManager(files=[{"_id": "a", "file_name": "x.py", "version": 1}])
+    out = ProductionBackend(db_manager=dbm).save_file(
+        7, file_name="x.py", code="v2", programming_language="python"
+    )
+    assert out["ok"] is True and out["created"] is False
+    assert out["file"]["version"] == 2  # append-only: new version, not overwrite
+
+
+def test_save_file_reports_failure():
+    dbm = _FakeDbManager(fail_save=True)
+    out = ProductionBackend(db_manager=dbm).save_file(
+        7, file_name="x.py", code="c", programming_language="python"
+    )
+    assert out == {"ok": False, "error": "save_failed"}
 
 
 def test_collection_items_strip_heavy_fields():

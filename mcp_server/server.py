@@ -20,13 +20,14 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from . import handlers
-from .auth import PATAuthMiddleware, current_user_id
+from .auth import PATAuthMiddleware, current_user_id, require_write
 
 _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
     "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
-    "(metadata only), and codekeeper_get_file to read full contents. All data is "
-    "scoped to the authenticated user; this server is read-only."
+    "(metadata only), and codekeeper_get_file to read full contents. Use "
+    "codekeeper_save_file to create or update a file (only when the connection was "
+    "granted write permission). All data is scoped to the authenticated user."
 )
 
 # Shared annotations: every tool here is a non-destructive, idempotent read over
@@ -36,6 +37,16 @@ _READ_ONLY_TOOL = {
     "readOnlyHint": True,
     "destructiveHint": False,
     "idempotentHint": True,
+    "openWorldHint": False,
+}
+
+# The one write tool. Saves are append-only (an update creates a new version and
+# never overwrites), so this is non-destructive; not idempotent because repeating
+# it bumps the version each time.
+_WRITE_TOOL = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
     "openWorldHint": False,
 }
 
@@ -119,6 +130,31 @@ def build_mcp(
         if doc is None:
             return {"found": False}
         return {"found": True, "file": doc}
+
+    @mcp.tool(
+        name="codekeeper_save_file",
+        description=(
+            "Create a new file or update an existing one by file_name (saved as a new, "
+            "non-destructive version — old versions are kept). Requires write permission."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def save_file(
+        ctx: Context,
+        file_name: str,
+        code: str,
+        language: str | None = None,
+        description: str = "",
+    ) -> dict:
+        require_write(ctx)  # reject a read-only token before touching anything
+        return handlers.save_file(
+            backend,
+            current_user_id(ctx),
+            file_name=file_name,
+            code=code,
+            language=language,
+            description=description,
+        )
 
     @mcp.tool(
         name="codekeeper_list_versions",

@@ -28,6 +28,12 @@ def _consent_html(
     txn: str, user_id: str, exp: str, sig: str, *, client_name: str, scopes: str
 ) -> str:
     esc = html.escape
+    # Scope-aware copy so a write grant is never shown as "read only".
+    access_label = "לקריאה ולכתיבה" if "write" in scopes.split() else "לקריאה בלבד"
+    intro = (
+        f"<b>{esc(client_name)}</b> מבקש גישה <b>{access_label}</b> "
+        "לקבצים ולאוספים שלך ב‑CodeKeeper."
+    )
     return f"""<!doctype html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -45,7 +51,7 @@ def _consent_html(
 </style></head><body>
   <div class="card">
     <h1>🔌 חיבור הקבצים שלך ל‑Claude</h1>
-    <p><b>{esc(client_name)}</b> מבקש גישה <b>לקריאה בלבד</b> לקבצים ולאוספים שלך ב‑CodeKeeper.</p>
+    <p>{intro}</p>
     <div class="scopes">הרשאות: {esc(scopes)}</div>
     <form method="post" action="/oauth/consent">
       <input type="hidden" name="txn" value="{esc(txn)}">

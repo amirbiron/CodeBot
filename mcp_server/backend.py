@@ -147,6 +147,48 @@ class ProductionBackend:
     def list_versions(self, user_id: int, *, file_name: str) -> list[dict[str, Any]]:
         return [_clean(v) for v in (self._require_dbm().get_all_versions(user_id, file_name) or [])]
 
+    # -- write (save) ------------------------------------------------------
+    def save_file(
+        self,
+        user_id: int,
+        *,
+        file_name: str,
+        code: str,
+        programming_language: str,
+        description: str = "",
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new file or append a new version of an existing one.
+
+        Reuses the same write path the bot/webapp use (``save_code_snippet`` →
+        append-only versioning, auto-computed ``file_size``/``lines_count``), so
+        an update never overwrites: prior versions remain visible via
+        ``list_versions``. Returns metadata only — the heavy ``code`` is never
+        echoed back (Smart Projection).
+        """
+        from database.models import CodeSnippet  # lazy heavy import (see _require_dbm)
+
+        dbm = self._require_dbm()
+        # Captured before the save so we can report create vs. update honestly.
+        prev = dbm.get_latest_version(user_id, file_name)
+        ok = bool(
+            dbm.save_code_snippet(
+                CodeSnippet(
+                    user_id=int(user_id),
+                    file_name=file_name,
+                    code=code,
+                    programming_language=programming_language,
+                    description=description or "",
+                    tags=list(tags or []),
+                )
+            )
+        )
+        if not ok:
+            return {"ok": False, "error": "save_failed"}
+        # Re-fetch so the returned version/size are the authoritative DB values.
+        saved = dbm.get_latest_version(user_id, file_name) or {}
+        return {"ok": True, "created": prev is None, "file": _clean(saved)}
+
     # -- collections -------------------------------------------------------
     def list_collections(self, user_id: int, *, limit: int = 100) -> dict[str, Any]:
         return self._collections().list_collections(user_id, limit=limit)

@@ -796,11 +796,16 @@ async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_T
             await message.reply_text("לא זוהה משתמש.")
             return
 
+        # ‎/connect_claude write‎ מנפיק טוקן עם הרשאת כתיבה; בלי ארגומנט — קריאה בלבד.
+        want_write = any(str(a).strip().lower() == "write" for a in (context.args or []))
+        scopes = ("read", "write") if want_write else ("read",)
+        label = "Claude (write)" if want_write else "Claude"
+
         raw = None
         try:
             from src.infrastructure.composition.webapp_container import get_files_facade
 
-            raw = get_files_facade().issue_mcp_token(int(user_id), label="Claude")
+            raw = get_files_facade().issue_mcp_token(int(user_id), label=label, scopes=scopes)
         except Exception:
             logger.error("connect_claude: token issue failed", exc_info=True)
             raw = None
@@ -814,6 +819,16 @@ async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_T
             f'claude mcp add --transport http codekeeper {base}/mcp '
             f'--header "Authorization: Bearer {raw}"'
         )
+        if want_write:
+            access_line = (
+                "⚠️ אל תשתפו את הטוקן — הוא נותן גישת <b>קריאה וכתיבה</b> "
+                "(יצירה/עדכון קבצים) למאגר שלכם."
+            )
+        else:
+            access_line = (
+                "⚠️ אל תשתפו את הטוקן — הוא נותן גישת <b>קריאה בלבד</b> לקבצים שלכם.\n"
+                "✍️ לטוקן עם הרשאת כתיבה (יצירה/עדכון) שלחו <code>/connect_claude write</code>."
+            )
         text = (
             "🔌 <b>חיבור הקבצים שלך ל‑Claude (MCP)</b>\n\n"
             "הטוקן האישי שלך (יוצג פעם אחת בלבד — שמור אותו):\n"
@@ -824,7 +839,7 @@ async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_T
             "Add custom connector הזינו את הכתובת\n"
             f"<code>{base}/mcp</code>\n"
             "וההתחברות תתבצע אוטומטית (דרך התחברות טלגרם).\n\n"
-            "⚠️ אל תשתפו את הטוקן — הוא נותן גישת קריאה לקבצים שלכם."
+            f"{access_line}"
         )
         try:
             await message.reply_text(text, parse_mode=ParseMode.HTML)

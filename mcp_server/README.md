@@ -1,8 +1,9 @@
-# CodeKeeper MCP Server (קריאה בלבד)
+# CodeKeeper MCP Server
 
 שרת [MCP](https://modelcontextprotocol.io) שחושף את **הקבצים והאוספים** השמורים של
 המשתמש ל‑Claude — גם **Claude.ai** (Custom Connector דרך OAuth) וגם **Claude Code /
-Claude Desktop** (טוקן אישי). קריאה בלבד — אין כלי כתיבה/מחיקה.
+Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיבה** (יצירה/עדכון קובץ) מאחורי
+הרשאת `write` מפורשת. אין מחיקה.
 
 > תכנון מלא: `FEATURE_SUGGESTIONS/FEATURE_MCP_CLAUDE_INTEGRATION.md`
 
@@ -16,13 +17,15 @@ Claude Desktop** (טוקן אישי). קריאה בלבד — אין כלי כת
 
 ### הכלים (Tools)
 
-כל הכלים מקודמים ב‑`codekeeper_` (מונע התנגשות עם connectors אחרים) ומסומנים read-only.
+כל הכלים מקודמים ב‑`codekeeper_` (מונע התנגשות עם connectors אחרים). כולם read-only
+פרט ל‑`codekeeper_save_file` (כתיבה — דורש הרשאת `write`).
 
 | כלי | תיאור |
 |-----|-------|
 | `codekeeper_list_files` | רשימת קבצים (מטא‑דאטה בלבד), עם עימוד |
 | `codekeeper_search_code` | חיפוש טקסט בקוד → מטא‑דאטה של קבצים תואמים |
 | `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה) |
+| `codekeeper_save_file` | **כתיבה:** יצירה/עדכון קובץ לפי `file_name` (גרסה חדשה, לא דורס; עד 100KB). דורש `write` |
 | `codekeeper_list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
 | `codekeeper_list_collections` | האוספים של המשתמש |
 | `codekeeper_get_collection` | אוסף בודד לפי id |
@@ -38,6 +41,9 @@ Claude Desktop** (טוקן אישי). קריאה בלבד — אין כלי כת
    Bearer ckmcp_…`, נשמר כ‑hash בקולקשן `mcp_tokens`, ניתן לביטול.
 
 ה‑`user_id` נגזר **תמיד** מהטוקן — לעולם לא מקלט הלקוח.
+
+**הרשאות (scopes):** `read` (ברירת מחדל) ו‑`write`. כלי הכתיבה בודק `write` בזמן ריצה;
+טוקן קריאה בלבד יקבל שגיאת `insufficient_scope` (ולא ייכתב דבר). איך משיגים כתיבה — ראו למטה.
 
 ---
 
@@ -68,9 +74,16 @@ claude mcp add --transport http codekeeper https://<mcp-host>/mcp \
 ```
 
 ### הנפקת PAT
-**מתוך הבוט:** `/connect_claude` בצ'אט פרטי → טוקן + פקודת חיבור מוכנה.
-**CLI (אופס):** `MONGODB_URL="..." python scripts/mcp_issue_token.py --user-id <TELEGRAM_ID>`.
-הטוקן מוצג **פעם אחת בלבד**.
+**מתוך הבוט:** `/connect_claude` בצ'אט פרטי → טוקן קריאה + פקודת חיבור מוכנה.
+`/connect_claude write` → טוקן עם הרשאת **כתיבה** (יצירה/עדכון).
+**CLI (אופס):** `MONGODB_URL="..." python scripts/mcp_issue_token.py --user-id <TELEGRAM_ID>`
+(הוסיפו `--write` לטוקן כתיבה). הטוקן מוצג **פעם אחת בלבד**.
+
+### הרשאת כתיבה ל‑Claude.ai
+כדי ש‑Claude.ai יבקש `write`, ה‑connector צריך להירשם מחדש (DCR) עם ההרשאה — לא ניתן
+לכפות זאת מצד השרת. אם כבר חיברת connector לקריאה, **הסר והוסף אותו מחדש** ואשר את מסך
+ההרשאה (קריאה **וכתיבה**). מסלול ה‑PAT (`/connect_claude write`) מבטיח כתיבה ל‑Claude Code
+ללא תלות בהתנהגות הלקוח.
 
 ---
 

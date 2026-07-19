@@ -15,6 +15,8 @@ from typing import Any
 MAX_PER_PAGE = 200
 MAX_SEARCH_LIMIT = 100
 MAX_COLLECTIONS_LIMIT = 500
+# Fallback when the app config isn't importable (kept in sync with config.MAX_CODE_SIZE).
+DEFAULT_MAX_CODE_SIZE = 100_000
 
 
 def _clamp(value: Any, lo: int, hi: int, default: int) -> int:
@@ -93,4 +95,54 @@ def get_collection_items(
         page=_clamp(page, 1, 10**9, 1),
         per_page=_clamp(per_page, 1, MAX_PER_PAGE, 50),
         folder=folder,
+    )
+
+
+def save_file(
+    backend: Any,
+    user_id: int,
+    *,
+    file_name: str,
+    code: str,
+    language: str | None = None,
+    description: str = "",
+) -> dict[str, Any]:
+    """Validate + normalize a save request, then delegate to the backend.
+
+    All app imports are lazy/guarded so this module stays trivially importable
+    (and unit-testable) without the config/services stack.
+    """
+    name = (file_name or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_file_name"}
+    if not isinstance(code, str) or code == "":
+        return {"ok": False, "error": "empty_code"}
+
+    # Reject oversize content (the large-file path is non-versioned; out of scope
+    # here). Mirror the app's own gate, which counts characters, not bytes.
+    try:
+        from config import config as _cfg
+
+        max_size = int(getattr(_cfg, "MAX_CODE_SIZE", DEFAULT_MAX_CODE_SIZE))
+    except Exception:
+        max_size = DEFAULT_MAX_CODE_SIZE
+    if len(code) > max_size:
+        return {"ok": False, "error": "code_too_large", "max": max_size}
+
+    # Auto-detect the language when the caller didn't specify one.
+    lang = (language or "").strip()
+    if not lang:
+        try:
+            from services.code_service import detect_language
+
+            lang = detect_language(code, name) or "text"
+        except Exception:
+            lang = "text"
+
+    return backend.save_file(
+        user_id,
+        file_name=name,
+        code=code,
+        programming_language=lang,
+        description=(description or "").strip(),
     )
