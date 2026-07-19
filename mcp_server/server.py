@@ -11,9 +11,11 @@ loop, and the tool can still read ``ctx.request_context.request.state``.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
@@ -28,8 +30,33 @@ _INSTRUCTIONS = (
 )
 
 
+def _transport_security() -> TransportSecuritySettings:
+    """DNS-rebinding protection config for the Streamable-HTTP transport.
+
+    That protection targets *localhost* servers (a malicious web page tricking a
+    browser into calling 127.0.0.1). This server is public and Bearer-token
+    gated, so the default host check only blocks legitimate access behind a real
+    domain (HTTP 421 "Invalid Host header"). Default: OFF. Set MCP_ALLOWED_HOSTS
+    (comma-separated; wildcards like ``*.onrender.com`` allowed) to lock it down.
+    """
+    hosts = [h.strip() for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    origins = [o.strip() for o in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+    if hosts or origins:
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=hosts,
+            allowed_origins=origins,
+        )
+    return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+
 def build_mcp(backend: Any, *, name: str = "CodeKeeper") -> FastMCP:
-    mcp: FastMCP = FastMCP(name, instructions=_INSTRUCTIONS, stateless_http=True)
+    mcp: FastMCP = FastMCP(
+        name,
+        instructions=_INSTRUCTIONS,
+        stateless_http=True,
+        transport_security=_transport_security(),
+    )
 
     @mcp.tool(description="List the user's saved code files (metadata only, no code).")
     def list_files(ctx: Context, page: int = 1, per_page: int = 50) -> dict:

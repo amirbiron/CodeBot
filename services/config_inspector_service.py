@@ -526,6 +526,18 @@ class ConfigService:
             description="שם התצוגה של שרת ה-MCP (שם ה-Connector שמוצג ללקוח).",
             category="mcp",
         ),
+        "MCP_ALLOWED_HOSTS": ConfigDefinition(
+            key="MCP_ALLOWED_HOSTS",
+            default="",
+            description="Host מותרים לשרת ה-MCP (CSV, תומך wildcard). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).",
+            category="mcp",
+        ),
+        "MCP_ALLOWED_ORIGINS": ConfigDefinition(
+            key="MCP_ALLOWED_ORIGINS",
+            default="",
+            description="Origin מותרים לשרת ה-MCP (CSV). רלוונטי רק כשמפעילים הגנה דרך MCP_ALLOWED_HOSTS.",
+            category="mcp",
+        ),
 
         # --- Repo Sync Engine (Git Mirror) ---
         "REPO_NAME": ConfigDefinition(
