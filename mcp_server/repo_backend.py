@@ -87,6 +87,15 @@ class RepoBackend:
 
     # -- helpers -----------------------------------------------------------
     def _sync_running(self, repo_name: str) -> bool:
+        # Local autosync (this service cloning/fetching right now) …
+        try:
+            from .repo_autosync import is_refreshing
+
+            if is_refreshing(repo_name):
+                return True
+        except Exception:
+            pass
+        # … or the webapp's webhook-driven sync worker (shared job queue).
         try:
             if self._db is None:
                 return False

@@ -126,6 +126,17 @@ def test_list_tree_byte_budget_truncates():
     assert 0 < len(out["paths"]) < 50
 
 
+def test_list_tree_sync_in_progress_during_local_autosync(monkeypatch):
+    # A failed read while THIS service is cloning/fetching locally must also
+    # report sync_in_progress (not just the webapp's job queue).
+    from mcp_server import repo_autosync
+
+    monkeypatch.setattr(repo_autosync, "is_refreshing", lambda name: name == "alpha")
+    be = RepoBackend(db=_repos_db(), mirror=_Mirror(files=None), search_service=_Search())
+    out = be.list_tree(repo="alpha")
+    assert out["error"] == "sync_in_progress" and out["retry_after"] == SYNC_RETRY_AFTER_SECONDS
+
+
 def test_list_tree_sync_in_progress_when_read_fails_during_sync():
     db = _DB(
         repos=[{"repo_name": "alpha", "default_branch": "main"}],

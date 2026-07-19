@@ -47,10 +47,25 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
   הכלים; הרחבה דרך `MCP_REPO_DENYLIST_EXTRA` (CSV globs).
 - **sync רץ ברקע?** כלי שנכשל בזמן sync מחזיר `sync_in_progress` + `retry_after` —
   סימן לנסות שוב, לא להסיק שהקובץ לא קיים.
-- **פריסה:** הכלים קוראים מהדיסק (`REPO_MIRROR_PATH`, ברירת מחדל `/var/data/repos`).
-  ב‑Render דיסק הוא **פר‑שירות** — אם ה‑MCP רץ כשירות נפרד, צריך לצרף לו דיסק עם
-  ה‑mirrors (למשל `initial_import` ידני שם, כמו ב‑`GUIDES/ADD_REPO_TO_CODE_BROWSER.md`);
-  בלי דיסק, `list_repos` יעבוד (Mongo) אבל tree/file/search יחזירו שגיאה נקייה.
+
+#### רענון אוטומטי (autosync) — בלי cron ובלי שירות נוסף
+
+שירות ה‑MCP מריץ **thread רקע** (אותו דפוס כמו ה‑worker בוובאפ) שמחזיק את ה‑mirrors
+המקומיים שלו טריים לבד:
+
+```text
+merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק שלו וכותב last_synced_sha ל-Mongo
+            → ה-autosync ב-MCP מזהה שה-SHA המקומי שונה → git fetch לדיסק של ה-MCP
+```
+
+- ריפו שקיים ב‑`repo_metadata` אך חסר בדיסק המקומי — **משוכפל אוטומטית** מ‑`repo_url`
+  (אין צורך ב‑`initial_import` ידני בצד ה‑MCP).
+- שליטה: `MCP_REPO_AUTOSYNC` (ברירת מחדל פעיל; `0` מכבה), `MCP_REPO_AUTOSYNC_INTERVAL`
+  (ברירת מחדל 300ש'). בזמן clone/fetch מקומי הכלים מחזירים `sync_in_progress`.
+- **ENV נדרשים בשירות ה‑MCP:** `REPO_MIRROR_PATH` (+דיסק מצורף — ב‑Render דיסק הוא
+  פר‑שירות; בלי דיסק זה עובד אבל משוכפל מחדש אחרי כל deploy), ו‑`GITHUB_TOKENS`/
+  `GITHUB_TOKEN` לריפואים פרטיים. **אין צורך** ב‑`GITHUB_WEBHOOK_SECRET` כאן —
+  ה‑webhook ממשיך להגיע לוובאפ בלבד.
 
 ---
 

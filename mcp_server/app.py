@@ -90,6 +90,18 @@ def create_app():
 
     repo_backend = RepoBackend(db=mongo)
 
+    # Keep this service's local mirrors fresh automatically (webapp-worker
+    # pattern: background daemon thread; no cron/extra service). Merges to main
+    # reach the webapp webhook → shared Mongo SHA → this loop fetches locally.
+    try:
+        from .repo_autosync import start_autosync
+
+        start_autosync(mongo)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("repo autosync failed to start", exc_info=True)
+
     mcp_base = (os.getenv("MCP_SERVER_URL") or "").rstrip("/")
     webapp_base = (os.getenv("WEBAPP_URL") or "").rstrip("/")
 

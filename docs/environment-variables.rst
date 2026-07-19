@@ -2126,6 +2126,18 @@
      - ""
      - ``*.sqlite, private/*``
      - MCP
+   * - ``MCP_REPO_AUTOSYNC``
+     - רענון אוטומטי של ה-mirrors המקומיים בשירות ה-MCP (thread רקע, כמו ה-worker בוובאפ): משכפל ריפו חסר מ-``repo_metadata.repo_url`` ומריץ fetch כשה-``last_synced_sha`` ב-Mongo שונה מהמקומי. ``0`` מכבה.
+     - לא
+     - ``1`` (פעיל)
+     - ``1``
+     - MCP
+   * - ``MCP_REPO_AUTOSYNC_INTERVAL``
+     - מרווח (שניות) בין מעברי הרענון של ה-autosync. מינימום 30.
+     - לא
+     - ``300``
+     - ``120``
+     - MCP
 
 דגלי בדיקות ופיתוח
 -------------------

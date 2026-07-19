@@ -554,6 +554,21 @@ class ConfigService:
             ),
             category="mcp",
         ),
+        "MCP_REPO_AUTOSYNC": ConfigDefinition(
+            key="MCP_REPO_AUTOSYNC",
+            default="1",
+            description=(
+                "רענון אוטומטי של ה-mirrors המקומיים בשירות ה-MCP (thread רקע): "
+                "שכפול ריפו חסר מ-repo_metadata.repo_url ו-fetch כשה-SHA ב-Mongo שונה מהמקומי. 0 מכבה."
+            ),
+            category="mcp",
+        ),
+        "MCP_REPO_AUTOSYNC_INTERVAL": ConfigDefinition(
+            key="MCP_REPO_AUTOSYNC_INTERVAL",
+            default="300",
+            description="מרווח בשניות בין מעברי ה-autosync של דפדפן הריפו ב-MCP (מינימום 30).",
+            category="mcp",
+        ),
 
         # --- Repo Sync Engine (Git Mirror) ---
         "REPO_NAME": ConfigDefinition(
