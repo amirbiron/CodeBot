@@ -16,15 +16,17 @@ Claude Desktop** (טוקן אישי). קריאה בלבד — אין כלי כת
 
 ### הכלים (Tools)
 
+כל הכלים מקודמים ב‑`codekeeper_` (מונע התנגשות עם connectors אחרים) ומסומנים read-only.
+
 | כלי | תיאור |
 |-----|-------|
-| `list_files` | רשימת קבצים (מטא‑דאטה בלבד), עם עימוד |
-| `search_code` | חיפוש טקסט בקוד → מטא‑דאטה של קבצים תואמים |
-| `get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה) |
-| `list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
-| `list_collections` | האוספים של המשתמש |
-| `get_collection` | אוסף בודד לפי id |
-| `get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
+| `codekeeper_list_files` | רשימת קבצים (מטא‑דאטה בלבד), עם עימוד |
+| `codekeeper_search_code` | חיפוש טקסט בקוד → מטא‑דאטה של קבצים תואמים |
+| `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה) |
+| `codekeeper_list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
+| `codekeeper_list_collections` | האוספים של המשתמש |
+| `codekeeper_get_collection` | אוסף בודד לפי id |
+| `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
 
 ---
 
