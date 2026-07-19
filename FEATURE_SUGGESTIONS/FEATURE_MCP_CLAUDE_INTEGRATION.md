@@ -208,6 +208,9 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 | א' | MVP קריאה‑בלבד: שרת MCP + `list_files`/`search_code`/`get_file`/`list_versions` + `/connect_claude` + `mcp_tokens` | ~2–3 ימים | יחידה לכל כלי (mongomock/tmp), בדיקת בידוד `user_id`, ריצה מול Claude Code |
 | ב' | OAuth 2.1: authorize/token/register + `.well-known` + מסך consent (מעל סשן טלגרם) | ~3–5 ימים | זרימת OAuth מקצה‑לקצה, רוטציית refresh, בדיקת discovery |
 | ג' | כתיבה: `save_file`/`delete_file` מאחורי scope, rate limiting, מסך "חיבורים פעילים" + revoke | ~1–2 ימים | בדיקות כתיבה על tmp בלבד, אישור scope, revoke |
+| ד' | דפדפן הריפו (אדמין בלבד): `list_repos`/`list_repo_tree`/`get_repo_file`/`search_repo` מעל Repo Sync Engine + `require_admin` + סינון tools/list + מדיניות סודות (13.5) — ראו סעיף 13 | ~2–3 ימים | יחידה עם mirror מזויף/tmp, בדיקת fail‑closed לאדמין, מדיניות סודות (כל כלל + מקרי קצה + מדיניות‑חסרה), ברירות מחדל/תקרות/clamp, תקציב פלט, timeout, snippet בלבד בחיפוש |
+
+**מיפוי ומצב (קנוני):** שלב א' = פאזה 0 (✅ מומש) · שלב ב' = פאזה 1 (✅ מומש) · שלב ג' = פאזה 3 (✅ מומש חלקית — save‑only; מחיקה טרם) · שלב ד' = פאזה ד' (⏳ תכנון).
 
 **בדיקות — לפי `CLAUDE.md`:** לעבוד רק על תיקיות זמניות, בלי מחיקות ב‑root, בידוד לכל טסט. לפני תיקוני טסטים — לעיין ב‑[CodeBot Docs](https://amirbiron.github.io/CodeBot/).
 
@@ -222,14 +225,134 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 ---
 
 ## 12. שאלות פתוחות להחלטה
-1. **מאיפה מתחילים** — MVP+PAT (מומלץ) / ישר ל‑OAuth / רק מסמך זה לאישור?
-2. **קריאה‑בלבד או גם כתיבה** בשלב הראשון? (המלצה: קריאה‑בלבד).
-3. **היקף** — רק `code_snippets`, או גם collections/bookmarks/large_files?
-4. **שם ודומיין** לשירות ה‑MCP ב‑Render.
+1. **מאיפה מתחילים** — ✅ **הוחלט:** MVP+PAT (פאזה 0 = שלב א' במפת הדרכים); OAuth 2.1 נדחה לשלב נפרד — ומומש בפועל (פאזה 1 = שלב ב'). ראו שורת המיפוי בסעיף 10.
+2. **קריאה‑בלבד או גם כתיבה** בשלב הראשון? — ⏳ **עדיין פתוחה** (המלצה: קריאה‑בלבד).
+3. **היקף** — ✅ **הוחלט:** `code_snippets` **וגם** `collections`; לא ריפו/bookmarks/large_files בפאזה א'.
+4. **דפדפן הריפו** — ✅ **הוחלט:** פיצ'ר **אדמין בלבד** (משתמש יחיד), כמקור נתונים נפרד — ראו סעיף 13 (פאזה ד').
+5. **שם ודומיין** לשירות ה‑MCP ב‑Render.
 
 ---
 
-## 13. מקורות
+## 13. פאזה ד': מקור נתונים שני — דפדפן הריפו (אדמין בלבד)
+
+> **סטטוס:** תכנון בלבד — טרם מומש. אינו משנה את היקף פאזה א'.
+
+### 13.1 למה זה שווה
+הריפואים המשוקפים (Repo Sync Engine) מכילים את התיעוד, הקוד ומסמכי התכנון של כל הפרויקטים.
+חשיפתם ל‑MCP מאפשרת ל‑Claude לקרוא מהם ישירות — במקום העתק‑הדבק או צילומי מסך.
+
+**הבחנה חשובה:** זה **לא** אותו מקור כמו קבצי `repo:*` שבתוך `code_snippets` (יבוא GitHub
+חד‑פעמי לקבצים האישיים; ראו 2.2 ו‑5.3 — שם הם דווקא מסוננים בברירת מחדל). דפדפן הריפו קורא
+ממקור נפרד לגמרי: **bare mirrors על הדיסק** (`REPO_MIRROR_PATH`, ברירת מחדל `/var/data/repos`;
+ריפו = `{base}/{repo_name}.git`, `services/git_mirror_service.py:322`) + metadata ב‑Mongo
+(`repo_metadata`, `repo_files`), כשהמפתח הוא **שם ריפו לוגי** — לא `user_id`.
+
+### 13.2 מודל ההרשאות — אדמין בלבד, fail‑closed
+- **זהות מהטוקן בלבד** — כמו `user_id` בשאר הכלים (`current_user_id`, `mcp_server/auth.py:74`);
+  לעולם לא מקלט הלקוח.
+- **ברירת המחדל היא דחייה**: אין הקשר אדמין ודאי ⇒ הכלי נכשל בקול. בלי תוצאה חלקית, בלי
+  נפילה שקטה למשתמש אחר.
+- **מנגנון האדמין הקיים (ממצא מהקוד):** מקור אמת יחיד — ENV `ADMIN_USER_IDS` (CSV של
+  user_ids). **אין** דגל אדמין ב‑DB. מימושים קיימים: `webapp/app.py:4077` (`is_admin`),
+  `chatops/permissions.py:41`, ו‑`config.py:188` (שדה `ADMIN_USER_IDS` + ולידטור `:413`).
+  לשירות ה‑MCP הדרך הקנונית: `int(user_id) in config.ADMIN_USER_IDS` (ה‑config כבר מיובא
+  ב‑`mcp_server/handlers.py`). **במפורש לא** מכבדים את מפלט‑החירום
+  `CHATOPS_ALLOW_ALL_IF_NO_ADMINS` (`chatops/permissions.py:51-53`) — רשימה ריקה פירושה
+  שאין אדמין והכלים כבויים. מוצע helper `require_admin(ctx)` במתכונת `require_write`
+  (`mcp_server/auth.py:121`).
+- **הסתרה ב‑tools/list (ממצא SDK, `mcp==1.28.1`):** רשימת הכלים סטטית כברירת מחדל, אבל
+  הקשר האימות זמין גם בתוך handler של list_tools — ולכן אפשר לסנן: תת‑מחלקה של FastMCP
+  שדורסת `list_tools` ומחזירה את כלי הריפו רק לאדמין. **אזהרה: הסתרה ≠ בקרת גישה** —
+  כלי שהוסתר מהרשימה עדיין ניתן לקריאה ישירה בשמו (ה‑dispatcher מריץ גם כלי שאינו ברשימה),
+  ולכן `require_admin` בגוף **כל** כלי הוא החסם האמיתי; ההסתרה היא UX בלבד. חלופה שמסירה
+  גם קריאוּת: מופע FastMCP נפרד לאדמין (מסלול/URL נפרד) — כבדה יותר, מתועדת כחלופה.
+
+### 13.3 הכלים המוצעים (MCP surface לריפו)
+
+| כלי | קלט | פלט | נשען על |
+|-----|-----|-----|---------|
+| `list_repos` | `limit?` | רשימת ריפואים + מטא‑דאטה (שם, default_branch, last_sync_time, total_files, sync_status; בלי תוכן) | **חסרה פונקציית שירות** — הלוגיקה כיום inline ב‑route `api_list_repos` (`webapp/routes/repo_browser.py:739`) מעל `repo_metadata`; גודל/sha מ‑`get_mirror_info` (`services/git_mirror_service.py:618`) |
+| `list_repo_tree` | `repo`, `path?`, `ref?`, `page?`, `per_page?` | נתיבים + מטא‑דאטה, **בלי תוכן**, עם עימוד | **חסר ככלי שלם** — אבני בניין: `list_all_files` (`git_mirror_service.py:842`; ls‑tree שטוח, ref‑aware, בלי עימוד/סינון) + `get_file_info` (`:865`); חלופת אינדקס: `api_tree` (`repo_browser.py:148`; רמה אחת, Mongo בלבד) |
+| `get_repo_file` | `repo`, `path`, `ref?` | תוכן מלא + מטא‑דאטה; תקרת 500KB; בינארי ⇒ מטא‑דאטה בלבד | **קיים** — `get_file_at_commit` (`git_mirror_service.py:1165`; תקרה `MAX_FILE_SIZE_FOR_DISPLAY`:30, זיהוי בינארי `:961`, ולידציית נתיב `:750`); פתרון ref דרך `repo_metadata.default_branch` / `get_current_sha` (`:649`) |
+| `search_repo` | `repo`, `query`, `file_pattern?`, `max_results?` | שורות תואמות (path+line+snippet ≤500 תווים) עם תקרות ודגל `truncated` | **קיים** — `search_with_git_grep` (`git_mirror_service.py:1793`; סטרימינג `:1912`) או `RepoSearchService.search` (`services/repo_search_service.py:43`; פותר `refs/heads/<default_branch>`) |
+
+### 13.4 גודל ו‑Smart Projection
+ריפו הוא עץ שלם, לא קטע קוד — ולכן ההקפדה כאן חשובה כפליים:
+- `list_repo_tree` יכול להחזיר אלפי נתיבים ⇒ **עימוד + סינון תיקייה/ref חובה**, ואסור להחזיר תוכן קבצים.
+- `get_repo_file` עם תקרת גודל ברורה (קיימת: 500KB) וטיפול מוגדר בבינארי/גדול‑מדי (מטא‑דאטה + שגיאה נקייה).
+- `search_repo` עם תקרת תוצאות ו‑snippet קצר בלבד (קיים: ≤500 תווים לשורה, ≤20 התאמות לקובץ) — לא קבצים מלאים.
+- הכל בכפוף ל**חוק ה‑Smart Projection** (5.3): תוכן מלא רק בבקשה מפורשת (`get_repo_file`).
+
+**ברירות מחדל ותקרות בצד השרת (מחייב במימוש):** ערכים מחוץ לטווח **נחתכים** (clamp) —
+לא נדחים — באותו דפוס `_clamp` שכבר נהוג ב‑`mcp_server/handlers.py`; קלט לא‑תקין ⇒ ברירת מחדל.
+
+| כלי | פרמטר | ברירת מחדל | תקרה |
+|-----|--------|-------------|-------|
+| `list_repos` | `limit` | 50 | 200 |
+| `list_repo_tree` | `per_page` (+`page`≥1) | 200 | 1000 |
+| `search_repo` | `max_results` | 50 | 100 |
+
+- `max_results` תוחם את **סך כל ההתאמות** בתשובה (התקרה הפנימית של ≤20 התאמות לקובץ נשארת
+  בנוסף, לא במקום). ה‑timeout של החיפוש (10s ב‑`search_with_git_grep`) נקבע בצד השרת ואינו
+  ניתן להגדלה מהלקוח.
+- **תקציב פלט לתשובה**: תשובות עץ/חיפוש מוגבלות גם בבייטים (סדר גודל ~256KB) — חריגה ⇒
+  קיטום עם `truncated: true` וסיבת קיטום; `get_repo_file` חסום ממילא בתקרת ה‑500KB.
+
+**מעטפת תגובה יציבה ל‑`get_repo_file`** (עוטפת את `get_file_at_commit`, משמרת את תקרת
+ה‑500KB וזיהוי הבינארי):
+- הצלחה: `{ok: true, status: "ok", file: {path, ref, resolved_commit, size, lines, encoding}, content}`.
+- בינארי: `{ok: true, status: "binary", file: {…}}` — **בלי** `content`.
+- גדול‑מדי: `{ok: true, status: "too_large", file: {…, size}, max: 512000}` — **בלי** `content`.
+- לא נמצא / ref לא תקין: `{ok: false, error: "not_found"}`; נתיב חסום במדיניות: `{ok: false, error: "path_denied"}`.
+כך לקוח MCP מבחין בין כל התוצאות בלי לנחש מהיעדר שדות.
+
+### 13.5 מדיניות סינון סודות — חובה, fail‑closed
+סינון הסודות הוא **תנאי מקדים להפעלת הכלים**, לא תוספת: כלי הריפו לא נדלקים לפני
+שהמדיניות והטסטים שלה קיימים.
+- **היקף:** המדיניות חלה על כל שלושת משטחי הקריאה — `get_repo_file` **חוסם** נתיב תואם
+  (`path_denied`), `list_repo_tree` **משמיט** נתיבים תואמים מהרשימה, ו‑`search_repo` **מדלג**
+  עליהם בחיפוש.
+- **נרמול לפני התאמה:** `normpath` + התאמה case‑insensitive, גם על הנתיב המלא וגם על
+  ה‑basename — כך שמכוסים גם נתיבים מקוננים (`config/.env`, `a/b/id_rsa`) וגם וריאציות
+  רישיות (`.ENV`). (הגנת traversal כבר קיימת — `_validate_repo_file_path`,
+  `git_mirror_service.py:750` — והמדיניות נוספת מעליה.)
+- **רשימת בסיס (ניתנת להרחבה בקונפיג):** `.env*`, `*.pem`, `*.key`, `id_rsa*`/`id_ed25519*`,
+  `secrets.*`, `credentials*`, `*.p12`/`*.pfx`, `.netrc`, `.npmrc` — שמות מקובלים לחומר
+  סודות, כולל שמות חלופיים; הרשימה היא baseline ומורחבת לפי הצורך.
+- **fail‑closed:** אם המדיניות לא נטענה (קונפיג חסר/שגוי) — כלי הקריאה **מסרבים להגיש
+  תוכן** ומחזירים שגיאה מפורשת; לעולם לא מגישים בלי סינון.
+- **טסטים ייעודיים (חלק מהגדרת ה‑Done):** כיסוי לכל כלל ברשימה + מקרי קצה — נתיב מקונן,
+  רישיות, `secrets.yaml` לעומת `secrets_test.py`, basename מול נתיב מלא, ומצב מדיניות‑חסרה
+  (חייב להיכשל סגור).
+
+### 13.6 פערים מול המימוש הקיים
+מיפוי הקוד העלה את הפערים הבאים:
+1. **אין פונקציית שירות `list_repos`** — הלוגיקה קיימת רק כ‑route (לא ניתנת לקריאה כפונקציה); נדרש handler דק.
+2. **אין עץ עם עימוד/סינון‑תיקייה מה‑bare repo** — `list_all_files` שטוח ולא מעומד; `api_tree` נשען על אינדקס Mongo בלבד (רמה אחת).
+3. **אין רשימת branches/refs** — `for-each-ref` רץ רק inline ב‑initial_import (`services/repo_sync_service.py:539-619`) ואינו חשוף.
+4. **אין שכבת אדמין ב‑MCP** — `require_admin` וסינון tools/list הם עבודה חדשה (ראו 13.2).
+5. **אין denylist/redaction על נתיבי הקריאה** — ראו המדיניות המחייבת ב‑13.5 והסיכון ב‑13.7.
+6. **ל‑`repo_metadata` אין אינדקס** (`scripts/create_repo_indexes.py` מכסה רק `sync_jobs`/`repo_files`).
+
+כמו בסעיף 7 — הגישה ה‑in‑process (ישירות ל‑`GitMirrorService`) מייתרת תיקון מוקדם של
+ה‑HTTP: הפערים נסגרים בשכבת ה‑MCP עצמה.
+
+### 13.7 סיכונים
+- 🔴 **דליפת קוד/סודות דרך קבצים בריפו**: נתיבי הקריאה יגישו כל קובץ שקיים ב‑mirror —
+  כולל `.env` משוקף, מפתחות וכד'. `_sanitize_output` (`git_mirror_service.py:261`) מנקה רק
+  את טוקן ה‑GitHub מפלט git עצמו, לא תוכן קבצים; `should_index` (`services/code_indexer.py:181`)
+  הוא פילטר רלוונטיות לאינדקס — לא בקרת אבטחה. ⇒ מדיניות הסינון ב‑13.5 היא **תנאי מקדים
+  מחייב** להפעלת הכלים (fail‑closed); הרחבה אפשרית שנשארת פתוחה: redaction גם בתוכן.
+- **עומס דיסק/זיכרון בריפואים גדולים** — ממתן קיים: חיפוש בסטרימינג (`:1912`, תוכנן ל‑512MB
+  ב‑Render) + התקרות של 13.4.
+- **מרוץ מול sync**: אין נעילת קריאה (fetch/gc יכולים לרוץ במקביל, `repo_sync_service.py:202`) —
+  הכלים צריכים לספוג כשל חולף ולהחזיר שגיאה נקייה, לא להפיל את השירות.
+- **הרחבת ה‑surface מעבר לנבדק**: כלים קריאים גם כשמוסתרים (13.2) ⇒ שער אדמין בגוף כל
+  כלי — חובה, לא אופציה; והפיצ'ר כולו נשאר קריאה‑בלבד.
+
+---
+
+## 14. מקורות
 - [Claude Help Center — Get started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
 - [Claude Docs — Authentication for connectors](https://claude.com/docs/connectors/building/authentication)
 - [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
