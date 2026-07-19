@@ -818,10 +818,13 @@ async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_T
             "🔌 <b>חיבור הקבצים שלך ל‑Claude (MCP)</b>\n\n"
             "הטוקן האישי שלך (יוצג פעם אחת בלבד — שמור אותו):\n"
             f"<code>{raw}</code>\n\n"
-            "לחיבור מ‑Claude Code (העתק‑הדבק):\n"
+            "לחיבור מ‑Claude Code / Desktop (העתק‑הדבק):\n"
             f"<code>{add_cmd}</code>\n\n"
-            "⚠️ אל תשתפו את הטוקן. כרגע החיבור עובד מול Claude Code / Desktop "
-            "(קריאה בלבד); תמיכה ב‑Claude.ai בוובאפ תגיע בהמשך."
+            "💡 ל‑Claude.ai <b>אין צורך בטוקן</b>: ב‑Settings → Connectors → "
+            "Add custom connector הזינו את הכתובת\n"
+            f"<code>{base}/mcp</code>\n"
+            "וההתחברות תתבצע אוטומטית (דרך התחברות טלגרם).\n\n"
+            "⚠️ אל תשתפו את הטוקן — הוא נותן גישת קריאה לקבצים שלכם."
         )
         try:
             await message.reply_text(text, parse_mode=ParseMode.HTML)

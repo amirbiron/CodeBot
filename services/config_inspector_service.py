@@ -520,7 +520,11 @@ class ConfigService:
         "MCP_SERVER_URL": ConfigDefinition(
             key="MCP_SERVER_URL",
             default="",
-            description="ה-URL הציבורי של שירות ה-MCP; משמש את /connect_claude בבוט לבניית פקודת החיבור.",
+            description=(
+                "ה-URL הציבורי (https) של שירות ה-MCP. בבוט: בניית פקודת /connect_claude. "
+                "בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם WEBAPP_URL). "
+                "בוובאפ: שער open-redirect ב-/oauth/identify."
+            ),
             category="mcp",
         ),
         "MCP_SERVER_NAME": ConfigDefinition(
