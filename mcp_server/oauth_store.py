@@ -14,11 +14,14 @@ Depends only on a duck-typed pymongo handle, so it is unit-testable with a fake.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta, UTC
 from typing import Any
 
 from .token_store import hash_token
+
+logger = logging.getLogger(__name__)
 
 # Distinct, greppable prefixes so raw values are self-describing in logs/debug.
 CODE_PREFIX = "ckoc_"
@@ -72,7 +75,10 @@ class OAuthStore:
             self._codes.create_index("expires_at", expireAfterSeconds=0)
             self._tokens.create_index("expires_at", expireAfterSeconds=0)
         except Exception:
-            pass
+            # Best-effort: index creation must never break the service (the store
+            # still works without indexes). But don't swallow silently — a failure
+            # on the unique/TTL indexes is worth seeing in logs to diagnose drift.
+            logger.warning("OAuth store index creation failed (non-fatal)", exc_info=True)
 
     # -- clients (Dynamic Client Registration) ----------------------------
     def save_client(self, client: dict) -> None:

@@ -13,6 +13,7 @@ Usage::
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 
@@ -53,7 +54,10 @@ class FakeCollection:
         return True
 
     def find_one(self, q):
-        return next((d for d in self.docs if self._match(d, q)), None)
+        # Return an independent copy (like real pymongo) so a caller mutating the
+        # result — e.g. oauth_store popping "_id" — can't corrupt stored docs.
+        match = next((d for d in self.docs if self._match(d, q)), None)
+        return copy.deepcopy(match) if match is not None else None
 
     def update_one(self, q, u, upsert=False):
         for d in self.docs:

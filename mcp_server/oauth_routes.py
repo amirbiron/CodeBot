@@ -1,9 +1,12 @@
 """MCP-side consent routes for the OAuth flow.
 
-The webapp authenticates the user (Telegram) and redirects here with a signed
-``user_id`` assertion bound to the pending ``txn``. We verify it, show a consent
-screen, and on approval mint the authorization code and redirect back to the
-OAuth client's ``redirect_uri`` (Claude). Denial redirects back with an error.
+The webapp authenticates the user (Telegram) and hands off a signed ``user_id``
+assertion bound to the pending ``txn`` via an auto-submitting **POST** (so the
+assertion never rides in the URL). We verify it, show a consent screen, and on
+approval mint the authorization code and redirect back to the OAuth client's
+``redirect_uri`` (Claude). Denial redirects back with an error. ``consent_get``
+(assertion in the query string) is retained only for backward compatibility
+during rolling deploys.
 """
 
 from __future__ import annotations
@@ -104,14 +107,32 @@ def oauth_consent_routes(store: OAuthStore, secret: str) -> list[Route]:
         doc, uid, err = await _load_valid_txn(form)
         if err:
             return _bad(f"Authorization error: {err}")
+
+        action = form.get("action")
+        if action is None:
+            # Handoff POST from the webapp (signed assertion in the body, no
+            # decision yet): render the consent screen. Rendering mints nothing —
+            # a code is only issued below on an explicit "approve".
+            scopes = " ".join(doc.get("scopes") or ["read"])
+            return HTMLResponse(
+                _consent_html(
+                    form["txn"],
+                    uid,
+                    form["exp"],
+                    form["sig"],
+                    client_name=str(doc.get("client_id") or "Claude"),
+                    scopes=scopes,
+                )
+            )
+
         txn = form["txn"]
         redirect_base = doc["redirect_uri"]
         state = doc.get("state")
 
-        # Fail closed: only an explicit "approve" mints a code. Anything else
-        # (an explicit "deny", a missing/unknown action, a tampered form) is
-        # treated as denial so a code is never issued by accident.
-        if form.get("action") != "approve":
+        # Fail closed: only an explicit "approve" mints a code. Any other action
+        # (an explicit "deny", an unknown/tampered value) is treated as denial so
+        # a code is never issued by accident.
+        if action != "approve":
             await anyio.to_thread.run_sync(store.delete_txn, txn)
             uri = construct_redirect_uri(redirect_base, error="access_denied", state=state)
             return RedirectResponse(uri, status_code=302)

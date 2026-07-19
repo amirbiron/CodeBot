@@ -52,6 +52,7 @@ def test_assert_strong_secret():
     from mcp_server.oauth_identity import INSECURE_DEFAULT_SECRET, assert_strong_secret
 
     assert_strong_secret("a-real-strong-random-secret")  # ok: no raise
-    for bad in ("", INSECURE_DEFAULT_SECRET):
+    # Rejected: empty, the well-known default, and too-short (weak) keys.
+    for bad in ("", INSECURE_DEFAULT_SECRET, "short", "x" * 15):
         with pytest.raises(RuntimeError):
             assert_strong_secret(bad)
