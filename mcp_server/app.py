@@ -85,6 +85,11 @@ def create_app():
     backend = ProductionBackend(db_manager=db_manager, mongo_db=mongo)
     name = os.getenv("MCP_SERVER_NAME", "CodeKeeper")
 
+    # Phase D: admin-only repo-browser tools (hidden + gated for non-admins).
+    from .repo_backend import RepoBackend
+
+    repo_backend = RepoBackend(db=mongo)
+
     mcp_base = (os.getenv("MCP_SERVER_URL") or "").rstrip("/")
     webapp_base = (os.getenv("WEBAPP_URL") or "").rstrip("/")
 
@@ -97,11 +102,12 @@ def create_app():
             auth_provider=provider,
             auth_settings=settings,
             consent_routes=consent,
+            repo_backend=repo_backend,
             name=name,
         )
 
     # Fallback: PAT-only (Claude Code/Desktop) — runs without OAuth config.
-    return build_app(backend, MCPTokenStore(mongo), name=name)
+    return build_app(backend, MCPTokenStore(mongo), repo_backend=repo_backend, name=name)
 
 
 app = create_app()

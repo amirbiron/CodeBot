@@ -31,6 +31,27 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
 
+### כלי אדמין — דפדפן הריפו (פאזה ד', קריאה בלבד)
+
+ארבעה כלים מעל ה‑Repo Sync Engine (bare mirrors), **לאדמין בלבד** (`ADMIN_USER_IDS`).
+למשתמש שאינו אדמין הם גם מוסתרים מ‑`tools/list` וגם חסומים בגוף הכלי (fail‑closed).
+
+| כלי | תיאור |
+|-----|-------|
+| `codekeeper_list_repos` | רשימת הריפואים המשוקפים (מטא‑דאטה) |
+| `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן) |
+| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB; בינארי ⇒ מטא‑דאטה בלבד) |
+| `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
+
+- **מדיניות סודות (חובה):** נתיבים כמו `.env*`, `*.pem`, `id_rsa*` נחסמים/מושמטים בכל
+  הכלים; הרחבה דרך `MCP_REPO_DENYLIST_EXTRA` (CSV globs).
+- **sync רץ ברקע?** כלי שנכשל בזמן sync מחזיר `sync_in_progress` + `retry_after` —
+  סימן לנסות שוב, לא להסיק שהקובץ לא קיים.
+- **פריסה:** הכלים קוראים מהדיסק (`REPO_MIRROR_PATH`, ברירת מחדל `/var/data/repos`).
+  ב‑Render דיסק הוא **פר‑שירות** — אם ה‑MCP רץ כשירות נפרד, צריך לצרף לו דיסק עם
+  ה‑mirrors (למשל `initial_import` ידני שם, כמו ב‑`GUIDES/ADD_REPO_TO_CODE_BROWSER.md`);
+  בלי דיסק, `list_repos` יעבוד (Mongo) אבל tree/file/search יחזירו שגיאה נקייה.
+
 ---
 
 ## אימות — שני מסלולים (מאוחדים תחת `load_access_token`)

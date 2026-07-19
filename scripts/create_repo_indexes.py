@@ -17,6 +17,9 @@ db.repo_files.create_index([("search_text", "text")])
 # repo_files - לחיפוש לפי שפה
 db.repo_files.create_index([("repo_name", 1), ("language", 1)])
 
+# repo_metadata - מפתח לוגי יחיד; list_repos (MCP) רץ עליו בכל קריאה
+db.repo_metadata.create_index("repo_name", unique=True)
+
 # code_snippets - base index for attention widget
 db.code_snippets.create_index(
     [

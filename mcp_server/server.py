@@ -19,8 +19,14 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from . import handlers
-from .auth import PATAuthMiddleware, current_user_id, require_write
+from . import handlers, repo_handlers
+from .auth import (
+    PATAuthMiddleware,
+    current_user_id,
+    is_admin_user,
+    require_admin,
+    require_write,
+)
 
 _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
@@ -49,6 +55,39 @@ _WRITE_TOOL = {
     "idempotentHint": False,
     "openWorldHint": False,
 }
+
+# Admin-only repo-browser tools (Phase D). Hidden from tools/list for
+# non-admins by AdminAwareFastMCP — but hiding is UX only, NOT access control:
+# every one of these also calls require_admin(ctx) in its body.
+_ADMIN_TOOLS = frozenset(
+    {
+        "codekeeper_list_repos",
+        "codekeeper_list_repo_tree",
+        "codekeeper_get_repo_file",
+        "codekeeper_search_repo",
+    }
+)
+
+
+class AdminAwareFastMCP(FastMCP):
+    """FastMCP that hides the admin-only tools from non-admin tools/list.
+
+    The SDK's tools/list is static (one ToolManager), but the auth context IS
+    available inside the handler, so we filter per request. Fail-closed: any
+    doubt (no request context, unauthenticated, lookup error) ⇒ non-admin view.
+    """
+
+    async def list_tools(self):  # type: ignore[override]
+        tools = await super().list_tools()
+        if self._request_is_admin():
+            return tools
+        return [t for t in tools if t.name not in _ADMIN_TOOLS]
+
+    def _request_is_admin(self) -> bool:
+        try:
+            return is_admin_user(current_user_id(self.get_context()))
+        except Exception:
+            return False
 
 
 def _transport_security() -> TransportSecuritySettings:
@@ -81,6 +120,7 @@ def build_mcp(
     name: str = "CodeKeeper",
     auth_provider: Any = None,
     auth_settings: Any = None,
+    repo_backend: Any = None,
 ) -> FastMCP:
     kwargs: dict[str, Any] = {
         "instructions": _INSTRUCTIONS,
@@ -92,7 +132,7 @@ def build_mcp(
         # register) plus the auth layer that calls provider.load_access_token.
         kwargs["auth_server_provider"] = auth_provider
         kwargs["auth"] = auth_settings
-    mcp: FastMCP = FastMCP(name, **kwargs)
+    mcp: FastMCP = AdminAwareFastMCP(name, **kwargs)
 
     @mcp.tool(
         name="codekeeper_list_files",
@@ -202,7 +242,85 @@ def build_mcp(
             folder=folder,
         )
 
+    if repo_backend is not None:
+        _register_repo_tools(mcp, repo_backend)
+
     return mcp
+
+
+def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
+    """Admin-only, read-only repo-browser tools (Phase D).
+
+    Every body calls require_admin FIRST (fail-closed) — the tools/list hiding
+    in AdminAwareFastMCP is visibility only. Names must stay in _ADMIN_TOOLS.
+    """
+
+    @mcp.tool(
+        name="codekeeper_list_repos",
+        description="[Admin] List the mirrored repositories (metadata only).",
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_repos(ctx: Context, limit: int = 50) -> dict:
+        require_admin(ctx)
+        return repo_handlers.list_repos(repo_backend, limit=limit)
+
+    @mcp.tool(
+        name="codekeeper_list_repo_tree",
+        description=(
+            "[Admin] List file paths in a mirrored repo (paginated; optional "
+            "subdirectory/ref filter; paths only, no content)."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_repo_tree(
+        ctx: Context,
+        repo: str,
+        path: str | None = None,
+        ref: str | None = None,
+        page: int = 1,
+        per_page: int = 200,
+    ) -> dict:
+        require_admin(ctx)
+        return repo_handlers.list_repo_tree(
+            repo_backend, repo=repo, path=path, ref=ref, page=page, per_page=per_page
+        )
+
+    @mcp.tool(
+        name="codekeeper_get_repo_file",
+        description=(
+            "[Admin] Read one file from a mirrored repo (max 500KB; binary files "
+            "return metadata only). On sync_in_progress, retry after retry_after "
+            "seconds — the file may exist."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def get_repo_file(ctx: Context, repo: str, path: str, ref: str | None = None) -> dict:
+        require_admin(ctx)
+        return repo_handlers.get_repo_file(repo_backend, repo=repo, path=path, ref=ref)
+
+    @mcp.tool(
+        name="codekeeper_search_repo",
+        description=(
+            "[Admin] Text-search inside a mirrored repo; returns short snippets "
+            "(path+line), capped and truncated-flagged."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def search_repo(
+        ctx: Context,
+        repo: str,
+        query: str,
+        file_pattern: str | None = None,
+        max_results: int = 50,
+    ) -> dict:
+        require_admin(ctx)
+        return repo_handlers.search_repo(
+            repo_backend,
+            repo=repo,
+            query=query,
+            file_pattern=file_pattern,
+            max_results=max_results,
+        )
 
 
 async def _healthz(_request):
@@ -216,6 +334,7 @@ def build_app(
     auth_provider: Any = None,
     auth_settings: Any = None,
     consent_routes: Any = None,
+    repo_backend: Any = None,
     name: str = "CodeKeeper",
 ):
     """Build the authenticated Streamable-HTTP ASGI app.
@@ -232,6 +351,7 @@ def build_app(
         name=name,
         auth_provider=auth_provider if oauth else None,
         auth_settings=auth_settings if oauth else None,
+        repo_backend=repo_backend,
     )
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Unauthenticated health endpoint for the hosting platform.

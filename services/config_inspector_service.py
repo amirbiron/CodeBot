@@ -545,6 +545,15 @@ class ConfigService:
             description="Origin מותרים לשרת ה-MCP (CSV). רלוונטי רק כשמפעילים הגנה דרך MCP_ALLOWED_HOSTS.",
             category="mcp",
         ),
+        "MCP_REPO_DENYLIST_EXTRA": ConfigDefinition(
+            key="MCP_REPO_DENYLIST_EXTRA",
+            default="",
+            description=(
+                "תבניות glob נוספות (CSV) ל-denylist הסודות של כלי דפדפן הריפו ב-MCP, "
+                "מעל רשימת הבסיס המובנית (.env*, *.pem, id_rsa* וכו')."
+            ),
+            category="mcp",
+        ),
 
         # --- Repo Sync Engine (Git Mirror) ---
         "REPO_NAME": ConfigDefinition(

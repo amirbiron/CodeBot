@@ -179,11 +179,11 @@
      - ``my_webhook_secret``
      - WebApp
    * - ``REPO_MIRROR_PATH``
-     - נתיב בסיסי בדיסק לשמירת Bare Mirror של הריפו (Repo Sync Engine)
+     - נתיב בסיסי בדיסק לשמירת Bare Mirror של הריפו (Repo Sync Engine). נדרש גם בשירות ה-MCP עבור כלי דפדפן הריפו (אדמין בלבד) — השירות חייב דיסק עם ה-mirrors (ב-Render דיסק הוא פר-שירות).
      - לא
      - ``/var/data/repos``
      - ``/var/data/repos``
-     - WebApp
+     - MCP/WebApp
    * - ``REPO_NAME``
      - שם ריפו לוגי לשימוש ב-Repo Sync (מפתח ל-mirror בדיסק ול-metadata ב-DB)
      - לא
@@ -2119,6 +2119,12 @@
      - לא
      - ""
      - ``https://claude.ai``
+     - MCP
+   * - ``MCP_REPO_DENYLIST_EXTRA``
+     - תבניות glob נוספות (CSV) ל-denylist הסודות של כלי דפדפן הריפו ב-MCP, מעל רשימת הבסיס המובנית (``.env*``, ``*.pem``, ``id_rsa*`` וכו'). ההתאמה case-insensitive על הנתיב המלא וה-basename.
+     - לא
+     - ""
+     - ``*.sqlite, private/*``
      - MCP
 
 דגלי בדיקות ופיתוח
