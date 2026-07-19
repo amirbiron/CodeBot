@@ -20,11 +20,21 @@ import logging
 from typing import Any
 
 from .backend import _json_safe
+from .repo_handlers import TREE_PER_PAGE_MAX
 from .repo_policy import is_denied
 
 logger = logging.getLogger(__name__)
 
 SYNC_RETRY_AFTER_SECONDS = 30
+
+
+def _safe_int(value: Any, default: int) -> int:
+    """Best-effort int conversion; invalid input ⇒ default (clamp policy, 13.4)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
 
 _REPOS_PROJECTION = {
     "_id": 0,
@@ -151,8 +161,14 @@ class RepoBackend:
         files = [f for f in files if not is_denied(f)]  # policy: omit
         total = len(files)
 
-        start = (int(page) - 1) * int(per_page)
-        page_items = files[start : start + int(per_page)]
+        # Defense-in-depth: the handler already clamps, but this method is a
+        # public API — normalize again so a direct caller can't slice with a
+        # negative start or crash on a non-numeric value.
+        page_i = max(1, _safe_int(page, 1))
+        per_page_i = min(max(1, _safe_int(per_page, 200)), TREE_PER_PAGE_MAX)
+
+        start = (page_i - 1) * per_page_i
+        page_items = files[start : start + per_page_i]
         # Output byte budget: never let one page blow up the response.
         out: list[str] = []
         used = 0
@@ -169,8 +185,8 @@ class RepoBackend:
             "ref": use_ref,
             "path": prefix or None,
             "total": total,
-            "page": int(page),
-            "per_page": int(per_page),
+            "page": page_i,
+            "per_page": per_page_i,
             "paths": out,
             "truncated": truncated,
         }
@@ -238,12 +254,17 @@ class RepoBackend:
         if res.get("error") and not res.get("results"):
             return self._transient_error(repo, "search_failed")
 
-        rows = [r for r in (res.get("results") or []) if not is_denied(r.get("path", ""))]
-        rows = rows[: int(max_results)]  # cap TOTAL matches (per-file cap is internal)
+        # total reflects what we can actually serve: the policy-filtered matches
+        # (NOT the engine's raw total, which may count denied paths).
+        filtered = [r for r in (res.get("results") or []) if not is_denied(r.get("path", ""))]
+        total = len(filtered)
+        capped = filtered[: max(0, _safe_int(max_results, 50))]  # cap TOTAL matches
+        cap_truncated = total > len(capped)
+
         out: list[dict[str, Any]] = []
         used = 0
-        truncated = False
-        for r in rows:
+        budget_truncated = False
+        for r in capped:
             row = {
                 "path": r.get("path"),
                 "line": r.get("line"),
@@ -251,7 +272,7 @@ class RepoBackend:
             }
             used += len(str(row).encode("utf-8"))
             if used > byte_budget:
-                truncated = True
+                budget_truncated = True
                 break
             out.append(row)
         return {
@@ -259,7 +280,7 @@ class RepoBackend:
             "repo": repo,
             "query": query,
             "count": len(out),
-            "total": int(res.get("total") or len(out)),
+            "total": total,
             "results": out,
-            "truncated": bool(truncated or res.get("truncated")),
+            "truncated": bool(cap_truncated or budget_truncated or res.get("truncated")),
         }

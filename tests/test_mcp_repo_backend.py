@@ -209,8 +209,32 @@ def test_search_caps_filters_and_snippets():
     )
     out = be.search(repo="alpha", query="x", max_results=5)
     assert out["ok"] is True and out["count"] == 5  # capped to max_results
+    assert out["total"] == 10  # policy-filtered availability (11 minus .env), NOT engine total
+    assert out["truncated"] is True  # allowed matches exist beyond the cap
     assert all(len(r["snippet"]) <= 500 for r in out["results"])  # snippet cap
     assert all(r["path"] != ".env" for r in out["results"])  # policy skip
+
+
+def test_search_not_truncated_when_under_cap():
+    rows = [{"path": "a.py", "line": 1, "content": "x"}]
+    be = RepoBackend(
+        db=_repos_db(), mirror=_Mirror(), search_service=_Search({"results": rows, "total": 1})
+    )
+    out = be.search(repo="alpha", query="x", max_results=5)
+    assert out["total"] == 1 and out["count"] == 1 and out["truncated"] is False
+
+
+def test_list_tree_normalizes_bad_page_inputs():
+    files = ["a.py", "b.py", "c.py"]
+    be = RepoBackend(db=_repos_db(), mirror=_Mirror(files=files), search_service=_Search())
+    # Non-numeric / negative inputs must not crash or slice negatively.
+    out = be.list_tree(repo="alpha", page="junk", per_page=-7)
+    assert out["ok"] is True
+    assert out["page"] == 1 and out["per_page"] == 1  # normalized values echoed back
+    assert out["paths"] == ["a.py"]
+    out2 = be.list_tree(repo="alpha", page=-3, per_page="junk")
+    assert out2["page"] == 1 and out2["per_page"] == 200
+    assert out2["paths"] == files
 
 
 def test_search_error_maps_to_transient_check():
