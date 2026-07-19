@@ -476,7 +476,10 @@ class ConfigService:
         "SECRET_KEY": ConfigDefinition(
             key="SECRET_KEY",
             default="dev-secret-key-change-in-production",
-            description="מפתח סודי לסשנים ו-CSRF",
+            description=(
+                "מפתח סודי לסשנים ו-CSRF. במצב OAuth של ה-MCP: חותם את זהות המשתמש בין "
+                "הוובאפ ל-MCP — חייב ערך אקראי חזק וזהה בשני השירותים (לא ברירת המחדל)."
+            ),
             category="webserver",
             sensitive=True,
             required=True,

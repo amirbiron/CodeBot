@@ -95,11 +95,11 @@
      - ``my_db``
      - Bot/WebApp
    * - ``SECRET_KEY``
-     - מפתח הצפנה ל-Flask/WebApp
-     - כן (WebApp)
+     - מפתח הצפנה ל-Flask/WebApp. **בשירות ה-MCP (מצב OAuth):** חותם ומאמת את זהות המשתמש בין הוובאפ ל-MCP (``/oauth/identify`` → ``/oauth/consent``). **חייב להיות ערך אקראי וחזק, זהה בין הוובאפ לשירות ה-MCP.** מצב OAuth יסרב לעלות עם ערך ריק או עם ברירת המחדל של הפיתוח (מונע זיוף זהות).
+     - כן (WebApp; ובמצב OAuth גם MCP)
      - -
      - ``supersecretkey123``
-     - WebApp
+     - MCP/WebApp
    * - ``BOT_USERNAME``
      - שם משתמש הבוט
      - לא
@@ -191,11 +191,11 @@
      - ``CodeBot``
      - WebApp
    * - ``WEBAPP_URL``
-     - כתובת ה-WebApp
+     - כתובת ה-WebApp. בשירות ה-MCP: משמש גם לגשר זהות OAuth (``/oauth/identify``) — מדליק מצב OAuth יחד עם ``MCP_SERVER_URL``.
      - לא
      - -
      - ``https://my.app``
-     - WebApp
+     - WebApp/MCP
    * - ``BOT_JOBS_API_BASE_URL``
      - בסיס URL ל-API הפנימי של הבוט (aiohttp) עבור Trigger של Jobs ממסך המוניטור (``POST /api/jobs/<job_id>/trigger``). אם לא מוגדר, כפתור ההפעלה ידנית במוניטור יהיה לא זמין.
      - לא
@@ -2097,11 +2097,11 @@
      - ``mongodb://localhost:27017`` / ``my_db``
      - Scripts
    * - ``MCP_SERVER_URL``
-     - ה-URL הציבורי של שירות ה-MCP. משמש את פקודת הבוט ``/connect_claude`` כדי לבנות את פקודת החיבור ל-Claude.
+     - ה-URL הציבורי (https) של שירות ה-MCP. בבוט: בניית פקודת ``/connect_claude``. בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם ``WEBAPP_URL``). בוובאפ: שער open-redirect ב-``/oauth/identify``.
      - לא
      - ``https://YOUR-MCP-HOST``
      - ``https://code-keeper-mcp.onrender.com``
-     - Bot
+     - Bot/MCP/WebApp
    * - ``MCP_SERVER_NAME``
      - שם התצוגה של שרת ה-MCP (מוצג ללקוח כשם ה-Connector).
      - לא

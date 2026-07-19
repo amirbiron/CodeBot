@@ -24,10 +24,20 @@ from .auth import PATAuthMiddleware, current_user_id
 
 _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
-    "CodeKeeper. Use search_code / list_files to find files (metadata only), "
-    "and get_file to read full contents. All data is scoped to the "
-    "authenticated user; this server is read-only."
+    "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
+    "(metadata only), and codekeeper_get_file to read full contents. All data is "
+    "scoped to the authenticated user; this server is read-only."
 )
+
+# Shared annotations: every tool here is a non-destructive, idempotent read over
+# the user's own bounded data store (service-prefixed to avoid cross-connector
+# collisions on generic names like get_file / list_files).
+_READ_ONLY_TOOL = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
 
 
 def _transport_security() -> TransportSecuritySettings:
@@ -41,7 +51,11 @@ def _transport_security() -> TransportSecuritySettings:
     """
     hosts = [h.strip() for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
     origins = [o.strip() for o in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
-    if hosts or origins:
+    # Gate on hosts only. The host allow-list is what enforces the check; turning
+    # protection on with an empty allowed_hosts (e.g. only MCP_ALLOWED_ORIGINS
+    # set) would reject every request with HTTP 421. Origins refine an
+    # already-locked-down server, so they ride along but never enable it alone.
+    if hosts:
         return TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=hosts,
@@ -50,26 +64,49 @@ def _transport_security() -> TransportSecuritySettings:
     return TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 
-def build_mcp(backend: Any, *, name: str = "CodeKeeper") -> FastMCP:
-    mcp: FastMCP = FastMCP(
-        name,
-        instructions=_INSTRUCTIONS,
-        stateless_http=True,
-        transport_security=_transport_security(),
-    )
+def build_mcp(
+    backend: Any,
+    *,
+    name: str = "CodeKeeper",
+    auth_provider: Any = None,
+    auth_settings: Any = None,
+) -> FastMCP:
+    kwargs: dict[str, Any] = {
+        "instructions": _INSTRUCTIONS,
+        "stateless_http": True,
+        "transport_security": _transport_security(),
+    }
+    if auth_provider is not None and auth_settings is not None:
+        # Enables the SDK's OAuth endpoints (.well-known / authorize / token /
+        # register) plus the auth layer that calls provider.load_access_token.
+        kwargs["auth_server_provider"] = auth_provider
+        kwargs["auth"] = auth_settings
+    mcp: FastMCP = FastMCP(name, **kwargs)
 
-    @mcp.tool(description="List the user's saved code files (metadata only, no code).")
+    @mcp.tool(
+        name="codekeeper_list_files",
+        description="List the user's saved code files (metadata only, no code).",
+        annotations=_READ_ONLY_TOOL,
+    )
     def list_files(ctx: Context, page: int = 1, per_page: int = 50) -> dict:
         return handlers.list_files(backend, current_user_id(ctx), page=page, per_page=per_page)
 
-    @mcp.tool(description="Search the user's code by text; returns file metadata (no content).")
+    @mcp.tool(
+        name="codekeeper_search_code",
+        description="Search the user's code by text; returns file metadata (no content).",
+        annotations=_READ_ONLY_TOOL,
+    )
     def search_code(ctx: Context, query: str, language: str | None = None, limit: int = 20) -> dict:
         results = handlers.search_code(
             backend, current_user_id(ctx), query=query, language=language, limit=limit
         )
         return {"query": query, "count": len(results), "results": results}
 
-    @mcp.tool(description="Get a file's full content by name or id (optional version number).")
+    @mcp.tool(
+        name="codekeeper_get_file",
+        description="Get a file's full content by name or id (optional version number).",
+        annotations=_READ_ONLY_TOOL,
+    )
     def get_file(
         ctx: Context,
         file_name: str | None = None,
@@ -83,20 +120,36 @@ def build_mcp(backend: Any, *, name: str = "CodeKeeper") -> FastMCP:
             return {"found": False}
         return {"found": True, "file": doc}
 
-    @mcp.tool(description="List all saved versions of a file by file_name (metadata only).")
+    @mcp.tool(
+        name="codekeeper_list_versions",
+        description="List all saved versions of a file by file_name (metadata only).",
+        annotations=_READ_ONLY_TOOL,
+    )
     def list_versions(ctx: Context, file_name: str) -> dict:
         versions = handlers.list_versions(backend, current_user_id(ctx), file_name=file_name)
         return {"file_name": file_name, "count": len(versions), "versions": versions}
 
-    @mcp.tool(description="List the user's collections (named folders of files).")
+    @mcp.tool(
+        name="codekeeper_list_collections",
+        description="List the user's collections (named folders of files).",
+        annotations=_READ_ONLY_TOOL,
+    )
     def list_collections(ctx: Context, limit: int = 100) -> dict:
         return handlers.list_collections(backend, current_user_id(ctx), limit=limit)
 
-    @mcp.tool(description="Get a single collection by its id.")
+    @mcp.tool(
+        name="codekeeper_get_collection",
+        description="Get a single collection by its id.",
+        annotations=_READ_ONLY_TOOL,
+    )
     def get_collection(ctx: Context, collection_id: str) -> dict:
         return handlers.get_collection(backend, current_user_id(ctx), collection_id=collection_id)
 
-    @mcp.tool(description="List files in a collection (paginated); optional folder filter.")
+    @mcp.tool(
+        name="codekeeper_get_collection_items",
+        description="List files in a collection (paginated); optional folder filter.",
+        annotations=_READ_ONLY_TOOL,
+    )
     def get_collection_items(
         ctx: Context,
         collection_id: str,
@@ -120,12 +173,36 @@ async def _healthz(_request):
     return JSONResponse({"status": "ok", "service": "codekeeper-mcp"})
 
 
-def build_app(backend: Any, token_store: Any, *, name: str = "CodeKeeper"):
-    """Build the authenticated Streamable-HTTP ASGI app."""
-    mcp = build_mcp(backend, name=name)
+def build_app(
+    backend: Any,
+    token_store: Any = None,
+    *,
+    auth_provider: Any = None,
+    auth_settings: Any = None,
+    consent_routes: Any = None,
+    name: str = "CodeKeeper",
+):
+    """Build the authenticated Streamable-HTTP ASGI app.
+
+    Two auth modes:
+    - OAuth (auth_provider + auth_settings given): the SDK mounts the OAuth
+      endpoints and verifies via provider.load_access_token — which also accepts
+      PATs, so Claude Code and Claude.ai both work. ``consent_routes`` are mounted.
+    - PAT-only (fallback): the custom ``PATAuthMiddleware`` guards the app.
+    """
+    oauth = auth_provider is not None and auth_settings is not None
+    mcp = build_mcp(
+        backend,
+        name=name,
+        auth_provider=auth_provider if oauth else None,
+        auth_settings=auth_settings if oauth else None,
+    )
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Unauthenticated health endpoint for the hosting platform.
     app.router.routes.append(Route("/healthz", _healthz, methods=["GET"]))
-    # Auth guards everything except the exempt paths (see PATAuthMiddleware).
-    app.add_middleware(PATAuthMiddleware, token_store=token_store)
+    if oauth:
+        for route in consent_routes or []:
+            app.router.routes.append(route)
+    else:
+        app.add_middleware(PATAuthMiddleware, token_store=token_store)
     return app

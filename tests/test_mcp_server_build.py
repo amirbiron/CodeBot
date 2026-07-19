@@ -8,13 +8,13 @@ pytest.importorskip("starlette")
 from mcp_server.server import build_app, build_mcp  # noqa: E402
 
 _EXPECTED_TOOLS = {
-    "list_files",
-    "search_code",
-    "get_file",
-    "list_versions",
-    "list_collections",
-    "get_collection",
-    "get_collection_items",
+    "codekeeper_list_files",
+    "codekeeper_search_code",
+    "codekeeper_get_file",
+    "codekeeper_list_versions",
+    "codekeeper_list_collections",
+    "codekeeper_get_collection",
+    "codekeeper_get_collection_items",
 }
 
 

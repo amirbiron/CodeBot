@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import logging
 import os
 import time
@@ -329,3 +330,99 @@ def logout():
         pass
     session.clear()
     return resp
+
+
+def _oauth_login_html(txn: str, return_url: str) -> str:
+    """Minimal page hosting the Telegram Login Widget for the MCP OAuth flow.
+
+    The widget's ``data-auth-url`` points back here (preserving txn/return), so
+    Telegram redirects the browser back with the signed auth params.
+    """
+    from urllib.parse import quote
+
+    # HTML-escape everything interpolated into the markup. quote() only makes the
+    # query safe for a URL; it does not neutralize an attribute breakout, so the
+    # final string still has to be html.escape'd before landing in an attribute.
+    bot = html.escape(_get_bot_username_clean())
+    auth_url = html.escape(f"{request.base_url}?txn={quote(txn)}&return={quote(return_url)}")
+    return f"""<!doctype html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeKeeper — התחברות לחיבור Claude</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; background:#0f1115; color:#e6e6e6;
+         display:flex; min-height:100vh; align-items:center; justify-content:center; margin:0; }}
+  .card {{ background:#1a1d24; border:1px solid #2a2f3a; border-radius:14px; padding:28px;
+          max-width:420px; width:90%; text-align:center; }}
+  h1 {{ font-size:20px; }} p {{ color:#a9b1bd; line-height:1.6; }}
+</style></head><body>
+  <div class="card">
+    <h1>🔌 חיבור ל‑Claude</h1>
+    <p>התחבר עם טלגרם כדי לאשר גישת קריאה לקבצים שלך ב‑CodeKeeper.</p>
+    <script async src="https://telegram.org/js/telegram-widget.js?22"
+      data-telegram-login="{bot}" data-size="large"
+      data-auth-url="{auth_url}" data-request-access="write"></script>
+  </div>
+</body></html>"""
+
+
+@auth_bp.route("/oauth/identify", methods=["GET"])
+def oauth_identify():
+    """Identity bridge for the MCP OAuth flow.
+
+    Authenticates the user (Telegram widget or existing session) and redirects
+    back to the MCP ``return`` URL with an HMAC-signed ``user_id`` assertion.
+    """
+    from urllib.parse import urlencode, urlparse
+
+    from mcp_server.oauth_identity import assert_strong_secret, sign_identity
+
+    txn = request.args.get("txn", "")
+    return_url = request.args.get("return", "")
+    if not txn or not return_url:
+        return jsonify({"error": "missing_txn_or_return"}), 400
+
+    # Open-redirect guard: the return URL must share scheme+host with our
+    # configured MCP service. Compare parsed components rather than a startswith
+    # on the raw string — the latter can be fooled by lookalike hosts
+    # ("https://mcp.example.com.evil.com/…") or userinfo tricks.
+    mcp = urlparse((os.getenv("MCP_SERVER_URL", "") or "").strip())
+    ret = urlparse(return_url)
+    if not mcp.scheme or not mcp.netloc or ret.scheme != mcp.scheme or ret.netloc != mcp.netloc:
+        return jsonify({"error": "invalid_return_url"}), 400
+
+    user_id = None
+    # Telegram signs ONLY its own fields — never our txn/return — so filter to the
+    # Telegram field set before verifying, or the HMAC check would always fail.
+    _tg_fields = {"id", "first_name", "last_name", "username", "photo_url", "auth_date", "hash"}
+    tg_data: Any = {k: v for k, v in request.args.items() if k in _tg_fields}
+    if tg_data.get("hash"):  # Telegram widget redirected back with auth params
+        if not _verify_telegram_auth(tg_data):
+            return jsonify({"error": "invalid_telegram_auth"}), 401
+        try:
+            user_id = int(tg_data.get("id"))
+        except Exception:
+            return jsonify({"error": "invalid_telegram_id"}), 401
+        session["user_id"] = user_id  # convenience for subsequent visits
+    if user_id is None and session.get("user_id"):
+        try:
+            user_id = int(session["user_id"])
+        except Exception:
+            user_id = None
+    if user_id is None:
+        return _oauth_login_html(txn, return_url)  # Flask serves str as text/html
+
+    # The signing key must be strong and identical to the MCP service's. Refuse to
+    # sign with a missing/default key (which would be forgeable) — fail cleanly.
+    secret = os.getenv("SECRET_KEY", "")
+    try:
+        assert_strong_secret(secret)
+    except RuntimeError:
+        logger.error("SECRET_KEY missing/default; cannot sign OAuth identity assertion")
+        return jsonify({"error": "server_misconfigured"}), 500
+    exp, sig = sign_identity(secret, user_id, txn)
+    sep = "&" if "?" in return_url else "?"
+    dest = f"{return_url}{sep}" + urlencode(
+        {"txn": txn, "user_id": user_id, "exp": exp, "sig": sig}
+    )
+    return redirect(dest)
