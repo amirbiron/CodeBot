@@ -639,6 +639,28 @@ class FilesFacade:
             logger.error("insert_webapp_login_token failed", exc_info=True)
             return False
 
+    def issue_mcp_token(
+        self, user_id: int, *, label: str = "Claude", ttl_days: Optional[int] = None
+    ) -> Optional[str]:
+        """
+        Issue a long-lived MCP Personal Access Token bound to ``user_id`` and
+        return the RAW token (shown once). Returns None on failure.
+
+        Keeps the MCP token-store wiring in one place so handlers don't reach
+        for raw PyMongo. See ``mcp_server/token_store.py``.
+        """
+        try:
+            mongo_db = self.get_mongo_db()
+            if mongo_db is None:
+                return None
+            from mcp_server.token_store import MCPTokenStore  # lazy import
+
+            store = MCPTokenStore(mongo_db)
+            return store.issue(int(user_id), label=label, ttl_days=ttl_days)
+        except Exception:
+            logger.error("issue_mcp_token failed", exc_info=True)
+            return None
+
     def list_active_user_ids(self) -> Optional[List[int]]:
         """
         Return user ids eligible for admin broadcast (non-blocked users).

@@ -10,7 +10,7 @@
 > `scripts/mcp_issue_token.py`, וטסטים `tests/test_mcp_*.py`. **הערת סטייה מהמסמך:**
 > מאגר הטוקנים נמצא ב‑`mcp_server/token_store.py` (ולא `database/mcp_tokens.py`), כדי
 > שהמודולים יהיו נטולי תלויות כבדות וניתנים לבדיקה בבידוד. פקודת הבוט `/connect_claude`
-> ו‑OAuth (Claude.ai) יגיעו בפאזות הבאות.
+> כבר זמינה (הנפקת טוקן מתוך טלגרם); OAuth (Claude.ai) וכלי כתיבה יגיעו בפאזות הבאות.
 
 ---
 
