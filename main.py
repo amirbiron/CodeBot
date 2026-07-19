@@ -777,6 +777,72 @@ async def _send_direct_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> 
         return False
 
 
+async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """מנפיק טוקן אישי (PAT) לחיבור הקבצים של המשתמש ל‑Claude דרך MCP (קריאה בלבד)."""
+    try:
+        message = update.message or update.effective_message
+        if message is None:
+            return
+
+        # אבטחה: הטוקן סודי — מנפיקים רק בצ'אט פרטי כדי שלא ידלוף בקבוצה.
+        chat = update.effective_chat
+        if getattr(chat, "type", "private") != "private":
+            await message.reply_text("🔒 הפקודה זמינה בצ'אט פרטי בלבד (הטוקן סודי).")
+            return
+
+        user = update.effective_user
+        user_id = getattr(user, "id", None)
+        if not user_id:
+            await message.reply_text("לא זוהה משתמש.")
+            return
+
+        raw = None
+        try:
+            from src.infrastructure.composition.webapp_container import get_files_facade
+
+            raw = get_files_facade().issue_mcp_token(int(user_id), label="Claude")
+        except Exception:
+            logger.error("connect_claude: token issue failed", exc_info=True)
+            raw = None
+
+        if not raw:
+            await message.reply_text("אירעה שגיאה ביצירת הטוקן. נסו שוב מאוחר יותר.")
+            return
+
+        base = (os.getenv("MCP_SERVER_URL") or "https://YOUR-MCP-HOST").rstrip("/")
+        add_cmd = (
+            f'claude mcp add --transport http codekeeper {base}/mcp '
+            f'--header "Authorization: Bearer {raw}"'
+        )
+        text = (
+            "🔌 <b>חיבור הקבצים שלך ל‑Claude (MCP)</b>\n\n"
+            "הטוקן האישי שלך (יוצג פעם אחת בלבד — שמור אותו):\n"
+            f"<code>{raw}</code>\n\n"
+            "לחיבור מ‑Claude Code (העתק‑הדבק):\n"
+            f"<code>{add_cmd}</code>\n\n"
+            "⚠️ אל תשתפו את הטוקן. כרגע החיבור עובד מול Claude Code / Desktop "
+            "(קריאה בלבד); תמיכה ב‑Claude.ai בוובאפ תגיע בהמשך."
+        )
+        try:
+            await message.reply_text(text, parse_mode=ParseMode.HTML)
+        except Exception:
+            # נפילת פרסום HTML לא תגרום לאובדן הטוקן — שולחים גרסת טקסט.
+            plain = (
+                text.replace("<b>", "")
+                .replace("</b>", "")
+                .replace("<code>", "")
+                .replace("</code>", "")
+            )
+            await message.reply_text(plain)
+    except Exception:
+        logger.error("connect_claude_command failed", exc_info=True)
+        try:
+            if update and update.message:
+                await update.message.reply_text("אירעה שגיאה. נסו שוב מאוחר יותר.")
+        except Exception:
+            pass
+
+
 async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """קבלת דיווח משתמש ושליחה לאדמינים."""
     try:
@@ -2109,6 +2175,12 @@ class HelpSection(TypedDict):
 
 
 HELP_SECTIONS: list[HelpSection] = [
+    {
+        "title": "🔌 <b>חיבור ל‑Claude (MCP)</b>",
+        "entries": [
+            {"commands": ("connect_claude",), "description": "חיבור הקבצים שלך ל‑Claude (טוקן MCP)"},
+        ],
+    },
     {
         "title": "🔔 <b>תזכורות</b>",
         "entries": [
@@ -3823,6 +3895,7 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
         self.application.add_handler(CommandHandler("admin", admin_report_command))
+        self.application.add_handler(CommandHandler("connect_claude", connect_claude_command))
 
         # ChatOps: /jobs (Background Jobs Monitor)
         async def jobs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -77,6 +77,10 @@ uvicorn==0.38.0
 whitenoise==6.11.0
 Flask-Compress==1.20
 
+# MCP server (Model Context Protocol) — exposes user files to Claude via mcp_server/
+# Compatible with the existing pins above (uvicorn>=0.31, pydantic>=2.11, httpx 0.28.x, starlette).
+mcp==1.28.1
+
 # Rate limiting (Flask + generic)
 Flask-Limiter==4.0.0
 limits==5.6.0
