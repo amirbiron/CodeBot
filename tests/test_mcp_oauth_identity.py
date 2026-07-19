@@ -46,3 +46,12 @@ def test_empty_secret_is_refused():
 
     forged = hmac.new(b"", b"42:txn1:9999999999", hashlib.sha256).hexdigest()
     assert not verify_identity("", 42, "txn1", 9999999999, forged)
+
+
+def test_assert_strong_secret():
+    from mcp_server.oauth_identity import INSECURE_DEFAULT_SECRET, assert_strong_secret
+
+    assert_strong_secret("a-real-strong-random-secret")  # ok: no raise
+    for bad in ("", INSECURE_DEFAULT_SECRET):
+        with pytest.raises(RuntimeError):
+            assert_strong_secret(bad)

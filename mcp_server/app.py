@@ -35,13 +35,17 @@ def _build_oauth(mongo: Any, *, mcp_base: str, webapp_base: str) -> tuple[Any, A
     )
     from pydantic import AnyHttpUrl
 
+    from .oauth_identity import assert_strong_secret
     from .oauth_provider import CodeKeeperOAuthProvider
     from .oauth_routes import oauth_consent_routes
     from .oauth_store import OAuthStore
 
     store = OAuthStore(mongo)
     token_store = MCPTokenStore(mongo)
-    secret = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    # Fail fast: OAuth signs the user-identity assertion with SECRET_KEY, so a
+    # missing or well-known-default key is a security hole, not a soft default.
+    secret = os.getenv("SECRET_KEY", "")
+    assert_strong_secret(secret)
 
     provider = CodeKeeperOAuthProvider(
         store=store,

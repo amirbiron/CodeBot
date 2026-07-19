@@ -4,7 +4,11 @@ from datetime import datetime, timedelta, UTC
 
 from mcp_server.oauth_store import ACCESS_PREFIX, OAuthStore, new_secret
 from mcp_server.token_store import hash_token
-from tests._fake_mongo import FakeDB
+
+try:  # local `tests` pkg can be shadowed by an unrelated top-level `tests` on sys.path
+    from tests._fake_mongo import FakeDB
+except ImportError:  # fall back to the sibling module (tests/ is on sys.path under pytest)
+    from _fake_mongo import FakeDB
 
 
 def _store():

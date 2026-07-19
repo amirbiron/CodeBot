@@ -27,7 +27,11 @@ from mcp_server.oauth_provider import CodeKeeperOAuthProvider  # noqa: E402
 from mcp_server.oauth_routes import oauth_consent_routes  # noqa: E402
 from mcp_server.oauth_store import OAuthStore  # noqa: E402
 from mcp_server.server import build_app  # noqa: E402
-from tests._fake_mongo import FakeDB  # noqa: E402
+
+try:  # local `tests` pkg can be shadowed by an unrelated top-level `tests` on sys.path
+    from tests._fake_mongo import FakeDB  # noqa: E402
+except ImportError:  # fall back to the sibling module (tests/ is on sys.path under pytest)
+    from _fake_mongo import FakeDB  # noqa: E402
 
 SECRET = "e2e-secret"
 BASE = "https://mcp.test"  # SDK requires an HTTPS issuer (or localhost)

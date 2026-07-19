@@ -11,7 +11,11 @@ from starlette.applications import Starlette  # noqa: E402
 from mcp_server.oauth_identity import sign_identity  # noqa: E402
 from mcp_server.oauth_routes import oauth_consent_routes  # noqa: E402
 from mcp_server.oauth_store import OAuthStore  # noqa: E402
-from tests._fake_mongo import FakeDB  # noqa: E402
+
+try:  # local `tests` pkg can be shadowed by an unrelated top-level `tests` on sys.path
+    from tests._fake_mongo import FakeDB  # noqa: E402
+except ImportError:  # fall back to the sibling module (tests/ is on sys.path under pytest)
+    from _fake_mongo import FakeDB  # noqa: E402
 
 SECRET = "s3cr3t"
 

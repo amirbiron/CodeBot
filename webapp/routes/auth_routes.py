@@ -375,7 +375,7 @@ def oauth_identify():
     """
     from urllib.parse import urlencode, urlparse
 
-    from mcp_server.oauth_identity import sign_identity
+    from mcp_server.oauth_identity import assert_strong_secret, sign_identity
 
     txn = request.args.get("txn", "")
     return_url = request.args.get("return", "")
@@ -412,7 +412,14 @@ def oauth_identify():
     if user_id is None:
         return _oauth_login_html(txn, return_url)  # Flask serves str as text/html
 
-    secret = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    # The signing key must be strong and identical to the MCP service's. Refuse to
+    # sign with a missing/default key (which would be forgeable) — fail cleanly.
+    secret = os.getenv("SECRET_KEY", "")
+    try:
+        assert_strong_secret(secret)
+    except RuntimeError:
+        logger.error("SECRET_KEY missing/default; cannot sign OAuth identity assertion")
+        return jsonify({"error": "server_misconfigured"}), 500
     exp, sig = sign_identity(secret, user_id, txn)
     sep = "&" if "?" in return_url else "?"
     dest = f"{return_url}{sep}" + urlencode(

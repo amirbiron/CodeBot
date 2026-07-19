@@ -95,11 +95,11 @@
      - ``my_db``
      - Bot/WebApp
    * - ``SECRET_KEY``
-     - מפתח הצפנה ל-Flask/WebApp
-     - כן (WebApp)
+     - מפתח הצפנה ל-Flask/WebApp. **בשירות ה-MCP (מצב OAuth):** חותם ומאמת את זהות המשתמש בין הוובאפ ל-MCP (``/oauth/identify`` → ``/oauth/consent``). **חייב להיות ערך אקראי וחזק, זהה בין הוובאפ לשירות ה-MCP.** מצב OAuth יסרב לעלות עם ערך ריק או עם ברירת המחדל של הפיתוח (מונע זיוף זהות).
+     - כן (WebApp; ובמצב OAuth גם MCP)
      - -
      - ``supersecretkey123``
-     - WebApp
+     - MCP/WebApp
    * - ``BOT_USERNAME``
      - שם משתמש הבוט
      - לא

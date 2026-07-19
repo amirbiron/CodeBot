@@ -72,6 +72,16 @@ def test_session_identity_signs_and_redirects(monkeypatch):
     assert verify_identity(SECRET, q["user_id"][0], q["txn"][0], q["exp"][0], q["sig"][0])
 
 
+def test_misconfigured_secret_fails_closed(monkeypatch):
+    # With a missing/default SECRET_KEY we must never sign with a guessable key.
+    c = _client(monkeypatch)
+    monkeypatch.setenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    with c.session_transaction() as sess:
+        sess["user_id"] = 42
+    r = c.get(f"/oauth/identify?txn=t1&return={MCP}/oauth/consent", follow_redirects=False)
+    assert r.status_code == 500
+
+
 def test_no_session_shows_widget(monkeypatch):
     c = _client(monkeypatch)
     r = c.get(f"/oauth/identify?txn=t1&return={MCP}/oauth/consent")

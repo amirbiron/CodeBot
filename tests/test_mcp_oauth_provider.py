@@ -18,7 +18,11 @@ from mcp_server.oauth_store import (
     OAuthStore,
     new_secret,
 )  # noqa: E402
-from tests._fake_mongo import FakeDB  # noqa: E402
+
+try:  # local `tests` pkg can be shadowed by an unrelated top-level `tests` on sys.path
+    from tests._fake_mongo import FakeDB  # noqa: E402
+except ImportError:  # fall back to the sibling module (tests/ is on sys.path under pytest)
+    from _fake_mongo import FakeDB  # noqa: E402
 
 
 def _pat(tok):

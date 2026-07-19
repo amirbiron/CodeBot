@@ -17,6 +17,26 @@ import time
 
 DEFAULT_TTL_SECONDS = 300  # 5 min — the user should finish consent promptly
 
+# The placeholder value app code falls back to when SECRET_KEY is unset. It is
+# public knowledge, so signing identity assertions with it would let anyone forge
+# a user_id. OAuth mode must refuse to start with it (see assert_strong_secret).
+INSECURE_DEFAULT_SECRET = "dev-secret-key-change-in-production"
+
+
+def assert_strong_secret(secret: str) -> None:
+    """Raise ``RuntimeError`` unless ``secret`` is a real, non-default signing key.
+
+    Called at OAuth startup so a deployment can never sign the user-identity
+    assertion with an empty or well-known key. The same value must be configured
+    on both the webapp and the MCP service (they sign/verify the same message).
+    """
+    if not secret or secret == INSECURE_DEFAULT_SECRET:
+        raise RuntimeError(
+            "SECRET_KEY must be set to a strong, random value (identical on the "
+            "webapp and MCP services) for OAuth mode — it signs the user-identity "
+            "assertion bridged between them."
+        )
+
 
 def _message(user_id: int, txn: str, exp: int) -> bytes:
     return f"{int(user_id)}:{txn}:{int(exp)}".encode()
