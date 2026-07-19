@@ -191,11 +191,11 @@
      - ``CodeBot``
      - WebApp
    * - ``WEBAPP_URL``
-     - כתובת ה-WebApp
+     - כתובת ה-WebApp. בשירות ה-MCP: משמש גם לגשר זהות OAuth (``/oauth/identify``) — מדליק מצב OAuth יחד עם ``MCP_SERVER_URL``.
      - לא
      - -
      - ``https://my.app``
-     - WebApp
+     - WebApp/MCP
    * - ``BOT_JOBS_API_BASE_URL``
      - בסיס URL ל-API הפנימי של הבוט (aiohttp) עבור Trigger של Jobs ממסך המוניטור (``POST /api/jobs/<job_id>/trigger``). אם לא מוגדר, כפתור ההפעלה ידנית במוניטור יהיה לא זמין.
      - לא
@@ -2107,12 +2107,6 @@
      - לא
      - ``CodeKeeper``
      - ``CodeKeeper``
-     - MCP
-   * - ``WEBAPP_URL``
-     - שירות ה-MCP: ה-URL של הוובאפ לגשר זהות OAuth (``/oauth/identify``). מדליק מצב OAuth יחד עם ``MCP_SERVER_URL``. (משתנה קיים; זה שימוש נוסף.)
-     - לא
-     - ""
-     - ``https://code-keeper-webapp.onrender.com``
      - MCP
    * - ``MCP_ALLOWED_HOSTS``
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).
