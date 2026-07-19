@@ -57,7 +57,13 @@ def _build_oauth(mongo: Any, *, mcp_base: str, webapp_base: str) -> tuple[Any, A
         issuer_url=AnyHttpUrl(mcp_base),
         resource_server_url=AnyHttpUrl(mcp_base),
         client_registration_options=ClientRegistrationOptions(
-            enabled=True, valid_scopes=["read"], default_scopes=["read"]
+            # Offer "write" as an available scope; keep the default read-only so a
+            # client that registers without asking (and every existing connection)
+            # stays read-only. Write is granted only when a client explicitly
+            # registers for and requests it, and the user approves it on consent.
+            enabled=True,
+            valid_scopes=["read", "write"],
+            default_scopes=["read"],
         ),
         revocation_options=RevocationOptions(enabled=True),
         required_scopes=[],

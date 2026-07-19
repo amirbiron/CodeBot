@@ -96,3 +96,38 @@ def current_user_id(ctx: Any = None) -> int:
     if user_id is None:
         raise PermissionError("unauthenticated")
     return int(user_id)
+
+
+def _token_scopes(ctx: Any = None) -> list[str]:
+    """Scopes granted to the current request — same OAuth→PAT fallback as above.
+
+    OAuth mode: the verified access token (for both OAuth ``ckoat_`` and PAT
+    ``ckmcp_`` tokens) exposes ``.scopes``. PAT-only mode has no auth context, so
+    :class:`PATAuthMiddleware` put the scopes on ``request.state``.
+    """
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+
+        token = get_access_token()
+    except Exception:
+        token = None
+    if token is not None and getattr(token, "scopes", None) is not None:
+        return list(token.scopes)
+
+    request = getattr(getattr(ctx, "request_context", None), "request", None)
+    return list(getattr(getattr(request, "state", None), "scopes", None) or [])
+
+
+def require_write(ctx: Any = None) -> None:
+    """Raise unless the caller's token carries the ``write`` scope.
+
+    The MCP SDK has no per-tool scope gate, so write tools call this first. A
+    raised ``PermissionError`` surfaces to the model as an error tool result
+    whose text is this message (not an HTTP 403).
+    """
+    if "write" not in _token_scopes(ctx):
+        raise PermissionError(
+            "insufficient_scope: this action needs write permission. Reconnect "
+            "CodeKeeper granting write access (re-add the connector, or use a "
+            "write-enabled token)."
+        )

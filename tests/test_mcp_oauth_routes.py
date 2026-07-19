@@ -96,8 +96,9 @@ async def test_consent_deny_redirects_with_error():
     assert "error=access_denied" in r.headers["location"]
 
 
-async def test_consent_missing_action_fails_closed():
-    # No/unknown action must be treated as denial — never mint a code by default.
+async def test_consent_handoff_post_renders_screen():
+    # A POST with a valid assertion but NO action is the webapp handoff: it renders
+    # the consent screen. It must NOT mint a code or consume the txn.
     app, store = _app_store()
     txn = _mk_txn(store)
     exp, sig = sign_identity(SECRET, 42, txn)
@@ -107,8 +108,24 @@ async def test_consent_missing_action_fails_closed():
             data={"txn": txn, "user_id": "42", "exp": str(exp), "sig": sig},
             follow_redirects=False,
         )
+    assert r.status_code == 200
+    assert "אישור וחיבור" in r.text  # consent screen rendered
+    assert store.get_txn(txn) is not None  # txn still pending, not consumed
+
+
+async def test_consent_unknown_action_fails_closed():
+    # Fail closed: any *present* action other than "approve" is treated as denial,
+    # so a code is never minted by an unknown/tampered value.
+    app, store = _app_store()
+    txn = _mk_txn(store)
+    exp, sig = sign_identity(SECRET, 42, txn)
+    async with _client(app) as c:
+        r = await c.post(
+            "/oauth/consent",
+            data={"txn": txn, "user_id": "42", "exp": str(exp), "sig": sig, "action": "bogus"},
+            follow_redirects=False,
+        )
     assert r.status_code == 302
     loc = r.headers["location"]
-    assert "error=access_denied" in loc
-    assert "code=ckoc_" not in loc
+    assert "error=access_denied" in loc and "code=ckoc_" not in loc
     assert store.get_txn(txn) is None  # txn consumed on denial

@@ -21,20 +21,25 @@ DEFAULT_TTL_SECONDS = 300  # 5 min — the user should finish consent promptly
 # public knowledge, so signing identity assertions with it would let anyone forge
 # a user_id. OAuth mode must refuse to start with it (see assert_strong_secret).
 INSECURE_DEFAULT_SECRET = "dev-secret-key-change-in-production"
+# Floor for a usable signing key. A real random key is far longer (e.g.
+# ``secrets.token_urlsafe(48)`` → 64 chars); this only rejects obviously weak
+# values so a short/guessable string can't sign identity assertions.
+MIN_SECRET_LENGTH = 16
 
 
 def assert_strong_secret(secret: str) -> None:
     """Raise ``RuntimeError`` unless ``secret`` is a real, non-default signing key.
 
     Called at OAuth startup so a deployment can never sign the user-identity
-    assertion with an empty or well-known key. The same value must be configured
-    on both the webapp and the MCP service (they sign/verify the same message).
+    assertion with an empty, well-known, or too-short key. The same value must be
+    configured on both the webapp and the MCP service (they sign/verify the same
+    message).
     """
-    if not secret or secret == INSECURE_DEFAULT_SECRET:
+    if not secret or secret == INSECURE_DEFAULT_SECRET or len(secret) < MIN_SECRET_LENGTH:
         raise RuntimeError(
-            "SECRET_KEY must be set to a strong, random value (identical on the "
-            "webapp and MCP services) for OAuth mode — it signs the user-identity "
-            "assertion bridged between them."
+            "SECRET_KEY must be set to a strong, random value "
+            f"(≥{MIN_SECRET_LENGTH} chars, identical on the webapp and MCP services) "
+            "for OAuth mode — it signs the user-identity assertion bridged between them."
         )
 
 

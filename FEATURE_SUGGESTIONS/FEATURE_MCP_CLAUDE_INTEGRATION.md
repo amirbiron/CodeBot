@@ -1,16 +1,19 @@
 # חיבור Claude.ai ל‑CodeKeeper דרך MCP — מסמך תכנון
 
-> **סטטוס:** פאזה 0 (PAT) **+** פאזה 1 (OAuth 2.1 ל‑Claude.ai) **מומשו** — ראו `mcp_server/`. כתיבה (פאזה 3) עדיין בתכנון.
+> **סטטוס:** פאזות 0 (PAT) **+** 1 (OAuth 2.1 ל‑Claude.ai) **+** 3 (כתיבה save-only) **מומשו** — ראו `mcp_server/`. מחיקה וכתיבת אוספים עדיין בתכנון.
 > **ענף פיתוח:** `claude/mcp-codekeeper-webapp-ldnzsg`
 > **מתי להשתמש:** לפני מימוש חיבור MCP; מסמך זה הוא מקור האמת לתכנון.
 > **ראו גם:** `mcp_server/README.md` (שימוש), [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/), `CLAUDE.md` (מדיניות מחייבת).
 >
-> **מצב מימוש (פאזות 0–1):** חבילת `mcp_server/` (שרת FastMCP קריאה‑בלבד, 7 כלים ל‑
-> `code_snippets` + `collections`). **אימות מאוחד** דרך `load_access_token`: PAT
-> (`ckmcp_`, ל‑Claude Code/Desktop) **וגם** OAuth 2.1 מלא (DCR+PKCE, ל‑Claude.ai)
-> עם גשר זהות דרך התחברות הטלגרם בוובאפ (`/oauth/identify` → `/oauth/consent`).
-> פקודת בוט `/connect_claude`. **הערת סטייה:** מאגרי הטוקנים ב‑`mcp_server/` (ולא
-> `database/`), לבדיקוּת בבידוד. נותר לפאזות הבאות: כלי כתיבה. אומת מקצה‑לקצה מקומית
+> **מצב מימוש (פאזות 0–1–3):** חבילת `mcp_server/` (שרת FastMCP, 8 כלים ל‑
+> `code_snippets` + `collections` — 7 קריאה + `codekeeper_save_file` לכתיבה). **אימות מאוחד**
+> דרך `load_access_token`: PAT (`ckmcp_`, ל‑Claude Code/Desktop) **וגם** OAuth 2.1 מלא
+> (DCR+PKCE, ל‑Claude.ai) עם גשר זהות דרך התחברות הטלגרם בוובאפ (`/oauth/identify` →
+> `/oauth/consent`). פקודת בוט `/connect_claude` (`write` לטוקן כתיבה). **כתיבה** מאחורי
+> scope `write` מפורש (יצירה/עדכון בלבד — append-only, גרסה חדשה, לא דורס). אכיפה ידנית
+> ב‑handler (ל‑SDK אין scope פר‑כלי). **הערה ל‑Claude.ai:** קבלת `write` דורשת רישום DCR
+> מחדש — יש להסיר ולהוסיף את ה‑connector. **הערת סטייה:** מאגרי הטוקנים ב‑`mcp_server/`
+> (ולא `database/`), לבדיקוּת בבידוד. נותר: מחיקה וכתיבת אוספים. אומת מקצה‑לקצה מקומית
 > ובפרודקשן (Claude Code על 682 קבצים אמיתיים).
 
 ---

@@ -366,6 +366,30 @@ def _oauth_login_html(txn: str, return_url: str) -> str:
 </body></html>"""
 
 
+def _oauth_consent_post_html(action_url: str, fields: Dict[str, str]) -> str:
+    """Auto-submitting POST form that hands the signed identity assertion to the
+    MCP consent endpoint in the request *body* (not the URL).
+
+    Keeps txn/user_id/exp/sig out of access logs, browser history, and Referer
+    headers. ``action_url`` is already validated against MCP_SERVER_URL by the
+    open-redirect guard. A no-JS submit button is the fallback.
+    """
+    esc = html.escape
+    inputs = "".join(
+        f'<input type="hidden" name="{esc(k)}" value="{esc(v)}">' for k, v in fields.items()
+    )
+    return f"""<!doctype html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeKeeper — ממשיך…</title></head><body>
+  <form id="handoff" method="post" action="{esc(action_url)}">
+    {inputs}
+    <noscript><button type="submit">המשך לאישור החיבור</button></noscript>
+  </form>
+  <script>document.getElementById("handoff").submit();</script>
+</body></html>"""
+
+
 @auth_bp.route("/oauth/identify", methods=["GET"])
 def oauth_identify():
     """Identity bridge for the MCP OAuth flow.
@@ -373,7 +397,7 @@ def oauth_identify():
     Authenticates the user (Telegram widget or existing session) and redirects
     back to the MCP ``return`` URL with an HMAC-signed ``user_id`` assertion.
     """
-    from urllib.parse import urlencode, urlparse
+    from urllib.parse import urlparse
 
     from mcp_server.oauth_identity import assert_strong_secret, sign_identity
 
@@ -421,8 +445,10 @@ def oauth_identify():
         logger.error("SECRET_KEY missing/default; cannot sign OAuth identity assertion")
         return jsonify({"error": "server_misconfigured"}), 500
     exp, sig = sign_identity(secret, user_id, txn)
-    sep = "&" if "?" in return_url else "?"
-    dest = f"{return_url}{sep}" + urlencode(
-        {"txn": txn, "user_id": user_id, "exp": exp, "sig": sig}
+    # Hand the signed assertion to the MCP consent endpoint via an auto-submitting
+    # POST form — never in the URL query string (which leaks to access logs,
+    # browser history, and the Referer header on the next redirect to the client).
+    return _oauth_consent_post_html(
+        return_url,
+        {"txn": txn, "user_id": str(user_id), "exp": str(exp), "sig": sig},
     )
-    return redirect(dest)

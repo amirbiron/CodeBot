@@ -11,6 +11,7 @@ _EXPECTED_TOOLS = {
     "codekeeper_list_files",
     "codekeeper_search_code",
     "codekeeper_get_file",
+    "codekeeper_save_file",
     "codekeeper_list_versions",
     "codekeeper_list_collections",
     "codekeeper_get_collection",
@@ -39,6 +40,9 @@ class _FakeBackend:
 
     def get_collection_items(self, *a, **k):
         return {}
+
+    def save_file(self, *a, **k):
+        return {"ok": True, "created": True, "file": {}}
 
 
 class _FakeStore:

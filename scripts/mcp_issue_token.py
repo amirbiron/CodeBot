@@ -26,6 +26,11 @@ def main() -> int:
     parser.add_argument(
         "--ttl-days", type=int, default=None, help="Optional expiry in days (default: no expiry)"
     )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Issue a read+write token (default: read only)",
+    )
     args = parser.parse_args()
 
     if not os.getenv("MONGODB_URL"):
@@ -45,10 +50,11 @@ def main() -> int:
         return 3
 
     store = MCPTokenStore(mongo)
-    raw = store.issue(args.user_id, label=args.label, ttl_days=args.ttl_days)
+    scopes = ("read", "write") if args.write else ("read",)
+    raw = store.issue(args.user_id, label=args.label, ttl_days=args.ttl_days, scopes=scopes)
     print(raw)
     print(
-        f"\nIssued for user_id={args.user_id} (label={args.label!r}). "
+        f"\nIssued for user_id={args.user_id} (label={args.label!r}, scopes={list(scopes)}). "
         "Store it now — it will not be shown again.",
         file=sys.stderr,
     )

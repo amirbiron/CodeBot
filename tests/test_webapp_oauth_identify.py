@@ -2,8 +2,8 @@
 
 import hashlib
 import hmac
+import re
 import time
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -14,7 +14,7 @@ from flask import Flask  # noqa: E402
 from mcp_server.oauth_identity import verify_identity  # noqa: E402
 from webapp.routes.auth_routes import auth_bp  # noqa: E402
 
-SECRET = "test-secret"
+SECRET = "unit-test-secret-key-0123456789"  # ≥ MIN_SECRET_LENGTH
 MCP = "https://mcp.example.com"
 BOT_TOKEN = "123456:ABC-test-token"
 
@@ -33,6 +33,11 @@ def _tg_hash(fields: dict) -> str:
     dcs = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
     secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
     return hmac.new(secret_key, dcs.encode(), hashlib.sha256).hexdigest()
+
+
+def _form_fields(html_text: str) -> dict:
+    """Extract hidden input name→value pairs from the handoff POST form."""
+    return dict(re.findall(r'name="([^"]+)"\s+value="([^"]*)"', html_text))
 
 
 def test_missing_params_400(monkeypatch):
@@ -59,23 +64,34 @@ def test_open_redirect_guard_rejects_scheme_downgrade(monkeypatch):
     assert r.status_code == 400
 
 
-def test_session_identity_signs_and_redirects(monkeypatch):
+def test_session_identity_posts_signed_handoff(monkeypatch):
+    # The assertion must be handed off via a POST form body — never in the URL.
     c = _client(monkeypatch)
     with c.session_transaction() as sess:
         sess["user_id"] = 42
     r = c.get(f"/oauth/identify?txn=t1&return={MCP}/oauth/consent", follow_redirects=False)
-    assert r.status_code == 302
-    loc = r.headers["Location"]
-    assert loc.startswith(f"{MCP}/oauth/consent?")
-    q = parse_qs(urlparse(loc).query)
-    assert q["txn"][0] == "t1" and q["user_id"][0] == "42"
-    assert verify_identity(SECRET, q["user_id"][0], q["txn"][0], q["exp"][0], q["sig"][0])
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert 'method="post"' in body and f'action="{MCP}/oauth/consent"' in body
+    f = _form_fields(body)
+    assert f["txn"] == "t1" and f["user_id"] == "42"
+    assert verify_identity(SECRET, f["user_id"], f["txn"], f["exp"], f["sig"])
 
 
 def test_misconfigured_secret_fails_closed(monkeypatch):
     # With a missing/default SECRET_KEY we must never sign with a guessable key.
     c = _client(monkeypatch)
     monkeypatch.setenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    with c.session_transaction() as sess:
+        sess["user_id"] = 42
+    r = c.get(f"/oauth/identify?txn=t1&return={MCP}/oauth/consent", follow_redirects=False)
+    assert r.status_code == 500
+
+
+def test_short_secret_fails_closed(monkeypatch):
+    # A too-short key is refused, same as a missing/default one.
+    c = _client(monkeypatch)
+    monkeypatch.setenv("SECRET_KEY", "short")
     with c.session_transaction() as sess:
         sess["user_id"] = 42
     r = c.get(f"/oauth/identify?txn=t1&return={MCP}/oauth/consent", follow_redirects=False)
@@ -89,7 +105,7 @@ def test_no_session_shows_widget(monkeypatch):
     assert "telegram-widget.js" in r.get_data(as_text=True)
 
 
-def test_telegram_branch_ignores_extra_params(monkeypatch):
+def test_telegram_branch_posts_handoff_and_ignores_extra_params(monkeypatch):
     c = _client(monkeypatch)
     tg = {"id": "77", "first_name": "A", "auth_date": str(int(time.time()))}
     h = _tg_hash(tg)
@@ -99,10 +115,10 @@ def test_telegram_branch_ignores_extra_params(monkeypatch):
         f"&id=77&first_name=A&auth_date={tg['auth_date']}&hash={h}"
     )
     r = c.get(url, follow_redirects=False)
-    assert r.status_code == 302
-    q = parse_qs(urlparse(r.headers["Location"]).query)
-    assert q["user_id"][0] == "77" and q["txn"][0] == "t9"
-    assert verify_identity(SECRET, "77", "t9", q["exp"][0], q["sig"][0])
+    assert r.status_code == 200
+    f = _form_fields(r.get_data(as_text=True))
+    assert f["user_id"] == "77" and f["txn"] == "t9"
+    assert verify_identity(SECRET, "77", "t9", f["exp"], f["sig"])
 
 
 def test_telegram_branch_rejects_bad_hash(monkeypatch):

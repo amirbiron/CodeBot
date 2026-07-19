@@ -59,6 +59,9 @@ class _FakeBackend:
     def get_collection_items(self, *a, **k):
         return {}
 
+    def save_file(self, *a, **k):
+        return {"ok": True, "created": True, "file": {}}
+
 
 def _build():
     store = OAuthStore(FakeDB())
@@ -72,7 +75,7 @@ def _build():
         issuer_url=AnyHttpUrl(BASE),
         resource_server_url=AnyHttpUrl(BASE),
         client_registration_options=ClientRegistrationOptions(
-            enabled=True, valid_scopes=["read"], default_scopes=["read"]
+            enabled=True, valid_scopes=["read", "write"], default_scopes=["read"]
         ),
         revocation_options=RevocationOptions(enabled=True),
         required_scopes=[],
@@ -167,6 +170,57 @@ async def test_full_oauth_http_flow_issues_access_token():
     assert payload["access_token"].startswith("ckoat_")
     assert payload["refresh_token"].startswith("ckort_")
     assert payload["token_type"].lower() == "bearer"
+
+
+async def test_write_scope_survives_from_authorize_to_token():
+    app = _build()
+    verifier, challenge = _pkce()
+    async with _client(app) as c:
+        reg = await c.post(
+            "/register",
+            json={
+                "redirect_uris": [f"{BASE}/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+                "scope": "read write",
+            },
+        )
+        assert reg.status_code == 201, reg.text
+        client_id = reg.json()["client_id"]
+        az = await c.get(
+            "/authorize",
+            params={
+                "client_id": client_id,
+                "redirect_uri": f"{BASE}/callback",
+                "response_type": "code",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": "xyz",
+                "scope": "read write",
+            },
+        )
+        assert az.status_code == 302
+        txn = parse_qs(urlparse(az.headers["location"]).query)["txn"][0]
+        exp, sig = sign_identity(SECRET, 555, txn)
+        cp = await c.post(
+            "/oauth/consent",
+            data={"txn": txn, "user_id": "555", "exp": str(exp), "sig": sig, "action": "approve"},
+        )
+        code = parse_qs(urlparse(cp.headers["location"]).query)["code"][0]
+        tok = await c.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": f"{BASE}/callback",
+                "client_id": client_id,
+                "code_verifier": verifier,
+            },
+        )
+    assert tok.status_code == 200, tok.text
+    # The write scope must survive the whole authorize→txn→consent→code→token chain.
+    assert "write" in (tok.json().get("scope") or "").split()
 
 
 async def test_token_rejects_wrong_pkce_verifier():

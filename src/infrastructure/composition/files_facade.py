@@ -640,14 +640,20 @@ class FilesFacade:
             return False
 
     def issue_mcp_token(
-        self, user_id: int, *, label: str = "Claude", ttl_days: Optional[int] = None
+        self,
+        user_id: int,
+        *,
+        label: str = "Claude",
+        ttl_days: Optional[int] = None,
+        scopes: Tuple[str, ...] = ("read",),
     ) -> Optional[str]:
         """
         Issue a long-lived MCP Personal Access Token bound to ``user_id`` and
         return the RAW token (shown once). Returns None on failure.
 
-        Keeps the MCP token-store wiring in one place so handlers don't reach
-        for raw PyMongo. See ``mcp_server/token_store.py``.
+        ``scopes`` defaults to read-only; pass ``("read", "write")`` for a
+        write-enabled token. Keeps the MCP token-store wiring in one place so
+        handlers don't reach for raw PyMongo. See ``mcp_server/token_store.py``.
         """
         try:
             mongo_db = self.get_mongo_db()
@@ -656,7 +662,7 @@ class FilesFacade:
             from mcp_server.token_store import MCPTokenStore  # lazy import
 
             store = MCPTokenStore(mongo_db)
-            return store.issue(int(user_id), label=label, ttl_days=ttl_days)
+            return store.issue(int(user_id), label=label, ttl_days=ttl_days, scopes=scopes)
         except Exception:
             logger.error("issue_mcp_token failed", exc_info=True)
             return None
