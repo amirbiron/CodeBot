@@ -1286,11 +1286,7 @@ class CollectionsManager:
         החזרת מטאדאטה על כל התגיות הזמינות.
 
         Returns:
-            dict: {
-                "allowed_tags": [...],
-                "categories": {...},
-                "metadata": {...}
-            }
+            dict: מילון עם המפתחות ``allowed_tags``, ``categories`` ו-``metadata``.
         """
         cache_key = "collections:tags_metadata"
         cache_obj = cache

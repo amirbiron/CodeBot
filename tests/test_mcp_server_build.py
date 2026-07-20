@@ -50,11 +50,53 @@ class _FakeStore:
         return None
 
 
+class _FakeRepoBackend:
+    def list_repos(self, **k):
+        return {"ok": True}
+
+    def list_tree(self, **k):
+        return {"ok": True}
+
+    def get_file(self, **k):
+        return {"ok": True}
+
+    def search(self, **k):
+        return {"ok": True}
+
+
 async def test_all_tools_are_registered():
     mcp = build_mcp(_FakeBackend())
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
     assert _EXPECTED_TOOLS <= names
+
+
+async def test_repo_tools_hidden_from_non_admin_tools_list():
+    from mcp_server.server import _ADMIN_TOOLS
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    # Outside a request there is no auth context => fail-closed non-admin view.
+    names = {t.name for t in await mcp.list_tools()}
+    assert _EXPECTED_TOOLS <= names
+    assert not (names & _ADMIN_TOOLS)
+
+
+async def test_repo_tools_visible_to_admin():
+    from mcp_server.server import _ADMIN_TOOLS
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    mcp._request_is_admin = lambda: True  # simulate a verified admin request
+    names = {t.name for t in await mcp.list_tools()}
+    assert _ADMIN_TOOLS <= names
+
+
+async def test_no_repo_backend_registers_no_repo_tools():
+    from mcp_server.server import _ADMIN_TOOLS
+
+    mcp = build_mcp(_FakeBackend())  # repo_backend omitted
+    mcp._request_is_admin = lambda: True
+    names = {t.name for t in await mcp.list_tools()}
+    assert not (names & _ADMIN_TOOLS)
 
 
 def test_build_app_exposes_healthz_route():

@@ -31,6 +31,42 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
 
+### כלי אדמין — דפדפן הריפו (פאזה ד', קריאה בלבד)
+
+ארבעה כלים מעל ה‑Repo Sync Engine (bare mirrors), **לאדמין בלבד** (`ADMIN_USER_IDS`).
+למשתמש שאינו אדמין הם גם מוסתרים מ‑`tools/list` וגם חסומים בגוף הכלי (fail‑closed).
+
+| כלי | תיאור |
+|-----|-------|
+| `codekeeper_list_repos` | רשימת הריפואים המשוקפים (מטא‑דאטה) |
+| `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן) |
+| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB; בינארי ⇒ מטא‑דאטה בלבד) |
+| `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
+
+- **מדיניות סודות (חובה):** נתיבים כמו `.env*`, `*.pem`, `id_rsa*` נחסמים/מושמטים בכל
+  הכלים; הרחבה דרך `MCP_REPO_DENYLIST_EXTRA` (CSV globs).
+- **sync רץ ברקע?** כלי שנכשל בזמן sync מחזיר `sync_in_progress` + `retry_after` —
+  סימן לנסות שוב, לא להסיק שהקובץ לא קיים.
+
+#### רענון אוטומטי (autosync) — בלי cron ובלי שירות נוסף
+
+שירות ה‑MCP מריץ **thread רקע** (אותו דפוס כמו ה‑worker בוובאפ) שמחזיק את ה‑mirrors
+המקומיים שלו טריים לבד:
+
+```text
+merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק שלו וכותב last_synced_sha ל-Mongo
+            → ה-autosync ב-MCP מזהה שה-SHA המקומי שונה → git fetch לדיסק של ה-MCP
+```
+
+- ריפו שקיים ב‑`repo_metadata` אך חסר בדיסק המקומי — **משוכפל אוטומטית** מ‑`repo_url`
+  (אין צורך ב‑`initial_import` ידני בצד ה‑MCP).
+- שליטה: `MCP_REPO_AUTOSYNC` (ברירת מחדל פעיל; `0` מכבה), `MCP_REPO_AUTOSYNC_INTERVAL`
+  (ברירת מחדל 300ש'). בזמן clone/fetch מקומי הכלים מחזירים `sync_in_progress`.
+- **ENV נדרשים בשירות ה‑MCP:** `REPO_MIRROR_PATH` (+דיסק מצורף — ב‑Render דיסק הוא
+  פר‑שירות; בלי דיסק זה עובד אבל משוכפל מחדש אחרי כל deploy), ו‑`GITHUB_TOKENS`/
+  `GITHUB_TOKEN` לריפואים פרטיים. **אין צורך** ב‑`GITHUB_WEBHOOK_SECRET` כאן —
+  ה‑webhook ממשיך להגיע לוובאפ בלבד.
+
 ---
 
 ## אימות — שני מסלולים (מאוחדים תחת `load_access_token`)

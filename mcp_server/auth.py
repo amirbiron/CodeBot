@@ -131,3 +131,38 @@ def require_write(ctx: Any = None) -> None:
             "CodeKeeper granting write access (re-add the connector, or use a "
             "write-enabled token)."
         )
+
+
+def admin_user_ids() -> set[int]:
+    """The canonical admin set: ``config.ADMIN_USER_IDS`` — and nothing else.
+
+    Deliberately does NOT honor the ``CHATOPS_ALLOW_ALL_IF_NO_ADMINS`` escape
+    hatch (chatops/permissions.py): for the admin-only repo tools an empty list
+    must mean *nobody* is admin. Fail-closed: any error ⇒ empty set.
+    """
+    try:
+        from config import config as _cfg
+
+        return {int(x) for x in (getattr(_cfg, "ADMIN_USER_IDS", None) or [])}
+    except Exception:
+        return set()
+
+
+def is_admin_user(user_id: Any) -> bool:
+    try:
+        return int(user_id) in admin_user_ids()
+    except (TypeError, ValueError):
+        return False
+
+
+def require_admin(ctx: Any = None) -> int:
+    """Return the verified admin ``user_id`` or raise (fail-closed).
+
+    Identity comes from the token only (``current_user_id``); the admin check is
+    membership in ``ADMIN_USER_IDS``. Like ``require_write``, a raised
+    ``PermissionError`` reaches the model as an error tool result.
+    """
+    user_id = current_user_id(ctx)  # raises PermissionError when unauthenticated
+    if not is_admin_user(user_id):
+        raise PermissionError("admin_only: this tool is restricted to the CodeKeeper admin user.")
+    return int(user_id)

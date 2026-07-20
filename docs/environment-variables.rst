@@ -179,11 +179,11 @@
      - ``my_webhook_secret``
      - WebApp
    * - ``REPO_MIRROR_PATH``
-     - נתיב בסיסי בדיסק לשמירת Bare Mirror של הריפו (Repo Sync Engine)
+     - נתיב בסיסי בדיסק לשמירת Bare Mirror של הריפו (Repo Sync Engine). נדרש גם בשירות ה-MCP עבור כלי דפדפן הריפו (אדמין בלבד) — השירות חייב דיסק עם ה-mirrors (ב-Render דיסק הוא פר-שירות).
      - לא
      - ``/var/data/repos``
      - ``/var/data/repos``
-     - WebApp
+     - MCP/WebApp
    * - ``REPO_NAME``
      - שם ריפו לוגי לשימוש ב-Repo Sync (מפתח ל-mirror בדיסק ול-metadata ב-DB)
      - לא
@@ -2119,6 +2119,24 @@
      - לא
      - ""
      - ``https://claude.ai``
+     - MCP
+   * - ``MCP_REPO_DENYLIST_EXTRA``
+     - תבניות glob נוספות (CSV) ל-denylist הסודות של כלי דפדפן הריפו ב-MCP, מעל רשימת הבסיס המובנית (``.env*``, ``*.pem``, ``id_rsa*`` וכו'). ההתאמה case-insensitive על הנתיב המלא וה-basename.
+     - לא
+     - ""
+     - ``*.sqlite, private/*``
+     - MCP
+   * - ``MCP_REPO_AUTOSYNC``
+     - רענון אוטומטי של ה-mirrors המקומיים בשירות ה-MCP (thread רקע, כמו ה-worker בוובאפ): משכפל ריפו חסר מ-``repo_metadata.repo_url`` ומריץ fetch כשה-``last_synced_sha`` ב-Mongo שונה מהמקומי. ``0`` מכבה.
+     - לא
+     - ``1`` (פעיל)
+     - ``1``
+     - MCP
+   * - ``MCP_REPO_AUTOSYNC_INTERVAL``
+     - מרווח (שניות) בין מעברי הרענון של ה-autosync. מינימום 30.
+     - לא
+     - ``300``
+     - ``120``
      - MCP
 
 דגלי בדיקות ופיתוח

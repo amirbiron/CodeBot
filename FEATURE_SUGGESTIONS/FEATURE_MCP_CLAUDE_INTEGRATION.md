@@ -1,6 +1,6 @@
 # חיבור Claude.ai ל‑CodeKeeper דרך MCP — מסמך תכנון
 
-> **סטטוס:** פאזות 0 (PAT) **+** 1 (OAuth 2.1 ל‑Claude.ai) **+** 3 (כתיבה save-only) **מומשו** — ראו `mcp_server/`. מחיקה וכתיבת אוספים עדיין בתכנון.
+> **סטטוס:** פאזות 0 (PAT) **+** 1 (OAuth 2.1 ל‑Claude.ai) **+** 3 (כתיבה save-only) **+** ד' (דפדפן ריפו לאדמין, קריאה בלבד) **מומשו** — ראו `mcp_server/`. מחיקה וכתיבת אוספים עדיין בתכנון.
 > **ענף פיתוח:** `claude/mcp-codekeeper-webapp-ldnzsg`
 > **מתי להשתמש:** לפני מימוש חיבור MCP; מסמך זה הוא מקור האמת לתכנון.
 > **ראו גם:** `mcp_server/README.md` (שימוש), [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/), `CLAUDE.md` (מדיניות מחייבת).
@@ -210,7 +210,7 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 | ג' | כתיבה: `save_file`/`delete_file` מאחורי scope, rate limiting, מסך "חיבורים פעילים" + revoke | ~1–2 ימים | בדיקות כתיבה על tmp בלבד, אישור scope, revoke |
 | ד' | דפדפן הריפו (אדמין בלבד): `list_repos`/`list_repo_tree`/`get_repo_file`/`search_repo` מעל Repo Sync Engine + `require_admin` + סינון tools/list + מדיניות סודות (13.5) — ראו סעיף 13 | ~2–3 ימים | יחידה עם mirror מזויף/tmp, בדיקת fail‑closed לאדמין, מדיניות סודות (כל כלל + מקרי קצה + מדיניות‑חסרה), ברירות מחדל/תקרות/clamp, תקציב פלט, timeout, snippet בלבד בחיפוש |
 
-**מיפוי ומצב (קנוני):** שלב א' = פאזה 0 (✅ מומש) · שלב ב' = פאזה 1 (✅ מומש) · שלב ג' = פאזה 3 (✅ מומש חלקית — save‑only; מחיקה טרם) · שלב ד' = פאזה ד' (⏳ תכנון).
+**מיפוי ומצב (קנוני):** שלב א' = פאזה 0 (✅ מומש) · שלב ב' = פאזה 1 (✅ מומש) · שלב ג' = פאזה 3 (✅ מומש חלקית — save‑only; מחיקה טרם) · שלב ד' = פאזה ד' (✅ מומש — קריאה בלבד, אדמין).
 
 **בדיקות — לפי `CLAUDE.md`:** לעבוד רק על תיקיות זמניות, בלי מחיקות ב‑root, בידוד לכל טסט. לפני תיקוני טסטים — לעיין ב‑[CodeBot Docs](https://amirbiron.github.io/CodeBot/).
 
@@ -235,7 +235,9 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 
 ## 13. פאזה ד': מקור נתונים שני — דפדפן הריפו (אדמין בלבד)
 
-> **סטטוס:** תכנון בלבד — טרם מומש. אינו משנה את היקף פאזה א'.
+> **סטטוס:** ✅ **מומש** (קריאה בלבד) — `mcp_server/repo_backend.py`, `repo_handlers.py`,
+> `repo_policy.py`, `require_admin` + `AdminAwareFastMCP` ב‑`server.py`/`auth.py`.
+> אינו משנה את היקף פאזה א'.
 
 ### 13.1 למה זה שווה
 הריפואים המשוקפים (Repo Sync Engine) מכילים את התיעוד, הקוד ומסמכי התכנון של כל הפרויקטים.
@@ -304,6 +306,7 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 - בינארי: `{ok: true, status: "binary", file: {…}}` — **בלי** `content`.
 - גדול‑מדי: `{ok: true, status: "too_large", file: {…, size}, max: 512000}` — **בלי** `content`.
 - לא נמצא / ref לא תקין: `{ok: false, error: "not_found"}`; נתיב חסום במדיניות: `{ok: false, error: "path_denied"}`.
+- כשל בזמן sync פעיל: `{ok: false, error: "sync_in_progress", retry_after: 30}` — הקורא מוזמן לנסות שוב, לא להסיק היעדר.
 כך לקוח MCP מבחין בין כל התוצאות בלי לנחש מהיעדר שדות.
 
 ### 13.5 מדיניות סינון סודות — חובה, fail‑closed
@@ -332,7 +335,9 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 3. **אין רשימת branches/refs** — `for-each-ref` רץ רק inline ב‑initial_import (`services/repo_sync_service.py:539-619`) ואינו חשוף.
 4. **אין שכבת אדמין ב‑MCP** — `require_admin` וסינון tools/list הם עבודה חדשה (ראו 13.2).
 5. **אין denylist/redaction על נתיבי הקריאה** — ראו המדיניות המחייבת ב‑13.5 והסיכון ב‑13.7.
-6. **ל‑`repo_metadata` אין אינדקס** (`scripts/create_repo_indexes.py` מכסה רק `sync_jobs`/`repo_files`).
+6. **ל‑`repo_metadata` אין אינדקס** — ✅ נסגר כחלק מהמימוש (`list_repos` רץ עליו בכל קריאה):
+   אינדקס unique על `repo_name` נוצר גם ב‑`scripts/create_repo_indexes.py` וגם best‑effort
+   באתחול ה‑backend (`mcp_server/repo_backend.py`).
 
 כמו בסעיף 7 — הגישה ה‑in‑process (ישירות ל‑`GitMirrorService`) מייתרת תיקון מוקדם של
 ה‑HTTP: הפערים נסגרים בשכבת ה‑MCP עצמה.
@@ -346,7 +351,9 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 - **עומס דיסק/זיכרון בריפואים גדולים** — ממתן קיים: חיפוש בסטרימינג (`:1912`, תוכנן ל‑512MB
   ב‑Render) + התקרות של 13.4.
 - **מרוץ מול sync**: אין נעילת קריאה (fetch/gc יכולים לרוץ במקביל, `repo_sync_service.py:202`) —
-  הכלים צריכים לספוג כשל חולף ולהחזיר שגיאה נקייה, לא להפיל את השירות.
+  הכלים סופגים כשל חולף ומחזירים שגיאה נקייה **עם אינדיקציה ש‑sync רץ**:
+  `{"error": "sync_in_progress", "retry_after": 30}` (נבדק מול `sync_jobs.status="running"`),
+  כדי שהמודל הקורא יידע לחזור אחרי המתנה קצרה ולא יסיק בטעות שהקובץ/הריפו לא קיימים.
 - **הרחבת ה‑surface מעבר לנבדק**: כלים קריאים גם כשמוסתרים (13.2) ⇒ שער אדמין בגוף כל
   כלי — חובה, לא אופציה; והפיצ'ר כולו נשאר קריאה‑בלבד.
 

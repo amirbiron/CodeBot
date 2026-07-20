@@ -68,6 +68,7 @@ Code Keeper Bot - תיעוד API
    development/scripts
    development/i18n
    integrations
+   mcp-server
    repository-integrations
    security
    monitoring
