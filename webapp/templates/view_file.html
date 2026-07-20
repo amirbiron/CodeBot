@@ -764,10 +764,9 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             </div>
         </div>
         
-        {% if file.description %}
-        <p class="file-description">{{ file.description }}</p>
-        {% endif %}
-        
+        {# התיאור תמיד קיים ב-DOM (מוסתר כשריק) כדי שנוכל לעדכנו חי אחרי שמירה #}
+        <p class="file-description" id="fileDescriptionText"{% if not file.description %} hidden{% endif %}>{{ file.description }}</p>
+
         {% if file.tags %}
         <div class="file-tags">
             {% for tag in file.tags %}
@@ -871,8 +870,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             </button>
             <div class="file-actions__dropdown" id="fileActionsMenu" role="menu" hidden>
                 <div class="file-actions__menu-section">
-                    <button type="button" class="file-actions__menu-item" data-menu-action="share">
-                        <span>📤 שתף קובץ</span>
+                    <button type="button"
+                            class="file-actions__menu-item"
+                            data-menu-action="description"
+                            data-file-id="{{ file.id }}">
+                        <span id="descMenuLabel">{{ '📝 ערוך תיאור' if file.description else '➕ הוסף תיאור' }}</span>
                     </button>
                     {% if file.can_pin %}
                     <button type="button"
@@ -883,6 +885,9 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                         <span id="pinMenuLabel">{{ '📌 הסר מהדשבורד' if file.is_pinned else '📌 נעץ לדשבורד' }}</span>
                     </button>
                     {% endif %}
+                    <button type="button" class="file-actions__menu-item" data-menu-action="share">
+                        <span>📤 שתף קובץ</span>
+                    </button>
                     {% if file.source_url %}
                     <button type="button"
                             class="file-actions__menu-item"
@@ -1063,6 +1068,24 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     </div>
 </div>
 
+{# מודאל עריכת תיאור — קיצור דרך לשדה התיאור בלי להיכנס לעריכת קובץ מלאה #}
+<div id="editDescriptionModal" class="desc-modal" role="dialog" aria-modal="true" aria-labelledby="descModalTitle" hidden>
+    <div class="desc-modal__content" role="document">
+        <h3 id="descModalTitle" class="desc-modal__title">תיאור הקובץ</h3>
+        <p class="desc-modal__subtitle">תיאור קצר שיופיע מתחת לשם הקובץ.</p>
+        <textarea id="descModalTextarea" class="desc-modal__textarea" rows="4" maxlength="500"
+                  placeholder="הוסיפו תיאור לקובץ…"></textarea>
+        <div class="desc-modal__counter"><span id="descModalCount">0</span>/500</div>
+        <div class="desc-modal__actions">
+            <button type="button" class="btn btn-secondary" onclick="closeEditDescriptionModal()">ביטול</button>
+            <button type="button" class="btn btn-primary" id="descModalSave" onclick="saveDescription()">שמירה</button>
+        </div>
+        <button type="button" class="desc-modal__close" onclick="closeEditDescriptionModal()" aria-label="סגור">
+            ✕
+        </button>
+    </div>
+</div>
+
 <div id="historyModal" class="glass-modal" role="dialog" aria-modal="true" aria-labelledby="historyModalTitle" hidden>
     <div class="glass-modal__surface">
         <div class="glass-modal__header">
@@ -1140,6 +1163,83 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 }
 .share-link-modal__close:hover,
 .share-link-modal__close:focus {
+    color: #fff;
+}
+
+/* מודאל עריכת תיאור — מחקה את מודאל השיתוף, עם textarea ומונה תווים */
+.desc-modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 9999;
+}
+.desc-modal[hidden] {
+    display: none;
+}
+.desc-modal__content {
+    background: #1f2a44;
+    border-radius: 16px;
+    padding: 1.5rem;
+    max-width: 460px;
+    width: calc(100% - 2rem);
+    color: #fff;
+    position: relative;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+.desc-modal__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.3rem;
+}
+.desc-modal__subtitle {
+    margin: 0 0 1rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+.desc-modal__textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    color: #fff;
+    padding: 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 96px;
+}
+.desc-modal__textarea:focus {
+    outline: none;
+    border-color: rgba(102, 126, 234, 0.8);
+}
+.desc-modal__counter {
+    text-align: left;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+    margin: 0.35rem 0 1rem;
+}
+.desc-modal__actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.desc-modal__actions .btn {
+    flex: 1 1 150px;
+}
+.desc-modal__close {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+.desc-modal__close:hover,
+.desc-modal__close:focus {
     color: #fff;
 }
 
@@ -1405,6 +1505,83 @@ function closeShareLinkModal() {
     if (shareLinkModalKeyHandler) {
         document.removeEventListener('keydown', shareLinkModalKeyHandler);
         shareLinkModalKeyHandler = null;
+    }
+}
+
+// -- מודאל עריכת תיאור: קיצור דרך ל-quick-update בלי עריכת קובץ מלאה --
+let descModalKeyHandler = null;
+
+function _descUpdateCount() {
+    const ta = document.getElementById('descModalTextarea');
+    const c = document.getElementById('descModalCount');
+    if (ta && c) { c.textContent = String((ta.value || '').length); }
+}
+
+function openEditDescriptionModal() {
+    const modal = document.getElementById('editDescriptionModal');
+    if (!modal) { return; }
+    const ta = document.getElementById('descModalTextarea');
+    // התצוגה מתחת לשם היא מקור האמת (נשמרת מסונכרנת אחרי כל שמירה)
+    const cur = document.getElementById('fileDescriptionText');
+    if (ta) {
+        ta.value = (cur && !cur.hidden) ? (cur.textContent || '').trim() : '';
+        if (!ta.dataset.boundInput) {
+            ta.addEventListener('input', _descUpdateCount);
+            ta.dataset.boundInput = '1';
+        }
+    }
+    _descUpdateCount();
+    modal.hidden = false;
+    if (!modal.dataset.boundBackdrop) {
+        modal.addEventListener('click', function(ev) {
+            if (ev.target === modal) { closeEditDescriptionModal(); }
+        });
+        modal.dataset.boundBackdrop = '1';
+    }
+    if (descModalKeyHandler) {
+        try { document.removeEventListener('keydown', descModalKeyHandler); } catch (_) {}
+    }
+    descModalKeyHandler = function(ev) {
+        if (ev.key === 'Escape') { ev.preventDefault(); closeEditDescriptionModal(); }
+    };
+    document.addEventListener('keydown', descModalKeyHandler);
+    setTimeout(() => { try { if (ta) { ta.focus(); } } catch (_) {} }, 0);
+}
+
+function closeEditDescriptionModal() {
+    const modal = document.getElementById('editDescriptionModal');
+    if (!modal) { return; }
+    modal.hidden = true;
+    if (descModalKeyHandler) {
+        document.removeEventListener('keydown', descModalKeyHandler);
+        descModalKeyHandler = null;
+    }
+}
+
+async function saveDescription() {
+    const ta = document.getElementById('descModalTextarea');
+    const btn = document.getElementById('descModalSave');
+    const desc = (ta ? ta.value : '').trim();
+    if (btn) { btn.disabled = true; }
+    try {
+        const res = await fetch('/api/file/{{ file.id }}/quick-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description: desc })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) { throw new Error(data.error || 'שגיאה בשמירה'); }
+        // עדכון חי: התצוגה מתחת לשם + תווית פריט התפריט
+        const p = document.getElementById('fileDescriptionText');
+        if (p) { p.textContent = desc; p.hidden = !desc; }
+        const label = document.getElementById('descMenuLabel');
+        if (label) { label.textContent = desc ? '📝 ערוך תיאור' : '➕ הוסף תיאור'; }
+        showToast('התיאור נשמר', 'success');
+        closeEditDescriptionModal();
+    } catch (e) {
+        showToast((e && e.message) || 'שגיאה בשמירת התיאור', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; }
     }
 }
 
@@ -2315,6 +2492,10 @@ function goBack(ev){
             event.preventDefault();
             const action = btn.getAttribute('data-menu-action');
             closeMenu();
+            if (action === 'description') {
+                openEditDescriptionModal();
+                return;
+            }
             if (action === 'pin') {
                 handlePinToggle(btn);
                 return;
