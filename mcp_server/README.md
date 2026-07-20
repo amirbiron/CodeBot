@@ -26,7 +26,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_list_files` | רשימת קבצים (מטא‑דאטה בלבד), עם עימוד |
 | `codekeeper_search_code` | חיפוש טקסט בקוד → מטא‑דאטה של קבצים תואמים |
 | `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה) |
-| `codekeeper_save_file` | **כתיבה:** יצירה/עדכון קובץ לפי `file_name` (גרסה חדשה, לא דורס; עד 100KB). דורש `write` |
+| `codekeeper_save_file` | **כתיבה:** יצירה/עדכון קובץ לפי `file_name` (גרסה חדשה, לא דורס; בכפוף ל‑`MAX_CODE_SIZE`, ברירת מחדל 100K תווים וניתן להגדלה). דורש `write` |
 | `codekeeper_edit_file` | **כתיבה:** מצא‑והחלף מדויק (`old_string`→`new_string`, אופציונלית `replace_all`) בלי לשלוח את כל הקובץ; גרסה חדשה, משמר שפה/תיאור/תגיות. דורש `write` |
 | `codekeeper_append_file` | **כתיבה:** הוספת טקסט לסוף קובץ קיים (מוסיף שורת‑הפרדה אם צריך); גרסה חדשה. דורש `write` |
 | `codekeeper_list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
