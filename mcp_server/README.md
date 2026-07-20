@@ -19,7 +19,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 
 כל הכלים מקודמים ב‑`codekeeper_` (מונע התנגשות עם connectors אחרים). כולם read-only
 פרט לכלי הכתיבה `codekeeper_save_file`/`codekeeper_edit_file`/`codekeeper_append_file`
-(דורשים הרשאת `write`).
+וכלי הפתקים `codekeeper_create_note`/`codekeeper_update_note` (דורשים הרשאת `write`).
 
 | כלי | תיאור |
 |-----|-------|
@@ -30,6 +30,9 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_edit_file` | **כתיבה:** מצא‑והחלף מדויק (`old_string`→`new_string`, אופציונלית `replace_all`) בלי לשלוח את כל הקובץ; גרסה חדשה, משמר שפה/תיאור/תגיות. דורש `write` |
 | `codekeeper_append_file` | **כתיבה:** הוספת טקסט לסוף קובץ קיים (מוסיף שורת‑הפרדה אם צריך); גרסה חדשה. דורש `write` |
 | `codekeeper_list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
+| `codekeeper_list_notes` | פתקים דביקים של קובץ (לפי `file_name`) — אותם פתקים שמוצגים ב‑UI של הוובאפ |
+| `codekeeper_create_note` | **כתיבה:** יצירת פתק דביק על קובץ קיים; `line` אופציונלי מעגן לשורת מקור (בלעדיו הפתק צף). דורש `write` |
+| `codekeeper_update_note` | **כתיבה:** עדכון חלקי של פתק לפי `note_id` (תוכן/שורה/צבע/מוזער) — דורס במקום, אין היסטוריית גרסאות לפתקים. דורש `write` |
 | `codekeeper_list_collections` | האוספים של המשתמש |
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |

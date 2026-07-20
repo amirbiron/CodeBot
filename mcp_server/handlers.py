@@ -10,6 +10,8 @@ never pass a client-supplied user id here.
 
 from __future__ import annotations
 
+import html
+import re
 from typing import Any
 
 MAX_PER_PAGE = 200
@@ -264,3 +266,152 @@ def append_file(backend: Any, user_id: int, *, file_name: str, content: str) -> 
     if not res.get("ok"):
         return res
     return {"ok": True, "appended_chars": len(content), "file": res.get("file")}
+
+
+# -- sticky notes ----------------------------------------------------------
+
+MAX_NOTE_CONTENT = 5000
+MAX_NOTES_PER_SCOPE = 200
+MAX_ANCHOR_TEXT = 256
+MAX_NOTE_LINE = 1_000_000
+DEFAULT_NOTE_COLOR = "#FFFFCC"
+# sentinel של הוובאפ לפתק "צף": בלעדיו ה-JS מעגן פתק חדש אוטומטית לשורה הקרובה
+NOTE_FLOATING_ANCHOR = "__floating__"
+
+_NOTE_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
+_NOTE_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{3,8}$")
+# עותק של webapp/sticky_notes_api.py:_CONTROL_CHARS_RE — לשמור מסונכרן
+_NOTE_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
+
+
+def _sanitize_note_text(text: Any) -> str:
+    """Normalize note text like the webapp does — without truncating.
+
+    Length is the caller's decision (reject, not clip): silent clipping is data
+    loss an agent won't notice.
+    """
+    if text is None:
+        return ""
+    try:
+        s = str(text)
+    except Exception:
+        return ""
+    s = html.unescape(s)
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    return _NOTE_CONTROL_CHARS_RE.sub("", s)
+
+
+def _valid_note_line(line: Any) -> int | None:
+    """Coerce a 1-indexed source line; None on invalid."""
+    try:
+        line_i = int(line)
+    except (TypeError, ValueError):
+        return None
+    if not 1 <= line_i <= MAX_NOTE_LINE:
+        return None
+    return line_i
+
+
+def _clean_anchor_text(anchor_text: Any) -> str | None:
+    text = _sanitize_note_text(anchor_text).strip()
+    # קיטום קוסמטי בלבד (פריטת הוובאפ) — לא תוכן משתמש שאסור לאבד
+    return text[:MAX_ANCHOR_TEXT] or None
+
+
+def list_notes(backend: Any, user_id: int, *, file_name: str) -> dict[str, Any]:
+    """List the user's sticky notes attached to ``file_name`` (read-only)."""
+    name = (file_name or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_file_name"}
+    return backend.list_notes(user_id, file_name=name)
+
+
+def create_note(
+    backend: Any,
+    user_id: int,
+    *,
+    file_name: str,
+    content: str,
+    line: int | None = None,
+    color: str | None = None,
+    anchor_text: str | None = None,
+) -> dict[str, Any]:
+    """Attach a sticky note to an existing file.
+
+    With ``line`` the note anchors to that 1-indexed source line; without it the
+    note is created floating (explicit sentinel — otherwise the web client
+    auto-anchors it to the nearest line on first render).
+    """
+    name = (file_name or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_file_name"}
+
+    clean = _sanitize_note_text(content).strip()
+    if not clean:
+        return {"ok": False, "error": "empty_content"}
+    if len(clean) > MAX_NOTE_CONTENT:
+        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+
+    line_i: int | None = None
+    if line is not None:
+        line_i = _valid_note_line(line)
+        if line_i is None:
+            return {"ok": False, "error": "invalid_line", "min": 1, "max": MAX_NOTE_LINE}
+
+    color_s = (color or "").strip()
+    if not _NOTE_COLOR_RE.match(color_s):
+        color_s = DEFAULT_NOTE_COLOR  # ביצירה: צבע לא חוקי נופל לברירת המחדל
+
+    return backend.create_note(
+        user_id,
+        file_name=name,
+        content=clean,
+        line=line_i,
+        color=color_s,
+        anchor_text=_clean_anchor_text(anchor_text),
+        anchor_id=None if line_i else NOTE_FLOATING_ANCHOR,
+    )
+
+
+def update_note(
+    backend: Any,
+    user_id: int,
+    *,
+    note_id: str,
+    content: str | None = None,
+    line: int | None = None,
+    color: str | None = None,
+    anchor_text: str | None = None,
+    is_minimized: bool | None = None,
+) -> dict[str, Any]:
+    """Partial update of a sticky note by its id (in-place, no version history)."""
+    nid = (note_id or "").strip()
+    if not _NOTE_ID_RE.match(nid):
+        return {"ok": False, "error": "invalid_note_id"}
+
+    fields: dict[str, Any] = {}
+    if content is not None:
+        clean = _sanitize_note_text(content).strip()
+        if not clean:
+            return {"ok": False, "error": "empty_content"}
+        if len(clean) > MAX_NOTE_CONTENT:
+            return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+        fields["content"] = clean
+    if line is not None:
+        line_i = _valid_note_line(line)
+        if line_i is None:
+            return {"ok": False, "error": "invalid_line", "min": 1, "max": MAX_NOTE_LINE}
+        # מעבר לעיגון-שורה מנקה עוגני כותרת/sentinel — כמו הקליינט של הוובאפ
+        fields.update({"line_start": line_i, "anchor_id": None, "line_end": None})
+    if color is not None:
+        color_s = (color or "").strip()
+        if _NOTE_COLOR_RE.match(color_s):
+            fields["color"] = color_s  # בעדכון: צבע לא חוקי נשמט, לא מוחלף בברירת מחדל
+    if anchor_text is not None:
+        fields["anchor_text"] = _clean_anchor_text(anchor_text)
+    if is_minimized is not None:
+        fields["is_minimized"] = bool(is_minimized)
+
+    if not fields:
+        return {"ok": False, "error": "no_fields_to_update"}
+    return backend.update_note(user_id, note_id=nid, fields=fields)
