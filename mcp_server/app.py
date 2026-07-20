@@ -57,13 +57,15 @@ def _build_oauth(mongo: Any, *, mcp_base: str, webapp_base: str) -> tuple[Any, A
         issuer_url=AnyHttpUrl(mcp_base),
         resource_server_url=AnyHttpUrl(mcp_base),
         client_registration_options=ClientRegistrationOptions(
-            # Offer "write" as an available scope; keep the default read-only so a
-            # client that registers without asking (and every existing connection)
-            # stays read-only. Write is granted only when a client explicitly
-            # registers for and requests it, and the user approves it on consent.
+            # Default new registrations to BOTH read+write. A client that registers
+            # without naming a scope (Claude.ai does exactly this) then gets the
+            # write ceiling at DCR, so it *can* be granted write. This is not a
+            # silent grant: the user still approves the shown scopes on the consent
+            # screen, which is the real gate. A read-only default capped every
+            # Claude.ai connection at read and made write unreachable.
             enabled=True,
             valid_scopes=["read", "write"],
-            default_scopes=["read"],
+            default_scopes=["read", "write"],
         ),
         revocation_options=RevocationOptions(enabled=True),
         required_scopes=[],

@@ -86,12 +86,23 @@ class CodeKeeperOAuthProvider:
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
+        # Scope resolution. If the client narrowed scope at /authorize, honor it
+        # (the SDK already validated it ⊆ the client's registered scope). If it
+        # omitted scope — as Claude.ai does — grant the client's full *registered*
+        # scope, so the DCR default (ClientRegistrationOptions.default_scopes) is
+        # the single source of truth instead of a second default hardcoded here
+        # that silently capped every scope-less authorize at read. Consent still
+        # shows and gates whatever scopes land here.
+        scopes = list(params.scopes) if params.scopes else None
+        if scopes is None:
+            registered = (getattr(client, "scope", None) or "").split()
+            scopes = registered or list(self._default_scopes)
         txn = {
             "client_id": client.client_id,
             "redirect_uri": str(params.redirect_uri),
             "redirect_uri_provided_explicitly": bool(params.redirect_uri_provided_explicitly),
             "code_challenge": params.code_challenge,
-            "scopes": list(params.scopes or self._default_scopes),
+            "scopes": scopes,
             "state": params.state,
             "resource": params.resource,
         }
