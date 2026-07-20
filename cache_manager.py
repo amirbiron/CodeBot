@@ -735,6 +735,9 @@ class CacheManager:
                 f"file_content:{file_id}*",
                 f"markdown_render:{file_id}*",
                 f"md_render:{file_id}*",
+                # המפתח בפועל של תצוגת ה-Markdown הוא web:md_preview:user:{uid}:{file_id}:{hash};
+                # בלי דפוס זה עריכת קובץ לא מבטלת את ה-cache שלו (הוא נשאר עד ה-TTL).
+                f"web:md_preview:user:*:{file_id}:*",
             ]
             if user_id is not None:
                 uid = str(user_id)
