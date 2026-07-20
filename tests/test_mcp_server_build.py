@@ -12,6 +12,8 @@ _EXPECTED_TOOLS = {
     "codekeeper_search_code",
     "codekeeper_get_file",
     "codekeeper_save_file",
+    "codekeeper_edit_file",
+    "codekeeper_append_file",
     "codekeeper_list_versions",
     "codekeeper_list_collections",
     "codekeeper_get_collection",

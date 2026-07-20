@@ -1,6 +1,6 @@
 # חיבור Claude.ai ל‑CodeKeeper דרך MCP — מסמך תכנון
 
-> **סטטוס:** פאזות 0 (PAT) **+** 1 (OAuth 2.1 ל‑Claude.ai) **+** 3 (כתיבה save-only) **+** ד' (דפדפן ריפו לאדמין, קריאה בלבד) **מומשו** — ראו `mcp_server/`. מחיקה וכתיבת אוספים עדיין בתכנון.
+> **סטטוס:** פאזות 0 (PAT) **+** 1 (OAuth 2.1 ל‑Claude.ai) **+** 3 (כתיבה: save + edit/append חלקיים) **+** ד' (דפדפן ריפו לאדמין, קריאה בלבד) **מומשו** — ראו `mcp_server/`. מחיקה וכתיבת אוספים עדיין בתכנון.
 > **ענף פיתוח:** `claude/mcp-codekeeper-webapp-ldnzsg`
 > **מתי להשתמש:** לפני מימוש חיבור MCP; מסמך זה הוא מקור האמת לתכנון.
 > **ראו גם:** `mcp_server/README.md` (שימוש), [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/), `CLAUDE.md` (מדיניות מחייבת).
@@ -10,8 +10,11 @@
 > דרך `load_access_token`: PAT (`ckmcp_`, ל‑Claude Code/Desktop) **וגם** OAuth 2.1 מלא
 > (DCR+PKCE, ל‑Claude.ai) עם גשר זהות דרך התחברות הטלגרם בוובאפ (`/oauth/identify` →
 > `/oauth/consent`). פקודת בוט `/connect_claude` (`write` לטוקן כתיבה). **כתיבה** מאחורי
-> scope `write` מפורש (יצירה/עדכון בלבד — append-only, גרסה חדשה, לא דורס). אכיפה ידנית
-> ב‑handler (ל‑SDK אין scope פר‑כלי). **הערה ל‑Claude.ai:** קבלת `write` דורשת רישום DCR
+> scope `write` מפורש (יצירה/עדכון בלבד — append-only, גרסה חדשה, לא דורס), כולל עריכה
+> חלקית בצד השרת: `edit_file` (מצא‑והחלף מדויק) ו‑`append_file` (הוספה לסוף) — הלקוח שולח
+> רק את הקטע ששונה, לא את כל הקובץ; מטא‑דאטה (שפה/תיאור/תגיות) נשמרת. האכיפה: השרת
+> (`mcp_server/server.py`) קורא `require_write(ctx)` לפני מסירת הבקשה ל‑handler (ל‑SDK
+> אין scope פר‑כלי). **הערה ל‑Claude.ai:** קבלת `write` דורשת רישום DCR
 > מחדש — יש להסיר ולהוסיף את ה‑connector. **הערת סטייה:** מאגרי הטוקנים ב‑`mcp_server/`
 > (ולא `database/`), לבדיקוּת בבידוד. נותר: מחיקה וכתיבת אוספים. אומת מקצה‑לקצה מקומית
 > ובפרודקשן (Claude Code על 682 קבצים אמיתיים).
@@ -137,8 +140,10 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 | `list_versions` | `file_name` | היסטוריית גרסאות | `get_all_versions` |
 | `get_version_diff` | `file_id`, `left?`, `right?` | diff בין גרסאות | `webapp/app.py:3264` (compare) |
 | `list_collections` | — | אוספים של המשתמש | `collections_manager` |
-| `save_file` *(פאזה 3)* | `file_name`, `code`, `language`, `tags?`, `description?` | גרסה חדשה | `save_file` |
-| `delete_file` *(פאזה 3)* | `file_name` | מחיקה רכה | `delete_file` |
+| `save_file` *(פאזה 3 ✅)* | `file_name`, `code`, `language`, `tags?`, `description?` | גרסה חדשה | `save_file` |
+| `edit_file` *(פאזה 3 ✅)* | `file_name`, `old_string`, `new_string`, `replace_all?` | מצא‑והחלף → גרסה חדשה | `get_latest_version` + `save_file` |
+| `append_file` *(פאזה 3 ✅)* | `file_name`, `content` | הוספה לסוף → גרסה חדשה | `get_latest_version` + `save_file` |
+| `delete_file` *(פאזה 3 — טרם מומש)* | `file_name` | מחיקה רכה | `delete_file` |
 
 ### 5.2 Resources (אופציונלי, מומלץ)
 לחשוף כל קובץ כ‑`codekeeper://file/{file_name}` כדי לאפשר תיוג `@` של קובץ בתוך Claude. רשימת המשאבים = `get_user_files` (בלי תוכן), והקריאה בפועל = `get_latest_version`.
@@ -207,10 +212,10 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 |------|------|-------|--------|
 | א' | MVP קריאה‑בלבד: שרת MCP + `list_files`/`search_code`/`get_file`/`list_versions` + `/connect_claude` + `mcp_tokens` | ~2–3 ימים | יחידה לכל כלי (mongomock/tmp), בדיקת בידוד `user_id`, ריצה מול Claude Code |
 | ב' | OAuth 2.1: authorize/token/register + `.well-known` + מסך consent (מעל סשן טלגרם) | ~3–5 ימים | זרימת OAuth מקצה‑לקצה, רוטציית refresh, בדיקת discovery |
-| ג' | כתיבה: `save_file`/`delete_file` מאחורי scope, rate limiting, מסך "חיבורים פעילים" + revoke | ~1–2 ימים | בדיקות כתיבה על tmp בלבד, אישור scope, revoke |
+| ג' | כתיבה: `save_file` + `edit_file`/`append_file` מאחורי scope (✅ מומש); `delete_file`, rate limiting, מסך "חיבורים פעילים" + revoke (טרם) | ~1–2 ימים | בדיקות כתיבה על tmp בלבד, אישור scope, revoke |
 | ד' | דפדפן הריפו (אדמין בלבד): `list_repos`/`list_repo_tree`/`get_repo_file`/`search_repo` מעל Repo Sync Engine + `require_admin` + סינון tools/list + מדיניות סודות (13.5) — ראו סעיף 13 | ~2–3 ימים | יחידה עם mirror מזויף/tmp, בדיקת fail‑closed לאדמין, מדיניות סודות (כל כלל + מקרי קצה + מדיניות‑חסרה), ברירות מחדל/תקרות/clamp, תקציב פלט, timeout, snippet בלבד בחיפוש |
 
-**מיפוי ומצב (קנוני):** שלב א' = פאזה 0 (✅ מומש) · שלב ב' = פאזה 1 (✅ מומש) · שלב ג' = פאזה 3 (✅ מומש חלקית — save‑only; מחיקה טרם) · שלב ד' = פאזה ד' (✅ מומש — קריאה בלבד, אדמין).
+**מיפוי ומצב (קנוני):** שלב א' = פאזה 0 (✅ מומש) · שלב ב' = פאזה 1 (✅ מומש) · שלב ג' = פאזה 3 (✅ מומש חלקית — save + edit/append; מחיקה טרם) · שלב ד' = פאזה ד' (✅ מומש — קריאה בלבד, אדמין).
 
 **בדיקות — לפי `CLAUDE.md`:** לעבוד רק על תיקיות זמניות, בלי מחיקות ב‑root, בידוד לכל טסט. לפני תיקוני טסטים — לעיין ב‑[CodeBot Docs](https://amirbiron.github.io/CodeBot/).
 
@@ -238,6 +243,11 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 > **סטטוס:** ✅ **מומש** (קריאה בלבד) — `mcp_server/repo_backend.py`, `repo_handlers.py`,
 > `repo_policy.py`, `require_admin` + `AdminAwareFastMCP` ב‑`server.py`/`auth.py`.
 > אינו משנה את היקף פאזה א'.
+>
+> **Non‑goal (החלטת עיצוב קבועה):** דפדפן הריפו הוא **קריאה בלבד לצמיתות** — אין, ולא
+> תתווסף, עריכה/כתיבה/`commit`/`push` לריפו GitHub. ה‑mirrors בדיסק הם רפליקה חד‑כיוונית
+> ש‑autosync דורס; GitHub הוא מקור האמת, וה‑MCP לעולם לא כותב אליו. האכיפה בקוד: פשוט
+> אין שום כלי/נתיב כתיבה בשכבת הריפו (`repo_backend`/`repo_handlers` — קריאה בלבד).
 
 ### 13.1 למה זה שווה
 הריפואים המשוקפים (Repo Sync Engine) מכילים את התיעוד, הקוד ומסמכי התכנון של כל הפרויקטים.

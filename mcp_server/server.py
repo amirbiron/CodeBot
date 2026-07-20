@@ -32,8 +32,10 @@ _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
     "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
     "(metadata only), and codekeeper_get_file to read full contents. Use "
-    "codekeeper_save_file to create or update a file (only when the connection was "
-    "granted write permission). All data is scoped to the authenticated user."
+    "codekeeper_save_file to create or update a file, and prefer "
+    "codekeeper_edit_file / codekeeper_append_file to change part of an existing "
+    "file without resending all of it (write tools require write permission). "
+    "All data is scoped to the authenticated user."
 )
 
 # Shared annotations: every tool here is a non-destructive, idempotent read over
@@ -194,6 +196,49 @@ def build_mcp(
             code=code,
             language=language,
             description=description,
+        )
+
+    @mcp.tool(
+        name="codekeeper_edit_file",
+        description=(
+            "Edit an existing file by exact find-and-replace (old_string -> new_string) "
+            "without resending the whole file; saved as a new non-destructive version. "
+            "old_string must match exactly, whitespace included; if it occurs more than "
+            "once, pass a longer unique snippet or set replace_all=true. "
+            "Requires write permission."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def edit_file(
+        ctx: Context,
+        file_name: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,
+    ) -> dict:
+        require_write(ctx)  # reject a read-only token before touching anything
+        return handlers.edit_file(
+            backend,
+            current_user_id(ctx),
+            file_name=file_name,
+            old_string=old_string,
+            new_string=new_string,
+            replace_all=replace_all,
+        )
+
+    @mcp.tool(
+        name="codekeeper_append_file",
+        description=(
+            "Append text to the end of an existing file without resending it (a newline "
+            "separator is inserted first when the file doesn't end with one); saved as "
+            "a new non-destructive version. Requires write permission."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def append_file(ctx: Context, file_name: str, content: str) -> dict:
+        require_write(ctx)  # reject a read-only token before touching anything
+        return handlers.append_file(
+            backend, current_user_id(ctx), file_name=file_name, content=content
         )
 
     @mcp.tool(
