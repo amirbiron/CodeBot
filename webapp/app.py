@@ -2643,6 +2643,9 @@ def _compute_file_etag(doc: Dict[str, Any], *, variant: str = '') -> str:
             'n': file_name,
             'v': version,
             'sha': hashlib.sha256(raw_code.encode('utf-8')).hexdigest(),
+            # גרסת ה-deploy: בלעדיה קובץ שלא נערך מחזיר ETag זהה בין deploys,
+            # והדפדפן מקבל 304 ומציג תבנית ישנה (בלי אלמנטים חדשים).
+            'sv': _STATIC_VERSION,
         }
         if variant:
             payload_data['var'] = variant
@@ -12233,7 +12236,8 @@ def view_file(file_id):
         resp.headers['Last-Modified'] = last_modified_str
         return resp
     ims = request.headers.get('If-Modified-Since')
-    if ims:
+    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
+    if ims and not inm:
         try:
             ims_dt = parse_date(ims)
         except Exception:
@@ -14603,7 +14607,8 @@ def md_preview(file_id):
         resp.headers['Last-Modified'] = last_modified_str
         return resp
     ims = request.headers.get('If-Modified-Since')
-    if ims:
+    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
+    if ims and not inm:
         try:
             ims_dt = parse_date(ims)
         except Exception:
@@ -14624,6 +14629,8 @@ def md_preview(file_id):
                 'file_name': file_name,
                 'lang': 'markdown',
                 'theme': theme_key,
+                # גרסת deploy במפתח: אחרת ה-HTML המרונדר הישן מוגש עד פקיעת ה-TTL (30 דק')
+                'sv': _STATIC_VERSION,
             }
             _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
             _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
@@ -14745,7 +14752,8 @@ def reader_mode(filename):
         resp.headers['Last-Modified'] = last_modified_str
         return resp
     ims = request.headers.get('If-Modified-Since')
-    if ims:
+    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
+    if ims and not inm:
         try:
             ims_dt = parse_date(ims)
         except Exception:

@@ -1444,6 +1444,8 @@ class CollectionsManager:
             try:
                 t0 = time.perf_counter()
                 active_map: Dict[Tuple[str, str], bool] = {}
+                # (source, file_name) -> description של הקובץ, לאייקון התיאור בכרטיס
+                desc_map: Dict[Tuple[str, str], str] = {}
                 # אסוף זוגות ייחודיים (source, file_name) מהעמוד בלבד
                 uniq: List[Tuple[str, str]] = []
                 seen_keys: set[Tuple[str, str]] = set()
@@ -1463,25 +1465,28 @@ class CollectionsManager:
                     for _fn in names:
                         active_map[(source, _fn)] = bool(value)
 
-                def _batch_active_names(coll: Any, names: set[str]) -> set[str]:
-                    # החזר קבוצת file_name שקיימים כ"פעילים". אם נכשל – זרוק חריגה כדי לאפשר fail-open.
+                def _batch_active_names(coll: Any, names: set[str]) -> dict[str, str]:
+                    # החזר מיפוי file_name -> description לקבצים "פעילים" (מפתחות המיפוי הם
+                    # הקבצים הפעילים; הערך הוא תיאור הקובץ, אם קיים). אם נכשל – זרוק חריגה
+                    # כדי לאפשר fail-open.
                     query = {
                         "user_id": int(user_id),
                         "file_name": {"$in": list(names)},
                         # לאחר המיגרציה: פילטר ישיר וידידותי לאינדקסים
                         "is_active": True,
                     }
-                    # מספיק לנו רק file_name
-                    projection = {"file_name": 1}
+                    # file_name לחישוב פעילות + description לאייקון התיאור (שדה קל,
+                    # לא code/content — נשמר חוק ה-Smart Projection)
+                    projection = {"file_name": 1, "description": 1}
                     rows = coll.find(query, projection=projection)
                     docs = list(rows) if not isinstance(rows, list) else rows
-                    out: set[str] = set()
+                    out: dict[str, str] = {}
                     for d in docs:
                         if not isinstance(d, dict):
                             continue
                         fnv = d.get("file_name")
                         if fnv:
-                            out.add(str(fnv))
+                            out[str(fnv)] = str(d.get("description") or "")
                     return out
 
                 regular_names: set[str] = set()
@@ -1501,6 +1506,8 @@ class CollectionsManager:
                             active_regular = _batch_active_names(self.code_snippets, regular_names)
                             for fn in regular_names:
                                 active_map[("regular", fn)] = bool(fn in active_regular)
+                                if fn in active_regular:
+                                    desc_map[("regular", fn)] = active_regular[fn]
                         except Exception:
                             # fail-open: אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים
                             _mark_all("regular", regular_names, True)
@@ -1518,6 +1525,8 @@ class CollectionsManager:
                                 active_large_fallback = _batch_active_names(self.code_snippets, large_names)
                                 for fn in large_names:
                                     active_map[("large", fn)] = bool(fn in active_large_fallback)
+                                    if fn in active_large_fallback:
+                                        desc_map[("large", fn)] = active_large_fallback[fn]
                             except Exception:
                                 # fail-open: אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים
                                 _mark_all("large", large_names, True)
@@ -1526,6 +1535,8 @@ class CollectionsManager:
                             active_large = _batch_active_names(self.large_files, large_names)
                             for fn in large_names:
                                 active_map[("large", fn)] = bool(fn in active_large)
+                                if fn in active_large:
+                                    desc_map[("large", fn)] = active_large[fn]
                         except Exception:
                             # fail-open: אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים
                             _mark_all("large", large_names, True)
@@ -1541,6 +1552,7 @@ class CollectionsManager:
                 t_compute_active = max(0.0, time.perf_counter() - t0)
             except Exception:
                 active_map = {}
+                desc_map = {}
 
             # החזרה (כולל is_file_active לכל פריט)
             t0 = time.perf_counter()
@@ -1549,6 +1561,8 @@ class CollectionsManager:
                 item_pub = self._public_item(x)
                 key = (str(item_pub.get("source") or "regular"), str(item_pub.get("file_name") or ""))
                 item_pub["is_file_active"] = bool(active_map.get(key, True))
+                # תיאור הקובץ (אם קיים) — לאייקון התיאור בכרטיס; ריק אם אין/לא-פעיל
+                item_pub["description"] = desc_map.get(key, "")
                 items_out.append(item_pub)
             t_public_map = max(0.0, time.perf_counter() - t0)
 

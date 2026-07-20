@@ -1281,6 +1281,41 @@
     });
   }
 
+  function openDescriptionModal(text){
+    // מודאל קריאה-בלבד להצגת תיאור הקובץ (דפוס .collection-modal הקיים)
+    if (document.querySelector('.collection-modal[data-modal="file-description"]')) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'collection-modal';
+    overlay.setAttribute('data-modal', 'file-description');
+    overlay.innerHTML = `
+      <div class="collection-modal__backdrop"></div>
+      <div class="collection-modal__panel" role="dialog" aria-modal="true">
+        <h3 class="collection-modal__title">תיאור</h3>
+        <div class="collection-modal__field">
+          <p class="desc-modal__text"></p>
+        </div>
+        <div class="collection-modal__actions">
+          <button type="button" class="btn btn-secondary close">סגור</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    // textContent (לא innerHTML) — בטוח מ-XSS ושומר על התווים כפי שהם
+    const textEl = overlay.querySelector('.desc-modal__text');
+    if (textEl) textEl.textContent = String(text || '');
+    const backdrop = overlay.querySelector('.collection-modal__backdrop');
+    const closeBtn = overlay.querySelector('.close');
+    const cleanup = () => {
+      document.removeEventListener('keydown', onKeydown);
+      try { overlay.remove(); } catch (_e) { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    };
+    const onKeydown = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); cleanup(); } };
+    document.addEventListener('keydown', onKeydown);
+    if (backdrop) backdrop.addEventListener('click', cleanup);
+    if (closeBtn) closeBtn.addEventListener('click', cleanup);
+    requestAnimationFrame(() => { try { if (closeBtn) closeBtn.focus(); } catch (_e) {} });
+  }
+
   function openIconPicker(initialIcon){
     if (document.querySelector('.collection-modal[data-modal="icon-picker"]')) {
       return Promise.resolve(null);
@@ -2050,6 +2085,15 @@
             const currentTags = collectTagsFromElement(row);
             openTagsEditorModal(itemId, currentTags);
           }
+          return;
+        }
+
+        // הצגת תיאור הקובץ במודאל קטן (קריאה בלבד)
+        const descBtn = ev.target.closest('.desc-info');
+        if (descBtn) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          openDescriptionModal(descBtn.dataset.description || '');
           return;
         }
 
@@ -2825,6 +2869,7 @@
             <div class="collection-card__meta">
               ${tagsHtml}
               ${item.note ? `<span class="collection-card__note">📝 ${escapeHtml(item.note)}</span>` : ''}
+              ${item.description ? `<button type="button" class="desc-info" data-description="${escapeHtml(item.description)}" title="הצג תיאור" aria-label="הצג תיאור">ℹ️</button>` : ''}
             </div>
           </div>
         </div>
