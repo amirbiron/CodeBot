@@ -286,7 +286,8 @@ class PersonalBackupService:
             if raw_db is None:
                 return {"collections": [], "items": []}
             mgr = CollectionsManager(raw_db)
-            result = mgr.list_collections(user_id, limit=500)
+            # כולל אוספים בארכיון — הגיבוי חייב לשמר גם אותם
+            result = mgr.list_collections(user_id, limit=500, include_archived=True)
             collections = result.get("collections", []) if result.get("ok") else []
 
             all_items = []
@@ -920,7 +921,8 @@ class PersonalBackupService:
         # טען אוספים קיימים לבדיקת כפילות לפי שם
         existing_collections = {}
         try:
-            existing_result = mgr.list_collections(user_id, limit=500)
+            # כולל אוספים בארכיון — למניעת כפילות שם גם מול אוסף מאורכב קיים
+            existing_result = mgr.list_collections(user_id, limit=500, include_archived=True)
             if existing_result.get("ok"):
                 for ec in existing_result.get("collections", []):
                     name = (ec.get("name") or "").strip()

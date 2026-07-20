@@ -376,32 +376,37 @@ def list_collections():
             skip = int(request.args.get('skip') or 0)
         except Exception:
             return jsonify({'ok': False, 'error': 'Invalid limit/skip'}), 400
+        # תצוגת ארכיון: מציגה רק אוספים מאורכבים (?archived=1)
+        archived_only = str(request.args.get('archived') or '').strip().lower() in ('1', 'true', 'yes', 'on')
         mgr = get_manager()
         created_workspace = False
-        try:
-            created_workspace = mgr.ensure_default_collections(user_id)
-        except Exception:
-            created_workspace = False
-        result = mgr.list_collections(user_id, limit=limit, skip=skip)
+        # לוגיקת ברירת-המחדל של "שולחן עבודה" רלוונטית רק לתצוגה הרגילה, לא לארכיון
+        if not archived_only:
+            try:
+                created_workspace = mgr.ensure_default_collections(user_id)
+            except Exception:
+                created_workspace = False
+        result = mgr.list_collections(user_id, limit=limit, skip=skip, archived_only=archived_only)
         # אם עדיין חסר אוסף "שולחן עבודה" – נסה ליצור ולשלוף מחדש (למשתמשים קיימים)
-        try:
-            collections = result.get('collections') if isinstance(result, dict) else None
-        except Exception:
-            collections = None
-        has_workspace = False
-        if isinstance(collections, list):
+        if not archived_only:
             try:
-                has_workspace = any((c or {}).get('name') == 'שולחן עבודה' for c in collections)
+                collections = result.get('collections') if isinstance(result, dict) else None
             except Exception:
-                has_workspace = False
-        if not has_workspace:
-            try:
-                if mgr.ensure_default_collections(user_id):
-                    created_workspace = True
-                    result = mgr.list_collections(user_id, limit=limit, skip=skip)
-                    collections = result.get('collections') if isinstance(result, dict) else None
-            except Exception:
-                pass
+                collections = None
+            has_workspace = False
+            if isinstance(collections, list):
+                try:
+                    has_workspace = any((c or {}).get('name') == 'שולחן עבודה' for c in collections)
+                except Exception:
+                    has_workspace = False
+            if not has_workspace:
+                try:
+                    if mgr.ensure_default_collections(user_id):
+                        created_workspace = True
+                        result = mgr.list_collections(user_id, limit=limit, skip=skip, archived_only=archived_only)
+                        collections = result.get('collections') if isinstance(result, dict) else None
+                except Exception:
+                    pass
         if result.get('ok'):
             collections = result.get('collections') or []
             for col in collections:
