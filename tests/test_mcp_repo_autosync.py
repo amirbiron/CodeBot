@@ -109,6 +109,40 @@ def test_is_refreshing_true_during_fetch():
     assert is_refreshing("alpha") is False  # cleared afterwards
 
 
+def test_redact_strips_url_credentials_and_tokens():
+    from mcp_server.repo_autosync import _redact
+
+    # userinfo credentials inside a git URL
+    msg = "Clone failed: fatal: unable to access 'https://x-access-token:ghp_abc123@github.com/o/r'"
+    out = _redact(msg)
+    assert "ghp_abc123" not in out and "x-access-token" not in out
+    assert "https://***@github.com/o/r" in out
+    # bare GitHub token shapes, outside a URL
+    assert "***" == _redact("ghp_" + "A" * 36)
+    assert "github_pat" not in _redact("github_pat_" + "B" * 30)
+    # safe diagnostics survive
+    assert _redact("Could not resolve host: github.com") == "Could not resolve host: github.com"
+    assert _redact(None) == ""
+
+
+def test_clone_failure_log_is_redacted(caplog):
+    import logging
+
+    class _LeakyMirror(_Mirror):
+        def init_mirror(self, url, name):
+            return {
+                "success": False,
+                "message": "fatal: 'https://x-access-token:ghp_" + "S" * 36 + "@github.com/o/r'",
+            }
+
+    with caplog.at_level(logging.WARNING, logger="mcp_server.repo_autosync"):
+        stats = refresh_once(_DB([_meta()]), _LeakyMirror(exists=False))
+    assert stats["errors"] == 1
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "ghp_" not in joined and "x-access-token" not in joined
+    assert "***" in joined  # redaction marker present, diagnostics preserved
+
+
 def test_kill_switch_disables_start(monkeypatch):
     monkeypatch.setenv("MCP_REPO_AUTOSYNC", "0")
     assert autosync_enabled() is False

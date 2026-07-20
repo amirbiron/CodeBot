@@ -25,11 +25,33 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Log redaction (defense-in-depth): the engine already sanitizes its own git
+# stderr at the source (_run_git_command → _sanitize_output), but we log
+# ``message`` values from a duck-typed dependency — so scrub credential shapes
+# ourselves before anything reaches the logs (CLAUDE.md: no secrets in logs).
+_URL_CRED_RE = re.compile(r"(https?://)[^/@\s]+@")
+_GH_TOKEN_RE = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b")
+
+
+def _redact(text: Any) -> str:
+    """Strip URL userinfo credentials + GitHub-token shapes from log-bound text.
+
+    Fail-closed: on any internal error return a placeholder, never the raw text.
+    """
+    try:
+        s = str(text or "")
+        s = _URL_CRED_RE.sub(r"\1***@", s)
+        return _GH_TOKEN_RE.sub("***", s)
+    except Exception:
+        return "<redacted>"
+
 
 DEFAULT_INTERVAL_SECONDS = 300
 _MIN_INTERVAL_SECONDS = 30
@@ -113,7 +135,7 @@ def refresh_once(db: Any, mirror: Any) -> dict[str, int]:
                 else:
                     stats["errors"] += 1
                     logger.warning(
-                        "repo autosync: clone failed for %s: %s", name, res.get("message")
+                        "repo autosync: clone failed for %s: %s", name, _redact(res.get("message"))
                     )
                 continue
 
@@ -128,7 +150,9 @@ def refresh_once(db: Any, mirror: Any) -> dict[str, int]:
                 stats["fetched"] += 1
             else:
                 stats["errors"] += 1
-                logger.warning("repo autosync: fetch failed for %s: %s", name, res.get("message"))
+                logger.warning(
+                    "repo autosync: fetch failed for %s: %s", name, _redact(res.get("message"))
+                )
         except Exception:
             stats["errors"] += 1
             logger.warning("repo autosync: refresh failed for %s", name, exc_info=True)
