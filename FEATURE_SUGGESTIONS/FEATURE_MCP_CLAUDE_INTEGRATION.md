@@ -1,6 +1,6 @@
 # חיבור Claude.ai ל‑CodeKeeper דרך MCP — מסמך תכנון
 
-> **סטטוס:** פאזות 0 (PAT) **+** 1 (OAuth 2.1 ל‑Claude.ai) **+** 3 (כתיבה: save + edit/append חלקיים) **+** ד' (דפדפן ריפו לאדמין, קריאה בלבד) **מומשו** — ראו `mcp_server/`. מחיקה וכתיבת אוספים עדיין בתכנון.
+> **סטטוס:** פאזות 0 (PAT) **+** 1 (OAuth 2.1 ל‑Claude.ai) **+** 3 (כתיבה: save + edit/append חלקיים) **+** ד' (דפדפן ריפו לאדמין, קריאה בלבד) **+** פתקים דביקים (list/create/update) **מומשו** — ראו `mcp_server/`. מחיקה (קבצים ופתקים) וכתיבת אוספים עדיין בתכנון.
 > **ענף פיתוח:** `claude/mcp-codekeeper-webapp-ldnzsg`
 > **מתי להשתמש:** לפני מימוש חיבור MCP; מסמך זה הוא מקור האמת לתכנון.
 > **ראו גם:** `mcp_server/README.md` (שימוש), [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/), `CLAUDE.md` (מדיניות מחייבת).
@@ -144,6 +144,11 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 | `edit_file` *(פאזה 3 ✅)* | `file_name`, `old_string`, `new_string`, `replace_all?` | מצא‑והחלף → גרסה חדשה | `get_latest_version` + `save_file` |
 | `append_file` *(פאזה 3 ✅)* | `file_name`, `content` | הוספה לסוף → גרסה חדשה | `get_latest_version` + `save_file` |
 | `delete_file` *(פאזה 3 — טרם מומש)* | `file_name` | מחיקה רכה | `delete_file` |
+| `list_notes` *(✅ מומש)* | `file_name` | פתקים דביקים של הקובץ (זהים ל‑UI) | `sticky_notes` + `make_scope_id` |
+| `create_note` *(✅ מומש)* | `file_name`, `content`, `line?`, `color?`, `anchor_text?` | פתק חדש (צף בלי `line`) | `sticky_notes` + `get_latest_version` |
+| `update_note` *(✅ מומש)* | `note_id`, שדות חלקיים | עדכון פתק במקום (ללא היסטוריה) | `sticky_notes` |
+
+**Non‑goal לפתקים:** אין מחיקת פתקים ואין תזכורות (`note_reminders`) דרך ה‑MCP — מוחקים/מתזמנים ב‑UI של הוובאפ.
 
 ### 5.2 Resources (אופציונלי, מומלץ)
 לחשוף כל קובץ כ‑`codekeeper://file/{file_name}` כדי לאפשר תיוג `@` של קובץ בתוך Claude. רשימת המשאבים = `get_user_files` (בלי תוכן), והקריאה בפועל = `get_latest_version`.
@@ -215,7 +220,7 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 | ג' | כתיבה: `save_file` + `edit_file`/`append_file` מאחורי scope (✅ מומש); `delete_file`, rate limiting, מסך "חיבורים פעילים" + revoke (טרם) | ~1–2 ימים | בדיקות כתיבה על tmp בלבד, אישור scope, revoke |
 | ד' | דפדפן הריפו (אדמין בלבד): `list_repos`/`list_repo_tree`/`get_repo_file`/`search_repo` מעל Repo Sync Engine + `require_admin` + סינון tools/list + מדיניות סודות (13.5) — ראו סעיף 13 | ~2–3 ימים | יחידה עם mirror מזויף/tmp, בדיקת fail‑closed לאדמין, מדיניות סודות (כל כלל + מקרי קצה + מדיניות‑חסרה), ברירות מחדל/תקרות/clamp, תקציב פלט, timeout, snippet בלבד בחיפוש |
 
-**מיפוי ומצב (קנוני):** שלב א' = פאזה 0 (✅ מומש) · שלב ב' = פאזה 1 (✅ מומש) · שלב ג' = פאזה 3 (✅ מומש חלקית — save + edit/append; מחיקה טרם) · שלב ד' = פאזה ד' (✅ מומש — קריאה בלבד, אדמין).
+**מיפוי ומצב (קנוני):** שלב א' = פאזה 0 (✅ מומש) · שלב ב' = פאזה 1 (✅ מומש) · שלב ג' = פאזה 3 (✅ מומש חלקית — save + edit/append; מחיקה טרם) · שלב ד' = פאזה ד' (✅ מומש — קריאה בלבד, אדמין) · פתקים דביקים (✅ מומש — list/create/update, בלי מחיקה/תזכורות).
 
 **בדיקות — לפי `CLAUDE.md`:** לעבוד רק על תיקיות זמניות, בלי מחיקות ב‑root, בידוד לכל טסט. לפני תיקוני טסטים — לעיין ב‑[CodeBot Docs](https://amirbiron.github.io/CodeBot/).
 

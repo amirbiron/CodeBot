@@ -35,6 +35,9 @@ _INSTRUCTIONS = (
     "codekeeper_save_file to create or update a file, and prefer "
     "codekeeper_edit_file / codekeeper_append_file to change part of an existing "
     "file without resending all of it (write tools require write permission). "
+    "Sticky notes: codekeeper_list_notes reads a file's notes; "
+    "codekeeper_create_note / codekeeper_update_note add or change them (write "
+    "permission; notes appear in the CodeKeeper web UI). "
     "All data is scoped to the authenticated user."
 )
 
@@ -48,13 +51,24 @@ _READ_ONLY_TOOL = {
     "openWorldHint": False,
 }
 
-# The one write tool. Saves are append-only (an update creates a new version and
-# never overwrites), so this is non-destructive; not idempotent because repeating
-# it bumps the version each time.
+# File-write tools (save/edit/append/create-note). These saves are append-only
+# or additive (a file update creates a new version and never overwrites), so
+# they are non-destructive; not idempotent because repeating one adds another
+# version/note each time.
 _WRITE_TOOL = {
     "readOnlyHint": False,
     "destructiveHint": False,
     "idempotentHint": False,
+    "openWorldHint": False,
+}
+
+# In-place update (sticky-note edit): overwrites the note with no version
+# history — destructive by the MCP definition, but idempotent (same input
+# twice ⇒ same final state).
+_UPDATE_IN_PLACE_TOOL = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": True,
     "openWorldHint": False,
 }
 
@@ -285,6 +299,76 @@ def build_mcp(
             page=page,
             per_page=per_page,
             folder=folder,
+        )
+
+    @mcp.tool(
+        name="codekeeper_list_notes",
+        description=(
+            "List the user's sticky notes attached to a file (by file_name): content, "
+            "color, anchored line, timestamps. Same notes shown in the web UI."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_notes(ctx: Context, file_name: str) -> dict:
+        return handlers.list_notes(backend, current_user_id(ctx), file_name=file_name)
+
+    @mcp.tool(
+        name="codekeeper_create_note",
+        description=(
+            "Attach a sticky note to an existing saved file. Optional line anchors it to "
+            "a 1-indexed source line (as read via codekeeper_get_file); without line the "
+            "note floats at a default position. Notes appear in the CodeKeeper web UI. "
+            "Requires write permission."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def create_note(
+        ctx: Context,
+        file_name: str,
+        content: str,
+        line: int | None = None,
+        color: str | None = None,
+        anchor_text: str | None = None,
+    ) -> dict:
+        require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
+        return handlers.create_note(
+            backend,
+            current_user_id(ctx),
+            file_name=file_name,
+            content=content,
+            line=line,
+            color=color,
+            anchor_text=anchor_text,
+        )
+
+    @mcp.tool(
+        name="codekeeper_update_note",
+        description=(
+            "Update an existing sticky note by note_id (from codekeeper_list_notes): any "
+            "of content, line, color, anchor_text, is_minimized. Overwrites in place "
+            "(notes have no version history). Requires write permission."
+        ),
+        annotations=_UPDATE_IN_PLACE_TOOL,
+    )
+    def update_note(
+        ctx: Context,
+        note_id: str,
+        content: str | None = None,
+        line: int | None = None,
+        color: str | None = None,
+        anchor_text: str | None = None,
+        is_minimized: bool | None = None,
+    ) -> dict:
+        require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
+        return handlers.update_note(
+            backend,
+            current_user_id(ctx),
+            note_id=note_id,
+            content=content,
+            line=line,
+            color=color,
+            anchor_text=anchor_text,
+            is_minimized=is_minimized,
         )
 
     if repo_backend is not None:

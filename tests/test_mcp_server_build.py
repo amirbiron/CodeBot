@@ -14,6 +14,9 @@ _EXPECTED_TOOLS = {
     "codekeeper_save_file",
     "codekeeper_edit_file",
     "codekeeper_append_file",
+    "codekeeper_list_notes",
+    "codekeeper_create_note",
+    "codekeeper_update_note",
     "codekeeper_list_versions",
     "codekeeper_list_collections",
     "codekeeper_get_collection",
@@ -45,6 +48,15 @@ class _FakeBackend:
 
     def save_file(self, *a, **k):
         return {"ok": True, "created": True, "file": {}}
+
+    def list_notes(self, *a, **k):
+        return {"ok": True, "notes": [], "count": 0}
+
+    def create_note(self, *a, **k):
+        return {"ok": True, "note": {}}
+
+    def update_note(self, *a, **k):
+        return {"ok": True, "note": {}}
 
 
 class _FakeStore:

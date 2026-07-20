@@ -64,6 +64,15 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
      - **כתיבה:** הוספת טקסט לסוף קובץ קיים (גרסה חדשה). דורש ``write``
    * - ``codekeeper_list_versions``
      - היסטוריית גרסאות של קובץ
+   * - ``codekeeper_list_notes``
+     - פתקים דביקים של קובץ (לפי ``file_name``) — אותם פתקים שמוצגים
+       ב-UI של הוובאפ
+   * - ``codekeeper_create_note``
+     - **כתיבה:** יצירת פתק דביק על קובץ קיים; ``line`` אופציונלי מעגן
+       לשורת מקור (בלעדיו הפתק צף). דורש ``write``
+   * - ``codekeeper_update_note``
+     - **כתיבה:** עדכון חלקי של פתק לפי ``note_id`` (תוכן/שורה/צבע/מוזער)
+       — דורס במקום, אין היסטוריית גרסאות לפתקים. דורש ``write``
    * - ``codekeeper_list_collections`` / ``codekeeper_get_collection`` / ``codekeeper_get_collection_items``
      - האוספים והקבצים שבתוכם
 
@@ -106,7 +115,8 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
 
 - ``read`` — ברירת המחדל לכל חיבור.
 - ``write`` — נדרש לכלי הכתיבה (``codekeeper_save_file`` /
-  ``codekeeper_edit_file`` / ``codekeeper_append_file``); ניתן רק באישור
+  ``codekeeper_edit_file`` / ``codekeeper_append_file`` /
+  ``codekeeper_create_note`` / ``codekeeper_update_note``); ניתן רק באישור
   מפורש (מסך ההרשאה ב-Claude.ai או טוקן ``write`` מהבוט).
 - **אדמין** — כלי הריפו זמינים רק למשתמשים שב-``ADMIN_USER_IDS``; לכל אחד
   אחר הם

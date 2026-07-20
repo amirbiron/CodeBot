@@ -16,9 +16,16 @@ heavy ``code``/``content`` fields — full content is returned only by
 from __future__ import annotations
 
 import datetime as _dt
+import html
+import logging
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
+
+# שדות הפתק שנחשפים ל-MCP — רזה במכוון (בלי מיקום/גודל פיקסלים, שהם עניין ויזואלי)
+_NOTE_FIELDS = ("content", "color", "line_start", "anchor_text", "is_minimized")
 
 
 def _json_safe(value: Any) -> Any:
@@ -70,6 +77,37 @@ def _strip_heavy(value: Any) -> Any:
     return value
 
 
+def _as_note(doc: dict[str, Any]) -> dict[str, Any]:
+    """Serialize a sticky-note document for MCP output (lean, JSON-safe)."""
+    doc = doc or {}
+    out: dict[str, Any] = {"id": str(doc.get("_id") or "")}
+    for key in _NOTE_FIELDS:
+        out[key] = _json_safe(doc.get(key))
+    # פתקי legacy נשמרו עם HTML entities — משחזרים טקסט כמו שהוובאפ עושה בקריאה
+    if isinstance(out.get("content"), str):
+        out["content"] = html.unescape(out["content"])
+    out["created_at"] = _json_safe(doc.get("created_at"))
+    out["updated_at"] = _json_safe(doc.get("updated_at"))
+    return out
+
+
+def _notes_scope_filter(
+    user_id: int, scope_id: str | None, related_ids: list[str]
+) -> dict[str, Any]:
+    """The webapp-parity notes query: by scope_id, plus file_id for legacy notes.
+
+    Module-level and pure so tests can assert the exact query shape.
+    """
+    clauses: list[dict[str, Any]] = []
+    if scope_id:
+        clauses.append({"scope_id": scope_id})
+    if related_ids:
+        clauses.append({"file_id": {"$in": list(related_ids)}})
+    if not clauses:
+        return {"user_id": int(user_id)}
+    return {"user_id": int(user_id), "$or": clauses}
+
+
 class ProductionBackend:
     """Backend backed by the real in-process ``database`` layer.
 
@@ -83,6 +121,7 @@ class ProductionBackend:
         self._dbm = db_manager
         self._mongo = mongo_db
         self._cm = collections_manager
+        self._notes_idx_done = False
 
     # -- lazy wiring -------------------------------------------------------
     def _require_dbm(self) -> Any:
@@ -213,3 +252,150 @@ class ProductionBackend:
         if isinstance(result, dict) and isinstance(result.get("items"), list):
             result["items"] = [_strip_heavy(item) for item in result["items"]]
         return result
+
+    # -- sticky notes ------------------------------------------------------
+    def _raw_mongo(self) -> Any:
+        mongo = self._mongo if self._mongo is not None else getattr(self._require_dbm(), "db", None)
+        if mongo is None:
+            raise RuntimeError("MongoDB handle unavailable for sticky notes")
+        return mongo
+
+    def _notes_coll(self) -> Any:
+        coll = self._raw_mongo()["sticky_notes"]
+        # אינדקס שחסר היום לשאילתת ה-scope (משרת גם את הוובאפ); חד-פעמי, לא מפיל כלי
+        if not self._notes_idx_done:
+            self._notes_idx_done = True
+            try:
+                coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
+            except Exception:
+                logger.warning("sticky notes index creation failed (non-fatal)", exc_info=True)
+        return coll
+
+    def _related_file_ids(self, user_id: int, file_name: str) -> list[str]:
+        """כל מזהי הגרסאות של השם הזה — לפריטת שאילתת הוובאפ (פתקי legacy בלי scope_id)."""
+        try:
+            rows = self._raw_mongo()["code_snippets"].find(
+                {"user_id": int(user_id), "file_name": file_name}, {"_id": 1}
+            )
+            return [str(r["_id"]) for r in rows if r and r.get("_id") is not None]
+        except Exception:
+            logger.warning("related file ids lookup failed", exc_info=True)
+            return []
+
+    def list_notes(self, user_id: int, *, file_name: str) -> dict[str, Any]:
+        """List notes for a file (pure read — no backfill, unlike the webapp GET)."""
+        from sticky_notes_scope import make_scope_id  # מודול טהור בשורש הריפו
+
+        scope_id = make_scope_id(int(user_id), file_name)
+        related = self._related_file_ids(user_id, file_name)
+        query = _notes_scope_filter(user_id, scope_id, related)
+        rows = list(self._notes_coll().find(query).sort("created_at", 1).limit(500))
+        return {
+            "ok": True,
+            "file_name": file_name,
+            "count": len(rows),
+            "notes": [_as_note(r) for r in rows],
+        }
+
+    def create_note(
+        self,
+        user_id: int,
+        *,
+        file_name: str,
+        content: str,
+        line: int | None,
+        color: str,
+        anchor_text: str | None,
+        anchor_id: str | None,
+    ) -> dict[str, Any]:
+        """Insert a webapp-schema note attached to an existing file."""
+        from .handlers import MAX_NOTES_PER_SCOPE
+        from sticky_notes_scope import make_scope_id
+
+        doc = self._require_dbm().get_latest_version(int(user_id), file_name)
+        if not doc:
+            return {
+                "ok": False,
+                "error": "file_not_found",
+                "hint": "save the file first with codekeeper_save_file",
+            }
+        canonical_name = str(doc.get("file_name") or file_name)
+        scope_id = make_scope_id(int(user_id), canonical_name)
+        related = self._related_file_ids(user_id, canonical_name)
+
+        coll = self._notes_coll()
+        try:
+            existing = int(coll.count_documents(_notes_scope_filter(user_id, scope_id, related)))
+        except Exception:
+            existing = 0  # המגן הוא soft-cap; כשל ספירה לא חוסם יצירה
+        if existing >= MAX_NOTES_PER_SCOPE:
+            return {
+                "ok": False,
+                "error": "too_many_notes",
+                "max": MAX_NOTES_PER_SCOPE,
+                "count": existing,
+            }
+
+        now = _dt.datetime.now(_dt.timezone.utc)
+        note = {
+            "user_id": int(user_id),
+            "file_id": str(doc.get("_id") or ""),
+            "content": content,
+            # ברירות מחדל בפריטת הקליינט — פתק מה-MCP נראה כמו פתק שנוצר ביד
+            "position_x": 120,
+            "position_y": 120,
+            "width": 260,
+            "height": 200,
+            "color": color,
+            "is_minimized": False,
+            "line_start": line,
+            "line_end": None,
+            "anchor_id": anchor_id,
+            "anchor_text": anchor_text,
+            "scope_id": scope_id,
+            "file_name": canonical_name,
+            "created_at": now,
+            "updated_at": now,
+        }
+        res = coll.insert_one(note)
+        note["_id"] = getattr(res, "inserted_id", None)
+        return {"ok": True, "note": _as_note(note)}
+
+    def update_note(self, user_id: int, *, note_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+        """Partial in-place update by ObjectId, ownership enforced in the filter."""
+        from bson import ObjectId  # lazy heavy import
+
+        try:
+            oid = ObjectId(str(note_id))
+        except Exception:
+            return {"ok": False, "error": "invalid_note_id"}
+
+        coll = self._notes_coll()
+        note = coll.find_one({"_id": oid, "user_id": int(user_id)})
+        if not note:
+            return {"ok": False, "error": "not_found"}
+
+        updates = dict(fields)
+        # backfill לפתק legacy בלי scope_id — רק במסלול הכתיבה (list נשאר קריאה טהורה)
+        if not note.get("scope_id"):
+            fname = note.get("file_name")
+            if not fname and note.get("file_id"):
+                try:
+                    ref = self._raw_mongo()["code_snippets"].find_one(
+                        {"_id": ObjectId(str(note["file_id"])), "user_id": int(user_id)},
+                        {"file_name": 1},
+                    )
+                    fname = (ref or {}).get("file_name")
+                except Exception:
+                    fname = None
+            if fname:
+                from sticky_notes_scope import make_scope_id
+
+                sid = make_scope_id(int(user_id), str(fname))
+                if sid:
+                    updates["scope_id"] = sid
+                    updates["file_name"] = str(fname)
+
+        updates["updated_at"] = _dt.datetime.now(_dt.timezone.utc)
+        coll.update_one({"_id": oid, "user_id": int(user_id)}, {"$set": updates})
+        return {"ok": True, "note": _as_note({**note, **updates})}
