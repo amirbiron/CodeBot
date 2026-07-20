@@ -217,14 +217,21 @@ jobs:
     - name: 📄 Setup GitHub Pages
       uses: actions/configure-pages@v4
     
+    # שם artifact ייחודי לכל ניסיון ריצה: ב-Re-run ה-artifact מהניסיון הקודם
+    # נשאר משויך לאותו run, ושני artifacts בשם "github-pages" מפילים את
+    # deploy-pages@v4 ("Multiple artifacts named github-pages"). run_attempt
+    # מבטיח שם חדש בכל ניסיון, ו-deploy-pages מקבל את אותו שם במפורש.
     - name: 📦 Upload to GitHub Pages
       uses: actions/upload-pages-artifact@v3
       with:
         path: ./public
-    
+        name: github-pages-${{ github.run_attempt }}
+
     - name: 🚀 Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4
+      with:
+        artifact_name: github-pages-${{ github.run_attempt }}
     
     - name: ✅ Deployment summary
       run: |
