@@ -54,6 +54,12 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
      - תוכן מלא של קובץ (לפי שם/מזהה, אופציונלית גרסה)
    * - ``codekeeper_save_file``
      - **כתיבה:** יצירה/עדכון קובץ (גרסה חדשה; עד 100KB). דורש ``write``
+   * - ``codekeeper_edit_file``
+     - **כתיבה:** מצא-והחלף מדויק בקובץ קיים (``old_string`` →
+       ``new_string``) — בלי לשלוח את כל הקובץ. נשמר כגרסה חדשה. דורש
+       ``write``
+   * - ``codekeeper_append_file``
+     - **כתיבה:** הוספת טקסט לסוף קובץ קיים (גרסה חדשה). דורש ``write``
    * - ``codekeeper_list_versions``
      - היסטוריית גרסאות של קובץ
    * - ``codekeeper_list_collections`` / ``codekeeper_get_collection`` / ``codekeeper_get_collection_items``
@@ -91,8 +97,9 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
 שכבות ההרשאה:
 
 - ``read`` — ברירת המחדל לכל חיבור.
-- ``write`` — נדרש ל-``codekeeper_save_file``; ניתן רק באישור מפורש
-  (מסך ההרשאה ב-Claude.ai או טוקן ``write`` מהבוט).
+- ``write`` — נדרש לכלי הכתיבה (``codekeeper_save_file`` /
+  ``codekeeper_edit_file`` / ``codekeeper_append_file``); ניתן רק באישור
+  מפורש (מסך ההרשאה ב-Claude.ai או טוקן ``write`` מהבוט).
 - **אדמין** — כלי הריפו זמינים רק למשתמשים שב-``ADMIN_USER_IDS``; לכל אחד
   אחר הם
   גם לא מופיעים ברשימת הכלים וגם נחסמים בקריאה ישירה (fail-closed).
