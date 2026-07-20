@@ -1166,28 +1166,28 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     color: #fff;
 }
 
-/* מודאל עריכת תיאור — מחקה את מודאל השיתוף, עם textarea ומונה תווים */
+/* מודאל עריכת תיאור — כמו מודאל השיתוף אך על טוקני ערכה (theming_and_css.rst: בלי צבעים קשיחים) */
 .desc-modal {
     position: fixed;
     inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--modal-backdrop, rgba(0, 0, 0, 0.55));
     z-index: 9999;
 }
 .desc-modal[hidden] {
     display: none;
 }
 .desc-modal__content {
-    background: #1f2a44;
+    background: var(--bg-secondary);
     border-radius: 16px;
     padding: 1.5rem;
     max-width: 460px;
     width: calc(100% - 2rem);
-    color: #fff;
+    color: var(--text-primary);
     position: relative;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--solid-surface-shadow, 0 12px 30px rgba(0, 0, 0, 0.35));
 }
 .desc-modal__title {
     margin: 0 0 0.5rem;
@@ -1195,15 +1195,15 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 }
 .desc-modal__subtitle {
     margin: 0 0 1rem;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--text-secondary);
 }
 .desc-modal__textarea {
     width: 100%;
     box-sizing: border-box;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--glass-border);
     border-radius: 10px;
-    color: #fff;
+    color: var(--text-primary);
     padding: 0.75rem;
     font-size: 1rem;
     line-height: 1.5;
@@ -1212,12 +1212,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 }
 .desc-modal__textarea:focus {
     outline: none;
-    border-color: rgba(102, 126, 234, 0.8);
+    border-color: var(--primary);
 }
 .desc-modal__counter {
     text-align: left;
     font-size: 0.85rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--text-muted);
     margin: 0.35rem 0 1rem;
 }
 .desc-modal__actions {
@@ -1234,13 +1234,13 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     left: 0.75rem;
     background: transparent;
     border: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--text-secondary);
     font-size: 1.1rem;
     cursor: pointer;
 }
 .desc-modal__close:hover,
 .desc-modal__close:focus {
-    color: #fff;
+    color: var(--text-primary);
 }
 
 .glass-modal {
