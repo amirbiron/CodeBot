@@ -78,6 +78,42 @@ async def test_authorize_creates_txn_and_redirect():
     assert txn["client_id"] == "c1"
 
 
+def _params_no_scope():
+    return AuthorizationParams(
+        state="st",
+        scopes=None,  # client omitted scope at /authorize (the Claude.ai case)
+        code_challenge="chal",
+        redirect_uri=AnyUrl("https://claude.ai/cb"),
+        redirect_uri_provided_explicitly=True,
+        resource=None,
+    )
+
+
+async def test_authorize_without_scope_falls_back_to_registered_scope():
+    # No scope at /authorize ⇒ grant the client's full *registered* scope, not a
+    # hardcoded read-only default. This is what lets Claude.ai (which never names
+    # a scope) reach write once it is registered for it.
+    store, prov = _provider()
+    client = OAuthClientInformationFull(
+        client_id="c1", redirect_uris=[AnyUrl("https://claude.ai/cb")], scope="read write"
+    )
+    url = await prov.authorize(client, _params_no_scope())
+    txn_id = up.parse_qs(up.urlparse(url).query)["txn"][0]
+    assert store.get_txn(txn_id)["scopes"] == ["read", "write"]
+
+
+async def test_authorize_without_scope_and_no_registration_uses_read_default():
+    # Defensive fallback: a client with no registered scope at all (shouldn't
+    # happen via DCR) stays read-only rather than silently widening.
+    store, prov = _provider()
+    client = OAuthClientInformationFull(
+        client_id="c1", redirect_uris=[AnyUrl("https://claude.ai/cb")]
+    )
+    url = await prov.authorize(client, _params_no_scope())
+    txn_id = up.parse_qs(up.urlparse(url).query)["txn"][0]
+    assert store.get_txn(txn_id)["scopes"] == ["read"]
+
+
 async def test_code_exchange_issues_tokens_and_consumes():
     store, prov = _provider()
     code = new_secret("ckoc_")
