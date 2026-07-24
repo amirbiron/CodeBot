@@ -839,24 +839,32 @@ class DocumentHandler:
                 document.file_name,
                 document.file_size,
             )
-            file = await context.bot.get_file(document.file_id)
-            buf = BytesIO()
-            await file.download_to_memory(buf)
-            raw = buf.getvalue()
             items = context.user_data.get("zip_create_items")
             if items is None:
                 items = []
                 context.user_data["zip_create_items"] = items
-            # אכיפת מגבלות איסוף לפני צבירה בזיכרון (מספר קבצים + גודל מצטבר) — הגנה מ-DoS/זיכרון
+            # אכיפת מגבלות מוקדמת — לפני ההורדה לזיכרון (הגנה מ-DoS/זיכרון): מספר קבצים + גודל מוצהר
             from utils import ZIP_CREATE_MAX_FILES, ZIP_CREATE_MAX_TOTAL_BYTES
+            limit_mb = ZIP_CREATE_MAX_TOTAL_BYTES // (1024 * 1024)
             if len(items) >= ZIP_CREATE_MAX_FILES:
                 await update.message.reply_text(
                     f"⚠️ הגעת למקסימום {ZIP_CREATE_MAX_FILES} קבצים ל-ZIP. לחצ/י 'סיום' כדי ליצור."
                 )
                 return
             current_total = sum(len(it.get("bytes") or b"") for it in items)
+            incoming_size = int(getattr(document, "file_size", 0) or 0)
+            if current_total + incoming_size > ZIP_CREATE_MAX_TOTAL_BYTES:
+                await update.message.reply_text(
+                    f"⚠️ הקובץ לא נוסף — חריגה מהמגבלה של {limit_mb}MB לכלל ה-ZIP."
+                )
+                return
+            # הורדה רק לאחר שהמגבלות המוקדמות עברו
+            file = await context.bot.get_file(document.file_id)
+            buf = BytesIO()
+            await file.download_to_memory(buf)
+            raw = buf.getvalue()
+            # אימות סופי לפי הגודל בפועל (למקרה של פער מול file_size המוצהר)
             if current_total + len(raw) > ZIP_CREATE_MAX_TOTAL_BYTES:
-                limit_mb = ZIP_CREATE_MAX_TOTAL_BYTES // (1024 * 1024)
                 await update.message.reply_text(
                     f"⚠️ הקובץ לא נוסף — חריגה מהמגבלה של {limit_mb}MB לכלל ה-ZIP."
                 )

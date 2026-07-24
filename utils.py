@@ -1608,13 +1608,16 @@ def build_zip_bytes(items, *, max_files: int = ZIP_CREATE_MAX_FILES,
 
     - מנקה כל שם רשומה דרך safe_zip_entry_name (הגנת Zip-Slip).
     - אוכף מגבלת מספר קבצים וגודל מצטבר (הגנה כפולה מעבר לאיסוף).
+    - שמות רשומה כפולים מקבלים סיומת ממספרת (x.txt, x_2.txt) לשמירת ייחודיות.
     - מדלג בשקט על פריט בודד שנכשל (שומר על ההתנהגות הקיימת).
+
     מיועד להרצה תחת asyncio.to_thread כדי לא לחסום את לולאת האירועים.
     """
     from io import BytesIO
     buf = BytesIO()
     total = 0
     count = 0
+    used = set()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for i, it in enumerate(items or []):
             if count >= max_files:
@@ -1624,6 +1627,15 @@ def build_zip_bytes(items, *, max_files: int = ZIP_CREATE_MAX_FILES,
                 if total + len(data) > max_total_bytes:
                     break
                 entry = safe_zip_entry_name(it.get("filename"), fallback=f"file_{i + 1}")
+                # מניעת שמות כפולים: משמרים את הראשון, ולבאים מוסיפים סיומת ממספרת (עם שמירת הסיומת)
+                if entry in used:
+                    stem, ext = os.path.splitext(entry)
+                    n = 2
+                    entry = f"{stem}_{n}{ext}"
+                    while entry in used:
+                        n += 1
+                        entry = f"{stem}_{n}{ext}"
+                used.add(entry)
                 z.writestr(entry, data)
                 total += len(data)
                 count += 1

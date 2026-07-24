@@ -68,8 +68,19 @@ def test_build_zip_skips_missing_names_with_fallback():
         {"bytes": b"nofield"},                       # ללא מפתח filename ⇒ fallback file_2
     ]
     names = _names(build_zip_bytes(items))
-    assert len(names) == 2
-    assert all(n for n in names)  # אין שם ריק
+    assert names == ["file_1", "file_2"]
+
+
+def test_build_zip_disambiguates_duplicate_names():
+    # מקורות שונים שמנורמלים לאותו שם — לא נדרסים; הבאים מקבלים סיומת ממספרת עם שמירת הסיומת
+    items = [
+        {"filename": "a/x.txt", "bytes": b"1"},
+        {"filename": "b/x.txt", "bytes": b"2"},
+        {"filename": "c/x.txt", "bytes": b"3"},
+    ]
+    names = _names(build_zip_bytes(items))
+    assert names == ["x.txt", "x_2.txt", "x_3.txt"]
+    assert len(set(names)) == 3
 
 
 def test_defaults_are_sane():
