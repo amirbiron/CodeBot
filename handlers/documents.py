@@ -850,7 +850,7 @@ class DocumentHandler:
             safe_name = (document.file_name or f"file_{len(items)+1}").strip() or f"file_{len(items)+1}"
             items.append({"filename": safe_name, "bytes": raw})
             await update.message.reply_text(
-                f"✅ נוסף: <code>{html_escape(safe_name)}</code> (סה""כ {len(items)} קבצים)",
+                f'✅ נוסף: <code>{html_escape(safe_name)}</code> (סה"כ {len(items)} קבצים)',
                 parse_mode=ParseMode.HTML,
             )
         except Exception as err:

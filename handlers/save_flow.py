@@ -323,7 +323,7 @@ async def long_collect_timeout_job(context: ContextTypes.DEFAULT_TYPE):
             chat_id=chat_id,
             text=(
                 f"⏳ מצב איסוף נסגר לאחר חוסר פעילות.\n"
-                f"✅ נאספו {len(parts)} חלקים (סה""כ ~{total_bytes // 1024}KB).\n"
+                f'✅ נאספו {len(parts)} חלקים (סה"כ ~{total_bytes // 1024}KB).\n'
                 f"שלח/י /done לאיחוד לקובץ אחד או /cancel לביטול."
             )
         )

@@ -870,6 +870,59 @@ async def start_zip_create_flow(update: Update, context: ContextTypes.DEFAULT_TY
         pass
     return ConversationHandler.END
 
+
+def _cleanup_zip_state(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """מנקה את דגלי מצב יצירת ה‑ZIP (אחרי סיום/ביטול/בחירת שם)."""
+    for key in ('upload_mode', 'zip_create_items', 'awaiting_zip_name'):
+        context.user_data.pop(key, None)
+
+
+async def finalize_zip_create(update: Update, context: ContextTypes.DEFAULT_TYPE, zip_name: Optional[str] = None) -> None:
+    """בונה ZIP מהקבצים שנאספו ושולח למשתמש.
+
+    אם zip_name ניתן — משתמשים בו לאחר ניקוי (TextUtils.clean_filename) והבטחת סיומת .zip;
+    אחרת נופלים לשם ברירת המחדל my-files-<timestamp>.zip.
+    """
+    items = context.user_data.get('zip_create_items') or []
+    msg = update.effective_message
+    if not items:
+        if msg is not None:
+            await msg.reply_text("ℹ️ לא נאספו קבצים. שלח/י קבצים ואז נסה שוב.")
+        _cleanup_zip_state(context)
+        return
+    try:
+        from io import BytesIO as _BytesIO
+        import zipfile as _zip
+        buf = _BytesIO()
+        with _zip.ZipFile(buf, 'w', compression=_zip.ZIP_DEFLATED) as z:
+            for it in items:
+                try:
+                    z.writestr(it.get('filename') or 'file', it.get('bytes') or b'')
+                except Exception:
+                    pass
+        buf.seek(0)
+        # קביעת שם ה‑ZIP: שם מהמשתמש (מנוקה) או ברירת מחדל לפי חותמת זמן
+        default_base = f"my-files-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        base = ''
+        if zip_name:
+            try:
+                from utils import TextUtils
+                base = (TextUtils.clean_filename(zip_name) or '').strip()
+            except Exception:
+                base = ''
+            if base.lower().endswith('.zip'):
+                base = base[:-4]
+        safe_name = f"{base or default_base}.zip"
+        await msg.reply_document(document=buf, filename=safe_name)
+        await msg.reply_text(f'✅ נוצר ZIP "{safe_name}" עם {len(items)} קבצים ונשלח אליך.')
+    except Exception as e:
+        logger.exception(f"finalize_zip_create failed: {e}")
+        if msg is not None:
+            await msg.reply_text(f"❌ שגיאה ביצירת ה‑ZIP: {e}")
+    finally:
+        _cleanup_zip_state(context)
+
+
 async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג תפריט קבוצות לפי תגיות ריפו ומאפשר בחירה."""
     user_id = update.effective_user.id
@@ -3749,32 +3802,28 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
         elif data == "zip_create_finish":
-            # בניית ZIP מהקבצים שנאספו ושליחה למשתמש
-            try:
-                items = context.user_data.get('zip_create_items') or []
-                if not items:
-                    await query.edit_message_text("ℹ️ לא נאספו קבצים. שלח/י קבצים ואז נסה שוב.")
-                    return ConversationHandler.END
-                from io import BytesIO as _BytesIO
-                import zipfile as _zip
-                buf = _BytesIO()
-                with _zip.ZipFile(buf, 'w', compression=_zip.ZIP_DEFLATED) as z:
-                    for it in items:
-                        # it: {"filename": str, "bytes": bytes}
-                        try:
-                            z.writestr(it.get('filename') or 'file', it.get('bytes') or b'')
-                        except Exception:
-                            pass
-                buf.seek(0)
-                safe_name = f"my-files-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.zip"
-                await query.message.reply_document(document=buf, filename=safe_name)
-                await query.edit_message_text(f"✅ נוצר ZIP עם {len(items)} קבצים ונשלח אליך.")
-            except Exception as e:
-                logger.exception(f"zip_create_finish failed: {e}")
-                await query.edit_message_text(f"❌ שגיאה ביצירת ה‑ZIP: {e}")
-            finally:
-                context.user_data.pop('upload_mode', None)
-                context.user_data.pop('zip_create_items', None)
+            # לפני יצירת ה‑ZIP — מבקשים מהמשתמש שם (או דילוג לשם אוטומטי)
+            items = context.user_data.get('zip_create_items') or []
+            if not items:
+                await query.edit_message_text("ℹ️ לא נאספו קבצים. שלח/י קבצים ואז נסה שוב.")
+                _cleanup_zip_state(context)
+                return ConversationHandler.END
+            context.user_data['awaiting_zip_name'] = True
+            # לא אוספים עוד קבצים בזמן שממתינים לשם
+            context.user_data.pop('upload_mode', None)
+            kb = [[InlineKeyboardButton("⏭️ דלג (שם אוטומטי)", callback_data="zip_create_skip_name")]]
+            await query.edit_message_text(
+                "✍️ איך לקרוא ל‑ZIP?\n"
+                "שלח/י שם (בלי הסיומת .zip), או לחצ/י דלג לשם אוטומטי.\n"
+                f"📦 {len(items)} קבצים ייכללו.",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
+            return ConversationHandler.END
+        elif data == "zip_create_skip_name":
+            # יצירת ZIP עם שם ברירת מחדל (דילוג על בחירת שם)
+            context.user_data.pop('awaiting_zip_name', None)
+            await query.edit_message_text("⏳ יוצר ZIP…")
+            await finalize_zip_create(update, context, zip_name=None)
             return ConversationHandler.END
         elif data.startswith("replace_") or data == "rename_file" or data == "cancel_save":
             return await handle_duplicate_callback(update, context)
@@ -4768,7 +4817,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         end = min(start + PAGE_SIZE, total)
         items = backups[start:end]
 
-        lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+        lines = [f'📦 קבצי ZIP שמורים — סה"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n']
         keyboard = []
         # חישוב גרסאות vN לפי ריפו
         repo_to_sorted: Dict[str, list] = {}

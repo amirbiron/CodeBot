@@ -4472,6 +4472,16 @@ class CodeKeeperBot:
             return
         text = message_text
 
+        # מצב "בחירת שם ל-ZIP" — הופעל אחרי לחיצה על 'סיום' בזרימת יצירת ZIP.
+        # נבדק ראשון כדי שהשם לא ייבלע/ייחשב כקוד (הטקסט נופל לכאן במצב הזה).
+        if context.user_data.pop('awaiting_zip_name', False):
+            try:
+                from conversation_handlers import finalize_zip_create
+                await finalize_zip_create(update, context, zip_name=text)
+            except Exception as _zip_err:
+                logger.exception("zip name finalize failed: %s", _zip_err)
+            return
+
         # מצב חיפוש אינטראקטיבי (מופעל מהכפתור "🔎 חפש קובץ")
         if context.user_data.get('awaiting_search_text'):
             query_text = (text or '').strip()
