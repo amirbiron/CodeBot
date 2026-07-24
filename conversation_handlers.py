@@ -892,21 +892,16 @@ async def finalize_zip_create(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     try:
         from io import BytesIO as _BytesIO
-        import zipfile as _zip
-        buf = _BytesIO()
-        with _zip.ZipFile(buf, 'w', compression=_zip.ZIP_DEFLATED) as z:
-            for it in items:
-                try:
-                    z.writestr(it.get('filename') or 'file', it.get('bytes') or b'')
-                except Exception:
-                    pass
+        from utils import build_zip_bytes, TextUtils
+        # בניית ה-ZIP (סינכרונית/כבדה) מחוץ ל-event loop — עם ניקוי שמות (Zip-Slip) ואכיפת מגבלות
+        zip_bytes = await asyncio.to_thread(build_zip_bytes, items)
+        buf = _BytesIO(zip_bytes)
         buf.seek(0)
         # קביעת שם ה‑ZIP: שם מהמשתמש (מנוקה) או ברירת מחדל לפי חותמת זמן
         default_base = f"my-files-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
         base = ''
         if zip_name:
             try:
-                from utils import TextUtils
                 base = (TextUtils.clean_filename(zip_name) or '').strip()
             except Exception:
                 base = ''
@@ -3792,9 +3787,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 pass
             return next_state
         elif data == "zip_create_cancel":
-            # ביטול מצב יצירת ZIP בלבד
-            context.user_data.pop('upload_mode', None)
-            context.user_data.pop('zip_create_items', None)
+            # ביטול מצב יצירת ZIP (כולל מצב המתנה לשם) — ניקוי מלא של הדגלים כולל awaiting_zip_name
+            _cleanup_zip_state(context)
             await query.edit_message_text("🚫 יצירת ה‑ZIP בוטלה.")
             await query.message.reply_text(
                 "🎮 בחר פעולה מתקדמת:",
@@ -3811,10 +3805,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['awaiting_zip_name'] = True
             # לא אוספים עוד קבצים בזמן שממתינים לשם
             context.user_data.pop('upload_mode', None)
-            kb = [[InlineKeyboardButton("⏭️ דלג (שם אוטומטי)", callback_data="zip_create_skip_name")]]
+            kb = [
+                [InlineKeyboardButton("⏭️ דלג (שם אוטומטי)", callback_data="zip_create_skip_name")],
+                [InlineKeyboardButton("❌ ביטול", callback_data="zip_create_cancel")],
+            ]
             await query.edit_message_text(
                 "✍️ איך לקרוא ל‑ZIP?\n"
-                "שלח/י שם (בלי הסיומת .zip), או לחצ/י דלג לשם אוטומטי.\n"
+                "שלח/י שם (בלי הסיומת .zip), או לחצ/י דלג לשם אוטומטי (או ביטול).\n"
                 f"📦 {len(items)} קבצים ייכללו.",
                 reply_markup=InlineKeyboardMarkup(kb),
             )

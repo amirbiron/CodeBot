@@ -847,6 +847,20 @@ class DocumentHandler:
             if items is None:
                 items = []
                 context.user_data["zip_create_items"] = items
+            # אכיפת מגבלות איסוף לפני צבירה בזיכרון (מספר קבצים + גודל מצטבר) — הגנה מ-DoS/זיכרון
+            from utils import ZIP_CREATE_MAX_FILES, ZIP_CREATE_MAX_TOTAL_BYTES
+            if len(items) >= ZIP_CREATE_MAX_FILES:
+                await update.message.reply_text(
+                    f"⚠️ הגעת למקסימום {ZIP_CREATE_MAX_FILES} קבצים ל-ZIP. לחצ/י 'סיום' כדי ליצור."
+                )
+                return
+            current_total = sum(len(it.get("bytes") or b"") for it in items)
+            if current_total + len(raw) > ZIP_CREATE_MAX_TOTAL_BYTES:
+                limit_mb = ZIP_CREATE_MAX_TOTAL_BYTES // (1024 * 1024)
+                await update.message.reply_text(
+                    f"⚠️ הקובץ לא נוסף — חריגה מהמגבלה של {limit_mb}MB לכלל ה-ZIP."
+                )
+                return
             safe_name = (document.file_name or f"file_{len(items)+1}").strip() or f"file_{len(items)+1}"
             items.append({"filename": safe_name, "bytes": raw})
             await update.message.reply_text(
