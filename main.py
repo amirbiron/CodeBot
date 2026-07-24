@@ -2200,6 +2200,16 @@ HELP_SECTIONS: list[HelpSection] = [
         ],
     },
     {
+        "title": "🤖 <b>משימות ל‑Claude Code</b>",
+        "admin_only": True,
+        "entries": [
+            {"commands": ("claude",), "description": "שליחת משימת קוד ל‑Claude", "suffix": " &lt;משימה&gt;"},
+            {"commands": ("claude_status",), "description": "מצב המשימה האחרונה", "suffix": " [מספר]"},
+            {"commands": ("claude_tasks",), "description": "רשימת המשימות האחרונות"},
+            {"commands": ("claude_cancel",), "description": "ביטול משימה", "suffix": " [מספר]"},
+        ],
+    },
+    {
         "title": "🔔 <b>תזכורות</b>",
         "entries": [
             {"commands": ("remind",), "description": "יצירת תזכורת חכמה"},
@@ -3939,7 +3949,15 @@ class CodeKeeperBot:
                 await update.message.reply_text(text, disable_web_page_preview=True)
 
         self.application.add_handler(CommandHandler("jobs", jobs_command))
-        
+
+        # ChatOps: /claude – שליחת משימות קוד ל-Claude Code דרך GitHub Actions
+        try:
+            from claude_task_handlers import setup_claude_handlers
+
+            setup_claude_handlers(self.application)
+        except Exception:
+            logger.error("Claude task handlers לא נטענו", exc_info=True)
+
         # הוספת פקודות cache
         setup_cache_handlers(self.application)
         

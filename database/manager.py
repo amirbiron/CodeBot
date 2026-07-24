@@ -1618,6 +1618,24 @@ class DatabaseManager:
             unique=True,
         )
 
+        # claude_tasks - משימות שנשלחו ל-Claude Code דרך הבוט
+        safe_create_index(
+            "claude_tasks",
+            [("request_id", ASCENDING)],
+            name="idx_claude_tasks_request_id",
+            unique=True,
+        )
+        safe_create_index(
+            "claude_tasks",
+            [("issue_number", DESCENDING)],
+            name="idx_claude_tasks_issue",
+        )
+        safe_create_index(
+            "claude_tasks",
+            [("user_id", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_claude_tasks_user_created",
+        )
+
         # scheduler_jobs - אינדקס לשאילתות polling לפי next_run_time (רץ בתדירות גבוהה)
         safe_create_index(
             "scheduler_jobs",

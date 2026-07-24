@@ -1,0 +1,254 @@
+name: Claude Code
+
+# מריץ את Claude Code על Issue שנפתח מהבוט בטלגרם (או ידנית ב-GitHub).
+#
+# ⚠️ שתי דרישות שקל לפספס:
+# 1. הקובץ הזה חייב להיות על ענף ברירת המחדל (main) — workflow שקיים רק בענף
+#    פיצ'ר לא יופעל ע"י אירועי issues/issue_comment.
+# 2. ה-Issue חייב להיפתח עם PAT אישי. Issue שנוצר עם GITHUB_TOKEN של Actions
+#    לא מפעיל workflows (הגנה מובנית של GitHub נגד לולאות).
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+# לא מריצים שתי ריצות במקביל על אותו Issue
+concurrency:
+  group: claude-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    # סינון זול לפני שמקצים runner: יש @claude, יש label, והשולח אינו בוט.
+    # בדיקת ההרשאות עצמה נעשית בצעד למטה.
+    if: >
+      (
+        (github.event_name == 'issues' && contains(github.event.issue.body, '@claude')) ||
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
+      ) &&
+      contains(github.event.issue.labels.*.name, 'claude-task') &&
+      github.event.sender.type != 'Bot' &&
+      !endsWith(github.event.sender.login, '[bot]')
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      allowed: ${{ steps.perm.outputs.allowed }}
+      chat_id: ${{ steps.meta.outputs.chat_id }}
+      message_id: ${{ steps.meta.outputs.message_id }}
+      request_id: ${{ steps.meta.outputs.request_id }}
+    steps:
+      # רק מי שיש לו הרשאת write/admin על הריפו יכול להפעיל את Claude.
+      # בדיקת הרשאה בפועל עדיפה על רשימת שמות קשיחה — היא עמידה לשינוי
+      # שם משתמש ולהוספת מתחזקים.
+      - name: Check author permission
+        id: perm
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const login = context.payload.comment?.user?.login
+                       ?? context.payload.issue?.user?.login;
+            if (!login) {
+              core.setOutput('allowed', 'false');
+              return;
+            }
+            let permission = 'none';
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo,
+                username: login,
+              });
+              permission = data.permission;
+            } catch (err) {
+              core.warning(`permission lookup failed for ${login}: ${err.message}`);
+            }
+            const allowed = ['admin', 'write', 'maintain'].includes(permission);
+            core.info(`author=${login} permission=${permission} allowed=${allowed}`);
+            core.setOutput('allowed', String(allowed));
+
+      # חילוץ chat_id/message_id שהבוט הטמיע בגוף ה-Issue כהערת HTML.
+      # אימות מול secrets.CHAT_ID: גם אם מישהו יפתח Issue מזויף עם chat_id
+      # משלו, לא נשלח לשם שום דבר.
+      - name: Extract telegram metadata
+        id: meta
+        if: steps.perm.outputs.allowed == 'true'
+        uses: actions/github-script@v7
+        env:
+          FALLBACK_CHAT_ID: ${{ secrets.CHAT_ID }}
+        with:
+          script: |
+            const fallback = process.env.FALLBACK_CHAT_ID || '';
+            const body = context.payload.issue?.body || '';
+            const match = body.match(/<!--\s*codebot-claude-meta:(\{[\s\S]*?\})\s*-->/);
+            if (!match) {
+              core.info('no meta block; using fallback chat id');
+              core.setOutput('chat_id', fallback);
+              return;
+            }
+            let meta = {};
+            try {
+              meta = JSON.parse(match[1]);
+            } catch (err) {
+              core.warning(`meta block is not valid json: ${err.message}`);
+              core.setOutput('chat_id', fallback);
+              return;
+            }
+            if (fallback && String(meta.chat_id) !== fallback) {
+              core.warning('chat_id mismatch — falling back to configured chat');
+              core.setOutput('chat_id', fallback);
+              return;
+            }
+            core.setOutput('chat_id', String(meta.chat_id ?? fallback));
+            core.setOutput('message_id', String(meta.message_id ?? ''));
+            core.setOutput('request_id', String(meta.request_id ?? ''));
+
+  notify-start:
+    name: Notify start
+    needs: guard
+    if: needs.guard.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram message
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ needs.guard.outputs.chat_id }}
+          REPLY_TO: ${{ needs.guard.outputs.message_id }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+            echo "BOT_TOKEN or CHAT_ID missing — skipping notification" >&2
+            exit 0
+          fi
+          text="🚀 Claude התחיל לעבוד על Issue #${ISSUE_NUMBER}
+          ${ISSUE_URL}
+          ריצה: ${RUN_URL}"
+          # בלי parse_mode: התוכן חופשי ו-Markdown/HTML שבור היה מפיל את השליחה
+          jq -nc \
+            --arg chat_id "$CHAT_ID" \
+            --arg text "$text" \
+            --arg reply_to "${REPLY_TO:-}" \
+            '{chat_id: $chat_id, text: $text, disable_web_page_preview: true}
+             + (if $reply_to != "" and $reply_to != "0"
+                then {reply_to_message_id: ($reply_to | tonumber),
+                      allow_sending_without_reply: true}
+                else {} end)' \
+            | curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                -H 'Content-Type: application/json' -d @- | cat
+
+  claude:
+    name: Run Claude Code
+    needs: guard
+    if: needs.guard.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # PAT (או ה-App token) כדי שה-PR ש-Claude פותח כן יפעיל את ה-CI.
+          # עם github.token הרגיל ה-PR ייפתח בלי checks בכלל.
+          github_token: ${{ secrets.CLAUDE_PAT || github.token }}
+
+  notify-result:
+    name: Notify result
+    needs: [guard, claude]
+    if: always() && needs.guard.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Collect Claude answer
+        id: answer
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = context.payload.issue.number;
+            let body = '';
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                ...context.repo, issue_number, per_page: 100,
+              });
+              const last = [...comments].reverse().find(c => c.user?.type === 'Bot');
+              body = last?.body || '';
+            } catch (err) {
+              core.warning(`could not read comments: ${err.message}`);
+            }
+            const pr = body.match(/https:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/pull\/\d+/)?.[0] || '';
+            core.setOutput('pr', pr);
+            // קיטום: הודעת טלגרם מוגבלת ל-4096 תווים
+            core.setOutput('text', body.slice(0, 2500));
+
+      - name: Send Telegram message
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ needs.guard.outputs.chat_id }}
+          REPLY_TO: ${{ needs.guard.outputs.message_id }}
+          RESULT: ${{ needs.claude.result }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          PR_URL: ${{ steps.answer.outputs.pr }}
+          ANSWER: ${{ steps.answer.outputs.text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+            echo "BOT_TOKEN or CHAT_ID missing — skipping notification" >&2
+            exit 0
+          fi
+
+          if [ "${RESULT}" = "success" ]; then
+            header="✅ Claude סיים — Issue #${ISSUE_NUMBER}"
+          else
+            header="❌ Claude נכשל (${RESULT}) — Issue #${ISSUE_NUMBER}"
+          fi
+
+          text="${header}
+          ${ISSUE_URL}"
+          if [ -n "${PR_URL:-}" ]; then
+            text="${text}
+          🔀 PR: ${PR_URL}"
+          fi
+          if [ "${RESULT}" != "success" ]; then
+            text="${text}
+          לוגים: ${RUN_URL}"
+          fi
+          if [ -n "${ANSWER:-}" ]; then
+            text="${text}
+
+          ${ANSWER}"
+          fi
+
+          jq -nc \
+            --arg chat_id "$CHAT_ID" \
+            --arg text "$text" \
+            --arg reply_to "${REPLY_TO:-}" \
+            '{chat_id: $chat_id, text: $text, disable_web_page_preview: true}
+             + (if $reply_to != "" and $reply_to != "0"
+                then {reply_to_message_id: ($reply_to | tonumber),
+                      allow_sending_without_reply: true}
+                else {} end)' \
+            | curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                -H 'Content-Type: application/json' -d @- | cat
