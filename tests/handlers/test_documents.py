@@ -234,6 +234,11 @@ async def test_handle_document_collects_zip_items(handler_env):
     items = context.user_data.get("zip_create_items")
     assert items and items[0]["filename"] == "bundle.txt"
     assert replies.messages, "צפויה הודעה על הוספת הפריט ל-ZIP"
+    # הגנה מפני באג f-string השבור (סה""כ): המספר חייב להופיע בפועל, לא כטקסט מילולי
+    reply_text = replies.messages[0][0]
+    assert "1 קבצים" in reply_text, "ההודעה חייבת להציג את מספר הקבצים בפועל"
+    assert 'סה"כ' in reply_text, "הטקסט 'סה\"כ' חייב להופיע תקין"
+    assert "{len(items)}" not in reply_text, "אסור ש-{len(items)} יופיע כטקסט מילולי"
 
 
 @pytest.mark.asyncio

@@ -1580,3 +1580,67 @@ def normalize_code(text: str,
     except Exception:
         # במקרה של שגיאה, החזר את הטקסט המקורי
         return text
+
+
+# ----- כלי יצירת ZIP מרוכז (בטוח מפני Zip-Slip + חסום-מגבלות, טהור וניתן להרצה ב-thread) -----
+
+# מגבלות זרימת "יצירת ZIP" בבוט (מספר קבצים וגודל מצטבר) — הגנה מפני צריכת זיכרון/DoS
+ZIP_CREATE_MAX_FILES = 50
+ZIP_CREATE_MAX_TOTAL_BYTES = 45 * 1024 * 1024  # 45MB (מתחת למגבלת שליחת document של טלגרם)
+
+
+def safe_zip_entry_name(name, fallback: str = "file") -> str:
+    """מחזיר שם רשומת ZIP בטוח: basename בלבד, ללא נתיב מוחלט/מקונן/‏‎".."/".‎"; אחרת fallback.
+
+    מונע Zip-Slip: שמות כמו '../../etc/passwd' או '/abs/x' מנורמלים לשם בסיס בטוח.
+    """
+    raw = str(name or "").replace("\\", "/")
+    base = os.path.basename(raw)  # מסיר כל רכיב נתיב (absolute/nested)
+    cleaned = TextUtils.clean_filename(base)  # מסיר תווים אסורים + נקודות מובילות/סוגרות
+    if not cleaned or cleaned in (".", ".."):
+        return fallback
+    return cleaned
+
+
+def build_zip_bytes(items, *, max_files: int = ZIP_CREATE_MAX_FILES,
+                    max_total_bytes: int = ZIP_CREATE_MAX_TOTAL_BYTES) -> bytes:
+    """בונה ZIP (סינכרוני, טהור) מרשימת פריטים [{'filename': str, 'bytes': bytes}].
+
+    - מנקה כל שם רשומה דרך safe_zip_entry_name (הגנת Zip-Slip).
+    - אוכף מגבלת מספר קבצים וגודל מצטבר (הגנה כפולה מעבר לאיסוף).
+    - שמות רשומה כפולים מקבלים סיומת ממספרת (x.txt, x_2.txt) לשמירת ייחודיות.
+    - מדלג בשקט על פריט בודד שנכשל (שומר על ההתנהגות הקיימת).
+
+    מיועד להרצה תחת asyncio.to_thread כדי לא לחסום את לולאת האירועים.
+    """
+    from io import BytesIO
+    buf = BytesIO()
+    total = 0
+    count = 0
+    used = set()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for i, it in enumerate(items or []):
+            if count >= max_files:
+                break
+            try:
+                data = it.get("bytes") or b""
+                if total + len(data) > max_total_bytes:
+                    break
+                entry = safe_zip_entry_name(it.get("filename"), fallback=f"file_{i + 1}")
+                # מניעת שמות כפולים: משמרים את הראשון, ולבאים מוסיפים סיומת ממספרת (עם שמירת הסיומת)
+                if entry in used:
+                    stem, ext = os.path.splitext(entry)
+                    n = 2
+                    entry = f"{stem}_{n}{ext}"
+                    while entry in used:
+                        n += 1
+                        entry = f"{stem}_{n}{ext}"
+                used.add(entry)
+                z.writestr(entry, data)
+                total += len(data)
+                count += 1
+            except Exception:
+                # שמירה על ההתנהגות הקיימת: פריט בעייתי מדולג ולא מפיל את כל ה-ZIP
+                continue
+    buf.seek(0)
+    return buf.getvalue()
