@@ -76,7 +76,7 @@ class SkillMenuHandler:
             await TelegramUtils.safe_edit_message_text(
                 query,
                 "ℹ️ אין סקילים שמורים.\n"
-                "כדי לשמור סקיל: שלח/י קובץ ZIP ובחר/י '📝 סקיל'.",
+                "כדי לשמור סקיל: שלח/י קובץ ZIP ובחר/י '🧩 סקיל'.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
             return
@@ -99,7 +99,7 @@ class SkillMenuHandler:
         # איסוף דירוגים לפריטי העמוד בקריאה אחת ב-thread (לא חוסם את ה-event loop)
         ratings = await asyncio.to_thread(_collect_ratings, user_id, [s.skill_id for s in items])
 
-        lines = [f"📝 סקילים שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+        lines = [f"🧩 סקילים שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
         keyboard = []
         for info in items:
             name = info.original_name or info.skill_id
@@ -110,7 +110,7 @@ class SkillMenuHandler:
             if emoji:
                 second += f" | {emoji}"
             lines.append(second)
-            btn = f"📝 {_truncate_middle(name, 28)} - {_format_date(info.created_at)}"
+            btn = f"🧩 {_truncate_middle(name, 28)} - {_format_date(info.created_at)}"
             if emoji:
                 btn = f"{emoji} {btn}"
             keyboard.append([InlineKeyboardButton(btn[:64], callback_data=f"skill_details:{info.skill_id}")])
@@ -142,7 +142,7 @@ class SkillMenuHandler:
         except Exception:
             note_text = ""
         lines = [
-            f"📝 סקיל: {match.original_name or skill_id}",
+            f"🧩 סקיל: {match.original_name or skill_id}",
             f"📅 נוצר: {_format_date(match.created_at)}",
             f"📁 קבצים: {match.file_count}",
             f"📏 גודל: {_format_bytes(match.total_size)}",
@@ -178,7 +178,7 @@ class SkillMenuHandler:
             filename = (match.original_name if match else None) or f"{skill_id}.zip"
             await query.message.reply_document(
                 document=InputFile(BytesIO(raw), filename=filename),
-                caption=f"📝 {filename} — {_format_bytes(len(raw))}",
+                caption=f"🧩 {filename} — {_format_bytes(len(raw))}",
             )
             try:
                 await self._show_skills_list(update, context)

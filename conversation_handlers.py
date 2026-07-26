@@ -895,7 +895,7 @@ def _count_and_save_skill(raw: bytes, user_id: int, original_name: str):
 
 
 async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:
-    """מטפל בבחירת יעד ל-ZIP שהועלה: '📝 סקיל' (אחסון קבוע as-is) או '📦 גיבוי' (רשימת הגיבויים).
+    """מטפל בבחירת יעד ל-ZIP שהועלה: '🧩 סקיל' (אחסון קבוע as-is) או '📦 גיבוי' (רשימת הגיבויים).
 
     ה-bytes נטענים מהקובץ הזמני שנשמר ב-_maybe_store_zip_copy; השמירה הכבדה רצה ב-thread נפרד
     כדי לא לחסום את לולאת האירועים.
@@ -933,7 +933,7 @@ async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await TelegramUtils.safe_edit_message_text(
                 query,
                 f"✅ נשמר כסקיל: <code>{html_escape(original_name)}</code>\n"
-                "🔎 ניתן למצוא אותו תחת: '📚' ← '📝 סקילים'.",
+                "🔎 ניתן למצוא אותו תחת: '📚' ← '🧩 סקילים'.",
                 parse_mode=ParseMode.HTML,
             )
         else:
@@ -1078,7 +1078,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton(BTN_BACKUP_ZIPS, callback_data="backup_list")],
-            [InlineKeyboardButton("📝 סקילים", callback_data="skill_list")],
+            [InlineKeyboardButton("🧩 סקילים", callback_data="skill_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
@@ -1149,7 +1149,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         keyboard = [
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton(BTN_BACKUP_ZIPS, callback_data="backup_list")],
-            [InlineKeyboardButton("📝 סקילים", callback_data="skill_list")],
+            [InlineKeyboardButton("🧩 סקילים", callback_data="skill_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
