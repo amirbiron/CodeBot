@@ -17,11 +17,11 @@
      - דוגמה
      - רכיב
    * - ``BOT_TOKEN``
-     - טוקן הבוט מ-BotFather
+     - טוקן הבוט מ-BotFather (נדרש גם ב-WebApp לאימות Telegram Login)
      - כן
      - -
      - ``123456:ABC-DEF...``
-     - Bot
+     - Bot/WebApp
    * - ``MONGODB_URL``
      - חיבור ל-MongoDB
      - כן
@@ -899,11 +899,11 @@
      - ``srv-xxxx``
      - Reporter
    * - ``ENABLE_INTERNAL_SHARE_WEB``
-     - הפעלת שירות שיתוף פנימי
+     - הפעלת שירות שיתוף פנימי בתוך תהליך הבוט (נקרא ב-main.py; היסטורי — ההרצה הפנימית בוטלה וה-webserver רץ כשירות נפרד)
      - לא
      - ``false``
      - ``true``
-     - WebApp
+     - Bot
    * - ``PORT``
      - פורט להרצת שירותים פנימיים/בדיקות
      - לא
@@ -1145,13 +1145,13 @@
      - לא
      - "" (ריק)
      - ``secret123``
-     - WebApp
+     - Webserver
    * - ``SENTRY_WEBHOOK_DEDUP_WINDOW_SECONDS``
      - חלון דה-דופליקציה (בשניות) להתראות Sentry שמגיעות ב-Webhook כדי למנוע burst (``0`` מנטרל).
      - לא
      - ``300``
      - ``600``
-     - WebApp
+     - Webserver
    * - ``ALERTMANAGER_IP_ALLOWLIST``
      - רשימת IPs (מופרדים בפסיק) שמורשים לצרוך את ה-webhook; נבדק מול ``X-Forwarded-For``/``remote_addr``.
      - לא
@@ -1819,7 +1819,7 @@
      - לא
      - ``dummy_token``
      - ``test_token``
-     - Bot/WebApp
+     - Bot
    * - ``DRIVE_RESCHEDULE_BOOTSTRAP_DELAY``
      - כמה שניות להמתין לפני תחילת משימות ה-Drive rescheduler.
      - לא

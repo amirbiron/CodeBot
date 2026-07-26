@@ -1644,3 +1644,86 @@ def build_zip_bytes(items, *, max_files: int = ZIP_CREATE_MAX_FILES,
                 continue
     buf.seek(0)
     return buf.getvalue()
+
+
+# ----- ניהול ZIP ממתין לבחירת יעד (סקיל/גיבוי) ברגע ההעלאה -----
+# ה-bytes נשמרים בקובץ זמני עד שהמשתמש בוחר כפתור; המטא הקטן נשמר ב-user_data.
+# המחיקות מוגבלות לתת-תיקייה ייעודית בלבד (allowlist), לפי כללי הבטיחות של הריפו.
+
+PENDING_ZIP_SUBDIR = "codebot_pending_zip"
+PENDING_ZIP_TTL_SECONDS = 3600  # שעה — קובץ ממתין שלא נבחר נחשב נטוש ומנוקה
+# תבנית token בטוח לשם קובץ (uuid/hex) — בלי מפרידי נתיב או רכיבי traversal
+_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _pending_zip_dir() -> Path:
+    """מחזיר (ויוצר) את תיקיית ה-ZIP הממתינים — תת-תיקייה ייעודית תחת tmp."""
+    d = Path(tempfile.gettempdir()) / PENDING_ZIP_SUBDIR
+    d.mkdir(parents=True, exist_ok=True)
+    # הידוק הרשאות לפרטיות המשתמש (הקבצים מכילים קוד שהמשתמש העלה)
+    try:
+        os.chmod(d, 0o700)
+    except Exception:
+        pass
+    return d
+
+
+def _is_under_pending_dir(path: Path) -> bool:
+    """בטיחות מחיקה: מוודא שהנתיב באמת מתחת לתיקיית ה-pending הייעודית (ולא היא עצמה)."""
+    try:
+        base = _pending_zip_dir().resolve()
+        rp = path.resolve()
+        return rp != base and base in rp.parents
+    except Exception:
+        return False
+
+
+def stash_pending_zip_bytes(raw: bytes, token: str) -> str:
+    """שומר bytes של ZIP ממתין לבחירה בקובץ זמני ומחזיר את הנתיב המלא.
+
+    ה-token חייב להיות מזהה בטוח לשם קובץ (ללא מפרידי נתיב או '..').
+    """
+    if not token or not _SAFE_TOKEN_RE.match(token):
+        raise ValueError("invalid pending-zip token")
+    path = _pending_zip_dir() / f"{token}.bin"
+    with open(path, "wb") as f:
+        f.write(raw)
+    return str(path)
+
+
+def load_pending_zip_bytes(path: str) -> Optional[bytes]:
+    """קורא bytes של ZIP ממתין מהנתיב שנשמר, או None אם לא קיים/מחוץ ל-allowlist."""
+    try:
+        p = Path(path)
+        if not _is_under_pending_dir(p) or not p.exists():
+            return None
+        return p.read_bytes()
+    except Exception:
+        return None
+
+
+def cleanup_pending_zip(path: str) -> None:
+    """מוחק קובץ ZIP ממתין בודד (רק אם הוא מתחת לתיקיית ה-pending הייעודית)."""
+    try:
+        if not path:
+            return
+        p = Path(path)
+        if _is_under_pending_dir(p) and p.exists():
+            p.unlink()
+    except Exception:
+        pass
+
+
+def cleanup_stale_pending_zips(max_age_seconds: int = PENDING_ZIP_TTL_SECONDS) -> None:
+    """מנקה קבצי ZIP ממתינים ישנים (שלא נבחרו) — סורק רק קבצי .bin בתיקייה הייעודית."""
+    try:
+        d = _pending_zip_dir()
+        now = time.time()
+        for f in d.glob("*.bin"):
+            try:
+                if now - f.stat().st_mtime > max_age_seconds:
+                    f.unlink()
+            except Exception:
+                continue
+    except Exception:
+        pass
