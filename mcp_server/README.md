@@ -36,6 +36,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_list_collections` | האוספים של המשתמש |
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
+| `codekeeper_docs_get_section` | סקשן בודד מקובץ RST של התיעוד (במקום קובץ שלם); בלי `section` מחזיר עץ כותרות. כולל breadcrumb/תת‑סקשנים/שכנים לניווט. עדיף על `codekeeper_get_repo_file` ל‑`docs/*.rst` |
 
 ### כלי אדמין — דפדפן הריפו (פאזה ד', קריאה בלבד)
 

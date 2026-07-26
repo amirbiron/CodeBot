@@ -623,6 +623,15 @@ class ConfigService:
             description="שם התצוגה של שרת ה-MCP (שם ה-Connector שמוצג ללקוח).",
             category="mcp",
         ),
+        "MCP_DOCS_REPO": ConfigDefinition(
+            key="MCP_DOCS_REPO",
+            default="CodeBot",
+            description=(
+                "רשימת הריפואים המותרים (CSV allowlist) שכלי codekeeper_docs_get_section הציבורי "
+                "רשאי לקרוא מהם קבצי RST. גבול אבטחה — repo שאינו ברשימה נדחה. ברירת מחדל: CodeBot."
+            ),
+            category="mcp",
+        ),
         "MCP_ALLOWED_HOSTS": ConfigDefinition(
             key="MCP_ALLOWED_HOSTS",
             services=("mcp",),
