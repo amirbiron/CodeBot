@@ -997,54 +997,63 @@ class DocumentHandler:
             if not (is_zip_hint and is_zip_actual):
                 return False
 
-            backup_id = f"upload_{update.effective_user.id}_{int(datetime.now(timezone.utc).timestamp())}"
-            target_path = backup_manager.backup_dir / f"{backup_id}.zip"
-            try:
-                try:
-                    with zipfile.ZipFile(BytesIO(raw_bytes), "r") as ztest:
-                        try:
-                            ztest.getinfo("metadata.json")
-                            md_bytes = raw_bytes
-                        except KeyError:
-                            md = {
-                                "backup_id": backup_id,
-                                "backup_type": "generic_zip",
-                                "user_id": update.effective_user.id,
-                                "created_at": datetime.now(timezone.utc).isoformat(),
-                                "original_filename": document.file_name,
-                                "source": "uploaded_document",
-                            }
-                            out_buf = BytesIO()
-                            with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-                                for name in ztest.namelist():
-                                    zout.writestr(name, ztest.read(name))
-                                zout.writestr("metadata.json", json.dumps(md, indent=2))
-                            md_bytes = out_buf.getvalue()
-                except Exception:
-                    md_bytes = raw_bytes
+            # ZIP זוהה — במקום שמירה אוטומטית לגיבוי, בקש מהמשתמש לבחור יעד: סקיל או גיבוי.
+            # ה-bytes נשמרים כמו שהם בקובץ זמני; הבחירה בפועל מתבצעת ב-callback (בחירה מפורשת בלבד).
+            from utils import (
+                stash_pending_zip_bytes,
+                cleanup_pending_zip,
+                cleanup_stale_pending_zips,
+            )
+            import uuid as _uuid
 
-                try:
-                    backup_manager.save_backup_bytes(
-                        md_bytes,
-                        {
-                            "backup_id": backup_id,
-                            "backup_type": "generic_zip",
-                            "user_id": update.effective_user.id,
-                            "created_at": datetime.now(timezone.utc).isoformat(),
-                            "original_filename": document.file_name,
-                            "source": "uploaded_document",
-                        },
-                    )
-                except Exception:
-                    with open(target_path, "wb") as fzip:
-                        fzip.write(md_bytes)
-                await update.message.reply_text(
-                    "✅ קובץ ZIP נשמר בהצלחה לרשימת ה‑ZIP השמורים.\n"
-                    "📦 ניתן למצוא אותו תחת: '📚' > '📦 קבצי ZIP' או ב‑Batch/GitHub."
-                )
-                return True
+            original_name = document.file_name or "upload.zip"
+
+            # ניקוי עצל: קבצים ממתינים ישנים (שלא נבחרו) — גם על הדיסק וגם ב-user_data
+            try:
+                cleanup_stale_pending_zips()
+            except Exception:
+                pass
+            pending = context.user_data.setdefault("pending_zip", {})
+            try:
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                stale_tokens = [
+                    t for t, m in pending.items()
+                    if now_ts - int((m or {}).get("ts", 0)) > 3600
+                ]
+                for _old in stale_tokens:
+                    cleanup_pending_zip((pending.get(_old) or {}).get("path", ""))
+                    pending.pop(_old, None)
+            except Exception:
+                pass
+
+            token = _uuid.uuid4().hex
+            try:
+                path = stash_pending_zip_bytes(raw_bytes, token)
             except Exception as err:
-                logger.warning("Failed to persist uploaded ZIP: %s", err)
+                logger.warning("Failed to stash pending ZIP: %s", err)
+                return False
+            pending[token] = {
+                "path": path,
+                "original_name": original_name,
+                "size": len(raw_bytes),
+                "ts": int(datetime.now(timezone.utc).timestamp()),
+            }
+
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("📝 סקיל", callback_data=f"zip_route_skill:{token}"),
+                    InlineKeyboardButton("📦 גיבוי", callback_data=f"zip_route_backup:{token}"),
+                ]
+            ])
+            await update.message.reply_text(
+                f"📦 קיבלתי קובץ ZIP: <code>{html_escape(original_name)}</code>\n"
+                "איך לשמור אותו?\n\n"
+                "📝 <b>סקיל</b> — אחסון קבוע, בדיוק כמו שהוא (byte-for-byte), בלי מחיקה אוטומטית.\n"
+                "📦 <b>גיבוי</b> — נשמר לרשימת הגיבויים (כפוף למדיניות ניקוי).",
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+            )
+            return True
         except Exception:
             pass
         return False
