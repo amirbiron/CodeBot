@@ -148,6 +148,7 @@ from conversation_handlers import set_activity_reporter as set_ch_activity_repor
 # ייבוא דחוי של ה-activity_reporter בתוך ה-run-time בלבד כדי למנוע יצירת חיבורים בזמן import
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
+from skill_menu_handler import SkillMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
 from handlers.drive.utils import extract_schedule_key as drive_extract_schedule_key
 def get_drive_handler_from_application(application: Application) -> tuple[Any, bool]:
@@ -3487,6 +3488,11 @@ class CodeKeeperBot:
             await backup_handler.show_backup_menu(update, context)
         self.application.add_handler(CommandHandler("backup", show_backup_menu))
         self.application.add_handler(CallbackQueryHandler(backup_handler.handle_callback_query, pattern=r'^(backup_|backup_add_note:.*)'))
+
+        # יצירת SkillMenuHandler ורישום ה-callbacks שלו (סוג קובץ "סקיל" — אחסון נפרד מגיבויים)
+        skill_handler = SkillMenuHandler()
+        self.application.bot_data['skill_handler'] = skill_handler
+        self.application.add_handler(CallbackQueryHandler(skill_handler.handle_callback_query, pattern=r'^skill_'))
         
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
@@ -3585,8 +3591,28 @@ class CodeKeeperBot:
                         context.user_data['suppress_code_hint_once'] = True
                     else:
                         await update.message.reply_text("❌ שמירת ההערה נכשלה")
-                except Exception as e:
-                    await update.message.reply_text(f"❌ שגיאה בשמירת ההערה: {e}")
+                except Exception:
+                    logger.exception("שמירת הערה נכשלה")
+                    await update.message.reply_text("❌ שמירת ההערה נכשלה, נסה שוב מאוחר יותר")
+                return True
+            # זרימת הוספת הערה לסקיל (אותו מנגנון גנרי כמו הגיבויים, עם skill_id)
+            if context.user_data.get('waiting_for_skill_note_for'):
+                skill_id = context.user_data.pop('waiting_for_skill_note_for')
+                try:
+                    from database import db
+                    ok = db.save_backup_note(update.effective_user.id, skill_id, (text or '')[:1000])
+                    if ok:
+                        await update.message.reply_text(
+                            "✅ ההערה נשמרה!",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"skill_details:{skill_id}")]])
+                        )
+                        # מנע הודעת "נראה שזה קטע קוד!" עבור ההודעה הזו
+                        context.user_data['suppress_code_hint_once'] = True
+                    else:
+                        await update.message.reply_text("❌ שמירת ההערה נכשלה")
+                except Exception:
+                    logger.exception("שמירת הערה נכשלה")
+                    await update.message.reply_text("❌ שמירת ההערה נכשלה, נסה שוב מאוחר יותר")
                 return True
             # קלט נתיב יעד ידני לסביבת העלאה (upload_folder_custom)
             if context.user_data.get('waiting_for_upload_folder'):

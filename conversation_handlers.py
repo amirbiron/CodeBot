@@ -22,7 +22,7 @@ from telegram.ext import (
     filters,
 )
 
-from file_manager import backup_manager
+from file_manager import backup_manager, skill_manager
 # Reporter מוזרק בזמן ריצה כדי להימנע מפתיחת חיבור בעת import
 class _NoopReporter:
     def report_activity(self, user_id):
@@ -877,6 +877,89 @@ def _cleanup_zip_state(context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop(key, None)
 
 
+async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:
+    """מטפל בבחירת יעד ל-ZIP שהועלה: '📝 סקיל' (אחסון קבוע as-is) או '📦 גיבוי' (רשימת הגיבויים).
+
+    ה-bytes נטענים מהקובץ הזמני שנשמר ב-_maybe_store_zip_copy; השמירה הכבדה רצה ב-thread נפרד
+    כדי לא לחסום את לולאת האירועים.
+    """
+    query = update.callback_query
+    await query.answer()
+    from utils import load_pending_zip_bytes, cleanup_pending_zip
+
+    token = data.partition(":")[2]
+    user_id = update.effective_user.id
+    pending = context.user_data.get("pending_zip") or {}
+    entry = pending.get(token)
+    raw = None
+    if entry:
+        raw = await asyncio.to_thread(load_pending_zip_bytes, (entry or {}).get("path", ""))
+
+    if not entry or raw is None:
+        # הטוקן פג/נוקה (או שהבוט אותחל) — אין bytes לשחזר
+        await TelegramUtils.safe_edit_message_text(
+            query, "⌛ הקובץ פג. שלח/י אותו שוב כדי לבחור סקיל או גיבוי."
+        )
+        if entry:
+            cleanup_pending_zip((entry or {}).get("path", ""))
+            pending.pop(token, None)
+        return
+
+    original_name = entry.get("original_name") or "upload.zip"
+
+    if data.startswith("zip_route_skill:"):
+        # ספירת קבצים לתצוגה בלבד (קריאה; אינה משנה את ה-bytes הנשמרים)
+        file_count = 0
+        try:
+            import zipfile as _zipfile
+            with _zipfile.ZipFile(BytesIO(raw)) as _zf:
+                file_count = sum(1 for n in _zf.namelist() if not n.endswith("/"))
+        except Exception:
+            file_count = 0
+        md = {"user_id": user_id, "original_name": original_name, "file_count": file_count}
+        skill_id = await asyncio.to_thread(skill_manager.save_skill_bytes, raw, md)
+        if skill_id:
+            # ניקוי רק לאחר שמירה מוצלחת — בכשל שומרים את ה-token/bytes כדי לאפשר retry
+            cleanup_pending_zip(entry.get("path", ""))
+            pending.pop(token, None)
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"✅ נשמר כסקיל: <code>{html_escape(original_name)}</code>\n"
+                "🔎 ניתן למצוא אותו תחת: '📚' ← '📝 סקילים'.",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await TelegramUtils.safe_edit_message_text(
+                query, "❌ שמירת הסקיל נכשלה. נסה/י שוב מאוחר יותר."
+            )
+        return
+
+    # zip_route_backup — לוגיקת הגיבוי המקורית (save_backup_bytes מזריק metadata.json בעצמו)
+    backup_id = f"upload_{user_id}_{int(time.time())}"
+    md = {
+        "backup_id": backup_id,
+        "backup_type": "generic_zip",
+        "user_id": user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "original_filename": original_name,
+        "source": "uploaded_document",
+    }
+    result_id = await asyncio.to_thread(backup_manager.save_backup_bytes, raw, md)
+    if result_id:
+        # ניקוי רק לאחר שמירה מוצלחת — בכשל שומרים את ה-token/bytes כדי לאפשר retry
+        cleanup_pending_zip(entry.get("path", ""))
+        pending.pop(token, None)
+        await TelegramUtils.safe_edit_message_text(
+            query,
+            "✅ קובץ ZIP נשמר בהצלחה לרשימת ה‑ZIP השמורים.\n"
+            "📦 ניתן למצוא אותו תחת: '📚' ← '📦 קבצי ZIP' או ב‑Batch/GitHub."
+        )
+    else:
+        await TelegramUtils.safe_edit_message_text(
+            query, "❌ שמירת הגיבוי נכשלה. נסה/י שוב מאוחר יותר."
+        )
+
+
 async def finalize_zip_create(update: Update, context: ContextTypes.DEFAULT_TYPE, zip_name: Optional[str] = None) -> None:
     """בונה ZIP מהקבצים שנאספו ושולח למשתמש.
 
@@ -987,6 +1070,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
+            [InlineKeyboardButton("📝 סקילים", callback_data="skill_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
@@ -1057,6 +1141,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         keyboard = [
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
+            [InlineKeyboardButton("📝 סקילים", callback_data="skill_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
@@ -3821,6 +3906,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data.pop('awaiting_zip_name', None)
             await query.edit_message_text("⏳ יוצר ZIP…")
             await finalize_zip_create(update, context, zip_name=None)
+            return ConversationHandler.END
+        elif data.startswith("zip_route_skill:") or data.startswith("zip_route_backup:"):
+            # בחירת יעד ל-ZIP שהועלה: סקיל (אחסון קבוע) או גיבוי (רשימת הגיבויים)
+            await _handle_zip_route(update, context, data)
             return ConversationHandler.END
         elif data.startswith("replace_") or data == "rename_file" or data == "cancel_save":
             return await handle_duplicate_callback(update, context)

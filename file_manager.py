@@ -11,6 +11,7 @@ import io
 import re
 import shutil
 import time
+import uuid
 
 try:
     import gridfs  # from pymongo
@@ -1272,4 +1273,184 @@ class BackupManager:
             logger.error(f"שגיאה במחיקת גיבוי: {e}")
             return False
 
+
+class SkillInfo:
+    """מידע על סקיל שמור (ארכיון קוד לטווח ארוך, נפרד לגמרי מגיבויים)"""
+    def __init__(self, skill_id: str, user_id: int, created_at: datetime, file_count: int,
+                 total_size: int, original_name: str, file_name: str,
+                 metadata: Optional[Dict[str, Any]]):
+        self.skill_id = skill_id
+        self.user_id = user_id
+        self.created_at = created_at
+        self.file_count = file_count
+        self.total_size = total_size
+        self.original_name = original_name  # השם המקורי המלא (לתצוגה)
+        self.file_name = file_name          # שם ה-GridFS הייחודי בפועל
+        self.metadata = metadata
+
+
+class SkillManager:
+    """מנהל אחסון סקילים — קולקציית GridFS נפרדת ("skills"), ללא retention/cleanup/restore.
+
+    בניגוד ל-BackupManager:
+    - שומר את ה-bytes as-is (fs.put ישיר) בלי לפתוח/לדחוס מחדש את ה-ZIP ובלי הזרקת metadata.json.
+    - תמיד מונגו (GridFS), ללא תלות ב-BACKUPS_STORAGE וללא משתנה סביבה מקביל.
+    - אין מחיקת retention ואין restore — סקיל לא נמחק לבד לעולם.
+    """
+
+    def _get_skills_gridfs(self):
+        """מחזיר GridFS על קולקציית "skills" (מבודדת מ-"backups"), או None אם אין חיבור מונגו."""
+        if gridfs is None:
+            return None
+        try:
+            mongo_db = None
+            if get_files_facade is not None:
+                mongo_db = get_files_facade().get_mongo_db()
+            if not mongo_db:
+                return None
+            # אוסף ייעודי "skills" — מבודד לחלוטין; cleanup_expired_backups לעולם לא נוגע בו
+            return gridfs.GridFS(mongo_db, collection="skills")
+        except Exception:
+            return None
+
+    @staticmethod
+    def _unique_filename(original_name: str) -> str:
+        """שם קובץ ייחודי לאחסון: השם המקורי אחרי סניטציה + סיומת ייחוד קצרה.
+
+        סיומת הייחוד מבטיחה ששני סקילים עם אותו שם לא ידרסו זה את זה.
+        """
+        try:
+            from utils import TextUtils
+            cleaned = TextUtils.clean_filename(original_name or "")
+        except Exception:
+            cleaned = re.sub(r'[^\w.\-]+', '_', original_name or "").strip('._')
+        stem, ext = os.path.splitext(cleaned or "")
+        if not stem:
+            stem = "skill"
+        if not ext:
+            ext = ".zip"
+        short = uuid.uuid4().hex[:6]
+        return f"{stem}_{short}{ext}"
+
+    def save_skill_bytes(self, data: bytes, metadata: Dict[str, Any]) -> Optional[str]:
+        """שומר סקיל (ZIP) as-is ב-GridFS "skills" ומחזיר skill_id, או None בכשל.
+
+        לא פותח/דוחס מחדש את ה-ZIP ולא מזריק metadata.json — ה-bytes נשמרים בדיוק כפי שהתקבלו,
+        כך שהורדה מחזירה את הקובץ byte-for-byte.
+        """
+        try:
+            fs = self._get_skills_gridfs()
+            if fs is None:
+                logger.warning("save_skill_bytes: GridFS 'skills' לא זמין")
+                return None
+            # נרמול user_id ל-int כדי ש-list_skills (שאילתת metadata.user_id כ-int) תמצא את הסקיל
+            raw_uid = metadata.get("user_id")
+            try:
+                user_id = int(raw_uid)
+            except (TypeError, ValueError):
+                logger.warning("save_skill_bytes: user_id לא תקין (%r)", raw_uid)
+                return None
+            original_name = metadata.get("original_name") or "skill.zip"
+            # מזהה לוגי ייחודי מובטח: timestamp לקריאות + uuid קצר למניעת התנגשות (כולל אותה מילישנייה)
+            skill_id = metadata.get("skill_id") or f"skill_{user_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            filename = self._unique_filename(original_name)
+            # מטאדטה סופית — נשמרת בשכבת GridFS בלבד (לא בתוך הארכיון)
+            final_md = dict(metadata or {})
+            final_md["user_id"] = user_id  # int מנורמל (לא ה-str המקורי אם הגיע כך)
+            final_md["skill_id"] = skill_id
+            final_md["kind"] = "skill"
+            if not final_md.get("created_at"):
+                final_md["created_at"] = datetime.now(timezone.utc).isoformat()
+            # שמירה byte-for-byte — בלי מחיקת filename קיים (הייחודיות מובטחת ע"י סיומת הייחוד)
+            fs.put(data, filename=filename, metadata=final_md)
+            return skill_id
+        except Exception as e:
+            logger.warning(f"save_skill_bytes failed: {e}")
+            return None
+
+    def list_skills(self, user_id: int) -> List[SkillInfo]:
+        """מחזיר את כל הסקילים של המשתמש (מטא-דאטה בלבד — Smart Projection, בלי משיכת bytes)."""
+        results: List[SkillInfo] = []
+        try:
+            fs = self._get_skills_gridfs()
+            if fs is None:
+                return results
+            # שאילתה ממוקדת לפי בעלים (user_id נשמר תמיד כ-int בשמירה)
+            for fdoc in fs.find({"metadata.user_id": user_id}):
+                try:
+                    md = getattr(fdoc, 'metadata', None) or {}
+                    skill_id = md.get("skill_id") or str(getattr(fdoc, "_id", ""))
+                    if not skill_id:
+                        continue
+                    created_at = None
+                    created_str = md.get("created_at")
+                    if created_str:
+                        with suppress(Exception):
+                            created_at = datetime.fromisoformat(created_str)
+                    if not created_at:
+                        created_at = getattr(fdoc, 'uploadDate', None)
+                    if not created_at:
+                        created_at = datetime.now(timezone.utc)
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    results.append(SkillInfo(
+                        skill_id=skill_id,
+                        user_id=user_id,
+                        created_at=created_at,
+                        file_count=int(md.get("file_count") or 0),
+                        total_size=int(getattr(fdoc, 'length', 0) or 0),
+                        original_name=md.get("original_name") or (getattr(fdoc, 'filename', None) or skill_id),
+                        file_name=getattr(fdoc, 'filename', None) or "",
+                        metadata=md,
+                    ))
+                except Exception:
+                    continue
+            results.sort(key=lambda s: s.created_at, reverse=True)
+        except Exception as e:
+            logger.warning(f"list_skills failed: {e}")
+        return results
+
+    def get_skill_bytes(self, user_id: int, skill_id: str) -> Optional[bytes]:
+        """מחזיר את ה-bytes המדויקים של הסקיל (אחרי אימות בעלות), או None אם לא נמצא/לא שייך."""
+        try:
+            fs = self._get_skills_gridfs()
+            if fs is None:
+                return None
+            for fdoc in fs.find({"metadata.skill_id": skill_id}):
+                md = getattr(fdoc, 'metadata', None) or {}
+                owner = md.get("user_id")
+                if isinstance(owner, str) and owner.isdigit():
+                    owner = int(owner)
+                if owner != user_id:
+                    continue
+                return fs.get(fdoc._id).read()
+            return None
+        except Exception as e:
+            logger.warning(f"get_skill_bytes failed: {e}")
+            return None
+
+    def delete_skills(self, user_id: int, skill_ids: List[str]) -> Dict[str, Any]:
+        """מוחק סקילים לפי skill_id (רק של המשתמש הנוכחי). מחזיר {deleted, errors}."""
+        result: Dict[str, Any] = {"deleted": 0, "errors": []}
+        try:
+            fs = self._get_skills_gridfs()
+            if fs is None:
+                result["errors"].append("GridFS 'skills' unavailable")
+                return result
+            wanted = set(skill_ids or [])
+            for fdoc in list(fs.find({"metadata.user_id": user_id})):
+                try:
+                    md = getattr(fdoc, 'metadata', None) or {}
+                    if md.get("skill_id") not in wanted:
+                        continue
+                    fs.delete(fdoc._id)
+                    result["deleted"] += 1
+                except Exception as e:
+                    result["errors"].append(str(e))
+        except Exception as e:
+            result["errors"].append(str(e))
+        return result
+
+
 backup_manager = BackupManager()
+skill_manager = SkillManager()

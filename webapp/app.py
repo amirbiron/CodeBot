@@ -5658,12 +5658,15 @@ def admin_config_inspector_page():
     )
     category_summary = service.get_category_summary()
     missing_required = service.validate_required()
+    # עמוד 2: משתני שירותים אחרים (bot/mcp/scripts) — מטא-דאטה בלבד, בלי Status/Active Value
+    other_services = service.get_other_services_entries()
 
     return render_template(
         "admin_config_inspector.html",
         overview=overview,
         category_summary=category_summary,
         missing_required=missing_required,
+        other_services=other_services,
         selected_category=category,
         selected_status=status,
         statuses=[s.value for s in ConfigStatus],

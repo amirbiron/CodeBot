@@ -333,8 +333,55 @@
   color: #ff627c;
 }
 
+/* "הוגדר בסביבה" (Set) — נצבע דרך טוקן --info כדי לא להוסיף צבעים קשיחים חדשים */
+.status-pill.set {
+  background: color-mix(in srgb, var(--info, #4299e1) 18%, transparent);
+  color: var(--info, #4299e1);
+}
+
 .status-pill i {
   font-size: 0.75rem;
+}
+
+/* טאבים: עמוד Webapp / עמוד שירותים אחרים */
+.inspector-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+.inspector-tab {
+  background: var(--glass, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+  color: inherit;
+  border-radius: 10px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.2s, border-color 0.2s;
+}
+.inspector-tab:hover {
+  background: var(--glass-hover, rgba(255, 255, 255, 0.15));
+}
+.inspector-tab.active {
+  background: var(--glass-hover, rgba(255, 255, 255, 0.15));
+  border-color: var(--primary, #667eea);
+  font-weight: 600;
+}
+.inspector-page { display: none; }
+.inspector-page.active { display: block; }
+
+/* תגית שירות (bot/mcp/scripts) בעמוד השירותים האחרים */
+.service-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--glass, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 /* Description tooltip */
@@ -572,6 +619,18 @@
   </div>
   {% endif %}
 
+  <!-- טאבים: עמוד 1 (Webapp, עם Status/Active Value) / עמוד 2 (שירותים אחרים, מטא-דאטה בלבד) -->
+  <div class="inspector-tabs" role="tablist">
+    <button type="button" class="inspector-tab active" data-page="webapp" role="tab" aria-selected="true">
+      <i class="fas fa-globe"></i> שירות ה-Webapp ({{ overview.total_count }})
+    </button>
+    <button type="button" class="inspector-tab" data-page="other" role="tab" aria-selected="false">
+      <i class="fas fa-satellite-dish"></i> שירותים אחרים — Bot / MCP / Webserver ({{ other_services | length }})
+    </button>
+  </div>
+
+  <div id="inspectorPageWebapp" class="inspector-page active">
+
   <!-- Summary Cards -->
   <div class="config-summary-cards">
     <div class="summary-card">
@@ -581,6 +640,10 @@
     <div class="summary-card">
       <h3>שונו מדיפולט</h3>
       <div class="card-value modified">{{ overview.modified_count }}</div>
+    </div>
+    <div class="summary-card">
+      <h3>הוגדרו בסביבה</h3>
+      <div class="card-value" style="color: var(--info, #4299e1);">{{ overview.set_count }}</div>
     </div>
     <div class="summary-card">
       <h3>חסרים</h3>
@@ -647,6 +710,9 @@
       <div class="category-stats">
         <span class="modified" title="שונו">
           <i class="fas fa-pen"></i> {{ stats.modified }}
+        </span>
+        <span title="הוגדרו בסביבה" style="color: var(--info, #4299e1);">
+          <i class="fas fa-plus-circle"></i> {{ stats.set }}
         </span>
         <span class="missing" title="חסרים">
           <i class="fas fa-times"></i> {{ stats.missing }}
@@ -733,6 +799,8 @@
             <span class="status-pill {{ entry.status.value | lower }}">
               {% if entry.status.value == 'Modified' %}
                 <i class="fas fa-pen"></i>
+              {% elif entry.status.value == 'Set' %}
+                <i class="fas fa-plus-circle"></i>
               {% elif entry.status.value == 'Missing' %}
                 <i class="fas fa-exclamation-circle"></i>
               {% else %}
@@ -766,10 +834,99 @@
       סה"כ: {{ overview.total_count }} משתנים
     </span>
   </div>
+
+  </div><!-- /inspectorPageWebapp -->
+
+  <!-- עמוד 2: משתני שירותים אחרים (Bot / MCP / Scripts) — מטא-דאטה בלבד -->
+  <div id="inspectorPageOther" class="inspector-page">
+    <div class="config-alert">
+      <i class="fas fa-info-circle"></i>
+      <div>
+        המשתנים כאן שייכים לשירותי Render שאינם ה-Webapp (Bot / MCP / Webserver / Scripts) —
+        כולל משתנים משותפים שמוגדרים בכמה שירותים במקביל. עמודת "שירות" מציינת לאילו
+        שירותים מתייחסת כל שורה. הערכים חיים בתהליכים נפרדים ואינם נגישים משירות ה-Webapp,
+        ולכן אין כאן Status או Active Value — לערכים בפועל יש לבדוק ב-Render Dashboard של
+        השירות הרלוונטי. שורות המסומנות "גם Webapp" מופיעות עם ערכיהן בעמוד הראשון.
+      </div>
+    </div>
+
+    <div class="config-table-wrapper">
+      <h2>
+        <i class="fas fa-list"></i>
+        משתני Bot / MCP / Webserver / Scripts
+      </h2>
+
+      {% if other_services %}
+      <table class="config-table">
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>שירות</th>
+            <th>Default Value</th>
+            <th>תיאור</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in other_services %}
+          <tr>
+            <td>
+              <div class="config-key">
+                <span class="category-badge">{{ row.category }}</span>
+                <span class="config-key-name">{{ row.key }}</span>
+              </div>
+            </td>
+            <td>
+              <span class="service-badge">{{ row.service }}</span>
+              {% if row.also_webapp %}
+                <span class="service-badge" style="opacity: 0.65;" title="מוגדר גם בשירות ה-Webapp — הערך מוצג בעמוד הראשון">גם Webapp</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="config-value {% if not row.default_value %}empty{% endif %}">
+                {% if row.default_value %}
+                  {{ row.default_value }}
+                  {% if row.is_sensitive %}
+                    <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
+                  {% endif %}
+                {% else %}
+                  (ללא)
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div class="config-desc">{{ row.description or '—' }}</div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="text-align: center; padding: 2rem; opacity: 0.7;">
+        <p>אין משתנים של שירותים אחרים</p>
+      </div>
+      {% endif %}
+    </div>
+  </div><!-- /inspectorPageOther -->
 </div>
 
 <script>
 (function() {
+  // ================================
+  // מעבר בין עמוד ה-Webapp לעמוד השירותים האחרים
+  // ================================
+  document.querySelectorAll('.inspector-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.inspector-tab').forEach(function(t) {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      var target = tab.getAttribute('data-page');
+      document.getElementById('inspectorPageWebapp').classList.toggle('active', target === 'webapp');
+      document.getElementById('inspectorPageOther').classList.toggle('active', target === 'other');
+    });
+  });
   // ================================
   // Copy to Clipboard functionality
   // ================================
@@ -857,7 +1014,9 @@
       e.preventDefault();
       e.stopPropagation();
 
-      const rows = document.querySelectorAll('.config-table tbody tr');
+      // מוגבל לטבלת ה-Webapp בלבד — טבלת "שירותים אחרים" היא מטא-דאטה בלי ערכים,
+      // והכללתה הייתה מייצרת שורות KEY= ריקות ומטעות בייצוא ה-.env
+      const rows = document.querySelectorAll('#inspectorPageWebapp .config-table tbody tr');
       const lines = [];
       rows.forEach((row) => {
         const line = getEnvLineFromRow(row);
