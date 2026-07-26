@@ -236,6 +236,108 @@ class TestConfigService:
         for _cat, stats in summary.items():
             assert "total" in stats
             assert "modified" in stats
+            assert "set" in stats
             assert "missing" in stats
             assert "default" in stats
+
+
+class TestConfigStatusSet:
+    """סטטוס Set: ערך שהוגדר בסביבה (למשל ברנדר) כשאין ברירת מחדל בקוד — אינו 'Modified'."""
+
+    def setup_method(self):
+        self.service = ConfigService()
+
+    def test_env_without_default_is_set_not_modified(self):
+        assert self.service.determine_status("some-value", "") == ConfigStatus.SET
+        assert self.service.determine_status("some-value", None) == ConfigStatus.SET
+
+    def test_env_with_different_default_is_modified(self):
+        assert self.service.determine_status("custom", "default") == ConfigStatus.MODIFIED
+
+    def test_user_reported_keys_show_set_when_env_configured(self):
+        # המקרים שדווחו: הוגדרו ברנדר, אין דיפולט בקוד ⇒ Set (לא Modified)
+        keys = (
+            "MCP_SERVER_URL",
+            "GITHUB_TOKENS",
+            "GITHUB_WEBHOOK_SECRET",
+            "ALERTMANAGER_WEBHOOK_SECRET",
+            "ALERT_TELEGRAM_BOT_TOKEN",
+        )
+        for key in keys:
+            definition = self.service.CONFIG_DEFINITIONS[key]
+            with patch.dict(os.environ, {key: "value-set-in-render"}, clear=False):
+                entry = self.service.get_config_entry(definition)
+            assert entry.status == ConfigStatus.SET, f"{key}: {entry.status}"
+
+    def test_overview_counts_set(self):
+        with patch.dict(os.environ, {"MCP_SERVER_URL": "https://mcp.example.com"}, clear=False):
+            overview = self.service.get_config_overview()
+        assert overview.set_count >= 1
+        assert overview.set_count == sum(1 for e in overview.entries if e.status == ConfigStatus.SET)
+
+
+class TestMaskingUrls:
+    """מיסוך: URL ציבורי אינו סוד; URL עם credentials ממוסך דרך sensitive=True מפורש."""
+
+    def setup_method(self):
+        self.service = ConfigService()
+
+    def test_public_urls_not_masked(self):
+        assert self.service.mask_value("https://mcp.example.com", "MCP_SERVER_URL") == "https://mcp.example.com"
+        assert self.service.mask_value("https://app.example.com", "WEBAPP_URL") == "https://app.example.com"
+        assert self.service.mask_value("https://prom.example.com", "PROMETHEUS_URL") == "https://prom.example.com"
+
+    def test_credential_bearing_values_still_masked(self):
+        # MONGODB_URL מסומן sensitive=True מפורשות (מכיל סיסמה ב-URI)
+        assert self.service.mask_value("mongodb://u:p@h/db", "MONGODB_URL") == "********"
+        # תבניות TOKEN/SECRET/URI ממשיכות לתפוס
+        assert self.service.mask_value("ghp_x", "GITHUB_TOKENS") == "********"
+        assert self.service.mask_value("x", "SOME_SECRET") == "********"
+        assert self.service.mask_value("mongodb://u:p@h", "MONGODB_URI") == "********"
+
+    def test_entry_active_value_visible_for_public_url(self):
+        definition = self.service.CONFIG_DEFINITIONS["MCP_SERVER_URL"]
+        with patch.dict(os.environ, {"MCP_SERVER_URL": "https://mcp.example.com"}, clear=False):
+            entry = self.service.get_config_entry(definition)
+        assert entry.active_value == "https://mcp.example.com"
+        assert entry.is_sensitive is False
+
+
+class TestServiceSplit:
+    """הפרדת משתנים לפי שירות: עמוד 1 = webapp בלבד; עמוד 2 = bot/mcp/scripts בלי ערכים."""
+
+    def setup_method(self):
+        self.service = ConfigService()
+
+    def test_overview_contains_only_webapp_definitions(self):
+        overview = self.service.get_config_overview()
+        webapp_keys = {k for k, d in self.service.CONFIG_DEFINITIONS.items() if d.service == "webapp"}
+        assert {e.key for e in overview.entries} == webapp_keys
+
+    def test_other_services_rows_cover_the_rest(self):
+        rows = self.service.get_other_services_entries()
+        other_keys = {k for k, d in self.service.CONFIG_DEFINITIONS.items() if d.service != "webapp"}
+        assert {r["key"] for r in rows} == other_keys
+        assert all(r["service"] in ("bot", "mcp", "scripts") for r in rows)
+        # אין Status/Active Value בעמוד 2 — רק מטא-דאטה
+        assert all("status" not in r and "active_value" not in r for r in rows)
+
+    def test_known_service_assignments(self):
+        defs = self.service.CONFIG_DEFINITIONS
+        # לפי אישור המשתמש: BOT_TOKEN/BOT_USERNAME שייכים גם ל-webapp
+        assert defs["BOT_TOKEN"].service == "webapp"
+        assert defs["BOT_USERNAME"].service == "webapp"
+        # MCP_SERVER_URL נקרא בוובאפ (oauth identify) — נשאר עמוד 1
+        assert defs["MCP_SERVER_URL"].service == "webapp"
+        # דוגמאות מובהקות לעמוד 2
+        assert defs["TELEGRAM_LONG_POLL_TIMEOUT_SECS"].service == "bot"
+        assert defs["LOCK_LEASE_SECONDS"].service == "bot"
+        assert defs["MCP_SERVER_NAME"].service == "mcp"
+        assert defs["SANITY_USER_ID"].service == "scripts"
+
+    def test_sensitive_default_masked_in_other_services(self):
+        rows = self.service.get_other_services_entries()
+        dummy = next(r for r in rows if r["key"] == "DUMMY_BOT_TOKEN")
+        # יש לו default לא-ריק והוא TOKEN ⇒ הדיפולט חייב להיות ממוסך
+        assert dummy["default_value"] in ("********", "")
 

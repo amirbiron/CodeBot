@@ -20,7 +20,8 @@ class ConfigStatus(str, Enum):
     """סטטוס של משתנה קונפיגורציה."""
 
     DEFAULT = "Default"  # משתמש בערך ברירת המחדל
-    MODIFIED = "Modified"  # ערך שונה מברירת המחדל
+    MODIFIED = "Modified"  # ערך שונה מברירת מחדל שקיימת בקוד
+    SET = "Set"  # הוגדר בסביבה (למשל ברנדר) כשאין ברירת מחדל בקוד — לא "שונה"
     MISSING = "Missing"  # משתנה לא מוגדר וגם אין דיפולט
 
 
@@ -41,6 +42,11 @@ class ConfigDefinition:
     category: str = "general"
     sensitive: bool = False  # האם להסתיר את הערך
     required: bool = False  # האם המשתנה הכרחי
+    # לאיזה שירות ב-Render המשתנה שייך. "webapp" (ברירת מחדל) מוצג בעמוד הראשי עם
+    # Status/Active Value (כי ה-inspector רץ בתהליך ה-webapp וקורא את ה-env שלו);
+    # "bot"/"mcp"/"scripts" מוצגים בעמוד השירותים האחרים ללא Status/Active Value —
+    # ה-webapp לא יכול לדעת את ערכיהם בתהליך אחר.
+    service: str = "webapp"
 
 
 @dataclass
@@ -65,6 +71,7 @@ class ConfigOverview:
     generated_at: str = ""
     total_count: int = 0
     modified_count: int = 0
+    set_count: int = 0
     missing_count: int = 0
     default_count: int = 0
     categories: List[str] = field(default_factory=list)
@@ -80,13 +87,15 @@ class ConfigService:
     """
 
     # מילים רגישות בשמות משתנים - ערכים אלו יוסתרו
+    # הערה: "URL" הוסר בכוונה — כתובת ציבורית (MCP_SERVER_URL, WEBAPP_URL, PROMETHEUS_URL...)
+    # אינה סוד ומיסוכה מטעה. URL שמכיל credentials (כמו MONGODB_URL) מסומן sensitive=True
+    # מפורשות בהגדרתו. "URI" נשאר כי URI-חיבור בדרך כלל מגלם סיסמה.
     SENSITIVE_PATTERNS: tuple[str, ...] = (
         "TOKEN",
         "KEY",
         "PASSWORD",
         "SECRET",
         "URI",
-        "URL",
         "CREDENTIALS",
         "API_KEY",
         "AUTH",
@@ -191,12 +200,14 @@ class ConfigService:
         ),
         "DB_RECONNECT_WAIT_BEFORE_POLL": ConfigDefinition(
             key="DB_RECONNECT_WAIT_BEFORE_POLL",
+            service="bot",
             default="120",
             description="זמן המתנה ראשוני (שניות) להתחברות מחדש ל-DB בעלייה לפני מעבר ל-poll פסיבי",
             category="database",
         ),
         "DB_RECONNECT_POLL_INTERVAL": ConfigDefinition(
             key="DB_RECONNECT_POLL_INTERVAL",
+            service="bot",
             default="30",
             description="מרווח (שניות) בין בדיקות חיבור ב-poll פסיבי לאחר שחלון ההמתנה הראשוני פג",
             category="database",
@@ -213,6 +224,14 @@ class ConfigService:
             description="זמן קירור בין בדיקות בריאות (שניות)",
             category="database",
         ),
+        "BOT_TOKEN": ConfigDefinition(
+            key="BOT_TOKEN",
+            default="",
+            description="טוקן הבוט מ-BotFather. נדרש גם בשירות ה-webapp (אימות Telegram Login ב-auth_routes).",
+            category="telegram",
+            sensitive=True,
+            required=True,
+        ),
         "BOT_USERNAME": ConfigDefinition(
             key="BOT_USERNAME",
             default="my_code_keeper_bot",
@@ -222,54 +241,63 @@ class ConfigService:
         # --- Telegram Polling / Network timeouts (stability against getUpdates conflicts) ---
         "TELEGRAM_CONNECT_TIMEOUT_SECS": ConfigDefinition(
             key="TELEGRAM_CONNECT_TIMEOUT_SECS",
+            service="bot",
             default="10.0",
             description="טיימאאוט התחברות ל-Telegram Bot API (שניות).",
             category="telegram",
         ),
         "TELEGRAM_POOL_TIMEOUT_SECS": ConfigDefinition(
             key="TELEGRAM_POOL_TIMEOUT_SECS",
+            service="bot",
             default="10.0",
             description="טיימאאוט המתנה ל-connection מה-pool (שניות) בעת קריאה ל-Telegram Bot API.",
             category="telegram",
         ),
         "TELEGRAM_READ_TIMEOUT_SECS": ConfigDefinition(
             key="TELEGRAM_READ_TIMEOUT_SECS",
+            service="bot",
             default="30.0",
             description="טיימאאוט קריאה ל-Telegram Bot API (שניות). מומלץ להיות גבוה מ-TELEGRAM_LONG_POLL_TIMEOUT_SECS.",
             category="telegram",
         ),
         "TELEGRAM_WRITE_TIMEOUT_SECS": ConfigDefinition(
             key="TELEGRAM_WRITE_TIMEOUT_SECS",
+            service="bot",
             default="30.0",
             description="טיימאאוט כתיבה ל-Telegram Bot API (שניות).",
             category="telegram",
         ),
         "TELEGRAM_LONG_POLL_TIMEOUT_SECS": ConfigDefinition(
             key="TELEGRAM_LONG_POLL_TIMEOUT_SECS",
+            service="bot",
             default="20",
             description="timeout של long-polling עבור getUpdates (שניות).",
             category="telegram",
         ),
         "TELEGRAM_POLL_INTERVAL_SECS": ConfigDefinition(
             key="TELEGRAM_POLL_INTERVAL_SECS",
+            service="bot",
             default="0.0",
             description="poll_interval בין סבבי polling (שניות). 0 = ברירת מחדל של PTB.",
             category="telegram",
         ),
         "TELEGRAM_CONFLICT_BACKOFF_SECS": ConfigDefinition(
             key="TELEGRAM_CONFLICT_BACKOFF_SECS",
+            service="bot",
             default="30",
             description="זמן המתנה (שניות) לפני retry כאשר מתקבלת שגיאת 409 Conflict ב-getUpdates.",
             category="telegram",
         ),
         "TELEGRAM_CONFLICT_MAX_RETRIES": ConfigDefinition(
             key="TELEGRAM_CONFLICT_MAX_RETRIES",
+            service="bot",
             default="5",
             description="כמה פעמים לנסות שוב (retry) אחרי 409 Conflict ב-getUpdates לפני יציאה מהתהליך כדי לשחרר lock ולאפשר recovery. 0/שלילי = ללא הגבלה (לא מומלץ).",
             category="telegram",
         ),
         "TELEGRAM_CONFLICT_MAX_SECONDS": ConfigDefinition(
             key="TELEGRAM_CONFLICT_MAX_SECONDS",
+            service="bot",
             default="300",
             description="חלון זמן מקסימלי (שניות) לרצף conflicts לפני יציאה מהתהליך כדי לשחרר lock ולאפשר recovery. 0/שלילי = ללא הגבלה (לא מומלץ).",
             category="telegram",
@@ -277,90 +305,105 @@ class ConfigService:
         # --- Distributed Lock (Mongo Lease + Heartbeat) ---
         "SERVICE_ID": ConfigDefinition(
             key="SERVICE_ID",
+            service="bot",
             default="",
             description="מזהה ייחודי לשירות/סביבה עבור נעילה מבוזרת (key של מסמך הלוק). אם ריק, נופל ל-LOCK_ID המובנה.",
             category="locking",
         ),
         "RENDER_INSTANCE_ID": ConfigDefinition(
             key="RENDER_INSTANCE_ID",
+            service="bot",
             default="",
             description="מזהה אינסטנס ב-Render (נשמר במסמך הלוק לצורכי תחקור). ה-owner בפועל הוא מזהה תהליך ייחודי (RENDER_INSTANCE_ID:pid). אם ריק, owner נופל ל-hostname:pid.",
             category="locking",
         ),
         "RENDER_SERVICE_NAME": ConfigDefinition(
             key="RENDER_SERVICE_NAME",
+            service="bot",
             default="",
             description="שם השירות (label) לצורכי תחקור בלוק (host). אם ריק, נופל ל-HOSTNAME/hostname.",
             category="locking",
         ),
         "LOCK_LEASE_SECONDS": ConfigDefinition(
             key="LOCK_LEASE_SECONDS",
+            service="bot",
             default="10",
             description="משך ה-lease של הלוק (שניות).",
             category="locking",
         ),
         "LOCK_HEARTBEAT_INTERVAL": ConfigDefinition(
             key="LOCK_HEARTBEAT_INTERVAL",
+            service="bot",
             default="3",
             description="תדירות heartbeat (שניות) לרענון ה-lease. ברירת מחדל: 3 (מינימום 3).",
             category="locking",
         ),
         "LOCK_WAIT_FOR_ACQUIRE": ConfigDefinition(
             key="LOCK_WAIT_FOR_ACQUIRE",
+            service="bot",
             default="false",
             description="אם true: המתנה אקטיבית ללוק עם retries קצרים. אם false: המתנה פסיבית עם jitter (ברירת מחדל).",
             category="locking",
         ),
         "LOCK_ACQUIRE_MAX_WAIT": ConfigDefinition(
             key="LOCK_ACQUIRE_MAX_WAIT",
+            service="bot",
             default="0",
             description="מגבלת זמן (שניות) במצב המתנה אקטיבית. 0 = ללא מגבלה. (אליאס תאימות: LOCK_MAX_WAIT_SECONDS).",
             category="locking",
         ),
         "LOCK_WAIT_MIN_SECONDS": ConfigDefinition(
             key="LOCK_WAIT_MIN_SECONDS",
+            service="bot",
             default="15",
             description="מינימום זמן המתנה פסיבית עם jitter (שניות).",
             category="locking",
         ),
         "LOCK_WAIT_MAX_SECONDS": ConfigDefinition(
             key="LOCK_WAIT_MAX_SECONDS",
+            service="bot",
             default="45",
             description="מקסימום זמן המתנה פסיבית עם jitter (שניות).",
             category="locking",
         ),
         "LOCK_RETRY_INTERVAL_SECONDS": ConfigDefinition(
             key="LOCK_RETRY_INTERVAL_SECONDS",
+            service="bot",
             default="1",
             description="זמן המתנה בין ניסיונות במצב המתנה אקטיבית. (Legacy/תאימות לאחור: שימש גם קודם).",
             category="locking",
         ),
         "LOCK_FAIL_OPEN": ConfigDefinition(
             key="LOCK_FAIL_OPEN",
+            service="bot",
             default="false",
             description="אם true: במקרה חריגות ברכישת לוק, מאפשר עלייה 'ללא לוק' (לא מומלץ). ברירת מחדל false (fail-closed).",
             category="locking",
         ),
         "LOCK_WAIT_HEALTH_SERVER_ENABLED": ConfigDefinition(
             key="LOCK_WAIT_HEALTH_SERVER_ENABLED",
+            service="bot",
             default="true",
             description="אם true: בעת המתנה ללוק ותוך קיום PORT, מפעיל שרת HTTP מינימלי ל-/health כדי לעבור health checks.",
             category="locking",
         ),
         "LOCK_PORT_GUARD_ENABLED": ConfigDefinition(
             key="LOCK_PORT_GUARD_ENABLED",
+            service="bot",
             default="false",
             description="אם true: תופס פורט לוקאלי כדי למנוע שני תהליכים באותו worker. אם הפורט תפוס → יציאה.",
             category="locking",
         ),
         "LOCK_PORT_GUARD_PORT": ConfigDefinition(
             key="LOCK_PORT_GUARD_PORT",
+            service="bot",
             default="9999",
             description="פורט לוקאלי לשמירה על בלעדיות תהליך (נדרש רק אם LOCK_PORT_GUARD_ENABLED=true).",
             category="locking",
         ),
         "LOCK_COLLECTION": ConfigDefinition(
             key="LOCK_COLLECTION",
+            service="bot",
             default="locks",
             description="שם קולקציית הלוקים ב-MongoDB (ברירת מחדל legacy: locks).",
             category="locking",
@@ -529,24 +572,28 @@ class ConfigService:
         ),
         "MCP_SERVER_NAME": ConfigDefinition(
             key="MCP_SERVER_NAME",
+            service="mcp",
             default="CodeKeeper",
             description="שם התצוגה של שרת ה-MCP (שם ה-Connector שמוצג ללקוח).",
             category="mcp",
         ),
         "MCP_ALLOWED_HOSTS": ConfigDefinition(
             key="MCP_ALLOWED_HOSTS",
+            service="mcp",
             default="",
             description="Host מותרים לשרת ה-MCP (CSV, תומך wildcard). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).",
             category="mcp",
         ),
         "MCP_ALLOWED_ORIGINS": ConfigDefinition(
             key="MCP_ALLOWED_ORIGINS",
+            service="mcp",
             default="",
             description="Origin מותרים לשרת ה-MCP (CSV). רלוונטי רק כשמפעילים הגנה דרך MCP_ALLOWED_HOSTS.",
             category="mcp",
         ),
         "MCP_REPO_DENYLIST_EXTRA": ConfigDefinition(
             key="MCP_REPO_DENYLIST_EXTRA",
+            service="mcp",
             default="",
             description=(
                 "תבניות glob נוספות (CSV) ל-denylist הסודות של כלי דפדפן הריפו ב-MCP, "
@@ -556,6 +603,7 @@ class ConfigService:
         ),
         "MCP_REPO_AUTOSYNC": ConfigDefinition(
             key="MCP_REPO_AUTOSYNC",
+            service="mcp",
             default="1",
             description=(
                 "רענון אוטומטי של ה-mirrors המקומיים בשירות ה-MCP (thread רקע): "
@@ -565,6 +613,7 @@ class ConfigService:
         ),
         "MCP_REPO_AUTOSYNC_INTERVAL": ConfigDefinition(
             key="MCP_REPO_AUTOSYNC_INTERVAL",
+            service="mcp",
             default="300",
             description="מרווח בשניות בין מעברי ה-autosync של דפדפן הריפו ב-MCP (מינימום 30).",
             category="mcp",
@@ -862,6 +911,7 @@ class ConfigService:
         ),
         "SENTRY_WEBHOOK_SECRET": ConfigDefinition(
             key="SENTRY_WEBHOOK_SECRET",
+            service="bot",
             default="",
             description="סוד ל-Sentry Webhook",
             category="monitoring",
@@ -869,6 +919,7 @@ class ConfigService:
         ),
         "SENTRY_WEBHOOK_DEDUP_WINDOW_SECONDS": ConfigDefinition(
             key="SENTRY_WEBHOOK_DEDUP_WINDOW_SECONDS",
+            service="bot",
             default="300",
             description="חלון dedup ל-Sentry Webhooks (שניות)",
             category="monitoring",
@@ -1373,6 +1424,7 @@ class ConfigService:
         # --- Diagnostics / sanity checks ---
         "SANITY_USER_ID": ConfigDefinition(
             key="SANITY_USER_ID",
+            service="scripts",
             default="123",
             description="משתנה עזר לסקריפט scripts/db_manager_sanity_check.py (לא משפיע על ריצה רגילה)",
             category="dev",
@@ -1403,6 +1455,7 @@ class ConfigService:
         ),
         "DUMMY_BOT_TOKEN": ConfigDefinition(
             key="DUMMY_BOT_TOKEN",
+            service="bot",
             default="dummy_token",
             description="טוקן בדיקה שמשמש סביבות שבהן אין צורך להתחבר לטלגרם (למשל docs build).",
             category="general",
@@ -1410,6 +1463,7 @@ class ConfigService:
         ),
         "ENABLE_INTERNAL_SHARE_WEB": ConfigDefinition(
             key="ENABLE_INTERNAL_SHARE_WEB",
+            service="bot",
             default="false",
             description="הפעלת שירות שיתוף פנימי",
             category="features",
@@ -1460,6 +1514,7 @@ class ConfigService:
         ),
         "JOBS_STUCK_THRESHOLD_MINUTES": ConfigDefinition(
             key="JOBS_STUCK_THRESHOLD_MINUTES",
+            service="bot",
             default="20",
             description="סף (בדקות) לזיהוי הרצות Jobs תקועות והפקת אירוע job_stuck.",
             category="jobs_monitor",
@@ -1556,18 +1611,21 @@ class ConfigService:
         ),
         "EMBEDDING_WORKER_BATCH_SIZE": ConfigDefinition(
             key="EMBEDDING_WORKER_BATCH_SIZE",
+            service="bot",
             default="5",
             description="כמות snippets שה-embedding worker מעבד בכל סבב",
             category="ai",
         ),
         "EMBEDDING_WORKER_POLL_INTERVAL": ConfigDefinition(
             key="EMBEDDING_WORKER_POLL_INTERVAL",
+            service="bot",
             default="300",
             description="זמן המתנה (שניות) בין סריקות של ה-embedding worker כשהתור ריק",
             category="ai",
         ),
         "EMBEDDING_WORKER_BATCH_COOLDOWN": ConfigDefinition(
             key="EMBEDDING_WORKER_BATCH_COOLDOWN",
+            service="bot",
             default="30",
             description="זמן המתנה (שניות) בין באצ'ים שעובדו בהצלחה",
             category="ai",
@@ -1684,6 +1742,11 @@ class ConfigService:
             # אין דיפולט אבל לא הכרחי - נחשב Default (ריק)
             return ConfigStatus.DEFAULT
 
+        # יש ערך בסביבה כשאין ברירת מחדל בקוד — המשתנה "הוגדר" (למשל ברנדר),
+        # לא "שונה": אין דיפולט שממנו אפשר לסטות (למשל GITHUB_TOKENS, MCP_SERVER_URL)
+        if default_is_empty:
+            return ConfigStatus.SET
+
         # יש ערך בסביבה - השוואה לדיפולט
         default_str = str(default_value) if default_value is not None else ""
         if env_value == default_str:
@@ -1770,6 +1833,10 @@ class ConfigService:
         categories_set: set[str] = set()
 
         for definition in self.CONFIG_DEFINITIONS.values():
+            # עמוד ראשי: רק משתני שירות ה-webapp — ה-inspector רץ בתהליך ה-webapp
+            # ולכן Status/Active Value של שירותים אחרים (bot/mcp) יהיו מטעים
+            if definition.service != "webapp":
+                continue
             entry = self.get_config_entry(definition)
             categories_set.add(entry.category)
 
@@ -1786,6 +1853,7 @@ class ConfigService:
 
         # חישוב סטטיסטיקות
         modified_count = sum(1 for e in entries if e.status == ConfigStatus.MODIFIED)
+        set_count = sum(1 for e in entries if e.status == ConfigStatus.SET)
         missing_count = sum(1 for e in entries if e.status == ConfigStatus.MISSING)
         default_count = sum(1 for e in entries if e.status == ConfigStatus.DEFAULT)
 
@@ -1794,10 +1862,35 @@ class ConfigService:
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             total_count=len(entries),
             modified_count=modified_count,
+            set_count=set_count,
             missing_count=missing_count,
             default_count=default_count,
             categories=sorted(categories_set),
         )
+
+    def get_other_services_entries(self) -> List[Dict[str, Any]]:
+        """משתנים של שירותים שאינם webapp (bot/mcp/scripts) — לעמוד 2 של ה-Inspector.
+
+        בלי Status ובלי Active Value: הערכים חיים בתהליכים אחרים (שירותי Render
+        נפרדים) ואינם נגישים מכאן. מוצגים מטא-דאטה בלבד: מפתח, שירות, קטגוריה,
+        ברירת מחדל (ממוסכת אם רגיש) ותיאור.
+        """
+        rows: List[Dict[str, Any]] = []
+        for definition in self.CONFIG_DEFINITIONS.values():
+            if definition.service == "webapp":
+                continue
+            default_str = str(definition.default) if definition.default is not None else ""
+            is_sensitive = self.is_sensitive_key(definition.key) or definition.sensitive
+            rows.append({
+                "key": definition.key,
+                "service": definition.service,
+                "category": definition.category,
+                "default_value": self.mask_value(default_str, definition.key) if is_sensitive else default_str,
+                "description": definition.description,
+                "is_sensitive": is_sensitive,
+            })
+        rows.sort(key=lambda r: (r["service"], r["category"], r["key"]))
+        return rows
 
     def get_category_summary(self) -> Dict[str, Dict[str, int]]:
         """
@@ -1813,11 +1906,13 @@ class ConfigService:
         for entry in overview.entries:
             cat = entry.category
             if cat not in summary:
-                summary[cat] = {"total": 0, "modified": 0, "missing": 0, "default": 0}
+                summary[cat] = {"total": 0, "modified": 0, "set": 0, "missing": 0, "default": 0}
 
             summary[cat]["total"] += 1
             if entry.status == ConfigStatus.MODIFIED:
                 summary[cat]["modified"] += 1
+            elif entry.status == ConfigStatus.SET:
+                summary[cat]["set"] += 1
             elif entry.status == ConfigStatus.MISSING:
                 summary[cat]["missing"] += 1
             else:
@@ -1836,6 +1931,9 @@ class ConfigService:
         missing = []
         for definition in self.CONFIG_DEFINITIONS.values():
             if not definition.required:
+                continue
+            # משתנה של שירות אחר לא נבדק כאן — הערך שלו לא אמור להיות בסביבת ה-webapp
+            if definition.service != "webapp":
                 continue
 
             env_value = self.get_env_value(definition.key)
