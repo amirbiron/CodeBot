@@ -1759,13 +1759,25 @@
      - לא
      - ``mongo``
      - ``fs``
-     - Bot/WebApp
+     - Bot
    * - ``BACKUPS_DIR``
      - נתיב גיבויים בלוקאל (אם ``BACKUPS_STORAGE=fs``); אחרת נבחר אוטומטית.
      - לא
      - נתיב ברירת מחדל (``/app/backups``)
      - ``/var/lib/codebot/backups``
-     - Bot/WebApp
+     - Bot
+   * - ``SKILLS_MAX_PER_USER``
+     - מכסת מספר סקילים מרבי למשתמש (``0`` = בלי מגבלה); לסקילים אין retention.
+     - לא
+     - ``100``
+     - ``50``
+     - Bot
+   * - ``SKILLS_MAX_TOTAL_BYTES``
+     - מכסת נפח סקילים כוללת למשתמש בבייטים (``0`` = בלי מגבלה).
+     - לא
+     - ``1073741824`` (1GB)
+     - ``536870912``
+     - Bot
    * - ``BACKUPS_SHOW_ALL_IF_EMPTY``
      - כאשר ``true`` מאפשר לממשק להציג את כל הקבצים גם כשאין פילטר (שימושי ל-ops).
      - לא

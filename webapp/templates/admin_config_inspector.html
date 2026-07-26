@@ -369,7 +369,13 @@
   font-weight: 600;
 }
 .inspector-page { display: none; }
-.inspector-page.active { display: block; }
+/* העמוד הפעיל משחזר את פריסת ה-flex של .config-page — בלי זה הילדים (כרטיסים,
+   סינון, טבלה) מאבדים את ה-gap כי הם כבר לא ילדים ישירים של ה-flex ההורה */
+.inspector-page.active {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
 
 /* תגית שירות (bot/mcp/scripts) בעמוד השירותים האחרים */
 .service-badge {
@@ -850,6 +856,29 @@
       </div>
     </div>
 
+    <!-- שורת סינון לעמוד 2 — client-side (אין כאן Status; הסינון השני הוא לפי שירות) -->
+    <form class="config-filters" id="otherFilters" onsubmit="return false;">
+      <label for="otherCategoryFilter">קטגוריה:</label>
+      <select id="otherCategoryFilter">
+        <option value="">הכל</option>
+      </select>
+
+      <label for="otherServiceFilter">שירות:</label>
+      <select id="otherServiceFilter">
+        <option value="">הכל</option>
+      </select>
+
+      <button type="button" class="filter-btn" id="otherFilterBtn">
+        <i class="fas fa-filter"></i> סנן
+      </button>
+      <button type="button" class="filter-btn reset-btn" id="otherResetBtn">
+        <i class="fas fa-redo"></i> איפוס
+      </button>
+      <button type="button" class="filter-btn reset-btn" id="copyGroupBtnOther">
+        <i class="fas fa-copy"></i> העתק הכל
+      </button>
+    </form>
+
     <div class="config-table-wrapper">
       <h2>
         <i class="fas fa-list"></i>
@@ -868,7 +897,7 @@
         </thead>
         <tbody>
           {% for row in other_services %}
-          <tr>
+          <tr data-category="{{ row.category }}" data-service="{{ row.service }}">
             <td>
               <div class="config-key">
                 <span class="category-badge">{{ row.category }}</span>
@@ -884,7 +913,7 @@
             <td>
               <div class="config-value {% if not row.default_value %}empty{% endif %}">
                 {% if row.default_value %}
-                  {{ row.default_value }}
+                  <span class="config-value-text">{{ row.default_value }}</span>
                   {% if row.is_sensitive %}
                     <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
                   {% endif %}
@@ -1037,6 +1066,89 @@
       }
     });
   }
+
+  // ================================
+  // עמוד 2: סינון client-side (קטגוריה + שירות) + העתק הכל
+  // ================================
+  (function initOtherPageFilters() {
+    const otherPage = document.getElementById('inspectorPageOther');
+    if (!otherPage) return;
+    const rows = Array.from(otherPage.querySelectorAll('.config-table tbody tr'));
+    const catSelect = document.getElementById('otherCategoryFilter');
+    const svcSelect = document.getElementById('otherServiceFilter');
+    if (!rows.length || !catSelect || !svcSelect) return;
+
+    // אכלוס הסלקטים מתוך השורות עצמן (השירות יכול להיות מורכב: "bot + mcp")
+    const categories = new Set();
+    const services = new Set();
+    rows.forEach((row) => {
+      const cat = row.dataset.category || '';
+      if (cat) categories.add(cat);
+      (row.dataset.service || '').split(' + ').forEach((s) => {
+        const v = s.trim();
+        if (v) services.add(v);
+      });
+    });
+    [...categories].sort().forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c.charAt(0).toUpperCase() + c.slice(1);
+      catSelect.appendChild(opt);
+    });
+    [...services].sort().forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      svcSelect.appendChild(opt);
+    });
+
+    function applyOtherFilter() {
+      const cat = catSelect.value;
+      const svc = svcSelect.value;
+      rows.forEach((row) => {
+        const rowServices = (row.dataset.service || '').split(' + ').map((s) => s.trim());
+        const catOk = !cat || row.dataset.category === cat;
+        const svcOk = !svc || rowServices.includes(svc);
+        row.style.display = (catOk && svcOk) ? '' : 'none';
+      });
+    }
+
+    const filterBtn = document.getElementById('otherFilterBtn');
+    const resetBtn = document.getElementById('otherResetBtn');
+    if (filterBtn) filterBtn.addEventListener('click', applyOtherFilter);
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        catSelect.value = '';
+        svcSelect.value = '';
+        applyOtherFilter();
+      });
+    }
+
+    // העתק הכל (עמוד 2): KEY=<default> עבור השורות הגלויות — אלה ערכי ברירת מחדל, לא ערכים חיים
+    const copyBtnOther = document.getElementById('copyGroupBtnOther');
+    if (copyBtnOther) {
+      copyBtnOther.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const lines = [];
+        rows.forEach((row) => {
+          if (row.style.display === 'none') return;
+          const line = getEnvLineFromRow(row);
+          if (line) lines.push(line);
+        });
+        if (lines.length === 0) {
+          showToast('אין שורות להעתקה');
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(lines.join('\n'));
+          showToast(`הועתקו ${lines.length} שורות (ערכי ברירת מחדל)`);
+        } catch (err) {
+          console.error('Copy group (other) failed:', err);
+          showToast('שגיאה בהעתקה');
+        }
+      });
+    }
+  })();
 
   // ================================
   // Filter functionality

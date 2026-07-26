@@ -307,6 +307,10 @@ async def test_handle_document_stores_zip_copy(handler_env):
     assert any(cb.startswith("zip_route_skill:") for cb in callbacks)
     assert any(cb.startswith("zip_route_backup:") for cb in callbacks)
     assert context.user_data.get("pending_zip"), "צפוי pending_zip ב-user_data"
+    # ניקוי: stash_pending_zip_bytes כתב קובץ אמיתי ל-tmp — לא משאירים אותו אחרי הטסט
+    from utils import cleanup_pending_zip
+    for _meta in (context.user_data.get("pending_zip") or {}).values():
+        cleanup_pending_zip((_meta or {}).get("path", ""))
     assert not handler_env["errors"], "קבלת ZIP לא אמורה להשפיע על error counters"
     assert not any(evt[0] == "file_read_unreadable" for evt in handler_env["events"] if evt), (
         "לא אמורה לצאת התראה על קובץ לא קריא לאחר קבלת ZIP"
@@ -731,6 +735,10 @@ async def test_handle_document_zip_copy_failure_continues_processing(handler_env
 
     assert handler_env["backup"].saved_bytes == []
     assert replies.messages, "צפויה הודעה למשתמש גם במקרה של כשל בגיבוי"
+    # ניקוי: גם המסלול הזה עובר דרך stash_pending_zip_bytes וכותב קובץ אמיתי ל-tmp
+    from utils import cleanup_pending_zip
+    for _meta in (context.user_data.get("pending_zip") or {}).values():
+        cleanup_pending_zip((_meta or {}).get("path", ""))
 
 
 @pytest.mark.asyncio
