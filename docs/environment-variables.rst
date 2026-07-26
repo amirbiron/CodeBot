@@ -1759,13 +1759,13 @@
      - לא
      - ``mongo``
      - ``fs``
-     - Bot/WebApp
+     - Bot
    * - ``BACKUPS_DIR``
      - נתיב גיבויים בלוקאל (אם ``BACKUPS_STORAGE=fs``); אחרת נבחר אוטומטית.
      - לא
      - נתיב ברירת מחדל (``/app/backups``)
      - ``/var/lib/codebot/backups``
-     - Bot/WebApp
+     - Bot
    * - ``BACKUPS_SHOW_ALL_IF_EMPTY``
      - כאשר ``true`` מאפשר לממשק להציג את כל הקבצים גם כשאין פילטר (שימושי ל-ops).
      - לא
