@@ -304,36 +304,57 @@ class TestMaskingUrls:
 
 
 class TestServiceSplit:
-    """הפרדת משתנים לפי שירות: עמוד 1 = webapp בלבד; עמוד 2 = bot/mcp/scripts בלי ערכים."""
+    """הפרדה לפי שירותים: עמוד 1 = כל מה ששייך ל-webapp (כולל משותפים);
+    עמוד 2 = כל מה ששייך לשירות אחר (bot/mcp/webserver/scripts), כולל משותפים,
+    עם ציון השירותים בכל שורה — ובלי Status/Active Value."""
 
     def setup_method(self):
         self.service = ConfigService()
 
-    def test_overview_contains_only_webapp_definitions(self):
+    def test_overview_contains_webapp_definitions(self):
         overview = self.service.get_config_overview()
-        webapp_keys = {k for k, d in self.service.CONFIG_DEFINITIONS.items() if d.service == "webapp"}
+        webapp_keys = {k for k, d in self.service.CONFIG_DEFINITIONS.items() if "webapp" in d.services}
         assert {e.key for e in overview.entries} == webapp_keys
 
-    def test_other_services_rows_cover_the_rest(self):
+    def test_other_services_rows_cover_non_webapp_services(self):
         rows = self.service.get_other_services_entries()
-        other_keys = {k for k, d in self.service.CONFIG_DEFINITIONS.items() if d.service != "webapp"}
+        other_keys = {
+            k for k, d in self.service.CONFIG_DEFINITIONS.items()
+            if any(s != "webapp" for s in d.services)
+        }
         assert {r["key"] for r in rows} == other_keys
-        assert all(r["service"] in ("bot", "mcp", "scripts") for r in rows)
+        allowed = {"bot", "mcp", "webserver", "scripts"}
+        for r in rows:
+            assert set(r["service"].split(" + ")) <= allowed, r["key"]
         # אין Status/Active Value בעמוד 2 — רק מטא-דאטה
         assert all("status" not in r and "active_value" not in r for r in rows)
 
+    def test_shared_variable_appears_in_both_pages(self):
+        # משתנה משותף (למשל MONGODB_URL) מופיע בעמוד ה-webapp עם ערך, וגם בעמוד 2
+        # עם ציון השירותים האחרים שלו
+        overview = self.service.get_config_overview()
+        rows = self.service.get_other_services_entries()
+        assert any(e.key == "MONGODB_URL" for e in overview.entries)
+        shared = next(r for r in rows if r["key"] == "MONGODB_URL")
+        assert shared["also_webapp"] is True
+        assert "bot" in shared["service"]
+
     def test_known_service_assignments(self):
         defs = self.service.CONFIG_DEFINITIONS
-        # לפי אישור המשתמש: BOT_TOKEN/BOT_USERNAME שייכים גם ל-webapp
-        assert defs["BOT_TOKEN"].service == "webapp"
-        assert defs["BOT_USERNAME"].service == "webapp"
-        # MCP_SERVER_URL נקרא בוובאפ (oauth identify) — נשאר עמוד 1
-        assert defs["MCP_SERVER_URL"].service == "webapp"
-        # דוגמאות מובהקות לעמוד 2
-        assert defs["TELEGRAM_LONG_POLL_TIMEOUT_SECS"].service == "bot"
-        assert defs["LOCK_LEASE_SECONDS"].service == "bot"
-        assert defs["MCP_SERVER_NAME"].service == "mcp"
-        assert defs["SANITY_USER_ID"].service == "scripts"
+        # לפי אישור המשתמש: BOT_TOKEN/BOT_USERNAME שייכים (גם) ל-webapp
+        assert "webapp" in defs["BOT_TOKEN"].services and "bot" in defs["BOT_TOKEN"].services
+        assert "webapp" in defs["BOT_USERNAME"].services
+        # MCP_SERVER_URL נקרא בוובאפ (oauth identify) — נשאר בעמוד 1 (וגם משותף)
+        assert "webapp" in defs["MCP_SERVER_URL"].services
+        # ה-webserver הוא שירות Render נפרד — לא חלק מהבוט
+        assert defs["SENTRY_WEBHOOK_SECRET"].services == ("webserver",)
+        assert defs["SENTRY_WEBHOOK_DEDUP_WINDOW_SECONDS"].services == ("webserver",)
+        # בלעדיים לשירות אחד
+        assert defs["TELEGRAM_LONG_POLL_TIMEOUT_SECS"].services == ("bot",)
+        assert defs["LOCK_LEASE_SECONDS"].services == ("bot",)
+        assert defs["MCP_SERVER_NAME"].services == ("mcp",)
+        assert defs["SANITY_USER_ID"].services == ("scripts",)
+        assert defs["WEBAPP_GUNICORN_WORKERS"].services == ("webapp",)
 
     def test_sensitive_default_masked_in_other_services(self):
         rows = self.service.get_other_services_entries()

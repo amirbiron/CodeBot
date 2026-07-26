@@ -899,7 +899,7 @@
      - ``srv-xxxx``
      - Reporter
    * - ``ENABLE_INTERNAL_SHARE_WEB``
-     - הפעלת שירות שיתוף פנימי (ה-webserver הפנימי שרץ בתוך תהליך הבוט; נקרא ב-main.py)
+     - הפעלת שירות שיתוף פנימי בתוך תהליך הבוט (נקרא ב-main.py; היסטורי — ההרצה הפנימית בוטלה וה-webserver רץ כשירות נפרד)
      - לא
      - ``false``
      - ``true``
@@ -1145,13 +1145,13 @@
      - לא
      - "" (ריק)
      - ``secret123``
-     - Bot
+     - Webserver
    * - ``SENTRY_WEBHOOK_DEDUP_WINDOW_SECONDS``
      - חלון דה-דופליקציה (בשניות) להתראות Sentry שמגיעות ב-Webhook כדי למנוע burst (``0`` מנטרל).
      - לא
      - ``300``
      - ``600``
-     - Bot
+     - Webserver
    * - ``ALERTMANAGER_IP_ALLOWLIST``
      - רשימת IPs (מופרדים בפסיק) שמורשים לצרוך את ה-webhook; נבדק מול ``X-Forwarded-For``/``remote_addr``.
      - לא

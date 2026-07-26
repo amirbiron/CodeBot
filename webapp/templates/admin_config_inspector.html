@@ -625,7 +625,7 @@
       <i class="fas fa-globe"></i> שירות ה-Webapp ({{ overview.total_count }})
     </button>
     <button type="button" class="inspector-tab" data-page="other" role="tab" aria-selected="false">
-      <i class="fas fa-satellite-dish"></i> שירותים אחרים — Bot / MCP ({{ other_services | length }})
+      <i class="fas fa-satellite-dish"></i> שירותים אחרים — Bot / MCP / Webserver ({{ other_services | length }})
     </button>
   </div>
 
@@ -842,16 +842,18 @@
     <div class="config-alert">
       <i class="fas fa-info-circle"></i>
       <div>
-        המשתנים כאן שייכים לשירותי Render אחרים (Bot / MCP / Scripts). הערכים שלהם חיים
-        בתהליכים נפרדים ואינם נגישים משירות ה-Webapp — לכן אין כאן Status או Active Value.
-        לצפייה בערכים בפועל יש לבדוק ב-Render Dashboard של השירות הרלוונטי.
+        המשתנים כאן שייכים לשירותי Render שאינם ה-Webapp (Bot / MCP / Webserver / Scripts) —
+        כולל משתנים משותפים שמוגדרים בכמה שירותים במקביל. עמודת "שירות" מציינת לאילו
+        שירותים מתייחסת כל שורה. הערכים חיים בתהליכים נפרדים ואינם נגישים משירות ה-Webapp,
+        ולכן אין כאן Status או Active Value — לערכים בפועל יש לבדוק ב-Render Dashboard של
+        השירות הרלוונטי. שורות המסומנות "גם Webapp" מופיעות עם ערכיהן בעמוד הראשון.
       </div>
     </div>
 
     <div class="config-table-wrapper">
       <h2>
         <i class="fas fa-list"></i>
-        משתני Bot / MCP / Scripts
+        משתני Bot / MCP / Webserver / Scripts
       </h2>
 
       {% if other_services %}
@@ -875,6 +877,9 @@
             </td>
             <td>
               <span class="service-badge">{{ row.service }}</span>
+              {% if row.also_webapp %}
+                <span class="service-badge" style="opacity: 0.65;" title="מוגדר גם בשירות ה-Webapp — הערך מוצג בעמוד הראשון">גם Webapp</span>
+              {% endif %}
             </td>
             <td>
               <div class="config-value {% if not row.default_value %}empty{% endif %}">
@@ -1009,7 +1014,9 @@
       e.preventDefault();
       e.stopPropagation();
 
-      const rows = document.querySelectorAll('.config-table tbody tr');
+      // מוגבל לטבלת ה-Webapp בלבד — טבלת "שירותים אחרים" היא מטא-דאטה בלי ערכים,
+      // והכללתה הייתה מייצרת שורות KEY= ריקות ומטעות בייצוא ה-.env
+      const rows = document.querySelectorAll('#inspectorPageWebapp .config-table tbody tr');
       const lines = [];
       rows.forEach((row) => {
         const line = getEnvLineFromRow(row);
