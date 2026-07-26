@@ -1318,6 +1318,19 @@ def detect_language_from_filename(filename: str) -> str:
     # אם לא נמצאה התאמה, נחזיר 'text'
     return 'text'
 
+def tg_emoji(emoji_id: Optional[str], fallback: str) -> str:
+    """מחזיר תג <tg-emoji> לאימוג'י מותאם של טלגרם, או את האימוג'י הרגיל כשאין ID.
+
+    לשימוש בגוף הודעה עם parse_mode=HTML בלבד — כפתורי inline keyboard לא תומכים
+    ב-message entities, ולכן שם משתמשים תמיד באימוג'י רגיל. השליחה עלולה להיכשל
+    כשהתנאי הפרימיום לא מתקיים — באחריות הקורא לתפוס BadRequest ולשלוח מחדש עם
+    ה-fallback (ראו _maybe_store_zip_copy ב-handlers/documents.py).
+    """
+    if not emoji_id:
+        return fallback
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
 def get_language_emoji(language: str) -> str:
     """מחזיר אימוג'י מתאים לשפת התכנות"""
     emoji_map = {

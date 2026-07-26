@@ -1526,6 +1526,13 @@ class ConfigService:
             description="תווית הבוט בממשק",
             category="display",
         ),
+        "CUSTOM_EMOJI_ZIP_ID": ConfigDefinition(
+            key="CUSTOM_EMOJI_ZIP_ID",
+            services=("bot",),
+            default="",
+            description="Custom emoji ID לאייקון ZIP בהודעות הבוט (טלגרם פרימיום); ריק = אימוג'י רגיל",
+            category="display",
+        ),
         "ALERT_EXTERNAL_SERVICES": ConfigDefinition(
             key="ALERT_EXTERNAL_SERVICES",
             services=("webapp", "bot", "mcp", "webserver"),

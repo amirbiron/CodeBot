@@ -40,6 +40,7 @@ from html import escape as html_escape
 from utils import TelegramUtils, TextUtils, ValidationUtils
 from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
+from i18n.strings_he import BTN_BACKUP_ZIPS
 from handlers.pagination import build_pagination_row
 from config import config
 from urllib.parse import quote_plus
@@ -688,7 +689,7 @@ HELP_PAGES = [
         "🗂 <b>לפי ריפו</b> — קבצים מאורגנים לפי פרויקט\n"
         "📂 <b>קבצים גדולים</b> — תצוגה מדורגת לקבצים ארוכים\n"
         "📁 <b>שאר הקבצים</b> — כל השאר\n"
-        "📦 <b>קבצי ZIP</b> — גיבויים/ארכיונים\n\n"
+        "📦 <b>קבצי גיבוי</b> — ארכיוני ZIP (גיבויים וריפואים מגיטהאב)\n\n"
         "<b>לכל קובץ יש תפריט עם:</b>\n"
         "👁️ הצג | ✏️ ערוך | 📝 שנה שם\n"
         "📚 היסטוריה | 📥 הורד | 🗑️ העבר לסל\n\n"
@@ -959,7 +960,7 @@ async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await TelegramUtils.safe_edit_message_text(
             query,
             "✅ קובץ ZIP נשמר בהצלחה לרשימת ה‑ZIP השמורים.\n"
-            "📦 ניתן למצוא אותו תחת: '📚' ← '📦 קבצי ZIP' או ב‑Batch/GitHub."
+            f"📦 ניתן למצוא אותו תחת: '📚' ← '{BTN_BACKUP_ZIPS}' או ב‑Batch/GitHub."
         )
     else:
         await TelegramUtils.safe_edit_message_text(
@@ -1076,7 +1077,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         keyboard = [
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
-            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
+            [InlineKeyboardButton(BTN_BACKUP_ZIPS, callback_data="backup_list")],
             [InlineKeyboardButton("📝 סקילים", callback_data="skill_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
@@ -1147,7 +1148,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             pass
         keyboard = [
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
-            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
+            [InlineKeyboardButton(BTN_BACKUP_ZIPS, callback_data="backup_list")],
             [InlineKeyboardButton("📝 סקילים", callback_data="skill_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
@@ -4766,7 +4767,7 @@ async def show_batch_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         send = update.message.reply_text
     keyboard = [
         [InlineKeyboardButton("🗂 לפי ריפו", callback_data="batch_cat:repos")],
-        [InlineKeyboardButton("📦 קבצי ZIP", callback_data="batch_cat:zips")],
+        [InlineKeyboardButton(BTN_BACKUP_ZIPS, callback_data="batch_cat:zips")],
         [InlineKeyboardButton("📂 קבצים גדולים", callback_data="batch_cat:large")],
         [InlineKeyboardButton("📁 שאר הקבצים", callback_data="batch_cat:other")],
         [InlineKeyboardButton("📋 סטטוס עבודות", callback_data="show_jobs")],
@@ -4894,7 +4895,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         if not backups:
             keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]]
             await query.edit_message_text(
-                "ℹ️ לא נמצאו קבצי ZIP שמורים.",
+                "ℹ️ לא נמצאו קבצי גיבוי שמורים.",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return ConversationHandler.END
@@ -4910,7 +4911,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         end = min(start + PAGE_SIZE, total)
         items = backups[start:end]
 
-        lines = [f'📦 קבצי ZIP שמורים — סה"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n']
+        lines = [f'{BTN_BACKUP_ZIPS} שמורים — סה"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n']
         keyboard = []
         # חישוב גרסאות vN לפי ריפו
         repo_to_sorted: Dict[str, list] = {}

@@ -296,6 +296,16 @@ async def test_handle_document_stores_zip_copy(handler_env):
     # ZIP שהועלה ללא מצב מיוחד: לא נשמר אוטומטית, אלא מציג בחירה סקיל/גיבוי (בחירה מפורשת)
     assert not handler_env["backup"].saved_bytes, "ZIP לא אמור להישמר אוטומטית — נדרשת בחירה מפורשת"
     assert any("ZIP" in text for text, _ in replies.messages)
+    # נעילת הנוסח החדש: "איפה לשמור" (יעד, לא שיטה) + תווית הסקיל עם 🧩
+    assert any("איפה לשמור אותו?" in text for text, _ in replies.messages)
+    button_labels = [
+        btn.text
+        for _, kw in replies.messages if kw.get("reply_markup")
+        for row in kw["reply_markup"].inline_keyboard
+        for btn in row
+    ]
+    assert "🧩 סקיל" in button_labels
+    assert "📦 גיבוי" in button_labels
     markups = [kw.get("reply_markup") for _, kw in replies.messages if kw.get("reply_markup")]
     assert markups, "צפוי reply_markup עם כפתורי בחירה סקיל/גיבוי"
     callbacks = [
