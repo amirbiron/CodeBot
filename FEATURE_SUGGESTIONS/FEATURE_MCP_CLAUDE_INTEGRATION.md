@@ -147,6 +147,7 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 | `list_notes` *(✅ מומש)* | `file_name` | פתקים דביקים של הקובץ (זהים ל‑UI) | `sticky_notes` + `make_scope_id` |
 | `create_note` *(✅ מומש)* | `file_name`, `content`, `line?`, `color?`, `anchor_text?` | פתק חדש (צף בלי `line`) | `sticky_notes` + `get_latest_version` |
 | `update_note` *(✅ מומש)* | `note_id`, שדות חלקיים | עדכון פתק במקום (ללא היסטוריה) | `sticky_notes` |
+| `docs_get_section` *(✅ מומש, public)* | `path` (slug/מלא), `section?`, `include_subsections?`, `max_chars?`, `offset?`, `repo?`, `ref?` | סקשן RST בודד + ניווט (breadcrumb/תת‑סקשנים/שכנים); בלי `section` — עץ כותרות | `services/rst_parser` + `RepoBackend.get_file` |
 
 **Non‑goal לפתקים:** אין מחיקת פתקים ואין תזכורות (`note_reminders`) דרך ה‑MCP — מוחקים/מתזמנים ב‑UI של הוובאפ.
 

@@ -2108,6 +2108,12 @@
      - ``CodeKeeper``
      - ``CodeKeeper``
      - MCP
+   * - ``MCP_DOCS_REPO``
+     - רשימת הריפואים המותרים (CSV allowlist) שכלי ``codekeeper_docs_get_section`` הציבורי רשאי לקרוא מהם קבצי RST. גבול אבטחה — ארגומנט ``repo`` שאינו ברשימה נדחה. ברירת מחדל ``CodeBot``.
+     - לא
+     - ``CodeBot``
+     - ``CodeBot``
+     - MCP
    * - ``MCP_ALLOWED_HOSTS``
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).
      - לא
