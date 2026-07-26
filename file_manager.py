@@ -428,7 +428,9 @@ class BackupManager:
             mongo_db = None
             if get_files_facade is not None:
                 mongo_db = get_files_facade().get_mongo_db()
-            if not mongo_db:
+            # חשוב: השוואה ל-None בלבד (ולא bool). אובייקט Database של pymongo זורק
+            # NotImplementedError על bool()/not — היה נבלע ב-except ומחזיר None בשקט.
+            if mongo_db is None:
                 return None
             # אוסף ייעודי "backups"
             return gridfs.GridFS(mongo_db, collection="backups")
@@ -1306,7 +1308,9 @@ class SkillManager:
             mongo_db = None
             if get_files_facade is not None:
                 mongo_db = get_files_facade().get_mongo_db()
-            if not mongo_db:
+            # חשוב: השוואה ל-None בלבד. אובייקט Database של pymongo זורק NotImplementedError
+            # על bool()/not, וזה היה נבלע ב-except ומחזיר None ("GridFS 'skills' לא זמין").
+            if mongo_db is None:
                 return None
             # אוסף ייעודי "skills" — מבודד לחלוטין; cleanup_expired_backups לעולם לא נוגע בו
             return gridfs.GridFS(mongo_db, collection="skills")

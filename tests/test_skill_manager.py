@@ -149,6 +149,62 @@ def test_delete_skill_only_own(monkeypatch):
     assert mgr.get_skill_bytes(42, sid) is None
 
 
+def _real_pymongo_db():
+    """Database אמיתי של pymongo בלי שרת (connect=False) — הבנאי לא מתחבר.
+
+    זהו בדיוק האובייקט ש-get_mongo_db() מחזיר בבוט המחובר, וה-bool() שלו זורק
+    NotImplementedError — מה שהפיל את _get_skills_gridfs לפני התיקון.
+    """
+    import pytest
+    pymongo = pytest.importorskip("pymongo")
+    client = pymongo.MongoClient("mongodb://localhost:27017", connect=False)
+    return client["codebot_test"]
+
+
+class _FakeFacade:
+    def __init__(self, db):
+        self._db = db
+
+    def get_mongo_db(self):
+        return self._db
+
+
+def test_get_skills_gridfs_with_real_pymongo_db(monkeypatch):
+    """רגרסיה: get_mongo_db מחזיר Database אמיתי → _get_skills_gridfs חייב GridFS, לא None.
+
+    לפני התיקון היה כאן ``if not mongo_db`` שזרק NotImplementedError (pymongo לא תומך
+    ב-bool על Database) → נבלע ב-except → הוחזר None → "GridFS 'skills' לא זמין" בפרודקשן.
+    שאר הטסטים מוקים את _get_skills_gridfs ולכן פספסו את זה — כאן קוראים למתודה האמיתית.
+    """
+    import pytest
+    gridfs = pytest.importorskip("gridfs")
+    db = _real_pymongo_db()
+    monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(db))
+
+    fs = SkillManager()._get_skills_gridfs()
+    assert fs is not None, "אמור להחזיר GridFS על Database מחובר — לא None"
+    assert isinstance(fs, gridfs.GridFS)
+
+
+def test_get_gridfs_backups_with_real_pymongo_db(monkeypatch):
+    """אותה רגרסיה עבור BackupManager._get_gridfs (מוסתר בפרודקשן ע"י BACKUPS_STORAGE=fs)."""
+    import pytest
+    gridfs = pytest.importorskip("gridfs")
+    monkeypatch.setenv("BACKUPS_STORAGE", "mongo")  # אחרת מחזיר None עוד לפני get_mongo_db
+    db = _real_pymongo_db()
+    monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(db))
+
+    fs = BackupManager()._get_gridfs()
+    assert fs is not None
+    assert isinstance(fs, gridfs.GridFS)
+
+
+def test_get_skills_gridfs_returns_none_without_db(monkeypatch):
+    """כשאין חיבור (get_mongo_db מחזיר None) עדיין מחזירים None בשקט — בלי חריגה."""
+    monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(None))
+    assert SkillManager()._get_skills_gridfs() is None
+
+
 def test_cleanup_backups_does_not_touch_skills(monkeypatch, tmp_path):
     """cleanup_expired_backups כבול לקולקציית "backups"; קולקציית "skills" לא נסרקת ולא נמחקת."""
     monkeypatch.setenv("BACKUPS_STORAGE", "mongo")
