@@ -75,6 +75,10 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
        — דורס במקום, אין היסטוריית גרסאות לפתקים. דורש ``write``
    * - ``codekeeper_list_collections`` / ``codekeeper_get_collection`` / ``codekeeper_get_collection_items``
      - האוספים והקבצים שבתוכם
+   * - ``codekeeper_docs_get_section``
+     - סקשן בודד מקובץ RST של התיעוד (במקום קובץ שלם). בלי ``section`` — עץ
+       הכותרות של העמוד. מחזיר גם breadcrumb, תת-סקשנים ושכנים לניווט. עדיף
+       על ``codekeeper_get_repo_file`` עבור ``docs/*.rst``
 
 כלי אדמין (דפדפן הריפו — מוסתרים וחסומים לכל משתמש אחר):
 

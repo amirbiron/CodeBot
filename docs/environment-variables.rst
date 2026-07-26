@@ -2108,6 +2108,12 @@
      - ``CodeKeeper``
      - ``CodeKeeper``
      - MCP
+   * - ``MCP_DOCS_REPO``
+     - שם הריפו (``repo_name`` ב-mirror) שממנו כלי ``codekeeper_docs_get_section`` קורא קבצי RST של התיעוד. ברירת מחדל ``CodeBot``; ניתן לעקוף פר-קריאה בארגומנט ``repo``.
+     - לא
+     - ``CodeBot``
+     - ``CodeBot``
+     - MCP
    * - ``MCP_ALLOWED_HOSTS``
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).
      - לא

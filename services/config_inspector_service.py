@@ -533,6 +533,15 @@ class ConfigService:
             description="שם התצוגה של שרת ה-MCP (שם ה-Connector שמוצג ללקוח).",
             category="mcp",
         ),
+        "MCP_DOCS_REPO": ConfigDefinition(
+            key="MCP_DOCS_REPO",
+            default="CodeBot",
+            description=(
+                "שם הריפו (repo_name ב-mirror) שממנו כלי codekeeper_docs_get_section של ה-MCP "
+                "קורא את קבצי ה-RST של התיעוד. ברירת מחדל: CodeBot."
+            ),
+            category="mcp",
+        ),
         "MCP_ALLOWED_HOSTS": ConfigDefinition(
             key="MCP_ALLOWED_HOSTS",
             default="",

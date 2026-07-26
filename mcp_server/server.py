@@ -19,7 +19,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from . import handlers, repo_handlers
+from . import docs_handlers, handlers, repo_handlers
 from .auth import (
     PATAuthMiddleware,
     current_user_id,
@@ -373,6 +373,7 @@ def build_mcp(
 
     if repo_backend is not None:
         _register_repo_tools(mcp, repo_backend)
+        _register_docs_tools(mcp, repo_backend)
 
     return mcp
 
@@ -449,6 +450,53 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             query=query,
             file_pattern=file_pattern,
             max_results=max_results,
+        )
+
+
+def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
+    """Public, read-only docs tool — return ONE RST section instead of a whole file.
+
+    NOT admin-gated: the body calls ``current_user_id`` (identity only, fail-closed on
+    no token), never ``require_admin`` / ``require_write``, and the name is deliberately
+    kept OUT of ``_ADMIN_TOOLS``. Reads via ``repo_backend`` (the mirror) like the repo
+    tools, but serves public documentation to any authenticated user.
+    """
+
+    @mcp.tool(
+        name="codekeeper_docs_get_section",
+        description=(
+            "Read ONE section from a CodeKeeper documentation RST file instead of the "
+            "whole file. Prefer this over codekeeper_get_repo_file for docs/*.rst: it "
+            "returns a single section with navigation (breadcrumb, direct subsections, "
+            "prev/next siblings) rather than a 77KB file. Call with NO `section` to get "
+            "the page's table of contents (heading tree) and pick one. Accepts a full "
+            "path (docs/x.rst) or short slug (x). `ref` is a git ref (default: repo "
+            "default branch). For large sections, page with `offset`/`max_chars`. Never "
+            "returns a bare 'not found': a missing section returns the full TOC + "
+            "suggestions; a duplicate heading returns candidates with breadcrumbs."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def docs_get_section(
+        ctx: Context,
+        path: str,
+        section: str | None = None,
+        include_subsections: bool = True,
+        max_chars: int = 12000,
+        offset: int = 0,
+        repo: str | None = None,
+        ref: str | None = None,
+    ) -> dict:
+        current_user_id(ctx)  # מזהה בלבד — public, בלי require_admin
+        return docs_handlers.docs_get_section(
+            repo_backend,
+            path=path,
+            section=section,
+            include_subsections=include_subsections,
+            max_chars=max_chars,
+            offset=offset,
+            repo=repo,
+            ref=ref,
         )
 
 

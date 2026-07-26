@@ -95,6 +95,17 @@ async def test_repo_tools_hidden_from_non_admin_tools_list():
     assert not (names & _ADMIN_TOOLS)
 
 
+async def test_docs_tool_is_public_and_not_admin_gated():
+    """codekeeper_docs_get_section ציבורי: מופיע ל-non-admin ואינו ב-_ADMIN_TOOLS."""
+    from mcp_server.server import _ADMIN_TOOLS
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    # תצוגת non-admin (בלי request context → fail-closed non-admin)
+    names = {t.name for t in await mcp.list_tools()}
+    assert "codekeeper_docs_get_section" in names
+    assert "codekeeper_docs_get_section" not in _ADMIN_TOOLS
+
+
 async def test_repo_tools_visible_to_admin():
     from mcp_server.server import _ADMIN_TOOLS
 
