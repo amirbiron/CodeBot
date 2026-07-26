@@ -59,6 +59,8 @@ class _Cfg:
         )
         self.PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL") or ""
         self.WEBAPP_URL = os.getenv("WEBAPP_URL") or ""
+        # אימוג'י מותאם לאייקון ZIP — None כברירת מחדל (כמו בפרודקשן; הטסטים דורסים לפי צורך)
+        self.CUSTOM_EMOJI_ZIP_ID = os.getenv("CUSTOM_EMOJI_ZIP_ID") or None
 
 
 config = _Cfg()

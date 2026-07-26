@@ -1086,15 +1086,17 @@ class DocumentHandler:
                     # שנמחק), שולחים שוב עם האימוג'י הרגיל: המשתמש חייב לקבל את ההודעה.
                     if custom_icon == "📁":
                         raise  # אין אימוג'י מותאם בהודעה — הכשל ממקור אחר, אין טעם בניסיון זהה
-                    global _custom_emoji_warned
-                    if not _custom_emoji_warned:
-                        _custom_emoji_warned = True
-                        logger.warning("האימוג'י המותאם (CUSTOM_EMOJI_ZIP_ID) נדחה ע\"י טלגרם — נופלים לאימוג'י רגיל")
                     await update.message.reply_text(
                         _zip_prompt_text("📁"),
                         reply_markup=keyboard,
                         parse_mode=ParseMode.HTML,
                     )
+                    # מסמנים ומלוגגים רק אחרי שה-fallback עבר — זו ההוכחה שהבעיה הייתה
+                    # האימוג'י (BadRequest ממקור אחר היה מפיל גם את השליחה הזו ומתגלגל הלאה)
+                    global _custom_emoji_warned
+                    if not _custom_emoji_warned:
+                        _custom_emoji_warned = True
+                        logger.warning("האימוג'י המותאם (CUSTOM_EMOJI_ZIP_ID) נדחה ע\"י טלגרם — נופלים לאימוג'י רגיל")
             except Exception:
                 # בלי כפתורים אין דרך לממש את הבחירה — מנקים את הרשומה והקובץ שנוצרו עבור ה-ZIP הזה
                 cleanup_pending_zip(path)

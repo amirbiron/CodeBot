@@ -1581,12 +1581,12 @@ class GitHubMenuHandler:
                     backup_handler = BackupMenuHandler()
                     context.bot_data['backup_handler'] = backup_handler
                 except Exception as e:
-                    await query.edit_message_text(f"❌ רכיב גיבוי לא זמין: {e}")
+                    await TelegramUtils.safe_edit_message_text(query, f"❌ רכיב גיבוי לא זמין: {e}")
                     return
             try:
                 await backup_handler._show_backups_list(update, context, page=1)
             except Exception as e:
-                await query.edit_message_text(f"❌ שגיאה בטעינת קבצי גיבוי: {e}")
+                await TelegramUtils.safe_edit_message_text(query, f"❌ שגיאה בטעינת קבצי גיבוי: {e}")
         elif query.data.startswith("gh_upload_zip_browse:"):
             # עיון בקובץ ZIP שמור ובחירת קובץ מתוכו להעלאה לריפו
             backup_id = query.data.split(":", 1)[1]
