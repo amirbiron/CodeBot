@@ -293,11 +293,23 @@ async def test_handle_document_stores_zip_copy(handler_env):
 
     await handler_env["handler"].handle_document(update, context)
 
-    assert handler_env["backup"].saved_bytes, "ZIP צריך להישמר כמטען גיבוי"
-    assert any("ZIP" in msg for msg, _ in replies.messages)
-    assert not handler_env["errors"], "שמירת ZIP לא אמורה להשפיע על error counters"
+    # ZIP שהועלה ללא מצב מיוחד: לא נשמר אוטומטית, אלא מציג בחירה סקיל/גיבוי (בחירה מפורשת)
+    assert not handler_env["backup"].saved_bytes, "ZIP לא אמור להישמר אוטומטית — נדרשת בחירה מפורשת"
+    assert any("ZIP" in text for text, _ in replies.messages)
+    markups = [kw.get("reply_markup") for _, kw in replies.messages if kw.get("reply_markup")]
+    assert markups, "צפוי reply_markup עם כפתורי בחירה סקיל/גיבוי"
+    callbacks = [
+        btn.callback_data
+        for mk in markups
+        for row in mk.inline_keyboard
+        for btn in row
+    ]
+    assert any(cb.startswith("zip_route_skill:") for cb in callbacks)
+    assert any(cb.startswith("zip_route_backup:") for cb in callbacks)
+    assert context.user_data.get("pending_zip"), "צפוי pending_zip ב-user_data"
+    assert not handler_env["errors"], "קבלת ZIP לא אמורה להשפיע על error counters"
     assert not any(evt[0] == "file_read_unreadable" for evt in handler_env["events"] if evt), (
-        "לא אמורה לצאת התראה על קובץ לא קריא לאחר שמירת ZIP"
+        "לא אמורה לצאת התראה על קובץ לא קריא לאחר קבלת ZIP"
     )
 
 

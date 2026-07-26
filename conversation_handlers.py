@@ -891,14 +891,15 @@ async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     user_id = update.effective_user.id
     pending = context.user_data.get("pending_zip") or {}
     entry = pending.get(token)
-    raw = load_pending_zip_bytes((entry or {}).get("path", "")) if entry else None
+    raw = None
+    if entry:
+        raw = await asyncio.to_thread(load_pending_zip_bytes, (entry or {}).get("path", ""))
 
     if not entry or raw is None:
         # הטוקן פג/נוקה (או שהבוט אותחל) — אין bytes לשחזר
-        try:
-            await query.edit_message_text("⌛ הקובץ פג. שלח/י אותו שוב כדי לבחור סקיל או גיבוי.")
-        except Exception:
-            pass
+        await TelegramUtils.safe_edit_message_text(
+            query, "⌛ הקובץ פג. שלח/י אותו שוב כדי לבחור סקיל או גיבוי."
+        )
         if entry:
             cleanup_pending_zip((entry or {}).get("path", ""))
             pending.pop(token, None)
@@ -917,16 +918,20 @@ async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             file_count = 0
         md = {"user_id": user_id, "original_name": original_name, "file_count": file_count}
         skill_id = await asyncio.to_thread(skill_manager.save_skill_bytes, raw, md)
-        cleanup_pending_zip(entry.get("path", ""))
-        pending.pop(token, None)
         if skill_id:
-            await query.edit_message_text(
+            # ניקוי רק לאחר שמירה מוצלחת — בכשל שומרים את ה-token/bytes כדי לאפשר retry
+            cleanup_pending_zip(entry.get("path", ""))
+            pending.pop(token, None)
+            await TelegramUtils.safe_edit_message_text(
+                query,
                 f"✅ נשמר כסקיל: <code>{html_escape(original_name)}</code>\n"
                 "🔎 ניתן למצוא אותו תחת: '📚' ← '📝 סקילים'.",
                 parse_mode=ParseMode.HTML,
             )
         else:
-            await query.edit_message_text("❌ שמירת הסקיל נכשלה. נסה/י שוב מאוחר יותר.")
+            await TelegramUtils.safe_edit_message_text(
+                query, "❌ שמירת הסקיל נכשלה. נסה/י שוב מאוחר יותר."
+            )
         return
 
     # zip_route_backup — לוגיקת הגיבוי המקורית (save_backup_bytes מזריק metadata.json בעצמו)
@@ -940,15 +945,19 @@ async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "source": "uploaded_document",
     }
     result_id = await asyncio.to_thread(backup_manager.save_backup_bytes, raw, md)
-    cleanup_pending_zip(entry.get("path", ""))
-    pending.pop(token, None)
     if result_id:
-        await query.edit_message_text(
+        # ניקוי רק לאחר שמירה מוצלחת — בכשל שומרים את ה-token/bytes כדי לאפשר retry
+        cleanup_pending_zip(entry.get("path", ""))
+        pending.pop(token, None)
+        await TelegramUtils.safe_edit_message_text(
+            query,
             "✅ קובץ ZIP נשמר בהצלחה לרשימת ה‑ZIP השמורים.\n"
             "📦 ניתן למצוא אותו תחת: '📚' ← '📦 קבצי ZIP' או ב‑Batch/GitHub."
         )
     else:
-        await query.edit_message_text("❌ שמירת הגיבוי נכשלה. נסה/י שוב מאוחר יותר.")
+        await TelegramUtils.safe_edit_message_text(
+            query, "❌ שמירת הגיבוי נכשלה. נסה/י שוב מאוחר יותר."
+        )
 
 
 async def finalize_zip_create(update: Update, context: ContextTypes.DEFAULT_TYPE, zip_name: Optional[str] = None) -> None:

@@ -26,8 +26,23 @@ from backup_menu_handler import (
     _rating_to_emoji,
     _get_files_facade,
 )
+from utils import TelegramUtils
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_ratings(user_id: int, skill_ids: list) -> dict:
+    """אוסף דירוגים עבור רשימת skill_ids בקריאה אחת (מיועד להרצה ב-thread)."""
+    facade = _get_files_facade()
+    out: dict = {}
+    if facade is None:
+        return out
+    for sid in skill_ids:
+        try:
+            out[sid] = (facade.get_backup_rating(user_id, sid) or "")
+        except Exception:
+            out[sid] = ""
+    return out
 
 _RATING_MAP = {
     "excellent": "🏆 מצוין",
@@ -57,7 +72,8 @@ class SkillMenuHandler:
         skills = await self._get_skills(user_id)
         if not skills:
             keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
-            await query.edit_message_text(
+            await TelegramUtils.safe_edit_message_text(
+                query,
                 "ℹ️ אין סקילים שמורים.\n"
                 "כדי לשמור סקיל: שלח/י קובץ ZIP ובחר/י '📝 סקיל'.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -79,15 +95,14 @@ class SkillMenuHandler:
         start = (page - 1) * PAGE_SIZE
         items = skills[start:min(start + PAGE_SIZE, total)]
 
+        # איסוף דירוגים לפריטי העמוד בקריאה אחת ב-thread (לא חוסם את ה-event loop)
+        ratings = await asyncio.to_thread(_collect_ratings, user_id, [s.skill_id for s in items])
+
         lines = [f"📝 סקילים שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
         keyboard = []
         for info in items:
             name = info.original_name or info.skill_id
-            try:
-                facade = _get_files_facade()
-                rating = (facade.get_backup_rating(user_id, info.skill_id) if facade is not None else "") or ""
-            except Exception:
-                rating = ""
+            rating = ratings.get(info.skill_id, "")
             emoji = _rating_to_emoji(rating)
             lines.append(f"• {name} — {_format_date(info.created_at)}")
             second = f"  ↳ גודל: {_format_bytes(info.total_size)} | קבצים: {info.file_count}"
@@ -103,7 +118,9 @@ class SkillMenuHandler:
         if nav:
             keyboard.append(nav)
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
-        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+        await TelegramUtils.safe_edit_message_text(
+            query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     async def _show_skill_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE, skill_id: str):
         query = update.callback_query
@@ -111,7 +128,7 @@ class SkillMenuHandler:
         user_id = query.from_user.id
         match = await self._find_skill(user_id, skill_id)
         if not match:
-            await query.edit_message_text("❌ הסקיל לא נמצא")
+            await TelegramUtils.safe_edit_message_text(query, "❌ הסקיל לא נמצא")
             return
         try:
             facade = _get_files_facade()
@@ -141,20 +158,23 @@ class SkillMenuHandler:
                                   callback_data=f"skill_add_note:{skill_id}")],
             [InlineKeyboardButton("🔙 חזור לרשימה", callback_data="skill_list")],
         ]
-        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb))
+        await TelegramUtils.safe_edit_message_text(
+            query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(kb)
+        )
 
     async def _download_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, skill_id: str):
         query = update.callback_query
         user_id = query.from_user.id
         await query.answer()
-        match = await self._find_skill(user_id, skill_id)
         # ה-bytes נמשכים ישירות מ-GridFS (אין עותק מקומי כמו בגיבויים) — byte-for-byte
         raw = await asyncio.to_thread(skill_manager.get_skill_bytes, user_id, skill_id)
-        if raw is None or match is None:
-            await query.edit_message_text("❌ הסקיל לא נמצא")
+        if raw is None:
+            await TelegramUtils.safe_edit_message_text(query, "❌ הסקיל לא נמצא")
             return
+        # רק לאחר שיש bytes — סריקה נוספת לשם המקורי (חוסך סריקת GridFS כפולה בכל לחיצה)
+        match = await self._find_skill(user_id, skill_id)
         try:
-            filename = match.original_name or f"{skill_id}.zip"
+            filename = (match.original_name if match else None) or f"{skill_id}.zip"
             await query.message.reply_document(
                 document=InputFile(BytesIO(raw), filename=filename),
                 caption=f"📝 {filename} — {_format_bytes(len(raw))}",
@@ -164,8 +184,9 @@ class SkillMenuHandler:
             except Exception as e:
                 if "message is not modified" not in str(e).lower():
                     raise
-        except Exception as e:
-            await query.edit_message_text(f"❌ שגיאה בשליחת הסקיל: {e}")
+        except Exception:
+            logger.exception("שליחת סקיל נכשלה")
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בשליחת הסקיל")
 
     async def send_rating_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE, skill_id: str):
         """שולח הודעת תיוג עם 3 כפתורים עבור סקיל מסוים."""
@@ -198,14 +219,16 @@ class SkillMenuHandler:
             prompt = "✏️ הקלד/י הערה לסקיל (עד 1000 תווים).\nשלח/י טקסט עכשיו.\n\n"
             if existing:
                 prompt += f"הערה נוכחית: {existing}\n"
-            await query.edit_message_text(
+            await TelegramUtils.safe_edit_message_text(
+                query,
                 prompt,
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton("🔙 חזרה", callback_data=f"skill_details:{skill_id}")]]
                 ),
             )
-        except Exception as e:
-            await query.edit_message_text(f"❌ שגיאה בפתיחת עריכת הערה: {e}")
+        except Exception:
+            logger.exception("פתיחת עריכת הערה נכשלה")
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בפתיחת עריכת הערה")
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מרכז ניתוב לכל כפתורי הסקילים (prefix: skill_)."""
@@ -235,7 +258,9 @@ class SkillMenuHandler:
                 [InlineKeyboardButton("✅ אישור מחיקה", callback_data=f"skill_delete_one_execute:{skill_id}")],
                 [InlineKeyboardButton("🔙 ביטול", callback_data=f"skill_details:{skill_id}")],
             ]
-            await query.edit_message_text("האם למחוק לצמיתות את הסקיל?", reply_markup=InlineKeyboardMarkup(kb))
+            await TelegramUtils.safe_edit_message_text(
+                query, "האם למחוק לצמיתות את הסקיל?", reply_markup=InlineKeyboardMarkup(kb)
+            )
         elif data.startswith("skill_delete_one_execute:"):
             skill_id = data.split(":", 1)[1]
             try:
@@ -248,12 +273,13 @@ class SkillMenuHandler:
                 except Exception:
                     pass
                 if res.get("deleted", 0):
-                    await query.edit_message_text("✅ הסקיל נמחק")
+                    await TelegramUtils.safe_edit_message_text(query, "✅ הסקיל נמחק")
                     await self._show_skills_list(update, context)
                 else:
-                    await query.edit_message_text("❌ המחיקה נכשלה")
-            except Exception as e:
-                await query.edit_message_text(f"❌ שגיאה במחיקה: {e}")
+                    await TelegramUtils.safe_edit_message_text(query, "❌ המחיקה נכשלה")
+            except Exception:
+                logger.exception("מחיקת סקיל נכשלה")
+                await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה במחיקה")
         elif data.startswith("skill_rate:"):
             # פורמט: skill_rate:<skill_id>:<rating_key>
             try:
@@ -266,7 +292,8 @@ class SkillMenuHandler:
                 facade = _get_files_facade()
                 ok = bool(facade.save_backup_rating(user_id, s_id, rating_value)) if facade is not None else False
                 if ok:
-                    await query.edit_message_text(
+                    await TelegramUtils.safe_edit_message_text(
+                        query,
                         f"✅ התיוג נשמר: {rating_value}",
                         reply_markup=InlineKeyboardMarkup(
                             [[InlineKeyboardButton("🔙 לפרטי הסקיל", callback_data=f"skill_details:{s_id}")]]

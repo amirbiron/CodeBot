@@ -3591,8 +3591,9 @@ class CodeKeeperBot:
                         context.user_data['suppress_code_hint_once'] = True
                     else:
                         await update.message.reply_text("❌ שמירת ההערה נכשלה")
-                except Exception as e:
-                    await update.message.reply_text(f"❌ שגיאה בשמירת ההערה: {e}")
+                except Exception:
+                    logger.exception("שמירת הערה נכשלה")
+                    await update.message.reply_text("❌ שמירת ההערה נכשלה, נסה שוב מאוחר יותר")
                 return True
             # זרימת הוספת הערה לסקיל (אותו מנגנון גנרי כמו הגיבויים, עם skill_id)
             if context.user_data.get('waiting_for_skill_note_for'):
@@ -3609,8 +3610,9 @@ class CodeKeeperBot:
                         context.user_data['suppress_code_hint_once'] = True
                     else:
                         await update.message.reply_text("❌ שמירת ההערה נכשלה")
-                except Exception as e:
-                    await update.message.reply_text(f"❌ שגיאה בשמירת ההערה: {e}")
+                except Exception:
+                    logger.exception("שמירת הערה נכשלה")
+                    await update.message.reply_text("❌ שמירת ההערה נכשלה, נסה שוב מאוחר יותר")
                 return True
             # קלט נתיב יעד ידני לסביבת העלאה (upload_folder_custom)
             if context.user_data.get('waiting_for_upload_folder'):

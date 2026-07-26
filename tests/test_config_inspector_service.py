@@ -295,6 +295,13 @@ class TestMaskingUrls:
         assert self.service.mask_value("x", "SOME_SECRET") == "********"
         assert self.service.mask_value("mongodb://u:p@h", "MONGODB_URI") == "********"
 
+    def test_url_with_embedded_credentials_masked_even_if_key_not_sensitive(self):
+        # מפתח לא-רגיש (URL הוסר מהתבניות) אך הערך מכיל credentials מוטמעים → ממוסך (ממצא review)
+        assert self.service.mask_value("https://user:pass@host.com/x", "SOME_PUBLIC_URL") == "********"
+        assert self.service.mask_value("redis://admin:secret@10.0.0.1:6379", "CACHE_URL") == "********"
+        # URL ציבורי רגיל (כולל host:port) אינו ממוסך
+        assert self.service.mask_value("https://host.com:8080/path", "SOME_PUBLIC_URL") == "https://host.com:8080/path"
+
     def test_entry_active_value_visible_for_public_url(self):
         definition = self.service.CONFIG_DEFINITIONS["MCP_SERVER_URL"]
         with patch.dict(os.environ, {"MCP_SERVER_URL": "https://mcp.example.com"}, clear=False):

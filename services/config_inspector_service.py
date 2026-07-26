@@ -15,6 +15,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+# כתובת URL עם credentials מוטמעים: scheme://user:pass@host — סוד גם אם שם המשתנה אינו רגיש
+_CREDENTIAL_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
+
 
 class ConfigStatus(str, Enum):
     """סטטוס של משתנה קונפיגורציה."""
@@ -1858,6 +1861,10 @@ class ConfigService:
             return value
 
         if self.is_sensitive_key(key):
+            return self.MASKED_VALUE
+
+        # מיסוך מבוסס-ערך: URL עם credentials מוטמעים (user:pass@) הוא סוד גם אם השם אינו רגיש
+        if _CREDENTIAL_URL_RE.search(value):
             return self.MASKED_VALUE
 
         return value

@@ -1003,6 +1003,7 @@ class DocumentHandler:
                 stash_pending_zip_bytes,
                 cleanup_pending_zip,
                 cleanup_stale_pending_zips,
+                PENDING_ZIP_TTL_SECONDS,
             )
             import uuid as _uuid
 
@@ -1018,11 +1019,18 @@ class DocumentHandler:
                 now_ts = int(datetime.now(timezone.utc).timestamp())
                 stale_tokens = [
                     t for t, m in pending.items()
-                    if now_ts - int((m or {}).get("ts", 0)) > 3600
+                    if now_ts - int((m or {}).get("ts", 0)) > PENDING_ZIP_TTL_SECONDS
                 ]
                 for _old in stale_tokens:
                     cleanup_pending_zip((pending.get(_old) or {}).get("path", ""))
                     pending.pop(_old, None)
+                # הגבלת מספר ה-ZIP הממתינים למשתמש — הסרת הישנים ביותר מעבר לקיבולת
+                MAX_PENDING = 5
+                if len(pending) >= MAX_PENDING:
+                    oldest = sorted(pending.items(), key=lambda kv: int((kv[1] or {}).get("ts", 0)))
+                    for _old, _meta in oldest[: len(pending) - MAX_PENDING + 1]:
+                        cleanup_pending_zip((_meta or {}).get("path", ""))
+                        pending.pop(_old, None)
             except Exception:
                 pass
 

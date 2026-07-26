@@ -1319,7 +1319,6 @@ class SkillManager:
 
         סיומת הייחוד מבטיחה ששני סקילים עם אותו שם לא ידרסו זה את זה.
         """
-        import uuid
         try:
             from utils import TextUtils
             cleaned = TextUtils.clean_filename(original_name or "")
@@ -1344,13 +1343,20 @@ class SkillManager:
             if fs is None:
                 logger.warning("save_skill_bytes: GridFS 'skills' לא זמין")
                 return None
-            user_id = metadata.get("user_id")
+            # נרמול user_id ל-int כדי ש-list_skills (שאילתת metadata.user_id כ-int) תמצא את הסקיל
+            raw_uid = metadata.get("user_id")
+            try:
+                user_id = int(raw_uid)
+            except (TypeError, ValueError):
+                logger.warning("save_skill_bytes: user_id לא תקין (%r)", raw_uid)
+                return None
             original_name = metadata.get("original_name") or "skill.zip"
             # מזהה לוגי ייחודי מובטח: timestamp לקריאות + uuid קצר למניעת התנגשות (כולל אותה מילישנייה)
             skill_id = metadata.get("skill_id") or f"skill_{user_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
             filename = self._unique_filename(original_name)
             # מטאדטה סופית — נשמרת בשכבת GridFS בלבד (לא בתוך הארכיון)
             final_md = dict(metadata or {})
+            final_md["user_id"] = user_id  # int מנורמל (לא ה-str המקורי אם הגיע כך)
             final_md["skill_id"] = skill_id
             final_md["kind"] = "skill"
             if not final_md.get("created_at"):

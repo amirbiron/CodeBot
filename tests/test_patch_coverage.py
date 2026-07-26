@@ -44,10 +44,11 @@ async def test_show_all_files_menu_order_message(monkeypatch):
     rows = rm.inline_keyboard
     callbacks = [row[0].callback_data for row in rows]
     # Expect order: search_files, by_repo_menu, backup_list, show_large_files, show_regular_files
-    assert callbacks[:5] == [
+    assert callbacks[:6] == [
         "search_files",
         "by_repo_menu",
         "backup_list",
+        "skill_list",
         "show_large_files",
         "show_regular_files",
     ]
@@ -91,9 +92,10 @@ async def test_show_all_files_menu_order_callback(monkeypatch):
     assert rm is not None
     rows = rm.inline_keyboard
     callbacks = [row[0].callback_data for row in rows]
-    assert callbacks[:4] == [
+    assert callbacks[:5] == [
         "by_repo_menu",
         "backup_list",
+        "skill_list",
         "show_large_files",
         "show_regular_files",
     ]
