@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from mcp_server import docs_handlers
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -108,3 +110,32 @@ def test_missing_file_propagates_not_found():
     out = docs_handlers.docs_get_section(_FsBackend(), path="no-such-doc-xyz")
     assert out["ok"] is False and out["error"] == "not_found"
     assert out["repo"] == "CodeBot"
+
+
+# ---- הקשחת אבטחה (סבב review) ----
+
+def test_explicit_repo_not_in_allowlist_rejected(monkeypatch):
+    monkeypatch.delenv("MCP_DOCS_REPO", raising=False)  # allowlist = [CodeBot]
+    be = _FsBackend()
+    out = docs_handlers.docs_get_section(be, path="environment-variables", repo="SomeOtherRepo")
+    assert out["ok"] is False and out["error"] == "repo_not_allowed"
+    assert be.calls == []  # ה-backend לא נקרא כלל (IDOR נחסם)
+
+
+def test_explicit_repo_in_allowlist_allowed(monkeypatch):
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot, other-docs")
+    out = docs_handlers.docs_get_section(_FsBackend(), path="environment-variables", repo="CodeBot")
+    assert out["ok"] and out["repo"] == "CodeBot"
+
+
+@pytest.mark.parametrize("bad_path", [
+    "webapp/config",       # מחוץ ל-docs/ עם slash
+    "../../etc/passwd",    # traversal
+    "docs/../secrets",     # traversal שרזולב החוצה מ-docs/
+    "/etc/hosts",          # נתיב מוחלט
+])
+def test_path_outside_docs_rejected(bad_path):
+    be = _FsBackend()
+    out = docs_handlers.docs_get_section(be, path=bad_path)
+    assert out["ok"] is False and out["error"] == "missing_path"
+    assert be.calls == []  # נחסם ב-handler לפני ה-backend

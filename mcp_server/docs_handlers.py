@@ -14,6 +14,7 @@ candidates with breadcrumb.
 from __future__ import annotations
 
 import os
+import posixpath
 from typing import Any
 
 from services import rst_parser
@@ -26,23 +27,43 @@ DEFAULT_DOCS_REPO = "CodeBot"
 _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 
 
-def _resolve_docs_repo(repo: str | None) -> str:
+def _allowed_docs_repos() -> list[str]:
+    """רשימת הריפואים המותרים לכלי (CSV ב-MCP_DOCS_REPO), עם fallback ל-CodeBot."""
+    raw = os.getenv("MCP_DOCS_REPO", DEFAULT_DOCS_REPO) or DEFAULT_DOCS_REPO
+    repos = [r.strip() for r in raw.split(",") if r.strip()]
+    return repos or [DEFAULT_DOCS_REPO]
+
+
+def _resolve_docs_repo(repo: str | None) -> str | None:
+    """ברירת מחדל = הריפו הראשון ב-allowlist; repo מפורש מותר רק אם ב-allowlist (אחרת None).
+
+    הכלי ציבורי — בלי האכיפה הזו כל משתמש מאומת יכול לקרוא .rst מכל ריפו ב-mirror (IDOR).
+    """
+    allowed = _allowed_docs_repos()
     r = (repo or "").strip()
-    if r:
-        return r
-    return (os.getenv("MCP_DOCS_REPO", DEFAULT_DOCS_REPO) or DEFAULT_DOCS_REPO).strip()
+    if not r:
+        return allowed[0]
+    return r if r in allowed else None
 
 
 def _resolve_docs_path(path: str) -> str | None:
-    """נתיב מלא (docs/x.rst) או slug קצר (x / x.rst) → נתיב מלא תחת docs/."""
+    """נתיב מלא (docs/x.rst) או slug קצר (x / x.rst) → נתיב מנורמל תחת docs/ בלבד.
+
+    מחזיר None עבור traversal (``..``), נתיב מוחלט, או כל נתיב שאינו תחת ``docs/`` — כולל
+    קלט שמכיל slash (למשל ``webapp/x``). זו הגנת שכבה בנוסף לאימות ה-path של ה-backend.
+    """
     p = (path or "").strip().strip("/")
-    if not p:
+    if not p or "\x00" in p:
         return None
     if not p.endswith(".rst"):
         p = p + ".rst"
     if "/" not in p:
         p = "docs/" + p
-    return p
+    # נרמול וחסימה: traversal שיוצא מ-docs/ (docs/../x → x.rst), נתיב מוחלט, וכל דבר מחוץ ל-docs/
+    norm = posixpath.normpath(p)
+    if not norm.startswith("docs/"):
+        return None
+    return norm
 
 
 def _toc(doc: "rst_parser.Document") -> tuple[list, bool]:
@@ -72,6 +93,8 @@ def docs_get_section(
     if not file_path:
         return {"ok": False, "error": "missing_path"}
     repo_name = _resolve_docs_repo(repo)
+    if not repo_name:
+        return {"ok": False, "error": "repo_not_allowed", "requested_repo": repo}
     max_chars = _clamp(max_chars, MAX_CHARS_MIN, MAX_CHARS_MAX, MAX_CHARS_DEFAULT)
     offset = _clamp(offset, 0, 10 ** 9, 0)
 

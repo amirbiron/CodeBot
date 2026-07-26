@@ -537,8 +537,8 @@ class ConfigService:
             key="MCP_DOCS_REPO",
             default="CodeBot",
             description=(
-                "שם הריפו (repo_name ב-mirror) שממנו כלי codekeeper_docs_get_section של ה-MCP "
-                "קורא את קבצי ה-RST של התיעוד. ברירת מחדל: CodeBot."
+                "רשימת הריפואים המותרים (CSV allowlist) שכלי codekeeper_docs_get_section הציבורי "
+                "רשאי לקרוא מהם קבצי RST. גבול אבטחה — repo שאינו ברשימה נדחה. ברירת מחדל: CodeBot."
             ),
             category="mcp",
         ),
