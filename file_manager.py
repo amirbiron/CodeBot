@@ -1,4 +1,5 @@
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Set
+from dataclasses import dataclass
 import os
 import tempfile
 import zipfile
@@ -1276,19 +1277,17 @@ class BackupManager:
             return False
 
 
+@dataclass
 class SkillInfo:
     """מידע על סקיל שמור (ארכיון קוד לטווח ארוך, נפרד לגמרי מגיבויים)"""
-    def __init__(self, skill_id: str, user_id: int, created_at: datetime, file_count: int,
-                 total_size: int, original_name: str, file_name: str,
-                 metadata: Optional[Dict[str, Any]]):
-        self.skill_id = skill_id
-        self.user_id = user_id
-        self.created_at = created_at
-        self.file_count = file_count
-        self.total_size = total_size
-        self.original_name = original_name  # השם המקורי המלא (לתצוגה)
-        self.file_name = file_name          # שם ה-GridFS הייחודי בפועל
-        self.metadata = metadata
+    skill_id: str
+    user_id: int
+    created_at: datetime
+    file_count: int
+    total_size: int
+    original_name: str  # השם המקורי המלא (לתצוגה)
+    file_name: str      # שם ה-GridFS הייחודי בפועל
+    metadata: Optional[Dict[str, Any]]
 
 
 class SkillManager:
@@ -1299,6 +1298,8 @@ class SkillManager:
     - תמיד מונגו (GridFS), ללא תלות ב-BACKUPS_STORAGE וללא משתנה סביבה מקביל.
     - אין מחיקת retention ואין restore — סקיל לא נמחק לבד לעולם.
     """
+
+    _indexes_ensured = False  # דגל תהליכי — יצירת האינדקסים מנוסה פעם אחת בלבד
 
     def _get_skills_gridfs(self):
         """מחזיר GridFS על קולקציית "skills" (מבודדת מ-"backups"), או None אם אין חיבור מונגו."""
@@ -1312,10 +1313,41 @@ class SkillManager:
             # על bool()/not, וזה היה נבלע ב-except ומחזיר None ("GridFS 'skills' לא זמין").
             if mongo_db is None:
                 return None
+            self._ensure_indexes(mongo_db)
             # אוסף ייעודי "skills" — מבודד לחלוטין; cleanup_expired_backups לעולם לא נוגע בו
             return gridfs.GridFS(mongo_db, collection="skills")
         except Exception:
             return None
+
+    @classmethod
+    def _ensure_indexes(cls, mongo_db) -> None:
+        """אינדקסים על skills.files לשאילתות המנהל: לפי בעלים (list/delete) ולפי skill_id (הורדה)."""
+        if cls._indexes_ensured:
+            return
+        cls._indexes_ensured = True
+        try:
+            coll = mongo_db["skills.files"]
+            coll.create_index(
+                [("metadata.user_id", 1), ("metadata.skill_id", 1)],
+                name="skills_user_skill_idx", background=True,
+            )
+            coll.create_index([("metadata.skill_id", 1)], name="skills_skill_id_idx", background=True)
+        except Exception:
+            # best-effort — היעדר אינדקס לא חוסם שמירה/שליפה
+            logger.warning("skills: יצירת אינדקסים נכשלה", exc_info=True)
+
+    @staticmethod
+    def _limits() -> Tuple[int, int]:
+        """מכסות פר-משתמש (0 = בלי מגבלה): מספר סקילים מרבי וסך בייטים מרבי."""
+        try:
+            max_count = int(os.getenv("SKILLS_MAX_PER_USER", "100") or 0)
+        except Exception:
+            max_count = 100
+        try:
+            max_bytes = int(os.getenv("SKILLS_MAX_TOTAL_BYTES", str(1024 ** 3)) or 0)
+        except Exception:
+            max_bytes = 1024 ** 3
+        return max_count, max_bytes
 
     @staticmethod
     def _unique_filename(original_name: str) -> str:
@@ -1352,8 +1384,20 @@ class SkillManager:
             try:
                 user_id = int(raw_uid)
             except (TypeError, ValueError):
-                logger.warning("save_skill_bytes: user_id לא תקין (%r)", raw_uid)
+                # בלי הערך הגולמי — מזהה משתמש הוא PII; סוג הערך מספיק לדיבוג
+                logger.warning("save_skill_bytes: user_id לא תקין (type=%s)", type(raw_uid).__name__)
                 return None
+            # אכיפת מכסות פר-משתמש לפני כתיבה (אין retention — בלי מכסה האחסון גדל ללא גבול)
+            max_count, max_bytes = self._limits()
+            if max_count > 0 or max_bytes > 0:
+                existing = list(fs.find({"metadata.user_id": user_id}))
+                if max_count > 0 and len(existing) >= max_count:
+                    logger.info("save_skill_bytes: חריגה ממכסת מספר סקילים (%d)", max_count)
+                    return None
+                total = sum(int(getattr(d, "length", 0) or 0) for d in existing)
+                if max_bytes > 0 and total + len(data) > max_bytes:
+                    logger.info("save_skill_bytes: חריגה ממכסת נפח סקילים (%d bytes)", max_bytes)
+                    return None
             original_name = metadata.get("original_name") or "skill.zip"
             # מזהה לוגי ייחודי מובטח: timestamp לקריאות + uuid קצר למניעת התנגשות (כולל אותה מילישנייה)
             skill_id = metadata.get("skill_id") or f"skill_{user_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
@@ -1372,41 +1416,59 @@ class SkillManager:
             logger.warning(f"save_skill_bytes failed: {e}")
             return None
 
+    @staticmethod
+    def _normalize_user_id(user_id) -> Optional[int]:
+        """נרמול user_id ל-int (השמירה תמיד כ-int; קלט str לא היה מוצא כלום בשאילתות)."""
+        try:
+            return int(user_id)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _doc_to_skill_info(fdoc, user_id: int) -> Optional[SkillInfo]:
+        """בונה SkillInfo ממסמך GridFS (משותף ל-list_skills ול-get_skill_info)."""
+        md = getattr(fdoc, 'metadata', None) or {}
+        skill_id = md.get("skill_id") or str(getattr(fdoc, "_id", ""))
+        if not skill_id:
+            return None
+        created_at = None
+        created_str = md.get("created_at")
+        if created_str:
+            with suppress(Exception):
+                created_at = datetime.fromisoformat(created_str)
+        if not created_at:
+            created_at = getattr(fdoc, 'uploadDate', None)
+        if not created_at:
+            created_at = datetime.now(timezone.utc)
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        return SkillInfo(
+            skill_id=skill_id,
+            user_id=user_id,
+            created_at=created_at,
+            file_count=int(md.get("file_count") or 0),
+            total_size=int(getattr(fdoc, 'length', 0) or 0),
+            original_name=md.get("original_name") or (getattr(fdoc, 'filename', None) or skill_id),
+            file_name=getattr(fdoc, 'filename', None) or "",
+            metadata=md,
+        )
+
     def list_skills(self, user_id: int) -> List[SkillInfo]:
         """מחזיר את כל הסקילים של המשתמש (מטא-דאטה בלבד — Smart Projection, בלי משיכת bytes)."""
         results: List[SkillInfo] = []
+        uid = self._normalize_user_id(user_id)
+        if uid is None:
+            return results
         try:
             fs = self._get_skills_gridfs()
             if fs is None:
                 return results
             # שאילתה ממוקדת לפי בעלים (user_id נשמר תמיד כ-int בשמירה)
-            for fdoc in fs.find({"metadata.user_id": user_id}):
+            for fdoc in fs.find({"metadata.user_id": uid}):
                 try:
-                    md = getattr(fdoc, 'metadata', None) or {}
-                    skill_id = md.get("skill_id") or str(getattr(fdoc, "_id", ""))
-                    if not skill_id:
-                        continue
-                    created_at = None
-                    created_str = md.get("created_at")
-                    if created_str:
-                        with suppress(Exception):
-                            created_at = datetime.fromisoformat(created_str)
-                    if not created_at:
-                        created_at = getattr(fdoc, 'uploadDate', None)
-                    if not created_at:
-                        created_at = datetime.now(timezone.utc)
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=timezone.utc)
-                    results.append(SkillInfo(
-                        skill_id=skill_id,
-                        user_id=user_id,
-                        created_at=created_at,
-                        file_count=int(md.get("file_count") or 0),
-                        total_size=int(getattr(fdoc, 'length', 0) or 0),
-                        original_name=md.get("original_name") or (getattr(fdoc, 'filename', None) or skill_id),
-                        file_name=getattr(fdoc, 'filename', None) or "",
-                        metadata=md,
-                    ))
+                    info = self._doc_to_skill_info(fdoc, uid)
+                    if info is not None:
+                        results.append(info)
                 except Exception:
                     continue
             results.sort(key=lambda s: s.created_at, reverse=True)
@@ -1414,8 +1476,29 @@ class SkillManager:
             logger.warning(f"list_skills failed: {e}")
         return results
 
+    def get_skill_info(self, user_id: int, skill_id: str) -> Optional[SkillInfo]:
+        """מטא-דאטה של סקיל בודד בשאילתה ממוקדת (בלי סריקת כל הסקילים ובלי משיכת bytes)."""
+        uid = self._normalize_user_id(user_id)
+        if uid is None or not skill_id:
+            return None
+        try:
+            fs = self._get_skills_gridfs()
+            if fs is None:
+                return None
+            for fdoc in fs.find({"metadata.user_id": uid, "metadata.skill_id": skill_id}):
+                info = self._doc_to_skill_info(fdoc, uid)
+                if info is not None:
+                    return info
+            return None
+        except Exception as e:
+            logger.warning(f"get_skill_info failed: {e}")
+            return None
+
     def get_skill_bytes(self, user_id: int, skill_id: str) -> Optional[bytes]:
         """מחזיר את ה-bytes המדויקים של הסקיל (אחרי אימות בעלות), או None אם לא נמצא/לא שייך."""
+        uid = self._normalize_user_id(user_id)
+        if uid is None:
+            return None
         try:
             fs = self._get_skills_gridfs()
             if fs is None:
@@ -1425,7 +1508,7 @@ class SkillManager:
                 owner = md.get("user_id")
                 if isinstance(owner, str) and owner.isdigit():
                     owner = int(owner)
-                if owner != user_id:
+                if owner != uid:
                     continue
                 return fs.get(fdoc._id).read()
             return None
@@ -1436,17 +1519,22 @@ class SkillManager:
     def delete_skills(self, user_id: int, skill_ids: List[str]) -> Dict[str, Any]:
         """מוחק סקילים לפי skill_id (רק של המשתמש הנוכחי). מחזיר {deleted, errors}."""
         result: Dict[str, Any] = {"deleted": 0, "errors": []}
+        uid = self._normalize_user_id(user_id)
+        if uid is None:
+            result["errors"].append("invalid user_id")
+            return result
         try:
             fs = self._get_skills_gridfs()
             if fs is None:
                 result["errors"].append("GridFS 'skills' unavailable")
                 return result
             wanted = set(skill_ids or [])
-            for fdoc in list(fs.find({"metadata.user_id": user_id})):
+            if not wanted:
+                return result
+            # סינון כבר ב-DB (בעלים + skill_id) — בלי לסרוק את כל הסקילים של המשתמש בפייתון
+            query = {"metadata.user_id": uid, "metadata.skill_id": {"$in": list(wanted)}}
+            for fdoc in list(fs.find(query)):
                 try:
-                    md = getattr(fdoc, 'metadata', None) or {}
-                    if md.get("skill_id") not in wanted:
-                        continue
                     fs.delete(fdoc._id)
                     result["deleted"] += 1
                 except Exception as e:

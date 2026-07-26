@@ -3576,44 +3576,36 @@ class CodeKeeperBot:
                 context.user_data.pop('waiting_for_paste_filename', None)
                 context.user_data.pop('paste_content', None)
                 return False
-            # זרימת הוספת הערה לגיבוי (משותפת ל-GitHub/Backup)
+            # זרימת הוספת הערה — מנגנון גנרי משותף לגיבוי ולסקיל (נבדלים רק ביעד כפתור החזרה)
+            async def _handle_note_input(entity_id: str, back_cb: str) -> bool:
+                try:
+                    from database import db
+                    # קריאת DB חוסמת — רצה ב-thread כדי לא לחסום את לולאת האירועים
+                    ok = await asyncio.to_thread(
+                        db.save_backup_note, update.effective_user.id, entity_id, (text or '')[:1000]
+                    )
+                    if ok:
+                        await update.message.reply_text(
+                            "✅ ההערה נשמרה!",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"{back_cb}:{entity_id}")]])
+                        )
+                        # מנע הודעת "נראה שזה קטע קוד!" עבור ההודעה הזו
+                        context.user_data['suppress_code_hint_once'] = True
+                    else:
+                        await update.message.reply_text("❌ שמירת ההערה נכשלה")
+                except Exception:
+                    logger.exception("שמירת הערה נכשלה")
+                    await update.message.reply_text("❌ שמירת ההערה נכשלה, נסה שוב מאוחר יותר")
+                return True
+
             if context.user_data.get('waiting_for_backup_note_for'):
-                backup_id = context.user_data.pop('waiting_for_backup_note_for')
-                try:
-                    from database import db
-                    ok = db.save_backup_note(update.effective_user.id, backup_id, (text or '')[:1000])
-                    if ok:
-                        await update.message.reply_text(
-                            "✅ ההערה נשמרה!",
-                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"backup_details:{backup_id}")]])
-                        )
-                        # מנע הודעת "נראה שזה קטע קוד!" עבור ההודעה הזו
-                        context.user_data['suppress_code_hint_once'] = True
-                    else:
-                        await update.message.reply_text("❌ שמירת ההערה נכשלה")
-                except Exception:
-                    logger.exception("שמירת הערה נכשלה")
-                    await update.message.reply_text("❌ שמירת ההערה נכשלה, נסה שוב מאוחר יותר")
-                return True
-            # זרימת הוספת הערה לסקיל (אותו מנגנון גנרי כמו הגיבויים, עם skill_id)
+                return await _handle_note_input(
+                    context.user_data.pop('waiting_for_backup_note_for'), "backup_details"
+                )
             if context.user_data.get('waiting_for_skill_note_for'):
-                skill_id = context.user_data.pop('waiting_for_skill_note_for')
-                try:
-                    from database import db
-                    ok = db.save_backup_note(update.effective_user.id, skill_id, (text or '')[:1000])
-                    if ok:
-                        await update.message.reply_text(
-                            "✅ ההערה נשמרה!",
-                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"skill_details:{skill_id}")]])
-                        )
-                        # מנע הודעת "נראה שזה קטע קוד!" עבור ההודעה הזו
-                        context.user_data['suppress_code_hint_once'] = True
-                    else:
-                        await update.message.reply_text("❌ שמירת ההערה נכשלה")
-                except Exception:
-                    logger.exception("שמירת הערה נכשלה")
-                    await update.message.reply_text("❌ שמירת ההערה נכשלה, נסה שוב מאוחר יותר")
-                return True
+                return await _handle_note_input(
+                    context.user_data.pop('waiting_for_skill_note_for'), "skill_details"
+                )
             # קלט נתיב יעד ידני לסביבת העלאה (upload_folder_custom)
             if context.user_data.get('waiting_for_upload_folder'):
                 # ניתוב טקסט למטפל טקסטים של GitHub (סמנטי ונקי)

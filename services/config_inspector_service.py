@@ -1462,6 +1462,20 @@ class ConfigService:
             description="נתיב גיבויים בלוקאל (אם BACKUPS_STORAGE=fs)",
             category="backups",
         ),
+        "SKILLS_MAX_PER_USER": ConfigDefinition(
+            key="SKILLS_MAX_PER_USER",
+            services=("bot",),
+            default="100",
+            description="מכסת מספר סקילים מרבי למשתמש (0 = בלי מגבלה); לסקילים אין retention",
+            category="limits",
+        ),
+        "SKILLS_MAX_TOTAL_BYTES": ConfigDefinition(
+            key="SKILLS_MAX_TOTAL_BYTES",
+            services=("bot",),
+            default="1073741824",
+            description="מכסת נפח סקילים כוללת למשתמש בבייטים (0 = בלי מגבלה); ברירת מחדל 1GB",
+            category="limits",
+        ),
         "ENCRYPTION_KEY": ConfigDefinition(
             key="ENCRYPTION_KEY",
             services=("webapp", "bot"),

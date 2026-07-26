@@ -9,6 +9,8 @@
 import io
 import zipfile
 
+import pytest
+
 from file_manager import SkillManager, BackupManager
 
 
@@ -36,19 +38,26 @@ class _FakeGridFS:
         return _id
 
     @staticmethod
-    def _match(d, query):
+    def _match_value(actual, expected):
+        # תמיכה מינימלית באופרטור $in (בשימוש delete_skills); אחרת השוואת שוויון רגילה
+        if isinstance(expected, dict) and "$in" in expected:
+            return actual in (expected.get("$in") or [])
+        return actual == expected
+
+    @classmethod
+    def _match(cls, d, query):
         for k, v in (query or {}).items():
             if k == "filename":
-                if d.filename != v:
+                if not cls._match_value(d.filename, v):
                     return False
             elif k == "metadata.user_id":
-                if (d.metadata or {}).get("user_id") != v:
+                if not cls._match_value((d.metadata or {}).get("user_id"), v):
                     return False
             elif k == "metadata.skill_id":
-                if (d.metadata or {}).get("skill_id") != v:
+                if not cls._match_value((d.metadata or {}).get("skill_id"), v):
                     return False
             elif k == "metadata.backup_id":
-                if (d.metadata or {}).get("backup_id") != v:
+                if not cls._match_value((d.metadata or {}).get("backup_id"), v):
                     return False
         return True
 
@@ -149,16 +158,20 @@ def test_delete_skill_only_own(monkeypatch):
     assert mgr.get_skill_bytes(42, sid) is None
 
 
-def _real_pymongo_db():
-    """Database אמיתי של pymongo בלי שרת (connect=False) — הבנאי לא מתחבר.
+@pytest.fixture
+def real_pymongo_db():
+    """Database אמיתי של pymongo בלי שרת (connect=False) — הבנאי לא מתחבר, וה-client נסגר ב-teardown.
 
     זהו בדיוק האובייקט ש-get_mongo_db() מחזיר בבוט המחובר, וה-bool() שלו זורק
     NotImplementedError — מה שהפיל את _get_skills_gridfs לפני התיקון.
     """
-    import pytest
     pymongo = pytest.importorskip("pymongo")
-    client = pymongo.MongoClient("mongodb://localhost:27017", connect=False)
-    return client["codebot_test"]
+    # timeout קצרצר: אין שרת אמיתי, ופעולה שדורשת חיבור (כמו create_index) צריכה להיכשל מיד
+    client = pymongo.MongoClient("mongodb://localhost:27017", connect=False, serverSelectionTimeoutMS=10)
+    try:
+        yield client["codebot_test"]
+    finally:
+        client.close()
 
 
 class _FakeFacade:
@@ -169,30 +182,28 @@ class _FakeFacade:
         return self._db
 
 
-def test_get_skills_gridfs_with_real_pymongo_db(monkeypatch):
+def test_get_skills_gridfs_with_real_pymongo_db(monkeypatch, real_pymongo_db):
     """רגרסיה: get_mongo_db מחזיר Database אמיתי → _get_skills_gridfs חייב GridFS, לא None.
 
     לפני התיקון היה כאן ``if not mongo_db`` שזרק NotImplementedError (pymongo לא תומך
     ב-bool על Database) → נבלע ב-except → הוחזר None → "GridFS 'skills' לא זמין" בפרודקשן.
     שאר הטסטים מוקים את _get_skills_gridfs ולכן פספסו את זה — כאן קוראים למתודה האמיתית.
     """
-    import pytest
     gridfs = pytest.importorskip("gridfs")
-    db = _real_pymongo_db()
-    monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(db))
+    monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(real_pymongo_db))
+    # אין שרת בטסט — מדלגים על יצירת האינדקסים (נבדק כאן ה-bool fix, לא האינדקסים)
+    monkeypatch.setattr(SkillManager, "_indexes_ensured", True)
 
     fs = SkillManager()._get_skills_gridfs()
     assert fs is not None, "אמור להחזיר GridFS על Database מחובר — לא None"
     assert isinstance(fs, gridfs.GridFS)
 
 
-def test_get_gridfs_backups_with_real_pymongo_db(monkeypatch):
+def test_get_gridfs_backups_with_real_pymongo_db(monkeypatch, real_pymongo_db):
     """אותה רגרסיה עבור BackupManager._get_gridfs (מוסתר בפרודקשן ע"י BACKUPS_STORAGE=fs)."""
-    import pytest
     gridfs = pytest.importorskip("gridfs")
     monkeypatch.setenv("BACKUPS_STORAGE", "mongo")  # אחרת מחזיר None עוד לפני get_mongo_db
-    db = _real_pymongo_db()
-    monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(db))
+    monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(real_pymongo_db))
 
     fs = BackupManager()._get_gridfs()
     assert fs is not None
@@ -203,6 +214,52 @@ def test_get_skills_gridfs_returns_none_without_db(monkeypatch):
     """כשאין חיבור (get_mongo_db מחזיר None) עדיין מחזירים None בשקט — בלי חריגה."""
     monkeypatch.setattr("file_manager.get_files_facade", lambda: _FakeFacade(None))
     assert SkillManager()._get_skills_gridfs() is None
+
+
+def test_skill_quota_count_enforced(monkeypatch):
+    """מכסת מספר סקילים (SKILLS_MAX_PER_USER): שמירה נדחית כשמגיעים לתקרה."""
+    monkeypatch.setenv("SKILLS_MAX_PER_USER", "2")
+    monkeypatch.setenv("SKILLS_MAX_TOTAL_BYTES", "0")  # בלי מגבלת נפח בטסט הזה
+    fake = _FakeGridFS()
+    mgr = _mgr_with_fake(monkeypatch, fake)
+    assert mgr.save_skill_bytes(_zip_bytes(), {"user_id": 5, "original_name": "a.zip"})
+    assert mgr.save_skill_bytes(_zip_bytes(), {"user_id": 5, "original_name": "b.zip"})
+    assert mgr.save_skill_bytes(_zip_bytes(), {"user_id": 5, "original_name": "c.zip"}) is None
+    assert len(mgr.list_skills(5)) == 2
+
+
+def test_skill_quota_bytes_enforced(monkeypatch):
+    """מכסת נפח כוללת (SKILLS_MAX_TOTAL_BYTES): שמירה שחורגת מסך הבייטים נדחית."""
+    monkeypatch.setenv("SKILLS_MAX_PER_USER", "0")
+    raw = _zip_bytes()
+    monkeypatch.setenv("SKILLS_MAX_TOTAL_BYTES", str(len(raw) + 10))  # מקום לסקיל אחד בלבד
+    fake = _FakeGridFS()
+    mgr = _mgr_with_fake(monkeypatch, fake)
+    assert mgr.save_skill_bytes(raw, {"user_id": 6, "original_name": "a.zip"})
+    assert mgr.save_skill_bytes(raw, {"user_id": 6, "original_name": "b.zip"}) is None
+    assert len(mgr.list_skills(6)) == 1
+
+
+def test_user_id_string_normalized_in_queries(monkeypatch):
+    """user_id שמגיע כמחרוזת מנורמל ל-int בכל המתודות (השמירה תמיד כ-int)."""
+    fake = _FakeGridFS()
+    mgr = _mgr_with_fake(monkeypatch, fake)
+    sid = mgr.save_skill_bytes(_zip_bytes(), {"user_id": 8, "original_name": "s.zip"})
+    assert len(mgr.list_skills("8")) == 1
+    assert mgr.get_skill_info("8", sid) is not None
+    assert mgr.get_skill_bytes("8", sid) is not None
+    assert mgr.delete_skills("8", [sid])["deleted"] == 1
+
+
+def test_get_skill_info_targeted(monkeypatch):
+    """get_skill_info מחזיר סקיל בודד בשאילתה ממוקדת, ו-None למשתמש זר/מזהה לא קיים."""
+    fake = _FakeGridFS()
+    mgr = _mgr_with_fake(monkeypatch, fake)
+    sid = mgr.save_skill_bytes(_zip_bytes(), {"user_id": 9, "original_name": "mine.zip"})
+    info = mgr.get_skill_info(9, sid)
+    assert info is not None and info.skill_id == sid and info.original_name == "mine.zip"
+    assert mgr.get_skill_info(999, sid) is None  # לא של המשתמש
+    assert mgr.get_skill_info(9, "no-such-skill") is None
 
 
 def test_cleanup_backups_does_not_touch_skills(monkeypatch, tmp_path):

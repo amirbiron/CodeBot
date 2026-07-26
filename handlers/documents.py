@@ -1009,9 +1009,10 @@ class DocumentHandler:
 
             original_name = document.file_name or "upload.zip"
 
-            # ניקוי עצל: קבצים ממתינים ישנים (שלא נבחרו) — גם על הדיסק וגם ב-user_data
+            # ניקוי עצל: קבצים ממתינים ישנים (שלא נבחרו) — גם על הדיסק וגם ב-user_data.
+            # הסריקה סינכרונית (glob+stat) — רצה ב-thread כדי לא לחסום את לולאת האירועים.
             try:
-                cleanup_stale_pending_zips()
+                await asyncio.to_thread(cleanup_stale_pending_zips)
             except Exception:
                 pass
             pending = context.user_data.setdefault("pending_zip", {})
@@ -1036,7 +1037,8 @@ class DocumentHandler:
 
             token = _uuid.uuid4().hex
             try:
-                path = stash_pending_zip_bytes(raw_bytes, token)
+                # כתיבה לדיסק — ב-thread כדי לא לחסום את לולאת האירועים
+                path = await asyncio.to_thread(stash_pending_zip_bytes, raw_bytes, token)
             except Exception as err:
                 logger.warning("Failed to stash pending ZIP: %s", err)
                 return False
@@ -1053,14 +1055,20 @@ class DocumentHandler:
                     InlineKeyboardButton("📦 גיבוי", callback_data=f"zip_route_backup:{token}"),
                 ]
             ])
-            await update.message.reply_text(
-                f"📦 קיבלתי קובץ ZIP: <code>{html_escape(original_name)}</code>\n"
-                "איך לשמור אותו?\n\n"
-                "📝 <b>סקיל</b> — אחסון קבוע, בדיוק כמו שהוא (byte-for-byte), בלי מחיקה אוטומטית.\n"
-                "📦 <b>גיבוי</b> — נשמר לרשימת הגיבויים (כפוף למדיניות ניקוי).",
-                reply_markup=keyboard,
-                parse_mode=ParseMode.HTML,
-            )
+            try:
+                await update.message.reply_text(
+                    f"📦 קיבלתי קובץ ZIP: <code>{html_escape(original_name)}</code>\n"
+                    "איך לשמור אותו?\n\n"
+                    "📝 <b>סקיל</b> — אחסון קבוע, בדיוק כמו שהוא (byte-for-byte), בלי מחיקה אוטומטית.\n"
+                    "📦 <b>גיבוי</b> — נשמר לרשימת הגיבויים (כפוף למדיניות ניקוי).",
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                # בלי כפתורים אין דרך לממש את הבחירה — מנקים את הרשומה והקובץ שנוצרו עבור ה-ZIP הזה
+                cleanup_pending_zip(path)
+                pending.pop(token, None)
+                raise
             return True
         except Exception:
             pass

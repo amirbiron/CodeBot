@@ -1685,6 +1685,8 @@ def stash_pending_zip_bytes(raw: bytes, token: str) -> str:
     """
     if not token or not _SAFE_TOKEN_RE.match(token):
         raise ValueError("invalid pending-zip token")
+    # בטוח מ-path traversal: _SAFE_TOKEN_RE מתיר רק [A-Za-z0-9_-] (בלי '/', '\' או '..'),
+    # ולכן הנתיב המורכב כאן נשאר תמיד בתוך _pending_zip_dir()
     path = _pending_zip_dir() / f"{token}.bin"
     with open(path, "wb") as f:
         f.write(raw)

@@ -877,6 +877,22 @@ def _cleanup_zip_state(context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop(key, None)
 
 
+def _count_and_save_skill(raw: bytes, user_id: int, original_name: str):
+    """סופר קבצים ב-ZIP ושומר כסקיל — הכל בפעולה אחת שרצה ב-thread (לא חוסם את ה-event loop).
+
+    הספירה לתצוגה בלבד (קריאה; אינה משנה את ה-bytes הנשמרים); בכשל ספירה נופלים ל-0.
+    """
+    file_count = 0
+    try:
+        import zipfile as _zipfile
+        with _zipfile.ZipFile(BytesIO(raw)) as _zf:
+            file_count = sum(1 for n in _zf.namelist() if not n.endswith("/"))
+    except Exception:
+        file_count = 0
+    md = {"user_id": user_id, "original_name": original_name, "file_count": file_count}
+    return skill_manager.save_skill_bytes(raw, md)
+
+
 async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:
     """מטפל בבחירת יעד ל-ZIP שהועלה: '📝 סקיל' (אחסון קבוע as-is) או '📦 גיבוי' (רשימת הגיבויים).
 
@@ -908,16 +924,7 @@ async def _handle_zip_route(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     original_name = entry.get("original_name") or "upload.zip"
 
     if data.startswith("zip_route_skill:"):
-        # ספירת קבצים לתצוגה בלבד (קריאה; אינה משנה את ה-bytes הנשמרים)
-        file_count = 0
-        try:
-            import zipfile as _zipfile
-            with _zipfile.ZipFile(BytesIO(raw)) as _zf:
-                file_count = sum(1 for n in _zf.namelist() if not n.endswith("/"))
-        except Exception:
-            file_count = 0
-        md = {"user_id": user_id, "original_name": original_name, "file_count": file_count}
-        skill_id = await asyncio.to_thread(skill_manager.save_skill_bytes, raw, md)
+        skill_id = await asyncio.to_thread(_count_and_save_skill, raw, user_id, original_name)
         if skill_id:
             # ניקוי רק לאחר שמירה מוצלחת — בכשל שומרים את ה-token/bytes כדי לאפשר retry
             cleanup_pending_zip(entry.get("path", ""))

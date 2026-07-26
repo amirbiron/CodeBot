@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import contextlib
 import logging
 from io import BytesIO
 from typing import Optional
@@ -61,8 +62,8 @@ class SkillMenuHandler:
         return await asyncio.to_thread(skill_manager.list_skills, user_id)
 
     async def _find_skill(self, user_id: int, skill_id: str):
-        skills = await self._get_skills(user_id)
-        return next((s for s in skills if s.skill_id == skill_id), None)
+        # שאילתה ממוקדת לפי skill_id (בלי לסרוק את כל רשימת הסקילים של המשתמש)
+        return await asyncio.to_thread(skill_manager.get_skill_info, user_id, skill_id)
 
     async def _show_skills_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                 page: Optional[int] = None):
@@ -190,6 +191,11 @@ class SkillMenuHandler:
 
     async def send_rating_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE, skill_id: str):
         """שולח הודעת תיוג עם 3 כפתורים עבור סקיל מסוים."""
+        query = update.callback_query
+        if query is not None:
+            # מענה מוקדם ל-callback — עוצר את הספינר גם אם שליחת ההודעה תיכשל
+            with contextlib.suppress(Exception):
+                await query.answer()
         try:
             keyboard = [
                 [InlineKeyboardButton("🏆 מצוין", callback_data=f"skill_rate:{skill_id}:excellent")],
@@ -202,7 +208,9 @@ class SkillMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
         except Exception:
-            pass
+            logger.exception("שליחת תפריט תיוג נכשלה")
+            if query is not None:
+                await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בפתיחת התיוג")
 
     async def _ask_skill_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE, skill_id: str):
         """מבקש מהמשתמש להזין הערה לסקיל; הטקסט נתפס ב-main.handle_text_message."""
@@ -253,6 +261,7 @@ class SkillMenuHandler:
         elif data.startswith("skill_add_note:"):
             await self._ask_skill_note(update, context, data.split(":", 1)[1])
         elif data.startswith("skill_delete_one_confirm:"):
+            await query.answer()
             skill_id = data.split(":", 1)[1]
             kb = [
                 [InlineKeyboardButton("✅ אישור מחיקה", callback_data=f"skill_delete_one_execute:{skill_id}")],
@@ -262,6 +271,7 @@ class SkillMenuHandler:
                 query, "האם למחוק לצמיתות את הסקיל?", reply_markup=InlineKeyboardMarkup(kb)
             )
         elif data.startswith("skill_delete_one_execute:"):
+            await query.answer()
             skill_id = data.split(":", 1)[1]
             try:
                 res = await asyncio.to_thread(skill_manager.delete_skills, user_id, [skill_id])
@@ -292,6 +302,8 @@ class SkillMenuHandler:
                 facade = _get_files_facade()
                 ok = bool(facade.save_backup_rating(user_id, s_id, rating_value)) if facade is not None else False
                 if ok:
+                    # מענה לפני עריכה (כלל safe_edit); בכשלים נשארים ה-alerts ולכן אין answer מוקדם גורף
+                    await query.answer()
                     await TelegramUtils.safe_edit_message_text(
                         query,
                         f"✅ התיוג נשמר: {rating_value}",
