@@ -282,11 +282,16 @@ safe_rmrf() {
 ### כללים
 - **אין להריץ** קוד בטופ-לבל בזמן build (importים חייבים להיות בטוחים)
 - RTD נחשב נכשל על אזהרות (`fail_on_warning: true`) – שמור 0 warnings
+- **כל עמוד חדש חייב להירשם ב-`docs/index.rst`** (ה-master document) בתוך `toctree` מתאים.
+  עמוד שלא רשום מייצר אזהרת `document isn't included in any toctree` – ומכיוון ש-RTD נכשל
+  על אזהרות, זה **מפיל את הבילד**. אם עמוד לא אמור להתפרסם – הוסף אותו ל-`exclude_patterns`
+  ב-`docs/conf.py` במקום להשאיר אותו "יתום"
 - השתמש ב-`:noindex:` בעמודי סקירה חופפים: api, database, handlers, services, configuration
 
 ### הגדרות
 - `autodoc_mock_imports`: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations
-- `docs/examples.rst` מוחרג עד שהעמוד יתווסף ל-toctree (ואז הסר מה-exclude)
+- `exclude_patterns` (ב-`docs/conf.py`) מרכז את העמודים שאינם ב-toctree בכוונה (למשל כפילויות
+  `.md`/`.rst`). לפני שמוסיפים החרגה – ודא שהעמוד באמת לא אמור להיות בתוכן העניינים
 
 ---
 
