@@ -20,6 +20,8 @@ from http_sync import request as _http_sync_request
 import errno
 from urllib.parse import urlparse
 
+from i18n.strings_he import BTN_BACKUP_ZIPS
+
 # Shim: expose a 'requests' object for tests and route GETs through it.
 # This allows monkeypatching gh.requests.get in tests while still using
 # our pooled http client under the hood.
@@ -1497,7 +1499,7 @@ class GitHubMenuHandler:
                 keyboard = [
                     [InlineKeyboardButton("✍️ הדבק קוד", callback_data="upload_paste_code")],
                     [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
-                    [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
+                    [InlineKeyboardButton(BTN_BACKUP_ZIPS, callback_data="gh_upload_cat:zips")],
                     [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
                     [InlineKeyboardButton("📁 שאר הקבצים", callback_data="gh_upload_cat:other")],
                     [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
@@ -1528,7 +1530,7 @@ class GitHubMenuHandler:
                 keyboard = [
                     [InlineKeyboardButton("✍️ הדבק קוד", callback_data="upload_paste_code")],
                     [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
-                    [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
+                    [InlineKeyboardButton(BTN_BACKUP_ZIPS, callback_data="gh_upload_cat:zips")],
                     [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
                     [InlineKeyboardButton("📁 שאר הקבצים", callback_data="gh_upload_cat:other")],
                     [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
@@ -1579,12 +1581,12 @@ class GitHubMenuHandler:
                     backup_handler = BackupMenuHandler()
                     context.bot_data['backup_handler'] = backup_handler
                 except Exception as e:
-                    await query.edit_message_text(f"❌ רכיב גיבוי לא זמין: {e}")
+                    await TelegramUtils.safe_edit_message_text(query, f"❌ רכיב גיבוי לא זמין: {e}")
                     return
             try:
                 await backup_handler._show_backups_list(update, context, page=1)
             except Exception as e:
-                await query.edit_message_text(f"❌ שגיאה בטעינת קבצי ZIP: {e}")
+                await TelegramUtils.safe_edit_message_text(query, f"❌ שגיאה בטעינת קבצי גיבוי: {e}")
         elif query.data.startswith("gh_upload_zip_browse:"):
             # עיון בקובץ ZIP שמור ובחירת קובץ מתוכו להעלאה לריפו
             backup_id = query.data.split(":", 1)[1]

@@ -57,6 +57,14 @@ def test_file_utils_extension_and_mime():
     assert FileUtils.get_mime_type("note.txt") == "text/plain"
 
 
+def test_tg_emoji_with_and_without_id():
+    """tg_emoji: עם ID → תג tg-emoji עם fallback בפנים; בלי ID (None/ריק) → ה-fallback עצמו."""
+    from utils import tg_emoji
+    assert tg_emoji("5069094945915142952", "📁") == '<tg-emoji emoji-id="5069094945915142952">📁</tg-emoji>'
+    assert tg_emoji(None, "📁") == "📁"
+    assert tg_emoji("", "📁") == "📁"
+
+
 def test_normalize_code_removes_invisibles_and_normalizes_newlines():
     # Compose a string with BOM, CRLF, zero-width space, directional marks, NBSP, and trailing spaces
     s = "\ufeffline1\r\nline\u200B2\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\rend\u00A0 \t\r\n"

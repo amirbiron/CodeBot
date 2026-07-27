@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from services import backup_service as backup_manager
 from handlers.pagination import build_pagination_row
+from i18n.strings_he import BTN_BACKUP_ZIPS
 
 logger = logging.getLogger(__name__)
 
@@ -627,7 +628,7 @@ class BackupMenuHandler:
                     id_to_version[getattr(b, 'backup_id', '')] = idx
         except Exception:
             id_to_version = {}
-        lines = [f"📦 קבצי ZIP שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+        lines = [f"{BTN_BACKUP_ZIPS} שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
         keyboard = []
         delete_mode = bool(context.user_data.get("backup_delete_mode"))
         selected = set(context.user_data.get("backup_delete_selected", set()))

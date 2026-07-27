@@ -296,6 +296,16 @@ async def test_handle_document_stores_zip_copy(handler_env):
     # ZIP שהועלה ללא מצב מיוחד: לא נשמר אוטומטית, אלא מציג בחירה סקיל/גיבוי (בחירה מפורשת)
     assert not handler_env["backup"].saved_bytes, "ZIP לא אמור להישמר אוטומטית — נדרשת בחירה מפורשת"
     assert any("ZIP" in text for text, _ in replies.messages)
+    # נעילת הנוסח החדש: "איפה לשמור" (יעד, לא שיטה) + תווית הסקיל עם 🧩
+    assert any("איפה לשמור אותו?" in text for text, _ in replies.messages)
+    button_labels = [
+        btn.text
+        for _, kw in replies.messages if kw.get("reply_markup")
+        for row in kw["reply_markup"].inline_keyboard
+        for btn in row
+    ]
+    assert "🧩 סקיל" in button_labels
+    assert "📦 גיבוי" in button_labels
     markups = [kw.get("reply_markup") for _, kw in replies.messages if kw.get("reply_markup")]
     assert markups, "צפוי reply_markup עם כפתורי בחירה סקיל/גיבוי"
     callbacks = [
@@ -315,6 +325,103 @@ async def test_handle_document_stores_zip_copy(handler_env):
     assert not any(evt[0] == "file_read_unreadable" for evt in handler_env["events"] if evt), (
         "לא אמורה לצאת התראה על קובץ לא קריא לאחר קבלת ZIP"
     )
+
+
+@pytest.mark.asyncio
+async def test_handle_document_zip_custom_emoji_fallback(handler_env, monkeypatch):
+    """נתיב ה-fallback של האימוג'י המותאם: טלגרם דוחה את ה-tg-emoji → נשלחת שוב עם 📁.
+
+    ה-ZIP חייב להישאר במצב ממתין לבחירה (pending_zip לא מנוקה), והדגל החד-פעמי מסומן
+    רק אחרי שה-fallback הצליח.
+    """
+    from telegram.error import BadRequest
+    from config import config as bot_config
+    from handlers import documents as documents_mod
+
+    monkeypatch.setattr(documents_mod, "_custom_emoji_warned", False)
+    monkeypatch.setattr(bot_config, "CUSTOM_EMOJI_ZIP_ID", "5069094945915142952")
+
+    zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w") as zf:
+        zf.writestr("inner.txt", "content")
+    payload = zip_bytes.getvalue()
+
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "emoji.zip",
+        "file_size": len(payload),
+        "file_id": "fid-zip-emoji",
+        "mime_type": "application/zip",
+    })
+
+    # מדמה את טלגרם: דוחה הודעה עם custom emoji entity, מקבלת את השאר
+    original_reply = update.message.reply_text
+
+    async def rejecting_reply(text, **kwargs):
+        if "<tg-emoji" in text:
+            raise BadRequest("Can't parse entities: invalid custom emoji identifier")
+        return await original_reply(text, **kwargs)
+
+    update.message.reply_text = rejecting_reply
+    context = types.SimpleNamespace(bot=bot, user_data={}, bot_data={})
+
+    await handler_env["handler"].handle_document(update, context)
+
+    # ההודעה שהתקבלה בפועל היא ה-fallback: מתחילה ב-📁 ובלי תג tg-emoji
+    assert replies.messages, "צפויה הודעת fallback אחרי דחיית האימוג'י המותאם"
+    sent_texts = [text for text, _ in replies.messages]
+    assert any(t.startswith("📁") for t in sent_texts)
+    assert all("<tg-emoji" not in t for t in sent_texts)
+    # ה-ZIP נשאר ממתין לבחירת המשתמש — הדחייה לא ניקתה אותו
+    assert context.user_data.get("pending_zip"), "pending_zip חייב לשרוד את ה-fallback"
+    # הדגל סומן רק כי ה-fallback הצליח
+    assert documents_mod._custom_emoji_warned is True
+    # כפתורי הבחירה קיימים כרגיל
+    callbacks = [
+        btn.callback_data
+        for _, kw in replies.messages if kw.get("reply_markup")
+        for row in kw["reply_markup"].inline_keyboard
+        for btn in row
+    ]
+    assert any(cb.startswith("zip_route_skill:") for cb in callbacks)
+    assert any(cb.startswith("zip_route_backup:") for cb in callbacks)
+    # ניקוי הקבצים שנוצרו ב-tmp
+    from utils import cleanup_pending_zip
+    for _meta in (context.user_data.get("pending_zip") or {}).values():
+        cleanup_pending_zip((_meta or {}).get("path", ""))
+
+
+@pytest.mark.asyncio
+async def test_handle_document_zip_custom_emoji_success_uses_tag(handler_env, monkeypatch):
+    """המסלול החיובי: עם ID מוגדר ושליחה מוצלחת — ההודעה מכילה את תג ה-tg-emoji."""
+    from config import config as bot_config
+    from handlers import documents as documents_mod
+
+    monkeypatch.setattr(documents_mod, "_custom_emoji_warned", False)
+    monkeypatch.setattr(bot_config, "CUSTOM_EMOJI_ZIP_ID", "5069094945915142952")
+
+    zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w") as zf:
+        zf.writestr("inner.txt", "content")
+    payload = zip_bytes.getvalue()
+
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "emoji-ok.zip",
+        "file_size": len(payload),
+        "file_id": "fid-zip-emoji-ok",
+        "mime_type": "application/zip",
+    })
+    context = types.SimpleNamespace(bot=bot, user_data={}, bot_data={})
+
+    await handler_env["handler"].handle_document(update, context)
+
+    assert any('<tg-emoji emoji-id="5069094945915142952">📁</tg-emoji>' in t for t, _ in replies.messages)
+    # שליחה מוצלחת עם האימוג'י — הדגל לא מסומן (אין דחייה)
+    assert documents_mod._custom_emoji_warned is False
+    from utils import cleanup_pending_zip
+    for _meta in (context.user_data.get("pending_zip") or {}).values():
+        cleanup_pending_zip((_meta or {}).get("path", ""))
 
 
 @pytest.mark.asyncio

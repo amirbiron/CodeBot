@@ -17,6 +17,7 @@ from typing import Any, Awaitable, Callable, Iterable, List, Optional, Protocol,
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 # שימוש ב-FilesFacade דרך Composition Root כדי להימנע מתלות ישירה ב-DB
@@ -26,6 +27,9 @@ from html import escape as html_escape
 
 
 logger = logging.getLogger(__name__)
+
+# לוג חד-פעמי לתהליך כשטלגרם דוחה את האימוג'י המותאם (תנאי פרימיום/ID לא תקף)
+_custom_emoji_warned = False
 
 # מגבלות ייבוא ZIP — הגנה מפני "פצצת ZIP" (דקומפרסיה מתפוצצת) בעת בניית ריפו מקובץ.
 # הבדיקות נעשות מול הגודל הלא-דחוס (ZipInfo.file_size) לפני קריאת התוכן לזיכרון.
@@ -1003,8 +1007,10 @@ class DocumentHandler:
                 stash_pending_zip_bytes,
                 cleanup_pending_zip,
                 cleanup_stale_pending_zips,
+                tg_emoji,
                 PENDING_ZIP_TTL_SECONDS,
             )
+            from config import config
             import uuid as _uuid
 
             original_name = document.file_name or "upload.zip"
@@ -1049,21 +1055,48 @@ class DocumentHandler:
                 "ts": int(datetime.now(timezone.utc).timestamp()),
             }
 
+            # כפתורים: אימוג'י רגיל בלבד — inline keyboard לא תומך ב-custom emoji entities
             keyboard = InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("📝 סקיל", callback_data=f"zip_route_skill:{token}"),
+                    InlineKeyboardButton("🧩 סקיל", callback_data=f"zip_route_skill:{token}"),
                     InlineKeyboardButton("📦 גיבוי", callback_data=f"zip_route_backup:{token}"),
                 ]
             ])
-            try:
-                await update.message.reply_text(
-                    f"📦 קיבלתי קובץ ZIP: <code>{html_escape(original_name)}</code>\n"
-                    "איך לשמור אותו?\n\n"
-                    "📝 <b>סקיל</b> — אחסון קבוע, בדיוק כמו שהוא (byte-for-byte), בלי מחיקה אוטומטית.\n"
-                    "📦 <b>גיבוי</b> — נשמר לרשימת הגיבויים (כפוף למדיניות ניקוי).",
-                    reply_markup=keyboard,
-                    parse_mode=ParseMode.HTML,
+
+            def _zip_prompt_text(icon: str) -> str:
+                return (
+                    f"{icon} קיבלתי קובץ ZIP: <code>{html_escape(original_name)}</code>\n"
+                    "איפה לשמור אותו?\n\n"
+                    "🧩 <b>בקטגוריית סקילים</b> — קטגוריה מיוחדת לשמירת סקילים בפורמט ZIP\n"
+                    "📦 <b>בקטגוריית גיבויים</b> — קטגוריה לשמירת Repo's מגיטהאב בפורמט ZIP "
+                    "(אפשר אחר כך לשחזר מהזיפ את כל הריפו בגיטהאב דרך הבוט - בלחיצה)"
                 )
+
+            try:
+                # אייקון ZIP מותאם (טלגרם פרימיום) — ה-ID מגיע מ-ENV בלבד; בלי ID נופלים ל-📁
+                custom_icon = tg_emoji(getattr(config, "CUSTOM_EMOJI_ZIP_ID", None), "📁")
+                try:
+                    await update.message.reply_text(
+                        _zip_prompt_text(custom_icon),
+                        reply_markup=keyboard,
+                        parse_mode=ParseMode.HTML,
+                    )
+                except BadRequest:
+                    # טלגרם דחתה את ההודעה — אם זה בגלל האימוג'י המותאם (תנאי פרימיום/ID
+                    # שנמחק), שולחים שוב עם האימוג'י הרגיל: המשתמש חייב לקבל את ההודעה.
+                    if custom_icon == "📁":
+                        raise  # אין אימוג'י מותאם בהודעה — הכשל ממקור אחר, אין טעם בניסיון זהה
+                    await update.message.reply_text(
+                        _zip_prompt_text("📁"),
+                        reply_markup=keyboard,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    # מסמנים ומלוגגים רק אחרי שה-fallback עבר — זו ההוכחה שהבעיה הייתה
+                    # האימוג'י (BadRequest ממקור אחר היה מפיל גם את השליחה הזו ומתגלגל הלאה)
+                    global _custom_emoji_warned
+                    if not _custom_emoji_warned:
+                        _custom_emoji_warned = True
+                        logger.warning("האימוג'י המותאם (CUSTOM_EMOJI_ZIP_ID) נדחה ע\"י טלגרם — נופלים לאימוג'י רגיל")
             except Exception:
                 # בלי כפתורים אין דרך לממש את הבחירה — מנקים את הרשומה והקובץ שנוצרו עבור ה-ZIP הזה
                 cleanup_pending_zip(path)
