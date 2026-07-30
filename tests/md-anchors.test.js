@@ -83,6 +83,54 @@ console.log('אינדוקס כותרות');
   check('העוגן שויך לכותרת השנייה (index=1)', r.anchors[0].headingIndex === 1, r.anchors);
 }
 
+console.log('כותרות Setext — חייבות להיספר כדי שהאינדקס יתאים ל-h1..h6 בפועל');
+{
+  // markdown-it מייצר כאן h1 (Setext) ואז h2 (ATX) — העוגן שייך לכותרת index=1
+  const r = extractExplicitAnchors('מבוא\n====\n\nטקסט.\n\n## תקשורת <a id="communication"></a>');
+  check('העוגן שויך לכותרת השנייה', r.anchors[0] && r.anchors[0].headingIndex === 1, r.anchors);
+  check('הכותרת נוקתה מהתגית', r.source.includes('## תקשורת') && !r.source.includes('<a id'), r.source);
+}
+{
+  // עוגן בתוך שורת הטקסט של כותרת Setext עצמה
+  const r = extractExplicitAnchors('תקשורת <a id="comm"></a>\n-------\n\nטקסט.');
+  check('עוגן בכותרת Setext נאסף', r.anchors[0] && r.anchors[0].ids[0] === 'comm', r.anchors);
+  check('index=0 לכותרת הראשונה', r.anchors[0].headingIndex === 0, r.anchors);
+  check('שורת הטקסט נוקתה', r.source.split('\n')[0] === 'תקשורת', r.source);
+}
+{
+  // עוגן בשורה נפרדת לפני כותרת Setext
+  const r = extractExplicitAnchors('<a name="intro"></a>\nמבוא\n====');
+  check('שויך לכותרת Setext', r.anchors[0] && r.anchors[0].ids[0] === 'intro', r.anchors);
+  check('שורת העוגן הוסרה', r.source === 'מבוא\n====', r.source);
+}
+{
+  // ערבוב: Setext, ATX, Setext — שלוש כותרות, העוגן על השלישית
+  const r = extractExplicitAnchors('A\n===\n\n## B\n\nC <a id="c"></a>\n---');
+  check('שלוש כותרות — העוגן על index=2', r.anchors[0].headingIndex === 2, r.anchors);
+}
+{
+  // setext=false (כש-lheading מנוטרל) — לא סופרים כותרות Setext
+  const r = extractExplicitAnchors('מבוא\n====\n\n## תקשורת <a id="x"></a>', { setext: false });
+  check('בלי Setext האינדקס הוא 0', r.anchors[0].headingIndex === 0, r.anchors);
+}
+
+console.log('Setext — הימנעות מזיהוי שגוי');
+{
+  // "---" אחרי שורה ריקה הוא קו מפריד (hr), לא כותרת
+  const r = extractExplicitAnchors('טקסט.\n\n---\n\n## כותרת <a id="k"></a>');
+  check('hr לא נספר ככותרת', r.anchors[0].headingIndex === 0, r.anchors);
+}
+{
+  // שורת הפרדה של טבלה אינה קו תחתון של Setext
+  const r = extractExplicitAnchors('| a | b |\n|---|---|\n| 1 | 2 |\n\n## כותרת <a id="t"></a>');
+  check('טבלה לא נספרת ככותרת', r.anchors[0].headingIndex === 0, r.anchors);
+}
+{
+  // פריט רשימה שאחריו --- אינו כותרת Setext
+  const r = extractExplicitAnchors('- פריט\n---\n\n## כותרת <a id="l"></a>');
+  check('פריט רשימה לא נספר ככותרת', r.anchors[0].headingIndex === 0, r.anchors);
+}
+
 console.log('סניטציה של מזהה');
 {
   check('סולמית מובילה מוסרת', sanitizeAnchorId('#intro') === 'intro');

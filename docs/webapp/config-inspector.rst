@@ -28,8 +28,10 @@ Config Inspector (סקירת משתני סביבה)
    GET /admin/config-inspector
 
 .. note::
-   הדף זמין **רק לאדמינים** (``@admin_required`` ב-``webapp/app.py``). ערכים רגישים
-   ממוסכים תמיד — ראו :ref:`config-inspector-sensitive`.
+   הדף זמין **רק לאדמינים** (``@admin_required`` ב-``webapp/app.py``). ערך מוצג ממוסך
+   (``********``) **רק אם הוא מסווג כרגיש** — לפי שם המשתנה או לפי סימון מפורש
+   ``sensitive=True``; כל שאר הערכים מוצגים כמות שהם. הסיווג מפורט ב-
+   :ref:`config-inspector-sensitive`, וחשוב לקרוא אותו לפני הוספת משתנה שהוא סוד.
 
 .. _config-inspector-two-pages:
 
@@ -130,7 +132,10 @@ Config Inspector (סקירת משתני סביבה)
 
 .. code-block:: bash
 
-   grep -rn '"MY_VAR"' --include="*.py" . | grep -v test
+   rg -n -w 'MY_VAR' -t py -g '!tests/**'
+
+``-w`` מחפש את שם המשתנה כמילה שלמה, ולכן תופס גם ``os.getenv("MY_VAR")``, גם
+``os.getenv('MY_VAR')`` וגם ``config.MY_VAR``, בלי להיתפס ל-``MY_VAR_OTHER``.
 
 .. _config-inspector-services:
 
@@ -147,12 +152,12 @@ Config Inspector (סקירת משתני סביבה)
 
 **הנוהל (שלושה צעדים):**
 
-1. **למצוא איפה המשתנה נצרך בפועל** — גם ``os.getenv`` וגם גישה דרך אובייקט הקונפיג:
+1. **למצוא איפה המשתנה נצרך בפועל** — חיפוש אחד תופס גם ``os.getenv`` (בכל סוג גרשיים)
+   וגם גישה דרך אובייקט הקונפיג (``config.MY_VAR``):
 
    .. code-block:: bash
 
-      grep -rn '"MY_VAR"' --include="*.py" . | grep -v test
-      grep -rn 'config\.MY_VAR' --include="*.py" . | grep -v test
+      rg -n -w 'MY_VAR' -t py -g '!tests/**'
 
 2. **לזהות לאיזה שירות שייך הקובץ שנמצא** — לפי נקודות הכניסה:
 

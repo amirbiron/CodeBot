@@ -29,6 +29,26 @@
   // גדר בלוק קוד: ``` או ~~~ (עם שפה אופציונלית)
   var FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/;
 
+  // קו תחתון של כותרת Setext: שורה שכולה "=" (h1) או "-" (h2)
+  var SETEXT_UNDERLINE_RE = /^\s{0,3}(=+|-+)\s*$/;
+
+  /**
+   * האם השורה יכולה לשמש כטקסט של כותרת Setext (כלומר פסקה רגילה)?
+   * הבידוק שמרני בכוונה: כל דבר שהוא בלוק אחר (רשימה, ציטוט, טבלה, קוד מוזח)
+   * לא יוצר כותרת גם כשאחריו "---" — שם ה-"---" הוא קו מפריד (hr), לא כותרת.
+   */
+  function canBeSetextText(line) {
+    if (!line || !line.trim()) return false;                       // שורה ריקה
+    if (SETEXT_UNDERLINE_RE.test(line)) return false;              // קו תחתון בעצמה
+    if (HEADING_RE.test(line)) return false;                       // כותרת ATX
+    if (FENCE_RE.test(line)) return false;                         // גדר קוד
+    if (/^\s{0,3}>/.test(line)) return false;                      // ציטוט
+    if (/^\s{0,3}([-*+]|\d{1,9}[.)])\s/.test(line)) return false;  // פריט רשימה
+    if (/^\s{4,}\S/.test(line)) return false;                      // בלוק קוד מוזח
+    if (/^\s{0,3}\|/.test(line)) return false;                     // שורת טבלה
+    return true;
+  }
+
   /**
    * ניקוי מזהה עוגן. ה-id מוצב דרך element.id (DOM property) ולא דרך innerHTML,
    * ולכן אין וקטור הזרקה — הניקוי כאן נועד למנוע מזהים מוזרים/שבורים בלבד.
@@ -47,12 +67,17 @@
    * עיבוד מקדים של מקור ה-Markdown: שליפת עוגנים מפורשים והסרתם מהטקסט.
    *
    * @param {string} source מקור ה-Markdown הגולמי
+   * @param {{setext?: boolean}} [options] setext=false אם ה-renderer מנטרל כותרות Setext
+   *   (md.disable('lheading')). ברירת מחדל true — כמו ההתנהגות הרגילה של markdown-it.
    * @returns {{source: string, anchors: Array<{headingIndex: number, ids: string[]}>}}
    *   source — המקור אחרי ניקוי תגיות העוגן
-   *   anchors — לכל כותרת (לפי סדר הופעתה, 0-based) רשימת המזהים שהוגדרו לה
+   *   anchors — לכל כותרת (לפי סדר הופעתה, 0-based) רשימת המזהים שהוגדרו לה.
+   *   חשוב: הספירה חייבת לכלול גם כותרות Setext, אחרת האינדקס לא יתאים לאלמנטי
+   *   ה-h1..h6 בפועל והעוגן יוחל על הכותרת הלא נכונה.
    */
-  function extractExplicitAnchors(source) {
+  function extractExplicitAnchors(source, options) {
     var text = (source == null) ? '' : String(source);
+    var allowSetext = !(options && options.setext === false);
     if (!text || text.indexOf('<a') === -1) {
       return { source: text, anchors: [] };
     }
@@ -89,7 +114,16 @@
         continue;
       }
 
+      // כותרת ATX (`## כותרת`) או כותרת Setext (שורת טקסט שאחריה === / ---).
+      // חובה לזהות גם Setext: markdown-it מייצר עבורה h1/h2, ואם לא נספור אותה
+      // האינדקסים יזוזו והעוגן יוחל על הכותרת הלא נכונה.
       var isHeading = HEADING_RE.test(line);
+      if (!isHeading && allowSetext && canBeSetextText(line)) {
+        var nextLine = (i + 1 < lines.length) ? lines[i + 1] : null;
+        if (nextLine !== null && SETEXT_UNDERLINE_RE.test(nextLine)) {
+          isHeading = true;
+        }
+      }
 
       // שורה שכולה עוגנים (הדפוס הקלאסי של GitHub: עוגן בשורה שלפני הכותרת)
       if (!isHeading) {
@@ -187,8 +221,8 @@
    * @param {function(string): string} renderFn פונקציית רינדור (md.render)
    * @param {Element} container היעד ב-DOM (ה-HTML יוזרק אליו)
    */
-  function renderWithAnchors(source, renderFn, container) {
-    var extracted = extractExplicitAnchors(source);
+  function renderWithAnchors(source, renderFn, container, options) {
+    var extracted = extractExplicitAnchors(source, options);
     var html = renderFn(extracted.source || '');
     if (container) {
       container.innerHTML = html;
