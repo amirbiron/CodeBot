@@ -248,13 +248,14 @@ async function renderMarkdownPreview(content) {
         }
 
         if (typeof MarkdownLiveRenderer !== 'undefined' && MarkdownLiveRenderer.isSupported()) {
-            // רינדור ה-Markdown ל-HTML
-            const html = await MarkdownLiveRenderer.render(content);
-            previewContent.innerHTML = html;
+            // רינדור ה-Markdown ל-HTML (כולל שליפת עוגני HTML מפורשים מהכותרות —
+            // ה-renderer רץ עם html:false, ראו webapp/static/js/md-anchors.js)
+            const rendered = await MarkdownLiveRenderer.renderWithAnchors(content);
+            previewContent.innerHTML = rendered.html;
 
-            // שיפורים: syntax highlighting, math, mermaid
+            // שיפורים: syntax highlighting, math, mermaid + החלת העוגנים המפורשים
             try {
-                await MarkdownLiveRenderer.enhance(previewContent);
+                await MarkdownLiveRenderer.enhance(previewContent, rendered.anchors);
             } catch (err) {
                 console.warn('Markdown enhancements failed', err);
             }

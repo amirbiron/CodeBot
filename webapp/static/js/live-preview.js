@@ -437,12 +437,51 @@
       }
     }
 
-    async function enhance(root) {
+    async function enhance(root, anchors) {
+      applyExplicitAnchors(root, anchors);
       highlightBlocks(root);
       enhanceTaskLists(root);
       lazyLoadImages(root);
       renderMath(root);
       await renderMermaid(root);
+    }
+
+    // החלת עוגני ה-HTML שנשלפו מהמקור (`## סעיף <a id="x"></a>`). ה-renderer רץ עם
+    // html:false ולכן התגית לא שורדת — ראו webapp/static/js/md-anchors.js.
+    // העוגנים מועברים במפורש מהקורא (ולא דרך מצב מודולרי), כדי ששני רינדורים
+    // עוקבים לא ידרסו זה את העוגנים של זה.
+    function applyExplicitAnchors(root, anchors) {
+      if (!root || !anchors || !anchors.length) {
+        return;
+      }
+      try {
+        if (typeof window !== 'undefined' && window.MdAnchors) {
+          window.MdAnchors.applyExplicitAnchors(root, anchors);
+        }
+      } catch (_) {
+        // best-effort — כשל בהחלת עוגנים לא אמור לשבור את התצוגה המקדימה
+      }
+    }
+
+    // רינדור + שליפת העוגנים המפורשים. משמש גם את render() (שמחזיר HTML בלבד,
+    // לשמירת תאימות עם קוראים קיימים) וגם את renderWithAnchors().
+    function renderMarkdownSource(text) {
+      const md = ensureRenderer();
+      if (!md) {
+        throw new Error('markdown_renderer_missing');
+      }
+      let source = text || '';
+      let anchors = [];
+      try {
+        if (typeof window !== 'undefined' && window.MdAnchors) {
+          const extracted = window.MdAnchors.extractExplicitAnchors(source);
+          source = extracted.source;
+          anchors = extracted.anchors;
+        }
+      } catch (_) {
+        // אם השליפה נכשלה — ממשיכים עם המקור המקורי
+      }
+      return { html: md.render(source), anchors: anchors };
     }
 
     return {
@@ -455,12 +494,14 @@
       isMarkdownFile(value) {
         return isMarkdownExtension(value);
       },
+      // מחזיר HTML בלבד (חתימה קיימת). הכותרות מנוקות מתגיות העוגן, אך כדי גם
+      // *להחיל* את העוגנים יש להשתמש ב-renderWithAnchors ולהעביר אותם ל-enhance.
       async render(text) {
-        const md = ensureRenderer();
-        if (!md) {
-          throw new Error('markdown_renderer_missing');
-        }
-        return md.render(text || '');
+        return renderMarkdownSource(text).html;
+      },
+      // מחזיר { html, anchors } — העוגנים מועברים לאחר מכן ל-enhance(root, anchors)
+      async renderWithAnchors(text) {
+        return renderMarkdownSource(text);
       },
       enhance,
     };
@@ -695,13 +736,14 @@
       this.state.inflightHash = payloadHash;
       this.setStatus(STATUS.LOADING);
       try {
-        const html = await MarkdownLiveRenderer.render(content);
+        const rendered = await MarkdownLiveRenderer.renderWithAnchors(content);
+        const html = rendered.html;
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = html || '<p>אין תוכן להצגה.</p>';
         if (this.styleEl) {
           this.styleEl.textContent = '';
         }
-        await MarkdownLiveRenderer.enhance(this.previewCanvas);
+        await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors);
         this.applyPreviewTheme('markdown');
         const duration = typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? Math.max(1, Math.round(performance.now() - started))
