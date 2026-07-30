@@ -437,12 +437,32 @@
       }
     }
 
+    // עוגנים מפורשים שנשלפו ברינדור האחרון (ראו render למטה) וממתינים להחלה על ה-DOM
+    let pendingExplicitAnchors = [];
+
     async function enhance(root) {
+      applyPendingAnchors(root);
       highlightBlocks(root);
       enhanceTaskLists(root);
       lazyLoadImages(root);
       renderMath(root);
       await renderMermaid(root);
+    }
+
+    // החלת עוגני ה-HTML שנשלפו מהמקור (`## סעיף <a id="x"></a>`). ה-renderer רץ עם
+    // html:false ולכן התגית לא שורדת — ראו webapp/static/js/md-anchors.js.
+    function applyPendingAnchors(root) {
+      if (!root || !pendingExplicitAnchors.length) {
+        return;
+      }
+      try {
+        if (typeof window !== 'undefined' && window.MdAnchors) {
+          window.MdAnchors.applyExplicitAnchors(root, pendingExplicitAnchors);
+        }
+      } catch (_) {
+        // best-effort — כשל בהחלת עוגנים לא אמור לשבור את התצוגה המקדימה
+      }
+      pendingExplicitAnchors = [];
     }
 
     return {
@@ -460,7 +480,19 @@
         if (!md) {
           throw new Error('markdown_renderer_missing');
         }
-        return md.render(text || '');
+        // שליפת עוגני HTML מפורשים לפני הרינדור; ההחלה על ה-DOM קורית ב-enhance()
+        let source = text || '';
+        pendingExplicitAnchors = [];
+        try {
+          if (typeof window !== 'undefined' && window.MdAnchors) {
+            const extracted = window.MdAnchors.extractExplicitAnchors(source);
+            source = extracted.source;
+            pendingExplicitAnchors = extracted.anchors;
+          }
+        } catch (_) {
+          // אם השליפה נכשלה — ממשיכים עם המקור המקורי
+        }
+        return md.render(source);
       },
       enhance,
     };
