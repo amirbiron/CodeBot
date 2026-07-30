@@ -11,7 +11,7 @@
 ## 🛠️ כלים ליצירת דיאגרמות
 
 ### 1. Mermaid (מומלץ)
-```markdown
+````markdown
 ```mermaid
 graph LR
     A[Start] --> B[Process]
@@ -19,7 +19,7 @@ graph LR
     C -->|Yes| D[End]
     C -->|No| B
 ```
-```
+````
 
 **יתרונות:**
 - משתלב ב-Markdown
@@ -54,6 +54,7 @@ B --> User: Send Response
 ## 📝 Best Practices לדיאגרמות
 
 ### 1. **פשטות**
+````markdown 
 ```mermaid
 graph LR
     %% טוב - פשוט וברור
@@ -62,8 +63,10 @@ graph LR
     Database --> Bot
     Bot --> User
 ```
+````
 
 במקום:
+````markdown 
 ```mermaid
 graph TB
     %% רע - מסובך מדי
@@ -76,8 +79,10 @@ graph TB
     LB --> DB2[(Replica DB)]
     DB1 -.->|Sync| DB2
 ```
+````
 
 ### 2. **עקביות בסימונים**
+````markdown 
 ```mermaid
 graph TD
     %% השתמש בסימונים עקביים
@@ -87,8 +92,10 @@ graph TD
     D((Event)) %% עיגול = אירוע
     E[/Input/] %% מקבילית = קלט/פלט
 ```
+````
 
 ### 3. **צבעים משמעותיים**
+````markdown 
 ```mermaid
 graph LR
     A[Start] -->|Success| B[Process]
@@ -98,8 +105,10 @@ graph LR
     style B fill:#87CEEB
     style C fill:#FFB6C1
 ```
+````
 
 ### 4. **תיוג ברור**
+````markdown 
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -113,6 +122,7 @@ sequenceDiagram
     DB-->>B: Return results
     B-->>U: Display status
 ```
+````
 
 ## 🎨 דוגמאות לדיאגרמות נפוצות
 
@@ -188,7 +198,7 @@ docs/
 ```
 
 ### 4. **הוסף הסברים**
-```markdown
+````markdown
 ## System Architecture
 
 ```mermaid
@@ -201,7 +211,7 @@ graph TD
 - **User**: המשתמש הסופי שמפעיל פקודות
 - **Bot**: שרת הבוט שמעבד את הבקשות
 - **Database**: PostgreSQL לשמירת מטריקות
-```
+````
 
 ## 📚 משאבים נוספים
 
