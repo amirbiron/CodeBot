@@ -24,6 +24,161 @@
   ];
   const MARKDOWN_NEWLINE_REGEX = /\n{3,}/g;
 
+  // ── תרשימי Mermaid ─────────────────────────────────────────────────────────
+  // Sphinx מייצר <pre class="mermaid"> שבתוכו קוד המקור של התרשים, אבל ספריית
+  // mermaid מוחקת את הטקסט הזה מה-DOM בזמן הרינדור ושמה במקומו <svg>.
+  // הכפתור רץ רק בלחיצת המשתמש – הרבה אחרי הרינדור – ולכן בלי לכידה מוקדמת
+  // היינו מעתיקים את הטקסט שבתוך ה-SVG (שמות התיבות מודבקים) במקום את הקוד.
+  // לכן שומרים את המקור ברגע שה-DOM מוכן, לפני ש-mermaid מספיק לרוץ.
+  const MERMAID_SELECTOR = 'pre.mermaid, div.mermaid, code.mermaid';
+  const MERMAID_ID_ATTR = 'data-copy-page-mermaid-id';
+  const mermaidSources = new Map();
+  let mermaidCounter = 0;
+
+  /**
+   * מסיר הזחה משותפת מבלוק קוד.
+   * Sphinx מזיח רק את השורה הראשונה של תרשים Mermaid (למשל 8 רווחים לפני
+   * "graph TD" מול 2 רווחים בשאר השורות), ולכן חישוב מינימום על כל השורות
+   * היה משאיר את השורה הראשונה עקומה. במקרה כזה מיישרים אותה בנפרד ומחשבים
+   * את ההזחה המשותפת רק משאר השורות – כך שההיררכיה הפנימית נשמרת.
+   */
+  const dedentCodeBlock = (raw) => {
+    const text = (raw || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\t/g, '  ');
+    const lines = text.split('\n');
+    while (lines.length && !lines[0].trim()) {
+      lines.shift();
+    }
+    while (lines.length && !lines[lines.length - 1].trim()) {
+      lines.pop();
+    }
+    if (!lines.length) {
+      return '';
+    }
+
+    const leadingSpaces = (line) => {
+      const match = line.match(/^[ ]*/);
+      return match ? match[0].length : 0;
+    };
+
+    const firstIndent = leadingSpaces(lines[0]);
+    let restIndent = null;
+    for (let i = 1; i < lines.length; i += 1) {
+      if (!lines[i].trim()) {
+        continue;
+      }
+      const leading = leadingSpaces(lines[i]);
+      restIndent = restIndent === null ? leading : Math.min(restIndent, leading);
+    }
+
+    if (restIndent === null) {
+      return lines[0].trim();
+    }
+
+    if (firstIndent > restIndent) {
+      // המקרה של Sphinx: השורה הראשונה מוזחת יותר מכל השאר.
+      lines[0] = lines[0].replace(/^[ ]+/, '');
+      if (restIndent > 0) {
+        const pattern = new RegExp(`^[ ]{0,${restIndent}}`);
+        for (let i = 1; i < lines.length; i += 1) {
+          lines[i] = lines[i].replace(pattern, '');
+        }
+      }
+      return lines.join('\n');
+    }
+
+    // הזחה אחידה: מסירים את המינימום מכל השורות ושומרים על ההיררכיה.
+    const indent = Math.min(firstIndent, restIndent);
+    if (indent > 0) {
+      const pattern = new RegExp(`^[ ]{0,${indent}}`);
+      for (let i = 0; i < lines.length; i += 1) {
+        lines[i] = lines[i].replace(pattern, '');
+      }
+    }
+    return lines.join('\n');
+  };
+
+  /**
+   * בונה גדר (fence) שארוכה מכל רצף גרשיים שקיים בתוך הקוד עצמו,
+   * כדי שבלוק שמכיל ``` (למשל דוגמת Markdown של תרשים) לא ייסגר באמצע.
+   */
+  const buildFence = (code) => {
+    const matches = (code || '').match(/`{3,}/g) || [];
+    let longest = 0;
+    matches.forEach((match) => {
+      if (match.length > longest) {
+        longest = match.length;
+      }
+    });
+    return '`'.repeat(Math.max(3, longest + 1));
+  };
+
+  const wrapInFence = (code, language) => {
+    const body = (code || '').replace(/\u00a0/g, ' ').trimEnd();
+    const fence = buildFence(body);
+    return `\n\n${fence}${language || ''}\n${body}\n${fence}\n\n`;
+  };
+
+  const isMermaidRendered = (node) => {
+    if (!node) {
+      return false;
+    }
+    if (node.getAttribute && node.getAttribute('data-processed')) {
+      return true;
+    }
+    return Boolean(node.querySelector && node.querySelector('svg'));
+  };
+
+  /**
+   * שומר את קוד המקור של כל תרשים Mermaid בדף ומסמן את האלמנט במזהה.
+   * המזהה נשמר כ-attribute ולכן שורד גם את ה-cloneNode ואת המעבר דרך
+   * innerHTML אל Turndown. בטוח לקריאה חוזרת – לא דורס מקור שכבר נלכד.
+   */
+  const captureMermaidSources = (root) => {
+    const scope = root || document;
+    if (!scope || typeof scope.querySelectorAll !== 'function') {
+      return;
+    }
+    scope.querySelectorAll(MERMAID_SELECTOR).forEach((node) => {
+      if (node.getAttribute(MERMAID_ID_ATTR)) {
+        return;
+      }
+      if (isMermaidRendered(node)) {
+        // האלמנט כבר רונדר – אין ממה לשחזר, ועדיף לא לשמור את טקסט ה-SVG.
+        return;
+      }
+      const source = dedentCodeBlock(node.textContent || '');
+      if (!source) {
+        return;
+      }
+      mermaidCounter += 1;
+      const id = String(mermaidCounter);
+      node.setAttribute(MERMAID_ID_ATTR, id);
+      mermaidSources.set(id, source);
+    });
+  };
+
+  const getMermaidSource = (node) => {
+    if (!node) {
+      return '';
+    }
+    const id =
+      typeof node.getAttribute === 'function'
+        ? node.getAttribute(MERMAID_ID_ATTR)
+        : '';
+    if (id && mermaidSources.has(id)) {
+      return mermaidSources.get(id);
+    }
+    // נפילה בטוחה: קוראים מה-DOM רק אם התרשים עדיין לא הומר ל-SVG.
+    if (isMermaidRendered(node)) {
+      return '';
+    }
+    return dedentCodeBlock(node.textContent || '');
+  };
+
   const createControls = () => {
     const container = document.createElement('div');
     container.className = 'doc-copy-page';
@@ -386,42 +541,6 @@
         },
       });
 
-      const extractMermaidContent = (node) => {
-        if (!node) {
-          return '';
-        }
-        const raw = (node.textContent || '')
-          .replace(/\u00a0/g, ' ')
-          .replace(/\t/g, '  ')
-          .replace(/\r\n/g, '\n');
-        const lines = raw.split('\n');
-        while (lines.length && !lines[0].trim()) {
-          lines.shift();
-        }
-        while (lines.length && !lines[lines.length - 1].trim()) {
-          lines.pop();
-        }
-        if (!lines.length) {
-          return '';
-        }
-        let indent = null;
-        lines.forEach((line) => {
-          if (!line.trim()) {
-            return;
-          }
-          const match = line.match(/^(\s+)/);
-          const leading = match ? match[0].length : 0;
-          indent = indent === null ? leading : Math.min(indent, leading);
-        });
-        if (indent && indent > 0) {
-          const indentPattern = new RegExp(`^\\s{0,${indent}}`);
-          for (let i = 0; i < lines.length; i += 1) {
-            lines[i] = lines[i].replace(indentPattern, '');
-          }
-        }
-        return lines.join('\n');
-      };
-
       service.addRule('mermaidBlocks', {
         filter(node) {
           if (!node || !node.classList) {
@@ -434,11 +553,12 @@
           return node.nodeName === 'PRE' || node.nodeName === 'DIV' || node.nodeName === 'CODE';
         },
         replacement(content, node) {
-          const mermaidContent = extractMermaidContent(node);
+          // \u05d4\u05e7\u05d5\u05d3 \u05e0\u05dc\u05e7\u05d7 \u05de\u05d4\u05de\u05e7\u05d5\u05e8 \u05e9\u05e0\u05e9\u05de\u05e8 \u05dc\u05e4\u05e0\u05d9 \u05d4\u05e8\u05d9\u05e0\u05d3\u05d5\u05e8, \u05d5\u05dc\u05d0 \u05de\u05d4-DOM (\u05e9\u05db\u05d1\u05e8 \u05de\u05db\u05d9\u05dc SVG).
+          const mermaidContent = getMermaidSource(node);
           if (!mermaidContent) {
             return '\n\n```mermaid\n```\n\n';
           }
-          return `\n\n\`\`\`mermaid\n${mermaidContent}\n\`\`\`\n\n`;
+          return wrapInFence(mermaidContent, 'mermaid');
         },
       });
 
@@ -456,9 +576,7 @@
             return content;
           }
           const language = detectCodeLanguage(node);
-          const code = (pre.textContent || '').replace(/\u00a0/g, ' ');
-          const fence = '```';
-          return `\n\n${fence}${language || ''}\n${code.trimEnd()}\n${fence}\n\n`;
+          return wrapInFence(pre.textContent || '', language);
         },
       });
 
@@ -555,6 +673,8 @@
   };
 
   const init = () => {
+    // חייב לרוץ לפני ש-mermaid מרנדר (הוא רץ ב-window load, כלומר מאוחר יותר).
+    captureMermaidSources(document);
     const article = document.querySelector(ARTICLE_SELECTOR);
     if (!article) {
       return;
@@ -562,9 +682,19 @@
     attachHandler(article);
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  if (typeof document !== 'undefined') {
+    // לכידה מוקדמת ככל האפשר: פעם אחת מיד (אם ה-DOM כבר זמין) ופעם ב-DOMContentLoaded.
+    captureMermaidSources(document);
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  }
+
+  // ייצוא לצורכי בדיקות בלבד (Node). בדפדפן אין module ולכן הבלוק לא רץ.
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { dedentCodeBlock, buildFence, wrapInFence };
   }
 })();
