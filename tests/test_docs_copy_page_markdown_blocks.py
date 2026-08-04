@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-COPY_PAGE_JS = Path("docs/_static/copy-page.js")
+# נתיב יחסי לקובץ הבדיקה עצמו, כדי שהבדיקות לא יהיו תלויות בתיקייה שממנה הורצו.
+COPY_PAGE_JS = Path(__file__).resolve().parents[1] / "docs" / "_static" / "copy-page.js"
 
 
 def _read_js() -> str:
@@ -101,6 +102,114 @@ def _run_js(tmp_path: Path, cases: dict) -> dict:
     return json.loads(result.stdout)
 
 
+def _run_js_script(tmp_path: Path, script: str) -> dict:
+    """מריץ סקריפט Node שמקבל את המודול דרך require ומדפיס JSON."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js אינו מותקן – מדלגים על בדיקות ההתנהגות")
+
+    module_path = tmp_path / "copy-page.cjs"
+    module_path.write_text(_read_js(), encoding="utf-8")
+    script_path = tmp_path / "scenario.cjs"
+    script_path.write_text(script, encoding="utf-8")
+
+    result = subprocess.run(
+        [node, str(script_path), str(module_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, f"הרצת Node נכשלה: {result.stderr}"
+    return json.loads(result.stdout)
+
+
+# סקריפט שמדמה את מחזור החיים האמיתי בדפדפן: קודם ה-DOM מכיל את קוד התרשים,
+# ואז mermaid מוחק אותו ושם במקומו SVG. כך אפשר לבדוק שהלכידה באמת מצילה את הקוד.
+_MERMAID_SCENARIO = """
+const api = require(process.argv[2]);
+
+const makeNode = ({ text = '', rendered = false } = {}) => {
+  const attrs = Object.create(null);
+  const node = {
+    textContent: text,
+    getAttribute(name) {
+      if (name === 'data-processed') {
+        return node.__rendered ? 'true' : null;
+      }
+      return name in attrs ? attrs[name] : null;
+    },
+    setAttribute(name, value) {
+      attrs[name] = value;
+    },
+    querySelector(selector) {
+      return node.__rendered && selector === 'svg' ? {} : null;
+    },
+    __rendered: rendered,
+    // מדמה את מה ש-mermaid עושה: מוחק את הקוד ומשאיר טקסט של תוויות ה-SVG.
+    render(svgText) {
+      node.textContent = svgText;
+      node.__rendered = true;
+    },
+  };
+  return node;
+};
+
+const scopeOf = (nodes) => ({ querySelectorAll: () => nodes });
+const out = {};
+
+// (1) המקרה של הבאג: לכידה לפני הרינדור, קריאה אחרי הרינדור.
+const captured = makeNode({ text: '\\n        graph TD\\n  A[Bot] --> B[Handlers]\\n    ' });
+api.captureMermaidSources(scopeOf([captured]));
+captured.render('Telegram BotHandlers');
+out.afterRender = api.getMermaidSource(captured);
+
+// (2) תרשים שכבר רונדר ולא נלכד – חייב להחזיר ריק ולא את טקסט ה-SVG.
+const renderedOnly = makeNode({ text: 'Telegram BotHandlers', rendered: true });
+out.renderedWithoutCapture = api.getMermaidSource(renderedOnly);
+
+// (3) תרשים שטרם רונדר ולא נלכד – נפילה חזרה ל-textContent עם דה-דנט.
+const rawOnly = makeNode({ text: '\\n        graph TD\\n  A --> B\\n    ' });
+out.unrenderedWithoutCapture = api.getMermaidSource(rawOnly);
+
+// (4) הלכידה עצמה חייבת לדלג על תרשים שכבר רונדר, כדי לא לשמור זבל.
+const alreadyRendered = makeNode({ text: 'Telegram BotHandlers', rendered: true });
+api.captureMermaidSources(scopeOf([alreadyRendered]));
+out.captureSkipsRendered = alreadyRendered.getAttribute('data-copy-page-mermaid-id');
+
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+def test_mermaid_source_survives_render(tmp_path):
+    """
+    ליבת התיקון: הקוד נלכד לפני ש-mermaid מוחק אותו, ולכן ההעתקה מחזירה
+    את קוד התרשים גם אחרי שה-DOM כבר מכיל רק SVG.
+    """
+    out = _run_js_script(tmp_path, _MERMAID_SCENARIO)
+    assert out["afterRender"] == "graph TD\nA[Bot] --> B[Handlers]"
+    # הרגרסיה שאנחנו מגנים מפניה: טקסט התוויות המודבק של ה-SVG.
+    assert "Telegram BotHandlers" not in out["afterRender"]
+
+
+def test_mermaid_source_empty_for_rendered_node_without_capture(tmp_path):
+    """נפילה בטוחה: בלוק ריק עדיף על טקסט ה-SVG."""
+    out = _run_js_script(tmp_path, _MERMAID_SCENARIO)
+    assert out["renderedWithoutCapture"] == ""
+
+
+def test_mermaid_source_falls_back_to_dom_when_not_rendered(tmp_path):
+    """אם התרשים עדיין גולמי ב-DOM – מותר ונכון לקרוא ממנו ישירות."""
+    out = _run_js_script(tmp_path, _MERMAID_SCENARIO)
+    assert out["unrenderedWithoutCapture"] == "graph TD\nA --> B"
+
+
+def test_capture_skips_already_rendered_nodes(tmp_path):
+    """הלכידה לא שומרת טקסט SVG של תרשים שכבר רונדר."""
+    out = _run_js_script(tmp_path, _MERMAID_SCENARIO)
+    assert out["captureSkipsRendered"] is None
+
+
 def test_dedent_fixes_sphinx_first_line_indent(tmp_path):
     """
     Sphinx מזיח רק את השורה הראשונה של התרשים (8 רווחים מול 2 בשאר),
@@ -164,3 +273,25 @@ def test_wrap_in_fence_keeps_block_closed(tmp_path):
     # מספר גדרות בתחילת שורה חייב להיות זוגי, אחרת ה-Markdown שבור.
     fences = [line for line in out.split("\n") if line.startswith("```")]
     assert len(fences) % 2 == 0
+
+
+def test_wrap_in_fence_handles_empty_and_null_input(tmp_path):
+    """
+    קלט ריק או null לא אמור להפיל את ההמרה ולא להדפיס "null" בתוך הבלוק,
+    והגדר במקרה כזה נשארת בת שלושה גרשיים.
+    """
+    cases = {
+        "empty": {"fn": "wrapInFence", "args": ["", "python"]},
+        "null": {"fn": "wrapInFence", "args": [None, ""]},
+    }
+    out = _run_js(tmp_path, cases)
+    assert out["empty"] == "\n\n```python\n\n```\n\n"
+    assert out["null"] == "\n\n```\n\n```\n\n"
+    assert "null" not in out["null"].replace("\n", "")
+    assert "None" not in out["empty"]
+
+
+def test_wrap_in_fence_trims_only_trailing_whitespace(tmp_path):
+    """הזחה מובילה היא חלק מהקוד ואסור למחוק אותה; רק רווחים בסוף נחתכים."""
+    out = _run_js(tmp_path, {"r": {"fn": "wrapInFence", "args": ["  A --> B   \n\n", ""]}})["r"]
+    assert out == "\n\n```\n  A --> B\n```\n\n"

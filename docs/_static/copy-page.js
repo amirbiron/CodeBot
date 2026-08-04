@@ -682,10 +682,9 @@
     attachHandler(article);
   };
 
+  // init מבצע את הלכידה בעצמו בשני המסלולים (DOMContentLoaded או מיידי),
+  // ולכן אין צורך בסריקת DOM נוספת כאן.
   if (typeof document !== 'undefined') {
-    // לכידה מוקדמת ככל האפשר: פעם אחת מיד (אם ה-DOM כבר זמין) ופעם ב-DOMContentLoaded.
-    captureMermaidSources(document);
-
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init);
     } else {
@@ -693,8 +692,19 @@
     }
   }
 
-  // ייצוא לצורכי בדיקות בלבד (Node). בדפדפן אין module ולכן הבלוק לא רץ.
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { dedentCodeBlock, buildFence, wrapInFence };
+  // ייצוא לצורכי בדיקות בלבד (Node). התנאי כולל בדיקת window כדי שהבלוק לא ירוץ
+  // בדפדפן שבו קיים shim/loader של CommonJS ומגדיר module גלובלי.
+  if (
+    typeof window === 'undefined' &&
+    typeof module !== 'undefined' &&
+    module.exports
+  ) {
+    module.exports = {
+      dedentCodeBlock,
+      buildFence,
+      wrapInFence,
+      captureMermaidSources,
+      getMermaidSource,
+    };
   }
 })();
