@@ -1,0 +1,22 @@
+# Prettier שובר בלוקים של Jinja ({% ... %} / {{ ... }}), ולכן אסור להריץ אותו
+# על תיקיית התבניות. אם צריך יישור קוסמטי שם – עורכים ידנית.
+# ראו CLAUDE.md, סעיף "פורמטור HTML/Jinja".
+webapp/templates/
+
+# תלויות
+node_modules/
+webapp/static/libs/
+docs/_static/vendor/
+
+# תוצרי בנייה (נוצרים על ידי npm run build-md / build-cm)
+webapp/static/js/md_preview.bundle.js
+webapp/static/js/md_preview.bundle.js.map
+webapp/static/css/md_preview.bundle.css
+webapp/static/js/codemirror.local.js
+
+# תוצרי בנייה של התיעוד
+docs/_build/
+
+# קבצים ממוזערים
+*.min.js
+*.min.css

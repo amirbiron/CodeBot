@@ -25,6 +25,9 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 from pymongo import DESCENDING
 
+# ייבוא ישיר ולא דרך _get_app_helpers: המודול עצמאי ואינו יוצר תלות מעגלית
+from webapp.admin_repos import load_admin_repos
+
 logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -248,6 +251,9 @@ def dashboard():
         notes_snapshot = helpers._build_notes_snapshot(db, user_id)
         whats_new = helpers._load_whats_new(limit=5)
 
+        # רשימת הריפוים נטענת רק לאדמין, כך שהיא לא מגיעה כלל ל-HTML של משתמש רגיל
+        admin_repos = load_admin_repos() if user_is_admin else []
+
         # Widget: files that need attention
         dismissed_ids = helpers._get_active_dismissals(db, user_id)
         files_need_attention = helpers._build_files_need_attention(
@@ -266,6 +272,7 @@ def dashboard():
             push_card=push_card,
             notes_snapshot=notes_snapshot,
             whats_new=whats_new,
+            admin_repos=admin_repos,
             files_need_attention=files_need_attention,
             bot_username=helpers.BOT_USERNAME_CLEAN,
             pinned_files=pinned_data,
@@ -324,6 +331,7 @@ def dashboard():
             push_card=fallback_card,
             notes_snapshot=fallback_notes,
             whats_new={"features": [], "has_features": False, "total": 0},
+            admin_repos=[],
             files_need_attention=fallback_attention,
             error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
             bot_username=helpers.BOT_USERNAME_CLEAN,
