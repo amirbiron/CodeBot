@@ -22,3 +22,18 @@ repos:
     description: "הריפו הראשי של CodeKeeper"
     icon: "🤖"
     badge: "ראשי"
+
+  - name: "claude-skills"
+    url: "https://github.com/amirbiron/claude-skills"
+    description: "רשימת סקילים אישיים"
+    icon: "🧩"
+
+  - name: "israel-drugs-mcp-server"
+    url: "https://github.com/amirbiron/israel-drugs-mcp-server"
+    description: "סקיל התרופות | CC"
+    icon: "💊"
+
+  - name: "amir-bug-patterns"
+    url: "https://github.com/amirbiron/amir-bug-patterns"
+    description: "דפוסי באגים שחוזרים"
+    icon: "🕷️"
