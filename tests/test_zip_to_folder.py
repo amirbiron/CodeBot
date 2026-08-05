@@ -795,6 +795,41 @@ async def test_callback_confirm_opens_upload_mode(callback_handler):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("folder", ["docs<x", "a&b", "we>ird"])
+async def test_html_special_chars_in_path_are_escaped(menu_handler, folder):
+    """
+    הנתיב מגיע מטקסט חופשי ומוצב בהודעת parse_mode=HTML. בלי הברחה,
+    טלגרם היה דוחה את ההודעה ב-BadRequest והזרימה הייתה נתקעת.
+    """
+    query = _FakeQuery()
+    context = _menu_context(zip_to_folder_repo="owner/repo")
+
+    accepted = await menu_handler.confirm_zip_to_folder_target(
+        _menu_update(query), context, folder
+    )
+
+    assert accepted is True
+    body = "\n".join(query.edited)
+    assert folder not in body, "הנתיב הגולמי הוצב בלי הברחה"
+    for ch, entity in (("<", "&lt;"), (">", "&gt;"), ("&", "&amp;")):
+        if ch in folder:
+            assert entity in body, f"{ch} לא הוברח"
+
+
+@pytest.mark.asyncio
+async def test_confirm_message_escapes_special_chars_on_send_screen(callback_handler):
+    """גם מסך 'שלח עכשיו ZIP' מציג את הנתיב, ולכן חייב להבריח אותו."""
+    context = _menu_context(
+        zip_to_folder_repo="owner/repo", zip_to_folder_target="docs<x"
+    )
+    query = await _click(callback_handler, context, "zipdir_confirm")
+
+    body = "\n".join(query.edited)
+    assert "docs<x" not in body
+    assert "&lt;" in body
+
+
+@pytest.mark.asyncio
 async def test_callback_confirm_without_target_does_not_open_upload_mode(callback_handler):
     context = _menu_context(zip_to_folder_repo="owner/repo")
     query = await _click(callback_handler, context, "zipdir_confirm")
@@ -835,12 +870,27 @@ def test_backup_menu_clears_zipdir_state():
     src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
         encoding="utf-8"
     )
+    # חיתוך לפי המבנה ולא לפי מספר תווים קבוע, כדי שהבדיקה לא תישבר
+    # מגדילת הפונקציה או מפיצול שורות בידי פורמטר
     menu_start = src.index("async def show_github_backup_menu")
-    menu_body = src[menu_start:menu_start + 3000]
+    next_def = src.find("\n    async def ", menu_start + 1)
+    menu_body = src[menu_start : next_def if next_def != -1 else len(src)]
     for key in ("waiting_for_zipdir_folder", "zip_to_folder_target", "zip_to_folder_repo"):
-        assert f'context.user_data.pop("{key}", None)' in menu_body, (
-            f"{key} לא מנוקה בחזרה לתפריט הגיבוי"
-        )
+        assert f'"{key}"' in menu_body, f"{key} לא מנוקה בחזרה לתפריט הגיבוי"
+
+
+def test_main_menu_exit_clears_zipdir_state():
+    """
+    יציאה דרך התפריט הראשי היא מסלול נוסף שבו הדגל היה נשאר תקוע,
+    בדיוק כמו בכפתור הביטול.
+    """
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+    start = src.index("main_menu_texts = {")
+    block = src[start : start + 3000]
+    for key in ("waiting_for_zipdir_folder", "zip_to_folder_target", "zip_to_folder_repo"):
+        assert f"'{key}'" in block, f"{key} לא מנוקה ביציאה דרך התפריט הראשי"
 
 
 def test_all_callbacks_are_registered_in_router():

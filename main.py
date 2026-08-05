@@ -3570,6 +3570,11 @@ class CodeKeeperBot:
                 context.user_data.pop('waiting_for_selected_folder', None)
                 context.user_data.pop('waiting_for_new_folder_path', None)
                 context.user_data.pop('waiting_for_upload_folder', None)
+                # יציאה דרך התפריט הראשי חייבת לנקות גם את מצב פריסת ה-ZIP,
+                # אחרת ההודעה הבאה תתפרש כנתיב תיקייה ותפתח מסך אישור לריפו
+                context.user_data.pop('waiting_for_zipdir_folder', None)
+                context.user_data.pop('zip_to_folder_target', None)
+                context.user_data.pop('zip_to_folder_repo', None)
                 context.user_data.pop('return_to_pre_upload', None)
                 # נקה גם דגלי "הדבק קוד" כדי לצאת יפה מהזרימה
                 context.user_data.pop('waiting_for_paste_content', None)

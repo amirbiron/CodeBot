@@ -2466,7 +2466,7 @@ class GitHubMenuHandler:
 
             text = (
                 "📁 פריסת ZIP לתיקייה\n\n"
-                f"ריפו: <code>{repo_full}</code>\n\n"
+                f"ריפו: <code>{safe_html_escape(repo_full)}</code>\n\n"
                 "בחר את תיקיית היעד. תוכן ה-ZIP ייפרס לתוכה.\n"
                 "קובץ קיים באותו שם יוחלף, ושאר הריפו לא ישתנה."
             )
@@ -2528,9 +2528,11 @@ class GitHubMenuHandler:
                 await query.answer("✅ עכשיו שלח ZIP", show_alert=False)
             except Exception:
                 pass
+            # הנתיב מגיע מטקסט חופשי של המשתמש; בלי הברחה, נתיב עם < או &
+            # היה גורם לטלגרם לדחות את ההודעה והזרימה הייתה נתקעת
             await query.edit_message_text(
                 "📤 שלח עכשיו את קובץ ה-ZIP.\n\n"
-                f"היעד: <code>{repo_full}/{folder}</code>",
+                f"היעד: <code>{safe_html_escape(repo_full)}/{safe_html_escape(folder)}</code>",
                 parse_mode="HTML",
             )
             return
@@ -7430,10 +7432,11 @@ class GitHubMenuHandler:
         session = self.get_user_session(user_id)
         repo_full = context.user_data.get("zip_to_folder_repo") or session.get("selected_repo") or ""
 
+        # normalized מגיע מקלט חופשי, ולכן חייב הברחה לפני שיבוץ ב-HTML
         text = (
             "📁 אישור פריסת ZIP לתיקייה\n\n"
-            f"ריפו: <code>{repo_full}</code>\n"
-            f"תיקיית יעד: <code>{normalized}</code>\n\n"
+            f"ריפו: <code>{safe_html_escape(repo_full)}</code>\n"
+            f"תיקיית יעד: <code>{safe_html_escape(normalized)}</code>\n\n"
             "הקבצים מה-ZIP ייפרסו לתוך התיקייה.\n"
             "קובץ קיים באותו שם יוחלף, ושאר הריפו לא ישתנה."
         )
