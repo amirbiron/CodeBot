@@ -25,6 +25,9 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 from pymongo import DESCENDING
 
+# ייבוא ישיר ולא דרך _get_app_helpers: המודול עצמאי ואינו יוצר תלות מעגלית
+from webapp.admin_repos import load_admin_repos
+
 logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -42,7 +45,6 @@ def _get_app_helpers():
         _build_timeline_event,
         _finalize_events,
         _get_active_dismissals,
-        _load_admin_repos,
         _load_whats_new,
         _MIN_DT,
         BOT_USERNAME_CLEAN,
@@ -67,7 +69,6 @@ def _get_app_helpers():
         _build_push_card=_build_push_card,
         _build_notes_snapshot=_build_notes_snapshot,
         _load_whats_new=_load_whats_new,
-        _load_admin_repos=_load_admin_repos,
         _get_active_dismissals=_get_active_dismissals,
         _build_files_need_attention=_build_files_need_attention,
         _build_timeline_event=_build_timeline_event,
@@ -251,7 +252,7 @@ def dashboard():
         whats_new = helpers._load_whats_new(limit=5)
 
         # רשימת הריפוים נטענת רק לאדמין, כך שהיא לא מגיעה כלל ל-HTML של משתמש רגיל
-        admin_repos = helpers._load_admin_repos() if user_is_admin else []
+        admin_repos = load_admin_repos() if user_is_admin else []
 
         # Widget: files that need attention
         dismissed_ids = helpers._get_active_dismissals(db, user_id)
