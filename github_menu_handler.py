@@ -2435,6 +2435,108 @@ class GitHubMenuHandler:
             )
             return
 
+        elif query.data == "github_zip_to_folder":
+            # פריסת ZIP לתוך תיקייה בריפו: קודם בוחרים יעד, ורק אז שולחים קובץ
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_full = session.get("selected_repo")
+            if not (token and repo_full):
+                try:
+                    await query.answer("❌ חסר טוקן או ריפו נבחר", show_alert=True)
+                except Exception:
+                    pass
+                return
+            # ניקוי דגלים של זרימות העלאה אחרות כדי שלא יתנגשו
+            context.user_data["waiting_for_github_upload"] = False
+            context.user_data["upload_mode"] = None
+            context.user_data.pop("zip_to_folder_target", None)
+            # נעילת הריפו כבר עכשיו, כדי שהחלפת ריפו באמצע לא תשנה את היעד
+            context.user_data["zip_to_folder_repo"] = repo_full
+
+            current = (session.get("selected_folder") or "").strip("/")
+            kb = []
+            if current:
+                kb.append([InlineKeyboardButton(
+                    f"📂 התיקייה הנוכחית: {current}",
+                    callback_data="zipdir_use_current",
+                )])
+            kb.append([InlineKeyboardButton("✏️ הזן נתיב תיקייה", callback_data="zipdir_custom")])
+            kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
+
+            text = (
+                "📁 פריסת ZIP לתיקייה\n\n"
+                f"ריפו: <code>{safe_html_escape(repo_full)}</code>\n\n"
+                "בחר את תיקיית היעד. תוכן ה-ZIP ייפרס לתוכה.\n"
+                "קובץ קיים באותו שם יוחלף, ושאר הריפו לא ישתנה."
+            )
+            try:
+                await query.edit_message_text(
+                    text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+                )
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+                try:
+                    await query.answer("אין שינוי בתצוגה", show_alert=False)
+                except Exception:
+                    pass
+            return
+
+        elif query.data == "zipdir_use_current":
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            folder = (session.get("selected_folder") or "").strip("/")
+            if not folder:
+                try:
+                    await query.answer("❌ אין תיקייה נבחרת", show_alert=True)
+                except Exception:
+                    pass
+                return
+            await self.confirm_zip_to_folder_target(update, context, folder)
+            return
+
+        elif query.data == "zipdir_custom":
+            context.user_data["waiting_for_zipdir_folder"] = True
+            try:
+                await query.answer("הקלד/י נתיב תיקייה…", show_alert=False)
+            except Exception:
+                pass
+            kb = [[InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")]]
+            await query.edit_message_text(
+                "✏️ כתוב נתיב תיקייה בריפו שאליה ייפרס ה-ZIP.\n\n"
+                "לדוגמה: <code>docs</code> או <code>src/utils</code>\n"
+                "אם התיקייה לא קיימת היא תיווצר.",
+                reply_markup=InlineKeyboardMarkup(kb),
+                parse_mode="HTML",
+            )
+            return
+
+        elif query.data == "zipdir_confirm":
+            # אישור סופי: רק כאן נפתח מצב קליטת ה-ZIP
+            folder = (context.user_data.get("zip_to_folder_target") or "").strip("/")
+            if not folder:
+                try:
+                    await query.answer("❌ לא נבחרה תיקייה", show_alert=True)
+                except Exception:
+                    pass
+                return
+            context.user_data["waiting_for_github_upload"] = False
+            context.user_data["upload_mode"] = "github_zip_to_folder"
+            repo_full = context.user_data.get("zip_to_folder_repo") or ""
+            try:
+                await query.answer("✅ עכשיו שלח ZIP", show_alert=False)
+            except Exception:
+                pass
+            # הנתיב מגיע מטקסט חופשי של המשתמש; בלי הברחה, נתיב עם < או &
+            # היה גורם לטלגרם לדחות את ההודעה והזרימה הייתה נתקעת
+            await query.edit_message_text(
+                "📤 שלח עכשיו את קובץ ה-ZIP.\n\n"
+                f"היעד: <code>{safe_html_escape(repo_full)}/{safe_html_escape(folder)}</code>",
+                parse_mode="HTML",
+            )
+            return
+
         elif query.data == "github_restore_zip_list":
             # הצג רשימת גיבויים (ZIP) של הריפו הנוכחי לצורך שחזור לריפו
             user_id = query.from_user.id
@@ -4880,6 +4982,17 @@ class GitHubMenuHandler:
             await self._apply_repo_selection(update, context, repo_candidate)
             return True
 
+        # הזנת נתיב תיקייה עבור פריסת ZIP (מתוך '✏️ הזן נתיב תיקייה')
+        if context.user_data.get("waiting_for_zipdir_folder"):
+            # הדגל נשאר דולק עד שהנתיב מאומת, כדי שנתיב שגוי לא יאלץ
+            # את המשתמש להתחיל את הזרימה מחדש מהתפריט
+            accepted = await self.confirm_zip_to_folder_target(
+                update, context, (text or "").strip()
+            )
+            if accepted:
+                context.user_data["waiting_for_zipdir_folder"] = False
+            return True
+
         # הזנת נתיב יעד ידני עבור העלאה (מתוך '✏️ הזן נתיב ידנית')
         if context.user_data.get("waiting_for_upload_folder"):
             context.user_data["waiting_for_upload_folder"] = False
@@ -7277,6 +7390,80 @@ class GitHubMenuHandler:
             else:
                 raise
 
+    async def confirm_zip_to_folder_target(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, folder: str
+    ) -> bool:
+        """
+        מסך אישור לפני פריסת ZIP לתיקייה.
+
+        הפעולה כותבת לריפו, ולכן מוצג יעד מלא ומפורש לפני שנפתח מצב קליטת הקובץ.
+        מחזיר ``True`` אם הנתיב תקין והוצג מסך האישור, ו-``False`` אם הנתיב נדחה —
+        כך שהקורא יכול להשאיר את המשתמש במצב הזנה ולתת לו לתקן במקום להתחיל מחדש.
+        """
+        from handlers.documents import normalize_repo_folder
+
+        query = update.callback_query
+        try:
+            normalized = normalize_repo_folder(folder)
+        except ValueError as err:
+            msg = f"❌ נתיב לא תקין: {err}"
+            if query is not None:
+                try:
+                    await query.answer(msg, show_alert=True)
+                except Exception:
+                    pass
+            else:
+                await update.message.reply_text(msg)
+            return False
+
+        if not normalized:
+            msg = "❌ נתיב ריק. לפריסה לשורש השתמש ב\"שחזר ZIP לריפו\"."
+            if query is not None:
+                try:
+                    await query.answer(msg, show_alert=True)
+                except Exception:
+                    pass
+            else:
+                await update.message.reply_text(msg)
+            return False
+
+        context.user_data["zip_to_folder_target"] = normalized
+        user_id = (query.from_user.id if query is not None else update.effective_user.id)
+        session = self.get_user_session(user_id)
+        repo_full = context.user_data.get("zip_to_folder_repo") or session.get("selected_repo") or ""
+
+        # normalized מגיע מקלט חופשי, ולכן חייב הברחה לפני שיבוץ ב-HTML
+        text = (
+            "📁 אישור פריסת ZIP לתיקייה\n\n"
+            f"ריפו: <code>{safe_html_escape(repo_full)}</code>\n"
+            f"תיקיית יעד: <code>{safe_html_escape(normalized)}</code>\n\n"
+            "הקבצים מה-ZIP ייפרסו לתוך התיקייה.\n"
+            "קובץ קיים באותו שם יוחלף, ושאר הריפו לא ישתנה."
+        )
+        kb = [
+            [InlineKeyboardButton("✅ אישור, שלח ZIP", callback_data="zipdir_confirm")],
+            [InlineKeyboardButton("✏️ שנה תיקייה", callback_data="zipdir_custom")],
+            [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+        ]
+        if query is not None:
+            try:
+                await query.edit_message_text(
+                    text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+                )
+                return True
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+                try:
+                    await query.answer("אין שינוי בתצוגה", show_alert=False)
+                except Exception:
+                    pass
+                return True
+        await update.message.reply_text(
+            text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+        )
+        return True
+
     async def show_upload_folder_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -8171,6 +8358,11 @@ class GitHubMenuHandler:
             context.user_data.pop("zip_restore_expected_repo_full", None)
             context.user_data.pop("github_restore_zip_purge", None)
             context.user_data.pop("pending_repo_restore_zip_path", None)
+            # ניקוי מצב פריסת ZIP לתיקייה: בלעדיו לחיצה על "ביטול" הייתה משאירה
+            # את הבוט ממתין לנתיב, וההודעה הבאה של המשתמש הייתה מתפרשת כתיקייה
+            context.user_data.pop("waiting_for_zipdir_folder", None)
+            context.user_data.pop("zip_to_folder_target", None)
+            context.user_data.pop("zip_to_folder_repo", None)
         except Exception:
             pass
         # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
@@ -8178,6 +8370,7 @@ class GitHubMenuHandler:
         kb = [
             [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
             [InlineKeyboardButton("♻️ שחזר ZIP לריפו (פריסה והחלפה)", callback_data="github_restore_zip_to_repo")],
+            [InlineKeyboardButton("📁 פרוס ZIP לתיקייה בריפו", callback_data="github_zip_to_folder")],
             [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
