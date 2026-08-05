@@ -4982,8 +4982,13 @@ class GitHubMenuHandler:
 
         # הזנת נתיב תיקייה עבור פריסת ZIP (מתוך '✏️ הזן נתיב תיקייה')
         if context.user_data.get("waiting_for_zipdir_folder"):
-            context.user_data["waiting_for_zipdir_folder"] = False
-            await self.confirm_zip_to_folder_target(update, context, (text or "").strip())
+            # הדגל נשאר דולק עד שהנתיב מאומת, כדי שנתיב שגוי לא יאלץ
+            # את המשתמש להתחיל את הזרימה מחדש מהתפריט
+            accepted = await self.confirm_zip_to_folder_target(
+                update, context, (text or "").strip()
+            )
+            if accepted:
+                context.user_data["waiting_for_zipdir_folder"] = False
             return True
 
         # הזנת נתיב יעד ידני עבור העלאה (מתוך '✏️ הזן נתיב ידנית')
@@ -7383,11 +7388,15 @@ class GitHubMenuHandler:
             else:
                 raise
 
-    async def confirm_zip_to_folder_target(self, update: Update, context: ContextTypes.DEFAULT_TYPE, folder: str):
+    async def confirm_zip_to_folder_target(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, folder: str
+    ) -> bool:
         """
         מסך אישור לפני פריסת ZIP לתיקייה.
 
         הפעולה כותבת לריפו, ולכן מוצג יעד מלא ומפורש לפני שנפתח מצב קליטת הקובץ.
+        מחזיר ``True`` אם הנתיב תקין והוצג מסך האישור, ו-``False`` אם הנתיב נדחה —
+        כך שהקורא יכול להשאיר את המשתמש במצב הזנה ולתת לו לתקן במקום להתחיל מחדש.
         """
         from handlers.documents import normalize_repo_folder
 
@@ -7403,7 +7412,7 @@ class GitHubMenuHandler:
                     pass
             else:
                 await update.message.reply_text(msg)
-            return
+            return False
 
         if not normalized:
             msg = "❌ נתיב ריק. לפריסה לשורש השתמש ב\"שחזר ZIP לריפו\"."
@@ -7414,7 +7423,7 @@ class GitHubMenuHandler:
                     pass
             else:
                 await update.message.reply_text(msg)
-            return
+            return False
 
         context.user_data["zip_to_folder_target"] = normalized
         user_id = (query.from_user.id if query is not None else update.effective_user.id)
@@ -7438,7 +7447,7 @@ class GitHubMenuHandler:
                 await query.edit_message_text(
                     text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
                 )
-                return
+                return True
             except BadRequest as br:
                 if "message is not modified" not in str(br).lower():
                     raise
@@ -7446,10 +7455,11 @@ class GitHubMenuHandler:
                     await query.answer("אין שינוי בתצוגה", show_alert=False)
                 except Exception:
                     pass
-                return
+                return True
         await update.message.reply_text(
             text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
         )
+        return True
 
     async def show_upload_folder_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -8345,6 +8355,11 @@ class GitHubMenuHandler:
             context.user_data.pop("zip_restore_expected_repo_full", None)
             context.user_data.pop("github_restore_zip_purge", None)
             context.user_data.pop("pending_repo_restore_zip_path", None)
+            # ניקוי מצב פריסת ZIP לתיקייה: בלעדיו לחיצה על "ביטול" הייתה משאירה
+            # את הבוט ממתין לנתיב, וההודעה הבאה של המשתמש הייתה מתפרשת כתיקייה
+            context.user_data.pop("waiting_for_zipdir_folder", None)
+            context.user_data.pop("zip_to_folder_target", None)
+            context.user_data.pop("zip_to_folder_repo", None)
         except Exception:
             pass
         # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי

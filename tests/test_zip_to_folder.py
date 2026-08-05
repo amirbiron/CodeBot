@@ -49,6 +49,27 @@ def test_macosx_entries_do_not_affect_detection():
     assert detect_zip_common_root(["__MACOSX/._x", "proj/a.py"]) == "proj"
 
 
+def test_appledouble_file_at_root_does_not_break_detection():
+    """
+    ZIP שנוצר ב-macOS מכיל לעיתים ._proj בשורש. הקובץ מסונן ממילא לפני
+    הפריסה, ולכן הוא לא אמור לבטל את זיהוי תיקיית השורש.
+    """
+    assert detect_zip_common_root(["._proj", "proj/a.py", "proj/b.py"]) == "proj"
+
+
+def test_appledouble_inside_folder_is_ignored_too():
+    assert detect_zip_common_root(["proj/._a.py", "proj/a.py"]) == "proj"
+
+
+@pytest.mark.parametrize("root", ["..", "."])
+def test_dot_paths_are_never_treated_as_common_root(root):
+    """
+    ".." אינו תיקיית שורש. אילו היה מוחזר ככזה, הסרתו הייתה "מנקה" נתיב
+    בריחה במקום שהוא ייפסל — כלומר ארכיון חשוד היה נפרס בשקט.
+    """
+    assert detect_zip_common_root([f"{root}/a.py", f"{root}/b.py"]) is None
+
+
 def test_zip_with_root_file_keeps_nested_structure():
     """בדיקה מקצה לקצה של אותו באג, דרך הפרסור האמיתי."""
     handler = documents_mod.DocumentHandler.__new__(documents_mod.DocumentHandler)
@@ -190,9 +211,32 @@ class _FakeRepo:
         return types.SimpleNamespace(sha="new-sha")
 
 
+class _FakeGithubException(Exception):
+    """מדמה GithubException, כולל שדה status שהקוד בודק."""
+
+    def __init__(self, status=404):
+        super().__init__(f"fake github error {status}")
+        self.status = status
+
+
+class _EmptyRepo(_FakeRepo):
+    """ריפו ללא קומיט ראשון — get_git_ref מחזיר 404, כמו GitHub אמיתי."""
+
+    def __init__(self, status=404):
+        super().__init__()
+        self._status = status
+        self.created_files = []
+
+    def get_git_ref(self, ref):
+        raise _FakeGithubException(self._status)
+
+    def create_file(self, path, message, content, branch):
+        self.created_files.append((path, message, branch))
+
+
 @pytest.fixture
 def fake_github_module():
-    """מזריק github.InputGitTreeElement מדומה, ומשחזר אחרי הבדיקה."""
+    """מזריק את מודולי github שהקוד מייבא, ומשחזר אחרי הבדיקה."""
 
     class _InputGitTreeElement:
         def __init__(self, **kwargs):
@@ -201,23 +245,31 @@ def fake_github_module():
             self.type = kwargs.get("type")
             self.sha = kwargs.get("sha")
 
-    module = types.ModuleType("github.InputGitTreeElement")
-    module.InputGitTreeElement = _InputGitTreeElement
-    original = sys.modules.get("github.InputGitTreeElement")
-    sys.modules["github.InputGitTreeElement"] = module
+    igte_module = types.ModuleType("github.InputGitTreeElement")
+    igte_module.InputGitTreeElement = _InputGitTreeElement
+    exc_module = types.ModuleType("github.GithubException")
+    exc_module.GithubException = _FakeGithubException
+
+    originals = {
+        name: sys.modules.get(name)
+        for name in ("github.InputGitTreeElement", "github.GithubException")
+    }
+    sys.modules["github.InputGitTreeElement"] = igte_module
+    sys.modules["github.GithubException"] = exc_module
     try:
         yield _InputGitTreeElement
     finally:
-        if original is None:
-            sys.modules.pop("github.InputGitTreeElement", None)
-        else:
-            sys.modules["github.InputGitTreeElement"] = original
+        for name, original in originals.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 def _upload(repo, files, prefix):
     handler = documents_mod.DocumentHandler.__new__(documents_mod.DocumentHandler)
-    return documents_mod.DocumentHandler._gh_upload_files_to_folder(
-        handler, repo, files, prefix
+    return documents_mod.DocumentHandler._gh_upload_files(
+        handler, repo, files, prefix, f"Deploy ZIP contents to {prefix or 'root'} via bot"
     )
 
 
@@ -261,6 +313,61 @@ def test_upload_respects_non_default_branch(fake_github_module):
     repo = _FakeRepo(default_branch="develop")
     _upload(repo, [("a.py", b"x")], "docs")
     assert repo.ref.edited_to == "new-sha"
+
+
+@pytest.mark.parametrize("status", [404, 409])
+def test_upload_to_empty_repo_uses_contents_api(fake_github_module, status):
+    """
+    בריפו בלי קומיט ראשון אין ref, ולכן בניית tree הייתה נכשלת.
+    במקרה כזה יוצרים את הקבצים דרך Contents API — כולל ה-prefix.
+    """
+    repo = _EmptyRepo(status=status)
+    count = _upload(repo, [("a.py", b"x"), ("sub/b.md", b"y")], "docs")
+
+    assert count == 2
+    assert sorted(p for p, _m, _b in repo.created_files) == ["docs/a.py", "docs/sub/b.md"]
+    assert not repo.created_trees, "בריפו ריק אין לבנות tree"
+
+
+def test_upload_propagates_unexpected_api_errors(fake_github_module):
+    """
+    רק 404/409 נחשבים ל'ריפו ריק'. שגיאת הרשאות או rate limit חייבת
+    להתפשט, אחרת נדווח על העלאה מוצלחת שלא באמת קרתה.
+    """
+    repo = _EmptyRepo(status=403)
+    with pytest.raises(_FakeGithubException):
+        _upload(repo, [("a.py", b"x")], "docs")
+
+
+def test_blob_api_errors_are_not_swallowed(fake_github_module):
+    """
+    בעבר עטף try/except רחב את יצירת ה-blob, ולכן שגיאת API נבלעה
+    וניסיון ה-base64 הסתיר את הסיבה האמיתית.
+    """
+    repo = _FakeRepo()
+
+    def _boom(content, encoding):
+        raise RuntimeError("rate limit exceeded")
+
+    repo.create_git_blob = _boom
+    with pytest.raises(RuntimeError, match="rate limit"):
+        _upload(repo, [("readme.md", b"hello")], "docs")
+
+
+def test_text_extension_with_binary_content_falls_back(fake_github_module):
+    """קובץ עם סיומת טקסט אבל תוכן שאינו UTF-8 נשמר כ-base64 ולא נופל."""
+    repo = _FakeRepo()
+    encodings = []
+    original = repo.create_git_blob
+
+    def _tracking(content, encoding):
+        encodings.append(encoding)
+        return original(content, encoding)
+
+    repo.create_git_blob = _tracking
+    _upload(repo, [("broken.md", b"\xff\xfe\x00binary")], "docs")
+
+    assert encodings == ["base64"]
 
 
 def test_binary_files_are_uploaded_as_base64(fake_github_module):
@@ -505,6 +612,237 @@ async def test_full_flow_uses_locked_repo_not_session(zip_handler, github_stub):
     assert github_stub.full_name == "owner/locked"
 
 
+# ---------------------------------------------------------------------------
+# זרימת התפריט – בחירת תיקייה, אישור וביטול
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def menu_handler():
+    """GitHubMenuHandler בלי לעבור דרך __init__ (שנוגע ב-DB)."""
+    from github_menu_handler import GitHubMenuHandler
+
+    handler = GitHubMenuHandler.__new__(GitHubMenuHandler)
+    handler.user_sessions = {7: {"selected_repo": "owner/repo", "selected_folder": "docs"}}
+    return handler
+
+
+class _FakeQuery:
+    def __init__(self, data="", user_id=7):
+        self.data = data
+        self.from_user = types.SimpleNamespace(id=user_id)
+        self.edited = []
+        self.answers = []
+        self.message = types.SimpleNamespace(reply_text=self._reply)
+
+    async def edit_message_text(self, text, **kwargs):
+        self.edited.append(text)
+
+    async def answer(self, text="", **kwargs):
+        self.answers.append(text)
+
+    async def _reply(self, text, **kwargs):
+        self.edited.append(text)
+
+
+def _menu_update(query):
+    return types.SimpleNamespace(
+        callback_query=query, effective_user=types.SimpleNamespace(id=7), message=query.message
+    )
+
+
+def _menu_context(**user_data):
+    return types.SimpleNamespace(user_data=dict(user_data), bot_data={})
+
+
+@pytest.mark.asyncio
+async def test_confirm_accepts_valid_folder(menu_handler):
+    query = _FakeQuery()
+    context = _menu_context(zip_to_folder_repo="owner/repo")
+
+    accepted = await menu_handler.confirm_zip_to_folder_target(
+        _menu_update(query), context, "docs/api"
+    )
+
+    assert accepted is True
+    assert context.user_data["zip_to_folder_target"] == "docs/api"
+    assert any("docs/api" in t for t in query.edited)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["../outside", "", "   "])
+async def test_confirm_rejects_bad_folder(menu_handler, bad):
+    """
+    נתיב פסול מחזיר False, כדי שהקורא ישאיר את המשתמש במצב הזנה
+    ויאפשר לו לתקן במקום להתחיל מהתפריט מחדש.
+    """
+    query = _FakeQuery()
+    context = _menu_context(zip_to_folder_repo="owner/repo")
+
+    accepted = await menu_handler.confirm_zip_to_folder_target(
+        _menu_update(query), context, bad
+    )
+
+    assert accepted is False
+    assert "zip_to_folder_target" not in context.user_data
+
+
+def _text_update(text, user_id=7):
+    """update של הודעת טקסט, כפי ש-handle_text_input מצפה לקבל."""
+    replies = []
+
+    async def reply_text(message_text, **kwargs):
+        replies.append(message_text)
+
+    message = types.SimpleNamespace(
+        text=text,
+        from_user=types.SimpleNamespace(id=user_id),
+        reply_text=reply_text,
+    )
+    update = types.SimpleNamespace(
+        message=message,
+        callback_query=None,
+        effective_user=types.SimpleNamespace(id=user_id),
+    )
+    return update, replies
+
+
+@pytest.mark.asyncio
+async def test_bad_path_keeps_user_in_input_mode(menu_handler):
+    """
+    רגרסיה: קודם הדגל נוקה לפני הוולידציה, ולכן אחרי נתיב שגוי
+    ההודעה הבאה כבר לא נחשבה לנתיב והמשתמש נתקע.
+    """
+    context = _menu_context(
+        waiting_for_zipdir_folder=True, zip_to_folder_repo="owner/repo"
+    )
+
+    bad_update, bad_replies = _text_update("../escape")
+    await menu_handler.handle_text_input(bad_update, context)
+
+    assert context.user_data.get("waiting_for_zipdir_folder") is True, (
+        "אחרי נתיב שגוי המשתמש צריך להישאר במצב הזנה"
+    )
+    assert any("לא תקין" in r for r in bad_replies), bad_replies
+
+    good_update, _ = _text_update("docs")
+    await menu_handler.handle_text_input(good_update, context)
+
+    assert context.user_data.get("waiting_for_zipdir_folder") is False
+    assert context.user_data["zip_to_folder_target"] == "docs"
+
+
+@pytest.fixture
+def callback_handler(menu_handler, monkeypatch):
+    """menu_handler עם get_user_token ועם safe_answer מנוטרל, לבדיקת callbacks."""
+    import github_menu_handler as gmh
+
+    menu_handler.get_user_token = lambda user_id: "token"
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(gmh.TelegramUtils, "safe_answer", _noop, raising=False)
+    monkeypatch.setattr(gmh, "emit_event", lambda *a, **k: None, raising=False)
+    return menu_handler
+
+
+async def _click(handler, context, data):
+    query = _FakeQuery(data=data)
+    await handler.handle_menu_callback(_menu_update(query), context)
+    return query
+
+
+@pytest.mark.asyncio
+async def test_callback_opens_folder_picker(callback_handler):
+    context = _menu_context()
+    query = await _click(callback_handler, context, "github_zip_to_folder")
+
+    # הריפו ננעל כבר בשלב הזה, לפני שנשלח קובץ
+    assert context.user_data["zip_to_folder_repo"] == "owner/repo"
+    assert context.user_data["upload_mode"] is None, "אסור לפתוח מצב קליטה לפני בחירת יעד"
+    assert any("פריסת ZIP לתיקייה" in t for t in query.edited), query.edited
+
+
+@pytest.mark.asyncio
+async def test_callback_uses_current_folder(callback_handler):
+    context = _menu_context(zip_to_folder_repo="owner/repo")
+    query = await _click(callback_handler, context, "zipdir_use_current")
+
+    assert context.user_data["zip_to_folder_target"] == "docs"
+    assert any("אישור" in t for t in query.edited), query.edited
+
+
+@pytest.mark.asyncio
+async def test_callback_custom_path_sets_waiting_flag(callback_handler):
+    context = _menu_context(zip_to_folder_repo="owner/repo")
+    await _click(callback_handler, context, "zipdir_custom")
+
+    assert context.user_data["waiting_for_zipdir_folder"] is True
+
+
+@pytest.mark.asyncio
+async def test_callback_confirm_opens_upload_mode(callback_handler):
+    """רק אחרי אישור מפורש נפתח מצב קליטת ה-ZIP."""
+    context = _menu_context(
+        zip_to_folder_repo="owner/repo", zip_to_folder_target="docs"
+    )
+    query = await _click(callback_handler, context, "zipdir_confirm")
+
+    assert context.user_data["upload_mode"] == "github_zip_to_folder"
+    assert context.user_data["waiting_for_github_upload"] is False
+    assert any("שלח עכשיו" in t for t in query.edited), query.edited
+
+
+@pytest.mark.asyncio
+async def test_callback_confirm_without_target_does_not_open_upload_mode(callback_handler):
+    context = _menu_context(zip_to_folder_repo="owner/repo")
+    query = await _click(callback_handler, context, "zipdir_confirm")
+
+    assert context.user_data.get("upload_mode") != "github_zip_to_folder"
+    assert any("לא נבחרה" in a for a in query.answers), query.answers
+
+
+@pytest.mark.asyncio
+async def test_callback_requires_selected_repo(callback_handler):
+    callback_handler.user_sessions[7] = {"selected_repo": None, "selected_folder": None}
+    context = _menu_context()
+    query = await _click(callback_handler, context, "github_zip_to_folder")
+
+    assert "zip_to_folder_repo" not in context.user_data
+    assert any("ריפו" in a for a in query.answers), query.answers
+
+
+@pytest.mark.asyncio
+async def test_callback_use_current_without_folder(callback_handler):
+    callback_handler.user_sessions[7] = {
+        "selected_repo": "owner/repo", "selected_folder": None
+    }
+    context = _menu_context(zip_to_folder_repo="owner/repo")
+    query = await _click(callback_handler, context, "zipdir_use_current")
+
+    assert "zip_to_folder_target" not in context.user_data
+    assert any("אין תיקייה" in a for a in query.answers), query.answers
+
+
+def test_backup_menu_clears_zipdir_state():
+    """
+    רגרסיה: לחיצה על 'ביטול' חזרה לתפריט הגיבוי בלי לנקות את הדגל,
+    ולכן ההודעה הבאה של המשתמש התפרשה בטעות כנתיב תיקייה.
+    """
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
+        encoding="utf-8"
+    )
+    menu_start = src.index("async def show_github_backup_menu")
+    menu_body = src[menu_start:menu_start + 3000]
+    for key in ("waiting_for_zipdir_folder", "zip_to_folder_target", "zip_to_folder_repo"):
+        assert f'context.user_data.pop("{key}", None)' in menu_body, (
+            f"{key} לא מנוקה בחזרה לתפריט הגיבוי"
+        )
+
+
 def test_all_callbacks_are_registered_in_router():
     """
     כפתור שלא רשום ב-pattern של main.py פשוט לא יגיב בבוט,
@@ -537,6 +875,56 @@ def test_menu_button_exists():
         encoding="utf-8"
     )
     assert 'callback_data="github_zip_to_folder"' in menu_src
+
+
+@pytest.mark.asyncio
+async def test_full_flow_rejects_when_all_paths_unsafe(zip_handler, github_stub):
+    """ZIP שכולו נתיבי בריחה נעצר עם הודעה, בלי לגעת בריפו."""
+    payload = _make_zip({"../a.md": b"x", "../../b.md": b"y"})
+    update, replies = _make_update()
+    context = _context(_DummyBot(payload))
+
+    await zip_handler.handle_document(update, context)
+
+    assert not github_stub.created_trees
+    assert any("נדחו מטעמי בטיחות" in m for m in replies.messages), replies.messages
+
+
+@pytest.mark.asyncio
+async def test_full_flow_requires_token(zip_handler, github_stub):
+    class _NoToken:
+        def get_user_session(self, user_id):
+            return {"selected_repo": "owner/repo"}
+
+        def get_user_token(self, user_id):
+            return None
+
+    payload = _make_zip({"a.md": b"x"})
+    update, replies = _make_update()
+    context = _context(_DummyBot(payload))
+    context.bot_data = {"github_handler": _NoToken()}
+
+    await zip_handler.handle_document(update, context)
+
+    assert not github_stub.created_trees
+    assert any("טוקן" in m for m in replies.messages), replies.messages
+
+
+@pytest.mark.asyncio
+async def test_full_flow_reports_upload_errors(zip_handler, github_stub):
+    """כשל מול GitHub מדווח למשתמש ולא נבלע בשקט."""
+    payload = _make_zip({"a.md": b"x"})
+    update, replies = _make_update()
+    context = _context(_DummyBot(payload))
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("github is down")
+
+    github_stub.create_git_blob = _boom
+
+    await zip_handler.handle_document(update, context)
+
+    assert any("שגיאה בפריסת ZIP" in m for m in replies.messages), replies.messages
 
 
 @pytest.mark.asyncio

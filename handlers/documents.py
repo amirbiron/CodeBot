@@ -51,13 +51,24 @@ def detect_zip_common_root(names: Iterable[str]) -> Optional[str]:
     for name in names:
         if not name or name.startswith("__MACOSX/"):
             continue
+        # קובצי AppleDouble (._x) מסוננים ממילא לפני הפריסה, ולכן ._x בשורש
+        # אינו "קובץ בשורש" לצורך החישוב — אחרת ZIP שנוצר ב-macOS היה מאבד
+        # את זיהוי תיקיית השורש בלי סיבה.
+        if name.split("/")[-1].startswith("._"):
+            continue
         if "/" in name:
             top_levels.add(name.split("/", 1)[0])
         else:
             has_root_level_file = True
     if has_root_level_file or len(top_levels) != 1:
         return None
-    return next(iter(top_levels))
+    root = next(iter(top_levels))
+    # ".." או "." אינם תיקיית שורש אמיתית. בלי הבדיקה הזו ארכיון שכל נתיביו
+    # מתחילים ב-"../" היה מקבל שורש ".." – וההסרה שלו הייתה מנקה את נתיב
+    # הבריחה במקום שהוא ייפסל בהמשך, כלומר מסתירה ארכיון חשוד.
+    if root in ("..", "."):
+        return None
+    return root
 
 
 def normalize_repo_folder(folder: str) -> str:
@@ -621,12 +632,21 @@ class DocumentHandler:
         user = g.get_user()
         return user.create_repo(name=repo_name, private=private, auto_init=False)
 
-    def _gh_upload_files(self, repo, files) -> int:
-        """מעלה את הקבצים לריפו החדש ומחזיר את מספר הקבצים שהוזנו.
+    def _gh_upload_files(
+        self,
+        repo,
+        files,
+        prefix: str = "",
+        commit_message: str = "Initial import from ZIP via bot",
+    ) -> int:
+        """מעלה את הקבצים לריפו ומחזיר את מספר הקבצים שהוזנו.
 
         פונקציה חוסמת (N קריאות רשת) שנועדה לרוץ ב-``asyncio.to_thread`` בלבד.
         משמרת את ההתנהגות המקורית: לריפו ריק (ללא base commit) יוצרים כל קובץ דרך
-        Contents API; לריפו עם היסטוריה בונים blobs+tree+commit.
+        Contents API; לריפו עם היסטוריה בונים blobs+tree+commit על גבי העץ הקיים,
+        כך ששאר הריפו אינו מושפע.
+
+        ``prefix`` מאפשר לפרוס את הקבצים לתוך תיקייה במקום לשורש.
         """
         from github.GithubException import GithubException
 
@@ -649,20 +669,21 @@ class DocumentHandler:
         if base_commit is None:
             created_count = 0
             for path, raw in files:
+                full_path = f"{prefix}/{path}" if prefix else path
                 # כשל API ביצירת קובץ מתפשט (ולא נבלע) כדי שלא נדווח על ייבוא מוצלח
                 # בעוד שחלק מהקבצים נכשלו; טיפול ה-UTF-8 מול בינארי נשמר.
                 try:
                     text = raw.decode("utf-8")
                     repo.create_file(
-                        path=path,
-                        message="Initial import from ZIP via bot",
+                        path=full_path,
+                        message=commit_message,
                         content=text,
                         branch=target_branch,
                     )
                 except UnicodeDecodeError:
                     repo.create_file(
-                        path=path,
-                        message="Initial import from ZIP via bot (binary)",
+                        path=full_path,
+                        message=f"{commit_message} (binary)",
                         content=raw,
                         branch=target_branch,
                     )
@@ -690,18 +711,24 @@ class DocumentHandler:
         )
         new_tree_elems: List[InputGitTreeElement] = []
         for path, raw in files:
-            try:
-                if path.lower().endswith(text_exts):
-                    blob = repo.create_git_blob(raw.decode("utf-8"), "utf-8")
-                else:
+            full_path = f"{prefix}/{path}" if prefix else path
+            # רק כשל בפענוח UTF-8 מוביל ל-base64. שגיאות API (הרשאות, rate limit)
+            # חייבות להתפשט, אחרת הן נבלעות ומדווחים על העלאה שלא באמת הצליחה.
+            if full_path.lower().endswith(text_exts):
+                try:
+                    content = raw.decode("utf-8")
+                except UnicodeDecodeError:
                     blob = repo.create_git_blob(base64.b64encode(raw).decode("ascii"), "base64")
-            except Exception:
+                else:
+                    blob = repo.create_git_blob(content, "utf-8")
+            else:
                 blob = repo.create_git_blob(base64.b64encode(raw).decode("ascii"), "base64")
-            new_tree_elems.append(InputGitTreeElement(path=path, mode="100644", type="blob", sha=blob.sha))
+            new_tree_elems.append(
+                InputGitTreeElement(path=full_path, mode="100644", type="blob", sha=blob.sha)
+            )
+        # base_tree מועבר תמיד: הפריסה מוסיפה על הקיים ולא מחליפה את הריפו
         new_tree = repo.create_git_tree(new_tree_elems, base_tree)
-        commit_message = "Initial import from ZIP via bot"
-        parents = [base_commit]
-        new_commit = repo.create_git_commit(commit_message, new_tree, parents)
+        new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
         base_ref.edit(new_commit.sha)
         return len(new_tree_elems)
 
@@ -803,56 +830,6 @@ class DocumentHandler:
             for key in ("new_repo_name", "new_repo_private"):
                 context.user_data.pop(key, None)
 
-    def _gh_upload_files_to_folder(self, repo, files, prefix: str) -> int:
-        """
-        פורס קבצים לתוך תיקייה בריפו קיים, בקומיט אחד.
-
-        פונקציה חוסמת (רשת) שנועדה לרוץ ב-``asyncio.to_thread`` בלבד.
-        הקבצים נוספים על גבי העץ הקיים, ולכן שאר הריפו אינו מושפע: קובץ
-        קיים באותו נתיב מוחלף, וכל השאר נשאר כמו שהוא.
-        """
-        from github.InputGitTreeElement import InputGitTreeElement
-
-        target_branch = repo.default_branch or "main"
-        base_ref = repo.get_git_ref(f"heads/{target_branch}")
-        base_commit = repo.get_git_commit(base_ref.object.sha)
-        base_tree = base_commit.tree
-
-        text_exts = (
-            ".md", ".txt", ".json", ".yml", ".yaml", ".xml", ".py", ".js",
-            ".ts", ".tsx", ".css", ".scss", ".html", ".sh", ".gitignore",
-        )
-
-        elements: List[Any] = []
-        for path, raw in files:
-            full_path = f"{prefix}/{path}" if prefix else path
-            is_text = full_path.lower().endswith(text_exts)
-            try:
-                if is_text:
-                    blob = repo.create_git_blob(raw.decode("utf-8"), "utf-8")
-                else:
-                    blob = repo.create_git_blob(
-                        base64.b64encode(raw).decode("ascii"), "base64"
-                    )
-            except Exception:
-                blob = repo.create_git_blob(
-                    base64.b64encode(raw).decode("ascii"), "base64"
-                )
-            elements.append(
-                InputGitTreeElement(path=full_path, mode="100644", type="blob", sha=blob.sha)
-            )
-
-        # base_tree תמיד מועבר: הפריסה מוסיפה על הקיים ולא מחליפה את הריפו
-        new_tree = repo.create_git_tree(elements, base_tree)
-        commit_message = f"Deploy ZIP contents to {prefix or 'root'} via bot"
-        new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
-        base_ref.edit(new_commit.sha)
-        logger.info(
-            "[zip_to_folder] Commit created: %s, files=%s, prefix=%s",
-            new_commit.sha, len(elements), prefix,
-        )
-        return len(elements)
-
     async def _handle_github_zip_to_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """פורס את תוכן ה-ZIP לתוך תיקייה שנבחרה בריפו קיים."""
         try:
@@ -941,7 +918,11 @@ class DocumentHandler:
             )
 
             count = await asyncio.to_thread(
-                self._gh_upload_files_to_folder, g_repo, safe_files, prefix
+                self._gh_upload_files,
+                g_repo,
+                safe_files,
+                prefix,
+                f"Deploy ZIP contents to {prefix} via bot",
             )
 
             folder_url = f"https://github.com/{repo_full}/tree/{g_repo.default_branch or 'main'}/{prefix}"
