@@ -38,6 +38,91 @@ MAX_IMPORT_FILE_UNCOMPRESSED_BYTES = 50 * 1024 * 1024  # 50MB לקובץ בוד�
 MAX_IMPORT_TOTAL_UNCOMPRESSED_BYTES = 500 * 1024 * 1024  # 500MB סך הכל (לא דחוס)
 
 
+def detect_zip_common_root(names: Iterable[str]) -> Optional[str]:
+    """
+    מזהה תיקיית שורש משותפת בארכיון, או ``None`` אם אין כזו.
+
+    תיקיית שורש קיימת רק אם *כל* הרשומות נמצאות תחתיה. אם יש ולו קובץ אחד
+    בשורש הארכיון, אין שורש משותף — אחרת ZIP כמו ``README.md`` + ``src/main.py``
+    היה מזוהה בטעות עם שורש ``src``, ו-``src/main.py`` היה נחתך ל-``main.py``.
+    """
+    top_levels = set()
+    has_root_level_file = False
+    for name in names:
+        if not name or name.startswith("__MACOSX/"):
+            continue
+        if "/" in name:
+            top_levels.add(name.split("/", 1)[0])
+        else:
+            has_root_level_file = True
+    if has_root_level_file or len(top_levels) != 1:
+        return None
+    return next(iter(top_levels))
+
+
+def normalize_repo_folder(folder: str) -> str:
+    """
+    מנרמל נתיב של תיקיית יעד בריפו ומחזיר אותו בלי לוכסנים בקצוות.
+
+    מחזיר מחרוזת ריקה עבור שורש הריפו. זורק ``ValueError`` אם הנתיב מנסה
+    לצאת מהריפו (``..``), אם הוא נתיב מוחלט, או אם הוא מכיל תווים אסורים.
+    """
+    raw = (folder or "").strip().replace("\\", "/")
+    if not raw:
+        return ""
+    # נתיב בריפו הוא תמיד יחסי לשורש שלו, ולכן "/docs" ו-"docs" זהים.
+    # מנרמלים במקום לדחות, כי זו טעות הקלדה נפוצה ולא ניסיון לברוח מהריפו.
+    raw = raw.lstrip("/")
+    if not raw:
+        return ""
+    # "C:/..." הוא כמעט תמיד הדבקה של נתיב מהמחשב, ולא כוונה אמיתית
+    if re.match(r"^[A-Za-z]:", raw):
+        raise ValueError("נתיב היעד חייב להיות יחסי לריפו (לא נתיב מהמחשב).")
+
+    parts: List[str] = []
+    for part in raw.split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            raise ValueError("נתיב היעד לא יכול להכיל '..'.")
+        if "\x00" in part:
+            raise ValueError("נתיב היעד מכיל תווים לא חוקיים.")
+        parts.append(part)
+    return "/".join(parts)
+
+
+def sanitize_zip_member_path(path: str) -> Optional[str]:
+    """
+    מנקה נתיב של קובץ מתוך ZIP ומחזיר אותו, או ``None`` אם יש לדלג עליו.
+
+    זו ההגנה מפני Zip-Slip: ארכיון יכול להכיל נתיב כמו ``../../secrets``,
+    ובלעדיה הוא היה נכתב מחוץ לתיקיית היעד שהמשתמש בחר.
+    """
+    if not path:
+        return None
+    candidate = path.replace("\\", "/").strip()
+    if not candidate or candidate.endswith("/"):
+        return None
+    # נתיב מוחלט בתוך ארכיון אינו מסוכן כאן (היעד הוא git tree, לא דיסק),
+    # ולכן מנרמלים אותו במקום להשמיט את הקובץ בשקט.
+    candidate = candidate.lstrip("/")
+    if not candidate or re.match(r"^[A-Za-z]:", candidate):
+        return None
+
+    parts: List[str] = []
+    for part in candidate.split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            return None
+        if "\x00" in part:
+            return None
+        parts.append(part)
+    if not parts:
+        return None
+    return "/".join(parts)
+
+
 class _ReporterProto(Protocol):
     """Protocol for activity reporter."""
     def report_activity(self, user_id: int) -> None: ...
@@ -285,6 +370,10 @@ class DocumentHandler:
             await self._handle_github_create_repo_from_zip(update, context)
             return
 
+        if upload_mode == "github_zip_to_folder":
+            await self._handle_github_zip_to_folder(update, context)
+            return
+
         if context.user_data.get("waiting_for_github_upload") or upload_mode == "github":
             await self._handle_github_direct_upload(update, context)
             return
@@ -327,11 +416,7 @@ class DocumentHandler:
                         for n in all_names
                         if not (n.startswith("__MACOSX/") or n.split("/")[-1].startswith("._"))
                     ]
-                    top_levels = set()
-                    for name in zf.namelist():
-                        if "/" in name and not name.startswith("__MACOSX/"):
-                            top_levels.add(name.split("/", 1)[0])
-                    common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+                    common_root = detect_zip_common_root(zf.namelist())
 
                     def strip_root(path: str) -> str:
                         if common_root and path.startswith(common_root + "/"):
@@ -513,11 +598,7 @@ class DocumentHandler:
                 total_uncompressed += entry_size
                 if total_uncompressed > MAX_IMPORT_TOTAL_UNCOMPRESSED_BYTES:
                     raise ValueError("סך התוכן הלא-דחוס בארכיון חורג מהמגבלה המותרת.")
-            top_levels = set()
-            for name in names_all:
-                if "/" in name and not name.startswith("__MACOSX/"):
-                    top_levels.add(name.split("/", 1)[0])
-            common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+            common_root = detect_zip_common_root(names_all)
 
             def strip_root(path: str) -> str:
                 if common_root and path.startswith(common_root + "/"):
@@ -721,6 +802,168 @@ class DocumentHandler:
             context.user_data["upload_mode"] = None
             for key in ("new_repo_name", "new_repo_private"):
                 context.user_data.pop(key, None)
+
+    def _gh_upload_files_to_folder(self, repo, files, prefix: str) -> int:
+        """
+        פורס קבצים לתוך תיקייה בריפו קיים, בקומיט אחד.
+
+        פונקציה חוסמת (רשת) שנועדה לרוץ ב-``asyncio.to_thread`` בלבד.
+        הקבצים נוספים על גבי העץ הקיים, ולכן שאר הריפו אינו מושפע: קובץ
+        קיים באותו נתיב מוחלף, וכל השאר נשאר כמו שהוא.
+        """
+        from github.InputGitTreeElement import InputGitTreeElement
+
+        target_branch = repo.default_branch or "main"
+        base_ref = repo.get_git_ref(f"heads/{target_branch}")
+        base_commit = repo.get_git_commit(base_ref.object.sha)
+        base_tree = base_commit.tree
+
+        text_exts = (
+            ".md", ".txt", ".json", ".yml", ".yaml", ".xml", ".py", ".js",
+            ".ts", ".tsx", ".css", ".scss", ".html", ".sh", ".gitignore",
+        )
+
+        elements: List[Any] = []
+        for path, raw in files:
+            full_path = f"{prefix}/{path}" if prefix else path
+            is_text = full_path.lower().endswith(text_exts)
+            try:
+                if is_text:
+                    blob = repo.create_git_blob(raw.decode("utf-8"), "utf-8")
+                else:
+                    blob = repo.create_git_blob(
+                        base64.b64encode(raw).decode("ascii"), "base64"
+                    )
+            except Exception:
+                blob = repo.create_git_blob(
+                    base64.b64encode(raw).decode("ascii"), "base64"
+                )
+            elements.append(
+                InputGitTreeElement(path=full_path, mode="100644", type="blob", sha=blob.sha)
+            )
+
+        # base_tree תמיד מועבר: הפריסה מוסיפה על הקיים ולא מחליפה את הריפו
+        new_tree = repo.create_git_tree(elements, base_tree)
+        commit_message = f"Deploy ZIP contents to {prefix or 'root'} via bot"
+        new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
+        base_ref.edit(new_commit.sha)
+        logger.info(
+            "[zip_to_folder] Commit created: %s, files=%s, prefix=%s",
+            new_commit.sha, len(elements), prefix,
+        )
+        return len(elements)
+
+    async def _handle_github_zip_to_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """פורס את תוכן ה-ZIP לתוך תיקייה שנבחרה בריפו קיים."""
+        try:
+            document = update.message.document
+            user_id = update.effective_user.id
+
+            # היעד נקבע מראש בתפריט ונשמר, כדי שלא ישתנה בין הבחירה לשליחת הקובץ
+            try:
+                prefix = normalize_repo_folder(
+                    context.user_data.get("zip_to_folder_target") or ""
+                )
+            except ValueError as err:
+                await update.message.reply_text(f"❌ נתיב היעד אינו תקין: {err}")
+                return
+            if not prefix:
+                await update.message.reply_text(
+                    "❌ לא נבחרה תיקיית יעד. חזור לתפריט ובחר תיקייה."
+                )
+                return
+
+            github_handler = context.bot_data.get("github_handler")
+            session = github_handler.get_user_session(user_id) if github_handler else {}
+            token = github_handler.get_user_token(user_id) if github_handler else None
+            # היעד הנעול מנצח, כדי שהחלפת ריפו באמצע לא תשלח קבצים למקום אחר
+            repo_full = context.user_data.get("zip_to_folder_repo") or session.get("selected_repo")
+            if not (token and repo_full):
+                await update.message.reply_text("❌ אין טוקן או ריפו נבחר")
+                return
+
+            logger.info(
+                "GitHub zip-to-folder received: file_name=%s, size=%s, repo=%s, folder=%s",
+                document.file_name, document.file_size, repo_full, prefix,
+            )
+
+            await update.message.reply_text("⏳ מוריד קובץ ZIP...")
+            tg_file = await context.bot.get_file(document.file_id)
+            buf = BytesIO()
+            try:
+                await tg_file.download_to_memory(buf)
+                buf.seek(0)
+                if not zipfile.is_zipfile(buf):
+                    await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
+                    return
+                # פרסור כבד מחוץ ל-event loop; כולל מגבלות נגד "פצצת ZIP"
+                files, _common_root, member_count = await asyncio.to_thread(
+                    self._parse_zip_for_import, buf
+                )
+            finally:
+                try:
+                    buf.close()
+                except Exception:
+                    pass
+
+            if not member_count or not files:
+                await update.message.reply_text("❌ לא נמצאו קבצים בתוך ה-ZIP")
+                return
+
+            # הגנת Zip-Slip: נתיב שמנסה לצאת מהתיקייה מדולג ולא נכתב לריפו
+            safe_files: List[tuple[str, bytes]] = []
+            skipped: List[str] = []
+            for path, raw in files:
+                clean = sanitize_zip_member_path(path)
+                if clean is None:
+                    skipped.append(path)
+                    continue
+                safe_files.append((clean, raw))
+
+            if skipped:
+                logger.warning(
+                    "[zip_to_folder] Skipped %s unsafe path(s), first: %s",
+                    len(skipped), skipped[:3],
+                )
+            if not safe_files:
+                await update.message.reply_text(
+                    "❌ כל הנתיבים ב-ZIP נדחו מטעמי בטיחות (נתיבים מוחלטים או '..')."
+                )
+                return
+
+            g_repo = await asyncio.to_thread(self._gh_get_repo, token, repo_full)
+            notice = ""
+            if skipped:
+                notice = f"\n⚠️ דולגו {len(skipped)} נתיבים לא בטוחים (מכילים '..' או נתיב מוחלט)."
+            await update.message.reply_text(
+                f"📤 מעלה {len(safe_files)} קבצים אל <code>{html_escape(repo_full)}/{html_escape(prefix)}</code>...{notice}",
+                parse_mode=ParseMode.HTML,
+            )
+
+            count = await asyncio.to_thread(
+                self._gh_upload_files_to_folder, g_repo, safe_files, prefix
+            )
+
+            folder_url = f"https://github.com/{repo_full}/tree/{g_repo.default_branch or 'main'}/{prefix}"
+            await update.message.reply_text(
+                f"✅ נפרסו {count} קבצים לתיקייה\n"
+                f"🔗 <a href=\"{html_escape(folder_url)}\">{html_escape(repo_full)}/{html_escape(prefix)}</a>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as err:
+            logger.exception("ZIP to folder failed: %s", err)
+            await update.message.reply_text(f"❌ שגיאה בפריסת ZIP לתיקייה: {err}")
+            await self._maybe_alert_oom(context, err, "בפריסת ZIP לתיקייה")
+        finally:
+            context.user_data["upload_mode"] = None
+            for key in ("zip_to_folder_target", "zip_to_folder_repo"):
+                context.user_data.pop(key, None)
+
+    def _gh_get_repo(self, token: str, repo_full: str):
+        """מחזיר אובייקט ריפו. פונקציה חוסמת (רשת) ל-``asyncio.to_thread``."""
+        from github import Github
+
+        return Github(token).get_repo(repo_full)
 
     async def _handle_github_direct_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         github_handler = context.bot_data.get("github_handler")
