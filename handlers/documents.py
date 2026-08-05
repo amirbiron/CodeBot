@@ -912,8 +912,9 @@ class DocumentHandler:
             notice = ""
             if skipped:
                 notice = f"\n⚠️ דולגו {len(skipped)} נתיבים לא בטוחים (מכילים '..' או נתיב מוחלט)."
+            target_label = f"{html_escape(repo_full)}/{html_escape(prefix)}"
             await update.message.reply_text(
-                f"📤 מעלה {len(safe_files)} קבצים אל <code>{html_escape(repo_full)}/{html_escape(prefix)}</code>...{notice}",
+                f"📤 מעלה {len(safe_files)} קבצים אל <code>{target_label}</code>...{notice}",
                 parse_mode=ParseMode.HTML,
             )
 
