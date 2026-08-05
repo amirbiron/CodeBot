@@ -42,6 +42,7 @@ def _get_app_helpers():
         _build_timeline_event,
         _finalize_events,
         _get_active_dismissals,
+        _load_admin_repos,
         _load_whats_new,
         _MIN_DT,
         BOT_USERNAME_CLEAN,
@@ -66,6 +67,7 @@ def _get_app_helpers():
         _build_push_card=_build_push_card,
         _build_notes_snapshot=_build_notes_snapshot,
         _load_whats_new=_load_whats_new,
+        _load_admin_repos=_load_admin_repos,
         _get_active_dismissals=_get_active_dismissals,
         _build_files_need_attention=_build_files_need_attention,
         _build_timeline_event=_build_timeline_event,
@@ -248,6 +250,9 @@ def dashboard():
         notes_snapshot = helpers._build_notes_snapshot(db, user_id)
         whats_new = helpers._load_whats_new(limit=5)
 
+        # רשימת הריפוים נטענת רק לאדמין, כך שהיא לא מגיעה כלל ל-HTML של משתמש רגיל
+        admin_repos = helpers._load_admin_repos() if user_is_admin else []
+
         # Widget: files that need attention
         dismissed_ids = helpers._get_active_dismissals(db, user_id)
         files_need_attention = helpers._build_files_need_attention(
@@ -266,6 +271,7 @@ def dashboard():
             push_card=push_card,
             notes_snapshot=notes_snapshot,
             whats_new=whats_new,
+            admin_repos=admin_repos,
             files_need_attention=files_need_attention,
             bot_username=helpers.BOT_USERNAME_CLEAN,
             pinned_files=pinned_data,
@@ -324,6 +330,7 @@ def dashboard():
             push_card=fallback_card,
             notes_snapshot=fallback_notes,
             whats_new={"features": [], "has_features": False, "total": 0},
+            admin_repos=[],
             files_need_attention=fallback_attention,
             error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
             bot_username=helpers.BOT_USERNAME_CLEAN,
