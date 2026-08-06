@@ -1375,6 +1375,10 @@ class GitHubMenuHandler:
             keyboard.append([InlineKeyboardButton("🗃️ עיין בריפו", callback_data="browse_repo")])
             # כפתור העלאה
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
+            # פריסת ZIP לתיקייה — פעולת העלאה, ולכן יושבת ליד "העלה קובץ חדש"
+            keyboard.append(
+                [InlineKeyboardButton("📁 פרוס ZIP לתיקייה", callback_data="github_zip_to_folder")]
+            )
             # פעולות נוספות בטוחות
             keyboard.append(
                 [InlineKeyboardButton("📥 הורד קובץ מהריפו", callback_data="gh_download_file_menu")]
@@ -2462,7 +2466,7 @@ class GitHubMenuHandler:
                     callback_data="zipdir_use_current",
                 )])
             kb.append([InlineKeyboardButton("✏️ הזן נתיב תיקייה", callback_data="zipdir_custom")])
-            kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
+            kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
 
             text = (
                 "📁 פריסת ZIP לתיקייה\n\n"
@@ -2502,7 +2506,7 @@ class GitHubMenuHandler:
                 await query.answer("הקלד/י נתיב תיקייה…", show_alert=False)
             except Exception:
                 pass
-            kb = [[InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")]]
+            kb = [[InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]]
             await query.edit_message_text(
                 "✏️ כתוב נתיב תיקייה בריפו שאליה ייפרס ה-ZIP.\n\n"
                 "לדוגמה: <code>docs</code> או <code>src/utils</code>\n"
@@ -2831,6 +2835,8 @@ class GitHubMenuHandler:
                 context.user_data.pop("github_backup_context_repo", None)
             except Exception:
                 pass
+            # הזרימה של פריסת ZIP יוצאת לכאן ב"ביטול"/"חזור"
+            self.clear_zip_to_folder_state(context)
             await self.github_menu_command(update, context)
             return ConversationHandler.END
         
@@ -7390,6 +7396,25 @@ class GitHubMenuHandler:
             else:
                 raise
 
+    @staticmethod
+    def clear_zip_to_folder_state(context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        מנקה את מצב זרימת "פרוס ZIP לתיקייה".
+
+        נקרא מכל מסלול יציאה מהזרימה (תפריט ראשי, תפריט גיבוי). בלי הניקוי
+        הבוט נשאר ממתין לנתיב, וההודעה הבאה של המשתמש מתפרשת כתיקיית יעד.
+        מרוכז כאן בכוונה, כדי ששני מסלולי היציאה לא יתפצלו עם הזמן.
+        """
+        try:
+            context.user_data.pop("waiting_for_zipdir_folder", None)
+            context.user_data.pop("zip_to_folder_target", None)
+            context.user_data.pop("zip_to_folder_repo", None)
+            # רק אם ההמתנה לקובץ שייכת לזרימה הזו; לא נוגעים במצבי העלאה אחרים
+            if context.user_data.get("upload_mode") == "github_zip_to_folder":
+                context.user_data.pop("upload_mode", None)
+        except Exception:
+            pass
+
     async def confirm_zip_to_folder_target(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE, folder: str
     ) -> bool:
@@ -7443,7 +7468,7 @@ class GitHubMenuHandler:
         kb = [
             [InlineKeyboardButton("✅ אישור, שלח ZIP", callback_data="zipdir_confirm")],
             [InlineKeyboardButton("✏️ שנה תיקייה", callback_data="zipdir_custom")],
-            [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+            [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")],
         ]
         if query is not None:
             try:
@@ -8358,19 +8383,15 @@ class GitHubMenuHandler:
             context.user_data.pop("zip_restore_expected_repo_full", None)
             context.user_data.pop("github_restore_zip_purge", None)
             context.user_data.pop("pending_repo_restore_zip_path", None)
-            # ניקוי מצב פריסת ZIP לתיקייה: בלעדיו לחיצה על "ביטול" הייתה משאירה
-            # את הבוט ממתין לנתיב, וההודעה הבאה של המשתמש הייתה מתפרשת כתיקייה
-            context.user_data.pop("waiting_for_zipdir_folder", None)
-            context.user_data.pop("zip_to_folder_target", None)
-            context.user_data.pop("zip_to_folder_repo", None)
         except Exception:
             pass
+        # רשת ביטחון: אם המשתמש הגיע לכאן באמצע זרימת פריסת ZIP לתיקייה
+        self.clear_zip_to_folder_state(context)
         # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
         context.user_data["github_backup_context_repo"] = repo_full
         kb = [
             [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
             [InlineKeyboardButton("♻️ שחזר ZIP לריפו (פריסה והחלפה)", callback_data="github_restore_zip_to_repo")],
-            [InlineKeyboardButton("📁 פרוס ZIP לתיקייה בריפו", callback_data="github_zip_to_folder")],
             [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],

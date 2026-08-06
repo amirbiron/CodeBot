@@ -633,16 +633,30 @@ class _FakeQuery:
         self.from_user = types.SimpleNamespace(id=user_id)
         self.edited = []
         self.answers = []
+        self.markups = []
         self.message = types.SimpleNamespace(reply_text=self._reply)
 
     async def edit_message_text(self, text, **kwargs):
         self.edited.append(text)
+        if kwargs.get("reply_markup") is not None:
+            self.markups.append(kwargs["reply_markup"])
 
     async def answer(self, text="", **kwargs):
         self.answers.append(text)
 
     async def _reply(self, text, **kwargs):
         self.edited.append(text)
+        if kwargs.get("reply_markup") is not None:
+            self.markups.append(kwargs["reply_markup"])
+
+    def callbacks(self):
+        """כל ה-callback_data שהוצגו למשתמש, לפי הסדר."""
+        out = []
+        for markup in self.markups:
+            for row in markup.inline_keyboard:
+                for button in row:
+                    out.append(button.callback_data)
+        return out
 
 
 def _menu_update(query):
@@ -860,23 +874,95 @@ async def test_callback_use_current_without_folder(callback_handler):
     assert any("אין תיקייה" in a for a in query.answers), query.answers
 
 
-def test_backup_menu_clears_zipdir_state():
-    """
-    רגרסיה: לחיצה על 'ביטול' חזרה לתפריט הגיבוי בלי לנקות את הדגל,
-    ולכן ההודעה הבאה של המשתמש התפרשה בטעות כנתיב תיקייה.
-    """
-    from pathlib import Path
+_ZIPDIR_STATE_KEYS = (
+    "waiting_for_zipdir_folder",
+    "zip_to_folder_target",
+    "zip_to_folder_repo",
+)
 
-    src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
-        encoding="utf-8"
+
+@pytest.mark.asyncio
+async def test_returning_to_main_menu_clears_zipdir_state(callback_handler):
+    """
+    רגרסיה: 'ביטול'/'חזור' בזרימה מחזירים לתפריט GitHub הראשי. אם המצב
+    לא מנוקה שם, הבוט נשאר ממתין לנתיב וההודעה הבאה של המשתמש מתפרשת
+    בטעות כתיקיית יעד.
+    """
+    context = _menu_context()
+    await _click(callback_handler, context, "github_zip_to_folder")
+    await _click(callback_handler, context, "zipdir_custom")
+    assert context.user_data["waiting_for_zipdir_folder"] is True
+
+    await _click(callback_handler, context, "github_menu")
+
+    for key in _ZIPDIR_STATE_KEYS:
+        assert not context.user_data.get(key), f"{key} נשאר תקוע אחרי חזרה לתפריט"
+    assert context.user_data.get("upload_mode") != "github_zip_to_folder"
+
+
+@pytest.mark.asyncio
+async def test_returning_to_main_menu_clears_pending_upload_mode(callback_handler):
+    """גם אחרי אישור היעד, יציאה לתפריט מבטלת את ההמתנה לקובץ."""
+    context = _menu_context()
+    await _click(callback_handler, context, "github_zip_to_folder")
+    await _click(callback_handler, context, "zipdir_use_current")
+    await _click(callback_handler, context, "zipdir_confirm")
+    assert context.user_data["upload_mode"] == "github_zip_to_folder"
+
+    await _click(callback_handler, context, "github_menu")
+    assert context.user_data.get("upload_mode") != "github_zip_to_folder"
+
+
+def test_clear_helper_only_touches_this_flow(menu_handler):
+    """
+    הניקוי מרוכז בפונקציה אחת ששני מסלולי היציאה קוראים לה. היא אמורה
+    לנקות רק את מצב הזרימה הזו — ולא מצבי העלאה אחרים שרצים במקביל.
+    """
+    context = _menu_context(
+        waiting_for_zipdir_folder=True,
+        zip_to_folder_target="docs",
+        zip_to_folder_repo="owner/repo",
+        upload_mode="github_restore_zip_to_repo",  # זרימה אחרת
+        waiting_for_github_upload=True,
     )
-    # חיתוך לפי המבנה ולא לפי מספר תווים קבוע, כדי שהבדיקה לא תישבר
-    # מגדילת הפונקציה או מפיצול שורות בידי פורמטר
-    menu_start = src.index("async def show_github_backup_menu")
-    next_def = src.find("\n    async def ", menu_start + 1)
-    menu_body = src[menu_start : next_def if next_def != -1 else len(src)]
-    for key in ("waiting_for_zipdir_folder", "zip_to_folder_target", "zip_to_folder_repo"):
-        assert f'"{key}"' in menu_body, f"{key} לא מנוקה בחזרה לתפריט הגיבוי"
+
+    menu_handler.clear_zip_to_folder_state(context)
+
+    for key in _ZIPDIR_STATE_KEYS:
+        assert key not in context.user_data
+    assert context.user_data["upload_mode"] == "github_restore_zip_to_repo", (
+        "הניקוי דרס מצב העלאה של זרימה אחרת"
+    )
+    assert context.user_data["waiting_for_github_upload"] is True
+
+
+def test_clear_helper_resets_own_upload_mode(menu_handler):
+    context = _menu_context(upload_mode="github_zip_to_folder")
+    menu_handler.clear_zip_to_folder_state(context)
+    assert "upload_mode" not in context.user_data
+
+
+def test_clear_helper_is_safe_on_empty_state(menu_handler):
+    """קריאה כשאין מצב פעיל לא אמורה לזרוק."""
+    context = _menu_context()
+    menu_handler.clear_zip_to_folder_state(context)
+    assert context.user_data == {}
+
+
+@pytest.mark.asyncio
+async def test_backup_menu_still_clears_zipdir_state(callback_handler):
+    """
+    הכפתור עבר לתפריט הראשי, אבל הניקוי בתפריט הגיבוי נשאר כרשת ביטחון
+    למקרה שהמשתמש מגיע לשם באמצע הזרימה.
+    """
+    context = _menu_context()
+    await _click(callback_handler, context, "github_zip_to_folder")
+    await _click(callback_handler, context, "zipdir_custom")
+
+    await _click(callback_handler, context, "github_backup_menu")
+
+    for key in _ZIPDIR_STATE_KEYS:
+        assert not context.user_data.get(key), f"{key} נשאר תקוע אחרי מעבר לתפריט הגיבוי"
 
 
 def test_main_menu_exit_clears_zipdir_state():
@@ -918,13 +1004,50 @@ def test_all_callbacks_are_registered_in_router():
     assert "waiting_for_zipdir_folder" in menu_src
 
 
-def test_menu_button_exists():
-    from pathlib import Path
+@pytest.mark.asyncio
+async def test_button_appears_in_the_main_github_menu(callback_handler):
+    """
+    הכפתור שייך לתפריט GitHub הראשי, ליד שאר פעולות ההעלאה — ולא
+    לתפריט הגיבוי והשחזור: פריסת ZIP לתיקייה אינה גיבוי ואינה שחזור.
+    """
+    query = _FakeQuery()
+    await callback_handler.github_menu_command(_menu_update(query), _menu_context())
 
-    menu_src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
-        encoding="utf-8"
-    )
-    assert 'callback_data="github_zip_to_folder"' in menu_src
+    buttons = query.callbacks()
+    assert "github_zip_to_folder" in buttons, f"הכפתור אינו בתפריט הראשי: {buttons}"
+    # יושב ליד פעולות ההעלאה, לא בקצה התפריט
+    assert abs(buttons.index("github_zip_to_folder") - buttons.index("upload_file")) == 1
+
+
+@pytest.mark.asyncio
+async def test_button_is_not_in_the_backup_menu(callback_handler):
+    query = _FakeQuery()
+    await callback_handler.show_github_backup_menu(_menu_update(query), _menu_context())
+
+    buttons = query.callbacks()
+    assert buttons, "תפריט הגיבוי לא הוצג"
+    assert "github_zip_to_folder" not in buttons, "הכפתור עדיין בתפריט הגיבוי"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "callback", ["github_zip_to_folder", "zipdir_custom", "zipdir_use_current"]
+)
+async def test_flow_screens_return_to_the_main_menu(callback_handler, callback):
+    """
+    כפתורי החזרה/ביטול בכל מסכי הזרימה חייבים להחזיר לתפריט שממנו
+    המשתמש נכנס — התפריט הראשי, ולא תפריט הגיבוי.
+    """
+    context = _menu_context()
+    await _click(callback_handler, context, "github_zip_to_folder")
+
+    query = _FakeQuery(data=callback)
+    await callback_handler.handle_menu_callback(_menu_update(query), context)
+
+    buttons = query.callbacks()
+    assert buttons, f"המסך {callback} לא הציג מקלדת"
+    assert "github_backup_menu" not in buttons, f"{callback} עדיין מחזיר לתפריט הגיבוי"
+    assert "github_menu" in buttons, f"{callback} אינו מציע חזרה לתפריט הראשי"
 
 
 @pytest.mark.asyncio
