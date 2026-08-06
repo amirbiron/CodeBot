@@ -860,23 +860,38 @@ async def test_callback_use_current_without_folder(callback_handler):
     assert any("אין תיקייה" in a for a in query.answers), query.answers
 
 
-def test_backup_menu_clears_zipdir_state():
+def test_github_menu_callback_clears_zipdir_state():
     """
-    רגרסיה: לחיצה על 'ביטול' חזרה לתפריט הגיבוי בלי לנקות את הדגל,
-    ולכן ההודעה הבאה של המשתמש התפרשה בטעות כנתיב תיקייה.
+    רגרסיה: 'ביטול'/'חזור' בזרימה מחזירים לתפריט GitHub הראשי. אם המצב
+    לא מנוקה שם, הבוט נשאר ממתין לנתיב וההודעה הבאה של המשתמש מתפרשת
+    בטעות כתיקיית יעד.
     """
     from pathlib import Path
 
     src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
         encoding="utf-8"
     )
-    # חיתוך לפי המבנה ולא לפי מספר תווים קבוע, כדי שהבדיקה לא תישבר
-    # מגדילת הפונקציה או מפיצול שורות בידי פורמטר
+    start = src.index('elif query.data == "github_menu":')
+    block = src[start : src.index("elif query.data ==", start + 10)]
+    for key in ("waiting_for_zipdir_folder", "zip_to_folder_target", "zip_to_folder_repo"):
+        assert f'"{key}"' in block, f"{key} לא מנוקה בחזרה לתפריט הראשי"
+
+
+def test_backup_menu_still_clears_zipdir_state():
+    """
+    הכפתור עבר לתפריט הראשי, אבל הניקוי בתפריט הגיבוי נשאר כרשת ביטחון
+    למקרה שהמשתמש מגיע לשם באמצע הזרימה.
+    """
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
+        encoding="utf-8"
+    )
     menu_start = src.index("async def show_github_backup_menu")
     next_def = src.find("\n    async def ", menu_start + 1)
     menu_body = src[menu_start : next_def if next_def != -1 else len(src)]
     for key in ("waiting_for_zipdir_folder", "zip_to_folder_target", "zip_to_folder_repo"):
-        assert f'"{key}"' in menu_body, f"{key} לא מנוקה בחזרה לתפריט הגיבוי"
+        assert f'"{key}"' in menu_body, f"{key} לא מנוקה בתפריט הגיבוי"
 
 
 def test_main_menu_exit_clears_zipdir_state():
@@ -918,13 +933,45 @@ def test_all_callbacks_are_registered_in_router():
     assert "waiting_for_zipdir_folder" in menu_src
 
 
-def test_menu_button_exists():
+def test_button_lives_in_the_main_github_menu():
+    """
+    הכפתור שייך לתפריט GitHub הראשי, ליד שאר פעולות ההעלאה — ולא
+    לתפריט הגיבוי והשחזור: פריסת ZIP לתיקייה אינה גיבוי ואינה שחזור.
+    """
     from pathlib import Path
 
-    menu_src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
+    src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
         encoding="utf-8"
     )
-    assert 'callback_data="github_zip_to_folder"' in menu_src
+    button = 'callback_data="github_zip_to_folder"'
+    assert src.count(button) == 1, "הכפתור צריך להופיע בדיוק פעם אחת"
+
+    # הכפתור נמצא באותו בלוק שבו נבנה התפריט הראשי, ליד "העלה קובץ חדש"
+    upload_pos = src.index('callback_data="upload_file"')
+    button_pos = src.index(button)
+    assert 0 < button_pos - upload_pos < 500, "הכפתור אינו ליד פעולות ההעלאה בתפריט הראשי"
+
+    # ואינו בתוך בונה תפריט הגיבוי
+    backup_start = src.index("async def show_github_backup_menu")
+    next_def = src.find("\n    async def ", backup_start + 1)
+    backup_body = src[backup_start : next_def if next_def != -1 else len(src)]
+    assert button not in backup_body, "הכפתור עדיין בתפריט הגיבוי"
+
+
+def test_flow_returns_to_the_main_menu_on_cancel():
+    """כפתורי החזרה/ביטול בזרימה חייבים להחזיר לתפריט שממנו נכנסו."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "github_menu_handler.py").read_text(
+        encoding="utf-8"
+    )
+    start = src.index('elif query.data == "github_zip_to_folder":')
+    end = src.index('elif query.data == "github_restore_zip_list":', start)
+    flow = src[start:end]
+    assert 'callback_data="github_backup_menu"' not in flow, (
+        "הזרימה עדיין מחזירה לתפריט הגיבוי"
+    )
+    assert 'callback_data="github_menu"' in flow
 
 
 @pytest.mark.asyncio
