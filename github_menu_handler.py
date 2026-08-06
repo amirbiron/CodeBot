@@ -2835,17 +2835,8 @@ class GitHubMenuHandler:
                 context.user_data.pop("github_backup_context_repo", None)
             except Exception:
                 pass
-            # ניקוי מצב פריסת ZIP לתיקייה. הזרימה יוצאת לכאן ב"ביטול"/"חזור",
-            # ובלי הניקוי הבוט היה נשאר ממתין לנתיב וההודעה הבאה של המשתמש
-            # הייתה מתפרשת כתיקיית יעד.
-            try:
-                context.user_data.pop("waiting_for_zipdir_folder", None)
-                context.user_data.pop("zip_to_folder_target", None)
-                context.user_data.pop("zip_to_folder_repo", None)
-                if context.user_data.get("upload_mode") == "github_zip_to_folder":
-                    context.user_data.pop("upload_mode", None)
-            except Exception:
-                pass
+            # הזרימה של פריסת ZIP יוצאת לכאן ב"ביטול"/"חזור"
+            self.clear_zip_to_folder_state(context)
             await self.github_menu_command(update, context)
             return ConversationHandler.END
         
@@ -7405,6 +7396,25 @@ class GitHubMenuHandler:
             else:
                 raise
 
+    @staticmethod
+    def clear_zip_to_folder_state(context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        מנקה את מצב זרימת "פרוס ZIP לתיקייה".
+
+        נקרא מכל מסלול יציאה מהזרימה (תפריט ראשי, תפריט גיבוי). בלי הניקוי
+        הבוט נשאר ממתין לנתיב, וההודעה הבאה של המשתמש מתפרשת כתיקיית יעד.
+        מרוכז כאן בכוונה, כדי ששני מסלולי היציאה לא יתפצלו עם הזמן.
+        """
+        try:
+            context.user_data.pop("waiting_for_zipdir_folder", None)
+            context.user_data.pop("zip_to_folder_target", None)
+            context.user_data.pop("zip_to_folder_repo", None)
+            # רק אם ההמתנה לקובץ שייכת לזרימה הזו; לא נוגעים במצבי העלאה אחרים
+            if context.user_data.get("upload_mode") == "github_zip_to_folder":
+                context.user_data.pop("upload_mode", None)
+        except Exception:
+            pass
+
     async def confirm_zip_to_folder_target(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE, folder: str
     ) -> bool:
@@ -8373,13 +8383,10 @@ class GitHubMenuHandler:
             context.user_data.pop("zip_restore_expected_repo_full", None)
             context.user_data.pop("github_restore_zip_purge", None)
             context.user_data.pop("pending_repo_restore_zip_path", None)
-            # ניקוי מצב פריסת ZIP לתיקייה: בלעדיו לחיצה על "ביטול" הייתה משאירה
-            # את הבוט ממתין לנתיב, וההודעה הבאה של המשתמש הייתה מתפרשת כתיקייה
-            context.user_data.pop("waiting_for_zipdir_folder", None)
-            context.user_data.pop("zip_to_folder_target", None)
-            context.user_data.pop("zip_to_folder_repo", None)
         except Exception:
             pass
+        # רשת ביטחון: אם המשתמש הגיע לכאן באמצע זרימת פריסת ZIP לתיקייה
+        self.clear_zip_to_folder_state(context)
         # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
         context.user_data["github_backup_context_repo"] = repo_full
         kb = [
