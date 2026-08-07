@@ -54,19 +54,24 @@
   }
 
   // משווה את מפתח ה-VAPID של מנוי קיים למפתח שהשרת מחזיר עכשיו.
-  // מחזיר true/false, או null כשאי אפשר להשוות (דפדפן שלא חושף options).
-  function sameApplicationServerKey(sub, keyBytes) {
+  // מחזיר 'match' / 'mismatch' / 'unknown'.
+  //
+  // 'unknown' מוחזר כשהדפדפן לא חושף את options.applicationServerKey
+  // (דפדפנים ישנים). במצב הזה בכוונה לא מבטלים את המנוי: ביטול על סמך
+  // ניחוש יגרום להרשמה מחדש בכל טעינת דף. אם המנוי אכן מת, השליחה תיכשל
+  // מול שירות הפוש והשגיאה תופיע בלוג כ-push_send_error.
+  function compareApplicationServerKey(sub, keyBytes) {
     try {
       var existing = sub && sub.options && sub.options.applicationServerKey;
-      if (!existing) return null;
+      if (!existing) return 'unknown';
       var a = new Uint8Array(existing);
-      if (a.length !== keyBytes.length) return false;
+      if (a.length !== keyBytes.length) return 'mismatch';
       for (var i = 0; i < a.length; i++) {
-        if (a[i] !== keyBytes[i]) return false;
+        if (a[i] !== keyBytes[i]) return 'mismatch';
       }
-      return true;
+      return 'match';
     } catch (_) {
-      return null;
+      return 'unknown';
     }
   }
 
@@ -125,7 +130,7 @@
       // אם השרת החליף מפתח VAPID, המנוי הישן מת: הדפדפן עדיין מחזיק אותו,
       // אבל ה-push service ידחה כל שליחה אליו. מבטלים ונרשמים מחדש
       // במקום לדווח "ההתראות כבר מופעלות" על מנוי שלא יעבוד לעולם.
-      if (sameApplicationServerKey(existing, keyBytes) === false) {
+      if (compareApplicationServerKey(existing, keyBytes) === 'mismatch') {
         setStatus('מפתח ההתראות התחלף, מחדש מנוי...');
         return existing.unsubscribe().catch(function () { }).then(function () { return null; });
       }
