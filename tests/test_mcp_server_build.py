@@ -130,6 +130,63 @@ def test_build_app_exposes_healthz_route():
     assert "/healthz" in paths
 
 
+def test_build_app_exposes_agent_primer_route():
+    app = build_app(_FakeBackend(), _FakeStore())
+    paths = {getattr(r, "path", None) for r in app.routes}
+    assert "/api/agent/primer" in paths
+
+
+# ---------------------------------------------------------------------------
+# הרגרסיה החשובה: הפריימר חייב להיות מאומת בשני מצבי האימות.
+#
+# ב-PAT-only מצב ה-PATAuthMiddleware עוטף את כל האפליקציה, ולכן כל ראוט מוגן
+# "בחינם". ב-OAuth mode (הפרודקשן) המידלוור לא מותקן בכלל, וה-SDK עוטף רק את
+# ה-mount של /mcp — כך שראוט שנרשם ידנית ל-app.router.routes יוצא ציבורי לגמרי,
+# בדיוק כמו /healthz. הטסטים כאן נכשלים אם מישהו יסיר את האימות מגוף הראוט.
+# ---------------------------------------------------------------------------
+def _oauth_parts():
+    """provider + settings מינימליים שמדליקים את מצב ה-OAuth ב-build_app."""
+    from mcp.server.auth.settings import AuthSettings
+    from pydantic import AnyHttpUrl
+
+    class _Provider:
+        async def load_access_token(self, token):
+            return None  # שום טוקן אינו תקף בטסט הזה
+
+        async def get_client(self, client_id):
+            return None
+
+    settings = AuthSettings(
+        issuer_url=AnyHttpUrl("https://mcp.example.com"),
+        resource_server_url=AnyHttpUrl("https://mcp.example.com"),
+        required_scopes=[],
+    )
+    return _Provider(), settings
+
+
+def _primer_status(app):
+    from starlette.testclient import TestClient
+
+    return TestClient(app).get("/api/agent/primer").status_code
+
+
+def test_primer_requires_auth_in_pat_mode():
+    app = build_app(_FakeBackend(), _FakeStore())
+    assert _primer_status(app) == 401
+
+
+def test_primer_requires_auth_in_oauth_mode():
+    """אם זה נכשל — האנדפוינט פתוח לאינטרנט בפרודקשן."""
+    provider, settings = _oauth_parts()
+    app = build_app(
+        _FakeBackend(),
+        auth_provider=provider,
+        auth_settings=settings,
+        consent_routes=[],
+    )
+    assert _primer_status(app) == 401
+
+
 def test_transport_security_off_by_default(monkeypatch):
     monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
     monkeypatch.delenv("MCP_ALLOWED_ORIGINS", raising=False)

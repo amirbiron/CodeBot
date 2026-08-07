@@ -27,6 +27,7 @@ from .auth import (
     require_admin,
     require_write,
 )
+from .primer import agent_primer_route
 
 _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
@@ -533,6 +534,17 @@ def build_app(
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Unauthenticated health endpoint for the hosting platform.
     app.router.routes.append(Route("/healthz", _healthz, methods=["GET"]))
+    # GET /api/agent/primer. Authenticates INSIDE its own handler, in both modes:
+    # in OAuth mode the SDK's RequireAuthMiddleware wraps only the /mcp mount, so
+    # a route appended here would otherwise be served with no auth at all. It is
+    # handed the same verifier the MCP transport uses — never a second one.
+    app.router.routes.append(
+        agent_primer_route(
+            backend,
+            token_store=token_store,
+            auth_provider=auth_provider if oauth else None,
+        )
+    )
     if oauth:
         for route in consent_routes or []:
             app.router.routes.append(route)

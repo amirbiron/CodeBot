@@ -6,6 +6,23 @@ Tools then read it via :func:`current_user_id` (same request object — no
 contextvar propagation to worry about).
 
 This is deliberately simple (Phase 0). Phase 1 replaces it with OAuth 2.1.
+
+:func:`authenticate_bearer` is the **single** entry point for verifying a Bearer
+credential on a plain HTTP route. It matters because the two auth modes protect
+requests differently:
+
+- PAT-only mode: :class:`PATAuthMiddleware` wraps the whole app, so every route
+  is covered automatically.
+- OAuth mode (production): the middleware is NOT installed. The MCP SDK wraps
+  only its own ``/mcp`` mount with ``RequireAuthMiddleware``, so any route added
+  manually to ``app.router.routes`` (``/healthz``, ``/api/agent/primer``, …) is
+  served **without authentication** unless it authenticates itself.
+
+Any non-MCP route that must not be public therefore calls
+:func:`authenticate_bearer` in its own body — it routes to the same verifier the
+MCP transport uses (``MCPTokenStore.verify`` for ``ckmcp_`` PATs, and in OAuth
+mode ``provider.load_access_token``, which handles both PATs and ``ckoat_``
+access tokens). No second credential path is ever introduced.
 """
 
 from __future__ import annotations
@@ -27,12 +44,85 @@ EXEMPT_PATHS = {"/healthz", "/health", "/"}
 _WWW_AUTH = 'Bearer realm="CodeKeeper MCP"'
 
 
-def _unauthorized(code: str) -> JSONResponse:
+def unauthorized(code: str) -> JSONResponse:
+    """The single 401 shape for this service (same body + ``WWW-Authenticate``)."""
     return JSONResponse(
         {"error": code},
         status_code=401,
         headers={"WWW-Authenticate": _WWW_AUTH},
     )
+
+
+_unauthorized = unauthorized  # שם פנימי היסטורי — נשמר לתאימות
+
+
+def extract_bearer_token(request: Request) -> str | None:
+    """Return the raw credential from ``Authorization: Bearer <token>``, else None.
+
+    ``None`` means *no* Bearer credential was presented (a different 401 code
+    than a presented-but-rejected one), so callers can tell the two apart.
+    """
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    return token or None
+
+
+async def verify_bearer_token(
+    token: str, *, token_store: Any = None, auth_provider: Any = None
+) -> dict[str, Any] | None:
+    """Verify a raw credential and return ``{"user_id", "scopes"}`` or ``None``.
+
+    Routes to whichever verifier this deployment is running:
+    ``auth_provider.load_access_token`` in OAuth mode (accepts both ``ckmcp_``
+    PATs and ``ckoat_`` OAuth tokens), otherwise ``token_store.verify``. Both end
+    at :meth:`MCPTokenStore.verify` for a PAT — one credential path, two entries.
+
+    Fails closed: any exception is logged (never the token) and treated as a
+    rejection.
+    """
+    if not token:
+        return None
+    try:
+        if auth_provider is not None:
+            access = await auth_provider.load_access_token(token)
+            subject = getattr(access, "subject", None) if access is not None else None
+            if subject is None:
+                return None
+            return {"user_id": int(subject), "scopes": list(getattr(access, "scopes", None) or [])}
+        if token_store is None:
+            # לא הוגדר שום מאמת — פייל-קלוז'ד במקום לתת מעבר חופשי.
+            logger.warning("verify_bearer_token called with no verifier configured")
+            return None
+        # verify() is a sync DB call — keep it off the event loop.
+        principal = await anyio.to_thread.run_sync(token_store.verify, token)
+    except Exception:
+        # Log the failure (never the token) so DB/connectivity issues are
+        # diagnosable in production, then fail closed.
+        logger.warning("MCP token verification raised an error", exc_info=True)
+        return None
+
+    if not principal:
+        return None
+    return {
+        "user_id": int(principal["user_id"]),
+        "scopes": list(principal.get("scopes") or []),
+    }
+
+
+async def authenticate_bearer(
+    request: Request, *, token_store: Any = None, auth_provider: Any = None
+) -> dict[str, Any] | None:
+    """Authenticate a request end-to-end. ``None`` ⇒ reject with 401.
+
+    This is what a hand-mounted route calls; see the module docstring for why
+    such a route cannot rely on the app being "already protected".
+    """
+    token = extract_bearer_token(request)
+    if token is None:
+        return None
+    return await verify_bearer_token(token, token_store=token_store, auth_provider=auth_provider)
 
 
 class PATAuthMiddleware(BaseHTTPMiddleware):
@@ -49,25 +139,16 @@ class PATAuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in self._exempt:
             return await call_next(request)
 
-        auth = request.headers.get("authorization", "")
-        if not auth.lower().startswith("bearer "):
-            return _unauthorized("missing_bearer_token")
+        token = extract_bearer_token(request)
+        if token is None:
+            return unauthorized("missing_bearer_token")
 
-        token = auth.split(" ", 1)[1].strip()
-        try:
-            # verify() is a sync DB call — keep it off the event loop.
-            principal = await anyio.to_thread.run_sync(self._store.verify, token)
-        except Exception:
-            # Log the failure (never the token) so DB/connectivity issues are
-            # diagnosable in production, then fail closed.
-            logger.warning("MCP token verification raised an error", exc_info=True)
-            principal = None
-
+        principal = await verify_bearer_token(token, token_store=self._store)
         if not principal:
-            return _unauthorized("invalid_token")
+            return unauthorized("invalid_token")
 
         request.state.user_id = int(principal["user_id"])
-        request.state.scopes = list(principal.get("scopes") or [])
+        request.state.scopes = list(principal["scopes"])
         return await call_next(request)
 
 

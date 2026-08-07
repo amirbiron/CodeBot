@@ -365,6 +365,209 @@
   <script defer src="{{ url_for('static', filename='js/push-settings.js') }}?v={{ static_version }}"></script>
 {% endif %}
 
+{# הוראות לסוכן — הטקסט שנטען לכל סשן של סוכן AI דרך GET /api/agent/primer #}
+<div class="glass-card" id="agent-instructions-section">
+  <h2 class="section-title">
+    <i class="fas fa-robot"></i>
+    הוראות לסוכן
+  </h2>
+  <p style="opacity: 0.8; margin-bottom: 1rem; line-height: 1.6">
+    טקסט חופשי שנטען אוטומטית בפתיחת כל סשן של סוכן AI שמחובר ל-CodeKeeper.
+    כתוב כאן איך אתה רוצה שהוא יעבוד — העדפות סגנון, כללים קבועים, הקשר על
+    הפרויקטים שלך. הסוכן קורא את זה כמו שהוא, לפני שהוא מתחיל לעבוד.
+  </p>
+
+  <label for="agentInstructions" style="position: absolute; left: -9999px">
+    הוראות לסוכן
+  </label>
+  <textarea
+    id="agentInstructions"
+    rows="10"
+    spellcheck="false"
+    placeholder="לדוגמה: תמיד תענה בעברית. לפני שינוי גדול תציג תוכנית. אל תוסיף תלויות חדשות בלי לשאול."
+    style="
+      width: 100%;
+      padding: 0.9rem;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 0.95rem;
+      line-height: 1.65;
+      resize: vertical;
+    "
+  ></textarea>
+
+  <div
+    style="
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-top: 0.75rem;
+    "
+  >
+    <div id="agentInstructionsSize" style="font-size: 0.9rem; opacity: 0.75">
+      0 בייט
+    </div>
+    <button
+      id="agentInstructionsSave"
+      type="button"
+      class="btn btn-primary"
+      disabled
+    >
+      <i class="fas fa-save"></i>
+      שמור
+    </button>
+  </div>
+
+  {# האזהרה החשובה: בלעדיה הטקסט גדל, נחתך בשקט, ואף אחד לא מגלה #}
+  <div
+    id="agentInstructionsWarn"
+    role="status"
+    style="
+      display: none;
+      margin-top: 0.75rem;
+      padding: 0.7rem 0.9rem;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      line-height: 1.55;
+    "
+  ></div>
+
+  {# role/aria-live כדי שקורא מסך יכריז על תוצאת השמירה, לא רק יציג אותה #}
+  <div
+    id="agentInstructionsMsg"
+    role="status"
+    aria-live="polite"
+    style="margin-top: 0.75rem; display: none"
+  ></div>
+</div>
+
+<script>
+  (function () {
+    const box = document.getElementById('agentInstructions');
+    const saveBtn = document.getElementById('agentInstructionsSave');
+    const sizeEl = document.getElementById('agentInstructionsSize');
+    const warnEl = document.getElementById('agentInstructionsWarn');
+    const msgEl = document.getElementById('agentInstructionsMsg');
+    if (!box || !saveBtn) return;
+
+    const ENDPOINT = '/api/settings/agent-instructions';
+    // ברירות מחדל; השרת מחזיר את הערכים האמיתיים ב-GET כדי שלא יתפצלו משני צדדים.
+    let MAX_BYTES = 8 * 1024;
+    let WARN_BYTES = 7 * 1024;
+    let MAX_CHARS = 16 * 1024;
+    let saved = '';
+
+    const encoder = new TextEncoder();
+    const byteLength = (s) => encoder.encode(s || '').length;
+    const fmt = (n) => n.toLocaleString('he-IL');
+
+    function setMessage(text, ok) {
+      if (!text) {
+        msgEl.style.display = 'none';
+        return;
+      }
+      msgEl.textContent = text;
+      msgEl.style.display = 'block';
+      msgEl.style.color = ok ? 'var(--success, #4ade80)' : 'var(--danger, #f87171)';
+    }
+
+    // מונה חי + אזהרה מדורגת. המשתמש רואה שהוא מתקרב לתקרה *לפני* שהוא חוצה
+    // אותה — ולא רק דרך שורת חיתוך שמופיעה בגוף שרק הסוכן קורא.
+    function refresh() {
+      const text = box.value.replace(/\r\n?/g, '\n');
+      const bytes = byteLength(text.trim());
+      sizeEl.textContent = fmt(bytes) + ' מתוך ' + fmt(MAX_BYTES) + ' בייט';
+
+      if (bytes > MAX_BYTES) {
+        warnEl.style.display = 'block';
+        warnEl.style.background = 'rgba(248, 113, 113, 0.15)';
+        warnEl.style.border = '1px solid rgba(248, 113, 113, 0.45)';
+        warnEl.innerHTML =
+          '<strong>⚠️ ההוראות חורגות מהתקרה.</strong> הפריימר נחתך ב-' +
+          fmt(MAX_BYTES) +
+          ' בייט, כך שהסוף של מה שכתבת כאן <strong>לא יגיע לסוכן</strong>. קצר את הטקסט.';
+        sizeEl.style.color = 'var(--danger, #f87171)';
+      } else if (bytes >= WARN_BYTES) {
+        warnEl.style.display = 'block';
+        warnEl.style.background = 'rgba(251, 191, 36, 0.14)';
+        warnEl.style.border = '1px solid rgba(251, 191, 36, 0.45)';
+        warnEl.innerHTML =
+          'מתקרב לתקרה — נשארו ' +
+          fmt(MAX_BYTES - bytes) +
+          ' בייט. מעבר ל-' +
+          fmt(MAX_BYTES) +
+          ' הטקסט נחתך והסוכן לא יראה את הסוף.';
+        sizeEl.style.color = 'var(--warning, #fbbf24)';
+      } else {
+        warnEl.style.display = 'none';
+        sizeEl.style.color = '';
+      }
+
+      saveBtn.disabled = text.trim() === saved;
+    }
+
+    async function load() {
+      try {
+        const res = await fetch(ENDPOINT, { headers: { Accept: 'application/json' } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data || !data.ok) return;
+        if (data.primer_max_bytes) MAX_BYTES = data.primer_max_bytes;
+        if (data.warn_bytes) WARN_BYTES = data.warn_bytes;
+        if (data.max_chars) MAX_CHARS = data.max_chars;
+        saved = data.text || '';
+        box.value = saved;
+      } catch (e) {
+        /* טעינה שנכשלה משאירה שדה ריק — המשתמש עדיין יכול לכתוב ולשמור */
+      }
+      refresh();
+    }
+
+    async function save() {
+      const text = box.value.replace(/\r\n?/g, '\n').trim();
+      if (text.length > MAX_CHARS) {
+        setMessage('הטקסט ארוך מדי לשמירה (' + fmt(MAX_CHARS) + ' תווים לכל היותר).', false);
+        return;
+      }
+      saveBtn.disabled = true;
+      setMessage('', true);
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text }),
+        });
+        // 500/502 מחזירים HTML, לא JSON. פרסור לפני בדיקת res.ok היה זורק
+        // ומציג למשתמש "Unexpected token <" במקום הודעה מובנת.
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) {
+          throw new Error((data && data.error) || 'השמירה נכשלה (' + res.status + ')');
+        }
+        saved = text;
+        box.value = text;
+        setMessage(
+          data.will_truncate
+            ? 'נשמר — אבל הפריימר ייחתך, והסוכן לא יקבל את סוף ההוראות.'
+            : 'ההוראות נשמרו. סשנים חדשים יקבלו אותן תוך דקה.',
+          !data.will_truncate
+        );
+      } catch (e) {
+        setMessage(e.message || 'השמירה נכשלה', false);
+      }
+      refresh();
+    }
+
+    box.addEventListener('input', refresh);
+    saveBtn.addEventListener('click', save);
+    load();
+  })();
+</script>
+
 {% if is_admin %}
 <div class="glass-card config-radar-card" id="configRadarCard">
   <div class="config-radar-header">

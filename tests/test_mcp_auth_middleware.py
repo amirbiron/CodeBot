@@ -66,3 +66,119 @@ async def test_valid_token_injects_user_id():
 async def test_healthz_is_exempt():
     resp = await _mw(_FakeStore({})).dispatch(_request(path="/healthz", headers=[]), _call_next)
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# authenticate_bearer — אותו נתיב ולידציה, לשימוש ראוטים שאינם /mcp
+# ---------------------------------------------------------------------------
+async def test_extract_bearer_token_variants():
+    from mcp_server.auth import extract_bearer_token
+
+    assert extract_bearer_token(_request(headers=[])) is None
+    assert extract_bearer_token(_request(headers=[("authorization", "Basic x")])) is None
+    assert extract_bearer_token(_request(headers=[("authorization", "Bearer   ")])) is None
+    # הסכימה עצמה אינה case-sensitive לפי RFC 7235
+    assert extract_bearer_token(_request(headers=[("authorization", "bearer abc")])) == "abc"
+
+
+async def test_authenticate_bearer_uses_the_token_store():
+    from mcp_server.auth import authenticate_bearer
+
+    store = _FakeStore({"good": {"user_id": 5, "scopes": ["read"]}})
+    ok = await authenticate_bearer(
+        _request(headers=[("authorization", "Bearer good")]), token_store=store
+    )
+    assert ok == {"user_id": 5, "scopes": ["read"]}
+
+    bad = await authenticate_bearer(
+        _request(headers=[("authorization", "Bearer bad")]), token_store=store
+    )
+    assert bad is None
+
+
+async def test_authenticate_bearer_uses_the_oauth_provider_when_present():
+    """במצב OAuth האימות עובר דרך load_access_token — שמקבל גם PAT וגם ckoat_."""
+    from mcp_server.auth import authenticate_bearer
+
+    class _Token:
+        subject = "42"
+        scopes = ["read", "write"]
+
+    class _Provider:
+        async def load_access_token(self, token):
+            return _Token() if token == "ckoat_valid" else None
+
+    ok = await authenticate_bearer(
+        _request(headers=[("authorization", "Bearer ckoat_valid")]), auth_provider=_Provider()
+    )
+    assert ok == {"user_id": 42, "scopes": ["read", "write"]}
+
+    bad = await authenticate_bearer(
+        _request(headers=[("authorization", "Bearer nope")]), auth_provider=_Provider()
+    )
+    assert bad is None
+
+
+async def test_authenticate_bearer_fails_closed_with_no_verifier():
+    """בלי מאמת מוגדר — דחייה, לא מעבר חופשי."""
+    from mcp_server.auth import authenticate_bearer
+
+    assert await authenticate_bearer(_request(headers=[("authorization", "Bearer x")])) is None
+
+
+async def test_authenticate_bearer_fails_closed_when_the_store_raises():
+    from mcp_server.auth import authenticate_bearer
+
+    class _Broken:
+        def verify(self, token):
+            raise RuntimeError("mongo down")
+
+    got = await authenticate_bearer(
+        _request(headers=[("authorization", "Bearer x")]), token_store=_Broken()
+    )
+    assert got is None
+
+
+async def test_verify_bearer_token_rejects_an_empty_credential():
+    """``verify_bearer_token`` היא ציבורית — היא עומדת בחוזה גם בקריאה ישירה.
+
+    ``authenticate_bearer`` כבר מסנן ריק דרך ``extract_bearer_token``, אבל קורא
+    אחר שיגיע ישירות לא אמור לקבל מעבר חופשי.
+    """
+    from mcp_server.auth import verify_bearer_token
+
+    store = _FakeStore({"": {"user_id": 1, "scopes": ["read"]}})  # אפילו אם ה-store היה מאשר
+    assert await verify_bearer_token("", token_store=store) is None
+    assert await verify_bearer_token(None, token_store=store) is None
+
+
+async def test_oauth_token_without_a_subject_is_rejected():
+    """טוקן שנטען אך אין לו זהות — פייל-קלוז'ד, לא user_id שרירותי."""
+    from mcp_server.auth import verify_bearer_token
+
+    class _NoSubject:
+        subject = None
+        scopes = ["read"]
+
+    class _Provider:
+        async def load_access_token(self, token):
+            return _NoSubject()
+
+    assert await verify_bearer_token("x", auth_provider=_Provider()) is None
+
+
+async def test_oauth_token_with_no_scopes_yields_an_empty_list():
+    from mcp_server.auth import verify_bearer_token
+
+    class _Token:
+        subject = "9"
+        scopes = None
+
+    class _Provider:
+        async def load_access_token(self, token):
+            return _Token()
+
+    assert await verify_bearer_token("x", auth_provider=_Provider()) == {
+        "user_id": 9,
+        "scopes": [],
+    }

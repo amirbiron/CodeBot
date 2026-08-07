@@ -186,6 +186,67 @@ class ProductionBackend:
     def list_versions(self, user_id: int, *, file_name: str) -> list[dict[str, Any]]:
         return [_clean(v) for v in (self._require_dbm().get_all_versions(user_id, file_name) or [])]
 
+    # -- agent primer ------------------------------------------------------
+    def get_agent_instructions(self, user_id: int) -> str:
+        """The free-text "instructions for the agent" the user edits in the webapp.
+
+        Stored on ``user_preferences`` — the same per-user document the webapp
+        already writes (``attention_settings`` et al.), so the two services share
+        one collection instead of one calling the other over HTTP.
+        """
+        doc = self._raw_mongo()["user_preferences"].find_one(
+            {"user_id": int(user_id)}, {"agent_instructions": 1, "_id": 0}
+        )
+        value = (doc or {}).get("agent_instructions")
+        return value if isinstance(value, str) else ""
+
+    def recent_files(self, user_id: int, *, limit: int = 3) -> list[dict[str, Any]]:
+        """The last-saved file names + when. Deliberately a cheap query.
+
+        NOT ``get_regular_files_paginated``: that one runs a two-stage ``$group``
+        over every file the user owns plus a separate ``$count`` (repository.py)
+        — far too heavy for an endpoint hit on every session start. This is a
+        plain indexed ``find``: sorting by ``created_at`` lands exactly on the
+        existing ``user_active_created_at_idx`` compound index, and since every
+        save writes a NEW version document, ``created_at DESC`` *is* the true
+        save order.
+
+        Scans a small window and de-dupes by name in Python, because several
+        consecutive versions of one file would otherwise fill all the slots.
+        """
+        want = max(int(limit or 0), 0)
+        if not want:
+            return []
+        window = max(want * 7, 20)  # מרווח לגרסאות חוזרות של אותו קובץ
+        out: list[dict[str, Any]] = []
+        # ה-try עוטף גם את האיטרציה, ולא רק את בניית הקורסור: קורסור pymongo הוא
+        # עצל, והשאילתה יוצאת לרשת רק כאן. AutoReconnect/ExecutionTimeout מגיעים
+        # באיטרציה — לעטוף רק את ``find()`` היה משאיר בדיוק אותם בחוץ.
+        try:
+            rows = (
+                self._raw_mongo()["code_snippets"]
+                .find(
+                    {"user_id": int(user_id), "is_active": True},
+                    {"file_name": 1, "created_at": 1, "updated_at": 1, "_id": 0},
+                )
+                .sort("created_at", -1)
+                .limit(window)
+            )
+            seen: set[str] = set()
+            for row in rows:
+                name = str((row or {}).get("file_name") or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                saved_at = row.get("created_at") or row.get("updated_at")
+                out.append({"file_name": name, "saved_at": saved_at})
+                if len(out) >= want:
+                    break
+        except Exception:
+            logger.warning("recent files lookup failed", exc_info=True)
+            return []
+        return out
+
     # -- write (save) ------------------------------------------------------
     def save_file(
         self,
