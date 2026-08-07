@@ -302,6 +302,31 @@ def test_recent_files_returns_empty_on_db_error():
     assert be.recent_files(7, limit=3) == []
 
 
+def test_recent_files_survives_a_cursor_that_fails_mid_iteration():
+    """קורסור pymongo עצל: השאילתה יוצאת לרשת באיטרציה, לא ב-``find()``.
+
+    ``try`` שעוטף רק את בניית הקורסור היה מפספס בדיוק את השגיאות שקורות
+    בפרודקשן (AutoReconnect / ExecutionTimeout).
+    """
+
+    class _BoomCursor:
+        def sort(self, *a, **k):
+            return self
+
+        def limit(self, *a, **k):
+            return self
+
+        def __iter__(self):
+            raise RuntimeError("mongo down mid-cursor")
+
+    class _LazyBoom:
+        def find(self, *a, **k):
+            return _BoomCursor()
+
+    be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=_LazyBoom()))
+    assert be.recent_files(7, limit=3) == []
+
+
 def test_recent_files_zero_limit_does_no_query():
     coll = _FakeColl(rows=[{"file_name": "a.py"}])
     assert ProductionBackend(mongo_db=_FakeMongo(code_snippets=coll)).recent_files(7, limit=0) == []

@@ -437,7 +437,13 @@
     "
   ></div>
 
-  <div id="agentInstructionsMsg" style="margin-top: 0.75rem; display: none"></div>
+  {# role/aria-live כדי שקורא מסך יכריז על תוצאת השמירה, לא רק יציג אותה #}
+  <div
+    id="agentInstructionsMsg"
+    role="status"
+    aria-live="polite"
+    style="margin-top: 0.75rem; display: none"
+  ></div>
 </div>
 
 <script>
@@ -536,8 +542,12 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: text }),
         });
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error((data && data.error) || 'השמירה נכשלה');
+        // 500/502 מחזירים HTML, לא JSON. פרסור לפני בדיקת res.ok היה זורק
+        // ומציג למשתמש "Unexpected token <" במקום הודעה מובנת.
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.ok) {
+          throw new Error((data && data.error) || 'השמירה נכשלה (' + res.status + ')');
+        }
         saved = text;
         box.value = text;
         setMessage(

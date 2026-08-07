@@ -218,6 +218,10 @@ class ProductionBackend:
         if not want:
             return []
         window = max(want * 7, 20)  # מרווח לגרסאות חוזרות של אותו קובץ
+        out: list[dict[str, Any]] = []
+        # ה-try עוטף גם את האיטרציה, ולא רק את בניית הקורסור: קורסור pymongo הוא
+        # עצל, והשאילתה יוצאת לרשת רק כאן. AutoReconnect/ExecutionTimeout מגיעים
+        # באיטרציה — לעטוף רק את ``find()`` היה משאיר בדיוק אותם בחוץ.
         try:
             rows = (
                 self._raw_mongo()["code_snippets"]
@@ -228,21 +232,19 @@ class ProductionBackend:
                 .sort("created_at", -1)
                 .limit(window)
             )
+            seen: set[str] = set()
+            for row in rows:
+                name = str((row or {}).get("file_name") or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                saved_at = row.get("created_at") or row.get("updated_at")
+                out.append({"file_name": name, "saved_at": saved_at})
+                if len(out) >= want:
+                    break
         except Exception:
             logger.warning("recent files lookup failed", exc_info=True)
             return []
-
-        out: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in rows:
-            name = str((row or {}).get("file_name") or "").strip()
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            saved_at = row.get("created_at") or row.get("updated_at")
-            out.append({"file_name": name, "saved_at": saved_at})
-            if len(out) >= want:
-                break
         return out
 
     # -- write (save) ------------------------------------------------------

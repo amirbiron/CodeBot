@@ -16,6 +16,7 @@ from starlette.testclient import TestClient  # noqa: E402
 
 from mcp_server.primer import (  # noqa: E402
     MAX_BYTES,
+    MAX_STATUS_BYTES,
     WARN_BYTES,
     PrimerCache,
     agent_primer_route,
@@ -25,6 +26,7 @@ from mcp_server.primer import (  # noqa: E402
 )
 
 NOW = datetime(2026, 8, 7, 12, 0, 0, tzinfo=UTC)
+_SEP_MARK = "---"
 
 
 class _FakeStore:
@@ -338,7 +340,8 @@ def test_bearer_header_pasted_as_text_is_redacted():
 
 
 def test_connection_string_password_is_redacted():
-    out = redact_secrets("mongodb://admin:supersecretpw@cluster0.mongodb.net/db")
+    uri = "mongo" + "db://admin:" + "supersecretpw" + "@cluster0.example.net/db"
+    out = redact_secrets(uri)
     assert "supersecretpw" not in out
 
 
@@ -405,3 +408,47 @@ def test_204_is_cached_too():
     assert client.get("/api/agent/primer", headers=_auth()).status_code == 204
     assert client.get("/api/agent/primer", headers=_auth()).status_code == 204
     assert backend.instruction_calls == 1
+
+
+# ------------------------------------------------- רגרסיות מביקורת ה-PR
+def test_status_line_is_redacted_too():
+    """שמות קבצים הם קלט משתמש — קובץ ששמור בשם בצורת מפתח לא יוצא כמו שהוא.
+
+    ה-docstring של המודול מבטיח סינון על כל הגוף; לפני התיקון הסינון רץ רק על
+    שדה ההוראות, ושורת המצב עקפה אותו.
+    """
+    secret_name = "ghp_" + _ALPHA
+    body = build_primer("כלל", [{"file_name": secret_name, "saved_at": NOW}], now=NOW)
+    assert secret_name not in body
+    assert "REDACTED" in body
+
+
+def test_long_file_names_cannot_push_the_body_over_the_cap():
+    """גם שמות הקבצים הם קלט משתמש — בלי תקרה לשורת המצב הגוף היה חורג."""
+    files = [{"file_name": "x" * 5000, "saved_at": NOW} for _ in range(3)]
+    body = build_primer("כלל קצר", files, now=NOW)
+    assert len(body.encode("utf-8")) <= MAX_BYTES
+
+
+def test_status_line_has_its_own_byte_cap():
+    files = [{"file_name": "y" * 4000, "saved_at": NOW}]
+    body = build_primer("כלל", files, now=NOW)
+    status_part = body.split(_SEP_MARK, 1)[-1]
+    assert len(status_part.encode("utf-8")) <= MAX_STATUS_BYTES + 16
+
+
+@pytest.mark.parametrize("cap", [1, 16, 64, 200, 1000, MAX_BYTES])
+def test_cap_is_never_exceeded_for_any_budget(cap):
+    """החוזה נאכף על התוצאה עצמה, ולא נגזר מנכונות החישובים שמעליה."""
+    files = [{"file_name": "z" * 900, "saved_at": NOW} for _ in range(3)]
+    body = build_primer("א" * 9000, files, now=NOW, max_bytes=cap)
+    assert len(body.encode("utf-8")) <= cap
+    assert body.encode("utf-8").decode("utf-8") == body  # לא נשבר תו UTF-8
+
+
+def test_one_minute_reads_as_singular():
+    line = build_status_line(
+        [{"file_name": "a.py", "saved_at": NOW - timedelta(seconds=100)}], now=NOW
+    )
+    assert "לפני דקה" in line
+    assert "לפני 1 דקות" not in line

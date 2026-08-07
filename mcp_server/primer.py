@@ -57,6 +57,10 @@ RECENT_FILES_COUNT = 3
 #: תקרת ערכים ב-cache התהליכי (מונע דליפת זיכרון בשירות ארוך-חיים).
 MAX_CACHE_ENTRIES = 512
 
+#: תקרת גודל לשורת המצב. שמות הקבצים הם קלט משתמש, ובלי תקרה שלושה שמות ארוכים
+#: היו יכולים לדחוף את הגוף כולו מעל ``MAX_BYTES``.
+MAX_STATUS_BYTES = 512
+
 #: סף האזהרה שה-UI בוובאפ מציג. חי כאן כי ``MAX_BYTES`` הוא מקור האמת שלו —
 #: ``webapp.routes.settings_routes`` משכפל את שניהם (שני שירותים נפרדים, בלי
 #: ייבוא ביניהם) ו-``test_mcp_primer`` מוודא שהערכים לא התפצלו.
@@ -101,7 +105,7 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     # כותרת Authorization שהודבקה כטקסט
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9\-_.=:/+]{10,}"), f"Bearer {_REDACTED}"),
-    # שורות בסגנון .env: ‏FOO_TOKEN=...‎ / ‏export API_KEY: ...‎
+    # שורות השמה בסגנון .env, למשל ``FOO_TOKEN=...`` או ``export API_KEY: ...``
     #
     # שתי הגבלות שמונעות פגיעה בטקסט רגיל — פריימר מושחת גרוע מפריימר לא מסונן:
     # (1) הערך חייב להיות באורך של סוד אמיתי (12+ תווים), כדי ש-``key=value``
@@ -111,7 +115,7 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(
             r"(?im)^([ \t]*(?:export[ \t]+)?[A-Za-z0-9_]*"
             r"(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|APIKEY)[A-Za-z0-9_]*)"
-            r"[ \t]*[=:][ \t]*(?!['\"]?(?:<|\$\{|\$[A-Za-z_]|\.\.\.|%s|\{\{))"
+            r"[ \t]*[=:][ \t]*(?!['\"]?(?:<|\$\{|\$[A-Za-z_]|\.\.\.|\{\{))"
             r"['\"]?[^\s'\"]{12,}"
         ),
         r"\1=" + _REDACTED,
@@ -167,7 +171,7 @@ def _relative_time(when: datetime, *, now: datetime) -> str:
     if seconds < 90:
         return "לפני רגע"
     if minutes < 60:
-        return f"לפני {minutes} דקות"
+        return "לפני דקה" if minutes == 1 else f"לפני {minutes} דקות"
     if hours < 24:
         return "לפני שעה" if hours == 1 else f"לפני {hours} שעות"
     if days < 30:
@@ -217,7 +221,15 @@ def build_primer(
     if not body:
         return ""
 
-    status = build_status_line(files or [], now=now)
+    # שורת המצב עוברת את אותו סינון. שמות הקבצים מגיעים מ-``code_snippets``
+    # ולכן הם נשלטים ע"י המשתמש: קובץ ששמור בשם בצורת מפתח היה יוצא כאן כמו
+    # שהוא — בדיוק הנתיב שהסינון "על כל הגוף" נועד לחסום.
+    status = redact_secrets(build_status_line(files or [], now=now))
+    # ותקרה משלה, כדי ששמות קבצים ארוכים (גם הם קלט משתמש) לא ידחפו את הגוף
+    # מעל ``max_bytes``. חלוקה יחסית ולא קבוע, כדי שגם ``max_bytes`` קטן בטסטים
+    # ישאיר את רוב המקום להוראות.
+    status_budget = min(MAX_STATUS_BYTES, max(max_bytes // 4, 0))
+    status, _ = _truncate_to_bytes(status, status_budget)
     suffix = f"{_SEPARATOR}{status}\n" if status else "\n"
 
     # שורת המצב מקבלת מקום שמור: היא נבנית ראשונה ונחסרת מהתקציב, כדי שהוראות
@@ -232,7 +244,11 @@ def build_primer(
         kept, _ = _truncate_to_bytes(body, max(budget - notice_bytes, 0))
         kept = kept.rstrip() + _TRUNCATION_NOTICE
 
-    return kept + suffix
+    result = kept + suffix
+    # רשת ביטחון אחרונה: החוזה של המודול הוא שהגוף לעולם לא חורג מהתקרה, ולכן
+    # הוא נאכף על התוצאה עצמה ולא נגזר מנכונות החישובים שמעל.
+    final, over = _truncate_to_bytes(result, max_bytes)
+    return final if over else result
 
 
 # --------------------------------------------------------------------------

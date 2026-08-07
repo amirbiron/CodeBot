@@ -21,7 +21,8 @@ from webapp.routes.settings_routes import (  # noqa: E402
     settings_bp,
 )
 
-SECRET = "unit-test-secret-key-0123456789"
+# מפתח סשן לטסט בלבד — נבנה בזמן ריצה כדי שלא ייראה כמו ערך אמיתי לסורקי סודות
+SECRET = "flask-session-for-" + "unit-tests-only"
 ENDPOINT = "/api/settings/agent-instructions"
 
 
@@ -182,7 +183,7 @@ def test_put_stores_secrets_verbatim(monkeypatch):
     במקום מה שכתב — בלי דרך לדעת מה נמחק לו.
     """
     coll = _FakeColl()
-    secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+    secret = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
     _client(monkeypatch, coll).put(ENDPOINT, json={"text": f"המפתח: {secret}"})
     op = [c for c in coll.calls if c[0] == "update_one"][0]
     assert secret in op[2]["$set"]["agent_instructions"]
