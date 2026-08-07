@@ -192,3 +192,117 @@ def test_collection_items_strip_heavy_fields():
     item = out["items"][0]
     assert "code" not in item and "content" not in item
     assert item["file_name"] == "a.py"
+
+
+# ---------------------------------------------------------------------------
+# הפריימר: הוראות הסוכן + הקבצים האחרונים
+# ---------------------------------------------------------------------------
+class _FakeCursor:
+    """מחקה קורסור pymongo — שומר את הקריאות כדי לאמת את צורת השאילתה."""
+
+    def __init__(self, rows, log):
+        self._rows = rows
+        self._log = log
+
+    def sort(self, key, direction):
+        self._log["sort"] = (key, direction)
+        return self
+
+    def limit(self, n):
+        self._log["limit"] = n
+        return self
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _FakeColl:
+    def __init__(self, rows=None, doc=None):
+        self._rows = rows or []
+        self._doc = doc
+        self.log = {}
+
+    def find(self, query, projection=None):
+        self.log["query"] = query
+        self.log["projection"] = projection
+        return _FakeCursor(self._rows, self.log)
+
+    def find_one(self, query, projection=None):
+        self.log["query"] = query
+        self.log["projection"] = projection
+        return self._doc
+
+
+class _FakeMongo:
+    def __init__(self, **colls):
+        self._colls = colls
+
+    def __getitem__(self, name):
+        return self._colls[name]
+
+
+def test_get_agent_instructions_reads_user_preferences():
+    prefs = _FakeColl(doc={"agent_instructions": "תמיד בעברית"})
+    be = ProductionBackend(mongo_db=_FakeMongo(user_preferences=prefs))
+    assert be.get_agent_instructions(7) == "תמיד בעברית"
+    assert prefs.log["query"] == {"user_id": 7}
+
+
+def test_get_agent_instructions_missing_document_returns_empty_string():
+    be = ProductionBackend(mongo_db=_FakeMongo(user_preferences=_FakeColl(doc=None)))
+    assert be.get_agent_instructions(7) == ""
+
+
+def test_get_agent_instructions_ignores_a_non_string_value():
+    be = ProductionBackend(
+        mongo_db=_FakeMongo(user_preferences=_FakeColl(doc={"agent_instructions": 42}))
+    )
+    assert be.get_agent_instructions(7) == ""
+
+
+def test_recent_files_dedupes_versions_and_keeps_the_newest():
+    rows = [
+        {"file_name": "a.py", "created_at": "t5"},
+        {"file_name": "a.py", "created_at": "t4"},  # גרסה ישנה של אותו קובץ
+        {"file_name": "b.js", "created_at": "t3"},
+        {"file_name": "a.py", "created_at": "t2"},
+        {"file_name": "c.md", "created_at": "t1"},
+        {"file_name": "d.txt", "created_at": "t0"},
+    ]
+    coll = _FakeColl(rows=rows)
+    be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=coll))
+    out = be.recent_files(7, limit=3)
+    assert [f["file_name"] for f in out] == ["a.py", "b.js", "c.md"]
+    assert out[0]["saved_at"] == "t5"  # הגרסה החדשה, לא הישנה
+
+
+def test_recent_files_query_matches_the_existing_index():
+    """user_id + is_active + מיון על created_at ⇒ user_active_created_at_idx."""
+    coll = _FakeColl(rows=[])
+    ProductionBackend(mongo_db=_FakeMongo(code_snippets=coll)).recent_files(7, limit=3)
+    assert coll.log["query"] == {"user_id": 7, "is_active": True}
+    assert coll.log["sort"] == ("created_at", -1)
+    # Smart Projection: שום שדה תוכן כבד לא נשלף לרשימה
+    assert "code" not in (coll.log["projection"] or {})
+    assert coll.log["limit"] >= 3
+
+
+def test_recent_files_skips_blank_names():
+    coll = _FakeColl(rows=[{"file_name": "  ", "created_at": "t"}, {"file_name": "ok.py"}])
+    out = ProductionBackend(mongo_db=_FakeMongo(code_snippets=coll)).recent_files(7, limit=3)
+    assert [f["file_name"] for f in out] == ["ok.py"]
+
+
+def test_recent_files_returns_empty_on_db_error():
+    class _Boom:
+        def find(self, *a, **k):
+            raise RuntimeError("mongo down")
+
+    be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=_Boom()))
+    assert be.recent_files(7, limit=3) == []
+
+
+def test_recent_files_zero_limit_does_no_query():
+    coll = _FakeColl(rows=[{"file_name": "a.py"}])
+    assert ProductionBackend(mongo_db=_FakeMongo(code_snippets=coll)).recent_files(7, limit=0) == []
+    assert coll.log == {}

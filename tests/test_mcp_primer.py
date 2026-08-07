@@ -1,0 +1,407 @@
+"""טסטים ל-``GET /api/agent/primer`` (mcp_server/primer.py).
+
+מכסה את ארבעת האילוצים של האנדפוינט: אימות, תקרת 8KB, cache של 60 שניות,
+וסינון סודות — וגם את מקרי הקצה של הגוף (204 בהוראות ריקות, אין שורת מצב
+כשאין קבצים).
+"""
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+pytest.importorskip("starlette")
+
+from starlette.applications import Starlette  # noqa: E402
+from starlette.testclient import TestClient  # noqa: E402
+
+from mcp_server.primer import (  # noqa: E402
+    MAX_BYTES,
+    WARN_BYTES,
+    PrimerCache,
+    agent_primer_route,
+    build_primer,
+    build_status_line,
+    redact_secrets,
+)
+
+NOW = datetime(2026, 8, 7, 12, 0, 0, tzinfo=UTC)
+
+
+class _FakeStore:
+    """token store בסגנון ``MCPTokenStore`` — אותו חוזה ``verify``."""
+
+    def __init__(self, mapping):
+        self.mapping = mapping
+
+    def verify(self, token):
+        return self.mapping.get(token)
+
+
+class _FakeBackend:
+    def __init__(self, instructions="", files=None):
+        self.instructions = instructions
+        self.files = files or []
+        self.instruction_calls = 0
+        self.file_calls = 0
+
+    def get_agent_instructions(self, user_id):
+        self.instruction_calls += 1
+        if isinstance(self.instructions, dict):
+            return self.instructions.get(int(user_id), "")
+        return self.instructions
+
+    def recent_files(self, user_id, *, limit=3):
+        self.file_calls += 1
+        if isinstance(self.files, dict):
+            return self.files.get(int(user_id), [])[:limit]
+        return self.files[:limit]
+
+
+def _client(backend, *, store=None, cache=None):
+    store = store or _FakeStore({"good": {"user_id": 7, "scopes": ["read"]}})
+    app = Starlette(
+        routes=[agent_primer_route(backend, token_store=store, cache=cache or PrimerCache())]
+    )
+    return TestClient(app)
+
+
+def _auth(token="good"):
+    return {"Authorization": f"Bearer {token}"}
+
+
+# ---------------------------------------------------------------- אימות
+def test_no_token_returns_401():
+    resp = _client(_FakeBackend("שלום")).get("/api/agent/primer")
+    assert resp.status_code == 401
+    assert resp.headers.get("WWW-Authenticate", "").startswith("Bearer")
+
+
+def test_bad_token_returns_401():
+    resp = _client(_FakeBackend("שלום")).get("/api/agent/primer", headers=_auth("nope"))
+    assert resp.status_code == 401
+
+
+def test_non_bearer_scheme_returns_401():
+    resp = _client(_FakeBackend("שלום")).get(
+        "/api/agent/primer", headers={"Authorization": "Basic good"}
+    )
+    assert resp.status_code == 401
+
+
+def test_unauthenticated_request_never_touches_the_backend():
+    """401 חייב לחסום *לפני* כל קריאה לנתונים — לא רק להסתיר את הפלט."""
+    backend = _FakeBackend("סודי")
+    resp = _client(backend).get("/api/agent/primer")
+    assert resp.status_code == 401
+    assert backend.instruction_calls == 0
+    assert b"\xd7\xa1\xd7\x95\xd7\x93\xd7\x99" not in resp.content
+
+
+def test_valid_token_returns_plain_text():
+    backend = _FakeBackend("תמיד תענה בעברית.")
+    resp = _client(backend).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/plain")
+    assert "charset=utf-8" in resp.headers["content-type"].lower()
+    assert "תמיד תענה בעברית." in resp.text
+
+
+def test_response_is_not_json():
+    """הגוף נקרא ע"י הסוכן כפי שהוא — עטיפת JSON תהפוך אותו לרעש."""
+    resp = _client(_FakeBackend("כלל")).get("/api/agent/primer", headers=_auth())
+    assert "json" not in resp.headers["content-type"].lower()
+    assert not resp.text.lstrip().startswith(("{", "["))
+
+
+def test_oauth_provider_path_authenticates_too():
+    """במצב OAuth הראוט מאמת דרך load_access_token — אותו נתיב של טרנספורט ה-MCP."""
+
+    class _Token:
+        subject = "7"
+        scopes = ["read"]
+
+    class _Provider:
+        async def load_access_token(self, token):
+            return _Token() if token == "ckoat_ok" else None
+
+    app = Starlette(
+        routes=[
+            agent_primer_route(_FakeBackend("שלום"), auth_provider=_Provider(), cache=PrimerCache())
+        ]
+    )
+    client = TestClient(app)
+    assert client.get("/api/agent/primer", headers=_auth("ckoat_ok")).status_code == 200
+    assert client.get("/api/agent/primer", headers=_auth("bad")).status_code == 401
+
+
+# ---------------------------------------------------------------- 204
+def test_empty_instructions_return_204_not_empty_200():
+    backend = _FakeBackend("", files=[{"file_name": "a.py", "saved_at": NOW}])
+    resp = _client(backend).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 204
+    assert resp.content == b""
+
+
+def test_whitespace_only_instructions_return_204():
+    resp = _client(_FakeBackend("   \n\n\t  ")).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 204
+
+
+def test_no_instructions_skips_the_recent_files_query():
+    """204 לא אמור לשלם על שאילתה שהתוצאה שלה לא תוגש."""
+    backend = _FakeBackend("")
+    _client(backend).get("/api/agent/primer", headers=_auth())
+    assert backend.file_calls == 0
+
+
+# ---------------------------------------------------------------- שורת מצב
+def test_status_line_lists_three_files_with_times():
+    files = [
+        {"file_name": "app.py", "saved_at": NOW - timedelta(hours=3)},
+        {"file_name": "utils.js", "saved_at": NOW - timedelta(days=1)},
+        {"file_name": "README.md", "saved_at": NOW - timedelta(minutes=5)},
+    ]
+    line = build_status_line(files, now=NOW)
+    assert "app.py (לפני 3 שעות)" in line
+    assert "utils.js (אתמול)" in line
+    assert "README.md (לפני 5 דקות)" in line
+    assert line.count("\n") == 0  # שורה אחת, "לא יותר מזה"
+
+
+def test_no_files_means_no_status_line_at_all():
+    """יש הוראות, אין קבצים ⇒ 200 עם ההוראות בלבד.
+
+    שורת מצב ריקה עדיפה על שורת מצב שמדווחת על כלום.
+    """
+    backend = _FakeBackend("כלל יחיד.", files=[])
+    resp = _client(backend).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 200
+    assert resp.text.strip() == "כלל יחיד."
+    assert "---" not in resp.text
+    assert "קבצים אחרונים" not in resp.text
+
+
+def test_status_line_survives_a_missing_timestamp():
+    line = build_status_line([{"file_name": "x.py", "saved_at": None}], now=NOW)
+    assert "x.py" in line
+
+
+def test_naive_timestamps_are_treated_as_utc():
+    """Mongo עשוי להחזיר datetime בלי tzinfo — אסור שזה יפיל את השורה."""
+    naive = (NOW - timedelta(hours=2)).replace(tzinfo=None)
+    line = build_status_line([{"file_name": "x.py", "saved_at": naive}], now=NOW)
+    assert "לפני 2 שעות" in line
+
+
+def test_recent_files_failure_still_serves_the_instructions():
+    """שורת המצב היא תוספת; כישלון שלה לא מוחק את עיקר התוכן."""
+
+    class _Broken(_FakeBackend):
+        def recent_files(self, user_id, *, limit=3):
+            raise RuntimeError("mongo down")
+
+    resp = _client(_Broken("ההוראות שלי")).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 200
+    assert "ההוראות שלי" in resp.text
+
+
+# ---------------------------------------------------------------- תקרת 8KB
+def test_oversized_primer_is_truncated_not_rejected():
+    backend = _FakeBackend("א" * 20000, files=[{"file_name": "a.py", "saved_at": NOW}])
+    resp = _client(backend).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 200  # לעולם לא שגיאה
+    assert len(resp.content) <= MAX_BYTES
+    assert "נחתך" in resp.text
+
+
+def test_truncation_keeps_the_status_line():
+    """הוראות ארוכות לא דוחפות את שורת המצב מחוץ לגוף."""
+    body = build_primer("א" * 20000, [{"file_name": "a.py", "saved_at": NOW}], now=NOW)
+    assert len(body.encode("utf-8")) <= MAX_BYTES
+    assert "קבצים אחרונים" in body
+    assert "a.py" in body
+
+
+def test_truncation_does_not_split_a_utf8_character():
+    """חיתוך נאיבי על בייטים היה מוציא תו עברי חצוי ובייטים לא-תקינים."""
+    body = build_primer("ש" * 9000, [], now=NOW)
+    raw = body.encode("utf-8")
+    assert len(raw) <= MAX_BYTES
+    assert raw.decode("utf-8") == body  # רק אם כל תו שלם
+
+
+def test_body_exactly_under_the_cap_is_not_truncated():
+    body = build_primer("a" * 100, [], now=NOW)
+    assert "נחתך" not in body
+    assert body.startswith("a" * 100)
+
+
+# ---------------------------------------------------------------- cache
+def test_second_request_is_served_from_cache():
+    backend = _FakeBackend("שלום")
+    client = _client(backend)
+    client.get("/api/agent/primer", headers=_auth())
+    client.get("/api/agent/primer", headers=_auth())
+    assert backend.instruction_calls == 1
+
+
+def test_cache_control_header_is_private_and_60s():
+    resp = _client(_FakeBackend("שלום")).get("/api/agent/primer", headers=_auth())
+    assert resp.headers["cache-control"] == "private, max-age=60"
+
+
+def test_204_also_carries_the_cache_header():
+    resp = _client(_FakeBackend("")).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 204
+    assert resp.headers["cache-control"] == "private, max-age=60"
+
+
+def test_expired_cache_entry_is_refetched():
+    cache = PrimerCache(ttl_seconds=0)
+    backend = _FakeBackend("שלום")
+    client = _client(backend, cache=cache)
+    client.get("/api/agent/primer", headers=_auth())
+    client.get("/api/agent/primer", headers=_auth())
+    assert backend.instruction_calls == 2
+
+
+def test_cache_is_per_user_and_never_leaks_across_users():
+    """הבאג המסוכן ביותר ב-cache: להגיש פריימר של משתמש אחד למשתמש אחר."""
+    store = _FakeStore(
+        {
+            "tok-a": {"user_id": 1, "scopes": ["read"]},
+            "tok-b": {"user_id": 2, "scopes": ["read"]},
+        }
+    )
+    backend = _FakeBackend({1: "הסודות של אלף", 2: "הסודות של בית"})
+    client = _client(backend, store=store)
+
+    first = client.get("/api/agent/primer", headers=_auth("tok-a"))
+    second = client.get("/api/agent/primer", headers=_auth("tok-b"))
+
+    assert "הסודות של אלף" in first.text
+    assert "הסודות של בית" in second.text
+    assert "אלף" not in second.text
+
+
+def test_cache_evicts_when_over_capacity():
+    cache = PrimerCache(ttl_seconds=300, max_entries=3)
+    for uid in range(10):
+        cache.put(uid, f"body-{uid}")
+    assert len(cache._data) <= 3
+
+
+# ---------------------------------------------------------------- סינון סודות
+#
+# הדוגמאות מורכבות בזמן ריצה מקידומת + גוף ולא נכתבות כמחרוזת שלמה: קובץ טסט
+# שמכיל מחרוזת בצורת מפתח אמיתי נתפס ע"י סורקי הסודות (וגם ע"י push protection
+# של GitHub) ומעורר התראה על סוד שלא קיים. הערכים סינתטיים לחלוטין.
+_FILLER = "AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+_ALPHA = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+SECRET_SHAPES = [
+    ("ghp_", _ALPHA),
+    ("github_pat_", "11ABCDEFG0abcdefghij_ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+    ("ckmcp_", _FILLER),
+    ("ckoat_", _FILLER),
+    ("sk-ant-api03-", _FILLER),
+    ("AKIA", "IOSFODNN7EXAMPLE"),
+    ("xoxb-", "123456789012-1234567890123-" + _FILLER),
+    ("AIza", "SyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7"),
+    ("eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w"),
+]
+
+
+@pytest.mark.parametrize("prefix,body", SECRET_SHAPES)
+def test_known_secret_shapes_are_redacted(prefix, body):
+    secret = prefix + body
+    out = redact_secrets(f"ההקשר שלי:\n{secret}\nסוף")
+    assert secret not in out
+    assert "REDACTED" in out
+
+
+def test_env_style_assignments_are_redacted():
+    text = (
+        "OPENAI_API_KEY=sk-verysecretvalue1234567890\n"
+        "DB_PASSWORD: hunter2hunter2\n"
+        "export MY_TOKEN=abc123def456"
+    )
+    out = redact_secrets(text)
+    assert "hunter2hunter2" not in out
+    assert "abc123def456" not in out
+    assert "sk-verysecretvalue1234567890" not in out
+
+
+def test_bearer_header_pasted_as_text_is_redacted():
+    out = redact_secrets("Authorization: Bearer abcdef1234567890xyz")
+    assert "abcdef1234567890xyz" not in out
+
+
+def test_connection_string_password_is_redacted():
+    out = redact_secrets("mongodb://admin:supersecretpw@cluster0.mongodb.net/db")
+    assert "supersecretpw" not in out
+
+
+def test_private_key_block_is_redacted():
+    text = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----"
+    out = redact_secrets(text)
+    assert "MIIEowIBAAKCAQEA" not in out
+
+
+def test_secrets_pasted_into_the_field_never_reach_the_response():
+    """המסלול המלא: מפתח שהודבק לשדה ההוראות לא יוצא בגוף התשובה."""
+    secret = "ghp_" + _ALPHA
+    backend = _FakeBackend(f"השתמש במפתח {secret} בבקשה")
+    resp = _client(backend).get("/api/agent/primer", headers=_auth())
+    assert resp.status_code == 200
+    assert secret not in resp.text
+    assert "REDACTED" in resp.text
+
+
+def test_ordinary_text_is_left_alone():
+    """הסינון לא אמור לפגוע בטקסט רגיל — פריימר מושחת גרוע מפריימר לא מסונן."""
+    text = "תמיד תענה בעברית.\nהפרויקט נמצא ב-webapp/app.py ומשתמש ב-Flask.\nkey=value זה בסדר."
+    assert redact_secrets(text) == text
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "API_KEY=<your-key-here>",
+        "OPENAI_API_KEY=${OPENAI_API_KEY}",
+        "MY_TOKEN=$SOME_ENV_VAR",
+        "DB_PASSWORD=...",
+        "key=value",
+        "SECRET_KEY={{ secret }}",
+    ],
+)
+def test_placeholders_and_env_references_are_not_redacted(line):
+    """הוראות מלאות דוגמאות קונפיג — placeholder הוא לא סוד ואסור למחוק אותו."""
+    assert redact_secrets(line) == line
+
+
+# ---------------------------------------------------------------- סנכרון בין השירותים
+def test_webapp_limits_match_the_primer_limits():
+    """הוובאפ ושירות ה-MCP נפרדים ואין ביניהם ייבוא — הערכים משוכפלים.
+
+    הטסט הזה הוא מה שמונע מהם להתפצל בשקט: אם התקרה תשתנה בצד אחד בלבד, ה-UI
+    יתריע על סף לא נכון והמשתמש יגלה חיתוך רק דרך שורה שרק הסוכן רואה.
+    """
+    flask = pytest.importorskip("flask")  # noqa: F841
+    from webapp.routes.settings_routes import (
+        AGENT_INSTRUCTIONS_WARN_BYTES,
+        AGENT_PRIMER_MAX_BYTES,
+    )
+
+    assert AGENT_PRIMER_MAX_BYTES == MAX_BYTES
+    assert AGENT_INSTRUCTIONS_WARN_BYTES == WARN_BYTES
+    assert WARN_BYTES < MAX_BYTES  # אחרת האזהרה מגיעה רק אחרי החריגה
+
+
+def test_204_is_cached_too():
+    """גם "אין פריימר" הוא תשובה — אסור לה לפגוע במסד בכל פתיחת סשן."""
+    backend = _FakeBackend("")
+    client = _client(backend)
+    assert client.get("/api/agent/primer", headers=_auth()).status_code == 204
+    assert client.get("/api/agent/primer", headers=_auth()).status_code == 204
+    assert backend.instruction_calls == 1

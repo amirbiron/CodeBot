@@ -88,6 +88,36 @@ merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק �
 **הרשאות (scopes):** `read` (ברירת מחדל) ו‑`write`. כלי הכתיבה בודק `write` בזמן ריצה;
 טוקן קריאה בלבד יקבל שגיאת `insufficient_scope` (ולא ייכתב דבר). איך משיגים כתיבה — ראו למטה.
 
+> ⚠️ **ראוט שאינו `/mcp` אינו מוגן אוטומטית.** במצב OAuth ה‑`PATAuthMiddleware` לא
+> מותקן כלל, וה‑SDK עוטף רק את ה‑mount של `/mcp` — ולכן ראוט שנרשם ידנית
+> ל‑`app.router.routes` (כמו `/healthz`) מוגש **בלי אימות**. כל ראוט חדש שאסור שיהיה
+> ציבורי חייב לקרוא ל‑`authenticate_bearer` בגוף שלו. ראו `auth.py` ו‑`primer.py`.
+
+---
+
+## פריימר לסוכן — `GET /api/agent/primer`
+
+אנדפוינט HTTP רגיל (לא כלי MCP) שמחזיר **טקסט חופשי** שהסוכן קורא בפתיחת סשן:
+
+```bash
+curl -sS -H "Authorization: Bearer $CODEKEEPER_TOKEN" \
+  https://<MCP-HOST>/api/agent/primer
+```
+
+- **Content-Type:** `text/plain; charset=utf-8` — לא JSON. הגוף נקרא ע"י המודל כפי שהוא.
+- **תוכן:** שדה "הוראות לסוכן" מעמוד ההגדרות בוובאפ, ואחריו שורת מצב קצרה עם שלושת
+  הקבצים האחרונים שנשמרו ומתי.
+- **`204`** כששדה ההוראות ריק (ולא `200` עם גוף ריק). **`401`** בלי טוקן תקין.
+- **תקרת 8KB:** חריגה ⇒ חיתוך + שורה שמודיעה על כך. לעולם לא שגיאה.
+- **Cache 60 שניות** לכל משתמש (`Cache-Control: private, max-age=60`).
+- **סינון סודות** על כל הגוף לפני ההחזרה.
+
+התקרה וה‑TTL קבועים בקוד ואינם משתני סביבה — ראו את ה‑docstring של `primer.py` להסבר.
+
+> ⚠️ **ה‑URL הוא של ה‑MCP host, לא של הוובאפ.** הוובאפ יחזיר `404`. הוק שמושך את
+> הפריימר בפתיחת סשן ושותק בכל כשל ייכשל לנצח בשקט — הבחינו בין `204` (אין פריימר,
+> שתיקה נכונה) לבין `404`/`401` (תקלה).
+
 ---
 
 ## חיבור מ‑Claude.ai (OAuth)
@@ -183,11 +213,12 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `token_store.py` | ניהול PAT מעל `mcp_tokens` |
 | `backend.py` | גישה לנתונים + סריאליזציה (Smart Projection, בדיקת בעלות) |
 | `handlers.py` | לוגיקת הכלים הטהורה — יעד הטסטים |
-| `auth.py` | `current_user_id` (OAuth/PAT) + PAT middleware (fallback) |
+| `auth.py` | `current_user_id` (OAuth/PAT) + PAT middleware (fallback) + `authenticate_bearer` לראוטים שאינם `/mcp` |
 | `oauth_store.py` | אחסון clients/codes/tokens/txns (hash) |
 | `oauth_provider.py` | מימוש חוזה ה‑OAuth של ה‑SDK (כולל PAT מאוחד) |
 | `oauth_identity.py` | חתימת/אימות זהות HMAC (משותף עם הוובאפ) |
 | `oauth_routes.py` | מסך ה‑consent + הנפקת code |
+| `primer.py` | `GET /api/agent/primer` — פריימר טקסט לסוכן (8KB, cache 60ש׳, סינון סודות) |
 | `server.py` | חיווט FastMCP: כלים + OAuth + ASGI |
 | `app.py` | נקודת כניסה: בוחר PAT/OAuth לפי ENV |
 

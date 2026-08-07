@@ -319,6 +319,129 @@ def theme_gallery():
     )
 
 
+# תקרת האחסון של "הוראות לסוכן". גבוהה מתקרת ההגשה בכוונה: החיתוך הוא החלטה
+# של ההגשה ולא של האחסון, כדי שהמשתמש לא יאבד טקסט שכתב.
+AGENT_INSTRUCTIONS_MAX_CHARS = 16 * 1024
+
+# תקרת הגוף שהפריימר מגיש בפועל וסף האזהרה ב-UI. מקור האמת הוא
+# ``mcp_server.primer`` (MAX_BYTES / WARN_BYTES); הערכים משוכפלים לכאן כי
+# הוובאפ ושירות ה-MCP הם שני שירותים נפרדים ואין ביניהם ייבוא.
+# ``tests/test_mcp_primer.py`` נכשל אם הזוגות מתפצלים.
+AGENT_PRIMER_MAX_BYTES = 8 * 1024
+AGENT_INSTRUCTIONS_WARN_BYTES = 7 * 1024
+
+
+def _agent_instructions_user_id():
+    """מזהה המשתמש כ-int, כפי ששרת ה-MCP מחפש אותו. None ⇒ אין סשן תקין.
+
+    חשוב שיהיה int: ``MCPTokenStore`` שומר ``user_id`` כמספר, ולכן מסמך
+    ``user_preferences`` שנכתב עם מחרוזת פשוט לא יימצא בקריאה מהפריימר.
+    """
+    raw = session.get("user_id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+@settings_bp.route("/api/settings/agent-instructions", methods=["GET"])
+def api_get_agent_instructions():
+    """הטקסט הנוכחי של "הוראות לסוכן" (לטעינת השדה בעמוד ההגדרות)."""
+    user_id = _agent_instructions_user_id()
+    if user_id is None:
+        return jsonify({"ok": False, "error": "נדרש להתחבר"}), 401
+
+    helpers = _get_app_helpers()
+    text = ""
+    try:
+        db = helpers.get_db()
+        doc = db.user_preferences.find_one(
+            {"user_id": user_id}, {"agent_instructions": 1, "_id": 0}
+        )
+        value = (doc or {}).get("agent_instructions")
+        if isinstance(value, str):
+            text = value
+    except Exception:
+        logger.warning("failed to read agent instructions", exc_info=True)
+        return jsonify({"ok": False, "error": "שגיאה בטעינת ההוראות"}), 500
+
+    return jsonify(
+        {
+            "ok": True,
+            "text": text,
+            "bytes": len(text.encode("utf-8")),
+            "max_chars": AGENT_INSTRUCTIONS_MAX_CHARS,
+            "primer_max_bytes": AGENT_PRIMER_MAX_BYTES,
+            "warn_bytes": AGENT_INSTRUCTIONS_WARN_BYTES,
+        }
+    )
+
+
+@settings_bp.route("/api/settings/agent-instructions", methods=["PUT"])
+def api_update_agent_instructions():
+    """שמירת "הוראות לסוכן" — טקסט חופשי שמוגש כפריימר לסוכני AI.
+
+    הטקסט נשמר כפי שהוא. הסינון של סודות מתבצע בהגשה (``mcp_server.primer``)
+    ולא כאן במכוון: משתמש שהדביק מפתח בטעות עדיין רואה בשדה מה שהוא הדביק
+    ויכול למחוק אותו, במקום שהערך יוחלף בשקט ב-``***REDACTED***`` ויימחק לו.
+    """
+    user_id = _agent_instructions_user_id()
+    if user_id is None:
+        return jsonify({"ok": False, "error": "נדרש להתחבר"}), 401
+
+    data = request.get_json(silent=True) or {}
+    if "text" not in data:
+        return jsonify({"ok": False, "error": "חסר שדה text"}), 400
+
+    text = data.get("text")
+    if text is None:
+        text = ""
+    if not isinstance(text, str):
+        return jsonify({"ok": False, "error": "text חייב להיות מחרוזת"}), 400
+
+    # נרמול סופי שורה: \r\n מדפדפן מנפח את הגודל ומזייף את מונה הבייטים ב-UI.
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    if len(text) > AGENT_INSTRUCTIONS_MAX_CHARS:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        f"ההוראות ארוכות מדי ({len(text):,} תווים). "
+                        f"המקסימום הוא {AGENT_INSTRUCTIONS_MAX_CHARS:,} תווים."
+                    ),
+                }
+            ),
+            400,
+        )
+
+    helpers = _get_app_helpers()
+    try:
+        db = helpers.get_db()
+        db.user_preferences.update_one(
+            {"user_id": user_id},
+            {"$set": {"agent_instructions": text}},
+            upsert=True,
+        )
+    except Exception:
+        logger.warning("failed to save agent instructions", exc_info=True)
+        return jsonify({"ok": False, "error": "שגיאה בשמירת ההוראות"}), 500
+
+    size = len(text.encode("utf-8"))
+    return jsonify(
+        {
+            "ok": True,
+            "bytes": size,
+            # ההגשה חותכת ב-8KB. מחזירים את הדגל כדי שה-UI יוכל להתריע מיד
+            # אחרי שמירה, ולא רק דרך שורה שרק הסוכן רואה.
+            "will_truncate": size > AGENT_PRIMER_MAX_BYTES,
+        }
+    )
+
+
 @settings_bp.route("/api/settings/attention", methods=["PUT"])
 def api_update_attention_settings():
     """Update attention widget settings."""
