@@ -137,3 +137,48 @@ async def test_authenticate_bearer_fails_closed_when_the_store_raises():
         _request(headers=[("authorization", "Bearer x")]), token_store=_Broken()
     )
     assert got is None
+
+
+async def test_verify_bearer_token_rejects_an_empty_credential():
+    """``verify_bearer_token`` היא ציבורית — היא עומדת בחוזה גם בקריאה ישירה.
+
+    ``authenticate_bearer`` כבר מסנן ריק דרך ``extract_bearer_token``, אבל קורא
+    אחר שיגיע ישירות לא אמור לקבל מעבר חופשי.
+    """
+    from mcp_server.auth import verify_bearer_token
+
+    store = _FakeStore({"": {"user_id": 1, "scopes": ["read"]}})  # אפילו אם ה-store היה מאשר
+    assert await verify_bearer_token("", token_store=store) is None
+    assert await verify_bearer_token(None, token_store=store) is None
+
+
+async def test_oauth_token_without_a_subject_is_rejected():
+    """טוקן שנטען אך אין לו זהות — פייל-קלוז'ד, לא user_id שרירותי."""
+    from mcp_server.auth import verify_bearer_token
+
+    class _NoSubject:
+        subject = None
+        scopes = ["read"]
+
+    class _Provider:
+        async def load_access_token(self, token):
+            return _NoSubject()
+
+    assert await verify_bearer_token("x", auth_provider=_Provider()) is None
+
+
+async def test_oauth_token_with_no_scopes_yields_an_empty_list():
+    from mcp_server.auth import verify_bearer_token
+
+    class _Token:
+        subject = "9"
+        scopes = None
+
+    class _Provider:
+        async def load_access_token(self, token):
+            return _Token()
+
+    assert await verify_bearer_token("x", auth_provider=_Provider()) == {
+        "user_id": 9,
+        "scopes": [],
+    }
