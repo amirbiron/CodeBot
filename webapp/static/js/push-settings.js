@@ -53,6 +53,61 @@
       });
   }
 
+  // משווה את מפתח ה-VAPID של מנוי קיים למפתח שהשרת מחזיר עכשיו.
+  // מחזיר 'match' / 'mismatch' / 'unknown'.
+  //
+  // 'unknown' מוחזר כשהדפדפן לא חושף את options.applicationServerKey
+  // (דפדפנים ישנים). במצב הזה בכוונה לא מבטלים את המנוי: ביטול על סמך
+  // ניחוש יגרום להרשמה מחדש בכל טעינת דף. אם המנוי אכן מת, השליחה תיכשל
+  // מול שירות הפוש והשגיאה תופיע בלוג כ-push_send_error.
+  function compareApplicationServerKey(sub, keyBytes) {
+    try {
+      var existing = sub && sub.options && sub.options.applicationServerKey;
+      if (!existing) return 'unknown';
+      var a = new Uint8Array(existing);
+      if (a.length !== keyBytes.length) return 'mismatch';
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] !== keyBytes[i]) return 'mismatch';
+      }
+      return 'match';
+    } catch (_) {
+      return 'unknown';
+    }
+  }
+
+  function saveSubscription(sub) {
+    return fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(sub),
+    }).then(function (resp) {
+      return resp.json().catch(function () { return {}; }).then(function (j) {
+        if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
+        return j;
+      });
+    });
+  }
+
+  // כשכבר קיים מנוי עם מפתח אחר, הדפדפן זורק InvalidStateError.
+  // במקרה כזה מבטלים את הישן ומנסים שוב — פעם אחת בלבד.
+  function subscribeWithRecovery(reg, keyBytes, retried) {
+    return reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: keyBytes,
+    }).catch(function (e) {
+      if (!retried && e && e.name === 'InvalidStateError') {
+        setStatus('נמצא מנוי ישן, מחדש...');
+        return reg.pushManager.getSubscription().then(function (old) {
+          return old ? old.unsubscribe().catch(function () { }) : null;
+        }).then(function () {
+          return subscribeWithRecovery(reg, keyBytes, true);
+        });
+      }
+      throw e;
+    });
+  }
+
   function enablePush() {
     setStatus('טוען...');
     try {
@@ -61,43 +116,49 @@
       if (!('PushManager' in window)) { setStatus('PushManager לא נתמך'); return; }
     } catch (_) { }
 
-    getReg().then(function (reg) {
-      return reg.pushManager.getSubscription().then(function (existing) {
-        if (existing) {
-          return fetch('/api/push/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(existing),
-          }).catch(function () { })
-            .then(function () { setStatus('ההתראות כבר מופעלות'); refreshUi(); });
-        }
-        return Notification.requestPermission().then(function (perm) {
-          if (perm !== 'granted') { setStatus('הרשאת התראות נדחתה'); return; }
-          setStatus('יוצר מנוי...');
-          return getVapid().then(function (key) {
-            return reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(key),
-            }).then(function (sub) {
-              return fetch('/api/push/subscribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(sub),
-              }).then(function (resp) {
-                return resp.json().catch(function () { return {}; }).then(function (j) {
-                  if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
-                  setStatus('התראות הופעלו בהצלחה');
-                  refreshUi();
-                });
-              });
-            });
+    var reg = null;
+    var keyBytes = null;
+
+    getReg().then(function (r) {
+      reg = r;
+      return getVapid();
+    }).then(function (key) {
+      keyBytes = urlBase64ToUint8Array(key);
+      return reg.pushManager.getSubscription();
+    }).then(function (existing) {
+      if (!existing) return null;
+      // אם השרת החליף מפתח VAPID, המנוי הישן מת: הדפדפן עדיין מחזיק אותו,
+      // אבל ה-push service ידחה כל שליחה אליו. מבטלים ונרשמים מחדש
+      // במקום לדווח "ההתראות כבר מופעלות" על מנוי שלא יעבוד לעולם.
+      if (compareApplicationServerKey(existing, keyBytes) === 'mismatch') {
+        setStatus('מפתח ההתראות התחלף, מחדש מנוי...');
+        return existing.unsubscribe().catch(function () { }).then(function () { return null; });
+      }
+      return saveSubscription(existing).then(function () {
+        setStatus('ההתראות כבר מופעלות');
+        refreshUi();
+        return 'done';
+      });
+    }).then(function (state) {
+      if (state === 'done') return;
+      return Notification.requestPermission().then(function (perm) {
+        if (perm !== 'granted') { setStatus('הרשאת התראות נדחתה'); return; }
+        setStatus('יוצר מנוי...');
+        return subscribeWithRecovery(reg, keyBytes, false).then(function (sub) {
+          return saveSubscription(sub).then(function () {
+            setStatus('התראות הופעלו בהצלחה');
+            refreshUi();
           });
         });
       });
     }).catch(function (e) {
-      setStatus('שגיאה בהפעלת התראות');
+      // מציגים את השגיאה עצמה. בלי זה מוצג "שגיאה" גנרית וצריך DevTools
+      // כדי להבין מה קרה — לא זמין בטאבלט/מובייל.
+      var detail = '';
+      try {
+        detail = (e && e.name ? e.name + ': ' : '') + ((e && e.message) || String(e || ''));
+      } catch (_) { detail = ''; }
+      setStatus('שגיאה בהפעלת התראות — ' + (detail || 'לא ידוע'));
       try { console.warn('push enable failed', e); } catch (_) { }
     });
   }
