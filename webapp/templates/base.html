@@ -7,7 +7,9 @@
 <html dir="rtl" lang="he" data-theme-scope="{{ ui_theme_scope }}"{% if ui_theme_custom_id %} data-theme-custom-id="{{ ui_theme_custom_id }}"{% endif %}{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if _announcement_enabled else 'off' }}" data-weekly-tip="{{ 'on' if _announcement_enabled else 'off' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    {# נגישות: אין להוסיף maximum-scale/user-scalable=no — הם חוסמים זום ומפרים WCAG 1.4.4.
+       Chrome מתעלם מהם, אבל Firefox ל-Android מכבד אותם ומשאיר את המשתמש תקוע. #}
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Code Keeper Bot{% endblock %}</title>
 
     <!-- Fonts -->
@@ -372,7 +374,15 @@
             box-sizing: border-box;
         }
 
-        html, body { height: 100%; overflow-x: hidden; }
+        /* מונע ניפוח גופן אוטומטי בדפדפני מובייל. Firefox ל-Android מגדיל טקסט
+           בדפים שהוא מזהה כלא-מותאמים, וזה גרם לאתר להיראות ענק בטאבלט. */
+        html, body {
+            height: 100%;
+            overflow-x: hidden;
+            -webkit-text-size-adjust: 100%;
+            -moz-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
 
         body {
             font-family: 'Heebo', sans-serif;

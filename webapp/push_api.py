@@ -905,26 +905,35 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 if delivered:
                     success_any = True
             except Exception as ex:
+                # רושמים כל חריגה, לא רק WebPushException. בעבר שגיאות אחרות
+                # (מפתחות/הצפנה/תלויות) נבלעו כאן בשקט, והלוג הראה רק
+                # "sent: 0" בלי סיבה — מה שהפך כל אבחון לניחוש.
+                status = 0
+                try:
+                    err_str = f"{type(ex).__name__}: {ex}"
+                except Exception:
+                    err_str = "unknown_error"
                 try:
                     from pywebpush import WebPushException  # type: ignore
 
                     if isinstance(ex, WebPushException):
-                        status = getattr(getattr(ex, "response", None), "status_code", 0)
-                        if status in (404, 410):
-                            if ep:
-                                endpoints_to_delete.add(ep)
-                        try:
-                            from observability import emit_event  # type: ignore
+                        status = int(getattr(getattr(ex, "response", None), "status_code", 0) or 0)
+                        if status in (404, 410) and ep:
+                            endpoints_to_delete.add(ep)
+                except Exception:
+                    pass
+                try:
+                    from observability import emit_event  # type: ignore
 
-                            emit_event(
-                                "push_send_error",
-                                severity="warning",
-                                user_id=str(user_id),
-                                endpoint=str(ep or ""),
-                                status_code=int(status or 0),
-                            )
-                        except Exception:
-                            pass
+                    emit_event(
+                        "push_send_error",
+                        severity="warning",
+                        user_id=str(user_id),
+                        # hash בלבד — ה-endpoint המלא הוא מזהה מכשיר ולא נרשם ללוג
+                        endpoint_hash=_hash_endpoint(ep),
+                        status_code=int(status or 0),
+                        error=err_str[:300],
+                    )
                 except Exception:
                     pass
                 continue
@@ -1163,10 +1172,25 @@ def test_push():
                     pass
                 err_str = ""
                 try:
-                    err_str = str(ex)
+                    err_str = f"{type(ex).__name__}: {ex}"
                 except Exception:
                     err_str = ""
                 errors.append({"endpoint": ep, "status": int(status or 0), "error": err_str})
+                # מקביל ל-push_test_worker_error במסלול המרוחק: בלי זה השגיאה
+                # חוזרת ללקוח ב-JSON אבל לא מגיעה ללוגים, ואי אפשר לאבחן בדיעבד.
+                try:
+                    from observability import emit_event  # type: ignore
+
+                    emit_event(
+                        "push_test_local_error",
+                        severity="warning",
+                        user_id=str(user_id),
+                        endpoint_hash=_hash_endpoint(ep),
+                        status_code=int(status or 0),
+                        error=err_str[:300],
+                    )
+                except Exception:
+                    pass
         try:
             from observability import emit_event  # type: ignore
 
