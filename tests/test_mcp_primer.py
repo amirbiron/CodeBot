@@ -452,3 +452,51 @@ def test_one_minute_reads_as_singular():
     )
     assert "לפני דקה" in line
     assert "לפני 1 דקות" not in line
+
+
+# ------------------------------------------------- נתיבי קצה שלא היו מכוסים
+def test_future_timestamp_does_not_invent_a_future():
+    """שעון שלא מסונכרן בין השירותים לא אמור להוציא "בעוד 3 שעות"."""
+    line = build_status_line([{"file_name": "a.py", "saved_at": NOW + timedelta(hours=3)}], now=NOW)
+    assert "לפני רגע" in line
+
+
+def test_old_files_fall_back_to_a_date():
+    """מעל חודש, "לפני 400 ימים" פחות שימושי מתאריך."""
+    line = build_status_line(
+        [{"file_name": "a.py", "saved_at": NOW - timedelta(days=120)}], now=NOW
+    )
+    assert "2026-04-09" in line
+
+
+def test_blank_file_names_are_skipped_in_the_status_line():
+    files = [
+        {"file_name": "   ", "saved_at": NOW},
+        {"file_name": "real.py", "saved_at": NOW},
+    ]
+    line = build_status_line(files, now=NOW)
+    assert "real.py" in line
+    assert line.count("(") == 1  # רק ערך אחד נכנס
+
+
+def test_build_primer_returns_empty_for_blank_instructions():
+    """הגנה כפולה: הקורא כבר מסנן, אבל הפונקציה עומדת בחוזה גם לבדה."""
+    assert build_primer("", [{"file_name": "a.py", "saved_at": NOW}], now=NOW) == ""
+    assert build_primer("   \n ", [], now=NOW) == ""
+
+
+def test_cache_prunes_expired_entries_before_evicting_live_ones():
+    """ניקוי הפגים קודם — כדי לא לזרוק ערך חי בזמן שיש מת בתור."""
+    cache = PrimerCache(ttl_seconds=0, max_entries=2)
+    cache.put(1, "old-1")
+    cache.put(2, "old-2")
+    cache.put(3, "fresh")  # דוחף ניקוי; שני הראשונים כבר פגו
+    assert cache.get(1) is None
+    assert len(cache._data) <= 2
+
+
+def test_cache_clear_empties_everything():
+    cache = PrimerCache(ttl_seconds=300)
+    cache.put(1, "a")
+    cache.clear()
+    assert cache.get(1) is None
