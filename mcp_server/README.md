@@ -100,7 +100,7 @@ merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק �
 אנדפוינט HTTP רגיל (לא כלי MCP) שמחזיר **טקסט חופשי** שהסוכן קורא בפתיחת סשן:
 
 ```bash
-curl -sS -H "Authorization: Bearer $CODEKEEPER_TOKEN" \
+curl -sS -H "Authorization: Bearer $CODEKEEPER_PAT" \
   https://<MCP-HOST>/api/agent/primer
 ```
 
@@ -117,6 +117,24 @@ curl -sS -H "Authorization: Bearer $CODEKEEPER_TOKEN" \
 > ⚠️ **ה‑URL הוא של ה‑MCP host, לא של הוובאפ.** הוובאפ יחזיר `404`. הוק שמושך את
 > הפריימר בפתיחת סשן ושותק בכל כשל ייכשל לנצח בשקט — הבחינו בין `204` (אין פריימר,
 > שתיקה נכונה) לבין `404`/`401` (תקלה).
+
+### משיכה אוטומטית בפתיחת סשן
+
+`.claude/settings.json` בשורש הריפו מגדיר `SessionStart` hook מסוג `http` שמושך את
+הפריימר בכל פתיחת סשן של Claude Code על הריפו הזה. הטוקן נלקח ממשתנה הסביבה
+`CODEKEEPER_PAT` — **אותו שם כמו בדוגמה למעלה**, וזה לא מקרי: ההוק מצהיר עליו
+ב‑`allowedEnvVars`, ולכן שם אחר פשוט לא יועבר.
+
+- **מי שלא הגדיר `CODEKEEPER_PAT`** לא צריך לעשות דבר. הכותרת תישלח ריקה, השרת
+  יחזיר `401`, וזו שגיאה **לא חוסמת** — הסשן נפתח כרגיל. ההוק הוא opt‑in בפועל.
+- **סוד לא נשמר בגיט.** הקובץ מכיל את *שם* המשתנה בלבד; הערך נקרא בזמן ריצה.
+- **המלצת אבטחה:** מכיוון שכתובת היעד מגיעה מקובץ שבריפו, שינוי עתידי בו (למשל
+  מ‑fork) יכול להפנות את הטוקן ליעד אחר. ההגנה היא `allowedHttpHookUrls`
+  ב‑`~/.claude/settings.json` **האישי** — הגדרות פרויקט אינן יכולות לעקוף אותה:
+
+```json
+{ "allowedHttpHookUrls": ["https://codekeeper-mcp.onrender.com/*"] }
+```
 
 ---
 
