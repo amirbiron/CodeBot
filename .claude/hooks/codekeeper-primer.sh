@@ -26,11 +26,23 @@ REQUEST_TIMEOUT_SECONDS=20
 
 # לוג אבחון. נועד לענות על שאלה אחת בלבד: האם ההוק בכלל רץ? בלעדיו, הוק שלא
 # מורץ (למשל כי לא אושר) והוק שרץ ונכשל נראים זהים לחלוטין מבחוץ.
-LOG_FILE="${TMPDIR:-/tmp}/codekeeper-primer.log"
+#
+# הלוג יושב בתיקייה פרטית למשתמש ולא ב-/tmp המשותף. הסיבה: ‎>>‎ הולך אחרי
+# symlink, ולכן נתיב צפוי ב-/tmp מאפשר למשתמש מקומי אחר להשתיל שם קישור
+# ולגרום לנו לצרף שורות לקובץ שלו. XDG_STATE_HOME הוא המקום התקני לנתוני
+# ריצה מתמשכים, והתיקייה נוצרת עם 0700.
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/codekeeper"
+LOG_FILE="$LOG_DIR/primer-hook.log"
 
 log_diagnostic() {
-	# נכשל בשקט אם אין הרשאת כתיבה — לוג הוא נחמדות, לא תנאי להרצה.
-	printf '%s | %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >>"$LOG_FILE" 2>/dev/null || true
+	# נכשל בשקט בכל שלב — לוג הוא נחמדות, לא תנאי להרצת ההוק.
+	(
+		umask 077
+		mkdir -p -- "$LOG_DIR" 2>/dev/null || exit 0
+		# חגורה נוספת מעבר לתיקייה הפרטית: אם משום מה יש שם symlink, לא כותבים.
+		[[ -L "$LOG_FILE" ]] && exit 0
+		printf '%s | %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >>"$LOG_FILE" 2>/dev/null
+	) || true
 }
 
 log_diagnostic "hook invoked"
