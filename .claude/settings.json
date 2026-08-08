@@ -5,14 +5,9 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "https://codekeeper-mcp.onrender.com/api/agent/primer",
-            "headers": {
-              "Authorization": "Bearer $CODEKEEPER_PAT",
-              "Accept": "text/plain"
-            },
-            "allowedEnvVars": ["CODEKEEPER_PAT"],
-            "timeout": 10,
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codekeeper-primer.sh",
+            "timeout": 25,
             "statusMessage": "טוען הוראות סוכן מ-CodeKeeper..."
           }
         ]
