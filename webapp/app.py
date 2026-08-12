@@ -9837,13 +9837,18 @@ def get_language_icon(language: Optional[str]) -> str:
 # בצד ה-JS יש מקבילה מדויקת — window.langIcon() ב-base.html.
 # שפה שאין לה אייקון מצויר נופלת חזרה לאמוג'י של get_language_icon.
 
-# 24 השפות שיש להן <symbol id="lang-..."> בספרייט
+# השפות שיש להן <symbol id="lang-..."> בספרייט.
+# הספרייט נבנה על ידי scripts/build_lang_sprite.py, ו-tests/test_lang_icons.py
+# מוודא שהרשימה כאן והספרייט תמיד תואמים.
 LANG_ICON_SLUGS = frozenset({
-    'bash', 'c', 'cpp', 'css', 'dockerfile', 'dockerignore', 'env',
-    'gitignore', 'go', 'html', 'java', 'javascript', 'json', 'makefile',
-    'markdown', 'nginx', 'php', 'python', 'ruby', 'rust', 'sql',
-    'typescript', 'xml', 'yaml',
+    'bash', 'c', 'cpp', 'csharp', 'css', 'dockerfile', 'dockerignore', 'env',
+    'gitignore', 'go', 'html', 'java', 'javascript', 'json', 'kotlin',
+    'makefile', 'markdown', 'nginx', 'php', 'python', 'ruby', 'rust', 'sql',
+    'swift', 'text', 'typescript', 'xml', 'yaml',
 })
+
+# האייקון שמקבל כל קובץ שהשפה שלו לא מזוהה
+LANG_ICON_FALLBACK_SLUG = 'text'
 
 # שמות נרדפים שחולקים אייקון עם שפה אחרת — חוסך ציור אייקון כפול
 LANG_ICON_ALIASES = {
@@ -9860,8 +9865,19 @@ LANG_ICON_ALIASES = {
     'rb': 'ruby',
     'rs': 'rust',
     'c++': 'cpp',
+    'c#': 'csharp',
+    'cs': 'csharp',
+    'kt': 'kotlin',
+    'kts': 'kotlin',
+    'golang': 'go',
     'md': 'markdown',
     'docker': 'dockerfile',
+    # שפות סגנון שנשענות על אייקון ה-CSS
+    'scss': 'css',
+    'sass': 'css',
+    'less': 'css',
+    'txt': 'text',
+    'plaintext': 'text',
 }
 
 
@@ -9876,7 +9892,9 @@ def lang_icon(language: Optional[str], size: int = 32, css_class: str = '') -> M
     """מחזיר את האייקון המצויר של השפה כ-SVG מוכן להטמעה בתבנית.
 
     בניגוד לאמוג'י, ל-SVG אין ירושה של גודל מ-font-size ולכן הגודל נמסר
-    במפורש בפיקסלים. שפה בלי אייקון מצויר מקבלת את האמוג'י הישן בגודל מקביל.
+    במפורש בפיקסלים. שפה שאין לה אייקון משלה מקבלת את אייקון ה-text, וכך
+    לא מתקבלת תערובת של אמוג'י ואייקונים באותה רשימה. רק אם גם הוא חסר
+    מהספרייט חוזרים לאמוג'י.
     """
     try:
         px = max(8, min(256, int(size)))
@@ -9884,7 +9902,7 @@ def lang_icon(language: Optional[str], size: int = 32, css_class: str = '') -> M
         px = 32
 
     extra = f' {escape(css_class)}' if css_class else ''
-    slug = get_language_slug(language)
+    slug = get_language_slug(language) or get_language_slug(LANG_ICON_FALLBACK_SLUG)
 
     if not slug:
         # אין אייקון מצויר לשפה הזו — נופלים חזרה לאמוג'י
@@ -9911,6 +9929,7 @@ def lang_icon_data() -> Dict[str, Any]:
         'slugs': sorted(LANG_ICON_SLUGS),
         'aliases': LANG_ICON_ALIASES,
         'emoji': LANG_EMOJI_ICONS,
+        'fallback': LANG_ICON_FALLBACK_SLUG,
     }
 
 

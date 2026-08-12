@@ -6,6 +6,7 @@
 """
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from webapp.app import (
     LANG_EMOJI_ICONS,
     LANG_ICON_ALIASES,
+    LANG_ICON_FALLBACK_SLUG,
     LANG_ICON_SLUGS,
     get_language_icon,
     get_language_slug,
@@ -53,6 +55,26 @@ def test_aliases_point_to_real_slugs():
     """כל שם נרדף חייב להצביע על שפה שיש לה אייקון"""
     broken = {k: v for k, v in LANG_ICON_ALIASES.items() if v not in LANG_ICON_SLUGS}
     assert not broken, f"שמות נרדפים שמצביעים לשומקום: {broken}"
+
+
+def test_sprite_is_in_sync_with_source_icons():
+    """הספרייט נגזר מקבצי ה-SVG הבודדים ולא נערך ידנית.
+
+    אם הבדיקה נופלת, מישהו הוסיף או שינה אייקון בלי להריץ את הסקריפט.
+    """
+    import subprocess
+
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "scripts/build_lang_sprite.py", "--check"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        "הספרייט אינו מסונכרן עם קבצי המקור. "
+        "הריצו: python scripts/build_lang_sprite.py\n" + result.stdout + result.stderr
+    )
 
 
 def test_sprite_is_not_hidden_with_display_none():
@@ -127,8 +149,16 @@ def test_language_without_icon_falls_back_to_emoji():
     assert "font-size:24px" in html
 
 
-def test_unknown_language_falls_back_to_default_emoji():
-    assert "📄" in str(lang_icon("cobol", 24))
+@pytest.mark.parametrize("unknown", ["cobol", "fortran", "", None, "   "])
+def test_unknown_language_falls_back_to_text_icon(unknown):
+    """שפה לא מזוהה מקבלת את אייקון ה-text, כדי שלא תתקבל תערובת עם אמוג'י"""
+    html = str(lang_icon(unknown, 24))
+    assert f'<use href="#lang-{LANG_ICON_FALLBACK_SLUG}">' in html
+
+
+def test_fallback_slug_has_an_icon():
+    """אם ל-fallback עצמו אין אייקון, כל קובץ לא מזוהה יחזור לאמוג'י"""
+    assert LANG_ICON_FALLBACK_SLUG in LANG_ICON_SLUGS
 
 
 @pytest.mark.parametrize("bad_size", ["abc", None, "", [], {}])
@@ -155,6 +185,7 @@ def test_data_for_client_matches_server():
     assert set(data["slugs"]) == LANG_ICON_SLUGS
     assert data["aliases"] == LANG_ICON_ALIASES
     assert data["emoji"] == LANG_EMOJI_ICONS
+    assert data["fallback"] == LANG_ICON_FALLBACK_SLUG
 
 
 def test_emoji_map_covers_the_default_fallback():
