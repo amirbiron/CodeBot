@@ -21,13 +21,12 @@
     return map[m] || m;
   }
 
-  function languageEmoji(lang){
-    const m = normalizeLanguage(lang);
-    const map = {
-      python: '🐍', javascript: '📜', typescript: '📜', tsx: '📜', jsx: '📜',
-      html: '🌐', css: '🎨', json: '📋', markdown: '📝', bash: '🐚', sh: '🐚', text: '📄', go: '🐹', java: '☕'
-    };
-    return map[m] || '📄';
+  // אייקון השפה מגיע מ-window.langIcon (base.html) — מקור אמת אחד לכל האפליקציה
+  function languageIconEl(lang){
+    const wrap = document.createElement('span');
+    wrap.className = 'snippet-meta__icon';
+    if (window.langIcon) wrap.innerHTML = window.langIcon(normalizeLanguage(lang), 16);
+    return wrap;
   }
 
   function applySyntaxHighlight(root) {
@@ -142,9 +141,10 @@
       const meta = document.createElement('span');
       meta.className = 'snippet-meta';
       const lang = (it.language || '').toString();
-      const emoji = languageEmoji(lang);
       const by = it.username ? (' · נוסף על ידי @' + String(it.username)) : '';
-      meta.textContent = `${emoji} ${lang}${by}`;
+      // הטקסט נשאר textNode כדי שלא ייכנס HTML מהנתונים; רק האייקון הוא אלמנט
+      meta.appendChild(languageIconEl(lang));
+      meta.appendChild(document.createTextNode(` ${lang}${by}`));
 
       summary.appendChild(titleEl);
       summary.appendChild(meta);

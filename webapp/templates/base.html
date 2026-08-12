@@ -1857,6 +1857,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/lang-badge.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lang-icon.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-mode.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme-mask.css') }}?v={{ static_version }}">
@@ -1955,6 +1956,10 @@
     {% endif %}
 </head>
 <body>
+    {# ספרייט אייקוני השפות — מוזרק פעם אחת וזמין לכל <use href="#lang-..."> בדף #}
+    {% include 'components/lang_sprite.html' %}
+    {# מפת השפות מגיעה מהשרת כדי שלא תהיה מפה משוכפלת בקוד ה-JS #}
+    <script>window.LANG_ICON_DATA = {{ lang_icon_data()|tojson }};</script>
     <div id="theme-mask" aria-hidden="true"></div>
     <script>
         // 🆕 מניעת מסך לבן: הצגת מסכה בזמן מעבר ערכה (עד שה-CSS נטען)
@@ -2585,18 +2590,41 @@
             }
         }
 
-        function getFileIcon(language) {
-            const icons = {
-                'python': '🐍',
-                'javascript': '📜',
-                'typescript': '📜',
-                'html': '🌐',
-                'css': '🎨',
-                'json': '📋',
-                'markdown': '📝',
-                'text': '📄'
-            };
-            return icons[language] || '📄';
+        // ============================================================
+        // אייקוני שפה בצד הלקוח
+        // ============================================================
+        // מקבילה מדויקת ל-lang_icon() שב-app.py. הנתונים מגיעים מהשרת
+        // דרך window.LANG_ICON_DATA כדי שלא תהיה כאן מפת שפות משוכפלת.
+
+        window.langSlug = function(language) {
+            const data = window.LANG_ICON_DATA || { slugs: [], aliases: {} };
+            let key = String(language || '').trim().toLowerCase();
+            key = data.aliases[key] || key;
+            return data.slugs.indexOf(key) !== -1 ? key : '';
+        };
+
+        window.langIcon = function(language, size) {
+            const data = window.LANG_ICON_DATA || { emoji: {} };
+            let px = parseInt(size, 10);
+            if (!px || px < 8) px = 32;
+            if (px > 256) px = 256;
+
+            const slug = window.langSlug(language);
+            if (!slug) {
+                // אין אייקון מצויר לשפה הזו — נופלים חזרה לאמוג'י
+                const key = String(language || '').trim().toLowerCase();
+                const emoji = (data.emoji && data.emoji[key]) || '📄';
+                return '<span class="lang-icon lang-icon--emoji" style="font-size:' +
+                       px + 'px;line-height:1" aria-hidden="true">' + emoji + '</span>';
+            }
+            return '<svg class="lang-icon" width="' + px + '" height="' + px + '" ' +
+                   'viewBox="0 0 64 64" role="img" aria-label="' + slug + '">' +
+                   '<use href="#lang-' + slug + '"></use></svg>';
+        };
+
+        // נשמר לתאימות עם קוד קיים שקורא לשם הישן
+        function getFileIcon(language, size) {
+            return window.langIcon(language, size || 24);
         }
 
         function escapeHtml(str) {

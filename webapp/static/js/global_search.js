@@ -411,35 +411,9 @@
   }
   function hideSuggestions(){ const box = $('searchSuggestions'); if (box) box.style.display='none'; }
 
+  // אייקון השפה מגיע מ-window.langIcon (base.html) — מקור אמת אחד לכל האפליקציה
   function fileIcon(lang){
-    const m = String(lang||'').toLowerCase();
-    const map = {
-      python:'🐍',
-      javascript:'📜',
-      typescript:'📘',
-      java:'☕',
-      cpp:'⚙️',
-      'c++':'⚙️',
-      csharp:'💠',
-      'c#':'💠',
-      go:'💎',
-      golang:'💎',
-      html:'🌐',
-      css:'🎨',
-      sql:'🗄️',
-      json:'📋',
-      xml:'📄',
-      markdown:'📝',
-      md:'📝',
-      ruby:'💎',
-      php:'🐘',
-      rust:'🦀',
-      yaml:'📘',
-      yml:'📘',
-      shell:'💻',
-      bash:'💻'
-    };
-    return map[m] || '📄';
+    return window.langIcon ? window.langIcon(lang, 20) : '';
   }
 
   function languageBadgeMeta(lang, fileName){
