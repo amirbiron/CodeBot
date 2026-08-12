@@ -16,7 +16,6 @@ from webapp.app import (
     LANG_ICON_ALIASES,
     LANG_ICON_FALLBACK_SLUG,
     LANG_ICON_SLUGS,
-    get_language_icon,
     get_language_slug,
     lang_icon,
     lang_icon_data,
@@ -268,13 +267,21 @@ def test_client_and_server_produce_identical_html():
     בהבדל בין מה שמגיע מהשרת לבין מה שנבנה בדפדפן.
     """
     import json
+    import os
     import shutil
     import subprocess
     import tempfile
 
     node = shutil.which("node")
     if not node:
-        pytest.skip("node אינו זמין בסביבה")
+        # מקומית מותר לדלג, אבל ב-CI היעדר node אומר שרשת הביטחון הזו
+        # לא רצה בכלל — ודילוג שקט שם מסוכן יותר מכישלון רועש
+        if os.environ.get("CI"):
+            pytest.fail(
+                "node אינו זמין ב-CI ולכן בדיקת השקילות בין השרת ללקוח לא רצה. "
+                "הוסיפו actions/setup-node ל-workflow."
+            )
+        pytest.skip("node אינו זמין בסביבה המקומית")
 
     script = f"""
     global.window = global;
