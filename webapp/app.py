@@ -23,7 +23,7 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor, Future
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
-from markupsafe import Markup, escape
+from markupsafe import Markup
 import threading
 import atexit
 import time as _time
@@ -9923,27 +9923,34 @@ def lang_icon(
     except (TypeError, ValueError):
         px = 32
 
-    extra = f' {escape(css_class)}' if css_class else ''
+    extra = f' {css_class}' if css_class else ''
     normalized = (language or '').strip().lower()
     slug = get_language_slug(language)
 
     if not slug and normalized not in LANG_EMOJI_ICONS:
         slug = get_language_slug(LANG_ICON_FALLBACK_SLUG)
 
+    # התבניות למטה הן מחרוזות קבועות, וכל הערכים מוזרקים דרך Markup.format
+    # שמבריח אותם אוטומטית. זו הסיבה שאין כאן escape ידני — ושאין דרך
+    # להזריק HTML דרך שם מחלקה או שם שפה.
     if not slug:
         # לשפה יש סמל ייחודי משלה אף שאין לה אייקון מצויר
         return Markup(
-            f'<span class="lang-icon lang-icon--emoji{extra}" '
-            f'style="font-size:{px}px;line-height:1" aria-hidden="true">'
-            f'{escape(LANG_EMOJI_ICONS.get(normalized, "📄"))}</span>'
-        )
+            '<span class="lang-icon lang-icon--emoji{extra}" '
+            'style="font-size:{px}px;line-height:1" aria-hidden="true">'
+            '{emoji}</span>'
+        ).format(extra=extra, px=px, emoji=LANG_EMOJI_ICONS.get(normalized, '📄'))
 
-    label = 'aria-hidden="true"' if decorative else f'role="img" aria-label="{slug}"'
+    if decorative:
+        label = Markup('aria-hidden="true"')
+    else:
+        label = Markup('role="img" aria-label="{slug}"').format(slug=slug)
+
     return Markup(
-        f'<svg class="lang-icon{extra}" width="{px}" height="{px}" '
-        f'viewBox="0 0 64 64" {label}>'
-        f'<use href="#lang-{slug}"></use></svg>'
-    )
+        '<svg class="lang-icon{extra}" width="{px}" height="{px}" '
+        'viewBox="0 0 64 64" {label}>'
+        '<use href="#lang-{slug}"></use></svg>'
+    ).format(extra=extra, px=px, label=label, slug=slug)
 
 
 def lang_icon_data() -> Dict[str, Any]:
