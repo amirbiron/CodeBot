@@ -100,10 +100,11 @@ def test_sprite_is_in_sync_with_source_icons():
     """
     import subprocess
 
-    repo_root = Path(__file__).resolve().parent.parent
+    # נתיב מוחלט ובלי cwd — הסקריפט מחשב את שורש הריפו מ-__file__ שלו,
+    # כך שהבדיקה לא תלויה בתיקיית העבודה של התהליך
+    script = Path(__file__).resolve().parent.parent / "scripts" / "build_lang_sprite.py"
     result = subprocess.run(
-        [sys.executable, "scripts/build_lang_sprite.py", "--check"],
-        cwd=repo_root,
+        [sys.executable, str(script), "--check"],
         capture_output=True,
         text=True,
     )

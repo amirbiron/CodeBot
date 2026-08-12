@@ -81,6 +81,34 @@ def build_sprite() -> tuple[str, list[str]]:
     return sprite, slugs
 
 
+def safe_write(path: Path, content: str) -> None:
+    """כותב קובץ שנוצר אוטומטית, אחרי אימות שהיעד הוא אחד משני המותרים.
+
+    הסקריפט הזה מייצר קוד מקור, ולכן הוא חייב לכתוב לעץ הפרויקט ולא
+    לתיקייה זמנית — אחרת התוצר לא היה נכנס לגרסה. מה שכן נדרש הוא
+    שהכתיבה תהיה מצומצמת ומוכחת: כל יעד נבדק מול רשימה סגורה ומול שורש
+    הריפו, ואף פעם לא נגזר מקלט חיצוני. אין כאן מחיקה של דבר.
+
+    הכתיבה אטומית — לקובץ זמני ואז החלפה — כדי שהפסקה באמצע לא תשאיר
+    ספרייט חתוך שיישבר בזמן רינדור.
+    """
+    resolved = path.resolve()
+    allowed = {SPRITE_PATH.resolve(), TEMPLATE_PATH.resolve()}
+    if resolved not in allowed:
+        raise SystemExit(f"סירוב לכתוב ליעד שאינו ברשימה המותרת: {resolved}")
+    if REPO_ROOT.resolve() not in resolved.parents:
+        raise SystemExit(f"סירוב לכתוב מחוץ לשורש הריפו: {resolved}")
+
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    tmp = resolved.with_suffix(resolved.suffix + ".tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(resolved)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="בונה את ספרייט אייקוני השפות")
     parser.add_argument(
@@ -110,8 +138,7 @@ def main() -> int:
         return 0
 
     for path, content in targets.items():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        safe_write(path, content)
         print(f"נכתב: {path.relative_to(REPO_ROOT)}")
 
     print(f"\n{len(slugs)} אייקונים: {', '.join(slugs)}")
