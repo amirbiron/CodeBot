@@ -191,3 +191,76 @@ def test_data_for_client_matches_server():
 def test_emoji_map_covers_the_default_fallback():
     """text הוא ה-fallback של כל קובץ לא מזוהה — הוא חייב להישאר במפה"""
     assert "text" in LANG_EMOJI_ICONS
+
+
+# ---------------------------------------------------------------- שקילות שרת/לקוח
+
+BASE_TEMPLATE = (
+    Path(__file__).resolve().parent.parent / "webapp" / "templates" / "base.html"
+)
+
+# הקלטים שנבדקים בשני הצדדים. כוללים מקרי קצה של גודל, כי דווקא שם
+# התגלה בעבר פער בין השרת ללקוח (0 נתן 8 בשרת ו-32 בדפדפן).
+EQUIVALENCE_CASES = [
+    ("python", 32), ("Python", 24), ("  YAML  ", 24), ("shell", 24),
+    ("scss", 32), ("cobol", 32), ("", 32), (None, 32), ("text", 36),
+    ("go", 0), ("go", 4), ("go", 8), ("go", 257), ("go", 9999),
+    ("go", "abc"), ("go", ""), ("go", None), ("go", 32.7),
+]
+
+
+def _extract_client_functions() -> str:
+    """שולף את window.langSlug ו-window.langIcon מתוך base.html"""
+    content = BASE_TEMPLATE.read_text(encoding="utf-8")
+    start = content.index("window.langSlug = function(language)")
+    end = content.index("// נשמר לתאימות עם קוד קיים", start)
+    return content[start:end]
+
+
+def test_client_and_server_produce_identical_html():
+    """window.langIcon חייבת להחזיר בדיוק את מה ש-lang_icon מחזירה.
+
+    שתיהן נשענות על אותם נתונים, ולכן כל פער ביניהן הוא באג שמתבטא
+    בהבדל בין מה שמגיע מהשרת לבין מה שנבנה בדפדפן.
+    """
+    import json
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node אינו זמין בסביבה")
+
+    script = f"""
+    global.window = global;
+    window.LANG_ICON_DATA = {json.dumps(lang_icon_data(), ensure_ascii=False)};
+    {_extract_client_functions()}
+    const cases = {json.dumps(EQUIVALENCE_CASES, ensure_ascii=False)};
+    console.log(JSON.stringify(cases.map(c => window.langIcon(c[0], c[1]))));
+    """
+
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(script)
+        script_path = f.name
+    try:
+        result = subprocess.run(
+            [node, script_path], capture_output=True, text=True, timeout=60
+        )
+    finally:
+        Path(script_path).unlink(missing_ok=True)
+
+    assert result.returncode == 0, f"הרצת ה-JS נכשלה: {result.stderr}"
+    client_output = json.loads(result.stdout)
+
+    mismatches = []
+    for (language, size), from_client in zip(EQUIVALENCE_CASES, client_output):
+        from_server = str(lang_icon(language, size))
+        if from_server != from_client:
+            mismatches.append(
+                f"  lang={language!r} size={size!r}\n"
+                f"    שרת:  {from_server}\n"
+                f"    לקוח: {from_client}"
+            )
+
+    assert not mismatches, "פער בין השרת ללקוח:\n" + "\n".join(mismatches)

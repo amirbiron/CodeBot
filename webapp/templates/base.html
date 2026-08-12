@@ -2605,9 +2605,11 @@
 
         window.langIcon = function(language, size) {
             const data = window.LANG_ICON_DATA || { emoji: {} };
+            // חייב להתנהג בדיוק כמו lang_icon() בשרת: קלט לא מספרי נופל
+            // לברירת המחדל, ומספר תקין נחתך לטווח — כולל 0, שהופך ל-8 ולא ל-32
             let px = parseInt(size, 10);
-            if (!px || px < 8) px = 32;
-            if (px > 256) px = 256;
+            if (!Number.isFinite(px)) px = 32;
+            else px = Math.max(8, Math.min(256, px));
 
             // שפה בלי אייקון משלה מקבלת את אייקון ה-text, כדי שלא תתקבל
             // תערובת של אמוג'י ואייקונים באותה רשימה
