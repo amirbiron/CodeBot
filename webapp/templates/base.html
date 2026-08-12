@@ -1857,6 +1857,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/lang-badge.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lang-icon.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-mode.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/theme-mask.css') }}?v={{ static_version }}">
@@ -1955,6 +1956,10 @@
     {% endif %}
 </head>
 <body>
+    {# ספרייט אייקוני השפות — מוזרק פעם אחת וזמין לכל <use href="#lang-..."> בדף #}
+    {% include 'components/lang_sprite.html' %}
+    {# מפת השפות מגיעה מהשרת כדי שלא תהיה מפה משוכפלת בקוד ה-JS #}
+    <script>window.LANG_ICON_DATA = {{ lang_icon_data()|tojson }};</script>
     <div id="theme-mask" aria-hidden="true"></div>
     <script>
         // 🆕 מניעת מסך לבן: הצגת מסכה בזמן מעבר ערכה (עד שה-CSS נטען)
@@ -2585,18 +2590,109 @@
             }
         }
 
-        function getFileIcon(language) {
-            const icons = {
-                'python': '🐍',
-                'javascript': '📜',
-                'typescript': '📜',
-                'html': '🌐',
-                'css': '🎨',
-                'json': '📋',
-                'markdown': '📝',
-                'text': '📄'
-            };
-            return icons[language] || '📄';
+        // ============================================================
+        // אייקוני שפה בצד הלקוח
+        // ============================================================
+        // מקבילה מדויקת ל-lang_icon() שב-app.py. הנתונים מגיעים מהשרת
+        // דרך window.LANG_ICON_DATA כדי שלא תהיה כאן מפת שפות משוכפלת.
+
+        /* lang-icon:client-block:start */
+        window.langSlug = function(language) {
+            const data = window.LANG_ICON_DATA || { slugs: [], aliases: {} };
+            let key = String(language || '').trim().toLowerCase();
+            key = data.aliases[key] || key;
+            return data.slugs.indexOf(key) !== -1 ? key : '';
+        };
+
+        // מכריע מה בדיוק צריך להיווצר, כדי ששתי צורות הפלט למטה —
+        // אלמנט DOM ומחרוזת HTML — ייגזרו מאותה החלטה בדיוק
+        function langIconParts(language, size) {
+            const data = window.LANG_ICON_DATA || { emoji: {} };
+            // חייב להתנהג בדיוק כמו lang_icon() בשרת: קלט לא מספרי נופל
+            // לברירת המחדל, ומספר תקין נחתך לטווח — כולל 0, שהופך ל-8 ולא ל-32.
+            // parseInt לבדו סלחני מדי: הוא מקבל '24px' ומחזיר 24, בעוד int()
+            // בפייתון זורק ונופל ל-32. לכן מחרוזת חייבת להיות מספר שלם שלם.
+            let px;
+            if (typeof size === 'number' && Number.isFinite(size)) {
+                px = Math.trunc(size);
+            } else if (typeof size === 'string' && /^\s*[+-]?\d+\s*$/.test(size)) {
+                px = parseInt(size, 10);
+            } else {
+                px = NaN;
+            }
+            if (!Number.isFinite(px)) px = 32;
+            else px = Math.max(8, Math.min(256, px));
+
+            // סדר העדיפויות זהה ל-lang_icon בשרת: אייקון מצויר, אחריו
+            // אמוג'י ייחודי שהמערכת מכירה (למשל 🔒 לקובץ בינארי), ורק
+            // שפה לא מוכרת בכלל נופלת לאייקון ה-text
+            const key = String(language || '').trim().toLowerCase();
+            const emojiMap = data.emoji || {};
+            const hasOwnEmoji = Object.prototype.hasOwnProperty.call(emojiMap, key);
+
+            let slug = window.langSlug(language);
+            if (!slug && !hasOwnEmoji) slug = window.langSlug(data.fallback);
+            if (slug) return { px: px, slug: slug, emoji: '' };
+
+            return { px: px, slug: '', emoji: emojiMap[key] || '📄' };
+        }
+
+        // מחזירה אלמנט DOM מוכן. עדיפה על langIcon בכל מקום שממילא בונה DOM,
+        // כי אז אין צורך ב-innerHTML בכלל.
+        window.langIconEl = function(language, size, decorative) {
+            const parts = langIconParts(language, size);
+            const hidden = decorative !== false;
+
+            if (!parts.slug) {
+                const span = document.createElement('span');
+                span.className = 'lang-icon lang-icon--emoji';
+                span.style.fontSize = parts.px + 'px';
+                span.style.lineHeight = '1';
+                span.setAttribute('aria-hidden', 'true');
+                span.textContent = parts.emoji;
+                return span;
+            }
+
+            const NS = 'http://www.w3.org/2000/svg';
+            const svg = document.createElementNS(NS, 'svg');
+            svg.setAttribute('class', 'lang-icon');
+            svg.setAttribute('width', parts.px);
+            svg.setAttribute('height', parts.px);
+            svg.setAttribute('viewBox', '0 0 64 64');
+            if (hidden) {
+                svg.setAttribute('aria-hidden', 'true');
+            } else {
+                svg.setAttribute('role', 'img');
+                svg.setAttribute('aria-label', parts.slug);
+            }
+            const use = document.createElementNS(NS, 'use');
+            use.setAttribute('href', '#lang-' + parts.slug);
+            svg.appendChild(use);
+            return svg;
+        };
+
+        // מחזירה מחרוזת HTML, לשימוש בקוד שמרכיב תבנית טקסטואלית.
+        // הפלט נבנה מ-slug שאומת מול רשימה סגורה ומגודל מספרי בלבד.
+        window.langIcon = function(language, size, decorative) {
+            const parts = langIconParts(language, size);
+            if (!parts.slug) {
+                return '<span class="lang-icon lang-icon--emoji" style="font-size:' +
+                       parts.px + 'px;line-height:1" aria-hidden="true">' +
+                       parts.emoji + '</span>';
+            }
+            const label = decorative === false
+                ? 'role="img" aria-label="' + parts.slug + '"'
+                : 'aria-hidden="true"';
+            return '<svg class="lang-icon" width="' + parts.px + '" height="' + parts.px + '" ' +
+                   'viewBox="0 0 64 64" ' + label + '>' +
+                   '<use href="#lang-' + parts.slug + '"></use></svg>';
+        };
+
+        /* lang-icon:client-block:end */
+
+        // נשמר לתאימות עם קוד קיים שקורא לשם הישן
+        function getFileIcon(language, size) {
+            return window.langIcon(language, size || 24);
         }
 
         function escapeHtml(str) {

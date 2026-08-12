@@ -23,6 +23,7 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor, Future
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
+from markupsafe import Markup
 import threading
 import atexit
 import time as _time
@@ -9787,40 +9788,189 @@ def is_binary_file(content: str | bytes, filename: str = "") -> bool:
     
     return False
 
+
+# אמוג'י לכל שפה — משמש כ-fallback לשפות שאין להן עדיין אייקון מצויר
+LANG_EMOJI_ICONS = {
+    'python': '🐍',
+    'javascript': '📜',
+    'typescript': '📘',
+    'java': '☕',
+    'cpp': '⚙️',
+    'c': '🔧',
+    'csharp': '🎯',
+    'go': '🐹',
+    'rust': '🦀',
+    'ruby': '💎',
+    'php': '🐘',
+    'swift': '🦉',
+    'kotlin': '🎨',
+    'html': '🌐',
+    'css': '🎨',
+    'sql': '🗄️',
+    'bash': '🖥️',
+    'shell': '🐚',
+    'dockerfile': '🐳',
+    'yaml': '📋',
+    'json': '📊',
+    'xml': '📄',
+    'markdown': '📝',
+    'env': '🔐',
+    'dotenv': '🔐',
+    'gitignore': '🚫',
+    'dockerignore': '🚫',
+    'makefile': '🔨',
+    'nginx': '🔀',
+    'text': '📄',
+    # לא שפה, אבל מוצג באותה שורה: קובץ שלא ניתן להציג את תוכנו
+    'binary': '🔒',
+}
+
+
 def get_language_icon(language: Optional[str]) -> str:
     """מחזיר אייקון עבור שפת תכנות/קטגוריה"""
-    icons = {
-        'python': '🐍',
-        'javascript': '📜',
-        'typescript': '📘',
-        'java': '☕',
-        'cpp': '⚙️',
-        'c': '🔧',
-        'csharp': '🎯',
-        'go': '🐹',
-        'rust': '🦀',
-        'ruby': '💎',
-        'php': '🐘',
-        'swift': '🦉',
-        'kotlin': '🎨',
-        'html': '🌐',
-        'css': '🎨',
-        'sql': '🗄️',
-        'bash': '🖥️',
-        'shell': '🐚',
-        'dockerfile': '🐳',
-        'yaml': '📋',
-        'json': '📊',
-        'xml': '📄',
-        'markdown': '📝',
-        'env': '🔐',
-        'dotenv': '🔐',
-        'gitignore': '🚫',
-        'dockerignore': '🚫',
-        'text': '📄',
-    }
     normalized = (language or '').strip().lower()
-    return icons.get(normalized, '📄')
+    return LANG_EMOJI_ICONS.get(normalized, '📄')
+
+
+# ============================================================
+# אייקוני שפה מצוירים (SVG)
+# ============================================================
+# מקור האמת היחיד לאייקוני שפה בכל ה-Webapp. הספרייט עצמו יושב ב-
+# templates/components/lang_sprite.html ומוזרק פעם אחת ב-base.html.
+# בצד ה-JS יש מקבילה מדויקת — window.langIcon() ב-base.html.
+# שפה שאין לה אייקון מצויר נופלת חזרה לאמוג'י של get_language_icon.
+
+# השפות שיש להן <symbol id="lang-..."> בספרייט.
+# הספרייט נבנה על ידי scripts/build_lang_sprite.py, ו-tests/test_lang_icons.py
+# מוודא שהרשימה כאן והספרייט תמיד תואמים.
+LANG_ICON_SLUGS = frozenset({
+    'bash', 'c', 'cpp', 'csharp', 'css', 'dockerfile', 'dockerignore', 'env',
+    'gitignore', 'go', 'html', 'java', 'javascript', 'json', 'kotlin',
+    'makefile', 'markdown', 'nginx', 'php', 'python', 'ruby', 'rust', 'sql',
+    'swift', 'text', 'typescript', 'xml', 'yaml',
+})
+
+# האייקון שמקבל כל קובץ שהשפה שלו לא מזוהה
+LANG_ICON_FALLBACK_SLUG = 'text'
+
+# שמות נרדפים שחולקים אייקון עם שפה אחרת — חוסך ציור אייקון כפול
+LANG_ICON_ALIASES = {
+    'sh': 'bash',
+    'shell': 'bash',
+    'zsh': 'bash',
+    'dotenv': 'env',
+    'yml': 'yaml',
+    'py': 'python',
+    'js': 'javascript',
+    'jsx': 'javascript',
+    'ts': 'typescript',
+    'tsx': 'typescript',
+    'rb': 'ruby',
+    'rs': 'rust',
+    'c++': 'cpp',
+    'c#': 'csharp',
+    'cs': 'csharp',
+    'kt': 'kotlin',
+    'kts': 'kotlin',
+    'golang': 'go',
+    'node': 'javascript',
+    'nodejs': 'javascript',
+    'html5': 'html',
+    'css3': 'css',
+    'md': 'markdown',
+    'docker': 'dockerfile',
+    # שפות סגנון שנשענות על אייקון ה-CSS
+    'scss': 'css',
+    'sass': 'css',
+    'less': 'css',
+    'txt': 'text',
+    'plaintext': 'text',
+}
+
+
+def get_language_slug(language: Optional[str]) -> str:
+    """מחזיר את מזהה האייקון המצויר לשפה, או מחרוזת ריקה אם אין לה אייקון"""
+    normalized = (language or '').strip().lower()
+    normalized = LANG_ICON_ALIASES.get(normalized, normalized)
+    return normalized if normalized in LANG_ICON_SLUGS else ''
+
+
+def lang_icon(
+    language: Optional[str],
+    size: int = 32,
+    css_class: str = '',
+    decorative: bool = True,
+) -> Markup:
+    """מחזיר את האייקון של השפה, מוכן להטמעה בתבנית.
+
+    סדר העדיפויות:
+    1. יש אייקון מצויר לשפה — מחזירים אותו.
+    2. אין אייקון אבל יש לשפה אמוג'י ייחודי במפה (למשל 🔒 לקובץ בינארי) —
+       שומרים על הסמל הזה במקום לאבד מידע.
+    3. שפה שלא מוכרת בכלל — אייקון ה-text, כדי שלא תתקבל תערובת של
+       אמוג'י ואייקונים באותה רשימה.
+
+    בניגוד לאמוג'י, ל-SVG אין ירושה של גודל מ-font-size ולכן הגודל נמסר
+    במפורש בפיקסלים.
+
+    decorative: ברירת המחדל היא אייקון מוסתר מקוראי מסך, כי בכל מקום
+    שבו הוא מוצג היום מופיע לצדו גם שם הקובץ עם הסיומת או תגית השפה,
+    כך שהקראה נוספת רק מכפילה את המידע. העבירו False רק אם האייקון
+    הוא הסימן היחיד לשפה.
+    """
+    try:
+        px = max(8, min(256, int(size)))
+    except (TypeError, ValueError):
+        px = 32
+
+    extra = f' {css_class}' if css_class else ''
+    normalized = (language or '').strip().lower()
+    slug = get_language_slug(language)
+
+    if not slug and normalized not in LANG_EMOJI_ICONS:
+        slug = get_language_slug(LANG_ICON_FALLBACK_SLUG)
+
+    # התבניות למטה הן מחרוזות קבועות, וכל הערכים מוזרקים דרך Markup.format
+    # שמבריח אותם אוטומטית. זו הסיבה שאין כאן escape ידני — ושאין דרך
+    # להזריק HTML דרך שם מחלקה או שם שפה.
+    if not slug:
+        # לשפה יש סמל ייחודי משלה אף שאין לה אייקון מצויר
+        return Markup(
+            '<span class="lang-icon lang-icon--emoji{extra}" '
+            'style="font-size:{px}px;line-height:1" aria-hidden="true">'
+            '{emoji}</span>'
+        ).format(extra=extra, px=px, emoji=LANG_EMOJI_ICONS.get(normalized, '📄'))
+
+    if decorative:
+        label = Markup('aria-hidden="true"')
+    else:
+        label = Markup('role="img" aria-label="{slug}"').format(slug=slug)
+
+    return Markup(
+        '<svg class="lang-icon{extra}" width="{px}" height="{px}" '
+        'viewBox="0 0 64 64" {label}>'
+        '<use href="#lang-{slug}"></use></svg>'
+    ).format(extra=extra, px=px, label=label, slug=slug)
+
+
+def lang_icon_data() -> Dict[str, Any]:
+    """הנתונים שצד הלקוח צריך כדי לבנות את אותם אייקונים בדיוק.
+
+    מוזרק פעם אחת ב-base.html כדי שלא תהיה מפת שפות משוכפלת בקוד ה-JS —
+    כל שינוי כאן משפיע על השרת ועל הדפדפן יחד.
+    """
+    return {
+        'slugs': sorted(LANG_ICON_SLUGS),
+        'aliases': LANG_ICON_ALIASES,
+        'emoji': LANG_EMOJI_ICONS,
+        'fallback': LANG_ICON_FALLBACK_SLUG,
+    }
+
+
+# זמין בכל תבנית בלי import — {{ lang_icon(file.language, 32) }}
+app.jinja_env.globals['lang_icon'] = lang_icon
+app.jinja_env.globals['lang_slug'] = get_language_slug
+app.jinja_env.globals['lang_icon_data'] = lang_icon_data
 
 
 def resolve_file_language(language: Optional[str], file_name: str = "") -> str:

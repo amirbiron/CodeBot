@@ -2,6 +2,9 @@
   const qs = (sel) => document.querySelector(sel);
   const qsa = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // נרמול לצורכי הדגשת תחביר בלבד. הוא נפרד בכוונה מהנרמול של אייקוני
+  // השפה (LANG_ICON_ALIASES בשרת), כי לא כל מיפוי מתאים לשניהם: scss
+  // חולק אייקון עם css אבל חייב להישאר scss כדי ש-highlight.js יצבע נכון.
   function normalizeLanguage(lang) {
     const m = String(lang || '').trim().toLowerCase();
     if (!m) return '';
@@ -21,13 +24,15 @@
     return map[m] || m;
   }
 
-  function languageEmoji(lang){
-    const m = normalizeLanguage(lang);
-    const map = {
-      python: '🐍', javascript: '📜', typescript: '📜', tsx: '📜', jsx: '📜',
-      html: '🌐', css: '🎨', json: '📋', markdown: '📝', bash: '🐚', sh: '🐚', text: '📄', go: '🐹', java: '☕'
-    };
-    return map[m] || '📄';
+  // אייקון השפה מגיע מ-window.langIconEl (base.html) — מקור אמת אחד לכל
+  // האפליקציה. הגרסה שמחזירה DOM ולא מחרוזת, כדי לא לגעת ב-innerHTML.
+  function languageIconEl(lang){
+    const wrap = document.createElement('span');
+    wrap.className = 'snippet-meta__icon';
+    // בלי normalizeLanguage: langIconEl כבר מנרמל לפי אותה מפת aliases
+    // שהשרת עובד לפיה, כך שאותה שפה נותנת אותו אייקון בשני הצדדים
+    if (window.langIconEl) wrap.appendChild(window.langIconEl(lang, 16));
+    return wrap;
   }
 
   function applySyntaxHighlight(root) {
@@ -142,9 +147,10 @@
       const meta = document.createElement('span');
       meta.className = 'snippet-meta';
       const lang = (it.language || '').toString();
-      const emoji = languageEmoji(lang);
       const by = it.username ? (' · נוסף על ידי @' + String(it.username)) : '';
-      meta.textContent = `${emoji} ${lang}${by}`;
+      // הטקסט נשאר textNode כדי שלא ייכנס HTML מהנתונים; רק האייקון הוא אלמנט
+      meta.appendChild(languageIconEl(lang));
+      meta.appendChild(document.createTextNode(` ${lang}${by}`));
 
       summary.appendChild(titleEl);
       summary.appendChild(meta);

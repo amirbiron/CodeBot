@@ -1,0 +1,32 @@
+/* ============================================
+   🎨 Language Icons (SVG)
+   ============================================
+
+   האייקונים המצוירים של שפות התכנות, נשלפים מהספרייט שב-
+   templates/components/lang_sprite.html דרך <use href="#lang-...">.
+
+   נוצרים תמיד על ידי lang_icon() ב-app.py או window.langIcon() ב-base.html,
+   ולא ידנית בתבניות — כך הגודל, ה-fallback ותווית הנגישות נשמרים אחידים.
+
+   שימו לב: לאייקון SVG אין ירושת גודל מ-font-size כמו לאמוג'י, ולכן
+   הגודל נמסר במפורש כ-width/height. אם צריך לשנות גודל דרך CSS,
+   הגדירו width ו-height (ו-font-size עבור גרסת ה-fallback עם האמוג'י).
+*/
+
+.lang-icon {
+    /* inline-block עובד גם בתוך flex וגם בשורת טקסט רגילה */
+    display: inline-block;
+    vertical-align: middle;
+    flex: 0 0 auto;
+}
+
+/* גרסת ה-fallback לשפות שאין להן עדיין אייקון מצויר */
+.lang-icon--emoji {
+    line-height: 1;
+    text-align: center;
+}
+
+/* לשימוש כשהאייקון יושב באותה שורה עם טקסט גדול, כמו כרטיס הסטטיסטיקה */
+.lang-icon--inline {
+    vertical-align: -0.12em;
+}

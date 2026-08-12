@@ -249,7 +249,10 @@
     min-width: 0; /* מאפשר אליפסות בצאצאים */
 }
 .file-icon {
-    font-size: 2.25rem; /* היה 3rem – מקטין למניעת גלישה */
+    /* לאייקון המצויר קובעים width/height, ו-font-size נשאר עבור גרסת האמוג'י */
+    width: 2.25rem;  /* היה 3rem – מקטין למניעת גלישה */
+    height: 2.25rem;
+    font-size: 2.25rem;
     line-height: 1;
     flex: 0 0 auto;
 }
@@ -612,7 +615,7 @@
         font-size: 12px !important;
         padding: 0.75rem !important;
     }
-    .file-icon { font-size: 2rem; }
+    .file-icon { width: 2rem; height: 2rem; font-size: 2rem; }
     .highlighttable td.linenos { width: 2.8rem; }
     .main-content > .container { padding-left: 10px; padding-right: 10px; }
 }
@@ -622,7 +625,7 @@
 body.telegram-mini-app .source { font-size: 12px !important; padding: 0.75rem !important; }
 body.telegram-mini-app .main-content > .container { padding-left: 10px !important; padding-right: 10px !important; }
 /* Mini App: הקטנת הכותרת והאייקון ומניעת גלישה */
-body.telegram-mini-app .file-icon { font-size: 1.9rem; }
+body.telegram-mini-app .file-icon { width: 1.9rem; height: 1.9rem; font-size: 1.9rem; }
 body.telegram-mini-app .file-title { font-size: 1.125rem; }
 
 .markdown-images-card {
@@ -750,7 +753,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 <div class="file-header">
     <div class="file-info">
         <div class="file-title-row">
-            <span class="file-icon">{{ file.icon }}</span>
+            {{ lang_icon(file.language, 36, 'file-icon') }}
             <div class="file-title-wrap">
                 <h1 class="file-title">{{ file.file_name }}</h1>
                 <div class="file-subrow">
