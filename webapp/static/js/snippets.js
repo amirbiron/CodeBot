@@ -21,11 +21,12 @@
     return map[m] || m;
   }
 
-  // אייקון השפה מגיע מ-window.langIcon (base.html) — מקור אמת אחד לכל האפליקציה
+  // אייקון השפה מגיע מ-window.langIconEl (base.html) — מקור אמת אחד לכל
+  // האפליקציה. הגרסה שמחזירה DOM ולא מחרוזת, כדי לא לגעת ב-innerHTML.
   function languageIconEl(lang){
     const wrap = document.createElement('span');
     wrap.className = 'snippet-meta__icon';
-    if (window.langIcon) wrap.innerHTML = window.langIcon(normalizeLanguage(lang), 16);
+    if (window.langIconEl) wrap.appendChild(window.langIconEl(normalizeLanguage(lang), 16));
     return wrap;
   }
 

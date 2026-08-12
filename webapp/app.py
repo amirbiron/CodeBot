@@ -9820,6 +9820,8 @@ LANG_EMOJI_ICONS = {
         'makefile': '🔨',
         'nginx': '🔀',
         'text': '📄',
+        # לא שפה, אבל מוצג באותה שורה: קובץ שלא ניתן להציג את תוכנו
+        'binary': '🔒',
 }
 
 
@@ -9888,13 +9890,28 @@ def get_language_slug(language: Optional[str]) -> str:
     return normalized if normalized in LANG_ICON_SLUGS else ''
 
 
-def lang_icon(language: Optional[str], size: int = 32, css_class: str = '') -> Markup:
-    """מחזיר את האייקון המצויר של השפה כ-SVG מוכן להטמעה בתבנית.
+def lang_icon(
+    language: Optional[str],
+    size: int = 32,
+    css_class: str = '',
+    decorative: bool = True,
+) -> Markup:
+    """מחזיר את האייקון של השפה, מוכן להטמעה בתבנית.
+
+    סדר העדיפויות:
+    1. יש אייקון מצויר לשפה — מחזירים אותו.
+    2. אין אייקון אבל יש לשפה אמוג'י ייחודי במפה (למשל 🔒 לקובץ בינארי) —
+       שומרים על הסמל הזה במקום לאבד מידע.
+    3. שפה שלא מוכרת בכלל — אייקון ה-text, כדי שלא תתקבל תערובת של
+       אמוג'י ואייקונים באותה רשימה.
 
     בניגוד לאמוג'י, ל-SVG אין ירושה של גודל מ-font-size ולכן הגודל נמסר
-    במפורש בפיקסלים. שפה שאין לה אייקון משלה מקבלת את אייקון ה-text, וכך
-    לא מתקבלת תערובת של אמוג'י ואייקונים באותה רשימה. רק אם גם הוא חסר
-    מהספרייט חוזרים לאמוג'י.
+    במפורש בפיקסלים.
+
+    decorative: ברירת המחדל היא אייקון מוסתר מקוראי מסך, כי בכל מקום
+    שבו הוא מוצג היום מופיע לצדו גם שם הקובץ עם הסיומת או תגית השפה,
+    כך שהקראה נוספת רק מכפילה את המידע. העבירו False רק אם האייקון
+    הוא הסימן היחיד לשפה.
     """
     try:
         px = max(8, min(256, int(size)))
@@ -9902,19 +9919,24 @@ def lang_icon(language: Optional[str], size: int = 32, css_class: str = '') -> M
         px = 32
 
     extra = f' {escape(css_class)}' if css_class else ''
-    slug = get_language_slug(language) or get_language_slug(LANG_ICON_FALLBACK_SLUG)
+    normalized = (language or '').strip().lower()
+    slug = get_language_slug(language)
+
+    if not slug and normalized not in LANG_EMOJI_ICONS:
+        slug = get_language_slug(LANG_ICON_FALLBACK_SLUG)
 
     if not slug:
-        # אין אייקון מצויר לשפה הזו — נופלים חזרה לאמוג'י
+        # לשפה יש סמל ייחודי משלה אף שאין לה אייקון מצויר
         return Markup(
             f'<span class="lang-icon lang-icon--emoji{extra}" '
             f'style="font-size:{px}px;line-height:1" aria-hidden="true">'
-            f'{escape(get_language_icon(language))}</span>'
+            f'{escape(LANG_EMOJI_ICONS.get(normalized, "📄"))}</span>'
         )
 
+    label = 'aria-hidden="true"' if decorative else f'role="img" aria-label="{slug}"'
     return Markup(
         f'<svg class="lang-icon{extra}" width="{px}" height="{px}" '
-        f'viewBox="0 0 64 64" role="img" aria-label="{slug}">'
+        f'viewBox="0 0 64 64" {label}>'
         f'<use href="#lang-{slug}"></use></svg>'
     )
 

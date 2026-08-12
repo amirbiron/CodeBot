@@ -113,16 +113,13 @@ def test_slug_empty_when_no_drawn_icon(value):
     assert get_language_slug(value) == ""
 
 
-def _language_without_icon():
-    """שפה שיש לה אמוג'י אבל עדיין אין לה אייקון מצויר.
+def _languages_with_emoji_but_no_icon():
+    """שפות שיש להן אמוג'י ייחודי אבל אין להן אייקון מצויר.
 
-    נבחרת דינמית ולא מקובעת ברשימה, כדי שהבדיקות לא יישברו ברגע
-    שיצוירו האייקונים החסרים.
+    נבחרות דינמית ולא מקובעות ברשימה, כדי שהבדיקות לא יישברו כשיצוירו
+    אייקונים נוספים. binary נמצא כאן כי הוא לא שפה אלא מצב תצוגה.
     """
-    for name in sorted(LANG_EMOJI_ICONS):
-        if not get_language_slug(name):
-            return name
-    return None
+    return [name for name in sorted(LANG_EMOJI_ICONS) if not get_language_slug(name)]
 
 
 # ---------------------------------------------------------------- lang_icon
@@ -131,22 +128,33 @@ def test_known_language_renders_svg():
     html = str(lang_icon("python", 32))
     assert '<use href="#lang-python">' in html
     assert 'width="32"' in html and 'height="32"' in html
-    assert 'aria-label="python"' in html
 
 
 def test_alias_renders_target_icon():
     assert '<use href="#lang-bash">' in str(lang_icon("shell", 24))
 
 
-def test_language_without_icon_falls_back_to_emoji():
-    """שפה שעדיין אין לה אייקון מצויר חייבת לשמור על האמוג'י הישן שלה"""
-    lang = _language_without_icon()
-    if lang is None:
-        pytest.skip("לכל השפות כבר יש אייקון מצויר")
-    html = str(lang_icon(lang, 24))
+def test_language_with_own_emoji_keeps_it():
+    """שפה שאין לה אייקון אבל יש לה סמל ייחודי שומרת עליו ולא נופלת ל-text.
+
+    המקרה שבגללו זה קיים: קובץ בינארי מוצג עם 🔒, וללא הכלל הזה הוא
+    היה מקבל אייקון מסמך רגיל ומאבד את המידע שהתוכן לא ניתן להצגה.
+    """
+    languages = _languages_with_emoji_but_no_icon()
+    if not languages:
+        pytest.skip("לכל השפות שבמפה יש כבר אייקון מצויר")
+    for lang in languages:
+        html = str(lang_icon(lang, 24))
+        assert "<svg" not in html, f"{lang} אמור להישאר אמוג'י"
+        assert LANG_EMOJI_ICONS[lang] in html
+        assert "font-size:24px" in html
+
+
+def test_binary_file_keeps_its_lock_symbol():
+    """רגרסיה: קובץ בינארי מוצג עם 🔒 ולא עם אייקון מסמך גנרי"""
+    html = str(lang_icon("binary", 36))
+    assert "🔒" in html
     assert "<svg" not in html
-    assert get_language_icon(lang) in html
-    assert "font-size:24px" in html
 
 
 @pytest.mark.parametrize("unknown", ["cobol", "fortran", "", None, "   "])
@@ -154,6 +162,28 @@ def test_unknown_language_falls_back_to_text_icon(unknown):
     """שפה לא מזוהה מקבלת את אייקון ה-text, כדי שלא תתקבל תערובת עם אמוג'י"""
     html = str(lang_icon(unknown, 24))
     assert f'<use href="#lang-{LANG_ICON_FALLBACK_SLUG}">' in html
+
+
+# ---------------------------------------------------------------- נגישות
+
+def test_icon_is_hidden_from_screen_readers_by_default():
+    """בכל מקום שהאייקון מוצג בו מופיע לצדו שם הקובץ או תגית השפה,
+    ולכן הקראה שלו רק מכפילה את המידע"""
+    html = str(lang_icon("python", 32))
+    assert 'aria-hidden="true"' in html
+    assert "aria-label" not in html
+
+
+def test_icon_can_be_labelled_when_it_is_the_only_signal():
+    html = str(lang_icon("python", 32, decorative=False))
+    assert 'aria-label="python"' in html
+    assert 'role="img"' in html
+    assert "aria-hidden" not in html
+
+
+def test_emoji_variant_is_always_hidden():
+    """לאמוג'י אין תווית טובה לקורא מסך — 🔒 יוקרא כ-lock"""
+    assert 'aria-hidden="true"' in str(lang_icon("binary", 24))
 
 
 def test_fallback_slug_has_an_icon():
@@ -199,22 +229,36 @@ BASE_TEMPLATE = (
     Path(__file__).resolve().parent.parent / "webapp" / "templates" / "base.html"
 )
 
-# הקלטים שנבדקים בשני הצדדים. כוללים מקרי קצה של גודל, כי דווקא שם
-# התגלה בעבר פער בין השרת ללקוח (0 נתן 8 בשרת ו-32 בדפדפן).
+# הקלטים שנבדקים בשני הצדדים, כ-(שפה, גודל, decorative).
+# מקרי הקצה של הגודל נמצאים כאן כי דווקא שם התגלה פער אמיתי
+# (0 נתן 8 בשרת ו-32 בדפדפן), ו-binary נמצא כי הוא היחיד שנשען על
+# הענף ששומר אמוג'י ייחודי.
 EQUIVALENCE_CASES = [
-    ("python", 32), ("Python", 24), ("  YAML  ", 24), ("shell", 24),
-    ("scss", 32), ("cobol", 32), ("", 32), (None, 32), ("text", 36),
-    ("go", 0), ("go", 4), ("go", 8), ("go", 257), ("go", 9999),
-    ("go", "abc"), ("go", ""), ("go", None), ("go", 32.7),
+    ("python", 32, True), ("python", 32, False),
+    ("Python", 24, True), ("  YAML  ", 24, True), ("shell", 24, True),
+    ("scss", 32, True), ("cobol", 32, True), ("", 32, True),
+    (None, 32, True), ("text", 36, True),
+    ("binary", 36, True), ("binary", 24, False),
+    ("go", 0, True), ("go", 4, True), ("go", 8, True),
+    ("go", 257, True), ("go", 9999, True),
+    ("go", "abc", True), ("go", "", True), ("go", None, True), ("go", 32.7, True),
+    ("go", "24", True), ("go", "24px", True), ("go", " 40 ", True), ("go", -5, True),
 ]
+
+# מסמנים את גבולות הבלוק בתוך base.html כדי שהחילוץ לא יישבר
+# מעריכה של הערה או של שם פונקציה בקרבת מקום
+CLIENT_BLOCK_START = "/* lang-icon:client-block:start */"
+CLIENT_BLOCK_END = "/* lang-icon:client-block:end */"
 
 
 def _extract_client_functions() -> str:
-    """שולף את window.langSlug ו-window.langIcon מתוך base.html"""
+    """שולף את קוד אייקוני השפה של צד הלקוח מתוך base.html"""
     content = BASE_TEMPLATE.read_text(encoding="utf-8")
-    start = content.index("window.langSlug = function(language)")
-    end = content.index("// נשמר לתאימות עם קוד קיים", start)
-    return content[start:end]
+    assert CLIENT_BLOCK_START in content and CLIENT_BLOCK_END in content, (
+        "סמני הבלוק נעלמו מ-base.html — בלעדיהם אי אפשר לבדוק שקילות שרת/לקוח"
+    )
+    start = content.index(CLIENT_BLOCK_START) + len(CLIENT_BLOCK_START)
+    return content[start:content.index(CLIENT_BLOCK_END, start)]
 
 
 def test_client_and_server_produce_identical_html():
@@ -237,7 +281,7 @@ def test_client_and_server_produce_identical_html():
     window.LANG_ICON_DATA = {json.dumps(lang_icon_data(), ensure_ascii=False)};
     {_extract_client_functions()}
     const cases = {json.dumps(EQUIVALENCE_CASES, ensure_ascii=False)};
-    console.log(JSON.stringify(cases.map(c => window.langIcon(c[0], c[1]))));
+    console.log(JSON.stringify(cases.map(c => window.langIcon(c[0], c[1], c[2]))));
     """
 
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
@@ -254,11 +298,11 @@ def test_client_and_server_produce_identical_html():
     client_output = json.loads(result.stdout)
 
     mismatches = []
-    for (language, size), from_client in zip(EQUIVALENCE_CASES, client_output):
-        from_server = str(lang_icon(language, size))
+    for (language, size, decorative), from_client in zip(EQUIVALENCE_CASES, client_output):
+        from_server = str(lang_icon(language, size, decorative=decorative))
         if from_server != from_client:
             mismatches.append(
-                f"  lang={language!r} size={size!r}\n"
+                f"  lang={language!r} size={size!r} decorative={decorative!r}\n"
                 f"    שרת:  {from_server}\n"
                 f"    לקוח: {from_client}"
             )
