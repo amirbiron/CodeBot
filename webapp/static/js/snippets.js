@@ -2,6 +2,9 @@
   const qs = (sel) => document.querySelector(sel);
   const qsa = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // נרמול לצורכי הדגשת תחביר בלבד. הוא נפרד בכוונה מהנרמול של אייקוני
+  // השפה (LANG_ICON_ALIASES בשרת), כי לא כל מיפוי מתאים לשניהם: scss
+  // חולק אייקון עם css אבל חייב להישאר scss כדי ש-highlight.js יצבע נכון.
   function normalizeLanguage(lang) {
     const m = String(lang || '').trim().toLowerCase();
     if (!m) return '';
@@ -26,7 +29,9 @@
   function languageIconEl(lang){
     const wrap = document.createElement('span');
     wrap.className = 'snippet-meta__icon';
-    if (window.langIconEl) wrap.appendChild(window.langIconEl(normalizeLanguage(lang), 16));
+    // בלי normalizeLanguage: langIconEl כבר מנרמל לפי אותה מפת aliases
+    // שהשרת עובד לפיה, כך שאותה שפה נותנת אותו אייקון בשני הצדדים
+    if (window.langIconEl) wrap.appendChild(window.langIconEl(lang, 16));
     return wrap;
   }
 

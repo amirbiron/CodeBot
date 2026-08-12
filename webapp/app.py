@@ -9873,6 +9873,10 @@ LANG_ICON_ALIASES = {
     'kt': 'kotlin',
     'kts': 'kotlin',
     'golang': 'go',
+    'node': 'javascript',
+    'nodejs': 'javascript',
+    'html5': 'html',
+    'css3': 'css',
     'md': 'markdown',
     'docker': 'dockerfile',
     # שפות סגנון שנשענות על אייקון ה-CSS

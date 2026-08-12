@@ -56,6 +56,43 @@ def test_aliases_point_to_real_slugs():
     assert not broken, f"שמות נרדפים שמצביעים לשומקום: {broken}"
 
 
+SNIPPETS_JS = (
+    Path(__file__).resolve().parent.parent
+    / "webapp" / "static" / "js" / "snippets.js"
+)
+
+
+def test_snippets_normalization_agrees_with_server_aliases():
+    """נרמול השפות של הסניפטים לא יסתור את מפת האייקונים של השרת.
+
+    ב-snippets.js יש נרמול נפרד לצורכי הדגשת תחביר, ושם למשל node ממופה
+    ל-javascript. אין דרישה ששתי המפות יהיו זהות — scss למשל חולק אייקון
+    עם css אבל חייב להישאר scss להדגשה — אבל אסור ששפה תקבל אייקון אחד
+    בסניפטים ואייקון אחר בדף הקבצים.
+    """
+    content = SNIPPETS_JS.read_text(encoding="utf-8")
+    block = re.search(
+        r"function normalizeLanguage.*?const map = \{(.*?)\};", content, re.DOTALL
+    )
+    assert block, "לא נמצאה מפת הנרמול ב-snippets.js"
+
+    pairs = re.findall(r"([\w'\"]+)\s*:\s*'([^']+)'", block.group(1))
+    assert pairs, "מפת הנרמול ריקה"
+
+    conflicts = []
+    for raw_key, target in pairs:
+        key = raw_key.strip("'\"")
+        if get_language_slug(key) != get_language_slug(target):
+            conflicts.append(
+                f"  {key!r} -> {target!r}: השרת נותן "
+                f"{get_language_slug(key)!r} מול {get_language_slug(target)!r}"
+            )
+
+    assert not conflicts, (
+        "נרמול הסניפטים סותר את LANG_ICON_ALIASES:\n" + "\n".join(conflicts)
+    )
+
+
 def test_sprite_is_in_sync_with_source_icons():
     """הספרייט נגזר מקבצי ה-SVG הבודדים ולא נערך ידנית.
 
