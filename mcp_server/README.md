@@ -120,6 +120,14 @@ curl -sS -H "Authorization: Bearer $CODEKEEPER_PAT" \
 
 ### משיכה אוטומטית בפתיחת סשן
 
+**למה ההוק יושב בריפו ולא רק בפלאגין.** אותה התנהגות ארוזה גם כפלאגין
+([`amirbiron/codekeeper-plugin`](https://github.com/amirbiron/codekeeper-plugin)), אבל
+קונטיינר של סשן Claude Code בדפדפן עולה עם `SKIP_PLUGIN_MARKETPLACE=true` ואינו טוען
+פלאגינים מהמרקטפלייס כלל: אין תיקיית `plugins`, אין `CLAUDE_PLUGIN_ROOT`, וההוק של
+הפלאגין לא רץ — ומכיוון שלא רץ, גם אינו יכול לדווח על כך. סקילים ברמת חשבון כן
+מסונכרנים לסביבות האלה; פלאגינים לא. העותק שבריפו הוא מה שגורם לפריימר להיטען שם.
+הראיות ובדיקות ההבחנה מרוכזות ב‑[codekeeper-plugin#3](https://github.com/amirbiron/codekeeper-plugin/pull/3).
+
 `.claude/settings.json` בשורש הריפו מגדיר `SessionStart` hook מסוג `command`
 שמריץ את `.claude/hooks/codekeeper-primer.sh` בכל פתיחת סשן של Claude Code על
 הריפו הזה. הסקריפט מבצע את ה‑`curl` בעצמו, קורא את קוד הסטטוס ומגיב לפי המשמעות.
