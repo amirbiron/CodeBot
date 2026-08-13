@@ -144,11 +144,17 @@ def ensure_indexes() -> None:
         logger.debug("blocked_users: יצירת אינדקס נכשלה", exc_info=True)
 
 
-def _load_from_db() -> frozenset[int]:
-    """טעינת כל החסומים. סינכרוני — לקרוא רק דרך ``asyncio.to_thread``."""
+def _load_from_db() -> frozenset[int] | None:
+    """טעינת כל החסומים. סינכרוני — לקרוא רק דרך ``asyncio.to_thread``.
+
+    ``None`` פירושו **כשל**, ו-``frozenset()`` פירושו "נטען, ואין אף
+    חסום". ההבחנה חיונית: בלעדיה "אין DB" נראה בדיוק כמו "אין חסומים",
+    והקאש היה שומר את הכשל לדקה — כלומר DB שלא הספיק לעלות היה מבטל
+    את כל החסימות עד לפקיעה.
+    """
     coll = _collection()
     if coll is None:
-        return frozenset()
+        return None
     ids: set[int] = set()
     for doc in coll.find({}, {"user_id": 1, "_id": 0}):
         try:
@@ -167,7 +173,8 @@ async def blocked_ids() -> frozenset[int]:
     לעבור בזמן תקלה.
 
     התוצאה **אינה** נכנסת לקאש בכשל, כדי שהניסיון הבא לא ידלג על DB
-    שכבר חזר לעבוד.
+    שכבר חזר לעבוד. שני מסלולי כשל מטופלים זהה — חריגה, ו-DB שאינו
+    זמין בכלל — כי מבחינת הקאש אין ביניהם הבדל.
     """
     cached = _cache.get()
     if cached is not None:
@@ -176,6 +183,9 @@ async def blocked_ids() -> frozenset[int]:
         ids = await asyncio.to_thread(_load_from_db)
     except Exception:
         logger.warning("blocked_users: טעינה מה-DB נכשלה, לא חוסמים", exc_info=True)
+        return frozenset()
+    if ids is None:
+        logger.warning("blocked_users: אין DB זמין, לא חוסמים ולא שומרים בקאש")
         return frozenset()
     _cache.set(ids)
     return ids

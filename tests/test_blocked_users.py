@@ -198,6 +198,27 @@ async def test_a_failure_is_not_cached(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_an_unavailable_database_is_not_cached_either(monkeypatch):
+    """מסלול הכשל השני: ``_collection()`` שמחזיר ``None``.
+
+    זה קורה בעלייה, לפני שהחיבור נוצר. הבדיקה הקודמת כיסתה רק חריגה,
+    ולכן היא עברה בזמן שהמסלול הזה **כן** נשמר בקאש — "אין DB" נראה
+    בדיוק כמו "אין חסומים". התוצאה: DB שלא הספיק לעלות היה מבטל את
+    כל החסימות עד לפקיעת הקאש.
+
+    נמצא בסקירה של Sourcery ב-#3222.
+    """
+    collection = _FakeCollection([{"user_id": 42}])
+    state = {"ready": False}
+    monkeypatch.setattr(bum, "_collection", lambda: collection if state["ready"] else None)
+
+    assert await bum.is_blocked(42) is False  # אין DB — fail-open
+
+    state["ready"] = True
+    assert await bum.is_blocked(42) is True, "היעדר ה-DB נשמר בקאש וחסם בדיקה מחודשת"
+
+
+@pytest.mark.asyncio
 async def test_the_cache_spares_the_database_on_every_message(monkeypatch):
     """הקאש אינו אופטימיזציה: pymongo סינכרוני, וכל שאילתה חוסמת את הלולאה."""
     calls = {"n": 0}
