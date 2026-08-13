@@ -158,13 +158,15 @@
 מבנה קובץ אייקון
 ~~~~~~~~~~~~~~~~~
 
-כל אייקון הוא ``viewBox="0 0 64 64"`` ובנוי מארבע שכבות:
+כל אייקון הוא ``viewBox="0 0 64 64"`` ובנוי מארבע שכבות. הדוגמה למטה היא
+אייקון ה-markdown בפועל, פרט ל-``SLUG`` שיש להחליף בשם השפה. שני ערכי
+ה-``stop-color`` הם הגוון הבהיר והכהה של האריח — כל אייקון בוחר זוג משלו:
 
 .. code-block:: xml
 
    <defs>
      <linearGradient id="g-SLUG" x1="0" y1="0" x2=".35" y2="1">
-       <stop offset="0" stop-color="בהיר"/><stop offset="1" stop-color="כהה"/>
+       <stop offset="0" stop-color="#8fa6c9"/><stop offset="1" stop-color="#3b5378"/>
      </linearGradient>
      <g id="m-SLUG"> <!-- המוטיב, ב-currentColor --> </g>
    </defs>
