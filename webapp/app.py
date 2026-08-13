@@ -9853,6 +9853,18 @@ LANG_ICON_SLUGS = frozenset({
 # האייקון שמקבל כל קובץ שהשפה שלו לא מזוהה
 LANG_ICON_FALLBACK_SLUG = 'text'
 
+# הגדלים שבהם מוצג אייקון שפה, לפי סוג המקום שבו הוא יושב.
+# מרוכזים כאן ולא מפוזרים בין התבניות ל-JS, כי כוונון ויזואלי נעשה
+# תמיד על כל המקומות יחד — וכשהמספרים ישבו בנפרד, אותו מסך קיבל
+# בטעות שני גדלים שונים בשני מסלולי רינדור.
+LANG_ICON_SIZES = {
+    'file_row': 44,   # דף הקבצים, כרטיסים נעוצים, עמוד הקובץ
+    'list': 32,       # דשבורד, קבצים משותפים, סל מיחזור, מודאלים
+    'timeline': 28,   # אירועי קבצים בטיימליין הפעילות
+    'search': 28,     # תוצאות החיפוש הגלובלי
+    'compact': 22,    # ספריית הסניפטים
+}
+
 # שמות נרדפים שחולקים אייקון עם שפה אחרת — חוסך ציור אייקון כפול
 LANG_ICON_ALIASES = {
     'sh': 'bash',
@@ -9964,6 +9976,7 @@ def lang_icon_data() -> Dict[str, Any]:
         'aliases': LANG_ICON_ALIASES,
         'emoji': LANG_EMOJI_ICONS,
         'fallback': LANG_ICON_FALLBACK_SLUG,
+        'sizes': LANG_ICON_SIZES,
     }
 
 
@@ -9971,6 +9984,7 @@ def lang_icon_data() -> Dict[str, Any]:
 app.jinja_env.globals['lang_icon'] = lang_icon
 app.jinja_env.globals['lang_slug'] = get_language_slug
 app.jinja_env.globals['lang_icon_data'] = lang_icon_data
+app.jinja_env.globals['LANG_ICON_SIZES'] = LANG_ICON_SIZES
 
 
 def resolve_file_language(language: Optional[str], file_name: str = "") -> str:
@@ -10429,6 +10443,9 @@ def _build_timeline_event(
     dt: Any,
     # אמוג'י כמחרוזת, או Markup של אייקון מצויר עבור אירועי קבצים
     icon: Union[str, Markup],
+    # שפת הקובץ, לאירועי קבצים בלבד. צד הלקוח בונה ממנה את האייקון
+    # בעצמו כשהוא מוסיף שורות ב"טען עוד", ולכן אין צורך ב-HTML ב-JSON.
+    icon_lang: Optional[str] = None,
     badge: Optional[str] = None,
     badge_variant: Optional[str] = None,
     href: Optional[str] = None,
@@ -10440,6 +10457,7 @@ def _build_timeline_event(
         '_dt': normalized_dt,
         'group': group,
         'icon': icon,
+        'icon_lang': icon_lang,
         'title': title,
         'subtitle': subtitle or '',
         'badge': badge,
@@ -10513,7 +10531,8 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
                 dt=dt,
                 # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון
                 # מצויר ולא אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
-                icon=lang_icon(language, 28),
+                icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
+                icon_lang=language,
                 badge=file_badge,
                 badge_variant='code',
                 href=href,
@@ -16928,7 +16947,8 @@ def _legacy_api_dashboard_activity_files():
                 dt=dt,
                 # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון
                 # מצויר ולא אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
-                icon=lang_icon(language, 28),
+                icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
+                icon_lang=language,
                 badge=file_badge,
                 badge_variant='code',
                 href=href,
