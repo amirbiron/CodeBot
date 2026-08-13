@@ -11,6 +11,7 @@
   ``is_blocked`` לבדה לא הייתה תופסת שער שלא קורא לה.
 """
 
+import asyncio
 import types
 
 import pytest
@@ -235,6 +236,65 @@ async def test_the_cache_spares_the_database_on_every_message(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_an_invalidate_during_a_load_wins(monkeypatch):
+    """מרוץ: ``/ban`` מאפס את הקאש בזמן שטעינה כבר רצה.
+
+    בלי מונה גרסה, הכתיבה המאוחרת הייתה מחזירה לקאש את הקבוצה שנקראה
+    **לפני** החסימה — והחסימה החדשה לא הייתה תופסת עד לפקיעת ה-TTL,
+    בדיוק ההפך ממה ש-``block_user`` מבטיח.
+
+    נמצא בסקירה של CodeRabbit ב-#3222.
+    """
+    started = asyncio.Event()
+    release = asyncio.Event()
+    collection = _FakeCollection()  # ריק בזמן הטעינה
+
+    def _slow_load():
+        # מדמה טעינה איטית: הצילום נלקח כאן, ה-invalidate יקרה אחריו
+        return frozenset()
+
+    async def _load_with_pause():
+        started.set()
+        await release.wait()
+        return _slow_load()
+
+    _use(monkeypatch, collection)
+    monkeypatch.setattr(bum.asyncio, "to_thread", lambda fn: _load_with_pause())
+
+    task = asyncio.create_task(bum.blocked_ids())
+    await started.wait()
+
+    # החסימה קורית בזמן שהטעינה תקועה
+    collection.docs.append({"user_id": 42})
+    bum._cache.invalidate()
+
+    release.set()
+    await task
+
+    # הטעינה המיושנת לא נכתבה, ולכן הבדיקה הבאה פונה שוב ל-DB
+    monkeypatch.undo()
+    _use(monkeypatch, collection)
+    assert await bum.is_blocked(42) is True, "הקבוצה המיושנת נכתבה לקאש אחרי invalidate"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_cache_misses_query_the_database_once(monkeypatch):
+    """עשרים הודעות ברגע שהקאש פג פותחות טעינה אחת, לא עשרים."""
+    calls = {"n": 0}
+
+    class _Counting(_FakeCollection):
+        def find(self, *a, **k):
+            calls["n"] += 1
+            return super().find(*a, **k)
+
+    _use(monkeypatch, _Counting([{"user_id": 42}]))
+    results = await asyncio.gather(*(bum.is_blocked(42) for _ in range(20)))
+
+    assert all(results)
+    assert calls["n"] == 1, f"נעשו {calls['n']} שאילתות מקבילות במקום אחת"
+
+
+@pytest.mark.asyncio
 async def test_a_ban_takes_effect_immediately(monkeypatch):
     """בלי איפוס הקאש החסימה הייתה נכנסת לתוקף רק אחרי דקה.
 
@@ -306,9 +366,23 @@ def test_write_operations_report_failure_instead_of_pretending(monkeypatch):
 # לחבר אותה לשער — וזו בדיוק הווריאציה של T1 שמייצרת ביטחון שווא.
 
 
-def _build_bot(monkeypatch):
+def _build_bot(monkeypatch, tmp_path):
+    """בונה בוט מינימלי עם ה-handlers בלבד.
+
+    ``DISABLE_ACTIVITY_REPORTER`` הכרחי: בלעדיו ``CodeKeeperBot.__init__``
+    מעביר את ``MONGODB_URL`` ל-``create_reporter`` ומנסה חיבור אמיתי.
+    ב-CI בלי Mongo מקומי זו המתנה לטיימאאוט בכל בדיקה.
+
+    ה-persistence נכתב ל-``/tmp/bot_data.pickle`` — נתיב **קבוע** שמשותף
+    לכל הבדיקות. בהרצה מקבילית שתי בדיקות היו כותבות לאותו קובץ. ``HOME``
+    ו-``TMPDIR`` מופנים ל-``tmp_path`` הייחודי של pytest, לפי הכלל
+    ב-CLAUDE.md על הפרדת תיקיות עבודה.
+    """
     monkeypatch.setenv("BOT_TOKEN", "x")
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    monkeypatch.setenv("DISABLE_ACTIVITY_REPORTER", "1")
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
     import main as mod
 
     class _MiniApp:
@@ -350,9 +424,9 @@ def _build_bot(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_gate_stops_a_blocked_user_message(monkeypatch):
+async def test_the_gate_stops_a_blocked_user_message(monkeypatch, tmp_path):
     monkeypatch.setenv("BLOCKED_USER_IDS", "77")
-    _, gate = _build_bot(monkeypatch)
+    _, gate = _build_bot(monkeypatch, tmp_path)
 
     update = types.SimpleNamespace(
         effective_user=_FakeUser(77), message=_FakeMessage(), callback_query=None
@@ -365,14 +439,14 @@ async def test_the_gate_stops_a_blocked_user_message(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_gate_stops_a_blocked_user_callback(monkeypatch):
+async def test_the_gate_stops_a_blocked_user_callback(monkeypatch, tmp_path):
     """הודעות ולחיצות הן שני handlers נפרדים.
 
     בדיקה של אחד מהם בלבד הייתה משאירה חצי דלת פתוחה — משתמש חסום
     יכול להמשיך ללחוץ על כפתורים בתפריט שכבר פתוח אצלו.
     """
     monkeypatch.setenv("BLOCKED_USER_IDS", "77")
-    bot, _ = _build_bot(monkeypatch)
+    bot, _ = _build_bot(monkeypatch, tmp_path)
 
     handlers = [h for h, g in bot.application.handlers if g == -90]
     assert len(handlers) == 2, "צפויים שני handlers בשער: הודעות ולחיצות"
@@ -388,9 +462,9 @@ async def test_the_gate_stops_a_blocked_user_callback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_gate_lets_a_normal_user_through(monkeypatch):
+async def test_the_gate_lets_a_normal_user_through(monkeypatch, tmp_path):
     monkeypatch.setenv("BLOCKED_USER_IDS", "77")
-    _, gate = _build_bot(monkeypatch)
+    _, gate = _build_bot(monkeypatch, tmp_path)
 
     update = types.SimpleNamespace(
         effective_user=_FakeUser(78), message=_FakeMessage(), callback_query=None
@@ -399,10 +473,10 @@ async def test_the_gate_lets_a_normal_user_through(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_gate_lets_an_admin_through_even_when_listed(monkeypatch):
+async def test_the_gate_lets_an_admin_through_even_when_listed(monkeypatch, tmp_path):
     monkeypatch.setenv("ADMIN_USER_IDS", "77")
     monkeypatch.setenv("BLOCKED_USER_IDS", "77")
-    _, gate = _build_bot(monkeypatch)
+    _, gate = _build_bot(monkeypatch, tmp_path)
 
     update = types.SimpleNamespace(
         effective_user=_FakeUser(77), message=_FakeMessage(), callback_query=None
@@ -411,7 +485,7 @@ async def test_the_gate_lets_an_admin_through_even_when_listed(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_broken_block_check_does_not_lock_the_bot(monkeypatch):
+async def test_a_broken_block_check_does_not_lock_the_bot(monkeypatch, tmp_path):
     """fail-open גם כשהבדיקה עצמה מתפוצצת.
 
     באג בקוד החסימה אינו סיבה שאף אחד לא יוכל להשתמש בבוט.
@@ -422,7 +496,7 @@ async def test_a_broken_block_check_does_not_lock_the_bot(monkeypatch):
         raise RuntimeError("בום")
 
     monkeypatch.setattr(mod, "is_blocked", _explode)
-    _, gate = _build_bot(monkeypatch)
+    _, gate = _build_bot(monkeypatch, tmp_path)
 
     update = types.SimpleNamespace(
         effective_user=_FakeUser(78), message=_FakeMessage(), callback_query=None

@@ -42,6 +42,11 @@ COLLECTION_NAME = "blocked_users"
 # ל-DB, או מופע שני של השירות).
 CACHE_TTL_SECONDS = 60.0
 
+# תקרה לגודל הטעינה. ההנחה היא עשרות רשומות, ואין מי שיאכוף אותה מחר —
+# בלי התקרה, רשימה שתגדל בשקט תמשוך את כל הקולקציה לזיכרון בכל רענון.
+# חריגה נרשמת בלוג, כי היא סימן שהעיצוב כאן כבר לא מתאים.
+MAX_BLOCKED_LOADED = 5000
+
 
 class _Cache:
     """קבוצת המזהים החסומים, עם תפוגה.
@@ -54,7 +59,13 @@ class _Cache:
     def __init__(self) -> None:
         self._ids: frozenset[int] | None = None
         self._loaded_at: float = 0.0
+        self._version: int = 0
         self._lock = threading.Lock()
+
+    def version(self) -> int:
+        """המספר הסידורי הנוכחי. יש לצלם אותו **לפני** שמתחילים לטעון."""
+        with self._lock:
+            return self._version
 
     def get(self) -> frozenset[int] | None:
         with self._lock:
@@ -64,18 +75,33 @@ class _Cache:
                 return None
             return self._ids
 
-    def set(self, ids: frozenset[int]) -> None:
+    def set_if_current(self, ids: frozenset[int], version: int) -> bool:
+        """כותב רק אם לא בוצע ``invalidate`` מאז שהטעינה התחילה.
+
+        בלי התנאי הזה נוצר מרוץ: הטעינה קוראת את ה-DB, ``/ban`` מאפס
+        את הקאש בזמן שהיא רצה, והכתיבה המאוחרת מחזירה את הקבוצה
+        הישנה — כלומר החסימה החדשה לא תופסת עד לפקיעת ה-TTL, בדיוק
+        ההפך ממה ש-``block_user`` מבטיח.
+        """
         with self._lock:
+            if version != self._version:
+                return False
             self._ids = ids
             self._loaded_at = time.monotonic()
+            return True
 
     def invalidate(self) -> None:
         with self._lock:
             self._ids = None
             self._loaded_at = 0.0
+            self._version += 1
 
 
 _cache = _Cache()
+
+# מונע טעינות מקבילות כשהקאש פג. נוצר עצלנית כדי לא להיקשר ל-event loop
+# מסוים בזמן הייבוא — בדיקות מריצות כמה לולאות.
+_load_lock = asyncio.Lock()
 
 
 def _parse_ids(raw: str | None) -> frozenset[int]:
@@ -141,7 +167,13 @@ def ensure_indexes() -> None:
     try:
         coll.create_index("user_id", unique=True, name="blocked_user_id_unique")
     except Exception:
-        logger.debug("blocked_users: יצירת אינדקס נכשלה", exc_info=True)
+        logger.debug("blocked_users: יצירת אינדקס הייחודיות נכשלה", exc_info=True)
+    try:
+        # ``list_blocked`` ממיין לפי התאריך. בלי אינדקס המיון מתבצע
+        # בזיכרון — זניח היום, אבל השאילתה נשארת צפויה גם כשהרשימה תגדל.
+        coll.create_index([("blocked_at", -1)], name="blocked_at_desc")
+    except Exception:
+        logger.debug("blocked_users: יצירת אינדקס התאריך נכשלה", exc_info=True)
 
 
 def _load_from_db() -> frozenset[int] | None:
@@ -156,11 +188,17 @@ def _load_from_db() -> frozenset[int] | None:
     if coll is None:
         return None
     ids: set[int] = set()
-    for doc in coll.find({}, {"user_id": 1, "_id": 0}):
+    for doc in coll.find({}, {"user_id": 1, "_id": 0}).limit(MAX_BLOCKED_LOADED):
         try:
             ids.add(int(doc["user_id"]))
         except (KeyError, TypeError, ValueError):
             continue
+    if len(ids) >= MAX_BLOCKED_LOADED:
+        logger.warning(
+            "blocked_users: נטענו %d רשומות — הגבול הוא %d, וחסימות מעבר לו אינן נאכפות",
+            len(ids),
+            MAX_BLOCKED_LOADED,
+        )
     return frozenset(ids)
 
 
@@ -179,16 +217,27 @@ async def blocked_ids() -> frozenset[int]:
     cached = _cache.get()
     if cached is not None:
         return cached
-    try:
-        ids = await asyncio.to_thread(_load_from_db)
-    except Exception:
-        logger.warning("blocked_users: טעינה מה-DB נכשלה, לא חוסמים", exc_info=True)
-        return frozenset()
-    if ids is None:
-        logger.warning("blocked_users: אין DB זמין, לא חוסמים ולא שומרים בקאש")
-        return frozenset()
-    _cache.set(ids)
-    return ids
+
+    # נעילה סביב הטעינה: בלעדיה, עשרים הודעות שמגיעות ברגע שהקאש פג
+    # פותחות עשרים שאילתות במקביל — בדיוק ההפך מהחוזה של המודול הזה.
+    async with _load_lock:
+        cached = _cache.get()
+        if cached is not None:
+            return cached
+
+        # הגרסה מצולמת לפני הטעינה, כדי ש-invalidate שיקרה תוך כדי
+        # יבטל את הכתיבה ולא ידרס על ידה.
+        version = _cache.version()
+        try:
+            ids = await asyncio.to_thread(_load_from_db)
+        except Exception:
+            logger.warning("blocked_users: טעינה מה-DB נכשלה, לא חוסמים", exc_info=True)
+            return frozenset()
+        if ids is None:
+            logger.warning("blocked_users: אין DB זמין, לא חוסמים ולא שומרים בקאש")
+            return frozenset()
+        _cache.set_if_current(ids, version)
+        return ids
 
 
 async def is_blocked(user_id: int) -> bool:

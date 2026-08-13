@@ -967,7 +967,11 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reason = " ".join(args[1:]).strip()
     if bum.block_user(target, reason=reason, blocked_by=admin_id):
-        suffix = f"\nסיבה: {reason}" if reason else ""
+        # ה-Application נבנה עם Defaults(parse_mode=HTML), ולכן כל
+        # reply_text מפורש כ-HTML גם בלי parse_mode מפורש. סיבה כמו
+        # "a<b" הייתה מפילה את ההודעה ב-BadRequest, והאדמין היה רואה
+        # חסימה שנשמרה ב-DB בלי אישור.
+        suffix = f"\nסיבה: {html_escape(reason)}" if reason else ""
         await message.reply_text(f"✅ {target} נחסם.{suffix}")
     else:
         await message.reply_text("❌ החסימה נכשלה — בסיס הנתונים לא זמין. ראו לוגים.")
@@ -1029,7 +1033,9 @@ async def blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("📋 מבסיס הנתונים:")
         for row in rows:
             uid = row.get("user_id")
-            reason = str(row.get("reason") or "").strip()
+            # escaping חובה: בלעדיו רשומה אחת עם "<" הייתה משביתה את
+            # /blocked לגמרי, עד שמישהו יסיר אותה ידנית מה-DB.
+            reason = html_escape(str(row.get("reason") or "").strip())
             when = row.get("blocked_at")
             when_text = when.strftime("%Y-%m-%d") if hasattr(when, "strftime") else ""
             parts = [f"  • {uid}"]
@@ -1039,7 +1045,10 @@ async def blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parts.append(f"— {reason}")
             lines.append(" ".join(parts))
 
-    await message.reply_text("\n".join(lines) if lines else "אין משתמשים חסומים.")
+    # עד 100 רשומות עם סיבות חופשיות עוברות בקלות את מגבלת 4096 התווים.
+    text = "\n".join(lines) if lines else "אין משתמשים חסומים."
+    for chunk in _split_long_message(text):
+        await message.reply_text(chunk)
 
 
 # ===== Admin: /recycle_backfill =====
@@ -5588,6 +5597,17 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception:
         # Fail-open: אל תכשיל startup אם מודול הניטור לא זמין
         pass
+
+    # אינדקסי טבלת החסימות. בלי זה אין אינדקס ייחודי על user_id, ושני
+    # /ban מקבילים על אותו משתמש היו יוצרים שתי רשומות. pymongo סינכרוני,
+    # ולכן to_thread כדי לא לחסום את העלייה.
+    try:
+        from database.blocked_users_manager import ensure_indexes as _ensure_blocked_indexes
+
+        await asyncio.to_thread(_ensure_blocked_indexes)
+    except Exception:
+        # Fail-open: DB לא זמין בעלייה אינו סיבה להפיל את הבוט.
+        logger.debug("blocked_users: יצירת האינדקסים בעלייה נכשלה", exc_info=True)
 
     # Semantic search embedding worker (best-effort)
     if getattr(config, "SEMANTIC_SEARCH_ENABLED", True):
