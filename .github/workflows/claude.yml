@@ -18,6 +18,11 @@ jobs:
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
+    # ריצה אחת בכל רגע נתון לכל issue/PR, כדי ששתי תגובות רצופות
+    # לא ייצרו שתי ריצות שכותבות במקביל לאותו thread
+    concurrency:
+      group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -34,7 +39,9 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # טוקן OAuth של מנוי Claude, נוצר עם `claude setup-token`.
+          # חלופה ל-anthropic_api_key — אין לספק את שניהם יחד.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
