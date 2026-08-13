@@ -37,3 +37,9 @@ repos:
     url: "https://github.com/amirbiron/amir-bug-patterns"
     description: "דפוסי באגים שחוזרים"
     icon: "🕷️"
+
+  - name: "codekeeper-plugin"
+    url: "https://github.com/amirbiron/codekeeper-plugin"
+    description: "פריימר | הנחיות לסוכן"
+    icon: "📝"
+    badge: "לשים הוק בכל ריפו!"
