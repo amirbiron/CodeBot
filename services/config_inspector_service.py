@@ -438,6 +438,17 @@ class ConfigService:
             category="telegram",
             sensitive=True,
         ),
+        "BLOCKED_USER_IDS": ConfigDefinition(
+            key="BLOCKED_USER_IDS",
+            services=("bot",),
+            default="",
+            description=(
+                "רשימת מזהי משתמשים חסומים (מופרדים בפסיקים). "
+                "רשת ביטחון שלא ניתן לשחרר ממנה דרך /unban"
+            ),
+            category="telegram",
+            sensitive=True,
+        ),
         "PREMIUM_USER_IDS": ConfigDefinition(
             key="PREMIUM_USER_IDS",
             services=("webapp", "bot"),
