@@ -144,6 +144,7 @@ Code Keeper Bot - תיעוד API
 
    webapp/theming_and_css
    webapp/custom_themes_guide
+   webapp/language-icons
 
 .. toctree::
    :maxdepth: 2
