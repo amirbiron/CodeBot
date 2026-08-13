@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from webapp.app import (
+    LANG_ICON_SIZES,
     LANG_EMOJI_ICONS,
     LANG_ICON_ALIASES,
     LANG_ICON_FALLBACK_SLUG,
@@ -353,3 +354,89 @@ def test_client_and_server_produce_identical_html():
             )
 
     assert not mismatches, "פער בין השרת ללקוח:\n" + "\n".join(mismatches)
+
+
+# ---------------------------------------------------------------- גדלים מרוכזים
+
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "webapp" / "templates"
+DASHBOARD_ROUTES = (
+    Path(__file__).resolve().parent.parent / "webapp" / "routes" / "dashboard_routes.py"
+)
+APP_PY = Path(__file__).resolve().parent.parent / "webapp" / "app.py"
+
+
+def test_templates_use_named_sizes_not_numbers():
+    """קריאה ל-lang_icon בתבנית חייבת לקבל גודל מ-LANG_ICON_SIZES.
+
+    מספר קשיח בתבנית אחת פירושו שכוונון ויזואלי עתידי יפספס אותה,
+    והמסך יקבל גודל שונה משאר המסכים.
+    """
+    offenders = []
+    for tpl in TEMPLATES_DIR.rglob("*.html"):
+        for m in re.finditer(r"lang_icon\(([^)]*)\)", tpl.read_text(encoding="utf-8")):
+            args = m.group(1)
+            # הארגומנט השני הוא הגודל; מספר שלם שם הוא ערך קשיח
+            parts = [a.strip() for a in args.split(",")]
+            if len(parts) >= 2 and re.fullmatch(r"\d+", parts[1]):
+                offenders.append(f"  {tpl.name}: lang_icon({args})")
+    assert not offenders, (
+        "גדלים קשיחים בתבניות — השתמשו ב-LANG_ICON_SIZES:\n" + "\n".join(offenders)
+    )
+
+
+def test_all_sizes_are_sane():
+    """כל גודל חייב להיות בטווח שהפונקציה בכלל מכבדת"""
+    for name, px in LANG_ICON_SIZES.items():
+        assert isinstance(px, int), f"{name} אינו מספר שלם"
+        assert 8 <= px <= 256, f"{name}={px} מחוץ לטווח שה-clamp מאפשר"
+        assert f'width="{px}"' in str(lang_icon("python", px))
+
+
+# ---------------------------------------------------------------- טיימליין הפעילות
+
+def test_both_timeline_paths_build_file_icons_identically():
+    """הטיימליין נבנה בשני מסלולים — רינדור ראשוני ו״טען עוד״.
+
+    רגרסיה שקרתה: המסלול הראשון עבר לאייקון מצויר והשני נשאר עם
+    אמוג'י, כך שלחיצה על ״טען עוד״ הכניסה אמוג'ים לתוך רשימה של
+    אייקונים. שניהם חייבים להשתמש באותה פונקציה ובאותו גודל.
+    """
+    app_src = APP_PY.read_text(encoding="utf-8")
+    routes_src = DASHBOARD_ROUTES.read_text(encoding="utf-8")
+
+    # שני המסלולים בונים אירועי קבצים ומעבירים את השפה לצד הלקוח
+    assert app_src.count("icon_lang=language") == 2, (
+        "הרינדור הראשוני של אירועי קבצים חייב להעביר icon_lang"
+    )
+    assert "icon_lang=language" in routes_src, (
+        "מסלול ״טען עוד״ חייב להעביר icon_lang, אחרת צד הלקוח לא יידע "
+        "לבנות את האייקון ויפול חזרה לאמוג'י"
+    )
+
+    # ושניהם שולפים את הגודל מאותו מקום
+    for src, name in ((app_src, "app.py"), (routes_src, "dashboard_routes.py")):
+        assert 'LANG_ICON_SIZES["timeline"]' in src or "LANG_ICON_SIZES['timeline']" in src, (
+            f"{name} לא משתמש בגודל המרוכז לטיימליין"
+        )
+
+
+def test_timeline_event_carries_language_for_client():
+    """האירוע חייב לשאת את השפה כשדה נפרד, ולא רק כ-HTML מוכן.
+
+    HTML ב-JSON היה מחייב את צד הלקוח להזריק אותו כ-innerHTML; העברת
+    השפה מאפשרת לו לבנות את האייקון באותה פונקציה שבונה את כל השאר.
+    """
+    from webapp.app import _build_timeline_event
+
+    event = _build_timeline_event(
+        "files", title="t", subtitle="s", dt=None,
+        icon=lang_icon("python", LANG_ICON_SIZES["timeline"]),
+        icon_lang="python",
+    )
+    assert event["icon_lang"] == "python"
+    assert '<use href="#lang-python">' in str(event["icon"])
+
+    # אירוע שאינו של קובץ ממשיך עם אמוג'י ובלי שפה
+    other = _build_timeline_event("push", title="t", subtitle="s", dt=None, icon="📣")
+    assert other["icon_lang"] is None
+    assert other["icon"] == "📣"

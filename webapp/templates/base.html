@@ -2692,7 +2692,8 @@
 
         // נשמר לתאימות עם קוד קיים שקורא לשם הישן
         function getFileIcon(language, size) {
-            return window.langIcon(language, size || 24);
+            const sizes = (window.LANG_ICON_DATA && window.LANG_ICON_DATA.sizes) || {};
+            return window.langIcon(language, size || sizes.list || 32);
         }
 
         function escapeHtml(str) {

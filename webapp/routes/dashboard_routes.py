@@ -54,6 +54,8 @@ def _get_app_helpers():
         is_admin,
         is_impersonating_safe,
         is_premium,
+        lang_icon,
+        LANG_ICON_SIZES,
         resolve_file_language,
     )
 
@@ -64,6 +66,8 @@ def _get_app_helpers():
         get_db=get_db,
         format_file_size=format_file_size,
         get_language_icon=get_language_icon,
+        lang_icon=lang_icon,
+        LANG_ICON_SIZES=LANG_ICON_SIZES,
         resolve_file_language=resolve_file_language,
         _build_activity_timeline=_build_activity_timeline,
         _build_push_card=_build_push_card,
@@ -508,7 +512,8 @@ def api_dashboard_activity_files():
                 title=title,
                 subtitle=subtitle,
                 dt=dt,
-                icon=helpers.get_language_icon(language),
+                icon=helpers.lang_icon(language, helpers.LANG_ICON_SIZES["timeline"]),
+                icon_lang=language,
                 badge=file_badge,
                 badge_variant="code",
                 href=href,

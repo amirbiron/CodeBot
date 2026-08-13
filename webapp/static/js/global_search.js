@@ -413,7 +413,8 @@
 
   // אייקון השפה מגיע מ-window.langIcon (base.html) — מקור אמת אחד לכל האפליקציה
   function fileIcon(lang){
-    return window.langIcon ? window.langIcon(lang, 20) : '';
+    const sizes = (window.LANG_ICON_DATA && window.LANG_ICON_DATA.sizes) || {};
+    return window.langIcon ? window.langIcon(lang, sizes.search || 28) : '';
   }
 
   function languageBadgeMeta(lang, fileName){

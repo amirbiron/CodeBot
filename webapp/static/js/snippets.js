@@ -31,7 +31,7 @@
     wrap.className = 'snippet-meta__icon';
     // בלי normalizeLanguage: langIconEl כבר מנרמל לפי אותה מפת aliases
     // שהשרת עובד לפיה, כך שאותה שפה נותנת אותו אייקון בשני הצדדים
-    if (window.langIconEl) wrap.appendChild(window.langIconEl(lang, 16));
+    if (window.langIconEl) wrap.appendChild(window.langIconEl(lang, (window.LANG_ICON_DATA && window.LANG_ICON_DATA.sizes || {}).compact || 22));
     return wrap;
   }
 
