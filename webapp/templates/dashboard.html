@@ -22,7 +22,7 @@
         <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem;">🏆</div>
         <div class="stat-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem;">
             {% if stats.top_languages %}
-                {{ lang_icon(stats.top_languages[0].name, 32, 'lang-icon--inline') }} {{ stats.top_languages[0].name }}
+                {{ lang_icon(stats.top_languages[0].name, 44, 'lang-icon--inline') }} {{ stats.top_languages[0].name }}
             {% else %}
                 -
             {% endif %}
@@ -57,7 +57,7 @@
         <div class="pinned-grid" data-pinned-grid>
             {% for file in pinned_files %}
             <div class="pinned-card" data-pinned-card data-file-id="{{ file.id }}">
-                <div class="pinned-card__icon">{{ lang_icon(file.language, 32) }}</div>
+                <div class="pinned-card__icon">{{ lang_icon(file.language, 44) }}</div>
                 <div class="pinned-card__content">
                     <a class="pinned-card__name" href="/file/{{ file.id }}" title="{{ file.file_name }}">
                         {{ file.file_name }}
@@ -101,7 +101,7 @@
             {% for lang in stats.top_languages %}
             <div class="language-item">
                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    {{ lang_icon(lang.name, 24) }}
+                    {{ lang_icon(lang.name, 32) }}
                     <span style="font-weight: 500;">{{ lang.name }}</span>
                 </div>
                 <div class="badge">{{ lang.count }} קבצים</div>
@@ -468,7 +468,7 @@
                     {% for file in files_need_attention.missing_metadata %}
                     <li class="attention-item" data-file-id="{{ file.id }}">
                         <div class="attention-item__info">
-                            <span class="attention-item__icon">{{ lang_icon(file.language, 24) }}</span>
+                            <span class="attention-item__icon">{{ lang_icon(file.language, 32) }}</span>
                             <div class="attention-item__details">
                                 <a href="/file/{{ file.id }}" class="attention-item__name">{{ file.file_name }}</a>
                                 <span class="attention-item__reason">{{ file.reason_text }}</span>
@@ -519,7 +519,7 @@
                     {% for file in files_need_attention.stale_files %}
                     <li class="attention-item" data-file-id="{{ file.id }}">
                         <div class="attention-item__info">
-                            <span class="attention-item__icon">{{ lang_icon(file.language, 24) }}</span>
+                            <span class="attention-item__icon">{{ lang_icon(file.language, 32) }}</span>
                             <div class="attention-item__details">
                                 <a href="/file/{{ file.id }}" class="attention-item__name">{{ file.file_name }}</a>
                                 <span class="attention-item__reason">{{ file.reason_text }}</span>
@@ -573,7 +573,7 @@
                 {% for lang in stats.top_languages %}
                 <div class="language-item">
                     <div style="display: flex; align-items: center; gap: 1rem;">
-                        {{ lang_icon(lang.name, 24) }}
+                        {{ lang_icon(lang.name, 32) }}
                         <span style="font-weight: 500;">{{ lang.name }}</span>
                     </div>
                     <div class="badge">{{ lang.count }} קבצים</div>

@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
 from types import SimpleNamespace
-from typing import Optional, Dict, Any, List, Tuple, Set
+from typing import Optional, Dict, Any, List, Tuple, Set, Union
 from concurrent.futures import ThreadPoolExecutor, Future
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
@@ -10427,7 +10427,8 @@ def _build_timeline_event(
     title: str,
     subtitle: str,
     dt: Any,
-    icon: str,
+    # אמוג'י כמחרוזת, או Markup של אייקון מצויר עבור אירועי קבצים
+    icon: Union[str, Markup],
     badge: Optional[str] = None,
     badge_variant: Optional[str] = None,
     href: Optional[str] = None,
@@ -10510,7 +10511,9 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
                 title=title,
                 subtitle=subtitle,
                 dt=dt,
-                icon=get_language_icon(language),
+                # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון
+                # מצויר ולא אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
+                icon=lang_icon(language, 28),
                 badge=file_badge,
                 badge_variant='code',
                 href=href,
@@ -16923,7 +16926,9 @@ def _legacy_api_dashboard_activity_files():
                 title=title,
                 subtitle=subtitle,
                 dt=dt,
-                icon=get_language_icon(language),
+                # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון
+                # מצויר ולא אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
+                icon=lang_icon(language, 28),
                 badge=file_badge,
                 badge_variant='code',
                 href=href,
