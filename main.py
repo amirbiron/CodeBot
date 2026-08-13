@@ -908,6 +908,140 @@ async def admin_report_command(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception:
             pass
 
+# ===== Admin: חסימת משתמשים =====
+
+
+def _require_admin(update: Update) -> int | None:
+    """מחזיר את מזהה האדמין, או ``None`` אם הקורא אינו אדמין."""
+    try:
+        user_id = int(update.effective_user.id) if update and update.effective_user else 0
+    except Exception:
+        return None
+    admin_ids = get_admin_ids()
+    if not admin_ids or user_id not in admin_ids:
+        return None
+    return user_id
+
+
+def _parse_target_id(args: list[str] | None) -> int | None:
+    """המזהה המספרי מהארגומנט הראשון.
+
+    רק מזהה מספרי. ``@username`` אינו נתמך בכוונה: הפיכת שם משתמש
+    למזהה דורשת קריאה ל-API שיכולה להיכשל בשקט ולהחזיר את המזהה
+    הלא נכון — וחסימה של המשתמש הלא נכון גרועה מלא לחסום.
+    """
+    if not args:
+        return None
+    raw = str(args[0]).strip()
+    if not raw.isdigit():
+        return None
+    value = int(raw)
+    return value if value > 0 else None
+
+
+async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """חוסם משתמש. שימוש: ``/ban <user_id> [סיבה]``"""
+    message = update.message or update.effective_message
+    if message is None:
+        return
+    admin_id = _require_admin(update)
+    if admin_id is None:
+        await message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+        return
+
+    args = list(getattr(context, "args", None) or [])
+    target = _parse_target_id(args)
+    if target is None:
+        await message.reply_text(
+            "שימוש: /ban <user_id> [סיבה]\n"
+            "לדוגמה: /ban 123456789 ספאם\n\n"
+            "נדרש מזהה מספרי, לא @username."
+        )
+        return
+
+    from database import blocked_users_manager as bum
+
+    if target in get_admin_ids():
+        await message.reply_text("❌ אי אפשר לחסום אדמין")
+        return
+
+    reason = " ".join(args[1:]).strip()
+    if bum.block_user(target, reason=reason, blocked_by=admin_id):
+        suffix = f"\nסיבה: {reason}" if reason else ""
+        await message.reply_text(f"✅ {target} נחסם.{suffix}")
+    else:
+        await message.reply_text("❌ החסימה נכשלה — בסיס הנתונים לא זמין. ראו לוגים.")
+
+
+async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """משחרר משתמש. שימוש: ``/unban <user_id>``"""
+    message = update.message or update.effective_message
+    if message is None:
+        return
+    if _require_admin(update) is None:
+        await message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+        return
+
+    target = _parse_target_id(list(getattr(context, "args", None) or []))
+    if target is None:
+        await message.reply_text("שימוש: /unban <user_id>")
+        return
+
+    from database import blocked_users_manager as bum
+
+    # ההודעה הזו קיימת כדי שהמפעיל לא ינסה שוב ושוב. ``BLOCKED_USER_IDS``
+    # הוא רשת ביטחון שמנוהלת ב-Render בלבד, ולכן שחרור ממנה אינו אפשרי
+    # מכאן — וכישלון שקט היה נראה כמו באג.
+    if target in bum.env_blocked_ids():
+        await message.reply_text(
+            f"⚠️ {target} חסום דרך BLOCKED_USER_IDS ולא דרך בסיס הנתונים.\n"
+            "השחרור נעשה בהסרתו מהמשתנה ב-Render."
+        )
+        return
+
+    if bum.unblock_user(target):
+        await message.reply_text(f"✅ {target} שוחרר.")
+    else:
+        await message.reply_text(f"ℹ️ {target} לא היה חסום (או שבסיס הנתונים לא זמין).")
+
+
+async def blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """מציג את החסומים. שימוש: ``/blocked``"""
+    message = update.message or update.effective_message
+    if message is None:
+        return
+    if _require_admin(update) is None:
+        await message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+        return
+
+    from database import blocked_users_manager as bum
+
+    lines: list[str] = []
+    env_ids = sorted(bum.env_blocked_ids())
+    if env_ids:
+        lines.append("🔒 מ-BLOCKED_USER_IDS (לא ניתן לשחרר מכאן):")
+        lines.extend(f"  • {uid}" for uid in env_ids)
+
+    rows = bum.list_blocked()
+    if rows:
+        if lines:
+            lines.append("")
+        lines.append("📋 מבסיס הנתונים:")
+        for row in rows:
+            uid = row.get("user_id")
+            reason = str(row.get("reason") or "").strip()
+            when = row.get("blocked_at")
+            when_text = when.strftime("%Y-%m-%d") if hasattr(when, "strftime") else ""
+            parts = [f"  • {uid}"]
+            if when_text:
+                parts.append(f"({when_text})")
+            if reason:
+                parts.append(f"— {reason}")
+            lines.append(" ".join(parts))
+
+    await message.reply_text("\n".join(lines) if lines else "אין משתמשים חסומים.")
+
+
 # ===== Admin: /recycle_backfill =====
 async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ממלא deleted_at ו-deleted_expires_at לרשומות מחוקות רכות וחושב TTL.
@@ -3308,6 +3442,24 @@ class CodeKeeperBot:
             except Exception:
                 user_id = 0
             if user_id:
+                # חסימת משתמשים – לפני כל השאר, כולל לפני עקיפת האדמין.
+                # is_blocked מחזיר False לאדמין בעצמו, ולכן אין כאן סכנה
+                # לנעול את מי שאמור לשחרר; מה שכן, ספאמר חסום לא צריך
+                # לצרוך את מכסת הקצב ולא להגיע לשום handler.
+                #
+                # חסימה שקטה בכוונה: הודעה למשתמש החסום מזמינה ויכוח
+                # ומאשרת לו שהוא זוהה.
+                try:
+                    from database.blocked_users_manager import is_blocked as _is_blocked
+
+                    if await _is_blocked(user_id):
+                        raise ApplicationHandlerStop
+                except ApplicationHandlerStop:
+                    raise
+                except Exception:
+                    # תקלה בבדיקה עצמה לא חוסמת – fail-open, כמו במגביל הקצב.
+                    logger.debug("בדיקת חסימה נכשלה, ממשיכים", exc_info=True)
+
                 # עקיפת אדמין – אדמינים לא מוגבלים ע"י השער הגלובלי
                 try:
                     admins = get_admin_ids()
@@ -3939,6 +4091,9 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
         self.application.add_handler(CommandHandler("admin", admin_report_command))
+        self.application.add_handler(CommandHandler("ban", ban_command))
+        self.application.add_handler(CommandHandler("unban", unban_command))
+        self.application.add_handler(CommandHandler("blocked", blocked_command))
         self.application.add_handler(CommandHandler("connect_claude", connect_claude_command))
 
         # ChatOps: /jobs (Background Jobs Monitor)
