@@ -24,6 +24,24 @@ USER = 5
 REPO = "o/r"
 
 
+@pytest.fixture(autouse=True)
+def isolated_pending_dir(tmp_path, monkeypatch):
+    """מבודד את תיקיית ה-ZIP הממתין לכל טסט בנפרד.
+
+    בלי זה טסטים שאורזים בלי לסיים משאירים קבצים בתיקייה גלובלית משותפת עד
+    שה-TTL פג — מה שנוגד את כללי הבטיחות של הריפו (עבודה בתיקיות ייעודיות
+    לכל טסט) וגם הופך טסטים מקבילים לתלויים זה בזה.
+    """
+    import utils
+
+    d = tmp_path / "pending_zip"
+    d.mkdir()
+    monkeypatch.setattr(utils, "_pending_zip_dir", lambda: d)
+    yield
+    for leftover in d.glob("*.bin"):
+        leftover.unlink()
+
+
 class _Item:
     def __init__(self, t, name, path, size=0, data=b""):
         self.type = t
@@ -183,25 +201,75 @@ async def test_selected_branch_recorded_in_metadata(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stale_ref_is_not_silently_swallowed(monkeypatch):
-    """ref שגוי חייב להיכשל, לא ליפול חזרה לענף אחר.
+async def test_stale_ref_does_not_fall_back_to_another_branch(monkeypatch):
+    """ref שגוי לא נופל בשקט לענף אחר.
 
-    נפילה שקטה לענף הדיפולטי היא בדיוק התקלה שהתיקון סוגר, ולכן אסור
-    שה-fallback ל-``TypeError`` (חתימה ישנה) יכסה גם 404.
+    ה-fallback ל-``TypeError`` נועד רק לחתימה שלא מקבלת ``ref``; 404 חייב
+    להישאר 404. הבדיקה היא על **מה נקרא בפועל** ולא רק על התוצאה, כי
+    ``walk_and_zip`` בולע חריגות ומדלג — ולכן ספירת קבצים לבדה תעבור בשני
+    המקרים ולא תוכיח כלום.
     """
     import github_menu_handler as gh
 
     handler, upd, ctx, repo = _make(monkeypatch, browse_ref="no-such-branch")
 
+    calls = []
+
     def _boom(path, ref=None):
-        if ref == "no-such-branch":
-            raise gh.GithubException(404, {"message": "No commit found for the ref"}, None)
-        raise AssertionError("נעשתה נפילה שקטה לענף אחר")
+        calls.append(ref)
+        raise gh.GithubException(404, {"message": "No commit found for the ref"}, None)
 
     repo.get_contents = _boom
-    token = await _pack(handler, upd, ctx)
-    # הנתיב נדלג עליו (except Exception הפנימי) ולא נארזו קבצים מענף שגוי
-    assert ctx.user_data["ghzip_pending"][token]["total_files"] == 0
+    # לא _pack: עם 0 קבצים הזרימה נעצרת לפני שאלת היעד ואין ghzip_pending
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+
+    assert calls, "לא בוצעה שום קריאה"
+    assert all(r == "no-such-branch" for r in calls), (
+        f"נעשתה קריאה בלי ה-ref שנבחר — נפילה שקטה לענף אחר: {calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_archive_is_reported_instead_of_offered(monkeypatch):
+    """ref/נתיב שלא קיימים ⇒ הודעת שגיאה, לא הצעה לשמור ארכיון ריק."""
+    import github_menu_handler as gh
+
+    handler, upd, ctx, repo = _make(monkeypatch, browse_ref="no-such-branch")
+
+    def _boom(path, ref=None):
+        raise gh.GithubException(404, {"message": "No commit found for the ref"}, None)
+
+    repo.get_contents = _boom
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+
+    assert not ctx.user_data.get("ghzip_pending"), "הוצע לשמור ארכיון ריק"
+    assert any("לא נמצאו קבצים" in (t or "") for t in upd.callback_query.edits)
+
+
+@pytest.mark.asyncio
+async def test_github_calls_do_not_block_the_event_loop(monkeypatch):
+    """קריאות PyGithub הסינכרוניות רצות ב-thread ולא על ה-event loop.
+
+    הלולאה עוברת על כל קובץ בנפרד, אז קריאה חוסמת אחת מספיקה כדי לעכב את
+    שאר עדכוני הבוט לאורך כל האריזה.
+    """
+    import threading
+
+    handler, upd, ctx, repo = _make(monkeypatch)
+    main_thread = threading.get_ident()
+    seen = []
+
+    original = repo.get_contents
+
+    def _tracked(path, ref=None):
+        seen.append(threading.get_ident())
+        return original(path, ref=ref)
+
+    repo.get_contents = _tracked
+    await _pack(handler, upd, ctx)
+
+    assert seen, "לא בוצעה שום קריאה"
+    assert all(t != main_thread for t in seen), "קריאת רשת חוסמת רצה על ה-event loop"
 
 
 # ---------------------------------------------------- metadata.json והיעד
@@ -274,6 +342,33 @@ async def test_backup_receives_metadata_dict(monkeypatch):
     assert captured["md"]["backup_id"]
     assert captured["md"]["repo"] == REPO
     assert captured["md"]["ref"] == "dev"
+
+
+@pytest.mark.asyncio
+async def test_backup_returning_none_counts_as_failure(monkeypatch):
+    """``save_backup_bytes`` מסמן כשל ב-``None``, לא בחריגה.
+
+    בלי לבדוק את ערך ההחזרה היינו מוחקים את הקובץ הזמני, מדווחים "נשמר"
+    ומציגים מסך דירוג ל-backup_id שלא קיים — כשל שקט בלי דרך לנסות שוב.
+    """
+    import os
+
+    import github_menu_handler as gh
+
+    monkeypatch.setattr(gh.backup_manager, "save_backup_bytes", lambda *a, **k: None)
+
+    handler, upd, ctx, _ = _make(monkeypatch)
+    token = await _pack(handler, upd, ctx)
+    path = ctx.user_data["ghzip_pending"][token]["path"]
+    await _choose(handler, upd, ctx, f"ghzip_dest_backup:{token}")
+    await _choose(handler, upd, ctx, f"ghzip_name_default:{token}")
+
+    caption = upd.callback_query.message.docs[-1]["caption"]
+    assert "נכשלה" in caption, f"דווחה הצלחה כוזבת: {caption}"
+    assert os.path.exists(path), "הקובץ הזמני נמחק למרות שהשמירה נכשלה"
+    assert token in ctx.user_data["ghzip_pending"]
+    # ובלי מסך דירוג — הוא מפנה ל-backup_id שלא נשמר
+    assert not any("backup zip" in (t or "") for t in upd.callback_query.message.texts)
 
 
 @pytest.mark.asyncio

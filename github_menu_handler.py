@@ -472,6 +472,38 @@ class GitHubMenuHandler:
         trimmed = _trim_html_preserving_entities(combined, available)
         return f"{trimmed}{notice_text}"
 
+    # מספר ה-ZIPים הממתינים לבחירה שנשמרים למשתמש בו-זמנית
+    MAX_PENDING_ZIPS = 5
+
+    @staticmethod
+    def _evict_stale_pending_zips(pending: Dict[str, Any]) -> None:
+        """מנקה ממתינים פגי-תוקף ומחזיק את המפה תחת תקרה.
+
+        הזרימה מייצרת קובץ זמני בכל אריזה, ולחיצות חוזרות היו מצטברות עד שה-TTL
+        פג. אותן הגנות קיימות בפלואו העלאת ה-ZIP (``handlers/documents.py``).
+        """
+        from utils import PENDING_ZIP_TTL_SECONDS, cleanup_pending_zip
+
+        try:
+            now_ts = int(datetime.now(timezone.utc).timestamp())
+            for tok in [
+                t
+                for t, m in pending.items()
+                if now_ts - int((m or {}).get("ts", 0)) > PENDING_ZIP_TTL_SECONDS
+            ]:
+                cleanup_pending_zip((pending.get(tok) or {}).get("path", ""))
+                pending.pop(tok, None)
+
+            overflow = len(pending) - GitHubMenuHandler.MAX_PENDING_ZIPS + 1
+            if overflow > 0:
+                oldest = sorted(pending.items(), key=lambda kv: int((kv[1] or {}).get("ts", 0)))
+                for tok, meta in oldest[:overflow]:
+                    cleanup_pending_zip((meta or {}).get("path", ""))
+                    pending.pop(tok, None)
+        except Exception:
+            # ניקוי הוא best-effort; כשל בו לא צריך למנוע מהמשתמש לארוז
+            pass
+
     @staticmethod
     def _zip_button_label(path: str) -> str:
         """תווית כפתור האריזה — מציינת במפורש מה ייארז."""
@@ -522,6 +554,7 @@ class GitHubMenuHandler:
             return
 
         pending = context.user_data.setdefault("ghzip_pending", {})
+        self._evict_stale_pending_zips(pending)
         pending[token] = {
             "path": path,
             "default_filename": default_filename,
@@ -529,6 +562,7 @@ class GitHubMenuHandler:
             "total_files": total_files,
             "total_bytes": total_bytes,
             "skipped_large": skipped_large,
+            "ts": int(datetime.now(timezone.utc).timestamp()),
         }
 
         folder = metadata.get("path") or metadata.get("repo") or ""
@@ -707,17 +741,33 @@ class GitHubMenuHandler:
             caption += "\n🧩 נשמר בקטגוריית הסקילים." if saved else "\n⚠️ הקובץ נשלח אבל השמירה כסקיל נכשלה."
         else:
             try:
-                await asyncio.to_thread(backup_manager.save_backup_bytes, raw, metadata)
-                self._cache_recent_backup(
-                    context,
-                    backup_id=metadata.get("backup_id"),
-                    repo_full_name=metadata.get("repo"),
-                    path=metadata.get("path") or "",
-                    file_count=total_files,
-                    total_size=total_bytes,
-                    created_at=metadata.get("created_at"),
+                # save_backup_bytes בולע חריגות ומחזיר None בכשל — בלי לבדוק את
+                # ערך ההחזרה היינו מוחקים את הקובץ הזמני ומדווחים הצלחה כוזבת
+                saved_id = await asyncio.to_thread(
+                    backup_manager.save_backup_bytes, raw, metadata
                 )
-                saved = True
+                saved = bool(saved_id)
+                if saved:
+                    self._cache_recent_backup(
+                        context,
+                        backup_id=metadata.get("backup_id"),
+                        repo_full_name=metadata.get("repo"),
+                        path=metadata.get("path") or "",
+                        file_count=total_files,
+                        total_size=total_bytes,
+                        created_at=metadata.get("created_at"),
+                    )
+                else:
+                    logger.warning("save_backup_bytes returned None for GitHub ZIP")
+                    try:
+                        emit_event(
+                            "github_zip_persist_error",
+                            severity="warn",
+                            error="save_backup_bytes returned None",
+                            repo=str(metadata.get("repo") or ""),
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.warning(f"Failed to persist GitHub ZIP: {e}")
                 try:
@@ -752,13 +802,16 @@ class GitHubMenuHandler:
             )
             return
 
-        if dest == "skill":
-            # חזרה לדפדפן: רשימת הגיבויים אינה המקום שאליו שמרנו
+        # מסך הדירוג שייך לגיבוי שנשמר בלבד: backup_id של גיבוי שנכשל מפנה
+        # לרשומה שאינה קיימת, וכפתורי התיוג/הערה היו נשברים עליה.
+        if dest == "skill" or not saved:
+            # חזרה לדפדפן: רשימת הגיבויים אינה המקום שאליו שמרנו.
+            # הקובץ כבר בידי המשתמש, ולכן כשל בניווט הוא משני ולא מצדיק
+            # לפוצץ את הזרימה — רק נרשם ללוג.
             try:
                 await self.show_repo_browser(update, context)
-            except BadRequest as br:
-                if "message is not modified" not in str(br).lower():
-                    raise
+            except Exception as nav_err:
+                logger.warning(f"Failed to return to repo browser after ZIP: {nav_err}")
             return
 
         await self._show_backup_rating_prompt(update, context, metadata, total_bytes)
@@ -3659,8 +3712,8 @@ class GitHubMenuHandler:
                     getattr(repo, "default_branch", None) or "main"
                 )
 
-                def _contents_at_ref(target_path: str):
-                    """תוכן הנתיב בענף שנבחר.
+                def _contents_at_ref_blocking(target_path: str):
+                    """תוכן הנתיב בענף שנבחר. קריאת רשת חוסמת — ראו העטיפה למטה.
 
                     נפילה לקריאה בלי ``ref`` מותרת רק כשהחתימה עצמה לא נתמכת
                     (PyGithub ישן/סטאב בטסטים). ref שגוי חייב להתפוצץ ולא ליפול
@@ -3670,6 +3723,15 @@ class GitHubMenuHandler:
                         return repo.get_contents(target_path or "", ref=current_ref)
                     except TypeError:
                         return repo.get_contents(target_path or "")
+
+                async def _contents_at_ref(target_path: str):
+                    """PyGithub סינכרוני, ולולאת האריזה עוברת על כל קובץ בנפרד.
+
+                    בלי ה-thread כל קריאת רשת הייתה חוסמת את ה-event loop ומעכבת
+                    את שאר עדכוני הבוט — בדיוק כמו ``g.get_repo`` ו-
+                    ``_download_and_persist_repo_zip`` בזרימה הזו.
+                    """
+                    return await asyncio.to_thread(_contents_at_ref_blocking, target_path)
 
                 zip_buffer = BytesIO()
                 total_bytes = 0
@@ -3690,7 +3752,7 @@ class GitHubMenuHandler:
                             path, rel_prefix = stack.pop()
                             # הגנה מפני מחזורי תיקיות או API בעייתי שמוביל לרקורסיה
                             try:
-                                contents = _contents_at_ref(path)
+                                contents = await _contents_at_ref(path)
                             except RecursionError:
                                 # דלג על הנתיב הבעייתי והמשך לבאים
                                 continue
@@ -3712,7 +3774,7 @@ class GitHubMenuHandler:
                                     # שלוף אובייקט קובץ מלא מה-API (עם תוכן), ונפילה נעימה לנתונים שכבר קיימים ב-item
                                     file_obj = None
                                     try:
-                                        fetched = _contents_at_ref(item.path)
+                                        fetched = await _contents_at_ref(item.path)
                                         if isinstance(fetched, list):
                                             fetched = fetched[0] if fetched else None
                                         file_obj = fetched
@@ -3768,11 +3830,25 @@ class GitHubMenuHandler:
                     "ref": current_ref,
                 }
 
+                if total_files == 0:
+                    # ארכיון ריק אינו שימושי, והצעה לשמור אותו רק מסתירה את הסיבה:
+                    # לרוב ref או נתיב שכבר לא קיימים
+                    await TelegramUtils.safe_edit_message_text(
+                        query,
+                        "❌ לא נמצאו קבצים לאריזה.\n"
+                        f"בדוק שהנתיב <code>{safe_html_escape(current_path)}</code> קיים "
+                        f"בענף <code>{safe_html_escape(str(current_ref))}</code>.",
+                        parse_mode="HTML",
+                    )
+                    return
+
                 zip_buffer.seek(0)
                 # שם ברירת המחדל הוא פשוט שם התיקייה שנארזה — זה מה שהמשתמש מצפה
                 # לראות. אם ייבחר "שם אחר", הוא יוחלף בשלב הבא.
                 default_name = repo.name if not current_path else current_path.split('/')[-1]
-                filename = f"{_safe_zip_filename(default_name)}.zip"
+                # _safe_zip_filename עשוי להחזיר ריק (שם שכולו תווים אסורים);
+                # בלי ה-fallback היינו מציגים כפתור "שמור בשם" ריק ושולחים ".zip"
+                filename = f"{_safe_zip_filename(default_name) or 'archive'}.zip"
                 zip_buffer.name = filename
 
                 # כאן נעצרים ושואלים. שום דבר עוד לא נשמר: הבייטים מונחים בקובץ

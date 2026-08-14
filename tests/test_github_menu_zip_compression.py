@@ -28,7 +28,7 @@ async def test_download_zip_folder_uses_high_compression(monkeypatch):
     class _Repo:
         name = "r"
         full_name = "o/r"
-        def get_contents(self, path):
+        def get_contents(self, path, ref=None):
             if not path:
                 return [_Item('file', 'a.txt', len(b'a'), b'a')]
             return [_Item('file', 'b.txt', len(b'bb'), b'bb')]
@@ -76,7 +76,10 @@ async def test_download_zip_folder_uses_high_compression(monkeypatch):
 
     await handler.handle_menu_callback(upd, ctx)
 
-    # האריזה נעצרת עכשיו על שאלת היעד — משלימים את שני המסכים כדי להגיע לקובץ
+    # האריזה נעצרת עכשיו על שאלת היעד — משלימים את שני המסכים כדי להגיע לקובץ.
+    # מפאטצ'ים את השמירה כדי שהטסט לא ייגע באחסון אמיתי, וכדי שהניקוי של הקובץ
+    # הזמני (שרץ רק בשמירה מוצלחת) אכן יקרה.
+    monkeypatch.setattr(gh.skill_manager, "save_skill_bytes", lambda *a, **k: "sid")
     token = next(iter(ctx.user_data["ghzip_pending"]))
     query.data = f"ghzip_dest_skill:{token}"
     await handler.handle_menu_callback(upd, ctx)

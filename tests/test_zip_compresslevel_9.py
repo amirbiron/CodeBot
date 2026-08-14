@@ -138,7 +138,7 @@ async def test_github_menu_handler_folder_zip_uses_level_9(monkeypatch):
     class _Repo:
         name = "r"
         full_name = "o/r"
-        def get_contents(self, path):
+        def get_contents(self, path, ref=None):
             return [_Item('file', 'a.txt', len(b'a'), b'a')]
 
     class _Gh:

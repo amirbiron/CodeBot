@@ -3736,6 +3736,9 @@ class CodeKeeperBot:
                 context.user_data.pop('waiting_for_zipdir_folder', None)
                 context.user_data.pop('zip_to_folder_target', None)
                 context.user_data.pop('zip_to_folder_repo', None)
+                # אותו טעם: בלי הניקוי, ההודעה הבאה הייתה נקלטת כשם לזיפ ישן
+                # ומשלימה אותו בטעות
+                context.user_data.pop('waiting_for_zip_custom_name', None)
                 context.user_data.pop('return_to_pre_upload', None)
                 # נקה גם דגלי "הדבק קוד" כדי לצאת יפה מהזרימה
                 context.user_data.pop('waiting_for_paste_content', None)

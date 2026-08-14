@@ -57,7 +57,7 @@ async def test_github_zip_folder_cycle_is_guarded(monkeypatch):
         name = "r"
         full_name = "o/r"
 
-        def get_contents(self, path):
+        def get_contents(self, path, ref=None):
             if path in ("", None):  # root
                 return [_Item("dir", "folder", "folder")]
             if path == "folder":
