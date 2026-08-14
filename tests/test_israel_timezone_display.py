@@ -7,6 +7,7 @@
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
+from freezegun import freeze_time
 
 from utils import TimeUtils
 from webapp import app as webapp_app
@@ -76,20 +77,27 @@ def test_hhmm_filter_uses_israel_time():
     assert webapp_app.format_time_hhmm(None) == ""
 
 
+@freeze_time("2026-08-13 22:30:00")
 def test_day_hhmm_decides_today_by_israel_date():
-    """אחרי חצות בישראל עדיין 'אתמול' ב-UTC – ובלי תיקון היה מוצג התאריך."""
-    now_israel = TimeUtils.to_israel_time(datetime.now(timezone.utc))
-    # רגע מלפני דקה: תמיד "היום" בשעון ישראל, ולכן שעה בלבד
-    just_now = datetime.now(timezone.utc) - timedelta(minutes=1)
-    assert webapp_app.format_day_hhmm(just_now) == TimeUtils.to_israel_time(just_now).strftime(
-        "%H:%M"
-    )
-    # לפני שלושה ימים: תאריך ושעה
-    older = datetime.now(timezone.utc) - timedelta(days=3)
-    assert webapp_app.format_day_hhmm(older) == TimeUtils.to_israel_time(older).strftime(
-        "%d/%m %H:%M"
-    )
-    assert now_israel.tzinfo is not None
+    """הרגע הקריטי: ב-UTC עוד 13/08, בישראל כבר 01:30 בלילה של 14/08.
+
+    לפני התיקון ההשוואה נעשתה מול תאריך UTC, ולכן אירוע מאותו ערב ישראלי
+    הוצג עם תאריך מלא במקום עם שעה בלבד. הזמן מוקפא כדי שהבדיקה תיפול על
+    המקרה הזה בכל הרצה, ולא רק אם במקרה מריצים אחרי חצות.
+    """
+    # 22:00 UTC = 01:00 בישראל, כלומר אותו יום ישראלי כמו "עכשיו" המוקפא
+    same_israel_day = datetime(2026, 8, 13, 22, 0, tzinfo=timezone.utc)
+    assert webapp_app.format_day_hhmm(same_israel_day) == "01:00"
+
+    # 20:00 UTC = 23:00 בישראל ב-13/08 – יום ישראלי קודם, ולכן עם תאריך
+    previous_israel_day = datetime(2026, 8, 13, 20, 0, tzinfo=timezone.utc)
+    assert webapp_app.format_day_hhmm(previous_israel_day) == "13/08 23:00"
+
+
+@freeze_time("2026-08-14 09:00:00")
+def test_day_hhmm_shows_date_for_older_entries():
+    older = datetime(2026, 8, 11, 9, 0, tzinfo=timezone.utc)
+    assert webapp_app.format_day_hhmm(older) == "11/08 12:00"
 
 
 # --- המסכים שהמשתמש ביקש ----------------------------------------------------
