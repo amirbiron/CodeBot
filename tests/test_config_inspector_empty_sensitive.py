@@ -242,6 +242,28 @@ def test_screen_reader_text_stays_out_of_the_copy_value(page):
     assert value_text.get_text(strip=True) == ""
 
 
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        (None, ""),
+        ("", ""),
+        ("   ", ""),
+        ("\t\n ", ""),
+        ("value", "value"),
+        ("  value  ", "  value  "),  # ערך אמיתי נשמר כמו שהוא, בלי trim
+        (0, "0"),  # דיפולט Falsy הוא ערך לכל דבר
+        (False, "False"),
+    ],
+)
+def test_normalize_value_is_the_single_source_of_truth(raw, expected):
+    """כל מסלולי התצוגה עוברים דרך ה-helper הזה, אז ההתנהגות שלו נעולה.
+
+    שתי השורות האחרונות הן ההגנה החשובה: דיפולט 0/False אינו ריק, ואסור
+    שהנרמול יבלע אותו.
+    """
+    assert ConfigService()._normalize_value(raw) == expected
+
+
 def test_real_service_definitions_still_load():
     """שפיות: השירות האמיתי עדיין נטען ומחזיר את REDIS_URL כרגיש."""
     service = get_config_service()
