@@ -500,9 +500,9 @@ class GitHubMenuHandler:
                 for tok, meta in oldest[:overflow]:
                     cleanup_pending_zip((meta or {}).get("path", ""))
                     pending.pop(tok, None)
-        except Exception:
+        except Exception as e:
             # ניקוי הוא best-effort; כשל בו לא צריך למנוע מהמשתמש לארוז
-            pass
+            logger.debug(f"pending-zip eviction skipped: {e}")
 
     @staticmethod
     def _zip_button_label(path: str) -> str:
@@ -540,8 +540,9 @@ class GitHubMenuHandler:
 
         try:
             await asyncio.to_thread(cleanup_stale_pending_zips)
-        except Exception:
-            pass
+        except Exception as e:
+            # ניקוי עצל — כשל בו לא צריך למנוע את האריזה
+            logger.debug(f"stale pending-zip sweep skipped: {e}")
 
         token = _uuid.uuid4().hex
         try:
@@ -831,8 +832,9 @@ class GitHubMenuHandler:
                 error=error,
                 repo=str(metadata.get("repo") or ""),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            # טלמטריה היא best-effort ולא חלק מהחוזה מול המשתמש
+            logger.debug(f"emit github_zip_persist_error failed: {e}")
 
     async def _show_backup_rating_prompt(
         self,
@@ -868,10 +870,11 @@ class GitHubMenuHandler:
             try:
                 s = context.user_data.setdefault("backup_summaries", {})
                 s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
-            except Exception:
-                pass
-        except Exception:
-            pass
+            except Exception as e:
+                logger.debug(f"caching backup summary failed: {e}")
+        except Exception as e:
+            # שורת הסיכום היא תוספת; הקובץ כבר נשלח והגיבוי כבר נשמר
+            logger.warning(f"Failed to show backup rating prompt: {e}")
 
         try:
             backup_handler = context.bot_data.get('backup_handler')
