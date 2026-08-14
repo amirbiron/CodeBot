@@ -723,62 +723,10 @@ class GitHubMenuHandler:
         if skipped_large:
             caption += f"\n⚠️ דילגתי על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
 
-        saved = False
+        saved = await self._persist_zip(context, raw, entry, filename, user_id)
         if dest == "skill":
-            md = {
-                "user_id": user_id,
-                "original_name": filename,
-                "file_count": total_files,
-                "source": "github_folder_zip",
-                "repo": metadata.get("repo"),
-                "path": metadata.get("path"),
-                "ref": metadata.get("ref"),
-            }
-            try:
-                saved = bool(await asyncio.to_thread(skill_manager.save_skill_bytes, raw, md))
-            except Exception as e:
-                logger.warning(f"Failed to persist GitHub ZIP as skill: {e}")
             caption += "\n🧩 נשמר בקטגוריית הסקילים." if saved else "\n⚠️ הקובץ נשלח אבל השמירה כסקיל נכשלה."
         else:
-            try:
-                # save_backup_bytes בולע חריגות ומחזיר None בכשל — בלי לבדוק את
-                # ערך ההחזרה היינו מוחקים את הקובץ הזמני ומדווחים הצלחה כוזבת
-                saved_id = await asyncio.to_thread(
-                    backup_manager.save_backup_bytes, raw, metadata
-                )
-                saved = bool(saved_id)
-                if saved:
-                    self._cache_recent_backup(
-                        context,
-                        backup_id=metadata.get("backup_id"),
-                        repo_full_name=metadata.get("repo"),
-                        path=metadata.get("path") or "",
-                        file_count=total_files,
-                        total_size=total_bytes,
-                        created_at=metadata.get("created_at"),
-                    )
-                else:
-                    logger.warning("save_backup_bytes returned None for GitHub ZIP")
-                    try:
-                        emit_event(
-                            "github_zip_persist_error",
-                            severity="warn",
-                            error="save_backup_bytes returned None",
-                            repo=str(metadata.get("repo") or ""),
-                        )
-                    except Exception:
-                        pass
-            except Exception as e:
-                logger.warning(f"Failed to persist GitHub ZIP: {e}")
-                try:
-                    emit_event(
-                        "github_zip_persist_error",
-                        severity="warn",
-                        error=str(e),
-                        repo=str(metadata.get("repo") or ""),
-                    )
-                except Exception:
-                    pass
             caption += "\n💾 נשמר ברשימת הגיבויים." if saved else "\n⚠️ הקובץ נשלח אבל השמירה כגיבוי נכשלה."
 
         await target.reply_document(
@@ -815,6 +763,76 @@ class GitHubMenuHandler:
             return
 
         await self._show_backup_rating_prompt(update, context, metadata, total_bytes)
+
+    async def _persist_zip(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        raw: bytes,
+        entry: Dict[str, Any],
+        filename: str,
+        user_id: int,
+    ) -> bool:
+        """שומר את ה-ZIP ליעד שנבחר ומחזיר האם השמירה הצליחה.
+
+        מופרד מ-``_finalize_zip`` כדי להשאיר שם רק את רצף ה-UI: טעינה, שליחה,
+        ניקוי וניווט.
+        """
+        metadata = entry.get("metadata") or {}
+        dest = entry.get("dest") or "backup"
+
+        if dest == "skill":
+            md = {
+                "user_id": user_id,
+                "original_name": filename,
+                "file_count": int(entry.get("total_files") or 0),
+                "source": "github_folder_zip",
+                "repo": metadata.get("repo"),
+                "path": metadata.get("path"),
+                "ref": metadata.get("ref"),
+            }
+            try:
+                return bool(await asyncio.to_thread(skill_manager.save_skill_bytes, raw, md))
+            except Exception as e:
+                logger.warning(f"Failed to persist GitHub ZIP as skill: {e}")
+                return False
+
+        try:
+            # save_backup_bytes בולע חריגות ומחזיר None בכשל — בלי לבדוק את ערך
+            # ההחזרה היינו מוחקים את הקובץ הזמני ומדווחים הצלחה כוזבת
+            saved_id = await asyncio.to_thread(backup_manager.save_backup_bytes, raw, metadata)
+        except Exception as e:
+            logger.warning(f"Failed to persist GitHub ZIP: {e}")
+            self._emit_zip_persist_error(str(e), metadata)
+            return False
+
+        if not saved_id:
+            logger.warning("save_backup_bytes returned None for GitHub ZIP")
+            self._emit_zip_persist_error("save_backup_bytes returned None", metadata)
+            return False
+
+        self._cache_recent_backup(
+            context,
+            backup_id=metadata.get("backup_id"),
+            repo_full_name=metadata.get("repo"),
+            path=metadata.get("path") or "",
+            file_count=int(entry.get("total_files") or 0),
+            total_size=int(entry.get("total_bytes") or 0),
+            created_at=metadata.get("created_at"),
+        )
+        return True
+
+    @staticmethod
+    def _emit_zip_persist_error(error: str, metadata: Dict[str, Any]) -> None:
+        """טלמטריה לכשל שמירה — best-effort, לא מפילה את הזרימה."""
+        try:
+            emit_event(
+                "github_zip_persist_error",
+                severity="warn",
+                error=error,
+                repo=str(metadata.get("repo") or ""),
+            )
+        except Exception:
+            pass
 
     async def _show_backup_rating_prompt(
         self,
