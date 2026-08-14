@@ -32,8 +32,17 @@ FAKE_DEFS = {
     "FAKE_SECRET_SET": ConfigDefinition(
         key="FAKE_SECRET_SET",
         services=("webapp",),
-        default="hunter2",
+        default="configured-value",
         description="רגיש עם ערך",
+        category="cache",
+        sensitive=True,
+    ),
+    # ערך של רווחים בלבד: determine_status מחשיב אותו ריק, והתצוגה חייבת להסכים
+    "FAKE_SECRET_BLANK": ConfigDefinition(
+        key="FAKE_SECRET_BLANK",
+        services=("webapp",),
+        default="   ",
+        description="רגיש עם רווחים בלבד",
         category="cache",
         sensitive=True,
     ),
@@ -80,6 +89,11 @@ def client(monkeypatch):
     monkeypatch.setenv("ADMIN_USER_IDS", "1")
     monkeypatch.setattr(app_mod, "get_db", lambda: types.SimpleNamespace(), raising=False)
 
+    # ניקוי מפורש של המפתחות המלאכותיים מהסביבה: get_env_value קורא מ-os.getenv,
+    # ומשתנה שקיים בסביבת ה-CI היה דורס את הדיפולט ומשנה את ה-HTML המרונדר
+    for key in FAKE_DEFS:
+        monkeypatch.delenv(key, raising=False)
+
     with app_mod.app.test_client() as c:
         with c.session_transaction() as sess:
             sess["user_id"] = 1
@@ -89,9 +103,6 @@ def client(monkeypatch):
 
 @pytest.fixture
 def page(client):
-    for key in FAKE_DEFS:
-        # ודא שאף אחד מהמשתנים המלאכותיים לא יורש ערך מהסביבה
-        assert key not in ("PATH", "HOME")
     resp = client.get("/admin/config-inspector")
     assert resp.status_code == 200, f"העמוד לא נטען (סטטוס {resp.status_code})"
     return BeautifulSoup(resp.get_data(as_text=True), "html.parser")
@@ -133,7 +144,7 @@ def test_sensitive_with_value_keeps_the_lock(page):
     assert cell.select("i.fa-lock"), "המנעול נעלם ממשתנה רגיש שיש לו ערך"
     assert not cell.select(".no-value")
     text = cell.select_one(".config-value-text").get_text(strip=True)
-    assert "hunter2" not in text, "הערך הרגיש דלף לתצוגה"
+    assert "configured-value" not in text, "הערך הרגיש דלף לתצוגה"
 
 
 def test_plain_without_value_shows_the_same_dash(page):
@@ -165,7 +176,10 @@ def test_copy_button_does_not_pick_up_the_dash(page):
     אחרת כפתור ההעתקה היה מייצר ``FAKE_SECRET_EMPTY=—`` במקום ערך ריק.
     """
     cell = _active_cell(page, "FAKE_SECRET_EMPTY")
-    assert cell.select_one(".config-value-text").get_text(strip=True) == ""
+    value_text = cell.select_one(".config-value-text")
+    assert value_text.get_text(strip=True) == ""
+    # מפורש, כדי שריפקטור שיזיז את הקו פנימה ייתפס כאן ולא בפרודקשן
+    assert value_text.select_one(".no-value") is None
 
 
 def test_other_services_page_uses_the_same_dash(page):
@@ -174,6 +188,58 @@ def test_other_services_page_uses_the_same_dash(page):
     cell = row.select("td")[2]  # Key | שירות | Default Value | תיאור
     assert not cell.select("i.fa-lock")
     assert cell.select_one(".no-value").get_text(strip=True) == "—"
+
+
+def test_whitespace_only_value_is_treated_as_empty(page):
+    """ערך של רווחים בלבד הוא ריק — גם בתצוגה, לא רק בחישוב הסטטוס.
+
+    ``determine_status`` השתמש תמיד ב-``_is_empty_value`` (שרואה רווחים כריק),
+    אבל ``active_value`` הועבר לתבנית בלי נרמול. ב-Jinja המחרוזת "   " היא
+    truthy, אז שדה שסומן ריק היה מוצג כאילו יש בו ערך — ובמשתנה רגיש, מנעול.
+    """
+    cell = _active_cell(page, "FAKE_SECRET_BLANK")
+    assert not cell.select("i.fa-lock"), "רווחים בלבד הוצגו כערך רגיש קיים"
+    assert cell.select_one(".no-value") is not None
+    assert cell.select_one(".config-value-text").get_text(strip=True) == ""
+
+
+def test_whitespace_only_default_is_treated_as_empty(page):
+    """אותו נרמול גם בעמודת Default Value."""
+    default_cell = _row(page, "FAKE_SECRET_BLANK").select("td")[2]
+    assert default_cell.select_one(".no-value") is not None
+
+
+def test_sensitive_empty_cell_explains_itself(page):
+    """ה-tooltip מחזיק את המידע שהמנעול נשא — שהמשתנה רגיש."""
+    dash = _active_cell(page, "FAKE_SECRET_EMPTY").select_one(".no-value")
+    title = dash.get("title") or ""
+    assert "לא מוגדר ערך" in title
+    assert "רגיש" in title, "המידע על רגישות המשתנה אבד יחד עם המנעול"
+
+
+def test_plain_empty_cell_tooltip_says_nothing_about_sensitivity(page):
+    """ומשתנה רגיל לא מקבל הסבר על רגישות שאין לו."""
+    dash = _active_cell(page, "FAKE_PLAIN_EMPTY").select_one(".no-value")
+    title = dash.get("title") or ""
+    assert title.strip() == "לא מוגדר ערך"
+
+
+def test_dash_is_hidden_from_screen_readers(page):
+    """הקו הוא גליף דקורטיבי; הטקסט לקורא מסך מגיע מ-sr-only נפרד."""
+    cell = _active_cell(page, "FAKE_SECRET_EMPTY")
+    dash = cell.select_one(".no-value")
+    assert dash.get("aria-hidden") == "true"
+
+    sr_text = cell.select_one(".sr-only")
+    assert sr_text is not None, "אין טקסט חלופי לקורא מסך"
+    assert "לא מוגדר ערך" in sr_text.get_text(strip=True)
+
+
+def test_screen_reader_text_stays_out_of_the_copy_value(page):
+    """גם ה-sr-only חייב להישאר מחוץ ל-config-value-text, כמו הקו."""
+    value_text = _active_cell(page, "FAKE_SECRET_EMPTY").select_one(".config-value-text")
+    assert value_text.select_one(".sr-only") is None
+    assert value_text.get_text(strip=True) == ""
 
 
 def test_real_service_definitions_still_load():

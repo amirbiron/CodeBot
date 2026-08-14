@@ -2036,12 +2036,21 @@ class ConfigService:
         # חשוב: לא להשתמש ב-`default or ""` כי זה שובר דיפולטים "Falsy" (0/False)
         active_value = env_value if env_value is not None else (str(default) if default is not None else "")
 
+        # נרמול ערך "ריק לכל דבר" למחרוזת ריקה. determine_status כבר מתייחס
+        # לרווחים בלבד כאל ריק דרך _is_empty_value, ובלי הנרמול הזה התצוגה
+        # הייתה סותרת את הסטטוס: שדה שסומן כריק היה נראה כאילו יש בו ערך
+        # (ובמשתנה רגיש — כאילו יש בו סוד).
+        if self._is_empty_value(active_value):
+            active_value = ""
+
         # הסתרת ערכים רגישים - גם active וגם default!
         is_sensitive = self.is_sensitive_key(key) or definition.sensitive
         display_value = self.mask_value(active_value, key) if is_sensitive else active_value
 
         # הסתרת ערך ברירת מחדל אם רגיש (למניעת חשיפת credentials בדיפולטים)
         default_str = str(default) if default is not None else ""
+        if self._is_empty_value(default_str):
+            default_str = ""
         display_default = self.mask_value(default_str, key) if is_sensitive else default_str
 
         return ConfigEntry(
@@ -2123,6 +2132,9 @@ class ConfigService:
             if not other:
                 continue
             default_str = str(definition.default) if definition.default is not None else ""
+            # אותו נרמול כמו בעמוד הראשי: רווחים בלבד נחשבים ריק
+            if self._is_empty_value(default_str):
+                default_str = ""
             is_sensitive = self.is_sensitive_key(definition.key) or definition.sensitive
             rows.append({
                 "key": definition.key,

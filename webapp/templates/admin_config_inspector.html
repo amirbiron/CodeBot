@@ -787,7 +787,10 @@
                   {% endif %}
                 {% else %}
                   <span class="config-value-text"></span>
-                  <span class="no-value" title="{% if entry.is_sensitive %}לא מוגדר ערך. אם יוגדר — יוסתר, כי זה משתנה רגיש{% else %}לא מוגדר ערך{% endif %}" aria-label="לא מוגדר ערך">—</span>
+                  {# הקו הוא גליף דקורטיבי — קורא מסך שמקריא "מקף" לא מקבל מידע.
+                     לכן הוא aria-hidden, וההסבר המלא עובר דרך טקסט sr-only #}
+                  <span class="no-value" title="{% if entry.is_sensitive %}לא מוגדר ערך. אם יוגדר — יוסתר, כי זה משתנה רגיש{% else %}לא מוגדר ערך{% endif %}" aria-hidden="true">—</span>
+                  <span class="sr-only">{% if entry.is_sensitive %}לא מוגדר ערך. אם יוגדר — יוסתר, כי זה משתנה רגיש{% else %}לא מוגדר ערך{% endif %}</span>
                 {% endif %}
               </div>
               <button
@@ -804,7 +807,7 @@
               {% if entry.default_value %}
                 {{ entry.default_value }}
               {% else %}
-                <span class="no-value" title="אין ערך ברירת מחדל" aria-label="אין ערך ברירת מחדל">—</span>
+                <span class="no-value" title="אין ערך ברירת מחדל" aria-hidden="true">—</span><span class="sr-only">אין ערך ברירת מחדל</span>
               {% endif %}
             </div>
           </td>
@@ -935,7 +938,7 @@
                     <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
                   {% endif %}
                 {% else %}
-                  <span class="no-value" title="אין ערך ברירת מחדל" aria-label="אין ערך ברירת מחדל">—</span>
+                  <span class="no-value" title="אין ערך ברירת מחדל" aria-hidden="true">—</span><span class="sr-only">אין ערך ברירת מחדל</span>
                 {% endif %}
               </div>
             </td>
