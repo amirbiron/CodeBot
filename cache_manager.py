@@ -10,10 +10,23 @@ import time
 import re
 import hashlib
 from functools import wraps
-from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast, Tuple
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Union,
+    Callable,
+    TypeVar,
+    ParamSpec,
+    Coroutine,
+    cast,
+    Tuple,
+)
 import copy
 import random
 import threading
+
 try:
     import redis
 except Exception:  # redis אינו חובה – נריץ במצב מושבת אם חסר
@@ -63,18 +76,24 @@ def _ensure_metric(name: str, create_fn):
 
 # Cache metrics (labels kept minimal) — נרשמות באופן אידמפוטנטי
 cache_hits_total = _ensure_metric(
-    "cache_hits_total", lambda: Counter("cache_hits_total", "Total cache hits", ["backend"]) if Counter else None
+    "cache_hits_total",
+    lambda: Counter("cache_hits_total", "Total cache hits", ["backend"]) if Counter else None,
 )
 cache_misses_total = _ensure_metric(
-    "cache_misses_total", lambda: Counter("cache_misses_total", "Total cache misses", ["backend"]) if Counter else None
+    "cache_misses_total",
+    lambda: Counter("cache_misses_total", "Total cache misses", ["backend"]) if Counter else None,
 )
 cache_op_duration_seconds = _ensure_metric(
     "cache_op_duration_seconds",
-    lambda: Histogram(
-        "cache_op_duration_seconds",
-        "Cache operation duration in seconds",
-        ["operation", "backend"],
-    ) if Histogram else None,
+    lambda: (
+        Histogram(
+            "cache_op_duration_seconds",
+            "Cache operation duration in seconds",
+            ["operation", "backend"],
+        )
+        if Histogram
+        else None
+    ),
 )
 
 
@@ -86,16 +105,16 @@ class DynamicTTL:
     """
 
     BASE_TTL: Dict[str, int] = {
-        "user_stats": 600,         # 10 דקות
-        "file_content": 3600,      # שעה
-        "file_list": 300,          # 5 דקות
-        "markdown_render": 1800,   # 30 דקות
-        "search_results": 180,     # 3 דקות
-        "public_stats": 600,       # 10 דקות
-        "bookmarks": 120,          # 2 דקות
-        "tags": 300,               # 5 דקות
-        "settings": 60,            # דקה
-        "sticky_summary": 60,      # דקה (מרגיע polling)
+        "user_stats": 600,  # 10 דקות
+        "file_content": 3600,  # שעה
+        "file_list": 300,  # 5 דקות
+        "markdown_render": 1800,  # 30 דקות
+        "search_results": 180,  # 3 דקות
+        "public_stats": 600,  # 10 דקות
+        "bookmarks": 120,  # 2 דקות
+        "tags": 300,  # 5 דקות
+        "settings": 60,  # דקה
+        "sticky_summary": 60,  # דקה (מרגיע polling)
         # Collections (My Collections) – TTL מומלץ לפי המדריך
         "collections_list": 60,
         "collections_detail": 30,
@@ -139,6 +158,7 @@ class ActivityBasedTTL:
     def _now_hour() -> int:
         try:
             from datetime import datetime
+
             return int(datetime.now().hour)
         except Exception:
             return 12
@@ -146,11 +166,11 @@ class ActivityBasedTTL:
     @classmethod
     def get_activity_multiplier(cls) -> float:
         hour = cls._now_hour()
-        if 9 <= hour < 18:      # שעות שיא – קצר יותר
+        if 9 <= hour < 18:  # שעות שיא – קצר יותר
             return 0.7
-        if 18 <= hour < 23:     # ערב – בינוני
+        if 18 <= hour < 23:  # ערב – בינוני
             return 1.0
-        return 1.5               # לילה – ארוך יותר
+        return 1.5  # לילה – ארוך יותר
 
     @classmethod
     def adjust_ttl(cls, base_ttl: int) -> int:
@@ -185,9 +205,10 @@ def build_cache_key(*parts: Any) -> str:
         key = f"{key[:150]}:{key_hash}"
     return key
 
+
 class CacheManager:
     """מנהל Cache מתקדם עם Redis"""
-    
+
     def __init__(self):
         # Debug זמני לניתוח Hit/Miss/Set (ברירת מחדל: כבוי)
         # ניתן להפעיל ידנית דרך enable_debug_for(seconds)
@@ -216,7 +237,9 @@ class CacheManager:
         now = float(time.time())
         new_until = float(now + sec)
         try:
-            self.debug_until = float(max(float(getattr(self, "debug_until", 0.0) or 0.0), new_until))
+            self.debug_until = float(
+                max(float(getattr(self, "debug_until", 0.0) or 0.0), new_until)
+            )
         except Exception:
             self.debug_until = float(new_until)
         return float(self.debug_until)
@@ -242,7 +265,7 @@ class CacheManager:
         except Exception:
             # דיבאג לא אמור להפיל זרימה
             return
-    
+
     def connect(self):
         """התחברות ל-Redis"""
         try:
@@ -257,13 +280,17 @@ class CacheManager:
                 _cfg = None
 
             # קדימות ל-ENV: אם המשתנה הוגדר (גם אם ריק) זה אות להשבתה מפורשת בטסטים/CI
-            env_url = os.getenv('REDIS_URL')
+            env_url = os.getenv("REDIS_URL")
             if env_url is not None:
                 redis_url = env_url
             else:
-                redis_url = getattr(_cfg, 'REDIS_URL', None) if _cfg is not None else None
+                redis_url = getattr(_cfg, "REDIS_URL", None) if _cfg is not None else None
 
-            if not redis_url or str(redis_url).strip() == "" or str(redis_url).startswith("disabled"):
+            if (
+                not redis_url
+                or str(redis_url).strip() == ""
+                or str(redis_url).startswith("disabled")
+            ):
                 self.is_enabled = False
                 logger.info("Redis אינו מוגדר - Cache מושבת")
                 return
@@ -271,22 +298,26 @@ class CacheManager:
             # כיבוי מפורש דרך CACHE_ENABLED, בלי למחוק את כתובת ה-Redis.
             # ברירת המחדל היא "פעיל" כדי לשמור על ההתנהגות הקיימת: עד היום
             # ההגדרה הזו לא נקראה כלל, ושירות עם REDIS_URL תמיד קיבל קאש.
-            env_flag = os.getenv('CACHE_ENABLED')
+            env_flag = os.getenv("CACHE_ENABLED")
             if env_flag is not None:
                 cache_enabled = str(env_flag).strip().lower() in ("1", "true", "yes", "y", "on")
             else:
-                cfg_flag = getattr(_cfg, 'CACHE_ENABLED', True) if _cfg is not None else True
+                cfg_flag = getattr(_cfg, "CACHE_ENABLED", True) if _cfg is not None else True
                 cache_enabled = bool(cfg_flag)
             if not cache_enabled:
                 self.is_enabled = False
                 logger.info("CACHE_ENABLED=false - Cache מושבת במפורש")
                 return
-            
+
             # כיבוד timeouts מה-ENV, עם ברירות מחדל שמרניות ב-SAFE_MODE
             safe_mode = str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on")
             # כבד קונפיג מפורש גם אם הערך 0.0, אל תשתמש ב-or שמבטל 0
-            connect_timeout_cfg = (getattr(_cfg, 'REDIS_CONNECT_TIMEOUT', None) if _cfg is not None else None)
-            socket_timeout_cfg = (getattr(_cfg, 'REDIS_SOCKET_TIMEOUT', None) if _cfg is not None else None)
+            connect_timeout_cfg = (
+                getattr(_cfg, "REDIS_CONNECT_TIMEOUT", None) if _cfg is not None else None
+            )
+            socket_timeout_cfg = (
+                getattr(_cfg, "REDIS_SOCKET_TIMEOUT", None) if _cfg is not None else None
+            )
             connect_timeout_env = os.getenv("REDIS_CONNECT_TIMEOUT")
             socket_timeout_env = os.getenv("REDIS_SOCKET_TIMEOUT")
 
@@ -306,12 +337,19 @@ class CacheManager:
 
             try:
                 max_conns_env = (
-                    (str(getattr(_cfg, 'REDIS_MAX_CONNECTIONS', '') or '') if _cfg is not None else '')
-                    or os.getenv("REDIS_MAX_CONNECTIONS")
+                    str(getattr(_cfg, "REDIS_MAX_CONNECTIONS", "") or "")
+                    if _cfg is not None
+                    else ""
+                ) or os.getenv("REDIS_MAX_CONNECTIONS")
+                max_connections = (
+                    int(max_conns_env)
+                    if max_conns_env not in (None, "")
+                    else int(getattr(_cfg, "REDIS_MAX_CONNECTIONS", 50) if _cfg is not None else 50)
                 )
-                max_connections = int(max_conns_env) if max_conns_env not in (None, "") else int(getattr(_cfg, 'REDIS_MAX_CONNECTIONS', 50) if _cfg is not None else 50)
             except Exception:
-                max_connections = int(getattr(_cfg, 'REDIS_MAX_CONNECTIONS', 50) if _cfg is not None else 50)
+                max_connections = int(
+                    getattr(_cfg, "REDIS_MAX_CONNECTIONS", 50) if _cfg is not None else 50
+                )
 
             self.redis_client = redis.from_url(
                 redis_url,
@@ -322,19 +360,20 @@ class CacheManager:
                 health_check_interval=30,
                 max_connections=max_connections,
             )
-            
+
             # בדיקת חיבור
             self.redis_client.ping()
             self.is_enabled = True
-            
+
             logger.info("התחברות ל-Redis הצליחה - Cache מופעל")
-            
+
         except Exception as e:
             logger.warning(f"לא ניתן להתחבר ל-Redis: {e} - Cache מושבת")
             self.is_enabled = False
-    
+
     def _make_key(self, prefix: str, *args, **kwargs) -> str:
         """יוצר מפתח cache ייחודי"""
+
         def _clean_repr(s: str) -> str:
             # מנקה כתובות זיכרון נפוצות ב-repr ברירת מחדל: "0x7f...."
             return re.sub(r"0x[0-9a-fA-F]+", "0x", str(s or ""))
@@ -387,10 +426,15 @@ class CacheManager:
                     items = list(v.items())
                 # הגבלת גודל כדי למנוע מפתחות ענקיים
                 limited = items[:30]
-                return "{" + ",".join(
-                    f"{_stable_part(k, _depth=_depth + 1)}={_stable_part(val, _depth=_depth + 1)}"
-                    for k, val in limited
-                ) + ("…" if len(items) > 30 else "") + "}"
+                return (
+                    "{"
+                    + ",".join(
+                        f"{_stable_part(k, _depth=_depth + 1)}={_stable_part(val, _depth=_depth + 1)}"
+                        for k, val in limited
+                    )
+                    + ("…" if len(items) > 30 else "")
+                    + "}"
+                )
 
             # 3) אובייקטים עם מזהה מוכר: נשתמש רק במזהה (כדי למנוע כתובות זיכרון במפתח)
             for attr in ("user_id", "id", "pk", "uuid"):
@@ -412,7 +456,11 @@ class CacheManager:
                 cls_name = "object"
 
             try:
-                if _depth < 3 and hasattr(v, "__dict__") and isinstance(getattr(v, "__dict__", None), dict):
+                if (
+                    _depth < 3
+                    and hasattr(v, "__dict__")
+                    and isinstance(getattr(v, "__dict__", None), dict)
+                ):
                     d = cast(dict, getattr(v, "__dict__", {}) or {})
                     if d:
                         try:
@@ -427,7 +475,9 @@ class CacheManager:
                             except Exception:
                                 sampled[str(k)] = "<?>"
                         material = json.dumps(sampled, sort_keys=True, ensure_ascii=False)
-                        h = hashlib.sha256(f"{cls_name}:{material}".encode("utf-8", errors="ignore")).hexdigest()[:16]
+                        h = hashlib.sha256(
+                            f"{cls_name}:{material}".encode("utf-8", errors="ignore")
+                        ).hexdigest()[:16]
                         return f"{cls_name}:{h}"
             except Exception:
                 # ניפול ל-fallback הבא
@@ -453,14 +503,18 @@ class CacheManager:
             key_parts.extend(f"{str(k)}:{_stable_part(v)}" for k, v in sorted_kwargs)
 
         return ":".join(key_parts)
-    
+
     def get(self, key: str) -> Optional[Any]:
         """קבלת ערך מה-cache"""
         if not self.is_enabled:
             return None
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="get", backend=backend).time() if cache_op_duration_seconds else None
+        timer_ctx = (
+            cache_op_duration_seconds.labels(operation="get", backend=backend).time()
+            if cache_op_duration_seconds
+            else None
+        )
         try:
             value = self.redis_client.get(key)
             if value:
@@ -480,19 +534,23 @@ class CacheManager:
             except Exception:
                 pass
         return None
-    
+
     def set(self, key: str, value: Any, expire_seconds: int = 300) -> bool:
         """שמירת ערך ב-cache"""
         if not self.is_enabled:
             return False
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="set", backend=backend).time() if cache_op_duration_seconds else None
+        timer_ctx = (
+            cache_op_duration_seconds.labels(operation="set", backend=backend).time()
+            if cache_op_duration_seconds
+            else None
+        )
         try:
             serialized = json.dumps(value, default=str, ensure_ascii=False)
             # תמיכה בלקוחות ללא setex: ננסה set(ex=) או set+expire
             client = self.redis_client
-            if hasattr(client, 'setex'):
+            if hasattr(client, "setex"):
                 ok = bool(client.setex(key, expire_seconds, serialized))
                 self._debug_log("SET", key, ok=ok, ttl=int(expire_seconds))
                 return ok
@@ -573,7 +631,11 @@ class CacheManager:
             return False
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="delete", backend=backend).time() if cache_op_duration_seconds else None
+        timer_ctx = (
+            cache_op_duration_seconds.labels(operation="delete", backend=backend).time()
+            if cache_op_duration_seconds
+            else None
+        )
         try:
             return bool(self.redis_client.delete(key))
         except Exception as e:
@@ -586,19 +648,49 @@ class CacheManager:
             except Exception:
                 pass
 
+    def _warn_invalidation_is_local_only(self) -> None:
+        """מתריע פעם אחת שביטול הקאש מוגבל לתהליך הנוכחי.
+
+        בלי זה, קריאת ביטול שמחזירה 0 נראית בדיוק כמו הצלחה — וזה בדיוק
+        הסוג של כשל שקט שהסתיר את הבאג המקורי. פעם אחת בלבד, כדי שהאזהרה
+        לא תוצף בכל תצוגה.
+        """
+        if getattr(self, "_warned_local_only_invalidation", False):
+            return
+        self._warned_local_only_invalidation = True
+        logger.warning(
+            "cache_invalidation_local_only: Redis אינו זמין, ולכן ביטול הקאש "
+            "חל רק על הפולבק שבתהליך הזה. נתונים שחייבים להיות טריים לא "
+            "אמורים לעבור דרך הקאש."
+        )
+
     def delete_pattern(self, pattern: str) -> int:
         """מחיקת כל המפתחות שמתאימים לתבנית, ב-Redis ובפולבק המקומי גם יחד.
 
         הפולבק המקומי מנוקה תמיד ולפני בדיקת ``is_enabled``: הוא מאוכלס דווקא
         כש-Redis אינו זמין, ולכן דילוג עליו כאן משאיר נתונים ישנים בזיכרון עד
         שה-TTL פג — גם אחרי כתיבה שהצליחה.
+
+        על הערך המוחזר: המספר סופר רק מה שנמחק *בתהליך הזה*. שתי מגבלות
+        שהקורא חייב להכיר, כי אף אחת מהן לא משתקפת במספר:
+
+        1. הפולבק המקומי הוא פר-תהליך. עם יותר מ-worker אחד, ניקוי כאן לא
+           נוגע בעותקים של ה-workers האחרים. נתון שאסור להגיש ישן — למשל
+           מספר גרסה — לא יכול להסתמך על הקאש הזה בכלל, בשום מצב.
+        2. כש-Redis אינו זמין, 0 אינו מבחין בין "לא היה מה למחוק" לבין
+           "לא יכולתי לגשת". לכן המצב נרשם ללוג פעם אחת במקום להיבלע.
         """
         deleted_local = _delete_local_cache_pattern(pattern)
         if not self.is_enabled:
+            self._warn_invalidation_is_local_only()
             return deleted_local
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None
+        timer_ctx = (
+            cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time()
+            if cache_op_duration_seconds
+            else None
+        )
         try:
             client = self.redis_client
             deleted = 0
@@ -607,7 +699,10 @@ class CacheManager:
 
             # תקציב זמן כדי להימנע מחסימת תהליך במאגרים גדולים
             budget_seconds = float(
-                os.getenv("CACHE_DELETE_PATTERN_BUDGET_SECONDS", os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
+                os.getenv(
+                    "CACHE_DELETE_PATTERN_BUDGET_SECONDS",
+                    os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"),
+                )
             )
             deadline = time.time() + max(0.0, budget_seconds)
 
@@ -690,21 +785,23 @@ class CacheManager:
         total_deleted = 0
         try:
             patterns = [
-                f"*:user:{user_id}:*",                 # תמיכה לאחור אם יתווסף prefix "user:" בעתיד
-                f"user_files:*:{user_id}:*",           # רשימת קבצי משתמש
-                f"latest_version:*:{user_id}:*",       # גרסה אחרונה לקובץ
-                f"search_code:*:{user_id}:*",          # תוצאות חיפוש למשתמש
-                f"user_stats:*:{user_id}",             # סטטיסטיקות משתמש — מסתיים ב-:<user_id>
-                f"user_stats:*:{user_id}:*",           # גיבוי: אם יתווספו פרמטרים/סופיות בעתיד
-                f"*:{user_id}:*",                      # נפילה לאחור: כל מפתח שמכיל את המזהה
-                f"*:{user_id}",                        # נפילה לאחור: מפתחות שמסתיימים במזהה
+                f"*:user:{user_id}:*",  # תמיכה לאחור אם יתווסף prefix "user:" בעתיד
+                f"user_files:*:{user_id}:*",  # רשימת קבצי משתמש
+                f"latest_version:*:{user_id}:*",  # גרסה אחרונה לקובץ
+                f"search_code:*:{user_id}:*",  # תוצאות חיפוש למשתמש
+                f"user_stats:*:{user_id}",  # סטטיסטיקות משתמש — מסתיים ב-:<user_id>
+                f"user_stats:*:{user_id}:*",  # גיבוי: אם יתווספו פרמטרים/סופיות בעתיד
+                f"*:{user_id}:*",  # נפילה לאחור: כל מפתח שמכיל את המזהה
+                f"*:{user_id}",  # נפילה לאחור: מפתחות שמסתיימים במזהה
             ]
             for p in patterns:
                 total_deleted += int(self.delete_pattern(p) or 0)
         except Exception as e:
             logger.warning(f"invalidate_user_cache failed for user {user_id}: {e}")
         # חשוב: זהו מספר המחיקות בפועל כפי ש-Redis החזיר מהפקודת DEL (לא רק מספר דפוסים).
-        logger.info(f"invalidate_user_cache: נמחקו בפועל {total_deleted} מפתחות מ-Redis עבור משתמש {user_id}")
+        logger.info(
+            f"invalidate_user_cache: נמחקו בפועל {total_deleted} מפתחות מ-Redis עבור משתמש {user_id}"
+        )
         return total_deleted
 
     def clear_all(self) -> int:
@@ -724,8 +821,8 @@ class CacheManager:
             # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
             budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
             deadline = time.time() + max(0.0, budget_seconds)
-            if hasattr(client, 'scan_iter'):
-                for k in client.scan_iter(match='*', count=500):
+            if hasattr(client, "scan_iter"):
+                for k in client.scan_iter(match="*", count=500):
                     if time.time() > deadline:
                         break
                     try:
@@ -736,7 +833,7 @@ class CacheManager:
                         break
             else:
                 # Fallback: keys + delete
-                keys = client.keys('*')
+                keys = client.keys("*")
                 if keys:
                     deleted = int(client.delete(*keys) or 0)
         except Exception as e:
@@ -745,7 +842,9 @@ class CacheManager:
         return deleted
 
     # ===================== Invalidation helpers (tag/pattern-based) =====================
-    def invalidate_file_related(self, file_id: str, user_id: Optional[Union[int, str]] = None) -> int:
+    def invalidate_file_related(
+        self, file_id: str, user_id: Optional[Union[int, str]] = None
+    ) -> int:
         """ביטול קאש לפי קובץ: תוכן/רינדור/רשימות.
 
         דפוסים נפוצים מעוגנים לאחור בהתאם למפתחות הקיימים בקוד.
@@ -766,11 +865,13 @@ class CacheManager:
             ]
             if user_id is not None:
                 uid = str(user_id)
-                patterns.extend([
-                    f"web:files:user:{uid}:*",
-                    f"user_files:*:{uid}:*",
-                    f"latest_version:*:{uid}:*",
-                ])
+                patterns.extend(
+                    [
+                        f"web:files:user:{uid}:*",
+                        f"user_files:*:{uid}:*",
+                        f"latest_version:*:{uid}:*",
+                    ]
+                )
             for p in patterns:
                 total += int(self.delete_pattern(p) or 0)
         except Exception as e:
@@ -792,8 +893,9 @@ class CacheManager:
             return 0
 
         # דילוג בטוח במצב SAFE_MODE או אם ביקשו לבטל תחזוקת קאש
-        if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on") or \
-           str(os.getenv("DISABLE_CACHE_MAINTENANCE", "")).lower() in ("1", "true", "yes", "y", "on"):
+        if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on") or str(
+            os.getenv("DISABLE_CACHE_MAINTENANCE", "")
+        ).lower() in ("1", "true", "yes", "y", "on"):
             logger.info("SAFE_MODE/disable flag פעיל — דילוג על clear_stale")
             return 0
         deleted = 0
@@ -811,8 +913,8 @@ class CacheManager:
             budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
             deadline = time.time() + max(0.0, budget_seconds)
             # עדיפות ל-scan_iter כדי להימנע מ-blocking
-            if hasattr(client, 'scan_iter') and hasattr(client, 'ttl'):
-                for k in client.scan_iter(match='*', count=500):
+            if hasattr(client, "scan_iter") and hasattr(client, "ttl"):
+                for k in client.scan_iter(match="*", count=500):
                     if time.time() > deadline:
                         break
                     scanned += 1
@@ -846,15 +948,16 @@ class CacheManager:
             info = self.redis_client.info()
             return {
                 "enabled": True,
-                "used_memory": info.get('used_memory_human', 'N/A'),
-                "connected_clients": info.get('connected_clients', 0),
-                "keyspace_hits": info.get('keyspace_hits', 0),
-                "keyspace_misses": info.get('keyspace_misses', 0),
+                "used_memory": info.get("used_memory_human", "N/A"),
+                "connected_clients": info.get("connected_clients", 0),
+                "keyspace_hits": info.get("keyspace_hits", 0),
+                "keyspace_misses": info.get("keyspace_misses", 0),
                 "hit_rate": round(
-                    info.get('keyspace_hits', 0) /
-                    max(info.get('keyspace_hits', 0) + info.get('keyspace_misses', 0), 1) * 100,
-                    2
-                )
+                    info.get("keyspace_hits", 0)
+                    / max(info.get("keyspace_hits", 0) + info.get("keyspace_misses", 0), 1)
+                    * 100,
+                    2,
+                ),
             }
         except Exception as e:
             logger.error(f"שגיאה בקבלת סטטיסטיקות cache: {e}")
@@ -866,13 +969,16 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callable[[Callable[P, R]], Callable[P, R]]:
+def dynamic_cache(
+    content_type: str, key_prefix: Optional[str] = None
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """דקורטור ל-caching דינמי ל-Flask endpoints.
 
     - בונה מפתח קאש יציב הכולל משתמש/נתיב/פרמטרים
     - שומר רק טיפוסים serializable; עבור Response עם JSON שומר את ה-data בלבד
     - Fail-open: לעולם לא מפיל endpoint על בעיות קאש
     """
+
     def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -883,28 +989,33 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
                 except Exception:  # pragma: no cover
                     request = None
                     session = {}
+
                     def jsonify(x):
                         return x
 
                 # זיהוי משתמש וקונטקסט בסיסי
                 uid = None
                 try:
-                    uid = session.get('user_id') if hasattr(session, 'get') else None
+                    uid = session.get("user_id") if hasattr(session, "get") else None
                 except Exception:
                     uid = None
                 try:
-                    user_tier = (session.get('user_tier') or 'regular') if hasattr(session, 'get') else 'regular'
+                    user_tier = (
+                        (session.get("user_tier") or "regular")
+                        if hasattr(session, "get")
+                        else "regular"
+                    )
                 except Exception:
-                    user_tier = 'regular'
+                    user_tier = "regular"
 
                 # מפתח קאש: prefix/שם פונקציה + user + path + query
                 prefix = key_prefix if key_prefix else getattr(func, "__name__", "endpoint")
-                req_path = getattr(request, 'path', '') if request is not None else ''
+                req_path = getattr(request, "path", "") if request is not None else ""
                 try:
-                    q = request.query_string.decode(errors='ignore') if request is not None else ''
+                    q = request.query_string.decode(errors="ignore") if request is not None else ""
                 except Exception:
-                    q = ''
-                cache_key = build_cache_key(prefix, str(uid or 'anonymous'), req_path, q)
+                    q = ""
+                cache_key = build_cache_key(prefix, str(uid or "anonymous"), req_path, q)
 
                 # ניסיון שליפה מהקאש
                 cached_value = cache.get(cache_key)
@@ -918,14 +1029,19 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
 
                 # אם זו תגובת Flask עם JSON — שמור רק את ה-data
                 try:
-                    if hasattr(result, 'get_json'):
+                    if hasattr(result, "get_json"):
                         data = result.get_json(silent=True)
                         if data is not None:
-                            cache.set_dynamic(cache_key, data, content_type, {
-                                'user_id': uid,
-                                'user_tier': user_tier,
-                                'endpoint': getattr(func, '__name__', ''),
-                            })
+                            cache.set_dynamic(
+                                cache_key,
+                                data,
+                                content_type,
+                                {
+                                    "user_id": uid,
+                                    "user_tier": user_tier,
+                                    "endpoint": getattr(func, "__name__", ""),
+                                },
+                            )
                             return result
                 except Exception:
                     pass
@@ -933,11 +1049,16 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
                 # שמירה של טיפוסים serializable נפוצים
                 if isinstance(result, (dict, list, str, int, float, bool)):
                     try:
-                        cache.set_dynamic(cache_key, result, content_type, {
-                            'user_id': uid,
-                            'user_tier': user_tier,
-                            'endpoint': getattr(func, '__name__', ''),
-                        })
+                        cache.set_dynamic(
+                            cache_key,
+                            result,
+                            content_type,
+                            {
+                                "user_id": uid,
+                                "user_tier": user_tier,
+                                "endpoint": getattr(func, "__name__", ""),
+                            },
+                        )
                     except Exception:
                         pass
 
@@ -949,6 +1070,7 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
         return wrapper
 
     return decorator
+
 
 # יצירת instance גלובלי
 cache = CacheManager()
@@ -1052,14 +1174,16 @@ def _delete_local_cache_pattern(pattern: str) -> int:
         logger.warning(f"local cache pattern delete failed for {pattern}: {e}")
         return 0
 
+
 def cached(expire_seconds: int = 300, key_prefix: str = "default"):
     """דקורטור לcaching פונקציות"""
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             # יצירת מפתח cache
             cache_key = cache._make_key(key_prefix, func.__name__, *args, **kwargs)
-            
+
             # בדיקה ב-cache (Redis/remote)
             result = cache.get(cache_key)
             if result is not None:
@@ -1084,10 +1208,10 @@ def cached(expire_seconds: int = 300, key_prefix: str = "default"):
                         # אם נשמר מחרוזת JSON – פרסר יחזיר עותק חדש
                         if isinstance(stored_value, tuple) and len(stored_value) == 2:
                             kind, payload = stored_value
-                            if kind == 'json' and isinstance(payload, str):
+                            if kind == "json" and isinstance(payload, str):
                                 logger.debug(f"Local cache hit(json): {cache_key}")
                                 return json.loads(payload)
-                            if kind == 'obj':
+                            if kind == "obj":
                                 logger.debug(f"Local cache hit(obj): {cache_key}")
                                 return copy.deepcopy(payload)
                         # תמיכה בנתונים ישנים: החזר deep copy כדי לשמר איסולציה
@@ -1099,7 +1223,7 @@ def cached(expire_seconds: int = 300, key_prefix: str = "default"):
             except Exception:
                 # לא חוסם זרימה במקרה של שגיאה בפולבק
                 pass
-            
+
             # הפעלת הפונקציה ושמירה ב-cache
             result = func(*args, **kwargs)
 
@@ -1118,28 +1242,35 @@ def cached(expire_seconds: int = 300, key_prefix: str = "default"):
                     # אחסן כמחרוזת JSON לשמירה על סמאנטיקת עותק כמו Redis; fallback ל-deepcopy
                     try:
                         serialized = json.dumps(result, default=str, ensure_ascii=False)
-                        payload = ('json', serialized)
+                        payload = ("json", serialized)
                     except Exception:
-                        payload = ('obj', copy.deepcopy(result))
+                        payload = ("obj", copy.deepcopy(result))
                     with _local_cache_lock:
-                        _local_cache_store[cache_key] = (time.time() + float(expire_seconds), payload)
+                        _local_cache_store[cache_key] = (
+                            time.time() + float(expire_seconds),
+                            payload,
+                        )
                     _cleanup_local_cache()
                 except Exception:
                     pass
             logger.debug(f"Cache miss, stored: {cache_key}")
-            
+
             return result
+
         return wrapper
+
     return decorator
+
 
 def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
     """דקורטור לcaching פונקציות async"""
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
             # יצירת מפתח cache
             cache_key = cache._make_key(key_prefix, func.__name__, *args, **kwargs)
-            
+
             # בדיקה ב-cache (Redis/remote)
             result = cache.get(cache_key)
             if result is not None:
@@ -1161,10 +1292,10 @@ def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
                     try:
                         if isinstance(stored_value, tuple) and len(stored_value) == 2:
                             kind, payload = stored_value
-                            if kind == 'json' and isinstance(payload, str):
+                            if kind == "json" and isinstance(payload, str):
                                 logger.debug(f"Local cache hit(json): {cache_key}")
                                 return json.loads(payload)
-                            if kind == 'obj':
+                            if kind == "obj":
                                 logger.debug(f"Local cache hit(obj): {cache_key}")
                                 return copy.deepcopy(payload)
                         if isinstance(stored_value, str):
@@ -1174,7 +1305,7 @@ def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
                         return stored_value
             except Exception:
                 pass
-            
+
             # הפעלת הפונקציה ושמירה ב-cache
             result = await func(*args, **kwargs)
 
@@ -1191,16 +1322,21 @@ def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
                 try:
                     try:
                         serialized = json.dumps(result, default=str, ensure_ascii=False)
-                        payload = ('json', serialized)
+                        payload = ("json", serialized)
                     except Exception:
-                        payload = ('obj', copy.deepcopy(result))
+                        payload = ("obj", copy.deepcopy(result))
                     with _local_cache_lock:
-                        _local_cache_store[cache_key] = (time.time() + float(expire_seconds), payload)
+                        _local_cache_store[cache_key] = (
+                            time.time() + float(expire_seconds),
+                            payload,
+                        )
                     _cleanup_local_cache()
                 except Exception:
                     pass
             logger.debug(f"Cache miss, stored: {cache_key}")
-            
+
             return result
+
         return wrapper
+
     return decorator

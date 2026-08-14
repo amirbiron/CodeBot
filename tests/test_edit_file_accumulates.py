@@ -115,6 +115,21 @@ def _read(backend):
     return doc.get("code"), int(doc.get("version", 0))
 
 
+def _assert_edit_path_bypasses_cache():
+    """מסלול העריכה לא אמור להשאיר מאחוריו מפתח גרסה מקוּש כלל.
+
+    בלי הבדיקה הזו הקובץ עלול לעבור מהסיבה הלא נכונה: אם מסלול העריכה
+    יחזור להסתמך על ``get_latest_version`` המקוּשה, ריצה שנמשכת יותר
+    מ-180 שניות עדיין תיראה ירוקה — פשוט כי ה-TTL פג בינתיים.
+
+    הבדיקה חזקה מ"הקאש התפנה": היא דורשת שהערך לא ייכנס לקאש מלכתחילה.
+    זה מה שהופך את המסלול לעמיד גם מול הפולבק המקומי, שהוא פר-תהליך
+    וניקוי שלו ב-worker אחד אינו נוגע באחרים.
+    """
+    leftovers = [k for k in cache_manager._local_cache_store if "latest_version" in k]
+    assert not leftovers, f"מסלול העריכה נשען על קאש גרסאות: {leftovers}"
+
+
 def test_consecutive_edits_accumulate(backend):
     """שלוש עריכות עוקבות — כל אחת נקראת מחדש מהמסד ומאמתת הצטברות."""
     base_code, base_version = _read(backend)
@@ -126,6 +141,7 @@ def test_consecutive_edits_accumulate(backend):
         backend, USER, file_name=NAME, old_string="alpha", new_string="ALPHA-1"
     )
     assert res.get("ok") is True
+    _assert_edit_path_bypasses_cache()
     code, version = _read(backend)
     assert "ALPHA-1" in code, "העריכה הראשונה לא נשמרה"
     assert version == 2, f"הגרסה לא עלתה ל-2 (התקבל {version})"
@@ -135,6 +151,7 @@ def test_consecutive_edits_accumulate(backend):
         backend, USER, file_name=NAME, old_string="bravo", new_string="BRAVO-2"
     )
     assert res.get("ok") is True
+    _assert_edit_path_bypasses_cache()
     code, version = _read(backend)
     assert "BRAVO-2" in code, "העריכה השנייה לא נשמרה"
     assert "ALPHA-1" in code, "העריכה השנייה דרסה את הראשונה"
