@@ -95,3 +95,32 @@ def test_delete_pattern_matches_local_keys():
 
     assert cache.delete_pattern("latest_version:*") >= 1
     assert not cache_manager._local_cache_store
+
+
+def test_clear_stale_reports_local_cleanup():
+    """כשאין Redis, clear_stale עדיין מנקה פגי-תוקף — והמספר צריך לשקף את זה."""
+    import time
+
+    fn = _counting_fn()
+    fn(7, "demo.md")
+    # מזייפים פקיעה כדי שהניקוי ימצא מה למחוק
+    for key in list(cache_manager._local_cache_store):
+        _, payload = cache_manager._local_cache_store[key]
+        cache_manager._local_cache_store[key] = (time.time() - 1, payload)
+
+    removed = cache.clear_stale()
+    assert removed >= 1, "clear_stale דיווח 0 למרות שניקה מקומית"
+    assert not cache_manager._local_cache_store
+
+
+def test_cleanup_local_cache_returns_removed_count():
+    import time
+
+    fn = _counting_fn()
+    fn(7, "a.md")
+    fn(8, "b.md")
+    for key in list(cache_manager._local_cache_store):
+        _, payload = cache_manager._local_cache_store[key]
+        cache_manager._local_cache_store[key] = (time.time() - 1, payload)
+
+    assert cache_manager._cleanup_local_cache(force=True) == 2

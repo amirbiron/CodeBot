@@ -800,7 +800,7 @@ class CacheManager:
             logger.warning(f"invalidate_user_cache failed for user {user_id}: {e}")
         # חשוב: זהו מספר המחיקות בפועל כפי ש-Redis החזיר מהפקודת DEL (לא רק מספר דפוסים).
         logger.info(
-            f"invalidate_user_cache: נמחקו בפועל {total_deleted} מפתחות מ-Redis עבור משתמש {user_id}"
+            f"invalidate_user_cache: נמחקו בפועל {total_deleted} מפתחות עבור משתמש {user_id} (Redis + פולבק מקומי)"
         )
         return total_deleted
 
@@ -835,10 +835,10 @@ class CacheManager:
                 # Fallback: keys + delete
                 keys = client.keys("*")
                 if keys:
-                    deleted = int(client.delete(*keys) or 0)
+                    deleted += int(client.delete(*keys) or 0)
         except Exception as e:
             logger.warning(f"clear_all failed: {e}")
-        logger.info(f"ניקוי cache מלא: {deleted} מפתחות נמחקו")
+        logger.info(f"ניקוי cache מלא: {deleted} מפתחות נמחקו (Redis + פולבק מקומי)")
         return deleted
 
     # ===================== Invalidation helpers (tag/pattern-based) =====================
@@ -888,17 +888,17 @@ class CacheManager:
         - מחיקה רק למפתחות עם TTL חיובי קטן מ-ttl_seconds_threshold, או TTL שלילי המציין שאינו קיים.
         - לא מוחקים מפתחות ללא TTL (ttl == -1) כדי להימנע מפגיעה בקאש ארוך-חיים.
         """
-        _cleanup_local_cache(force=True)
+        deleted_local = _cleanup_local_cache(force=True)
         if not self.is_enabled:
-            return 0
+            return deleted_local
 
         # דילוג בטוח במצב SAFE_MODE או אם ביקשו לבטל תחזוקת קאש
         if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on") or str(
             os.getenv("DISABLE_CACHE_MAINTENANCE", "")
         ).lower() in ("1", "true", "yes", "y", "on"):
             logger.info("SAFE_MODE/disable flag פעיל — דילוג על clear_stale")
-            return 0
-        deleted = 0
+            return deleted_local
+        deleted = deleted_local
         scanned = 0
         try:
             client = self.redis_client
@@ -907,7 +907,7 @@ class CacheManager:
                 _ = client.ping()
             except Exception:
                 logger.warning("clear_stale: Redis לא מגיב — דילוג על הניקוי")
-                return 0
+                return deleted_local
 
             # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
             budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
@@ -933,7 +933,7 @@ class CacheManager:
                         break
             else:
                 # Fallback זהיר: אל תמחק גורף אם אין יכולות TTL/SCAN
-                return 0
+                return deleted_local
         except Exception as e:
             logger.warning(f"clear_stale failed: {e}")
         logger.info(f"ניקוי cache עדין (stale): נסרקו {scanned} / נמחקו {deleted}")
@@ -1093,7 +1093,7 @@ def _get_local_cache_max_entries() -> int:
     return max(0, v)
 
 
-def _cleanup_local_cache(*, now: Optional[float] = None, force: bool = False) -> None:
+def _cleanup_local_cache(*, now: Optional[float] = None, force: bool = False) -> int:
     """ניקוי עדין של הפולבק בזיכרון: מחיקת פגי-תוקף + פינוי לפי גודל.
 
     קריטי: בלי ניקוי, `_local_cache_store` גדל ללא גבול כי TTL נבדק רק בקריאה.
@@ -1102,21 +1102,20 @@ def _cleanup_local_cache(*, now: Optional[float] = None, force: bool = False) ->
     max_entries = _get_local_cache_max_entries()
     if max_entries <= 0:
         # אם הגדירו 0/שלילי — כבה לגמרי את הפולבק כדי להעדיף Redis/חישוב חוזר.
-        with _local_cache_lock:
-            _local_cache_store.clear()
-        return
+        return _clear_local_cache()
 
     ts = float(time.time() if now is None else now)
     # אל תעשה סריקה מלאה בכל בקשה; מספיק כל ~30 שניות או אם עברנו את המגבלה.
     if not force and (ts - float(_local_cache_last_cleanup_ts or 0.0)) < 30.0:
         with _local_cache_lock:
             if len(_local_cache_store) <= max_entries:
-                return
+                return 0
 
+    removed = 0
     with _local_cache_lock:
         _local_cache_last_cleanup_ts = ts
         if not _local_cache_store:
-            return
+            return 0
 
         # 1) מחיקת ערכים שפג תוקפם
         expired_keys: List[str] = []
@@ -1129,6 +1128,7 @@ def _cleanup_local_cache(*, now: Optional[float] = None, force: bool = False) ->
                 expired_keys.append(k)
         for k in expired_keys:
             _local_cache_store.pop(k, None)
+        removed += len(expired_keys)
 
         # 2) אם עדיין גדול מדי — פנה לפי סדר הכנסה (dict שומר order ב-Python 3.7+)
         if len(_local_cache_store) > max_entries:
@@ -1136,9 +1136,12 @@ def _cleanup_local_cache(*, now: Optional[float] = None, force: bool = False) ->
             try:
                 for k in list(_local_cache_store.keys())[:to_evict]:
                     _local_cache_store.pop(k, None)
+                removed += to_evict
             except Exception:
                 # fallback בטוח: מחיקה אגרסיבית אם משהו השתבש
+                removed += len(_local_cache_store)
                 _local_cache_store.clear()
+    return removed
 
 
 def _clear_local_cache() -> int:
