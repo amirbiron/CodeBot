@@ -44,7 +44,9 @@ def test_load_config_minimal_env(monkeypatch):
     conf = cfg.load_config()
     assert conf.BOT_TOKEN.startswith("123")
     assert conf.MONGODB_URL.startswith("mongodb://")
-    assert conf.CACHE_ENABLED is False  # ברירת מחדל ל-false אם לא הוגדר
+    # ברירת המחדל היא true; הקאש עצמו עדיין דורש REDIS_URL כדי לפעול,
+    # וההגדרה משמשת ככיבוי מפורש בלי למחוק את הכתובת
+    assert conf.CACHE_ENABLED is True
     assert conf.DRIVE_MENU_V2 is True   # ברירת מחדל לטקסט 'true'
     assert isinstance(conf.SUPPORTED_LANGUAGES, list) and len(conf.SUPPORTED_LANGUAGES) > 0
 

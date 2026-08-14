@@ -267,6 +267,20 @@ class CacheManager:
                 self.is_enabled = False
                 logger.info("Redis אינו מוגדר - Cache מושבת")
                 return
+
+            # כיבוי מפורש דרך CACHE_ENABLED, בלי למחוק את כתובת ה-Redis.
+            # ברירת המחדל היא "פעיל" כדי לשמור על ההתנהגות הקיימת: עד היום
+            # ההגדרה הזו לא נקראה כלל, ושירות עם REDIS_URL תמיד קיבל קאש.
+            env_flag = os.getenv('CACHE_ENABLED')
+            if env_flag is not None:
+                cache_enabled = str(env_flag).strip().lower() in ("1", "true", "yes", "y", "on")
+            else:
+                cfg_flag = getattr(_cfg, 'CACHE_ENABLED', True) if _cfg is not None else True
+                cache_enabled = bool(cfg_flag)
+            if not cache_enabled:
+                self.is_enabled = False
+                logger.info("CACHE_ENABLED=false - Cache מושבת במפורש")
+                return
             
             # כיבוד timeouts מה-ENV, עם ברירות מחדל שמרניות ב-SAFE_MODE
             safe_mode = str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on")
@@ -573,9 +587,15 @@ class CacheManager:
                 pass
 
     def delete_pattern(self, pattern: str) -> int:
-        """מחיקת כל המפתחות שמתאימים לתבנית"""
+        """מחיקת כל המפתחות שמתאימים לתבנית, ב-Redis ובפולבק המקומי גם יחד.
+
+        הפולבק המקומי מנוקה תמיד ולפני בדיקת ``is_enabled``: הוא מאוכלס דווקא
+        כש-Redis אינו זמין, ולכן דילוג עליו כאן משאיר נתונים ישנים בזיכרון עד
+        שה-TTL פג — גם אחרי כתיבה שהצליחה.
+        """
+        deleted_local = _delete_local_cache_pattern(pattern)
         if not self.is_enabled:
-            return 0
+            return deleted_local
 
         backend = "redis"
         timer_ctx = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None
@@ -615,17 +635,17 @@ class CacheManager:
                 mod = str(getattr(getattr(client, "__class__", object), "__module__", "") or "")
                 if mod.startswith("redis"):
                     # ב-Redis אמיתי לא נרשה שימוש ב-KEYS
-                    return 0
+                    return deleted_local
                 keys = client.keys(pattern)
                 if keys:
                     try:
-                        return int(client.delete(*keys) or 0)
+                        return deleted_local + int(client.delete(*keys) or 0)
                     except Exception:
-                        return 0
-                return 0
+                        return deleted_local
+                return deleted_local
             else:
                 # אין יכולת סריקה בטוחה -> אל תמחוק
-                return 0
+                return deleted_local
 
             for k in iterator:
                 if time.time() > deadline:
@@ -651,10 +671,10 @@ class CacheManager:
                 except Exception:
                     pass
 
-            return int(deleted)
+            return deleted_local + int(deleted)
         except Exception as e:
             logger.error(f"שגיאה במחיקת תבנית מ-cache: {e}")
-            return 0
+            return deleted_local
         finally:
             try:
                 if timer_ctx:
@@ -690,12 +710,15 @@ class CacheManager:
     def clear_all(self) -> int:
         """ניקוי כל המטמון באופן מבוקר.
 
-        - אם Redis מושבת – מחזיר 0.
-        - אם Redis פעיל – מוחק את כל המפתחות באמצעות SCAN+DEL (best-effort).
+        - הפולבק המקומי מנוקה תמיד, גם כש-Redis מושבת. אחרת "נקה הכל"
+          משאיר בדיוק את הקאש שפעיל כשאין Redis.
+        - אם Redis פעיל – מוחק גם את כל המפתחות שלו באמצעות SCAN+DEL
+          (best-effort).
         """
+        deleted_local = _clear_local_cache()
         if not self.is_enabled:
-            return 0
-        deleted = 0
+            return deleted_local
+        deleted = deleted_local
         try:
             client = self.redis_client
             # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
@@ -726,9 +749,11 @@ class CacheManager:
         """ביטול קאש לפי קובץ: תוכן/רינדור/רשימות.
 
         דפוסים נפוצים מעוגנים לאחור בהתאם למפתחות הקיימים בקוד.
+
+        אין כאן יציאה מוקדמת על ``is_enabled``: ``delete_pattern`` מנקה גם את
+        הפולבק המקומי, שקיים דווקא כש-Redis כבוי. דילוג כאן היה משאיר את
+        הערכים הישנים בזיכרון.
         """
-        if not self.is_enabled:
-            return 0
         total = 0
         try:
             patterns = [
@@ -756,11 +781,13 @@ class CacheManager:
         """מחיקת מפתחות שכבר עומדים לפוג ("stale") בצורה עדינה.
 
         היגיון:
-        - אם Redis מושבת – החזר 0.
+        - הפולבק המקומי מנוקה תמיד מפגי-תוקף, גם כש-Redis מושבת.
+        - אם Redis מושבת – מחזיר את מה שנוקה מקומית בלבד.
         - סריקה מדורגת (SCAN) של עד max_scan מפתחות.
         - מחיקה רק למפתחות עם TTL חיובי קטן מ-ttl_seconds_threshold, או TTL שלילי המציין שאינו קיים.
         - לא מוחקים מפתחות ללא TTL (ttl == -1) כדי להימנע מפגיעה בקאש ארוך-חיים.
         """
+        _cleanup_local_cache(force=True)
         if not self.is_enabled:
             return 0
 
@@ -990,6 +1017,40 @@ def _cleanup_local_cache(*, now: Optional[float] = None, force: bool = False) ->
             except Exception:
                 # fallback בטוח: מחיקה אגרסיבית אם משהו השתבש
                 _local_cache_store.clear()
+
+
+def _clear_local_cache() -> int:
+    """ריקון מלא של הפולבק המקומי. מחזיר כמה מפתחות הוסרו."""
+    try:
+        with _local_cache_lock:
+            removed = len(_local_cache_store)
+            _local_cache_store.clear()
+            return removed
+    except Exception as e:
+        logger.warning(f"local cache clear failed: {e}")
+        return 0
+
+
+def _delete_local_cache_pattern(pattern: str) -> int:
+    """מחיקת מפתחות מהפולבק המקומי לפי אותה תבנית שמשמשת ל-Redis.
+
+    בלי זה הפולבק המקומי הוא קאש שאי אפשר לבטל: הוא נכתב דווקא כש-Redis
+    כבוי, אבל כל פעולות ה-invalidation עוברות דרך Redis בלבד ולכן מדלגות
+    עליו. התוצאה היא נתונים ישנים ששורדים עד ל-TTL, גם אחרי כתיבה מוצלחת.
+    """
+    if not pattern:
+        return 0
+    import fnmatch  # אותו התאמת glob שבה משתמש delete_pattern מול Redis
+
+    try:
+        with _local_cache_lock:
+            doomed = [k for k in _local_cache_store if fnmatch.fnmatch(k, pattern)]
+            for k in doomed:
+                _local_cache_store.pop(k, None)
+            return len(doomed)
+    except Exception as e:
+        logger.warning(f"local cache pattern delete failed for {pattern}: {e}")
+        return 0
 
 def cached(expire_seconds: int = 300, key_prefix: str = "default"):
     """דקורטור לcaching פונקציות"""

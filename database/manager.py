@@ -1996,6 +1996,14 @@ class DatabaseManager:
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         return self._get_repo().get_latest_version(user_id, file_name)
 
+    def get_latest_version_fresh(self, user_id: int, file_name: str) -> Optional[Dict]:
+        """גרסה אחרונה ישירות מה-DB, בלי קאש.
+
+        לשימוש בכל read-modify-write (עריכה, הוספה לסוף) ובכל מקום שמדווח
+        ללקוח מה נשמר בפועל — שם ערך מקאש הוא פשוט תשובה שגויה.
+        """
+        return self._get_repo()._fetch_latest_version(user_id, file_name)
+
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         return self._get_repo().get_file(user_id, file_name)
 

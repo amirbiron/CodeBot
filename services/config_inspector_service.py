@@ -510,6 +510,17 @@ class ConfigService:
             description="אם true מוסיף שורת 📊 Dashboard לגוף ההודעה ב-Slack (ברירת מחדל פעיל)",
             category="alerts",
         ),
+        "REDIS_URL": ConfigDefinition(
+            key="REDIS_URL",
+            services=("webapp", "bot", "mcp", "webserver"),
+            default="",
+            description=(
+                "כתובת Redis. בלעדיה הקאש מושבת לגמרי בשירות — שאר הגדרות "
+                "ה-Redis וה-Cache לא משפיעות על כלום"
+            ),
+            category="cache",
+            sensitive=True,
+        ),
         "REDIS_MAX_CONNECTIONS": ConfigDefinition(
             key="REDIS_MAX_CONNECTIONS",
             services=("webapp", "bot", "mcp", "webserver"),
@@ -533,9 +544,12 @@ class ConfigService:
         ),
         "CACHE_ENABLED": ConfigDefinition(
             key="CACHE_ENABLED",
-            services=("webapp", "bot"),
-            default="false",
-            description="הפעלת קאשינג גלובלי",
+            services=("webapp", "bot", "mcp", "webserver"),
+            default="true",
+            description=(
+                "הפעלת קאשינג גלובלי. דורש REDIS_URL; false מכבה את הקאש "
+                "בלי למחוק את הכתובת"
+            ),
             category="cache",
         ),
         "CACHE_CLEAR_BUDGET_SECONDS": ConfigDefinition(
