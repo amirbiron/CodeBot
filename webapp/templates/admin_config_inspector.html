@@ -287,6 +287,20 @@
   font-style: italic;
 }
 
+/* קו לרוחב לציון "אין כאן ערך" — במקום מנעול, שמשתמע ממנו שיש ערך מוסתר */
+.no-value {
+  display: inline-block;
+  color: rgba(255, 255, 255, 0.35);
+  font-style: normal;
+  letter-spacing: 0.05em;
+  cursor: help;
+  user-select: none;
+}
+
+:root[data-theme="rose-pine-dawn"] .no-value {
+  color: rgba(87, 82, 121, 0.45);
+}
+
 /* Source badge */
 .source-badge {
   display: inline-flex;
@@ -762,15 +776,21 @@
           </td>
           <td>
             <div class="value-wrapper">
-              <div class="config-value {% if entry.is_sensitive %}masked{% endif %} {% if not entry.active_value %}empty{% endif %}">
-                {% if entry.is_sensitive %}
+              {# מנעול מוצג רק כשיש ערך להסתיר. ערך חסר מקבל קו לרוחב, כדי שלא
+                 יובן בטעות שיש כאן סוד. הקו נשאר מחוץ ל-config-value-text כדי
+                 שכפתור ההעתקה יעתיק KEY= ריק ולא KEY=— #}
+              <div class="config-value {% if entry.is_sensitive and entry.active_value %}masked{% endif %} {% if not entry.active_value %}empty{% endif %}">
+                {% if entry.active_value %}
                   <span class="config-value-text">{{ entry.active_value }}</span>
-                  <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
-                {% elif entry.active_value %}
-                  <span class="config-value-text">{{ entry.active_value }}</span>
+                  {% if entry.is_sensitive %}
+                    <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
+                  {% endif %}
                 {% else %}
                   <span class="config-value-text"></span>
-                  (ריק)
+                  {# הקו הוא גליף דקורטיבי — קורא מסך שמקריא "מקף" לא מקבל מידע.
+                     לכן הוא aria-hidden, וההסבר המלא עובר דרך טקסט sr-only #}
+                  <span class="no-value" title="{% if entry.is_sensitive %}לא מוגדר ערך. אם יוגדר — יוסתר, כי זה משתנה רגיש{% else %}לא מוגדר ערך{% endif %}" aria-hidden="true">—</span>
+                  <span class="sr-only">{% if entry.is_sensitive %}לא מוגדר ערך. אם יוגדר — יוסתר, כי זה משתנה רגיש{% else %}לא מוגדר ערך{% endif %}</span>
                 {% endif %}
               </div>
               <button
@@ -787,7 +807,7 @@
               {% if entry.default_value %}
                 {{ entry.default_value }}
               {% else %}
-                (ללא)
+                <span class="no-value" title="אין ערך ברירת מחדל" aria-hidden="true">—</span><span class="sr-only">אין ערך ברירת מחדל</span>
               {% endif %}
             </div>
           </td>
@@ -918,7 +938,7 @@
                     <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
                   {% endif %}
                 {% else %}
-                  (ללא)
+                  <span class="no-value" title="אין ערך ברירת מחדל" aria-hidden="true">—</span><span class="sr-only">אין ערך ברירת מחדל</span>
                 {% endif %}
               </div>
             </td>
