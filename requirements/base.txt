@@ -50,6 +50,9 @@ playwright==1.49.0
 # Utilities
 python-dateutil==2.9.0.post0
 pytz==2025.2
+# מסד אזורי הזמן עבור zoneinfo. בלעדיו ZoneInfo("Asia/Jerusalem") נופל
+# בסביבות שאין בהן tzdata מערכתי, ותצוגת הזמנים חוזרת ל-UTC בשקט.
+tzdata==2026.3
 click==8.3.0
 arrow==1.4.0
 

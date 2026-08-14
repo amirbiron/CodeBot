@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from zoneinfo import ZoneInfo
 
 # Try to use the new domain CodeNormalizer when available (backwards compatible)
 try:  # pragma: no cover - optional import during gradual refactor
@@ -158,7 +159,28 @@ code_error_logger = CodeErrorLogger()
 
 class TimeUtils:
     """כלים לעבודה עם זמן ותאריכים"""
-    
+
+    # אזור הזמן שבו מוצגים תאריכים למשתמש. המוצר ישראלי, והשרת רץ ב-UTC,
+    # ולכן כל תצוגה חייבת לעבור המרה — אחרת רואים שעה מוקדמת בשעתיים-שלוש.
+    ISRAEL_TZ_NAME = "Asia/Jerusalem"
+
+    @staticmethod
+    def to_israel_time(dt: datetime) -> datetime:
+        """המרת תאריך לשעון ישראל, כולל טיפול בשעון קיץ.
+
+        תאריך בלי אזור זמן נחשב UTC, כי ככה מונגו שומר אותו. שים לב להבדל
+        בין replace ל-astimezone: הראשון רק מדביק תווית ומשאיר את השעה
+        כמו שהיא, והשני באמת מזיז את השעון. שניהם נחוצים כאן, בסדר הזה.
+        """
+        if not isinstance(dt, datetime):
+            return dt
+        aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+        try:
+            return aware.astimezone(ZoneInfo(TimeUtils.ISRAEL_TZ_NAME))
+        except Exception:
+            # אם מסד אזורי הזמן חסר בסביבה, עדיף להציג UTC מאשר לקרוס
+            return aware
+
     @staticmethod
     def format_relative_time(dt: datetime) -> str:
         """פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')"""
