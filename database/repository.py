@@ -206,7 +206,9 @@ class Repository:
                     snippet.code = normalize_code(snippet.code)
             except Exception:
                 pass
-            existing = self.get_latest_version(snippet.user_id, snippet.file_name)
+            # במכוון לא דרך הגרסה המקוּשה: ערך ישן כאן מייצר שתי גרסאות עם
+            # אותו מספר, ואז העריכה הבאה נבנית שוב על גבי הבסיס הישן.
+            existing = self._fetch_latest_version(snippet.user_id, snippet.file_name)
             if existing:
                 snippet.version = existing['version'] + 1
                 # שמור סטטוס מועדפים מהגרסה הקודמת אם לא סופק מפורשות
@@ -777,8 +779,21 @@ class Repository:
         return self.save_code_snippet(snippet)
 
     @cached(expire_seconds=180, key_prefix="latest_version")
-    @_instrument_db("db.get_latest_version")
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
+        """הגרסה האחרונה של קובץ, דרך קאש קצר.
+
+        לקריאה בלבד. מי שצריך ערך טרי — למשל חישוב מספר הגרסה הבאה — חייב
+        לקרוא ל-``_fetch_latest_version`` ישירות.
+        """
+        return self._fetch_latest_version(user_id, file_name)
+
+    @_instrument_db("db.get_latest_version")
+    def _fetch_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
+        """קריאה ישירה מה-DB, בלי קאש.
+
+        מספר גרסה הוא בדיוק סוג הנתון שאסור לקחת מקאש: ערך ישן מייצר שתי
+        גרסאות עם אותו מספר, והקובץ הפעיל נבחר לפי המספר הגבוה ביותר.
+        """
         try:
             # Fast-path for in-memory collections in tests
             docs_list = getattr(self.manager.collection, 'docs', None)
