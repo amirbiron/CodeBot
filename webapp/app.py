@@ -14747,6 +14747,13 @@ _SVG_OPEN_TAG_RE = re.compile(r'<svg\b[^>]*>', re.IGNORECASE)
 _SVG_XMLNS_RE = re.compile(r'\bxmlns\s*=', re.IGNORECASE)
 # ספרייט אייקונים – קובץ שכולו <symbol> לא מצייר כלום עד שמפנים אליו ב-<use>
 _SVG_SYMBOL_RE = re.compile(r'<symbol\b', re.IGNORECASE)
+# בלוקים שלא מציירים בעצמם, אלא רק מגדירים תוכן לשימוש חוזר
+_SVG_HIDDEN_BLOCK_RE = re.compile(r'<(defs|symbol)\b[^>]*>.*?</\1\s*>', re.IGNORECASE | re.DOTALL)
+# הרכיבים ש-SVG באמת מצייר איתם
+_SVG_DRAWABLE_RE = re.compile(
+    r'<(path|circle|ellipse|rect|line|polyline|polygon|text|image|use|foreignObject)\b',
+    re.IGNORECASE,
+)
 
 
 def _is_svg_file(file_name: Optional[str]) -> bool:
@@ -14779,6 +14786,20 @@ def _ensure_svg_xmlns(code: str) -> str:
     return text[:match.start()] + patched + text[match.end():]
 
 
+def _is_svg_sprite(code: str) -> bool:
+    """האם ה-SVG הוא ספרייט – כלומר לא יצייר כלום בתצוגה רגילה.
+
+    לא מספיק לחפש <symbol>: קובץ רגיל יכול להחזיק symbol בתוך <defs> ובכל
+    זאת לצייר משהו בעצמו. לכן מסירים קודם את הבלוקים שלא מציירים, ורק אם
+    לא נשאר אף רכיב מצויר מדובר בספרייט.
+    """
+    text = code or ''
+    if not _SVG_SYMBOL_RE.search(text):
+        return False
+    visible = _SVG_HIDDEN_BLOCK_RE.sub('', text)
+    return not _SVG_DRAWABLE_RE.search(visible)
+
+
 @app.route('/svg/<file_id>')
 @login_required
 def svg_preview(file_id):
@@ -14792,8 +14813,9 @@ def svg_preview(file_id):
     if not file:
         abort(404)
 
-    file_name = file.get('file_name') or 'image.svg'
-    # מציגים תצוגת SVG רק לקבצי SVG
+    # מציגים תצוגת SVG רק לקבצי SVG. בלי ברירת מחדל לשם – קובץ בלי שם לא
+    # יעבור את הבדיקה ב-/raw_svg, והתוצאה תהיה עמוד עם תמונה שבורה.
+    file_name = file.get('file_name')
     if not _is_svg_file(file_name):
         return redirect(url_for('view_file', file_id=file_id))
 
@@ -14803,7 +14825,7 @@ def svg_preview(file_id):
         'file_name': file_name,
         'language': (file.get('programming_language') or 'xml').lower(),
         # ספרייט נראה כמו תצוגה ריקה, ולכן מתריעים עליו מראש
-        'is_sprite': bool(_SVG_SYMBOL_RE.search(code)),
+        'is_sprite': _is_svg_sprite(code),
     }
     return render_template('svg_preview.html', user=session.get('user_data', {}), file=file_data, bot_username=BOT_USERNAME_CLEAN)
 

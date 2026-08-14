@@ -74,6 +74,64 @@ def test_ensure_svg_xmlns_ignores_input_without_svg_tag():
     assert webapp_app._ensure_svg_xmlns("") == ""
 
 
+def test_ensure_svg_xmlns_handles_uppercase_tag():
+    out = webapp_app._ensure_svg_xmlns('<SVG viewBox="0 0 24 24"><path d="M0 0"/></SVG>')
+    assert 'xmlns="http://www.w3.org/2000/svg"' in out
+    assert 'viewBox="0 0 24 24"' in out
+    # התגית הפותחת נשארת תקינה, בלי לבלוע את השם
+    assert out.startswith("<SVG xmlns=")
+
+
+def test_ensure_svg_xmlns_recognizes_uppercase_namespace_attribute():
+    src = '<svg XMLNS="http://www.w3.org/2000/svg" viewBox="0 0 24 24"></svg>'
+    assert webapp_app._ensure_svg_xmlns(src) == src
+
+
+def test_ensure_svg_xmlns_preserves_surrounding_attributes():
+    src = '<svg role="img" data-x="1" viewBox="0 0 24 24" class="ic"><path d="M0 0"/></svg>'
+    out = webapp_app._ensure_svg_xmlns(src)
+    assert out.count("xmlns=") == 1
+    for attr in ('role="img"', 'data-x="1"', 'viewBox="0 0 24 24"', 'class="ic"'):
+        assert attr in out
+
+
+def test_ensure_svg_xmlns_patches_only_the_root_tag():
+    """SVG מקונן קיים בטבע; ה-namespace של השורש חל גם עליו."""
+    src = '<svg viewBox="0 0 24 24"><svg viewBox="0 0 8 8"></svg></svg>'
+    out = webapp_app._ensure_svg_xmlns(src)
+    assert out.count("xmlns=") == 1
+    assert out.startswith("<svg xmlns=")
+
+
+# --- זיהוי ספרייט -----------------------------------------------------------
+
+
+def test_is_svg_sprite_detects_symbol_only_file():
+    sprite = (
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<symbol id="a" viewBox="0 0 24 24"><path d="M0 0"/></symbol>'
+        '<symbol id="b" viewBox="0 0 24 24"><circle cx="1" cy="1" r="1"/></symbol>'
+        "</svg>"
+    )
+    assert webapp_app._is_svg_sprite(sprite) is True
+
+
+def test_is_svg_sprite_ignores_icon_that_also_draws():
+    """symbol בתוך defs לצד ציור אמיתי אינו ספרייט – ואסור להתריע עליו."""
+    icon = (
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<defs><symbol id="a"><path d="M0 0"/></symbol></defs>'
+        '<circle cx="12" cy="12" r="10"/>'
+        "</svg>"
+    )
+    assert webapp_app._is_svg_sprite(icon) is False
+
+
+def test_is_svg_sprite_false_for_plain_icon():
+    assert webapp_app._is_svg_sprite(SIMPLE_SVG) is False
+    assert webapp_app._is_svg_sprite("") is False
+
+
 # --- עמוד התצוגה ------------------------------------------------------------
 
 
@@ -102,6 +160,16 @@ def test_svg_preview_returns_404_when_file_missing(monkeypatch):
     client = _client(monkeypatch, None)
     resp = client.get(f"/svg/{FILE_ID}")
     assert resp.status_code == 404
+
+
+def test_svg_preview_redirects_when_file_name_is_missing(monkeypatch):
+    """בלי שם קובץ אין דרך לזהות SVG, ו-/raw_svg יסרב – אז אין מה להציג."""
+    doc = _make_doc()
+    doc["file_name"] = None
+    client = _client(monkeypatch, doc)
+    resp = client.get(f"/svg/{FILE_ID}")
+    assert resp.status_code == 302
+    assert f"/file/{FILE_ID}" in resp.headers.get("Location", "")
 
 
 def test_svg_preview_warns_about_sprite_files(monkeypatch):
@@ -135,6 +203,10 @@ def test_raw_svg_serves_image_with_hardened_headers(monkeypatch):
     assert "script-src 'none'" in csp
     assert "default-src 'none'" in csp
     assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    assert resp.headers["Referrer-Policy"] == "no-referrer"
+    # התוכן לא נשמר בקאש ולא מוצע כהורדה
+    assert resp.headers["Cache-Control"] == "no-store"
+    assert resp.headers["Content-Disposition"].startswith("inline")
     assert resp.get_data(as_text=True) == SIMPLE_SVG
 
 

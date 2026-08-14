@@ -828,7 +828,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 🌐 תצוגת Markdown
             </a>
             {% endif %}
-            {% if (file.file_name|lower).endswith('.svg') %}
+            {% if (file.file_name|trim|lower).endswith('.svg') %}
             <a href="/svg/{{ file.id }}" class="btn btn-secondary btn-icon"
                data-overflow-id="svg"
                data-overflow-priority="5"
