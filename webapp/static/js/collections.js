@@ -2317,13 +2317,23 @@
     if (!lower) return '';
     if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'md';
     if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
+    if (lower.endsWith('.svg')) return 'svg';
     return '';
   }
 
   function directViewTitle(mode){
     if (mode === 'md') return 'פתח תצוגת Markdown';
     if (mode === 'html') return 'פתח תצוגת דפדפן';
+    if (mode === 'svg') return 'פתח תצוגת SVG';
     return 'פתח תצוגה';
+  }
+
+  // הראוט שאליו נפתחת כל תצוגה ישירה, לפי המצב שנגזר מסיומת הקובץ
+  const DIRECT_VIEW_ROUTES = { md: '/md/', html: '/html/', svg: '/svg/' };
+
+  function directViewUrl(mode, fileId){
+    const prefix = DIRECT_VIEW_ROUTES[mode] || DIRECT_VIEW_ROUTES.html;
+    return `${prefix}${encodeURIComponent(fileId)}`;
   }
 
   async function handleDirectViewClick(row, button, rawName){
@@ -2369,11 +2379,8 @@
       return;
     }
 
-    const url = (mode === 'md')
-      ? `/md/${encodeURIComponent(fileId)}`
-      : `/html/${encodeURIComponent(fileId)}`;
     // דרישת UX: לפתוח באותו טאב (לא בכרטיסייה חדשה)
-    window.location.href = url;
+    window.location.href = directViewUrl(mode, fileId);
   }
 
   // פתיחת קובץ לפי שם הקובץ (שימושי גם ללחיצה על כל השורה)
