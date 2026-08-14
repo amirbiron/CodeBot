@@ -20,9 +20,10 @@ import zipfile
 from html import escape as html_escape
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from functools import wraps
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from zoneinfo import ZoneInfo
 
 # Try to use the new domain CodeNormalizer when available (backwards compatible)
 try:  # pragma: no cover - optional import during gradual refactor
@@ -156,9 +157,50 @@ class CodeErrorLogger:
 # יצירת אינסטנס גלובלי של הלוגר
 code_error_logger = CodeErrorLogger()
 
+# אזור הזמן שבו מוצגים תאריכים למשתמש. המוצר ישראלי, והשרת רץ ב-UTC,
+# ולכן כל תצוגה חייבת לעבור המרה — אחרת רואים שעה מוקדמת בשעתיים-שלוש.
+ISRAEL_TZ_NAME = "Asia/Jerusalem"
+
+
+@lru_cache(maxsize=1)
+def _get_israel_tz():
+    """טוען את אזור הזמן פעם אחת בלבד.
+
+    אם מסד אזורי הזמן חסר בסביבה, עדיף להציג UTC מאשר להפיל את הדף — אבל
+    נפילה שקטה כזו מחזירה בדיוק את הבאג שההמרה נועדה לתקן, ולכן היא
+    נרשמת ללוג. ה-cache דואג שהאזהרה תופיע פעם אחת ולא בכל תצוגת תאריך.
+    """
+    try:
+        return ZoneInfo(ISRAEL_TZ_NAME)
+    except Exception as exc:
+        logger.warning(
+            "timezone_database_missing",
+            extra={"timezone": ISRAEL_TZ_NAME, "error": str(exc)},
+        )
+        return timezone.utc
+
+
 class TimeUtils:
     """כלים לעבודה עם זמן ותאריכים"""
-    
+
+    ISRAEL_TZ_NAME = ISRAEL_TZ_NAME
+
+    @staticmethod
+    def to_israel_time(dt: datetime) -> datetime:
+        """המרת תאריך לשעון ישראל, כולל טיפול בשעון קיץ.
+
+        תאריך בלי אזור זמן נחשב UTC, כי ככה מונגו שומר אותו. שים לב להבדל
+        בין replace ל-astimezone: הראשון רק מדביק תווית ומשאיר את השעה
+        כמו שהיא, והשני באמת מזיז את השעון. שניהם נחוצים כאן, בסדר הזה.
+
+        ערך שאינו datetime מוחזר כמו שהוא. זו הגנה מכוונת: הפונקציה יושבת
+        בשכבת התצוגה, ושדה חסר או פגום במסמך לא אמור להפיל עמוד שלם.
+        """
+        if not isinstance(dt, datetime):
+            return dt
+        aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+        return aware.astimezone(_get_israel_tz())
+
     @staticmethod
     def format_relative_time(dt: datetime) -> str:
         """פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')"""

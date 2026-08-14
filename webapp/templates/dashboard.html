@@ -232,7 +232,7 @@
             </a>
             {% if last_commit.sync_time %}
             <small class="sync-time">
-                סונכרן: {{ last_commit.sync_time.strftime('%d/%m %H:%M') if last_commit.sync_time else 'לא ידוע' }}
+                סונכרן: {{ last_commit.sync_time | day_hhmm if last_commit.sync_time else 'לא ידוע' }}
             </small>
             {% endif %}
         </div>

@@ -16,7 +16,6 @@ import uuid
 import inspect
 import socket
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 from functools import wraps, lru_cache
 from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple, Set, Union
@@ -5600,7 +5599,7 @@ def admin_stats_page():
             weekly_users=displayed_users,
             weekly_limit=weekly_limit,
             total_actions=total_actions,
-            generated_at=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
+            generated_at=format_datetime_display(datetime.now(timezone.utc)),
         )
     except Exception:
         logger.exception("Error in admin stats page")
@@ -5611,7 +5610,7 @@ def admin_stats_page():
             weekly_limit=0,
             total_actions=0,
             error="אירעה שגיאה בטעינת הנתונים. נסה שוב מאוחר יותר.",
-            generated_at=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
+            generated_at=format_datetime_display(datetime.now(timezone.utc)),
         ), 500
 
 
@@ -7329,7 +7328,9 @@ def admin_snippets_export_json():
     include_pending = request.args.get('include_pending') == '1'
     payload = _build_snippet_export_payload(coll, include_pending=include_pending)
     body = json.dumps(payload, ensure_ascii=False, indent=2)
-    file_name = f"snippets-export-{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+    # התאריך בשם הקובץ הוא תווית לקריאת אדם, ולכן בשעון ישראל כמו כל תצוגה
+    export_day = TimeUtils.to_israel_time(datetime.now(timezone.utc)).strftime('%Y%m%d')
+    file_name = f"snippets-export-{export_day}.json"
     response = Response(body, mimetype='application/json; charset=utf-8')
     response.headers['Content-Disposition'] = f'attachment; filename="{file_name}"'
     return response
@@ -10020,20 +10021,27 @@ def safe_iso(value, field: str = "") -> str:
         except Exception:
             return ""
 
+def _to_display_datetime(value) -> Optional[datetime]:
+    """ממיר ערך תאריך (datetime או מחרוזת ISO) לשעון ישראל, או None אם אין.
+
+    כל תצוגת תאריך בוובאפ עוברת דרך כאן, כדי שלא ייווצר מצב שבו מסך אחד
+    מראה שעון ישראל ומסך אחר מראה UTC עבור אותו קובץ.
+    """
+    if isinstance(value, datetime):
+        return TimeUtils.to_israel_time(value)
+    if isinstance(value, str) and value:
+        try:
+            return TimeUtils.to_israel_time(datetime.fromisoformat(value))
+        except Exception:
+            return None
+    return None
+
+
 # עיצוב תאריך בטוח לתצוגה ללא נפילה לברירת מחדל של עכשיו
 def format_datetime_display(value) -> str:
     try:
-        if isinstance(value, datetime):
-            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-            return dt.strftime('%d/%m/%Y %H:%M')
-        if isinstance(value, str) and value:
-            try:
-                dtp = datetime.fromisoformat(value)
-                dtp = dtp if dtp.tzinfo is not None else dtp.replace(tzinfo=timezone.utc)
-                return dtp.strftime('%d/%m/%Y %H:%M')
-            except Exception:
-                return ''
-        return ''
+        dt = _to_display_datetime(value)
+        return dt.strftime('%d/%m/%Y %H:%M') if dt else ''
     except Exception:
         return ''
 
@@ -10041,17 +10049,8 @@ def format_datetime_display(value) -> str:
 @app.template_filter('hhmm')
 def format_time_hhmm(value) -> str:
     try:
-        if isinstance(value, datetime):
-            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-            return dt.strftime('%H:%M')
-        if isinstance(value, str) and value:
-            try:
-                dtp = datetime.fromisoformat(value)
-                dtp = dtp if dtp.tzinfo is not None else dtp.replace(tzinfo=timezone.utc)
-                return dtp.strftime('%H:%M')
-            except Exception:
-                return ''
-        return ''
+        dt = _to_display_datetime(value)
+        return dt.strftime('%H:%M') if dt else ''
     except Exception:
         return ''
 
@@ -10069,18 +10068,12 @@ def jinja_format_datetime(value) -> str:
 @app.template_filter('day_hhmm')
 def format_day_hhmm(value) -> str:
     try:
-        if isinstance(value, datetime):
-            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        elif isinstance(value, str) and value:
-            try:
-                dt = datetime.fromisoformat(value)
-                dt = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-            except Exception:
-                return ''
-        else:
+        dt = _to_display_datetime(value)
+        if not dt:
             return ''
-
-        now = datetime.now(timezone.utc)
+        # "היום" נמדד גם הוא בשעון ישראל. בהשוואה מול UTC, כל מה שקרה
+        # אחרי חצות בישראל היה נראה כאילו קרה אתמול.
+        now = TimeUtils.to_israel_time(datetime.now(timezone.utc))
         if dt.date() == now.date():
             return dt.strftime('%H:%M')
         return dt.strftime('%d/%m %H:%M')
@@ -10331,7 +10324,7 @@ def _format_relative(dt: Optional[datetime]) -> str:
         return TimeUtils.format_relative_time(dt)
     except Exception:
         try:
-            return dt.strftime('%d/%m/%Y %H:%M')
+            return format_datetime_display(dt)
         except Exception:
             return "לא ידוע"
 
@@ -10340,7 +10333,7 @@ def _format_calendar_hint(dt: Optional[datetime]) -> str:
     if not isinstance(dt, datetime):
         return ""
     try:
-        localized = dt.astimezone(timezone.utc)
+        localized = TimeUtils.to_israel_time(dt)
     except Exception:
         localized = dt
     return localized.strftime('%d/%m %H:%M')
@@ -11215,7 +11208,7 @@ def _legacy_dashboard():
             file['language'] = language
             file['icon'] = get_language_icon(language)
             if 'created_at' in file:
-                file['created_at_formatted'] = file['created_at'].strftime('%d/%m/%Y %H:%M')
+                file['created_at_formatted'] = format_datetime_display(file['created_at'])
         
         stats = {
             'total_files': total_files,
@@ -11277,10 +11270,7 @@ def _legacy_dashboard():
                             local_dt = None
                             try:
                                 normalized = raw_date.replace("Z", "+00:00")
-                                parsed = datetime.fromisoformat(normalized)
-                                if parsed.tzinfo is None:
-                                    parsed = parsed.replace(tzinfo=timezone.utc)
-                                local_dt = parsed.astimezone(ZoneInfo("Asia/Jerusalem"))
+                                local_dt = TimeUtils.to_israel_time(datetime.fromisoformat(normalized))
                             except Exception:
                                 local_dt = None
                             if local_dt is not None:
@@ -19162,14 +19152,7 @@ def public_share(share_id):
             lines_count = len(code_str.split('\n')) if code_str else 0
         except Exception:
             lines_count = 0
-    created_at = doc.get('created_at')
-    if isinstance(created_at, datetime):
-        created_at_str = created_at.strftime('%d/%m/%Y %H:%M')
-    else:
-        try:
-            created_at_str = datetime.fromisoformat(created_at).strftime('%d/%m/%Y %H:%M') if created_at else ''
-        except Exception:
-            created_at_str = ''
+    created_at_str = format_datetime_display(doc.get('created_at'))
 
     file_data = {
         'id': share_id,
