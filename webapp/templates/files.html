@@ -390,6 +390,9 @@
                     {% if file.language|lower in ['markdown', 'md'] or (file.file_name|lower).endswith('.md') or (file.file_name|lower).endswith('.markdown') %}
                     <a href="/md/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="תצוגת Markdown">🌐</a>
                     {% endif %}
+                    {% if (file.file_name|lower).endswith('.svg') %}
+                    <a href="/svg/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="תצוגת SVG">🌐</a>
+                    {% endif %}
                 </div>
             </div>
         </div>

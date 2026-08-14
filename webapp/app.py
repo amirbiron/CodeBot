@@ -14738,6 +14738,120 @@ def raw_html(file_id):
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
+
+# --- תצוגת SVG ---------------------------------------------------------------
+# סיומות שנחשבות קובץ SVG לצורך כפתור התצוגה 🌐
+_SVG_FILE_EXTENSIONS = ('.svg',)
+# תגית ה-<svg> הפותחת, לזיהוי ולהשלמת xmlns חסר
+_SVG_OPEN_TAG_RE = re.compile(r'<svg\b[^>]*>', re.IGNORECASE)
+_SVG_XMLNS_RE = re.compile(r'\bxmlns\s*=', re.IGNORECASE)
+# ספרייט אייקונים – קובץ שכולו <symbol> לא מצייר כלום עד שמפנים אליו ב-<use>
+_SVG_SYMBOL_RE = re.compile(r'<symbol\b', re.IGNORECASE)
+
+
+def _is_svg_file(file_name: Optional[str]) -> bool:
+    """האם הקובץ הוא SVG, לפי הסיומת בלבד.
+
+    זיהוי השפה האוטומטי מסמן קבצי SVG כ-xml (כי מבחינת תוכן זה באמת XML),
+    ולכן אי אפשר להסתמך עליו כדי להבדיל בין SVG לבין XML רגיל.
+    """
+    if not isinstance(file_name, str):
+        return False
+    return file_name.strip().lower().endswith(_SVG_FILE_EXTENSIONS)
+
+
+def _ensure_svg_xmlns(code: str) -> str:
+    """משלים xmlns חסר בתגית ה-<svg> הפותחת.
+
+    SVG שנטען כתמונה נפרס כ-XML, ובלי ה-namespace הדפדפן מסרב לצייר אותו.
+    זה קורה הרבה כשמעתיקים SVG מתוך JSX או מתוך דף HTML, שם ה-namespace
+    מיותר ולכן נשמט. משלימים אותו כאן כדי שהתצוגה לא תישבר בגלל פרט טכני.
+    """
+    text = code or ''
+    match = _SVG_OPEN_TAG_RE.search(text)
+    if not match:
+        return text
+    open_tag = match.group(0)
+    if _SVG_XMLNS_RE.search(open_tag):
+        return text
+    # הזרקה מיד אחרי "<svg" – ארבעת התווים הראשונים של התגית
+    patched = open_tag[:4] + ' xmlns="http://www.w3.org/2000/svg"' + open_tag[4:]
+    return text[:match.start()] + patched + text[match.end():]
+
+
+@app.route('/svg/<file_id>')
+@login_required
+def svg_preview(file_id):
+    """תצוגה מרונדרת של קובץ SVG, עם אפשרות להחליף רקע."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception:
+        abort(404)
+    if not file:
+        abort(404)
+
+    file_name = file.get('file_name') or 'image.svg'
+    # מציגים תצוגת SVG רק לקבצי SVG
+    if not _is_svg_file(file_name):
+        return redirect(url_for('view_file', file_id=file_id))
+
+    code = str(file.get('code') or file.get('content') or '')
+    file_data = {
+        'id': str(file.get('_id')),
+        'file_name': file_name,
+        'language': (file.get('programming_language') or 'xml').lower(),
+        # ספרייט נראה כמו תצוגה ריקה, ולכן מתריעים עליו מראש
+        'is_sprite': bool(_SVG_SYMBOL_RE.search(code)),
+    }
+    return render_template('svg_preview.html', user=session.get('user_data', {}), file=file_data, bot_username=BOT_USERNAME_CLEAN)
+
+
+@app.route('/raw_svg/<file_id>')
+@login_required
+def raw_svg(file_id):
+    """מחזיר את ה-SVG הגולמי לטעינה בתוך <img> בעמוד התצוגה.
+
+    התגובה מוגשת כ-image/svg+xml: בהקשר של <img> הדפדפן מרנדר SVG במצב
+    סטטי מאובטח – בלי סקריפטים, בלי משאבים חיצוניים ובלי אינטראקטיביות.
+    כותרת ה-CSP מוסיפה שכבה שנייה, ומגנה גם כשפותחים את הכתובת ישירות.
+    """
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception:
+        abort(404)
+    if not file:
+        abort(404)
+
+    if not _is_svg_file(file.get('file_name')):
+        abort(404)
+
+    code = _ensure_svg_xmlns(str(file.get('code') or file.get('content') or ''))
+    csp = \
+        "sandbox; " \
+        "default-src 'none'; " \
+        "base-uri 'none'; " \
+        "form-action 'none'; " \
+        "connect-src 'none'; " \
+        "img-src data:; " \
+        "style-src 'unsafe-inline'; " \
+        "font-src data:; " \
+        "object-src 'none'; " \
+        "frame-ancestors 'self'; " \
+        "script-src 'none'"
+
+    resp = Response(code, content_type='image/svg+xml; charset=utf-8')
+    resp.headers['Content-Security-Policy'] = csp
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Referrer-Policy'] = 'no-referrer'
+    resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['Content-Disposition'] = 'inline'
+    return resp
+
+
 @app.route('/md/<file_id>')
 @login_required
 def md_preview(file_id):

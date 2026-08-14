@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}תצוגת SVG - {{ file.file_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.svg-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+}
+.svg-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+/* הבמה שעליה מוצג ה-SVG. הרקע מתחלף לפי data-bg כדי לבדוק
+   איך האייקון נראה על כהה, על בהיר, ומעל שקיפות. */
+.svg-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: clamp(320px, 60vh, calc(100vh - 280px));
+    padding: 1.5rem;
+    border-radius: 12px;
+    transition: background 0.15s ease;
+}
+.svg-stage[data-bg="dark"] { background: #0b1220; }
+.svg-stage[data-bg="light"] { background: #f8fafc; }
+.svg-stage[data-bg="grid"] {
+    background: repeating-conic-gradient(#cbd5e1 0% 25%, #f1f5f9 0% 50%) 50% / 20px 20px;
+}
+.svg-image {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+.svg-bg-btn[aria-pressed="true"] {
+    background: var(--primary-color, #60a5fa);
+    color: #0b1220;
+    font-weight: 600;
+}
+.svg-note {
+    margin: 0 0 0.75rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 10px;
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    font-size: 0.9rem;
+}
+.svg-error {
+    text-align: center;
+    padding: 1rem;
+    color: #f87171;
+    font-size: 0.95rem;
+}
+.bookmarks-toggle-btn,
+.bookmarks-panel {
+    display: none !important;
+}
+@media (max-width: 768px) {
+    .svg-stage { height: clamp(280px, 55vh, calc(100vh - 320px)); }
+}
+@media (max-width: 480px) {
+    .svg-actions .btn { padding: 0.5rem 0.75rem; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="file-header">
+    <div class="file-info">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+            <span style="font-size: 3rem;">🖼️</span>
+            <div>
+                <h1 style="margin: 0;">תצוגת SVG: {{ file.file_name }}</h1>
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                    <span class="lang-badge" data-lang="{{ file.language|lower }}">{{ file.language }}</span>
+                </div>
+            </div>
+        </div>
+        <p style="margin: 0.5rem 0; opacity: 0.85;">
+            התמונה מוצגת במצב סטטי מאובטח, בלי הרצת סקריפטים ובלי טעינת משאבים חיצוניים.
+        </p>
+    </div>
+
+    <div class="svg-actions">
+        <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" title="צפה בקוד">
+            <i class="fas fa-code" aria-hidden="true"></i>
+            <span class="btn-text">קוד</span>
+        </a>
+        <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon" title="הורד">
+            <i class="fas fa-download" aria-hidden="true"></i>
+            <span class="btn-text">הורד</span>
+        </a>
+        <a href="#" onclick="return goBack(event)" class="btn btn-secondary btn-icon" title="חזור למסך קודם">
+            <i class="fas fa-arrow-right" aria-hidden="true"></i>
+            <span class="btn-text">חזור</span>
+        </a>
+    </div>
+</div>
+
+{% if file.is_sprite %}
+<p class="svg-note">
+    ⚠️ הקובץ מכיל אלמנטים של <code>&lt;symbol&gt;</code> — כלומר הוא ספרייט אייקונים.
+    סמלים כאלה לא מציירים כלום עד שמפנים אליהם, ולכן ייתכן שהתצוגה כאן תיראה ריקה.
+</p>
+{% endif %}
+
+<div class="glass-card">
+    <div class="svg-toolbar">
+        <span style="opacity: 0.8; font-size: 0.9rem;">רקע:</span>
+        <button type="button" class="btn btn-secondary btn-icon svg-bg-btn" data-bg="dark" aria-pressed="true">כהה</button>
+        <button type="button" class="btn btn-secondary btn-icon svg-bg-btn" data-bg="light" aria-pressed="false">בהיר</button>
+        <button type="button" class="btn btn-secondary btn-icon svg-bg-btn" data-bg="grid" aria-pressed="false">שקוף</button>
+        <button id="btnFullscreen" type="button" class="btn btn-secondary btn-icon" style="margin-inline-start: auto;">
+            <i class="fas fa-expand" aria-hidden="true"></i>
+            <span class="btn-text">מסך מלא</span>
+        </button>
+        <a href="/raw_svg/{{ file.id }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
+            <i class="fas fa-external-link-alt" aria-hidden="true"></i>
+            <span class="btn-text">חלון חדש</span>
+        </a>
+    </div>
+
+    <div id="svgStage" class="svg-stage" data-bg="dark">
+        <img id="svgImage"
+             class="svg-image"
+             src="/raw_svg/{{ file.id }}"
+             alt="תצוגה של {{ file.file_name }}"
+             loading="eager">
+        <div id="svgError" class="svg-error" hidden>
+            לא הצלחנו לרנדר את הקובץ. ייתכן שהקוד אינו XML תקין — אפשר לבדוק אותו
+            <a href="/file/{{ file.id }}">בתצוגת הקוד</a>.
+        </div>
+    </div>
+</div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'svgPreviewBackground';
+  const stage = document.getElementById('svgStage');
+  const image = document.getElementById('svgImage');
+  const errorBox = document.getElementById('svgError');
+  const buttons = Array.prototype.slice.call(document.querySelectorAll('.svg-bg-btn'));
+  if (!stage) return;
+
+  function applyBackground(mode){
+    stage.setAttribute('data-bg', mode);
+    buttons.forEach(function(btn){
+      btn.setAttribute('aria-pressed', String(btn.getAttribute('data-bg') === mode));
+    });
+  }
+
+  // שחזור הרקע שנבחר בפעם הקודמת, כדי לא לבחור מחדש בכל קובץ
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (saved && buttons.some(function(btn){ return btn.getAttribute('data-bg') === saved; })) {
+      applyBackground(saved);
+    }
+  } catch (e) {}
+
+  buttons.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const mode = btn.getAttribute('data-bg');
+      applyBackground(mode);
+      try { window.localStorage.setItem(STORAGE_KEY, mode); } catch (e) {}
+    });
+  });
+
+  // SVG פגום נכשל בטעינה בשקט, ולכן מחליפים אותו בהודעה שמסבירה מה קרה
+  if (image && errorBox) {
+    image.addEventListener('error', function(){
+      image.hidden = true;
+      errorBox.hidden = false;
+    });
+  }
+
+  const btnFullscreen = document.getElementById('btnFullscreen');
+  if (btnFullscreen) {
+    btnFullscreen.addEventListener('click', async function(){
+      try {
+        if (document.fullscreenElement === stage) {
+          await document.exitFullscreen();
+        } else {
+          await stage.requestFullscreen();
+        }
+      } catch (e) { console.error(e); }
+    });
+  }
+})();
+
+// חזרה אחורה שמכבדת את היסטוריית הניווט במסך אחד בלבד
+function goBack(ev){
+  try { if (ev) ev.preventDefault(); } catch(e){}
+  try {
+    if (window.history && window.history.length > 1) {
+      window.history.back();
+      return false;
+    }
+    if (document.referrer) {
+      const ref = new URL(document.referrer, window.location.origin);
+      if (ref.origin === window.location.origin) {
+        window.location.href = ref.toString();
+        return false;
+      }
+    }
+  } catch(e) {}
+  window.location.href = '/files';
+  return false;
+}
+</script>
+{% endblock %}
