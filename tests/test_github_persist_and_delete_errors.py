@@ -59,18 +59,31 @@ async def test_github_zip_persist_error_emits(monkeypatch):
             return None
         async def answer(self, *a, **k):
             return None
+    _q = _Query()
     class _Upd:
-        callback_query = _Query()
+        callback_query = _q
         effective_user = types.SimpleNamespace(id=1)
+        effective_message = _q.message
     class _Ctx:
         user_data = {}
         bot_data = {}
 
-    await handler.handle_menu_callback(_Upd(), _Ctx())
+    upd, ctx = _Upd(), _Ctx()
+    await handler.handle_menu_callback(upd, ctx)
+
+    # השמירה כבר לא קורית עם האריזה — היא מתבצעת רק אחרי שהמשתמש בוחר יעד ושם,
+    # ולכן צריך להשלים את שני המסכים כדי להגיע לנתיב הכושל.
+    pending = ctx.user_data.get("ghzip_pending") or {}
+    if pending:
+        token = next(iter(pending))
+        _q.data = f"ghzip_dest_backup:{token}"
+        await handler.handle_menu_callback(upd, ctx)
+        _q.data = f"ghzip_name_default:{token}"
+        await handler.handle_menu_callback(upd, ctx)
 
     # If zip creation failed before persist, allow github_zip_create_error fallback;
     # otherwise expect persist error when save raises.
-    assert any(e[0] in ("github_zip_persist_error", "github_zip_create_error") for e in events["evts"]) 
+    assert any(e[0] in ("github_zip_persist_error", "github_zip_create_error") for e in events["evts"])
 
 
 @pytest.mark.asyncio

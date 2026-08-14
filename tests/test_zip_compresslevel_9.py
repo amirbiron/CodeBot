@@ -173,6 +173,8 @@ async def test_github_menu_handler_folder_zip_uses_level_9(monkeypatch):
     monkeypatch.setattr(handler, "_get_path_from_cb", lambda context, data, prefix: "folder", raising=True)
     await handler.handle_menu_callback(upd, ctx)
 
-    # 'w' for building, 'a' for metadata
-    assert any(c["mode"] == 'w' and c["compresslevel"] == 9 for c in captured["calls"]) \
-        and any(c["mode"] == 'a' and c["compresslevel"] == 9 for c in captured["calls"]) 
+    # הזיפ נבנה בכתיבה אחת עם compresslevel=9. אין יותר פתיחה שנייה במצב 'a':
+    # metadata.json לא מוזרק כאן — הגיבוי מקבל אותו מ-save_backup_bytes, ולסקיל
+    # קובץ זר בשורש הארכיון פוסל אותו כסקיל תקין.
+    assert any(c["mode"] == 'w' and c["compresslevel"] == 9 for c in captured["calls"])
+    assert not any(c["mode"] == 'a' for c in captured["calls"]) 
