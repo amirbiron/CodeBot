@@ -20,10 +20,11 @@ import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
-from zoneinfo import ZoneInfo
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 from pymongo import DESCENDING
+
+from utils import TimeUtils
 
 # ייבוא ישיר ולא דרך _get_app_helpers: המודול עצמאי ואינו יוצר תלות מעגלית
 from webapp.admin_repos import load_admin_repos
@@ -48,6 +49,7 @@ def _get_app_helpers():
         _load_whats_new,
         _MIN_DT,
         BOT_USERNAME_CLEAN,
+        format_datetime_display,
         format_file_size,
         get_db,
         get_language_icon,
@@ -64,6 +66,7 @@ def _get_app_helpers():
         is_premium=is_premium,
         is_impersonating_safe=is_impersonating_safe,
         get_db=get_db,
+        format_datetime_display=format_datetime_display,
         format_file_size=format_file_size,
         get_language_icon=get_language_icon,
         lang_icon=lang_icon,
@@ -162,8 +165,8 @@ def dashboard():
             file["language"] = language
             file["icon"] = helpers.get_language_icon(language)
             if "created_at" in file:
-                file["created_at_formatted"] = file["created_at"].strftime(
-                    "%d/%m/%Y %H:%M"
+                file["created_at_formatted"] = helpers.format_datetime_display(
+                    file["created_at"]
                 )
 
         stats = {
@@ -235,10 +238,9 @@ def dashboard():
                             local_dt = None
                             try:
                                 normalized = raw_date.replace("Z", "+00:00")
-                                parsed = datetime.fromisoformat(normalized)
-                                if parsed.tzinfo is None:
-                                    parsed = parsed.replace(tzinfo=timezone.utc)
-                                local_dt = parsed.astimezone(ZoneInfo("Asia/Jerusalem"))
+                                local_dt = TimeUtils.to_israel_time(
+                                    datetime.fromisoformat(normalized)
+                                )
                             except Exception:
                                 local_dt = None
                             if local_dt is not None:

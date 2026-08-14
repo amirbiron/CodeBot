@@ -207,6 +207,7 @@ webapp/
     ├── view_file.html      # צפייה בקובץ
     ├── html_preview.html   # תצוגת HTML ב‑iframe בטוח
     ├── md_preview.html     # תצוגת Markdown עשירה
+    ├── svg_preview.html    # תצוגת SVG מרונדרת עם החלפת רקע
     ├── collections.html    # ניהול אוספים
     ├── snippets.html       # ספריית סניפטים
     ├── settings.html       # הגדרות
@@ -235,6 +236,8 @@ webapp/
 | `/download/<id>` | GET | הורדת קובץ | ✅ |
 | `/html/<id>` | GET | תצוגת HTML בטוחה | ✅ |
 | `/md/<id>` | GET | תצוגת Markdown עשירה | ✅ |
+| `/svg/<id>` | GET | תצוגת SVG מרונדרת | ✅ |
+| `/raw_svg/<id>` | GET | ה‑SVG הגולמי לתצוגה | ✅ |
 | `/api/files/recent` | GET | קבצים אחרונים | ✅ |
 | `/api/files/bulk-favorite` | POST | הוספת מועדפים מרובים | ✅ |
 | `/api/files/bulk-delete` | POST | מחיקה מרובה | ✅ |

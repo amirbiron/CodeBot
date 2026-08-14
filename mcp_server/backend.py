@@ -108,6 +108,20 @@ def _notes_scope_filter(
     return {"user_id": int(user_id), "$or": clauses}
 
 
+def _latest_fresh(dbm: Any, user_id: int, file_name: str) -> dict[str, Any] | None:
+    """Latest version straight from the DB, bypassing the read cache.
+
+    Edits are read-modify-write: a cached body would make every edit rebuild
+    from a stale base, and a cached version number would hand two versions the
+    same value. Falls back to the cached getter for DB managers that predate
+    ``get_latest_version_fresh`` so an older injection never breaks the server.
+    """
+    getter = getattr(dbm, "get_latest_version_fresh", None)
+    if callable(getter):
+        return getter(user_id, file_name)
+    return dbm.get_latest_version(user_id, file_name)
+
+
 class ProductionBackend:
     """Backend backed by the real in-process ``database`` layer.
 
@@ -178,7 +192,9 @@ class ProductionBackend:
         elif file_name and version is not None:
             doc = dbm.get_version(user_id, file_name, int(version))
         elif file_name:
-            doc = dbm.get_latest_version(user_id, file_name)
+            # טרי במכוון: edit_file/append_file בונים על התוכן הזה, וקריאה
+            # מקאש הופכת אותם לעריכה על גבי גרסה ישנה.
+            doc = _latest_fresh(dbm, user_id, file_name)
         else:
             return None
         return _full(doc) if doc else None
@@ -270,7 +286,7 @@ class ProductionBackend:
 
         dbm = self._require_dbm()
         # Captured before the save so we can report create vs. update honestly.
-        prev = dbm.get_latest_version(user_id, file_name)
+        prev = _latest_fresh(dbm, user_id, file_name)
         ok = bool(
             dbm.save_code_snippet(
                 CodeSnippet(
@@ -286,7 +302,7 @@ class ProductionBackend:
         if not ok:
             return {"ok": False, "error": "save_failed"}
         # Re-fetch so the returned version/size are the authoritative DB values.
-        saved = dbm.get_latest_version(user_id, file_name) or {}
+        saved = _latest_fresh(dbm, user_id, file_name) or {}
         return {"ok": True, "created": prev is None, "file": _clean(saved)}
 
     # -- collections -------------------------------------------------------

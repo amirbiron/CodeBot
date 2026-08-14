@@ -97,7 +97,11 @@ class BotConfig(BaseSettings):
     # Cache/Redis
     REDIS_URL: Optional[str] = Field(default=None, description="Redis URL")
     CACHE_ENABLED: bool = Field(
-        default=False, description="Enable in-memory/Redis caching where applicable"
+        default=True,
+        description=(
+            "Enable caching. Requires REDIS_URL to be set; use false to turn "
+            "caching off without removing the URL"
+        ),
     )
     REDIS_MAX_CONNECTIONS: int = Field(
         default=50,
