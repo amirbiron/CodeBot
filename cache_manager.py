@@ -266,6 +266,35 @@ class CacheManager:
             # דיבאג לא אמור להפיל זרימה
             return
 
+    @staticmethod
+    def _resolve_redis_url(cfg: Any) -> Optional[str]:
+        """כתובת ה-Redis לשימוש, או None אם הקאש אמור להיות מושבת.
+
+        קדימות ל-ENV: אם המשתנה הוגדר (גם אם ריק) זה אות להשבתה מפורשת
+        בטסטים/CI. גם ערך שמתחיל ב-"disabled" נחשב השבתה.
+        """
+        env_url = os.getenv("REDIS_URL")
+        if env_url is not None:
+            url = env_url
+        else:
+            url = getattr(cfg, "REDIS_URL", None) if cfg is not None else None
+        if not url or str(url).strip() == "" or str(url).startswith("disabled"):
+            return None
+        return str(url)
+
+    @staticmethod
+    def _cache_disabled_explicitly(cfg: Any) -> bool:
+        """האם ביקשו לכבות את הקאש דרך CACHE_ENABLED, בלי למחוק את ה-URL.
+
+        ברירת המחדל היא "פעיל", כדי לשמור על ההתנהגות שהייתה עד היום:
+        ההגדרה לא נקראה כלל, ושירות עם REDIS_URL תמיד קיבל קאש.
+        """
+        env_flag = os.getenv("CACHE_ENABLED")
+        if env_flag is not None:
+            return str(env_flag).strip().lower() not in ("1", "true", "yes", "y", "on")
+        cfg_flag = getattr(cfg, "CACHE_ENABLED", True) if cfg is not None else True
+        return not bool(cfg_flag)
+
     def connect(self):
         """התחברות ל-Redis"""
         try:
@@ -279,32 +308,13 @@ class CacheManager:
             except Exception:
                 _cfg = None
 
-            # קדימות ל-ENV: אם המשתנה הוגדר (גם אם ריק) זה אות להשבתה מפורשת בטסטים/CI
-            env_url = os.getenv("REDIS_URL")
-            if env_url is not None:
-                redis_url = env_url
-            else:
-                redis_url = getattr(_cfg, "REDIS_URL", None) if _cfg is not None else None
-
-            if (
-                not redis_url
-                or str(redis_url).strip() == ""
-                or str(redis_url).startswith("disabled")
-            ):
+            redis_url = self._resolve_redis_url(_cfg)
+            if not redis_url:
                 self.is_enabled = False
                 logger.info("Redis אינו מוגדר - Cache מושבת")
                 return
 
-            # כיבוי מפורש דרך CACHE_ENABLED, בלי למחוק את כתובת ה-Redis.
-            # ברירת המחדל היא "פעיל" כדי לשמור על ההתנהגות הקיימת: עד היום
-            # ההגדרה הזו לא נקראה כלל, ושירות עם REDIS_URL תמיד קיבל קאש.
-            env_flag = os.getenv("CACHE_ENABLED")
-            if env_flag is not None:
-                cache_enabled = str(env_flag).strip().lower() in ("1", "true", "yes", "y", "on")
-            else:
-                cfg_flag = getattr(_cfg, "CACHE_ENABLED", True) if _cfg is not None else True
-                cache_enabled = bool(cfg_flag)
-            if not cache_enabled:
+            if self._cache_disabled_explicitly(_cfg):
                 self.is_enabled = False
                 logger.info("CACHE_ENABLED=false - Cache מושבת במפורש")
                 return
