@@ -189,7 +189,7 @@ GitHub – תפריט ושיחת העלאה
 
 .. literalinclude:: ../github_menu_handler.py
    :language: python
-   :lines: 697-792
+   :pyobject: GitHubMenuHandler.github_menu_command
    :caption: github_menu_handler.py – github_menu_command
 
 .. literalinclude:: ../main.py

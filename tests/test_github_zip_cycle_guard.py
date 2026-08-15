@@ -57,7 +57,7 @@ async def test_github_zip_folder_cycle_is_guarded(monkeypatch):
         name = "r"
         full_name = "o/r"
 
-        def get_contents(self, path):
+        def get_contents(self, path, ref=None):
             if path in ("", None):  # root
                 return [_Item("dir", "folder", "folder")]
             if path == "folder":
@@ -114,6 +114,9 @@ async def test_github_zip_folder_cycle_is_guarded(monkeypatch):
     # Act
     await handler.handle_menu_callback(upd, ctx)
 
-    # Assert: both creation ('w') and metadata append ('a') used compresslevel=9
-    assert any(c["mode"] == "w" and c["compresslevel"] == 9 for c in captured["calls"])  # build zip
-    assert any(c["mode"] == "a" and c["compresslevel"] == 9 for c in captured["calls"])  # metadata
+    # הזיפ נבנה בפעולת כתיבה אחת עם compresslevel=9
+    assert any(c["mode"] == "w" and c["compresslevel"] == 9 for c in captured["calls"])
+    # ואין פתיחה שנייה במצב 'a': metadata.json כבר לא מוזרק כאן. שכבת האחסון
+    # מוסיפה אותו בעצמה לגיבוי (save_backup_bytes), ולסקיל הוא אסור — ארכיון
+    # עם קובץ זר בשורש אינו סקיל תקין להתקנה.
+    assert not any(c["mode"] == "a" for c in captured["calls"])

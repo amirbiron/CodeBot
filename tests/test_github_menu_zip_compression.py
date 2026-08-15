@@ -28,7 +28,7 @@ async def test_download_zip_folder_uses_high_compression(monkeypatch):
     class _Repo:
         name = "r"
         full_name = "o/r"
-        def get_contents(self, path):
+        def get_contents(self, path, ref=None):
             if not path:
                 return [_Item('file', 'a.txt', len(b'a'), b'a')]
             return [_Item('file', 'b.txt', len(b'bb'), b'bb')]
@@ -61,14 +61,29 @@ async def test_download_zip_folder_uses_high_compression(monkeypatch):
         async def edit_message_text(self, *a, **k):
             return None
 
-    upd = types.SimpleNamespace(callback_query=_Q(), effective_user=types.SimpleNamespace(id=5))
-    ctx = types.SimpleNamespace(user_data={})
+    query = _Q()
+    upd = types.SimpleNamespace(
+        callback_query=query,
+        effective_user=types.SimpleNamespace(id=5),
+        effective_message=query.message,
+    )
+    ctx = types.SimpleNamespace(user_data={}, bot_data={})
 
     # Force the "build local zip" branch by providing a non-empty path
     def _get_path_from_cb(context, data, prefix):
         return "folder"
     monkeypatch.setattr(handler, "_get_path_from_cb", _get_path_from_cb)
 
+    await handler.handle_menu_callback(upd, ctx)
+
+    # האריזה נעצרת עכשיו על שאלת היעד — משלימים את שני המסכים כדי להגיע לקובץ.
+    # מפאטצ'ים את השמירה כדי שהטסט לא ייגע באחסון אמיתי, וכדי שהניקוי של הקובץ
+    # הזמני (שרץ רק בשמירה מוצלחת) אכן יקרה.
+    monkeypatch.setattr(gh.skill_manager, "save_skill_bytes", lambda *a, **k: "sid")
+    token = next(iter(ctx.user_data["ghzip_pending"]))
+    query.data = f"ghzip_dest_skill:{token}"
+    await handler.handle_menu_callback(upd, ctx)
+    query.data = f"ghzip_name_default:{token}"
     await handler.handle_menu_callback(upd, ctx)
 
     # Now read the produced zip from memory

@@ -75,7 +75,7 @@ from telegram.ext import (
 
 from repo_analyzer import RepoAnalyzer
 from config import config
-from file_manager import backup_manager
+from file_manager import backup_manager, skill_manager
 from utils import TelegramUtils
 try:
     # Optional backoff state
@@ -154,6 +154,31 @@ MAX_BACKUP_BYTES = _env_positive_int("MAX_BACKUP_BYTES", 500 * 1024 * 1024)  # 5
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 TELEGRAM_SAFE_TEXT_LIMIT = 4000
 TELEGRAM_TRUNCATION_NOTICE = "\n\n(✂️ חלק מהטקסט קוצר כדי לעמוד במגבלת טלגרם)"
+
+# תווים שאסורים בשמות קבצים ב-Windows/macOS/Linux, פלוס תווי בקרה
+_UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
+ZIP_FILENAME_MAX_LEN = 100
+
+
+def _safe_zip_filename(name: str) -> str:
+    """מנקה שם שהמשתמש בחר לקובץ ZIP (בלי הסיומת).
+
+    בכוונה מתירני יותר מסניטציית שם ריפו: שם ריפו חייב ASCII לפי GitHub, אבל
+    שם קובץ שנשלח בטלגרם יכול להיות בעברית — ולכן מסננים רק תווים שבאמת
+    שוברים שמות קבצים, ולא כל מה שאינו ``[A-Za-z0-9]``.
+
+    מחזיר מחרוזת ריקה כשלא נשאר שם שמיש; באחריות הקורא לבקש שם אחר.
+    """
+    raw = (name or "").strip()
+    # מסירים סיומת .zip אם המשתמש הוסיף אותה בעצמו, כדי לא לקבל "x.zip.zip"
+    if raw.lower().endswith(".zip"):
+        raw = raw[:-4]
+    cleaned = _UNSAFE_FILENAME_RE.sub("-", raw)
+    cleaned = cleaned.replace("..", "-")
+    # רצף רווחים/מקפים מתקפל לאחד, ונקודות ומקפים בקצוות יורדים
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = cleaned.strip(".-_ ")
+    return cleaned[:ZIP_FILENAME_MAX_LEN].strip()
 
 
 class _ZipBackupError(Exception):
@@ -446,6 +471,444 @@ class GitHubMenuHandler:
             return notice_text
         trimmed = _trim_html_preserving_entities(combined, available)
         return f"{trimmed}{notice_text}"
+
+    # מספר ה-ZIPים הממתינים לבחירה שנשמרים למשתמש בו-זמנית
+    MAX_PENDING_ZIPS = 5
+
+    @staticmethod
+    def _evict_stale_pending_zips(pending: Dict[str, Any]) -> None:
+        """מנקה ממתינים פגי-תוקף ומחזיק את המפה תחת תקרה.
+
+        הזרימה מייצרת קובץ זמני בכל אריזה, ולחיצות חוזרות היו מצטברות עד שה-TTL
+        פג. אותן הגנות קיימות בפלואו העלאת ה-ZIP (``handlers/documents.py``).
+        """
+        from utils import PENDING_ZIP_TTL_SECONDS, cleanup_pending_zip
+
+        try:
+            now_ts = int(datetime.now(timezone.utc).timestamp())
+            for tok in [
+                t
+                for t, m in pending.items()
+                if now_ts - int((m or {}).get("ts", 0)) > PENDING_ZIP_TTL_SECONDS
+            ]:
+                cleanup_pending_zip((pending.get(tok) or {}).get("path", ""))
+                pending.pop(tok, None)
+
+            overflow = len(pending) - GitHubMenuHandler.MAX_PENDING_ZIPS + 1
+            if overflow > 0:
+                oldest = sorted(pending.items(), key=lambda kv: int((kv[1] or {}).get("ts", 0)))
+                for tok, meta in oldest[:overflow]:
+                    cleanup_pending_zip((meta or {}).get("path", ""))
+                    pending.pop(tok, None)
+        except Exception as e:
+            # ניקוי הוא best-effort; כשל בו לא צריך למנוע מהמשתמש לארוז
+            logger.debug(f"pending-zip eviction skipped: {e}")
+
+    @staticmethod
+    def _zip_button_label(path: str) -> str:
+        """תווית כפתור האריזה — מציינת במפורש מה ייארז."""
+        if not path:
+            return "📦 הורד תיקייה כ־ZIP (כל הריפו)"
+        name = path.split("/")[-1]
+        if len(name) > 22:
+            name = name[:21] + "…"
+        return f'📦 הורד תיקייה כ־ZIP: "{name}"'
+
+    async def _ask_zip_destination(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        zip_bytes: bytes,
+        default_filename: str,
+        metadata: Dict[str, Any],
+        total_files: int,
+        total_bytes: int,
+        skipped_large: int,
+        skipped_limits: int = 0,
+    ) -> None:
+        """מסך ראשון: לאן לשמור את ה-ZIP שנארז.
+
+        הבייטים מונחים בקובץ זמני (``pending_zip``) ולא נשמרים לשום יעד עד
+        שהמשתמש בוחר. ה-token הוא uuid hex, כך שה-callback_data נשאר הרבה מתחת
+        למגבלת 64 הבייטים ואין צורך במיפוי אינדקסים.
+        """
+        import uuid as _uuid
+
+        from utils import cleanup_stale_pending_zips, stash_pending_zip_bytes
+
+        query = update.callback_query
+
+        try:
+            await asyncio.to_thread(cleanup_stale_pending_zips)
+        except Exception as e:
+            # ניקוי עצל — כשל בו לא צריך למנוע את האריזה
+            logger.debug(f"stale pending-zip sweep skipped: {e}")
+
+        token = _uuid.uuid4().hex
+        try:
+            path = await asyncio.to_thread(stash_pending_zip_bytes, zip_bytes, token)
+        except Exception as err:
+            logger.warning("Failed to stash GitHub ZIP: %s", err)
+            await TelegramUtils.safe_edit_message_text(
+                query, "❌ שגיאה בהכנת הקובץ. נסה/י שוב."
+            )
+            return
+
+        pending = context.user_data.setdefault("ghzip_pending", {})
+        self._evict_stale_pending_zips(pending)
+        pending[token] = {
+            "path": path,
+            "default_filename": default_filename,
+            "metadata": metadata,
+            "total_files": total_files,
+            "total_bytes": total_bytes,
+            "skipped_large": skipped_large,
+            "skipped_limits": skipped_limits,
+            "ts": int(datetime.now(timezone.utc).timestamp()),
+        }
+
+        folder = metadata.get("path") or metadata.get("repo") or ""
+        display = folder.split("/")[-1] if folder else str(metadata.get("repo") or "")
+        ref_label = safe_html_escape(str(metadata.get("ref") or ""))
+        lines = [
+            f"📦 ארזתי את <code>{safe_html_escape(display)}</code>",
+            f"{total_files} קבצים, {format_bytes(total_bytes)} · ענף: <code>{ref_label}</code>",
+        ]
+        if skipped_large:
+            lines.append(
+                f"⚠️ דילגתי על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})"
+            )
+        if skipped_limits:
+            lines.append(f"⚠️ דילגתי על {skipped_limits} קבצים נוספים — הארכיון הגיע לתקרה")
+        lines += [
+            "",
+            "איפה לשמור אותו?",
+            "",
+            "🧩 <b>בקטגוריית סקילים</b> — נשמר בדיוק כמו שהוא, בלי קובץ מטא-דאטה בפנים",
+            "📦 <b>בקטגוריית גיבויים</b> — אפשר לשחזר ממנו את התיקייה לגיטהאב דרך הבוט",
+        ]
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🧩 סקיל", callback_data=f"ghzip_dest_skill:{token}"),
+                InlineKeyboardButton("📦 גיבוי", callback_data=f"ghzip_dest_backup:{token}"),
+            ],
+            [InlineKeyboardButton("❌ ביטול", callback_data=f"ghzip_cancel:{token}")],
+        ])
+        await TelegramUtils.safe_edit_message_text(
+            query, "\n".join(lines), reply_markup=kb, parse_mode="HTML"
+        )
+
+    async def _ask_zip_name(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, token: str
+    ) -> None:
+        """מסך שני: לאשר את שם התיקייה או לבחור שם אחר."""
+        query = update.callback_query
+        entry = (context.user_data.get("ghzip_pending") or {}).get(token) or {}
+        default_filename = entry.get("default_filename") or "archive.zip"
+        base = default_filename[:-4] if default_filename.lower().endswith(".zip") else default_filename
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"✅ כן, שמור בשם {base}", callback_data=f"ghzip_name_default:{token}")],
+            [InlineKeyboardButton("✏️ שם אחר", callback_data=f"ghzip_name_custom:{token}")],
+            [InlineKeyboardButton("❌ ביטול", callback_data=f"ghzip_cancel:{token}")],
+        ])
+        await TelegramUtils.safe_edit_message_text(
+            query,
+            "לשמור לך את הזיפ עם השם של התיקייה בגיטהאב?\n"
+            f"<code>{safe_html_escape(default_filename)}</code>\n\n"
+            "או שאתה רוצה לבחור עכשיו שם אחר?",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+
+    async def _handle_zip_choice(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, data: str
+    ) -> None:
+        """מנתב את הבחירות שאחרי אריזת התיקייה (``ghzip_*``)."""
+        from utils import cleanup_pending_zip
+
+        # ה-callback כבר נענה ב-handle_menu_callback (safe_answer); מענה שני
+        # לאותו query מחזיר שגיאה מטלגרם
+        query = update.callback_query
+        action, _, token = data.partition(":")
+        pending = context.user_data.setdefault("ghzip_pending", {})
+        entry = pending.get(token)
+
+        if action == "ghzip_cancel":
+            if entry:
+                cleanup_pending_zip(entry.get("path", ""))
+                pending.pop(token, None)
+            context.user_data.pop("waiting_for_zip_custom_name", None)
+            await TelegramUtils.safe_edit_message_text(query, "🚫 בוטל. הקובץ לא נשמר.")
+            return
+
+        if not entry:
+            # ה-token פג (TTL של שעה) או שהבוט אותחל — אין בייטים לשחזר
+            await TelegramUtils.safe_edit_message_text(
+                query, "⌛ הקובץ פג. אפשר לארוז אותו שוב מהדפדפן."
+            )
+            return
+
+        if action in ("ghzip_dest_skill", "ghzip_dest_backup"):
+            entry["dest"] = "skill" if action.endswith("skill") else "backup"
+            await self._ask_zip_name(update, context, token)
+            return
+
+        if action == "ghzip_name_custom":
+            context.user_data["waiting_for_zip_custom_name"] = token
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                "✏️ שלח עכשיו את השם החדש לזיפ.\n"
+                "בלי הסיומת <code>.zip</code> — אני אוסיף אותה.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("❌ ביטול", callback_data=f"ghzip_cancel:{token}")]]
+                ),
+                parse_mode="HTML",
+            )
+            return
+
+        if action == "ghzip_name_default":
+            await self._finalize_zip(update, context, token, entry.get("default_filename"))
+
+    async def _finalize_zip_from_message(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        token: str,
+        filename: str,
+    ) -> None:
+        """גרסת הסיום שמופעלת מהודעת טקסט (אחרי '✏️ שם אחר').
+
+        נבדלת רק בסיום: אין ``callback_query`` לערוך, ולכן במקום לנווט לדפדפן
+        או לרשימת הגיבויים נשלח כפתור חזרה.
+        """
+        await self._finalize_zip(update, context, token, filename, from_message=True)
+
+    async def _finalize_zip(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        token: str,
+        filename: str,
+        *,
+        from_message: bool = False,
+    ) -> None:
+        """שולח את ה-ZIP ושומר אותו ליעד שנבחר.
+
+        זו הנקודה היחידה שבה משהו נשמר. הקובץ הזמני מנוקה רק אחרי שמירה
+        מוצלחת — בכשל הוא נשאר כדי לאפשר ניסיון חוזר, כמו בפלואו העלאת ה-ZIP.
+        """
+        from utils import cleanup_pending_zip, load_pending_zip_bytes
+
+        query = update.callback_query
+        target = update.effective_message
+        user_id = update.effective_user.id
+        pending = context.user_data.setdefault("ghzip_pending", {})
+        entry = pending.get(token) or {}
+        raw = await asyncio.to_thread(load_pending_zip_bytes, entry.get("path", ""))
+        if raw is None:
+            expired = "⌛ הקובץ פג. אפשר לארוז אותו שוב מהדפדפן."
+            if from_message or query is None:
+                await target.reply_text(expired)
+            else:
+                await TelegramUtils.safe_edit_message_text(query, expired)
+            pending.pop(token, None)
+            return
+
+        metadata = entry.get("metadata") or {}
+        dest = entry.get("dest") or "backup"
+        total_files = int(entry.get("total_files") or 0)
+        total_bytes = int(entry.get("total_bytes") or 0)
+        skipped_large = int(entry.get("skipped_large") or 0)
+        skipped_limits = int(entry.get("skipped_limits") or 0)
+
+        caption = (
+            f"📦 {filename}\n"
+            f"{total_files} קבצים, {format_bytes(total_bytes)} · ענף: {metadata.get('ref') or ''}"
+        )
+        if skipped_large:
+            caption += f"\n⚠️ דילגתי על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
+        if skipped_limits:
+            caption += f"\n⚠️ דילגתי על {skipped_limits} קבצים נוספים — הארכיון הגיע לתקרה."
+
+        # שמירה חד-פעמית: reply_document עלול להיכשל (ארכיון בגבול מגבלת טלגרם)
+        # אחרי שהשמירה כבר הצליחה. בלי הדגל, לחיצה חוזרת על אותו token הייתה
+        # יוצרת גיבוי/סקיל שני לאותו ארכיון.
+        if entry.get("persisted"):
+            saved = True
+        else:
+            saved = await self._persist_zip(context, raw, entry, filename, user_id)
+            if saved:
+                entry["persisted"] = True
+        if dest == "skill":
+            caption += "\n🧩 נשמר בקטגוריית הסקילים." if saved else "\n⚠️ הקובץ נשלח אבל השמירה כסקיל נכשלה."
+        else:
+            caption += "\n💾 נשמר ברשימת הגיבויים." if saved else "\n⚠️ הקובץ נשלח אבל השמירה כגיבוי נכשלה."
+
+        await target.reply_document(
+            document=BytesIO(raw), filename=filename, caption=caption
+        )
+
+        if saved:
+            cleanup_pending_zip(entry.get("path", ""))
+            pending.pop(token, None)
+        context.user_data.pop("waiting_for_zip_custom_name", None)
+
+        if from_message:
+            # אין הודעת כפתורים לערוך, ו-show_repo_browser/_show_backups_list
+            # דורשים callback_query — אז מציעים חזרה מפורשת
+            await target.reply_text(
+                "אפשר להמשיך מכאן:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🗂 חזרה לדפדפן", callback_data="gh_download_file_menu")],
+                    [InlineKeyboardButton("🔙 תפריט GitHub", callback_data="github_menu")],
+                ]),
+            )
+            return
+
+        # מסך הדירוג שייך לגיבוי שנשמר בלבד: backup_id של גיבוי שנכשל מפנה
+        # לרשומה שאינה קיימת, וכפתורי התיוג/הערה היו נשברים עליה.
+        if dest == "skill" or not saved:
+            # חזרה לדפדפן: רשימת הגיבויים אינה המקום שאליו שמרנו.
+            # רק "message is not modified" נבלע, כמו בכל שאר הקריאות בקובץ —
+            # שגיאת ניווט אמיתית (הודעה ישנה מדי, כשל parse) חייבת להתגלגל.
+            try:
+                await self.show_repo_browser(update, context)
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+            return
+
+        await self._show_backup_rating_prompt(update, context, metadata, total_bytes)
+
+    async def _persist_zip(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        raw: bytes,
+        entry: Dict[str, Any],
+        filename: str,
+        user_id: int,
+    ) -> bool:
+        """שומר את ה-ZIP ליעד שנבחר ומחזיר האם השמירה הצליחה.
+
+        מופרד מ-``_finalize_zip`` כדי להשאיר שם רק את רצף ה-UI: טעינה, שליחה,
+        ניקוי וניווט.
+        """
+        metadata = entry.get("metadata") or {}
+        dest = entry.get("dest") or "backup"
+
+        if dest == "skill":
+            md = {
+                "user_id": user_id,
+                "original_name": filename,
+                "file_count": int(entry.get("total_files") or 0),
+                "source": "github_folder_zip",
+                "repo": metadata.get("repo"),
+                "path": metadata.get("path"),
+                "ref": metadata.get("ref"),
+            }
+            try:
+                return bool(await asyncio.to_thread(skill_manager.save_skill_bytes, raw, md))
+            except Exception as e:
+                logger.warning(f"Failed to persist GitHub ZIP as skill: {e}")
+                return False
+
+        try:
+            # save_backup_bytes בולע חריגות ומחזיר None בכשל — בלי לבדוק את ערך
+            # ההחזרה היינו מוחקים את הקובץ הזמני ומדווחים הצלחה כוזבת
+            saved_id = await asyncio.to_thread(backup_manager.save_backup_bytes, raw, metadata)
+        except Exception as e:
+            logger.warning(f"Failed to persist GitHub ZIP: {e}")
+            self._emit_zip_persist_error(str(e), metadata)
+            return False
+
+        if not saved_id:
+            logger.warning("save_backup_bytes returned None for GitHub ZIP")
+            self._emit_zip_persist_error("save_backup_bytes returned None", metadata)
+            return False
+
+        self._cache_recent_backup(
+            context,
+            backup_id=metadata.get("backup_id"),
+            repo_full_name=metadata.get("repo"),
+            path=metadata.get("path") or "",
+            file_count=int(entry.get("total_files") or 0),
+            total_size=int(entry.get("total_bytes") or 0),
+            created_at=metadata.get("created_at"),
+        )
+        return True
+
+    @staticmethod
+    def _emit_zip_persist_error(error: str, metadata: Dict[str, Any]) -> None:
+        """טלמטריה לכשל שמירה — best-effort, לא מפילה את הזרימה."""
+        try:
+            emit_event(
+                "github_zip_persist_error",
+                severity="warn",
+                error=error,
+                repo=str(metadata.get("repo") or ""),
+            )
+        except Exception as e:
+            # טלמטריה היא best-effort ולא חלק מהחוזה מול המשתמש
+            logger.debug(f"emit github_zip_persist_error failed: {e}")
+
+    async def _show_backup_rating_prompt(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        metadata: Dict[str, Any],
+        total_bytes: int,
+    ) -> None:
+        """שורת סיכום + כפתורי תיוג, ואז מעבר לרשימת הגיבויים."""
+        target = update.effective_message
+        user_id = update.effective_user.id
+        backup_id = metadata.get("backup_id")
+        repo_full = str(metadata.get("repo") or "")
+        try:
+            date_str = datetime.now(timezone.utc).strftime('%d/%m/%y %H:%M')
+            repo_short = repo_full.split("/")[-1] if repo_full else ""
+            summary_line = f"⬇️ backup zip {repo_short} – {date_str} – {format_bytes(total_bytes)}"
+            existing_note = ""
+            try:
+                facade = _get_files_facade()
+                if facade is not None:
+                    existing_note = facade.get_backup_note(user_id, str(backup_id)) or ""
+            except Exception:
+                existing_note = ""
+            note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
+            kb = [
+                [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
+                [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
+                [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                [InlineKeyboardButton(note_btn_text, callback_data=f"backup_add_note:{backup_id}")],
+            ]
+            msg = await target.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
+            try:
+                s = context.user_data.setdefault("backup_summaries", {})
+                s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
+            except Exception as e:
+                logger.debug(f"caching backup summary failed: {e}")
+        except Exception as e:
+            # שורת הסיכום היא תוספת; הקובץ כבר נשלח והגיבוי כבר נשמר
+            logger.warning(f"Failed to show backup rating prompt: {e}")
+
+        try:
+            backup_handler = context.bot_data.get('backup_handler')
+            if backup_handler is None:
+                from backup_menu_handler import BackupMenuHandler
+                backup_handler = BackupMenuHandler()
+                context.bot_data['backup_handler'] = backup_handler
+            context.user_data['zip_back_to'] = 'github'
+            context.user_data['github_backup_context_repo'] = repo_full
+            context.user_data['backup_highlight_id'] = backup_id
+            await backup_handler._show_backups_list(update, context, page=1)
+        except Exception:
+            try:
+                await self.show_repo_browser(update, context)
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
 
     def _cache_recent_backup(
         self,
@@ -3280,10 +3743,39 @@ class GitHubMenuHandler:
                                     raise
                     return
 
+                # הענף שהמשתמש בחר בדפדפן — אותה נגזרת כמו ב-show_repo_browser.
+                # בלעדיה האריזה הייתה מושכת תמיד מענף ברירת המחדל, בזמן שהדפדפן
+                # מציג ענף אחר: המשתמש היה מקבל תוכן של ענף שלא ביקש, בלי שום סימן.
+                current_ref = context.user_data.get("browse_ref") or (
+                    getattr(repo, "default_branch", None) or "main"
+                )
+
+                def _contents_at_ref_blocking(target_path: str):
+                    """תוכן הנתיב בענף שנבחר. קריאת רשת חוסמת — ראו העטיפה למטה.
+
+                    נפילה לקריאה בלי ``ref`` מותרת רק כשהחתימה עצמה לא נתמכת
+                    (PyGithub ישן/סטאב בטסטים). ref שגוי חייב להתפוצץ ולא ליפול
+                    בשקט לענף אחר — זו בדיוק התקלה שהתיקון הזה סוגר.
+                    """
+                    try:
+                        return repo.get_contents(target_path or "", ref=current_ref)
+                    except TypeError:
+                        return repo.get_contents(target_path or "")
+
+                async def _contents_at_ref(target_path: str):
+                    """PyGithub סינכרוני, ולולאת האריזה עוברת על כל קובץ בנפרד.
+
+                    בלי ה-thread כל קריאת רשת הייתה חוסמת את ה-event loop ומעכבת
+                    את שאר עדכוני הבוט — בדיוק כמו ``g.get_repo`` ו-
+                    ``_download_and_persist_repo_zip`` בזרימה הזו.
+                    """
+                    return await asyncio.to_thread(_contents_at_ref_blocking, target_path)
+
                 zip_buffer = BytesIO()
                 total_bytes = 0
                 total_files = 0
-                skipped_large = 0
+                skipped_large = 0   # קובץ בודד מעל MAX_INLINE_FILE_BYTES
+                skipped_limits = 0  # חריגה מתקרת הכמות/הגודל הכולל של הארכיון
                 with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     # קבע שם תיקיית השורש בתוך ה-ZIP
                     zip_root = repo.name if not current_path else current_path.split("/")[-1]
@@ -3299,7 +3791,7 @@ class GitHubMenuHandler:
                             path, rel_prefix = stack.pop()
                             # הגנה מפני מחזורי תיקיות או API בעייתי שמוביל לרקורסיה
                             try:
-                                contents = repo.get_contents(path or "")
+                                contents = await _contents_at_ref(path)
                             except RecursionError:
                                 # דלג על הנתיב הבעייתי והמשך לבאים
                                 continue
@@ -3317,11 +3809,20 @@ class GitHubMenuHandler:
                                     await self.apply_rate_limit_delay(user_id)
                                     stack.append((next_path, f"{rel_prefix}{item.name}/"))
                                 elif item.type == "file":
+                                    nonlocal total_bytes, total_files, skipped_large
+                                    nonlocal skipped_limits
+                                    # התקרה נבדקת לפני השליפה: כל קובץ עולה קריאת
+                                    # רשת + השהיית rate-limit, ובריפו גדול המשיכה
+                                    # אחרי התקרה מבזבזת דקות ומכסת API על תוכן
+                                    # שנזרק מיד
+                                    if total_files >= MAX_ZIP_FILES:
+                                        skipped_limits += 1
+                                        continue
                                     await self.apply_rate_limit_delay(user_id)
                                     # שלוף אובייקט קובץ מלא מה-API (עם תוכן), ונפילה נעימה לנתונים שכבר קיימים ב-item
                                     file_obj = None
                                     try:
-                                        fetched = repo.get_contents(item.path)
+                                        fetched = await _contents_at_ref(item.path)
                                         if isinstance(fetched, list):
                                             fetched = fetched[0] if fetched else None
                                         file_obj = fetched
@@ -3342,13 +3843,13 @@ class GitHubMenuHandler:
                                         file_size = int(getattr(item, "size", 0) or 0)
                                     if not file_size and isinstance(data, (bytes, bytearray)):
                                         file_size = len(data)
-                                    nonlocal total_bytes, total_files, skipped_large
                                     if file_size > MAX_INLINE_FILE_BYTES:
                                         skipped_large += 1
                                         continue
-                                    if total_files >= MAX_ZIP_FILES:
-                                        continue
+                                    # דילוגים בגלל תקרת הארכיון נספרים גם הם: בלי זה
+                                    # המשתמש מקבל ZIP חסר בלי שום סימן שמשהו נחתך
                                     if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
+                                        skipped_limits += 1
                                         continue
                                     if data is None:
                                         # לא הצלחנו להשיג תוכן – דלג על הקובץ בבטחה
@@ -3359,9 +3860,20 @@ class GitHubMenuHandler:
                                     total_files += 1
 
                     await walk_and_zip(current_path, "")
-                # הוסף metadata.json
+
+                # ה-metadata נבנה כאן אבל **לא** נכתב לתוך הארכיון: הזיפ יוצא נקי,
+                # וכל יעד אחסון מוסיף לעצמו את מה שהוא צריך. save_backup_bytes מזריק
+                # metadata.json בעצמו (file_manager.py), ו-save_skill_bytes שומר
+                # byte-for-byte בלי להזריק — כך שסקיל יוצא תקין להתקנה בקלוד.
                 metadata = {
-                    "backup_id": f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                    # הסיומת האקראית אינה קישוט: save_backup_bytes שומר לקובץ בשם
+                    # {backup_id}.zip ומוחק רשומה קיימת עם אותו שם, ולכן שתי
+                    # אריזות באותה שנייה היו מוחקות זו את זו בשקט. זהה למסלול
+                    # הריפו המלא ב-_download_and_persist_repo_zip.
+                    "backup_id": (
+                        f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}"
+                        f"_{secrets.token_hex(4)}"
+                    ),
                     "user_id": user_id,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "backup_type": "github_repo_zip",
@@ -3369,81 +3881,56 @@ class GitHubMenuHandler:
                     "file_count": total_files,
                     "created_by": "Code Keeper Bot",
                     "repo": repo.full_name,
-                    "path": current_path or ""
+                    "path": current_path or "",
+                    "ref": current_ref,
                 }
-                with zipfile.ZipFile(zip_buffer, 'a', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
-                    zipf.writestr("metadata.json", json.dumps(metadata, indent=2))
+                if total_files == 0:
+                    # ארכיון ריק אינו שימושי, והצעה לשמור אותו רק מסתירה את הסיבה.
+                    # הסיבה חשובה: "הנתיב לא קיים" ו"כל הקבצים גדולים מדי" דורשים
+                    # פעולות שונות לגמרי מהמשתמש.
+                    # נבדק skipped_large בלבד: דילוג בגלל תקרת הארכיון מחייב
+                    # שכבר נארז לפחות קובץ אחד (או קובץ מעל 50MB, שנתפס קודם
+                    # במגבלת ה-5MB לקובץ בודד), ולכן אינו אפשרי כאן.
+                    if skipped_large:
+                        await TelegramUtils.safe_edit_message_text(
+                            query,
+                            "❌ כל הקבצים בתיקייה דולגו בגלל מגבלות גודל.\n"
+                            f"המגבלה לקובץ בודד היא {format_bytes(MAX_INLINE_FILE_BYTES)}.",
+                        )
+                    else:
+                        await TelegramUtils.safe_edit_message_text(
+                            query,
+                            "❌ לא נמצאו קבצים לאריזה.\n"
+                            f"בדוק שהנתיב <code>{safe_html_escape(current_path)}</code> קיים "
+                            f"בענף <code>{safe_html_escape(str(current_ref))}</code>.",
+                            parse_mode="HTML",
+                        )
+                    return
 
                 zip_buffer.seek(0)
-                # שם ידידותי ל-folder/repo
-                try:
-                    infos = backup_manager.list_backups(user_id)
-                except Exception:
-                    infos = []
-                version_number = self._resolve_backup_version(
-                    context,
-                    repo.full_name,
-                    infos,
-                    metadata.get("backup_id"),
-                )
-                date_str = datetime.now(timezone.utc).strftime('%d-%m-%y %H.%M')
-                name_part = repo.name if not current_path else current_path.split('/')[-1]
-                filename = f"BKP zip {name_part} v{version_number} - {date_str}.zip"
+                # שם ברירת המחדל הוא פשוט שם התיקייה שנארזה — זה מה שהמשתמש מצפה
+                # לראות. אם ייבחר "שם אחר", הוא יוחלף בשלב הבא.
+                default_name = repo.name if not current_path else current_path.split('/')[-1]
+                # _safe_zip_filename עשוי להחזיר ריק (שם שכולו תווים אסורים);
+                # בלי ה-fallback היינו מציגים כפתור "שמור בשם" ריק ושולחים ".zip"
+                filename = f"{_safe_zip_filename(default_name) or 'archive'}.zip"
                 zip_buffer.name = filename
-                caption = (
-                    f"📦 קובץ ZIP לתיקייה: /{current_path or ''}\n"
-                    f"מכיל {total_files} קבצים, {format_bytes(total_bytes)}.\n"
-                    f"💾 נשמר ברשימת הגיבויים."
+
+                # כאן נעצרים ושואלים. שום דבר עוד לא נשמר: הבייטים מונחים בקובץ
+                # זמני (אותו מנגנון pending_zip של פלואו העלאת ZIP, כולל TTL וניקוי
+                # בטוח), וה-callback שיבחר את היעד הוא זה שישמור בפועל.
+                await self._ask_zip_destination(
+                    update,
+                    context,
+                    zip_bytes=zip_buffer.getvalue(),
+                    default_filename=filename,
+                    metadata=metadata,
+                    total_files=total_files,
+                    total_bytes=total_bytes,
+                    skipped_large=skipped_large,
+                    skipped_limits=skipped_limits,
                 )
-                if skipped_large:
-                    caption += f"\n⚠️ דילג על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
-                # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
-                try:
-                    backup_manager.save_backup_bytes(zip_buffer.getvalue(), metadata)
-                    self._cache_recent_backup(context, backup_id=metadata.get("backup_id"), repo_full_name=repo.full_name, path=current_path or "", file_count=total_files, total_size=total_bytes, created_at=metadata.get("created_at"))
-                except Exception as e:
-                    logger.warning(f"Failed to persist GitHub ZIP: {e}")
-                    try:
-                        emit_event(
-                            "github_zip_persist_error",
-                            severity="warn",
-                            error=str(e),
-                            repo=str(getattr(repo, "full_name", "")),
-                        )
-                    except Exception:
-                        pass
-                await query.message.reply_document(
-                    document=zip_buffer, filename=filename, caption=caption
-                )
-                # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
-                try:
-                    backup_id = metadata.get("backup_id")
-                    date_str = datetime.now(timezone.utc).strftime('%d/%m/%y %H:%M')
-                    v_text = f"(v{version_number}) " if version_number else ""
-                    summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
-                    try:
-                        existing_note = ""
-                        facade = _get_files_facade()
-                        if facade is not None:
-                            existing_note = facade.get_backup_note(user_id, str(backup_id)) or ""
-                    except Exception:
-                        existing_note = ""
-                    note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
-                    kb = [
-                        [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
-                        [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
-                        [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
-                        [InlineKeyboardButton(note_btn_text, callback_data=f"backup_add_note:{backup_id}")],
-                    ]
-                    msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
-                    try:
-                        s = context.user_data.setdefault("backup_summaries", {})
-                        s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
-                    except Exception:
-                        pass
-                    # Rating buttons already attached above; no need to call external handler
-                except Exception:
-                    pass
+                return
             except Exception as e:
                 # לוג כולל traceback כדי לאבחן כשלים נדירים (למשל רקורסיה)
                 logger.exception(f"Error creating ZIP: {e}")
@@ -3464,27 +3951,11 @@ class GitHubMenuHandler:
                     if "message is not modified" not in str(br).lower():
                         raise
                 return
-            # החזר לדפדפן באותו מקום
-            # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים עבור הריפו הנוכחי
-            try:
-                backup_handler = context.bot_data.get('backup_handler')
-                if backup_handler is None:
-                    from backup_menu_handler import BackupMenuHandler
-                    backup_handler = BackupMenuHandler()
-                    context.bot_data['backup_handler'] = backup_handler
-                try:
-                    context.user_data['zip_back_to'] = 'github'
-                    context.user_data['github_backup_context_repo'] = repo.full_name
-                    context.user_data['backup_highlight_id'] = metadata.get('backup_id')
-                except Exception:
-                    pass
-                await backup_handler._show_backups_list(update, context, page=1)
-            except Exception as br:
-                try:
-                    await self.show_repo_browser(update, context)
-                except BadRequest as br2:
-                    if "message is not modified" not in str(br2).lower():
-                        raise
+
+        elif query.data.startswith("ghzip_"):
+            # מסכי הבחירה שאחרי אריזת התיקייה (יעד ← שם ← שליחה ושמירה)
+            await self._handle_zip_choice(update, context, query.data)
+            return
 
         elif query.data.startswith("inline_download_file:"):
             # הורדת קובץ שנבחר דרך אינליין
@@ -5022,6 +5493,20 @@ class GitHubMenuHandler:
             await self.analyze_repository(update, context, text)
             return True
 
+        # שם מותאם ל-ZIP של תיקייה מגיטהאב (מתוך '✏️ שם אחר')
+        if context.user_data.get("waiting_for_zip_custom_name"):
+            token = context.user_data["waiting_for_zip_custom_name"]
+            safe = _safe_zip_filename(text or "")
+            if not safe:
+                # הדגל נשאר דולק כדי ששם לא תקין לא יזרוק מהזרימה
+                await update.message.reply_text(
+                    "❌ השם הזה לא שמיש כשם קובץ. שלח/י שם אחר."
+                )
+                return True
+            context.user_data.pop("waiting_for_zip_custom_name", None)
+            await self._finalize_zip_from_message(update, context, token, f"{safe}.zip")
+            return True
+
         # הזנת שם ריפו חדש לזרימת יצירה מּZIP
         if context.user_data.get("waiting_for_new_repo_name"):
             # נקה את מצב ההמתנה
@@ -6164,7 +6649,12 @@ class GitHubMenuHandler:
         # סדר כפתורים לשורות כדי למנוע צפיפות
         row = []
         if (not folder_selecting) and context.user_data.get("browse_action") == "download":
-            row.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=self._mk_cb(context, "download_zip", path or "")))
+            # התווית אומרת במפורש איזו תיקייה תיארז — זו שעומדים בה, לא זו שמסומנת
+            # ברשימה. בלי זה קל ללחוץ מתוך תיקיית-אב ולקבל אותה במקום את הבת.
+            row.append(InlineKeyboardButton(
+                self._zip_button_label(path),
+                callback_data=self._mk_cb(context, "download_zip", path or ""),
+            ))
         if len(row) >= 1:
             keyboard.append(row)
         row = []
