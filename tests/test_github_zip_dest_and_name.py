@@ -247,6 +247,49 @@ async def test_empty_archive_is_reported_instead_of_offered(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_all_files_too_large_says_so(monkeypatch):
+    """כשכל הקבצים דולגו בגלל גודל — לא לשלוח את המשתמש לבדוק את הנתיב.
+
+    "הנתיב לא קיים" ו"הקבצים גדולים מדי" דורשים פעולות שונות לגמרי, והודעה
+    אחת לשניהם שולחת לחפש במקום הלא נכון.
+    """
+    import github_menu_handler as gh
+
+    handler, upd, ctx, repo = _make(monkeypatch)
+    monkeypatch.setattr(gh, "MAX_INLINE_FILE_BYTES", 1)  # כל קובץ חורג
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=5.0)
+
+    assert not ctx.user_data.get("ghzip_pending")
+    edits = " ".join(t or "" for t in upd.callback_query.edits)
+    assert "מגבלות גודל" in edits, edits
+    assert "בדוק שהנתיב" not in edits, "הודעה מטעה: הנתיב תקין"
+
+
+@pytest.mark.asyncio
+async def test_archive_cap_skips_are_counted(monkeypatch):
+    """דילוג בגלל תקרת הארכיון נספר ומדווח, ולא נעלם בשקט.
+
+    בלי המונה המשתמש מקבל ZIP חסר בלי שום סימן שמשהו נחתך.
+    """
+    import github_menu_handler as gh
+
+    monkeypatch.setattr(gh, "MAX_ZIP_FILES", 1)  # רק הקובץ הראשון נכנס
+    monkeypatch.setattr(gh.skill_manager, "save_skill_bytes", lambda *a, **k: "sid")
+
+    handler, upd, ctx, _ = _make(monkeypatch)
+    token = await _pack(handler, upd, ctx)
+
+    entry = ctx.user_data["ghzip_pending"][token]
+    assert entry["total_files"] == 1
+    assert entry["skipped_limits"] >= 1, "דילוג בגלל תקרה לא נספר"
+    assert any("תקרה" in (t or "") for t in upd.callback_query.edits)
+
+    await _choose(handler, upd, ctx, f"ghzip_dest_skill:{token}")
+    await _choose(handler, upd, ctx, f"ghzip_name_default:{token}")
+    assert "תקרה" in upd.callback_query.message.docs[-1]["caption"]
+
+
+@pytest.mark.asyncio
 async def test_github_calls_do_not_block_the_event_loop(monkeypatch):
     """קריאות PyGithub הסינכרוניות רצות ב-thread ולא על ה-event loop.
 

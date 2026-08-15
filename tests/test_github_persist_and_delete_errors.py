@@ -13,6 +13,10 @@ async def test_github_zip_persist_error_emits(monkeypatch):
 
     # Repo stub for folder zip branch
     class _FileObj:
+        # type/name נדרשים גם למסך הדפדפן שמוצג בסוף הזרימה אחרי כשל שמירה
+        type = "file"
+        name = "f.txt"
+        path = "folder/f.txt"
         size = 3
         decoded_content = b"abc"
     class _Repo:

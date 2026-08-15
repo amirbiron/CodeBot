@@ -525,6 +525,7 @@ class GitHubMenuHandler:
         total_files: int,
         total_bytes: int,
         skipped_large: int,
+        skipped_limits: int = 0,
     ) -> None:
         """מסך ראשון: לאן לשמור את ה-ZIP שנארז.
 
@@ -563,6 +564,7 @@ class GitHubMenuHandler:
             "total_files": total_files,
             "total_bytes": total_bytes,
             "skipped_large": skipped_large,
+            "skipped_limits": skipped_limits,
             "ts": int(datetime.now(timezone.utc).timestamp()),
         }
 
@@ -577,6 +579,8 @@ class GitHubMenuHandler:
             lines.append(
                 f"⚠️ דילגתי על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})"
             )
+        if skipped_limits:
+            lines.append(f"⚠️ דילגתי על {skipped_limits} קבצים נוספים — הארכיון הגיע לתקרה")
         lines += [
             "",
             "איפה לשמור אותו?",
@@ -716,6 +720,7 @@ class GitHubMenuHandler:
         total_files = int(entry.get("total_files") or 0)
         total_bytes = int(entry.get("total_bytes") or 0)
         skipped_large = int(entry.get("skipped_large") or 0)
+        skipped_limits = int(entry.get("skipped_limits") or 0)
 
         caption = (
             f"📦 {filename}\n"
@@ -723,6 +728,8 @@ class GitHubMenuHandler:
         )
         if skipped_large:
             caption += f"\n⚠️ דילגתי על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
+        if skipped_limits:
+            caption += f"\n⚠️ דילגתי על {skipped_limits} קבצים נוספים — הארכיון הגיע לתקרה."
 
         saved = await self._persist_zip(context, raw, entry, filename, user_id)
         if dest == "skill":
@@ -755,12 +762,13 @@ class GitHubMenuHandler:
         # לרשומה שאינה קיימת, וכפתורי התיוג/הערה היו נשברים עליה.
         if dest == "skill" or not saved:
             # חזרה לדפדפן: רשימת הגיבויים אינה המקום שאליו שמרנו.
-            # הקובץ כבר בידי המשתמש, ולכן כשל בניווט הוא משני ולא מצדיק
-            # לפוצץ את הזרימה — רק נרשם ללוג.
+            # רק "message is not modified" נבלע, כמו בכל שאר הקריאות בקובץ —
+            # שגיאת ניווט אמיתית (הודעה ישנה מדי, כשל parse) חייבת להתגלגל.
             try:
                 await self.show_repo_browser(update, context)
-            except Exception as nav_err:
-                logger.warning(f"Failed to return to repo browser after ZIP: {nav_err}")
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
             return
 
         await self._show_backup_rating_prompt(update, context, metadata, total_bytes)
@@ -3757,7 +3765,8 @@ class GitHubMenuHandler:
                 zip_buffer = BytesIO()
                 total_bytes = 0
                 total_files = 0
-                skipped_large = 0
+                skipped_large = 0   # קובץ בודד מעל MAX_INLINE_FILE_BYTES
+                skipped_limits = 0  # חריגה מתקרת הכמות/הגודל הכולל של הארכיון
                 with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     # קבע שם תיקיית השורש בתוך ה-ZIP
                     zip_root = repo.name if not current_path else current_path.split("/")[-1]
@@ -3817,12 +3826,17 @@ class GitHubMenuHandler:
                                     if not file_size and isinstance(data, (bytes, bytearray)):
                                         file_size = len(data)
                                     nonlocal total_bytes, total_files, skipped_large
+                                    nonlocal skipped_limits
                                     if file_size > MAX_INLINE_FILE_BYTES:
                                         skipped_large += 1
                                         continue
+                                    # דילוגים בגלל תקרת הארכיון נספרים גם הם: בלי זה
+                                    # המשתמש מקבל ZIP חסר בלי שום סימן שמשהו נחתך
                                     if total_files >= MAX_ZIP_FILES:
+                                        skipped_limits += 1
                                         continue
                                     if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
+                                        skipped_limits += 1
                                         continue
                                     if data is None:
                                         # לא הצלחנו להשיג תוכן – דלג על הקובץ בבטחה
@@ -3852,15 +3866,23 @@ class GitHubMenuHandler:
                 }
 
                 if total_files == 0:
-                    # ארכיון ריק אינו שימושי, והצעה לשמור אותו רק מסתירה את הסיבה:
-                    # לרוב ref או נתיב שכבר לא קיימים
-                    await TelegramUtils.safe_edit_message_text(
-                        query,
-                        "❌ לא נמצאו קבצים לאריזה.\n"
-                        f"בדוק שהנתיב <code>{safe_html_escape(current_path)}</code> קיים "
-                        f"בענף <code>{safe_html_escape(str(current_ref))}</code>.",
-                        parse_mode="HTML",
-                    )
+                    # ארכיון ריק אינו שימושי, והצעה לשמור אותו רק מסתירה את הסיבה.
+                    # הסיבה חשובה: "הנתיב לא קיים" ו"כל הקבצים גדולים מדי" דורשים
+                    # פעולות שונות לגמרי מהמשתמש.
+                    if skipped_large or skipped_limits:
+                        await TelegramUtils.safe_edit_message_text(
+                            query,
+                            "❌ כל הקבצים בתיקייה דולגו בגלל מגבלות גודל.\n"
+                            f"המגבלה לקובץ בודד היא {format_bytes(MAX_INLINE_FILE_BYTES)}.",
+                        )
+                    else:
+                        await TelegramUtils.safe_edit_message_text(
+                            query,
+                            "❌ לא נמצאו קבצים לאריזה.\n"
+                            f"בדוק שהנתיב <code>{safe_html_escape(current_path)}</code> קיים "
+                            f"בענף <code>{safe_html_escape(str(current_ref))}</code>.",
+                            parse_mode="HTML",
+                        )
                     return
 
                 zip_buffer.seek(0)
@@ -3884,6 +3906,7 @@ class GitHubMenuHandler:
                     total_files=total_files,
                     total_bytes=total_bytes,
                     skipped_large=skipped_large,
+                    skipped_limits=skipped_limits,
                 )
                 return
             except Exception as e:
