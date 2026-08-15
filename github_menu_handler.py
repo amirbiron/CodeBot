@@ -628,8 +628,9 @@ class GitHubMenuHandler:
         """מנתב את הבחירות שאחרי אריזת התיקייה (``ghzip_*``)."""
         from utils import cleanup_pending_zip
 
+        # ה-callback כבר נענה ב-handle_menu_callback (safe_answer); מענה שני
+        # לאותו query מחזיר שגיאה מטלגרם
         query = update.callback_query
-        await query.answer()
         action, _, token = data.partition(":")
         pending = context.user_data.setdefault("ghzip_pending", {})
         entry = pending.get(token)
@@ -731,7 +732,15 @@ class GitHubMenuHandler:
         if skipped_limits:
             caption += f"\n⚠️ דילגתי על {skipped_limits} קבצים נוספים — הארכיון הגיע לתקרה."
 
-        saved = await self._persist_zip(context, raw, entry, filename, user_id)
+        # שמירה חד-פעמית: reply_document עלול להיכשל (ארכיון בגבול מגבלת טלגרם)
+        # אחרי שהשמירה כבר הצליחה. בלי הדגל, לחיצה חוזרת על אותו token הייתה
+        # יוצרת גיבוי/סקיל שני לאותו ארכיון.
+        if entry.get("persisted"):
+            saved = True
+        else:
+            saved = await self._persist_zip(context, raw, entry, filename, user_id)
+            if saved:
+                entry["persisted"] = True
         if dest == "skill":
             caption += "\n🧩 נשמר בקטגוריית הסקילים." if saved else "\n⚠️ הקובץ נשלח אבל השמירה כסקיל נכשלה."
         else:
@@ -3800,6 +3809,15 @@ class GitHubMenuHandler:
                                     await self.apply_rate_limit_delay(user_id)
                                     stack.append((next_path, f"{rel_prefix}{item.name}/"))
                                 elif item.type == "file":
+                                    nonlocal total_bytes, total_files, skipped_large
+                                    nonlocal skipped_limits
+                                    # התקרה נבדקת לפני השליפה: כל קובץ עולה קריאת
+                                    # רשת + השהיית rate-limit, ובריפו גדול המשיכה
+                                    # אחרי התקרה מבזבזת דקות ומכסת API על תוכן
+                                    # שנזרק מיד
+                                    if total_files >= MAX_ZIP_FILES:
+                                        skipped_limits += 1
+                                        continue
                                     await self.apply_rate_limit_delay(user_id)
                                     # שלוף אובייקט קובץ מלא מה-API (עם תוכן), ונפילה נעימה לנתונים שכבר קיימים ב-item
                                     file_obj = None
@@ -3825,16 +3843,11 @@ class GitHubMenuHandler:
                                         file_size = int(getattr(item, "size", 0) or 0)
                                     if not file_size and isinstance(data, (bytes, bytearray)):
                                         file_size = len(data)
-                                    nonlocal total_bytes, total_files, skipped_large
-                                    nonlocal skipped_limits
                                     if file_size > MAX_INLINE_FILE_BYTES:
                                         skipped_large += 1
                                         continue
                                     # דילוגים בגלל תקרת הארכיון נספרים גם הם: בלי זה
                                     # המשתמש מקבל ZIP חסר בלי שום סימן שמשהו נחתך
-                                    if total_files >= MAX_ZIP_FILES:
-                                        skipped_limits += 1
-                                        continue
                                     if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
                                         skipped_limits += 1
                                         continue
@@ -3853,7 +3866,14 @@ class GitHubMenuHandler:
                 # metadata.json בעצמו (file_manager.py), ו-save_skill_bytes שומר
                 # byte-for-byte בלי להזריק — כך שסקיל יוצא תקין להתקנה בקלוד.
                 metadata = {
-                    "backup_id": f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                    # הסיומת האקראית אינה קישוט: save_backup_bytes שומר לקובץ בשם
+                    # {backup_id}.zip ומוחק רשומה קיימת עם אותו שם, ולכן שתי
+                    # אריזות באותה שנייה היו מוחקות זו את זו בשקט. זהה למסלול
+                    # הריפו המלא ב-_download_and_persist_repo_zip.
+                    "backup_id": (
+                        f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}"
+                        f"_{secrets.token_hex(4)}"
+                    ),
                     "user_id": user_id,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "backup_type": "github_repo_zip",
@@ -3864,12 +3884,14 @@ class GitHubMenuHandler:
                     "path": current_path or "",
                     "ref": current_ref,
                 }
-
                 if total_files == 0:
                     # ארכיון ריק אינו שימושי, והצעה לשמור אותו רק מסתירה את הסיבה.
                     # הסיבה חשובה: "הנתיב לא קיים" ו"כל הקבצים גדולים מדי" דורשים
                     # פעולות שונות לגמרי מהמשתמש.
-                    if skipped_large or skipped_limits:
+                    # נבדק skipped_large בלבד: דילוג בגלל תקרת הארכיון מחייב
+                    # שכבר נארז לפחות קובץ אחד (או קובץ מעל 50MB, שנתפס קודם
+                    # במגבלת ה-5MB לקובץ בודד), ולכן אינו אפשרי כאן.
+                    if skipped_large:
                         await TelegramUtils.safe_edit_message_text(
                             query,
                             "❌ כל הקבצים בתיקייה דולגו בגלל מגבלות גודל.\n"

@@ -415,6 +415,88 @@ async def test_backup_returning_none_counts_as_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_backup_id_is_unique_within_the_same_second(monkeypatch):
+    """שתי אריזות באותה שנייה חייבות לקבל backup_id שונה.
+
+    ``save_backup_bytes`` שומר לקובץ בשם ``{backup_id}.zip`` ומוחק רשומה קיימת
+    עם אותו שם — מזהה זהה היה מוחק את הגיבוי הראשון בשקט.
+    """
+    handler, upd, ctx, _ = _make(monkeypatch)
+    first = await _pack(handler, upd, ctx)
+    id_a = ctx.user_data["ghzip_pending"][first]["metadata"]["backup_id"]
+
+    handler2, upd2, ctx2, _ = _make(monkeypatch)
+    second = await _pack(handler2, upd2, ctx2)
+    id_b = ctx2.user_data["ghzip_pending"][second]["metadata"]["backup_id"]
+
+    assert id_a != id_b, f"מזהה גיבוי חוזר על עצמו: {id_a}"
+
+
+@pytest.mark.asyncio
+async def test_failed_send_does_not_double_save(monkeypatch):
+    """כשל בשליחת המסמך אחרי שמירה מוצלחת לא יוצר רשומה שנייה בניסיון חוזר.
+
+    ארכיון בגבול מגבלת טלגרם נשלח אחרי שהשמירה כבר הצליחה; בלי הגנה, לחיצה
+    חוזרת על אותו token הייתה שומרת פעם נוספת.
+    """
+    import github_menu_handler as gh
+
+    saves = []
+    monkeypatch.setattr(
+        gh.skill_manager, "save_skill_bytes", lambda *a, **k: saves.append(1) or "sid"
+    )
+
+    handler, upd, ctx, _ = _make(monkeypatch)
+    token = await _pack(handler, upd, ctx)
+    await _choose(handler, upd, ctx, f"ghzip_dest_skill:{token}")
+
+    # השליחה נכשלת — הזרימה מתפוצצת אחרי שהשמירה כבר בוצעה
+    async def _boom(*a, **k):
+        raise RuntimeError("file too large for telegram")
+
+    upd.callback_query.message.reply_document = _boom
+    with pytest.raises(RuntimeError):
+        await _choose(handler, upd, ctx, f"ghzip_name_default:{token}")
+
+    assert len(saves) == 1
+    assert ctx.user_data["ghzip_pending"][token].get("persisted") is True
+
+    # ניסיון חוזר: הקובץ נשלח, אבל בלי שמירה נוספת
+    upd.callback_query.message.reply_document = _Msg.reply_document.__get__(
+        upd.callback_query.message
+    )
+    await _choose(handler, upd, ctx, f"ghzip_name_default:{token}")
+    assert len(saves) == 1, f"נשמר פעמיים לאותו ארכיון: {len(saves)}"
+
+
+@pytest.mark.asyncio
+async def test_file_cap_checked_before_fetching_content(monkeypatch):
+    """אחרי שהגענו לתקרת הקבצים לא מושכים עוד תוכן מהרשת.
+
+    כל קובץ עולה קריאת רשת והשהיית rate-limit; משיכה אחרי התקרה מבזבזת
+    דקות ומכסת API על תוכן שנזרק מיד.
+    """
+    import github_menu_handler as gh
+
+    monkeypatch.setattr(gh, "MAX_ZIP_FILES", 1)
+    handler, upd, ctx, repo = _make(monkeypatch)
+
+    fetched = []
+    original = repo.get_contents
+
+    def _tracked(path, ref=None):
+        fetched.append(path)
+        return original(path, ref=ref)
+
+    repo.get_contents = _tracked
+    token = await _pack(handler, upd, ctx)
+
+    assert ctx.user_data["ghzip_pending"][token]["skipped_limits"] >= 1
+    # הקובץ השני לא נמשך בכלל — רק הליסטינג של התיקיות ושליפת הקובץ הראשון
+    assert fetched.count("skills/logo-designer/references/guide.md") == 0
+
+
+@pytest.mark.asyncio
 async def test_nothing_saved_before_the_user_answers(monkeypatch):
     """אחרי האריזה בלבד — שום יעד לא נגע בקובץ."""
     import github_menu_handler as gh
