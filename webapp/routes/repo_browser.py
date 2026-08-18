@@ -41,7 +41,10 @@ def _resolve_admin_helpers():
     """
     for name in ('webapp.app', 'app'):
         mod = sys.modules.get(name)
-        if mod is not None and hasattr(mod, 'is_admin'):
+        # שני ה-helpers נדרשים: מודול שנמצא באמצע טעינה עלול להחזיק כבר את
+        # ‎is_admin‎ ועדיין לא את ‎is_impersonating_safe‎, ואז ניגש לאטריביוט
+        # חסר ונחסום גם אדמין. אם אחד חסר — ממשיכים לחפש/לייבא.
+        if mod is not None and hasattr(mod, 'is_admin') and hasattr(mod, 'is_impersonating_safe'):
             return mod.is_admin, mod.is_impersonating_safe
     try:
         from webapp.app import is_admin, is_impersonating_safe

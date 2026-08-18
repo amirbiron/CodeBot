@@ -1,5 +1,7 @@
+import ast
 import pytest
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from flask import Flask, request as flask_request, session as flask_session
 
@@ -139,6 +141,53 @@ def user_client(app: Flask):
     c = app.test_client()
     _login(c, REGULAR_USER_ID)
     return c
+
+
+class TestStubMatchesProduction:
+    """הצלבה מול הקוד האמיתי — בלי זה ה-stub מאמת את עצמו.
+
+    ``webapp/app.py`` גורר תלויות כבדות שאינן זמינות בכל סביבה, ולכן
+    קוראים אותו כמקור (AST/טקסט) במקום לייבא. דריפט בשם מפתח הסשן או
+    היעלמות של מסלול המילוט ייתפסו כאן, גם אם ה-stub ימשיך להחזיק את
+    ההתנהגות הישנה.
+    """
+
+    @staticmethod
+    def _app_source() -> str:
+        return (Path(__file__).resolve().parent.parent / 'webapp' / 'app.py').read_text(
+            encoding='utf-8'
+        )
+
+    def test_impersonation_session_key_matches_production(self):
+        """הקבוע שה-stub משתמש בו זהה לזה שמוגדר ב-webapp/app.py."""
+        tree = ast.parse(self._app_source())
+        values = [
+            ast.literal_eval(node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name) and target.id == 'IMPERSONATION_SESSION_KEY'
+        ]
+        assert values, "IMPERSONATION_SESSION_KEY לא נמצא ב-webapp/app.py"
+        assert values[0] == IMPERSONATION_SESSION_KEY
+
+    def test_production_helpers_still_exist(self):
+        """שתי הפונקציות שה-guard נשען עליהן עדיין קיימות בשמן."""
+        tree = ast.parse(self._app_source())
+        names = {
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        }
+        assert {'is_admin', 'is_impersonating_safe'} <= names
+
+    def test_production_impersonation_honors_force_admin(self):
+        """מסלול המילוט ‎?force_admin=1‎ עדיין קיים בפונקציה האמיתית."""
+        tree = ast.parse(self._app_source())
+        func = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == 'is_impersonating_safe'
+        )
+        assert 'force_admin' in ast.unparse(func)
 
 
 class TestRepoBrowserIsAdminOnly:
