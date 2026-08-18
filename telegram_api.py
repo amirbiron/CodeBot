@@ -125,12 +125,16 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
     if obj is None or isinstance(obj, (int, float, bool)):
         return obj
     # אובייקט זר (למשל מופע חריגה בתוך hint/extra): Sentry ימיר אותו למחרוזת
-    # אחרי שהניקוי כבר עבר, ולכן אם הייצוג הטקסטואלי נושא טוקן — מחזירים את
-    # הייצוג המנוקה במקום האובייקט. אובייקט נקי נשמר כמות שהוא.
+    # אחרי שהניקוי כבר עבר — ב-repr() עבור אובייקטים שאינם JSON — ולכן בודקים
+    # את שני הייצוגים. אם אחד מהם נושא טוקן, מחזירים את הייצוג המנוקה במקום
+    # האובייקט. אובייקט נקי בשניהם נשמר כמות שהוא.
     try:
         text = str(obj)
+        rep = repr(obj)
     except Exception:
         return UNREDACTABLE_PLACEHOLDER
+    if _BOT_TOKEN_RE.search(rep):
+        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, rep)
     if _BOT_TOKEN_RE.search(text):
         return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
     return obj

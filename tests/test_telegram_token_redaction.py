@@ -308,6 +308,22 @@ def test_redact_deep_cleans_foreign_objects_carrying_token():
     assert "<REDACTED>" in str(cleaned["exc"])
 
 
+def test_redact_deep_catches_token_hiding_only_in_repr():
+    """Sentry ממיר אובייקטים זרים ב-repr — טוקן שמופיע רק שם חייב להיתפס."""
+
+    class _Foreign:
+        def __str__(self):
+            return "looks clean"
+
+        def __repr__(self):
+            return f"<Foreign url={API_URL}>"
+
+    cleaned = redact_bot_token_deep({"exc": _Foreign()})
+    assert FAKE_TOKEN not in str(cleaned["exc"])
+    assert FAKE_TOKEN not in repr(cleaned["exc"])
+    assert "<REDACTED>" in str(cleaned["exc"])
+
+
 def test_redact_deep_preserves_clean_foreign_objects():
     """אובייקט זר נקי נשמר כמות שהוא — לא הופכים כל אירוע למחרוזות."""
 
