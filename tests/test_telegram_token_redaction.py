@@ -230,6 +230,21 @@ def test_redact_deep_cleans_bytes_and_non_string_dict_keys():
     assert any(isinstance(k, frozenset) for k in cleaned)
 
 
+def test_redact_deep_preserves_entries_on_key_collision():
+    """שני מפתחות עם טוקנים שונים מתנקים לאותו ערך — אף שדה לא נדרס בשקט."""
+    other_token = "999999999:BBcdqTcvCH1vGWJxfSeofSAs0K5PALDzzz"
+    obj = {
+        f"https://api.telegram.org/bot{FAKE_TOKEN}/sendMessage": "first",
+        f"https://api.telegram.org/bot{other_token}/sendMessage": "second",
+    }
+    cleaned = redact_bot_token_deep(obj)
+    assert FAKE_TOKEN not in repr(cleaned)
+    assert other_token not in repr(cleaned)
+    # שני הערכים שרדו — המפתח השני קיבל סיומת מספור במקום לדרוס את הראשון
+    assert len(cleaned) == 2
+    assert sorted(cleaned.values()) == ["first", "second"]
+
+
 def test_logging_formatter_redacts_github_and_bearer_from_traceback():
     """ה-traceback עובר את אותם דפוסי ניקוי כמו ההודעה — לא רק טלגרם."""
     import sys

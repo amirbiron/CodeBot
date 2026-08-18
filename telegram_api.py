@@ -69,7 +69,17 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
         _memo[id(obj)] = cleaned_dict
         for k, v in obj.items():
             # גם מפתח יכול לשאת טוקן — כמחרוזת או בתוך tuple/frozenset (שנשארים hashable)
-            cleaned_dict[redact_bot_token_deep(k, _memo, _depth + 1)] = redact_bot_token_deep(v, _memo, _depth + 1)
+            ck = redact_bot_token_deep(k, _memo, _depth + 1)
+            # שני מפתחות שונים יכולים להתנקות לאותו ערך (שתי כתובות עם טוקנים
+            # שונים). דריסה שקטה מאבדת שדה אבחוני — במקום זה ממספרים את הבאים.
+            if ck in cleaned_dict:
+                n = 2
+                candidate = f"{ck}#{n}" if isinstance(ck, str) else (ck, n)
+                while candidate in cleaned_dict:
+                    n += 1
+                    candidate = f"{ck}#{n}" if isinstance(ck, str) else (ck, n)
+                ck = candidate
+            cleaned_dict[ck] = redact_bot_token_deep(v, _memo, _depth + 1)
         return cleaned_dict
     if isinstance(obj, list):
         existing = _memo.get(id(obj))
