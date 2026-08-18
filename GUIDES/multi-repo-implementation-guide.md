@@ -669,17 +669,22 @@ function updateBreadcrumbs(path) {
 
 ### 5.1 בדיקות ידניות
 
+**שים לב:** כל הבדיקות דורשות סשן אדמין, שכן דפדפן הקוד חסום למי שאינו אדמין.
+
 1. **בדיקת טעינת רשימת ריפויים:**
    ```bash
+   # דורש סשן אדמין; לא-אדמינים מקבלים 403
    curl http://localhost:5000/repo/api/repos
    ```
 
 2. **בדיקת טעינת עץ קבצים עם פרמטר repo:**
    ```bash
+   # דורש סשן אדמין
    curl "http://localhost:5000/repo/api/tree?repo=OtherRepo"
    ```
 
 3. **בדיקת החלפת ריפו:**
+   - התחבר כאדמין
    - פתח את דפדפן הקוד
    - בחר ריפו אחר מה-dropdown
    - ודא שהעץ נטען מחדש
@@ -687,16 +692,28 @@ function updateBreadcrumbs(path) {
 
 ### 5.2 בדיקות אוטומטיות (pytest)
 
+**שים לב:** כל הטסטים צריכים לרוץ בהקשר אדמין. ה-`client` fixture צריך להגדיר `session['user_id'] = ADMIN_USER_ID`.
+
 ```python
 # tests/test_repo_browser_multi.py
 
 import pytest
 from webapp.routes.repo_browser import get_current_repo_name
 
+ADMIN_USER_ID = 999  # הגדר את ה-ID האדמין המתאים
+
+@pytest.fixture
+def client(app):
+    """לקוח מחובר כאדמין — דרוש לגישה לדפדפן הקוד."""
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess['user_id'] = ADMIN_USER_ID
+    return c
+
 class TestMultiRepoSupport:
 
     def test_api_list_repos(self, client):
-        """בדיקה שה-API מחזיר רשימת ריפויים"""
+        """בדיקה שה-API מחזיר רשימת ריפויים (אדמין בלבד)"""
         response = client.get('/repo/api/repos')
         assert response.status_code == 200
         data = response.get_json()
@@ -705,29 +722,35 @@ class TestMultiRepoSupport:
         assert isinstance(data['repos'], list)
 
     def test_tree_with_repo_param(self, client):
-        """בדיקה שעץ הקבצים עובד עם פרמטר repo"""
+        """בדיקה שעץ הקבצים עובד עם פרמטר repo (אדמין בלבד)"""
         response = client.get('/repo/api/tree?repo=CodeBot')
         assert response.status_code == 200
         data = response.get_json()
         assert isinstance(data, list)
 
     def test_tree_invalid_repo(self, client):
-        """בדיקה שריפו לא קיים מחזיר רשימה ריקה"""
+        """בדיקה שריפו לא קיים מחזיר רשימה ריקה (אדמין בלבד)"""
         response = client.get('/repo/api/tree?repo=NonExistent')
         assert response.status_code == 200
         data = response.get_json()
         assert data == []  # אין קבצים לריפו שלא קיים
 
     def test_file_with_repo_param(self, client):
-        """בדיקה שקריאת קובץ עובדת עם פרמטר repo"""
+        """בדיקה שקריאת קובץ עובדת עם פרמטר repo (אדמין בלבד)"""
         response = client.get('/repo/api/file/README.md?repo=CodeBot')
         assert response.status_code in [200, 404]  # תלוי אם הקובץ קיים
 
-    def test_select_repo_unauthenticated(self, client):
-        """בדיקה שבחירת ריפו דורשת אותנטיקציה"""
-        response = client.post('/repo/api/select-repo',
-                               json={'repo_name': 'CodeBot'})
-        assert response.status_code == 401
+    def test_select_repo_non_admin_blocked(self, app):
+        """בדיקה שמשתמש לא-אדמין מקבל 403"""
+        # לקוח בלי אדמין
+        non_admin_client = app.test_client()
+        with non_admin_client.session_transaction() as sess:
+            sess['user_id'] = 123  # לא אדמין
+        
+        response = non_admin_client.post('/repo/api/select-repo',
+                                         json={'repo_name': 'CodeBot'})
+        assert response.status_code == 403
+        assert response.get_json()['error'] == 'admin_only'
 ```
 
 ---
@@ -752,8 +775,14 @@ class TestMultiRepoSupport:
 ## שיקולים נוספים
 
 ### אבטחה
+- **דפדפן הקוד הוא כלי אדמין בלבד** — כל `/repo/*` routes חסומים למי שאינו אדמין
+- החסימה מתבצעת ב-`@repo_bp.before_request` ברמת ה-blueprint — כך כל 18 ה-routes (כולל עתידיים) מוגנים אוטומטית
+- פונקציית השער `_require_admin_for_repo_browser()` בודקת `is_admin(user_id)` מ-session
+- למשתמש לא-אדמין:
+  - **API routes** (`/repo/api/*`) מחזירים JSON `{"success": false, "error": "admin_only"}` עם 403
+  - **Page routes** מחזירים `abort(403)` רגיל
+- **רקע:** PR #3239 סגר פרצת אבטחה שבה `/repo/api/repos` חשף את כל metadata של הריפויים (`db.repo_metadata.find({})` בלי סינון) לכל משתמש מחובר, כולל שמות ו-URLs של ריפויים פרטיים
 - כל שם ריפו עובר ולידציה עם regex
-- משתמשים יכולים לראות רק ריפויים שקיימים ב-DB
 
 ### ביצועים
 - שם הריפו נשמר ב-localStorage להפחתת בקשות לשרת
