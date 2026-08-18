@@ -855,6 +855,15 @@ def init_sentry() -> None:
                     event["tags"] = tags
             except Exception:
                 pass
+            # ניקוי טוקנים מכל האירוע — לא רק מ-extra לפי שם שדה. כתובות ה-API של
+            # טלגרם מכילות את הטוקן, והן מגיעות לתוך גוף החריגה ולתוך breadcrumbs,
+            # מקומות שסינון לפי שם מפתח לא מגיע אליהם.
+            try:
+                from telegram_api import redact_bot_token_deep  # type: ignore
+
+                event = redact_bot_token_deep(event)
+            except Exception:
+                pass
             return event
 
         # Resolve environment consistently with fallback to config if ENV/ENVIRONMENT not set

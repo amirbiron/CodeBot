@@ -1433,6 +1433,13 @@ class SensitiveDataFilter(logging.Filter):
             import re as _re
             for pat, repl in patterns:
                 redacted = _re.sub(pat, repl, redacted)
+            # טוקן של בוט טלגרם — מגיע ללוגים דרך כתובות ה-API (‎/bot<TOKEN>/method)
+            try:
+                from telegram_api import redact_bot_token as _redact_bot_token
+
+                redacted = _redact_bot_token(redacted)
+            except Exception:
+                pass
             # עדכן רק את message הפורמטי
             record.msg = redacted
             # חשוב: נקה ארגומנטים כדי למנוע ניסיון פורמט חוזר (%s) שיוביל ל-TypeError
