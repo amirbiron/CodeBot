@@ -33,6 +33,62 @@ def redact_bot_token(value: Any) -> Any:
         return UNREDACTABLE_PLACEHOLDER
 
 
+def _redact_bytes(obj: Any) -> Any:
+    """מנקה טוקן מ-bytes/bytearray תוך שמירה על הטיפוס המקורי."""
+    try:
+        cleaned_text = _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, obj.decode("utf-8", errors="replace"))
+        encoded = cleaned_text.encode("utf-8")
+        return bytearray(encoded) if isinstance(obj, bytearray) else encoded
+    except Exception:
+        return UNREDACTABLE_PLACEHOLDER
+
+
+def _dedupe_key(ck: Any, cleaned_dict: Dict[Any, Any]) -> Any:
+    """ממספר מפתח שמתנגש עם מפתח קיים אחרי ניקוי (‎#2 למחרוזת, ‎(key, 2)‎ לאחרים).
+
+    שני מפתחות שונים יכולים להתנקות לאותו ערך (שתי כתובות עם טוקנים שונים);
+    דריסה שקטה מאבדת שדה אבחוני — במקום זה המאוחר מקבל סיומת מספור.
+    """
+    if ck not in cleaned_dict:
+        return ck
+    n = 2
+    candidate = f"{ck}#{n}" if isinstance(ck, str) else (ck, n)
+    while candidate in cleaned_dict:
+        n += 1
+        candidate = f"{ck}#{n}" if isinstance(ck, str) else (ck, n)
+    return candidate
+
+
+def _redact_dict(obj: Dict[Any, Any], _memo: Dict[int, Any], _depth: int) -> Dict[Any, Any]:
+    cleaned_dict: Dict[Any, Any] = {}
+    # רישום לפני המילוי — כך הפניה מעגלית חוזרת לעותק המנוקה ולא למקור
+    _memo[id(obj)] = cleaned_dict
+    for k, v in obj.items():
+        # גם מפתח יכול לשאת טוקן — כמחרוזת או בתוך tuple/frozenset (שנשארים hashable)
+        ck = _dedupe_key(redact_bot_token_deep(k, _memo, _depth + 1), cleaned_dict)
+        cleaned_dict[ck] = redact_bot_token_deep(v, _memo, _depth + 1)
+    return cleaned_dict
+
+
+def _redact_list(obj: list, _memo: Dict[int, Any], _depth: int) -> list:
+    cleaned_list: list = []
+    _memo[id(obj)] = cleaned_list
+    for v in obj:
+        cleaned_list.append(redact_bot_token_deep(v, _memo, _depth + 1))
+    return cleaned_list
+
+
+def _redact_tuple(obj: tuple, _memo: Dict[int, Any], _depth: int) -> tuple:
+    cleaned_items = [redact_bot_token_deep(v, _memo, _depth + 1) for v in obj]
+    try:
+        if hasattr(obj, "_fields"):  # namedtuple — בנייה מאיברים בודדים
+            return type(obj)(*cleaned_items)
+        return type(obj)(cleaned_items)
+    except Exception:
+        # תת-מחלקה עם בנאי לא סטנדרטי — tuple רגיל עדיף על אובייקט לא מנוקה
+        return tuple(cleaned_items)
+
+
 def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _depth: int = 0) -> Any:
     """מנקה טוקנים מכל המחרוזות בתוך מבנה נתונים מקונן.
 
@@ -52,53 +108,16 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
     if isinstance(obj, str):
         return redact_bot_token(obj)
     if isinstance(obj, (bytes, bytearray)):
-        # גוף תגובה גולמי (breadcrumb/hint) יכול לשאת את הטוקן גם כ-bytes.
-        # מפענחים, מנקים ומקודדים חזרה כדי לשמור על הטיפוס המקורי.
-        try:
-            cleaned_text = _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, obj.decode("utf-8", errors="replace"))
-            encoded = cleaned_text.encode("utf-8")
-            return bytearray(encoded) if isinstance(obj, bytearray) else encoded
-        except Exception:
-            return UNREDACTABLE_PLACEHOLDER
-    if isinstance(obj, dict):
+        return _redact_bytes(obj)
+    if isinstance(obj, (dict, list)):
         existing = _memo.get(id(obj))
         if existing is not None:
             return existing
-        cleaned_dict: Dict[Any, Any] = {}
-        # רישום לפני המילוי — כך הפניה מעגלית חוזרת לעותק המנוקה ולא למקור
-        _memo[id(obj)] = cleaned_dict
-        for k, v in obj.items():
-            # גם מפתח יכול לשאת טוקן — כמחרוזת או בתוך tuple/frozenset (שנשארים hashable)
-            ck = redact_bot_token_deep(k, _memo, _depth + 1)
-            # שני מפתחות שונים יכולים להתנקות לאותו ערך (שתי כתובות עם טוקנים
-            # שונים). דריסה שקטה מאבדת שדה אבחוני — במקום זה ממספרים את הבאים.
-            if ck in cleaned_dict:
-                n = 2
-                candidate = f"{ck}#{n}" if isinstance(ck, str) else (ck, n)
-                while candidate in cleaned_dict:
-                    n += 1
-                    candidate = f"{ck}#{n}" if isinstance(ck, str) else (ck, n)
-                ck = candidate
-            cleaned_dict[ck] = redact_bot_token_deep(v, _memo, _depth + 1)
-        return cleaned_dict
-    if isinstance(obj, list):
-        existing = _memo.get(id(obj))
-        if existing is not None:
-            return existing
-        cleaned_list: list = []
-        _memo[id(obj)] = cleaned_list
-        for v in obj:
-            cleaned_list.append(redact_bot_token_deep(v, _memo, _depth + 1))
-        return cleaned_list
+        if isinstance(obj, dict):
+            return _redact_dict(obj, _memo, _depth)
+        return _redact_list(obj, _memo, _depth)
     if isinstance(obj, tuple):
-        cleaned_items = [redact_bot_token_deep(v, _memo, _depth + 1) for v in obj]
-        try:
-            if hasattr(obj, "_fields"):  # namedtuple — בנייה מאיברים בודדים
-                return type(obj)(*cleaned_items)
-            return type(obj)(cleaned_items)
-        except Exception:
-            # תת-מחלקה עם בנאי לא סטנדרטי — tuple רגיל עדיף על אובייקט לא מנוקה
-            return tuple(cleaned_items)
+        return _redact_tuple(obj, _memo, _depth)
     if isinstance(obj, (set, frozenset)):
         cleaned_set = {redact_bot_token_deep(v, _memo, _depth + 1) for v in obj}
         return frozenset(cleaned_set) if isinstance(obj, frozenset) else cleaned_set

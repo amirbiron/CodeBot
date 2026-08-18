@@ -243,6 +243,24 @@ def test_redact_deep_preserves_entries_on_key_collision():
     # שני הערכים שרדו — המפתח השני קיבל סיומת מספור במקום לדרוס את הראשון
     assert len(cleaned) == 2
     assert sorted(cleaned.values()) == ["first", "second"]
+    # מדיניות המספור מפורשת: המפתח המאוחר מסתיים ב-#2
+    assert any(isinstance(k, str) and k.endswith("#2") for k in cleaned)
+
+
+def test_redact_deep_key_collision_on_non_string_keys():
+    """התנגשות בין מפתחות tuple — המאוחר נעטף ב-(key, 2) במקום לדרוס."""
+    other_token = "999999999:BBcdqTcvCH1vGWJxfSeofSAs0K5PALDzzz"
+    obj = {
+        ("chat", API_URL): "first",
+        ("chat", f"https://api.telegram.org/bot{other_token}/sendMessage"): "second",
+    }
+    cleaned = redact_bot_token_deep(obj)
+    assert FAKE_TOKEN not in repr(cleaned)
+    assert other_token not in repr(cleaned)
+    assert len(cleaned) == 2
+    assert sorted(cleaned.values()) == ["first", "second"]
+    # המפתח המתנגש נעטף עם מונה: (המפתח המנוקה, 2)
+    assert any(isinstance(k, tuple) and len(k) == 2 and k[1] == 2 for k in cleaned)
 
 
 def test_logging_formatter_redacts_github_and_bearer_from_traceback():
