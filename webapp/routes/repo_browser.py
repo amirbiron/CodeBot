@@ -30,6 +30,39 @@ def get_git_service():
         current_app.extensions['git_mirror_service'] = service
     return service
 
+def _is_repo_browser_admin() -> bool:
+    """האם המשתמש הנוכחי אדמין. ייבוא עצל כדי להימנע מייבוא מעגלי עם app."""
+    raw = session.get('user_id')
+    if raw is None:
+        return False
+    try:
+        user_id = int(raw)
+    except (TypeError, ValueError):
+        return False
+    try:
+        from webapp.app import is_admin
+    except Exception:
+        logger.exception("repo browser: could not resolve is_admin")
+        # fail-closed: בלי יכולת לאמת הרשאה לא פותחים את הפיצ'ר
+        return False
+    return bool(is_admin(user_id))
+
+
+@repo_bp.before_request
+def _require_admin_for_repo_browser():
+    """דפדפן הקוד הוא כלי אדמין בלבד — חסימה ברמת ה-blueprint.
+
+    נאכף כאן ולא בדקורטור לכל route: כך גם כל route שיתווסף בעתיד מוגן
+    אוטומטית, ואי אפשר לפתוח דלת בטעות בשכחה של דקורטור.
+    """
+    if _is_repo_browser_admin():
+        return None
+    # ל-API מחזירים JSON; לדפים 403 רגיל
+    if request.path.startswith('/repo/api/'):
+        return jsonify({"success": False, "error": "admin_only"}), 403
+    abort(403)
+
+
 def _get_current_user():
     try:
         from flask_login import current_user

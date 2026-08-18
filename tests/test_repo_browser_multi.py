@@ -60,6 +60,10 @@ class _StubDB:
         self.repo_files = _RepoFiles()
 
 
+ADMIN_USER_ID = 999
+REGULAR_USER_ID = 123
+
+
 @pytest.fixture
 def app(tmp_path, monkeypatch) -> Flask:
     app = Flask(__name__)
@@ -71,13 +75,75 @@ def app(tmp_path, monkeypatch) -> Flask:
     stub_db = _StubDB()
     monkeypatch.setattr(repo_browser, "get_db", lambda: stub_db)
     monkeypatch.setattr(repo_browser, "get_mirror_service", lambda: git_service)
+
+    # דפדפן הקוד חסום לאדמינים; מזריקים webapp.app מדומה כדי לבדוק את
+    # לוגיקת ההרשאה האמיתית בלי לגרור את אפליקציית ה-webapp המלאה
+    webapp_app_stub = ModuleType("webapp.app")
+    webapp_app_stub.is_admin = lambda uid: int(uid) == ADMIN_USER_ID
+    monkeypatch.setitem(sys.modules, "webapp.app", webapp_app_stub)
+
     app.register_blueprint(repo_browser.repo_bp)
     return app
 
 
+def _login(client, user_id):
+    with client.session_transaction() as sess:
+        sess['user_id'] = user_id
+
+
 @pytest.fixture
 def client(app: Flask):
+    """לקוח מחובר כאדמין — ברירת המחדל לטסטים הפונקציונליים."""
+    c = app.test_client()
+    _login(c, ADMIN_USER_ID)
+    return c
+
+
+@pytest.fixture
+def anon_client(app: Flask):
+    """לקוח בלי סשן."""
     return app.test_client()
+
+
+@pytest.fixture
+def user_client(app: Flask):
+    """לקוח מחובר כמשתמש רגיל (לא אדמין)."""
+    c = app.test_client()
+    _login(c, REGULAR_USER_ID)
+    return c
+
+
+class TestRepoBrowserIsAdminOnly:
+    """דפדפן הקוד הוא כלי אדמין; אף אחד אחר לא אמור להגיע לשום route בו."""
+
+    def test_anonymous_gets_403_on_page(self, anon_client):
+        assert anon_client.get('/repo/').status_code == 403
+
+    def test_regular_user_gets_403_on_page(self, user_client):
+        assert user_client.get('/repo/').status_code == 403
+
+    def test_regular_user_gets_json_403_on_api(self, user_client):
+        response = user_client.get('/repo/api/repos')
+        assert response.status_code == 403
+        assert response.get_json()['error'] == 'admin_only'
+
+    def test_regular_user_cannot_list_other_repos(self, user_client):
+        """הדליפה המקורית: רשימת הריפויים של כולם דרך ה-API."""
+        response = user_client.get('/repo/api/repos')
+        assert response.status_code == 403
+        assert 'repos' not in (response.get_json() or {})
+
+    def test_regular_user_cannot_reach_repo_via_query_param(self, user_client):
+        """גם מעבר ישיר לריפו לפי שם חסום, לא רק הרשימה."""
+        assert user_client.get('/repo/api/tree?repo=CodeBot').status_code == 403
+
+    def test_admin_passes_through(self, client):
+        assert client.get('/repo/api/repos').status_code == 200
+
+    def test_every_route_is_covered_by_the_blueprint_guard(self, app):
+        """אף route ב-blueprint לא עוקף את הבדיקה — כולל כאלה שיתווספו."""
+        guards = app.before_request_funcs.get('repo', [])
+        assert repo_browser._require_admin_for_repo_browser in guards
 
 
 class TestMultiRepoSupport:
