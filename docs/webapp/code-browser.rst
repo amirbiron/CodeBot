@@ -41,7 +41,7 @@
       * - שדה
         - ערך
       * - **Payload URL**
-        - ``https://<הדומיין של ה-WebApp>/api/webhooks/github``
+        - ``https://<הדומיין של ה-וובאפפ>/api/webhooks/github``
       * - **Content type**
         - ``application/json``
       * - **Secret**
