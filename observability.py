@@ -887,6 +887,10 @@ def init_sentry() -> None:
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
             before_send=_before_send,
+            # אירועי ביצועים (transactions) לא עוברים דרך before_send, אבל ה-spans
+            # שלהם נושאים את כתובות ה-HTTP המלאות — כולל טוקן הבוט שבתוך ה-URL.
+            # אותו ניקוי fail-closed חל גם עליהם.
+            before_send_transaction=_before_send,
         )
         _SENTRY_INIT_DONE = True
         _SENTRY_DSN_USED = dsn
