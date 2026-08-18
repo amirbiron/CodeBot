@@ -401,7 +401,8 @@ codekeeper_get_repo_file(repo="amir-bug-patterns", path="CRITICAL-PATTERNS.md")
 codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 ```
 
-אם ה-MCP לא זמין בסשן — הריפו ציבורי ב-GitHub.
+אם ה-MCP לא זמין בסשן: הריפו ציבורי, אז אפשר לצרף אותו לסשן (`add_repo` ואז
+clone) או לקרוא ממנו ישירות. אין צורך בהרשאות מיוחדות.
 
 ### מתי לקרוא מה
 
