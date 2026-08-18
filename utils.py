@@ -1419,14 +1419,10 @@ def get_language_emoji(language: str) -> str:
     return emoji_map.get(language.lower(), '📄')
 
 # טוקן של בוט טלגרם — מגיע ללוגים דרך כתובות ה-API (‎/bot<TOKEN>/method).
-# הדפוס מיובא מנקודת הניקוי המרכזית; אם הייבוא נכשל יש עותק מקומי זהה, כדי
-# שהניקוי לעולם לא ידולג בגלל בעיית import (fail-closed).
-try:
-    from telegram_api import _BOT_TOKEN_RE as _TG_TOKEN_RE  # type: ignore
-except Exception:  # pragma: no cover
-    import re as _re_fallback
-
-    _TG_TOKEN_RE = _re_fallback.compile(r"\d{5,16}:[A-Za-z0-9_-]{30,}")
+# מקור אמת יחיד: הדפוס הציבורי מ-telegram_api. אין עותק מקומי — עותק כזה
+# מתפצל בשקט מהמקור בכל שינוי, וזה גרוע יותר מכשל ייבוא קולני (telegram_api
+# תלוי רק בספריה הסטנדרטית, כך שכשל הייבוא כאן בלתי אפשרי בפועל).
+from telegram_api import BOT_TOKEN_RE as _TG_TOKEN_RE
 
 
 class SensitiveDataFilter(logging.Filter):

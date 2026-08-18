@@ -1537,20 +1537,22 @@ try:
         def _sentry_before_send(event, hint):
             """מנקה טוקני בוט מכל אירוע לפני שהוא נשלח ל-Sentry.
 
-            ה-filter על ה-logging handlers לא מכסה חריגות שנתפסות ישירות
-            על ידי FlaskIntegration, ושם בדיוק יושבות כתובות ה-API של טלגרם.
-            fail-closed: אם הניקוי נכשל האירוע נזרק ולא נשלח גולמי.
+            הלוגיקה המשותפת (ניקוי עמוק + fail-closed) חיה
+            ב-telegram_api.scrub_sentry_event — אותה נקודה שגם הבוט משתמש בה.
             """
             try:
-                from telegram_api import redact_bot_token_deep  # type: ignore
+                from telegram_api import scrub_sentry_event  # type: ignore
 
-                return redact_bot_token_deep(event)
+                event = scrub_sentry_event(event)
             except Exception:
+                event = None
+            if event is None:
                 try:
                     logger.warning("sentry event dropped: token redaction failed", extra={"event": "sentry_redaction_failed"})
-                except Exception:
+                except Exception:  # nosec B110 — הגנה על מסלול הדיווח עצמו; האירוע כבר הופל
                     pass
                 return None
+            return event
 
         sentry_sdk.init(
             dsn=getattr(__import__('config'), 'config').SENTRY_DSN,
@@ -1558,6 +1560,9 @@ try:
             traces_sample_rate=0.05,
             environment=getattr(__import__('config'), 'config').ENVIRONMENT,
             before_send=_sentry_before_send,
+            # ה-spans של transactions נושאים כתובות HTTP מלאות (כולל טוקן ב-URL)
+            # ואינם עוברים דרך before_send — מנקים אותם באותו מסלול fail-closed
+            before_send_transaction=_sentry_before_send,
         )
 except Exception:
     pass

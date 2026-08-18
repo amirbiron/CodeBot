@@ -855,14 +855,15 @@ def init_sentry() -> None:
                     event["tags"] = tags
             except Exception:
                 pass
-            # ניקוי טוקנים מכל האירוע — לא רק מ-extra לפי שם שדה. כתובות ה-API של
-            # טלגרם מכילות את הטוקן, והן מגיעות לתוך גוף החריגה ולתוך breadcrumbs,
-            # מקומות שסינון לפי שם מפתח לא מגיע אליהם.
+            # ניקוי טוקנים מכל האירוע — הלוגיקה המשותפת (ניקוי עמוק + fail-closed)
+            # חיה ב-telegram_api.scrub_sentry_event, אותה נקודה שגם הוובאפ משתמש בה.
             try:
-                from telegram_api import redact_bot_token_deep  # type: ignore
+                from telegram_api import scrub_sentry_event  # type: ignore
 
-                event = redact_bot_token_deep(event)
+                event = scrub_sentry_event(event)
             except Exception:
+                event = None
+            if event is None:
                 # fail-closed: עדיף לאבד אירוע אחד מאשר לשלוח אירוע שלא נוקה
                 try:
                     LOGGER.warning("sentry event dropped: token redaction failed", extra={"event": "sentry_redaction_failed"})
@@ -887,6 +888,10 @@ def init_sentry() -> None:
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
             before_send=_before_send,
+            # אירועי ביצועים (transactions) לא עוברים דרך before_send, אבל ה-spans
+            # שלהם נושאים את כתובות ה-HTTP המלאות — כולל טוקן הבוט שבתוך ה-URL.
+            # אותו ניקוי fail-closed חל גם עליהם.
+            before_send_transaction=_before_send,
         )
         _SENTRY_INIT_DONE = True
         _SENTRY_DSN_USED = dsn

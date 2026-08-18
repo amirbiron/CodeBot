@@ -169,6 +169,22 @@ def test_error_payload_string_is_redacted():
     assert FAKE_TOKEN not in err.payload
 
 
+def test_redact_deep_cleans_transaction_shaped_event_with_http_spans():
+    """אירוע transaction של Sentry: ה-URL המלא יושב ב-spans וב-breadcrumbs."""
+    event = {
+        "type": "transaction",
+        "spans": [
+            {"op": "http.client", "description": f"POST {API_URL}", "data": {"url": API_URL}},
+        ],
+        "breadcrumbs": {"values": [{"category": "httplib", "data": {"url": API_URL}}]},
+        "request": {"url": API_URL},
+    }
+    cleaned = redact_bot_token_deep(event)
+    assert FAKE_TOKEN not in repr(cleaned)
+    assert cleaned["type"] == "transaction"
+    assert cleaned["spans"][0]["op"] == "http.client"
+
+
 def test_logging_filter_redacts_bot_token():
     from utils import SensitiveDataFilter
 
@@ -185,15 +201,18 @@ def test_logging_filter_redacts_bot_token():
     assert FAKE_TOKEN not in record.getMessage()
 
 
-def test_logging_formatter_does_not_leak_token_from_traceback():
-    """ה-Formatter מדביק את ה-traceback אחרי ההודעה — גם הוא חייב לצאת נקי."""
+def _filtered_record_for(exc: BaseException) -> logging.LogRecord:
+    """מרים את החריגה, אורז אותה ב-LogRecord ומריץ עליו את המסנן.
+
+    התשתית המשותפת לטסטי ה-Formatter — כל טסט מספק רק את החריגה ואת ה-asserts.
+    """
     import sys
 
     from utils import SensitiveDataFilter
 
     try:
-        raise RuntimeError(f"request failed: {API_URL}")
-    except RuntimeError:
+        raise exc
+    except type(exc):
         exc_info = sys.exc_info()
 
     record = logging.LogRecord(
@@ -206,6 +225,12 @@ def test_logging_formatter_does_not_leak_token_from_traceback():
         exc_info=exc_info,
     )
     SensitiveDataFilter().filter(record)
+    return record
+
+
+def test_logging_formatter_does_not_leak_token_from_traceback():
+    """ה-Formatter מדביק את ה-traceback אחרי ההודעה — גם הוא חייב לצאת נקי."""
+    record = _filtered_record_for(RuntimeError(f"request failed: {API_URL}"))
     formatted = logging.Formatter().format(record)
     assert FAKE_TOKEN not in formatted
     # ה-traceback עצמו לא נעלם — רק הטוקן הוחלף
@@ -268,26 +293,8 @@ def test_redact_deep_key_collision_on_non_string_keys():
 
 def test_logging_formatter_redacts_github_and_bearer_from_traceback():
     """ה-traceback עובר את אותם דפוסי ניקוי כמו ההודעה — לא רק טלגרם."""
-    import sys
-
-    from utils import SensitiveDataFilter
-
     gh_token = "ghp_" + "a" * 30
-    try:
-        raise RuntimeError(f"auth failed: {gh_token} Bearer abc123def456ghi789")
-    except RuntimeError:
-        exc_info = sys.exc_info()
-
-    record = logging.LogRecord(
-        name="test",
-        level=logging.ERROR,
-        pathname=__file__,
-        lineno=1,
-        msg="clean message",
-        args=(),
-        exc_info=exc_info,
-    )
-    SensitiveDataFilter().filter(record)
+    record = _filtered_record_for(RuntimeError(f"auth failed: {gh_token} Bearer abc123def456ghi789"))
     formatted = logging.Formatter().format(record)
     assert gh_token not in formatted
     assert "abc123def456ghi789" not in formatted
@@ -339,24 +346,24 @@ def test_redact_deep_preserves_clean_foreign_objects():
 
 def test_logging_formatter_keeps_clean_exceptions_untouched():
     """חריגה בלי טוקן שומרת על exc_info — אין פגיעה במבנה עבור Sentry וכו'."""
-    import sys
-
-    from utils import SensitiveDataFilter
-
-    try:
-        raise ValueError("nothing secret")
-    except ValueError:
-        exc_info = sys.exc_info()
-
-    record = logging.LogRecord(
-        name="test",
-        level=logging.ERROR,
-        pathname=__file__,
-        lineno=1,
-        msg="clean message",
-        args=(),
-        exc_info=exc_info,
-    )
-    SensitiveDataFilter().filter(record)
+    record = _filtered_record_for(ValueError("nothing secret"))
     assert record.exc_info is not None
     assert "ValueError" in logging.Formatter().format(record)
+
+
+def test_scrub_sentry_event_cleans_and_fails_closed(monkeypatch):
+    """העוזר המשותף לשני ה-before_send: מנקה אירוע, ומחזיר None בכשל ניקוי."""
+    import telegram_api
+    from telegram_api import scrub_sentry_event
+
+    cleaned = scrub_sentry_event({"logentry": {"message": f"calling {API_URL}"}})
+    # חייבים אירוע ממשי ומנוקה — ‎repr(None)‎ לעולם לא מכיל טוקן, כך שבלי
+    # הבדיקות האלה הטסט היה עובר גם אם הפונקציה הייתה מפילה כל אירוע
+    assert cleaned is not None
+    assert cleaned["logentry"]["message"] == "calling https://api.telegram.org/bot<REDACTED>/sendMessage"
+
+    def _boom(_obj):
+        raise RuntimeError("redaction broke")
+
+    monkeypatch.setattr(telegram_api, "redact_bot_token_deep", _boom)
+    assert scrub_sentry_event({"anything": "at all"}) is None

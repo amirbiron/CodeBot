@@ -10,6 +10,10 @@ from typing import Any, Dict, Optional
 # ועדיין תופסת כל טוקן אמיתי.
 _BOT_TOKEN_RE = re.compile(r"\d{5,16}:[A-Za-z0-9_-]{30,}")
 
+# השם הציבורי של הדפוס — צרכנים חיצוניים (כמו SensitiveDataFilter) מייבאים
+# אותו מכאן, כדי שלא יהיו שני מקורות אמת לדפוס רגיש-אבטחה
+BOT_TOKEN_RE = _BOT_TOKEN_RE
+
 TOKEN_PLACEHOLDER = "<REDACTED>"
 
 # מוחזר כשאי אפשר לנקות ערך (str() נכשל) — עדיף לאבד את הערך מאשר להדליף טוקן
@@ -138,6 +142,19 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
     if _BOT_TOKEN_RE.search(text):
         return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
     return obj
+
+
+def scrub_sentry_event(event: Any) -> Any:
+    """מנקה אירוע Sentry שלם לפני שליחה; מחזיר ``None`` אם הניקוי נכשל.
+
+    נקודת האמת המשותפת לכל ה-hooks — ``before_send`` וגם
+    ``before_send_transaction``, בבוט ובוובאפ. מדיניות fail-closed: אירוע
+    שהניקוי שלו נכשל לא נשלח גולמי; הקורא אחראי רק לרשום אזהרה כשמוחזר None.
+    """
+    try:
+        return redact_bot_token_deep(event)
+    except Exception:
+        return None
 
 
 def _truncate(text: Any, limit: int = 800) -> str:
