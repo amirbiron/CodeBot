@@ -6,6 +6,7 @@ UI לגלישה בקוד הריפו עם API מתקדם
 
 import logging
 import re
+import sys
 from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app, session
 from functools import lru_cache
 
@@ -30,6 +31,25 @@ def get_git_service():
         current_app.extensions['git_mirror_service'] = service
     return service
 
+def _resolve_admin_helpers():
+    """מאתר את ``is_admin``/``is_impersonating_safe`` בלי לטעון מודול פעמיים.
+
+    האפליקציה עשויה להיטען כחבילה (``webapp.app``) או כמודול שטוח (``app``),
+    תלוי בפקודת ההרצה. ייבוא ישיר של השם ה"לא נכון" מייצר מופע שני של
+    app.py — אתחול מלא נוסף עם ה-side effects שלו — ולכן קודם מחפשים את
+    המודול שכבר נטען ב-``sys.modules`` ורק אחר כך נופלים לייבוא.
+    """
+    for name in ('webapp.app', 'app'):
+        mod = sys.modules.get(name)
+        if mod is not None and hasattr(mod, 'is_admin'):
+            return mod.is_admin, mod.is_impersonating_safe
+    try:
+        from webapp.app import is_admin, is_impersonating_safe
+    except ImportError:
+        from app import is_admin, is_impersonating_safe  # type: ignore
+    return is_admin, is_impersonating_safe
+
+
 def _is_repo_browser_admin() -> bool:
     """האם המשתמש הנוכחי אדמין. ייבוא עצל כדי להימנע מייבוא מעגלי עם app."""
     raw = session.get('user_id')
@@ -40,11 +60,7 @@ def _is_repo_browser_admin() -> bool:
     except (TypeError, ValueError):
         return False
     try:
-        try:
-            from webapp.app import is_admin, is_impersonating_safe
-        except ImportError:
-            # תלוי איך נטענה האפליקציה (חבילה מול מודול שטוח)
-            from app import is_admin, is_impersonating_safe  # type: ignore
+        is_admin, is_impersonating_safe = _resolve_admin_helpers()
     except Exception:
         logger.exception("repo browser: could not resolve admin helpers")
         # fail-closed: בלי יכולת לאמת הרשאה לא פותחים את הפיצ'ר

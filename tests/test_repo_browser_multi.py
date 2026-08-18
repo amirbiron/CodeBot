@@ -1,7 +1,7 @@
 import pytest
 import sys
 from types import ModuleType, SimpleNamespace
-from flask import Flask, session as flask_session
+from flask import Flask, request as flask_request, session as flask_session
 
 try:
     import flask_login  # noqa: F401
@@ -60,6 +60,8 @@ class _StubDB:
         self.repo_files = _RepoFiles()
 
 
+# שם המפתח כפי שהוא ב-webapp/app.py — לא ערך מומצא לטסט
+IMPERSONATION_SESSION_KEY = 'admin_impersonation_active'
 ADMIN_USER_ID = 999
 REGULAR_USER_ID = 123
 
@@ -79,11 +81,33 @@ def app(tmp_path, monkeypatch) -> Flask:
     # דפדפן הקוד חסום לאדמינים; מזריקים webapp.app מדומה כדי לבדוק את
     # לוגיקת ההרשאה האמיתית בלי לגרור את אפליקציית ה-webapp המלאה
     webapp_app_stub = ModuleType("webapp.app")
-    webapp_app_stub.is_admin = lambda uid: int(uid) == ADMIN_USER_ID
-    # מצב impersonation נשלט מהטסט דרך הדגל בסשן
-    webapp_app_stub.is_impersonating_safe = lambda: bool(
-        flask_session.get('impersonating')
-    )
+
+    def _stub_is_admin(uid):
+        return int(uid) == ADMIN_USER_ID
+
+    def _stub_is_impersonating_safe():
+        """העתק נאמן של ‎is_impersonating_safe‎ מ-webapp/app.py.
+
+        מפתח הסשן וסדר הבדיקות זהים למקור בכוונה — כולל מסלול המילוט
+        ‎?force_admin=1‎ וההגנה מפני דגל בסשן של מי שאינו אדמין. stub
+        מפושט היה מאמת את עצמו במקום את המדיניות האמיתית.
+        """
+        if flask_request.args.get('force_admin') == '1':
+            return False
+        if not flask_session.get(IMPERSONATION_SESSION_KEY, False):
+            return False
+        uid = flask_session.get('user_id')
+        if uid is None:
+            return False
+        try:
+            if not _stub_is_admin(int(uid)):
+                return False
+        except Exception:
+            return False
+        return True
+
+    webapp_app_stub.is_admin = _stub_is_admin
+    webapp_app_stub.is_impersonating_safe = _stub_is_impersonating_safe
     monkeypatch.setitem(sys.modules, "webapp.app", webapp_app_stub)
 
     app.register_blueprint(repo_browser.repo_bp)
@@ -141,8 +165,25 @@ class TestRepoBrowserIsAdminOnly:
         c = app.test_client()
         with c.session_transaction() as sess:
             sess['user_id'] = ADMIN_USER_ID
-            sess['impersonating'] = True
+            sess[IMPERSONATION_SESSION_KEY] = True
         assert c.get('/repo/api/repos').status_code == 403
+
+    def test_force_admin_escape_hatch_works_while_impersonating(self, app):
+        """‎?force_admin=1‎ הוא מסלול המילוט של המערכת — חייב לפתוח גם כאן."""
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess['user_id'] = ADMIN_USER_ID
+            sess[IMPERSONATION_SESSION_KEY] = True
+        assert c.get('/repo/api/repos?force_admin=1').status_code == 200
+
+    def test_impersonation_flag_on_non_admin_does_not_grant_access(self, app):
+        """דגל Impersonation מזויף בסשן של לא-אדמין לא פותח כלום."""
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess['user_id'] = REGULAR_USER_ID
+            sess[IMPERSONATION_SESSION_KEY] = True
+        assert c.get('/repo/api/repos').status_code == 403
+        assert c.get('/repo/api/repos?force_admin=1').status_code == 403
 
     def test_regular_user_gets_403_on_page(self, user_client):
         assert user_client.get('/repo/').status_code == 403
