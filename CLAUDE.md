@@ -396,7 +396,7 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 הריפו `amirbiron/amir-bug-patterns` מרכז דפוסי באגים שכבר עלו לי בפרודקשן —
 לא תיאוריה. הוא ממורר ב-CodeKeeper, אז קוראים אותו כך:
 
-```
+```text
 codekeeper_get_repo_file(repo="amir-bug-patterns", path="CRITICAL-PATTERNS.md")
 codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 ```
