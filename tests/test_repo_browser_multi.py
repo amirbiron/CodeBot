@@ -1,7 +1,7 @@
 import pytest
 import sys
 from types import ModuleType, SimpleNamespace
-from flask import Flask
+from flask import Flask, session as flask_session
 
 try:
     import flask_login  # noqa: F401
@@ -80,6 +80,10 @@ def app(tmp_path, monkeypatch) -> Flask:
     # לוגיקת ההרשאה האמיתית בלי לגרור את אפליקציית ה-webapp המלאה
     webapp_app_stub = ModuleType("webapp.app")
     webapp_app_stub.is_admin = lambda uid: int(uid) == ADMIN_USER_ID
+    # מצב impersonation נשלט מהטסט דרך הדגל בסשן
+    webapp_app_stub.is_impersonating_safe = lambda: bool(
+        flask_session.get('impersonating')
+    )
     monkeypatch.setitem(sys.modules, "webapp.app", webapp_app_stub)
 
     app.register_blueprint(repo_browser.repo_bp)
@@ -118,6 +122,27 @@ class TestRepoBrowserIsAdminOnly:
 
     def test_anonymous_gets_403_on_page(self, anon_client):
         assert anon_client.get('/repo/').status_code == 403
+
+    def test_anonymous_gets_json_403_on_api(self, anon_client):
+        """חוזה ה-API לאנונימי: 403 עם admin_only, לא 401 ולא דף HTML."""
+        response = anon_client.get('/repo/api/repos')
+        assert response.status_code == 403
+        assert response.get_json()['error'] == 'admin_only'
+
+    def test_anonymous_cannot_select_repo(self, anon_client):
+        """המסלול האנונימי של select-repo נעצר ב-guard לפני flask_login."""
+        response = anon_client.post('/repo/api/select-repo',
+                                    json={'repo_name': 'CodeBot'})
+        assert response.status_code == 403
+        assert response.get_json()['error'] == 'admin_only'
+
+    def test_admin_while_impersonating_is_blocked(self, app):
+        """במצב Impersonation האדמין גולש כמשתמש אחר — ולכן חסום."""
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess['user_id'] = ADMIN_USER_ID
+            sess['impersonating'] = True
+        assert c.get('/repo/api/repos').status_code == 403
 
     def test_regular_user_gets_403_on_page(self, user_client):
         assert user_client.get('/repo/').status_code == 403
@@ -176,8 +201,12 @@ class TestMultiRepoSupport:
         response = client.get('/repo/api/file/README.md?repo=CodeBot')
         assert response.status_code in [200, 404]  # תלוי אם הקובץ קיים
 
-    def test_select_repo_unauthenticated(self, client):
-        """בדיקה שבחירת ריפו דורשת אותנטיקציה"""
+    def test_select_repo_admin_without_flask_login_gets_401(self, client):
+        """אדמין שעבר את ה-guard אך אינו מחובר ב-flask_login מקבל 401.
+
+        השם מדויק בכוונה: מאז שדפדפן הקוד נחסם לאדמינים, ‎client‎ הוא אדמין,
+        וה-401 כאן מגיע משכבת flask_login ולא מהיעדר סשן.
+        """
         response = client.post('/repo/api/select-repo',
                                json={'repo_name': 'CodeBot'})
         assert response.status_code == 401

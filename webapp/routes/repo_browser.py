@@ -40,12 +40,22 @@ def _is_repo_browser_admin() -> bool:
     except (TypeError, ValueError):
         return False
     try:
-        from webapp.app import is_admin
+        try:
+            from webapp.app import is_admin, is_impersonating_safe
+        except ImportError:
+            # תלוי איך נטענה האפליקציה (חבילה מול מודול שטוח)
+            from app import is_admin, is_impersonating_safe  # type: ignore
     except Exception:
-        logger.exception("repo browser: could not resolve is_admin")
+        logger.exception("repo browser: could not resolve admin helpers")
         # fail-closed: בלי יכולת לאמת הרשאה לא פותחים את הפיצ'ר
         return False
-    return bool(is_admin(user_id))
+
+    if not is_admin(user_id):
+        return False
+    # במצב Impersonation האדמין גולש כמשתמש אחר, ולכן עמודי אדמין חסומים —
+    # ‎is_impersonating_safe‎ הוא מקור האמת למדיניות הזו וכולל בתוכו את
+    # מסלול המילוט ‎?force_admin=1‎, כך שאין כאן שכפול של הכלל.
+    return not is_impersonating_safe()
 
 
 @repo_bp.before_request

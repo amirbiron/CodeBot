@@ -215,6 +215,7 @@ class TestAPIRoutes:
 
         webapp_app_stub = ModuleType("webapp.app")
         webapp_app_stub.is_admin = lambda uid: int(uid) == 999
+        webapp_app_stub.is_impersonating_safe = lambda: False
         monkeypatch.setitem(sys.modules, "webapp.app", webapp_app_stub)
 
         app.register_blueprint(repo_bp)
