@@ -357,7 +357,10 @@ def test_scrub_sentry_event_cleans_and_fails_closed(monkeypatch):
     from telegram_api import scrub_sentry_event
 
     cleaned = scrub_sentry_event({"logentry": {"message": f"calling {API_URL}"}})
-    assert FAKE_TOKEN not in repr(cleaned)
+    # חייבים אירוע ממשי ומנוקה — ‎repr(None)‎ לעולם לא מכיל טוקן, כך שבלי
+    # הבדיקות האלה הטסט היה עובר גם אם הפונקציה הייתה מפילה כל אירוע
+    assert cleaned is not None
+    assert cleaned["logentry"]["message"] == "calling https://api.telegram.org/bot<REDACTED>/sendMessage"
 
     def _boom(_obj):
         raise RuntimeError("redaction broke")
