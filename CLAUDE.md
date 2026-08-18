@@ -385,3 +385,54 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 - השתמש ב־**Skeleton Loaders** ובשליפת נתונים מה־API דרך JavaScript ברקע.
 
 - עטוף חישובים כבדים ב־`await asyncio.to_thread(...)` כדי לא לחסום את ה־Event Loop.
+
+---
+
+## דפוסי באגים — amir-bug-patterns
+
+> **מתי להשתמש:** לפני נגיעה באחד הנושאים בטבלה, ובכל פעם שריוויוור תופס דפוס
+> **ראו גם:** כלל הפתרון השורשי, CI / Required Checks
+
+הריפו `amirbiron/amir-bug-patterns` מרכז דפוסי באגים שכבר עלו לי בפרודקשן —
+לא תיאוריה. הוא ממורר ב-CodeKeeper, אז קוראים אותו כך:
+
+```text
+codekeeper_get_repo_file(repo="amir-bug-patterns", path="CRITICAL-PATTERNS.md")
+codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
+```
+
+אם ה-MCP לא זמין בסשן: הריפו ציבורי, אז אפשר לצרף אותו לסשן (`add_repo` ואז
+clone) או לקרוא ממנו ישירות. אין צורך בהרשאות מיוחדות.
+
+### מתי לקרוא מה
+
+| כשאתה נוגע ב... | קרא |
+|---|---|
+| שמירה/מחיקה שמסתיימת בהודעת ✅ למשתמש | `CRITICAL-PATTERNS.md` K11 |
+| קאש / invalidation | `bugbot-rules/return-value-failure-unchecked.md` §4 |
+| callbacks / handlers מקביליים, מזהים מבוססי־זמן | `CORE-PATTERNS.md` U1 |
+| PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
+| קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
+| טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
+
+### תמיד, בלי קשר לטבלה
+
+- **לפני עטיפת קריאה ב-`try/except`** → `CRITICAL-PATTERNS.md` K11. בקצרה:
+  בדוק מה הפונקציה מחזירה בכשל. אם היא מחזירה `None`/`False`/`0` ולא זורקת,
+  ה-`except` לא ירוץ לעולם — צריך `if not result:` לפני כל דיווח הצלחה.
+  הדפוס הזה כבר עלה בריפו הזה **שלוש פעמים** (`save_backup_bytes` ב-PR #3232
+  וב-#3172, ו-`delete_pattern` של הקאש).
+- **לפני כתיבת טסט חדש** → `claude-md-snippets/testing.md`. בפרט: טסט שנוסף
+  עם תיקון חייב להיכשל בלי התיקון — הרץ אותו על הקוד הישן וּודא שהוא נופל.
+- **אחרי שטסט נופל על חריגה** → `bugbot-rules/widened-exception-scope.md`.
+  אל תרחיב `except` כדי לעבור; בדוק קודם את הסטאב/fixture — שם השורש בדרך כלל.
+
+### סגירת הלולאה (חובה, לא רשות)
+
+1. **ריוויוור (cubic/qodo/CodeRabbit/claude) תפס דפוס אמיתי** שאינו
+   ב-amir-bug-patterns → פתח שם PR שמוסיף אותו (מסמך מקור + הצלבה לפי ה-README
+   שלו), **וגם** הוסף שורת טריגר לטבלה כאן.
+2. **זיהית דפוס חוזר בעצמך** (תיקנת פעמיים את אותו סוג טעות) → אותו תהליך.
+3. דפוס בלי שורת טריגר = דפוס שלא ייקרא בזמן המימוש. שני הצעדים הם צעד אחד.
+
+התהליך המלא והמיפוי לשאר הפרויקטים: `INTEGRATION.md` באותו ריפו.
