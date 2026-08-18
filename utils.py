@@ -1418,6 +1418,17 @@ def get_language_emoji(language: str) -> str:
     
     return emoji_map.get(language.lower(), '📄')
 
+# טוקן של בוט טלגרם — מגיע ללוגים דרך כתובות ה-API (‎/bot<TOKEN>/method).
+# הדפוס מיובא מנקודת הניקוי המרכזית; אם הייבוא נכשל יש עותק מקומי זהה, כדי
+# שהניקוי לעולם לא ידולג בגלל בעיית import (fail-closed).
+try:
+    from telegram_api import _BOT_TOKEN_RE as _TG_TOKEN_RE  # type: ignore
+except Exception:  # pragma: no cover
+    import re as _re_fallback
+
+    _TG_TOKEN_RE = _re_fallback.compile(r"\d{5,16}:[A-Za-z0-9_-]{30,}")
+
+
 class SensitiveDataFilter(logging.Filter):
     """מסנן שמטשטש טוקנים ונתונים רגישים בלוגים."""
     def filter(self, record: logging.LogRecord) -> bool:
@@ -1433,20 +1444,33 @@ class SensitiveDataFilter(logging.Filter):
             import re as _re
             for pat, repl in patterns:
                 redacted = _re.sub(pat, repl, redacted)
-            # טוקן של בוט טלגרם — מגיע ללוגים דרך כתובות ה-API (‎/bot<TOKEN>/method)
-            try:
-                from telegram_api import redact_bot_token as _redact_bot_token
-
-                redacted = _redact_bot_token(redacted)
-            except Exception:
-                pass
+            redacted = _TG_TOKEN_RE.sub("<REDACTED>", redacted)
             # עדכן רק את message הפורמטי
             record.msg = redacted
             # חשוב: נקה ארגומנטים כדי למנוע ניסיון פורמט חוזר (%s) שיוביל ל-TypeError
             record.args = ()
+            # Formatter.format מדביק את ה-traceback אחרי ההודעה, ולכן טוקן בתוך
+            # טקסט החריגה (למשל URL של טלגרם בחריגת רשת) ידלוף גם אם ההודעה נקייה.
+            # מנקים רק כשבאמת נמצא טוקן, כדי לא לפגוע במבנה החריגה במקרה הרגיל.
+            self._redact_exception(record)
         except Exception:
             pass
         return True
+
+    @staticmethod
+    def _redact_exception(record: logging.LogRecord) -> None:
+        try:
+            exc_text = record.exc_text
+            if not exc_text and record.exc_info:
+                import traceback as _tb
+
+                exc_text = "".join(_tb.format_exception(*record.exc_info))
+            if exc_text and _TG_TOKEN_RE.search(exc_text):
+                record.exc_text = _TG_TOKEN_RE.sub("<REDACTED>", exc_text)
+                # בלי לאפס את exc_info ה-Formatter היה מרנדר את ה-traceback הגולמי מחדש
+                record.exc_info = None
+        except Exception:
+            pass
 
 
 def install_sensitive_filter():

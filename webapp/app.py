@@ -1539,13 +1539,14 @@ try:
 
             ה-filter על ה-logging handlers לא מכסה חריגות שנתפסות ישירות
             על ידי FlaskIntegration, ושם בדיוק יושבות כתובות ה-API של טלגרם.
+            fail-closed: אם הניקוי נכשל האירוע נזרק ולא נשלח גולמי.
             """
             try:
                 from telegram_api import redact_bot_token_deep  # type: ignore
 
                 return redact_bot_token_deep(event)
             except Exception:
-                return event
+                return None
 
         sentry_sdk.init(
             dsn=getattr(__import__('config'), 'config').SENTRY_DSN,

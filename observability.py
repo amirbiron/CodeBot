@@ -863,7 +863,12 @@ def init_sentry() -> None:
 
                 event = redact_bot_token_deep(event)
             except Exception:
-                pass
+                # fail-closed: עדיף לאבד אירוע אחד מאשר לשלוח אירוע שלא נוקה
+                try:
+                    LOGGER.warning("sentry event dropped: token redaction failed", extra={"event": "sentry_redaction_failed"})
+                except Exception:
+                    pass
+                return None
             return event
 
         # Resolve environment consistently with fallback to config if ENV/ENVIRONMENT not set

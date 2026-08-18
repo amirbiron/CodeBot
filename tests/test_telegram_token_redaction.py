@@ -119,11 +119,54 @@ def test_redact_deep_cleans_nested_sentry_shaped_event():
 
 
 def test_redact_deep_survives_self_referencing_structure():
-    """מבנה מעגלי לא אמור להפיל את המסנן — הוא רץ לפני שליחה לכל אירוע."""
+    """מבנה מעגלי מנוקה במלואו — ההפניה המעגלית מצביעה על העותק המנוקה, לא על המקור."""
     node: dict = {"url": API_URL}
     node["self"] = node
     cleaned = redact_bot_token_deep(node)
     assert FAKE_TOKEN not in str(cleaned["url"])
+    # ההפניה המעגלית נסגרת על העותק המנוקה — אין דרך להגיע מהתוצאה לטוקן הגולמי
+    assert cleaned["self"] is cleaned
+    assert FAKE_TOKEN not in str(cleaned["self"]["url"])
+
+
+def test_redact_deep_handles_deep_nesting_without_leaking():
+    """קינון עמוק (מעבר לכל cap) לא מחזיר לעולם את הערך הגולמי."""
+    node: dict = {"url": API_URL}
+    for _ in range(150):
+        node = {"child": node}
+    cleaned = redact_bot_token_deep(node)
+    assert FAKE_TOKEN not in repr(cleaned)
+
+
+def test_redact_deep_cleans_dict_keys_sets_and_namedtuples():
+    import collections
+
+    Point = collections.namedtuple("Point", ["x", "y"])
+    obj = {
+        API_URL: "key-carrying-token",
+        "set": {API_URL, "safe"},
+        "frozen": frozenset({API_URL}),
+        "named": Point(x=API_URL, y=1),
+    }
+    cleaned = redact_bot_token_deep(obj)
+    assert FAKE_TOKEN not in repr(cleaned)
+    # namedtuple נשמר כ-namedtuple, set נשאר set
+    named = next(v for v in cleaned.values() if isinstance(v, tuple) and hasattr(v, "_fields"))
+    assert named.y == 1
+    assert isinstance(cleaned["set"], set)
+    assert isinstance(cleaned["frozen"], frozenset)
+
+
+def test_error_payload_dict_is_redacted_and_structure_kept():
+    payload = {"ok": False, "description": f"failed {API_URL}", "error_code": 400}
+    err = TelegramAPIError(error_code=400, description="Bad Request", url=API_URL, payload=payload)
+    assert FAKE_TOKEN not in repr(err.payload)
+    assert err.payload["error_code"] == 400
+
+
+def test_error_payload_string_is_redacted():
+    err = TelegramAPIError(error_code=None, description="boom", url=None, payload=f"body {API_URL}")
+    assert FAKE_TOKEN not in err.payload
 
 
 def test_logging_filter_redacts_bot_token():
@@ -140,3 +183,55 @@ def test_logging_filter_redacts_bot_token():
     )
     SensitiveDataFilter().filter(record)
     assert FAKE_TOKEN not in record.getMessage()
+
+
+def test_logging_formatter_does_not_leak_token_from_traceback():
+    """ה-Formatter מדביק את ה-traceback אחרי ההודעה — גם הוא חייב לצאת נקי."""
+    import sys
+
+    from utils import SensitiveDataFilter
+
+    try:
+        raise RuntimeError(f"request failed: {API_URL}")
+    except RuntimeError:
+        exc_info = sys.exc_info()
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="clean message",
+        args=(),
+        exc_info=exc_info,
+    )
+    SensitiveDataFilter().filter(record)
+    formatted = logging.Formatter().format(record)
+    assert FAKE_TOKEN not in formatted
+    # ה-traceback עצמו לא נעלם — רק הטוקן הוחלף
+    assert "RuntimeError" in formatted
+
+
+def test_logging_formatter_keeps_clean_exceptions_untouched():
+    """חריגה בלי טוקן שומרת על exc_info — אין פגיעה במבנה עבור Sentry וכו'."""
+    import sys
+
+    from utils import SensitiveDataFilter
+
+    try:
+        raise ValueError("nothing secret")
+    except ValueError:
+        exc_info = sys.exc_info()
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="clean message",
+        args=(),
+        exc_info=exc_info,
+    )
+    SensitiveDataFilter().filter(record)
+    assert record.exc_info is not None
+    assert "ValueError" in logging.Formatter().format(record)

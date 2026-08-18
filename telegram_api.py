@@ -3,45 +3,86 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional
 
-# מבנה טוקן של בוט טלגרם: מזהה מספרי, נקודתיים, ואז מחרוזת ארוכה.
+# מבנה טוקן של בוט טלגרם: מזהה מספרי, נקודתיים, ואז סוד באורך ~35 תווים.
 # כתובות ה-API נבנות כ-https://api.telegram.org/bot<TOKEN>/method — ולכן כל טקסט
 # שנגזר מכתובת כזו (הודעת שגיאה, לוג, אירוע Sentry) עלול לשאת את הטוקן במלואו.
-_BOT_TOKEN_RE = re.compile(r"\d{5,}:[A-Za-z0-9_-]{20,}")
+# דרישת 30+ תווים בסוד מצמצמת פגיעה בטקסטים לגיטימיים (hash/מזהה עם נקודתיים),
+# ועדיין תופסת כל טוקן אמיתי.
+_BOT_TOKEN_RE = re.compile(r"\d{5,16}:[A-Za-z0-9_-]{30,}")
 
 TOKEN_PLACEHOLDER = "<REDACTED>"
+
+# מוחזר כשאי אפשר לנקות ערך (str() נכשל) — עדיף לאבד את הערך מאשר להדליף טוקן
+UNREDACTABLE_PLACEHOLDER = "<UNREDACTABLE>"
 
 
 def redact_bot_token(value: Any) -> Any:
     """מחליף כל טוקן בוט שמופיע בטקסט בסימון ``<REDACTED>``.
 
-    מחזיר ``None`` כפי שהוא, וכל ערך אחר מומר למחרוזת מנוקה. זו נקודת הניקוי
-    היחידה בקוד — גם ``TelegramAPIError`` וגם מסנני ה-Sentry נשענים עליה.
+    מחזיר ``None`` כפי שהוא, וכל ערך אחר מומר למחרוזת מנוקה. אם ההמרה למחרוזת
+    נכשלת מוחזר ``<UNREDACTABLE>`` — כישלון ניקוי לעולם לא מחזיר את הערך הגולמי.
+    זו נקודת הניקוי היחידה בקוד — ``TelegramAPIError``, מסנני ה-Sentry ומסנן
+    הלוגים נשענים עליה.
     """
     if value is None:
         return None
     try:
         text = value if isinstance(value, str) else str(value)
+        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
     except Exception:
-        return value
-    return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
+        return UNREDACTABLE_PLACEHOLDER
 
 
-def redact_bot_token_deep(obj: Any, _depth: int = 0) -> Any:
-    """מנקה טוקנים מכל המחרוזות בתוך מבנה נתונים מקונן (dict/list/tuple).
+def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _depth: int = 0) -> Any:
+    """מנקה טוקנים מכל המחרוזות בתוך מבנה נתונים מקונן.
 
     נועד למסנני Sentry: אירוע שגיאה פורש את הטוקן על פני כמה שדות (גוף החריגה,
     הודעת הלוג, breadcrumbs), ורשימת שדות קבועה תמיד תפספס אחד. במקום זה עוברים
-    על כל המבנה. העומק מוגבל כדי לא להיתקע על מבנים מעגליים.
+    על כל המבנה — dict (כולל מפתחות), list, tuple (כולל namedtuple), set ו-frozenset.
+
+    מבנים מעגליים מטופלים ב-memo לפי ‎id()‎ כך שכל צומת מנוקה בדיוק פעם אחת;
+    מגבלת העומק היא רשת ביטחון בלבד, וחצייה שלה מחזירה placeholder — לעולם לא
+    את הערך המקורי.
     """
-    if _depth > 12:
-        return obj
+    if _memo is None:
+        _memo = {}
+    if _depth > 100:
+        # עומק כזה לא קיים באירועי Sentry אמיתיים; מחזירים placeholder ולא את המקור
+        return UNREDACTABLE_PLACEHOLDER
     if isinstance(obj, str):
         return redact_bot_token(obj)
     if isinstance(obj, dict):
-        return {k: redact_bot_token_deep(v, _depth + 1) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        cleaned = [redact_bot_token_deep(v, _depth + 1) for v in obj]
-        return type(obj)(cleaned) if isinstance(obj, tuple) else cleaned
+        existing = _memo.get(id(obj))
+        if existing is not None:
+            return existing
+        cleaned_dict: Dict[Any, Any] = {}
+        # רישום לפני המילוי — כך הפניה מעגלית חוזרת לעותק המנוקה ולא למקור
+        _memo[id(obj)] = cleaned_dict
+        for k, v in obj.items():
+            ck = redact_bot_token(k) if isinstance(k, str) else k
+            cleaned_dict[ck] = redact_bot_token_deep(v, _memo, _depth + 1)
+        return cleaned_dict
+    if isinstance(obj, list):
+        existing = _memo.get(id(obj))
+        if existing is not None:
+            return existing
+        cleaned_list: list = []
+        _memo[id(obj)] = cleaned_list
+        for v in obj:
+            cleaned_list.append(redact_bot_token_deep(v, _memo, _depth + 1))
+        return cleaned_list
+    if isinstance(obj, tuple):
+        cleaned_items = [redact_bot_token_deep(v, _memo, _depth + 1) for v in obj]
+        try:
+            if hasattr(obj, "_fields"):  # namedtuple — בנייה מאיברים בודדים
+                return type(obj)(*cleaned_items)
+            return type(obj)(cleaned_items)
+        except Exception:
+            # תת-מחלקה עם בנאי לא סטנדרטי — tuple רגיל עדיף על אובייקט לא מנוקה
+            return tuple(cleaned_items)
+    if isinstance(obj, (set, frozenset)):
+        cleaned_set = {redact_bot_token_deep(v, _memo, _depth + 1) for v in obj}
+        return frozenset(cleaned_set) if isinstance(obj, frozenset) else cleaned_set
     return obj
 
 
@@ -74,7 +115,8 @@ class TelegramAPIError(RuntimeError):
         self.description = redact_bot_token(str(description or "").strip())
         self.url = redact_bot_token(url)
         self.http_status = http_status
-        self.payload = redact_bot_token(payload) if isinstance(payload, str) else payload
+        # ניקוי עמוק — גם dict/list (למשל payload מלא של תגובת טלגרם) חייבים לצאת נקיים
+        self.payload = redact_bot_token_deep(payload) if payload is not None else None
         msg = f"Telegram API error"
         if error_code is not None:
             msg += f" error_code={error_code}"
