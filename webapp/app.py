@@ -1534,11 +1534,30 @@ try:
             install_sensitive_filter()
         except Exception:
             pass
+        def _sentry_before_send(event, hint):
+            """מנקה טוקני בוט מכל אירוע לפני שהוא נשלח ל-Sentry.
+
+            ה-filter על ה-logging handlers לא מכסה חריגות שנתפסות ישירות
+            על ידי FlaskIntegration, ושם בדיוק יושבות כתובות ה-API של טלגרם.
+            fail-closed: אם הניקוי נכשל האירוע נזרק ולא נשלח גולמי.
+            """
+            try:
+                from telegram_api import redact_bot_token_deep  # type: ignore
+
+                return redact_bot_token_deep(event)
+            except Exception:
+                try:
+                    logger.warning("sentry event dropped: token redaction failed", extra={"event": "sentry_redaction_failed"})
+                except Exception:
+                    pass
+                return None
+
         sentry_sdk.init(
             dsn=getattr(__import__('config'), 'config').SENTRY_DSN,
             integrations=[FlaskIntegration()],
             traces_sample_rate=0.05,
             environment=getattr(__import__('config'), 'config').ENVIRONMENT,
+            before_send=_sentry_before_send,
         )
 except Exception:
     pass

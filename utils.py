@@ -1418,28 +1418,66 @@ def get_language_emoji(language: str) -> str:
     
     return emoji_map.get(language.lower(), '📄')
 
+# טוקן של בוט טלגרם — מגיע ללוגים דרך כתובות ה-API (‎/bot<TOKEN>/method).
+# הדפוס מיובא מנקודת הניקוי המרכזית; אם הייבוא נכשל יש עותק מקומי זהה, כדי
+# שהניקוי לעולם לא ידולג בגלל בעיית import (fail-closed).
+try:
+    from telegram_api import _BOT_TOKEN_RE as _TG_TOKEN_RE  # type: ignore
+except Exception:  # pragma: no cover
+    import re as _re_fallback
+
+    _TG_TOKEN_RE = _re_fallback.compile(r"\d{5,16}:[A-Za-z0-9_-]{30,}")
+
+
 class SensitiveDataFilter(logging.Filter):
     """מסנן שמטשטש טוקנים ונתונים רגישים בלוגים."""
+
+    # כל דפוסי הניקוי במקום אחד — ההודעה וה-traceback עוברים דרך אותה רשימה,
+    # כך שאי אפשר להוסיף דפוס למסלול אחד ולשכוח את השני
+    _PATTERNS = [
+        (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "ghp_***REDACTED***"),
+        (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "github_pat_***REDACTED***"),
+        (re.compile(r"Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}"), "Bearer ***REDACTED***"),
+        (_TG_TOKEN_RE, "<REDACTED>"),
+    ]
+
+    @classmethod
+    def _redact_text(cls, text: str) -> str:
+        for pat, repl in cls._PATTERNS:
+            text = pat.sub(repl, text)
+        return text
+
     def filter(self, record: logging.LogRecord) -> bool:
         try:
-            msg = str(record.getMessage())
-            # זיהוי בסיסי של טוקנים: ghp_..., github_pat_..., Bearer ...
-            patterns = [
-                (r"ghp_[A-Za-z0-9]{20,}", "ghp_***REDACTED***"),
-                (r"github_pat_[A-Za-z0-9_]{20,}", "github_pat_***REDACTED***"),
-                (r"Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}", "Bearer ***REDACTED***"),
-            ]
-            redacted = msg
-            import re as _re
-            for pat, repl in patterns:
-                redacted = _re.sub(pat, repl, redacted)
-            # עדכן רק את message הפורמטי
-            record.msg = redacted
+            record.msg = self._redact_text(str(record.getMessage()))
             # חשוב: נקה ארגומנטים כדי למנוע ניסיון פורמט חוזר (%s) שיוביל ל-TypeError
             record.args = ()
+            # Formatter.format מדביק את ה-traceback אחרי ההודעה, ולכן סוד בתוך
+            # טקסט החריגה (למשל URL של טלגרם בחריגת רשת) ידלוף גם אם ההודעה נקייה.
+            # מנקים רק כשבאמת נמצא סוד, כדי לא לפגוע במבנה החריגה במקרה הרגיל.
+            self._redact_exception(record)
         except Exception:
             pass
         return True
+
+    @classmethod
+    def _redact_exception(cls, record: logging.LogRecord) -> None:
+        try:
+            exc_text = record.exc_text
+            if not exc_text and record.exc_info:
+                import traceback as _tb
+
+                exc_text = "".join(_tb.format_exception(*record.exc_info))
+            if not exc_text:
+                return
+            cleaned = cls._redact_text(exc_text)
+            if cleaned != exc_text:
+                # Formatter.format משתמש ב-exc_text כשהוא כבר מוגדר ולא מרנדר את
+                # exc_info מחדש, ולכן די בקאש המנוקה. את exc_info משאירים — Sentry
+                # בונה ממנו את החריגה המובנית ומנקה אותה ב-before_send.
+                record.exc_text = cleaned
+        except Exception:
+            pass
 
 
 def install_sensitive_filter():

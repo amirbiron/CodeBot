@@ -414,6 +414,7 @@ clone) או לקרוא ממנו ישירות. אין צורך בהרשאות מ�
 | PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
 | קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
 | טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
+| הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
 
 ### תמיד, בלי קשר לטבלה
 
