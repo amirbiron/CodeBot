@@ -1431,42 +1431,48 @@ except Exception:  # pragma: no cover
 
 class SensitiveDataFilter(logging.Filter):
     """מסנן שמטשטש טוקנים ונתונים רגישים בלוגים."""
+
+    # כל דפוסי הניקוי במקום אחד — ההודעה וה-traceback עוברים דרך אותה רשימה,
+    # כך שאי אפשר להוסיף דפוס למסלול אחד ולשכוח את השני
+    _PATTERNS = [
+        (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "ghp_***REDACTED***"),
+        (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "github_pat_***REDACTED***"),
+        (re.compile(r"Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}"), "Bearer ***REDACTED***"),
+        (_TG_TOKEN_RE, "<REDACTED>"),
+    ]
+
+    @classmethod
+    def _redact_text(cls, text: str) -> str:
+        for pat, repl in cls._PATTERNS:
+            text = pat.sub(repl, text)
+        return text
+
     def filter(self, record: logging.LogRecord) -> bool:
         try:
-            msg = str(record.getMessage())
-            # זיהוי בסיסי של טוקנים: ghp_..., github_pat_..., Bearer ...
-            patterns = [
-                (r"ghp_[A-Za-z0-9]{20,}", "ghp_***REDACTED***"),
-                (r"github_pat_[A-Za-z0-9_]{20,}", "github_pat_***REDACTED***"),
-                (r"Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}", "Bearer ***REDACTED***"),
-            ]
-            redacted = msg
-            import re as _re
-            for pat, repl in patterns:
-                redacted = _re.sub(pat, repl, redacted)
-            redacted = _TG_TOKEN_RE.sub("<REDACTED>", redacted)
-            # עדכן רק את message הפורמטי
-            record.msg = redacted
+            record.msg = self._redact_text(str(record.getMessage()))
             # חשוב: נקה ארגומנטים כדי למנוע ניסיון פורמט חוזר (%s) שיוביל ל-TypeError
             record.args = ()
-            # Formatter.format מדביק את ה-traceback אחרי ההודעה, ולכן טוקן בתוך
+            # Formatter.format מדביק את ה-traceback אחרי ההודעה, ולכן סוד בתוך
             # טקסט החריגה (למשל URL של טלגרם בחריגת רשת) ידלוף גם אם ההודעה נקייה.
-            # מנקים רק כשבאמת נמצא טוקן, כדי לא לפגוע במבנה החריגה במקרה הרגיל.
+            # מנקים רק כשבאמת נמצא סוד, כדי לא לפגוע במבנה החריגה במקרה הרגיל.
             self._redact_exception(record)
         except Exception:
             pass
         return True
 
-    @staticmethod
-    def _redact_exception(record: logging.LogRecord) -> None:
+    @classmethod
+    def _redact_exception(cls, record: logging.LogRecord) -> None:
         try:
             exc_text = record.exc_text
             if not exc_text and record.exc_info:
                 import traceback as _tb
 
                 exc_text = "".join(_tb.format_exception(*record.exc_info))
-            if exc_text and _TG_TOKEN_RE.search(exc_text):
-                record.exc_text = _TG_TOKEN_RE.sub("<REDACTED>", exc_text)
+            if not exc_text:
+                return
+            cleaned = cls._redact_text(exc_text)
+            if cleaned != exc_text:
+                record.exc_text = cleaned
                 # בלי לאפס את exc_info ה-Formatter היה מרנדר את ה-traceback הגולמי מחדש
                 record.exc_info = None
         except Exception:

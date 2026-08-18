@@ -212,6 +212,52 @@ def test_logging_formatter_does_not_leak_token_from_traceback():
     assert "RuntimeError" in formatted
 
 
+def test_redact_deep_cleans_bytes_and_non_string_dict_keys():
+    """גם bytes (גוף תגובה גולמי) וגם מפתחות מורכבים חייבים לצאת נקיים."""
+    obj = {
+        ("tuple-key", API_URL): "value",
+        frozenset({API_URL}): "value2",
+        b"body": API_URL.encode("utf-8"),
+        "ba": bytearray(API_URL.encode("utf-8")),
+    }
+    cleaned = redact_bot_token_deep(obj)
+    assert FAKE_TOKEN not in repr(cleaned)
+    assert FAKE_TOKEN.encode("utf-8") not in cleaned[b"body"]
+    # הטיפוסים נשמרים — bytes נשאר bytes, bytearray נשאר bytearray
+    assert isinstance(cleaned[b"body"], bytes)
+    assert isinstance(cleaned["ba"], bytearray)
+    assert any(isinstance(k, tuple) for k in cleaned)
+    assert any(isinstance(k, frozenset) for k in cleaned)
+
+
+def test_logging_formatter_redacts_github_and_bearer_from_traceback():
+    """ה-traceback עובר את אותם דפוסי ניקוי כמו ההודעה — לא רק טלגרם."""
+    import sys
+
+    from utils import SensitiveDataFilter
+
+    gh_token = "ghp_" + "a" * 30
+    try:
+        raise RuntimeError(f"auth failed: {gh_token} Bearer abc123def456ghi789")
+    except RuntimeError:
+        exc_info = sys.exc_info()
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="clean message",
+        args=(),
+        exc_info=exc_info,
+    )
+    SensitiveDataFilter().filter(record)
+    formatted = logging.Formatter().format(record)
+    assert gh_token not in formatted
+    assert "abc123def456ghi789" not in formatted
+    assert "REDACTED" in formatted
+
+
 def test_logging_formatter_keeps_clean_exceptions_untouched():
     """חריגה בלי טוקן שומרת על exc_info — אין פגיעה במבנה עבור Sentry וכו'."""
     import sys

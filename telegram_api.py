@@ -51,6 +51,15 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
         return UNREDACTABLE_PLACEHOLDER
     if isinstance(obj, str):
         return redact_bot_token(obj)
+    if isinstance(obj, (bytes, bytearray)):
+        # גוף תגובה גולמי (breadcrumb/hint) יכול לשאת את הטוקן גם כ-bytes.
+        # מפענחים, מנקים ומקודדים חזרה כדי לשמור על הטיפוס המקורי.
+        try:
+            cleaned_text = _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, obj.decode("utf-8", errors="replace"))
+            encoded = cleaned_text.encode("utf-8")
+            return bytearray(encoded) if isinstance(obj, bytearray) else encoded
+        except Exception:
+            return UNREDACTABLE_PLACEHOLDER
     if isinstance(obj, dict):
         existing = _memo.get(id(obj))
         if existing is not None:
@@ -59,8 +68,8 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
         # רישום לפני המילוי — כך הפניה מעגלית חוזרת לעותק המנוקה ולא למקור
         _memo[id(obj)] = cleaned_dict
         for k, v in obj.items():
-            ck = redact_bot_token(k) if isinstance(k, str) else k
-            cleaned_dict[ck] = redact_bot_token_deep(v, _memo, _depth + 1)
+            # גם מפתח יכול לשאת טוקן — כמחרוזת או בתוך tuple/frozenset (שנשארים hashable)
+            cleaned_dict[redact_bot_token_deep(k, _memo, _depth + 1)] = redact_bot_token_deep(v, _memo, _depth + 1)
         return cleaned_dict
     if isinstance(obj, list):
         existing = _memo.get(id(obj))
