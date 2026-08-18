@@ -1462,7 +1462,7 @@ html[dir="rtl"] .history-panel.open {
 
 .history-search-input {
     width: 100%;
-    padding: 8px 32px 8px 32px;
+    padding: 8px 32px;
     background: var(--bg-primary, #1e1e2e);
     border: 1px solid var(--border-color, #45475a);
     border-radius: 6px;

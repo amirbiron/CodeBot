@@ -394,7 +394,7 @@
 .split-panel--editor {
   flex: var(--split-editor-ratio);
   max-width: 100%;
-  padding: 0 0.85rem 0.85rem 0.85rem;
+  padding: 0 0.85rem 0.85rem;
 }
 
 .split-panel--preview {

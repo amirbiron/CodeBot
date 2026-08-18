@@ -520,7 +520,7 @@
 
 .tags-categories{display:flex;flex-direction:column;gap:20px}
 .tag-category{border:1px solid var(--collections-card-border);border-radius:8px;padding:12px;background:var(--collections-card-bg)}
-.tag-category-title{font-size:14px;font-weight:600;margin:0 0 10px 0;color:var(--collections-dark-text)}
+.tag-category-title{font-size:14px;font-weight:600;margin:0 0 10px;color:var(--collections-dark-text)}
 .tag-category-options{display:flex;gap:8px;flex-wrap:wrap}
 
 .tag-option{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;font-size:18px;border:2px solid var(--collections-btn-border);border-radius:8px;background:var(--collections-card-bg);cursor:pointer;transition:all .2s}
