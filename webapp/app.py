@@ -1546,6 +1546,10 @@ try:
 
                 return redact_bot_token_deep(event)
             except Exception:
+                try:
+                    logger.warning("sentry event dropped: token redaction failed", extra={"event": "sentry_redaction_failed"})
+                except Exception:
+                    pass
                 return None
 
         sentry_sdk.init(

@@ -121,6 +121,18 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
     if isinstance(obj, (set, frozenset)):
         cleaned_set = {redact_bot_token_deep(v, _memo, _depth + 1) for v in obj}
         return frozenset(cleaned_set) if isinstance(obj, frozenset) else cleaned_set
+    # סקלרים חסרי טקסט — אין מה לנקות בהם
+    if obj is None or isinstance(obj, (int, float, bool)):
+        return obj
+    # אובייקט זר (למשל מופע חריגה בתוך hint/extra): Sentry ימיר אותו למחרוזת
+    # אחרי שהניקוי כבר עבר, ולכן אם הייצוג הטקסטואלי נושא טוקן — מחזירים את
+    # הייצוג המנוקה במקום האובייקט. אובייקט נקי נשמר כמות שהוא.
+    try:
+        text = str(obj)
+    except Exception:
+        return UNREDACTABLE_PLACEHOLDER
+    if _BOT_TOKEN_RE.search(text):
+        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
     return obj
 
 

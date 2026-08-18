@@ -210,6 +210,9 @@ def test_logging_formatter_does_not_leak_token_from_traceback():
     assert FAKE_TOKEN not in formatted
     # ה-traceback עצמו לא נעלם — רק הטוקן הוחלף
     assert "RuntimeError" in formatted
+    # exc_info נשמר: Formatter משתמש בקאש exc_text המנוקה, ו-Sentry עוד צריך
+    # את החריגה המובנית (הניקוי שלה קורה ב-before_send)
+    assert record.exc_info is not None
 
 
 def test_redact_deep_cleans_bytes_and_non_string_dict_keys():
@@ -289,6 +292,33 @@ def test_logging_formatter_redacts_github_and_bearer_from_traceback():
     assert gh_token not in formatted
     assert "abc123def456ghi789" not in formatted
     assert "REDACTED" in formatted
+    assert "RuntimeError" in formatted
+    assert record.exc_info is not None
+
+
+def test_redact_deep_cleans_foreign_objects_carrying_token():
+    """אובייקט זר (כמו מופע חריגה) שהייצוג שלו נושא טוקן מוחלף בייצוג המנוקה."""
+
+    class _Foreign:
+        def __str__(self):
+            return f"request to {API_URL} failed"
+
+    cleaned = redact_bot_token_deep({"exc": _Foreign()})
+    assert FAKE_TOKEN not in str(cleaned["exc"])
+    assert "<REDACTED>" in str(cleaned["exc"])
+
+
+def test_redact_deep_preserves_clean_foreign_objects():
+    """אובייקט זר נקי נשמר כמות שהוא — לא הופכים כל אירוע למחרוזות."""
+
+    class _Foreign:
+        def __str__(self):
+            return "nothing secret"
+
+    obj = _Foreign()
+    cleaned = redact_bot_token_deep({"exc": obj, "num": 42, "flag": True, "none": None})
+    assert cleaned["exc"] is obj
+    assert cleaned["num"] == 42 and cleaned["flag"] is True and cleaned["none"] is None
 
 
 def test_logging_formatter_keeps_clean_exceptions_untouched():

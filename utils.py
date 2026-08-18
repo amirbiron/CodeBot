@@ -1472,9 +1472,10 @@ class SensitiveDataFilter(logging.Filter):
                 return
             cleaned = cls._redact_text(exc_text)
             if cleaned != exc_text:
+                # Formatter.format משתמש ב-exc_text כשהוא כבר מוגדר ולא מרנדר את
+                # exc_info מחדש, ולכן די בקאש המנוקה. את exc_info משאירים — Sentry
+                # בונה ממנו את החריגה המובנית ומנקה אותה ב-before_send.
                 record.exc_text = cleaned
-                # בלי לאפס את exc_info ה-Formatter היה מרנדר את ה-traceback הגולמי מחדש
-                record.exc_info = None
         except Exception:
             pass
 
