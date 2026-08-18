@@ -169,6 +169,22 @@ def test_error_payload_string_is_redacted():
     assert FAKE_TOKEN not in err.payload
 
 
+def test_redact_deep_cleans_transaction_shaped_event_with_http_spans():
+    """אירוע transaction של Sentry: ה-URL המלא יושב ב-spans וב-breadcrumbs."""
+    event = {
+        "type": "transaction",
+        "spans": [
+            {"op": "http.client", "description": f"POST {API_URL}", "data": {"url": API_URL}},
+        ],
+        "breadcrumbs": {"values": [{"category": "httplib", "data": {"url": API_URL}}]},
+        "request": {"url": API_URL},
+    }
+    cleaned = redact_bot_token_deep(event)
+    assert FAKE_TOKEN not in repr(cleaned)
+    assert cleaned["type"] == "transaction"
+    assert cleaned["spans"][0]["op"] == "http.client"
+
+
 def test_logging_filter_redacts_bot_token():
     from utils import SensitiveDataFilter
 

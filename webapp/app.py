@@ -1558,6 +1558,9 @@ try:
             traces_sample_rate=0.05,
             environment=getattr(__import__('config'), 'config').ENVIRONMENT,
             before_send=_sentry_before_send,
+            # ה-spans של transactions נושאים כתובות HTTP מלאות (כולל טוקן ב-URL)
+            # ואינם עוברים דרך before_send — מנקים אותם באותו מסלול fail-closed
+            before_send_transaction=_sentry_before_send,
         )
 except Exception:
     pass
