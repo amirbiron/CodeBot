@@ -54,12 +54,17 @@ def _get_pastebin_api_key() -> Optional[str]:
 
 
 class GitHubGistIntegration:
-    """אינטגרציה עם GitHub Gist"""
-    
-    def __init__(self):
+    """אינטגרציה עם GitHub Gist.
+
+    ``token`` מאפשר לעבוד בשם משתמש מסוים. בלעדיו נופלים לטוקן הגלובלי,
+    שנשאר לשימושים תפעוליים בלבד — Gist שנוצר בשם משתמש חייב לעבור דרך
+    ``get_gist_integration_for_user`` כדי שלא ייווצר תחת חשבון המערכת.
+    """
+
+    def __init__(self, token: Optional[str] = None):
         self.github = None
         self.user = None
-        token = _get_github_token()
+        token = token or _get_github_token()
         if token:
             try:
                 self.github = Github(token)
@@ -738,6 +743,40 @@ class WebhookIntegration:
                 logger.warning(f"Webhook timeout: {webhook['url']}")
             except Exception as e:
                 logger.error(f"שגיאה בשליחת webhook: {e}")
+
+GIST_NEEDS_GITHUB_MESSAGE = (
+    "🔗 כדי לשתף ב-Gist צריך לחבר את חשבון ה-GitHub שלך.\n\n"
+    "ה-Gist ייווצר תחת החשבון שלך — כך הוא נשאר שלך ומופיע ברשימת ה-Gists שלך.\n\n"
+    "לחיבור: תפריט ראשי ← 🐙 GitHub\n"
+    "לחלופין אפשר לשתף דרך 📋 Pastebin, שלא דורש חיבור."
+)
+
+
+def get_gist_integration_for_user(user_id: int) -> Optional["GitHubGistIntegration"]:
+    """אינטגרציית Gist שפועלת בשם המשתמש, או ``None`` אם לא חיבר GitHub.
+
+    ה-Gist נוצר תחת החשבון שהטוקן שייך לו. שימוש בטוקן הגלובלי היה יוצר
+    את כל ה-Gists של כל המשתמשים תחת חשבון המערכת — ולכן כאן אין נפילה
+    אליו: משתמש בלי טוקן מקבל ``None``, והקורא מבקש ממנו להתחבר.
+    """
+    if not user_id:
+        return None
+    try:
+        from database import db as _db
+
+        token = _db.get_github_token(int(user_id))
+    except Exception:
+        logger.exception("failed to load user github token for gist")
+        return None
+    if not token:
+        return None
+    try:
+        integration = GitHubGistIntegration(token=token)
+    except Exception:
+        logger.exception("failed to build gist integration for user")
+        return None
+    return integration if integration.is_available() else None
+
 
 # יצירת אינסטנסים גלובליים
 gist_integration = GitHubGistIntegration()

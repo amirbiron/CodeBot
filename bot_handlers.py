@@ -5091,16 +5091,21 @@ class AdvancedBotHandlers:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
             return
         
+        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
+        from integrations import GIST_NEEDS_GITHUB_MESSAGE, get_gist_integration_for_user
+
+        user_gist = get_gist_integration_for_user(user_id)
+        if user_gist is None:
+            await query.edit_message_text(GIST_NEEDS_GITHUB_MESSAGE)
+            return
         try:
-            from integrations import code_sharing
             description = f"שיתוף אוטומטי דרך CodeBot — {file_name}"
-            result = await code_sharing.share_code(
-                service="gist",
+            result = user_gist.create_gist(
                 file_name=file_name,
                 code=file_data["code"],
                 language=file_data["programming_language"],
                 description=description,
-                public=True
+                public=True,
             )
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת Gist נכשלה. ודא שטוקן GitHub תקין והרשאות מתאימות.")
@@ -5208,7 +5213,7 @@ class AdvancedBotHandlers:
 
     async def _share_to_gist_multi(self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, share_id: str):
         """שיתוף מספר קבצים לגיסט אחד"""
-        from integrations import gist_integration
+        from integrations import GIST_NEEDS_GITHUB_MESSAGE, get_gist_integration_for_user
         files_map: Dict[str, str] = {}
         names: List[str] = (context.user_data.get('multi_share', {}).get(share_id) or [])
         if not names:
@@ -5221,12 +5226,14 @@ class AdvancedBotHandlers:
         if not files_map:
             await query.edit_message_text("❌ לא נמצאו קבצים פעילים לשיתוף.")
             return
-        if not config.GITHUB_TOKEN:
-            await query.edit_message_text("❌ שיתוף ב-Gist לא זמין - אין GITHUB_TOKEN.")
+        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
+        gist = get_gist_integration_for_user(user_id)
+        if gist is None:
+            await query.edit_message_text(GIST_NEEDS_GITHUB_MESSAGE)
             return
         try:
             description = f"שיתוף מרובה קבצים ({len(files_map)}) דרך {config.BOT_LABEL}"
-            result = gist_integration.create_gist_multi(files_map=files_map, description=description, public=True)
+            result = gist.create_gist_multi(files_map=files_map, description=description, public=True)
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת Gist מרובה קבצים נכשלה.")
                 return

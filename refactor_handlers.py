@@ -393,13 +393,17 @@ class RefactorHandlers:
         if not files_map:
             await query.message.reply_text("❌ אין קבצים לייצוא בהצעה הנוכחית.")
             return
+        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
         try:
-            from integrations import gist_integration
+            from integrations import GIST_NEEDS_GITHUB_MESSAGE, get_gist_integration_for_user
+
+            user_gist = get_gist_integration_for_user(user_id)
         except Exception:
-            gist_integration = None  # type: ignore
-        is_available = bool(getattr(gist_integration, "is_available", lambda: False)())
-        if not gist_integration or not is_available:
-            await query.message.reply_text("❌ ייצוא ל-Gist לא זמין כרגע (חסר חיבור ל-GitHub).")
+            logger.exception("failed to resolve gist integration for user")
+            user_gist = None
+            GIST_NEEDS_GITHUB_MESSAGE = "❌ ייצוא ל-Gist לא זמין כרגע."  # type: ignore
+        if user_gist is None:
+            await query.message.reply_text(GIST_NEEDS_GITHUB_MESSAGE)
             return
         description = (
             f"פיצול {proposal.original_file} ({len(files_map)} קבצים חדשים)"
@@ -407,7 +411,7 @@ class RefactorHandlers:
             else f"רפקטורינג {proposal.refactor_type.value} עבור {proposal.original_file}"
         )
         try:
-            result = gist_integration.create_gist_multi(  # type: ignore[attr-defined]
+            result = user_gist.create_gist_multi(
                 files_map=files_map,
                 description=description,
                 public=True,
