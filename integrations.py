@@ -33,6 +33,18 @@ except Exception:  # pragma: no cover
         return None
 
 
+def set_span_attrs_quietly(attrs: Dict[str, Any]) -> None:
+    """רישום מאפייני span שלא אמור להפיל את הזרימה העסקית.
+
+    טלמטריה היא תוצר לוואי: כשל בה נרשם ל-debug ונבלע, אבל לא בשקט מוחלט —
+    ``except: pass`` מסתיר גם באגים אמיתיים בקוד המדידה.
+    """
+    try:
+        set_current_span_attributes(attrs)
+    except Exception:
+        logger.debug("failed to set span attributes", exc_info=True)
+
+
 def _get_github_token() -> Optional[str]:
     """השג את טוקן ה-GitHub בצורה חסינה גם כשאין שדה על האובייקט."""
 
@@ -463,10 +475,7 @@ class CodeSharingService:
             # מסלול חסום בכוונה: השירות המשולב אינו מחזיק טוקן של משתמש,
             # ושיתוף Gist חייב לעבור דרך ``resolve_gist_for_user``.
             logger.error("share_code('gist') לא נתמך — יש להשתמש ב-resolve_gist_for_user")
-            try:
-                set_current_span_attributes({"status": "error", "reason": "gist_requires_user_token"})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "reason": "gist_requires_user_token"})
             return None
         
         elif service == "pastebin" and self.pastebin.is_available():
