@@ -52,6 +52,7 @@ jobs:
           # PAT (אם מוגדר) עדיף על GITHUB_TOKEN: PR שנוצר בו כן מפעיל את
           # בדיקות החובה. בלעדיו — ראו ההערה על ה-PR למטה.
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
+          HAS_PAT: ${{ secrets.REPO_ADMIN_TOKEN != '' }}
         run: |
           # git diff מפספס קובץ שאינו tracked עדיין; porcelain תופס את שניהם
           if [ -z "$(git status --porcelain -- AI-MAP.md)" ]; then
@@ -111,3 +112,10 @@ jobs:
             --title "docs: רענון אוטומטי של AI-MAP.md" \
             --body "$(printf 'רענון מפת התיעוד אחרי שינוי ב-docs/. נוצר אוטומטית על ידי ai-map.yml כי דחיפה ישירה ל-main נדחתה (הגנת ענף).\n\nאם בדיקות החובה לא הופעלו (PR שנוצר ב-GITHUB_TOKEN אינו מפעיל אותן) — סגרו ופתחו מחדש את ה-PR, או הגדירו את הסוד REPO_ADMIN_TOKEN כדי שזה יקרה אוטומטית.')" \
             --base main --head automation/ai-map-refresh
+          # בלי PAT, ה-PR שנוצר כרגע תקוע: בדיקות החובה לא ירוצו עליו
+          # מעצמן. PR חסום בשקט הוא בדיוק מה שאסור להשאיר כברירת מחדל —
+          # מפילים את הריצה ברעש כדי שהמצב יגיע להתראה, עם הוראות תיקון.
+          if [ "$HAS_PAT" != "true" ]; then
+            echo "::error::נוצר PR אבל בדיקות החובה לא ירוצו עליו (אין REPO_ADMIN_TOKEN). סגרו ופתחו מחדש את ה-PR להפעלת הבדיקות, או הגדירו את הסוד. הריצה מסומנת ככשל בכוונה כדי שהמצב לא יישאר שקט."
+            exit 1
+          fi
