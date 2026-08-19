@@ -58,11 +58,15 @@ def get_current_repo_name() -> str:
 
 **הוסף בסוף הקובץ (לפני סגירת הקובץ):**
 
+**הערת אבטחה:** ה-endpoint הזה דורש הרשאות אדמין. משתמשים שאינם אדמינים יקבלו 403 עם `{"success": false, "error": "admin_only"}`.
+
 ```python
 @repo_bp.route('/api/repos')
 def api_list_repos():
     """
     API לקבלת רשימת כל הריפויים הזמינים.
+
+    Security: Admin-only. נאכף ב-blueprint guard.
 
     Returns:
         רשימת ריפויים עם מטא-דאטה בסיסי
@@ -667,32 +671,47 @@ function updateBreadcrumbs(path) {
 
 ## שלב 5: בדיקות
 
-### 5.1 בדיקות ידניות
+### 5.1 שיקולי אבטחה
 
-**שים לב:** כל הבדיקות דורשות סשן אדמין, שכן דפדפן הקוד חסום למי שאינו אדמין.
+**‏🔒 גישה לאדמינים בלבד:** כל ה-blueprint של `/repo/*` חסום למשתמשים שאינם אדמינים באמצעות `before_request` guard. החסימה נאכפת ברמת ה-blueprint, כך שכל ה-routes כולל `/repo/api/repos`, `/repo/api/tree` ודפי ה-UI נגישים לאדמינים בלבד.
+
+משתמשים שאינם אדמינים מקבלים:
+- **דפי UI:** 403 Forbidden (דף שגיאה סטנדרטי)
+- **API endpoints:** 403 Forbidden עם `{"success": false, "error": "admin_only"}`
+
+האבטחה נאכפת כך:
+- **בדיקת הרשאה ברמת Blueprint:** הפונקציה `_require_admin_for_repo_browser()` רשומה כ-`before_request` על ה-blueprint `repo_bp`, ולא כדקורטור לכל route בנפרד. כל route שיתווסף בעתיד מוגן אוטומטית.
+- **כלל אבטחה נוסף:** האבטחה אינה נשענת רק על סינון DB. גם אם הריפו קיים ב-DB, רק אדמין יכול לגשת ל-API או לדפדפן הקוד.
+- **Fail-closed:** במקרה של כשל בטעינת פונקציות ההרשאה, הגישה נחסמת (לא נפתחת).
+
+**שינוי מהגרסה הקודמת:** בעבר, משתמשים רגילים יכלו לגשת ל-`/repo/api/repos` ולראות את רשימת כל הריפויים במערכת ואף לגלוש בקוד של ריפויים אחרים דרך `?repo=<name>`. כעת הגישה חסומה במלואה.
+
+### 5.2 בדיקות ידניות
+
+**הערה:** כל הבדיקות הבאות דורשות זהות אדמין (user_id ב-`ADMIN_USER_IDS`).
 
 1. **בדיקת טעינת רשימת ריפויים:**
    ```bash
-   # דורש סשן אדמין; לא-אדמינים מקבלים 403
    curl http://localhost:5000/repo/api/repos
    ```
 
 2. **בדיקת טעינת עץ קבצים עם פרמטר repo:**
    ```bash
-   # דורש סשן אדמין
    curl "http://localhost:5000/repo/api/tree?repo=OtherRepo"
    ```
 
 3. **בדיקת החלפת ריפו:**
-   - התחבר כאדמין
-   - פתח את דפדפן הקוד
+   - פתח את דפדפן הקוד (כאדמין)
    - בחר ריפו אחר מה-dropdown
    - ודא שהעץ נטען מחדש
    - רענן את הדף וודא שהבחירה נשמרה
 
-### 5.2 בדיקות אוטומטיות (pytest)
+4. **בדיקת חסימת גישה למשתמש רגיל:**
+   - התנתק או התחבר כמשתמש שאינו אדמין
+   - נסה לגשת ל-`/repo/` או `/repo/api/repos`
+   - ודא שמתקבל 403
 
-**שים לב:** כל הטסטים צריכים לרוץ בהקשר אדמין. ה-`client` fixture צריך להגדיר `session['user_id'] = ADMIN_USER_ID`.
+### 5.3 בדיקות אוטומטיות (pytest)
 
 ```python
 # tests/test_repo_browser_multi.py
@@ -700,20 +719,10 @@ function updateBreadcrumbs(path) {
 import pytest
 from webapp.routes.repo_browser import get_current_repo_name
 
-ADMIN_USER_ID = 999  # הגדר את ה-ID האדמין המתאים
-
-@pytest.fixture
-def client(app):
-    """לקוח מחובר כאדמין — דרוש לגישה לדפדפן הקוד."""
-    c = app.test_client()
-    with c.session_transaction() as sess:
-        sess['user_id'] = ADMIN_USER_ID
-    return c
-
 class TestMultiRepoSupport:
 
     def test_api_list_repos(self, client):
-        """בדיקה שה-API מחזיר רשימת ריפויים (אדמין בלבד)"""
+        """בדיקה שה-API מחזיר רשימת ריפויים"""
         response = client.get('/repo/api/repos')
         assert response.status_code == 200
         data = response.get_json()
@@ -722,35 +731,29 @@ class TestMultiRepoSupport:
         assert isinstance(data['repos'], list)
 
     def test_tree_with_repo_param(self, client):
-        """בדיקה שעץ הקבצים עובד עם פרמטר repo (אדמין בלבד)"""
+        """בדיקה שעץ הקבצים עובד עם פרמטר repo"""
         response = client.get('/repo/api/tree?repo=CodeBot')
         assert response.status_code == 200
         data = response.get_json()
         assert isinstance(data, list)
 
     def test_tree_invalid_repo(self, client):
-        """בדיקה שריפו לא קיים מחזיר רשימה ריקה (אדמין בלבד)"""
+        """בדיקה שריפו לא קיים מחזיר רשימה ריקה"""
         response = client.get('/repo/api/tree?repo=NonExistent')
         assert response.status_code == 200
         data = response.get_json()
         assert data == []  # אין קבצים לריפו שלא קיים
 
     def test_file_with_repo_param(self, client):
-        """בדיקה שקריאת קובץ עובדת עם פרמטר repo (אדמין בלבד)"""
+        """בדיקה שקריאת קובץ עובדת עם פרמטר repo"""
         response = client.get('/repo/api/file/README.md?repo=CodeBot')
         assert response.status_code in [200, 404]  # תלוי אם הקובץ קיים
 
-    def test_select_repo_non_admin_blocked(self, app):
-        """בדיקה שמשתמש לא-אדמין מקבל 403"""
-        # לקוח בלי אדמין
-        non_admin_client = app.test_client()
-        with non_admin_client.session_transaction() as sess:
-            sess['user_id'] = 123  # לא אדמין
-        
-        response = non_admin_client.post('/repo/api/select-repo',
-                                         json={'repo_name': 'CodeBot'})
-        assert response.status_code == 403
-        assert response.get_json()['error'] == 'admin_only'
+    def test_repo_browser_blocked_non_admin(self, client):
+        """בדיקה שדפדפן הקוד חסום למשתמשים שאינם אדמינים"""
+        response = client.post('/repo/api/select-repo',
+                               json={'repo_name': 'CodeBot'})
+        assert response.status_code == 401
 ```
 
 ---
@@ -775,14 +778,8 @@ class TestMultiRepoSupport:
 ## שיקולים נוספים
 
 ### אבטחה
-- **דפדפן הקוד הוא כלי אדמין בלבד** — כל `/repo/*` routes חסומים למי שאינו אדמין
-- החסימה מתבצעת ב-`@repo_bp.before_request` ברמת ה-blueprint — כך כל 18 ה-routes (כולל עתידיים) מוגנים אוטומטית
-- פונקציית השער `_require_admin_for_repo_browser()` בודקת `is_admin(user_id)` מ-session
-- למשתמש לא-אדמין:
-  - **API routes** (`/repo/api/*`) מחזירים JSON `{"success": false, "error": "admin_only"}` עם 403
-  - **Page routes** מחזירים `abort(403)` רגיל
-- **רקע:** PR #3239 סגר פרצת אבטחה שבה `/repo/api/repos` חשף את כל metadata של הריפויים (`db.repo_metadata.find({})` בלי סינון) לכל משתמש מחובר, כולל שמות ו-URLs של ריפויים פרטיים
 - כל שם ריפו עובר ולידציה עם regex
+- גישה לדפדפן הקוד מוגבלת לאדמינים בלבד ברמת ה-blueprint
 
 ### ביצועים
 - שם הריפו נשמר ב-localStorage להפחתת בקשות לשרת
