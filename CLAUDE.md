@@ -1,7 +1,4 @@
-# Android & AI Style Rules
-
-> **מתי להשתמש:** בכל שינוי/PR – כללי סגנון ותשובות
-> **ראו גם:** Commit/PR
+# CodeKeeper forever Rules
 
 ---
 
@@ -25,14 +22,52 @@
 
 אם נמצאו באגים כלשהם בריפו - תמיד נחפש פיתרונות שורשיים לבעיה, ולא פיתרונות "טלאי".
 
-## שפה
+---
 
-- תקשורת בצ'אט — **בעברית**
-- **המחשבות (thinking / reasoning) — גם בעברית.** 
-- סיכומי PR, תיאורי commit — **בעברית**
-- **הערות בקוד** ℹ️ (comments) — **בעברית**
-- שמות משתנים, פונקציות, וטבלאות — באנגלית (כמקובל)
+> [!IMPORTANT]
+> חובה לעקוב ולמלא אחר ההוראות של `דפוסי באגים` באופן מלא, בעקביות, אין חשיבות לקידוד מהיר - רק לקידוד אחראי - בלי השערות באף חלק מהקידוד
+> ## דפוסי באגים — amir-bug-patterns 
 
+> **מתי להשתמש:** לפני נגיעה באחד הנושאים בטבלה, ובכל פעם שריוויוור תופס דפוס
+> **ראו גם:** כלל הפתרון השורשי, CI / Required Checks
+
+הריפו `amirbiron/amir-bug-patterns` מרכז דפוסי באגים שכבר עלו לי בפרודקשן — לא תיאוריה. הוא ממורר ב-CodeKeeper, אז קוראים אותו כך:
+
+```text
+codekeeper_get_repo_file(repo="amir-bug-patterns", path="CRITICAL-PATTERNS.md")
+codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
+```
+
+אם ה-MCP לא זמין בסשן: הריפו ציבורי, אז אפשר לצרף אותו לסשן (`add_repo` ואז clone) או לקרוא ממנו ישירות. אין צורך בהרשאות מיוחדות.
+
+### מתי לקרוא מה
+
+| כשאתה נוגע ב... | קרא |
+|---|---|
+| שמירה/מחיקה שמסתיימת בהודעת ✅ למשתמש | `CRITICAL-PATTERNS.md` K11 |
+| קאש / invalidation | `bugbot-rules/return-value-failure-unchecked.md` §4 |
+| callbacks / handlers מקביליים, מזהים מבוססי־זמן | `CORE-PATTERNS.md` U1 |
+| PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
+| קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
+| טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
+| הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
+
+### תמיד, בלי קשר לטבלה
+
+- **לפני עטיפת קריאה ב-`try/except`** → `CRITICAL-PATTERNS.md` K11. בקצרה: בדוק מה הפונקציה מחזירה בכשל. אם היא מחזירה `None`/`False`/`0` ולא זורקת, ה-`except` לא ירוץ לעולם — צריך `if not result:` לפני כל דיווח הצלחה.
+הדפוס הזה כבר עלה בריפו הזה **שלוש פעמים** (`save_backup_bytes` ב-PR #3232 ב-#3172, ו-`delete_pattern` של הקאש).
+- **לפני כתיבת טסט חדש** → `claude-md-snippets/testing.md`. בפרט: טסט שנוסח עם תיקון חייב להיכשל בלי התיקון — הרץ אותו על הקוד הישן וּודא שהוא נופל.
+- **אחרי שטסט נופל על חריגה** → `bugbot-rules/widened-exception-scope.md`. אל תרחיב `except` כדי לעבור; בדוק קודם את הסטאב/fixture — שם השורש בדרך כלל.
+
+### סגירת הלולאה (חובה, לא רשות)
+
+1. **ריוויוור (cubic/qodo/CodeRabbit/claude) תפס דפוס אמיתי** שאינו ב-amir-bug-patterns → פתח שם PR שמוסיף אותו (מסמך מקור + הצלבה לפי ה-README שלו), **וגם** הוסף שורת טריגר לטבלה כאן.
+2. **זיהית דפוס חוזר בעצמך** (תיקנת פעמיים את אותו סוג טעות) → אותו תהליך.
+3. דפוס בלי שורת טריגר = דפוס שלא ייקרא בזמן המימוש. שני הצעדים הם צעד אחד.
+
+התהליך המלא והמיפוי לשאר הפרויקטים: `INTEGRATION.md` באותו ריפו.
+
+---
 ---
 
 ## פורמטור HTML/Jinja
@@ -355,85 +390,26 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 ### 1. חוק ה־Smart Projection (החרגת שדות כבדים)
 
 - **לעולם אל תמשוך** את השדות `code`, `content`, או `raw_data` בשאילתות שמחזירות רשימה/אוסף של קבצים.
-
 - השתמש תמיד בקבוע `HEAVY_FIELDS_EXCLUDE_PROJECTION` (מתוך `database/repository.py`).
-
 - משיכת תוכן מלא תתבצע **רק** בבקשה מפורשת (Explicit Fetch) עבור צפייה או עריכה של קובץ בודד.
 
 ### 2. מטא־דאטה במקום חישובים בזיכרון
 
 - העדף שימוש בשדות מחושבים ב־DB כמו `file_size` ו־`lines_count`.
-
 - אם הוספת שדה תוכן חדש, ודא שהוא מתעדכן ב־`save_code_snippet` כך שלא נצטרך לספור שורות או בייטים בפייתון בזמן שליפת רשימות.
 
 ### 3. אופטימיזציית חיפוש (The Snippet Pattern)
 
 - בחיפוש קוד, **אל תחזיר את כל הקובץ** מה־API.
-
 - השתמש ב־Aggregation של MongoDB (`$regexFind`) כדי לחתוך רק את קטע הקוד הרלוונטי (Snippet) כבר ברמת בסיס הנתונים.
 
 ### 4. אינדקסים כחלק מהפיתוח
 
 - כל שאילתה חדשה חייבת לעבור בדיקת אינדקסים ב־`database/repository.py`.
-
 - העדף אינדקסים מורכבים (Compound Indexes) הכוללים את ה־`user_id` יחד עם סטטוס המחיקה/מועדפים.
 
 ### 5. טעינה אסינכרונית ב־Webapp (Lazy Loading)
 
 - דפים כבדים ב־Webapp צריכים להחזיר HTML ראשוני מהר (< 200ms).
-
 - השתמש ב־**Skeleton Loaders** ובשליפת נתונים מה־API דרך JavaScript ברקע.
-
 - עטוף חישובים כבדים ב־`await asyncio.to_thread(...)` כדי לא לחסום את ה־Event Loop.
-
----
-
-## דפוסי באגים — amir-bug-patterns
-
-> **מתי להשתמש:** לפני נגיעה באחד הנושאים בטבלה, ובכל פעם שריוויוור תופס דפוס
-> **ראו גם:** כלל הפתרון השורשי, CI / Required Checks
-
-הריפו `amirbiron/amir-bug-patterns` מרכז דפוסי באגים שכבר עלו לי בפרודקשן —
-לא תיאוריה. הוא ממורר ב-CodeKeeper, אז קוראים אותו כך:
-
-```text
-codekeeper_get_repo_file(repo="amir-bug-patterns", path="CRITICAL-PATTERNS.md")
-codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
-```
-
-אם ה-MCP לא זמין בסשן: הריפו ציבורי, אז אפשר לצרף אותו לסשן (`add_repo` ואז
-clone) או לקרוא ממנו ישירות. אין צורך בהרשאות מיוחדות.
-
-### מתי לקרוא מה
-
-| כשאתה נוגע ב... | קרא |
-|---|---|
-| שמירה/מחיקה שמסתיימת בהודעת ✅ למשתמש | `CRITICAL-PATTERNS.md` K11 |
-| קאש / invalidation | `bugbot-rules/return-value-failure-unchecked.md` §4 |
-| callbacks / handlers מקביליים, מזהים מבוססי־זמן | `CORE-PATTERNS.md` U1 |
-| PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
-| קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
-| טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
-| הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
-
-### תמיד, בלי קשר לטבלה
-
-- **לפני עטיפת קריאה ב-`try/except`** → `CRITICAL-PATTERNS.md` K11. בקצרה:
-  בדוק מה הפונקציה מחזירה בכשל. אם היא מחזירה `None`/`False`/`0` ולא זורקת,
-  ה-`except` לא ירוץ לעולם — צריך `if not result:` לפני כל דיווח הצלחה.
-  הדפוס הזה כבר עלה בריפו הזה **שלוש פעמים** (`save_backup_bytes` ב-PR #3232
-  וב-#3172, ו-`delete_pattern` של הקאש).
-- **לפני כתיבת טסט חדש** → `claude-md-snippets/testing.md`. בפרט: טסט שנוסף
-  עם תיקון חייב להיכשל בלי התיקון — הרץ אותו על הקוד הישן וּודא שהוא נופל.
-- **אחרי שטסט נופל על חריגה** → `bugbot-rules/widened-exception-scope.md`.
-  אל תרחיב `except` כדי לעבור; בדוק קודם את הסטאב/fixture — שם השורש בדרך כלל.
-
-### סגירת הלולאה (חובה, לא רשות)
-
-1. **ריוויוור (cubic/qodo/CodeRabbit/claude) תפס דפוס אמיתי** שאינו
-   ב-amir-bug-patterns → פתח שם PR שמוסיף אותו (מסמך מקור + הצלבה לפי ה-README
-   שלו), **וגם** הוסף שורת טריגר לטבלה כאן.
-2. **זיהית דפוס חוזר בעצמך** (תיקנת פעמיים את אותו סוג טעות) → אותו תהליך.
-3. דפוס בלי שורת טריגר = דפוס שלא ייקרא בזמן המימוש. שני הצעדים הם צעד אחד.
-
-התהליך המלא והמיפוי לשאר הפרויקטים: `INTEGRATION.md` באותו ריפו.
