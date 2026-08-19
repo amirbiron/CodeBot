@@ -30,15 +30,17 @@ DOCS = ROOT / "docs"
 # ``[ \t]*`` ולא ``\s*``: עם MULTILINE, ``\s*`` בולע את שורת הריק שלפני
 # הבלוק, ה-indent נלכד כ-"\n", וההפניה-לאחור דורשת שכל שורת אופציה תתחיל
 # בירידת שורה — כלומר opts יוצא ריק תמיד והבדיקה עוברת על כלום.
+# ובאופציות ``[ \t]+`` ולא שלושה רווחים בדיוק: RST מקבל כל הזחה עקבית,
+# ובלוק עם ארבעה רווחים היה חומק מהבדיקה כולה.
 _BLOCK_RE = re.compile(
     r"^(?P<indent>[ \t]*)\.\. literalinclude:: (?P<target>\S+)\n"
-    r"(?P<opts>(?:(?P=indent)   :.*\n)*)",
+    r"(?P<opts>(?:(?P=indent)[ \t]+:.*\n)*)",
     re.MULTILINE,
 )
 
 
-def _blocks():
-    for rst in sorted(DOCS.rglob("*.rst")):
+def _blocks(root=None):
+    for rst in sorted((root or DOCS).rglob("*.rst")):
         if "_build" in rst.parts:
             continue
         text = rst.read_text(encoding="utf-8")
@@ -58,6 +60,25 @@ def test_no_line_number_addressing():
         "בלי אזהרה. השתמשו ב-:pyobject: לפונקציה שלמה, או בהערות סימון "
         "docs:<שם>:start/end עם :start-after:/:end-before: לקטע. "
         "ראו docs/doc-authoring.rst.\n" + "\n".join(offenders)
+    )
+
+
+def test_nonstandard_option_indent_is_still_caught(tmp_path):
+    """בלוק שהאופציות שלו מוזחות בארבעה רווחים לא חומק מהסריקה.
+
+    רגרסיה: הגרסה הראשונה של ה-regex דרשה שלושה רווחים בדיוק, ולכן
+    ``:lines:`` בהזחה אחרת עבר את test_no_line_number_addressing בשקט.
+    """
+    (tmp_path / "page.rst").write_text(
+        "כותרת\n======\n\n"
+        ".. literalinclude:: ../x.py\n"
+        "    :language: python\n"
+        "    :lines: 1-5\n",
+        encoding="utf-8",
+    )
+    found = [(t, o) for _, t, o in _blocks(root=tmp_path)]
+    assert found and ":lines:" in found[0][1], (
+        "בלוק בהזחת 4 רווחים לא זוהה — ה-regex התכווץ בחזרה"
     )
 
 

@@ -33,7 +33,7 @@
 ## API Reference
 
 - `docs/api/index.rst` — **API Reference**: תיעוד מלא של ה-API של Code Keeper Bot.
-    - `docs/api/handlers.documents.rst` — **handlers.documents module**: handlers.documents מרכז את הטיפול במסמכים וקבצים שנשלחים לבוט (Facade). הוא אחראי לנתב בין מסלולי GitHub, ZIP וקבצים טקסטואליים, ולשמור מדדים ואירועי Observability לאורך הזרימה.
+  - `docs/api/handlers.documents.rst` — **handlers.documents module**: handlers.documents מרכז את הטיפול במסמכים וקבצים שנשלחים לבוט (Facade). הוא אחראי לנתב בין מסלולי GitHub, ZIP וקבצים טקסטואליים, ולשמור מדדים ואירועי Observability לאורך הזרימה.
   - `docs/api/modules.rst` — **workspace**
     - `docs/api/refactoring_engine.rst` — **refactoring\_engine module**: המנוע מיישם קיבוץ לפי קוהזיה כדי למנוע Oversplitting ולהימנע מ-God Class
 - `docs/modules/index.rst` — **מודולים ראשיים**: תיעוד מפורט של המודולים הראשיים בפרויקט.
@@ -66,7 +66,7 @@
 - `docs/development/scripts.rst` — **סקריפטים שימושיים**: תיקיית scripts/ מכילה כלים חד-פעמיים ותהליכי תחזוקה. לפני ההרצה ודאו שסביבת ה-DB היא סביבת ניסוי/פיתוח ושיש גיבוי עדכני.
 - `docs/development/i18n.rst` — **בינאום ותמיכה בשפות**: מודול i18n/ מספק שכבת תרגום פשוטה לבוט הטלגרם וה-WebApp. נכון לעכשיו קיימת חבילת מחרוזות בעברית (strings_he.py), אך המבנה מאפשר הוספת שפות חדשות ללא שינוי בלוגיקה העסקית.
 - `docs/integrations.rst` — **Integrations**: להפעלת פעולות שונות מול GitHub נדרש להגדיר לטוקן \(GITHUB_TOKEN או טוקן משתמש שנשמר במערכת\) את מרחבי ההרשאות המינימליים. הקפידו על עיקרון ההרשאות המצומצמות.
-- `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת MCP <https://modelcontextprotocol.io>_ (Model Context Protocol) שחושף את CodeKeeper ל-Claude: הקבצים והאוספים האישיים של כל משתמש, ולאדמין — גם דפדפן הריפו מעל ה-Repo Sync Engine. עובד גם מול Claude.ai (Custom…
+- `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת MCP (Model Context Protocol) שחושף את CodeKeeper ל-Claude: הקבצים והאוספים האישיים של כל משתמש, ולאדמין — גם דפדפן הריפו מעל ה-Repo Sync Engine. עובד גם מול Claude.ai (Custom Connector דרך OAuth 2.1) וגם מול Claude…
 - `docs/repository-integrations.rst` — **Repository Integrations**: מסמך זה מרכז את התמיכה בספקי מאגרי קוד. מטרתו למנוע בלבול ולהבהיר מה נתמך ומה לא.
 - `docs/security.rst` — **Security Guide**: אל תרשום סודות/PII בלוגים, השתמש ב‑ENV בלבד.
 - `docs/monitoring.md` — **Smart Observability v7 – Predictive Health & Adaptive Feedback**

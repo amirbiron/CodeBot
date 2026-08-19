@@ -18,7 +18,7 @@
   directives, admonitions, הערות, שדות ו-toctree, ולוקחים את פסקת
   הפרוזה הראשונה, קצוצה לתקרת תווים.
 
-הפלט נכתב לשורש הריפו ולא ל-docs/: MyST פעיל, ולכן כל ‎.md בתוך docs/
+הפלט נכתב לשורש הריפו ולא ל-docs/: MyST פעיל, ולכן כל .md בתוך docs/
 נכנס לבניית Sphinx — עמוד שאינו ב-toctree מפיל את RTD על אזהרת יתום.
 """
 
@@ -33,7 +33,7 @@ DOCS = ROOT / "docs"
 OUTPUT = ROOT / "AI-MAP.md"
 SUMMARY_CAP = 220
 
-# שורת directive של RST‏ (.. name::) או תחילת בלוק הערה (.. בלי ::)
+# שורת directive של RST (.. name::) או תחילת בלוק הערה (.. בלי ::)
 _DIRECTIVE_RE = re.compile(r"^\.\. ")
 _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
@@ -157,6 +157,8 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             para.append(cur)
             i += 1
         text = re.sub(r"\s+", " ", " ".join(para))
+        # `תווית <כתובת>`_ ← תווית (לפני הסרת ה-backticks, אחרת נשאר _ יתום)
+        text = re.sub(r"`([^`<]+?)\s*<[^`>]+>`_{1,2}", r"\1", text)
         text = re.sub(r"``([^`]*)``", r"\1", text)
         text = re.sub(r":[\w:+-]+:`([^`]*)`", r"\1", text)  # :doc:`x` ← x
         text = re.sub(r"\*\*([^*]*)\*\*", r"\1", text)
@@ -225,13 +227,15 @@ def build_map() -> str:
                     # לא מוסיפים ל-visited כאן — walk פותח בבדיקת visited
                     # והוספה מוקדמת הייתה הופכת את הירידה ל-no-op.
                     scaffold_count += 1
-                    walk(child, depth + 1)
+                    # באותו עומק, לא depth+1: שורת הפיגום לא נכתבה,
+                    # והילדים תופסים את מקומו — אחרת ההזחה קופצת רמה.
+                    walk(child, depth)
                     continue
                 title = _title(clines, child)
                 summary = _first_prose_paragraph(clines, child)
                 if summary.rstrip("…") and summary.rstrip("…") in title:
                     summary = ""
-                indent = "  " * min(depth, 2)
+                indent = "  " * depth
                 line = f"{indent}- `{rel}` — **{title}**"
                 if summary:
                     line += f": {summary}"
@@ -253,23 +257,30 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--out", type=Path, default=OUTPUT,
-        help="נתיב הפלט. ברירת המחדל היא AI-MAP.md בשורש — תוצר נגזר "
-             "שדריסתו היא המטרה, כמו lockfile. להרצת ניסוי: --out לנתיב זמני.",
+        "--out", type=Path, default=None,
+        help="נתיב לכתיבת המפה. בלי הדגל שום קובץ לא נכתב (המפה מודפסת "
+             "ל-stdout) — לפי מדיניות הריפו סקריפט לא כותב ב-root אלא "
+             "בהוראה מפורשת. ה-workflow מעביר ‎--out AI-MAP.md בכוונה.",
     )
     parser.add_argument(
-        "--check", action="store_true",
-        help="לא כותב; קוד יציאה 1 אם הקובץ אינו תואם את מה שהיה נוצר.",
+        "--check", type=Path, nargs="?", const=OUTPUT, default=None,
+        metavar="PATH",
+        help="לא כותב; קוד יציאה 1 אם הקובץ (ברירת מחדל: AI-MAP.md בשורש) "
+             "אינו תואם את מה שהיה נוצר.",
     )
     args = parser.parse_args()
     content = build_map()
-    existing = args.out.read_text(encoding="utf-8") if args.out.exists() else None
-    if args.check:
+    if args.check is not None:
+        existing = args.check.read_text(encoding="utf-8") if args.check.exists() else None
         if existing == content:
-            print(f"{args.out.name}: עדכני")
+            print(f"{args.check.name}: עדכני")
             return 0
-        print(f"{args.out.name}: אינו תואם את התיעוד הנוכחי")
+        print(f"{args.check.name}: אינו תואם את התיעוד הנוכחי")
         return 1
+    if args.out is None:
+        sys.stdout.write(content)
+        return 0
+    existing = args.out.read_text(encoding="utf-8") if args.out.exists() else None
     if existing == content:
         print(f"{args.out.name}: ללא שינוי")
         return 0

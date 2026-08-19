@@ -35,11 +35,13 @@ jobs:
           python-version: '3.11'
 
       - name: Regenerate AI-MAP.md
-        run: python3 scripts/generate_ai_map.py
+        run: python3 scripts/generate_ai_map.py --out AI-MAP.md
 
       - name: Commit if changed
         env:
-          GH_TOKEN: ${{ github.token }}
+          # PAT (אם מוגדר) עדיף על GITHUB_TOKEN: PR שנוצר בו כן מפעיל את
+          # בדיקות החובה. בלעדיו — ראו ההערה על ה-PR למטה.
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
         run: |
           # git diff מפספס קובץ שאינו tracked עדיין; porcelain תופס את שניהם
           if [ -z "$(git status --porcelain -- AI-MAP.md)" ]; then
@@ -51,18 +53,36 @@ jobs:
           git add AI-MAP.md
           git commit -m "docs: רענון אוטומטי של AI-MAP.md"
           # ניסיון ראשון: דחיפה ישירה (עובדת כשאין הגנת ענף חוסמת).
-          # ריצות מקביליות עלולות להידחות על non-fast-forward — rebase וניסיון שני.
-          if git push || (git pull --rebase && git push); then
+          if git push; then
             echo "נדחף ישירות ל-main"
             exit 0
           fi
+          # non-fast-forward: תיעוד חדש נכנס בינתיים. אחרי ה-rebase המפה
+          # שנוצרה כבר מיושנת — מייצרים מחדש ומעדכנים את הקומיט, אחרת היינו
+          # דוחפים מפה ישנה על תיעוד חדש (והקומיט שלנו לא מפעיל ריצה נוספת,
+          # כי הוא נוגע רק ב-AI-MAP.md שאינו ב-paths).
+          if git pull --rebase; then
+            python3 scripts/generate_ai_map.py --out AI-MAP.md
+            git add AI-MAP.md
+            git commit --amend --no-edit
+            if git push; then
+              echo "נדחף אחרי rebase וייצור מחדש"
+              exit 0
+            fi
+          fi
           # הגנת ענף דחתה את הדחיפה — נפילה מבוקרת לענף אוטומציה + PR.
           # הענף קבוע, כך שריצות חוזרות מעדכנות את אותו PR במקום לערום חדשים.
-          echo "דחיפה ישירה נדחתה — פותח PR מענף אוטומציה"
+          echo "דחיפה ישירה נדחתה — עובר לענף אוטומציה"
           git checkout -B automation/ai-map-refresh
           git push -f origin automation/ai-map-refresh
+          # בדיקה מפורשת אם כבר יש PR פתוח — כך כשל אמיתי של gh נכשל ברעש
+          # ולא נבלע כ"כנראה כבר קיים".
+          state=$(gh pr view automation/ai-map-refresh --json state --jq .state 2>/dev/null || echo "NONE")
+          if [ "$state" = "OPEN" ]; then
+            echo "PR פתוח כבר קיים — הענף עודכן והוא התעדכן בו"
+            exit 0
+          fi
           gh pr create \
             --title "docs: רענון אוטומטי של AI-MAP.md" \
-            --body "רענון מפת התיעוד אחרי שינוי ב-docs/. נוצר אוטומטית על ידי ai-map.yml כי דחיפה ישירה ל-main נדחתה (הגנת ענף)." \
-            --base main --head automation/ai-map-refresh \
-            || echo "PR כבר קיים — הענף עודכן והוא יתעדכן בו"
+            --body "$(printf 'רענון מפת התיעוד אחרי שינוי ב-docs/. נוצר אוטומטית על ידי ai-map.yml כי דחיפה ישירה ל-main נדחתה (הגנת ענף).\n\nאם בדיקות החובה לא הופעלו (PR שנוצר ב-GITHUB_TOKEN אינו מפעיל אותן) — סגרו ופתחו מחדש את ה-PR, או הגדירו את הסוד REPO_ADMIN_TOKEN כדי שזה יקרה אוטומטית.')" \
+            --base main --head automation/ai-map-refresh
