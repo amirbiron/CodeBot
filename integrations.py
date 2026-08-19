@@ -11,11 +11,16 @@ import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import requests
 from github import Github, InputFileContent
-from github.GithubException import GithubException
+from github.GithubException import (
+    BadCredentialsException,
+    GithubException,
+    RateLimitExceededException,
+    TwoFactorException,
+)
 
 from config import config
 
@@ -31,6 +36,18 @@ except Exception:  # pragma: no cover
 
     def set_current_span_attributes(*_a, **_k):  # type: ignore
         return None
+
+
+def set_span_attrs_quietly(attrs: Dict[str, Any]) -> None:
+    """רישום מאפייני span שלא אמור להפיל את הזרימה העסקית.
+
+    נקודת הכשל היחידה של הטלמטריה בקובץ הזה. כשל בה נרשם ל-debug ונבלע,
+    אבל לא בשקט מוחלט — ``except: pass`` מסתיר גם באגים בקוד המדידה עצמו.
+    """
+    try:
+        set_current_span_attributes(attrs)
+    except Exception:
+        logger.debug("failed to set span attributes", exc_info=True)
 
 
 def _get_github_token() -> Optional[str]:
@@ -54,19 +71,58 @@ def _get_pastebin_api_key() -> Optional[str]:
 
 
 class GitHubGistIntegration:
-    """אינטגרציה עם GitHub Gist"""
-    
-    def __init__(self):
+    """אינטגרציה עם GitHub Gist.
+
+    ``token`` מאפשר לעבוד בשם משתמש מסוים. בלעדיו נופלים לטוקן הגלובלי,
+    שנשאר לשימושים תפעוליים בלבד — Gist שנוצר בשם משתמש חייב לעבור דרך
+    ``resolve_gist_for_user`` כדי שלא ייווצר תחת חשבון המערכת.
+    """
+
+    # סטטוסים שמשמעותם "הטוקן עצמו פסול". חשוב לקרוא אותם רק אחרי שנשללו
+    # החריגות הייעודיות של PyGithub: 403 הוא גם הסטטוס של הגבלת קצב, ושם
+    # הטוקן דווקא תקין. סיווג לפי המספר בלבד היה שולח משתמש שמיצה מכסה
+    # לייצר טוקן חדש בגלל בעיה חולפת.
+    _AUTH_FAILURE_STATUSES = frozenset({401, 403, 404})
+
+    def __init__(self, token: Optional[str] = None):
         self.github = None
         self.user = None
-        token = _get_github_token()
+        # ``None`` = לא ניסינו, או שהצלחנו. ``True`` = הטוקן פסול.
+        # ``False`` = הכשל היה זמני (GitHub נפל / הגבלת קצב).
+        self.auth_failed: Optional[bool] = None
+        token = token or _get_github_token()
         if token:
             try:
                 self.github = Github(token)
-                self.user = self.github.get_user()
-                logger.info(f"התחבר ל-GitHub בתור: {self.user.login}")
+                user = self.github.get_user()
+                # ``get_user()`` מחזיר אובייקט עצל: PyGithub לא פונה ל-API עד
+                # שניגשים לשדה. בלי הגישה הזו טוקן שנשלל היה "מתחבר" בהצלחה,
+                # והכשל היה מתגלה רק בניסיון ליצור Gist. הערך עצמו לא נרשם —
+                # ``login`` הוא מזהה אישי.
+                _ = user.login
+                self.user = user
+                logger.debug("GitHub Gist integration ready")
             except GithubException as e:
-                logger.error(f"שגיאה בהתחברות ל-GitHub: {e}")
+                self.auth_failed = self._is_auth_failure(e)
+                logger.error(
+                    "שגיאה בהתחברות ל-GitHub (type=%s, status=%s, auth_failure=%s)",
+                    type(e).__name__,
+                    getattr(e, "status", None),
+                    self.auth_failed,
+                )
+
+    @classmethod
+    def _is_auth_failure(cls, error: GithubException) -> bool:
+        """האם הכשל הוא בטוקן עצמו, או תקלה חולפת בצד GitHub.
+
+        PyGithub כבר מסווג את התגובה לתת-מחלקות (``createException``), אז
+        נשענים על הסיווג שלו במקום לנחש לפי קוד הסטטוס.
+        """
+        if isinstance(error, RateLimitExceededException):
+            return False  # הטוקן תקין, המכסה נגמרה
+        if isinstance(error, (BadCredentialsException, TwoFactorException)):
+            return True
+        return getattr(error, "status", None) in cls._AUTH_FAILURE_STATUSES
     
     def is_available(self) -> bool:
         """בדיקה אם האינטגרציה זמינה"""
@@ -79,21 +135,15 @@ class GitHubGistIntegration:
         
         if not self.is_available():
             logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
-            try:
-                set_current_span_attributes({"status": "error", "reason": "unavailable"})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "reason": "unavailable"})
             return None
 
         try:
-            try:
-                set_current_span_attributes({
-                    "file_name": str(file_name or ""),
-                    "language": str(language or ""),
-                    "public": bool(public),
-                })
-            except Exception:
-                pass
+            set_span_attrs_quietly({
+                "file_name": str(file_name or ""),
+                "language": str(language or ""),
+                "public": bool(public),
+            })
             # הכנת תיאור
             if not description:
                 description = f"קטע קוד {language} - {file_name}"
@@ -134,17 +184,11 @@ class GitHubGistIntegration:
             
         except GithubException as e:
             logger.error(f"שגיאה ביצירת Gist: {e}")
-            try:
-                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "error_signature": type(e).__name__})
             return None
         except Exception as e:
             logger.error(f"שגיאה כללית ביצירת Gist: {e}")
-            try:
-                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "error_signature": type(e).__name__})
             return None
 
     @traced("integration.github.create_gist_multi")
@@ -152,10 +196,7 @@ class GitHubGistIntegration:
         """יצירת Gist עם מספר קבצים"""
         if not self.is_available():
             logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
-            try:
-                set_current_span_attributes({"status": "error", "reason": "unavailable"})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "reason": "unavailable"})
             return None
         try:
             if not description:
@@ -195,17 +236,11 @@ class GitHubGistIntegration:
             return result
         except GithubException as e:
             logger.error(f"שגיאה ביצירת Gist מרובה קבצים: {e}")
-            try:
-                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "error_signature": type(e).__name__})
             return None
         except Exception as e:
             logger.error(f"שגיאה כללית ביצירת Gist מרובה קבצים: {e}")
-            try:
-                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "error_signature": type(e).__name__})
             return None
     
     def update_gist(self, gist_id: str, file_name: str, new_code: str) -> Optional[Dict[str, Any]]:
@@ -299,10 +334,7 @@ class PastebinIntegration:
         
         if not self.is_available():
             logger.error("Pastebin לא זמין - אין API key")
-            try:
-                set_current_span_attributes({"status": "error", "reason": "unavailable"})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "reason": "unavailable"})
             return None
         
         # מיפוי שפות ל-Pastebin format
@@ -337,15 +369,12 @@ class PastebinIntegration:
         }
         
         try:
-            try:
-                set_current_span_attributes({
-                    "file_name": str(file_name or ""),
-                    "language": str(language or ""),
-                    "private": bool(private),
-                    "expire": str(expire or ""),
-                })
-            except Exception:
-                pass
+            set_span_attrs_quietly({
+                "file_name": str(file_name or ""),
+                "language": str(language or ""),
+                "private": bool(private),
+                "expire": str(expire or ""),
+            })
             from http_async import request as async_request  # lazy import להימנע מתלויות מעגליות
             async with async_request(
                 "POST",
@@ -373,18 +402,12 @@ class PastebinIntegration:
                         }
                     else:
                         logger.error(f"שגיאה ביצירת Pastebin paste: {result}")
-                        try:
-                            set_current_span_attributes({"status": "error", "error_signature": "PastebinError"})
-                        except Exception:
-                            pass
+                        set_span_attrs_quietly({"status": "error", "error_signature": "PastebinError"})
                         return None
                         
         except Exception as e:
             logger.error(f"שגיאה כללית ב-Pastebin: {e}")
-            try:
-                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "error_signature": type(e).__name__})
             return None
     
     @traced("integration.pastebin.get_content")
@@ -406,34 +429,27 @@ class PastebinIntegration:
                         return content
                     else:
                         logger.error(f"שגיאה בשליפת תוכן מ-Pastebin: {response.status}")
-                        try:
-                            set_current_span_attributes({"status": "error", "http.status_code": int(response.status)})
-                        except Exception:
-                            pass
+                        set_span_attrs_quietly({"status": "error", "http.status_code": int(response.status)})
                         return None
                         
         except Exception as e:
             logger.error(f"שגיאה בשליפת תוכן מ-Pastebin: {e}")
-            try:
-                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "error_signature": type(e).__name__})
             return None
 
 class CodeSharingService:
     """שירות משולב לשיתוף קוד"""
     
     def __init__(self):
-        self.gist = GitHubGistIntegration()
+        # אין כאן ``GitHubGistIntegration``: Gist נוצר תמיד בשם משתמש מסוים,
+        # דרך ``resolve_gist_for_user``. אינסטנס משותף כאן היה יוצר Gists של
+        # כל המשתמשים תחת חשבון המערכת — בדיוק הבאג שהפרדה הזו סוגרת.
         self.pastebin = PastebinIntegration()
         self.internal_shares = {}  # לשיתוף פנימי בזיכרון (fallback)
     
     def get_available_services(self) -> List[str]:
-        """קבלת רשימת שירותים זמינים"""
+        """קבלת רשימת שירותים זמינים (Gist לא כאן — הוא לכל משתמש בנפרד)"""
         services = []
-        
-        if self.gist.is_available():
-            services.append("gist")
         
         if self.pastebin.is_available():
             services.append("pastebin")
@@ -447,16 +463,17 @@ class CodeSharingService:
                         language: str, description: str = "", **kwargs) -> Optional[Dict[str, Any]]:
         """שיתוף קוד בשירות נבחר"""
         
-        try:
-            set_current_span_attributes({
-                "service": str(service or ""),
-                "language": str(language or ""),
-                "file_name": str(file_name or ""),
-            })
-        except Exception:
-            pass
-        if service == "gist" and self.gist.is_available():
-            return self.gist.create_gist(file_name, code, language, description, **kwargs)
+        set_span_attrs_quietly({
+            "service": str(service or ""),
+            "language": str(language or ""),
+            "file_name": str(file_name or ""),
+        })
+        if service == "gist":
+            # מסלול חסום בכוונה: השירות המשולב אינו מחזיק טוקן של משתמש,
+            # ושיתוף Gist חייב לעבור דרך ``resolve_gist_for_user``.
+            logger.error("share_code('gist') לא נתמך — יש להשתמש ב-resolve_gist_for_user")
+            set_span_attrs_quietly({"status": "error", "reason": "gist_requires_user_token"})
+            return None
         
         elif service == "pastebin" and self.pastebin.is_available():
             return await self.pastebin.create_paste(code, file_name, language, **kwargs)
@@ -466,10 +483,7 @@ class CodeSharingService:
         
         else:
             logger.error(f"שירות שיתוף לא זמין: {service}")
-            try:
-                set_current_span_attributes({"status": "error", "reason": "service_unavailable"})
-            except Exception:
-                pass
+            set_span_attrs_quietly({"status": "error", "reason": "service_unavailable"})
             return None
     
     def _create_internal_share(self, file_name: str, code: str, 
@@ -739,8 +753,75 @@ class WebhookIntegration:
             except Exception as e:
                 logger.error(f"שגיאה בשליחת webhook: {e}")
 
-# יצירת אינסטנסים גלובליים
-gist_integration = GitHubGistIntegration()
+
+GIST_NEEDS_GITHUB_MESSAGE = (
+    "🔗 כדי לשתף ב-Gist צריך לחבר את חשבון ה-GitHub שלך.\n\n"
+    "ה-Gist ייווצר תחת החשבון שלך — כך הוא נשאר שלך ומופיע ברשימת ה-Gists שלך.\n\n"
+    "לחיבור: תפריט ראשי ← 🔧 GitHub\n"
+    "לחלופין אפשר לשתף דרך 📋 Pastebin, שלא דורש חיבור."
+)
+
+# תקלה טכנית היא לא "לא חיברת GitHub". משתמש מחובר שה-DB נפל לרגע אמור לראות
+# "נסה שוב", לא הנחיה לחבר חשבון שכבר מחובר — ולכן שתי ההודעות נפרדות.
+GIST_TEMPORARY_FAILURE_MESSAGE = (
+    "❌ לא הצלחנו לגשת לחיבור ה-GitHub שלך כרגע. נסה שוב בעוד רגע."
+)
+
+
+class GistResolution(NamedTuple):
+    """תוצאת ניסיון לבנות אינטגרציית Gist בשם משתמש.
+
+    ``integration`` קיים רק כשהכול תקין. אחרת ``error_message`` מכיל את
+    ההודעה שצריך להציג למשתמש — והיא שונה בין "לא חיברת" ל"תקלה זמנית".
+    """
+
+    integration: Optional["GitHubGistIntegration"]
+    error_message: Optional[str]
+
+
+def resolve_gist_for_user(user_id: int) -> GistResolution:
+    """בונה אינטגרציית Gist שפועלת בשם המשתמש.
+
+    ה-Gist נוצר תחת החשבון שהטוקן שייך לו. שימוש בטוקן הגלובלי היה יוצר
+    את כל ה-Gists של כל המשתמשים תחת חשבון המערכת — ולכן כאן אין נפילה
+    אליו בשום מסלול, גם לא בכשל.
+
+    הקריאה חוסמת (DB + רשת), ולכן מתוך handler אסינכרוני יש לקרוא לה דרך
+    ``asyncio.to_thread`` כדי לא לתקוע את ה-event loop.
+    """
+    if not user_id:
+        return GistResolution(None, GIST_NEEDS_GITHUB_MESSAGE)
+    try:
+        from database import db as _db
+
+        token = _db.get_github_token(int(user_id))
+    except Exception:
+        # fail-closed מכוון, ורחב במכוון: כל כשל בטעינת הטוקן — תקלת DB,
+        # שינוי API, באג בקוד — מסתיים באי-יצירת Gist ולא בנפילה לטוקן
+        # המערכת. ה-``logger.exception`` הוא מה שמונע בליעה שקטה: הבאג מגיע
+        # ל-Sentry עם ה-traceback, גם כשהמשתמש רואה רק "נסה שוב".
+        logger.exception("failed to load user github token for gist")
+        return GistResolution(None, GIST_TEMPORARY_FAILURE_MESSAGE)
+    if not token:
+        return GistResolution(None, GIST_NEEDS_GITHUB_MESSAGE)
+    try:
+        integration = GitHubGistIntegration(token=token)
+    except Exception:
+        logger.exception("failed to build gist integration for user")
+        return GistResolution(None, GIST_TEMPORARY_FAILURE_MESSAGE)
+    if not integration.is_available():
+        # יש טוקן שמור אבל ההתחברות נכשלה. אם GitHub דחה את הטוקן — צריך
+        # לחבר מחדש; אם GitHub נפל או הגביל קצב — הטוקן בסדר וצריך רק לנסות
+        # שוב. שליחת "חבר מחדש" על 500 שולחת את המשתמש לתקן משהו תקין.
+        if integration.auth_failed is False:
+            return GistResolution(None, GIST_TEMPORARY_FAILURE_MESSAGE)
+        return GistResolution(None, GIST_NEEDS_GITHUB_MESSAGE)
+    return GistResolution(integration, None)
+
+
+# יצירת אינסטנסים גלובליים. אין כאן ``gist_integration``: אינסטנס גלובלי היה
+# נבנה עם הטוקן של המערכת, וכל שימוש בו היה יוצר Gist תחת חשבון הבוט —
+# ל-Gist של משתמש יש להשתמש ב-``resolve_gist_for_user``.
 pastebin_integration = PastebinIntegration()
 code_sharing = CodeSharingService()
 git_integration = GitRepositoryIntegration()

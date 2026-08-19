@@ -75,7 +75,14 @@ async def test_export_gist_success(monkeypatch):
 
     gist_stub = _Gist()
     integrations_mod = __import__("integrations")
-    monkeypatch.setattr(integrations_mod, "gist_integration", gist_stub, raising=True)
+    # ה-Gist נבנה לכל משתמש דרך הפקטורי, לא דרך ה-singleton הגלובלי — אז זו
+    # נקודת ההזרקה. הזרקה ל-``gist_integration`` הייתה עוברת ליד הקוד בשקט.
+    monkeypatch.setattr(
+        integrations_mod,
+        "resolve_gist_for_user",
+        lambda uid: integrations_mod.GistResolution(gist_stub, None),
+        raising=True,
+    )
 
     query.data = "refactor_action:export_gist"
     await rh.handle_proposal_callback(_build_update(user_id, query), _Ctx())
@@ -101,23 +108,22 @@ async def test_export_gist_unavailable(monkeypatch):
         changes_summary=["split"],
     )
 
-    class _Gist:
-        def __init__(self):
-            self.calls = 0
+    calls = []
 
-        def is_available(self):
-            return False
-
-        def create_gist_multi(self, *args, **kwargs):
-            self.calls += 1
-            return {"url": "https://gist.github.com/demo"}
-
-    gist_stub = _Gist()
     integrations_mod = __import__("integrations")
-    monkeypatch.setattr(integrations_mod, "gist_integration", gist_stub, raising=True)
+
+    def _no_github(uid):
+        calls.append(uid)
+        return integrations_mod.GistResolution(
+            None, integrations_mod.GIST_NEEDS_GITHUB_MESSAGE
+        )
+
+    monkeypatch.setattr(integrations_mod, "resolve_gist_for_user", _no_github, raising=True)
 
     query.data = "refactor_action:export_gist"
     await rh.handle_proposal_callback(_build_update(user_id, query), _Ctx())
 
-    assert gist_stub.calls == 0
-    assert any("לא זמין" in text for text, _ in query.message.sent)
+    assert calls == [user_id]
+    # המשתמש מקבל את ההנחיה לחבר GitHub, ולא הודעה גנרית של "לא זמין"
+    sent = [text for text, _ in query.message.sent]
+    assert any(integrations_mod.GIST_NEEDS_GITHUB_MESSAGE == text for text in sent), sent

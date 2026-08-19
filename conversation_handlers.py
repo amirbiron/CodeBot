@@ -2355,12 +2355,19 @@ async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if not code:
             await query.edit_message_text("❌ תוכן הקובץ ריק או חסר")
             return ConversationHandler.END
-        from integrations import code_sharing
+        from integrations import code_sharing, resolve_gist_for_user
         if service == 'gist':
-            if not config.GITHUB_TOKEN:
-                await query.edit_message_text("❌ Gist לא זמין (חסר GITHUB_TOKEN)")
+            # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת.
+            # שתי הקריאות חוסמות (DB ורשת) ולכן רצות בת'רד נפרד.
+            gist, gist_error = await asyncio.to_thread(resolve_gist_for_user, user_id)
+            if gist is None:
+                await query.edit_message_text(gist_error)
                 return ConversationHandler.END
-            result = await code_sharing.share_code('gist', file_name, code, language, description=f"שיתוף דרך CodeBot — {file_name}")
+            result = await asyncio.to_thread(
+                gist.create_gist,
+                file_name, code, language,
+                description=f"שיתוף דרך CodeBot — {file_name}",
+            )
             if not result or not result.get('url'):
                 await query.edit_message_text("❌ יצירת Gist נכשלה")
                 return ConversationHandler.END
