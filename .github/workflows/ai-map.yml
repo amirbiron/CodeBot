@@ -106,6 +106,13 @@ jobs:
           state=$(gh pr list --head automation/ai-map-refresh --base main --state open --json state --jq '.[0].state // "NONE"')
           if [ "$state" = "OPEN" ]; then
             echo "PR פתוח כבר קיים — הענף עודכן והוא התעדכן בו"
+            # אותו עיקרון כמו ביצירת PR חדש: בלי PAT, דחיפת GITHUB_TOKEN
+            # אינה מפעילה אירוע synchronize והבדיקות לא ירוצו — הריצה
+            # חייבת להיכשל ברעש ולא לדווח הצלחה על PR תקוע.
+            if [ "$HAS_PAT" != "true" ]; then
+              echo "::error::ה-PR עודכן אבל בדיקות החובה לא ירוצו עליו (אין REPO_ADMIN_TOKEN). סגרו ופתחו מחדש את ה-PR, או הגדירו את הסוד."
+              exit 1
+            fi
             exit 0
           fi
           gh pr create \

@@ -278,6 +278,10 @@ def main() -> int:
              "אינו תואם את מה שהיה נוצר.",
     )
     args = parser.parse_args()
+    if args.check is not None and args.out is not None:
+        # קבלה שקטה של שניהם הייתה מתעלמת מ---out: הקורא ביקש כתיבה
+        # וקיבל רק השוואה, בלי שום רמז שהקובץ לא נוצר.
+        parser.error("--check ו---out סותרים זה את זה — בחרו אחד")
     content = build_map()
     if args.check is not None:
         existing = args.check.read_text(encoding="utf-8") if args.check.exists() else None
