@@ -783,8 +783,10 @@ function getRepoDefaultBranch(repoName) {
 
 function getRepoTotalFiles(repoName) {
     const meta = repoMetadataByName[repoName];
-    const total = meta ? Number(meta.total_files) : NaN;
-    return Number.isFinite(total) ? total : null;
+    const total = meta ? meta.total_files : undefined;
+    // בלי בדיקת הטיפוס: Number(null) ו-Number(false) ו-Number('') כולם 0,
+    // ו-Number.isFinite מאשר אותם — ריפו שסונכרן חלקית היה מציג "0 files".
+    return typeof total === 'number' && Number.isFinite(total) ? total : null;
 }
 
 /**
@@ -792,7 +794,11 @@ function getRepoTotalFiles(repoName) {
  *
  * זו נקודת העדכון היחידה של המונים אחרי שהדף נטען. עד כה הם רונדרו
  * בשרת פעם אחת ואיש לא נגע בהם בהחלפת ריפו, ולכן הם נשארו תקועים על
- * הערכים של הריפו הראשון. מונה חדש שיסומן בתבנית יתעדכן מכאן מאליו.
+ * הערכים של הריפו הראשון.
+ *
+ * מונה חדש דורש שתי פעולות: סימון ``data-repo-stat`` בתבנית, ומיפוי
+ * מתאים ב-``values`` כאן. בלי המיפוי הוא יוצג כ-``—``, ובדיקת
+ * ``test_every_marked_stat_is_filled_by_the_renderer`` תיכשל.
  *
  * הערכים נלקחים מ-``repoMetadataByName`` שכבר יושב בזיכרון, ולכן
  * העדכון סינכרוני — אין ``await`` ואין סיכון שתגובה ישנה תדרוס חדשה.
