@@ -40,6 +40,8 @@ _DIRECTIVE_RE = re.compile(r"^\.\. ")
 _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
+# שורת גבול של grid table ב-RST: +----+====+ וכד'
+_GRID_ROW_RE = re.compile(r"^\+[+=-]+(?:\+[+=-]+)*\+?$")
 _AUTODOC_RE = re.compile(r"^\.\. auto(module|class|function)::")
 
 
@@ -146,16 +148,21 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             if line.startswith((" ", "\t")):
                 i += 1  # המשך בלוק מוזח שלא זוהה
                 continue
-        if stripped.startswith(("- ", "* ", "#. ")) or re.match(r"^\d+\. ", stripped):
-            i += 1  # פריט רשימה אינו תקציר
+        if (
+            stripped.startswith(("- ", "* ", "#. "))
+            or re.match(r"^\d+\. ", stripped)
+            or _GRID_ROW_RE.match(stripped)
+        ):
+            i += 1  # פריט רשימה או גבול טבלת grid אינם תקציר
             continue
         # פסקת פרוזה: איסוף עד שורה ריקה, בלוק מוזח או תחילת רשימה
         para = []
         while i < n and lines[i].strip() and not lines[i].startswith((" ", "\t")):
             cur = lines[i].strip()
             is_list = cur.startswith(("- ", "* ", "#. ")) or re.match(r"^\d+\. ", cur)
-            if is_list or cur.startswith(("```", ":::", "|")) or _UNDERLINE_RE.match(lines[i]):
-                break  # רשימה / גדר קוד / טבלה — לא חלק מהתקציר
+            is_table = cur.startswith("|") or _GRID_ROW_RE.match(cur)
+            if is_list or is_table or cur.startswith(("```", ":::")) or _UNDERLINE_RE.match(lines[i]):
+                break  # רשימה / טבלה / גדר קוד — לא חלק מהתקציר
             para.append(cur)
             i += 1
         text = re.sub(r"\s+", " ", " ".join(para))

@@ -46,11 +46,10 @@ jobs:
       - name: Regenerate AI-MAP.md
         run: python3 scripts/generate_ai_map.py --out AI-MAP.md
 
-      - name: Commit if changed
+      - name: Publish AI-MAP.md
         env:
-          # PAT (אם מוגדר) עדיף על GITHUB_TOKEN: דחיפה ו-PR שנוצרים בו כן
-          # מפעילים את בדיקות החובה. הטוקן חי רק בסביבת השלב הזה, והסקריפט
-          # מנקה אותו (env -u) לפני כל הרצה של קוד פייתון מהריפו.
-          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
-          HAS_PAT: ${{ secrets.REPO_ADMIN_TOKEN != '' }}
+          # GITHUB_TOKEN בלבד, בלי PAT: הפרסום עובר ב-Contents API ולא
+          # ב-git, ולכן contents:write מספיק. אין סוד בעל הרשאות רחבות
+          # שנחשף לקוד שרץ מהריפו.
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/publish-ai-map.sh

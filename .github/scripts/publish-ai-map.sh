@@ -1,94 +1,45 @@
 #!/usr/bin/env bash
-# פרסום AI-MAP.md אחרי שינוי תיעוד ב-main. מחולץ מ-ai-map.yml כדי
-# שמדיניות הדחיפה/fallback לא תהיה צמודה לשלב הקומיט, וכדי שכל הזרימה
-# תרוץ תחת set -euo pipefail — כשל של כל פקודת פרסום מפיל את הריצה.
+# פרסום AI-MAP.md אחרי שינוי תיעוד ב-main, דרך GitHub Contents API.
 #
-# גבולות אבטחה (הסיבה למבנה):
-# - checkout רץ עם persist-credentials: false — אין טוקן ב-.git/config.
-# - הדחיפות משתמשות ב-URL אינליין עם הטוקן; שום דבר לא נשמר בדיסק.
-# - כל הרצה של המחולל מנוקה מ-GH_TOKEN עם env -u — קוד הריפו לעולם לא
-#   רואה את הסוד, גם לא דרך הסביבה.
+# למה API ולא git: פרסום דרך git דורש כתיבה ל-root של ה-checkout,
+# commit, ואז דחיפה — ובכשל דחיפה גם rebase, ענף אוטומציה ו-PR. כל
+# השרשרת הזו נשענה על PAT בעל admin:repo, שהיה נחשף לכל קוד שרץ בשלב.
+# קריאת API אחת מחליפה את הכול: המפה נוצרת בתיקייה זמנית בלבד, אין
+# כתיבה ב-root, אין git מאומת, ואין שום צורך ב-PAT — GITHUB_TOKEN
+# עם contents:write מספיק. ה-sha של הקובץ הקיים משמש כנעילה
+# אופטימית: שינוי מקביל מחזיר 409 והריצה נכשלת ברעש במקום לדרוס.
 #
-# קלט (env): GH_TOKEN, HAS_PAT ("true"/"false"), GITHUB_REPOSITORY
+# קלט (env): GH_TOKEN, GITHUB_REPOSITORY
 set -euo pipefail
 
-AUTH_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-BRANCH="automation/ai-map-refresh"
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "${WORKDIR}"' EXIT
+MAP="${WORKDIR}/AI-MAP.md"
 
-regen() {
-  # המחולל רץ בלי הסוד בסביבה — בכוונה, ראו כותרת הקובץ
-  env -u GH_TOKEN python3 scripts/generate_ai_map.py --out AI-MAP.md
-}
+# המחולל רץ בלי הטוקן בסביבה, וכותב אך ורק לתיקייה הזמנית
+env -u GH_TOKEN python3 scripts/generate_ai_map.py --out "${MAP}"
 
-fail_without_pat() {
-  # PR שנדחף/נוצר ב-GITHUB_TOKEN אינו מפעיל את בדיקות החובה. בלי PAT
-  # הריצה חייבת להיכשל ברעש — PR תקוע בשקט הוא בדיוק מה שאסור.
-  if [ "${HAS_PAT}" != "true" ]; then
-    echo "::error::$1 (אין REPO_ADMIN_TOKEN). סגרו ופתחו מחדש את ה-PR להפעלת הבדיקות, או הגדירו את הסוד."
-    exit 1
-  fi
-}
-
-# git diff מפספס קובץ שאינו tracked עדיין; porcelain תופס את שניהם
-if [ -z "$(git status --porcelain -- AI-MAP.md)" ]; then
-  echo "המפה עדכנית — אין מה לקמט"
+if diff -q AI-MAP.md "${MAP}" >/dev/null 2>&1; then
+  echo "המפה עדכנית — אין מה לפרסם"
   exit 0
 fi
 
-git config user.name "github-actions"
-git config user.email "actions@github.com"
-git add AI-MAP.md
-git commit -m "docs: רענון אוטומטי של AI-MAP.md"
+# sha של הקובץ הקיים; ריק אם הקובץ עדיין לא קיים ב-main
+sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/AI-MAP.md" --jq .sha 2>/dev/null || true)"
 
-# ניסיון ראשון: דחיפה ישירה (עובדת כשאין הגנת ענף חוסמת)
-if git push "${AUTH_URL}" HEAD:main; then
-  echo "נדחף ישירות ל-main"
+args=(
+  -X PUT "repos/${GITHUB_REPOSITORY}/contents/AI-MAP.md"
+  -f "message=docs: רענון אוטומטי של AI-MAP.md"
+  -f "content=$(base64 -w0 "${MAP}")"
+)
+[ -n "${sha}" ] && args+=(-f "sha=${sha}")
+
+if gh api "${args[@]}" --jq .commit.sha; then
+  echo "המפה פורסמה ל-main"
   exit 0
 fi
 
-# non-fast-forward: תיעוד חדש נכנס בינתיים. אחרי ה-rebase המפה שנוצרה
-# כבר מיושנת — מייצרים מחדש ומעדכנים את הקומיט, אחרת היינו דוחפים מפה
-# ישנה על תיעוד חדש (והקומיט שלנו לא מפעיל ריצה נוספת, כי הוא נוגע רק
-# ב-AI-MAP.md שאינו ב-paths).
-if git pull --rebase "${AUTH_URL}" main; then
-  regen
-  git add AI-MAP.md
-  git commit --amend --no-edit
-  if git push "${AUTH_URL}" HEAD:main; then
-    echo "נדחף אחרי rebase וייצור מחדש"
-    exit 0
-  fi
-else
-  # rebase כושל משאיר את עץ העבודה באמצע rebase וכל פקודה הבאה נכשלת
-  # בשגיאה מבלבלת — מנקים לפני ה-fallback
-  git rebase --abort || true
-fi
-
-# הגנת ענף דחתה את הדחיפה — נפילה מבוקרת לענף אוטומציה + PR. הענף נבנה
-# מ-origin/main נקי והמפה מיוצרת בו מחדש: קומיט אחד בדיוק, בלי היסטוריה
-# מקומית חלקית. הענף קבוע כדי שריצות חוזרות יעדכנו את אותו PR.
-echo "דחיפה ישירה נדחתה — עובר לענף אוטומציה"
-git fetch "${AUTH_URL}" main
-git checkout -B "${BRANCH}" FETCH_HEAD
-regen
-if [ -z "$(git status --porcelain -- AI-MAP.md)" ]; then
-  echo "אחרי הסנכרון המפה כבר עדכנית ב-main — אין צורך ב-PR"
-  exit 0
-fi
-git add AI-MAP.md
-git commit -m "docs: רענון אוטומטי של AI-MAP.md"
-git push -f "${AUTH_URL}" "HEAD:refs/heads/${BRANCH}"
-
-# gh pr list מחזיר רשימה ריקה כשאין PR ונכשל ברעש על שגיאת API/הרשאה —
-# בניגוד ל-pr view, שבו כשל אמיתי נראה כמו "אין PR"
-state=$(gh pr list --head "${BRANCH}" --base main --state open --json state --jq '.[0].state // "NONE"')
-if [ "${state}" = "OPEN" ]; then
-  echo "PR פתוח כבר קיים — הענף עודכן והוא התעדכן בו"
-  fail_without_pat "ה-PR עודכן אבל בדיקות החובה לא ירוצו עליו"
-  exit 0
-fi
-gh pr create \
-  --title "docs: רענון אוטומטי של AI-MAP.md" \
-  --body "$(printf 'רענון מפת התיעוד אחרי שינוי ב-docs/. נוצר אוטומטית על ידי ai-map.yml כי דחיפה ישירה ל-main נדחתה (הגנת ענף).\n\nאם בדיקות החובה לא הופעלו (PR שנוצר ב-GITHUB_TOKEN אינו מפעיל אותן) — סגרו ופתחו מחדש את ה-PR, או הגדירו את הסוד REPO_ADMIN_TOKEN כדי שזה יקרה אוטומטית.')" \
-  --base main --head "${BRANCH}"
-fail_without_pat "נוצר PR אבל בדיקות החובה לא ירוצו עליו"
+# כשל אמיתי: הגנת ענף שחוסמת גם את GITHUB_TOKEN, מרוץ (409), או תקלת
+# API. לא בולעים — מפילים ברעש כדי שהמצב יגיע להתראה ולא יישאר שקט.
+echo "::error::פרסום AI-MAP.md נכשל. אם main מוגן מפני דחיפות בוט, רעננו את המפה ידנית (python3 scripts/generate_ai_map.py --out AI-MAP.md) או התאימו את הגנת הענף. הריצה הבאה תנסה שוב."
+exit 1

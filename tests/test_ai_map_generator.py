@@ -69,38 +69,52 @@ def test_no_timestamps_in_generator_authored_lines():
     assert not hits, f"חותמת זמן בשורות של המחולל: {hits}"
 
 
-def test_table_first_page_does_not_hang():
-    """עמוד שנפתח בטבלה לא תוקע את המחולל.
+def test_table_first_page_does_not_hang(tmp_path):
+    """עמוד שנפתח בטבלה לא תוקע את המחולל, ותחביר הטבלה לא חוזר כתקציר.
 
-    רגרסיה: "|" עצר את איסוף הפסקה לפני קידום האינדקס, ואותה שורה
-    נבדקה שוב לנצח. שום דף נוכחי לא נפתח בטבלה — הדף הראשון שכן היה
-    תוקע את ה-Action בלי הודעת שגיאה.
+    רגרסיה: תנאי העצירה על שורת טבלה קפץ לפני קידום האינדקס, ואותה
+    שורה נבדקה שוב לנצח. שום דף נוכחי לא נפתח בטבלה — הדף הראשון שכן
+    היה תוקע את ה-Action בלי הודעת שגיאה.
+
+    רץ בתת-תהליך ולא בת'רד: ת'רד daemon שנתקע ממשיך לסובב על ליבה
+    שלמה עד סוף ריצת pytest ומאט את שאר הבדיקות, ובנוסף חריגה בתוכו
+    נבלעת ומופיעה כ-KeyError מבלבל במקום כשורש הבעיה. תת-תהליך נהרג
+    ב-timeout, ומחזיר את החריגה המקורית ב-stderr.
+
+    שני סוגי הטבלאות של RST נבדקים: pipe ו-grid (``+---+``).
     """
-    # ת'רד עם join-timeout ולא SIGALRM: האות אינו קיים ב-Windows, והטסט
-    # צריך לרוץ גם על מכונת פיתוח כזו אף ש-CI רץ על אובונטו.
-    import threading
+    import subprocess
+    import sys as _sys
 
-    gen = _load_generator()
-    # שורות הטבלה ארוכות מ-20 תווים בכוונה: טבלה קצרה הייתה נזרקת ממילא
-    # על ידי סף האורך, והטסט היה עובר גם אם הטיפול ב-"|" יוסר — בלי
-    # להוכיח שהטבלה באמת מדולגת ולא מוחזרת כתקציר.
-    lines = [
-        "כותרת", "======", "",
-        "| עמודה ראשונה ארוכה | עמודה שנייה ארוכה מאוד |",
-        "| ------------------ | ---------------------- |", "",
-        "פסקת פרוזה ארוכה מספיק שנשלפת אחרי הטבלה כתקציר.",
-    ]
-    box = {}
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import importlib.util, json, sys\n"
+        f"spec = importlib.util.spec_from_file_location('g', {str(ROOT / 'scripts' / 'generate_ai_map.py')!r})\n"
+        "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\n"
+        "from pathlib import Path\n"
+        "cases = {\n"
+        "  'pipe': ['כותרת', '======', '', '| עמודה ראשונה ארוכה | שנייה ארוכה מאוד |', '',"
+        " 'פסקת פרוזה ארוכה מספיק שנשלפת אחרי הטבלה כתקציר.'],\n"
+        "  'grid': ['כותרת', '======', '', '+--------------------+------------------+',"
+        " '| עמודה ארוכה מאוד   | עוד עמודה ארוכה  |', '+====================+==================+', '',"
+        " 'פסקת פרוזה ארוכה מספיק שנשלפת אחרי הטבלה כתקציר.'],\n"
+        "}\n"
+        "print(json.dumps({k: g._first_prose_paragraph(v, Path('x.rst')) for k, v in cases.items()}))\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [_sys.executable, str(probe)], capture_output=True, text=True, timeout=30, cwd=tmp_path
+    )
+    assert proc.returncode == 0, f"המחולל נכשל על עמוד שנפתח בטבלה:\n{proc.stderr}"
 
-    def _extract():
-        box["result"] = gen._first_prose_paragraph(lines, Path("x.rst"))
+    import json
 
-    worker = threading.Thread(target=_extract, daemon=True)
-    worker.start()
-    worker.join(timeout=5)
-    assert not worker.is_alive(), "המחולל נתקע על עמוד שנפתח בטבלה"
-    assert "פסקת פרוזה" in box["result"]
-    assert "|" not in box["result"], "שורת טבלה הוחזרה כתקציר במקום להיות מדולגת"
+    results = json.loads(proc.stdout)
+    for kind, summary in results.items():
+        assert "פסקת פרוזה" in summary, f"{kind}: הפסקה שאחרי הטבלה לא נשלפה"
+        assert "|" not in summary and "+--" not in summary, (
+            f"{kind}: תחביר טבלה הוחזר כתקציר במקום להיות מדולג"
+        )
 
 
 def _run_cli(*args, cwd):
