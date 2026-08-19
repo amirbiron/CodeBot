@@ -72,13 +72,17 @@
          else הצלחה
            GH->>I: 200
            R->>H: (integration, None)
-           H->>I: asyncio.to_thread(create_gist, ...)
+           alt קובץ בודד או שיתוף מרובה
+             H->>I: asyncio.to_thread(create_gist, ...)
+           else ייצוא ריפקטורינג
+             H->>I: asyncio.to_thread(create_gist_multi, ...)
+           end
            I->>GH: POST /gists
-           alt נוצר
+           alt נוצר ויש url
              GH->>I: Gist
              I->>H: dict עם url
              H->>U: הקישור ל-Gist
-           else נכשל
+           else None או dict בלי url
              I->>H: None
              H->>U: "השיתוף נכשל"
            end
@@ -98,12 +102,12 @@
 
 היא לא מיותרת, והיא **חייבת** להישאר. ``Github.get_user()`` ללא ארגומנט מחזיר ``AuthenticatedUser`` עם ``completed=False`` — אובייקט עצל שלא שלח שום בקשה. ה-``GET /user`` יוצא רק בגישה הראשונה לשדה, דרך ``_completeIfNotSet``. בלי הגישה ל-``login``, טוקן שנשלל היה "מתחבר" בהצלחה, ``is_available()`` היה מחזיר אמת, וכל סיווג הכשלים למטה לא היה רץ לעולם. הכשל היה מתגלה רק בניסיון ליצור את ה-Gist, עם הודעה שלא מצביעה על המקור.
 
-הערך עצמו לא נרשם ללוג: ``login`` הוא מזהה אישי. השורה הזו כבר נמחקה פעם אחת בתיקון PII, וזה הפיל את האימות — ראה ``bugbot-rules/side-effect-riding-on-log-line.md`` בריפו ``amir-bug-patterns``.
+הערך עצמו לא נרשם ללוג: ``login`` הוא מזהה אישי. השורה הזו כבר נמחקה פעם אחת בתיקון PII, וזה הפיל את האימות — ראה `side-effect-riding-on-log-line <https://github.com/amirbiron/amir-bug-patterns/blob/main/bugbot-rules/side-effect-riding-on-log-line.md>`_.
 
 שלושת מצבי ``auth_failed``
 ---------------------------
 
-``auth_failed`` הוא **לא** בוליאני. שלושת הערכים מבחינים בין שני סוגי כשל שמחייבים הודעות שונות:
+``auth_failed`` הוא ``Optional[bool]``, ולא דגל דו-ערכי. שלושת הערכים מבחינים בין שני סוגי כשל שמחייבים הודעות שונות — ומצב שלישי שבו לא נכשלנו כלל:
 
 .. list-table:: מצבי auth_failed
    :header-rows: 1
@@ -142,7 +146,11 @@
 Fail-closed
 ------------
 
-בכל מסלול כשל התוצאה זהה: **לא נוצר Gist**, ואין נפילה לטוקן המערכת. זה מכוון. ה-``except Exception`` סביב טעינת הטוקן רחב במכוון — כל כשל שכן נזרק מסתיים באי-יצירת Gist ולא בשיתוף תחת חשבון המערכת. ה-``logger.exception`` שם הוא מה שמונע בליעה שקטה: ה-traceback מגיע ל-Sentry גם כשהמשתמש רואה רק "נסה שוב".
+בכל מסלול כשל התוצאה זהה מבחינת המשתמש: **לא מוצג קישור, ולא מדווחת הצלחה**, ואין נפילה לטוקן המערכת. זה מכוון. ה-``except Exception`` סביב טעינת הטוקן רחב במכוון — כל כשל שכן נזרק מסתיים באי-שיתוף ולא בשיתוף תחת חשבון המערכת.
+
+**מה fail-closed כאן לא מבטיח:** שה-Gist לא נוצר בצד GitHub. ``create_gist`` בונה את מילון התוצאה *אחרי* שה-``POST /gists`` כבר הצליח — היא ניגשת ל-``gist.created_at.isoformat()`` ולשדות של כל קובץ. כשל בשלב הזה נתפס באותו ``except`` ומחזיר ``None``, בעוד שה-Gist כבר קיים בחשבון המשתמש. המשתמש יראה "נכשל", וניסיון חוזר ייצור Gist שני. החלון צר, אבל הוא קיים — ולכן הניסוח כאן הוא "אין קישור" ולא "אין Gist".
+
+ה-``logger.exception`` הוא מה שמונע בליעה שקטה: ה-traceback נרשם ללוג, ובסביבה שבה Sentry מוגדר הוא נאסף גם שם. בלי DSN, ``init_sentry`` יוצאת מוקדם ו-``LoggingIntegration`` לא מותקנת כלל — אז ההבטחה היא הלוג, לא Sentry.
 
 Edge Cases
 ----------
@@ -150,8 +158,8 @@ Edge Cases
 **``user_id`` ריק או אפס**
    יציאה מוקדמת עם ``GIST_NEEDS_GITHUB_MESSAGE``, בלי פנייה ל-DB.
 
-**``create_gist`` מחזירה ``None``**
-   הפונקציה בולעת חריגות ומחזירה ``None`` בכשל — היא לא זורקת. לכן ``try/except`` סביבה לא מספיק, ו-``if not result:`` הוא הבדיקה היחידה שמונעת דיווח ✅ על Gist שלא נוצר. זה דפוס K11.
+**``create_gist`` / ``create_gist_multi`` מחזירות ``None``**
+   שתיהן בולעות חריגות ומחזירות ``None`` בכשל — הן לא זורקות. לכן ``try/except`` סביבן לא מספיק, ובדיקת התוצאה היא מה שמונע דיווח ✅ על שיתוף שלא קרה. זה דפוס K11. ``_export_gist`` בודק ``if not result or not result.get("url")`` — כלומר גם תוצאה שחזרה אבל בלי ``url`` נחשבת כשל, כי בלי ``url`` אין מה להציג למשתמש.
 
 **כשל בטעינת הטוקן מ-MongoDB**
    ``get_github_token`` ב-``database/repository.py`` תופסת את החריגה בעצמה, רושמת ``db_get_github_token_error`` ומחזירה ``None``. כלומר תקלת DB אינה מגיעה כחריגה ל-``resolve_gist_for_user``, אלא נראית שם כמו "אין טוקן" — והמשתמש מקבל את הודעת החיבור ולא את הודעת התקלה הזמנית. ה-fail-closed נשמר, אבל ההבחנה בין שתי ההודעות מתבטלת במסלול הזה.
