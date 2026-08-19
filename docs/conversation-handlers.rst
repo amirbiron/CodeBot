@@ -161,27 +161,27 @@ Save – שלבים עיקריים
 
 .. literalinclude:: ../handlers/save_flow.py
    :language: python
-   :lines: 123-137
+   :pyobject: start_save_flow
    :caption: handlers/save_flow.py – start_save_flow
 
 .. literalinclude:: ../handlers/save_flow.py
    :language: python
-   :lines: 279-304
+   :pyobject: get_code
    :caption: handlers/save_flow.py – get_code
 
 .. literalinclude:: ../handlers/save_flow.py
    :language: python
-   :lines: 307-338
+   :pyobject: get_filename
    :caption: handlers/save_flow.py – get_filename
 
 .. literalinclude:: ../handlers/save_flow.py
    :language: python
-   :lines: 341-349
+   :pyobject: get_note
    :caption: handlers/save_flow.py – get_note
 
 .. literalinclude:: ../handlers/save_flow.py
    :language: python
-   :lines: 352-401
+   :pyobject: save_file_final
    :caption: handlers/save_flow.py – save_file_final
 
 GitHub – תפריט ושיחת העלאה
@@ -194,20 +194,22 @@ GitHub – תפריט ושיחת העלאה
 
 .. literalinclude:: ../main.py
    :language: python
-   :lines: 739-759
-   :caption: main.py – הגדרת upload_conv_handler (FILE_UPLOAD/REPO_SELECT/FOLDER_SELECT)
+   :start-after: docs:upload-conv:start
+   :end-before: docs:upload-conv:end
+   :caption: main.py – הגדרת upload_conv_handler
 
 Backup – תפריט
 ~~~~~~~~~~~~~~~
 
 .. literalinclude:: ../backup_menu_handler.py
    :language: python
-   :lines: 146-160
+   :pyobject: BackupMenuHandler.show_backup_menu
    :caption: backup_menu_handler.py – show_backup_menu
 
 .. literalinclude:: ../backup_menu_handler.py
    :language: python
-   :lines: 162-210
+   :start-after: docs:backup-callback-dispatch:start
+   :end-before: docs:backup-callback-dispatch:end
    :caption: backup_menu_handler.py – handle_callback_query (קטע ראשון)
 
 Drive – תפריט
@@ -215,12 +217,13 @@ Drive – תפריט
 
 .. literalinclude:: ../handlers/drive/menu.py
    :language: python
-   :lines: 142-187
+   :pyobject: GoogleDriveMenuHandler.menu
    :caption: handlers/drive/menu.py – GoogleDriveMenuHandler.menu
 
 .. literalinclude:: ../handlers/drive/menu.py
    :language: python
-   :lines: 188-210
+   :start-after: docs:drive-callback-open:start
+   :end-before: docs:drive-callback-open:end
    :caption: handlers/drive/menu.py – GoogleDriveMenuHandler.handle_callback (קטע ראשון)
 
 מוקשים נפוצים ופתרונות

@@ -497,6 +497,7 @@ class GoogleDriveMenuHandler:
         # Connected -> show main backup selection directly per requested flow
         await self._render_simple_selection(update, context, header_prefix="Google Drive — מחובר\n")
 
+    # docs:drive-callback-open:start — הקטע מוטמע בתיעוד (docs/conversation-handlers.rst); אל תסיר את הסימון
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -509,6 +510,7 @@ class GoogleDriveMenuHandler:
         # Backward compatibility: map old callback to new one
         if data == "drive_advanced":
             data = "drive_sel_adv"
+    # docs:drive-callback-open:end
         if data == "drive_auth":
             __import__('logging').getLogger(__name__).warning(f"Drive: start auth by user {user_id}")
             try:
