@@ -24,6 +24,10 @@ concurrency:
 
 jobs:
   refresh-map:
+    # רק על main: הרצה ידנית מ-ref אחר הייתה, בכשל דחיפה, פותחת PR
+    # שגורר את הקומיטים הזרים של אותו ref לתוך main. ההגבלה גם הופכת
+    # את ענף האוטומציה המשותף לבטוח — כל הריצות באותה קבוצת concurrency.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

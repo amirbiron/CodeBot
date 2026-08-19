@@ -170,8 +170,12 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
         if len(text) > SUMMARY_CAP:
             text = text[: SUMMARY_CAP - 1].rsplit(" ", 1)[0] + "…"
         # פסקה שהתרוקנה או קצרה מכדי לומר משהו (פתיח כמו "טיפים:",
-        # "Development::") — לנסות את הפסקה הבאה
+        # "Development::") — לנסות את הפסקה הבאה. אם לא נאסף כלום
+        # (למשל עמוד שנפתח בטבלה: "|" עוצר את האיסוף לפני קידום i),
+        # חובה לקדם את i ידנית — אחרת אותה שורה נבדקת שוב לנצח.
         if len(text) < 20:
+            if not para:
+                i += 1
             continue
         return text
     return ""
