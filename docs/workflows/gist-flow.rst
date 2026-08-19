@@ -15,23 +15,28 @@
 
 .. list-table:: מסלולי הכניסה
    :header-rows: 1
-   :widths: 35 30 35
+   :widths: 28 22 28 22
 
    * - פונקציה
      - מודול
      - הקשר
+     - מתודת היצירה
    * - ``share_single_by_id``
      - ``conversation_handlers``
      - שיתוף קובץ בודד מתוך שיחה
+     - ``create_gist``
    * - ``_share_to_gist``
      - ``bot_handlers``
      - כפתור ``🔗 שתף קוד`` על קובץ
+     - ``create_gist``
    * - ``_share_to_gist_multi``
      - ``bot_handlers``
      - שיתוף מרובה קבצים
+     - ``create_gist_multi``
    * - ``_export_gist``
      - ``refactor_handlers``
      - ייצוא תוצאת ריפקטורינג
+     - ``create_gist_multi``
 
 כל ארבעתם קוראים דרך ``asyncio.to_thread``. הקריאה חוסמת — היא נוגעת ב-MongoDB וברשת — ומתוך handler אסינכרוני היא הייתה תוקעת את ה-event loop לכל המשתמשים, לא רק למי שלחץ.
 
@@ -72,9 +77,9 @@
          else הצלחה
            GH->>I: 200
            R->>H: (integration, None)
-           alt קובץ בודד או שיתוף מרובה
+           alt קובץ בודד
              H->>I: asyncio.to_thread(create_gist, ...)
-           else ייצוא ריפקטורינג
+           else שיתוף מרובה או ייצוא ריפקטורינג
              H->>I: asyncio.to_thread(create_gist_multi, ...)
            end
            I->>GH: POST /gists
