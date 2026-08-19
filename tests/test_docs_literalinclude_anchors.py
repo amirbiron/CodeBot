@@ -32,9 +32,11 @@ DOCS = ROOT / "docs"
 # בירידת שורה — כלומר opts יוצא ריק תמיד והבדיקה עוברת על כלום.
 # ובאופציות ``[ \t]+`` ולא שלושה רווחים בדיוק: RST מקבל כל הזחה עקבית,
 # ובלוק עם ארבעה רווחים היה חומק מהבדיקה כולה.
+# ``(?:\n|$)`` ולא ``\n``: בלוק שהאופציה האחרונה שלו היא שורת הקובץ
+# האחרונה, בלי newline סופי, היה חומק מהסריקה כולה.
 _BLOCK_RE = re.compile(
-    r"^(?P<indent>[ \t]*)\.\. literalinclude:: (?P<target>\S+)\n"
-    r"(?P<opts>(?:(?P=indent)[ \t]+:.*\n)*)",
+    r"^(?P<indent>[ \t]*)\.\. literalinclude:: (?P<target>\S+)(?:\n|$)"
+    r"(?P<opts>(?:(?P=indent)[ \t]+:.*(?:\n|$))*)",
     re.MULTILINE,
 )
 
@@ -79,6 +81,20 @@ def test_nonstandard_option_indent_is_still_caught(tmp_path):
     found = [(t, o) for _, t, o in _blocks(root=tmp_path)]
     assert found and ":lines:" in found[0][1], (
         "בלוק בהזחת 4 רווחים לא זוהה — ה-regex התכווץ בחזרה"
+    )
+
+
+def test_block_at_eof_without_trailing_newline_is_caught(tmp_path):
+    """בלוק שנגמר בסוף הקובץ בלי newline לא חומק מהסריקה."""
+    (tmp_path / "page.rst").write_text(
+        "כותרת\n======\n\n"
+        ".. literalinclude:: ../x.py\n"
+        "   :lines: 1-5",  # אין newline סופי בכוונה
+        encoding="utf-8",
+    )
+    found = [(t, o) for _, t, o in _blocks(root=tmp_path)]
+    assert found and ":lines:" in found[0][1], (
+        "בלוק ללא newline סופי לא זוהה"
     )
 
 

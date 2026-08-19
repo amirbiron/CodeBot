@@ -32,6 +32,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # checkout שומר את הטוקן הזה בקונפיג של git, וכל git push משתמש
+          # בו — GH_TOKEN למטה משפיע רק על gh. בלי PAT כאן, גם דחיפה לענף
+          # האוטומציה הייתה ב-GITHUB_TOKEN ואירוע ה-synchronize לא היה
+          # מפעיל את בדיקות החובה.
+          token: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -73,15 +79,30 @@ jobs:
               echo "נדחף אחרי rebase וייצור מחדש"
               exit 0
             fi
+          else
+            # rebase שנכשל (קונפליקט על AI-MAP.md מריצה מקבילה) משאיר את
+            # עץ העבודה באמצע rebase, וכל פקודה הבאה הייתה נכשלת עם שגיאה
+            # מבלבלת. מנקים לפני ה-fallback.
+            git rebase --abort || true
           fi
           # הגנת ענף דחתה את הדחיפה — נפילה מבוקרת לענף אוטומציה + PR.
+          # הענף נבנה מ-origin/main נקי והמפה מיוצרת בו מחדש, כך שהוא
+          # מכיל בדיוק קומיט אחד ולעולם לא גורר היסטוריה מקומית חלקית.
           # הענף קבוע, כך שריצות חוזרות מעדכנות את אותו PR במקום לערום חדשים.
           echo "דחיפה ישירה נדחתה — עובר לענף אוטומציה"
-          git checkout -B automation/ai-map-refresh
+          git fetch origin main
+          git checkout -B automation/ai-map-refresh origin/main
+          python3 scripts/generate_ai_map.py --out AI-MAP.md
+          if [ -z "$(git status --porcelain -- AI-MAP.md)" ]; then
+            echo "אחרי הסנכרון המפה כבר עדכנית ב-main — אין צורך ב-PR"
+            exit 0
+          fi
+          git add AI-MAP.md
+          git commit -m "docs: רענון אוטומטי של AI-MAP.md"
           git push -f origin automation/ai-map-refresh
-          # בדיקה מפורשת אם כבר יש PR פתוח — כך כשל אמיתי של gh נכשל ברעש
-          # ולא נבלע כ"כנראה כבר קיים".
-          state=$(gh pr view automation/ai-map-refresh --json state --jq .state 2>/dev/null || echo "NONE")
+          # gh pr list מחזיר רשימה ריקה כשאין PR ונכשל ברעש על שגיאת
+          # API/הרשאה — בניגוד ל-pr view, שבו כשל אמיתי נראה כמו "אין PR".
+          state=$(gh pr list --head automation/ai-map-refresh --base main --state open --json state --jq '.[0].state // "NONE"')
           if [ "$state" = "OPEN" ]; then
             echo "PR פתוח כבר קיים — הענף עודכן והוא התעדכן בו"
             exit 0

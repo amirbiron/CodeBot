@@ -76,25 +76,27 @@ def test_table_first_page_does_not_hang():
     נבדקה שוב לנצח. שום דף נוכחי לא נפתח בטבלה — הדף הראשון שכן היה
     תוקע את ה-Action בלי הודעת שגיאה.
     """
-    import signal
+    # ת'רד עם join-timeout ולא SIGALRM: האות אינו קיים ב-Windows, והטסט
+    # צריך לרוץ גם על מכונת פיתוח כזו אף ש-CI רץ על אובונטו.
+    import threading
 
     gen = _load_generator()
     lines = ["כותרת", "======", "", "| א | ב |", "| - | - |", "", "פסקת פרוזה ארוכה מספיק שנשלפת אחרי הטבלה כתקציר."]
+    box = {}
 
-    def _boom(*_):
-        raise TimeoutError("המחולל נתקע על עמוד שנפתח בטבלה")
+    def _extract():
+        box["result"] = gen._first_prose_paragraph(lines, Path("x.rst"))
 
-    old = signal.signal(signal.SIGALRM, _boom)
-    signal.alarm(5)
-    try:
-        result = gen._first_prose_paragraph(lines, Path("x.rst"))
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old)
-    assert "פסקת פרוזה" in result
+    worker = threading.Thread(target=_extract, daemon=True)
+    worker.start()
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "המחולל נתקע על עמוד שנפתח בטבלה"
+    assert "פסקת פרוזה" in box["result"]
 
 
-def _run_cli(*args, cwd=ROOT):
+def _run_cli(*args, cwd):
+    """מריץ את המחולל כתהליך משנה. ``cwd`` חובה ותמיד תיקייה זמנית —
+    למחולל נתיבים מוחלטים, ולפי הנחיות הריפו טסט לא רץ מתוך שורש הפרויקט."""
     import subprocess
     import sys as _sys
 
@@ -107,7 +109,7 @@ def _run_cli(*args, cwd=ROOT):
 def test_cli_default_prints_and_writes_nothing(tmp_path):
     """בלי --out: המפה ב-stdout ואף קובץ לא נכתב — מדיניות אי-כתיבה ב-root."""
     before = {f: f.stat().st_mtime_ns for f in ROOT.glob("*.md")}
-    proc = _run_cli()
+    proc = _run_cli(cwd=tmp_path)
     assert proc.returncode == 0
     assert proc.stdout.startswith("# מפת התיעוד לסוכני AI")
     after = {f: f.stat().st_mtime_ns for f in ROOT.glob("*.md")}
@@ -116,7 +118,7 @@ def test_cli_default_prints_and_writes_nothing(tmp_path):
 
 def test_cli_out_writes_to_given_path(tmp_path):
     out = tmp_path / "map.md"
-    proc = _run_cli("--out", str(out))
+    proc = _run_cli("--out", str(out), cwd=tmp_path)
     assert proc.returncode == 0
     assert out.exists() and "docs/workflows/save-flow.rst" in out.read_text(encoding="utf-8")
 
@@ -124,11 +126,11 @@ def test_cli_out_writes_to_given_path(tmp_path):
 def test_cli_check_exit_codes(tmp_path):
     """--check מחזיר 0 על קובץ תואם ו-1 על קובץ שסטה — בלי לכתוב כלום."""
     fresh = tmp_path / "fresh.md"
-    assert _run_cli("--out", str(fresh)).returncode == 0
-    assert _run_cli("--check", str(fresh)).returncode == 0
+    assert _run_cli("--out", str(fresh), cwd=tmp_path).returncode == 0
+    assert _run_cli("--check", str(fresh), cwd=tmp_path).returncode == 0
 
     stale = tmp_path / "stale.md"
     stale.write_text("מפה מיושנת", encoding="utf-8")
-    proc = _run_cli("--check", str(stale))
+    proc = _run_cli("--check", str(stale), cwd=tmp_path)
     assert proc.returncode == 1
     assert stale.read_text(encoding="utf-8") == "מפה מיושנת", "--check אסור שיכתוב"

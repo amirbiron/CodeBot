@@ -222,6 +222,11 @@ def build_map() -> str:
                 out.append(f"## {caption}")
                 out.append("")
             for child in children:
+                # ערך שמופיע פעמיים באותו בלוק: שניהם עוברים את הסינון של
+                # בניית children (אף אחד עוד לא ב-visited), והשני היה נכתב
+                # שוב. walk מעדכן את visited רק אחרי שהלולאה כאן כבר רצה.
+                if child in visited:
+                    continue
                 clines = _read(child)
                 rel = child.relative_to(ROOT).as_posix()
                 if _is_autodoc_scaffold(clines, child):
