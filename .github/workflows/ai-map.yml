@@ -33,11 +33,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # checkout שומר את הטוקן הזה בקונפיג של git, וכל git push משתמש
-          # בו — GH_TOKEN למטה משפיע רק על gh. בלי PAT כאן, גם דחיפה לענף
-          # האוטומציה הייתה ב-GITHUB_TOKEN ואירוע ה-synchronize לא היה
-          # מפעיל את בדיקות החובה.
-          token: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
+          # לא שומרים שום טוקן ב-.git/config: ברירת המחדל של checkout
+          # משאירה אותו שם לכל אורך הריצה, וקוד שרץ בשלבים הבאים (המחולל)
+          # היה יכול לקרוא אותו. האישור מוזרק נקודתית בשלב הדחיפה בלבד.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,8 +48,9 @@ jobs:
 
       - name: Commit if changed
         env:
-          # PAT (אם מוגדר) עדיף על GITHUB_TOKEN: PR שנוצר בו כן מפעיל את
-          # בדיקות החובה. בלעדיו — ראו ההערה על ה-PR למטה.
+          # PAT (אם מוגדר) עדיף על GITHUB_TOKEN: דחיפה ו-PR שנוצרים בו כן
+          # מפעילים את בדיקות החובה. הטוקן חי רק בסביבת השלב הזה — המחולל
+          # רץ בשלב קודם, בלי גישה אליו, ושום דבר לא נכתב ל-.git/config.
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN || github.token }}
           HAS_PAT: ${{ secrets.REPO_ADMIN_TOKEN != '' }}
         run: |
@@ -61,6 +61,9 @@ jobs:
           fi
           git config user.name "github-actions"
           git config user.email "actions@github.com"
+          # הזרקת האישור נקודתית ל-remote — checkout רץ עם
+          # persist-credentials: false ולכן אין שום טוקן שמור בדיסק עד כאן
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git add AI-MAP.md
           git commit -m "docs: רענון אוטומטי של AI-MAP.md"
           # ניסיון ראשון: דחיפה ישירה (עובדת כשאין הגנת ענף חוסמת).

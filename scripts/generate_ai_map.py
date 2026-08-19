@@ -18,8 +18,10 @@
   directives, admonitions, הערות, שדות ו-toctree, ולוקחים את פסקת
   הפרוזה הראשונה, קצוצה לתקרת תווים.
 
-הפלט נכתב לשורש הריפו ולא ל-docs/: MyST פעיל, ולכן כל .md בתוך docs/
-נכנס לבניית Sphinx — עמוד שאינו ב-toctree מפיל את RTD על אזהרת יתום.
+בלי --out המפה מודפסת ל-stdout ושום קובץ לא נכתב; --out קובע מתי ולאן.
+ה-workflow מעביר --out AI-MAP.md בשורש הריפו ולא ב-docs/, כי MyST פעיל
+וכל .md בתוך docs/ נכנס לבניית Sphinx — עמוד שאינו ב-toctree מפיל את
+RTD על אזהרת יתום.
 """
 
 from __future__ import annotations
