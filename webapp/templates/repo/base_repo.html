@@ -67,7 +67,7 @@
             </span>
             {% if metadata %}
             <span class="repo-stats">
-                <i class="bi bi-file-code"></i> {{ metadata.total_files | default(0) }} files
+                <i class="bi bi-file-code"></i> <span data-repo-stat="total_files">{{ metadata.total_files | default(0) }}</span> files
             </span>
             {% endif %}
             {% if user_is_admin %}
@@ -314,9 +314,7 @@
             <div class="sidebar-footer">
                 {% if metadata %}
                 <div class="stats-mini">
-                    <span title="Python files"><i class="bi bi-filetype-py"></i> {{ metadata.get('file_types', {}).get('python', 0) }}</span>
-                    <span title="JavaScript files"><i class="bi bi-filetype-js"></i> {{ metadata.get('file_types', {}).get('javascript', 0) }}</span>
-                    <span title="Total files"><i class="bi bi-files"></i> {{ metadata.total_files | default(0) }}</span>
+                    <span title="Total files"><i class="bi bi-files"></i> <span data-repo-stat="total_files">{{ metadata.total_files | default(0) }}</span> files</span>
                 </div>
                 {% else %}
                 <div class="stats-mini">

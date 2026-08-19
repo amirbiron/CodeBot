@@ -162,29 +162,12 @@ def repo_index():
         
         metadata = None
         mirror_info = None
-        file_types = {}
         
         try:
             metadata = db.repo_metadata.find_one({"repo_name": repo_name})
             mirror_info = git_service.get_mirror_info(repo_name)
         except Exception as e:
             logger.warning(f"Could not fetch repo info: {e}")
-        
-        # Get file type stats
-        if metadata:
-            try:
-                cursor = db.repo_files.aggregate([
-                    {"$match": {"repo_name": repo_name}},
-                    {"$group": {"_id": "$language", "count": {"$sum": 1}}},
-                    {"$sort": {"count": -1}},
-                    {"$limit": 10}
-                ])
-                for doc in cursor:
-                    if doc["_id"]:
-                        file_types[doc["_id"]] = doc["count"]
-                metadata["file_types"] = file_types
-            except Exception as e:
-                logger.warning(f"Could not fetch file types: {e}")
         
         return render_template(
             'repo/index.html',
