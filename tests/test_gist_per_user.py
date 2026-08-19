@@ -140,23 +140,46 @@ def test_db_failure_returns_none_rather_than_system_account(monkeypatch, fake_gi
     assert error != integrations.GIST_NEEDS_GITHUB_MESSAGE
 
 
-def test_revoked_token_asks_to_reconnect(monkeypatch, fake_github):
-    """טוקן שמור שכבר לא תקף — המשתמש מתבקש לחבר מחדש, לא 'נסה שוב'."""
-    monkeypatch.setattr(integrations, "_get_github_token", lambda: GLOBAL_TOKEN)
-    _set_user_token(monkeypatch, USER_TOKEN)
+def _github_that_fails_with(monkeypatch, status):
+    """``Github`` שמצליח להיבנות אבל ``get_user`` שלו נכשל בסטטוס נתון."""
 
-    class _RejectingGithub:
+    class _FailingGithub:
         def __init__(self, token):
             pass
 
         def get_user(self):
-            raise integrations.GithubException(401, "Bad credentials", None)
+            raise integrations.GithubException(status, "boom", None)
 
-    monkeypatch.setattr(integrations, "Github", _RejectingGithub)
+    monkeypatch.setattr(integrations, "Github", _FailingGithub)
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_rejected_token_asks_to_reconnect(monkeypatch, fake_github, status):
+    """GitHub דחה את הטוקן — המשתמש מתבקש לחבר מחדש."""
+    monkeypatch.setattr(integrations, "_get_github_token", lambda: GLOBAL_TOKEN)
+    _set_user_token(monkeypatch, USER_TOKEN)
+    _github_that_fails_with(monkeypatch, status)
 
     gist, error = integrations.resolve_gist_for_user(555)
     assert gist is None
     assert error == integrations.GIST_NEEDS_GITHUB_MESSAGE
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503])
+def test_github_outage_asks_to_retry_not_to_reconnect(monkeypatch, fake_github, status):
+    """GitHub נפל או הגביל קצב — הטוקן תקין, אז לא מבקשים לחבר מחדש.
+
+    זו ההבחנה: 500 הוא תקלה חולפת. הודעת "חבר מחדש" הייתה שולחת משתמש עם
+    טוקן תקין לייצר טוקן חדש בגלל בעיה בצד של GitHub.
+    """
+    monkeypatch.setattr(integrations, "_get_github_token", lambda: GLOBAL_TOKEN)
+    _set_user_token(monkeypatch, USER_TOKEN)
+    _github_that_fails_with(monkeypatch, status)
+
+    gist, error = integrations.resolve_gist_for_user(555)
+    assert gist is None
+    assert error == integrations.GIST_TEMPORARY_FAILURE_MESSAGE
+    assert error != integrations.GIST_NEEDS_GITHUB_MESSAGE
 
 
 def test_explicit_token_wins_over_global(monkeypatch, fake_github):
@@ -187,15 +210,39 @@ def test_guidance_message_points_to_github_menu_and_alternative():
     assert "🔧 GitHub" in msg
 
 
+_FUNC_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _iter_own_calls(fn):
+    """קריאות ששייכות ל-``fn`` עצמו, בלי לרדת לפונקציות מקוננות.
+
+    ``ast.walk`` יורד לכל צאצא, ולכן helper סינכרוני שמוגדר בתוך handler
+    אסינכרוני היה נראה כאילו ה-handler קורא לו ישירות. זו דווקא הצורה
+    הנכונה — ההלפר נשלח אחר כך ל-``asyncio.to_thread`` — ולכן סורקים רק
+    את הגוף של הפונקציה עצמה.
+    """
+    stack = list(fn.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, _FUNC_NODES):
+            continue  # scope אחר — לא באחריות הפונקציה הזו
+        if isinstance(node, ast.Call):
+            yield node
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _iter_functions(source):
+    """כל הפונקציות בקובץ, כולל מקוננות."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node
+
+
 def _iter_call_sites(source):
-    """מחזיר את כל קריאות ה-``Call`` בקובץ, לצד הפונקציה העוטפת שלהן."""
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for call in ast.walk(node):
-            if isinstance(call, ast.Call):
-                yield node, call
+    """מחזיר כל קריאה לצד הפונקציה שהיא שייכת לה ישירות."""
+    for fn in _iter_functions(source):
+        for call in _iter_own_calls(fn):
+            yield fn, call
 
 
 SHARING_MODULES = ('conversation_handlers.py', 'bot_handlers.py', 'refactor_handlers.py')
@@ -248,6 +295,16 @@ def test_all_gist_call_sites_go_through_the_per_user_factory():
             )
 
 
+BLOCKING_GIST_CALLS = frozenset({'resolve_gist_for_user', 'create_gist', 'create_gist_multi'})
+
+
+def _called_name(node):
+    """שם הפונקציה שנקראת, בין אם ישירות ובין אם כתכונה של אובייקט."""
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return getattr(node, 'id', None)
+
+
 def test_no_blocking_gist_call_inside_async_handler():
     """הקריאות ל-GitHub ול-DB לא חוסמות את ה-event loop.
 
@@ -255,29 +312,54 @@ def test_no_blocking_gist_call_inside_async_handler():
     ישירה מתוך handler אסינכרוני מקפיאה את הבוט לכל המשתמשים עד שהיא חוזרת,
     ולכן הן חייבות לעבור דרך ``asyncio.to_thread``.
     """
-    blocking = {'resolve_gist_for_user', 'create_gist', 'create_gist_multi'}
-
     for name, source in _read_sharing_sources().items():
         for fn, call in _iter_call_sites(source):
             if not isinstance(fn, ast.AsyncFunctionDef):
                 continue
-            func = call.func
-            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, 'id', None)
-            if called not in blocking:
+            called = _called_name(call.func)
+            if called not in BLOCKING_GIST_CALLS:
                 continue
-            # קריאה ישירה = הפרה. הצורה המותרת היא ‎asyncio.to_thread(fn, ...)‎,
-            # ושם הפונקציה מופיעה כארגומנט ולא כ-``call.func``.
+            # קריאה ישירה = הפרה. בצורה המותרת שם הפונקציה מופיע כארגומנט
+            # ל-``asyncio.to_thread`` ולא כ-``call.func``.
             raise AssertionError(
                 f"{name}:{call.lineno} — {fn.name} קורא ל-{called} ישירות במקום דרך asyncio.to_thread"
             )
 
-        # ואימות חיובי: הקריאות אכן מועברות ל-to_thread
+
+def test_every_blocking_gist_call_is_dispatched_to_a_thread():
+    """אימות חיובי: כל קריאה חוסמת אכן מועברת כארגומנט ל-``to_thread``.
+
+    הבדיקה השלילית לבדה מסתפקת בהיעדר קריאה ישירה — היא הייתה עוברת גם אם
+    מסלול שיתוף היה נמחק לגמרי. כאן דורשים שכל שם חוסם שמופיע במסלולי
+    השיתוף יופיע כארגומנט הראשון של ``asyncio.to_thread``, ושכל המסלולים
+    עדיין קיימים.
+    """
+    dispatched = {name: set() for name in SHARING_MODULES}
+    mentioned = {name: set() for name in SHARING_MODULES}
+
+    for name, source in _read_sharing_sources().items():
         for _fn, call in _iter_call_sites(source):
-            func = call.func
-            if not (isinstance(func, ast.Attribute) and func.attr == 'to_thread'):
-                continue
-            if not call.args:
-                continue
-            first = call.args[0]
-            passed = first.attr if isinstance(first, ast.Attribute) else getattr(first, 'id', None)
-            assert passed is not None, f"{name}:{call.lineno} — to_thread בלי פונקציה מזוהה"
+            called = _called_name(call.func)
+            if called == 'to_thread':
+                assert call.args, f"{name}:{call.lineno} — to_thread בלי פונקציה"
+                first = _called_name(call.args[0])
+                assert first is not None, (
+                    f"{name}:{call.lineno} — to_thread קיבל ביטוי ולא שם פונקציה"
+                )
+                if first in BLOCKING_GIST_CALLS:
+                    dispatched[name].add(first)
+            elif called in BLOCKING_GIST_CALLS:
+                mentioned[name].add(called)
+
+    # כל שם חוסם שמופיע בקובץ חייב להופיע גם כמשלוח ל-to_thread
+    for name in SHARING_MODULES:
+        leftover = mentioned[name] - dispatched[name]
+        assert not leftover, f"{name}: {sorted(leftover)} נקראים בלי asyncio.to_thread"
+
+    # ושלושת המסלולים עדיין חיים — אחרת הבדיקה השלילית "עוברת" על קוד מחוק
+    assert 'resolve_gist_for_user' in dispatched['bot_handlers.py']
+    assert 'resolve_gist_for_user' in dispatched['conversation_handlers.py']
+    assert 'resolve_gist_for_user' in dispatched['refactor_handlers.py']
+    assert 'create_gist' in dispatched['bot_handlers.py']
+    assert 'create_gist_multi' in dispatched['bot_handlers.py']
+    assert 'create_gist_multi' in dispatched['refactor_handlers.py']
