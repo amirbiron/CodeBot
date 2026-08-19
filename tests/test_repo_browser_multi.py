@@ -187,7 +187,23 @@ class TestStubMatchesProduction:
             for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef) and node.name == 'is_impersonating_safe'
         )
-        assert 'force_admin' in ast.unparse(func)
+
+        calls_force_admin = False
+        for node in ast.walk(func):
+            if isinstance(node, ast.Call):
+                if (isinstance(node.func, ast.Attribute) and
+                    node.func.attr == 'get' and
+                    isinstance(node.func.value, ast.Attribute) and
+                    node.func.value.attr == 'args' and
+                    isinstance(node.func.value.value, ast.Name) and
+                    node.func.value.value.id == 'request' and
+                    node.args and
+                    isinstance(node.args[0], ast.Constant) and
+                    node.args[0].value == 'force_admin'):
+                    calls_force_admin = True
+                    break
+
+        assert calls_force_admin, "request.args.get('force_admin') לא נמצא בגוף הפונקציה"
 
 
 class TestRepoBrowserIsAdminOnly:
