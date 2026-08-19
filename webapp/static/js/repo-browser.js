@@ -708,6 +708,9 @@ function updateRepoDisplay(repoName) {
         item.classList.toggle('active', item.dataset.repo === repoName);
     });
 
+    // עדכון המונים — חלק מאותה פעולה לוגית, ולכן באותו מקום
+    renderRepoStats(repoName);
+
     // עדכון אלמנט נסתר עבור repo-history
     const currentRepoEl = document.getElementById('current-repo-name');
     if (currentRepoEl) {
@@ -777,6 +780,39 @@ function getRepoDefaultBranch(repoName) {
     const branch = meta && meta.default_branch ? String(meta.default_branch).trim() : '';
     return branch || 'main';
 }
+
+function getRepoTotalFiles(repoName) {
+    const meta = repoMetadataByName[repoName];
+    const total = meta ? Number(meta.total_files) : NaN;
+    return Number.isFinite(total) ? total : null;
+}
+
+/**
+ * ממלא את מוני הריפו לפי הסימון ``data-repo-stat`` שבתבנית.
+ *
+ * זו נקודת העדכון היחידה של המונים אחרי שהדף נטען. עד כה הם רונדרו
+ * בשרת פעם אחת ואיש לא נגע בהם בהחלפת ריפו, ולכן הם נשארו תקועים על
+ * הערכים של הריפו הראשון. מונה חדש שיסומן בתבנית יתעדכן מכאן מאליו.
+ *
+ * הערכים נלקחים מ-``repoMetadataByName`` שכבר יושב בזיכרון, ולכן
+ * העדכון סינכרוני — אין ``await`` ואין סיכון שתגובה ישנה תדרוס חדשה.
+ *
+ * כשאין בכלל מטא-דאטה לריפו — למשל אם ``/api/repos`` לא הספיק לחזור —
+ * הפונקציה לא נוגעת בכלום, כדי לא למחוק ערך תקין שהשרת כבר רינדר.
+ * לעומת זאת מטא-דאטה שקיים אבל חסר בו השדה מוצג כ-``—``, כי שם הערך
+ * הישן באמת שייך לריפו אחר.
+ */
+function renderRepoStats(repoName) {
+    if (!repoMetadataByName[repoName]) {
+        return;
+    }
+    const values = { total_files: getRepoTotalFiles(repoName) };
+    document.querySelectorAll('[data-repo-stat]').forEach(el => {
+        const value = values[el.dataset.repoStat];
+        el.textContent = (value === null || value === undefined) ? '—' : String(value);
+    });
+}
+
 // ========================================
 // Initialization
 // ========================================
