@@ -269,7 +269,7 @@ def main() -> int:
         "--out", type=Path, default=None,
         help="נתיב לכתיבת המפה. בלי הדגל שום קובץ לא נכתב (המפה מודפסת "
              "ל-stdout) — לפי מדיניות הריפו סקריפט לא כותב ב-root אלא "
-             "בהוראה מפורשת. ה-workflow מעביר ‎--out AI-MAP.md בכוונה.",
+             "בהוראה מפורשת. ה-workflow מעביר --out AI-MAP.md בכוונה.",
     )
     parser.add_argument(
         "--check", type=Path, nargs="?", const=OUTPUT, default=None,
