@@ -744,6 +744,7 @@ class WebhookIntegration:
             except Exception as e:
                 logger.error(f"שגיאה בשליחת webhook: {e}")
 
+
 GIST_NEEDS_GITHUB_MESSAGE = (
     "🔗 כדי לשתף ב-Gist צריך לחבר את חשבון ה-GitHub שלך.\n\n"
     "ה-Gist ייווצר תחת החשבון שלך — כך הוא נשאר שלך ומופיע ברשימת ה-Gists שלך.\n\n"
@@ -778,7 +779,7 @@ def get_gist_integration_for_user(user_id: int) -> Optional["GitHubGistIntegrati
     return integration if integration.is_available() else None
 
 
-# יצירת אינסטנסים גלובליים
+# יצירת אינסטנסים גלובליים (שימוש תפעולי; ל-Gist של משתמש ראו את הפקטורי לעיל)
 gist_integration = GitHubGistIntegration()
 pastebin_integration = PastebinIntegration()
 code_sharing = CodeSharingService()

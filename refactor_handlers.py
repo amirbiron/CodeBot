@@ -394,16 +394,17 @@ class RefactorHandlers:
             await query.message.reply_text("❌ אין קבצים לייצוא בהצעה הנוכחית.")
             return
         # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
+        user_gist = None
+        unavailable_message = "❌ ייצוא ל-Gist לא זמין כרגע."
         try:
             from integrations import GIST_NEEDS_GITHUB_MESSAGE, get_gist_integration_for_user
 
+            unavailable_message = GIST_NEEDS_GITHUB_MESSAGE
             user_gist = get_gist_integration_for_user(user_id)
         except Exception:
             logger.exception("failed to resolve gist integration for user")
-            user_gist = None
-            GIST_NEEDS_GITHUB_MESSAGE = "❌ ייצוא ל-Gist לא זמין כרגע."  # type: ignore
         if user_gist is None:
-            await query.message.reply_text(GIST_NEEDS_GITHUB_MESSAGE)
+            await query.message.reply_text(unavailable_message)
             return
         description = (
             f"פיצול {proposal.original_file} ({len(files_map)} קבצים חדשים)"
