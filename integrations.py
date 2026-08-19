@@ -15,7 +15,12 @@ from typing import Any, Dict, List, NamedTuple, Optional
 
 import requests
 from github import Github, InputFileContent
-from github.GithubException import GithubException
+from github.GithubException import (
+    BadCredentialsException,
+    GithubException,
+    RateLimitExceededException,
+    TwoFactorException,
+)
 
 from config import config
 
@@ -73,9 +78,10 @@ class GitHubGistIntegration:
     ``resolve_gist_for_user`` כדי שלא ייווצר תחת חשבון המערכת.
     """
 
-    # קודי סטטוס שמשמעותם "הטוקן עצמו פסול" ולא "GitHub לא זמין כרגע".
-    # ההבחנה חשובה: 500 או 429 הם תקלה חולפת, ובקשה לחבר מחדש טוקן תקין
-    # בגללם שולחת את המשתמש לתקן משהו שלא שבור.
+    # סטטוסים שמשמעותם "הטוקן עצמו פסול". חשוב לקרוא אותם רק אחרי שנשללו
+    # החריגות הייעודיות של PyGithub: 403 הוא גם הסטטוס של הגבלת קצב, ושם
+    # הטוקן דווקא תקין. סיווג לפי המספר בלבד היה שולח משתמש שמיצה מכסה
+    # לייצר טוקן חדש בגלל בעיה חולפת.
     _AUTH_FAILURE_STATUSES = frozenset({401, 403, 404})
 
     def __init__(self, token: Optional[str] = None):
@@ -88,16 +94,35 @@ class GitHubGistIntegration:
         if token:
             try:
                 self.github = Github(token)
-                self.user = self.github.get_user()
+                user = self.github.get_user()
+                # ``get_user()`` מחזיר אובייקט עצל: PyGithub לא פונה ל-API עד
+                # שניגשים לשדה. בלי הגישה הזו טוקן שנשלל היה "מתחבר" בהצלחה,
+                # והכשל היה מתגלה רק בניסיון ליצור Gist. הערך עצמו לא נרשם —
+                # ``login`` הוא מזהה אישי.
+                _ = user.login
+                self.user = user
                 logger.debug("GitHub Gist integration ready")
             except GithubException as e:
-                status = getattr(e, "status", None)
-                self.auth_failed = status in self._AUTH_FAILURE_STATUSES
+                self.auth_failed = self._is_auth_failure(e)
                 logger.error(
-                    "שגיאה בהתחברות ל-GitHub (status=%s, auth_failure=%s)",
-                    status,
+                    "שגיאה בהתחברות ל-GitHub (type=%s, status=%s, auth_failure=%s)",
+                    type(e).__name__,
+                    getattr(e, "status", None),
                     self.auth_failed,
                 )
+
+    @classmethod
+    def _is_auth_failure(cls, error: GithubException) -> bool:
+        """האם הכשל הוא בטוקן עצמו, או תקלה חולפת בצד GitHub.
+
+        PyGithub כבר מסווג את התגובה לתת-מחלקות (``createException``), אז
+        נשענים על הסיווג שלו במקום לנחש לפי קוד הסטטוס.
+        """
+        if isinstance(error, RateLimitExceededException):
+            return False  # הטוקן תקין, המכסה נגמרה
+        if isinstance(error, (BadCredentialsException, TwoFactorException)):
+            return True
+        return getattr(error, "status", None) in cls._AUTH_FAILURE_STATUSES
     
     def is_available(self) -> bool:
         """בדיקה אם האינטגרציה זמינה"""

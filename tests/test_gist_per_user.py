@@ -11,6 +11,12 @@ from datetime import datetime, timezone
 from types import ModuleType, SimpleNamespace
 
 import pytest
+from github.GithubException import (
+    BadCredentialsException,
+    GithubException,
+    RateLimitExceededException,
+    TwoFactorException,
+)
 
 import integrations
 
@@ -59,8 +65,13 @@ def fake_github(monkeypatch):
 
     class _FakeUser:
         def __init__(self, token):
-            self.login = f"user-of-{token}"
             self._token = token
+
+        @property
+        def login(self):
+            # PyGithub מחזיר אובייקט עצל: הקריאה ל-API קורית רק בגישה לשדה.
+            # הכפיל מחקה את זה כדי שהבדיקות ייצגו את ההתנהגות האמיתית.
+            return f"user-of-{self._token}"
 
         def create_gist(self, public, files, description):
             created.append({"token": self._token, "public": public, "files": dict(files)})
@@ -140,46 +151,105 @@ def test_db_failure_returns_none_rather_than_system_account(monkeypatch, fake_gi
     assert error != integrations.GIST_NEEDS_GITHUB_MESSAGE
 
 
-def _github_that_fails_with(monkeypatch, status):
-    """``Github`` שמצליח להיבנות אבל ``get_user`` שלו נכשל בסטטוס נתון."""
+def _github_that_fails_with(monkeypatch, error):
+    """``Github`` שבו הכשל מגיע בגישה לשדה של המשתמש.
+
+    זו ההתנהגות האמיתית של PyGithub: ``get_user()`` מחזיר אובייקט עצל
+    ו-``GET /user`` נשלח רק כשניגשים לשדה. כפיל שנכשל כבר ב-``get_user``
+    היה מסתיר טוקן שנשלל ועובר בלי אימות.
+    """
+
+    class _LazyFailingUser:
+        @property
+        def login(self):
+            raise error
 
     class _FailingGithub:
         def __init__(self, token):
             pass
 
         def get_user(self):
-            raise integrations.GithubException(status, "boom", None)
+            return _LazyFailingUser()
 
     monkeypatch.setattr(integrations, "Github", _FailingGithub)
 
 
-@pytest.mark.parametrize("status", [401, 403, 404])
-def test_rejected_token_asks_to_reconnect(monkeypatch, fake_github, status):
-    """GitHub דחה את הטוקן — המשתמש מתבקש לחבר מחדש."""
+def _resolve_with_failure(monkeypatch, error):
     monkeypatch.setattr(integrations, "_get_github_token", lambda: GLOBAL_TOKEN)
     _set_user_token(monkeypatch, USER_TOKEN)
-    _github_that_fails_with(monkeypatch, status)
+    _github_that_fails_with(monkeypatch, error)
+    return integrations.resolve_gist_for_user(555)
 
-    gist, error = integrations.resolve_gist_for_user(555)
+
+REJECTING_ERRORS = [
+    pytest.param(BadCredentialsException(401, "Bad credentials", None), id="bad-credentials"),
+    pytest.param(TwoFactorException(401, "otp required", None), id="two-factor"),
+    # 403 שאינו הגבלת קצב: למשל fine-grained token בלי הרשאת gists
+    pytest.param(GithubException(403, "Resource not accessible", None), id="403-no-scope"),
+    pytest.param(GithubException(404, "Not Found", None), id="404"),
+]
+
+
+@pytest.mark.parametrize("error", REJECTING_ERRORS)
+def test_rejected_token_asks_to_reconnect(monkeypatch, fake_github, error):
+    """GitHub דחה את הטוקן — המשתמש מתבקש לחבר מחדש."""
+    gist, message = _resolve_with_failure(monkeypatch, error)
     assert gist is None
-    assert error == integrations.GIST_NEEDS_GITHUB_MESSAGE
+    assert message == integrations.GIST_NEEDS_GITHUB_MESSAGE
 
 
-@pytest.mark.parametrize("status", [429, 500, 502, 503])
-def test_github_outage_asks_to_retry_not_to_reconnect(monkeypatch, fake_github, status):
+TRANSIENT_ERRORS = [
+    # 403 של הגבלת קצב — אותו סטטוס כמו כשל הרשאה, אבל הטוקן תקין לגמרי.
+    # PyGithub מסווג אותו לחריגה ייעודית, ועל הסיווג הזה נשענים.
+    pytest.param(RateLimitExceededException(403, "API rate limit exceeded", None), id="rate-limit-403"),
+    pytest.param(GithubException(429, "Too Many Requests", None), id="429"),
+    pytest.param(GithubException(500, "Internal Server Error", None), id="500"),
+    pytest.param(GithubException(502, "Bad Gateway", None), id="502"),
+    pytest.param(GithubException(503, "Service Unavailable", None), id="503"),
+]
+
+
+@pytest.mark.parametrize("error", TRANSIENT_ERRORS)
+def test_github_outage_asks_to_retry_not_to_reconnect(monkeypatch, fake_github, error):
     """GitHub נפל או הגביל קצב — הטוקן תקין, אז לא מבקשים לחבר מחדש.
 
-    זו ההבחנה: 500 הוא תקלה חולפת. הודעת "חבר מחדש" הייתה שולחת משתמש עם
-    טוקן תקין לייצר טוקן חדש בגלל בעיה בצד של GitHub.
+    זו ההבחנה: 500 הוא תקלה חולפת, וגם 403 של rate limit. הודעת "חבר מחדש"
+    הייתה שולחת משתמש עם טוקן תקין לייצר טוקן חדש בגלל בעיה בצד של GitHub.
     """
-    monkeypatch.setattr(integrations, "_get_github_token", lambda: GLOBAL_TOKEN)
-    _set_user_token(monkeypatch, USER_TOKEN)
-    _github_that_fails_with(monkeypatch, status)
-
-    gist, error = integrations.resolve_gist_for_user(555)
+    gist, message = _resolve_with_failure(monkeypatch, error)
     assert gist is None
-    assert error == integrations.GIST_TEMPORARY_FAILURE_MESSAGE
-    assert error != integrations.GIST_NEEDS_GITHUB_MESSAGE
+    assert message == integrations.GIST_TEMPORARY_FAILURE_MESSAGE
+    assert message != integrations.GIST_NEEDS_GITHUB_MESSAGE
+
+
+def test_token_is_actually_validated_not_just_constructed(monkeypatch, fake_github):
+    """הבנייה פונה ל-API בפועל ולא מסתפקת באובייקט העצל של PyGithub.
+
+    ``Github.get_user()`` מחזיר ``AuthenticatedUser`` עם ``completed=False``,
+    ובלי גישה לשדה שום בקשה לא נשלחת — כלומר טוקן שנשלל היה עובר כתקין.
+    """
+    touched = []
+
+    class _LazyUser:
+        @property
+        def login(self):
+            touched.append("login")
+            return "someone"
+
+    class _LazyGithub:
+        def __init__(self, token):
+            pass
+
+        def get_user(self):
+            return _LazyUser()
+
+    monkeypatch.setattr(integrations, "_get_github_token", lambda: GLOBAL_TOKEN)
+    monkeypatch.setattr(integrations, "Github", _LazyGithub)
+
+    integration = integrations.GitHubGistIntegration(token=USER_TOKEN)
+
+    assert touched == ["login"], "הבנאי לא אילץ קריאת API — הטוקן לא נבדק"
+    assert integration.is_available()
 
 
 def test_explicit_token_wins_over_global(monkeypatch, fake_github):
