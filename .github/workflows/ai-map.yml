@@ -1,0 +1,50 @@
+name: 🗺️ AI Docs Map
+
+# מרענן את AI-MAP.md (מפת התיעוד לסוכנים) אחרי כל שינוי בתיעוד שהגיע
+# ל-main. רץ אחרי המיזוג ולא על ה-PR בכוונה: דחיפה של GITHUB_TOKEN לענף
+# PR אינה מפעילה מחדש את בדיקות החובה, וה-PR היה נתקע ממתין להן. המפה
+# היא ממילא תוצר נגזר — אין ערך ריוויו ל-diff שלה.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/generate_ai_map.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-map
+  cancel-in-progress: true
+
+jobs:
+  refresh-map:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Regenerate AI-MAP.md
+        run: python3 scripts/generate_ai_map.py
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- AI-MAP.md; then
+            echo "המפה עדכנית — אין מה לקמט"
+            exit 0
+          fi
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add AI-MAP.md
+          git commit -m "docs: רענון אוטומטי של AI-MAP.md"
+          # ריצות מקביליות עלולות להידחות על non-fast-forward; ננסה פעם
+          # אחת אחרי rebase ואם גם זה נכשל — הריצה הבאה תיישר את המפה.
+          git push || (git pull --rebase && git push)
