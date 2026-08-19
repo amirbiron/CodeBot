@@ -166,9 +166,11 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
         text = re.sub(r"\*\*([^*]*)\*\*", r"\1", text)
         # "::" בסוף פסקה הוא פתיח לבלוק literal של RST, לא חלק מהתקציר
         text = text.rstrip(":").strip()
-        # backtick בודד שנשאר אחרי הניקויים היה שובר את ה-Markdown של
-        # שורת המפה עצמה (התקציר יושב בתוך שורת רשימה)
-        text = text.replace("`", "")
+        # backtick יתום (מספר אי-זוגי) שובר את ה-Markdown של שורת המפה;
+        # אבל זוגות מאוזנים הם inline-code לגיטימי (GITHUB_TOKEN,
+        # POST /api/...) ששווה לשמר — מסירים רק כשאין איזון.
+        if text.count("`") % 2:
+            text = text.replace("`", "")
         if len(text) > SUMMARY_CAP:
             text = text[: SUMMARY_CAP - 1].rsplit(" ", 1)[0] + "…"
         # פסקה שהתרוקנה או קצרה מכדי לומר משהו (פתיח כמו "טיפים:",
@@ -281,9 +283,9 @@ def main() -> int:
     )
     args = parser.parse_args()
     if args.check is not None and args.out is not None:
-        # קבלה שקטה של שניהם הייתה מתעלמת מ---out: הקורא ביקש כתיבה
+        # קבלה שקטה של שניהם הייתה מתעלמת מהכתיבה: הקורא ביקש קובץ
         # וקיבל רק השוואה, בלי שום רמז שהקובץ לא נוצר.
-        parser.error("--check ו---out סותרים זה את זה — בחרו אחד")
+        parser.error("אי אפשר לשלב את --check עם --out — בחרו אחד")
     content = build_map()
     if args.check is not None:
         existing = args.check.read_text(encoding="utf-8") if args.check.exists() else None

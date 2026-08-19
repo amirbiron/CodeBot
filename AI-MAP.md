@@ -14,7 +14,7 @@
 - `docs/doc-authoring.rst` — **Doc Authoring Guide (Sphinx/RTD)**
 - `docs/style-glossary.rst` — **Style & Naming Glossary**
 - `docs/versioning-stable-anchors.rst` — **Versioning & Stable Anchors**
-- `docs/whats-new.rst` — **What's New**: קישורים ל‑Issues רלוונטיים: #1198, #1239.
+- `docs/whats-new.rst` — **What's New**: קישורים ל‑Issues רלוונטיים: `#1198`, `#1239`.
 - `docs/architecture.rst` — **ארכיטקטורה**: המערכת מורכבת מבוט Telegram, שכבת שירותים (services), שכבת נתונים (MongoDB) ואפליקציית Web. הזרימה העיקרית: Handlers → Services → Database.
   - `docs/architecture/clean-architecture.rst` — **Clean Architecture ב-src**: ארכיטקטורה זו מפרידה בין לוגיקה עסקית, תזמור יישומי ותשתיות כך שניתן לבדוק יחידות קוד בנפרד, להחליף מקורות נתונים בלי לשבור את שאר המערכת ולרוץ גם בסביבות ללא MongoDB.
 - `docs/contributing.rst` — **מדריך תרומה**: לתת מסלול ברור לתרומות קוד, עם דגש על סוכני AI ו-CI.
@@ -65,7 +65,7 @@
 - `docs/development/tools.rst` — **כלי עזר למפתחים**: עמוד זה מרכז שני כלים ייעודיים שנמצאים תחת tools/ ונועדו לסייע באיתור צווארי בקבוק במאגר ובסדר הקוד. לפני השימוש ודאו שהקבצים אינם מתועדים במקום אחר כדי למנוע כפילות.
 - `docs/development/scripts.rst` — **סקריפטים שימושיים**: תיקיית scripts/ מכילה כלים חד-פעמיים ותהליכי תחזוקה. לפני ההרצה ודאו שסביבת ה-DB היא סביבת ניסוי/פיתוח ושיש גיבוי עדכני.
 - `docs/development/i18n.rst` — **בינאום ותמיכה בשפות**: מודול i18n/ מספק שכבת תרגום פשוטה לבוט הטלגרם וה-WebApp. נכון לעכשיו קיימת חבילת מחרוזות בעברית (strings_he.py), אך המבנה מאפשר הוספת שפות חדשות ללא שינוי בלוגיקה העסקית.
-- `docs/integrations.rst` — **Integrations**: להפעלת פעולות שונות מול GitHub נדרש להגדיר לטוקן \(GITHUB_TOKEN או טוקן משתמש שנשמר במערכת\) את מרחבי ההרשאות המינימליים. הקפידו על עיקרון ההרשאות המצומצמות.
+- `docs/integrations.rst` — **Integrations**: להפעלת פעולות שונות מול GitHub נדרש להגדיר לטוקן \(`GITHUB_TOKEN` או טוקן משתמש שנשמר במערכת\) את מרחבי ההרשאות המינימליים. הקפידו על עיקרון ההרשאות המצומצמות.
 - `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת MCP (Model Context Protocol) שחושף את CodeKeeper ל-Claude: הקבצים והאוספים האישיים של כל משתמש, ולאדמין — גם דפדפן הריפו מעל ה-Repo Sync Engine. עובד גם מול Claude.ai (Custom Connector דרך OAuth 2.1) וגם מול Claude…
 - `docs/repository-integrations.rst` — **Repository Integrations**: מסמך זה מרכז את התמיכה בספקי מאגרי קוד. מטרתו למנוע בלבול ולהבהיר מה נתמך ומה לא.
 - `docs/security.rst` — **Security Guide**: אל תרשום סודות/PII בלוגים, השתמש ב‑ENV בלבד.
@@ -73,7 +73,7 @@
 - `docs/git-lfs.rst` — **Git LFS Integration**: להסביר מתי ואיך להשתמש ב‑Git Large File Storage (LFS) עבור קבצים גדולים.
 - `docs/user/bookmarks.rst` — **סימניות (Bookmarks)**: תכונת הסימניות מאפשרת לשמור "קיצורי דרך" לנקודות ספציפיות בקבצים, עם הדגשה ויזואלית בצבעים והוספת הערות (Annotations). סימנייה יכולה להיות מבוססת על מספר שורה בקובץ קוד או על "עוגן" יציב כמו כותרת ב‑Markdown או מזהה id…
 - `docs/user/sticky_notes.rst` — **פתקים דביקים (Sticky Notes)**: פתקים דביקים מאפשרים להצמיד הערות קצרות ומודגשות על‑גבי תצוגת קובץ (קוד/Markdown/HTML), כך שאפשר לסמן נקודות חשובות, משימות או תזכורות ישירות במקום הרלוונטי בתוכן. הפתק "ננעל" לעוגן יציב כאשר ניתן (כותרת ב‑Markdown או…
-- `docs/user/reminders.rst` — **תזכורות בבוט**: מערכת התזכורות מאפשרת למשתמשי הבוט ליצור, לדחות ולנהל תזכורות אישיות דרך שיחה אינטראקטיבית או פקודות קצרות. המידע נשמר ב-MongoDB (reminders/database.py) ומנוהל דרך ישויות Reminder ו-ReminderConfig.
+- `docs/user/reminders.rst` — **תזכורות בבוט**: מערכת התזכורות מאפשרת למשתמשי הבוט ליצור, לדחות ולנהל תזכורות אישיות דרך שיחה אינטראקטיבית או פקודות קצרות. המידע נשמר ב-MongoDB (`reminders/database.py`) ומנוהל דרך ישויות `Reminder` ו-`ReminderConfig`.
 - `docs/user/my_collections.rst` — **האוספים שלי (My Collections)**: אוספים מאפשרים לאגד יחד קבצים/קטעי קוד/סימניות תחת נושא משותף (פרויקט, משימה, מודול), כדי לשתף, לנווט ולעקוב בקלות. כל אוסף כולל שם, תיאור קצר ורשימת פריטים עם סדר מותאם.
 - `docs/user/share_code.rst` — **שיתוף קוד (חשוב)**: כפתור "🔗 שתף קוד" מאפשר ליצור שיתוף מהיר של קובץ קוד דרך GitHub Gist או Pastebin. השיתוף נוצר לפי מזהה הקובץ במסד (ObjectId), כך שתמיד משתף את התוכן העדכני ביותר.
 - `docs/user/github_browse.rst` — **עיון בקוד GitHub (כולל חיפוש בשם קובץ)**
@@ -99,7 +99,7 @@
 
 ## איכות וקונבנציות
 
-- `docs/quality/type-safety.md` — **📝 Type Hints – Best Practices**: מטרה: לשמר בטיחות טיפוסים ברורה, להקשיח מודולים בהדרגה, ולא להסתמך על type: ignore.
+- `docs/quality/type-safety.md` — **📝 Type Hints – Best Practices**: מטרה: לשמר בטיחות טיפוסים ברורה, להקשיח מודולים בהדרגה, ולא להסתמך על `type: ignore`.
 - `docs/quality/code-normalization.md` — **נרמול קוד (Code Normalization)**: מסמך זה מרכז את כל מה שסוכן או מפתח צריך לדעת על מנגנון נרמול הקוד של Code Keeper Bot – למה הוא קיים, איך הוא עובד ואיך משתמשים בו ביום־יום.
 - `docs/ARCHITECTURE_LAYER_RULES.md` — **כללי שכבות – CodeBot**: מטרה: לשמור גבולות שכבות ברורים ולמנוע תלות מעגלית/דליפת תשתית.
 
@@ -136,13 +136,13 @@
 
 - `docs/observability.rst` — **אובזרווביליות (Observability)**: מומלץ להתחיל עם אחד מהבאים (כולם תומכים ב־OTLP)
 - `docs/observability/background-jobs-monitor.rst` — **Background Jobs Monitor**: פיצ'ר ה-Background Jobs Monitor מספק נראות (Observability) מלאה לכל ה-Jobs הרצים ברקע במערכת, כולל פעולות משתמש דינמיות (Drive, Reminders, Batch Operations).
-- `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה־Admin החדש (/admin/observability) מרכז נתוני ניטור בזמן אמת לטובת צוותי SRE והמפתחים. העמוד מתמקד בשלושה עקרונות
+- `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה־Admin החדש (`/admin/observability`) מרכז נתוני ניטור בזמן אמת לטובת צוותי SRE והמפתחים. העמוד מתמקד בשלושה עקרונות
 - `docs/observability/query-performance-profiler.rst` — **Query Performance Profiler**: Query Performance Profiler הוא כלי ניטור לשאילתות MongoDB איטיות, המספק
 - `docs/observability/quick_fix_rules.md` — **🧠 Quick Fix חכם (Queue Delay + עומס/DB) – הנחיות למפתחים ולסוכני AI**: המטרה של Quick Fix היא לתת המלצה קצרה, בטוחה ושימושית על “מה לעשות עכשיו”, לפי אותות שאנחנו כבר מודדים.
 - `docs/observability/asyncio-loop-safety.rst` — **Asyncio תחת WSGI: הרצת קורוטינות בבטחה**: ב-WebApp שמורץ תחת WSGI (Flask + Gunicorn/gevent), עלולה להיות לולאת Event פעילה כבר בתוך ה-thread של הבקשה. במצב כזה קריאה ל-asyncio.run תזרוק חריגה ותפיל את הבקשה, ולעתים תשאיר קורוטינה "תלויה" ללא await.
 - `docs/visual-rule-engine.rst` — **Visual Rule Engine - מנוע כללים ויזואלי**: ה-Visual Rule Engine מאפשר ליצור כללים מורכבים להתראות (Alerts) בממשק גרפי, ללא צורך בכתיבת קוד. כל כלל מורכב מ
 - `docs/observability/coverage_report.rst` — **Coverage Report (Runbooks / Quick Fixes)**: עמוד ה-Coverage נועד להיות Gap Analysis קבוע: To‑Do List לצוות שמראה אילו alert_type נצפו במערכת ועדיין חסר להם Runbook/Quick Fix, ואילו הגדרות בקונפיג הפכו ליתומות.
-- `docs/api/ai_explain.md` — **🧠 Observability AI Explain API**: שירות זה מספק שכבת AI רשמית שמתרגמת הקשרי התראות (Context) להסבר קצר בשפה טבעית, כולל שורש הבעיה, פעולות מומלצות ואותות תומכים. השירות נפרס כחלק מה־webserver (AioHTTP) תחת הנתיב POST /api/ai/explain ומשמש את לוח…
+- `docs/api/ai_explain.md` — **🧠 Observability AI Explain API**: שירות זה מספק שכבת AI רשמית שמתרגמת הקשרי התראות (Context) להסבר קצר בשפה טבעית, כולל שורש הבעיה, פעולות מומלצות ואותות תומכים. השירות נפרס כחלק מה־`webserver` (AioHTTP) תחת הנתיב `POST /api/ai/explain` ומשמש את לוח…
 - `docs/rate-limiting.rst` — **Rate Limiting**: מערכת הגבלת קצב אחודה לבוט ולווב, עם Shadow Mode, Soft‑Warning ב‑80% ועקיפת מנהלים.
 - `docs/observability/guidelines.md` — **📊 הנחיות Observability ואירועים**: מטרה: לקבוע תבנית ברורה ללוגים ולאירועים, להפחית רעש, ולאפשר תחקור מהיר בעזרת request_id.
 - `docs/logging_schema.rst` — **סכמת לוגים**
@@ -165,8 +165,8 @@
 
 - `docs/chatops/overview.md` — **ChatOps – סקירה כללית**
 - `docs/chatops/commands.md` — **פקודות ChatOps**: להלן מבנה אחיד לכל פקודה: מתי להשתמש, פרמטרים, הרשאות, מה לחפש בפלט, ודוגמה קצרה אם יש ערך מוסף.
-- `docs/chatops/observe.md` — **ChatOps – /observe: הרחבות -v ו- -vv**: מסמך זה מפרט את מצב ההרחבה של הפקודה /observe לצורכי תחקור ומהירות תגובה בזמן אמת.
-- `docs/chatops/ratelimit.rst` — **הגבלת קצב לפקודות רגישות**: chatops.ratelimit מרכז את שכבת ההגנה הקלה נגד ספאם לפקודות רגישות במערכת ה-ChatOps (למשל /deploy, /restart, /secrets). במקום ליישם Redis/DB עבור כל פקודה, אנחנו שומרים חותמת זמן אחרונה בזיכרון ה-process ומוודאים…
+- `docs/chatops/observe.md` — **ChatOps – /observe: הרחבות -v ו- -vv**: מסמך זה מפרט את מצב ההרחבה של הפקודה `/observe` לצורכי תחקור ומהירות תגובה בזמן אמת.
+- `docs/chatops/ratelimit.rst` — **הגבלת קצב לפקודות רגישות**: chatops.ratelimit מרכז את שכבת ההגנה הקלה נגד ספאם לפקודות רגישות במערכת ה-ChatOps (למשל `/deploy`, `/restart`, `/secrets`). במקום ליישם Redis/DB עבור כל פקודה, אנחנו שומרים חותמת זמן אחרונה בזיכרון ה-process ומוודאים…
 - `docs/chatops/playbooks.md` — **Playbooks – תרחישים נפוצים**
 - `docs/chatops/permissions.md` — **הרשאות ו-Rate Limit**
 - `docs/chatops/troubleshooting.md` — **פתרון תקלות (FAQ)**
