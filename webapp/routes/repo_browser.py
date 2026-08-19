@@ -6,6 +6,7 @@ UI לגלישה בקוד הריפו עם API מתקדם
 
 import logging
 import re
+import sys
 from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app, session
 from functools import lru_cache
 
@@ -29,6 +30,67 @@ def get_git_service():
         service = get_mirror_service()
         current_app.extensions['git_mirror_service'] = service
     return service
+
+def _resolve_admin_helpers():
+    """מאתר את ``is_admin``/``is_impersonating_safe`` בלי לטעון מודול פעמיים.
+
+    האפליקציה עשויה להיטען כחבילה (``webapp.app``) או כמודול שטוח (``app``),
+    תלוי בפקודת ההרצה. ייבוא ישיר של השם ה"לא נכון" מייצר מופע שני של
+    app.py — אתחול מלא נוסף עם ה-side effects שלו — ולכן קודם מחפשים את
+    המודול שכבר נטען ב-``sys.modules`` ורק אחר כך נופלים לייבוא.
+    """
+    for name in ('webapp.app', 'app'):
+        mod = sys.modules.get(name)
+        # שני ה-helpers נדרשים: מודול שנמצא באמצע טעינה עלול להחזיק כבר את
+        # ‎is_admin‎ ועדיין לא את ‎is_impersonating_safe‎, ואז ניגש לאטריביוט
+        # חסר ונחסום גם אדמין. אם אחד חסר — ממשיכים לחפש/לייבא.
+        if mod is not None and hasattr(mod, 'is_admin') and hasattr(mod, 'is_impersonating_safe'):
+            return mod.is_admin, mod.is_impersonating_safe
+    try:
+        from webapp.app import is_admin, is_impersonating_safe
+    except ImportError:
+        from app import is_admin, is_impersonating_safe  # type: ignore
+    return is_admin, is_impersonating_safe
+
+
+def _is_repo_browser_admin() -> bool:
+    """האם המשתמש הנוכחי אדמין. ייבוא עצל כדי להימנע מייבוא מעגלי עם app."""
+    raw = session.get('user_id')
+    if raw is None:
+        return False
+    try:
+        user_id = int(raw)
+    except (TypeError, ValueError):
+        return False
+    try:
+        is_admin, is_impersonating_safe = _resolve_admin_helpers()
+    except Exception:
+        logger.exception("repo browser: could not resolve admin helpers")
+        # fail-closed: בלי יכולת לאמת הרשאה לא פותחים את הפיצ'ר
+        return False
+
+    if not is_admin(user_id):
+        return False
+    # במצב Impersonation האדמין גולש כמשתמש אחר, ולכן עמודי אדמין חסומים —
+    # ‎is_impersonating_safe‎ הוא מקור האמת למדיניות הזו וכולל בתוכו את
+    # מסלול המילוט ‎?force_admin=1‎, כך שאין כאן שכפול של הכלל.
+    return not is_impersonating_safe()
+
+
+@repo_bp.before_request
+def _require_admin_for_repo_browser():
+    """דפדפן הקוד הוא כלי אדמין בלבד — חסימה ברמת ה-blueprint.
+
+    נאכף כאן ולא בדקורטור לכל route: כך גם כל route שיתווסף בעתיד מוגן
+    אוטומטית, ואי אפשר לפתוח דלת בטעות בשכחה של דקורטור.
+    """
+    if _is_repo_browser_admin():
+        return None
+    # ל-API מחזירים JSON; לדפים 403 רגיל
+    if request.path.startswith('/repo/api/'):
+        return jsonify({"success": False, "error": "admin_only"}), 403
+    abort(403)
+
 
 def _get_current_user():
     try:

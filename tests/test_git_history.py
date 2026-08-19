@@ -202,16 +202,31 @@ class TestAPIRoutes:
     """בדיקות API routes."""
 
     @pytest.fixture
-    def app(self, tmp_path) -> Flask:
+    def app(self, tmp_path, monkeypatch) -> Flask:
         app = Flask(__name__)
         app.config["TESTING"] = True
+        app.config["SECRET_KEY"] = "test"
         app.extensions['git_mirror_service'] = GitMirrorService(mirrors_base_path=str(tmp_path))
+
+        # דפדפן הקוד חסום לאדמינים בלבד — מזריקים webapp.app מדומה כדי
+        # שהטסטים הפונקציונליים ירוצו בהקשר של אדמין
+        import sys
+        from types import ModuleType
+
+        webapp_app_stub = ModuleType("webapp.app")
+        webapp_app_stub.is_admin = lambda uid: int(uid) == 999
+        webapp_app_stub.is_impersonating_safe = lambda: False
+        monkeypatch.setitem(sys.modules, "webapp.app", webapp_app_stub)
+
         app.register_blueprint(repo_bp)
         return app
 
     @pytest.fixture
     def client(self, app: Flask):
-        return app.test_client()
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess['user_id'] = 999
+        return c
 
     def test_history_missing_file_param(self, client):
         response = client.get('/repo/api/history')

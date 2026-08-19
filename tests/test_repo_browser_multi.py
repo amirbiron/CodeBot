@@ -1,7 +1,9 @@
+import ast
 import pytest
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from flask import Flask
+from flask import Flask, request as flask_request, session as flask_session
 
 try:
     import flask_login  # noqa: F401
@@ -60,6 +62,12 @@ class _StubDB:
         self.repo_files = _RepoFiles()
 
 
+# שם המפתח כפי שהוא ב-webapp/app.py — לא ערך מומצא לטסט
+IMPERSONATION_SESSION_KEY = 'admin_impersonation_active'
+ADMIN_USER_ID = 999
+REGULAR_USER_ID = 123
+
+
 @pytest.fixture
 def app(tmp_path, monkeypatch) -> Flask:
     app = Flask(__name__)
@@ -71,13 +79,202 @@ def app(tmp_path, monkeypatch) -> Flask:
     stub_db = _StubDB()
     monkeypatch.setattr(repo_browser, "get_db", lambda: stub_db)
     monkeypatch.setattr(repo_browser, "get_mirror_service", lambda: git_service)
+
+    # דפדפן הקוד חסום לאדמינים; מזריקים webapp.app מדומה כדי לבדוק את
+    # לוגיקת ההרשאה האמיתית בלי לגרור את אפליקציית ה-webapp המלאה
+    webapp_app_stub = ModuleType("webapp.app")
+
+    def _stub_is_admin(uid):
+        return int(uid) == ADMIN_USER_ID
+
+    def _stub_is_impersonating_safe():
+        """העתק נאמן של ‎is_impersonating_safe‎ מ-webapp/app.py.
+
+        מפתח הסשן וסדר הבדיקות זהים למקור בכוונה — כולל מסלול המילוט
+        ‎?force_admin=1‎ וההגנה מפני דגל בסשן של מי שאינו אדמין. stub
+        מפושט היה מאמת את עצמו במקום את המדיניות האמיתית.
+        """
+        if flask_request.args.get('force_admin') == '1':
+            return False
+        if not flask_session.get(IMPERSONATION_SESSION_KEY, False):
+            return False
+        uid = flask_session.get('user_id')
+        if uid is None:
+            return False
+        try:
+            if not _stub_is_admin(int(uid)):
+                return False
+        except Exception:
+            return False
+        return True
+
+    webapp_app_stub.is_admin = _stub_is_admin
+    webapp_app_stub.is_impersonating_safe = _stub_is_impersonating_safe
+    monkeypatch.setitem(sys.modules, "webapp.app", webapp_app_stub)
+
     app.register_blueprint(repo_browser.repo_bp)
     return app
 
 
+def _login(client, user_id):
+    with client.session_transaction() as sess:
+        sess['user_id'] = user_id
+
+
 @pytest.fixture
 def client(app: Flask):
+    """לקוח מחובר כאדמין — ברירת המחדל לטסטים הפונקציונליים."""
+    c = app.test_client()
+    _login(c, ADMIN_USER_ID)
+    return c
+
+
+@pytest.fixture
+def anon_client(app: Flask):
+    """לקוח בלי סשן."""
     return app.test_client()
+
+
+@pytest.fixture
+def user_client(app: Flask):
+    """לקוח מחובר כמשתמש רגיל (לא אדמין)."""
+    c = app.test_client()
+    _login(c, REGULAR_USER_ID)
+    return c
+
+
+class TestStubMatchesProduction:
+    """הצלבה מול הקוד האמיתי — בלי זה ה-stub מאמת את עצמו.
+
+    ``webapp/app.py`` גורר תלויות כבדות שאינן זמינות בכל סביבה, ולכן
+    קוראים אותו כמקור (AST/טקסט) במקום לייבא. דריפט בשם מפתח הסשן או
+    היעלמות של מסלול המילוט ייתפסו כאן, גם אם ה-stub ימשיך להחזיק את
+    ההתנהגות הישנה.
+    """
+
+    @staticmethod
+    def _app_source() -> str:
+        return (Path(__file__).resolve().parent.parent / 'webapp' / 'app.py').read_text(
+            encoding='utf-8'
+        )
+
+    def test_impersonation_session_key_matches_production(self):
+        """הקבוע שה-stub משתמש בו זהה לזה שמוגדר ב-webapp/app.py."""
+        tree = ast.parse(self._app_source())
+        values = [
+            ast.literal_eval(node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name) and target.id == 'IMPERSONATION_SESSION_KEY'
+        ]
+        assert values, "IMPERSONATION_SESSION_KEY לא נמצא ב-webapp/app.py"
+        assert values[0] == IMPERSONATION_SESSION_KEY
+
+    def test_production_helpers_still_exist(self):
+        """שתי הפונקציות שה-guard נשען עליהן עדיין קיימות בשמן."""
+        tree = ast.parse(self._app_source())
+        names = {
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        }
+        assert {'is_admin', 'is_impersonating_safe'} <= names
+
+    def test_production_impersonation_honors_force_admin(self):
+        """מסלול המילוט ‎?force_admin=1‎ עדיין קיים בפונקציה האמיתית."""
+        tree = ast.parse(self._app_source())
+        func = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == 'is_impersonating_safe'
+        )
+
+        calls_force_admin = False
+        for node in ast.walk(func):
+            if isinstance(node, ast.Call):
+                if (isinstance(node.func, ast.Attribute) and
+                    node.func.attr == 'get' and
+                    isinstance(node.func.value, ast.Attribute) and
+                    node.func.value.attr == 'args' and
+                    isinstance(node.func.value.value, ast.Name) and
+                    node.func.value.value.id == 'request' and
+                    node.args and
+                    isinstance(node.args[0], ast.Constant) and
+                    node.args[0].value == 'force_admin'):
+                    calls_force_admin = True
+                    break
+
+        assert calls_force_admin, "request.args.get('force_admin') לא נמצא בגוף הפונקציה"
+
+
+class TestRepoBrowserIsAdminOnly:
+    """דפדפן הקוד הוא כלי אדמין; אף אחד אחר לא אמור להגיע לשום route בו."""
+
+    def test_anonymous_gets_403_on_page(self, anon_client):
+        assert anon_client.get('/repo/').status_code == 403
+
+    def test_anonymous_gets_json_403_on_api(self, anon_client):
+        """חוזה ה-API לאנונימי: 403 עם admin_only, לא 401 ולא דף HTML."""
+        response = anon_client.get('/repo/api/repos')
+        assert response.status_code == 403
+        assert response.get_json()['error'] == 'admin_only'
+
+    def test_anonymous_cannot_select_repo(self, anon_client):
+        """המסלול האנונימי של select-repo נעצר ב-guard לפני flask_login."""
+        response = anon_client.post('/repo/api/select-repo',
+                                    json={'repo_name': 'CodeBot'})
+        assert response.status_code == 403
+        assert response.get_json()['error'] == 'admin_only'
+
+    def test_admin_while_impersonating_is_blocked(self, app):
+        """במצב Impersonation האדמין גולש כמשתמש אחר — ולכן חסום."""
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess['user_id'] = ADMIN_USER_ID
+            sess[IMPERSONATION_SESSION_KEY] = True
+        assert c.get('/repo/api/repos').status_code == 403
+
+    def test_force_admin_escape_hatch_works_while_impersonating(self, app):
+        """‎?force_admin=1‎ הוא מסלול המילוט של המערכת — חייב לפתוח גם כאן."""
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess['user_id'] = ADMIN_USER_ID
+            sess[IMPERSONATION_SESSION_KEY] = True
+        assert c.get('/repo/api/repos?force_admin=1').status_code == 200
+
+    def test_impersonation_flag_on_non_admin_does_not_grant_access(self, app):
+        """דגל Impersonation מזויף בסשן של לא-אדמין לא פותח כלום."""
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess['user_id'] = REGULAR_USER_ID
+            sess[IMPERSONATION_SESSION_KEY] = True
+        assert c.get('/repo/api/repos').status_code == 403
+        assert c.get('/repo/api/repos?force_admin=1').status_code == 403
+
+    def test_regular_user_gets_403_on_page(self, user_client):
+        assert user_client.get('/repo/').status_code == 403
+
+    def test_regular_user_gets_json_403_on_api(self, user_client):
+        response = user_client.get('/repo/api/repos')
+        assert response.status_code == 403
+        assert response.get_json()['error'] == 'admin_only'
+
+    def test_regular_user_cannot_list_other_repos(self, user_client):
+        """הדליפה המקורית: רשימת הריפויים של כולם דרך ה-API."""
+        response = user_client.get('/repo/api/repos')
+        assert response.status_code == 403
+        assert 'repos' not in (response.get_json() or {})
+
+    def test_regular_user_cannot_reach_repo_via_query_param(self, user_client):
+        """גם מעבר ישיר לריפו לפי שם חסום, לא רק הרשימה."""
+        assert user_client.get('/repo/api/tree?repo=CodeBot').status_code == 403
+
+    def test_admin_passes_through(self, client):
+        assert client.get('/repo/api/repos').status_code == 200
+
+    def test_every_route_is_covered_by_the_blueprint_guard(self, app):
+        """אף route ב-blueprint לא עוקף את הבדיקה — כולל כאלה שיתווספו."""
+        guards = app.before_request_funcs.get('repo', [])
+        assert repo_browser._require_admin_for_repo_browser in guards
 
 
 class TestMultiRepoSupport:
@@ -110,8 +307,12 @@ class TestMultiRepoSupport:
         response = client.get('/repo/api/file/README.md?repo=CodeBot')
         assert response.status_code in [200, 404]  # תלוי אם הקובץ קיים
 
-    def test_select_repo_unauthenticated(self, client):
-        """בדיקה שבחירת ריפו דורשת אותנטיקציה"""
+    def test_select_repo_admin_without_flask_login_gets_401(self, client):
+        """אדמין שעבר את ה-guard אך אינו מחובר ב-flask_login מקבל 401.
+
+        השם מדויק בכוונה: מאז שדפדפן הקוד נחסם לאדמינים, ‎client‎ הוא אדמין,
+        וה-401 כאן מגיע משכבת flask_login ולא מהיעדר סשן.
+        """
         response = client.post('/repo/api/select-repo',
                                json={'repo_name': 'CodeBot'})
         assert response.status_code == 401
