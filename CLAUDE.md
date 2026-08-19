@@ -414,3 +414,30 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 - דפים כבדים ב־Webapp צריכים להחזיר HTML ראשוני מהר (< 200ms).
 - השתמש ב־**Skeleton Loaders** ובשליפת נתונים מה־API דרך JavaScript ברקע.
 - עטוף חישובים כבדים ב־`await asyncio.to_thread(...)` כדי לא לחסום את ה־Event Loop.
+
+  ---
+  
+
+## עדכון בטלגרם — לפי בקשה
+
+כשהמשתמש מבקש בתחילת משימה "עדכן אותי בטלגרם" / "תשלח לי בטלגרם כשתסיים"
+(או ניסוח דומה) — בסיום המשימה שלח הודעת סיכום קצרה בעברית דרך Telegram Bot API:
+
+- שולחים עם `curl` ל-`sendMessage`, דרך משתני הסביבה
+  `TELEGRAM_BOT_TOKEN` ו-`TELEGRAM_CHAT_ID`.
+- מעבירים את הטקסט עם `--data-urlencode "text=..."` (מטפל נכון בעברית ובתווים מיוחדים).
+- כותבים את גוף ההודעה לקובץ ב-scratchpad ואז `text=$(cat file)` —
+  כדי לא להתעסק עם escaping של shell על טקסט רב-שורתי.
+- **degradation:** אם אחד המשתנים חסר — אל תיכשל ואל תעצור את המשימה;
+  דווח בצ'אט "לא נשלח לטלגרם (משתנה X חסר)" והמשך כרגיל.
+
+### עיצוב (אופציונלי)
+כברירת מחדל שלח **בלי** `parse_mode` — טקסט גולמי, בטוח לכל תו.
+רק אם צריך מודגש/נטוי/קישור לחיץ הוסף `--data-urlencode "parse_mode=HTML"`,
+ואז — לפי כלל 6 — **חובה** `html.escape` על כל תוכן שמגיע ממקור חיצוני
+(DB/API/פלט כלים), אחרת `< > &` ישברו את ההודעה.
+
+---
+
+Team CodeKeeper forever 💫 
+We love Claude 💌
