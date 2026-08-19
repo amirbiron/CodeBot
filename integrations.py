@@ -11,7 +11,7 @@ import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import requests
 from github import Github, InputFileContent
@@ -69,7 +69,7 @@ class GitHubGistIntegration:
             try:
                 self.github = Github(token)
                 self.user = self.github.get_user()
-                logger.info(f"התחבר ל-GitHub בתור: {self.user.login}")
+                logger.debug("GitHub Gist integration ready")
             except GithubException as e:
                 logger.error(f"שגיאה בהתחברות ל-GitHub: {e}")
     
@@ -429,16 +429,15 @@ class CodeSharingService:
     """שירות משולב לשיתוף קוד"""
     
     def __init__(self):
-        self.gist = GitHubGistIntegration()
+        # אין כאן ``GitHubGistIntegration``: Gist נוצר תמיד בשם משתמש מסוים,
+        # דרך ``resolve_gist_for_user``. אינסטנס משותף כאן היה יוצר Gists של
+        # כל המשתמשים תחת חשבון המערכת — בדיוק הבאג שהפרדה הזו סוגרת.
         self.pastebin = PastebinIntegration()
         self.internal_shares = {}  # לשיתוף פנימי בזיכרון (fallback)
     
     def get_available_services(self) -> List[str]:
-        """קבלת רשימת שירותים זמינים"""
+        """קבלת רשימת שירותים זמינים (Gist לא כאן — הוא לכל משתמש בנפרד)"""
         services = []
-        
-        if self.gist.is_available():
-            services.append("gist")
         
         if self.pastebin.is_available():
             services.append("pastebin")
@@ -460,8 +459,15 @@ class CodeSharingService:
             })
         except Exception:
             pass
-        if service == "gist" and self.gist.is_available():
-            return self.gist.create_gist(file_name, code, language, description, **kwargs)
+        if service == "gist":
+            # מסלול חסום בכוונה: השירות המשולב אינו מחזיק טוקן של משתמש,
+            # ושיתוף Gist חייב לעבור דרך ``resolve_gist_for_user``.
+            logger.error("share_code('gist') לא נתמך — יש להשתמש ב-resolve_gist_for_user")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "gist_requires_user_token"})
+            except Exception:
+                pass
+            return None
         
         elif service == "pastebin" and self.pastebin.is_available():
             return await self.pastebin.create_paste(code, file_name, language, **kwargs)
@@ -748,39 +754,64 @@ class WebhookIntegration:
 GIST_NEEDS_GITHUB_MESSAGE = (
     "🔗 כדי לשתף ב-Gist צריך לחבר את חשבון ה-GitHub שלך.\n\n"
     "ה-Gist ייווצר תחת החשבון שלך — כך הוא נשאר שלך ומופיע ברשימת ה-Gists שלך.\n\n"
-    "לחיבור: תפריט ראשי ← 🐙 GitHub\n"
+    "לחיבור: תפריט ראשי ← 🔧 GitHub\n"
     "לחלופין אפשר לשתף דרך 📋 Pastebin, שלא דורש חיבור."
 )
 
+# תקלה טכנית היא לא "לא חיברת GitHub". משתמש מחובר שה-DB נפל לרגע אמור לראות
+# "נסה שוב", לא הנחיה לחבר חשבון שכבר מחובר — ולכן שתי ההודעות נפרדות.
+GIST_TEMPORARY_FAILURE_MESSAGE = (
+    "❌ לא הצלחנו לגשת לחיבור ה-GitHub שלך כרגע. נסה שוב בעוד רגע."
+)
 
-def get_gist_integration_for_user(user_id: int) -> Optional["GitHubGistIntegration"]:
-    """אינטגרציית Gist שפועלת בשם המשתמש, או ``None`` אם לא חיבר GitHub.
+
+class GistResolution(NamedTuple):
+    """תוצאת ניסיון לבנות אינטגרציית Gist בשם משתמש.
+
+    ``integration`` קיים רק כשהכול תקין. אחרת ``error_message`` מכיל את
+    ההודעה שצריך להציג למשתמש — והיא שונה בין "לא חיברת" ל"תקלה זמנית".
+    """
+
+    integration: Optional["GitHubGistIntegration"]
+    error_message: Optional[str]
+
+
+def resolve_gist_for_user(user_id: int) -> GistResolution:
+    """בונה אינטגרציית Gist שפועלת בשם המשתמש.
 
     ה-Gist נוצר תחת החשבון שהטוקן שייך לו. שימוש בטוקן הגלובלי היה יוצר
     את כל ה-Gists של כל המשתמשים תחת חשבון המערכת — ולכן כאן אין נפילה
-    אליו: משתמש בלי טוקן מקבל ``None``, והקורא מבקש ממנו להתחבר.
+    אליו בשום מסלול, גם לא בכשל.
+
+    הקריאה חוסמת (DB + רשת), ולכן מתוך handler אסינכרוני יש לקרוא לה דרך
+    ``asyncio.to_thread`` כדי לא לתקוע את ה-event loop.
     """
     if not user_id:
-        return None
+        return GistResolution(None, GIST_NEEDS_GITHUB_MESSAGE)
     try:
         from database import db as _db
 
         token = _db.get_github_token(int(user_id))
     except Exception:
         logger.exception("failed to load user github token for gist")
-        return None
+        return GistResolution(None, GIST_TEMPORARY_FAILURE_MESSAGE)
     if not token:
-        return None
+        return GistResolution(None, GIST_NEEDS_GITHUB_MESSAGE)
     try:
         integration = GitHubGistIntegration(token=token)
     except Exception:
         logger.exception("failed to build gist integration for user")
-        return None
-    return integration if integration.is_available() else None
+        return GistResolution(None, GIST_TEMPORARY_FAILURE_MESSAGE)
+    if not integration.is_available():
+        # יש טוקן שמור אבל ההתחברות נכשלה — טוקן פג/נשלל. זו לא תקלה זמנית,
+        # והמשתמש צריך לחבר מחדש.
+        return GistResolution(None, GIST_NEEDS_GITHUB_MESSAGE)
+    return GistResolution(integration, None)
 
 
-# יצירת אינסטנסים גלובליים (שימוש תפעולי; ל-Gist של משתמש ראו את הפקטורי לעיל)
-gist_integration = GitHubGistIntegration()
+# יצירת אינסטנסים גלובליים. אין כאן ``gist_integration``: אינסטנס גלובלי היה
+# נבנה עם הטוקן של המערכת, וכל שימוש בו היה יוצר Gist תחת חשבון הבוט —
+# ל-Gist של משתמש יש להשתמש ב-``resolve_gist_for_user``.
 pastebin_integration = PastebinIntegration()
 code_sharing = CodeSharingService()
 git_integration = GitRepositoryIntegration()

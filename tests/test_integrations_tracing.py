@@ -40,28 +40,20 @@ async def test_share_code_marks_unavailable_services(monkeypatch):
     def _record(attrs: dict[str, object]) -> None:
         recorded.append(dict(attrs))
 
-    class _FakeGist:
-        def __init__(self):
-            self.calls = []
-
-        def is_available(self) -> bool:
-            return True
-
-        def create_gist(self, *args, **kwargs):
-            _record({"status": "error", "reason": "failure"})
-            return None
-
     class _FakePaste:
         def is_available(self) -> bool:
             return False
 
     monkeypatch.setattr("integrations.set_current_span_attributes", _record, raising=False)
-    monkeypatch.setattr("integrations.GitHubGistIntegration", _FakeGist, raising=False)
     monkeypatch.setattr("integrations.PastebinIntegration", _FakePaste, raising=False)
 
     service = CodeSharingService()
 
-    await service.share_code("gist", "demo.py", "print()", "python")
+    # השירות המשולב לא מחזיק טוקן של משתמש, ולכן הוא מסרב ליצור Gist במקום
+    # ליצור אותו תחת חשבון המערכת.
+    result = await service.share_code("gist", "demo.py", "print()", "python")
 
+    assert result is None
     assert any(attrs.get("service") == "gist" for attrs in recorded)
-    assert any(attrs.get("status") == "error" for attrs in recorded)
+    assert any(attrs.get("reason") == "gist_requires_user_token" for attrs in recorded)
+    assert not hasattr(service, "gist"), "השירות המשולב לא אמור להחזיק אינטגרציית Gist גלובלית"

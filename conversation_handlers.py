@@ -2355,14 +2355,16 @@ async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if not code:
             await query.edit_message_text("❌ תוכן הקובץ ריק או חסר")
             return ConversationHandler.END
-        from integrations import GIST_NEEDS_GITHUB_MESSAGE, code_sharing, get_gist_integration_for_user
+        from integrations import code_sharing, resolve_gist_for_user
         if service == 'gist':
-            # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
-            gist = get_gist_integration_for_user(user_id)
+            # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת.
+            # שתי הקריאות חוסמות (DB ורשת) ולכן רצות בת'רד נפרד.
+            gist, gist_error = await asyncio.to_thread(resolve_gist_for_user, user_id)
             if gist is None:
-                await query.edit_message_text(GIST_NEEDS_GITHUB_MESSAGE)
+                await query.edit_message_text(gist_error)
                 return ConversationHandler.END
-            result = gist.create_gist(
+            result = await asyncio.to_thread(
+                gist.create_gist,
                 file_name, code, language,
                 description=f"שיתוף דרך CodeBot — {file_name}",
             )

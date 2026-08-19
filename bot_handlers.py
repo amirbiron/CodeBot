@@ -5078,29 +5078,28 @@ class AdvancedBotHandlers:
     
     async def _share_to_gist(self, query, user_id: int, file_name: str):
         """שיתוף ב-GitHub Gist"""
-        
-        if not config.GITHUB_TOKEN:
-            await query.edit_message_text(
-                "❌ שיתוף ב-Gist לא זמין - לא הוגדר טוקן GitHub."
-            )
-            return
-        
+
+        # אין כאן בדיקת ``config.GITHUB_TOKEN``: הטוקן הגלובלי שייך לחשבון
+        # שמריץ את הבוט, וה-Gist נוצר תחת חשבון ה-GitHub של המשתמש. משתמש
+        # שחיבר GitHub יכול לשתף גם כשאין טוקן גלובלי בכלל.
         file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
             return
         
-        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
-        from integrations import GIST_NEEDS_GITHUB_MESSAGE, get_gist_integration_for_user
+        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת.
+        # הקריאה ניגשת ל-DB ולרשת, ולכן היא רצה בת'רד נפרד ולא חוסמת את ה-event loop.
+        from integrations import resolve_gist_for_user
 
-        user_gist = get_gist_integration_for_user(user_id)
+        user_gist, gist_error = await asyncio.to_thread(resolve_gist_for_user, user_id)
         if user_gist is None:
-            await query.edit_message_text(GIST_NEEDS_GITHUB_MESSAGE)
+            await query.edit_message_text(gist_error)
             return
         try:
             description = f"שיתוף אוטומטי דרך CodeBot — {file_name}"
-            result = user_gist.create_gist(
+            result = await asyncio.to_thread(
+                user_gist.create_gist,
                 file_name=file_name,
                 code=file_data["code"],
                 language=file_data["programming_language"],
@@ -5213,27 +5212,31 @@ class AdvancedBotHandlers:
 
     async def _share_to_gist_multi(self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, share_id: str):
         """שיתוף מספר קבצים לגיסט אחד"""
-        from integrations import GIST_NEEDS_GITHUB_MESSAGE, get_gist_integration_for_user
-        files_map: Dict[str, str] = {}
-        names: List[str] = (context.user_data.get('multi_share', {}).get(share_id) or [])
-        if not names:
-            await query.edit_message_text("❌ לא נמצאה רשימת קבצים עבור השיתוף.")
-            return
-        for fname in names:
-            data = _call_files_api("get_latest_version", user_id, fname)
-            if data:
-                files_map[data['file_name']] = data['code']
-        if not files_map:
-            await query.edit_message_text("❌ לא נמצאו קבצים פעילים לשיתוף.")
-            return
-        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
-        gist = get_gist_integration_for_user(user_id)
-        if gist is None:
-            await query.edit_message_text(GIST_NEEDS_GITHUB_MESSAGE)
-            return
+        from integrations import resolve_gist_for_user
+        # ה-``finally`` עוטף גם את היציאות המוקדמות: אחרת ``share_id`` היה נשאר
+        # ב-user_data אחרי כישלון, וצובר רשימות קבצים שלא ישוחררו לעולם.
         try:
+            files_map: Dict[str, str] = {}
+            names: List[str] = (context.user_data.get('multi_share', {}).get(share_id) or [])
+            if not names:
+                await query.edit_message_text("❌ לא נמצאה רשימת קבצים עבור השיתוף.")
+                return
+            for fname in names:
+                data = _call_files_api("get_latest_version", user_id, fname)
+                if data:
+                    files_map[data['file_name']] = data['code']
+            if not files_map:
+                await query.edit_message_text("❌ לא נמצאו קבצים פעילים לשיתוף.")
+                return
+            # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
+            gist, gist_error = await asyncio.to_thread(resolve_gist_for_user, user_id)
+            if gist is None:
+                await query.edit_message_text(gist_error)
+                return
             description = f"שיתוף מרובה קבצים ({len(files_map)}) דרך {config.BOT_LABEL}"
-            result = gist.create_gist_multi(files_map=files_map, description=description, public=True)
+            result = await asyncio.to_thread(
+                gist.create_gist_multi, files_map=files_map, description=description, public=True
+            )
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת Gist מרובה קבצים נכשלה.")
                 return

@@ -4,6 +4,7 @@ Handlers לפקודות Refactoring בבוט Telegram
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -393,18 +394,18 @@ class RefactorHandlers:
         if not files_map:
             await query.message.reply_text("❌ אין קבצים לייצוא בהצעה הנוכחית.")
             return
-        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת
+        # ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש, לא של המערכת.
+        # הקריאה ניגשת ל-DB ולרשת ולכן רצה בת'רד נפרד.
         user_gist = None
-        unavailable_message = "❌ ייצוא ל-Gist לא זמין כרגע."
+        gist_error = "❌ ייצוא ל-Gist לא זמין כרגע."
         try:
-            from integrations import GIST_NEEDS_GITHUB_MESSAGE, get_gist_integration_for_user
+            from integrations import resolve_gist_for_user
 
-            unavailable_message = GIST_NEEDS_GITHUB_MESSAGE
-            user_gist = get_gist_integration_for_user(user_id)
+            user_gist, gist_error = await asyncio.to_thread(resolve_gist_for_user, user_id)
         except Exception:
             logger.exception("failed to resolve gist integration for user")
         if user_gist is None:
-            await query.message.reply_text(unavailable_message)
+            await query.message.reply_text(gist_error)
             return
         description = (
             f"פיצול {proposal.original_file} ({len(files_map)} קבצים חדשים)"
@@ -412,7 +413,8 @@ class RefactorHandlers:
             else f"רפקטורינג {proposal.refactor_type.value} עבור {proposal.original_file}"
         )
         try:
-            result = user_gist.create_gist_multi(
+            result = await asyncio.to_thread(
+                user_gist.create_gist_multi,
                 files_map=files_map,
                 description=description,
                 public=True,
