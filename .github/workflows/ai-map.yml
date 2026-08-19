@@ -15,9 +15,11 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
+# מוגדר לפי ref כדי שהרצה ידנית מענף אחר לא תבטל רענון רץ של main
 concurrency:
-  group: ai-map
+  group: ai-map-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,8 +38,11 @@ jobs:
         run: python3 scripts/generate_ai_map.py
 
       - name: Commit if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- AI-MAP.md; then
+          # git diff מפספס קובץ שאינו tracked עדיין; porcelain תופס את שניהם
+          if [ -z "$(git status --porcelain -- AI-MAP.md)" ]; then
             echo "המפה עדכנית — אין מה לקמט"
             exit 0
           fi
@@ -45,6 +50,19 @@ jobs:
           git config user.email "actions@github.com"
           git add AI-MAP.md
           git commit -m "docs: רענון אוטומטי של AI-MAP.md"
-          # ריצות מקביליות עלולות להידחות על non-fast-forward; ננסה פעם
-          # אחת אחרי rebase ואם גם זה נכשל — הריצה הבאה תיישר את המפה.
-          git push || (git pull --rebase && git push)
+          # ניסיון ראשון: דחיפה ישירה (עובדת כשאין הגנת ענף חוסמת).
+          # ריצות מקביליות עלולות להידחות על non-fast-forward — rebase וניסיון שני.
+          if git push || (git pull --rebase && git push); then
+            echo "נדחף ישירות ל-main"
+            exit 0
+          fi
+          # הגנת ענף דחתה את הדחיפה — נפילה מבוקרת לענף אוטומציה + PR.
+          # הענף קבוע, כך שריצות חוזרות מעדכנות את אותו PR במקום לערום חדשים.
+          echo "דחיפה ישירה נדחתה — פותח PR מענף אוטומציה"
+          git checkout -B automation/ai-map-refresh
+          git push -f origin automation/ai-map-refresh
+          gh pr create \
+            --title "docs: רענון אוטומטי של AI-MAP.md" \
+            --body "רענון מפת התיעוד אחרי שינוי ב-docs/. נוצר אוטומטית על ידי ai-map.yml כי דחיפה ישירה ל-main נדחתה (הגנת ענף)." \
+            --base main --head automation/ai-map-refresh \
+            || echo "PR כבר קיים — הענף עודכן והוא יתעדכן בו"

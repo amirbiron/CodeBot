@@ -151,8 +151,9 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
         para = []
         while i < n and lines[i].strip() and not lines[i].startswith((" ", "\t")):
             cur = lines[i].strip()
-            if cur.startswith(("- ", "* ", "#. ")) or re.match(r"^\d+\. ", cur) or _UNDERLINE_RE.match(lines[i]):
-                break
+            is_list = cur.startswith(("- ", "* ", "#. ")) or re.match(r"^\d+\. ", cur)
+            if is_list or cur.startswith(("```", ":::", "|")) or _UNDERLINE_RE.match(lines[i]):
+                break  # רשימה / גדר קוד / טבלה — לא חלק מהתקציר
             para.append(cur)
             i += 1
         text = re.sub(r"\s+", " ", " ".join(para))
@@ -161,6 +162,9 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
         text = re.sub(r"\*\*([^*]*)\*\*", r"\1", text)
         # "::" בסוף פסקה הוא פתיח לבלוק literal של RST, לא חלק מהתקציר
         text = text.rstrip(":").strip()
+        # backtick בודד שנשאר אחרי הניקויים היה שובר את ה-Markdown של
+        # שורת המפה עצמה (התקציר יושב בתוך שורת רשימה)
+        text = text.replace("`", "")
         if len(text) > SUMMARY_CAP:
             text = text[: SUMMARY_CAP - 1].rsplit(" ", 1)[0] + "…"
         # פסקה שהתרוקנה או קצרה מכדי לומר משהו (פתיח כמו "טיפים:",
@@ -215,8 +219,13 @@ def build_map() -> str:
                 clines = _read(child)
                 rel = child.relative_to(ROOT).as_posix()
                 if _is_autodoc_scaffold(clines, child):
-                    visited.add(child)
+                    # מדלגים על שורת הפיגום עצמו, אבל יורדים לילדיו:
+                    # עמודי אינדקס של autodoc (api/handlers.rst וכד')
+                    # מחזיקים toctree לעמודים שחלקם כן ידניים.
+                    # לא מוסיפים ל-visited כאן — walk פותח בבדיקת visited
+                    # והוספה מוקדמת הייתה הופכת את הירידה ל-no-op.
                     scaffold_count += 1
+                    walk(child, depth + 1)
                     continue
                 title = _title(clines, child)
                 summary = _first_prose_paragraph(clines, child)
@@ -240,12 +249,32 @@ def build_map() -> str:
 
 
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out", type=Path, default=OUTPUT,
+        help="נתיב הפלט. ברירת המחדל היא AI-MAP.md בשורש — תוצר נגזר "
+             "שדריסתו היא המטרה, כמו lockfile. להרצת ניסוי: --out לנתיב זמני.",
+    )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="לא כותב; קוד יציאה 1 אם הקובץ אינו תואם את מה שהיה נוצר.",
+    )
+    args = parser.parse_args()
     content = build_map()
-    if OUTPUT.exists() and OUTPUT.read_text(encoding="utf-8") == content:
-        print(f"{OUTPUT.name}: ללא שינוי")
+    existing = args.out.read_text(encoding="utf-8") if args.out.exists() else None
+    if args.check:
+        if existing == content:
+            print(f"{args.out.name}: עדכני")
+            return 0
+        print(f"{args.out.name}: אינו תואם את התיעוד הנוכחי")
+        return 1
+    if existing == content:
+        print(f"{args.out.name}: ללא שינוי")
         return 0
-    OUTPUT.write_text(content, encoding="utf-8")
-    print(f"{OUTPUT.name}: נכתב ({len(content.splitlines())} שורות)")
+    args.out.write_text(content, encoding="utf-8")
+    print(f"{args.out.name}: נכתב ({len(content.splitlines())} שורות)")
     return 0
 
 
