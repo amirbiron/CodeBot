@@ -155,14 +155,26 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             if line.startswith((" ", "\t")):
                 i += 1  # המשך בלוק מוזח שלא זוהה
                 continue
+        # טבלת Markdown היא בלוק ולא שורה. לפי GFM היא נמשכת עד השורה
+        # הריקה הראשונה, ולכן מדלגים על הבלוק כולו: דילוג על שורת הכותרת
+        # והמפריד בלבד השאיר את שורות הנתונים ליפול לאיסוף הפרוזה, ותקציר
+        # העמוד במפה יצא הטבלה עצמה ("אלפא | ערך… ביתא | ערך…").
+        # ``lines[i + 1].strip()`` ולא הגולמי: ``_MD_DELIM_RE`` פותח ב-``^\s*``
+        # ואז ``\|?\s*`` — שני מקטעי רווח שאפשר לחלק ביניהם, ולכן שורה
+        # מוזחת שאינה מפריד עולה ריבועית (נמדד: ×3.9 לכל הכפלת אורך,
+        # 1.6ms על 320 רווחים). ``strip`` מחזיר את זה לזמן קבוע.
+        if _MD_DELIM_RE.match(stripped) or (
+            i + 1 < n and "|" in stripped and _MD_DELIM_RE.match(lines[i + 1].strip())
+        ):
+            while i < n and lines[i].strip():
+                i += 1
+            continue
         if (
             stripped.startswith(("- ", "* ", "#. "))
             or re.match(r"^\d+\. ", stripped)
             or _GRID_ROW_RE.match(stripped)
-            or _MD_DELIM_RE.match(stripped)
-            or (i + 1 < n and "|" in stripped and _MD_DELIM_RE.match(lines[i + 1]))
         ):
-            i += 1  # רשימה, גבול grid, או שורת טבלת Markdown — לא תקציר
+            i += 1  # רשימה או גבול grid — לא תקציר
             continue
         # פסקת פרוזה: איסוף עד שורה ריקה, בלוק מוזח או תחילת רשימה
         para = []
@@ -173,7 +185,7 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
                 cur.startswith("|")
                 or _GRID_ROW_RE.match(cur)
                 # כותרת טבלת Markdown בלי pipe חיצוני, שהמפריד מתחתיה
-                or (i + 1 < n and "|" in cur and _MD_DELIM_RE.match(lines[i + 1]))
+                or (i + 1 < n and "|" in cur and _MD_DELIM_RE.match(lines[i + 1].strip()))
             )
             if is_list or is_table or cur.startswith(("```", ":::")) or _UNDERLINE_RE.match(lines[i]):
                 break  # רשימה / טבלה / גדר קוד — לא חלק מהתקציר
