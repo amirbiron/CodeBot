@@ -1,5 +1,5 @@
 ---
-summary: מסך ה־Admin החדש (`/admin/observability`) מרכז נתוני ניטור בזמן אמת לטובת צוותי SRE והמפתחים. העמוד מתמקד בשלושה עקרונות
+summary: 'מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים, סביב שלושה עקרונות: שקיפות בכרטיסי מצב וגרפים, חקירה מהירה בטבלת התראות עם סינון, ו-API מתועד בשלושה Endpoints סימטריים.'
 ---
 
 # 📡 Observability Dashboard & API

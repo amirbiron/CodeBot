@@ -1,6 +1,6 @@
 Query Performance Profiler
 ==========================
-:summary: Query Performance Profiler הוא כלי ניטור לשאילתות MongoDB איטיות, המספק
+:summary: כלי ניטור לשאילתות MongoDB איטיות: דשבורד ב-WebApp שמציג את השאילתות הכבדות, ה-API שמאחוריו, ומה הכלי במפורש אינו עושה.
 
 .. contents:: תוכן עניינים
    :local:

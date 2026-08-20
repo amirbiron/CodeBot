@@ -1,5 +1,5 @@
 ---
-summary: המדריך הזה נכתב לאחר ה-Refactor הגדול של דצמבר 2025, שבו הורדנו את ה-p95 של המערכת מ-1.8 שניות ל-200ms. אלו העקרונות שחייבים להישמר
+summary: 'עקרונות הביצועים של המערכת אחרי הרפקטור שהוריד את ה-p95 מ-1.8 שניות ל-200ms: Cache First, Projection, חישוב ב-DB, אינדקסים מורכבים, ו-Lazy Loading.'
 ---
 
 🚀 The Performance Bible: CodeKeeper Optimization Guide

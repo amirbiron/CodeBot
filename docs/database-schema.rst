@@ -1,5 +1,6 @@
 Database Schema
 ===============
+:summary: סכמת מסד הנתונים: האוספים code_snippets, users, bookmarks ו-sessions, השדות בכל אחד, והאינדקסים.
 
 Collections
 -----------

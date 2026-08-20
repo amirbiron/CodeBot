@@ -1,6 +1,6 @@
 ביצועים והרחבה (Performance & Scaling)
 =======================================
-:summary: בדקו לוגים ומדדים לאחר עדכון ערכי Pool/Timeout
+:summary: ביצועים והרחבה: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
 
 עימוד (Pagination)
 -------------------

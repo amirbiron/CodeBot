@@ -194,10 +194,60 @@ def test_check_warns_about_undeclared_pages_without_failing(tmp_path):
     ההידרדרות הדרגתית היא כל הרעיון: עמוד בלי תקציר עדיין מופיע במפה
     עם הכותרת שלו, ולכן אין סיבה להפיל עליו את ה-CI.
     """
+    # מפה טרייה ב-tmp_path, ולא AI-MAP.md שבריפו: הצמדה למפה המקומטת
+    # הייתה מפילה את הסוויטה הזו על "המפה לא רועננה" — כשל שכבר יש לו
+    # בדיקה ייעודית (test_ai_map_freshness) עם הודעה שמסבירה מה לעשות.
+    # כאן נבדק רק מה שהבדיקה מתיימרת לבדוק: --check מתריע ולא מפיל.
+    fresh = tmp_path / "fresh-map.md"
+    written = _run_cli("--out", str(fresh), cwd=tmp_path)
+    assert written.returncode == 0, written.stdout + written.stderr
+
+    proc = _run_cli("--check", str(fresh), cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "עדכני" in proc.stdout, proc.stdout
+
     g = _load_generator()
     g.build_map()
-    assert isinstance(g.undeclared, list)
-    proc = _run_cli("--check", str(ROOT / "AI-MAP.md"), cwd=tmp_path)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
     if g.undeclared:
         assert "התרעה:" in proc.stdout, proc.stdout
+        assert g.undeclared[0] in proc.stdout, proc.stdout
+
+
+def test_summary_field_must_sit_in_the_docinfo_position():
+    """``:summary:`` אחרי פרוזה או בתוך סעיף אינו התקציר של המסמך.
+
+    ``docutils`` מקדם ל-``<docinfo>`` רק field list שבא ראשון אחרי כותרת
+    המסמך (``transforms/frontmatter.py``, ``DocInfo``). שדה מאוחר יותר
+    מרונדר כשדה מקומי בתוך הסעיף שלו, ולכן הצגתו כתקציר העמוד סותרת את
+    מה שהעמוד עצמו מציג.
+    """
+    g = _load_generator()
+
+    late = ["כותרת", "=====", "", "פסקה רגילה שפותחת את העמוד.", "",
+            "סעיף", "-----", "", ":summary: לא התקציר של המסמך.", "", "עוד."]
+    assert g._declared_summary(late, Path("x.rst")) == ""
+
+    after_blank = ["כותרת", "=====", "", "פסקה.", "", ":summary: גם לא.", ""]
+    assert g._declared_summary(after_blank, Path("x.rst")) == ""
+
+    # והמיקום התקין ממשיך לעבוד, גם עם יעד לפני הכותרת ועם שדה נוסף
+    ok = [".. _label:", "", "כותרת", "=====", ":orphan:",
+          ":summary: זה כן התקציר.", "", "גוף."]
+    assert g._declared_summary(ok, Path("x.rst")) == "זה כן התקציר."
+
+
+def test_a_declared_summary_means_the_page_is_not_a_scaffold():
+    """עמוד עם הצהרת תקציר אינו פיגום autodoc, גם בלי פרוזה בגוף.
+
+    רגרסיה: כשהוסרו פסקאות פתיחה שהיו כפילות של ההצהרה, ``docs/modules/index.rst``
+    נשאר עם כותרות והוראות ``automodule`` בלבד — ולכן סווג כפיגום ונשר מהמפה
+    בשקט. הצהרה היא תוכן שמישהו כתב, וזה בדיוק מה שהמסנן אמור לחפש.
+    """
+    g = _load_generator()
+    scaffold = ["מודולים", "========", "", "חלק", "----", "",
+                ".. automodule:: x", "   :members:"]
+    assert g._is_autodoc_scaffold(scaffold, Path("x.rst")) is True
+
+    declared = ["מודולים", "========", ":summary: תיעוד המודולים הראשיים.", "",
+                "חלק", "----", "", ".. automodule:: x", "   :members:"]
+    assert g._is_autodoc_scaffold(declared, Path("x.rst")) is False

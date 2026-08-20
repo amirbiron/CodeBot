@@ -4,8 +4,6 @@ Branch Protection & PR Rules
 
 מטרה
 -----
-לרכז נהלים ברורים להגנה על ענפים (Branch Protection) ולחוקי PR בפרויקט.
-
 כללי ענפים
 -----------
 - שמות ענפים: ``feat/...``, ``fix/...``, ``chore/...``, ``docs/...``, ``refactor/...``

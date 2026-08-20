@@ -2,21 +2,23 @@
 """מחולל AI-MAP.md — מפת ניווט של אתר התיעוד, נגזרת מהקבצים עצמם.
 
 הבעיה שהקובץ פותר: באתר יש כ-240 עמודים, וסוכן שמחפש תשובה גורר את
-כולם או מוותר. המפה נותנת שורה אחת לכל עמוד ידני — נתיב, כותרת, ותקציר
-שנשלף מהפסקה הראשונה — כדי שהחיפוש יתחיל מקובץ אחד.
+כולם או מוותר. המפה נותנת שורה אחת לכל עמוד ידני — נתיב, כותרת, והתקציר
+שהעמוד מצהיר עליו בראשו — כדי שהחיפוש יתחיל מקובץ אחד.
 
 עקרונות, לפי תוכנית עיגון התיעוד (אוגוסט 2026):
 
 - **נגזר, לא נכתב.** ההיררכיה נלקחת מה-toctree של Sphinx (מקור האמת),
-  והתקצירים מהעמודים עצמם. עריכה ידנית של הפלט תידרס בריצה הבאה.
+  והתקצירים מהצהרת העמוד. עריכה ידנית של הפלט תידרס בריצה הבאה.
 - **דטרמיניסטי.** אותו קלט ← אותו פלט, בייט בבייט: סדר ה-toctree נשמר,
   אין חותמות זמן, קידוד UTF-8 קבוע. בלי זה כל השוואה הופכת לרעש.
 - **מסונן מכנית.** עמודים שהם פיגום autodoc בלבד (הוראת automodule בלי
-  פרוזה) לא נכללים — התוכן שלהם נוצר רק בזמן בנייה, ומהריפו אין בהם
-  כלום. הם נספרים בשורת סיכום כדי שההשמטה תהיה גלויה.
-- **שליפת תקציר עמידה.** לא "השורה הראשונה" באופן עיוור: מדלגים על
-  directives, admonitions, הערות, שדות ו-toctree, ולוקחים את פסקת
-  הפרוזה הראשונה, קצוצה לתקרת תווים.
+  שום תוכן משלהם) לא נכללים — התוכן שלהם נוצר רק בזמן בנייה, ומהריפו
+  אין בהם כלום. הם נספרים בשורת סיכום כדי שההשמטה תהיה גלויה.
+- **התקציר מוצהר, לא מנוחש.** ב-``.rst`` שדה ``:summary:`` ברשימת השדות
+  שמיד אחרי הכותרת; ב-``.md`` המפתח ``summary`` ב-front matter. אין
+  הצהרה — שורת המפה מציגה כותרת בלבד, ו-``--check`` מתריע. הגרסה
+  הקודמת חילצה את פסקת הפרוזה הראשונה, וכדי לעשות זאת מימשה חלקים
+  מ-GFM ומ-RST ביד; ארבעה סבבי ריוויו מצאו שם מקרי קצה.
 
 בלי --out המפה מודפסת ל-stdout ושום קובץ לא נכתב; --out קובע מתי ולאן.
 ה-workflow מעביר --out AI-MAP.md בשורש הריפו ולא ב-docs/, כי MyST פעיל
@@ -174,22 +176,53 @@ def _front_matter_summary(lines: list[str]) -> str:
 
 
 def _rst_field_summary(lines: list[str]) -> str:
-    """שדה ``:summary:`` בעמודה 0, כולל שורות המשך מוזחות.
+    """שדה ``:summary:`` מרשימת השדות שמיד אחרי כותרת המסמך.
 
-    עמודה 0 בדיוק, כי זה מה ש-``docutils`` מפרש כשדה ברמת המסמך; שורה
-    מוזחת עם אותו טקסט היא תוכן של בלוק אחר.
+    זה בדיוק המיקום ש-``docutils`` מקדם ל-``<docinfo>``:
+    ``docutils/transforms/frontmatter.py``, מחלקת ``DocInfo`` —
+    *"If the document contains a field list as the first element
+    (instances of nodes.PreBibliographic are ignored)"*, ו-*"This
+    transform should be run after the DocTitle transform"*.
+
+    שדה ``:summary:`` שמופיע מאוחר יותר — אחרי פרוזה או בתוך סעיף —
+    אינו docinfo, ואינו התקציר של המסמך. חיפוש בכל הקובץ היה מציג אותו
+    ככזה במפה, בסתירה למה שהעמוד עצמו מרנדר.
+
+    ``PreBibliographic`` שמדולג כאן: הערות ו-directives (``.. ``), שהם
+    מה שמופיע בפועל לפני הכותרת בעמודי הפרויקט (``.. _label:``).
     """
-    for i, line in enumerate(lines):
+    i, n = 0, len(lines)
+    # לדלג על מה שקודם לכותרת: שורות ריקות, הערות ויעדים
+    while i < n and (not lines[i].strip() or _DIRECTIVE_RE.match(lines[i])):
+        i += 1
+    # הכותרת עצמה: טקסט + קו, או קו + טקסט + קו
+    if i < n and _UNDERLINE_RE.match(lines[i]):
+        i += 1  # overline
+    if i + 1 < n and lines[i].strip() and _UNDERLINE_RE.match(lines[i + 1]):
+        i += 2
+    else:
+        return ""  # אין כותרת מסמך — אין מיקום docinfo
+    # רשימת השדות: מותרות שורות ריקות לפניה, ואחריה עוצרים בתוכן רגיל
+    while i < n and not lines[i].strip():
+        i += 1
+    summary = ""
+    while i < n:
+        line = lines[i]
+        if not line.strip():
+            break  # שורה ריקה סוגרת את רשימת השדות
+        if not _FIELD_RE.match(line):
+            break  # תוכן רגיל — רשימת השדות נגמרה
         m = _SUMMARY_FIELD_RE.match(line)
-        if not m:
-            continue
-        parts = [m.group(1)]
-        for cont in lines[i + 1:]:
-            if not cont.strip() or not cont[:1].isspace():
-                break
-            parts.append(cont.strip())
-        return " ".join(" ".join(parts).split())
-    return ""
+        parts = [m.group(1)] if m else []
+        i += 1
+        while i < n and lines[i].strip() and lines[i][:1].isspace():
+            if m:
+                parts.append(lines[i].strip())
+            i += 1
+        if m:
+            summary = " ".join(" ".join(parts).split())
+            break
+    return summary
 
 
 def _is_autodoc_scaffold(lines: list[str], path: Path) -> bool:
@@ -201,6 +234,11 @@ def _is_autodoc_scaffold(lines: list[str], path: Path) -> bool:
     שתי הנוסחאות מסווגות את אותם 92 עמודים בדיוק.
     """
     if not any(_AUTODOC_RE.match(ln) for ln in lines):
+        return False
+    if _declared_summary(lines, path):
+        # הצהרת תקציר היא תוכן שמישהו כתב, וזה בדיוק מה שהמסנן מחפש.
+        # בלי הכלל הזה עמוד שכל הפרוזה שלו הייתה כפילות של ההצהרה
+        # והוסרה — כמו docs/modules/index.rst — נשר מהמפה בשקט.
         return False
     i, n = 0, len(lines)
     while i < n:
@@ -245,9 +283,10 @@ def build_map() -> str:
     out.append("<!-- קובץ זה נוצר אוטומטית על ידי scripts/generate_ai_map.py — אל תערכו ידנית; עריכה תידרס. -->")
     out.append("")
     out.append(
-        "שורה לכל עמוד ידני באתר התיעוד: נתיב, כותרת ותקציר מהפסקה "
-        "הראשונה. ההיררכיה נגזרת מה-toctree. עמודי פיגום של autodoc "
-        "(ללא פרוזה) מסוננים — התוכן שלהם נוצר רק בזמן בנייה; "
+        "שורה לכל עמוד ידני באתר התיעוד: נתיב, כותרת, והתקציר שהעמוד "
+        "מצהיר עליו בראשו (`:summary:` ב-rst, `summary` ב-front matter). "
+        "עמוד בלי הצהרה מופיע עם הכותרת בלבד. ההיררכיה נגזרת מה-toctree. "
+        "עמודי פיגום של autodoc מסוננים — התוכן שלהם נוצר רק בזמן בנייה; "
         "לחתימות קראו את הקוד עצמו."
     )
     out.append("")

@@ -1,6 +1,6 @@
 שרת ה-MCP — חיבור Claude ל-CodeKeeper
 ======================================
-:summary: שרת MCP (Model Context Protocol) שחושף את CodeKeeper ל-Claude: הקבצים והאוספים האישיים של כל משתמש, ולאדמין — גם דפדפן הריפו מעל ה-Repo Sync Engine. עובד גם מול Claude.ai (Custom Connector דרך OAuth 2.1) וגם מול Claude Code / Claude Desktop (טוקן אישי).
+:summary: שרת ה-MCP שחושף את CodeKeeper ל-Claude: הכלים, האימות וההרשאות, פריימר הסוכן, עריכה מהדפדפן, והפעלה צעד אחר צעד מול Claude.ai ומול Claude Code.
 
 שרת `MCP <https://modelcontextprotocol.io>`_ (Model Context Protocol) שחושף את
 CodeKeeper ל-Claude: הקבצים והאוספים האישיים של כל משתמש, ולאדמין — גם **דפדפן

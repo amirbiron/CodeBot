@@ -1,5 +1,6 @@
 WebApp API Reference
 ====================
+:summary: רפרנס ה-API של ה-WebApp: ה-endpoints, זרימת האימות מול Telegram, מבנה התשובה, וקודי השגיאה הנפוצים.
 
 Endpoints
 ---------

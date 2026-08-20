@@ -1,6 +1,6 @@
 Rate Limiting
 =============
-:summary: בעת ביצוע קריאות א-סינכרוניות השתמשו ב‑http_async המספק aiohttp.ClientSession משותף עם הגדרות מ‑ENV.
+:summary: רפרנס הקונפיגורציה של המערכת: Rate Limiting, משתני סביבה, Pooling ו-Timeouts למסדי הנתונים ול-Redis, לקוחות ה-HTTP הסינכרוני והאסינכרוני, Flask, הבוט והמדדים.
 
 Environment variables
 ---------------------

@@ -5,9 +5,6 @@ Background Jobs Monitor
 סקירה כללית
 -----------
 
-פיצ'ר ה-Background Jobs Monitor מספק נראות (Observability) מלאה לכל ה-Jobs הרצים ברקע במערכת,
-כולל פעולות משתמש דינמיות (Drive, Reminders, Batch Operations).
-
 **מה הפיצ'ר נותן:**
 
 - רישום מרכזי של כל ה-Jobs במערכת (``JobRegistry``)

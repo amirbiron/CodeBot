@@ -4,8 +4,6 @@ Conversation Handlers & States
 
 סקירה
 -----
-מסמך זה מרכז את הזרימות העיקריות של ה‑ConversationHandlers וה‑states.
-
 רשימת States (מבחר בפועל)
 --------------------------
 

@@ -4,8 +4,6 @@ summary: 'מטרה: לשמור גבולות שכבות ברורים ולמנוע
 
 # כללי שכבות – CodeBot
 
-מטרה: לשמור גבולות שכבות ברורים ולמנוע תלות מעגלית/דליפת תשתית.
-
 ## שכבות
 - **domain**: ישויות, שירותים טהורים (ללא IO). אין תלות ב־handlers/infra/services/database.
 - **application**: תזמור Use-Cases וממשקים. תלות ל־domain בלבד (לא infra/handlers).

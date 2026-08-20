@@ -6,8 +6,6 @@ Static Performance & Security Checklist (gzip/br, Cache, SRI)
 
 מטרה
 -----
-להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
-
 דחיסה (br/gzip)
 ----------------
 - הפעילו דחיסה בצד השרת. לדוגמה עם Flask אפשר להשתמש ב-``Flask-Compress``.

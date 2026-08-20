@@ -4,8 +4,6 @@ Rate Limiting
 
 מבוא
 ----
-מערכת הגבלת קצב אחודה לבוט ולווב, עם Shadow Mode, Soft‑Warning ב‑80% ועקיפת מנהלים.
-
 Shadow Mode
 -----------
 - ``RATE_LIMIT_SHADOW_MODE=true``: סופר חריגות לימיט אך לא חוסם.

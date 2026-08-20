@@ -1,6 +1,6 @@
 Troubleshooting Guide
 =====================
-:summary: ModuleNotFoundError: No module named 'telegram'
+:summary: מדריך פתרון תקלות: שגיאות ייבוא בזמן טסטים, שגיאות parse_mode, בעיות event loop של asyncio, וכלים לדיבוג מהיר כולל בדיקת חיבור ל-MongoDB.
 
 שגיאות נפוצות
 --------------
