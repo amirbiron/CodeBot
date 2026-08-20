@@ -4101,22 +4101,13 @@ def premium_or_admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def is_admin(user_id: int) -> bool:
-    """בודק אם משתמש הוא אדמין"""
-    admin_ids_env = os.getenv('ADMIN_USER_IDS', '')
-    admin_ids_list = admin_ids_env.split(',') if admin_ids_env else []
-    admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
-    return user_id in admin_ids
-
-def is_premium(user_id: int) -> bool:
-    """בודק אם משתמש הוא פרימיום לפי ENV PREMIUM_USER_IDS"""
-    try:
-        premium_ids_env = os.getenv('PREMIUM_USER_IDS', '')
-        premium_ids_list = premium_ids_env.split(',') if premium_ids_env else []
-        premium_ids = [int(x.strip()) for x in premium_ids_list if x.strip().isdigit()]
-        return user_id in premium_ids
-    except Exception:
-        return False
+# ``is_admin``/``is_premium`` חיים ב-``user_roles`` — מודול טהור בשורש. הם
+# מיוצאים כאן בשמם כדי שכל מי שכבר עושה ``from webapp.app import is_admin``
+# (themes_api, routes/repo_browser, routes/auth_routes) ימשיך לעבוד.
+# הסיבה להוצאה: הלוגיקה הייתה משוכפלת מילה במילה גם ב-``code_tools_api``,
+# ובנוסף ``sticky_notes_api`` זקוק לה — ו-``app`` מייבא אותו, כך שייבוא הפוך
+# היה יוצר מעגל.
+from user_roles import is_admin, is_premium  # noqa: E402,F401
 
 
 # --- Admin Impersonation Functions ---

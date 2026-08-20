@@ -12,22 +12,10 @@ from services.code_execution_service import get_code_execution_service
 
 code_tools_bp = Blueprint("code_tools", __name__, url_prefix="/api/code")
 
-def _is_admin(user_id: int) -> bool:
-    admin_ids_env = os.getenv("ADMIN_USER_IDS", "")
-    admin_ids_list = admin_ids_env.split(",") if admin_ids_env else []
-    admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
-    return user_id in admin_ids
-
-
-def _is_premium(user_id: int) -> bool:
-    """בודק אם משתמש הוא פרימיום לפי ENV PREMIUM_USER_IDS"""
-    try:
-        premium_ids_env = os.getenv("PREMIUM_USER_IDS", "")
-        premium_ids_list = premium_ids_env.split(",") if premium_ids_env else []
-        premium_ids = [int(x.strip()) for x in premium_ids_list if x.strip().isdigit()]
-        return user_id in premium_ids
-    except Exception:
-        return False
+# היו כאן שני עותקים מדויקים של הלוגיקה שב-``webapp/app``. שני עותקים של
+# בדיקת הרשאות הם שני מקומות שיכולים לסטות, ורק אחד מהם ייבדק.
+from user_roles import is_admin as _is_admin  # noqa: E402
+from user_roles import is_premium as _is_premium  # noqa: E402
 
 
 def _is_code_execution_enabled() -> bool:
