@@ -213,6 +213,56 @@ def test_check_warns_about_undeclared_pages_without_failing(tmp_path):
         assert g.undeclared[0] in proc.stdout, proc.stdout
 
 
+def test_a_summary_that_only_repeats_the_title_is_dropped(tmp_path):
+    """תקציר שכל כולו הכותרת אינו נכנס לשורת המפה.
+
+    שורה כמו ``**ניהול גיבויים**: ניהול גיבויים`` היא רעש: היא תופסת
+    מקום בקובץ שכל מטרתו לחסוך קריאה, ולא מוסיפה מילה. הכלל המשלים
+    לזה נמצא ב-``docs/doc-authoring.rst`` ("אל תתחילו בשם העמוד") —
+    שם הוא מונע את הכפילות בכתיבה, וכאן המחולל מנקה מה שנשאר.
+
+    אף עמוד בריפו אינו מפעיל את התנאי כרגע. הבדיקה שומרת על ההתנהגות,
+    לא מתקנת עמוד קיים.
+
+    שימו לב שהתנאי הוא הכלה ולא שוויון: גם תקציר שהוא תת-מחרוזת של
+    הכותרת יורד. זה מכוון עבור המקרה הזה, ולכן תקציר קצר במיוחד עלול
+    לרדת גם כשהוא לא כפילות מדויקת.
+    """
+    g = _load_generator()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.rst").write_text(
+        "שורש\n====\n\n.. toctree::\n   :caption: קבוצה\n\n"
+        "   echo\n   ellipsis\n   real\n",
+        encoding="utf-8",
+    )
+    (docs / "echo.rst").write_text(
+        "ניהול גיבויים\n=============\n:summary: ניהול גיבויים\n\nגוף.\n",
+        encoding="utf-8",
+    )
+    # אותו מקרה, אבל הכותב סיים בשלוש נקודות — ה-rstrip הוא שמזהה אותו
+    (docs / "ellipsis.rst").write_text(
+        "ניהול הרשאות\n============\n:summary: ניהול הרשאות…\n\nגוף.\n",
+        encoding="utf-8",
+    )
+    (docs / "real.rst").write_text(
+        "ניהול תבניות\n============\n:summary: איך מוסיפים תבנית חדשה.\n\nגוף.\n",
+        encoding="utf-8",
+    )
+    g.ROOT, g.DOCS = tmp_path, docs
+
+    content = g.build_map()
+
+    assert "- `docs/echo.rst` — **ניהול גיבויים**" in content
+    assert "**ניהול גיבויים**: " not in content
+    assert "- `docs/ellipsis.rst` — **ניהול הרשאות**" in content
+    assert "**ניהול הרשאות**: " not in content
+    # בקרה: בלי זה הבדיקה הייתה עוברת גם אם *כל* התקצירים היו נופלים
+    assert (
+        "- `docs/real.rst` — **ניהול תבניות**: איך מוסיפים תבנית חדשה." in content
+    )
+
+
 def test_summary_field_must_sit_at_the_top_of_the_page():
     """``:summary:`` אחרי פרוזה או בתוך סעיף אינו התקציר של המסמך.
 
