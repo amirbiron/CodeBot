@@ -1235,6 +1235,14 @@ except Exception:
     # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
 
+# Note Boards API (לוחות פתקים — פתקים שאינם צמודים לקובץ).
+# ראוטי הפתקים של הלוח יושבים ב-sticky_notes_bp שלמעלה; כאן רק הלוחות עצמם.
+try:
+    from webapp.note_boards_api import note_boards_bp  # noqa: E402
+    app.register_blueprint(note_boards_bp)
+except Exception:
+    pass
+
 # Web Push API (public key + subscribe/unsubscribe)
 try:
     from webapp.push_api import push_bp, start_sender_if_enabled  # noqa: E402
