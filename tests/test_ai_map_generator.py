@@ -290,35 +290,90 @@ def test_prebibliographic_between_title_and_field_is_skipped():
     assert g._declared_summary(comment, Path("x.rst")) == "התקציר."
 
 
-def test_only_prebibliographic_forms_are_skipped_before_the_field_list():
-    """``.. note::`` לפני ``:summary:`` מבטל את מעמד ה-docinfo של השדה.
+def test_only_invisible_markup_is_skipped_before_the_field_list():
+    """רק הערה ויעד מדולגים; כל directive עוצר את הסריקה.
 
-    ``DocInfo`` מתעלם רק מ-``nodes.PreBibliographic``. נבדק מול
-    ``docutils.nodes``: ``comment``, ``target``, ``meta``, ``raw`` ו-
-    ``substitution_definition`` הם כאלה; ``note`` אינו. דילוג על כל
-    directive היה מציג במפה תקציר שהעמוד עצמו אינו מציג ככזה.
+    ההצהרה היא רשימת השדות הראשונה שרואים בראש העמוד. הערה ויעד אינם
+    מרנדרים דבר, ולכן שדה שבא אחריהם עדיין נראה ראשון; directive מרנדר
+    תוכן, ואז השדה כבר אינו בראש העמוד ואינו ההצהרה.
     """
     g = _load_generator()
 
-    for prefix in (".. _label:", ".. הערה חופשית", ".. meta::", ".."):
+    for prefix in (".. _label:", ".. __: https://example.com", ".. הערה חופשית", ".."):
         page = ["כותרת", "=====", "", prefix, "", ":summary: התקציר.", "", "גוף."]
         assert g._declared_summary(page, Path("x.rst")) == "התקציר.", prefix
 
     for prefix in (".. note::", ".. code-block:: python", ".. toctree::"):
-        page = ["כותרת", "=====", "", prefix, "   גוף מוזח", "", ":summary: לא docinfo.", ""]
+        page = ["כותרת", "=====", "", prefix, "   גוף מוזח", "", ":summary: לא הצהרה.", ""]
         assert g._declared_summary(page, Path("x.rst")) == "", prefix
 
 
-def test_scaffold_detection_handles_a_multiline_directive_first():
-    """עמוד פיגום שנפתח ב-directive רב-שורות עדיין מזוהה כפיגום.
+def test_domain_scoped_directives_are_not_mistaken_for_comments():
+    """``.. py:function::`` הוא directive, לא הערה — גם עם ``:`` בשם.
 
-    הערה על מה שהבדיקה הזו **אינה** מוכיחה: הרצתי מוטציה שמבטלת את
-    צריכת הגוף כאן, והבדיקה עברה. הסיבה היא ששורה מוזחת נתפסת ממילא
-    בשומר שמעליה (``raw[:1].isspace()``), ולכן הכפילות שהוסרה לא נשאה
-    משקל בפועל. השיתוף ב-``_consume_indented_body`` נשאר כי הוא מונע
-    סטייה עתידית בין שני המקומות, לא כי הוא תיקן באג קיים.
+    ``docutils/parsers/rst/states.py`` מגדיר את שם ה-directive כ-
+    ``Inliner.simplename`` (שורה 673): ``(?:(?!_)\w)+(?:[-._+:](?:(?!_)\w)+)*``
+    — ``:`` הוא מפריד פנימי חוקי. ניסוח עצמאי קודם דרש ``[\w.+-]+::``,
+    לא הכיר ``:`` בשם, ולכן סיווג ``.. py:function::`` כהערה: המחולל דילג
+    עליו והציג את השדה שאחריו כתקציר, בעוד שבעמוד עצמו ה-directive
+    מרונדר לפניו והשדה כבר אינו בראש.
     """
+    g = _load_generator()
+
+    for directive in (".. py:function:: foo(bar)", ".. js:class:: X", ".. c:macro:: M"):
+        assert g._is_invisible_markup(directive) is False, directive
+        page = ["כותרת", "=====", "", directive, "   :module: m", "", ":summary: לא הצהרה.", ""]
+        assert g._declared_summary(page, Path("x.rst")) == "", directive
+
+
+def test_raw_stops_the_scan_but_meta_does_not():
+    """``.. raw::`` מרנדר תוכן בגוף; ``.. meta::`` לא. נמדד, לא נוחש.
+
+    בבנייה אמיתית של Sphinx ``.. raw:: html`` הוציא את התוכן שלו לגוף,
+    ממש לפני רשימת השדות — ולכן שדה שבא אחריו כבר אינו בראש העמוד.
+    ``.. meta::`` הוציא ``<meta>`` ל-``<head>`` ולא כלום לגוף. הביטוי
+    הקודם התייחס לשניהם אותו דבר ודילג על שניהם.
+    """
+    g = _load_generator()
+
+    raw_page = ["כותרת", "=====", "", ".. raw:: html", "   <p>x</p>", "",
+                ":summary: לא הצהרה.", ""]
+    assert g._declared_summary(raw_page, Path("x.rst")) == ""
+
+    meta_page = ["כותרת", "=====", "", ".. meta::", "   :description: x", "",
+                 ":summary: התקציר.", ""]
+    assert g._declared_summary(meta_page, Path("x.rst")) == "התקציר."
+
+
+def test_a_comment_may_contain_a_double_colon():
+    """``.. טקסט עם :: בפנים`` הוא הערה — שם directive אינו מכיל רווח.
+
+    בלי הכלל הזה תיקון ה-``:``-בשם היה גולש לצד השני ומסווג הערות
+    כ-directives, ואז יעד או הערה מעל הצהרה היו מסתירים תקציר תקין.
+    """
+    g = _load_generator()
+
+    assert g._is_invisible_markup(".. הערה עם :: בתוכה") is True
+    page = ["כותרת", "=====", "", ".. הערה עם :: בתוכה", "", ":summary: התקציר.", ""]
+    assert g._declared_summary(page, Path("x.rst")) == "התקציר."
+
+
+def test_scaffold_detection_handles_a_multiline_directive_first():
+    """עמוד פיגום שנפתח ב-directive רב-שורות עדיין מזוהה כפיגום."""
     g = _load_generator()
     page = [".. meta::", "   :description: תיאור", "", "מודולים", "========", "",
             ".. automodule:: x", "   :members:"]
     assert g._is_autodoc_scaffold(page, Path("x.rst")) is True
+
+
+def test_a_multiline_comment_before_the_title_does_not_hide_the_summary():
+    """הגוף המוזח של הערה רב-שורות נצרך, ולכן הכותרת שאחריה נמצאת.
+
+    זו הבדיקה שמגנה על ``_consume_indented_body``: מוטציה שמחליפה אותו
+    ב-``i += 1`` מפילה אותה, כי הסריקה נעצרת על שורת הגוף המוזחת,
+    הכותרת לא נמצאת, ו-``_rst_field_summary`` מחזיר מחרוזת ריקה.
+    """
+    g = _load_generator()
+    page = [".. הערה רב-שורות", "   המשך ההערה כאן", "", "כותרת", "=====", "",
+            ":summary: התקציר.", "", "גוף."]
+    assert g._declared_summary(page, Path("x.rst")) == "התקציר."

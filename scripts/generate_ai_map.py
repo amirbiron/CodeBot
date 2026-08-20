@@ -45,20 +45,39 @@ _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
 # שדה ההצהרה, בעמודה 0 בדיוק — כפי ש-docutils מפרש שדה ברמת המסמך
 _SUMMARY_FIELD_RE = re.compile(r"^:summary:[ \t]*(.*)$")
-# ``DocInfo`` מתעלם רק מ-``nodes.PreBibliographic``. נבדק מול
-# ``docutils.nodes``: תת-המחלקות כוללות ``comment``, ``target``, ``meta``,
-# ``raw`` ו-``substitution_definition`` — ו**אינן** כוללות ``note`` או
-# admonition אחר. לכן ``.. note::`` לפני ``:summary:`` הופך את השדה ללא-
-# docinfo, ודילוג עליו היה מציג במפה תקציר שהעמוד עצמו אינו מציג ככזה.
-_PREBIBLIOGRAPHIC_RE = re.compile(
-    r"^\.\.(?:"
-    r"[ \t]+_[^:]+:"                                   # יעד: .. _label:
-    r"|[ \t]+(?:meta|raw)::"                           # meta / raw
-    r"|[ \t]+\|[^|]+\|[ \t]+\w+::"                    # הגדרת substitution
-    r"|[ \t]+(?![\w.+-]+::)"                           # הערה: .. טקסט (בלי directive)
-    r"|[ \t]*$"                                        # ".." לבד
-    r")"
-)
+# מה מדלגים עליו בדרך אל ההצהרה, ולמה דווקא זה.
+#
+# הגרסה הקודמת כאן מידלה את ``DocInfo`` של docutils — הטרנספורם שמקדם
+# רשימת שדות ל-``<docinfo>`` ומתעלם בדרך מ-``nodes.PreBibliographic``.
+# אימות מול הצרכן האמיתי הראה שהמודל הזה כלל אינו רץ כאן: Sphinx מכבה את
+# ``doctitle_xform`` (``sphinx/environment/__init__.py``, שורה 66:
+# ``'doctitle_xform': False``), הכותרת נשארת בתוך ``<section>``,
+# ``DocInfo`` לא מוצא רשימת שדות כילד ראשון של המסמך — ואין קידום. בבנייה
+# מלאה של האתר יש **אפס** בלוקי ``docinfo``, ו-``:summary:`` מרונדר כמו
+# שהוא: ``<dl class="field-list simple">`` מתחת ל-H1.
+#
+# הכלל שבאמת חל, והוא גם מה ש-``docs/doc-authoring.rst`` מבקש: ההצהרה היא
+# רשימת השדות הראשונה שרואים בראש העמוד. לכן מדלגים רק על מה ש**אינו
+# מרנדר דבר** באותו מקום, וכל השאר עוצר את הסריקה. מה שקוף ומה לא — נמדד
+# בבנייה אמיתית ולא נוחש: ``.. meta::`` יוצא ל-``<head>``, הגדרת
+# substitution לא מייצרת פלט, ואילו ``.. raw:: html`` **כן** מרנדר תוכן
+# בגוף, לפני רשימת השדות. הביטוי הקודם דילג על ``raw`` — טעות שנייה
+# באותו מודל, שאיש לא דיווח עליה.
+#
+# הסיווג מועתק מהמקור ולא מנוסח מחדש: ``docutils/parsers/rst/states.py``,
+# ``Inliner.simplename`` (שורה 673) ו-``Body.explicit.constructs``. שם ה-
+# directive הוא ``simplename``, שמתיר ``:`` פנימי — ולכן ``.. py:function::``
+# הוא directive לכל דבר. ניסוח עצמאי קודם לא הכיר ``:`` בשם, סיווג אותו
+# כהערה, ודילג עליו.
+_SIMPLENAME = r"(?:(?!_)\w)+(?:[-._+:](?:(?!_)\w)+)*"
+# ``Body.patterns['explicit_markup']`` — רווחים בלבד, לא טאב
+_EXPLICIT_MARKUP_RE = re.compile(r"^\.\.( +|$)")
+_RST_TARGET_RE = re.compile(r"^\.\. +_(?![ ]|$)")
+_RST_SUBSTITUTION_RE = re.compile(r"^\.\. +\|(?![ ]|$)")
+_RST_LABELLED_RE = re.compile(r"^\.\. +\[")  # הערת שוליים או ציטוט
+_RST_DIRECTIVE_RE = re.compile(rf"^\.\. +{_SIMPLENAME} ?::( +|$)")
+# ה-directive היחיד שאינו מרנדר דבר בגוף העמוד
+_RST_META_RE = re.compile(r"^\.\. +meta ?::( +|$)")
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
 
 _AUTODOC_RE = re.compile(r"^\.\. auto(module|class|function)::")
@@ -190,12 +209,15 @@ def _front_matter_summary(lines: list[str]) -> str:
 
 
 def _consume_indented_body(lines: list[str], i: int) -> int:
-    """מדלג על הגוף המוזח של directive או הערה שהתחילו בשורה הקודמת.
+    """מדלג על הגוף המוזח של הערה או יעד שהתחילו בשורה הקודמת.
 
-    הפרימיטיב הזה משותף ל-:func:`_skip_prebibliographic` ול-
-    :func:`_is_autodoc_scaffold`. ההחלטה *איזו* שורה פותחת דילוג נשארת
-    אצל כל אחד מהם — הכללים שונים — אבל צריכת הגוף זהה, והיא בדיוק
-    המקום שבו כבר היה באג פעם אחת: קידום של שורה אחת נעצר על הגוף.
+    זה בדיוק המקום שבו כבר היה באג פעם אחת: קידום של שורה אחת נעצר על
+    הגוף המוזח, הכותרת לא נמצאה, והתקציר יצא ריק.
+
+    למה רק כאן ולא גם ב-:func:`_is_autodoc_scaffold`: שם הלולאה מדלגת
+    ממילא על כל שורה מוזחת, בשומר ``raw[:1].isspace()`` שבראשה. קריאה
+    לפרימיטיב הזה משם הייתה נכונה אבל חסרת השפעה — מוטציה שביטלה אותה
+    לא הפילה אף בדיקה — וקוד שאי אפשר להפיל אי אפשר גם לשמור עליו.
     """
     n = len(lines)
     while i < n and (not lines[i].strip() or lines[i][:1].isspace()):
@@ -203,24 +225,49 @@ def _consume_indented_body(lines: list[str], i: int) -> int:
     return i
 
 
-def _skip_prebibliographic(lines: list[str], i: int) -> int:
-    """מדלג על שורות ריקות, הערות ו-directives — כולל הגוף המוזח שלהם.
+def _is_invisible_markup(line: str) -> bool:
+    """``True`` לצורת RST שאינה מרנדרת דבר בגוף העמוד.
 
-    ``docutils`` מתעלם מ-``nodes.PreBibliographic`` בבואו לאתר את רשימת
-    השדות של ה-docinfo (``transforms/frontmatter.py``, ``DocInfo``), ואלה
-    הם בפועל הערות ויעדים כמו ``.. _label:``.
+    הסיווג לפי ``Body.explicit.constructs`` — הערת שוליים, ציטוט, יעד,
+    substitution, directive — וכל מה שלא נתפס הוא הערה (``Body.comment``).
+    מה מהן שקוף נמדד בבנייה אמיתית של Sphinx:
 
-    הגוף המוזח הוא העיקר: directive רב-שורות כמו ``.. meta::`` עם שדות
-    מתחתיו נפרס על כמה שורות, וקידום של שורה אחת בלבד היה נעצר על הגוף
-    המוזח — ואז הכותרת לא נמצאת והתקציר יוצא ריק.
+    ============================  ===========================================
+    צורה                          מה יצא ל-HTML
+    ============================  ===========================================
+    ``.. _label:``                כלום
+    ``.. הערה``                   כלום
+    ``.. meta::``                 ``<meta>`` ב-``<head>``, כלום בגוף
+    ``.. |s| replace:: x``        כלום
+    ``.. raw:: html``             התוכן עצמו, בגוף, לפני רשימת השדות
+    ``.. [1] הערת שוליים``        טקסט הערת השוליים
+    directive אחר                 מה שה-directive מרנדר
+    ============================  ===========================================
+    """
+    if not _EXPLICIT_MARKUP_RE.match(line):
+        return False
+    if _RST_TARGET_RE.match(line) or _RST_SUBSTITUTION_RE.match(line):
+        return True
+    if _RST_DIRECTIVE_RE.match(line):
+        return bool(_RST_META_RE.match(line))
+    if _RST_LABELLED_RE.match(line):
+        return False
+    return True  # הערה
+
+
+def _skip_invisible_markup(lines: list[str], i: int) -> int:
+    """מדלג על שורות ריקות, הערות ויעדים — כולל הגוף המוזח שלהם.
+
+    הגוף המוזח הוא העיקר: הערה רב-שורות נפרסת על כמה שורות, וקידום של
+    שורה אחת בלבד נעצר על הגוף המוזח — ואז הכותרת לא נמצאת והתקציר יוצא
+    ריק.
     """
     n = len(lines)
     while i < n:
-        stripped = lines[i].strip()
-        if not stripped:
+        if not lines[i].strip():
             i += 1
             continue
-        if not _PREBIBLIOGRAPHIC_RE.match(lines[i]):
+        if not _is_invisible_markup(lines[i]):
             return i
         i = _consume_indented_body(lines, i + 1)
     return i
@@ -243,7 +290,7 @@ def _rst_field_summary(lines: list[str]) -> str:
     מה שמופיע בפועל לפני הכותרת בעמודי הפרויקט (``.. _label:``).
     """
     i, n = 0, len(lines)
-    i = _skip_prebibliographic(lines, i)
+    i = _skip_invisible_markup(lines, i)
     # הכותרת עצמה: טקסט + קו, או קו + טקסט + קו
     if i < n and _UNDERLINE_RE.match(lines[i]):
         i += 1  # overline
@@ -254,7 +301,7 @@ def _rst_field_summary(lines: list[str]) -> str:
     # גם **אחרי** הכותרת מדלגים על PreBibliographic. ``DocInfo`` מתעלם
     # מהם בשני הצדדים, והקוד כאן דילג רק על שורות ריקות — כך שיעד או
     # הערה בין הכותרת לשדה היו מסתירים תקציר תקין לגמרי.
-    i = _skip_prebibliographic(lines, i)
+    i = _skip_invisible_markup(lines, i)
     summary = ""
     while i < n:
         line = lines[i]
@@ -298,9 +345,10 @@ def _is_autodoc_scaffold(lines: list[str], path: Path) -> bool:
             i += 1  # שורה ריקה או גוף מוזח של directive
             continue
         if _DIRECTIVE_RE.match(raw) or stripped == "..":
-            # כאן מדלגים על **כל** directive (כולל ``automodule``), ולא רק
-            # על PreBibliographic — זו שאלה אחרת: האם נשאר תוכן שנכתב ביד.
-            i = _consume_indented_body(lines, i + 1)
+            # כאן מדלגים על **כל** explicit markup (כולל ``automodule``),
+            # ולא רק על הצורות השקופות — זו שאלה אחרת: האם נשאר תוכן
+            # שנכתב ביד. הגוף המוזח נצרך ממילא בשומר שבראש הלולאה.
+            i += 1
             continue
         if _UNDERLINE_RE.match(raw):
             i += 1  # קו של כותרת
