@@ -43,41 +43,35 @@ SUMMARY_CAP = 220
 _DIRECTIVE_RE = re.compile(r"^\.\. ")
 _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
-# שדה ההצהרה, בעמודה 0 בדיוק — כפי ש-docutils מפרש שדה ברמת המסמך
+# שדה ההצהרה, בעמודה 0 בדיוק — שדה מוזח שייך לבלוק שמעליו
 _SUMMARY_FIELD_RE = re.compile(r"^:summary:[ \t]*(.*)$")
-# מה מדלגים עליו בדרך אל ההצהרה, ולמה דווקא זה.
+# מה מדלגים עליו בדרך אל ההצהרה, ולמה זה כלל אחד ולא רשימת שמות.
 #
-# הגרסה הקודמת כאן מידלה את ``DocInfo`` של docutils — הטרנספורם שמקדם
+# גרסה קודמת כאן מידלה את ``DocInfo`` של docutils — הטרנספורם שמקדם
 # רשימת שדות ל-``<docinfo>`` ומתעלם בדרך מ-``nodes.PreBibliographic``.
-# אימות מול הצרכן האמיתי הראה שהמודל הזה כלל אינו רץ כאן: Sphinx מכבה את
+# אימות מול הצרכן הראה שהטרנספורם הזה כלל אינו רץ כאן: Sphinx מכבה
 # ``doctitle_xform`` (``sphinx/environment/__init__.py``, שורה 66:
 # ``'doctitle_xform': False``), הכותרת נשארת בתוך ``<section>``,
 # ``DocInfo`` לא מוצא רשימת שדות כילד ראשון של המסמך — ואין קידום. בבנייה
 # מלאה של האתר יש **אפס** בלוקי ``docinfo``, ו-``:summary:`` מרונדר כמו
-# שהוא: ``<dl class="field-list simple">`` מתחת ל-H1.
+# שהוא: ``<dl class="field-list simple">`` במקום שבו הוא כתוב.
 #
-# הכלל שבאמת חל, והוא גם מה ש-``docs/doc-authoring.rst`` מבקש: ההצהרה היא
-# רשימת השדות הראשונה שרואים בראש העמוד. לכן מדלגים רק על מה ש**אינו
-# מרנדר דבר** באותו מקום, וכל השאר עוצר את הסריקה. מה שקוף ומה לא — נמדד
-# בבנייה אמיתית ולא נוחש: ``.. meta::`` יוצא ל-``<head>``, הגדרת
-# substitution לא מייצרת פלט, ואילו ``.. raw:: html`` **כן** מרנדר תוכן
-# בגוף, לפני רשימת השדות. הביטוי הקודם דילג על ``raw`` — טעות שנייה
-# באותו מודל, שאיש לא דיווח עליה.
+# מהמודל המת ההוא נולדה שאלה שאין לה תשובה יציבה: "אילו directives
+# שקופים?". שלושה סבבי ריוויו רצופים נפלו עליה — פעם ``.. note::``, פעם
+# ``.. py:function::``, פעם ``.. raw::``, פעם ``.. default-role::``. כל
+# תשובה הייתה רשימת שמות שמישהו ניחש, וכל directive חדש בסביבה הפיל
+# אותה שוב.
 #
-# הסיווג מועתק מהמקור ולא מנוסח מחדש: ``docutils/parsers/rst/states.py``,
-# ``Inliner.simplename`` (שורה 673) ו-``Body.explicit.constructs``. שם ה-
-# directive הוא ``simplename``, שמתיר ``:`` פנימי — ולכן ``.. py:function::``
-# הוא directive לכל דבר. ניסוח עצמאי קודם לא הכיר ``:`` בשם, סיווג אותו
-# כהערה, ודילג עליו.
-_SIMPLENAME = r"(?:(?!_)\w)+(?:[-._+:](?:(?!_)\w)+)*"
-# ``Body.patterns['explicit_markup']`` — רווחים בלבד, לא טאב
+# הכלל כאן מוותר על השאלה. אין קידום ל-docinfo, ולכן אין הבדל בין
+# "שקוף" ל"מרנדר": בשני המקרים השדה מרונדר בעמוד, והוא ההצהרה של הכותב.
+# מדלגים על **כל** explicit markup — הערה, יעד, directive, על גופו המוזח
+# — וההצהרה היא רשימת השדות הראשונה שנפגשת. תוכן שאינו explicit markup
+# ואינו שדה (פרוזה, רשימה, טבלה) עוצר את החיפוש, כי ממנו והלאה כבר לא
+# מדובר בראש העמוד.
+#
+# ``Body.patterns['explicit_markup']`` ב-``docutils/parsers/rst/states.py``
+# הוא ``\.\.( +|$)`` — רווחים בלבד, לא טאב.
 _EXPLICIT_MARKUP_RE = re.compile(r"^\.\.( +|$)")
-_RST_TARGET_RE = re.compile(r"^\.\. +_(?![ ]|$)")
-_RST_SUBSTITUTION_RE = re.compile(r"^\.\. +\|(?![ ]|$)")
-_RST_LABELLED_RE = re.compile(r"^\.\. +\[")  # הערת שוליים או ציטוט
-_RST_DIRECTIVE_RE = re.compile(rf"^\.\. +{_SIMPLENAME} ?::( +|$)")
-# ה-directive היחיד שאינו מרנדר דבר בגוף העמוד
-_RST_META_RE = re.compile(r"^\.\. +meta ?::( +|$)")
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
 
 _AUTODOC_RE = re.compile(r"^\.\. auto(module|class|function)::")
@@ -169,12 +163,10 @@ def _declared_summary(lines: list[str], path: Path) -> str:
 
     שני תחבירים, כל אחד הסטנדרטי בפורמט שלו — ולא שלישי:
 
-    * ``.rst`` — שדה ``:summary:`` מתחת לכותרת. ``docutils`` מקדם field
-      list שבא ראשון אחרי כותרת המסמך ל-``<docinfo>``
-      (``docutils/transforms/frontmatter.py``, מחלקת ``DocInfo``:
-      *"If the document contains a field list as the first element..."*),
-      והוא מוצג בעמוד. הגלוּת מכוונת: תקציר שרואים הוא תקציר שמתיישן
-      בקול ולא בשקט.
+    * ``.rst`` — שדה ``:summary:`` מתחת לכותרת. ב-Sphinx אין קידום
+      ל-``<docinfo>`` (ראו ההסבר ליד :data:`_EXPLICIT_MARKUP_RE`), והשדה
+      מרונדר בדיוק במקומו: ``<dl class="field-list simple">`` מתחת ל-H1.
+      זה מה שרואים בעמוד, וזה מה שנכנס למפה.
     * ``.md`` — ``summary`` ב-front matter. נקרא ב-``yaml.safe_load``,
       בדיוק כמו ש-MyST קורא אותו (``myst_parser/mdit_to_docutils/base.py``:
       ``data = yaml.safe_load(token.content)``).
@@ -186,11 +178,19 @@ def _declared_summary(lines: list[str], path: Path) -> str:
     התקציר; אין צורך לנחש.
     """
     raw = _front_matter_summary(lines) if path.suffix == ".md" else _rst_field_summary(lines)
-    if len(raw) > SUMMARY_CAP:
-        # אותו חיתוך שהיה בחילוץ מהגוף: שורת מפה ארוכה מדי מבטלת את
-        # התועלת של מפה. ההצהרה עצמה נשארת מלאה בעמוד.
-        raw = raw[: SUMMARY_CAP - 1].rsplit(" ", 1)[0] + "…"
-    return raw
+    return _cap(raw)
+
+
+def _cap(text: str) -> str:
+    """חיתוך לאורך שורת מפה. שורה ארוכה מדי מבטלת את התועלת של מפה.
+
+    ההצהרה עצמה נשארת מלאה בעמוד; רק שורת המפה נחתכת. פונקציה נפרדת כדי
+    שגם ``tests/test_doc_summary_style.py`` יוכל להחיל את אותו חיתוך
+    כשהוא משווה את מה שהוא בודק מול מה שכתוב ב-``AI-MAP.md``.
+    """
+    if len(text) <= SUMMARY_CAP:
+        return text
+    return text[: SUMMARY_CAP - 1].rsplit(" ", 1)[0] + "…"
 
 
 def _front_matter_summary(lines: list[str]) -> str:
@@ -209,7 +209,7 @@ def _front_matter_summary(lines: list[str]) -> str:
 
 
 def _consume_indented_body(lines: list[str], i: int) -> int:
-    """מדלג על הגוף המוזח של הערה או יעד שהתחילו בשורה הקודמת.
+    """מדלג על הגוף המוזח של explicit markup שהתחיל בשורה הקודמת.
 
     זה בדיוק המקום שבו כבר היה באג פעם אחת: קידום של שורה אחת נעצר על
     הגוף המוזח, הכותרת לא נמצאה, והתקציר יצא ריק.
@@ -225,83 +225,45 @@ def _consume_indented_body(lines: list[str], i: int) -> int:
     return i
 
 
-def _is_invisible_markup(line: str) -> bool:
-    """``True`` לצורת RST שאינה מרנדרת דבר בגוף העמוד.
+def _skip_explicit_markup(lines: list[str], i: int) -> int:
+    """מדלג על שורות ריקות ועל כל explicit markup — כולל הגוף המוזח.
 
-    הסיווג לפי ``Body.explicit.constructs`` — הערת שוליים, ציטוט, יעד,
-    substitution, directive — וכל מה שלא נתפס הוא הערה (``Body.comment``).
-    מה מהן שקוף נמדד בבנייה אמיתית של Sphinx:
-
-    ============================  ===========================================
-    צורה                          מה יצא ל-HTML
-    ============================  ===========================================
-    ``.. _label:``                כלום
-    ``.. הערה``                   כלום
-    ``.. meta::``                 ``<meta>`` ב-``<head>``, כלום בגוף
-    ``.. |s| replace:: x``        כלום
-    ``.. raw:: html``             התוכן עצמו, בגוף, לפני רשימת השדות
-    ``.. [1] הערת שוליים``        טקסט הערת השוליים
-    directive אחר                 מה שה-directive מרנדר
-    ============================  ===========================================
-    """
-    if not _EXPLICIT_MARKUP_RE.match(line):
-        return False
-    if _RST_TARGET_RE.match(line) or _RST_SUBSTITUTION_RE.match(line):
-        return True
-    if _RST_DIRECTIVE_RE.match(line):
-        return bool(_RST_META_RE.match(line))
-    if _RST_LABELLED_RE.match(line):
-        return False
-    return True  # הערה
-
-
-def _skip_invisible_markup(lines: list[str], i: int) -> int:
-    """מדלג על שורות ריקות, הערות ויעדים — כולל הגוף המוזח שלהם.
-
-    הגוף המוזח הוא העיקר: הערה רב-שורות נפרסת על כמה שורות, וקידום של
-    שורה אחת בלבד נעצר על הגוף המוזח — ואז הכותרת לא נמצאת והתקציר יוצא
-    ריק.
+    הגוף המוזח הוא העיקר: directive או הערה רב-שורות נפרסים על כמה
+    שורות, וקידום של שורה אחת בלבד נעצר על הגוף המוזח — ואז הכותרת לא
+    נמצאת והתקציר יוצא ריק.
     """
     n = len(lines)
     while i < n:
         if not lines[i].strip():
             i += 1
             continue
-        if not _is_invisible_markup(lines[i]):
+        if not _EXPLICIT_MARKUP_RE.match(lines[i]):
             return i
         i = _consume_indented_body(lines, i + 1)
     return i
 
 
 def _rst_field_summary(lines: list[str]) -> str:
-    """שדה ``:summary:`` מרשימת השדות שמיד אחרי כותרת המסמך.
+    """שדה ``:summary:`` מרשימת השדות הראשונה שאחרי כותרת המסמך.
 
-    זה בדיוק המיקום ש-``docutils`` מקדם ל-``<docinfo>``:
-    ``docutils/transforms/frontmatter.py``, מחלקת ``DocInfo`` —
-    *"If the document contains a field list as the first element
-    (instances of nodes.PreBibliographic are ignored)"*, ו-*"This
-    transform should be run after the DocTitle transform"*.
-
-    שדה ``:summary:`` שמופיע מאוחר יותר — אחרי פרוזה או בתוך סעיף —
-    אינו docinfo, ואינו התקציר של המסמך. חיפוש בכל הקובץ היה מציג אותו
-    ככזה במפה, בסתירה למה שהעמוד עצמו מרנדר.
-
-    ``PreBibliographic`` שמדולג כאן: הערות ו-directives (``.. ``), שהם
-    מה שמופיע בפועל לפני הכותרת בעמודי הפרויקט (``.. _label:``).
+    ההצהרה היא מה שרואים בראש העמוד. לכן מדלגים על explicit markup —
+    לפני הכותרת ואחריה — ולוקחים את רשימת השדות הראשונה שנפגשת. פרוזה,
+    רשימה או טבלה עוצרות: ``:summary:`` שמופיע אחריהן או בתוך סעיף כבר
+    אינו הצהרה בראש העמוד, וחיפוש בכל הקובץ היה מציג אותו ככזה במפה.
     """
     i, n = 0, len(lines)
-    i = _skip_invisible_markup(lines, i)
+    i = _skip_explicit_markup(lines, i)
     # הכותרת עצמה: טקסט + קו, או קו + טקסט + קו
     if i < n and _UNDERLINE_RE.match(lines[i]):
         i += 1  # overline
     if i + 1 < n and lines[i].strip() and _UNDERLINE_RE.match(lines[i + 1]):
         i += 2
     else:
-        return ""  # אין כותרת מסמך — אין מיקום docinfo
-    # גם **אחרי** הכותרת מדלגים על PreBibliographic. ``DocInfo`` מתעלם
-    # מהם בשני הצדדים, והקוד כאן דילג רק על שורות ריקות — כך שיעד או
-    # הערה בין הכותרת לשדה היו מסתירים תקציר תקין לגמרי.
-    i = _skip_invisible_markup(lines, i)
+        return ""  # אין כותרת מסמך — אין מיקום להצהרה
+    # גם **אחרי** הכותרת מדלגים: יעד, הערה או directive בין הכותרת לשדה
+    # אינם מזיזים את ההצהרה מראש העמוד, והקוד כאן דילג פעם רק על שורות
+    # ריקות — כך שהם הסתירו תקציר תקין לגמרי.
+    i = _skip_explicit_markup(lines, i)
     summary = ""
     while i < n:
         line = lines[i]
@@ -357,7 +319,7 @@ def _is_autodoc_scaffold(lines: list[str], path: Path) -> bool:
             i += 2  # כותרת + קו
             continue
         if _FIELD_RE.match(stripped):
-            i += 1  # שדה docinfo, למשל :summary:
+            i += 1  # שדה הצהרה, למשל :summary:
             continue
         return False
     return True

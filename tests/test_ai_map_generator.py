@@ -213,13 +213,12 @@ def test_check_warns_about_undeclared_pages_without_failing(tmp_path):
         assert g.undeclared[0] in proc.stdout, proc.stdout
 
 
-def test_summary_field_must_sit_in_the_docinfo_position():
+def test_summary_field_must_sit_at_the_top_of_the_page():
     """``:summary:`` אחרי פרוזה או בתוך סעיף אינו התקציר של המסמך.
 
-    ``docutils`` מקדם ל-``<docinfo>`` רק field list שבא ראשון אחרי כותרת
-    המסמך (``transforms/frontmatter.py``, ``DocInfo``). שדה מאוחר יותר
-    מרונדר כשדה מקומי בתוך הסעיף שלו, ולכן הצגתו כתקציר העמוד סותרת את
-    מה שהעמוד עצמו מציג.
+    ההצהרה היא מה שרואים בראש העמוד. שדה שמופיע אחרי פסקה או בתוך סעיף
+    מרונדר במקומו, עמוק בעמוד, והצגתו כתקציר במפה מייצגת משהו שהקורא
+    לא רואה שם.
     """
     g = _load_generator()
 
@@ -275,12 +274,11 @@ def test_multiline_directive_before_the_title_is_consumed():
     assert g._declared_summary(page, Path("x.rst")) == "התקציר המוצהר."
 
 
-def test_prebibliographic_between_title_and_field_is_skipped():
+def test_markup_between_title_and_field_is_skipped():
     """יעד או הערה בין הכותרת לשדה אינם מסתירים את התקציר.
 
-    ``DocInfo`` מתעלם מ-``PreBibliographic`` בשני צדי הכותרת; הקוד דילג
-    עליהם רק לפניה. אף עמוד בריפו אינו במצב הזה כרגע — הבדיקה מונעת
-    את הפער, לא מתקנת עמוד קיים.
+    הקוד דילג עליהם רק לפני הכותרת. אף עמוד בריפו אינו במצב הזה כרגע —
+    הבדיקה מונעת את הפער, לא מתקנת עמוד קיים.
     """
     g = _load_generator()
     target = ["כותרת", "=====", "", ".. _some-label:", "", ":summary: התקציר.", "", "גוף."]
@@ -290,72 +288,55 @@ def test_prebibliographic_between_title_and_field_is_skipped():
     assert g._declared_summary(comment, Path("x.rst")) == "התקציר."
 
 
-def test_only_invisible_markup_is_skipped_before_the_field_list():
-    """רק הערה ויעד מדולגים; כל directive עוצר את הסריקה.
+def test_every_explicit_markup_form_is_skipped_before_the_field_list():
+    """כל explicit markup מדולג — בלי רשימת שמות ובלי שאלת "מי שקוף".
 
-    ההצהרה היא רשימת השדות הראשונה שרואים בראש העמוד. הערה ויעד אינם
-    מרנדרים דבר, ולכן שדה שבא אחריהם עדיין נראה ראשון; directive מרנדר
-    תוכן, ואז השדה כבר אינו בראש העמוד ואינו ההצהרה.
+    זו הבדיקה שמחליפה שלוש קודמות, שכל אחת מהן שאלה על directive אחר
+    (``note``, ``py:function``, ``raw``, ``default-role``) אם הוא "שקוף".
+    השאלה נבעה ממודל ``DocInfo`` שאינו רץ ב-Sphinx: אין קידום ל-docinfo,
+    השדה מרונדר במקומו בכל מקרה, והוא ההצהרה של הכותב. לכן אין הבדל בין
+    הצורות, ורשימת שמות מנוחשת אינה נדרשת.
+
+    ``py:function`` נשאר ברשימה כמקרה בוחן: שם directive עם ``:`` פנימי
+    הוא ``Inliner.simplename`` חוקי (``docutils/parsers/rst/states.py``,
+    שורה 673), וניסוח קודם סיווג אותו לא נכון.
     """
     g = _load_generator()
 
-    for prefix in (".. _label:", ".. __: https://example.com", ".. הערה חופשית", ".."):
-        page = ["כותרת", "=====", "", prefix, "", ":summary: התקציר.", "", "גוף."]
-        assert g._declared_summary(page, Path("x.rst")) == "התקציר.", prefix
+    forms = (
+        ".. _label:",
+        ".. __: https://example.com",
+        ".. הערה חופשית",
+        "..",
+        ".. הערה עם :: בתוכה",
+        ".. meta::",
+        ".. raw:: html",
+        ".. note:: שים לב",
+        ".. py:function:: foo(bar)",
+        ".. js:class:: X",
+        ".. default-role:: literal",
+        ".. role:: hl(literal)",
+        ".. index:: מונח",
+        ".. toctree::",
+    )
+    for form in forms:
+        page = ["כותרת", "=====", "", form, "   גוף מוזח", "",
+                ":summary: התקציר.", "", "גוף."]
+        assert g._declared_summary(page, Path("x.rst")) == "התקציר.", form
 
-    for prefix in (".. note::", ".. code-block:: python", ".. toctree::"):
-        page = ["כותרת", "=====", "", prefix, "   גוף מוזח", "", ":summary: לא הצהרה.", ""]
-        assert g._declared_summary(page, Path("x.rst")) == "", prefix
 
+def test_prose_stops_the_search_for_the_declaration():
+    """פרוזה עוצרת — משם והלאה זה כבר לא ראש העמוד.
 
-def test_domain_scoped_directives_are_not_mistaken_for_comments():
-    """``.. py:function::`` הוא directive, לא הערה — גם עם ``:`` בשם.
-
-    ``docutils/parsers/rst/states.py`` מגדיר את שם ה-directive כ-
-    ``Inliner.simplename`` (שורה 673): ``(?:(?!_)\w)+(?:[-._+:](?:(?!_)\w)+)*``
-    — ``:`` הוא מפריד פנימי חוקי. ניסוח עצמאי קודם דרש ``[\w.+-]+::``,
-    לא הכיר ``:`` בשם, ולכן סיווג ``.. py:function::`` כהערה: המחולל דילג
-    עליו והציג את השדה שאחריו כתקציר, בעוד שבעמוד עצמו ה-directive
-    מרונדר לפניו והשדה כבר אינו בראש.
+    זה הגבול שמחליף את טקסונומיית הנראוּת: לא "אילו directives שקופים",
+    אלא "עד היכן נמשך ראש העמוד". הבדיקה נופלת אם הדילוג יורחב לכל שורה
+    ולא רק ל-explicit markup.
     """
     g = _load_generator()
 
-    for directive in (".. py:function:: foo(bar)", ".. js:class:: X", ".. c:macro:: M"):
-        assert g._is_invisible_markup(directive) is False, directive
-        page = ["כותרת", "=====", "", directive, "   :module: m", "", ":summary: לא הצהרה.", ""]
-        assert g._declared_summary(page, Path("x.rst")) == "", directive
-
-
-def test_raw_stops_the_scan_but_meta_does_not():
-    """``.. raw::`` מרנדר תוכן בגוף; ``.. meta::`` לא. נמדד, לא נוחש.
-
-    בבנייה אמיתית של Sphinx ``.. raw:: html`` הוציא את התוכן שלו לגוף,
-    ממש לפני רשימת השדות — ולכן שדה שבא אחריו כבר אינו בראש העמוד.
-    ``.. meta::`` הוציא ``<meta>`` ל-``<head>`` ולא כלום לגוף. הביטוי
-    הקודם התייחס לשניהם אותו דבר ודילג על שניהם.
-    """
-    g = _load_generator()
-
-    raw_page = ["כותרת", "=====", "", ".. raw:: html", "   <p>x</p>", "",
-                ":summary: לא הצהרה.", ""]
-    assert g._declared_summary(raw_page, Path("x.rst")) == ""
-
-    meta_page = ["כותרת", "=====", "", ".. meta::", "   :description: x", "",
-                 ":summary: התקציר.", ""]
-    assert g._declared_summary(meta_page, Path("x.rst")) == "התקציר."
-
-
-def test_a_comment_may_contain_a_double_colon():
-    """``.. טקסט עם :: בפנים`` הוא הערה — שם directive אינו מכיל רווח.
-
-    בלי הכלל הזה תיקון ה-``:``-בשם היה גולש לצד השני ומסווג הערות
-    כ-directives, ואז יעד או הערה מעל הצהרה היו מסתירים תקציר תקין.
-    """
-    g = _load_generator()
-
-    assert g._is_invisible_markup(".. הערה עם :: בתוכה") is True
-    page = ["כותרת", "=====", "", ".. הערה עם :: בתוכה", "", ":summary: התקציר.", ""]
-    assert g._declared_summary(page, Path("x.rst")) == "התקציר."
+    for blocker in ("פסקת פתיחה.", "- פריט ברשימה", "| טור | טור |", "===="):
+        page = ["כותרת", "=====", "", blocker, "", ":summary: לא הצהרה.", ""]
+        assert g._declared_summary(page, Path("x.rst")) == "", blocker
 
 
 def test_scaffold_detection_handles_a_multiline_directive_first():

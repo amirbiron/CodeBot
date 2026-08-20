@@ -99,32 +99,37 @@ def test_there_are_summaries_to_check():
     assert len(_declared_summaries()) > 100, len(_declared_summaries())
 
 
-def test_the_lint_reads_the_same_summaries_as_the_map():
-    """כל תקציר שמופיע במפה הוא בדיוק מה שהלינט כאן בודק.
+def test_the_lint_checks_the_values_that_are_in_the_committed_map():
+    """מה שנבדק כאן הוא בדיוק הטקסט שכתוב ב-AI-MAP.md שבריפו.
 
-    זו הבדיקה שמחזיקה את המקור היחיד. אם מישהו יחזיר לכאן פרסר עצמאי —
-    אחד שסורק את כל הקובץ, או שדורש רווח אחד בדיוק אחרי ``:summary:`` —
-    הוא יאסוף אוסף אחר מזה שהמפה מציגה, והבדיקה תיפול. בלעדיה שתי
-    הקריאות יכולות להיפרד בשקט, והלינט יאשר תקצירים שאיש לא רואה.
+    הגרסה הראשונה של הבדיקה הזו הייתה טאוטולוגיה: היא ייצרה מפה טרייה
+    ב-``build_map()`` והשוותה אותה ל-``_declared_summary()`` — אותה
+    פונקציה שהמפה עצמה קוראת לה. שני האגפים תמיד הסכימו, ואילו הערכים
+    שהלינט באמת בודק לא נבדקו כלל. אם ``_declared_summaries()`` הייתה
+    סוטה בשקט לתקציר אחר לאותם עמודים, הבדיקה הייתה עוברת.
 
-    ההשוואה היא מול שורות המפה עצמן, בפורמט ``- `נתיב` — **כותרת**: תקציר``.
+    התיקון: הצד השני הוא הקובץ המקומט, לא פלט של אותו קוד; והערך
+    שמושווה הוא ``lint[rel]`` — מה שהבדיקות למטה באמת סורקות. החיתוך
+    ל-220 תווים נלקח מ-``_cap`` של המחולל ולא משוכפל כאן.
     """
     g = _load_generator()
     lint = _declared_summaries()
     line_re = re.compile(r"^\s*- `([^`]+)` — \*\*.*?\*\*: (.+)$")
 
+    committed = (ROOT / "AI-MAP.md").read_text(encoding="utf-8")
     in_map = {}
-    for line in g.build_map().split("\n"):
+    for line in committed.split("\n"):
         if m := line_re.match(line):
             in_map[m.group(1)] = m.group(2)
 
-    assert len(in_map) > 100, f"רק {len(in_map)} שורות עם תקציר במפה"
+    assert len(in_map) > 100, f"רק {len(in_map)} שורות עם תקציר ב-AI-MAP.md"
     for rel, mapped in in_map.items():
         assert rel in lint, f"{rel}: מופיע במפה עם תקציר, והלינט לא רואה אותו"
-        expected = g._declared_summary(
-            (ROOT / rel).read_text(encoding="utf-8").split("\n"), ROOT / rel
+        assert g._cap(lint[rel]) == mapped, (
+            f"{rel}: מה שהלינט בודק אינו מה שכתוב במפה\n"
+            f"  לינט: {g._cap(lint[rel])!r}\n"
+            f"  מפה : {mapped!r}"
         )
-        assert mapped == expected, f"{rel}: המפה ומה שנקרא כאן נפרדו"
 
 
 def test_the_reader_is_the_maps_reader_and_not_a_second_parser(tmp_path):
