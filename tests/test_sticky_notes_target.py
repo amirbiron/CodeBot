@@ -123,7 +123,10 @@ def test_filters_cannot_catch_each_others_notes():
     board_note = {"user_id": 7, "board_id": "b1"}
     file_note = {"user_id": 7, "file_id": "id1", "scope_id": "user:7:file:abc"}
 
+    # שאילתת הקובץ אינה נוגעת בפתק לוח: אף ענף ב-$or אינו מזכיר שדה שקיים בו
     assert all(key not in board_note for clause in file_q["$or"] for key in clause)
+    # ושאילתת הלוח אינה נוגעת בפתק קובץ: היא דורשת board_id שאין לו
+    assert "board_id" in board_q
     assert "board_id" not in file_note
 
 
