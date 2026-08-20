@@ -1,5 +1,6 @@
 Development Workflow
 ====================
+:summary: זרימת העבודה בפיתוח: הוספת handler חדש לבוט, הוספת endpoint ל-WebApp, ועדכון סכמה במסד הנתונים.
 
 הוספת Handler חדש
 ------------------

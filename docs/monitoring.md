@@ -1,3 +1,7 @@
+---
+summary: חיבור Grafana לטלגרם דרך Webhook, אנוטציות, ספים דינמיים, הפרדה בין שגיאות פנימיות לחיצוניות, ו-Predictive Health.
+---
+
 # Smart Observability v7 – Predictive Health & Adaptive Feedback
 
 ## חיבור Grafana → Telegram (Webhook)

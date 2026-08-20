@@ -3683,6 +3683,7 @@ class CodeKeeperBot:
                 pass
             return ConversationHandler.END
 
+        # docs:upload-conv:start — הקטע מוטמע בתיעוד (docs/conversation-handlers.rst); אל תסיר את הסימון
         upload_conv_handler = ConversationHandler(
             entry_points=[
                 CallbackQueryHandler(github_handler.handle_menu_callback, pattern='^upload_file$')
@@ -3703,6 +3704,7 @@ class CodeKeeperBot:
                 CallbackQueryHandler(_upload_cancel, pattern=r'^cancel$')
             ]
         )
+        # docs:upload-conv:end
         
         self.application.add_handler(upload_conv_handler)
         

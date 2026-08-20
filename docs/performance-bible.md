@@ -1,3 +1,7 @@
+---
+summary: 'עקרונות הביצועים של המערכת אחרי הרפקטור שהוריד את ה-p95 מ-1.8 שניות ל-200ms: Cache First, Projection, חישוב ב-DB, אינדקסים מורכבים, ו-Lazy Loading.'
+---
+
 🚀 The Performance Bible: CodeKeeper Optimization Guide
 ======================================================
 

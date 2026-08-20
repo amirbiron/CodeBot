@@ -1,11 +1,6 @@
 ארכיטקטורה
 ===========
-
-סקירה כללית
-------------
-
-המערכת מורכבת מבוט Telegram, שכבת שירותים (services), שכבת נתונים (MongoDB) ואפליקציית Web.
-הזרימה העיקרית: Handlers → Services → Database.
+:summary: המערכת מורכבת מבוט Telegram, שכבת שירותים (services), שכבת נתונים (MongoDB) ואפליקציית Web. הזרימה העיקרית: Handlers → Services → Database.
 
 תרשים רכיבים (תמציתי)
 ----------------------
