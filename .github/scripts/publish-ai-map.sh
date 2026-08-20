@@ -23,8 +23,24 @@
 # קלט (env): GH_TOKEN, GITHUB_REPOSITORY
 set -euo pipefail
 
+# מעטפת מחיקה בטוחה לפי CLAUDE.md: מוודאת שהיעד תחת ה-allowlist
+# (TMPDIR) ואינו נתיב מסוכן, לפני כל rm -rf. גם כאן, שבו הנתיב מגיע
+# מ-mktemp: הבדיקה זולה, והכלל לא מכיר חריגים "בטוחים".
+safe_rmrf() {
+  local target="${1:-}" allow_under="${2:-}"
+  [[ -z "${target}" || -z "${allow_under}" ]] && { echo "safe_rmrf: נתיב ריק" >&2; return 1; }
+  local rp_target rp_base
+  rp_target="$(readlink -f -- "${target}")" || return 1
+  rp_base="$(readlink -f -- "${allow_under}")" || return 1
+  [[ "${rp_target}" == "/" || "${rp_target}" == "${HOME}" || "${rp_target}" == "${PWD}" ]] && {
+    echo "safe_rmrf: סירוב למחוק נתיב מסוכן: ${rp_target}" >&2; return 1; }
+  [[ "${rp_target}" != "${rp_base}"/* ]] && {
+    echo "safe_rmrf: ${rp_target} מחוץ ל-allowlist ${rp_base}" >&2; return 1; }
+  rm -rf -- "${rp_target}"
+}
+
 WORKDIR="$(mktemp -d)"
-trap 'rm -rf "${WORKDIR}"' EXIT
+trap 'safe_rmrf "${WORKDIR}" "${TMPDIR:-/tmp}"' EXIT
 MAP="${WORKDIR}/AI-MAP.md"
 
 env -u GH_TOKEN python3 scripts/generate_ai_map.py --out "${MAP}"

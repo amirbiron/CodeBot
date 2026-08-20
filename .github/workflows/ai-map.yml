@@ -11,6 +11,9 @@ on:
     paths:
       - 'docs/**'
       - 'scripts/generate_ai_map.py'
+      # שינוי בסקריפט הפרסום עצמו חייב להפעיל ריצה — אחרת תיקון בו
+      # לא נבדק עד שמישהו יגע במקרה בתיעוד
+      - '.github/scripts/publish-ai-map.sh'
   workflow_dispatch:
 
 permissions:

@@ -40,6 +40,10 @@ _DIRECTIVE_RE = re.compile(r"^\.\. ")
 _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
+# שורת המפריד של טבלת Markdown: ---|--- , :--|--: וכד'. שורת הכותרת
+# שמעליה עשויה להיות בלי pipe חיצוני ("שם | ערך") ואז היא נראית כמו
+# פרוזה — המפריד הוא מה שמסגיר אותה.
+_MD_DELIM_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$")
 # שורת גבול של grid table ב-RST: +----+====+ וכד'. ה-+ מותר רק
 # כמפריד בין מקטעי [=-], לא בתוך מחלקת התווים: '+' שחופף בין המחלקה
 # לקבוצה החוזרת יוצר backtracking אקספוננציאלי (נמדד: ×2.6 לכל תו)
@@ -155,15 +159,22 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             stripped.startswith(("- ", "* ", "#. "))
             or re.match(r"^\d+\. ", stripped)
             or _GRID_ROW_RE.match(stripped)
+            or _MD_DELIM_RE.match(stripped)
+            or (i + 1 < n and "|" in stripped and _MD_DELIM_RE.match(lines[i + 1]))
         ):
-            i += 1  # פריט רשימה או גבול טבלת grid אינם תקציר
+            i += 1  # רשימה, גבול grid, או שורת טבלת Markdown — לא תקציר
             continue
         # פסקת פרוזה: איסוף עד שורה ריקה, בלוק מוזח או תחילת רשימה
         para = []
         while i < n and lines[i].strip() and not lines[i].startswith((" ", "\t")):
             cur = lines[i].strip()
             is_list = cur.startswith(("- ", "* ", "#. ")) or re.match(r"^\d+\. ", cur)
-            is_table = cur.startswith("|") or _GRID_ROW_RE.match(cur)
+            is_table = (
+                cur.startswith("|")
+                or _GRID_ROW_RE.match(cur)
+                # כותרת טבלת Markdown בלי pipe חיצוני, שהמפריד מתחתיה
+                or (i + 1 < n and "|" in cur and _MD_DELIM_RE.match(lines[i + 1]))
+            )
             if is_list or is_table or cur.startswith(("```", ":::")) or _UNDERLINE_RE.match(lines[i]):
                 break  # רשימה / טבלה / גדר קוד — לא חלק מהתקציר
             para.append(cur)

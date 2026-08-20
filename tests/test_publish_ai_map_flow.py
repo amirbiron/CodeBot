@@ -54,7 +54,15 @@ def sandbox(tmp_path):
             src, tmp_path / rel,
             ignore=shutil.ignore_patterns("_build", "__pycache__"),
         )
-    shutil.copy(ROOT / "AI-MAP.md", tmp_path / "AI-MAP.md")
+    # בסיס קפוא ולא AI-MAP.md המקומט: הצמדה למפה האמיתית הפכה את
+    # "אין שינוי" לתלוי בשאלה אם ה-PR הנוכחי נגע בתיעוד, ולכן הבדיקה
+    # נכשלה בהכרח על כל PR שמשנה docs/ — כולל זה שמכניס אותה.
+    # כאן הבסיס הוא תמיד מפה מיושנת מוכרת; מי שרוצה "אין שינוי"
+    # מקפיא אותה מהמחולל עצמו (ראו _freeze_map_as_current).
+    (tmp_path / "AI-MAP.md").write_text(
+        "# מפת התיעוד לסוכני AI\n\nבסיס קפוא לבדיקה — אינו תואם את התיעוד.\n",
+        encoding="utf-8",
+    )
 
     bin_dir = tmp_path / "fake-bin"
     bin_dir.mkdir()
@@ -101,6 +109,21 @@ def _run_flow(sandbox, mode="ok"):
         results.append((name, proc))
     calls = log.read_text(encoding="utf-8").splitlines()
     return results, calls
+
+
+def _freeze_map_as_current(sandbox):
+    """מקפיא את פלט המחולל כבסיס — כך "אין שינוי" נמדד מול המחולל
+    עצמו ולא מול קובץ בריפו שה-PR הנוכחי אולי משנה."""
+    subprocess.run(
+        ["python3", "scripts/generate_ai_map.py", "--out", "AI-MAP.md"],
+        cwd=sandbox, check=True, capture_output=True,
+    )
+    subprocess.run(["git", "add", "AI-MAP.md"], cwd=sandbox, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "מפה מעודכנת"], cwd=sandbox, check=True, capture_output=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"},
+    )
 
 
 def _touch_docs(sandbox):
@@ -162,7 +185,12 @@ def test_publish_carries_the_committed_blob_as_optimistic_lock(sandbox):
 
 
 def test_no_docs_change_publishes_nothing(sandbox):
-    """בלי שינוי — אף קריאת רשת, יציאה נקייה. המפה המקומטת היא הבסיס."""
+    """כשהמפה כבר תואמת את התיעוד — אף קריאת רשת, יציאה נקייה.
+
+    הבסיס מוקפא מהמחולל ולא נלקח מ-AI-MAP.md שבריפו: אחרת הבדיקה
+    הייתה נכשלת בהכרח על כל PR שנוגע ב-docs/ עוד לפני שהמפה קומטה.
+    """
+    _freeze_map_as_current(sandbox)
     results, calls = _run_flow(sandbox)
     for name, proc in results:
         assert proc.returncode == 0, f"שלב '{name}' נכשל:\n{proc.stderr}"
@@ -199,3 +227,56 @@ def test_first_publish_sends_put_without_sha(sandbox):
     puts = [c for c in calls if "-X PUT" in c]
     assert puts, "יצירה ראשונה חייבת לשלוח PUT"
     assert "sha=" not in puts[0], f"PUT יצירה נושא sha שלא קיים: {puts[0][:200]}"
+
+
+# ---------------------------------------------------------------------------
+# הרכיבים שה-yaml מספק — הבדיקות למעלה מזריקות אותם בעצמן, ולכן
+# עיוורות למחיקתם. אלה סוגרות את הפער.
+# ---------------------------------------------------------------------------
+
+
+def _publish_step():
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["refresh-map"]["steps"]
+    matches = [s for s in steps if "publish-ai-map.sh" in s.get("run", "")]
+    assert len(matches) == 1, "לא נמצא בדיוק שלב פרסום אחד ב-workflow"
+    return matches[0]
+
+
+def test_publish_step_receives_its_token_from_the_workflow():
+    """ה-env של שלב הפרסום מזרים GH_TOKEN — נופל אם ה-env: יימחק.
+
+    הבדיקות מקצה-לקצה מזריקות GH_TOKEN בעצמן כדי לבודד את הסקריפט,
+    ולכן היו עוברות גם אם ה-env: ב-yaml היה נעלם וה-CI היה נשבר.
+    """
+    env = _publish_step().get("env", {})
+    assert "GH_TOKEN" in env, (
+        "שלב הפרסום לא מקבל GH_TOKEN מה-workflow — הסקריפט ייכשל ב-CI"
+    )
+    assert "github.token" in env["GH_TOKEN"], (
+        f"GH_TOKEN לא מגיע מ-github.token: {env['GH_TOKEN']}"
+    )
+    assert "REPO_ADMIN_TOKEN" not in env["GH_TOKEN"], (
+        "PAT חזר לשלב הפרסום — הזרימה תוכננה במפורש בלעדיו"
+    )
+
+
+def test_job_is_gated_to_main():
+    """ה-if: מגביל את הג'וב ל-main — נופל אם ה-gate יימחק.
+
+    בלעדיו, הרצה ידנית מ-ref אחר הייתה מפרסמת מפה שנבנתה מתיעוד של
+    אותו ref אל תוך main.
+    """
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["refresh-map"]
+    assert "refs/heads/main" in str(job.get("if", "")), (
+        "הג'וב אינו מוגבל ל-main; הרצה מ-ref אחר תפרסם תוכן זר"
+    )
+
+
+def test_workflow_reruns_when_the_publish_script_changes():
+    """שינוי בסקריפט הפרסום מפעיל את ה-workflow — אחרת תיקון בו
+    לא נבדק עד שמישהו יגע במקרה בתיעוד."""
+    on = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    paths = (on.get(True) or on.get("on"))["push"]["paths"]
+    assert any("publish-ai-map.sh" in p for p in paths), (
+        f"סקריפט הפרסום אינו ב-on.push.paths: {paths}"
+    )
