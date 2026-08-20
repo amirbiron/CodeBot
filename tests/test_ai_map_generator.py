@@ -46,6 +46,22 @@ def test_map_covers_known_manual_pages():
         assert expected in content, f"עמוד ידני חסר במפה: {expected}"
 
 
+def test_the_map_carries_the_authority_warning():
+    """המפה נושאת את הכלל שהתיעוד אינו סמכות, ולא רק הפריימר.
+
+    את ``AI-MAP.md`` קורא גם מי שלא קיבל את הפריימר — סוכן בכלי אחר, או
+    grep מקרי. כלל שגר במקום אחד בלבד לא ייקרא בדיוק כשצריך אותו, וזה
+    הכלל שהכי יקר לפספס: כל סבבי הריוויו כאן מצאו טענות בפרוזה שסתרו את
+    הקוד. הבדיקה נופלת אם מישהו יסיר את הסעיף מהמחולל.
+    """
+    content = _load_generator().build_map()
+
+    assert "## סמכות התיעוד" in content
+    assert "התמצאות, לא סמכות" in content
+    assert "literalinclude" in content  # שני החריגים מוזכרים
+    assert "autodoc" in content
+
+
 def test_autodoc_scaffolds_are_filtered():
     """עמוד שהוא automodule בלבד לא נכנס — הוא ריק כשקוראים מהריפו."""
     content = _load_generator().build_map()
