@@ -152,6 +152,72 @@ def test_pipeless_markdown_table_body_is_skipped():
     )
 
 
+def test_block_start_ends_the_markdown_table_skip():
+    """בלוק שמתחיל מיד אחרי טבלה, בלי שורה ריקה, לא נבלע יחד איתה.
+
+    רגרסיה: דילוג הטבלה עצר בשורה ריקה בלבד, ולכן כותרת/גדר/קו מפריד
+    שהופיעו צמוד לטבלה נבלעו — ואיתם הפרוזה שאחריהם. התקציר יצא ריק.
+
+    הכלל נלקח מהמימוש שהתיעוד באמת נבנה איתו: לולאת הגוף של כלל הטבלה
+    ב-``markdown_it/rules_block/table.py`` נשברת גם על ``terminatorRules``
+    ולא רק על שורה ריקה. תחת ההגדרות ב-``docs/conf.py`` הרשימה היא
+    front_matter, colon_fence, fence, line_comment, blockquote,
+    block_break, target, hr, list_block, html_block, heading, deflist.
+    """
+    g = _load_generator()
+    prose = "פסקת הפרוזה האמיתית של העמוד, ארוכה מספיק כדי לעבור את הסף."
+    table = ["שם | ערך", "--- | ---", "אלפא | ערך ארוך מספיק כדי לעבור את הסף"]
+    # הבלוקים סגורים בכוונה: גדר פתוחה באמת מכילה את כל מה שאחריה,
+    # ובדיקה עם גדר פתוחה הייתה בודקת התנהגות שגויה ולא את הממצא.
+    starters = {
+        "כותרת ATX": ["## כותרת ביניים"],
+        "fence": ["```", "code", "```"],
+        "colon_fence": [":::{note}", "גוף ההערה", ":::"],
+        "hr": ["***"],
+        "blockquote": ["> ציטוט"],
+    }
+    for kind, starter in starters.items():
+        page = ["כותרת", "======", ""] + table + starter + [prose]
+        summary = g._first_prose_paragraph(page, Path("x.md"))
+        assert prose[:20] in summary, f"{kind}: הפרוזה נבלעה עם הטבלה ({summary!r})"
+        assert "אלפא" not in summary, f"{kind}: שורת טבלה דלפה לתקציר ({summary!r})"
+
+
+def test_table_row_that_starts_a_block_does_not_hang(tmp_path):
+    """שורה שנכנסת לענף הטבלה **והיא בעצמה** תחילת בלוק לא תוקעת.
+
+    בלי קידום ודאי לפני לולאת הדילוג, שורה כמו ``- פריט | עמודה`` שמתחתיה
+    שורת מפריד הייתה מחזירה את הלולאה החיצונית לאותו אינדקס לנצח. אומת:
+    הסרת הקידום מקפיאה גם ``.rst`` וגם ``.md``.
+
+    רץ בתת-תהליך מאותה סיבה כמו הבדיקה שמעליה: ת'רד תקוע ממשיך לסובב
+    על ליבה עד סוף ריצת pytest.
+    """
+    import subprocess
+    import sys as _sys
+
+    probe = tmp_path / "probe_loop.py"
+    probe.write_text(
+        "import importlib.util, json, sys\n"
+        f"spec = importlib.util.spec_from_file_location('g', {str(ROOT / 'scripts' / 'generate_ai_map.py')!r})\n"
+        "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\n"
+        "from pathlib import Path\n"
+        "page = ['כותרת', '======', '', '- פריט | עמודה', '--- | ---', 'אלפא | ערך', '',"
+        " 'פסקת פרוזה ארוכה מספיק כדי לעבור את הסף של עשרים תווים.']\n"
+        "print(json.dumps({s: g._first_prose_paragraph(page, Path('x' + s)) for s in ('.rst', '.md')}))\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [_sys.executable, str(probe)], capture_output=True, text=True, timeout=30, cwd=tmp_path
+    )
+    assert proc.returncode == 0, f"המחולל נכשל או נתקע:\n{proc.stderr}"
+
+    import json
+
+    for suffix, summary in json.loads(proc.stdout).items():
+        assert "פסקת פרוזה" in summary, f"{suffix}: הפרוזה לא נשלפה ({summary!r})"
+
+
 def test_prose_containing_a_pipe_is_not_mistaken_for_a_table():
     """פסקה שמכילה ``|`` בלי שורת מפריד מתחתיה נשארת תקציר תקין.
 

@@ -44,6 +44,31 @@ _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
 # שמעליה עשויה להיות בלי pipe חיצוני ("שם | ערך") ואז היא נראית כמו
 # פרוזה — המפריד הוא מה שמסגיר אותה.
 _MD_DELIM_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$")
+# תחילת בלוק שמסיימת טבלת Markdown. לפי GFM הטבלה נשברת "at the first
+# empty line, or beginning of another block-level structure", ובמימוש
+# שהפרויקט מריץ בפועל (markdown-it-py 3.0.0 דרך myst-parser==4.0.1)
+# רשימת ה-terminatorRules של כלל הטבלה, כפי שנמדדה תחת ההגדרות ב-
+# docs/conf.py, היא: front_matter, colon_fence, fence, line_comment,
+# blockquote, block_break, target, hr, list_block, html_block, heading,
+# deflist.  מקור: markdown_it/rules_block/table.py, לולאת הגוף.
+#
+# הזיהוי כאן גס בכוונה, והוא בטוח לשני הכיוונים: זיהוי-יתר מחזיר את
+# השורה ללולאה הראשית שיודעת לדלג עליה ממילא, וזיהוי-חסר משאיר את
+# הדילוג כפי שהיה. מה שאסור — ובגללו הממצא — הוא לבלוע פרוזה.
+_MD_BLOCK_START_RE = re.compile(
+    r"^(?:"
+    r"\#{1,6}(?:\s|$)"                                   # כותרת ATX
+    r"|```|~~~|:::"                                      # fence, colon_fence
+    r"|>"                                                # blockquote
+    r"|[-+*]\s|\d+[.)]\s"                                # רשימה
+    r"|<"                                                # html_block
+    r"|%"                                                # line_comment של MyST
+    r"|\+\+\+"                                           # block_break
+    r"|\(.+\)=\s*$"                                      # target של MyST
+    r"|\.\. "                                            # directive של RST
+    r"|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$"  # hr
+    r")"
+)
 # שורת גבול של grid table ב-RST: +----+====+ וכד'. ה-+ מותר רק
 # כמפריד בין מקטעי [=-], לא בתוך מחלקת התווים: '+' שחופף בין המחלקה
 # לקבוצה החוזרת יוצר backtracking אקספוננציאלי (נמדד: ×2.6 לכל תו)
@@ -166,7 +191,14 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
         if _MD_DELIM_RE.match(stripped) or (
             i + 1 < n and "|" in stripped and _MD_DELIM_RE.match(lines[i + 1].strip())
         ):
-            while i < n and lines[i].strip():
+            # קידום ודאי לפני הלולאה: בלעדיו שורת כותרת שהיא בעצמה תחילת
+            # בלוק הייתה מחזירה את הלולאה החיצונית לאותו i לנצח.
+            i += 1
+            while (
+                i < n
+                and lines[i].strip()
+                and not _MD_BLOCK_START_RE.match(lines[i].strip())
+            ):
                 i += 1
             continue
         if (
