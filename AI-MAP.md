@@ -26,21 +26,21 @@
 - `docs/configuration.rst` — **Rate Limiting**: רפרנס הקונפיגורציה של המערכת: Rate Limiting, משתני סביבה, Pooling ו-Timeouts למסדי הנתונים ול-Redis, לקוחות ה-HTTP הסינכרוני והאסינכרוני, Flask, הבוט והמדדים.
 - `docs/environment-variables.rst` — **משתני סביבה - רפרנס**: רפרנס משתני הסביבה: הטבלה המרכזית, משתני התראות וניטור, מדדים ו-OTEL, תפעול ואינטגרציות, דגלי בדיקות, ודוגמאות קונפיגורציה כולל טבלת ה-Scopes של GitHub.
 - `docs/performance-bible.md` — **🚀 The Performance Bible: CodeKeeper Optimization Guide**: עקרונות הביצועים של המערכת אחרי הרפקטור שהוריד את ה-p95 מ-1.8 שניות ל-200ms: Cache First, Projection, חישוב ב-DB, אינדקסים מורכבים, ו-Lazy Loading.
-- `docs/performance-scaling.rst` — **ביצועים והרחבה (Performance & Scaling)**: ביצועים והרחבה: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
-- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: פתרון הביצועים לפתקים הדביקים: העלאת timeout מיידית שכבר מוכחת, וחימום אינדקסים לפני שהתהליך מקבל תעבורה שעדיין באימות, עם מה לבדוק לפני rollout מלא.
+- `docs/performance-scaling.rst` — **ביצועים והרחבה (Performance & Scaling)**: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
+- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: שני נדבכים לשיפור זמני התגובה: העלאת timeout שכבר הוכחה בשטח, וחימום אינדקסים לפני שהתהליך מקבל תעבורה — נדבך שעדיין נבחן. כולל מה לאמת לפני rollout מלא.
 - `docs/large-files-runbook.rst` — **טיפול בקבצים גדולים (Large Files)**: ראנבוק לטיפול בקבצים גדולים: המגבלות והפולבקים, הנחיות ההפעלה, ומה לנטר.
 
 ## API Reference
 
 - `docs/api/index.rst` — **API Reference**: תיעוד מלא של ה-API של Code Keeper Bot.
-  - `docs/api/handlers.documents.rst` — **handlers.documents module**: handlers.documents מרכז את הטיפול במסמכים וקבצים שנשלחים לבוט (Facade). הוא אחראי לנתב בין מסלולי GitHub, ZIP וקבצים טקסטואליים, ולשמור מדדים ואירועי Observability לאורך הזרימה.
+  - `docs/api/handlers.documents.rst` — **handlers.documents module**: מרכז את הטיפול במסמכים וקבצים שנשלחים לבוט — קליטה, ולידציה, ושמירה דרך שכבת הקבצים.
   - `docs/api/modules.rst` — **workspace**: אינדקס המודולים של התיעוד האוטומטי — נקודת הכניסה לעמודי ה-API שנוצרים מ-autodoc בזמן הבנייה.
     - `docs/api/refactoring_engine.rst` — **refactoring\_engine module**: מנוע הרפקטורינג: המדיניות והקונפיגורציה, קיבוץ לפי קוהזיה שמונע Oversplitting ו-God Class, והמקרה המיוחד של פירוק בטוח ל-models.py.
 - `docs/modules/index.rst` — **מודולים ראשיים**: תיעוד מפורט של המודולים הראשיים בפרויקט.
 - `docs/handlers/index.rst` — **Handlers**: תיעוד של כל ה-handlers בפרויקט.
   - `docs/handlers/show.rst` — **Show Command**: מפרט פקודת /show: מבנה תגובת ה-HTML, שורות הכפתורים (מחיקה, עריכה, הערה, הורדה, שיתוף ומועדפים), והערות יישום.
   - `docs/handlers/drive_menu.rst` — **Drive Menu V2**: תפריט הגיבוי ל‑Google Drive (גרסת V2) כולל בחירה מהירה (קבצי גיבוי/הכל/מתקדם), בחירת תיקיית יעד (אוטומטי/ברירת מחדל/מותאם), תזמון גיבוי, וטיפול שגיאות ברור.
-  - `docs/handlers/document-flow.rst` — **זרימת הטיפול במסמכים (Document Flow)**: זרימת הטיפול בקבצים שנשלחים לבוט: המפה בין הרכיבים, מצבי upload_mode, התלויות שמוזרקות ל-DocumentHandler, ושכבת האחסון (FilesFacade מול ה-DB הישן).
+  - `docs/handlers/document-flow.rst` — **זרימת הטיפול במסמכים (Document Flow)**: המפה בין הרכיבים שמטפלים בקובץ שנשלח לבוט, מצבי upload_mode, התלויות שמוזרקות ל-DocumentHandler, ושכבת האחסון (FilesFacade מול ה-DB הישן).
 - `docs/services/index.rst` — **Services**: תיעוד של שירותי הליבה של המערכת.
   - `docs/services/google_drive_service.rst` — **Google Drive Service**: שירות Google Drive: אימות ב-Device Flow, ניהול טוקנים, יצירת ZIP והעלאה לתיקיות לפי קטגוריה (ובקטגוריית 'לפי ריפו' גם תת-תיקייה לשם הריפו). התאריך והגרסה נכנסים לשם קובץ ה-ZIP, לא למבנה התיקיות.
 - `docs/database/index.rst` — **Database**: תיעוד של מערכת מסד הנתונים והמודלים.
@@ -54,8 +54,8 @@
 ## עזרה ודוגמאות
 
 - `docs/examples.rst` — **דוגמאות שימוש**: דף זה מכיל דוגמאות קוד לשימוש ב-API של Code Keeper Bot.
-- `docs/testing.rst` — **Testing Guide**: מדריך הטסטים: Quickstart, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, שימוש ב-tmp_path ומחיקה בטוחה, ו-mocking של HTTP.
-- `docs/testing-rate-limit-examples.rst` — **דוגמאות טסטים – Rate Limiting ואסינכרוניות**: דוגמאות טסטים ל-Rate Limiting מול Redis מדומה, ולכתיבת טסטים אסינכרוניים.
+- `docs/testing.rst` — **Testing Guide**: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, ו-mocking של HTTP.
+- `docs/testing-rate-limit-examples.rst` — **דוגמאות טסטים – Rate Limiting ואסינכרוניות**: דוגמאות מוכנות להרצת Rate Limiting מול Redis מדומה, ולכתיבת טסטים אסינכרוניים.
 - `docs/performance-tests.rst` — **בדיקות ביצועים (Performance Tests)**: להריץ בדיקות ביצועים בצורה בטוחה וגמישה: ברירת מחדל מריצים את כולן; ב‑PR Draft עם תווית מתאימה מריצים רק "קלים".
 - `docs/ci-cd.rst` — **CI/CD Guide**: מדריך ה-CI/CD: החוקים הקשיחים, הסטטוסים הנדרשים ב-PR, ריכוז ה-workflows, הבדיקות המומלצות ובניית התיעוד.
 - `docs/conversation-handlers.rst` — **Conversation Handlers & States**: מסמך זה מרכז את הזרימות העיקריות של ה‑ConversationHandlers וה‑states.
@@ -69,22 +69,22 @@
 - `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת ה-MCP שחושף את CodeKeeper ל-Claude: הכלים, האימות וההרשאות, פריימר הסוכן, עריכה מהדפדפן, והפעלה צעד אחר צעד מול Claude.ai ומול Claude Code.
 - `docs/repository-integrations.rst` — **Repository Integrations**: מסמך זה מרכז את התמיכה בספקי מאגרי קוד. מטרתו למנוע בלבול ולהבהיר מה נתמך ומה לא.
 - `docs/security.rst` — **Security Guide**: אל תרשום סודות/PII בלוגים, השתמש ב‑ENV בלבד.
-- `docs/monitoring.md` — **Smart Observability v7 – Predictive Health & Adaptive Feedback**: Smart Observability v7: חיבור Grafana לטלגרם דרך Webhook, אנוטציות, ספים דינמיים, הפרדה בין שגיאות פנימיות לחיצוניות, ו-Predictive Health.
+- `docs/monitoring.md` — **Smart Observability v7 – Predictive Health & Adaptive Feedback**: חיבור Grafana לטלגרם דרך Webhook, אנוטציות, ספים דינמיים, הפרדה בין שגיאות פנימיות לחיצוניות, ו-Predictive Health.
 - `docs/git-lfs.rst` — **Git LFS Integration**: להסביר מתי ואיך להשתמש ב‑Git Large File Storage (LFS) עבור קבצים גדולים.
 - `docs/user/bookmarks.rst` — **סימניות (Bookmarks)**: סימניות בקבצים: איך מוסיפים, פאנל הסימניות, העוגן היציב שמחזיק אותן גם כשהקוד זז, ומגבלות הפרטיות והאבטחה.
-- `docs/user/sticky_notes.rst` — **פתקים דביקים (Sticky Notes)**: פתקים דביקים על קוד: הוספה וניהול, עיגון יציב לעומת מיקום קבוע, השילוב עם סימניות, ומגבלות הפרטיות והאבטחה.
+- `docs/user/sticky_notes.rst` — **פתקים דביקים (Sticky Notes)**: הצמדת הערות קצרות על תצוגת קובץ (קוד/Markdown/HTML): הוספה וניהול, עיגון יציב לעומת מיקום קבוע, השילוב עם סימניות, ומגבלות הפרטיות והאבטחה.
 - `docs/user/reminders.rst` — **תזכורות בבוט**: מערכת התזכורות מאפשרת למשתמשי הבוט ליצור, לדחות ולנהל תזכורות אישיות דרך שיחה אינטראקטיבית או פקודות קצרות. המידע נשמר ב-MongoDB (`reminders/database.py`) ומנוהל דרך ישויות `Reminder` ו-`ReminderConfig`.
 - `docs/user/my_collections.rst` — **האוספים שלי (My Collections)**: אוספים מאפשרים לאגד יחד קבצים/קטעי קוד/סימניות תחת נושא משותף (פרויקט, משימה, מודול), כדי לשתף, לנווט ולעקוב בקלות. כל אוסף כולל שם, תיאור קצר ורשימת פריטים עם סדר מותאם.
 - `docs/user/share_code.rst` — **שיתוף קוד (חשוב)**: כפתור "🔗 שתף קוד" יוצר שיתוף מהיר של קובץ דרך GitHub Gist או Pastebin. הכפתור נושא את ה-ObjectId של הגרסה שהייתה קיימת כשהוא נוצר, ולכן הוא מצמיד גרסה ואינו מבטיח את התוכן העדכני.
-- `docs/user/github_browse.rst` — **עיון בקוד GitHub (כולל חיפוש בשם קובץ)**: עיון בקוד מ-GitHub בתוך הבוט: שורת הכלים, חיפוש לפי שם קובץ, וניווט בעץ הריפו.
+- `docs/user/github_browse.rst` — **עיון בקוד GitHub (כולל חיפוש בשם קובץ)**: שורת הכלים, חיפוש לפי שם קובץ, וניווט בעץ הריפו — הכול מתוך הבוט.
 - `docs/user/download_repo.rst` — **הורדת ריפו**: בתפריט /github ← 📥 הורד קובץ מריפו, נווטו לתיקייה הרצויה. בתחתית הרשימה יופיע כפתור שמציין במפורש מה ייארז, למשל 📦 הורד תיקייה כ־ZIP: "logo-designer".
 - `docs/BOT_TEST_PLAN_CONTAINER.md` — **תכנית בדיקות לבוט – Composition Root (Container) לשירות Snippet**: מסמך זה מתאר בדיקות ידניות מהירות לבוט לאחר העברת יצירת התלויות ל־Container דומייני/אפליקטיבי. המטרה: לוודא שה־handlers צורכים את השירות מאותה נקודת אמת, בלי לשנות לוגיקה.
 
 ## זרימות עבודה
 
 - `docs/workflows/index.rst` — **זרימות עבודה (Workflows)**: מסמכים אלה מתארים את הזרימות המרכזיות במערכת.
-  - `docs/workflows/save-flow.rst` — **זרימת שמירת קוד (Save Flow)**: זרימת שמירת הקוד: מצבי השמירה, מצב האיסוף הארוך, זיהוי סודות, טיפול בכפילויות, ונרמול הקוד לפני השמירה.
-  - `docs/workflows/search-flow.rst` — **זרימת חיפוש (Search Flow)**: זרימת החיפוש: סוגי החיפוש הנתמכים, מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex, ומיון התוצאות.
+  - `docs/workflows/save-flow.rst` — **זרימת שמירת קוד (Save Flow)**: מצבי השמירה, מצב האיסוף הארוך, זיהוי סודות, טיפול בכפילויות, ונרמול הקוד לפני השמירה.
+  - `docs/workflows/search-flow.rst` — **זרימת חיפוש (Search Flow)**: שישה סוגי חיפוש — טקסט, Regex, Fuzzy, סמנטי, פונקציות ותוכן — עם מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex ומיון התוצאות.
   - `docs/workflows/refactor-flow.rst` — **זרימת רפקטורינג (Refactor Flow)**: מנוע הרפקטורינג מאפשר שינוי מבנה קוד בצורה בטוחה עם אימות לפני ואחרי.
   - `docs/workflows/backup-flow.rst` — **זרימת גיבוי ושחזור (Backup Flow)**: זרימת הגיבוי והשחזור מקצה לקצה: סוגי הגיבויים, יצירת גיבוי מלא, שחזור, העלאה ל-Google Drive, ניהול הגיבויים הקיימים, וייבוא ZIP חיצוני.
   - `docs/workflows/gist-flow.rst` — **זרימת שיתוף ב-Gist (Gist Flow)**: זרימת השיתוף ב-Gist: ארבע נקודות הכניסה, למה ה-Gist נוצר תחת חשבון המשתמש ולא של המערכת, שלושת מצבי auth_failed, וההתנהגות fail-closed בכל מסלול כשל.
@@ -108,13 +108,13 @@
 - `docs/webapp/overview.rst` — **המיני Web App (סקירה)**: מאוגוסט 2026 האייקונים אינם אמוג'ים אלא 28 אייקונים מצוירים (SVG) בסגנון אחיד, שנשלפים מספרייט אחד. המבנה המלא, הגדלים, אופן ההוספה והמלכודות מתועדים בנפרד: language-icons.
 - `docs/webapp/code-browser.rst` — **דפדפן קוד (Code Browser)**: דפדפן הקוד מאפשר צפייה וניווט בריפוזיטורים מ-GitHub ישירות בממשק ה-WebApp.
 - `docs/DEV_WEB_PUSH.md` — **Web Push – Sticky Notes Reminders**: מסמך זה מסביר כיצד להפעיל ולבדוק התראות Web Push עבור תזכורות של Sticky Notes.
-- `docs/webapp/user-interfaces.rst` — **ממשקי משתמשים (Web)**: "ממשקי משתמשים" הם אוסף מסכים ותהליכים אינטראקטיביים ב‑WebApp שמאפשרים לבצע פעולות מורכבות בנוחות: טפסים ממוקדים, אשפים רב‑שלביים, ותצוגות מצב. הפיצ'ר מיועד גם לשימוש ישיר ע"י משתמשי קצה וגם להפעלה מונחית ע"י סוכני AI.
-- `docs/webapp/snippet-library.rst` — **ספריית סניפטים (Web)**: "ספריית סניפטים" היא גלריית קטעי קוד קצרים עם הדגשת תחביר, חיפוש וסינון. הספרייה מציגה גם סניפטים שהוגשו ע"י משתמשים (לאחר אישור אדמין), וגם סניפטים מובנים (Curated) שמסופקים כחלק מהמערכת.
+- `docs/webapp/user-interfaces.rst` — **ממשקי משתמשים (Web)**: אוסף המסכים והתהליכים האינטראקטיביים ב-WebApp, איפה כל אחד נמצא, ומה הוא עושה.
+- `docs/webapp/snippet-library.rst` — **ספריית סניפטים (Web)**: גלריית קטעי קוד קצרים עם הדגשת תחביר, מאפייני ה-UI, והפעולות שאפשר לבצע עליה.
 - `docs/webapp/onboarding.md` — **🧭 WebApp Onboarding – Welcome Modal, Interactive Tour & Theme Wizard**: תהליך ה-Onboarding ב-WebApp: Welcome Modal, סיור אינטראקטיבי מבוסס Driver.js, ואשף בחירת ערכת הנושא — כולל מנגנוני האיפוס והנקודות למפתחים.
 - `docs/webapp/caching.rst` — **Caching & HTTP Validators (ETag / Last-Modified / 304)**: להקטין רוחב‑פס וזמני תגובה: אם התוכן לא השתנה, נחזיר 304 Not Modified במקום גוף מלא. כך דפדפנים ולקוחות יכולים להשתמש במטמון מקומי בצורה בטוחה ויעילה.
 - `docs/webapp/advanced-caching.md` — **מערכת Caching מתקדמת עם TTL דינמי**: מסמך זה מרכז את ההמלצות והדוגמאות להטמעת מערכת caching חכמה עם TTL דינמי, כפי שגובש ב-Feature Suggestion. המטרה: שיפור מהיר של זמני תגובה, הורדת עומסים על DB, ושימור עקביות בין שרתים.
 - `docs/webapp/cache-inspector.rst` — **Cache Inspector (לוח בקרה של Redis)**: כלי אדמין לצפייה ולניהול של ה-Redis cache: סטטיסטיקות כלליות, חיפוש מפתחות, הצגת TTL וסטטוס, ומחיקה בטוחה של מפתחות.
-- `docs/webapp/config-inspector.rst` — **Config Inspector (סקירת משתני סביבה)**: Config Inspector הוא כלי אדמין שמציג תמונת מצב של הקונפיגורציה: אילו משתני סביבה מוגדרים, מה הערך הפעיל שלהם, מה ברירת המחדל בקוד, והאם הערך שונה מברירת המחדל.
+- `docs/webapp/config-inspector.rst` — **Config Inspector (סקירת משתני סביבה)**: כלי אדמין שמציג תמונת מצב של הקונפיגורציה ומשתני הסביבה, עם הסתרת ערכים רגישים.
 - `docs/webapp/static-checklist.rst` — **Static Performance & Security Checklist (gzip/br, Cache, SRI)**: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
 - `docs/webapp/commands-catalog.rst` — **תחזוקת קטלוג הפקודות (``commands.json``)**: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
 - `docs/webapp/code-execution.rst` — **הרצת קוד (Code Execution Playground)**: ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
@@ -134,9 +134,9 @@
 
 ## Observability
 
-- `docs/observability.rst` — **אובזרווביליות (Observability)**: אובזרוובליות במערכת: המטרות וקהלי היעד, התצורה, בחירת Backend ל-Traces, הגדרת OTLP לסביבות, ואינסטרומנטציה ידנית.
+- `docs/observability.rst` — **אובזרווביליות (Observability)**: המטרות וקהלי היעד, התצורה, בחירת Backend ל-Traces, הגדרת OTLP לסביבות, ואינסטרומנטציה ידנית.
 - `docs/observability/background-jobs-monitor.rst` — **Background Jobs Monitor**: פיצ'ר ה-Background Jobs Monitor מספק נראות (Observability) מלאה לכל ה-Jobs הרצים ברקע במערכת, כולל פעולות משתמש דינמיות (Drive, Reminders, Batch Operations).
-- `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים, סביב שלושה עקרונות: שקיפות בכרטיסי מצב וגרפים, חקירה מהירה בטבלת התראות עם סינון, ו-API מתועד בשלושה Endpoints סימטריים.
+- `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים: כרטיסי מצב וגרפים, טבלת התראות עם סינון, ו-API מתועד לשבעה מסלולים.
 - `docs/observability/query-performance-profiler.rst` — **Query Performance Profiler**: כלי ניטור לשאילתות MongoDB איטיות: דשבורד ב-WebApp שמציג את השאילתות הכבדות, ה-API שמאחוריו, ומה הכלי במפורש אינו עושה.
 - `docs/observability/quick_fix_rules.md` — **🧠 Quick Fix חכם (Queue Delay + עומס/DB) – הנחיות למפתחים ולסוכני AI**: המטרה של Quick Fix היא לתת המלצה קצרה, בטוחה ושימושית על “מה לעשות עכשיו”, לפי אותות שאנחנו כבר מודדים.
 - `docs/observability/asyncio-loop-safety.rst` — **Asyncio תחת WSGI: הרצת קורוטינות בבטחה**: ב-WebApp שמורץ תחת WSGI (Flask + Gunicorn/gevent), עלולה להיות לולאת Event פעילה כבר בתוך ה-thread של הבקשה. במצב כזה קריאה ל-asyncio.run תזרוק חריגה ותפיל את הבקשה, ולעתים תשאיר קורוטינה "תלויה" ללא await.
@@ -150,7 +150,7 @@
 - `docs/resilience.rst` — **Resilience לשירותים חיצוניים**: שכבת Retry ו-Circuit Breaker לקריאות חוץ. היא חלה על קריאות שעוברות דרך http_sync.py ו-http_async.py; שירותים שקוראים ישירות ל-requests, httpx או aiohttp אינם מכוסים עדיין.
 - `docs/alerts.rst` — **התראות (Alerts)**: מערכת ההתראות: חוקי ברירת המחדל, איך מתאימים אותם, מדדי Health ו-Startup ל-Prometheus, קונפיגורציית alert_manager, ובדיקת הזרימה מקצה לקצה.
 - `docs/observability/log_based_alerts.rst` — **התראות מבוססות לוגים (Log‑based Alerts)**: התראות שנגזרות מזרם הלוגים של האפליקציה: סיווג שגיאות לפי חתימות, Allowlist, קיבוץ אירועים ו-Cooldown, עם קבצי הקונפיג ומשתני הסביבה שמפעילים אותן.
-- `docs/observability/log-aggregator.rst` — **מנוע ניתוח לוגים (Log Event Aggregator)**: מנוע ניתוח הלוגים: הארכיטקטורה, קבצי הקונפיג, הרצה מקומית ב-CLI, השילוב במערכת, וניפוי התקלות הנפוצות.
+- `docs/observability/log-aggregator.rst` — **מנוע ניתוח לוגים (Log Event Aggregator)**: הארכיטקטורה, קבצי הקונפיג, הרצה מקומית ב-CLI, השילוב במערכת, וניפוי התקלות הנפוצות.
 - `docs/sentry.rst` — **Sentry**: ברירת מחדל: Sentry מציג Issues בממשק ושולח מיילים, אבל לא מזרים את זה אוטומטית למערכת ההתראות הפנימית שלנו (Telegram + Observability).
 - `docs/runbooks/incident-checklist.rst` — **Incident Checklist (On‑Call)**: צ'קליסט לתורן בעת פתיחת Incident, וסטטוסי המעקב האחידים שבהם מדווחים עליו.
 - `docs/runbooks/logging-levels.rst` — **שינוי רמות לוגים**: איך משנים רמות לוג בזמן ריצה, ומתי כדאי להעלות ל-DEBUG.
@@ -163,10 +163,10 @@
 
 ## ChatOps
 
-- `docs/chatops/overview.md` — **ChatOps – סקירה כללית**: סקירה של מערכת ה-ChatOps: העקרונות שמאחוריה והקישורים לעמודי הפקודות, ההרשאות והפלייבוקים.
+- `docs/chatops/overview.md` — **ChatOps – סקירה כללית**: העקרונות שמאחורי ChatOps — פלט הבוט כמקור אמת, פקודה אחת לכל החלטה, ואיסור על סודות בפלטים — עם קישורים לעמודי Monitoring, Observability, Git LFS ו-Backup/Restore.
 - `docs/chatops/commands.md` — **פקודות ChatOps**: להלן מבנה אחיד לכל פקודה: מתי להשתמש, פרמטרים, הרשאות, מה לחפש בפלט, ודוגמה קצרה אם יש ערך מוסף.
 - `docs/chatops/observe.md` — **ChatOps – /observe: הרחבות -v ו- -vv**: מסמך זה מפרט את מצב ההרחבה של הפקודה `/observe` לצורכי תחקור ומהירות תגובה בזמן אמת.
-- `docs/chatops/ratelimit.rst` — **הגבלת קצב לפקודות רגישות**: הגבלת קצב לפקודות ChatOps רגישות: העקרונות, הדקורטור שמפעיל אותה, הקונפיגורציה, והשילוב בבוט.
+- `docs/chatops/ratelimit.rst` — **הגבלת קצב לפקודות רגישות**: העקרונות מאחורי הגבלת הקצב לפקודות רגישות, הדקורטור שמפעיל אותה, הקונפיגורציה, והשילוב בבוט.
 - `docs/chatops/playbooks.md` — **Playbooks – תרחישים נפוצים**: פלייבוקים לתרחישים נפוצים: עלייה ב-p95, שיעור שגיאות מעל אחוז, זיכרון שמטפס, שירות חיצוני איטי, ותקלה חוזרת בתוך רבע שעה.
 - `docs/chatops/permissions.md` — **הרשאות ו-Rate Limit**: מי מורשה להריץ אילו פקודות ChatOps, ומהן מגבלות הקצב עליהן.
 - `docs/chatops/troubleshooting.md` — **פתרון תקלות (FAQ)**: שאלות נפוצות ופתרון תקלות בהפעלת פקודות ChatOps.
@@ -179,10 +179,10 @@
 ## Observability – Advanced
 
 - `docs/observability/events_catalog.rst` — **קטלוג אירועים קנוניים**: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
-- `docs/observability/error_codes.rst` — **מילון קודי שגיאה (Error Codes)**: מילון קודי השגיאה: הקודים הקנוניים, דוגמאות מיפוי מחריגה לקוד, והנחיות לשימוש בהם.
+- `docs/observability/error_codes.rst` — **מילון קודי שגיאה (Error Codes)**: הקודים הקנוניים, דוגמאות מיפוי מחריגה לקוד, והנחיות לשימוש בהם.
 - `docs/observability/tracing_hotspots.rst` — **Tracing ממוקד בנקודות חמות**: מדריך קצר להתמקדות ב‑Tracing בנקודות בעלות השפעה גבוהה (Hotspots) בבוט וב‑WebApp.
-- `docs/observability/metrics_promql.rst` — **שאילתות PromQL שימושיות**: שאילתות PromQL מוכנות לזמן תגובה, לשיעור שגיאות ולאירועי ביזנס.
-- `docs/observability/alerts_playbook.rst` — **Playbook קצר להתראות**: פלייבוק קצר להתראות: זרימת המערכת מזיהוי האירוע ועד השליחה, הקישורים בקוד, וכיוונון רעש.
+- `docs/observability/metrics_promql.rst` — **שאילתות PromQL שימושיות**: שאילתות מוכנות לזמן תגובה, לשיעור שגיאות ולאירועי ביזנס.
+- `docs/observability/alerts_playbook.rst` — **Playbook קצר להתראות**: הזרימה מזיהוי האירוע ועד שליחת ההתראה, הקישורים בקוד, וכיוונון רעש.
 
 ---
 

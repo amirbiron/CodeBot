@@ -251,3 +251,40 @@ def test_a_declared_summary_means_the_page_is_not_a_scaffold():
     declared = ["מודולים", "========", ":summary: תיעוד המודולים הראשיים.", "",
                 "חלק", "----", "", ".. automodule:: x", "   :members:"]
     assert g._is_autodoc_scaffold(declared, Path("x.rst")) is False
+
+
+def test_multiline_directive_before_the_title_is_consumed():
+    """directive רב-שורות לפני הכותרת נצרך כולו, כולל הגוף המוזח.
+
+    רגרסיה: לולאת הדילוג קידמה שורה אחת בלבד ונעצרה על הגוף המוזח של
+    ``.. meta::``. מאותו רגע הכותרת לא נמצאה, ``_rst_field_summary``
+    החזיר "", והעמוד הופיע במפה בלי תקציר — למרות שהוא מצהיר עליו.
+    """
+    g = _load_generator()
+    page = [
+        ".. meta::",
+        "   :description: תיאור כלשהו",
+        "   :keywords: א, ב",
+        "",
+        "כותרת העמוד",
+        "===========",
+        ":summary: התקציר המוצהר.",
+        "",
+        "גוף.",
+    ]
+    assert g._declared_summary(page, Path("x.rst")) == "התקציר המוצהר."
+
+
+def test_prebibliographic_between_title_and_field_is_skipped():
+    """יעד או הערה בין הכותרת לשדה אינם מסתירים את התקציר.
+
+    ``DocInfo`` מתעלם מ-``PreBibliographic`` בשני צדי הכותרת; הקוד דילג
+    עליהם רק לפניה. אף עמוד בריפו אינו במצב הזה כרגע — הבדיקה מונעת
+    את הפער, לא מתקנת עמוד קיים.
+    """
+    g = _load_generator()
+    target = ["כותרת", "=====", "", ".. _some-label:", "", ":summary: התקציר.", "", "גוף."]
+    assert g._declared_summary(target, Path("x.rst")) == "התקציר."
+
+    comment = ["כותרת", "=====", "", ".. הערה פנימית", "", ":summary: התקציר.", "", "גוף."]
+    assert g._declared_summary(comment, Path("x.rst")) == "התקציר."

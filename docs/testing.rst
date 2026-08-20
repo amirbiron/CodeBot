@@ -1,6 +1,6 @@
 Testing Guide
 =============
-:summary: מדריך הטסטים: Quickstart, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, שימוש ב-tmp_path ומחיקה בטוחה, ו-mocking של HTTP.
+:summary: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, ו-mocking של HTTP.
 
 🚀 Quickstart לטסטים
 --------------------

@@ -175,6 +175,31 @@ def _front_matter_summary(lines: list[str]) -> str:
     return " ".join(str(value).split()) if value else ""
 
 
+def _skip_prebibliographic(lines: list[str], i: int) -> int:
+    """מדלג על שורות ריקות, הערות ו-directives — כולל הגוף המוזח שלהם.
+
+    ``docutils`` מתעלם מ-``nodes.PreBibliographic`` בבואו לאתר את רשימת
+    השדות של ה-docinfo (``transforms/frontmatter.py``, ``DocInfo``), ואלה
+    הם בפועל הערות ויעדים כמו ``.. _label:``.
+
+    הגוף המוזח הוא העיקר: directive רב-שורות כמו ``.. meta::`` עם שדות
+    מתחתיו נפרס על כמה שורות, וקידום של שורה אחת בלבד היה נעצר על הגוף
+    המוזח — ואז הכותרת לא נמצאת והתקציר יוצא ריק.
+    """
+    n = len(lines)
+    while i < n:
+        if not lines[i].strip():
+            i += 1
+            continue
+        if _DIRECTIVE_RE.match(lines[i]) or lines[i].strip() == "..":
+            i += 1
+            while i < n and (not lines[i].strip() or lines[i][:1].isspace()):
+                i += 1
+            continue
+        return i
+    return i
+
+
 def _rst_field_summary(lines: list[str]) -> str:
     """שדה ``:summary:`` מרשימת השדות שמיד אחרי כותרת המסמך.
 
@@ -192,9 +217,7 @@ def _rst_field_summary(lines: list[str]) -> str:
     מה שמופיע בפועל לפני הכותרת בעמודי הפרויקט (``.. _label:``).
     """
     i, n = 0, len(lines)
-    # לדלג על מה שקודם לכותרת: שורות ריקות, הערות ויעדים
-    while i < n and (not lines[i].strip() or _DIRECTIVE_RE.match(lines[i])):
-        i += 1
+    i = _skip_prebibliographic(lines, i)
     # הכותרת עצמה: טקסט + קו, או קו + טקסט + קו
     if i < n and _UNDERLINE_RE.match(lines[i]):
         i += 1  # overline
@@ -202,9 +225,10 @@ def _rst_field_summary(lines: list[str]) -> str:
         i += 2
     else:
         return ""  # אין כותרת מסמך — אין מיקום docinfo
-    # רשימת השדות: מותרות שורות ריקות לפניה, ואחריה עוצרים בתוכן רגיל
-    while i < n and not lines[i].strip():
-        i += 1
+    # גם **אחרי** הכותרת מדלגים על PreBibliographic. ``DocInfo`` מתעלם
+    # מהם בשני הצדדים, והקוד כאן דילג רק על שורות ריקות — כך שיעד או
+    # הערה בין הכותרת לשדה היו מסתירים תקציר תקין לגמרי.
+    i = _skip_prebibliographic(lines, i)
     summary = ""
     while i < n:
         line = lines[i]

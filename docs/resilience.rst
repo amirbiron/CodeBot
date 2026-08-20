@@ -10,9 +10,11 @@ Resilience לשירותים חיצוניים
 .. note::
 
    הכיסוי אינו מלא. המדיניות חלה על קריאות שעוברות דרך ``http_sync.py`` ו-``http_async.py`` בלבד.
-   שירותים שקוראים ישירות ל-``requests``, ל-``httpx`` או ל-``aiohttp`` — למשל ``services/embedding_service.py``,
-   ``services/observability_dashboard.py`` ו-``services/rules_evaluator.py`` — אינם עוברים דרכה.
-   המיגרציה שלהם עדיין פתוחה.
+   שירותים שקוראים ישירות ל-``requests``, ל-``httpx`` או ל-``aiohttp`` אינם עוברים דרכה —
+   למשל ``services/embedding_service.py`` (``httpx.AsyncClient``) ו-``services/observability_dashboard.py``
+   (``requests.post``). ``services/rules_evaluator.py`` דווקא **מעדיף** את המסלול המכוסה
+   (``from http_sync import request``) ונופל ל-``requests.post`` רק אם הייבוא נכשל.
+   המיגרציה של השאר עדיין פתוחה.
 
 איך זה עובד?
 ------------
