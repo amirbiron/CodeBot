@@ -108,7 +108,7 @@ curl -sS -H "Authorization: Bearer $CODEKEEPER_PAT" \
 - **תוכן:** שדה "הוראות לסוכן" מעמוד ההגדרות בוובאפ, ואחריו שורת מצב קצרה עם שלושת
   הקבצים האחרונים שנשמרו ומתי.
 - **`204`** כששדה ההוראות ריק (ולא `200` עם גוף ריק). **`401`** בלי טוקן תקין.
-- **תקרת 8KB:** חריגה ⇒ חיתוך + שורה שמודיעה על כך. לעולם לא שגיאה.
+- **תקרת 24KB:** חריגה ⇒ חיתוך + שורה שמודיעה על כך. לעולם לא שגיאה.
 - **Cache 60 שניות** לכל משתמש (`Cache-Control: private, max-age=60`).
 - **סינון סודות** על כל הגוף לפני ההחזרה.
 
@@ -262,7 +262,7 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `oauth_provider.py` | מימוש חוזה ה‑OAuth של ה‑SDK (כולל PAT מאוחד) |
 | `oauth_identity.py` | חתימת/אימות זהות HMAC (משותף עם הוובאפ) |
 | `oauth_routes.py` | מסך ה‑consent + הנפקת code |
-| `primer.py` | `GET /api/agent/primer` — פריימר טקסט לסוכן (8KB, cache 60ש׳, סינון סודות) |
+| `primer.py` | `GET /api/agent/primer` — פריימר טקסט לסוכן (24KB, cache 60ש׳, סינון סודות) |
 | `server.py` | חיווט FastMCP: כלים + OAuth + ASGI |
 | `app.py` | נקודת כניסה: בוחר PAT/OAuth לפי ENV |
 

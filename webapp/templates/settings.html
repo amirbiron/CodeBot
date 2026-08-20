@@ -457,9 +457,9 @@
 
     const ENDPOINT = '/api/settings/agent-instructions';
     // ברירות מחדל; השרת מחזיר את הערכים האמיתיים ב-GET כדי שלא יתפצלו משני צדדים.
-    let MAX_BYTES = 8 * 1024;
-    let WARN_BYTES = 7 * 1024;
-    let MAX_CHARS = 16 * 1024;
+    let MAX_BYTES = 24 * 1024;
+    let WARN_BYTES = 21 * 1024;
+    let MAX_CHARS = 48 * 1024;
     let saved = '';
 
     const encoder = new TextEncoder();
