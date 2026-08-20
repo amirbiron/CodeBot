@@ -119,8 +119,9 @@ def test_cli_check_exit_codes(tmp_path):
 def test_declared_summary_reads_an_rst_field():
     """שדה ``:summary:`` מתחת לכותרת נקרא, כולל שורות המשך מוזחות.
 
-    המיקום הוא מה ש-``docutils`` מקדם ל-``<docinfo>``: field list שבא
-    ראשון אחרי כותרת המסמך (``transforms/frontmatter.py``, ``DocInfo``).
+    המיקום הוא רשימת השדות הראשונה שאחרי כותרת המסמך. Sphinx מכבה את
+    ``doctitle_xform``, ולכן אין קידום ל-``<docinfo>``: השדה נשאר מוצג
+    כ-``field-list`` מתחת ל-H1, במקום שבו הוא כתוב.
     """
     g = _load_generator()
     page = ["כותרת העמוד", "===========", ":summary: התקציר המוצהר של העמוד.", "", "גוף."]
@@ -224,16 +225,17 @@ def test_a_summary_that_only_repeats_the_title_is_dropped(tmp_path):
     אף עמוד בריפו אינו מפעיל את התנאי כרגע. הבדיקה שומרת על ההתנהגות,
     לא מתקנת עמוד קיים.
 
-    שימו לב שהתנאי הוא הכלה ולא שוויון: גם תקציר שהוא תת-מחרוזת של
-    הכותרת יורד. זה מכוון עבור המקרה הזה, ולכן תקציר קצר במיוחד עלול
-    לרדת גם כשהוא לא כפילות מדויקת.
+    התנאי הוא הכלה ולא שוויון, ולכן גם תקציר שהוא תת-מחרוזת של הכותרת
+    יורד — ``partial`` למטה מכסה בדיוק את זה. ההשלכה מוצהרת ולא סמויה:
+    תקציר קצר במיוחד יורד גם כשהוא לא כפילות מדויקת. אם אי פעם נהדק את
+    התנאי לשוויון, ההצהרה הזו תיפול ברעש במקום שההתנהגות תשתנה בשקט.
     """
     g = _load_generator()
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "index.rst").write_text(
         "שורש\n====\n\n.. toctree::\n   :caption: קבוצה\n\n"
-        "   echo\n   ellipsis\n   real\n",
+        "   echo\n   ellipsis\n   partial\n   real\n",
         encoding="utf-8",
     )
     (docs / "echo.rst").write_text(
@@ -243,6 +245,12 @@ def test_a_summary_that_only_repeats_the_title_is_dropped(tmp_path):
     # אותו מקרה, אבל הכותב סיים בשלוש נקודות — ה-rstrip הוא שמזהה אותו
     (docs / "ellipsis.rst").write_text(
         "ניהול הרשאות\n============\n:summary: ניהול הרשאות…\n\nגוף.\n",
+        encoding="utf-8",
+    )
+    # הכלה חלקית: תקציר קצר שהוא תת-מחרוזת של כותרת ארוכה יותר
+    (docs / "partial.rst").write_text(
+        "מדריך התקנה והרצה מקומית\n========================\n"
+        ":summary: התקנה\n\nגוף.\n",
         encoding="utf-8",
     )
     (docs / "real.rst").write_text(
@@ -257,6 +265,8 @@ def test_a_summary_that_only_repeats_the_title_is_dropped(tmp_path):
     assert "**ניהול גיבויים**: " not in content
     assert "- `docs/ellipsis.rst` — **ניהול הרשאות**" in content
     assert "**ניהול הרשאות**: " not in content
+    assert "- `docs/partial.rst` — **מדריך התקנה והרצה מקומית**" in content
+    assert "**מדריך התקנה והרצה מקומית**: " not in content
     # בקרה: בלי זה הבדיקה הייתה עוברת גם אם *כל* התקצירים היו נופלים
     assert (
         "- `docs/real.rst` — **ניהול תבניות**: איך מוסיפים תבנית חדשה." in content
