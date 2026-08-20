@@ -45,6 +45,20 @@ _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
 # שדה ההצהרה, בעמודה 0 בדיוק — כפי ש-docutils מפרש שדה ברמת המסמך
 _SUMMARY_FIELD_RE = re.compile(r"^:summary:[ \t]*(.*)$")
+# ``DocInfo`` מתעלם רק מ-``nodes.PreBibliographic``. נבדק מול
+# ``docutils.nodes``: תת-המחלקות כוללות ``comment``, ``target``, ``meta``,
+# ``raw`` ו-``substitution_definition`` — ו**אינן** כוללות ``note`` או
+# admonition אחר. לכן ``.. note::`` לפני ``:summary:`` הופך את השדה ללא-
+# docinfo, ודילוג עליו היה מציג במפה תקציר שהעמוד עצמו אינו מציג ככזה.
+_PREBIBLIOGRAPHIC_RE = re.compile(
+    r"^\.\.(?:"
+    r"[ \t]+_[^:]+:"                                   # יעד: .. _label:
+    r"|[ \t]+(?:meta|raw)::"                           # meta / raw
+    r"|[ \t]+\|[^|]+\|[ \t]+\w+::"                    # הגדרת substitution
+    r"|[ \t]+(?![\w.+-]+::)"                           # הערה: .. טקסט (בלי directive)
+    r"|[ \t]*$"                                        # ".." לבד
+    r")"
+)
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
 
 _AUTODOC_RE = re.compile(r"^\.\. auto(module|class|function)::")
@@ -175,6 +189,20 @@ def _front_matter_summary(lines: list[str]) -> str:
     return " ".join(str(value).split()) if value else ""
 
 
+def _consume_indented_body(lines: list[str], i: int) -> int:
+    """מדלג על הגוף המוזח של directive או הערה שהתחילו בשורה הקודמת.
+
+    הפרימיטיב הזה משותף ל-:func:`_skip_prebibliographic` ול-
+    :func:`_is_autodoc_scaffold`. ההחלטה *איזו* שורה פותחת דילוג נשארת
+    אצל כל אחד מהם — הכללים שונים — אבל צריכת הגוף זהה, והיא בדיוק
+    המקום שבו כבר היה באג פעם אחת: קידום של שורה אחת נעצר על הגוף.
+    """
+    n = len(lines)
+    while i < n and (not lines[i].strip() or lines[i][:1].isspace()):
+        i += 1
+    return i
+
+
 def _skip_prebibliographic(lines: list[str], i: int) -> int:
     """מדלג על שורות ריקות, הערות ו-directives — כולל הגוף המוזח שלהם.
 
@@ -188,15 +216,13 @@ def _skip_prebibliographic(lines: list[str], i: int) -> int:
     """
     n = len(lines)
     while i < n:
-        if not lines[i].strip():
+        stripped = lines[i].strip()
+        if not stripped:
             i += 1
             continue
-        if _DIRECTIVE_RE.match(lines[i]) or lines[i].strip() == "..":
-            i += 1
-            while i < n and (not lines[i].strip() or lines[i][:1].isspace()):
-                i += 1
-            continue
-        return i
+        if not _PREBIBLIOGRAPHIC_RE.match(lines[i]):
+            return i
+        i = _consume_indented_body(lines, i + 1)
     return i
 
 
@@ -272,9 +298,9 @@ def _is_autodoc_scaffold(lines: list[str], path: Path) -> bool:
             i += 1  # שורה ריקה או גוף מוזח של directive
             continue
         if _DIRECTIVE_RE.match(raw) or stripped == "..":
-            i += 1
-            while i < n and (not lines[i].strip() or lines[i][:1].isspace()):
-                i += 1
+            # כאן מדלגים על **כל** directive (כולל ``automodule``), ולא רק
+            # על PreBibliographic — זו שאלה אחרת: האם נשאר תוכן שנכתב ביד.
+            i = _consume_indented_body(lines, i + 1)
             continue
         if _UNDERLINE_RE.match(raw):
             i += 1  # קו של כותרת

@@ -1,6 +1,6 @@
 זרימת חיפוש (Search Flow)
 ===========================
-:summary: שישה סוגי חיפוש — טקסט, Regex, Fuzzy, סמנטי, פונקציות ותוכן — עם מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex ומיון התוצאות.
+:summary: סוגי החיפוש בזרימת הבוט — טקסט, Regex, Fuzzy, פונקציות ותוכן — עם מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex ומיון התוצאות. החיפוש הסמנטי הוא מסלול נפרד ב-WebApp.
 
 סקירה כללית
 ------------
@@ -9,9 +9,19 @@
 - **Text Search** - התאמת מחרוזת בסיסית
 - **Regex Search** - חיפוש מבוסס תבניות (עם הגנת ReDoS)
 - **Fuzzy Search** - התאמה משוערת
-- **Semantic Search** - חיפוש לפי משמעות (``SearchType.SEMANTIC``), מבוסס embeddings
 - **Content Search** - חיפוש בתוך תוכן הקבצים
 - **Function Search** - מציאת הגדרות פונקציות
+
+.. warning::
+
+   ``SearchType.SEMANTIC`` קיים ב-``enum`` אבל **אינו ממומש בזרימה הזו**:
+   ל-``AdvancedSearchEngine.search`` אין ענף עבורו, והוא נופל ל-``else``
+   שמריץ ``_text_search`` — כלומר חיפוש טקסט רגיל, בלי embeddings.
+
+   החיפוש הסמנטי האמיתי הוא מסלול נפרד: הפונקציה ``semantic_search``
+   ברמת המודול (חיפוש היברידי טקסט+וקטור), שנחשפת ב-
+   ``POST /api/search/semantic`` ב-WebApp. גם היא נופלת לחיפוש טקסט
+   כאשר ``SEMANTIC_SEARCH_ENABLED`` כבוי או ששירות ה-embeddings לא זמין.
 
 סוגי חיפוש
 -----------

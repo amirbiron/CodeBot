@@ -7,7 +7,7 @@
 ## למפתחים ולסוכני AI
 
 - `docs/quickstart-ai.rst` — **התחלה מהירה - סוכני AI**: מסמך זה נועד לאפשר לסוכן AI להתחיל לעבוד על הריפו במהירות ובבטחה, בהתאם למדיניות הפרויקט.
-- `docs/quickstart.rst` — **התחלה מהירה - מפתחים**: שלושה צעדים כדי להריץ מקומית במהירות.
+- `docs/quickstart.rst` — **התחלה מהירה - מפתחים**: הצעדים להרצה מקומית מהירה של הבוט, מהתקנה ועד הפעלה.
 - `docs/quickstart-contrib.rst` — **Quickstart לתרומה**: דף קצר שמאפשר להתחיל לתרום במהירות ובבטחה.
 - `docs/ai-guidelines.rst` — **הנחיות מלאות לסוכני AI**: ההנחיות המלאות לסוכני AI שעובדים בריפו: המגבלות הקריטיות, איך מריצים פקודות, אילו כלי קבצים מאושרים, עקרונות עריכת קוד, ומדיניות הקומיטים וה-Pull Requests.
 - `docs/agents/rate-limiting.md` — **🚦 מערכת Rate Limiting לסוכני AI ולווב**: מטרה: להסביר איך מפעילים ומנטרים Rate Limiting בבוט ובווב, עם דגש על Shadow Mode, ניטור וקונפיג.
@@ -27,13 +27,13 @@
 - `docs/environment-variables.rst` — **משתני סביבה - רפרנס**: רפרנס משתני הסביבה: הטבלה המרכזית, משתני התראות וניטור, מדדים ו-OTEL, תפעול ואינטגרציות, דגלי בדיקות, ודוגמאות קונפיגורציה כולל טבלת ה-Scopes של GitHub.
 - `docs/performance-bible.md` — **🚀 The Performance Bible: CodeKeeper Optimization Guide**: עקרונות הביצועים של המערכת אחרי הרפקטור שהוריד את ה-p95 מ-1.8 שניות ל-200ms: Cache First, Projection, חישוב ב-DB, אינדקסים מורכבים, ו-Lazy Loading.
 - `docs/performance-scaling.rst` — **ביצועים והרחבה (Performance & Scaling)**: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
-- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: שני נדבכים לשיפור זמני התגובה: העלאת timeout שכבר הוכחה בשטח, וחימום אינדקסים לפני שהתהליך מקבל תעבורה — נדבך שעדיין נבחן. כולל מה לאמת לפני rollout מלא.
+- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: העלאת timeout שכבר הוכחה בשטח, וחימום אינדקסים לפני שהתהליך מקבל תעבורה — נדבך שעדיין נבחן. כולל מה לאמת לפני rollout מלא.
 - `docs/large-files-runbook.rst` — **טיפול בקבצים גדולים (Large Files)**: ראנבוק לטיפול בקבצים גדולים: המגבלות והפולבקים, הנחיות ההפעלה, ומה לנטר.
 
 ## API Reference
 
 - `docs/api/index.rst` — **API Reference**: תיעוד מלא של ה-API של Code Keeper Bot.
-  - `docs/api/handlers.documents.rst` — **handlers.documents module**: מרכז את הטיפול במסמכים וקבצים שנשלחים לבוט — קליטה, ולידציה, ושמירה דרך שכבת הקבצים.
+  - `docs/api/handlers.documents.rst` — **handlers.documents module**: מנתב קבצים שנשלחים לבוט לפי ``upload_mode``: שחזור ZIP לריפו GitHub, ייבוא ZIP, וקבצי טקסט שנשמרים דרך שכבת הקבצים. כולל ולידציה והגנות מפני 'פצצת ZIP'.
   - `docs/api/modules.rst` — **workspace**: אינדקס המודולים של התיעוד האוטומטי — נקודת הכניסה לעמודי ה-API שנוצרים מ-autodoc בזמן הבנייה.
     - `docs/api/refactoring_engine.rst` — **refactoring\_engine module**: מנוע הרפקטורינג: המדיניות והקונפיגורציה, קיבוץ לפי קוהזיה שמונע Oversplitting ו-God Class, והמקרה המיוחד של פירוק בטוח ל-models.py.
 - `docs/modules/index.rst` — **מודולים ראשיים**: תיעוד מפורט של המודולים הראשיים בפרויקט.
@@ -55,14 +55,14 @@
 
 - `docs/examples.rst` — **דוגמאות שימוש**: דף זה מכיל דוגמאות קוד לשימוש ב-API של Code Keeper Bot.
 - `docs/testing.rst` — **Testing Guide**: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, ו-mocking של HTTP.
-- `docs/testing-rate-limit-examples.rst` — **דוגמאות טסטים – Rate Limiting ואסינכרוניות**: דוגמאות מוכנות להרצת Rate Limiting מול Redis מדומה, ולכתיבת טסטים אסינכרוניים.
+- `docs/testing-rate-limit-examples.rst` — **דוגמאות טסטים – Rate Limiting ואסינכרוניות**: קטעי דוגמה לכתיבת טסטים ל-Rate Limiting מול Redis מדומה ולקוד אסינכרוני. הקטעים אינם ניתנים להרצה כמות שהם — הם מדלגים על הקשר עם ``...`` ומניחים פונקציות מקומיות.
 - `docs/performance-tests.rst` — **בדיקות ביצועים (Performance Tests)**: להריץ בדיקות ביצועים בצורה בטוחה וגמישה: ברירת מחדל מריצים את כולן; ב‑PR Draft עם תווית מתאימה מריצים רק "קלים".
 - `docs/ci-cd.rst` — **CI/CD Guide**: מדריך ה-CI/CD: החוקים הקשיחים, הסטטוסים הנדרשים ב-PR, ריכוז ה-workflows, הבדיקות המומלצות ובניית התיעוד.
 - `docs/conversation-handlers.rst` — **Conversation Handlers & States**: מסמך זה מרכז את הזרימות העיקריות של ה‑ConversationHandlers וה‑states.
 - `docs/troubleshooting.rst` — **Troubleshooting Guide**: מדריך פתרון תקלות: שגיאות ייבוא בזמן טסטים, שגיאות parse_mode, בעיות event loop של asyncio, וכלים לדיבוג מהיר כולל בדיקת חיבור ל-MongoDB.
 - `docs/development.rst` — **Development Workflow**: זרימת העבודה בפיתוח: הוספת handler חדש לבוט, הוספת endpoint ל-WebApp, ועדכון סכמה במסד הנתונים.
 - `docs/development/pre-commit.rst` — **Pre-commit Hooks**: להבטיח איכות קוד עקבית לפני קומיט/PR.
-- `docs/development/tools.rst` — **כלי עזר למפתחים**: עמוד זה מרכז שני כלים ייעודיים שנמצאים תחת tools/ ונועדו לסייע באיתור צווארי בקבוק במאגר ובסדר הקוד. לפני השימוש ודאו שהקבצים אינם מתועדים במקום אחר כדי למנוע כפילות.
+- `docs/development/tools.rst` — **כלי עזר למפתחים**: הכלים שתחת tools/: ניתוח שאילתות איטיות ואיתור קוד כפול, מתי להריץ כל אחד ומה לקרוא בפלט.
 - `docs/development/scripts.rst` — **סקריפטים שימושיים**: תיקיית scripts/ מכילה כלים חד-פעמיים ותהליכי תחזוקה. לפני ההרצה ודאו שסביבת ה-DB היא סביבת ניסוי/פיתוח ושיש גיבוי עדכני.
 - `docs/development/i18n.rst` — **בינאום ותמיכה בשפות**: מודול i18n/ מספק שכבת תרגום פשוטה לבוט הטלגרם וה-WebApp. נכון לעכשיו קיימת חבילת מחרוזות בעברית (strings_he.py), אך המבנה מאפשר הוספת שפות חדשות ללא שינוי בלוגיקה העסקית.
 - `docs/integrations.rst` — **Integrations**: להפעלת פעולות שונות מול GitHub נדרש להגדיר לטוקן \(`GITHUB_TOKEN` או טוקן משתמש שנשמר במערכת\) את מרחבי ההרשאות המינימליים. הקפידו על עיקרון ההרשאות המצומצמות.
@@ -84,10 +84,10 @@
 
 - `docs/workflows/index.rst` — **זרימות עבודה (Workflows)**: מסמכים אלה מתארים את הזרימות המרכזיות במערכת.
   - `docs/workflows/save-flow.rst` — **זרימת שמירת קוד (Save Flow)**: מצבי השמירה, מצב האיסוף הארוך, זיהוי סודות, טיפול בכפילויות, ונרמול הקוד לפני השמירה.
-  - `docs/workflows/search-flow.rst` — **זרימת חיפוש (Search Flow)**: שישה סוגי חיפוש — טקסט, Regex, Fuzzy, סמנטי, פונקציות ותוכן — עם מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex ומיון התוצאות.
+  - `docs/workflows/search-flow.rst` — **זרימת חיפוש (Search Flow)**: סוגי החיפוש בזרימת הבוט — טקסט, Regex, Fuzzy, פונקציות ותוכן — עם מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex ומיון התוצאות. החיפוש הסמנטי הוא מסלול נפרד ב-WebApp.
   - `docs/workflows/refactor-flow.rst` — **זרימת רפקטורינג (Refactor Flow)**: מנוע הרפקטורינג מאפשר שינוי מבנה קוד בצורה בטוחה עם אימות לפני ואחרי.
   - `docs/workflows/backup-flow.rst` — **זרימת גיבוי ושחזור (Backup Flow)**: זרימת הגיבוי והשחזור מקצה לקצה: סוגי הגיבויים, יצירת גיבוי מלא, שחזור, העלאה ל-Google Drive, ניהול הגיבויים הקיימים, וייבוא ZIP חיצוני.
-  - `docs/workflows/gist-flow.rst` — **זרימת שיתוף ב-Gist (Gist Flow)**: זרימת השיתוף ב-Gist: ארבע נקודות הכניסה, למה ה-Gist נוצר תחת חשבון המשתמש ולא של המערכת, שלושת מצבי auth_failed, וההתנהגות fail-closed בכל מסלול כשל.
+  - `docs/workflows/gist-flow.rst` — **זרימת שיתוף ב-Gist (Gist Flow)**: נקודות הכניסה לשיתוף ב-Gist, למה ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש ולא של המערכת, מצבי auth_failed, וההתנהגות fail-closed בכל מסלול כשל.
 
 ## מנועי המערכת
 
@@ -128,7 +128,7 @@
 
 ## Frontend > Theming
 
-- `docs/webapp/theming_and_css.rst` — **מערכת ערכות הנושא והטוקנים החדשה**: הדף מרכז את כל הידע המעשי על ארכיטקטורת הצבעים, משתני ה‑CSS והבדיקות שנדרשות לשימור חוויית הממשק בכל שמונה הערכות. זהו מקור האמת עבור כל שינוי עתידי ב‑CSS של ה‑WebApp.
+- `docs/webapp/theming_and_css.rst` — **מערכת ערכות הנושא והטוקנים החדשה**: ארכיטקטורת הצבעים, משתני ה-CSS והבדיקות שנדרשות לשימור חוויית הממשק בכל ערכות הנושא. מקור האמת לכל שינוי ב-CSS של ה-WebApp.
 - `docs/webapp/custom_themes_guide.rst` — **ערכות נושא מותאמות אישית – מדריך מקיף**: מדריך זה מכסה את כל היבטי מערכת ערכות הנושא המותאמות אישית (Custom Themes) – מייבוא VS Code themes ועד יצירה ידנית, הגדרות מתקדמות והדגשת תחביר.
 - `docs/webapp/language-icons.rst` — **אייקוני שפות התכנות**: כל קובץ ב-Web App מוצג עם אייקון שמייצג את שפת התכנות שלו. עד אוגוסט 2026 אלה היו אמוג'ים (🐍 לפייתון, 📜 ל-JavaScript); היום אלה 28 אייקונים מצוירים בסגנון אחיד — אריח ריבועי עם גרדיאנט וסימן לבן.
 
@@ -136,7 +136,7 @@
 
 - `docs/observability.rst` — **אובזרווביליות (Observability)**: המטרות וקהלי היעד, התצורה, בחירת Backend ל-Traces, הגדרת OTLP לסביבות, ואינסטרומנטציה ידנית.
 - `docs/observability/background-jobs-monitor.rst` — **Background Jobs Monitor**: פיצ'ר ה-Background Jobs Monitor מספק נראות (Observability) מלאה לכל ה-Jobs הרצים ברקע במערכת, כולל פעולות משתמש דינמיות (Drive, Reminders, Batch Operations).
-- `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים: כרטיסי מצב וגרפים, טבלת התראות עם סינון, ו-API מתועד לשבעה מסלולים.
+- `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים: כרטיסי מצב וגרפים, טבלת התראות עם סינון, ו-API מתועד למסלולי alerts, timeseries, aggregations, export, replay, runbook, quickfix ו-ai_explain.
 - `docs/observability/query-performance-profiler.rst` — **Query Performance Profiler**: כלי ניטור לשאילתות MongoDB איטיות: דשבורד ב-WebApp שמציג את השאילתות הכבדות, ה-API שמאחוריו, ומה הכלי במפורש אינו עושה.
 - `docs/observability/quick_fix_rules.md` — **🧠 Quick Fix חכם (Queue Delay + עומס/DB) – הנחיות למפתחים ולסוכני AI**: המטרה של Quick Fix היא לתת המלצה קצרה, בטוחה ושימושית על “מה לעשות עכשיו”, לפי אותות שאנחנו כבר מודדים.
 - `docs/observability/asyncio-loop-safety.rst` — **Asyncio תחת WSGI: הרצת קורוטינות בבטחה**: ב-WebApp שמורץ תחת WSGI (Flask + Gunicorn/gevent), עלולה להיות לולאת Event פעילה כבר בתוך ה-thread של הבקשה. במצב כזה קריאה ל-asyncio.run תזרוק חריגה ותפיל את הבקשה, ולעתים תשאיר קורוטינה "תלויה" ללא await.
@@ -159,7 +159,7 @@
 
 ## פריסה ו-Workers
 
-- `docs/deployment/workers.rst` — **עובדי Push**: שני מסלולי ה-Web Push של הבוט: המסלול המקומי ב-pywebpush ועובד ה-Node, החיבור ל-WebApp דרך push_api.py, ובדיקות.
+- `docs/deployment/workers.rst` — **עובדי Push**: מסלולי ה-Web Push של הבוט — המסלול המקומי ב-pywebpush ועובד ה-Node — החיבור ל-WebApp דרך push_api.py, ובדיקות.
 
 ## ChatOps
 

@@ -1,6 +1,6 @@
 עובדי Push
 ===========
-:summary: שני מסלולי ה-Web Push של הבוט: המסלול המקומי ב-pywebpush ועובד ה-Node, החיבור ל-WebApp דרך push_api.py, ובדיקות.
+:summary: מסלולי ה-Web Push של הבוט — המסלול המקומי ב-pywebpush ועובד ה-Node — החיבור ל-WebApp דרך push_api.py, ובדיקות.
 
 ל-Code Keeper Bot יש שני מסלולים לשליחת Web Push:
 

@@ -288,3 +288,37 @@ def test_prebibliographic_between_title_and_field_is_skipped():
 
     comment = ["כותרת", "=====", "", ".. הערה פנימית", "", ":summary: התקציר.", "", "גוף."]
     assert g._declared_summary(comment, Path("x.rst")) == "התקציר."
+
+
+def test_only_prebibliographic_forms_are_skipped_before_the_field_list():
+    """``.. note::`` לפני ``:summary:`` מבטל את מעמד ה-docinfo של השדה.
+
+    ``DocInfo`` מתעלם רק מ-``nodes.PreBibliographic``. נבדק מול
+    ``docutils.nodes``: ``comment``, ``target``, ``meta``, ``raw`` ו-
+    ``substitution_definition`` הם כאלה; ``note`` אינו. דילוג על כל
+    directive היה מציג במפה תקציר שהעמוד עצמו אינו מציג ככזה.
+    """
+    g = _load_generator()
+
+    for prefix in (".. _label:", ".. הערה חופשית", ".. meta::", ".."):
+        page = ["כותרת", "=====", "", prefix, "", ":summary: התקציר.", "", "גוף."]
+        assert g._declared_summary(page, Path("x.rst")) == "התקציר.", prefix
+
+    for prefix in (".. note::", ".. code-block:: python", ".. toctree::"):
+        page = ["כותרת", "=====", "", prefix, "   גוף מוזח", "", ":summary: לא docinfo.", ""]
+        assert g._declared_summary(page, Path("x.rst")) == "", prefix
+
+
+def test_scaffold_detection_handles_a_multiline_directive_first():
+    """עמוד פיגום שנפתח ב-directive רב-שורות עדיין מזוהה כפיגום.
+
+    הערה על מה שהבדיקה הזו **אינה** מוכיחה: הרצתי מוטציה שמבטלת את
+    צריכת הגוף כאן, והבדיקה עברה. הסיבה היא ששורה מוזחת נתפסת ממילא
+    בשומר שמעליה (``raw[:1].isspace()``), ולכן הכפילות שהוסרה לא נשאה
+    משקל בפועל. השיתוף ב-``_consume_indented_body`` נשאר כי הוא מונע
+    סטייה עתידית בין שני המקומות, לא כי הוא תיקן באג קיים.
+    """
+    g = _load_generator()
+    page = [".. meta::", "   :description: תיאור", "", "מודולים", "========", "",
+            ".. automodule:: x", "   :members:"]
+    assert g._is_autodoc_scaffold(page, Path("x.rst")) is True

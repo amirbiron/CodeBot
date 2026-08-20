@@ -1,5 +1,5 @@
 ---
-summary: 'מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים: כרטיסי מצב וגרפים, טבלת התראות עם סינון, ו-API מתועד לשבעה מסלולים.'
+summary: 'מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים: כרטיסי מצב וגרפים, טבלת התראות עם סינון, ו-API מתועד למסלולי alerts, timeseries, aggregations, export, replay, runbook, quickfix ו-ai_explain.'
 ---
 
 # 📡 Observability Dashboard & API
@@ -10,7 +10,7 @@ summary: 'מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור
 
 1. **שקיפות** – כרטיסי מצב וגרפים קלים לקריאה עם קונטקסט של זמן.
 2. **חקירה מהירה** – טבלת התראות עם סינון מתקדם ופג'ינציה חסכונית.
-3. **API מתועד** – שלושה Endpoints סימטריים שניתנים לצריכה אוטומטית ע"י Grafana, Slack או סקריפטים.
+3. **API מתועד** – מסלולי `GET` ו-`POST` תחת `/api/observability/` שניתנים לצריכה אוטומטית ע"י Grafana, Slack או סקריפטים. הרשימה המלאה בסעיף ה-API Reference שלמטה.
 
 המסמך הזה מתאר את מבנה המסך, את פרטי ה־API, שיקולי אבטחה וביצועים, וכן דוגמאות אינטגרציה לצריכה חיצונית.
 
