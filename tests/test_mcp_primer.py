@@ -1,6 +1,6 @@
 """טסטים ל-``GET /api/agent/primer`` (mcp_server/primer.py).
 
-מכסה את ארבעת האילוצים של האנדפוינט: אימות, תקרת 8KB, cache של 60 שניות,
+מכסה את ארבעת האילוצים של האנדפוינט: אימות, תקרת 24KB, cache של 60 שניות,
 וסינון סודות — וגם את מקרי הקצה של הגוף (204 בהוראות ריקות, אין שורת מצב
 כשאין קבצים).
 """
@@ -207,7 +207,7 @@ def test_recent_files_failure_still_serves_the_instructions():
     assert "ההוראות שלי" in resp.text
 
 
-# ---------------------------------------------------------------- תקרת 8KB
+# --------------------------------------------------------------- תקרת 24KB
 def test_oversized_primer_is_truncated_not_rejected():
     backend = _FakeBackend("א" * 20000, files=[{"file_name": "a.py", "saved_at": NOW}])
     resp = _client(backend).get("/api/agent/primer", headers=_auth())
@@ -392,6 +392,7 @@ def test_webapp_limits_match_the_primer_limits():
     """
     flask = pytest.importorskip("flask")  # noqa: F841
     from webapp.routes.settings_routes import (
+        AGENT_INSTRUCTIONS_MAX_CHARS,
         AGENT_INSTRUCTIONS_WARN_BYTES,
         AGENT_PRIMER_MAX_BYTES,
     )
@@ -399,6 +400,24 @@ def test_webapp_limits_match_the_primer_limits():
     assert AGENT_PRIMER_MAX_BYTES == MAX_BYTES
     assert AGENT_INSTRUCTIONS_WARN_BYTES == WARN_BYTES
     assert WARN_BYTES < MAX_BYTES  # אחרת האזהרה מגיעה רק אחרי החריגה
+
+    # האחסון רחב מההגשה — אינווריאנט מוצהר ב-``docs/mcp-server.rst``, שנועד
+    # לכך שהמשתמש לא יאבד טקסט שכתב: החיתוך הוא החלטה של ההגשה ולא של
+    # השמירה. ההשוואה היא תווים מול בייטים, ולכן המקרה הקובע הוא ASCII —
+    # שם תו הוא בייט. בעברית תו הוא שני בייטים והמרווח גדול פי שניים.
+    assert AGENT_INSTRUCTIONS_MAX_CHARS >= AGENT_PRIMER_MAX_BYTES
+
+
+def test_the_truncation_notice_quotes_the_actual_cap():
+    """הודעת החיתוך נגזרת מ-``MAX_BYTES`` ולא מוקלדת.
+
+    ההודעה הזו היא הדבר היחיד שהסוכן רואה כשהפריימר נחתך, והיא מצטטת את
+    התקרה במספר. כשהיא הייתה מוקלדת ("8KB"), שינוי התקרה היה משאיר אותה
+    משקרת בשקט — בדיוק הדפוס של ערך משוכפל שמתפצל מהמקור.
+    """
+    from mcp_server.primer import _TRUNCATION_NOTICE
+
+    assert f"{MAX_BYTES // 1024}KB" in _TRUNCATION_NOTICE
 
 
 def test_204_is_cached_too():

@@ -321,14 +321,14 @@ def theme_gallery():
 
 # תקרת האחסון של "הוראות לסוכן". גבוהה מתקרת ההגשה בכוונה: החיתוך הוא החלטה
 # של ההגשה ולא של האחסון, כדי שהמשתמש לא יאבד טקסט שכתב.
-AGENT_INSTRUCTIONS_MAX_CHARS = 16 * 1024
+AGENT_INSTRUCTIONS_MAX_CHARS = 48 * 1024
 
 # תקרת הגוף שהפריימר מגיש בפועל וסף האזהרה ב-UI. מקור האמת הוא
 # ``mcp_server.primer`` (MAX_BYTES / WARN_BYTES); הערכים משוכפלים לכאן כי
 # הוובאפ ושירות ה-MCP הם שני שירותים נפרדים ואין ביניהם ייבוא.
 # ``tests/test_mcp_primer.py`` נכשל אם הזוגות מתפצלים.
-AGENT_PRIMER_MAX_BYTES = 8 * 1024
-AGENT_INSTRUCTIONS_WARN_BYTES = 7 * 1024
+AGENT_PRIMER_MAX_BYTES = 24 * 1024
+AGENT_INSTRUCTIONS_WARN_BYTES = 21 * 1024
 
 
 def _agent_instructions_user_id():
@@ -435,7 +435,7 @@ def api_update_agent_instructions():
         {
             "ok": True,
             "bytes": size,
-            # ההגשה חותכת ב-8KB. מחזירים את הדגל כדי שה-UI יוכל להתריע מיד
+            # ההגשה חותכת ב-24KB. מחזירים את הדגל כדי שה-UI יוכל להתריע מיד
             # אחרי שמירה, ולא רק דרך שורה שרק הסוכן רואה.
             "will_truncate": size > AGENT_PRIMER_MAX_BYTES,
         }
