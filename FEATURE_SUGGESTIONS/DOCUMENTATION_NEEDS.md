@@ -128,7 +128,7 @@ import shutil
 def safe_rmtree(path: Path, allow_under: Path) -> None:
     p = path.resolve()
     base = allow_under.resolve()
-    if not str(p).startswith(str(base)) or p in (Path('/'), base.parent, Path.cwd()):
+    if not (p == base or base in p.parents) or p in (Path('/'), base.parent, Path.cwd()):
         raise RuntimeError(f"Refusing to delete unsafe path: {p}")
     shutil.rmtree(p)
 
@@ -511,7 +511,7 @@ def safe_rmtree(path: Path, allow_under: Path) -> None:
         raise RuntimeError(f"Refusing to delete: {p}")
     
     # Block paths outside allowlist
-    if not str(p).startswith(str(base)):
+    if not (p == base or base in p.parents):
         raise RuntimeError(f"Path {p} not under {base}")
     
     shutil.rmtree(p)
