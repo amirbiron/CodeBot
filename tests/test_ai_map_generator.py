@@ -54,12 +54,23 @@ def test_the_map_carries_the_authority_warning():
     הכלל שהכי יקר לפספס: כל סבבי הריוויו כאן מצאו טענות בפרוזה שסתרו את
     הקוד. הבדיקה נופלת אם מישהו יסיר את הסעיף מהמחולל.
     """
-    content = _load_generator().build_map()
+    lines = _load_generator().build_map().split("\n")
 
-    assert "## סמכות התיעוד" in content
-    assert "התמצאות, לא סמכות" in content
-    assert "literalinclude" in content  # שני החריגים מוזכרים
-    assert "autodoc" in content
+    assert "## סמכות התיעוד" in lines
+    start = lines.index("## סמכות התיעוד")
+    end = next(
+        (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+        len(lines),
+    )
+    section = "\n".join(lines[start:end])
+
+    assert "התמצאות, לא סמכות" in section
+    # דווקא בתוך הסעיף, ולא ב-``content`` כולו: ``autodoc`` מופיע ממילא
+    # ב-preamble של המפה ובשורת הסיכום, ולכן טענה על הטקסט המלא הייתה
+    # עוברת גם אחרי מחיקת משפט החריגים — נמדד. ``literalinclude`` יחיד
+    # היום, אבל מספיק שעמוד אחד יזכיר אותו בתקציר כדי שגם הוא יתרוקן.
+    assert "literalinclude" in section
+    assert "autodoc" in section
 
 
 def test_autodoc_scaffolds_are_filtered():
