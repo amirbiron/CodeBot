@@ -1,5 +1,6 @@
 handlers.documents module
 =========================
+:summary: handlers.documents מרכז את הטיפול במסמכים וקבצים שנשלחים לבוט (Facade). הוא אחראי לנתב בין מסלולי GitHub, ZIP וקבצים טקסטואליים, ולשמור מדדים ואירועי Observability לאורך הזרימה.
 
 תיאור כללי
 -----------

@@ -1,5 +1,6 @@
 מדדים (Metrics)
 ================
+:summary: נקודת הקצה ל-Prometheus: /metrics
 
 נקודת קצה
 ---------

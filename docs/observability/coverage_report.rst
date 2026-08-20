@@ -1,5 +1,6 @@
 Coverage Report (Runbooks / Quick Fixes)
 ========================================
+:summary: עמוד ה-Coverage נועד להיות Gap Analysis קבוע: To‑Do List לצוות שמראה אילו alert_type נצפו במערכת ועדיין חסר להם Runbook/Quick Fix, ואילו הגדרות בקונפיג הפכו ליתומות.
 
 מטרה
 -----

@@ -1,5 +1,6 @@
 Rate Limiting
 =============
+:summary: מערכת הגבלת קצב אחודה לבוט ולווב, עם Shadow Mode, Soft‑Warning ב‑80% ועקיפת מנהלים.
 
 מבוא
 ----

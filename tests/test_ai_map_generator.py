@@ -74,301 +74,6 @@ def test_no_timestamps_in_generator_authored_lines():
     assert not hits, f"חותמת זמן בשורות של המחולל: {hits}"
 
 
-def test_table_first_page_does_not_hang(tmp_path):
-    """עמוד שנפתח בטבלה לא תוקע את המחולל, ותחביר הטבלה לא חוזר כתקציר.
-
-    רגרסיה: תנאי העצירה על שורת טבלה קפץ לפני קידום האינדקס, ואותה
-    שורה נבדקה שוב לנצח. שום דף נוכחי לא נפתח בטבלה — הדף הראשון שכן
-    היה תוקע את ה-Action בלי הודעת שגיאה.
-
-    רץ בתת-תהליך ולא בת'רד: ת'רד daemon שנתקע ממשיך לסובב על ליבה
-    שלמה עד סוף ריצת pytest ומאט את שאר הבדיקות, ובנוסף חריגה בתוכו
-    נבלעת ומופיעה כ-KeyError מבלבל במקום כשורש הבעיה. תת-תהליך נהרג
-    ב-timeout, ומחזיר את החריגה המקורית ב-stderr.
-
-    שני סוגי הטבלאות של RST נבדקים: pipe ו-grid (``+---+``).
-    """
-    import subprocess
-    import sys as _sys
-
-    probe = tmp_path / "probe.py"
-    probe.write_text(
-        "import importlib.util, json, sys\n"
-        f"spec = importlib.util.spec_from_file_location('g', {str(ROOT / 'scripts' / 'generate_ai_map.py')!r})\n"
-        "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\n"
-        "from pathlib import Path\n"
-        "cases = {\n"
-        "  'pipe': ['כותרת', '======', '', '| עמודה ראשונה ארוכה | שנייה ארוכה מאוד |', '',"
-        " 'פסקת פרוזה ארוכה מספיק שנשלפת אחרי הטבלה כתקציר.'],\n"
-        "  'grid': ['כותרת', '======', '', '+--------------------+------------------+',"
-        " '| עמודה ארוכה מאוד   | עוד עמודה ארוכה  |', '+====================+==================+', '',"
-        " 'פסקת פרוזה ארוכה מספיק שנשלפת אחרי הטבלה כתקציר.'],\n"
-        "}\n"
-        "print(json.dumps({k: g._first_prose_paragraph(v, Path('x.rst')) for k, v in cases.items()}))\n",
-        encoding="utf-8",
-    )
-    proc = subprocess.run(
-        [_sys.executable, str(probe)], capture_output=True, text=True, timeout=30, cwd=tmp_path
-    )
-    assert proc.returncode == 0, f"המחולל נכשל על עמוד שנפתח בטבלה:\n{proc.stderr}"
-
-    import json
-
-    results = json.loads(proc.stdout)
-    for kind, summary in results.items():
-        assert "פסקת פרוזה" in summary, f"{kind}: הפסקה שאחרי הטבלה לא נשלפה"
-        assert "|" not in summary and "+--" not in summary, (
-            f"{kind}: תחביר טבלה הוחזר כתקציר במקום להיות מדולג"
-        )
-
-
-def test_pipeless_markdown_table_body_is_skipped():
-    """שורות הנתונים של טבלת Markdown בלי pipe חיצוני לא נכנסות לתקציר.
-
-    רגרסיה: הזיהוי הקודם טיפל בשורת הכותרת ובשורת המפריד בלבד, ולכן
-    שורות הנתונים ("אלפא | ערך…") נפלו לאיסוף הפרוזה — ותקציר העמוד
-    במפה יצא הטבלה עצמה במקום הפסקה שאחריה. השורש: טבלת Markdown היא
-    בלוק, לא שורה, ולפי GFM היא נמשכת עד השורה הריקה הראשונה.
-
-    השורות כאן ארוכות בכוונה: תקציר קצר מהסף נזרק ממילא, וטבלה עם
-    שורות קצרות הייתה מעבירה את הבדיקה גם בלי התיקון.
-    """
-    g = _load_generator()
-    page = [
-        "כותרת",
-        "======",
-        "",
-        "שם | ערך",
-        "--- | ---",
-        "אלפא | ערך ראשון שהוא ארוך מספיק כדי לעבור את סף התקציר",
-        "ביתא | ערך שני שגם הוא ארוך מספיק כדי לעבור את סף התקציר",
-        "",
-        "פסקת פרוזה אמיתית שהיא זו שאמורה לשמש כתקציר של העמוד הזה.",
-    ]
-    summary = g._first_prose_paragraph(page, Path("x.rst"))
-    assert "פסקת פרוזה" in summary, f"הפסקה שאחרי הטבלה לא נשלפה: {summary!r}"
-    assert "אלפא" not in summary and "ביתא" not in summary, (
-        f"שורות הנתונים של הטבלה דלפו לתקציר: {summary!r}"
-    )
-
-
-def test_block_start_ends_the_markdown_table_skip():
-    """בלוק שמתחיל מיד אחרי טבלה, בלי שורה ריקה, לא נבלע יחד איתה.
-
-    רגרסיה: דילוג הטבלה עצר בשורה ריקה בלבד, ולכן כותרת/גדר/קו מפריד
-    שהופיעו צמוד לטבלה נבלעו — ואיתם הפרוזה שאחריהם. התקציר יצא ריק.
-
-    הכלל נלקח מהמימוש שהתיעוד באמת נבנה איתו: לולאת הגוף של כלל הטבלה
-    ב-``markdown_it/rules_block/table.py`` נשברת גם על ``terminatorRules``
-    ולא רק על שורה ריקה. תחת ההגדרות ב-``docs/conf.py`` הרשימה היא
-    front_matter, colon_fence, fence, line_comment, blockquote,
-    block_break, target, hr, list_block, html_block, heading, deflist.
-    """
-    g = _load_generator()
-    prose = "פסקת הפרוזה האמיתית של העמוד, ארוכה מספיק כדי לעבור את הסף."
-    table = ["שם | ערך", "--- | ---", "אלפא | ערך ארוך מספיק כדי לעבור את הסף"]
-    # הבלוקים סגורים בכוונה: גדר פתוחה באמת מכילה את כל מה שאחריה,
-    # ובדיקה עם גדר פתוחה הייתה בודקת התנהגות שגויה ולא את הממצא.
-    starters = {
-        "כותרת ATX": ["## כותרת ביניים"],
-        "fence": ["```", "code", "```"],
-        "colon_fence": [":::{note}", "גוף ההערה", ":::"],
-        "hr": ["***"],
-        "blockquote": ["> ציטוט"],
-    }
-    for kind, starter in starters.items():
-        page = ["כותרת", "======", ""] + table + starter + [prose]
-        summary = g._first_prose_paragraph(page, Path("x.md"))
-        assert prose[:20] in summary, f"{kind}: הפרוזה נבלעה עם הטבלה ({summary!r})"
-        assert "אלפא" not in summary, f"{kind}: שורת טבלה דלפה לתקציר ({summary!r})"
-
-
-# כל סוג בלוק ש-``_MD_BLOCK_START_RE`` מזהה, ומה שצריך כדי לסגור אותו.
-# הרשימה הזו היא החוזה: כל מה שעוצר את דילוג הטבלה חייב גם להיות מדולג
-# על ידי הלולאה הראשית, אחרת הוא נכנס לתקציר.
-_BLOCK_KINDS = {
-    "heading": ["## כותרת ביניים"],
-    "fence_backtick": ["```", "code", "```"],
-    "fence_tilde": ["~~~", "code", "~~~"],
-    "colon_fence": [":::{note}", "גוף ההערה", ":::"],
-    "blockquote": ["> ציטוט ארוך מספיק שאסור לו להופיע כתקציר של העמוד"],
-    "list_dash": ["- פריט ברשימה"],
-    "list_star": ["* פריט ברשימה"],
-    "list_plus": ["+ פריט ברשימה"],
-    "list_ordered": ["1. פריט ממוספר"],
-    "html_block": ["<div>תוכן html ארוך מספיק שאינו אמור להיות תקציר</div>"],
-    "line_comment": ["% הערת MyST ארוכה שאסור לה להופיע כתקציר של העמוד"],
-    "block_break": ["+++"],
-    "target": ["(שם-היעד)="],
-    "hr_dash": ["---"],
-    "hr_star": ["***"],
-    "hr_underscore": ["___"],
-}
-
-
-def test_every_block_kind_is_skipped_after_a_table():
-    """כל בלוק שעוצר את דילוג הטבלה גם מדולג בפועל, ולא נכנס לתקציר.
-
-    רגרסיה כפולה. היו כאן שתי רשימות שחייבות להסכים: זו שעוצרת את דילוג
-    הטבלה (``_MD_BLOCK_START_RE``) וזו שהלולאה הראשית מדלגת לפיה. הן
-    נפרדו בשקט — ``%``, ``<`` ו-``(target)=`` עצרו את הדילוג אבל לא דולגו,
-    אז הערת MyST שלמה נכנסה לתקציר של העמוד. השלמת הטאפל בלבד השאירה את
-    ``+ פריט`` דולף, ולכן השורש הוא איחוד לרשימה אחת ולא הוספת פריטים.
-
-    הבדיקה כאן היא החוזה שמונע את הפרידה הבאה: היא רצה על **כל** סוג בלוק,
-    ולכן פריט חדש ברג'קס בלי טיפול תואם בלולאה נופל כאן מיד.
-    """
-    g = _load_generator()
-    prose = "פסקת הפרוזה האמיתית של העמוד, ארוכה מספיק כדי לעבור את הסף."
-    table = ["שם | ערך", "--- | ---", "אלפא | ערך ארוך מספיק כדי לעבור את הסף"]
-    for kind, block in _BLOCK_KINDS.items():
-        # בלי שורה ריקה בין הטבלה לבלוק, וזה כל העניין
-        page = ["כותרת", "======", ""] + table + block + [prose]
-        summary = g._first_prose_paragraph(page, Path("x.md")).strip()
-        assert summary == prose, f"{kind}: התקציר אינו הפרוזה בלבד ({summary!r})"
-
-
-def test_block_start_regex_matches_every_declared_kind():
-    """כל סוג בלוק ברשימה למעלה באמת מזוהה על ידי הרג'קס.
-
-    בלי הבדיקה הזו אפשר היה למחוק פריט מהרג'קס והבדיקה שמעליה הייתה
-    ממשיכה לעבור — הלולאה הראשית מדלגת על חלק מהבלוקים גם בלעדיו,
-    והכיסוי היה נשען על מקריות.
-    """
-    g = _load_generator()
-    for kind, block in _BLOCK_KINDS.items():
-        assert g._MD_BLOCK_START_RE.match(block[0]), f"{kind}: {block[0]!r} אינו מזוהה ברג'קס"
-
-
-def test_fence_closes_only_on_a_valid_closing_fence():
-    """גדר נסגרת רק בסימון זהה, באורך הפתיחה לפחות, וזנב של רווחים בלבד.
-
-    רגרסיה: הקוד לקח ``stripped[:3]`` והשווה ב-``startswith``, ולכן שורת
-    ``~~~`` בתוך גדר שנפתחה ב-``~~~~`` נחשבה סגירה — והקוד שאחריה נאסף
-    כתקציר של העמוד. באותה שורה גם ``~~~~ עוד טקסט`` נחשב סגירה.
-
-    שלושת התנאים נלקחו מהמימוש שהתיעוד נבנה איתו, והם זהים ב-
-    ``markdown_it/rules_block/fence.py`` וב-``mdit_py_plugins/colon_fence.py``:
-    אותו תו סימון, ``closing code fence must be at least as long as the
-    opening one``, ו-``make sure tail has spaces only``.
-
-    שורות ה-``TAIL``: בלעדיהן הדליפה מתחפשת לכותרת setext (``~~~~`` הוא
-    גם קו-תחתון חוקי), הבדיקה עוברת גם על הקוד השבור, ולא בודקת כלום.
-    """
-    g = _load_generator()
-    prose = "פסקת הפרוזה האמיתית של העמוד, ארוכה מספיק כדי לעבור את הסף."
-    leak = "שורת קוד שאסור לה להופיע בתקציר של העמוד הזה בשום אופן"
-    tail = "עוד שורת קוד רגילה בתוך הגדר"
-    cases = {
-        "tilde_longer_open": ["~~~~", "קוד", "~~~", leak, tail, "~~~~", "", prose],
-        "backtick_longer_open": ["````", "קוד", "```", leak, tail, "````", "", prose],
-        "colon_longer_open": ["::::{note}", "קוד", ":::", leak, tail, "::::", "", prose],
-        "tail_not_blank": ["~~~", "קוד", "~~~ עוד טקסט", leak, tail, "~~~", "", prose],
-        "different_marker": ["~~~", "קוד", "```", leak, tail, "~~~", "", prose],
-        "plain": ["```", "קוד", "```", "", prose],
-        "with_info_string": ["```python", "קוד", "```", "", prose],
-        "closing_with_trailing_spaces": ["~~~", "קוד", "~~~   ", "", prose],
-    }
-    for kind, page in cases.items():
-        summary = g._first_prose_paragraph(page, Path("x.md")).strip()
-        assert summary == prose, f"{kind}: התקציר אינו הפרוזה בלבד ({summary!r})"
-
-
-def test_line_that_only_looks_like_a_fence_stays_prose():
-    """שורה שנראית כמו גדר ואינה כזו נאספת כפרוזה, לא מדולגת כבלוק.
-
-    רגרסיה: ``` ```a`b ``` אינה גדר (``if marker == "`" and marker in
-    params: return False`` ב-``fence.py``), והפרסר מרנדר אותה כפסקה רגילה.
-    הקוד סינן אותה כ"בלוק", ואיתה נעלמה **כל השורה הראשונה של הפסקה** —
-    בעמוד הבדיקה כאן זה הותיר את התקציר ריק לגמרי.
-
-    השורש: השאלה "האם זו גדר" נשאלה בשני מקומות בשתי דרכים שונות. עכשיו
-    יש ``_opens_fence`` אחד, ושניהם שואלים אותו.
-    """
-    g = _load_generator()
-    page = [
-        "כותרת",
-        "======",
-        "",
-        "```a`b הוא לא גדר, וזו פסקה שלמה שאמורה לשמש כתקציר של העמוד",
-        "וזו שורת ההמשך שלה באותה פסקה.",
-    ]
-    summary = g._first_prose_paragraph(page, Path("x.md"))
-    assert summary, "התקציר יצא ריק — השורה סוננה כבלוק במקום להיאסף כפרוזה"
-    assert "הוא לא גדר" in summary, f"השורה הראשונה של הפסקה אבדה: {summary!r}"
-
-
-def test_opens_fence_matches_the_source_rules():
-    """הפרדיקט מזהה גדר בדיוק לפי התנאים שבמקור, ולא לפי ``startswith``.
-
-    בלי הבדיקה הזו אפשר להחזיר את ``startswith`` והבדיקה שמעליה עדיין
-    עשויה לעבור במקרה, כי הפסקה נאספת גם דרך מסלולים אחרים.
-    """
-    g = _load_generator()
-    opens = {
-        "```": ("`", 3), "````": ("`", 4), "```python": ("`", 3),
-        "~~~": ("~", 3), "~~~~": ("~", 4), "~~~python": ("~", 3),
-        ":::": (":", 3), "::::{note}": (":", 4),
-    }
-    for line, expected in opens.items():
-        assert g._opens_fence(line) == expected, f"{line!r} אמור לפתוח גדר"
-    not_opens = ["```a`b", "``", "~~", "::", "", "טקסט רגיל", "`code`", "---"]
-    for line in not_opens:
-        assert g._opens_fence(line) is None, f"{line!r} אינו פותח גדר"
-
-
-def test_table_row_that_starts_a_block_does_not_hang(tmp_path):
-    """שורה שנכנסת לענף הטבלה **והיא בעצמה** תחילת בלוק לא תוקעת.
-
-    בלי קידום ודאי לפני לולאת הדילוג, שורה כמו ``- פריט | עמודה`` שמתחתיה
-    שורת מפריד הייתה מחזירה את הלולאה החיצונית לאותו אינדקס לנצח. אומת:
-    הסרת הקידום מקפיאה גם ``.rst`` וגם ``.md``.
-
-    רץ בתת-תהליך מאותה סיבה כמו הבדיקה שמעליה: ת'רד תקוע ממשיך לסובב
-    על ליבה עד סוף ריצת pytest.
-    """
-    import subprocess
-    import sys as _sys
-
-    probe = tmp_path / "probe_loop.py"
-    probe.write_text(
-        "import importlib.util, json, sys\n"
-        f"spec = importlib.util.spec_from_file_location('g', {str(ROOT / 'scripts' / 'generate_ai_map.py')!r})\n"
-        "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\n"
-        "from pathlib import Path\n"
-        "page = ['כותרת', '======', '', '- פריט | עמודה', '--- | ---', 'אלפא | ערך', '',"
-        " 'פסקת פרוזה ארוכה מספיק כדי לעבור את הסף של עשרים תווים.']\n"
-        "print(json.dumps({s: g._first_prose_paragraph(page, Path('x' + s)) for s in ('.rst', '.md')}))\n",
-        encoding="utf-8",
-    )
-    proc = subprocess.run(
-        [_sys.executable, str(probe)], capture_output=True, text=True, timeout=30, cwd=tmp_path
-    )
-    assert proc.returncode == 0, f"המחולל נכשל או נתקע:\n{proc.stderr}"
-
-    import json
-
-    for suffix, summary in json.loads(proc.stdout).items():
-        assert "פסקת פרוזה" in summary, f"{suffix}: הפרוזה לא נשלפה ({summary!r})"
-
-
-def test_prose_containing_a_pipe_is_not_mistaken_for_a_table():
-    """פסקה שמכילה ``|`` בלי שורת מפריד מתחתיה נשארת תקציר תקין.
-
-    הצד השני של הבדיקה שמעליה: דילוג על בלוק שלם מסוכן יותר מדילוג על
-    שורה, ולכן צריך שומר שיתפוס הרחבה של הזיהוי לפרוזה רגילה.
-    """
-    g = _load_generator()
-    page = [
-        "כותרת",
-        "======",
-        "",
-        "ההפרדה בין a | b כאן היא סימן ולא טבלה, והפסקה הזו אמורה לשרוד.",
-    ]
-    summary = g._first_prose_paragraph(page, Path("x.rst"))
-    assert "ההפרדה בין" in summary, f"פרוזה עם pipe נבלעה כטבלה: {summary!r}"
-
-
 def _run_cli(*args, cwd):
     """מריץ את המחולל כתהליך משנה. ``cwd`` חובה ותמיד תיקייה זמנית —
     למחולל נתיבים מוחלטים, ולפי הנחיות הריפו טסט לא רץ מתוך שורש הפרויקט."""
@@ -411,33 +116,88 @@ def test_cli_check_exit_codes(tmp_path):
     assert stale.read_text(encoding="utf-8") == "מפה מיושנת", "--check אסור שיכתוב"
 
 
-def test_grid_row_regex_has_no_catastrophic_backtracking(tmp_path):
-    """שורת פלוסים ארוכה שאינה גבול טבלה לא תוקעת את המחולל.
+def test_declared_summary_reads_an_rst_field():
+    """שדה ``:summary:`` מתחת לכותרת נקרא, כולל שורות המשך מוזחות.
 
-    רגרסיה: '+' הופיע גם במחלקת התווים וגם כמפריד הקבוצה החוזרת —
-    חפיפה שיוצרת backtracking אקספוננציאלי (נמדד ×2.6 לכל תו: 23ms
-    ב-28 תווים, דקות ב-40). דף תיעוד עם שורה כזו היה תוקע את ה-CI.
-
-    רץ בתת-תהליך עם timeout: על ה-regex הפגום הקריאה לא חוזרת לעולם,
-    ותהליך אפשר להרוג — בניגוד לת'רד.
+    המיקום הוא מה ש-``docutils`` מקדם ל-``<docinfo>``: field list שבא
+    ראשון אחרי כותרת המסמך (``transforms/frontmatter.py``, ``DocInfo``).
     """
-    import subprocess
-    import sys as _sys
+    g = _load_generator()
+    page = ["כותרת העמוד", "===========", ":summary: התקציר המוצהר של העמוד.", "", "גוף."]
+    assert g._declared_summary(page, Path("x.rst")) == "התקציר המוצהר של העמוד."
 
-    probe = tmp_path / "probe.py"
-    probe.write_text(
-        "import importlib.util, sys\n"
-        f"spec = importlib.util.spec_from_file_location('g', {str(ROOT / 'scripts' / 'generate_ai_map.py')!r})\n"
-        "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\n"
-        "evil = '+' * 64 + 'x'\n"
-        "assert g._GRID_ROW_RE.match(evil) is None\n"
-        "assert g._GRID_ROW_RE.match('+----+====+')\n"
-        "print('ok')\n",
-        encoding="utf-8",
-    )
-    proc = subprocess.run(
-        [_sys.executable, str(probe)], capture_output=True, text=True,
-        timeout=10, cwd=tmp_path,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.strip() == "ok"
+    wrapped = ["כותרת העמוד", "===========",
+               ":summary: שורה ראשונה של התקציר", "   והמשך מוזח שלה.", "", "גוף."]
+    assert g._declared_summary(wrapped, Path("x.rst")) == "שורה ראשונה של התקציר והמשך מוזח שלה."
+
+
+def test_declared_summary_ignores_an_indented_field():
+    """``:summary:`` מוזח אינו הצהרה — הוא תוכן של בלוק אחר.
+
+    עמודה 0 בדיוק היא מה ש-``docutils`` מפרש כשדה ברמת המסמך; בלי הכלל
+    הזה שורה בתוך ``.. note::`` או בתוך בלוק קוד הייתה נחשבת תקציר.
+    """
+    g = _load_generator()
+    page = ["כותרת", "=====", "", ".. note::", "   :summary: לא הצהרה.", "", "גוף."]
+    assert g._declared_summary(page, Path("x.rst")) == ""
+
+
+def test_declared_summary_reads_markdown_front_matter():
+    """``summary`` ב-front matter נקרא ב-``yaml.safe_load``, כמו ב-MyST.
+
+    ``myst_parser/mdit_to_docutils/base.py``: ``data = yaml.safe_load(...)``.
+    הערך כאן מכיל נקודתיים בכוונה — הוא חייב לעבור round-trip דרך YAML.
+    """
+    g = _load_generator()
+    page = ["---", "summary: 'מטרה: להסביר משהו.'", "---", "", "# כותרת", "", "גוף."]
+    assert g._declared_summary(page, Path("x.md")) == "מטרה: להסביר משהו."
+
+
+def test_declared_summary_is_empty_without_a_declaration():
+    """עמוד בלי הצהרה מחזיר ריק — ואז המפה מציגה כותרת בלבד."""
+    g = _load_generator()
+    assert g._declared_summary(["כותרת", "=====", "", "גוף."], Path("x.rst")) == ""
+    assert g._declared_summary(["# כותרת", "", "גוף."], Path("x.md")) == ""
+    assert g._declared_summary(["---", "author: פלוני", "---", "", "# כותרת"], Path("x.md")) == ""
+
+
+def test_declared_summary_is_capped():
+    """הצהרה ארוכה נחתכת בשורת המפה, ונשארת מלאה בעמוד.
+
+    בלי החיתוך שורת מפה אחת יכולה להיות ארוכה מכל השאר יחד, וזה מבטל
+    את התועלת של מפה. אומת: החיתוך הוא מה שהופך את הזריעה לזהה
+    בייט-בייט למפה שנוצרה מחילוץ.
+    """
+    g = _load_generator()
+    long = "מילה " * 200
+    page = ["כותרת", "=====", f":summary: {long}", "", "גוף."]
+    got = g._declared_summary(page, Path("x.rst"))
+    assert len(got) <= g.SUMMARY_CAP, len(got)
+    assert got.endswith("…")
+
+
+def test_front_matter_does_not_become_the_title():
+    """ה-``---`` הסוגר של front matter אינו קו-תחתון של כותרת setext.
+
+    רגרסיה שנתפסה במבחן הקבלה של הזריעה: ``_UNDERLINE_RE`` מתאים גם
+    ל-``---``, ולכן שורת ``summary:`` שמעליו נקראה ככותרת והכותרת של
+    העמוד יצאה ``summary: '...'``.
+    """
+    g = _load_generator()
+    page = ["---", "summary: תקציר כלשהו.", "---", "", "# הכותרת האמיתית", "", "גוף."]
+    assert g._title(page, Path("x.md")) == "הכותרת האמיתית"
+
+
+def test_check_warns_about_undeclared_pages_without_failing(tmp_path):
+    """``--check`` מתריע על עמוד ידני בלי הצהרה, ומחזיר 0.
+
+    ההידרדרות הדרגתית היא כל הרעיון: עמוד בלי תקציר עדיין מופיע במפה
+    עם הכותרת שלו, ולכן אין סיבה להפיל עליו את ה-CI.
+    """
+    g = _load_generator()
+    g.build_map()
+    assert isinstance(g.undeclared, list)
+    proc = _run_cli("--check", str(ROOT / "AI-MAP.md"), cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    if g.undeclared:
+        assert "התרעה:" in proc.stdout, proc.stdout

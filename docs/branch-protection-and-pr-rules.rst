@@ -1,5 +1,6 @@
 Branch Protection & PR Rules
 ============================
+:summary: לרכז נהלים ברורים להגנה על ענפים (Branch Protection) ולחוקי PR בפרויקט.
 
 מטרה
 -----

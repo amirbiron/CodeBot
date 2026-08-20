@@ -2,6 +2,7 @@
 
 Cursor-based Pagination (created_at / _id)
 ==========================================
+:summary: הבא דף נוסף לאחר last_dt, last_id
 
 למה?
 -----

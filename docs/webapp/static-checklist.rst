@@ -2,6 +2,7 @@
 
 Static Performance & Security Checklist (gzip/br, Cache, SRI)
 =============================================================
+:summary: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
 
 מטרה
 -----

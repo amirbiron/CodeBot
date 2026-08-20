@@ -1,5 +1,6 @@
 Handlers
 ========
+:summary: תיעוד של כל ה-handlers בפרויקט.
 
 תיעוד של כל ה-handlers בפרויקט.
 

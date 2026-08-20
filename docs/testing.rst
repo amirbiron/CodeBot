@@ -1,5 +1,6 @@
 Testing Guide
 =============
+:summary: כדי להריץ טסטים ללא python-telegram-bot, קיימים stubs ב-tests/_telegram_stubs.py והם נטענים אוטומטית דרך tests/conftest.py
 
 🚀 Quickstart לטסטים
 --------------------

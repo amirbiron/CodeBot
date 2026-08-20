@@ -1,5 +1,6 @@
 Git LFS Integration
 ===================
+:summary: להסביר מתי ואיך להשתמש ב‑Git Large File Storage (LFS) עבור קבצים גדולים.
 
 מטרה
 -----

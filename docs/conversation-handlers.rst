@@ -1,5 +1,6 @@
 Conversation Handlers & States
 ==============================
+:summary: מסמך זה מרכז את הזרימות העיקריות של ה‑ConversationHandlers וה‑states.
 
 סקירה
 -----

@@ -30,6 +30,8 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 OUTPUT = ROOT / "AI-MAP.md"
@@ -39,41 +41,10 @@ SUMMARY_CAP = 220
 _DIRECTIVE_RE = re.compile(r"^\.\. ")
 _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
+# שדה ההצהרה, בעמודה 0 בדיוק — כפי ש-docutils מפרש שדה ברמת המסמך
+_SUMMARY_FIELD_RE = re.compile(r"^:summary:[ \t]*(.*)$")
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
-# שורת המפריד של טבלת Markdown: ---|--- , :--|--: וכד'. שורת הכותרת
-# שמעליה עשויה להיות בלי pipe חיצוני ("שם | ערך") ואז היא נראית כמו
-# פרוזה — המפריד הוא מה שמסגיר אותה.
-_MD_DELIM_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$")
-# תחילת בלוק שמסיימת טבלת Markdown. לפי GFM הטבלה נשברת "at the first
-# empty line, or beginning of another block-level structure", ובמימוש
-# שהפרויקט מריץ בפועל (markdown-it-py 3.0.0 דרך myst-parser==4.0.1)
-# רשימת ה-terminatorRules של כלל הטבלה, כפי שנמדדה תחת ההגדרות ב-
-# docs/conf.py, היא: front_matter, colon_fence, fence, line_comment,
-# blockquote, block_break, target, hr, list_block, html_block, heading,
-# deflist.  מקור: markdown_it/rules_block/table.py, לולאת הגוף.
-#
-# הזיהוי כאן גס בכוונה, והוא בטוח לשני הכיוונים: זיהוי-יתר מחזיר את
-# השורה ללולאה הראשית שיודעת לדלג עליה ממילא, וזיהוי-חסר משאיר את
-# הדילוג כפי שהיה. מה שאסור — ובגללו הממצא — הוא לבלוע פרוזה.
-_MD_BLOCK_START_RE = re.compile(
-    r"^(?:"
-    r"\#{1,6}(?:\s|$)"                                   # כותרת ATX
-    r"|```|~~~|:::"                                      # fence, colon_fence
-    r"|>"                                                # blockquote
-    r"|[-+*]\s|\d+[.)]\s"                                # רשימה
-    r"|<"                                                # html_block
-    r"|%"                                                # line_comment של MyST
-    r"|\+\+\+"                                           # block_break
-    r"|\(.+\)=\s*$"                                      # target של MyST
-    r"|\.\. "                                            # directive של RST
-    r"|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$"  # hr
-    r")"
-)
-# שורת גבול של grid table ב-RST: +----+====+ וכד'. ה-+ מותר רק
-# כמפריד בין מקטעי [=-], לא בתוך מחלקת התווים: '+' שחופף בין המחלקה
-# לקבוצה החוזרת יוצר backtracking אקספוננציאלי (נמדד: ×2.6 לכל תו)
-# על שורה ארוכה של פלוסים שאינה מתאימה.
-_GRID_ROW_RE = re.compile(r"^\+(?:[=-]+\+)+$")
+
 _AUTODOC_RE = re.compile(r"^\.\. auto(module|class|function)::")
 
 
@@ -125,9 +96,26 @@ def _toctree_blocks(lines: list[str]):
             i += 1
 
 
+def _body_start(lines: list[str]) -> int:
+    """האינדקס שאחרי ה-front matter, או 0 אם אין.
+
+    לפי ``markdown_it``/MyST, front matter הוא בלוק שנפתח ב-``---`` בשורה
+    הראשונה ממש ונסגר ב-``---`` או ``...``.
+    """
+    if not lines or lines[0].strip() != "---":
+        return 0
+    for i in range(1, len(lines)):
+        if lines[i].strip() in ("---", "..."):
+            return i + 1
+    return 0  # לא נסגר — MyST גם לא היה מזהה אותו כ-front matter
+
+
 def _title(lines: list[str], path: Path) -> str:
     if path.suffix == ".md":
-        for idx, ln in enumerate(lines):
+        # מדלגים על front matter לפני חיפוש הכותרת: ה-``---`` הסוגר שלו
+        # הוא קו-תחתון חוקי לפי ``_UNDERLINE_RE``, ולכן שורת ``summary:``
+        # שמעליו נקראה ככותרת setext והכותרת של העמוד יצאה "summary: ...".
+        for idx, ln in enumerate(lines[_body_start(lines):], start=_body_start(lines)):
             if ln.startswith("# "):
                 return ln[2:].strip()
             if ln.strip() and idx + 1 < len(lines) and _UNDERLINE_RE.match(lines[idx + 1]):
@@ -141,180 +129,112 @@ def _title(lines: list[str], path: Path) -> str:
     return path.stem
 
 
-def _opens_fence(stripped: str) -> tuple[str, int] | None:
-    """(תו הסימון, אורך הפתיחה) אם השורה פותחת גדר, אחרת ``None``.
+def _declared_summary(lines: list[str], path: Path) -> str:
+    """התקציר שהעמוד מצהיר עליו בראשו, או מחרוזת ריקה אם אין.
 
-    התנאים מ-``markdown_it/rules_block/fence.py`` ומ-
-    ``mdit_py_plugins/colon_fence.py``: הסימון הוא אחד מ-``` ` ``` / ``~`` /
-    ``:``, אורך הרצף לפחות שלושה (``if length < 3: return False``), ובגדר
-    backtick ה-info אינה מכילה backtick נוסף
-    (``if marker == "`" and marker in params: return False``).
+    שני תחבירים, כל אחד הסטנדרטי בפורמט שלו — ולא שלישי:
 
-    למה פרדיקט ולא בדיקת ``startswith`` בכל מקום: שורה כמו ``` ```a`b ``` אינה
-    גדר, והפרסר מרנדר אותה כפסקה רגילה. כשהיא סוננה כ"בלוק" נעלמה איתה
-    **כל השורה הראשונה של הפסקה**, לא רק הסימון. עכשיו לשאלה הזו יש
-    תשובה אחת, ושני מקומות שואלים אותה: דילוג הבלוקים ואיסוף הפרוזה.
+    * ``.rst`` — שדה ``:summary:`` מתחת לכותרת. ``docutils`` מקדם field
+      list שבא ראשון אחרי כותרת המסמך ל-``<docinfo>``
+      (``docutils/transforms/frontmatter.py``, מחלקת ``DocInfo``:
+      *"If the document contains a field list as the first element..."*),
+      והוא מוצג בעמוד. הגלוּת מכוונת: תקציר שרואים הוא תקציר שמתיישן
+      בקול ולא בשקט.
+    * ``.md`` — ``summary`` ב-front matter. נקרא ב-``yaml.safe_load``,
+      בדיוק כמו ש-MyST קורא אותו (``myst_parser/mdit_to_docutils/base.py``:
+      ``data = yaml.safe_load(token.content)``).
+
+    למה הצהרה ולא חילוץ מהגוף: הגרסה הקודמת ניסתה לזהות את פסקת הפרוזה
+    הראשונה, וכדי לעשות זאת נאלצה לממש חלקים מ-GFM ומ-RST ביד — טבלאות,
+    גדרות, תחילות בלוק. ארבעה סבבי ריוויו רצופים מצאו שם מקרי קצה, כולל
+    תקציר שיצא הטבלה עצמה ותקציר שיצא ריק. מי שכתב את העמוד יודע מה
+    התקציר; אין צורך לנחש.
     """
-    marker = stripped[:1]
-    if marker not in ("`", "~", ":"):
-        return None
-    run = len(stripped) - len(stripped.lstrip(marker))
-    if run < 3:
-        return None
-    if marker == "`" and "`" in stripped[run:]:
-        return None
-    return marker, run
+    raw = _front_matter_summary(lines) if path.suffix == ".md" else _rst_field_summary(lines)
+    if len(raw) > SUMMARY_CAP:
+        # אותו חיתוך שהיה בחילוץ מהגוף: שורת מפה ארוכה מדי מבטלת את
+        # התועלת של מפה. ההצהרה עצמה נשארת מלאה בעמוד.
+        raw = raw[: SUMMARY_CAP - 1].rsplit(" ", 1)[0] + "…"
+    return raw
 
 
-def _closes_fence(stripped: str, marker: str, opening_len: int) -> bool:
-    """האם השורה סוגרת גדר שנפתחה ב-``opening_len`` תווי ``marker``.
+def _front_matter_summary(lines: list[str]) -> str:
+    """``summary`` מתוך front matter של MyST, אם יש."""
+    end = _body_start(lines) - 1
+    if end < 1:
+        return ""  # אין front matter, או שהוא לא נסגר
+    try:
+        data = yaml.safe_load("\n".join(lines[1:end]))
+    except yaml.YAMLError:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    value = data.get("summary")
+    return " ".join(str(value).split()) if value else ""
 
-    שלושת התנאים לקוחים מהמימוש שהתיעוד באמת נבנה איתו, והם זהים
-    ב-``markdown_it/rules_block/fence.py`` (עבור גדרות backtick ו-``~~~``)
-    וב-``mdit_py_plugins/colon_fence.py`` (עבור ``:::``):
 
-    1. ``if state.src[pos] != marker: continue`` — אותו תו סימון.
-    2. ``# closing code fence must be at least as long as the opening one``
-       ``if pos - mem < length: continue``
-    3. ``# make sure tail has spaces only``
-       ``if pos < maximum: continue``
+def _rst_field_summary(lines: list[str]) -> str:
+    """שדה ``:summary:`` בעמודה 0, כולל שורות המשך מוזחות.
 
-    בלי תנאי האורך, ``~~~`` בתוך גדר שנפתחה ב-``~~~~`` נחשב סגירה והקוד
-    שאחריו דולף לתקציר. בלי תנאי הזנב, ``~~~~ טקסט`` נחשב סגירה.
+    עמודה 0 בדיוק, כי זה מה ש-``docutils`` מפרש כשדה ברמת המסמך; שורה
+    מוזחת עם אותו טקסט היא תוכן של בלוק אחר.
     """
-    run = len(stripped) - len(stripped.lstrip(marker))
-    return run >= opening_len and not stripped[run:].strip()
-
-
-def _first_prose_paragraph(lines: list[str], path: Path) -> str:
-    """פסקת הפרוזה הראשונה — מדלגים על כל מה שאינו טקסט רץ."""
-    md = path.suffix == ".md"
-    i, n = 0, len(lines)
-    while i < n:
-        line = lines[i]
-        stripped = line.strip()
-        if not stripped:
-            i += 1
+    for i, line in enumerate(lines):
+        m = _SUMMARY_FIELD_RE.match(line)
+        if not m:
             continue
-        if md:
-            if i + 1 < n and _UNDERLINE_RE.match(lines[i + 1]):
-                i += 2  # כותרת setext: הטקסט + קו המתחת
-                continue
-            # רשימת הבלוקים מגיעה מ-``_MD_BLOCK_START_RE`` ולא מטאפל מקביל.
-            # שתי רשימות שחייבות להסכים נפרדות בשקט, וזה בדיוק מה שקרה:
-            # עצירת דילוג הטבלה זיהתה ``%``, ``<`` ו-``(target)=`` והלולאה
-            # כאן לא ידעה לדלג עליהם, אז הערת MyST נכנסה לתקציר. השלמת
-            # הטאפל בלבד השאירה את ``+ פריט`` דולף — יש עכשיו מקור אחד.
-            # ``|``/``![``/``[!`` נשארים בנפרד: הם אינם תחילת בלוק שמסיימת
-            # טבלה (שורת ``|`` היא *בתוך* טבלה), ולכן אין להם מקום ברג'קס.
-            opened = _opens_fence(stripped)
-            if opened is not None:
-                marker, opening = opened
-                i += 1
-                while i < n and not _closes_fence(lines[i].strip(), marker, opening):
-                    i += 1
-                i += 1
-                continue
-            # ``looks_like_fence`` בלי ``_opens_fence`` פירושו שורה שנראית
-            # כמו גדר ואינה כזו. היא אינה בלוק, ולכן היא **נופלת לאיסוף
-            # הפרוזה** ולא מדולגת — אחרת השורה הראשונה של הפסקה נעלמת.
-            looks_like_fence = stripped.startswith(("```", "~~~", ":::"))
-            if not looks_like_fence and (
-                _MD_BLOCK_START_RE.match(stripped) or stripped.startswith(("|", "![", "[!"))
-            ):
-                i += 1
-                continue
-        else:
-            if _DIRECTIVE_RE.match(line) or stripped == "..":
-                # directive/הערה: דילוג על הגוף המוזח כולו
-                i += 1
-                while i < n and (not lines[i].strip() or lines[i].startswith((" ", "\t"))):
-                    i += 1
-                continue
-            if _FIELD_RE.match(stripped) or _UNDERLINE_RE.match(line):
-                i += 1
-                continue
-            if i + 1 < n and _UNDERLINE_RE.match(lines[i + 1]):
-                i += 2  # כותרת + קו
-                continue
-            if line.startswith((" ", "\t")):
-                i += 1  # המשך בלוק מוזח שלא זוהה
-                continue
-        # טבלת Markdown היא בלוק ולא שורה. לפי GFM היא נמשכת עד השורה
-        # הריקה הראשונה, ולכן מדלגים על הבלוק כולו: דילוג על שורת הכותרת
-        # והמפריד בלבד השאיר את שורות הנתונים ליפול לאיסוף הפרוזה, ותקציר
-        # העמוד במפה יצא הטבלה עצמה ("אלפא | ערך… ביתא | ערך…").
-        # ``lines[i + 1].strip()`` ולא הגולמי: ``_MD_DELIM_RE`` פותח ב-``^\s*``
-        # ואז ``\|?\s*`` — שני מקטעי רווח שאפשר לחלק ביניהם, ולכן שורה
-        # מוזחת שאינה מפריד עולה ריבועית (נמדד: ×3.9 לכל הכפלת אורך,
-        # 1.6ms על 320 רווחים). ``strip`` מחזיר את זה לזמן קבוע.
-        if _MD_DELIM_RE.match(stripped) or (
-            i + 1 < n and "|" in stripped and _MD_DELIM_RE.match(lines[i + 1].strip())
-        ):
-            # קידום ודאי לפני הלולאה: בלעדיו שורת כותרת שהיא בעצמה תחילת
-            # בלוק הייתה מחזירה את הלולאה החיצונית לאותו i לנצח.
-            i += 1
-            while (
-                i < n
-                and lines[i].strip()
-                and not _MD_BLOCK_START_RE.match(lines[i].strip())
-            ):
-                i += 1
-            continue
-        if (
-            stripped.startswith(("- ", "* ", "+ ", "#. "))
-            or re.match(r"^\d+\. ", stripped)
-            or _GRID_ROW_RE.match(stripped)
-        ):
-            i += 1  # רשימה או גבול grid — לא תקציר
-            continue
-        # פסקת פרוזה: איסוף עד שורה ריקה, בלוק מוזח או תחילת רשימה
-        para = []
-        while i < n and lines[i].strip() and not lines[i].startswith((" ", "\t")):
-            cur = lines[i].strip()
-            is_list = cur.startswith(("- ", "* ", "+ ", "#. ")) or re.match(r"^\d+\. ", cur)
-            is_table = (
-                cur.startswith("|")
-                or _GRID_ROW_RE.match(cur)
-                # כותרת טבלת Markdown בלי pipe חיצוני, שהמפריד מתחתיה
-                or (i + 1 < n and "|" in cur and _MD_DELIM_RE.match(lines[i + 1].strip()))
-            )
-            if is_list or is_table or _opens_fence(cur) or _UNDERLINE_RE.match(lines[i]):
-                break  # רשימה / טבלה / גדר קוד — לא חלק מהתקציר
-            para.append(cur)
-            i += 1
-        text = re.sub(r"\s+", " ", " ".join(para))
-        # `תווית <כתובת>`_ ← תווית (לפני הסרת ה-backticks, אחרת נשאר _ יתום)
-        text = re.sub(r"`([^`<]+?)\s*<[^`>]+>`_{1,2}", r"\1", text)
-        text = re.sub(r"``([^`]*)``", r"\1", text)
-        text = re.sub(r":[\w:+-]+:`([^`]*)`", r"\1", text)  # :doc:`x` ← x
-        text = re.sub(r"\*\*([^*]*)\*\*", r"\1", text)
-        # "::" בסוף פסקה הוא פתיח לבלוק literal של RST, לא חלק מהתקציר
-        text = text.rstrip(":").strip()
-        # backtick יתום (מספר אי-זוגי) שובר את ה-Markdown של שורת המפה;
-        # אבל זוגות מאוזנים הם inline-code לגיטימי (GITHUB_TOKEN,
-        # POST /api/...) ששווה לשמר — מסירים רק כשאין איזון.
-        if text.count("`") % 2:
-            text = text.replace("`", "")
-        if len(text) > SUMMARY_CAP:
-            text = text[: SUMMARY_CAP - 1].rsplit(" ", 1)[0] + "…"
-        # פסקה שהתרוקנה או קצרה מכדי לומר משהו (פתיח כמו "טיפים:",
-        # "Development::") — לנסות את הפסקה הבאה. אם לא נאסף כלום
-        # (למשל עמוד שנפתח בטבלה: "|" עוצר את האיסוף לפני קידום i),
-        # חובה לקדם את i ידנית — אחרת אותה שורה נבדקת שוב לנצח.
-        if len(text) < 20:
-            if not para:
-                i += 1
-            continue
-        return text
+        parts = [m.group(1)]
+        for cont in lines[i + 1:]:
+            if not cont.strip() or not cont[:1].isspace():
+                break
+            parts.append(cont.strip())
+        return " ".join(" ".join(parts).split())
     return ""
 
 
 def _is_autodoc_scaffold(lines: list[str], path: Path) -> bool:
-    return any(_AUTODOC_RE.match(ln) for ln in lines) and not _first_prose_paragraph(lines, path)
+    """עמוד שכולו הוראת autodoc — כותרת, directives, וכלום מעבר.
+
+    הבדיקה מבנית ולא תוכנית: קודם היא שאלה "יש autodoc ואין פסקת פרוזה",
+    ולכן גררה את כל מנגנון חילוץ הפרוזה. עכשיו היא שואלת אם נשארה ולו
+    שורת תוכן אחת בעמודה 0 שאינה כותרת, קו, שדה או directive. אומת:
+    שתי הנוסחאות מסווגות את אותם 92 עמודים בדיוק.
+    """
+    if not any(_AUTODOC_RE.match(ln) for ln in lines):
+        return False
+    i, n = 0, len(lines)
+    while i < n:
+        raw = lines[i]
+        stripped = raw.strip()
+        if not stripped or raw[:1].isspace():
+            i += 1  # שורה ריקה או גוף מוזח של directive
+            continue
+        if _DIRECTIVE_RE.match(raw) or stripped == "..":
+            i += 1
+            while i < n and (not lines[i].strip() or lines[i][:1].isspace()):
+                i += 1
+            continue
+        if _UNDERLINE_RE.match(raw):
+            i += 1  # קו של כותרת
+            continue
+        if i + 1 < n and _UNDERLINE_RE.match(lines[i + 1]):
+            i += 2  # כותרת + קו
+            continue
+        if _FIELD_RE.match(stripped):
+            i += 1  # שדה docinfo, למשל :summary:
+            continue
+        return False
+    return True
+
+
+#: מתמלא בכל הרצה של :func:`build_map` — העמודים הידניים שאין להם הצהרת
+#: תקציר. ``--check`` מתריע עליהם ולא מפיל: עמוד בלי תקציר עדיין מופיע
+#: במפה עם הכותרת שלו, וזו הידרדרות הדרגתית ולא שבירה.
+undeclared: list[str] = []
 
 
 def build_map() -> str:
+    undeclared.clear()
     index = DOCS / "index.rst"
     visited: set[Path] = set()
     out: list[str] = []
@@ -370,7 +290,9 @@ def build_map() -> str:
                     walk(child, depth)
                     continue
                 title = _title(clines, child)
-                summary = _first_prose_paragraph(clines, child)
+                summary = _declared_summary(clines, child)
+                if not summary:
+                    undeclared.append(rel)
                 if summary.rstrip("…") and summary.rstrip("…") in title:
                     summary = ""
                 indent = "  " * depth
@@ -414,6 +336,11 @@ def main() -> int:
     content = build_map()
     if args.check is not None:
         existing = args.check.read_text(encoding="utf-8") if args.check.exists() else None
+        if undeclared:
+            print(f"התרעה: {len(undeclared)} עמודים ידניים בלי הצהרת תקציר "
+                  f"(:summary: ב-rst, summary ב-front matter):")
+            for rel in undeclared:
+                print(f"  - {rel}")
         if existing == content:
             print(f"{args.check.name}: עדכני")
             return 0

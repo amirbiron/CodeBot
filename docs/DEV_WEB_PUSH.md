@@ -1,3 +1,7 @@
+---
+summary: מסמך זה מסביר כיצד להפעיל ולבדוק התראות Web Push עבור תזכורות של Sticky Notes.
+---
+
 # Web Push – Sticky Notes Reminders
 
 מסמך זה מסביר כיצד להפעיל ולבדוק התראות Web Push עבור תזכורות של Sticky Notes.

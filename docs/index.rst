@@ -2,6 +2,7 @@
 
 Code Keeper Bot - תיעוד API
 ============================
+:summary: ברוכים הבאים לתיעוד ה-API של Code Keeper Bot!
 
 ברוכים הבאים לתיעוד ה-API של Code Keeper Bot!
 

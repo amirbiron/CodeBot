@@ -2,6 +2,7 @@
 
 Cache Inspector (לוח בקרה של Redis)
 =====================================
+:summary: Cache Inspector הוא כלי אדמין שמאפשר לצפות ולנהל את ה-Redis cache בצורה בטוחה. הכלי נותן נראות ל
 
 מה זה Cache Inspector?
 -----------------------

@@ -1,5 +1,6 @@
 עובדי Push
 ===========
+:summary: ל-Code Keeper Bot יש שני מסלולים לשליחת Web Push
 
 ל-Code Keeper Bot יש שני מסלולים לשליחת Web Push:
 

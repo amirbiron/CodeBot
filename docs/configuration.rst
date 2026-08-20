@@ -1,5 +1,6 @@
 Rate Limiting
 =============
+:summary: בעת ביצוע קריאות א-סינכרוניות השתמשו ב‑http_async המספק aiohttp.ClientSession משותף עם הגדרות מ‑ENV.
 
 Environment variables
 ---------------------

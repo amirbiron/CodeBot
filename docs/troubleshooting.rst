@@ -1,5 +1,6 @@
 Troubleshooting Guide
 =====================
+:summary: ModuleNotFoundError: No module named 'telegram'
 
 שגיאות נפוצות
 --------------

@@ -11,7 +11,7 @@
 - `docs/quickstart-contrib.rst` — **Quickstart לתרומה**: דף קצר שמאפשר להתחיל לתרום במהירות ובבטחה.
 - `docs/ai-guidelines.rst` — **הנחיות מלאות לסוכני AI**: השתמשו בכלים המובנים
 - `docs/agents/rate-limiting.md` — **🚦 מערכת Rate Limiting לסוכני AI ולווב**: מטרה: להסביר איך מפעילים ומנטרים Rate Limiting בבוט ובווב, עם דגש על Shadow Mode, ניטור וקונפיג.
-- `docs/doc-authoring.rst` — **Doc Authoring Guide (Sphinx/RTD)**
+- `docs/doc-authoring.rst` — **Doc Authoring Guide (Sphinx/RTD)**: כללי כתיבת תיעוד בפרויקט — הצהרת תקציר בראש כל עמוד, הטמעת קוד לפי שם או סימון ולא לפי מספרי שורות, ובנייה ללא אזהרות.
 - `docs/style-glossary.rst` — **Style & Naming Glossary**
 - `docs/versioning-stable-anchors.rst` — **Versioning & Stable Anchors**
 - `docs/whats-new.rst` — **What's New**: קישורים ל‑Issues רלוונטיים: `#1198`, `#1239`.

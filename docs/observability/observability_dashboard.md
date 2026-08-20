@@ -1,3 +1,7 @@
+---
+summary: מסך ה־Admin החדש (`/admin/observability`) מרכז נתוני ניטור בזמן אמת לטובת צוותי SRE והמפתחים. העמוד מתמקד בשלושה עקרונות
+---
+
 # 📡 Observability Dashboard & API
 
 > קישורים מהירים: [README של Code Keeper Bot](https://github.com/amirbiron/CodeBot#-קוד-שומר) · [מדריך Config Radar](https://github.com/amirbiron/CodeBot/blob/main/GUIDES/CONFIG_RADAR_GUIDE.md)

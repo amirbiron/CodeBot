@@ -1,3 +1,7 @@
+---
+summary: שירות זה מספק שכבת AI רשמית שמתרגמת הקשרי התראות (Context) להסבר קצר בשפה טבעית, כולל שורש הבעיה, פעולות מומלצות ואותות תומכים. השירות נפרס כחלק מה־`webserver` (AioHTTP) תחת הנתיב `POST /api/ai/explain` ומשמש את לוח ה-Observability דרך המשתנה `OBS_AI_EXPLAIN_URL`.
+---
+
 # 🧠 Observability AI Explain API
 
 שירות זה מספק שכבת AI רשמית שמתרגמת הקשרי התראות (Context) להסבר קצר בשפה טבעית, כולל שורש הבעיה, פעולות מומלצות ואותות תומכים. השירות נפרס כחלק מה־`webserver` (AioHTTP) תחת הנתיב `POST /api/ai/explain` ומשמש את לוח ה-Observability דרך המשתנה `OBS_AI_EXPLAIN_URL`.

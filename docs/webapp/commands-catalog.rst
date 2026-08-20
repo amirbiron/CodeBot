@@ -1,5 +1,6 @@
 תחזוקת קטלוג הפקודות (``commands.json``)
 =========================================
+:summary: קטלוג הפקודות ב-webapp/static/data/commands.json מזין את כרטיסי ה-"קיצורי דרך" שנראים בחיפוש הגלובלי (קיצור מקלדת Ctrl/Cmd+K). בכל טעינת דף, ה-frontend מושך את הקובץ דרך /static/data/commands.json ומוסיף את הכרטיסים שזוהו ברמת הטייפ (chatops/cli/playbook) על בסיס הקוד ב-webapp/static/js/global_search.js.
 
 מבוא
 ----
