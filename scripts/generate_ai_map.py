@@ -155,13 +155,19 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             if i + 1 < n and _UNDERLINE_RE.match(lines[i + 1]):
                 i += 2  # כותרת setext: הטקסט + קו המתחת
                 continue
-            if stripped.startswith(("#", "```", ":::", "---", "|", ">", "![", "[!")):
-                # כותרת / קוד / הערת MyST / חוקק / טבלה / ציטוט / תמונה
+            if stripped.startswith(
+                ("#", "```", ":::", "---", "|", ">", "![", "[!", "%", "+++", "<")
+            ):
+                # כותרת / קוד / הערת MyST / חוקק / טבלה / ציטוט / תמונה / block_break / html_block
                 if stripped.startswith(("```", ":::")):
                     fence = stripped[:3]
                     i += 1
                     while i < n and not lines[i].strip().startswith(fence):
                         i += 1
+                i += 1
+                continue
+            # target של MyST: (.+)=
+            if re.match(r"^\(.+\)=\s*$", stripped):
                 i += 1
                 continue
         else:
