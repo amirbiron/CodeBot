@@ -171,6 +171,12 @@ def _ensure_indexes() -> None:
                     IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING)], name="user_file_idx"),
                     IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("created_at", ASCENDING)], name="user_file_created"),
                     IndexModel([("updated_at", DESCENDING)], name="updated_desc"),
+                    # שאילתת ה-list הראשית היא ``$or`` על scope_id/file_id, אבל
+                    # ענף ה-scope לא היה מכוסה כאן כלל — האינדקס נוצר רק
+                    # אגב-אורחא ב-``mcp_server/backend``.
+                    IndexModel([("user_id", ASCENDING), ("scope_id", ASCENDING)], name="user_scope_idx"),
+                    # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets.
+                    IndexModel([("user_id", ASCENDING), ("board_id", ASCENDING)], name="user_board_idx"),
                 ]
                 coll.create_indexes(indexes)
             except Exception:
@@ -179,8 +185,43 @@ def _ensure_indexes() -> None:
                     coll.create_index([("user_id", 1), ("file_id", 1)], name="user_file_idx")
                     coll.create_index([("user_id", 1), ("file_id", 1), ("created_at", 1)], name="user_file_created")
                     coll.create_index([("updated_at", -1)], name="updated_desc")
+                    coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
+                    coll.create_index([("user_id", 1), ("board_id", 1)], name="user_board_idx")
                 except Exception:
                     pass
+            # אינדקסים ללוחות הפתקים (best-effort)
+            try:
+                nb = db.note_boards
+                # ``one_default_per_user`` ייחודי-חלקי: הוא מה שסוגר את המרוץ
+                # שבו שתי בקשות מקבילות מגלות שאין לוח ברירת מחדל ושתיהן
+                # יוצרות. הגנת קוד לבדה לא מספיקה שם — המסד חייב לדחות.
+                try:
+                    from pymongo import ASCENDING, IndexModel  # type: ignore
+                    nb.create_indexes([
+                        IndexModel([("user_id", ASCENDING), ("order", ASCENDING)], name="user_order_idx"),
+                        IndexModel(
+                            [("user_id", ASCENDING)],
+                            name="one_default_per_user",
+                            unique=True,
+                            partialFilterExpression={"is_default": True},
+                        ),
+                    ])
+                except Exception:
+                    try:
+                        nb.create_index([("user_id", 1), ("order", 1)], name="user_order_idx")
+                    except Exception:
+                        pass
+                    try:
+                        nb.create_index(
+                            [("user_id", 1)],
+                            name="one_default_per_user",
+                            unique=True,
+                            partialFilterExpression={"is_default": True},
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             # Ensure note reminders collection indexes (best-effort)
             try:
                 nr = db.note_reminders
@@ -1051,7 +1092,10 @@ def update_note(note_id: str):
         note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        if not note.get('scope_id'):
+        # פתק לוח אינו נושא scope_id ולעולם לא יישא — ובלי השומר הזה
+        # כל עדכון שלו היה מריץ _resolve_scope, כלומר קריאה ל-code_snippets
+        # רק כדי לגלות שאין קובץ.
+        if not note.get('scope_id') and not note.get('board_id'):
             scope_id, scope_file_name, _ = _resolve_scope(db, user_id, note.get('file_id'))
             if scope_id:
                 updates['scope_id'] = scope_id
@@ -1246,8 +1290,9 @@ def batch_update_notes():
                         if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:
                             results.append({'id': note_id, 'ok': False, 'status': 409, 'error': 'Conflict', 'updated_at': note['updated_at'].isoformat()})
                             continue
-                    # stamp scope if missing
-                    if not note.get('scope_id'):
+                    # stamp scope if missing — אך לא לפתק לוח, שאין לו
+                    # scope ולעולם לא יהיה. ראו את השומר המקביל ב-update_note.
+                    if not note.get('scope_id') and not note.get('board_id'):
                         scope_id, scope_file_name, _ = _resolve_scope(db, user_id, note.get('file_id'))
                         if scope_id:
                             updates['scope_id'] = scope_id
