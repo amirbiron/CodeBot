@@ -1,3 +1,7 @@
+---
+summary: 'תהליך ה-Onboarding ב-WebApp: Welcome Modal, סיור אינטראקטיבי מבוסס Driver.js, ואשף בחירת ערכת הנושא — כולל מנגנוני האיפוס והנקודות למפתחים.'
+---
+
 # 🧭 WebApp Onboarding – Welcome Modal, Interactive Tour & Theme Wizard
 
 תהליך ה-Onboarding של ה-WebApp מורכב משלושה רכיבים תלויים שמופעלים עבור משתמשים חדשים בלבד: Welcome Modal, סיור אינטראקטיבי מבוסס Driver.js וה-Theme Picker Wizard שמסיים את החוויה עם התאמה אישית. העמוד מרכז את ההסברים התפעוליים, מנגנוני האיפוס והנקודות החשובות למפתחים.

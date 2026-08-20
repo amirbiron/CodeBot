@@ -1,12 +1,19 @@
 תחזוקת קטלוג הפקודות (``commands.json``)
 =========================================
+:summary: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
 
 מבוא
 ----
 קטלוג הפקודות ב-``webapp/static/data/commands.json`` מזין את כרטיסי ה-"קיצורי דרך"
-שנראים בחיפוש הגלובלי (קיצור מקלדת ``Ctrl/Cmd+K``). בכל טעינת דף, ה-frontend מושך את
-הקובץ דרך ``/static/data/commands.json`` ומוסיף את הכרטיסים שזוהו ברמת הטייפ
-(``chatops``/``cli``/``playbook``) על בסיס הקוד ב-``webapp/static/js/global_search.js``.
+שנראים בחיפוש הגלובלי. ``webapp/static/js/global_search.js`` נטען ומאתחל את עצמו רק
+בדפים שמכילים גם את ``globalSearchInput`` וגם את ``searchBtn`` — הוא יוצא מיד אחרת —
+ואז מושך את הקובץ דרך ``/static/data/commands.json`` ומוסיף את הכרטיסים שזוהו ברמת
+הטייפ (``chatops``/``cli``/``playbook``).
+
+.. note::
+
+   אין קיצור מקלדת ``Ctrl/Cmd+K`` בזרימה הזו. ``global_search.js`` מאזין ל-``Enter``
+   בשדה החיפוש ולקליקים, ולא למקש קיצור גלובלי.
 
 .. important::
 
@@ -103,7 +110,8 @@
 
       ./scripts/start_webapp.sh
 
-2. פתחו ``http://localhost:5000`` (או הפורט שבחרתם) ולחצו ``Ctrl/Cmd+K`` כדי לפתוח חיפוש.
+2. פתחו את ``http://localhost:5000/files`` (או הפורט שבחרתם) — זה הדף שמכיל את שדה
+   החיפוש הגלובלי — והקלידו בשדה או לחצו על כפתור החיפוש.
 3. חפשו פקודה קיימת כגון ``/triage`` כדי לוודא שהקטלוג נטען.
 4. חפשו את הפקודה החדשה ובדקו:
    - שהטקסט והטיפוס נכונים.

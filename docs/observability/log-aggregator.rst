@@ -1,5 +1,6 @@
 מנוע ניתוח לוגים (Log Event Aggregator)
 ========================================
+:summary: הארכיטקטורה, קבצי הקונפיג, הרצה מקומית ב-CLI, השילוב במערכת, וניפוי התקלות הנפוצות.
 
 ``monitoring/log_analyzer.py`` מרכז את כל האינטליגנציה שמטרתה להמיר זרם לוגים רועש להתראות פעולה. העמוד מפרט את רכיבי המערכת, הארכיטקטורה והקונפיגורציה שבין ``monitoring/log_analyzer.py``, ``monitoring/error_signatures.py`` ו-``scripts/run_log_aggregator.py``.
 

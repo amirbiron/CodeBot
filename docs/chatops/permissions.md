@@ -1,3 +1,7 @@
+---
+summary: מי מורשה להריץ אילו פקודות ChatOps, ומהן מגבלות הקצב עליהן.
+---
+
 # הרשאות ו-Rate Limit
 
 - פקודות רגישות (מנהלים בלבד): `/errors`, `/triage`, `/rate_limit`, `/enable_backoff`, `/disable_backoff`, `/ban`, `/unban`, `/blocked`.

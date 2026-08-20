@@ -1,10 +1,21 @@
 Resilience לשירותים חיצוניים
 =============================
+:summary: שכבת Retry ו-Circuit Breaker לקריאות חוץ. היא חלה על קריאות שעוברות דרך http_sync.py ו-http_async.py; שירותים שקוראים ישירות ל-requests, httpx או aiohttp אינם מכוסים עדיין.
 
 למה שכבה מרוכזת?
 -----------------
-המעבר למודול ``resilience.py`` יוצר אחידות: כל קריאה החוצה עוברת דרך אותה מדיניות Retry + Circuit Breaker.
+מודול ``resilience.py`` מרכז מדיניות אחת של Retry + Circuit Breaker לקריאות חוץ.
 התוצאה: פחות רעשים זמניים, ניטור ברור יותר, ויכולת להבין בזמן אמת מתי שירות חוץ "שורף" אותנו.
+
+.. note::
+
+   הכיסוי אינו מלא. המדיניות חלה על קריאות שעוברות דרך ``http_sync.py`` ו-``http_async.py`` בלבד.
+   שירותים שקוראים ישירות ל-``requests``, ל-``httpx`` או ל-``aiohttp`` אינם עוברים דרכה —
+   למשל ``services/embedding_service.py`` (``httpx.AsyncClient``) ו-``services/observability_dashboard.py``
+   (``requests.post``). ``services/rules_evaluator.py`` דווקא **מעדיף** את המסלול המכוסה
+   (``from http_sync import request``) ונופל ל-``requests.post`` רק אם הייבוא נכשל —
+   אבל הכיסוי בו **חלקי**: ``_call_webhook`` באותו קובץ שולח ישירות ב-``requests``.
+   המיגרציה של השאר עדיין פתוחה.
 
 איך זה עובד?
 ------------

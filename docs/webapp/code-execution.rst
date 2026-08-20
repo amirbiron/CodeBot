@@ -1,7 +1,6 @@
 הרצת קוד (Code Execution Playground)
 ====================================
-
-ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
+:summary: ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
 
 .. important::
 

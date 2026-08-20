@@ -1,6 +1,8 @@
-# Web Push – Sticky Notes Reminders
+---
+summary: מסמך זה מסביר כיצד להפעיל ולבדוק התראות Web Push עבור תזכורות של Sticky Notes.
+---
 
-מסמך זה מסביר כיצד להפעיל ולבדוק התראות Web Push עבור תזכורות של Sticky Notes.
+# Web Push – Sticky Notes Reminders
 
 קישור למסמך המקורי עם דוגמאות והסברים מפורטים:
 - https://code-keeper-webapp.onrender.com/share/k8yuEWIeQ1ZqdlGP

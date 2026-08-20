@@ -270,6 +270,7 @@ class BackupMenuHandler:
             pass
         await message("בחר פעולה מתפריט הגיבוי/שחזור:", reply_markup=reply_markup)
     
+    # docs:backup-callback-dispatch:start — הקטע מוטמע בתיעוד (docs/conversation-handlers.rst); אל תסיר את הסימון
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -301,6 +302,7 @@ class BackupMenuHandler:
         elif data.startswith("backup_details:"):
             backup_id = data.split(":", 1)[1]
             await self._show_backup_details(update, context, backup_id)
+    # docs:backup-callback-dispatch:end
         elif data.startswith("backup_rate_menu:"):
             # פתיחת מסך תיוג עם 3 כפתורים (🏆 / 👍 / 🤷)
             backup_id = data.split(":", 1)[1]
