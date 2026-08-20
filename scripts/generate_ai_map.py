@@ -141,6 +141,26 @@ def _title(lines: list[str], path: Path) -> str:
     return path.stem
 
 
+def _closes_fence(stripped: str, marker: str, opening_len: int) -> bool:
+    """האם השורה סוגרת גדר שנפתחה ב-``opening_len`` תווי ``marker``.
+
+    שלושת התנאים לקוחים מהמימוש שהתיעוד באמת נבנה איתו, והם זהים
+    ב-``markdown_it/rules_block/fence.py`` (עבור גדרות backtick ו-``~~~``)
+    וב-``mdit_py_plugins/colon_fence.py`` (עבור ``:::``):
+
+    1. ``if state.src[pos] != marker: continue`` — אותו תו סימון.
+    2. ``# closing code fence must be at least as long as the opening one``
+       ``if pos - mem < length: continue``
+    3. ``# make sure tail has spaces only``
+       ``if pos < maximum: continue``
+
+    בלי תנאי האורך, ``~~~`` בתוך גדר שנפתחה ב-``~~~~`` נחשב סגירה והקוד
+    שאחריו דולף לתקציר. בלי תנאי הזנב, ``~~~~ טקסט`` נחשב סגירה.
+    """
+    run = len(stripped) - len(stripped.lstrip(marker))
+    return run >= opening_len and not stripped[run:].strip()
+
+
 def _first_prose_paragraph(lines: list[str], path: Path) -> str:
     """פסקת הפרוזה הראשונה — מדלגים על כל מה שאינו טקסט רץ."""
     md = path.suffix == ".md"
@@ -164,9 +184,18 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             # טבלה (שורת ``|`` היא *בתוך* טבלה), ולכן אין להם מקום ברג'קס.
             if _MD_BLOCK_START_RE.match(stripped) or stripped.startswith(("|", "![", "[!")):
                 if stripped.startswith(("```", "~~~", ":::")):
-                    fence = stripped[:3]
+                    marker = stripped[0]
+                    opening = len(stripped) - len(stripped.lstrip(marker))
+                    info = stripped[opening:]
+                    # ``if marker == "`" and marker in params: return False``
+                    # (fence.py): גדר backtick שה-info שלה מכילה backtick
+                    # אינה גדר. בלי הבדיקה היינו בולעים בלוק שלם עד
+                    # ל"סגירה" שאינה קיימת.
+                    if marker == "`" and "`" in info:
+                        i += 1
+                        continue
                     i += 1
-                    while i < n and not lines[i].strip().startswith(fence):
+                    while i < n and not _closes_fence(lines[i].strip(), marker, opening):
                         i += 1
                 i += 1
                 continue

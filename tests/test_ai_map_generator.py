@@ -240,6 +240,40 @@ def test_block_start_regex_matches_every_declared_kind():
         assert g._MD_BLOCK_START_RE.match(block[0]), f"{kind}: {block[0]!r} אינו מזוהה ברג'קס"
 
 
+def test_fence_closes_only_on_a_valid_closing_fence():
+    """גדר נסגרת רק בסימון זהה, באורך הפתיחה לפחות, וזנב של רווחים בלבד.
+
+    רגרסיה: הקוד לקח ``stripped[:3]`` והשווה ב-``startswith``, ולכן שורת
+    ``~~~`` בתוך גדר שנפתחה ב-``~~~~`` נחשבה סגירה — והקוד שאחריה נאסף
+    כתקציר של העמוד. באותה שורה גם ``~~~~ עוד טקסט`` נחשב סגירה.
+
+    שלושת התנאים נלקחו מהמימוש שהתיעוד נבנה איתו, והם זהים ב-
+    ``markdown_it/rules_block/fence.py`` וב-``mdit_py_plugins/colon_fence.py``:
+    אותו תו סימון, ``closing code fence must be at least as long as the
+    opening one``, ו-``make sure tail has spaces only``.
+
+    שורות ה-``TAIL``: בלעדיהן הדליפה מתחפשת לכותרת setext (``~~~~`` הוא
+    גם קו-תחתון חוקי), הבדיקה עוברת גם על הקוד השבור, ולא בודקת כלום.
+    """
+    g = _load_generator()
+    prose = "פסקת הפרוזה האמיתית של העמוד, ארוכה מספיק כדי לעבור את הסף."
+    leak = "שורת קוד שאסור לה להופיע בתקציר של העמוד הזה בשום אופן"
+    tail = "עוד שורת קוד רגילה בתוך הגדר"
+    cases = {
+        "tilde_longer_open": ["~~~~", "קוד", "~~~", leak, tail, "~~~~", "", prose],
+        "backtick_longer_open": ["````", "קוד", "```", leak, tail, "````", "", prose],
+        "colon_longer_open": ["::::{note}", "קוד", ":::", leak, tail, "::::", "", prose],
+        "tail_not_blank": ["~~~", "קוד", "~~~ עוד טקסט", leak, tail, "~~~", "", prose],
+        "different_marker": ["~~~", "קוד", "```", leak, tail, "~~~", "", prose],
+        "plain": ["```", "קוד", "```", "", prose],
+        "with_info_string": ["```python", "קוד", "```", "", prose],
+        "closing_with_trailing_spaces": ["~~~", "קוד", "~~~   ", "", prose],
+    }
+    for kind, page in cases.items():
+        summary = g._first_prose_paragraph(page, Path("x.md")).strip()
+        assert summary == prose, f"{kind}: התקציר אינו הפרוזה בלבד ({summary!r})"
+
+
 def test_table_row_that_starts_a_block_does_not_hang(tmp_path):
     """שורה שנכנסת לענף הטבלה **והיא בעצמה** תחילת בלוק לא תוקעת.
 
