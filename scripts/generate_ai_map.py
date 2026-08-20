@@ -155,19 +155,19 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             if i + 1 < n and _UNDERLINE_RE.match(lines[i + 1]):
                 i += 2  # כותרת setext: הטקסט + קו המתחת
                 continue
-            if stripped.startswith(
-                ("#", "```", ":::", "---", "|", ">", "![", "[!", "%", "+++", "<")
-            ):
-                # כותרת / קוד / הערת MyST / חוקק / טבלה / ציטוט / תמונה / block_break / html_block
-                if stripped.startswith(("```", ":::")):
+            # רשימת הבלוקים מגיעה מ-``_MD_BLOCK_START_RE`` ולא מטאפל מקביל.
+            # שתי רשימות שחייבות להסכים נפרדות בשקט, וזה בדיוק מה שקרה:
+            # עצירת דילוג הטבלה זיהתה ``%``, ``<`` ו-``(target)=`` והלולאה
+            # כאן לא ידעה לדלג עליהם, אז הערת MyST נכנסה לתקציר. השלמת
+            # הטאפל בלבד השאירה את ``+ פריט`` דולף — יש עכשיו מקור אחד.
+            # ``|``/``![``/``[!`` נשארים בנפרד: הם אינם תחילת בלוק שמסיימת
+            # טבלה (שורת ``|`` היא *בתוך* טבלה), ולכן אין להם מקום ברג'קס.
+            if _MD_BLOCK_START_RE.match(stripped) or stripped.startswith(("|", "![", "[!")):
+                if stripped.startswith(("```", "~~~", ":::")):
                     fence = stripped[:3]
                     i += 1
                     while i < n and not lines[i].strip().startswith(fence):
                         i += 1
-                i += 1
-                continue
-            # target של MyST: (.+)=
-            if re.match(r"^\(.+\)=\s*$", stripped):
                 i += 1
                 continue
         else:
@@ -208,7 +208,7 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
                 i += 1
             continue
         if (
-            stripped.startswith(("- ", "* ", "#. "))
+            stripped.startswith(("- ", "* ", "+ ", "#. "))
             or re.match(r"^\d+\. ", stripped)
             or _GRID_ROW_RE.match(stripped)
         ):
@@ -218,7 +218,7 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
         para = []
         while i < n and lines[i].strip() and not lines[i].startswith((" ", "\t")):
             cur = lines[i].strip()
-            is_list = cur.startswith(("- ", "* ", "#. ")) or re.match(r"^\d+\. ", cur)
+            is_list = cur.startswith(("- ", "* ", "+ ", "#. ")) or re.match(r"^\d+\. ", cur)
             is_table = (
                 cur.startswith("|")
                 or _GRID_ROW_RE.match(cur)
