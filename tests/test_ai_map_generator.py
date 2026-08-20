@@ -274,6 +274,49 @@ def test_fence_closes_only_on_a_valid_closing_fence():
         assert summary == prose, f"{kind}: התקציר אינו הפרוזה בלבד ({summary!r})"
 
 
+def test_line_that_only_looks_like_a_fence_stays_prose():
+    """שורה שנראית כמו גדר ואינה כזו נאספת כפרוזה, לא מדולגת כבלוק.
+
+    רגרסיה: ``` ```a`b ``` אינה גדר (``if marker == "`" and marker in
+    params: return False`` ב-``fence.py``), והפרסר מרנדר אותה כפסקה רגילה.
+    הקוד סינן אותה כ"בלוק", ואיתה נעלמה **כל השורה הראשונה של הפסקה** —
+    בעמוד הבדיקה כאן זה הותיר את התקציר ריק לגמרי.
+
+    השורש: השאלה "האם זו גדר" נשאלה בשני מקומות בשתי דרכים שונות. עכשיו
+    יש ``_opens_fence`` אחד, ושניהם שואלים אותו.
+    """
+    g = _load_generator()
+    page = [
+        "כותרת",
+        "======",
+        "",
+        "```a`b הוא לא גדר, וזו פסקה שלמה שאמורה לשמש כתקציר של העמוד",
+        "וזו שורת ההמשך שלה באותה פסקה.",
+    ]
+    summary = g._first_prose_paragraph(page, Path("x.md"))
+    assert summary, "התקציר יצא ריק — השורה סוננה כבלוק במקום להיאסף כפרוזה"
+    assert "הוא לא גדר" in summary, f"השורה הראשונה של הפסקה אבדה: {summary!r}"
+
+
+def test_opens_fence_matches_the_source_rules():
+    """הפרדיקט מזהה גדר בדיוק לפי התנאים שבמקור, ולא לפי ``startswith``.
+
+    בלי הבדיקה הזו אפשר להחזיר את ``startswith`` והבדיקה שמעליה עדיין
+    עשויה לעבור במקרה, כי הפסקה נאספת גם דרך מסלולים אחרים.
+    """
+    g = _load_generator()
+    opens = {
+        "```": ("`", 3), "````": ("`", 4), "```python": ("`", 3),
+        "~~~": ("~", 3), "~~~~": ("~", 4), "~~~python": ("~", 3),
+        ":::": (":", 3), "::::{note}": (":", 4),
+    }
+    for line, expected in opens.items():
+        assert g._opens_fence(line) == expected, f"{line!r} אמור לפתוח גדר"
+    not_opens = ["```a`b", "``", "~~", "::", "", "טקסט רגיל", "`code`", "---"]
+    for line in not_opens:
+        assert g._opens_fence(line) is None, f"{line!r} אינו פותח גדר"
+
+
 def test_table_row_that_starts_a_block_does_not_hang(tmp_path):
     """שורה שנכנסת לענף הטבלה **והיא בעצמה** תחילת בלוק לא תוקעת.
 

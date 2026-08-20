@@ -141,6 +141,31 @@ def _title(lines: list[str], path: Path) -> str:
     return path.stem
 
 
+def _opens_fence(stripped: str) -> tuple[str, int] | None:
+    """(תו הסימון, אורך הפתיחה) אם השורה פותחת גדר, אחרת ``None``.
+
+    התנאים מ-``markdown_it/rules_block/fence.py`` ומ-
+    ``mdit_py_plugins/colon_fence.py``: הסימון הוא אחד מ-``` ` ``` / ``~`` /
+    ``:``, אורך הרצף לפחות שלושה (``if length < 3: return False``), ובגדר
+    backtick ה-info אינה מכילה backtick נוסף
+    (``if marker == "`" and marker in params: return False``).
+
+    למה פרדיקט ולא בדיקת ``startswith`` בכל מקום: שורה כמו ``` ```a`b ``` אינה
+    גדר, והפרסר מרנדר אותה כפסקה רגילה. כשהיא סוננה כ"בלוק" נעלמה איתה
+    **כל השורה הראשונה של הפסקה**, לא רק הסימון. עכשיו לשאלה הזו יש
+    תשובה אחת, ושני מקומות שואלים אותה: דילוג הבלוקים ואיסוף הפרוזה.
+    """
+    marker = stripped[:1]
+    if marker not in ("`", "~", ":"):
+        return None
+    run = len(stripped) - len(stripped.lstrip(marker))
+    if run < 3:
+        return None
+    if marker == "`" and "`" in stripped[run:]:
+        return None
+    return marker, run
+
+
 def _closes_fence(stripped: str, marker: str, opening_len: int) -> bool:
     """האם השורה סוגרת גדר שנפתחה ב-``opening_len`` תווי ``marker``.
 
@@ -182,21 +207,21 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
             # הטאפל בלבד השאירה את ``+ פריט`` דולף — יש עכשיו מקור אחד.
             # ``|``/``![``/``[!`` נשארים בנפרד: הם אינם תחילת בלוק שמסיימת
             # טבלה (שורת ``|`` היא *בתוך* טבלה), ולכן אין להם מקום ברג'קס.
-            if _MD_BLOCK_START_RE.match(stripped) or stripped.startswith(("|", "![", "[!")):
-                if stripped.startswith(("```", "~~~", ":::")):
-                    marker = stripped[0]
-                    opening = len(stripped) - len(stripped.lstrip(marker))
-                    info = stripped[opening:]
-                    # ``if marker == "`" and marker in params: return False``
-                    # (fence.py): גדר backtick שה-info שלה מכילה backtick
-                    # אינה גדר. בלי הבדיקה היינו בולעים בלוק שלם עד
-                    # ל"סגירה" שאינה קיימת.
-                    if marker == "`" and "`" in info:
-                        i += 1
-                        continue
+            opened = _opens_fence(stripped)
+            if opened is not None:
+                marker, opening = opened
+                i += 1
+                while i < n and not _closes_fence(lines[i].strip(), marker, opening):
                     i += 1
-                    while i < n and not _closes_fence(lines[i].strip(), marker, opening):
-                        i += 1
+                i += 1
+                continue
+            # ``looks_like_fence`` בלי ``_opens_fence`` פירושו שורה שנראית
+            # כמו גדר ואינה כזו. היא אינה בלוק, ולכן היא **נופלת לאיסוף
+            # הפרוזה** ולא מדולגת — אחרת השורה הראשונה של הפסקה נעלמת.
+            looks_like_fence = stripped.startswith(("```", "~~~", ":::"))
+            if not looks_like_fence and (
+                _MD_BLOCK_START_RE.match(stripped) or stripped.startswith(("|", "![", "[!"))
+            ):
                 i += 1
                 continue
         else:
@@ -254,7 +279,7 @@ def _first_prose_paragraph(lines: list[str], path: Path) -> str:
                 # כותרת טבלת Markdown בלי pipe חיצוני, שהמפריד מתחתיה
                 or (i + 1 < n and "|" in cur and _MD_DELIM_RE.match(lines[i + 1].strip()))
             )
-            if is_list or is_table or cur.startswith(("```", ":::")) or _UNDERLINE_RE.match(lines[i]):
+            if is_list or is_table or _opens_fence(cur) or _UNDERLINE_RE.match(lines[i]):
                 break  # רשימה / טבלה / גדר קוד — לא חלק מהתקציר
             para.append(cur)
             i += 1
