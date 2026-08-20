@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 # מוגדר לפי ref כדי שהרצה ידנית מענף אחר לא תבטל רענון רץ של main
 concurrency:
@@ -43,9 +42,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Regenerate AI-MAP.md
-        run: python3 scripts/generate_ai_map.py --out AI-MAP.md
-
+      # אין כאן שלב "Regenerate" שכותב ל-workspace — בכוונה. שלב כזה
+      # רמס את AI-MAP.md המקומט, שהוא בסיס ההשוואה של סקריפט הפרסום,
+      # וההשוואה יצאה תמיד "עדכני": ה-workflow כולו היה no-op ירוק.
+      # הייצור קורה בתוך הסקריפט, לתיקייה זמנית בלבד.
       - name: Publish AI-MAP.md
         env:
           # GITHUB_TOKEN בלבד, בלי PAT: הפרסום עובר ב-Contents API ולא

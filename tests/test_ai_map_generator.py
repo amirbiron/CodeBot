@@ -157,3 +157,35 @@ def test_cli_check_exit_codes(tmp_path):
     proc = _run_cli("--check", str(stale), cwd=tmp_path)
     assert proc.returncode == 1
     assert stale.read_text(encoding="utf-8") == "מפה מיושנת", "--check אסור שיכתוב"
+
+
+def test_grid_row_regex_has_no_catastrophic_backtracking(tmp_path):
+    """שורת פלוסים ארוכה שאינה גבול טבלה לא תוקעת את המחולל.
+
+    רגרסיה: '+' הופיע גם במחלקת התווים וגם כמפריד הקבוצה החוזרת —
+    חפיפה שיוצרת backtracking אקספוננציאלי (נמדד ×2.6 לכל תו: 23ms
+    ב-28 תווים, דקות ב-40). דף תיעוד עם שורה כזו היה תוקע את ה-CI.
+
+    רץ בתת-תהליך עם timeout: על ה-regex הפגום הקריאה לא חוזרת לעולם,
+    ותהליך אפשר להרוג — בניגוד לת'רד.
+    """
+    import subprocess
+    import sys as _sys
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('g', {str(ROOT / 'scripts' / 'generate_ai_map.py')!r})\n"
+        "g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)\n"
+        "evil = '+' * 64 + 'x'\n"
+        "assert g._GRID_ROW_RE.match(evil) is None\n"
+        "assert g._GRID_ROW_RE.match('+----+====+')\n"
+        "print('ok')\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [_sys.executable, str(probe)], capture_output=True, text=True,
+        timeout=10, cwd=tmp_path,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "ok"

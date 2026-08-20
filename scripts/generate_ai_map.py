@@ -40,8 +40,11 @@ _DIRECTIVE_RE = re.compile(r"^\.\. ")
 _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
-# שורת גבול של grid table ב-RST: +----+====+ וכד'
-_GRID_ROW_RE = re.compile(r"^\+[+=-]+(?:\+[+=-]+)*\+?$")
+# שורת גבול של grid table ב-RST: +----+====+ וכד'. ה-+ מותר רק
+# כמפריד בין מקטעי [=-], לא בתוך מחלקת התווים: '+' שחופף בין המחלקה
+# לקבוצה החוזרת יוצר backtracking אקספוננציאלי (נמדד: ×2.6 לכל תו)
+# על שורה ארוכה של פלוסים שאינה מתאימה.
+_GRID_ROW_RE = re.compile(r"^\+(?:[=-]+\+)+$")
 _AUTODOC_RE = re.compile(r"^\.\. auto(module|class|function)::")
 
 
