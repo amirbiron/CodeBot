@@ -46,6 +46,33 @@ def test_map_covers_known_manual_pages():
         assert expected in content, f"עמוד ידני חסר במפה: {expected}"
 
 
+def test_the_map_carries_the_authority_warning():
+    """המפה נושאת את הכלל שהתיעוד אינו סמכות, ולא רק הפריימר.
+
+    את ``AI-MAP.md`` קורא גם מי שלא קיבל את הפריימר — סוכן בכלי אחר, או
+    grep מקרי. כלל שגר במקום אחד בלבד לא ייקרא בדיוק כשצריך אותו, וזה
+    הכלל שהכי יקר לפספס: כל סבבי הריוויו כאן מצאו טענות בפרוזה שסתרו את
+    הקוד. הבדיקה נופלת אם מישהו יסיר את הסעיף מהמחולל.
+    """
+    lines = _load_generator().build_map().split("\n")
+
+    assert "## סמכות התיעוד" in lines
+    start = lines.index("## סמכות התיעוד")
+    end = next(
+        (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+        len(lines),
+    )
+    section = "\n".join(lines[start:end])
+
+    assert "התמצאות, לא סמכות" in section
+    # דווקא בתוך הסעיף, ולא ב-``content`` כולו: ``autodoc`` מופיע ממילא
+    # ב-preamble של המפה ובשורת הסיכום, ולכן טענה על הטקסט המלא הייתה
+    # עוברת גם אחרי מחיקת משפט החריגים — נמדד. ``literalinclude`` יחיד
+    # היום, אבל מספיק שעמוד אחד יזכיר אותו בתקציר כדי שגם הוא יתרוקן.
+    assert "literalinclude" in section
+    assert "autodoc" in section
+
+
 def test_autodoc_scaffolds_are_filtered():
     """עמוד שהוא automodule בלבד לא נכנס — הוא ריק כשקוראים מהריפו."""
     content = _load_generator().build_map()
