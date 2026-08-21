@@ -20,7 +20,7 @@
 | אוספים (collections) | `user_collections` | `metadata/collections.json` |
 | פריטים באוספים | `collection_items` | `metadata/collection_items.json` |
 | סימניות (bookmarks) | `file_bookmarks` | `metadata/bookmarks.json` |
-| פתקיות (sticky notes) | `sticky_notes` | `metadata/sticky_notes.json` |
+| פתקיות (קובץ ולוח) | `sticky_notes` | `metadata/sticky_notes.json` |
 | העדפות משתמש | `user_preferences` | `metadata/preferences.json` |
 | מועדפים + נעוצים | שדות ב-`code_snippets` | כלול ב-`metadata/files.json` |
 | הגדרות Drive | שדה ב-`users` | `metadata/drive_prefs.json` |
@@ -1031,6 +1031,19 @@ def _safe_zip_path(path: str) -> str:
 - **גודל ZIP מוגבל:** בשחזור, מגבלת 100MB למניעת העמסה.
 - **`_safe_zip_path`:** מונע path traversal (למשל `../../etc/passwd`).
 - **`overwrite` parameter:** מאפשר למשתמש לבחור האם לדרוס קבצים קיימים בשחזור.
+
+### גיבוי ושחזור פתקי לוח
+
+**ייצוא:**
+- פתקי לוח מיוצאים עם **שם הלוח** (`board_name`), לא רק `board_id`
+- המזהה (`_id`) לא יהיה תקף אחרי שחזור לסביבה אחרת, אז השם הוא מה שמאפשר שחזור מדויק
+
+**שחזור:**
+- פתקי לוח משוחזרים לפי שם הלוח, לא לפי המזהה
+- אם אין התאמה לפי שם — הפתק משוחזר ללוח ברירת המחדל (שתמיד קיים)
+- מכסות (`MAX_NOTES_PER_BOARD` ו-`MAX_NOTES_PER_USER`) נאכפות בשחזור
+- חריגה ממכסה מופיעה בהודעת שגיאה ברורה ברשימת ה-errors, כך שהמשתמש יודע שפתקים מסוימים לא שוחזרו
+- לפני ה-PR: פתקי לוח נכשלו בשקט בשחזור (היו נופלים על `continue` שדרש `file_name`)
 
 ---
 
