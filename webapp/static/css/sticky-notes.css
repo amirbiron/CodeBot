@@ -24,8 +24,11 @@
   background: rgba(0,0,0,.06);
 }
 .sticky-note-drag{ width: 100%; height: 16px; cursor: move; touch-action: none; }
-.sticky-note-actions{ display:flex; gap:6px; }
-.sticky-note-btn{ border:none; background: transparent; cursor: pointer; font-size: 16px; transition: background-color .18s ease, color .18s ease; }
+/* מרווח בין הכפתורים: הם קטנים, וצמודים זה לזה קשה לפגוע בהם באצבע.
+   ההגדלה היא במרווח ובריפוד אופקי בלבד — גובה הכותרת לא משתנה, ולכן
+   ``calc(100% - 42px)`` של גוף הפתק נשאר נכון. */
+.sticky-note-actions{ display:flex; gap:10px; }
+.sticky-note-btn{ border:none; background: transparent; cursor: pointer; font-size: 16px; padding: 0 3px; min-width: 22px; transition: background-color .18s ease, color .18s ease; }
 .sticky-note-pin{ opacity:.8; }
 .sticky-note-pin:hover{ opacity:1; }
 .sticky-note-pin.is-active{
@@ -75,26 +78,37 @@
 
 /* ---------- צ'קבוקסים בתוך פתק ---------- */
 
+/* ``flex: 1`` לא עשה כלום — ``.sticky-note`` אינו קונטיינר flex — ולכן
+   לתצוגה לא היה גובה משלה כלל. עכשיו היא בדיוק אותו ארגז כמו ה-textarea
+   שהיא מחליפה, כולל גלילה פנימית: פתק שגדל לבד מזיז את מה שסביבו. */
 .sticky-note-tasks {
-  flex: 1;
-  overflow-y: auto;      /* גלילה בתוך הפתק, לא גדילה אוטומטית: פתק
-                            שגדל לבד מזיז את מה שסביבו ושובר סידור ידני */
-  padding: .35rem .5rem;
-  font-size: .9rem;
-  line-height: 1.5;
+  width: 100%;
+  height: calc(100% - 42px);
+  overflow-y: auto;
+  padding: 8px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #222;
+  cursor: text;          /* הרמז שאפשר ללחוץ ולחזור לעריכה */
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .sticky-note-tasks[hidden] { display: none; }
+.sticky-note.is-minimized .sticky-note-tasks{ display:none; }
+
+/* שורה שאינה משימה — הטקסט הרגיל של הפתק. היא נשארת גלויה, וזה כל
+   ההבדל בין "יש כאן צ'קבוקס" לבין "כל שאר הפתק נעלם". */
+.sticky-task-line { min-height: 1.35em; }
 
 .sticky-task {
   display: flex;
   align-items: flex-start;
   gap: .4rem;
-  cursor: pointer;
   padding: .1rem 0;
 }
 
-.sticky-task-box { margin-top: .25rem; flex: 0 0 auto; }
+.sticky-task-box { margin-top: .25rem; flex: 0 0 auto; cursor: pointer; }
 
 .sticky-task-box:checked + .sticky-task-text {
   text-decoration: line-through;
@@ -107,6 +121,21 @@
 
 /* חיווי כשל — כתיבה שלא נקלטה חייבת להיראות, לא להיעלם בשקט */
 .sticky-note.has-task-error {
+  outline: 2px solid #dc3545;
+  outline-offset: 1px;
+}
+
+/* חיווי אורך — התקרה נאכפת בשרת בחיתוך שקט, ולכן היא חייבת להיראות כאן */
+.sticky-note-warn {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 4px 8px;
+  font-size: 12px; line-height: 1.3;
+  background: #dc3545; color: #fff;
+}
+
+/* כשל שמירה — עד היום הוא היה ב-console בלבד */
+.sticky-note.has-save-error,
+.sticky-note.has-length-error {
   outline: 2px solid #dc3545;
   outline-offset: 1px;
 }

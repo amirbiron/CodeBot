@@ -396,6 +396,25 @@ def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Op
     return x
 
 
+def _mode_update(raw: Any, note: Dict[str, Any]) -> Any:
+    """מאמת ``mode`` שהתקבל בעדכון, ומחזיר את הערך לשמירה.
+
+    זורקת ``ValueError`` עם קוד השגיאה שיוחזר ללקוח.
+
+    ``mode`` נכתב עד היום רק ביצירה, ולכן כפתור המצב בלוח לא יכול היה
+    להישמר בכלל. הוא מוגבל לפתקי לוח: ב-``_resolveMode`` השדה נקרא
+    **לפני** הסנטינלים, כך ש-``mode`` על פתק קובץ היה משתלט על מסלול
+    העיגון לשורות המקור.
+    """
+    from sticky_notes_target import is_valid_board_mode, normalize_mode, DEFAULT_BOARD_MODE
+
+    if not note.get('board_id'):
+        raise ValueError('mode_not_supported')
+    if raw is not None and not is_valid_board_mode(raw):
+        raise ValueError('invalid_mode')
+    return normalize_mode(raw, DEFAULT_BOARD_MODE)
+
+
 def _make_scope_id(user_id: int, file_name: Optional[str]) -> Optional[str]:
     # פונקציה קנונית (ללא תלות ב-Flask) כדי למנוע סטיות בין שירותים.
     from sticky_notes_scope import make_scope_id
@@ -1107,8 +1126,11 @@ def update_note(note_id: str):
         if 'anchor_text' in data:
             atx = (data.get('anchor_text') or '').strip()[:256]
             updates['anchor_text'] = atx or None
+        # ``mode`` מאומת כאן ומוחל רק אחרי טעינת הפתק — הבדיקה תלויה
+        # ב-``board_id`` שלו, שעדיין לא ידוע בשלב הזה.
+        wants_mode = 'mode' in data
 
-        if not updates:
+        if not updates and not wants_mode:
             return jsonify({'ok': False, 'error': 'No fields to update'}), 400
 
         updates['updated_at'] = datetime.now(timezone.utc)
@@ -1122,6 +1144,11 @@ def update_note(note_id: str):
         note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        if wants_mode:
+            try:
+                updates['mode'] = _mode_update(data.get('mode'), note)
+            except ValueError as exc:
+                return jsonify({'ok': False, 'error': str(exc)}), 400
         # פתק לוח אינו נושא scope_id ולעולם לא יישא — ובלי השומר הזה
         # כל עדכון שלו היה מריץ _resolve_scope, כלומר קריאה ל-code_snippets
         # רק כדי לגלות שאין קובץ.
@@ -1225,6 +1252,7 @@ def batch_update_notes():
               "line_end": null,
               "anchor_id": "h2-intro",
               "anchor_text": "Intro",
+              "mode": "surface",
               "prev_updated_at": "2024-01-01T00:00:00+00:00"
             }
           ]
@@ -1308,6 +1336,12 @@ def batch_update_notes():
                 if 'anchor_text' in fragment:
                     atx = (fragment.get('anchor_text') or '').strip()[:256]
                     updates['anchor_text'] = atx or None
+                if 'mode' in fragment:
+                    try:
+                        updates['mode'] = _mode_update(fragment.get('mode'), note)
+                    except ValueError as exc:
+                        results.append({'id': note_id, 'ok': False, 'status': 400, 'error': str(exc)})
+                        continue
 
                 # conflict detection similar to single update
                 try:
