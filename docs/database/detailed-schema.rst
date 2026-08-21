@@ -558,7 +558,7 @@
    * - ``content``
      - str
      - כן
-     - עד 5,000 תווים.
+     - עד 20,000 תווים. התקרה מוגדרת פעם אחת ב-``sticky_notes_target.MAX_NOTE_CHARS`` ומיובאת משם ל-webapp, ל-MCP ולתבניות.
    * - ``position_x`` / ``position_y``
      - int
      - כן

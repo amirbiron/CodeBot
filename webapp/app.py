@@ -15,6 +15,10 @@ import mimetypes
 import uuid
 import inspect
 import socket
+
+# תקרת אורך פתק, לשימוש בתבניות. ייבוא ישיר ובלי fallback — ערך מקומי היה
+# מחזיר מספר שני בצד השרת, בדיוק מה שהאיחוד בא למנוע.
+from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from types import SimpleNamespace
@@ -2070,6 +2074,9 @@ def inject_globals():
         'static_version': static_ver,
         # קישור לתיעוד (לשימוש בתבניות)
         'documentation_url': DOCUMENTATION_URL,
+        # תקרת אורך פתק — מגיעה ל-JS מכאן ולא מוקלדת שם. בלי זה היו שני
+        # מספרים שמסונכרנים בתקווה, ופער ביניהם נראה למשתמש כחיתוך בלי הסבר.
+        'max_note_chars': MAX_NOTE_CHARS_FOR_TEMPLATES,
         # External uptime config for templates (non-sensitive only)
         'uptime_provider': UPTIME_PROVIDER,
         'uptime_status_url': UPTIME_STATUS_URL,

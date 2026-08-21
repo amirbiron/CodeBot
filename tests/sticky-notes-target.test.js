@@ -183,38 +183,247 @@ check('anchored בלי מקור שורות יורד ל-surface', () => {
 });
 
 
-// -- צ'קבוקסים: הפרסור בצד הלקוח --
+// -- צ'קבוקסים: תצוגת התוכן --
 //
 // הזרימה המלאה (fetch, אימות, חזרה אחורה) נבדקת בפייתון ב-
-// tests/test_sticky_notes_tasks.py, כי שם היא באמת נכתבת למסד. כאן
-// נבדק רק החלק שחי בדפדפן: זיהוי השורות והמצב שלהן.
+// tests/test_sticky_notes_tasks.py, כי שם היא באמת נכתבת למסד. כאן נבדק
+// מה שחי בדפדפן: מה ``_syncTaskView`` מרנדר, ומה הוא **לא** נוגע בו.
+//
+// למה DOM מדומה ולא בדיקת פונקציית עזר טהורה: הגרסה הקודמת בדקה
+// ``_parseTasks``, שהחזירה רק את שורות המשימה. היא עברה בהצלחה בזמן
+// שהתצוגה הסתירה 400 שורות טקסט — כי היא בדקה את המסננת, לא את מה
+// שהמשתמש רואה. הבדיקה חייבת לגעת במה שנשבר.
 
-check('פרסור: רק שורות משימה נספרות', () => {
-  const tasks = fileMgr._parseTasks('כותרת\n- [ ] אחת\nשורה\n- פריט\n- [x] שתיים');
-  eq(tasks.length, 2, 'כמות');
-  eq(tasks[0].checked, false, 'ראשונה');
-  eq(tasks[1].checked, true, 'שנייה');
+/** DOM מינימלי — בדיוק מה ש-``_syncTaskView`` ו-``_enterEditAt`` נוגעים בו. */
+class FakeEl {
+  constructor(tag) {
+    this.tagName = tag; this.children = []; this.dataset = {}; this.style = {};
+    this.hidden = false; this._text = ''; this._attrs = {}; this._classes = new Set();
+    this.classList = {
+      add: (c) => this._classes.add(c),
+      remove: (c) => this._classes.delete(c),
+      contains: (c) => this._classes.has(c),
+      toggle: (c, on) => { if (on) this._classes.add(c); else this._classes.delete(c); },
+    };
+  }
+  set className(v) { this._classes = new Set(String(v || '').split(/\s+/).filter(Boolean)); }
+  get className() { return [...this._classes].join(' '); }
+  appendChild(c) { this.children.push(c); c.parentNode = this; return c; }
+  // ``Element.remove`` קיים בכל דפדפן, והקוד קורא לו מאחורי guard. בלי
+  // מימוש כאן ה-guard מדלג בשקט, והבדיקה "החיווי נעלם" עוברת סתם.
+  remove() {
+    const p = this.parentNode;
+    if (p) { p.children = p.children.filter((c) => c !== this); this.parentNode = null; }
+  }
+  set textContent(v) { this.children = []; this._text = String(v); }
+  get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join('') : this._text; }
+  setAttribute(k, v) { this._attrs[k] = String(v); }
+  getAttribute(k) { return k in this._attrs ? this._attrs[k] : null; }
+  addEventListener() {}
+  focus() { FakeEl.focused = this; }
+  _matches(sel) { return sel.startsWith('.') ? this._classes.has(sel.slice(1)) : this.tagName === sel; }
+  querySelector(sel) {
+    for (const c of this.children) {
+      if (c._matches(sel)) return c;
+      const deep = c.querySelector(sel);
+      if (deep) return deep;
+    }
+    return null;
+  }
+  querySelectorAll(sel) {
+    const out = [];
+    for (const c of this.children) { if (c._matches(sel)) out.push(c); out.push(...c.querySelectorAll(sel)); }
+    return out;
+  }
+  getBoundingClientRect() { return { left: 0, top: 0, width: 0, height: 0 }; }
+}
+
+sandbox.document.createElement = (tag) => new FakeEl(tag);
+
+/** פתק מדומה עם טקסטריה ותצוגה, כמו ש-``_renderNote`` בונה. */
+function makeNote(content) {
+  const el = new FakeEl('div');
+  el.className = 'sticky-note';
+  const ta = new FakeEl('textarea');
+  ta.className = 'sticky-note-content';
+  ta.value = content;
+  const view = new FakeEl('div');
+  view.className = 'sticky-note-tasks';
+  el.appendChild(ta);
+  el.appendChild(view);
+  return { el, ta, view };
+}
+
+const CONTENT = 'כותרת\n- [ ] אחת\nשורת טקסט\n- פריט רגיל\n- [x] שתיים';
+
+check('תצוגה: **כל** השורות מרונדרות, לא רק המשימות', () => {
+  // זה הבאג שמחק 400 שורות מהמסך. הגרסה הקודמת הייתה מרנדרת 2.
+  const { el, view } = makeNote(CONTENT);
+  fileMgr._syncTaskView(el);
+  eq(view.children.length, 5, 'מספר השורות');
 });
 
-check('פרסור: X גדולה נחשבת מסומנת', () => {
-  eq(fileMgr._parseTasks('- [X] בוצע')[0].checked, true);
+check('תצוגה: טקסט שאינו משימה נשאר גלוי', () => {
+  const { el, view } = makeNote(CONTENT);
+  fileMgr._syncTaskView(el);
+  eq(view.textContent.includes('שורת טקסט'), true, 'טקסט חופשי');
+  eq(view.textContent.includes('- פריט רגיל'), true, 'פריט רשימה שאינו משימה');
 });
 
-check('פרסור: הטקסט מנוקה מהסוגריים', () => {
-  eq(fileMgr._parseTasks('  * [ ] משימה מוזחת')[0].text, 'משימה מוזחת');
+check('תצוגה: הסידור נספר על שורות משימה בלבד', () => {
+  // הסידור הוא מה שנשלח לשרת. ספירה על כל השורות הייתה מסמנת שורה אחרת.
+  const { el, view } = makeNote(CONTENT);
+  fileMgr._syncTaskView(el);
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 2, 'מספר תיבות');
+  eq(boxes[0].dataset.taskIndex, '0');
+  eq(boxes[1].dataset.taskIndex, '1');
+  eq(boxes[1].checked, true, '[x] מסומנת');
 });
 
-check('פרסור: הסדר הוא סדר המופע, וזה מה שנשלח לשרת', () => {
-  // שלוש שורות זהות — האינדקס הוא הדבר היחיד שמבדיל ביניהן
-  const tasks = fileMgr._parseTasks('- [ ] לבדוק\n- [ ] לבדוק\n- [ ] לבדוק');
-  eq(tasks.length, 3);
+check('תצוגה: X גדולה נחשבת מסומנת', () => {
+  const { el, view } = makeNote('- [X] בוצע');
+  fileMgr._syncTaskView(el);
+  eq(view.querySelectorAll('.sticky-task-box')[0].checked, true);
 });
 
-check('פרסור: תוכן בלי משימות מחזיר רשימה ריקה', () => {
-  // זה מה שמשאיר פתק רגיל בדיוק כפי שהיה — התצוגה נשארת מוסתרת
-  eq(fileMgr._parseTasks('סתם טקסט').length, 0);
-  eq(fileMgr._parseTasks('').length, 0);
-  eq(fileMgr._parseTasks(null).length, 0);
+check('תצוגה: תוכן בלי משימות משאיר את הטקסטריה גלויה', () => {
+  // זה מה ששומר על פתק רגיל בדיוק כפי שהיה
+  const { el, ta, view } = makeNote('סתם טקסט');
+  fileMgr._syncTaskView(el);
+  eq(view.hidden, true, 'התצוגה מוסתרת');
+  eq(ta.hidden, false, 'הטקסטריה גלויה');
+});
+
+check('רינדור הוא חד-כיווני: התוכן לא נכתב מהתצוגה', () => {
+  // **החוק שמעל כל השאר.** ``content → HTML``, לעולם לא חזרה. היחידים
+  // שרשאים לכתוב ל-content הם הטקסטריה וראוט ``/task``.
+  const { el, ta } = makeNote(CONTENT);
+  const before = ta.value;
+  const saves = [];
+  const realQueue = fileMgr._queueSave;
+  fileMgr._queueSave = (...a) => { saves.push(a); };
+  try {
+    fileMgr._syncTaskView(el);
+    fileMgr._syncTaskView(el, { editing: true });
+    fileMgr._syncTaskView(el);
+  } finally {
+    fileMgr._queueSave = realQueue;
+  }
+  eq(ta.value, before, 'התוכן לא השתנה');
+  eq(saves.length, 0, 'לא נשלחה שום שמירה');
+});
+
+check('חזרה לעריכה: הסמן נוחת בתחילת השורה שנלחצה', () => {
+  // בלי זה התצוגה היא דלת חד-כיוונית — אי אפשר להוסיף או למחוק מלל
+  const { el, ta, view } = makeNote(CONTENT);
+  fileMgr._syncTaskView(el);
+  const row = view.children[2];              // 'שורת טקסט'
+  fileMgr._enterEditAt(el, parseInt(row.dataset.charOffset, 10));
+  eq(ta.hidden, false, 'הטקסטריה חזרה');
+  eq(FakeEl.focused, ta, 'הפוקוס עבר לטקסטריה');
+  eq(CONTENT.slice(ta.selectionStart, ta.selectionStart + 4), 'שורת', 'מיקום הסמן');
+});
+
+check('אורך: התקרה מגיעה מהשרת, לא מוקלדת בלקוח', () => {
+  // בלי ערך מהשרת אין מספר להשוות אליו — ואז לא מזהירים, במקום להזהיר
+  // לפי מספר שאולי כבר לא נכון.
+  const { el } = makeNote('קצר');
+  sandbox.window.STICKY_NOTE_MAX_CHARS = undefined;
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(999999)), false, 'אין תקרה ידועה');
+  eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
+});
+
+check('אורך: בדיוק בגבול מתקבל, ומעליו מוצג חיווי', () => {
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+
+  eq(fileMgr._checkContentLength(el, 'קצר'), false, 'תוכן קצר');
+  eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
+
+  // הגבול עצמו חוקי — off-by-one כאן פוסל תוכן תקין
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(20000)), false, 'בדיוק בגבול');
+  eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי בגבול');
+
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(20001)), true, 'תו אחד מעל');
+  const warn = el.querySelector('.sticky-note-warn');
+  eq(warn !== null, true, 'יש חיווי');
+  eq(warn.textContent.includes('20001'), true, 'החיווי מציין את האורך בפועל');
+  eq(warn.textContent.includes('20000'), true, 'והתקרה שהשרת נתן');
+});
+
+check('אורך: החיווי מתנקה כשחוזרים מתחת לתקרה', () => {
+  // כשל שנשאר על המסך אחרי שתוקן משקר בדיוק כמו כשל שלא הוצג
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+
+  fileMgr._checkContentLength(el, 'א'.repeat(20001));
+  eq(el.querySelector('.sticky-note-warn') !== null, true, 'החיווי הופיע');
+  eq(el.classList.contains('has-length-error'), true, 'קלאס השגיאה נוסף');
+
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(100)), false, 'שוב מתחת לתקרה');
+  eq(el.querySelector('.sticky-note-warn'), null, 'החיווי נעלם');
+  eq(el.classList.contains('has-length-error'), false, 'קלאס השגיאה הוסר');
+});
+
+check('אורך: אימוג\'י נספר כמו בפייתון, לא כיחידות UTF-16', () => {
+  // ``String.length`` סופר יחידות UTF-16 והשרת סופר תווי Unicode. בלי
+  // ההתאמה, 10,001 אימוג\'ים קיבלו אזהרה על תוכן שהשרת מקבל — פי שניים.
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+  const emoji = '🙂'.repeat(10001);          // 20,002 יחידות, 10,001 תווים
+
+  eq(fileMgr._checkContentLength(el, emoji), false, 'השרת היה מקבל, ולכן אין אזהרה');
+  eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
+
+  // ומעל התקרה האמיתית — כן מזהירים, עם המספר של פייתון
+  eq(fileMgr._checkContentLength(el, '🙂'.repeat(20001)), true, 'מעל התקרה');
+  eq(el.querySelector('.sticky-note-warn').textContent.includes('20001'), true, 'ספירת קוד-פוינטים');
+});
+
+check('אורך: הניסוח תואם לחוזה השרת — העדכון כולו נדחה', () => {
+  // "מה שמעבר לא יישמר" שיקר: השרת דוחה את כל העדכון, לא חותך זנב
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+  fileMgr._checkContentLength(el, 'א'.repeat(20001));
+  const text = el.querySelector('.sticky-note-warn').textContent;
+  eq(text.includes('מה שמעבר'), false, 'לא מבטיח שמירה חלקית');
+  eq(text.includes('לקצר'), true, 'אומר מה לעשות');
+});
+
+check('שמירה: עריכה חדשה תוך כדי טיסה שורדת כשל', () => {
+  // **אובדן תוכן שנמדד בדפדפן.** ``_flushFor`` מוציא את המטען מהתור לפני
+  // שהוא ממתין לרשת. הקלדה בזמן ההמתנה יצרה רשומה חדשה, וכשל דרס אותה.
+  const id = 'race1';
+  fileMgr._pending.set(id, { content: 'העריכה החדשה' });
+  fileMgr._restorePending(id, { content: 'המטען הישן', position: { x: 1, y: 2 } });
+
+  const after = fileMgr._pending.get(id);
+  eq(after.content, 'העריכה החדשה', 'החדש מנצח');
+  eq(after.position.x, 1, 'והישן ממלא מה שחסר');
+});
+
+check('שמירה: מידע טרי מהשרת כן דורס את התור', () => {
+  // הכיוון ההפוך, ובכוונה: ``prev_updated_at`` שחוזר מ-409 חייב לנצח,
+  // אחרת הניסיון הבא נדחה שוב על אותה חותמת. שתי כוונות, שתי פונקציות.
+  const id = 'race2';
+  fileMgr._pending.set(id, { content: 'טקסט', prev_updated_at: 'ישן' });
+  fileMgr._mergePending(id, { prev_updated_at: 'חדש-מהשרת' });
+
+  const after = fileMgr._pending.get(id);
+  eq(after.prev_updated_at, 'חדש-מהשרת', 'המידע הטרי ניצח');
+  eq(after.content, 'טקסט', 'והתוכן לא נפגע');
+});
+
+check('שמירה: 400 אינו חוזר לתור, 500 כן', () => {
+  // הבאג: כל !ok הוחזר ל-pending, וה-auto-flush ניסה שוב לנצח. תוכן
+  // שנדחה ב-400 לא הופך לתקין — זו לולאה חמה שגם מסתירה את הכשל.
+  eq(fileMgr._isPermanentFailure(400), true, '400 סופי');
+  eq(fileMgr._isPermanentFailure(404), true, '404 סופי');
+  eq(fileMgr._isPermanentFailure(409), false, '409 נפתר עם חותמת טרייה');
+  eq(fileMgr._isPermanentFailure(429), false, '429 — לנסות שוב מאוחר יותר');
+  eq(fileMgr._isPermanentFailure(500), false, '500 זמני');
+  eq(fileMgr._isPermanentFailure(undefined), false, 'סטטוס לא ידוע — לא לזרוק מידע');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

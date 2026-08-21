@@ -4658,6 +4658,7 @@ function goBackTwoSteps(ev){
 })();
 </script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}">
+<script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }};</script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}"></script>
 <script>
   // אתחול פתקים דביקים רק לאחר שרינדור ה-Markdown הושלם (או fallback בטוח)

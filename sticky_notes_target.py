@@ -28,7 +28,24 @@ class NoteTargetError(ValueError):
 
 
 class NoteQuotaError(ValueError):
-    """חריגה מתקרת הפתקים, או ספירה שלא הצליחה."""
+    """חריגה מתקרת הפתקים, או ספירה שלא הצליחה.
+
+    שני המקרים מיוצגים כתת-מחלקות, ו**זהות השגיאה חיה בסוג ולא בטקסט**.
+    ``except NoteQuotaError`` ממשיך לתפוס את שניהם, אבל מי שצריך להחזיר קוד
+    ללקוח תופס את התת-מחלקה ומחזיר ליטרל — ולא ``str(exc)``.
+
+    הסיבה: ``str`` על חריגה הוא הבטחה שאיש לא אוכף. ``raise`` אחד עתידי
+    שמשרשר נתיב או שאילתה מוצא אותם ללקוח, ו-CodeQL מסמן בדיוק את הזרימה
+    הזו. סוג של חריגה לא נושא טקסט שאפשר לדלוף.
+    """
+
+
+class NoteQuotaUnknown(NoteQuotaError):
+    """הספירה נכשלה, ולכן אי אפשר לדעת אם יש מקום."""
+
+
+class NoteQuotaExceeded(NoteQuotaError):
+    """התקרה מלאה."""
 
 
 #: מצבי המיקום של פתק. ``surface`` = מעוגן למשטח שמתחתיו (הלוח), ``screen`` =
@@ -43,6 +60,20 @@ NOTE_MODES = ("surface", "screen", "anchored")
 #: שאינו קיים.
 BOARD_NOTE_MODES = ("surface", "screen")
 DEFAULT_BOARD_MODE = "surface"
+
+#: תקרת אורך התוכן של פתק, בתווים.
+#:
+#: **מקור האמת היחיד.** המספר הזה היה מוקלד ידנית ב-15 מקומות — 12 פעמים
+#: ב-``webapp/sticky_notes_api.py``, פעם ב-``mcp_server/handlers.py``, פעם
+#: ב-JS ופעמיים בתיעוד. משמעות הפיזור הזו היא שכל שינוי ערך משאיר מאחור
+#: מסלול אחד שאוכף מספר אחר, ומי שנתקל בו רואה חיתוך בלי הסבר.
+#:
+#: **למה דווקא 20,000:** זו הנקודה שבה תקרת ההעברה (``max_b64_len=120000``
+#: ב-``_decode_content_b64``) מפסיקה להיות תקרה שנייה נסתרת. 20,000 תווים
+#: של אימוג'י — המקרה הכבד ביותר, ארבעה בתים לתו — נותנים 106,668 תווי
+#: base64, כלומר עדיין מתחת ל-120,000. מעל זה צריך לשנות גם אותה, ואז אין
+#: נקודת עצירה טבעית.
+MAX_NOTE_CHARS = 20_000
 
 
 def _clean(value: Any) -> str:
@@ -163,6 +194,6 @@ def check_note_quota(existing: Optional[int], cap: int, *, is_admin: bool = Fals
     if is_admin:
         return
     if existing is None:
-        raise NoteQuotaError("note_quota_unknown")
+        raise NoteQuotaUnknown("note_quota_unknown")
     if int(existing) >= int(cap):
-        raise NoteQuotaError("note_quota_exceeded")
+        raise NoteQuotaExceeded("note_quota_exceeded")
