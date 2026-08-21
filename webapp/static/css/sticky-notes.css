@@ -91,7 +91,10 @@
   color: #222;
   cursor: text;          /* הרמז שאפשר ללחוץ ולחזור לעריכה */
   white-space: pre-wrap;
-  word-break: break-word;
+  /* ``word-break: break-word`` הוצא משימוש ב-CSS Text 3 (csswg-drafts#4087)
+     ו-stylelint מסמן אותו. ``overflow-wrap: anywhere`` הוא התחליף שמשמר
+     את ההתנהגות המדויקת, כולל ההשפעה על הגודל הפנימי המינימלי. */
+  overflow-wrap: anywhere;
 }
 
 .sticky-note-tasks[hidden] { display: none; }

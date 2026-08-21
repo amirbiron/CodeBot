@@ -644,15 +644,18 @@ def test_batch_rejects_the_item_without_touching_the_note(client):
 
 
 def test_exception_text_never_reaches_the_client(client, monkeypatch):
-    """``str(exc)`` בתשובה הוא דלף ממתין.
+    """טקסט של חריגה לא יוצא ללקוח, גם כשהיא נושאת פרט פנימי.
 
-    היום כל ה-``raise`` מעבירים ליטרל, אבל שום דבר לא אוכף את זה. הבדיקה
-    מזריקה חריגה שנושאת נתיב פנימי ומוודאת שהוא **אינו** יוצא החוצה.
+    ``str(exc)`` בתשובה הוא דלף ממתין: הוא נכון היום כי כל ה-``raise``
+    מעבירים ליטרל, אבל שום דבר לא אוכף את זה. הבדיקה מזריקה חריגה שנושאת
+    נתיב פנימי ומוודאת שהוא **אינו** יוצא.
     """
     import sticky_notes_target
 
+    secret = "failed at /srv/app/secrets/db.conf line 42"
+
     def _leaky(*_a, **_k):
-        raise sticky_notes_target.NoteQuotaError("failed at /srv/app/secrets/db.conf line 42")
+        raise sticky_notes_target.NoteQuotaError(secret)
 
     # ``check_note_quota`` מיובאת בתוך הפונקציה, ולכן מחליפים אותה במקור
     monkeypatch.setattr(sticky_notes_target, "check_note_quota", _leaky)
@@ -660,7 +663,32 @@ def test_exception_text_never_reaches_the_client(client, monkeypatch):
 
     res = client.post("/api/sticky-notes/board/1", json={"content": "שלום"})
 
-    body = res.get_json()
-    assert "secrets" not in str(body), f"דלף פרט פנימי: {body}"
-    assert "/srv" not in str(body)
-    assert body["error"] == "internal_error"
+    body = str(res.get_json())
+    assert "secrets" not in body, f"דלף פרט פנימי: {body}"
+    assert "/srv" not in body
+    assert secret not in body
+
+
+def test_quota_errors_map_to_codes_by_type_not_by_text(client, monkeypatch):
+    """הקוד שמוחזר נגזר מ**סוג** החריגה, ולא מהטקסט שלה.
+
+    לכן גם חריגה שהטקסט שלה שונה לגמרי עדיין מקבלת את הקוד הנכון — וגם
+    ההפך: טקסט לא יכול להפוך לקוד.
+    """
+    import sticky_notes_target
+
+    client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+
+    for exc_cls, expected in (
+        (sticky_notes_target.NoteQuotaUnknown, "note_quota_unknown"),
+        (sticky_notes_target.NoteQuotaExceeded, "note_quota_exceeded"),
+    ):
+        def _raise(*_a, _cls=exc_cls, **_k):
+            raise _cls("טקסט אחר לגמרי שאסור שיצא")
+
+        monkeypatch.setattr(sticky_notes_target, "check_note_quota", _raise)
+        res = client.post("/api/sticky-notes/board/1", json={"content": "שלום"})
+
+        assert res.status_code == 409
+        assert res.get_json()["error"] == expected
+        assert "טקסט אחר" not in str(res.get_json())

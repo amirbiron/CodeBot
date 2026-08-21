@@ -15,6 +15,10 @@ import mimetypes
 import uuid
 import inspect
 import socket
+
+# תקרת אורך פתק, לשימוש בתבניות. ייבוא ישיר ובלי fallback — ערך מקומי היה
+# מחזיר מספר שני בצד השרת, בדיוק מה שהאיחוד בא למנוע.
+from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from types import SimpleNamespace
@@ -1783,14 +1787,6 @@ def _sample_critical_index_count(db_ref) -> tuple[int, float]:
         _HEALTHZ_INDEX_CACHE['ts'] = now_ts
         _HEALTHZ_INDEX_CACHE['count'] = total_indexes
     return (total_indexes, duration)
-
-
-#: תקרת אורך פתק, לשימוש בתבניות. מיובאת מהמודול הטהור כדי שלא יהיה
-#: מספר שני בצד השרת.
-try:
-    from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES
-except Exception:  # pragma: no cover
-    MAX_NOTE_CHARS_FOR_TEMPLATES = 20_000
 
 
 @app.context_processor

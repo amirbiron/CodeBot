@@ -366,6 +366,55 @@ check('אורך: החיווי מתנקה כשחוזרים מתחת לתקרה', 
   eq(el.classList.contains('has-length-error'), false, 'קלאס השגיאה הוסר');
 });
 
+check('אורך: אימוג\'י נספר כמו בפייתון, לא כיחידות UTF-16', () => {
+  // ``String.length`` סופר יחידות UTF-16 והשרת סופר תווי Unicode. בלי
+  // ההתאמה, 10,001 אימוג\'ים קיבלו אזהרה על תוכן שהשרת מקבל — פי שניים.
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+  const emoji = '🙂'.repeat(10001);          // 20,002 יחידות, 10,001 תווים
+
+  eq(fileMgr._checkContentLength(el, emoji), false, 'השרת היה מקבל, ולכן אין אזהרה');
+  eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
+
+  // ומעל התקרה האמיתית — כן מזהירים, עם המספר של פייתון
+  eq(fileMgr._checkContentLength(el, '🙂'.repeat(20001)), true, 'מעל התקרה');
+  eq(el.querySelector('.sticky-note-warn').textContent.includes('20001'), true, 'ספירת קוד-פוינטים');
+});
+
+check('אורך: הניסוח תואם לחוזה השרת — העדכון כולו נדחה', () => {
+  // "מה שמעבר לא יישמר" שיקר: השרת דוחה את כל העדכון, לא חותך זנב
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+  fileMgr._checkContentLength(el, 'א'.repeat(20001));
+  const text = el.querySelector('.sticky-note-warn').textContent;
+  eq(text.includes('מה שמעבר'), false, 'לא מבטיח שמירה חלקית');
+  eq(text.includes('לקצר'), true, 'אומר מה לעשות');
+});
+
+check('שמירה: עריכה חדשה תוך כדי טיסה שורדת כשל', () => {
+  // **אובדן תוכן שנמדד בדפדפן.** ``_flushFor`` מוציא את המטען מהתור לפני
+  // שהוא ממתין לרשת. הקלדה בזמן ההמתנה יצרה רשומה חדשה, וכשל דרס אותה.
+  const id = 'race1';
+  fileMgr._pending.set(id, { content: 'העריכה החדשה' });
+  fileMgr._restorePending(id, { content: 'המטען הישן', position: { x: 1, y: 2 } });
+
+  const after = fileMgr._pending.get(id);
+  eq(after.content, 'העריכה החדשה', 'החדש מנצח');
+  eq(after.position.x, 1, 'והישן ממלא מה שחסר');
+});
+
+check('שמירה: מידע טרי מהשרת כן דורס את התור', () => {
+  // הכיוון ההפוך, ובכוונה: ``prev_updated_at`` שחוזר מ-409 חייב לנצח,
+  // אחרת הניסיון הבא נדחה שוב על אותה חותמת. שתי כוונות, שתי פונקציות.
+  const id = 'race2';
+  fileMgr._pending.set(id, { content: 'טקסט', prev_updated_at: 'ישן' });
+  fileMgr._mergePending(id, { prev_updated_at: 'חדש-מהשרת' });
+
+  const after = fileMgr._pending.get(id);
+  eq(after.prev_updated_at, 'חדש-מהשרת', 'המידע הטרי ניצח');
+  eq(after.content, 'טקסט', 'והתוכן לא נפגע');
+});
+
 check('שמירה: 400 אינו חוזר לתור, 500 כן', () => {
   // הבאג: כל !ok הוחזר ל-pending, וה-auto-flush ניסה שוב לנצח. תוכן
   // שנדחה ב-400 לא הופך לתקין — זו לולאה חמה שגם מסתירה את הכשל.

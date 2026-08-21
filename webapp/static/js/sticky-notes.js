@@ -428,12 +428,28 @@
       // לחיצה בכל מקום בתצוגה שאינו התיבה עצמה מחזירה לעריכה, בשורה
       // שנלחצה. זו הדרך היחידה החוצה מהתצוגה — בלעדיה פתק עם צ'קבוקס
       // אחד הופך לקריאה-בלבד לתמיד.
-      taskView.addEventListener('click', (ev) => {
+      const enterFromEvent = (ev) => {
         const t = ev.target;
-        if (t && t.classList && t.classList.contains('sticky-task-box')) return;
+        if (t && t.classList && t.classList.contains('sticky-task-box')) return false;
         const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
         const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
         this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
+        return true;
+      };
+      taskView.addEventListener('click', enterFromEvent);
+      // נתיב מקלדת. בלעדיו התצוגה היא מלכודת למי שאינו משתמש בעכבר:
+      // ה-textarea מוסתר, התצוגה לא הייתה ניתנת למיקוד, והמאזין היחיד
+      // היה click — כלומר אין שום דרך לחזור לעריכה.
+      taskView.setAttribute('tabindex', '0');
+      taskView.setAttribute('role', 'group');
+      taskView.setAttribute('aria-label', 'תוכן הפתק — הקישו Enter כדי לערוך');
+      taskView.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+        // רווח על תיבת סימון הוא סימון, לא כניסה לעריכה
+        const t = ev.target;
+        if (t && t.classList && t.classList.contains('sticky-task-box')) return;
+        ev.preventDefault();
+        if (enterFromEvent(ev) === false) return;
       });
 
       el.appendChild(header);
@@ -818,7 +834,11 @@
       _checkContentLength(el, text){
         try {
           const cap = maxNoteChars();
-          const len = String(text == null ? '' : text).length;
+          // ``String.length`` סופר יחידות UTF-16, והשרת סופר תווי Unicode.
+          // אימוג'י הוא יחידה אחת בפייתון ושתיים ב-JS, ולכן 10,001 אימוג'ים
+          // קיבלו אזהרת חריגה על תוכן שהשרת מקבל בלי בעיה — פי שניים.
+          // ``Array.from`` מפצל לקוד-פוינטים, וזו בדיוק הספירה של פייתון.
+          const len = Array.from(String(text == null ? '' : text)).length;
           let warn = el.querySelector('.sticky-note-warn');
           if (!cap || len <= cap) {
             if (warn && warn.remove) warn.remove();
@@ -829,7 +849,8 @@
             warn = createEl('div', 'sticky-note-warn');
             el.appendChild(warn);
           }
-          warn.textContent = `הפתק ארוך מהמותר: ${len} מתוך ${cap} תווים. מה שמעבר לא יישמר.`;
+          // הניסוח מדויק לחוזה השרת: העדכון כולו נדחה, לא רק הזנב
+          warn.textContent = `הפתק ארוך מהמותר: ${len} מתוך ${cap} תווים. יש לקצר אותו כדי שיישמר.`;
           el.classList.add('has-length-error');
           return true;
         } catch(_) { return false; }
@@ -1402,6 +1423,31 @@
       }
     }
 
+    // מיזוג שבו ה**חדש** מנצח: מידע טרי מהשרת (``prev_updated_at``) שחייב
+    // לדרוס את מה שבתור.
+    // החזרת מטען **ישן** לתור אחרי כשל — וכאן ה**קיים** מנצח.
+    //
+    // זה השורש של אובדן תוכן שנמדד: ``_flushFor`` מוציא את המטען מהתור
+    // לפני שהוא ממתין לרשת, ואם המשתמש הקליד בזמן ההמתנה נוצרה רשומה
+    // חדשה. ``_mergePending`` היה עושה ``Object.assign(חדש, ישן)`` —
+    // כלומר הישן דרס את מה שהמשתמש בדיוק כתב.
+    //
+    // אותה פונקציה שירתה שתי כוונות הפוכות: "החזר מטען שנכשל" ו"עדכן
+    // מידע טרי מהשרת". הפרדה ביניהן היא התיקון, לא סדר הפרמטרים.
+    _restorePending(id, payload){
+      if (!id || !payload) return;
+      const restored = this._clonePayload(payload) || {};
+      const existing = this._pending.get(id);
+      // שדות מהעריכה החדשה גוברים; הישן רק ממלא מה שחסר
+      const next = existing
+        ? Object.assign(restored, this._clonePayload(existing) || {})
+        : restored;
+      this._pending.set(id, next);
+      this._syncEntryFromFragment(id, next);
+      try { this._saveDebounced(); } catch(_) {}
+      this._ensureBackgroundAutoFlush();
+    }
+
     _mergePending(id, fragment){
       if (!id || !fragment) return;
       const existing = this._pending.get(id);
@@ -1419,7 +1465,7 @@
       this._ensureBackgroundAutoFlush();
     }
 
-    _sendUpdate(id, data){
+    _sendUpdate(id, data, seqAtSend){
       const original = this._clonePayload(data) || {};
       const payload = withContentB64(original);
       const url = `/api/sticky-notes/note/${encodeURIComponent(id)}`;
@@ -1454,9 +1500,10 @@
                   console.warn('sticky note update conflict persisted after retry', id);
                   if (retryJson && retryJson.updated_at) {
                     this._setNoteUpdatedAt(id, String(retryJson.updated_at));
-                    this._mergePending(id, Object.assign({}, retryOriginal, { prev_updated_at: String(retryJson.updated_at) }));
+                    this._restorePending(id, retryOriginal);
+                    this._mergePending(id, { prev_updated_at: String(retryJson.updated_at) });
                   } else if (serverUpdatedAt) {
-                    this._mergePending(id, Object.assign({}, retryOriginal));
+                    this._restorePending(id, retryOriginal);
                   }
                   return false;
                 }
@@ -1466,11 +1513,12 @@
                 return true;
               } catch(retryErr) {
                 console.warn('sticky note retry failed', id, retryErr);
-                this._mergePending(id, Object.assign({}, retryOriginal));
+                this._restorePending(id, retryOriginal);
                 return false;
               }
             }
-            this._mergePending(id, Object.assign({}, original, serverUpdatedAt ? { prev_updated_at: serverUpdatedAt } : {}));
+            this._restorePending(id, original);
+            if (serverUpdatedAt) this._mergePending(id, { prev_updated_at: serverUpdatedAt });
             return false;
           }
           if (json && json.updated_at) {
@@ -1478,10 +1526,12 @@
           }
           if (!resp.ok) {
             this._markSaveFailed(id);
-            // כשל סופי לא חוזר לתור — אחרת הוא ינוסה שוב לנצח
             if (!this._isPermanentFailure(resp.status)) {
-              this._mergePending(id, Object.assign({}, original));
-            } else {
+              // כשל זמני — מחזירים לתור, אבל בלי לדרוס עריכה חדשה יותר
+              this._restorePending(id, original);
+            } else if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
+              // כשל סופי לא ינוסה שוב — אבל רק אם לא הוקלד משהו חדש
+              // בינתיים. מחיקה עיוורת כאן מוחקת בדיוק את מה שהמשתמש כתב.
               this._pending.delete(String(id));
             }
           } else {
@@ -1491,7 +1541,7 @@
         } catch(err) {
           console.warn('save note failed', id, err);
           this._markSaveFailed(id);
-          this._mergePending(id, Object.assign({}, original));
+          this._restorePending(id, original);
           return false;
         }
       };
@@ -1551,12 +1601,15 @@
               } else {
                 this._markSaveFailed(id);
                 if (this._isPermanentFailure(result.status)) {
-                  // 400 לא יתוקן בניסיון חוזר. משאירים את הסימון הגלוי
-                  // ומפסיקים לנסות, במקום לולאה שקטה שרצה עד סגירת הדף.
-                  this._pending.delete(id);
-                } else if (snap && currentSeq === snap.seq) {
-                  // כשל זמני – שומרים את התמונה האחרונה לניסיון הבא
-                  this._mergePending(id, Object.assign({}, snap.payload));
+                  // 400 לא יתוקן בניסיון חוזר. מפסיקים לנסות ומשאירים את
+                  // הסימון הגלוי — אבל רק אם לא הוקלד משהו חדש בינתיים,
+                  // בדיוק כמו במסלול ההצלחה.
+                  if (snap && currentSeq === snap.seq) {
+                    this._pending.delete(id);
+                  }
+                } else if (snap) {
+                  // כשל זמני – מחזירים את התמונה, בלי לדרוס עריכה חדשה
+                  this._restorePending(id, snap.payload);
                 }
               }
             }
@@ -1592,8 +1645,11 @@
         }
         return;
       }
+      // גרסת התור ברגע השליחה. כל עריכה נוספת מקדמת אותה, וכך אפשר
+      // לדעת בכשל אם מה שבתור הוא עדיין מה ששלחנו או משהו חדש יותר.
+      const seqAtSend = this._pendingSeq.get(id) || 0;
       this._pending.delete(id);
-      await this._sendUpdate(id, data);
+      await this._sendUpdate(id, data, seqAtSend);
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }

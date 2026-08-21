@@ -16,6 +16,12 @@ import base64
 import hashlib
 import threading
 import asyncio
+
+# תקרת אורך התוכן. ייבוא ישיר ובלי fallback במכוון: ``except Exception``
+# שמחזיר ערך מקומי הוא בדיוק מקור האמת השני שהשינוי הזה בא לבטל — הוא היה
+# שקט, ומופיע רק כשהמגבלות כבר נבדלות בין ה-API ל-MCP. כשל ייבוא צריך
+# להיכשל מוקדם ובקול.
+from sticky_notes_target import MAX_NOTE_CHARS
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -322,13 +328,6 @@ def notes_rate_limit(key: str, max_per_minute: int):
 _CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
 
 
-#: תקרת אורך התוכן. מיובאת ולא מוקלדת — ראו את ה-docstring במקור.
-try:  # pragma: no cover - נתיב הייבוא נבדק בטעינת המודול
-    from sticky_notes_target import MAX_NOTE_CHARS
-except Exception:  # pragma: no cover
-    MAX_NOTE_CHARS = 20_000
-
-
 def _sanitize_text(text: Any, max_length: int = 20000) -> str:
     """Normalize user text without HTML escaping.
 
@@ -403,10 +402,11 @@ def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Op
     return x
 
 
-def _mode_update(raw: Any, note: Dict[str, Any]) -> Any:
+def _mode_update(raw: Any, note: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
     """מאמת ``mode`` שהתקבל בעדכון, ומחזיר את הערך לשמירה.
 
-    זורקת ``ValueError`` עם קוד השגיאה שיוחזר ללקוח.
+    מחזירה ``(ערך_לשמירה, קוד_שגיאה)``; אחד מהם תמיד ``None``. החזרת קוד
+    ולא ``raise`` — כדי שלא יהיה טקסט של חריגה שיכול לזלוג לתשובה.
 
     ``mode`` נכתב עד היום רק ביצירה, ולכן כפתור המצב בלוח לא יכול היה
     להישמר בכלל. הוא מוגבל לפתקי לוח: ב-``_resolveMode`` השדה נקרא
@@ -416,42 +416,18 @@ def _mode_update(raw: Any, note: Dict[str, Any]) -> Any:
     from sticky_notes_target import is_valid_board_mode, normalize_mode, DEFAULT_BOARD_MODE
 
     if not note.get('board_id'):
-        raise ValueError('mode_not_supported')
+        return None, 'mode_not_supported'
     if raw is not None and not is_valid_board_mode(raw):
-        raise ValueError('invalid_mode')
-    return normalize_mode(raw, DEFAULT_BOARD_MODE)
-
-
-#: קודי השגיאה שמותר להחזיר ללקוח. קבוצה סגורה.
-_PUBLIC_ERROR_CODES = frozenset({
-    'note_quota_unknown',
-    'note_quota_exceeded',
-    'invalid_mode',
-    'mode_not_supported',
-    'content_too_long',
-    'invalid_content_b64',
-})
-
-
-def _public_error(exc: Exception) -> str:
-    """קוד שגיאה בטוח לשליחה ללקוח.
-
-    **למה לא ``str(exc)``:** הטקסט של חריגה אינו הבטחה. הוא נכון היום כי כל
-    ה-``raise`` הרלוונטיים מעבירים ליטרל, אבל שום דבר לא אוכף את זה —
-    ``raise`` אחד עתידי שמשרשר פרט פנימי (נתיב, שאילתה, שם מסד), או חריגה
-    מקוננת שנתפסת באותו ``except``, נשלחים ללקוח כמו שהם. CodeQL סימן את
-    הזרימה הזו. מסננת מקבוצה סגורה מוציאה את מחלקת הבאגים כולה, ולא רק את
-    המופע היחיד שנתפס.
-    """
-    code = str(exc)
-    return code if code in _PUBLIC_ERROR_CODES else 'internal_error'
+        return None, 'invalid_mode'
+    return normalize_mode(raw, DEFAULT_BOARD_MODE), None
 
 
 class _ContentTooLong(ValueError):
-    """התוכן חרג מהתקרה. נפרד מ-``ValueError`` כדי שלא ייבלע בטעות."""
+    """התוכן חרג מהתקרה."""
 
-    def __init__(self) -> None:
-        super().__init__('content_too_long')
+
+class _InvalidContentB64(ValueError):
+    """``content_b64`` פגום ואין ``content`` לנפול אליו."""
 
 
 def _note_content_from_request(data: Dict[str, Any]) -> str:
@@ -464,8 +440,12 @@ def _note_content_from_request(data: Dict[str, Any]) -> str:
     מידע — הדבקה של 16,291 תווים נשמרה כ-5,000 והשרת החזיר 200 OK, כלומר
     "נשמר". ``mcp_server/handlers`` דוחה כבר היום; הוובאפ היה החריג.
 
+    **זהות השגיאה חיה בסוג החריגה ולא בטקסט שלה.** ``str(exc)`` בתשובה
+    ל-HTTP הוא דלף ממתין: ``raise`` עתידי שמשרשר נתיב או שאילתה מוצא אותם
+    ללקוח, ו-CodeQL מסמן בדיוק את הזרימה הזו. מי שתופס כאן מחזיר ליטרל.
+
     :raises _ContentTooLong: התוכן ארוך מ-:data:`MAX_NOTE_CHARS`.
-    :raises ValueError: ``content_b64`` פגום ואין ``content`` לנפול אליו.
+    :raises _InvalidContentB64: ``content_b64`` פגום ואין ``content``.
     """
     if 'content_b64' in data:
         try:
@@ -475,7 +455,7 @@ def _note_content_from_request(data: Dict[str, Any]) -> str:
         except ValueError:
             # תאימות לאחור: ``content`` רגיל, אם נשלח לצד ה-b64
             if 'content' not in data:
-                raise ValueError('invalid_content_b64')
+                raise _InvalidContentB64()
             text = _sanitize_text(data.get('content'), MAX_NOTE_CHARS + 1)
     else:
         text = _sanitize_text(data.get('content', ''), MAX_NOTE_CHARS + 1)
@@ -1062,7 +1042,7 @@ def reminders_ack():
 def create_note(file_id: str):
     """Create a new sticky note for a file."""
     try:
-        from sticky_notes_target import NoteQuotaError, check_note_quota
+        from sticky_notes_target import NoteQuotaExceeded, NoteQuotaUnknown, check_note_quota
 
         _ensure_indexes()
         user_id = int(session['user_id'])
@@ -1073,8 +1053,8 @@ def create_note(file_id: str):
             content = _note_content_from_request(data)
         except _ContentTooLong:
             return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
-        except ValueError as exc:
-            return jsonify({'ok': False, 'error': _public_error(exc)}), 400
+        except _InvalidContentB64:
+            return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
         pos = data.get('position') or {}
         size = data.get('size') or {}
         color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
@@ -1093,8 +1073,10 @@ def create_note(file_id: str):
                 MAX_NOTES_PER_USER,
                 is_admin=_current_user_is_admin(),
             )
-        except NoteQuotaError as exc:
-            return jsonify({'ok': False, 'error': _public_error(exc)}), 409
+        except NoteQuotaUnknown:
+            return jsonify({'ok': False, 'error': 'note_quota_unknown'}), 409
+        except NoteQuotaExceeded:
+            return jsonify({'ok': False, 'error': 'note_quota_exceeded'}), 409
 
         doc = {
             'user_id': user_id,
@@ -1153,8 +1135,8 @@ def update_note(note_id: str):
                 updates['content'] = _note_content_from_request(data)
             except _ContentTooLong:
                 return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
-            except ValueError as exc:
-                return jsonify({'ok': False, 'error': _public_error(exc)}), 400
+            except _InvalidContentB64:
+                return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
         if 'position' in data and isinstance(data.get('position'), dict):
             pos = data['position']
             updates['position_x'] = _coerce_int(pos.get('x'), 100, 0, 100000)
@@ -1204,10 +1186,10 @@ def update_note(note_id: str):
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
         if wants_mode:
-            try:
-                updates['mode'] = _mode_update(data.get('mode'), note)
-            except ValueError as exc:
-                return jsonify({'ok': False, 'error': _public_error(exc)}), 400
+            mode_value, mode_error = _mode_update(data.get('mode'), note)
+            if mode_error:
+                return jsonify({'ok': False, 'error': mode_error}), 400
+            updates['mode'] = mode_value
         # פתק לוח אינו נושא scope_id ולעולם לא יישא — ובלי השומר הזה
         # כל עדכון שלו היה מריץ _resolve_scope, כלומר קריאה ל-code_snippets
         # רק כדי לגלות שאין קובץ.
@@ -1359,8 +1341,9 @@ def batch_update_notes():
                         results.append({'id': note_id, 'ok': False, 'status': 400,
                                         'error': 'content_too_long', 'max': MAX_NOTE_CHARS})
                         continue
-                    except ValueError as exc:
-                        results.append({'id': note_id, 'ok': False, 'status': 400, 'error': _public_error(exc)})
+                    except _InvalidContentB64:
+                        results.append({'id': note_id, 'ok': False, 'status': 400,
+                                        'error': 'invalid_content_b64'})
                         continue
                 if 'position' in fragment and isinstance(fragment.get('position'), dict):
                     pos = fragment['position']
@@ -1393,11 +1376,11 @@ def batch_update_notes():
                     atx = (fragment.get('anchor_text') or '').strip()[:256]
                     updates['anchor_text'] = atx or None
                 if 'mode' in fragment:
-                    try:
-                        updates['mode'] = _mode_update(fragment.get('mode'), note)
-                    except ValueError as exc:
-                        results.append({'id': note_id, 'ok': False, 'status': 400, 'error': _public_error(exc)})
+                    mode_value, mode_error = _mode_update(fragment.get('mode'), note)
+                    if mode_error:
+                        results.append({'id': note_id, 'ok': False, 'status': 400, 'error': mode_error})
                         continue
+                    updates['mode'] = mode_value
 
                 # conflict detection similar to single update
                 try:
@@ -1554,7 +1537,8 @@ def create_board_note(board_id: str):
     try:
         from sticky_notes_target import (
             DEFAULT_BOARD_MODE,
-            NoteQuotaError,
+            NoteQuotaExceeded,
+            NoteQuotaUnknown,
             board_notes_filter,
             build_note_target,
             check_note_quota,
@@ -1579,8 +1563,8 @@ def create_board_note(board_id: str):
             content = _note_content_from_request(data)
         except _ContentTooLong:
             return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
-        except ValueError as exc:
-            return jsonify({'ok': False, 'error': _public_error(exc)}), 400
+        except _InvalidContentB64:
+            return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
 
         # תקרות — ולפני הכתיבה, לא אחריה. ``_count_or_none`` מבחין בין אפס
         # לבין ספירה שנכשלה, ו-``check_note_quota`` דוחה על השנייה.
@@ -1596,8 +1580,10 @@ def create_board_note(board_id: str):
                 MAX_NOTES_PER_USER,
                 is_admin=is_admin_user,
             )
-        except NoteQuotaError as exc:
-            return jsonify({'ok': False, 'error': _public_error(exc)}), 409
+        except NoteQuotaUnknown:
+            return jsonify({'ok': False, 'error': 'note_quota_unknown'}), 409
+        except NoteQuotaExceeded:
+            return jsonify({'ok': False, 'error': 'note_quota_exceeded'}), 409
 
         pos = data.get('position') or {}
         size = data.get('size') or {}

@@ -28,7 +28,24 @@ class NoteTargetError(ValueError):
 
 
 class NoteQuotaError(ValueError):
-    """חריגה מתקרת הפתקים, או ספירה שלא הצליחה."""
+    """חריגה מתקרת הפתקים, או ספירה שלא הצליחה.
+
+    שני המקרים מיוצגים כתת-מחלקות, ו**זהות השגיאה חיה בסוג ולא בטקסט**.
+    ``except NoteQuotaError`` ממשיך לתפוס את שניהם, אבל מי שצריך להחזיר קוד
+    ללקוח תופס את התת-מחלקה ומחזיר ליטרל — ולא ``str(exc)``.
+
+    הסיבה: ``str`` על חריגה הוא הבטחה שאיש לא אוכף. ``raise`` אחד עתידי
+    שמשרשר נתיב או שאילתה מוצא אותם ללקוח, ו-CodeQL מסמן בדיוק את הזרימה
+    הזו. סוג של חריגה לא נושא טקסט שאפשר לדלוף.
+    """
+
+
+class NoteQuotaUnknown(NoteQuotaError):
+    """הספירה נכשלה, ולכן אי אפשר לדעת אם יש מקום."""
+
+
+class NoteQuotaExceeded(NoteQuotaError):
+    """התקרה מלאה."""
 
 
 #: מצבי המיקום של פתק. ``surface`` = מעוגן למשטח שמתחתיו (הלוח), ``screen`` =
@@ -177,6 +194,6 @@ def check_note_quota(existing: Optional[int], cap: int, *, is_admin: bool = Fals
     if is_admin:
         return
     if existing is None:
-        raise NoteQuotaError("note_quota_unknown")
+        raise NoteQuotaUnknown("note_quota_unknown")
     if int(existing) >= int(cap):
-        raise NoteQuotaError("note_quota_exceeded")
+        raise NoteQuotaExceeded("note_quota_exceeded")
