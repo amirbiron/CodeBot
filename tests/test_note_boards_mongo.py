@@ -91,6 +91,17 @@ def indexed_db(mongo_db, monkeypatch):
     # הדגלים שמונעים בנייה כפולה — מאפסים כדי שהבנייה באמת תרוץ
     monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
     monkeypatch.setattr(sticky_notes_api, "_INDEX_CACHE_LAST_CHECK", 0.0, raising=False)
+    # ...וגם את הדגל **המשותף** ברדיס.
+    #
+    # ``_ensure_indexes`` יוצא מוקדם גם על ``_cache_flag_ready()``, שקורא דגל
+    # מ-``cache_manager``. ב-CI רדיס פעיל (``REDIS_URL`` מוגדר בג'וב), ולכן דגל
+    # שנשאר מהרצה קודמת היה הופך את הבנייה ל-no-op — והבדיקות כאן היו נופלות
+    # על מסד ריק, מסיבה שאין לה שום קשר לקוד שנבדק.
+    #
+    # אירוניה קטנה: איפוס ``_INDEX_CACHE_LAST_CHECK`` ל-0 דווקא **פותח** את
+    # הדלת לקריאת הקאש, כי הוא מבטל את חלון 30 השניות. שוחזר בפועל — בלי
+    # השורה הבאה נוצרו אפס אינדקסים.
+    monkeypatch.setattr(sticky_notes_api, "_cache_flag_ready", lambda: False, raising=False)
 
     sticky_notes_api._ensure_indexes()
     return mongo_db
