@@ -20,7 +20,11 @@ Sticky Notes Target — לאיזה משטח הפתק שייך, ומי אוכף �
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+
+#: ``IndexNotFound`` — מונגו מחזיר אותו כשמפילים אינדקס שכבר אינו שם.
+_INDEX_NOT_FOUND = 27
 
 
 class NoteTargetError(ValueError):
@@ -128,12 +132,27 @@ def normalize_note_title(value: Any) -> str:
 #: עם הפילטר הישן ההוספה השנייה נדחתה, עם החדש היא עוברת, והייחודיות בתוך
 #: לוח נשמרת. זו גם ההתנהגות שביקשנו — בקבצים אותו שם הוא גרסה נוספת, לא
 #: התנגשות.
+#: **למה השם נושא גרסה:** מונגו אינו יודע לשנות שם של אינדקס, ואינדקס
+#: קיים עם אפשרויות שונות נדחה ב-``code 86``. כלומר עדכון "במקום" מחייב
+#: להפיל ואז לבנות — וברגעים שבין השניים אין ייחודיות כלל, ושתי בקשות
+#: מקבילות יכולות להכניס שני שמות זהים לאותו לוח. אז הבנייה החדשה נכשלת,
+#: והאכיפה נשארת מושבתת.
+#:
+#: עם שם ממוספר הסדר מתהפך: **בונים את החדש, ורק אז מפילים את הישן.**
+#: בכל רגע נתון יש לפחות אינדקס ייחודי אחד. נמדד מול מונגו 7.0.14 — שני
+#: אינדקסים על אותם מפתחות עם ``partialFilterExpression`` שונה **מותרים**
+#: לחיות זה לצד זה, ובכל אחד מארבעת הצעדים הייחודיות נאכפה.
+#:
+#: שינוי עתידי במפרט ← להעלות ל-``_v3`` ולהוסיף את ``_v2`` לרשימה שמתחת.
 ONE_TITLE_PER_BOARD_INDEX: Dict[str, Any] = {
     "keys": [("user_id", 1), ("board_id", 1), ("title", 1)],
-    "name": "one_title_per_board",
+    "name": "one_title_per_board_v2",
     "unique": True,
     "partialFilterExpression": {"title": {"$exists": True}, "board_id": {"$exists": True}},
 }
+
+#: שמות של גרסאות קודמות. מופלים **רק אחרי** שהאינדקס הנוכחי אומת במסד.
+SUPERSEDED_TITLE_INDEX_NAMES: Tuple[str, ...] = ("one_title_per_board",)
 
 
 def ensure_title_index(coll: Any) -> bool:
@@ -143,10 +162,17 @@ def ensure_title_index(coll: Any) -> bool:
     טהור כדי ש-``mcp_server`` יוכל לייבא ממנו. הקריאות היחידות הן
     ``index_information`` / ``drop_index`` / ``create_index``.
 
-    **למה יש כאן יישוב ולא רק יצירה:** אינדקס בשם קיים עם אפשרויות שונות
-    נדחה ב-``code 86`` (נמדד מול מונגו 7.0.14) — כלומר בפרודקשן, שבה כבר
-    יושב האינדקס עם הפילטר הישן, יצירה תמימה הייתה נכשלת, הכשל היה נבלע,
-    והבאג היה נשאר בדיוק כפי שהוא. לכן: משווים, ואם שונה — מפילים ובונים.
+    **הסדר הוא כל העניין: בונים את החדש, ורק אז מפילים את הישן.** מונגו
+    אינו יודע לשנות שם של אינדקס, ולכן עדכון "במקום" מחייב את הסדר ההפוך
+    — ובין ההפלה לבנייה אין ייחודיות כלל, ושתי בקשות מקבילות יכולות
+    להכניס שני שמות זהים לאותו לוח. אז הבנייה החדשה נכשלת, והאכיפה
+    נשארת מושבתת לחלוטין. השם הממוספר הוא מה שמאפשר את הסדר הנכון: שני
+    אינדקסים על אותם מפתחות עם ``partialFilterExpression`` שונה **מותרים**
+    לחיות זה לצד זה (נמדד מול מונגו 7.0.14).
+
+    שני קודי השגיאה שמעצבים את הפונקציה, שניהם נמדדו:
+    ``code 85`` — אינדקס עם אותו מפרט בדיוק כבר קיים בשם אחר;
+    ``code 86`` — אינדקס באותו שם כבר קיים עם מפרט אחר.
 
     :returns: ``True`` רק אחרי **קריאה חוזרת** שמאשרת שהאינדקס במסד תואם
         למפרט. ערך החזרה של כתיבה אינו אימות.
@@ -157,26 +183,95 @@ def ensure_title_index(coll: Any) -> bool:
         info = coll.index_information()
     except Exception:
         info = {}
+    if not isinstance(info, Mapping):
+        info = {}
 
-    existing = info.get(name) if isinstance(info, Mapping) else None
-    if existing is not None and not _index_matches(existing, want):
-        # אינדקס ישן עם פילטר אחר — הוא מה שחוסם את היצירה החדשה
-        coll.drop_index(name)
+    if not _index_matches(info.get(name), want):
+        # גרסה קודמת שכבר נושאת **בדיוק** את המפרט המבוקש חוסמת את הבנייה
+        # ב-``code 85`` ("Index already exists with a different name"), כי
+        # מונגו מזהה אותה כאותו אינדקס. רק כאן חייבים להפיל לפני שבונים,
+        # וזה קורה בפריסה אחת בלבד — זו שבה המפרט תוקן לפני שהשם מוספר.
+        for stale in SUPERSEDED_TITLE_INDEX_NAMES:
+            if _index_matches(info.get(stale), want):
+                _drop_index_if_present(coll, stale)
 
-    coll.create_index(
-        want["keys"],
-        name=name,
-        unique=want["unique"],
-        partialFilterExpression=want["partialFilterExpression"],
-    )
+        # השם הנוכחי תפוס במפרט אחר. זה קורה **רק** אם מישהו שינה את
+        # המפרט בלי להעלות את מספר הגרסה בשם — כלומר בדיוק מה שהמספור בא
+        # למנוע. כאן אין מוצא: מונגו דוחה ב-``code 86``, ובלי ההפלה
+        # האינדקס לעולם לא יתכנס. זה המקום היחיד שנשאר בו חלון בלי
+        # ייחודיות, והדרך להימנע ממנו היא להעלות ל-``_v3`` ולא לערוך את
+        # ``_v2`` במקום.
+        if name in info:
+            _drop_index_if_present(coll, name)
+
+        coll.create_index(
+            want["keys"],
+            name=name,
+            unique=want["unique"],
+            partialFilterExpression=want["partialFilterExpression"],
+        )
 
     try:
         fresh = coll.index_information()
     except Exception:
         return False
-    if not isinstance(fresh, Mapping):
+    if not isinstance(fresh, Mapping) or not _index_matches(fresh.get(name), want):
         return False
-    return _index_matches(fresh.get(name), want)
+
+    # **רק עכשיו** — האינדקס הנוכחי נקרא בחזרה ואומת, ולכן הפלת הישן אינה
+    # פותחת חלון בלי ייחודיות.
+    for stale in SUPERSEDED_TITLE_INDEX_NAMES:
+        if stale in fresh:
+            _drop_index_if_present(coll, stale)
+    return True
+
+
+def title_is_taken(
+    coll: Any,
+    *,
+    user_id: Any,
+    board_id: Any,
+    title: str,
+    exclude_id: Any = None,
+) -> bool:
+    """האם השם כבר תפוס בלוח — בדיקת **קוד**, לא של המסד.
+
+    **זו אינה החלפה לאינדקס והיא לא נועדה לרוץ בדרך כלל.** האינדקס הוא מה
+    שסוגר את המרוץ; שאילתה כאן יכולה תמיד להפסיד לכותב מקביל שנכנס בין
+    הבדיקה לכתיבה. היא קיימת בשביל מצב אחד בלבד: כש-:func:`ensure_title_index`
+    לא הצליחה לאמת שהאינדקס במסד, ואז הברירה היא בין אכיפה חלקית לבין אפס
+    אכיפה — בעוד שהקריאה לשירות **מבטיחה** ``duplicate_title``. הבטחה שאין
+    מאחוריה כלום היא הדבר היחיד שגרוע יותר מהתנגשות.
+
+    לכן היא נקראת מאחורי דגל, ובמצב התקין אינה עולה אף שאילתה.
+    """
+    if not title:
+        return False
+    query: Dict[str, Any] = {"user_id": user_id, "board_id": board_id, "title": title}
+    try:
+        found = coll.find_one(query, {"_id": 1})
+    except Exception:
+        # ספירה שנכשלה אינה ראיה לכך שהשם פנוי. ראו ``check_note_quota``:
+        # באותו ריפו כבר נקבע שכשל בדיקה נסגר ולא נפתח.
+        return True
+    if not found:
+        return False
+    if exclude_id is not None and found.get("_id") == exclude_id:
+        return False
+    return True
+
+
+def _drop_index_if_present(coll: Any, name: str) -> None:
+    """מפיל אינדקס, ובולע **רק** את המקרה שבו הוא כבר לא שם.
+
+    תהליך מקביל שהספיק להפיל אותו לפנינו אינו תקלה — והחריגה שלו לא
+    אמורה לעצור את שאר הרצף.
+    """
+    try:
+        coll.drop_index(name)
+    except Exception as exc:  # pragma: no cover - תלוי דרייבר
+        if getattr(exc, "code", None) != _INDEX_NOT_FOUND:
+            raise
 
 
 def _index_matches(spec: Any, want: Mapping[str, Any]) -> bool:

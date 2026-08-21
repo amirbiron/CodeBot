@@ -574,6 +574,69 @@ def test_two_file_notes_may_share_a_title(indexed_db):
     assert notes.count_documents({"user_id": 7, "title": "רשימת מטלות"}) == 3
 
 
+def test_the_old_index_name_is_superseded_without_losing_uniqueness(indexed_db):
+    """**זה מסלול השדרוג האמיתי בפרודקשן — והבדיקה שלו היא על הסדר.**
+
+    מונגו אינו יודע לשנות שם של אינדקס, ואינדקס בשם קיים עם אפשרויות
+    שונות נדחה ב-``code 86``. עדכון "במקום" מחייב אפוא להפיל ואז לבנות,
+    ובין השניים אין ייחודיות כלל — ושתי בקשות מקבילות יכולות להכניס שני
+    שמות זהים לאותו לוח, ואז הבנייה החדשה נכשלת והאכיפה נשארת מושבתת.
+
+    השם הממוספר הופך את הסדר: בונים את החדש, ורק אז מפילים את הישן.
+    הבדיקה עוקבת אחרי **כל** פעולת אינדקס ומוודאת שהייחודיות נאכפה גם
+    אחריה. נופלת אם ההפלה מקדימה את הבנייה.
+    """
+    from sticky_notes_target import ONE_TITLE_PER_BOARD_INDEX as WANT
+    from sticky_notes_target import SUPERSEDED_TITLE_INDEX_NAMES, ensure_title_index
+
+    notes = indexed_db.sticky_notes
+    old_name = SUPERSEDED_TITLE_INDEX_NAMES[0]
+    notes.drop_index(WANT["name"])
+    notes.create_index(
+        [("user_id", 1), ("board_id", 1), ("title", 1)],
+        name=old_name, unique=True, partialFilterExpression={"title": {"$exists": True}},
+    )
+
+    def uniqueness_is_live() -> bool:
+        notes.delete_many({"user_id": 4242})
+        notes.insert_one({"user_id": 4242, "board_id": "b", "title": "בדיקה"})
+        try:
+            notes.insert_one({"user_id": 4242, "board_id": "b", "title": "בדיקה"})
+            live = False
+        except DuplicateKeyError:
+            live = True
+        notes.delete_many({"user_id": 4242})
+        return live
+
+    seen = []
+
+    class _Watched:
+        """עוטף את האוסף ובודק אכיפה אחרי כל פעולת אינדקס."""
+
+        def index_information(self):
+            return notes.index_information()
+
+        def create_index(self, *a, **k):
+            out = notes.create_index(*a, **k)
+            seen.append((f"create {k.get('name')}", uniqueness_is_live()))
+            return out
+
+        def drop_index(self, name):
+            out = notes.drop_index(name)
+            seen.append((f"drop {name}", uniqueness_is_live()))
+            return out
+
+    assert ensure_title_index(_Watched()) is True
+
+    assert seen, "לא בוצעה שום פעולת אינדקס — השדרוג לא רץ"
+    gaps = [step for step, live in seen if not live]
+    assert not gaps, f"היה רגע בלי ייחודיות אחרי: {gaps} (הרצף: {seen})"
+
+    info = notes.index_information()
+    assert WANT["name"] in info
+    assert old_name not in info, "האינדקס הישן שרד — שני אינדקסים על אותם מפתחות"
+
+
 def test_the_title_index_upgrades_an_older_version_of_itself(indexed_db):
     """**בלי היישוב הזה התיקון לא מגיע לפרודקשן.**
 

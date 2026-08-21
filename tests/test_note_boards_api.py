@@ -785,3 +785,76 @@ def test_single_put_clearing_a_title_removes_the_field(client):
 
     assert res.status_code == 200
     assert "title" not in client.db.sticky_notes.docs[0]
+
+
+# -- גיבוי לאכיפת השם כשהאינדקס לא אומת --
+
+
+def test_duplicate_title_is_caught_by_code_when_the_index_is_missing(client, monkeypatch):
+    """**הבטחה שאין מאחוריה כלום היא הדבר היחיד שגרוע יותר מהתנגשות.**
+
+    הראוט מחזיר ``duplicate_title`` על סמך דחייה של המסד. אם האינדקס
+    הייחודי לא נבנה — כשל חולף בעלייה, פריסה שהוובאפ לא רץ בה — הדחייה
+    לעולם לא תגיע, והשמות הכפולים נכנסים בשקט בזמן שהתיעוד מבטיח 409.
+
+    נופלת בלי ``_title_conflict`` במסלולי הכתיבה.
+    """
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    board = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    first = client.post(f"/api/sticky-notes/board/{board}", json={"content": "a", "title": "טודו"})
+    assert first.status_code == 201
+
+    res = client.post(f"/api/sticky-notes/board/{board}", json={"content": "b", "title": "טודו"})
+
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "duplicate_title"
+    assert client.db.sticky_notes.count_documents({"title": "טודו"}) == 1
+
+
+def test_the_fallback_costs_nothing_when_the_index_is_confirmed(client, monkeypatch):
+    """במצב התקין האכיפה היא של המסד, והגיבוי לא עולה שום שאילתה.
+
+    נופלת אם ``_title_conflict`` מריצה ``find_one`` בלי תנאי — כלומר אם
+    מישהו יסיר את הדגל ויהפוך בדיקה חירומית לעלות קבועה בכל כתיבה.
+    """
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", True, raising=False)
+    board = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+
+    calls = []
+    real = client.db.sticky_notes.find_one
+    monkeypatch.setattr(
+        client.db.sticky_notes, "find_one",
+        lambda *a, **k: (calls.append(a), real(*a, **k))[1],
+    )
+
+    res = client.post(f"/api/sticky-notes/board/{board}", json={"content": "a", "title": "טודו"})
+
+    assert res.status_code == 201
+    assert calls == [], f"נורו שאילתות מיותרות: {calls}"
+
+
+def test_a_missing_index_does_not_mark_the_warmup_as_done(monkeypatch):
+    """``_mark_indexes_ready`` כותב דגל **משותף ברדיס ל-24 שעות**.
+
+    סימון הצלחה כשהאינדקס לא אומת היה נועל כשל חולף אחד ליממה שלמה של
+    אכיפה שאינה קיימת, בכל התהליכים. בלי הסימון הבקשה הבאה בונה שוב.
+
+    נופלת אם ``_mark_indexes_ready`` נקראת ללא תנאי.
+    """
+    from webapp import sticky_notes_api
+
+    marked = []
+    monkeypatch.setattr(sticky_notes_api, "get_db", lambda: _StubDB())
+    monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_cache_flag_ready", lambda: False, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "ensure_title_index", lambda coll: False)
+    monkeypatch.setattr(sticky_notes_api, "_mark_indexes_ready", lambda **kw: marked.append(kw))
+
+    sticky_notes_api._ensure_indexes()
+
+    assert marked == [], "האתחול סומן כהצלחה בעוד שהאינדקס הקריטי אינו קיים"
+    assert sticky_notes_api._TITLE_INDEX_OK is False

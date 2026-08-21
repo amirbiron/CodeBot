@@ -1042,6 +1042,10 @@
           st.timer = null;
           st.burstFrom = null;
           st.last = String(content == null ? '' : content);
+          // ההתפרצות הממתינה נסגרה, ולכן העומק ירד. בלי הסנכרון הזה
+          // הכפתור נשאר דלוק על מחסנית ריקה — לחיצה עליו לא עושה כלום,
+          // וזה בדיוק סוג השקר שהכפתור הזה נבנה כדי לא לספר.
+          this._syncUndoButton(el);
         } catch(_) {}
       }
 
@@ -1235,12 +1239,18 @@
       _applyServerContent(el, entry, content, updatedAt){
         if (typeof content !== 'string') return;
         const textarea = el.querySelector('.sticky-note-content');
+        // התוכן שלפני — **לפני** שהוא נדרס. הוא הצעד שהמשתמש עשוי לרצות
+        // לבטל, וההערה הקודמת כאן טענה שהמחסנית כבר שומרת אותו. היא לא:
+        // סימון צ'קבוקס בפתק שלא נערך משאיר את המחסנית ריקה לגמרי, ואז
+        // אין שום דרך לחזור מהסימון דרך כפתור הביטול.
+        const before = textarea ? String(textarea.value == null ? '' : textarea.value) : null;
         if (textarea) textarea.value = content;
         if (entry && entry.data) entry.data.content = content;
         if (updatedAt) el.dataset.updatedAt = updatedAt;
-        // המחסנית שומרת את מה שהיה לפני הסימון — וזה נכון, כי המשתמש
-        // אולי ירצה לבטל אותו. מה שחייב להתאפס הוא **נקודת ההשוואה**.
+        // נקודת ההשוואה עוברת לתוכן הסמכותי, אחרת העריכה הבאה הייתה דוחפת
+        // את התוכן הישן למחסנית וביטול היה מוחק כתיבה שהשרת אישר.
         this._resetUndoBaseline(el, content);
+        if (before !== null && before !== content) this._pushUndo(el, before);
         this._syncTaskView(el);
       }
 
@@ -1897,7 +1907,10 @@
             }
           } else {
             this._clearSaveFailed(id);
-            this._markTitleConflict(id, false);
+            // רק אם השם עצמו הוא מה שנשמר. שמירה מוצלחת של גרירה או שינוי
+            // גודל אינה אומרת דבר על השם — הוא נשאר תפוס בשרת — וניקוי
+            // הסימון כאן היה מציג "נשמר" על שדה שהשרת לא קיבל.
+            if ('title' in original) this._markTitleConflict(id, false);
           }
           return resp.ok;
         } catch(err) {
@@ -1951,7 +1964,8 @@
               if (result.ok) {
                 if (result.updated_at) { this._setNoteUpdatedAt(id, String(result.updated_at)); }
                 this._clearSaveFailed(id);
-                this._markTitleConflict(id, false);
+                // כמו במסלול הבודד: רק שמירה שכללה שם מנקה את הסימון
+                if (snap && snap.payload && 'title' in snap.payload) this._markTitleConflict(id, false);
                 // clear pending only if no newer edits arrived during request
                 if (snap && currentSeq === snap.seq) {
                   this._pending.delete(id);
@@ -1990,11 +2004,13 @@
         for (const [id] of entries){
           const current = this._pending.get(id);
           if (!current) continue;
+          // גרסת התור נלקחת **לפני** המחיקה, ומועברת הלאה — בדיוק כמו
+          // ב-``_flushFor``. בלעדיה ``seqAtSend`` היה ``undefined``, כל
+          // ההשוואות בענפי הכשל נפלו על 0, והשומר "אל תמחק עריכה חדשה
+          // יותר" לא היה יכול להתאים לעולם.
+          const seqAtSend = this._pendingSeq.get(id) || 0;
           this._pending.delete(id);
-          const didSucceed = await this._sendUpdate(id, current);
-          if (!didSucceed && !this._pending.has(id)) {
-            // במקרה של כישלון המידע הוחזר ל-pending בתוך _sendUpdate
-          }
+          await this._sendUpdate(id, current, seqAtSend);
         }
       }
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {

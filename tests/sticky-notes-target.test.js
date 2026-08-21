@@ -64,9 +64,21 @@ const StickyNotesManager = sandbox.window.StickyNotesManager;
 let passed = 0;
 let failed = 0;
 
+// בדיקה אסינכרונית שנכשלת מחזירה promise דחוי, וגרסה סינכרונית של
+// ``check`` הייתה סופרת אותה כ"עברה" ומדפיסה אזהרת unhandled rejection.
+// לכן התור מצטבר ומוצה בסוף הקובץ.
+const pending = [];
+
 function check(name, fn) {
   try {
-    fn();
+    const out = fn();
+    if (out && typeof out.then === 'function') {
+      pending.push(out.then(
+        () => { passed += 1; },
+        (err) => { failed += 1; console.error(`✗ ${name}\n    ${err && err.message}`); },
+      ));
+      return;
+    }
     passed += 1;
   } catch (err) {
     failed += 1;
@@ -143,6 +155,17 @@ check('יעד חסר נכשל מיד ולא בשקט', () => {
 
 const fileMgr = new StickyNotesManager('f1');
 const boardMgr = new StickyNotesManager({ board: 'b1' });
+
+// **מוקש בהארנס, ולא בקוד הנבדק.**
+//
+// הבנאי יורה ``_init() → loadNotes()`` ברקע, וכשהיא נפתרת היא קוראת
+// ``_clearAllNotes()`` — כלומר **כל פתק שנרשם ידנית ב-``notes`` נמחק
+// ב-microtask הראשון**. כל הבדיקות עד היום היו סינכרוניות ורצו לפני
+// הרגע הזה, ולכן לא הרגישו. הראשונה שהוסיפה ``await`` נפלה על מפה ריקה,
+// ובלי הבדיקה הזו כל בדיקה אסינכרונית עתידית הייתה משקרת באותו אופן.
+//
+// ממתינים כאן, פעם אחת, עד שהטעינה ברקע מסיימת.
+await new Promise((resolve) => setTimeout(resolve, 0));
 
 check('סנטינל הנעיצה ממופה ל-surface', () => {
   eq(fileMgr._resolveMode({ anchor_id: '__pinned__' }), 'surface');
@@ -536,5 +559,88 @@ check('שם: הסימון תלוי בקוד השגיאה, לא בכשל שמיר
   eq(n.titleInput.classList.contains('is-duplicate'), false, 'שם חדש מנקה את הסימון');
 });
 
+check('ביטול: תוכן מהשרת שסוגר התפרצות מכבה גם את הכפתור', () => {
+  // הכפתור נדלק על סמך התפרצות ממתינה. ``_resetUndoBaseline`` סוגר אותה,
+  // ואם הוא לא מסנכרן — הכפתור נשאר דלוק על מחסנית ריקה, ולחיצה עליו
+  // לא עושה כלום. כפתור שנראה זמין ולא עובד הוא בדיוק סוג השקר שהפיצ'ר
+  // הזה נבנה כדי לא לספר.
+  const n = registerNote(fileMgr, 'undo-sync', 'מקור');
+  n.ta.value = 'מקור ועוד';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+  eq(n.undoBtn.disabled, false, 'דלוק בזמן ההתפרצות');
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'והמחסנית עדיין ריקה');
+
+  fileMgr._resetUndoBaseline(n.el, 'תוכן מהשרת');
+
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'המחסנית נשארה ריקה');
+  eq(n.undoBtn.disabled, true, 'ולכן הכפתור כבוי');
+});
+
+check('ביטול: סימון צ׳קבוקס ניתן לביטול', () => {
+  // התרחיש: פתק שלא נערך, המשתמש מסמן צ'קבוקס. המחסנית ריקה לגמרי,
+  // ולכן לפני התיקון לא הייתה שום דרך לחזור מהסימון דרך הכפתור —
+  // בעוד שההערה בקוד טענה שהמחסנית כבר שומרת את המצב שלפני.
+  const n = registerNote(fileMgr, 'undo-toggle', '- [ ] משימה');
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'נקודת המוצא: מחסנית ריקה');
+
+  fileMgr._applyServerContent(n.el, n.entry, '- [x] משימה', '2026-01-01T00:00:00Z');
+
+  eq(n.ta.value, '- [x] משימה', 'התוכן הסמכותי הוחל');
+  eq(n.undoBtn.disabled, false, 'ויש מה לבטל');
+  fileMgr._undoLastChange(n.el);
+  eq(n.ta.value, '- [ ] משימה', 'הסימון בוטל');
+});
+
+check('ביטול: תוכן זהה מהשרת אינו נחשב צעד', () => {
+  const n = registerNote(fileMgr, 'undo-same', '- [x] משימה');
+  fileMgr._applyServerContent(n.el, n.entry, '- [x] משימה', null);
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'שום דבר לא השתנה');
+  eq(n.undoBtn.disabled, true);
+});
+
+// ``_sendUpdate`` אמיתי מול תשובה מבוקרת. בלי זה אין דרך לבדוק את ענפי
+// הכשל של מסלול השמירה — והם בדיוק החלק שנשבר בשקט.
+async function withFetch(handler, fn) {
+  // ``await`` ולא ``return`` בתוך try: בלעדיו ה-``finally`` משחזר את
+  // ה-fetch **לפני** שה-promise נפתר, והבדיקה רצה מול הפייק ברירת המחדל
+  // של הסנדבוקס — שאין לו ``status`` בכלל. נתפס בהרצה: שתי בדיקות נפלו
+  // על ענף הכשל במקום על הענף שנבדק.
+  const original = sandbox.fetch;
+  sandbox.fetch = handler;
+  try { return await fn(); } finally { sandbox.fetch = original; }
+}
+const okResponse = async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) });
+
+check('שם: שמירה שאינה של השם אינה מנקה את הסימון', async () => {
+  // התרחיש: השם נדחה ב-409, ואז המשתמש גורר את הפתק. השמירה של המיקום
+  // מצליחה — אבל היא לא אומרת דבר על השם, שנשאר תפוס בשרת. ניקוי הסימון
+  // כאן היה מציג "נשמר" על שדה שהשרת לא קיבל.
+  const n = registerNote(fileMgr, 'dup-keep', 'תוכן');
+  fileMgr._markTitleConflict('dup-keep', true);
+  eq(n.titleInput.classList.contains('is-duplicate'), true, 'מסומן אחרי 409');
+
+  await withFetch(okResponse, () => fileMgr._sendUpdate('dup-keep', { position: { x: 1, y: 2 } }, 0));
+  eq(n.titleInput.classList.contains('is-duplicate'), true, 'שמירת מיקום לא ניקתה');
+
+  await withFetch(okResponse, () => fileMgr._sendUpdate('dup-keep', { title: 'שם אחר' }, 0));
+  eq(n.titleInput.classList.contains('is-duplicate'), false, 'שמירת שם כן ניקתה');
+});
+
+check('שם: 409 duplicate_title מסמן ואינו חוזר לתור', async () => {
+  // 409 גנרי חוזר לתור עם חותמת טרייה; שם תפוס לא ייפתר לעולם בניסיון
+  // חוזר. בלי ההבחנה זו לולאת ניסיונות אינסופית, ובלי שום חיווי.
+  const n = registerNote(fileMgr, 'dup-409', 'תוכן');
+  const dup = async () => ({ ok: false, status: 409, json: async () => ({ ok: false, error: 'duplicate_title' }) });
+
+  fileMgr._pending.set('dup-409', { title: 'תפוס' });
+  fileMgr._pendingSeq.set('dup-409', 0);
+  const result = await withFetch(dup, () => fileMgr._sendUpdate('dup-409', { title: 'תפוס' }, 0));
+
+  eq(result, false, 'הכשל דווח');
+  eq(n.titleInput.classList.contains('is-duplicate'), true, 'והשם מסומן');
+  eq(fileMgr._pending.has('dup-409'), false, 'ולא נשאר בתור לניסיון נוסף');
+});
+
+await Promise.all(pending);
 console.log(`\n${passed} עברו, ${failed} נכשלו`);
 process.exit(failed === 0 ? 0 : 1);

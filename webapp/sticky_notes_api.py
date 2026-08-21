@@ -25,6 +25,7 @@ from sticky_notes_target import (
     MAX_NOTE_CHARS, MAX_NOTE_TITLE, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER,
     normalize_note_title,
     ensure_title_index,
+    title_is_taken,
 )
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
@@ -86,6 +87,13 @@ _INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v1"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
 _WARMUP_TRIGGERED = threading.Event()
+
+#: האם ``one_title_per_board_v2`` **אומת** במסד בהרצה האחרונה.
+#:
+#: זה לא אותו דבר כמו ``_INDEX_READY``, שאומר "ניסינו". הדגל הזה אומר
+#: "האילוץ חי", וזה מה שאכיפת ``duplicate_title`` נשענת עליו. כל עוד הוא
+#: כבוי, מסלולי הכתיבה עוברים לבדיקת קוד — ראו :func:`title_is_taken`.
+_TITLE_INDEX_OK = False
 
 
 def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Optional[str] = None) -> None:
@@ -178,6 +186,7 @@ def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0)
         _job()
 
 def _ensure_indexes() -> None:
+    global _TITLE_INDEX_OK
     if _INDEX_READY or _cache_flag_ready():
         return
     try:
@@ -219,10 +228,12 @@ def _ensure_indexes() -> None:
             # אינה קיימת. השני: הוא דורש **יישוב** של גרסה קודמת, כי אינדקס
             # בשם קיים עם אפשרויות שונות נדחה ב-code 86.
             try:
-                if not ensure_title_index(coll):
-                    logger.warning("one_title_per_board index not confirmed after create")
+                _TITLE_INDEX_OK = bool(ensure_title_index(coll))
+                if not _TITLE_INDEX_OK:
+                    logger.error("one_title_per_board index not confirmed after create")
             except Exception:
-                logger.warning("one_title_per_board index creation failed", exc_info=True)
+                _TITLE_INDEX_OK = False
+                logger.error("one_title_per_board index creation failed", exc_info=True)
             # אינדקסים ללוחות הפתקים (best-effort)
             try:
                 nb = db.note_boards
@@ -283,11 +294,33 @@ def _ensure_indexes() -> None:
                 # Never fail request because of index creation
                 pass
             duration_ms = int(max(0.0, (time.perf_counter() - started) * 1000.0))
-            _mark_indexes_ready(duration_ms=duration_ms)
+            if _TITLE_INDEX_OK:
+                _mark_indexes_ready(duration_ms=duration_ms)
+            else:
+                # **לא מסמנים מוכן.** ``_mark_indexes_ready`` כותב גם דגל
+                # ברדיס ל-24 שעות, ולכן סימון כאן היה נועל כשל חולף — נפילת
+                # רשת אחת בזמן פריסה — ליממה שלמה של אכיפה שאינה קיימת,
+                # בכל התהליכים. בלי הסימון הבקשה הבאה תבנה שוב.
+                _emit_index_event("failed", error="one_title_per_board not confirmed")
     except Exception as exc:
         _emit_index_event("failed", error=str(exc))
 
 # --- Helpers ---
+
+
+def _title_conflict(db: Any, user_id: Any, board_id: Any, title: str, exclude_id: Any = None) -> bool:
+    """גיבוי לאכיפת השם, ורק כשהאינדקס לא אומת.
+
+    במצב התקין הפונקציה מחזירה ``False`` מיד ואינה עולה שאילתה — האכיפה
+    היא של המסד, וכך היא גם חסינה למרוץ. היא מתעוררת רק כש-
+    ``_TITLE_INDEX_OK`` כבוי, כלומר כשהראוט עומד להבטיח ``duplicate_title``
+    בלי שיש מי שיאכוף אותו.
+    """
+    if _TITLE_INDEX_OK or not title or not board_id:
+        return False
+    return title_is_taken(
+        db.sticky_notes, user_id=user_id, board_id=board_id, title=title, exclude_id=exclude_id
+    )
 
 def require_auth(f):
     @wraps(f)
@@ -1259,6 +1292,8 @@ def update_note(note_id: str):
         ops: Dict[str, Any] = {'$set': updates}
         if unset_fields:
             ops['$unset'] = unset_fields
+        if 'title' in updates and _title_conflict(db, user_id, note.get('board_id'), updates['title'], exclude_id=oid):
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         try:
             db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, ops)
         except DuplicateKeyError:
@@ -1475,6 +1510,12 @@ def batch_update_notes():
                 ops: Dict[str, Any] = {'$set': updates}
                 if unset_fields:
                     ops['$unset'] = unset_fields
+                if 'title' in updates and _title_conflict(
+                    db, user_id, note.get('board_id'), updates['title'], exclude_id=oid
+                ):
+                    results.append({'id': note_id, 'ok': False, 'status': 409,
+                                    'error': 'duplicate_title', 'max': MAX_NOTE_TITLE})
+                    continue
                 try:
                     db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, ops)
                 except DuplicateKeyError:
@@ -1680,6 +1721,9 @@ def create_board_note(board_id: str):
         # ממסמך לצאת עם שני משטחים או בלי אף אחד.
         doc.update(build_note_target(board_id=board_id))
 
+        # גיבוי לאכיפה כשהאינדקס לא אומת. במצב התקין אינו עולה שאילתה.
+        if _title_conflict(db, user_id, doc.get('board_id'), title):
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         try:
             res = db.sticky_notes.insert_one(doc)
         except DuplicateKeyError:
