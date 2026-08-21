@@ -600,6 +600,7 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         "user_id": 1,
         "note_id": 1,
         "file_id": 1,
+        "board_id": 1,
         "remind_at": 1,
         "last_push_success_at": 1,
     }
@@ -808,6 +809,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
         body_text = _coerce_preview(db, r)
         note_id_str = str(r.get("note_id") or "")
         file_id_str = str(r.get("file_id") or "")
+        board_id_str = str(r.get("board_id") or "")
 
         # Payload format: notification object at top level (FCM standard)
         # data object for custom handling in SW
@@ -831,6 +833,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 "type": "reminder",
                 "note_id": note_id_str,
                 "file_id": file_id_str,
+                "board_id": board_id_str,
                 "title": title_text,
                 "body": body_text,
             },

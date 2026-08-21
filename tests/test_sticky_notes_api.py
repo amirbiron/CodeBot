@@ -120,6 +120,15 @@ class _StubColl:
     def create_indexes(self, *args, **kwargs):
         return None
 
+    def count_documents(self, query, *args, **kwargs):
+        # נוסף כשהתקרה למשתמש התחילה להיאכף. בלי זה ``_count_or_none``
+        # מחזיר ``None``, וההתנהגות ה-fail-closed חוסמת כל יצירה —
+        # כלומר ה-stub, ולא הקוד, היה מקור הכשל.
+        return sum(
+            1 for d in self._docs
+            if all(d.get(k) == v for k, v in query.items())
+        )
+
     def insert_one(self, doc):
         self._docs.append(dict(doc))
         class R:

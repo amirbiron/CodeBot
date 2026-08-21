@@ -104,7 +104,12 @@ def _notes_scope_filter(
     if related_ids:
         clauses.append({"file_id": {"$in": list(related_ids)}})
     if not clauses:
-        return {"user_id": int(user_id)}
+        # בלי אף clause השאילתה הייתה ``{"user_id": uid}`` — כלומר **כל**
+        # הפתקים של המשתמש, ולא הפתקים של הקובץ שהתבקש. היום זה לא נגיש,
+        # כי scope_id תמיד מחושב משם קובץ לא-ריק; משנוספו פתקי לוח, פתק
+        # שאינו שייך לשום קובץ היה נשאב לתשובה. שאילתה שלא תופסת דבר היא
+        # התשובה הנכונה ל"אין לי לפי מה לחפש".
+        return {"user_id": int(user_id), "_id": {"$in": []}}
     return {"user_id": int(user_id), "$or": clauses}
 
 

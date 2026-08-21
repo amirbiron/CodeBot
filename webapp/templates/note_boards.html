@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}לוחות פתקים - Code Keeper Bot{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="boards-page">
+  <div class="boards-header">
+    <h1>📌 לוחות פתקים</h1>
+    <button class="board-action" id="newBoardBtn">לוח חדש</button>
+  </div>
+
+  <div class="board-msg is-error" id="boardsMsg" hidden></div>
+
+  <div class="boards-grid" id="boardsGrid">
+    <div class="board-card-count">טוען…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  const grid = document.getElementById('boardsGrid');
+  const msg = document.getElementById('boardsMsg');
+  const newBtn = document.getElementById('newBoardBtn');
+
+  function showError(text) {
+    // מאפסים את הסגנון: אחרי הודעת מידע מוצלחת ה-class נשאר is-info,
+    // וכשל שהגיע אחריה היה מוצג בירוק
+    msg.className = 'board-msg is-error';
+    msg.textContent = text;
+    msg.hidden = false;
+  }
+
+  function clearError() { msg.hidden = true; }
+
+  function card(board) {
+    // הכרטיס הוא <div>, והקישור והכפתור אחים בתוכו. כפתור בתוך <a> אינו
+    // HTML חוקי, והדפדפן רשאי לפרק את הקינון — ואז stopPropagation אינו
+    // עוזר כי אין יותר מה לעצור.
+    const wrap = document.createElement('div');
+    wrap.className = 'board-card';
+    const a = document.createElement('a');
+    a.className = 'board-card-link';
+    a.href = '/boards/' + encodeURIComponent(board.id);
+
+    const title = document.createElement('div');
+    title.className = 'board-card-title';
+    title.textContent = board.name;
+    if (board.is_default) {
+      const badge = document.createElement('span');
+      badge.className = 'board-default-badge';
+      badge.textContent = 'ברירת מחדל';
+      title.appendChild(badge);
+    }
+
+    const count = document.createElement('div');
+    count.className = 'board-card-count';
+    const n = board.note_count;
+    count.textContent = (typeof n === 'number')
+      ? (n === 0 ? 'ריק' : n === 1 ? 'פתק אחד' : n + ' פתקים')
+      : '';
+
+    const actions = document.createElement('div');
+    actions.className = 'board-card-actions';
+    const del = document.createElement('button');
+    del.className = 'board-action';
+    del.textContent = 'מחק';
+    // לוח ברירת המחדל אינו נמחק. הכפתור מושבת כאן, וגם השרת מחזיר 409 —
+    // ה-UI הוא נוחות, האכיפה היא בשרת.
+    if (board.is_default) {
+      del.disabled = true;
+      del.title = 'לוח ברירת המחדל אינו נמחק';
+    } else {
+      del.addEventListener('click', function () { deleteBoard(board); });
+    }
+    actions.appendChild(del);
+
+    a.appendChild(title);
+    a.appendChild(count);
+    wrap.appendChild(a);
+    wrap.appendChild(actions);
+    return wrap;
+  }
+
+  async function deleteBoard(board) {
+    const question = board.note_count
+      ? 'למחוק את "' + board.name + '"? הפתקים שעליו יעברו ללוח ברירת המחדל.'
+      : 'למחוק את "' + board.name + '"?';
+    if (!window.confirm(question)) return;
+    try {
+      const resp = await fetch('/api/note-boards/' + encodeURIComponent(board.id), { method: 'DELETE' });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        // ההודעה מהשרת עדיפה על ניחוש: היא מבדילה בין "אי אפשר למחוק
+        // ברירת מחדל" לבין "ההעברה לא הושלמה, הלוח שרד".
+        showError(data.error === 'cannot_delete_default'
+          ? 'לוח ברירת המחדל אינו נמחק.'
+          : data.error === 'notes_move_incomplete'
+            ? 'העברת הפתקים לא הושלמה, ולכן הלוח לא נמחק. נסו שוב.'
+            : 'המחיקה נכשלה.');
+        return;
+      }
+      clearError();
+      if (data.moved) {
+        msg.className = 'board-msg is-info';
+        msg.textContent = data.moved === 1
+          ? 'פתק אחד עבר ללוח ברירת המחדל.'
+          : data.moved + ' פתקים עברו ללוח ברירת המחדל.';
+        msg.hidden = false;
+      }
+      load();
+    } catch (e) {
+      showError('המחיקה נכשלה.');
+    }
+  }
+
+  async function load() {
+    try {
+      const resp = await fetch('/api/note-boards', { cache: 'no-store' });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) { showError('טעינת הלוחות נכשלה.'); return; }
+      grid.textContent = '';
+      (data.boards || []).forEach(function (b) { grid.appendChild(card(b)); });
+    } catch (e) {
+      showError('טעינת הלוחות נכשלה.');
+    }
+  }
+
+  newBtn.addEventListener('click', async function () {
+    const name = window.prompt('שם הלוח:');
+    if (name === null) return;
+    try {
+      const resp = await fetch('/api/note-boards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) { showError('יצירת הלוח נכשלה.'); return; }
+      clearError();
+      window.location.href = '/boards/' + encodeURIComponent(data.board.id);
+    } catch (e) {
+      showError('יצירת הלוח נכשלה.');
+    }
+  });
+
+  load();
+})();
+</script>
+{% endblock %}

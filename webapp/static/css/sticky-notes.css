@@ -72,3 +72,41 @@
 @media print{
   .sticky-note, .sticky-note-fab{ display:none !important; }
 }
+
+/* ---------- צ'קבוקסים בתוך פתק ---------- */
+
+.sticky-note-tasks {
+  flex: 1;
+  overflow-y: auto;      /* גלילה בתוך הפתק, לא גדילה אוטומטית: פתק
+                            שגדל לבד מזיז את מה שסביבו ושובר סידור ידני */
+  padding: .35rem .5rem;
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.sticky-note-tasks[hidden] { display: none; }
+
+.sticky-task {
+  display: flex;
+  align-items: flex-start;
+  gap: .4rem;
+  cursor: pointer;
+  padding: .1rem 0;
+}
+
+.sticky-task-box { margin-top: .25rem; flex: 0 0 auto; }
+
+.sticky-task-box:checked + .sticky-task-text {
+  text-decoration: line-through;
+  opacity: .6;
+}
+
+.sticky-task-box[disabled] { cursor: progress; }
+
+.sticky-note.is-task-pending { opacity: .85; }
+
+/* חיווי כשל — כתיבה שלא נקלטה חייבת להיראות, לא להיעלם בשקט */
+.sticky-note.has-task-error {
+  outline: 2px solid #dc3545;
+  outline-offset: 1px;
+}

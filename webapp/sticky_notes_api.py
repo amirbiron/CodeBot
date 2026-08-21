@@ -171,6 +171,12 @@ def _ensure_indexes() -> None:
                     IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING)], name="user_file_idx"),
                     IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("created_at", ASCENDING)], name="user_file_created"),
                     IndexModel([("updated_at", DESCENDING)], name="updated_desc"),
+                    # שאילתת ה-list הראשית היא ``$or`` על scope_id/file_id, אבל
+                    # ענף ה-scope לא היה מכוסה כאן כלל — האינדקס נוצר רק
+                    # אגב-אורחא ב-``mcp_server/backend``.
+                    IndexModel([("user_id", ASCENDING), ("scope_id", ASCENDING)], name="user_scope_idx"),
+                    # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets.
+                    IndexModel([("user_id", ASCENDING), ("board_id", ASCENDING)], name="user_board_idx"),
                 ]
                 coll.create_indexes(indexes)
             except Exception:
@@ -179,8 +185,43 @@ def _ensure_indexes() -> None:
                     coll.create_index([("user_id", 1), ("file_id", 1)], name="user_file_idx")
                     coll.create_index([("user_id", 1), ("file_id", 1), ("created_at", 1)], name="user_file_created")
                     coll.create_index([("updated_at", -1)], name="updated_desc")
+                    coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
+                    coll.create_index([("user_id", 1), ("board_id", 1)], name="user_board_idx")
                 except Exception:
                     pass
+            # אינדקסים ללוחות הפתקים (best-effort)
+            try:
+                nb = db.note_boards
+                # ``one_default_per_user`` ייחודי-חלקי: הוא מה שסוגר את המרוץ
+                # שבו שתי בקשות מקבילות מגלות שאין לוח ברירת מחדל ושתיהן
+                # יוצרות. הגנת קוד לבדה לא מספיקה שם — המסד חייב לדחות.
+                try:
+                    from pymongo import ASCENDING, IndexModel  # type: ignore
+                    nb.create_indexes([
+                        IndexModel([("user_id", ASCENDING), ("order", ASCENDING)], name="user_order_idx"),
+                        IndexModel(
+                            [("user_id", ASCENDING)],
+                            name="one_default_per_user",
+                            unique=True,
+                            partialFilterExpression={"is_default": True},
+                        ),
+                    ])
+                except Exception:
+                    try:
+                        nb.create_index([("user_id", 1), ("order", 1)], name="user_order_idx")
+                    except Exception:
+                        pass
+                    try:
+                        nb.create_index(
+                            [("user_id", 1)],
+                            name="one_default_per_user",
+                            unique=True,
+                            partialFilterExpression={"is_default": True},
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             # Ensure note reminders collection indexes (best-effort)
             try:
                 nr = db.note_reminders
@@ -436,6 +477,11 @@ def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
         'line_end': doc.get('line_end'),
         'anchor_id': doc.get('anchor_id') or '',
         'anchor_text': doc.get('anchor_text') or '',
+        # פתק לוח. הלקוח מזהה לפי זה לאיזה משטח לצרף אותו, ו-``mode`` קובע
+        # אם הוא נע עם הלוח או נשאר על המסך. בפתק קובץ שניהם ריקים,
+        # והמצב ממשיך להיגזר מ-``anchor_id`` כמו קודם.
+        'board_id': str(doc.get('board_id', '') or ''),
+        'mode': str(doc.get('mode', '') or ''),
         'updated_at': (doc.get('updated_at').isoformat() if doc.get('updated_at') else None),
         'created_at': (doc.get('created_at').isoformat() if doc.get('created_at') else None),
     }
@@ -653,6 +699,9 @@ def set_note_reminder(note_id: str):
             'user_id': user_id,
             'note_id': str(note_id),
             'file_id': str(note.get('file_id', '')),
+            # לפתק לוח אין file_id, ובלי השדה הזה ה-Service Worker
+            # לא היה יודע לאן לפתוח את ההתראה.
+            'board_id': str(note.get('board_id', '') or ''),
             'status': 'pending',
             'remind_at': dt_utc,
             'snooze_until': None,
@@ -835,6 +884,7 @@ def reminders_list():
             try:
                 note_id = str(r.get('note_id') or '')
                 file_id = str(r.get('file_id') or '')
+                board_id = str(r.get('board_id') or '')
                 preview = ''
                 anchor_id = ''
                 anchor_text = ''
@@ -861,10 +911,16 @@ def reminders_list():
                     preview = _first_n_words(preview_source, 6)
                     anchor_id = str(note_doc.get('anchor_id') or '')
                     anchor_text = str(note_doc.get('anchor_text') or '')
-                    # Prefer file_id from note if missing on reminder (defensive)
+                    # Prefer file_id/board_id from note if missing on reminder
+                    # (defensive — תזכורות ישנות נכתבו לפני שהשדה נוסף)
                     if not file_id:
                         try:
                             file_id = str(note_doc.get('file_id') or '')
+                        except Exception:
+                            pass
+                    if not board_id:
+                        try:
+                            board_id = str(note_doc.get('board_id') or '')
                         except Exception:
                             pass
                 else:
@@ -873,6 +929,7 @@ def reminders_list():
                 items.append({
                     'note_id': note_id,
                     'file_id': file_id,
+                    'board_id': board_id,
                     'preview': preview,
                     'anchor_id': anchor_id,
                     'anchor_text': anchor_text,
@@ -917,6 +974,8 @@ def reminders_ack():
 def create_note(file_id: str):
     """Create a new sticky note for a file."""
     try:
+        from sticky_notes_target import NoteQuotaError, check_note_quota
+
         _ensure_indexes()
         user_id = int(session['user_id'])
         db = get_db()
@@ -941,6 +1000,18 @@ def create_note(file_id: str):
         line_end = data.get('line_end')
         anchor_id = (data.get('anchor_id') or '').strip()[:256]
         anchor_text = (data.get('anchor_text') or '').strip()[:256]
+
+        # תקרת הפתקים למשתמש חלה על כל הפתקים, לא רק על אלה שבלוחות.
+        # היא מתועדת מזה זמן ולא נאכפה בשום מקום; אכיפה רק במסלול הלוח
+        # הייתה הופכת את התיעוד לנכון-למחצה.
+        try:
+            check_note_quota(
+                _count_or_none(db.sticky_notes, {'user_id': user_id}),
+                MAX_NOTES_PER_USER,
+                is_admin=_current_user_is_admin(),
+            )
+        except NoteQuotaError as exc:
+            return jsonify({'ok': False, 'error': str(exc)}), 409
 
         doc = {
             'user_id': user_id,
@@ -1051,7 +1122,10 @@ def update_note(note_id: str):
         note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        if not note.get('scope_id'):
+        # פתק לוח אינו נושא scope_id ולעולם לא יישא — ובלי השומר הזה
+        # כל עדכון שלו היה מריץ _resolve_scope, כלומר קריאה ל-code_snippets
+        # רק כדי לגלות שאין קובץ.
+        if not note.get('scope_id') and not note.get('board_id'):
             scope_id, scope_file_name, _ = _resolve_scope(db, user_id, note.get('file_id'))
             if scope_id:
                 updates['scope_id'] = scope_id
@@ -1246,8 +1320,9 @@ def batch_update_notes():
                         if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:
                             results.append({'id': note_id, 'ok': False, 'status': 409, 'error': 'Conflict', 'updated_at': note['updated_at'].isoformat()})
                             continue
-                    # stamp scope if missing
-                    if not note.get('scope_id'):
+                    # stamp scope if missing — אך לא לפתק לוח, שאין לו
+                    # scope ולעולם לא יהיה. ראו את השומר המקביל ב-update_note.
+                    if not note.get('scope_id') and not note.get('board_id'):
                         scope_id, scope_file_name, _ = _resolve_scope(db, user_id, note.get('file_id'))
                         if scope_id:
                             updates['scope_id'] = scope_id
@@ -1283,3 +1358,319 @@ def batch_update_notes():
         except Exception:
             pass
         return jsonify({'ok': False, 'error': 'Failed to process batch'}), 500
+
+
+# --- Board notes ---
+#
+# ראוטים נפרדים לפתקי לוח, ולא הכללה של ``/<file_id>``. הכללה הייתה מכריחה
+# כל צרכן להכיר קידוד כלשהו בתוך הפרמטר, ושוברת גם את ה-JS וגם את הטסטים
+# שמניחים שהסגמנט הזה הוא מזהה קובץ. אין התנגשות ניתוב: ``/board/<x>`` הוא
+# שני סגמנטים ו-``/<file_id>`` אחד — בדיוק כמו ``/note/<id>`` ו-
+# ``/reminders/*`` שכבר חיים כאן.
+#
+# מה שלא חוזר על עצמו כאן בכוונה: ``PUT /note/<id>``, ``DELETE /note/<id>``,
+# ``POST /batch`` וכל ראוטי התזכורות מזהים פתק לפי ``_id + user_id`` בלבד,
+# ולכן הם עובדים על פתקי לוח בלי שורת קוד אחת. זה כל הרווח של "אוסף פתקים
+# אחד": מסלול הכתיבה, ה-debounce, ה-optimistic concurrency וה-keepalive
+# מגיעים בירושה.
+
+#: תקרת פתקים ללוח. אותו ערך שמתועד ב-``docs/user/sticky_notes.rst`` וש-
+#: ``mcp_server/handlers`` אוכף לקובץ.
+MAX_NOTES_PER_BOARD = 200
+
+#: תקרת פתקים למשתמש. הייתה מתועדת ולא נאכפה בשום מקום בקוד.
+MAX_NOTES_PER_USER = 1000
+
+
+def _current_user_is_admin() -> bool:
+    """אדמין פטור מתקרות. ``user_roles`` הוא מודול טהור ולכן אין כאן מעגל."""
+    try:
+        from user_roles import is_admin
+        return bool(is_admin(int(session.get('user_id') or 0)))
+    except Exception:
+        return False
+
+
+def _count_or_none(coll: Any, query: Dict[str, Any]) -> Optional[int]:
+    """ספירה, או ``None`` כשהיא נכשלה.
+
+    ההבחנה חשובה: ``check_note_quota`` דוחה על ``None`` במקום להניח אפס.
+    """
+    try:
+        return int(coll.count_documents(query))
+    except Exception:
+        return None
+
+
+def _resolve_owned_board(db: Any, user_id: int, board_id: str) -> Optional[Dict[str, Any]]:
+    """הלוח, אם הוא קיים ושייך למשתמש. אחרת ``None``.
+
+    בלי הבדיקה הזו אפשר היה ליצור פתקים על ``board_id`` שרירותי — פתקים
+    שאינם נראים בשום ממשק אבל כן נספרים בתקרה. ``mcp_server/backend`` עושה
+    את המקבילה לקובץ ומחזיר ``file_not_found``.
+    """
+    try:
+        oid = ObjectId(str(board_id))
+    except Exception:
+        return None
+    try:
+        doc = db.note_boards.find_one({'_id': oid, 'user_id': int(user_id)})
+    except Exception:
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+@sticky_notes_bp.route('/board/<board_id>', methods=['GET'])
+@require_auth
+@notes_rate_limit('board_list', 180)
+@traced("sticky_notes.board_list")
+def list_board_notes(board_id: str):
+    """פתקי לוח. שאילתה ישירה, בלי ``$or`` ובלי מעבר ב-``code_snippets``."""
+    try:
+        from sticky_notes_target import board_notes_filter
+
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        if not _resolve_owned_board(db, user_id, board_id):
+            return jsonify({'ok': False, 'error': 'board_not_found'}), 404
+
+        cursor = db.sticky_notes.find(board_notes_filter(user_id, board_id)).sort('created_at', 1)
+        raw_docs = list(cursor) if cursor is not None else []
+        notes = [_as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)]
+
+        resp = jsonify({'ok': True, 'notes': notes, 'count': len(notes)})
+        try:
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+        except Exception:
+            pass
+        return resp
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_board_list_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to list board notes'}), 500
+
+
+@sticky_notes_bp.route('/board/<board_id>', methods=['POST'])
+@require_auth
+@notes_rate_limit('board_create', 60)
+@traced("sticky_notes.board_create")
+def create_board_note(board_id: str):
+    """פתק חדש על לוח."""
+    try:
+        from sticky_notes_target import (
+            DEFAULT_BOARD_MODE,
+            NoteQuotaError,
+            board_notes_filter,
+            build_note_target,
+            check_note_quota,
+            is_valid_board_mode,
+            normalize_mode,
+        )
+
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        if not _resolve_owned_board(db, user_id, board_id):
+            return jsonify({'ok': False, 'error': 'board_not_found'}), 404
+
+        data = request.get_json(silent=True) or {}
+
+        raw_mode = data.get('mode')
+        if raw_mode is not None and not is_valid_board_mode(raw_mode):
+            return jsonify({'ok': False, 'error': 'invalid_mode'}), 400
+        mode = normalize_mode(raw_mode, DEFAULT_BOARD_MODE)
+
+        if 'content_b64' in data:
+            try:
+                content = _decode_content_b64(data.get('content_b64'), max_decoded_chars=5000)
+            except ValueError:
+                if 'content' in data:
+                    content = _sanitize_text(data.get('content', ''), 5000)
+                else:
+                    return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
+        else:
+            content = _sanitize_text(data.get('content', ''), 5000)
+
+        # תקרות — ולפני הכתיבה, לא אחריה. ``_count_or_none`` מבחין בין אפס
+        # לבין ספירה שנכשלה, ו-``check_note_quota`` דוחה על השנייה.
+        is_admin_user = _current_user_is_admin()
+        try:
+            check_note_quota(
+                _count_or_none(db.sticky_notes, board_notes_filter(user_id, board_id)),
+                MAX_NOTES_PER_BOARD,
+                is_admin=is_admin_user,
+            )
+            check_note_quota(
+                _count_or_none(db.sticky_notes, {'user_id': user_id}),
+                MAX_NOTES_PER_USER,
+                is_admin=is_admin_user,
+            )
+        except NoteQuotaError as exc:
+            return jsonify({'ok': False, 'error': str(exc)}), 409
+
+        pos = data.get('position') or {}
+        size = data.get('size') or {}
+        color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
+
+        doc: Dict[str, Any] = {
+            'user_id': user_id,
+            'content': content,
+            'position_x': _coerce_int(pos.get('x'), 100, 0, 100000),
+            'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
+            'width': _coerce_int(size.get('width'), 250, 120, 1200),
+            'height': _coerce_int(size.get('height'), 200, 80, 1200),
+            'color': color if color else '#FFFFCC',
+            'is_minimized': bool(data.get('is_minimized', False)),
+            'mode': mode,
+            'created_at': datetime.now(timezone.utc),
+            'updated_at': datetime.now(timezone.utc),
+        }
+        # שדות היעד עוברים דרך הבנאי, ולא נכתבים כאן ביד. זה מה שמונע
+        # ממסמך לצאת עם שני משטחים או בלי אף אחד.
+        doc.update(build_note_target(board_id=board_id))
+
+        res = db.sticky_notes.insert_one(doc)
+        nid = str(getattr(res, 'inserted_id', ''))
+        try:
+            emit_event("sticky_note_created", severity="info", user_id=int(user_id), board_id=str(board_id))
+        except Exception:
+            pass
+        resp = jsonify({'ok': True, 'id': nid})
+        try:
+            resp.headers['Cache-Control'] = 'no-store'
+        except Exception:
+            pass
+        return resp, 201
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_board_create_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to create note'}), 500
+
+
+@sticky_notes_bp.route('/note/<note_id>/task', methods=['POST'])
+@require_auth
+@notes_rate_limit('note_task_toggle', 300)
+@traced("sticky_notes.task_toggle")
+def toggle_note_task(note_id: str):
+    """מסמן או מבטל צ'קבוקס בתוך פתק.
+
+    **הראוט הזה קיים כדי שאפשר יהיה לאמת את הכתיבה.** האלטרנטיבה — לשלוח
+    את התוכן המלא ב-``PUT /note/<id>`` — הופכת כל קליק לדריסת
+    last-writer-wins של עריכות מקבילות, ובעיקר הופכת אימות לבלתי אפשרי:
+    אפשר לאמת רק שכתבנו את מה ששלחנו. הבקשה כאן נושאת **כוונה** (מספר
+    סידורי + מצב רצוי), וזה הדבר היחיד שניתן לאמת מול המסד.
+
+    הסדר, וכל שלב בו מגן על משהו:
+
+    1. הפתק קיים ושייך למשתמש — אחרת 404.
+    2. ``prev_updated_at`` — אחרת 409, בדיוק כמו ב-``update_note``.
+    3. סידורי שאינו קיים ⇒ **409**, לא 200. התצוגה של הלקוח מיושנת.
+    4. כבר במצב המבוקש ⇒ 200 בלי כתיבה. אידמפוטנטי.
+    5. Compare-and-swap: הפילטר כולל את התוכן הקודם, כך שכותב מקביל אינו
+       נדרס.
+    6. **קריאה חוזרת מהמסד** ובדיקה שהתו אכן השתנה. לא ``modified_count``,
+       לא ``ok: true`` — אלה מדווחים על הקריאה, לא על המצב.
+
+    בכל מסלול התשובה נושאת את התוכן הסמכותי, כדי שהלקוח יסתנכרן בלי
+    סיבוב נוסף — וגם במסלול הכשל, שם זה מה שמאפשר לו להחזיר את התצוגה
+    למה שבאמת שמור.
+    """
+    try:
+        from sticky_notes_tasks import task_state_at_index, toggle_task_at_index
+
+        user_id = int(session['user_id'])
+        db = get_db()
+        try:
+            oid = ObjectId(str(note_id))
+        except InvalidId:
+            return jsonify({'ok': False, 'error': 'Invalid note_id'}), 400
+
+        data = request.get_json(silent=True) or {}
+        try:
+            index = int(data.get('index'))
+        except Exception:
+            return jsonify({'ok': False, 'error': 'invalid_index'}), 400
+        if index < 0:
+            return jsonify({'ok': False, 'error': 'invalid_index'}), 400
+        checked = bool(data.get('checked'))
+
+        note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
+        if not note:
+            return jsonify({'ok': False, 'error': 'Note not found'}), 404
+
+        prev_updated_at = data.get('prev_updated_at')
+        if prev_updated_at:
+            try:
+                # ``fromisoformat`` מקבל סיומת ``Z`` מ-Python 3.11, וה-CI
+                # רץ על 3.11 ו-3.12 בלבד — אותה צורה כמו בשני
+                # מסלולי העדכון האחרים.
+                prev_dt = datetime.fromisoformat(str(prev_updated_at))
+            except Exception:
+                prev_dt = None
+            if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:
+                return jsonify({
+                    'ok': False,
+                    'error': 'Conflict',
+                    'content': note.get('content', ''),
+                    'updated_at': note['updated_at'].isoformat(),
+                }), 409
+
+        original = note.get('content', '') or ''
+        new_content, changed = toggle_task_at_index(original, index, checked)
+
+        if not changed:
+            # שתי סיבות אפשריות, ורק אחת מהן תקינה.
+            if task_state_at_index(original, index) is None:
+                # הסידורי אינו קיים — התצוגה של הלקוח מתארת פתק אחר.
+                return jsonify({
+                    'ok': False,
+                    'error': 'task_index_not_found',
+                    'content': original,
+                }), 409
+            # כבר במצב המבוקש. אין כתיבה, וזה בסדר גמור.
+            return jsonify({'ok': True, 'changed': False, 'content': original})
+
+        now = datetime.now(timezone.utc)
+        db.sticky_notes.update_one(
+            {'_id': oid, 'user_id': user_id, 'content': original},
+            {'$set': {'content': new_content, 'updated_at': now}},
+        )
+
+        fresh = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
+        applied = bool(fresh) and task_state_at_index(fresh.get('content', '') or '', index) is checked
+        if not applied:
+            try:
+                emit_event(
+                    "sticky_note_task_not_applied",
+                    severity="error",
+                    user_id=int(user_id),
+                    note_id=str(note_id),
+                )
+            except Exception:
+                pass
+            return jsonify({
+                'ok': False,
+                'error': 'task_toggle_not_applied',
+                'content': (fresh.get('content', '') if fresh else original),
+            }), 409
+
+        fresh_updated = fresh.get('updated_at')
+        return jsonify({
+            'ok': True,
+            'changed': True,
+            'content': fresh.get('content', ''),
+            'updated_at': fresh_updated.isoformat() if isinstance(fresh_updated, datetime) else None,
+        })
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_task_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to toggle task'}), 500

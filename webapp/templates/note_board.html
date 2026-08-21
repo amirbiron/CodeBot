@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}לוח פתקים - Code Keeper Bot{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="boards-page">
+  <div class="board-toolbar">
+    <input type="text" class="board-title-input" id="boardTitle" value="" aria-label="שם הלוח">
+    <a href="/boards" class="board-action">כל הלוחות</a>
+  </div>
+
+  <div class="board-msg is-error" id="boardMsg" hidden></div>
+
+  <div class="board-surface-wrap">
+    <div class="board-surface" id="boardSurface">
+      <div class="board-empty" id="boardEmpty" hidden>
+        <div>הלוח ריק.</div>
+        <button class="board-action" id="firstNoteBtn">הוסיפו פתק ראשון</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
+<script>
+(function () {
+  'use strict';
+
+  const BOARD_ID = {{ board_id | tojson }};
+  const surface = document.getElementById('boardSurface');
+  const titleInput = document.getElementById('boardTitle');
+  const msg = document.getElementById('boardMsg');
+  const empty = document.getElementById('boardEmpty');
+
+  function showError(text) {
+    msg.textContent = text;
+    msg.hidden = false;
+  }
+
+  function refreshEmptyState() {
+    // ה-FAB הוא גם בן של המשטח, ולכן נספר רק פתקים
+    const count = surface.querySelectorAll('.sticky-note').length;
+    empty.hidden = count > 0;
+  }
+
+  async function loadBoard() {
+    try {
+      const resp = await fetch('/api/note-boards', { cache: 'no-store' });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) return;
+      const board = (data.boards || []).find(function (b) { return String(b.id) === String(BOARD_ID); });
+      if (board) {
+        titleInput.value = board.name;
+        document.title = board.name + ' - Code Keeper Bot';
+      }
+    } catch (e) { /* השם אינו קריטי לתפקוד הלוח */ }
+  }
+
+  titleInput.addEventListener('change', async function () {
+    const name = titleInput.value.trim();
+    if (!name) { loadBoard(); return; }
+    try {
+      const resp = await fetch('/api/note-boards/' + encodeURIComponent(BOARD_ID), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        showError('שינוי השם נכשל.');
+        loadBoard();  // חוזרים למה שבשרת, לא משאירים ערך שלא נשמר
+        return;
+      }
+      msg.hidden = true;
+      titleInput.value = data.board.name;
+    } catch (e) {
+      showError('שינוי השם נכשל.');
+      loadBoard();
+    }
+  });
+
+  // המשטח הוא הקונטיינר, ואין בו ``#md-content`` — ולכן כל מסלול העיגון
+  // לשורות מקור מנוטרל, ו-``_resolveMode`` מחזיר surface/screen בלבד.
+  window._boardNotes = new window.StickyNotesManager({
+    board: BOARD_ID,
+    container: surface,
+    anchorHost: null
+  });
+
+  document.getElementById('firstNoteBtn').addEventListener('click', function () {
+    window._boardNotes.createNote();
+  });
+
+  loadBoard();
+  refreshEmptyState();
+  // המצב הריק מתעדכן לפי מה שבאמת על המשטח, ולא לפי ספירה שנשמרת בצד
+  if (typeof MutationObserver !== 'undefined') {
+    new MutationObserver(refreshEmptyState).observe(surface, { childList: true });
+  }
+})();
+</script>
+{% endblock %}

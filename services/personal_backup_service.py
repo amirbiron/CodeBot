@@ -427,6 +427,20 @@ class PersonalBackupService:
             except Exception:
                 pass
             notes = list(cur) if not isinstance(cur, list) else list(cur)[: int(STICKY_NOTES_EXPORT_LIMIT)]
+            # פתק לוח מיוצא עם **שם** הלוח ולא רק עם המזהה: ה-``_id`` לא
+            # יהיה תקף אחרי שחזור לסביבה אחרת, והשם הוא מה שמאפשר לשייך
+            # מחדש. בלי זה פתקי לוח היו נופלים בשחזור על ה-``continue``
+            # שדורש ``file_name``.
+            try:
+                board_names = {}
+                for board in raw_db.note_boards.find({"user_id": int(user_id)}, {"name": 1}):
+                    board_names[str(board.get("_id"))] = str(board.get("name") or "")
+                for note in notes:
+                    bid = str(note.get("board_id") or "")
+                    if bid and bid in board_names:
+                        note["board_name"] = board_names[bid]
+            except Exception:
+                pass
             # המרת datetime ל-string
             for note in notes:
                 for key in ("created_at", "updated_at", "remind_at"):
@@ -1107,6 +1121,78 @@ class PersonalBackupService:
 
         return count
 
+    def _restore_board_note(self, raw_db, user_id: int, note: Dict) -> bool:
+        """משחזר פתק לוח. מחזיר ``True`` אם נכתב.
+
+        השיוך הוא לפי **שם** הלוח ולא לפי מזהה, כי ה-``_id`` שבגיבוי לא
+        יהיה תקף בסביבה אחרת. אין התאמה ⇒ לוח ברירת המחדל, שתמיד קיים —
+        עדיף פתק שנחת במקום הלא-מדויק מאשר פתק שנעלם בשקט.
+        """
+        from note_boards import ensure_default_board
+        from sticky_notes_target import build_note_target, normalize_mode
+
+        board_name = str(note.get("board_name") or "").strip()
+        target_board_id = None
+        if board_name:
+            try:
+                match = raw_db.note_boards.find_one({"user_id": int(user_id), "name": board_name})
+                if match:
+                    target_board_id = str(match.get("_id"))
+            except Exception:
+                target_board_id = None
+        if not target_board_id:
+            target_board_id = ensure_default_board(raw_db, int(user_id))
+        if not target_board_id:
+            return False
+
+        content = note.get("content", "")
+        existing = raw_db.sticky_notes.find_one({
+            "user_id": int(user_id),
+            "board_id": str(target_board_id),
+            "content": content,
+        })
+        if existing:
+            return False
+
+        # המכסות חלות גם על שחזור. בלי זה גיבוי גדול היה עוקף תקרה
+        # שנאכפת בכל מסלול אחר — כלומר "אכיפה" עם דלת אחורית.
+        from sticky_notes_target import NoteQuotaError, check_note_quota
+        from webapp.sticky_notes_api import MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER
+
+        def _count(query):
+            try:
+                return int(raw_db.sticky_notes.count_documents(query))
+            except Exception:
+                return None
+
+        try:
+            check_note_quota(
+                _count({"user_id": int(user_id), "board_id": str(target_board_id)}),
+                MAX_NOTES_PER_BOARD,
+            )
+            check_note_quota(_count({"user_id": int(user_id)}), MAX_NOTES_PER_USER)
+        except NoteQuotaError as exc:
+            raise ValueError(f"quota:{exc}") from exc
+
+        doc = {
+            "user_id": int(user_id),
+            "content": content,
+            "color": note.get("color", "#FFFFCC"),
+            "position_x": note.get("position_x", 100),
+            "position_y": note.get("position_y", 100),
+            "width": note.get("width", 250),
+            "height": note.get("height", 200),
+            "is_minimized": bool(note.get("is_minimized", False)),
+            "mode": normalize_mode(note.get("mode")),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        # שדות היעד דרך הבנאי, ולא ביד — כך המסמך אינו יכול לצאת עם שני
+        # משטחים או בלי אף אחד.
+        doc.update(build_note_target(board_id=target_board_id))
+        raw_db.sticky_notes.insert_one(doc)
+        return True
+
     def _restore_sticky_notes(self, user_id: int, notes: List[Dict], errors: List[str]) -> int:
         """משחזר פתקיות (best-effort).
 
@@ -1124,6 +1210,22 @@ class PersonalBackupService:
                     # resolve file_id חדש לפי file_name
                     file_name = note.get("file_name", "")
                     new_file_id = None
+
+                    # פתק לוח: משוחזר לפי **שם** הלוח, ובהיעדר התאמה — ללוח
+                    # ברירת המחדל, שתמיד קיים. עד היום הוא היה נופל כאן על
+                    # ה-``continue`` שדורש file_name — כלומר פתקי לוח לא
+                    # שרדו גיבוי-שחזור, בשקט.
+                    if note.get("board_id") or note.get("board_name"):
+                        try:
+                            restored = self._restore_board_note(raw_db, user_id, note)
+                        except ValueError as quota_exc:
+                            # חריגה ממכסה אינה שקטה: היא נכנסת לסיכום
+                            # השחזור, כדי שהמשתמש יידע שפתקים לא שוחזרו.
+                            errors.append(f"דילגתי על פתק לוח: חריגה ממכסה ({quota_exc})")
+                            continue
+                        if restored:
+                            count += 1
+                        continue
 
                     if not file_name:
                         continue  # לא ניתן לשייך את הפתקית בלי file_name

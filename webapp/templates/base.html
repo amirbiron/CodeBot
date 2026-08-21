@@ -2073,6 +2073,10 @@
                             <span class="qa-icon">🖥️</span>
                             <span class="qa-label">שולחן עבודה</span>
                         </button>
+                        <a href="/boards" class="quick-access-item" title="לוחות פתקים">
+                            <span class="qa-icon">📌</span>
+                            <span class="qa-label">לוחות פתקים</span>
+                        </a>
                         <button class="quick-access-item" onclick="showRecentFiles()" title="קבצים שנפתחו לאחרונה">
                             <span class="qa-icon">🕓</span>
                             <span class="qa-label">נפתחו לאחרונה</span>
@@ -4521,8 +4525,11 @@
         const fileId = a.getAttribute('data-file-id') || '';
         // best-effort ack
         try { fetch('/api/sticky-notes/reminders/ack', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: noteId }), credentials: 'same-origin' }).catch(()=>{}); } catch(_) {}
-        // navigate to rendered markdown with deep-link to note
-        if (fileId) { window.location.href = '/md/' + encodeURIComponent(fileId) + '?note=' + encodeURIComponent(noteId); }
+        // הפרמלינק /note/<id> מפנה לקובץ או ללוח, לפי מה שהפתק באמת הוא.
+        // קודם נבנה כאן /md/<file_id>, ולכן לחיצה על פתק לוח פשוט לא עשתה
+        // כלום — התנאי `if (fileId)` לא התקיים.
+        if (noteId) { window.location.href = '/note/' + encodeURIComponent(noteId); }
+        else if (fileId) { window.location.href = '/md/' + encodeURIComponent(fileId); }
       });
     });
     const closeBtn = pop.querySelector('[data-action="close-ui"]');

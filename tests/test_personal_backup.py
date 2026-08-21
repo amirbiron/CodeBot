@@ -514,6 +514,36 @@ class TestRestore:
         assert result["restored"]["large_files"] == 1
         assert mock_db.save_large_file.call_count == 1
 
+    def test_restore_board_note_lands_on_the_named_board(self, backup_service, mock_db):
+        """פתק לוח משוחזר לפי **שם** הלוח.
+
+        עד היום הוא נפל על ה-``continue`` שדורש ``file_name``, כלומר פתקי
+        לוח לא שרדו גיבוי-שחזור — בשקט, בלי שורת שגיאה. הבדיקה הזו נופלת
+        על הקוד שהיה כאן לפני התיקון.
+        """
+        mock_db.db.note_boards.find_one.return_value = {"_id": "board-77", "name": "לוח עבודה"}
+        # ברירת המחדל של MagicMock היא אובייקט אמיתי, ובדיקת הכפילות הייתה
+        # קוראת אותה כ"הפתק כבר קיים"
+        mock_db.db.sticky_notes.find_one.return_value = None
+
+        zip_bytes = self._make_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {"regular_files": [], "large_files": []},
+                "metadata/sticky_notes.json": [
+                    {"board_id": "old-id", "board_name": "לוח עבודה", "content": "משימה"}
+                ],
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=False)
+
+        assert result["ok"] is True
+        assert result["restored"]["sticky_notes"] == 1
+        doc = mock_db.db.sticky_notes.insert_one.call_args[0][0]
+        assert doc["board_id"] == "board-77"
+        assert "file_id" not in doc  # אילוץ "בדיוק אחד"
+
     def test_restore_skips_sticky_note_when_file_cannot_be_resolved(self, backup_service, mock_db):
         """פתקית עם file_name שלא נפתר ל-file_id לא תישמר (כדי לא ליצור יתומות)."""
         mock_db.get_file.return_value = None

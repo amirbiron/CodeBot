@@ -204,7 +204,20 @@ def test_notes_scope_filter_matches_webapp_shape():
     q = _notes_scope_filter(42, sid, ["id1", "id2"])
     assert q == {"user_id": 42, "$or": [{"scope_id": sid}, {"file_id": {"$in": ["id1", "id2"]}}]}
     assert _notes_scope_filter(42, sid, []) == {"user_id": 42, "$or": [{"scope_id": sid}]}
-    assert _notes_scope_filter(42, None, []) == {"user_id": 42}
+
+
+def test_notes_scope_filter_without_clauses_matches_nothing():
+    """בלי scope ובלי related — שאילתה שלא תופסת דבר, לא "הכול".
+
+    הטענה כאן הייתה קודם ``== {"user_id": 42}``, כלומר היא **קיבעה באג**:
+    שאילתה כזו מחזירה את כל הפתקים של המשתמש במקום את הפתקים של הקובץ
+    שהתבקש. היום המסלול הזה לא נגיש, כי ``scope_id`` תמיד מחושב משם קובץ
+    לא-ריק — אבל עם פתקי לוח, פתק שאינו שייך לשום קובץ היה נשאב לתשובה של
+    ``list_notes`` על קובץ אקראי.
+
+    ``{"_id": {"$in": []}}`` הוא הביטוי המפורש ל"אין לי לפי מה לחפש".
+    """
+    assert _notes_scope_filter(42, None, []) == {"user_id": 42, "_id": {"$in": []}}
 
 
 def test_as_note_serialization():

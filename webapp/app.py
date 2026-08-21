@@ -1235,6 +1235,30 @@ except Exception:
     # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
 
+# Note Boards API (לוחות פתקים — פתקים שאינם צמודים לקובץ).
+# ראוטי הפתקים של הלוח יושבים ב-sticky_notes_bp שלמעלה; כאן רק הלוחות עצמם.
+try:
+    from webapp.note_boards_api import note_boards_bp  # noqa: E402
+    app.register_blueprint(note_boards_bp)
+except Exception as _e:
+    # לא מפילים את היישום (סביבות דוקס/CI ללא תלויות), אבל גם לא בולעים
+    # בשקט: רישום שנכשל פירושו שהפיצ'ר פשוט לא קיים, וזה חייב להיראות
+    # בלוג ברמת error ולא להתגלות כ-404 מסתורי.
+    try:
+        logger.error("note_boards_api blueprint not registered: %s", _e, exc_info=True)
+    except Exception:
+        pass
+
+# Note Boards UI (עמודי הלוחות עצמם)
+try:
+    from webapp.boards_ui import boards_ui  # noqa: E402
+    app.register_blueprint(boards_ui)
+except Exception as _e:
+    try:
+        logger.error("boards_ui blueprint not registered: %s", _e, exc_info=True)
+    except Exception:
+        pass
+
 # Web Push API (public key + subscribe/unsubscribe)
 try:
     from webapp.push_api import push_bp, start_sender_if_enabled  # noqa: E402
@@ -4101,22 +4125,13 @@ def premium_or_admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def is_admin(user_id: int) -> bool:
-    """בודק אם משתמש הוא אדמין"""
-    admin_ids_env = os.getenv('ADMIN_USER_IDS', '')
-    admin_ids_list = admin_ids_env.split(',') if admin_ids_env else []
-    admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
-    return user_id in admin_ids
-
-def is_premium(user_id: int) -> bool:
-    """בודק אם משתמש הוא פרימיום לפי ENV PREMIUM_USER_IDS"""
-    try:
-        premium_ids_env = os.getenv('PREMIUM_USER_IDS', '')
-        premium_ids_list = premium_ids_env.split(',') if premium_ids_env else []
-        premium_ids = [int(x.strip()) for x in premium_ids_list if x.strip().isdigit()]
-        return user_id in premium_ids
-    except Exception:
-        return False
+# ``is_admin``/``is_premium`` חיים ב-``user_roles`` — מודול טהור בשורש. הם
+# מיוצאים כאן בשמם כדי שכל מי שכבר עושה ``from webapp.app import is_admin``
+# (themes_api, routes/repo_browser, routes/auth_routes) ימשיך לעבוד.
+# הסיבה להוצאה: הלוגיקה הייתה משוכפלת מילה במילה גם ב-``code_tools_api``,
+# ובנוסף ``sticky_notes_api`` זקוק לה — ו-``app`` מייבא אותו, כך שייבוא הפוך
+# היה יוצר מעגל.
+from user_roles import is_admin, is_premium  # noqa: E402,F401
 
 
 # --- Admin Impersonation Functions ---

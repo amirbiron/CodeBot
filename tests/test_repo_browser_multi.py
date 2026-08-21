@@ -172,11 +172,21 @@ class TestStubMatchesProduction:
         assert values[0] == IMPERSONATION_SESSION_KEY
 
     def test_production_helpers_still_exist(self):
-        """שתי הפונקציות שה-guard נשען עליהן עדיין קיימות בשמן."""
+        """שתי הפונקציות שה-guard נשען עליהן עדיין זמינות בשמן.
+
+        נספרות גם הגדרות וגם ייבואים: ``is_admin`` ו-``is_premium`` הועברו
+        למודול ``user_roles`` (הלוגיקה הייתה משוכפלת מילה במילה גם
+        ב-``code_tools_api``), ו-``webapp/app`` מייצא אותן משם. מה
+        שחשוב לצרכנים — ``themes_api``, ``routes/repo_browser``,
+        ``routes/auth_routes`` — הוא שהשם זמין, לא היכן הוא מוגדר.
+        """
         tree = ast.parse(self._app_source())
         names = {
             node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
         }
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names.update(alias.asname or alias.name for alias in node.names)
         assert {'is_admin', 'is_impersonating_safe'} <= names
 
     def test_production_impersonation_honors_force_admin(self):
