@@ -1,5 +1,28 @@
 /* Sticky Notes styles */
+/* דיו הפתק — **קבוע, ולא של הערכה.**
+ *
+ * רקע הפתק הוא צהוב קשיח שאינו משתנה עם הערכה, ולכן כל צבע טקסט שיירש
+ * מהערכה יוצא שגוי בדיוק באותה מידה שהרקע לא השתנה. נמדד: שם הפתק הגיע
+ * לניגודיות 1.03:1 ב-classic ו-ocean (לבן על צהוב בהיר — בלתי נראה),
+ * 1.18–1.50 בשאר הכהות, ורק בערכה הבהירה היחידה הוא היה קריא.
+ *
+ * הגוון אינו המצאה: הוא ``editor.foreground`` של ערכת ``Pen Paper Coffee``,
+ * שהיא הערכה היחידה שבה השם נראה טוב — ובדיוק מהסיבה הזו. הרצת הפרסר
+ * האמיתי (``services/theme_parser_service.parse_vscode_theme``) על ה-JSON
+ * שלה מראה ש-``editor.foreground: #2b3f6a`` הופך ל-``--text-primary``,
+ * וזה מה שהשם ירש שם. כחול דיו של עט על נייר — 10.10:1 מול צהוב הפתק,
+ * הרבה מעל הסף המחמיר של WCAG AAA (7:1).
+ *
+ * (``--text-secondary`` בערכה הזו הוא דווקא ``#616161``, נפילה גנרית — אין
+ * לה ``sideBar.foreground`` כלל. כלומר לא הוא זה שנראה טוב.)
+ *
+ * ``--note-ink-muted`` הוא לפקד שאינו זמין, באותה משפחת גוון. 4.00:1 —
+ * מעל הסף לרכיבי ממשק (1.4.11) עם מרווח, כלומר **נראה**, אבל חלש דיו
+ * כדי לומר "אי אפשר ללחוץ".
+ */
 .sticky-note{
+  --note-ink: #2b3f6a;
+  --note-ink-muted: #66739A;
   position: fixed;
   z-index: 950;
   box-shadow: 0 8px 20px rgba(0,0,0,.25);
@@ -166,8 +189,12 @@
   outline-offset: 1px;
 }
 
-/* כפתור ביטול מושבת — הכפתור אומר את האמת על מה שהוא יכול לעשות */
-.sticky-note-btn[disabled] { opacity: .3; cursor: default; }
+/* כפתור מושבת — נראה, אבל חלש.
+ *
+ * ``opacity: .3`` הרכיב את הגלף על הכותרת והוריד אותו ל-1.96:1 — כלומר
+ * הכפתור נעלם לגמרי, והמרווח שהוא תופס נראה כמו חור מקרי בשורה. עכשיו
+ * הוא מקבל צבע משלו: קיים על המסך, וברור שאינו פעיל. */
+.sticky-note-btn[disabled] { color: var(--note-ink-muted); cursor: default; }
 
 /* חיווי העתקה. כשל חייב להיראות, לא רק הצלחה. */
 .sticky-note-copy.is-copy-done { background: #d1fae5; color: #065f46; border-radius: 6px; }
@@ -183,11 +210,13 @@
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: inherit;
+  color: var(--note-ink);
   padding: 0 4px;
   text-overflow: ellipsis;
 }
-.sticky-note-title::placeholder { font-weight: 400; opacity: .45; }
+/* גם ה-placeholder — ``opacity`` עליו הייתה מחזירה אותנו בדיוק לבעיה
+   שהכפתור המושבת סבל ממנה. */
+.sticky-note-title::placeholder { font-weight: 400; color: var(--note-ink-muted); opacity: 1; }
 /* פוקוס נראה לעין. רקע ב-5% אינו חיווי — הוא כמעט בלתי נראה על צהוב,
    וזה שדה עריכה שמגיעים אליו ב-Tab. ``outline`` אמיתי, בלי לבטל אותו. */
 .sticky-note-title:focus-visible,
