@@ -974,6 +974,8 @@ def reminders_ack():
 def create_note(file_id: str):
     """Create a new sticky note for a file."""
     try:
+        from sticky_notes_target import NoteQuotaError, check_note_quota
+
         _ensure_indexes()
         user_id = int(session['user_id'])
         db = get_db()
@@ -998,6 +1000,18 @@ def create_note(file_id: str):
         line_end = data.get('line_end')
         anchor_id = (data.get('anchor_id') or '').strip()[:256]
         anchor_text = (data.get('anchor_text') or '').strip()[:256]
+
+        # תקרת הפתקים למשתמש חלה על כל הפתקים, לא רק על אלה שבלוחות.
+        # היא מתועדת מזה זמן ולא נאכפה בשום מקום; אכיפה רק במסלול הלוח
+        # הייתה הופכת את התיעוד לנכון-למחצה.
+        try:
+            check_note_quota(
+                _count_or_none(db.sticky_notes, {'user_id': user_id}),
+                MAX_NOTES_PER_USER,
+                is_admin=_current_user_is_admin(),
+            )
+        except NoteQuotaError as exc:
+            return jsonify({'ok': False, 'error': str(exc)}), 409
 
         doc = {
             'user_id': user_id,

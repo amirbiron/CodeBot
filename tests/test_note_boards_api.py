@@ -368,3 +368,22 @@ def test_quota_rejects_when_count_failed(client):
 
     assert res.status_code == 409
     assert res.get_json()["error"] == "note_quota_unknown"
+
+
+def test_user_quota_applies_to_file_notes_too(client, monkeypatch):
+    """התקרה למשתמש חלה על כל הפתקים, לא רק על אלה שבלוחות.
+
+    היא מתועדת מזה זמן ולא נאכפה בשום מקום. אכיפה רק במסלול הלוח הייתה
+    הופכת את התיעוד לנכון-למחצה — וזה בדיוק סוג הטענה שהלינט של
+    התקצירים נבנה כדי לתפוס.
+    """
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "MAX_NOTES_PER_USER", 1)
+    monkeypatch.setattr(sticky_notes_api, "_resolve_scope", lambda *a, **k: (None, None, []))
+    client.db.sticky_notes.docs.append({"_id": 1, "user_id": 7, "file_id": "f1"})
+
+    res = client.post("/api/sticky-notes/f1", json={"content": "עוד אחד"})
+
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "note_quota_exceeded"
