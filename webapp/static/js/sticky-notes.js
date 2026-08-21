@@ -457,9 +457,24 @@
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         this._setTitleEditing(el, !el.classList.contains('is-editing-title'));
       });
-      // גרירה על העיפרון עצמו לא אמורה להתחיל — הוא כפתור
-      editBtn.addEventListener('mousedown', (ev) => { try { ev.stopPropagation(); } catch(_) {} });
+      // גרירה על העיפרון עצמו לא אמורה להתחיל — הוא כפתור.
+      //
+      // ``preventDefault`` על ה-mousedown הוא מה שמונע העברת מיקוד, ולכן
+      // גם את ה-``blur`` של השדה. בלעדיו נוצר מרוץ סדר: ה-blur היה רץ
+      // **לפני** ה-click, סוגר את מצב העריכה, ואז ה-click היה מוצא מצב
+      // סגור ומדליק אותו בחזרה — כלומר ה-✔ לא סוגר כלום. נתפס באימות
+      // מקצה לקצה: ``editing=True`` אחרי לחיצה על ✔, והפתק נשאר לא נגרר.
+      editBtn.addEventListener('mousedown', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+      });
       editBtn.addEventListener('touchstart', (ev) => { try { ev.stopPropagation(); } catch(_) {} }, { passive: true });
+      // **ואותו דבר לשדה עצמו.** הוא יושב בתוך ידית הגרירה, ולכן בזמן
+      // עריכה — כשהוא כבר מקבל אירועים — לחיצה בתוכו בועה אל הידית
+      // ומתחילה גרירה במקום למקם סמן. נמדד: סימון טקסט בשם הזיז את הפתק
+      // מ-20px ל-0px, ובחר מחרוזת ריקה. כשהשדה נעול ה-``pointer-events``
+      // ממילא לא מביא אותנו לכאן.
+      titleInput.addEventListener('mousedown', (ev) => { try { ev.stopPropagation(); } catch(_) {} });
+      titleInput.addEventListener('touchstart', (ev) => { try { ev.stopPropagation(); } catch(_) {} }, { passive: true });
 
       titleInput.addEventListener('input', () => {
         // שם חדש הוא ניסיון חדש. הסימון הישן שייך לערך שכבר לא בשדה,
@@ -470,11 +485,12 @@
       // 409 מהשרת פירושו שהשם תפוס בלוח הזה. חיווי גלוי — לא כתיבה
       // שנראית שנשמרה ולא נשמרה.
       titleInput.addEventListener('blur', async () => {
+        // **הנעילה קודמת להמתנה, לא אחריה.** ``_flushFor`` ממתין לרשת,
+        // ורשת יכולה להיתקע. אם השחרור היה אחריו, הפתק היה נשאר במצב
+        // עריכה — כלומר בלתי ניתן לגרירה — עד שהבקשה תחזור.
+        this._setTitleEditing(el, false);
         try { await this._flushFor(el); } catch(_) {}
         this._syncTitleConflict(el);
-        // יציאה מהשדה מחזירה את הכותרת למצב גרירה. בלי זה הפתק היה נשאר
-        // בלתי ניתן לגרירה עד לחיצה נוספת על הכפתור.
-        this._setTitleEditing(el, false);
       });
       titleInput.addEventListener('keydown', (ev) => {
         if (ev.key !== 'Enter' && ev.key !== 'Escape') return;
@@ -1009,8 +1025,12 @@
           const editing = !!on;
           el.classList.toggle('is-editing-title', editing);
           if (btn) {
+            const label = editing ? 'סיום עריכת השם' : 'עריכת שם הפתק';
             btn.textContent = editing ? '✔' : '✎';
-            btn.title = editing ? 'סיום עריכת השם' : 'עריכת שם הפתק';
+            btn.title = label;
+            // ``aria-label`` נקבע פעם אחת בבנייה, ולכן קורא מסך היה מכריז
+            // "עריכת שם" גם על הכפתור שסוגר אותה. מתחלף יחד עם השאר.
+            btn.setAttribute('aria-label', label);
             btn.setAttribute('aria-pressed', editing ? 'true' : 'false');
           }
           if (!input) return;
@@ -1674,8 +1694,12 @@
         this._flushFor(el);
         this._updateSurfaceExtent();
       };
-      // מניעת מחוות ברירת מחדל במובייל
-      try { handle.style.touchAction = 'none'; } catch(_) {}
+      // ``touch-action`` מוצהר ב-CSS על ``.sticky-note-drag``, ולא כאן.
+      //
+      // סגנון inline גובר על גיליון סגנונות, ולכן ההצבה שהייתה כאן ביטלה
+      // בשקט את ``.is-editing-title .sticky-note-drag { touch-action: auto }``
+      // — הכלל שאמור להחזיר מגע לשדה השם בזמן עריכה. נמדד בכרומיום:
+      // הערך נשאר ``none`` גם אחרי הוספת המחלקה. הצהרה אחת, במקום אחד.
       handle.addEventListener('mousedown', onDown);
       window.addEventListener('mousemove', onMove, { passive: false });
       window.addEventListener('mouseup', onUp);

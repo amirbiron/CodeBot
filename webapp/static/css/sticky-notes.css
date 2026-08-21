@@ -266,7 +266,10 @@
 }
 
 /* בעריכה השדה חייב לקבל מגע בחזרה — ``touch-action: none`` של הידית
-   חוסם מיקום סמן במובייל. */
+   חוסם מיקום סמן במובייל.
+   הכלל הזה עבד רק אחרי ש-``_enableDrag`` הפסיק להציב ``touchAction``
+   כסגנון inline: inline גובר על גיליון סגנונות, ולכן ההצהרה כאן בוטלה
+   בשקט. נמדד בכרומיום — הערך נשאר ``none`` גם עם המחלקה. */
 .sticky-note.is-editing-title .sticky-note-drag { touch-action: auto; cursor: default; }
 .sticky-note.is-editing-title .sticky-note-title { background: rgba(255, 255, 255, .55); border-radius: 4px; }
 

@@ -39,6 +39,10 @@ function makeSandbox() {
       createElement: () => el(),
       addEventListener() {},
       querySelectorAll: () => [],
+      // ``_setTitleEditing`` מקזז ``document.activeElement === input`` לפני
+      // שהוא קורא ל-``blur``. בלי החשיפה הזו התנאי לעולם אינו מתקיים,
+      // הענף לא רץ באף בדיקה, ומחיקתו הייתה עוברת בשקט.
+      get activeElement() { return sandbox.__focused || null; },
     },
     window: {
       addEventListener() {},
@@ -248,8 +252,11 @@ class FakeEl {
   removeAttribute(k) { delete this._attrs[k]; }
   hasAttribute(k) { return k in this._attrs; }
   addEventListener() {}
-  focus() { FakeEl.focused = this; }
-  blur() { if (FakeEl.focused === this) FakeEl.focused = null; }
+  focus() { FakeEl.focused = this; sandbox.__focused = this; }
+  blur() {
+    if (FakeEl.focused === this) FakeEl.focused = null;
+    if (sandbox.__focused === this) sandbox.__focused = null;
+  }
   select() { this._selected = true; }
   _matches(sel) { return sel.startsWith('.') ? this._classes.has(sel.slice(1)) : this.tagName === sel; }
   querySelector(sel) {
@@ -691,6 +698,9 @@ check('שם: מצב העריכה מחליף נעילה, פוקוס וסמל', ()
   eq(n.titleInput.getAttribute('tabindex'), '0', 'נכנס לסדר ה-Tab');
   eq(btn.textContent, '✔', 'הסמל התחלף');
   eq(btn.getAttribute('aria-pressed'), 'true');
+  eq(btn.getAttribute('aria-label'), 'סיום עריכת השם', 'התווית תואמת לפעולה');
+  eq(sandbox.__focused === n.titleInput, true, 'השדה קיבל מיקוד');
+  eq(n.titleInput._selected, true, 'והתוכן נבחר');
 
   fileMgr._setTitleEditing(n.el, false);
   eq(n.el.classList.contains('is-editing-title'), false, 'המצב כובה');
@@ -698,6 +708,11 @@ check('שם: מצב העריכה מחליף נעילה, פוקוס וסמל', ()
   eq(n.titleInput.getAttribute('tabindex'), '-1', 'יצא מסדר ה-Tab');
   eq(btn.textContent, '✎', 'חזר לעיפרון');
   eq(btn.getAttribute('aria-pressed'), 'false');
+  eq(btn.getAttribute('aria-label'), 'עריכת שם הפתק', 'והתווית חזרה');
+  // **זה הענף שלא רץ באף בדיקה עד היום.** בלי ``document.activeElement``
+  // בסנדבוקס התנאי לעולם לא התקיים, והשדה נשאר ממוקד אחרי הנעילה —
+  // כלומר המקלדת במובייל לא הייתה נסגרת.
+  eq(sandbox.__focused, null, 'והמיקוד שוחרר');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);
