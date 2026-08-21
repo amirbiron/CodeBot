@@ -321,21 +321,6 @@
         const noteX = isMobile ? 80 : 120;
         const noteY = scroll.y + (isMobile ? 80 : 120);
 
-        // עיגון אוטומטי לאלמנט הקרוב עם [data-source-line] (רלוונטי ל־MD preview).
-        // הפתק יהפוך ל־anchored (position:absolute, doc-Y) ולכן יזוז יחד עם התוכן
-        // כאשר ::: details נפתח/נסגר, תמונות נטענות, וכו'.
-        // בלוח אין שורות מקור, ולכן החיפוש כולו מדולג — ולא "רץ ומחזיר null".
-        let autoAnchorLine = null;
-        if (!this.boardId) {
-          try {
-            const nearest = this._findNearestSourceLineElement(noteY);
-            if (nearest) {
-              const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
-              if (Number.isFinite(raw) && raw >= 0) autoAnchorLine = raw + 1;
-            }
-          } catch(_) {}
-        }
-
         const payload = this.boardId ? {
           content: '',
           position: { x: noteX, y: noteY },
@@ -349,9 +334,20 @@
           position: { x: noteX, y: noteY },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
-          line_start: autoAnchorLine,
-          // חזרה להתנהגות הישנה: ללא עיגון לכותרות כברירת מחדל
-          anchor_id: '',
+          // **פתק חדש צף עם המשתמש.** זו זרימת העבודה: כותבים פתק תוך עיון
+          // בקובץ, גוללים למטה, וממשיכים לכתוב — ורק בסוף נועצים אותו במקום
+          // שמתאים.
+          //
+          // עד כאן ``line_start`` נקבע אוטומטית לשורת המקור הקרובה, וזה
+          // הספיק כדי ש-``_resolveMode`` יחזיר ``anchored`` — כלומר
+          // ``position: absolute``, שנשאר במקומו במסמך ולא ממשיך עם המסך.
+          // נמדד: פתק חדש זז ‎-900px‎ בגלילה של 900, ורק ``pin`` ואז ``unpin``
+          // הפכו אותו לצף. ההערה שהייתה כאן כבר הצהירה "ללא עיגון כברירת
+          // מחדל" — בוטל רק העיגון לכותרות, ועיגון השורה נשאר.
+          line_start: null,
+          // הסנטינל המפורש הכרחי: בלעדיו המיגרציה הרכה ב-``_renderNote``
+          // הייתה מעגנת את הפתק מחדש בטעינה הבאה ומחזירה את הבאג.
+          anchor_id: FLOATING_SENTINEL,
           anchor_text: undefined
         };
         const resp = await fetch(this._scopeUrl, {
@@ -691,6 +687,27 @@
       // בלי זה החלק העליון של הפתק — שהוא גם ידית הגרירה — יכול לעלות מעל
       // הקצה, ואז אין שום דרך להחזיר אותו: הגרירה היא לחיצה על הכותרת,
       // והכותרת מחוץ למסך.
+      // פתק צף (``position: fixed``) נמדד מול אזור התצוגה ולא מול המשטח.
+      //
+      // בלי זה אפשר היה לגרור אותו כך שהכותרת — שהיא ידית הגרירה — יוצאת
+      // מחוץ למסך. הוא אמנם חזר לגבולות בלחיצה הבאה, בזכות
+      // ``_reflowWithinViewport`` שרץ בפוקוס, אבל "נעלם ואז חוזר" הוא לא
+      // התנהגות, הוא תיקון שקורה במקרה.
+      _clampToViewport(el, x, y){
+        try {
+          const vp = window.visualViewport;
+          const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
+          const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+          const r = el.getBoundingClientRect();
+          const w = Math.round(r.width) || 260;
+          const h = Math.round(r.height) || 200;
+          return {
+            x: clamp(Math.round(x), 12, Math.max(12, vpW - w - 12)),
+            y: clamp(Math.round(y), 60, Math.max(60, vpH - h - 20))
+          };
+        } catch(_) { return { x, y }; }
+      }
+
       _clampToSurface(el, x, y, note){
         try {
           const parent = this.container;
@@ -731,14 +748,9 @@
       const active = !!isActive;
       pinBtn.classList.toggle('is-active', active);
       pinBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-      if (this.boardId) {
-        // בלוח הכפתור מחליף בין "יושב על הלוח" (ברירת המחדל, כבוי) לבין
-        // "צף מול המסך" (דלוק). "נעיצה למסמך" היא מושג של קובץ ואין לה
-        // מובן כאן — ולכן גם אין סיבה שהכפתור יידלק כבר בפתיחה.
-        pinBtn.title = active ? 'החזר את הפתק ללוח' : 'הצמד את הפתק למסך';
-      } else {
-        pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
-      }
+      // אותה משמעות, אותו צבע, בשני המשטחים
+      const anchor = this.boardId ? 'ללוח' : 'למסמך';
+      pinBtn.title = active ? `הפתק מוצמד ${anchor} — לחצו כדי לשחרר` : `הצמידו את הפתק ${anchor}`;
     }
 
       // ----- צ'קבוקסים -----
@@ -1041,9 +1053,10 @@
               this._reflowWithinViewport(el);
             }
           }
-          // בלוח הכפתור מציין "צף מול המסך", ולא "מוצמד". בלי ההיפוך הזה
-          // הוא היה נדלק כבר בפתיחת הפתק — כי surface הוא ברירת המחדל.
-          this._updatePinButtonState(el, this.boardId ? (resolved === 'screen') : isPinned);
+          // **ורוד = מוצמד למשטח שמתחתיו**, בקובץ ובלוח כאחד. בקובץ זה
+          // המסמך, בלוח זה הלוח. שני סימנים שונים לאותה משמעות באותה
+          // מערכת הם באג בפני עצמו.
+          this._updatePinButtonState(el, isPinned);
         } catch(e) {
           console.warn('sticky note: applyPositionMode failed', e);
         }
@@ -1199,7 +1212,12 @@
         // חסימה כבר בזמן הגרירה, ולא רק בשמירה: אחרת אפשר לגרור את
         // הכותרת אל מעל קצה המשטח, ומשם אין דרך חזרה — הכותרת *היא*
         // ידית הגרירה.
-        if (this.boardId && el.classList && el.classList.contains('is-pinned')) {
+        // שני המצבים נחסמים — כל אחד מול מסגרת הייחוס שלו.
+        const floating = el.classList && el.classList.contains('is-floating');
+        if (floating) {
+          const c = this._clampToViewport(el, nx, ny);
+          nx = c.x; ny = c.y;
+        } else if (this.boardId && el.classList && el.classList.contains('is-pinned')) {
           const c = this._clampToSurface(el, nx, ny, null);
           nx = c.x; ny = c.y;
         }
