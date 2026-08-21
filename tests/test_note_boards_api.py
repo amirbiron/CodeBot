@@ -451,3 +451,94 @@ def test_count_failure_is_distinguishable_from_empty(client):
     board = client.get("/api/note-boards").get_json()["boards"][0]
 
     assert "note_count" not in board
+
+
+# -- ``mode``: הכפתור בלוח נשמר --
+#
+# ``mode`` נכתב עד היום רק ביצירה, ולכן כפתור המצב לא יכול היה לשנות כלום
+# שנשמר. מה שכן קרה בלחיצה עליו זה שהמיקום נכתב מחדש — כלומר הפתק זז ולא
+# שינה מצב.
+
+
+def _board_note(client, **extra):
+    doc = {"_id": 1, "user_id": 7, "board_id": "b1", "content": "", "mode": "surface"}
+    doc.update(extra)
+    client.db.sticky_notes.docs.append(doc)
+    return doc
+
+
+def test_mode_update_is_persisted_for_board_note(client):
+    doc = _board_note(client)
+
+    res = client.put("/api/sticky-notes/note/1", json={"mode": "screen"})
+
+    assert res.status_code == 200, res.get_json()
+    assert doc["mode"] == "screen"
+
+
+def test_mode_alone_is_enough_to_update(client):
+    """``mode`` בלבד אינו "אין שדות לעדכון"."""
+    _board_note(client)
+
+    res = client.put("/api/sticky-notes/note/1", json={"mode": "screen"})
+
+    assert res.status_code == 200
+    assert res.get_json()["ok"] is True
+
+
+def test_invalid_mode_is_rejected(client):
+    doc = _board_note(client)
+
+    res = client.put("/api/sticky-notes/note/1", json={"mode": "anchored"})
+
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "invalid_mode"
+    assert doc["mode"] == "surface", "הפתק לא השתנה"
+
+
+def test_mode_is_refused_on_a_file_note(client):
+    """פתק קובץ אינו מקבל ``mode``.
+
+    ``_resolveMode`` בלקוח קורא את ``mode`` **לפני** הסנטינלים, ולכן שדה
+    כזה על פתק קובץ היה משתלט על מסלול העיגון לשורות המקור.
+    """
+    doc = {"_id": 2, "user_id": 7, "file_id": "f1", "content": "", "scope_id": "s1"}
+    client.db.sticky_notes.docs.append(doc)
+
+    res = client.put("/api/sticky-notes/note/2", json={"mode": "screen"})
+
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "mode_not_supported"
+    assert "mode" not in doc
+
+
+def test_mode_update_works_through_the_batch_route(client):
+    """זה המסלול שהלקוח באמת משתמש בו — ``_performSaveBatch``."""
+    doc = _board_note(client)
+
+    res = client.post(
+        "/api/sticky-notes/batch",
+        json={"updates": [{"id": "1", "mode": "screen", "position": {"x": 5, "y": 6}}]},
+    )
+
+    assert res.status_code == 200
+    assert res.get_json()["results"][0]["ok"] is True
+    assert doc["mode"] == "screen"
+    assert (doc["position_x"], doc["position_y"]) == (5, 6)
+
+
+def test_batch_rejects_invalid_mode_without_touching_the_note(client):
+    doc = _board_note(client)
+
+    res = client.post(
+        "/api/sticky-notes/batch",
+        json={"updates": [{"id": "1", "mode": "לא-קיים", "position": {"x": 5, "y": 6}}]},
+    )
+
+    result = res.get_json()["results"][0]
+    assert result["ok"] is False
+    assert result["status"] == 400
+    assert result["error"] == "invalid_mode"
+    # הפריט כולו נדחה, ולא "חצי נשמר"
+    assert doc["mode"] == "surface"
+    assert "position_x" not in doc

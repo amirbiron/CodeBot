@@ -135,6 +135,15 @@
   // לבין פתק ישן שעדיין לא עבר מיגרציה ל־[data-source-line].
   const FLOATING_SENTINEL = '__floating__';
   const AUTO_SAVE_DEBOUNCE_MS = 500;
+  //: תקרת התוכן שהשרת מקבל (``_sanitize_text``/``_decode_content_b64``
+  //: ב-``webapp/sticky_notes_api.py``, ומתועדת ב-``docs/user/sticky_notes.rst``).
+  //: מעבר לזה ה-PUT נדחה ב-400, והלקוח רק החזיר את השינוי ל-pending — כלומר
+  //: הדבקה של מסמך ארוך פשוט לא נשמרה, בלי שום סימן למשתמש.
+  const MAX_NOTE_CHARS = 5000;
+  //: שורת משימה: ``- [ ] טקסט`` או ``* [x] טקסט``, עם הזחה כלשהי.
+  //: אותה תבנית בדיוק כמו ``_TASK_RE`` ב-``sticky_notes_tasks.py`` — שם
+  //: מתבצעת הכתיבה, וכאן רק התצוגה. סטייה ביניהן הייתה מזיזה סידורים.
+  const TASK_LINE_RE = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -409,6 +418,16 @@
         const box = ev.target;
         if (box && box.type === 'checkbox') this._onTaskToggle(el, box);
       });
+      // לחיצה בכל מקום בתצוגה שאינו התיבה עצמה מחזירה לעריכה, בשורה
+      // שנלחצה. זו הדרך היחידה החוצה מהתצוגה — בלעדיה פתק עם צ'קבוקס
+      // אחד הופך לקריאה-בלבד לתמיד.
+      taskView.addEventListener('click', (ev) => {
+        const t = ev.target;
+        if (t && t.classList && t.classList.contains('sticky-task-box')) return;
+        const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
+        const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
+        this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
+      });
 
       el.appendChild(header);
       el.appendChild(textarea);
@@ -431,6 +450,7 @@
       });
 
       textarea.addEventListener('input', () => {
+        this._checkContentLength(el, textarea.value);
         this._queueSave(el, { content: textarea.value });
       });
       textarea.addEventListener('keydown', (ev) => {
@@ -608,11 +628,67 @@
       return false;
     }
 
-      _notePayloadFromEl(el){
-        const rect = el.getBoundingClientRect();
+      // הנקודה שממנה נמדדים ``position.x/y`` של פתק, בקואורדינטות של אזור
+      // התצוגה.
+      //
+      // **זה שורש הבאג "הפתק זז קצת למטה בכל רענון".** השמירה חישבה תמיד
+      // קואורדינטות של המסמך (``rect + scroll``), אבל פתק במצב ``surface``
+      // ממוקם ``absolute`` בתוך הקונטיינר — כלומר הדפדפן קורא בדיוק את
+      // אותם מספרים ביחס למשטח הלוח. בקובץ שני המרחבים חופפים, כי
+      // הקונטיינר הוא ה-body והוא לא ממוקם; בלוח המשטח מתחיל כמה מאות
+      // פיקסלים מתחת לראש המסמך, והפתק ירד בדיוק בהפרש הזה בכל שמירה.
+      //
+      // מסלול הקובץ יוצא ביט-זהה: כל ענף שאינו קונטיינר ממוקם מחזיר
+      // ``-scroll``, ואז ``rect.left - (-scroll.x)`` הוא בדיוק החישוב הישן.
+      _positionOrigin(el, mode){
         const scroll = getScrollOffsets();
-        const x = Math.round(rect.left + scroll.x);
-        const y = Math.round(rect.top + scroll.y);
+        const docOrigin = { x: -scroll.x, y: -scroll.y };
+        let resolved = mode;
+        if (!resolved) {
+          const entry = this._getEntry(el);
+          resolved = this._resolveMode(entry ? entry.data : null);
+        }
+        // ``screen`` הוא ``position: fixed`` ונשמר במרחב המסמך, כפי שהיה.
+        if (resolved === 'screen') return docOrigin;
+        const parent = this.container;
+        if (!parent || parent === document.body || parent === document.documentElement) return docOrigin;
+        try {
+          const r = parent.getBoundingClientRect();
+          // קופסת ה-padding של האב הממוקם, לפני הגלילה הפנימית שלו —
+          // בדיוק המרחב ש-``left``/``top`` של ילד ``absolute`` נמדדים בו.
+          return {
+            x: r.left + (parent.clientLeft || 0) - (parent.scrollLeft || 0),
+            y: r.top + (parent.clientTop || 0) - (parent.scrollTop || 0)
+          };
+        } catch(_) { return docOrigin; }
+      }
+
+      // פתק לא יוצא מגבולות המשטח.
+      //
+      // בלי זה החלק העליון של הפתק — שהוא גם ידית הגרירה — יכול לעלות מעל
+      // הקצה, ואז אין שום דרך להחזיר אותו: הגרירה היא לחיצה על הכותרת,
+      // והכותרת מחוץ למסך.
+      _clampToSurface(el, x, y, note){
+        try {
+          const parent = this.container;
+          if (!parent || typeof parent.clientWidth !== 'number' || parent.clientWidth <= 0) {
+            return { x, y };
+          }
+          let w = (note && note.size && typeof note.size.width === 'number') ? note.size.width : 0;
+          if (!w) { try { w = Math.round(el.getBoundingClientRect().width) || 0; } catch(_) { w = 0; } }
+          if (!w) w = 260;
+          const maxX = Math.max(0, parent.clientWidth - w);
+          // ציר ה-Y נחסם מלמטה בלבד: המשטח גליל, וגרירה כלפי מטה מגדילה
+          // אותו — כלומר פתק "רחוק" עדיין נגיש, בניגוד לפתק מעל הקצה.
+          return { x: clamp(Math.round(x), 0, maxX), y: Math.max(0, Math.round(y)) };
+        } catch(_) { return { x, y }; }
+      }
+
+      _notePayloadFromEl(el, mode){
+        const rect = el.getBoundingClientRect();
+        const origin = this._positionOrigin(el, mode);
+        const x = Math.round(rect.left - origin.x);
+        const y = Math.round(rect.top - origin.y);
         const w = Math.round(rect.width);
         const h = Math.round(rect.height);
         const payload = { position: { x, y }, size: { width: w, height: h } };
@@ -626,13 +702,20 @@
       return this.notes.get(id) || null;
     }
 
-    _updatePinButtonState(el, isPinned){
+    _updatePinButtonState(el, isActive){
       const pinBtn = el ? el.querySelector('.sticky-note-pin') : null;
       if (!pinBtn) return;
-      const active = !!isPinned;
+      const active = !!isActive;
       pinBtn.classList.toggle('is-active', active);
       pinBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-      pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
+      if (this.boardId) {
+        // בלוח הכפתור מחליף בין "יושב על הלוח" (ברירת המחדל, כבוי) לבין
+        // "צף מול המסך" (דלוק). "נעיצה למסמך" היא מושג של קובץ ואין לה
+        // מובן כאן — ולכן גם אין סיבה שהכפתור יידלק כבר בפתיחה.
+        pinBtn.title = active ? 'החזר את הפתק ללוח' : 'הצמד את הפתק למסך';
+      } else {
+        pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
+      }
     }
 
       // ----- צ'קבוקסים -----
@@ -642,45 +725,107 @@
       // שהתצוגה לא תשקר: אם הכתיבה לא נקלטה, הסימון חוזר אחורה ומוצגת
       // שגיאה. כשל שקט הוא בדיוק מה שהאפיון אוסר.
 
-      _parseTasks(text){
-        const lines = String(text == null ? '' : text).split('\n');
-        const re = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
-        const out = [];
-        lines.forEach((line) => {
-          const m = re.exec(line);
-          if (m) out.push({ checked: m[2].toLowerCase() === 'x', text: m[3].slice(1).trim() });
-        });
-        return out;
-      }
-
+      // בונה את התצוגה מ**כל** השורות, לא רק משורות המשימה.
+      //
+      // הגרסה הראשונה רינדרה רק את שורות הצ'קבוקס והסתירה את ה-textarea.
+      // התוצאה: פתק עם 400 שורות ושורת משימה אחת נראה כאילו נמחק — כל השאר
+      // פשוט לא הוצג, ולא הייתה שום דרך לחזור לעריכה. התוכן היה בטקסטאריה
+      // כל הזמן (נמדד בדפדפן: 5,509 תווים לפני ואחרי, אפס בקשות כתיבה),
+      // אבל מבחינת המשתמש זה אובדן מידע — ומבחינת התוצאה זה נכון.
+      //
+      // **החוק שמעל הפונקציה הזו: רינדור הוא חד-כיווני.** ``content →
+      // HTML``, לעולם לא חזרה. היחידים שרשאים לכתוב ל-``content`` הם
+      // ה-textarea עצמו וראוט ``/task`` (סידורי + מצב). על הכלל הזה יש
+      // בדיקה — ראו ``tests/sticky-notes-target.test.js``.
       _syncTaskView(el, opts){
         try {
           const view = el.querySelector('.sticky-note-tasks');
           const textarea = el.querySelector('.sticky-note-content');
           if (!view || !textarea) return;
           const editing = !!(opts && opts.editing);
-          const tasks = this._parseTasks(textarea.value);
-          if (editing || !tasks.length) {
+          const lines = String(textarea.value == null ? '' : textarea.value).split('\n');
+          const hasTask = lines.some((line) => TASK_LINE_RE.test(line));
+          if (editing || !hasTask) {
             view.hidden = true;
             textarea.hidden = false;
             return;
           }
           view.textContent = '';
-          tasks.forEach((task, idx) => {
-            const label = createEl('label', 'sticky-task');
-            const box = createEl('input', 'sticky-task-box');
-            box.type = 'checkbox';
-            box.checked = task.checked;
-            box.dataset.taskIndex = String(idx);
-            const span = createEl('span', 'sticky-task-text');
-            span.textContent = task.text;
-            label.appendChild(box);
-            label.appendChild(span);
-            view.appendChild(label);
+          let taskIndex = 0;
+          let charOffset = 0;
+          lines.forEach((line) => {
+            const m = TASK_LINE_RE.exec(line);
+            const row = createEl('div', 'sticky-task-line');
+            // מיקום התו הראשון של השורה בתוך התוכן — כדי שלחיצה תחזיר
+            // לעריכה בדיוק בשורה שנלחצה, ולא בתחילת הפתק.
+            row.dataset.charOffset = String(charOffset);
+            if (m) {
+              row.classList.add('sticky-task');
+              const box = createEl('input', 'sticky-task-box');
+              box.type = 'checkbox';
+              box.checked = m[2].toLowerCase() === 'x';
+              box.dataset.taskIndex = String(taskIndex);
+              taskIndex += 1;
+              const span = createEl('span', 'sticky-task-text');
+              span.textContent = m[3].slice(1).trim();
+              // התיבה והטקסט הם אחים ולא ``<label>`` עוטף, בכוונה: בתוך
+              // label כל לחיצה על הטקסט הייתה מסמנת את התיבה, ואז לא
+              // הייתה שום נקודה בשורת משימה שאפשר ללחוץ עליה כדי לערוך.
+              row.appendChild(box);
+              row.appendChild(span);
+            } else {
+              row.classList.add('is-text');
+              // שורה ריקה חייבת לתפוס גובה, אחרת פסקאות נדבקות זו לזו
+              row.textContent = line === '' ? ' ' : line;
+            }
+            view.appendChild(row);
+            charOffset += line.length + 1;   // +1 עבור ה-``\n`` שהפיצול הסיר
           });
           view.hidden = false;
           textarea.hidden = true;
         } catch(_) {}
+      }
+
+      // חזרה לעריכה מתוך התצוגה.
+      //
+      // בלי זה התצוגה היא דלת חד-כיוונית: מרגע שנכתב צ'קבוקס אחד, אי אפשר
+      // היה להוסיף או למחוק טקסט בפתק — ה-textarea מוסתר ואין מה שיחזיר
+      // אליו את הפוקוס.
+      _enterEditAt(el, charOffset){
+        try {
+          const textarea = el.querySelector('.sticky-note-content');
+          if (!textarea) return;
+          // חייב לרוץ לפני ה-focus: אי אפשר למקד אלמנט מוסתר.
+          this._syncTaskView(el, { editing: true });
+          textarea.focus();
+          if (Number.isFinite(charOffset)) {
+            const pos = clamp(Math.round(charOffset), 0, textarea.value.length);
+            try { textarea.selectionStart = textarea.selectionEnd = pos; } catch(_) {}
+          }
+        } catch(_) {}
+      }
+
+      // התוכן מוגבל ל-5,000 תווים, והשרת אוכף את זה ב**חיתוך שקט**: הדבקה
+      // של 16,291 תווים נשמרת כ-5,000 בלי שגיאה ובלי הודעה (נמדד מול
+      // ``_decode_content_b64`` האמיתי). זה הופך את המגבלה למחיקת מידע.
+      // כאן היא לפחות נראית, לפני שהמשתמש עוזב את העמוד.
+      _checkContentLength(el, text){
+        try {
+          const len = String(text == null ? '' : text).length;
+          let warn = el.querySelector('.sticky-note-warn');
+          if (len <= MAX_NOTE_CHARS) {
+            if (warn && warn.remove) warn.remove();
+            el.classList.remove('has-length-error');
+            return false;
+          }
+          if (!warn) {
+            warn = createEl('div', 'sticky-note-warn');
+            el.appendChild(warn);
+          }
+          warn.textContent = `הפתק ארוך מהמותר: ${len} מתוך ${MAX_NOTE_CHARS} תווים. מה שמעבר לא יישמר.`;
+          el.classList.add('has-length-error');
+          return true;
+        } catch(_) { return false; }
       }
 
       async _onTaskToggle(el, box){
@@ -738,6 +883,22 @@
         this._syncTaskView(el);
       }
 
+      // כשל שמירה חייב להיראות. עד היום הוא נכתב ל-``console`` בלבד, והפתק
+      // המשיך להיראות שמור לגמרי — כולל במקרה שבו התוכן נדחה בגלל אורך.
+      _markSaveFailed(id){
+        try {
+          const entry = this.notes.get(String(id));
+          if (entry && entry.el && entry.el.classList) entry.el.classList.add('has-save-error');
+        } catch(_) {}
+      }
+
+      _clearSaveFailed(id){
+        try {
+          const entry = this.notes.get(String(id));
+          if (entry && entry.el && entry.el.classList) entry.el.classList.remove('has-save-error');
+        } catch(_) {}
+      }
+
       _showTaskError(el){
         try {
           el.classList.add('has-task-error');
@@ -793,6 +954,10 @@
             let targetY = (typeof note.position?.y === 'number') ? note.position.y : currentAbsY;
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
             if (!Number.isFinite(targetY)) targetY = currentAbsY;
+            if (this.boardId) {
+              const clamped = this._clampToSurface(el, targetX, targetY, note);
+              targetX = clamped.x; targetY = clamped.y;
+            }
             el.style.left = targetX + 'px';
             el.style.top = targetY + 'px';
             el.dataset.pinned = 'true';
@@ -837,7 +1002,9 @@
               this._reflowWithinViewport(el);
             }
           }
-          this._updatePinButtonState(el, isPinned);
+          // בלוח הכפתור מציין "צף מול המסך", ולא "מוצמד". בלי ההיפוך הזה
+          // הוא היה נדלק כבר בפתיחת הפתק — כי surface הוא ברירת המחדל.
+          this._updatePinButtonState(el, this.boardId ? (resolved === 'screen') : isPinned);
         } catch(e) {
           console.warn('sticky note: applyPositionMode failed', e);
         }
@@ -963,8 +1130,11 @@
         const parsedTop = parseInt(el.style.top || '', 10);
         const scroll = getScrollOffsets();
         const isAbsolute = el.classList ? el.classList.contains('is-pinned') : false;
-        const fallbackLeft = Math.round(r.left + (isAbsolute ? scroll.x : 0));
-        const fallbackTop = Math.round(r.top + (isAbsolute ? scroll.y : 0));
+        // אותו מרחב קואורדינטות שבו נשמר ``position`` — אחרת נפילה לערך
+        // הזה הייתה מקפיצה את הפתק בדיוק בהפרש בין המרחבים.
+        const origin = isAbsolute ? this._positionOrigin(el) : { x: 0, y: 0 };
+        const fallbackLeft = Math.round(r.left - origin.x);
+        const fallbackTop = Math.round(r.top - origin.y);
         origLeft = Number.isFinite(parsedLeft) ? parsedLeft : fallbackLeft;
         origTop = Number.isFinite(parsedTop) ? parsedTop : fallbackTop;
         startScrollX = scroll.x; startScrollY = scroll.y;
@@ -985,8 +1155,17 @@
         if (Math.abs(dx) > 6 || Math.abs(dy) > 6) { try { clearTimeout(pressTimer); } catch(_) {} }
         const scroll = getScrollOffsets();
         const sx = scroll.x - startScrollX; const sy = scroll.y - startScrollY;
-        el.style.left = Math.round(origLeft + dx + sx) + 'px';
-        el.style.top = Math.round(origTop + dy + sy) + 'px';
+        let nx = Math.round(origLeft + dx + sx);
+        let ny = Math.round(origTop + dy + sy);
+        // חסימה כבר בזמן הגרירה, ולא רק בשמירה: אחרת אפשר לגרור את
+        // הכותרת אל מעל קצה המשטח, ומשם אין דרך חזרה — הכותרת *היא*
+        // ידית הגרירה.
+        if (this.boardId && el.classList && el.classList.contains('is-pinned')) {
+          const c = this._clampToSurface(el, nx, ny, null);
+          nx = c.x; ny = c.y;
+        }
+        el.style.left = nx + 'px';
+        el.style.top = ny + 'px';
       };
       const onUp = ()=>{
         try { clearTimeout(pressTimer); } catch(_) {}
@@ -1019,6 +1198,7 @@
     _toggleAnchor(el){
       try {
         if (!el) return;
+        if (this.boardId) { this._toggleBoardMode(el); return; }
         if (this._isPinned(el)) {
           this._unpinNote(el);
           return;
@@ -1028,6 +1208,29 @@
       } catch(e) {
         console.warn('sticky note: toggle pin failed', e);
       }
+    }
+
+    // בלוח, 📌 מחליף בין ``surface`` (יושב על הלוח וזז איתו) לבין ``screen``
+    // (צף מול המסך ונשאר גלוי בגלילה).
+    //
+    // **זה שורש הבאג "הכפתור שבור".** ``_pinNote`` כותב סנטינל ל-
+    // ``anchor_id``, אבל ``_resolveMode`` קורא את ``mode`` **ראשון** — ולכן
+    // בפתק לוח הסנטינל לא שינה כלום. מה שכן קרה זה שהמיקום נשמר מחדש,
+    // כלומר הפתק זז ולא נעץ. בדיוק מה שנצפה.
+    _toggleBoardMode(el){
+      const entry = this._getEntry(el);
+      if (!entry || !entry.data) return;
+      const current = this._resolveMode(entry.data);
+      const next = current === 'screen' ? 'surface' : 'screen';
+      // המיקום נמדד במרחב **היעד**: ``surface`` נמדד מול המשטח ו-``screen``
+      // מול המסמך. מדידה במרחב המקור הייתה מקפיצה את הפתק בדיוק בהפרש.
+      const payload = this._notePayloadFromEl(el, next);
+      entry.data.mode = next;
+      entry.data.position = payload.position;
+      entry.data.size = payload.size;
+      this._applyPositionMode(el, entry.data, { reflow: next === 'screen' });
+      this._queueSave(el, Object.assign({}, payload, { mode: next }));
+      this._flushFor(el);
     }
 
     _enableResize(el, handle){
@@ -1256,11 +1459,15 @@
             this._setNoteUpdatedAt(id, String(json.updated_at));
           }
           if (!resp.ok) {
+            this._markSaveFailed(id);
             this._mergePending(id, Object.assign({}, original));
+          } else {
+            this._clearSaveFailed(id);
           }
           return resp.ok;
         } catch(err) {
           console.warn('save note failed', id, err);
+          this._markSaveFailed(id);
           this._mergePending(id, Object.assign({}, original));
           return false;
         }
@@ -1308,6 +1515,7 @@
               const currentSeq = (this._pendingSeq.get(id) || 0);
               if (result.ok) {
                 if (result.updated_at) { this._setNoteUpdatedAt(id, String(result.updated_at)); }
+                this._clearSaveFailed(id);
                 // clear pending only if no newer edits arrived during request
                 if (snap && currentSeq === snap.seq) {
                   this._pending.delete(id);
@@ -1319,6 +1527,7 @@
                 this._mergePending(id, patch);
               } else {
                 // failure – keep pending (no-op). Ensure we still retain the last snapshot if nothing newer exists
+                this._markSaveFailed(id);
                 if (snap && currentSeq === snap.seq) {
                   this._mergePending(id, Object.assign({}, snap.payload));
                 }
