@@ -474,18 +474,38 @@ class ProductionBackend:
         doc = self._boards_coll().find_one({"_id": oid, "user_id": int(user_id)})
         return doc if isinstance(doc, dict) else None
 
+    @staticmethod
+    def _canonical_board_id(board: dict[str, Any]) -> str:
+        """המזהה **כפי שהמסד מחזיק אותו**, ולא כפי שהקורא הקליד.
+
+        ``ObjectId`` מקבל גם הקסה גדולה, אבל ``str(ObjectId)`` תמיד קטנה —
+        וזה מה שהוובאפ שומר ומחפש לפיו. פתק שנוצר עם ``6A88...`` נשמר
+        באותיות גדולות ו**נעלם מהלוח**: הוובאפ מחפש ``6a88...`` ולא מוצא
+        כלום. שוחזר מול מונגו אמיתי לפני התיקון.
+        """
+        return str(board.get("_id"))
+
     def list_boards(self, user_id: int) -> dict[str, Any]:
         """לוחות המשתמש, עם מונה פתקים. יוצר את לוח ברירת המחדל אם אין."""
         from note_boards import ensure_default_board, list_boards as _list
 
         db = self._raw_mongo()
+        # רשימה חלקית עדיפה על כלי שנופל — אבל כשל שקט כאן פירושו שמשתמש
+        # נשאר בלי לוח ברירת מחדל ואיש לא ידע. מדווחים ללוג וגם בתשובה.
+        default_board_error: str | None = None
         try:
             ensure_default_board(db, int(user_id))
-        except Exception:
-            pass  # רשימה חלקית עדיפה על כלי שנופל
+        except Exception as exc:
+            default_board_error = type(exc).__name__
+            logger.warning(
+                "ensure_default_board failed for user %s: %s", user_id, type(exc).__name__
+            )
         rows = _list(db, int(user_id))
 
-        counts: dict[str, int] = {}
+        # ``None`` = הספירה נכשלה ואיננו יודעים. ``0`` = ידוע שהלוח ריק.
+        # ערבוב השניים הוא בדיוק הכשל שנמנע בוובאפ: "לא זמין" שנראה כמו
+        # "ריק" גורם למשתמש להאמין שאיבד פתקים.
+        counts: dict[str, int] | None = {}
         try:
             for row in self._notes_coll().aggregate([
                 {"$match": {"user_id": int(user_id), "board_id": {"$in": [str(r.get("_id")) for r in rows]}}},
@@ -493,18 +513,21 @@ class ProductionBackend:
             ]):
                 counts[str(row.get("_id"))] = int(row.get("n") or 0)
         except Exception:
-            counts = {}  # מונה חסר עדיף על כלי שנופל; ``note_count`` יהיה None
+            counts = None  # לא ידוע — ולא אפס
 
         boards = [
             {
                 "id": str(b.get("_id")),
                 "name": str(b.get("name") or ""),
                 "is_default": bool(b.get("is_default")),
-                "note_count": counts.get(str(b.get("_id"))),
+                "note_count": None if counts is None else counts.get(str(b.get("_id")), 0),
             }
             for b in rows
         ]
-        return {"ok": True, "count": len(boards), "boards": boards}
+        out: dict[str, Any] = {"ok": True, "count": len(boards), "boards": boards}
+        if default_board_error:
+            out["default_board_error"] = default_board_error
+        return out
 
     def list_board_notes(self, user_id: int, *, board_id: str) -> dict[str, Any]:
         """פתקי לוח יחיד (קריאה טהורה)."""
@@ -514,11 +537,12 @@ class ProductionBackend:
         if board is None:
             return {"ok": False, "error": "board_not_found"}
 
-        query = board_notes_filter(int(user_id), str(board_id))
+        canonical = self._canonical_board_id(board)
+        query = board_notes_filter(int(user_id), canonical)
         rows = list(self._notes_coll().find(query).sort("created_at", 1).limit(500))
         return {
             "ok": True,
-            "board_id": str(board_id),
+            "board_id": canonical,
             "board_name": str(board.get("name") or ""),
             "count": len(rows),
             "notes": [_as_note(r) for r in rows],
@@ -553,9 +577,18 @@ class ProductionBackend:
         if board is None:
             return {"ok": False, "error": "board_not_found"}
 
+        # פטור אדמין — אותה החלטה שכבר נאכפת בוובאפ. בלעדיו אותו משתמש
+        # פטור דרך הדפדפן ונחסם דרך MCP, וזו הפתעה ולא מדיניות.
+        try:
+            from user_roles import is_admin
+            is_admin_user = bool(is_admin(int(user_id)))
+        except Exception:
+            is_admin_user = False  # ספק ← לא פטור
+
+        canonical = self._canonical_board_id(board)
         coll = self._notes_coll()
         for query, cap in (
-            (board_notes_filter(int(user_id), str(board_id)), MAX_NOTES_PER_BOARD),
+            (board_notes_filter(int(user_id), canonical), MAX_NOTES_PER_BOARD),
             ({"user_id": int(user_id)}, MAX_NOTES_PER_USER),
         ):
             try:
@@ -563,7 +596,7 @@ class ProductionBackend:
             except Exception:
                 existing = None  # ``None`` = "לא ידוע", ו-check_note_quota דוחה עליו
             try:
-                check_note_quota(existing, cap)
+                check_note_quota(existing, cap, is_admin=is_admin_user)
             except NoteQuotaError:
                 # הקוד נגזר מ**מצב הספירה** ולא מטקסט החריגה — טקסט של חריגה
                 # בתשובה הוא דלף ממתין, וזה בדיוק מה שתוקן ב-webapp.
@@ -575,7 +608,7 @@ class ProductionBackend:
             "user_id": int(user_id),
             # ``build_note_target`` מריץ את האילוץ "בדיוק יעד אחד" **לפני**
             # שהוא מחזיר, ולכן אי אפשר להרכיב כאן מסמך לא חוקי.
-            **build_note_target(board_id=str(board_id)),
+            **build_note_target(board_id=canonical),
             "content": content,
             "position_x": 120,
             "position_y": 120,

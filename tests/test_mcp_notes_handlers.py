@@ -322,6 +322,21 @@ def test_board_id_must_be_an_object_id():
     assert b.calls == [], "מזהה פגום לא אמור להגיע ל-backend"
 
 
+def test_create_board_note_also_gates_on_the_board_id():
+    """הכתיבה נעצרת על מזהה פגום בדיוק כמו הקריאה.
+
+    שני ה-handlers חולקים את אותו שער; בלי בדיקה מקבילה, שינוי באחד היה
+    יכול להשאיר את השני פתוח.
+    """
+    b = _BoardsBackend()
+
+    for bad in ("", "   ", "not-an-id", "a" * 23, "z" * 24):
+        res = _h.create_board_note(b, 7, board_id=bad, content="x")
+        assert res == {"ok": False, "error": "invalid_board_id"}, bad
+
+    assert b.calls == [], "מזהה פגום לא אמור להגיע ל-backend"
+
+
 def test_create_board_note_rejects_empty_and_overlong_content():
     from sticky_notes_target import MAX_NOTE_CHARS
 

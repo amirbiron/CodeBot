@@ -373,3 +373,86 @@ def test_list_boards_creates_the_default_and_counts_notes(mcp_backend, mongo_db)
     assert by_name["ידני"]["note_count"] == 2, "המונה סופר רק את הפתקים של המשתמש"
     # לוח ברירת המחדל נוצר אוטומטית בקריאה הראשונה
     assert any(b["is_default"] for b in res["boards"]), f"אין ברירת מחדל: {res['boards']}"
+
+
+def test_uppercase_board_id_does_not_orphan_the_note(mcp_backend, mongo_db):
+    """**באג שנתפס בריוויו ושוחזר.**
+
+    ``ObjectId`` מקבל גם הקסה גדולה, אבל ``str(ObjectId)`` תמיד קטנה — וזה
+    מה שהוובאפ שומר ומחפש לפיו. פתק שנוצר עם מזהה באותיות גדולות נשמר כך,
+    ו**נעלם מהלוח**: הוובאפ מחפש באותיות קטנות ולא מוצא כלום.
+
+    התיקון: המזהה הקנוני מגיע מ-``board["_id"]`` ולא ממה שהקורא הקליד.
+    """
+    from mcp_server import handlers as _mh
+
+    board = _make_board(mongo_db, user_id=7)
+    upper = board.upper()
+    assert upper != board, "המזהה חייב להכיל אותיות כדי שהבדיקה תהיה משמעותית"
+
+    res = _mh.create_board_note(mcp_backend, 7, board_id=upper, content="פתק")
+    assert res["ok"] is True
+
+    doc = mongo_db.sticky_notes.find_one({"user_id": 7})
+    assert doc["board_id"] == board, "נשמר בצורה שהוובאפ לא ימצא"
+    # והצד השני: קריאה באותיות קטנות מוצאת אותו
+    assert _mh.list_board_notes(mcp_backend, 7, board_id=board)["count"] == 1
+
+
+def test_note_count_tells_zero_apart_from_unknown(mcp_backend, mongo_db, monkeypatch):
+    """``0`` הוא "ידוע שריק"; ``None`` הוא "הספירה נכשלה".
+
+    ערבוב ביניהם גורם למשתמש להאמין שאיבד פתקים.
+    """
+    _make_board(mongo_db, user_id=7, name="ריק")
+
+    ok = mcp_backend.list_boards(7)
+    assert all(b["note_count"] == 0 for b in ok["boards"]), f"לוח ריק אינו 'לא ידוע': {ok['boards']}"
+
+    class _NoAggregate:
+        def __getattr__(self, name):
+            return getattr(mongo_db.sticky_notes, name)
+
+        def aggregate(self, *_a, **_k):
+            raise RuntimeError("aggregate failed")
+
+    monkeypatch.setattr(mcp_backend, "_notes_coll", lambda: _NoAggregate())
+    unknown = mcp_backend.list_boards(7)
+    assert all(b["note_count"] is None for b in unknown["boards"]), "כשל ספירה חייב להיות None"
+
+
+def test_default_board_failure_is_reported_not_swallowed(mcp_backend, mongo_db, monkeypatch):
+    """כשל ביצירת לוח ברירת המחדל אינו נבלע בשקט.
+
+    בלי דיווח, משתמש נשאר בלי לוח ברירת מחדל ואיש לא יודע למה.
+    """
+    import note_boards
+
+    monkeypatch.setattr(note_boards, "ensure_default_board",
+                        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    res = mcp_backend.list_boards(7)
+
+    assert res["ok"] is True, "רשימה חלקית עדיפה על כלי שנופל"
+    assert res.get("default_board_error") == "RuntimeError"
+
+
+def test_admin_is_exempt_from_the_board_quota(mcp_backend, mongo_db, monkeypatch):
+    """אותה מדיניות כמו בוובאפ. בלעדיה אדמין פטור בדפדפן ונחסם ב-MCP."""
+    import sticky_notes_target
+    import user_roles
+
+    monkeypatch.setattr(sticky_notes_target, "MAX_NOTES_PER_BOARD", 1)
+    board = _make_board(mongo_db, user_id=7)
+    mongo_db.sticky_notes.insert_one({"user_id": 7, "board_id": board, "content": "ראשון"})
+
+    # לא אדמין → נחסם
+    monkeypatch.setattr(user_roles, "is_admin", lambda uid: False)
+    blocked = mcp_backend.create_board_note(7, board_id=board, content="שני", color="#FFFFCC", mode="surface")
+    assert blocked["error"] == "too_many_notes"
+
+    # אדמין → עובר
+    monkeypatch.setattr(user_roles, "is_admin", lambda uid: True)
+    allowed = mcp_backend.create_board_note(7, board_id=board, content="שני", color="#FFFFCC", mode="surface")
+    assert allowed["ok"] is True, allowed
+    assert mongo_db.sticky_notes.count_documents({"board_id": board}) == 2
