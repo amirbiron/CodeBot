@@ -1,5 +1,28 @@
 /* Sticky Notes styles */
+/* דיו הפתק — **קבוע, ולא של הערכה.**
+ *
+ * רקע הפתק הוא צהוב קשיח שאינו משתנה עם הערכה, ולכן כל צבע טקסט שיירש
+ * מהערכה יוצא שגוי בדיוק באותה מידה שהרקע לא השתנה. נמדד: שם הפתק הגיע
+ * לניגודיות 1.03:1 ב-classic ו-ocean (לבן על צהוב בהיר — בלתי נראה),
+ * 1.18–1.50 בשאר הכהות, ורק בערכה הבהירה היחידה הוא היה קריא.
+ *
+ * הגוון אינו המצאה: הוא ``editor.foreground`` של ערכת ``Pen Paper Coffee``,
+ * שהיא הערכה היחידה שבה השם נראה טוב — ובדיוק מהסיבה הזו. הרצת הפרסר
+ * האמיתי (``services/theme_parser_service.parse_vscode_theme``) על ה-JSON
+ * שלה מראה ש-``editor.foreground: #2b3f6a`` הופך ל-``--text-primary``,
+ * וזה מה שהשם ירש שם. כחול דיו של עט על נייר — 10.10:1 מול צהוב הפתק,
+ * הרבה מעל הסף המחמיר של WCAG AAA (7:1).
+ *
+ * (``--text-secondary`` בערכה הזו הוא דווקא ``#616161``, נפילה גנרית — אין
+ * לה ``sideBar.foreground`` כלל. כלומר לא הוא זה שנראה טוב.)
+ *
+ * ``--note-ink-muted`` הוא לפקד שאינו זמין, באותה משפחת גוון. 4.00:1 —
+ * מעל הסף לרכיבי ממשק (1.4.11) עם מרווח, כלומר **נראה**, אבל חלש דיו
+ * כדי לומר "אי אפשר ללחוץ".
+ */
 .sticky-note{
+  --note-ink: #2b3f6a;
+  --note-ink-muted: #66739A;
   position: fixed;
   z-index: 950;
   box-shadow: 0 8px 20px rgba(0,0,0,.25);
@@ -36,7 +59,7 @@
      — זה מה שמאפשר לשם ולשישה כפתורים לחיות יחד בפתק של 200 פיקסלים. */
   flex-wrap: wrap;
 }
-.sticky-note-drag{ width: 100%; height: 16px; cursor: move; touch-action: none; }
+.sticky-note-drag{ cursor: move; touch-action: none; }
 /* מרווח בין הכפתורים: הם קטנים, וצמודים זה לזה קשה לפגוע בהם באצבע.
    גובה הכותרת **כן** משתנה — היא גולשת לשתי שורות בפתק צר — וזה בסדר:
    הגוף הוא ``flex: 1 1 auto`` ולוקח את מה שנשאר, ולא ``calc(100% - 42px)``
@@ -83,7 +106,6 @@
 .sticky-note-fab:hover{ transform: scale(1.05); }
 
 @media (max-width: 480px){
-  .sticky-note-drag{ height: 20px; }
   .sticky-note-fab{ left: 4px; bottom: 14px; }
 }
 
@@ -166,8 +188,12 @@
   outline-offset: 1px;
 }
 
-/* כפתור ביטול מושבת — הכפתור אומר את האמת על מה שהוא יכול לעשות */
-.sticky-note-btn[disabled] { opacity: .3; cursor: default; }
+/* כפתור מושבת — נראה, אבל חלש.
+ *
+ * ``opacity: .3`` הרכיב את הגלף על הכותרת והוריד אותו ל-1.96:1 — כלומר
+ * הכפתור נעלם לגמרי, והמרווח שהוא תופס נראה כמו חור מקרי בשורה. עכשיו
+ * הוא מקבל צבע משלו: קיים על המסך, וברור שאינו פעיל. */
+.sticky-note-btn[disabled] { color: var(--note-ink-muted); cursor: default; }
 
 /* חיווי העתקה. כשל חייב להיראות, לא רק הצלחה. */
 .sticky-note-copy.is-copy-done { background: #d1fae5; color: #065f46; border-radius: 6px; }
@@ -183,11 +209,13 @@
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: inherit;
+  color: var(--note-ink);
   padding: 0 4px;
   text-overflow: ellipsis;
 }
-.sticky-note-title::placeholder { font-weight: 400; opacity: .45; }
+/* גם ה-placeholder — ``opacity`` עליו הייתה מחזירה אותנו בדיוק לבעיה
+   שהכפתור המושבת סבל ממנה. */
+.sticky-note-title::placeholder { font-weight: 400; color: var(--note-ink-muted); opacity: 1; }
 /* פוקוס נראה לעין. רקע ב-5% אינו חיווי — הוא כמעט בלתי נראה על צהוב,
    וזה שדה עריכה שמגיעים אליו ב-Tab. ``outline`` אמיתי, בלי לבטל אותו. */
 .sticky-note-title:focus-visible,
@@ -212,6 +240,45 @@
  * כאן שאילתת מדיה, כי הקובע הוא רוחב **הפתק** ולא רוחב המסך — פתק צר
  * במסך רחב סובל בדיוק מאותה בעיה. */
 .sticky-note-header { gap: 6px; }
-.sticky-note-drag { width: 24px; flex: 0 0 auto; }
 .sticky-note-actions { flex: 0 0 auto; }
-.sticky-note-title { flex: 1 1 96px; min-width: 96px; }
+
+/* ידית הגרירה **מכילה** את השם ואת כפתור העיפרון, ותופסת את כל מה
+   שנשאר בכותרת. נמדד לפני: הידית הייתה 24px קבועים ושדה השם תפס
+   218px–635px לפי גודל הפתק — כלומר 1%-3% מהכותרת נגררו, בעוד
+   ש-``cursor: move`` הבטיח את כולה. */
+.sticky-note-drag {
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sticky-note-title { flex: 1 1 60px; min-width: 60px; }
+
+/* **זה מה שמחזיר את שטח הגרירה.** שדה נעול אינו בולע את האירוע, והוא
+   נופל דרכו אל הידית שמתחתיו. */
+.sticky-note-title[readonly] {
+  pointer-events: none;
+  cursor: move;
+  user-select: none;
+}
+
+/* בעריכה השדה חייב לקבל מגע בחזרה — ``touch-action: none`` של הידית
+   חוסם מיקום סמן במובייל.
+   הכלל הזה עבד רק אחרי ש-``_enableDrag`` הפסיק להציב ``touchAction``
+   כסגנון inline: inline גובר על גיליון סגנונות, ולכן ההצהרה כאן בוטלה
+   בשקט. נמדד בכרומיום — הערך נשאר ``none`` גם עם המחלקה. */
+.sticky-note.is-editing-title .sticky-note-drag { touch-action: auto; cursor: default; }
+.sticky-note.is-editing-title .sticky-note-title { background: rgba(255, 255, 255, .55); border-radius: 4px; }
+
+/* העיפרון קטן ולא גוזל מקום משורת הפעולות — הוא שייך לשם, לא להן */
+.sticky-note-edit-title { font-size: 13px; min-width: 18px; padding: 0 2px; opacity: .75; }
+.sticky-note-edit-title:hover { opacity: 1; }
+.sticky-note.is-editing-title .sticky-note-edit-title {
+  opacity: 1;
+  color: var(--note-ink);
+  background: rgba(43, 63, 106, .12);
+  border-radius: 5px;
+}

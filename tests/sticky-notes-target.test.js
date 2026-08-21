@@ -39,6 +39,10 @@ function makeSandbox() {
       createElement: () => el(),
       addEventListener() {},
       querySelectorAll: () => [],
+      // ``_setTitleEditing`` מקזז ``document.activeElement === input`` לפני
+      // שהוא קורא ל-``blur``. בלי החשיפה הזו התנאי לעולם אינו מתקיים,
+      // הענף לא רץ באף בדיקה, ומחיקתו הייתה עוברת בשקט.
+      get activeElement() { return sandbox.__focused || null; },
     },
     window: {
       addEventListener() {},
@@ -242,8 +246,18 @@ class FakeEl {
   get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join('') : this._text; }
   setAttribute(k, v) { this._attrs[k] = String(v); }
   getAttribute(k) { return k in this._attrs ? this._attrs[k] : null; }
+  // ``removeAttribute``, ``select`` ו-``blur`` קיימים בכל דפדפן, והקוד
+  // קורא להם מאחורי guard. בלי מימוש כאן ה-guard מדלג בשקט והבדיקה
+  // עוברת סתם — בדיוק כמו שקרה עם ``remove`` בסבב קודם.
+  removeAttribute(k) { delete this._attrs[k]; }
+  hasAttribute(k) { return k in this._attrs; }
   addEventListener() {}
-  focus() { FakeEl.focused = this; }
+  focus() { FakeEl.focused = this; sandbox.__focused = this; }
+  blur() {
+    if (FakeEl.focused === this) FakeEl.focused = null;
+    if (sandbox.__focused === this) sandbox.__focused = null;
+  }
+  select() { this._selected = true; }
   _matches(sel) { return sel.startsWith('.') ? this._classes.has(sel.slice(1)) : this.tagName === sel; }
   querySelector(sel) {
     for (const c of this.children) {
@@ -661,6 +675,44 @@ check('ביטול: תוכן מהשרת באמצע הקלדה שומר את תח�
   eq(n.ta.value, 'התחלה + הקלדה', 'ביטול ראשון — מה שהוקלד');
   fileMgr._undoLastChange(n.el);
   eq(n.ta.value, 'התחלה', 'ביטול שני — לפני ההקלדה');
+});
+
+// ---------- עריכת שם הפתק ----------
+
+check('שם: מצב העריכה מחליף נעילה, פוקוס וסמל', () => {
+  // השדה נעול כברירת מחדל, וזה מה שמחזיר את שטח הגרירה: שדה נעול הוא
+  // ``pointer-events: none`` ב-CSS, כלומר האירוע נופל דרכו אל ידית
+  // הגרירה שמתחתיו. נמדד לפני התיקון: 1%-3% מהכותרת נגררו, כי שדה השם
+  // תפס 218px–635px ממנה. אחרי: 73%.
+  const n = registerNote(fileMgr, 'title-edit', 'תוכן');
+  const btn = new FakeEl('button');
+  btn.className = 'sticky-note-btn sticky-note-edit-title';
+  btn.textContent = '✎';
+  n.el.appendChild(btn);
+  n.titleInput.setAttribute('readonly', 'readonly');
+  n.titleInput.setAttribute('tabindex', '-1');
+
+  fileMgr._setTitleEditing(n.el, true);
+  eq(n.el.classList.contains('is-editing-title'), true, 'המצב נדלק');
+  eq(n.titleInput.getAttribute('readonly'), null, 'הנעילה הוסרה');
+  eq(n.titleInput.getAttribute('tabindex'), '0', 'נכנס לסדר ה-Tab');
+  eq(btn.textContent, '✔', 'הסמל התחלף');
+  eq(btn.getAttribute('aria-pressed'), 'true');
+  eq(btn.getAttribute('aria-label'), 'סיום עריכת השם', 'התווית תואמת לפעולה');
+  eq(sandbox.__focused === n.titleInput, true, 'השדה קיבל מיקוד');
+  eq(n.titleInput._selected, true, 'והתוכן נבחר');
+
+  fileMgr._setTitleEditing(n.el, false);
+  eq(n.el.classList.contains('is-editing-title'), false, 'המצב כובה');
+  eq(n.titleInput.getAttribute('readonly'), 'readonly', 'ננעל שוב');
+  eq(n.titleInput.getAttribute('tabindex'), '-1', 'יצא מסדר ה-Tab');
+  eq(btn.textContent, '✎', 'חזר לעיפרון');
+  eq(btn.getAttribute('aria-pressed'), 'false');
+  eq(btn.getAttribute('aria-label'), 'עריכת שם הפתק', 'והתווית חזרה');
+  // **זה הענף שלא רץ באף בדיקה עד היום.** בלי ``document.activeElement``
+  // בסנדבוקס התנאי לעולם לא התקיים, והשדה נשאר ממוקד אחרי הנעילה —
+  // כלומר המקלדת במובייל לא הייתה נסגרת.
+  eq(sandbox.__focused, null, 'והמיקוד שוחרר');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);
