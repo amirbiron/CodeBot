@@ -322,6 +322,13 @@ def notes_rate_limit(key: str, max_per_minute: int):
 _CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
 
 
+#: תקרת אורך התוכן. מיובאת ולא מוקלדת — ראו את ה-docstring במקור.
+try:  # pragma: no cover - נתיב הייבוא נבדק בטעינת המודול
+    from sticky_notes_target import MAX_NOTE_CHARS
+except Exception:  # pragma: no cover
+    MAX_NOTE_CHARS = 20_000
+
+
 def _sanitize_text(text: Any, max_length: int = 20000) -> str:
     """Normalize user text without HTML escaping.
 
@@ -344,7 +351,7 @@ def _sanitize_text(text: Any, max_length: int = 20000) -> str:
     return s
 
 
-def _decode_content_b64(value: Any, *, max_decoded_chars: int = 5000, max_b64_len: int = 120000) -> str:
+def _decode_content_b64(value: Any, *, max_decoded_chars: int = MAX_NOTE_CHARS, max_b64_len: int = 120000) -> str:
     """Decode Base64 UTF-8 content safely.
 
     מיועד ל-`content_b64` כדי למנוע חסימות/פילטרים על מילים "חשודות" בזמן העברה.
@@ -381,7 +388,7 @@ def _decode_content_b64(value: Any, *, max_decoded_chars: int = 5000, max_b64_le
         text = raw.decode("utf-8", errors="strict")
     except Exception as exc:
         raise ValueError("invalid utf-8") from exc
-    return _sanitize_text(text, int(max_decoded_chars or 5000))
+    return _sanitize_text(text, int(max_decoded_chars or MAX_NOTE_CHARS))
 
 
 def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Optional[int] = None) -> int:
@@ -413,6 +420,68 @@ def _mode_update(raw: Any, note: Dict[str, Any]) -> Any:
     if raw is not None and not is_valid_board_mode(raw):
         raise ValueError('invalid_mode')
     return normalize_mode(raw, DEFAULT_BOARD_MODE)
+
+
+#: קודי השגיאה שמותר להחזיר ללקוח. קבוצה סגורה.
+_PUBLIC_ERROR_CODES = frozenset({
+    'note_quota_unknown',
+    'note_quota_exceeded',
+    'invalid_mode',
+    'mode_not_supported',
+    'content_too_long',
+    'invalid_content_b64',
+})
+
+
+def _public_error(exc: Exception) -> str:
+    """קוד שגיאה בטוח לשליחה ללקוח.
+
+    **למה לא ``str(exc)``:** הטקסט של חריגה אינו הבטחה. הוא נכון היום כי כל
+    ה-``raise`` הרלוונטיים מעבירים ליטרל, אבל שום דבר לא אוכף את זה —
+    ``raise`` אחד עתידי שמשרשר פרט פנימי (נתיב, שאילתה, שם מסד), או חריגה
+    מקוננת שנתפסת באותו ``except``, נשלחים ללקוח כמו שהם. CodeQL סימן את
+    הזרימה הזו. מסננת מקבוצה סגורה מוציאה את מחלקת הבאגים כולה, ולא רק את
+    המופע היחיד שנתפס.
+    """
+    code = str(exc)
+    return code if code in _PUBLIC_ERROR_CODES else 'internal_error'
+
+
+class _ContentTooLong(ValueError):
+    """התוכן חרג מהתקרה. נפרד מ-``ValueError`` כדי שלא ייבלע בטעות."""
+
+    def __init__(self) -> None:
+        super().__init__('content_too_long')
+
+
+def _note_content_from_request(data: Dict[str, Any]) -> str:
+    """התוכן שיישמר, מ-``content_b64`` או מ-``content``.
+
+    **מקום אחד שמחליט.** לפני כן ההמרה הייתה משוכפלת בחמישה ראוטים, וכל
+    אחד מהם הקליד את התקרה בעצמו.
+
+    השינוי המהותי: התקרה נאכפת ב**דחייה** ולא בחיתוך. חיתוך שקט הוא מחיקת
+    מידע — הדבקה של 16,291 תווים נשמרה כ-5,000 והשרת החזיר 200 OK, כלומר
+    "נשמר". ``mcp_server/handlers`` דוחה כבר היום; הוובאפ היה החריג.
+
+    :raises _ContentTooLong: התוכן ארוך מ-:data:`MAX_NOTE_CHARS`.
+    :raises ValueError: ``content_b64`` פגום ואין ``content`` לנפול אליו.
+    """
+    if 'content_b64' in data:
+        try:
+            # חסם של תו אחד מעל התקרה: מספיק כדי לזהות חריגה במדויק,
+            # ובלי להחזיק בזיכרון תוכן גדול לחינם.
+            text = _decode_content_b64(data.get('content_b64'), max_decoded_chars=MAX_NOTE_CHARS + 1)
+        except ValueError:
+            # תאימות לאחור: ``content`` רגיל, אם נשלח לצד ה-b64
+            if 'content' not in data:
+                raise ValueError('invalid_content_b64')
+            text = _sanitize_text(data.get('content'), MAX_NOTE_CHARS + 1)
+    else:
+        text = _sanitize_text(data.get('content', ''), MAX_NOTE_CHARS + 1)
+    if len(text) > MAX_NOTE_CHARS:
+        raise _ContentTooLong()
+    return text
 
 
 def _make_scope_id(user_id: int, file_name: Optional[str]) -> Optional[str]:
@@ -887,7 +956,7 @@ def reminders_list():
 
         def _first_n_words(text: str, n: int = 6) -> str:
             try:
-                s = _sanitize_text(text or '', 5000)
+                s = _sanitize_text(text or '', MAX_NOTE_CHARS)
                 words = [w for w in s.strip().split() if w]
                 if not words:
                     return ''
@@ -1000,17 +1069,12 @@ def create_note(file_id: str):
         db = get_db()
         scope_id, scope_file_name, _ = _resolve_scope(db, user_id, file_id)
         data = request.get_json(silent=True) or {}
-        if 'content_b64' in data:
-            try:
-                content = _decode_content_b64(data.get('content_b64'), max_decoded_chars=5000)
-            except ValueError:
-                # Backward compatibility: if plain content is present, fall back to it.
-                if 'content' in data:
-                    content = _sanitize_text(data.get('content', ''), 5000)
-                else:
-                    return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
-        else:
-            content = _sanitize_text(data.get('content', ''), 5000)
+        try:
+            content = _note_content_from_request(data)
+        except _ContentTooLong:
+            return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
+        except ValueError as exc:
+            return jsonify({'ok': False, 'error': _public_error(exc)}), 400
         pos = data.get('position') or {}
         size = data.get('size') or {}
         color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
@@ -1030,7 +1094,7 @@ def create_note(file_id: str):
                 is_admin=_current_user_is_admin(),
             )
         except NoteQuotaError as exc:
-            return jsonify({'ok': False, 'error': str(exc)}), 409
+            return jsonify({'ok': False, 'error': _public_error(exc)}), 409
 
         doc = {
             'user_id': user_id,
@@ -1085,17 +1149,12 @@ def update_note(note_id: str):
         updates: Dict[str, Any] = {}
         # Prefer content_b64 if provided (avoid "on-the-wire" clear text)
         if 'content_b64' in data or 'content' in data:
-            if 'content_b64' in data:
-                try:
-                    updates['content'] = _decode_content_b64(data.get('content_b64'), max_decoded_chars=5000)
-                except ValueError:
-                    # Backward compatibility: if plain content is present, fall back to it.
-                    if 'content' in data:
-                        updates['content'] = _sanitize_text(data.get('content'), 5000)
-                    else:
-                        return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
-            elif 'content' in data:
-                updates['content'] = _sanitize_text(data.get('content'), 5000)
+            try:
+                updates['content'] = _note_content_from_request(data)
+            except _ContentTooLong:
+                return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
+            except ValueError as exc:
+                return jsonify({'ok': False, 'error': _public_error(exc)}), 400
         if 'position' in data and isinstance(data.get('position'), dict):
             pos = data['position']
             updates['position_x'] = _coerce_int(pos.get('x'), 100, 0, 100000)
@@ -1148,7 +1207,7 @@ def update_note(note_id: str):
             try:
                 updates['mode'] = _mode_update(data.get('mode'), note)
             except ValueError as exc:
-                return jsonify({'ok': False, 'error': str(exc)}), 400
+                return jsonify({'ok': False, 'error': _public_error(exc)}), 400
         # פתק לוח אינו נושא scope_id ולעולם לא יישא — ובלי השומר הזה
         # כל עדכון שלו היה מריץ _resolve_scope, כלומר קריאה ל-code_snippets
         # רק כדי לגלות שאין קובץ.
@@ -1294,18 +1353,15 @@ def batch_update_notes():
                 fragment = item
                 updates: Dict[str, Any] = {}
                 if 'content_b64' in fragment or 'content' in fragment:
-                    if 'content_b64' in fragment:
-                        try:
-                            updates['content'] = _decode_content_b64(fragment.get('content_b64'), max_decoded_chars=5000)
-                        except ValueError:
-                            # Backward compatibility: if plain content is present, fall back to it.
-                            if 'content' in fragment:
-                                updates['content'] = _sanitize_text(fragment.get('content'), 5000)
-                            else:
-                                results.append({'id': note_id, 'ok': False, 'status': 400, 'error': 'Invalid content_b64'})
-                                continue
-                    elif 'content' in fragment:
-                        updates['content'] = _sanitize_text(fragment.get('content'), 5000)
+                    try:
+                        updates['content'] = _note_content_from_request(fragment)
+                    except _ContentTooLong:
+                        results.append({'id': note_id, 'ok': False, 'status': 400,
+                                        'error': 'content_too_long', 'max': MAX_NOTE_CHARS})
+                        continue
+                    except ValueError as exc:
+                        results.append({'id': note_id, 'ok': False, 'status': 400, 'error': _public_error(exc)})
+                        continue
                 if 'position' in fragment and isinstance(fragment.get('position'), dict):
                     pos = fragment['position']
                     updates['position_x'] = _coerce_int(pos.get('x'), 100, 0, 100000)
@@ -1340,7 +1396,7 @@ def batch_update_notes():
                     try:
                         updates['mode'] = _mode_update(fragment.get('mode'), note)
                     except ValueError as exc:
-                        results.append({'id': note_id, 'ok': False, 'status': 400, 'error': str(exc)})
+                        results.append({'id': note_id, 'ok': False, 'status': 400, 'error': _public_error(exc)})
                         continue
 
                 # conflict detection similar to single update
@@ -1519,16 +1575,12 @@ def create_board_note(board_id: str):
             return jsonify({'ok': False, 'error': 'invalid_mode'}), 400
         mode = normalize_mode(raw_mode, DEFAULT_BOARD_MODE)
 
-        if 'content_b64' in data:
-            try:
-                content = _decode_content_b64(data.get('content_b64'), max_decoded_chars=5000)
-            except ValueError:
-                if 'content' in data:
-                    content = _sanitize_text(data.get('content', ''), 5000)
-                else:
-                    return jsonify({'ok': False, 'error': 'Invalid content_b64'}), 400
-        else:
-            content = _sanitize_text(data.get('content', ''), 5000)
+        try:
+            content = _note_content_from_request(data)
+        except _ContentTooLong:
+            return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
+        except ValueError as exc:
+            return jsonify({'ok': False, 'error': _public_error(exc)}), 400
 
         # תקרות — ולפני הכתיבה, לא אחריה. ``_count_or_none`` מבחין בין אפס
         # לבין ספירה שנכשלה, ו-``check_note_quota`` דוחה על השנייה.
@@ -1545,7 +1597,7 @@ def create_board_note(board_id: str):
                 is_admin=is_admin_user,
             )
         except NoteQuotaError as exc:
-            return jsonify({'ok': False, 'error': str(exc)}), 409
+            return jsonify({'ok': False, 'error': _public_error(exc)}), 409
 
         pos = data.get('position') or {}
         size = data.get('size') or {}

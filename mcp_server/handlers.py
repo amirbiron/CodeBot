@@ -270,7 +270,13 @@ def append_file(backend: Any, user_id: int, *, file_name: str, content: str) -> 
 
 # -- sticky notes ----------------------------------------------------------
 
-MAX_NOTE_CONTENT = 5000
+# תקרת התוכן מיובאת ולא מוקלדת. עד היום MCP והוובאפ החזיקו כל אחד את
+# המספר שלו, כך ששינוי באחד היה משאיר את השני אוכף ערך אחר — ואז אותו
+# פתק נדחה בערוץ אחד ומתקבל בשני.
+try:
+    from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CONTENT
+except Exception:  # pragma: no cover
+    MAX_NOTE_CONTENT = 20_000
 MAX_NOTES_PER_SCOPE = 200
 MAX_ANCHOR_TEXT = 256
 MAX_NOTE_LINE = 1_000_000

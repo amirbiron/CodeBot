@@ -208,7 +208,13 @@ class FakeEl {
   }
   set className(v) { this._classes = new Set(String(v || '').split(/\s+/).filter(Boolean)); }
   get className() { return [...this._classes].join(' '); }
-  appendChild(c) { this.children.push(c); return c; }
+  appendChild(c) { this.children.push(c); c.parentNode = this; return c; }
+  // ``Element.remove`` קיים בכל דפדפן, והקוד קורא לו מאחורי guard. בלי
+  // מימוש כאן ה-guard מדלג בשקט, והבדיקה "החיווי נעלם" עוברת סתם.
+  remove() {
+    const p = this.parentNode;
+    if (p) { p.children = p.children.filter((c) => c !== this); this.parentNode = null; }
+  }
   set textContent(v) { this.children = []; this._text = String(v); }
   get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join('') : this._text; }
   setAttribute(k, v) { this._attrs[k] = String(v); }
@@ -319,15 +325,56 @@ check('חזרה לעריכה: הסמן נוחת בתחילת השורה שנלח
   eq(CONTENT.slice(ta.selectionStart, ta.selectionStart + 4), 'שורת', 'מיקום הסמן');
 });
 
-check('אורך: מעל התקרה מוצג חיווי, מתחתיה לא', () => {
-  // השרת חותך ל-5,000 תווים בשקט. אם זה לא נראה כאן — זו מחיקת מידע.
-  const { el, ta } = makeNote('קצר');
-  eq(fileMgr._checkContentLength(el, ta.value), false, 'תוכן קצר');
+check('אורך: התקרה מגיעה מהשרת, לא מוקלדת בלקוח', () => {
+  // בלי ערך מהשרת אין מספר להשוות אליו — ואז לא מזהירים, במקום להזהיר
+  // לפי מספר שאולי כבר לא נכון.
+  const { el } = makeNote('קצר');
+  sandbox.window.STICKY_NOTE_MAX_CHARS = undefined;
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(999999)), false, 'אין תקרה ידועה');
   eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
-  eq(fileMgr._checkContentLength(el, 'א'.repeat(5001)), true, 'תוכן ארוך');
+});
+
+check('אורך: בדיוק בגבול מתקבל, ומעליו מוצג חיווי', () => {
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+
+  eq(fileMgr._checkContentLength(el, 'קצר'), false, 'תוכן קצר');
+  eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי');
+
+  // הגבול עצמו חוקי — off-by-one כאן פוסל תוכן תקין
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(20000)), false, 'בדיוק בגבול');
+  eq(el.querySelector('.sticky-note-warn'), null, 'אין חיווי בגבול');
+
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(20001)), true, 'תו אחד מעל');
   const warn = el.querySelector('.sticky-note-warn');
   eq(warn !== null, true, 'יש חיווי');
-  eq(warn.textContent.includes('5001'), true, 'החיווי מציין את האורך בפועל');
+  eq(warn.textContent.includes('20001'), true, 'החיווי מציין את האורך בפועל');
+  eq(warn.textContent.includes('20000'), true, 'והתקרה שהשרת נתן');
+});
+
+check('אורך: החיווי מתנקה כשחוזרים מתחת לתקרה', () => {
+  // כשל שנשאר על המסך אחרי שתוקן משקר בדיוק כמו כשל שלא הוצג
+  sandbox.window.STICKY_NOTE_MAX_CHARS = 20000;
+  const { el } = makeNote('קצר');
+
+  fileMgr._checkContentLength(el, 'א'.repeat(20001));
+  eq(el.querySelector('.sticky-note-warn') !== null, true, 'החיווי הופיע');
+  eq(el.classList.contains('has-length-error'), true, 'קלאס השגיאה נוסף');
+
+  eq(fileMgr._checkContentLength(el, 'א'.repeat(100)), false, 'שוב מתחת לתקרה');
+  eq(el.querySelector('.sticky-note-warn'), null, 'החיווי נעלם');
+  eq(el.classList.contains('has-length-error'), false, 'קלאס השגיאה הוסר');
+});
+
+check('שמירה: 400 אינו חוזר לתור, 500 כן', () => {
+  // הבאג: כל !ok הוחזר ל-pending, וה-auto-flush ניסה שוב לנצח. תוכן
+  // שנדחה ב-400 לא הופך לתקין — זו לולאה חמה שגם מסתירה את הכשל.
+  eq(fileMgr._isPermanentFailure(400), true, '400 סופי');
+  eq(fileMgr._isPermanentFailure(404), true, '404 סופי');
+  eq(fileMgr._isPermanentFailure(409), false, '409 נפתר עם חותמת טרייה');
+  eq(fileMgr._isPermanentFailure(429), false, '429 — לנסות שוב מאוחר יותר');
+  eq(fileMgr._isPermanentFailure(500), false, '500 זמני');
+  eq(fileMgr._isPermanentFailure(undefined), false, 'סטטוס לא ידוע — לא לזרוק מידע');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

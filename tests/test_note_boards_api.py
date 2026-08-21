@@ -542,3 +542,125 @@ def test_batch_rejects_invalid_mode_without_touching_the_note(client):
     # הפריט כולו נדחה, ולא "חצי נשמר"
     assert doc["mode"] == "surface"
     assert "position_x" not in doc
+
+
+# -- תקרת אורך התוכן --
+#
+# עד לשינוי הזה השרת אכף אותה ב**חיתוך שקט**: הדבקה של 16,291 תווים נשמרה
+# כ-5,000 והתשובה הייתה 200 OK. mcp_server/handlers דחה כבר אז; הוובאפ היה
+# החריג, ולכן אותו פתק התקבל בערוץ אחד ונחתך בשני.
+
+import base64
+
+
+def _b64(text: str) -> str:
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+def test_the_limit_has_a_single_source(client):
+    """שלושת הצרכנים מייבאים את אותו מספר, לא מקלידים אותו."""
+    from mcp_server import handlers
+    from sticky_notes_target import MAX_NOTE_CHARS
+    from webapp import sticky_notes_api
+
+    assert sticky_notes_api.MAX_NOTE_CHARS == MAX_NOTE_CHARS
+    assert handlers.MAX_NOTE_CONTENT == MAX_NOTE_CHARS
+
+
+def test_the_javascript_holds_no_hardcoded_limit():
+    """הלקוח מקבל את התקרה מהשרת.
+
+    מספר בצד הלקוח היה מקור אמת שני, ופער בינו לבין השרת נראה למשתמש
+    כחיתוך בלי הסבר. הבדיקה נופלת אם מישהו יחזיר ליטרל.
+    """
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parent.parent / "webapp/static/js/sticky-notes.js").read_text(encoding="utf-8")
+    assert "window.STICKY_NOTE_MAX_CHARS" in js, "הלקוח אינו קורא את הערך מהשרת"
+    assert "MAX_NOTE_CHARS = 5000" not in js
+    assert "MAX_NOTE_CHARS = 20000" not in js
+
+
+def test_content_at_the_limit_is_accepted(client):
+    """הגבול עצמו חוקי — off-by-one כאן פוסל תוכן תקין."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+    text = "א" * MAX_NOTE_CHARS
+
+    res = client.post("/api/sticky-notes/board/1", json={"content_b64": _b64(text)})
+
+    assert res.status_code == 201, res.get_json()
+    assert len(client.db.sticky_notes.docs[-1]["content"]) == MAX_NOTE_CHARS
+
+
+def test_content_over_the_limit_is_rejected_not_truncated(client):
+    """**זה הבאג.** חיתוך שקט שמוחזר כ-200 הוא מחיקת מידע."""
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+    before = len(client.db.sticky_notes.docs)
+
+    res = client.post("/api/sticky-notes/board/1", json={"content_b64": _b64("א" * (MAX_NOTE_CHARS + 1))})
+
+    assert res.status_code == 400
+    body = res.get_json()
+    assert body["error"] == "content_too_long"
+    assert body["max"] == MAX_NOTE_CHARS, "הלקוח צריך לדעת מה התקרה"
+    assert len(client.db.sticky_notes.docs) == before, "לא נוצר פתק חתוך"
+
+
+def test_update_over_the_limit_leaves_the_note_untouched(client):
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    doc = {"_id": 1, "user_id": 7, "board_id": "b1", "content": "המקורי", "mode": "surface"}
+    client.db.sticky_notes.docs.append(doc)
+
+    res = client.put("/api/sticky-notes/note/1", json={"content_b64": _b64("א" * (MAX_NOTE_CHARS + 1))})
+
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "content_too_long"
+    assert doc["content"] == "המקורי", "התוכן הקיים לא נדרס בגרסה חתוכה"
+
+
+def test_batch_rejects_the_item_without_touching_the_note(client):
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    doc = {"_id": 1, "user_id": 7, "board_id": "b1", "content": "המקורי"}
+    client.db.sticky_notes.docs.append(doc)
+
+    res = client.post(
+        "/api/sticky-notes/batch",
+        json={"updates": [{"id": "1", "content_b64": _b64("א" * (MAX_NOTE_CHARS + 1))}]},
+    )
+
+    result = res.get_json()["results"][0]
+    assert result["status"] == 400
+    assert result["error"] == "content_too_long"
+    assert doc["content"] == "המקורי"
+
+
+# -- דלף מידע דרך טקסט של חריגה (CodeQL code-scanning/620) --
+
+
+def test_exception_text_never_reaches_the_client(client, monkeypatch):
+    """``str(exc)`` בתשובה הוא דלף ממתין.
+
+    היום כל ה-``raise`` מעבירים ליטרל, אבל שום דבר לא אוכף את זה. הבדיקה
+    מזריקה חריגה שנושאת נתיב פנימי ומוודאת שהוא **אינו** יוצא החוצה.
+    """
+    import sticky_notes_target
+
+    def _leaky(*_a, **_k):
+        raise sticky_notes_target.NoteQuotaError("failed at /srv/app/secrets/db.conf line 42")
+
+    # ``check_note_quota`` מיובאת בתוך הפונקציה, ולכן מחליפים אותה במקור
+    monkeypatch.setattr(sticky_notes_target, "check_note_quota", _leaky)
+    client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+
+    res = client.post("/api/sticky-notes/board/1", json={"content": "שלום"})
+
+    body = res.get_json()
+    assert "secrets" not in str(body), f"דלף פרט פנימי: {body}"
+    assert "/srv" not in str(body)
+    assert body["error"] == "internal_error"

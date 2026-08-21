@@ -28,6 +28,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }};</script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script>
 (function () {

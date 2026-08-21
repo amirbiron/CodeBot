@@ -135,11 +135,18 @@
   // לבין פתק ישן שעדיין לא עבר מיגרציה ל־[data-source-line].
   const FLOATING_SENTINEL = '__floating__';
   const AUTO_SAVE_DEBOUNCE_MS = 500;
-  //: תקרת התוכן שהשרת מקבל (``_sanitize_text``/``_decode_content_b64``
-  //: ב-``webapp/sticky_notes_api.py``, ומתועדת ב-``docs/user/sticky_notes.rst``).
-  //: מעבר לזה ה-PUT נדחה ב-400, והלקוח רק החזיר את השינוי ל-pending — כלומר
-  //: הדבקה של מסמך ארוך פשוט לא נשמרה, בלי שום סימן למשתמש.
-  const MAX_NOTE_CHARS = 5000;
+  // תקרת התוכן מגיעה **מהשרת**, דרך ``window.STICKY_NOTE_MAX_CHARS``
+  // שהתבנית מזריקה מ-``sticky_notes_target.MAX_NOTE_CHARS``.
+  //
+  // אין כאן מספר מוקלד בכוונה: מספר בצד הלקוח היה מקור אמת שני, ופער
+  // בינו לבין השרת נראה למשתמש כחיתוך בלי הסבר. אם השרת לא סיפק ערך —
+  // פשוט לא מזהירים, במקום להזהיר לפי מספר שאולי כבר לא נכון.
+  function maxNoteChars(){
+    try {
+      const v = Number(window.STICKY_NOTE_MAX_CHARS);
+      return (Number.isFinite(v) && v > 0) ? v : 0;
+    } catch(_) { return 0; }
+  }
   //: שורת משימה: ``- [ ] טקסט`` או ``* [x] טקסט``, עם הזחה כלשהי.
   //: אותה תבנית בדיוק כמו ``_TASK_RE`` ב-``sticky_notes_tasks.py`` — שם
   //: מתבצעת הכתיבה, וכאן רק התצוגה. סטייה ביניהן הייתה מזיזה סידורים.
@@ -805,15 +812,15 @@
         } catch(_) {}
       }
 
-      // התוכן מוגבל ל-5,000 תווים, והשרת אוכף את זה ב**חיתוך שקט**: הדבקה
-      // של 16,291 תווים נשמרת כ-5,000 בלי שגיאה ובלי הודעה (נמדד מול
-      // ``_decode_content_b64`` האמיתי). זה הופך את המגבלה למחיקת מידע.
-      // כאן היא לפחות נראית, לפני שהמשתמש עוזב את העמוד.
+      // חיווי אורך. השרת דוחה תוכן שחורג מהתקרה ב-``content_too_long``,
+      // אבל דחייה שמגיעה רק אחרי ניסיון שמירה היא מאוחרת מדי — המשתמש
+      // כבר הדביק והמשיך. כאן זה נראה בזמן ההקלדה.
       _checkContentLength(el, text){
         try {
+          const cap = maxNoteChars();
           const len = String(text == null ? '' : text).length;
           let warn = el.querySelector('.sticky-note-warn');
-          if (len <= MAX_NOTE_CHARS) {
+          if (!cap || len <= cap) {
             if (warn && warn.remove) warn.remove();
             el.classList.remove('has-length-error');
             return false;
@@ -822,7 +829,7 @@
             warn = createEl('div', 'sticky-note-warn');
             el.appendChild(warn);
           }
-          warn.textContent = `הפתק ארוך מהמותר: ${len} מתוך ${MAX_NOTE_CHARS} תווים. מה שמעבר לא יישמר.`;
+          warn.textContent = `הפתק ארוך מהמותר: ${len} מתוך ${cap} תווים. מה שמעבר לא יישמר.`;
           el.classList.add('has-length-error');
           return true;
         } catch(_) { return false; }
@@ -885,6 +892,17 @@
 
       // כשל שמירה חייב להיראות. עד היום הוא נכתב ל-``console`` בלבד, והפתק
       // המשיך להיראות שמור לגמרי — כולל במקרה שבו התוכן נדחה בגלל אורך.
+      // כשל סופי מול כשל זמני.
+      //
+      // עד היום כל ``!resp.ok`` הוחזר ל-``pending``, וה-auto-flush ניסה
+      // שוב לנצח. תוכן שנדחה ב-400 (ארוך מדי, b64 פגום) לא הופך לתקין
+      // בניסיון הבא — זו לולאה חמה שגם מסתירה את הכשל מהמשתמש. 409 הוא
+      // היוצא מן הכלל: הוא נפתר עם חותמת זמן טרייה, ולכן כן חוזר לתור.
+      _isPermanentFailure(status){
+        const code = Number(status);
+        return Number.isFinite(code) && code >= 400 && code < 500 && code !== 409 && code !== 408 && code !== 429;
+      }
+
       _markSaveFailed(id){
         try {
           const entry = this.notes.get(String(id));
@@ -1460,7 +1478,12 @@
           }
           if (!resp.ok) {
             this._markSaveFailed(id);
-            this._mergePending(id, Object.assign({}, original));
+            // כשל סופי לא חוזר לתור — אחרת הוא ינוסה שוב לנצח
+            if (!this._isPermanentFailure(resp.status)) {
+              this._mergePending(id, Object.assign({}, original));
+            } else {
+              this._pending.delete(String(id));
+            }
           } else {
             this._clearSaveFailed(id);
           }
@@ -1526,9 +1549,13 @@
                 if (result.updated_at) patch.prev_updated_at = String(result.updated_at);
                 this._mergePending(id, patch);
               } else {
-                // failure – keep pending (no-op). Ensure we still retain the last snapshot if nothing newer exists
                 this._markSaveFailed(id);
-                if (snap && currentSeq === snap.seq) {
+                if (this._isPermanentFailure(result.status)) {
+                  // 400 לא יתוקן בניסיון חוזר. משאירים את הסימון הגלוי
+                  // ומפסיקים לנסות, במקום לולאה שקטה שרצה עד סגירת הדף.
+                  this._pending.delete(id);
+                } else if (snap && currentSeq === snap.seq) {
+                  // כשל זמני – שומרים את התמונה האחרונה לניסיון הבא
                   this._mergePending(id, Object.assign({}, snap.payload));
                 }
               }

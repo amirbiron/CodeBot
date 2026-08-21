@@ -1785,6 +1785,14 @@ def _sample_critical_index_count(db_ref) -> tuple[int, float]:
     return (total_indexes, duration)
 
 
+#: תקרת אורך פתק, לשימוש בתבניות. מיובאת מהמודול הטהור כדי שלא יהיה
+#: מספר שני בצד השרת.
+try:
+    from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES
+except Exception:  # pragma: no cover
+    MAX_NOTE_CHARS_FOR_TEMPLATES = 20_000
+
+
 @app.context_processor
 def inject_globals():
     """הזרקת משתנים גלובליים לכל התבניות"""
@@ -2070,6 +2078,9 @@ def inject_globals():
         'static_version': static_ver,
         # קישור לתיעוד (לשימוש בתבניות)
         'documentation_url': DOCUMENTATION_URL,
+        # תקרת אורך פתק — מגיעה ל-JS מכאן ולא מוקלדת שם. בלי זה היו שני
+        # מספרים שמסונכרנים בתקווה, ופער ביניהם נראה למשתמש כחיתוך בלי הסבר.
+        'max_note_chars': MAX_NOTE_CHARS_FOR_TEMPLATES,
         # External uptime config for templates (non-sensitive only)
         'uptime_provider': UPTIME_PROVIDER,
         'uptime_status_url': UPTIME_STATUS_URL,
