@@ -139,8 +139,36 @@
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
   class StickyNotesManager {
-    constructor(fileId){
-      this.fileId = fileId;
+    // מקבל או מזהה קובץ (הצורה ההיסטורית, שנשארת עובדת ביט-זהה), או אובייקט
+    // תצורה עבור לוח:
+    //   new StickyNotesManager('<file_id>')
+    //   new StickyNotesManager({ board: '<board_id>', container: el })
+    //
+    // התאימות לאחור אינה נוחות — היא מה שמגן על מסלול הקובץ מרגרסיה.
+    // md_preview.html קורא בצורה הראשונה ולא משתנה כלל.
+    constructor(fileIdOrOptions){
+      const opts = (typeof fileIdOrOptions === 'string' || fileIdOrOptions == null)
+        ? { file: fileIdOrOptions }
+        : (fileIdOrOptions || {});
+
+      this.boardId = opts.board ? String(opts.board) : null;
+      this.fileId = this.boardId ? null : (opts.file != null ? opts.file : null);
+      if (!this.boardId && this.fileId == null) {
+        throw new Error('StickyNotesManager: חסר יעד — file או board');
+      }
+
+      // הפתקים נכנסים לקונטיינר הזה. בקובץ זה ה-body, כפי שהיה; בלוח זה
+      // משטח הלוח, כי פתק "מעוגן ללוח" הוא absolute יחסית אליו ולא למסמך.
+      this.container = opts.container || document.body;
+      // המקור שממנו נגזרות שורות המקור לעיגון. בלוח אין כזה, וכל מסלול
+      // ה-anchored מנוטרל — במקום ליפול על null בשקט בשמונה מקומות.
+      this._anchorHost = ('anchorHost' in opts)
+        ? opts.anchorHost
+        : this._anchorHost;
+      this._scopeUrl = this.boardId
+        ? `/api/sticky-notes/board/${encodeURIComponent(this.boardId)}`
+        : `/api/sticky-notes/${encodeURIComponent(this.fileId)}`;
+
       this.notes = new Map();
       this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
       this._pending = new Map();
@@ -148,11 +176,18 @@
       this._autoFlushTimer = null;
       this._autoFlushBusy = false;
       this._lineIndex = new Map(); // lineNumber -> pageY
-      this._cacheKey = `sticky-notes:${String(fileId)}`;
+      // מפתח נפרד ללוח: בלעדיו לוח וקובץ עם אותה מחרוזת מזהה היו חולקים
+      // את אותו קאש ב-localStorage ומרנדרים זה את הפתקים של זה.
+      this._cacheKey = this.boardId
+        ? `sticky-notes:board:${this.boardId}`
+        : `sticky-notes:${String(this.fileId)}`;
       this._renderedFromCache = false;
       this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
       this._init();
     }
+
+    // האם מסלול העיגון לשורת מקור רלוונטי בכלל. בלוח — לא.
+    get _hasAnchorHost(){ return !!this._anchorHost; }
 
     async _init(){
       try {
@@ -177,7 +212,7 @@
 
     async loadNotes(){
       try {
-        const url = `/api/sticky-notes/${encodeURIComponent(this.fileId)}?_=${Date.now()}`;
+        const url = `${this._scopeUrl}?_=${Date.now()}`;
         const resp = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await resp.json();
         if (!data || data.ok === false) return;
@@ -193,7 +228,7 @@
       const btn = createEl('button', 'sticky-note-fab', { title: 'הוסף פתק' });
       btn.textContent = '+';
       btn.addEventListener('click', () => this.createNote());
-      document.body.appendChild(btn);
+      this.container.appendChild(btn);
     }
 
     _setupLifecycleGuards(){
@@ -239,7 +274,7 @@
 
     _nearestAnchor(){
       try {
-        const container = document.getElementById('md-content') || document.body;
+        const container = (this._anchorHost || document.body);
         const headers = Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6'));
         if (!headers.length) return null;
         const scroll = getScrollOffsets();
@@ -267,16 +302,26 @@
         // עיגון אוטומטי לאלמנט הקרוב עם [data-source-line] (רלוונטי ל־MD preview).
         // הפתק יהפוך ל־anchored (position:absolute, doc-Y) ולכן יזוז יחד עם התוכן
         // כאשר ::: details נפתח/נסגר, תמונות נטענות, וכו'.
+        // בלוח אין שורות מקור, ולכן החיפוש כולו מדולג — ולא "רץ ומחזיר null".
         let autoAnchorLine = null;
-        try {
-          const nearest = this._findNearestSourceLineElement(noteY);
-          if (nearest) {
-            const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
-            if (Number.isFinite(raw) && raw >= 0) autoAnchorLine = raw + 1;
-          }
-        } catch(_) {}
+        if (!this.boardId) {
+          try {
+            const nearest = this._findNearestSourceLineElement(noteY);
+            if (nearest) {
+              const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
+              if (Number.isFinite(raw) && raw >= 0) autoAnchorLine = raw + 1;
+            }
+          } catch(_) {}
+        }
 
-        const payload = {
+        const payload = this.boardId ? {
+          content: '',
+          position: { x: noteX, y: noteY },
+          size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
+          color: '#FFFFCC',
+          // ברירת המחדל בלוח: מוצמד למשטח. הלוח *הוא* המשטח.
+          mode: 'surface'
+        } : {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
           position: { x: noteX, y: noteY },
@@ -287,12 +332,13 @@
           anchor_id: '',
           anchor_text: undefined
         };
-        const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`, {
+        const resp = await fetch(this._scopeUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withContentB64(payload))
         });
         const data = await resp.json();
         if (!data || data.ok === false) return;
-        const note = Object.assign({ id: data.id, file_id: this.fileId }, payload, { is_minimized: false, created_at: null, updated_at: null });
+        const target = this.boardId ? { board_id: this.boardId } : { file_id: this.fileId };
+        const note = Object.assign({ id: data.id }, target, payload, { is_minimized: false, created_at: null, updated_at: null });
         this._renderNote(note, true);
       } catch(e){ console.error('createNote error', e); }
     }
@@ -351,7 +397,7 @@
       el.appendChild(header);
       el.appendChild(textarea);
       el.appendChild(resizer);
-      document.body.appendChild(el);
+      this.container.appendChild(el);
 
       if (note.is_minimized) el.classList.add('is-minimized');
       if (isPinnedInitial) el.classList.add('is-pinned');
@@ -432,7 +478,7 @@
           || (Number.isInteger(note.line_start) && note.line_start > 0)
           || (note.anchor_id && note.anchor_id !== '');
         if (!hasAnchor) {
-          const mdEl = document.getElementById('md-content');
+          const mdEl = this._anchorHost;
           if (mdEl && mdEl.querySelector('[data-source-line]')) {
             const targetY = (typeof note.position?.y === 'number') ? note.position.y : null;
             if (Number.isFinite(targetY)) {
@@ -569,6 +615,34 @@
       pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
     }
 
+      // מצב המיקום של פתק, כערך אחד: 'surface' | 'anchored' | 'screen'.
+      //
+      // בפתק לוח השדה ``mode`` מגיע מהשרת ומנצח. בפתק קובץ אין שדה כזה,
+      // והמצב נגזר מהסנטינלים בדיוק כמו קודם — ולכן מסלול הקובץ יוצא
+      // ביט-זהה.
+      //
+      // למה בכלל שדה אמיתי ללוח: התנאי לזיהוי anchored מפיל לשם **כל**
+      // מחרוזת שאינה סנטינל. בקובץ יש לזה משמעות; בלוח ``anchor_id`` הוא
+      // שדה חסר-פשר, וכל ערך שיזלוג לשם — מגיבוי, מ-MCP, מבאג — היה
+      // מעביר את הפתק למצב שבו ``_updateAnchoredNotePosition`` מחשב top
+      // מעוגן ל-null. פתק שנעלם.
+      _resolveMode(note){
+        if (!note) return 'screen';
+        if (note.mode === 'surface' || note.mode === 'screen' || note.mode === 'anchored') {
+          // 'anchored' דורש מקור שורות; בלעדיו אין למה להיצמד.
+          if (note.mode === 'anchored' && !this._hasAnchorHost) return 'surface';
+          return note.mode;
+        }
+        if (note.anchor_id === PIN_SENTINEL) return 'surface';
+        const hasAnchor = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL);
+        const hasLine = Number.isInteger(note.line_start) && note.line_start > 0;
+        // התנאי מותנה ב-``!this.boardId`` ולא ב-``_hasAnchorHost`` בכוונה:
+        // כך מסלול הקובץ יוצא זהה בדיוק לקוד הקודם, גם במקרה הקצה שבו
+        // ``#md-content`` חסר. בלוח פשוט אין מצב anchored.
+        if ((hasAnchor || hasLine) && !this.boardId) return 'anchored';
+        return 'screen';
+      }
+
       _applyPositionMode(el, note, opts){
         try {
           if (!el || !note) return;
@@ -578,8 +652,9 @@
           const currentAbsY = Math.round(rect.top + scroll.y);
           const currentViewportX = Math.round(rect.left);
           const currentViewportY = Math.round(rect.top);
-          const isPinned = note.anchor_id === PIN_SENTINEL;
-          const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
+          const resolved = this._resolveMode(note);
+          const isPinned = resolved === 'surface';
+          const isAnchored = resolved === 'anchored';
           if (isPinned) {
             el.classList.add('is-pinned');
             el.classList.remove('is-floating');
@@ -1247,7 +1322,7 @@
     }
 
     _reflowWithinViewport(target){
-      const items = target ? [target] : Array.from(document.querySelectorAll('.sticky-note'));
+      const items = target ? [target] : Array.from(this.container.querySelectorAll('.sticky-note'));
       const vp = window.visualViewport;
       const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
       const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
@@ -1279,7 +1354,7 @@
 
     _setupDomObservers(){
       try {
-        const md = document.getElementById('md-content');
+        const md = this._anchorHost;
         if (!md) return;
 
         // MutationObserver – שינויים מבניים ב־DOM (תוכן חדש/מוסר). משפיע על אינדקס
@@ -1320,7 +1395,7 @@
         // שמירת רפרנס בלבד – חישוב ה־Y נעשה on-demand דרך _getYForLine,
         // כדי להימנע מ־Layout Thrashing בזמן אנימציות resize.
         this._lineIndex = new Map();
-        const md = document.getElementById('md-content') || document;
+        const md = (this._anchorHost || document);
 
         // ── MD preview: אלמנטים עם data-source-line מתוך ה־Source Mapping Plugin ──
         // ה־value של data-source-line הוא 0-based (מתוך token.map[0] של markdown-it).
@@ -1378,7 +1453,7 @@
         let node = this._lineIndex ? this._lineIndex.get(lineNum) : null;
         if (node && !node.isConnected) node = null;
         if (!node) {
-          const md = document.getElementById('md-content') || document;
+          const md = (this._anchorHost || document);
           // MD preview: data-source-line הוא 0-based ולכן נחסר 1
           const sourceVal = lineNum - 1;
           if (sourceVal >= 0) {
@@ -1403,7 +1478,7 @@
       // מחזיר את האלמנט עם [data-source-line] שה־doc-Y שלו הכי קרוב ל־targetDocY.
       // בשימוש ל: (א) עיגון אוטומטי של פתקים חדשים; (ב) מיגרציה רכה של פתקים ישנים.
       try {
-        const md = document.getElementById('md-content');
+        const md = this._anchorHost;
         if (!md || !Number.isFinite(targetDocY)) return null;
         const nodes = md.querySelectorAll('[data-source-line]');
         if (!nodes.length) return null;
@@ -1422,7 +1497,7 @@
     _getYForAnchor(anchorId){
       try {
         if (!anchorId) return null;
-        const md = document.getElementById('md-content') || document;
+        const md = (this._anchorHost || document);
         let el = md.querySelector(`#${CSS.escape(anchorId)}`);
         if (!el) el = document.getElementById(anchorId);
         if (el) {
@@ -1435,7 +1510,7 @@
 
     _currentVisibleLine(){
       try {
-        const md = document.getElementById('md-content') || document;
+        const md = (this._anchorHost || document);
         const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
         const nodes = Array.from(md.querySelectorAll(sel));
         if (!nodes.length) return null;
