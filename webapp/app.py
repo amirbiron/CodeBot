@@ -171,10 +171,8 @@ except Exception:
 # מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
 from http_sync import request as http_request  # noqa: E402
 
-# תקרת אורך פתק, לשימוש בתבניות. **חייב להיות כאן ולא בראש הקובץ**: בדיפלוי
-# גוניקורן טוען ``app:app`` מתוך ``webapp/``, ושורש הפרויקט נכנס ל-``sys.path``
-# רק בשורה שמעל. ייבוא בראש הקובץ הפיל את כל השירות ב-ModuleNotFoundError.
-# ה-``noqa`` כאן אינו השתקה של lint אלא הסימון הנכון לייבוא שתלוי בהכנת נתיב.
+# תקרת אורך פתק, לשימוש בתבניות. חייב לשבת כאן ולא בראש הקובץ —
+# ראו tests/test_webapp_import_paths.py, ששומר על הכלל ונופל אם הוא מופר.
 from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
