@@ -1468,7 +1468,7 @@ def create_board_note(board_id: str):
             board_notes_filter,
             build_note_target,
             check_note_quota,
-            is_valid_mode,
+            is_valid_board_mode,
             normalize_mode,
         )
 
@@ -1481,7 +1481,7 @@ def create_board_note(board_id: str):
         data = request.get_json(silent=True) or {}
 
         raw_mode = data.get('mode')
-        if raw_mode is not None and not is_valid_mode(raw_mode):
+        if raw_mode is not None and not is_valid_board_mode(raw_mode):
             return jsonify({'ok': False, 'error': 'invalid_mode'}), 400
         mode = normalize_mode(raw_mode, DEFAULT_BOARD_MODE)
 
@@ -1608,7 +1608,10 @@ def toggle_note_task(note_id: str):
         prev_updated_at = data.get('prev_updated_at')
         if prev_updated_at:
             try:
-                prev_dt = datetime.fromisoformat(str(prev_updated_at).replace('Z', '+00:00'))
+                # ``fromisoformat`` מקבל סיומת ``Z`` מ-Python 3.11, וה-CI
+                # רץ על 3.11 ו-3.12 בלבד — אותה צורה כמו בשני
+                # מסלולי העדכון האחרים.
+                prev_dt = datetime.fromisoformat(str(prev_updated_at))
             except Exception:
                 prev_dt = None
             if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:

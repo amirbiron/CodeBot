@@ -53,6 +53,21 @@ def get_db():
     return _get_db()
 
 
+def _ensure_board_indexes() -> None:
+    """מוודא שהאינדקסים קיימים לפני כל פעולה על לוחות.
+
+    בלי זה ``one_default_per_user`` — האינדקס הייחודי-החלקי שסוגר את
+    המרוץ ביצירת לוח ברירת מחדל — עלול פשוט לא להיווצר: הוא נבנה
+    ב-``sticky_notes_api._ensure_indexes``, וזה נקרא רק ממסלולי הפתקים.
+    משתמש שנכנס ישר לעמוד הלוחות לא היה עובר שם.
+    """
+    try:
+        from webapp.sticky_notes_api import _ensure_indexes
+        _ensure_indexes()
+    except Exception:
+        pass
+
+
 def require_auth(f):
     @wraps(f)
     def _inner(*args, **kwargs):
@@ -98,6 +113,7 @@ def list_user_boards():
     אידמפוטנטיות, וזו הנקודה הטבעית להריץ אותן — היא נטענת בכל כניסה לעמוד.
     """
     try:
+        _ensure_board_indexes()
         user_id = int(session['user_id'])
         db = get_db()
 
@@ -116,16 +132,26 @@ def list_user_boards():
                     count=int(reattached),
                 )
 
-        items = []
-        for board in boards:
-            try:
-                count = db.sticky_notes.count_documents({
-                    'user_id': user_id,
-                    'board_id': str(board.get('_id')),
-                })
-            except Exception:
-                count = None
-            items.append(_board_response(board, count))
+        # מונה אחד לכל הלוחות בשאילתה אחת, ולא ``count_documents`` פר לוח.
+        # עם עשרים לוחות זה עשרים סיבובים למסד בכל טעינת עמוד.
+        counts = None
+        try:
+            counts = {
+                str(row.get('_id') or ''): int(row.get('n') or 0)
+                for row in db.sticky_notes.aggregate([
+                    {'$match': {'user_id': user_id, 'board_id': {'$nin': [None, '']}}},
+                    {'$group': {'_id': '$board_id', 'n': {'$sum': 1}}},
+                ])
+            }
+        except Exception:
+            # ``None`` ולא אפס: המונה מושמט מהתשובה, וה-UI מבחין בין
+            # "לוח ריק" לבין "לא הצלחנו לספור".
+            counts = None
+
+        items = [
+            _board_response(board, counts.get(str(board.get('_id')), 0) if counts is not None else None)
+            for board in boards
+        ]
 
         resp = jsonify({'ok': True, 'boards': items, 'count': len(items), 'reattached': reattached})
         try:
@@ -147,6 +173,7 @@ def list_user_boards():
 def create_board():
     """לוח חדש."""
     try:
+        _ensure_board_indexes()
         user_id = int(session['user_id'])
         db = get_db()
         data = request.get_json(silent=True) or {}
@@ -160,12 +187,22 @@ def create_board():
         if existing >= MAX_BOARDS_PER_USER:
             return jsonify({'ok': False, 'error': 'board_quota_exceeded'}), 409
 
+        # ``order`` נגזר מהמקסימום הקיים ולא מהספירה: אחרי מחיקת לוח
+        # מאמצע הרשימה, ספירה הייתה מייצרת ערך שכבר תפוס ושני לוחות היו
+        # מתחרים על אותו מקום במיון.
+        try:
+            top = max(
+                (int(b.get('order') or 0) for b in db.note_boards.find({'user_id': user_id}, {'order': 1})),
+                default=-1,
+            )
+        except Exception:
+            top = existing - 1
         now = datetime.now(timezone.utc)
         doc = {
             'user_id': user_id,
             'name': name,
             'is_default': False,
-            'order': existing,
+            'order': top + 1,
             'created_at': now,
             'updated_at': now,
         }
@@ -193,6 +230,7 @@ def create_board():
 def rename_board(board_id: str):
     """שינוי שם. מותר גם ללוח ברירת המחדל — הזיהוי שלו הוא ``is_default``."""
     try:
+        _ensure_board_indexes()
         user_id = int(session['user_id'])
         db = get_db()
         board = _owned_board(db, user_id, board_id)
@@ -236,6 +274,7 @@ def delete_board(board_id: str):
        הלוח שורד, אפשר לנסות שוב, ואף פתק לא מתייתם.
     """
     try:
+        _ensure_board_indexes()
         user_id = int(session['user_id'])
         db = get_db()
         board = _owned_board(db, user_id, board_id)

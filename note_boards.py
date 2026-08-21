@@ -120,7 +120,12 @@ def reattach_orphan_notes(db: Any, user_id: int, known_board_ids: List[str], def
     if coll is None or not default_board_id:
         return 0
     uid = int(user_id)
+    # היעד עצמו חייב להיחשב תקין, אחרת פתק שכבר יושב על לוח ברירת
+    # המחדל ייספר כיתום — וה-update_many "יעביר" אותו לאותו מקום,
+    # כך שהספירה החוזרת לעולם לא תרד לאפס והדיווח יהיה שגוי.
     valid = [str(b) for b in (known_board_ids or []) if str(b)]
+    if str(default_board_id) not in valid:
+        valid.append(str(default_board_id))
     orphan_query = {
         "user_id": uid,
         "board_id": {"$nin": valid, "$exists": True, "$ne": None},

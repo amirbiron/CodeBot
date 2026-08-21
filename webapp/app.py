@@ -1240,8 +1240,14 @@ except Exception:
 try:
     from webapp.note_boards_api import note_boards_bp  # noqa: E402
     app.register_blueprint(note_boards_bp)
-except Exception:
-    pass
+except Exception as _e:
+    # לא מפילים את היישום (סביבות דוקס/CI ללא תלויות), אבל גם לא בולעים
+    # בשקט: רישום שנכשל פירושו שהפיצ'ר פשוט לא קיים, וזה חייב להיראות
+    # בלוג ברמת error ולא להתגלות כ-404 מסתורי.
+    try:
+        logger.error("note_boards_api blueprint not registered: %s", _e, exc_info=True)
+    except Exception:
+        pass
 
 # Note Boards UI (עמודי הלוחות עצמם)
 try:
@@ -1249,7 +1255,7 @@ try:
     app.register_blueprint(boards_ui)
 except Exception as _e:
     try:
-        logger.info("boards_ui blueprint not registered: %s", _e)
+        logger.error("boards_ui blueprint not registered: %s", _e, exc_info=True)
     except Exception:
         pass
 

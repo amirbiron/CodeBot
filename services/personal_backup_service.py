@@ -1154,6 +1154,26 @@ class PersonalBackupService:
         if existing:
             return False
 
+        # המכסות חלות גם על שחזור. בלי זה גיבוי גדול היה עוקף תקרה
+        # שנאכפת בכל מסלול אחר — כלומר "אכיפה" עם דלת אחורית.
+        from sticky_notes_target import NoteQuotaError, check_note_quota
+        from webapp.sticky_notes_api import MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER
+
+        def _count(query):
+            try:
+                return int(raw_db.sticky_notes.count_documents(query))
+            except Exception:
+                return None
+
+        try:
+            check_note_quota(
+                _count({"user_id": int(user_id), "board_id": str(target_board_id)}),
+                MAX_NOTES_PER_BOARD,
+            )
+            check_note_quota(_count({"user_id": int(user_id)}), MAX_NOTES_PER_USER)
+        except NoteQuotaError as exc:
+            raise ValueError(f"quota:{exc}") from exc
+
         doc = {
             "user_id": int(user_id),
             "content": content,
@@ -1196,7 +1216,13 @@ class PersonalBackupService:
                     # ה-``continue`` שדורש file_name — כלומר פתקי לוח לא
                     # שרדו גיבוי-שחזור, בשקט.
                     if note.get("board_id") or note.get("board_name"):
-                        restored = self._restore_board_note(raw_db, user_id, note)
+                        try:
+                            restored = self._restore_board_note(raw_db, user_id, note)
+                        except ValueError as quota_exc:
+                            # חריגה ממכסה אינה שקטה: היא נכנסת לסיכום
+                            # השחזור, כדי שהמשתמש יידע שפתקים לא שוחזרו.
+                            errors.append(f"דילגתי על פתק לוח: חריגה ממכסה ({quota_exc})")
+                            continue
                         if restored:
                             count += 1
                         continue

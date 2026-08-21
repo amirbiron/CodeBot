@@ -162,9 +162,15 @@
       this.container = opts.container || document.body;
       // המקור שממנו נגזרות שורות המקור לעיגון. בלוח אין כזה, וכל מסלול
       // ה-anchored מנוטרל — במקום ליפול על null בשקט בשמונה מקומות.
+      // בקובץ ברירת המחדל היא ``#md-content``, כפי שהיה לפני
+      // הפרמטריזציה. בלוח אין שורות מקור כלל, ולכן ברירת המחדל היא ריקה
+      // — גם אם במקרה קיים ``#md-content`` בעמוד.
+      //
+      // (השורה הזו התרוקנה פעם בהחלפה גורפת של getElementById, ופתקי
+      // קובץ איבדו את העיגון כולו, בשקט. יש עליה בדיקה.)
       this._anchorHost = ('anchorHost' in opts)
         ? opts.anchorHost
-        : this._anchorHost;
+        : (this.boardId ? null : document.getElementById('md-content'));
       this._scopeUrl = this.boardId
         ? `/api/sticky-notes/board/${encodeURIComponent(this.boardId)}`
         : `/api/sticky-notes/${encodeURIComponent(this.fileId)}`;

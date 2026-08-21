@@ -37,6 +37,11 @@ class NoteQuotaError(ValueError):
 #: sentinels, ולכן הערך הזה אינו בשימוש עדיין. הוא ברשימה כדי שכשהם יעברו
 #: לשדה אמיתי לא יידרש שינוי שם.
 NOTE_MODES = ("surface", "screen", "anchored")
+
+#: מה שפתק **לוח** רשאי להיות. ``anchored`` דורש שורות מקור, ובלוח אין
+#: כאלה — ערך כזה שיגיע מה-API היה מייצר פתק שמחשב את מיקומו מול עוגן
+#: שאינו קיים.
+BOARD_NOTE_MODES = ("surface", "screen")
 DEFAULT_BOARD_MODE = "surface"
 
 
@@ -133,6 +138,16 @@ def normalize_mode(value: Any, default: str = DEFAULT_BOARD_MODE) -> str:
 def is_valid_mode(value: Any) -> bool:
     """``True`` רק לערך שנמצא ב-:data:`NOTE_MODES`. לשימוש בוולידציה שדוחה 400."""
     return _clean(value).lower() in NOTE_MODES
+
+
+def is_valid_board_mode(value: Any) -> bool:
+    """``True`` רק למצב שפתק לוח רשאי להיות בו.
+
+    נפרד מ-:func:`is_valid_mode` בכוונה: ``anchored`` חוקי לפתק קובץ אבל
+    לא לפתק לוח. אימות עם הפונקציה הכללית היה מקבל ``anchored`` מה-API
+    ומייצר פתק שמחשב ``top`` מול עוגן שאינו קיים — כלומר פתק שנעלם.
+    """
+    return _clean(value).lower() in BOARD_NOTE_MODES
 
 
 def check_note_quota(existing: Optional[int], cap: int, *, is_admin: bool = False) -> None:

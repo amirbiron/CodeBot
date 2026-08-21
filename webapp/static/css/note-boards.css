@@ -34,7 +34,6 @@
 }
 
 .board-card {
-  display: block;
   padding: 1.1rem 1.2rem;
   border-radius: 14px;
   background: var(--card-bg, rgba(255, 255, 255, 0.9));
@@ -47,6 +46,12 @@
 .board-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+}
+
+.board-card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
 }
 
 .board-card-title {

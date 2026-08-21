@@ -29,11 +29,13 @@ function makeSandbox() {
     setAttribute() {}, getAttribute: () => null,
   });
   const body = el();
+  const mdContent = el();
   const sandbox = {
     console,
     document: {
       body,
-      getElementById: () => null,
+      // מחזיר אלמנט אמיתי, אחרת הבדיקה על _anchorHost לא יכולה להיכשל
+      getElementById: (id) => (id === 'md-content' ? mdContent : null),
       createElement: () => el(),
       addEventListener() {},
       querySelectorAll: () => [],
@@ -109,6 +111,20 @@ check('מפתח הקאש של לוח נפרד מזה של קובץ', () => {
   eq(board._cacheKey, 'sticky-notes:board:same');
   eq(file._cacheKey, 'sticky-notes:same');
   if (board._cacheKey === file._cacheKey) throw new Error('מפתחות הקאש התנגשו');
+});
+
+check('פתק קובץ מקבל את #md-content כמקור עוגנים', () => {
+  // רגרסיה אמיתית: החלפה גורפת של getElementById פגעה גם בשורת
+  // הקונסטרקטור, ו-_anchorHost יצא undefined — כלומר כל מסלול העיגון
+  // בפתקי קובץ מנוטרל, בשקט. ה-sandbox כאן מחזיר אלמנט אמיתי ל-md-content.
+  const m = new StickyNotesManager('f1');
+  if (m._anchorHost === undefined) throw new Error('_anchorHost הוא undefined');
+  eq(m._hasAnchorHost, true, '_hasAnchorHost');
+});
+
+check('לוח מקבל anchorHost ריק במפורש', () => {
+  const m = new StickyNotesManager({ board: 'b1', anchorHost: null });
+  eq(m._hasAnchorHost, false);
 });
 
 check('הקונטיינר של לוח אינו ה-body', () => {

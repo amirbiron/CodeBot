@@ -9,9 +9,22 @@
 לדעת דבר על סוג הפתק.
 """
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("flask")
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _repo_file(rel: str) -> str:
+    """קורא קובץ יחסית לשורש הריפו ולא ל-cwd.
+
+    pytest אינו מבטיח את ספריית העבודה, ובדיקה שקוראת נתיב יחסי הייתה
+    נכשלת — או גרוע מזה, עוברת על קובץ אחר — כשמריצים אותה מתיקייה אחרת.
+    """
+    return (REPO_ROOT / rel).read_text(encoding="utf-8")
 
 
 class _Coll:
@@ -108,30 +121,47 @@ def test_service_worker_opens_the_permalink():
 
     נופל אם מישהו יחזיר את בניית ``/md/<file_id>`` כמסלול הראשי.
     """
-    from pathlib import Path
-
-    sw = Path('webapp/static/sw.js').read_text(encoding='utf-8')
+    sw = _repo_file('webapp/static/sw.js')
 
     assert '`/note/${encodeURIComponent(noteId)}`' in sw
-    # הפולבק להתראות ישנות שכבר בתור נשאר, אבל רק כענף שני
+    # הפולבק להתראות ישנות שכבר בתור נשאר, אבל רק כענף שני.
+    # החיפוש מתחיל אחרי המופע הראשון — offset שלילי היה נספר מסוף
+    # המחרוזת ומחפש במקום הלא נכון.
     idx_note = sw.index('/note/${encodeURIComponent(noteId)}')
-    idx_md = sw.index('/md/${encodeURIComponent(fileId)}', idx_note - 400)
+    idx_md = sw.index('/md/${encodeURIComponent(fileId)}', idx_note)
     assert idx_note < idx_md
 
 
 def test_service_worker_version_was_bumped():
     """בלי bump אי אפשר לאשש בפרודקשן שהגרסה החדשה נטענה."""
-    from pathlib import Path
+    import re
 
-    sw = Path('webapp/static/sw.js').read_text(encoding='utf-8')
+    sw = _repo_file('webapp/static/sw.js')
 
-    assert "const SW_VERSION = '2.0.4';" not in sw
-    assert "const SW_VERSION = '2.1.0';" in sw
+    m = re.search(r"const SW_VERSION = '([\d.]+)';", sw)
+    assert m, "SW_VERSION לא נמצא"
+    version = tuple(int(x) for x in m.group(1).split('.'))
+    # השוואה לגרסה שקדמה לשינוי, ולא לערך מדויק — כך שה-bump הבא לא
+    # יפיל את הבדיקה, אבל ויתור על bump כן.
+    assert version > (2, 0, 4), f"SW_VERSION={m.group(1)} לא הועלה"
 
 
 def test_bell_uses_the_permalink():
-    from pathlib import Path
-
-    base = Path('webapp/templates/base.html').read_text(encoding='utf-8')
+    base = _repo_file('webapp/templates/base.html')
 
     assert "window.location.href = '/note/' + encodeURIComponent(noteId)" in base
+
+
+def test_push_projection_includes_board_id():
+    """ה-projection של שולח ה-push שולף ``board_id``.
+
+    באג אמיתי שהיה כאן: השדה נוסף ל-payload אבל לא ל-projection, ולכן
+    ``r.get("board_id")`` החזיר תמיד מחרוזת ריקה — כלומר ההתראה על פתק
+    לוח נשלחה בלי היעד שלה. שדה שנוסף לפלט ולא למקור הוא בדיוק סוג
+    הכשל שנראה עובד עד שבודקים.
+    """
+    text = _repo_file("webapp/push_api.py")
+
+    projection = text[text.index("    projection = {"):]
+    projection = projection[:projection.index("}")]
+    assert '"board_id": 1' in projection

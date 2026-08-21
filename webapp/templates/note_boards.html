@@ -31,6 +31,9 @@
   const newBtn = document.getElementById('newBoardBtn');
 
   function showError(text) {
+    // מאפסים את הסגנון: אחרי הודעת מידע מוצלחת ה-class נשאר is-info,
+    // וכשל שהגיע אחריה היה מוצג בירוק
+    msg.className = 'board-msg is-error';
     msg.textContent = text;
     msg.hidden = false;
   }
@@ -38,8 +41,13 @@
   function clearError() { msg.hidden = true; }
 
   function card(board) {
+    // הכרטיס הוא <div>, והקישור והכפתור אחים בתוכו. כפתור בתוך <a> אינו
+    // HTML חוקי, והדפדפן רשאי לפרק את הקינון — ואז stopPropagation אינו
+    // עוזר כי אין יותר מה לעצור.
+    const wrap = document.createElement('div');
+    wrap.className = 'board-card';
     const a = document.createElement('a');
-    a.className = 'board-card';
+    a.className = 'board-card-link';
     a.href = '/boards/' + encodeURIComponent(board.id);
 
     const title = document.createElement('div');
@@ -70,18 +78,15 @@
       del.disabled = true;
       del.title = 'לוח ברירת המחדל אינו נמחק';
     } else {
-      del.addEventListener('click', function (ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        deleteBoard(board);
-      });
+      del.addEventListener('click', function () { deleteBoard(board); });
     }
     actions.appendChild(del);
 
     a.appendChild(title);
     a.appendChild(count);
-    a.appendChild(actions);
-    return a;
+    wrap.appendChild(a);
+    wrap.appendChild(actions);
+    return wrap;
   }
 
   async function deleteBoard(board) {

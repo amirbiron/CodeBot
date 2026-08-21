@@ -39,6 +39,16 @@ class _StubColl:
             raise RuntimeError("count failed")
         return len(self._matching(query))
 
+    def aggregate(self, pipeline):
+        if self.count_fails:
+            raise RuntimeError("aggregate failed")
+        match = pipeline[0].get("$match", {})
+        group_key = pipeline[1]["$group"]["_id"].lstrip("$")
+        buckets = {}
+        for doc in self._matching(match):
+            buckets[doc.get(group_key)] = buckets.get(doc.get(group_key), 0) + 1
+        return [{"_id": k, "n": v} for k, v in buckets.items()]
+
     # -- כתיבה --
     def insert_one(self, doc):
         doc = dict(doc)
@@ -387,3 +397,57 @@ def test_user_quota_applies_to_file_notes_too(client, monkeypatch):
 
     assert res.status_code == 409
     assert res.get_json()["error"] == "note_quota_exceeded"
+
+
+def test_board_routes_ensure_indexes(client, monkeypatch):
+    """האינדקסים נוצרים גם כשנכנסים ישר לעמוד הלוחות.
+
+    ``one_default_per_user`` — האינדקס הייחודי-החלקי שסוגר את המרוץ
+    ביצירת לוח ברירת מחדל — נבנה ב-``sticky_notes_api._ensure_indexes``,
+    שנקרא רק ממסלולי הפתקים. משתמש שנכנס ישר ל-``/boards`` לא היה עובר
+    שם, ולכן ההגנה מפני שתי בקשות מקבילות פשוט לא הייתה קיימת.
+    """
+    from webapp import note_boards_api
+
+    calls = []
+    monkeypatch.setattr(note_boards_api, "_ensure_board_indexes", lambda: calls.append(1))
+
+    client.get("/api/note-boards")
+    client.post("/api/note-boards", json={"name": "x"})
+
+    assert len(calls) == 2
+
+
+def test_note_counts_come_from_one_aggregation(client, monkeypatch):
+    """מונה אחד לכל הלוחות, ולא שאילתה פר לוח.
+
+    עם עשרים לוחות, ``count_documents`` פר לוח הוא עשרים סיבובים למסד
+    בכל טעינת עמוד.
+    """
+    default_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    client.db.sticky_notes.docs.append({"_id": 1, "user_id": 7, "board_id": default_id})
+
+    calls = []
+    original = client.db.sticky_notes.count_documents
+    monkeypatch.setattr(
+        client.db.sticky_notes, "count_documents",
+        lambda q: calls.append(q) or original(q),
+    )
+
+    body = client.get("/api/note-boards").get_json()
+
+    assert body["boards"][0]["note_count"] == 1
+    # ספירות שנותרו הן של סריקת היתומים בלבד, לא פר לוח
+    assert not any("board_id" in c and isinstance(c.get("board_id"), str) for c in calls)
+
+
+def test_count_failure_is_distinguishable_from_empty(client):
+    """כשל ספירה משמיט את המונה במקום להציג אפס.
+
+    אחרת לוח מלא היה נראה ריק בדיוק כשהמסד מתקשה.
+    """
+    client.db.sticky_notes.count_fails = True
+
+    board = client.get("/api/note-boards").get_json()["boards"][0]
+
+    assert "note_count" not in board
