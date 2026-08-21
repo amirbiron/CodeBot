@@ -248,3 +248,128 @@ def test_note_count_aggregation_runs_on_real_mongo(indexed_db):
 
     counts = {row["_id"]: row["n"] for row in rows}
     assert counts == {"b1": 2, "b2": 1}
+
+
+# ---------- כלי ה-MCP ללוחות ----------
+#
+# ה-handlers נבדקים מול stub בקובץ ``test_mcp_notes_handlers.py``. מה שאי
+# אפשר לבדוק שם הוא **בעלות** — היא נשענת על שאילתה למסד — ו**תקרה שנכשלת**,
+# שדורשת אוסף אמיתי שאפשר להפיל בו את הספירה.
+
+
+@pytest.fixture
+def mcp_backend(mongo_db):
+    """``ProductionBackend`` אמיתי מול המסד הזמני, בלי ה-``__init__`` הכבד."""
+    from mcp_server.backend import ProductionBackend
+
+    backend = ProductionBackend.__new__(ProductionBackend)
+    backend._notes_idx_done = True          # מדלגים על בניית אינדקסים חד-פעמית
+    backend._raw_mongo = lambda: mongo_db
+    backend._notes_coll = lambda: mongo_db.sticky_notes
+    return backend
+
+
+def _make_board(db, user_id: int, name: str = "לוח", is_default: bool = False) -> str:
+    from bson import ObjectId
+
+    oid = ObjectId()
+    db.note_boards.insert_one({"_id": oid, "user_id": user_id, "name": name, "is_default": is_default, "order": 0})
+    return str(oid)
+
+
+def test_a_board_of_another_user_is_not_readable(mcp_backend, mongo_db):
+    """**זו הבדיקה שלא ניתן לכתוב מול stub.**
+
+    ``board_id`` שרירותי לא מחזיר רשימה ריקה אלא ``board_not_found`` — ההבדל
+    חשוב: רשימה ריקה אומרת "הלוח שלך ריק", וזה שקר.
+    """
+    foreign = _make_board(mongo_db, user_id=99, name="של מישהו אחר")
+    mongo_db.sticky_notes.insert_one({"user_id": 99, "board_id": foreign, "content": "סוד"})
+
+    res = mcp_backend.list_board_notes(7, board_id=foreign)
+
+    assert res == {"ok": False, "error": "board_not_found"}
+
+
+def test_creating_on_a_foreign_board_is_refused(mcp_backend, mongo_db):
+    foreign = _make_board(mongo_db, user_id=99)
+    before = mongo_db.sticky_notes.count_documents({})
+
+    res = mcp_backend.create_board_note(7, board_id=foreign, content="נסיון", color="#FFFFCC", mode="surface")
+
+    assert res == {"ok": False, "error": "board_not_found"}
+    assert mongo_db.sticky_notes.count_documents({}) == before, "לא נוצר פתק"
+
+
+def test_create_and_read_back_a_board_note(mcp_backend, mongo_db):
+    """``ok: True`` אינו ראיה — קוראים את המסמך מהמסד."""
+    board = _make_board(mongo_db, user_id=7)
+
+    res = mcp_backend.create_board_note(7, board_id=board, content="פתק מ-MCP", color="#FFFFCC", mode="screen")
+    assert res["ok"] is True
+
+    doc = mongo_db.sticky_notes.find_one({"user_id": 7, "board_id": board})
+    assert doc is not None, "הפתק לא הגיע למסד"
+    assert doc["content"] == "פתק מ-MCP"
+    assert doc["mode"] == "screen"
+    assert "file_id" not in doc and "scope_id" not in doc, "פתק לוח אינו נושא יעד קובץ"
+
+    listed = mcp_backend.list_board_notes(7, board_id=board)
+    assert listed["count"] == 1
+    assert listed["notes"][0]["board_id"] == board
+
+
+def test_the_quota_rejects_when_the_count_fails(mcp_backend, mongo_db, monkeypatch):
+    """כשל ספירה → **דחייה**, לא מעבר.
+
+    זו סטייה מכוונת מ-``create_note`` של הקובץ, שם כשל ספירה מעביר את
+    היצירה (soft-cap). תקרה שנפתחת לרווחה בדיוק כשהמסד מתקשה היא לא תקרה.
+    """
+    board = _make_board(mongo_db, user_id=7)
+
+    class _Broken:
+        def __getattr__(self, name):
+            return getattr(mongo_db.sticky_notes, name)
+
+        def count_documents(self, *_a, **_k):
+            raise RuntimeError("count failed")
+
+    monkeypatch.setattr(mcp_backend, "_notes_coll", lambda: _Broken())
+
+    res = mcp_backend.create_board_note(7, board_id=board, content="x", color="#FFFFCC", mode="surface")
+
+    assert res["ok"] is False
+    assert res["error"] == "note_quota_unknown"
+    assert mongo_db.sticky_notes.count_documents({"board_id": board}) == 0
+
+
+def test_the_board_quota_is_enforced(mcp_backend, mongo_db, monkeypatch):
+    import sticky_notes_target
+
+    monkeypatch.setattr(sticky_notes_target, "MAX_NOTES_PER_BOARD", 1)
+    board = _make_board(mongo_db, user_id=7)
+    mongo_db.sticky_notes.insert_one({"user_id": 7, "board_id": board, "content": "ראשון"})
+
+    res = mcp_backend.create_board_note(7, board_id=board, content="שני", color="#FFFFCC", mode="surface")
+
+    assert res["error"] == "too_many_notes"
+    assert res["max"] == 1
+    assert mongo_db.sticky_notes.count_documents({"board_id": board}) == 1
+
+
+def test_list_boards_creates_the_default_and_counts_notes(mcp_backend, mongo_db):
+    board = _make_board(mongo_db, user_id=7, name="ידני")
+    mongo_db.sticky_notes.insert_many([
+        {"user_id": 7, "board_id": board, "content": "a"},
+        {"user_id": 7, "board_id": board, "content": "b"},
+        {"user_id": 99, "board_id": board, "content": "של אחר"},   # לא נספר
+    ])
+
+    res = mcp_backend.list_boards(7)
+
+    assert res["ok"] is True
+    by_name = {b["name"]: b for b in res["boards"]}
+    assert "ידני" in by_name
+    assert by_name["ידני"]["note_count"] == 2, "המונה סופר רק את הפתקים של המשתמש"
+    # לוח ברירת המחדל נוצר אוטומטית בקריאה הראשונה
+    assert any(b["is_default"] for b in res["boards"]), f"אין ברירת מחדל: {res['boards']}"

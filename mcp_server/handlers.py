@@ -377,6 +377,67 @@ def create_note(
     )
 
 
+#: מזהה לוח הוא ObjectId, בדיוק כמו ``note_id``.
+_BOARD_ID_RE = _NOTE_ID_RE
+
+
+def list_boards(backend: Any, user_id: int) -> dict[str, Any]:
+    """List the user's note boards (read-only)."""
+    return backend.list_boards(user_id)
+
+
+def list_board_notes(backend: Any, user_id: int, *, board_id: str) -> dict[str, Any]:
+    """List the sticky notes sitting on one board (read-only)."""
+    bid = (board_id or "").strip()
+    if not _BOARD_ID_RE.match(bid):
+        return {"ok": False, "error": "invalid_board_id"}
+    return backend.list_board_notes(user_id, board_id=bid)
+
+
+def create_board_note(
+    backend: Any,
+    user_id: int,
+    *,
+    board_id: str,
+    content: str,
+    color: str | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """Attach a sticky note to a board (a surface that belongs to no file).
+
+    ``mode`` בוחר בין ``surface`` (יושב על הלוח, ברירת המחדל) לבין
+    ``screen`` (צף מול המסך). ``anchored`` אינו חוקי כאן — הוא דורש שורות
+    מקור, ובלוח אין כאלה; פתק כזה היה מחשב מיקום מול עוגן שאינו קיים.
+    """
+    from sticky_notes_target import DEFAULT_BOARD_MODE, is_valid_board_mode, normalize_mode
+
+    bid = (board_id or "").strip()
+    if not _BOARD_ID_RE.match(bid):
+        return {"ok": False, "error": "invalid_board_id"}
+
+    clean = _sanitize_note_text(content).strip()
+    if not clean:
+        return {"ok": False, "error": "empty_content"}
+    if len(clean) > MAX_NOTE_CONTENT:
+        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+
+    if mode is not None and not is_valid_board_mode(mode):
+        return {"ok": False, "error": "invalid_mode", "allowed": ["surface", "screen"]}
+
+    # אותה ולידציה בדיוק כמו ב-``create_note``: צבע לא חוקי נופל לברירת המחדל
+    color_s = (color or "").strip()
+    if not _NOTE_COLOR_RE.match(color_s):
+        color_s = DEFAULT_NOTE_COLOR
+
+    return backend.create_board_note(
+        user_id,
+        board_id=bid,
+        content=clean,
+        color=color_s,
+        mode=normalize_mode(mode, DEFAULT_BOARD_MODE),
+    )
+
+
 def update_note(
     backend: Any,
     user_id: int,

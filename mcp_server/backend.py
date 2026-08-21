@@ -25,7 +25,12 @@ logger = logging.getLogger(__name__)
 _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
 
 # שדות הפתק שנחשפים ל-MCP — רזה במכוון (בלי מיקום/גודל פיקסלים, שהם עניין ויזואלי)
-_NOTE_FIELDS = ("content", "color", "line_start", "anchor_text", "is_minimized")
+#: פתק לוח נושא ``board_id`` ו-``mode``; בלעדיהם הפלט לא אומר איפה הוא
+#: יושב. בפתק קובץ שניהם ריקים, ולכן התוספת אינה משנה את מסלול הקובץ.
+_NOTE_FIELDS = (
+    "content", "color", "line_start", "anchor_text", "is_minimized",
+    "board_id", "mode",
+)
 
 
 def _json_safe(value: Any) -> Any:
@@ -436,6 +441,149 @@ class ProductionBackend:
             "anchor_text": anchor_text,
             "scope_id": scope_id,
             "file_name": canonical_name,
+            "created_at": now,
+            "updated_at": now,
+        }
+        res = coll.insert_one(note)
+        note["_id"] = getattr(res, "inserted_id", None)
+        return {"ok": True, "note": _as_note(note)}
+
+    # -- note boards -------------------------------------------------------
+    #
+    # הלוחות הם משטח שני לאותם פתקים, ולכן כל מה שכאן נשען על אותם מודולים
+    # טהורים שהוובאפ משתמש בהם — ``note_boards`` ו-``sticky_notes_target``.
+    # אין כאן לוגיקה חדשה, רק חיווט: כלל שמופיע פעמיים מתפצל בסוף.
+
+    def _boards_coll(self) -> Any:
+        return self._raw_mongo()["note_boards"]
+
+    def _owned_board(self, user_id: int, board_id: str) -> dict[str, Any] | None:
+        """הלוח, אם הוא של המשתמש. אחרת ``None``.
+
+        **בעלות נבדקת לפני כל נגיעה בפתקים.** בלי זה ``board_id`` שרירותי
+        היה מחזיר את הפתקים של מישהו אחר — הפילטר על ``user_id`` בשאילתת
+        הפתקים מגן, אבל הסתמכות על הגנה במורד הזרם היא בדיוק סוג ההנחה
+        שנשברת כשמישהו משנה את השאילתה.
+        """
+        from bson import ObjectId  # lazy heavy import
+
+        try:
+            oid = ObjectId(str(board_id))
+        except Exception:
+            return None
+        doc = self._boards_coll().find_one({"_id": oid, "user_id": int(user_id)})
+        return doc if isinstance(doc, dict) else None
+
+    def list_boards(self, user_id: int) -> dict[str, Any]:
+        """לוחות המשתמש, עם מונה פתקים. יוצר את לוח ברירת המחדל אם אין."""
+        from note_boards import ensure_default_board, list_boards as _list
+
+        db = self._raw_mongo()
+        try:
+            ensure_default_board(db, int(user_id))
+        except Exception:
+            pass  # רשימה חלקית עדיפה על כלי שנופל
+        rows = _list(db, int(user_id))
+
+        counts: dict[str, int] = {}
+        try:
+            for row in self._notes_coll().aggregate([
+                {"$match": {"user_id": int(user_id), "board_id": {"$in": [str(r.get("_id")) for r in rows]}}},
+                {"$group": {"_id": "$board_id", "n": {"$sum": 1}}},
+            ]):
+                counts[str(row.get("_id"))] = int(row.get("n") or 0)
+        except Exception:
+            counts = {}  # מונה חסר עדיף על כלי שנופל; ``note_count`` יהיה None
+
+        boards = [
+            {
+                "id": str(b.get("_id")),
+                "name": str(b.get("name") or ""),
+                "is_default": bool(b.get("is_default")),
+                "note_count": counts.get(str(b.get("_id"))),
+            }
+            for b in rows
+        ]
+        return {"ok": True, "count": len(boards), "boards": boards}
+
+    def list_board_notes(self, user_id: int, *, board_id: str) -> dict[str, Any]:
+        """פתקי לוח יחיד (קריאה טהורה)."""
+        from sticky_notes_target import board_notes_filter
+
+        board = self._owned_board(user_id, board_id)
+        if board is None:
+            return {"ok": False, "error": "board_not_found"}
+
+        query = board_notes_filter(int(user_id), str(board_id))
+        rows = list(self._notes_coll().find(query).sort("created_at", 1).limit(500))
+        return {
+            "ok": True,
+            "board_id": str(board_id),
+            "board_name": str(board.get("name") or ""),
+            "count": len(rows),
+            "notes": [_as_note(r) for r in rows],
+        }
+
+    def create_board_note(
+        self,
+        user_id: int,
+        *,
+        board_id: str,
+        content: str,
+        color: str,
+        mode: str,
+    ) -> dict[str, Any]:
+        """פתק חדש על לוח.
+
+        התקרה נאכפת ב-``check_note_quota``, שדוחה גם כשהספירה **נכשלה**.
+        זו סטייה מכוונת מ-``create_note`` של הקובץ, שם כשל ספירה מעביר את
+        היצירה (soft-cap). תקרה שנפתחת לרווחה בדיוק כשהמסד מתקשה היא לא
+        תקרה — והוובאפ כבר מתנהג כך בפתקי לוח.
+        """
+        from sticky_notes_target import (
+            MAX_NOTES_PER_BOARD,
+            MAX_NOTES_PER_USER,
+            NoteQuotaError,
+            board_notes_filter,
+            build_note_target,
+            check_note_quota,
+        )
+
+        board = self._owned_board(user_id, board_id)
+        if board is None:
+            return {"ok": False, "error": "board_not_found"}
+
+        coll = self._notes_coll()
+        for query, cap in (
+            (board_notes_filter(int(user_id), str(board_id)), MAX_NOTES_PER_BOARD),
+            ({"user_id": int(user_id)}, MAX_NOTES_PER_USER),
+        ):
+            try:
+                existing: int | None = int(coll.count_documents(query))
+            except Exception:
+                existing = None  # ``None`` = "לא ידוע", ו-check_note_quota דוחה עליו
+            try:
+                check_note_quota(existing, cap)
+            except NoteQuotaError:
+                # הקוד נגזר מ**מצב הספירה** ולא מטקסט החריגה — טקסט של חריגה
+                # בתשובה הוא דלף ממתין, וזה בדיוק מה שתוקן ב-webapp.
+                code = "note_quota_unknown" if existing is None else "too_many_notes"
+                return {"ok": False, "error": code, "max": cap, "count": existing}
+
+        now = _dt.datetime.now(_dt.timezone.utc)
+        note = {
+            "user_id": int(user_id),
+            # ``build_note_target`` מריץ את האילוץ "בדיוק יעד אחד" **לפני**
+            # שהוא מחזיר, ולכן אי אפשר להרכיב כאן מסמך לא חוקי.
+            **build_note_target(board_id=str(board_id)),
+            "content": content,
+            "position_x": 120,
+            "position_y": 120,
+            "width": 260,
+            "height": 200,
+            "color": color,
+            "is_minimized": False,
+            "mode": mode,
             "created_at": now,
             "updated_at": now,
         }
