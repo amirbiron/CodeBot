@@ -21,6 +21,12 @@ import asyncio
 # שמחזיר ערך מקומי הוא בדיוק מקור האמת השני שהשינוי הזה בא לבטל — הוא היה
 # שקט, ומופיע רק כשהמגבלות כבר נבדלות בין ה-API ל-MCP. כשל ייבוא צריך
 # להיכשל מוקדם ובקול.
+#
+# הייבוא הזה תלוי בכך ש-``webapp/app.py`` כבר הוסיף את שורש הפרויקט ל-
+# ``sys.path``. זה מתקיים בכל מסלול טעינה אמיתי — המודול נטען תמיד כ-
+# ``webapp.sticky_notes_api``, ו-``app.py`` רושם את ה-blueprint הרבה אחרי
+# הכנת הנתיב. הערה ולא ניחוש: אומת בהרצת ``import app`` מתוך ``webapp/``,
+# בדיוק כמו שגוניקורן טוען אותו בפרודקשן.
 from sticky_notes_target import MAX_NOTE_CHARS
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
