@@ -1,5 +1,5 @@
 // SW Version for cache busting
-const SW_VERSION = '2.0.4';
+const SW_VERSION = '2.1.0';
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing version:', SW_VERSION);
@@ -363,10 +363,19 @@ self.addEventListener('notificationclick', (event) => {
       try { await reportToServer('notification_click', 'skipped_open', { action: action || '' }); } catch (_) {}
       return;
     }
+    // הפרמלינק /note/<id> הוא הבונה היחיד של יעד הפתק. השרת יודע אם הפתק
+    // יושב על קובץ או על לוח ומפנה בהתאם, ולכן ה-SW אינו צריך להכיר את
+    // סוגי הפתקים — כולל סוג שלישי שיתווסף בעתיד.
+    //
+    // עד היום כאן נבנה /md/<file_id>, ולפתק לוח (שאין לו file_id) ההתראה
+    // נחתה בשורש האתר.
     let urlToOpen = '/';
     try {
-      if (fileId) {
-        urlToOpen = `/md/${encodeURIComponent(fileId)}` + (noteId ? `?note=${encodeURIComponent(noteId)}` : '');
+      if (noteId) {
+        urlToOpen = `/note/${encodeURIComponent(noteId)}`;
+      } else if (fileId) {
+        // פולבק להתראות ישנות שכבר בתור ואין בהן note_id
+        urlToOpen = `/md/${encodeURIComponent(fileId)}`;
       }
     } catch (_) {
       urlToOpen = '/';

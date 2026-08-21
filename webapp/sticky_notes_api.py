@@ -699,6 +699,9 @@ def set_note_reminder(note_id: str):
             'user_id': user_id,
             'note_id': str(note_id),
             'file_id': str(note.get('file_id', '')),
+            # לפתק לוח אין file_id, ובלי השדה הזה ה-Service Worker
+            # לא היה יודע לאן לפתוח את ההתראה.
+            'board_id': str(note.get('board_id', '') or ''),
             'status': 'pending',
             'remind_at': dt_utc,
             'snooze_until': None,
@@ -881,6 +884,7 @@ def reminders_list():
             try:
                 note_id = str(r.get('note_id') or '')
                 file_id = str(r.get('file_id') or '')
+                board_id = str(r.get('board_id') or '')
                 preview = ''
                 anchor_id = ''
                 anchor_text = ''
@@ -907,10 +911,16 @@ def reminders_list():
                     preview = _first_n_words(preview_source, 6)
                     anchor_id = str(note_doc.get('anchor_id') or '')
                     anchor_text = str(note_doc.get('anchor_text') or '')
-                    # Prefer file_id from note if missing on reminder (defensive)
+                    # Prefer file_id/board_id from note if missing on reminder
+                    # (defensive — תזכורות ישנות נכתבו לפני שהשדה נוסף)
                     if not file_id:
                         try:
                             file_id = str(note_doc.get('file_id') or '')
+                        except Exception:
+                            pass
+                    if not board_id:
+                        try:
+                            board_id = str(note_doc.get('board_id') or '')
                         except Exception:
                             pass
                 else:
@@ -919,6 +929,7 @@ def reminders_list():
                 items.append({
                     'note_id': note_id,
                     'file_id': file_id,
+                    'board_id': board_id,
                     'preview': preview,
                     'anchor_id': anchor_id,
                     'anchor_text': anchor_text,

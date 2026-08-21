@@ -9,6 +9,15 @@ from __future__ import annotations
 
 from flask import Blueprint, redirect, render_template, session
 
+try:  # type: ignore
+    from bson import ObjectId  # type: ignore
+except Exception:  # pragma: no cover
+    def ObjectId(x):  # type: ignore
+        s = str(x or "")
+        if len(s) != 24:
+            raise ValueError("malformed ObjectId")
+        return s
+
 boards_ui = Blueprint('boards_ui', __name__)
 
 
@@ -31,3 +40,47 @@ def board_page(board_id: str):
     if 'user_id' not in session:
         return redirect(f'/login?next=/boards/{board_id}')
     return render_template('note_board.html', board_id=board_id)
+
+
+@boards_ui.route('/note/<note_id>')
+def note_permalink(note_id: str):
+    """קישור קבוע לפתק — ומשם הפניה למקום שבו הוא באמת יושב.
+
+    **זה תיקון השורש לבעיית ה-deep link.** עד היום כל צרכן הרכיב את
+    ה-URL בעצמו מהמזהים שהיו לו ביד: ``sw.js`` בנה ``/md/<file_id>``,
+    והפעמון ב-``base.html`` עשה אותו דבר. לפתק לוח אין ``file_id``, ולכן
+    ההתראה נחתה בשורש האתר ולחיצה על הפעמון פשוט לא עשתה כלום.
+
+    עכשיו יש בונה אחד, והוא כאן. הצרכנים פותחים ``/note/<id>`` ולא
+    צריכים לדעת דבר על סוג הפתק — כולל סוג שלישי שיתווסף בעתיד.
+
+    ``login_required`` אינו בשימוש כאן במכוון: הבדיקה הידנית מאפשרת
+    לשמור ``next`` בדיוק כמו בשאר עמודי הלוחות, כך שסשן שפג מחזיר את
+    המשתמש לפתק אחרי ההתחברות במקום לזרוק אותו לשורש.
+    """
+    if 'user_id' not in session:
+        return redirect(f'/login?next=/note/{note_id}')
+
+    try:
+        from webapp.app import get_db
+        db = get_db()
+        note = db.sticky_notes.find_one(
+            {'_id': ObjectId(str(note_id)), 'user_id': int(session['user_id'])},
+            {'file_id': 1, 'board_id': 1},
+        )
+    except Exception:
+        note = None
+
+    if not note:
+        # פתק שנמחק, או מזהה פגום. הלוחות הם היעד הבטוח.
+        return redirect('/boards')
+
+    board_id = str(note.get('board_id') or '')
+    if board_id:
+        return redirect(f'/boards/{board_id}?note={note_id}')
+
+    file_id = str(note.get('file_id') or '')
+    if file_id:
+        return redirect(f'/md/{file_id}?note={note_id}')
+
+    return redirect('/boards')
