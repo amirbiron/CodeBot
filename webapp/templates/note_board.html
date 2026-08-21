@@ -148,6 +148,20 @@
   const infiniteToggle = document.getElementById('infiniteScrollToggle');
   infiniteToggle.checked = readInfinite();
 
+  // ``aria-modal="true"`` מצהיר בפני קורא מסך שכל מה שמאחורי הדיאלוג
+  // אינו קיים. בלי לכידת Tab ההצהרה הזו פשוט אינה נכונה: משתמש מקלדת
+  // ממשיך לגלוש לשדה שם הלוח, לפתקים ולנאבבר — ומקליד בהם בזמן שהדיאלוג
+  // עדיין על המסך.
+  const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
+                    'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  function focusableItems() {
+    return Array.prototype.filter.call(
+      settingsModal.querySelectorAll(FOCUSABLE),
+      function (n) { return n.offsetParent !== null || n === document.activeElement; }
+    );
+  }
+
   function openSettings() { settingsModal.hidden = false; infiniteToggle.focus(); }
   function closeSettings() { settingsModal.hidden = true; settingsBtn.focus(); }
 
@@ -156,7 +170,18 @@
     if (ev.target && ev.target.hasAttribute('data-close')) closeSettings();
   });
   document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' && !settingsModal.hidden) closeSettings();
+    if (settingsModal.hidden) return;
+    if (ev.key === 'Escape') { closeSettings(); return; }
+    if (ev.key !== 'Tab') return;
+    const items = focusableItems();
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    // הלולאה נסגרת בשני הכיוונים, וגם מחזירה פנימה פוקוס שהצליח לברוח
+    if (ev.shiftKey && (document.activeElement === first || !settingsModal.contains(document.activeElement))) {
+      ev.preventDefault(); last.focus();
+    } else if (!ev.shiftKey && (document.activeElement === last || !settingsModal.contains(document.activeElement))) {
+      ev.preventDefault(); first.focus();
+    }
   });
   infiniteToggle.addEventListener('change', function () {
     writeInfinite(infiniteToggle.checked);

@@ -20,6 +20,17 @@ import html
 import logging
 from typing import Any
 
+# ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
+# אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
+# בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
+# את המודול כולו.
+try:  # type: ignore
+    from pymongo.errors import DuplicateKeyError as _DuplicateKeyError  # type: ignore
+except Exception:  # pragma: no cover
+    class _DuplicateKeyError(Exception):  # type: ignore
+        pass
+
+
 logger = logging.getLogger(__name__)
 
 _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
@@ -356,6 +367,17 @@ class ProductionBackend:
                 coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
             except Exception:
                 logger.warning("sticky notes index creation failed (non-fatal)", exc_info=True)
+            # ``create_board_note`` מחזיר ``duplicate_title`` על סמך דחייה
+            # של המסד. אם האינדקס אינו שם — והוא נוצר עד היום רק בוובאפ —
+            # ההבטחה הזו ריקה, ושמות כפולים נכנסים בשקט. פריסה של ה-MCP
+            # בלי הוובאפ היא בדיוק המקרה שבו זה קורה.
+            try:
+                from sticky_notes_target import ensure_title_index
+
+                if not ensure_title_index(coll):
+                    logger.warning("one_title_per_board index not confirmed after create")
+            except Exception:
+                logger.warning("one_title_per_board index creation failed", exc_info=True)
         return coll
 
     def _related_file_ids(self, user_id: int, file_name: str) -> list[str]:
@@ -625,11 +647,11 @@ class ProductionBackend:
         }
         try:
             res = coll.insert_one(note)
-        except Exception as exc:
-            # שם תפוס בלוח — התנגשות ולא תקלה. נבדק לפי סוג ולא לפי טקסט.
-            if type(exc).__name__ == "DuplicateKeyError":
-                return {"ok": False, "error": "duplicate_title"}
-            raise
+        except _DuplicateKeyError:
+            # שם תפוס בלוח — התנגשות ולא תקלה. נתפס לפי **הטיפוס** ולא לפי
+            # שם המחלקה: השוואת מחרוזת הייתה תופסת כל חריגה אחרת שבמקרה
+            # נקראת כך, ומפספסת תת-מחלקה או עטיפה של הדרייבר.
+            return {"ok": False, "error": "duplicate_title"}
         note["_id"] = getattr(res, "inserted_id", None)
         return {"ok": True, "note": _as_note(note)}
 

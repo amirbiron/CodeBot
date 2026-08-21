@@ -118,9 +118,9 @@
 
 /* סרגל הכלים צף **מעל** המשטח במקום לשבת מעליו.
    כך הלוח מתחיל מיד מתחת לנאבבר, והשורה שתפסה 40 פיקסלים מלאים
-   מפסיקה לגזול שטח מהלוח עצמו. */
-.is-board-surface .board-surface-wrap { position: relative; }
-
+   מפסיקה לגזול שטח מהלוח עצמו.
+   (העוגן ל-``position: absolute`` הזה הוא ``.board-surface-wrap``, שכבר
+   מוגדר ``position: relative`` בכלל הבסיס שלו בהמשך הקובץ.) */
 .is-board-surface .board-toolbar {
   position: absolute;
   inset-block-start: .5rem;
@@ -150,6 +150,9 @@
   position: relative;      /* פתק במצב surface הוא absolute יחסית לזה */
   /* ``--board-top`` נמדד ב-JS מהמיקום בפועל, במקום המספר הקשיח שפספס
      ב-40px ויצר גלילה מיותרת. הערך הקשיח נשאר כנפילה חיננית בלבד. */
+  /* ``vh`` קודם כנפילה: דפדפן שאינו מכיר ``dvh`` מתעלם מההצהרה כולה,
+     ובלי השורה הזו המשטח היה מאבד את גובה המסך ומתכווץ לתוכן. */
+  min-height: calc(100vh - var(--board-top, 130px) - .5rem);
   min-height: calc(100dvh - var(--board-top, 130px) - .5rem);
   border-radius: 16px;
   overflow: auto;

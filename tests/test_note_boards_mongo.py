@@ -470,13 +470,20 @@ def test_the_title_index_is_created_with_the_right_partial_filter(indexed_db):
     נבדק מול מונגו 7.0 ונדחה ב-``Error in specification``; ``$exists`` נתמך.
     לכן פתק בלי שם משמיט את השדה במקום לשמור ``""`` — שני פתקים עם מחרוזת
     ריקה היו מתנגשים זה בזה.
+
+    ההשוואה היא מול :data:`ONE_TITLE_PER_BOARD_INDEX` ולא מול מילון מוקלד
+    כאן: מפרט שכתוב פעמיים הוא מפרט שיתפצל, וזו בדיוק הדרך שבה ``board_id``
+    נשמט מהפילטר מלכתחילה.
     """
+    from sticky_notes_target import ONE_TITLE_PER_BOARD_INDEX as WANT
+
     info = indexed_db.sticky_notes.index_information()
 
-    assert "one_title_per_board" in info, f"האינדקס לא נוצר. קיימים: {sorted(info)}"
-    spec = info["one_title_per_board"]
+    assert WANT["name"] in info, f"האינדקס לא נוצר. קיימים: {sorted(info)}"
+    spec = info[WANT["name"]]
     assert spec.get("unique") is True
-    assert spec.get("partialFilterExpression") == {"title": {"$exists": True}}
+    assert spec.get("partialFilterExpression") == WANT["partialFilterExpression"]
+    assert [(f, v) for f, v in spec["key"]] == WANT["keys"]
 
 
 def test_two_notes_cannot_share_a_title_on_one_board(indexed_db):
@@ -540,3 +547,63 @@ def test_mcp_refuses_a_duplicate_title(mcp_backend, mongo_db, indexed_db):
 
     assert dup == {"ok": False, "error": "duplicate_title"}
     assert mongo_db.sticky_notes.count_documents({"board_id": board}) == 1
+
+
+def test_two_file_notes_may_share_a_title(indexed_db):
+    """**הבאג שהאינדקס ייצר, ולא מנע.**
+
+    האינדקס הוא ``(user_id, board_id, title)``, ולפתק **קובץ** אין
+    ``board_id`` כלל. עם פילטר שמסתכל על ``title`` בלבד, כל פתקי הקבצים
+    נכנסים אליו עם אותו ערך מפתח חסר — ושני קבצים שונים עם אותו שם פתק
+    נדחים ב-E11000. נמדד מול מונגו 7.0.14 לפני התיקון: ההוספה השנייה
+    נכשלה.
+
+    זו גם ההתנהגות שנקבעה במפורש: בקבצים אותו שם הוא גרסה נוספת, לא
+    התנגשות. הייחודיות היא **בתוך לוח**, ולכן ``board_id`` חייב להיות
+    בפילטר.
+
+    נופלת בלי ``board_id`` ב-``partialFilterExpression``.
+    """
+    notes = indexed_db.sticky_notes
+
+    notes.insert_one({"user_id": 7, "file_id": "f1", "title": "רשימת מטלות"})
+    notes.insert_one({"user_id": 7, "file_id": "f2", "title": "רשימת מטלות"})
+    # וגם שניים על **אותו** קובץ — שם אינו מזהה ייחודי בעולם הקבצים
+    notes.insert_one({"user_id": 7, "file_id": "f1", "title": "רשימת מטלות"})
+
+    assert notes.count_documents({"user_id": 7, "title": "רשימת מטלות"}) == 3
+
+
+def test_the_title_index_upgrades_an_older_version_of_itself(indexed_db):
+    """**בלי היישוב הזה התיקון לא מגיע לפרודקשן.**
+
+    בפרודקשן כבר יושב האינדקס עם הפילטר הישן. מונגו דוחה יצירה מחדש של
+    אינדקס בשם קיים עם אפשרויות שונות — ``code 86``, נמדד — והדחייה
+    נבלעת ב-``except Exception``. כלומר בלי ההפלה-ובנייה, הקוד היה
+    מתעדכן וההתנהגות לא.
+
+    נופלת אם ``ensure_title_index`` רק יוצר ולא משווה.
+    """
+    from sticky_notes_target import ONE_TITLE_PER_BOARD_INDEX, ensure_title_index
+
+    notes = indexed_db.sticky_notes
+    name = ONE_TITLE_PER_BOARD_INDEX["name"]
+
+    # משחזרים את המצב שבשדה: אותו שם, פילטר ישן
+    notes.drop_index(name)
+    notes.create_index(
+        [("user_id", 1), ("board_id", 1), ("title", 1)],
+        name=name, unique=True, partialFilterExpression={"title": {"$exists": True}},
+    )
+    assert notes.index_information()[name]["partialFilterExpression"] == {"title": {"$exists": True}}
+
+    assert ensure_title_index(notes) is True
+
+    assert (
+        notes.index_information()[name]["partialFilterExpression"]
+        == ONE_TITLE_PER_BOARD_INDEX["partialFilterExpression"]
+    )
+    # ולראיה שההתנהגות באמת השתנתה, ולא רק המפרט
+    notes.insert_one({"user_id": 7, "file_id": "f1", "title": "אחרי שדרוג"})
+    notes.insert_one({"user_id": 7, "file_id": "f2", "title": "אחרי שדרוג"})
+    assert notes.count_documents({"title": "אחרי שדרוג"}) == 2

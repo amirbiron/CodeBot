@@ -432,6 +432,9 @@
       header.appendChild(actions); header.appendChild(drag); header.appendChild(titleInput);
 
       titleInput.addEventListener('input', () => {
+        // שם חדש הוא ניסיון חדש. הסימון הישן שייך לערך שכבר לא בשדה,
+        // והשארתו הייתה מציגה שגיאה על טקסט שטרם נבדק.
+        this._markTitleConflict(el.dataset.noteId, false);
         this._queueSave(el, { title: titleInput.value });
       });
       // 409 מהשרת פירושו שהשם תפוס בלוח הזה. חיווי גלוי — לא כתיבה
@@ -524,10 +527,15 @@
         try {
           // תמיכה במקלדות מובייל/טלגרם שמשדרות key=Unidentified במקום Enter
           if ((ev.key === 'Enter' || ev.keyCode === 13) && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
+            // צילום **לפני** השינוי. המשך הרשימה כותב ל-``textarea.value``
+            // ישירות, וכתיבה תכנותית אינה משדרת ``input`` — כלומר הביטול
+            // לא ראה את השינוי הזה כלל, והצעד היה בלתי הפיך.
+            const beforeChange = textarea.value;
             const result = this._handleListContinuation(textarea);
             if (result === false) {
               // כפול אנטר → יציאה מרשימה, הטקסטריה כבר עודכנה
               ev.preventDefault();
+              this._noteProgrammaticEdit(el, textarea, beforeChange);
               this._queueSave(el, { content: textarea.value });
             } else if (typeof result === 'string') {
               ev.preventDefault();
@@ -537,6 +545,7 @@
               textarea.value = before + result + after;
               const newPos = start + result.length;
               textarea.selectionStart = textarea.selectionEnd = newPos;
+              this._noteProgrammaticEdit(el, textarea, beforeChange);
               this._queueSave(el, { content: textarea.value });
             }
           }
@@ -921,17 +930,28 @@
         } catch(_) {}
       }
 
-      // חיווי אורך. השרת דוחה תוכן שחורג מהתקרה ב-``content_too_long``,
-      // אבל דחייה שמגיעה רק אחרי ניסיון שמירה היא מאוחרת מדי — המשתמש
-      // כבר הדביק והמשיך. כאן זה נראה בזמן ההקלדה.
-      // שם תפוס — מסומן על השדה עצמו. השרת מחזיר 409 ``duplicate_title``,
-      // וה-``_markSaveFailed`` הקיים כבר מסמן את הפתק; כאן מוסיפים את
-      // ההסבר הספציפי, כי "לא נשמר" לבדו לא אומר למשתמש מה לעשות.
+      // שם תפוס — מסומן על השדה עצמו, לפי **קוד השגיאה מהשרת** בלבד.
+      //
+      // הגרסה הראשונה הסיקה את זה מ-``has-save-error``, שהוא סימון גנרי:
+      // כל כשל שמירה — חריגת מכסה, נפילת רשת, 500 — היה מסמן את השם
+      // כתפוס. וגם ההפך: מסלול ה-409 אינו מסמן ``has-save-error`` כלל,
+      // ולכן התנגשות שם אמיתית לא הופיעה אף פעם. סימון שמופיע בכל מצב
+      // חוץ מהנכון הוא גרוע מאין סימון.
+      _markTitleConflict(id, on){
+        try {
+          const entry = this.notes.get(String(id));
+          if (!entry || !entry.el) return;
+          entry.titleConflict = !!on;
+          this._syncTitleConflict(entry.el);
+        } catch(_) {}
+      }
+
       _syncTitleConflict(el){
         try {
           const input = el.querySelector('.sticky-note-title');
           if (!input) return;
-          const conflicted = el.classList.contains('has-save-error');
+          const entry = this._getEntry(el);
+          const conflicted = !!(entry && entry.titleConflict);
           input.classList.toggle('is-duplicate', conflicted);
           input.title = conflicted ? 'שם כזה כבר קיים בלוח הזה' : 'שם הפתק';
         } catch(_) {}
@@ -978,8 +998,50 @@
           st.timer = setTimeout(() => {
             const from = st.burstFrom;
             st.burstFrom = null;
+            st.timer = null;
             if (from !== null && from !== st.last) this._pushUndo(el, from);
+            this._syncUndoButton(el);
           }, UNDO_BURST_MS);
+          // הכפתור מתעורר כבר עכשיו, ולא בעוד 600 מילישניות
+          this._syncUndoButton(el);
+        } catch(_) {}
+      }
+
+      // כתיבה תכנותית ל-textarea (המשך רשימה, וכל מה שיבוא אחריו).
+      //
+      // ``input`` נורה רק על הקלדה של אדם. שינוי שנעשה בקוד חייב להירשם
+      // בעצמו, אחרת המחסנית מפספסת אותו ו-``last`` נשאר על ערך שכבר לא
+      // בשדה — מה שהופך את הביטול הבא לשחזור של טקסט שגוי.
+      _noteProgrammaticEdit(el, textarea, before){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          const after = String(textarea.value == null ? '' : textarea.value);
+          if (after === before) return;
+          // סוגרים התפרצות פתוחה כדי שהצעד הזה לא ייבלע לתוכה
+          try { clearTimeout(st.timer); } catch(_) {}
+          st.timer = null;
+          const from = (st.burstFrom !== null) ? st.burstFrom : before;
+          st.burstFrom = null;
+          st.last = after;
+          if (from !== after) this._pushUndo(el, from);
+          this._syncUndoButton(el);
+        } catch(_) {}
+      }
+
+      // תוכן סמכותי מהשרת מאפס את נקודת ההשוואה.
+      //
+      // בלי זה ``st.last`` נשאר על התוכן שלפני הסימון, העריכה הבאה דוחפת
+      // אותו למחסנית, וביטול אחד היה מוחק את הסימון שהשרת אישר — כלומר
+      // דורס כתיבה מאומתת בתוכן ישן.
+      _resetUndoBaseline(el, content){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          try { clearTimeout(st.timer); } catch(_) {}
+          st.timer = null;
+          st.burstFrom = null;
+          st.last = String(content == null ? '' : content);
         } catch(_) {}
       }
 
@@ -994,14 +1056,26 @@
         } catch(_) {}
       }
 
+      // האם יש התפרצות פתוחה שטרם נדחפה למחסנית.
+      //
+      // זה מה שהופך את התרחיש המרכזי לעביד: מיד אחרי הדבקה המחסנית עדיין
+      // ריקה — הצילום ממתין ל-600 מילישניות של שקט — והכפתור היה מושבת
+      // בדיוק ברגע שבו הוא הכי נחוץ.
+      _hasPendingUndoBurst(st){
+        return !!(st && st.burstFrom !== null && st.burstFrom !== st.last);
+      }
+
       _syncUndoButton(el){
         try {
           const btn = el.querySelector('.sticky-note-undo');
           if (!btn) return;
           const st = this._undoState(el);
           const depth = st ? st.stack.length : 0;
-          btn.disabled = depth === 0;
-          btn.title = depth ? `בטל שינוי אחרון (${depth} צעדים שמורים)` : 'אין מה לבטל';
+          const pending = this._hasPendingUndoBurst(st) ? 1 : 0;
+          btn.disabled = (depth + pending) === 0;
+          btn.title = (depth + pending)
+            ? `בטל שינוי אחרון (${depth + pending} צעדים שמורים)`
+            : 'אין מה לבטל';
         } catch(_) {}
       }
 
@@ -1009,16 +1083,18 @@
         try {
           const st = this._undoState(el);
           const textarea = el.querySelector('.sticky-note-content');
-          if (!st || !textarea || !st.stack.length) return;
-
-          // התפרצות שעדיין ממתינה לטיימר נסגרת קודם, אחרת הצעד האחרון
-          // שהמשתמש הקליד היה נדחף למחסנית **אחרי** הביטול ומבטל אותו.
+          if (!st || !textarea) return;
+          // ההתפרצות הממתינה נסגרת **לפני** בדיקת המחסנית הריקה, לא אחריה:
+          // מיד אחרי הדבקה היא כל מה שיש, והיציאה המוקדמת הייתה בולעת בדיוק
+          // את התרחיש שהפיצ'ר נבנה בשבילו.
           try { clearTimeout(st.timer); } catch(_) {}
-          if (st.burstFrom !== null && st.burstFrom !== st.last) {
+          st.timer = null;
+          if (this._hasPendingUndoBurst(st)) {
             st.stack.push(st.burstFrom);
             if (st.stack.length > UNDO_MAX_STEPS) st.stack.shift();
           }
           st.burstFrom = null;
+          if (!st.stack.length) return;
 
           const restored = st.stack.pop();
           textarea.value = restored;
@@ -1082,6 +1158,9 @@
         } catch(_) {}
       }
 
+      // חיווי אורך. השרת דוחה תוכן שחורג מהתקרה ב-``content_too_long``,
+      // אבל דחייה שמגיעה רק אחרי ניסיון שמירה היא מאוחרת מדי — המשתמש
+      // כבר הדביק והמשיך. כאן זה נראה בזמן ההקלדה.
       _checkContentLength(el, text){
         try {
           const cap = maxNoteChars();
@@ -1159,6 +1238,9 @@
         if (textarea) textarea.value = content;
         if (entry && entry.data) entry.data.content = content;
         if (updatedAt) el.dataset.updatedAt = updatedAt;
+        // המחסנית שומרת את מה שהיה לפני הסימון — וזה נכון, כי המשתמש
+        // אולי ירצה לבטל אותו. מה שחייב להתאפס הוא **נקודת ההשוואה**.
+        this._resetUndoBaseline(el, content);
         this._syncTaskView(el);
       }
 
@@ -1552,6 +1634,8 @@
         if (!resizing) return; resizing=false;
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
+        // פתק שגדל כלפי מטה מאריך את המשטח, בדיוק כמו פתק שנגרר לשם
+        this._updateSurfaceExtent();
       };
       try { handle.style.touchAction = 'none'; } catch(_) {}
       handle.addEventListener('mousedown', onDown);
@@ -1742,6 +1826,18 @@
       const attempt = async () => {
         try {
           const { resp, json } = await send(payload);
+          // 409 נושא שני מובנים שונים לגמרי, ורק ``error`` מבדיל ביניהם.
+          // התנגשות גרסה נפתרת בניסיון חוזר עם חותמת טרייה; שם תפוס לא
+          // ייפתר לעולם בניסיון חוזר — הוא דורש שהמשתמש יבחר שם אחר.
+          // בלי ההבחנה הזו כל הקלדה של שם קיים נכנסה ללולאת ניסיונות
+          // אינסופית, ובלי שום חיווי: מסלול ה-409 אינו מסמן כשל.
+          if (resp.status === 409 && json && json.error === 'duplicate_title') {
+            this._markTitleConflict(id, true);
+            if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
+              this._pending.delete(String(id));
+            }
+            return false;
+          }
           if (resp.status === 409) {
             console.warn('sticky note update conflict, retrying once with fresh timestamp', id);
             let serverUpdatedAt = null;
@@ -1754,6 +1850,13 @@
               const retryPayload = withContentB64(retryOriginal);
               try {
                 const { resp: retryResp, json: retryJson } = await send(retryPayload);
+                if (retryResp.status === 409 && retryJson && retryJson.error === 'duplicate_title') {
+                  this._markTitleConflict(id, true);
+                  if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
+                    this._pending.delete(String(id));
+                  }
+                  return false;
+                }
                 if (retryResp.status === 409) {
                   console.warn('sticky note update conflict persisted after retry', id);
                   if (retryJson && retryJson.updated_at) {
@@ -1794,6 +1897,7 @@
             }
           } else {
             this._clearSaveFailed(id);
+            this._markTitleConflict(id, false);
           }
           return resp.ok;
         } catch(err) {
@@ -1847,10 +1951,15 @@
               if (result.ok) {
                 if (result.updated_at) { this._setNoteUpdatedAt(id, String(result.updated_at)); }
                 this._clearSaveFailed(id);
+                this._markTitleConflict(id, false);
                 // clear pending only if no newer edits arrived during request
                 if (snap && currentSeq === snap.seq) {
                   this._pending.delete(id);
                 }
+              } else if (Number(result.status) === 409 && result.error === 'duplicate_title') {
+                // שם תפוס — לא התנגשות גרסה, ולכן לא חוזר לתור
+                this._markTitleConflict(id, true);
+                if (snap && currentSeq === snap.seq) this._pending.delete(id);
               } else if (Number(result.status) === 409) {
                 // conflict – set prev_updated_at for next retry without overriding newer local edits
                 const patch = {};
@@ -1997,8 +2106,24 @@
     async _deleteNoteEl(el){
       const id = el.dataset.noteId;
       try { await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch(e) { console.warn('delete failed', id, e); }
+      // טיימר ההתפרצות מחזיק הפניה ל-``el`` ול-``entry``. בלי הניקוי הזה
+      // הוא ימשיך לרוץ אחרי שהפתק ירד מה-DOM.
+      this._clearUndoTimer(el);
       try { el.remove(); } catch(_) {}
       this.notes.delete(id);
+      // אורך המשטח נגזר מהפתקים שעליו. בלי הקריאה הזו מחיקת הפתק התחתון
+      // משאירה ``min-height`` שמתאר מצב שכבר לא קיים.
+      this._updateSurfaceExtent();
+    }
+
+    _clearUndoTimer(el){
+      try {
+        const entry = this._getEntry(el);
+        const st = entry && entry.undo;
+        if (!st || !st.timer) return;
+        try { clearTimeout(st.timer); } catch(_) {}
+        st.timer = null;
+      } catch(_) {}
     }
 
     _reflowWithinViewport(target){
@@ -2313,10 +2438,14 @@
     _clearAllNotes(){
       try {
         for (const [id, entry] of this.notes.entries()){
+          // אותו נימוק כמו במחיקת פתק בודד: טיימר ההתפרצות מחזיק הפניה
+          // ל-``entry``, והוא ימשיך לרוץ אחרי שהאלמנט ירד מה-DOM.
+          try { if (entry && entry.el) this._clearUndoTimer(entry.el); } catch(_) {}
           try { entry && entry.el && entry.el.remove && entry.el.remove(); } catch(_) {}
         }
       } catch(_) {}
       this.notes.clear();
+      this._updateSurfaceExtent();
     }
 
     _loadCacheAndRender(){

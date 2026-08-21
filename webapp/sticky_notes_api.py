@@ -16,6 +16,7 @@ import base64
 import hashlib
 import threading
 import asyncio
+import logging
 
 # תקרת אורך התוכן — מקור אמת אחד, בלי fallback שקט.
 # תלוי בכך ש-``app.py`` כבר הכין את ``sys.path``; ראו את ההסבר המלא ב-
@@ -23,6 +24,7 @@ import asyncio
 from sticky_notes_target import (
     MAX_NOTE_CHARS, MAX_NOTE_TITLE, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER,
     normalize_note_title,
+    ensure_title_index,
 )
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
@@ -69,6 +71,8 @@ def get_db():
 
 # Blueprint
 sticky_notes_bp = Blueprint("sticky_notes", __name__, url_prefix="/api/sticky-notes")
+
+logger = logging.getLogger(__name__)
 
 try:
     from cache_manager import cache  # type: ignore
@@ -195,16 +199,6 @@ def _ensure_indexes() -> None:
                     IndexModel([("user_id", ASCENDING), ("scope_id", ASCENDING)], name="user_scope_idx"),
                     # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets.
                     IndexModel([("user_id", ASCENDING), ("board_id", ASCENDING)], name="user_board_idx"),
-                    # שם מזהה פתק אחד בתוך לוח — בדיוק כמו ששם קובץ מזהה
-                    # קובץ אחד. ``$exists`` ולא ``$ne``: השני נדחה ב-
-                    # ``Error in specification`` (נבדק מול מונגו 7.0), ולכן
-                    # פתק בלי שם משמיט את השדה במקום לשמור מחרוזת ריקה.
-                    IndexModel(
-                        [("user_id", ASCENDING), ("board_id", ASCENDING), ("title", ASCENDING)],
-                        name="one_title_per_board",
-                        unique=True,
-                        partialFilterExpression={"title": {"$exists": True}},
-                    ),
                 ]
                 coll.create_indexes(indexes)
             except Exception:
@@ -217,6 +211,18 @@ def _ensure_indexes() -> None:
                     coll.create_index([("user_id", 1), ("board_id", 1)], name="user_board_idx")
                 except Exception:
                     pass
+            # האינדקס הייחודי נוצר **בנפרד משני המסלולים**, ולא בתוכם.
+            #
+            # שני טעמים. האחד: כשהוא ישב ברשימת ``create_indexes``, כשל שלו
+            # הפיל את כל החמישה למסלול הפולבק — שלא יצר אותו — ואז
+            # ``_INDEX_READY`` נדלק בעוד שאכיפת ``duplicate_title`` פשוט
+            # אינה קיימת. השני: הוא דורש **יישוב** של גרסה קודמת, כי אינדקס
+            # בשם קיים עם אפשרויות שונות נדחה ב-code 86.
+            try:
+                if not ensure_title_index(coll):
+                    logger.warning("one_title_per_board index not confirmed after create")
+            except Exception:
+                logger.warning("one_title_per_board index creation failed", exc_info=True)
             # אינדקסים ללוחות הפתקים (best-effort)
             try:
                 nb = db.note_boards
@@ -1427,6 +1433,21 @@ def batch_update_notes():
                         results.append({'id': note_id, 'ok': False, 'status': 400, 'error': mode_error})
                         continue
                     updates['mode'] = mode_value
+                # ``title`` חסר כאן עד היום, וזו הייתה **אבידת כתיבה שקטה**.
+                #
+                # הלקוח שולח שם דרך ``_queueSave``, וה-debounce מנקז אותו
+                # לכאן — לא ל-PUT הבודד, שהוא רק פולבק. השדה נשמט מה-
+                # allowlist, הראוט החזיר ``ok: True, status: 200``, הלקוח
+                # ניקה את התור, והשם נעלם בלי שום חיווי. נמדד מול הראוט:
+                # ``title`` במסד נשאר "ישן" אחרי בקשה ששלחה "שם חדש".
+                # אותה סמנטיקה כמו ב-PUT הבודד: ריק ← מחיקת השדה.
+                unset_fields: Dict[str, Any] = {}
+                if 'title' in fragment:
+                    new_title = normalize_note_title(fragment.get('title'))
+                    if new_title:
+                        updates['title'] = new_title
+                    else:
+                        unset_fields['title'] = ''
 
                 # conflict detection similar to single update
                 try:
@@ -1451,7 +1472,18 @@ def batch_update_notes():
                     pass
 
                 updates['updated_at'] = datetime.now(timezone.utc)
-                db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, {'$set': updates})
+                ops: Dict[str, Any] = {'$set': updates}
+                if unset_fields:
+                    ops['$unset'] = unset_fields
+                try:
+                    db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, ops)
+                except DuplicateKeyError:
+                    # שם תפוס — 409 עם הקוד הספציפי, ולא 500 גנרי. הלקוח
+                    # מבחין לפי ``error`` בין זה לבין התנגשות גרסה, ורק
+                    # ההבחנה הזו מונעת ממנו לנסות שוב לנצח.
+                    results.append({'id': note_id, 'ok': False, 'status': 409,
+                                    'error': 'duplicate_title', 'max': MAX_NOTE_TITLE})
+                    continue
                 results.append({'id': note_id, 'ok': True, 'status': 200, 'updated_at': updates['updated_at'].isoformat()})
             except Exception as e:
                 try:

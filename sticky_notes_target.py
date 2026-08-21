@@ -100,13 +100,100 @@ def normalize_note_title(value: Any) -> str:
 
     (``$ne`` אינו נתמך ב-``partialFilterExpression`` — נבדק מול מונגו
     7.0 ונדחה ב-``Error in specification``. ``$exists`` נתמך.)
+
+    **רק מחרוזת היא שם.** ``str(value)`` על גוף JSON שרירותי הופך
+    ``["a", "b"]`` ל-``"['a', 'b']"`` ו-``{"x": 1}`` ל-``"{'x': 1}"`` —
+    כלומר ייצוג פייתון פנימי נשמר במסד ומוצג למשתמש כשם הפתק. כל טיפוס
+    שאינו ``str`` נחשב "אין שם", בדיוק כמו מחרוזת ריקה.
     """
-    text = str(value or "").strip()
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
     if not text:
         return ""
     # שורה אחת: שם שנשפך לשתי שורות שובר את שורת הכפתורים
     text = " ".join(text.split())
     return text[:MAX_NOTE_TITLE]
+
+
+#: מפרט האינדקס שאוכף "שם אחד לכל לוח" — **מקור האמת היחיד**.
+#:
+#: הוא כאן ולא ב-``webapp`` מאותה סיבה שהביאה הנה את התקרות: גם ה-webapp
+#: וגם ``mcp_server`` כותבים פתקים עם שם, ושניהם מחזירים ``duplicate_title``
+#: כשהמסד דוחה. אכיפה שקיימת רק בצד אחד היא הבטחה שהצד השני מפר בשקט.
+#:
+#: **למה גם ``board_id`` בפילטר:** בלעדיו פתקי **קבצים** נכנסים לאינדקס עם
+#: ``board_id`` חסר, כלומר כולם חולקים את אותו ערך מפתח — ושני פתקים על
+#: שני קבצים שונים עם אותו שם נדחים ב-E11000. נמדד מול מונגו 7.0.14:
+#: עם הפילטר הישן ההוספה השנייה נדחתה, עם החדש היא עוברת, והייחודיות בתוך
+#: לוח נשמרת. זו גם ההתנהגות שביקשנו — בקבצים אותו שם הוא גרסה נוספת, לא
+#: התנגשות.
+ONE_TITLE_PER_BOARD_INDEX: Dict[str, Any] = {
+    "keys": [("user_id", 1), ("board_id", 1), ("title", 1)],
+    "name": "one_title_per_board",
+    "unique": True,
+    "partialFilterExpression": {"title": {"$exists": True}, "board_id": {"$exists": True}},
+}
+
+
+def ensure_title_index(coll: Any) -> bool:
+    """יוצר את :data:`ONE_TITLE_PER_BOARD_INDEX`, ומיישב גרסה ישנה שלו.
+
+    ``coll`` הוא אוסף pymongo, אבל הטיפוס אינו מיובא כאן — המודול הזה נשאר
+    טהור כדי ש-``mcp_server`` יוכל לייבא ממנו. הקריאות היחידות הן
+    ``index_information`` / ``drop_index`` / ``create_index``.
+
+    **למה יש כאן יישוב ולא רק יצירה:** אינדקס בשם קיים עם אפשרויות שונות
+    נדחה ב-``code 86`` (נמדד מול מונגו 7.0.14) — כלומר בפרודקשן, שבה כבר
+    יושב האינדקס עם הפילטר הישן, יצירה תמימה הייתה נכשלת, הכשל היה נבלע,
+    והבאג היה נשאר בדיוק כפי שהוא. לכן: משווים, ואם שונה — מפילים ובונים.
+
+    :returns: ``True`` רק אחרי **קריאה חוזרת** שמאשרת שהאינדקס במסד תואם
+        למפרט. ערך החזרה של כתיבה אינו אימות.
+    """
+    want = ONE_TITLE_PER_BOARD_INDEX
+    name = want["name"]
+    try:
+        info = coll.index_information()
+    except Exception:
+        info = {}
+
+    existing = info.get(name) if isinstance(info, Mapping) else None
+    if existing is not None and not _index_matches(existing, want):
+        # אינדקס ישן עם פילטר אחר — הוא מה שחוסם את היצירה החדשה
+        coll.drop_index(name)
+
+    coll.create_index(
+        want["keys"],
+        name=name,
+        unique=want["unique"],
+        partialFilterExpression=want["partialFilterExpression"],
+    )
+
+    try:
+        fresh = coll.index_information()
+    except Exception:
+        return False
+    if not isinstance(fresh, Mapping):
+        return False
+    return _index_matches(fresh.get(name), want)
+
+
+def _index_matches(spec: Any, want: Mapping[str, Any]) -> bool:
+    """האם מפרט שנקרא מהמסד תואם למה שביקשנו.
+
+    ``partialFilterExpression`` חוזר כ-``SON``, שהוא תת-מחלקה של ``dict``
+    ולכן ההשוואה למילון רגיל תקפה ואינה תלוית סדר (נבדק).
+    """
+    if not isinstance(spec, Mapping):
+        return False
+    if spec.get("unique") is not True:
+        return False
+    if spec.get("partialFilterExpression") != want["partialFilterExpression"]:
+        return False
+    # ``index_information`` מחזיר את המפתחות כרשימת זוגות
+    keys = [(str(f), v) for f, v in (spec.get("key") or [])]
+    return keys == [(f, v) for f, v in want["keys"]]
 
 
 def _clean(value: Any) -> str:

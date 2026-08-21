@@ -11,6 +11,13 @@ import pytest
 flask = pytest.importorskip("flask")
 
 
+try:  # אותה תבנית ייבוא עמיד שבמודול הנבדק
+    from pymongo.errors import DuplicateKeyError as _StubDuplicateKeyError
+except Exception:  # pragma: no cover
+    class _StubDuplicateKeyError(Exception):
+        pass
+
+
 class _Res:
     def __init__(self, inserted_id=None, modified_count=1, deleted_count=1):
         self.inserted_id = inserted_id
@@ -24,6 +31,8 @@ class _StubColl:
         self._next = 1000
         self.count_fails = False
         self.move_is_noop = False
+        #: מדמה את דחיית האינדקס הייחודי ``one_title_per_board``
+        self.duplicate_titles = False
 
     # -- קריאה --
     def find_one(self, query, projection=None):
@@ -59,7 +68,13 @@ class _StubColl:
 
     def update_one(self, query, update):
         for doc in self._matching(query):
+            new_title = update.get("$set", {}).get("title")
+            if new_title is not None and self.duplicate_titles:
+                raise _StubDuplicateKeyError("E11000 duplicate key")
             doc.update(update.get("$set", {}))
+            # ``$unset`` — בלעדיו כל בדיקה על מחיקת שדה עוברת מעצמה
+            for field in (update.get("$unset") or {}):
+                doc.pop(field, None)
             return _Res()
         return _Res(modified_count=0)
 
@@ -692,3 +707,81 @@ def test_quota_errors_map_to_codes_by_type_not_by_text(client, monkeypatch):
         assert res.status_code == 409
         assert res.get_json()["error"] == expected
         assert "טקסט אחר" not in str(res.get_json())
+
+
+# -- שם הפתק במסלול ה-batch --
+#
+# זה **המסלול הרגיל**, לא הפולבק: ``_queueSave`` בלקוח מנקז דרך debounce
+# אל ``POST /batch``, וה-PUT הבודד רץ רק אם בקשת ה-batch עצמה נכשלה.
+
+
+def test_batch_saves_the_note_title(client):
+    """**אבידת כתיבה שקטה, מהסוג הגרוע ביותר.**
+
+    ``title`` לא היה ב-allowlist של ה-batch. הראוט החזיר ``ok: True,
+    status: 200``, הלקוח ניקה את התור בהתאם — והשם פשוט לא נשמר. שום
+    חיווי, שום לוג, ואין דרך למשתמש לדעת.
+
+    נמדד מול הראוט לפני התיקון: השם במסד נשאר "ישן" אחרי בקשה ששלחה
+    "שם חדש", והתשובה הייתה 200.
+
+    נופלת בלי ``title`` ב-allowlist של ה-batch.
+    """
+    client.db.sticky_notes.docs.append(
+        {"_id": 1, "user_id": 7, "board_id": "b1", "content": "x", "title": "ישן"}
+    )
+
+    res = client.post("/api/sticky-notes/batch", json={"updates": [{"id": "1", "title": "  שם   חדש "}]})
+    body = res.get_json()
+
+    assert body["results"][0]["ok"] is True
+    assert client.db.sticky_notes.docs[0]["title"] == "שם חדש"
+
+
+def test_batch_clearing_a_title_removes_the_field(client):
+    """שם ריק ← ``$unset``, ולא ``title: ""``.
+
+    שני פתקים ששמם נוקה היו מתנגשים באינדקס, כי ``$exists`` מתקיים גם
+    למחרוזת ריקה. אותה סמנטיקה בדיוק כמו ב-PUT הבודד.
+
+    נופלת אם ה-batch כותב מחרוזת ריקה במקום למחוק את השדה.
+    """
+    client.db.sticky_notes.docs.append(
+        {"_id": 1, "user_id": 7, "board_id": "b1", "content": "x", "title": "יש שם"}
+    )
+
+    res = client.post("/api/sticky-notes/batch", json={"updates": [{"id": "1", "title": "   "}]})
+
+    assert res.get_json()["results"][0]["ok"] is True
+    assert "title" not in client.db.sticky_notes.docs[0]
+
+
+def test_batch_reports_a_duplicate_title_as_409_and_not_500(client):
+    """קוד השגיאה הוא **ההבדל בין תיקון ללולאה אינסופית**.
+
+    הלקוח מנסה שוב על 409 גנרי (התנגשות גרסה) ומפסיק על ``duplicate_title``.
+    ``500 Failed`` — מה שהמסלול הזה החזיר עד היום, כי הכתיבה לא הייתה
+    עטופה — היה מסמן כשל בלי לומר למשתמש שהשם תפוס.
+
+    נופלת בלי ``except DuplicateKeyError`` סביב הכתיבה ב-batch.
+    """
+    client.db.sticky_notes.docs.append({"_id": 1, "user_id": 7, "board_id": "b1", "content": "x"})
+    client.db.sticky_notes.duplicate_titles = True
+
+    res = client.post("/api/sticky-notes/batch", json={"updates": [{"id": "1", "title": "טודו"}]})
+    result = res.get_json()["results"][0]
+
+    assert result["status"] == 409
+    assert result["error"] == "duplicate_title"
+
+
+def test_single_put_clearing_a_title_removes_the_field(client):
+    """אותה סמנטיקה גם ב-PUT — כאן דרך ה-HTTP, לא ישירות מול המסד."""
+    client.db.sticky_notes.docs.append(
+        {"_id": 1, "user_id": 7, "board_id": "b1", "content": "x", "title": "יש שם"}
+    )
+
+    res = client.put("/api/sticky-notes/note/1", json={"title": ""})
+
+    assert res.status_code == 200
+    assert "title" not in client.db.sticky_notes.docs[0]
