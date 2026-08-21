@@ -150,6 +150,14 @@
   //: שורת משימה: ``- [ ] טקסט`` או ``* [x] טקסט``, עם הזחה כלשהי.
   //: אותה תבנית בדיוק כמו ``_TASK_RE`` ב-``sticky_notes_tasks.py`` — שם
   //: מתבצעת הכתיבה, וכאן רק התצוגה. סטייה ביניהן הייתה מזיזה סידורים.
+  //: כמה זמן של חוסר-הקלדה סוגר "התפרצות" והופך אותה לצעד אחד לביטול.
+  const UNDO_BURST_MS = 600;
+  //: עומק מחסנית הביטול לכל פתק. בזיכרון בלבד.
+  const UNDO_MAX_STEPS = 50;
+  //: מרווח פנוי מתחת לפתק האחרון במצב אינסופי — תמיד יש לאן לגרור.
+  const INFINITE_PAD = 700;
+  //: ובכיבוי, רק נשימה קטנה מתחת לפתק האחרון.
+  const SURFACE_TAIL_PAD = 24;
   const TASK_LINE_RE = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -203,6 +211,11 @@
       this._cacheKey = this.boardId
         ? `sticky-notes:board:${this.boardId}`
         : `sticky-notes:${String(this.fileId)}`;
+      // גלילה אינסופית: כמה מקום פנוי מתחת לפתק האחרון. הלוח **תמיד**
+      // נמדד עד הפתק הרחוק ביותר; הכיבוי רק מפסיק להוסיף מרווח מעבר לו,
+      // ולעולם אינו מקצר את הלוח מתחת לתוכן שכבר עליו — כלומר אף פתק לא
+      // "מתכווץ פנימה" ואף מיקום לא הולך לאיבוד.
+      this.infiniteScroll = ('infiniteScroll' in opts) ? !!opts.infiniteScroll : false;
       this._renderedFromCache = false;
       this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
       this._init();
@@ -321,21 +334,6 @@
         const noteX = isMobile ? 80 : 120;
         const noteY = scroll.y + (isMobile ? 80 : 120);
 
-        // עיגון אוטומטי לאלמנט הקרוב עם [data-source-line] (רלוונטי ל־MD preview).
-        // הפתק יהפוך ל־anchored (position:absolute, doc-Y) ולכן יזוז יחד עם התוכן
-        // כאשר ::: details נפתח/נסגר, תמונות נטענות, וכו'.
-        // בלוח אין שורות מקור, ולכן החיפוש כולו מדולג — ולא "רץ ומחזיר null".
-        let autoAnchorLine = null;
-        if (!this.boardId) {
-          try {
-            const nearest = this._findNearestSourceLineElement(noteY);
-            if (nearest) {
-              const raw = parseInt(nearest.getAttribute('data-source-line'), 10);
-              if (Number.isFinite(raw) && raw >= 0) autoAnchorLine = raw + 1;
-            }
-          } catch(_) {}
-        }
-
         const payload = this.boardId ? {
           content: '',
           position: { x: noteX, y: noteY },
@@ -349,9 +347,20 @@
           position: { x: noteX, y: noteY },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
-          line_start: autoAnchorLine,
-          // חזרה להתנהגות הישנה: ללא עיגון לכותרות כברירת מחדל
-          anchor_id: '',
+          // **פתק חדש צף עם המשתמש.** זו זרימת העבודה: כותבים פתק תוך עיון
+          // בקובץ, גוללים למטה, וממשיכים לכתוב — ורק בסוף נועצים אותו במקום
+          // שמתאים.
+          //
+          // עד כאן ``line_start`` נקבע אוטומטית לשורת המקור הקרובה, וזה
+          // הספיק כדי ש-``_resolveMode`` יחזיר ``anchored`` — כלומר
+          // ``position: absolute``, שנשאר במקומו במסמך ולא ממשיך עם המסך.
+          // נמדד: פתק חדש זז ‎-900px‎ בגלילה של 900, ורק ``pin`` ואז ``unpin``
+          // הפכו אותו לצף. ההערה שהייתה כאן כבר הצהירה "ללא עיגון כברירת
+          // מחדל" — בוטל רק העיגון לכותרות, ועיגון השורה נשאר.
+          line_start: null,
+          // הסנטינל המפורש הכרחי: בלעדיו המיגרציה הרכה ב-``_renderNote``
+          // הייתה מעגנת את הפתק מחדש בטעינה הבאה ומחזירה את הבאג.
+          anchor_id: FLOATING_SENTINEL,
           anchor_text: undefined
         };
         const resp = await fetch(this._scopeUrl, {
@@ -397,6 +406,12 @@
       if (note.color) el.style.backgroundColor = note.color;
 
       const header = createEl('div', 'sticky-note-header');
+      // שם הפתק, בצד השני של שורת הכפתורים. הוא נשאר גלוי גם כשהפתק
+      // ממוזער — וזה כל הרעיון: השורה הריקה של הכותרת מקבלת משמעות.
+      const titleInput = createEl('input', 'sticky-note-title', {
+        type: 'text', placeholder: 'שם', 'aria-label': 'שם הפתק', maxlength: '80'
+      });
+      titleInput.value = String(note.title || '');
       const drag = createEl('div', 'sticky-note-drag');
       const actions = createEl('div', 'sticky-note-actions');
       const isPinnedInitial = note.anchor_id === PIN_SENTINEL;
@@ -404,8 +419,39 @@
       const minimizeBtn = createEl('button', 'sticky-note-btn', { title: 'מזער' }); minimizeBtn.textContent = '—';
       const remindBtn = createEl('button', 'sticky-note-btn', { title: 'קבע תזכורת' }); remindBtn.textContent = '🔔';
       const deleteBtn = createEl('button', 'sticky-note-btn', { title: 'מחיקה' }); deleteBtn.textContent = '×';
-      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
-      header.appendChild(drag); header.appendChild(actions);
+      // ביטול פעולה. אין לפתקים היסטוריית גרסאות, ולכן בחירת-הכל ואז הדבקה
+      // בטעות מוחקת הכל בלי דרך חזרה. הכפתור מושבת כשאין מה לבטל — כפתור
+      // שנראה זמין ולא עושה כלום הוא בדיוק סוג השקר שאנחנו נמנעים ממנו.
+      const undoBtn = createEl('button', 'sticky-note-btn sticky-note-undo', { title: 'אין מה לבטל' });
+      undoBtn.textContent = '↶';
+      undoBtn.disabled = true;
+      const copyBtn = createEl('button', 'sticky-note-btn sticky-note-copy', { title: 'העתק את תוכן הפתק' });
+      copyBtn.textContent = '⧉';
+      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(undoBtn);
+      actions.appendChild(copyBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
+      header.appendChild(actions); header.appendChild(drag); header.appendChild(titleInput);
+
+      titleInput.addEventListener('input', () => {
+        // שם חדש הוא ניסיון חדש. הסימון הישן שייך לערך שכבר לא בשדה,
+        // והשארתו הייתה מציגה שגיאה על טקסט שטרם נבדק.
+        this._markTitleConflict(el.dataset.noteId, false);
+        this._queueSave(el, { title: titleInput.value });
+      });
+      // 409 מהשרת פירושו שהשם תפוס בלוח הזה. חיווי גלוי — לא כתיבה
+      // שנראית שנשמרה ולא נשמרה.
+      titleInput.addEventListener('blur', async () => {
+        try { await this._flushFor(el); } catch(_) {}
+        this._syncTitleConflict(el);
+      });
+
+      undoBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._undoLastChange(el);
+      });
+      copyBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._copyNoteContent(el);
+      });
       pinBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         this._toggleAnchor(el);
@@ -473,6 +519,7 @@
       });
 
       textarea.addEventListener('input', () => {
+        this._recordUndoBurst(el, textarea);
         this._checkContentLength(el, textarea.value);
         this._queueSave(el, { content: textarea.value });
       });
@@ -480,10 +527,15 @@
         try {
           // תמיכה במקלדות מובייל/טלגרם שמשדרות key=Unidentified במקום Enter
           if ((ev.key === 'Enter' || ev.keyCode === 13) && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey) {
+            // צילום **לפני** השינוי. המשך הרשימה כותב ל-``textarea.value``
+            // ישירות, וכתיבה תכנותית אינה משדרת ``input`` — כלומר הביטול
+            // לא ראה את השינוי הזה כלל, והצעד היה בלתי הפיך.
+            const beforeChange = textarea.value;
             const result = this._handleListContinuation(textarea);
             if (result === false) {
               // כפול אנטר → יציאה מרשימה, הטקסטריה כבר עודכנה
               ev.preventDefault();
+              this._noteProgrammaticEdit(el, textarea, beforeChange);
               this._queueSave(el, { content: textarea.value });
             } else if (typeof result === 'string') {
               ev.preventDefault();
@@ -493,6 +545,7 @@
               textarea.value = before + result + after;
               const newPos = start + result.length;
               textarea.selectionStart = textarea.selectionEnd = newPos;
+              this._noteProgrammaticEdit(el, textarea, beforeChange);
               this._queueSave(el, { content: textarea.value });
             }
           }
@@ -522,9 +575,12 @@
       // תצוגת המשימות נבנית מהתוכן שנטען. אם אין צ'קבוקסים היא נשארת מוסתרת
       // וה-textarea מוצג כרגיל — כלומר פתק רגיל אינו משתנה כלל.
       this._syncTaskView(el);
+      this._undoState(el);          // מצלם את נקודת המוצא כבר עכשיו
+      this._syncUndoButton(el);
       this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
       this._updateAnchoredNotePosition(el, note);
+      this._updateSurfaceExtent();
 
       // ── מיגרציה רכה לפתקים ישנים ב־MD preview ──
       // פתקים שנוצרו לפני תמיכת ה־[data-source-line] נשמרו בלי עוגן וחיו כ־
@@ -691,6 +747,79 @@
       // בלי זה החלק העליון של הפתק — שהוא גם ידית הגרירה — יכול לעלות מעל
       // הקצה, ואז אין שום דרך להחזיר אותו: הגרירה היא לחיצה על הכותרת,
       // והכותרת מחוץ למסך.
+      // פתק צף (``position: fixed``) נמדד מול אזור התצוגה ולא מול המשטח.
+      //
+      // בלי זה אפשר היה לגרור אותו כך שהכותרת — שהיא ידית הגרירה — יוצאת
+      // מחוץ למסך. הוא אמנם חזר לגבולות בלחיצה הבאה, בזכות
+      // ``_reflowWithinViewport`` שרץ בפוקוס, אבל "נעלם ואז חוזר" הוא לא
+      // התנהגות, הוא תיקון שקורה במקרה.
+      _clampToViewport(el, x, y){
+        try {
+          const vp = window.visualViewport;
+          const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
+          const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+          const r = el.getBoundingClientRect();
+          const w = Math.round(r.width) || 260;
+          const h = Math.round(r.height) || 200;
+          return {
+            x: clamp(Math.round(x), 12, Math.max(12, vpW - w - 12)),
+            y: clamp(Math.round(y), 60, Math.max(60, vpH - h - 20))
+          };
+        } catch(_) { return { x, y }; }
+      }
+
+      // גובה המשטח נגזר מהתוכן שעליו, ולא ממספר קבוע.
+      //
+      // ``INFINITE_PAD`` הוא המרווח שנשאר פנוי מתחת לפתק האחרון כשהמצב
+      // האינסופי דלוק — כך תמיד יש לאן לגרור. בכיבוי המרווח מתאפס, אבל
+      // הגובה עדיין נמדד עד הפתק הרחוק ביותר.
+      // מדידה אחת לכל פריים, ולא אחת לכל פתק.
+      //
+      // ``_renderNote`` קורא לכאן על כל פתק, והמדידה עצמה עוברת על **כל**
+      // הפתקים עם ``getBoundingClientRect`` — כלומר טעינה היא ריבועית, וכל
+      // קריאה כזו מכריחה את הדפדפן לחשב פריסה מחדש. נמדד בכרומיום לפני
+      // האיחוד: 10 פתקים → 65 קריאות, 30 → 495, 60 → 1,890. אחרי: 20, 60,
+      // 120 — עם אותו ``min-height`` בדיוק. בתקרת הלוח (200 פתקים) ההפרש
+      // הוא בין מאות לעשרות אלפים.
+      _updateSurfaceExtent(){
+        if (typeof requestAnimationFrame !== 'function') {
+          // סביבת בדיקה בלי דפדפן — מודדים מיד, כדי שההתנהגות תישאר
+          // ניתנת לבדיקה סינכרונית.
+          this._applySurfaceExtent();
+          return;
+        }
+        if (this._extentFrame) return;
+        this._extentFrame = requestAnimationFrame(() => {
+          this._extentFrame = null;
+          this._applySurfaceExtent();
+        });
+      }
+
+      _applySurfaceExtent(){
+        try {
+          const surface = this.container;
+          if (!this.boardId || !surface || !surface.style) return;
+          let bottom = 0;
+          this.notes.forEach((entry) => {
+            const el = entry && entry.el;
+            if (!el || !el.classList || !el.classList.contains('is-pinned')) return;
+            const top = parseInt(el.style.top || '0', 10) || 0;
+            const h = Math.round(el.getBoundingClientRect().height) || 0;
+            if (top + h > bottom) bottom = top + h;
+          });
+          const pad = this.infiniteScroll ? INFINITE_PAD : SURFACE_TAIL_PAD;
+          const needed = bottom + pad;
+          // ``min-height`` ולא ``height``: הכלל ב-CSS ממלא את המסך, וכאן
+          // רק מרחיבים מעבר לו. הקטן מביניהם לא מקצר את הלוח.
+          surface.style.minHeight = needed > 0 ? `max(var(--board-fill, 0px), ${needed}px)` : '';
+        } catch(_) {}
+      }
+
+      setInfiniteScroll(on){
+        this.infiniteScroll = !!on;
+        this._updateSurfaceExtent();
+      }
+
       _clampToSurface(el, x, y, note){
         try {
           const parent = this.container;
@@ -731,14 +860,9 @@
       const active = !!isActive;
       pinBtn.classList.toggle('is-active', active);
       pinBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
-      if (this.boardId) {
-        // בלוח הכפתור מחליף בין "יושב על הלוח" (ברירת המחדל, כבוי) לבין
-        // "צף מול המסך" (דלוק). "נעיצה למסמך" היא מושג של קובץ ואין לה
-        // מובן כאן — ולכן גם אין סיבה שהכפתור יידלק כבר בפתיחה.
-        pinBtn.title = active ? 'החזר את הפתק ללוח' : 'הצמד את הפתק למסך';
-      } else {
-        pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
-      }
+      // אותה משמעות, אותו צבע, בשני המשטחים
+      const anchor = this.boardId ? 'ללוח' : 'למסמך';
+      pinBtn.title = active ? `הפתק מוצמד ${anchor} — לחצו כדי לשחרר` : `הצמידו את הפתק ${anchor}`;
     }
 
       // ----- צ'קבוקסים -----
@@ -828,6 +952,238 @@
         } catch(_) {}
       }
 
+      // שם תפוס — מסומן על השדה עצמו, לפי **קוד השגיאה מהשרת** בלבד.
+      //
+      // הגרסה הראשונה הסיקה את זה מ-``has-save-error``, שהוא סימון גנרי:
+      // כל כשל שמירה — חריגת מכסה, נפילת רשת, 500 — היה מסמן את השם
+      // כתפוס. וגם ההפך: מסלול ה-409 אינו מסמן ``has-save-error`` כלל,
+      // ולכן התנגשות שם אמיתית לא הופיעה אף פעם. סימון שמופיע בכל מצב
+      // חוץ מהנכון הוא גרוע מאין סימון.
+      _markTitleConflict(id, on){
+        try {
+          const entry = this.notes.get(String(id));
+          if (!entry || !entry.el) return;
+          entry.titleConflict = !!on;
+          this._syncTitleConflict(entry.el);
+        } catch(_) {}
+      }
+
+      _syncTitleConflict(el){
+        try {
+          const input = el.querySelector('.sticky-note-title');
+          if (!input) return;
+          const entry = this._getEntry(el);
+          const conflicted = !!(entry && entry.titleConflict);
+          input.classList.toggle('is-duplicate', conflicted);
+          input.title = conflicted ? 'שם כזה כבר קיים בלוח הזה' : 'שם הפתק';
+        } catch(_) {}
+      }
+
+      // ----- ביטול פעולה -----
+      //
+      // לפתקים אין היסטוריית גרסאות בשרת. התרחיש שזה מגן מפניו הוא ממשי:
+      // בוחרים את כל הטקסט כדי להעתיק, ולוחצים "הדבק" במקום "העתק" — וכל
+      // הפתק נמחק. בלי מנגנון כזה אין שום דרך חזרה.
+      //
+      // **טווח מכוון: הסשן הנוכחי.** המחסנית חיה בזיכרון ולא שורדת רענון.
+      // התרחיש שהיא מכסה מתגלה מיד, ואחסון מקומי של עשרות גרסאות בנות
+      // 20,000 תווים היה אוכל את מכסת הדפדפן.
+
+      _undoState(el){
+        const entry = this._getEntry(el);
+        if (!entry) return null;
+        if (!entry.undo) {
+          // ``last`` מאותחל לתוכן **שלפני** השינוי, ולא ל-null.
+          //
+          // באתחול ל-null, הקריאה הראשונה הייתה קובעת ``last`` לערך שכבר
+          // השתנה — ואז "המצב הקודם" היה זהה לחדש ושום דבר לא נדחף
+          // למחסנית. כלומר בדיוק התרחיש שהפיצ'ר נועד לו — בחירת-הכל
+          // והדבקה — לא היה ניתן לביטול. נתפס בבדיקה: 21 תווים אחרי
+          // ביטול במקום המקור המלא.
+          const seed = (entry.data && typeof entry.data.content === 'string') ? entry.data.content : '';
+          entry.undo = { stack: [], burstFrom: null, timer: null, last: seed };
+        }
+        return entry.undo;
+      }
+
+      // הקלדה רצופה היא פעולה אחת, לא מאה. צילום המצב נלקח **לפני** תחילת
+      // ההתפרצות, ונדחף למחסנית רק אחרי שהמשתמש עצר — כך שהדבקה בודדת היא
+      // בדיוק צעד אחד לבטל.
+      _recordUndoBurst(el, textarea){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          const current = String(textarea.value == null ? '' : textarea.value);
+          if (st.burstFrom === null) st.burstFrom = st.last;
+          st.last = current;
+          try { clearTimeout(st.timer); } catch(_) {}
+          st.timer = setTimeout(() => {
+            const from = st.burstFrom;
+            st.burstFrom = null;
+            st.timer = null;
+            if (from !== null && from !== st.last) this._pushUndo(el, from);
+            this._syncUndoButton(el);
+          }, UNDO_BURST_MS);
+          // הכפתור מתעורר כבר עכשיו, ולא בעוד 600 מילישניות
+          this._syncUndoButton(el);
+        } catch(_) {}
+      }
+
+      // כתיבה תכנותית ל-textarea (המשך רשימה, וכל מה שיבוא אחריו).
+      //
+      // ``input`` נורה רק על הקלדה של אדם. שינוי שנעשה בקוד חייב להירשם
+      // בעצמו, אחרת המחסנית מפספסת אותו ו-``last`` נשאר על ערך שכבר לא
+      // בשדה — מה שהופך את הביטול הבא לשחזור של טקסט שגוי.
+      _noteProgrammaticEdit(el, textarea, before){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          const after = String(textarea.value == null ? '' : textarea.value);
+          if (after === before) return;
+          // סוגרים התפרצות פתוחה כדי שהצעד הזה לא ייבלע לתוכה
+          try { clearTimeout(st.timer); } catch(_) {}
+          st.timer = null;
+          const from = (st.burstFrom !== null) ? st.burstFrom : before;
+          st.burstFrom = null;
+          st.last = after;
+          if (from !== after) this._pushUndo(el, from);
+          this._syncUndoButton(el);
+        } catch(_) {}
+      }
+
+      // תוכן סמכותי מהשרת מאפס את נקודת ההשוואה.
+      //
+      // בלי זה ``st.last`` נשאר על התוכן שלפני הסימון, העריכה הבאה דוחפת
+      // אותו למחסנית, וביטול אחד היה מוחק את הסימון שהשרת אישר — כלומר
+      // דורס כתיבה מאומתת בתוכן ישן.
+      _resetUndoBaseline(el, content){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          try { clearTimeout(st.timer); } catch(_) {}
+          st.timer = null;
+          st.burstFrom = null;
+          st.last = String(content == null ? '' : content);
+          // ההתפרצות הממתינה נסגרה, ולכן העומק ירד. בלי הסנכרון הזה
+          // הכפתור נשאר דלוק על מחסנית ריקה — לחיצה עליו לא עושה כלום,
+          // וזה בדיוק סוג השקר שהכפתור הזה נבנה כדי לא לספר.
+          this._syncUndoButton(el);
+        } catch(_) {}
+      }
+
+      _pushUndo(el, snapshot){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          if (st.stack.length && st.stack[st.stack.length - 1] === snapshot) return;
+          st.stack.push(snapshot);
+          if (st.stack.length > UNDO_MAX_STEPS) st.stack.shift();
+          this._syncUndoButton(el);
+        } catch(_) {}
+      }
+
+      // האם יש התפרצות פתוחה שטרם נדחפה למחסנית.
+      //
+      // זה מה שהופך את התרחיש המרכזי לעביד: מיד אחרי הדבקה המחסנית עדיין
+      // ריקה — הצילום ממתין ל-600 מילישניות של שקט — והכפתור היה מושבת
+      // בדיוק ברגע שבו הוא הכי נחוץ.
+      _hasPendingUndoBurst(st){
+        return !!(st && st.burstFrom !== null && st.burstFrom !== st.last);
+      }
+
+      _syncUndoButton(el){
+        try {
+          const btn = el.querySelector('.sticky-note-undo');
+          if (!btn) return;
+          const st = this._undoState(el);
+          const depth = st ? st.stack.length : 0;
+          const pending = this._hasPendingUndoBurst(st) ? 1 : 0;
+          btn.disabled = (depth + pending) === 0;
+          btn.title = (depth + pending)
+            ? `בטל שינוי אחרון (${depth + pending} צעדים שמורים)`
+            : 'אין מה לבטל';
+        } catch(_) {}
+      }
+
+      _undoLastChange(el){
+        try {
+          const st = this._undoState(el);
+          const textarea = el.querySelector('.sticky-note-content');
+          if (!st || !textarea) return;
+          // ההתפרצות הממתינה נסגרת **לפני** בדיקת המחסנית הריקה, לא אחריה:
+          // מיד אחרי הדבקה היא כל מה שיש, והיציאה המוקדמת הייתה בולעת בדיוק
+          // את התרחיש שהפיצ'ר נבנה בשבילו.
+          try { clearTimeout(st.timer); } catch(_) {}
+          st.timer = null;
+          if (this._hasPendingUndoBurst(st)) {
+            st.stack.push(st.burstFrom);
+            if (st.stack.length > UNDO_MAX_STEPS) st.stack.shift();
+          }
+          st.burstFrom = null;
+          if (!st.stack.length) return;
+
+          const restored = st.stack.pop();
+          textarea.value = restored;
+          st.last = restored;
+          const entry = this._getEntry(el);
+          if (entry && entry.data) entry.data.content = restored;
+          this._checkContentLength(el, restored);
+          this._queueSave(el, { content: restored });
+          this._syncTaskView(el);
+          this._syncUndoButton(el);
+        } catch(e) { console.warn('sticky note: undo failed', e); }
+      }
+
+      // ----- העתקה -----
+      //
+      // ``navigator.clipboard`` אינו זמין בהקשר לא-מאובטח ועלול להיחסם
+      // בהרשאות. יש נפילה חיננית, ובכל מקרה **חיווי גלוי** — כפתור שנלחץ
+      // ולא קורה כלום הוא בדיוק הכשל השקט שהפיצ'ר הזה לא מרשה לעצמו.
+      async _copyNoteContent(el){
+        const textarea = el.querySelector('.sticky-note-content');
+        const text = textarea ? String(textarea.value == null ? '' : textarea.value) : '';
+        let ok = false;
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+          }
+        } catch(_) { ok = false; }
+        if (!ok) ok = this._copyViaFallback(text);
+        this._flashCopyResult(el, ok);
+      }
+
+      _copyViaFallback(text){
+        try {
+          const tmp = document.createElement('textarea');
+          tmp.value = text;
+          tmp.setAttribute('readonly', '');
+          tmp.style.position = 'fixed';
+          tmp.style.opacity = '0';
+          document.body.appendChild(tmp);
+          tmp.select();
+          const ok = document.execCommand && document.execCommand('copy');
+          document.body.removeChild(tmp);
+          return !!ok;
+        } catch(_) { return false; }
+      }
+
+      _flashCopyResult(el, ok){
+        try {
+          // מחלקה יציבה ולא ה-title, שאותו הפונקציה הזו עצמה משנה
+          const target = el.querySelector('.sticky-note-copy') || el;
+          const cls = ok ? 'is-copy-done' : 'is-copy-fail';
+          target.classList.add(cls);
+          if (!ok) target.title = 'ההעתקה נחסמה בדפדפן — סמנו והעתיקו ידנית';
+          setTimeout(() => {
+            try {
+              target.classList.remove(cls);
+              if (!ok) target.title = 'העתק את תוכן הפתק';
+            } catch(_) {}
+          }, 1800);
+        } catch(_) {}
+      }
+
       // חיווי אורך. השרת דוחה תוכן שחורג מהתקרה ב-``content_too_long``,
       // אבל דחייה שמגיעה רק אחרי ניסיון שמירה היא מאוחרת מדי — המשתמש
       // כבר הדביק והמשיך. כאן זה נראה בזמן ההקלדה.
@@ -905,9 +1261,28 @@
       _applyServerContent(el, entry, content, updatedAt){
         if (typeof content !== 'string') return;
         const textarea = el.querySelector('.sticky-note-content');
+        // התוכן שלפני — **לפני** שהוא נדרס. הוא הצעד שהמשתמש עשוי לרצות
+        // לבטל, וההערה הקודמת כאן טענה שהמחסנית כבר שומרת אותו. היא לא:
+        // סימון צ'קבוקס בפתק שלא נערך משאיר את המחסנית ריקה לגמרי, ואז
+        // אין שום דרך לחזור מהסימון דרך כפתור הביטול.
+        const before = textarea ? String(textarea.value == null ? '' : textarea.value) : null;
+        // התפרצות הקלדה שעדיין פתוחה — הצילום שלה נלקח **לפני** ההקלדה,
+        // ו-``_resetUndoBaseline`` עומד למחוק אותו. בלי לשמור אותו כאן,
+        // תוכן שמגיע מהשרת באמצע הקלדה היה מוחק את נקודת הפתיחה, וביטול
+        // היה מחזיר לסוף ההתפרצות במקום לתחילתה — כלומר ההקלדה כולה אבודה.
+        const st = this._undoState(el);
+        const burstFrom = this._hasPendingUndoBurst(st) ? st.burstFrom : null;
         if (textarea) textarea.value = content;
         if (entry && entry.data) entry.data.content = content;
         if (updatedAt) el.dataset.updatedAt = updatedAt;
+        // נקודת ההשוואה עוברת לתוכן הסמכותי, אחרת העריכה הבאה הייתה דוחפת
+        // את התוכן הישן למחסנית וביטול היה מוחק כתיבה שהשרת אישר.
+        this._resetUndoBaseline(el, content);
+        // שני צעדים נפרדים, כי באמת קרו שני דברים: המשתמש הקליד, ואז
+        // השרת שינה. הסדר הוא LIFO — הביטול הראשון מחזיר למה שהוקלד,
+        // והשני למה שהיה לפני ההקלדה.
+        if (burstFrom !== null && burstFrom !== before) this._pushUndo(el, burstFrom);
+        if (before !== null && before !== content) this._pushUndo(el, before);
         this._syncTaskView(el);
       }
 
@@ -1041,9 +1416,10 @@
               this._reflowWithinViewport(el);
             }
           }
-          // בלוח הכפתור מציין "צף מול המסך", ולא "מוצמד". בלי ההיפוך הזה
-          // הוא היה נדלק כבר בפתיחת הפתק — כי surface הוא ברירת המחדל.
-          this._updatePinButtonState(el, this.boardId ? (resolved === 'screen') : isPinned);
+          // **ורוד = מוצמד למשטח שמתחתיו**, בקובץ ובלוח כאחד. בקובץ זה
+          // המסמך, בלוח זה הלוח. שני סימנים שונים לאותה משמעות באותה
+          // מערכת הם באג בפני עצמו.
+          this._updatePinButtonState(el, isPinned);
         } catch(e) {
           console.warn('sticky note: applyPositionMode failed', e);
         }
@@ -1199,7 +1575,12 @@
         // חסימה כבר בזמן הגרירה, ולא רק בשמירה: אחרת אפשר לגרור את
         // הכותרת אל מעל קצה המשטח, ומשם אין דרך חזרה — הכותרת *היא*
         // ידית הגרירה.
-        if (this.boardId && el.classList && el.classList.contains('is-pinned')) {
+        // שני המצבים נחסמים — כל אחד מול מסגרת הייחוס שלו.
+        const floating = el.classList && el.classList.contains('is-floating');
+        if (floating) {
+          const c = this._clampToViewport(el, nx, ny);
+          nx = c.x; ny = c.y;
+        } else if (this.boardId && el.classList && el.classList.contains('is-pinned')) {
           const c = this._clampToSurface(el, nx, ny, null);
           nx = c.x; ny = c.y;
         }
@@ -1224,6 +1605,7 @@
           this._queueSave(el, payload);
         }
         this._flushFor(el);
+        this._updateSurfaceExtent();
       };
       // מניעת מחוות ברירת מחדל במובייל
       try { handle.style.touchAction = 'none'; } catch(_) {}
@@ -1294,6 +1676,8 @@
         if (!resizing) return; resizing=false;
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
+        // פתק שגדל כלפי מטה מאריך את המשטח, בדיוק כמו פתק שנגרר לשם
+        this._updateSurfaceExtent();
       };
       try { handle.style.touchAction = 'none'; } catch(_) {}
       handle.addEventListener('mousedown', onDown);
@@ -1484,6 +1868,18 @@
       const attempt = async () => {
         try {
           const { resp, json } = await send(payload);
+          // 409 נושא שני מובנים שונים לגמרי, ורק ``error`` מבדיל ביניהם.
+          // התנגשות גרסה נפתרת בניסיון חוזר עם חותמת טרייה; שם תפוס לא
+          // ייפתר לעולם בניסיון חוזר — הוא דורש שהמשתמש יבחר שם אחר.
+          // בלי ההבחנה הזו כל הקלדה של שם קיים נכנסה ללולאת ניסיונות
+          // אינסופית, ובלי שום חיווי: מסלול ה-409 אינו מסמן כשל.
+          if (resp.status === 409 && json && json.error === 'duplicate_title') {
+            this._markTitleConflict(id, true);
+            if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
+              this._pending.delete(String(id));
+            }
+            return false;
+          }
           if (resp.status === 409) {
             console.warn('sticky note update conflict, retrying once with fresh timestamp', id);
             let serverUpdatedAt = null;
@@ -1496,6 +1892,13 @@
               const retryPayload = withContentB64(retryOriginal);
               try {
                 const { resp: retryResp, json: retryJson } = await send(retryPayload);
+                if (retryResp.status === 409 && retryJson && retryJson.error === 'duplicate_title') {
+                  this._markTitleConflict(id, true);
+                  if ((this._pendingSeq.get(String(id)) || 0) === (seqAtSend || 0)) {
+                    this._pending.delete(String(id));
+                  }
+                  return false;
+                }
                 if (retryResp.status === 409) {
                   console.warn('sticky note update conflict persisted after retry', id);
                   if (retryJson && retryJson.updated_at) {
@@ -1536,6 +1939,10 @@
             }
           } else {
             this._clearSaveFailed(id);
+            // רק אם השם עצמו הוא מה שנשמר. שמירה מוצלחת של גרירה או שינוי
+            // גודל אינה אומרת דבר על השם — הוא נשאר תפוס בשרת — וניקוי
+            // הסימון כאן היה מציג "נשמר" על שדה שהשרת לא קיבל.
+            if ('title' in original) this._markTitleConflict(id, false);
           }
           return resp.ok;
         } catch(err) {
@@ -1589,10 +1996,16 @@
               if (result.ok) {
                 if (result.updated_at) { this._setNoteUpdatedAt(id, String(result.updated_at)); }
                 this._clearSaveFailed(id);
+                // כמו במסלול הבודד: רק שמירה שכללה שם מנקה את הסימון
+                if (snap && snap.payload && 'title' in snap.payload) this._markTitleConflict(id, false);
                 // clear pending only if no newer edits arrived during request
                 if (snap && currentSeq === snap.seq) {
                   this._pending.delete(id);
                 }
+              } else if (Number(result.status) === 409 && result.error === 'duplicate_title') {
+                // שם תפוס — לא התנגשות גרסה, ולכן לא חוזר לתור
+                this._markTitleConflict(id, true);
+                if (snap && currentSeq === snap.seq) this._pending.delete(id);
               } else if (Number(result.status) === 409) {
                 // conflict – set prev_updated_at for next retry without overriding newer local edits
                 const patch = {};
@@ -1623,11 +2036,13 @@
         for (const [id] of entries){
           const current = this._pending.get(id);
           if (!current) continue;
+          // גרסת התור נלקחת **לפני** המחיקה, ומועברת הלאה — בדיוק כמו
+          // ב-``_flushFor``. בלעדיה ``seqAtSend`` היה ``undefined``, כל
+          // ההשוואות בענפי הכשל נפלו על 0, והשומר "אל תמחק עריכה חדשה
+          // יותר" לא היה יכול להתאים לעולם.
+          const seqAtSend = this._pendingSeq.get(id) || 0;
           this._pending.delete(id);
-          const didSucceed = await this._sendUpdate(id, current);
-          if (!didSucceed && !this._pending.has(id)) {
-            // במקרה של כישלון המידע הוחזר ל-pending בתוך _sendUpdate
-          }
+          await this._sendUpdate(id, current, seqAtSend);
         }
       }
       if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
@@ -1739,8 +2154,24 @@
     async _deleteNoteEl(el){
       const id = el.dataset.noteId;
       try { await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch(e) { console.warn('delete failed', id, e); }
+      // טיימר ההתפרצות מחזיק הפניה ל-``el`` ול-``entry``. בלי הניקוי הזה
+      // הוא ימשיך לרוץ אחרי שהפתק ירד מה-DOM.
+      this._clearUndoTimer(el);
       try { el.remove(); } catch(_) {}
       this.notes.delete(id);
+      // אורך המשטח נגזר מהפתקים שעליו. בלי הקריאה הזו מחיקת הפתק התחתון
+      // משאירה ``min-height`` שמתאר מצב שכבר לא קיים.
+      this._updateSurfaceExtent();
+    }
+
+    _clearUndoTimer(el){
+      try {
+        const entry = this._getEntry(el);
+        const st = entry && entry.undo;
+        if (!st || !st.timer) return;
+        try { clearTimeout(st.timer); } catch(_) {}
+        st.timer = null;
+      } catch(_) {}
     }
 
     _reflowWithinViewport(target){
@@ -2055,10 +2486,14 @@
     _clearAllNotes(){
       try {
         for (const [id, entry] of this.notes.entries()){
+          // אותו נימוק כמו במחיקת פתק בודד: טיימר ההתפרצות מחזיק הפניה
+          // ל-``entry``, והוא ימשיך לרוץ אחרי שהאלמנט ירד מה-DOM.
+          try { if (entry && entry.el) this._clearUndoTimer(entry.el); } catch(_) {}
           try { entry && entry.el && entry.el.remove && entry.el.remove(); } catch(_) {}
         }
       } catch(_) {}
       this.notes.clear();
+      this._updateSurfaceExtent();
     }
 
     _loadCacheAndRender(){

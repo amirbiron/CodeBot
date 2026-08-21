@@ -64,9 +64,21 @@ const StickyNotesManager = sandbox.window.StickyNotesManager;
 let passed = 0;
 let failed = 0;
 
+// בדיקה אסינכרונית שנכשלת מחזירה promise דחוי, וגרסה סינכרונית של
+// ``check`` הייתה סופרת אותה כ"עברה" ומדפיסה אזהרת unhandled rejection.
+// לכן התור מצטבר ומוצה בסוף הקובץ.
+const pending = [];
+
 function check(name, fn) {
   try {
-    fn();
+    const out = fn();
+    if (out && typeof out.then === 'function') {
+      pending.push(out.then(
+        () => { passed += 1; },
+        (err) => { failed += 1; console.error(`✗ ${name}\n    ${err && err.message}`); },
+      ));
+      return;
+    }
     passed += 1;
   } catch (err) {
     failed += 1;
@@ -143,6 +155,17 @@ check('יעד חסר נכשל מיד ולא בשקט', () => {
 
 const fileMgr = new StickyNotesManager('f1');
 const boardMgr = new StickyNotesManager({ board: 'b1' });
+
+// **מוקש בהארנס, ולא בקוד הנבדק.**
+//
+// הבנאי יורה ``_init() → loadNotes()`` ברקע, וכשהיא נפתרת היא קוראת
+// ``_clearAllNotes()`` — כלומר **כל פתק שנרשם ידנית ב-``notes`` נמחק
+// ב-microtask הראשון**. כל הבדיקות עד היום היו סינכרוניות ורצו לפני
+// הרגע הזה, ולכן לא הרגישו. הראשונה שהוסיפה ``await`` נפלה על מפה ריקה,
+// ובלי הבדיקה הזו כל בדיקה אסינכרונית עתידית הייתה משקרת באותו אופן.
+//
+// ממתינים כאן, פעם אחת, עד שהטעינה ברקע מסיימת.
+await new Promise((resolve) => setTimeout(resolve, 0));
 
 check('סנטינל הנעיצה ממופה ל-surface', () => {
   eq(fileMgr._resolveMode({ anchor_id: '__pinned__' }), 'surface');
@@ -424,6 +447,220 @@ check('שמירה: 400 אינו חוזר לתור, 500 כן', () => {
   eq(fileMgr._isPermanentFailure(429), false, '429 — לנסות שוב מאוחר יותר');
   eq(fileMgr._isPermanentFailure(500), false, '500 זמני');
   eq(fileMgr._isPermanentFailure(undefined), false, 'סטטוס לא ידוע — לא לזרוק מידע');
+});
+
+// ---------- ביטול פעולה ----------
+//
+// כל הבדיקות כאן רושמות את הפתק ב-``notes``, כי ``_undoState`` תלוי ב-
+// ``entry.data.content`` בתור נקודת המוצא.
+
+/** רושם פתק במנהל ומחזיר את החלקים שלו. */
+function registerNote(mgr, id, content) {
+  const parts = makeNote(content);
+  parts.el.dataset.noteId = id;
+  const undoBtn = new FakeEl('button');
+  undoBtn.className = 'sticky-note-btn sticky-note-undo';
+  undoBtn.disabled = true;
+  parts.el.appendChild(undoBtn);
+  const titleInput = new FakeEl('input');
+  titleInput.className = 'sticky-note-title';
+  parts.el.appendChild(titleInput);
+  mgr.notes.set(id, { el: parts.el, data: { id, content } });
+  return Object.assign(parts, { undoBtn, titleInput, entry: mgr.notes.get(id) });
+}
+
+check('ביטול: המשך רשימה אוטומטי נרשם למחסנית', () => {
+  // ``_handleListContinuation`` כותב ל-``textarea.value`` ישירות, וכתיבה
+  // תכנותית **אינה** משדרת ``input``. בלי רישום מפורש הצעד הזה היה יוצא
+  // מחוץ להיסטוריה, והביטול היה מדלג עליו כאילו לא קרה.
+  const n = registerNote(fileMgr, 'undo-list', '- [ ] ראשון');
+  n.ta.value = '- [ ] ראשון\n- [ ] ';
+  fileMgr._noteProgrammaticEdit(n.el, n.ta, '- [ ] ראשון');
+
+  eq(fileMgr._undoState(n.el).stack.length, 1, 'צעד אחד במחסנית');
+  eq(fileMgr._undoState(n.el).stack[0], '- [ ] ראשון', 'התוכן שלפני');
+  eq(n.undoBtn.disabled, false, 'הכפתור פעיל');
+});
+
+check('ביטול: כתיבה תכנותית שלא שינתה דבר אינה נרשמת', () => {
+  const n = registerNote(fileMgr, 'undo-noop', 'טקסט');
+  fileMgr._noteProgrammaticEdit(n.el, n.ta, 'טקסט');
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'מחסנית ריקה');
+});
+
+check('ביטול: כפתור פעיל מיד אחרי הדבקה, לפני שהטיימר נסגר', () => {
+  // התרחיש המרכזי של הפיצ'ר: בחירת-הכל ואז הדבקה בטעות. המחסנית עדיין
+  // ריקה — הצילום ממתין ל-600ms של שקט — ובגרסה הקודמת הכפתור היה
+  // מושבת בדיוק ברגע שבו הוא הכי נחוץ.
+  const original = 'א'.repeat(750);
+  const n = registerNote(fileMgr, 'undo-paste', original);
+  n.ta.value = 'הדבקה קצרה';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'המחסנית עדיין ריקה');
+  eq(n.undoBtn.disabled, false, 'ובכל זאת הכפתור פעיל');
+
+  fileMgr._undoLastChange(n.el);
+  eq(n.ta.value, original, 'התוכן חזר במלואו');
+  eq(n.ta.value.length, 750, 'ובאורך המקורי');
+});
+
+check('ביטול: תוכן סמכותי מהשרת מאפס את נקודת ההשוואה', () => {
+  // אחרי סימון צ'קבוקס השרת מחזיר את התוכן הנכון. אם ``last`` נשאר על
+  // התוכן שלפני הסימון, העריכה הבאה דוחפת אותו למחסנית — וביטול אחד היה
+  // מוחק כתיבה שהשרת כבר אישר.
+  const n = registerNote(fileMgr, 'undo-server', '- [ ] משימה');
+  const entry = n.entry;
+
+  // **חובה לייצר את מצב הביטול לפני התוכן מהשרת.** ``_undoState`` בונה
+  // את עצמו מ-``entry.data.content``, ואם הוא נוצר רק אחרי — הוא נזרע
+  // ממילא מהערך החדש והבדיקה עוברת גם בלי התיקון. נתפס במוטציה: ביטול
+  // ``_resetUndoBaseline`` לא הפיל את הגרסה הראשונה של הבדיקה הזו.
+  n.ta.value = '- [ ] משימה!';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+  eq(fileMgr._undoState(n.el).last, '- [ ] משימה!', 'נקודת המוצא לפני השרת');
+
+  fileMgr._applyServerContent(n.el, entry, '- [x] משימה', '2026-01-01T00:00:00Z');
+  eq(fileMgr._undoState(n.el).last, '- [x] משימה', 'נקודת ההשוואה התעדכנה');
+  eq(fileMgr._undoState(n.el).burstFrom, null, 'וההתפרצות הפתוחה נסגרה');
+
+  // עכשיו המשתמש מקליד. מה שנשמר חייב להיות התוכן **שאחרי** הסימון.
+  n.ta.value = '- [x] משימה ועוד';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+  eq(fileMgr._undoState(n.el).burstFrom, '- [x] משימה', 'הצילום הוא מהתוכן המאושר');
+});
+
+check('ביטול: מחיקת פתק מנקה את הטיימר התלוי', () => {
+  const n = registerNote(fileMgr, 'undo-timer', 'טקסט');
+  n.ta.value = 'טקסט ועוד';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+  eq(fileMgr._undoState(n.el).timer !== null, true, 'יש טיימר פתוח');
+
+  fileMgr._clearUndoTimer(n.el);
+  eq(fileMgr._undoState(n.el).timer, null, 'נוקה');
+});
+
+// ---------- שם תפוס ----------
+
+check('שם: הסימון תלוי בקוד השגיאה, לא בכשל שמירה גנרי', () => {
+  // הגרסה הקודמת הסיקה מ-``has-save-error``: כל נפילת רשת או חריגת מכסה
+  // סימנה את השם כתפוס, ואילו 409 אמיתי — שאינו מסמן את המחלקה הזו —
+  // לא סימן כלום. כלומר הסימון הופיע בכל מצב חוץ מהנכון.
+  const n = registerNote(fileMgr, 'dup-1', 'תוכן');
+
+  n.el.classList.add('has-save-error');       // כשל שמירה כלשהו
+  fileMgr._syncTitleConflict(n.el);
+  eq(n.titleInput.classList.contains('is-duplicate'), false, 'כשל גנרי אינו "שם תפוס"');
+
+  fileMgr._markTitleConflict('dup-1', true);  // 409 duplicate_title
+  eq(n.titleInput.classList.contains('is-duplicate'), true, 'ורק הקוד הספציפי מסמן');
+
+  fileMgr._markTitleConflict('dup-1', false);
+  eq(n.titleInput.classList.contains('is-duplicate'), false, 'שם חדש מנקה את הסימון');
+});
+
+check('ביטול: תוכן מהשרת שסוגר התפרצות מכבה גם את הכפתור', () => {
+  // הכפתור נדלק על סמך התפרצות ממתינה. ``_resetUndoBaseline`` סוגר אותה,
+  // ואם הוא לא מסנכרן — הכפתור נשאר דלוק על מחסנית ריקה, ולחיצה עליו
+  // לא עושה כלום. כפתור שנראה זמין ולא עובד הוא בדיוק סוג השקר שהפיצ'ר
+  // הזה נבנה כדי לא לספר.
+  const n = registerNote(fileMgr, 'undo-sync', 'מקור');
+  n.ta.value = 'מקור ועוד';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+  eq(n.undoBtn.disabled, false, 'דלוק בזמן ההתפרצות');
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'והמחסנית עדיין ריקה');
+
+  fileMgr._resetUndoBaseline(n.el, 'תוכן מהשרת');
+
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'המחסנית נשארה ריקה');
+  eq(n.undoBtn.disabled, true, 'ולכן הכפתור כבוי');
+});
+
+check('ביטול: סימון צ׳קבוקס ניתן לביטול', () => {
+  // התרחיש: פתק שלא נערך, המשתמש מסמן צ'קבוקס. המחסנית ריקה לגמרי,
+  // ולכן לפני התיקון לא הייתה שום דרך לחזור מהסימון דרך הכפתור —
+  // בעוד שההערה בקוד טענה שהמחסנית כבר שומרת את המצב שלפני.
+  const n = registerNote(fileMgr, 'undo-toggle', '- [ ] משימה');
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'נקודת המוצא: מחסנית ריקה');
+
+  fileMgr._applyServerContent(n.el, n.entry, '- [x] משימה', '2026-01-01T00:00:00Z');
+
+  eq(n.ta.value, '- [x] משימה', 'התוכן הסמכותי הוחל');
+  eq(n.undoBtn.disabled, false, 'ויש מה לבטל');
+  fileMgr._undoLastChange(n.el);
+  eq(n.ta.value, '- [ ] משימה', 'הסימון בוטל');
+});
+
+check('ביטול: תוכן זהה מהשרת אינו נחשב צעד', () => {
+  const n = registerNote(fileMgr, 'undo-same', '- [x] משימה');
+  fileMgr._applyServerContent(n.el, n.entry, '- [x] משימה', null);
+  eq(fileMgr._undoState(n.el).stack.length, 0, 'שום דבר לא השתנה');
+  eq(n.undoBtn.disabled, true);
+});
+
+// ``_sendUpdate`` אמיתי מול תשובה מבוקרת. בלי זה אין דרך לבדוק את ענפי
+// הכשל של מסלול השמירה — והם בדיוק החלק שנשבר בשקט.
+async function withFetch(handler, fn) {
+  // ``await`` ולא ``return`` בתוך try: בלעדיו ה-``finally`` משחזר את
+  // ה-fetch **לפני** שה-promise נפתר, והבדיקה רצה מול הפייק ברירת המחדל
+  // של הסנדבוקס — שאין לו ``status`` בכלל. נתפס בהרצה: שתי בדיקות נפלו
+  // על ענף הכשל במקום על הענף שנבדק.
+  const original = sandbox.fetch;
+  sandbox.fetch = handler;
+  try { return await fn(); } finally { sandbox.fetch = original; }
+}
+const okResponse = async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) });
+
+check('שם: שמירה שאינה של השם אינה מנקה את הסימון', async () => {
+  // התרחיש: השם נדחה ב-409, ואז המשתמש גורר את הפתק. השמירה של המיקום
+  // מצליחה — אבל היא לא אומרת דבר על השם, שנשאר תפוס בשרת. ניקוי הסימון
+  // כאן היה מציג "נשמר" על שדה שהשרת לא קיבל.
+  const n = registerNote(fileMgr, 'dup-keep', 'תוכן');
+  fileMgr._markTitleConflict('dup-keep', true);
+  eq(n.titleInput.classList.contains('is-duplicate'), true, 'מסומן אחרי 409');
+
+  await withFetch(okResponse, () => fileMgr._sendUpdate('dup-keep', { position: { x: 1, y: 2 } }, 0));
+  eq(n.titleInput.classList.contains('is-duplicate'), true, 'שמירת מיקום לא ניקתה');
+
+  await withFetch(okResponse, () => fileMgr._sendUpdate('dup-keep', { title: 'שם אחר' }, 0));
+  eq(n.titleInput.classList.contains('is-duplicate'), false, 'שמירת שם כן ניקתה');
+});
+
+check('שם: 409 duplicate_title מסמן ואינו חוזר לתור', async () => {
+  // 409 גנרי חוזר לתור עם חותמת טרייה; שם תפוס לא ייפתר לעולם בניסיון
+  // חוזר. בלי ההבחנה זו לולאת ניסיונות אינסופית, ובלי שום חיווי.
+  const n = registerNote(fileMgr, 'dup-409', 'תוכן');
+  const dup = async () => ({ ok: false, status: 409, json: async () => ({ ok: false, error: 'duplicate_title' }) });
+
+  fileMgr._pending.set('dup-409', { title: 'תפוס' });
+  fileMgr._pendingSeq.set('dup-409', 0);
+  const result = await withFetch(dup, () => fileMgr._sendUpdate('dup-409', { title: 'תפוס' }, 0));
+
+  eq(result, false, 'הכשל דווח');
+  eq(n.titleInput.classList.contains('is-duplicate'), true, 'והשם מסומן');
+  eq(fileMgr._pending.has('dup-409'), false, 'ולא נשאר בתור לניסיון נוסף');
+});
+
+await Promise.all(pending);
+check('ביטול: תוכן מהשרת באמצע הקלדה שומר את תחילת ההתפרצות', () => {
+  // התרחיש: המשתמש מקליד, ובאמצע ההתפרצות מגיע תוכן סמכותי מהשרת
+  // (סימון צ'קבוקס ממכשיר אחר, למשל). ``_resetUndoBaseline`` מוחק את
+  // ``burstFrom`` — הצילום שנלקח **לפני** ההקלדה — ובלי לשמור אותו קודם
+  // הביטול היה מחזיר לסוף ההתפרצות במקום לתחילתה, וההקלדה כולה אבודה.
+  const n = registerNote(fileMgr, 'undo-mid-burst', 'התחלה');
+
+  n.ta.value = 'התחלה + הקלדה';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+  eq(fileMgr._undoState(n.el).burstFrom, 'התחלה', 'ההתפרצות פתוחה');
+
+  fileMgr._applyServerContent(n.el, n.entry, 'מהשרת', null);
+
+  // שני צעדים, LIFO: קודם חוזרים למה שהוקלד, ואז למה שהיה לפני
+  eq(n.ta.value, 'מהשרת', 'התוכן הסמכותי הוחל');
+  fileMgr._undoLastChange(n.el);
+  eq(n.ta.value, 'התחלה + הקלדה', 'ביטול ראשון — מה שהוקלד');
+  fileMgr._undoLastChange(n.el);
+  eq(n.ta.value, 'התחלה', 'ביטול שני — לפני ההקלדה');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

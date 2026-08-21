@@ -108,9 +108,38 @@
 /* עמוד המשטח מנצל את כל הרוחב ורוב הגובה. ברשימת הלוחות עמודה צרה
    היא הנכונה, אבל משטח עבודה שמוגבל ל-1100px משאיר שוליים מתים משני
    הצדדים ועוד 4rem ריקים מתחתיו. */
+/* עמוד המשטח מנצל כמעט את כל המסך. נמדד לפני: שוליים 12/12 בצדדים אבל
+   168px מתים למעלה, והמשטח חרג מהמסך ב-40px — כי ``100vh - 130px`` היה
+   ניחוש קשיח שלא תאם את המיקום בפועל. */
 .boards-page.is-board-surface {
   max-width: none;
-  padding: .75rem .75rem 1rem;
+  padding: .4rem .5rem .5rem;
+}
+
+/* סרגל הכלים צף **מעל** המשטח במקום לשבת מעליו.
+   כך הלוח מתחיל מיד מתחת לנאבבר, והשורה שתפסה 40 פיקסלים מלאים
+   מפסיקה לגזול שטח מהלוח עצמו.
+   (העוגן ל-``position: absolute`` הזה הוא ``.board-surface-wrap``, שכבר
+   מוגדר ``position: relative`` בכלל הבסיס שלו בהמשך הקובץ.) */
+.is-board-surface .board-toolbar {
+  position: absolute;
+  inset-block-start: .5rem;
+  inset-inline-end: .6rem;
+  inset-inline-start: auto;
+  z-index: 5;
+  margin: 0;
+  gap: .4rem;
+  width: auto;
+  padding: .25rem .35rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-primary, #fff) 82%, transparent);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--glass-border, rgba(0, 0, 0, .08));
+}
+.is-board-surface .board-title-input {
+  font-size: 1rem;
+  padding: .1rem .4rem;
+  max-width: 40vw;
 }
 
 .board-surface-wrap {
@@ -119,17 +148,29 @@
 
 .board-surface {
   position: relative;      /* פתק במצב surface הוא absolute יחסית לזה */
-  min-height: calc(100vh - 130px);
+  /* ``--board-top`` נמדד ב-JS מהמיקום בפועל, במקום המספר הקשיח שפספס
+     ב-40px ויצר גלילה מיותרת. הערך הקשיח נשאר כנפילה חיננית בלבד. */
+  /* ``vh`` קודם כנפילה: דפדפן שאינו מכיר ``dvh`` מתעלם מההצהרה כולה,
+     ובלי השורה הזו המשטח היה מאבד את גובה המסך ומתכווץ לתוכן. */
+  min-height: calc(100vh - var(--board-top, 130px) - .5rem);
+  min-height: calc(100dvh - var(--board-top, 130px) - .5rem);
   border-radius: 16px;
   overflow: auto;
   border: 1px solid var(--glass-border, rgba(0, 0, 0, .08));
 
-  /* רשת הנקודות. השקיפות נמוכה במכוון — בשיעור כזה זה כבר לא תמונה אלא
-     מרקם, כמו נייר משבצות מתחת לפתק אמיתי. */
+  /* רשת הנקודות.
+   *
+   * הצבע נגזר מ-``--text-primary`` של הערכה **הפעילה**, ולא משאילתת מדיה.
+   * הגרסה הקודמת השתמשה ב-``prefers-color-scheme``, שהיא הגדרת מערכת
+   * ההפעלה — בעוד שהאפליקציה בוחרת ערכה דרך ``data-theme`` על ``<html>``.
+   * כלומר צבע הנקודות נקבע לפי משהו שאין לו קשר לערכה שנבחרה: בערכה
+   * בהירה הן נעלמו לגמרי, ובכהות הן השתנו באקראי.
+   *
+   * ``color-mix`` כבר בשימוש בריפו (``codemirror-custom.css``). */
   background-color: var(--bg-primary, #fff);
   background-image: radial-gradient(
     circle,
-    var(--board-dot, rgba(103, 126, 234, .22)) 1px,
+    var(--board-dot, color-mix(in srgb, var(--text-primary, #1f2933) 26%, transparent)) 1px,
     transparent 1px
   );
   background-size: 24px 24px;
@@ -184,12 +225,41 @@
 .board-msg.is-error { background: rgba(220, 53, 69, .12); color: #b02a37; }
 .board-msg.is-info { background: rgba(103, 126, 234, .12); }
 
-@media (prefers-color-scheme: dark) {
-  .board-surface {
-    background-image: radial-gradient(
-      circle,
-      var(--board-dot, rgba(255, 255, 255, .13)) 1px,
-      transparent 1px
-    );
-  }
+/* אין כאן שאילתת מדיה בכוונה: ``--text-primary`` כבר מתהפך עם הערכה,
+   ולכן הנקודות מתאימות את עצמן לכל ערכה — כולל ערכות שהמשתמש יצר. */
+
+/* קישור כאייקון — בלי טקסט. שטח נגיעה מלא למרות שהאייקון קטן. */
+.board-icon-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; flex: 0 0 auto;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border, rgba(0, 0, 0, .12));
+  background: var(--bg-secondary, #f7fafc);
+  color: var(--text-primary, inherit);
+  text-decoration: none;
 }
+.board-icon-link:hover { background: var(--glass-hover, rgba(103, 126, 234, .12)); }
+.board-icon-link:focus-visible { outline: 2px solid var(--primary, #667eea); outline-offset: 2px; }
+
+/* ---------- הגדרות הלוח ---------- */
+
+.board-settings-modal { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; }
+.board-settings-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
+.board-settings-card {
+  position: relative;
+  max-width: 26rem; width: calc(100% - 2rem);
+  background: var(--bg-primary, #fff); color: var(--text-primary, #1f2933);
+  border: 1px solid var(--glass-border, rgba(0, 0, 0, .12));
+  border-radius: 14px; padding: 1.2rem 1.3rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
+}
+.board-settings-card h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+.board-setting-row { display: flex; gap: .6rem; align-items: flex-start; cursor: pointer; }
+.board-setting-row input { margin-top: .3rem; flex: 0 0 auto; }
+.board-setting-row small { display: block; color: var(--text-muted, #667); font-size: .85rem; margin-top: .15rem; }
+.board-setting-note {
+  margin: .9rem 0 0; padding: .6rem .75rem; border-radius: 8px;
+  font-size: .85rem; color: var(--text-muted, #667);
+  background: color-mix(in srgb, var(--text-primary, #1f2933) 6%, transparent);
+}
+.board-settings-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }

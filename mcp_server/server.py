@@ -374,8 +374,8 @@ def build_mcp(
         description=(
             "Add a sticky note to a board (board_id from codekeeper_list_boards). Unlike "
             "codekeeper_create_note this needs no file. mode is 'surface' (sits on the "
-            "board, default) or 'screen' (floats against the viewport). Requires write "
-            "permission."
+            "board, default) or 'screen' (floats against the viewport). An optional title "
+            "labels the note and must be unique on that board. Requires write permission."
         ),
         annotations=_WRITE_TOOL,
     )
@@ -385,6 +385,7 @@ def build_mcp(
         content: str,
         color: str | None = None,
         mode: str | None = None,
+        title: str | None = None,
     ) -> dict:
         require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
         return handlers.create_board_note(
@@ -394,6 +395,7 @@ def build_mcp(
             content=content,
             color=color,
             mode=mode,
+            title=title,
         )
 
     @mcp.tool(

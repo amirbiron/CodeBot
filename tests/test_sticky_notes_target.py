@@ -184,3 +184,44 @@ def test_failed_count_is_rejected_not_waved_through():
 def test_admin_exempt_even_when_count_failed():
     """הפטור קודם לכל בדיקה אחרת — אדמין לא נחסם בגלל מסד שמתקשה."""
     check_note_quota(None, 200, is_admin=True)
+
+
+# ---------- נרמול שם פתק ----------
+
+
+def test_title_is_trimmed_and_collapsed_to_one_line():
+    from sticky_notes_target import normalize_note_title
+
+    assert normalize_note_title("  רשימת   מטלות \n שנייה ") == "רשימת מטלות שנייה"
+
+
+def test_blank_title_means_no_title():
+    from sticky_notes_target import normalize_note_title
+
+    assert normalize_note_title("") == ""
+    assert normalize_note_title("   \t\n ") == ""
+    assert normalize_note_title(None) == ""
+
+
+def test_title_is_capped():
+    from sticky_notes_target import MAX_NOTE_TITLE, normalize_note_title
+
+    assert len(normalize_note_title("א" * 500)) == MAX_NOTE_TITLE
+
+
+@pytest.mark.parametrize(
+    "value",
+    [["a", "b"], {"x": 1}, 42, 3.5, True, object()],
+)
+def test_only_a_string_can_be_a_title(value):
+    """**ייצוג פייתון פנימי לא נכנס למסד כשם פתק.**
+
+    ``str(value)`` על גוף JSON שרירותי הופך ``["a", "b"]`` למחרוזת
+    ``"['a', 'b']"`` — שם מעוות שנשמר, מוצג למשתמש, ותופס מקום באינדקס
+    הייחודי. כל טיפוס שאינו ``str`` נחשב "אין שם", כמו מחרוזת ריקה.
+
+    נופלת אם הנרמול חוזר ל-``str(value or "")``.
+    """
+    from sticky_notes_target import normalize_note_title
+
+    assert normalize_note_title(value) == ""

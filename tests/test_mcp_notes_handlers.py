@@ -251,6 +251,8 @@ def test_as_note_serialization():
         # פתק לוח חייב לומר איפה הוא יושב. בפתק קובץ שניהם ריקים.
         "board_id",
         "mode",
+        # שם הפתק — תווית שמזהה אותו בתוך הלוח
+        "title",
         "created_at",
         "updated_at",
     }
@@ -299,8 +301,8 @@ class _BoardsBackend:
         self.calls.append(("list_board_notes", user_id, board_id))
         return {"ok": True, "board_id": board_id, "count": 0, "notes": []}
 
-    def create_board_note(self, user_id, *, board_id, content, color, mode):
-        self.calls.append(("create_board_note", user_id, board_id, content, color, mode))
+    def create_board_note(self, user_id, *, board_id, content, color, mode, title=""):
+        self.calls.append(("create_board_note", user_id, board_id, content, color, mode, title))
         return {"ok": True, "note": {"id": "n1", "board_id": board_id, "mode": mode}}
 
 
@@ -366,12 +368,174 @@ def test_create_board_note_rejects_anchored_mode():
     assert b.calls == []
 
 
+def test_create_board_note_normalizes_the_title():
+    """שם מנורמל לפני שהוא מגיע למסד: רווחים, שורות, ואורך.
+
+    שם רב-שורות היה שובר את שורת הכפתורים, ושם ריק חייב להישאר ריק כדי
+    שהשדה כלל לא ייכתב — אחרת הוא נכנס לאינדקס הייחודי ומתנגש.
+    """
+    from sticky_notes_target import MAX_NOTE_TITLE
+
+    b = _BoardsBackend()
+    _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="x", title="  שם\nעם שורות  ")
+    assert b.calls[0][6] == "שם עם שורות"
+
+    b2 = _BoardsBackend()
+    _h.create_board_note(b2, 7, board_id=_VALID_BOARD, content="x", title="   ")
+    assert b2.calls[0][6] == "", "שם ריק נשאר ריק, והשדה לא ייכתב"
+
+    b3 = _BoardsBackend()
+    _h.create_board_note(b3, 7, board_id=_VALID_BOARD, content="x", title="א" * 200)
+    assert len(b3.calls[0][6]) == MAX_NOTE_TITLE
+
+
 def test_create_board_note_normalizes_color_and_mode():
     b = _BoardsBackend()
 
     _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="שלום", color="לא-צבע")
 
-    _, _, _, content, color, mode = b.calls[0]
+    _, _, _, content, color, mode, _title = b.calls[0]
     assert content == "שלום"
     assert color == _h.DEFAULT_NOTE_COLOR, "צבע לא חוקי נופל לברירת המחדל, כמו ביצירת פתק קובץ"
     assert mode == "surface", "ברירת המחדל בלוח"
+
+
+# ---------- מכונת המצבים של אינדקס השם ב-MCP ----------
+#
+# ``create_board_note`` מבטיח ``duplicate_title``. ההבטחה נשענת על אינדקס
+# שנבנה כאן, ולכן מסלולי הכשל שלה הם חלק מהחוזה ולא פרט פנימי.
+
+
+class _IndexSpyColl:
+    """אוסף מדומה שסופר קריאות ומאפשר לשלוט בתוצאת הבנייה."""
+
+    def __init__(self):
+        self.index_calls = 0
+        self.find_calls = []
+        self.inserted = []
+        self.result = True
+        self.raises = False
+
+    # -- מה ש-``ensure_title_index`` המדומה תצרוך --
+    def create_index(self, *a, **k):
+        return None
+
+    def index_information(self):
+        return {}
+
+    # -- מה ש-``title_is_taken`` צורכת --
+    def find_one(self, query, projection=None):
+        self.find_calls.append(query)
+        for doc in self.inserted:
+            if all(doc.get(k) == v for k, v in query.items() if not isinstance(v, dict)):
+                return doc
+        return None
+
+    def insert_one(self, doc):
+        self.inserted.append(dict(doc))
+
+        class _R:
+            inserted_id = len(self.inserted)
+
+        return _R()
+
+    def count_documents(self, *a, **k):
+        return len(self.inserted)
+
+
+def _backend_with(coll, monkeypatch, clock):
+    """``ProductionBackend`` בלי ה-``__init__`` הכבד, עם שעון נשלט."""
+    from mcp_server.backend import ProductionBackend
+    import mcp_server.backend as backend_mod
+
+    monkeypatch.setattr(backend_mod._time, "monotonic", lambda: clock["now"])
+    b = ProductionBackend.__new__(ProductionBackend)
+    b._notes_idx_done = True
+    b._raw_mongo = lambda: {"sticky_notes": coll}
+    return b
+
+
+def test_a_failed_index_build_is_retried_only_after_the_cooldown(monkeypatch):
+    """דגל "ניסינו" שנדלק לפני הניסיון משבית את האכיפה לכל חיי התהליך.
+
+    כאן הוא מנסה שוב — אבל לא בכל קריאה, אחרת כל כלי משלם על בנייה
+    כושלת. נופלת אם ההשהיה מוסרת, וגם אם הניסיון החוזר מוסר.
+    """
+    import sticky_notes_target
+
+    clock = {"now": 500.0}
+    coll = _IndexSpyColl()
+    b = _backend_with(coll, monkeypatch, clock)
+    attempts = []
+    monkeypatch.setattr(
+        sticky_notes_target, "ensure_title_index",
+        lambda c: (attempts.append(clock["now"]), False)[1],
+    )
+
+    assert b._ensure_title_index(coll) is False
+    assert b._ensure_title_index(coll) is False
+    assert b._ensure_title_index(coll) is False
+    assert len(attempts) == 1, f"נוסה {len(attempts)} פעמים בתוך חלון ההמתנה"
+
+    clock["now"] += b._TITLE_INDEX_RETRY_SECONDS + 1
+    assert b._ensure_title_index(coll) is False
+    assert len(attempts) == 2, "אחרי ההשהיה לא נוסה שוב"
+
+
+def test_an_exception_during_the_build_is_not_fatal(monkeypatch):
+    """חריגה בבנייה מחזירה ``False``, לא מפילה את הכלי."""
+    import sticky_notes_target
+
+    clock = {"now": 500.0}
+    coll = _IndexSpyColl()
+    b = _backend_with(coll, monkeypatch, clock)
+
+    def _boom(_c):
+        raise RuntimeError("mongo down")
+
+    monkeypatch.setattr(sticky_notes_target, "ensure_title_index", _boom)
+
+    assert b._ensure_title_index(coll) is False
+
+
+def test_a_confirmed_index_is_never_rebuilt(monkeypatch):
+    """אחרי אימות, אין יותר קריאות — וגם אין שאילתת גיבוי."""
+    import sticky_notes_target
+
+    clock = {"now": 500.0}
+    coll = _IndexSpyColl()
+    b = _backend_with(coll, monkeypatch, clock)
+    attempts = []
+    monkeypatch.setattr(
+        sticky_notes_target, "ensure_title_index",
+        lambda c: (attempts.append(1), True)[1],
+    )
+
+    assert b._ensure_title_index(coll) is True
+    clock["now"] += 10_000
+    assert b._ensure_title_index(coll) is True
+    assert len(attempts) == 1
+
+
+def test_create_board_note_falls_back_to_a_code_check_without_the_index(monkeypatch):
+    """**זו ההבטחה שהכלי נותן, וזה מה שקורה כשאין מי שיאכוף אותה.**
+
+    נופלת אם ``create_board_note`` מדלג על הגיבוי כשהאינדקס לא אומת.
+    """
+    import sticky_notes_target
+
+    clock = {"now": 500.0}
+    coll = _IndexSpyColl()
+    b = _backend_with(coll, monkeypatch, clock)
+    monkeypatch.setattr(sticky_notes_target, "ensure_title_index", lambda c: False)
+    monkeypatch.setattr(b, "_notes_coll", lambda: coll)
+    monkeypatch.setattr(b, "_canonical_board_id", lambda board: "b1", raising=False)
+    monkeypatch.setattr(b, "_owned_board", lambda uid, bid: {"_id": "b1"}, raising=False)
+
+    first = b.create_board_note(7, board_id="b1", content="a", color="#FFFFCC", mode="surface", title="טודו")
+    assert first.get("ok") is True, first
+
+    dup = b.create_board_note(7, board_id="b1", content="b", color="#FFFFCC", mode="surface", title="טודו")
+
+    assert dup == {"ok": False, "error": "duplicate_title"}
+    assert coll.find_calls, "הגיבוי לא נשאל בכלל"

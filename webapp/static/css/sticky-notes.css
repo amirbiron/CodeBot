@@ -15,18 +15,32 @@
 .sticky-note.is-floating{
   position: fixed;
 }
+/* הפתק הוא עמודת flex: כותרת בגובה טבעי, וגוף שממלא את השאר.
+ *
+ * זה מה שמוציא מהמשוואה את המספר הקסום 42. עד היום הכותרת **חויבה**
+ * להישאר בגובה קבוע, כי גוף הפתק חושב כ-``calc(100% - 42px)`` והמיזעור
+ * נקבע כ-``height: 42px``. כלומר כל שינוי בכותרת — כפתור נוסף, שורה
+ * שנשברת — היה חותך את הגוף בשקט. עכשיו הגובה נגזר מהתוכן. */
+.sticky-note{ display:flex; flex-direction: column; }
 .sticky-note.is-minimized .sticky-note-content{ display:none; }
-.sticky-note.is-minimized{ height: 42px !important; }
+/* ``height: auto`` דורס את ה-``style.height`` שנשמר, ולכן פתק ממוזער
+   מתכווץ בדיוק לגובה הכותרת שלו — שורה אחת או שתיים, לפי מה שנכנס. */
+.sticky-note.is-minimized{ height: auto !important; }
 
 .sticky-note-header{
   display:flex; align-items:center; justify-content:space-between;
   padding: 6px 8px; cursor: move; user-select:none;
   background: rgba(0,0,0,.06);
+  flex: 0 0 auto;
+  /* גלישה לשורה שנייה כשאין מקום. ראו את ההסבר אצל ``.sticky-note-title``
+     — זה מה שמאפשר לשם ולשישה כפתורים לחיות יחד בפתק של 200 פיקסלים. */
+  flex-wrap: wrap;
 }
 .sticky-note-drag{ width: 100%; height: 16px; cursor: move; touch-action: none; }
 /* מרווח בין הכפתורים: הם קטנים, וצמודים זה לזה קשה לפגוע בהם באצבע.
-   ההגדלה היא במרווח ובריפוד אופקי בלבד — גובה הכותרת לא משתנה, ולכן
-   ``calc(100% - 42px)`` של גוף הפתק נשאר נכון. */
+   גובה הכותרת **כן** משתנה — היא גולשת לשתי שורות בפתק צר — וזה בסדר:
+   הגוף הוא ``flex: 1 1 auto`` ולוקח את מה שנשאר, ולא ``calc(100% - 42px)``
+   כפי שהיה כאן קודם. */
 .sticky-note-actions{ display:flex; gap:10px; }
 .sticky-note-btn{ border:none; background: transparent; cursor: pointer; font-size: 16px; padding: 0 3px; min-width: 22px; transition: background-color .18s ease, color .18s ease; }
 .sticky-note-pin{ opacity:.8; }
@@ -40,7 +54,12 @@
 .sticky-note-btn:hover{ color:#000; }
 
 .sticky-note-content{
-  width: 100%; height: calc(100% - 42px);
+  width: 100%;
+  /* ``flex: 1`` במקום ``calc(100% - 42px)``: הגוף לוקח את מה שנשאר אחרי
+     הכותרת, יהיה גובהה אשר יהיה. ``min-height: 0`` הכרחי — בלעדיו פריט
+     flex לא מתכווץ מתחת לגודל התוכן שלו, וטקסט ארוך היה מותח את הפתק. */
+  flex: 1 1 auto;
+  min-height: 0;
   border: 0; outline: none; resize: none;
   padding: 8px; font-size: 14px; line-height: 1.35;
   background: transparent; color: #222;
@@ -78,12 +97,16 @@
 
 /* ---------- צ'קבוקסים בתוך פתק ---------- */
 
-/* ``flex: 1`` לא עשה כלום — ``.sticky-note`` אינו קונטיינר flex — ולכן
-   לתצוגה לא היה גובה משלה כלל. עכשיו היא בדיוק אותו ארגז כמו ה-textarea
-   שהיא מחליפה, כולל גלילה פנימית: פתק שגדל לבד מזיז את מה שסביבו. */
+/* התצוגה היא בדיוק אותו ארגז כמו ה-textarea שהיא מחליפה, כולל גלילה
+   פנימית: פתק שגדל לבד מזיז את מה שסביבו.
+   (היסטוריה: פעם ``flex: 1`` כאן לא עשה כלום, כי ``.sticky-note`` לא היה
+   קונטיינר flex — ואז לתצוגה לא היה גובה משלה כלל. היום הוא כן, וזה מה
+   שמחזיק את הגובה.) */
 .sticky-note-tasks {
   width: 100%;
-  height: calc(100% - 42px);
+  /* אותו ארגז בדיוק כמו ה-textarea שהיא מחליפה. ראו שם. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px;
   font-size: 14px;
@@ -142,3 +165,53 @@
   outline: 2px solid #dc3545;
   outline-offset: 1px;
 }
+
+/* כפתור ביטול מושבת — הכפתור אומר את האמת על מה שהוא יכול לעשות */
+.sticky-note-btn[disabled] { opacity: .3; cursor: default; }
+
+/* חיווי העתקה. כשל חייב להיראות, לא רק הצלחה. */
+.sticky-note-copy.is-copy-done { background: #d1fae5; color: #065f46; border-radius: 6px; }
+.sticky-note-copy.is-copy-fail { background: #fee2e2; color: #b91c1c; border-radius: 6px; }
+
+/* שם הפתק — בצד השני של שורת הכפתורים, וגלוי גם במיזעור.
+   זו כל הסיבה שהוא בכותרת ולא בגוף: פתק ממוזער מציג רק את השורה הזו. */
+.sticky-note-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+  padding: 0 4px;
+  text-overflow: ellipsis;
+}
+.sticky-note-title::placeholder { font-weight: 400; opacity: .45; }
+/* פוקוס נראה לעין. רקע ב-5% אינו חיווי — הוא כמעט בלתי נראה על צהוב,
+   וזה שדה עריכה שמגיעים אליו ב-Tab. ``outline`` אמיתי, בלי לבטל אותו. */
+.sticky-note-title:focus-visible,
+.sticky-note-title:focus {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 1px;
+  background: rgba(255, 255, 255, .55);
+  border-radius: 4px;
+}
+.sticky-note-title.is-duplicate { color: #b91c1c; text-decoration: underline wavy #dc3545; }
+
+/* הכותרת היא flex, וכעת יש בה שלושה חלקים: כפתורים, ידית גרירה, ושם.
+ *
+ * **הבעיה שנמדדה:** שישה כפתורים בני 26 פיקסלים ועוד חמישה רווחים של 10
+ * הם 190 פיקסלים קשיחים. פתק ברירת המחדל במובייל הוא 200, ובדסקטופ 260 —
+ * כלומר לשם נשארו 8 ו-16 פיקסלים בהתאמה, ובמובייל הכותרת אף חרגה מהפתק
+ * ב-44 פיקסלים ו-``overflow: hidden`` חתך כפתורים. (החריגה קדמה לשם:
+ * היא נכנסה עם כפתורי הביטול וההעתקה, ורק השם הפך אותה לגלויה.)
+ *
+ * **הפתרון:** ``min-width`` אמיתי לשם + ``flex-wrap`` על הכותרת. כשאין
+ * מקום לשלושתם בשורה אחת, השם יורד לשורה שנייה ומקבל את כל הרוחב. אין
+ * כאן שאילתת מדיה, כי הקובע הוא רוחב **הפתק** ולא רוחב המסך — פתק צר
+ * במסך רחב סובל בדיוק מאותה בעיה. */
+.sticky-note-header { gap: 6px; }
+.sticky-note-drag { width: 24px; flex: 0 0 auto; }
+.sticky-note-actions { flex: 0 0 auto; }
+.sticky-note-title { flex: 1 1 96px; min-width: 96px; }

@@ -17,8 +17,20 @@ from __future__ import annotations
 
 import datetime as _dt
 import html
+import time as _time
 import logging
 from typing import Any
+
+# ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
+# אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
+# בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
+# את המודול כולו.
+try:  # type: ignore
+    from pymongo.errors import DuplicateKeyError as _DuplicateKeyError  # type: ignore
+except Exception:  # pragma: no cover
+    class _DuplicateKeyError(Exception):  # type: ignore
+        pass
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +41,7 @@ _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
 #: יושב. בפתק קובץ שניהם ריקים, ולכן התוספת אינה משנה את מסלול הקובץ.
 _NOTE_FIELDS = (
     "content", "color", "line_start", "anchor_text", "is_minimized",
-    "board_id", "mode",
+    "board_id", "mode", "title",
 )
 
 
@@ -356,7 +368,38 @@ class ProductionBackend:
                 coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
             except Exception:
                 logger.warning("sticky notes index creation failed (non-fatal)", exc_info=True)
+        # ``create_board_note`` מחזיר ``duplicate_title`` על סמך דחייה של
+        # המסד. אם האינדקס אינו שם — והוא נוצר עד היום רק בוובאפ — ההבטחה
+        # ריקה. פריסה של ה-MCP בלי הוובאפ היא בדיוק המקרה הזה.
+        #
+        # **הבנייה אינה חד-פעמית כמו השכנה שמעל.** דגל "ניסינו" שנדלק לפני
+        # הניסיון הופך כשל חולף אחד — נפילת רשת בעליית התהליך — לתהליך שלם
+        # שרץ בלי אכיפה עד שיופעל מחדש. כאן מנסים שוב, עם השהיה, עד שהאינדקס
+        # מאומת בקריאה חוזרת.
+        self._ensure_title_index(coll)
         return coll
+
+    #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות
+    _TITLE_INDEX_RETRY_SECONDS = 60.0
+
+    def _ensure_title_index(self, coll: Any) -> bool:
+        """בונה ומאמת את אינדקס השם. מחזיר האם האילוץ **חי** כרגע."""
+        if getattr(self, "_title_index_ok", False):
+            return True
+        now = _time.monotonic()
+        if now < getattr(self, "_title_index_retry_at", 0.0):
+            return False
+        self._title_index_retry_at = now + self._TITLE_INDEX_RETRY_SECONDS
+        try:
+            from sticky_notes_target import ensure_title_index
+
+            self._title_index_ok = bool(ensure_title_index(coll))
+        except Exception:
+            self._title_index_ok = False
+            logger.error("one_title_per_board index creation failed", exc_info=True)
+        if not self._title_index_ok:
+            logger.error("one_title_per_board index not confirmed — falling back to a code check")
+        return self._title_index_ok
 
     def _related_file_ids(self, user_id: int, file_name: str) -> list[str]:
         """כל מזהי הגרסאות של השם הזה — לפריטת שאילתת הוובאפ (פתקי legacy בלי scope_id)."""
@@ -556,6 +599,7 @@ class ProductionBackend:
         content: str,
         color: str,
         mode: str,
+        title: str = "",
     ) -> dict[str, Any]:
         """פתק חדש על לוח.
 
@@ -610,6 +654,8 @@ class ProductionBackend:
             # שהוא מחזיר, ולכן אי אפשר להרכיב כאן מסמך לא חוקי.
             **build_note_target(board_id=canonical),
             "content": content,
+            # שם ריק ← השדה כלל אינו נכתב, כדי שלא ייכנס לאינדקס הייחודי
+            **({"title": title} if title else {}),
             "position_x": 120,
             "position_y": 120,
             "width": 260,
@@ -620,7 +666,24 @@ class ProductionBackend:
             "created_at": now,
             "updated_at": now,
         }
-        res = coll.insert_one(note)
+        # גיבוי לאכיפה כשהאינדקס לא אומת. במצב התקין ``_ensure_title_index``
+        # מחזירה True מיד, ואין כאן שום שאילתה נוספת.
+        if title and not self._ensure_title_index(coll):
+            from sticky_notes_target import title_is_taken
+
+            if title_is_taken(coll, user_id=int(user_id), board_id=canonical, title=title):
+                return {"ok": False, "error": "duplicate_title"}
+
+        try:
+            res = coll.insert_one(note)
+        except _DuplicateKeyError:
+            # שם תפוס בלוח — התנגשות ולא תקלה. נתפס לפי **הטיפוס** ולא לפי
+            # שם המחלקה: השוואת מחרוזת הייתה נשענת על שם שהדרייבר חופשי
+            # לשנות, והייתה תופסת גם כל חריגה זרה שבמקרה נקראת כך. תפיסה
+            # לפי טיפוס מכסה גם תת-מחלקות. (חריגה **עוטפת** — כזו שמחזיקה
+            # DuplicateKeyError בתוכה — אינה נתפסת כאן בשום שיטה, וגם
+            # ההשוואה לשם לא הייתה תופסת אותה.)
+            return {"ok": False, "error": "duplicate_title"}
         note["_id"] = getattr(res, "inserted_id", None)
         return {"ok": True, "note": _as_note(note)}
 
