@@ -83,7 +83,11 @@ except Exception:
 # Module-level guard to ensure indexes only once per process
 _INDEX_READY = False
 _INDEX_READY_LOCK = threading.Lock()
-_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v1"
+#: **גרסת המפתח הועלתה ל-v2 בכוונה.** הדגל הזה נכתב היום רק אחרי
+#: שאינדקס השם אומת, ולכן קריאתו מותר שתדליק גם את ``_TITLE_INDEX_OK``.
+#: דגל שנכתב בגרסה הקודמת של הקוד לא נשא את המשמעות הזו, ותחת אותו מפתח
+#: הוא היה מתפרש כאימות שלא היה — למשך יממה, ובכל התהליכים.
+_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v2"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
 _WARMUP_TRIGGERED = threading.Event()
@@ -94,6 +98,16 @@ _WARMUP_TRIGGERED = threading.Event()
 #: "האילוץ חי", וזה מה שאכיפת ``duplicate_title`` נשענת עליו. כל עוד הוא
 #: כבוי, מסלולי הכתיבה עוברים לבדיקת קוד — ראו :func:`title_is_taken`.
 _TITLE_INDEX_OK = False
+
+#: מתי מותר לנסות לבנות שוב אחרי כשל, כ-``time.monotonic``.
+#:
+#: בלי החסם הזה כשל מתמשך באינדקס אחד היה גורם ל**כל בקשה** להיכנס
+#: ל-``_ensure_indexes``, לתפוס את הנעילה ולבנות מחדש את כל שש קבוצות
+#: האינדקסים — לולאה חמה שמסריאלת את השירות כולו סביב מנעול אחד.
+_INDEX_RETRY_AFTER = 0.0
+
+#: כמה להמתין בין ניסיונות בנייה כושלים, בשניות.
+_INDEX_RETRY_SECONDS = 60.0
 
 
 def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Optional[str] = None) -> None:
@@ -112,8 +126,15 @@ def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Opti
 
 
 def _cache_flag_ready() -> bool:
-    """Check shared cache flag (best-effort) to avoid duplicate index builds."""
-    global _INDEX_READY, _INDEX_CACHE_LAST_CHECK
+    """Check shared cache flag (best-effort) to avoid duplicate index builds.
+
+    **הדגל המשותף גורר גם את ``_TITLE_INDEX_OK``.** הוא נכתב רק דרך
+    ``_mark_indexes_ready``, שרץ רק כשאינדקס השם אומת — כלומר קיומו הוא
+    עדות לכך שהאילוץ חי. בלי הגרירה הזו, worker חדש שיורש את הדגל היה
+    מדלג על הבנייה, נשאר עם ``_TITLE_INDEX_OK`` כבוי לתמיד, ומריץ שאילתת
+    גיבוי מיותרת בכל כתיבה עם שם. גרסת המפתח הועלתה בדיוק בשביל זה.
+    """
+    global _INDEX_READY, _INDEX_CACHE_LAST_CHECK, _TITLE_INDEX_OK
     if _INDEX_READY:
         return True
     cache_obj = cache if 'cache' in globals() else None
@@ -129,6 +150,7 @@ def _cache_flag_ready() -> bool:
         flag = None
     if flag:
         _INDEX_READY = True
+        _TITLE_INDEX_OK = True
         return True
     return False
 
@@ -186,12 +208,18 @@ def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0)
         _job()
 
 def _ensure_indexes() -> None:
-    global _TITLE_INDEX_OK
+    global _TITLE_INDEX_OK, _INDEX_RETRY_AFTER
     if _INDEX_READY or _cache_flag_ready():
+        return
+    # החסם נבדק **לפני** הנעילה: בקשה שנקלעה לחלון ההמתנה לא צריכה
+    # להמתין גם לנעילה כדי לגלות שאין לה מה לעשות.
+    if time.monotonic() < _INDEX_RETRY_AFTER:
         return
     try:
         with _INDEX_READY_LOCK:
             if _INDEX_READY or _cache_flag_ready():
+                return
+            if time.monotonic() < _INDEX_RETRY_AFTER:
                 return
             started = time.perf_counter()
             db = get_db()
@@ -295,14 +323,17 @@ def _ensure_indexes() -> None:
                 pass
             duration_ms = int(max(0.0, (time.perf_counter() - started) * 1000.0))
             if _TITLE_INDEX_OK:
+                _INDEX_RETRY_AFTER = 0.0
                 _mark_indexes_ready(duration_ms=duration_ms)
             else:
+                _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
                 # **לא מסמנים מוכן.** ``_mark_indexes_ready`` כותב גם דגל
                 # ברדיס ל-24 שעות, ולכן סימון כאן היה נועל כשל חולף — נפילת
                 # רשת אחת בזמן פריסה — ליממה שלמה של אכיפה שאינה קיימת,
                 # בכל התהליכים. בלי הסימון הבקשה הבאה תבנה שוב.
                 _emit_index_event("failed", error="one_title_per_board not confirmed")
     except Exception as exc:
+        _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
         _emit_index_event("failed", error=str(exc))
 
 # --- Helpers ---

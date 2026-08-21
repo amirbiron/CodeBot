@@ -174,6 +174,9 @@ def ensure_title_index(coll: Any) -> bool:
     ``code 85`` — אינדקס עם אותו מפרט בדיוק כבר קיים בשם אחר;
     ``code 86`` — אינדקס באותו שם כבר קיים עם מפרט אחר.
 
+    ומכאן גם הכלל השני: **אינדקס שנושא את המפרט הנכון תחת שם ישן נשאר
+    כמו שהוא.** ראו :func:`_enforcing_index_name`.
+
     :returns: ``True`` רק אחרי **קריאה חוזרת** שמאשרת שהאינדקס במסד תואם
         למפרט. ערך החזרה של כתיבה אינו אימות.
     """
@@ -186,15 +189,8 @@ def ensure_title_index(coll: Any) -> bool:
     if not isinstance(info, Mapping):
         info = {}
 
-    if not _index_matches(info.get(name), want):
-        # גרסה קודמת שכבר נושאת **בדיוק** את המפרט המבוקש חוסמת את הבנייה
-        # ב-``code 85`` ("Index already exists with a different name"), כי
-        # מונגו מזהה אותה כאותו אינדקס. רק כאן חייבים להפיל לפני שבונים,
-        # וזה קורה בפריסה אחת בלבד — זו שבה המפרט תוקן לפני שהשם מוספר.
-        for stale in SUPERSEDED_TITLE_INDEX_NAMES:
-            if _index_matches(info.get(stale), want):
-                _drop_index_if_present(coll, stale)
-
+    live = _enforcing_index_name(info, want)
+    if live is None:
         # השם הנוכחי תפוס במפרט אחר. זה קורה **רק** אם מישהו שינה את
         # המפרט בלי להעלות את מספר הגרסה בשם — כלומר בדיוק מה שהמספור בא
         # למנוע. כאן אין מוצא: מונגו דוחה ב-``code 86``, ובלי ההפלה
@@ -210,20 +206,40 @@ def ensure_title_index(coll: Any) -> bool:
             unique=want["unique"],
             partialFilterExpression=want["partialFilterExpression"],
         )
+        try:
+            info = coll.index_information()
+        except Exception:
+            return False
+        if not isinstance(info, Mapping):
+            return False
+        live = _enforcing_index_name(info, want)
+        if live is None:
+            return False
 
-    try:
-        fresh = coll.index_information()
-    except Exception:
-        return False
-    if not isinstance(fresh, Mapping) or not _index_matches(fresh.get(name), want):
-        return False
-
-    # **רק עכשיו** — האינדקס הנוכחי נקרא בחזרה ואומת, ולכן הפלת הישן אינה
-    # פותחת חלון בלי ייחודיות.
+    # **רק עכשיו** — יש אינדקס חי ומאומת, ולכן הפלת השאר אינה פותחת חלון
+    # בלי ייחודיות. ``live`` עצמו לעולם אינו מופל.
     for stale in SUPERSEDED_TITLE_INDEX_NAMES:
-        if stale in fresh:
+        if stale != live and stale in info:
             _drop_index_if_present(coll, stale)
     return True
+
+
+def _enforcing_index_name(info: Mapping[str, Any], want: Mapping[str, Any]) -> Optional[str]:
+    """שם האינדקס שאוכף כרגע **בדיוק** את המפרט המבוקש, אם קיים כזה.
+
+    **למה השם אינו חשוב והמפרט כן:** אינדקס שנושא את המפרט הנכון תחת שם
+    ישן כבר אוכף את האילוץ במלואו. הפלתו כדי "לסדר" את השם הייתה מפילה
+    את האינדקס **היחיד** שאוכף, ורק אז בונה — כלומר פותחת בדיוק את החלון
+    שכל המספור בא לסגור, ובלי שום תמורה. לכן הוא נחשב תקין כמו שהוא.
+
+    השם הקנוני נבדק ראשון, כדי שאחרי מיגרציה מלאה לא נשאר תלויים בישן.
+    """
+    if _index_matches(info.get(want["name"]), want):
+        return str(want["name"])
+    for stale in SUPERSEDED_TITLE_INDEX_NAMES:
+        if _index_matches(info.get(stale), want):
+            return stale
+    return None
 
 
 def title_is_taken(
@@ -248,17 +264,18 @@ def title_is_taken(
     if not title:
         return False
     query: Dict[str, Any] = {"user_id": user_id, "board_id": board_id, "title": title}
+    if exclude_id is not None:
+        # ההחרגה שייכת ל**שאילתה**, לא לסינון התוצאה שחזרה. ``find_one``
+        # מחזיר מסמך אחד שרירותי, ולכן סינון בדיעבד היה יכול לקבל דווקא
+        # את הפתק שאנחנו מעדכנים ולהחזיר "פנוי" — בעוד שפתק אחר עם אותו
+        # שם יושב שם ומחכה.
+        query["_id"] = {"$ne": exclude_id}
     try:
-        found = coll.find_one(query, {"_id": 1})
+        return coll.find_one(query, {"_id": 1}) is not None
     except Exception:
-        # ספירה שנכשלה אינה ראיה לכך שהשם פנוי. ראו ``check_note_quota``:
+        # שאילתה שנכשלה אינה ראיה לכך שהשם פנוי. ראו ``check_note_quota``:
         # באותו ריפו כבר נקבע שכשל בדיקה נסגר ולא נפתח.
         return True
-    if not found:
-        return False
-    if exclude_id is not None and found.get("_id") == exclude_id:
-        return False
-    return True
 
 
 def _drop_index_if_present(coll: Any, name: str) -> None:

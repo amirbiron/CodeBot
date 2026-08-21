@@ -773,7 +773,29 @@
       // ``INFINITE_PAD`` הוא המרווח שנשאר פנוי מתחת לפתק האחרון כשהמצב
       // האינסופי דלוק — כך תמיד יש לאן לגרור. בכיבוי המרווח מתאפס, אבל
       // הגובה עדיין נמדד עד הפתק הרחוק ביותר.
+      // מדידה אחת לכל פריים, ולא אחת לכל פתק.
+      //
+      // ``_renderNote`` קורא לכאן על כל פתק, והמדידה עצמה עוברת על **כל**
+      // הפתקים עם ``getBoundingClientRect`` — כלומר טעינה היא ריבועית, וכל
+      // קריאה כזו מכריחה את הדפדפן לחשב פריסה מחדש. נמדד בכרומיום לפני
+      // האיחוד: 10 פתקים → 65 קריאות, 30 → 495, 60 → 1,890. אחרי: 20, 60,
+      // 120 — עם אותו ``min-height`` בדיוק. בתקרת הלוח (200 פתקים) ההפרש
+      // הוא בין מאות לעשרות אלפים.
       _updateSurfaceExtent(){
+        if (typeof requestAnimationFrame !== 'function') {
+          // סביבת בדיקה בלי דפדפן — מודדים מיד, כדי שההתנהגות תישאר
+          // ניתנת לבדיקה סינכרונית.
+          this._applySurfaceExtent();
+          return;
+        }
+        if (this._extentFrame) return;
+        this._extentFrame = requestAnimationFrame(() => {
+          this._extentFrame = null;
+          this._applySurfaceExtent();
+        });
+      }
+
+      _applySurfaceExtent(){
         try {
           const surface = this.container;
           if (!this.boardId || !surface || !surface.style) return;
@@ -1244,12 +1266,22 @@
         // סימון צ'קבוקס בפתק שלא נערך משאיר את המחסנית ריקה לגמרי, ואז
         // אין שום דרך לחזור מהסימון דרך כפתור הביטול.
         const before = textarea ? String(textarea.value == null ? '' : textarea.value) : null;
+        // התפרצות הקלדה שעדיין פתוחה — הצילום שלה נלקח **לפני** ההקלדה,
+        // ו-``_resetUndoBaseline`` עומד למחוק אותו. בלי לשמור אותו כאן,
+        // תוכן שמגיע מהשרת באמצע הקלדה היה מוחק את נקודת הפתיחה, וביטול
+        // היה מחזיר לסוף ההתפרצות במקום לתחילתה — כלומר ההקלדה כולה אבודה.
+        const st = this._undoState(el);
+        const burstFrom = this._hasPendingUndoBurst(st) ? st.burstFrom : null;
         if (textarea) textarea.value = content;
         if (entry && entry.data) entry.data.content = content;
         if (updatedAt) el.dataset.updatedAt = updatedAt;
         // נקודת ההשוואה עוברת לתוכן הסמכותי, אחרת העריכה הבאה הייתה דוחפת
         // את התוכן הישן למחסנית וביטול היה מוחק כתיבה שהשרת אישר.
         this._resetUndoBaseline(el, content);
+        // שני צעדים נפרדים, כי באמת קרו שני דברים: המשתמש הקליד, ואז
+        // השרת שינה. הסדר הוא LIFO — הביטול הראשון מחזיר למה שהוקלד,
+        // והשני למה שהיה לפני ההקלדה.
+        if (burstFrom !== null && burstFrom !== before) this._pushUndo(el, burstFrom);
         if (before !== null && before !== content) this._pushUndo(el, before);
         this._syncTaskView(el);
       }

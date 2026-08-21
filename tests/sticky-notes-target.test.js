@@ -642,5 +642,26 @@ check('שם: 409 duplicate_title מסמן ואינו חוזר לתור', async (
 });
 
 await Promise.all(pending);
+check('ביטול: תוכן מהשרת באמצע הקלדה שומר את תחילת ההתפרצות', () => {
+  // התרחיש: המשתמש מקליד, ובאמצע ההתפרצות מגיע תוכן סמכותי מהשרת
+  // (סימון צ'קבוקס ממכשיר אחר, למשל). ``_resetUndoBaseline`` מוחק את
+  // ``burstFrom`` — הצילום שנלקח **לפני** ההקלדה — ובלי לשמור אותו קודם
+  // הביטול היה מחזיר לסוף ההתפרצות במקום לתחילתה, וההקלדה כולה אבודה.
+  const n = registerNote(fileMgr, 'undo-mid-burst', 'התחלה');
+
+  n.ta.value = 'התחלה + הקלדה';
+  fileMgr._recordUndoBurst(n.el, n.ta);
+  eq(fileMgr._undoState(n.el).burstFrom, 'התחלה', 'ההתפרצות פתוחה');
+
+  fileMgr._applyServerContent(n.el, n.entry, 'מהשרת', null);
+
+  // שני צעדים, LIFO: קודם חוזרים למה שהוקלד, ואז למה שהיה לפני
+  eq(n.ta.value, 'מהשרת', 'התוכן הסמכותי הוחל');
+  fileMgr._undoLastChange(n.el);
+  eq(n.ta.value, 'התחלה + הקלדה', 'ביטול ראשון — מה שהוקלד');
+  fileMgr._undoLastChange(n.el);
+  eq(n.ta.value, 'התחלה', 'ביטול שני — לפני ההקלדה');
+});
+
 console.log(`\n${passed} עברו, ${failed} נכשלו`);
 process.exit(failed === 0 ? 0 : 1);

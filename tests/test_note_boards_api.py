@@ -797,7 +797,9 @@ def test_duplicate_title_is_caught_by_code_when_the_index_is_missing(client, mon
     הייחודי לא נבנה — כשל חולף בעלייה, פריסה שהוובאפ לא רץ בה — הדחייה
     לעולם לא תגיע, והשמות הכפולים נכנסים בשקט בזמן שהתיעוד מבטיח 409.
 
-    נופלת בלי ``_title_conflict`` במסלולי הכתיבה.
+    נופלת בלי ``_title_conflict`` בראוט **היצירה**. שני הראוטים האחרים
+    נבדקים בנפרד — הגיבוי מחווט לשלושה מסלולים, ובדיקה של אחד מהם אינה
+    מגינה על השניים האחרים.
     """
     from webapp import sticky_notes_api
 
@@ -811,6 +813,79 @@ def test_duplicate_title_is_caught_by_code_when_the_index_is_missing(client, mon
     assert res.status_code == 409
     assert res.get_json()["error"] == "duplicate_title"
     assert client.db.sticky_notes.count_documents({"title": "טודו"}) == 1
+
+
+def test_the_fallback_covers_the_single_put_route(client, monkeypatch):
+    """נופלת אם הגיבוי מוסר מ-``update_note`` בלבד."""
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    board = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    taken = client.post(f"/api/sticky-notes/board/{board}", json={"content": "a", "title": "טודו"})
+    other = client.post(f"/api/sticky-notes/board/{board}", json={"content": "b"})
+    assert taken.status_code == 201 and other.status_code == 201
+
+    res = client.put(f"/api/sticky-notes/note/{other.get_json()['id']}", json={"title": "טודו"})
+
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "duplicate_title"
+
+
+def test_the_fallback_covers_the_batch_route(client, monkeypatch):
+    """נופלת אם הגיבוי מוסר מ-``batch`` בלבד — וזה **המסלול הרגיל** של הלקוח."""
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    board = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    client.post(f"/api/sticky-notes/board/{board}", json={"content": "a", "title": "טודו"})
+    other = client.post(f"/api/sticky-notes/board/{board}", json={"content": "b"})
+
+    res = client.post(
+        "/api/sticky-notes/batch",
+        json={"updates": [{"id": other.get_json()["id"], "title": "טודו"}]},
+    )
+    result = res.get_json()["results"][0]
+
+    assert result["status"] == 409
+    assert result["error"] == "duplicate_title"
+
+
+def test_the_fallback_renaming_a_note_to_its_own_title_is_allowed(client, monkeypatch):
+    """פתק ששומר על שמו אינו מתנגש בעצמו.
+
+    ``exclude_id`` שייך ל**שאילתה**: סינון התוצאה בדיעבד היה נכשל כאן ברגע
+    שיש עוד פתק תואם, כי ``find_one`` מחזיר מסמך אחד שרירותי.
+    """
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    board = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    mine = client.post(f"/api/sticky-notes/board/{board}", json={"content": "a", "title": "טודו"})
+
+    res = client.put(f"/api/sticky-notes/note/{mine.get_json()['id']}", json={"title": "טודו"})
+
+    assert res.status_code == 200
+
+
+def test_the_fallback_is_scoped_to_the_board(client, monkeypatch):
+    """**הממד שהתיקון כולו עומד עליו: אותו שם בלוח אחר הוא חוקי.**
+
+    בלי ``board_id`` בשאילתת הגיבוי, הבדיקה הזו הופכת את הגיבוי למחמיר
+    יותר מהאינדקס עצמו — ופתק בלוח שני נדחה בלי סיבה. בדיקה שנוגעת רק
+    בלוח אחד לא יכולה לתפוס את זה.
+    """
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    first = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    second = client.post("/api/note-boards", json={"name": "לוח שני"}).get_json()["board"]["id"]
+
+    a = client.post(f"/api/sticky-notes/board/{first}", json={"content": "a", "title": "טודו"})
+    b = client.post(f"/api/sticky-notes/board/{second}", json={"content": "b", "title": "טודו"})
+
+    assert a.status_code == 201
+    assert b.status_code == 201, f"אותו שם בלוח אחר נדחה: {b.get_json()}"
+    assert client.db.sticky_notes.count_documents({"title": "טודו"}) == 2
 
 
 def test_the_fallback_costs_nothing_when_the_index_is_confirmed(client, monkeypatch):
@@ -853,8 +928,86 @@ def test_a_missing_index_does_not_mark_the_warmup_as_done(monkeypatch):
     monkeypatch.setattr(sticky_notes_api, "_cache_flag_ready", lambda: False, raising=False)
     monkeypatch.setattr(sticky_notes_api, "ensure_title_index", lambda coll: False)
     monkeypatch.setattr(sticky_notes_api, "_mark_indexes_ready", lambda **kw: marked.append(kw))
+    # ``_ensure_indexes`` כותב ל-``_TITLE_INDEX_OK`` ול-``_INDEX_RETRY_AFTER``
+    # דרך ``global``. בלי monkeypatch עליהם הכתיבה שורדת את הבדיקה ודולפת
+    # לבאות אחריה — שם היא נראית ככשל אקראי שתלוי בסדר ההרצה.
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", sticky_notes_api._TITLE_INDEX_OK, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_INDEX_RETRY_AFTER", 0.0, raising=False)
 
     sticky_notes_api._ensure_indexes()
 
     assert marked == [], "האתחול סומן כהצלחה בעוד שהאינדקס הקריטי אינו קיים"
     assert sticky_notes_api._TITLE_INDEX_OK is False
+
+
+def test_a_failing_build_is_not_retried_on_every_request(monkeypatch):
+    """**בלי חסם, כשל מתמשך מסריאל את השירות סביב מנעול אחד.**
+
+    ``_ensure_indexes`` תופס את ``_INDEX_READY_LOCK`` ובונה שש קבוצות
+    אינדקסים. כל עוד האתחול אינו מסומן כהצלחה — וזה בדיוק מה שהתיקון
+    הקודם קבע — כל בקשה נכנסת שוב לאותו מסלול.
+
+    נופלת בלי ``_INDEX_RETRY_AFTER``.
+    """
+    from webapp import sticky_notes_api
+
+    calls = []
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(sticky_notes_api, "get_db", lambda: _StubDB())
+    monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_cache_flag_ready", lambda: False, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_INDEX_RETRY_AFTER", 0.0, raising=False)
+    monkeypatch.setattr(sticky_notes_api.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        sticky_notes_api, "ensure_title_index",
+        lambda coll: (calls.append(clock["now"]), False)[1],
+    )
+
+    sticky_notes_api._ensure_indexes()
+    sticky_notes_api._ensure_indexes()
+    sticky_notes_api._ensure_indexes()
+    assert len(calls) == 1, f"הבנייה רצה {len(calls)} פעמים בתוך חלון ההמתנה"
+
+    # ...ואחרי שההשהיה חלפה — ניסיון חדש, כי כשל חולף חייב להיפתר לבד
+    clock["now"] += sticky_notes_api._INDEX_RETRY_SECONDS + 1
+    sticky_notes_api._ensure_indexes()
+    assert len(calls) == 2, "אחרי ההשהיה לא נוסה שוב"
+
+
+def test_the_shared_cache_flag_also_confirms_the_title_index(monkeypatch):
+    """**worker חדש שיורש את הדגל אינו אמור להריץ שאילתת גיבוי לנצח.**
+
+    ``_mark_indexes_ready`` — הכותב היחיד של הדגל — רץ רק כשאינדקס השם
+    אומת, ולכן קיום הדגל הוא עדות לכך שהאילוץ חי. בלי הגרירה הזו התהליך
+    היה מדלג על הבנייה ונשאר עם ``_TITLE_INDEX_OK`` כבוי לתמיד.
+
+    נופלת אם ``_cache_flag_ready`` מדליק רק את ``_INDEX_READY``.
+    """
+    from webapp import sticky_notes_api
+
+    class _Cache:
+        is_enabled = True
+
+        def get(self, key):
+            return {"ready": True, "ts": 1}
+
+    monkeypatch.setattr(sticky_notes_api, "cache", _Cache(), raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_INDEX_CACHE_LAST_CHECK", 0.0, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+
+    assert sticky_notes_api._cache_flag_ready() is True
+    assert sticky_notes_api._TITLE_INDEX_OK is True
+
+
+def test_the_cache_key_version_was_bumped_with_the_meaning_change():
+    """מפתח ישן נושא משמעות ישנה.
+
+    לפני השינוי הדגל נכתב **ללא קשר** לאינדקס השם. תחת אותו מפתח, דגל
+    שנשאר מהגרסה הקודמת היה מתפרש עכשיו כאימות שלא היה — למשך ה-TTL,
+    ובכל התהליכים.
+    """
+    from webapp import sticky_notes_api
+
+    assert sticky_notes_api._INDEX_READY_CACHE_KEY.endswith("_v2")
