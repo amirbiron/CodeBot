@@ -1527,3 +1527,122 @@ def create_board_note(board_id: str):
         except Exception:
             pass
         return jsonify({'ok': False, 'error': 'Failed to create note'}), 500
+
+
+@sticky_notes_bp.route('/note/<note_id>/task', methods=['POST'])
+@require_auth
+@notes_rate_limit('note_task_toggle', 300)
+@traced("sticky_notes.task_toggle")
+def toggle_note_task(note_id: str):
+    """מסמן או מבטל צ'קבוקס בתוך פתק.
+
+    **הראוט הזה קיים כדי שאפשר יהיה לאמת את הכתיבה.** האלטרנטיבה — לשלוח
+    את התוכן המלא ב-``PUT /note/<id>`` — הופכת כל קליק לדריסת
+    last-writer-wins של עריכות מקבילות, ובעיקר הופכת אימות לבלתי אפשרי:
+    אפשר לאמת רק שכתבנו את מה ששלחנו. הבקשה כאן נושאת **כוונה** (מספר
+    סידורי + מצב רצוי), וזה הדבר היחיד שניתן לאמת מול המסד.
+
+    הסדר, וכל שלב בו מגן על משהו:
+
+    1. הפתק קיים ושייך למשתמש — אחרת 404.
+    2. ``prev_updated_at`` — אחרת 409, בדיוק כמו ב-``update_note``.
+    3. סידורי שאינו קיים ⇒ **409**, לא 200. התצוגה של הלקוח מיושנת.
+    4. כבר במצב המבוקש ⇒ 200 בלי כתיבה. אידמפוטנטי.
+    5. Compare-and-swap: הפילטר כולל את התוכן הקודם, כך שכותב מקביל אינו
+       נדרס.
+    6. **קריאה חוזרת מהמסד** ובדיקה שהתו אכן השתנה. לא ``modified_count``,
+       לא ``ok: true`` — אלה מדווחים על הקריאה, לא על המצב.
+
+    בכל מסלול התשובה נושאת את התוכן הסמכותי, כדי שהלקוח יסתנכרן בלי
+    סיבוב נוסף — וגם במסלול הכשל, שם זה מה שמאפשר לו להחזיר את התצוגה
+    למה שבאמת שמור.
+    """
+    try:
+        from sticky_notes_tasks import task_state_at_index, toggle_task_at_index
+
+        user_id = int(session['user_id'])
+        db = get_db()
+        try:
+            oid = ObjectId(str(note_id))
+        except InvalidId:
+            return jsonify({'ok': False, 'error': 'Invalid note_id'}), 400
+
+        data = request.get_json(silent=True) or {}
+        try:
+            index = int(data.get('index'))
+        except Exception:
+            return jsonify({'ok': False, 'error': 'invalid_index'}), 400
+        if index < 0:
+            return jsonify({'ok': False, 'error': 'invalid_index'}), 400
+        checked = bool(data.get('checked'))
+
+        note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
+        if not note:
+            return jsonify({'ok': False, 'error': 'Note not found'}), 404
+
+        prev_updated_at = data.get('prev_updated_at')
+        if prev_updated_at:
+            try:
+                prev_dt = datetime.fromisoformat(str(prev_updated_at).replace('Z', '+00:00'))
+            except Exception:
+                prev_dt = None
+            if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:
+                return jsonify({
+                    'ok': False,
+                    'error': 'Conflict',
+                    'content': note.get('content', ''),
+                    'updated_at': note['updated_at'].isoformat(),
+                }), 409
+
+        original = note.get('content', '') or ''
+        new_content, changed = toggle_task_at_index(original, index, checked)
+
+        if not changed:
+            # שתי סיבות אפשריות, ורק אחת מהן תקינה.
+            if task_state_at_index(original, index) is None:
+                # הסידורי אינו קיים — התצוגה של הלקוח מתארת פתק אחר.
+                return jsonify({
+                    'ok': False,
+                    'error': 'task_index_not_found',
+                    'content': original,
+                }), 409
+            # כבר במצב המבוקש. אין כתיבה, וזה בסדר גמור.
+            return jsonify({'ok': True, 'changed': False, 'content': original})
+
+        now = datetime.now(timezone.utc)
+        db.sticky_notes.update_one(
+            {'_id': oid, 'user_id': user_id, 'content': original},
+            {'$set': {'content': new_content, 'updated_at': now}},
+        )
+
+        fresh = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
+        applied = bool(fresh) and task_state_at_index(fresh.get('content', '') or '', index) is checked
+        if not applied:
+            try:
+                emit_event(
+                    "sticky_note_task_not_applied",
+                    severity="error",
+                    user_id=int(user_id),
+                    note_id=str(note_id),
+                )
+            except Exception:
+                pass
+            return jsonify({
+                'ok': False,
+                'error': 'task_toggle_not_applied',
+                'content': (fresh.get('content', '') if fresh else original),
+            }), 409
+
+        fresh_updated = fresh.get('updated_at')
+        return jsonify({
+            'ok': True,
+            'changed': True,
+            'content': fresh.get('content', ''),
+            'updated_at': fresh_updated.isoformat() if isinstance(fresh_updated, datetime) else None,
+        })
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_task_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to toggle task'}), 500

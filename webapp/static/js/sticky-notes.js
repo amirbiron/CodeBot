@@ -391,11 +391,22 @@
 
       const textarea = createEl('textarea', 'sticky-note-content');
       textarea.value = note.content || '';
+      textarea.addEventListener('focus', () => this._syncTaskView(el, { editing: true }));
+      textarea.addEventListener('blur', () => this._syncTaskView(el));
 
       const resizer = createEl('div', 'sticky-note-resize');
 
+      // תצוגת המשימות. מוצגת רק כשיש צ'קבוקסים בתוכן ורק כשה-textarea
+      // אינו בפוקוס — כך שהעריכה נשארת בדיוק כפי שהייתה.
+      const taskView = createEl('div', 'sticky-note-tasks');
+      taskView.addEventListener('change', (ev) => {
+        const box = ev.target;
+        if (box && box.type === 'checkbox') this._onTaskToggle(el, box);
+      });
+
       el.appendChild(header);
       el.appendChild(textarea);
+      el.appendChild(taskView);
       el.appendChild(resizer);
       this.container.appendChild(el);
 
@@ -459,6 +470,9 @@
       if (focus) try { textarea.focus(); } catch(_) {}
       if (note.updated_at) { try { el.dataset.updatedAt = String(note.updated_at); } catch(_) {} }
       this.notes.set(note.id, { el, data: note });
+      // תצוגת המשימות נבנית מהתוכן שנטען. אם אין צ'קבוקסים היא נשארת מוסתרת
+      // וה-textarea מוצג כרגיל — כלומר פתק רגיל אינו משתנה כלל.
+      this._syncTaskView(el);
       this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
       this._updateAnchoredNotePosition(el, note);
@@ -614,6 +628,116 @@
       pinBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
       pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
     }
+
+      // ----- צ'קבוקסים -----
+      //
+      // שורה בצורת ``- [ ] טקסט`` היא משימה. לחיצה על התיבה היא **כתיבה
+      // למסד**, לא שינוי תצוגה — ולכן כל הזרימה כאן בנויה סביב זה
+      // שהתצוגה לא תשקר: אם הכתיבה לא נקלטה, הסימון חוזר אחורה ומוצגת
+      // שגיאה. כשל שקט הוא בדיוק מה שהאפיון אוסר.
+
+      _parseTasks(text){
+        const lines = String(text == null ? '' : text).split('\n');
+        const re = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
+        const out = [];
+        lines.forEach((line) => {
+          const m = re.exec(line);
+          if (m) out.push({ checked: m[2].toLowerCase() === 'x', text: m[3].slice(1).trim() });
+        });
+        return out;
+      }
+
+      _syncTaskView(el, opts){
+        try {
+          const view = el.querySelector('.sticky-note-tasks');
+          const textarea = el.querySelector('.sticky-note-content');
+          if (!view || !textarea) return;
+          const editing = !!(opts && opts.editing);
+          const tasks = this._parseTasks(textarea.value);
+          if (editing || !tasks.length) {
+            view.hidden = true;
+            textarea.hidden = false;
+            return;
+          }
+          view.textContent = '';
+          tasks.forEach((task, idx) => {
+            const label = createEl('label', 'sticky-task');
+            const box = createEl('input', 'sticky-task-box');
+            box.type = 'checkbox';
+            box.checked = task.checked;
+            box.dataset.taskIndex = String(idx);
+            const span = createEl('span', 'sticky-task-text');
+            span.textContent = task.text;
+            label.appendChild(box);
+            label.appendChild(span);
+            view.appendChild(label);
+          });
+          view.hidden = false;
+          textarea.hidden = true;
+        } catch(_) {}
+      }
+
+      async _onTaskToggle(el, box){
+        const noteId = el.dataset.noteId;
+        const entry = this.notes.get(noteId);
+        if (!entry) return;
+        const index = parseInt(box.dataset.taskIndex, 10);
+        const desired = !!box.checked;
+
+        // לפני הכול: לרוקן שמירה תלויה. בלי זה, ``_queueSave`` שממתין
+        // ב-debounce של חצי שנייה היה נוחת **אחרי** ה-toggle וכותב תוכן
+        // ישן — כלומר מבטל אותו. באג סדר אמיתי, ושורה אחת מונעת אותו.
+        try { await this._flushFor(el); } catch(_) {}
+
+        box.disabled = true;
+        el.classList.add('is-task-pending');
+        try {
+          const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(noteId)}/task`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index, checked: desired, prev_updated_at: el.dataset.updatedAt || undefined })
+          });
+          const data = await resp.json().catch(() => null);
+
+          if (resp.ok && data && data.ok) {
+            // מרנדרים מחדש **מהתוכן שהשרת החזיר**, לא מהמצב שבמסך. כך
+            // מיושרות גם סטיות אחרות שנוצרו בינתיים.
+            this._applyServerContent(el, entry, data.content, data.updated_at);
+            return;
+          }
+
+          // כשל. אמת השרת עדיפה על היפוך נאיבי: אם חזר תוכן — מרנדרים
+          // ממנו. אחרת מחזירים את התיבה למצב הקודם.
+          if (data && typeof data.content === 'string') {
+            this._applyServerContent(el, entry, data.content, data.updated_at);
+          } else {
+            box.checked = !desired;
+          }
+          this._showTaskError(el);
+        } catch(_) {
+          box.checked = !desired;
+          this._showTaskError(el);
+        } finally {
+          box.disabled = false;
+          el.classList.remove('is-task-pending');
+        }
+      }
+
+      _applyServerContent(el, entry, content, updatedAt){
+        if (typeof content !== 'string') return;
+        const textarea = el.querySelector('.sticky-note-content');
+        if (textarea) textarea.value = content;
+        if (entry && entry.data) entry.data.content = content;
+        if (updatedAt) el.dataset.updatedAt = updatedAt;
+        this._syncTaskView(el);
+      }
+
+      _showTaskError(el){
+        try {
+          el.classList.add('has-task-error');
+          setTimeout(() => { try { el.classList.remove('has-task-error'); } catch(_) {} }, 2500);
+        } catch(_) {}
+      }
 
       // מצב המיקום של פתק, כערך אחד: 'surface' | 'anchored' | 'screen'.
       //

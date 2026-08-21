@@ -166,5 +166,40 @@ check('anchored בלי מקור שורות יורד ל-surface', () => {
   eq(boardMgr._resolveMode({ mode: 'anchored' }), 'surface');
 });
 
+
+// -- צ'קבוקסים: הפרסור בצד הלקוח --
+//
+// הזרימה המלאה (fetch, אימות, חזרה אחורה) נבדקת בפייתון ב-
+// tests/test_sticky_notes_tasks.py, כי שם היא באמת נכתבת למסד. כאן
+// נבדק רק החלק שחי בדפדפן: זיהוי השורות והמצב שלהן.
+
+check('פרסור: רק שורות משימה נספרות', () => {
+  const tasks = fileMgr._parseTasks('כותרת\n- [ ] אחת\nשורה\n- פריט\n- [x] שתיים');
+  eq(tasks.length, 2, 'כמות');
+  eq(tasks[0].checked, false, 'ראשונה');
+  eq(tasks[1].checked, true, 'שנייה');
+});
+
+check('פרסור: X גדולה נחשבת מסומנת', () => {
+  eq(fileMgr._parseTasks('- [X] בוצע')[0].checked, true);
+});
+
+check('פרסור: הטקסט מנוקה מהסוגריים', () => {
+  eq(fileMgr._parseTasks('  * [ ] משימה מוזחת')[0].text, 'משימה מוזחת');
+});
+
+check('פרסור: הסדר הוא סדר המופע, וזה מה שנשלח לשרת', () => {
+  // שלוש שורות זהות — האינדקס הוא הדבר היחיד שמבדיל ביניהן
+  const tasks = fileMgr._parseTasks('- [ ] לבדוק\n- [ ] לבדוק\n- [ ] לבדוק');
+  eq(tasks.length, 3);
+});
+
+check('פרסור: תוכן בלי משימות מחזיר רשימה ריקה', () => {
+  // זה מה שמשאיר פתק רגיל בדיוק כפי שהיה — התצוגה נשארת מוסתרת
+  eq(fileMgr._parseTasks('סתם טקסט').length, 0);
+  eq(fileMgr._parseTasks('').length, 0);
+  eq(fileMgr._parseTasks(null).length, 0);
+});
+
 console.log(`\n${passed} עברו, ${failed} נכשלו`);
 process.exit(failed === 0 ? 0 : 1);
