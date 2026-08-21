@@ -17,10 +17,9 @@ import hashlib
 import threading
 import asyncio
 
-# תקרת אורך התוכן. ייבוא ישיר ובלי fallback במכוון: ``except Exception``
-# שמחזיר ערך מקומי הוא בדיוק מקור האמת השני שהשינוי הזה בא לבטל — הוא היה
-# שקט, ומופיע רק כשהמגבלות כבר נבדלות בין ה-API ל-MCP. כשל ייבוא צריך
-# להיכשל מוקדם ובקול.
+# תקרת אורך התוכן — מקור אמת אחד, בלי fallback שקט.
+# תלוי בכך ש-``app.py`` כבר הכין את ``sys.path``; ראו את ההסבר המלא ב-
+# tests/test_webapp_import_paths.py.
 from sticky_notes_target import MAX_NOTE_CHARS
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore

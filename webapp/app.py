@@ -16,9 +16,6 @@ import uuid
 import inspect
 import socket
 
-# תקרת אורך פתק, לשימוש בתבניות. ייבוא ישיר ובלי fallback — ערך מקומי היה
-# מחזיר מספר שני בצד השרת, בדיוק מה שהאיחוד בא למנוע.
-from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from types import SimpleNamespace
@@ -173,6 +170,10 @@ except Exception:
 
 # מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
 from http_sync import request as http_request  # noqa: E402
+
+# תקרת אורך פתק, לשימוש בתבניות. חייב לשבת כאן ולא בראש הקובץ —
+# ראו tests/test_webapp_import_paths.py, ששומר על הכלל ונופל אם הוא מופר.
+from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
