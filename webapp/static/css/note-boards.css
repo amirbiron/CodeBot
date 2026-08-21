@@ -237,3 +237,26 @@
 }
 .board-icon-link:hover { background: var(--glass-hover, rgba(103, 126, 234, .12)); }
 .board-icon-link:focus-visible { outline: 2px solid var(--primary, #667eea); outline-offset: 2px; }
+
+/* ---------- הגדרות הלוח ---------- */
+
+.board-settings-modal { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; }
+.board-settings-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
+.board-settings-card {
+  position: relative;
+  max-width: 26rem; width: calc(100% - 2rem);
+  background: var(--bg-primary, #fff); color: var(--text-primary, #1f2933);
+  border: 1px solid var(--glass-border, rgba(0, 0, 0, .12));
+  border-radius: 14px; padding: 1.2rem 1.3rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
+}
+.board-settings-card h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+.board-setting-row { display: flex; gap: .6rem; align-items: flex-start; cursor: pointer; }
+.board-setting-row input { margin-top: .3rem; flex: 0 0 auto; }
+.board-setting-row small { display: block; color: var(--text-muted, #667); font-size: .85rem; margin-top: .15rem; }
+.board-setting-note {
+  margin: .9rem 0 0; padding: .6rem .75rem; border-radius: 8px;
+  font-size: .85rem; color: var(--text-muted, #667);
+  background: color-mix(in srgb, var(--text-primary, #1f2933) 6%, transparent);
+}
+.board-settings-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }

@@ -456,3 +456,87 @@ def test_admin_is_exempt_from_the_board_quota(mcp_backend, mongo_db, monkeypatch
     allowed = mcp_backend.create_board_note(7, board_id=board, content="שני", color="#FFFFCC", mode="surface")
     assert allowed["ok"] is True, allowed
     assert mongo_db.sticky_notes.count_documents({"board_id": board}) == 2
+
+
+# ---------- שם ייחודי לפתק בתוך לוח ----------
+#
+# שם מזהה פתק אחד בתוך לוח, בדיוק כמו ששם קובץ מזהה קובץ אחד. האכיפה היא
+# במסד ולא בקוד, ולכן היא נבדקת כאן ולא מול stub.
+
+
+def test_the_title_index_is_created_with_the_right_partial_filter(indexed_db):
+    """``$ne`` **אינו נתמך** ב-``partialFilterExpression``.
+
+    נבדק מול מונגו 7.0 ונדחה ב-``Error in specification``; ``$exists`` נתמך.
+    לכן פתק בלי שם משמיט את השדה במקום לשמור ``""`` — שני פתקים עם מחרוזת
+    ריקה היו מתנגשים זה בזה.
+    """
+    info = indexed_db.sticky_notes.index_information()
+
+    assert "one_title_per_board" in info, f"האינדקס לא נוצר. קיימים: {sorted(info)}"
+    spec = info["one_title_per_board"]
+    assert spec.get("unique") is True
+    assert spec.get("partialFilterExpression") == {"title": {"$exists": True}}
+
+
+def test_two_notes_cannot_share_a_title_on_one_board(indexed_db):
+    notes = indexed_db.sticky_notes
+    notes.insert_one({"user_id": 7, "board_id": "b1", "title": "טודו", "content": "a"})
+
+    with pytest.raises(DuplicateKeyError):
+        notes.insert_one({"user_id": 7, "board_id": "b1", "title": "טודו", "content": "b"})
+
+
+def test_the_same_title_is_free_on_another_board_and_for_another_user(indexed_db):
+    notes = indexed_db.sticky_notes
+    notes.insert_one({"user_id": 7, "board_id": "b1", "title": "טודו", "content": "a"})
+
+    notes.insert_one({"user_id": 7, "board_id": "b2", "title": "טודו", "content": "b"})
+    notes.insert_one({"user_id": 99, "board_id": "b1", "title": "טודו", "content": "c"})
+
+    assert notes.count_documents({"title": "טודו"}) == 3
+
+
+def test_notes_without_a_title_are_unaffected(indexed_db):
+    """**זה מה שהאינדקס היה שובר אילו נבנה בלי הפילטר החלקי.**
+
+    רוב הפתקים הם בלי שם, וללא ה-``partialFilterExpression`` המשתמש היה
+    יכול להחזיק פתק אחד בלבד ללא שם בכל לוח.
+    """
+    notes = indexed_db.sticky_notes
+
+    for i in range(5):
+        notes.insert_one({"user_id": 7, "board_id": "b1", "content": f"בלי שם {i}"})
+    for i in range(3):
+        notes.insert_one({"user_id": 7, "file_id": "f1", "content": f"פתק קובץ {i}"})
+
+    assert notes.count_documents({"user_id": 7}) == 8
+
+
+def test_clearing_a_title_removes_the_field(indexed_db):
+    """שם ריק **מוחק** את השדה ולא שומר ``""``.
+
+    בלי זה, שני פתקים ששמם נוקה היו מתנגשים — שניהם ``title: ""`` והאינדקס
+    כולל אותם, כי ``$exists`` מתקיים גם למחרוזת ריקה.
+    """
+    notes = indexed_db.sticky_notes
+    notes.insert_one({"_id": 1, "user_id": 7, "board_id": "b1", "title": "ראשון"})
+    notes.insert_one({"_id": 2, "user_id": 7, "board_id": "b1", "title": "שני"})
+
+    notes.update_one({"_id": 1}, {"$unset": {"title": ""}})
+    notes.update_one({"_id": 2}, {"$unset": {"title": ""}})
+
+    assert notes.count_documents({"user_id": 7, "board_id": "b1"}) == 2
+    assert "title" not in notes.find_one({"_id": 1})
+
+
+def test_mcp_refuses_a_duplicate_title(mcp_backend, mongo_db, indexed_db):
+    """הכלי מחזיר ``duplicate_title`` ולא קורס על החריגה."""
+    board = _make_board(mongo_db, user_id=7)
+    ok = mcp_backend.create_board_note(7, board_id=board, content="a", color="#FFFFCC", mode="surface", title="טודו")
+    assert ok["ok"] is True
+
+    dup = mcp_backend.create_board_note(7, board_id=board, content="b", color="#FFFFCC", mode="surface", title="טודו")
+
+    assert dup == {"ok": False, "error": "duplicate_title"}
+    assert mongo_db.sticky_notes.count_documents({"board_id": board}) == 1

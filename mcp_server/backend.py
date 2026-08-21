@@ -29,7 +29,7 @@ _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
 #: יושב. בפתק קובץ שניהם ריקים, ולכן התוספת אינה משנה את מסלול הקובץ.
 _NOTE_FIELDS = (
     "content", "color", "line_start", "anchor_text", "is_minimized",
-    "board_id", "mode",
+    "board_id", "mode", "title",
 )
 
 
@@ -556,6 +556,7 @@ class ProductionBackend:
         content: str,
         color: str,
         mode: str,
+        title: str = "",
     ) -> dict[str, Any]:
         """פתק חדש על לוח.
 
@@ -610,6 +611,8 @@ class ProductionBackend:
             # שהוא מחזיר, ולכן אי אפשר להרכיב כאן מסמך לא חוקי.
             **build_note_target(board_id=canonical),
             "content": content,
+            # שם ריק ← השדה כלל אינו נכתב, כדי שלא ייכנס לאינדקס הייחודי
+            **({"title": title} if title else {}),
             "position_x": 120,
             "position_y": 120,
             "width": 260,
@@ -620,7 +623,13 @@ class ProductionBackend:
             "created_at": now,
             "updated_at": now,
         }
-        res = coll.insert_one(note)
+        try:
+            res = coll.insert_one(note)
+        except Exception as exc:
+            # שם תפוס בלוח — התנגשות ולא תקלה. נבדק לפי סוג ולא לפי טקסט.
+            if type(exc).__name__ == "DuplicateKeyError":
+                return {"ok": False, "error": "duplicate_title"}
+            raise
         note["_id"] = getattr(res, "inserted_id", None)
         return {"ok": True, "note": _as_note(note)}
 

@@ -251,6 +251,8 @@ def test_as_note_serialization():
         # פתק לוח חייב לומר איפה הוא יושב. בפתק קובץ שניהם ריקים.
         "board_id",
         "mode",
+        # שם הפתק — תווית שמזהה אותו בתוך הלוח
+        "title",
         "created_at",
         "updated_at",
     }
@@ -299,8 +301,8 @@ class _BoardsBackend:
         self.calls.append(("list_board_notes", user_id, board_id))
         return {"ok": True, "board_id": board_id, "count": 0, "notes": []}
 
-    def create_board_note(self, user_id, *, board_id, content, color, mode):
-        self.calls.append(("create_board_note", user_id, board_id, content, color, mode))
+    def create_board_note(self, user_id, *, board_id, content, color, mode, title=""):
+        self.calls.append(("create_board_note", user_id, board_id, content, color, mode, title))
         return {"ok": True, "note": {"id": "n1", "board_id": board_id, "mode": mode}}
 
 
@@ -366,12 +368,33 @@ def test_create_board_note_rejects_anchored_mode():
     assert b.calls == []
 
 
+def test_create_board_note_normalizes_the_title():
+    """שם מנורמל לפני שהוא מגיע למסד: רווחים, שורות, ואורך.
+
+    שם רב-שורות היה שובר את שורת הכפתורים, ושם ריק חייב להישאר ריק כדי
+    שהשדה כלל לא ייכתב — אחרת הוא נכנס לאינדקס הייחודי ומתנגש.
+    """
+    from sticky_notes_target import MAX_NOTE_TITLE
+
+    b = _BoardsBackend()
+    _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="x", title="  שם\nעם שורות  ")
+    assert b.calls[0][6] == "שם עם שורות"
+
+    b2 = _BoardsBackend()
+    _h.create_board_note(b2, 7, board_id=_VALID_BOARD, content="x", title="   ")
+    assert b2.calls[0][6] == "", "שם ריק נשאר ריק, והשדה לא ייכתב"
+
+    b3 = _BoardsBackend()
+    _h.create_board_note(b3, 7, board_id=_VALID_BOARD, content="x", title="א" * 200)
+    assert len(b3.calls[0][6]) == MAX_NOTE_TITLE
+
+
 def test_create_board_note_normalizes_color_and_mode():
     b = _BoardsBackend()
 
     _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="שלום", color="לא-צבע")
 
-    _, _, _, content, color, mode = b.calls[0]
+    _, _, _, content, color, mode, _title = b.calls[0]
     assert content == "שלום"
     assert color == _h.DEFAULT_NOTE_COLOR, "צבע לא חוקי נופל לברירת המחדל, כמו ביצירת פתק קובץ"
     assert mode == "surface", "ברירת המחדל בלוח"

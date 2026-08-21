@@ -86,6 +86,28 @@ MAX_NOTES_PER_BOARD = 200
 #: בתקווה הם מספר אחד שגוי שמחכה.
 MAX_NOTES_PER_USER = 1000
 
+#: אורך מרבי לשם פתק. שם הוא תווית קצרה בשורת הכפתורים, לא כותרת.
+MAX_NOTE_TITLE = 80
+
+
+def normalize_note_title(value: Any) -> str:
+    """שם פתק מנורמל, או מחרוזת ריקה.
+
+    **מחרוזת ריקה משמעותה "אין שם", והשדה נמחק מהמסמך** ולא נשמר כ-``""``.
+    זה לא קוסמטי: האינדקס הייחודי משתמש ב-``partialFilterExpression`` עם
+    ``$exists``, ולכן שני פתקים עם ``title: ""`` היו מתנגשים זה בזה. פתק
+    בלי השדה כלל פשוט אינו באינדקס.
+
+    (``$ne`` אינו נתמך ב-``partialFilterExpression`` — נבדק מול מונגו
+    7.0 ונדחה ב-``Error in specification``. ``$exists`` נתמך.)
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # שורה אחת: שם שנשפך לשתי שורות שובר את שורת הכפתורים
+    text = " ".join(text.split())
+    return text[:MAX_NOTE_TITLE]
+
 
 def _clean(value: Any) -> str:
     """מזהה כמחרוזת מנורמלת. ``None``, ``''`` ומחרוזת רווחים — כולם ריקים."""

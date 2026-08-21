@@ -15,6 +15,14 @@
   <div class="board-surface-wrap">
     <div class="board-toolbar">
       <input type="text" class="board-title-input" id="boardTitle" value="" aria-label="שם הלוח">
+      <button type="button" class="board-icon-link" id="boardSettingsBtn"
+              title="הגדרות הלוח" aria-label="הגדרות הלוח" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
       <a href="/boards" class="board-icon-link" title="כל הלוחות" aria-label="כל הלוחות">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -25,6 +33,27 @@
         </svg>
       </a>
     </div>
+    <div class="board-settings-modal" id="boardSettings" role="dialog" aria-modal="true"
+         aria-labelledby="boardSettingsTitle" hidden>
+      <div class="board-settings-backdrop" data-close></div>
+      <div class="board-settings-card">
+        <h2 id="boardSettingsTitle">הגדרות הלוח</h2>
+        <label class="board-setting-row">
+          <input type="checkbox" id="infiniteScrollToggle">
+          <span>
+            <b>גלילה אינסופית</b>
+            <small>הלוח ממשיך להתרחב כלפי מטה, כך שתמיד יש לאן לגרור פתקים.</small>
+          </span>
+        </label>
+        <p class="board-setting-note">
+          כיבוי אינו מזיז אף פתק. אורך הלוח נמדד תמיד עד הפתק האחרון, ומתקצר רק עד שם.
+        </p>
+        <div class="board-settings-actions">
+          <button type="button" class="board-action" data-close>סגור</button>
+        </div>
+      </div>
+    </div>
+
     <div class="board-surface" id="boardSurface">
       <div class="board-empty" id="boardEmpty" hidden>
         <div>הלוח ריק.</div>
@@ -97,10 +126,41 @@
 
   // המשטח הוא הקונטיינר, ואין בו ``#md-content`` — ולכן כל מסלול העיגון
   // לשורות מקור מנוטרל, ו-``_resolveMode`` מחזיר surface/screen בלבד.
+  // ההעדפה נשמרת לכל לוח בנפרד, מקומית. אין כאן שינוי סכמה ואין קריאת
+  // רשת — זו העדפת תצוגה, לא נתון.
+  const INFINITE_KEY = 'board-infinite:' + BOARD_ID;
+  function readInfinite() {
+    try { return localStorage.getItem(INFINITE_KEY) === '1'; } catch (e) { return false; }
+  }
+  function writeInfinite(on) {
+    try { localStorage.setItem(INFINITE_KEY, on ? '1' : '0'); } catch (e) { /* מצב זמני בלבד */ }
+  }
+
   window._boardNotes = new window.StickyNotesManager({
     board: BOARD_ID,
     container: surface,
-    anchorHost: null
+    anchorHost: null,
+    infiniteScroll: readInfinite()
+  });
+
+  const settingsModal = document.getElementById('boardSettings');
+  const settingsBtn = document.getElementById('boardSettingsBtn');
+  const infiniteToggle = document.getElementById('infiniteScrollToggle');
+  infiniteToggle.checked = readInfinite();
+
+  function openSettings() { settingsModal.hidden = false; infiniteToggle.focus(); }
+  function closeSettings() { settingsModal.hidden = true; settingsBtn.focus(); }
+
+  settingsBtn.addEventListener('click', openSettings);
+  settingsModal.addEventListener('click', function (ev) {
+    if (ev.target && ev.target.hasAttribute('data-close')) closeSettings();
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !settingsModal.hidden) closeSettings();
+  });
+  infiniteToggle.addEventListener('change', function () {
+    writeInfinite(infiniteToggle.checked);
+    window._boardNotes.setInfiniteScroll(infiniteToggle.checked);
   });
 
   document.getElementById('firstNoteBtn').addEventListener('click', function () {
@@ -113,6 +173,9 @@
     try {
       const top = Math.round(surface.getBoundingClientRect().top + window.scrollY);
       document.documentElement.style.setProperty('--board-top', top + 'px');
+      // הגובה שממלא בדיוק את המסך — ``_updateSurfaceExtent`` מרחיב מעבר לו
+      document.documentElement.style.setProperty('--board-fill',
+        Math.max(200, window.innerHeight - top - 8) + 'px');
     } catch (e) { /* נשארת נפילה חיננית לערך שב-CSS */ }
   }
   measureBoardTop();

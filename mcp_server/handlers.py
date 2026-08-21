@@ -402,6 +402,7 @@ def create_board_note(
     content: str,
     color: str | None = None,
     mode: str | None = None,
+    title: str | None = None,
 ) -> dict[str, Any]:
     """Attach a sticky note to a board (a surface that belongs to no file).
 
@@ -409,7 +410,9 @@ def create_board_note(
     ``screen`` (צף מול המסך). ``anchored`` אינו חוקי כאן — הוא דורש שורות
     מקור, ובלוח אין כאלה; פתק כזה היה מחשב מיקום מול עוגן שאינו קיים.
     """
-    from sticky_notes_target import DEFAULT_BOARD_MODE, is_valid_board_mode, normalize_mode
+    from sticky_notes_target import (
+        DEFAULT_BOARD_MODE, is_valid_board_mode, normalize_mode, normalize_note_title,
+    )
 
     bid = (board_id or "").strip()
     if not _BOARD_ID_RE.match(bid):
@@ -435,6 +438,7 @@ def create_board_note(
         content=clean,
         color=color_s,
         mode=normalize_mode(mode, DEFAULT_BOARD_MODE),
+        title=normalize_note_title(title),
     )
 
 

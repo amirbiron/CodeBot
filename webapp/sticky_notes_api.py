@@ -20,7 +20,20 @@ import asyncio
 # תקרת אורך התוכן — מקור אמת אחד, בלי fallback שקט.
 # תלוי בכך ש-``app.py`` כבר הכין את ``sys.path``; ראו את ההסבר המלא ב-
 # tests/test_webapp_import_paths.py.
-from sticky_notes_target import MAX_NOTE_CHARS, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER
+from sticky_notes_target import (
+    MAX_NOTE_CHARS, MAX_NOTE_TITLE, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER,
+    normalize_note_title,
+)
+# ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
+# תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
+# לעולם עדיפה על ייבוא שמפיל את המודול כולו.
+try:  # type: ignore
+    from pymongo.errors import DuplicateKeyError  # type: ignore
+except Exception:  # pragma: no cover
+    class DuplicateKeyError(Exception):  # type: ignore
+        pass
+
+
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -182,6 +195,16 @@ def _ensure_indexes() -> None:
                     IndexModel([("user_id", ASCENDING), ("scope_id", ASCENDING)], name="user_scope_idx"),
                     # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets.
                     IndexModel([("user_id", ASCENDING), ("board_id", ASCENDING)], name="user_board_idx"),
+                    # שם מזהה פתק אחד בתוך לוח — בדיוק כמו ששם קובץ מזהה
+                    # קובץ אחד. ``$exists`` ולא ``$ne``: השני נדחה ב-
+                    # ``Error in specification`` (נבדק מול מונגו 7.0), ולכן
+                    # פתק בלי שם משמיט את השדה במקום לשמור מחרוזת ריקה.
+                    IndexModel(
+                        [("user_id", ASCENDING), ("board_id", ASCENDING), ("title", ASCENDING)],
+                        name="one_title_per_board",
+                        unique=True,
+                        partialFilterExpression={"title": {"$exists": True}},
+                    ),
                 ]
                 coll.create_indexes(indexes)
             except Exception:
@@ -530,6 +553,8 @@ def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
         'id': str(doc.get('_id')),
         'file_id': str(doc.get('file_id', '')),
         'content': _coerce_content_from_doc(doc.get('content', '')),
+        # שם הפתק. ריק = אין שם; במסמך השדה פשוט אינו קיים.
+        'title': str(doc.get('title', '') or ''),
         'position': {
             'x': int(doc.get('position_x', 100) or 100),
             'y': int(doc.get('position_y', 100) or 100),
@@ -1054,6 +1079,7 @@ def create_note(file_id: str):
             return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
         except _InvalidContentB64:
             return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
+        title = normalize_note_title(data.get('title'))
         pos = data.get('position') or {}
         size = data.get('size') or {}
         color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
@@ -1081,6 +1107,8 @@ def create_note(file_id: str):
             'user_id': user_id,
             'file_id': str(file_id),
             'content': content,
+            # ריק ← השדה כלל אינו נכתב, כדי שלא ייכנס לאינדקס הייחודי
+            **({'title': title} if title else {}),
             'position_x': _coerce_int(pos.get('x'), 100, 0, 100000),
             'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
             'width': _coerce_int(size.get('width'), 250, 120, 1200),
@@ -1098,7 +1126,11 @@ def create_note(file_id: str):
             doc['scope_id'] = scope_id
         if scope_file_name:
             doc['file_name'] = scope_file_name
-        res = db.sticky_notes.insert_one(doc)
+        try:
+            res = db.sticky_notes.insert_one(doc)
+        except DuplicateKeyError:
+            # שם תפוס בלוח הזה — התנגשות, לא תקלה
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         nid = str(getattr(res, 'inserted_id', ''))
         try:
             emit_event("sticky_note_created", severity="info", user_id=int(user_id), file_id=str(file_id))
@@ -1166,11 +1198,19 @@ def update_note(note_id: str):
         if 'anchor_text' in data:
             atx = (data.get('anchor_text') or '').strip()[:256]
             updates['anchor_text'] = atx or None
+        # שם ריק **מוחק** את השדה ולא שומר ``""``. ראו normalize_note_title.
+        unset_fields: Dict[str, Any] = {}
+        if 'title' in data:
+            new_title = normalize_note_title(data.get('title'))
+            if new_title:
+                updates['title'] = new_title
+            else:
+                unset_fields['title'] = ''
         # ``mode`` מאומת כאן ומוחל רק אחרי טעינת הפתק — הבדיקה תלויה
         # ב-``board_id`` שלו, שעדיין לא ידוע בשלב הזה.
         wants_mode = 'mode' in data
 
-        if not updates and not wants_mode:
+        if not updates and not wants_mode and not unset_fields:
             return jsonify({'ok': False, 'error': 'No fields to update'}), 400
 
         updates['updated_at'] = datetime.now(timezone.utc)
@@ -1210,7 +1250,14 @@ def update_note(note_id: str):
                     return jsonify({'ok': False, 'error': 'Conflict', 'updated_at': note['updated_at'].isoformat()}), 409
         except Exception:
             pass
-        db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, {'$set': updates})
+        ops: Dict[str, Any] = {'$set': updates}
+        if unset_fields:
+            ops['$unset'] = unset_fields
+        try:
+            db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, ops)
+        except DuplicateKeyError:
+            # שם תפוס בלוח הזה. 409 ולא 500 — זו התנגשות, לא תקלה.
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         try:
             emit_event("sticky_note_updated", severity="info", user_id=int(user_id), note_id=str(note_id))
         except Exception:
@@ -1557,6 +1604,7 @@ def create_board_note(board_id: str):
             return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
         except _InvalidContentB64:
             return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
+        title = normalize_note_title(data.get('title'))
 
         # תקרות — ולפני הכתיבה, לא אחריה. ``_count_or_none`` מבחין בין אפס
         # לבין ספירה שנכשלה, ו-``check_note_quota`` דוחה על השנייה.
@@ -1584,6 +1632,8 @@ def create_board_note(board_id: str):
         doc: Dict[str, Any] = {
             'user_id': user_id,
             'content': content,
+            # ריק ← השדה כלל אינו נכתב, כדי שלא ייכנס לאינדקס הייחודי
+            **({'title': title} if title else {}),
             'position_x': _coerce_int(pos.get('x'), 100, 0, 100000),
             'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
             'width': _coerce_int(size.get('width'), 250, 120, 1200),
@@ -1598,7 +1648,11 @@ def create_board_note(board_id: str):
         # ממסמך לצאת עם שני משטחים או בלי אף אחד.
         doc.update(build_note_target(board_id=board_id))
 
-        res = db.sticky_notes.insert_one(doc)
+        try:
+            res = db.sticky_notes.insert_one(doc)
+        except DuplicateKeyError:
+            # שם תפוס בלוח הזה — התנגשות, לא תקלה
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         nid = str(getattr(res, 'inserted_id', ''))
         try:
             emit_event("sticky_note_created", severity="info", user_id=int(user_id), board_id=str(board_id))

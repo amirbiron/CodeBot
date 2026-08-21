@@ -154,6 +154,10 @@
   const UNDO_BURST_MS = 600;
   //: עומק מחסנית הביטול לכל פתק. בזיכרון בלבד.
   const UNDO_MAX_STEPS = 50;
+  //: מרווח פנוי מתחת לפתק האחרון במצב אינסופי — תמיד יש לאן לגרור.
+  const INFINITE_PAD = 700;
+  //: ובכיבוי, רק נשימה קטנה מתחת לפתק האחרון.
+  const SURFACE_TAIL_PAD = 24;
   const TASK_LINE_RE = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -207,6 +211,11 @@
       this._cacheKey = this.boardId
         ? `sticky-notes:board:${this.boardId}`
         : `sticky-notes:${String(this.fileId)}`;
+      // גלילה אינסופית: כמה מקום פנוי מתחת לפתק האחרון. הלוח **תמיד**
+      // נמדד עד הפתק הרחוק ביותר; הכיבוי רק מפסיק להוסיף מרווח מעבר לו,
+      // ולעולם אינו מקצר את הלוח מתחת לתוכן שכבר עליו — כלומר אף פתק לא
+      // "מתכווץ פנימה" ואף מיקום לא הולך לאיבוד.
+      this.infiniteScroll = ('infiniteScroll' in opts) ? !!opts.infiniteScroll : false;
       this._renderedFromCache = false;
       this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
       this._init();
@@ -397,6 +406,12 @@
       if (note.color) el.style.backgroundColor = note.color;
 
       const header = createEl('div', 'sticky-note-header');
+      // שם הפתק, בצד השני של שורת הכפתורים. הוא נשאר גלוי גם כשהפתק
+      // ממוזער — וזה כל הרעיון: השורה הריקה של הכותרת מקבלת משמעות.
+      const titleInput = createEl('input', 'sticky-note-title', {
+        type: 'text', placeholder: 'שם', 'aria-label': 'שם הפתק', maxlength: '80'
+      });
+      titleInput.value = String(note.title || '');
       const drag = createEl('div', 'sticky-note-drag');
       const actions = createEl('div', 'sticky-note-actions');
       const isPinnedInitial = note.anchor_id === PIN_SENTINEL;
@@ -414,7 +429,17 @@
       copyBtn.textContent = '⧉';
       actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(undoBtn);
       actions.appendChild(copyBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
-      header.appendChild(drag); header.appendChild(actions);
+      header.appendChild(actions); header.appendChild(drag); header.appendChild(titleInput);
+
+      titleInput.addEventListener('input', () => {
+        this._queueSave(el, { title: titleInput.value });
+      });
+      // 409 מהשרת פירושו שהשם תפוס בלוח הזה. חיווי גלוי — לא כתיבה
+      // שנראית שנשמרה ולא נשמרה.
+      titleInput.addEventListener('blur', async () => {
+        try { await this._flushFor(el); } catch(_) {}
+        this._syncTitleConflict(el);
+      });
 
       undoBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
@@ -546,6 +571,7 @@
       this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
       this._updateAnchoredNotePosition(el, note);
+      this._updateSurfaceExtent();
 
       // ── מיגרציה רכה לפתקים ישנים ב־MD preview ──
       // פתקים שנוצרו לפני תמיכת ה־[data-source-line] נשמרו בלי עוגן וחיו כ־
@@ -733,6 +759,36 @@
         } catch(_) { return { x, y }; }
       }
 
+      // גובה המשטח נגזר מהתוכן שעליו, ולא ממספר קבוע.
+      //
+      // ``INFINITE_PAD`` הוא המרווח שנשאר פנוי מתחת לפתק האחרון כשהמצב
+      // האינסופי דלוק — כך תמיד יש לאן לגרור. בכיבוי המרווח מתאפס, אבל
+      // הגובה עדיין נמדד עד הפתק הרחוק ביותר.
+      _updateSurfaceExtent(){
+        try {
+          const surface = this.container;
+          if (!this.boardId || !surface || !surface.style) return;
+          let bottom = 0;
+          this.notes.forEach((entry) => {
+            const el = entry && entry.el;
+            if (!el || !el.classList || !el.classList.contains('is-pinned')) return;
+            const top = parseInt(el.style.top || '0', 10) || 0;
+            const h = Math.round(el.getBoundingClientRect().height) || 0;
+            if (top + h > bottom) bottom = top + h;
+          });
+          const pad = this.infiniteScroll ? INFINITE_PAD : SURFACE_TAIL_PAD;
+          const needed = bottom + pad;
+          // ``min-height`` ולא ``height``: הכלל ב-CSS ממלא את המסך, וכאן
+          // רק מרחיבים מעבר לו. הקטן מביניהם לא מקצר את הלוח.
+          surface.style.minHeight = needed > 0 ? `max(var(--board-fill, 0px), ${needed}px)` : '';
+        } catch(_) {}
+      }
+
+      setInfiniteScroll(on){
+        this.infiniteScroll = !!on;
+        this._updateSurfaceExtent();
+      }
+
       _clampToSurface(el, x, y, note){
         try {
           const parent = this.container;
@@ -868,6 +924,19 @@
       // חיווי אורך. השרת דוחה תוכן שחורג מהתקרה ב-``content_too_long``,
       // אבל דחייה שמגיעה רק אחרי ניסיון שמירה היא מאוחרת מדי — המשתמש
       // כבר הדביק והמשיך. כאן זה נראה בזמן ההקלדה.
+      // שם תפוס — מסומן על השדה עצמו. השרת מחזיר 409 ``duplicate_title``,
+      // וה-``_markSaveFailed`` הקיים כבר מסמן את הפתק; כאן מוסיפים את
+      // ההסבר הספציפי, כי "לא נשמר" לבדו לא אומר למשתמש מה לעשות.
+      _syncTitleConflict(el){
+        try {
+          const input = el.querySelector('.sticky-note-title');
+          if (!input) return;
+          const conflicted = el.classList.contains('has-save-error');
+          input.classList.toggle('is-duplicate', conflicted);
+          input.title = conflicted ? 'שם כזה כבר קיים בלוח הזה' : 'שם הפתק';
+        } catch(_) {}
+      }
+
       // ----- ביטול פעולה -----
       //
       // לפתקים אין היסטוריית גרסאות בשרת. התרחיש שזה מגן מפניו הוא ממשי:
@@ -1412,6 +1481,7 @@
           this._queueSave(el, payload);
         }
         this._flushFor(el);
+        this._updateSurfaceExtent();
       };
       // מניעת מחוות ברירת מחדל במובייל
       try { handle.style.touchAction = 'none'; } catch(_) {}

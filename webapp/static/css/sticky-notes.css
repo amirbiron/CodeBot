@@ -149,3 +149,25 @@
 /* חיווי העתקה. כשל חייב להיראות, לא רק הצלחה. */
 .sticky-note-copy.is-copy-done { background: #d1fae5; color: #065f46; border-radius: 6px; }
 .sticky-note-copy.is-copy-fail { background: #fee2e2; color: #b91c1c; border-radius: 6px; }
+
+/* שם הפתק — בצד השני של שורת הכפתורים, וגלוי גם במיזעור.
+   זו כל הסיבה שהוא בכותרת ולא בגוף: פתק ממוזער מציג רק את השורה הזו. */
+.sticky-note-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+  padding: 0 4px;
+  text-overflow: ellipsis;
+}
+.sticky-note-title::placeholder { font-weight: 400; opacity: .45; }
+.sticky-note-title:focus { outline: none; background: rgba(0, 0, 0, .05); border-radius: 4px; }
+.sticky-note-title.is-duplicate { color: #b91c1c; text-decoration: underline wavy #dc3545; }
+
+/* הכותרת היא flex, וכעת יש בה שלושה חלקים: כפתורים, ידית גרירה, ושם */
+.sticky-note-header { gap: 6px; }
+.sticky-note-drag { width: 24px; flex: 0 0 auto; }
