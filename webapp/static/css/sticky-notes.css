@@ -59,7 +59,7 @@
      — זה מה שמאפשר לשם ולשישה כפתורים לחיות יחד בפתק של 200 פיקסלים. */
   flex-wrap: wrap;
 }
-.sticky-note-drag{ width: 100%; height: 16px; cursor: move; touch-action: none; }
+.sticky-note-drag{ cursor: move; touch-action: none; }
 /* מרווח בין הכפתורים: הם קטנים, וצמודים זה לזה קשה לפגוע בהם באצבע.
    גובה הכותרת **כן** משתנה — היא גולשת לשתי שורות בפתק צר — וזה בסדר:
    הגוף הוא ``flex: 1 1 auto`` ולוקח את מה שנשאר, ולא ``calc(100% - 42px)``
@@ -106,7 +106,6 @@
 .sticky-note-fab:hover{ transform: scale(1.05); }
 
 @media (max-width: 480px){
-  .sticky-note-drag{ height: 20px; }
   .sticky-note-fab{ left: 4px; bottom: 14px; }
 }
 
@@ -241,6 +240,42 @@
  * כאן שאילתת מדיה, כי הקובע הוא רוחב **הפתק** ולא רוחב המסך — פתק צר
  * במסך רחב סובל בדיוק מאותה בעיה. */
 .sticky-note-header { gap: 6px; }
-.sticky-note-drag { width: 24px; flex: 0 0 auto; }
 .sticky-note-actions { flex: 0 0 auto; }
-.sticky-note-title { flex: 1 1 96px; min-width: 96px; }
+
+/* ידית הגרירה **מכילה** את השם ואת כפתור העיפרון, ותופסת את כל מה
+   שנשאר בכותרת. נמדד לפני: הידית הייתה 24px קבועים ושדה השם תפס
+   218px–635px לפי גודל הפתק — כלומר 1%-3% מהכותרת נגררו, בעוד
+   ש-``cursor: move`` הבטיח את כולה. */
+.sticky-note-drag {
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sticky-note-title { flex: 1 1 60px; min-width: 60px; }
+
+/* **זה מה שמחזיר את שטח הגרירה.** שדה נעול אינו בולע את האירוע, והוא
+   נופל דרכו אל הידית שמתחתיו. */
+.sticky-note-title[readonly] {
+  pointer-events: none;
+  cursor: move;
+  user-select: none;
+}
+
+/* בעריכה השדה חייב לקבל מגע בחזרה — ``touch-action: none`` של הידית
+   חוסם מיקום סמן במובייל. */
+.sticky-note.is-editing-title .sticky-note-drag { touch-action: auto; cursor: default; }
+.sticky-note.is-editing-title .sticky-note-title { background: rgba(255, 255, 255, .55); border-radius: 4px; }
+
+/* העיפרון קטן ולא גוזל מקום משורת הפעולות — הוא שייך לשם, לא להן */
+.sticky-note-edit-title { font-size: 13px; min-width: 18px; padding: 0 2px; opacity: .75; }
+.sticky-note-edit-title:hover { opacity: 1; }
+.sticky-note.is-editing-title .sticky-note-edit-title {
+  opacity: 1;
+  color: var(--note-ink);
+  background: rgba(43, 63, 106, .12);
+  border-radius: 5px;
+}

@@ -408,8 +408,14 @@
       const header = createEl('div', 'sticky-note-header');
       // שם הפתק, בצד השני של שורת הכפתורים. הוא נשאר גלוי גם כשהפתק
       // ממוזער — וזה כל הרעיון: השורה הריקה של הכותרת מקבלת משמעות.
+      // **נוצר נעול.** ``_setTitleEditing`` פועלת דרך ``el.querySelector``,
+      // וברינדור היא רצה לפני ש-``header`` צורף ל-``el`` — כלומר לא מצאה
+      // כלום והמצב ההתחלתי נשאר פתוח. נתפס באימות: ``readonly=false``
+      // בטעינה, כלומר נגיעה בשם עדיין פתחה מקלדת. המצב נקבע כאן, בבנייה,
+      // ולא תלוי בסדר צירוף.
       const titleInput = createEl('input', 'sticky-note-title', {
-        type: 'text', placeholder: 'שם', 'aria-label': 'שם הפתק', maxlength: '80'
+        type: 'text', placeholder: 'שם', 'aria-label': 'שם הפתק', maxlength: '80',
+        readonly: 'readonly', tabindex: '-1'
       });
       titleInput.value = String(note.title || '');
       const drag = createEl('div', 'sticky-note-drag');
@@ -429,7 +435,31 @@
       copyBtn.textContent = '⧉';
       actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(undoBtn);
       actions.appendChild(copyBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
-      header.appendChild(actions); header.appendChild(drag); header.appendChild(titleInput);
+      // **השם יושב בתוך ידית הגרירה, ולא לצידה.**
+      //
+      // נמדד לפני: שדה השם תפס 218px מהכותרת בפתק ברירת מחדל ו-635px
+      // בפתק מוגדל, וידית הגרירה נשארה 24px — כלומר 1%-3% מהכותרת נגררו
+      // בפועל, בעוד ש-``cursor: move`` הבטיח גרירה על כולה. נגיעה בכל
+      // מקום למעלה פתחה עריכת שם, ולא נשאר במה לאחוז.
+      //
+      // עכשיו: כשהשם נעול הוא ``pointer-events: none`` והאירועים נופלים
+      // דרכו אל הידית שמתחתיו — כלומר כל רוחב הכותרת נגרר. העיפרון הוא
+      // הדרך היחידה להיכנס לעריכה.
+      const editBtn = createEl('button', 'sticky-note-btn sticky-note-edit-title', {
+        type: 'button', 'aria-label': 'עריכת שם הפתק', 'aria-pressed': 'false'
+      });
+      editBtn.textContent = '✎';
+      drag.appendChild(editBtn);
+      drag.appendChild(titleInput);
+      header.appendChild(actions); header.appendChild(drag);
+
+      editBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._setTitleEditing(el, !el.classList.contains('is-editing-title'));
+      });
+      // גרירה על העיפרון עצמו לא אמורה להתחיל — הוא כפתור
+      editBtn.addEventListener('mousedown', (ev) => { try { ev.stopPropagation(); } catch(_) {} });
+      editBtn.addEventListener('touchstart', (ev) => { try { ev.stopPropagation(); } catch(_) {} }, { passive: true });
 
       titleInput.addEventListener('input', () => {
         // שם חדש הוא ניסיון חדש. הסימון הישן שייך לערך שכבר לא בשדה,
@@ -442,6 +472,14 @@
       titleInput.addEventListener('blur', async () => {
         try { await this._flushFor(el); } catch(_) {}
         this._syncTitleConflict(el);
+        // יציאה מהשדה מחזירה את הכותרת למצב גרירה. בלי זה הפתק היה נשאר
+        // בלתי ניתן לגרירה עד לחיצה נוספת על הכפתור.
+        this._setTitleEditing(el, false);
+      });
+      titleInput.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' && ev.key !== 'Escape') return;
+        try { ev.preventDefault(); } catch(_) {}
+        this._setTitleEditing(el, false);
       });
 
       undoBtn.addEventListener('click', (ev) => {
@@ -959,6 +997,35 @@
       // כתפוס. וגם ההפך: מסלול ה-409 אינו מסמן ``has-save-error`` כלל,
       // ולכן התנגשות שם אמיתית לא הופיעה אף פעם. סימון שמופיע בכל מצב
       // חוץ מהנכון הוא גרוע מאין סימון.
+      // מצב עריכת השם: נעול (נגרר) מול פתוח (מקליד).
+      //
+      // ``pointer-events`` הוא מה שמעביר את האירועים לידית שמתחת, ולכן
+      // הוא הדבר שבאמת מחזיר את שטח הגרירה. ``readonly`` ו-``tabindex``
+      // נלווים אליו כדי שגם מקלדת וקורא-מסך יראו את אותו מצב.
+      _setTitleEditing(el, on){
+        try {
+          const input = el.querySelector('.sticky-note-title');
+          const btn = el.querySelector('.sticky-note-edit-title');
+          const editing = !!on;
+          el.classList.toggle('is-editing-title', editing);
+          if (btn) {
+            btn.textContent = editing ? '✔' : '✎';
+            btn.title = editing ? 'סיום עריכת השם' : 'עריכת שם הפתק';
+            btn.setAttribute('aria-pressed', editing ? 'true' : 'false');
+          }
+          if (!input) return;
+          if (editing) {
+            input.removeAttribute('readonly');
+            input.setAttribute('tabindex', '0');
+            try { input.focus(); input.select(); } catch(_) {}
+          } else {
+            input.setAttribute('readonly', 'readonly');
+            input.setAttribute('tabindex', '-1');
+            try { if (document.activeElement === input) input.blur(); } catch(_) {}
+          }
+        } catch(_) {}
+      }
+
       _markTitleConflict(id, on){
         try {
           const entry = this.notes.get(String(id));
