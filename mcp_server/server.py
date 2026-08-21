@@ -36,8 +36,10 @@ _INSTRUCTIONS = (
     "codekeeper_save_file to create or update a file, and prefer "
     "codekeeper_edit_file / codekeeper_append_file to change part of an existing "
     "file without resending all of it (write tools require write permission). "
-    "Sticky notes: codekeeper_list_notes reads a file's notes; "
-    "codekeeper_create_note / codekeeper_update_note add or change them (write "
+    "Sticky notes live on a file or on a board (a surface that belongs to no file). "
+    "codekeeper_list_notes reads a file's notes; codekeeper_list_boards and "
+    "codekeeper_list_board_notes read boards. codekeeper_create_note / "
+    "codekeeper_create_board_note / codekeeper_update_note add or change them (write "
     "permission; notes appear in the CodeKeeper web UI). "
     "All data is scoped to the authenticated user."
 )
@@ -340,6 +342,58 @@ def build_mcp(
             line=line,
             color=color,
             anchor_text=anchor_text,
+        )
+
+    @mcp.tool(
+        name="codekeeper_list_boards",
+        description=(
+            "List the user's note boards — surfaces that hold sticky notes belonging to "
+            "no file (a to-do list, ideas, anything without a natural home in a file). "
+            "Returns id, name, whether it is the default board, and a note count. "
+            "Creates the default board on first call."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_boards(ctx: Context) -> dict:
+        return handlers.list_boards(backend, current_user_id(ctx))
+
+    @mcp.tool(
+        name="codekeeper_list_board_notes",
+        description=(
+            "List the sticky notes on one board (by board_id from codekeeper_list_boards). "
+            "Same notes shown on the board page in the web UI. Use codekeeper_list_notes "
+            "instead for notes attached to a file."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_board_notes(ctx: Context, board_id: str) -> dict:
+        return handlers.list_board_notes(backend, current_user_id(ctx), board_id=board_id)
+
+    @mcp.tool(
+        name="codekeeper_create_board_note",
+        description=(
+            "Add a sticky note to a board (board_id from codekeeper_list_boards). Unlike "
+            "codekeeper_create_note this needs no file. mode is 'surface' (sits on the "
+            "board, default) or 'screen' (floats against the viewport). Requires write "
+            "permission."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def create_board_note(
+        ctx: Context,
+        board_id: str,
+        content: str,
+        color: str | None = None,
+        mode: str | None = None,
+    ) -> dict:
+        require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
+        return handlers.create_board_note(
+            backend,
+            current_user_id(ctx),
+            board_id=board_id,
+            content=content,
+            color=color,
+            mode=mode,
         )
 
     @mcp.tool(

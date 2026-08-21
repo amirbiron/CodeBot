@@ -20,7 +20,7 @@ import asyncio
 # תקרת אורך התוכן — מקור אמת אחד, בלי fallback שקט.
 # תלוי בכך ש-``app.py`` כבר הכין את ``sys.path``; ראו את ההסבר המלא ב-
 # tests/test_webapp_import_paths.py.
-from sticky_notes_target import MAX_NOTE_CHARS
+from sticky_notes_target import MAX_NOTE_CHARS, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -1445,13 +1445,6 @@ def batch_update_notes():
 # ולכן הם עובדים על פתקי לוח בלי שורת קוד אחת. זה כל הרווח של "אוסף פתקים
 # אחד": מסלול הכתיבה, ה-debounce, ה-optimistic concurrency וה-keepalive
 # מגיעים בירושה.
-
-#: תקרת פתקים ללוח. אותו ערך שמתועד ב-``docs/user/sticky_notes.rst`` וש-
-#: ``mcp_server/handlers`` אוכף לקובץ.
-MAX_NOTES_PER_BOARD = 200
-
-#: תקרת פתקים למשתמש. הייתה מתועדת ולא נאכפה בשום מקום בקוד.
-MAX_NOTES_PER_USER = 1000
 
 
 def _current_user_is_admin() -> bool:

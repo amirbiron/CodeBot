@@ -248,6 +248,130 @@ def test_as_note_serialization():
         "line_start",
         "anchor_text",
         "is_minimized",
+        # פתק לוח חייב לומר איפה הוא יושב. בפתק קובץ שניהם ריקים.
+        "board_id",
+        "mode",
         "created_at",
         "updated_at",
     }
+
+
+def test_as_note_reports_where_a_board_note_sits():
+    """``board_id`` ו-``mode`` אינם קישוט — בלעדיהם הפלט לא אומר כלום על מיקום.
+
+    בלי הבדיקה הזו, הרחבת הקבוצה הסגורה למעלה הייתה חותמת גומי: היא הייתה
+    עוברת גם אם השדות תמיד ריקים.
+    """
+    out = _as_note({"_id": "OID", "content": "x", "board_id": "b1", "mode": "screen"})
+
+    assert out["board_id"] == "b1"
+    assert out["mode"] == "screen"
+
+
+def test_as_note_leaves_board_fields_empty_for_a_file_note():
+    """מסלול הקובץ לא משתנה — שני השדות ריקים ואינם ממציאים לוח."""
+    out = _as_note({"_id": "OID", "content": "x", "file_id": "f1", "line_start": 5})
+
+    assert not out["board_id"]
+    assert not out["mode"]
+
+
+# ---------- לוחות פתקים ----------
+#
+# עד כאן ה-MCP הכיר רק פתקים שצמודים לקובץ. הלוחות הם משטח שני לאותם
+# פתקים, ולכן הבדיקות כאן מתמקדות בשני דברים שהם **לא** חיווט: בעלות, ותקרה
+# שמתנהגת נכון כשהספירה נכשלת.
+
+from mcp_server import handlers as _h  # noqa: E402
+
+
+class _BoardsBackend:
+    """Backend מדומה בפייתון טהור, בתבנית ``_NotesBackend`` שכבר בקובץ."""
+
+    def __init__(self):
+        self.calls = []
+
+    def list_boards(self, user_id):
+        self.calls.append(("list_boards", user_id))
+        return {"ok": True, "count": 1, "boards": [{"id": "a" * 24, "name": "לוח עבודה"}]}
+
+    def list_board_notes(self, user_id, *, board_id):
+        self.calls.append(("list_board_notes", user_id, board_id))
+        return {"ok": True, "board_id": board_id, "count": 0, "notes": []}
+
+    def create_board_note(self, user_id, *, board_id, content, color, mode):
+        self.calls.append(("create_board_note", user_id, board_id, content, color, mode))
+        return {"ok": True, "note": {"id": "n1", "board_id": board_id, "mode": mode}}
+
+
+_VALID_BOARD = "a" * 24
+
+
+def test_board_id_must_be_an_object_id():
+    """מזהה פגום נעצר בשער, בלי לגעת במסד.
+
+    בלי הבדיקה הזו כל מחרוזת הייתה עוברת ל-``ObjectId(...)`` ומייצרת חריגה
+    במקום תשובה מסודרת.
+    """
+    b = _BoardsBackend()
+
+    for bad in ("", "   ", "not-an-id", "a" * 23, "z" * 24):
+        res = _h.list_board_notes(b, 7, board_id=bad)
+        assert res == {"ok": False, "error": "invalid_board_id"}, bad
+
+    assert b.calls == [], "מזהה פגום לא אמור להגיע ל-backend"
+
+
+def test_create_board_note_also_gates_on_the_board_id():
+    """הכתיבה נעצרת על מזהה פגום בדיוק כמו הקריאה.
+
+    שני ה-handlers חולקים את אותו שער; בלי בדיקה מקבילה, שינוי באחד היה
+    יכול להשאיר את השני פתוח.
+    """
+    b = _BoardsBackend()
+
+    for bad in ("", "   ", "not-an-id", "a" * 23, "z" * 24):
+        res = _h.create_board_note(b, 7, board_id=bad, content="x")
+        assert res == {"ok": False, "error": "invalid_board_id"}, bad
+
+    assert b.calls == [], "מזהה פגום לא אמור להגיע ל-backend"
+
+
+def test_create_board_note_rejects_empty_and_overlong_content():
+    from sticky_notes_target import MAX_NOTE_CHARS
+
+    b = _BoardsBackend()
+
+    assert _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="   ")["error"] == "empty_content"
+
+    over = _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="א" * (MAX_NOTE_CHARS + 1))
+    assert over["error"] == "content_too_long"
+    assert over["max"] == MAX_NOTE_CHARS
+
+    assert b.calls == []
+
+
+def test_create_board_note_rejects_anchored_mode():
+    """``anchored`` דורש שורות מקור, ובלוח אין כאלה.
+
+    פתק כזה היה מחשב מיקום מול עוגן שאינו קיים — כלומר פתק שנעלם. זו הסיבה
+    ש-``is_valid_board_mode`` נפרד מ-``is_valid_mode``.
+    """
+    b = _BoardsBackend()
+
+    res = _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="x", mode="anchored")
+
+    assert res["error"] == "invalid_mode"
+    assert res["allowed"] == ["surface", "screen"]
+    assert b.calls == []
+
+
+def test_create_board_note_normalizes_color_and_mode():
+    b = _BoardsBackend()
+
+    _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="שלום", color="לא-צבע")
+
+    _, _, _, content, color, mode = b.calls[0]
+    assert content == "שלום"
+    assert color == _h.DEFAULT_NOTE_COLOR, "צבע לא חוקי נופל לברירת המחדל, כמו ביצירת פתק קובץ"
+    assert mode == "surface", "ברירת המחדל בלוח"
