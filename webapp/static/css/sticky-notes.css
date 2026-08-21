@@ -142,3 +142,10 @@
   outline: 2px solid #dc3545;
   outline-offset: 1px;
 }
+
+/* כפתור ביטול מושבת — הכפתור אומר את האמת על מה שהוא יכול לעשות */
+.sticky-note-btn[disabled] { opacity: .3; cursor: default; }
+
+/* חיווי העתקה. כשל חייב להיראות, לא רק הצלחה. */
+.sticky-note-copy.is-copy-done { background: #d1fae5; color: #065f46; border-radius: 6px; }
+.sticky-note-copy.is-copy-fail { background: #fee2e2; color: #b91c1c; border-radius: 6px; }

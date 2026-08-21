@@ -150,6 +150,10 @@
   //: שורת משימה: ``- [ ] טקסט`` או ``* [x] טקסט``, עם הזחה כלשהי.
   //: אותה תבנית בדיוק כמו ``_TASK_RE`` ב-``sticky_notes_tasks.py`` — שם
   //: מתבצעת הכתיבה, וכאן רק התצוגה. סטייה ביניהן הייתה מזיזה סידורים.
+  //: כמה זמן של חוסר-הקלדה סוגר "התפרצות" והופך אותה לצעד אחד לביטול.
+  const UNDO_BURST_MS = 600;
+  //: עומק מחסנית הביטול לכל פתק. בזיכרון בלבד.
+  const UNDO_MAX_STEPS = 50;
   const TASK_LINE_RE = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -400,8 +404,26 @@
       const minimizeBtn = createEl('button', 'sticky-note-btn', { title: 'מזער' }); minimizeBtn.textContent = '—';
       const remindBtn = createEl('button', 'sticky-note-btn', { title: 'קבע תזכורת' }); remindBtn.textContent = '🔔';
       const deleteBtn = createEl('button', 'sticky-note-btn', { title: 'מחיקה' }); deleteBtn.textContent = '×';
-      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
+      // ביטול פעולה. אין לפתקים היסטוריית גרסאות, ולכן בחירת-הכל ואז הדבקה
+      // בטעות מוחקת הכל בלי דרך חזרה. הכפתור מושבת כשאין מה לבטל — כפתור
+      // שנראה זמין ולא עושה כלום הוא בדיוק סוג השקר שאנחנו נמנעים ממנו.
+      const undoBtn = createEl('button', 'sticky-note-btn sticky-note-undo', { title: 'אין מה לבטל' });
+      undoBtn.textContent = '↶';
+      undoBtn.disabled = true;
+      const copyBtn = createEl('button', 'sticky-note-btn sticky-note-copy', { title: 'העתק את תוכן הפתק' });
+      copyBtn.textContent = '⧉';
+      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(undoBtn);
+      actions.appendChild(copyBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
       header.appendChild(drag); header.appendChild(actions);
+
+      undoBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._undoLastChange(el);
+      });
+      copyBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._copyNoteContent(el);
+      });
       pinBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         this._toggleAnchor(el);
@@ -469,6 +491,7 @@
       });
 
       textarea.addEventListener('input', () => {
+        this._recordUndoBurst(el, textarea);
         this._checkContentLength(el, textarea.value);
         this._queueSave(el, { content: textarea.value });
       });
@@ -518,6 +541,8 @@
       // תצוגת המשימות נבנית מהתוכן שנטען. אם אין צ'קבוקסים היא נשארת מוסתרת
       // וה-textarea מוצג כרגיל — כלומר פתק רגיל אינו משתנה כלל.
       this._syncTaskView(el);
+      this._undoState(el);          // מצלם את נקודת המוצא כבר עכשיו
+      this._syncUndoButton(el);
       this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
       this._updateAnchoredNotePosition(el, note);
@@ -843,6 +868,151 @@
       // חיווי אורך. השרת דוחה תוכן שחורג מהתקרה ב-``content_too_long``,
       // אבל דחייה שמגיעה רק אחרי ניסיון שמירה היא מאוחרת מדי — המשתמש
       // כבר הדביק והמשיך. כאן זה נראה בזמן ההקלדה.
+      // ----- ביטול פעולה -----
+      //
+      // לפתקים אין היסטוריית גרסאות בשרת. התרחיש שזה מגן מפניו הוא ממשי:
+      // בוחרים את כל הטקסט כדי להעתיק, ולוחצים "הדבק" במקום "העתק" — וכל
+      // הפתק נמחק. בלי מנגנון כזה אין שום דרך חזרה.
+      //
+      // **טווח מכוון: הסשן הנוכחי.** המחסנית חיה בזיכרון ולא שורדת רענון.
+      // התרחיש שהיא מכסה מתגלה מיד, ואחסון מקומי של עשרות גרסאות בנות
+      // 20,000 תווים היה אוכל את מכסת הדפדפן.
+
+      _undoState(el){
+        const entry = this._getEntry(el);
+        if (!entry) return null;
+        if (!entry.undo) {
+          // ``last`` מאותחל לתוכן **שלפני** השינוי, ולא ל-null.
+          //
+          // באתחול ל-null, הקריאה הראשונה הייתה קובעת ``last`` לערך שכבר
+          // השתנה — ואז "המצב הקודם" היה זהה לחדש ושום דבר לא נדחף
+          // למחסנית. כלומר בדיוק התרחיש שהפיצ'ר נועד לו — בחירת-הכל
+          // והדבקה — לא היה ניתן לביטול. נתפס בבדיקה: 21 תווים אחרי
+          // ביטול במקום המקור המלא.
+          const seed = (entry.data && typeof entry.data.content === 'string') ? entry.data.content : '';
+          entry.undo = { stack: [], burstFrom: null, timer: null, last: seed };
+        }
+        return entry.undo;
+      }
+
+      // הקלדה רצופה היא פעולה אחת, לא מאה. צילום המצב נלקח **לפני** תחילת
+      // ההתפרצות, ונדחף למחסנית רק אחרי שהמשתמש עצר — כך שהדבקה בודדת היא
+      // בדיוק צעד אחד לבטל.
+      _recordUndoBurst(el, textarea){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          const current = String(textarea.value == null ? '' : textarea.value);
+          if (st.burstFrom === null) st.burstFrom = st.last;
+          st.last = current;
+          try { clearTimeout(st.timer); } catch(_) {}
+          st.timer = setTimeout(() => {
+            const from = st.burstFrom;
+            st.burstFrom = null;
+            if (from !== null && from !== st.last) this._pushUndo(el, from);
+          }, UNDO_BURST_MS);
+        } catch(_) {}
+      }
+
+      _pushUndo(el, snapshot){
+        try {
+          const st = this._undoState(el);
+          if (!st) return;
+          if (st.stack.length && st.stack[st.stack.length - 1] === snapshot) return;
+          st.stack.push(snapshot);
+          if (st.stack.length > UNDO_MAX_STEPS) st.stack.shift();
+          this._syncUndoButton(el);
+        } catch(_) {}
+      }
+
+      _syncUndoButton(el){
+        try {
+          const btn = el.querySelector('.sticky-note-undo');
+          if (!btn) return;
+          const st = this._undoState(el);
+          const depth = st ? st.stack.length : 0;
+          btn.disabled = depth === 0;
+          btn.title = depth ? `בטל שינוי אחרון (${depth} צעדים שמורים)` : 'אין מה לבטל';
+        } catch(_) {}
+      }
+
+      _undoLastChange(el){
+        try {
+          const st = this._undoState(el);
+          const textarea = el.querySelector('.sticky-note-content');
+          if (!st || !textarea || !st.stack.length) return;
+
+          // התפרצות שעדיין ממתינה לטיימר נסגרת קודם, אחרת הצעד האחרון
+          // שהמשתמש הקליד היה נדחף למחסנית **אחרי** הביטול ומבטל אותו.
+          try { clearTimeout(st.timer); } catch(_) {}
+          if (st.burstFrom !== null && st.burstFrom !== st.last) {
+            st.stack.push(st.burstFrom);
+            if (st.stack.length > UNDO_MAX_STEPS) st.stack.shift();
+          }
+          st.burstFrom = null;
+
+          const restored = st.stack.pop();
+          textarea.value = restored;
+          st.last = restored;
+          const entry = this._getEntry(el);
+          if (entry && entry.data) entry.data.content = restored;
+          this._checkContentLength(el, restored);
+          this._queueSave(el, { content: restored });
+          this._syncTaskView(el);
+          this._syncUndoButton(el);
+        } catch(e) { console.warn('sticky note: undo failed', e); }
+      }
+
+      // ----- העתקה -----
+      //
+      // ``navigator.clipboard`` אינו זמין בהקשר לא-מאובטח ועלול להיחסם
+      // בהרשאות. יש נפילה חיננית, ובכל מקרה **חיווי גלוי** — כפתור שנלחץ
+      // ולא קורה כלום הוא בדיוק הכשל השקט שהפיצ'ר הזה לא מרשה לעצמו.
+      async _copyNoteContent(el){
+        const textarea = el.querySelector('.sticky-note-content');
+        const text = textarea ? String(textarea.value == null ? '' : textarea.value) : '';
+        let ok = false;
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+          }
+        } catch(_) { ok = false; }
+        if (!ok) ok = this._copyViaFallback(text);
+        this._flashCopyResult(el, ok);
+      }
+
+      _copyViaFallback(text){
+        try {
+          const tmp = document.createElement('textarea');
+          tmp.value = text;
+          tmp.setAttribute('readonly', '');
+          tmp.style.position = 'fixed';
+          tmp.style.opacity = '0';
+          document.body.appendChild(tmp);
+          tmp.select();
+          const ok = document.execCommand && document.execCommand('copy');
+          document.body.removeChild(tmp);
+          return !!ok;
+        } catch(_) { return false; }
+      }
+
+      _flashCopyResult(el, ok){
+        try {
+          // מחלקה יציבה ולא ה-title, שאותו הפונקציה הזו עצמה משנה
+          const target = el.querySelector('.sticky-note-copy') || el;
+          const cls = ok ? 'is-copy-done' : 'is-copy-fail';
+          target.classList.add(cls);
+          if (!ok) target.title = 'ההעתקה נחסמה בדפדפן — סמנו והעתיקו ידנית';
+          setTimeout(() => {
+            try {
+              target.classList.remove(cls);
+              if (!ok) target.title = 'העתק את תוכן הפתק';
+            } catch(_) {}
+          }, 1800);
+        } catch(_) {}
+      }
+
       _checkContentLength(el, text){
         try {
           const cap = maxNoteChars();
