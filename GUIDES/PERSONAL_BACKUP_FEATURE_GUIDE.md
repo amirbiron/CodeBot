@@ -20,8 +20,7 @@
 | אוספים (collections) | `user_collections` | `metadata/collections.json` |
 | פריטים באוספים | `collection_items` | `metadata/collection_items.json` |
 | סימניות (bookmarks) | `file_bookmarks` | `metadata/bookmarks.json` |
-| פתקיות (sticky notes) | `sticky_notes` | `metadata/sticky_notes.json` |
-> **שים לב**: הגיבוי כולל גם פתקי קובץ (file notes) וגם פתקי לוח (board notes). עבור פתקי לוח, ה-JSON כולל שדה `board_name` כדי לאפשר שחזור לפי שם הלוח.
+| פתקיות (sticky notes) | `sticky_notes` | `metadata/sticky_notes.json` (כולל פתקי קבצים ופתקי לוחות) |
 | העדפות משתמש | `user_preferences` | `metadata/preferences.json` |
 | מועדפים + נעוצים | שדות ב-`code_snippets` | כלול ב-`metadata/files.json` |
 | הגדרות Drive | שדה ב-`users` | `metadata/drive_prefs.json` |
@@ -1026,6 +1025,24 @@ def _safe_zip_path(path: str) -> str:
     return "/".join(parts)
 ```
 
+
+### ייצוא Sticky Notes
+
+המתודה `_export_sticky_notes` שומרת את כל הפתקיות של המשתמש (קבצים + לוחות) ל-`metadata/sticky_notes.json`.
+
+**חשוב:**
+- שומרים גם את `file_name` ו-`scope_id` (לא רק `file_id`) עבור פתקי קבצים, כדי שנוכל לעשות resolve בשחזור — כי ה-`file_id` (ObjectId) ישתנה בסביבה אחרת.
+- **פתקי לוח** מועשרים עם `board_name` בנוסף ל-`board_id`. השם הוא מה שמאפשר שיוך מחדש בסביבת היעד, כי ה-`board_id` לא יהיה תקף אחרי שחזור (הוא ObjectId שמשתנה בין סביבות).
+
+### שחזור Sticky Notes
+
+המתודה `_restore_sticky_notes` משחזרת פתקיות (קבצים + לוחות).
+
+**חשוב:**
+- ה-`file_id` מהגיבוי הוא ObjectId ישן שכבר לא תקף. חייבים לעשות resolve לפי `file_name` כדי לקבל את ה-`file_id` החדש, וגם לחשב `scope_id` חדש.
+- **פתקי לוח** משוחזרים לפי **שם** הלוח (`board_name`), ולא לפי ה-`board_id` — שכן הוא ObjectId שמשתנה בין סביבות. 
+- אם הלוח המבוקש לא נמצא, הפתק משוייך ללוח ברירת המחדל. כך פתקי לוח שורדים גיבוי-שחזור ולא נופלים בשקט.
+- **מכסות חלות גם בשחזור** (per-board ו-per-user), כדי שגיבוי לא יעקוף אכיפה שחלה בכל מסלול אחר.
 ### נקודות מפתח בשירות
 
 - **ללא `code` בשאילתת רשימה:** `get_user_files` מחזיר ברירת מחדל ללא שדות כבדים (בהתאם ל-`HEAVY_FIELDS_EXCLUDE_PROJECTION`). קריאת תוכן מלא מתבצעת רק עם `get_file()` עבור כל קובץ בנפרד.
