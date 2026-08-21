@@ -21,6 +21,7 @@
 | פריטים באוספים | `collection_items` | `metadata/collection_items.json` |
 | סימניות (bookmarks) | `file_bookmarks` | `metadata/bookmarks.json` |
 | פתקיות (sticky notes) | `sticky_notes` | `metadata/sticky_notes.json` |
+> **שים לב**: הגיבוי כולל גם פתקי קובץ (file notes) וגם פתקי לוח (board notes). עבור פתקי לוח, ה-JSON כולל שדה `board_name` כדי לאפשר שחזור לפי שם הלוח.
 | העדפות משתמש | `user_preferences` | `metadata/preferences.json` |
 | מועדפים + נעוצים | שדות ב-`code_snippets` | כלול ב-`metadata/files.json` |
 | הגדרות Drive | שדה ב-`users` | `metadata/drive_prefs.json` |
