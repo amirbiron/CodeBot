@@ -1243,6 +1243,16 @@ try:
 except Exception:
     pass
 
+# Note Boards UI (עמודי הלוחות עצמם)
+try:
+    from webapp.boards_ui import boards_ui  # noqa: E402
+    app.register_blueprint(boards_ui)
+except Exception as _e:
+    try:
+        logger.info("boards_ui blueprint not registered: %s", _e)
+    except Exception:
+        pass
+
 # Web Push API (public key + subscribe/unsubscribe)
 try:
     from webapp.push_api import push_bp, start_sender_if_enabled  # noqa: E402
