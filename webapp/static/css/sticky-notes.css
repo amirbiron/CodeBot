@@ -225,8 +225,12 @@
 }
 .sticky-md-pre.is-fence { color: var(--note-ink-muted, #66739A); }
 /* פינות עגולות בקצות הרצף */
+/* פינות עגולות בגדר הפותחת: או ראשונה בתצוגה, או אחרי שורה שאינה
+   ``.sticky-md-pre`` (כלומר תחילת רצף קוד). הסלקטור הקודם היה
+   ``:not(.sticky-md-pre)`` על אלמנט שהוא-עצמו ``.sticky-md-pre`` —
+   בלתי אפשרי, ולכן לא חל לעולם. */
 .sticky-md-pre.is-fence:first-child,
-.sticky-md-pre:not(.sticky-md-pre) + .sticky-md-pre.is-fence { border-radius: 6px 6px 0 0; }
+:not(.sticky-md-pre) + .sticky-md-pre.is-fence { border-radius: 6px 6px 0 0; }
 
 
 /* חיווי כשל — כתיבה שלא נקלטה חייבת להיראות, לא להיעלם בשקט */

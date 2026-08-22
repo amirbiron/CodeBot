@@ -159,6 +159,7 @@ check('יעד חסר נכשל מיד ולא בשקט', () => {
 
 const fileMgr = new StickyNotesManager('f1');
 const boardMgr = new StickyNotesManager({ board: 'b1' });
+const mdMgr = new StickyNotesManager({ board: 'md-tests' });  // מארקדאון דלוק
 
 // **מוקש בהארנס, ולא בקוד הנבדק.**
 //
@@ -804,7 +805,7 @@ function renderMd(mgr, content){
 }
 
 check('רינדור: כל סוגי הבלוק נבנים', () => {
-  const { el, view } = renderMd(fileMgr,
+  const { el, view } = renderMd(mdMgr,
     '# כותרת\n> ציטוט\n---\n- פריט\n1. ממוספר\n**מודגש** רגיל');
   eq(!!view.querySelector('.sticky-md-h1'), true, 'H1');
   eq(!!view.querySelector('.sticky-md-quote'), true, 'ציטוט');
@@ -817,14 +818,14 @@ check('רינדור: כל סוגי הבלוק נבנים', () => {
 check('רינדור: זריקה נשארת טקסט, לא תגית', () => {
   // **החוזה הקדוש.** ``createElement``+``textContent`` בלבד, ולכן
   // ``<script>`` לא יכול להפוך לתגית.
-  const { view } = renderMd(fileMgr, '<script>alert(1)</script> **ok**');
+  const { view } = renderMd(mdMgr, '<script>alert(1)</script> **ok**');
   const text = view.textContent;
   eq(text.includes('<script>alert(1)</script>'), true, 'הסקריפט כטקסט');
   eq(!!view.querySelector('script'), false, 'ואין תגית script');
 });
 
 check('רינדור: קישור מקבל rel ו-target', () => {
-  const { view } = renderMd(fileMgr, 'ראה [כאן](https://x.com)');
+  const { view } = renderMd(mdMgr, 'ראה [כאן](https://x.com)');
   const a = view.querySelector('.sticky-md-link');
   eq(a.getAttribute('href'), 'https://x.com');
   eq(a.getAttribute('target'), '_blank');
@@ -832,16 +833,49 @@ check('רינדור: קישור מקבל rel ו-target', () => {
 });
 
 check('רינדור: בלוק קוד — הגדר גלויה, התוכן ליטרלי', () => {
-  const { view } = renderMd(fileMgr, '```\na*b*\n```');
+  const { view } = renderMd(mdMgr, '```\na*b*\n```');
   const pre = view.querySelectorAll('.sticky-md-pre');
   eq(pre.length, 3, 'שלוש שורות: גדר, תוכן, גדר');
-  // התוכן בקוד אינו מפורש לאינליין — אין ``em``
+  // התוכן בקוד אינו מפורש לאינליין — אין ``em``, והטקסט **מלא**.
   eq(!!view.querySelector('.sticky-md-italic'), false, 'אין נטוי בתוך קוד');
+  eq(pre[1].textContent, 'a*b*', 'שורת התוכן ליטרלית, כולל הכוכביות');
+});
+
+check('רינדור: צ׳קבוקס בתוך גדר קוד אינו תיבה אינטראקטיבית', () => {
+  // ``- [ ] item`` בתוך בלוק קוד הוא דוגמה, לא משימה. תיבה כאן הייתה
+  // כותבת למסד בלחיצה ומקדמת את הסידור של הצ'קבוקסים האמיתיים.
+  const { view } = renderMd(mdMgr, '```\n- [ ] בקוד\n```\n- [ ] אמיתי');
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 1, 'רק המשימה שמחוץ לגדר');
+  eq(boxes[0].dataset.taskIndex, '0', 'והסידור שלה 0, לא 1');
+  // שורת המשימה שבתוך הגדר מרונדרת כקוד ליטרלי
+  const pre = view.querySelectorAll('.sticky-md-pre');
+  eq(pre[1].textContent, '- [ ] בקוד', 'הדוגמה נשארה ליטרלית');
+});
+
+check('פתיחה: קישור פסול לפני מארקדאון תקין — עדיין נפתח', () => {
+  // ``_lineHasInline`` סורק את כל ההתאמות. קישור פסול ראשון לא מסתיר
+  // את המודגש שאחריו.
+  eq(mdMgr._hasRenderableMarkdown(['[x](javascript:y) ואז **מ**']), true);
+  const { view } = renderMd(mdMgr, '[x](javascript:y) ואז **מ**');
+  eq(!!view.querySelector('.sticky-md-bold'), true, 'המודגש מרונדר');
+  eq(!!view.querySelector('.sticky-md-link'), false, 'והקישור הפסול נשאר טקסט');
+});
+
+check('פתק קובץ: מארקדאון כבוי כברירת מחדל', () => {
+  // ``fileMgr`` הוא פתק קובץ — אין לו מתג כיבוי, ולכן ברירת המחדל
+  // שמרנית: טקסט גולמי, בדיוק כמו לפני הפיצ'ר.
+  eq(fileMgr.markdown, false, 'פתק קובץ — כבוי');
+  eq(mdMgr.markdown, true, 'פתק לוח — דלוק');
+  const parts = makeNote('# כותרת\n**מ**');
+  fileMgr._syncTaskView(parts.el);
+  eq(!!parts.view.querySelector('.sticky-md-h1'), false, 'אין רינדור בפתק קובץ');
+  eq(parts.ta.hidden, false, 'ה-textarea גלוי');
 });
 
 check('רינדור: charOffset נשמר לכל שורה', () => {
   // לחיצה חוזרת-לעריכה תלויה בזה. שורה עם מודגש וקוד סופרת על הגלם.
-  const { view } = renderMd(fileMgr, 'אחת\n**שתיים** `קוד`\nשלוש');
+  const { view } = renderMd(mdMgr, 'אחת\n**שתיים** `קוד`\nשלוש');
   const rows = view.querySelectorAll('.sticky-task-line');
   eq(rows[0].dataset.charOffset, '0', 'שורה 1');
   eq(rows[1].dataset.charOffset, '4', 'שורה 2 — אחרי "אחת\\n"');
@@ -860,16 +894,16 @@ check('רינדור: מארקדאון כבוי מציג טקסט גולמי', ()
 
 check('רינדור: setMarkdown מכבה ומנקה', () => {
   const parts = makeNote('# כותרת');
-  fileMgr.notes.set('md-toggle', { el: parts.el, data: { id: 'md-toggle' } });
+  mdMgr.notes.set('md-toggle', { el: parts.el, data: { id: 'md-toggle' } });
   parts.el.dataset.noteId = 'md-toggle';
-  fileMgr._syncTaskView(parts.el);
+  mdMgr._syncTaskView(parts.el);
   eq(!!parts.view.querySelector('.sticky-md-h1'), true, 'דלוק — מרונדר');
 
-  fileMgr.setMarkdown(false);
+  mdMgr.setMarkdown(false);
   // **הניקוי ביציאה.** בלי ``view.textContent=''`` הצומת שרד ב-DOM המוסתר.
   eq(!!parts.view.querySelector('.sticky-md-h1'), false, 'כבוי — נוקה');
-  fileMgr.setMarkdown(true);
-  fileMgr.notes.delete('md-toggle');
+  mdMgr.setMarkdown(true);
+  mdMgr.notes.delete('md-toggle');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

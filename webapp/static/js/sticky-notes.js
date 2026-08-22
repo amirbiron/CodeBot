@@ -235,7 +235,12 @@
       // מארקדאון מרונדר כברירת מחדל (אופציה ג'), עם מתג לכיבוי במודאל
       // הגדרות הלוח. צ'קבוקסים אינם תלויים בדגל הזה — הם מרונדרים תמיד,
       // כי הם כתיבה למסד ולא רק תצוגה.
-      this.markdown = ('markdown' in opts) ? !!opts.markdown : true;
+      // דלוק כברירת מחדל **בלוח** (אופציה ג', עם מתג במודאל). בפתקי
+      // קובץ ברירת המחדל שמרנית — ``false`` — כי אין להם מתג כיבוי,
+      // ורינדור אוטומטי היה שינוי שקט ובלתי-הפיך-למשתמש לכל פתקי הקבצים
+      // הקיימים. md_preview.html יכול להעביר ``markdown: true`` במפורש
+      // אם ירצה בעתיד.
+      this.markdown = ('markdown' in opts) ? !!opts.markdown : !!this.boardId;
       this._renderedFromCache = false;
       this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
       this._init();
@@ -551,6 +556,9 @@
       const enterFromEvent = (ev) => {
         const t = ev.target;
         if (t && t.classList && t.classList.contains('sticky-task-box')) return false;
+        // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
+        // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
+        if (t && t.closest && t.closest('a.sticky-md-link')) return false;
         const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
         const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
         this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
@@ -1010,11 +1018,16 @@
 
       // האם יש מארקדאון שכדאי לרנדר — כדי לא להפוך פתק טקסט רגיל לתצוגה.
       _lineHasInline(content){
+        // סורק את **כל** ההתאמות: קישור פסול אינו מארקדאון, אבל אסור
+        // שיסתיר מבנה תקין שאחריו באותה שורה. ``[x](javascript:y) **מ**``
+        // עדיין נחשב מארקדאון בזכות המודגש.
         MD_INLINE_RE.lastIndex = 0;
-        const m = MD_INLINE_RE.exec(content);
-        if (!m) return false;
-        if (m[3] !== undefined && !MD_SAFE_LINK.test(m[4])) return false;
-        return true;
+        let m;
+        while ((m = MD_INLINE_RE.exec(content)) !== null){
+          if (m[3] !== undefined && !MD_SAFE_LINK.test(m[4])) continue;
+          return true;
+        }
+        return false;
       }
       _hasRenderableMarkdown(lines){
         for (const line of lines){
@@ -1086,7 +1099,10 @@
             // לעריכה בדיוק בשורה שנלחצה, ולא בתחילת הפתק.
             row.dataset.charOffset = String(charOffset);
             const isFenceLine = wantMd && MD_FENCE_RE.test(line);
-            if (m) {
+            // גדר קוד קודמת לזיהוי משימה: ``- [ ] x`` בתוך בלוק קוד הוא
+            // דוגמה ליטרלית, לא תיבת סימון. בלי התנאי הזה לחיצה עליה
+            // כותבת למסד ומקדמת את סידורי הצ'קבוקסים האמיתיים אחריה.
+            if (m && !inFence && !isFenceLine) {
               // צ'קבוקס — מסלול קיים, לא תלוי במארקדאון.
               row.classList.add('sticky-task');
               const box = createEl('input', 'sticky-task-box');

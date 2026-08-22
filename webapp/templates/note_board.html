@@ -150,7 +150,12 @@
     try { return localStorage.getItem(MARKDOWN_KEY) !== '0'; } catch (e) { return true; }
   }
   function writeMarkdown(on) {
-    try { localStorage.setItem(MARKDOWN_KEY, on ? '1' : '0'); } catch (e) { /* מצב זמני בלבד */ }
+    // רק כיבוי נשמר. הדלקה מוחקת את המפתח — כך שברירת המחדל הדלוקה
+    // חוזרת מאליה, וההערה למעלה אכן נכונה.
+    try {
+      if (on) localStorage.removeItem(MARKDOWN_KEY);
+      else localStorage.setItem(MARKDOWN_KEY, '0');
+    } catch (e) { /* מצב זמני בלבד */ }
   }
 
   window._boardNotes = new window.StickyNotesManager({
