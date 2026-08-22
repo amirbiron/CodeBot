@@ -167,6 +167,68 @@
 
 .sticky-note.is-task-pending { opacity: .85; }
 
+/* ---------- מארקדאון קליל בפתקים ---------- */
+/* כל צבע נגזר מ-``--note-ink``/``--note-ink-muted`` שכבר מוגדרים על
+   ``.sticky-note`` — דיו קבוע, בלתי תלוי בערכה, בדיוק כמו שם הפתק. */
+
+/* אינליין */
+.sticky-md-bold   { font-weight: 700; }
+.sticky-md-italic { font-style: italic; }
+.sticky-md-strike { text-decoration: line-through; opacity: .7; }
+.sticky-md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em; direction: ltr; unicode-bidi: embed;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 12%, transparent);
+  padding: .05em .3em; border-radius: 4px;
+}
+.sticky-md-link { color: var(--note-ink, #2b3f6a); text-decoration: underline; }
+.sticky-md-link:hover { text-decoration-thickness: 2px; }
+
+/* כותרות — גודל ומשקל, בלי קפיצות ענק שיאכלו את הפתק הקטן */
+.sticky-md-h { font-weight: 700; line-height: 1.25; margin: .15em 0 .05em; }
+.sticky-md-h1 { font-size: 1.25em; }
+.sticky-md-h2 { font-size: 1.12em; }
+.sticky-md-h3 { font-size: 1.02em; opacity: .9; }
+
+/* ציטוט — קו בצד והזחה קטנה */
+.sticky-md-quote {
+  border-inline-start: 3px solid color-mix(in srgb, var(--note-ink, #2b3f6a) 40%, transparent);
+  padding-inline-start: .5rem;
+  color: var(--note-ink-muted, #66739A);
+  font-style: italic;
+}
+
+/* קו מפריד */
+.sticky-md-hr { padding: .2em 0; }
+.sticky-md-rule {
+  border: 0; height: 1px;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 30%, transparent);
+  margin: 0;
+}
+
+/* רשימה — תבליט/מספר בצד, גוף מוזח */
+.sticky-md-li { display: flex; align-items: flex-start; gap: .35rem; }
+.sticky-md-bullet {
+  flex: 0 0 auto; color: var(--note-ink-muted, #66739A);
+  font-variant-numeric: tabular-nums; min-width: 1.1em;
+}
+.sticky-md-li-body { flex: 1 1 auto; min-width: 0; }
+
+/* בלוק קוד — כל שורה מונו, ורצף שורות מקבל רקע משותף.
+   הגדר עצמה (``\`\`\``) נשארת גלויה, כי כל שורת מקור היא שורת תצוגה. */
+.sticky-md-pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .88em; direction: ltr; unicode-bidi: embed;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 8%, transparent);
+  padding: 0 .45rem;
+}
+.sticky-md-pre.is-fence { color: var(--note-ink-muted, #66739A); }
+/* פינות עגולות בקצות הרצף */
+.sticky-md-pre.is-fence:first-child,
+.sticky-md-pre:not(.sticky-md-pre) + .sticky-md-pre.is-fence { border-radius: 6px 6px 0 0; }
+
+
 /* חיווי כשל — כתיבה שלא נקלטה חייבת להיראות, לא להיעלם בשקט */
 .sticky-note.has-task-error {
   outline: 2px solid #dc3545;

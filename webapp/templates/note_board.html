@@ -39,6 +39,13 @@
       <div class="board-settings-card">
         <h2 id="boardSettingsTitle">הגדרות הלוח</h2>
         <label class="board-setting-row">
+          <input type="checkbox" id="markdownToggle">
+          <span>
+            <b>עיצוב מארקדאון</b>
+            <small>‏**מודגש**, כותרות, רשימות, קישורים וקוד — מרונדרים בפתק. כיבוי מציג טקסט גולמי.</small>
+          </span>
+        </label>
+        <label class="board-setting-row">
           <input type="checkbox" id="infiniteScrollToggle">
           <span>
             <b>גלילה אינסופית</b>
@@ -136,17 +143,30 @@
     try { localStorage.setItem(INFINITE_KEY, on ? '1' : '0'); } catch (e) { /* מצב זמני בלבד */ }
   }
 
+  // מארקדאון דלוק כברירת מחדל — רק **כיבוי** מפורש נשמר. כך פתק קיים
+  // מתחיל להתרנדר בלי שהמשתמש צריך לעשות דבר, ומי שלא אוהב מכבה.
+  const MARKDOWN_KEY = 'board-markdown:' + BOARD_ID;
+  function readMarkdown() {
+    try { return localStorage.getItem(MARKDOWN_KEY) !== '0'; } catch (e) { return true; }
+  }
+  function writeMarkdown(on) {
+    try { localStorage.setItem(MARKDOWN_KEY, on ? '1' : '0'); } catch (e) { /* מצב זמני בלבד */ }
+  }
+
   window._boardNotes = new window.StickyNotesManager({
     board: BOARD_ID,
     container: surface,
     anchorHost: null,
-    infiniteScroll: readInfinite()
+    infiniteScroll: readInfinite(),
+    markdown: readMarkdown()
   });
 
   const settingsModal = document.getElementById('boardSettings');
   const settingsBtn = document.getElementById('boardSettingsBtn');
   const infiniteToggle = document.getElementById('infiniteScrollToggle');
   infiniteToggle.checked = readInfinite();
+  const markdownToggle = document.getElementById('markdownToggle');
+  markdownToggle.checked = readMarkdown();
 
   // ``aria-modal="true"`` מצהיר בפני קורא מסך שכל מה שמאחורי הדיאלוג
   // אינו קיים. בלי לכידת Tab ההצהרה הזו פשוט אינה נכונה: משתמש מקלדת
@@ -162,7 +182,7 @@
     );
   }
 
-  function openSettings() { settingsModal.hidden = false; infiniteToggle.focus(); }
+  function openSettings() { settingsModal.hidden = false; markdownToggle.focus(); }
   function closeSettings() { settingsModal.hidden = true; settingsBtn.focus(); }
 
   settingsBtn.addEventListener('click', openSettings);
@@ -186,6 +206,10 @@
   infiniteToggle.addEventListener('change', function () {
     writeInfinite(infiniteToggle.checked);
     window._boardNotes.setInfiniteScroll(infiniteToggle.checked);
+  });
+  markdownToggle.addEventListener('change', function () {
+    writeMarkdown(markdownToggle.checked);
+    window._boardNotes.setMarkdown(markdownToggle.checked);
   });
 
   document.getElementById('firstNoteBtn').addEventListener('click', function () {
