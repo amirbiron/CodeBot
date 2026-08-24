@@ -259,7 +259,27 @@ class FakeEl {
     if (sandbox.__focused === this) sandbox.__focused = null;
   }
   select() { this._selected = true; }
-  _matches(sel) { return sel.startsWith('.') ? this._classes.has(sel.slice(1)) : this.tagName === sel; }
+  _matches(sel) {
+    // תומך ב-``.class``, ב-``tag``, וב-``tag.class`` מורכב — הקוד משתמש
+    // ב-``closest('a.sticky-md-link')``, ובלי זה הבדיקה עברה מהסיבה הלא
+    // נכונה (או נפלה) על סלקטור שהסטאב לא הבין.
+    if (sel.startsWith('.')) return this._classes.has(sel.slice(1));
+    const dot = sel.indexOf('.');
+    if (dot > 0) {
+      const tag = sel.slice(0, dot), cls = sel.slice(dot + 1);
+      return this.tagName === tag && this._classes.has(cls);
+    }
+    return this.tagName === sel;
+  }
+  // ``closest`` אמיתי שמטפס דרך ``parentNode``, כמו בדפדפן.
+  closest(sel) {
+    let node = this;
+    while (node) {
+      if (node._matches && node._matches(sel)) return node;
+      node = node.parentNode || null;
+    }
+    return null;
+  }
   querySelector(sel) {
     for (const c of this.children) {
       if (c._matches(sel)) return c;
@@ -919,6 +939,58 @@ check('רינדור: setMarkdown מכבה ומנקה', () => {
   eq(!!parts.view.querySelector('.sticky-md-h1'), false, 'כבוי — נוקה');
   mdMgr.setMarkdown(true);
   mdMgr.notes.delete('md-toggle');
+});
+
+// ---------- נתיב המקלדת של התצוגה ----------
+//
+// אירוע מדומה עם ``preventDefault`` שסופר את עצמו, ו-``target`` שהוא
+// FakeEl. המתודות חולצו מהסגורים בדיוק כדי שאפשר יהיה לבדוק אותן כאן.
+
+function keyEvent(key, target){
+  return { key, target, _prevented: false, preventDefault(){ this._prevented = true; } };
+}
+function linkTarget(){
+  const a = new FakeEl('a');
+  a.className = 'sticky-md-link';
+  const row = new FakeEl('div'); row.className = 'sticky-task-line';
+  row.dataset = { charOffset: '0' };
+  row.appendChild(a);   // מגדיר parentNode, כך ש-closest מטפס אמיתית
+  return a;
+}
+
+check('מקלדת: Enter על קישור אינו מבטל ואינו נכנס לעריכה', () => {
+  const { el } = registerNote(fileMgr, 'kbd-enter', 'ראה קישור');
+  FakeEl.focused = null;
+  const ev = keyEvent('Enter', linkTarget());
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, false, 'לא בוטל — הדפדפן מפעיל את הקישור');
+  eq(FakeEl.focused, null, 'ולא נכנס לעריכה (אין focus)');
+});
+
+check('מקלדת: Space על קישור מבטל (בולם גלילה) ולא נכנס לעריכה', () => {
+  const { el } = registerNote(fileMgr, 'kbd-space', 'ראה קישור');
+  FakeEl.focused = null;
+  const ev = keyEvent(' ', linkTarget());
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, true, 'בוטל — Space לא גולל את הדף');
+  eq(FakeEl.focused, null, 'אבל גם לא נכנס לעריכה על קישור');
+});
+
+check('מקלדת: Enter על טקסט רגיל נכנס לעריכה', () => {
+  const { el, ta } = registerNote(fileMgr, 'kbd-text', 'שורת טקסט');
+  const row = new FakeEl('div'); row.className = 'sticky-task-line'; row.dataset = { charOffset: '0' };
+  const span = new FakeEl('span'); row.appendChild(span);
+  const ev = keyEvent('Enter', span);
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, true, 'בוטל — נכנסים לעריכה');
+  eq(FakeEl.focused === ta, true, 'ה-textarea קיבל focus');
+});
+
+check('מקלדת: מקש אחר אינו עושה כלום', () => {
+  const { el } = registerNote(fileMgr, 'kbd-other', 'טקסט');
+  const ev = keyEvent('a', linkTarget());
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, false, 'לא בוטל');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

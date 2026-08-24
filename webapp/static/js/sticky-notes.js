@@ -553,41 +553,14 @@
       // לחיצה בכל מקום בתצוגה שאינו התיבה עצמה מחזירה לעריכה, בשורה
       // שנלחצה. זו הדרך היחידה החוצה מהתצוגה — בלעדיה פתק עם צ'קבוקס
       // אחד הופך לקריאה-בלבד לתמיד.
-      const enterFromEvent = (ev) => {
-        const t = ev.target;
-        if (t && t.classList && t.classList.contains('sticky-task-box')) return false;
-        // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
-        // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
-        if (t && t.closest && t.closest('a.sticky-md-link')) return false;
-        const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
-        const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
-        this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
-        return true;
-      };
-      taskView.addEventListener('click', enterFromEvent);
+      taskView.addEventListener('click', (ev) => this._enterEditFromView(el, ev));
       // נתיב מקלדת. בלעדיו התצוגה היא מלכודת למי שאינו משתמש בעכבר:
       // ה-textarea מוסתר, התצוגה לא הייתה ניתנת למיקוד, והמאזין היחיד
       // היה click — כלומר אין שום דרך לחזור לעריכה.
       taskView.setAttribute('tabindex', '0');
       taskView.setAttribute('role', 'group');
       taskView.setAttribute('aria-label', 'תוכן הפתק — הקישו Enter כדי לערוך');
-      taskView.addEventListener('keydown', (ev) => {
-        if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
-        const t = ev.target;
-        // רווח על תיבת סימון הוא סימון, לא כניסה לעריכה
-        if (t && t.classList && t.classList.contains('sticky-task-box')) return;
-        // Enter על קישור ממוקד חייב **להפעיל** אותו — לא לבטל ולא להיכנס
-        // לעריכה. ``preventDefault`` לפני הבדיקה הזו היה מבטל את שניהם,
-        // והקישור לא נפתח ולא נכנס. בודקים קודם, ורק אז מבטלים.
-        //
-        // **רק ל-Enter.** Space על קישור אינו מפעיל אותו בדפדפן, ואם היינו
-        // מדלגים גם עליו הוא היה נופל להתנהגות ברירת המחדל — גלילת הדף.
-        // לכן Space ממשיך ל-``preventDefault`` (בולם גלילה), ו-enterFromEvent
-        // חוסם אותו מכניסה לעריכה על קישור. נטו: Space על קישור לא עושה כלום.
-        if (ev.key === 'Enter' && t && t.closest && t.closest('a.sticky-md-link')) return;
-        ev.preventDefault();
-        if (enterFromEvent(ev) === false) return;
-      });
+      taskView.addEventListener('keydown', (ev) => this._viewKeydown(el, ev));
 
       el.appendChild(header);
       el.appendChild(textarea);
@@ -1173,6 +1146,41 @@
           view.hidden = false;
           textarea.hidden = true;
         } catch(_) {}
+      }
+
+      // לחיצה/הפעלה בתצוגה מחזירה לעריכה — **חוץ** מתיבת סימון (סימון)
+      // ומקישור מרונדר (פתיחת לשונית). מוחזר האם נכנסנו לעריכה, כדי
+      // שמסלול המקלדת יוכל להחליט. מתודה ולא סגור, כדי שאפשר לבדוק אותה.
+      _enterEditFromView(el, ev){
+        const t = ev && ev.target;
+        if (t && t.classList && t.classList.contains('sticky-task-box')) return false;
+        // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
+        // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
+        if (t && t.closest && t.closest('a.sticky-md-link')) return false;
+        const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
+        const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
+        this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
+        return true;
+      }
+
+      // נתיב המקלדת של התצוגה. Enter/Space בלבד.
+      _viewKeydown(el, ev){
+        if (!ev || (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar')) return;
+        const t = ev.target;
+        // רווח על תיבת סימון הוא סימון, לא כניסה לעריכה
+        if (t && t.classList && t.classList.contains('sticky-task-box')) return;
+        // Enter על קישור ממוקד חייב **להפעיל** אותו — לא לבטל ולא להיכנס
+        // לעריכה. ``preventDefault`` לפני הבדיקה הזו היה מבטל את שניהם,
+        // והקישור לא נפתח ולא נכנס. בודקים קודם, ורק אז מבטלים.
+        //
+        // **רק ל-Enter.** Space על קישור אינו מפעיל אותו בדפדפן, ואם היינו
+        // מדלגים גם עליו הוא היה נופל להתנהגות ברירת המחדל — גלילת הדף.
+        // לכן Space ממשיך ל-``preventDefault`` (בולם גלילה), ו-
+        // ``_enterEditFromView`` חוסם אותו מכניסה לעריכה על קישור. נטו:
+        // Space על קישור לא עושה כלום.
+        if (ev.key === 'Enter' && t && t.closest && t.closest('a.sticky-md-link')) return;
+        ev.preventDefault();
+        if (this._enterEditFromView(el, ev) === false) return;
       }
 
       // חזרה לעריכה מתוך התצוגה.
