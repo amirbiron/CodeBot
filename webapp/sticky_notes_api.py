@@ -405,6 +405,30 @@ def _repo_title_conflict(
         exclude_id=exclude_id,
     )
 
+def _duplicate_title_for_note(
+    db: Any, user_id: Any, note: Dict[str, Any], title: str, exclude_id: Any = None
+) -> bool:
+    """בדיקת הגיבוי לכפילות שם, **לפי סוג היעד של הפתק**.
+
+    ``_title_conflict`` יוצא מיד כשאין ``board_id`` — ולפתק ריפו אין —
+    ולכן כשאינדקס הריפו לא אומת לא הייתה שום אכיפה: אף אחד לא בדק, המסד
+    לא אכף, ושני פתקים על אותו קובץ קיבלו את אותו שם.
+
+    **הפיצול חי כאן ולא בכל ראוט בנפרד.** כשהוא היה משוכפל, ``update_note``
+    קיבל אותו ו-``batch`` נשאר מאחור — ומכיוון שהלקוח שומר דרך ``_queueSave``,
+    שמאגד ל-``/batch``, דווקא המסלול השקוף היה זה שלא אכף. סוג יעד רביעי
+    בעתיד ישנה שורה אחת, לא שתיים.
+    """
+    if not title:
+        return False
+    if note.get('repo_path'):
+        return _repo_title_conflict(
+            db, user_id, note.get('repo_name'), note.get('repo_path'), title,
+            exclude_id=exclude_id,
+        )
+    return _title_conflict(db, user_id, note.get('board_id'), title, exclude_id=exclude_id)
+
+
 def require_auth(f):
     @wraps(f)
     def _inner(*args, **kwargs):
@@ -1386,18 +1410,10 @@ def update_note(note_id: str):
         # אומת (``_REPO_TITLE_INDEX_OK`` כבוי) לא הייתה כאן שום אכיפה: אף
         # אחד לא בדק, המסד לא אכף, ושני פתקים על אותו קובץ קיבלו את אותו
         # שם. מסלול היצירה כבר מפצל כך; העדכון היה החריג.
-        if 'title' in updates:
-            if note.get('repo_path'):
-                title_taken = _repo_title_conflict(
-                    db, user_id, note.get('repo_name'), note.get('repo_path'),
-                    updates['title'], exclude_id=oid,
-                )
-            else:
-                title_taken = _title_conflict(
-                    db, user_id, note.get('board_id'), updates['title'], exclude_id=oid,
-                )
-            if title_taken:
-                return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
+        if 'title' in updates and _duplicate_title_for_note(
+            db, user_id, note, updates['title'], exclude_id=oid
+        ):
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         try:
             db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, ops)
         except DuplicateKeyError:
@@ -1614,8 +1630,8 @@ def batch_update_notes():
                 ops: Dict[str, Any] = {'$set': updates}
                 if unset_fields:
                     ops['$unset'] = unset_fields
-                if 'title' in updates and _title_conflict(
-                    db, user_id, note.get('board_id'), updates['title'], exclude_id=oid
+                if 'title' in updates and _duplicate_title_for_note(
+                    db, user_id, note, updates['title'], exclude_id=oid
                 ):
                     results.append({'id': note_id, 'ok': False, 'status': 409,
                                     'error': 'duplicate_title', 'max': MAX_NOTE_TITLE})

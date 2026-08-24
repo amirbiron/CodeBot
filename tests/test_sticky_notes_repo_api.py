@@ -627,3 +627,57 @@ def test_another_users_repo_notes_are_not_visible(client):
 
     body = client.get("/api/sticky-notes/repo/CodeBot/webapp/app.py").get_json()
     assert body["count"] == 0
+
+
+def test_batch_repo_note_title_uses_the_repo_backup_check(client, monkeypatch):
+    """**גם ``/batch`` בוחר את הבדיקה לפי סוג היעד, לא רק ``PUT /note``.**
+
+    זה המסלול שהלקוח באמת משתמש בו: ``_queueSave`` מאגד שמירות ושולח
+    ל-``/batch``. כשהפיצול היה משוכפל, ``update_note`` קיבל אותו ו-``batch``
+    נשאר עם ``_title_conflict`` — שיוצא מיד בלי ``board_id`` — ולכן דווקא
+    המסלול השקוף לא אכף כלום.
+
+    נופל אם ``batch`` חוזר לקרוא ל-``_title_conflict`` ישירות.
+    """
+    from bson import ObjectId
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", False, raising=False)
+    _mirror(client.db)
+    taken, mine = ObjectId(), ObjectId()
+    client.db.sticky_notes.docs.extend([
+        {"_id": taken, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "תפוס", "content": "קיים"},
+        {"_id": mine, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "אחר", "content": "שלי"},
+    ])
+
+    res = client.post("/api/sticky-notes/batch",
+                      json={"updates": [{"id": str(mine), "title": "תפוס"}]})
+
+    assert res.status_code == 200
+    result = res.get_json()["results"][0]
+    assert result["ok"] is False
+    assert result["status"] == 409
+    assert result["error"] == "duplicate_title"
+    assert client.db.sticky_notes.docs[1]["title"] == "אחר", "השם לא שונה"
+
+
+def test_board_note_title_still_uses_the_board_check(client, monkeypatch):
+    """הפיצול לא שבר את מסלול הלוח — אותה דחייה, מאותו גיבוי.
+
+    בלי הרגרסיה הזו, דיספצ'ר ששולח **הכול** לבדיקת הריפו היה מכבה בשקט
+    את אכיפת השם בלוחות.
+    """
+    from bson import ObjectId
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    taken, mine = ObjectId(), ObjectId()
+    client.db.sticky_notes.docs.extend([
+        {"_id": taken, "user_id": 7, "board_id": "b1", "title": "תפוס", "content": "קיים"},
+        {"_id": mine, "user_id": 7, "board_id": "b1", "title": "אחר", "content": "שלי"},
+    ])
+
+    res = client.put(f"/api/sticky-notes/note/{mine}", json={"title": "תפוס"})
+
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "duplicate_title"
