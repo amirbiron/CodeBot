@@ -85,9 +85,35 @@ check('אירוע file-loaded מרכיב מנהל כשההעדפה דלוקה', 
   sb.window.localStorage.setItem('repo-notes:CodeBot:a.py', '1'); // דלוק
   sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'a.py' });
   await sb.window.repoNotes.settled();
-  eq(sb.window.repoNotes.target().path, 'a.py', 'יעד');
+  eq(sb.window.repoNotes.target().path, 'a.py', 'יעד — נתיב');
+  // **הזהות היא הזוג, לא הנתיב.** בלי הבדיקה על ``repo`` היה אפשר לאבד
+  // את שם הריפו לגמרי — היעד, המנהל וההעדפה — והחבילה כולה עוברת.
+  eq(sb.window.repoNotes.target().repo, 'CodeBot', 'יעד — ריפו');
   eq(sb.window.repoNotes.hasManager(), true, 'מנהל הורכב');
   eq(sb.__built.length, 1, 'מנהל אחד נבנה');
+  eq(sb.__built[0].opts.repo, 'CodeBot', 'הריפו הועבר למנהל');
+  eq(sb.__built[0].opts.path, 'a.py', 'והנתיב איתו');
+});
+
+check('אותו נתיב בשני ריפואים אינו אותו יעד', async () => {
+  // ההעדפה נשמרת תחת ``repo-notes:<repo>:<path>``, ולכן קובץ בשם זהה בשני
+  // ריפואים חייב להישאר שני מצבים נפרדים. נופל אם המפתח (או היעד) יאבד
+  // את שם הריפו — ואז הדלקה בריפו אחד הייתה מדליקה גם בשני.
+  const sb = makeSandbox();
+  sb.window.localStorage.setItem('repo-notes:CodeBot:shared.py', '1');
+
+  sb.document.dispatch('repo:file-loaded', { repo: 'OtherRepo', path: 'shared.py' });
+  await sb.window.repoNotes.settled();
+  eq(sb.window.repoNotes.target().repo, 'OtherRepo', 'הריפו השני');
+  eq(sb.window.repoNotes.isEnabled(), false, 'ההעדפה של CodeBot לא זלגה');
+  eq(sb.window.repoNotes.hasManager(), false, 'ולכן אין מנהל');
+
+  sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'shared.py' });
+  await sb.window.repoNotes.settled();
+  eq(sb.window.repoNotes.target().repo, 'CodeBot', 'חזרה לריפו הראשון');
+  eq(sb.window.repoNotes.isEnabled(), true, 'ושם ההעדפה כן דלוקה');
+  eq(sb.__built.length, 1, 'רק הריפו עם ההעדפה בנה מנהל');
+  eq(sb.__built[0].opts.repo, 'CodeBot', 'והוא נושא את הריפו הנכון');
 });
 
 check('קובץ בלי העדפה שמורה — כבוי, בלי מנהל', async () => {
@@ -98,14 +124,26 @@ check('קובץ בלי העדפה שמורה — כבוי, בלי מנהל', asy
   eq(sb.window.repoNotes.hasManager(), false, 'אין מנהל');
 });
 
-check('setEnabled שומר העדפה פר-קובץ', async () => {
+check('setEnabled שומר העדפה פר-קובץ — ומחיל אותה בפועל', async () => {
+  // ההעדפה היא רק החצי השני. ``applyEnabled`` גם מרכיב מנהל בהדלקה וגם
+  // מפרק אותו בכיבוי, ובלי הבדיקות האלה רגרסיה שמפסיקה להרכיב (או משאירה
+  // מנהל מת חי) הייתה עוברת: ה-localStorage היה נראה נכון והמסך לא.
   const sb = makeSandbox();
   sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'c.py' });
   await sb.window.repoNotes.settled();
+  eq(sb.window.repoNotes.hasManager(), false, 'לפני ההדלקה אין מנהל');
+
   await sb.window.repoNotes.setEnabled(true);
   eq(sb.window.localStorage.getItem('repo-notes:CodeBot:c.py'), '1', 'נשמר דלוק');
+  eq(sb.window.repoNotes.isEnabled(), true, 'המצב דלוק');
+  eq(sb.window.repoNotes.hasManager(), true, 'ומנהל הורכב');
+  eq(sb.__built.length, 1, 'מנהל אחד');
+
   await sb.window.repoNotes.setEnabled(false);
   eq(sb.window.localStorage.getItem('repo-notes:CodeBot:c.py'), null, 'כיבוי מוחק');
+  eq(sb.window.repoNotes.isEnabled(), false, 'המצב כבוי');
+  eq(sb.window.repoNotes.hasManager(), false, 'והמנהל פורק');
+  eq(sb.__built[0].destroyed, true, 'הפירוק באמת רץ');
 });
 
 // -- ה-P1: מעברים מהירים לא משאירים מצב מיושן --
@@ -137,9 +175,12 @@ check('שרשרת המעברים מונעת interleaving כשהפירוק איט
   // נופל אם ``enqueue`` מריץ במקביל במקום לסדר בשרשרת.
   const sb = makeSandbox();
   // מנהל עם פירוק איטי — מכריח את החלון שבו interleaving היה קורה
-  let order = [];
+  const order = [];
   sb.window.StickyNotesManager = class {
-    constructor(opts) { this.opts = opts; this.destroyed = false; sb.__built.push(this); }
+    constructor(opts) {
+      this.opts = opts; this.destroyed = false;
+      sb.__built.push(this); order.push('mount:' + opts.path);
+    }
     async destroy() { await new Promise((r) => setTimeout(r, 8)); this.destroyed = true; order.push('destroy:' + this.opts.path); }
   };
   sb.window.localStorage.setItem('repo-notes:CodeBot:X.py', '1');
@@ -155,6 +196,11 @@ check('שרשרת המעברים מונעת interleaving כשהפירוק איט
   const live = sb.__built.filter((m) => !m.destroyed);
   eq(live.length, 1, 'מנהל חי אחד');
   eq(live[0].opts.path, 'Z.py', 'והוא Z');
+  // **זו הטענה עצמה, ולא רק התוצאה הסופית:** הפירוק האיטי של X הסתיים
+  // *לפני* ש-Z הורכב. בהרצה מקבילית ``mount:Z.py`` היה מקדים אותו, ואז שני
+  // מנהלים היו חיים יחד על אותו קונטיינר — והתור של X היה מתנקז לתוכו.
+  // (Y אינו מופיע כלל: הוא נעקף לפני ההרכבה, וזה בדיוק ה-generation guard.)
+  eq(order.join(','), 'mount:X.py,destroy:X.py,mount:Z.py', 'סדר הפעולות');
 });
 
 check('מעבר למסך הפתיחה (path=null) מפרק ולא משאיר מנהל', async () => {

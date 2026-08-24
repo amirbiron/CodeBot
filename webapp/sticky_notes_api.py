@@ -88,10 +88,11 @@ except Exception:
 # Module-level guard to ensure indexes only once per process
 _INDEX_READY = False
 _INDEX_READY_LOCK = threading.Lock()
-#: **גרסת המפתח הועלתה ל-v2 בכוונה.** הדגל הזה נכתב היום רק אחרי
-#: שאינדקס השם אומת, ולכן קריאתו מותר שתדליק גם את ``_TITLE_INDEX_OK``.
-#: דגל שנכתב בגרסה הקודמת של הקוד לא נשא את המשמעות הזו, ותחת אותו מפתח
-#: הוא היה מתפרש כאימות שלא היה — למשך יממה, ובכל התהליכים.
+#: **גרסת המפתח הועלתה ל-v3 בכוונה.** הדגל הזה נכתב היום רק אחרי ששני
+#: אינדקסי השם אומתו — של הלוח ושל הריפו — ולכן קריאתו מותר שתדליק גם את
+#: ``_TITLE_INDEX_OK`` וגם את ``_REPO_TITLE_INDEX_OK``. דגל ``v2`` שנכתב
+#: בגרסה הקודמת של הקוד העיד על אינדקס הלוח בלבד, ותחת אותו מפתח הוא היה
+#: מתפרש כאימות של אינדקס הריפו שלא היה — למשך יממה, ובכל התהליכים.
 _INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v3"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
@@ -552,9 +553,10 @@ def _mode_update(raw: Any, note: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
     ולא ``raise`` — כדי שלא יהיה טקסט של חריגה שיכול לזלוג לתשובה.
 
     ``mode`` נכתב עד היום רק ביצירה, ולכן כפתור המצב בלוח לא יכול היה
-    להישמר בכלל. הוא מוגבל לפתקי לוח: ב-``_resolveMode`` השדה נקרא
-    **לפני** הסנטינלים, כך ש-``mode`` על פתק קובץ היה משתלט על מסלול
-    העיגון לשורות המקור.
+    להישמר בכלל. הוא מותר ב**לוח ובפתק ריפו** — שניהם נושאים
+    ``surface``/``screen`` ומצמידים את הפתק למסגרת התצוגה — ונשאר חסום
+    בפתקי **קובץ**: שם ``_resolveMode`` קורא את השדה **לפני** הסנטינלים,
+    כך ש-``mode`` היה משתלט על מסלול העיגון לשורות המקור.
     """
     from sticky_notes_target import is_valid_board_mode, normalize_mode, DEFAULT_BOARD_MODE
 
@@ -1379,8 +1381,23 @@ def update_note(note_id: str):
         ops: Dict[str, Any] = {'$set': updates}
         if unset_fields:
             ops['$unset'] = unset_fields
-        if 'title' in updates and _title_conflict(db, user_id, note.get('board_id'), updates['title'], exclude_id=oid):
-            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
+        # **בדיקת הגיבוי נבחרת לפי סוג היעד.** ``_title_conflict`` יוצא
+        # מיד כשאין ``board_id`` — ולפתק ריפו אין — ולכן כשאינדקס הריפו לא
+        # אומת (``_REPO_TITLE_INDEX_OK`` כבוי) לא הייתה כאן שום אכיפה: אף
+        # אחד לא בדק, המסד לא אכף, ושני פתקים על אותו קובץ קיבלו את אותו
+        # שם. מסלול היצירה כבר מפצל כך; העדכון היה החריג.
+        if 'title' in updates:
+            if note.get('repo_path'):
+                title_taken = _repo_title_conflict(
+                    db, user_id, note.get('repo_name'), note.get('repo_path'),
+                    updates['title'], exclude_id=oid,
+                )
+            else:
+                title_taken = _title_conflict(
+                    db, user_id, note.get('board_id'), updates['title'], exclude_id=oid,
+                )
+            if title_taken:
+                return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         try:
             db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, ops)
         except DuplicateKeyError:
@@ -1898,7 +1915,14 @@ def list_repo_notes(repo_name: str, repo_path: str):
         cursor = db.sticky_notes.find(
             repo_notes_filter(user_id, repo_name, clean_path)
         ).sort('created_at', 1)
-        raw_docs = list(cursor) if cursor is not None else []
+        # אותה הבחנה שהראוט הזה עושה על המניפסט, גם על הפתקים עצמם:
+        # ``None`` הוא כשל שאילתה ולא "אין פתקים". החזרת ``notes: []``
+        # כאן אינה רק תצוגה חסרה — הלקוח כותב את התשובה לקאש המקומי
+        # (``_saveCache``), ולכן קריאה שנכשלה הייתה **מוחקת** את הפתקים
+        # שהיו שמורים בו.
+        if cursor is None:
+            raise RuntimeError('repo notes query returned no cursor')
+        raw_docs = list(cursor)
         notes = [_as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)]
 
         # ``None`` (כשל שאילתה) אינו "הקובץ נעלם" — ואז לא מסמנים כלום.
@@ -1962,6 +1986,20 @@ def create_repo_note(repo_name: str, repo_path: str):
             return jsonify({'ok': False, 'error': 'repo_list_unavailable'}), 503
         if str(repo_name) not in known:
             return jsonify({'ok': False, 'error': 'repo_not_found'}), 404
+
+        # **וגם הקובץ עצמו חייב להיות בעץ.** ריפו ממורר אינו מספיק: נתיב
+        # שאינו ב-``repo_files`` הוא בדיוק מה שמסלול הקריאה מסמן
+        # ``orphaned`` — כלומר הפתק היה נולד יתום, נספר בתקרה, ומוצג
+        # ברשימת היתומים בלי שאי-פעם היה לו קובץ. עץ הדפדפן נבנה מאותו
+        # ``repo_files``, ולכן כל קובץ שניתן לפתוח בממשק עובר כאן.
+        #
+        # ``None`` נסגר, בדיוק כמו רשימת המראות: קריאה שנכשלה אינה עדות
+        # שהקובץ קיים, ואינה רשיון לכתוב.
+        file_exists = _repo_file_exists(db, str(repo_name), clean_path)
+        if file_exists is None:
+            return jsonify({'ok': False, 'error': 'repo_file_unavailable'}), 503
+        if not file_exists:
+            return jsonify({'ok': False, 'error': 'repo_file_not_found'}), 404
 
         data = request.get_json(silent=True)
         # גוף שאינו אובייקט (מערך, מחרוזת) הוא קלט פגום — 400, לא 500
@@ -2086,6 +2124,11 @@ def list_repo_orphans(repo_name: str):
         # כשל בקריאת הפתקים אינו "אין יתומים" — הוא "לא ידוע", בדיוק כמו
         # כשל בקריאת המניפסט. בלי ההבחנה, נפילת שאילתה הייתה מוצגת כרשימה
         # ריקה של יתומים.
+        #
+        # ``None`` הוא ערוץ כשל בפני עצמו, לא רק חריגה: דרייבר או שכבת
+        # עטיפה שמחזירים ``None`` במקום סמן לא זורקים כלום, והקוד הישן
+        # המשיך עם רשימה ריקה ועם ``notes_failed=False`` — כלומר ``unknown``
+        # היה יוצא ``false`` ו"לא הצלחנו לקרוא" היה מוצג כ"אין יתומים".
         notes_failed = False
         try:
             cursor = db.sticky_notes.find({
@@ -2093,7 +2136,11 @@ def list_repo_orphans(repo_name: str):
                 'repo_name': str(repo_name),
                 'repo_path': {'$exists': True},
             }).sort('created_at', 1)
-            raw_docs = list(cursor) if cursor is not None else []
+            if cursor is None:
+                raw_docs = []
+                notes_failed = True
+            else:
+                raw_docs = list(cursor)
         except Exception:
             raw_docs = []
             notes_failed = True

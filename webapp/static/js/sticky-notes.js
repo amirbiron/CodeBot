@@ -314,6 +314,13 @@
         const url = `${this._scopeUrl}?_=${Date.now()}`;
         const resp = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await resp.json();
+        // **בוטל בזמן שהבקשה הייתה באוויר.** הבדיקה חייבת לשבת כאן ולא רק
+        // אחרי ``loadNotes``: הקונטיינר משותף למנהל הבא (אותו
+        // ``code-viewer-container`` בדפדפן הריפו), ולכן ``_clearAllNotes``
+        // של מנהל מת היה מוחק את הפתקים שהמנהל החדש כבר הרכיב, ואז מרנדר
+        // במקומם את התשובה של הקובץ הקודם. גם ``_saveCache`` לא יירוץ —
+        // כתיבת תשובה ישנה לקאש היא אותה טעות, רק שהיא שורדת ריענון.
+        if (this._destroyed) return;
         if (!data || data.ok === false) return;
         // החלף תוכן מהרשימה העדכנית מהשרת
         const fresh = Array.isArray(data.notes) ? data.notes : [];
@@ -1929,12 +1936,18 @@
       // בשקט את ``.is-editing-title .sticky-note-drag { touch-action: auto }``
       // — הכלל שאמור להחזיר מגע לשדה השם בזמן עריכה. נמדד בכרומיום:
       // הערך נשאר ``none`` גם אחרי הוספת המחלקה. הצהרה אחת, במקום אחד.
+      //
+      // מאזיני ה-``window`` נרשמים דרך ``_on`` **בכוונה.** הם נרשמים פר
+      // פתק (ארבעה כאן, ארבעה ב-``_enableResize``), ובלי הרישום הזה
+      // ``destroy`` לא היה מכיר אותם: כל החלפת קובץ בדפדפן הריפו הייתה
+      // משאירה שמונה סגירות חיות לכל פתק, שמחזיקות את האלמנט ואת המנהל
+      // המת בזיכרון וממשיכות לרוץ בכל תזוזת עכבר.
       handle.addEventListener('mousedown', onDown);
-      window.addEventListener('mousemove', onMove, { passive: false });
-      window.addEventListener('mouseup', onUp);
+      this._on(window, 'mousemove', onMove, { passive: false });
+      this._on(window, 'mouseup', onUp);
       handle.addEventListener('touchstart', onDown, { passive: false });
-      window.addEventListener('touchmove', onMove, { passive: false });
-      window.addEventListener('touchend', onUp);
+      this._on(window, 'touchmove', onMove, { passive: false });
+      this._on(window, 'touchend', onUp);
     }
     _toggleAnchor(el){
       try {
@@ -2000,12 +2013,13 @@
         this._updateSurfaceExtent();
       };
       try { handle.style.touchAction = 'none'; } catch(_) {}
+      // דרך ``_on``, מאותו נימוק בדיוק כמו ב-``_enableDrag``.
       handle.addEventListener('mousedown', onDown);
-      window.addEventListener('mousemove', onMove, { passive: false });
-      window.addEventListener('mouseup', onUp);
+      this._on(window, 'mousemove', onMove, { passive: false });
+      this._on(window, 'mouseup', onUp);
       handle.addEventListener('touchstart', onDown, { passive: false });
-      window.addEventListener('touchmove', onMove, { passive: false });
-      window.addEventListener('touchend', onUp);
+      this._on(window, 'touchmove', onMove, { passive: false });
+      this._on(window, 'touchend', onUp);
     }
 
     _queueSave(el, fragment){

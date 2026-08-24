@@ -61,6 +61,18 @@ class _StubColl:
         self.docs.append(doc)
         return _Res(inserted_id=doc["_id"])
 
+    def update_one(self, query, ops, **k):
+        if self.duplicate_titles and (ops.get("$set") or {}).get("title"):
+            raise _StubDuplicateKeyError("E11000 duplicate key")
+        matched = self._matching(query)
+        if not matched:
+            return _Res(modified_count=0)
+        doc = matched[0]
+        doc.update(ops.get("$set") or {})
+        for field in (ops.get("$unset") or {}):
+            doc.pop(field, None)
+        return _Res(modified_count=1)
+
     def create_index(self, *a, **k):
         return None
 
@@ -89,6 +101,22 @@ class _StubColl:
 class _Cursor(list):
     def sort(self, *_a, **_k):
         return self
+
+
+class _NullSortCursor:
+    """סמן ש-``sort`` שלו מחזיר ``None`` — כשל שמדווח בערך החזרה בלבד.
+
+    זה מה שמפריד את הדפוס מ"חריגה": שום ``except`` לא נדלק כאן, ולכן קוד
+    שבודק רק חריגות ממשיך כאילו הכול תקין.
+    """
+
+    def sort(self, *_a, **_k):
+        return None
+
+
+class _NullSortColl(_StubColl):
+    def find(self, *_a, **_k):
+        return _NullSortCursor()
 
 
 class _StubDB:
@@ -221,6 +249,43 @@ def test_create_on_unmirrored_repo_is_rejected(client):
     assert client.db.sticky_notes.docs == []
 
 
+def test_create_on_path_outside_the_tree_is_rejected(client):
+    """**ריפו ממורר אינו מספיק — גם הקובץ חייב להיות בעץ.**
+
+    נתיב שאינו ב-``repo_files`` הוא בדיוק מה שמסלול הקריאה מסמן
+    ``orphaned``. בלי השער הזה הפתק היה נולד יתום: נספר בתקרת הקובץ,
+    מופיע ברשימת היתומים, ולא נראה בשום קובץ.
+
+    נופל אם בדיקת ``_repo_file_exists`` תוסר מהיצירה.
+    """
+    _mirror(client.db, paths=("webapp/app.py",))
+    res = client.post("/api/sticky-notes/repo/CodeBot/webapp/gone.py", json={"content": "x"})
+    assert res.status_code == 404
+    assert res.get_json()["error"] == "repo_file_not_found"
+    assert client.db.sticky_notes.docs == []
+
+
+def test_create_rejected_when_file_lookup_fails(client):
+    """כשל בקריאת המניפסט נסגר (503), לא נפתח.
+
+    אותו כלל של רשימת המראות ושל ``check_note_quota``: קריאה שנכשלה אינה
+    עדות שהקובץ קיים, ולכן אינה רשיון לכתוב.
+
+    נופל אם ``None`` מ-``_repo_file_exists`` ייקרא כ"קיים".
+    """
+    _mirror(client.db)
+
+    class _Boom(_StubColl):
+        def find_one(self, *a, **k):
+            raise RuntimeError("manifest unavailable")
+
+    client.db.repo_files = _Boom()
+    res = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py", json={"content": "x"})
+    assert res.status_code == 503
+    assert res.get_json()["error"] == "repo_file_unavailable"
+    assert client.db.sticky_notes.docs == []
+
+
 def test_traversal_path_is_rejected(client):
     """בריחה מעל שורש הריפו נדחית ב-400, ולא מייצרת פתק."""
     _mirror(client.db)
@@ -305,13 +370,21 @@ def test_create_rejected_when_mirror_list_unavailable(client, monkeypatch):
 
 
 def test_malformed_payload_is_400_not_500(client):
-    """גוף שאינו אובייקט, או position/size לא-אובייקט — 400, לא 500."""
-    _mirror(client.db)
+    """גוף שאינו אובייקט, או position/size לא-אובייקט — 400, לא 500.
+
+    ``position`` ו-``size`` מאומתים בשני ``if`` נפרדים בראוט, ולכן שניהם
+    נבדקים כאן: בדיקה של אחד בלבד הייתה מפספסת רגרסיה בשני.
+    """
+    _mirror(client.db, paths=("webapp/app.py", "a.py"))
     r1 = client.post("/api/sticky-notes/repo/CodeBot/a.py", json=["not", "an", "object"])
     assert r1.status_code == 400
     r2 = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py",
                      json={"content": "x", "position": [1, 2]})
     assert r2.status_code == 400
+    r3 = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py",
+                     json={"content": "x", "size": [1, 2]})
+    assert r3.status_code == 400
+    assert client.db.sticky_notes.docs == []
 
 
 def test_duplicate_title_rejected_by_index(client, monkeypatch):
@@ -344,6 +417,58 @@ def test_duplicate_title_rejected_by_backup_when_index_unverified(client, monkey
     assert res.get_json()["error"] == "duplicate_title"
 
 
+# ---------- עדכון ----------
+
+def test_update_repo_note_title_uses_the_repo_backup_check(client, monkeypatch):
+    """**בדיקת הגיבוי בעדכון נבחרת לפי סוג היעד.**
+
+    ``_title_conflict`` יוצא מיד כשאין ``board_id`` — ולפתק ריפו אין — ולכן
+    כשאינדקס הריפו לא אומת, העדכון לא היה נבדק בשום מקום: לא בקוד ולא
+    במסד. שני פתקים על אותו קובץ היו מקבלים את אותו שם, וה-API היה מחזיר
+    ``ok: true``.
+
+    נופל אם העדכון חוזר לקרוא ל-``_title_conflict`` על פתק ריפו.
+    """
+    from bson import ObjectId
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", False, raising=False)
+    _mirror(client.db)
+    taken, mine = ObjectId(), ObjectId()
+    client.db.sticky_notes.docs += [
+        {"_id": taken, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "תפוס", "content": "קיים"},
+        {"_id": mine, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "content": "שלי"},
+    ]
+
+    res = client.put(f"/api/sticky-notes/note/{mine}", json={"title": "תפוס"})
+
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "duplicate_title"
+    # ובעיקר: השם לא נכתב
+    assert "title" not in client.db.sticky_notes.docs[1]
+
+
+def test_update_repo_note_title_allows_a_free_name(client, monkeypatch):
+    """שם פנוי על אותו קובץ עובר — הבדיקה החדשה אינה חוסמת עדכון תקין."""
+    from bson import ObjectId
+    from webapp import sticky_notes_api
+
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", False, raising=False)
+    _mirror(client.db)
+    mine = ObjectId()
+    client.db.sticky_notes.docs.append(
+        {"_id": mine, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "content": "שלי"}
+    )
+
+    res = client.put(f"/api/sticky-notes/note/{mine}", json={"title": "פנוי"})
+
+    assert res.status_code == 200
+    assert client.db.sticky_notes.docs[0]["title"] == "פנוי"
+
+
 # ---------- קומה ראשונה: קובץ שנעלם ----------
 
 def test_list_flags_note_whose_file_left_the_tree(client):
@@ -371,6 +496,37 @@ def test_repo_orphans_lists_only_missing_paths(client):
     assert body["notes"][0]["repo_path"] == "gone.py"
     # טריות המראה מוצגת — "מיותם" נגזר מהמראה ולא מ-GitHub
     assert body["last_sync_time"] == "2026-08-24T10:00:00Z"
+
+
+def test_orphans_unknown_when_notes_query_returns_no_cursor(client):
+    """**``None`` הוא ערוץ כשל, לא רק חריגה.**
+
+    שאילתה שהחזירה ``None`` אינה זורקת כלום, והקוד המשיך עם רשימה ריקה
+    ועם ``unknown: false`` — כלומר "לא הצלחנו לקרוא" הוצג כ"אין יתומים".
+    זה בדיוק הדפוס K11: כשל שמדווח בערך החזרה ונבלע.
+
+    נופל אם ``cursor is None`` יחזור להיקרא כרשימה ריקה.
+    """
+    _mirror(client.db)
+
+    client.db.sticky_notes = _NullSortColl()
+    body = client.get("/api/sticky-notes/repo-orphans/CodeBot").get_json()
+    assert body["unknown"] is True
+    assert body["count"] == 0
+
+
+def test_repo_list_fails_loudly_when_query_returns_no_cursor(client):
+    """אותו כלל בקריאת הפתקים של קובץ: ``None`` הוא כשל, לא "אין פתקים".
+
+    ``notes: []`` כאן אינו רק תצוגה חסרה — הלקוח כותב את התשובה לקאש
+    המקומי, ולכן קריאה שנכשלה הייתה **מוחקת** את הפתקים ששמורים בו.
+    """
+    _mirror(client.db)
+
+    client.db.sticky_notes = _NullSortColl()
+    res = client.get("/api/sticky-notes/repo/CodeBot/webapp/app.py")
+    assert res.status_code == 500
+    assert res.get_json()["ok"] is False
 
 
 def test_orphans_unknown_when_manifest_unreadable(client):
