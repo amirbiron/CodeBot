@@ -366,17 +366,41 @@ def _run_sync_logic(
             stats["errors"] += 1
             logger.warning(f"Skipping file content for {file_path} (unable to read)")
 
+    # **מונה הקבצים נספר מחדש בכל סנכרון, ולא רק בייבוא הראשוני.**
+    #
+    # עד כאן ``total_files`` נכתב רק ב-``initial_import``, ולכן המספר
+    # שהוצג בדפדפן הריפו נשאר קפוא על מה שהיה ביום הייבוא — גם אחרי
+    # עשרות מיזוגים שהוסיפו ומחקו קבצים.
+    #
+    # הספירה היא של ``repo_files``, שהוא בדיוק מה ש-``total_files`` מייצג
+    # (בייבוא: ``len(code_files)``, כלומר הקבצים שנבחרו לאינדוקס). הסנכרון
+    # מסיר משם קבצים שנמחקו ושינויי שם, ולכן הספירה משקפת את המצב האמיתי.
+    #
+    # **למה ספירה ולא דלתא של added/removed:** דלתא מצטברת על ערך קודם,
+    # וכל כשל חלקי אחד — קובץ שדילגנו עליו, סנכרון שנקטע — נשאר בתוכה
+    # לתמיד. ספירה קוראת את המצב, ולכן היא מתקנת סחף שכבר נוצר במקום
+    # להנציח אותו.
+    try:
+        total_files = int(db.repo_files.count_documents({"repo_name": repo_name}))
+    except Exception:
+        # ספירה שנכשלה אינה עדות שאין קבצים. משאירים את הערך הקודם
+        # ומדווחים — עדיף מספר ישן על פני אפס שקרי.
+        total_files = None
+        logger.warning("Failed to count repo_files for %s; total_files left unchanged", repo_name)
+
+    metadata_updates = {
+        "last_synced_sha": new_sha,
+        "last_sync_time": datetime.utcnow(),
+        "sync_status": "completed",
+        "last_sync_stats": stats,
+    }
+    if total_files is not None:
+        metadata_updates["total_files"] = total_files
+
     # עדכון metadata
     db.repo_metadata.update_one(
         {"repo_name": repo_name},
-        {
-            "$set": {
-                "last_synced_sha": new_sha,
-                "last_sync_time": datetime.utcnow(),
-                "sync_status": "completed",
-                "last_sync_stats": stats,
-            }
-        },
+        {"$set": metadata_updates},
         upsert=True,
     )
 

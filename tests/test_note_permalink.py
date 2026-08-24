@@ -48,6 +48,9 @@ def client(monkeypatch):
         {"_id": 2, "user_id": 7, "board_id": "board-xyz"},
         {"_id": 3, "user_id": 7},                      # פתק בלי יעד — לא אמור לקרות
         {"_id": 4, "user_id": 99, "file_id": "other"},  # של משתמש אחר
+        {"_id": 5, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py"},
+        {"_id": 6, "user_id": 7, "repo_name": "CodeBot", "repo_path": "docs/a&b.rst"},
+        {"_id": 7, "user_id": 7, "repo_name": "CodeBot"},   # חצי יעד — לא אמור לקרות
     ])
     db = type("DB", (), {"sticky_notes": notes})()
 
@@ -165,3 +168,45 @@ def test_push_projection_includes_board_id():
     projection = text[text.index("    projection = {"):]
     projection = projection[:projection.index("}")]
     assert '"board_id": 1' in projection
+
+
+def test_repo_note_redirects_to_the_repo_browser(client):
+    """**זה המקרה שהיה שבור אחרי הוספת היעד השלישי.**
+
+    ``note_permalink`` הכיר ``file_id`` ו-``board_id`` בלבד, ולכן פתק על
+    קובץ בריפו נפל אל ``/boards`` — לחיצה על תזכורת הביאה את המשתמש
+    ללוחות במקום לקובץ שהפתק יושב עליו.
+
+    היעד הוא SPA: הריפו ב-query והקובץ ב-hash, בדיוק כפי ש-``updateUrlHash``
+    בונה.
+
+    נופל אם הראוט מפסיק להכיר פתקי ריפו.
+    """
+    res = client.get('/note/5')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/repo/?repo=CodeBot&note=5#file=webapp/app.py'
+
+
+def test_repo_note_target_is_url_encoded(client):
+    """נתיב עם ``&`` חייב לעבור קידוד, אחרת הוא שובר את מבנה ה-URL.
+
+    **דווקא ``&`` ולא רווח:** Werkzeug מקודד רווחים בכותרת ``Location``
+    בעצמו (נמדד), ולכן נתיב עם רווח היה עובר גם בלי ``quote`` — טסט
+    שנראה מגן ואינו מגן. ``&`` אינו מקודד, ובלעדיו ``#file=docs/a&b.rst``
+    מתפרק ב-``URLSearchParams`` לשני פרמטרים והקובץ פשוט לא נפתח.
+
+    הלוכסנים **אינם** מקודדים בכוונה: הם מבנה הנתיב, לא תו בתוך שם.
+    """
+    res = client.get('/note/6')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/repo/?repo=CodeBot&note=6#file=docs/a%26b.rst'
+
+
+def test_half_repo_target_falls_back_to_boards(client):
+    """``repo_name`` בלי ``repo_path`` אינו יעד — לא בונים ממנו קישור."""
+    res = client.get('/note/7')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/boards'

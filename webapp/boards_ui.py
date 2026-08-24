@@ -7,6 +7,8 @@ Note Boards UI routes (server-rendered pages).
 """
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from flask import Blueprint, redirect, render_template, session
 
 try:  # type: ignore
@@ -66,7 +68,7 @@ def note_permalink(note_id: str):
         db = get_db()
         note = db.sticky_notes.find_one(
             {'_id': ObjectId(str(note_id)), 'user_id': int(session['user_id'])},
-            {'file_id': 1, 'board_id': 1},
+            {'file_id': 1, 'board_id': 1, 'repo_name': 1, 'repo_path': 1},
         )
     except Exception:
         note = None
@@ -82,5 +84,20 @@ def note_permalink(note_id: str):
     file_id = str(note.get('file_id') or '')
     if file_id:
         return redirect(f'/md/{file_id}?note={note_id}')
+
+    # פתק על קובץ בריפו ממורר. **זה היה חסר** — הפונקציה הכירה שני סוגי
+    # יעד בלבד, ולכן פתק ריפו נפל אל ``/boards`` הכללי: לחיצה על תזכורת
+    # הביאה את המשתמש ללוחות במקום לקובץ שהפתק יושב עליו.
+    #
+    # דפדפן הריפו הוא SPA: הריפו נבחר ב-query, והקובץ ב-hash — זה בדיוק
+    # מה ש-``updateUrlHash`` בונה, ולכן הקישור נפתח על אותו מצב שהמשתמש
+    # היה בו.
+    repo_name = str(note.get('repo_name') or '')
+    repo_path = str(note.get('repo_path') or '')
+    if repo_name and repo_path:
+        return redirect(
+            f'/repo/?repo={quote(repo_name, safe="")}&note={note_id}'
+            f'#file={quote(repo_path, safe="/")}'
+        )
 
     return redirect('/boards')
