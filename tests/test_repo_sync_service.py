@@ -46,6 +46,17 @@ class _FakeRepoFilesCollection:
         self.count = count
         self.count_fails = False
         self.calls = []
+        #: הנתיבים שכבר באינדקס — משמש ליישוב מול הריפו בייבוא חוזר
+        self.paths = []
+        self.removed = []
+        self.distinct_fails = False
+
+    def distinct(self, field, filt=None):  # noqa: D401 - test stub
+        if self.distinct_fails:
+            from pymongo.errors import OperationFailure
+
+            raise OperationFailure("distinct failed")
+        return list(self.paths)
 
     def count_documents(self, filt):  # noqa: D401 - test stub
         self.calls.append(filt)
@@ -102,6 +113,9 @@ class _StubGitService:
         return "print('ok')\n"
 
 
+_LAST_REMOVED = []
+
+
 class _StubIndexer:
     def __init__(self, db=None) -> None:
         self.db = db
@@ -111,6 +125,11 @@ class _StubIndexer:
 
     def index_file(self, repo_name: str, file_path: str, content: str, commit_sha: str = "HEAD") -> bool:
         return True
+
+    def remove_files(self, repo_name, file_paths):  # noqa: D401 - test stub
+        _LAST_REMOVED.append((repo_name, list(file_paths)))
+        return len(file_paths)
+
 
 
 def test_initial_import_fails_fast_when_list_all_files_returns_none(monkeypatch):
@@ -268,3 +287,95 @@ def test_up_to_date_sync_does_not_write_when_the_count_fails():
     assert out["status"] == "up_to_date"
     assert db.repo_metadata.last_update is None, "לא בוצעה כתיבה"
     assert db.repo_files.calls, "אבל הספירה כן נוסתה"
+
+
+# ---------- ייבוא חוזר: יישוב האינדקס מול הריפו ----------
+
+def test_reimport_removes_paths_that_left_the_repo(monkeypatch):
+    """**ייבוא חוזר מסיר נתיבים שכבר אינם בריפו.**
+
+    ``index_file`` הוא upsert לפי ``(repo_name, path)``: ייבוא חוזר מעדכן
+    ומוסיף, אבל לעולם לא מסיר. הרפאים שנשארו אינם רק מספר — הם מופיעים
+    בעץ הקבצים ובחיפוש, ומאז שהמונה נספר מהאינדקס גם מנפחים אותו.
+
+    נופל אם היישוב יוסר מ-``initial_import``.
+    """
+    from services import repo_sync_service as rss
+
+    _LAST_REMOVED.clear()
+    db = _FakeDb()
+    # באינדקס יש קובץ שכבר לא קיים בריפו
+    db.repo_files.paths = ["a.py", "gone.py"]
+    monkeypatch.setattr(rss, "get_mirror_service", lambda: _StubGitService(list_files=["a.py"], current_sha="c" * 40))
+    monkeypatch.setattr(rss, "CodeIndexer", _StubIndexer)
+
+    out = rss.initial_import("https://example.com/repo.git", "Repo", db)
+
+    assert out["status"] == "completed"
+    assert _LAST_REMOVED == [("Repo", ["gone.py"])], "רק הנתיב שנעלם הוסר"
+
+
+def test_reimport_does_not_reconcile_when_listing_is_empty(monkeypatch):
+    """ליסטינג ריק אינו רשיון למחוק את כל האינדקס.
+
+    ``all_files`` ריק פירושו ריפו ריק — או ליסטינג שנכשל בשקט. במקרה
+    השני מחיקה גורפת הייתה מוחקת אינדקס תקין, ולכן היישוב מדלג.
+
+    נופל אם השומר על ``all_files`` יוסר.
+    """
+    from services import repo_sync_service as rss
+
+    _LAST_REMOVED.clear()
+    db = _FakeDb()
+    db.repo_files.paths = ["a.py", "b.py"]
+    monkeypatch.setattr(rss, "get_mirror_service", lambda: _StubGitService(list_files=[], current_sha="c" * 40))
+    monkeypatch.setattr(rss, "CodeIndexer", _StubIndexer)
+
+    rss.initial_import("https://example.com/repo.git", "Repo", db)
+
+    assert _LAST_REMOVED == [], "לא בוצעה שום מחיקה"
+
+
+def test_reimport_skips_reconcile_when_paths_cannot_be_listed(monkeypatch):
+    """כשל בקריאת הנתיבים הקיימים מדלג על היישוב, ולא מוחק על סמך ניחוש."""
+    from services import repo_sync_service as rss
+
+    _LAST_REMOVED.clear()
+    db = _FakeDb()
+    db.repo_files.paths = ["a.py", "gone.py"]
+    db.repo_files.distinct_fails = True
+    monkeypatch.setattr(rss, "get_mirror_service", lambda: _StubGitService(list_files=["a.py"], current_sha="c" * 40))
+    monkeypatch.setattr(rss, "CodeIndexer", _StubIndexer)
+
+    out = rss.initial_import("https://example.com/repo.git", "Repo", db)
+
+    assert out["status"] == "completed", "הייבוא לא נכשל בגלל היישוב"
+    assert _LAST_REMOVED == []
+
+
+def test_up_to_date_refresh_reports_when_no_metadata_matched(caplog):
+    """``$set`` שלא תפס מסמך אינו זורק — ולכן חייבים לבדוק את התוצאה.
+
+    זה דפוס K11: הכתיבה "מצליחה" בשקט בזמן שהסנכרון מדווח ``up_to_date``.
+
+    נופל אם בדיקת ``matched_count`` תוסר.
+    """
+    import logging
+
+    from services import repo_sync_service as rss
+
+    class _NoMatch(_FakeRepoMetadataCollection):
+        def update_one(self, filt, update, upsert=False):
+            super().update_one(filt, update, upsert)
+            return type("R", (), {"matched_count": 0, "modified_count": 0})()
+
+    db = _FakeDb()
+    db.repo_metadata = _NoMatch()
+    db.repo_files.count = 7
+
+    with caplog.at_level(logging.WARNING):
+        out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "s" * 40, "s" * 40)
+
+    assert out["status"] == "up_to_date"
+    assert any("matched no repo_metadata" in r.getMessage() for r in caplog.records), \
+        "הכשל השקט דווח"

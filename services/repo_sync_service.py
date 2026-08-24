@@ -346,11 +346,24 @@ def _run_sync_logic(
         refreshed = _count_indexed_files(db, repo_name)
         if refreshed is not None:
             try:
-                db.repo_metadata.update_one(
+                result = db.repo_metadata.update_one(
                     {"repo_name": repo_name}, {"$set": {"total_files": refreshed}}
                 )
+                # **ערך ההחזרה נבדק, לא מושלך** (K11). ``$set`` שלא תפס
+                # שום מסמך אינו זורק — הוא פשוט לא עושה כלום, והריענון
+                # "מצליח" בשקט בזמן שהסנכרון מדווח ``up_to_date``.
+                if not getattr(result, "matched_count", 0):
+                    logger.warning(
+                        "total_files refresh matched no repo_metadata for %s", repo_name
+                    )
             except PyMongoError:
                 logger.warning("Failed to refresh total_files for %s on up_to_date", repo_name)
+        # **בכוונה בלי ``upsert=True``,** בשונה משני מסלולי הכתיבה האחרים.
+        # הם כותבים את כל שדות המטא-דאטה ולכן יצירה שם היא מסמך שלם; כאן
+        # נכתב שדה יחיד, ו-upsert היה יוצר מסמך עם ``repo_name`` ו-
+        # ``total_files`` בלבד. ``/repo/api/repos`` מחזיר את **כל** מסמכי
+        # ``repo_metadata`` בלי פילטר, כך שמסמך כזה היה מופיע כריפו רפאים
+        # ברשימת הבחירה — בלי כתובת ובלי ענף.
         return {"status": "up_to_date", "message": "No changes"}
 
     # קבלת רשימת שינויים
@@ -758,11 +771,37 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
             error_count += 1
             logger.warning(f"Skipping file content for {file_path} (unable to read)")
 
+    # 4.5 יישוב האינדקס מול הריפו.
+    #
+    # ``index_file`` הוא upsert לפי ``(repo_name, path)``, ולכן ייבוא חוזר
+    # על מראה קיימת מעדכן ומוסיף — אבל **לעולם לא מסיר** נתיבים שכבר אינם
+    # בריפו. הרפאים האלה אינם רק מספר: הם מופיעים בעץ הקבצים ובחיפוש.
+    # הסנכרון האינקרמנטלי כבר עושה בדיוק את זה (``remove_files`` על
+    # ``changes["removed"]``); כאן זה חסר.
+    #
+    # המחיקה היא **הפרש מפורש** ולא גורף: הנתיבים שקיימים באינדקס פחות
+    # אלה שנבחרו עכשיו לאינדוקס, ורק דרך ``remove_files`` הקיים. היא רצה
+    # רק כשידוע שהליסטינג הצליח (``all_files`` לא ריק), אחרת ליסטינג חלקי
+    # היה מוחק קבצים אמיתיים.
+    if all_files:
+        try:
+            existing_paths = set(db.repo_files.distinct("path", {"repo_name": repo_name}))
+        except PyMongoError:
+            existing_paths = None
+            logger.warning("Could not list indexed paths for %s; skipping reconcile", repo_name)
+        if existing_paths is not None:
+            stale_paths = sorted(existing_paths - set(code_files))
+            if stale_paths:
+                removed = indexer.remove_files(repo_name, stale_paths)
+                logger.info(
+                    "Reconcile: removed %s stale indexed paths for %s", removed, repo_name
+                )
+
     # 5. שמירת metadata (כולל default_branch לשימוש בחיפוש ובסנכרון)
     #
-    # ספירה אמיתית של מה שנכנס לאינדקס. נפילה חוזרת ל-``indexed_count``
-    # שנספר בלולאה — קרוב יותר לאמת מ-``len(code_files)``, שכולל גם קבצים
-    # שנכשלו.
+    # ספירה אמיתית של מה שנכנס לאינדקס — אחרי היישוב, ולכן בלי רפאים.
+    # נפילה חוזרת ל-``indexed_count`` שנספר בלולאה, שקרוב יותר לאמת
+    # מ-``len(code_files)`` שכולל גם קבצים שנכשלו.
     counted = _count_indexed_files(db, repo_name)
     imported_count = counted if counted is not None else indexed_count
 
