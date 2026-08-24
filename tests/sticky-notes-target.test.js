@@ -159,6 +159,7 @@ check('יעד חסר נכשל מיד ולא בשקט', () => {
 
 const fileMgr = new StickyNotesManager('f1');
 const boardMgr = new StickyNotesManager({ board: 'b1' });
+const mdMgr = new StickyNotesManager({ board: 'md-tests' });  // מארקדאון דלוק
 
 // **מוקש בהארנס, ולא בקוד הנבדק.**
 //
@@ -227,7 +228,7 @@ class FakeEl {
     this.tagName = tag; this.children = []; this.dataset = {}; this.style = {};
     this.hidden = false; this._text = ''; this._attrs = {}; this._classes = new Set();
     this.classList = {
-      add: (c) => this._classes.add(c),
+      add: (...c) => c.forEach((x) => this._classes.add(x)),
       remove: (c) => this._classes.delete(c),
       contains: (c) => this._classes.has(c),
       toggle: (c, on) => { if (on) this._classes.add(c); else this._classes.delete(c); },
@@ -258,7 +259,27 @@ class FakeEl {
     if (sandbox.__focused === this) sandbox.__focused = null;
   }
   select() { this._selected = true; }
-  _matches(sel) { return sel.startsWith('.') ? this._classes.has(sel.slice(1)) : this.tagName === sel; }
+  _matches(sel) {
+    // תומך ב-``.class``, ב-``tag``, וב-``tag.class`` מורכב — הקוד משתמש
+    // ב-``closest('a.sticky-md-link')``, ובלי זה הבדיקה עברה מהסיבה הלא
+    // נכונה (או נפלה) על סלקטור שהסטאב לא הבין.
+    if (sel.startsWith('.')) return this._classes.has(sel.slice(1));
+    const dot = sel.indexOf('.');
+    if (dot > 0) {
+      const tag = sel.slice(0, dot), cls = sel.slice(dot + 1);
+      return this.tagName === tag && this._classes.has(cls);
+    }
+    return this.tagName === sel;
+  }
+  // ``closest`` אמיתי שמטפס דרך ``parentNode``, כמו בדפדפן.
+  closest(sel) {
+    let node = this;
+    while (node) {
+      if (node._matches && node._matches(sel)) return node;
+      node = node.parentNode || null;
+    }
+    return null;
+  }
   querySelector(sel) {
     for (const c of this.children) {
       if (c._matches(sel)) return c;
@@ -276,6 +297,13 @@ class FakeEl {
 }
 
 sandbox.document.createElement = (tag) => new FakeEl(tag);
+// ``_appendInline`` בונה טקסט עם ``createTextNode``. בלי מימוש כאן,
+// רינדור המארקדאון נכשל בשקט (עטוף ב-try/catch) והבדיקות היו עוברות
+// על התנהגות שבורה — אותה מלכודת של ``remove``/``blur`` בסבבים קודמים.
+sandbox.document.createTextNode = (t) => ({
+  nodeType: 3, textContent: String(t == null ? '' : t),
+  _matches: () => false, querySelector: () => null, querySelectorAll: () => [],
+});
 
 /** פתק מדומה עם טקסטריה ותצוגה, כמו ש-``_renderNote`` בונה. */
 function makeNote(content) {
@@ -304,7 +332,7 @@ check('תצוגה: טקסט שאינו משימה נשאר גלוי', () => {
   const { el, view } = makeNote(CONTENT);
   fileMgr._syncTaskView(el);
   eq(view.textContent.includes('שורת טקסט'), true, 'טקסט חופשי');
-  eq(view.textContent.includes('- פריט רגיל'), true, 'פריט רשימה שאינו משימה');
+  eq(view.textContent.includes('פריט רגיל'), true, 'פריט רשימה — התוכן, בלי הסימן שהפך לתבליט');
 });
 
 check('תצוגה: הסידור נספר על שורות משימה בלבד', () => {
@@ -713,6 +741,256 @@ check('שם: מצב העריכה מחליף נעילה, פוקוס וסמל', ()
   // בסנדבוקס התנאי לעולם לא התקיים, והשדה נשאר ממוקד אחרי הנעילה —
   // כלומר המקלדת במובייל לא הייתה נסגרת.
   eq(sandbox.__focused, null, 'והמיקוד שוחרר');
+});
+
+// ---------- מארקדאון: פרסר אינליין טהור ----------
+
+function inlineDump(mgr, text){
+  return mgr._parseInline(text).map(s =>
+    s.type === 'link' ? `link(${s.text}|${s.href})` : `${s.type}(${s.text})`
+  ).join(' ');
+}
+
+check('אינליין: מודגש, נטוי, קוד, חוצה', () => {
+  eq(inlineDump(fileMgr, '**מ**'), 'bold(מ)');
+  eq(inlineDump(fileMgr, '*נ*'), 'italic(נ)');
+  eq(inlineDump(fileMgr, '`c`'), 'code(c)');
+  eq(inlineDump(fileMgr, '~~x~~'), 'strike(x)');
+});
+
+check('אינליין: קוד מגן על תוכנו', () => {
+  // כוכביות בתוך קוד נשארות ליטרליות — הקוד נתפס ראשון.
+  eq(inlineDump(fileMgr, '`a*b*c`'), 'code(a*b*c)');
+});
+
+check('אינליין: קו תחתון אינו נטוי', () => {
+  // ``note_id`` ו-``user_id`` נפוצים מדי בכלי קוד. החלטה מתועדת.
+  eq(inlineDump(fileMgr, 'note_id ו-user_id'), 'text(note_id ו-user_id)');
+});
+
+check('אינליין: קישור בטוח בלבד', () => {
+  eq(inlineDump(fileMgr, '[ok](https://x.com)'), 'link(ok|https://x.com)');
+  // סכימה חסומה → ליטרל, לא קישור. זה הגבול הביטחוני.
+  eq(inlineDump(fileMgr, '[x](javascript:alert(1))'), 'text([x](javascript:alert(1)))');
+  eq(inlineDump(fileMgr, '[y](data:text/html,x)'), 'text([y](data:text/html,x))');
+});
+
+check('אינליין: מפרידן לא-סגור נשאר טקסט', () => {
+  eq(inlineDump(fileMgr, '**לא'), 'text(**לא)');
+  eq(inlineDump(fileMgr, 'a ** b'), 'text(a ** b)');
+});
+
+// ---------- מארקדאון: סיווג בלוק ----------
+
+check('בלוק: כותרות 1-3, ומעבר לרגיל', () => {
+  eq(fileMgr._classifyLine('# א').kind, 'heading');
+  eq(fileMgr._classifyLine('# א').level, 1);
+  eq(fileMgr._classifyLine('### ג').level, 3);
+  eq(fileMgr._classifyLine('#### ד').kind, 'plain');   // 4 = לא כותרת
+  eq(fileMgr._classifyLine('#ללא רווח').kind, 'plain'); // #3262 בטוח
+});
+
+check('בלוק: ציטוט, קו, רשימות', () => {
+  eq(fileMgr._classifyLine('> צ').kind, 'quote');
+  eq(fileMgr._classifyLine('---').kind, 'hr');
+  eq(fileMgr._classifyLine('- פ').kind, 'ul');
+  eq(fileMgr._classifyLine('* פ').kind, 'ul');
+  eq(fileMgr._classifyLine('1. פ').kind, 'ol');
+  eq(fileMgr._classifyLine('1. פ').marker, '1.');
+});
+
+// ---------- מארקדאון: מתי התצוגה נפתחת ----------
+
+check('פתיחה: טקסט רגיל נשאר textarea', () => {
+  eq(fileMgr._hasRenderableMarkdown(['סתם טקסט', 'עוד שורה']), false);
+  eq(fileMgr._hasRenderableMarkdown(['note_id ו-user_id']), false);
+  eq(fileMgr._hasRenderableMarkdown(['כוכבית * בודדת']), false);
+  eq(fileMgr._hasRenderableMarkdown(['קישור [x](javascript:y) פסול']), false);
+});
+
+check('פתיחה: מבנה מארקדאון פותח', () => {
+  eq(fileMgr._hasRenderableMarkdown(['**מ**']), true);
+  eq(fileMgr._hasRenderableMarkdown(['# כותרת']), true);
+  eq(fileMgr._hasRenderableMarkdown(['- פריט']), true);
+  eq(fileMgr._hasRenderableMarkdown(['```', 'code', '```']), true);
+  eq(fileMgr._hasRenderableMarkdown(['ראה [כאן](https://x.com)']), true);
+});
+
+// ---------- מארקדאון: רינדור מלא ל-DOM ----------
+
+function renderMd(mgr, content){
+  const parts = makeNote(content);
+  mgr._syncTaskView(parts.el);
+  return parts;
+}
+
+check('רינדור: כל סוגי הבלוק נבנים', () => {
+  const { el, view } = renderMd(mdMgr,
+    '# כותרת\n> ציטוט\n---\n- פריט\n1. ממוספר\n**מודגש** רגיל');
+  eq(!!view.querySelector('.sticky-md-h1'), true, 'H1');
+  eq(!!view.querySelector('.sticky-md-quote'), true, 'ציטוט');
+  eq(!!view.querySelector('.sticky-md-hr'), true, 'קו');
+  eq(view.querySelectorAll('.sticky-md-li').length, 2, 'שני פריטי רשימה');
+  eq(!!view.querySelector('.sticky-md-bold'), true, 'מודגש');
+  eq(view.hidden, false, 'התצוגה גלויה');
+});
+
+check('רינדור: זריקה נשארת טקסט, לא תגית', () => {
+  // **החוזה הקדוש.** ``createElement``+``textContent`` בלבד, ולכן
+  // ``<script>`` לא יכול להפוך לתגית.
+  const { view } = renderMd(mdMgr, '<script>alert(1)</script> **ok**');
+  const text = view.textContent;
+  eq(text.includes('<script>alert(1)</script>'), true, 'הסקריפט כטקסט');
+  eq(!!view.querySelector('script'), false, 'ואין תגית script');
+});
+
+check('רינדור: קישור מקבל rel ו-target', () => {
+  const { view } = renderMd(mdMgr, 'ראה [כאן](https://x.com)');
+  const a = view.querySelector('.sticky-md-link');
+  eq(a.getAttribute('href'), 'https://x.com');
+  eq(a.getAttribute('target'), '_blank');
+  eq(a.getAttribute('rel'), 'noopener noreferrer');
+});
+
+check('רינדור: בלוק קוד — הגדר גלויה, התוכן ליטרלי', () => {
+  const { view } = renderMd(mdMgr, '```\na*b*\n```');
+  const pre = view.querySelectorAll('.sticky-md-pre');
+  eq(pre.length, 3, 'שלוש שורות: גדר, תוכן, גדר');
+  // התוכן בקוד אינו מפורש לאינליין — אין ``em``, והטקסט **מלא**.
+  eq(!!view.querySelector('.sticky-md-italic'), false, 'אין נטוי בתוך קוד');
+  eq(pre[1].textContent, 'a*b*', 'שורת התוכן ליטרלית, כולל הכוכביות');
+});
+
+check('רינדור: משימה בגדר קוד — ליטרלית, אבל סופרת בסידור (מארקדאון דלוק)', () => {
+  // **חוזה הסידור מול השרת.** ``sticky_notes_tasks`` סופר כל שורת
+  // ``- [ ]``, כולל בתוך גדר. לכן המשימה שבגדר אינה אינטראקטיבית, אבל
+  // הסידור שלה **נצרך**: המשימה האמיתית שאחריה היא אינדקס 1, לא 0.
+  // אחרת הלקוח שולח 0 והשרת מסמן את זו שבגדר.
+  const { view } = renderMd(mdMgr, '```\n- [ ] בקוד\n```\n- [ ] אמיתי');
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 1, 'רק המשימה שמחוץ לגדר אינטראקטיבית');
+  eq(boxes[0].dataset.taskIndex, '1', 'והסידור שלה 1 — כמו שהשרת סופר');
+  const pre = view.querySelectorAll('.sticky-md-pre');
+  eq(pre[1].textContent, '- [ ] בקוד', 'הדוגמה בגדר נשארה ליטרלית');
+});
+
+check('רינדור: משימה בגדר — הסידור עקבי גם כשמארקדאון כבוי', () => {
+  // מארקדאון כבוי: אין פרסור גדר כלל, ולכן שתי שורות ה-``- [ ]`` הן
+  // תיבות אינטראקטיביות 0 ו-1 — וזה **גם** מה שהשרת סופר. עקביות בשני
+  // המצבים.
+  const off = new StickyNotesManager({ board: 'md-off-fence', markdown: false });
+  const parts = makeNote('```\n- [ ] בקוד\n```\n- [ ] אמיתי');
+  off._syncTaskView(parts.el);
+  const boxes = parts.view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 2, 'בלי פרסור גדר — שתי התיבות אינטראקטיביות');
+  eq(boxes[0].dataset.taskIndex, '0', 'הראשונה 0');
+  eq(boxes[1].dataset.taskIndex, '1', 'השנייה 1 — כמו השרת');
+});
+
+
+check('פתיחה: קישור פסול לפני מארקדאון תקין — עדיין נפתח', () => {
+  // ``_lineHasInline`` סורק את כל ההתאמות. קישור פסול ראשון לא מסתיר
+  // את המודגש שאחריו.
+  eq(mdMgr._hasRenderableMarkdown(['[x](javascript:y) ואז **מ**']), true);
+  const { view } = renderMd(mdMgr, '[x](javascript:y) ואז **מ**');
+  eq(!!view.querySelector('.sticky-md-bold'), true, 'המודגש מרונדר');
+  eq(!!view.querySelector('.sticky-md-link'), false, 'והקישור הפסול נשאר טקסט');
+});
+
+check('פתק קובץ: מארקדאון כבוי כברירת מחדל', () => {
+  // ``fileMgr`` הוא פתק קובץ — אין לו מתג כיבוי, ולכן ברירת המחדל
+  // שמרנית: טקסט גולמי, בדיוק כמו לפני הפיצ'ר.
+  eq(fileMgr.markdown, false, 'פתק קובץ — כבוי');
+  eq(mdMgr.markdown, true, 'פתק לוח — דלוק');
+  const parts = makeNote('# כותרת\n**מ**');
+  fileMgr._syncTaskView(parts.el);
+  eq(!!parts.view.querySelector('.sticky-md-h1'), false, 'אין רינדור בפתק קובץ');
+  eq(parts.ta.hidden, false, 'ה-textarea גלוי');
+});
+
+check('רינדור: charOffset נשמר לכל שורה', () => {
+  // לחיצה חוזרת-לעריכה תלויה בזה. שורה עם מודגש וקוד סופרת על הגלם.
+  const { view } = renderMd(mdMgr, 'אחת\n**שתיים** `קוד`\nשלוש');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows[0].dataset.charOffset, '0', 'שורה 1');
+  eq(rows[1].dataset.charOffset, '4', 'שורה 2 — אחרי "אחת\\n"');
+  eq(rows[2].dataset.charOffset, '20', 'שורה 3 — נספר על הגלם, לא על המרונדר');
+});
+
+check('רינדור: מארקדאון כבוי מציג טקסט גולמי', () => {
+  const off = new StickyNotesManager({ board: 'b-off', markdown: false });
+  const parts = makeNote('# כותרת\n**מודגש**');
+  off._syncTaskView(parts.el);
+  eq(!!parts.view.querySelector('.sticky-md-h1'), false, 'אין רינדור כותרת');
+  // בלי צ'קבוקס ובלי מארקדאון — נשאר textarea
+  eq(parts.view.hidden, true, 'התצוגה מוסתרת');
+  eq(parts.ta.hidden, false, 'ה-textarea גלוי');
+});
+
+check('רינדור: setMarkdown מכבה ומנקה', () => {
+  const parts = makeNote('# כותרת');
+  mdMgr.notes.set('md-toggle', { el: parts.el, data: { id: 'md-toggle' } });
+  parts.el.dataset.noteId = 'md-toggle';
+  mdMgr._syncTaskView(parts.el);
+  eq(!!parts.view.querySelector('.sticky-md-h1'), true, 'דלוק — מרונדר');
+
+  mdMgr.setMarkdown(false);
+  // **הניקוי ביציאה.** בלי ``view.textContent=''`` הצומת שרד ב-DOM המוסתר.
+  eq(!!parts.view.querySelector('.sticky-md-h1'), false, 'כבוי — נוקה');
+  mdMgr.setMarkdown(true);
+  mdMgr.notes.delete('md-toggle');
+});
+
+// ---------- נתיב המקלדת של התצוגה ----------
+//
+// אירוע מדומה עם ``preventDefault`` שסופר את עצמו, ו-``target`` שהוא
+// FakeEl. המתודות חולצו מהסגורים בדיוק כדי שאפשר יהיה לבדוק אותן כאן.
+
+function keyEvent(key, target){
+  return { key, target, _prevented: false, preventDefault(){ this._prevented = true; } };
+}
+function linkTarget(){
+  const a = new FakeEl('a');
+  a.className = 'sticky-md-link';
+  const row = new FakeEl('div'); row.className = 'sticky-task-line';
+  row.dataset = { charOffset: '0' };
+  row.appendChild(a);   // מגדיר parentNode, כך ש-closest מטפס אמיתית
+  return a;
+}
+
+check('מקלדת: Enter על קישור אינו מבטל ואינו נכנס לעריכה', () => {
+  const { el } = registerNote(fileMgr, 'kbd-enter', 'ראה קישור');
+  FakeEl.focused = null;
+  const ev = keyEvent('Enter', linkTarget());
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, false, 'לא בוטל — הדפדפן מפעיל את הקישור');
+  eq(FakeEl.focused, null, 'ולא נכנס לעריכה (אין focus)');
+});
+
+check('מקלדת: Space על קישור מבטל (בולם גלילה) ולא נכנס לעריכה', () => {
+  const { el } = registerNote(fileMgr, 'kbd-space', 'ראה קישור');
+  FakeEl.focused = null;
+  const ev = keyEvent(' ', linkTarget());
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, true, 'בוטל — Space לא גולל את הדף');
+  eq(FakeEl.focused, null, 'אבל גם לא נכנס לעריכה על קישור');
+});
+
+check('מקלדת: Enter על טקסט רגיל נכנס לעריכה', () => {
+  const { el, ta } = registerNote(fileMgr, 'kbd-text', 'שורת טקסט');
+  const row = new FakeEl('div'); row.className = 'sticky-task-line'; row.dataset = { charOffset: '0' };
+  const span = new FakeEl('span'); row.appendChild(span);
+  const ev = keyEvent('Enter', span);
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, true, 'בוטל — נכנסים לעריכה');
+  eq(FakeEl.focused === ta, true, 'ה-textarea קיבל focus');
+});
+
+check('מקלדת: מקש אחר אינו עושה כלום', () => {
+  const { el } = registerNote(fileMgr, 'kbd-other', 'טקסט');
+  const ev = keyEvent('a', linkTarget());
+  fileMgr._viewKeydown(el, ev);
+  eq(ev._prevented, false, 'לא בוטל');
 });
 
 console.log(`\n${passed} עברו, ${failed} נכשלו`);

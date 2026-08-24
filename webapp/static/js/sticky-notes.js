@@ -159,6 +159,22 @@
   //: ובכיבוי, רק נשימה קטנה מתחת לפתק האחרון.
   const SURFACE_TAIL_PAD = 24;
   const TASK_LINE_RE = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
+  //: מארקדאון קליל בפתקים. תת-קבוצה מוצהרת ומצומצמת — ראו
+  //: docs/user/sticky_notes.rst. כל דפוס נבחר כי הוא נכנס בפתק קטן
+  //: ומרונדר בשורה אחת, וכל מה שאוכל גובה או פותח משטח הזרקה נשאר בחוץ.
+  const MD_HEADING_RE = /^(#{1,3})[ \t]+(.*)$/;
+  const MD_QUOTE_RE   = /^[ \t]*>[ \t]?(.*)$/;
+  const MD_HR_RE      = /^[ \t]*-{3,}[ \t]*$/;
+  const MD_OL_RE      = /^([ \t]*)(\d+)\.[ \t]+(.*)$/;
+  const MD_UL_RE      = /^([ \t]*)[-*][ \t]+(.*)$/;
+  const MD_FENCE_RE   = /^[ \t]*```/;
+  //: סדר החלופות = עדיפות במיקום נתון: קוד (תוכנו ליטרלי) ← קישור ←
+  //: מודגש ← חוצה ← נטוי. הקו התחתון **אינו** נטוי, בכוונה: ``note_id``
+  //: ו-``user_id`` נפוצים מדי בכלי שכולו על קוד.
+  const MD_INLINE_RE  = /(`+)([\s\S]+?)\1|\[([^\]\n]*?)\]\(([^)\s]+?)\)|\*\*([^*\n]+?)\*\*|~~([^~\n]+?)~~|\*([^*\n]+?)\*/g;
+  //: קישור נפתח בלשונית חדשה, ולכן רק ``http``/``https``. כל סכימה אחרת
+  //: — ``javascript:``, ``data:`` — מרונדרת כטקסט, לא כקישור.
+  const MD_SAFE_LINK  = /^https?:\/\//i;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -216,6 +232,15 @@
       // ולעולם אינו מקצר את הלוח מתחת לתוכן שכבר עליו — כלומר אף פתק לא
       // "מתכווץ פנימה" ואף מיקום לא הולך לאיבוד.
       this.infiniteScroll = ('infiniteScroll' in opts) ? !!opts.infiniteScroll : false;
+      // מארקדאון מרונדר כברירת מחדל (אופציה ג'), עם מתג לכיבוי במודאל
+      // הגדרות הלוח. צ'קבוקסים אינם תלויים בדגל הזה — הם מרונדרים תמיד,
+      // כי הם כתיבה למסד ולא רק תצוגה.
+      // דלוק כברירת מחדל **בלוח** (אופציה ג', עם מתג במודאל). בפתקי
+      // קובץ ברירת המחדל שמרנית — ``false`` — כי אין להם מתג כיבוי,
+      // ורינדור אוטומטי היה שינוי שקט ובלתי-הפיך-למשתמש לכל פתקי הקבצים
+      // הקיימים. md_preview.html יכול להעביר ``markdown: true`` במפורש
+      // אם ירצה בעתיד.
+      this.markdown = ('markdown' in opts) ? !!opts.markdown : !!this.boardId;
       this._renderedFromCache = false;
       this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
       this._init();
@@ -528,29 +553,14 @@
       // לחיצה בכל מקום בתצוגה שאינו התיבה עצמה מחזירה לעריכה, בשורה
       // שנלחצה. זו הדרך היחידה החוצה מהתצוגה — בלעדיה פתק עם צ'קבוקס
       // אחד הופך לקריאה-בלבד לתמיד.
-      const enterFromEvent = (ev) => {
-        const t = ev.target;
-        if (t && t.classList && t.classList.contains('sticky-task-box')) return false;
-        const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
-        const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
-        this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
-        return true;
-      };
-      taskView.addEventListener('click', enterFromEvent);
+      taskView.addEventListener('click', (ev) => this._enterEditFromView(el, ev));
       // נתיב מקלדת. בלעדיו התצוגה היא מלכודת למי שאינו משתמש בעכבר:
       // ה-textarea מוסתר, התצוגה לא הייתה ניתנת למיקוד, והמאזין היחיד
       // היה click — כלומר אין שום דרך לחזור לעריכה.
       taskView.setAttribute('tabindex', '0');
       taskView.setAttribute('role', 'group');
       taskView.setAttribute('aria-label', 'תוכן הפתק — הקישו Enter כדי לערוך');
-      taskView.addEventListener('keydown', (ev) => {
-        if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
-        // רווח על תיבת סימון הוא סימון, לא כניסה לעריכה
-        const t = ev.target;
-        if (t && t.classList && t.classList.contains('sticky-task-box')) return;
-        ev.preventDefault();
-        if (enterFromEvent(ev) === false) return;
-      });
+      taskView.addEventListener('keydown', (ev) => this._viewKeydown(el, ev));
 
       el.appendChild(header);
       el.appendChild(textarea);
@@ -938,6 +948,107 @@
       // HTML``, לעולם לא חזרה. היחידים שרשאים לכתוב ל-``content`` הם
       // ה-textarea עצמו וראוט ``/task`` (סידורי + מצב). על הכלל הזה יש
       // בדיקה — ראו ``tests/sticky-notes-target.test.js``.
+      // ----- פרסר מארקדאון קליל -----
+      //
+      // **החוזה השלישי, הקדוש:** אפס ``innerHTML``. כל צומת נבנה עם
+      // ``createElement`` ו-``textContent``/``createTextNode``, ולכן טקסט
+      // של משתמש — או של סוכן, דרך ``codekeeper_create_note`` ב-MCP —
+      // אינו יכול להפוך לתגית בשום מצב. זה מה שהופך רינדור של תוכן שנכתב
+      // מרחוק לבטוח, ולכן אין כאן ספרייה שפולטת מחרוזת HTML.
+
+      // מפרק שורה למערך קטעים: {type,text} או {type:'link',text,href}.
+      // טהור — לא נוגע ב-DOM, ולכן נבדק ישירות.
+      _parseInline(text){
+        const src = String(text == null ? '' : text);
+        const out = [];
+        let last = 0, m;
+        MD_INLINE_RE.lastIndex = 0;
+        while ((m = MD_INLINE_RE.exec(src)) !== null){
+          if (m.index > last) out.push({ type: 'text', text: src.slice(last, m.index) });
+          if (m[1] !== undefined)      out.push({ type: 'code', text: m[2] });
+          else if (m[3] !== undefined) {
+            if (MD_SAFE_LINK.test(m[4])) out.push({ type: 'link', text: m[3] || m[4], href: m[4] });
+            else out.push({ type: 'text', text: m[0] });
+          }
+          else if (m[5] !== undefined) out.push({ type: 'bold', text: m[5] });
+          else if (m[6] !== undefined) out.push({ type: 'strike', text: m[6] });
+          else if (m[7] !== undefined) out.push({ type: 'italic', text: m[7] });
+          last = MD_INLINE_RE.lastIndex;
+        }
+        if (last < src.length) out.push({ type: 'text', text: src.slice(last) });
+        // איחוד קטעי טקסט צמודים — קישור שנדחה מותיר ליטרל מפוצל.
+        const merged = [];
+        for (const seg of out){
+          const prev = merged[merged.length - 1];
+          if (seg.type === 'text' && prev && prev.type === 'text') prev.text += seg.text;
+          else merged.push(seg);
+        }
+        if (merged.length === 0) merged.push({ type: 'text', text: '' });
+        return merged;
+      }
+
+      // מסווג בלוק לשורה בודדת. קוד רב-שורי מטופל בלולאה, לא כאן.
+      _classifyLine(line){
+        let m;
+        if ((m = MD_HEADING_RE.exec(line))) return { kind: 'heading', level: m[1].length, content: m[2] };
+        if ((m = MD_QUOTE_RE.exec(line)))   return { kind: 'quote', content: m[1] };
+        if (MD_HR_RE.test(line))            return { kind: 'hr', content: '' };
+        if ((m = MD_OL_RE.exec(line)))      return { kind: 'ol', content: m[3], marker: m[2] + '.' };
+        if ((m = MD_UL_RE.exec(line)))      return { kind: 'ul', content: m[2] };
+        return { kind: 'plain', content: line };
+      }
+
+      // האם יש מארקדאון שכדאי לרנדר — כדי לא להפוך פתק טקסט רגיל לתצוגה.
+      _lineHasInline(content){
+        // סורק את **כל** ההתאמות: קישור פסול אינו מארקדאון, אבל אסור
+        // שיסתיר מבנה תקין שאחריו באותה שורה. ``[x](javascript:y) **מ**``
+        // עדיין נחשב מארקדאון בזכות המודגש.
+        MD_INLINE_RE.lastIndex = 0;
+        let m;
+        while ((m = MD_INLINE_RE.exec(content)) !== null){
+          if (m[3] !== undefined && !MD_SAFE_LINK.test(m[4])) continue;
+          return true;
+        }
+        return false;
+      }
+      _hasRenderableMarkdown(lines){
+        for (const line of lines){
+          if (MD_FENCE_RE.test(line)) return true;
+          const b = this._classifyLine(line);
+          if (b.kind !== 'plain') return true;
+          if (this._lineHasInline(b.content)) return true;
+        }
+        return false;
+      }
+
+      // בונה את הקטעים לתוך ``container``, צומת אחר צומת. אפס innerHTML.
+      _appendInline(container, text){
+        for (const seg of this._parseInline(text)){
+          if (seg.type === 'text'){ container.appendChild(document.createTextNode(seg.text)); continue; }
+          let node;
+          if (seg.type === 'bold')        node = createEl('strong', 'sticky-md-bold');
+          else if (seg.type === 'italic') node = createEl('em', 'sticky-md-italic');
+          else if (seg.type === 'strike') node = createEl('del', 'sticky-md-strike');
+          else if (seg.type === 'code')   node = createEl('code', 'sticky-md-code');
+          else if (seg.type === 'link'){
+            node = createEl('a', 'sticky-md-link');
+            // ``href`` נכתב עם setAttribute אחרי שהסכימה כבר אושרה ב-parseInline.
+            try { node.setAttribute('href', seg.href); } catch(_) {}
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer');
+          }
+          else node = document.createTextNode(seg.text);
+          if (node.nodeType !== 3) node.textContent = seg.text;
+          container.appendChild(node);
+        }
+      }
+
+      // מחליף את מצב המארקדאון ומרנדר מחדש את כל הפתקים על המשטח.
+      setMarkdown(on){
+        this.markdown = !!on;
+        try { this.notes.forEach((entry) => { if (entry && entry.el) this._syncTaskView(entry.el); }); } catch(_) {}
+      }
+
       _syncTaskView(el, opts){
         try {
           const view = el.querySelector('.sticky-note-tasks');
@@ -946,38 +1057,88 @@
           const editing = !!(opts && opts.editing);
           const lines = String(textarea.value == null ? '' : textarea.value).split('\n');
           const hasTask = lines.some((line) => TASK_LINE_RE.test(line));
-          if (editing || !hasTask) {
+          // התצוגה נפתחת אם יש צ'קבוקס (תמיד), או אם המארקדאון דלוק ויש בו
+          // מבנה כלשהו. פתק טקסט רגיל נשאר textarea ולא משתנה בכלל.
+          const wantMd = this.markdown && this._hasRenderableMarkdown(lines);
+          if (editing || (!hasTask && !wantMd)) {
             view.hidden = true;
             textarea.hidden = false;
+            // מנקים את התצוגה גם ביציאה: אחרת צמתים שרונדרו קודם — כותרות,
+            // קישורים — שורדים בתוך ה-view המוסתר. בלתי נראים למשתמש, אבל
+            // עדיין ב-DOM. נתפס באימות: אחרי כיבוי המארקדאון, ``.sticky-md-h1``
+            // עדיין נמצא בשאילתה.
+            view.textContent = '';
             return;
           }
           view.textContent = '';
           let taskIndex = 0;
           let charOffset = 0;
+          let inFence = false;
           lines.forEach((line) => {
             const m = TASK_LINE_RE.exec(line);
             const row = createEl('div', 'sticky-task-line');
             // מיקום התו הראשון של השורה בתוך התוכן — כדי שלחיצה תחזיר
             // לעריכה בדיוק בשורה שנלחצה, ולא בתחילת הפתק.
             row.dataset.charOffset = String(charOffset);
-            if (m) {
+            const isFenceLine = wantMd && MD_FENCE_RE.test(line);
+            // **הסידור מתקדם על כל שורת משימה, כמו השרת.**
+            //
+            // ``sticky_notes_tasks.toggle_task_at_index`` סופר כל שורת
+            // ``- [ ]``, כולל בתוך גדר קוד — החלטה מתועדת שם ומכוסה
+            // בבדיקה. לכן הסידור כאן חייב להתקדם באותה נקודה בדיוק, גם
+            // כשהשורה בגדר ולא הופכת לתיבה אינטראקטיבית. אחרת האינדקס
+            // שהלקוח שולח מצביע על משימה אחרת מזו שהמשתמש לחץ עליה.
+            const thisTaskIndex = m ? taskIndex : -1;
+            if (m) taskIndex += 1;
+            if (m && !inFence && !isFenceLine) {
+              // צ'קבוקס אינטראקטיבי — רק מחוץ לגדר.
               row.classList.add('sticky-task');
               const box = createEl('input', 'sticky-task-box');
               box.type = 'checkbox';
               box.checked = m[2].toLowerCase() === 'x';
-              box.dataset.taskIndex = String(taskIndex);
-              taskIndex += 1;
+              box.dataset.taskIndex = String(thisTaskIndex);
               const span = createEl('span', 'sticky-task-text');
-              span.textContent = m[3].slice(1).trim();
-              // התיבה והטקסט הם אחים ולא ``<label>`` עוטף, בכוונה: בתוך
-              // label כל לחיצה על הטקסט הייתה מסמנת את התיבה, ואז לא
-              // הייתה שום נקודה בשורת משימה שאפשר ללחוץ עליה כדי לערוך.
+              // גם טקסט המשימה מקבל אינליין, כשהמארקדאון דלוק.
+              if (wantMd) this._appendInline(span, m[3].slice(1).trim());
+              else span.textContent = m[3].slice(1).trim();
               row.appendChild(box);
               row.appendChild(span);
+            } else if (inFence || isFenceLine) {
+              // בתוך גדר קוד — כל שורה ליטרלית, בלי אינליין. הגדר עצמה
+              // נשארת גלויה: כל שורת מקור היא שורת תצוגה אחת עם charOffset
+              // משלה, וזה מה ששומר על חזרה-לעריכה מדויקת.
+              row.classList.add('sticky-md-pre');
+              if (isFenceLine) row.classList.add('is-fence');
+              row.textContent = line === '' ? ' ' : line;
+              if (isFenceLine) inFence = !inFence;
+            } else if (wantMd) {
+              const b = this._classifyLine(line);
+              if (b.kind === 'heading'){
+                row.classList.add('sticky-md-h', 'sticky-md-h' + b.level);
+                this._appendInline(row, b.content);
+              } else if (b.kind === 'quote'){
+                row.classList.add('sticky-md-quote');
+                this._appendInline(row, b.content || ' ');
+              } else if (b.kind === 'hr'){
+                row.classList.add('sticky-md-hr');
+                row.appendChild(createEl('hr', 'sticky-md-rule'));
+              } else if (b.kind === 'ul' || b.kind === 'ol'){
+                row.classList.add('sticky-md-li', b.kind === 'ol' ? 'is-ol' : 'is-ul');
+                const bullet = createEl('span', 'sticky-md-bullet');
+                bullet.textContent = b.kind === 'ol' ? b.marker : '•';
+                const body = createEl('span', 'sticky-md-li-body');
+                this._appendInline(body, b.content);
+                row.appendChild(bullet);
+                row.appendChild(body);
+              } else {
+                row.classList.add('is-text');
+                if (line === '') row.textContent = ' ';
+                else this._appendInline(row, line);
+              }
             } else {
+              // מארקדאון כבוי — התנהגות היום בדיוק: טקסט גולמי.
               row.classList.add('is-text');
-              // שורה ריקה חייבת לתפוס גובה, אחרת פסקאות נדבקות זו לזו
-              row.textContent = line === '' ? ' ' : line;
+              row.textContent = line === '' ? ' ' : line;
             }
             view.appendChild(row);
             charOffset += line.length + 1;   // +1 עבור ה-``\n`` שהפיצול הסיר
@@ -985,6 +1146,41 @@
           view.hidden = false;
           textarea.hidden = true;
         } catch(_) {}
+      }
+
+      // לחיצה/הפעלה בתצוגה מחזירה לעריכה — **חוץ** מתיבת סימון (סימון)
+      // ומקישור מרונדר (פתיחת לשונית). מוחזר האם נכנסנו לעריכה, כדי
+      // שמסלול המקלדת יוכל להחליט. מתודה ולא סגור, כדי שאפשר לבדוק אותה.
+      _enterEditFromView(el, ev){
+        const t = ev && ev.target;
+        if (t && t.classList && t.classList.contains('sticky-task-box')) return false;
+        // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
+        // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
+        if (t && t.closest && t.closest('a.sticky-md-link')) return false;
+        const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
+        const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
+        this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
+        return true;
+      }
+
+      // נתיב המקלדת של התצוגה. Enter/Space בלבד.
+      _viewKeydown(el, ev){
+        if (!ev || (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar')) return;
+        const t = ev.target;
+        // רווח על תיבת סימון הוא סימון, לא כניסה לעריכה
+        if (t && t.classList && t.classList.contains('sticky-task-box')) return;
+        // Enter על קישור ממוקד חייב **להפעיל** אותו — לא לבטל ולא להיכנס
+        // לעריכה. ``preventDefault`` לפני הבדיקה הזו היה מבטל את שניהם,
+        // והקישור לא נפתח ולא נכנס. בודקים קודם, ורק אז מבטלים.
+        //
+        // **רק ל-Enter.** Space על קישור אינו מפעיל אותו בדפדפן, ואם היינו
+        // מדלגים גם עליו הוא היה נופל להתנהגות ברירת המחדל — גלילת הדף.
+        // לכן Space ממשיך ל-``preventDefault`` (בולם גלילה), ו-
+        // ``_enterEditFromView`` חוסם אותו מכניסה לעריכה על קישור. נטו:
+        // Space על קישור לא עושה כלום.
+        if (ev.key === 'Enter' && t && t.closest && t.closest('a.sticky-md-link')) return;
+        ev.preventDefault();
+        if (this._enterEditFromView(el, ev) === false) return;
       }
 
       // חזרה לעריכה מתוך התצוגה.
