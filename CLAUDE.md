@@ -91,9 +91,13 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 - ממציא שם חדש (אירוע, קוד שגיאה, שדה לוג, מטריקה, ENV) ← `events_catalog`, `error_codes`, `environment-variables`
 - מניח מה רכיב אחר עושה (בוט ← שירות ← DB ← ווב) ← `architecture`, `document-flow`, `conversation-handlers`
 - שאילתת Mongo שמחזירה רשימה ← `database/indexing`, `cursor-pagination`, `performance-bible`
+- ⚠️ כותב או עורך עמוד תחת `docs/` ← `doc-authoring` **לפני** הכתיבה, לא אחרי. RTD רץ עם `fail_on_warning: true`, אז חריגה מהמוסכמות מפילה בילד ולא רק נראית שונה. בעריכת עמוד קיים גם `versioning-stable-anchors` — אילו עוגנים אסור לשבור
+- ממציא מונח או שם בעברית שכבר קיים במקום אחר בתיעוד ← `style-glossary`
+- ⚠️ כותב טסט והטסט צריך לבודד משהו חיצוני — קבצים, טלגרם, HTTP, מונגו, קוד אסינכרוני ← `testing`
 - ההתנהגות בקוד נראית שגויה או מפתיעה ← העמוד מתעד כוונה; סתירה בין קוד לתיעוד היא ממצא לדיווח, לא לתיקון שקט
 
 ### מקרה מיוחד: תוכנית מימוש
+> ⚠️ לפני תוכנית מימוש עיין ב`AI-MAP.md`
 כשאתה כותב תוכנית מימוש לפיצ'ר — המבחן נדלק כמעט בכל שורה: גישה, מבנה, נקודות השקה עם מה שכבר מומש. במקום להפעיל אותו נקודה-נקודה, **קרא את `AI-MAP.md` פעם אחת בתחילת התכנון** ופתח את עמודי התשתיות שהפיצ'ר צפוי לגעת בהן — פיצ'ר חדש כמעט תמיד נשען על משהו שכבר מומש בפרויקט, וכנראה יש עליו עמוד. שם גרה הכוונה — למה זה בנוי ככה, מה החוזה בין הרכיבים.
 
 הנחה שגויה בתוכנית יקרה פי כמה מהנחה שגויה בקוד: היא משתכפלת לכל שלבי המימוש. בתוכנית עצמה ציין ליד כל נקודת השקה את העמוד שהיא נשענת עליו — או שבדקת ואין עמוד.
@@ -174,17 +178,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - **אל תבצע** merge/PR כדי לא לדרוס היסטוריה
 - בצע `git restore`/`git checkout` לקבצים או `git revert` לקומיטים
 - אם אין היסטוריה מקומית: שחזר מ-CI artifacts/ענף גיבוי/מכונה אחרת
-
----
-
-## קישור לתיעוד והקשר
-
-> **מתי להשתמש:** בכל PR/מסמך – מדיניות וקישורים רלוונטיים
-
-- קרא והסתמך על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
-- קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד
-- ⚠️ **לפני כל תיקון טסטים פתח את [CodeBot Docs](https://amirbiron.github.io/CodeBot/) וקרא את הנחיות הטסטים הרלוונטיות (async, aiohttp, cleanup וכו') לפני ביצוע שינוי**
-
 ---
 
 ## ChatOps – מודעות ושילוב
@@ -206,103 +199,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
     **אל תסיק מתוך הקוד** – התייעץ עם המשתמש ובקש ממנו להריץ את הפקודה המתאימה בבוט ושתף את הפלט.
     המידע שיחזור מהבוט נחשב למקור האמת.
 ```
-
----
-
-## כללי שימוש ב-AI/CodeBot
-
-> **מתי להשתמש:** בכל שימוש ב-AI/אוטומציה בקוד וב-PRים
-
-- כל שינוי שמוצע על ידי AI עובר code review אנושי לפני merge
-- **אין להזין** סודות, מפתחות או PII לפרומפטים או קבצי הקשר
-- פקודות שמורצות אוטומטית: ללא `sudo`, לא אינטראקטיביות, ורק בתיקיות tmp
-- תעד ב-PR החלטות אוטומציה: מקור ההצעה, שיקולים ובדיקות שבוצעו
-
----
-
-## Android/Kotlin/Compose
-
-> **מתי להשתמש:** בפיתוח Android/Kotlin/Compose – סגנון, ארכיטקטורה וטסטים
-> **ראו גם:** CI / Required Checks
-
-### Kotlin
-- העדף `val` על `var`, אי-שינוי, `data`/`sealed` classes
-- Null-safety ברורה
-
-### Concurrency
-- Coroutines עם Structured Concurrency
-- שימוש ב-`viewModelScope`/`CoroutineScope` נכון
-
-### זרימות נתונים
-- העדף `Flow`
-- מיפוי ב-Repository
-- Dispatchers מתאימים (IO/Default)
-
-### ארכיטקטורה
-- MVVM
-- Single Source of Truth
-- Repository/UseCases
-- DI עם Hilt
-
-### Compose
-- State hoisting
-- `remember`/`derivedStateOf`
-- הימנע מ-side effects בתוך Composables
-- שימוש ב-`LaunchedEffect`/`DisposableEffect`
-- בדיקות עם compose-ui-test
-
----
-
-## Commit/PR
-
-> **מתי להשתמש:** כשכותבים קומיטים או פותחים Pull Request
-> **ראו גם:** CI / Required Checks, קישור לתיעוד והקשר
-
-### שמות ענפים
-`fix/...`, `chore/...`, `feat/...`
-
-### Conventional Commits
-`feat`/`fix`/`chore`/`docs`/`refactor`/`test`/`build`
-
-### תיאור PR
-- תיאור קצר ב-HTML: What / Why / Tests
-- כולל לינק ל-RTD build/preview אם יש
-- מלא PR לפי התבנית שב-`.github/pull_request_template.md`
-- צרף Docs Preview, בדיקות, צ'קליסט ו-Rollback
-- **ציין מפורשות** האם עיינת ב-[CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
-
-### לפני merge
-- תיאור ברור
-- תוכנית בדיקות
-- סיכוני Rollback
-- עדכון docs
-
-### UI
-צרף צילום/וידאו תוצאות אם רלוונטי
-
-**הערה:** טבלת דוגמאות ל-Conventional Commits והצ'קליסט לפני merge נשמרים בתבנית ה-PR
-
----
-
-## CI / Required Checks
-
-> **מתי להשתמש:** לפני merge ובבדיקת סטטוסי CI
-> **ראו גם:** הימנעות ממחיקות קבצים בטסטים ובסקריפטים
-
-### חובות
-- מעבר ירוק: `./gradlew test detekt ktlintCheck`
-- **אין להריץ** `git clean`/`reset` על ה-workspace
-- עבודה רק על תיקיות זמניות
-- טסטים שנוגעים לקבצים ירוצו בסביבה מבודדת לכל טסט
-
-### סטטוסים נדרשים ב-PR
-- "🔍 Code Quality & Security"
-- "Unit Tests (3.11)"
-- "Unit Tests (3.12)"
-
-### נוספים
-- אין `paths-ignore` על `.cursorrules` – שינוי בו מריץ CI
-- שמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות
 
 ---
 
@@ -395,29 +291,6 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 
 ---
 
-## GitHub – "📥 הורד קובץ מריפו"
-
-> **מתי להשתמש:** בפלואו הורדת קבצים מהריפו – התנהגות UI בטוחה
-
-### כללים
-- בכניסה לפלואו: `browse_action=download`, אפס `multi_mode`/`safe_delete`
-- במצב הורדה **לא מציגים** כפתורי מחיקה או מצב מחיקה
-- חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש)
-
----
-
-## Gists/קישורים חיצוניים בהנחיות משתמש
-
-> **מתי להשתמש:** כשהמשתמש מצרף Gist/קישור בבקשה הנדסית
-
-### כללים
-- בכל פעם שהמשתמש מצרף Gist/קישור קוד: **עיין בתוכן** לפני מימוש
-- יישם בהתאם לרוח ההצעה
-- מותר לסטות בפרטים אם יש שיקולי אבטחה/פשטות, **אבל ציין זאת**
-- אם יש פער: הצע התאמה או שאל במידת הצורך
-
----
-
 ## Performance & Optimization Architecture
 
 > **מתי להשתמש:** בכל פיתוח של Endpoint חדש, שאילתת DB, או דף ב־Webapp
@@ -449,6 +322,12 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 - השתמש ב־**Skeleton Loaders** ובשליפת נתונים מה־API דרך JavaScript ברקע.
 - עטוף חישובים כבדים ב־`await asyncio.to_thread(...)` כדי לא לחסום את ה־Event Loop.
 
+---
+
+## פתיחת PR
+  
+- מלא PR לפי התבנית שב-`.github/pull_request_template.md`
+- ציין מפורשות האם עיינת ב-CodeBot – Project Docs ובאילו קבצים.
   ---
   
 

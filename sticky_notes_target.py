@@ -1,7 +1,8 @@
 """
 Sticky Notes Target — לאיזה משטח הפתק שייך, ומי אוכף שהוא שייך לאחד בדיוק.
 
-פתק דביק שייך **או** לקובץ **או** ללוח — לעולם לא לשניהם ולעולם לא לאף אחד.
+פתק דביק שייך ל**יעד אחד בדיוק** — קובץ, לוח, או קובץ בריפו ממורר
+(``repo_name`` + ``repo_path`` יחד). לעולם לא לשניים ולעולם לא לאף אחד.
 המודול הזה הוא המקום היחיד שיודע את הכלל הזה, והוא טהור בכוונה: בלי Flask,
 בלי pymongo, בלי ``get_db``. כך גם ``webapp``, גם ``mcp_server`` וגם
 ``services`` יכולים לייבא אותו — בדיוק כמו ``sticky_notes_scope`` שכבר מיובא
@@ -82,6 +83,16 @@ MAX_NOTE_CHARS = 20_000
 #: תקרת פתקים ללוח יחיד.
 MAX_NOTES_PER_BOARD = 200
 
+#: תקרת פתקים לקובץ ריפו יחיד.
+#:
+#: אותה מוסכמה כמו :data:`MAX_NOTES_PER_BOARD`, אבל נמוכה בכוונה: פתק על
+#: קובץ הוא הערה, לא מסמך. עשרים פתקים על קובץ אחד הם סימן שהתוכן שייך
+#: לעמוד תיעוד. **בניגוד לתקרת המשתמש, זו נאכפת גם על אדמין** — דפדפן
+#: הריפו חסום לאדמינים, אז אם היא הייתה פטורה-לאדמין (כמו
+#: :data:`MAX_NOTES_PER_USER`) היא לא הייתה נאכפת על אף אחד. מטרתה שמירת
+#: צורת-תוכן, לא הגנת-משאבים, ולכן הקורא מעביר לה ``is_admin=False`` תמיד.
+MAX_NOTES_PER_REPO_FILE = 20
+
 #: תקרת פתקים לכל המשתמש, על פני קבצים ולוחות כאחד.
 #:
 #: שתיהן כאן ולא ב-``webapp`` מאותה סיבה שהביאה את :data:`MAX_NOTE_CHARS`
@@ -155,6 +166,40 @@ ONE_TITLE_PER_BOARD_INDEX: Dict[str, Any] = {
 SUPERSEDED_TITLE_INDEX_NAMES: Tuple[str, ...] = ("one_title_per_board",)
 
 
+#: אינדקס מקביל לפתקי ריפו — "שם אחד לכל קובץ בריפו".
+#:
+#: פתק ריפו אין לו ``board_id``, ולכן הוא נופל **מחוץ** ל-
+#: :data:`ONE_TITLE_PER_BOARD_INDEX` (שהפילטר שלו דורש ``board_id`` קיים) —
+#: כלומר בלי אינדקס משלו הוא מקבל אפס ייחודיות שם, בשקט. הפילטר כאן דורש
+#: ``repo_path`` קיים, בדיוק כמו שהאח שלו דורש ``board_id``, ומאותה סיבה:
+#: פתקי קובץ/לוח (בלי ``repo_path``) נופלים מחוץ לאינדקס ואינם מתנגשים בו.
+#:
+#: הנורמליזציה של :func:`normalize_repo_path` חלה **גם על המפתח הזה** — היא
+#: רצה בכתיבה, ולכן ``docs/x.rst`` ו-``/docs/x.rst`` נשמרים כאותו ערך
+#: ומתנגשים כראוי, במקום להיות שני מפתחות שונים שהייחודיות מחמיצה ביניהם.
+#:
+#: שינוי עתידי במפרט ← להעלות ל-``_v2`` ולהוסיף את ``_v1`` לרשימה שמתחת.
+ONE_TITLE_PER_REPO_FILE_INDEX: Dict[str, Any] = {
+    "keys": [("user_id", 1), ("repo_name", 1), ("repo_path", 1), ("title", 1)],
+    "name": "one_title_per_repo_file_v1",
+    "unique": True,
+    # **שני חצאי היעד נדרשים בפילטר**, לא רק ``repo_path``. מסמך פגום
+    # שנושא ``repo_path`` בלי ``repo_name`` (מסלול כתיבה עוקף, או נתון ישן)
+    # אינו יעד ריפו חוקי; בלי ``repo_name`` בפילטר הוא בכל זאת נכנס
+    # לאינדקס תחת ``repo_name`` חסר, ושניים כאלה עם אותו שם היו מתנגשים
+    # — או מפילים את בניית האינדקס. הדרישה לשני החצאים מצמצמת את האינדקס
+    # בדיוק ליעדי ריפו שלמים, בדיוק כפי ש-``build_note_target`` מייצר.
+    "partialFilterExpression": {
+        "title": {"$exists": True},
+        "repo_name": {"$exists": True},
+        "repo_path": {"$exists": True},
+    },
+}
+
+#: שמות גרסאות קודמות של אינדקס הריפו. ריק — זו הגרסה הראשונה.
+SUPERSEDED_REPO_TITLE_INDEX_NAMES: Tuple[str, ...] = ()
+
+
 def ensure_title_index(coll: Any) -> bool:
     """יוצר את :data:`ONE_TITLE_PER_BOARD_INDEX`, ומיישב גרסה ישנה שלו.
 
@@ -180,7 +225,30 @@ def ensure_title_index(coll: Any) -> bool:
     :returns: ``True`` רק אחרי **קריאה חוזרת** שמאשרת שהאינדקס במסד תואם
         למפרט. ערך החזרה של כתיבה אינו אימות.
     """
-    want = ONE_TITLE_PER_BOARD_INDEX
+    return _ensure_versioned_unique_index(
+        coll, ONE_TITLE_PER_BOARD_INDEX, SUPERSEDED_TITLE_INDEX_NAMES
+    )
+
+
+def ensure_repo_title_index(coll: Any) -> bool:
+    """יוצר את :data:`ONE_TITLE_PER_REPO_FILE_INDEX`, באותה משמעת בדיוק.
+
+    אח תאום ל-:func:`ensure_title_index`: אותו רצף "בונה → מאמת בקריאה
+    חוזרת → מפיל ישן", אותה החזרה של ``True`` רק אחרי אימות במסד. ראו שם.
+    """
+    return _ensure_versioned_unique_index(
+        coll, ONE_TITLE_PER_REPO_FILE_INDEX, SUPERSEDED_REPO_TITLE_INDEX_NAMES
+    )
+
+
+def _ensure_versioned_unique_index(
+    coll: Any, want: Mapping[str, Any], superseded: Tuple[str, ...]
+) -> bool:
+    """המנוע המשותף מאחורי :func:`ensure_title_index` ו-:func:`ensure_repo_title_index`.
+
+    כל ההיגיון של "בונים את החדש ורק אז מפילים את הישן" חי כאן פעם אחת,
+    ושתי הפונקציות הציבוריות רק מזריקות את המפרט ואת רשימת השמות הישנים.
+    """
     name = want["name"]
     try:
         info = coll.index_information()
@@ -189,7 +257,7 @@ def ensure_title_index(coll: Any) -> bool:
     if not isinstance(info, Mapping):
         info = {}
 
-    live = _enforcing_index_name(info, want)
+    live = _enforcing_index_name(info, want, superseded)
     if live is None:
         # השם הנוכחי תפוס במפרט אחר. זה קורה **רק** אם מישהו שינה את
         # המפרט בלי להעלות את מספר הגרסה בשם — כלומר בדיוק מה שהמספור בא
@@ -212,19 +280,21 @@ def ensure_title_index(coll: Any) -> bool:
             return False
         if not isinstance(info, Mapping):
             return False
-        live = _enforcing_index_name(info, want)
+        live = _enforcing_index_name(info, want, superseded)
         if live is None:
             return False
 
     # **רק עכשיו** — יש אינדקס חי ומאומת, ולכן הפלת השאר אינה פותחת חלון
     # בלי ייחודיות. ``live`` עצמו לעולם אינו מופל.
-    for stale in SUPERSEDED_TITLE_INDEX_NAMES:
+    for stale in superseded:
         if stale != live and stale in info:
             _drop_index_if_present(coll, stale)
     return True
 
 
-def _enforcing_index_name(info: Mapping[str, Any], want: Mapping[str, Any]) -> Optional[str]:
+def _enforcing_index_name(
+    info: Mapping[str, Any], want: Mapping[str, Any], superseded: Tuple[str, ...]
+) -> Optional[str]:
     """שם האינדקס שאוכף כרגע **בדיוק** את המפרט המבוקש, אם קיים כזה.
 
     **למה השם אינו חשוב והמפרט כן:** אינדקס שנושא את המפרט הנכון תחת שם
@@ -236,7 +306,7 @@ def _enforcing_index_name(info: Mapping[str, Any], want: Mapping[str, Any]) -> O
     """
     if _index_matches(info.get(want["name"]), want):
         return str(want["name"])
-    for stale in SUPERSEDED_TITLE_INDEX_NAMES:
+    for stale in superseded:
         if _index_matches(info.get(stale), want):
             return stale
     return None
@@ -313,17 +383,104 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
-def validate_note_target(doc: Mapping[str, Any]) -> None:
-    """מוודא שבמסמך מלא בדיוק אחד מבין ``file_id`` ו-``board_id``.
+def normalize_repo_path(value: Any) -> str:
+    """נתיב קובץ בריפו, בדיוק בצורה ש-``repo_files`` שומר.
 
-    :raises NoteTargetError: אם שניהם מלאים או ששניהם ריקים.
+    **היעד אינו "עקביות פנימית" אלא התכנסות לצורה קיימת.** האינדוקסר
+    (``services/code_indexer.py``) שומר את ``repo_files.path`` כפי שהוא
+    מגיע מ-git — לוכסנים קדימה, בלי ``/`` מוביל. גילוי היתומים משווה את
+    ``repo_path`` של הפתק מול המניפסט הזה; אם הצורות לא זהות, ההשוואה
+    מחזירה "מיותם" לקובץ שקיים — כשל שקט. לכן הנורמליזציה כאן מתכנסת
+    לאותה צורה: ``\\``→``/``, כיווץ ``//``, פתרון ``.``/``..``, והסרת ``/``
+    מוביל.
+
+    **רצה בשני הקצוות** — בכתיבה (:func:`build_note_target`) ובקריאה
+    (:func:`repo_notes_filter`). נורמליזציה בצד אחד בלבד היא הכשל השקט
+    הקלאסי: פתק שנכתב לא-מנורמל לא יימצא לעולם, כי השאילתה מחפשת את הצורה
+    המנורמלת.
+
+    **מעבר-מעלה נדחה** ל-``""``. ``../etc/passwd`` אינו נתיב בתוך הריפו,
+    ופתק עם ``repo_path`` ריק ייפול ב-:func:`validate_note_target` (``repo``
+    דורש את שני חצאיו). כלומר ניסיון traversal לא מייצר פתק, לא זולג לאינדקס.
     """
-    has_file = bool(_clean(doc.get("file_id")))
-    has_board = bool(_clean(doc.get("board_id")))
-    if has_file and has_board:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    # ``..`` פנימי שנשאר בתוך הריפו הוא נתיב לגיטימי ונפתר
+    # (``webapp/../webapp/app.py`` ← ``webapp/app.py``); רק **בריחה מעל
+    # השורש** נפסלת. הכלל נגזר מהמטרה — התכנסות לצורת ``repo_files`` —
+    # ולא מפחד מהתו עצמו.
+    #
+    # הפתרון ידני ולא דרך ``normpath`` בלבד, כי ``normpath`` בולע ``/..``
+    # אל השורש: ``/../x`` היה הופך ל-``x``, כלומר בריחה שנראית תמימה.
+    # כאן חריגה מעל השורש מותירה ``..`` במחסנית, והנתיב נפסל.
+    parts: List[str] = []
+    for part in raw.replace("\\", "/").split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not parts:
+                return ""  # בריחה אל מעל שורש הריפו
+            parts.pop()
+            continue
+        parts.append(part)
+
+    normalized = "/".join(parts)
+    if normalized in ("", "."):
+        return ""
+    return normalized
+
+
+#: לכל סוג יעד — קבוצת השדות שמותר לו לשאת. הכלל התכונתי שמחליף מניית
+#: צירופים: כל שדה יעד שאינו של הסוג שנבחר הוא זיהום, ונדחה. מי שמוסיף
+#: סוג רביעי בעתיד מוסיף שורה כאן, ולא צריך לזכור לעדכן רשימת "צירופים
+#: אסורים" בשום מקום אחר.
+TARGET_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "file": ("file_id", "scope_id", "file_name"),
+    "board": ("board_id",),
+    "repo": ("repo_name", "repo_path"),
+}
+
+#: שדות הזיהוי שקובעים לאיזה סוג הפתק שייך. ``file``/``board`` נקבעים
+#: בשדה אחד; ``repo`` דורש את **שני** חצאיו יחד — ``repo_name`` בלי
+#: ``repo_path`` (או להפך) הוא יעד חצוי, לא יעד.
+_TARGET_IDENTITY: Dict[str, Tuple[str, ...]] = {
+    "file": ("file_id",),
+    "board": ("board_id",),
+    "repo": ("repo_name", "repo_path"),
+}
+
+
+def _target_kind(doc: Mapping[str, Any]) -> str:
+    """סוג היעד של מסמך — או :class:`NoteTargetError` אם אינו בדיוק אחד.
+
+    ``repo`` דורש את שני חצאיו: חצי אחד בלבד הוא ``repo_target_incomplete``,
+    ולא "אין יעד" סתמי — כדי שהשגיאה תסביר למה.
+    """
+    rname = bool(_clean(doc.get("repo_name")))
+    rpath = bool(_clean(doc.get("repo_path")))
+    if rname != rpath:
+        raise NoteTargetError("repo_target_incomplete")
+
+    present = []
+    for kind, identity in _TARGET_IDENTITY.items():
+        if all(_clean(doc.get(f)) for f in identity):
+            present.append(kind)
+
+    if len(present) > 1:
         raise NoteTargetError("note_target_ambiguous")
-    if not has_file and not has_board:
+    if not present:
         raise NoteTargetError("note_target_missing")
+    return present[0]
+
+
+def validate_note_target(doc: Mapping[str, Any]) -> None:
+    """מוודא שבמסמך מלא בדיוק יעד אחד — קובץ, לוח, או קובץ בריפו.
+
+    :raises NoteTargetError: אם יש יותר מיעד אחד, אף אחד, או יעד ריפו חצוי.
+    """
+    _target_kind(doc)
 
 
 def build_note_target(
@@ -332,29 +489,50 @@ def build_note_target(
     board_id: Any = None,
     scope_id: Optional[str] = None,
     file_name: Optional[str] = None,
+    repo_name: Any = None,
+    repo_path: Any = None,
 ) -> Dict[str, Any]:
     """שדות היעד למסמך פתק חדש — אחרי ולידציה, לא לפניה.
 
-    ``scope_id`` ו-``file_name`` הם מושגים של קובץ בלבד. העברתם יחד עם
-    ``board_id`` היא באג של הקורא ולא קלט שיש להשלים בשקט, ולכן היא נדחית.
+    ``scope_id``/``file_name`` הם מושגים של קובץ, ו-``repo_name``/``repo_path``
+    של ריפו. ערבוב ביניהם או עם ``board_id`` הוא באג של הקורא ולא קלט שיש
+    להשלים בשקט, ולכן נדחה — לא כמניית צירופים אלא ככלל: כל שדה שאינו של
+    הסוג שנבחר פוסל.
+
+    ``repo_path`` עובר :func:`normalize_repo_path` **כאן, בכתיבה** — אותה
+    פונקציה שרצה בקריאה, כך ששני הקצוות מתכנסים לאותה צורה.
     """
     fid = _clean(file_id)
     bid = _clean(board_id)
+    rname = _clean(repo_name)
+    rpath = normalize_repo_path(repo_path)
 
-    if bid and (scope_id or file_name):
-        raise NoteTargetError("board_note_cannot_carry_file_metadata")
-
+    # כל שדה שסופק נכנס לפי נוכחותו-שלו — לא מקונן תחת שדה אחר. כך פתק
+    # לוח שקיבל ``scope_id`` נושא אותו בפועל, ובדיקת הזיהום שלמטה תפסול
+    # אותו — במקום שהוא יישמט בשקט וההפרה תיעלם.
     target: Dict[str, Any] = {}
     if fid:
         target["file_id"] = fid
-        if scope_id:
-            target["scope_id"] = scope_id
-        if file_name:
-            target["file_name"] = file_name
     if bid:
         target["board_id"] = bid
+    if rname or rpath:
+        target["repo_name"] = rname
+        target["repo_path"] = rpath
+    if scope_id:
+        target["scope_id"] = scope_id
+    if file_name:
+        target["file_name"] = file_name
 
-    validate_note_target(target)
+    # כלל הזיהום התכונתי: אחרי שידוע איזה סוג נבחר, כל שדה ב-``target``
+    # שאינו ברשימת הסוג פוסל. ``target`` מורכב אך ורק משדות יעד (התוכן,
+    # המיקום וכו' מתווספים מאוחר יותר בראוט), ולכן די בסריקה אחת שלו מול
+    # ה-allowlist — בלי לעבור על שאר הסוגים, שממילא כל שדותיהם זרים.
+    kind = _target_kind(target)
+    allowed = set(TARGET_FIELDS[kind])
+    for field in target:
+        if field not in allowed:
+            raise NoteTargetError(f"{kind}_note_cannot_carry_{field}")
+
     return target
 
 
@@ -390,6 +568,61 @@ def board_notes_filter(user_id: int, board_id: Any) -> Dict[str, Any]:
     שינויי שם ולתקן. לוח ניתן לשינוי שם בלי שהמזהה שלו יזוז.
     """
     return {"user_id": int(user_id), "board_id": _clean(board_id)}
+
+
+def repo_notes_filter(user_id: int, repo_name: Any, repo_path: Any) -> Dict[str, Any]:
+    """שאילתת פתקים של קובץ בריפו — לפי הזוג ``(repo_name, repo_path)``.
+
+    **הנורמליזציה כאן היא אותה פונקציה שרצה בכתיבה** (ראו
+    :func:`normalize_repo_path`). זה לא כפל: זה בדיוק מה שמונע את הכשל
+    השקט שבו פתק נכתב בצורה אחת ומחופש בצורה אחרת, השאילתה רצה, מחזירה
+    אפס, ולא זורקת כלום.
+
+    **אי-דליפה, בשלושה כיוונים:** לפתק ריפו אין ``file_id``, אין ``scope_id``
+    ואין ``board_id`` — ולכן :func:`file_notes_filter` ו-
+    :func:`board_notes_filter` אינם תופסים אותו. לפתק קובץ/לוח אין
+    ``repo_name``, ולכן הוא אינו נתפס כאן. אין דליפה, ולא נדרש שומר —
+    בדיוק כמו שנקבע בין קובץ ללוח. מכוסה בטסט.
+
+    **אין ``ref``/ענף במפתח בכוונה.** פתק שנרשם כשהיית על ``main`` חייב
+    להופיע גם כשאתה מסתכל על ענף PR — אחרת הוא נעלם בדיוק ברגע שהוא הכי
+    נחוץ. המלכודת שייכת לקובץ, לא לענף.
+    """
+    return {
+        "user_id": int(user_id),
+        "repo_name": _clean(repo_name),
+        "repo_path": normalize_repo_path(repo_path),
+    }
+
+
+def repo_title_is_taken(
+    coll: Any,
+    *,
+    user_id: Any,
+    repo_name: Any,
+    repo_path: Any,
+    title: str,
+    exclude_id: Any = None,
+) -> bool:
+    """האם השם כבר תפוס על אותו קובץ בריפו — אח תאום ל-:func:`title_is_taken`.
+
+    אותו תפקיד ואותה משמעת, כולל הכלל שקובע את הכיוון בכשל: **שאילתה
+    שנכשלה אינה ראיה שהשם פנוי**, ולכן מחזירים ``True``.
+    """
+    if not title:
+        return False
+    query: Dict[str, Any] = {
+        "user_id": user_id,
+        "repo_name": _clean(repo_name),
+        "repo_path": normalize_repo_path(repo_path),
+        "title": title,
+    }
+    if exclude_id is not None:
+        query["_id"] = {"$ne": exclude_id}
+    try:
+        return coll.find_one(query, {"_id": 1}) is not None
+    except Exception:
+        return True
 
 
 def normalize_mode(value: Any, default: str = DEFAULT_BOARD_MODE) -> str:

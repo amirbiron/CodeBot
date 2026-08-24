@@ -191,11 +191,36 @@
         ? { file: fileIdOrOptions }
         : (fileIdOrOptions || {});
 
-      this.boardId = opts.board ? String(opts.board) : null;
-      this.fileId = this.boardId ? null : (opts.file != null ? opts.file : null);
-      if (!this.boardId && this.fileId == null) {
-        throw new Error('StickyNotesManager: חסר יעד — file או board');
+      // **בדיוק יעד אחד — נאכף, לא נבחר בשקט.** הצורה הקודמת סידרה
+      // קדימויות (לוח מנצח ריפו, ריפו מנצח קובץ), ולכן קורא שהעביר שני
+      // יעדים קיבל מנהל שעובד — על היעד הלא נכון, בלי שום סימן. השרת
+      // דוחה את אותו מסמך ב-``note_target_ambiguous``; הלקוח היה מסתיר.
+      //
+      // ``repo`` ו-``path`` נדרשים יחד: חצי יעד אינו יעד, בדיוק כמו בשרת.
+      const hasBoard = !!opts.board;
+      const hasRepo = !!opts.repo;
+      const hasPath = !!opts.path;
+      const hasFile = opts.file != null && opts.file !== '';
+      if (hasRepo !== hasPath) {
+        throw new Error('StickyNotesManager: יעד ריפו חלקי — צריך repo ו-path יחד');
       }
+      const kinds = (hasBoard ? 1 : 0) + (hasRepo ? 1 : 0) + (hasFile ? 1 : 0);
+      if (kinds > 1) {
+        throw new Error('StickyNotesManager: יותר מיעד אחד — file, board ו-repo סותרים');
+      }
+      if (kinds === 0) {
+        throw new Error('StickyNotesManager: חסר יעד — file, board או repo+path');
+      }
+
+      this.boardId = hasBoard ? String(opts.board) : null;
+      this.repoTarget = hasRepo ? { repo: String(opts.repo), path: String(opts.path) } : null;
+      this.fileId = hasFile ? opts.file : null;
+
+      // **"יש משטח תחום, ואין שורות מקור".** נכון ללוח ולריפו כאחד, ולכן
+      // כל מה שנגזר מזה — מצבי surface/screen, חסימה לגבולות המשטח,
+      // והיעדר מצב ``anchored`` — נשען על הדגל הזה ולא על ``boardId``.
+      // מסלול הקובץ יוצא ביט-זהה: אצלו הדגל כבוי, כמו שהתנאי הקודם היה.
+      this._surfaceTarget = !!(this.boardId || this.repoTarget);
 
       // הפתקים נכנסים לקונטיינר הזה. בקובץ זה ה-body, כפי שהיה; בלוח זה
       // משטח הלוח, כי פתק "מעוגן ללוח" הוא absolute יחסית אליו ולא למסמך.
@@ -210,10 +235,15 @@
       // קובץ איבדו את העיגון כולו, בשקט. יש עליה בדיקה.)
       this._anchorHost = ('anchorHost' in opts)
         ? opts.anchorHost
-        : (this.boardId ? null : document.getElementById('md-content'));
+        : (this._surfaceTarget ? null : document.getElementById('md-content'));
+      // ``path`` אינו עובר ``encodeURIComponent``: הראוט הוא ``<path:...>``,
+      // כלומר הלוכסנים הם חלק מהמבנה ולא תו לקידוד. כל רכיב מקודד לחוד.
       this._scopeUrl = this.boardId
         ? `/api/sticky-notes/board/${encodeURIComponent(this.boardId)}`
-        : `/api/sticky-notes/${encodeURIComponent(this.fileId)}`;
+        : (this.repoTarget
+          ? `/api/sticky-notes/repo/${encodeURIComponent(this.repoTarget.repo)}/`
+            + this.repoTarget.path.split('/').map(encodeURIComponent).join('/')
+          : `/api/sticky-notes/${encodeURIComponent(this.fileId)}`);
 
       this.notes = new Map();
       this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
@@ -226,7 +256,9 @@
       // את אותו קאש ב-localStorage ומרנדרים זה את הפתקים של זה.
       this._cacheKey = this.boardId
         ? `sticky-notes:board:${this.boardId}`
-        : `sticky-notes:${String(this.fileId)}`;
+        : (this.repoTarget
+          ? `sticky-notes:repo:${this.repoTarget.repo}:${this.repoTarget.path}`
+          : `sticky-notes:${String(this.fileId)}`);
       // גלילה אינסופית: כמה מקום פנוי מתחת לפתק האחרון. הלוח **תמיד**
       // נמדד עד הפתק הרחוק ביותר; הכיבוי רק מפסיק להוסיף מרווח מעבר לו,
       // ולעולם אינו מקצר את הלוח מתחת לתוכן שכבר עליו — כלומר אף פתק לא
@@ -243,25 +275,64 @@
       this.markdown = ('markdown' in opts) ? !!opts.markdown : !!this.boardId;
       this._renderedFromCache = false;
       this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
+      // מנהל שנוצר ומפורק שוב ושוב (החלפת קובץ בדפדפן הריפו) חייב להסיר
+      // את המאזינים שלו בפירוק, אחרת כל ניווט מוסיף עוד עותק. הרשימה
+      // אוגרת כל מאזין שנרשם, ו-``destroy`` מסיר את כולם.
+      this._destroyed = false;
+      this._boundHandlers = [];
       this._init();
+    }
+
+    /** מוסיף מאזין **וזוכר אותו**, כדי ש-``destroy`` יוכל להסירו. */
+    _on(target, type, fn, opts){
+      if (!target || !target.addEventListener) return;
+      try { target.addEventListener(type, fn, opts); }
+      catch(_) { try { target.addEventListener(type, fn); } catch(_) { return; } }
+      this._boundHandlers.push({ target, type, fn, opts });
     }
 
     // האם מסלול העיגון לשורת מקור רלוונטי בכלל. בלוח — לא.
     get _hasAnchorHost(){ return !!this._anchorHost; }
+
+    /**
+     * כמה מהקונטיינר כבר נגלל אל מעל לקצה העליון של החלון, בפיקסלים.
+     *
+     * זה מה שצריך להוסיף למיקום ``absolute`` יחסית לקונטיינר כדי שהפתק
+     * ייצא במקום שנראה כרגע. במשטח שנגלל עם העמוד התוצאה שווה לגלילת
+     * העמוד; בפאנל בגובה קבוע היא 0. נופל חזרה לגלילת העמוד אם אי אפשר
+     * למדוד — ההתנהגות ההיסטורית.
+     */
+    _containerScrolledPast(){
+      try {
+        const el = this.container;
+        if (el && el !== (typeof document !== 'undefined' ? document.body : null)
+            && typeof el.getBoundingClientRect === 'function') {
+          const top = el.getBoundingClientRect().top;
+          if (Number.isFinite(top)) return Math.max(0, -top);
+        }
+      } catch(_) {}
+      return getScrollOffsets().y;
+    }
 
     async _init(){
       try {
         this._rebuildLineIndex();
         this._loadCacheAndRender();
         await this.loadNotes();
+        // **בוטל תוך כדי טעינה.** ``loadNotes`` הוא async; אם המשתמש החליף
+        // קובץ בזמן שהבקשה באוויר, ``destroy`` כבר רץ — ובלי הבדיקה הזו
+        // המנהל המת היה מוסיף FAB ומאזינים לקונטיינר של הקובץ החדש.
+        if (this._destroyed) return;
         this._createFab();
-        window.addEventListener('resize', () => { this._rebuildLineIndex(); this._reflowWithinViewport(); this._updateAnchoredPositions(); });
-        window.addEventListener('scroll', () => { this._reflowWithinViewport(); this._updateAnchoredPositions(); }, { passive: true });
+        const onResize = () => { this._rebuildLineIndex(); this._reflowWithinViewport(); this._updateAnchoredPositions(); };
+        const onScroll = () => { this._reflowWithinViewport(); this._updateAnchoredPositions(); };
+        this._on(window, 'resize', onResize);
+        this._on(window, 'scroll', onScroll, { passive: true });
         // במובייל: שינוי visual viewport (מקלדת) עלול להזיז את הפתקים – נתאים אותם לבטיחות
         if (window.visualViewport) {
           const reflow = () => this._reflowWithinViewport();
-          try { window.visualViewport.addEventListener('resize', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('resize', reflow); }
-          try { window.visualViewport.addEventListener('scroll', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('scroll', reflow); }
+          this._on(window.visualViewport, 'resize', reflow, { passive: true });
+          this._on(window.visualViewport, 'scroll', reflow, { passive: true });
         }
         this._setupLifecycleGuards();
         this._setupDomObservers();
@@ -275,6 +346,13 @@
         const url = `${this._scopeUrl}?_=${Date.now()}`;
         const resp = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await resp.json();
+        // **בוטל בזמן שהבקשה הייתה באוויר.** הבדיקה חייבת לשבת כאן ולא רק
+        // אחרי ``loadNotes``: הקונטיינר משותף למנהל הבא (אותו
+        // ``code-viewer-container`` בדפדפן הריפו), ולכן ``_clearAllNotes``
+        // של מנהל מת היה מוחק את הפתקים שהמנהל החדש כבר הרכיב, ואז מרנדר
+        // במקומם את התשובה של הקובץ הקודם. גם ``_saveCache`` לא יירוץ —
+        // כתיבת תשובה ישנה לקאש היא אותה טעות, רק שהיא שורדת ריענון.
+        if (this._destroyed) return;
         if (!data || data.ok === false) return;
         // החלף תוכן מהרשימה העדכנית מהשרת
         const fresh = Array.isArray(data.notes) ? data.notes : [];
@@ -306,30 +384,18 @@
           console.warn('sticky note: lifecycle debounce flush failed', err);
         }
       };
-      try {
-        window.addEventListener('beforeunload', flush, { capture: true });
-      } catch(_) {
-        window.addEventListener('beforeunload', flush);
-      }
-      try {
-        window.addEventListener('pagehide', (ev) => {
-          try {
-            if (ev && typeof ev.persisted === 'boolean' && ev.persisted) return;
-          } catch(_) {}
-          flush();
-        }, { capture: true });
-      } catch(_) {
-        window.addEventListener('pagehide', () => flush());
-      }
-      try {
-        document.addEventListener('visibilitychange', () => {
-          try {
-            if (document.visibilityState === 'hidden') flush();
-          } catch(_) {
-            flush();
-          }
-        });
-      } catch(_) {}
+      // דרך ``_on`` כדי ש-``destroy`` יסיר גם אותם — מנהל שמתפרק בכל
+      // החלפת קובץ אחרת מצבר מאזיני beforeunload/pagehide על ``window``.
+      const onPagehide = (ev) => {
+        try { if (ev && typeof ev.persisted === 'boolean' && ev.persisted) return; } catch(_) {}
+        flush();
+      };
+      const onVisibility = () => {
+        try { if (document.visibilityState === 'hidden') flush(); } catch(_) { flush(); }
+      };
+      this._on(window, 'beforeunload', flush, { capture: true });
+      this._on(window, 'pagehide', onPagehide, { capture: true });
+      this._on(document, 'visibilitychange', onVisibility);
     }
 
     _nearestAnchor(){
@@ -356,10 +422,25 @@
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
         const scroll = getScrollOffsets();
-        const noteX = isMobile ? 80 : 120;
-        const noteY = scroll.y + (isMobile ? 80 : 120);
+        const inset = isMobile ? 80 : 120;
+        const noteX = inset;
+        // **הפתק נולד מול העיניים — נמדד יחסית לקונטיינר, לא לעמוד.**
+        //
+        // ``scroll.y`` נכון רק כשהקונטיינר נגלל יחד עם העמוד. זה המצב
+        // בלוח ובפתקי קובץ (הקונטיינר הוא ה-body או משטח שמתחיל בראשו),
+        // ובדפדפן הריפו זה נכון **במקרה**: ``.repo-browser-container``
+        // הוא ``100vh`` עם ``overflow: hidden``, כלומר העמוד לא נגלל
+        // בכלל ו-``scroll.y`` הוא 0. כלומר היום שתי הנוסחאות מסכימות,
+        // ולא ניתן לראות כאן באג.
+        //
+        // המדידה כאן מסירה את התלות הזו: כמה מהקונטיינר כבר נגלל מעל
+        // הקצה העליון של החלון. במשטח שנגלל עם העמוד זה יוצא בדיוק
+        // ``scroll.y`` (ההתנהגות בלוח ובקובץ נשארת ביט-זהה), ובפאנל שאינו
+        // נגלל זה 0. שינוי עתידי בפריסה שיאפשר גלילת עמוד לא ידחוף פתקים
+        // אל מתחת לתחתית הפאנל.
+        const noteY = this._containerScrolledPast() + inset;
 
-        const payload = this.boardId ? {
+        const payload = this._surfaceTarget ? {
           content: '',
           position: { x: noteX, y: noteY },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
@@ -393,7 +474,11 @@
         });
         const data = await resp.json();
         if (!data || data.ok === false) return;
-        const target = this.boardId ? { board_id: this.boardId } : { file_id: this.fileId };
+        const target = this.boardId
+          ? { board_id: this.boardId }
+          : (this.repoTarget
+            ? { repo_name: this.repoTarget.repo, repo_path: this.repoTarget.path }
+            : { file_id: this.fileId });
         const note = Object.assign({ id: data.id }, target, payload, { is_minimized: false, created_at: null, updated_at: null });
         this._renderNote(note, true);
       } catch(e){ console.error('createNote error', e); }
@@ -862,7 +947,7 @@
       _applySurfaceExtent(){
         try {
           const surface = this.container;
-          if (!this.boardId || !surface || !surface.style) return;
+          if (!this._surfaceTarget || !surface || !surface.style) return;
           let bottom = 0;
           this.notes.forEach((entry) => {
             const el = entry && entry.el;
@@ -925,7 +1010,7 @@
       pinBtn.classList.toggle('is-active', active);
       pinBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
       // אותה משמעות, אותו צבע, בשני המשטחים
-      const anchor = this.boardId ? 'ללוח' : 'למסמך';
+      const anchor = this.boardId ? 'ללוח' : (this.repoTarget ? 'לתצוגת הקובץ' : 'למסמך');
       pinBtn.title = active ? `הפתק מוצמד ${anchor} — לחצו כדי לשחרר` : `הצמידו את הפתק ${anchor}`;
     }
 
@@ -1624,10 +1709,12 @@
         if (note.anchor_id === PIN_SENTINEL) return 'surface';
         const hasAnchor = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL);
         const hasLine = Number.isInteger(note.line_start) && note.line_start > 0;
-        // התנאי מותנה ב-``!this.boardId`` ולא ב-``_hasAnchorHost`` בכוונה:
-        // כך מסלול הקובץ יוצא זהה בדיוק לקוד הקודם, גם במקרה הקצה שבו
-        // ``#md-content`` חסר. בלוח פשוט אין מצב anchored.
-        if ((hasAnchor || hasLine) && !this.boardId) return 'anchored';
+        // התנאי מותנה ב-``!this._surfaceTarget`` ולא ב-``_hasAnchorHost``
+        // בכוונה: כך מסלול הקובץ יוצא זהה בדיוק לקוד הקודם, גם במקרה הקצה
+        // שבו ``#md-content`` חסר. בלוח ובריפו פשוט אין מצב anchored —
+        // בריפו כי התצוגה היא CodeMirror, שאינו מרנדר שורות מחוץ למסך
+        // ולכן אין DOM להיצמד אליו.
+        if ((hasAnchor || hasLine) && !this._surfaceTarget) return 'anchored';
         return 'screen';
       }
 
@@ -1651,7 +1738,7 @@
             let targetY = (typeof note.position?.y === 'number') ? note.position.y : currentAbsY;
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
             if (!Number.isFinite(targetY)) targetY = currentAbsY;
-            if (this.boardId) {
+            if (this._surfaceTarget) {
               const clamped = this._clampToSurface(el, targetX, targetY, note);
               targetX = clamped.x; targetY = clamped.y;
             }
@@ -1863,7 +1950,7 @@
         if (floating) {
           const c = this._clampToViewport(el, nx, ny);
           nx = c.x; ny = c.y;
-        } else if (this.boardId && el.classList && el.classList.contains('is-pinned')) {
+        } else if (this._surfaceTarget && el.classList && el.classList.contains('is-pinned')) {
           const c = this._clampToSurface(el, nx, ny, null);
           nx = c.x; ny = c.y;
         }
@@ -1896,17 +1983,23 @@
       // בשקט את ``.is-editing-title .sticky-note-drag { touch-action: auto }``
       // — הכלל שאמור להחזיר מגע לשדה השם בזמן עריכה. נמדד בכרומיום:
       // הערך נשאר ``none`` גם אחרי הוספת המחלקה. הצהרה אחת, במקום אחד.
+      //
+      // מאזיני ה-``window`` נרשמים דרך ``_on`` **בכוונה.** הם נרשמים פר
+      // פתק (ארבעה כאן, ארבעה ב-``_enableResize``), ובלי הרישום הזה
+      // ``destroy`` לא היה מכיר אותם: כל החלפת קובץ בדפדפן הריפו הייתה
+      // משאירה שמונה סגירות חיות לכל פתק, שמחזיקות את האלמנט ואת המנהל
+      // המת בזיכרון וממשיכות לרוץ בכל תזוזת עכבר.
       handle.addEventListener('mousedown', onDown);
-      window.addEventListener('mousemove', onMove, { passive: false });
-      window.addEventListener('mouseup', onUp);
+      this._on(window, 'mousemove', onMove, { passive: false });
+      this._on(window, 'mouseup', onUp);
       handle.addEventListener('touchstart', onDown, { passive: false });
-      window.addEventListener('touchmove', onMove, { passive: false });
-      window.addEventListener('touchend', onUp);
+      this._on(window, 'touchmove', onMove, { passive: false });
+      this._on(window, 'touchend', onUp);
     }
     _toggleAnchor(el){
       try {
         if (!el) return;
-        if (this.boardId) { this._toggleBoardMode(el); return; }
+        if (this._surfaceTarget) { this._toggleBoardMode(el); return; }
         if (this._isPinned(el)) {
           this._unpinNote(el);
           return;
@@ -1967,12 +2060,13 @@
         this._updateSurfaceExtent();
       };
       try { handle.style.touchAction = 'none'; } catch(_) {}
+      // דרך ``_on``, מאותו נימוק בדיוק כמו ב-``_enableDrag``.
       handle.addEventListener('mousedown', onDown);
-      window.addEventListener('mousemove', onMove, { passive: false });
-      window.addEventListener('mouseup', onUp);
+      this._on(window, 'mousemove', onMove, { passive: false });
+      this._on(window, 'mouseup', onUp);
       handle.addEventListener('touchstart', onDown, { passive: false });
-      window.addEventListener('touchmove', onMove, { passive: false });
-      window.addEventListener('touchend', onUp);
+      this._on(window, 'touchmove', onMove, { passive: false });
+      this._on(window, 'touchend', onUp);
     }
 
     _queueSave(el, fragment){
@@ -2767,6 +2861,73 @@
           entry.el.style.boxShadow = '0 0 0 3px rgba(236, 72, 153, .6)';
           setTimeout(() => { entry.el.style.boxShadow = old || ''; }, 1200);
         } catch(_) {}
+      } catch(_) {}
+    }
+
+    /**
+     * מרוקן את תור השמירה של **כל** הפתקים, וממתין שהכתיבות ינחתו.
+     *
+     * ``_flushFor`` הוא פר-פתק; זו הגרסה שמכסה את כולם. נדרש לפני פירוק
+     * המנהל — ראו :js:func:`destroy`.
+     */
+    async _flushAll(){
+      // **כמה סבבים, לא אחד.** ``_sendUpdate`` מחזיר עריכה ל-``_pending``
+      // בכשל חולף; סבב יחיד לא מנקז אותה, ו-``destroy`` — שמבטל את טיימר
+      // ההתפרצות שהיה מנסה שוב — היה מוחק אותה. הסבב השני הוא הניסיון
+      // החוזר. חסום ל-2 כדי לא לתלות את הפירוק על רשת שנפלה לגמרי.
+      for (let round = 0; round < 2; round++){
+        const els = [];
+        try {
+          for (const entry of this.notes.values()){
+            if (entry && entry.el) els.push(entry.el);
+          }
+        } catch(_) {}
+        for (const el of els){
+          try { await this._flushFor(el); } catch(_) {}
+        }
+        try { if (!this._pending || this._pending.size === 0) break; } catch(_) { break; }
+      }
+    }
+
+    /**
+     * מפרק את המנהל — **אחרי** שכל מה שבתור נשמר.
+     *
+     * **סדר, לא נימוס.** תור השמירה עובד עם debounce, ולכן עריכה שנעשתה
+     * רגע לפני החלפת קובץ עדיין ממתינה בתור. פירוק לפני ריקון היה מוחק
+     * אותה יחד עם המנהל, והמשתמש היה מגלה שהעריכה האחרונה נעלמה — בלי
+     * שום סימן. זו בדיוק תקלת הסדר שכבר נתפסה פעם, כשהצ'קבוקס נדרס על ידי
+     * ``_queueSave`` תלוי ותוקנה ב-``_flushFor`` שקודם לו.
+     *
+     * ``await`` על הפירוק הוא מה שמאפשר למאזין להחליף יעד רק אחרי
+     * שהכתיבות נחתו.
+     */
+    async destroy(){
+      // מסומן מיד, כדי ש-``_init`` שעדיין באוויר יבטל את עצמו אחרי הטעינה.
+      this._destroyed = true;
+      // 1) לרוקן את התור — **לפני** ביטול הטיימרים והניקוי.
+      try { await this._flushAll(); } catch(_) {}
+      // 2) לעצור טיימרים ופריימים תלויים.
+      try { if (this._autoFlushTimer) clearInterval(this._autoFlushTimer); } catch(_) {}
+      try {
+        if (this._extentFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this._extentFrame);
+      } catch(_) {}
+      this._extentFrame = null;
+      try { this._saveDebounced && this._saveDebounced.cancel && this._saveDebounced.cancel(); } catch(_) {}
+      // 3) להסיר כל מאזין שנרשם דרך ``_on``, ולנתק observers — אחרת כל
+      //    החלפת קובץ הייתה מותירה מנהל מת שממשיך להאזין ל-scroll/resize.
+      for (const h of this._boundHandlers.splice(0)){
+        try { h.target.removeEventListener(h.type, h.fn, h.opts); }
+        catch(_) { try { h.target.removeEventListener(h.type, h.fn); } catch(_) {} }
+      }
+      try { this._domObserver && this._domObserver.disconnect(); this._domObserver = null; } catch(_) {}
+      try { this._resizeObserver && this._resizeObserver.disconnect(); this._resizeObserver = null; } catch(_) {}
+      // 4) להסיר את הפתקים ואת ה-FAB.
+      this._clearAllNotes();
+      try {
+        const fab = this.container && this.container.querySelector
+          ? this.container.querySelector('.sticky-note-fab')
+          : null;
+        if (fab && fab.remove) fab.remove();
       } catch(_) {}
     }
 

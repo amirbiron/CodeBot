@@ -132,7 +132,7 @@ function updateMarkdownToggleVisibility(path, language) {
 /**
  * מפעיל תצוגת Markdown
  */
-async function enableMarkdownPreview() {
+async function enableMarkdownPreview(seq) {
     const editorWrapper = document.getElementById('code-editor-wrapper');
     const previewContainer = document.getElementById('markdown-preview-container');
     const toggleBtn = document.getElementById('markdown-preview-toggle');
@@ -148,7 +148,7 @@ async function enableMarkdownPreview() {
     toggleBtn?.classList.add('active');
 
     // רינדור התוכן
-    await renderMarkdownPreview(state.currentFileContent);
+    await renderMarkdownPreview(state.currentFileContent, seq);
 }
 
 /**
@@ -226,7 +226,7 @@ async function ensureCodeViewerInitialized() {
 /**
  * רינדור תוכן Markdown
  */
-async function renderMarkdownPreview(content) {
+async function renderMarkdownPreview(content, seq) {
     const previewContent = document.getElementById('markdown-preview-content');
     if (!previewContent || content === null || content === undefined) return;
 
@@ -251,6 +251,9 @@ async function renderMarkdownPreview(content) {
             // רינדור ה-Markdown ל-HTML (כולל שליפת עוגני HTML מפורשים מהכותרות —
             // ה-renderer רץ עם html:false, ראו webapp/static/js/md-anchors.js)
             const rendered = await MarkdownLiveRenderer.renderWithAnchors(content);
+            // אותו נימוק כמו ב-``initCodeViewer``: הרינדור ארוך, ובזמנו
+            // בחירה חדשה יכולה להסתיים. כתיבה כאן הייתה דורסת אותה.
+            if (!selectionIsCurrent(seq)) return;
             previewContent.innerHTML = rendered.html;
 
             // שיפורים: syntax highlighting, math, mermaid + החלת העוגנים המפורשים
@@ -259,6 +262,12 @@ async function renderMarkdownPreview(content) {
             } catch (err) {
                 console.warn('Markdown enhancements failed', err);
             }
+            // ``enhance`` הוא ההמתנה האחרונה כאן, ואחריה עוד שתי פעולות
+            // שמעטרות את **אותו** אלמנט תצוגה. בחירה חדשה שהסתיימה בזמנה
+            // כבר החליפה את התוכן, והעיטור היה חל על ה-DOM שלה עם הנתונים
+            // של הקובץ הישן. (נמצא בביקורת שיטתית של כל ההמתנות במסלול,
+            // לא בדיווח — אותה מחלקה בדיוק.)
+            if (!selectionIsCurrent(seq)) return;
             applySyntaxHighlighting(previewContent);
             // הוספת גלילה חלקה לאנקורים בתפריט התוכן
             setupMarkdownAnchorScrolling(previewContent);
@@ -267,6 +276,13 @@ async function renderMarkdownPreview(content) {
     } catch (error) {
         console.warn('MarkdownLiveRenderer failed, falling back', error);
     }
+
+    // **גם ה-fallback הוא כתיבה לתצוגה המשותפת.** הוא נקרא אחרי שלוש
+    // המתנות (טעינת תלויות, highlight.js, הרינדור עצמו), ולכן בחירה חדשה
+    // כבר יכולה להיות מוצגת. כתיבה כאן — בין אם ה-HTML הישן ובין אם הודעת
+    // שגיאה — הייתה דורסת אותה. אין ``await`` בין הבדיקה לשתי הכתיבות,
+    // ולכן בדיקה אחת כאן מכסה את שתיהן.
+    if (!selectionIsCurrent(seq)) return;
 
     try {
         // Fallback: רינדור בסיסי עם markdown-it
@@ -651,6 +667,12 @@ function renderRepoSelector(repos, currentRepoName) {
 async function switchRepo(repoName) {
     if (!repoName || repoName === currentRepo) return;
 
+    // **הקידום מיידי, ולא רק ב-``showWelcomeScreen`` שבסוף.** בין כאן
+    // לשם יש שני ``await`` (טעינת העץ וסוגי הקבצים), ובחלון הזה טעינת
+    // קובץ מהריפו הקודם עדיין באוויר — היא הייתה מתחייבת על תוכן של ריפו
+    // שכבר אינו מוצג.
+    fileSelectionSeq += 1;
+
     // שמירה ב-localStorage
     localStorage.setItem('selectedRepo', repoName);
     currentRepo = repoName;
@@ -718,6 +740,35 @@ function updateRepoDisplay(repoName) {
     }
 }
 
+/** שם הריפו כפי שהתבנית הדפיסה אותו ל-``#current-repo-name[data-repo]``. */
+function repoNameFromDom() {
+    const holder = document.getElementById('current-repo-name');
+    return holder ? (holder.dataset.repo || '') : '';
+}
+
+/**
+ * מודיע שהקובץ המוצג התחלף (או שאין קובץ).
+ *
+ * ``path === null`` פירושו "אין קובץ" — מסך הפתיחה. המאזין משתמש בזה כדי
+ * לפרק את הפתקים, ולא נשאר עם פתקים של קובץ שכבר לא על המסך.
+ *
+ * ``repo`` נקרא מ-``#current-repo-name[data-repo]``, שהתבנית כבר מדפיסה —
+ * ולא מ-``state``, שהוא פנימי לקובץ הזה.
+ *
+ * **הקורא רשאי להעביר ``repo`` מפורש, ואז הוא גובר.** טעינת קובץ היא
+ * אסינכרונית, ו-``updateRepoDisplay`` יכול להחליף את ``data-repo`` בזמן
+ * שהיא באוויר — ואז קריאה מה-DOM בסוף הטעינה הייתה מצמידה את הקובץ הישן
+ * לריפו החדש. מי שמתחיל טעינה מצלם את הריפו בהתחלה ומעביר את הצילום.
+ */
+function emitRepoFileEvent(path, repo) {
+    try {
+        const name = (repo === undefined || repo === null) ? repoNameFromDom() : repo;
+        document.dispatchEvent(new CustomEvent('repo:file-loaded', {
+            detail: { repo: name, path: path || null }
+        }));
+    } catch (_) { /* אירוע שלא נשלח לא אמור להפיל טעינת קובץ */ }
+}
+
 /**
  * מציג מסך פתיחה
  */
@@ -743,6 +794,10 @@ function showWelcomeScreen() {
     state.currentFileContent = null;
     state.currentFileLanguage = null;
     state.editorFilePath = null;
+    // מסך הפתיחה הוא בחירה בפני עצמה — "אין קובץ". בלי הקידום, טעינה
+    // שעדיין באוויר הייתה מתייצבת אחריו ומרכיבה פתקים מעל מסך הפתיחה.
+    fileSelectionSeq += 1;
+    emitRepoFileEvent(null);
 }
 
 /**
@@ -1422,9 +1477,49 @@ function loadFilterPreferences() {
 // File Selection & CodeMirror
 // ========================================
 
+/**
+ * מונה הבחירות. כל בחירת קובץ מקבלת מספר, והאחרון הוא היחיד שרשאי לפלוט
+ * ``repo:file-loaded``.
+ *
+ * **למה זה נחוץ:** הטעינה אסינכרונית, ושתי לחיצות מהירות משאירות שתי
+ * טעינות באוויר. בלי המונה, זו שנחתה מאוחר יותר — לא זו שנבחרה אחרונה —
+ * הייתה קובעת: פתקים של קובץ א' מעל תוכן של קובץ ב', או ניקוי (בכשל של
+ * טעינה ישנה) שמפרק את הפתקים של הקובץ שכן הוצג.
+ */
+let fileSelectionSeq = 0;
+
+/**
+ * האם העבודה שהתחילה בבחירה ``seq`` עדיין רלוונטית.
+ *
+ * ``undefined``/``null`` פירושו "לא נבחרה בהקשר של בחירת קובץ" — למשל
+ * מתג ה-Markdown, שרץ על הקובץ שכבר מוצג — ואז אין מה לבטל.
+ *
+ * **למה הבדיקה חוזרת אחרי כל ``await``:** בדיקה נקודתית אחת אחרי ה-fetch
+ * אינה מספיקה, כי הרינדור עצמו אסינכרוני. ``initCodeViewer`` ממתין
+ * ל-runtime של CodeMirror ורק אז הורס ובונה את העורך; ``renderMarkdownPreview``
+ * ממתין לתלויות ורק אז כותב ``innerHTML``. בחלון הזה בחירה חדשה יכולה
+ * להסתיים — ואז הישנה, כשהיא חוזרת, דורסת אותה.
+ */
+function selectionIsCurrent(seq) {
+    return seq === undefined || seq === null || seq === fileSelectionSeq;
+}
+
 async function selectFile(path, element) {
+    // הבחירה הזו היא האחרונה **נכון לרגע הזה**, וסינכרונית — כדי שטעינה
+    // קודמת שעדיין באוויר תגלה בסופה שהיא כבר לא.
+    const mySeq = ++fileSelectionSeq;
+    // צילום הריפו בתחילת הבחירה. החלפת ריפו תוך כדי טעינה משנה את
+    // ``data-repo``, וקריאה ממנו בסוף הטעינה הייתה מצמידה את הקובץ הזה
+    // לריפו אחר — כלומר פתקים של ``(ריפו חדש, קובץ ישן)``, זוג שלא קיים.
+    const repoAtStart = repoNameFromDom();
+
     // Close any active in-file search when switching files
     closeInFileSearch();
+
+    // **ניקוי מיד, הרכבה רק בסוף.** הפתקים של הקובץ הקודם יושבים מעל אותו
+    // קונטיינר, ובלי הניקוי כאן הם היו נשארים תלויים מעל התוכן החדש לכל
+    // אורך הטעינה — ובכשל, גם מעל הודעת השגיאה.
+    emitRepoFileEvent(null, repoAtStart);
     
     // Update selection UI
     if (state.selectedElement) {
@@ -1439,7 +1534,7 @@ async function selectFile(path, element) {
     state.currentFileContent = null;
     state.currentFileLanguage = null;
     state.editorFilePath = null;
-    
+
     // Update URL hash to persist state across refresh
     updateUrlHash(path);
     
@@ -1479,6 +1574,14 @@ async function selectFile(path, element) {
         const response = await fetch(`${CONFIG.apiBase}/file/${encodeURIComponent(path)}?${getRepoParam()}`);
         const data = await response.json();
 
+        // **בקשה שנעקפה יוצאת כאן, לפני כל התחייבות.** השומר שהיה קיים
+        // עטף רק את פליטת אירוע הפתקים, בעוד ששאר מסלול ההתחייבות —
+        // ``state.currentFileContent``, הכותרת, ה-breadcrumbs ו-CodeMirror
+        // — רץ בכל מקרה. התוצאה: טעינה איטית של קובץ א' שנחתה אחרי שכבר
+        // עברנו לב' דרסה את תוכן העורך בתוכן של א', בעוד הפתקים והכותרת
+        // נשארו של ב'. יציאה אחת כאן מכסה את כל המסלול.
+        if (mySeq !== fileSelectionSeq) return;
+
         if (data.error) {
             throw new Error(data.error);
         }
@@ -1505,18 +1608,33 @@ async function selectFile(path, element) {
 
         if (isMarkdown && savedPreference) {
             // המשתמש העדיף תצוגת Markdown - הצג אותה
-            await enableMarkdownPreview();
+            await enableMarkdownPreview(mySeq);
         } else {
             // הצג קוד רגיל
             disableMarkdownPreview();
-            await initCodeViewer(data.content, language);
+            await initCodeViewer(data.content, language, mySeq);
         }
+
+        // הרינדור היה אסינכרוני — בדיקה חוזרת לפני שאר ההתחייבויות.
+        if (mySeq !== fileSelectionSeq) return;
 
         // Save to recent files
         addToRecentFiles(path);
 
+        // התפר לפתקים — **רק אחרי שהקובץ באמת נטען, ורק אם זו עדיין
+        // הבחירה הפעילה.** הרכבה מוקדמת (לפני ה-fetch) הייתה מעמידה פתקים
+        // על קובץ שאולי נכשל להיטען; הרכבה של טעינה שנעקפה הייתה מעמידה
+        // אותם על תוכן של קובץ אחר. מי שמאזין (sticky-notes) לא נכנס
+        // לפנימיות של הדפדפן, והדפדפן לא יודע עליו.
+        if (mySeq === fileSelectionSeq) emitRepoFileEvent(path, repoAtStart);
+
     } catch (error) {
         console.error('Failed to load file:', error);
+        // כשל של טעינה **שנעקפה** אינו אומר כלום על הקובץ שכן מוצג: לא
+        // ניקוי פתקים, וגם לא הודעת שגיאה שתידרס על תוכן תקין שכבר מוצג.
+        // הניקוי בתחילת הבחירה כבר רץ.
+        if (mySeq !== fileSelectionSeq) return;
+        emitRepoFileEvent(null, repoAtStart);
         wrapper.innerHTML = `
             <div class="error-message" style="padding: 20px; color: var(--accent-red);">
                 <i class="bi bi-exclamation-triangle"></i>
@@ -1526,11 +1644,16 @@ async function selectFile(path, element) {
     }
 }
 
-async function initCodeViewer(content, language) {
+async function initCodeViewer(content, language, seq) {
     const wrapper = document.getElementById('code-editor-wrapper');
     if (!wrapper) return;
 
     const kind = await ensureCodeMirrorRuntime();
+
+    // **בחירה חדשה גברה בזמן שחיכינו ל-runtime.** בלי היציאה כאן, הבחירה
+    // הישנה הייתה הורסת את העורך שהחדשה כבר בנתה ובונה אותו מחדש עם
+    // התוכן הישן — כלומר הישן מנצח דווקא בגלל שהוא איטי.
+    if (!selectionIsCurrent(seq)) return;
 
     // Destroy previous instances
     if (state.editor) {
@@ -1630,6 +1753,14 @@ async function initCodeViewer(content, language) {
         if (EditorState && EditorState.readOnly) {
             extensions.push(EditorState.readOnly.of(true));
         }
+
+        // **המתנה שנייה, ולכן בדיקה שנייה.** ``getTheme`` הוא ``await``
+        // נוסף אחרי השומר שבראש הפונקציה, ובזמנו בחירה חדשה יכולה
+        // להסתיים ולבנות את העורך שלה. בלי הבדיקה כאן, הבחירה הישנה
+        // הייתה בונה עורך עם התוכן הישן ודורסת את ``state.editorView6``
+        // — ובנוסף מרכיבה אותו לתוך ``mountEl`` שנלכד לפני ההמתנה וכבר
+        // נותק מה-DOM.
+        if (!selectionIsCurrent(seq)) return;
 
         const cmState = EditorState.create({
             doc: String(content || ''),

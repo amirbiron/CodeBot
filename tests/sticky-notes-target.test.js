@@ -5,8 +5,11 @@
  * (אין ברפו runner ל-JS, ולכן הקובץ עצמאי ומחזיר קוד יציאה 1 בכישלון —
  *  אותה תבנית כמו tests/md-anchors.test.js.)
  *
- * מה נבדק כאן: **רק** בחירת היעד ומצב המיקום. גרירה, שינוי גודל ותור
- * השמירה אינם נבדקים — הם דורשים DOM אמיתי, והם גם לא השתנו.
+ * מה נבדק כאן: בחירת היעד ומצב המיקום, ובנוסף **מחזור החיים של המנהל** —
+ * ``destroy`` שמרוקן את התור לפני שהוא מפרק, הסרת כל מאזין שנרשם (כולל
+ * אלה של הגרירה ושינוי הגודל), וביטול תשובה שנחתה אחרי הפירוק. הגרירה
+ * ושינוי הגודל נבדקים ברמת **רישום המאזינים** בלבד; ההתנהגות החזותית
+ * שלהם דורשת DOM אמיתי ואינה נבדקת כאן.
  *
  * הדבר החשוב ביותר שהקובץ הזה מגן עליו: שהצורה ההיסטורית
  * ``new StickyNotesManager('<file_id>')`` ממשיכה להתנהג בדיוק כמו קודם.
@@ -24,20 +27,30 @@ const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky
 function makeSandbox() {
   const el = () => ({
     style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
-    appendChild() {}, addEventListener() {}, querySelectorAll: () => [],
+    appendChild() {}, addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [],
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
     setAttribute() {}, getAttribute: () => null,
   });
   const body = el();
   const mdContent = el();
+  // רישום **זהות** המאזינים שהוסרו, ולא רק ספירה. מונה גלובלי היה משותף
+  // לכל המנהלים שנוצרים בקובץ הזה (סנדבוקס אחד, ``window``/``document``
+  // משותפים), ובדיקה אסינכרונית אחת הייתה יכולה להסיט את הספירה של אחרת.
+  // עם ``Set`` של הפונקציות עצמן, כל בדיקה שואלת רק על המאזינים שלה.
+  const listenerLedger = { added: 0, removed: 0, removedFns: new Set() };
+  const tracking = () => ({
+    addEventListener() { listenerLedger.added += 1; },
+    removeEventListener(_type, fn) { listenerLedger.removed += 1; listenerLedger.removedFns.add(fn); },
+  });
   const sandbox = {
     console,
+    __listeners: listenerLedger,
     document: {
       body,
       // מחזיר אלמנט אמיתי, אחרת הבדיקה על _anchorHost לא יכולה להיכשל
       getElementById: (id) => (id === 'md-content' ? mdContent : null),
       createElement: () => el(),
-      addEventListener() {},
+      ...tracking(),
       querySelectorAll: () => [],
       // ``_setTitleEditing`` מקזז ``document.activeElement === input`` לפני
       // שהוא קורא ל-``blur``. בלי החשיפה הזו התנאי לעולם אינו מתקיים,
@@ -45,7 +58,7 @@ function makeSandbox() {
       get activeElement() { return sandbox.__focused || null; },
     },
     window: {
-      addEventListener() {},
+      ...tracking(),
       innerWidth: 1024,
       innerHeight: 768,
       matchMedia: () => ({ matches: false }),
@@ -683,7 +696,6 @@ check('שם: 409 duplicate_title מסמן ואינו חוזר לתור', async (
   eq(fileMgr._pending.has('dup-409'), false, 'ולא נשאר בתור לניסיון נוסף');
 });
 
-await Promise.all(pending);
 check('ביטול: תוכן מהשרת באמצע הקלדה שומר את תחילת ההתפרצות', () => {
   // התרחיש: המשתמש מקליד, ובאמצע ההתפרצות מגיע תוכן סמכותי מהשרת
   // (סימון צ'קבוקס ממכשיר אחר, למשל). ``_resetUndoBaseline`` מוחק את
@@ -993,5 +1005,226 @@ check('מקלדת: מקש אחר אינו עושה כלום', () => {
   eq(ev._prevented, false, 'לא בוטל');
 });
 
-console.log(`\n${passed} עברו, ${failed} נכשלו`);
-process.exit(failed === 0 ? 0 : 1);
+// -- היעד השלישי: קובץ בריפו ממורר --
+
+check('repo+path נקראים כיעד ריפו', () => {
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'webapp/app.py' });
+  eq(m.repoTarget.repo, 'CodeBot', 'repo');
+  eq(m.repoTarget.path, 'webapp/app.py', 'path');
+  eq(m.boardId, null, 'boardId');
+  eq(m.fileId, null, 'fileId');
+});
+
+check('כתובת ה-API של יעד ריפו שומרת על הלוכסנים במבנה', () => {
+  // ``<path:repo_path>`` מצפה למבנה, לא למחרוזת מקודדת: encodeURIComponent
+  // על הנתיב כולו היה הופך ``/`` ל-``%2F`` והראוט לא היה מותאם כלל.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'webapp/app.py' });
+  eq(m._scopeUrl, '/api/sticky-notes/repo/CodeBot/webapp/app.py');
+});
+
+check('רכיב נתיב עם תו מיוחד מקודד לחוד', () => {
+  const m = new StickyNotesManager({ repo: 'My Repo', path: 'a b/c#d.py' });
+  eq(m._scopeUrl, '/api/sticky-notes/repo/My%20Repo/a%20b/c%23d.py');
+});
+
+check('מפתח הקאש של ריפו נפרד מקובץ ומלוח', () => {
+  // בלי ההפרדה, ריפו וקובץ עם אותה מחרוזת היו חולקים קאש ומרנדרים זה את
+  // הפתקים של זה — בדיוק הבאג שכבר נתפס בין לוח לקובץ.
+  const repo = new StickyNotesManager({ repo: 'same', path: 'a.py' });
+  const file = new StickyNotesManager('same');
+  const board = new StickyNotesManager({ board: 'same' });
+  eq(repo._cacheKey, 'sticky-notes:repo:same:a.py');
+  if (repo._cacheKey === file._cacheKey) throw new Error('התנגשות עם מפתח הקובץ');
+  if (repo._cacheKey === board._cacheKey) throw new Error('התנגשות עם מפתח הלוח');
+});
+
+check('חצי יעד ריפו אינו יעד', () => {
+  // repo בלי path (או להפך) אינו מזהה קובץ — ובלי הבדיקה הוא היה נופל
+  // בשקט למסלול הקובץ עם fileId ריק.
+  let threwRepoOnly = false, threwPathOnly = false;
+  try { new StickyNotesManager({ repo: 'CodeBot' }); } catch (_) { threwRepoOnly = true; }
+  try { new StickyNotesManager({ path: 'a.py' }); } catch (_) { threwPathOnly = true; }
+  if (!threwRepoOnly) throw new Error('repo בלי path התקבל');
+  if (!threwPathOnly) throw new Error('path בלי repo התקבל');
+});
+
+check('לפתק ריפו אין מקור עוגנים', () => {
+  // התצוגה היא CodeMirror, שאינו מרנדר שורות מחוץ למסך — אין DOM להיצמד
+  // אליו, ולכן העיגון הוא ברמת קובץ בלבד.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  eq(m._hasAnchorHost, false);
+});
+
+check('יעד ריפו הוא יעד עם משטח תחום', () => {
+  const repo = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  const board = new StickyNotesManager({ board: 'b1' });
+  const file = new StickyNotesManager('f1');
+  eq(repo._surfaceTarget, true, 'repo');
+  eq(board._surfaceTarget, true, 'board');
+  eq(file._surfaceTarget, false, 'file — חייב להישאר כבוי');
+});
+
+check('פתק ריפו לעולם אינו anchored', () => {
+  // גם כשהמסמך נושא שרידי עיגון — למשל פתק שנוצר לפני שהיעד הופרד.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  eq(m._resolveMode({ anchor_id: 'h-intro', line_start: 42 }), 'screen');
+  eq(m._resolveMode({ mode: 'anchored' }), 'surface');
+});
+
+check('ברירת המחדל של מארקדאון בפתקי ריפו שמרנית', () => {
+  // כמו בפתקי קובץ: אין מתג כיבוי, ולכן רינדור אוטומטי היה שינוי שקט
+  // ובלתי-הפיך-למשתמש.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  eq(m.markdown, false);
+});
+
+// -- destroy: flush לפני פירוק --
+
+check('destroy מרוקן את התור לפני שהוא מפרק', async () => {
+  // **תקלת סדר אמיתית.** תור השמירה עובד עם debounce, ולכן עריכה שנעשתה
+  // רגע לפני החלפת קובץ עדיין ממתינה. פירוק לפני ריקון היה מוחק אותה עם
+  // המנהל, והמשתמש היה מגלה שהעריכה נעלמה — בלי שום סימן.
+  //
+  // נופל אם ``destroy`` יקרא ל-``_clearAllNotes`` לפני ``_flushAll``.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  const order = [];
+  m._flushAll = async () => { order.push('flush'); };
+  const realClear = m._clearAllNotes.bind(m);
+  m._clearAllNotes = () => { order.push('clear'); realClear(); };
+
+  await m.destroy();
+
+  eq(order.join(','), 'flush,clear', 'סדר הפעולות');
+});
+
+check('destroy ממתין לכתיבה שעוד לא נחתה', async () => {
+  // לא מספיק שהריקון ייקרא — צריך גם להמתין לו. בלי ``await`` הפירוק היה
+  // ממשיך בזמן שהכתיבה באוויר.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  let landed = false;
+  m._flushAll = async () => {
+    await new Promise((r) => setTimeout(r, 5));
+    landed = true;
+  };
+  await m.destroy();
+  eq(landed, true, 'הכתיבה נחתה לפני שהפירוק הסתיים');
+});
+
+
+// -- destroy: ניקוי מאזינים, ביטול init, וניקוז חוזר --
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+check('destroy מסיר כל מאזין שהמנהל רשם', async () => {
+  // מנהל שנוצר ומפורק בכל החלפת קובץ חייב להסיר את מאזיני ה-window
+  // שלו, אחרת כל ניווט מצבר עוד עותק. נופל אם destroy לא עובר על
+  // _boundHandlers.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  await delay(10);
+  // צילום המאזינים של **המנהל הזה** לפני הפירוק — ``_boundHandlers``
+  // מתרוקן בפירוק, ואחריו אין מה להשוות מולו.
+  const mine = m._boundHandlers.map((h) => h.fn);
+  if (mine.length === 0) throw new Error('לא נרשמו מאזינים ב-_init');
+  await m.destroy();
+  eq(m._boundHandlers.length, 0, '_boundHandlers רוקן');
+  eq(m._destroyed, true, '_destroyed');
+  const missed = mine.filter((fn) => !sandbox.__listeners.removedFns.has(fn));
+  eq(missed.length, 0, `כל מאזין הוסר (נותרו ${missed.length} מתוך ${mine.length})`);
+});
+
+check('מנהל שבוטל תוך כדי טעינה אינו רושם מאזינים', async () => {
+  // _init הוא async (await loadNotes). אם המשתמש החליף קובץ בזמן שהבקשה
+  // באוויר, destroy כבר סימן _destroyed, ו-_init חייב לבטל את עצמו לפני
+  // רישום ה-FAB והמאזינים. נופל בלי הבדיקה if (this._destroyed) return.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  m._destroyed = true;         // בוטל לפני ש-loadNotes נחת
+  await delay(10);
+  eq(m._boundHandlers.length, 0, 'לא נרשמו מאזינים אחרי ביטול');
+});
+
+check('גרירה ושינוי גודל רושמים את מאזיני ה-window דרך _on', async () => {
+  // כל פתק רושם ארבעה מאזיני ``window`` בגרירה וארבעה בשינוי גודל. כשהם
+  // נרשמו ישירות דרך ``window.addEventListener``, ``destroy`` לא הכיר
+  // אותם: כל החלפת קובץ בדפדפן הריפו הותירה שמונה סגירות חיות לכל פתק,
+  // שמחזיקות את האלמנט ואת המנהל המת בזיכרון.
+  //
+  // נופל אם מחזירים את הרישום הישיר.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  await delay(10);
+  const before = m._boundHandlers.length;
+  m._enableDrag(sandbox.document.createElement('div'), sandbox.document.createElement('div'));
+  m._enableResize(sandbox.document.createElement('div'), sandbox.document.createElement('div'));
+
+  const added = m._boundHandlers.slice(before);
+  eq(added.length, 8, 'שמונה מאזינים לפתק');
+  eq(added.every((h) => h.target === sandbox.window), true, 'כולם על window');
+
+  const mine = added.map((h) => h.fn);
+  await m.destroy();
+  const missed = mine.filter((fn) => !sandbox.__listeners.removedFns.has(fn));
+  eq(missed.length, 0, `כולם הוסרו בפירוק (נותרו ${missed.length})`);
+});
+
+check('loadNotes שנחת אחרי destroy אינו נוגע בקונטיינר המשותף', async () => {
+  // **ה-P1.** ``loadNotes`` הוא async, והבדיקה שהייתה קיימת ישבה רק
+  // *אחריו* ב-``_init``. בדפדפן הריפו הקונטיינר משותף למנהל הבא, ולכן
+  // מנהל שפורק בזמן שהבקשה באוויר היה מוחק את הפתקים שהמנהל החדש כבר
+  // הרכיב, ומרנדר במקומם את התשובה של הקובץ הקודם. גם הקאש היה נדרס.
+  //
+  // סנדבוקס נפרד בכוונה: הבדיקה עוצרת את ``fetch``, וסנדבוקס משותף היה
+  // עוצר גם בדיקות אחרות שרצות במקביל.
+  //
+  // נופל בלי ``if (this._destroyed) return`` בתוך ``loadNotes``.
+  const sb = makeSandbox();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  sb.fetch = async () => {
+    await gate;
+    return { json: async () => ({ ok: true, notes: [{ _id: '1', content: 'של הקובץ הישן' }] }) };
+  };
+
+  const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  await m.destroy();                  // המשתמש החליף קובץ בזמן שהבקשה באוויר
+
+  // הריגול מותקן **אחרי** הפירוק — ל-``destroy`` עצמו מותר לנקות.
+  let cleared = 0, rendered = 0, cached = 0;
+  m._clearAllNotes = () => { cleared += 1; };
+  m._renderNote = () => { rendered += 1; };
+  m._saveCache = () => { cached += 1; };
+
+  release();
+  await delay(10);
+
+  eq(cleared, 0, 'לא ניקה את הקונטיינר');
+  eq(rendered, 0, 'ולא רינדר פתקים של הקובץ הקודם');
+  eq(cached, 0, 'ולא כתב תשובה ישנה לקאש');
+});
+
+check('_flushAll מנקז עריכה שהוחזרה לתור בכשל חולף', async () => {
+  // _sendUpdate מחזיר עריכה ל-_pending בכשל חולף. סבב יחיד לא מנקז אותה,
+  // ו-destroy היה מוחק אותה. נופל אם _flushAll עושה סבב אחד בלבד.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  await delay(5);
+  const el = { dataset: { noteId: 'n1' } };
+  m.notes.set('n1', { el });
+  m._pending.set('n1', { content: 'x' });
+  let calls = 0;
+  m._flushFor = async (e) => {
+    calls += 1;
+    if (calls >= 2) m._pending.delete(e.dataset.noteId); // סבב 2: הצלחה
+    // סבב 1: "כשל" — התוכן נשאר בתור
+  };
+  await m._flushAll();
+  eq(m._pending.size, 0, 'התור נוקה');
+  if (calls < 2) throw new Error('לא היה סבב שני של ניקוז');
+});
+
+// **הסיכום ממתין ל-``pending``.** הוא נאסף מאז ומעולם לא הומתן: טסט
+// אסינכרוני שנכשל היה מגדיל את ``failed`` **אחרי** שהסיכום כבר הודפס
+// וה-process יצא — כלומר נכשל בשקט ועם קוד יציאה 0. התיקון נדרש כאן כי
+// אלה הטסטים האסינכרוניים הראשונים בקובץ.
+(async () => {
+  await Promise.all(pending);
+  console.log(`\n${passed} עברו, ${failed} נכשלו`);
+  process.exit(failed === 0 ? 0 : 1);
+})();

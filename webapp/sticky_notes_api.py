@@ -23,9 +23,14 @@ import logging
 # tests/test_webapp_import_paths.py.
 from sticky_notes_target import (
     MAX_NOTE_CHARS, MAX_NOTE_TITLE, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER,
+    MAX_NOTES_PER_REPO_FILE,
     normalize_note_title,
+    normalize_repo_path,
     ensure_title_index,
+    ensure_repo_title_index,
+    repo_notes_filter,
     title_is_taken,
+    repo_title_is_taken,
 )
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
@@ -83,11 +88,12 @@ except Exception:
 # Module-level guard to ensure indexes only once per process
 _INDEX_READY = False
 _INDEX_READY_LOCK = threading.Lock()
-#: **גרסת המפתח הועלתה ל-v2 בכוונה.** הדגל הזה נכתב היום רק אחרי
-#: שאינדקס השם אומת, ולכן קריאתו מותר שתדליק גם את ``_TITLE_INDEX_OK``.
-#: דגל שנכתב בגרסה הקודמת של הקוד לא נשא את המשמעות הזו, ותחת אותו מפתח
-#: הוא היה מתפרש כאימות שלא היה — למשך יממה, ובכל התהליכים.
-_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v2"
+#: **גרסת המפתח הועלתה ל-v3 בכוונה.** הדגל הזה נכתב היום רק אחרי ששני
+#: אינדקסי השם אומתו — של הלוח ושל הריפו — ולכן קריאתו מותר שתדליק גם את
+#: ``_TITLE_INDEX_OK`` וגם את ``_REPO_TITLE_INDEX_OK``. דגל ``v2`` שנכתב
+#: בגרסה הקודמת של הקוד העיד על אינדקס הלוח בלבד, ותחת אותו מפתח הוא היה
+#: מתפרש כאימות של אינדקס הריפו שלא היה — למשך יממה, ובכל התהליכים.
+_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v3"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
 _WARMUP_TRIGGERED = threading.Event()
@@ -98,6 +104,12 @@ _WARMUP_TRIGGERED = threading.Event()
 #: "האילוץ חי", וזה מה שאכיפת ``duplicate_title`` נשענת עליו. כל עוד הוא
 #: כבוי, מסלולי הכתיבה עוברים לבדיקת קוד — ראו :func:`title_is_taken`.
 _TITLE_INDEX_OK = False
+
+#: האם ``one_title_per_repo_file_v1`` **אומת** במסד בהרצה האחרונה.
+#:
+#: נפרד מ-``_TITLE_INDEX_OK`` בכוונה: שני האינדקסים נבנים בנפרד, וכשל של
+#: אחד אינו עדות לגבי השני. דגל משותף היה מדליק אכיפה שלא אומתה.
+_REPO_TITLE_INDEX_OK = False
 
 #: מתי מותר לנסות לבנות שוב אחרי כשל, כ-``time.monotonic``.
 #:
@@ -128,13 +140,15 @@ def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Opti
 def _cache_flag_ready() -> bool:
     """Check shared cache flag (best-effort) to avoid duplicate index builds.
 
-    **הדגל המשותף גורר גם את ``_TITLE_INDEX_OK``.** הוא נכתב רק דרך
-    ``_mark_indexes_ready``, שרץ רק כשאינדקס השם אומת — כלומר קיומו הוא
-    עדות לכך שהאילוץ חי. בלי הגרירה הזו, worker חדש שיורש את הדגל היה
-    מדלג על הבנייה, נשאר עם ``_TITLE_INDEX_OK`` כבוי לתמיד, ומריץ שאילתת
-    גיבוי מיותרת בכל כתיבה עם שם. גרסת המפתח הועלתה בדיוק בשביל זה.
+    **הדגל המשותף גורר את שני דגלי אינדקס-השם.** הוא נכתב רק דרך
+    ``_mark_indexes_ready``, שרץ רק כששני אינדקסי השם אומתו — כלומר קיומו
+    הוא עדות לכך ששני האילוצים חיים. בלי הגרירה הזו, worker חדש שיורש את
+    הדגל היה מדלג על הבנייה, נשאר עם דגל כבוי לתמיד, ומריץ שאילתת גיבוי
+    מיותרת בכל כתיבה עם שם. גרסת המפתח הועלתה ל-``v3`` בדיוק בשביל זה:
+    דגל ``v2`` ישן העיד רק על אינדקס הלוח, ואסור שיסמן את אינדקס הריפו
+    כמאומת בלי שאומת.
     """
-    global _INDEX_READY, _INDEX_CACHE_LAST_CHECK, _TITLE_INDEX_OK
+    global _INDEX_READY, _INDEX_CACHE_LAST_CHECK, _TITLE_INDEX_OK, _REPO_TITLE_INDEX_OK
     if _INDEX_READY:
         return True
     cache_obj = cache if 'cache' in globals() else None
@@ -151,6 +165,7 @@ def _cache_flag_ready() -> bool:
     if flag:
         _INDEX_READY = True
         _TITLE_INDEX_OK = True
+        _REPO_TITLE_INDEX_OK = True
         return True
     return False
 
@@ -208,7 +223,7 @@ def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0)
         _job()
 
 def _ensure_indexes() -> None:
-    global _TITLE_INDEX_OK, _INDEX_RETRY_AFTER
+    global _TITLE_INDEX_OK, _REPO_TITLE_INDEX_OK, _INDEX_RETRY_AFTER
     if _INDEX_READY or _cache_flag_ready():
         return
     # החסם נבדק **לפני** הנעילה: בקשה שנקלעה לחלון ההמתנה לא צריכה
@@ -236,6 +251,13 @@ def _ensure_indexes() -> None:
                     IndexModel([("user_id", ASCENDING), ("scope_id", ASCENDING)], name="user_scope_idx"),
                     # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets.
                     IndexModel([("user_id", ASCENDING), ("board_id", ASCENDING)], name="user_board_idx"),
+                    # פתקי ריפו: המפתח הוא הזוג ``(repo_name, repo_path)``,
+                    # ולכן האינדקס מורכב משניהם. בלי ``ref``/ענף — בכוונה:
+                    # פתק שנרשם על ``main`` חייב להופיע גם בענף PR.
+                    IndexModel(
+                        [("user_id", ASCENDING), ("repo_name", ASCENDING), ("repo_path", ASCENDING)],
+                        name="user_repo_idx",
+                    ),
                 ]
                 coll.create_indexes(indexes)
             except Exception:
@@ -246,6 +268,9 @@ def _ensure_indexes() -> None:
                     coll.create_index([("updated_at", -1)], name="updated_desc")
                     coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
                     coll.create_index([("user_id", 1), ("board_id", 1)], name="user_board_idx")
+                    coll.create_index(
+                        [("user_id", 1), ("repo_name", 1), ("repo_path", 1)], name="user_repo_idx"
+                    )
                 except Exception:
                     pass
             # האינדקס הייחודי נוצר **בנפרד משני המסלולים**, ולא בתוכם.
@@ -262,6 +287,16 @@ def _ensure_indexes() -> None:
             except Exception:
                 _TITLE_INDEX_OK = False
                 logger.error("one_title_per_board index creation failed", exc_info=True)
+            # אח מקביל לפתקי ריפו, ומאותם שני טעמים בדיוק. דגל נפרד, כי
+            # הצלחת האחד אינה עדות להצלחת השני — ודגל משותף היה מדליק
+            # אכיפה שלא אומתה.
+            try:
+                _REPO_TITLE_INDEX_OK = bool(ensure_repo_title_index(coll))
+                if not _REPO_TITLE_INDEX_OK:
+                    logger.error("one_title_per_repo_file index not confirmed after create")
+            except Exception:
+                _REPO_TITLE_INDEX_OK = False
+                logger.error("one_title_per_repo_file index creation failed", exc_info=True)
             # אינדקסים ללוחות הפתקים (best-effort)
             try:
                 nb = db.note_boards
@@ -322,16 +357,17 @@ def _ensure_indexes() -> None:
                 # Never fail request because of index creation
                 pass
             duration_ms = int(max(0.0, (time.perf_counter() - started) * 1000.0))
-            if _TITLE_INDEX_OK:
+            # **שני אינדקסי השם חייבים להתאמת לפני סימון "מוכן".** אחרת,
+            # אם אינדקס הלוח הצליח ואינדקס הריפו נכשל, הדגל היה נדלק (כולל
+            # ברדיס ל-24 שעות), הבנייה הייתה מדלגת בכל הבקשות הבאות, ואכיפת
+            # השם על פתקי ריפו הייתה נעדרת ליממה — בכל התהליכים.
+            if _TITLE_INDEX_OK and _REPO_TITLE_INDEX_OK:
                 _INDEX_RETRY_AFTER = 0.0
                 _mark_indexes_ready(duration_ms=duration_ms)
             else:
                 _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
-                # **לא מסמנים מוכן.** ``_mark_indexes_ready`` כותב גם דגל
-                # ברדיס ל-24 שעות, ולכן סימון כאן היה נועל כשל חולף — נפילת
-                # רשת אחת בזמן פריסה — ליממה שלמה של אכיפה שאינה קיימת,
-                # בכל התהליכים. בלי הסימון הבקשה הבאה תבנה שוב.
-                _emit_index_event("failed", error="one_title_per_board not confirmed")
+                which = "one_title_per_board" if not _TITLE_INDEX_OK else "one_title_per_repo_file"
+                _emit_index_event("failed", error=f"{which} not confirmed")
     except Exception as exc:
         _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
         _emit_index_event("failed", error=str(exc))
@@ -352,6 +388,46 @@ def _title_conflict(db: Any, user_id: Any, board_id: Any, title: str, exclude_id
     return title_is_taken(
         db.sticky_notes, user_id=user_id, board_id=board_id, title=title, exclude_id=exclude_id
     )
+
+
+def _repo_title_conflict(
+    db: Any, user_id: Any, repo_name: Any, repo_path: Any, title: str, exclude_id: Any = None
+) -> bool:
+    """אותו גיבוי בדיוק, לפתקי ריפו — ורק כשהאינדקס שלהם לא אומת."""
+    if _REPO_TITLE_INDEX_OK or not title or not repo_name or not repo_path:
+        return False
+    return repo_title_is_taken(
+        db.sticky_notes,
+        user_id=user_id,
+        repo_name=repo_name,
+        repo_path=repo_path,
+        title=title,
+        exclude_id=exclude_id,
+    )
+
+def _duplicate_title_for_note(
+    db: Any, user_id: Any, note: Dict[str, Any], title: str, exclude_id: Any = None
+) -> bool:
+    """בדיקת הגיבוי לכפילות שם, **לפי סוג היעד של הפתק**.
+
+    ``_title_conflict`` יוצא מיד כשאין ``board_id`` — ולפתק ריפו אין —
+    ולכן כשאינדקס הריפו לא אומת לא הייתה שום אכיפה: אף אחד לא בדק, המסד
+    לא אכף, ושני פתקים על אותו קובץ קיבלו את אותו שם.
+
+    **הפיצול חי כאן ולא בכל ראוט בנפרד.** כשהוא היה משוכפל, ``update_note``
+    קיבל אותו ו-``batch`` נשאר מאחור — ומכיוון שהלקוח שומר דרך ``_queueSave``,
+    שמאגד ל-``/batch``, דווקא המסלול השקוף היה זה שלא אכף. סוג יעד רביעי
+    בעתיד ישנה שורה אחת, לא שתיים.
+    """
+    if not title:
+        return False
+    if note.get('repo_path'):
+        return _repo_title_conflict(
+            db, user_id, note.get('repo_name'), note.get('repo_path'), title,
+            exclude_id=exclude_id,
+        )
+    return _title_conflict(db, user_id, note.get('board_id'), title, exclude_id=exclude_id)
+
 
 def require_auth(f):
     @wraps(f)
@@ -501,13 +577,19 @@ def _mode_update(raw: Any, note: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
     ולא ``raise`` — כדי שלא יהיה טקסט של חריגה שיכול לזלוג לתשובה.
 
     ``mode`` נכתב עד היום רק ביצירה, ולכן כפתור המצב בלוח לא יכול היה
-    להישמר בכלל. הוא מוגבל לפתקי לוח: ב-``_resolveMode`` השדה נקרא
-    **לפני** הסנטינלים, כך ש-``mode`` על פתק קובץ היה משתלט על מסלול
-    העיגון לשורות המקור.
+    להישמר בכלל. הוא מותר ב**לוח ובפתק ריפו** — שניהם נושאים
+    ``surface``/``screen`` ומצמידים את הפתק למסגרת התצוגה — ונשאר חסום
+    בפתקי **קובץ**: שם ``_resolveMode`` קורא את השדה **לפני** הסנטינלים,
+    כך ש-``mode`` היה משתלט על מסלול העיגון לשורות המקור.
     """
     from sticky_notes_target import is_valid_board_mode, normalize_mode, DEFAULT_BOARD_MODE
 
-    if not note.get('board_id'):
+    # פתק ריפו נושא ``mode`` בדיוק כמו פתק לוח — surface/screen — ולכן כפתור
+    # המצב שלו חייב להישמר. בלי ``repo_path`` כאן הוא היה נדחה ב-
+    # ``mode_not_supported``, והכפתור היה נשבר בשקט. פתקי **קובץ** נשארים
+    # מחוץ, כי אצלם ``_resolveMode`` קורא את ``mode`` לפני הסנטינלים והוא
+    # היה משתלט על מסלול עיגון-השורה.
+    if not note.get('board_id') and not note.get('repo_path'):
         return None, 'mode_not_supported'
     if raw is not None and not is_valid_board_mode(raw):
         return None, 'invalid_mode'
@@ -1299,10 +1381,10 @@ def update_note(note_id: str):
             if mode_error:
                 return jsonify({'ok': False, 'error': mode_error}), 400
             updates['mode'] = mode_value
-        # פתק לוח אינו נושא scope_id ולעולם לא יישא — ובלי השומר הזה
-        # כל עדכון שלו היה מריץ _resolve_scope, כלומר קריאה ל-code_snippets
-        # רק כדי לגלות שאין קובץ.
-        if not note.get('scope_id') and not note.get('board_id'):
+        # פתק לוח וּפתק ריפו אינם נושאים scope_id ולעולם לא יישאו — ובלי
+        # השומר הזה כל עדכון שלהם היה מריץ _resolve_scope, כלומר קריאה
+        # ל-code_snippets עם file_id ריק רק כדי לגלות שאין קובץ.
+        if not note.get('scope_id') and not note.get('board_id') and not note.get('repo_path'):
             scope_id, scope_file_name, _ = _resolve_scope(db, user_id, note.get('file_id'))
             if scope_id:
                 updates['scope_id'] = scope_id
@@ -1323,7 +1405,14 @@ def update_note(note_id: str):
         ops: Dict[str, Any] = {'$set': updates}
         if unset_fields:
             ops['$unset'] = unset_fields
-        if 'title' in updates and _title_conflict(db, user_id, note.get('board_id'), updates['title'], exclude_id=oid):
+        # **בדיקת הגיבוי נבחרת לפי סוג היעד.** ``_title_conflict`` יוצא
+        # מיד כשאין ``board_id`` — ולפתק ריפו אין — ולכן כשאינדקס הריפו לא
+        # אומת (``_REPO_TITLE_INDEX_OK`` כבוי) לא הייתה כאן שום אכיפה: אף
+        # אחד לא בדק, המסד לא אכף, ושני פתקים על אותו קובץ קיבלו את אותו
+        # שם. מסלול היצירה כבר מפצל כך; העדכון היה החריג.
+        if 'title' in updates and _duplicate_title_for_note(
+            db, user_id, note, updates['title'], exclude_id=oid
+        ):
             return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
         try:
             db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, ops)
@@ -1541,8 +1630,8 @@ def batch_update_notes():
                 ops: Dict[str, Any] = {'$set': updates}
                 if unset_fields:
                     ops['$unset'] = unset_fields
-                if 'title' in updates and _title_conflict(
-                    db, user_id, note.get('board_id'), updates['title'], exclude_id=oid
+                if 'title' in updates and _duplicate_title_for_note(
+                    db, user_id, note, updates['title'], exclude_id=oid
                 ):
                     results.append({'id': note_id, 'ok': False, 'status': 409,
                                     'error': 'duplicate_title', 'max': MAX_NOTE_TITLE})
@@ -1777,6 +1866,396 @@ def create_board_note(board_id: str):
         except Exception:
             pass
         return jsonify({'ok': False, 'error': 'Failed to create note'}), 500
+
+
+# ---------------------------------------------------------------------------
+# פתקי ריפו — היעד השלישי
+#
+# **שני ראוטי היתומים יושבים מחוץ לתת-העץ ``/repo/<name>/`` בכוונה.**
+# ``GET /repo/<name>/orphans`` היה מתנגש עם ``/repo/<name>/<path:repo_path>``,
+# והראוט הסטטי מנצח — כלומר קובץ אמיתי בשם ``orphans`` בשורש ריפו (שם סביר
+# לגמרי) לא היה נגיש דרך ה-API לעולם, בלי שום שגיאה. לכן ``repo-orphans``
+# ו-``orphan-repos``, ולא תת-נתיבים.
+# ---------------------------------------------------------------------------
+
+
+def _mirrored_repo_names(db: Any) -> Optional[set]:
+    """שמות הריפואים הממוררים, או ``None`` אם השאילתה נכשלה.
+
+    ``None`` אינו "אין ריפואים": הוא נבדל ממנו בכוונה, כי קריאה שנכשלה
+    אינה ראיה שהריפו נעלם. מי שקורא מסמן יתומים רק כשיש לו רשימה אמיתית.
+    """
+    try:
+        names = db.repo_metadata.distinct('repo_name')
+    except Exception:
+        return None
+    if not isinstance(names, (list, tuple, set)):
+        return None
+    return {str(n) for n in names if n}
+
+
+def _repo_file_exists(db: Any, repo_name: str, repo_path: str) -> Optional[bool]:
+    """האם הנתיב קיים בעץ הריפו הממורר, או ``None`` בכשל שאילתה.
+
+    ההשוואה היא מול ``repo_files``, שנתיביו נשמרים בצורת git הגולמית —
+    ולכן ``repo_path`` שהגיע לכאן כבר עבר ``normalize_repo_path``, שמתכנס
+    בדיוק לאותה צורה. בלי ההתכנסות הזו קובץ קיים היה מסומן כמיותם.
+    """
+    try:
+        doc = db.repo_files.find_one({'repo_name': repo_name, 'path': repo_path}, {'_id': 1})
+    except Exception:
+        return None
+    return doc is not None
+
+
+@sticky_notes_bp.route('/repo/<repo_name>/<path:repo_path>', methods=['GET'])
+@require_auth
+@notes_rate_limit('repo_list', 180)
+@traced("sticky_notes.repo_list")
+def list_repo_notes(repo_name: str, repo_path: str):
+    """פתקים על קובץ בריפו ממורר.
+
+    **סימון היתומים נעשה בקריאה, ולא בכתיבה.** אין סריקה תקופתית ואין
+    ``update_many`` על מסלול קריאה — זה הלקח מסריקת היתומים של הלוחות.
+    הפתק ממשיך להיות מוחזר עם הנתיב האחרון הידוע, ורק נושא דגל.
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+
+        clean_path = normalize_repo_path(repo_path)
+        if not clean_path:
+            return jsonify({'ok': False, 'error': 'invalid_repo_path'}), 400
+
+        cursor = db.sticky_notes.find(
+            repo_notes_filter(user_id, repo_name, clean_path)
+        ).sort('created_at', 1)
+        # אותה הבחנה שהראוט הזה עושה על המניפסט, גם על הפתקים עצמם:
+        # ``None`` הוא כשל שאילתה ולא "אין פתקים". החזרת ``notes: []``
+        # כאן אינה רק תצוגה חסרה — הלקוח כותב את התשובה לקאש המקומי
+        # (``_saveCache``), ולכן קריאה שנכשלה הייתה **מוחקת** את הפתקים
+        # שהיו שמורים בו.
+        if cursor is None:
+            raise RuntimeError('repo notes query returned no cursor')
+        raw_docs = list(cursor)
+        notes = [_as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)]
+
+        # ``None`` (כשל שאילתה) אינו "הקובץ נעלם" — ואז לא מסמנים כלום.
+        exists = _repo_file_exists(db, str(repo_name), clean_path)
+        payload: Dict[str, Any] = {'ok': True, 'notes': notes, 'count': len(notes)}
+        if exists is False:
+            payload['orphaned'] = True
+
+        resp = jsonify(payload)
+        try:
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+        except Exception:
+            pass
+        return resp
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_repo_list_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to list repo notes'}), 500
+
+
+@sticky_notes_bp.route('/repo/<repo_name>/<path:repo_path>', methods=['POST'])
+@require_auth
+@notes_rate_limit('repo_create', 60)
+@traced("sticky_notes.repo_create")
+def create_repo_note(repo_name: str, repo_path: str):
+    """פתק חדש על קובץ בריפו ממורר."""
+    try:
+        from sticky_notes_target import (
+            DEFAULT_BOARD_MODE,
+            NoteQuotaExceeded,
+            NoteQuotaUnknown,
+            NoteTargetError,
+            build_note_target,
+            check_note_quota,
+            is_valid_board_mode,
+            normalize_mode,
+        )
+
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+
+        clean_path = normalize_repo_path(repo_path)
+        if not clean_path:
+            return jsonify({'ok': False, 'error': 'invalid_repo_path'}), 400
+
+        # רק ריפו ממורר. בלי הבדיקה אפשר היה ליצור פתקים על ``repo_name``
+        # שרירותי — פתקים שאינם נראים בשום ממשק אבל כן נספרים בתקרה,
+        # בדיוק כמו ש-``_resolve_owned_board`` מונע בלוחות.
+        #
+        # **כשל בקריאת רשימת המראות נסגר, לא נפתח.** ``None`` אינו "אין
+        # ריפואים" — הוא "לא ידוע", וקריאה שנכשלה אינה רשיון ליצור פתק על
+        # ריפו שאולי אינו ממורר. זה אותו כלל של ``check_note_quota``: כשל
+        # בדיקה נסגר.
+        known = _mirrored_repo_names(db)
+        if known is None:
+            return jsonify({'ok': False, 'error': 'repo_list_unavailable'}), 503
+        if str(repo_name) not in known:
+            return jsonify({'ok': False, 'error': 'repo_not_found'}), 404
+
+        # **וגם הקובץ עצמו חייב להיות בעץ.** ריפו ממורר אינו מספיק: נתיב
+        # שאינו ב-``repo_files`` הוא בדיוק מה שמסלול הקריאה מסמן
+        # ``orphaned`` — כלומר הפתק היה נולד יתום, נספר בתקרה, ומוצג
+        # ברשימת היתומים בלי שאי-פעם היה לו קובץ. עץ הדפדפן נבנה מאותו
+        # ``repo_files``, ולכן כל קובץ שניתן לפתוח בממשק עובר כאן.
+        #
+        # ``None`` נסגר, בדיוק כמו רשימת המראות: קריאה שנכשלה אינה עדות
+        # שהקובץ קיים, ואינה רשיון לכתוב.
+        file_exists = _repo_file_exists(db, str(repo_name), clean_path)
+        if file_exists is None:
+            return jsonify({'ok': False, 'error': 'repo_file_unavailable'}), 503
+        if not file_exists:
+            return jsonify({'ok': False, 'error': 'repo_file_not_found'}), 404
+
+        data = request.get_json(silent=True)
+        # גוף שאינו אובייקט (מערך, מחרוזת) הוא קלט פגום — 400, לא 500
+        # מ-``data.get`` על טיפוס לא נכון.
+        if data is None:
+            data = {}
+        elif not isinstance(data, dict):
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+
+        # ``anchored`` אינו חוקי כאן מאותה סיבה שהוא אינו חוקי בלוח: הוא
+        # דורש שורת מקור, והעיגון כאן הוא ברמת קובץ. שני המצבים מצמידים
+        # את הפתק למסגרת התצוגה, לא לשורת קוד.
+        raw_mode = data.get('mode')
+        if raw_mode is not None and not is_valid_board_mode(raw_mode):
+            return jsonify({'ok': False, 'error': 'invalid_mode'}), 400
+        mode = normalize_mode(raw_mode, DEFAULT_BOARD_MODE)
+
+        try:
+            content = _note_content_from_request(data)
+        except _ContentTooLong:
+            return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
+        except _InvalidContentB64:
+            return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
+        title = normalize_note_title(data.get('title'))
+
+        # **ה-cap לקובץ נאכף גם על אדמין, במכוון.** דפדפן הריפו חסום
+        # לאדמינים, ולכן ``is_admin=is_admin_user`` היה הופך את התקרה
+        # לקבוע מת שלא נאכף על אף אחד. מטרתה שמירת צורת-תוכן ("עשרים
+        # פתקים על קובץ = זה כבר עמוד תיעוד") ולא הגנת-משאבים.
+        # תקרת המשתמש, לעומתה, היא הגנת-משאבים ונשארת פטורה-לאדמין.
+        is_admin_user = _current_user_is_admin()
+        try:
+            check_note_quota(
+                _count_or_none(db.sticky_notes, repo_notes_filter(user_id, repo_name, clean_path)),
+                MAX_NOTES_PER_REPO_FILE,
+                is_admin=False,
+            )
+            check_note_quota(
+                _count_or_none(db.sticky_notes, {'user_id': user_id}),
+                MAX_NOTES_PER_USER,
+                is_admin=is_admin_user,
+            )
+        except NoteQuotaUnknown:
+            return jsonify({'ok': False, 'error': 'note_quota_unknown'}), 409
+        except NoteQuotaExceeded:
+            return jsonify({'ok': False, 'error': 'note_quota_exceeded'}), 409
+
+        # ``position``/``size`` שאינם אובייקט הם קלט פגום — ``{}`` רק כשחסר,
+        # אחרת ``pos.get`` על מערך/מחרוזת היה מפיל ל-500.
+        pos = data.get('position')
+        size = data.get('size')
+        if pos is not None and not isinstance(pos, dict):
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+        if size is not None and not isinstance(size, dict):
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+        pos = pos or {}
+        size = size or {}
+        color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
+
+        doc: Dict[str, Any] = {
+            'user_id': user_id,
+            'content': content,
+            **({'title': title} if title else {}),
+            'position_x': _coerce_int(pos.get('x'), 100, 0, 100000),
+            'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
+            'width': _coerce_int(size.get('width'), 250, 120, 1200),
+            'height': _coerce_int(size.get('height'), 200, 80, 1200),
+            'color': color if color else '#FFFFCC',
+            'is_minimized': bool(data.get('is_minimized', False)),
+            'mode': mode,
+            'created_at': datetime.now(timezone.utc),
+            'updated_at': datetime.now(timezone.utc),
+        }
+        # שדות היעד דרך הבנאי, שמריץ את הנרמול ואת האילוץ "בדיוק יעד אחד".
+        try:
+            doc.update(build_note_target(repo_name=repo_name, repo_path=clean_path))
+        except NoteTargetError:
+            return jsonify({'ok': False, 'error': 'invalid_repo_target'}), 400
+
+        if _repo_title_conflict(db, user_id, repo_name, clean_path, title):
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
+        try:
+            res = db.sticky_notes.insert_one(doc)
+        except DuplicateKeyError:
+            return jsonify({'ok': False, 'error': 'duplicate_title', 'max': MAX_NOTE_TITLE}), 409
+        nid = str(getattr(res, 'inserted_id', ''))
+        try:
+            emit_event("sticky_note_created", severity="info", user_id=int(user_id), repo_name=str(repo_name))
+        except Exception:
+            pass
+        resp = jsonify({'ok': True, 'id': nid})
+        try:
+            resp.headers['Cache-Control'] = 'no-store'
+        except Exception:
+            pass
+        return resp, 201
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_repo_create_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to create note'}), 500
+
+
+@sticky_notes_bp.route('/repo-orphans/<repo_name>', methods=['GET'])
+@require_auth
+@notes_rate_limit('repo_orphans', 60)
+@traced("sticky_notes.repo_orphans")
+def list_repo_orphans(repo_name: str):
+    """קומה ראשונה: פתקים בריפו הזה שהקובץ שלהם כבר אינו בעץ.
+
+    **"מיותם" נגזר מהמראה, לא מ-GitHub.** דפדפן הריפו מציג עותק מסונכרן,
+    ולכן קובץ שנמחק ב-GitHub לפני שעתיים עדיין קיים כאן והפתק עליו ייראה
+    תקין עד הסנכרון הבא. לכן מוחזר גם ``last_sync_time`` — זה לא באג אם
+    כתוב, וכן באג אם לא.
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+
+        # כשל בקריאת הפתקים אינו "אין יתומים" — הוא "לא ידוע", בדיוק כמו
+        # כשל בקריאת המניפסט. בלי ההבחנה, נפילת שאילתה הייתה מוצגת כרשימה
+        # ריקה של יתומים.
+        #
+        # ``None`` הוא ערוץ כשל בפני עצמו, לא רק חריגה: דרייבר או שכבת
+        # עטיפה שמחזירים ``None`` במקום סמן לא זורקים כלום, והקוד הישן
+        # המשיך עם רשימה ריקה ועם ``notes_failed=False`` — כלומר ``unknown``
+        # היה יוצא ``false`` ו"לא הצלחנו לקרוא" היה מוצג כ"אין יתומים".
+        notes_failed = False
+        try:
+            cursor = db.sticky_notes.find({
+                'user_id': user_id,
+                'repo_name': str(repo_name),
+                'repo_path': {'$exists': True},
+            }).sort('created_at', 1)
+            if cursor is None:
+                raw_docs = []
+                notes_failed = True
+            else:
+                raw_docs = list(cursor)
+        except Exception:
+            raw_docs = []
+            notes_failed = True
+
+        # מניפסט הריפו בשאילתה אחת, במקום ``find_one`` לכל פתק.
+        try:
+            paths = db.repo_files.distinct('path', {'repo_name': str(repo_name)})
+            known_paths = {str(p) for p in paths if p} if isinstance(paths, (list, tuple, set)) else None
+        except Exception:
+            known_paths = None
+
+        orphans = []
+        if known_paths is not None and not notes_failed:
+            for doc in raw_docs:
+                if not isinstance(doc, dict):
+                    continue
+                if str(doc.get('repo_path') or '') not in known_paths:
+                    item = _as_note_response(doc)
+                    item['repo_path'] = str(doc.get('repo_path') or '')
+                    item['repo_name'] = str(doc.get('repo_name') or '')
+                    orphans.append(item)
+
+        last_sync = None
+        try:
+            meta = db.repo_metadata.find_one({'repo_name': str(repo_name)}, {'last_sync_time': 1})
+            if isinstance(meta, dict) and meta.get('last_sync_time'):
+                last_sync = str(meta.get('last_sync_time'))
+        except Exception:
+            last_sync = None
+
+        return jsonify({
+            'ok': True,
+            'notes': orphans,
+            'count': len(orphans),
+            'last_sync_time': last_sync,
+            # ``True`` פירושו שלא הצלחנו לקרוא את המניפסט **או** את הפתקים,
+            # ולכן הרשימה הריקה למעלה אינה "אין יתומים" אלא "לא ידוע".
+            'unknown': known_paths is None or notes_failed,
+        })
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_repo_orphans_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to list repo orphans'}), 500
+
+
+@sticky_notes_bp.route('/orphan-repos', methods=['GET'])
+@require_auth
+@notes_rate_limit('orphan_repos', 60)
+@traced("sticky_notes.orphan_repos")
+def list_orphan_repos():
+    """קומה שנייה: ריפואים שיש להם פתקים ואינם ממוררים עוד.
+
+    בלי הקומה הזו פתקים של ריפו שהוסר **לא מופיעים בשום תצוגה** — לא בעץ
+    שלו, כי אין עץ, ולא ברשימת היתומים, כי היא פר-ריפו. זה בדיוק "המצב
+    שנעלם בשקט".
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+
+        try:
+            names = db.sticky_notes.distinct('repo_name', {
+                'user_id': user_id,
+                'repo_path': {'$exists': True},
+            })
+            with_notes = {str(n) for n in names if n} if isinstance(names, (list, tuple, set)) else set()
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Failed to list orphan repos'}), 500
+
+        mirrored = _mirrored_repo_names(db)
+        if mirrored is None:
+            # אין רשימת מראות ⇒ אי אפשר לדעת מי נעלם. לא מדווחים על אף
+            # ריפו כיתום על סמך שאילתה שנכשלה.
+            return jsonify({'ok': True, 'repos': [], 'count': 0, 'unknown': True})
+
+        missing = sorted(with_notes - mirrored)
+        repos = []
+        for name in missing:
+            try:
+                count = int(db.sticky_notes.count_documents({
+                    'user_id': user_id, 'repo_name': name, 'repo_path': {'$exists': True},
+                }))
+            except Exception:
+                # הריפו בטוח שקיים ברשימה (הוא הגיע מ-``distinct``), ולכן יש
+                # לו לפחות פתק אחד. ``0`` היה נתון שגוי; ``None`` (null ב-JSON)
+                # אומר "המספר לא ידוע" בלי להמציא אפס.
+                count = None
+            repos.append({'repo_name': name, 'notes': count})
+
+        return jsonify({'ok': True, 'repos': repos, 'count': len(repos), 'unknown': False})
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_orphan_repos_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to list orphan repos'}), 500
 
 
 @sticky_notes_bp.route('/note/<note_id>/task', methods=['POST'])

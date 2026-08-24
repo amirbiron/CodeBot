@@ -996,18 +996,22 @@ def test_the_shared_cache_flag_also_confirms_the_title_index(monkeypatch):
     monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
     monkeypatch.setattr(sticky_notes_api, "_INDEX_CACHE_LAST_CHECK", 0.0, raising=False)
     monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", False, raising=False)
 
     assert sticky_notes_api._cache_flag_ready() is True
     assert sticky_notes_api._TITLE_INDEX_OK is True
+    # הדגל המשותף מעיד עכשיו על **שני** אינדקסי השם, ולכן משחזר את שניהם.
+    assert sticky_notes_api._REPO_TITLE_INDEX_OK is True
 
 
 def test_the_cache_key_version_was_bumped_with_the_meaning_change():
     """מפתח ישן נושא משמעות ישנה.
 
-    לפני השינוי הדגל נכתב **ללא קשר** לאינדקס השם. תחת אותו מפתח, דגל
-    שנשאר מהגרסה הקודמת היה מתפרש עכשיו כאימות שלא היה — למשך ה-TTL,
-    ובכל התהליכים.
+    הדגל המשותף העיד תחילה רק על אינדקס הלוח, ובהוספת אינדקס הריפו משמעותו
+    התרחבה לשני האינדקסים. תחת אותו מפתח, דגל v2 ישן היה מתפרש עכשיו
+    כאימות של אינדקס הריפו שלא היה — למשך ה-TTL, ובכל התהליכים. לכן הועלה
+    ל-v3, בדיוק כפי שהועלה בעבר עם שינוי המשמעות הקודם.
     """
     from webapp import sticky_notes_api
 
-    assert sticky_notes_api._INDEX_READY_CACHE_KEY.endswith("_v2")
+    assert sticky_notes_api._INDEX_READY_CACHE_KEY.endswith("_v3")

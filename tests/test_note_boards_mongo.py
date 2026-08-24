@@ -670,3 +670,100 @@ def test_the_title_index_upgrades_an_older_version_of_itself(indexed_db):
     notes.insert_one({"user_id": 7, "file_id": "f1", "title": "אחרי שדרוג"})
     notes.insert_one({"user_id": 7, "file_id": "f2", "title": "אחרי שדרוג"})
     assert notes.count_documents({"title": "אחרי שדרוג"}) == 2
+
+
+# ---------- היעד השלישי: פתקי ריפו, מול מסד אמיתי ----------
+#
+# מה שסטאב לא יכול לבדוק כאן: הפילטר החלקי של האינדקס. ``create_index``
+# ב-stub מחזיר ``None``, ולכן **כל** בדיקת כפילות עוברת בו — גם אם האינדקס
+# מעולם לא נוצר. רק מסד אמיתי מחזיר E11000.
+
+
+def test_repo_title_index_is_created_by_ensure_indexes(indexed_db):
+    """``_ensure_indexes`` האמיתי בונה גם את אינדקס הריפו, לא רק את זה של הלוח."""
+    names = set(indexed_db.sticky_notes.index_information().keys())
+    assert "one_title_per_repo_file_v1" in names
+    assert "user_repo_idx" in names
+
+
+def test_repo_note_duplicate_title_rejected(indexed_db):
+    """שם כפול על אותו קובץ בריפו נדחה — **על ידי המסד**.
+
+    נופלת בלי ``ONE_TITLE_PER_REPO_FILE_INDEX``: בלעדיו פתקי ריפו נופלים
+    מחוץ לאינדקס הלוח (שהפילטר שלו דורש ``board_id``) ומקבלים אפס
+    ייחודיות שם, בשקט.
+    """
+    from sticky_notes_target import build_note_target
+
+    base = {"user_id": 7, "content": "x", "title": "לבדוק"}
+    target = build_note_target(repo_name="CodeBot", repo_path="webapp/app.py")
+    indexed_db.sticky_notes.insert_one({**base, **target})
+
+    with pytest.raises(DuplicateKeyError):
+        indexed_db.sticky_notes.insert_one({**base, **target})
+
+
+def test_same_title_on_a_different_file_or_repo_is_allowed(indexed_db):
+    """הייחודיות היא פר-קובץ, לא פר-ריפו ולא גלובלית."""
+    from sticky_notes_target import build_note_target
+
+    base = {"user_id": 7, "content": "x", "title": "לבדוק"}
+    indexed_db.sticky_notes.insert_one(
+        {**base, **build_note_target(repo_name="CodeBot", repo_path="webapp/app.py")}
+    )
+    indexed_db.sticky_notes.insert_one(
+        {**base, **build_note_target(repo_name="CodeBot", repo_path="webapp/other.py")}
+    )
+    indexed_db.sticky_notes.insert_one(
+        {**base, **build_note_target(repo_name="OtherRepo", repo_path="webapp/app.py")}
+    )
+    assert indexed_db.sticky_notes.count_documents({"title": "לבדוק"}) == 3
+
+
+def test_unnormalized_path_collides_with_its_normalized_form(indexed_db):
+    """**הנורמליזציה היא מה שמגן על הייחודיות עצמה.**
+
+    בלעדיה ``docs/x.rst`` ו-``/docs//x.rst`` הם שני מפתחות שונים באינדקס,
+    והייחודיות פשוט לא נאכפת ביניהם — שני פתקים עם אותו שם על אותו קובץ.
+
+    נופלת אם ``build_note_target`` מפסיק לנרמל בכתיבה.
+    """
+    from sticky_notes_target import build_note_target
+
+    base = {"user_id": 7, "content": "x", "title": "לבדוק"}
+    indexed_db.sticky_notes.insert_one(
+        {**base, **build_note_target(repo_name="CodeBot", repo_path="docs/x.rst")}
+    )
+    with pytest.raises(DuplicateKeyError):
+        indexed_db.sticky_notes.insert_one(
+            {**base, **build_note_target(repo_name="CodeBot", repo_path="/docs//x.rst")}
+        )
+
+
+def test_file_and_board_notes_stay_outside_the_repo_index(indexed_db):
+    """פתקי קובץ/לוח אין להם ``repo_path``, ולכן הפילטר החלקי מדיר אותם.
+
+    בלי ``repo_path`` בפילטר, כולם היו נכנסים לאינדקס עם ערך חסר, חולקים
+    מפתח, ושני פתקים על שני קבצים שונים עם אותו שם היו נדחים ב-E11000 —
+    בדיוק התקלה שתוקנה פעם באינדקס הלוח.
+    """
+    from sticky_notes_target import build_note_target
+
+    base = {"user_id": 7, "content": "x", "title": "שם זהה"}
+    indexed_db.sticky_notes.insert_one({**base, **build_note_target(file_id="f1")})
+    indexed_db.sticky_notes.insert_one({**base, **build_note_target(file_id="f2")})
+    assert indexed_db.sticky_notes.count_documents({"title": "שם זהה"}) == 2
+
+
+def test_repo_filter_finds_the_note_written_unnormalized(indexed_db):
+    """שני הקצוות מתכנסים — מול מסד אמיתי, לא מול השוואת מילונים."""
+    from sticky_notes_target import build_note_target, repo_notes_filter
+
+    indexed_db.sticky_notes.insert_one({
+        "user_id": 7, "content": "x",
+        **build_note_target(repo_name="CodeBot", repo_path="/docs//guide.rst"),
+    })
+    for lookup in ("docs/guide.rst", "/docs//guide.rst", "./docs/guide.rst"):
+        assert indexed_db.sticky_notes.count_documents(
+            repo_notes_filter(7, "CodeBot", lookup)
+        ) == 1, lookup
