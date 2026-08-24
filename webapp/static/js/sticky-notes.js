@@ -263,7 +263,20 @@
       this.markdown = ('markdown' in opts) ? !!opts.markdown : !!this.boardId;
       this._renderedFromCache = false;
       this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
+      // מנהל שנוצר ומפורק שוב ושוב (החלפת קובץ בדפדפן הריפו) חייב להסיר
+      // את המאזינים שלו בפירוק, אחרת כל ניווט מוסיף עוד עותק. הרשימה
+      // אוגרת כל מאזין שנרשם, ו-``destroy`` מסיר את כולם.
+      this._destroyed = false;
+      this._boundHandlers = [];
       this._init();
+    }
+
+    /** מוסיף מאזין **וזוכר אותו**, כדי ש-``destroy`` יוכל להסירו. */
+    _on(target, type, fn, opts){
+      if (!target || !target.addEventListener) return;
+      try { target.addEventListener(type, fn, opts); }
+      catch(_) { try { target.addEventListener(type, fn); } catch(_) { return; } }
+      this._boundHandlers.push({ target, type, fn, opts });
     }
 
     // האם מסלול העיגון לשורת מקור רלוונטי בכלל. בלוח — לא.
@@ -274,14 +287,20 @@
         this._rebuildLineIndex();
         this._loadCacheAndRender();
         await this.loadNotes();
+        // **בוטל תוך כדי טעינה.** ``loadNotes`` הוא async; אם המשתמש החליף
+        // קובץ בזמן שהבקשה באוויר, ``destroy`` כבר רץ — ובלי הבדיקה הזו
+        // המנהל המת היה מוסיף FAB ומאזינים לקונטיינר של הקובץ החדש.
+        if (this._destroyed) return;
         this._createFab();
-        window.addEventListener('resize', () => { this._rebuildLineIndex(); this._reflowWithinViewport(); this._updateAnchoredPositions(); });
-        window.addEventListener('scroll', () => { this._reflowWithinViewport(); this._updateAnchoredPositions(); }, { passive: true });
+        const onResize = () => { this._rebuildLineIndex(); this._reflowWithinViewport(); this._updateAnchoredPositions(); };
+        const onScroll = () => { this._reflowWithinViewport(); this._updateAnchoredPositions(); };
+        this._on(window, 'resize', onResize);
+        this._on(window, 'scroll', onScroll, { passive: true });
         // במובייל: שינוי visual viewport (מקלדת) עלול להזיז את הפתקים – נתאים אותם לבטיחות
         if (window.visualViewport) {
           const reflow = () => this._reflowWithinViewport();
-          try { window.visualViewport.addEventListener('resize', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('resize', reflow); }
-          try { window.visualViewport.addEventListener('scroll', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('scroll', reflow); }
+          this._on(window.visualViewport, 'resize', reflow, { passive: true });
+          this._on(window.visualViewport, 'scroll', reflow, { passive: true });
         }
         this._setupLifecycleGuards();
         this._setupDomObservers();
@@ -326,30 +345,18 @@
           console.warn('sticky note: lifecycle debounce flush failed', err);
         }
       };
-      try {
-        window.addEventListener('beforeunload', flush, { capture: true });
-      } catch(_) {
-        window.addEventListener('beforeunload', flush);
-      }
-      try {
-        window.addEventListener('pagehide', (ev) => {
-          try {
-            if (ev && typeof ev.persisted === 'boolean' && ev.persisted) return;
-          } catch(_) {}
-          flush();
-        }, { capture: true });
-      } catch(_) {
-        window.addEventListener('pagehide', () => flush());
-      }
-      try {
-        document.addEventListener('visibilitychange', () => {
-          try {
-            if (document.visibilityState === 'hidden') flush();
-          } catch(_) {
-            flush();
-          }
-        });
-      } catch(_) {}
+      // דרך ``_on`` כדי ש-``destroy`` יסיר גם אותם — מנהל שמתפרק בכל
+      // החלפת קובץ אחרת מצבר מאזיני beforeunload/pagehide על ``window``.
+      const onPagehide = (ev) => {
+        try { if (ev && typeof ev.persisted === 'boolean' && ev.persisted) return; } catch(_) {}
+        flush();
+      };
+      const onVisibility = () => {
+        try { if (document.visibilityState === 'hidden') flush(); } catch(_) { flush(); }
+      };
+      this._on(window, 'beforeunload', flush, { capture: true });
+      this._on(window, 'pagehide', onPagehide, { capture: true });
+      this._on(document, 'visibilitychange', onVisibility);
     }
 
     _nearestAnchor(){
@@ -2803,14 +2810,21 @@
      * המנהל — ראו :js:func:`destroy`.
      */
     async _flushAll(){
-      const els = [];
-      try {
-        for (const entry of this.notes.values()){
-          if (entry && entry.el) els.push(entry.el);
+      // **כמה סבבים, לא אחד.** ``_sendUpdate`` מחזיר עריכה ל-``_pending``
+      // בכשל חולף; סבב יחיד לא מנקז אותה, ו-``destroy`` — שמבטל את טיימר
+      // ההתפרצות שהיה מנסה שוב — היה מוחק אותה. הסבב השני הוא הניסיון
+      // החוזר. חסום ל-2 כדי לא לתלות את הפירוק על רשת שנפלה לגמרי.
+      for (let round = 0; round < 2; round++){
+        const els = [];
+        try {
+          for (const entry of this.notes.values()){
+            if (entry && entry.el) els.push(entry.el);
+          }
+        } catch(_) {}
+        for (const el of els){
+          try { await this._flushFor(el); } catch(_) {}
         }
-      } catch(_) {}
-      for (const el of els){
-        try { await this._flushFor(el); } catch(_) {}
+        try { if (!this._pending || this._pending.size === 0) break; } catch(_) { break; }
       }
     }
 
@@ -2827,9 +2841,26 @@
      * שהכתיבות נחתו.
      */
     async destroy(){
+      // מסומן מיד, כדי ש-``_init`` שעדיין באוויר יבטל את עצמו אחרי הטעינה.
+      this._destroyed = true;
+      // 1) לרוקן את התור — **לפני** ביטול הטיימרים והניקוי.
       try { await this._flushAll(); } catch(_) {}
+      // 2) לעצור טיימרים ופריימים תלויים.
       try { if (this._autoFlushTimer) clearInterval(this._autoFlushTimer); } catch(_) {}
+      try {
+        if (this._extentFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this._extentFrame);
+      } catch(_) {}
+      this._extentFrame = null;
       try { this._saveDebounced && this._saveDebounced.cancel && this._saveDebounced.cancel(); } catch(_) {}
+      // 3) להסיר כל מאזין שנרשם דרך ``_on``, ולנתק observers — אחרת כל
+      //    החלפת קובץ הייתה מותירה מנהל מת שממשיך להאזין ל-scroll/resize.
+      for (const h of this._boundHandlers.splice(0)){
+        try { h.target.removeEventListener(h.type, h.fn, h.opts); }
+        catch(_) { try { h.target.removeEventListener(h.type, h.fn); } catch(_) {} }
+      }
+      try { this._domObserver && this._domObserver.disconnect(); this._domObserver = null; } catch(_) {}
+      try { this._resizeObserver && this._resizeObserver.disconnect(); this._resizeObserver = null; } catch(_) {}
+      // 4) להסיר את הפתקים ואת ה-FAB.
       this._clearAllNotes();
       try {
         const fab = this.container && this.container.querySelector

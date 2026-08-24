@@ -81,7 +81,33 @@
     }
   }
 
-  async function setEnabled(on) {
+  // **כל פעולות מחזור-החיים מסודרות בשרשרת אחת.** teardown הוא async
+  // (ממתין ל-flush), ובלי סדרור שתי החלפות קובץ מהירות היו יוצרות שני
+  // ``teardown().then(...)`` שנפתרים בסדר לא צפוי — ומשאירים את ``current``
+  // או את ``manager`` במצב של קובץ ישן. השרשרת מריצה כל מעבר עד הסוף לפני
+  // הבא, וה-``generation`` מבטיח שמעבר שנעקף בידי אירוע חד יותר לא יחיל
+  // מצב מיושן.
+  var opChain = Promise.resolve();
+  var generation = 0;
+
+  function enqueue(fn) {
+    // ``fn`` לשני הענפים כדי שכשל במעבר אחד לא ישבור את השרשרת.
+    opChain = opChain.then(fn, fn);
+    return opChain;
+  }
+
+  async function applyTarget(nextRepo, nextPath, myGen) {
+    if (myGen !== generation) return;               // נעקף עוד לפני שרץ
+    if (nextRepo === current.repo && nextPath === current.path) return;
+    await teardown();
+    if (myGen !== generation) return;               // נעקף תוך כדי פירוק
+    current = { repo: nextRepo, path: nextPath };
+    enabled = nextPath ? readPref(nextRepo, nextPath) : false;
+    if (enabled) mount();
+    paintButton();
+  }
+
+  async function applyEnabled(on) {
     enabled = !!on;
     if (current.path) writePref(current.repo, current.path, enabled);
     if (enabled) mount();
@@ -89,20 +115,17 @@
     paintButton();
   }
 
+  // ה-API הציבורי מחזיר את ה-promise של השרשרת, כדי שבדיקות יוכלו להמתין.
+  function setEnabled(on) { return enqueue(function () { return applyEnabled(on); }); }
+
   document.addEventListener('repo:file-loaded', function (ev) {
     var detail = (ev && ev.detail) || {};
     var nextRepo = String(detail.repo || '');
     var nextPath = detail.path ? String(detail.path) : null;
-    if (nextRepo === current.repo && nextPath === current.path) return;
-
-    // **פירוק לפני החלפת היעד, ותמיד.** גם כשהפתקים כבויים, המנהל היוצא
-    // עשוי להחזיק כתיבה בתור.
-    teardown().then(function () {
-      current = { repo: nextRepo, path: nextPath };
-      enabled = nextPath ? readPref(nextRepo, nextPath) : false;
-      if (enabled) mount();
-      paintButton();
-    });
+    // מסמנים את הכוונה החדשה **מיד** (סינכרונית), כך שמעבר קודם שעדיין
+    // בשרשרת יידע שהוא כבר לא האחרון.
+    var myGen = ++generation;
+    enqueue(function () { return applyTarget(nextRepo, nextPath, myGen); });
   });
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -114,7 +137,10 @@
   // חשוף לבדיקות ולניפוי — בלי להדליף את המנהל עצמו
   window.repoNotes = {
     isEnabled: function () { return enabled; },
+    hasManager: function () { return manager !== null; },
     target: function () { return { repo: current.repo, path: current.path }; },
-    setEnabled: setEnabled
+    setEnabled: setEnabled,
+    // מאפשר לבדיקות להמתין שכל המעברים בשרשרת יסתיימו
+    settled: function () { return opChain; }
   };
 })();

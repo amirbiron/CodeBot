@@ -24,20 +24,27 @@ const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky
 function makeSandbox() {
   const el = () => ({
     style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
-    appendChild() {}, addEventListener() {}, querySelectorAll: () => [],
+    appendChild() {}, addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [],
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
     setAttribute() {}, getAttribute: () => null,
   });
   const body = el();
   const mdContent = el();
+  // מונה add/remove כדי לבדוק שהמנהל מסיר בפירוק כל מה שהוא רשם.
+  const listenerLedger = { added: 0, removed: 0 };
+  const tracking = () => ({
+    addEventListener() { listenerLedger.added += 1; },
+    removeEventListener() { listenerLedger.removed += 1; },
+  });
   const sandbox = {
     console,
+    __listeners: listenerLedger,
     document: {
       body,
       // מחזיר אלמנט אמיתי, אחרת הבדיקה על _anchorHost לא יכולה להיכשל
       getElementById: (id) => (id === 'md-content' ? mdContent : null),
       createElement: () => el(),
-      addEventListener() {},
+      ...tracking(),
       querySelectorAll: () => [],
       // ``_setTitleEditing`` מקזז ``document.activeElement === input`` לפני
       // שהוא קורא ל-``blur``. בלי החשיפה הזו התנאי לעולם אינו מתקיים,
@@ -45,7 +52,7 @@ function makeSandbox() {
       get activeElement() { return sandbox.__focused || null; },
     },
     window: {
-      addEventListener() {},
+      ...tracking(),
       innerWidth: 1024,
       innerHeight: 768,
       matchMedia: () => ({ matches: false }),
@@ -683,7 +690,6 @@ check('שם: 409 duplicate_title מסמן ואינו חוזר לתור', async (
   eq(fileMgr._pending.has('dup-409'), false, 'ולא נשאר בתור לניסיון נוסף');
 });
 
-await Promise.all(pending);
 check('ביטול: תוכן מהשרת באמצע הקלדה שומר את תחילת ההתפרצות', () => {
   // התרחיש: המשתמש מקליד, ובאמצע ההתפרצות מגיע תוכן סמכותי מהשרת
   // (סימון צ'קבוקס ממכשיר אחר, למשל). ``_resetUndoBaseline`` מוחק את
@@ -1096,6 +1102,55 @@ check('destroy ממתין לכתיבה שעוד לא נחתה', async () => {
   };
   await m.destroy();
   eq(landed, true, 'הכתיבה נחתה לפני שהפירוק הסתיים');
+});
+
+
+// -- destroy: ניקוי מאזינים, ביטול init, וניקוז חוזר --
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+check('destroy מסיר כל מאזין שהמנהל רשם', async () => {
+  // מנהל שנוצר ומפורק בכל החלפת קובץ חייב להסיר את מאזיני ה-window
+  // שלו, אחרת כל ניווט מצבר עוד עותק. נופל אם destroy לא עובר על
+  // _boundHandlers.
+  const before = sandbox.__listeners.removed;
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  await delay(10);
+  const registered = m._boundHandlers.length;
+  if (registered === 0) throw new Error('לא נרשמו מאזינים ב-_init');
+  await m.destroy();
+  eq(m._boundHandlers.length, 0, '_boundHandlers רוקן');
+  eq(m._destroyed, true, '_destroyed');
+  eq(sandbox.__listeners.removed - before, registered, 'removeEventListener נקרא לכל מאזין');
+});
+
+check('מנהל שבוטל תוך כדי טעינה אינו רושם מאזינים', async () => {
+  // _init הוא async (await loadNotes). אם המשתמש החליף קובץ בזמן שהבקשה
+  // באוויר, destroy כבר סימן _destroyed, ו-_init חייב לבטל את עצמו לפני
+  // רישום ה-FAB והמאזינים. נופל בלי הבדיקה if (this._destroyed) return.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  m._destroyed = true;         // בוטל לפני ש-loadNotes נחת
+  await delay(10);
+  eq(m._boundHandlers.length, 0, 'לא נרשמו מאזינים אחרי ביטול');
+});
+
+check('_flushAll מנקז עריכה שהוחזרה לתור בכשל חולף', async () => {
+  // _sendUpdate מחזיר עריכה ל-_pending בכשל חולף. סבב יחיד לא מנקז אותה,
+  // ו-destroy היה מוחק אותה. נופל אם _flushAll עושה סבב אחד בלבד.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  await delay(5);
+  const el = { dataset: { noteId: 'n1' } };
+  m.notes.set('n1', { el });
+  m._pending.set('n1', { content: 'x' });
+  let calls = 0;
+  m._flushFor = async (e) => {
+    calls += 1;
+    if (calls >= 2) m._pending.delete(e.dataset.noteId); // סבב 2: הצלחה
+    // סבב 1: "כשל" — התוכן נשאר בתור
+  };
+  await m._flushAll();
+  eq(m._pending.size, 0, 'התור נוקה');
+  if (calls < 2) throw new Error('לא היה סבב שני של ניקוז');
 });
 
 // **הסיכום ממתין ל-``pending``.** הוא נאסף מאז ומעולם לא הומתן: טסט

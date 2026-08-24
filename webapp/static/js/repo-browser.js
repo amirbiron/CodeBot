@@ -719,9 +719,6 @@ function updateRepoDisplay(repoName) {
 }
 
 /**
- * מציג מסך פתיחה
- */
-/**
  * מודיע שהקובץ המוצג התחלף (או שאין קובץ).
  *
  * ``path === null`` פירושו "אין קובץ" — מסך הפתיחה. המאזין משתמש בזה כדי
@@ -740,6 +737,9 @@ function emitRepoFileEvent(path) {
     } catch (_) { /* אירוע שלא נשלח לא אמור להפיל טעינת קובץ */ }
 }
 
+/**
+ * מציג מסך פתיחה
+ */
 function showWelcomeScreen() {
     const welcome = document.getElementById('welcome-screen');
     const wrapper = document.getElementById('code-editor-wrapper');
@@ -1460,10 +1460,6 @@ async function selectFile(path, element) {
     state.currentFileLanguage = null;
     state.editorFilePath = null;
 
-    // התפר לפתקים: אירוע במקום שקוד חיצוני יחטט ב-``state``. מי שמאזין
-    // (sticky-notes) לא נכנס לפנימיות של הדפדפן, והדפדפן לא יודע עליו.
-    emitRepoFileEvent(path);
-
     // Update URL hash to persist state across refresh
     updateUrlHash(path);
     
@@ -1539,8 +1535,16 @@ async function selectFile(path, element) {
         // Save to recent files
         addToRecentFiles(path);
 
+        // התפר לפתקים — **רק אחרי שהקובץ באמת נטען.** פליטה מוקדמת (לפני
+        // ה-fetch) הייתה מרכיבה פתקים על קובץ שאולי נכשל להיטען, והם היו
+        // נשארים תלויים מעל הודעת השגיאה. מי שמאזין (sticky-notes) לא נכנס
+        // לפנימיות של הדפדפן, והדפדפן לא יודע עליו.
+        emitRepoFileEvent(path);
+
     } catch (error) {
         console.error('Failed to load file:', error);
+        // הקובץ לא נטען — לנקות פתקים, לא להשאיר אותם על תצוגת שגיאה.
+        emitRepoFileEvent(null);
         wrapper.innerHTML = `
             <div class="error-message" style="padding: 20px; color: var(--accent-red);">
                 <i class="bi bi-exclamation-triangle"></i>
