@@ -262,6 +262,12 @@ async function renderMarkdownPreview(content, seq) {
             } catch (err) {
                 console.warn('Markdown enhancements failed', err);
             }
+            // ``enhance`` הוא ההמתנה האחרונה כאן, ואחריה עוד שתי פעולות
+            // שמעטרות את **אותו** אלמנט תצוגה. בחירה חדשה שהסתיימה בזמנה
+            // כבר החליפה את התוכן, והעיטור היה חל על ה-DOM שלה עם הנתונים
+            // של הקובץ הישן. (נמצא בביקורת שיטתית של כל ההמתנות במסלול,
+            // לא בדיווח — אותה מחלקה בדיוק.)
+            if (!selectionIsCurrent(seq)) return;
             applySyntaxHighlighting(previewContent);
             // הוספת גלילה חלקה לאנקורים בתפריט התוכן
             setupMarkdownAnchorScrolling(previewContent);
@@ -270,6 +276,13 @@ async function renderMarkdownPreview(content, seq) {
     } catch (error) {
         console.warn('MarkdownLiveRenderer failed, falling back', error);
     }
+
+    // **גם ה-fallback הוא כתיבה לתצוגה המשותפת.** הוא נקרא אחרי שלוש
+    // המתנות (טעינת תלויות, highlight.js, הרינדור עצמו), ולכן בחירה חדשה
+    // כבר יכולה להיות מוצגת. כתיבה כאן — בין אם ה-HTML הישן ובין אם הודעת
+    // שגיאה — הייתה דורסת אותה. אין ``await`` בין הבדיקה לשתי הכתיבות,
+    // ולכן בדיקה אחת כאן מכסה את שתיהן.
+    if (!selectionIsCurrent(seq)) return;
 
     try {
         // Fallback: רינדור בסיסי עם markdown-it
@@ -1740,6 +1753,14 @@ async function initCodeViewer(content, language, seq) {
         if (EditorState && EditorState.readOnly) {
             extensions.push(EditorState.readOnly.of(true));
         }
+
+        // **המתנה שנייה, ולכן בדיקה שנייה.** ``getTheme`` הוא ``await``
+        // נוסף אחרי השומר שבראש הפונקציה, ובזמנו בחירה חדשה יכולה
+        // להסתיים ולבנות את העורך שלה. בלי הבדיקה כאן, הבחירה הישנה
+        // הייתה בונה עורך עם התוכן הישן ודורסת את ``state.editorView6``
+        // — ובנוסף מרכיבה אותו לתוך ``mountEl`` שנלכד לפני ההמתנה וכבר
+        // נותק מה-DOM.
+        if (!selectionIsCurrent(seq)) return;
 
         const cmState = EditorState.create({
             doc: String(content || ''),

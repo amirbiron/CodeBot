@@ -426,6 +426,101 @@ check('רינדור Markdown של טעינה שנעקפה אינו דורס את
   eq(preview.innerHTML, 'HTML של B', 'רק התצוגה של B נכתבה');
 });
 
+check('fallback של Markdown בבחירה שנעקפה אינו כותב לתצוגה', async () => {
+  // ה-fallback רץ כשה-renderer הראשי נכשל או אינו נתמך — אחרי שלוש
+  // המתנות. בלי בדיקת דור לפניו, הוא כותב את ה-HTML הישן (או הודעת
+  // שגיאה) מעל התצוגה של הקובץ החדש.
+  //
+  // נופל אם הבדיקה שלפני ה-fallback תוסר.
+  const sb = makeSandbox();
+  const preview = sb.document.getElementById('markdown-preview-content');
+  preview.innerHTML = 'של הקובץ המוצג';
+
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  // ה-renderer הראשי נכשל ⇒ נופלים ל-fallback
+  sb.MarkdownLiveRenderer = {
+    isSupported: () => true,
+    renderWithAnchors: async () => { await gate; throw new Error('renderer נפל'); },
+    enhance: async () => {},
+  };
+  sb.ensureHighlightJsLoaded = async () => {};
+  sb.renderMarkdownFallback = () => 'HTML ישן מה-fallback';
+  sb.enhanceMarkdownFallback = () => {};
+  sb.applySyntaxHighlighting = () => {};
+  sb.setupMarkdownAnchorScrolling = () => {};
+
+  sb.selectFile('חדש.py', null);          // מקדם את מונה הבחירות
+  await delay(0);
+
+  const stale = sb.__real.renderMarkdownPreview('תוכן ישן', 0);
+  release();
+  await stale;
+
+  eq(preview.innerHTML, 'של הקובץ המוצג', 'ה-fallback לא כתב');
+});
+
+check('בניית עורך cm6 בבחירה שנעקפה אינה מחליפה את העורך הפעיל', async () => {
+  // במסלול cm6 יש **המתנה שנייה** — ``getTheme`` — אחרי השומר שבראש
+  // הפונקציה. בחירה ישנה שחוזרת ממנה בנתה עורך עם התוכן הישן ודרסה את
+  // ``state.editorView6``.
+  //
+  // נופל אם הבדיקה שאחרי ההמתנה לתמה תוסר.
+  const sb = makeSandbox();
+  const built = [];
+  sb.ensureCodeMirrorRuntime = async () => 'cm6';
+  let releaseTheme;
+  const themeGate = new Promise((r) => { releaseTheme = r; });
+  sb.window.editorManager = { getTheme: async () => { await themeGate; return {}; } };
+  sb.window.CodeMirror6 = {
+    basicSetup: [],
+    EditorState: { create: (o) => o, readOnly: { of: () => ({}) } },
+    EditorView: Object.assign(
+      function (opts) { built.push(opts.state.doc); return {}; },
+      { editable: { of: () => ({}) } }
+    ),
+  };
+
+  const stale = sb.__real.initCodeViewer('תוכן ישן', 'python', 0);
+  await delay(0);
+  sb.selectFile('חדש.py', null);          // מקדם את מונה הבחירות בזמן ההמתנה
+  await delay(0);
+  releaseTheme();
+  await stale;
+
+  eq(built.length, 0, 'שום עורך לא נבנה מהבחירה הישנה');
+});
+
+check('עיטור שאחרי enhance אינו חל על התצוגה של הקובץ החדש', async () => {
+  // ``enhance`` הוא ההמתנה האחרונה במסלול ה-Markdown, ואחריה רצות
+  // ``applySyntaxHighlighting`` ו-``setupMarkdownAnchorScrolling`` על אותו
+  // אלמנט. אם בזמנה בחירה חדשה החליפה את התוכן, העיטור חל על ה-DOM שלה
+  // עם הנתונים של הישן.
+  //
+  // נופל אם הבדיקה שאחרי enhance תוסר.
+  const sb = makeSandbox();
+  const decorated = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  sb.MarkdownLiveRenderer = {
+    isSupported: () => true,
+    renderWithAnchors: async () => ({ html: 'ישן', anchors: [] }),
+    enhance: async () => { await gate; },        // ההמתנה שבה נעקפים
+  };
+  sb.ensureHighlightJsLoaded = async () => {};
+  sb.applySyntaxHighlighting = () => { decorated.push('highlight'); };
+  sb.setupMarkdownAnchorScrolling = () => { decorated.push('anchors'); };
+
+  const stale = sb.__real.renderMarkdownPreview('תוכן ישן', 0);
+  await delay(0);
+  sb.selectFile('חדש.py', null);                 // נעקף תוך כדי enhance
+  await delay(0);
+  release();
+  await stale;
+
+  eq(decorated.length, 0, 'שום עיטור לא הוחל');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);
