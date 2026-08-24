@@ -993,5 +993,117 @@ check('מקלדת: מקש אחר אינו עושה כלום', () => {
   eq(ev._prevented, false, 'לא בוטל');
 });
 
-console.log(`\n${passed} עברו, ${failed} נכשלו`);
-process.exit(failed === 0 ? 0 : 1);
+// -- היעד השלישי: קובץ בריפו ממורר --
+
+check('repo+path נקראים כיעד ריפו', () => {
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'webapp/app.py' });
+  eq(m.repoTarget.repo, 'CodeBot', 'repo');
+  eq(m.repoTarget.path, 'webapp/app.py', 'path');
+  eq(m.boardId, null, 'boardId');
+  eq(m.fileId, null, 'fileId');
+});
+
+check('כתובת ה-API של יעד ריפו שומרת על הלוכסנים במבנה', () => {
+  // ``<path:repo_path>`` מצפה למבנה, לא למחרוזת מקודדת: encodeURIComponent
+  // על הנתיב כולו היה הופך ``/`` ל-``%2F`` והראוט לא היה מותאם כלל.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'webapp/app.py' });
+  eq(m._scopeUrl, '/api/sticky-notes/repo/CodeBot/webapp/app.py');
+});
+
+check('רכיב נתיב עם תו מיוחד מקודד לחוד', () => {
+  const m = new StickyNotesManager({ repo: 'My Repo', path: 'a b/c#d.py' });
+  eq(m._scopeUrl, '/api/sticky-notes/repo/My%20Repo/a%20b/c%23d.py');
+});
+
+check('מפתח הקאש של ריפו נפרד מקובץ ומלוח', () => {
+  // בלי ההפרדה, ריפו וקובץ עם אותה מחרוזת היו חולקים קאש ומרנדרים זה את
+  // הפתקים של זה — בדיוק הבאג שכבר נתפס בין לוח לקובץ.
+  const repo = new StickyNotesManager({ repo: 'same', path: 'a.py' });
+  const file = new StickyNotesManager('same');
+  const board = new StickyNotesManager({ board: 'same' });
+  eq(repo._cacheKey, 'sticky-notes:repo:same:a.py');
+  if (repo._cacheKey === file._cacheKey) throw new Error('התנגשות עם מפתח הקובץ');
+  if (repo._cacheKey === board._cacheKey) throw new Error('התנגשות עם מפתח הלוח');
+});
+
+check('חצי יעד ריפו אינו יעד', () => {
+  // repo בלי path (או להפך) אינו מזהה קובץ — ובלי הבדיקה הוא היה נופל
+  // בשקט למסלול הקובץ עם fileId ריק.
+  let threwRepoOnly = false, threwPathOnly = false;
+  try { new StickyNotesManager({ repo: 'CodeBot' }); } catch (_) { threwRepoOnly = true; }
+  try { new StickyNotesManager({ path: 'a.py' }); } catch (_) { threwPathOnly = true; }
+  if (!threwRepoOnly) throw new Error('repo בלי path התקבל');
+  if (!threwPathOnly) throw new Error('path בלי repo התקבל');
+});
+
+check('לפתק ריפו אין מקור עוגנים', () => {
+  // התצוגה היא CodeMirror, שאינו מרנדר שורות מחוץ למסך — אין DOM להיצמד
+  // אליו, ולכן העיגון הוא ברמת קובץ בלבד.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  eq(m._hasAnchorHost, false);
+});
+
+check('יעד ריפו הוא יעד עם משטח תחום', () => {
+  const repo = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  const board = new StickyNotesManager({ board: 'b1' });
+  const file = new StickyNotesManager('f1');
+  eq(repo._surfaceTarget, true, 'repo');
+  eq(board._surfaceTarget, true, 'board');
+  eq(file._surfaceTarget, false, 'file — חייב להישאר כבוי');
+});
+
+check('פתק ריפו לעולם אינו anchored', () => {
+  // גם כשהמסמך נושא שרידי עיגון — למשל פתק שנוצר לפני שהיעד הופרד.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  eq(m._resolveMode({ anchor_id: 'h-intro', line_start: 42 }), 'screen');
+  eq(m._resolveMode({ mode: 'anchored' }), 'surface');
+});
+
+check('ברירת המחדל של מארקדאון בפתקי ריפו שמרנית', () => {
+  // כמו בפתקי קובץ: אין מתג כיבוי, ולכן רינדור אוטומטי היה שינוי שקט
+  // ובלתי-הפיך-למשתמש.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  eq(m.markdown, false);
+});
+
+// -- destroy: flush לפני פירוק --
+
+check('destroy מרוקן את התור לפני שהוא מפרק', async () => {
+  // **תקלת סדר אמיתית.** תור השמירה עובד עם debounce, ולכן עריכה שנעשתה
+  // רגע לפני החלפת קובץ עדיין ממתינה. פירוק לפני ריקון היה מוחק אותה עם
+  // המנהל, והמשתמש היה מגלה שהעריכה נעלמה — בלי שום סימן.
+  //
+  // נופל אם ``destroy`` יקרא ל-``_clearAllNotes`` לפני ``_flushAll``.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  const order = [];
+  m._flushAll = async () => { order.push('flush'); };
+  const realClear = m._clearAllNotes.bind(m);
+  m._clearAllNotes = () => { order.push('clear'); realClear(); };
+
+  await m.destroy();
+
+  eq(order.join(','), 'flush,clear', 'סדר הפעולות');
+});
+
+check('destroy ממתין לכתיבה שעוד לא נחתה', async () => {
+  // לא מספיק שהריקון ייקרא — צריך גם להמתין לו. בלי ``await`` הפירוק היה
+  // ממשיך בזמן שהכתיבה באוויר.
+  const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
+  let landed = false;
+  m._flushAll = async () => {
+    await new Promise((r) => setTimeout(r, 5));
+    landed = true;
+  };
+  await m.destroy();
+  eq(landed, true, 'הכתיבה נחתה לפני שהפירוק הסתיים');
+});
+
+// **הסיכום ממתין ל-``pending``.** הוא נאסף מאז ומעולם לא הומתן: טסט
+// אסינכרוני שנכשל היה מגדיל את ``failed`` **אחרי** שהסיכום כבר הודפס
+// וה-process יצא — כלומר נכשל בשקט ועם קוד יציאה 0. התיקון נדרש כאן כי
+// אלה הטסטים האסינכרוניים הראשונים בקובץ.
+(async () => {
+  await Promise.all(pending);
+  console.log(`\n${passed} עברו, ${failed} נכשלו`);
+  process.exit(failed === 0 ? 0 : 1);
+})();

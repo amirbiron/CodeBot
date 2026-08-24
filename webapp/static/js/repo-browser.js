@@ -721,6 +721,25 @@ function updateRepoDisplay(repoName) {
 /**
  * מציג מסך פתיחה
  */
+/**
+ * מודיע שהקובץ המוצג התחלף (או שאין קובץ).
+ *
+ * ``path === null`` פירושו "אין קובץ" — מסך הפתיחה. המאזין משתמש בזה כדי
+ * לפרק את הפתקים, ולא נשאר עם פתקים של קובץ שכבר לא על המסך.
+ *
+ * ``repo`` נקרא מ-``#current-repo-name[data-repo]``, שהתבנית כבר מדפיסה —
+ * ולא מ-``state``, שהוא פנימי לקובץ הזה.
+ */
+function emitRepoFileEvent(path) {
+    try {
+        const holder = document.getElementById('current-repo-name');
+        const repo = holder ? (holder.dataset.repo || '') : '';
+        document.dispatchEvent(new CustomEvent('repo:file-loaded', {
+            detail: { repo: repo, path: path || null }
+        }));
+    } catch (_) { /* אירוע שלא נשלח לא אמור להפיל טעינת קובץ */ }
+}
+
 function showWelcomeScreen() {
     const welcome = document.getElementById('welcome-screen');
     const wrapper = document.getElementById('code-editor-wrapper');
@@ -743,6 +762,7 @@ function showWelcomeScreen() {
     state.currentFileContent = null;
     state.currentFileLanguage = null;
     state.editorFilePath = null;
+    emitRepoFileEvent(null);
 }
 
 /**
@@ -1439,7 +1459,11 @@ async function selectFile(path, element) {
     state.currentFileContent = null;
     state.currentFileLanguage = null;
     state.editorFilePath = null;
-    
+
+    // התפר לפתקים: אירוע במקום שקוד חיצוני יחטט ב-``state``. מי שמאזין
+    // (sticky-notes) לא נכנס לפנימיות של הדפדפן, והדפדפן לא יודע עליו.
+    emitRepoFileEvent(path);
+
     // Update URL hash to persist state across refresh
     updateUrlHash(path);
     
