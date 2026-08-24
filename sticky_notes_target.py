@@ -183,7 +183,17 @@ ONE_TITLE_PER_REPO_FILE_INDEX: Dict[str, Any] = {
     "keys": [("user_id", 1), ("repo_name", 1), ("repo_path", 1), ("title", 1)],
     "name": "one_title_per_repo_file_v1",
     "unique": True,
-    "partialFilterExpression": {"title": {"$exists": True}, "repo_path": {"$exists": True}},
+    # **שני חצאי היעד נדרשים בפילטר**, לא רק ``repo_path``. מסמך פגום
+    # שנושא ``repo_path`` בלי ``repo_name`` (מסלול כתיבה עוקף, או נתון ישן)
+    # אינו יעד ריפו חוקי; בלי ``repo_name`` בפילטר הוא בכל זאת נכנס
+    # לאינדקס תחת ``repo_name`` חסר, ושניים כאלה עם אותו שם היו מתנגשים
+    # — או מפילים את בניית האינדקס. הדרישה לשני החצאים מצמצמת את האינדקס
+    # בדיוק ליעדי ריפו שלמים, בדיוק כפי ש-``build_note_target`` מייצר.
+    "partialFilterExpression": {
+        "title": {"$exists": True},
+        "repo_name": {"$exists": True},
+        "repo_path": {"$exists": True},
+    },
 }
 
 #: שמות גרסאות קודמות של אינדקס הריפו. ריק — זו הגרסה הראשונה.
@@ -513,17 +523,15 @@ def build_note_target(
     if file_name:
         target["file_name"] = file_name
 
-    # כלל הזיהום התכונתי: אחרי שידוע איזה סוג נבחר, כל שדה שאינו ברשימה
-    # שלו פוסל. זה מחליף את הבדיקות הידניות ("board עם file_metadata") —
-    # והוא לא צריך לדעת מראש אילו צירופים קיימים.
+    # כלל הזיהום התכונתי: אחרי שידוע איזה סוג נבחר, כל שדה ב-``target``
+    # שאינו ברשימת הסוג פוסל. ``target`` מורכב אך ורק משדות יעד (התוכן,
+    # המיקום וכו' מתווספים מאוחר יותר בראוט), ולכן די בסריקה אחת שלו מול
+    # ה-allowlist — בלי לעבור על שאר הסוגים, שממילא כל שדותיהם זרים.
     kind = _target_kind(target)
     allowed = set(TARGET_FIELDS[kind])
-    for other_kind, fields in TARGET_FIELDS.items():
-        if other_kind == kind:
-            continue
-        for field in fields:
-            if field in target and field not in allowed:
-                raise NoteTargetError(f"{kind}_note_cannot_carry_{field}")
+    for field in target:
+        if field not in allowed:
+            raise NoteTargetError(f"{kind}_note_cannot_carry_{field}")
 
     return target
 

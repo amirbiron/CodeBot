@@ -265,13 +265,83 @@ def test_repo_file_cap_is_enforced_even_for_admin(client, monkeypatch):
     assert res.get_json()["error"] == "note_quota_exceeded"
 
 
-def test_repo_quota_fails_closed_when_count_fails(client):
-    """ספירה שנכשלה ⇒ דחייה, לא "אין פתקים ולכן יש מקום"."""
+def test_repo_quota_fails_closed_when_count_fails(client, monkeypatch):
+    """ספירה שנכשלה ⇒ דחייה — ומבודד ל-cap-לקובץ בלבד.
+
+    **הבידוד קריטי.** ``count_fails=True`` מפיל **כל** ספירה, כולל ספירת
+    תקרת המשתמש. עם משתמש רגיל, גם אם בדיקת ה-cap-לקובץ הייתה מוסרת
+    לגמרי, ספירת המשתמש הייתה זורקת ``note_quota_unknown`` והטסט היה עובר
+    — fake positive. משתמש **אדמין** פוטר את תקרת המשתמש (``is_admin=True``
+    שם), ולכן ה-409 יכול לבוא **רק** מה-cap-לקובץ (שנקרא עם ``is_admin=False``).
+
+    נופל אם בדיקת ה-cap-לקובץ תוסר.
+    """
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_current_user_is_admin", lambda: True)
     _mirror(client.db)
     client.db.sticky_notes.count_fails = True
     res = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py", json={"content": "x"})
     assert res.status_code == 409
     assert res.get_json()["error"] == "note_quota_unknown"
+
+
+def test_create_rejected_when_mirror_list_unavailable(client, monkeypatch):
+    """כשל בקריאת רשימת המראות נסגר (503), לא נפתח.
+
+    ``None`` אינו "אין ריפואים" — קריאה שנכשלה אינה רשיון ליצור פתק על
+    ריפו שאולי אינו ממורר.
+
+    נופל אם המסלול חוזר להתנהגות ``if known is not None and ...``.
+    """
+    class _Boom(_StubColl):
+        def distinct(self, *a, **k):
+            raise RuntimeError("mirror list unavailable")
+
+    client.db.repo_metadata = _Boom()
+    res = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py", json={"content": "x"})
+    assert res.status_code == 503
+    assert res.get_json()["error"] == "repo_list_unavailable"
+    assert client.db.sticky_notes.docs == []
+
+
+def test_malformed_payload_is_400_not_500(client):
+    """גוף שאינו אובייקט, או position/size לא-אובייקט — 400, לא 500."""
+    _mirror(client.db)
+    r1 = client.post("/api/sticky-notes/repo/CodeBot/a.py", json=["not", "an", "object"])
+    assert r1.status_code == 400
+    r2 = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py",
+                     json={"content": "x", "position": [1, 2]})
+    assert r2.status_code == 400
+
+
+def test_duplicate_title_rejected_by_index(client, monkeypatch):
+    """כשהאינדקס אומת — כפילות שם נדחית ע"י המסד (DuplicateKeyError ⇒ 409)."""
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", True, raising=False)
+    _mirror(client.db)
+    client.db.sticky_notes.duplicate_titles = True
+    res = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py",
+                      json={"content": "x", "title": "תפוס"})
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "duplicate_title"
+
+
+def test_duplicate_title_rejected_by_backup_when_index_unverified(client, monkeypatch):
+    """כשהאינדקס לא אומת — בדיקת הגיבוי תופסת את הכפילות (409).
+
+    שולט בדגל במפורש (``False``) כדי שמצב fixture לא ישפיע על התוצאה.
+    """
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", False, raising=False)
+    _mirror(client.db)
+    client.db.sticky_notes.docs.append({
+        "_id": 1, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+        "title": "תפוס", "content": "קיים",
+    })
+    res = client.post("/api/sticky-notes/repo/CodeBot/webapp/app.py",
+                      json={"content": "x", "title": "תפוס"})
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "duplicate_title"
 
 
 # ---------- קומה ראשונה: קובץ שנעלם ----------

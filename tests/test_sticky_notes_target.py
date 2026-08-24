@@ -384,14 +384,13 @@ def test_no_leak_between_the_three_filters():
 
 # -- מכסה: הקבוע שלא היה נאכף --
 
-def test_repo_file_cap_enforced_even_for_admin():
-    """**דפדפן הריפו חסום לאדמינים — כלומר כל מי שמגיע לפיצ'ר הוא אדמין.**
+def test_repo_file_cap_rejects_at_the_limit():
+    """התנהגות הגבול של ``check_note_quota`` עצמה: בתקרה ⇒ דחייה.
 
-    אם ה-cap-לקובץ נקרא עם ``is_admin=True`` (כמו תקרת המשתמש), הוא לא
-    נאכף על אף אחד לעולם: קבוע מת שנראה חי. מטרתו שמירת צורת-תוכן ולא
-    הגנת-משאבים, ולכן הקורא מעביר ``is_admin=False`` תמיד.
-
-    נופלת אם הקורא יעביר את ``is_admin`` האמיתי.
+    זהו טסט **יחידה** על הפונקציה בלבד — הוא אינו קורא ל-``create_repo_note``
+    ואינו מאמת שהראוט מעביר ``is_admin=False``. את חוזה הפטור-לאדמין דרך
+    הצרכן האמיתי אוכף ``test_repo_file_cap_is_enforced_even_for_admin``
+    ב-``tests/test_sticky_notes_repo_api.py``.
     """
     with pytest.raises(NoteQuotaError):
         check_note_quota(MAX_NOTES_PER_REPO_FILE, MAX_NOTES_PER_REPO_FILE, is_admin=False)
@@ -416,7 +415,11 @@ def test_repo_title_index_is_partial_on_repo_path():
     ערך חסר, חולקים מפתח, ושני פתקים שונים עם אותו שם היו נדחים ב-E11000.
     """
     pfe = ONE_TITLE_PER_REPO_FILE_INDEX["partialFilterExpression"]
-    assert pfe == {"title": {"$exists": True}, "repo_path": {"$exists": True}}
+    assert pfe == {
+        "title": {"$exists": True},
+        "repo_name": {"$exists": True},
+        "repo_path": {"$exists": True},
+    }
     assert ONE_TITLE_PER_REPO_FILE_INDEX["unique"] is True
     assert [f for f, _ in ONE_TITLE_PER_REPO_FILE_INDEX["keys"]] == [
         "user_id",
