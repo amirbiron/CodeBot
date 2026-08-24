@@ -579,7 +579,12 @@
         // Enter על קישור ממוקד חייב **להפעיל** אותו — לא לבטל ולא להיכנס
         // לעריכה. ``preventDefault`` לפני הבדיקה הזו היה מבטל את שניהם,
         // והקישור לא נפתח ולא נכנס. בודקים קודם, ורק אז מבטלים.
-        if (t && t.closest && t.closest('a.sticky-md-link')) return;
+        //
+        // **רק ל-Enter.** Space על קישור אינו מפעיל אותו בדפדפן, ואם היינו
+        // מדלגים גם עליו הוא היה נופל להתנהגות ברירת המחדל — גלילת הדף.
+        // לכן Space ממשיך ל-``preventDefault`` (בולם גלילה), ו-enterFromEvent
+        // חוסם אותו מכניסה לעריכה על קישור. נטו: Space על קישור לא עושה כלום.
+        if (ev.key === 'Enter' && t && t.closest && t.closest('a.sticky-md-link')) return;
         ev.preventDefault();
         if (enterFromEvent(ev) === false) return;
       });
