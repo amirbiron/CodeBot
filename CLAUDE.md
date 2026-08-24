@@ -324,7 +324,7 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 
 ---
 
-## פתיתת PR
+## פתיחת PR
   
 - מלא PR לפי התבנית שב-`.github/pull_request_template.md`
 - ציין מפורשות האם עיינת ב-CodeBot – Project Docs ובאילו קבצים.
