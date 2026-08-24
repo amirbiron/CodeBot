@@ -35,15 +35,24 @@ class _FakeRepoMetadataCollection:
 
 
 class _FakeRepoFilesCollection:
-    """ספירה בשליטת הבדיקה, כולל אפשרות להיכשל."""
+    """ספירה בשליטת הבדיקה, כולל אפשרות להיכשל.
+
+    הכשל מדגמן **תקלת מסד** (``PyMongoError``) ולא ``RuntimeError`` שרירותי:
+    ההלפר תופס חריגות מונגו בלבד, ובצדק — חריגה אחרת פירושה באג בקוד או
+    באדפטר, וסטאב שמדגמן אותה היה מכסה על כך שהיא נבלעת.
+    """
 
     def __init__(self, count=0) -> None:
         self.count = count
         self.count_fails = False
+        self.calls = []
 
     def count_documents(self, filt):  # noqa: D401 - test stub
+        self.calls.append(filt)
         if self.count_fails:
-            raise RuntimeError("count failed")
+            from pymongo.errors import OperationFailure
+
+            raise OperationFailure("count failed")
         return self.count
 
 
@@ -142,8 +151,20 @@ def test_initial_import_counts_read_failures_as_errors(monkeypatch):
     monkeypatch.setattr(rss, "CodeIndexer", _StubIndexer)
 
     out = rss.initial_import("https://example.com/repo.git", "Repo", db)
-    assert out["total_files"] == 1
+    # **``total_files`` הוא מה שנכנס לאינדקס, לא מה שנבחר לאינדוקס.**
+    # הקובץ היחיד נכשל בקריאה, ולכן הוא נספר ב-``errors`` ולא ב-
+    # ``total_files``. קודם לכן השדה החזיק ``len(code_files)`` וספר גם
+    # כשלונות — ואז הסנכרון הראשון, שסופר את האינדקס בפועל, היה מוריד
+    # את המספר בלי ששום קובץ השתנה.
+    assert out["total_files"] == 0
+    assert out["code_files"] == 1, "הקובץ אכן נבחר לאינדוקס"
     assert out["indexed"] == 0
+    assert out["errors"] == 1
+    # **וגם הערך שנשמר במסד** — זה מה שדפדפן הריפו קורא ומציג, ולכן
+    # אסור שיתפצל מהערך המוחזר. בלי האימות הזה, שינוי באחד מהם לבדו
+    # היה עובר בשקט.
+    saved = (db.repo_metadata.last_update or {}).get("update", {}).get("$set", {})
+    assert saved.get("total_files") == 0
     assert out["errors"] == 1
 
 
@@ -165,7 +186,7 @@ class _SyncGitService(_StubGitService):
         return "print('hi')"
 
 
-def test_sync_refreshes_total_files(monkeypatch):
+def test_sync_refreshes_total_files():
     """**המספר בדפדפן הריפו היה קפוא מאז הייבוא הראשוני.**
 
     ``_run_sync_logic`` עדכן ``last_synced_sha``, ``last_sync_time`` ו-
@@ -178,7 +199,6 @@ def test_sync_refreshes_total_files(monkeypatch):
 
     db = _FakeDb()
     db.repo_files.count = 1530          # אחרי המיזוג נוסף קובץ
-    monkeypatch.setattr(rss, "CodeIndexer", _StubIndexer)
 
     out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "n" * 40, "o" * 40)
 
@@ -187,7 +207,7 @@ def test_sync_refreshes_total_files(monkeypatch):
     assert saved.get("total_files") == 1530
 
 
-def test_sync_leaves_total_files_alone_when_the_count_fails(monkeypatch):
+def test_sync_leaves_total_files_alone_when_the_count_fails():
     """ספירה שנכשלה אינה עדות שאין קבצים.
 
     כתיבת ``0`` הייתה מציגה "0 files" על ריפו מלא. עדיף להשאיר את המספר
@@ -199,12 +219,52 @@ def test_sync_leaves_total_files_alone_when_the_count_fails(monkeypatch):
 
     db = _FakeDb()
     db.repo_files.count_fails = True
-    monkeypatch.setattr(rss, "CodeIndexer", _StubIndexer)
 
     out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "n" * 40, "o" * 40)
 
     assert out["status"] == "synced"
     saved = (db.repo_metadata.last_update or {}).get("update", {}).get("$set", {})
     assert "total_files" not in saved, "לא נכתב ערך שקרי"
+    # **שהמסלול באמת נוסה.** בלי זה, טסט שבו הספירה כלל לא נקראה היה
+    # עובר מאותה סיבה — היעדר השדה — ולא מגן על כלום.
+    assert db.repo_files.calls, "count_documents נקרא"
     # ושאר המטא-דאטה כן התעדכן
     assert saved.get("last_synced_sha") == "n" * 40
+
+
+def test_up_to_date_sync_still_refreshes_the_counter():
+    """**סנכרון ללא שינויים מתקן מונה שנסחף.**
+
+    אם הספירה נכשלה בסנכרון קודם, אותו סנכרון עדיין התקדם ל-SHA החדש
+    וסומן כהושלם — והסנכרון הבא לאותו SHA יוצא במסלול ``up_to_date``,
+    לפני הספירה. בלי ריענון כאן, המספר הישן היה נשאר לתמיד.
+
+    נופל אם מסלול ``up_to_date`` חוזר לצאת בלי לספור.
+    """
+    from services import repo_sync_service as rss
+
+    db = _FakeDb()
+    db.repo_files.count = 1530
+
+    out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "s" * 40, "s" * 40)
+
+    assert out["status"] == "up_to_date"
+    saved = (db.repo_metadata.last_update or {}).get("update", {}).get("$set", {})
+    assert saved.get("total_files") == 1530
+    # ורק המונה עודכן — לא סטטוס ולא SHA, כי שום דבר לא סונכרן
+    assert "last_synced_sha" not in saved
+    assert "sync_status" not in saved
+
+
+def test_up_to_date_sync_does_not_write_when_the_count_fails():
+    """ספירה שנכשלה במסלול הזה לא כותבת כלום."""
+    from services import repo_sync_service as rss
+
+    db = _FakeDb()
+    db.repo_files.count_fails = True
+
+    out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "s" * 40, "s" * 40)
+
+    assert out["status"] == "up_to_date"
+    assert db.repo_metadata.last_update is None, "לא בוצעה כתיבה"
+    assert db.repo_files.calls, "אבל הספירה כן נוסתה"

@@ -92,9 +92,25 @@ def note_permalink(note_id: str):
     # דפדפן הריפו הוא SPA: הריפו נבחר ב-query, והקובץ ב-hash — זה בדיוק
     # מה ש-``updateUrlHash`` בונה, ולכן הקישור נפתח על אותו מצב שהמשתמש
     # היה בו.
+    #
+    # **שני הערכים מאומתים כאן מחדש, מול אותו חוזה שיצר אותם**, ולא רק
+    # מקודדים. מקור הערכים הוא מסמך הפתק, כלומר קלט שהגיע פעם ממשתמש —
+    # ו-CodeQL מסמן בצדק זרימה כזו אל ``redirect`` (``py/url-redirection``).
+    # היעד כאן אמנם מתחיל תמיד בליטרל ``/repo/`` ולכן אינו יכול לצאת מהאתר,
+    # אבל אימות מפורש עדיף על הסתמכות על צורת המחרוזת: מסמך עם ``repo_name``
+    # פגום — ממסלול כתיבה עתידי, ממיגרציה, מגיבוי — לא ייצר כאן קישור מוזר
+    # אלא ייפול לברירת המחדל.
+    #
+    # ``REPO_NAME_PATTERN`` מיובא ולא משוכפל: אותו דפוס כבר מוקלד בשלושה
+    # מקומות, ורביעי היה מבטיח שהם ייפרדו. ``normalize_repo_path`` היא
+    # בדיוק הפונקציה שכתבה את הנתיב, ולכן הקריאה כאן מתכנסת לאותה צורה
+    # (והיא גם דוחה traversal ומחזירה מחרוזת ריקה).
+    from services.git_mirror_service import GitMirrorService
+    from sticky_notes_target import normalize_repo_path
+
     repo_name = str(note.get('repo_name') or '')
-    repo_path = str(note.get('repo_path') or '')
-    if repo_name and repo_path:
+    repo_path = normalize_repo_path(note.get('repo_path'))
+    if repo_name and repo_path and GitMirrorService.REPO_NAME_PATTERN.match(repo_name):
         return redirect(
             f'/repo/?repo={quote(repo_name, safe="")}&note={note_id}'
             f'#file={quote(repo_path, safe="/")}'
