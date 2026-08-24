@@ -573,9 +573,13 @@
       taskView.setAttribute('aria-label', 'תוכן הפתק — הקישו Enter כדי לערוך');
       taskView.addEventListener('keydown', (ev) => {
         if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
-        // רווח על תיבת סימון הוא סימון, לא כניסה לעריכה
         const t = ev.target;
+        // רווח על תיבת סימון הוא סימון, לא כניסה לעריכה
         if (t && t.classList && t.classList.contains('sticky-task-box')) return;
+        // Enter על קישור ממוקד חייב **להפעיל** אותו — לא לבטל ולא להיכנס
+        // לעריכה. ``preventDefault`` לפני הבדיקה הזו היה מבטל את שניהם,
+        // והקישור לא נפתח ולא נכנס. בודקים קודם, ורק אז מבטלים.
+        if (t && t.closest && t.closest('a.sticky-md-link')) return;
         ev.preventDefault();
         if (enterFromEvent(ev) === false) return;
       });
@@ -1099,17 +1103,22 @@
             // לעריכה בדיוק בשורה שנלחצה, ולא בתחילת הפתק.
             row.dataset.charOffset = String(charOffset);
             const isFenceLine = wantMd && MD_FENCE_RE.test(line);
-            // גדר קוד קודמת לזיהוי משימה: ``- [ ] x`` בתוך בלוק קוד הוא
-            // דוגמה ליטרלית, לא תיבת סימון. בלי התנאי הזה לחיצה עליה
-            // כותבת למסד ומקדמת את סידורי הצ'קבוקסים האמיתיים אחריה.
+            // **הסידור מתקדם על כל שורת משימה, כמו השרת.**
+            //
+            // ``sticky_notes_tasks.toggle_task_at_index`` סופר כל שורת
+            // ``- [ ]``, כולל בתוך גדר קוד — החלטה מתועדת שם ומכוסה
+            // בבדיקה. לכן הסידור כאן חייב להתקדם באותה נקודה בדיוק, גם
+            // כשהשורה בגדר ולא הופכת לתיבה אינטראקטיבית. אחרת האינדקס
+            // שהלקוח שולח מצביע על משימה אחרת מזו שהמשתמש לחץ עליה.
+            const thisTaskIndex = m ? taskIndex : -1;
+            if (m) taskIndex += 1;
             if (m && !inFence && !isFenceLine) {
-              // צ'קבוקס — מסלול קיים, לא תלוי במארקדאון.
+              // צ'קבוקס אינטראקטיבי — רק מחוץ לגדר.
               row.classList.add('sticky-task');
               const box = createEl('input', 'sticky-task-box');
               box.type = 'checkbox';
               box.checked = m[2].toLowerCase() === 'x';
-              box.dataset.taskIndex = String(taskIndex);
-              taskIndex += 1;
+              box.dataset.taskIndex = String(thisTaskIndex);
               const span = createEl('span', 'sticky-task-text');
               // גם טקסט המשימה מקבל אינליין, כשהמארקדאון דלוק.
               if (wantMd) this._appendInline(span, m[3].slice(1).trim());
