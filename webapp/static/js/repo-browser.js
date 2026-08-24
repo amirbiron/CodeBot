@@ -132,7 +132,7 @@ function updateMarkdownToggleVisibility(path, language) {
 /**
  * מפעיל תצוגת Markdown
  */
-async function enableMarkdownPreview() {
+async function enableMarkdownPreview(seq) {
     const editorWrapper = document.getElementById('code-editor-wrapper');
     const previewContainer = document.getElementById('markdown-preview-container');
     const toggleBtn = document.getElementById('markdown-preview-toggle');
@@ -148,7 +148,7 @@ async function enableMarkdownPreview() {
     toggleBtn?.classList.add('active');
 
     // רינדור התוכן
-    await renderMarkdownPreview(state.currentFileContent);
+    await renderMarkdownPreview(state.currentFileContent, seq);
 }
 
 /**
@@ -226,7 +226,7 @@ async function ensureCodeViewerInitialized() {
 /**
  * רינדור תוכן Markdown
  */
-async function renderMarkdownPreview(content) {
+async function renderMarkdownPreview(content, seq) {
     const previewContent = document.getElementById('markdown-preview-content');
     if (!previewContent || content === null || content === undefined) return;
 
@@ -251,6 +251,9 @@ async function renderMarkdownPreview(content) {
             // רינדור ה-Markdown ל-HTML (כולל שליפת עוגני HTML מפורשים מהכותרות —
             // ה-renderer רץ עם html:false, ראו webapp/static/js/md-anchors.js)
             const rendered = await MarkdownLiveRenderer.renderWithAnchors(content);
+            // אותו נימוק כמו ב-``initCodeViewer``: הרינדור ארוך, ובזמנו
+            // בחירה חדשה יכולה להסתיים. כתיבה כאן הייתה דורסת אותה.
+            if (!selectionIsCurrent(seq)) return;
             previewContent.innerHTML = rendered.html;
 
             // שיפורים: syntax highlighting, math, mermaid + החלת העוגנים המפורשים
@@ -1472,6 +1475,22 @@ function loadFilterPreferences() {
  */
 let fileSelectionSeq = 0;
 
+/**
+ * האם העבודה שהתחילה בבחירה ``seq`` עדיין רלוונטית.
+ *
+ * ``undefined``/``null`` פירושו "לא נבחרה בהקשר של בחירת קובץ" — למשל
+ * מתג ה-Markdown, שרץ על הקובץ שכבר מוצג — ואז אין מה לבטל.
+ *
+ * **למה הבדיקה חוזרת אחרי כל ``await``:** בדיקה נקודתית אחת אחרי ה-fetch
+ * אינה מספיקה, כי הרינדור עצמו אסינכרוני. ``initCodeViewer`` ממתין
+ * ל-runtime של CodeMirror ורק אז הורס ובונה את העורך; ``renderMarkdownPreview``
+ * ממתין לתלויות ורק אז כותב ``innerHTML``. בחלון הזה בחירה חדשה יכולה
+ * להסתיים — ואז הישנה, כשהיא חוזרת, דורסת אותה.
+ */
+function selectionIsCurrent(seq) {
+    return seq === undefined || seq === null || seq === fileSelectionSeq;
+}
+
 async function selectFile(path, element) {
     // הבחירה הזו היא האחרונה **נכון לרגע הזה**, וסינכרונית — כדי שטעינה
     // קודמת שעדיין באוויר תגלה בסופה שהיא כבר לא.
@@ -1576,12 +1595,15 @@ async function selectFile(path, element) {
 
         if (isMarkdown && savedPreference) {
             // המשתמש העדיף תצוגת Markdown - הצג אותה
-            await enableMarkdownPreview();
+            await enableMarkdownPreview(mySeq);
         } else {
             // הצג קוד רגיל
             disableMarkdownPreview();
-            await initCodeViewer(data.content, language);
+            await initCodeViewer(data.content, language, mySeq);
         }
+
+        // הרינדור היה אסינכרוני — בדיקה חוזרת לפני שאר ההתחייבויות.
+        if (mySeq !== fileSelectionSeq) return;
 
         // Save to recent files
         addToRecentFiles(path);
@@ -1609,11 +1631,16 @@ async function selectFile(path, element) {
     }
 }
 
-async function initCodeViewer(content, language) {
+async function initCodeViewer(content, language, seq) {
     const wrapper = document.getElementById('code-editor-wrapper');
     if (!wrapper) return;
 
     const kind = await ensureCodeMirrorRuntime();
+
+    // **בחירה חדשה גברה בזמן שחיכינו ל-runtime.** בלי היציאה כאן, הבחירה
+    // הישנה הייתה הורסת את העורך שהחדשה כבר בנתה ובונה אותו מחדש עם
+    // התוכן הישן — כלומר הישן מנצח דווקא בגלל שהוא איטי.
+    if (!selectionIsCurrent(seq)) return;
 
     // Destroy previous instances
     if (state.editor) {

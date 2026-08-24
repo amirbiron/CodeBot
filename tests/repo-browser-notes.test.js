@@ -105,10 +105,15 @@ function makeSandbox() {
 
   // נטרול כל מה שאינו התפר הנבדק. הצהרות ``function`` בטופ-לבל יושבות על
   // האובייקט הגלובלי, ולכן ההחלפה כאן היא זו שתיקרא מתוך ``selectFile``.
+  // שומרים את המקוריות לפני הנטרול: חלק מהבדיקות צריכות דווקא את
+  // ``initCodeViewer`` האמיתי, כדי לבדוק את שומר-הדורות שבתוכו.
+  sandbox.__real = {};
   for (const name of ['initCodeViewer', 'enableMarkdownPreview', 'disableMarkdownPreview',
+                      'renderMarkdownPreview',
                       'updateBreadcrumbs', 'updateFileHeader', 'updateFileInfo',
                       'updateMarkdownToggleVisibility', 'addToRecentFiles', 'updateUrlHash',
                       'closeInFileSearch', 'closeMobileSidebar']) {
+    sandbox.__real[name] = sandbox[name];
     sandbox[name] = () => {};
   }
   return sandbox;
@@ -277,6 +282,148 @@ check('כשל של טעינה שנעקפה אינו מצייר שגיאה על �
 
   const after = wrapper ? wrapper.innerHTML : null;
   eq(after, before, 'תצוגת הקובץ המוצג לא נגעה');
+});
+
+// -- ה-P1 השלישי: הרינדור עצמו אסינכרוני --
+
+/** מזריק ל-sandbox עורך מזויף ו-runtime בשליטת הבדיקה. */
+function withFakeEditor(sb) {
+  const writes = [];
+  let releaseRuntime;
+  const runtimeGate = new Promise((r) => { releaseRuntime = r; });
+  sb.ensureCodeMirrorRuntime = async () => { await runtimeGate; return 'cm5'; };
+  sb.CodeMirror = {
+    fromTextArea: () => ({
+      setValue(v) { writes.push(v); },
+      toTextArea() {},
+      on() {}, refresh() {}, getWrapperElement: () => ({ style: {} }),
+    }),
+  };
+  sb.recalculateEditorHeight = () => {};
+  return { writes, releaseRuntime: () => releaseRuntime() };
+}
+
+check('initCodeViewer של בחירה שנעקפה אינו נוגע בעורך', async () => {
+  // הבדיקה שאחרי ה-fetch היא נקודתית; הרינדור עצמו ממתין ל-runtime של
+  // CodeMirror, ובחלון הזה בחירה חדשה יכולה להסתיים. בלי שומר **בתוך**
+  // initCodeViewer, הבחירה הישנה הורסת את העורך שהחדשה בנתה ובונה אותו
+  // מחדש עם התוכן הישן — הישן מנצח בגלל שהוא איטי.
+  //
+  // נופל אם initCodeViewer מפסיק לבדוק את הדור אחרי ה-await.
+  const sb = makeSandbox();
+  const fake = withFakeEditor(sb);
+
+  // בחירה כלשהי מקדמת את מונה הבחירות; השער שלה נשאר סגור.
+  sb.selectFile('חדש.py', null);
+  await delay(0);
+
+  // ``0`` הוא דור של בחירה שכבר נעקפה
+  const stale = sb.__real.initCodeViewer('תוכן ישן', 'python', 0);
+  fake.releaseRuntime();
+  await stale;
+
+  eq(fake.writes.length, 0, 'שום תוכן לא נכתב לעורך');
+});
+
+check('רינדור של טעינה שנעקפה אינו דורס את העורך של הקובץ המוצג', async () => {
+  // מקצה לקצה דרך selectFile, עם initCodeViewer האמיתי: A נבחר, B נבחר
+  // אחריו, ושניהם מגיעים לשלב הרינדור. ה-runtime משתחרר רק בסוף, כך
+  // ששני הרינדורים "חוזרים" יחד — וזה בדיוק החלון.
+  //
+  // נופל אם selectFile מפסיק להעביר את mySeq ל-initCodeViewer.
+  const sb = makeSandbox();
+  const fake = withFakeEditor(sb);
+  sb.initCodeViewer = sb.__real.initCodeViewer;   // הפונקציה האמיתית
+
+  // **הסדר כאן הוא כל העניין.** A חייב לעבור את השומר שאחרי ה-fetch —
+  // כלומר להיות הבחירה הפעילה באותו רגע — ורק אז להיעקף. אחרת הוא נעצר
+  // מוקדם, וחלון הרינדור (ההמתנה ל-runtime) לא נבדק כלל.
+  const a = sb.selectFile('A.py', null);
+  sb.__openGate('A.py', { content: 'תוכן של A', language: 'python' });
+  await delay(0);                                  // A נכנס ל-initCodeViewer וממתין ל-runtime
+
+  const b = sb.selectFile('B.py', null);           // רק עכשיו A נעקף
+  sb.__openGate('B.py', { content: 'תוכן של B', language: 'python' });
+  await delay(0);
+
+  fake.releaseRuntime();                           // שניהם חוזרים יחד
+  await Promise.all([a, b]);
+  await delay(0);
+
+  eq(fake.writes.join('|'), 'תוכן של B', 'רק התוכן של B נכתב לעורך');
+});
+
+check('רינדור Markdown של בחירה שנעקפה אינו כותב את ה-HTML', async () => {
+  // אותו חלון בדיוק במסלול ה-Markdown: ``renderMarkdownPreview`` ממתין
+  // לתלויות ולרינדור, ורק אז כותב ``innerHTML``. בלי בדיקת דור לפני
+  // הכתיבה, התצוגה של הקובץ הישן דורסת את החדש.
+  //
+  // נופל אם הבדיקה שלפני הכתיבה תוסר.
+  const sb = makeSandbox();
+  const preview = sb.document.getElementById('markdown-preview-content');
+  preview.innerHTML = 'של הקובץ המוצג';
+
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  sb.MarkdownLiveRenderer = {
+    isSupported: () => true,
+    renderWithAnchors: async () => { await gate; return { html: 'של הקובץ הישן', anchors: [] }; },
+    enhance: async () => {},
+  };
+  sb.ensureHighlightJsLoaded = async () => {};
+  sb.applySyntaxHighlighting = () => {};
+
+  sb.selectFile('חדש.py', null);                   // מקדם את מונה הבחירות
+  await delay(0);
+
+  const stale = sb.__real.renderMarkdownPreview('תוכן ישן', 0);
+  release();
+  await stale;
+
+  eq(preview.innerHTML, 'של הקובץ המוצג', 'ה-HTML של המוצג לא נדרס');
+});
+
+check('רינדור Markdown של טעינה שנעקפה אינו דורס את התצוגה', async () => {
+  // המסלול האמיתי: קובץ ``.md`` עם העדפת תצוגת Markdown שמורה. A עובר את
+  // השומר שאחרי ה-fetch, נכנס לרינדור (שממתין לתלויות), ורק אז נעקף.
+  // זה בודק גם את הבדיקה שבתוך ``renderMarkdownPreview`` וגם את העברת
+  // הדור דרך ``enableMarkdownPreview``.
+  //
+  // נופל אם אחד משני אלה נשבר.
+  const sb = makeSandbox();
+  sb.localStorage.getItem = (k) => (k === 'repo-browser-markdown-preview' ? 'true' : null);
+  sb.enableMarkdownPreview = sb.__real.enableMarkdownPreview;
+  sb.renderMarkdownPreview = sb.__real.renderMarkdownPreview;
+
+  const preview = sb.document.getElementById('markdown-preview-content');
+  const gates = [];
+  sb.MarkdownLiveRenderer = {
+    isSupported: () => true,
+    renderWithAnchors: (content) => new Promise((resolve) => {
+      gates.push(() => resolve({ html: 'HTML של ' + content, anchors: [] }));
+    }),
+    enhance: async () => {},
+  };
+  sb.ensureHighlightJsLoaded = async () => {};
+  sb.applySyntaxHighlighting = () => {};
+
+  const a = sb.selectFile('A.md', null);
+  sb.__openGate('A.md', { content: 'A', language: 'markdown' });
+  await delay(0);                       // A נכנס לרינדור וממתין
+
+  const b = sb.selectFile('B.md', null);   // רק עכשיו A נעקף
+  sb.__openGate('B.md', { content: 'B', language: 'markdown' });
+  await delay(0);
+
+  // **הסדר הפוך בכוונה: B חוזר ראשון, A אחריו.** אילו A היה חוזר ראשון,
+  // B היה דורס אותו והמצב הסופי היה נכון גם בלי השומר — כלומר הטסט היה
+  // עובר מהסיבה הלא נכונה. כך הכתיבה הישנה היא האחרונה, ורק שומר אמיתי
+  // מונע ממנה לנצח.
+  gates.reverse().forEach((open) => open());
+  await Promise.all([a, b]);
+  await delay(0);
+
+  eq(preview.innerHTML, 'HTML של B', 'רק התצוגה של B נכתבה');
 });
 
 (async () => {
