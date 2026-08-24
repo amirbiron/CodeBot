@@ -191,18 +191,30 @@
         ? { file: fileIdOrOptions }
         : (fileIdOrOptions || {});
 
-      this.boardId = opts.board ? String(opts.board) : null;
-      // היעד השלישי: קובץ בריפו ממורר, מזוהה בזוג ``(repo, path)``. שני
-      // החצאים נדרשים יחד — חצי יעד אינו יעד, בדיוק כמו בשרת.
-      this.repoTarget = (!this.boardId && opts.repo && opts.path)
-        ? { repo: String(opts.repo), path: String(opts.path) }
-        : null;
-      this.fileId = (this.boardId || this.repoTarget)
-        ? null
-        : (opts.file != null ? opts.file : null);
-      if (!this.boardId && !this.repoTarget && this.fileId == null) {
+      // **בדיוק יעד אחד — נאכף, לא נבחר בשקט.** הצורה הקודמת סידרה
+      // קדימויות (לוח מנצח ריפו, ריפו מנצח קובץ), ולכן קורא שהעביר שני
+      // יעדים קיבל מנהל שעובד — על היעד הלא נכון, בלי שום סימן. השרת
+      // דוחה את אותו מסמך ב-``note_target_ambiguous``; הלקוח היה מסתיר.
+      //
+      // ``repo`` ו-``path`` נדרשים יחד: חצי יעד אינו יעד, בדיוק כמו בשרת.
+      const hasBoard = !!opts.board;
+      const hasRepo = !!opts.repo;
+      const hasPath = !!opts.path;
+      const hasFile = opts.file != null && opts.file !== '';
+      if (hasRepo !== hasPath) {
+        throw new Error('StickyNotesManager: יעד ריפו חלקי — צריך repo ו-path יחד');
+      }
+      const kinds = (hasBoard ? 1 : 0) + (hasRepo ? 1 : 0) + (hasFile ? 1 : 0);
+      if (kinds > 1) {
+        throw new Error('StickyNotesManager: יותר מיעד אחד — file, board ו-repo סותרים');
+      }
+      if (kinds === 0) {
         throw new Error('StickyNotesManager: חסר יעד — file, board או repo+path');
       }
+
+      this.boardId = hasBoard ? String(opts.board) : null;
+      this.repoTarget = hasRepo ? { repo: String(opts.repo), path: String(opts.path) } : null;
+      this.fileId = hasFile ? opts.file : null;
 
       // **"יש משטח תחום, ואין שורות מקור".** נכון ללוח ולריפו כאחד, ולכן
       // כל מה שנגזר מזה — מצבי surface/screen, חסימה לגבולות המשטח,
@@ -281,6 +293,26 @@
 
     // האם מסלול העיגון לשורת מקור רלוונטי בכלל. בלוח — לא.
     get _hasAnchorHost(){ return !!this._anchorHost; }
+
+    /**
+     * כמה מהקונטיינר כבר נגלל אל מעל לקצה העליון של החלון, בפיקסלים.
+     *
+     * זה מה שצריך להוסיף למיקום ``absolute`` יחסית לקונטיינר כדי שהפתק
+     * ייצא במקום שנראה כרגע. במשטח שנגלל עם העמוד התוצאה שווה לגלילת
+     * העמוד; בפאנל בגובה קבוע היא 0. נופל חזרה לגלילת העמוד אם אי אפשר
+     * למדוד — ההתנהגות ההיסטורית.
+     */
+    _containerScrolledPast(){
+      try {
+        const el = this.container;
+        if (el && el !== (typeof document !== 'undefined' ? document.body : null)
+            && typeof el.getBoundingClientRect === 'function') {
+          const top = el.getBoundingClientRect().top;
+          if (Number.isFinite(top)) return Math.max(0, -top);
+        }
+      } catch(_) {}
+      return getScrollOffsets().y;
+    }
 
     async _init(){
       try {
@@ -390,8 +422,23 @@
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
         const scroll = getScrollOffsets();
-        const noteX = isMobile ? 80 : 120;
-        const noteY = scroll.y + (isMobile ? 80 : 120);
+        const inset = isMobile ? 80 : 120;
+        const noteX = inset;
+        // **הפתק נולד מול העיניים — נמדד יחסית לקונטיינר, לא לעמוד.**
+        //
+        // ``scroll.y`` נכון רק כשהקונטיינר נגלל יחד עם העמוד. זה המצב
+        // בלוח ובפתקי קובץ (הקונטיינר הוא ה-body או משטח שמתחיל בראשו),
+        // ובדפדפן הריפו זה נכון **במקרה**: ``.repo-browser-container``
+        // הוא ``100vh`` עם ``overflow: hidden``, כלומר העמוד לא נגלל
+        // בכלל ו-``scroll.y`` הוא 0. כלומר היום שתי הנוסחאות מסכימות,
+        // ולא ניתן לראות כאן באג.
+        //
+        // המדידה כאן מסירה את התלות הזו: כמה מהקונטיינר כבר נגלל מעל
+        // הקצה העליון של החלון. במשטח שנגלל עם העמוד זה יוצא בדיוק
+        // ``scroll.y`` (ההתנהגות בלוח ובקובץ נשארת ביט-זהה), ובפאנל שאינו
+        // נגלל זה 0. שינוי עתידי בפריסה שיאפשר גלילת עמוד לא ידחוף פתקים
+        // אל מתחת לתחתית הפאנל.
+        const noteY = this._containerScrolledPast() + inset;
 
         const payload = this._surfaceTarget ? {
           content: '',

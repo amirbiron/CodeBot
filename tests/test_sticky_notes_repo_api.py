@@ -31,6 +31,8 @@ class _StubColl:
         self.count_fails = False
         self.distinct_fails = False
         self.duplicate_titles = False
+        #: מדמה את האינדקס הייחודי במסלול העדכון (ראו ``update_one``)
+        self.enforce_unique_titles = False
 
     def find_one(self, query, projection=None):
         for doc in self._matching(query):
@@ -62,8 +64,27 @@ class _StubColl:
         return _Res(inserted_id=doc["_id"])
 
     def update_one(self, query, ops, **k):
-        if self.duplicate_titles and (ops.get("$set") or {}).get("title"):
-            raise _StubDuplicateKeyError("E11000 duplicate key")
+        # **מודל של אינדקס ייחודי אמיתי, לא "זרוק תמיד".** הסטאב הקודם זרק
+        # על כל עדכון שנשא ``title``, ולכן טסט שעבר לא הבחין בין "המסד דחה
+        # כפילות" לבין "כל שינוי שם נכשל". כאן הוא מחפש מסמך **אחר** של
+        # אותו משתמש עם אותו שם באותו יעד — בדיוק מה שהאינדקס אוכף.
+        new_title = (ops.get("$set") or {}).get("title")
+        if self.enforce_unique_titles and new_title:
+            target = self._matching(query)
+            mine = target[0] if target else {}
+            for doc in self.docs:
+                if doc.get("_id") == mine.get("_id"):
+                    continue
+                if doc.get("title") != new_title or doc.get("user_id") != mine.get("user_id"):
+                    continue
+                same_board = doc.get("board_id") and doc.get("board_id") == mine.get("board_id")
+                same_repo = (
+                    doc.get("repo_path")
+                    and doc.get("repo_path") == mine.get("repo_path")
+                    and doc.get("repo_name") == mine.get("repo_name")
+                )
+                if same_board or same_repo:
+                    raise _StubDuplicateKeyError("E11000 duplicate key")
         matched = self._matching(query)
         if not matched:
             return _Res(modified_count=0)
@@ -681,3 +702,80 @@ def test_board_note_title_still_uses_the_board_check(client, monkeypatch):
 
     assert res.status_code == 409
     assert res.get_json()["error"] == "duplicate_title"
+
+
+# ---------- המסלול שהמסד אוכף: DuplicateKeyError בעדכון ----------
+
+def test_update_duplicate_title_from_the_index_is_409(client, monkeypatch):
+    """**זה המסלול האמיתי בפרודקשן.** כשהאינדקס מאומת, בדיקת הגיבוי בקוד
+    יוצאת מיד ואף אחד לא בודק כלום — האכיפה כולה היא ``DuplicateKeyError``
+    מהמסד, ש-``update_note`` חייב לתרגם ל-409 ולא ל-500.
+
+    כל שאר טסטי כפילות-השם בעדכון מכבים את דגל האינדקס ובודקים רק את
+    הגיבוי; בלי הטסט הזה, רגרסיה בתרגום החריגה לא הייתה נתפסת.
+    """
+    from bson import ObjectId
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", True, raising=False)
+    _mirror(client.db)
+    client.db.sticky_notes.enforce_unique_titles = True
+    taken, mine = ObjectId(), ObjectId()
+    client.db.sticky_notes.docs.extend([
+        {"_id": taken, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "תפוס", "content": "קיים"},
+        {"_id": mine, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "אחר", "content": "שלי"},
+    ])
+
+    res = client.put(f"/api/sticky-notes/note/{mine}", json={"title": "תפוס"})
+
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "duplicate_title"
+
+
+def test_batch_duplicate_title_from_the_index_is_409(client, monkeypatch):
+    """אותו מסלול ב-``/batch`` — שם הלקוח באמת שומר."""
+    from bson import ObjectId
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", True, raising=False)
+    _mirror(client.db)
+    client.db.sticky_notes.enforce_unique_titles = True
+    taken, mine = ObjectId(), ObjectId()
+    client.db.sticky_notes.docs.extend([
+        {"_id": taken, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "תפוס", "content": "קיים"},
+        {"_id": mine, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "אחר", "content": "שלי"},
+    ])
+
+    res = client.post("/api/sticky-notes/batch",
+                      json={"updates": [{"id": str(mine), "title": "תפוס"}]})
+
+    assert res.status_code == 200
+    result = res.get_json()["results"][0]
+    assert result["ok"] is False
+    assert result["status"] == 409
+    assert result["error"] == "duplicate_title"
+
+
+def test_update_to_a_free_title_still_succeeds_under_the_index(client, monkeypatch):
+    """הרגרסיה הנגדית: עם אינדקס פעיל, שם פנוי עדיין נשמר.
+
+    בלי הטסט הזה, סטאב שזורק על **כל** שינוי שם (כפי שהיה) היה מייצר
+    "אכיפה" שמכשילה גם עדכונים תקינים — והטסטים היו ירוקים.
+    """
+    from bson import ObjectId
+    from webapp import sticky_notes_api
+    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", True, raising=False)
+    _mirror(client.db)
+    client.db.sticky_notes.enforce_unique_titles = True
+    mine = ObjectId()
+    client.db.sticky_notes.docs.append(
+        {"_id": mine, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py",
+         "title": "אחר", "content": "שלי"}
+    )
+
+    res = client.put(f"/api/sticky-notes/note/{mine}", json={"title": "חדש ופנוי"})
+
+    assert res.status_code == 200
+    assert client.db.sticky_notes.docs[-1]["title"] == "חדש ופנוי"

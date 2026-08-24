@@ -651,6 +651,12 @@ function renderRepoSelector(repos, currentRepoName) {
 async function switchRepo(repoName) {
     if (!repoName || repoName === currentRepo) return;
 
+    // **הקידום מיידי, ולא רק ב-``showWelcomeScreen`` שבסוף.** בין כאן
+    // לשם יש שני ``await`` (טעינת העץ וסוגי הקבצים), ובחלון הזה טעינת
+    // קובץ מהריפו הקודם עדיין באוויר — היא הייתה מתחייבת על תוכן של ריפו
+    // שכבר אינו מוצג.
+    fileSelectionSeq += 1;
+
     // שמירה ב-localStorage
     localStorage.setItem('selectedRepo', repoName);
     currentRepo = repoName;
@@ -1536,6 +1542,14 @@ async function selectFile(path, element) {
         const response = await fetch(`${CONFIG.apiBase}/file/${encodeURIComponent(path)}?${getRepoParam()}`);
         const data = await response.json();
 
+        // **בקשה שנעקפה יוצאת כאן, לפני כל התחייבות.** השומר שהיה קיים
+        // עטף רק את פליטת אירוע הפתקים, בעוד ששאר מסלול ההתחייבות —
+        // ``state.currentFileContent``, הכותרת, ה-breadcrumbs ו-CodeMirror
+        // — רץ בכל מקרה. התוצאה: טעינה איטית של קובץ א' שנחתה אחרי שכבר
+        // עברנו לב' דרסה את תוכן העורך בתוכן של א', בעוד הפתקים והכותרת
+        // נשארו של ב'. יציאה אחת כאן מכסה את כל המסלול.
+        if (mySeq !== fileSelectionSeq) return;
+
         if (data.error) {
             throw new Error(data.error);
         }
@@ -1581,9 +1595,11 @@ async function selectFile(path, element) {
 
     } catch (error) {
         console.error('Failed to load file:', error);
-        // כשל של טעינה **שנעקפה** אינו אומר כלום על הקובץ שכן מוצג — ניקוי
-        // כאן היה מפרק את הפתקים שלו. הניקוי בתחילת הבחירה כבר רץ.
-        if (mySeq === fileSelectionSeq) emitRepoFileEvent(null, repoAtStart);
+        // כשל של טעינה **שנעקפה** אינו אומר כלום על הקובץ שכן מוצג: לא
+        // ניקוי פתקים, וגם לא הודעת שגיאה שתידרס על תוכן תקין שכבר מוצג.
+        // הניקוי בתחילת הבחירה כבר רץ.
+        if (mySeq !== fileSelectionSeq) return;
+        emitRepoFileEvent(null, repoAtStart);
         wrapper.innerHTML = `
             <div class="error-message" style="padding: 20px; color: var(--accent-red);">
                 <i class="bi bi-exclamation-triangle"></i>
