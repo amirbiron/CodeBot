@@ -23,6 +23,7 @@
 - `docs/whats-new.rst` — **What's New**: יומן השינויים של הבוט וה-WebApp לפי תאריך — מה נוסף, מה השתנה ומה תוקן בכל עדכון, עם קישורים ל-Issues הרלוונטיים.
 - `docs/architecture.rst` — **ארכיטקטורה**: המערכת מורכבת מבוט Telegram, שכבת שירותים (services), שכבת נתונים (MongoDB) ואפליקציית Web. הזרימה העיקרית: Handlers → Services → Database.
   - `docs/architecture/clean-architecture.rst` — **Clean Architecture ב-src**: ארכיטקטורה זו מפרידה בין לוגיקה עסקית, תזמור יישומי ותשתיות כך שניתן לבדוק יחידות קוד בנפרד, להחליף מקורות נתונים בלי לשבור את שאר המערכת ולרוץ גם בסביבות ללא MongoDB.
+- `docs/dev/sticky_notes_extending.rst` — **עקרונות להוספת פיצ'ר לסטיקי-נוטס**: המלכודות החוזרות של הפתקים הדביקים במקום אחד — יעד יחיד ב-build_note_target, מכסה fail-closed והפטור-לאדמין שהורג מכסות, אינדקס ממוספר שנבנה לפני שמפילים, נורמליזציה בשני הקצוות, יתומים בקריאה, אפס innerHTML, ו-flush…
 - `docs/contributing.rst` — **מדריך תרומה**: לתת מסלול ברור לתרומות קוד, עם דגש על סוכני AI ו-CI.
 - `docs/branch-protection-and-pr-rules.rst` — **Branch Protection & PR Rules**: לרכז נהלים ברורים להגנה על ענפים (Branch Protection) ולחוקי PR בפרויקט.
 
@@ -192,4 +193,4 @@
 
 ---
 
-עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 228.
+עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 229.

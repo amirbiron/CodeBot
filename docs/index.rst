@@ -21,6 +21,7 @@ Code Keeper Bot - תיעוד API
    versioning-stable-anchors
    whats-new
    architecture
+   dev/sticky_notes_extending
    contributing
    branch-protection-and-pr-rules
 
