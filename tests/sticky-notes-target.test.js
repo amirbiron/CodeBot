@@ -917,15 +917,26 @@ check('פתיחה: קישור פסול לפני מארקדאון תקין — ע
   eq(!!view.querySelector('.sticky-md-link'), false, 'והקישור הפסול נשאר טקסט');
 });
 
-check('פתק קובץ: מארקדאון כבוי כברירת מחדל', () => {
-  // ``fileMgr`` הוא פתק קובץ — אין לו מתג כיבוי, ולכן ברירת המחדל
-  // שמרנית: טקסט גולמי, בדיוק כמו לפני הפיצ'ר.
-  eq(fileMgr.markdown, false, 'פתק קובץ — כבוי');
+check('פתק קובץ: מארקדאון דלוק כברירת מחדל, כמו בלוח', () => {
+  // ברירת המחדל אחידה לכל היעדים. היא הייתה פעם כבויה בפתקי קובץ מתוך
+  // חשש שרינדור אוטומטי הוא שינוי שקט — אבל הדגל לבדו אינו מרנדר כלום,
+  // ולכן מה שהשתנה הוא רק פתקים שכבר מכילים מבנה מארקדאון.
+  eq(fileMgr.markdown, true, 'פתק קובץ — דלוק');
   eq(mdMgr.markdown, true, 'פתק לוח — דלוק');
   const parts = makeNote('# כותרת\n**מ**');
   fileMgr._syncTaskView(parts.el);
-  eq(!!parts.view.querySelector('.sticky-md-h1'), false, 'אין רינדור בפתק קובץ');
+  eq(!!parts.view.querySelector('.sticky-md-h1'), true, 'מרונדר בפתק קובץ');
+  eq(parts.ta.hidden, true, 'וה-textarea מוסתר');
+});
+
+check('פתק קובץ בלי מבנה מארקדאון נשאר תיבת עריכה', () => {
+  // **זה מה שמחזיק את רדיוס השינוי קטן.** ``_syncTaskView`` דורש גם את
+  // הדגל וגם מבנה בפועל, ולכן הדלקת ברירת המחדל אינה נוגעת בפתקי טקסט.
+  // בלי הבדיקה הזו, הדלקה גורפת הייתה נראית זהה בטסטים.
+  const parts = makeNote('סתם טקסט בלי שום מבנה');
+  fileMgr._syncTaskView(parts.el);
   eq(parts.ta.hidden, false, 'ה-textarea גלוי');
+  eq(parts.view.hidden, true, 'והתצוגה מוסתרת');
 });
 
 check('רינדור: charOffset נשמר לכל שורה', () => {
@@ -1079,11 +1090,21 @@ check('פתק ריפו לעולם אינו anchored', () => {
   eq(m._resolveMode({ mode: 'anchored' }), 'surface');
 });
 
-check('ברירת המחדל של מארקדאון בפתקי ריפו שמרנית', () => {
-  // כמו בפתקי קובץ: אין מתג כיבוי, ולכן רינדור אוטומטי היה שינוי שקט
-  // ובלתי-הפיך-למשתמש.
+check('מארקדאון דלוק כברירת מחדל גם בפתקי ריפו', () => {
+  // שלושת היעדים מתנהגים אותו דבר. מתג הכיבוי קיים בלוח בלבד, וזה
+  // מתועד ב-``docs/user/sticky_notes.rst``.
   const m = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py' });
-  eq(m.markdown, false);
+  eq(m.markdown, true);
+});
+
+check('markdown מפורש ב-opts גובר על ברירת המחדל', () => {
+  // הדלת שדרכה קורא יכול לבטל — ``('markdown' in opts)`` נבדק לפני
+  // ברירת המחדל. בלי הבדיקה הזו, הדלקה גורפת הייתה יכולה להתעלם ממנה
+  // בשקט.
+  const off = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py', markdown: false });
+  eq(off.markdown, false, 'false מפורש מכבה');
+  const on = new StickyNotesManager({ repo: 'CodeBot', path: 'a.py', markdown: true });
+  eq(on.markdown, true, 'true מפורש מדליק');
 });
 
 // -- destroy: flush לפני פירוק --
