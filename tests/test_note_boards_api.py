@@ -335,6 +335,60 @@ def test_pinning_a_foreign_board_is_404(client):
     assert res.status_code == 404
 
 
+@pytest.mark.parametrize("bad", ["false", "true", "", "no", 1, 0, None, [], {}])
+def test_a_non_boolean_is_pinned_is_rejected(client, bad):
+    """**``bool()`` על קלט חיצוני אינו ולידציה.**
+
+    ``bool("false")`` הוא ``True``, וכך גם ``bool("no")`` ו-``bool(1)`` —
+    כלומר לקוח ששולח את המחרוזת ``"false"`` היה **נועץ** את הלוח. ל-JSON
+    יש בוליאני אמיתי, ולכן כל טיפוס אחר הוא בקשה שגויה.
+
+    **הבדיקה שהמסד לא זז היא העיקר כאן:** קוד תשובה 400 שמלווה בכתיבה
+    שכן קרתה גרוע יותר מאשר 200.
+
+    נופל אם ה-``isinstance`` יוחלף חזרה ב-``bool()``.
+    """
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+
+    res = client.patch(f"/api/note-boards/{board_id}", json={"is_pinned": bad})
+
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "is_pinned_must_be_boolean"
+    assert client.get("/api/note-boards").get_json()["boards"][0]["is_pinned"] is False
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_a_real_boolean_is_stored_as_is(client, value):
+    """בוליאני אמיתי נשמר לערכו המדויק, בלי המרה.
+
+    ``False`` הוא המקרה המעניין: אילו הוא היה נדחה כ"ערך ריק", ביטול
+    נעיצה היה מפסיק לעבוד.
+    """
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+
+    res = client.patch(f"/api/note-boards/{board_id}", json={"is_pinned": value})
+
+    assert res.status_code == 200
+    assert res.get_json()["board"]["is_pinned"] is value
+    assert client.get("/api/note-boards").get_json()["boards"][0]["is_pinned"] is value
+
+
+def test_a_bad_is_pinned_does_not_apply_the_name_either(client):
+    """הדחייה קורית **לפני** הכתיבה, ולכן היא מבטלת את הבקשה כולה.
+
+    בלי זה ``PATCH`` עם שם תקין ו-``is_pinned`` פגום היה שומר את השם
+    ומחזיר 400 — תשובה שאומרת "נכשל" על פעולה שחלקה הצליח.
+    """
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    before = client.get("/api/note-boards").get_json()["boards"][0]["name"]
+
+    res = client.patch(f"/api/note-boards/{board_id}",
+                       json={"name": "שם חדש", "is_pinned": "false"})
+
+    assert res.status_code == 400
+    assert client.get("/api/note-boards").get_json()["boards"][0]["name"] == before
+
+
 # -- מחיקה --
 
 def test_cannot_delete_default_board(client):

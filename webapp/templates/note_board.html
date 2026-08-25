@@ -86,7 +86,9 @@
       </div>
     </div>
 
-    <!-- מודאל 2: בחירת הנעוצים. נשאר פתוח בזמן סימון; נסגר ב-✖ בלבד. -->
+    <!-- מודאל 2: בחירת הנעוצים. **נשאר פתוח בזמן סימון** כדי שאפשר יהיה
+         לסמן ולבטל עוד; נסגר ב-✖, בלחיצה על הרקע, או ב-Escape — כמו שני
+         המודאלים האחרים בעמוד. -->
     <div class="board-modal" id="boardPinManager" role="dialog" aria-modal="true"
          aria-labelledby="boardPinTitle" hidden>
       <div class="modal-backdrop" data-close></div>
@@ -143,18 +145,36 @@
   // אף קריאת רשת נוספת.
   let allBoards = [];
 
-  async function loadBoard() {
+  /**
+   * מרעננת את ``allBoards`` בלבד.
+   *
+   * **מופרדת מ-``loadBoard`` כדי שהרענון לא ייגע בשדה השם.** ``loadBoard``
+   * קובעת גם את ``titleInput.value`` ואת כותרת הדף, ולפתיחת מודאל אין
+   * שום עסק עם אלה — היא צריכה רשימה מעודכנת, לא טעינה מחדש של הלוח.
+   *
+   * (נבדק בדפדפן: הלחיצה על הכפתור ממילא מבלרת את שדה השם וה-``change``
+   * שומר אותו, ולכן קריאה ל-``loadBoard`` **לא** הייתה דורסת הקלדה. זו
+   * הפרדת אחריות, לא תיקון באג.)
+   */
+  async function fetchBoards() {
     try {
       const resp = await fetch('/api/note-boards', { cache: 'no-store' });
       const data = await resp.json();
-      if (!resp.ok || !data.ok) return;
+      if (!resp.ok || !data.ok) return false;
       allBoards = data.boards || [];
-      const board = allBoards.find(function (b) { return String(b.id) === String(BOARD_ID); });
-      if (board) {
-        titleInput.value = board.name;
-        document.title = board.name + ' - Code Keeper Bot';
-      }
-    } catch (e) { /* השם אינו קריטי לתפקוד הלוח */ }
+      return true;
+    } catch (e) {
+      return false;  // רשימה ישנה עדיפה על רשימה ריקה
+    }
+  }
+
+  async function loadBoard() {
+    if (!(await fetchBoards())) return;
+    const board = allBoards.find(function (b) { return String(b.id) === String(BOARD_ID); });
+    if (board) {
+      titleInput.value = board.name;
+      document.title = board.name + ' - Code Keeper Bot';
+    }
   }
 
   titleInput.addEventListener('change', async function () {
@@ -240,8 +260,15 @@
   }
 
   function openModal(el, firstFocus) {
-    // הפותח נשמר כדי שהפוקוס יחזור אליו בסגירה, ולא יקפוץ לתחילת העמוד
-    modalStack.push({ el: el, opener: document.activeElement });
+    // הפותח נשמר כדי שהפוקוס יחזור אליו בסגירה, ולא יקפוץ לתחילת העמוד.
+    // **גם המזהה נשמר**, כי אלמנט שנבנה מחדש הוא אובייקט אחר — ראו
+    // ``focusAfterClose``.
+    const opener = document.activeElement;
+    modalStack.push({
+      el: el,
+      opener: opener,
+      openerId: (opener && opener.id) ? opener.id : ''
+    });
     el.hidden = false;
     const target = firstFocus || focusableItems(el)[0];
     if (target) target.focus();
@@ -251,7 +278,42 @@
     const top = modalStack.pop();
     if (!top) return;
     top.el.hidden = true;
-    if (top.opener && typeof top.opener.focus === 'function') top.opener.focus();
+    focusAfterClose(top);
+  }
+
+  /**
+   * מחזיר את הפוקוס אחרי סגירה — **גם כשהפותח כבר אינו במסמך.**
+   *
+   * זה לא תיאורטי: לחיצה על אריח ה-``+`` פותחת את מודאל הניהול ושומרת
+   * את האריח כפותח, ואז סימון צ'קבוקס מצליח ומריץ ``renderSwitchTiles``
+   * שבונה את האריחים מחדש — והאריח השמור הופך לצומת מנותק.
+   * ``.focus()`` על צומת כזה **נכשל בשקט**: הפוקוס נופל ל-``body``,
+   * ומשתמש מקלדת מאבד את מקומו בלי שום סימן.
+   *
+   * הבדיקה כאן ולא ב-``savePin`` בכוונה: האינווריאנטה "הפוקוס חוזר
+   * לפותח" חיה במנגנון הסגירה, ולכן גם ההגנה עליה. כך כל הסרה עתידית
+   * של פותח מטופלת, ולא רק המקרה הזה.
+   */
+  function focusAfterClose(entry) {
+    const opener = entry.opener;
+    // 1. הפותח עצמו, אם הוא עדיין במסמך
+    if (opener && typeof opener.focus === 'function' && document.contains(opener)) {
+      opener.focus();
+      return;
+    }
+    // 2. **המחליף שלו לפי מזהה.** זה המסלול שמחזיר את הפוקוס לאריח
+    //    ה-``+`` שנבנה מחדש — כלומר בדיוק לאן שהמשתמש לחץ, ולא ל"משהו
+    //    סביר" אחר.
+    if (entry.openerId) {
+      const revived = document.getElementById(entry.openerId);
+      if (revived && typeof revived.focus === 'function') { revived.focus(); return; }
+    }
+    // 3. נפילה אחרונה: המודאל שנשאר פתוח מתחת, או הכפתור שפתח הכול.
+    //    מגיעים לכאן רק כשהפותח נמחק ואין לו מזהה — כלומר מצב שלא אמור
+    //    לקרות בקוד הנוכחי, והנפילה קיימת כדי שפוקוס לא ייעלם בשקט.
+    const below = modalStack.length ? modalStack[modalStack.length - 1].el : null;
+    const fallback = below ? focusableItems(below)[0] : switchBtn;
+    if (fallback && typeof fallback.focus === 'function') fallback.focus();
   }
 
   function closeModalEl(el) {
@@ -368,6 +430,10 @@
     // אריח ההוספה — הכניסה למודאל הניהול
     const add = document.createElement('button');
     add.type = 'button';
+    // מזהה יציב: האריח נבנה מחדש בכל ``renderSwitchTiles``, וזה מה
+    // שמאפשר ל-``focusAfterClose`` למצוא את **המחליף** שלו ולא לרדוף
+    // אחרי ההפניה הישנה שכבר מנותקת מהמסמך.
+    add.id = 'boardAddTile';
     add.className = 'board-tile is-add';
     add.setAttribute('aria-haspopup', 'dialog');
     const plus = document.createElement('span');
@@ -450,8 +516,11 @@
   }
 
   switchBtn.addEventListener('click', async function () {
-    // הרשימה מרועננת בפתיחה כדי שלוח שנוצר בלשונית אחרת יופיע גם כאן
-    if (!allBoards.length) await loadBoard();
+    // **רענון בכל פתיחה, בלי תנאי.** הגרסה הקודמת עטפה את זה ב-
+    // ``if (!allBoards.length)``, ומכיוון ש-``loadBoard`` כבר ממלאת את
+    // הרשימה בטעינת העמוד התנאי היה תמיד שקרי — כלומר הרענון שההערה
+    // הבטיחה לא רץ מעולם, ולוח שנוצר בלשונית אחרת לא הופיע עד רענון מלא.
+    await fetchBoards();
     renderSwitchTiles();
     openModal(switchModal);
   });

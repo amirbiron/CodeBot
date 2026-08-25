@@ -161,8 +161,14 @@ def test_the_full_boards_link_stays_in_the_toolbar(logged_in):
     import re
 
     html = logged_in.get('/boards/507f1f77bcf86cd799439011').get_data(as_text=True)
-    toolbar = re.search(r'<div class="board-toolbar">(.*?)</div>\s*<!--', html, re.S)
+    # ``(.*?)</div>`` עוצר ב-``</div>`` **הראשון**, שהוא של הסרגל. הגרסה
+    # הקודמת דרשה גם ``\s*<!--`` אחריו — אבל אחרי הסרגל בא ישירות
+    # ``<div class="board-settings-modal"`` ולא הערה, ולכן הלכידה נמשכה
+    # ובלעה את מודאל ההגדרות כולו: 3420 תווים במקום 2260. אז כפתור
+    # שהיה עובר לתוך המודאל עדיין היה "נמצא בסרגל".
+    toolbar = re.search(r'<div class="board-toolbar">(.*?)</div>', html, re.S)
     assert toolbar, 'סרגל הלוח לא נמצא'
+    assert 'board-settings-modal' not in toolbar.group(1), 'הלכידה חורגת מהסרגל'
     inner = toolbar.group(1)
 
     assert 'href="/boards"' in inner          # הקישור לעמוד המלא

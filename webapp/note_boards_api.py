@@ -255,7 +255,14 @@ def rename_board(board_id: str):
         if 'name' in data:
             updates['name'] = normalize_board_name(data.get('name'))
         if 'is_pinned' in data:
-            updates['is_pinned'] = bool(data.get('is_pinned'))
+            # **``bool()`` על קלט חיצוני מקבל כל טיפוס, וזה לא ולידציה.**
+            # ``bool("false")`` הוא ``True``, וכך גם ``bool("no")`` ו-
+            # ``bool(1)``; לקוח ששולח את המחרוזת ``"false"`` היה **נועץ**
+            # את הלוח. ל-JSON יש בוליאני אמיתי, ולכן כל טיפוס אחר הוא
+            # בקשה שגויה ולא ערך להמרה. הערך נשמר כפי שהוא, בלי המרה.
+            if not isinstance(data.get('is_pinned'), bool):
+                return jsonify({'ok': False, 'error': 'is_pinned_must_be_boolean'}), 400
+            updates['is_pinned'] = data['is_pinned']
         if not updates:
             return jsonify({'ok': False, 'error': 'no_fields_to_update'}), 400
 
