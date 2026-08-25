@@ -17,13 +17,13 @@
 - `docs/quickstart-contrib.rst` — **Quickstart לתרומה**: דף קצר שמאפשר להתחיל לתרום במהירות ובבטחה.
 - `docs/ai-guidelines.rst` — **הנחיות מלאות לסוכני AI**: ההנחיות המלאות לסוכני AI שעובדים בריפו: המגבלות הקריטיות, איך מריצים פקודות, אילו כלי קבצים מאושרים, עקרונות עריכת קוד, ומדיניות הקומיטים וה-Pull Requests.
 - `docs/agents/rate-limiting.md` — **🚦 מערכת Rate Limiting לסוכני AI ולווב**: מטרה: להסביר איך מפעילים ומנטרים Rate Limiting בבוט ובווב, עם דגש על Shadow Mode, ניטור וקונפיג.
-- `docs/doc-authoring.rst` — **Doc Authoring Guide (Sphinx/RTD)**: כללי כתיבת תיעוד בפרויקט — הצהרת תקציר בראש כל עמוד, הטמעת קוד לפי שם או סימון ולא לפי מספרי שורות, ובנייה ללא אזהרות.
+- `docs/doc-authoring.rst` — **Doc Authoring Guide (Sphinx/RTD)**: כללי כתיבת תיעוד בפרויקט — הצהרת תקציר בראש כל עמוד, הטמעת קוד לפי שם או סימון ולא לפי מספרי שורות, ההבחנה בין ספירת מופעים לערך שנאכף, ובנייה ללא אזהרות.
 - `docs/style-glossary.rst` — **Style & Naming Glossary**: מילון המונחים והשמות בפרויקט: מיפוי בין מונחים מקבילים, כללי הניסוח, ועוגני התיעוד שמפנים אליהם.
 - `docs/versioning-stable-anchors.rst` — **Versioning & Stable Anchors**: מדיניות הגרסאות והעוגנים היציבים בתיעוד: אילו עוגנים מובטחים לא להישבר, איך מתעדים שינוי ב-What's New, ודוגמאות.
 - `docs/whats-new.rst` — **What's New**: יומן השינויים של הבוט וה-WebApp לפי תאריך — מה נוסף, מה השתנה ומה תוקן בכל עדכון, עם קישורים ל-Issues הרלוונטיים.
 - `docs/architecture.rst` — **ארכיטקטורה**: המערכת מורכבת מבוט Telegram, שכבת שירותים (services), שכבת נתונים (MongoDB) ואפליקציית Web. הזרימה העיקרית: Handlers → Services → Database.
   - `docs/architecture/clean-architecture.rst` — **Clean Architecture ב-src**: ארכיטקטורה זו מפרידה בין לוגיקה עסקית, תזמור יישומי ותשתיות כך שניתן לבדוק יחידות קוד בנפרד, להחליף מקורות נתונים בלי לשבור את שאר המערכת ולרוץ גם בסביבות ללא MongoDB.
-- `docs/dev/sticky_notes_extending.rst` — **עקרונות להוספת פיצ'ר לסטיקי-נוטס**: המלכודות החוזרות של הפתקים הדביקים: יעד יחיד ב-build_note_target, מכסה fail-closed והפטור-לאדמין שהורג מכסות, flush לפני פעולה הרסנית, אינדקס ממוספר שנבנה לפני שמפילים, נורמליזציה בשני הקצוות, ויתומים בקריאה.
+- `docs/dev/sticky_notes_extending.rst` — **עקרונות להוספת פיצ'ר לסטיקי-נוטס**: המלכודות החוזרות של הפתקים הדביקים: יעד יחיד ב-build_note_target, מכסה fail-closed והפטור-לאדמין, flush לפני פעולה הרסנית, אינדקס ממוספר שנבנה לפני שמפילים, נורמליזציה בשני הקצוות, יתומים בקריאה, ועדכון עמוד המשתמש.
 - `docs/contributing.rst` — **מדריך תרומה**: לתת מסלול ברור לתרומות קוד, עם דגש על סוכני AI ו-CI.
 - `docs/branch-protection-and-pr-rules.rst` — **Branch Protection & PR Rules**: לרכז נהלים ברורים להגנה על ענפים (Branch Protection) ולחוקי PR בפרויקט.
 
