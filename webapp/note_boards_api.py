@@ -82,6 +82,9 @@ def _board_response(doc: Dict[str, Any], note_count: Optional[int] = None) -> Di
         'id': str(doc.get('_id')),
         'name': str(doc.get('name') or DEFAULT_BOARD_NAME),
         'is_default': bool(doc.get('is_default', False)),
+        # ברירת מחדל ``False`` ולא מיגרציה: מסמכי לוח שנוצרו לפני השדה
+        # פשוט אינם נעוצים, וזו התשובה הנכונה עבורם.
+        'is_pinned': bool(doc.get('is_pinned', False)),
         'order': int(doc.get('order') or 0),
         'created_at': (doc.get('created_at').isoformat() if doc.get('created_at') else None),
         'updated_at': (doc.get('updated_at').isoformat() if doc.get('updated_at') else None),
@@ -228,7 +231,17 @@ def create_board():
 @note_boards_bp.route('/<board_id>', methods=['PATCH'])
 @require_auth
 def rename_board(board_id: str):
-    """שינוי שם. מותר גם ללוח ברירת המחדל — הזיהוי שלו הוא ``is_default``."""
+    """עדכון חלקי של לוח — שם ו/או נעיצה.
+
+    מותר גם ללוח ברירת המחדל — הזיהוי שלו הוא ``is_default``.
+
+    **שני השדות באותו ראוט ולא בשניים**, כי הם חולקים את כל מה שמסביב:
+    אותה אכיפת בעלות, אותו אימות בקריאה חוזרת, ואותו טיפול שגיאות. ראוט
+    נפרד לנעיצה היה משכפל את שלושתם, והשכפול הזה הוא שנפרד ראשון.
+
+    **עדכון חלקי באמת:** ``$set`` נבנה רק מהשדות שנשלחו, ולכן ``PATCH``
+    עם ``is_pinned`` בלבד אינו נוגע בשם, ולהפך.
+    """
     try:
         _ensure_board_indexes()
         user_id = int(session['user_id'])
@@ -238,17 +251,34 @@ def rename_board(board_id: str):
             return jsonify({'ok': False, 'error': 'board_not_found'}), 404
 
         data = request.get_json(silent=True) or {}
-        if 'name' not in data:
+        updates: Dict[str, Any] = {}
+        if 'name' in data:
+            updates['name'] = normalize_board_name(data.get('name'))
+        if 'is_pinned' in data:
+            # **``bool()`` על קלט חיצוני מקבל כל טיפוס, וזה לא ולידציה.**
+            # ``bool("false")`` הוא ``True``, וכך גם ``bool("no")`` ו-
+            # ``bool(1)``; לקוח ששולח את המחרוזת ``"false"`` היה **נועץ**
+            # את הלוח. ל-JSON יש בוליאני אמיתי, ולכן כל טיפוס אחר הוא
+            # בקשה שגויה ולא ערך להמרה. הערך נשמר כפי שהוא, בלי המרה.
+            if not isinstance(data.get('is_pinned'), bool):
+                return jsonify({'ok': False, 'error': 'is_pinned_must_be_boolean'}), 400
+            updates['is_pinned'] = data['is_pinned']
+        if not updates:
             return jsonify({'ok': False, 'error': 'no_fields_to_update'}), 400
-        name = normalize_board_name(data.get('name'))
 
         db.note_boards.update_one(
             {'_id': board['_id'], 'user_id': user_id},
-            {'$set': {'name': name, 'updated_at': datetime.now(timezone.utc)}},
+            {'$set': {**updates, 'updated_at': datetime.now(timezone.utc)}},
         )
+        # **ערך ההחזרה של הכתיבה אינו אימות.** ``update_one`` מדווח הצלחה
+        # גם כשלא נגע בכלום, ולכן קוראים חזרה ומשווים — כל שדה שנכתב.
         fresh = db.note_boards.find_one({'_id': board['_id'], 'user_id': user_id})
-        if not fresh or str(fresh.get('name') or '') != name:
+        if not fresh:
             return jsonify({'ok': False, 'error': 'rename_not_applied'}), 409
+        if 'name' in updates and str(fresh.get('name') or '') != updates['name']:
+            return jsonify({'ok': False, 'error': 'rename_not_applied'}), 409
+        if 'is_pinned' in updates and bool(fresh.get('is_pinned', False)) != updates['is_pinned']:
+            return jsonify({'ok': False, 'error': 'pin_not_applied'}), 409
         return jsonify({'ok': True, 'board': _board_response(fresh)})
     except Exception as e:
         try:
