@@ -7,6 +7,33 @@
 
   if (typeof window === 'undefined') return;
 
+  // **מזהה הפתק נלכד כאן, בזמן טעינת הסקריפט, ולא כשמשתמשים בו.**
+  //
+  // ``?note=`` הוא כוונת ניווט חד-פעמית שנוצרת בקישור תזכורת. דפדפן הריפו
+  // מנקה אותו מה-URL מיד אחרי הצריכה (``consumeOneShotUrlParams``), אחרת
+  // הוא היה שורד לריענון ומנסה לפתוח פתק ששייך לקובץ בריפו אחר. אבל
+  // ``_maybeScrollToNoteFromUrl`` רץ רק כשמנהל הפתקים נבנה — כלומר **אחרי**
+  // שהקובץ נטען, ולכן אחרי הניקוי. קריאה עצלה מה-URL הייתה מוצאת אותו ריק.
+  //
+  // הסקריפטים נטענים לפני ``DOMContentLoaded``, והניקוי קורה בתוכו, ולכן
+  // הלכידה כאן תמיד מקדימה אותו.
+  //
+  // הערך **נצרך כשהפתק נמצא**, לא כשהוא נקרא — ראו
+  // ``_maybeScrollToNoteFromUrl``. כך טעינת פתקים שנכשלה אינה שורפת את
+  // הכוונה, וגלילה מוצלחת אינה חוזרת על עצמה במנהל הבא.
+  let pendingNoteIdFromUrl = (function(){
+    try {
+      const u = new URL(window.location.href);
+      const q = (u.searchParams.get('note') || u.searchParams.get('note_id') || '').trim();
+      if (q) return q;
+      // hash formats: #note=ID or #note:ID
+      const h = (u.hash || '').replace(/^#/, '');
+      if (!h) return '';
+      const m = h.match(/^note[:=](.+)$/i);
+      return m ? decodeURIComponent(m[1]) : '';
+    } catch(_) { return ''; }
+  })();
+
   function encodeUtf8ToB64(input){
     const s = String(input == null ? '' : input);
     if (!s) return '';
@@ -2930,17 +2957,18 @@
       } catch(_) {}
     }
 
+    /**
+     * מחזיר את מזהה הפתק שנלכד מה-URL בזמן טעינת הסקריפט.
+     *
+     * **קריאה בלבד — הצריכה קורית בנקודת ההתאמה**, ב-
+     * ``_maybeScrollToNoteFromUrl``. ``init`` עושה ``await this.loadNotes()``
+     * לפני ניסיון הגלילה, ו-``loadNotes`` נכשלת בשקט בשלושה מסלולים: חריגה
+     * שנתפסת, ``_destroyed``, ו-``data.ok === false``. בכל אחד מהם ה-Map
+     * נשאר ריק — וצריכה בקריאה הייתה שורפת את הכוונה על טעינה שנכשלה,
+     * כלומר מאבדת אותה גם כשטעינה מאוחרת יותר הייתה מוצאת את הפתק.
+     */
     _parseNoteIdFromUrl(){
-      try {
-        const u = new URL(window.location.href);
-        const q = (u.searchParams.get('note') || u.searchParams.get('note_id') || '').trim();
-        if (q) return q;
-        // hash formats: #note=ID or #note:ID
-        const h = (u.hash || '').replace(/^#/, '');
-        if (!h) return '';
-        const m = h.match(/^note[:=](.+)$/i);
-        return m ? decodeURIComponent(m[1]) : '';
-      } catch(_) { return ''; }
+      return pendingNoteIdFromUrl;
     }
 
     _maybeScrollToNoteFromUrl(){
@@ -2951,6 +2979,9 @@
         try {
           const entry = this.notes.get(id);
           if (entry && entry.data) {
+            // **כאן הכוונה מומשה, ורק כאן היא נצרכת.** ההשוואה מגינה מפני
+            // הסרת הכוונה לאחר התאמה מונעת גלילה חוזרת במנהל הבא.
+            if (pendingNoteIdFromUrl === id) pendingNoteIdFromUrl = '';
             this.scrollToNote(id);
             return;
           }

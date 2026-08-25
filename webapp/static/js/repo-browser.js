@@ -666,20 +666,17 @@ function renderRepoSelector(repos, currentRepoName) {
 }
 
 /**
- * מחליף לריפו אחר
+ * שומר את בחירת הריפו בשני המקומות הסמכותיים: ``localStorage`` (שמשרת גם
+ * משתמש לא מחובר) וה-session בשרת.
+ *
+ * **חולץ מ-``switchRepo`` כדי שיהיה כותב אחד ולא שניים.** יש מסלול שני
+ * שצריך לשמור בלי להחליף ריפו: כשקישור תזכורת מגיע עם ``?repo=``, השרת
+ * כבר רינדר את הריפו הזה, ולכן ``switchRepo`` יוצא מיד בשורה הראשונה
+ * ולא שומר דבר. עד שה-``?repo=`` נשאר ב-URL זה לא הורגש — הפרמטר החזיק
+ * את הבחירה בעצמו. מרגע שהוא מנוקה, השמירה חייבת לקרות במפורש.
  */
-async function switchRepo(repoName) {
-    if (!repoName || repoName === currentRepo) return;
-
-    // **הקידום מיידי, ולא רק ב-``showWelcomeScreen`` שבסוף.** בין כאן
-    // לשם יש שני ``await`` (טעינת העץ וסוגי הקבצים), ובחלון הזה טעינת
-    // קובץ מהריפו הקודם עדיין באוויר — היא הייתה מתחייבת על תוכן של ריפו
-    // שכבר אינו מוצג.
-    fileSelectionSeq += 1;
-
-    // שמירה ב-localStorage
+async function persistSelectedRepo(repoName) {
     localStorage.setItem('selectedRepo', repoName);
-    currentRepo = repoName;
 
     // שמירה בשרת (למשתמש מחובר)
     try {
@@ -692,6 +689,27 @@ async function switchRepo(repoName) {
         // לא קריטי - localStorage מספיק
         console.warn('Could not save repo selection to server:', e);
     }
+}
+
+/**
+ * מחליף לריפו אחר
+ */
+async function switchRepo(repoName) {
+    if (!repoName || repoName === currentRepo) return;
+
+    // **הקידום מיידי, ולא רק ב-``showWelcomeScreen`` שבסוף.** בין כאן
+    // לשם יש שני ``await`` (טעינת העץ וסוגי הקבצים), ובחלון הזה טעינת
+    // קובץ מהריפו הקודם עדיין באוויר — היא הייתה מתחייבת על תוכן של ריפו
+    // שכבר אינו מוצג.
+    fileSelectionSeq += 1;
+
+    // **הקידום סינכרוני, לפני ההמתנה לשמירה.** ``persistSelectedRepo``
+    // כוללת POST, ואם ``currentRepo`` היה מתעדכן רק אחריו — כל מי שקורא
+    // אותו בחלון הזה מקבל את הריפו הישן: ``getRepoParam`` בונה ממנו כל
+    // קריאת API, והשער בראש הפונקציה הזו משווה מולו, כלומר קריאה שנייה
+    // לא הייתה נחסמת ונוצרת החלפה כפולה.
+    currentRepo = repoName;
+    await persistSelectedRepo(repoName);
 
     // עדכון UI
     updateRepoDisplay(repoName);
@@ -962,13 +980,19 @@ async function applyInitialNavigationFromUrl() {
 
         // בדיקה אם יש פרמטר repo ב-URL
         const targetRepo = (repoFromQuery || repoFromHash || '').trim();
-        if (targetRepo && targetRepo !== currentRepo) {
+        if (targetRepo) {
             // וידוא שהריפו קיים ברשימת הריפויים הזמינים
-            if (repoMetadataByName && repoMetadataByName[targetRepo]) {
-                // החלף ריפו לפני פתיחת הקובץ
+            if (!(repoMetadataByName && repoMetadataByName[targetRepo])) {
+                console.warn(`Repo "${targetRepo}" not found in available repos, staying with "${currentRepo}"`);
+            } else if (targetRepo !== currentRepo) {
+                // החלף ריפו לפני פתיחת הקובץ. ``switchRepo`` שומר בעצמו.
                 await switchRepo(targetRepo);
             } else {
-                console.warn(`Repo "${targetRepo}" not found in available repos, staying with "${currentRepo}"`);
+                // **השרת כבר רינדר את הריפו הזה**, ולכן ``switchRepo`` היה
+                // יוצא מיד בלי לשמור. בלי השמירה כאן, ניקוי הפרמטר בהמשך
+                // היה מוחק את הכוונה בלי שאיש קלט אותה — והריענון הבא היה
+                // נוחת על ריפו ברירת המחדל.
+                await persistSelectedRepo(targetRepo);
             }
         }
 
@@ -992,6 +1016,46 @@ async function applyInitialNavigationFromUrl() {
     } catch (e) {
         // Never break the page because of URL parsing
         console.warn('Initial navigation parsing failed:', e);
+    } finally {
+        // **הניקוי ב-``finally`` בכוונה.** גם אם הצריכה נכשלה באמצע, פרמטר
+        // כוונה שנשאר ב-URL ימשיך לכפות את עצמו בכל ריענון — וזה בדיוק
+        // הכשל שהפונקציה הזו נועדה לסגור.
+        consumeOneShotUrlParams();
+    }
+}
+
+/**
+ * מסיר מה-URL את פרמטרי הכוונה החד-פעמיים, ומשאיר את ה-hash כמו שהוא.
+ *
+ * ``repo``, ``note`` ו-``no_cache`` אומרים "פתח את X" — הוראה לטעינה אחת.
+ * הם אינם מתארים את מצב העמוד, ולכן אסור להם לשרוד אותה. כל עוד הם
+ * נשארים, ``get_current_repo_name`` בשרת נותנת ל-``repo`` עדיפות **מעל
+ * ה-session**, וכל ריענון מחזיר את המשתמש לריפו של הקישור המקורי — גם
+ * אחרי שהוא כבר עבר לריפו אחר, וגם על חשבון הבחירה השמורה שלו.
+ *
+ * ה-hash הוא ההפך: ``#file=`` הוא מצב מתמשך שמתאר מה פתוח עכשיו,
+ * ``updateUrlHash`` מתחזק אותו בכל ניווט, והוא חייב לשרוד.
+ */
+function consumeOneShotUrlParams() {
+    try {
+        const url = new URL(window.location.href);
+        const oneShot = ['repo', 'note', 'note_id', 'no_cache', 'nc'];
+        let touched = false;
+        for (const key of oneShot) {
+            if (url.searchParams.has(key)) {
+                url.searchParams.delete(key);
+                touched = true;
+            }
+        }
+        // בלי השער הזה כל טעינת עמוד הייתה כותבת היסטוריה בלי סיבה.
+        if (!touched) return;
+
+        // ``url.search`` כבר נושא את ``?`` כשיש פרמטרים, ומחרוזת ריקה כשאין —
+        // ולכן שרשור ישיר נותן גם ``/repo/`` נקי וגם ``/repo/?x=1``.
+        history.replaceState(null, '', url.pathname + url.search + url.hash);
+    } catch (e) {
+        // ניקוי URL אינו שווה שבירת עמוד.
+        console.warn('Failed to clean one-shot URL params:', e);
     }
 }
 
