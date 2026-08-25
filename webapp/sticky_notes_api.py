@@ -31,6 +31,8 @@ from sticky_notes_target import (
     repo_notes_filter,
     title_is_taken,
     repo_title_is_taken,
+    mirrored_repo_names,
+    repo_file_exists,
 )
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
@@ -258,6 +260,12 @@ def _ensure_indexes() -> None:
                         [("user_id", ASCENDING), ("repo_name", ASCENDING), ("repo_path", ASCENDING)],
                         name="user_repo_idx",
                     ),
+                    # חיפוש פתק לפי שם חוצה את שלושת היעדים, ולכן אינו יכול
+                    # להישען על אף אחד משני האינדקסים הייחודיים: ה-
+                    # ``partialFilterExpression`` שלהם דורש ``board_id``, או
+                    # ``repo_name`` **וגם** ``repo_path`` — פרדיקטים שהחיפוש
+                    # אינו נושא, ולכן הוא אינו תת-קבוצה של אף אחד מהם.
+                    IndexModel([("user_id", ASCENDING), ("title", ASCENDING)], name="user_title_idx"),
                 ]
                 coll.create_indexes(indexes)
             except Exception:
@@ -271,6 +279,7 @@ def _ensure_indexes() -> None:
                     coll.create_index(
                         [("user_id", 1), ("repo_name", 1), ("repo_path", 1)], name="user_repo_idx"
                     )
+                    coll.create_index([("user_id", 1), ("title", 1)], name="user_title_idx")
                 except Exception:
                     pass
             # האינדקס הייחודי נוצר **בנפרד משני המסלולים**, ולא בתוכם.
@@ -490,7 +499,6 @@ def notes_rate_limit(key: str, max_per_minute: int):
             return f(*args, **kwargs)
         return _inner
     return _decorator
-
 
 
 _CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
@@ -1879,35 +1887,6 @@ def create_board_note(board_id: str):
 # ---------------------------------------------------------------------------
 
 
-def _mirrored_repo_names(db: Any) -> Optional[set]:
-    """שמות הריפואים הממוררים, או ``None`` אם השאילתה נכשלה.
-
-    ``None`` אינו "אין ריפואים": הוא נבדל ממנו בכוונה, כי קריאה שנכשלה
-    אינה ראיה שהריפו נעלם. מי שקורא מסמן יתומים רק כשיש לו רשימה אמיתית.
-    """
-    try:
-        names = db.repo_metadata.distinct('repo_name')
-    except Exception:
-        return None
-    if not isinstance(names, (list, tuple, set)):
-        return None
-    return {str(n) for n in names if n}
-
-
-def _repo_file_exists(db: Any, repo_name: str, repo_path: str) -> Optional[bool]:
-    """האם הנתיב קיים בעץ הריפו הממורר, או ``None`` בכשל שאילתה.
-
-    ההשוואה היא מול ``repo_files``, שנתיביו נשמרים בצורת git הגולמית —
-    ולכן ``repo_path`` שהגיע לכאן כבר עבר ``normalize_repo_path``, שמתכנס
-    בדיוק לאותה צורה. בלי ההתכנסות הזו קובץ קיים היה מסומן כמיותם.
-    """
-    try:
-        doc = db.repo_files.find_one({'repo_name': repo_name, 'path': repo_path}, {'_id': 1})
-    except Exception:
-        return None
-    return doc is not None
-
-
 @sticky_notes_bp.route('/repo/<repo_name>/<path:repo_path>', methods=['GET'])
 @require_auth
 @notes_rate_limit('repo_list', 180)
@@ -1942,7 +1921,7 @@ def list_repo_notes(repo_name: str, repo_path: str):
         notes = [_as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)]
 
         # ``None`` (כשל שאילתה) אינו "הקובץ נעלם" — ואז לא מסמנים כלום.
-        exists = _repo_file_exists(db, str(repo_name), clean_path)
+        exists = repo_file_exists(db, str(repo_name), clean_path)
         payload: Dict[str, Any] = {'ok': True, 'notes': notes, 'count': len(notes)}
         if exists is False:
             payload['orphaned'] = True
@@ -1997,7 +1976,7 @@ def create_repo_note(repo_name: str, repo_path: str):
         # ריפואים" — הוא "לא ידוע", וקריאה שנכשלה אינה רשיון ליצור פתק על
         # ריפו שאולי אינו ממורר. זה אותו כלל של ``check_note_quota``: כשל
         # בדיקה נסגר.
-        known = _mirrored_repo_names(db)
+        known = mirrored_repo_names(db)
         if known is None:
             return jsonify({'ok': False, 'error': 'repo_list_unavailable'}), 503
         if str(repo_name) not in known:
@@ -2011,7 +1990,7 @@ def create_repo_note(repo_name: str, repo_path: str):
         #
         # ``None`` נסגר, בדיוק כמו רשימת המראות: קריאה שנכשלה אינה עדות
         # שהקובץ קיים, ואינה רשיון לכתוב.
-        file_exists = _repo_file_exists(db, str(repo_name), clean_path)
+        file_exists = repo_file_exists(db, str(repo_name), clean_path)
         if file_exists is None:
             return jsonify({'ok': False, 'error': 'repo_file_unavailable'}), 503
         if not file_exists:
@@ -2229,7 +2208,7 @@ def list_orphan_repos():
         except Exception:
             return jsonify({'ok': False, 'error': 'Failed to list orphan repos'}), 500
 
-        mirrored = _mirrored_repo_names(db)
+        mirrored = mirrored_repo_names(db)
         if mirrored is None:
             # אין רשימת מראות ⇒ אי אפשר לדעת מי נעלם. לא מדווחים על אף
             # ריפו כיתום על סמך שאילתה שנכשלה.

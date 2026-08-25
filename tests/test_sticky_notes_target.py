@@ -20,8 +20,13 @@ from sticky_notes_target import (
     file_notes_filter,
     is_valid_mode,
     normalize_mode,
+    NOTE_TARGET_REF_FIELDS,
+    mirrored_repo_names,
     normalize_repo_path,
+    note_target_ref,
+    repo_file_exists,
     repo_notes_filter,
+    title_search_filter,
     validate_note_target,
 )
 
@@ -428,3 +433,164 @@ def test_repo_title_index_is_partial_on_repo_path():
         "title",
     ]
     assert ONE_TITLE_PER_REPO_FILE_INDEX["name"].endswith("_v1")
+
+
+# ---------- חיפוש לפי שם ----------
+
+@pytest.mark.parametrize("needle", [".*", "a(b", "^x$", "a|b", "config.py"])
+def test_title_search_filter_escapes_regex_metacharacters(needle):
+    """**ה-escaping הוא חלק מהחוזה.**
+
+    בלעדיו ``.*`` תופס כל פתק בעל שם, ``a(b`` מפיל את מונגו בשגיאת פרסור,
+    ו-``config.py`` תופס גם ``configXpy``.
+
+    נופל אם ``re.escape`` יוסר.
+    """
+    import re
+
+    flt = title_search_filter(7, needle)
+    assert flt["title"]["$regex"] == re.escape(needle)
+    # ולא נשארו מטא-תווים פעילים
+    assert re.compile(flt["title"]["$regex"]).match(needle)
+
+
+def test_title_search_filter_is_user_scoped_and_case_insensitive():
+    """הסקופ הוא מה שחוסם את הסריקה לפתקי המשתמש בלבד.
+
+    נופל אם ``int()`` יוסר (מזהה כמחרוזת לא תופס דבר) או אם דגל ``i`` ייעלם.
+    """
+    flt = title_search_filter("7", "x")
+    assert flt["user_id"] == 7 and isinstance(flt["user_id"], int)
+    assert flt["title"]["$options"] == "i"
+
+
+def test_title_search_filter_declares_that_a_nameless_note_is_not_a_candidate():
+    """``$exists`` מצהיר על הכוונה — פתק בלי שם אינו מועמד."""
+    assert title_search_filter(7, "x")["title"]["$exists"] is True
+
+
+# ---------- זהות היעד לצורך ניווט ----------
+
+def test_note_target_ref_names_each_of_the_three_targets():
+    assert note_target_ref({"file_id": "f1", "file_name": "a.md"}) == {
+        "target": "file", "file_name": "a.md", "file_id": "f1",
+    }
+    assert note_target_ref({"board_id": "b1"}) == {"target": "board", "board_id": "b1"}
+    assert note_target_ref({"repo_name": "CodeBot", "repo_path": "a.py"}) == {
+        "target": "repo", "repo_name": "CodeBot", "repo_path": "a.py",
+    }
+
+
+def test_note_target_ref_never_leaks_scope_id():
+    """``scope_id`` הוא hash פנימי של שם קובץ, לא מזהה ניווט.
+
+    ``TARGET_FIELDS["file"]`` כולל אותו, ולכן שימוש חוזר בטבלה ההיא היה
+    מדליף אותו ללקוח ככה כאילו אפשר לנווט לפיו.
+
+    נופל אם מישהו יחליף את ``NOTE_TARGET_REF_FIELDS`` ב-``TARGET_FIELDS``.
+    """
+    ref = note_target_ref({"file_id": "f1", "file_name": "a.md", "scope_id": "user:1:file:deadbeef"})
+
+    assert "scope_id" not in ref
+    assert "scope_id" not in NOTE_TARGET_REF_FIELDS["file"]
+
+
+def test_note_target_ref_does_not_raise_on_a_targetless_legacy_doc():
+    """מסמך שנוצר לפני הבנאי עלול לא לשאת יעד כלל.
+
+    שורה פגומה אחת אינה אמורה להרוג תוצאת חיפוש שלמה.
+
+    נופל אם השומר על ``NoteTargetError`` יוסר.
+    """
+    assert note_target_ref({}) == {"target": "unknown"}
+    assert note_target_ref({"content": "בלי יעד"}) == {"target": "unknown"}
+
+
+def test_note_target_ref_rejects_half_a_repo_target():
+    """חצי יעד אינו יעד — ולא ממציאים לו ``repo``."""
+    assert note_target_ref({"repo_name": "CodeBot"}) == {"target": "unknown"}
+    assert note_target_ref({"repo_path": "a.py"}) == {"target": "unknown"}
+
+
+# ---------- ההלפרים מול המניפסט ----------
+
+class _FakeDB:
+    """ידית מסד מזויפת — בדיוק התפר שהוובאפ כבר מזריק בו כשל."""
+
+    def __init__(self, names=None, files=None, raises=False):
+        self._names = names
+        self._files = files or []
+        self._raises = raises
+        self.last_query = None
+
+    class _Coll:
+        def __init__(self, outer, kind):
+            self._outer, self._kind = outer, kind
+
+        def distinct(self, field):
+            if self._outer._raises:
+                raise RuntimeError("db down")
+            return self._outer._names
+
+        def find_one(self, query, projection=None):
+            self._outer.last_query = query
+            if self._outer._raises:
+                raise RuntimeError("db down")
+            for doc in self._outer._files:
+                if all(doc.get(k) == v for k, v in query.items()):
+                    return {"_id": 1}
+            return None
+
+    @property
+    def repo_metadata(self):
+        return self._Coll(self, "meta")
+
+    @property
+    def repo_files(self):
+        return self._Coll(self, "files")
+
+
+def test_mirrored_repo_names_distinguishes_failure_from_empty():
+    """``None`` אינו "אין ריפואים".
+
+    אם כשל יקרוס ל-``set()``, יצירת פתק תחזיר ``repo_not_found`` במקום
+    להיסגר — כלומר תדווח על מצב עולם שלא נבדק.
+
+    נופל אם ה-``except`` יחזיר ``set()``.
+    """
+    assert mirrored_repo_names(_FakeDB(raises=True)) is None
+    assert mirrored_repo_names(_FakeDB(names=[])) == set()
+    assert mirrored_repo_names(_FakeDB(names=["CodeBot", "Other", None])) == {"CodeBot", "Other"}
+
+
+def test_mirrored_repo_names_rejects_a_non_list_answer():
+    """דרייבר שמחזיר משהו אחר אינו "אין ריפואים" אלא לא-ידוע."""
+    assert mirrored_repo_names(_FakeDB(names="CodeBot")) is None
+
+
+def test_repo_file_exists_is_tri_state():
+    """כשל שאילתה אינו "הקובץ נעלם".
+
+    אם ה-``except`` יחזיר ``False``, תקלת מסד חולפת תסמן כל קובץ חי כמיותם
+    ותחסום כל יצירה עם הקוד הלא נכון.
+
+    נופל אם התלת-מצביות תיהרס.
+    """
+    db = _FakeDB(files=[{"repo_name": "CodeBot", "path": "a.py"}])
+    assert repo_file_exists(db, "CodeBot", "a.py") is True
+    assert repo_file_exists(db, "CodeBot", "gone.py") is False
+    assert repo_file_exists(_FakeDB(raises=True), "CodeBot", "a.py") is None
+
+
+def test_repo_file_exists_queries_the_manifest_field_name():
+    """**השדה הוא ``path``, לא ``repo_path``** — כך האינדוקסר כותב אותו.
+
+    מי ש"יסדר" את זה לשם אחיד יגרום לכל קובץ להיראות מיותם ולכל יצירת
+    פתק להיחסם, בלי שום שגיאה.
+
+    נופל אם שם השדה בשאילתה ישתנה.
+    """
+    db = _FakeDB(files=[{"repo_name": "CodeBot", "path": "a.py"}])
+    repo_file_exists(db, "CodeBot", "a.py")
+
+    assert db.last_query == {"repo_name": "CodeBot", "path": "a.py"}

@@ -21,6 +21,7 @@ Sticky Notes Target — לאיזה משטח הפתק שייך, ומי אוכף �
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 
@@ -121,14 +122,28 @@ def normalize_note_title(value: Any) -> str:
     כלומר ייצוג פייתון פנימי נשמר במסד ומוצג למשתמש כשם הפתק. כל טיפוס
     שאינו ``str`` נחשב "אין שם", בדיוק כמו מחרוזת ריקה.
     """
+    return canonical_title_text(value)[:MAX_NOTE_TITLE]
+
+
+def canonical_title_text(value: Any) -> str:
+    """אותה קנוניזציה של שם פתק — **בלי הקיצוץ**.
+
+    הפיצול אינו סגנוני. ל-:func:`normalize_note_title` שתי עבודות נפרדות:
+    קנוניזציה (טיפוס, ``strip``, כיווץ לשורה אחת) וקיצוץ לתקרה. מי שרוצה
+    לדעת אם הקלט **חרג** מהתקרה אינו יכול לשאול את הפלט שלה — הוא כבר
+    קוצץ, ולכן ``len(...) > MAX_NOTE_TITLE`` שם הוא תמיד ``False``.
+
+    זה נצרך בחיפוש: שאילתה ארוכה מכל שם אפשרי לעולם לא תתפוס דבר, וקיצוץ
+    שקט שלה מחזיר תוצאות עבור **קידומת** — כלומר תשובה לשאלה אחרת מזו
+    שנשאלה, בלי שום סימן. הקנוניזציה עצמה נשארת מוגדרת פעם אחת, כאן.
+    """
     if not isinstance(value, str):
         return ""
     text = value.strip()
     if not text:
         return ""
     # שורה אחת: שם שנשפך לשתי שורות שובר את שורת הכפתורים
-    text = " ".join(text.split())
-    return text[:MAX_NOTE_TITLE]
+    return " ".join(text.split())
 
 
 #: מפרט האינדקס שאוכף "שם אחד לכל לוח" — **מקור האמת היחיד**.
@@ -593,6 +608,111 @@ def repo_notes_filter(user_id: int, repo_name: Any, repo_path: Any) -> Dict[str,
         "repo_name": _clean(repo_name),
         "repo_path": normalize_repo_path(repo_path),
     }
+
+
+def title_search_filter(user_id: int, needle: Any) -> Dict[str, Any]:
+    """שאילתת חיפוש פתקים **לפי שם**, חוצת שלושת היעדים.
+
+    האח הרביעי של :func:`file_notes_filter`, :func:`board_notes_filter`
+    ו-:func:`repo_notes_filter` — ומאותה סיבה שהם כאן: שאילתה שמורכבת
+    בכל צרכן בנפרד היא שאילתה שתיפרד.
+
+    **ה-escaping הוא חלק מהחוזה, לא פרט מימוש.** בלעדיו חיפוש
+    ``"config.py"`` היה תופס גם ``configXpy``, ושאילתה כמו ``"a("`` הייתה
+    מפילה את מונגו בשגיאת פרסור. יש בריפו מקומות ששכחו זאת; הם אינם
+    תקדים. הריכוז כאן מבטיח שראוט ווב עתידי לא יגזור החלטת escaping אחרת.
+
+    **חיפוש בשם ולא בתוכן** — החלטה, לא קיצור דרך. חיפוש תוכן היה מחייב
+    אינדקס טקסט, ומונגו מאפשר **אחד לכל אוסף**; זו החלטה שקשה לחזור ממנה
+    ולא נדרשת כאן.
+
+    ``$exists`` אינו נחוץ לנכונות (רג'קס לעולם אינו תופס שדה חסר) אבל
+    מצהיר על הכוונה ומתעד שפתק בלי שם אינו מועמד.
+    """
+    return {
+        "user_id": int(user_id),
+        "title": {
+            "$exists": True,
+            "$regex": re.escape(str(needle or "")),
+            "$options": "i",
+        },
+    }
+
+
+#: לכל סוג יעד — שדות הזיהוי שמאפשרים **לחזור אל הפתק**.
+#:
+#: **אלה בדיוק הארגומנטים של כלי הרשימה המתאים**, וזו האינווריאנטה שהופכת
+#: תוצאת חיפוש לשימושית: ``file_name`` נכנס ל-``list_notes``, ``board_id``
+#: ל-``list_board_notes``, והזוג ל-``list_repo_notes``.
+#:
+#: הטבלה נפרדת מ-:data:`TARGET_FIELDS` בכוונה. שם ``file`` כולל גם
+#: ``scope_id``, שהוא hash פנימי של שם קובץ — חסר תועלת לקורא, ואסור
+#: שיזלוג ככה כאילו הוא מזהה ניווט.
+NOTE_TARGET_REF_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "file": ("file_name", "file_id"),
+    "board": ("board_id",),
+    "repo": ("repo_name", "repo_path"),
+}
+
+
+def note_target_ref(doc: Mapping[str, Any]) -> Dict[str, Any]:
+    """זהות היעד של פתק, בצורה שאפשר לנווט לפיה.
+
+    מחזיר ``{"target": <סוג>, <שדות הזיהוי>}``.
+
+    **לעולם אינו זורק.** מסמכים שנוצרו לפני :func:`build_note_target`
+    עשויים לא לשאת יעד חוקי כלל, ושורה פגומה אחת אינה אמורה להרוג תוצאת
+    חיפוש שלמה. במקרה כזה מוחזר ``"unknown"`` — הצהרה כנה על מה שידוע,
+    ולא המצאת יעד.
+    """
+    try:
+        kind = _target_kind(doc)
+    except NoteTargetError:
+        return {"target": "unknown"}
+
+    ref: Dict[str, Any] = {"target": kind}
+    for field in NOTE_TARGET_REF_FIELDS.get(kind, ()):
+        value = _clean(doc.get(field))
+        if value:
+            ref[field] = value
+    return ref
+
+
+def mirrored_repo_names(db: Any) -> Optional[set]:
+    """שמות הריפואים הממוררים, או ``None`` אם השאילתה נכשלה.
+
+    ``None`` אינו "אין ריפואים": הוא נבדל ממנו בכוונה, כי קריאה שנכשלה
+    אינה ראיה שהריפו נעלם. מי שקורא מסמן יתומים רק כשיש לו רשימה אמיתית.
+    """
+    try:
+        names = db.repo_metadata.distinct('repo_name')
+    except Exception:
+        return None
+    if not isinstance(names, (list, tuple, set)):
+        return None
+    return {str(n) for n in names if n}
+
+
+def repo_file_exists(db: Any, repo_name: str, repo_path: str) -> Optional[bool]:
+    """האם הנתיב קיים בעץ הריפו הממורר, או ``None`` בכשל שאילתה.
+
+    ההשוואה היא מול ``repo_files``, שנתיביו נשמרים בצורת git הגולמית —
+    ולכן ``repo_path`` שהגיע לכאן כבר עבר :func:`normalize_repo_path`,
+    שמתכנס בדיוק לאותה צורה. בלי ההתכנסות הזו קובץ קיים היה מסומן כמיותם.
+
+    **שם השדה הוא ``path``, לא ``repo_path``** — כך ``services/code_indexer``
+    כותב אותו. מי ש"יסדר" את זה לשם אחיד יגרום לכל קובץ להיראות מיותם,
+    ולכל יצירת פתק להיחסם, בלי שום שגיאה. מכוסה בטסט.
+
+    **מקבל את ידית המסד ולא אוסף**, בשונה מ-:func:`title_is_taken`: הידע
+    שמרוכז כאן הוא המיפוי מיעד פתק אל המניפסט, וזה שתי עובדות — האוסף
+    **וגם** שם השדה. העברת אוסף הייתה משאירה את השנייה משוכפלת אצל כל קורא.
+    """
+    try:
+        doc = db.repo_files.find_one({'repo_name': repo_name, 'path': repo_path}, {'_id': 1})
+    except Exception:
+        return None
+    return doc is not None
 
 
 def repo_title_is_taken(
