@@ -703,8 +703,13 @@ async function switchRepo(repoName) {
     // שכבר אינו מוצג.
     fileSelectionSeq += 1;
 
-    await persistSelectedRepo(repoName);
+    // **הקידום סינכרוני, לפני ההמתנה לשמירה.** ``persistSelectedRepo``
+    // כוללת POST, ואם ``currentRepo`` היה מתעדכן רק אחריו — כל מי שקורא
+    // אותו בחלון הזה מקבל את הריפו הישן: ``getRepoParam`` בונה ממנו כל
+    // קריאת API, והשער בראש הפונקציה הזו משווה מולו, כלומר קריאה שנייה
+    // לא הייתה נחסמת ונוצרת החלפה כפולה.
     currentRepo = repoName;
+    await persistSelectedRepo(repoName);
 
     // עדכון UI
     updateRepoDisplay(repoName);

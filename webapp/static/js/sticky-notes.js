@@ -18,9 +18,9 @@
   // הסקריפטים נטענים לפני ``DOMContentLoaded``, והניקוי קורה בתוכו, ולכן
   // הלכידה כאן תמיד מקדימה אותו.
   //
-  // הערך גם **נצרך פעם אחת** (ראו ``_parseNoteIdFromUrl``): בדפדפן הריפו
-  // נבנה מנהל פתקים חדש לכל קובץ, וקריאה חוזרת הייתה גוררת את אותו פתק
-  // אל כל קובץ שייפתח אחריו.
+  // הערך **נצרך כשהפתק נמצא**, לא כשהוא נקרא — ראו
+  // ``_maybeScrollToNoteFromUrl``. כך טעינת פתקים שנכשלה אינה שורפת את
+  // הכוונה, וגלילה מוצלחת אינה חוזרת על עצמה במנהל הבא.
   let pendingNoteIdFromUrl = (function(){
     try {
       const u = new URL(window.location.href);
@@ -2957,11 +2957,18 @@
       } catch(_) {}
     }
 
-    /** מחזיר את מזהה הפתק שנלכד מה-URL בטעינה — ומרוקן אותו, כי זו כוונה חד-פעמית. */
+    /**
+     * מחזיר את מזהה הפתק שנלכד מה-URL בזמן טעינת הסקריפט.
+     *
+     * **קריאה בלבד — הצריכה קורית בנקודת ההתאמה**, ב-
+     * ``_maybeScrollToNoteFromUrl``. ``init`` עושה ``await this.loadNotes()``
+     * לפני ניסיון הגלילה, ו-``loadNotes`` נכשלת בשקט בשלושה מסלולים: חריגה
+     * שנתפסת, ``_destroyed``, ו-``data.ok === false``. בכל אחד מהם ה-Map
+     * נשאר ריק — וצריכה בקריאה הייתה שורפת את הכוונה על טעינה שנכשלה,
+     * כלומר מאבדת אותה גם כשטעינה מאוחרת יותר הייתה מוצאת את הפתק.
+     */
     _parseNoteIdFromUrl(){
-      const id = pendingNoteIdFromUrl;
-      pendingNoteIdFromUrl = '';
-      return id;
+      return pendingNoteIdFromUrl;
     }
 
     _maybeScrollToNoteFromUrl(){
@@ -2972,6 +2979,9 @@
         try {
           const entry = this.notes.get(id);
           if (entry && entry.data) {
+            // **כאן הכוונה מומשה, ורק כאן היא נצרכת.** ההשוואה מגינה מפני
+            // מחיקת כוונה חדשה יותר, אם נלכדה כזו בינתיים.
+            if (pendingNoteIdFromUrl === id) pendingNoteIdFromUrl = '';
             this.scrollToNote(id);
             return;
           }

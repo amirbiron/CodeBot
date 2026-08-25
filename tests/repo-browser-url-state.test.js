@@ -12,9 +12,10 @@
 // והריענון מחזיר אליו. גרוע מזה — הריענון גם שולח POST ל-``select-repo``
 // ובכך **דורס את בחירת הריפו השמורה של המשתמש**.
 //
-// ההתקנה: אותו sandbox של vm כמו ב-``repo-browser-notes.test.js``, ובנוסף
-// ``location`` ו-``history.replaceState`` שמתנהגים כמו בדפדפן — כלומר
-// ``replaceState`` באמת מעדכן את ה-URL, ופותר כתובות יחסיות מולו. בלי זה
+// ההתקנה: sandbox של vm משלו, לפי המוסכמה בריפו — כל קובץ טסט כאן עצמאי
+// ומגדיר את העוזרים ואת הסביבה שהוא צריך. מה שייחודי לקובץ הזה הוא
+// ``location`` ו-``history.replaceState`` שמתנהגים כמו בדפדפן: כלומר
+// ``replaceState`` באמת מעדכן את ה-URL ופותר כתובות יחסיות מולו. בלי זה
 // הטסט לא יכול לראות את הניקוי בכלל.
 
 import fs from 'fs';
@@ -43,6 +44,7 @@ function eq(a, b, what) {
 function ok(cond, what) {
   if (!cond) throw new Error(what || 'ציפיתי לאמת');
 }
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ``location`` אמיתי-מספיק: ``replaceState`` בדפדפן מקבל גם כתובת יחסית
 // (``'#file=x'``) וגם מלאה, ופותר אותה מול ה-URL הנוכחי. סימולציה שלא
@@ -77,12 +79,14 @@ function makeSandbox(href, opts = {}) {
   const location = makeLocation(href);
   const posts = [];          // כל POST ל-select-repo, לפי הסדר
   const store = new Map();   // localStorage אמיתי-מספיק
+  let release = null;        // משחרר POST שמוחזק, כשהבדיקה מבקשת זאת
 
   const sandbox = {
     console: { log: console.log, warn() {}, error() {} },
     __posts: posts,
     __store: store,
     __location: location,
+    __releaseSelectRepo() { if (release) release(); },
     document: {
       body: el(), documentElement: el(),
       getElementById(id) {
@@ -118,6 +122,11 @@ function makeSandbox(href, opts = {}) {
       const u = String(url);
       if (u.includes('select-repo')) {
         posts.push(JSON.parse((init && init.body) || '{}'));
+        // ``holdSelectRepo`` משאיר את ה-POST באוויר עד שהבדיקה משחררת אותו.
+        // זה החלון שבו נבדק מה ``currentRepo`` מחזיק בזמן שהשמירה מתעכבת.
+        if (opts.holdSelectRepo) {
+          return new Promise((resolve) => { release = () => resolve({ ok: true, json: async () => ({ success: true }) }); });
+        }
         return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
       }
       return Promise.resolve({ ok: true, json: async () => ({ success: true, repos: [] }) });
@@ -232,6 +241,32 @@ check('ריפו שאינו ברשימת הריפואים אינו נשמר', asy
 
   eq(sb.__store.get('selectedRepo'), undefined, 'לא נשמר ריפו לא מוכר');
   eq(sb.__posts.length, 0, 'ולא נשלח POST');
+});
+
+// -- תזמון: המצב המקומי לא ממתין לרשת --
+
+check('currentRepo מתעדכן מיד, לפני שהשמירה בשרת חוזרת', async () => {
+  // ``switchRepo`` שומר בשרת, וזו קריאת רשת. אם ``currentRepo`` מתעדכן רק
+  // **אחרי** ההמתנה, כל מי שקורא אותו בחלון הזה מקבל את הריפו הישן:
+  // ``getRepoParam`` בונה ממנו כל קריאת API, והשער של ``switchRepo`` עצמו
+  // משווה מולו — כלומר קריאה שנייה בחלון הזה לא תיחסם ותיצור החלפה כפולה.
+  //
+  // נופל אם ``currentRepo = repoName`` יושב אחרי ``await persistSelectedRepo``.
+  const sb = makeSandbox('https://x.test/repo/', { serverRepo: 'CodeBot', serverSource: 'user', holdSelectRepo: true });
+  sb.__exec("repoMetadataByName = { 'CodeBot': { repo_name: 'CodeBot' }, 'other': { repo_name: 'other' } }");
+  sb.__exec("currentRepo = 'CodeBot'");
+
+  const switching = sb.switchRepo('other');
+  await delay(0);
+
+  // ה-POST באוויר ועדיין לא נענה — בדיוק החלון שנבדק.
+  eq(sb.__posts.length, 1, 'ה-POST יצא');
+  eq(sb.__read('currentRepo'), 'other', 'currentRepo כבר מצביע לריפו החדש');
+  eq(sb.__store.get('selectedRepo'), 'other', 'וגם localStorage כבר עודכן');
+
+  sb.__releaseSelectRepo();
+  await switching;
+  eq(sb.__read('currentRepo'), 'other', 'ונשאר כך אחרי שהשמירה חזרה');
 });
 
 await Promise.all(pending);
