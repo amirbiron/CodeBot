@@ -36,11 +36,14 @@ _INSTRUCTIONS = (
     "codekeeper_save_file to create or update a file, and prefer "
     "codekeeper_edit_file / codekeeper_append_file to change part of an existing "
     "file without resending all of it (write tools require write permission). "
-    "Sticky notes live on a file or on a board (a surface that belongs to no file). "
+    "Sticky notes live on a file, on a board (a surface that belongs to no file), or "
+    "on a file inside a mirrored repository. "
     "codekeeper_list_notes reads a file's notes; codekeeper_list_boards and "
     "codekeeper_list_board_notes read boards. codekeeper_create_note / "
     "codekeeper_create_board_note / codekeeper_update_note add or change them (write "
     "permission; notes appear in the CodeKeeper web UI). "
+    "codekeeper_search_notes finds a note by title across all three, when you know what "
+    "it is called but not where it sits. "
     "All data is scoped to the authenticated user."
 )
 
@@ -75,10 +78,9 @@ _UPDATE_IN_PLACE_TOOL = {
     "openWorldHint": False,
 }
 
-# Admin-only repo-browser tools (Phase D). Hidden from tools/list for
-# non-admins by AdminAwareFastMCP — but hiding is UX only, NOT access control:
-# every one of these also calls require_admin(ctx) in its body.
-_ADMIN_TOOLS = frozenset(
+# Admin-only repo-browser tools (Phase D). Registered ONLY when a repo_backend
+# is supplied — they read the mirror.
+_REPO_BROWSER_TOOLS = frozenset(
     {
         "codekeeper_list_repos",
         "codekeeper_list_repo_tree",
@@ -86,6 +88,22 @@ _ADMIN_TOOLS = frozenset(
         "codekeeper_search_repo",
     }
 )
+
+# Admin-only repo *note* tools. Also admin-gated, but registered ALWAYS: a note
+# lives in ``sticky_notes`` and needs only the notes backend. That difference is
+# exactly why the set is split — a single set could not express both "hidden
+# from non-admins" and "registered unconditionally".
+_REPO_NOTE_TOOLS = frozenset(
+    {
+        "codekeeper_list_repo_notes",
+        "codekeeper_create_repo_note",
+    }
+)
+
+# What AdminAwareFastMCP hides from tools/list for non-admins — but hiding is UX
+# only, NOT access control: every one of these also calls require_admin(ctx) in
+# its body.
+_ADMIN_TOOLS = _REPO_BROWSER_TOOLS | _REPO_NOTE_TOOLS
 
 
 class AdminAwareFastMCP(FastMCP):
@@ -427,6 +445,83 @@ def build_mcp(
             anchor_text=anchor_text,
             is_minimized=is_minimized,
         )
+
+    # -- פתקי ריפו + חיפוש -------------------------------------------------
+    #
+    # שני כלי פתקי הריפו הם **אדמין בלבד**, כמו ארבעת כלי דפדפן הריפו — אבל
+    # נרשמים כאן ולא ב-``_register_repo_tools``, כי הם אינם נוגעים במראה
+    # אלא ב-``sticky_notes``. פריסה בלי ``repo_backend`` עדיין מחזיקה אותם.
+    @mcp.tool(
+        name="codekeeper_list_repo_notes",
+        description=(
+            "[Admin] List the sticky notes on one file inside a mirrored repository "
+            "(repo_name + repo_path, the path as it appears in the repo tree). The same "
+            "notes shown in the repo browser in the web UI. The target carries no branch: "
+            "a note written on main also shows on a PR branch. Returns orphaned=true when "
+            "the path is no longer in the mirrored tree — the notes are still returned."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_repo_notes(ctx: Context, repo_name: str, repo_path: str) -> dict:
+        # ערך ההחזרה של ``require_admin`` **הוא** המזהה המאומת. שימוש בו —
+        # במקום קריאה שנייה ל-``current_user_id`` — מונע מצב שבו הזהות
+        # ששימשה לשער נבדלת מזו ששימשה לשאילתה.
+        user_id = require_admin(ctx)
+        return handlers.list_repo_notes(
+            backend, user_id, repo_name=repo_name, repo_path=repo_path
+        )
+
+    @mcp.tool(
+        name="codekeeper_create_repo_note",
+        description=(
+            "[Admin] Attach a sticky note to a file inside a mirrored repository "
+            "(repo_name + repo_path). The note is a remark ABOUT the file — it is stored "
+            "in CodeKeeper and never touches the mirror or the GitHub repo. mode is "
+            "'surface' (default) or 'screen'. An optional title labels the note and must "
+            "be unique on that file. Requires write permission."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def create_repo_note(
+        ctx: Context,
+        repo_name: str,
+        repo_path: str,
+        content: str,
+        color: str | None = None,
+        mode: str | None = None,
+        title: str | None = None,
+    ) -> dict:
+        # **אדמין לפני כתיבה, ולא ההפך.** בסדר ההפוך משתמש רגיל היה מקבל
+        # "צריך טוקן כתיבה" — רמז שטוקן אחר יפתח לו את הכלי, וזה שקר.
+        user_id = require_admin(ctx)
+        require_write(ctx)
+        return handlers.create_repo_note(
+            backend,
+            user_id,
+            repo_name=repo_name,
+            repo_path=repo_path,
+            content=content,
+            color=color,
+            mode=mode,
+            title=title,
+        )
+
+    # החיפוש **אינו** אדמין: הוא ``user_id``-scoped ולכן יכול להחזיר רק
+    # פתקים של הקורא עצמו, ומשתמש רגיל אינו יכול ליצור פתק ריפו מלכתחילה.
+    @mcp.tool(
+        name="codekeeper_search_notes",
+        description=(
+            "Find your sticky notes by title, across all three places a note can sit: a "
+            "file, a board, or a file in a mirrored repository. Matches part of the title, "
+            "case-insensitively; it does NOT search note content. Each hit says where the "
+            "note sits, with exactly the arguments the matching list tool needs "
+            "(file_name, board_id, or repo_name + repo_path) — read the note itself with "
+            "that tool."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def search_notes(ctx: Context, query: str, limit: int | None = None) -> dict:
+        return handlers.search_notes(backend, current_user_id(ctx), query=query, limit=limit)
 
     if repo_backend is not None:
         _register_repo_tools(mcp, repo_backend)

@@ -115,13 +115,61 @@ async def test_repo_tools_visible_to_admin():
     assert _ADMIN_TOOLS <= names
 
 
-async def test_no_repo_backend_registers_no_repo_tools():
-    from mcp_server.server import _ADMIN_TOOLS
+async def test_no_repo_backend_registers_no_repo_browser_tools():
+    """**דפדפן** הריפו נשען על המראה, ולכן בלי ``repo_backend`` אין לו מה לקרוא.
+
+    האסרשן על ``_REPO_BROWSER_TOOLS`` ולא על ``_ADMIN_TOOLS``, וזה ההבדל
+    שהצריך את פיצול הקבוצה: כלי פתקי הריפו חסומים-לאדמין בדיוק כמוהם, אבל
+    קוראים ל-``sticky_notes`` בלבד ולכן נרשמים תמיד.
+    """
+    from mcp_server.server import _REPO_BROWSER_TOOLS
 
     mcp = build_mcp(_FakeBackend())  # repo_backend omitted
     mcp._request_is_admin = lambda: True
     names = {t.name for t in await mcp.list_tools()}
-    assert not (names & _ADMIN_TOOLS)
+    assert not (names & _REPO_BROWSER_TOOLS)
+
+
+async def test_repo_note_tools_need_no_repo_backend():
+    """הצד השני של אותו מטבע — ובלעדיו הפיצול הוא שינוי שם ריק.
+
+    נופל אם כלי פתקי הריפו יועברו ל-``_register_repo_tools``, כלומר אם
+    ההרשמה שלהם תותנה במראה. פריסה בלי דפדפן ריפו עדיין מחזיקה פתקים.
+    """
+    from mcp_server.server import _REPO_NOTE_TOOLS
+
+    mcp = build_mcp(_FakeBackend())  # repo_backend omitted
+    mcp._request_is_admin = lambda: True
+    names = {t.name for t in await mcp.list_tools()}
+    assert _REPO_NOTE_TOOLS <= names
+
+
+async def test_repo_note_tools_are_hidden_from_a_non_admin():
+    """ההסתרה היא UX; האכיפה היא ``require_admin`` בגוף — ושתיהן חייבות לחול.
+
+    נופל אם שמות פתקי הריפו יישמטו מ-``_ADMIN_TOOLS`` בעת הפיצול.
+    """
+    from mcp_server.server import _ADMIN_TOOLS, _REPO_NOTE_TOOLS
+
+    assert _REPO_NOTE_TOOLS <= _ADMIN_TOOLS
+
+    mcp = build_mcp(_FakeBackend())
+    # בלי request context ← fail-closed non-admin
+    names = {t.name for t in await mcp.list_tools()}
+    assert not (names & _REPO_NOTE_TOOLS)
+
+
+async def test_note_search_is_visible_to_a_plain_user():
+    """החיפוש אינו אדמין: הוא ``user_id``-scoped ולכן מחזיר רק פתקים של הקורא.
+
+    נופל אם השם ייכנס ל-``_ADMIN_TOOLS`` "לשם עקביות" עם שאר פתקי הריפו.
+    """
+    from mcp_server.server import _ADMIN_TOOLS
+
+    mcp = build_mcp(_FakeBackend())
+    names = {t.name for t in await mcp.list_tools()}
+    assert "codekeeper_search_notes" in names
+    assert "codekeeper_search_notes" not in _ADMIN_TOOLS
 
 
 def test_build_app_exposes_healthz_route():
@@ -205,3 +253,58 @@ def test_transport_security_locks_down_via_env(monkeypatch):
     ts = _transport_security()
     assert ts.enable_dns_rebinding_protection is True
     assert ts.allowed_hosts == ["a.com", "*.b.com"]
+
+
+async def test_repo_note_creation_checks_admin_before_write(monkeypatch):
+    """**אדמין ראשון, כתיבה שנייה** — וזה לא סדר שרירותי.
+
+    בסדר ההפוך משתמש רגיל עם טוקן קריאה-בלבד היה מקבל "צריך הרשאת
+    כתיבה", כלומר רמז שטוקן אחר יפתח לו את הכלי. זה שקר: הכלי חסום לו
+    בכל טוקן שהוא.
+
+    הטסט גם מוודא שהמזהה שנשלח ל-handler הוא **ערך ההחזרה** של
+    ``require_admin`` — כך אי אפשר שהזהות ששימשה לשער תיבדל מזו ששימשה
+    לשאילתה. נופל אם מחליפים אותו בקריאה שנייה ל-``current_user_id``.
+
+    הקריאה עוברת דרך ``mcp.call_tool`` הציבורי ולא דרך ``_tool_manager``:
+    הפנימיות תלויות-גרסה, והמסלול הציבורי הוא זה שהלקוח באמת מפעיל.
+    """
+    import mcp_server.server as srv
+
+    order: list[str] = []
+    seen: dict = {}
+
+    monkeypatch.setattr(srv, "require_admin", lambda ctx=None: (order.append("admin"), 4242)[1])
+    monkeypatch.setattr(srv, "require_write", lambda ctx=None: order.append("write"))
+    monkeypatch.setattr(
+        srv.handlers, "create_repo_note",
+        lambda backend, user_id, **kw: seen.update(user_id=user_id, **kw) or {"ok": True},
+    )
+
+    mcp = build_mcp(_FakeBackend())
+    await mcp.call_tool(
+        "codekeeper_create_repo_note",
+        {"repo_name": "CodeBot", "repo_path": "a.py", "content": "שלום"},
+    )
+
+    assert order == ["admin", "write"]
+    assert seen["user_id"] == 4242          # המזהה מהשער, לא קריאה נוספת
+    assert seen["repo_name"] == "CodeBot"
+
+
+async def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch):
+    import mcp_server.server as srv
+
+    seen: dict = {}
+    monkeypatch.setattr(srv, "require_admin", lambda ctx=None: 4242)
+    monkeypatch.setattr(
+        srv.handlers, "list_repo_notes",
+        lambda backend, user_id, **kw: seen.update(user_id=user_id, **kw) or {"ok": True},
+    )
+
+    mcp = build_mcp(_FakeBackend())
+    await mcp.call_tool(
+        "codekeeper_list_repo_notes", {"repo_name": "CodeBot", "repo_path": "a.py"}
+    )
+
+    assert seen["user_id"] == 4242

@@ -34,7 +34,9 @@ Doc Authoring Guide (Sphinx/RTD)
 
 טיפים מהירים
 ------------
-- בדקו לוקאלית עם ``make html SPHINXOPTS='-W --keep-going'``.
+- **אל תריצו את הבנייה המלאה לוקאלית כדבר שבשגרה** — אבל דעו מי בדיוק תופס את האזהרות, כי לא כל בדיקה תופסת. **ה-GitHub Action שרץ על PR הוא** ``documentation.yml``\ **, והוא בונה בלי** ``-W`` (``sphinx -b html . _build/html --keep-going -j auto``), כלומר **אינו נכשל על אזהרות**. ``docs.yml`` כן מריץ ``-W``, אבל הוא ``workflow_dispatch`` — ידני בלבד, ובכוונה, כדי לא לחפוף. **מי שתופס אזהרות על PR הוא Read the Docs**: ``.readthedocs.yaml`` מגדיר ``fail_on_warning: true``, וה-check שלו יורד לאדום. לכן בנייה מקומית של פרוזה בעמוד קיים היא בזבוז — RTD יתפוס.
+- **אל תסיקו מזה ש-RTD שקול לבנייה המקומית.** הוא מתקין ``docs/requirements.txt`` משלו ורץ בסביבה אחרת, כך שגרסת Sphinx או תוסף יכולים להתנהג שם אחרת. אם RTD אדום ולוקאלית ירוק — RTD צודק, כי הוא הסביבה שמפרסמת.
+- **החריג: עמוד חדש, או נגיעה ב-``toctree``/``conf.py``.** שם טעות מפילה את הבילד כמעט בוודאות (``document isn't included in any toctree``), והבדיקה זולה כי אפשר לבנות עמוד בודד: ``python -m sphinx -b html -W . _build/html <עמוד>.rst``.
 - השתמשו ב‑``copybutton`` לקוד שמיועד ל‑Copy‑Paste.
 - שמרו עוגנים יציבים לכותרות עיקריות.
 

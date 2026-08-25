@@ -442,6 +442,139 @@ def create_board_note(
     )
 
 
+# -- פתקי ריפו: היעד השלישי ------------------------------------------------
+#
+# **ולידציית שם הריפו כאן היא בדיקת צורה, ולא הדפוס הקנוני.** המודול הזה
+# טהור, ו-``REPO_NAME_PATTERN`` יושב במודול שמייבא ``subprocess``. הבדיקה
+# הסמכותית ממילא ב-backend — מול רשימת הריפואים הממוררים בפועל, שהיא מקור
+# אמת חזק מכל דפוס.
+MAX_REPO_NAME = 100
+
+#: תקרת תוצאות חיפוש. הכלי חוצה שלושה יעדים, ותשובה ארוכה מזו כבר לא
+#: עוזרת לאתר פתק — היא רק דוחפת את השאר מהקשר.
+MAX_NOTE_SEARCH_RESULTS = 50
+DEFAULT_NOTE_SEARCH_RESULTS = 20
+
+
+def _clean_repo_name(repo_name: Any) -> str | None:
+    """שם ריפו כשהוא תקין בצורתו, אחרת ``None``.
+
+    ``/`` נדחה כי שם עם לוכסן היה נראה כמו ``owner/repo`` ומייצר יעד שאינו
+    מתלכד עם מה ש-``repo_metadata`` מחזיק — כלומר פתק שלעולם לא יימצא.
+    """
+    name = str(repo_name or "").strip()
+    if not name or "/" in name or len(name) > MAX_REPO_NAME:
+        return None
+    return name
+
+
+def list_repo_notes(backend: Any, user_id: int, *, repo_name: str, repo_path: str) -> dict[str, Any]:
+    """List the sticky notes on one file inside a mirrored repository (read-only)."""
+    from sticky_notes_target import normalize_repo_path
+
+    name = _clean_repo_name(repo_name)
+    if name is None:
+        return {"ok": False, "error": "invalid_repo_name"}
+
+    # **הנרמול קורה כאן, לפני ה-backend.** ``repo_files`` שומר נתיבים בצורת
+    # git הגולמית, ו-``normalize_repo_path`` מתכנס בדיוק אליה — כולל דחיית
+    # ``..``. בלי המעבר הזה נתיב שכתוב ``./a/../b.py`` היה שאילתה שאינה
+    # מוצאת דבר, בלי שום שגיאה.
+    path = normalize_repo_path(repo_path)
+    if not path:
+        return {"ok": False, "error": "invalid_repo_path"}
+
+    return backend.list_repo_notes(user_id, repo_name=name, repo_path=path)
+
+
+def create_repo_note(
+    backend: Any,
+    user_id: int,
+    *,
+    repo_name: str,
+    repo_path: str,
+    content: str,
+    color: str | None = None,
+    mode: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Attach a sticky note to a file inside a mirrored repository.
+
+    היעד הוא הזוג ``(repo_name, repo_path)`` **בלי ענף**: פתק שנרשם כשהיית
+    על ``main`` מופיע גם כשאתה על ענף PR — זו אותה שורת קוד.
+
+    ``mode`` זהה לזה של הלוח: ``surface``/``screen``. ``anchored`` אינו
+    חוקי — התצוגה בדפדפן הריפו היא CodeMirror, שאינו מרנדר שורות מחוץ
+    למסך, ולכן אין לו DOM להיצמד אליו.
+    """
+    from sticky_notes_target import (
+        DEFAULT_BOARD_MODE, is_valid_board_mode, normalize_mode, normalize_note_title,
+        normalize_repo_path,
+    )
+
+    # **אותם שערים בדיוק כמו במסלול הקריאה, ובאותו סדר.** שני מסלולים
+    # שגוזרים שערים שונים הם שני מושגים שונים של "יעד חוקי".
+    name = _clean_repo_name(repo_name)
+    if name is None:
+        return {"ok": False, "error": "invalid_repo_name"}
+    path = normalize_repo_path(repo_path)
+    if not path:
+        return {"ok": False, "error": "invalid_repo_path"}
+
+    clean = _sanitize_note_text(content).strip()
+    if not clean:
+        return {"ok": False, "error": "empty_content"}
+    if len(clean) > MAX_NOTE_CONTENT:
+        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+
+    if mode is not None and not is_valid_board_mode(mode):
+        return {"ok": False, "error": "invalid_mode", "allowed": ["surface", "screen"]}
+
+    color_s = (color or "").strip()
+    if not _NOTE_COLOR_RE.match(color_s):
+        color_s = DEFAULT_NOTE_COLOR
+
+    return backend.create_repo_note(
+        user_id,
+        repo_name=name,
+        repo_path=path,
+        content=clean,
+        color=color_s,
+        mode=normalize_mode(mode, DEFAULT_BOARD_MODE),
+        title=normalize_note_title(title),
+    )
+
+
+def search_notes(
+    backend: Any, user_id: int, *, query: str, limit: int | None = None
+) -> dict[str, Any]:
+    """Find sticky notes by title across all three targets (read-only).
+
+    **שם בלבד, לא תוכן.** חיפוש בגוף הפתק היה מחייב אינדקס טקסט, ומונגו
+    מתיר אחד לכל אוסף — החלטה שקשה לחזור ממנה. השם הוא ממילא מה שהמשתמש
+    נותן לפתק כדי למצוא אותו שוב.
+
+    ``limit`` **נחתך ולא נדחה**: מספר גדול מדי הוא בקשה לרוחב, לא שגיאה.
+    """
+    from sticky_notes_target import MAX_NOTE_TITLE, canonical_title_text
+
+    # אותה קנוניזציה שהשם עצמו עבר בכתיבה — אחרת שאילתה עם רווחים כפולים
+    # לא הייתה תופסת פתק ששמו נשמר מכווץ. **בלי הקיצוץ**, כי אחריו הבדיקה
+    # שמתחת הייתה תמיד שקרית: ``normalize_note_title`` כבר חתך ל-80.
+    needle = canonical_title_text(query)
+    if not needle:
+        return {"ok": False, "error": "empty_query"}
+    if len(needle) > MAX_NOTE_TITLE:
+        # לא ייתכן שם ארוך מזה במסד, ולכן זו שאילתה שלעולם לא תתפוס דבר.
+        return {"ok": False, "error": "query_too_long", "max": MAX_NOTE_TITLE}
+
+    return backend.search_notes(
+        user_id,
+        query=needle,
+        limit=_clamp(limit, 1, MAX_NOTE_SEARCH_RESULTS, DEFAULT_NOTE_SEARCH_RESULTS),
+    )
+
+
 def update_note(
     backend: Any,
     user_id: int,
