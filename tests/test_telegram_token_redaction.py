@@ -15,6 +15,7 @@ from telegram_api import (
     redact_bot_token,
     redact_bot_token_deep,
     require_telegram_ok,
+    scrub_sentry_event,
 )
 
 # טוקן בדוי במבנה אמיתי — משמש רק לבדיקה שהוא לא שורד בפלט
@@ -367,3 +368,103 @@ def test_scrub_sentry_event_cleans_and_fails_closed(monkeypatch):
 
     monkeypatch.setattr(telegram_api, "redact_bot_token_deep", _boom)
     assert scrub_sentry_event({"anything": "at all"}) is None
+
+
+# ---------- סוד שרוכב על שורת שאילתה (מפתח Gemini שדלף ל-Sentry) ----------
+
+# מפתח בדוי בצורת מפתח של Google — משמש רק כדי לוודא שהוא לא שורד בפלט
+FAKE_GOOGLE_KEY = "AIzaSyFAKE0000_NOT_A_REAL_KEY_000000000"
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    f"text-embedding-004:embedContent?key={FAKE_GOOGLE_KEY}"
+)
+
+
+def test_sentry_span_shape_from_httpx_integration_is_scrubbed():
+    """**זו בדיוק צורת האירוע שדלף.**
+
+    אינטגרציית httpx של Sentry נדלקת מעצמה, קוראת ל-``parse_url`` עם
+    ``sanitize=False``, ורושמת את שורת השאילתה בשדה נפרד — ``http.query`` —
+    שערכו מחרוזת עירומה בלי ``?`` מוביל. הרשת הישנה הכירה רק את צורת הטוקן
+    של טלגרם, ולכן המפתח עבר דרכה שלם.
+
+    נופל אם דפוס שורת-השאילתה יוסר, או אם יעוגן ל-``?``/``&`` בלבד.
+    """
+    event = {
+        "type": "transaction",
+        "spans": [
+            {
+                "op": "http.client",
+                "description": f"POST {GEMINI_URL}",
+                "data": {
+                    "url": GEMINI_URL.split("?")[0],
+                    # השדה שדלף: מחרוזת עירומה, בלי ``?`` מוביל
+                    "http.query": f"key={FAKE_GOOGLE_KEY}",
+                },
+            }
+        ],
+        "breadcrumbs": {"values": [{"type": "http", "data": {"url": GEMINI_URL}}]},
+    }
+
+    cleaned = scrub_sentry_event(event)
+
+    assert cleaned is not None, "הניקוי נכשל — fail-closed היה מפיל את האירוע"
+    blob = repr(cleaned)
+    assert FAKE_GOOGLE_KEY not in blob
+    assert cleaned["spans"][0]["data"]["http.query"] == "key=<REDACTED>"
+
+
+def test_bare_query_string_without_leading_question_mark_is_scrubbed():
+    """שורת שאילתה עירומה — הצורה שבה Sentry שומר את ``http.query``.
+
+    נופל אם הדפוס יעוגן ל-``?``/``&`` בלבד ולא גם לתחילת מחרוזת.
+    """
+    assert redact_bot_token(f"key={FAKE_GOOGLE_KEY}") == "key=<REDACTED>"
+    assert redact_bot_token(f"foo=1&api_key={FAKE_GOOGLE_KEY}") == "foo=1&api_key=<REDACTED>"
+
+
+def test_secret_query_param_is_scrubbed_by_name_not_by_value_shape():
+    """**הכלל חסין-ספק.** הוא מנקה לפי שם הפרמטר ולא לפי צורת הערך.
+
+    זה מה שמונע את החזרה של האירוע עם הספק הבא: אין כאן שום ידע על Google.
+
+    נופל אם מחליפים את הכלל בדפוס-צורה ספציפי (למשל ``AIza...``).
+    """
+    for name in ("key", "api_key", "token", "access_token", "secret", "password", "signature"):
+        cleaned = redact_bot_token(f"https://example.com/v1/x?{name}=SOME_OPAQUE_VALUE_123")
+        assert "SOME_OPAQUE_VALUE_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+
+def test_query_scrub_keeps_neighbouring_params_and_fragment():
+    """מנקה את הערך בלבד — לא את שאר השאילתה ולא את ה-fragment."""
+    cleaned = redact_bot_token(f"https://x.io/a?key={FAKE_GOOGLE_KEY}&limit=5#section")
+    assert cleaned == "https://x.io/a?key=<REDACTED>&limit=5#section"
+
+
+def test_diagnostic_log_line_with_non_secret_key_is_left_alone():
+    """**לא לסרס מידע אבחוני.** ``embedding_worker`` מדפיס ``key=`` על מפתח
+    מודל/מימד, שאינו סוד. הדפוס מעוגן לשורת שאילתה או לתחילת מחרוזת בדיוק
+    כדי לא לגעת בשורות כאלה.
+
+    נופל אם מרחיבים את העיגון לרווח.
+    """
+    line = "Snippet 42: retry using model=gemini-embedding-001 api=v1 dim=768 key=models/emb-004"
+    assert redact_bot_token(line) == line
+
+
+def test_log_filter_inherits_the_shared_pattern_list(caplog):
+    """רשת הלוגים ורשת Sentry חולקות רשימת דפוסים אחת.
+
+    נופל אם ``SensitiveDataFilter`` יחזור לרשימה משלו.
+    """
+    from utils import SensitiveDataFilter
+
+    record = logging.LogRecord(
+        name="probe", level=logging.ERROR, pathname=__file__, lineno=1,
+        msg="POST %s failed", args=(GEMINI_URL,), exc_info=None,
+    )
+    SensitiveDataFilter().filter(record)
+
+    assert FAKE_GOOGLE_KEY not in str(record.msg)
+    assert "key=<REDACTED>" in str(record.msg)

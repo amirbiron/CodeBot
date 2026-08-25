@@ -103,9 +103,29 @@ class EmbeddingService:
 
     @property
     def client(self) -> httpx.AsyncClient:
-        """Lazy initialization of the AsyncClient."""
+        """Lazy initialization of the AsyncClient.
+
+        **המפתח יושב על הלקוח, ולא על אתר הקריאה.** קודם הוא הועבר בכל
+        קריאה כ-``params={"key": ...}``, כלומר נכנס ל-URL — ומשם דלף:
+        אינטגרציית httpx של Sentry נדלקת מעצמה (היא ב-
+        ``_AUTO_ENABLING_INTEGRATIONS``), קוראת ל-``parse_url`` עם
+        ``sanitize=False`` ורושמת את שורת השאילתה כשדה נפרד ב-span. הסוד
+        יצא בכל בקשה מוצלחת, לא רק בכשל, ובלי ששורת קוד אחת רשמה אותו.
+
+        ``x-goog-api-key`` הוא ההזדהות שגוגל מתעדת מול אותו host בדיוק:
+        https://ai.google.dev/gemini-api/docs/api-key
+
+        **ולמה על הלקוח ולא בכל קריאה:** שלושת אתרי הקריאה כאן היו זהים,
+        ותיקון משוכפל הוא בדיוק מה שמשאיר מסלול אחד מאחור. כאן אי אפשר
+        לשכוח — כל בקשה דרך הלקוח הזה נושאת את הכותרת, וגם אתר קריאה
+        רביעי בעתיד יקבל אותה בלי לדעת עליה.
+        """
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+            headers = {"Content-Type": "application/json"}
+            # בלי מפתח לא שולחים כותרת ריקה; ``is_available`` חוסם ממילא
+            if self.api_key:
+                headers["x-goog-api-key"] = self.api_key
+            self._client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers=headers)
         return self._client
 
     def is_available(self) -> bool:
@@ -159,12 +179,7 @@ class EmbeddingService:
         for attempt in range(MAX_RETRIES):
             try:
                 await _acquire_throttle_slot()
-                response = await self.client.post(
-                    url,
-                    json=payload,
-                    params={"key": self.api_key},
-                    headers={"Content-Type": "application/json"},
-                )
+                response = await self.client.post(url, json=payload)
                 try:
                     last_body = response.text
                 except Exception:
@@ -230,11 +245,7 @@ class EmbeddingService:
             return []
         base_url = self._base_url(api_version)
         try:
-            resp = await self.client.get(
-                base_url,
-                params={"key": self.api_key},
-                headers={"Content-Type": "application/json"},
-            )
+            resp = await self.client.get(base_url)
         except Exception:
             return []
         if int(getattr(resp, "status_code", 0) or 0) != 200:
@@ -276,11 +287,7 @@ class EmbeddingService:
             return []
         base_url = self._base_url(api_version)
         try:
-            resp = await self.client.get(
-                base_url,
-                params={"key": self.api_key},
-                headers={"Content-Type": "application/json"},
-            )
+            resp = await self.client.get(base_url)
         except Exception:
             return []
         if int(getattr(resp, "status_code", 0) or 0) != 200:

@@ -16,12 +16,60 @@ BOT_TOKEN_RE = _BOT_TOKEN_RE
 
 TOKEN_PLACEHOLDER = "<REDACTED>"
 
+#: סוד שרוכב על שורת שאילתה — **לפי שם הפרמטר, לא לפי צורת הערך.**
+#:
+#: זה מה שהבדיל בין הטוקן של טלגרם, שנתפס, לבין מפתח Gemini, שדלף במלואו:
+#: הרשת הכירה צורות של סודות מוכרים, ולכן כל ספק חדש היה דליפה חדשה עד
+#: שמישהו נזכר להוסיף רג'קס. הכלל הזה אינו יודע דבר על Google, על OpenAI
+#: או על מי שיבוא אחריהם — הוא מנקה לפי **שם** הפרמטר, ולכן עובד לכולם.
+#:
+#: **מעוגן ל-``?``/``&`` או לתחילת מחרוזת — ושני החלקים נדרשים.**
+#: אינטגרציית httpx של Sentry לא שומרת את השאילתה בתוך ה-URL אלא בשדה
+#: נפרד, ``http.query``, שערכו מחרוזת עירומה: ``key=AIza...`` בלי ``?``
+#: מוביל. עיגון ל-``?``/``&`` בלבד היה מפספס בדיוק את השדה שדלף — זה נתפס
+#: באימות מול מבנה ה-span האמיתי, לא בקריאת הקוד.
+#:
+#: ותחילת-מחרוזת בלבד, לא רווח: לוגים לגיטימיים נושאים ``key=`` באמצע שורה
+#: בלי קשר לסודות (``embedding_worker`` מדפיס ``key=%s`` על מפתח מודל/מימד),
+#: והרחבה לרווח הייתה מסרסת מידע אבחוני בלי להוסיף הגנה.
+_SECRET_QUERY_PARAM_RE = re.compile(
+    r"(?i)((?:^|[?&])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret"
+    r"|authorization|signature|password|passwd|secret|token|auth|pwd|key|sig)=)"
+    r"[^&#\s\"\'<>\\]+"
+)
+SECRET_QUERY_PARAM_RE = _SECRET_QUERY_PARAM_RE
+
+#: **רשימת הדפוסים המשותפת.** ``SensitiveDataFilter`` בלוגים מייבא אותה
+#: מכאן, כדי שהוספת דפוס תגיע לשתי הרשתות — Sentry והלוגים — בבת אחת.
+#: כשהיה מקור אמת אחד לכל רשת, אחת מהן קיבלה תיקון והשנייה נשארה מאחור.
+REDACTION_PATTERNS = [
+    (_BOT_TOKEN_RE, TOKEN_PLACEHOLDER),
+    (_SECRET_QUERY_PARAM_RE, r"\1" + TOKEN_PLACEHOLDER),
+]
+
+
+def _scrub_text(text: str) -> str:
+    """מריץ את כל דפוסי הניקוי על מחרוזת אחת, לפי הסדר."""
+    for pattern, replacement in REDACTION_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def _has_secret(text: str) -> bool:
+    """האם המחרוזת נושאת סוד לפי אחד הדפוסים."""
+    return any(pattern.search(text) for pattern, _ in REDACTION_PATTERNS)
+
 # מוחזר כשאי אפשר לנקות ערך (str() נכשל) — עדיף לאבד את הערך מאשר להדליף טוקן
 UNREDACTABLE_PLACEHOLDER = "<UNREDACTABLE>"
 
 
 def redact_bot_token(value: Any) -> Any:
-    """מחליף כל טוקן בוט שמופיע בטקסט בסימון ``<REDACTED>``.
+    """מחליף כל סוד שמופיע בטקסט בסימון ``<REDACTED>``.
+
+    **השם היסטורי.** הפונקציה נולדה לטוקן של טלגרם, והיום היא מריצה את כל
+    :data:`REDACTION_PATTERNS` — טוקן הבוט **וגם** סוד שרוכב על שורת שאילתה.
+    ההרחבה נעשתה אחרי שמפתח Gemini דלף במלואו ל-Sentry: הוא עבר דרך אותה
+    פונקציה בדיוק, ויצא ממנה כמו שנכנס, כי הרשימה הייתה בגודל אחד.
 
     מחזיר ``None`` כפי שהוא, וכל ערך אחר מומר למחרוזת מנוקה. אם ההמרה למחרוזת
     נכשלת מוחזר ``<UNREDACTABLE>`` — כישלון ניקוי לעולם לא מחזיר את הערך הגולמי.
@@ -32,7 +80,7 @@ def redact_bot_token(value: Any) -> Any:
         return None
     try:
         text = value if isinstance(value, str) else str(value)
-        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
+        return _scrub_text(text)
     except Exception:
         return UNREDACTABLE_PLACEHOLDER
 
@@ -40,7 +88,7 @@ def redact_bot_token(value: Any) -> Any:
 def _redact_bytes(obj: Any) -> Any:
     """מנקה טוקן מ-bytes/bytearray תוך שמירה על הטיפוס המקורי."""
     try:
-        cleaned_text = _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, obj.decode("utf-8", errors="replace"))
+        cleaned_text = _scrub_text(obj.decode("utf-8", errors="replace"))
         encoded = cleaned_text.encode("utf-8")
         return bytearray(encoded) if isinstance(obj, bytearray) else encoded
     except Exception:
@@ -137,10 +185,10 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
         rep = repr(obj)
     except Exception:
         return UNREDACTABLE_PLACEHOLDER
-    if _BOT_TOKEN_RE.search(rep):
-        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, rep)
-    if _BOT_TOKEN_RE.search(text):
-        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
+    if _has_secret(rep):
+        return _scrub_text(rep)
+    if _has_secret(text):
+        return _scrub_text(text)
     return obj
 
 
