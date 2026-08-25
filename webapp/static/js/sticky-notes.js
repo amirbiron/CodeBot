@@ -7,6 +7,33 @@
 
   if (typeof window === 'undefined') return;
 
+  // **מזהה הפתק נלכד כאן, בזמן טעינת הסקריפט, ולא כשמשתמשים בו.**
+  //
+  // ``?note=`` הוא כוונת ניווט חד-פעמית שנוצרת בקישור תזכורת. דפדפן הריפו
+  // מנקה אותו מה-URL מיד אחרי הצריכה (``consumeOneShotUrlParams``), אחרת
+  // הוא היה שורד לריענון ומנסה לפתוח פתק ששייך לקובץ בריפו אחר. אבל
+  // ``_maybeScrollToNoteFromUrl`` רץ רק כשמנהל הפתקים נבנה — כלומר **אחרי**
+  // שהקובץ נטען, ולכן אחרי הניקוי. קריאה עצלה מה-URL הייתה מוצאת אותו ריק.
+  //
+  // הסקריפטים נטענים לפני ``DOMContentLoaded``, והניקוי קורה בתוכו, ולכן
+  // הלכידה כאן תמיד מקדימה אותו.
+  //
+  // הערך גם **נצרך פעם אחת** (ראו ``_parseNoteIdFromUrl``): בדפדפן הריפו
+  // נבנה מנהל פתקים חדש לכל קובץ, וקריאה חוזרת הייתה גוררת את אותו פתק
+  // אל כל קובץ שייפתח אחריו.
+  let pendingNoteIdFromUrl = (function(){
+    try {
+      const u = new URL(window.location.href);
+      const q = (u.searchParams.get('note') || u.searchParams.get('note_id') || '').trim();
+      if (q) return q;
+      // hash formats: #note=ID or #note:ID
+      const h = (u.hash || '').replace(/^#/, '');
+      if (!h) return '';
+      const m = h.match(/^note[:=](.+)$/i);
+      return m ? decodeURIComponent(m[1]) : '';
+    } catch(_) { return ''; }
+  })();
+
   function encodeUtf8ToB64(input){
     const s = String(input == null ? '' : input);
     if (!s) return '';
@@ -2930,17 +2957,11 @@
       } catch(_) {}
     }
 
+    /** מחזיר את מזהה הפתק שנלכד מה-URL בטעינה — ומרוקן אותו, כי זו כוונה חד-פעמית. */
     _parseNoteIdFromUrl(){
-      try {
-        const u = new URL(window.location.href);
-        const q = (u.searchParams.get('note') || u.searchParams.get('note_id') || '').trim();
-        if (q) return q;
-        // hash formats: #note=ID or #note:ID
-        const h = (u.hash || '').replace(/^#/, '');
-        if (!h) return '';
-        const m = h.match(/^note[:=](.+)$/i);
-        return m ? decodeURIComponent(m[1]) : '';
-      } catch(_) { return ''; }
+      const id = pendingNoteIdFromUrl;
+      pendingNoteIdFromUrl = '';
+      return id;
     }
 
     _maybeScrollToNoteFromUrl(){
