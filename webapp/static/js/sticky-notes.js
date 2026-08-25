@@ -334,6 +334,14 @@
           this._on(window.visualViewport, 'resize', reflow, { passive: true });
           this._on(window.visualViewport, 'scroll', reflow, { passive: true });
         }
+        // **גלילה פנימית — בשלב הלכידה.** אירוע ``scroll`` אינו מבעבע,
+        // אבל מאזין בלכידה על אב כן מקבל אותו. כך תופסים גם את
+        // ``CodeMirror`` וגם את תצוגת ה-Markdown בלי לאתר מי מהם פעיל,
+        // ובלי להיקשר לאלמנט שנבנה מחדש בכל קובץ.
+        if (this.repoTarget && this.container) {
+          this._on(this.container, 'scroll', () => this._updatePinnedForScroll(),
+                   { capture: true, passive: true });
+        }
         this._setupLifecycleGuards();
         this._setupDomObservers();
         // אם התבצע ניווט עמוק לפתק מסוים – גלול אליו כעת
@@ -868,6 +876,89 @@
       //
       // מסלול הקובץ יוצא ביט-זהה: כל ענף שאינו קונטיינר ממוקם מחזיר
       // ``-scroll``, ואז ``rect.left - (-scroll.x)`` הוא בדיוק החישוב הישן.
+      /**
+       * הגולל הפנימי של תצוגת הקובץ, או ``null`` אם אין כזה.
+       *
+       * בדפדפן הריפו הקונטיינר עצמו אינו נגלל (``100vh`` עם
+       * ``overflow: hidden``) — מה שנגלל הוא הפאנל שבתוכו: ``CodeMirror``
+       * לקוד, ותצוגת ה-Markdown לקבצי ``.md``. בלי לאתר אותו, פתק "נעוץ"
+       * ופתק "צף" מרנדרים באותו מקום בדיוק, והכפתור מרגיש שבור.
+       *
+       * מאותרים מחדש בכל קריאה ולא נשמרים: ``CodeMirror`` נבנה מחדש בכל
+       * קובץ, ומתג ה-Markdown מחליף בין שני פאנלים שונים.
+       */
+      _innerScroller(){
+        try {
+          if (!this.repoTarget || !this.container || !this.container.querySelector) return null;
+          const md = this.container.querySelector('.markdown-preview-container');
+          // ``offsetParent === null`` פירושו ``display: none`` — הפאנל
+          // השני, זה שאינו מוצג כרגע.
+          if (md && md.offsetParent) return md;
+          return this.container.querySelector('.CodeMirror-scroll')
+              || this.container.querySelector('.cm-scroller')
+              || null;
+        } catch(_) { return null; }
+      }
+
+      /**
+       * ההיסט בין מרחב האחסון למרחב הרינדור, בפיקסלים.
+       *
+       * פתק ריפו במצב ``surface`` נשמר במרחב **התוכן** — המקום שלו בתוך
+       * הקובץ — ומרונדר במרחב **הקונטיינר**. ההפרש הוא מיקום הגולל בתוך
+       * הקונטיינר פחות כמה כבר נגללנו בו.
+       *
+       * בכל שאר המקרים (לוח, קובץ, מצב ``screen``) אין גולל פנימי וההיסט
+       * הוא אפס — כלומר ההתנהגות שלהם אינה משתנה כלל.
+       */
+      _surfaceScrollShift(){
+        const none = { x: 0, y: 0 };
+        try {
+          const sc = this._innerScroller();
+          if (!sc || !this.container || !this.container.getBoundingClientRect) return none;
+          const cr = this.container.getBoundingClientRect();
+          const sr = sc.getBoundingClientRect();
+          const x = (sr.left - cr.left) - (sc.scrollLeft || 0);
+          const y = (sr.top - cr.top) - (sc.scrollTop || 0);
+          return {
+            x: Number.isFinite(x) ? x : 0,
+            y: Number.isFinite(y) ? y : 0,
+          };
+        } catch(_) { return none; }
+      }
+
+      /**
+       * מסתיר פתק נעוץ שנגלל אל מחוץ לתחום הנראה של הגולל.
+       *
+       * בלי זה הפתק היה ממשיך לצוף מעל שורת הכפתורים והכותרת כשגוללים
+       * רחוק — ``absolute`` בקונטיינר אינו נחתך ע"י הגולל הפנימי, כי הוא
+       * אינו יושב בתוכו.
+       *
+       * ``visibility`` ולא ``display``: הפתק נשאר מדיד, כך שגרירה
+       * ושמירה שקורות באותו רגע אינן מקבלות מלבן אפס.
+       */
+      _updatePinnedVisibility(el){
+        try {
+          const sc = this._innerScroller();
+          if (!sc || !el || !el.style) return;
+          const sr = sc.getBoundingClientRect();
+          const er = el.getBoundingClientRect();
+          const out = (er.bottom < sr.top) || (er.top > sr.bottom);
+          el.style.visibility = out ? 'hidden' : '';
+        } catch(_) {}
+      }
+
+      /** מרענן את כל הפתקים הנעוצים אחרי גלילה פנימית. */
+      _updatePinnedForScroll(){
+        try {
+          if (!this.repoTarget) return;
+          for (const entry of this.notes.values()){
+            const el = entry && entry.el;
+            if (!el || !el.classList || !el.classList.contains('is-pinned')) continue;
+            this._applyPositionMode(el, entry.data, { reflow: false });
+          }
+        } catch(_) {}
+      }
+
       _positionOrigin(el, mode){
         const scroll = getScrollOffsets();
         const docOrigin = { x: -scroll.x, y: -scroll.y };
@@ -884,9 +975,15 @@
           const r = parent.getBoundingClientRect();
           // קופסת ה-padding של האב הממוקם, לפני הגלילה הפנימית שלו —
           // בדיוק המרחב ש-``left``/``top`` של ילד ``absolute`` נמדדים בו.
+          // בפתק ריפו נעוץ, ראשית מרחב האחסון היא תחילת **התוכן** ולא
+          // תחילת הקונטיינר — ולכן ההיסט נכנס כאן. זו נקודת ההמרה
+          // היחידה, ולכן הגרירה והשמירה מתיישרות מאליהן.
+          const shift = (this.repoTarget && resolved === 'surface')
+            ? this._surfaceScrollShift()
+            : { x: 0, y: 0 };
           return {
-            x: r.left + (parent.clientLeft || 0) - (parent.scrollLeft || 0),
-            y: r.top + (parent.clientTop || 0) - (parent.scrollTop || 0)
+            x: r.left + (parent.clientLeft || 0) - (parent.scrollLeft || 0) + shift.x,
+            y: r.top + (parent.clientTop || 0) - (parent.scrollTop || 0) + shift.y
           };
         } catch(_) { return docOrigin; }
       }
@@ -1742,9 +1839,13 @@
               const clamped = this._clampToSurface(el, targetX, targetY, note);
               targetX = clamped.x; targetY = clamped.y;
             }
-            el.style.left = targetX + 'px';
-            el.style.top = targetY + 'px';
+            // ההמרה ההפוכה ל-``_positionOrigin``: המיקום נשמר במרחב
+            // התוכן, ומרונדר במרחב הקונטיינר. בלוח ובקובץ ההיסט אפס.
+            const shift = this.repoTarget ? this._surfaceScrollShift() : { x: 0, y: 0 };
+            el.style.left = (targetX + shift.x) + 'px';
+            el.style.top = (targetY + shift.y) + 'px';
             el.dataset.pinned = 'true';
+            if (this.repoTarget) this._updatePinnedVisibility(el);
             if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
             if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
             if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }

@@ -25,23 +25,27 @@ const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky
 
 /** DOM מינימלי — רק מה ש-``_init`` נוגע בו לפני שהוא נכשל בשקט. */
 function makeSandbox() {
-  const el = () => ({
-    style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
-    appendChild() {}, addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [],
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
-    setAttribute() {}, getAttribute: () => null,
-  });
-  const body = el();
-  const mdContent = el();
   // רישום **זהות** המאזינים שהוסרו, ולא רק ספירה. מונה גלובלי היה משותף
   // לכל המנהלים שנוצרים בקובץ הזה (סנדבוקס אחד, ``window``/``document``
   // משותפים), ובדיקה אסינכרונית אחת הייתה יכולה להסיט את הספירה של אחרת.
   // עם ``Set`` של הפונקציות עצמן, כל בדיקה שואלת רק על המאזינים שלה.
+  //
+  // **כל אלמנט נספר, לא רק window/document:** המנהל רושם מאזין גם על
+  // הקונטיינר (גלילה פנימית בדפדפן הריפו), ויעד שאינו נספר היה מדווח על
+  // מאזין שלא הוסר — כשל רפאים.
   const listenerLedger = { added: 0, removed: 0, removedFns: new Set() };
   const tracking = () => ({
     addEventListener() { listenerLedger.added += 1; },
     removeEventListener(_type, fn) { listenerLedger.removed += 1; listenerLedger.removedFns.add(fn); },
   });
+  const el = () => ({
+    style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
+    appendChild() {}, ...tracking(), querySelectorAll: () => [], querySelector: () => null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+    setAttribute() {}, getAttribute: () => null,
+  });
+  const body = el();
+  const mdContent = el();
   const sandbox = {
     console,
     __listeners: listenerLedger,
@@ -1223,6 +1227,77 @@ check('_flushAll מנקז עריכה שהוחזרה לתור בכשל חולף',
 // אסינכרוני שנכשל היה מגדיל את ``failed`` **אחרי** שהסיכום כבר הודפס
 // וה-process יצא — כלומר נכשל בשקט ועם קוד יציאה 0. התיקון נדרש כאן כי
 // אלה הטסטים האסינכרוניים הראשונים בקובץ.
+// -- נעיצה בדפדפן הריפו: המרה בין מרחב התוכן למרחב הקונטיינר --
+
+/** קונטיינר שאינו נגלל, ובתוכו גולל פנימי — מבנה דפדפן הריפו. */
+function makeRepoContainer(scrollTop) {
+  const scroller = {
+    className: 'CodeMirror-scroll',
+    scrollTop, scrollLeft: 0,
+    offsetParent: null,
+    getBoundingClientRect: () => ({ left: 0, top: 40, width: 900, height: 600, bottom: 640 }),
+  };
+  return {
+    style: {}, dataset: {}, clientLeft: 0, clientTop: 0, scrollLeft: 0, scrollTop: 0,
+    clientWidth: 900, clientHeight: 640,
+    classList: { add() {}, remove() {}, contains: () => false },
+    appendChild() {}, addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 900, height: 680, bottom: 680 }),
+    querySelector: (sel) => (sel === '.CodeMirror-scroll' ? scroller : null),
+    querySelectorAll: () => [],
+    __scroller: scroller,
+  };
+}
+
+check('פתק ריפו נעוץ מרונדר לפי מיקום הגלילה הפנימית', () => {
+  // זה הלב: המיקום נשמר במרחב **התוכן** ומרונדר במרחב **הקונטיינר**.
+  // בלי ההיסט, ``absolute`` בקונטיינר שאינו נגלל מרנדר תמיד באותו מקום —
+  // ואז "נעוץ" ו"צף" נראים זהים והכפתור מרגיש שבור.
+  //
+  // נופל אם ההיסט יוסר מ-``_applyPositionMode``.
+  const sb = makeSandbox();
+  const Manager = sb.window.StickyNotesManager;
+  const container = makeRepoContainer(300);
+  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container });
+
+  const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
+               querySelector: () => null, querySelectorAll: () => [],
+               getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) };
+  m._applyPositionMode(el, { mode: 'surface', position: { x: 10, y: 500 }, size: { width: 260, height: 200 } });
+
+  // הגולל מתחיל 40px מתחת לקונטיינר, ונגלל 300 ⇒ ההיסט הוא 40-300 = -260
+  eq(el.style.top, '240px', 'התוכן בגובה 500 מרונדר ב-240');
+});
+
+check('אותו פתק בגלילה אחרת מרונדר במקום אחר', () => {
+  // אותה בדיקה מהצד השני: שינוי ה-scrollTop **חייב** לשנות את הרינדור.
+  const sb = makeSandbox();
+  const Manager = sb.window.StickyNotesManager;
+  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container: makeRepoContainer(0) });
+
+  const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
+               querySelector: () => null, querySelectorAll: () => [],
+               getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) };
+  m._applyPositionMode(el, { mode: 'surface', position: { x: 10, y: 500 }, size: { width: 260, height: 200 } });
+
+  eq(el.style.top, '540px', 'בלי גלילה: 500 + היסט 40');
+});
+
+check('פתק לוח אינו מושפע מההיסט', () => {
+  // רגרסיה: הלוח והקובץ אינם עוברים דרך גולל פנימי, וההיסט חייב להיות
+  // אפס אצלם — אחרת התיקון לדפדפן הריפו היה מזיז להם את הפתקים.
+  const sb = makeSandbox();
+  const Manager = sb.window.StickyNotesManager;
+  const m = new Manager({ board: 'b1', container: makeRepoContainer(300) });
+
+  const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
+               querySelector: () => null, querySelectorAll: () => [],
+               getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) };
+  m._applyPositionMode(el, { mode: 'surface', position: { x: 10, y: 500 }, size: { width: 260, height: 200 } });
+
+  eq(el.style.top, '500px', 'הלוח נשאר בדיוק על הערך השמור');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);
