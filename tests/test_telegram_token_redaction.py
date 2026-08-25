@@ -436,6 +436,40 @@ def test_secret_query_param_is_scrubbed_by_name_not_by_value_shape():
         assert f"{name}=<REDACTED>" in cleaned, name
 
 
+def test_compound_parameter_names_are_scrubbed_too():
+    """**שם מורכב הוא הצורה הנפוצה, לא החריגה.**
+
+    ``auth_token``, ``oauth_token``, ``id_token``, ``private_key``,
+    ``x-api-key`` ו-``session_token`` הם שמות פרמטרים סטנדרטיים ב-OAuth
+    ובקולבקים. כשהדפוס דרש התאמה מדויקת מהמפריד, כולם עברו שלמים.
+
+    התיקון אינו הוספתם לרשימה — זה היה משחזר את אותה רשימה שחורה
+    שמתעדכנת רק אחרי דליפה — אלא תחילית-מקטע שמכסה כל וריאציה כזו.
+
+    נופל אם התחילית ``(?:[A-Za-z0-9]+[_.\\-])*`` תוסר מהדפוס.
+    """
+    for name in (
+        "auth_token", "oauth_token", "id_token", "private_key",
+        "x-api-key", "session_token", "refresh_token", "api_key_secret",
+    ):
+        cleaned = redact_bot_token(f"https://example.com/cb?{name}=OPAQUE_SECRET_123")
+        assert "OPAQUE_SECRET_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+
+def test_a_sensitive_word_must_be_a_whole_segment_not_a_suffix():
+    """**הגבול של התחילית.** המילה הרגישה חייבת להיות מקטע שלם בשם.
+
+    בלי הדרישה שהתחילית תסתיים במפריד, ``?monkey=`` היה נתפס (הוא מסתיים
+    ב-``key``) וכל שם פרמטר שמכיל צירוף מקרי היה מנוקה. ``key_id`` נשמר
+    מאותה סיבה הפוכה: הוא מזהה, לא סוד.
+
+    נופל אם התחילית תשוחרר ל-``[A-Za-z0-9_.-]*`` בלי דרישת המפריד.
+    """
+    for benign in ("?monkey=banana", "?keys=3", "?author=me", "?key_id=42", "?tokenizer=bpe"):
+        assert redact_bot_token(benign) == benign, benign
+
+
 def test_query_scrub_keeps_neighbouring_params_and_fragment():
     """מנקה את הערך בלבד — לא את שאר השאילתה ולא את ה-fragment."""
     cleaned = redact_bot_token(f"https://x.io/a?key={FAKE_GOOGLE_KEY}&limit=5#section")

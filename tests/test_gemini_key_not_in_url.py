@@ -118,9 +118,19 @@ def test_model_listing_request_also_keeps_the_key_out_of_the_url(recording_serve
     assert seen["headers"].get("x-goog-api-key") == FAKE_KEY
 
 
-def test_client_without_api_key_does_not_send_an_empty_header():
-    """בלי מפתח לא נשלחת כותרת ריקה — שדה ריק הוא רעש, לא הזדהות."""
-    from services.embedding_service import EmbeddingService
+def test_client_without_api_key_does_not_send_an_empty_header(monkeypatch):
+    """בלי מפתח לא נשלחת כותרת ריקה — שדה ריק הוא רעש, לא הזדהות.
 
-    svc = EmbeddingService(api_key="")
+    **הקבוע מנוטרל במפורש, ולא נסמכים על הסביבה.** ``__init__`` עושה
+    ``api_key or GEMINI_API_KEY``, ולכן ``api_key=""`` נופל חזרה לקבוע —
+    ואם ``GEMINI_API_KEY`` מוגדר בסביבה שבה הטסט רץ, הכותרת כן תישלח
+    והטסט ייכשל על קוד תקין. הקבוע נקרא בזמן הקריאה ולא נלכד בסגירה,
+    ולכן ``setattr`` על המודול חוסם את הנפילה-לאחור בלי תלות בסדר הייבוא.
+    """
+    from services import embedding_service as mod
+
+    monkeypatch.setattr(mod, "GEMINI_API_KEY", "")
+    svc = mod.EmbeddingService(api_key="")
+
+    assert svc.api_key == ""
     assert "x-goog-api-key" not in svc.client.headers
