@@ -1,6 +1,6 @@
 עובדי Push
 ===========
-:summary: מסלולי ה-Web Push של הבוט — המסלול המקומי ב-pywebpush ועובד ה-Node — החיבור ל-WebApp דרך push_api.py, ובדיקות.
+:summary: Web Push מקצה לקצה — דרישות ומפתחות VAPID, המסלול המקומי ב-pywebpush מול עובד ה-Node, החיבור ל-WebApp, מי שולח את התזכורות, צד הלקוח, ובדיקות.
 
 ל-Code Keeper Bot יש שני מסלולים לשליחת Web Push:
 
@@ -27,6 +27,23 @@
    ``nodejs_compat`` אינה פותרת את זה. מי שרוצה בכל זאת שולח Edge חייב לממש
    את פרוטוקול Web Push ישירות מול Web Crypto API ו-``fetch`` — לא דרך
    ``web-push``.
+
+דרישות מוקדמות
+---------------
+
+**דפדפנים.** Chrome, Edge, Firefox ואנדרואיד תומכים ישירות. ב-iOS פוש עובד
+**רק מתוך PWA מותקנת** (הוספה למסך הבית, iOS 16.4 ומעלה) — בלשונית רגילה
+בספארי אין פוש כלל, וזו הסיבה הנפוצה ביותר ל"לא מקבל התראות" באייפון.
+
+**מפתחות VAPID.** זוג מפתחות חובה בשני המסלולים. ייצור:
+
+.. code-block:: bash
+
+   npx web-push generate-vapid-keys
+
+**דגל ראשי.** ``PUSH_NOTIFICATIONS_ENABLED`` (ברירת מחדל ``true``). כיבוי
+עוצר את התזמון ואת השליחה, אבל **משאיר את נקודות הקצה זמינות** — כלומר
+הדפדפן עדיין יכול להירשם, ופשוט לא יקבל דבר.
 
 מסלול מקומי (pywebpush)
 ------------------------
@@ -63,6 +80,12 @@ Node Push Worker (``/push_worker``)
   - השוואת Bearer מתבצעת ב-constant time בעזרת ``crypto.timingSafeEqual``.
   - ה-Worker מאזין על ``127.0.0.1`` בלבד.
 
+**פריסה כשירות נפרד ב-Render.** ``render.push-worker.yaml`` מגדיר שירות
+Docker ל-``push_worker``. אפשר להעלות אותו כ-Blueprint, או ליצור שירות Web
+חדש שמצביע ל-``push_worker/Dockerfile``. משתני הסביבה שהשירות הזה צריך:
+``PUSH_DELIVERY_TOKEN``, ``WORKER_VAPID_PUBLIC_KEY``,
+``WORKER_VAPID_PRIVATE_KEY``, ``WORKER_VAPID_SUB_EMAIL``.
+
 .. important::
 
    הבינד ל-``127.0.0.1`` מתאים **רק לפריסת sidecar**, כלומר כשה-Worker
@@ -94,6 +117,9 @@ Node Push Worker (``/push_worker``)
       PUSH_REMOTE_DELIVERY_ENABLED=true
       PUSH_DELIVERY_URL=https://push-worker.example.com
       PUSH_DELIVERY_TOKEN=super-secret-token
+      PUSH_DELIVERY_TIMEOUT_SECONDS=3
+
+   ``PUSH_DELIVERY_URL`` הוא **בסיס בלי** ``/send`` — השרת מוסיף אותו בעצמו.
 
 2. אם עובדים מול Worker מקומי (באמצעות ``start_with_worker.sh``):
 
@@ -114,6 +140,56 @@ Node Push Worker (``/push_worker``)
    ``WORKER_VAPID_PUBLIC_KEY`` לסביבת ה-WebApp **משנה את המפתח שהדפדפן נרשם
    איתו**, ומשביתה בשקט את כל המנויים הקיימים. אחרי כל החלפת מפתחות יש למחוק
    את המנויים הישנים ולהירשם מחדש.
+
+מי שולח את התזכורות, ומתי
+--------------------------
+
+**לא ג'וב רשום ולא cron חיצוני, אלא thread בתוך תהליך ה-WebApp.**
+``webapp/push_api.py`` מרים thread דמון בשם ``push-sender``, שמריץ
+``_send_due_once()`` בלולאה ונרדם ``PUSH_SEND_INTERVAL_SECONDS`` בין סבב
+לסבב (ברירת מחדל 60 שניות, ורצפה של 20 גם אם הוגדר פחות).
+
+הסבב שולף מ-``note_reminders`` תזכורות שהגיע זמנן, ושולח לכל מנוי של
+המשתמש — במסלול המקומי ישירות עם ``pywebpush``, ובמסלול המרוחק דרך
+``POST /send`` של ה-Worker.
+
+.. important::
+
+   **רק תהליך אחד שולח.** לפני הרמת ה-thread נלקחת נעילת ``flock`` על
+   ``PUSH_SENDER_LOCK_FILE`` (ברירת מחדל ``/tmp/codebot-push-sender.lock``);
+   תהליך שלא השיג אותה פשוט אינו מרים שולח. בלי זה כל worker של gunicorn
+   היה שולח את אותה תזכורת. הנעילה היא **fail-open** — אם ``fcntl`` אינו
+   זמין, כל תהליך מרים שולח משלו.
+
+   מניעת הכפילות ברמת התזכורת עצמה היא נפרדת, ונשענת על ``_claim_reminder``
+   ועל דגל ``needs_push``.
+
+צד הלקוח
+---------
+
+**נקודות קצה בשרת:**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - נתיב
+     - תפקיד
+   * - ``GET /api/push/public-key``
+     - מחזיר ``{ok, vapidPublicKey}`` — המפתח שהדפדפן נרשם איתו
+   * - ``POST /api/push/subscribe``
+     - שומר מנוי למשתמש המחובר
+   * - ``DELETE /api/push/subscribe?endpoint=...``
+     - מסיר מנוי
+
+**Service Worker.** ``sw.js`` נטען משורש הסקופ (``/sw.js``) ומאזין
+ל-``push`` ול-``notificationclick``, כולל פעולות מהירות בהתראה עצמה:
+``open_note`` (פתיחת הפתק) ו-``snooze_10``/``snooze_60``/``snooze_1440``
+(דחייה ב-10 דקות, שעה, או יממה — מטופלת ב-SW עצמו).
+
+**הרשמה.** בעמוד ``/settings`` יש CTA שמבצע את הרצף המלא: רישום ה-Service
+Worker, בקשת הרשאה מהדפדפן, רישום Push מול המפתח הציבורי, ושליחת המנוי
+לשרת.
 
 בדיקות ועצות
 -------------
@@ -161,9 +237,31 @@ Node Push Worker (``/push_worker``)
    * - ``Registration failed - push service error``
      - שגיאת צד לקוח מ-Google Play Services במכשיר (שעון לא מסונכרן, חשבון Google חסר, GMS ישן). אינה קשורה לשרת.
 
+**ניסיונות חוזרים** – **אין ניסיון חוזר מיידי בכלל.** ``_post_to_worker()``
+שולח בקשה אחת ומחזיר, ואין סביבה לולאת retry.
+
+מה שכן קורה: ``needs_push`` מתנקה **רק בשליחה שהצליחה**. כל שליחה שלא
+הצליחה — מכל סוג, כולל ``4xx`` שאינו ``404``/``410`` — משאירה את הדגל
+דלוק, ולכן הסבב הבא של ``push-sender`` (ראו למעלה) יאסוף את אותה תזכורת
+וינסה שוב. הקצב הוא ``PUSH_SEND_INTERVAL_SECONDS``, לא backoff.
+
+מה **כן** מפסיק לחזור: ``404``/``410`` גוררים מחיקת ה-endpoint מ-
+``push_subscriptions``, ולכן המנוי המת אינו נשלף בסבב הבא. התזכורת עצמה
+עדיין תישלף כל עוד ``needs_push`` דלוק — כלומר כל עוד אף מנוי אחר של
+המשתמש לא הצליח.
+
+.. note::
+
+   בפועל המשמעות היא ש-``401``/``403`` — טוקן שגוי בין השרת ל-Worker, או
+   אי-התאמת VAPID — נשלחים שוב ושוב עד שמתקנים את הקונפיג. זו התנהגות
+   הקוד היום, לא המלצה: תיקון של הסיבה עדיף על המתנה לניסיון הבא.
+
 **X-Idempotency-Key** – ה-Worker מעביר את הכותרת הלאה בלבד, ושירותי הפוש
 מתעלמים ממנה. זוהי כותרת **מתאם ואבחון** לשיוך לוגים בין השרת ל-Worker,
 ו\ **אינה** מונעת שליחה כפולה. מניעת כפילויות אמיתית מתבצעת בצד השרת
 דרך ``_claim_reminder`` ודגל ``needs_push``.
+
+**בדיקות יחידה** – ``tests/test_push_api.py`` מכסה את ``public-key`` ואת
+``subscribe``/``unsubscribe``.
 
 **לוגים** – נרשם hash של ה-endpoint בלבד, ו-URLs מנוקים מהודעות שגיאה.
