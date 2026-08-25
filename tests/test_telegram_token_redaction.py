@@ -457,6 +457,54 @@ def test_compound_parameter_names_are_scrubbed_too():
         assert f"{name}=<REDACTED>" in cleaned, name
 
 
+def test_camel_case_parameter_names_are_scrubbed_too():
+    """**camelCase הוא אותו שם, בכתיב אחר.**
+
+    ``privateKey``, ``authToken`` ו-``xApiKey`` הם בדיוק ``private_key``,
+    ``auth_token`` ו-``x-api-key`` — ספקים כותבים בשני הכתיבים. תחילית
+    שמסתיימת רק במפריד תופסת חצי מהם.
+
+    נופל אם גבול ה-camelCase יוסר מהתחילית.
+    """
+    for name in ("privateKey", "authToken", "xApiKey", "refreshToken", "sessionToken"):
+        cleaned = redact_bot_token(f"https://example.com/cb?{name}=OPAQUE_SECRET_123")
+        assert "OPAQUE_SECRET_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+
+def test_camel_boundary_is_case_sensitive_inside_a_case_insensitive_pattern():
+    """**מלכודת ``(?i)``.** תחת דגל חוסר-רגישות-רישיות, ``[A-Z]`` תופס גם
+    אותיות קטנות — וגבול ה-camelCase מתדרדר ל"בין כל שתי אותיות". אז
+    ``?monkey=`` היה נתפס, כי ``mon`` + גבול + ``key`` "מתאים".
+
+    הגבול חייב להיות ב-``(?-i:...)``. הטסט הזה נועל את זה בנפרד משאר
+    בדיקות ה-``monkey`` כי הוא נוגע לסיבה אחרת לגמרי לאותה תוצאה.
+
+    נופל אם דגלי ה-``(?-i:...)`` יוסרו מהגבול.
+    """
+    for benign in ("?monkey=banana", "?donkey=1", "?turkey=2", "?keyId=42"):
+        assert redact_bot_token(benign) == benign, benign
+
+
+def test_over_redaction_of_benign_names_is_a_deliberate_choice():
+    """**ניקוי-יתר מכוון, ולא תופעת לוואי.**
+
+    ``search_key`` ו-``sort_token`` אינם סודות, וכן ינוקו: לפי **שם** אי
+    אפשר להבחין ביניהם לבין ``private_key``. הבחירה היא בין ניקוי-יתר של
+    ערך אבחוני לבין דליפת credential, וברשת של לוגים ו-Sentry הכיוון הוא
+    fail-closed. לשם השוואה, ``sanitize_url`` של Sentry מנקה **כל** ערך
+    בשאילתה כולל ``limit=5``; הכלל כאן צר ממנו.
+
+    הטסט קיים כדי שהתנהגות כזו לא תיראה כבאג בסבב הבא. נופל אם מישהו
+    יצמצם את התחילית לרשימת מקטעים מוכרים — וזה יהיה סימן להחלטה מודעת
+    ולא לתיקון שקט.
+    """
+    assert redact_bot_token("?search_key=price") == "?search_key=<REDACTED>"
+    assert redact_bot_token("?sort_token=abc") == "?sort_token=<REDACTED>"
+    # ומה שכן נשמר — פרמטרים שכנים שאינם נושאים שם רגיש
+    assert redact_bot_token("?page_key=3&limit=5") == "?page_key=<REDACTED>&limit=5"
+
+
 def test_a_sensitive_word_must_be_a_whole_segment_not_a_suffix():
     """**הגבול של התחילית.** המילה הרגישה חייבת להיות מקטע שלם בשם.
 
