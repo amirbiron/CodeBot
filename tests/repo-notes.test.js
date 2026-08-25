@@ -215,6 +215,53 @@ check('מעבר למסך הפתיחה (path=null) מפרק ולא משאיר מ�
   eq(sb.window.repoNotes.isEnabled(), false, 'כבוי');
 });
 
+check('החלפת תצוגה מרעננת את הפתקים הנעוצים', async () => {
+  // ``repo:view-changed`` מודיע שהגולל התחלף. בלי החיווט הזה הפתקים
+  // נשארים על ההיסט של הפאנל הקודם עד שהמשתמש גולל שוב.
+  //
+  // נופל אם המאזין ל-``repo:view-changed`` יוסר.
+  const sb = makeSandbox();
+  let refreshes = 0;
+  sb.window.StickyNotesManager = class {
+    constructor(opts) { this.opts = opts; this.destroyed = false; sb.__built.push(this); }
+    refreshPinned() { refreshes += 1; }
+    async destroy() { this.destroyed = true; }
+  };
+  sb.window.localStorage.setItem('repo-notes:CodeBot:a.py', '1');
+  sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'a.py' });
+  await sb.window.repoNotes.settled();
+  eq(sb.window.repoNotes.hasManager(), true, 'מנהל מורכב');
+
+  sb.document.dispatch('repo:view-changed', { markdown: true });
+
+  eq(refreshes, 1, 'המנהל התבקש למקם מחדש');
+});
+
+check('refreshPinned שזורק אינו שובר את הדף', async () => {
+  // **הטסט הקודם כאן היה חסר ערך:** הוא בדק ש"אין מנהל ולא נזרק כלום",
+  // וזה נכון גם בלי המאזין בכלל — dispatch שאיש אינו מאזין לו פשוט לא
+  // עושה דבר. הוא הגן על תוצאה ריקה, לא על התנהגות.
+  //
+  // מה שכן צריך הגנה הוא ה-guard: מנהל שהרענון שלו נכשל אסור שיפיל את
+  // הדפדפן. את עצם קיום המאזין מאמת הטסט שמעליו, שסופר קריאות.
+  //
+  // נופל אם ה-try/catch סביב ``refreshPinned`` יוסר.
+  const sb = makeSandbox();
+  sb.window.StickyNotesManager = class {
+    constructor(opts) { this.opts = opts; this.destroyed = false; sb.__built.push(this); }
+    refreshPinned() { throw new Error('רענון נכשל'); }
+    async destroy() { this.destroyed = true; }
+  };
+  sb.window.localStorage.setItem('repo-notes:CodeBot:c.py', '1');
+  sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'c.py' });
+  await sb.window.repoNotes.settled();
+  eq(sb.window.repoNotes.hasManager(), true, 'מנהל מורכב');
+
+  sb.document.dispatch('repo:view-changed', { markdown: true });   // אסור שיזרוק
+
+  eq(sb.window.repoNotes.hasManager(), true, 'והמנהל שרד');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);
