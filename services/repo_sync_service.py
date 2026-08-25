@@ -38,6 +38,7 @@ from pymongo.errors import (  # type: ignore
     ConnectionFailure,
     NetworkTimeout,
     NotPrimaryError,
+    PyMongoError,
     ServerSelectionTimeoutError,
 )
 
@@ -71,6 +72,35 @@ _RETRYABLE_MONGO_ERRORS = (
     ConnectionFailure,
     NetworkTimeout,
 )
+
+def _count_indexed_files(db: Any, repo_name: str) -> Optional[int]:
+    """כמה קבצים של הריפו נמצאים באינדקס, או ``None`` אם הספירה נכשלה.
+
+    **זו ההגדרה היחידה של ``total_files``**, ושני מסלולי הכתיבה (הייבוא
+    הראשוני והסנכרון) קוראים לה. קודם לכן הייבוא שמר ``len(code_files)``
+    — הקבצים שנבחרו לאינדוקס, כולל כאלה שהאינדוקס שלהם נכשל — והסנכרון
+    שמר ספירה אמיתית. ריפו שהייבוא שלו נתקל בשגיאות היה מציג מספר אחד,
+    ואחרי הסנכרון הראשון קופץ למספר אחר בלי ששום קובץ השתנה.
+
+    ``None`` נבדל מאפס בכוונה: ספירה שנכשלה אינה עדות שאין קבצים, והקורא
+    משאיר את הערך הקודם במקום לכתוב "0 files" על ריפו מלא.
+    """
+    try:
+        raw = db.repo_files.count_documents({"repo_name": repo_name})
+    except PyMongoError:
+        # תקלת מסד — הערך הקודם נשאר, והסנכרון הבא יתקן.
+        logger.warning("Failed to count repo_files for %s; total_files left unchanged", repo_name)
+        return None
+
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        # **זה אינו תקלת מסד אלא באג.** ``count_documents`` שמחזיר משהו
+        # שאינו מספר פירושו אדפטר שבור או סטאב שגוי, ולכן הוא נרשם ברמת
+        # ``error`` ולא נבלע יחד עם תקלות רשת חולפות.
+        logger.error("count_documents returned a non-numeric value for %s: %r", repo_name, raw)
+        return None
+
 
 def _claim_next_job(db: Any) -> Optional[Dict[str, Any]]:
     """תפיסת job בצורה אטומית ללא retry חיצוני.
@@ -309,6 +339,31 @@ def _run_sync_logic(
 
     # אם ה-SHA זהה, אין מה לעדכן
     if old_sha == new_sha:
+        # **גם כאן מרעננים את המונה.** בלי זה, סנכרון שבו הספירה נכשלה
+        # התקדם ל-SHA החדש וסומן כהושלם — והסנכרון הבא לאותו SHA יוצא
+        # כאן, לפני הספירה, ומשאיר את המספר הישן לתמיד. ספירה היא קריאה
+        # של המצב, ולכן המקום הנכון לתקן בו סחף הוא כל מסלול שמגיע לריפו.
+        refreshed = _count_indexed_files(db, repo_name)
+        if refreshed is not None:
+            try:
+                result = db.repo_metadata.update_one(
+                    {"repo_name": repo_name}, {"$set": {"total_files": refreshed}}
+                )
+                # **ערך ההחזרה נבדק, לא מושלך** (K11). ``$set`` שלא תפס
+                # שום מסמך אינו זורק — הוא פשוט לא עושה כלום, והריענון
+                # "מצליח" בשקט בזמן שהסנכרון מדווח ``up_to_date``.
+                if not getattr(result, "matched_count", 0):
+                    logger.warning(
+                        "total_files refresh matched no repo_metadata for %s", repo_name
+                    )
+            except PyMongoError:
+                logger.warning("Failed to refresh total_files for %s on up_to_date", repo_name)
+        # **בכוונה בלי ``upsert=True``,** בשונה משני מסלולי הכתיבה האחרים.
+        # הם כותבים את כל שדות המטא-דאטה ולכן יצירה שם היא מסמך שלם; כאן
+        # נכתב שדה יחיד, ו-upsert היה יוצר מסמך עם ``repo_name`` ו-
+        # ``total_files`` בלבד. ``/repo/api/repos`` מחזיר את **כל** מסמכי
+        # ``repo_metadata`` בלי פילטר, כך שמסמך כזה היה מופיע כריפו רפאים
+        # ברשימת הבחירה — בלי כתובת ובלי ענף.
         return {"status": "up_to_date", "message": "No changes"}
 
     # קבלת רשימת שינויים
@@ -366,17 +421,35 @@ def _run_sync_logic(
             stats["errors"] += 1
             logger.warning(f"Skipping file content for {file_path} (unable to read)")
 
+    # **מונה הקבצים נספר מחדש בכל סנכרון, ולא רק בייבוא הראשוני.**
+    #
+    # עד כאן ``total_files`` נכתב רק ב-``initial_import``, ולכן המספר
+    # שהוצג בדפדפן הריפו נשאר קפוא על מה שהיה ביום הייבוא — גם אחרי
+    # עשרות מיזוגים שהוסיפו ומחקו קבצים.
+    #
+    # הספירה היא של ``repo_files``, שהוא בדיוק מה ש-``total_files`` מייצג
+    # (בייבוא: ``len(code_files)``, כלומר הקבצים שנבחרו לאינדוקס). הסנכרון
+    # מסיר משם קבצים שנמחקו ושינויי שם, ולכן הספירה משקפת את המצב האמיתי.
+    #
+    # **למה ספירה ולא דלתא של added/removed:** דלתא מצטברת על ערך קודם,
+    # וכל כשל חלקי אחד — קובץ שדילגנו עליו, סנכרון שנקטע — נשאר בתוכה
+    # לתמיד. ספירה קוראת את המצב, ולכן היא מתקנת סחף שכבר נוצר במקום
+    # להנציח אותו.
+    total_files = _count_indexed_files(db, repo_name)
+
+    metadata_updates = {
+        "last_synced_sha": new_sha,
+        "last_sync_time": datetime.utcnow(),
+        "sync_status": "completed",
+        "last_sync_stats": stats,
+    }
+    if total_files is not None:
+        metadata_updates["total_files"] = total_files
+
     # עדכון metadata
     db.repo_metadata.update_one(
         {"repo_name": repo_name},
-        {
-            "$set": {
-                "last_synced_sha": new_sha,
-                "last_sync_time": datetime.utcnow(),
-                "sync_status": "completed",
-                "last_sync_stats": stats,
-            }
-        },
+        {"$set": metadata_updates},
         upsert=True,
     )
 
@@ -698,7 +771,44 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
             error_count += 1
             logger.warning(f"Skipping file content for {file_path} (unable to read)")
 
+    # 4.5 יישוב האינדקס מול הריפו.
+    #
+    # ``index_file`` הוא upsert לפי ``(repo_name, path)``, ולכן ייבוא חוזר
+    # על מראה קיימת מעדכן ומוסיף — אבל **לעולם לא מסיר** נתיבים שכבר אינם
+    # בריפו. הרפאים האלה אינם רק מספר: הם מופיעים בעץ הקבצים ובחיפוש.
+    # הסנכרון האינקרמנטלי כבר עושה בדיוק את זה (``remove_files`` על
+    # ``changes["removed"]``); כאן זה חסר.
+    #
+    # המחיקה היא **הפרש מפורש** ולא גורף: הנתיבים שקיימים באינדקס פחות
+    # אלה שנבחרו עכשיו לאינדוקס, ורק דרך ``remove_files`` הקיים.
+    #
+    # **התנאי הוא ``is not None`` ולא "לא ריק".** רשימה ריקה אינה כשל אלא
+    # ריפו ריק — כשל בליסטינג מוחזר כ-``None`` ומחזיר שגיאה עוד למעלה,
+    # לפני שמגיעים לכאן. עם הבדיקה הקודמת, ריפו שכל קבציו נמחקו היה נשאר
+    # עם אינדקס מלא רפאים: הם ממשיכים להופיע בעץ ובחיפוש, ומאז שהמונה
+    # נספר מהאינדקס — גם מנפחים אותו.
+    if all_files is not None:
+        try:
+            existing_paths = set(db.repo_files.distinct("path", {"repo_name": repo_name}))
+        except PyMongoError:
+            existing_paths = None
+            logger.warning("Could not list indexed paths for %s; skipping reconcile", repo_name)
+        if existing_paths is not None:
+            stale_paths = sorted(existing_paths - set(code_files))
+            if stale_paths:
+                removed = indexer.remove_files(repo_name, stale_paths)
+                logger.info(
+                    "Reconcile: removed %s stale indexed paths for %s", removed, repo_name
+                )
+
     # 5. שמירת metadata (כולל default_branch לשימוש בחיפוש ובסנכרון)
+    #
+    # ספירה אמיתית של מה שנכנס לאינדקס — אחרי היישוב, ולכן בלי רפאים.
+    # נפילה חוזרת ל-``indexed_count`` שנספר בלולאה, שקרוב יותר לאמת
+    # מ-``len(code_files)`` שכולל גם קבצים שנכשלו.
+    counted = _count_indexed_files(db, repo_name)
+    imported_count = counted if counted is not None else indexed_count
+
     db.repo_metadata.update_one(
         {"repo_name": repo_name},
         {
@@ -707,7 +817,11 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
                 "default_branch": default_branch,  # חשוב! לשימוש ב-git grep וב-sync
                 "last_synced_sha": current_sha,
                 "last_sync_time": datetime.utcnow(),
-                "total_files": len(code_files),
+                # אותה הגדרה בדיוק כמו במסלול הסנכרון — הקבצים שבאמת
+                # נכנסו לאינדקס. ``len(code_files)`` היה סופר גם כאלה
+                # שהאינדוקס שלהם נכשל, ולכן ריפו עם שגיאות ייבוא היה קופץ
+                # למספר אחר בסנכרון הראשון בלי ששום קובץ השתנה.
+                "total_files": imported_count,
                 "sync_status": "completed",
                 "initial_import": True,
             }
@@ -719,8 +833,8 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
 
     return {
         "status": "completed",
-        # עקביות מול מה שנשמר ב-MongoDB: total_files = מספר הקבצים שבחרנו לאנדקס (code_files)
-        "total_files": len(code_files),
+        # עקביות מול מה שנשמר ב-MongoDB: אותו ערך בדיוק
+        "total_files": imported_count,
         # שדה נוסף למספר כל הקבצים בריפו (כולל לא-מאונדקסים)
         "total_git_files": len(all_files),
         "code_files": len(code_files),

@@ -48,6 +48,14 @@ def client(monkeypatch):
         {"_id": 2, "user_id": 7, "board_id": "board-xyz"},
         {"_id": 3, "user_id": 7},                      # פתק בלי יעד — לא אמור לקרות
         {"_id": 4, "user_id": 99, "file_id": "other"},  # של משתמש אחר
+        {"_id": 5, "user_id": 7, "repo_name": "CodeBot", "repo_path": "webapp/app.py"},
+        {"_id": 6, "user_id": 7, "repo_name": "CodeBot", "repo_path": "docs/a&b.rst"},
+        {"_id": 7, "user_id": 7, "repo_name": "CodeBot"},   # חצי יעד — לא אמור לקרות
+        # מסמכים פגומים: לא אמורים להיווצר דרך ה-API, אבל הראוט לא סומך על זה
+        {"_id": 8, "user_id": 7, "repo_name": "evil.com/x", "repo_path": "a.py"},
+        {"_id": 9, "user_id": 7, "repo_name": "CodeBot", "repo_path": "../../etc/passwd"},
+        {"_id": 10, "user_id": 7, "repo_name": "//evil.com", "repo_path": "a.py"},
+        {"_id": 11, "user_id": 7, "repo_name": "CodeBot\n", "repo_path": "a.py"},
     ])
     db = type("DB", (), {"sticky_notes": notes})()
 
@@ -165,3 +173,81 @@ def test_push_projection_includes_board_id():
     projection = text[text.index("    projection = {"):]
     projection = projection[:projection.index("}")]
     assert '"board_id": 1' in projection
+
+
+def test_repo_note_redirects_to_the_repo_browser(client):
+    """**זה המקרה שהיה שבור אחרי הוספת היעד השלישי.**
+
+    ``note_permalink`` הכיר ``file_id`` ו-``board_id`` בלבד, ולכן פתק על
+    קובץ בריפו נפל אל ``/boards`` — לחיצה על תזכורת הביאה את המשתמש
+    ללוחות במקום לקובץ שהפתק יושב עליו.
+
+    היעד הוא SPA: הריפו ב-query והקובץ ב-hash, בדיוק כפי ש-``updateUrlHash``
+    בונה.
+
+    נופל אם הראוט מפסיק להכיר פתקי ריפו.
+    """
+    res = client.get('/note/5')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/repo/?repo=CodeBot&note=5#file=webapp/app.py'
+
+
+def test_repo_note_target_is_url_encoded(client):
+    """נתיב עם ``&`` חייב לעבור קידוד, אחרת הוא שובר את מבנה ה-URL.
+
+    **דווקא ``&`` ולא רווח:** Werkzeug מקודד רווחים בכותרת ``Location``
+    בעצמו (נמדד), ולכן נתיב עם רווח היה עובר גם בלי ``quote`` — טסט
+    שנראה מגן ואינו מגן. ``&`` אינו מקודד, ובלעדיו ``#file=docs/a&b.rst``
+    מתפרק ב-``URLSearchParams`` לשני פרמטרים והקובץ פשוט לא נפתח.
+
+    הלוכסנים **אינם** מקודדים בכוונה: הם מבנה הנתיב, לא תו בתוך שם.
+    """
+    res = client.get('/note/6')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/repo/?repo=CodeBot&note=6#file=docs/a%26b.rst'
+
+
+def test_half_repo_target_falls_back_to_boards(client):
+    """``repo_name`` בלי ``repo_path`` אינו יעד — לא בונים ממנו קישור."""
+    res = client.get('/note/7')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/boards'
+
+
+# ---------- אימות הערכים לפני בניית ההפניה ----------
+
+@pytest.mark.parametrize("note_id", [8, 10, 11])
+def test_malformed_repo_name_falls_back_to_boards(client, note_id):
+    """``repo_name`` שאינו תואם את דפוס המראה אינו מייצר הפניה.
+
+    הערכים מגיעים ממסמך הפתק — קלט שהגיע פעם ממשתמש — ולכן CodeQL מסמן
+    את הזרימה אל ``redirect`` (``py/url-redirection``). היעד אמנם מתחיל
+    תמיד בליטרל ``/repo/`` ולכן אינו יכול לצאת מהאתר, אבל מסמך פגום
+    ממסלול כתיבה עתידי או ממיגרציה לא אמור לייצר כאן קישור בכלל.
+
+    ``11`` הוא המקרה שמצדיק ``fullmatch``: ב-Python ``$`` תואם גם **לפני**
+    תו שורה חדשה בסוף, ולכן ``"CodeBot\\n"`` עובר את ``match`` ונדחה רק
+    ב-``fullmatch``.
+
+    נופל אם האימות מול ``REPO_NAME_PATTERN`` יוסר, או יחזור ל-``match``.
+    """
+    res = client.get(f'/note/{note_id}')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/boards'
+
+
+def test_traversal_repo_path_falls_back_to_boards(client):
+    """נתיב עם ``..`` מנוקה ל-ריק ע"י ``normalize_repo_path`` — ואז אין יעד.
+
+    זו אותה פונקציה שכתבה את הנתיב מלכתחילה, כך ששני הקצוות מתכנסים.
+
+    נופל אם הראוט יקרא את ``repo_path`` הגולמי במקום לנרמל.
+    """
+    res = client.get('/note/9')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/boards'

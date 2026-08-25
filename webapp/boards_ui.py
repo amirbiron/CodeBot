@@ -7,6 +7,8 @@ Note Boards UI routes (server-rendered pages).
 """
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from flask import Blueprint, redirect, render_template, session
 
 try:  # type: ignore
@@ -66,7 +68,7 @@ def note_permalink(note_id: str):
         db = get_db()
         note = db.sticky_notes.find_one(
             {'_id': ObjectId(str(note_id)), 'user_id': int(session['user_id'])},
-            {'file_id': 1, 'board_id': 1},
+            {'file_id': 1, 'board_id': 1, 'repo_name': 1, 'repo_path': 1},
         )
     except Exception:
         note = None
@@ -82,5 +84,39 @@ def note_permalink(note_id: str):
     file_id = str(note.get('file_id') or '')
     if file_id:
         return redirect(f'/md/{file_id}?note={note_id}')
+
+    # פתק על קובץ בריפו ממורר. **זה היה חסר** — הפונקציה הכירה שני סוגי
+    # יעד בלבד, ולכן פתק ריפו נפל אל ``/boards`` הכללי: לחיצה על תזכורת
+    # הביאה את המשתמש ללוחות במקום לקובץ שהפתק יושב עליו.
+    #
+    # דפדפן הריפו הוא SPA: הריפו נבחר ב-query, והקובץ ב-hash — זה בדיוק
+    # מה ש-``updateUrlHash`` בונה, ולכן הקישור נפתח על אותו מצב שהמשתמש
+    # היה בו.
+    #
+    # **שני הערכים מאומתים כאן מחדש, מול אותו חוזה שיצר אותם**, ולא רק
+    # מקודדים. מקור הערכים הוא מסמך הפתק, כלומר קלט שהגיע פעם ממשתמש —
+    # ו-CodeQL מסמן בצדק זרימה כזו אל ``redirect`` (``py/url-redirection``).
+    # היעד כאן אמנם מתחיל תמיד בליטרל ``/repo/`` ולכן אינו יכול לצאת מהאתר,
+    # אבל אימות מפורש עדיף על הסתמכות על צורת המחרוזת: מסמך עם ``repo_name``
+    # פגום — ממסלול כתיבה עתידי, ממיגרציה, מגיבוי — לא ייצר כאן קישור מוזר
+    # אלא ייפול לברירת המחדל.
+    #
+    # ``REPO_NAME_PATTERN`` מיובא ולא משוכפל: אותו דפוס כבר מוקלד בשלושה
+    # מקומות, ורביעי היה מבטיח שהם ייפרדו. ``normalize_repo_path`` היא
+    # בדיוק הפונקציה שכתבה את הנתיב, ולכן הקריאה כאן מתכנסת לאותה צורה
+    # (והיא גם דוחה traversal ומחזירה מחרוזת ריקה).
+    from services.git_mirror_service import GitMirrorService
+    from sticky_notes_target import normalize_repo_path
+
+    repo_name = str(note.get('repo_name') or '')
+    repo_path = normalize_repo_path(note.get('repo_path'))
+    # ``fullmatch`` ולא ``match``: ב-Python ``$`` תואם גם **לפני** תו שורה
+    # חדשה בסוף, ולכן ``"CodeBot\n"`` היה עובר את הדפוס. עם ``quote`` הוא
+    # לא היה שובר את ה-URL, אבל אימות שמקבל ערך שהוא עצמו פוסל אינו אימות.
+    if repo_name and repo_path and GitMirrorService.REPO_NAME_PATTERN.fullmatch(repo_name):
+        return redirect(
+            f'/repo/?repo={quote(repo_name, safe="")}&note={note_id}'
+            f'#file={quote(repo_path, safe="/")}'
+        )
 
     return redirect('/boards')

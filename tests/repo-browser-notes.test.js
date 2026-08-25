@@ -521,6 +521,62 @@ check('עיטור שאחרי enhance אינו חל על התצוגה של הקו
   eq(decorated.length, 0, 'שום עיטור לא הוחל');
 });
 
+// -- החלפת תצוגה מודיעה, כדי שהפתקים הנעוצים ימוקמו מחדש --
+
+check('מעבר לתצוגת Markdown פולט repo:view-changed', async () => {
+  // הגולל מתחלף בין הפאנלים, ואין כאן אירוע גלילה שיגרום למיקום מחדש.
+  // בלי ההודעה, פתק נעוץ נשאר על ההיסט של הפאנל הקודם.
+  //
+  // נופל אם הפליטה תוסר מ-``enableMarkdownPreview``.
+  const sb = makeSandbox();
+  sb.MarkdownLiveRenderer = {
+    isSupported: () => true,
+    renderWithAnchors: async () => ({ html: 'x', anchors: [] }),
+    enhance: async () => {},
+  };
+  sb.ensureHighlightJsLoaded = async () => {};
+  sb.applySyntaxHighlighting = () => {};
+  sb.setupMarkdownAnchorScrolling = () => {};
+
+  await sb.__real.enableMarkdownPreview();
+
+  const changed = sb.__events.filter((e) => e.type === 'repo:view-changed');
+  eq(changed.length, 1, 'אירוע אחד נפלט');
+  eq(changed[0].markdown, true, 'ומדווח שהתצוגה היא Markdown');
+});
+
+check('חזרה לתצוגת קוד פולטת גם היא', async () => {
+  // הצד השני: כיבוי התצוגה מחליף את הגולל חזרה.
+  //
+  // נופל אם הפליטה תוסר מ-``disableMarkdownPreview``.
+  const sb = makeSandbox();
+  sb.__real.disableMarkdownPreview();
+
+  const changed = sb.__events.filter((e) => e.type === 'repo:view-changed');
+  eq(changed.length, 1, 'אירוע אחד נפלט');
+  eq(changed[0].markdown, false, 'ומדווח שהתצוגה היא קוד');
+});
+
+check('בניית העורך מודיעה — הגולל נהיה זמין רק אז', async () => {
+  // **התרחיש שנפל:** קובץ ``.md`` נפתח ישר בתצוגת Markdown, והמשתמש עובר
+  // לקוד. ``disableMarkdownPreview`` פולט מיד, אבל ``CodeMirror`` נבנה רק
+  // אחריו ב-``ensureCodeViewerInitialized`` — כלומר ברגע הפליטה הגולל של
+  // הקוד עדיין לא קיים, הרענון היה no-op, ואירוע נוסף לא הגיע. הפתקים
+  // נשארו על הקואורדינטות של פאנל ה-Markdown.
+  //
+  // נופל אם הפליטה תוסר מסיום בניית העורך.
+  const sb = makeSandbox();
+  const fake = withFakeEditor(sb);
+  sb.__events.length = 0;
+
+  const building = sb.__real.initCodeViewer('תוכן', 'python');
+  fake.releaseRuntime();
+  await building;
+
+  const changed = sb.__events.filter((e) => e.type === 'repo:view-changed');
+  eq(changed.length, 1, 'נפלט אחרי שהעורך נבנה');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);

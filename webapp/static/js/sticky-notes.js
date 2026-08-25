@@ -221,6 +221,10 @@
       // והיעדר מצב ``anchored`` — נשען על הדגל הזה ולא על ``boardId``.
       // מסלול הקובץ יוצא ביט-זהה: אצלו הדגל כבוי, כמו שהתנאי הקודם היה.
       this._surfaceTarget = !!(this.boardId || this.repoTarget);
+      // פותר הגולל הפנימי — פונקציה או אלמנט. ראו ``_innerScroller``.
+      this._scrollerResolver = (typeof opts.scroller === 'function')
+        ? opts.scroller
+        : (opts.scroller ? () => opts.scroller : null);
 
       // הפתקים נכנסים לקונטיינר הזה. בקובץ זה ה-body, כפי שהיה; בלוח זה
       // משטח הלוח, כי פתק "מעוגן ללוח" הוא absolute יחסית אליו ולא למסמך.
@@ -333,6 +337,14 @@
           const reflow = () => this._reflowWithinViewport();
           this._on(window.visualViewport, 'resize', reflow, { passive: true });
           this._on(window.visualViewport, 'scroll', reflow, { passive: true });
+        }
+        // **גלילה פנימית — בשלב הלכידה.** אירוע ``scroll`` אינו מבעבע,
+        // אבל מאזין בלכידה על אב כן מקבל אותו. כך תופסים גם את
+        // ``CodeMirror`` וגם את תצוגת ה-Markdown בלי לאתר מי מהם פעיל,
+        // ובלי להיקשר לאלמנט שנבנה מחדש בכל קובץ.
+        if (this.repoTarget && this.container) {
+          this._on(this.container, 'scroll', () => this._updatePinnedForScroll(),
+                   { capture: true, passive: true });
         }
         this._setupLifecycleGuards();
         this._setupDomObservers();
@@ -868,6 +880,104 @@
       //
       // מסלול הקובץ יוצא ביט-זהה: כל ענף שאינו קונטיינר ממוקם מחזיר
       // ``-scroll``, ואז ``rect.left - (-scroll.x)`` הוא בדיוק החישוב הישן.
+      /**
+       * הגולל הפנימי של המשטח, או ``null`` אם אין כזה.
+       *
+       * **המנהל אינו יודע לאתר אותו בעצמו, ובכוונה.** מי שמכיר את מבנה
+       * התצוגה — ``repo-notes.js`` בדפדפן הריפו — מזריק פותר דרך
+       * ``opts.scroller``, בדיוק כמו ``container`` ו-``anchorHost``.
+       * סלקטורים של ``CodeMirror`` או של תצוגת ה-Markdown בתוך המנהל
+       * הגנרי היו הופכים כל שינוי מחלקה אצל הרנדרר לשבירה שקטה של
+       * מיקום הפתקים, במקום ליפול אצל מי שאחראי עליו.
+       *
+       * הפותר נקרא בכל פעם מחדש ולא נשמר: ``CodeMirror`` נבנה מחדש בכל
+       * קובץ, ומתג ה-Markdown מחליף בין שני פאנלים שונים.
+       */
+      _innerScroller(){
+        try {
+          return (this._scrollerResolver && this._scrollerResolver()) || null;
+        } catch(_) { return null; }
+      }
+
+      /**
+       * ההיסט בין מרחב האחסון למרחב הרינדור, בפיקסלים.
+       *
+       * פתק ריפו במצב ``surface`` נשמר במרחב **התוכן** — המקום שלו בתוך
+       * הקובץ — ומרונדר במרחב **הקונטיינר**. ההפרש הוא מיקום הגולל בתוך
+       * הקונטיינר פחות כמה כבר נגללנו בו.
+       *
+       * בכל שאר המקרים (לוח, קובץ, מצב ``screen``) אין גולל פנימי וההיסט
+       * הוא אפס — כלומר ההתנהגות שלהם אינה משתנה כלל.
+       */
+      _surfaceScrollShift(){
+        const none = { x: 0, y: 0 };
+        try {
+          const sc = this._innerScroller();
+          if (!sc || !this.container || !this.container.getBoundingClientRect) return none;
+          const cr = this.container.getBoundingClientRect();
+          const sr = sc.getBoundingClientRect();
+          const x = (sr.left - cr.left) - (sc.scrollLeft || 0);
+          const y = (sr.top - cr.top) - (sc.scrollTop || 0);
+          return {
+            x: Number.isFinite(x) ? x : 0,
+            y: Number.isFinite(y) ? y : 0,
+          };
+        } catch(_) { return none; }
+      }
+
+      /**
+       * מסתיר פתק נעוץ שנגלל אל מחוץ לתחום הנראה של הגולל.
+       *
+       * בלי זה הפתק היה ממשיך לצוף מעל שורת הכפתורים והכותרת כשגוללים
+       * רחוק — ``absolute`` בקונטיינר אינו נחתך ע"י הגולל הפנימי, כי הוא
+       * אינו יושב בתוכו.
+       *
+       * ``visibility`` ולא ``display``: הפתק נשאר מדיד, כך שגרירה
+       * ושמירה שקורות באותו רגע אינן מקבלות מלבן אפס.
+       */
+      _updatePinnedVisibility(el, scrollerRect){
+        try {
+          if (!el || !el.style) return;
+          let sr = scrollerRect;
+          if (!sr) {
+            const sc = this._innerScroller();
+            if (!sc) return;
+            sr = sc.getBoundingClientRect();
+          }
+          const er = el.getBoundingClientRect();
+          const out = (er.bottom < sr.top) || (er.top > sr.bottom);
+          el.style.visibility = out ? 'hidden' : '';
+        } catch(_) {}
+      }
+
+      /** מרענן את כל הפתקים הנעוצים אחרי גלילה פנימית. */
+      /**
+       * ממקם מחדש את הפתקים הנעוצים — קרס ציבורי לצרכן.
+       *
+       * הגלילה מטפלת בעצמה, אבל **החלפת הגולל** אינה מייצרת אירוע גלילה:
+       * מעבר בין תצוגת קוד לתצוגת Markdown מחליף פאנל, והפתקים היו
+       * נשארים על ההיסט של הקודם עד שהמשתמש גולל שוב. מי שיודע שהתצוגה
+       * התחלפה (``repo-notes``) קורא לכאן.
+       */
+      refreshPinned(){ this._updatePinnedForScroll(); }
+
+      _updatePinnedForScroll(){
+        try {
+          if (!this.repoTarget) return;
+          const sc = this._innerScroller();
+          if (!sc) return;
+          // **שני חישובי פריסה לאירוע, לא שניים לכל פתק.** קריאת
+          // ``getBoundingClientRect`` מכריחה את הדפדפן לחשב פריסה, ובגלילה
+          // רציפה זה קורה בכל פריים.
+          const posCtx = { shift: this._surfaceScrollShift(), scrollerRect: sc.getBoundingClientRect() };
+          for (const entry of this.notes.values()){
+            const el = entry && entry.el;
+            if (!el || !el.classList || !el.classList.contains('is-pinned')) continue;
+            this._applyPositionMode(el, entry.data, { reflow: false, posCtx });
+          }
+        } catch(_) {}
+      }
+
       _positionOrigin(el, mode){
         const scroll = getScrollOffsets();
         const docOrigin = { x: -scroll.x, y: -scroll.y };
@@ -884,9 +994,15 @@
           const r = parent.getBoundingClientRect();
           // קופסת ה-padding של האב הממוקם, לפני הגלילה הפנימית שלו —
           // בדיוק המרחב ש-``left``/``top`` של ילד ``absolute`` נמדדים בו.
+          // בפתק ריפו נעוץ, ראשית מרחב האחסון היא תחילת **התוכן** ולא
+          // תחילת הקונטיינר — ולכן ההיסט נכנס כאן. זו נקודת ההמרה
+          // היחידה, ולכן הגרירה והשמירה מתיישרות מאליהן.
+          const shift = (this.repoTarget && resolved === 'surface')
+            ? this._surfaceScrollShift()
+            : { x: 0, y: 0 };
           return {
-            x: r.left + (parent.clientLeft || 0) - (parent.scrollLeft || 0),
-            y: r.top + (parent.clientTop || 0) - (parent.scrollTop || 0)
+            x: r.left + (parent.clientLeft || 0) - (parent.scrollLeft || 0) + shift.x,
+            y: r.top + (parent.clientTop || 0) - (parent.scrollTop || 0) + shift.y
           };
         } catch(_) { return docOrigin; }
       }
@@ -1742,15 +1858,25 @@
               const clamped = this._clampToSurface(el, targetX, targetY, note);
               targetX = clamped.x; targetY = clamped.y;
             }
-            el.style.left = targetX + 'px';
-            el.style.top = targetY + 'px';
+            // ההמרה ההפוכה ל-``_positionOrigin``: המיקום נשמר במרחב
+            // התוכן, ומרונדר במרחב הקונטיינר. בלוח ובקובץ ההיסט אפס.
+            // ``opts.posCtx`` מגיע מ-``_updatePinnedForScroll``, שמחשב את
+            // ההיסט ואת מלבן הגולל **פעם אחת** לכל אירוע גלילה. בלעדיו כל
+            // פתק היה מכריח שני חישובי פריסה משלו, בכל פריים של גלילה.
+            const ctx = (opts && opts.posCtx) || null;
+            const shift = ctx ? ctx.shift
+              : (this.repoTarget ? this._surfaceScrollShift() : { x: 0, y: 0 });
+            el.style.left = (targetX + shift.x) + 'px';
+            el.style.top = (targetY + shift.y) + 'px';
             el.dataset.pinned = 'true';
+            if (this.repoTarget) this._updatePinnedVisibility(el, ctx && ctx.scrollerRect);
             if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
             if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
             if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
           } else if (isAnchored) {
             el.classList.add('is-pinned');
             el.classList.remove('is-floating');
+            el.style.visibility = '';   // מאותה סיבה כמו בענף הצף
             el.style.position = 'absolute';
             let targetX = (typeof note.position?.x === 'number') ? note.position.x : currentAbsX;
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
@@ -1765,6 +1891,10 @@
           } else {
             el.classList.add('is-floating');
             el.classList.remove('is-pinned');
+            // **ניקוי ההסתרה.** ``_updatePinnedVisibility`` מסתיר פתק נעוץ
+            // שנגלל מחוץ לתחום; פתק שהוסתר כך ואז הועבר ל"צף" היה נשאר
+            // בלתי נראה לתמיד — הענף הזה לא כתב ל-``visibility`` בכלל.
+            el.style.visibility = '';
             el.style.position = 'fixed';
             if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
             const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);
