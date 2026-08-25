@@ -472,6 +472,25 @@ def test_camel_case_parameter_names_are_scrubbed_too():
         assert f"{name}=<REDACTED>" in cleaned, name
 
 
+def test_camel_boundary_accepts_a_digit_on_its_left_side():
+    """**ספרה לפני האות הגדולה — לא מקרה קצה, אלא הנפוץ.**
+
+    גרסאות ואלגוריתמים נכנסים לשמות של פרמטרים כמעט תמיד: ``v2Token``,
+    ``oauth2Token``, ``sha256Token``, ``x509Key``. גבול שמוגדר "אות קטנה
+    ← אות גדולה" בלבד מפספס את כולם.
+
+    נופל אם ה-``0-9`` יוסר מהצד השמאלי של הגבול.
+    """
+    for name in ("v2Token", "oauth2Token", "sha256Token", "x509Key", "md5Secret"):
+        cleaned = redact_bot_token(f"https://example.com/cb?{name}=OPAQUE_SECRET_123")
+        assert "OPAQUE_SECRET_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+    # והצד השני: בלי מעבר לאות גדולה אין גבול, ולכן אין מקטע
+    assert redact_bot_token("?v2token=x") == "?v2token=x"
+    assert redact_bot_token("?sha256=abc") == "?sha256=abc"
+
+
 def test_camel_boundary_is_case_sensitive_inside_a_case_insensitive_pattern():
     """**מלכודת ``(?i)``.** תחת דגל חוסר-רגישות-רישיות, ``[A-Z]`` תופס גם
     אותיות קטנות — וגבול ה-camelCase מתדרדר ל"בין כל שתי אותיות". אז
