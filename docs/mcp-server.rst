@@ -74,6 +74,19 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
    * - ``codekeeper_update_note``
      - **כתיבה:** עדכון חלקי של פתק לפי ``note_id`` (תוכן/שורה/צבע/מוזער)
        — דורס במקום, אין היסטוריית גרסאות לפתקים. דורש ``write``
+   * - ``codekeeper_list_boards``
+     - הלוחות של המשתמש — משטחים שנושאים פתקים שאינם שייכים לשום קובץ.
+       מייצר את לוח ברירת המחדל בקריאה הראשונה
+   * - ``codekeeper_list_board_notes``
+     - הפתקים שעל לוח יחיד (לפי ``board_id`` מתוך ``codekeeper_list_boards``)
+   * - ``codekeeper_create_board_note``
+     - **כתיבה:** פתק חדש על לוח — בלי קובץ. ``mode`` הוא ``surface``
+       (יושב על הלוח, ברירת מחדל) או ``screen`` (צף מול המסך). ``title``
+       אופציונלי, וייחודי בתוך הלוח. דורש ``write``
+   * - ``codekeeper_search_notes``
+     - חיפוש פתק **לפי שם** בשלושת המקומות שפתק יכול לשבת בהם — קובץ, לוח,
+       או קובץ בריפו משוקף. כל פגיעה אומרת איפה הפתק יושב, בדיוק
+       בארגומנטים שכלי הרשימה המתאים דורש. אינו מחפש בתוכן הפתק
    * - ``codekeeper_list_collections`` / ``codekeeper_get_collection`` / ``codekeeper_get_collection_items``
      - האוספים והקבצים שבתוכם
    * - ``codekeeper_docs_get_section``
@@ -97,12 +110,24 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
      - תוכן קובץ בודד (עד 500KB; קובץ בינארי → מטא-דאטה בלבד)
    * - ``codekeeper_search_repo``
      - חיפוש טקסט בריפו (קטעים קצרים עם path+line, עם תקרות)
+   * - ``codekeeper_list_repo_notes``
+     - פתקים דביקים על קובץ בריפו משוקף (``repo_name`` + ``repo_path``) —
+       אותם פתקים שמוצגים בדפדפן הריפו בוובאפ. מחזיר ``orphaned: true``
+       כשהנתיב כבר אינו בעץ המשוקף, והפתקים עצמם חוזרים בכל מקרה
+   * - ``codekeeper_create_repo_note``
+     - **כתיבה:** פתק חדש על קובץ בריפו משוקף. ``mode`` כמו בלוח;
+       ``title`` אופציונלי, וייחודי על אותו קובץ. דורש ``write``
 
 .. note::
 
    דפדפן הריפו הוא **קריאה בלבד לצמיתות** (החלטת עיצוב) — אין, ולא תתווסף,
    עריכה/``commit``/``push`` לריפו GitHub. ה-mirrors בדיסק הם רפליקה
    חד-כיוונית מ-GitHub (מקור האמת), וה-MCP לעולם לא כותב אליהם.
+
+   ``codekeeper_create_repo_note`` **אינו** יוצא מן הכלל הזה. הפתק נכתב
+   לאוסף ``sticky_notes`` שב-CodeKeeper, והוא הערה **על** הקובץ ולא שינוי
+   בו — לא ב-mirror ולא בריפו ב-GitHub. כתוב כאן כדי שאיש לא יסיק אחרת
+   משם הכלי.
 
 אימות והרשאות
 --------------
@@ -121,11 +146,19 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
 - ``read`` — ברירת המחדל לכל חיבור.
 - ``write`` — נדרש לכלי הכתיבה (``codekeeper_save_file`` /
   ``codekeeper_edit_file`` / ``codekeeper_append_file`` /
-  ``codekeeper_create_note`` / ``codekeeper_update_note``); ניתן רק באישור
-  מפורש (מסך ההרשאה ב-Claude.ai או טוקן ``write`` מהבוט).
+  ``codekeeper_create_note`` / ``codekeeper_create_board_note`` /
+  ``codekeeper_create_repo_note`` / ``codekeeper_update_note``); ניתן רק
+  באישור מפורש (מסך ההרשאה ב-Claude.ai או טוקן ``write`` מהבוט).
 - **אדמין** — כלי הריפו זמינים רק למשתמשים שב-``ADMIN_USER_IDS``; לכל אחד
   אחר הם
   גם לא מופיעים ברשימת הכלים וגם נחסמים בקריאה ישירה (fail-closed).
+  זה חל גם על שני כלי **פתקי** הריפו, אף שהם אינם נוגעים ב-mirror.
+  ``codekeeper_create_repo_note`` הוא הכלי היחיד שעובר שני שערים, ובסדר
+  הזה: אדמין ואז כתיבה. בסדר ההפוך משתמש רגיל היה מקבל "צריך הרשאת
+  כתיבה" — רמז שטוקן אחר יפתח לו את הכלי, וזה אינו נכון.
+- ``codekeeper_search_notes`` **אינו** כלי אדמין, אף שהוא מוצא גם פתקי
+  ריפו: הוא מסונן ל-``user_id`` של הקורא ולכן יכול להחזיר רק פתקים שלו,
+  ומשתמש רגיל אינו יכול ליצור פתק ריפו מלכתחילה.
 
 .. _agent-primer:
 
@@ -420,7 +453,20 @@ Claude Desktop
    * - ``insufficient_scope`` בשמירה
      - חיבור בקריאה בלבד — חברו מחדש עם write (או ``/connect_claude write``)
    * - ``admin_only`` בכלי ריפו
-     - ה-user_id אינו ב-``ADMIN_USER_IDS`` בשירות ה-MCP
+     - ה-user_id אינו ב-``ADMIN_USER_IDS`` בשירות ה-MCP. חל גם על
+       ``codekeeper_list_repo_notes`` / ``codekeeper_create_repo_note``
+   * - ``repo_not_found`` ביצירת פתק ריפו
+     - שם הריפו אינו ברשימת המשוקפים. ``codekeeper_list_repos`` מציג את
+       השמות המדויקים
+   * - ``repo_file_not_found`` ביצירת פתק ריפו
+     - הנתיב אינו בעץ המשוקף. הנתיב נלקח כפי שהוא מופיע ב-``list_repo_tree``
+   * - ``repo_list_unavailable`` / ``repo_file_unavailable``
+     - השאילתה על המניפסט **נכשלה** — זה אינו "לא קיים". אל תתקנו את הנתיב;
+       נסו שוב
+   * - ``duplicate_title`` בפתק
+     - השם כבר תפוס — על אותו לוח, או על אותו קובץ בריפו
+   * - ``query_too_long`` בחיפוש פתקים
+     - שאילתה ארוכה משם פתק אפשרי לא תתפוס דבר. קצרו אותה
    * - ``sync_in_progress``
      - רענון רץ ברגע זה — נסו שוב לפי ``retry_after``
    * - ``repo_or_ref_not_found``

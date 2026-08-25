@@ -16,10 +16,11 @@ heavy ``code``/``content`` fields — full content is returned only by
 from __future__ import annotations
 
 import datetime as _dt
+import enum as _enum
 import html
 import time as _time
 import logging
-from typing import Any
+from typing import Any, Callable
 
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
@@ -39,9 +40,43 @@ _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
 # שדות הפתק שנחשפים ל-MCP — רזה במכוון (בלי מיקום/גודל פיקסלים, שהם עניין ויזואלי)
 #: פתק לוח נושא ``board_id`` ו-``mode``; בלעדיהם הפלט לא אומר איפה הוא
 #: יושב. בפתק קובץ שניהם ריקים, ולכן התוספת אינה משנה את מסלול הקובץ.
+#: ``repo_name``/``repo_path`` נוספו מאותו טעם בדיוק שבגללו ``board_id``
+#: כאן: ``update_note`` מחזיר ``_as_note``, ובלי שני החצאים עדכון של פתק
+#: ריפו היה מדווח על פתק **בלי יעד** — כאילו אינו יושב בשום מקום.
 _NOTE_FIELDS = (
     "content", "color", "line_start", "anchor_text", "is_minimized",
-    "board_id", "mode", "title",
+    "board_id", "mode", "title", "repo_name", "repo_path",
+)
+
+class _NoteIndex(_enum.Enum):
+    """זהות אינדקס אכיפה — במקום שם מחרוזתי שנפתר ב-``getattr``.
+
+    הערך הוא גם התווית שמופיעה בלוגים, כך שאין שני מקורות אמת לשם.
+    """
+
+    BOARD_TITLE = "one_title_per_board"
+    REPO_TITLE = "one_title_per_repo_file"
+
+
+class _IndexGate:
+    """מצב הבנייה של אינדקס אכיפה יחיד.
+
+    ``ok`` ו-``retry_at`` יושבים יחד **בכוונה**: הם זוג שנע כיחידה אחת,
+    ופיצולם לשני דגלים נפרדים הוא בדיוק מה שמאפשר למישהו לשתף בטעות את
+    האחד בין שני אינדקסים ולא את השני.
+    """
+
+    __slots__ = ("ok", "retry_at")
+
+    def __init__(self) -> None:
+        self.ok = False
+        self.retry_at = 0.0
+
+
+#: שדות הזיהוי שפגיעת חיפוש מחזירה — **בלי תוכן ובלי תצוגה מקדימה**.
+#: ראו :func:`_as_note_ref`.
+_NOTE_REF_FIELDS = (
+    "title", "file_name", "file_id", "board_id", "repo_name", "repo_path", "updated_at",
 )
 
 
@@ -104,6 +139,29 @@ def _as_note(doc: dict[str, Any]) -> dict[str, Any]:
     if isinstance(out.get("content"), str):
         out["content"] = html.unescape(out["content"])
     out["created_at"] = _json_safe(doc.get("created_at"))
+    out["updated_at"] = _json_safe(doc.get("updated_at"))
+    return out
+
+
+def _as_note_ref(doc: dict[str, Any] | None) -> dict[str, Any]:
+    """פגיעת חיפוש: זהות וניווט בלבד.
+
+    **האינווריאנטה:** שדות הזיהוי של פגיעה הם בדיוק רשימת הארגומנטים של
+    כלי הרשימה שמתאים ליעד שלה — ``file_name`` ל-``list_notes``,
+    ``board_id`` ל-``list_board_notes``, ו-``repo_name``+``repo_path``
+    ל-``list_repo_notes``. מי שקיבל פגיעה יכול תמיד להמשיך ממנה.
+
+    **סריאלייזר נפרד ולא ``_as_note`` פחות ``content``** — "לזכור להסיר את
+    השדה הכבד" הוא בדיוק מצב הכשל ש-Smart Projection נועד למנוע: שדה כבד
+    חדש שייכנס ל-``_NOTE_FIELDS`` היה נשפך לכל תוצאת חיפוש בשקט.
+    """
+    from sticky_notes_target import note_target_ref
+
+    doc = doc or {}
+    out: dict[str, Any] = {"id": str(doc.get("_id") or "")}
+    out["title"] = _json_safe(doc.get("title"))
+    # ``note_target_ref`` לעולם אינו זורק — שורה פגומה אחת אינה הורגת חיפוש
+    out.update(_json_safe(note_target_ref(doc)))
     out["updated_at"] = _json_safe(doc.get("updated_at"))
     return out
 
@@ -361,13 +419,32 @@ class ProductionBackend:
 
     def _notes_coll(self) -> Any:
         coll = self._raw_mongo()["sticky_notes"]
-        # אינדקס שחסר היום לשאילתת ה-scope (משרת גם את הוובאפ); חד-פעמי, לא מפיל כלי
+        # **ארבעת האינדקסים, לא רק זה של ה-scope.** ה-MCP הוא כותב מלא של
+        # פתקים — קובץ, לוח, וקובץ בריפו — ובנה עד היום אינדקס אחד. פריסה
+        # שבה הוא רץ בלי הוובאפ הותירה כל שאילתת לוח וריפו בסריקת אוסף.
+        #
+        # **המפרטים זהים בייט-לבייט לאלה שבוובאפ** (``_ensure_indexes``):
+        # מונגו דוחה ב-code 85/86 אינדקס בשם קיים עם מפתחות אחרים, כלומר
+        # סטייה של תו אחד הופכת את הבוטסטראפ השני לכשל שקט לצמיתות.
+        # חד-פעמי, ולא מפיל כלי.
         if not self._notes_idx_done:
             self._notes_idx_done = True
-            try:
-                coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
-            except Exception:
-                logger.warning("sticky notes index creation failed (non-fatal)", exc_info=True)
+            for keys, name in (
+                ([("user_id", 1), ("scope_id", 1)], "user_scope_idx"),
+                ([("user_id", 1), ("board_id", 1)], "user_board_idx"),
+                ([("user_id", 1), ("repo_name", 1), ("repo_path", 1)], "user_repo_idx"),
+                # חיפוש לפי שם חוצה את שלושת היעדים, ולכן אינו יכול להישען
+                # על אף אחד משני האינדקסים הייחודיים: ה-``partialFilter``
+                # שלהם דורש ``board_id``, או ``repo_name`` **וגם**
+                # ``repo_path`` — פרדיקטים שהחיפוש אינו נושא.
+                ([("user_id", 1), ("title", 1)], "user_title_idx"),
+            ):
+                try:
+                    coll.create_index(keys, name=name)
+                except Exception:
+                    logger.warning(
+                        "sticky notes index %s creation failed (non-fatal)", name, exc_info=True
+                    )
         # ``create_board_note`` מחזיר ``duplicate_title`` על סמך דחייה של
         # המסד. אם האינדקס אינו שם — והוא נוצר עד היום רק בוובאפ — ההבטחה
         # ריקה. פריסה של ה-MCP בלי הוובאפ היא בדיוק המקרה הזה.
@@ -382,24 +459,147 @@ class ProductionBackend:
     #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות
     _TITLE_INDEX_RETRY_SECONDS = 60.0
 
-    def _ensure_title_index(self, coll: Any) -> bool:
-        """בונה ומאמת את אינדקס השם. מחזיר האם האילוץ **חי** כרגע."""
-        if getattr(self, "_title_index_ok", False):
+    def _ensure_note_index(
+        self, coll: Any, which: _NoteIndex, builder: Callable[[Any], bool]
+    ) -> bool:
+        """המנוע המשותף לשני אינדקסי השם. מחזיר האם האילוץ **חי** כרגע.
+
+        לכל אינדקס :class:`_IndexGate` משלו, כלומר זוג דגלים **עצמאי**. זה
+        לא סגנון: דגל משותף היה נותן לכשל של האחד לחסום את הניסיון של
+        השני, ולהצלחה של האחד להדליק אכיפה שלא אומתה עבור השני — כלומר
+        ``duplicate_title`` שמובטח ולא קיים.
+
+        **הזהות היא ``_NoteIndex`` והבנאי הוא פונקציה**, ולא שמות
+        מחרוזתיים שנפתרים ב-``getattr``. ההבדל אינו קוסמטי: שם מוטעה של
+        דגל היה נקרא כ-``False`` לתמיד, כלומר האינדקס היה נבנה מחדש בכל
+        קירור — דרדור שקט לכל חיי התהליך במקום שגיאת תכנות. עכשיו טעות
+        בשם היא ``NameError`` באתר הקריאה.
+        """
+        gates = self.__dict__.setdefault("_note_index_gates", {})
+        gate = gates.get(which)
+        if gate is None:
+            gate = gates[which] = _IndexGate()
+
+        if gate.ok:
             return True
         now = _time.monotonic()
-        if now < getattr(self, "_title_index_retry_at", 0.0):
+        if now < gate.retry_at:
             return False
-        self._title_index_retry_at = now + self._TITLE_INDEX_RETRY_SECONDS
+        gate.retry_at = now + self._TITLE_INDEX_RETRY_SECONDS
         try:
-            from sticky_notes_target import ensure_title_index
-
-            self._title_index_ok = bool(ensure_title_index(coll))
+            gate.ok = bool(builder(coll))
         except Exception:
-            self._title_index_ok = False
-            logger.error("one_title_per_board index creation failed", exc_info=True)
-        if not self._title_index_ok:
-            logger.error("one_title_per_board index not confirmed — falling back to a code check")
-        return self._title_index_ok
+            gate.ok = False
+            logger.error("%s index creation failed", which.value, exc_info=True)
+        if not gate.ok:
+            logger.error("%s index not confirmed — falling back to a code check", which.value)
+        return gate.ok
+
+    def _ensure_title_index(self, coll: Any) -> bool:
+        """בונה ומאמת את אינדקס שם-פתק-בלוח. מחזיר האם האילוץ **חי** כרגע."""
+        from sticky_notes_target import ensure_title_index
+
+        return self._ensure_note_index(coll, _NoteIndex.BOARD_TITLE, ensure_title_index)
+
+    def _ensure_repo_title_index(self, coll: Any) -> bool:
+        """אח מקביל לפתקי ריפו — "שם אחד לכל קובץ בריפו".
+
+        **אינו נקרא מ-**``_notes_coll``, אלא מ-``create_repo_note`` בלבד:
+        ההבטחה ``duplicate_title`` נאמרת רק במסלול הכתיבה, ולכן רק הוא
+        משלם על אימותה. אינדקס הלוח, לעומתו, עדיין נבנה מ-``_notes_coll``
+        גם במסלולי קריאה — חוב קיים שקדם ל-PR הזה ולא נגרר לכאן.
+        """
+        from sticky_notes_target import ensure_repo_title_index
+
+        return self._ensure_note_index(coll, _NoteIndex.REPO_TITLE, ensure_repo_title_index)
+
+    # -- מסלול היצירה המשותף ---------------------------------------------
+    #
+    # שני החלקים שמתחת חולצו כי **סטייה בהם עולה באכיפה, לא בסגנון.** זה
+    # בדיוק סוג הכשל שה-PR הזה תיקן במקום אחר: אכיפה שקיימת אצל כותב אחד
+    # ולא אצל השני. תקרה שתשתנה במסלול הלוח ולא במסלול הריפו — או ברירת
+    # מחדל ויזואלית שתיפרד — היא באג שאיש לא רואה.
+    #
+    # ``create_note`` (פתק על קובץ) **לא נגרר לכאן במכוון**: היעד שלו אינו
+    # נבנה דרך ``build_note_target``, והתקרה שלו היא soft-cap שמעביר על
+    # כשל ספירה — שתי החלטות שונות מהותית. איחוד היה מסתיר את ההבדל
+    # במקום לתעד אותו.
+
+    def _enforce_note_quotas(self, coll: Any, specs: Any) -> dict[str, Any] | None:
+        """בודק את התקרות לפי הסדר. מחזיר מילון שגיאה, או ``None`` אם עברו.
+
+        ``specs`` הוא רצף של ``(query, cap, exempt)``. **``exempt`` הוא
+        פר-תקרה ולא פר-קריאה** — מדיניות הפטור אינה תכונה של הקורא אלא של
+        התקרה עצמה, וכל מסלול יצירה מצהיר עליה בעצמו. הפונקציה הזו אינה
+        קובעת אותה ואינה מניחה עליה דבר.
+
+        (ולמה זה נדרש: התקרה ללוח פטורה לאדמין, והתקרה לקובץ בריפו נאכפת
+        עליו — התקרה השנייה שומרת על צורת התוכן ולא על משאבים. שתי
+        המדיניות חיות זו לצד זו, ולכן דגל יחיד לכל הקריאה לא היה מספיק.)
+
+        **כשל ספירה דוחה.** תקרה שנפתחת לרווחה בדיוק כשהמסד מתקשה אינה
+        תקרה. הקוד המוחזר נגזר מ**מצב הספירה** ולא מטקסט החריגה — טקסט של
+        חריגה בתשובה הוא דלף ממתין.
+
+        **ידוע ולא מטופל כאן:** בין הספירה ל-``insert_one`` יש חלון שבו שתי
+        בקשות מקבילות עוברות.
+
+        זו הכרעה, לא השמטה. ``webapp/sticky_notes_api`` אוכף את אותן תקרות
+        באותו רצף ``count_documents`` → ``check_note_quota`` → ``insert_one``,
+        ולכן אטומיות שתתווסף כאן בלבד תיצור **פער בין הכותבים** — בדיוק
+        סוג הבאג שמנגנון האינדקסים המשותף נבנה כדי לסגור.
+
+        ולמונגו אין דרך להביע "לכל היותר N מסמכים שתואמים לפילטר": תיקון
+        אמיתי הוא מונה אטומי או reservation, כלומר **מצב חדש** — מסמך מונה
+        לכל (משתמש, משטח), backfill לקיימים, הפחתה מפצה בכל מחיקת פתק,
+        ויישוב כשהמונה נסחף. הריפו גם אינו משתמש בטרנזקציות בשום מקום, כך
+        שהחלופה הטרנזקציונית מניחה replica set שלא אומת. זה שינוי חוצה-
+        שירותים בפני עצמו, לא פרט מימוש של יעד פתק חדש.
+        """
+        from sticky_notes_target import NoteQuotaError, check_note_quota
+
+        for query, cap, exempt in specs:
+            try:
+                existing: int | None = int(coll.count_documents(query))
+            except Exception:
+                existing = None  # ``None`` = "לא ידוע", ו-check_note_quota דוחה עליו
+            try:
+                check_note_quota(existing, cap, is_admin=exempt)
+            except NoteQuotaError:
+                code = "note_quota_unknown" if existing is None else "too_many_notes"
+                return {"ok": False, "error": code, "max": cap, "count": existing}
+        return None
+
+    @staticmethod
+    def _new_note_doc(
+        user_id: int, *, target: dict[str, Any], content: str, color: str, mode: str, title: str
+    ) -> dict[str, Any]:
+        """שלד פתק חדש — ברירות המחדל הוויזואליות במקום אחד.
+
+        ``target`` מגיע מ-``build_note_target``, שמריץ את האילוץ "בדיוק יעד
+        אחד" **לפני** שהוא מחזיר; לכן אי אפשר להרכיב כאן מסמך לא חוקי.
+
+        שם ריק ← השדה כלל אינו נכתב. זה לא קוסמטי: האינדקס הייחודי משתמש
+        ב-``partialFilterExpression`` עם ``$exists``, ולכן שני פתקים עם
+        ``title: ""`` היו מתנגשים זה בזה.
+        """
+        now = _dt.datetime.now(_dt.timezone.utc)
+        return {
+            "user_id": int(user_id),
+            **target,
+            "content": content,
+            **({"title": title} if title else {}),
+            # ברירות מחדל בפריטת הקליינט — פתק מה-MCP נראה כמו פתק שנוצר ביד
+            "position_x": 120,
+            "position_y": 120,
+            "width": 260,
+            "height": 200,
+            "color": color,
+            "is_minimized": False,
+            "mode": mode,
+            "created_at": now,
+            "updated_at": now,
+        }
 
     def _related_file_ids(self, user_id: int, file_name: str) -> list[str]:
         """כל מזהי הגרסאות של השם הזה — לפריטת שאילתת הוובאפ (פתקי legacy בלי scope_id)."""
@@ -611,10 +811,8 @@ class ProductionBackend:
         from sticky_notes_target import (
             MAX_NOTES_PER_BOARD,
             MAX_NOTES_PER_USER,
-            NoteQuotaError,
             board_notes_filter,
             build_note_target,
-            check_note_quota,
         )
 
         board = self._owned_board(user_id, board_id)
@@ -631,41 +829,23 @@ class ProductionBackend:
 
         canonical = self._canonical_board_id(board)
         coll = self._notes_coll()
-        for query, cap in (
-            (board_notes_filter(int(user_id), canonical), MAX_NOTES_PER_BOARD),
-            ({"user_id": int(user_id)}, MAX_NOTES_PER_USER),
-        ):
-            try:
-                existing: int | None = int(coll.count_documents(query))
-            except Exception:
-                existing = None  # ``None`` = "לא ידוע", ו-check_note_quota דוחה עליו
-            try:
-                check_note_quota(existing, cap, is_admin=is_admin_user)
-            except NoteQuotaError:
-                # הקוד נגזר מ**מצב הספירה** ולא מטקסט החריגה — טקסט של חריגה
-                # בתשובה הוא דלף ממתין, וזה בדיוק מה שתוקן ב-webapp.
-                code = "note_quota_unknown" if existing is None else "too_many_notes"
-                return {"ok": False, "error": code, "max": cap, "count": existing}
+        # התקרה ללוח פטורה לאדמין, בדיוק כמו התקרה למשתמש — בשונה מהתקרה
+        # לקובץ בריפו, שנאכפת על כולם.
+        denied = self._enforce_note_quotas(coll, (
+            (board_notes_filter(int(user_id), canonical), MAX_NOTES_PER_BOARD, is_admin_user),
+            ({"user_id": int(user_id)}, MAX_NOTES_PER_USER, is_admin_user),
+        ))
+        if denied is not None:
+            return denied
 
-        now = _dt.datetime.now(_dt.timezone.utc)
-        note = {
-            "user_id": int(user_id),
-            # ``build_note_target`` מריץ את האילוץ "בדיוק יעד אחד" **לפני**
-            # שהוא מחזיר, ולכן אי אפשר להרכיב כאן מסמך לא חוקי.
-            **build_note_target(board_id=canonical),
-            "content": content,
-            # שם ריק ← השדה כלל אינו נכתב, כדי שלא ייכנס לאינדקס הייחודי
-            **({"title": title} if title else {}),
-            "position_x": 120,
-            "position_y": 120,
-            "width": 260,
-            "height": 200,
-            "color": color,
-            "is_minimized": False,
-            "mode": mode,
-            "created_at": now,
-            "updated_at": now,
-        }
+        note = self._new_note_doc(
+            user_id,
+            target=build_note_target(board_id=canonical),
+            content=content,
+            color=color,
+            mode=mode,
+            title=title,
+        )
         # גיבוי לאכיפה כשהאינדקס לא אומת. במצב התקין ``_ensure_title_index``
         # מחזירה True מיד, ואין כאן שום שאילתה נוספת.
         if title and not self._ensure_title_index(coll):
@@ -686,6 +866,223 @@ class ProductionBackend:
             return {"ok": False, "error": "duplicate_title"}
         note["_id"] = getattr(res, "inserted_id", None)
         return {"ok": True, "note": _as_note(note)}
+
+    # -- פתקי ריפו: היעד השלישי ------------------------------------------
+    def list_repo_notes(self, user_id: int, *, repo_name: str, repo_path: str) -> dict[str, Any]:
+        """פתקים על קובץ בריפו ממורר (קריאה טהורה).
+
+        **סימון היתומים נעשה בקריאה, ואינו מסתיר דבר.** ``orphaned`` נדלק
+        **רק** כש-``repo_file_exists`` החזיר ``False`` מפורש; ``None``
+        פירושו "השאילתה נכשלה", וקריאה כזו לעולם אינה מסמנת קובץ חי
+        כמיותם. הפתקים עצמם מוחזרים בכל מקרה — קובץ שנמחק מהריפו אינו
+        סיבה להעלים את מה שנכתב עליו.
+
+        **בלי ``try/except`` סביב השאילתה**, בדיוק כמו ב-``list_board_notes``:
+        רשימה ריקה על שאילתה שנכשלה נראית כמו "אין פתקים", וזה בדיוק הכשל
+        שדורס קאש ומוליך את הקורא למסקנה הפוכה.
+        """
+        from sticky_notes_target import normalize_repo_path, repo_file_exists, repo_notes_filter
+
+        clean_repo = str(repo_name or "")
+        clean_path = normalize_repo_path(repo_path)
+        query = repo_notes_filter(int(user_id), clean_repo, clean_path)
+        rows = list(self._notes_coll().find(query).sort("created_at", 1).limit(500))
+
+        out: dict[str, Any] = {
+            "ok": True,
+            "repo_name": clean_repo,
+            "repo_path": clean_path,
+            "count": len(rows),
+            "notes": [_as_note(r) for r in rows],
+        }
+        if repo_file_exists(self._raw_mongo(), clean_repo, clean_path) is False:
+            out["orphaned"] = True
+        return out
+
+    def create_repo_note(
+        self,
+        user_id: int,
+        *,
+        repo_name: str,
+        repo_path: str,
+        content: str,
+        color: str,
+        mode: str,
+        title: str = "",
+    ) -> dict[str, Any]:
+        """פתק חדש על קובץ בריפו ממורר.
+
+        **שני השערים לפני התקרות הם fail-closed:** מניפסט שלא נענה מחזיר
+        ``repo_list_unavailable``/``repo_file_unavailable`` ולא "לא קיים".
+        ההבדל אינו סמנטי בלבד — "לא קיים" מזמין את הקורא לתקן את הנתיב,
+        וזו עצה שגויה כשהמסד פשוט לא ענה.
+        """
+        from sticky_notes_target import (
+            MAX_NOTES_PER_REPO_FILE,
+            MAX_NOTES_PER_USER,
+            build_note_target,
+            mirrored_repo_names,
+            normalize_repo_path,
+            repo_file_exists,
+            repo_notes_filter,
+        )
+
+        clean_repo = str(repo_name or "")
+        clean_path = normalize_repo_path(repo_path)
+        db = self._raw_mongo()
+
+        known = mirrored_repo_names(db)
+        if known is None:
+            return {"ok": False, "error": "repo_list_unavailable"}
+        if clean_repo not in known:
+            return {"ok": False, "error": "repo_not_found", "repo_name": clean_repo}
+
+        exists = repo_file_exists(db, clean_repo, clean_path)
+        if exists is None:
+            return {"ok": False, "error": "repo_file_unavailable"}
+        if exists is False:
+            return {"ok": False, "error": "repo_file_not_found", "repo_path": clean_path}
+
+        try:
+            from user_roles import is_admin
+            is_admin_user = bool(is_admin(int(user_id)))
+        except Exception:
+            is_admin_user = False  # ספק ← לא פטור
+
+        coll = self._notes_coll()
+        # ה-``False`` בתקרה-לקובץ אינו שריד לניקוי:
+        # :data:`MAX_NOTES_PER_REPO_FILE` נאכפת **גם על אדמין** (ראו
+        # הדוקסטרינג שלה), וכל הקוראים למשטח הזה הם אדמינים — כלומר
+        # "תיקון" ל-``is_admin_user`` היה הופך אותה לתקרה שאינה נאכפת על
+        # איש. זה ההבדל היחיד מהמסלול של הלוח.
+        denied = self._enforce_note_quotas(coll, (
+            (repo_notes_filter(int(user_id), clean_repo, clean_path), MAX_NOTES_PER_REPO_FILE, False),
+            ({"user_id": int(user_id)}, MAX_NOTES_PER_USER, is_admin_user),
+        ))
+        if denied is not None:
+            return denied
+
+        note = self._new_note_doc(
+            user_id,
+            target=build_note_target(repo_name=clean_repo, repo_path=clean_path),
+            content=content,
+            color=color,
+            mode=mode,
+            title=title,
+        )
+        # גיבוי לאכיפה כשהאינדקס לא אומת — אח מדויק לזה שב-``create_board_note``.
+        #
+        # **ולמה גיבוי ולא דחייה.** ההצעה החוזרת היא לדחות
+        # ב-``title_index_unavailable`` כשהאינדקס אינו מאומת, כי בין
+        # הבדיקה ל-``insert_one`` יש חלון TOCTOU. החלון אמיתי — אבל:
+        #
+        # 1. ``webapp/sticky_notes_api._repo_title_conflict`` עושה בדיוק את
+        #    אותו גיבוי. דחייה כאן בלבד הייתה יוצרת פער בין הכותבים, וזה
+        #    סוג הבאג שכל היעד הזה נבנה כדי לסגור.
+        # 2. ``repo_title_is_taken`` מחזירה ``True`` על כשל שאילתה, ולכן
+        #    בתקלת מסד היא כבר דוחה. מה שנשאר: אינדקס באמת חסר **וגם** שתי
+        #    בקשות מקבילות עם אותו שם — והמחיר שני פתקים עם אותו שם.
+        # 3. דחייה הופכת תקלת אינדקס חולפת להשבתה מלאה של פתקים עם שם.
+        #
+        # תיקון אמיתי הוא אכיפה אטומית, והיא חייבת לחול על **כל** הכותבים
+        # במנגנון אחד. ראו ``_enforce_note_quotas`` לאותה הכרעה בתקרות.
+        if title and not self._ensure_repo_title_index(coll):
+            from sticky_notes_target import repo_title_is_taken
+
+            if repo_title_is_taken(
+                coll, user_id=int(user_id), repo_name=clean_repo,
+                repo_path=clean_path, title=title,
+            ):
+                return {"ok": False, "error": "duplicate_title"}
+
+        try:
+            res = coll.insert_one(note)
+        except _DuplicateKeyError:
+            return {"ok": False, "error": "duplicate_title"}
+        note["_id"] = getattr(res, "inserted_id", None)
+        return {"ok": True, "note": _as_note(note)}
+
+    def search_notes(self, user_id: int, *, query: str, limit: int) -> dict[str, Any]:
+        """חיפוש פתקים **לפי שם**, חוצה את שלושת היעדים.
+
+        **הפרויקציה נושאת משקל ואינה קוסמטיקה:** היא אוכפת "שם בלבד, בלי
+        תוכן" בגבול המסד ולא בסמך הסריאלייזר, ובכך גם מנתקת את עלות
+        החיפוש מגודל גוף הפתק (עד 20K תווים למסמך) וגם מקטינה את קלט
+        המיון.
+
+        **התקרה נאכפת עם שורת סנטינל** — ``limit(want + 1)`` — כדי
+        שה-``truncated`` יהיה עובדה ולא ניחוש: שורה נוספת שחזרה היא ראיה
+        שיש עוד, ולא הערכה מתוך ספירה שווה לתקרה.
+        """
+        from sticky_notes_target import title_search_filter
+
+        want = int(limit)
+        projection = {key: 1 for key in _NOTE_REF_FIELDS}
+        rows = list(
+            self._notes_coll()
+            .find(title_search_filter(int(user_id), query), projection)
+            .sort("updated_at", -1)
+            .limit(want + 1)
+        )
+        truncated = len(rows) > want
+        if truncated:
+            rows = rows[:want]
+        self._backfill_file_names(int(user_id), rows)
+        return {
+            "ok": True,
+            "query": str(query or ""),
+            "count": len(rows),
+            "truncated": truncated,
+            "notes": [_as_note_ref(r) for r in rows],
+        }
+
+    def _backfill_file_names(self, user_id: int, rows: list[dict[str, Any]]) -> None:
+        """משלים ``file_name`` לפגיעות חיפוש שנשמרו לפני שהשדה היה קיים.
+
+        **בלי זה האינווריאנטה של תוצאת החיפוש שקרית.** ההבטחה היא ששדות
+        הזיהוי של פגיעה הם בדיוק הארגומנטים של כלי הרשימה המתאים, אבל
+        ``codekeeper_list_notes`` מקבל ``file_name`` בלבד — ופתק legacy
+        נושא ``file_id`` בלבד. פגיעה כזו הייתה מבוי סתום: הסוכן רואה שהפתק
+        קיים ואין לו דרך לקרוא אותו.
+
+        **שאילתה אחת ל-``$in``, ורק כשיש חסרים.** לא לולאה פר-פגיעה: N+1
+        על מסלול חיפוש הוא בדיוק מה שחוק ה-Smart Projection נועד למנוע.
+
+        כשל שליפה אינו מפיל את החיפוש — הפגיעה פשוט נשארת עם ``file_id``
+        בלבד, כפי שהייתה בלעדי המילוי.
+        """
+        # **רשימה לכל מזהה, לא שורה אחת.** כמה פתקים על אותו קובץ הם המקרה
+        # הרגיל, לא הקצה; מילון ``{file_id: row}`` היה שומר רק את האחרון
+        # ומשאיר את כל השאר בלי נתיב ניווט — כלומר בדיוק המבוי הסתום
+        # שהמילוי הזה נועד לסגור, רק בשקט יותר.
+        missing: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            if isinstance(r, dict) and r.get("file_id") and not r.get("file_name"):
+                missing.setdefault(str(r["file_id"]), []).append(r)
+        if not missing:
+            return
+        try:
+            from bson import ObjectId  # lazy heavy import
+
+            oids = []
+            for raw in missing:
+                try:
+                    oids.append(ObjectId(raw))
+                except Exception:
+                    continue  # מזהה פגום — פגיעה אחת פחות, לא חיפוש שנפל
+            if not oids:
+                return
+            found = self._raw_mongo()["code_snippets"].find(
+                {"_id": {"$in": oids}, "user_id": int(user_id)}, {"file_name": 1}
+            )
+            for doc in found:
+                name = doc.get("file_name")
+                if not name:
+                    continue
+                for row in missing.get(str(doc.get("_id")), ()):
+                    row["file_name"] = name
+        except Exception:
+            logger.warning("file name backfill for search hits failed", exc_info=True)
 
     def update_note(self, user_id: int, *, note_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         """Partial in-place update by ObjectId, ownership enforced in the filter."""

@@ -31,6 +31,8 @@ from sticky_notes_target import (
     repo_notes_filter,
     title_is_taken,
     repo_title_is_taken,
+    mirrored_repo_names,
+    repo_file_exists,
 )
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
@@ -120,6 +122,32 @@ _INDEX_RETRY_AFTER = 0.0
 
 #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות.
 _INDEX_RETRY_SECONDS = 60.0
+
+#: **מפרט שבעת אינדקסי השאילתה של** ``sticky_notes`` **— מקור אמת אחד.**
+#:
+#: שלושת הצרכנים — המסלול המהיר (``create_indexes``), מסלול הגיבוי
+#: (``create_index`` אחד-אחד), והאימות בקריאה חוזרת — נגזרים כולם מכאן.
+#: כשכל אחד החזיק עותק משלו, אינדקס שנוסף לרשימה אחת ולא לשתיים האחרות
+#: פשוט לא נבנה במסלול הגיבוי **ולא סומן כחסר באימות** — כלומר בדיוק
+#: ההשמטה השקטה שהאימות נועד לתפוס.
+_QUERY_INDEX_SPECS: Tuple[Tuple[str, List[Tuple[str, int]]], ...] = (
+    ("user_file_idx", [("user_id", 1), ("file_id", 1)]),
+    ("user_file_created", [("user_id", 1), ("file_id", 1), ("created_at", 1)]),
+    ("updated_desc", [("updated_at", -1)]),
+    # שאילתת ה-list הראשית היא ``$or`` על scope_id/file_id
+    ("user_scope_idx", [("user_id", 1), ("scope_id", 1)]),
+    # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets
+    ("user_board_idx", [("user_id", 1), ("board_id", 1)]),
+    # פתקי ריפו: המפתח הוא הזוג ``(repo_name, repo_path)``, ולכן האינדקס
+    # מורכב משניהם. בלי ``ref``/ענף — בכוונה: פתק שנרשם על ``main`` חייב
+    # להופיע גם בענף PR.
+    ("user_repo_idx", [("user_id", 1), ("repo_name", 1), ("repo_path", 1)]),
+    # חיפוש פתק לפי שם חוצה את שלושת היעדים, ולכן אינו יכול להישען על אף
+    # אחד משני האינדקסים הייחודיים: ה-``partialFilterExpression`` שלהם
+    # דורש ``board_id``, או ``repo_name`` **וגם** ``repo_path`` — פרדיקטים
+    # שהחיפוש אינו נושא, ולכן הוא אינו תת-קבוצה של אף אחד מהם.
+    ("user_title_idx", [("user_id", 1), ("title", 1)]),
+)
 
 
 def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Optional[str] = None) -> None:
@@ -240,39 +268,71 @@ def _ensure_indexes() -> None:
             db = get_db()
             coll = db.sticky_notes
             try:
-                from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
+                from pymongo import IndexModel  # type: ignore
+
+                # הכיוונים כבר במפרט (``-1`` ל-``updated_desc``); ``ASCENDING``
+                # ו-``DESCENDING`` הם 1 ו--1 בדיוק, ולכן אין כאן תרגום.
                 indexes = [
-                    IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING)], name="user_file_idx"),
-                    IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("created_at", ASCENDING)], name="user_file_created"),
-                    IndexModel([("updated_at", DESCENDING)], name="updated_desc"),
-                    # שאילתת ה-list הראשית היא ``$or`` על scope_id/file_id, אבל
-                    # ענף ה-scope לא היה מכוסה כאן כלל — האינדקס נוצר רק
-                    # אגב-אורחא ב-``mcp_server/backend``.
-                    IndexModel([("user_id", ASCENDING), ("scope_id", ASCENDING)], name="user_scope_idx"),
-                    # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets.
-                    IndexModel([("user_id", ASCENDING), ("board_id", ASCENDING)], name="user_board_idx"),
-                    # פתקי ריפו: המפתח הוא הזוג ``(repo_name, repo_path)``,
-                    # ולכן האינדקס מורכב משניהם. בלי ``ref``/ענף — בכוונה:
-                    # פתק שנרשם על ``main`` חייב להופיע גם בענף PR.
-                    IndexModel(
-                        [("user_id", ASCENDING), ("repo_name", ASCENDING), ("repo_path", ASCENDING)],
-                        name="user_repo_idx",
-                    ),
+                    IndexModel(keys, name=name) for name, keys in _QUERY_INDEX_SPECS
                 ]
                 coll.create_indexes(indexes)
             except Exception:
                 # Best-effort: if pymongo typings not available or running in stub env
-                try:
-                    coll.create_index([("user_id", 1), ("file_id", 1)], name="user_file_idx")
-                    coll.create_index([("user_id", 1), ("file_id", 1), ("created_at", 1)], name="user_file_created")
-                    coll.create_index([("updated_at", -1)], name="updated_desc")
-                    coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
-                    coll.create_index([("user_id", 1), ("board_id", 1)], name="user_board_idx")
-                    coll.create_index(
-                        [("user_id", 1), ("repo_name", 1), ("repo_path", 1)], name="user_repo_idx"
+                #
+                # **``try`` לכל אינדקס בנפרד, ולא אחד סביב כולם.** ``try``
+                # יחיד הופך את הרשימה לשרשרת: כשל באינדקס הראשון מדלג על כל
+                # השאר, והם לא נבנים לעולם — בלי שום שגיאה. האינדקס האחרון
+                # ברשימה הוא הקורבן הסביר ביותר. בלוק ``note_reminders``
+                # שמתחת כבר בנוי כך; זה היה החריג.
+                for name, keys in _QUERY_INDEX_SPECS:
+                    try:
+                        coll.create_index(keys, name=name)
+                    except Exception:
+                        logger.warning(
+                            "sticky notes index %s creation failed (non-fatal)", name, exc_info=True
+                        )
+            # **אימות בקריאה חוזרת לשבעת אינדקסי השאילתה.**
+            #
+            # עד כאן שום דבר לא נבדק: ``create_indexes`` ו-``create_index``
+            # מדווחים הצלחה בערך ההחזרה, וערך החזרה של כתיבה אינו אימות.
+            # בסביבת stub הם אפילו no-op. קריאה אחת ל-``index_information``
+            # הופכת "בנינו" ל"קיים", וחסר מתועד בלוג במקום להיעלם.
+            #
+            # **ובכוונה אינו חוסם את** ``_INDEX_READY``, בשונה משני אינדקסי
+            # השם שמתחת. ההבדל אינו קפריזה: אינדקס אכיפה חסר הוא באג
+            # נכונות — ``duplicate_title`` מובטח ולא קיים — ולכן ראוי
+            # שיחזור לנסות. אינדקס שאילתה חסר הוא האטה. חסימת הדגל עליו
+            # הייתה מריצה את הבוטסטראפ כולו בכל בקשה, לנצח, בכל סביבת stub
+            # וגם מול אינדקס שפשוט אינו ניתן לבנייה.
+            try:
+                present = coll.index_information() or {}
+                missing, mismatched = [], []
+                for name, keys in _QUERY_INDEX_SPECS:
+                    info = present.get(name)
+                    if info is None:
+                        missing.append(name)
+                        continue
+                    # **השוואת מפתחות, לא רק שם.** אינדקס שקיים תחת השם הזה
+                    # עם מפתחות אחרים גורם למונגו לדחות את היצירה
+                    # ב-``code 85/86``, ובדיקה לפי שם בלבד הייתה מדווחת
+                    # "קיים" — כלומר בדיוק המצב שבו השאילתה ממשיכה
+                    # ב-COLLSCAN בשקט. מונגו מחזיר ``key`` כרשימת זוגות.
+                    actual = [(str(f), int(d)) for f, d in (info.get("key") or [])]
+                    if actual != [(f, int(d)) for f, d in keys]:
+                        mismatched.append((name, actual))
+                if missing:
+                    logger.error("sticky notes query indexes missing after build: %s", missing)
+                if mismatched:
+                    # לא מיישבים כאן: הפלה-ובנייה על אינדקס חי היא פעולה
+                    # שדורשת החלטה, ולא תופעת לוואי של בוטסטראפ. השם
+                    # הממוספר הוא הכלי ליישוב מכוון (ראו
+                    # ``_ensure_versioned_unique_index``).
+                    logger.error(
+                        "sticky notes query indexes exist with a different key spec: %s",
+                        mismatched,
                     )
-                except Exception:
-                    pass
+            except Exception:
+                logger.warning("sticky notes index verification failed", exc_info=True)
             # האינדקס הייחודי נוצר **בנפרד משני המסלולים**, ולא בתוכם.
             #
             # שני טעמים. האחד: כשהוא ישב ברשימת ``create_indexes``, כשל שלו
@@ -490,7 +550,6 @@ def notes_rate_limit(key: str, max_per_minute: int):
             return f(*args, **kwargs)
         return _inner
     return _decorator
-
 
 
 _CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
@@ -1879,35 +1938,6 @@ def create_board_note(board_id: str):
 # ---------------------------------------------------------------------------
 
 
-def _mirrored_repo_names(db: Any) -> Optional[set]:
-    """שמות הריפואים הממוררים, או ``None`` אם השאילתה נכשלה.
-
-    ``None`` אינו "אין ריפואים": הוא נבדל ממנו בכוונה, כי קריאה שנכשלה
-    אינה ראיה שהריפו נעלם. מי שקורא מסמן יתומים רק כשיש לו רשימה אמיתית.
-    """
-    try:
-        names = db.repo_metadata.distinct('repo_name')
-    except Exception:
-        return None
-    if not isinstance(names, (list, tuple, set)):
-        return None
-    return {str(n) for n in names if n}
-
-
-def _repo_file_exists(db: Any, repo_name: str, repo_path: str) -> Optional[bool]:
-    """האם הנתיב קיים בעץ הריפו הממורר, או ``None`` בכשל שאילתה.
-
-    ההשוואה היא מול ``repo_files``, שנתיביו נשמרים בצורת git הגולמית —
-    ולכן ``repo_path`` שהגיע לכאן כבר עבר ``normalize_repo_path``, שמתכנס
-    בדיוק לאותה צורה. בלי ההתכנסות הזו קובץ קיים היה מסומן כמיותם.
-    """
-    try:
-        doc = db.repo_files.find_one({'repo_name': repo_name, 'path': repo_path}, {'_id': 1})
-    except Exception:
-        return None
-    return doc is not None
-
-
 @sticky_notes_bp.route('/repo/<repo_name>/<path:repo_path>', methods=['GET'])
 @require_auth
 @notes_rate_limit('repo_list', 180)
@@ -1942,7 +1972,7 @@ def list_repo_notes(repo_name: str, repo_path: str):
         notes = [_as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)]
 
         # ``None`` (כשל שאילתה) אינו "הקובץ נעלם" — ואז לא מסמנים כלום.
-        exists = _repo_file_exists(db, str(repo_name), clean_path)
+        exists = repo_file_exists(db, str(repo_name), clean_path)
         payload: Dict[str, Any] = {'ok': True, 'notes': notes, 'count': len(notes)}
         if exists is False:
             payload['orphaned'] = True
@@ -1997,7 +2027,7 @@ def create_repo_note(repo_name: str, repo_path: str):
         # ריפואים" — הוא "לא ידוע", וקריאה שנכשלה אינה רשיון ליצור פתק על
         # ריפו שאולי אינו ממורר. זה אותו כלל של ``check_note_quota``: כשל
         # בדיקה נסגר.
-        known = _mirrored_repo_names(db)
+        known = mirrored_repo_names(db)
         if known is None:
             return jsonify({'ok': False, 'error': 'repo_list_unavailable'}), 503
         if str(repo_name) not in known:
@@ -2011,7 +2041,7 @@ def create_repo_note(repo_name: str, repo_path: str):
         #
         # ``None`` נסגר, בדיוק כמו רשימת המראות: קריאה שנכשלה אינה עדות
         # שהקובץ קיים, ואינה רשיון לכתוב.
-        file_exists = _repo_file_exists(db, str(repo_name), clean_path)
+        file_exists = repo_file_exists(db, str(repo_name), clean_path)
         if file_exists is None:
             return jsonify({'ok': False, 'error': 'repo_file_unavailable'}), 503
         if not file_exists:
@@ -2229,7 +2259,7 @@ def list_orphan_repos():
         except Exception:
             return jsonify({'ok': False, 'error': 'Failed to list orphan repos'}), 500
 
-        mirrored = _mirrored_repo_names(db)
+        mirrored = mirrored_repo_names(db)
         if mirrored is None:
             # אין רשימת מראות ⇒ אי אפשר לדעת מי נעלם. לא מדווחים על אף
             # ריפו כיתום על סמך שאילתה שנכשלה.
