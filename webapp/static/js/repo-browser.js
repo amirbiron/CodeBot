@@ -1728,6 +1728,12 @@ async function initCodeViewer(content, language, seq) {
         
         // Refresh editor after DOM update
         setTimeout(recalculateEditorHeight, 100);
+        // **גם כאן, ולא רק בהחלפת התצוגה.** ``disableMarkdownPreview``
+        // פולט לפני ש-``ensureCodeViewerInitialized`` בונה את העורך, ולכן
+        // בקובץ ``.md`` שנפתח ישר בתצוגת Markdown הגולל של הקוד עדיין לא
+        // קיים באותו רגע — הרענון היה no-op, ואירוע נוסף לא הגיע. הנקודה
+        // הזו היא שינוי המצב "הגולל נהיה זמין".
+        emitRepoViewChanged();
         return;
     }
 
@@ -1797,6 +1803,8 @@ async function initCodeViewer(content, language, seq) {
         });
         state.editorFilePath = state.currentFile;
 
+        // אותה סיבה כמו בענף cm5 — ראו שם.
+        emitRepoViewChanged();
         return;
     }
 

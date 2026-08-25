@@ -237,15 +237,29 @@ check('החלפת תצוגה מרעננת את הפתקים הנעוצים', asy
   eq(refreshes, 1, 'המנהל התבקש למקם מחדש');
 });
 
-check('החלפת תצוגה בלי מנהל אינה נופלת', async () => {
-  // הפתקים כבויים — האירוע עדיין נפלט, ואסור שהוא יזרוק.
+check('refreshPinned שזורק אינו שובר את הדף', async () => {
+  // **הטסט הקודם כאן היה חסר ערך:** הוא בדק ש"אין מנהל ולא נזרק כלום",
+  // וזה נכון גם בלי המאזין בכלל — dispatch שאיש אינו מאזין לו פשוט לא
+  // עושה דבר. הוא הגן על תוצאה ריקה, לא על התנהגות.
+  //
+  // מה שכן צריך הגנה הוא ה-guard: מנהל שהרענון שלו נכשל אסור שיפיל את
+  // הדפדפן. את עצם קיום המאזין מאמת הטסט שמעליו, שסופר קריאות.
+  //
+  // נופל אם ה-try/catch סביב ``refreshPinned`` יוסר.
   const sb = makeSandbox();
-  sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'b.py' });
+  sb.window.StickyNotesManager = class {
+    constructor(opts) { this.opts = opts; this.destroyed = false; sb.__built.push(this); }
+    refreshPinned() { throw new Error('רענון נכשל'); }
+    async destroy() { this.destroyed = true; }
+  };
+  sb.window.localStorage.setItem('repo-notes:CodeBot:c.py', '1');
+  sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'c.py' });
   await sb.window.repoNotes.settled();
-  eq(sb.window.repoNotes.hasManager(), false, 'אין מנהל');
+  eq(sb.window.repoNotes.hasManager(), true, 'מנהל מורכב');
 
-  sb.document.dispatch('repo:view-changed', { markdown: true });   // לא זורק
-  eq(sb.window.repoNotes.hasManager(), false, 'ועדיין אין');
+  sb.document.dispatch('repo:view-changed', { markdown: true });   // אסור שיזרוק
+
+  eq(sb.window.repoNotes.hasManager(), true, 'והמנהל שרד');
 });
 
 (async () => {
