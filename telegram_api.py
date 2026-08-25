@@ -16,12 +16,93 @@ BOT_TOKEN_RE = _BOT_TOKEN_RE
 
 TOKEN_PLACEHOLDER = "<REDACTED>"
 
+#: סוד שרוכב על שורת שאילתה — **לפי שם הפרמטר, לא לפי צורת הערך.**
+#:
+#: זה מה שהבדיל בין הטוקן של טלגרם, שנתפס, לבין מפתח Gemini, שדלף במלואו:
+#: הרשת הכירה צורות של סודות מוכרים, ולכן כל ספק חדש היה דליפה חדשה עד
+#: שמישהו נזכר להוסיף רג'קס. הכלל הזה אינו יודע דבר על Google, על OpenAI
+#: או על מי שיבוא אחריהם — הוא מנקה לפי **שם** הפרמטר, ולכן עובד לכולם.
+#:
+#: **מעוגן ל-``?``/``&`` או לתחילת מחרוזת — ושני החלקים נדרשים.**
+#: אינטגרציית httpx של Sentry לא שומרת את השאילתה בתוך ה-URL אלא בשדה
+#: נפרד, ``http.query``, שערכו מחרוזת עירומה: ``key=AIza...`` בלי ``?``
+#: מוביל. עיגון ל-``?``/``&`` בלבד היה מפספס בדיוק את השדה שדלף — זה נתפס
+#: באימות מול מבנה ה-span האמיתי, לא בקריאת הקוד.
+#:
+#: ותחילת-מחרוזת בלבד, לא רווח: לוגים לגיטימיים נושאים ``key=`` באמצע שורה
+#: בלי קשר לסודות (``embedding_worker`` מדפיס ``key=%s`` על מפתח מודל/מימד),
+#: והרחבה לרווח הייתה מסרסת מידע אבחוני בלי להוסיף הגנה.
+#:
+#: **התחילית היא מה שמונע רשימה מתארכת.** בלעדיה ``auth_token``,
+#: ``oauth_token``, ``id_token``, ``private_key``, ``x-api-key`` ו-
+#: ``session_token`` היו כולם דולפים — שמות פרמטרים נפוצים לגמרי ב-OAuth
+#: ובקולבקים. פתרון של "נוסיף גם אותם לרשימה" היה משחזר בדיוק את התקלה
+#: שהכלל הזה בא לחסל: רשימה שחורה שמתעדכנת רק אחרי דליפה.
+#:
+#: **רצף ספרות הוא מפריד מקטע בפני עצמו.** ``v2token`` נקרא ``v2`` +
+#: ``token`` לכל קורא, בדיוק כמו ``v2Token`` — ואותו credential יכול לשבת
+#: בשניהם. לכן המעבר ספרה ← אות הוא גבול שלישי, לצד המפריד ו-camelCase.
+#: זה גם מה שמפריד אותו מגבול אות ← אות, שהיה תופס את ``monkey``:
+#: ``mon`` + ``key`` אינה קריאה טבעית של השם, ``v2`` + ``token`` כן.
+#:
+#: התחילית מסתיימת במפריד (``_``, ``-``, ``.``), בגבול camelCase, או
+#: במעבר ספרה ← אות;
+#: ולכן ``privateKey``, ``authToken`` ו-``xApiKey`` נתפסים כמו המקבילות
+#: עם קו תחתון. הגבול חייב להיות רגיש-רישיות (``(?-i:...)``): תחת ``(?i)``
+#: הכולל, ``[A-Z]`` תופס גם אותיות קטנות, והגבול היה מתדרדר ל"בין כל שתי
+#: אותיות" — מה שהיה מנקה גם ``?monkey=``. נתפס באימות, לא בקריאה.
+#:
+#: ``?monkey=`` ו-``?key_id=`` **אינם** נתפסים: המילה הרגישה חייבת להיות
+#: מקטע שלם, לא סיומת מקרית ולא תחילית של שם אחר. יש טסט שנועל את שניהם.
+#:
+#: **ניקוי-היתר מכוון.** ``?search_key=``, ``?page_key=`` ו-``?sort_token=``
+#: כן ינוקו, למרות שאינם סודות — לפי **שם** אי אפשר להבחין ביניהם לבין
+#: ``?private_key=``, ולכן הבחירה היא בין ניקוי-יתר של ערך אבחוני לבין
+#: דליפת credential. ברשת של לוגים ו-Sentry הכיוון הנכון הוא fail-closed.
+#: לשם השוואה: ``sanitize_url`` של Sentry עצמו מנקה **כל** ערך בשאילתה,
+#: כולל ``limit=5``; הכלל כאן כבר צר ממנו משמעותית.
+_SECRET_QUERY_PARAM_RE = re.compile(
+    r"(?i)((?:^|[?&])"
+    r"(?:[A-Za-z0-9_.\-]*(?:[_.\-]"
+    r"|(?<=(?-i:[a-z0-9]))(?=(?-i:[A-Z]))"
+    r"|(?<=[0-9])(?=(?-i:[A-Za-z]))))?"
+    r"(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret"
+    r"|authorization|signature|password|passwd|secret|token|auth|pwd|key|sig)=)"
+    r"[^&#\s\"\'<>\\]+"
+)
+SECRET_QUERY_PARAM_RE = _SECRET_QUERY_PARAM_RE
+
+#: **רשימת הדפוסים המשותפת.** ``SensitiveDataFilter`` בלוגים מייבא אותה
+#: מכאן, כדי שהוספת דפוס תגיע לשתי הרשתות — Sentry והלוגים — בבת אחת.
+#: כשהיה מקור אמת אחד לכל רשת, אחת מהן קיבלה תיקון והשנייה נשארה מאחור.
+REDACTION_PATTERNS = [
+    (_BOT_TOKEN_RE, TOKEN_PLACEHOLDER),
+    (_SECRET_QUERY_PARAM_RE, r"\1" + TOKEN_PLACEHOLDER),
+]
+
+
+def _scrub_text(text: str) -> str:
+    """מריץ את כל דפוסי הניקוי על מחרוזת אחת, לפי הסדר."""
+    for pattern, replacement in REDACTION_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def _has_secret(text: str) -> bool:
+    """האם המחרוזת נושאת סוד לפי אחד הדפוסים."""
+    return any(pattern.search(text) for pattern, _ in REDACTION_PATTERNS)
+
 # מוחזר כשאי אפשר לנקות ערך (str() נכשל) — עדיף לאבד את הערך מאשר להדליף טוקן
 UNREDACTABLE_PLACEHOLDER = "<UNREDACTABLE>"
 
 
 def redact_bot_token(value: Any) -> Any:
-    """מחליף כל טוקן בוט שמופיע בטקסט בסימון ``<REDACTED>``.
+    """מחליף כל סוד שמופיע בטקסט בסימון ``<REDACTED>``.
+
+    **השם היסטורי.** הפונקציה נולדה לטוקן של טלגרם, והיום היא מריצה את כל
+    :data:`REDACTION_PATTERNS` — טוקן הבוט **וגם** סוד שרוכב על שורת שאילתה.
+    ההרחבה נעשתה אחרי שמפתח Gemini דלף במלואו ל-Sentry: הוא עבר דרך אותה
+    פונקציה בדיוק, ויצא ממנה כמו שנכנס, כי הרשימה הייתה בגודל אחד.
 
     מחזיר ``None`` כפי שהוא, וכל ערך אחר מומר למחרוזת מנוקה. אם ההמרה למחרוזת
     נכשלת מוחזר ``<UNREDACTABLE>`` — כישלון ניקוי לעולם לא מחזיר את הערך הגולמי.
@@ -32,7 +113,7 @@ def redact_bot_token(value: Any) -> Any:
         return None
     try:
         text = value if isinstance(value, str) else str(value)
-        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
+        return _scrub_text(text)
     except Exception:
         return UNREDACTABLE_PLACEHOLDER
 
@@ -40,7 +121,7 @@ def redact_bot_token(value: Any) -> Any:
 def _redact_bytes(obj: Any) -> Any:
     """מנקה טוקן מ-bytes/bytearray תוך שמירה על הטיפוס המקורי."""
     try:
-        cleaned_text = _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, obj.decode("utf-8", errors="replace"))
+        cleaned_text = _scrub_text(obj.decode("utf-8", errors="replace"))
         encoded = cleaned_text.encode("utf-8")
         return bytearray(encoded) if isinstance(obj, bytearray) else encoded
     except Exception:
@@ -137,10 +218,10 @@ def redact_bot_token_deep(obj: Any, _memo: Optional[Dict[int, Any]] = None, _dep
         rep = repr(obj)
     except Exception:
         return UNREDACTABLE_PLACEHOLDER
-    if _BOT_TOKEN_RE.search(rep):
-        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, rep)
-    if _BOT_TOKEN_RE.search(text):
-        return _BOT_TOKEN_RE.sub(TOKEN_PLACEHOLDER, text)
+    if _has_secret(rep):
+        return _scrub_text(rep)
+    if _has_secret(text):
+        return _scrub_text(text)
     return obj
 
 

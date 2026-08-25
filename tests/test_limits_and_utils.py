@@ -144,7 +144,39 @@ def test_sensitive_data_filter_redacts_tokens(capfd):
     token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
     logger.info("token=%s", token)
     out, err = capfd.readouterr()
-    assert "ghp_***REDACTED***" in out
+    # **התכונה שנבדקת היא שהסוד לא הגיע ללוג**, ולא איזה סימון הופיע.
+    # השורה מתחילה ב-``token=``, ולכן גם כלל שורת-השאילתה המשותף חל עליה
+    # ומחליף את הערך ב-``<REDACTED>`` הגנרי במקום ב-``ghp_***REDACTED***``.
+    # שני הסימונים תקינים; מה שאסור הוא שהטוקן עצמו ישרוד.
+    assert token not in out
+    assert "REDACTED" in out
+
+
+def test_sensitive_data_filter_catches_a_secret_no_shape_pattern_knows(capfd):
+    """**זה מה שהדפוס לפי-שם מוסיף.**
+
+    רשימת הדפוסים הכירה צורות של סודות מוכרים (``ghp_``, ``Bearer``, טוקן
+    טלגרם), ולכן סוד של ספק שלא היה ברשימה עבר שלם — כך דלף מפתח Gemini.
+    הערך כאן אינו תואם לאף דפוס-צורה, ובכל זאת מנוקה, כי הוא יושב בפרמטר
+    ששמו ``key``.
+
+    נופל אם מסירים את הדפוס המשותף או מחזירים את הרשימה לדפוסי-צורה בלבד.
+    """
+    from utils import SensitiveDataFilter
+
+    logger = logging.getLogger("redact-test-2")
+    logger.handlers = []
+    handler = logging.StreamHandler(sys.stdout)
+    handler.addFilter(SensitiveDataFilter())
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+    secret = "AIzaSyFAKE0000_NOT_A_REAL_KEY_000000000"
+    logger.info("calling %s", f"https://generativelanguage.googleapis.com/v1beta/x?key={secret}")
+    out, err = capfd.readouterr()
+
+    assert secret not in out
+    assert "key=<REDACTED>" in out
 
 
 def test_detect_language_from_filename():

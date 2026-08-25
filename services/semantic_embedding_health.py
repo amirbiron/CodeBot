@@ -677,10 +677,7 @@ def sync_probe_and_upgrade() -> None:
             }
             if dim and int(dim) > 0:
                 payload["outputDimensionality"] = int(dim)
-            r = client.post(
-                url, json=payload, params={"key": api_key},
-                headers={"Content-Type": "application/json"},
-            )
+            r = client.post(url, json=payload)
             if r.status_code == 200:
                 try:
                     values = r.json()["embedding"]["values"]
@@ -702,7 +699,15 @@ def sync_probe_and_upgrade() -> None:
                 return values, 200
             return None, int(r.status_code)
 
-        with _httpx.Client(timeout=15) as client:
+        # **המפתח על הלקוח, לא ב-URL.** קודם הוא הועבר כ-``params={"key": ...}``
+        # בשני אתרי הקריאה למטה, כלומר נכנס לכתובת — ומשם דלף ל-Sentry דרך
+        # אינטגרציית httpx, שרושמת את שורת השאילתה כשדה נפרד ב-span בלי ניקוי.
+        # ``x-goog-api-key`` הוא ההזדהות שגוגל מתעדת מול אותו host:
+        # https://ai.google.dev/gemini-api/docs/api-key
+        _headers = {"Content-Type": "application/json"}
+        if api_key:
+            _headers["x-goog-api-key"] = api_key
+        with _httpx.Client(timeout=15, headers=_headers) as client:
             # 1. Test current model
             emb, st = _probe(client, model_n, settings.api_version,
                              settings.dimensions)
@@ -806,10 +811,7 @@ def sync_probe_and_upgrade() -> None:
                 if settings.api_version != "v1" else ["v1"]
             )
             for av in api_versions:
-                r = client.get(
-                    _base(av), params={"key": api_key},
-                    headers={"Content-Type": "application/json"},
-                )
+                r = client.get(_base(av))
                 if r.status_code != 200:
                     continue
                 for m in (r.json().get("models") or []):

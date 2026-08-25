@@ -15,6 +15,7 @@ from telegram_api import (
     redact_bot_token,
     redact_bot_token_deep,
     require_telegram_ok,
+    scrub_sentry_event,
 )
 
 # טוקן בדוי במבנה אמיתי — משמש רק לבדיקה שהוא לא שורד בפלט
@@ -367,3 +368,225 @@ def test_scrub_sentry_event_cleans_and_fails_closed(monkeypatch):
 
     monkeypatch.setattr(telegram_api, "redact_bot_token_deep", _boom)
     assert scrub_sentry_event({"anything": "at all"}) is None
+
+
+# ---------- סוד שרוכב על שורת שאילתה (מפתח Gemini שדלף ל-Sentry) ----------
+
+# מפתח בדוי בצורת מפתח של Google — משמש רק כדי לוודא שהוא לא שורד בפלט
+FAKE_GOOGLE_KEY = "AIzaSyFAKE0000_NOT_A_REAL_KEY_000000000"
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    f"text-embedding-004:embedContent?key={FAKE_GOOGLE_KEY}"
+)
+
+
+def test_sentry_span_shape_from_httpx_integration_is_scrubbed():
+    """**זו בדיוק צורת האירוע שדלף.**
+
+    אינטגרציית httpx של Sentry נדלקת מעצמה, קוראת ל-``parse_url`` עם
+    ``sanitize=False``, ורושמת את שורת השאילתה בשדה נפרד — ``http.query`` —
+    שערכו מחרוזת עירומה בלי ``?`` מוביל. הרשת הישנה הכירה רק את צורת הטוקן
+    של טלגרם, ולכן המפתח עבר דרכה שלם.
+
+    נופל אם דפוס שורת-השאילתה יוסר, או אם יעוגן ל-``?``/``&`` בלבד.
+    """
+    event = {
+        "type": "transaction",
+        "spans": [
+            {
+                "op": "http.client",
+                "description": f"POST {GEMINI_URL}",
+                "data": {
+                    "url": GEMINI_URL.split("?")[0],
+                    # השדה שדלף: מחרוזת עירומה, בלי ``?`` מוביל
+                    "http.query": f"key={FAKE_GOOGLE_KEY}",
+                },
+            }
+        ],
+        "breadcrumbs": {"values": [{"type": "http", "data": {"url": GEMINI_URL}}]},
+    }
+
+    cleaned = scrub_sentry_event(event)
+
+    assert cleaned is not None, "הניקוי נכשל — fail-closed היה מפיל את האירוע"
+    blob = repr(cleaned)
+    assert FAKE_GOOGLE_KEY not in blob
+    assert cleaned["spans"][0]["data"]["http.query"] == "key=<REDACTED>"
+
+
+def test_bare_query_string_without_leading_question_mark_is_scrubbed():
+    """שורת שאילתה עירומה — הצורה שבה Sentry שומר את ``http.query``.
+
+    נופל אם הדפוס יעוגן ל-``?``/``&`` בלבד ולא גם לתחילת מחרוזת.
+    """
+    assert redact_bot_token(f"key={FAKE_GOOGLE_KEY}") == "key=<REDACTED>"
+    assert redact_bot_token(f"foo=1&api_key={FAKE_GOOGLE_KEY}") == "foo=1&api_key=<REDACTED>"
+
+
+def test_secret_query_param_is_scrubbed_by_name_not_by_value_shape():
+    """**הכלל חסין-ספק.** הוא מנקה לפי שם הפרמטר ולא לפי צורת הערך.
+
+    זה מה שמונע את החזרה של האירוע עם הספק הבא: אין כאן שום ידע על Google.
+
+    נופל אם מחליפים את הכלל בדפוס-צורה ספציפי (למשל ``AIza...``).
+    """
+    for name in ("key", "api_key", "token", "access_token", "secret", "password", "signature"):
+        cleaned = redact_bot_token(f"https://example.com/v1/x?{name}=SOME_OPAQUE_VALUE_123")
+        assert "SOME_OPAQUE_VALUE_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+
+def test_compound_parameter_names_are_scrubbed_too():
+    """**שם מורכב הוא הצורה הנפוצה, לא החריגה.**
+
+    ``auth_token``, ``oauth_token``, ``id_token``, ``private_key``,
+    ``x-api-key`` ו-``session_token`` הם שמות פרמטרים סטנדרטיים ב-OAuth
+    ובקולבקים. כשהדפוס דרש התאמה מדויקת מהמפריד, כולם עברו שלמים.
+
+    התיקון אינו הוספתם לרשימה — זה היה משחזר את אותה רשימה שחורה
+    שמתעדכנת רק אחרי דליפה — אלא תחילית-מקטע שמכסה כל וריאציה כזו.
+
+    נופל אם התחילית ``(?:[A-Za-z0-9]+[_.\\-])*`` תוסר מהדפוס.
+    """
+    for name in (
+        "auth_token", "oauth_token", "id_token", "private_key",
+        "x-api-key", "session_token", "refresh_token", "api_key_secret",
+    ):
+        cleaned = redact_bot_token(f"https://example.com/cb?{name}=OPAQUE_SECRET_123")
+        assert "OPAQUE_SECRET_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+
+def test_camel_case_parameter_names_are_scrubbed_too():
+    """**camelCase הוא אותו שם, בכתיב אחר.**
+
+    ``privateKey``, ``authToken`` ו-``xApiKey`` הם בדיוק ``private_key``,
+    ``auth_token`` ו-``x-api-key`` — ספקים כותבים בשני הכתיבים. תחילית
+    שמסתיימת רק במפריד תופסת חצי מהם.
+
+    נופל אם גבול ה-camelCase יוסר מהתחילית.
+    """
+    for name in ("privateKey", "authToken", "xApiKey", "refreshToken", "sessionToken"):
+        cleaned = redact_bot_token(f"https://example.com/cb?{name}=OPAQUE_SECRET_123")
+        assert "OPAQUE_SECRET_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+
+def test_digits_act_as_a_segment_boundary_in_both_casings():
+    """**רצף ספרות הוא מפריד מקטע, ולכן הרישיות לא קובעת.**
+
+    גרסאות ואלגוריתמים נכנסים לשמות פרמטרים כמעט תמיד, ובשני הכתיבים:
+    ``v2Token`` ו-``v2token`` יכולים לשאת בדיוק את אותו credential.
+    ``v2`` + ``token`` היא קריאה טבעית של השם — בניגוד ל-``mon`` +
+    ``key`` — ולכן המעבר ספרה ← אות הוא גבול, וגבול אות ← אות אינו.
+
+    נופל אם הגבול ספרה ← אות יוסר, או אם ה-``0-9`` יוסר מהצד השמאלי של
+    גבול ה-camelCase.
+    """
+    for name in ("v2Token", "oauth2Token", "sha256Token", "x509Key", "md5Secret",
+                 "v2token", "oauth2token", "sha256token", "x509key"):
+        cleaned = redact_bot_token(f"https://example.com/cb?{name}=OPAQUE_SECRET_123")
+        assert "OPAQUE_SECRET_123" not in cleaned, name
+        assert f"{name}=<REDACTED>" in cleaned, name
+
+
+def test_the_terminal_segment_requirement_is_separate_from_the_boundary():
+    """**שתי דרישות נפרדות, וכל דוגמה מוצמדת לנכונה שבהן.**
+
+    ב-``top10keys`` הגבול ספרה ← אות דווקא צמוד לגמרי (``0`` ← ``k``),
+    ובכל זאת השם נשמר — כי ``key`` אינו המקטע הסופי: אחריו ``s``, לא
+    ``=``. ההוכחה: ``top10key`` בלי ה-``s``, עם אותו גבול בדיוק, כן
+    מנוקה. הגבול שלפני המילה מונע את ``monkey``; ה-``=`` שמיד אחריה
+    מונע את ``top10keys`` ו-``key_id``.
+
+    (``?sha256=abc`` נשמר מסיבה שלישית — אין בו מילה רגישה כלל.)
+
+    נופל אם יותרו תווים בין המילה הרגישה ל-``=``.
+    """
+    # אותו גבול צמוד — ההבדל היחיד הוא המקטע הסופי
+    assert redact_bot_token("?top10keys=5") == "?top10keys=5"
+    assert redact_bot_token("?top10key=x") == "?top10key=<REDACTED>"
+    assert redact_bot_token("?utf8keyboard=1") == "?utf8keyboard=1"
+    assert redact_bot_token("?utf8key=x") == "?utf8key=<REDACTED>"
+    assert redact_bot_token("?sha256=abc") == "?sha256=abc"
+
+
+def test_camel_boundary_is_case_sensitive_inside_a_case_insensitive_pattern():
+    """**מלכודת ``(?i)``.** תחת דגל חוסר-רגישות-רישיות, ``[A-Z]`` תופס גם
+    אותיות קטנות — וגבול ה-camelCase מתדרדר ל"בין כל שתי אותיות". אז
+    ``?monkey=`` היה נתפס, כי ``mon`` + גבול + ``key`` "מתאים".
+
+    הגבול חייב להיות ב-``(?-i:...)``. הטסט הזה נועל את זה בנפרד משאר
+    בדיקות ה-``monkey`` כי הוא נוגע לסיבה אחרת לגמרי לאותה תוצאה.
+
+    נופל אם דגלי ה-``(?-i:...)`` יוסרו מהגבול.
+    """
+    for benign in ("?monkey=banana", "?donkey=1", "?turkey=2", "?keyId=42"):
+        assert redact_bot_token(benign) == benign, benign
+
+
+def test_over_redaction_of_benign_names_is_a_deliberate_choice():
+    """**ניקוי-יתר מכוון, ולא תופעת לוואי.**
+
+    ``search_key`` ו-``sort_token`` אינם סודות, וכן ינוקו: לפי **שם** אי
+    אפשר להבחין ביניהם לבין ``private_key``. הבחירה היא בין ניקוי-יתר של
+    ערך אבחוני לבין דליפת credential, וברשת של לוגים ו-Sentry הכיוון הוא
+    fail-closed. לשם השוואה, ``sanitize_url`` של Sentry מנקה **כל** ערך
+    בשאילתה כולל ``limit=5``; הכלל כאן צר ממנו.
+
+    הטסט קיים כדי שהתנהגות כזו לא תיראה כבאג בסבב הבא. נופל אם מישהו
+    יצמצם את התחילית לרשימת מקטעים מוכרים — וזה יהיה סימן להחלטה מודעת
+    ולא לתיקון שקט.
+    """
+    assert redact_bot_token("?search_key=price") == "?search_key=<REDACTED>"
+    assert redact_bot_token("?sort_token=abc") == "?sort_token=<REDACTED>"
+    # ומה שכן נשמר — פרמטרים שכנים שאינם נושאים שם רגיש
+    assert redact_bot_token("?page_key=3&limit=5") == "?page_key=<REDACTED>&limit=5"
+
+
+def test_a_sensitive_word_must_be_a_whole_segment_not_a_suffix():
+    """**הגבול של התחילית.** המילה הרגישה חייבת להיות מקטע שלם בשם.
+
+    בלי הדרישה שהתחילית תסתיים במפריד, ``?monkey=`` היה נתפס (הוא מסתיים
+    ב-``key``) וכל שם פרמטר שמכיל צירוף מקרי היה מנוקה. ``key_id`` נשמר
+    מאותה סיבה הפוכה: הוא מזהה, לא סוד.
+
+    נופל אם התחילית תשוחרר ל-``[A-Za-z0-9_.-]*`` בלי דרישת המפריד.
+    """
+    for benign in ("?monkey=banana", "?cameronkey=x", "?keys=3", "?author=me",
+                   "?key_id=42", "?tokenizer=bpe"):
+        assert redact_bot_token(benign) == benign, benign
+
+
+def test_query_scrub_keeps_neighbouring_params_and_fragment():
+    """מנקה את הערך בלבד — לא את שאר השאילתה ולא את ה-fragment."""
+    cleaned = redact_bot_token(f"https://x.io/a?key={FAKE_GOOGLE_KEY}&limit=5#section")
+    assert cleaned == "https://x.io/a?key=<REDACTED>&limit=5#section"
+
+
+def test_diagnostic_log_line_with_non_secret_key_is_left_alone():
+    """**לא לסרס מידע אבחוני.** ``embedding_worker`` מדפיס ``key=`` על מפתח
+    מודל/מימד, שאינו סוד. הדפוס מעוגן לשורת שאילתה או לתחילת מחרוזת בדיוק
+    כדי לא לגעת בשורות כאלה.
+
+    נופל אם מרחיבים את העיגון לרווח.
+    """
+    line = "Snippet 42: retry using model=gemini-embedding-001 api=v1 dim=768 key=models/emb-004"
+    assert redact_bot_token(line) == line
+
+
+def test_log_filter_inherits_the_shared_pattern_list(caplog):
+    """רשת הלוגים ורשת Sentry חולקות רשימת דפוסים אחת.
+
+    נופל אם ``SensitiveDataFilter`` יחזור לרשימה משלו.
+    """
+    from utils import SensitiveDataFilter
+
+    record = logging.LogRecord(
+        name="probe", level=logging.ERROR, pathname=__file__, lineno=1,
+        msg="POST %s failed", args=(GEMINI_URL,), exc_info=None,
+    )
+    SensitiveDataFilter().filter(record)
+
+    assert FAKE_GOOGLE_KEY not in str(record.msg)
+    assert "key=<REDACTED>" in str(record.msg)

@@ -1422,7 +1422,7 @@ def get_language_emoji(language: str) -> str:
 # מקור אמת יחיד: הדפוס הציבורי מ-telegram_api. אין עותק מקומי — עותק כזה
 # מתפצל בשקט מהמקור בכל שינוי, וזה גרוע יותר מכשל ייבוא קולני (telegram_api
 # תלוי רק בספריה הסטנדרטית, כך שכשל הייבוא כאן בלתי אפשרי בפועל).
-from telegram_api import BOT_TOKEN_RE as _TG_TOKEN_RE
+from telegram_api import REDACTION_PATTERNS as _SHARED_REDACTION_PATTERNS
 
 
 class SensitiveDataFilter(logging.Filter):
@@ -1430,11 +1430,14 @@ class SensitiveDataFilter(logging.Filter):
 
     # כל דפוסי הניקוי במקום אחד — ההודעה וה-traceback עוברים דרך אותה רשימה,
     # כך שאי אפשר להוסיף דפוס למסלול אחד ולשכוח את השני
+    # הדפוסים המשותפים (טוקן טלגרם + סוד בשורת שאילתה) מיובאים מ-
+    # ``telegram_api`` ולא משוכפלים כאן: כשלכל רשת הייתה רשימה משלה, הוספת
+    # דפוס הגיעה לאחת ולא לשנייה. הדפוסים שמתחת ייחודיים ללוגים.
     _PATTERNS = [
         (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "ghp_***REDACTED***"),
         (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "github_pat_***REDACTED***"),
         (re.compile(r"Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}"), "Bearer ***REDACTED***"),
-        (_TG_TOKEN_RE, "<REDACTED>"),
+        *_SHARED_REDACTION_PATTERNS,
     ]
 
     @classmethod
