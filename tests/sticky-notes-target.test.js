@@ -1363,6 +1363,28 @@ check('רענון גלילה מחשב את ההיסט פעם אחת לכל הפ�
   eq(rectReads, 2, 'שתי קריאות פריסה לשלושה פתקים');
 });
 
+check('refreshPinned ממקם מחדש את הפתקים הנעוצים', () => {
+  // הקרס הציבורי שהצרכן קורא לו כשהתצוגה — ולכן הגולל — התחלפה.
+  //
+  // נופל אם ``refreshPinned`` יפסיק לקרוא ל-``_updatePinnedForScroll``.
+  const sb = makeSandbox();
+  const Manager = sb.window.StickyNotesManager;
+  const container = makeRepoContainer(250);
+  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container,
+                          scroller: () => container.__scroller });
+
+  const el = { style: {}, dataset: {},
+    classList: { add() {}, remove() {}, contains: (c) => c === 'is-pinned' },
+    querySelector: () => null, querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) };
+  m.notes.set('n', { el, data: { mode: 'surface', position: { x: 0, y: 400 }, size: { width: 260, height: 200 } } });
+
+  m.refreshPinned();
+
+  // הגולל מתחיל 40 מתחת לקונטיינר ונגלל 250 ⇒ 400 + (40-250) = 190
+  eq(el.style.top, '190px', 'המיקום חושב מחדש לפי הגולל הנוכחי');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);

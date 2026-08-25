@@ -144,6 +144,14 @@
     enqueue(function () { return applyTarget(nextRepo, nextPath, myGen); });
   });
 
+  // החלפת תצוגה (קוד ↔ Markdown) מחליפה את הגולל, ולכן הפתקים הנעוצים
+  // צריכים מיקום מחדש. אין כאן אירוע גלילה שיעשה זאת לבד.
+  document.addEventListener('repo:view-changed', function () {
+    if (manager && typeof manager.refreshPinned === 'function') {
+      try { manager.refreshPinned(); } catch (_) { /* לא שובר את התצוגה */ }
+    }
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
     var btn = toggleBtn();
     if (btn) btn.addEventListener('click', function () { setEnabled(!enabled); });

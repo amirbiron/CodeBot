@@ -149,6 +149,8 @@ async function enableMarkdownPreview(seq) {
 
     // רינדור התוכן
     await renderMarkdownPreview(state.currentFileContent, seq);
+
+    emitRepoViewChanged();
 }
 
 /**
@@ -174,6 +176,8 @@ function disableMarkdownPreview() {
             state.editor.refresh();
         }
     }, 100);
+
+    emitRepoViewChanged();
 }
 
 /**
@@ -760,6 +764,26 @@ function repoNameFromDom() {
  * שהיא באוויר — ואז קריאה מה-DOM בסוף הטעינה הייתה מצמידה את הקובץ הישן
  * לריפו החדש. מי שמתחיל טעינה מצלם את הריפו בהתחלה ומעביר את הצילום.
  */
+/**
+ * מודיע שתצוגת הקובץ התחלפה בין קוד ל-Markdown.
+ *
+ * **נפלט מנקודת שינוי המצב עצמה** — ``enableMarkdownPreview`` /
+ * ``disableMarkdownPreview`` — ולא מאתרי ההפעלה. גם הכפתור וגם
+ * ``Ctrl+Shift+M`` עוברים דרכן, וכך גם כל קורא עתידי; פליטה מהמתג היתה
+ * מנייה של אתרים שמישהו ישכח לעדכן.
+ *
+ * מי שמאזין (``repo-notes``) צריך את זה כי **הגולל מתחלף**: הפתקים
+ * הנעוצים ממוקמים לפי גלילת הפאנל הפעיל, והחלפה בלי הודעה משאירה אותם
+ * על ההיסט של הפאנל הקודם עד הגלילה הבאה.
+ */
+function emitRepoViewChanged() {
+    try {
+        document.dispatchEvent(new CustomEvent('repo:view-changed', {
+            detail: { markdown: !!state.markdownPreviewEnabled }
+        }));
+    } catch (_) { /* אירוע שלא נשלח לא אמור להפיל את התצוגה */ }
+}
+
 function emitRepoFileEvent(path, repo) {
     try {
         const name = (repo === undefined || repo === null) ? repoNameFromDom() : repo;

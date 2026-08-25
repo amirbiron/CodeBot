@@ -215,6 +215,39 @@ check('מעבר למסך הפתיחה (path=null) מפרק ולא משאיר מ�
   eq(sb.window.repoNotes.isEnabled(), false, 'כבוי');
 });
 
+check('החלפת תצוגה מרעננת את הפתקים הנעוצים', async () => {
+  // ``repo:view-changed`` מודיע שהגולל התחלף. בלי החיווט הזה הפתקים
+  // נשארים על ההיסט של הפאנל הקודם עד שהמשתמש גולל שוב.
+  //
+  // נופל אם המאזין ל-``repo:view-changed`` יוסר.
+  const sb = makeSandbox();
+  let refreshes = 0;
+  sb.window.StickyNotesManager = class {
+    constructor(opts) { this.opts = opts; this.destroyed = false; sb.__built.push(this); }
+    refreshPinned() { refreshes += 1; }
+    async destroy() { this.destroyed = true; }
+  };
+  sb.window.localStorage.setItem('repo-notes:CodeBot:a.py', '1');
+  sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'a.py' });
+  await sb.window.repoNotes.settled();
+  eq(sb.window.repoNotes.hasManager(), true, 'מנהל מורכב');
+
+  sb.document.dispatch('repo:view-changed', { markdown: true });
+
+  eq(refreshes, 1, 'המנהל התבקש למקם מחדש');
+});
+
+check('החלפת תצוגה בלי מנהל אינה נופלת', async () => {
+  // הפתקים כבויים — האירוע עדיין נפלט, ואסור שהוא יזרוק.
+  const sb = makeSandbox();
+  sb.document.dispatch('repo:file-loaded', { repo: 'CodeBot', path: 'b.py' });
+  await sb.window.repoNotes.settled();
+  eq(sb.window.repoNotes.hasManager(), false, 'אין מנהל');
+
+  sb.document.dispatch('repo:view-changed', { markdown: true });   // לא זורק
+  eq(sb.window.repoNotes.hasManager(), false, 'ועדיין אין');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);
