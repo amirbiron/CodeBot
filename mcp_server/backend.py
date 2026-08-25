@@ -528,9 +528,14 @@ class ProductionBackend:
     def _enforce_note_quotas(self, coll: Any, specs: Any) -> dict[str, Any] | None:
         """בודק את התקרות לפי הסדר. מחזיר מילון שגיאה, או ``None`` אם עברו.
 
-        ``specs`` הוא רצף של ``(query, cap, exempt)``. ``exempt`` הוא פר-תקרה
-        ולא פר-קריאה, כי שתי התקרות נבדלות בפטור: התקרה-למשטח נאכפת גם על
-        אדמין, והתקרה-למשתמש פטורה לו.
+        ``specs`` הוא רצף של ``(query, cap, exempt)``. **``exempt`` הוא
+        פר-תקרה ולא פר-קריאה** — מדיניות הפטור אינה תכונה של הקורא אלא של
+        התקרה עצמה, וכל מסלול יצירה מצהיר עליה בעצמו. הפונקציה הזו אינה
+        קובעת אותה ואינה מניחה עליה דבר.
+
+        (ולמה זה נדרש: התקרה ללוח פטורה לאדמין, והתקרה לקובץ בריפו נאכפת
+        עליו — התקרה השנייה שומרת על צורת התוכן ולא על משאבים. שתי
+        המדיניות חיות זו לצד זו, ולכן דגל יחיד לכל הקריאה לא היה מספיק.)
 
         **כשל ספירה דוחה.** תקרה שנפתחת לרווחה בדיוק כשהמסד מתקשה אינה
         תקרה. הקוד המוחזר נגזר מ**מצב הספירה** ולא מטקסט החריגה — טקסט של
@@ -1020,11 +1025,14 @@ class ProductionBackend:
         כשל שליפה אינו מפיל את החיפוש — הפגיעה פשוט נשארת עם ``file_id``
         בלבד, כפי שהייתה בלעדי המילוי.
         """
-        missing = {
-            str(r["file_id"]): r
-            for r in rows
-            if isinstance(r, dict) and r.get("file_id") and not r.get("file_name")
-        }
+        # **רשימה לכל מזהה, לא שורה אחת.** כמה פתקים על אותו קובץ הם המקרה
+        # הרגיל, לא הקצה; מילון ``{file_id: row}`` היה שומר רק את האחרון
+        # ומשאיר את כל השאר בלי נתיב ניווט — כלומר בדיוק המבוי הסתום
+        # שהמילוי הזה נועד לסגור, רק בשקט יותר.
+        missing: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            if isinstance(r, dict) and r.get("file_id") and not r.get("file_name"):
+                missing.setdefault(str(r["file_id"]), []).append(r)
         if not missing:
             return
         try:
@@ -1042,9 +1050,11 @@ class ProductionBackend:
                 {"_id": {"$in": oids}, "user_id": int(user_id)}, {"file_name": 1}
             )
             for doc in found:
-                row = missing.get(str(doc.get("_id")))
-                if row is not None and doc.get("file_name"):
-                    row["file_name"] = doc["file_name"]
+                name = doc.get("file_name")
+                if not name:
+                    continue
+                for row in missing.get(str(doc.get("_id")), ()):
+                    row["file_name"] = name
         except Exception:
             logger.warning("file name backfill for search hits failed", exc_info=True)
 

@@ -123,17 +123,30 @@ _INDEX_RETRY_AFTER = 0.0
 #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות.
 _INDEX_RETRY_SECONDS = 60.0
 
-#: שמות שבעת אינדקסי השאילתה של ``sticky_notes`` — לאימות אחרי הבנייה.
-#: מוגדרים פעם אחת כאן כדי שהוספת אינדקס לרשימת הבנייה בלי הוספה לאימות
-#: תהיה שינוי גלוי לעין ולא השמטה שקטה.
-_QUERY_INDEX_NAMES = (
-    "user_file_idx",
-    "user_file_created",
-    "updated_desc",
-    "user_scope_idx",
-    "user_board_idx",
-    "user_repo_idx",
-    "user_title_idx",
+#: **מפרט שבעת אינדקסי השאילתה של** ``sticky_notes`` **— מקור אמת אחד.**
+#:
+#: שלושת הצרכנים — המסלול המהיר (``create_indexes``), מסלול הגיבוי
+#: (``create_index`` אחד-אחד), והאימות בקריאה חוזרת — נגזרים כולם מכאן.
+#: כשכל אחד החזיק עותק משלו, אינדקס שנוסף לרשימה אחת ולא לשתיים האחרות
+#: פשוט לא נבנה במסלול הגיבוי **ולא סומן כחסר באימות** — כלומר בדיוק
+#: ההשמטה השקטה שהאימות נועד לתפוס.
+_QUERY_INDEX_SPECS: Tuple[Tuple[str, List[Tuple[str, int]]], ...] = (
+    ("user_file_idx", [("user_id", 1), ("file_id", 1)]),
+    ("user_file_created", [("user_id", 1), ("file_id", 1), ("created_at", 1)]),
+    ("updated_desc", [("updated_at", -1)]),
+    # שאילתת ה-list הראשית היא ``$or`` על scope_id/file_id
+    ("user_scope_idx", [("user_id", 1), ("scope_id", 1)]),
+    # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets
+    ("user_board_idx", [("user_id", 1), ("board_id", 1)]),
+    # פתקי ריפו: המפתח הוא הזוג ``(repo_name, repo_path)``, ולכן האינדקס
+    # מורכב משניהם. בלי ``ref``/ענף — בכוונה: פתק שנרשם על ``main`` חייב
+    # להופיע גם בענף PR.
+    ("user_repo_idx", [("user_id", 1), ("repo_name", 1), ("repo_path", 1)]),
+    # חיפוש פתק לפי שם חוצה את שלושת היעדים, ולכן אינו יכול להישען על אף
+    # אחד משני האינדקסים הייחודיים: ה-``partialFilterExpression`` שלהם
+    # דורש ``board_id``, או ``repo_name`` **וגם** ``repo_path`` — פרדיקטים
+    # שהחיפוש אינו נושא, ולכן הוא אינו תת-קבוצה של אף אחד מהם.
+    ("user_title_idx", [("user_id", 1), ("title", 1)]),
 )
 
 
@@ -255,30 +268,12 @@ def _ensure_indexes() -> None:
             db = get_db()
             coll = db.sticky_notes
             try:
-                from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
+                from pymongo import IndexModel  # type: ignore
+
+                # הכיוונים כבר במפרט (``-1`` ל-``updated_desc``); ``ASCENDING``
+                # ו-``DESCENDING`` הם 1 ו--1 בדיוק, ולכן אין כאן תרגום.
                 indexes = [
-                    IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING)], name="user_file_idx"),
-                    IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("created_at", ASCENDING)], name="user_file_created"),
-                    IndexModel([("updated_at", DESCENDING)], name="updated_desc"),
-                    # שאילתת ה-list הראשית היא ``$or`` על scope_id/file_id, אבל
-                    # ענף ה-scope לא היה מכוסה כאן כלל — האינדקס נוצר רק
-                    # אגב-אורחא ב-``mcp_server/backend``.
-                    IndexModel([("user_id", ASCENDING), ("scope_id", ASCENDING)], name="user_scope_idx"),
-                    # פתקי לוח: שאילתה ישירה, בלי ``$or`` ובלי code_snippets.
-                    IndexModel([("user_id", ASCENDING), ("board_id", ASCENDING)], name="user_board_idx"),
-                    # פתקי ריפו: המפתח הוא הזוג ``(repo_name, repo_path)``,
-                    # ולכן האינדקס מורכב משניהם. בלי ``ref``/ענף — בכוונה:
-                    # פתק שנרשם על ``main`` חייב להופיע גם בענף PR.
-                    IndexModel(
-                        [("user_id", ASCENDING), ("repo_name", ASCENDING), ("repo_path", ASCENDING)],
-                        name="user_repo_idx",
-                    ),
-                    # חיפוש פתק לפי שם חוצה את שלושת היעדים, ולכן אינו יכול
-                    # להישען על אף אחד משני האינדקסים הייחודיים: ה-
-                    # ``partialFilterExpression`` שלהם דורש ``board_id``, או
-                    # ``repo_name`` **וגם** ``repo_path`` — פרדיקטים שהחיפוש
-                    # אינו נושא, ולכן הוא אינו תת-קבוצה של אף אחד מהם.
-                    IndexModel([("user_id", ASCENDING), ("title", ASCENDING)], name="user_title_idx"),
+                    IndexModel(keys, name=name) for name, keys in _QUERY_INDEX_SPECS
                 ]
                 coll.create_indexes(indexes)
             except Exception:
@@ -289,15 +284,7 @@ def _ensure_indexes() -> None:
                 # השאר, והם לא נבנים לעולם — בלי שום שגיאה. האינדקס האחרון
                 # ברשימה הוא הקורבן הסביר ביותר. בלוק ``note_reminders``
                 # שמתחת כבר בנוי כך; זה היה החריג.
-                for keys, name in (
-                    ([("user_id", 1), ("file_id", 1)], "user_file_idx"),
-                    ([("user_id", 1), ("file_id", 1), ("created_at", 1)], "user_file_created"),
-                    ([("updated_at", -1)], "updated_desc"),
-                    ([("user_id", 1), ("scope_id", 1)], "user_scope_idx"),
-                    ([("user_id", 1), ("board_id", 1)], "user_board_idx"),
-                    ([("user_id", 1), ("repo_name", 1), ("repo_path", 1)], "user_repo_idx"),
-                    ([("user_id", 1), ("title", 1)], "user_title_idx"),
-                ):
+                for name, keys in _QUERY_INDEX_SPECS:
                     try:
                         coll.create_index(keys, name=name)
                     except Exception:
@@ -318,10 +305,32 @@ def _ensure_indexes() -> None:
             # הייתה מריצה את הבוטסטראפ כולו בכל בקשה, לנצח, בכל סביבת stub
             # וגם מול אינדקס שפשוט אינו ניתן לבנייה.
             try:
-                present = set(coll.index_information() or {})
-                missing = [n for n in _QUERY_INDEX_NAMES if n not in present]
+                present = coll.index_information() or {}
+                missing, mismatched = [], []
+                for name, keys in _QUERY_INDEX_SPECS:
+                    info = present.get(name)
+                    if info is None:
+                        missing.append(name)
+                        continue
+                    # **השוואת מפתחות, לא רק שם.** אינדקס שקיים תחת השם הזה
+                    # עם מפתחות אחרים גורם למונגו לדחות את היצירה
+                    # ב-``code 85/86``, ובדיקה לפי שם בלבד הייתה מדווחת
+                    # "קיים" — כלומר בדיוק המצב שבו השאילתה ממשיכה
+                    # ב-COLLSCAN בשקט. מונגו מחזיר ``key`` כרשימת זוגות.
+                    actual = [(str(f), int(d)) for f, d in (info.get("key") or [])]
+                    if actual != [(f, int(d)) for f, d in keys]:
+                        mismatched.append((name, actual))
                 if missing:
                     logger.error("sticky notes query indexes missing after build: %s", missing)
+                if mismatched:
+                    # לא מיישבים כאן: הפלה-ובנייה על אינדקס חי היא פעולה
+                    # שדורשת החלטה, ולא תופעת לוואי של בוטסטראפ. השם
+                    # הממוספר הוא הכלי ליישוב מכוון (ראו
+                    # ``_ensure_versioned_unique_index``).
+                    logger.error(
+                        "sticky notes query indexes exist with a different key spec: %s",
+                        mismatched,
+                    )
             except Exception:
                 logger.warning("sticky notes index verification failed", exc_info=True)
             # האינדקס הייחודי נוצר **בנפרד משני המסלולים**, ולא בתוכם.

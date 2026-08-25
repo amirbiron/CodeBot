@@ -799,11 +799,24 @@ class _FallbackIdxColl:
         self.built.append(name)
 
     def index_information(self):
-        return {n: {} for n in self.built}
+        # מחזיר גם ``key``, כי האימות משווה מפתחות ולא רק שמות
+        from webapp.sticky_notes_api import _QUERY_INDEX_SPECS
+
+        by_name = dict(_QUERY_INDEX_SPECS)
+        return {n: {"key": list(by_name.get(n, []))} for n in self.built}
 
 
 def _run_bootstrap(coll, monkeypatch):
-    """מריץ את ``_ensure_indexes`` האמיתי מול אוסף מזויף."""
+    """מריץ את ``_ensure_indexes`` האמיתי מול אוסף מזויף.
+
+    **הגלובלים משוחזרים בסוף, ולא רק נקבעים בהתחלה.** ``_ensure_indexes``
+    כותב ל-``_INDEX_READY``/``_TITLE_INDEX_OK``/``_REPO_TITLE_INDEX_OK``
+    דרך ``global``, ו-``monkeypatch`` אינו רואה השמה שנעשית **בתוך**
+    הפונקציה — הוא משחזר רק את הערך שהוא עצמו קבע. בלי השחזור הידני כאן,
+    שלושת הטסטים היו משאירים את המודול במצב "אינדקסים מוכנים ואכיפה
+    חיה" לשארית הסשן, וכל טסט אחר שמייבא אותו היה מקבל מסלול שונה **לפי
+    סדר ההרצה**.
+    """
     import webapp.sticky_notes_api as api
 
     class _DB:
@@ -811,13 +824,23 @@ def _run_bootstrap(coll, monkeypatch):
         note_boards = _FallbackIdxColl()
         note_reminders = _FallbackIdxColl()
 
+    saved = {
+        n: getattr(api, n)
+        for n in ("_INDEX_READY", "_TITLE_INDEX_OK", "_REPO_TITLE_INDEX_OK", "_INDEX_RETRY_AFTER")
+    }
     monkeypatch.setattr(api, "get_db", lambda: _DB())
-    monkeypatch.setattr(api, "_INDEX_READY", False, raising=False)
-    monkeypatch.setattr(api, "_INDEX_RETRY_AFTER", 0.0, raising=False)
     monkeypatch.setattr(api, "_cache_flag_ready", lambda: False)
+    monkeypatch.setattr(api, "_mark_cache_flag", lambda: None)  # לא נוגעים בקאש משותף
     monkeypatch.setattr(api, "ensure_title_index", lambda c: True)
     monkeypatch.setattr(api, "ensure_repo_title_index", lambda c: True)
-    api._ensure_indexes()
+    api._INDEX_READY = False
+    api._INDEX_RETRY_AFTER = 0.0
+    try:
+        api._ensure_indexes()
+        return api
+    finally:
+        for name, value in saved.items():
+            setattr(api, name, value)
 
 
 def test_one_failing_fallback_index_does_not_skip_the_rest(monkeypatch):
@@ -828,13 +851,13 @@ def test_one_failing_fallback_index_does_not_skip_the_rest(monkeypatch):
 
     נופלת אם ה-``try`` יחזור לעטוף את הלולאה כולה.
     """
-    from webapp.sticky_notes_api import _QUERY_INDEX_NAMES
+    from webapp.sticky_notes_api import _QUERY_INDEX_SPECS
 
     coll = _FallbackIdxColl(fail_name="user_file_idx")
     _run_bootstrap(coll, monkeypatch)
 
     assert "user_file_idx" not in coll.built            # זה אכן נכשל
-    assert set(coll.built) == set(_QUERY_INDEX_NAMES) - {"user_file_idx"}
+    assert set(coll.built) == {n for n, _ in _QUERY_INDEX_SPECS} - {"user_file_idx"}
     assert "user_title_idx" in coll.built               # האחרון ברשימה נבנה
 
 
@@ -861,9 +884,63 @@ def test_a_missing_query_index_does_not_block_readiness(monkeypatch):
     חסימת ``_INDEX_READY`` עליו הייתה מריצה את הבוטסטראפ כולו בכל בקשה,
     לנצח, בכל סביבת stub. שני אינדקסי **השם** כן חוסמים — הם אכיפה.
     """
+    coll = _FallbackIdxColl(fail_name="user_title_idx")
+    ready = {}
+
     import webapp.sticky_notes_api as api
 
-    coll = _FallbackIdxColl(fail_name="user_title_idx")
+    real = api._mark_indexes_ready
+    monkeypatch.setattr(
+        api, "_mark_indexes_ready",
+        lambda duration_ms=None: ready.setdefault("marked", True),
+    )
     _run_bootstrap(coll, monkeypatch)
 
-    assert api._INDEX_READY is True
+    # נבדק דרך הקריאה עצמה ולא דרך הגלובל, כי ``_run_bootstrap`` משחזר
+    # אותו — והשחזור הזה הוא מה ששומר על בידוד שאר הסוויטה.
+    assert ready.get("marked") is True
+    assert real is not None
+
+
+def test_the_bootstrap_tests_leave_no_state_behind(monkeypatch):
+    """**דליפת גלובלים היא באג תלוי-סדר, וזה הגרוע שבסוגים.**
+
+    ``_ensure_indexes`` כותב ל-``_INDEX_READY``/``_TITLE_INDEX_OK``/
+    ``_REPO_TITLE_INDEX_OK`` דרך ``global``. ``monkeypatch`` אינו רואה
+    השמה שנעשית **בתוך** הפונקציה — הוא משחזר רק ערך שהוא עצמו קבע.
+    בלי שחזור מפורש, כל טסט אחר שמייבא את המודול היה מקבל מסלול אחר לפי
+    סדר ההרצה: אכיפה דרך אינדקס במקום גיבוי בקוד, או להפך.
+
+    נופלת אם ה-``finally`` שמשחזר ב-``_run_bootstrap`` יוסר.
+    """
+    import webapp.sticky_notes_api as api
+
+    names = ("_INDEX_READY", "_TITLE_INDEX_OK", "_REPO_TITLE_INDEX_OK", "_INDEX_RETRY_AFTER")
+    before = {n: getattr(api, n) for n in names}
+
+    _run_bootstrap(_FallbackIdxColl(), monkeypatch)
+
+    assert {n: getattr(api, n) for n in names} == before
+
+
+def test_verification_flags_an_index_that_exists_with_other_keys(monkeypatch, caplog):
+    """**שם זהה ומפתחות שונים הוא בדיוק המצב ששקט מסתיר.**
+
+    מונגו דוחה יצירה כזו ב-``code 85/86``, ובדיקה לפי שם בלבד הייתה
+    מדווחת "קיים" — והשאילתה ממשיכה ב-COLLSCAN בלי שאיש יידע.
+
+    נופלת אם האימות יחזור להשוות שמות בלבד.
+    """
+    import logging
+
+    class _StaleColl(_FallbackIdxColl):
+        def index_information(self):
+            info = super().index_information()
+            if "user_title_idx" in info:
+                info["user_title_idx"] = {"key": [("user_id", 1), ("content", 1)]}
+            return info
+
+    with caplog.at_level(logging.ERROR):
+        _run_bootstrap(_StaleColl(), monkeypatch)
+
+    assert any("different key spec" in r.getMessage() for r in caplog.records), caplog.text

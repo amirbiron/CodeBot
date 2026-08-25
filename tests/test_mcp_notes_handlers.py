@@ -1332,3 +1332,26 @@ def test_a_failed_backfill_degrades_and_does_not_kill_the_search():
 
     assert out["ok"] is True and out["count"] == 1
     assert "file_name" not in out["notes"][0]
+
+
+def test_every_note_on_the_same_legacy_file_gets_the_name():
+    """**כמה פתקים על אותו קובץ הם המקרה הרגיל, לא הקצה.**
+
+    מילון ``{file_id: row}`` היה שומר רק את הפתק האחרון ומשאיר את כל
+    השאר בלי נתיב ניווט — אותו מבוי סתום שהמילוי נועד לסגור, רק בשקט
+    יותר: השאילתה כן נשלחה, והתוצאה כן חזרה, אבל רק אחת מהשורות התמלאה.
+
+    נופלת אם המיפוי יחזור להיות שורה-אחת-למזהה.
+    """
+    fid = "6a8cfe7e35f97a799c443650"
+    coll = _SearchColl(rows=[_row(0, file_id=fid), _row(1, file_id=fid), _row(2, file_id=fid)])
+    b = _search_backend(coll)
+    b._raw_mongo = lambda: {
+        "sticky_notes": coll,
+        "code_snippets": _SnippetColl([{"_id": fid, "file_name": "old.py"}]),
+    }
+
+    notes = b.search_notes(7, query="פתק", limit=10)["notes"]
+
+    assert len(notes) == 3
+    assert [n.get("file_name") for n in notes] == ["old.py"] * 3
