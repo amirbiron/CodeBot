@@ -243,6 +243,98 @@ def test_rename_verifies_the_write(client, monkeypatch):
     assert res.get_json()["error"] == "rename_not_applied"
 
 
+# -- נעיצה --
+
+def test_a_board_without_the_field_is_not_pinned(client):
+    """מסמכי לוח קיימים נוצרו לפני השדה. ברירת המחדל היא התשובה הנכונה
+    עבורם, ולכן אין מיגרציה.
+
+    נופל אם ``is_pinned`` יוסר מ-``_board_response``.
+    """
+    board = client.get("/api/note-boards").get_json()["boards"][0]
+    assert board["is_pinned"] is False
+
+
+def test_pin_and_unpin_round_trip(client):
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+
+    res = client.patch(f"/api/note-boards/{board_id}", json={"is_pinned": True})
+    assert res.status_code == 200
+    assert res.get_json()["board"]["is_pinned"] is True
+    assert client.get("/api/note-boards").get_json()["boards"][0]["is_pinned"] is True
+
+    res = client.patch(f"/api/note-boards/{board_id}", json={"is_pinned": False})
+    assert res.status_code == 200
+    assert client.get("/api/note-boards").get_json()["boards"][0]["is_pinned"] is False
+
+
+def test_pin_verifies_the_write(client, monkeypatch):
+    """**ערך ההחזרה של הכתיבה אינו אימות.**
+
+    ``update_one`` מדווח הצלחה גם כשלא נגע בכלום. בלי הקריאה החוזרת
+    המודאל היה מציג לוח נעוץ שאינו נעוץ במסד — וברענון הסימון היה נעלם.
+
+    נופל אם בדיקת ``is_pinned`` אחרי הכתיבה תוסר.
+    """
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    monkeypatch.setattr(client.db.note_boards, "update_one", lambda q, u: _Res())
+
+    res = client.patch(f"/api/note-boards/{board_id}", json={"is_pinned": True})
+
+    assert res.status_code == 409
+    assert res.get_json()["error"] == "pin_not_applied"
+
+
+def test_pinning_does_not_clear_the_name(client):
+    """**עדכון חלקי באמת.**
+
+    ``$set`` נבנה רק מהשדות שנשלחו. אילו הוא היה נבנה תמיד משניהם,
+    ``PATCH`` עם ``is_pinned`` בלבד היה כותב שם מנורמל מ-``None`` —
+    כלומר מוחק את שם הלוח בלחיצה על צ'קבוקס.
+
+    נופל אם הבנייה המותנית של ``updates`` תוסר.
+    """
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    client.patch(f"/api/note-boards/{board_id}", json={"name": "לוח בדיקה"})
+
+    client.patch(f"/api/note-boards/{board_id}", json={"is_pinned": True})
+
+    after = client.get("/api/note-boards").get_json()["boards"][0]
+    assert after["name"] == "לוח בדיקה"
+    assert after["is_pinned"] is True
+
+
+def test_renaming_does_not_clear_the_pin(client):
+    """הכיוון ההפוך — שינוי שם אינו מבטל נעיצה."""
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+    client.patch(f"/api/note-boards/{board_id}", json={"is_pinned": True})
+
+    client.patch(f"/api/note-boards/{board_id}", json={"name": "שם אחר"})
+
+    after = client.get("/api/note-boards").get_json()["boards"][0]
+    assert after["is_pinned"] is True
+    assert after["name"] == "שם אחר"
+
+
+def test_patch_without_known_fields_is_rejected(client):
+    """שדה לא מוכר אינו "עדכון ריק שהצליח" — הוא בקשה שגויה."""
+    board_id = client.get("/api/note-boards").get_json()["boards"][0]["id"]
+
+    res = client.patch(f"/api/note-boards/{board_id}", json={"color": "red"})
+
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "no_fields_to_update"
+
+
+def test_pinning_a_foreign_board_is_404(client):
+    """הבעלות נאכפת לפני הכתיבה, לא אחריה."""
+    from bson import ObjectId
+
+    res = client.patch(f"/api/note-boards/{ObjectId()}", json={"is_pinned": True})
+
+    assert res.status_code == 404
+
+
 # -- מחיקה --
 
 def test_cannot_delete_default_board(client):

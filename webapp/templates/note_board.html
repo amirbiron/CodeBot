@@ -23,6 +23,15 @@
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
       </button>
+      <button type="button" class="board-icon-link" id="boardSwitchBtn"
+              title="מעבר מהיר ללוח" aria-label="מעבר מהיר ללוח" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="5" rx="1.5"/>
+          <rect x="3" y="13" width="11" height="7" rx="1.5"/>
+          <path d="M17.5 13.5v6M20.5 16.5h-6"/>
+        </svg>
+      </button>
       <a href="/boards" class="board-icon-link" title="כל הלוחות" aria-label="כל הלוחות">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
              stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -61,6 +70,40 @@
       </div>
     </div>
 
+    <!-- מודאל 1: מעבר מהיר. מוצגים בו הלוחות הנעוצים; אריח ``+`` פותח את השני. -->
+    <div class="board-modal" id="boardSwitch" role="dialog" aria-modal="true"
+         aria-labelledby="boardSwitchTitle" hidden>
+      <div class="modal-backdrop" data-close></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="boardSwitchTitle">מעבר מהיר ללוח</h3>
+          <button type="button" class="modal-close" data-close
+                  aria-label="סגירה">&#10005;</button>
+        </div>
+        <div class="modal-body">
+          <div class="board-tiles" id="boardSwitchTiles"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- מודאל 2: בחירת הנעוצים. נשאר פתוח בזמן סימון; נסגר ב-✖ בלבד. -->
+    <div class="board-modal" id="boardPinManager" role="dialog" aria-modal="true"
+         aria-labelledby="boardPinTitle" hidden>
+      <div class="modal-backdrop" data-close></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="boardPinTitle">ניהול לוחות נעוצים</h3>
+          <button type="button" class="modal-close" data-close
+                  aria-label="סגירה">&#10005;</button>
+        </div>
+        <div class="modal-body">
+          <p class="board-pin-hint">סמנו לוחות כדי שיופיעו במעבר המהיר.</p>
+          <div class="board-pin-list" id="boardPinList"></div>
+          <div class="board-msg is-error" id="boardPinMsg" hidden></div>
+        </div>
+      </div>
+    </div>
+
     <div class="board-surface" id="boardSurface">
       <div class="board-empty" id="boardEmpty" hidden>
         <div>הלוח ריק.</div>
@@ -95,12 +138,18 @@
     empty.hidden = count > 0;
   }
 
+  // הרשימה המלאה מהשרת. **היא כבר נשלפת בכל טעינת עמוד** בשביל שם הלוח,
+  // והגרסה הקודמת זרקה את השאר. המודאלים נבנים ממנה, ולכן אינם עולים
+  // אף קריאת רשת נוספת.
+  let allBoards = [];
+
   async function loadBoard() {
     try {
       const resp = await fetch('/api/note-boards', { cache: 'no-store' });
       const data = await resp.json();
       if (!resp.ok || !data.ok) return;
-      const board = (data.boards || []).find(function (b) { return String(b.id) === String(BOARD_ID); });
+      allBoards = data.boards || [];
+      const board = allBoards.find(function (b) { return String(b.id) === String(BOARD_ID); });
       if (board) {
         titleInput.value = board.name;
         document.title = board.name + ' - Code Keeper Bot';
@@ -166,6 +215,75 @@
     markdown: readMarkdown()
   });
 
+  // ============================ מודאלים ============================
+  //
+  // ``aria-modal="true"`` מצהיר בפני קורא מסך שכל מה שמאחורי הדיאלוג
+  // אינו קיים. בלי לכידת Tab ההצהרה הזו פשוט אינה נכונה: משתמש מקלדת
+  // ממשיך לגלוש לשדה שם הלוח, לפתקים ולנאבבר — ומקליד בהם בזמן שהדיאלוג
+  // עדיין על המסך.
+  //
+  // **מחסנית ולא דגל.** הגרסה הקודמת קידדה קשיח מודאל יחיד: ``focusableItems``
+  // סרק אותו, והמאזין בדק ``settingsModal.hidden``. עם מודאל שנפתח מעל
+  // מודאל — וזה בדיוק מה שקורה כאן — שכפול הקוד היה מבטיח שהעותקים ייפרדו,
+  // ו-Escape היה סוגר את שניהם או את הלא נכון. המחסנית פותרת את זה בשורש:
+  // מאזין **אחד** שפועל תמיד על ראש המחסנית בלבד.
+  const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
+                    'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  const modalStack = [];
+
+  function focusableItems(el) {
+    return Array.prototype.filter.call(
+      el.querySelectorAll(FOCUSABLE),
+      function (n) { return n.offsetParent !== null || n === document.activeElement; }
+    );
+  }
+
+  function openModal(el, firstFocus) {
+    // הפותח נשמר כדי שהפוקוס יחזור אליו בסגירה, ולא יקפוץ לתחילת העמוד
+    modalStack.push({ el: el, opener: document.activeElement });
+    el.hidden = false;
+    const target = firstFocus || focusableItems(el)[0];
+    if (target) target.focus();
+  }
+
+  function closeTopModal() {
+    const top = modalStack.pop();
+    if (!top) return;
+    top.el.hidden = true;
+    if (top.opener && typeof top.opener.focus === 'function') top.opener.focus();
+  }
+
+  function closeModalEl(el) {
+    // סגירה של מודאל שאינו בראש (למשל לחיצה על ה-backdrop שלו) מקפלת
+    // את כל מה שמעליו, כדי שהמחסנית לא תישאר עם רשומות יתומות.
+    while (modalStack.length && modalStack[modalStack.length - 1].el !== el) closeTopModal();
+    if (modalStack.length) closeTopModal();
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (!modalStack.length) return;
+    const top = modalStack[modalStack.length - 1].el;
+    if (ev.key === 'Escape') { ev.preventDefault(); closeTopModal(); return; }
+    if (ev.key !== 'Tab') return;
+    const items = focusableItems(top);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    // הלולאה נסגרת בשני הכיוונים, וגם מחזירה פנימה פוקוס שהצליח לברוח
+    if (ev.shiftKey && (document.activeElement === first || !top.contains(document.activeElement))) {
+      ev.preventDefault(); last.focus();
+    } else if (!ev.shiftKey && (document.activeElement === last || !top.contains(document.activeElement))) {
+      ev.preventDefault(); first.focus();
+    }
+  });
+
+  // כל מודאל בעמוד נסגר באותה דרך: אלמנט עם ``data-close`` בתוכו.
+  function wireModal(el) {
+    el.addEventListener('click', function (ev) {
+      if (ev.target && ev.target.hasAttribute('data-close')) closeModalEl(el);
+    });
+  }
+
   const settingsModal = document.getElementById('boardSettings');
   const settingsBtn = document.getElementById('boardSettingsBtn');
   const infiniteToggle = document.getElementById('infiniteScrollToggle');
@@ -173,41 +291,8 @@
   const markdownToggle = document.getElementById('markdownToggle');
   markdownToggle.checked = readMarkdown();
 
-  // ``aria-modal="true"`` מצהיר בפני קורא מסך שכל מה שמאחורי הדיאלוג
-  // אינו קיים. בלי לכידת Tab ההצהרה הזו פשוט אינה נכונה: משתמש מקלדת
-  // ממשיך לגלוש לשדה שם הלוח, לפתקים ולנאבבר — ומקליד בהם בזמן שהדיאלוג
-  // עדיין על המסך.
-  const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
-                    'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-  function focusableItems() {
-    return Array.prototype.filter.call(
-      settingsModal.querySelectorAll(FOCUSABLE),
-      function (n) { return n.offsetParent !== null || n === document.activeElement; }
-    );
-  }
-
-  function openSettings() { settingsModal.hidden = false; markdownToggle.focus(); }
-  function closeSettings() { settingsModal.hidden = true; settingsBtn.focus(); }
-
-  settingsBtn.addEventListener('click', openSettings);
-  settingsModal.addEventListener('click', function (ev) {
-    if (ev.target && ev.target.hasAttribute('data-close')) closeSettings();
-  });
-  document.addEventListener('keydown', function (ev) {
-    if (settingsModal.hidden) return;
-    if (ev.key === 'Escape') { closeSettings(); return; }
-    if (ev.key !== 'Tab') return;
-    const items = focusableItems();
-    if (!items.length) return;
-    const first = items[0], last = items[items.length - 1];
-    // הלולאה נסגרת בשני הכיוונים, וגם מחזירה פנימה פוקוס שהצליח לברוח
-    if (ev.shiftKey && (document.activeElement === first || !settingsModal.contains(document.activeElement))) {
-      ev.preventDefault(); last.focus();
-    } else if (!ev.shiftKey && (document.activeElement === last || !settingsModal.contains(document.activeElement))) {
-      ev.preventDefault(); first.focus();
-    }
-  });
+  wireModal(settingsModal);
+  settingsBtn.addEventListener('click', function () { openModal(settingsModal, markdownToggle); });
   infiniteToggle.addEventListener('change', function () {
     writeInfinite(infiniteToggle.checked);
     window._boardNotes.setInfiniteScroll(infiniteToggle.checked);
@@ -219,6 +304,156 @@
 
   document.getElementById('firstNoteBtn').addEventListener('click', function () {
     window._boardNotes.createNote();
+  });
+
+  // ==================== מעבר מהיר ולוחות נעוצים ====================
+
+  const switchBtn = document.getElementById('boardSwitchBtn');
+  const switchModal = document.getElementById('boardSwitch');
+  const switchTiles = document.getElementById('boardSwitchTiles');
+  const pinModal = document.getElementById('boardPinManager');
+  const pinList = document.getElementById('boardPinList');
+  const pinMsg = document.getElementById('boardPinMsg');
+
+  wireModal(switchModal);
+  wireModal(pinModal);
+
+  /**
+   * האות שמופיעה על האריח.
+   *
+   * ``Array.from`` ולא ``charAt``: שם שמתחיל באמוג'י הוא זוג surrogate,
+   * ו-``charAt(0)`` היה מחזיר **חצי תו** — תו שבור על האריח.
+   */
+  function boardInitial(name) {
+    const chars = Array.from(String(name || '').trim());
+    return chars.length ? chars[0] : '•';
+  }
+
+  /**
+   * הלוחות שיוצגו במעבר המהיר.
+   *
+   * כשאין אף נעוץ נופלים ל**לוח ברירת המחדל**, כך שהמודאל אף פעם אינו
+   * ריק ושימושי כבר בפתיחה הראשונה — עוד לפני שנעצו משהו.
+   */
+  function boardsForSwitch() {
+    const pinned = allBoards.filter(function (b) { return b.is_pinned; });
+    if (pinned.length) return pinned;
+    return allBoards.filter(function (b) { return b.is_default; });
+  }
+
+  function renderSwitchTiles() {
+    switchTiles.textContent = '';
+    boardsForSwitch().forEach(function (b) {
+      const isCurrent = String(b.id) === String(BOARD_ID);
+      // הלוח הנוכחי אינו קישור: ניווט אליו לא עושה דבר, וקישור מת מבלבל
+      const tile = document.createElement(isCurrent ? 'div' : 'a');
+      tile.className = 'board-tile' + (isCurrent ? ' is-current' : '');
+      if (isCurrent) {
+        tile.setAttribute('aria-current', 'page');
+      } else {
+        tile.href = '/boards/' + encodeURIComponent(b.id);
+      }
+      const badge = document.createElement('span');
+      badge.className = 'board-tile-badge';
+      badge.textContent = boardInitial(b.name);
+      badge.setAttribute('aria-hidden', 'true');
+      const label = document.createElement('span');
+      label.className = 'board-tile-label';
+      label.textContent = b.name;
+      tile.appendChild(badge);
+      tile.appendChild(label);
+      switchTiles.appendChild(tile);
+    });
+
+    // אריח ההוספה — הכניסה למודאל הניהול
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'board-tile is-add';
+    add.setAttribute('aria-haspopup', 'dialog');
+    const plus = document.createElement('span');
+    plus.className = 'board-tile-badge';
+    plus.textContent = '+';
+    plus.setAttribute('aria-hidden', 'true');
+    const addLabel = document.createElement('span');
+    addLabel.className = 'board-tile-label';
+    addLabel.textContent = 'הוסף';
+    add.appendChild(plus);
+    add.appendChild(addLabel);
+    add.addEventListener('click', openPinManager);
+    switchTiles.appendChild(add);
+  }
+
+  function renderPinList() {
+    pinList.textContent = '';
+    pinMsg.hidden = true;
+    allBoards.forEach(function (b) {
+      const row = document.createElement('label');
+      row.className = 'board-pin-row';
+
+      const badge = document.createElement('span');
+      badge.className = 'board-tile-badge is-small';
+      badge.textContent = boardInitial(b.name);
+      badge.setAttribute('aria-hidden', 'true');
+
+      const name = document.createElement('span');
+      name.className = 'board-pin-name';
+      name.textContent = b.name;
+
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = !!b.is_pinned;
+      box.addEventListener('change', function () { savePin(b, box); });
+
+      row.appendChild(badge);
+      row.appendChild(name);
+      row.appendChild(box);
+      pinList.appendChild(row);
+    });
+  }
+
+  /**
+   * שמירה מיידית בכל סימון — אין כפתור "שמור", והמודאל **נשאר פתוח**
+   * כדי שאפשר יהיה לסמן עוד.
+   *
+   * **כשל מחזיר את הצ'קבוקס אחורה.** סימון שנשאר על המסך בלי שנשמר הוא
+   * שקר: ברענון הבא הוא נעלם. זו אותה משמעת שכבר קיימת בשינוי שם הלוח,
+   * שם כשל מחזיר את הערך מהשרת.
+   */
+  async function savePin(board, box) {
+    const wanted = box.checked;
+    box.disabled = true;
+    try {
+      const resp = await fetch('/api/note-boards/' + encodeURIComponent(board.id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_pinned: wanted })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error('pin failed');
+      // מקור האמת הוא מה שהשרת אישר, לא מה שסומן במסך
+      board.is_pinned = !!(data.board && data.board.is_pinned);
+      box.checked = board.is_pinned;
+      pinMsg.hidden = true;
+      renderSwitchTiles();
+    } catch (e) {
+      box.checked = !wanted;
+      pinMsg.textContent = 'שמירת הנעיצה נכשלה.';
+      pinMsg.hidden = false;
+    } finally {
+      box.disabled = false;
+    }
+  }
+
+  function openPinManager() {
+    renderPinList();
+    openModal(pinModal);
+  }
+
+  switchBtn.addEventListener('click', async function () {
+    // הרשימה מרועננת בפתיחה כדי שלוח שנוצר בלשונית אחרת יופיע גם כאן
+    if (!allBoards.length) await loadBoard();
+    renderSwitchTiles();
+    openModal(switchModal);
   });
 
   // גובה המשטח נמדד מהמיקום בפועל ולא מנוחש. הערך הקשיח הקודם
