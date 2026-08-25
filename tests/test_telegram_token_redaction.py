@@ -472,23 +472,33 @@ def test_camel_case_parameter_names_are_scrubbed_too():
         assert f"{name}=<REDACTED>" in cleaned, name
 
 
-def test_camel_boundary_accepts_a_digit_on_its_left_side():
-    """**ספרה לפני האות הגדולה — לא מקרה קצה, אלא הנפוץ.**
+def test_digits_act_as_a_segment_boundary_in_both_casings():
+    """**רצף ספרות הוא מפריד מקטע, ולכן הרישיות לא קובעת.**
 
-    גרסאות ואלגוריתמים נכנסים לשמות של פרמטרים כמעט תמיד: ``v2Token``,
-    ``oauth2Token``, ``sha256Token``, ``x509Key``. גבול שמוגדר "אות קטנה
-    ← אות גדולה" בלבד מפספס את כולם.
+    גרסאות ואלגוריתמים נכנסים לשמות פרמטרים כמעט תמיד, ובשני הכתיבים:
+    ``v2Token`` ו-``v2token`` יכולים לשאת בדיוק את אותו credential.
+    ``v2`` + ``token`` היא קריאה טבעית של השם — בניגוד ל-``mon`` +
+    ``key`` — ולכן המעבר ספרה ← אות הוא גבול, וגבול אות ← אות אינו.
 
-    נופל אם ה-``0-9`` יוסר מהצד השמאלי של הגבול.
+    נופל אם הגבול ספרה ← אות יוסר, או אם ה-``0-9`` יוסר מהצד השמאלי של
+    גבול ה-camelCase.
     """
-    for name in ("v2Token", "oauth2Token", "sha256Token", "x509Key", "md5Secret"):
+    for name in ("v2Token", "oauth2Token", "sha256Token", "x509Key", "md5Secret",
+                 "v2token", "oauth2token", "sha256token", "x509key"):
         cleaned = redact_bot_token(f"https://example.com/cb?{name}=OPAQUE_SECRET_123")
         assert "OPAQUE_SECRET_123" not in cleaned, name
         assert f"{name}=<REDACTED>" in cleaned, name
 
-    # והצד השני: בלי מעבר לאות גדולה אין גבול, ולכן אין מקטע
-    assert redact_bot_token("?v2token=x") == "?v2token=x"
-    assert redact_bot_token("?sha256=abc") == "?sha256=abc"
+
+def test_a_digit_somewhere_in_the_name_is_not_enough_on_its_own():
+    """הגבול נדרש **צמוד** למילה הרגישה, לא איפשהו בשם.
+
+    ``top10keys`` ו-``utf8keyboard`` מכילים ספרות וגם ``key``, ובכל זאת
+    אינם נתפסים: באחד המילה אינה נגמרת ב-``=``, ובשני היא חלק ממילה
+    ארוכה יותר.
+    """
+    for benign in ("?top10keys=5", "?utf8keyboard=1", "?sha256=abc"):
+        assert redact_bot_token(benign) == benign, benign
 
 
 def test_camel_boundary_is_case_sensitive_inside_a_case_insensitive_pattern():
@@ -533,7 +543,8 @@ def test_a_sensitive_word_must_be_a_whole_segment_not_a_suffix():
 
     נופל אם התחילית תשוחרר ל-``[A-Za-z0-9_.-]*`` בלי דרישת המפריד.
     """
-    for benign in ("?monkey=banana", "?keys=3", "?author=me", "?key_id=42", "?tokenizer=bpe"):
+    for benign in ("?monkey=banana", "?cameronkey=x", "?keys=3", "?author=me",
+                   "?key_id=42", "?tokenizer=bpe"):
         assert redact_bot_token(benign) == benign, benign
 
 
