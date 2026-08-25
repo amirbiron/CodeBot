@@ -490,15 +490,25 @@ def test_digits_act_as_a_segment_boundary_in_both_casings():
         assert f"{name}=<REDACTED>" in cleaned, name
 
 
-def test_a_digit_somewhere_in_the_name_is_not_enough_on_its_own():
-    """הגבול נדרש **צמוד** למילה הרגישה, לא איפשהו בשם.
+def test_the_terminal_segment_requirement_is_separate_from_the_boundary():
+    """**שתי דרישות נפרדות, וכל דוגמה מוצמדת לנכונה שבהן.**
 
-    ``top10keys`` ו-``utf8keyboard`` מכילים ספרות וגם ``key``, ובכל זאת
-    אינם נתפסים: באחד המילה אינה נגמרת ב-``=``, ובשני היא חלק ממילה
-    ארוכה יותר.
+    ב-``top10keys`` הגבול ספרה ← אות דווקא צמוד לגמרי (``0`` ← ``k``),
+    ובכל זאת השם נשמר — כי ``key`` אינו המקטע הסופי: אחריו ``s``, לא
+    ``=``. ההוכחה: ``top10key`` בלי ה-``s``, עם אותו גבול בדיוק, כן
+    מנוקה. הגבול שלפני המילה מונע את ``monkey``; ה-``=`` שמיד אחריה
+    מונע את ``top10keys`` ו-``key_id``.
+
+    (``?sha256=abc`` נשמר מסיבה שלישית — אין בו מילה רגישה כלל.)
+
+    נופל אם יותרו תווים בין המילה הרגישה ל-``=``.
     """
-    for benign in ("?top10keys=5", "?utf8keyboard=1", "?sha256=abc"):
-        assert redact_bot_token(benign) == benign, benign
+    # אותו גבול צמוד — ההבדל היחיד הוא המקטע הסופי
+    assert redact_bot_token("?top10keys=5") == "?top10keys=5"
+    assert redact_bot_token("?top10key=x") == "?top10key=<REDACTED>"
+    assert redact_bot_token("?utf8keyboard=1") == "?utf8keyboard=1"
+    assert redact_bot_token("?utf8key=x") == "?utf8key=<REDACTED>"
+    assert redact_bot_token("?sha256=abc") == "?sha256=abc"
 
 
 def test_camel_boundary_is_case_sensitive_inside_a_case_insensitive_pattern():
