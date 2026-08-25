@@ -199,7 +199,6 @@
   //: שכל תאיה מקפים, עם יישור אופציונלי. בלי הזוג הזה כל שורה שמכילה
   //: מקף אנכי — נתיב, פקודה, ביטוי לוגי — הייתה נבלעת לטבלה.
   const MD_TABLE_SEP_RE = /^[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/;
-  const MD_TABLE_ROW_RE = /\|/;
   //: סדר החלופות = עדיפות במיקום נתון: קוד (תוכנו ליטרלי) ← קישור ←
   //: מודגש ← חוצה ← נטוי. הקו התחתון **אינו** נטוי, בכוונה: ``note_id``
   //: ו-``user_id`` נפוצים מדי בכלי שכולו על קוד.
@@ -1257,16 +1256,31 @@
        * היה נותן תא ריק בכל קצה. ``\\|`` מוברח ואינו מפצל.
        */
       _splitTableRow(line){
-        const trimmed = String(line).trim().replace(/^\|/, '').replace(/\|$/, '');
+        // **סריקה אחת מודעת-escape, ואז השמטת התאים הריקים שבקצוות.**
+        // הגרסה הקודמת הסירה את הפייפ הסוגר ב-``replace`` לפני הסריקה,
+        // ולכן ``| a | b\\|`` איבד את הפייפ הבורח והציג לוכסן מיותר. כאן
+        // אין שלב שמסיר תו לפני שידוע אם הוא מוברח.
+        const trimmed = String(line).trim();
         const cells = [];
         let cur = '';
+        let leadingDelim = false;
+        let trailingDelim = false;
         for (let i = 0; i < trimmed.length; i += 1){
           const ch = trimmed[i];
           if (ch === '\\' && trimmed[i + 1] === '|'){ cur += '|'; i += 1; continue; }
-          if (ch === '|'){ cells.push(cur.trim()); cur = ''; continue; }
+          if (ch === '|'){
+            if (cells.length === 0 && cur.trim() === '') leadingDelim = true;
+            if (i === trimmed.length - 1) trailingDelim = true;
+            cells.push(cur.trim());
+            cur = '';
+            continue;
+          }
           cur += ch;
         }
         cells.push(cur.trim());
+        // הפייפ המוביל והסוגר אופציונליים ב-GFM; הם מייצרים תא ריק בקצה.
+        if (trailingDelim && cells[cells.length - 1] === '') cells.pop();
+        if (leadingDelim && cells[0] === '') cells.shift();
         return cells;
       }
 
@@ -1277,11 +1291,20 @@
        * גם מה שמונע מ-``---`` בודד שאחרי שורה עם מקף אנכי להפוך אותה לטבלה.
        */
       _tableSpec(headerLine, sepLine){
-        if (!MD_TABLE_ROW_RE.test(headerLine)) return null;
         if (!MD_TABLE_SEP_RE.test(sepLine)) return null;
         const head = this._splitTableRow(headerLine);
         const sep = this._splitTableRow(sepLine);
-        if (head.length !== sep.length || head.length < 1) return null;
+        // **הזיהוי נגזר מהמפצל ולא מרג'קס נפרד.** קודם היה כאן
+        // ``MD_TABLE_ROW_RE`` שספר פייפים גולמיים, בעוד המפצל מודע
+        // ל-escape — שני חלקים שחלוקים על מהו מפריד, וזה הפיל שלושה
+        // מקרים: פייפ בורח, פייפ סוגר בלבד, ופייפ בתוך גדר.
+        //
+        // **שתי עמודות לפחות, בסטייה מכוונת מ-GFM.** לפי התקן ``grep foo |``
+        // ואחריו ``---`` היא טבלה חוקית של עמודה אחת. בפתק זה כמעט תמיד
+        // פקודה שאחריה קו מפריד, ולכן דורשים פייפ פנימי. המחיר — טבלת
+        // עמודה אחת אמיתית תרונדר כטקסט — קטן בהרבה מהרווח.
+        if (head.length < 2) return null;
+        if (head.length !== sep.length) return null;
         const align = sep.map((c) => {
           const l = c.startsWith(':'), r = c.endsWith(':');
           if (l && r) return 'center';
@@ -1339,8 +1362,9 @@
         let i = startIndex + 2;
         for (; i < lines.length; i += 1){
           const row = lines[i];
-          // הטבלה נגמרת בשורה שאינה שורת טבלה — כולל שורה ריקה.
-          if (!MD_TABLE_ROW_RE.test(row) || row.trim() === '') break;
+          // הטבלה נגמרת בשורה שאינה שורת טבלה — כולל שורה ריקה. הסיום
+          // נשען על אותו מפצל שקבע את הזיהוי, ולא על ספירת פייפים גולמיים.
+          if (row.trim() === '' || this._splitTableRow(row).length < 2) break;
           addRow(tbody, this._splitTableRow(row), false, row);
         }
 
@@ -1348,7 +1372,18 @@
         table.appendChild(tbody);
         wrap.appendChild(table);
         view.appendChild(wrap);
-        return { lastIndex: i - 1, nextOffset: offset };
+
+        // **ספירת שורות המשימה שנצרכו.** הפייפ הסוגר אופציונלי, ולכן
+        // ``- [ ] משימה | עמודה`` היא גם שורת משימה תקפה וגם כותרת טבלה
+        // תקפה. השרת (``sticky_notes_tasks``) סופר אותה בכל מקרה, ולכן
+        // גם הסידור כאן חייב להתקדם עליה — אחרת כל צ'קבוקס שאחרי הטבלה
+        // נשלח עם אינדקס של משימה אחרת. זו בדיוק אותה החלטה שכבר מתועדת
+        // עבור שורות משימה בתוך גדר קוד.
+        let tasksConsumed = 0;
+        for (let k = startIndex; k <= i - 1; k += 1){
+          if (TASK_LINE_RE.test(lines[k])) tasksConsumed += 1;
+        }
+        return { lastIndex: i - 1, nextOffset: offset, tasksConsumed };
       }
 
       _hasRenderableMarkdown(lines){
@@ -1424,9 +1459,14 @@
           // והיא צריכה לצרוך כמה שורות בבת אחת ולקדם את ההיסט על כולן.
           for (let li = 0; li < lines.length; li += 1) {
             const line = lines[li];
+            // **``isFenceLine`` מחושב כאן ולא אחרי בדיקת הטבלה.** ``inFence``
+            // עדיין ``false`` כשרואים את שורת הפתיחה, ולכן בלי ההחרגה
+            // המפורשת פותחת גדר שיש בה מקף אנכי הייתה נבלעת לטבלה —
+            // והדגל לא היה מתהפך, כך שכל הגדר הייתה נשברת.
+            const isFenceLine = wantMd && MD_FENCE_RE.test(line);
             // טבלה נבדקת לפני כל השאר, ורק מחוץ לגדר קוד: בתוך גדר, שורה
             // עם מקפים אנכיים היא קוד ליטרלי.
-            const spec = (wantMd && !inFence && li + 1 < lines.length)
+            const spec = (wantMd && !inFence && !isFenceLine && li + 1 < lines.length)
               ? this._tableSpec(line, lines[li + 1])
               : null;
             if (spec) {
@@ -1436,6 +1476,7 @@
               const done = this._appendTable(view, lines, li, spec, charOffset);
               li = done.lastIndex;
               charOffset = done.nextOffset;
+              taskIndex += done.tasksConsumed;
               continue;
             }
             const m = TASK_LINE_RE.exec(line);
@@ -1443,7 +1484,6 @@
             // מיקום התו הראשון של השורה בתוך התוכן — כדי שלחיצה תחזיר
             // לעריכה בדיוק בשורה שנלחצה, ולא בתחילת הפתק.
             row.dataset.charOffset = String(charOffset);
-            const isFenceLine = wantMd && MD_FENCE_RE.test(line);
             // **הסידור מתקדם על כל שורת משימה, כמו השרת.**
             //
             // ``sticky_notes_tasks.toggle_task_at_index`` סופר כל שורת
