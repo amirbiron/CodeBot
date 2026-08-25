@@ -18,7 +18,7 @@
 -----------------------------------
 
 **Level 1 – Primitives (:root ב‑``webapp/templates/base.html``)**  
-קבועים לכולם, ומרוכזים בבלוק ``<style>`` שבתוך ``webapp/templates/base.html`` — ``:root`` בשורה 137. כאן מגדירים צבעי מותג (`--primary`, `--secondary`), צבעי מצב (`--success` וכו'), טוקני סכנה (`--danger-bg`, `--danger-border`, `--text-on-warning`), ערכי markdown (`--md-surface`, `--md-text`), הגדרות כפתור ברירת מחדל וערכי גלאס (`--glass*`). אין להשתמש ב‑HEX מחוץ לקטע זה.
+קבועים לכולם, ומרוכזים בבלוק ה‑``<style>`` שבתוך ``webapp/templates/base.html``, בכלל ה‑``:root`` הגלובלי — זה שפותח ב‑``--primary``. (יש בקובץ ``:root`` שני, בתוך media query של פס הגלילה, שקובע רק את ``--scrollbar-width``; הוא אינו זה.) כאן מגדירים צבעי מותג (`--primary`, `--secondary`), צבעי מצב (`--success` וכו'), טוקני סכנה (`--danger-bg`, `--danger-border`, `--text-on-warning`), ערכי markdown (`--md-surface`, `--md-text`), הגדרות כפתור ברירת מחדל וערכי גלאס (`--glass*`). אין להשתמש ב‑HEX מחוץ לקטע זה.
 
 .. note::
 
