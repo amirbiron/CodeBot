@@ -195,6 +195,11 @@
   const MD_OL_RE      = /^([ \t]*)(\d+)\.[ \t]+(.*)$/;
   const MD_UL_RE      = /^([ \t]*)[-*][ \t]+(.*)$/;
   const MD_FENCE_RE   = /^[ \t]*```/;
+  //: טבלת GFM מזוהה בזוג בלבד: שורה עם ``|`` ומיד אחריה שורת מפריד
+  //: שכל תאיה מקפים, עם יישור אופציונלי. בלי הזוג הזה כל שורה שמכילה
+  //: מקף אנכי — נתיב, פקודה, ביטוי לוגי — הייתה נבלעת לטבלה.
+  const MD_TABLE_SEP_RE = /^[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/;
+  const MD_TABLE_ROW_RE = /\|/;
   //: סדר החלופות = עדיפות במיקום נתון: קוד (תוכנו ליטרלי) ← קישור ←
   //: מודגש ← חוצה ← נטוי. הקו התחתון **אינו** נטוי, בכוונה: ``note_id``
   //: ו-``user_id`` נפוצים מדי בכלי שכולו על קוד.
@@ -1245,9 +1250,116 @@
         }
         return false;
       }
+      /**
+       * מפרק שורת טבלה לתאים.
+       *
+       * מקפים אנכיים מובילים וסוגרים מוסרים לפני הפיצול, אחרת ``| א | ב |``
+       * היה נותן תא ריק בכל קצה. ``\\|`` מוברח ואינו מפצל.
+       */
+      _splitTableRow(line){
+        const trimmed = String(line).trim().replace(/^\|/, '').replace(/\|$/, '');
+        const cells = [];
+        let cur = '';
+        for (let i = 0; i < trimmed.length; i += 1){
+          const ch = trimmed[i];
+          if (ch === '\\' && trimmed[i + 1] === '|'){ cur += '|'; i += 1; continue; }
+          if (ch === '|'){ cells.push(cur.trim()); cur = ''; continue; }
+          cur += ch;
+        }
+        cells.push(cur.trim());
+        return cells;
+      }
+
+      /**
+       * מחזיר את היישורים אם השורות מרכיבות טבלה, ואחרת ``null``.
+       *
+       * **מספר התאים חייב להתאים בין הכותרת למפריד** — זה הכלל ב-GFM, והוא
+       * גם מה שמונע מ-``---`` בודד שאחרי שורה עם מקף אנכי להפוך אותה לטבלה.
+       */
+      _tableSpec(headerLine, sepLine){
+        if (!MD_TABLE_ROW_RE.test(headerLine)) return null;
+        if (!MD_TABLE_SEP_RE.test(sepLine)) return null;
+        const head = this._splitTableRow(headerLine);
+        const sep = this._splitTableRow(sepLine);
+        if (head.length !== sep.length || head.length < 1) return null;
+        const align = sep.map((c) => {
+          const l = c.startsWith(':'), r = c.endsWith(':');
+          if (l && r) return 'center';
+          if (r) return 'right';
+          if (l) return 'left';
+          return '';
+        });
+        return { head, align };
+      }
+
+      /**
+       * בונה ``<table>`` מתוך שורות המקור, ומחזיר את האינדקס האחרון שנצרך
+       * ואת ההיסט להמשך.
+       *
+       * **כל שורת מקור של הטבלה הופכת ל-``<tr class="sticky-task-line">``
+       * עם ה-``charOffset`` שלה.** זה מה ששומר על החוזה של המנוע כולו:
+       * ``_enterEditFromView`` מוצא את השורה שנלחצה דרך
+       * ``closest('.sticky-task-line')`` וקורא ממנה את ההיסט, ולכן לחיצה על
+       * תא מחזירה לעריכה בשורה הנכונה ולא בראש הטבלה.
+       *
+       * שורת המפריד נצרכת ואינה מייצרת ``<tr>`` — אין לה מה להציג. ההיסט
+       * מקודם עליה בכל מקרה, אחרת כל מה שאחרי הטבלה מוסט.
+       */
+      _appendTable(view, lines, startIndex, spec, startOffset){
+        const wrap = createEl('div', 'sticky-md-table-wrap');
+        const table = createEl('table', 'sticky-md-table');
+        const thead = createEl('thead', '');
+        const tbody = createEl('tbody', '');
+        let offset = startOffset;
+
+        const addRow = (parent, cells, isHead, lineText) => {
+          const tr = createEl('tr', 'sticky-task-line');
+          tr.dataset.charOffset = String(offset);
+          spec.align.forEach((al, ci) => {
+            const cell = createEl(isHead ? 'th' : 'td', 'sticky-md-cell');
+            if (isHead) cell.setAttribute('scope', 'col');
+            // **``dir="auto"`` ולא זיהוי-תוכן משלנו.** הפתקים עבריים,
+            // והטבלאות מערבבות עברית עם מספרים ומזהי קוד כמו
+            // ``push_api.py:569``. הדפדפן מכריע לפי התו החזק הראשון
+            // (אלגוריתם ה-bidi), ולכן תא עברי נשאר RTL ותא של קוד או
+            // מספר מוצג LTR — בלי היוריסטיקה שלנו שתטעה במקרה הקצה הבא.
+            cell.setAttribute('dir', 'auto');
+            if (al) cell.style.textAlign = al;
+            this._appendInline(cell, cells[ci] == null ? '' : cells[ci]);
+            tr.appendChild(cell);
+          });
+          parent.appendChild(tr);
+          offset += lineText.length + 1;
+        };
+
+        addRow(thead, spec.head, true, lines[startIndex]);
+        // המפריד: נצרך, בלי שורה משלו.
+        offset += lines[startIndex + 1].length + 1;
+
+        let i = startIndex + 2;
+        for (; i < lines.length; i += 1){
+          const row = lines[i];
+          // הטבלה נגמרת בשורה שאינה שורת טבלה — כולל שורה ריקה.
+          if (!MD_TABLE_ROW_RE.test(row) || row.trim() === '') break;
+          addRow(tbody, this._splitTableRow(row), false, row);
+        }
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        view.appendChild(wrap);
+        return { lastIndex: i - 1, nextOffset: offset };
+      }
+
       _hasRenderableMarkdown(lines){
-        for (const line of lines){
+        for (let i = 0; i < lines.length; i += 1){
+          const line = lines[i];
           if (MD_FENCE_RE.test(line)) return true;
+          // **טבלה נבדקת כאן ולא ב-``_classifyLine``**, כי היא בלוק של שתי
+          // שורות ואילו המסווג הוא פר-שורה. בלי הבדיקה הזו פתק שכולו טבלה
+          // אינו עובר את השער והתצוגה כלל לא נפתחת — כשל שקט בדיוק במקרה
+          // הנפוץ ביותר.
+          if (i + 1 < lines.length && this._tableSpec(line, lines[i + 1])) return true;
           const b = this._classifyLine(line);
           if (b.kind !== 'plain') return true;
           if (this._lineHasInline(b.content)) return true;
@@ -1308,7 +1420,24 @@
           let taskIndex = 0;
           let charOffset = 0;
           let inFence = false;
-          lines.forEach((line) => {
+          // **לולאה מאונדקסת ולא ``forEach``** — טבלה היא בלוק רב-שורתי,
+          // והיא צריכה לצרוך כמה שורות בבת אחת ולקדם את ההיסט על כולן.
+          for (let li = 0; li < lines.length; li += 1) {
+            const line = lines[li];
+            // טבלה נבדקת לפני כל השאר, ורק מחוץ לגדר קוד: בתוך גדר, שורה
+            // עם מקפים אנכיים היא קוד ליטרלי.
+            const spec = (wantMd && !inFence && li + 1 < lines.length)
+              ? this._tableSpec(line, lines[li + 1])
+              : null;
+            if (spec) {
+              // מחזיר את שני הערכים במפורש ולא דרך שדה על המופע: ההיסט
+              // מקודם על **כל** השורות שנצרכו, כולל שורת המפריד, ובלי זה
+              // כל השורות שאחרי הטבלה מצביעות למקום שגוי.
+              const done = this._appendTable(view, lines, li, spec, charOffset);
+              li = done.lastIndex;
+              charOffset = done.nextOffset;
+              continue;
+            }
             const m = TASK_LINE_RE.exec(line);
             const row = createEl('div', 'sticky-task-line');
             // מיקום התו הראשון של השורה בתוך התוכן — כדי שלחיצה תחזיר
@@ -1376,7 +1505,7 @@
             }
             view.appendChild(row);
             charOffset += line.length + 1;   // +1 עבור ה-``\n`` שהפיצול הסיר
-          });
+          }
           view.hidden = false;
           textarea.hidden = true;
         } catch(_) {}

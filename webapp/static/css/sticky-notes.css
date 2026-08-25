@@ -129,6 +129,7 @@
   /* אותו ארגז בדיוק כמו ה-textarea שהיא מחליפה. ראו שם. */
   flex: 1 1 auto;
   min-height: 0;
+
   overflow-y: auto;
   padding: 8px;
   font-size: 14px;
@@ -348,3 +349,48 @@
   background: rgba(43, 63, 106, .12);
   border-radius: 5px;
 }
+
+/* ── טבלאות מארקדאון בפתק ──────────────────────────────────────────
+   העטיפה היא שנגללת, לא הטבלה: ``.sticky-note-tasks`` הוא
+   ``overflow-y: auto`` בלבד, ולכן טבלה רחבה הייתה דוחפת את הפתק. זה גם
+   מה שמנטרל את הנימוק המקורי להחרגת טבלאות ("רחבות מדי לפתק").
+
+   ``scrollbar-gutter`` כי ב-RTL פס הגלילה יושב משמאל, ובלי שמירת מקום
+   התוכן קופץ כשהוא מופיע. */
+.sticky-md-table-wrap {
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  margin-block: .3em;
+}
+
+.sticky-md-table {
+  border-collapse: collapse;
+  /* ``max-content`` בלי ``max-width``: טבלה צרה לא נמתחת לרוחב הפתק,
+     ורחבה שומרת על צורתה ונגללת בתוך העטיפה. ``max-width: 100%`` היה
+     חוסם בדיוק את זה — הטבלה הייתה נדחסת לרוחב הפתק והעמודות מתמעכות,
+     וזה נמדד. */
+  width: max-content;
+  font-size: .95em;
+}
+
+/* תכונות לוגיות ולא פיזיות — הן מתהפכות מאליהן ב-RTL. */
+.sticky-md-cell {
+  border: 1px solid var(--note-ink-muted, #66739A);
+  padding-block: .18em;
+  padding-inline: .45em;
+  /* הקונטיינר הוא ``pre-wrap``; בתא זה היה משמר רווחי יישור מהמקור. */
+  white-space: normal;
+  vertical-align: top;
+}
+
+.sticky-md-table thead .sticky-md-cell {
+  font-weight: 700;
+  /* ``color-mix`` נמנע בכוונה: הפתקים הם חריג מתועד מערכת הנושא ואין להם
+     טוקן רקע משלהם, ולכן ההדגשה היא במשקל ובשקיפות ולא בצבע חדש. */
+  background: rgba(0, 0, 0, .045);
+}
+
+/* התאים נושאים ``dir="auto"`` מה-JS: הדפדפן מכריע כיוון לפי התו החזק
+   הראשון, ולכן תא עברי נשאר RTL ותא של מספר או מזהה קוד מוצג LTR.
+   ``text-align: start`` מתיישר לפי הכיוון שהוכרע לתא, ולא לפי הפתק. */
+.sticky-md-cell { text-align: start; }

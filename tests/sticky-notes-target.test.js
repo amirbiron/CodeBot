@@ -1107,6 +1107,82 @@ check('markdown מפורש ב-opts גובר על ברירת המחדל', () => {
   eq(on.markdown, true, 'true מפורש מדליק');
 });
 
+// -- טבלאות מארקדאון --
+
+const TBL = '| # | שאלה |\n|---|---|\n| 1 | ראשונה |\n| 2 | שנייה |';
+
+check('טבלה: שורת מפריד תקפה בונה <table> עם thead ו-tbody', () => {
+  const { view } = renderMd(mdMgr, TBL);
+  const table = view.querySelector('table.sticky-md-table');
+  eq(!!table, true, 'נבנתה טבלה');
+  eq(table.querySelectorAll('th').length, 2, 'שני תאי כותרת');
+  // ``FakeEl`` אינו תומך בסלקטור צאצא (``'tbody tr'``), ולכן שואלים את
+  // ה-``tbody`` עצמו — וזה גם מדויק יותר: מוודא שהשורות באמת בתוכו.
+  const tbody = table.querySelector('tbody');
+  eq(!!tbody, true, 'יש tbody');
+  eq(tbody.querySelectorAll('tr').length, 2, 'שתי שורות גוף');
+  eq(tbody.querySelectorAll('td').length, 4, 'ארבעה תאי גוף');
+});
+
+check('טבלה: שורה עם | בלי מפריד נשארת טקסט', () => {
+  // בלי התנאי הזה כל שורה שמכילה מקף אנכי — נתיב, פקודה, ביטוי לוגי —
+  // הייתה נבלעת לטבלה.
+  const { view } = renderMd(mdMgr, '| זה לא | טבלה |\nעוד שורה');
+  eq(!!view.querySelector('table'), false, 'לא נבנתה טבלה');
+});
+
+check('טבלה: יישור מ-: נכתב כ-text-align', () => {
+  const { view } = renderMd(mdMgr, '| א | ב | ג |\n|:---|---:|:---:|\n| 1 | 2 | 3 |');
+  const th = view.querySelectorAll('th');
+  eq(th[0].style.textAlign, 'left', 'יישור שמאלה');
+  eq(th[1].style.textAlign, 'right', 'יישור ימינה');
+  eq(th[2].style.textAlign, 'center', 'מרכוז');
+});
+
+check('טבלה: scope=col על תאי הכותרת', () => {
+  const { view } = renderMd(mdMgr, TBL);
+  eq(view.querySelector('th').getAttribute('scope'), 'col');
+});
+
+check('טבלה: תוכן תא עובר את אותו מסלול בטוח', () => {
+  // אותו חוזה textContent כמו בכל שאר הבלוקים: תגית בתא נשארת טקסט,
+  // ומודגש בתא כן מרונדר.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| <script>x</script> | **מודגש** |');
+  eq(!!view.querySelector('script'), false, 'אין תגית script');
+  eq(!!view.querySelector('.sticky-md-bold'), true, 'המודגש כן רונדר');
+});
+
+check('טבלה: כל שורת מקור נושאת את ה-charOffset שלה', () => {
+  // **הבאג שאינו נראה בעין.** אם כל ה-<tr> יקבלו את אותו היסט, הטבלה
+  // תיראה מושלמת ולחיצה על השורה השלישית תחזיר לעריכה בראשונה.
+  const { view } = renderMd(mdMgr, TBL);
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const offsets = rows.map((r) => Number(r.dataset.charOffset));
+  const lines = TBL.split('\n');
+  // שורת הכותרת בהיסט 0; שורת המפריד נצרכת ואינה מייצרת שורה; שתי שורות
+  // הגוף מתחילות אחרי הכותרת והמפריד.
+  eq(offsets[0], 0, 'שורת הכותרת');
+  eq(offsets[1], lines[0].length + 1 + lines[1].length + 1, 'שורת הגוף הראשונה');
+  eq(offsets[2], lines[0].length + 1 + lines[1].length + 1 + lines[2].length + 1, 'שורת הגוף השנייה');
+  eq(new Set(offsets).size, offsets.length, 'כל ההיסטים שונים זה מזה');
+});
+
+check('טבלה: השורה שאחרי הטבלה ממשיכה מההיסט הנכון', () => {
+  // המקרה המשלים: כאן נתפס חשבון מצטבר שגוי, גם אם המיפוי בתוך הבלוק תקין.
+  const content = TBL + '\nאחרי הטבלה';
+  const { view } = renderMd(mdMgr, content);
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent, 'אחרי הטבלה', 'זו אכן השורה שאחרי');
+  eq(Number(last.dataset.charOffset), content.indexOf('אחרי הטבלה'), 'ההיסט מצביע לתחילתה');
+});
+
+check('טבלה לבדה פותחת את התצוגה', () => {
+  // בלי זיהוי טבלה ב-``_hasRenderableMarkdown``, פתק שכולו טבלה לא היה
+  // עובר את השער והתצוגה כלל לא נפתחת — כשל שקט במקרה הנפוץ ביותר.
+  eq(mdMgr._hasRenderableMarkdown(TBL.split('\n')), true);
+});
+
 // -- destroy: flush לפני פירוק --
 
 check('destroy מרוקן את התור לפני שהוא מפרק', async () => {
