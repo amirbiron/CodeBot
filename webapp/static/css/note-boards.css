@@ -263,3 +263,146 @@
   background: color-mix(in srgb, var(--text-primary, #1f2933) 6%, transparent);
 }
 .board-settings-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }
+
+/* ============================================================
+   מעבר מהיר בין לוחות, ולוחות נעוצים
+   ------------------------------------------------------------
+   הצבעים כאן נגזרים מ-docs/webapp/theming_and_css.rst: --card-bg
+   ו---card-border הם הטוקנים המיועדים ל"כרטיסים, מודלים,
+   dropdowns" לפי טבלת הטוקנים שם. אין HEX עצמאי — רק כ-fallback
+   בתוך var(), כמוסכמת שאר הקובץ.
+   ============================================================ */
+
+.board-modal[hidden] { display: none; }
+.board-modal {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.board-modal .modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, .45);
+}
+.board-modal .modal-content {
+  position: relative;
+  width: 100%; max-width: 520px; max-height: 78vh;
+  display: flex; flex-direction: column;
+  background: var(--card-bg, #fff);
+  color: var(--text-primary, #1f2933);
+  border: 1px solid var(--card-border, var(--glass-border, rgba(0, 0, 0, .12)));
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
+  animation: boardModalIn .22s ease;
+}
+@keyframes boardModalIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-modal .modal-content { animation: none; }
+}
+.board-modal .modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem; padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--card-border, var(--glass-border, rgba(0, 0, 0, .12)));
+}
+.board-modal .modal-header h3 {
+  margin: 0; font-size: 1.05rem; color: var(--text-primary, #1f2933);
+}
+.board-modal .modal-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 1.15rem; line-height: 1; padding: .3rem .45rem; border-radius: 8px;
+  color: var(--text-secondary, var(--text-muted, #667));
+}
+.board-modal .modal-close:hover { color: var(--text-primary, #1f2933); }
+.board-modal .modal-close:focus-visible {
+  outline: 2px solid var(--primary, #667eea); outline-offset: 2px;
+}
+.board-modal .modal-body { padding: 1rem 1.15rem 1.2rem; overflow-y: auto; }
+
+/* -- אריחי המעבר המהיר -- */
+.board-tiles {
+  display: grid; gap: .8rem;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+}
+.board-tile {
+  display: flex; flex-direction: column; align-items: center; gap: .45rem;
+  padding: .55rem .35rem; border-radius: 12px;
+  text-decoration: none; border: 1px solid transparent;
+  background: none; cursor: pointer; font: inherit;
+  color: var(--text-primary, #1f2933);
+}
+a.board-tile:hover, button.board-tile:hover {
+  background: color-mix(in srgb, var(--text-primary, #1f2933) 7%, transparent);
+}
+.board-tile:focus-visible {
+  outline: 2px solid var(--primary, #667eea); outline-offset: 2px;
+}
+.board-tile.is-current {
+  border-color: var(--primary, #667eea);
+  background: color-mix(in srgb, var(--primary, #667eea) 12%, transparent);
+  cursor: default;
+}
+.board-tile-badge {
+  display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px; border-radius: 14px;
+  font-size: 1.3rem; font-weight: 600;
+  background: color-mix(in srgb, var(--text-primary, #1f2933) 8%, transparent);
+  border: 1px solid var(--card-border, var(--glass-border, rgba(0, 0, 0, .12)));
+  color: var(--text-primary, #1f2933);
+}
+.board-tile-badge.is-small { width: 34px; height: 34px; font-size: .95rem; border-radius: 10px; }
+.board-tile.is-add .board-tile-badge {
+  background: none; border-style: dashed;
+  color: var(--text-secondary, var(--text-muted, #667));
+}
+.board-tile-label {
+  font-size: .82rem; text-align: center; line-height: 1.25;
+  max-width: 100%; overflow-wrap: anywhere;
+  color: var(--text-secondary, var(--text-muted, #667));
+}
+.board-tile.is-current .board-tile-label { color: var(--text-primary, #1f2933); }
+
+/* -- רשימת הניהול -- */
+.board-pin-hint {
+  margin: 0 0 .8rem; font-size: .85rem;
+  color: var(--text-secondary, var(--text-muted, #667));
+}
+.board-pin-row {
+  display: flex; align-items: center; gap: .7rem;
+  padding: .5rem .3rem; border-radius: 10px; cursor: pointer;
+}
+.board-pin-row:hover {
+  background: color-mix(in srgb, var(--text-primary, #1f2933) 6%, transparent);
+}
+.board-pin-name { flex: 1; overflow-wrap: anywhere; }
+.board-pin-row input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+
+/* -- High Contrast: הערכה אינה מגדירה --card-* --
+   ``high-contrast.css`` מגדיר ``--glass-border: #ffffff`` אבל לא את
+   ``--card-bg``/``--card-border``/``--text-primary``. בלי הבלוק הזה
+   ה-fallback נותן כרטיס לבן עם גבול לבן — גבול בלתי נראה בדיוק בערכה
+   שכל תכליתה ניגודיות. זו אותה תבנית שכבר קיימת ב-bookmarks.css,
+   collections.css ו-global_search.css: הרכיב משלים לעצמו את מה שהערכה
+   לא סיפקה, ברמת Level 3. */
+:root[data-theme="high-contrast"] .board-modal .modal-content,
+:root[data-theme="high-contrast"] .board-tile-badge {
+  background: #000;
+  color: #fff;
+  border-color: #fff;
+}
+:root[data-theme="high-contrast"] .board-modal .modal-header {
+  border-bottom-color: #fff;
+}
+:root[data-theme="high-contrast"] .board-modal .modal-header h3,
+:root[data-theme="high-contrast"] .board-modal .modal-close,
+:root[data-theme="high-contrast"] .board-tile,
+:root[data-theme="high-contrast"] .board-tile-label,
+:root[data-theme="high-contrast"] .board-pin-hint {
+  color: #fff;
+}
+:root[data-theme="high-contrast"] .board-tile.is-current {
+  border-color: #ff0;
+  background: none;
+}
+:root[data-theme="high-contrast"] .board-tile.is-current .board-tile-label { color: #ff0; }

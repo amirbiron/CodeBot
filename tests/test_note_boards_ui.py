@@ -111,3 +111,80 @@ def test_navbar_links_to_boards(logged_in):
 
     assert 'href="/boards"' in html
     assert 'לוחות פתקים' in html
+
+
+# -- מעבר מהיר ולוחות נעוצים --
+#
+# **האסרשנים כאן מעוגנים לאלמנט, לא למחרוזת חופשית.** בגרסה ראשונה הם היו
+# ``'boardSwitchBtn' in html`` וכדומה, ושלוש מוטציות עברו אותם: שם מזהה
+# שהשתנה ל-``...BtnX`` עדיין מכיל את המקור כתת-מחרוזת, ו-``base.html``
+# תורם בעצמו ``href="/boards"`` ושלושה ``role="dialog"`` שסיפקו את
+# הבדיקות במקום התבנית הנבדקת.
+
+def _tag_with_id(html, el_id):
+    """התגית הפותחת של אלמנט לפי מזהה — או ``''`` אם אין כזה.
+
+    מאפשר לבדוק תכונות **על האלמנט עצמו**, ולא במקום כלשהו בעמוד.
+    """
+    import re
+    m = re.search(r'<[a-zA-Z]+[^>]*\bid="' + re.escape(el_id) + r'"[^>]*>', html)
+    return m.group(0) if m else ''
+
+
+def test_board_page_serves_the_quick_switch(logged_in):
+    """הכפתור ושני המודאלים מוגשים בעמוד לוח בודד.
+
+    נופל אם מזהה ישונה — כולל שינוי שמוסיף תו, כי המרכאה הסוגרת חלק
+    מהחיפוש.
+    """
+    html = logged_in.get('/boards/507f1f77bcf86cd799439011').get_data(as_text=True)
+
+    for el_id in ('boardSwitchBtn', 'boardSwitchTiles', 'boardPinManager', 'boardPinList'):
+        assert _tag_with_id(html, el_id), f'חסר אלמנט עם id={el_id}'
+
+
+def test_the_quick_switch_is_not_on_the_boards_list(logged_in):
+    """עמוד ``/boards`` כבר מציג את כל הלוחות, ולכן אין בו קפיצה מהירה."""
+    html = logged_in.get('/boards').get_data(as_text=True)
+
+    assert not _tag_with_id(html, 'boardSwitchBtn')
+    assert not _tag_with_id(html, 'boardPinManager')
+
+
+def test_the_full_boards_link_stays_in_the_toolbar(logged_in):
+    """הרשת נשארת — היא לעמוד המלא, והחדש לקפיצה מהירה. שני דברים שונים.
+
+    **הבדיקה על הקישור שבסרגל הלוח**, ולא על ``href="/boards"`` כלשהו:
+    ל-``base.html`` יש קישור כזה משלו בתפריט הקיצורים, והוא היה מספק
+    בדיקה רחבה גם אם הקישור בסרגל נמחק.
+    """
+    import re
+
+    html = logged_in.get('/boards/507f1f77bcf86cd799439011').get_data(as_text=True)
+    # ``(.*?)</div>`` עוצר ב-``</div>`` **הראשון**, שהוא של הסרגל. הגרסה
+    # הקודמת דרשה גם ``\s*<!--`` אחריו — אבל אחרי הסרגל בא ישירות
+    # ``<div class="board-settings-modal"`` ולא הערה, ולכן הלכידה נמשכה
+    # ובלעה את מודאל ההגדרות כולו: 3420 תווים במקום 2260. אז כפתור
+    # שהיה עובר לתוך המודאל עדיין היה "נמצא בסרגל".
+    toolbar = re.search(r'<div class="board-toolbar">(.*?)</div>', html, re.S)
+    assert toolbar, 'סרגל הלוח לא נמצא'
+    assert 'board-settings-modal' not in toolbar.group(1), 'הלכידה חורגת מהסרגל'
+    inner = toolbar.group(1)
+
+    assert 'href="/boards"' in inner          # הקישור לעמוד המלא
+    assert 'id="boardSwitchBtn"' in inner     # והכפתור החדש, לצידו
+
+
+def test_each_board_modal_declares_itself_as_a_dialog(logged_in):
+    """``role="dialog"`` ו-``aria-modal`` הם מה שמצדיק את מלכודת הפוקוס.
+
+    **נבדק על כל מודאל בנפרד**, ולא בספירה: ל-``base.html`` יש שלושה
+    ``role="dialog"`` משלו, וספירה כוללת הייתה עוברת גם אם מודאל של
+    הלוח מאבד את ההצהרה.
+    """
+    html = logged_in.get('/boards/507f1f77bcf86cd799439011').get_data(as_text=True)
+
+    for el_id in ('boardSettings', 'boardSwitch', 'boardPinManager'):
+        tag = _tag_with_id(html, el_id)
+        assert 'role="dialog"' in tag, f'{el_id} אינו מוצהר כדיאלוג'
+        assert 'aria-modal="true"' in tag, f'{el_id} חסר aria-modal'
