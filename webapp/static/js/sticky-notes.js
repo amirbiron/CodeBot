@@ -2980,7 +2980,7 @@
           const entry = this.notes.get(id);
           if (entry && entry.data) {
             // **כאן הכוונה מומשה, ורק כאן היא נצרכת.** ההשוואה מגינה מפני
-            // מחיקת כוונה חדשה יותר, אם נלכדה כזו בינתיים.
+            // הסרת הכוונה לאחר התאמה מונעת גלילה חוזרת במנהל הבא.
             if (pendingNoteIdFromUrl === id) pendingNoteIdFromUrl = '';
             this.scrollToNote(id);
             return;
