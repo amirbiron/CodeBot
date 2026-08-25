@@ -17,17 +17,21 @@
 שכבות משתנים וטעינת ``data-theme``
 -----------------------------------
 
-**Level 1 – Primitives (:root ב‑``variables.css``)**  
-קבועים לכולם ומרוכזים כיום ב‑``webapp/static/css/variables.css`` (הקובץ נטען מתוך ``base.html`` בתחילת ה‑`<head>`). כאן מגדירים צבעי מותג (`--primary`, `--secondary`), צבעי מצב (`--success` וכו'), טוקני סכנה (`--danger-bg`, `--danger-border`, `--text-on-warning`), ערכי markdown (`--md-surface`, `--md-text`), הגדרות כפתור ברירת מחדל וערכי גלאס (`--glass*`). אין להשתמש ב‑HEX מחוץ לקטע זה.
+**Level 1 – Primitives (:root ב‑``webapp/templates/base.html``)**  
+קבועים לכולם, ומרוכזים בבלוק ``<style>`` שבתוך ``webapp/templates/base.html`` — ``:root`` בשורה 137. כאן מגדירים צבעי מותג (`--primary`, `--secondary`), צבעי מצב (`--success` וכו'), טוקני סכנה (`--danger-bg`, `--danger-border`, `--text-on-warning`), ערכי markdown (`--md-surface`, `--md-text`), הגדרות כפתור ברירת מחדל וערכי גלאס (`--glass*`). אין להשתמש ב‑HEX מחוץ לקטע זה.
+
+.. note::
+
+   **המיקום הזה אינו מה שתוכנן.** ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` תכנן לרכז את הטוקנים בקובץ ייעודי בשם ``variables.css``, והמימוש הזריק אותם ישירות לתבנית. **הקובץ ההוא אינו קיים בריפו**, ואין קוד שמנסה לטעון אותו. העמוד הזה מתאר את מה שקיים בפועל.
 
 **Level 2 – Semantic Tokens per Theme**  
-בלוקים של ``:root[data-theme="..."]`` ב‑``variables.css`` קובעים רקעים (`--bg-*`), טקסט (`--text-*`), כרטיסים (`--card-*`), צבעי קוד, כפתורים (`--btn-primary-*`) וטוקנים ל‑Split View (`--split-preview-*`). Ocean/Forest/Classic/Dim/Nebula/Rose Pine Dawn/High Contrast משתמשות בכל הטוקנים; Dark/Dim/Nebula גם בעבור קבצי CSS ב־``static/css/dark-mode.css`` שנשענים על אותם ערכים גלובליים.
+בלוקים של ``:root[data-theme="..."]`` ב‑``webapp/templates/base.html`` קובעים רקעים (`--bg-*`), טקסט (`--text-*`), כרטיסים (`--card-*`), צבעי קוד, כפתורים (`--btn-primary-*`) וטוקנים ל‑Split View (`--split-preview-*`). הבלוקים הקיימים שם הם ``classic``, ``ocean``, ``rose-pine-dawn``, ``dark``, ``dim``, ``nebula`` ו‑``custom``. **ל‑High Contrast אין בלוק שם** — ראו את הסעיף הייעודי למטה. Dark/Dim/Nebula נשענים גם על ``static/css/dark-mode.css``, שמשתמש באותם ערכים גלובליים.
 
 **Level 3 – Component Tokens**  
-נוצר רק כשיש צורכי עיצוב ייחודיים: `--search-card-shadow` ב‑``global_search.css``, `--bookmarks-panel-bg` ב‑``bookmarks.css``, משפחת `--split-*` ב‑``split-view.css``. את ערכי ברירת המחדל מגדירים ברכיב עצמו, אך מומלץ להוסיף הפניה ל‑``variables.css`` (או ל‑`:root[data-theme]`) כאשר הרכיב חוצה דפים, כדי למנוע חזרה לצבעים קשיחים.
+נוצר רק כשיש צורכי עיצוב ייחודיים: `--search-card-shadow` ב‑``global_search.css``, `--bookmarks-panel-bg` ב‑``bookmarks.css``, משפחת `--split-*` ב‑``split-view.css``. את ערכי ברירת המחדל מגדירים ברכיב עצמו, אך מומלץ להוסיף הפניה לטוקן סמנטי מ‑``base.html`` (או ל‑`:root[data-theme]`) כאשר הרכיב חוצה דפים, כדי למנוע חזרה לצבעים קשיחים.
 
 **טעינת המערכת**  
-``base.html`` קובע ``data-theme`` על `<html>` מתוך `localStorage` כבר ב‑`<head>` כדי למנוע FOUC, ולאחר מכן טוען את ``webapp/static/css/variables.css`` וכל שאר קבצי הרכיבים. כך הטוקנים זמינים עוד לפני טעינת ``dark-mode.css`` / ``high-contrast.css`` / קבצים ייעודיים. Theme Wizard ו‑Theme Builder מזריקים Overrides דינמיים ל‑``<style id="user-custom-theme">`` (נוצר בעת שמירת Theme מותאם) ומגדירים `data-theme="custom"` או Override ל‑Theme קיים. על כל סקריפט שמשנה Theme לעדכן גם את ``localStorage`` באותה צורה.
+``base.html`` קובע ``data-theme`` על `<html>` מתוך `localStorage` כבר ב‑`<head>` כדי למנוע FOUC, והטוקנים עצמם יושבים בבלוק ``<style>`` באותה תבנית. כך הם זמינים מיד, עוד לפני טעינת ``dark-mode.css`` / ``high-contrast.css`` / קבצים ייעודיים. Theme Wizard ו‑Theme Builder מזריקים Overrides דינמיים ל‑``<style id="user-custom-theme">`` (נוצר בעת שמירת Theme מותאם) ומגדירים `data-theme="custom"` או Override ל‑Theme קיים. על כל סקריפט שמשנה Theme לעדכן גם את ``localStorage`` באותה צורה.
 
 תרשים זרימת היררכיית טוקנים
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -35,7 +39,7 @@
 .. mermaid::
 
    graph TD
-       subgraph "Global Scope (variables.css)"
+       subgraph "Global Scope (base.html)"
            L1["<b>Level 1: Primitives</b><br/>:root<br/>--primary, --danger, --glass"]
            L2["<b>Level 2: Semantic Overrides</b><br/>:root[data-theme='...']<br/>--bg-app, --text-main, --card-bg"]
        end
@@ -78,23 +82,23 @@
    * - ``--primary`` / ``--secondary``
      - Level 1
      - צבעי מותג, משמשים גם לגרדיאנטים ו‑focus
-     - ``webapp/static/css/variables.css`` (:root + ``:root[data-theme]``; ``base.html`` רק טוען את הקובץ)
+     - ``webapp/templates/base.html`` — בלוק ה‑``<style>``: ``:root`` + ``:root[data-theme]``
    * - ``--bg-primary/secondary/tertiary``
      - Level 2
      - רקעים לגוף, למודלים ולכרטיסים
-     - ``webapp/static/css/variables.css`` בתוך ``:root[data-theme]``; חובה בכל Theme (Ocean/Forest מקבלים ערכי כחול/ירוק ייעודיים)
+     - ``webapp/templates/base.html`` בתוך ``:root[data-theme]``; חובה בכל Theme (Ocean מקבל ערכי כחול ייעודיים)
    * - ``--text-primary/secondary/muted``
      - Level 2
      - משפחת צבעי טקסט לכל הרכיבים
-     - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + בדיקת ניגודיות ב‑High Contrast
+     - ``webapp/templates/base.html`` (``:root[data-theme]``) + בדיקת ניגודיות ב‑High Contrast
    * - ``--card-bg`` / ``--card-border``
      - Level 2
      - כרטיסים, מודלים, dropdowns
-     - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + שימוש חוזר ב‑``static/css/dark-mode.css``
+     - ``webapp/templates/base.html`` (``:root[data-theme]``) + שימוש חוזר ב‑``static/css/dark-mode.css``
    * - ``--glass`` / ``--glass-border`` / ``--glass-hover``
      - Level 1
      - בסיס ל‑Glassmorphism navbar, badges, מודלים
-     - ``webapp/static/css/variables.css`` (קטע ``:root``) + Overrides ב‑תמות בהירות
+     - ``webapp/templates/base.html`` (קטע ``:root``) + Overrides ב‑תמות בהירות
    * - ``--scrollbar-width-base`` / ``--scrollbar-width``
      - Level 1
      - רוחב פס גלילה גלובלי לפי מכשיר (מובייל שליש, טאבלט/דסקטופ חצי)
@@ -102,15 +106,15 @@
    * - ``--btn-primary-bg`` / ``--btn-primary-color`` / ``--btn-primary-border`` / ``--btn-primary-shadow``
      - Level 2
      - כל כפתור ראשי, כולל מצבי hover (`--btn-primary-hover-*`)
-     - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + הרחבה עבור Classic/Ocean/Forest/Rose
+     - ``webapp/templates/base.html`` (``:root[data-theme]``) + הרחבה עבור Classic/Ocean/Rose
    * - ``--danger-bg`` / ``--danger-border`` / ``--text-on-warning``
      - Level 1
      - שימשו לטיפול Banner Login, Inline Alerts, Sticky Notes
-     - ``webapp/static/css/variables.css`` (קטע ``:root`` בלבד; אין Overrides לכל Theme)
+     - ``webapp/templates/base.html`` (קטע ``:root`` בלבד; אין Overrides לכל Theme)
    * - ``--md-surface`` / ``--md-text``
      - Level 1 + Level 2
      - Split View / Markdown Preview נשאר כהה גם בתמות בהירות
-     - ``webapp/static/css/variables.css`` (ערך כהה ב‑``:root`` + Overrides ספציפיים ב‑Classic/Ocean/Forest)
+     - ``webapp/templates/base.html`` (ערך כהה ב‑``:root`` + Overrides ספציפיים ב‑Classic/Ocean)
    * - ``--split-tabs-selected-color`` / ``--split-preview-*`` / ``--split-error-*``
      - Level 3
      - רכיב Split View + Live Preview
@@ -130,7 +134,7 @@
    * - ``--code-bg`` / ``--code-text`` / ``--code-border``
      - Level 2
      - CodeMirror, כרטיסי קוד, Split View
-     - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
+     - ``webapp/templates/base.html`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
 
 רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
@@ -172,7 +176,7 @@
    * - High Contrast
      - ``high-contrast``
      - שחור/לבן/צהוב
-     - Overrides מלאים ב‑``variables.css`` (`:root[data-theme="high-contrast"]`) + קובץ Legacy ``static/css/high-contrast.css`` לחיזוקי נגישות; אין גרדיאנטים
+     - **אין לה בלוק ב‑**\ ``base.html``. הטוקנים מוגדרים ב‑``static/css/high-contrast.css`` ומושלמים ברמת הרכיב בשישה קבצים נוספים — ראו את ההערה מתחת לטבלה. אין גרדיאנטים
 
 .. figure:: ../images/theme-classic-preview.svg
    :alt: סקיצה של ערכת Classic
@@ -188,7 +192,11 @@
 
 .. note::
 
-   ``static/css/high-contrast.css`` נשאר בקוד כ‑Legacy עבור התאמות Focus/Outline בלבד. כל הטוקנים עצמם חיים ב‑``webapp/static/css/variables.css`` וממומשים דרך ``:root[data-theme="high-contrast"]``.
+   **High Contrast מתנהגת אחרת מכל שאר הערכות, וזה משפיע ישירות על כל רכיב חדש.**
+
+   ``base.html`` **אינו** מגדיר לה טוקנים. ``static/css/high-contrast.css`` (נטען גלובלית) מגדיר בבלוק ``:root[data-theme="high-contrast"]`` שישה טוקנים בלבד — ``--primary``, ``--secondary``, ``--glass``, ``--glass-border``, ``--md-surface`` ו‑``--md-text`` — ואת השאר משלימים ברמת הרכיב: ``bookmarks.css``, ``collections.css``, ``global_search.css``, ``lang-badge.css``, ``markdown-enhanced.css`` ו‑``split-view.css``.
+
+   **המשמעות המעשית:** ``--card-bg``, ``--card-border`` ו‑``--text-primary`` **אינם מוגדרים** בערכה הזו. רכיב שנשען עליהם מקבל את ה‑fallback שלו, ובעמוד שאינו טוען אחד מששת הקבצים לעיל התוצאה עלולה להיות בלתי קריאה — למשל כרטיס לבן עם גבול לבן. רכיב חדש שאמור לעבוד ב‑High Contrast צריך בלוק ``:root[data-theme="high-contrast"]`` משלו, בדיוק כפי שששת הקבצים האלה עושים.
 
 Markdown Viewer ו‑Split View
 ----------------------------
@@ -272,7 +280,7 @@ Component Tokens ו‑Theme Builder
   - Sidebar "הערכות שלי" עם רשימה, אינדיקציה לערכה פעילה/נבחרת, וכפתור "ערכה חדשה".
 
 - כאשר מוסיפים טוקן חדש:
-  1. הוסיפו ערך ברירת מחדל ל‑``:root`` בתוך ``webapp/static/css/variables.css``.
+  1. הוסיפו ערך ברירת מחדל ל‑``:root`` בתוך בלוק ה‑``<style>`` שב‑``webapp/templates/base.html``.
   2. הוסיפו Overrides בבלוקים של כל Theme שדורש התאמה.
   3. אם הטוקן שייך לרכיב ספציפי, הגדירו אותו גם בקובץ הרכיב (למשל ``split-view.css``) כדי לא לאבד הקשר.
 - Theme Builder (או Override ידני) נעשה באמצעות ``<style id="user-custom-theme">`` שמוזרק בסוף ה‑``<head>``. כך ניתן לאפשר Overrides בטוחים:
@@ -325,10 +333,9 @@ Component Tokens ו‑Theme Builder
    - ``FEATURE_SUGGESTIONS/css_refactor_plan.md`` – תקציר עסקי ובדיקות QA.
    - ``FEATURE_SUGGESTIONS/theme_matrix.md`` – טבלת כיסוי טוקנים מקוצרת.
    - ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md`` – פירוט צבעים וערכי Markdown.
-   - ``webapp/static/css/variables.css`` – מקור כל ה‑Primitives ו‑``:root[data-theme]`` לפני קבצי הרכיבים.
-   - ``webapp/templates/base.html`` – טעינת ``variables.css``, קביעת ``data-theme`` מוקדמת וה‑Theme Wizard.
+   - ``webapp/templates/base.html`` – בלוק ה‑``<style>``: מקור כל ה‑Primitives ו‑``:root[data-theme]``, קביעת ``data-theme`` מוקדמת, וה‑Theme Wizard.
    - ``webapp/static/css/dark-mode.css`` – שימוש בטוקנים עבור רכיבי Dark/Dim/Nebula.
-   - ``webapp/static/css/high-contrast.css`` – Legacy לפוקוס/Outline; הדריסות עצמן ב‑``variables.css``.
+   - ``webapp/static/css/high-contrast.css`` – טוקני הבסיס של High Contrast, ובנוסף התאמות פוקוס/Outline. שאר הטוקנים שלה מושלמים ברמת הרכיב.
    - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css`` – דוגמאות מעשיות לטוקנים.
    - Issue #2097 – מפרט Theme Builder (טוקנים במיקוד, UI/Backend/API, נגישות ו‑Reset flow).
 
