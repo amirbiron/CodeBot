@@ -5,7 +5,7 @@
 """
 
 from mcp_server import handlers
-from mcp_server.backend import _as_note, _notes_scope_filter
+from mcp_server.backend import _as_note, _NoteIndex, _notes_scope_filter
 from mcp_server.handlers import (
     DEFAULT_NOTE_COLOR,
     MAX_NOTE_CONTENT,
@@ -447,6 +447,20 @@ class _IndexSpyColl:
         return len(self.inserted)
 
 
+def _verified(b, *which):
+    """מסמן אינדקסים כמאומתים — כלומר בלי מסלול הגיבוי בקוד.
+
+    נוגע ב-``_IndexGate`` ולא בדגל מחרוזתי, כי זה הייצוג שהקוד מחזיק.
+    """
+    from mcp_server.backend import _IndexGate
+
+    gates = b.__dict__.setdefault("_note_index_gates", {})
+    for w in which:
+        gate = gates.setdefault(w, _IndexGate())
+        gate.ok = True
+    return b
+
+
 def _backend_with(coll, monkeypatch, clock):
     """``ProductionBackend`` בלי ה-``__init__`` הכבד, עם שעון נשלט."""
     from mcp_server.backend import ProductionBackend
@@ -811,8 +825,8 @@ def _repo_backend(db, monkeypatch, *, admin=False):
 
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = True
-    b._repo_title_index_ok = True   # האינדקס מאומת ← בלי מסלול הגיבוי
-    b._title_index_ok = True
+    # האינדקס מאומת ← בלי מסלול הגיבוי
+    _verified(b, _NoteIndex.REPO_TITLE, _NoteIndex.BOARD_TITLE)
     b._raw_mongo = lambda: db
     monkeypatch.setitem(__import__("sys").modules, "user_roles",
                         type("M", (), {"is_admin": staticmethod(lambda uid: admin)}))
@@ -1004,6 +1018,19 @@ class _SearchColl(_IndexSpyColl):
         return self.cursor
 
 
+class _SnippetColl:
+    """``code_snippets`` מזויף — מקליט את השאילתות שהמילוי שולח."""
+
+    def __init__(self, docs):
+        self.docs = list(docs)
+        self.queries = []
+
+    def find(self, query, projection=None):
+        self.queries.append(query)
+        wanted = {str(o) for o in query.get("_id", {}).get("$in", [])}
+        return [d for d in self.docs if str(d["_id"]) in wanted]
+
+
 def _search_backend(coll):
     from mcp_server.backend import ProductionBackend
 
@@ -1129,7 +1156,7 @@ def test_the_notes_collection_builds_all_four_query_indexes():
     coll = _Coll()
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = False
-    b._title_index_ok = True      # אינדקס השם כבר מאומת — לא נבדק כאן
+    _verified(b, _NoteIndex.BOARD_TITLE)   # אינדקס השם כבר מאומת — לא נבדק כאן
     b._raw_mongo = lambda: {"sticky_notes": coll}
     b._notes_coll()
 
@@ -1161,7 +1188,7 @@ def test_one_failing_index_does_not_block_the_others():
 
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = False
-    b._title_index_ok = True
+    _verified(b, _NoteIndex.BOARD_TITLE)
     b._raw_mongo = lambda: {"sticky_notes": _Coll()}
     b._notes_coll()
 
@@ -1174,7 +1201,7 @@ def test_the_two_title_indexes_retry_independently(monkeypatch):
     הצלחת אינדקס הלוח אינה ראיה להצלחת אינדקס הריפו, ולהפך. כאן אחד
     מצליח והשני נכשל — ומצבם חייב להיבדל.
 
-    נופלת אם שניהם יחלקו ``_title_index_ok``/``_title_index_retry_at``.
+    נופלת אם שניהם יחלקו ``_IndexGate`` אחד.
     """
     import sticky_notes_target
 
@@ -1187,7 +1214,9 @@ def test_the_two_title_indexes_retry_independently(monkeypatch):
 
     assert b._ensure_title_index(coll) is True
     assert b._ensure_repo_title_index(coll) is False
-    assert b._title_index_ok is True and b._repo_title_index_ok is False
+    gates = b.__dict__["_note_index_gates"]
+    assert gates[_NoteIndex.BOARD_TITLE].ok is True
+    assert gates[_NoteIndex.REPO_TITLE].ok is False
     # ...וההשהיה של הכושל אינה חוסמת את המוצלח, ולהפך
     assert b._ensure_title_index(coll) is True
 
@@ -1207,7 +1236,7 @@ def test_the_repo_title_index_is_not_built_on_every_read(monkeypatch):
 
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = False
-    b._title_index_ok = True
+    _verified(b, _NoteIndex.BOARD_TITLE)
     b._raw_mongo = lambda: {"sticky_notes": _Coll()}
     b._ensure_repo_title_index = lambda coll: calls.append("repo") or True
     b._notes_coll()
@@ -1224,7 +1253,6 @@ def test_repo_note_creation_falls_back_to_a_code_check_without_the_index(monkeyp
     coll.inserted.append({"user_id": 7, "repo_name": "CodeBot",
                           "repo_path": "a.py", "title": "שם"})
     b = _repo_backend(_RepoDB(coll), monkeypatch)
-    b._repo_title_index_ok = False
     b._ensure_repo_title_index = lambda c: False   # האינדקס לא אומת
 
     res = b.create_repo_note(7, repo_name="CodeBot", repo_path="a.py",
@@ -1232,3 +1260,75 @@ def test_repo_note_creation_falls_back_to_a_code_check_without_the_index(monkeyp
 
     assert res == {"ok": False, "error": "duplicate_title"}
     assert len(coll.inserted) == 1   # לא נכתב פתק שני
+
+
+def test_a_legacy_file_hit_gets_its_navigation_field_filled_in():
+    """**פגיעה בלי ``file_name`` היא מבוי סתום.**
+
+    ``codekeeper_list_notes`` מקבל ``file_name`` בלבד, ופתק שנשמר לפני
+    שהשדה היה קיים נושא ``file_id`` בלבד. בלי המילוי הסוכן רואה שהפתק
+    קיים ואין לו דרך לקרוא אותו — כלומר האינווריאנטה המתועדת שקרית.
+
+    נופלת אם ``_backfill_file_names`` יוסר.
+    """
+    coll = _SearchColl(rows=[_row(0, file_id="6a8cfe7e35f97a799c443650")])
+    b = _search_backend(coll)
+    b._raw_mongo = lambda: {
+        "sticky_notes": coll,
+        "code_snippets": _SnippetColl([
+            {"_id": "6a8cfe7e35f97a799c443650", "file_name": "old.py"},
+        ]),
+    }
+
+    note = b.search_notes(7, query="פתק", limit=10)["notes"][0]
+
+    assert note["file_name"] == "old.py"
+    assert note["file_id"] == "6a8cfe7e35f97a799c443650"
+
+
+def test_the_backfill_is_one_query_not_one_per_hit():
+    """N+1 על מסלול חיפוש הוא בדיוק מה ש-Smart Projection נועד למנוע.
+
+    נופלת אם המילוי יהפוך ללולאת ``find_one``.
+    """
+    ids = [f"6a8cfe7e35f97a799c44365{i}" for i in range(5)]
+    coll = _SearchColl(rows=[_row(i, file_id=fid) for i, fid in enumerate(ids)])
+    snips = _SnippetColl([{"_id": i, "file_name": f"f{n}.py"} for n, i in enumerate(ids)])
+    b = _search_backend(coll)
+    b._raw_mongo = lambda: {"sticky_notes": coll, "code_snippets": snips}
+
+    b.search_notes(7, query="פתק", limit=10)
+
+    assert len(snips.queries) == 1
+    assert {str(o) for o in snips.queries[0]["_id"]["$in"]} == set(ids)
+    assert snips.queries[0]["user_id"] == 7          # לא שולפים קבצים של אחרים
+
+
+def test_the_backfill_does_not_run_when_nothing_is_missing():
+    """פתק מודרני נושא ``file_name``, ואז אין שאילתה נוספת בכלל."""
+    coll = _SearchColl(rows=[_row(0, file_id="f1", file_name="a.md")])
+    snips = _SnippetColl([])
+    b = _search_backend(coll)
+    b._raw_mongo = lambda: {"sticky_notes": coll, "code_snippets": snips}
+
+    b.search_notes(7, query="פתק", limit=10)
+
+    assert snips.queries == []
+
+
+def test_a_failed_backfill_degrades_and_does_not_kill_the_search():
+    """הפגיעה נשארת עם ``file_id`` בלבד — בדיוק כפי שהייתה בלעדי המילוי."""
+    class _Boom:
+        queries: list = []
+
+        def find(self, *a, **k):
+            raise RuntimeError("db down")
+
+    coll = _SearchColl(rows=[_row(0, file_id="6a8cfe7e35f97a799c443650")])
+    b = _search_backend(coll)
+    b._raw_mongo = lambda: {"sticky_notes": coll, "code_snippets": _Boom()}
+
+    out = b.search_notes(7, query="פתק", limit=10)
+
+    assert out["ok"] is True and out["count"] == 1
+    assert "file_name" not in out["notes"][0]

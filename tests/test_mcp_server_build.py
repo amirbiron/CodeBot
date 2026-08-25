@@ -255,7 +255,7 @@ def test_transport_security_locks_down_via_env(monkeypatch):
     assert ts.allowed_hosts == ["a.com", "*.b.com"]
 
 
-def test_repo_note_creation_checks_admin_before_write(monkeypatch):
+async def test_repo_note_creation_checks_admin_before_write(monkeypatch):
     """**אדמין ראשון, כתיבה שנייה** — וזה לא סדר שרירותי.
 
     בסדר ההפוך משתמש רגיל עם טוקן קריאה-בלבד היה מקבל "צריך הרשאת
@@ -265,6 +265,9 @@ def test_repo_note_creation_checks_admin_before_write(monkeypatch):
     הטסט גם מוודא שהמזהה שנשלח ל-handler הוא **ערך ההחזרה** של
     ``require_admin`` — כך אי אפשר שהזהות ששימשה לשער תיבדל מזו ששימשה
     לשאילתה. נופל אם מחליפים אותו בקריאה שנייה ל-``current_user_id``.
+
+    הקריאה עוברת דרך ``mcp.call_tool`` הציבורי ולא דרך ``_tool_manager``:
+    הפנימיות תלויות-גרסה, והמסלול הציבורי הוא זה שהלקוח באמת מפעיל.
     """
     import mcp_server.server as srv
 
@@ -279,15 +282,17 @@ def test_repo_note_creation_checks_admin_before_write(monkeypatch):
     )
 
     mcp = build_mcp(_FakeBackend())
-    tool = mcp._tool_manager.get_tool("codekeeper_create_repo_note")
-    tool.fn(ctx=None, repo_name="CodeBot", repo_path="a.py", content="שלום")
+    await mcp.call_tool(
+        "codekeeper_create_repo_note",
+        {"repo_name": "CodeBot", "repo_path": "a.py", "content": "שלום"},
+    )
 
     assert order == ["admin", "write"]
     assert seen["user_id"] == 4242          # המזהה מהשער, לא קריאה נוספת
     assert seen["repo_name"] == "CodeBot"
 
 
-def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch):
+async def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch):
     import mcp_server.server as srv
 
     seen: dict = {}
@@ -298,7 +303,8 @@ def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch):
     )
 
     mcp = build_mcp(_FakeBackend())
-    tool = mcp._tool_manager.get_tool("codekeeper_list_repo_notes")
-    tool.fn(ctx=None, repo_name="CodeBot", repo_path="a.py")
+    await mcp.call_tool(
+        "codekeeper_list_repo_notes", {"repo_name": "CodeBot", "repo_path": "a.py"}
+    )
 
     assert seen["user_id"] == 4242

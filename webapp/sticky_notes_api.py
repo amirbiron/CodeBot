@@ -123,6 +123,19 @@ _INDEX_RETRY_AFTER = 0.0
 #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות.
 _INDEX_RETRY_SECONDS = 60.0
 
+#: שמות שבעת אינדקסי השאילתה של ``sticky_notes`` — לאימות אחרי הבנייה.
+#: מוגדרים פעם אחת כאן כדי שהוספת אינדקס לרשימת הבנייה בלי הוספה לאימות
+#: תהיה שינוי גלוי לעין ולא השמטה שקטה.
+_QUERY_INDEX_NAMES = (
+    "user_file_idx",
+    "user_file_created",
+    "updated_desc",
+    "user_scope_idx",
+    "user_board_idx",
+    "user_repo_idx",
+    "user_title_idx",
+)
+
 
 def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Optional[str] = None) -> None:
     """Emit lightweight observability events without failing the request."""
@@ -270,18 +283,47 @@ def _ensure_indexes() -> None:
                 coll.create_indexes(indexes)
             except Exception:
                 # Best-effort: if pymongo typings not available or running in stub env
-                try:
-                    coll.create_index([("user_id", 1), ("file_id", 1)], name="user_file_idx")
-                    coll.create_index([("user_id", 1), ("file_id", 1), ("created_at", 1)], name="user_file_created")
-                    coll.create_index([("updated_at", -1)], name="updated_desc")
-                    coll.create_index([("user_id", 1), ("scope_id", 1)], name="user_scope_idx")
-                    coll.create_index([("user_id", 1), ("board_id", 1)], name="user_board_idx")
-                    coll.create_index(
-                        [("user_id", 1), ("repo_name", 1), ("repo_path", 1)], name="user_repo_idx"
-                    )
-                    coll.create_index([("user_id", 1), ("title", 1)], name="user_title_idx")
-                except Exception:
-                    pass
+                #
+                # **``try`` לכל אינדקס בנפרד, ולא אחד סביב כולם.** ``try``
+                # יחיד הופך את הרשימה לשרשרת: כשל באינדקס הראשון מדלג על כל
+                # השאר, והם לא נבנים לעולם — בלי שום שגיאה. האינדקס האחרון
+                # ברשימה הוא הקורבן הסביר ביותר. בלוק ``note_reminders``
+                # שמתחת כבר בנוי כך; זה היה החריג.
+                for keys, name in (
+                    ([("user_id", 1), ("file_id", 1)], "user_file_idx"),
+                    ([("user_id", 1), ("file_id", 1), ("created_at", 1)], "user_file_created"),
+                    ([("updated_at", -1)], "updated_desc"),
+                    ([("user_id", 1), ("scope_id", 1)], "user_scope_idx"),
+                    ([("user_id", 1), ("board_id", 1)], "user_board_idx"),
+                    ([("user_id", 1), ("repo_name", 1), ("repo_path", 1)], "user_repo_idx"),
+                    ([("user_id", 1), ("title", 1)], "user_title_idx"),
+                ):
+                    try:
+                        coll.create_index(keys, name=name)
+                    except Exception:
+                        logger.warning(
+                            "sticky notes index %s creation failed (non-fatal)", name, exc_info=True
+                        )
+            # **אימות בקריאה חוזרת לשבעת אינדקסי השאילתה.**
+            #
+            # עד כאן שום דבר לא נבדק: ``create_indexes`` ו-``create_index``
+            # מדווחים הצלחה בערך ההחזרה, וערך החזרה של כתיבה אינו אימות.
+            # בסביבת stub הם אפילו no-op. קריאה אחת ל-``index_information``
+            # הופכת "בנינו" ל"קיים", וחסר מתועד בלוג במקום להיעלם.
+            #
+            # **ובכוונה אינו חוסם את** ``_INDEX_READY``, בשונה משני אינדקסי
+            # השם שמתחת. ההבדל אינו קפריזה: אינדקס אכיפה חסר הוא באג
+            # נכונות — ``duplicate_title`` מובטח ולא קיים — ולכן ראוי
+            # שיחזור לנסות. אינדקס שאילתה חסר הוא האטה. חסימת הדגל עליו
+            # הייתה מריצה את הבוטסטראפ כולו בכל בקשה, לנצח, בכל סביבת stub
+            # וגם מול אינדקס שפשוט אינו ניתן לבנייה.
+            try:
+                present = set(coll.index_information() or {})
+                missing = [n for n in _QUERY_INDEX_NAMES if n not in present]
+                if missing:
+                    logger.error("sticky notes query indexes missing after build: %s", missing)
+            except Exception:
+                logger.warning("sticky notes index verification failed", exc_info=True)
             # האינדקס הייחודי נוצר **בנפרד משני המסלולים**, ולא בתוכם.
             #
             # שני טעמים. האחד: כשהוא ישב ברשימת ``create_indexes``, כשל שלו

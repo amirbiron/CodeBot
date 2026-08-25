@@ -34,7 +34,8 @@ Doc Authoring Guide (Sphinx/RTD)
 
 טיפים מהירים
 ------------
-- בדקו לוקאלית עם ``make html SPHINXOPTS='-W --keep-going'``.
+- **אל תריצו את הבנייה המלאה לוקאלית כדבר שבשגרה.** ``.github/workflows/docs.yml`` מריץ ``python -m sphinx -b html . _build/html -W --keep-going -j auto`` על כל PR — אותה פקודה בדיוק, רק מקבילית. הריצה הסדרתית המקומית לוקחת סדר גודל יותר זמן ואינה תופסת שום דבר שה-Action לא תופס; ההבדל היחיד הוא שהיא תופסת אותו לפני הפוש במקום שתי דקות אחריו. זה לא שווה את המחיר על עריכת פרוזה בעמוד קיים.
+- **החריג: עמוד חדש, או נגיעה ב-``toctree``/``conf.py``.** שם טעות מפילה את הבילד כמעט בוודאות (``document isn't included in any toctree``), והבדיקה זולה כי אפשר לבנות עמוד בודד: ``python -m sphinx -b html -W . _build/html <עמוד>.rst``.
 - השתמשו ב‑``copybutton`` לקוד שמיועד ל‑Copy‑Paste.
 - שמרו עוגנים יציבים לכותרות עיקריות.
 
