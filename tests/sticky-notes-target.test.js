@@ -70,6 +70,10 @@ function makeSandbox() {
     },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     fetch: async () => ({ json: async () => ({ ok: true, notes: [] }) }),
+    // ``_reflowWithinViewport`` בודק ``instanceof HTMLElement``. בלי
+    // ההגדרה כאן הוא זרק ``ReferenceError`` שנבלע ב-try/catch של
+    // ``_applyPositionMode`` — כלומר חלק מהפונקציה לא רץ, בשקט.
+    HTMLElement: function HTMLElement() {},
     setTimeout, clearTimeout, setInterval, clearInterval,
     MutationObserver: undefined, ResizeObserver: undefined,
   };
@@ -1258,7 +1262,10 @@ check('פתק ריפו נעוץ מרונדר לפי מיקום הגלילה הפ
   const sb = makeSandbox();
   const Manager = sb.window.StickyNotesManager;
   const container = makeRepoContainer(300);
-  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container });
+  // הפותר מוזרק, בדיוק כפי ש-``repo-notes.js`` מזריק אותו. המנהל הגנרי
+  // אינו מכיר את מחלקות הרנדרר.
+  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container,
+                          scroller: () => container.__scroller });
 
   const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
                querySelector: () => null, querySelectorAll: () => [],
@@ -1273,7 +1280,9 @@ check('אותו פתק בגלילה אחרת מרונדר במקום אחר', ()
   // אותה בדיקה מהצד השני: שינוי ה-scrollTop **חייב** לשנות את הרינדור.
   const sb = makeSandbox();
   const Manager = sb.window.StickyNotesManager;
-  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container: makeRepoContainer(0) });
+  const container0 = makeRepoContainer(0);
+  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container: container0,
+                          scroller: () => container0.__scroller });
 
   const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
                querySelector: () => null, querySelectorAll: () => [],
@@ -1288,7 +1297,9 @@ check('פתק לוח אינו מושפע מההיסט', () => {
   // אפס אצלם — אחרת התיקון לדפדפן הריפו היה מזיז להם את הפתקים.
   const sb = makeSandbox();
   const Manager = sb.window.StickyNotesManager;
-  const m = new Manager({ board: 'b1', container: makeRepoContainer(300) });
+  const boardContainer = makeRepoContainer(300);
+  const m = new Manager({ board: 'b1', container: boardContainer,
+                          scroller: () => boardContainer.__scroller });
 
   const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
                querySelector: () => null, querySelectorAll: () => [],
@@ -1296,6 +1307,60 @@ check('פתק לוח אינו מושפע מההיסט', () => {
   m._applyPositionMode(el, { mode: 'surface', position: { x: 10, y: 500 }, size: { width: 260, height: 200 } });
 
   eq(el.style.top, '500px', 'הלוח נשאר בדיוק על הערך השמור');
+});
+
+check('פתק שהוסתר בגלילה חוזר להיראות כשעובר למצב צף', () => {
+  // ``_updatePinnedVisibility`` מסתיר פתק נעוץ שנגלל מחוץ לתחום. אם
+  // המשתמש לחץ אז על הכפתור, הענף הצף כלל לא כתב ל-``visibility`` —
+  // והפתק נשאר בלתי נראה לתמיד, בלי שום דרך להחזיר אותו.
+  //
+  // נופל בלי ניקוי ``visibility`` בענף הצף.
+  const sb = makeSandbox();
+  const Manager = sb.window.StickyNotesManager;
+  const container = makeRepoContainer(0);
+  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container,
+                          scroller: () => container.__scroller });
+
+  const el = { style: { visibility: 'hidden' }, dataset: {},
+               classList: { add() {}, remove() {}, contains: () => false },
+               querySelector: () => null, querySelectorAll: () => [],
+               getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) };
+
+  m._applyPositionMode(el, { mode: 'screen', position: { x: 10, y: 20 }, size: { width: 260, height: 200 } });
+
+  eq(el.style.visibility, '', 'ההסתרה נוקתה');
+});
+
+check('רענון גלילה מחשב את ההיסט פעם אחת לכל הפתקים', () => {
+  // כל קריאת ``getBoundingClientRect`` מכריחה חישוב פריסה. בגלילה רציפה
+  // זה קורה בכל פריים, ולכן החישוב חייב להיות פעם אחת לאירוע ולא פעם
+  // לכל פתק.
+  //
+  // נופל אם ``_updatePinnedForScroll`` מפסיק להעביר ``posCtx``.
+  const sb = makeSandbox();
+  const Manager = sb.window.StickyNotesManager;
+  const container = makeRepoContainer(100);
+  let rectReads = 0;
+  const scroller = container.__scroller;
+  const origRect = scroller.getBoundingClientRect;
+  scroller.getBoundingClientRect = function () { rectReads += 1; return origRect(); };
+
+  const m = new Manager({ repo: 'CodeBot', path: 'a.py', container,
+                          scroller: () => scroller });
+
+  const mkEl = () => ({ style: {}, dataset: {},
+    classList: { add() {}, remove() {}, contains: (c) => c === 'is-pinned' },
+    querySelector: () => null, querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) });
+  for (const id of ['a', 'b', 'c']) {
+    m.notes.set(id, { el: mkEl(), data: { mode: 'surface', position: { x: 0, y: 50 }, size: { width: 260, height: 200 } } });
+  }
+
+  rectReads = 0;
+  m._updatePinnedForScroll();
+
+  // אחת ל-``_surfaceScrollShift`` ואחת ל-``scrollerRect`` — ולא פי שלושה
+  eq(rectReads, 2, 'שתי קריאות פריסה לשלושה פתקים');
 });
 
 (async () => {

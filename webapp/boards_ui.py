@@ -110,7 +110,10 @@ def note_permalink(note_id: str):
 
     repo_name = str(note.get('repo_name') or '')
     repo_path = normalize_repo_path(note.get('repo_path'))
-    if repo_name and repo_path and GitMirrorService.REPO_NAME_PATTERN.match(repo_name):
+    # ``fullmatch`` ולא ``match``: ב-Python ``$`` תואם גם **לפני** תו שורה
+    # חדשה בסוף, ולכן ``"CodeBot\n"`` היה עובר את הדפוס. עם ``quote`` הוא
+    # לא היה שובר את ה-URL, אבל אימות שמקבל ערך שהוא עצמו פוסל אינו אימות.
+    if repo_name and repo_path and GitMirrorService.REPO_NAME_PATTERN.fullmatch(repo_name):
         return redirect(
             f'/repo/?repo={quote(repo_name, safe="")}&note={note_id}'
             f'#file={quote(repo_path, safe="/")}'

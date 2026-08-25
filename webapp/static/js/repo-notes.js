@@ -73,7 +73,23 @@
       manager = new window.StickyNotesManager({
         repo: current.repo,
         path: current.path,
-        container: host
+        container: host,
+        // **ידיעת מבנה התצוגה חיה כאן, לא במנהל הגנרי.** הקונטיינר אינו
+        // נגלל (``100vh`` עם ``overflow: hidden``); מה שנגלל הוא הפאנל
+        // שבתוכו — ``CodeMirror`` לקוד ותצוגת ה-Markdown לקבצי ``.md``.
+        // המנהל רק שואל "מי הגולל", וכל שינוי מחלקה אצל הרנדרר נופל כאן
+        // ולא מפיל בשקט את מיקום הפתקים.
+        //
+        // נקרא בכל פעם מחדש: ``CodeMirror`` נבנה מחדש בכל קובץ, והמתג
+        // מחליף בין שני פאנלים.
+        scroller: function () {
+          var md = host.querySelector('.markdown-preview-container');
+          // ``offsetParent`` ריק פירושו ``display: none`` — הפאנל השני.
+          if (md && md.offsetParent) return md;
+          return host.querySelector('.CodeMirror-scroll')
+              || host.querySelector('.cm-scroller')
+              || null;
+        }
       });
     } catch (e) {
       manager = null;

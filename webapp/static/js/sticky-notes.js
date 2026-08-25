@@ -221,6 +221,10 @@
       // והיעדר מצב ``anchored`` — נשען על הדגל הזה ולא על ``boardId``.
       // מסלול הקובץ יוצא ביט-זהה: אצלו הדגל כבוי, כמו שהתנאי הקודם היה.
       this._surfaceTarget = !!(this.boardId || this.repoTarget);
+      // פותר הגולל הפנימי — פונקציה או אלמנט. ראו ``_innerScroller``.
+      this._scrollerResolver = (typeof opts.scroller === 'function')
+        ? opts.scroller
+        : (opts.scroller ? () => opts.scroller : null);
 
       // הפתקים נכנסים לקונטיינר הזה. בקובץ זה ה-body, כפי שהיה; בלוח זה
       // משטח הלוח, כי פתק "מעוגן ללוח" הוא absolute יחסית אליו ולא למסמך.
@@ -877,26 +881,21 @@
       // מסלול הקובץ יוצא ביט-זהה: כל ענף שאינו קונטיינר ממוקם מחזיר
       // ``-scroll``, ואז ``rect.left - (-scroll.x)`` הוא בדיוק החישוב הישן.
       /**
-       * הגולל הפנימי של תצוגת הקובץ, או ``null`` אם אין כזה.
+       * הגולל הפנימי של המשטח, או ``null`` אם אין כזה.
        *
-       * בדפדפן הריפו הקונטיינר עצמו אינו נגלל (``100vh`` עם
-       * ``overflow: hidden``) — מה שנגלל הוא הפאנל שבתוכו: ``CodeMirror``
-       * לקוד, ותצוגת ה-Markdown לקבצי ``.md``. בלי לאתר אותו, פתק "נעוץ"
-       * ופתק "צף" מרנדרים באותו מקום בדיוק, והכפתור מרגיש שבור.
+       * **המנהל אינו יודע לאתר אותו בעצמו, ובכוונה.** מי שמכיר את מבנה
+       * התצוגה — ``repo-notes.js`` בדפדפן הריפו — מזריק פותר דרך
+       * ``opts.scroller``, בדיוק כמו ``container`` ו-``anchorHost``.
+       * סלקטורים של ``CodeMirror`` או של תצוגת ה-Markdown בתוך המנהל
+       * הגנרי היו הופכים כל שינוי מחלקה אצל הרנדרר לשבירה שקטה של
+       * מיקום הפתקים, במקום ליפול אצל מי שאחראי עליו.
        *
-       * מאותרים מחדש בכל קריאה ולא נשמרים: ``CodeMirror`` נבנה מחדש בכל
+       * הפותר נקרא בכל פעם מחדש ולא נשמר: ``CodeMirror`` נבנה מחדש בכל
        * קובץ, ומתג ה-Markdown מחליף בין שני פאנלים שונים.
        */
       _innerScroller(){
         try {
-          if (!this.repoTarget || !this.container || !this.container.querySelector) return null;
-          const md = this.container.querySelector('.markdown-preview-container');
-          // ``offsetParent === null`` פירושו ``display: none`` — הפאנל
-          // השני, זה שאינו מוצג כרגע.
-          if (md && md.offsetParent) return md;
-          return this.container.querySelector('.CodeMirror-scroll')
-              || this.container.querySelector('.cm-scroller')
-              || null;
+          return (this._scrollerResolver && this._scrollerResolver()) || null;
         } catch(_) { return null; }
       }
 
@@ -936,11 +935,15 @@
        * ``visibility`` ולא ``display``: הפתק נשאר מדיד, כך שגרירה
        * ושמירה שקורות באותו רגע אינן מקבלות מלבן אפס.
        */
-      _updatePinnedVisibility(el){
+      _updatePinnedVisibility(el, scrollerRect){
         try {
-          const sc = this._innerScroller();
-          if (!sc || !el || !el.style) return;
-          const sr = sc.getBoundingClientRect();
+          if (!el || !el.style) return;
+          let sr = scrollerRect;
+          if (!sr) {
+            const sc = this._innerScroller();
+            if (!sc) return;
+            sr = sc.getBoundingClientRect();
+          }
           const er = el.getBoundingClientRect();
           const out = (er.bottom < sr.top) || (er.top > sr.bottom);
           el.style.visibility = out ? 'hidden' : '';
@@ -951,10 +954,16 @@
       _updatePinnedForScroll(){
         try {
           if (!this.repoTarget) return;
+          const sc = this._innerScroller();
+          if (!sc) return;
+          // **שני חישובי פריסה לאירוע, לא שניים לכל פתק.** קריאת
+          // ``getBoundingClientRect`` מכריחה את הדפדפן לחשב פריסה, ובגלילה
+          // רציפה זה קורה בכל פריים.
+          const posCtx = { shift: this._surfaceScrollShift(), scrollerRect: sc.getBoundingClientRect() };
           for (const entry of this.notes.values()){
             const el = entry && entry.el;
             if (!el || !el.classList || !el.classList.contains('is-pinned')) continue;
-            this._applyPositionMode(el, entry.data, { reflow: false });
+            this._applyPositionMode(el, entry.data, { reflow: false, posCtx });
           }
         } catch(_) {}
       }
@@ -1841,17 +1850,23 @@
             }
             // ההמרה ההפוכה ל-``_positionOrigin``: המיקום נשמר במרחב
             // התוכן, ומרונדר במרחב הקונטיינר. בלוח ובקובץ ההיסט אפס.
-            const shift = this.repoTarget ? this._surfaceScrollShift() : { x: 0, y: 0 };
+            // ``opts.posCtx`` מגיע מ-``_updatePinnedForScroll``, שמחשב את
+            // ההיסט ואת מלבן הגולל **פעם אחת** לכל אירוע גלילה. בלעדיו כל
+            // פתק היה מכריח שני חישובי פריסה משלו, בכל פריים של גלילה.
+            const ctx = (opts && opts.posCtx) || null;
+            const shift = ctx ? ctx.shift
+              : (this.repoTarget ? this._surfaceScrollShift() : { x: 0, y: 0 });
             el.style.left = (targetX + shift.x) + 'px';
             el.style.top = (targetY + shift.y) + 'px';
             el.dataset.pinned = 'true';
-            if (this.repoTarget) this._updatePinnedVisibility(el);
+            if (this.repoTarget) this._updatePinnedVisibility(el, ctx && ctx.scrollerRect);
             if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
             if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
             if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
           } else if (isAnchored) {
             el.classList.add('is-pinned');
             el.classList.remove('is-floating');
+            el.style.visibility = '';   // מאותה סיבה כמו בענף הצף
             el.style.position = 'absolute';
             let targetX = (typeof note.position?.x === 'number') ? note.position.x : currentAbsX;
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
@@ -1866,6 +1881,10 @@
           } else {
             el.classList.add('is-floating');
             el.classList.remove('is-pinned');
+            // **ניקוי ההסתרה.** ``_updatePinnedVisibility`` מסתיר פתק נעוץ
+            // שנגלל מחוץ לתחום; פתק שהוסתר כך ואז הועבר ל"צף" היה נשאר
+            // בלתי נראה לתמיד — הענף הזה לא כתב ל-``visibility`` בכלל.
+            el.style.visibility = '';
             el.style.position = 'fixed';
             if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
             const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);

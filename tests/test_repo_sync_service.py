@@ -315,13 +315,14 @@ def test_reimport_removes_paths_that_left_the_repo(monkeypatch):
     assert _LAST_REMOVED == [("Repo", ["gone.py"])], "רק הנתיב שנעלם הוסר"
 
 
-def test_reimport_does_not_reconcile_when_listing_is_empty(monkeypatch):
-    """ליסטינג ריק אינו רשיון למחוק את כל האינדקס.
+def test_reimport_clears_the_index_when_the_repo_became_empty(monkeypatch):
+    """**ריפו שכל קבציו נמחקו מנקה את האינדקס.**
 
-    ``all_files`` ריק פירושו ריפו ריק — או ליסטינג שנכשל בשקט. במקרה
-    השני מחיקה גורפת הייתה מוחקת אינדקס תקין, ולכן היישוב מדלג.
+    רשימה ריקה אינה כשל: ``list_all_files`` מחזירה ``None`` בכשל, ואז
+    ``initial_import`` יוצא עם שגיאה עוד לפני היישוב. לכן ``[]`` פירושו
+    ריפו ריק באמת — והרפאים שנשארו באינדקס ממשיכים להופיע בעץ ובחיפוש.
 
-    נופל אם השומר על ``all_files`` יוסר.
+    נופל אם התנאי חוזר להיות "רשימה לא ריקה" במקום ``is not None``.
     """
     from services import repo_sync_service as rss
 
@@ -333,7 +334,7 @@ def test_reimport_does_not_reconcile_when_listing_is_empty(monkeypatch):
 
     rss.initial_import("https://example.com/repo.git", "Repo", db)
 
-    assert _LAST_REMOVED == [], "לא בוצעה שום מחיקה"
+    assert _LAST_REMOVED == [("Repo", ["a.py", "b.py"])], "כל הרפאים הוסרו"
 
 
 def test_reimport_skips_reconcile_when_paths_cannot_be_listed(monkeypatch):
