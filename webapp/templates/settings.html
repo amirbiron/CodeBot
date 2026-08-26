@@ -1122,6 +1122,9 @@
       <p style="opacity: 0.7; margin-top: 0.75rem; font-size: 0.9rem">
         התחולה חלה על שלוש הבחירות יחד. כשבוחרים כתב יד בלוחות, המתג שבמודאל ההגדרות של הלוח ננעל.
       </p>
+      {# שורת משוב, באותו דפוס של ``setMessage`` בכרטיס "הוראות לסוכן": #}
+      {# לא מודאל ולא ``alert`` — הבורר נשאר על המסך לצד ההודעה.        #}
+      <div id="noteFontsMsg" style="display: none; margin-top: 0.5rem; font-size: 0.9rem"></div>
     </div>
   </div>
 
@@ -2164,21 +2167,47 @@
       loadThemesList();
 
       // ── גופן הפתקים ──────────────────────────────────────────────────
-      // אותו דפוס בדיוק כמו ``themeScopeSelect``: ``change`` ← ``fetch``
-      // ← סנכרון חזרה. **התחולה נשלחת יחד עם הערך בכל שמירה**, כי היא
-      // זו שמכריעה בשרת אם הערך נכתב ל-DB או נשאר על המכשיר; שליחה
-      // בלעדיה הייתה נופלת לברירת המחדל ``global`` ודורסת מכשיר אחר.
+      // **התחולה נשלחת יחד עם הערך בכל שמירה**, כי היא זו שמכריעה בשרת
+      // אם הערך נכתב ל-DB או נשאר על המכשיר; שליחה בלעדיה הייתה נופלת
+      // לברירת המחדל ``global`` ודורסת מכשיר אחר.
       (function () {
         const scopeSel = document.getElementById('noteFontsScopeSelect');
+        const msgEl = document.getElementById('noteFontsMsg');
         const selects = Array.prototype.slice.call(
           document.querySelectorAll('.note-font-select')
         );
         if (!selects.length) return;
 
+        function setMessage(text, ok) {
+          if (!msgEl) return;
+          if (!text) { msgEl.style.display = 'none'; return; }
+          msgEl.textContent = text;
+          msgEl.style.display = 'block';
+          msgEl.style.color = ok ? 'var(--success, #4ade80)' : 'var(--danger, #f87171)';
+        }
+
         function currentScope() {
           const v = scopeSel ? String(scopeSel.value || '') : '';
           return v === 'device' ? 'device' : 'global';
         }
+
+        // צילום של כל הבוררים, כדי שאפשר יהיה להחזיר אותם בכשל.
+        function snapshot() {
+          const snap = { scope: scopeSel ? scopeSel.value : null, fonts: {} };
+          selects.forEach(function (el) { snap.fonts[el.dataset.surface] = el.value; });
+          return snap;
+        }
+        function restore(snap) {
+          if (scopeSel && snap.scope !== null) scopeSel.value = snap.scope;
+          selects.forEach(function (el) {
+            if (snap.fonts[el.dataset.surface] !== undefined) {
+              el.value = snap.fonts[el.dataset.surface];
+            }
+          });
+        }
+        // המצב האחרון שהשרת אישר. זה מה שחוזר בכשל — ולא "הערך הקודם",
+        // שבסדרת שינויים מהירים כבר אינו בהכרח מה שנשמר.
+        let lastSaved = snapshot();
 
         // כל שלוש הבחירות נשלחות יחד, ולא רק זו שהשתנתה: התחולה חלה
         // עליהן כיחידה אחת, ומעבר מ-device ל-global חייב להעלות את
@@ -2191,19 +2220,43 @@
           return { note_fonts: fonts, note_fonts_scope: currentScope() };
         }
 
+        async function send() {
+          const res = await fetch('/api/ui_prefs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload())
+          });
+          // 500/502 מחזירים HTML ולא JSON; פרסור לפני בדיקת ``res.ok``
+          // היה מציג "Unexpected token <" במקום הודעה מובנת.
+          const data = await res.json().catch(function () { return null; });
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && (data.error || data.message)) || 'השמירה נכשלה (' + res.status + ')');
+          }
+        }
+
+        // **תור בעל תא אחד.** בלעדיו שינויים מהירים יוצרים בקשות מקבילות
+        // בלי סדר מובטח, ובקשה ישנה שנוחתת אחרונה דורסת ב-DB את הבחירה
+        // החדשה. כאן הבקשה האחרונה תמיד נבנית מה-DOM **אחרי** שקודמתה
+        // הסתיימה, ולכן היא נושאת את המצב הסופי; רסט מתכווץ לשתי בקשות.
+        let inFlight = false;
+        let pending = false;
+
         async function persist() {
+          if (inFlight) { pending = true; return; }
+          inFlight = true;
           try {
-            const res = await fetch('/api/ui_prefs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload())
-            });
-            const data = await res.json();
-            if (!res.ok || !data || !data.ok) {
-              throw new Error((data && (data.error || data.message)) || 'note_fonts_save_failed');
-            }
+            do {
+              pending = false;
+              await send();
+            } while (pending);
+            lastSaved = snapshot();
+            setMessage('נשמר', true);
           } catch (err) {
             console.error('Failed to persist note fonts:', err);
+            restore(lastSaved);
+            setMessage('השמירה נכשלה — הבחירה הוחזרה', false);
+          } finally {
+            inFlight = false;
           }
         }
 

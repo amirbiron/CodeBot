@@ -2188,12 +2188,44 @@ def _resolve_note_fonts(
     if scope == THEME_SCOPE_DEVICE and device_fonts is not None:
         return device_fonts, scope
 
+    # שליפה עצלה **רק** כשההכרעה הגיעה לכאן: במצב ``device`` עם ערך תקין
+    # אין קריאה למסד כלל. ``_resolve_theme_raw_token`` עושה בדיוק את זה.
+    if user_id and user_doc is None:
+        try:
+            user_doc = get_db().users.find_one(
+                {'user_id': int(user_id)}, {'ui_prefs.note_fonts': 1}
+            ) or {}
+        except Exception:
+            user_doc = None
+
     if user_id and isinstance(user_doc, dict):
         stored = (user_doc.get('ui_prefs') or {}).get('note_fonts')
         if isinstance(stored, dict):
-            return {name: bool(stored.get(name)) for name in NOTE_FONT_SURFACES}, scope
+            # ``is True`` ולא ``bool()``: ``bool("false")`` הוא ``True``, וכך
+            # מסמך שנערך ביד או שנכתב לפני שהוולידציה נוספה היה מדליק את
+            # הגופן דווקא כשהערך אומר את ההפך. הוולידציה ב-``/api/ui_prefs``
+            # סוגרת את הדלת קדימה; זה מגן על מה שכבר בפנים.
+            return {name: stored.get(name) is True for name in NOTE_FONT_SURFACES}, scope
 
     return _note_fonts_default(), scope
+
+
+def _note_fonts_etag_key(user_id: Optional[int]) -> str:
+    """מפתח קצר שמייצג את גופן הפתקים הנוכחי, ל-ETag ולמפתח הקאש.
+
+    **למה זה נחוץ:** ``_note_fonts_head.html`` מרנדר את ההעדפה **לתוך
+    ה-HTML**. בלי שהיא תיכנס לוולידטור, שינוי ההגדרה אינו משנה את ה-ETag,
+    השרת מחזיר 304, והדפדפן מציג את העמוד הישן עם הדגל הישן — בלי קשר
+    לשאלה אם קאש ה-Redis דלוק, כי מסלול ה-304 אינו נוגע בו.
+
+    ``theme`` כבר נמצא ב-ETag ובמפתח הקאש מאותה סיבה בדיוק; זה אותו כלל
+    שמוחל על הערך השני שמרונדר פר-משתמש.
+    """
+    try:
+        fonts, _ = _resolve_note_fonts(user_id, None)
+        return "nf:" + _encode_note_fonts(fonts)
+    except Exception:
+        return "nf:" + _encode_note_fonts(None)
 
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
@@ -15020,7 +15052,10 @@ def md_preview(file_id):
 
     # --- HTTP cache validators (ETag / Last-Modified) ---
     theme_key = _get_theme_etag_key(user_id)
-    etag = _compute_file_etag(file, variant=theme_key)
+    # ``note_fonts`` בוולידטור: העמוד הזה מרנדר את ההעדפה לתוך ה-HTML,
+    # ובלי זה שינוי ההגדרה מחזיר את אותו ETag ← 304 ← הדגל הישן.
+    note_fonts_key = _note_fonts_etag_key(user_id)
+    etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}")
     last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
@@ -15052,6 +15087,10 @@ def md_preview(file_id):
                 'file_name': file_name,
                 'lang': 'markdown',
                 'theme': theme_key,
+                # אותה החלטה כמו ב-ETag שלמעלה. הבלוק הזה רץ רק כשקאש
+                # ה-Redis דלוק; ה-ETag רץ תמיד. שניהם מקודדים את אותו
+                # ערך, כדי שלא ייווצר פער בין שני הוולידטורים.
+                'nf': note_fonts_key,
                 # גרסת deploy במפתח: אחרת ה-HTML המרונדר הישן מוגש עד פקיעת ה-TTL (30 דק')
                 'sv': _STATIC_VERSION,
             }
@@ -17814,10 +17853,41 @@ def api_ui_prefs():
             if not isinstance(incoming, dict):
                 return jsonify({'ok': False, 'error': 'note_fonts must be an object'}), 400
 
-            # **עדכון חלקי על גבי המצב הנוכחי**, ולא על גבי ברירת מחדל:
-            # שליחת מפתח אחד בלבד לא רשאית לאפס בשקט את השניים האחרים.
-            # הבסיס נקרא דרך אותה הכרעה שהרינדור משתמש בה, כדי ששליחה
-            # ממכשיר ב-``device`` תתבסס על מה שהמכשיר הזה באמת מציג.
+            # **קלט לא תקין נדחה, לא מומר.** ``bool("false")`` הוא ``True``,
+            # ומפתח עם טעות הקלדה היה נבלע ומחזיר 200 בלי שדבר ישתנה —
+            # שתי דרכים שונות לומר למשתמש שנשמר משהו שלא נשמר.
+            for key in incoming:
+                if key not in NOTE_FONT_SURFACES:
+                    return jsonify({
+                        'ok': False,
+                        'error': f'note_fonts: unknown surface {key!r}',
+                    }), 400
+            for key, value in incoming.items():
+                # ``isinstance(value, bool)`` ולא ``int``: ב-Python ``True``
+                # **הוא** ``int``, ולכן בדיקת ``int`` הייתה מקבלת ``1``.
+                if not isinstance(value, bool):
+                    return jsonify({
+                        'ok': False,
+                        'error': f'note_fonts.{key} must be a boolean',
+                    }), 400
+
+            # **כתיבה לכל שדה בנפרד, ולא של תת-המסמך כולו.** לפי תיעוד
+            # MongoDB, ``$set`` על ``ui_prefs.note_fonts`` **מחליף את כל
+            # המסמך המקונן** ומוחק את השדות השכנים — ולכן שתי בקשות חופפות
+            # על שני משטחים שונים היו מבטלות זו את זו. נתיב מנוקד נוגע
+            # בשדה אחד בלבד, ו-``$set`` יוצר את הנתיב אם אינו קיים.
+            resolved_scope = (
+                THEME_SCOPE_DEVICE
+                if note_fonts_scope == THEME_SCOPE_DEVICE
+                else THEME_SCOPE_GLOBAL
+            )
+            if resolved_scope != THEME_SCOPE_DEVICE:
+                for name, value in incoming.items():
+                    update_fields[f'ui_prefs.note_fonts.{name}'] = value
+
+            # הקריאה הבאה משרתת **רק** את התגובה ואת ה-cookie, ששניהם
+            # מתארים את המכשיר הזה. היא אינה משתתפת בכתיבה, ולכן אין כאן
+            # חלון של read-modify-write.
             try:
                 base_doc = db.users.find_one(
                     {'user_id': user_id}, {'ui_prefs.note_fonts': 1}
@@ -17827,17 +17897,9 @@ def api_ui_prefs():
             current, _ = _resolve_note_fonts(user_id, base_doc)
 
             merged = {
-                name: (bool(incoming[name]) if name in incoming else current[name])
+                name: (incoming[name] if name in incoming else current[name])
                 for name in NOTE_FONT_SURFACES
             }
-
-            resolved_scope = (
-                THEME_SCOPE_DEVICE
-                if note_fonts_scope == THEME_SCOPE_DEVICE
-                else THEME_SCOPE_GLOBAL
-            )
-            if resolved_scope != THEME_SCOPE_DEVICE:
-                update_fields['ui_prefs.note_fonts'] = merged
             resp_payload['note_fonts'] = merged
             note_fonts_cookie_value = _encode_note_fonts(merged)
             note_fonts_scope_cookie_value = resolved_scope

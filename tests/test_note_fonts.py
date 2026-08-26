@@ -131,18 +131,47 @@ pytestmark_db = pytest.mark.skipif(
 )
 
 
+TEST_DB_NAME = "note_fonts_test"
+
+
 @pytest.fixture
 def wired():
+    """מפנה את האפליקציה למסד ייעודי, ומחזיר הכול בסיום.
+
+    **שני דברים שנראים טכניים ואינם.**
+
+    ``DATABASE_NAME`` נדרס ולא רק ה-URI: ``get_db`` מחזיר
+    ``client[DATABASE_NAME]``, וברירת המחדל היא ``code_keeper_bot``.
+    בלי הדריסה, ``drop_database(TEST_DB_NAME)`` מוחק מסד שאיש אינו פותח,
+    ואילו ``delete_many`` ו-``insert_one`` פוגעים במסד **האמיתי** —
+    כלומר הפניית ``NOTE_FONTS_TEST_MONGO_URI`` למונגו של פרודקשן הייתה
+    מוחקת משתמש אמיתי.
+
+    והשחזור ב-``finally`` אינו נימוס: ``webapp.app`` הוא מודול, ומצבו
+    נשמר לכל אורך התהליך. בלעדיו כל בדיקה אחרת שרצה אחרי הקובץ הזה
+    ממשיכה להתחבר למונגו של הבדיקות.
+    """
     import pymongo
 
     import webapp.app as wa
 
-    pymongo.MongoClient(MONGO_URI).drop_database("note_fonts_test")
+    previous = (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db)
+    pymongo.MongoClient(MONGO_URI).drop_database(TEST_DB_NAME)
     wa.MONGODB_URL = MONGO_URI
+    wa.DATABASE_NAME = TEST_DB_NAME
     wa.client = None
     wa.db = None
     wa.app.config["TESTING"] = True
-    return wa
+    try:
+        yield wa
+    finally:
+        # הלקוח שנפתח כאן נסגר; אחרת כל הרצה מדליפה pool של חיבורים.
+        try:
+            if wa.client is not None:
+                wa.client.close()
+        except Exception:
+            pass
+        wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db = previous
 
 
 def _post(client, body):
@@ -157,6 +186,32 @@ def _cookie(res, name):
         if header.startswith(name + "="):
             return header.split(";")[0].split("=", 1)[1]
     return None
+
+
+@pytestmark_db
+def test_the_fixture_opens_the_dedicated_database(wired):
+    """הבדיקה ששומרת על כל השאר.
+
+    ``get_db().name`` הוא המסד שנפתח **בפועל**, ולא זה ששמו הוזכר
+    ב-``drop_database``. אם הם מתפצלים, כל בדיקה בקובץ הזה כותבת
+    למסד אחר מזה שהיא חושבת.
+    """
+    assert wired.get_db().name == TEST_DB_NAME
+    assert wired.get_db().name != "code_keeper_bot"
+
+
+def test_the_fixture_actually_redirects_the_module(wired):
+    """הפיקסצ'ר מפנה את **המודול**, ולא רק משתנה מקומי.
+
+    ``get_db`` קורא את ``webapp.app.DATABASE_NAME`` הגלובלי, ולכן הפניה
+    שלא נוגעת בו לא הייתה משנה דבר. השחזור עצמו נבדק מחוץ לתהליך הזה
+    (ראו ההערה על ``finally`` בפיקסצ'ר) — בתוך אותה הרצה אי אפשר לאמת
+    אותו בלי להסתמך על סדר הבדיקות, וזו הסתמכות שנשברת בשקט.
+    """
+    import webapp.app as wa
+
+    assert wa.DATABASE_NAME == TEST_DB_NAME
+    assert wa.MONGODB_URL == MONGO_URI
 
 
 @pytestmark_db
@@ -230,3 +285,73 @@ def test_a_non_object_payload_is_rejected(wired):
         sess["user_id"] = 7
     res = _post(client, {"note_fonts": "handwriting"})
     assert res.status_code == 400
+
+
+# ── ולידציה: קלט לא תקין נדחה, ולא מומר ─────────────────────────────────
+
+@pytestmark_db
+@pytest.mark.parametrize("bad", ["false", "true", 1, 0, "", None, [], {"a": 1}])
+def test_a_non_boolean_is_rejected_and_nothing_is_written(wired, bad):
+    """``bool("false")`` הוא ``True`` — ולכן המרה שקטה הייתה מדליקה את
+    הגופן דווקא כשהערך אומר את ההפך."""
+    users = wired.get_db().users
+    users.delete_many({"user_id": 7})
+    res = _post(_client(wired), {"note_fonts": {"md": bad}, "note_fonts_scope": "global"})
+
+    assert res.status_code == 400, f"{bad!r} התקבל"
+    assert "md" in res.get_json()["error"]
+    assert users.find_one({"user_id": 7}) is None, "נכתב למסד למרות ה-400"
+
+
+@pytestmark_db
+@pytest.mark.parametrize("key", ["boards", "Repo", "md ", "markdown", "__proto__"])
+def test_an_unknown_surface_is_rejected(wired, key):
+    """מפתח עם טעות הקלדה החזיר 200 ולא עשה דבר — שמירה שלא נשמרה."""
+    res = _post(_client(wired), {"note_fonts": {key: True}})
+    assert res.status_code == 400, f"{key!r} התקבל בשקט"
+    assert key in res.get_json()["error"]
+
+
+# ── כתיבה אטומית לכל שדה ────────────────────────────────────────────────
+
+@pytestmark_db
+def test_two_overlapping_partial_writes_both_survive(wired):
+    """שתי בקשות שקראו את אותו מצב וכותבות שדות שונים.
+
+    עם ``$set`` על תת-המסמך כולו האחרונה מוחקת את הראשונה — כך מתועד
+    ב-MongoDB: הצורה הזו "replaces the entire embedded document".
+    נתיב מנוקד נוגע בשדה אחד, ולכן שתיהן שורדות.
+    """
+    users = wired.get_db().users
+    users.delete_many({"user_id": 7})
+    users.insert_one({"user_id": 7, "ui_prefs": {
+        "note_fonts": {"repo": False, "md": False, "board": False}}})
+
+    r1 = _post(_client(wired), {"note_fonts": {"repo": True}, "note_fonts_scope": "global"})
+    r2 = _post(_client(wired), {"note_fonts": {"board": True}, "note_fonts_scope": "global"})
+    assert r1.status_code == 200 and r2.status_code == 200
+
+    got = (users.find_one({"user_id": 7}) or {}).get("ui_prefs", {}).get("note_fonts")
+    assert got == {"repo": True, "md": False, "board": True}, got
+
+
+@pytestmark_db
+def test_a_missing_parent_path_is_created_without_losing_siblings(wired):
+    """``$set`` מנוקד יוצר את הנתיב — מתועד ב-MongoDB, מאומת כאן."""
+    users = wired.get_db().users
+    users.delete_many({"user_id": 7})
+    users.insert_one({"user_id": 7, "ui_prefs": {"theme": "classic"}})
+
+    res = _post(_client(wired), {"note_fonts": {"board": True}, "note_fonts_scope": "global"})
+    assert res.status_code == 200
+
+    doc = users.find_one({"user_id": 7}) or {}
+    assert doc["ui_prefs"]["note_fonts"] == {"board": True}
+    assert doc["ui_prefs"]["theme"] == "classic", "השדה השכן נמחק"
+
+
+def _client(wired):
+    client = wired.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = 7
+    return client
