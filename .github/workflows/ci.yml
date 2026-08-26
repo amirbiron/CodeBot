@@ -343,22 +343,33 @@ jobs:
       - name: Run standalone JS tests
         run: |
           set -uo pipefail
-          # repo-history.test.js מדולג משתי סיבות, והשנייה היא העיקרית:
-          # (א) הוא כתוב בסגנון jest (describe/it) ואין בפרויקט רץ שמספק
-          #     אותם, ולכן הוא נכשל בהרצה ישירה.
-          # (ב) **הוא אינו טוען את הקוד שהוא אמור לבדוק.** אין בו import
-          #     ואין require; הוא מגדיר escapeHtml ו-buildApiUrl בתוך עצמו
-          #     ובודק את ההעתקים. גם עם רץ טסטים הוא היה עובר בזמן שאינו
-          #     מכסה דבר — אפשר למחוק את webapp/static/js/repo-history.js
-          #     והוא יישאר ירוק.
-          # הדילוג מודפס בקול כדי שלא ייראה כאילו הוא נבדק. הדרך להסיר את
-          # החריג היא לכתוב אותו מחדש כך שיטען את המקור, לא להוסיף רץ.
-          SKIP="repo-history.test.js"
+          # קבצי tests/*.test.js הם סקריפטים עצמאיים. קובץ שכתוב לרץ טסטים
+          # (describe/it) ואינו מייבא אותו אינו ניתן להרצה כאן — **מזוהה
+          # לפי תוכנו ולא לפי שמו**, כדי שקובץ חדש כזה לא ידרוש חריגה
+          # ידנית חדשה ולא ייפול עם stack trace חסר פשר.
+          #
+          # קובץ כזה נספר ככשל, לא כדילוג: דילוג היה נראה כאילו הוא נבדק.
+          # החריג היחיד המוכר הוא repo-history.test.js, ששרד מתוכנית Jest
+          # שמעולם לא מומשה (ראו GUIDES/*.md). הוא גם אינו טוען את הקוד
+          # שהוא אמור לבדוק — אין בו import ואין require, הוא מגדיר את
+          # הפונקציות בתוך עצמו ובודק את ההעתקים. הדרך להסיר את החריג היא
+          # לכתוב אותו מחדש כך שיטען את המקור, או למחוק אותו.
+          GRANDFATHERED="repo-history.test.js"
           failed=0
           for f in tests/*.test.js; do
             name="$(basename "$f")"
-            if [ "$name" = "$SKIP" ]; then
-              echo ":: מדולג: $name — סגנון jest, אין רץ טסטים בפרויקט"
+            # לא ניתן להרצה כאן אם הוא מייבא רץ חיצוני, או אם הוא כתוב
+            # בסגנון רץ בלי לייבא כלום. ``node:test`` הוא היוצא מן הכלל:
+            # אותו node מריץ בעצמו, ולכן הוא נחשב תקין.
+            if grep -qE "(import|require).*(jest|vitest|mocha|chai)" "$f" \
+               || { grep -qE "^\s*(describe|it)\(" "$f" \
+                    && ! grep -qE "(import|require).*(node:test|assert)" "$f"; }; then
+              if [ "$name" = "$GRANDFATHERED" ]; then
+                echo ":: מדולג (חריג מוכר): $name — סגנון רץ טסטים, ואינו טוען את הקוד שהוא בודק"
+                continue
+              fi
+              echo "::error file=$f::$name כתוב לרץ טסטים שאינו קיים בפרויקט. כתבו אותו כסקריפט עצמאי (ראו tests/repo-resizer.test.js), או הוסיפו רץ ל-workflow."
+              failed=1
               continue
             fi
             echo "── $name"
