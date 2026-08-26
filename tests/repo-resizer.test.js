@@ -56,9 +56,13 @@ function makeHarness(startWidth = 280, captureFails = false, side = 'right') {
   const classes = new Set();
 
   // גאומטריה מדומה, מספיקה בדיוק לשאלה שהקוד שואל: **באיזה צד של המפריד
-  // יושב הסיידבר**. היא אינה מדמה את הפיזיקה המלאה — קצה נעוץ, קצה שזז —
-  // ולכן אין כאן בדיקה על מיקום הקצה. את זה מודדים בדפדפן, ואת התוצאה
-  // רשמנו ב-PR: האצבע ב-1038 והמפריד ב-1038, צעד אחר צעד.
+  // יושב הסיידבר**. שני ה-``getBoundingClientRect`` שלמטה נצרכים ישירות
+  // על ידי ``sidebarSign`` ב-``repo-browser.js`` — בלעדיהם הגרירה זורקת
+  // ו-11 מ-16 הבדיקות נופלות. הם לא עזר של הבדיקות, הם הקלט של הקוד.
+  //
+  // מה שהיא **אינה** מדמה: הפיזיקה המלאה — קצה נעוץ מול קצה שזז — ולכן
+  // אין כאן בדיקה על מיקום הקצה. את זה מודדים בדפדפן, ואת התוצאה רשמנו
+  // ב-PR: האצבע ב-1038 והמפריד ב-1038, צעד אחר צעד.
   const RX = 1000, RW = 4;
   const rect = (left, width) => ({ left, right: left + width, width });
   const resizer = {
@@ -119,7 +123,6 @@ function makeHarness(startWidth = 280, captureFails = false, side = 'right') {
   return {
     fire, pt, listeners, captured, classes, body, prevented, onResizer, onDocument,
     width: () => parseInt(sidebar.style.width, 10),
-    sidebarLeft: () => sidebar.getBoundingClientRect().left,
     types: () => Object.keys(listeners).sort(),
   };
 }
