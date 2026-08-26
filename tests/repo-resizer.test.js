@@ -44,13 +44,29 @@ function extractInitResizer() {
 const MIN = 200, MAX = 500;
 
 /** DOM מדומה מינימלי: רק מה ש-``initResizer`` באמת נוגע בו. */
-function makeHarness(startWidth = 280, captureFails = false) {
+/**
+ * ``side`` הוא צד הסיידבר ביחס למפריד: ``'right'`` כמו בפריסת RTL של
+ * הפרויקט, ``'left'`` כמו ב-LTR. הסימן של הגרירה נגזר מזה בקוד, ולכן
+ * הבדיקות חייבות לכסות את שניהם.
+ */
+function makeHarness(startWidth = 280, captureFails = false, side = 'right') {
   const listeners = {};
   const onResizer = {};
   const captured = [];
   const classes = new Set();
 
+  // גאומטריה מדומה, מספיקה בדיוק לשאלה שהקוד שואל: **באיזה צד של המפריד
+  // יושב הסיידבר**. שני ה-``getBoundingClientRect`` שלמטה נצרכים ישירות
+  // על ידי ``sidebarSign`` ב-``repo-browser.js`` — בלעדיהם הגרירה זורקת
+  // ו-11 מ-16 הבדיקות נופלות. הם לא עזר של הבדיקות, הם הקלט של הקוד.
+  //
+  // מה שהיא **אינה** מדמה: הפיזיקה המלאה — קצה נעוץ מול קצה שזז — ולכן
+  // אין כאן בדיקה על מיקום הקצה. את זה מודדים בדפדפן, ואת התוצאה רשמנו
+  // ב-PR: האצבע ב-1038 והמפריד ב-1038, צעד אחר צעד.
+  const RX = 1000, RW = 4;
+  const rect = (left, width) => ({ left, right: left + width, width });
   const resizer = {
+    getBoundingClientRect: () => rect(RX, RW),
     addEventListener: (t, fn) => {
       onResizer[t] = true;
       (listeners[t] = listeners[t] || []).push(fn);
@@ -61,7 +77,13 @@ function makeHarness(startWidth = 280, captureFails = false) {
     },
     classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) },
   };
-  const sidebar = { style: { width: `${startWidth}px` } };
+  const sidebar = {
+    style: { width: `${startWidth}px` },
+    getBoundingClientRect: () => {
+      const w = parseInt(sidebar.style.width, 10);
+      return side === 'right' ? rect(RX + RW, w) : rect(RX - w, w);
+    },
+  };
   Object.defineProperty(sidebar, 'offsetWidth', {
     get: () => parseInt(sidebar.style.width, 10),
   });
@@ -155,7 +177,7 @@ check('כשל בלכידה אינו מקפיא את הגרירה', () => {
   h.fire('pointerdown', h.pt(1, 1000));
   eq(h.captured.length, 0, 'לא נלכד דבר');
   h.fire('pointermove', h.pt(1, 1050));
-  eq(h.width(), 330, 'הגרירה בכל זאת עובדת');
+  eq(h.width(), 230, 'הגרירה בכל זאת עובדת');
   h.fire('pointerup', h.pt(1, 1050));
   eq(h.classes.has('active'), false, 'הסתיימה ונוקתה');
   eq(h.body.style.cursor, '', 'הסמן שוחזר');
@@ -164,8 +186,29 @@ check('כשל בלכידה אינו מקפיא את הגרירה', () => {
 check('גרירה משנה את הרוחב', () => {
   const h = makeHarness(280);
   h.fire('pointerdown', h.pt(1, 1000));
-  h.fire('pointermove', h.pt(1, 1060));
-  eq(h.width(), 340, 'הרוחב אחרי גרירה של 60');
+  h.fire('pointermove', h.pt(1, 1060));   // 60 ימינה, והסיידבר מימין ← מצטמצם
+  eq(h.width(), 220, 'הרוחב אחרי גרירה של 60');
+});
+
+check('הסיידבר מימין: גרירה שמאלה מרחיבה', () => {
+  // **זה הבאג שתוקן.** הנוסחה ``startWidth + dx`` היא נוסחת LTR; בפריסת
+  // RTL היא הזיזה את הקצה הפוך מהאצבע, והמפריד ברח ממנה.
+  const h = makeHarness(280, false, 'right');
+  h.fire('pointerdown', h.pt(1, 1002));
+  h.fire('pointermove', h.pt(1, 942));          // 60 שמאלה
+  eq(h.width(), 340, 'התרחב');
+  h.fire('pointermove', h.pt(1, 1062));         // 60 ימינה מנקודת ההתחלה
+  eq(h.width(), 220, 'הצטמצם');
+});
+
+check('הסיידבר משמאל: גרירה ימינה מרחיבה', () => {
+  // הצד השני של אותו כלל. הסימן נגזר מהפריסה, ולכן אינו מניח RTL.
+  const h = makeHarness(280, false, 'left');
+  h.fire('pointerdown', h.pt(1, 1002));
+  h.fire('pointermove', h.pt(1, 1062));         // 60 ימינה
+  eq(h.width(), 340, 'התרחב');
+  h.fire('pointermove', h.pt(1, 942));          // 60 שמאלה
+  eq(h.width(), 220, 'הצטמצם');
 });
 
 check('הרוחב מהודק לגבולות ולא נזרק', () => {
@@ -173,9 +216,9 @@ check('הרוחב מהודק לגבולות ולא נזרק', () => {
   // הסיידבר על הערך התקין האחרון במקום על הגבול עצמו.
   const h = makeHarness(280);
   h.fire('pointerdown', h.pt(1, 1000));
-  h.fire('pointermove', h.pt(1, 9999));
-  eq(h.width(), MAX, 'מעבר למקסימום');
   h.fire('pointermove', h.pt(1, -9999));
+  eq(h.width(), MAX, 'מעבר למקסימום');
+  h.fire('pointermove', h.pt(1, 9999));
   eq(h.width(), MIN, 'מתחת למינימום');
 });
 
@@ -183,12 +226,12 @@ check('אצבע שנייה אינה חוטפת את הגרירה', () => {
   const h = makeHarness(280);
   h.fire('pointerdown', h.pt(1, 1000));
   h.fire('pointermove', h.pt(1, 1030));
-  eq(h.width(), 310, 'אחרי האצבע הראשונה');
+  eq(h.width(), 250, 'אחרי האצבע הראשונה');
   h.fire('pointerdown', h.pt(2, 1000));
   h.fire('pointermove', h.pt(2, 1400));
-  eq(h.width(), 310, 'אצבע שנייה לא משנה דבר');
+  eq(h.width(), 250, 'אצבע שנייה לא משנה דבר');
   h.fire('pointermove', h.pt(1, 1060));
-  eq(h.width(), 340, 'האצבע המקורית ממשיכה');
+  eq(h.width(), 220, 'האצבע המקורית ממשיכה');
 });
 
 check('לחצן שאינו ראשי אינו מתחיל גרירה', () => {
@@ -209,7 +252,7 @@ check('pointerup מסיים ומנקה', () => {
   eq(h.classes.has('active'), false, 'active הוסר');
   eq(h.body.style.cursor, '', 'הסמן שוחזר');
   h.fire('pointermove', h.pt(1, 1400));
-  eq(h.width(), 310, 'תזוזה אחרי הסיום אינה משנה דבר');
+  eq(h.width(), 250, 'תזוזה אחרי הסיום אינה משנה דבר');
 });
 
 check('pointercancel מסיים בדיוק כמו pointerup', () => {
@@ -222,7 +265,7 @@ check('pointercancel מסיים בדיוק כמו pointerup', () => {
   eq(h.classes.has('active'), false, 'active הוסר');
   eq(h.body.style.cursor, '', 'הסמן שוחזר');
   h.fire('pointermove', h.pt(1, 1400));
-  eq(h.width(), 310, 'תזוזה אחרי הביטול אינה משנה דבר');
+  eq(h.width(), 250, 'תזוזה אחרי הביטול אינה משנה דבר');
 });
 
 check('אחרי סיום אפשר לגרור שוב', () => {
@@ -231,7 +274,7 @@ check('אחרי סיום אפשר לגרור שוב', () => {
   h.fire('pointerup', h.pt(1, 1000));
   h.fire('pointerdown', h.pt(2, 1000));
   h.fire('pointermove', h.pt(2, 1040));
-  eq(h.width(), 320, 'גרירה שנייה עובדת');
+  eq(h.width(), 240, 'גרירה שנייה עובדת');
 });
 
 // ─── ה-CSS שבלעדיו כל זה מת בדפדפן ─────────────────────────────────────
