@@ -112,9 +112,11 @@ def test_handwriting_font_is_loaded_for_board_pages(logged_in):
     html = res.get_data(as_text=True)
 
     assert 'family=Gveret+Levin' in html
-    # ``preconnect`` ל-gstatic נדרש כדי שקובץ הגופן לא ישלם על handshake
-    # מלא בפעם הראשונה. הוא כבר קיים עבור Heebo, וזו בדיקה שהוא לא יוסר.
-    assert 'https://fonts.gstatic.com' in html
+    # **התגית המלאה ולא תת-מחרוזת.** ``preconnect`` ל-gstatic נדרש כדי
+    # שקובץ הגופן לא ישלם על handshake מלא בפעם הראשונה, והוא כבר קיים
+    # עבור Heebo — אבל בדיקת הכלה של הכתובת לבדה הייתה עוברת גם אם היא
+    # מופיעה בכל הקשר אחר בעמוד, למשל בתוך ``href`` של משהו לגמרי אחר.
+    assert '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' in html
 
 
 def test_board_id_is_escaped_not_interpolated(logged_in):

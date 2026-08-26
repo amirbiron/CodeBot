@@ -3,6 +3,18 @@
 {% block title %}לוח פתקים - Code Keeper Bot{% endblock %}
 
 {% block extra_css %}
+{#
+  גופן כתב-היד נטען **כאן ולא ב-``base.html``**: המחלקה שמפעילה אותו
+  קיימת רק בעמוד הזה, ו-``base.html`` משרת עשרות תבניות. שם, כל עמוד
+  באתר היה משלם בקשת CSS חוסמת-רינדור לגופן שאינו בשימוש — לא רק את
+  736 הבתים שלה, אלא גם את הלוך-ושוב שלפניה.
+
+  ה-``preconnect`` ל-``fonts.googleapis.com`` ול-``fonts.gstatic.com``
+  כבר קיים ב-``base.html`` עבור Heebo, ולכן אינו משוכפל כאן.
+
+  משקל 400 בלבד — אין בגופן bold, וההדגשה מסונתזת.
+#}
+<link href="https://fonts.googleapis.com/css2?family=Gveret+Levin&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
 {% endblock %}
@@ -220,8 +232,9 @@
   }
 
   // גופן כתב-יד ללוח. אותה צורה בדיוק כמו שתי ההעדפות שמעל: מפתח
-  // מקומי לכל לוח, בלי שינוי סכמה ובלי קריאת רשת. כבוי כברירת מחדל —
-  // רק הדלקה מפורשת נשמרת.
+  // מקומי לכל לוח, בלי שינוי סכמה ובלי קריאת רשת. כבוי כברירת מחדל,
+  // ושני המצבים נשמרים במפורש — בשונה ממתג המארקדאון, שמוחק את המפתח
+  // בהדלקה כי ברירת המחדל שלו הפוכה.
   const HANDWRITING_KEY = 'board-handwriting:' + BOARD_ID;
   function readHandwriting() {
     try { return localStorage.getItem(HANDWRITING_KEY) === '1'; } catch (e) { return false; }
