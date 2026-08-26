@@ -61,7 +61,7 @@ def scan_text(text):
                 continue
             # **``static_version`` ולא ``?v=``.** מחרוזת קבועה אחרי ``?v=``
             # אינה משתנה בין דיפלוים, ולכן אינה מבטלת שום קאש.
-            if "static_version" in m.group("tail"):
+            if re.search(r"\{\{\s*static_version\s*\}\}", m.group("tail")):
                 continue
             out.append((name, m.group("tail"), m.start()))
     return out
