@@ -2572,8 +2572,10 @@ function initResizer() {
 
     // **Pointer Events ולא ענף מגע מקביל.** עכבר, מגע ועט מגיעים לאותם
     // ``pointerdown``/``pointermove``/``pointerup``, ולכן יש כאן מסלול קוד
-    // אחד במקום שניים שנוטים להיסחף זה מזה. ``touch-action: none`` על
-    // ה-resizer ב-CSS הוא מה שמונע מהדפדפן לגלול במקום לתת לנו לגרור.
+    // אחד במקום שניים שנוטים להיסחף זה מזה. ``touch-action: pan-y`` על
+    // ה-resizer ב-CSS הוא שמחלק את המחוות: הגלילה האנכית נשארת לדפדפן,
+    // והתנועה האופקית מגיעה לכאן. כשהדפדפן מכריע שמדובר בגלילה הוא שולח
+    // ``pointercancel``, ולכן יש לו מאזין למטה.
     let activePointer = null;
     let startX = 0;
     let startWidth = 0;
