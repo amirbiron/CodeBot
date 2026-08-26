@@ -202,7 +202,11 @@
   //: סדר החלופות = עדיפות במיקום נתון: קוד (תוכנו ליטרלי) ← קישור ←
   //: מודגש ← חוצה ← נטוי. הקו התחתון **אינו** נטוי, בכוונה: ``note_id``
   //: ו-``user_id`` נפוצים מדי בכלי שכולו על קוד.
-  const MD_INLINE_RE  = /(`+)([\s\S]+?)\1|\[([^\]\n]*?)\]\(([^)\s]+?)\)|\*\*([^*\n]+?)\*\*|~~([^~\n]+?)~~|\*([^*\n]+?)\*/g;
+  // **חלופת ה-``==`` נספחת בסוף, ולא באמצע.** ``_parseInline`` קורא את
+  // הקבוצות לפי אינדקס מספרי, ולכן הוספה באמצע הייתה מזיזה את כל מה
+  // שאחריה בשקט — הנטייה הייתה הופכת למחיקה. הסדר גם אינו משנה כאן
+  // מבחינת קדימות: ``=`` אינו מתנגש עם גרש, כוכבית, טילדה או קישור.
+  const MD_INLINE_RE  = /(`+)([\s\S]+?)\1|\[([^\]\n]*?)\]\(([^)\s]+?)\)|\*\*([^*\n]+?)\*\*|~~([^~\n]+?)~~|\*([^*\n]+?)\*|==([^=\n]+?)==/g;
   //: קישור נפתח בלשונית חדשה, ולכן רק ``http``/``https``. כל סכימה אחרת
   //: — ``javascript:``, ``data:`` — מרונדרת כטקסט, לא כקישור.
   const MD_SAFE_LINK  = /^https?:\/\//i;
@@ -1211,6 +1215,7 @@
           else if (m[5] !== undefined) out.push({ type: 'bold', text: m[5] });
           else if (m[6] !== undefined) out.push({ type: 'strike', text: m[6] });
           else if (m[7] !== undefined) out.push({ type: 'italic', text: m[7] });
+          else if (m[8] !== undefined) out.push({ type: 'mark', text: m[8] });
           last = MD_INLINE_RE.lastIndex;
         }
         if (last < src.length) out.push({ type: 'text', text: src.slice(last) });
@@ -1427,6 +1432,9 @@
           else if (seg.type === 'italic') node = createEl('em', 'sticky-md-italic');
           else if (seg.type === 'strike') node = createEl('del', 'sticky-md-strike');
           else if (seg.type === 'code')   node = createEl('code', 'sticky-md-code');
+          // ``<mark>`` ולא ``<span>``: זה האלמנט הסמנטי להדגשת רלוונטיות,
+          // וקוראי מסך מכריזים עליו. העיצוב נדרס ב-CSS ממילא.
+          else if (seg.type === 'mark')   node = createEl('mark', 'sticky-md-mark');
           else if (seg.type === 'link'){
             node = createEl('a', 'sticky-md-link');
             // ``href`` נכתב עם setAttribute אחרי שהסכימה כבר אושרה ב-parseInline.
