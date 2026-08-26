@@ -12,6 +12,7 @@ Doc Authoring Guide (Sphinx/RTD)
 - עמודי סקירה חופפים: הוסיפו ``:noindex:`` (api, database, handlers, services, configuration).
 - ``autodoc_mock_imports``: רשימת מודולים כבדים/לא זמינים בזמן build.
 - אין להריץ קוד בזמן import ברמת מודול.
+- **עמוד שאינו אמור להתפרסם — ל-**``exclude_patterns``\ **, לא ליתום.** עמוד שאינו רשום באף ``toctree`` מייצר ``document isn't included in any toctree``, ומכיוון ש-RTD נכשל על אזהרות זה מפיל את הבילד. ``exclude_patterns`` ב-``docs/conf.py`` מרכז את העמודים שהוחרגו בכוונה — למשל כפילויות ``.md``/``.rst`` כשה-MyST פעיל. לפני שמוסיפים החרגה, ודאו שהעמוד באמת לא אמור להיות בתוכן העניינים.
 
 הצהרת תקציר בראש העמוד
 -----------------------
