@@ -325,6 +325,39 @@ jobs:
         env:
           PYV: ${{ matrix.python-version }}
 
+  js-tests:
+    name: "JS Tests (node)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # קבצי tests/*.test.js הם סקריפטים עצמאיים: הם מריצים את הבדיקות
+      # בעצמם ויוצאים עם קוד שגיאה בכשל, בלי רץ טסטים חיצוני. עד עכשיו
+      # שום ג'וב לא הריץ אותם, ולכן 200+ בדיקות לא הגנו על כלום.
+      - name: Run standalone JS tests
+        run: |
+          set -uo pipefail
+          # repo-history.test.js כתוב בסגנון jest (describe/it) ואין בפרויקט
+          # רץ טסטים שמספק אותם, ולכן הוא נכשל בהרצה ישירה. מדולג במפורש
+          # ובקול, כדי שלא ייראה כאילו הוא נבדק.
+          SKIP="repo-history.test.js"
+          failed=0
+          for f in tests/*.test.js; do
+            name="$(basename "$f")"
+            if [ "$name" = "$SKIP" ]; then
+              echo ":: מדולג: $name — סגנון jest, אין רץ טסטים בפרויקט"
+              continue
+            fi
+            echo "── $name"
+            if ! node "$f"; then
+              failed=1
+            fi
+          done
+          exit "$failed"
+
   hadolint:
     name: "Dockerfile lint (hadolint)"
     runs-on: ubuntu-latest

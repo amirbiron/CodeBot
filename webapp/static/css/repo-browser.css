@@ -585,11 +585,14 @@
     background: var(--border-color);
     cursor: col-resize;
     transition: background 0.15s ease;
-    /* **בלי זה גרירה במגע לא קיימת.** הדפדפן מפרש את תנועת האצבע כגלילה
-       או כזום ובולע אותה לפני שה-``pointermove`` שלנו רואה משהו.
-       ``none`` = "Disable browser handling of all panning and zooming
-       gestures" לפי הגדרת המאפיין. */
-    touch-action: none;
+    /* **חלוקה לפי ציר, ולא חסימה גורפת.** בלי הכרזה כלשהי הדפדפן בולע את
+       תנועת האצבע כגלילה לפני שה-``pointermove`` שלנו רואה משהו, וגרירה
+       במגע לא קיימת. אבל ``none`` היה חוסם *הכול*: לרצועת המגע יש אב
+       גליל, ולכן החלקה אנכית שמתחילה עליה הייתה מתה במקום לגלול את העמוד.
+       ``pan-y`` = "Enable single-finger vertical panning gestures" — האנכי
+       נשאר לדפדפן, האופקי מגיע אלינו. כשהדפדפן מכריע שמדובר בגלילה אנכית
+       הוא שולח ``pointercancel``, ויש לו מאזין. */
+    touch-action: pan-y;
     /* עוגן ל-``::before`` שמרחיב את אזור המגע */
     position: relative;
 }

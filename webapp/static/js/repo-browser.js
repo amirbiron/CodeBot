@@ -2611,7 +2611,10 @@ function initResizer() {
         // **לכידת המצביע.** בלעדיה גרירה במגע מתה ברגע שהאצבע יוצאת מרצועת
         // ארבעת הפיקסלים — כלומר כמעט מיד. עם הלכידה, האירועים ממשיכים
         // להגיע ל-resizer, והשחרור קורה מאליו ב-``pointerup``.
-        try { resizer.setPointerCapture(e.pointerId); } catch (_) { /* נמשיך בלי לכידה */ }
+        // הלכידה היא שיפור, לא תנאי: אירוע לכוד עדיין מבעבע ל-``document``,
+        // ולכן המאזינים שם עובדים איתה ובלעדיה. אם היא נכשלת, הגרירה
+        // ממשיכה לעבוד במקום להיתקע במצב פעיל.
+        try { resizer.setPointerCapture(e.pointerId); } catch (_) { /* ממשיכים בלי לכידה */ }
         resizer.classList.add('active');
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
@@ -2619,17 +2622,22 @@ function initResizer() {
         e.preventDefault();
     });
 
-    resizer.addEventListener('pointermove', (e) => {
+    // **ההמשך מאזין על ``document`` ולא על המפריד.** עם לכידה האירועים
+    // ממוענים למפריד ובכל זאת מבעבעים לכאן, ובלי לכידה — למשל אם
+    // ``setPointerCapture`` נכשל — הם מגיעים לכאן ישירות. מסלול אחד שמכסה
+    // את שני המצבים, במקום ענף גיבוי נפרד שיסתחף.
+    document.addEventListener('pointermove', (e) => {
         if (e.pointerId !== activePointer) return;
         const width = clampWidth(startWidth + (e.clientX - startX));
         if (width !== null) sidebar.style.width = `${width}px`;
     });
 
-    resizer.addEventListener('pointerup', endDrag);
-    // **``pointercancel`` אינו קישוט.** מחווה של המערכת שקוטעת את הגרירה
-    // (שיחה נכנסת, מחוות ניווט) שולחת אותו במקום ``pointerup``. בלעדיו
-    // הדגל היה נשאר דלוק, והסיידבר היה ממשיך להשתנות בכל תזוזה הבאה.
-    resizer.addEventListener('pointercancel', endDrag);
+    document.addEventListener('pointerup', endDrag);
+    // **``pointercancel`` אינו קישוט.** מחווה של המערכת שקוטעת את הגרירה —
+    // וגם הכרעת הדפדפן שהתנועה היא גלילה אנכית, לפי ``touch-action: pan-y``
+    // — שולחת אותו במקום ``pointerup``. בלעדיו הדגל היה נשאר דלוק,
+    // והסיידבר היה ממשיך להשתנות בכל תזוזה הבאה.
+    document.addEventListener('pointercancel', endDrag);
 }
 
 // ========================================

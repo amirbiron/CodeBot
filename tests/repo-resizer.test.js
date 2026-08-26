@@ -44,14 +44,21 @@ function extractInitResizer() {
 const MIN = 200, MAX = 500;
 
 /** DOM מדומה מינימלי: רק מה ש-``initResizer`` באמת נוגע בו. */
-function makeHarness(startWidth = 280) {
+function makeHarness(startWidth = 280, captureFails = false) {
   const listeners = {};
+  const onResizer = {};
   const captured = [];
   const classes = new Set();
 
   const resizer = {
-    addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
-    setPointerCapture: (id) => { captured.push(id); },
+    addEventListener: (t, fn) => {
+      onResizer[t] = true;
+      (listeners[t] = listeners[t] || []).push(fn);
+    },
+    setPointerCapture: (id) => {
+      if (captureFails) throw new Error('capture unavailable');
+      captured.push(id);
+    },
     classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) },
   };
   const sidebar = { style: { width: `${startWidth}px` } };
@@ -61,9 +68,16 @@ function makeHarness(startWidth = 280) {
 
   const documentElement = {};
   const body = { style: { cursor: '', userSelect: '' } };
+  const onDocument = {};
   const sandbox = {
     document: {
       documentElement, body,
+      // המאזינים על ``document`` נאספים לאותה מפה: בדפדפן אירוע לכוד
+      // מבעבע לכאן, ולכן שני המקורות מגיעים לאותו handler.
+      addEventListener: (t, fn) => {
+        onDocument[t] = true;
+        (listeners[t] = listeners[t] || []).push(fn);
+      },
       getElementById: (id) => (id === 'sidebar-resizer' ? resizer : id === 'repo-sidebar' ? sidebar : null),
     },
     getComputedStyle: (el) => ({
@@ -85,7 +99,7 @@ function makeHarness(startWidth = 280) {
     );
 
   return {
-    fire, pt, listeners, captured, classes, body, prevented,
+    fire, pt, listeners, captured, classes, body, prevented, onResizer, onDocument,
     width: () => parseInt(sidebar.style.width, 10),
     types: () => Object.keys(listeners).sort(),
   };
@@ -121,6 +135,30 @@ check('pointerdown קורא ל-preventDefault', () => {
   const h = makeHarness();
   h.fire('pointerdown', h.pt(1, 1000));
   eq(h.prevented.length, 1, 'קריאות preventDefault');
+});
+
+check('ההמשך מאזין על document, לא רק על המפריד', () => {
+  // עם לכידה האירוע ממוען למפריד ומבעבע ל-``document``; בלי לכידה הוא
+  // מגיע ל-``document`` ישירות. מאזין רק על המפריד היה מאבד את הגרירה
+  // בדיוק במקרה שבו הלכידה נכשלה.
+  const h = makeHarness();
+  eq(h.onResizer.pointerdown, true, 'pointerdown על המפריד');
+  ['pointermove', 'pointerup', 'pointercancel'].forEach((e) => {
+    if (!h.onDocument[e]) throw new Error(`${e} אינו מאזין על document`);
+  });
+});
+
+check('כשל בלכידה אינו מקפיא את הגרירה', () => {
+  // ``setPointerCapture`` יכול לזרוק. הגרירה חייבת להמשיך לעבוד, ובעיקר
+  // להסתיים כמו שצריך — אחרת ה-UI נשאר במצב פעיל עד רענון.
+  const h = makeHarness(280, /* captureFails */ true);
+  h.fire('pointerdown', h.pt(1, 1000));
+  eq(h.captured.length, 0, 'לא נלכד דבר');
+  h.fire('pointermove', h.pt(1, 1050));
+  eq(h.width(), 330, 'הגרירה בכל זאת עובדת');
+  h.fire('pointerup', h.pt(1, 1050));
+  eq(h.classes.has('active'), false, 'הסתיימה ונוקתה');
+  eq(h.body.style.cursor, '', 'הסמן שוחזר');
 });
 
 check('גרירה משנה את הרוחב', () => {
@@ -198,16 +236,21 @@ check('אחרי סיום אפשר לגרור שוב', () => {
 
 // ─── ה-CSS שבלעדיו כל זה מת בדפדפן ─────────────────────────────────────
 
-check('ל-.resizer יש touch-action: none', () => {
-  // הדפדפן בולע את תנועת האצבע כגלילה לפני שה-pointermove רואה משהו.
-  // אין דרך לאמת את זה בלי מנוע פריסה, ולכן זו בדיקה על המקור.
+check('ל-.resizer יש touch-action: pan-y', () => {
+  // בלי הכרזה כלשהי הדפדפן בולע את התנועה כגלילה וגרירת המגע מתה. עם
+  // ``none`` היא עובדת, אבל גם החלקה אנכית שמתחילה על הרצועה מתה — ולרצועה
+  // יש אב גליל. ``pan-y`` מחלק לפי ציר ומשאיר את שניהם.
   const css = fs.readFileSync(CSS, 'utf8');
   const i = css.indexOf('.resizer {');
   if (i < 0) throw new Error('בלוק .resizer לא נמצא');
   const block = css.slice(i, css.indexOf('}', i));
-  if (!/touch-action\s*:\s*none/.test(block)) {
-    throw new Error('touch-action: none חסר — גרירת מגע לא תעבוד בדפדפן');
+  const m = block.match(/touch-action\s*:\s*([a-z- ]+)/);
+  if (!m) throw new Error('touch-action חסר — גרירת מגע לא תעבוד בדפדפן');
+  const value = m[1].trim();
+  if (value === 'none') {
+    throw new Error('touch-action: none חוסם גם גלילה אנכית על הרצועה — צריך pan-y');
   }
+  if (value !== 'pan-y') throw new Error(`ציפיתי ל-pan-y, יש ${value}`);
 });
 
 check('אזור המגע רחב מהקו הנראה', () => {
