@@ -215,6 +215,11 @@
    */
   background: var(--sticky-mark-bg, #a5d8ff) !important;
   color: var(--note-ink, #2b3f6a) !important;
+  /* **הקו התחתון מאופס, ולא נשכח.** ``markdown-enhanced.css`` נותן לכל
+   * ``mark`` גם ``border-bottom: 1.5px solid #FFBF00``, וללא האיפוס הזה
+   * קו ענברי נמתח מתחת למרקר התכלת. זה **לא** נתפס במדידת ניגודיות —
+   * שם הכול היה תקין — אלא רק בצילום של פתק אמיתי. */
+  border-bottom: 0 !important;
   padding: 0 .15em;
   border-radius: 2px;
 }
