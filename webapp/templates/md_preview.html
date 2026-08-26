@@ -4657,9 +4657,9 @@ function goBackTwoSteps(ev){
   } catch(_) { }
 })();
 </script>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 <script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }};</script>
-<script src="{{ url_for('static', filename='js/sticky-notes.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script>
   // אתחול פתקים דביקים רק לאחר שרינדור ה-Markdown הושלם (או fallback בטוח)
   (function(){
