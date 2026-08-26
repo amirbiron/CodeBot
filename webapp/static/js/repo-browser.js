@@ -2579,6 +2579,25 @@ function initResizer() {
     let activePointer = null;
     let startX = 0;
     let startWidth = 0;
+    // +1 כשהסיידבר משמאל למפריד, -1 כשהוא מימינו. ראו ``sidebarSign``.
+    let widthSign = 1;
+
+    /**
+     * לאיזה כיוון להזיז את הקצה כדי להרחיב, נגזר מהפריסה בפועל.
+     *
+     * **למה מדידה ולא קבוע.** המפריד הוא גבול בין שני אזורים, והמשתמש
+     * מצפה שהוא יעקוב אחרי האצבע. הנוסחה ``startWidth + dx`` נכונה רק
+     * כשהסיידבר משמאל למפריד; בפריסת RTL הוא מימינו, ואז אותה נוסחה
+     * מזיזה את הקצה **הפוך מהאצבע** — המפריד בורח ממנה. הסימן נגזר כאן
+     * מהמיקומים האמיתיים, ולכן הוא נכון גם אם הכיוון או סדר האלמנטים
+     * ישתנו, ואינו מניח RTL.
+     */
+    function sidebarSign() {
+        const r = resizer.getBoundingClientRect();
+        const s = sidebar.getBoundingClientRect();
+        // מרכז מול מרכז: עמיד יותר מהשוואת קצוות כשיש חפיפה של פיקסל.
+        return (s.left + s.right) / 2 < (r.left + r.right) / 2 ? 1 : -1;
+    }
 
     // מהדק לגבולות במקום לזרוק ערך מחוץ לטווח. הצורה הקודמת התעלמה
     // מהעדכון כשהוא חרג, ולכן קפיצה אחת מעבר לגבול (גרירה מהירה, או אצבע
@@ -2610,6 +2629,9 @@ function initResizer() {
         activePointer = e.pointerId;
         startX = e.clientX;
         startWidth = sidebar.offsetWidth;
+        // נמדד בתחילת כל גרירה ולא פעם אחת באתחול: הפריסה יכולה להשתנות
+        // בין גרירה לגרירה (שינוי גודל חלון, החלפת ערכה, מעבר לנייד).
+        widthSign = sidebarSign();
         // **לכידת המצביע.** בלעדיה גרירה במגע מתה ברגע שהאצבע יוצאת מרצועת
         // ארבעת הפיקסלים — כלומר כמעט מיד. עם הלכידה, האירועים ממשיכים
         // להגיע ל-resizer, והשחרור קורה מאליו ב-``pointerup``.
@@ -2630,7 +2652,7 @@ function initResizer() {
     // את שני המצבים, במקום ענף גיבוי נפרד שיסתחף.
     document.addEventListener('pointermove', (e) => {
         if (e.pointerId !== activePointer) return;
-        const width = clampWidth(startWidth + (e.clientX - startX));
+        const width = clampWidth(startWidth + widthSign * (e.clientX - startX));
         if (width !== null) sidebar.style.width = `${width}px`;
     });
 
