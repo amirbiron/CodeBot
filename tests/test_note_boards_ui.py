@@ -6,6 +6,7 @@
 היו ממשיכות לעבור.
 """
 
+import re
 import pytest
 
 pytest.importorskip("flask")
@@ -85,6 +86,52 @@ def test_board_surface_renders_with_its_id(logged_in):
     assert '"507f1f77bcf86cd799439011"' in html
     assert 'js/sticky-notes.js' in html
     assert 'boardSurface' in html
+
+
+def test_handwriting_toggle_is_per_board(logged_in):
+    """מתג כתב-היד קיים, והמפתח שלו נושא את מזהה הלוח.
+
+    **המפתח הוא מה שנבדק כאן, לא רק קיום המתג.** מפתח בלי מזהה הלוח היה
+    הופך את ההעדפה לגלובלית: הדלקה בלוח אחד הייתה מדליקה בכולם, וזה כשל
+    שנראה זהה לחלוטין בבדיקה ידנית על לוח יחיד.
+    """
+    res = logged_in.get('/boards/507f1f77bcf86cd799439011')
+    html = res.get_data(as_text=True)
+
+    assert res.status_code == 200
+    assert 'handwritingToggle' in html
+    # המפתח נבנה בסקריפט שבראש העמוד, כי שם מחליטים אם לטעון את הגופן.
+    # הבדיקה מול המזהה **המרונדר** ולא מול ``BOARD_ID``: כך היא מוכיחה
+    # שהמזהה באמת נכנס למפתח, ולא רק שיש שם ביטוי שנראה נכון.
+    assert '\'board-handwriting:\' + "507f1f77bcf86cd799439011"' in html
+    # אותה צורה בדיוק כמו שתי ההעדפות שכבר קיימות — אם אחת מהן תשתנה,
+    # הבדיקה הזו מזכירה שגם החדשה צריכה להשתנות איתה.
+    assert "'board-markdown:' + BOARD_ID" in html
+    assert "'board-infinite:' + BOARD_ID" in html
+
+
+def test_handwriting_font_is_requested_only_when_enabled(logged_in):
+    """הגופן זמין לעמוד, אבל **אינו** נטען בתגית סטטית.
+
+    שני חצאים לחוזה, ובלי שניהם הבדיקה חסרת ערך: הכתובת חייבת להיות
+    בעמוד, אחרת המתג מחליף למשפחה שאינה קיימת ושום דבר לא משתנה; והיא
+    חייבת להיות **רק** בתוך הסקריפט המותנה, אחרת כל עמוד לוח מושך אותה
+    גם למי שלא הדליק את ההגדרה מעולם.
+    """
+    res = logged_in.get('/boards/507f1f77bcf86cd799439011')
+    html = res.get_data(as_text=True)
+
+    assert 'family=Gveret+Levin' in html
+    # אין תגית ``<link>`` סטטית לגופן — זה מה שהוסר, וזה מה שיחזור
+    # בשקט אם מישהו "יפשט" את הסקריפט המותנה בחזרה לקישור רגיל.
+    assert re.search(r'<link[^>]*Gveret', html) is None
+    # והתנאי עצמו קיים: בלעדיו הסקריפט טוען תמיד, וזה אותו מצב בדיוק.
+    assert "localStorage.getItem(window.HANDWRITING_KEY) === '1'" in html
+    # **התגית המלאה ולא תת-מחרוזת.** ``preconnect`` ל-gstatic נדרש כדי
+    # שקובץ הגופן לא ישלם על handshake מלא בפעם הראשונה, והוא כבר קיים
+    # עבור Heebo — אבל בדיקת הכלה של הכתובת לבדה הייתה עוברת גם אם היא
+    # מופיעה בכל הקשר אחר בעמוד, למשל בתוך ``href`` של משהו לגמרי אחר.
+    assert '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' in html
 
 
 def test_board_id_is_escaped_not_interpolated(logged_in):
