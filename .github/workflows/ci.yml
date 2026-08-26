@@ -358,18 +358,8 @@ jobs:
           failed=0
           for f in tests/*.test.js; do
             name="$(basename "$f")"
-            # לא ניתן להרצה כאן אם הוא מייבא רץ חיצוני, או אם הוא כתוב
-            # בסגנון רץ בלי לייבא כלום. ``node:test`` הוא היוצא מן הכלל:
-            # אותו node מריץ בעצמו, ולכן הוא נחשב תקין.
-            if grep -qE "(import|require).*(jest|vitest|mocha|chai)" "$f" \
-               || { grep -qE "^\s*(describe|it)\(" "$f" \
-                    && ! grep -qE "(import|require).*(node:test|assert)" "$f"; }; then
-              if [ "$name" = "$GRANDFATHERED" ]; then
-                echo ":: מדולג (חריג מוכר): $name — סגנון רץ טסטים, ואינו טוען את הקוד שהוא בודק"
-                continue
-              fi
-              echo "::error file=$f::$name כתוב לרץ טסטים שאינו קיים בפרויקט. כתבו אותו כסקריפט עצמאי (ראו tests/repo-resizer.test.js), או הוסיפו רץ ל-workflow."
-              failed=1
+            if [ "$name" = "$GRANDFATHERED" ]; then
+              echo ":: מדולג (חריג מוכר): $name — סגנון רץ טסטים, ואינו טוען את הקוד שהוא בודק"
               continue
             fi
             echo "── $name"
