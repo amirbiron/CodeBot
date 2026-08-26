@@ -2052,11 +2052,20 @@ def inject_globals():
 
     ui_theme_custom_id = custom_theme_id if theme == "custom" else ""
 
+    # גופן הפתקים. ``fail-soft`` כמו שאר ההזרקה כאן: תקלה בהכרעה מחזירה
+    # ברירת מחדל ואינה מפילה רינדור של כל עמוד באתר.
+    try:
+        note_fonts, note_fonts_scope = _resolve_note_fonts(user_id, user_doc)
+    except Exception:
+        note_fonts, note_fonts_scope = _note_fonts_default(), THEME_SCOPE_GLOBAL
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
         'ui_theme_scope': theme_scope,
+        'note_fonts': note_fonts,
+        'note_fonts_scope': note_fonts_scope,
         'ui_theme_custom_id': ui_theme_custom_id,
         'custom_theme': custom_theme,
         'shared_theme': shared_theme,
@@ -2119,6 +2128,72 @@ from webapp.ui_theme_defaults import get_default_ui_theme_parts, get_default_ui_
 def _normalize_theme_scope(value: Optional[str]) -> str:
     v = str(value or "").strip().lower()
     return v if v in _THEME_SCOPE_VALUES else THEME_SCOPE_GLOBAL
+
+
+# ─── גופן הפתקים, לפי משטח ──────────────────────────────────────────────
+#
+# שלושת המשטחים שמארחים פתקים. **הסדר הזה הוא הקידוד ל-cookie**, ולכן
+# ``NOTE_FONT_SURFACES`` הוא המקום **היחיד** בקוד שיודע אותו: הקידוד
+# והפענוח שניהם נגזרים ממנו, ומשטח רביעי בעתיד **נספח בסוף** ולא נדחף
+# באמצע. צימוד משמעות למיקום הוא בדיוק מה שנשך ב-``MD_INLINE_RE``, שם
+# הוספה באמצע הייתה מזיזה בשקט את כל האינדקסים שאחריה.
+NOTE_FONT_SURFACES = ("repo", "md", "board")
+
+# ``[01]{3}`` ולא JSON: הכתיבה ל-cookie למטה מאמתת כל ערך מול
+# ``re.fullmatch`` כהקשחה מול CodeQL, בדיוק כמו ``font_scale`` ו-``theme``.
+# שלושה ביטים הם הערך הצר ביותר שאפשר לאמת ב-regex יחיד.
+_NOTE_FONTS_COOKIE_RE = re.compile(r"[01]{%d}" % len(NOTE_FONT_SURFACES))
+
+
+def _note_fonts_default() -> Dict[str, bool]:
+    return {name: False for name in NOTE_FONT_SURFACES}
+
+
+def _encode_note_fonts(fonts: Optional[Dict[str, Any]]) -> str:
+    """dict ← מחרוזת ביטים, לפי ``NOTE_FONT_SURFACES``."""
+    src = fonts if isinstance(fonts, dict) else {}
+    return "".join("1" if src.get(name) else "0" for name in NOTE_FONT_SURFACES)
+
+
+def _decode_note_fonts(raw: Optional[str]) -> Optional[Dict[str, bool]]:
+    """מחרוזת ביטים ← dict. ``None`` כשהערך אינו תקין — לא זריקה.
+
+    מוחזר ``None`` ולא ברירת מחדל, כדי שהקורא יבחין בין "המכשיר הזה לא
+    אמר כלום" לבין "המכשיר הזה אמר: הכל רגיל". ההבחנה הזו היא כל ההבדל
+    בהכרעת התחולה: הראשון נופל ל-DB, השני גובר עליו.
+    """
+    val = str(raw or "").strip()
+    if not _NOTE_FONTS_COOKIE_RE.fullmatch(val):
+        return None
+    return {name: val[i] == "1" for i, name in enumerate(NOTE_FONT_SURFACES)}
+
+
+def _resolve_note_fonts(
+    user_id: Optional[int],
+    user_doc: Optional[Dict[str, Any]],
+) -> tuple[Dict[str, bool], str]:
+    """מחזיר ``(fonts, scope)`` — ערך המכשיר גובר רק במצב ``device``.
+
+    זו אותה הכרעה בדיוק שמבצע ``_resolve_theme_raw_token`` עבור ערכת
+    הנושא: cookie של המכשיר גובר **רק** כשה-cookie של התחולה אומר
+    ``device``; בכל מקרה אחר ה-DB הוא המקור. במצב ``device`` הערך אינו
+    נכתב ל-DB כלל, ולכן טאבלט וטלפון אינם דורסים זה את זה.
+
+    ``_resolve_theme_raw_token`` **לא** עבר לכאן במכוון — זה היה מרחיב
+    דיף של פיצ'ר לנגיעה במסלול הערכות. הוא המקור לצורה, לא נצרך ממנה.
+    """
+    scope = _normalize_theme_scope(request.cookies.get('ui_note_fonts_scope'))
+    device_fonts = _decode_note_fonts(request.cookies.get('ui_note_fonts'))
+
+    if scope == THEME_SCOPE_DEVICE and device_fonts is not None:
+        return device_fonts, scope
+
+    if user_id and isinstance(user_doc, dict):
+        stored = (user_doc.get('ui_prefs') or {}).get('note_fonts')
+        if isinstance(stored, dict):
+            return {name: bool(stored.get(name)) for name in NOTE_FONT_SURFACES}, scope
+
+    return _note_fonts_default(), scope
 
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
@@ -17681,6 +17756,9 @@ def api_ui_prefs():
         theme_cookie_value: Optional[str] = None
         theme_scope_cookie_value: Optional[str] = None
         theme_scope: Optional[str] = None
+        note_fonts_cookie_value: Optional[str] = None
+        note_fonts_scope_cookie_value: Optional[str] = None
+        note_fonts_scope: Optional[str] = None
 
         # עדכון גודל גופן במידת הצורך
         if 'font_scale' in payload:
@@ -17723,6 +17801,46 @@ def api_ui_prefs():
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
                 theme_scope_cookie_value = resolved_scope
+
+        # ─── גופן הפתקים ───────────────────────────────────────────────
+        # אותה סמנטיקה בדיוק כמו הערכה: התחולה נקראת **לפני** הערך, כי
+        # היא זו שמכריעה אם הערך נכתב ל-DB או נשאר על המכשיר.
+        if 'note_fonts_scope' in payload:
+            note_fonts_scope = _normalize_theme_scope(payload.get('note_fonts_scope'))
+            note_fonts_scope_cookie_value = note_fonts_scope
+
+        if 'note_fonts' in payload:
+            incoming = payload.get('note_fonts')
+            if not isinstance(incoming, dict):
+                return jsonify({'ok': False, 'error': 'note_fonts must be an object'}), 400
+
+            # **עדכון חלקי על גבי המצב הנוכחי**, ולא על גבי ברירת מחדל:
+            # שליחת מפתח אחד בלבד לא רשאית לאפס בשקט את השניים האחרים.
+            # הבסיס נקרא דרך אותה הכרעה שהרינדור משתמש בה, כדי ששליחה
+            # ממכשיר ב-``device`` תתבסס על מה שהמכשיר הזה באמת מציג.
+            try:
+                base_doc = db.users.find_one(
+                    {'user_id': user_id}, {'ui_prefs.note_fonts': 1}
+                ) or {}
+            except Exception:
+                base_doc = {}
+            current, _ = _resolve_note_fonts(user_id, base_doc)
+
+            merged = {
+                name: (bool(incoming[name]) if name in incoming else current[name])
+                for name in NOTE_FONT_SURFACES
+            }
+
+            resolved_scope = (
+                THEME_SCOPE_DEVICE
+                if note_fonts_scope == THEME_SCOPE_DEVICE
+                else THEME_SCOPE_GLOBAL
+            )
+            if resolved_scope != THEME_SCOPE_DEVICE:
+                update_fields['ui_prefs.note_fonts'] = merged
+            resp_payload['note_fonts'] = merged
+            note_fonts_cookie_value = _encode_note_fonts(merged)
+            note_fonts_scope_cookie_value = resolved_scope
 
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
@@ -17786,9 +17904,20 @@ def api_ui_prefs():
                 return jsonify({'ok': False, 'error': 'invalid_onboarding'}), 400
 
         needs_db_update = len(update_fields) > 1  # יותר מ-updated_at
+        # **כל ערך cookie חדש חייב להיכנס לרשימה הזו.** היא השומר שמחליט
+        # אם בכלל נבנית תגובה עם קוקיז; ערך שנשכח כאן נכתב, עובר ולידציה,
+        # ואז נזרק בשקט בחזרה המוקדמת שלמטה — התגובה 200 והקוקי לא נשלח.
+        # זה בדיוק מה שקרה ל-``ui_note_fonts`` במצב ``device``, שאינו
+        # כותב ל-DB ולכן ``needs_db_update`` לא כיסה אותו.
         needs_cookie_update = any(
             v is not None
-            for v in (font_scale_cookie_value, theme_cookie_value, theme_scope_cookie_value)
+            for v in (
+                font_scale_cookie_value,
+                theme_cookie_value,
+                theme_scope_cookie_value,
+                note_fonts_cookie_value,
+                note_fonts_scope_cookie_value,
+            )
         )
 
         # אם לא התקבל אף שדה עדכני ואין צורך בקוקיז – אין מה לעדכן
@@ -17817,6 +17946,13 @@ def api_ui_prefs():
             if theme_scope_cookie_value is not None:
                 if theme_scope_cookie_value not in _THEME_SCOPE_VALUES:
                     theme_scope_cookie_value = None
+            if note_fonts_cookie_value is not None:
+                # ערך צפוי: מחרוזת ביטים באורך מספר המשטחים
+                if not _NOTE_FONTS_COOKIE_RE.fullmatch(str(note_fonts_cookie_value)):
+                    note_fonts_cookie_value = None
+            if note_fonts_scope_cookie_value is not None:
+                if note_fonts_scope_cookie_value not in _THEME_SCOPE_VALUES:
+                    note_fonts_scope_cookie_value = None
 
             if font_scale_cookie_value is not None:
                 resp.set_cookie(
@@ -17841,6 +17977,29 @@ def api_ui_prefs():
                 resp.set_cookie(
                     'ui_theme_scope',
                     scope_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if note_fonts_cookie_value is not None:
+                resp.set_cookie(
+                    'ui_note_fonts',
+                    note_fonts_cookie_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if note_fonts_scope_cookie_value is not None:
+                nf_scope_value = (
+                    THEME_SCOPE_DEVICE
+                    if note_fonts_scope_cookie_value == THEME_SCOPE_DEVICE
+                    else THEME_SCOPE_GLOBAL
+                )
+                resp.set_cookie(
+                    'ui_note_fonts_scope',
+                    nf_scope_value,
                     max_age=365*24*3600,
                     samesite='Lax',
                     secure=True,

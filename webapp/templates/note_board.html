@@ -3,37 +3,26 @@
 {% block title %}לוח פתקים - Code Keeper Bot{% endblock %}
 
 {% block extra_head %}
+{% set note_font_surface = 'board' %}
+{% include "_note_fonts_head.html" with context %}
 <script>
-// גופן כתב-היד — **טעינה מותנית**.
-//
-// ההעדפה יושבת ב-localStorage, ולכן השרת אינו יכול לדעת אותה בזמן רינדור.
-// אבל localStorage נקרא סינכרונית, ולכן ההחלטה יכולה ליפול כאן, בזמן
-// פרסור ה-head: מוקדם בדיוק כמו קישור סטטי, ובלי בקשה כלל כשההגדרה
-// כבויה. זה אותו דפוס שבו ``base.html`` קובע ``data-theme`` לפני טעינת
-// ה-CSS, ומאותה סיבה.
-//
-// ה-``preconnect`` לשני מקורות Google Fonts כבר קיים ב-``base.html``
-// עבור Heebo, ולכן הבקשה הזו רוכבת על חיבור פתוח ואינה פותחת חדש.
-//
-// משקל 400 בלבד — אין בגופן bold, וההדגשה מסונתזת.
+// ההעדפה **לכל לוח** — נשארת ב-localStorage, כי היא לכל לוח בנפרד
+// ואינה חלק מנתוני הלוח. ההגדרה הגלובלית שבעמוד ההגדרות גוברת עליה
+// כשהיא דלוקה, והמתג במודאל ננעל; ראו ``docs/dev/sticky_notes_extending``.
 (function () {
+  // **``board-handwriting`` כאן הוא מפתח אחסון, לא שם המחלקה.** המחלקה
+  // עברה ל-``sticky-handwriting`` כשהגופן הפך לזמין בכל שלושת המשטחים;
+  // המפתח **לא** — הוא כבר יושב ב-``localStorage`` של משתמשים קיימים,
+  // ושינוי שלו היה מוחק בשקט את ההעדפה של כל לוח קיים. אל תיישרו אותם.
   window.HANDWRITING_KEY = 'board-handwriting:' + {{ board_id | tojson }};
 
-  // אידמפוטנטי, כי קוראים לזה משני מקומות: מכאן כשההעדפה כבר דלוקה,
-  // ומ-``applyHandwriting`` כשמדליקים את המתג באמצע הסשן. בלי הקריאה
-  // השנייה המחלקה הייתה מוחלת על גופן שמעולם לא נטען, והטקסט היה נופל
-  // ל-``cursive`` הגנרי של הדפדפן.
-  window.ensureHandwritingFont = function () {
-    if (document.getElementById('hw-font')) return;
-    var l = document.createElement('link');
-    l.id = 'hw-font';
-    l.rel = 'stylesheet';
-    l.href = 'https://fonts.googleapis.com/css2?family=Gveret+Levin&display=swap';
-    document.head.appendChild(l);
-  };
-
+  // אין כאן guard על ההגדרה הגלובלית, במכוון: ההחלה היחידה כאן היא
+  // **הדלקה**, ולכן היא אידמפוטנטית מול ההכללה שכבר הדליקה. guard כזה
+  // נוסה ונמצא שאינו מגן על דבר — אף בדיקה לא נפלה בלעדיו.
   try {
-    if (localStorage.getItem(window.HANDWRITING_KEY) === '1') window.ensureHandwritingFont();
+    if (localStorage.getItem(window.HANDWRITING_KEY) === '1') {
+      window.applyStickyHandwriting(true);
+    }
   } catch (e) { /* אחסון חסום — הגופן ייטען כשידליקו את המתג */ }
 })();
 </script>
@@ -99,10 +88,14 @@
           </span>
         </label>
         <label class="board-setting-row">
-          <input type="checkbox" id="handwritingToggle">
+          <input type="checkbox" id="handwritingToggle"{% if note_fonts and note_fonts.board %} checked disabled{% endif %}>
           <span>
             <b>כתב יד</b>
+            {% if note_fonts and note_fonts.board %}
+            <small>נקבע לכל הלוחות ב<a href="/settings">הגדרות</a>. כדי לבחור לכל לוח בנפרד, בטלו שם.</small>
+            {% else %}
             <small>הפתקים בלוח הזה מוצגים בגופן כתב-יד. קוד נשאר בגופן אחיד, כדי שיישאר קריא.</small>
+            {% endif %}
           </span>
         </label>
         <div class="board-settings-actions">
@@ -268,16 +261,11 @@
   function writeHandwriting(on) {
     try { localStorage.setItem(HANDWRITING_KEY, on ? '1' : '0'); } catch (e) { /* מצב זמני בלבד */ }
   }
-  //: המחלקה יושבת על ``<body>`` ולא על מכל הפתקים: פתק במצב ``screen``
-  //: מרונדר תחת ``document.body`` ולא בתוך המכל, ולכן מחלקה על המכל
-  //: הייתה מדלגת עליו בשקט.
-  function applyHandwriting(on) {
-    // הגופן נטען בעצלתיים: בטעינת העמוד רק אם ההעדפה כבר דלוקה, וכאן
-    // כשמדליקים אותה באמצע הסשן. הפונקציה אידמפוטנטית, ולכן בטוח
-    // לקרוא לה בכל הדלקה.
-    if (on) { try { window.ensureHandwritingFont(); } catch (e) { /* אין מה לעשות */ } }
-    try { document.body.classList.toggle('board-handwriting', !!on); } catch (e) { /* אין מה לעשות */ }
-  }
+  //: ההחלה עצמה חיה ב-``_note_fonts_head.html`` ונקראת משם, ולא
+  //: משוכפלת כאן: המחלקה יושבת על ``<html>`` (ולא על מכל הפתקים, שהיה
+  //: מדלג על פתק במצב ``screen``), והגופן נטען בעצלתיים בהדלקה — גם
+  //: בטעינת העמוד וגם באמצע הסשן. שתי החלות נפרדות היו נסחפות.
+  const applyHandwriting = window.applyStickyHandwriting;
 
   // מארקדאון דלוק כברירת מחדל — רק **כיבוי** מפורש נשמר. כך פתק קיים
   // מתחיל להתרנדר בלי שהמשתמש צריך לעשות דבר, ומי שלא אוהב מכבה.
@@ -430,13 +418,23 @@
     writeMarkdown(markdownToggle.checked);
     window._boardNotes.setMarkdown(markdownToggle.checked);
   });
+  // ההגדרה הגלובלית **נועלת** את המתג. ההעדפה המקומית של הלוח נשארת
+  // ב-``localStorage`` כפי שהיא ואינה נדרסת — כיבוי ההגדרה הגלובלית
+  // מחזיר בדיוק את מה שהיה לפניה, בכל הלוחות. נעילה שדורסת בשקט הייתה
+  // מוחקת את ההעדפות של כל הלוחות בבת אחת.
   const handwritingToggle = document.getElementById('handwritingToggle');
-  handwritingToggle.checked = readHandwriting();
-  applyHandwriting(handwritingToggle.checked);
-  handwritingToggle.addEventListener('change', function () {
-    writeHandwriting(handwritingToggle.checked);
+  const handwritingLocked = !!window.STICKY_FONT_FROM_SETTINGS;
+  if (handwritingLocked) {
+    handwritingToggle.checked = true;
+    handwritingToggle.disabled = true;
+  } else {
+    handwritingToggle.checked = readHandwriting();
     applyHandwriting(handwritingToggle.checked);
-  });
+    handwritingToggle.addEventListener('change', function () {
+      writeHandwriting(handwritingToggle.checked);
+      applyHandwriting(handwritingToggle.checked);
+    });
+  }
 
   document.getElementById('firstNoteBtn').addEventListener('click', function () {
     window._boardNotes.createNote();

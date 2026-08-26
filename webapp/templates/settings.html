@@ -1070,6 +1070,61 @@
       </div>
     </div>
   </div>
+  <div class="glass-card" id="stickyFontsCard">
+    <h2 class="section-title">
+      <i class="fas fa-pen-nib"></i>
+      גופן הפתקים
+    </h2>
+    <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+      <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem">
+        <i class="fas fa-note-sticky" style="font-size: 1.5rem"></i>
+        <div>
+          <div style="font-weight: 600">כתב יד בפתקים</div>
+          <div style="opacity: 0.8; font-size: 0.95rem">
+            בחרו לכל מקום בנפרד. קוד בתוך פתק נשאר בגופן אחיד תמיד, כדי שיישאר קריא.
+          </div>
+        </div>
+      </div>
+
+      {% for surface, caption in [
+           ('repo', 'בדפדפן הריפו'),
+           ('md', 'בקבצי Markdown'),
+           ('board', 'בלוחות הפתקים')] %}
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 0.6rem">
+        <label for="noteFont-{{ surface }}" style="font-size: 0.95rem">{{ caption }}</label>
+        <select
+          id="noteFont-{{ surface }}"
+          class="filter-select note-font-select"
+          data-surface="{{ surface }}"
+          aria-label="גופן הפתקים {{ caption }}"
+          style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
+        >
+          {# בלוחות אין "רגיל בכל הלוחות": רגיל הוא ברירת המחדל ממילא,
+             וההבחנה המשמעותית היא בין "כל לוח מחליט" ל"כתב יד בכולם". #}
+          <option value="0" {% if not (note_fonts and note_fonts[surface]) %}selected{% endif %}>{% if surface == 'board' %}לפי כל לוח בנפרד{% else %}רגיל{% endif %}</option>
+          <option value="1" {% if note_fonts and note_fonts[surface] %}selected{% endif %}>כתב יד</option>
+        </select>
+      </div>
+      {% endfor %}
+
+      <div style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap">
+        <label for="noteFontsScopeSelect" style="font-size: 0.95rem">תחולת ההגדרות</label>
+        <select
+          id="noteFontsScopeSelect"
+          class="filter-select"
+          aria-label="תחולת גופן הפתקים"
+          style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
+        >
+          <option value="global" {% if note_fonts_scope != 'device' %}selected{% endif %}>לכל המכשירים</option>
+          <option value="device" {% if note_fonts_scope == 'device' %}selected{% endif %}>רק במכשיר הזה</option>
+        </select>
+      </div>
+      <p style="opacity: 0.7; margin-top: 0.75rem; font-size: 0.9rem">
+        התחולה חלה על שלוש הבחירות יחד. כשבוחרים כתב יד בלוחות, המתג שבמודאל ההגדרות של הלוח ננעל.
+      </p>
+    </div>
+  </div>
+
   <div class="glass-card" id="smoothScrollSettingsCard">
     <h2 class="section-title">
       <i class="fas fa-stream"></i>
@@ -2107,6 +2162,54 @@
 
       // טען את הרשימה בעליית הדף
       loadThemesList();
+
+      // ── גופן הפתקים ──────────────────────────────────────────────────
+      // אותו דפוס בדיוק כמו ``themeScopeSelect``: ``change`` ← ``fetch``
+      // ← סנכרון חזרה. **התחולה נשלחת יחד עם הערך בכל שמירה**, כי היא
+      // זו שמכריעה בשרת אם הערך נכתב ל-DB או נשאר על המכשיר; שליחה
+      // בלעדיה הייתה נופלת לברירת המחדל ``global`` ודורסת מכשיר אחר.
+      (function () {
+        const scopeSel = document.getElementById('noteFontsScopeSelect');
+        const selects = Array.prototype.slice.call(
+          document.querySelectorAll('.note-font-select')
+        );
+        if (!selects.length) return;
+
+        function currentScope() {
+          const v = scopeSel ? String(scopeSel.value || '') : '';
+          return v === 'device' ? 'device' : 'global';
+        }
+
+        // כל שלוש הבחירות נשלחות יחד, ולא רק זו שהשתנתה: התחולה חלה
+        // עליהן כיחידה אחת, ומעבר מ-device ל-global חייב להעלות את
+        // המערך **כולו** ל-DB, לא רק את השדה האחרון שנגעו בו.
+        function payload() {
+          const fonts = {};
+          selects.forEach(function (el) {
+            fonts[el.dataset.surface] = el.value === '1';
+          });
+          return { note_fonts: fonts, note_fonts_scope: currentScope() };
+        }
+
+        async function persist() {
+          try {
+            const res = await fetch('/api/ui_prefs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload())
+            });
+            const data = await res.json();
+            if (!res.ok || !data || !data.ok) {
+              throw new Error((data && (data.error || data.message)) || 'note_fonts_save_failed');
+            }
+          } catch (err) {
+            console.error('Failed to persist note fonts:', err);
+          }
+        }
+
+        selects.forEach(function (el) { el.addEventListener('change', persist); });
+        if (scopeSel) scopeSel.addEventListener('change', persist);
+      })();
       
       function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
       function save(scale){

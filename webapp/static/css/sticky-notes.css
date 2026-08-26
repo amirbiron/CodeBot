@@ -468,16 +468,20 @@
    ``text-align: start`` מתיישר לפי הכיוון שהוכרע לתא, ולא לפי הפתק. */
 .sticky-md-cell { text-align: start; }
 
-/* ── כתב יד, לפי הגדרה פר-לוח ───────────────────────────────────────
-   המחלקה יושבת על ``<body>`` ולא על מכל הפתקים, כי פתק במצב ``screen``
-   מרונדר תחת ``document.body`` ולא בתוך המכל — מחלקה על המכל הייתה
-   מדלגת עליו בשקט.
+/* ── כתב יד ─────────────────────────────────────────────────────────
+   מחלקה **אחת** לשלושת המשטחים (לוח, קובץ md, דפדפן הריפו), כי המראה
+   זהה בכולם ושתי מחלקות עם אותם כללים היו נסחפות זו מזו. שני מקורות
+   מחילים אותה: ההגדרה שבעמוד ההגדרות, והמתג שלכל לוח.
+
+   היא יושבת על ``<html>`` ולא על מכל הפתקים, כי היא מוחלת בסקריפט
+   שרץ בפרסור ה-``head`` — שם ``document.body`` עדיין ``null``. הבחירה
+   בשורש גם מכסה פתק במצב ``screen``, שיושב מחוץ למכל.
 
    ``cursive`` כגיבוי הוא מה ש-Google Fonts ממליץ למשפחה הזו, והוא גם
    מה שיוצג אם הגופן לא נטען: כתב מחובר כלשהו, ולא קפיצה ל-Heebo. */
-.board-handwriting .sticky-note-content,
-.board-handwriting .sticky-note-tasks,
-.board-handwriting .sticky-note-title {
+.sticky-handwriting .sticky-note-content,
+.sticky-handwriting .sticky-note-tasks,
+.sticky-handwriting .sticky-note-title {
   font-family: 'Gveret Levin', cursive;
 }
 
@@ -497,7 +501,7 @@
    ול-``.sticky-md-pre`` כבר יש הצהרה משלהם, והצהרה על האלמנט תמיד גוברת
    על ערך שעובר בירושה — ספציפיות של האב אינה נכנסת למשוואה. נבדק בדפדפן
    בנטרול הכלל בזמן ריצה: הקוד נשאר ``ui-monospace`` באותו גודל. */
-.board-handwriting .sticky-md-code,
-.board-handwriting .sticky-md-pre {
+.sticky-handwriting .sticky-md-code,
+.sticky-handwriting .sticky-md-pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
