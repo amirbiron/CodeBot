@@ -2,19 +2,44 @@
 
 {% block title %}לוח פתקים - Code Keeper Bot{% endblock %}
 
+{% block extra_head %}
+<script>
+// גופן כתב-היד — **טעינה מותנית**.
+//
+// ההעדפה יושבת ב-localStorage, ולכן השרת אינו יכול לדעת אותה בזמן רינדור.
+// אבל localStorage נקרא סינכרונית, ולכן ההחלטה יכולה ליפול כאן, בזמן
+// פרסור ה-head: מוקדם בדיוק כמו קישור סטטי, ובלי בקשה כלל כשההגדרה
+// כבויה. זה אותו דפוס שבו ``base.html`` קובע ``data-theme`` לפני טעינת
+// ה-CSS, ומאותה סיבה.
+//
+// ה-``preconnect`` לשני מקורות Google Fonts כבר קיים ב-``base.html``
+// עבור Heebo, ולכן הבקשה הזו רוכבת על חיבור פתוח ואינה פותחת חדש.
+//
+// משקל 400 בלבד — אין בגופן bold, וההדגשה מסונתזת.
+(function () {
+  window.HANDWRITING_KEY = 'board-handwriting:' + {{ board_id | tojson }};
+
+  // אידמפוטנטי, כי קוראים לזה משני מקומות: מכאן כשההעדפה כבר דלוקה,
+  // ומ-``applyHandwriting`` כשמדליקים את המתג באמצע הסשן. בלי הקריאה
+  // השנייה המחלקה הייתה מוחלת על גופן שמעולם לא נטען, והטקסט היה נופל
+  // ל-``cursive`` הגנרי של הדפדפן.
+  window.ensureHandwritingFont = function () {
+    if (document.getElementById('hw-font')) return;
+    var l = document.createElement('link');
+    l.id = 'hw-font';
+    l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Gveret+Levin&display=swap';
+    document.head.appendChild(l);
+  };
+
+  try {
+    if (localStorage.getItem(window.HANDWRITING_KEY) === '1') window.ensureHandwritingFont();
+  } catch (e) { /* אחסון חסום — הגופן ייטען כשידליקו את המתג */ }
+})();
+</script>
+{% endblock %}
+
 {% block extra_css %}
-{#
-  גופן כתב-היד נטען **כאן ולא ב-``base.html``**: המחלקה שמפעילה אותו
-  קיימת רק בעמוד הזה, ו-``base.html`` משרת עשרות תבניות. שם, כל עמוד
-  באתר היה משלם בקשת CSS חוסמת-רינדור לגופן שאינו בשימוש — לא רק את
-  736 הבתים שלה, אלא גם את הלוך-ושוב שלפניה.
-
-  ה-``preconnect`` ל-``fonts.googleapis.com`` ול-``fonts.gstatic.com``
-  כבר קיים ב-``base.html`` עבור Heebo, ולכן אינו משוכפל כאן.
-
-  משקל 400 בלבד — אין בגופן bold, וההדגשה מסונתזת.
-#}
-<link href="https://fonts.googleapis.com/css2?family=Gveret+Levin&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
 {% endblock %}
@@ -235,7 +260,11 @@
   // מקומי לכל לוח, בלי שינוי סכמה ובלי קריאת רשת. כבוי כברירת מחדל,
   // ושני המצבים נשמרים במפורש — בשונה ממתג המארקדאון, שמוחק את המפתח
   // בהדלקה כי ברירת המחדל שלו הפוכה.
-  const HANDWRITING_KEY = 'board-handwriting:' + BOARD_ID;
+  //
+  // המפתח **מוגדר בסקריפט שבראש העמוד** ונקרא משם, ולא נבנה כאן מחדש:
+  // שם צריך לקרוא אותו כדי להחליט אם לטעון את הגופן, ושתי מחרוזות
+  // נפרדות היו נסחפות בשקט.
+  const HANDWRITING_KEY = window.HANDWRITING_KEY;
   function readHandwriting() {
     try { return localStorage.getItem(HANDWRITING_KEY) === '1'; } catch (e) { return false; }
   }
@@ -246,6 +275,10 @@
   //: מרונדר תחת ``document.body`` ולא בתוך המכל, ולכן מחלקה על המכל
   //: הייתה מדלגת עליו בשקט.
   function applyHandwriting(on) {
+    // הגופן נטען בעצלתיים: בטעינת העמוד רק אם ההעדפה כבר דלוקה, וכאן
+    // כשמדליקים אותה באמצע הסשן. הפונקציה אידמפוטנטית, ולכן בטוח
+    // לקרוא לה בכל הדלקה.
+    if (on) { try { window.ensureHandwritingFont(); } catch (e) { /* אין מה לעשות */ } }
     try { document.body.classList.toggle('board-handwriting', !!on); } catch (e) { /* אין מה לעשות */ }
   }
 
