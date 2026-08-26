@@ -330,10 +330,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v5 ולא v4: ``action.yml`` של v4 מצהיר ``runs.using: node20``, וזה
+      # ה-runtime שהוצא משימוש. v5 ומעלה מצהירים ``node24``. נבחר המינימום
+      # שפותר, ולא הגרסה החדשה ביותר, כדי לא לייבא שינויי התנהגות נוספים.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
       # קבצי tests/*.test.js הם סקריפטים עצמאיים: הם מריצים את הבדיקות
       # בעצמם ויוצאים עם קוד שגיאה בכשל, בלי רץ טסטים חיצוני. עד עכשיו
       # שום ג'וב לא הריץ אותם, ולכן 200+ בדיקות לא הגנו על כלום.
