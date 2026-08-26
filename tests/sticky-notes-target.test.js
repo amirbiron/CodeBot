@@ -1107,6 +1107,172 @@ check('markdown מפורש ב-opts גובר על ברירת המחדל', () => {
   eq(on.markdown, true, 'true מפורש מדליק');
 });
 
+// -- טבלאות מארקדאון --
+
+const TBL = '| # | שאלה |\n|---|---|\n| 1 | ראשונה |\n| 2 | שנייה |';
+
+check('טבלה: שורת מפריד תקפה בונה <table> עם thead ו-tbody', () => {
+  const { view } = renderMd(mdMgr, TBL);
+  const table = view.querySelector('table.sticky-md-table');
+  eq(!!table, true, 'נבנתה טבלה');
+  eq(table.querySelectorAll('th').length, 2, 'שני תאי כותרת');
+  // ``FakeEl`` אינו תומך בסלקטור צאצא (``'tbody tr'``), ולכן שואלים את
+  // ה-``tbody`` עצמו — וזה גם מדויק יותר: מוודא שהשורות באמת בתוכו.
+  const tbody = table.querySelector('tbody');
+  eq(!!tbody, true, 'יש tbody');
+  eq(tbody.querySelectorAll('tr').length, 2, 'שתי שורות גוף');
+  eq(tbody.querySelectorAll('td').length, 4, 'ארבעה תאי גוף');
+});
+
+check('טבלה: שורה עם | בלי מפריד נשארת טקסט', () => {
+  // בלי התנאי הזה כל שורה שמכילה מקף אנכי — נתיב, פקודה, ביטוי לוגי —
+  // הייתה נבלעת לטבלה.
+  const { view } = renderMd(mdMgr, '| זה לא | טבלה |\nעוד שורה');
+  eq(!!view.querySelector('table'), false, 'לא נבנתה טבלה');
+});
+
+check('טבלה: יישור מ-: נכתב כ-text-align', () => {
+  const { view } = renderMd(mdMgr, '| א | ב | ג |\n|:---|---:|:---:|\n| 1 | 2 | 3 |');
+  const th = view.querySelectorAll('th');
+  eq(th[0].style.textAlign, 'left', 'יישור שמאלה');
+  eq(th[1].style.textAlign, 'right', 'יישור ימינה');
+  eq(th[2].style.textAlign, 'center', 'מרכוז');
+});
+
+check('טבלה: scope=col על תאי הכותרת', () => {
+  const { view } = renderMd(mdMgr, TBL);
+  eq(view.querySelector('th').getAttribute('scope'), 'col');
+});
+
+check('טבלה: תוכן תא עובר את אותו מסלול בטוח', () => {
+  // אותו חוזה textContent כמו בכל שאר הבלוקים: תגית בתא נשארת טקסט,
+  // ומודגש בתא כן מרונדר.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| <script>x</script> | **מודגש** |');
+  eq(!!view.querySelector('script'), false, 'אין תגית script');
+  eq(!!view.querySelector('.sticky-md-bold'), true, 'המודגש כן רונדר');
+});
+
+check('טבלה: כל שורת מקור נושאת את ה-charOffset שלה', () => {
+  // **הבאג שאינו נראה בעין.** אם כל ה-<tr> יקבלו את אותו היסט, הטבלה
+  // תיראה מושלמת ולחיצה על השורה השלישית תחזיר לעריכה בראשונה.
+  const { view } = renderMd(mdMgr, TBL);
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const offsets = rows.map((r) => Number(r.dataset.charOffset));
+  const lines = TBL.split('\n');
+  // שורת הכותרת בהיסט 0; שורת המפריד נצרכת ואינה מייצרת שורה; שתי שורות
+  // הגוף מתחילות אחרי הכותרת והמפריד.
+  eq(offsets[0], 0, 'שורת הכותרת');
+  eq(offsets[1], lines[0].length + 1 + lines[1].length + 1, 'שורת הגוף הראשונה');
+  eq(offsets[2], lines[0].length + 1 + lines[1].length + 1 + lines[2].length + 1, 'שורת הגוף השנייה');
+  eq(new Set(offsets).size, offsets.length, 'כל ההיסטים שונים זה מזה');
+});
+
+check('טבלה: השורה שאחרי הטבלה ממשיכה מההיסט הנכון', () => {
+  // המקרה המשלים: כאן נתפס חשבון מצטבר שגוי, גם אם המיפוי בתוך הבלוק תקין.
+  const content = TBL + '\nאחרי הטבלה';
+  const { view } = renderMd(mdMgr, content);
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent, 'אחרי הטבלה', 'זו אכן השורה שאחרי');
+  eq(Number(last.dataset.charOffset), content.indexOf('אחרי הטבלה'), 'ההיסט מצביע לתחילתה');
+});
+
+check('טבלה לבדה פותחת את התצוגה', () => {
+  // בלי זיהוי טבלה ב-``_hasRenderableMarkdown``, פתק שכולו טבלה לא היה
+  // עובר את השער והתצוגה כלל לא נפתחת — כשל שקט במקרה הנפוץ ביותר.
+  eq(mdMgr._hasRenderableMarkdown(TBL.split('\n')), true);
+});
+
+check('טבלה: מספר תאים שאינו תואם בין כותרת למפריד אינו טבלה', () => {
+  // **הבדיקה שהגנה על עצמה ולא נבדקה.** הטסט השלילי הקודם נפל כבר על
+  // ``MD_TABLE_SEP_RE`` ולא הגיע להשוואת הספירה, ולכן מחיקת ההשוואה
+  // הייתה משאירה את כל הטסטים ירוקים. כאן שורת המפריד תקפה לגמרי,
+  // והדחייה יכולה לנבוע רק מהספירה.
+  const { view } = renderMd(mdMgr, '| א | ב | ג |\n|---|---|\n| 1 | 2 | 3 |');
+  eq(!!view.querySelector('table'), false, 'שלוש עמודות מול שתיים — לא טבלה');
+});
+
+check('טבלה: פייפ בורח אינו מפריד תאים', () => {
+  // ``MD_TABLE_ROW_RE`` ספר פייפים גולמיים בעוד ``_splitTableRow`` מודע
+  // ל-escape — שני חלקים שחלוקים על מהו מפריד.
+  const { view } = renderMd(mdMgr, 'a \\| b\n---\nעוד');
+  eq(!!view.querySelector('table'), false, 'פייפ בורח בלבד — לא טבלה');
+});
+
+check('טבלה: פייפ סוגר בלבד אינו טבלה', () => {
+  // ``grep foo |`` ואחריו קו מפריד — בדיוק המקרה שההערה בקוד הבטיחה
+  // שיישאר טקסט ורגל, ובפועל הפך לטבלה של עמודה אחת.
+  const { view } = renderMd(mdMgr, 'grep foo |\n---\nעוד');
+  eq(!!view.querySelector('table'), false, 'אין פייפ פנימי — לא טבלה');
+  eq(!!view.querySelector('.sticky-md-hr'), true, 'והקו המפריד נשאר קו');
+});
+
+check('טבלה: פייפ סוגר בורח נשאר בתוכן התא', () => {
+  const cells = mdMgr._splitTableRow('| a | b\\|');
+  eq(cells.length, 2, 'שני תאים');
+  eq(cells[1], 'b|', 'הפייפ הבורח נשאר בתוכן, בלי לוכסן מיותר');
+});
+
+check('טבלה: פותחת גדר עם פייפ נשארת גדר', () => {
+  const { view } = renderMd(mdMgr, '```sh | x\n---|---\nקוד\n```');
+  eq(!!view.querySelector('table'), false, 'לא נבנתה טבלה');
+  // ``FakeEl._matches`` תומך ב-``.class`` ובּ-``tag.class``, לא בשתי
+  // מחלקות. שתי שאילתות נפרדות, ולכן גם מדויקות יותר.
+  eq(!!view.querySelector('.sticky-md-pre'), true, 'השורה מרונדרת כקוד');
+  eq(!!view.querySelector('.is-fence'), true, 'והיא מסומנת כפותחת גדר');
+});
+
+check('טבלה: שורת משימה שנצרכת לטבלה עדיין מקדמת את האינדקס', () => {
+  // **החמור מכולם.** הפייפ הסוגר אופציונלי, ולכן ``- [ ] משימה | עמודה``
+  // הוא גם שורת משימה וגם כותרת טבלה תקפה. אם הצריכה אינה מקדמת את
+  // הסידור, כל צ'קבוקס אחריה נשלח לשרת עם אינדקס של משימה אחרת.
+  const { view } = renderMd(mdMgr, '- [ ] בטבלה | עמודה\n---|---\n| 1 | 2 |\n- [ ] אחרי');
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 1, 'צ׳קבוקס אינטראקטיבי אחד — זה שמחוץ לטבלה');
+  eq(boxes[0].dataset.taskIndex, '1', 'והאינדקס שלו 1, כי המשימה שבטבלה נספרה');
+});
+
+check('טבלה: לחיצה על שורה בתוך הטבלה מחזירה לעריכה באותה שורה', () => {
+  // ההיסט הנכון על ה-``<tr>`` אינו מספיק: ``_enterEditFromView`` חייב
+  // באמת למצוא אותו דרך ``closest('.sticky-task-line')``. בלי הבדיקה הזו
+  // ההיסט יכול להיות מדויק והלחיצה עדיין תיפול לראש הפתק.
+  const content = '| # | ש |\n|---|---|\n| 1 | א |\n| 2 | ב |';
+  const { el, ta, view } = renderMd(mdMgr, content);
+  const rows = view.querySelectorAll('tr');
+  const target = rows[rows.length - 1];       // שורת הגוף השנייה
+  const cell = target.querySelectorAll('td')[1];
+  cell.parentNode = target;
+  mdMgr._enterEditFromView(el, { target: cell });
+  eq(ta.selectionStart, content.indexOf('| 2 | ב |'), 'הסמן בתחילת השורה שנלחצה');
+});
+
+check('טבלה: שורת גוף עם תא יחיד נשארת בטבלה', () => {
+  // ב-GFM שורת גוף רשאית להכיל פחות תאים מהכותרת, והחסרים ריקים.
+  // ``addRow`` כבר מרפד לפי ``spec.align``; מה שהפסיק את הטבלה היה תנאי
+  // הסיום, שדרש שני תאים גם משורות הגוף.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| רק אחד |\n| 1 | 2 |');
+  const tbody = view.querySelector('tbody');
+  eq(tbody.querySelectorAll('tr').length, 2, 'שתי שורות גוף');
+  eq(tbody.querySelectorAll('td').length, 4, 'וארבעה תאים — החסר רופד');
+});
+
+check('טבלה: שורת גוף עם פייפ מוברח נשארת בטבלה', () => {
+  // תא שמכיל ``\\|`` מתפצל לתא אחד, ולכן התנאי הישן היה מסיים עליו את
+  // הטבלה — למרות שהשורה בבירור שורת טבלה.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| a\\|b |\n| 1 | 2 |');
+  const tbody = view.querySelector('tbody');
+  eq(tbody.querySelectorAll('tr').length, 2, 'שתי שורות גוף');
+  eq(tbody.querySelectorAll('td')[0].textContent, 'a|b', 'והפייפ נשאר בתוכן התא');
+});
+
+check('טבלה: שורה בלי מפריד כלל מסיימת את הטבלה', () => {
+  // הצד השני של אותו תנאי — בלי זה הטבלה הייתה בולעת את כל מה שאחריה.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| 1 | 2 |\nטקסט רגיל');
+  eq(view.querySelector('tbody').querySelectorAll('tr').length, 1, 'שורת גוף אחת');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows[rows.length - 1].textContent, 'טקסט רגיל', 'והשורה האחרונה היא טקסט');
+});
+
 // -- destroy: flush לפני פירוק --
 
 check('destroy מרוקן את התור לפני שהוא מפרק', async () => {

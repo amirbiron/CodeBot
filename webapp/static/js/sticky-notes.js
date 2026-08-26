@@ -195,6 +195,10 @@
   const MD_OL_RE      = /^([ \t]*)(\d+)\.[ \t]+(.*)$/;
   const MD_UL_RE      = /^([ \t]*)[-*][ \t]+(.*)$/;
   const MD_FENCE_RE   = /^[ \t]*```/;
+  //: טבלת GFM מזוהה בזוג בלבד: שורה עם ``|`` ומיד אחריה שורת מפריד
+  //: שכל תאיה מקפים, עם יישור אופציונלי. בלי הזוג הזה כל שורה שמכילה
+  //: מקף אנכי — נתיב, פקודה, ביטוי לוגי — הייתה נבלעת לטבלה.
+  const MD_TABLE_SEP_RE = /^[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/;
   //: סדר החלופות = עדיפות במיקום נתון: קוד (תוכנו ליטרלי) ← קישור ←
   //: מודגש ← חוצה ← נטוי. הקו התחתון **אינו** נטוי, בכוונה: ``note_id``
   //: ו-``user_id`` נפוצים מדי בכלי שכולו על קוד.
@@ -1245,9 +1249,168 @@
         }
         return false;
       }
+      /**
+       * סורק שורת טבלה ומחזיר ``{ cells, delimiters }``.
+       *
+       * **סריקה אחת מודעת-escape, ואז השמטת התאים הריקים שבקצוות** —
+       * המקף האנכי המוביל והסוגר אופציונליים ב-GFM ומייצרים תא ריק בקצה.
+       * אין כאן שלב שמסיר תו לפני שידוע אם הוא מוברח: גרסה קודמת חתכה
+       * את המקף הסוגר ב-``replace`` לפני הסריקה, ולכן ``| a | b\\|`` איבד
+       * את המקף המוברח והציג לוכסן מיותר.
+       *
+       * ``delimiters`` הוא הסיבה שהפונקציה מחזירה אובייקט ולא מערך:
+       * ``| רק תא אחד |`` ו-``טקסט רגיל`` נותנים שניהם תא אחד, ורק ספירת
+       * המפרידים מבדילה ביניהם. **זהו המקום היחיד בקוד שיודע מהו מפריד**,
+       * ולכן גם השאלה "האם זו שורת טבלה" נענית מכאן.
+       */
+      _scanTableRow(line){
+        const trimmed = String(line).trim();
+        let delimiters = 0;
+        const cells = [];
+        let cur = '';
+        let leadingDelim = false;
+        let trailingDelim = false;
+        for (let i = 0; i < trimmed.length; i += 1){
+          const ch = trimmed[i];
+          if (ch === '\\' && trimmed[i + 1] === '|'){ cur += '|'; i += 1; continue; }
+          if (ch === '|'){
+            delimiters += 1;
+            if (cells.length === 0 && cur.trim() === '') leadingDelim = true;
+            if (i === trimmed.length - 1) trailingDelim = true;
+            cells.push(cur.trim());
+            cur = '';
+            continue;
+          }
+          cur += ch;
+        }
+        cells.push(cur.trim());
+        if (trailingDelim && cells[cells.length - 1] === '') cells.pop();
+        if (leadingDelim && cells[0] === '') cells.shift();
+        return { cells, delimiters };
+      }
+
+      /** התאים בלבד — העטיפה הדקה שרוב הקוראים צריכים. */
+      _splitTableRow(line){
+        return this._scanTableRow(line).cells;
+      }
+
+      /**
+       * מחזיר את היישורים אם השורות מרכיבות טבלה, ואחרת ``null``.
+       *
+       * **מספר התאים חייב להתאים בין הכותרת למפריד** — זה הכלל ב-GFM, והוא
+       * גם מה שמונע מ-``---`` בודד שאחרי שורה עם מקף אנכי להפוך אותה לטבלה.
+       */
+      _tableSpec(headerLine, sepLine){
+        if (!MD_TABLE_SEP_RE.test(sepLine)) return null;
+        const head = this._splitTableRow(headerLine);
+        const sep = this._splitTableRow(sepLine);
+        // **הזיהוי נגזר מהמפצל ולא מרג'קס נפרד.** קודם היה כאן
+        // ``MD_TABLE_ROW_RE`` שספר פייפים גולמיים, בעוד המפצל מודע
+        // ל-escape — שני חלקים שחלוקים על מהו מפריד, וזה הפיל שלושה
+        // מקרים: פייפ בורח, פייפ סוגר בלבד, ופייפ בתוך גדר.
+        //
+        // **שתי עמודות לפחות, בסטייה מכוונת מ-GFM.** לפי התקן ``grep foo |``
+        // ואחריו ``---`` היא טבלה חוקית של עמודה אחת. בפתק זה כמעט תמיד
+        // פקודה שאחריה קו מפריד, ולכן דורשים פייפ פנימי. המחיר — טבלת
+        // עמודה אחת אמיתית תרונדר כטקסט — קטן בהרבה מהרווח.
+        if (head.length < 2) return null;
+        if (head.length !== sep.length) return null;
+        const align = sep.map((c) => {
+          const l = c.startsWith(':'), r = c.endsWith(':');
+          if (l && r) return 'center';
+          if (r) return 'right';
+          if (l) return 'left';
+          return '';
+        });
+        return { head, align };
+      }
+
+      /**
+       * בונה ``<table>`` מתוך שורות המקור, ומחזיר את האינדקס האחרון שנצרך
+       * ואת ההיסט להמשך.
+       *
+       * **כל שורת מקור של הטבלה הופכת ל-``<tr class="sticky-task-line">``
+       * עם ה-``charOffset`` שלה.** זה מה ששומר על החוזה של המנוע כולו:
+       * ``_enterEditFromView`` מוצא את השורה שנלחצה דרך
+       * ``closest('.sticky-task-line')`` וקורא ממנה את ההיסט, ולכן לחיצה על
+       * תא מחזירה לעריכה בשורה הנכונה ולא בראש הטבלה.
+       *
+       * שורת המפריד נצרכת ואינה מייצרת ``<tr>`` — אין לה מה להציג. ההיסט
+       * מקודם עליה בכל מקרה, אחרת כל מה שאחרי הטבלה מוסט.
+       */
+      _appendTable(view, lines, startIndex, spec, startOffset){
+        const wrap = createEl('div', 'sticky-md-table-wrap');
+        const table = createEl('table', 'sticky-md-table');
+        const thead = createEl('thead', '');
+        const tbody = createEl('tbody', '');
+        let offset = startOffset;
+
+        const addRow = (parent, cells, isHead, lineText) => {
+          const tr = createEl('tr', 'sticky-task-line');
+          tr.dataset.charOffset = String(offset);
+          spec.align.forEach((al, ci) => {
+            const cell = createEl(isHead ? 'th' : 'td', 'sticky-md-cell');
+            if (isHead) cell.setAttribute('scope', 'col');
+            // **``dir="auto"`` ולא זיהוי-תוכן משלנו.** הפתקים עבריים,
+            // והטבלאות מערבבות עברית עם מספרים ומזהי קוד כמו
+            // ``push_api.py:569``. הדפדפן מכריע לפי התו החזק הראשון
+            // (אלגוריתם ה-bidi), ולכן תא עברי נשאר RTL ותא של קוד או
+            // מספר מוצג LTR — בלי היוריסטיקה שלנו שתטעה במקרה הקצה הבא.
+            cell.setAttribute('dir', 'auto');
+            if (al) cell.style.textAlign = al;
+            this._appendInline(cell, cells[ci] == null ? '' : cells[ci]);
+            tr.appendChild(cell);
+          });
+          parent.appendChild(tr);
+          offset += lineText.length + 1;
+        };
+
+        addRow(thead, spec.head, true, lines[startIndex]);
+        // המפריד: נצרך, בלי שורה משלו.
+        offset += lines[startIndex + 1].length + 1;
+
+        let i = startIndex + 2;
+        for (; i < lines.length; i += 1){
+          const row = lines[i];
+          // **שורת גוף נמדדת במפריד, לא במספר התאים.** ב-GFM שורת גוף
+          // רשאית להכיל פחות תאים מהכותרת, והחסרים ריקים — ``addRow`` כבר
+          // מרפד לפי ``spec.align``. דרישת שני תאים גם כאן הייתה מסיימת
+          // את הטבלה על ``| רק תא אחד |`` ועל תא שמכיל מקף מוברח.
+          //
+          // דרישת שתי העמודות חלה על הכותרת בלבד, ושם היא מונעת זיהוי
+          // שגוי; כאן ההקשר כבר נקבע, ולכן שורה עם מפריד היא שורת טבלה.
+          const scan = this._scanTableRow(row);
+          if (row.trim() === '' || scan.delimiters === 0) break;
+          addRow(tbody, scan.cells, false, row);
+        }
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        view.appendChild(wrap);
+
+        // **ספירת שורות המשימה שנצרכו.** הפייפ הסוגר אופציונלי, ולכן
+        // ``- [ ] משימה | עמודה`` היא גם שורת משימה תקפה וגם כותרת טבלה
+        // תקפה. השרת (``sticky_notes_tasks``) סופר אותה בכל מקרה, ולכן
+        // גם הסידור כאן חייב להתקדם עליה — אחרת כל צ'קבוקס שאחרי הטבלה
+        // נשלח עם אינדקס של משימה אחרת. זו בדיוק אותה החלטה שכבר מתועדת
+        // עבור שורות משימה בתוך גדר קוד.
+        let tasksConsumed = 0;
+        for (let k = startIndex; k <= i - 1; k += 1){
+          if (TASK_LINE_RE.test(lines[k])) tasksConsumed += 1;
+        }
+        return { lastIndex: i - 1, nextOffset: offset, tasksConsumed };
+      }
+
       _hasRenderableMarkdown(lines){
-        for (const line of lines){
+        for (let i = 0; i < lines.length; i += 1){
+          const line = lines[i];
           if (MD_FENCE_RE.test(line)) return true;
+          // **טבלה נבדקת כאן ולא ב-``_classifyLine``**, כי היא בלוק של שתי
+          // שורות ואילו המסווג הוא פר-שורה. בלי הבדיקה הזו פתק שכולו טבלה
+          // אינו עובר את השער והתצוגה כלל לא נפתחת — כשל שקט בדיוק במקרה
+          // הנפוץ ביותר.
+          if (i + 1 < lines.length && this._tableSpec(line, lines[i + 1])) return true;
           const b = this._classifyLine(line);
           if (b.kind !== 'plain') return true;
           if (this._lineHasInline(b.content)) return true;
@@ -1308,13 +1471,35 @@
           let taskIndex = 0;
           let charOffset = 0;
           let inFence = false;
-          lines.forEach((line) => {
+          // **לולאה מאונדקסת ולא ``forEach``** — טבלה היא בלוק רב-שורתי,
+          // והיא צריכה לצרוך כמה שורות בבת אחת ולקדם את ההיסט על כולן.
+          for (let li = 0; li < lines.length; li += 1) {
+            const line = lines[li];
+            // **``isFenceLine`` מחושב כאן ולא אחרי בדיקת הטבלה.** ``inFence``
+            // עדיין ``false`` כשרואים את שורת הפתיחה, ולכן בלי ההחרגה
+            // המפורשת פותחת גדר שיש בה מקף אנכי הייתה נבלעת לטבלה —
+            // והדגל לא היה מתהפך, כך שכל הגדר הייתה נשברת.
+            const isFenceLine = wantMd && MD_FENCE_RE.test(line);
+            // טבלה נבדקת לפני כל השאר, ורק מחוץ לגדר קוד: בתוך גדר, שורה
+            // עם מקפים אנכיים היא קוד ליטרלי.
+            const spec = (wantMd && !inFence && !isFenceLine && li + 1 < lines.length)
+              ? this._tableSpec(line, lines[li + 1])
+              : null;
+            if (spec) {
+              // מחזיר את שני הערכים במפורש ולא דרך שדה על המופע: ההיסט
+              // מקודם על **כל** השורות שנצרכו, כולל שורת המפריד, ובלי זה
+              // כל השורות שאחרי הטבלה מצביעות למקום שגוי.
+              const done = this._appendTable(view, lines, li, spec, charOffset);
+              li = done.lastIndex;
+              charOffset = done.nextOffset;
+              taskIndex += done.tasksConsumed;
+              continue;
+            }
             const m = TASK_LINE_RE.exec(line);
             const row = createEl('div', 'sticky-task-line');
             // מיקום התו הראשון של השורה בתוך התוכן — כדי שלחיצה תחזיר
             // לעריכה בדיוק בשורה שנלחצה, ולא בתחילת הפתק.
             row.dataset.charOffset = String(charOffset);
-            const isFenceLine = wantMd && MD_FENCE_RE.test(line);
             // **הסידור מתקדם על כל שורת משימה, כמו השרת.**
             //
             // ``sticky_notes_tasks.toggle_task_at_index`` סופר כל שורת
@@ -1376,7 +1561,7 @@
             }
             view.appendChild(row);
             charOffset += line.length + 1;   // +1 עבור ה-``\n`` שהפיצול הסיר
-          });
+          }
           view.hidden = false;
           textarea.hidden = true;
         } catch(_) {}
