@@ -257,11 +257,6 @@
 .board-setting-row { display: flex; gap: .6rem; align-items: flex-start; cursor: pointer; }
 .board-setting-row input { margin-top: .3rem; flex: 0 0 auto; }
 .board-setting-row small { display: block; color: var(--text-muted, #667); font-size: .85rem; margin-top: .15rem; }
-.board-setting-note {
-  margin: .9rem 0 0; padding: .6rem .75rem; border-radius: 8px;
-  font-size: .85rem; color: var(--text-muted, #667);
-  background: color-mix(in srgb, var(--text-primary, #1f2933) 6%, transparent);
-}
 .board-settings-actions { display: flex; justify-content: flex-start; margin-top: 1rem; }
 
 /* ============================================================
