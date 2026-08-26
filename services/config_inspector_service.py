@@ -515,8 +515,12 @@ class ConfigService:
             services=("webapp", "bot", "mcp", "webserver"),
             default="",
             description=(
-                "כתובת Redis. בלעדיה הקאש מושבת לגמרי בשירות — שאר הגדרות "
-                "ה-Redis וה-Cache לא משפיעות על כלום"
+                "כתובת Redis. **שני צרכנים נפרדים, משתנה אחד.** (1) הקאש: "
+                "בלעדיה הוא מושבת לגמרי בשירות, ושאר הגדרות ה-Redis "
+                "וה-Cache לא משפיעות על כלום. (2) ב-WebApp בלבד — גם "
+                "אחסון ה-rate limiter; בלעדיה הוא נופל ל-memory://, "
+                "כלומר המונים נספרים לכל gunicorn worker בנפרד "
+                "ומתאפסים בכל דיפלוי"
             ),
             category="cache",
             sensitive=True,

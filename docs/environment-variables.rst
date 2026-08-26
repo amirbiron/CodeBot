@@ -599,11 +599,11 @@
      - ``true``
      - WebApp
    * - ``REDIS_URL``
-     - חיבור ל-Redis (cache)
+     - חיבור ל-Redis. **שני צרכנים, משתנה אחד:** הקאש (בכל השירותים), ובנוסף — ב-WebApp בלבד — אחסון ה-rate limiter. בלעדיו הקאש מושבת לגמרי, וה-limiter נופל ל-``memory://``: המונים נספרים לכל gunicorn worker בנפרד ומתאפסים בכל דיפלוי
      - לא
      - -
      - ``redis://localhost:6379``
-     - Bot
+     - Bot/WebApp
    * - ``REDIS_CONNECT_TIMEOUT``
      - Timeout התחברות ל-Redis (שניות)
      - לא
@@ -623,9 +623,9 @@
      - ``true``
      - Bot/WebApp
    * - ``CACHE_ENABLED``
-     - הפעלת קאש פנימי
+     - הפעלת קאש פנימי. דורש ``REDIS_URL``; ``false`` מכבה את הקאש בלי למחוק את הכתובת
      - לא
-     - ``false``
+     - ``true``
      - ``true``
      - Bot/WebApp
    * - ``CACHE_CLEAR_BUDGET_SECONDS``
