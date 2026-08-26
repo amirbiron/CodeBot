@@ -44,7 +44,14 @@ HARDCODED_RE = re.compile(
 
 # הנכסים שחייבים cache-buster. הרשימה מכוונת ולא גורפת: היא מכסה את מה
 # שהוכח שנשבר, ואפשר להרחיב אותה כשמשטח נוסף נדרס באותו אופן.
-GUARDED = ("js/sticky-notes.js", "css/sticky-notes.css")
+GUARDED = (
+    "js/sticky-notes.js",
+    "css/sticky-notes.css",
+    # נוספו אחרי שהתברר שתיקון המפריד בדפדפן הריפו לא היה מגיע לדפדפן:
+    # שתי התגיות האלה נטענו בכתובת קבועה, בדיוק כמו נכסי הפתקים.
+    "js/repo-browser.js",
+    "css/repo-browser.css",
+)
 
 
 def scan_text(text):

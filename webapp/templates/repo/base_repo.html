@@ -22,7 +22,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
 <!-- Custom Repo Browser Styles -->
-<link rel="stylesheet" href="{{ url_for('static', filename='css/repo-browser.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/repo-browser.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 {% endblock %}
@@ -394,7 +394,7 @@
 <script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}"></script>
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}"></script>
 <script src="{{ url_for('static', filename='js/live-preview.js') }}"></script>
-<script src="{{ url_for('static', filename='js/repo-browser.js') }}"></script>
+<script src="{{ url_for('static', filename='js/repo-browser.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/repo-notes.js') }}?v={{ static_version }}"></script>
 {% endblock %}

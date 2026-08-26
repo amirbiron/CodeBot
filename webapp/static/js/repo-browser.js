@@ -2567,41 +2567,79 @@ function initKeyboardShortcuts() {
 function initResizer() {
     const resizer = document.getElementById('sidebar-resizer');
     const sidebar = document.getElementById('repo-sidebar');
-    
+
     if (!resizer || !sidebar) return;
 
-    let isResizing = false;
-    let startX, startWidth;
+    // **Pointer Events ולא ענף מגע מקביל.** עכבר, מגע ועט מגיעים לאותם
+    // ``pointerdown``/``pointermove``/``pointerup``, ולכן יש כאן מסלול קוד
+    // אחד במקום שניים שנוטים להיסחף זה מזה. ``touch-action: pan-y`` על
+    // ה-resizer ב-CSS הוא שמחלק את המחוות: הגלילה האנכית נשארת לדפדפן,
+    // והתנועה האופקית מגיעה לכאן. כשהדפדפן מכריע שמדובר בגלילה הוא שולח
+    // ``pointercancel``, ולכן יש לו מאזין למטה.
+    let activePointer = null;
+    let startX = 0;
+    let startWidth = 0;
 
-    resizer.addEventListener('mousedown', (e) => {
-        isResizing = true;
+    // מהדק לגבולות במקום לזרוק ערך מחוץ לטווח. הצורה הקודמת התעלמה
+    // מהעדכון כשהוא חרג, ולכן קפיצה אחת מעבר לגבול (גרירה מהירה, או אצבע
+    // שזזה הרבה בין דגימות) הותירה את הסיידבר על הערך התקין האחרון ולא
+    // על הגבול עצמו.
+    function clampWidth(raw) {
+        const cs = getComputedStyle(document.documentElement);
+        const min = parseInt(cs.getPropertyValue('--sidebar-min-width'), 10);
+        const max = parseInt(cs.getPropertyValue('--sidebar-max-width'), 10);
+        if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+        return Math.min(Math.max(raw, min), max);
+    }
+
+    function endDrag(e) {
+        if (e.pointerId !== activePointer) return;
+        activePointer = null;
+        resizer.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }
+
+    resizer.addEventListener('pointerdown', (e) => {
+        // אצבע שנייה על המפריד באמצע גרירה אינה מתחילה גרירה שנייה.
+        if (activePointer !== null) return;
+        // רק הלחצן הראשי. במגע ובעט ``button`` הוא 0, ולכן התנאי אינו
+        // חוסם אותם.
+        if (e.button !== 0) return;
+
+        activePointer = e.pointerId;
         startX = e.clientX;
         startWidth = sidebar.offsetWidth;
+        // **לכידת המצביע.** בלעדיה גרירה במגע מתה ברגע שהאצבע יוצאת מרצועת
+        // ארבעת הפיקסלים — כלומר כמעט מיד. עם הלכידה, האירועים ממשיכים
+        // להגיע ל-resizer, והשחרור קורה מאליו ב-``pointerup``.
+        // הלכידה היא שיפור, לא תנאי: אירוע לכוד עדיין מבעבע ל-``document``,
+        // ולכן המאזינים שם עובדים איתה ובלעדיה. אם היא נכשלת, הגרירה
+        // ממשיכה לעבוד במקום להיתקע במצב פעיל.
+        try { resizer.setPointerCapture(e.pointerId); } catch (_) { /* ממשיכים בלי לכידה */ }
         resizer.classList.add('active');
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
+        // מונע בחירת טקסט בעכבר, וגרירת-ברירת-מחדל של הדפדפן.
+        e.preventDefault();
     });
 
-    document.addEventListener('mousemove', (e) => {
-        if (!isResizing) return;
-        
-        const width = startWidth + (e.clientX - startX);
-        const minWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-min-width'));
-        const maxWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-max-width'));
-        
-        if (width >= minWidth && width <= maxWidth) {
-            sidebar.style.width = `${width}px`;
-        }
+    // **ההמשך מאזין על ``document`` ולא על המפריד.** עם לכידה האירועים
+    // ממוענים למפריד ובכל זאת מבעבעים לכאן, ובלי לכידה — למשל אם
+    // ``setPointerCapture`` נכשל — הם מגיעים לכאן ישירות. מסלול אחד שמכסה
+    // את שני המצבים, במקום ענף גיבוי נפרד שיסתחף.
+    document.addEventListener('pointermove', (e) => {
+        if (e.pointerId !== activePointer) return;
+        const width = clampWidth(startWidth + (e.clientX - startX));
+        if (width !== null) sidebar.style.width = `${width}px`;
     });
 
-    document.addEventListener('mouseup', () => {
-        if (isResizing) {
-            isResizing = false;
-            resizer.classList.remove('active');
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-        }
-    });
+    document.addEventListener('pointerup', endDrag);
+    // **``pointercancel`` אינו קישוט.** מחווה של המערכת שקוטעת את הגרירה —
+    // וגם הכרעת הדפדפן שהתנועה היא גלילה אנכית, לפי ``touch-action: pan-y``
+    // — שולחת אותו במקום ``pointerup``. בלעדיו הדגל היה נשאר דלוק,
+    // והסיידבר היה ממשיך להשתנות בכל תזוזה הבאה.
+    document.addEventListener('pointercancel', endDrag);
 }
 
 // ========================================

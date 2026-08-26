@@ -325,6 +325,50 @@ jobs:
         env:
           PYV: ${{ matrix.python-version }}
 
+  js-tests:
+    name: "JS Tests (node)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # v5 ולא v4: ``action.yml`` של v4 מצהיר ``runs.using: node20``, וזה
+      # ה-runtime שהוצא משימוש. v5 ומעלה מצהירים ``node24``. נבחר המינימום
+      # שפותר, ולא הגרסה החדשה ביותר, כדי לא לייבא שינויי התנהגות נוספים.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      # קבצי tests/*.test.js הם סקריפטים עצמאיים: הם מריצים את הבדיקות
+      # בעצמם ויוצאים עם קוד שגיאה בכשל, בלי רץ טסטים חיצוני. עד עכשיו
+      # שום ג'וב לא הריץ אותם, ולכן 200+ בדיקות לא הגנו על כלום.
+      - name: Run standalone JS tests
+        run: |
+          set -uo pipefail
+          # קבצי tests/*.test.js הם סקריפטים עצמאיים. קובץ שכתוב לרץ טסטים
+          # (describe/it) ואינו מייבא אותו אינו ניתן להרצה כאן — **מזוהה
+          # לפי תוכנו ולא לפי שמו**, כדי שקובץ חדש כזה לא ידרוש חריגה
+          # ידנית חדשה ולא ייפול עם stack trace חסר פשר.
+          #
+          # קובץ כזה נספר ככשל, לא כדילוג: דילוג היה נראה כאילו הוא נבדק.
+          # החריג היחיד המוכר הוא repo-history.test.js, ששרד מתוכנית Jest
+          # שמעולם לא מומשה (ראו GUIDES/*.md). הוא גם אינו טוען את הקוד
+          # שהוא אמור לבדוק — אין בו import ואין require, הוא מגדיר את
+          # הפונקציות בתוך עצמו ובודק את ההעתקים. הדרך להסיר את החריג היא
+          # לכתוב אותו מחדש כך שיטען את המקור, או למחוק אותו.
+          GRANDFATHERED="repo-history.test.js"
+          failed=0
+          for f in tests/*.test.js; do
+            name="$(basename "$f")"
+            if [ "$name" = "$GRANDFATHERED" ]; then
+              echo ":: מדולג (חריג מוכר): $name — סגנון רץ טסטים, ואינו טוען את הקוד שהוא בודק"
+              continue
+            fi
+            echo "── $name"
+            if ! node "$f"; then
+              failed=1
+            fi
+          done
+          exit "$failed"
+
   hadolint:
     name: "Dockerfile lint (hadolint)"
     runs-on: ubuntu-latest
