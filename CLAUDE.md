@@ -46,7 +46,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 |---|---|
 | שמירה/מחיקה שמסתיימת בהודעת ✅ למשתמש | `CRITICAL-PATTERNS.md` K11 |
 | קאש / invalidation | `bugbot-rules/return-value-failure-unchecked.md` §4 |
-| דגל שמצהיר "מטא-דאטה בלבד" (`--package-lock-only`, `--fake`), או רשומה שמתעדכנת בנפרד מהעבודה שהיא מתארת | `bugbot-rules/state-record-without-state-change.md` |
+| דגל שמצהיר "מטא-דאטה בלבד" (`npm install --package-lock-only`, `django-admin migrate --fake`), או רשומה שמתעדכנת בנפרד מהעבודה שהיא מתארת | `bugbot-rules/state-record-without-state-change.md` |
 | callbacks / handlers מקביליים, מזהים מבוססי־זמן | `CORE-PATTERNS.md` U1 |
 | PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
 | קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
