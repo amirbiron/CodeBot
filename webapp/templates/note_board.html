@@ -61,6 +61,13 @@
             <small>הלוח ממשיך להתרחב כלפי מטה, כך שתמיד יש לאן לגרור פתקים.</small>
           </span>
         </label>
+        <label class="board-setting-row">
+          <input type="checkbox" id="handwritingToggle">
+          <span>
+            <b>כתב יד</b>
+            <small>הפתקים בלוח הזה מוצגים בגופן כתב-יד. קוד נשאר בגופן אחיד, כדי שיישאר קריא.</small>
+          </span>
+        </label>
         <p class="board-setting-note">
           כיבוי אינו מזיז אף פתק. אורך הלוח נמדד תמיד עד הפתק האחרון, ומתקצר רק עד שם.
         </p>
@@ -210,6 +217,23 @@
   }
   function writeInfinite(on) {
     try { localStorage.setItem(INFINITE_KEY, on ? '1' : '0'); } catch (e) { /* מצב זמני בלבד */ }
+  }
+
+  // גופן כתב-יד ללוח. אותה צורה בדיוק כמו שתי ההעדפות שמעל: מפתח
+  // מקומי לכל לוח, בלי שינוי סכמה ובלי קריאת רשת. כבוי כברירת מחדל —
+  // רק הדלקה מפורשת נשמרת.
+  const HANDWRITING_KEY = 'board-handwriting:' + BOARD_ID;
+  function readHandwriting() {
+    try { return localStorage.getItem(HANDWRITING_KEY) === '1'; } catch (e) { return false; }
+  }
+  function writeHandwriting(on) {
+    try { localStorage.setItem(HANDWRITING_KEY, on ? '1' : '0'); } catch (e) { /* מצב זמני בלבד */ }
+  }
+  //: המחלקה יושבת על ``<body>`` ולא על מכל הפתקים: פתק במצב ``screen``
+  //: מרונדר תחת ``document.body`` ולא בתוך המכל, ולכן מחלקה על המכל
+  //: הייתה מדלגת עליו בשקט.
+  function applyHandwriting(on) {
+    try { document.body.classList.toggle('board-handwriting', !!on); } catch (e) { /* אין מה לעשות */ }
   }
 
   // מארקדאון דלוק כברירת מחדל — רק **כיבוי** מפורש נשמר. כך פתק קיים
@@ -362,6 +386,13 @@
   markdownToggle.addEventListener('change', function () {
     writeMarkdown(markdownToggle.checked);
     window._boardNotes.setMarkdown(markdownToggle.checked);
+  });
+  const handwritingToggle = document.getElementById('handwritingToggle');
+  handwritingToggle.checked = readHandwriting();
+  applyHandwriting(handwritingToggle.checked);
+  handwritingToggle.addEventListener('change', function () {
+    writeHandwriting(handwritingToggle.checked);
+    applyHandwriting(handwritingToggle.checked);
   });
 
   document.getElementById('firstNoteBtn').addEventListener('click', function () {

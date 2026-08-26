@@ -87,6 +87,36 @@ def test_board_surface_renders_with_its_id(logged_in):
     assert 'boardSurface' in html
 
 
+def test_handwriting_toggle_is_per_board(logged_in):
+    """מתג כתב-היד קיים, והמפתח שלו נושא את מזהה הלוח.
+
+    **המפתח הוא מה שנבדק כאן, לא רק קיום המתג.** מפתח בלי מזהה הלוח היה
+    הופך את ההעדפה לגלובלית: הדלקה בלוח אחד הייתה מדליקה בכולם, וזה כשל
+    שנראה זהה לחלוטין בבדיקה ידנית על לוח יחיד.
+    """
+    res = logged_in.get('/boards/507f1f77bcf86cd799439011')
+    html = res.get_data(as_text=True)
+
+    assert res.status_code == 200
+    assert 'handwritingToggle' in html
+    assert "'board-handwriting:' + BOARD_ID" in html
+    # אותה צורה בדיוק כמו שתי ההעדפות שכבר קיימות — אם אחת מהן תשתנה,
+    # הבדיקה הזו מזכירה שגם החדשה צריכה להשתנות איתה.
+    assert "'board-markdown:' + BOARD_ID" in html
+    assert "'board-infinite:' + BOARD_ID" in html
+
+
+def test_handwriting_font_is_loaded_for_board_pages(logged_in):
+    """הגופן נטען, אחרת המתג מחליף למשפחה שאינה קיימת ושום דבר לא משתנה."""
+    res = logged_in.get('/boards/507f1f77bcf86cd799439011')
+    html = res.get_data(as_text=True)
+
+    assert 'family=Gveret+Levin' in html
+    # ``preconnect`` ל-gstatic נדרש כדי שקובץ הגופן לא ישלם על handshake
+    # מלא בפעם הראשונה. הוא כבר קיים עבור Heebo, וזו בדיקה שהוא לא יוסר.
+    assert 'https://fonts.gstatic.com' in html
+
+
 def test_board_id_is_escaped_not_interpolated(logged_in):
     """מזהה עוין אינו נשבר החוצה מה-JS.
 

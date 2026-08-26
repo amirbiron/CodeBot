@@ -395,3 +395,27 @@
    הראשון, ולכן תא עברי נשאר RTL ותא של מספר או מזהה קוד מוצג LTR.
    ``text-align: start`` מתיישר לפי הכיוון שהוכרע לתא, ולא לפי הפתק. */
 .sticky-md-cell { text-align: start; }
+
+/* ── כתב יד, לפי הגדרה פר-לוח ───────────────────────────────────────
+   המחלקה יושבת על ``<body>`` ולא על מכל הפתקים, כי פתק במצב ``screen``
+   מרונדר תחת ``document.body`` ולא בתוך המכל — מחלקה על המכל הייתה
+   מדלגת עליו בשקט.
+
+   ``cursive`` כגיבוי הוא מה ש-Google Fonts ממליץ למשפחה הזו, והוא גם
+   מה שיוצג אם הגופן לא נטען: כתב מחובר כלשהו, ולא קפיצה ל-Heebo. */
+.board-handwriting .sticky-note-content,
+.board-handwriting .sticky-note-tasks,
+.board-handwriting .sticky-note-title {
+  font-family: 'Gveret Levin', cursive;
+  /* הגופן צר ונמוך יחסית ל-Heebo; בלי התוספת הזו הפתק נראה מוקטן. */
+  font-size: 1.08em;
+}
+
+/* **קוד נשאר בגופן אחיד.** לשני אלה כבר יש ``font-family`` משלהם, אבל
+   הסלקטור עם ``.board-handwriting`` ספציפי יותר וללא ההחרגה הזו היה
+   גובר עליהם דרך הירושה מהמכל. כתב-יד על נתיב קובץ אינו קריא. */
+.board-handwriting .sticky-md-code,
+.board-handwriting .sticky-md-pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+}
