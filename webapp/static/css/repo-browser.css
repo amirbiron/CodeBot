@@ -585,6 +585,26 @@
     background: var(--border-color);
     cursor: col-resize;
     transition: background 0.15s ease;
+    /* **בלי זה גרירה במגע לא קיימת.** הדפדפן מפרש את תנועת האצבע כגלילה
+       או כזום ובולע אותה לפני שה-``pointermove`` שלנו רואה משהו.
+       ``none`` = "Disable browser handling of all panning and zooming
+       gestures" לפי הגדרת המאפיין. */
+    touch-action: none;
+    /* עוגן ל-``::before`` שמרחיב את אזור המגע */
+    position: relative;
+}
+
+/* **אזור מגע רחב מהקו הנראה.** ארבעה פיקסלים הם יעד סביר לעכבר ובלתי
+   אפשרי לאצבע. הפסאודו-אלמנט נמתח עשרה פיקסלים לכל צד ומייצר יעד של
+   24px, בלי לשנות את רוחב הקו שנראה ובלי להזיז אף אלמנט בפריסה —
+   הוא ``absolute``, ולכן אינו תופס מקום. */
+.resizer::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -10px;
+    right: -10px;
 }
 
 .resizer:hover,
