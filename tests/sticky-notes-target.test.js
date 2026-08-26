@@ -789,6 +789,16 @@ check('אינליין: מרקר לא-סגור נשאר טקסט', () => {
   eq(inlineDump(fileMgr, 'a == b'), 'text(a == b)');
 });
 
+check('אינליין: קוד השוואה אינו נצבע', () => {
+  // **בכלי קוד זה המקרה הנפוץ.** שרשור השוואות בפייתון מכיל שני ``==``
+  // ובלי כלל הרווחים האופרנד האמצעי היה מרונדר כמרקר.
+  eq(inlineDump(fileMgr, 'a == b == c'), 'text(a == b == c)');
+  eq(inlineDump(fileMgr, '1 == 1 == True'), 'text(1 == 1 == True)');
+  eq(inlineDump(fileMgr, 'if x == y == z:'), 'text(if x == y == z:)');
+  // גם הצורה עם רווח בצד אחד בלבד
+  eq(inlineDump(fileMgr, '== x =='), 'text(== x ==)');
+});
+
 check('אינליין: מרקר ריק אינו נתפס', () => {
   // ``====`` הוא ארבעה תווים, לא מרקר של כלום. ה-``+?`` דורש תו אחד
   // לפחות, אחרת שורת ``===`` של Setext הייתה נבלעת.
@@ -872,6 +882,17 @@ function renderMd(mgr, content){
   mgr._syncTaskView(parts.el);
   return parts;
 }
+
+check('רינדור: מרקר נבנה ל-DOM', () => {
+  // שאר הסוגים האינליניים נבדקים גם ברמת ה-DOM ולא רק בפרסר. בלי זה
+  // ``_appendInline`` יכול היה להפסיק לייצר ``<mark>`` בלי שאף טסט ייפול.
+  const { view } = renderMd(mdMgr, 'לפני ==מסומן== אחרי');
+  const mark = view.querySelector('mark.sticky-md-mark');
+  eq(!!mark, true, 'נוצר mark.sticky-md-mark');
+  eq(mark && mark.textContent, 'מסומן', 'התוכן');
+  // ה-DOM המדומה מחזיר את השם באותיות קטנות, בדפדפן הוא גדולות.
+  eq(mark && String(mark.tagName).toLowerCase(), 'mark', 'האלמנט הסמנטי ולא span');
+});
 
 check('רינדור: כל סוגי הבלוק נבנים', () => {
   const { el, view } = renderMd(mdMgr,
