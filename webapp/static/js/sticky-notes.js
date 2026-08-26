@@ -1250,17 +1250,22 @@
         return false;
       }
       /**
-       * מפרק שורת טבלה לתאים.
+       * סורק שורת טבלה ומחזיר ``{ cells, delimiters }``.
        *
-       * מקפים אנכיים מובילים וסוגרים מוסרים לפני הפיצול, אחרת ``| א | ב |``
-       * היה נותן תא ריק בכל קצה. ``\\|`` מוברח ואינו מפצל.
+       * **סריקה אחת מודעת-escape, ואז השמטת התאים הריקים שבקצוות** —
+       * המקף האנכי המוביל והסוגר אופציונליים ב-GFM ומייצרים תא ריק בקצה.
+       * אין כאן שלב שמסיר תו לפני שידוע אם הוא מוברח: גרסה קודמת חתכה
+       * את המקף הסוגר ב-``replace`` לפני הסריקה, ולכן ``| a | b\\|`` איבד
+       * את המקף המוברח והציג לוכסן מיותר.
+       *
+       * ``delimiters`` הוא הסיבה שהפונקציה מחזירה אובייקט ולא מערך:
+       * ``| רק תא אחד |`` ו-``טקסט רגיל`` נותנים שניהם תא אחד, ורק ספירת
+       * המפרידים מבדילה ביניהם. **זהו המקום היחיד בקוד שיודע מהו מפריד**,
+       * ולכן גם השאלה "האם זו שורת טבלה" נענית מכאן.
        */
-      _splitTableRow(line){
-        // **סריקה אחת מודעת-escape, ואז השמטת התאים הריקים שבקצוות.**
-        // הגרסה הקודמת הסירה את הפייפ הסוגר ב-``replace`` לפני הסריקה,
-        // ולכן ``| a | b\\|`` איבד את הפייפ הבורח והציג לוכסן מיותר. כאן
-        // אין שלב שמסיר תו לפני שידוע אם הוא מוברח.
+      _scanTableRow(line){
         const trimmed = String(line).trim();
+        let delimiters = 0;
         const cells = [];
         let cur = '';
         let leadingDelim = false;
@@ -1269,6 +1274,7 @@
           const ch = trimmed[i];
           if (ch === '\\' && trimmed[i + 1] === '|'){ cur += '|'; i += 1; continue; }
           if (ch === '|'){
+            delimiters += 1;
             if (cells.length === 0 && cur.trim() === '') leadingDelim = true;
             if (i === trimmed.length - 1) trailingDelim = true;
             cells.push(cur.trim());
@@ -1278,10 +1284,14 @@
           cur += ch;
         }
         cells.push(cur.trim());
-        // הפייפ המוביל והסוגר אופציונליים ב-GFM; הם מייצרים תא ריק בקצה.
         if (trailingDelim && cells[cells.length - 1] === '') cells.pop();
         if (leadingDelim && cells[0] === '') cells.shift();
-        return cells;
+        return { cells, delimiters };
+      }
+
+      /** התאים בלבד — העטיפה הדקה שרוב הקוראים צריכים. */
+      _splitTableRow(line){
+        return this._scanTableRow(line).cells;
       }
 
       /**
@@ -1362,10 +1372,16 @@
         let i = startIndex + 2;
         for (; i < lines.length; i += 1){
           const row = lines[i];
-          // הטבלה נגמרת בשורה שאינה שורת טבלה — כולל שורה ריקה. הסיום
-          // נשען על אותו מפצל שקבע את הזיהוי, ולא על ספירת פייפים גולמיים.
-          if (row.trim() === '' || this._splitTableRow(row).length < 2) break;
-          addRow(tbody, this._splitTableRow(row), false, row);
+          // **שורת גוף נמדדת במפריד, לא במספר התאים.** ב-GFM שורת גוף
+          // רשאית להכיל פחות תאים מהכותרת, והחסרים ריקים — ``addRow`` כבר
+          // מרפד לפי ``spec.align``. דרישת שני תאים גם כאן הייתה מסיימת
+          // את הטבלה על ``| רק תא אחד |`` ועל תא שמכיל מקף מוברח.
+          //
+          // דרישת שתי העמודות חלה על הכותרת בלבד, ושם היא מונעת זיהוי
+          // שגוי; כאן ההקשר כבר נקבע, ולכן שורה עם מפריד היא שורת טבלה.
+          const scan = this._scanTableRow(row);
+          if (row.trim() === '' || scan.delimiters === 0) break;
+          addRow(tbody, scan.cells, false, row);
         }
 
         table.appendChild(thead);

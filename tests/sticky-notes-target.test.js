@@ -1246,6 +1246,33 @@ check('טבלה: לחיצה על שורה בתוך הטבלה מחזירה לע�
   eq(ta.selectionStart, content.indexOf('| 2 | ב |'), 'הסמן בתחילת השורה שנלחצה');
 });
 
+check('טבלה: שורת גוף עם תא יחיד נשארת בטבלה', () => {
+  // ב-GFM שורת גוף רשאית להכיל פחות תאים מהכותרת, והחסרים ריקים.
+  // ``addRow`` כבר מרפד לפי ``spec.align``; מה שהפסיק את הטבלה היה תנאי
+  // הסיום, שדרש שני תאים גם משורות הגוף.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| רק אחד |\n| 1 | 2 |');
+  const tbody = view.querySelector('tbody');
+  eq(tbody.querySelectorAll('tr').length, 2, 'שתי שורות גוף');
+  eq(tbody.querySelectorAll('td').length, 4, 'וארבעה תאים — החסר רופד');
+});
+
+check('טבלה: שורת גוף עם פייפ מוברח נשארת בטבלה', () => {
+  // תא שמכיל ``\\|`` מתפצל לתא אחד, ולכן התנאי הישן היה מסיים עליו את
+  // הטבלה — למרות שהשורה בבירור שורת טבלה.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| a\\|b |\n| 1 | 2 |');
+  const tbody = view.querySelector('tbody');
+  eq(tbody.querySelectorAll('tr').length, 2, 'שתי שורות גוף');
+  eq(tbody.querySelectorAll('td')[0].textContent, 'a|b', 'והפייפ נשאר בתוכן התא');
+});
+
+check('טבלה: שורה בלי מפריד כלל מסיימת את הטבלה', () => {
+  // הצד השני של אותו תנאי — בלי זה הטבלה הייתה בולעת את כל מה שאחריה.
+  const { view } = renderMd(mdMgr, '| א | ב |\n|---|---|\n| 1 | 2 |\nטקסט רגיל');
+  eq(view.querySelector('tbody').querySelectorAll('tr').length, 1, 'שורת גוף אחת');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows[rows.length - 1].textContent, 'טקסט רגיל', 'והשורה האחרונה היא טקסט');
+});
+
 // -- destroy: flush לפני פירוק --
 
 check('destroy מרוקן את התור לפני שהוא מפרק', async () => {
