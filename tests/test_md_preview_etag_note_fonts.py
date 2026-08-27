@@ -11,53 +11,20 @@
 שמרונדר פר-משתמש.
 """
 
-import os
-
 import pytest
 from bson import ObjectId
 
 pytest.importorskip("flask")
 
-MONGO_URI = os.getenv("NOTE_FONTS_TEST_MONGO_URI")
-TEST_DB_NAME = "md_etag_test"
+from tests.conftest import requires_test_mongo
 
-pytestmark = pytest.mark.skipif(
-    not MONGO_URI,
-    reason="דורש מונגו אמיתי; הגדירו NOTE_FONTS_TEST_MONGO_URI",
-)
+pytestmark = requires_test_mongo
 
 
-@pytest.fixture
-def wired():
-    """ראו ההסבר המלא ב-``tests/test_note_fonts.py``: ``DATABASE_NAME``
-    נדרס כי ``get_db`` פותח ``client[DATABASE_NAME]``, והמצב משוחזר כי
-    ``webapp.app`` הוא מודול שחי לכל אורך התהליך."""
-    import pymongo
-
-    import webapp.app as wa
-
-    previous = (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db)
-    pymongo.MongoClient(MONGO_URI).drop_database(TEST_DB_NAME)
-    wa.MONGODB_URL = MONGO_URI
-    wa.DATABASE_NAME = TEST_DB_NAME
-    wa.client = None
-    wa.db = None
-    wa.app.config["TESTING"] = True
-    try:
-        yield wa
-    finally:
-        try:
-            if wa.client is not None:
-                wa.client.close()
-        except Exception:
-            pass
-        wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db = previous
-
-
-def _seed(wired, bits="000"):
+def _seed(wired_mongo, bits="000"):
     from webapp.app import _decode_note_fonts
 
-    db = wired.get_db()
+    db = wired_mongo.get_db()
     db.users.delete_many({"user_id": 7})
     db.users.insert_one({"user_id": 7, "ui_prefs": {
         "note_fonts": _decode_note_fonts(bits)}})
@@ -74,37 +41,37 @@ def _seed(wired, bits="000"):
         "is_active": True,
     })
 
-    client = wired.app.test_client()
+    client = wired_mongo.app.test_client()
     with client.session_transaction() as sess:
         sess["user_id"] = 7
     return client, str(file_id)
 
 
-def test_the_etag_differs_between_font_settings(wired):
-    client, file_id = _seed(wired, "000")
+def test_the_etag_differs_between_font_settings(wired_mongo):
+    client, file_id = _seed(wired_mongo, "000")
     etag_off = client.get(f"/md/{file_id}").headers.get("ETag")
     assert etag_off, "העמוד אינו מגיש ETag כלל"
 
-    wired.get_db().users.update_one(
+    wired_mongo.get_db().users.update_one(
         {"user_id": 7}, {"$set": {"ui_prefs.note_fonts.md": True}})
     etag_on = client.get(f"/md/{file_id}").headers.get("ETag")
 
     assert etag_off != etag_on, f"אותו ETag לשני מצבים: {etag_off}"
 
 
-def test_a_changed_setting_returns_a_fresh_body_and_not_304(wired):
+def test_a_changed_setting_returns_a_fresh_body_and_not_304(wired_mongo):
     """**המסלול שהמשתמש עובר בפועל**, ולא השוואת מחרוזות.
 
     הבדיקה מוודאת קודם שהוולידטור בכלל עובד (304 כשכלום לא השתנה),
     כדי שה-200 שאחריו יהיה ראיה ולא מקריות.
     """
-    client, file_id = _seed(wired, "000")
+    client, file_id = _seed(wired_mongo, "000")
     etag = client.get(f"/md/{file_id}").headers["ETag"]
 
     unchanged = client.get(f"/md/{file_id}", headers={"If-None-Match": etag})
     assert unchanged.status_code == 304, "הוולידטור אינו עובד כלל"
 
-    wired.get_db().users.update_one(
+    wired_mongo.get_db().users.update_one(
         {"user_id": 7}, {"$set": {"ui_prefs.note_fonts.md": True}})
 
     after = client.get(f"/md/{file_id}", headers={"If-None-Match": etag})

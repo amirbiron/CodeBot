@@ -211,5 +211,56 @@ await acheck('רסט של שלושה שינויים מתכווץ לשתי בקש
   eq(h.sent[1].note_fonts.board, true, 'האחרונה נושאת את הכול');
 });
 
+await acheck('הצלחה ואז כשל באותו תור — ההחזרה תואמת את מה שנשמר', async () => {
+  // **התרחיש שהריוויוור תיאר.** שינוי ראשון נשלח ומצליח; שינוי שני
+  // נכנס לתור בזמן שהראשון באוויר, ונכשל. בלי עדכון ``lastSaved`` אחרי
+  // **כל** שליחה מוצלחת, ההחזרה הייתה מחזירה את הבוררים למצב שלפני
+  // שניהם — בעוד שהשרת כבר קיבל את הראשון. המסך היה סותר את השרת.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let n = 0;
+  const h = load(async () => {
+    n += 1;
+    if (n === 1) { await gate; return { ok: true, body: { ok: true } }; }
+    return { ok: false, status: 500, body: null };   // השנייה נכשלת
+  });
+
+  h.selects[0].value = '1';
+  const p1 = h.selects[0].__fire('change');   // נשלחת, ממתינה בשער
+  h.selects[1].value = '1';
+  await h.selects[1].__fire('change');        // נכנסת לתור
+  release();
+  await p1;
+
+  eq(h.sent.length, 2, 'שתי בקשות');
+  eq(h.selects[0].value, '1', 'מה שהשרת קיבל נשאר על המסך');
+  eq(h.selects[1].value, '0', 'מה שנכשל הוחזר');
+  eq(h.msg.textContent.includes('נכשלה'), true, 'ההודעה');
+});
+
+await acheck('הגוף שנשלח תואם ל-snapshot של אותו רגע', async () => {
+  // אם הגוף היה נקרא מה-DOM בנפרד מה-snapshot, שינוי שקורה ביניהם היה
+  // נשלח אבל לא נרשם כ"נשמר" — או ההפך.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let first = true;
+  const h = load(async () => {
+    if (first) { first = false; await gate; }
+    return { ok: true, body: { ok: true } };
+  });
+
+  h.selects[0].value = '1';
+  const p = h.selects[0].__fire('change');
+  h.selects[2].value = '1';
+  await h.selects[2].__fire('change');
+  release();
+  await p;
+
+  eq(JSON.stringify(h.sent[0].note_fonts),
+     JSON.stringify({ repo: true, md: false, board: false }), 'הראשונה');
+  eq(JSON.stringify(h.sent[1].note_fonts),
+     JSON.stringify({ repo: true, md: false, board: true }), 'השנייה');
+});
+
 console.log(`${passed} עברו, ${failed} נכשלו`);
 process.exit(failed === 0 ? 0 : 1);

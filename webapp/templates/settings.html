@@ -2186,10 +2186,6 @@
           msgEl.style.color = ok ? 'var(--success, #4ade80)' : 'var(--danger, #f87171)';
         }
 
-        function currentScope() {
-          const v = scopeSel ? String(scopeSel.value || '') : '';
-          return v === 'device' ? 'device' : 'global';
-        }
 
         // צילום של כל הבוררים, כדי שאפשר יהיה להחזיר אותם בכשל.
         function snapshot() {
@@ -2212,19 +2208,26 @@
         // כל שלוש הבחירות נשלחות יחד, ולא רק זו שהשתנתה: התחולה חלה
         // עליהן כיחידה אחת, ומעבר מ-device ל-global חייב להעלות את
         // המערך **כולו** ל-DB, לא רק את השדה האחרון שנגעו בו.
-        function payload() {
+        //
+        // **הגוף נגזר מה-snapshot ולא מה-DOM.** כך מה שנשלח ומה שנרשם
+        // כ"נשמר" מתארים בהכרח את אותו רגע; קריאה שנייה של ה-DOM הייתה
+        // יכולה לתפוס שינוי שקרה בין השתיים.
+        function payloadFrom(snap) {
           const fonts = {};
-          selects.forEach(function (el) {
-            fonts[el.dataset.surface] = el.value === '1';
+          Object.keys(snap.fonts).forEach(function (k) {
+            fonts[k] = snap.fonts[k] === '1';
           });
-          return { note_fonts: fonts, note_fonts_scope: currentScope() };
+          return {
+            note_fonts: fonts,
+            note_fonts_scope: snap.scope === 'device' ? 'device' : 'global'
+          };
         }
 
-        async function send() {
+        async function send(snap) {
           const res = await fetch('/api/ui_prefs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload())
+            body: JSON.stringify(payloadFrom(snap))
           });
           // 500/502 מחזירים HTML ולא JSON; פרסור לפני בדיקת ``res.ok``
           // היה מציג "Unexpected token <" במקום הודעה מובנת.
@@ -2247,9 +2250,14 @@
           try {
             do {
               pending = false;
-              await send();
+              // ה-snapshot נלקח **לפני** השליחה ונרשם מיד אחריה: בלי זה,
+              // סבב ראשון שמצליח וסבב שני שנכשל היו מחזירים את הבוררים
+              // למצב שלפני שניהם — בעוד שהשרת כבר קיבל את הראשון, והמסך
+              // היה מציג משהו שסותר את מה שנשמר.
+              const sent = snapshot();
+              await send(sent);
+              lastSaved = sent;
             } while (pending);
-            lastSaved = snapshot();
             setMessage('נשמר', true);
           } catch (err) {
             console.error('Failed to persist note fonts:', err);

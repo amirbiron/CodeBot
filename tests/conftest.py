@@ -77,3 +77,62 @@ def initialize_pillow_codecs():
     if Image is None:
         return
     Image.init()
+
+
+# ── מונגו ייעודי לבדיקות שמריצות את הראוטים באמת ─────────────────────────
+
+#: כתובת מונגו לבדיקות שאינן יכולות לרוץ מול סטאב. בלעדיה הן מדולגות.
+NOTE_FONTS_TEST_MONGO_URI = os.getenv("NOTE_FONTS_TEST_MONGO_URI")
+
+#: דילוג אחיד. **חובה על כל בדיקה שמשתמשת ב-**``wired_mongo``: בלי זה
+#: הפיקסצ'ר רץ עם ``MongoClient(None)``, נופל ל-``localhost:27017``,
+#: מנסה להתחבר ונכשל — ו-``--maxfail=1`` ב-``pytest.ini`` הופך את זה
+#: לעצירה של כל החבילה, לא לבדיקה בודדת שנכשלת.
+requires_test_mongo = pytest.mark.skipif(
+    not NOTE_FONTS_TEST_MONGO_URI,
+    reason="דורש מונגו אמיתי; הגדירו NOTE_FONTS_TEST_MONGO_URI",
+)
+
+
+@pytest.fixture
+def wired_mongo(request):
+    """מפנה את ``webapp.app`` למסד ייעודי, ומחזיר הכול בסיום.
+
+    **שני דברים שנראים טכניים ואינם.**
+
+    ``DATABASE_NAME`` נדרס ולא רק ה-URI: ``get_db`` מחזיר
+    ``client[DATABASE_NAME]``, וברירת המחדל היא ``code_keeper_bot``.
+    בלי הדריסה, ``drop_database`` מוחק מסד שאיש אינו פותח, ואילו
+    ``delete_many`` ו-``insert_one`` פוגעים במסד **האמיתי** — כלומר
+    הפניית ``NOTE_FONTS_TEST_MONGO_URI`` למונגו של פרודקשן הייתה
+    מוחקת משתמש אמיתי.
+
+    והשחזור ב-``finally`` אינו נימוס: ``webapp.app`` הוא מודול, ומצבו
+    נשמר לכל אורך התהליך. בלעדיו כל בדיקה אחרת שרצה אחריו ממשיכה
+    להתחבר למונגו של הבדיקות.
+
+    שם המסד נגזר משם קובץ הבדיקה, כדי ששני קבצים שרצים באותה הרצה לא
+    ידרסו זה את זה.
+    """
+    import pymongo
+
+    import webapp.app as wa
+
+    db_name = "cktest_" + Path(str(request.node.fspath)).stem
+    previous = (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db)
+    pymongo.MongoClient(NOTE_FONTS_TEST_MONGO_URI).drop_database(db_name)
+    wa.MONGODB_URL = NOTE_FONTS_TEST_MONGO_URI
+    wa.DATABASE_NAME = db_name
+    wa.client = None
+    wa.db = None
+    wa.app.config["TESTING"] = True
+    try:
+        yield wa
+    finally:
+        # הלקוח שנפתח כאן נסגר; אחרת כל הרצה מדליפה pool של חיבורים.
+        try:
+            if wa.client is not None:
+                wa.client.close()
+        except Exception:
+            pass
+        wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db = previous

@@ -2210,7 +2210,11 @@ def _resolve_note_fonts(
     return _note_fonts_default(), scope
 
 
-def _note_fonts_etag_key(user_id: Optional[int]) -> str:
+def _note_fonts_etag_key(
+    user_id: Optional[int],
+    *,
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> str:
     """מפתח קצר שמייצג את גופן הפתקים הנוכחי, ל-ETag ולמפתח הקאש.
 
     **למה זה נחוץ:** ``_note_fonts_head.html`` מרנדר את ההעדפה **לתוך
@@ -2222,7 +2226,7 @@ def _note_fonts_etag_key(user_id: Optional[int]) -> str:
     שמוחל על הערך השני שמרונדר פר-משתמש.
     """
     try:
-        fonts, _ = _resolve_note_fonts(user_id, None)
+        fonts, _ = _resolve_note_fonts(user_id, user_doc)
         return "nf:" + _encode_note_fonts(fonts)
     except Exception:
         return "nf:" + _encode_note_fonts(None)
@@ -2687,13 +2691,32 @@ def _safe_dt_from_doc(value) -> datetime:
     return dt
 
 
-def _get_theme_etag_key(user_id: Optional[int]) -> str:
-    """מפתח קצר שמייצג את ערכת הנושא הנוכחית (כולל שינויי גרסה)."""
+#: הפרויקציה שהילפרי ה-ETag צריכים. מוגדרת פעם אחת כדי שקורא שרוצה
+#: לשלוף את המסמך **בעצמו** ולחסוך שאילתה יוכל לבקש בדיוק את מה שהם
+#: קוראים — בלי לנחש ובלי שהרשימות ייסחפו זו מזו.
+ETAG_USER_PROJECTION = {
+    'ui_prefs.theme': 1,
+    'ui_prefs.note_fonts': 1,
+    'custom_themes': 1,
+    'custom_theme': 1,
+}
+
+
+def _get_theme_etag_key(
+    user_id: Optional[int],
+    *,
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> str:
+    """מפתח קצר שמייצג את ערכת הנושא הנוכחית (כולל שינויי גרסה).
+
+    ``user_doc`` חוסך שליפה כשהקורא כבר החזיק את המסמך. חייב להיות
+    מסמך שנשלף עם ``ETAG_USER_PROJECTION`` (או רחב ממנה).
+    """
     theme_raw = get_default_ui_theme_raw()
-    user_doc = None
     try:
         theme_raw, _, _, user_doc = _resolve_theme_raw_token(
             user_id,
+            user_doc=user_doc,
             projection={'ui_prefs.theme': 1, 'custom_themes': 1, 'custom_theme': 1},
         )
     except Exception:
@@ -15051,10 +15074,23 @@ def md_preview(file_id):
         force_no_cache = False
 
     # --- HTTP cache validators (ETag / Last-Modified) ---
-    theme_key = _get_theme_etag_key(user_id)
+    # **שליפה אחת לשני הוולידטורים.** ``/md/<id>`` הוא מסלול חם, וכל
+    # בקשה עוברת כאן — כולל בקשות ולידציה שיסתיימו ב-304. שני ההילפרים
+    # קוראים את אותו מסמך משתמש, ולכן הוא נשלף פעם אחת ומועבר לשניהם
+    # במקום ששניהם יפנו למסד בנפרד.
+    _etag_user_doc = None
+    if user_id:
+        try:
+            _etag_user_doc = get_db().users.find_one(
+                {'user_id': int(user_id)}, ETAG_USER_PROJECTION
+            ) or {}
+        except Exception:
+            _etag_user_doc = None
+
+    theme_key = _get_theme_etag_key(user_id, user_doc=_etag_user_doc)
     # ``note_fonts`` בוולידטור: העמוד הזה מרנדר את ההעדפה לתוך ה-HTML,
     # ובלי זה שינוי ההגדרה מחזיר את אותו ETag ← 304 ← הדגל הישן.
-    note_fonts_key = _note_fonts_etag_key(user_id)
+    note_fonts_key = _note_fonts_etag_key(user_id, user_doc=_etag_user_doc)
     etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}")
     last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
     last_modified_str = http_date(last_modified_dt)
@@ -17881,25 +17917,42 @@ def api_ui_prefs():
                 if note_fonts_scope == THEME_SCOPE_DEVICE
                 else THEME_SCOPE_GLOBAL
             )
-            if resolved_scope != THEME_SCOPE_DEVICE:
-                for name, value in incoming.items():
-                    update_fields[f'ui_prefs.note_fonts.{name}'] = value
-
-            # הקריאה הבאה משרתת **רק** את התגובה ואת ה-cookie, ששניהם
-            # מתארים את המכשיר הזה. היא אינה משתתפת בכתיבה, ולכן אין כאן
-            # חלון של read-modify-write.
             try:
                 base_doc = db.users.find_one(
                     {'user_id': user_id}, {'ui_prefs.note_fonts': 1}
                 ) or {}
             except Exception:
                 base_doc = {}
+            # ההבחנה בין "השדה חסר" ל"השדה קיים ושווה ``null``" חיונית:
+            # שניהם נראים כמו ``None`` ב-Python, אבל מונגו מתייחס אליהם
+            # הפוך — נתיב חסר נבנה, ו-``null`` נדחה.
+            _prefs = base_doc.get('ui_prefs')
+            _has_key = isinstance(_prefs, dict) and 'note_fonts' in _prefs
+            stored_is_malformed = _has_key and not isinstance(_prefs['note_fonts'], dict)
             current, _ = _resolve_note_fonts(user_id, base_doc)
 
             merged = {
                 name: (incoming[name] if name in incoming else current[name])
                 for name in NOTE_FONT_SURFACES
             }
+
+            if resolved_scope != THEME_SCOPE_DEVICE:
+                # **``$set`` מנוקד דורש שההורה יהיה אובייקט.** נמדד מול
+                # mongod 7.0.14: מחרוזת, מספר, רשימה, ``null`` או בוליאני
+                # במקום ``ui_prefs.note_fonts`` מחזירים ``WriteError`` 28
+                # (``Cannot create field 'md' in element ...``), הראוט
+                # מחזיר 500, והמשתמש נתקע בלי יכולת לשנות גופן לעולם.
+                # שדה חסר לגמרי דווקא **כן** עובד — ``$set`` בונה את הנתיב.
+                #
+                # כשההורה פגום אין שדות שכנים לשמר, ולכן כתיבת האובייקט
+                # השלם היא הסמנטיקה הנכונה — לא ויתור על האטומיות. בכל
+                # מקרה אחר נשארת הכתיבה לכל שדה בנפרד, שהיא זו שמונעת
+                # דריסה בין שתי בקשות חופפות על משטחים שונים.
+                if stored_is_malformed:
+                    update_fields['ui_prefs.note_fonts'] = merged
+                else:
+                    for name, value in incoming.items():
+                        update_fields[f'ui_prefs.note_fonts.{name}'] = value
             resp_payload['note_fonts'] = merged
             note_fonts_cookie_value = _encode_note_fonts(merged)
             note_fonts_scope_cookie_value = resolved_scope
