@@ -660,6 +660,7 @@ class ConfigService:
                 "רשאי לקרוא מהם קבצי RST. גבול אבטחה — repo שאינו ברשימה נדחה. ברירת מחדל: CodeBot."
             ),
             category="mcp",
+            services=("mcp",),
         ),
         "MCP_ALLOWED_HOSTS": ConfigDefinition(
             key="MCP_ALLOWED_HOSTS",
