@@ -16,11 +16,6 @@ from bson import ObjectId
 
 pytest.importorskip("flask")
 
-from tests.conftest import requires_test_mongo
-
-pytestmark = requires_test_mongo
-
-
 def _seed(wired_mongo, bits="000"):
     from webapp.app import _decode_note_fonts
 

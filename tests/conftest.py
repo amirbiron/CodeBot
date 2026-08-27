@@ -81,47 +81,63 @@ def initialize_pillow_codecs():
 
 # ── מונגו ייעודי לבדיקות שמריצות את הראוטים באמת ─────────────────────────
 
-#: כתובת מונגו לבדיקות שאינן יכולות לרוץ מול סטאב. בלעדיה הן מדולגות.
-NOTE_FONTS_TEST_MONGO_URI = os.getenv("NOTE_FONTS_TEST_MONGO_URI")
 
-#: דילוג אחיד. **חובה על כל בדיקה שמשתמשת ב-**``wired_mongo``: בלי זה
-#: הפיקסצ'ר רץ עם ``MongoClient(None)``, נופל ל-``localhost:27017``,
-#: מנסה להתחבר ונכשל — ו-``--maxfail=1`` ב-``pytest.ini`` הופך את זה
-#: לעצירה של כל החבילה, לא לבדיקה בודדת שנכשלת.
-requires_test_mongo = pytest.mark.skipif(
-    not NOTE_FONTS_TEST_MONGO_URI,
-    reason="דורש מונגו אמיתי; הגדירו NOTE_FONTS_TEST_MONGO_URI",
-)
+def _test_mongo_uri() -> "str | None":
+    """כתובת מונגו לבדיקות שאינן יכולות לרוץ מול סטאב.
+
+    **משתנה ייעודי ולא נפילה ל-**\ ``MONGODB_URL``: שורה 29 בקובץ הזה
+    עושה ``os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')``,
+    כלומר הוא **תמיד** מוגדר בבדיקות — לערך דמה. נפילה אליו הייתה
+    גורמת לכל בדיקה לחכות 30 שניות לכתובת שאין מאחוריה שרת, ואז
+    להיכשל; ו-``--maxfail=1`` היה עוצר את כל החבילה.
+
+    ב-CI המשתנה מוגדר במפורש בג'וב, ולכן הבדיקות **כן** רצות שם.
+
+    נקרא כפונקציה ולא כקבוע ברמת המודול, כדי שבדיקה שמשנה ``ENV``
+    בזמן ריצה תיקרא נכון.
+    """
+    return os.getenv("NOTE_FONTS_TEST_MONGO_URI")
 
 
 @pytest.fixture
 def wired_mongo(request):
     """מפנה את ``webapp.app`` למסד ייעודי, ומחזיר הכול בסיום.
 
-    **שני דברים שנראים טכניים ואינם.**
+    **הדילוג חי כאן ולא ב-marker מיובא.** ``claude-md-snippets/testing.md``
+    אוסר לייבא מ-``conftest`` — pytest מוצא פיקסצ'רים לבד, וייבוא מריץ את
+    המודול פעם שנייה. הניסיון הראשון ייבא מכאן ``requires_test_mongo``,
+    וזה בדיוק מה שהפיל את איסוף הבדיקות ב-CI.
 
     ``DATABASE_NAME`` נדרס ולא רק ה-URI: ``get_db`` מחזיר
     ``client[DATABASE_NAME]``, וברירת המחדל היא ``code_keeper_bot``.
     בלי הדריסה, ``drop_database`` מוחק מסד שאיש אינו פותח, ואילו
-    ``delete_many`` ו-``insert_one`` פוגעים במסד **האמיתי** — כלומר
-    הפניית ``NOTE_FONTS_TEST_MONGO_URI`` למונגו של פרודקשן הייתה
-    מוחקת משתמש אמיתי.
+    ``delete_many`` ו-``insert_one`` פוגעים במסד **האמיתי**.
 
-    והשחזור ב-``finally`` אינו נימוס: ``webapp.app`` הוא מודול, ומצבו
-    נשמר לכל אורך התהליך. בלעדיו כל בדיקה אחרת שרצה אחריו ממשיכה
-    להתחבר למונגו של הבדיקות.
-
-    שם המסד נגזר משם קובץ הבדיקה, כדי ששני קבצים שרצים באותה הרצה לא
-    ידרסו זה את זה.
+    שם המסד נגזר משם קובץ הבדיקה, כדי ששני קבצים באותה הרצה לא ידרסו
+    זה את זה.
     """
     import pymongo
+
+    uri = _test_mongo_uri()
+    if not uri:
+        pytest.skip("דורש מונגו אמיתי; הגדירו NOTE_FONTS_TEST_MONGO_URI")
 
     import webapp.app as wa
 
     db_name = "cktest_" + Path(str(request.node.fspath)).stem
-    previous = (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db)
-    pymongo.MongoClient(NOTE_FONTS_TEST_MONGO_URI).drop_database(db_name)
-    wa.MONGODB_URL = NOTE_FONTS_TEST_MONGO_URI
+    previous = (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db,
+                wa.app.config.get("TESTING"))
+
+    # הלקוח הזה נפתח כאן ולכן נסגר כאן. הוא **אינו** ``wa.client``.
+    # timeout קצר: כתובת שגויה תיכשל מיד עם הודעה ברורה, במקום לתלות
+    # כל בדיקה 30 שניות ואז להפיל את החבילה דרך ``--maxfail=1``.
+    cleaner = pymongo.MongoClient(uri, serverSelectionTimeoutMS=5000)
+    try:
+        cleaner.drop_database(db_name)
+    finally:
+        cleaner.close()
+
+    wa.MONGODB_URL = uri
     wa.DATABASE_NAME = db_name
     wa.client = None
     wa.db = None
@@ -129,10 +145,15 @@ def wired_mongo(request):
     try:
         yield wa
     finally:
-        # הלקוח שנפתח כאן נסגר; אחרת כל הרצה מדליפה pool של חיבורים.
-        try:
-            if wa.client is not None:
-                wa.client.close()
-        except Exception:
-            pass
-        wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db = previous
+        # **``wa.client`` לא נסגר כאן, במכוון.** הוא גלובל משותף, וקוד
+        # אחר בתהליך מחזיק הפניות אליו ואל ``wa.db`` שנגזר ממנו. סגירתו
+        # הפילה את ``get_db`` בבדיקות מאוחרות יותר עם
+        # ``InvalidOperation: Cannot use MongoClient after close`` —
+        # וזה מה שהפיל את איסוף הבדיקות ב-CI. השחזור של ההפניות מספיק;
+        # הלקוח שנוצר כאן נאסף כרגיל כשאיש לא מחזיק בו.
+        (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db,
+         _prev_testing) = previous
+        if _prev_testing is None:
+            wa.app.config.pop("TESTING", None)
+        else:
+            wa.app.config["TESTING"] = _prev_testing

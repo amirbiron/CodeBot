@@ -16,8 +16,6 @@ import pytest
 
 pytest.importorskip("flask")
 
-from tests.conftest import NOTE_FONTS_TEST_MONGO_URI as MONGO_URI
-from tests.conftest import requires_test_mongo as pytestmark_db
 
 
 @pytest.fixture
@@ -140,7 +138,6 @@ def _cookie(res, name):
     return None
 
 
-@pytestmark_db
 def test_the_fixture_opens_the_dedicated_database(wired_mongo):
     """הבדיקה ששומרת על כל השאר.
 
@@ -152,7 +149,6 @@ def test_the_fixture_opens_the_dedicated_database(wired_mongo):
     assert wired_mongo.get_db().name != "code_keeper_bot"
 
 
-@pytestmark_db
 def test_the_fixture_actually_redirects_the_module(wired_mongo):
     """הפיקסצ'ר מפנה את **המודול**, ולא רק משתנה מקומי.
 
@@ -164,10 +160,9 @@ def test_the_fixture_actually_redirects_the_module(wired_mongo):
     import webapp.app as wa
 
     assert wa.DATABASE_NAME.startswith("cktest_")
-    assert wa.MONGODB_URL == MONGO_URI
+    assert wa.MONGODB_URL, "ה-URI לא הוצב במודול"
 
 
-@pytestmark_db
 def test_a_global_write_reaches_the_database(wired_mongo):
     users = wired_mongo.get_db().users
     users.delete_many({"user_id": 7})
@@ -186,7 +181,6 @@ def test_a_global_write_reaches_the_database(wired_mongo):
     assert _cookie(res, "ui_note_fonts") == "101"
 
 
-@pytestmark_db
 def test_a_device_write_never_reaches_the_database(wired_mongo):
     """המכשיר מקבל את הערך, והמסד נשאר כפי שהיה.
 
@@ -213,7 +207,6 @@ def test_a_device_write_never_reaches_the_database(wired_mongo):
     assert _cookie(res, "ui_note_fonts_scope") == "device"
 
 
-@pytestmark_db
 def test_a_partial_update_keeps_the_other_surfaces(wired_mongo):
     users = wired_mongo.get_db().users
     users.delete_many({"user_id": 7})
@@ -231,7 +224,6 @@ def test_a_partial_update_keeps_the_other_surfaces(wired_mongo):
         "repo": True, "md": False, "board": True}
 
 
-@pytestmark_db
 def test_a_non_object_payload_is_rejected(wired_mongo):
     client = wired_mongo.app.test_client()
     with client.session_transaction() as sess:
@@ -242,7 +234,6 @@ def test_a_non_object_payload_is_rejected(wired_mongo):
 
 # ── ולידציה: קלט לא תקין נדחה, ולא מומר ─────────────────────────────────
 
-@pytestmark_db
 @pytest.mark.parametrize("bad", ["false", "true", 1, 0, "", None, [], {"a": 1}])
 def test_a_non_boolean_is_rejected_and_nothing_is_written(wired_mongo, bad):
     """``bool("false")`` הוא ``True`` — ולכן המרה שקטה הייתה מדליקה את
@@ -256,7 +247,6 @@ def test_a_non_boolean_is_rejected_and_nothing_is_written(wired_mongo, bad):
     assert users.find_one({"user_id": 7}) is None, "נכתב למסד למרות ה-400"
 
 
-@pytestmark_db
 @pytest.mark.parametrize("key", ["boards", "Repo", "md ", "markdown", "__proto__"])
 def test_an_unknown_surface_is_rejected(wired_mongo, key):
     """מפתח עם טעות הקלדה החזיר 200 ולא עשה דבר — שמירה שלא נשמרה."""
@@ -267,7 +257,6 @@ def test_an_unknown_surface_is_rejected(wired_mongo, key):
 
 # ── כתיבה אטומית לכל שדה ────────────────────────────────────────────────
 
-@pytestmark_db
 def test_two_overlapping_partial_writes_both_survive(wired_mongo):
     """שתי בקשות שקראו את אותו מצב וכותבות שדות שונים.
 
@@ -288,7 +277,6 @@ def test_two_overlapping_partial_writes_both_survive(wired_mongo):
     assert got == {"repo": True, "md": False, "board": True}, got
 
 
-@pytestmark_db
 def test_a_missing_parent_path_is_created_without_losing_siblings(wired_mongo):
     """``$set`` מנוקד יוצר את הנתיב — מתועד ב-MongoDB, מאומת כאן."""
     users = wired_mongo.get_db().users

@@ -2702,6 +2702,25 @@ ETAG_USER_PROJECTION = {
 }
 
 
+def _etag_needs_user_doc() -> bool:
+    """האם מישהו מהוולידטורים באמת יזדקק למסמך המשתמש בבקשה הזו.
+
+    שני ההילפרים נופלים ל-DB רק כשה-cookie אינו מכריע: ערכה במצב
+    ``device`` עם ערך תקף, וגופן במצב ``device`` עם ערך שנפרס בהצלחה.
+    כששניהם מוכרעים מה-cookie — אין למסד מה לתרום, והשליפה המשותפת
+    היא עלות מיותרת על המסלול החם ביותר.
+    """
+    theme_decided = (
+        _normalize_theme_scope(request.cookies.get('ui_theme_scope')) == THEME_SCOPE_DEVICE
+        and bool((request.cookies.get('ui_theme') or '').strip())
+    )
+    fonts_decided = (
+        _normalize_theme_scope(request.cookies.get('ui_note_fonts_scope')) == THEME_SCOPE_DEVICE
+        and _decode_note_fonts(request.cookies.get('ui_note_fonts')) is not None
+    )
+    return not (theme_decided and fonts_decided)
+
+
 def _get_theme_etag_key(
     user_id: Optional[int],
     *,
@@ -15078,8 +15097,13 @@ def md_preview(file_id):
     # בקשה עוברת כאן — כולל בקשות ולידציה שיסתיימו ב-304. שני ההילפרים
     # קוראים את אותו מסמך משתמש, ולכן הוא נשלף פעם אחת ומועבר לשניהם
     # במקום ששניהם יפנו למסד בנפרד.
+    #
+    # **ולא שולפים כשאיש לא צריך:** ``_resolve_theme_raw_token`` מדלג על
+    # המסד כשה-cookie של הערכה תקף ובמצב ``device``, ו-``_resolve_note_fonts``
+    # מדלג באותם תנאים. כששני ה-scopes הם ``device`` עם cookies תקינים —
+    # אפס שאילתות, כפי שהיה לפני ההוספה.
     _etag_user_doc = None
-    if user_id:
+    if user_id and _etag_needs_user_doc():
         try:
             _etag_user_doc = get_db().users.find_one(
                 {'user_id': int(user_id)}, ETAG_USER_PROJECTION
@@ -15100,18 +15124,23 @@ def md_preview(file_id):
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
         return resp
-    ims = request.headers.get('If-Modified-Since')
-    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
-    if ims and not inm:
-        try:
-            ims_dt = parse_date(ims)
-        except Exception:
-            ims_dt = None
-        if not force_no_cache and ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
-            resp = Response(status=304)
-            resp.headers['ETag'] = etag
-            resp.headers['Last-Modified'] = last_modified_str
-            return resp
+    # **``If-Modified-Since`` אינו מכריע כאן, לפי התקן עצמו.**
+    #
+    # RFC 9110 §13.1.3: *"A recipient MUST ignore the If-Modified-Since
+    # header field if the resource does not have a modification date
+    # available."* — ולייצוג הזה אין כזה. ``last_modified_dt`` הוא תאריך
+    # **הקובץ**, בעוד שה-HTML תלוי גם בערכת הנושא וגם בגופן הפתקים, שהם
+    # פר-משתמש ופר-מכשיר ואין להם תאריך שינוי. לקוח ששלח ``IMS`` בלבד
+    # אחרי שינוי גופן היה מקבל 304 עם הדגל הישן.
+    #
+    # אותה סעיף גם מגדיר את התכלית של ``IMS``: *"to allow efficient
+    # updates of a cached representation **that does not have an entity
+    # tag**"* — ולעמוד הזה **יש** ETag, שכן מקודד את ההעדפות. הוולידטור
+    # החזק כבר עושה את העבודה, והחלש רק יכול לטעות.
+    #
+    # ``Last-Modified`` ממשיך להישלח כמטא-דאטה; ה-``after_request`` שם
+    # ``private, max-age=0, must-revalidate``, ולכן קאש משותף אינו
+    # רשאי להשתמש בו כהיוריסטיקה.
 
     # --- Cache: תוצר ה-HTML של תצוגת Markdown (תבנית) ---
     should_cache = getattr(cache, 'is_enabled', False)
