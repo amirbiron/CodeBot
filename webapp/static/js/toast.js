@@ -18,8 +18,46 @@
 
   var ICONS = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
   var DEFAULT_DURATION = 4000;
-  /** חייב להתאים ל-``transition`` של ``.ck-toast`` ב-``toast.css``. */
-  var EXIT_MS = 300;
+  /**
+   * משך היציאה בלבד — לסביבה שאין בה ``getComputedStyle``, כלומר סטאב
+   * בדיקות ולא דפדפן. **אינו כפילות של הערך שב-CSS**: בדפדפן הערך נקרא
+   * משם, ראו ``exitMs``.
+   */
+  var EXIT_MS_FALLBACK = 300;
+
+  /**
+   * כמה זמן לוקח למעבר של ``.ck-toast`` לצאת, לפי ה-CSS עצמו.
+   *
+   * **למה קריאה ולא קבוע.** ``transition: transform 0.3s`` ב-``toast.css``
+   * וקבוע ב-JS הם שני ערכים שנסחפים בשקט: שינוי אחד מהם בלבד או חותך את
+   * היציאה באמצע, או משאיר צומת בלתי נראה על המסך. כאן ה-CSS הוא המקור
+   * היחיד ואין מה לסנכרן.
+   *
+   * זה גם מטפל ב-``prefers-reduced-motion``, שקובע ``transition: none``:
+   * הקריאה מחזירה ``0s``, והצומת מוסר מיד במקום להמתין לשווא.
+   *
+   * הערך עשוי לחזור כרשימה מופרדת בפסיקים אם יתווסף מעבר נוסף; נלקח
+   * הארוך שבהם, כי הצומת חייב לשרוד עד שכולם הסתיימו.
+   */
+  function exitMs(el) {
+    if (typeof window.getComputedStyle !== 'function') return EXIT_MS_FALLBACK;
+    var raw;
+    try {
+      raw = window.getComputedStyle(el).transitionDuration;
+    } catch (e) {
+      return EXIT_MS_FALLBACK;
+    }
+    if (!raw) return EXIT_MS_FALLBACK;
+    var longest = 0;
+    var parts = String(raw).split(',');
+    for (var i = 0; i < parts.length; i += 1) {
+      var t = parts[i].trim();
+      // ``ms`` נבדק לפני ``s`` — כל ערך ב-``ms`` מסתיים גם ב-``s``.
+      var ms = /ms$/.test(t) ? parseFloat(t) : parseFloat(t) * 1000;
+      if (isFinite(ms) && ms > longest) longest = ms;
+    }
+    return longest;
+  }
 
   /** ``key`` ← ``{ el, hideTimer, removeTimer }`` של הטוסט שמוצג כרגע. */
   var active = Object.create(null);
@@ -55,7 +93,9 @@
    *                        להצטבר לצידו. בלי זה, שלוש שמירות ברצף
    *                        מייצרות שלושה כרטיסים זהים; ועם זה אנימציית
    *                        הכניסה רצה מחדש בכל פעם, וזה החיווי.
-   * ``options.duration`` — מילישניות עד ההיעלמות.
+   * ``options.duration`` — מילישניות עד ההיעלמות. ``0`` תקף ומכובד;
+   *                        ברירת המחדל חלה רק כשהערך חסר או אינו
+   *                        מספר סופי ואי-שלילי.
    *
    * **ערוץ הכשל הוא ערך ההחזרה:** ``true`` אם הטוסט נכנס ל-DOM,
    * ``false`` אם לא היה ``document.body``. הקורא חייב לבדוק — טוסט הוא
@@ -89,20 +129,30 @@
     container.appendChild(el);
 
     // קריאת מאפיין פריסה מכריחה את הדפדפן לחשב את הסגנון ההתחלתי
-    // (``translateX(400px)``) לפני שינוי המחלקה, ובלעדיה אין ממה
+    // (ההיסט של ``--ck-toast-exit``) לפני שינוי המחלקה, ובלעדיה אין ממה
     // להנפיש. זה הדטרמיניסטי; ``setTimeout(.., 10)`` היה מרוץ.
     void el.offsetWidth;
     el.classList.add('is-shown');
 
     var entry = { el: el, hideTimer: null, removeTimer: null };
 
+    // **בדיקת נוכחות ולא truthiness.** ``opts.duration || DEFAULT`` היה
+    // הופך ``0`` ל-4000, כלומר מתעלם מבקשה מפורשת לסגור מיד. ובדיקת
+    // הטיפוס נדרשת כי ערך לא-מספרי היה עובר ל-``setTimeout``, ושם
+    // ההתנהגות נקבעת על ידו ולא על ידינו.
+    var duration = (typeof opts.duration === 'number'
+                    && isFinite(opts.duration)
+                    && opts.duration >= 0)
+      ? opts.duration
+      : DEFAULT_DURATION;
+
     entry.hideTimer = setTimeout(function () {
       el.classList.remove('is-shown');
       entry.removeTimer = setTimeout(function () {
         if (el.parentNode) el.parentNode.removeChild(el);
         if (opts.key && active[opts.key] === entry) delete active[opts.key];
-      }, EXIT_MS);
-    }, opts.duration || DEFAULT_DURATION);
+      }, exitMs(el));
+    }, duration);
 
     if (opts.key) active[opts.key] = entry;
     return true;

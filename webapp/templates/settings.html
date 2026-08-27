@@ -2212,7 +2212,35 @@
               && window.ckToast(text, type, { key: 'note-fonts' })) {
             return;
           }
+          fallbackMessage(text, type);
+        }
+
+        // **שורת הגיבוי חולפת גם היא.** היא נכנסת לפעולה רק כש-``toast.js``
+        // לא נטען, וקיימת כדי שהודעת כשל שמירה לא תיעלם בשקט. אבל שורת
+        // מצב שאינה מסתירה את עצמה היא בדיוק התסמין שתוקן כאן, ולכן היא
+        // מקבלת את אותו טיפול שורשי: מצב ← אירוע חולף.
+        //
+        // הטיימר מתאפס בכל שמירה במקום להיערם — אותה סיבה שבגללה הטוסט
+        // מבטל את הטיימר של קודמו.
+        //
+        // המשך אינו חייב להתאים לזה של הטוסט; אלה שני ערוצים נפרדים,
+        // ורק אחד מהם פעיל בכל רגע נתון.
+        //
+        // **ומה זה לא פותר:** שמירה שנייה בזמן שהשורה עדיין מציגה את אותו
+        // טקסט לא תפיק אירוע נראה. השורה אינה יכולה להנפיש — ה-CSS שהיה
+        // מנפיש אותה חי ב-``toast.css``, ובמצב שבו הגיבוי בכלל רץ הוא
+        // כנראה חסר גם הוא.
+        var FALLBACK_MS = 4000;
+        var fallbackTimer = null;
+
+        function fallbackMessage(text, type) {
+          if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
           setMessage(text, type === 'success');
+          if (!msgEl) return;
+          fallbackTimer = setTimeout(function () {
+            fallbackTimer = null;
+            setMessage('', true);
+          }, FALLBACK_MS);
         }
 
 

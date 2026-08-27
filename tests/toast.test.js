@@ -58,7 +58,7 @@ function mkEl() {
  * טוען את הסקריפט לסנדבוקס עם DOM וטיימרים נשלטים.
  * ``withBody: false`` מדמה קריאה לפני שה-``body`` קיים.
  */
-function load({ withBody = true } = {}) {
+function load({ withBody = true, computed = undefined } = {}) {
   const body = withBody ? mkEl() : null;
   const byId = new Map();
   let now = 0, seq = 0;
@@ -78,6 +78,14 @@ function load({ withBody = true } = {}) {
     },
     clearTimeout: (id) => { timers.delete(id); },
   };
+  // ``computed`` לא נמסר ← אין ``getComputedStyle`` כלל, כמו בסביבת
+  // הבדיקות האמיתית; ``null`` ← קיים וזורק; מחרוזת ← ``transitionDuration``.
+  if (computed !== undefined) {
+    sandbox.getComputedStyle = (el) => {
+      if (computed === null) throw new Error('no view');
+      return { transitionDuration: computed };
+    };
+  }
   vm.createContext(sandbox);
   sandbox.window = sandbox;
   vm.runInContext(SRC, sandbox);
@@ -276,6 +284,94 @@ check('הודעה ריקה או חסרה אינה מייצרת "undefined"', () 
   const h = load();
   h.toast(undefined, 'info');
   eq(h.container().children[0].children[1].textContent, '', 'טקסט ריק');
+});
+
+// ─── משך התצוגה ─────────────────────────────────────────────────────────
+
+check('duration: 0 מכובד ואינו הופך לברירת המחדל', () => {
+  // ``opts.duration || DEFAULT`` היה הופך ``0`` ל-4000, כלומר מתעלם
+  // מבקשה מפורשת לסגור מיד.
+  const h = load();
+  h.toast('נשמר', 'success');           // ברירת מחדל, להשוואה
+  const other = load();
+  other.toast('נשמר', 'success', { duration: 0 });
+  other.advance(0);
+  eq(other.container().children[0].classList.contains('is-shown'), false, 'יצא מיד');
+  eq(h.container().children[0].classList.contains('is-shown'), true, 'ברירת המחדל עדיין מוצגת');
+});
+
+check('duration לא-מספרי נופל לברירת המחדל', () => {
+  // ערך כזה היה עובר ל-``setTimeout``, ושם ההתנהגות נקבעת על ידו.
+  for (const bad of ['3000', NaN, Infinity, -1, null, {}]) {
+    const h = load();
+    h.toast('נשמר', 'success', { duration: bad });
+    h.advance(3999);
+    eq(h.container().children[0].classList.contains('is-shown'), true,
+       `עדיין מוצג עבור ${JSON.stringify(bad)}`);
+    h.advance(1);
+    eq(h.container().children[0].classList.contains('is-shown'), false,
+       `יצא ב-4000 עבור ${JSON.stringify(bad)}`);
+  }
+});
+
+// ─── משך היציאה נקרא מה-CSS ─────────────────────────────────────────────
+
+check('משך היציאה נלקח מה-CSS ולא מקבוע', () => {
+  // אם הקוד היה נשען על קבוע, שינוי ה-transition ב-CSS היה חותך את
+  // היציאה או משאיר צומת בלתי נראה על המסך.
+  const h = load({ computed: '0.5s' });
+  h.toast('נשמר', 'success');
+  h.advance(4000);
+  h.advance(300);
+  eq(h.container().children.length, 1, 'ב-300 עדיין שם — ה-CSS אמר 500');
+  h.advance(200);
+  eq(h.container().children.length, 0, 'ב-500 הוסר');
+});
+
+check('transition: none מסיר מיד', () => {
+  // זה מה ש-``prefers-reduced-motion: reduce`` קובע ב-toast.css.
+  const h = load({ computed: '0s' });
+  h.toast('נשמר', 'success');
+  h.advance(4000);
+  eq(h.container().children.length, 0, 'הוסר בלי המתנה');
+});
+
+check('רשימת מעברים — נלקח הארוך', () => {
+  // צומת שיוסר לפי הקצר היה נעלם באמצע מעבר אחר.
+  const h = load({ computed: '0.3s, 450ms' });
+  h.toast('נשמר', 'success');
+  h.advance(4000);
+  h.advance(449);
+  eq(h.container().children.length, 1, 'לפני 450');
+  h.advance(1);
+  eq(h.container().children.length, 0, 'ב-450');
+});
+
+check('ms מפורש אינו מוכפל ב-1000', () => {
+  const h = load({ computed: '250ms' });
+  h.toast('נשמר', 'success');
+  h.advance(4000);
+  h.advance(249);
+  eq(h.container().children.length, 1, 'לפני 250');
+  h.advance(1);
+  eq(h.container().children.length, 0, 'ב-250');
+});
+
+check('בלי getComputedStyle — נפילה לקבוע, בלי לזרוק', () => {
+  const h = load();                       // אין getComputedStyle בסנדבוקס
+  h.toast('נשמר', 'success');
+  h.advance(4000);
+  h.advance(299);
+  eq(h.container().children.length, 1, 'לפני 300');
+  h.advance(1);
+  eq(h.container().children.length, 0, 'ב-300');
+});
+
+check('getComputedStyle שזורקת — נפילה לקבוע', () => {
+  const h = load({ computed: null });
+  h.toast('נשמר', 'success');
+  h.advance(4300);
+  eq(h.container().children.length, 0, 'הוסר לפי הקבוע');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);

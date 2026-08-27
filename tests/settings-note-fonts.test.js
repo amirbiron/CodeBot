@@ -72,8 +72,14 @@ function load(fetchImpl, opts = {}) {
   ];
   const scopeSel = mkSelect('__scope', 'global');
 
+  // שעון אירועים בדיד לשורת הגיבוי, שמסתירה את עצמה בטיימר.
+  let now = 0, seq = 0;
+  const timers = new Map();
+
   const sandbox = {
     console: { error: () => {} },
+    setTimeout: (fn, ms) => { const id = ++seq; timers.set(id, { at: now + ms, fn }); return id; },
+    clearTimeout: (id) => { timers.delete(id); },
     document: {
       getElementById: (id) => (id === 'noteFontsScopeSelect' ? scopeSel
                             : id === 'noteFontsMsg' ? msg : null),
@@ -102,7 +108,22 @@ function load(fetchImpl, opts = {}) {
   vm.createContext(sandbox);
   sandbox.window = sandbox;
   vm.runInContext(fontsScript(), sandbox);
-  return { sent, msg, selects, scopeSel, toasts };
+
+  function advance(ms) {
+    const target = now + ms;
+    for (;;) {
+      let nextId = null, next = null;
+      for (const [id, t] of timers) {
+        if (t.at <= target && (next === null || t.at < next.at)) { nextId = id; next = t; }
+      }
+      if (next === null) { now = target; return; }
+      now = next.at;
+      timers.delete(nextId);
+      next.fn();
+    }
+  }
+
+  return { sent, msg, selects, scopeSel, toasts, advance, pending: () => timers.size };
 }
 
 // ─── גוף הבקשה ──────────────────────────────────────────────────────────
@@ -152,6 +173,7 @@ await acheck('כשל מחזיר את הבורר ומציג חיווי שגיאה
   eq(h.toasts.length, 1, 'מספר החיוויים');
   eq(h.toasts[0].type, 'error', 'סוג החיווי');
   eq(h.toasts[0].message.includes('נכשלה'), true, 'נוסח ההודעה');
+  eq(h.msg.style.display, 'none', 'שורת הגיבוי אינה מוצגת');
 });
 
 await acheck('הצלחה מציגה אישור ואינה מחזירה כלום', async () => {
@@ -162,6 +184,9 @@ await acheck('הצלחה מציגה אישור ואינה מחזירה כלום'
   eq(h.toasts.length, 1, 'מספר החיוויים');
   eq(h.toasts[0].message, 'נשמר', 'ההודעה');
   eq(h.toasts[0].type, 'success', 'סוג החיווי');
+  // שני ערוצים, ורק אחד פעיל. בלי ההטענה הזו, ``notify`` שיאבד את
+  // ה-``return`` המוקדם היה מציג גם טוסט וגם שורה, וכל הבדיקות עוברות.
+  eq(h.msg.style.display, 'none', 'שורת הגיבוי אינה מוצגת');
 });
 
 await acheck('כשל מחזיר למצב האחרון שנשמר, לא לערך הקודם', async () => {
@@ -329,6 +354,38 @@ await acheck('ckToast שהחזירה false — נופלת לשורת הגיבו�
   eq(h.toasts.length, 1, 'הטוסט נוסה');
   eq(h.msg.style.display, 'block', 'ובכל זאת השורה הוצגה');
   eq(h.msg.textContent.includes('נכשלה'), true, 'נוסח ההודעה');
+});
+
+await acheck('שורת הגיבוי מסתתרת מעצמה', async () => {
+  // שורת מצב שלא מסתירה את עצמה היא בדיוק התסמין שתוקן כאן. הגיבוי
+  // מקבל את אותו טיפול.
+  const h = load(async () => ({ ok: false, status: 500, body: null }), { toast: null });
+  h.selects[1].value = '1';
+  await h.selects[1].__fire('change');
+
+  eq(h.msg.style.display, 'block', 'מוצגת');
+  h.advance(3999);
+  eq(h.msg.style.display, 'block', 'לפני הזמן');
+  h.advance(1);
+  eq(h.msg.style.display, 'none', 'נעלמה');
+  eq(h.pending(), 0, 'לא נשארו טיימרים');
+});
+
+await acheck('שמירה נוספת מאפסת את טיימר הגיבוי ואינה עורמת', async () => {
+  // בלי ``clearTimeout``, טיימר של הודעה קודמת היה מסתיר הודעה חדשה
+  // מוקדם מדי — אותו CORE U1 שכבר טופל בטוסט.
+  const h = load(async () => ({ ok: false, status: 500, body: null }), { toast: null });
+  h.selects[0].value = '1';
+  await h.selects[0].__fire('change');
+  h.advance(3900);
+  h.selects[1].value = '1';
+  await h.selects[1].__fire('change');
+
+  eq(h.pending(), 1, 'טיימר אחד, לא שניים');
+  h.advance(200);                        // הזמן שבו הראשון היה מסתיר
+  eq(h.msg.style.display, 'block', 'עדיין מוצגת');
+  h.advance(3800);
+  eq(h.msg.style.display, 'none', 'נעלמה לפי הטיימר החדש');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);

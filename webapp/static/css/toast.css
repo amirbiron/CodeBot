@@ -64,12 +64,49 @@
   gap: 10px;
   min-width: 250px;
   max-width: min(420px, calc(100vw - 40px));
-  transform: translateX(400px);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* **ההיסט יחסי לרוחב הכרטיס, לא קבוע.** ``100%`` בטרנספורם נמדד מול
+   * האלמנט עצמו, ולכן הוא יוצא במלואו בכל רוחב. היסט קבוע של 400px היה
+   * קטן מ-``max-width`` של 420px, והשאיר הודעה ארוכה נראית למחצה. */
+  --ck-toast-exit: calc(100% + 20px);
+  transform: translateX(var(--ck-toast-exit));
   pointer-events: auto;
   /* ``border-inline-end`` ולא ``border-left``: ב-``<html dir="rtl">``
    * שתיהן מרנדרות לאותו מקום פיזי, והלוגית שורדת גם LTR. */
   border-inline-end: 4px solid var(--ck-toast-accent);
+}
+
+/* **הכיוון חייב להתהפך ב-RTL, וזה לא קוסמטי.** המכל הוא
+ * ``align-items: flex-end``, ובעמוד RTL הקצה הזה הוא **השמאלי** — נמדד
+ * בכרומיום: הכרטיס נח ב-x=20 במסך 1280. היסט חיובי היה מזיז אותו ימינה,
+ * אל תוך העמוד (ל-x≈420) ומשם מוחק אותו בבת אחת. כלומר הוא לא החליק
+ * החוצה אלא פנימה. הסימן ההפוך מוציא אותו דרך הקצה שלידו.
+ *
+ * ``html[dir="rtl"]`` ולא ``:dir(rtl)`` — זה התקדים שכבר קיים בארבעה
+ * קבצי CSS בריפו. */
+html[dir="rtl"] .ck-toast {
+  --ck-toast-exit: calc(-100% - 20px);
+}
+
+/* **המחלקה כפולה בכוונה, וזה לא קוסמטיקה.**
+ *
+ * ``dark-mode.css:505-523`` מגדיר על ``[data-theme="dark"] *`` (וכן dim,
+ * nebula, custom, shared) ``transition: background-color, color,
+ * border-color, box-shadow``. ספציפיות ``[attr] *`` היא (0,1,0) — **זהה
+ * למחלקה יחידה** — והקובץ נטען ב-``base.html:1861``, אחרי ``extra_css``
+ * שבשורה 1852. לכן הוא דורס את הכלל של ``.ck-toast``, ``transform`` יוצא
+ * מרשימת המעברים, וההנפשה פשוט לא רצה — בכל הערכות הכהות, שהן רוב
+ * השימוש.
+ *
+ * נמדד בכרומיום: עם ``data-theme="dark"`` הכרטיס נשאר ב-x=20 בכל שמונה
+ * הדגימות; בלי הערכה הוא נע ‎-250 ← 20.
+ *
+ * חזרה על המחלקה מעלה את הספציפיות ל-(0,2,0) בלי ``!important``. אותו
+ * טיפול נדרש לכלל ``prefers-reduced-motion``, שאחרת נדרס באותה צורה.
+ *
+ * ל-``bookmarks.css`` יש בדיוק אותה בעיה על ``.notification``; מדווח
+ * ולא מתוקן כאן. */
+.ck-toast.ck-toast {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ck-toast.is-shown {
@@ -106,7 +143,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ck-toast {
+  .ck-toast.ck-toast {
     transition: none;
   }
 }
