@@ -2052,11 +2052,20 @@ def inject_globals():
 
     ui_theme_custom_id = custom_theme_id if theme == "custom" else ""
 
+    # גופן הפתקים. ``fail-soft`` כמו שאר ההזרקה כאן: תקלה בהכרעה מחזירה
+    # ברירת מחדל ואינה מפילה רינדור של כל עמוד באתר.
+    try:
+        note_fonts, note_fonts_scope = _resolve_note_fonts(user_id, user_doc)
+    except Exception:
+        note_fonts, note_fonts_scope = _note_fonts_default(), THEME_SCOPE_GLOBAL
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
         'ui_theme_scope': theme_scope,
+        'note_fonts': note_fonts,
+        'note_fonts_scope': note_fonts_scope,
         'ui_theme_custom_id': ui_theme_custom_id,
         'custom_theme': custom_theme,
         'shared_theme': shared_theme,
@@ -2119,6 +2128,108 @@ from webapp.ui_theme_defaults import get_default_ui_theme_parts, get_default_ui_
 def _normalize_theme_scope(value: Optional[str]) -> str:
     v = str(value or "").strip().lower()
     return v if v in _THEME_SCOPE_VALUES else THEME_SCOPE_GLOBAL
+
+
+# ─── גופן הפתקים, לפי משטח ──────────────────────────────────────────────
+#
+# שלושת המשטחים שמארחים פתקים. **הסדר הזה הוא הקידוד ל-cookie**, ולכן
+# ``NOTE_FONT_SURFACES`` הוא המקום **היחיד** בקוד שיודע אותו: הקידוד
+# והפענוח שניהם נגזרים ממנו, ומשטח רביעי בעתיד **נספח בסוף** ולא נדחף
+# באמצע. צימוד משמעות למיקום הוא בדיוק מה שנשך ב-``MD_INLINE_RE``, שם
+# הוספה באמצע הייתה מזיזה בשקט את כל האינדקסים שאחריה.
+NOTE_FONT_SURFACES = ("repo", "md", "board")
+
+# ``[01]{3}`` ולא JSON: הכתיבה ל-cookie למטה מאמתת כל ערך מול
+# ``re.fullmatch`` כהקשחה מול CodeQL, בדיוק כמו ``font_scale`` ו-``theme``.
+# שלושה ביטים הם הערך הצר ביותר שאפשר לאמת ב-regex יחיד.
+_NOTE_FONTS_COOKIE_RE = re.compile(r"[01]{%d}" % len(NOTE_FONT_SURFACES))
+
+
+def _note_fonts_default() -> Dict[str, bool]:
+    return {name: False for name in NOTE_FONT_SURFACES}
+
+
+def _encode_note_fonts(fonts: Optional[Dict[str, Any]]) -> str:
+    """dict ← מחרוזת ביטים, לפי ``NOTE_FONT_SURFACES``."""
+    src = fonts if isinstance(fonts, dict) else {}
+    return "".join("1" if src.get(name) else "0" for name in NOTE_FONT_SURFACES)
+
+
+def _decode_note_fonts(raw: Optional[str]) -> Optional[Dict[str, bool]]:
+    """מחרוזת ביטים ← dict. ``None`` כשהערך אינו תקין — לא זריקה.
+
+    מוחזר ``None`` ולא ברירת מחדל, כדי שהקורא יבחין בין "המכשיר הזה לא
+    אמר כלום" לבין "המכשיר הזה אמר: הכל רגיל". ההבחנה הזו היא כל ההבדל
+    בהכרעת התחולה: הראשון נופל ל-DB, השני גובר עליו.
+    """
+    val = str(raw or "").strip()
+    if not _NOTE_FONTS_COOKIE_RE.fullmatch(val):
+        return None
+    return {name: val[i] == "1" for i, name in enumerate(NOTE_FONT_SURFACES)}
+
+
+def _resolve_note_fonts(
+    user_id: Optional[int],
+    user_doc: Optional[Dict[str, Any]],
+) -> tuple[Dict[str, bool], str]:
+    """מחזיר ``(fonts, scope)`` — ערך המכשיר גובר רק במצב ``device``.
+
+    זו אותה הכרעה בדיוק שמבצע ``_resolve_theme_raw_token`` עבור ערכת
+    הנושא: cookie של המכשיר גובר **רק** כשה-cookie של התחולה אומר
+    ``device``; בכל מקרה אחר ה-DB הוא המקור. במצב ``device`` הערך אינו
+    נכתב ל-DB כלל, ולכן טאבלט וטלפון אינם דורסים זה את זה.
+
+    ``_resolve_theme_raw_token`` **לא** עבר לכאן במכוון — זה היה מרחיב
+    דיף של פיצ'ר לנגיעה במסלול הערכות. הוא המקור לצורה, לא נצרך ממנה.
+    """
+    scope = _normalize_theme_scope(request.cookies.get('ui_note_fonts_scope'))
+    device_fonts = _decode_note_fonts(request.cookies.get('ui_note_fonts'))
+
+    if scope == THEME_SCOPE_DEVICE and device_fonts is not None:
+        return device_fonts, scope
+
+    # שליפה עצלה **רק** כשההכרעה הגיעה לכאן: במצב ``device`` עם ערך תקין
+    # אין קריאה למסד כלל. ``_resolve_theme_raw_token`` עושה בדיוק את זה.
+    if user_id and user_doc is None:
+        try:
+            user_doc = get_db().users.find_one(
+                {'user_id': int(user_id)}, {'ui_prefs.note_fonts': 1}
+            ) or {}
+        except Exception:
+            user_doc = None
+
+    if user_id and isinstance(user_doc, dict):
+        stored = (user_doc.get('ui_prefs') or {}).get('note_fonts')
+        if isinstance(stored, dict):
+            # ``is True`` ולא ``bool()``: ``bool("false")`` הוא ``True``, וכך
+            # מסמך שנערך ביד או שנכתב לפני שהוולידציה נוספה היה מדליק את
+            # הגופן דווקא כשהערך אומר את ההפך. הוולידציה ב-``/api/ui_prefs``
+            # סוגרת את הדלת קדימה; זה מגן על מה שכבר בפנים.
+            return {name: stored.get(name) is True for name in NOTE_FONT_SURFACES}, scope
+
+    return _note_fonts_default(), scope
+
+
+def _note_fonts_etag_key(
+    user_id: Optional[int],
+    *,
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> str:
+    """מפתח קצר שמייצג את גופן הפתקים הנוכחי, ל-ETag ולמפתח הקאש.
+
+    **למה זה נחוץ:** ``_note_fonts_head.html`` מרנדר את ההעדפה **לתוך
+    ה-HTML**. בלי שהיא תיכנס לוולידטור, שינוי ההגדרה אינו משנה את ה-ETag,
+    השרת מחזיר 304, והדפדפן מציג את העמוד הישן עם הדגל הישן — בלי קשר
+    לשאלה אם קאש ה-Redis דלוק, כי מסלול ה-304 אינו נוגע בו.
+
+    ``theme`` כבר נמצא ב-ETag ובמפתח הקאש מאותה סיבה בדיוק; זה אותו כלל
+    שמוחל על הערך השני שמרונדר פר-משתמש.
+    """
+    try:
+        fonts, _ = _resolve_note_fonts(user_id, user_doc)
+        return "nf:" + _encode_note_fonts(fonts)
+    except Exception:
+        return "nf:" + _encode_note_fonts(None)
 
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
@@ -2580,13 +2691,51 @@ def _safe_dt_from_doc(value) -> datetime:
     return dt
 
 
-def _get_theme_etag_key(user_id: Optional[int]) -> str:
-    """מפתח קצר שמייצג את ערכת הנושא הנוכחית (כולל שינויי גרסה)."""
+#: הפרויקציה שהילפרי ה-ETag צריכים. מוגדרת פעם אחת כדי שקורא שרוצה
+#: לשלוף את המסמך **בעצמו** ולחסוך שאילתה יוכל לבקש בדיוק את מה שהם
+#: קוראים — בלי לנחש ובלי שהרשימות ייסחפו זו מזו.
+ETAG_USER_PROJECTION = {
+    'ui_prefs.theme': 1,
+    'ui_prefs.note_fonts': 1,
+    'custom_themes': 1,
+    'custom_theme': 1,
+}
+
+
+def _etag_needs_user_doc() -> bool:
+    """האם מישהו מהוולידטורים באמת יזדקק למסמך המשתמש בבקשה הזו.
+
+    שני ההילפרים נופלים ל-DB רק כשה-cookie אינו מכריע: ערכה במצב
+    ``device`` עם ערך תקף, וגופן במצב ``device`` עם ערך שנפרס בהצלחה.
+    כששניהם מוכרעים מה-cookie — אין למסד מה לתרום, והשליפה המשותפת
+    היא עלות מיותרת על המסלול החם ביותר.
+    """
+    theme_decided = (
+        _normalize_theme_scope(request.cookies.get('ui_theme_scope')) == THEME_SCOPE_DEVICE
+        and bool((request.cookies.get('ui_theme') or '').strip())
+    )
+    fonts_decided = (
+        _normalize_theme_scope(request.cookies.get('ui_note_fonts_scope')) == THEME_SCOPE_DEVICE
+        and _decode_note_fonts(request.cookies.get('ui_note_fonts')) is not None
+    )
+    return not (theme_decided and fonts_decided)
+
+
+def _get_theme_etag_key(
+    user_id: Optional[int],
+    *,
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> str:
+    """מפתח קצר שמייצג את ערכת הנושא הנוכחית (כולל שינויי גרסה).
+
+    ``user_doc`` חוסך שליפה כשהקורא כבר החזיק את המסמך. חייב להיות
+    מסמך שנשלף עם ``ETAG_USER_PROJECTION`` (או רחב ממנה).
+    """
     theme_raw = get_default_ui_theme_raw()
-    user_doc = None
     try:
         theme_raw, _, _, user_doc = _resolve_theme_raw_token(
             user_id,
+            user_doc=user_doc,
             projection={'ui_prefs.theme': 1, 'custom_themes': 1, 'custom_theme': 1},
         )
     except Exception:
@@ -14944,8 +15093,29 @@ def md_preview(file_id):
         force_no_cache = False
 
     # --- HTTP cache validators (ETag / Last-Modified) ---
-    theme_key = _get_theme_etag_key(user_id)
-    etag = _compute_file_etag(file, variant=theme_key)
+    # **שליפה אחת לשני הוולידטורים.** ``/md/<id>`` הוא מסלול חם, וכל
+    # בקשה עוברת כאן — כולל בקשות ולידציה שיסתיימו ב-304. שני ההילפרים
+    # קוראים את אותו מסמך משתמש, ולכן הוא נשלף פעם אחת ומועבר לשניהם
+    # במקום ששניהם יפנו למסד בנפרד.
+    #
+    # **ולא שולפים כשאיש לא צריך:** ``_resolve_theme_raw_token`` מדלג על
+    # המסד כשה-cookie של הערכה תקף ובמצב ``device``, ו-``_resolve_note_fonts``
+    # מדלג באותם תנאים. כששני ה-scopes הם ``device`` עם cookies תקינים —
+    # אפס שאילתות, כפי שהיה לפני ההוספה.
+    _etag_user_doc = None
+    if user_id and _etag_needs_user_doc():
+        try:
+            _etag_user_doc = get_db().users.find_one(
+                {'user_id': int(user_id)}, ETAG_USER_PROJECTION
+            ) or {}
+        except Exception:
+            _etag_user_doc = None
+
+    theme_key = _get_theme_etag_key(user_id, user_doc=_etag_user_doc)
+    # ``note_fonts`` בוולידטור: העמוד הזה מרנדר את ההעדפה לתוך ה-HTML,
+    # ובלי זה שינוי ההגדרה מחזיר את אותו ETag ← 304 ← הדגל הישן.
+    note_fonts_key = _note_fonts_etag_key(user_id, user_doc=_etag_user_doc)
+    etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}")
     last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
@@ -14954,18 +15124,23 @@ def md_preview(file_id):
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
         return resp
-    ims = request.headers.get('If-Modified-Since')
-    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
-    if ims and not inm:
-        try:
-            ims_dt = parse_date(ims)
-        except Exception:
-            ims_dt = None
-        if not force_no_cache and ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
-            resp = Response(status=304)
-            resp.headers['ETag'] = etag
-            resp.headers['Last-Modified'] = last_modified_str
-            return resp
+    # **``If-Modified-Since`` אינו מכריע כאן, לפי התקן עצמו.**
+    #
+    # RFC 9110 §13.1.3: *"A recipient MUST ignore the If-Modified-Since
+    # header field if the resource does not have a modification date
+    # available."* — ולייצוג הזה אין כזה. ``last_modified_dt`` הוא תאריך
+    # **הקובץ**, בעוד שה-HTML תלוי גם בערכת הנושא וגם בגופן הפתקים, שהם
+    # פר-משתמש ופר-מכשיר ואין להם תאריך שינוי. לקוח ששלח ``IMS`` בלבד
+    # אחרי שינוי גופן היה מקבל 304 עם הדגל הישן.
+    #
+    # אותה סעיף גם מגדיר את התכלית של ``IMS``: *"to allow efficient
+    # updates of a cached representation **that does not have an entity
+    # tag**"* — ולעמוד הזה **יש** ETag, שכן מקודד את ההעדפות. הוולידטור
+    # החזק כבר עושה את העבודה, והחלש רק יכול לטעות.
+    #
+    # ``Last-Modified`` ממשיך להישלח כמטא-דאטה; ה-``after_request`` שם
+    # ``private, max-age=0, must-revalidate``, ולכן קאש משותף אינו
+    # רשאי להשתמש בו כהיוריסטיקה.
 
     # --- Cache: תוצר ה-HTML של תצוגת Markdown (תבנית) ---
     should_cache = getattr(cache, 'is_enabled', False)
@@ -14977,6 +15152,10 @@ def md_preview(file_id):
                 'file_name': file_name,
                 'lang': 'markdown',
                 'theme': theme_key,
+                # אותה החלטה כמו ב-ETag שלמעלה. הבלוק הזה רץ רק כשקאש
+                # ה-Redis דלוק; ה-ETag רץ תמיד. שניהם מקודדים את אותו
+                # ערך, כדי שלא ייווצר פער בין שני הוולידטורים.
+                'nf': note_fonts_key,
                 # גרסת deploy במפתח: אחרת ה-HTML המרונדר הישן מוגש עד פקיעת ה-TTL (30 דק')
                 'sv': _STATIC_VERSION,
             }
@@ -17681,6 +17860,9 @@ def api_ui_prefs():
         theme_cookie_value: Optional[str] = None
         theme_scope_cookie_value: Optional[str] = None
         theme_scope: Optional[str] = None
+        note_fonts_cookie_value: Optional[str] = None
+        note_fonts_scope_cookie_value: Optional[str] = None
+        note_fonts_scope: Optional[str] = None
 
         # עדכון גודל גופן במידת הצורך
         if 'font_scale' in payload:
@@ -17723,6 +17905,86 @@ def api_ui_prefs():
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
                 theme_scope_cookie_value = resolved_scope
+
+        # ─── גופן הפתקים ───────────────────────────────────────────────
+        # אותה סמנטיקה בדיוק כמו הערכה: התחולה נקראת **לפני** הערך, כי
+        # היא זו שמכריעה אם הערך נכתב ל-DB או נשאר על המכשיר.
+        if 'note_fonts_scope' in payload:
+            note_fonts_scope = _normalize_theme_scope(payload.get('note_fonts_scope'))
+            note_fonts_scope_cookie_value = note_fonts_scope
+
+        if 'note_fonts' in payload:
+            incoming = payload.get('note_fonts')
+            if not isinstance(incoming, dict):
+                return jsonify({'ok': False, 'error': 'note_fonts must be an object'}), 400
+
+            # **קלט לא תקין נדחה, לא מומר.** ``bool("false")`` הוא ``True``,
+            # ומפתח עם טעות הקלדה היה נבלע ומחזיר 200 בלי שדבר ישתנה —
+            # שתי דרכים שונות לומר למשתמש שנשמר משהו שלא נשמר.
+            for key in incoming:
+                if key not in NOTE_FONT_SURFACES:
+                    return jsonify({
+                        'ok': False,
+                        'error': f'note_fonts: unknown surface {key!r}',
+                    }), 400
+            for key, value in incoming.items():
+                # ``isinstance(value, bool)`` ולא ``int``: ב-Python ``True``
+                # **הוא** ``int``, ולכן בדיקת ``int`` הייתה מקבלת ``1``.
+                if not isinstance(value, bool):
+                    return jsonify({
+                        'ok': False,
+                        'error': f'note_fonts.{key} must be a boolean',
+                    }), 400
+
+            # **כתיבה לכל שדה בנפרד, ולא של תת-המסמך כולו.** לפי תיעוד
+            # MongoDB, ``$set`` על ``ui_prefs.note_fonts`` **מחליף את כל
+            # המסמך המקונן** ומוחק את השדות השכנים — ולכן שתי בקשות חופפות
+            # על שני משטחים שונים היו מבטלות זו את זו. נתיב מנוקד נוגע
+            # בשדה אחד בלבד, ו-``$set`` יוצר את הנתיב אם אינו קיים.
+            resolved_scope = (
+                THEME_SCOPE_DEVICE
+                if note_fonts_scope == THEME_SCOPE_DEVICE
+                else THEME_SCOPE_GLOBAL
+            )
+            try:
+                base_doc = db.users.find_one(
+                    {'user_id': user_id}, {'ui_prefs.note_fonts': 1}
+                ) or {}
+            except Exception:
+                base_doc = {}
+            # ההבחנה בין "השדה חסר" ל"השדה קיים ושווה ``null``" חיונית:
+            # שניהם נראים כמו ``None`` ב-Python, אבל מונגו מתייחס אליהם
+            # הפוך — נתיב חסר נבנה, ו-``null`` נדחה.
+            _prefs = base_doc.get('ui_prefs')
+            _has_key = isinstance(_prefs, dict) and 'note_fonts' in _prefs
+            stored_is_malformed = _has_key and not isinstance(_prefs['note_fonts'], dict)
+            current, _ = _resolve_note_fonts(user_id, base_doc)
+
+            merged = {
+                name: (incoming[name] if name in incoming else current[name])
+                for name in NOTE_FONT_SURFACES
+            }
+
+            if resolved_scope != THEME_SCOPE_DEVICE:
+                # **``$set`` מנוקד דורש שההורה יהיה אובייקט.** נמדד מול
+                # mongod 7.0.14: מחרוזת, מספר, רשימה, ``null`` או בוליאני
+                # במקום ``ui_prefs.note_fonts`` מחזירים ``WriteError`` 28
+                # (``Cannot create field 'md' in element ...``), הראוט
+                # מחזיר 500, והמשתמש נתקע בלי יכולת לשנות גופן לעולם.
+                # שדה חסר לגמרי דווקא **כן** עובד — ``$set`` בונה את הנתיב.
+                #
+                # כשההורה פגום אין שדות שכנים לשמר, ולכן כתיבת האובייקט
+                # השלם היא הסמנטיקה הנכונה — לא ויתור על האטומיות. בכל
+                # מקרה אחר נשארת הכתיבה לכל שדה בנפרד, שהיא זו שמונעת
+                # דריסה בין שתי בקשות חופפות על משטחים שונים.
+                if stored_is_malformed:
+                    update_fields['ui_prefs.note_fonts'] = merged
+                else:
+                    for name, value in incoming.items():
+                        update_fields[f'ui_prefs.note_fonts.{name}'] = value
+            resp_payload['note_fonts'] = merged
+            note_fonts_cookie_value = _encode_note_fonts(merged)
+            note_fonts_scope_cookie_value = resolved_scope
 
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
@@ -17786,9 +18048,20 @@ def api_ui_prefs():
                 return jsonify({'ok': False, 'error': 'invalid_onboarding'}), 400
 
         needs_db_update = len(update_fields) > 1  # יותר מ-updated_at
+        # **כל ערך cookie חדש חייב להיכנס לרשימה הזו.** היא השומר שמחליט
+        # אם בכלל נבנית תגובה עם קוקיז; ערך שנשכח כאן נכתב, עובר ולידציה,
+        # ואז נזרק בשקט בחזרה המוקדמת שלמטה — התגובה 200 והקוקי לא נשלח.
+        # זה בדיוק מה שקרה ל-``ui_note_fonts`` במצב ``device``, שאינו
+        # כותב ל-DB ולכן ``needs_db_update`` לא כיסה אותו.
         needs_cookie_update = any(
             v is not None
-            for v in (font_scale_cookie_value, theme_cookie_value, theme_scope_cookie_value)
+            for v in (
+                font_scale_cookie_value,
+                theme_cookie_value,
+                theme_scope_cookie_value,
+                note_fonts_cookie_value,
+                note_fonts_scope_cookie_value,
+            )
         )
 
         # אם לא התקבל אף שדה עדכני ואין צורך בקוקיז – אין מה לעדכן
@@ -17817,6 +18090,13 @@ def api_ui_prefs():
             if theme_scope_cookie_value is not None:
                 if theme_scope_cookie_value not in _THEME_SCOPE_VALUES:
                     theme_scope_cookie_value = None
+            if note_fonts_cookie_value is not None:
+                # ערך צפוי: מחרוזת ביטים באורך מספר המשטחים
+                if not _NOTE_FONTS_COOKIE_RE.fullmatch(str(note_fonts_cookie_value)):
+                    note_fonts_cookie_value = None
+            if note_fonts_scope_cookie_value is not None:
+                if note_fonts_scope_cookie_value not in _THEME_SCOPE_VALUES:
+                    note_fonts_scope_cookie_value = None
 
             if font_scale_cookie_value is not None:
                 resp.set_cookie(
@@ -17841,6 +18121,29 @@ def api_ui_prefs():
                 resp.set_cookie(
                     'ui_theme_scope',
                     scope_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if note_fonts_cookie_value is not None:
+                resp.set_cookie(
+                    'ui_note_fonts',
+                    note_fonts_cookie_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if note_fonts_scope_cookie_value is not None:
+                nf_scope_value = (
+                    THEME_SCOPE_DEVICE
+                    if note_fonts_scope_cookie_value == THEME_SCOPE_DEVICE
+                    else THEME_SCOPE_GLOBAL
+                )
+                resp.set_cookie(
+                    'ui_note_fonts_scope',
+                    nf_scope_value,
                     max_age=365*24*3600,
                     samesite='Lax',
                     secure=True,

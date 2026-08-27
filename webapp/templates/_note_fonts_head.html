@@ -1,0 +1,49 @@
+{#
+  גופן הפתקים — טעינה והחלה בזמן פרסור ה-head.
+
+  נכלל משלושת המשטחים שמארחים פתקים, כל אחד עם ``note_font_surface``
+  משלו (``repo`` / ``md`` / ``board``). ההעדפה מגיעה מ-``note_fonts``
+  שמזריק ``inject_globals``, אחרי הכרעת התחולה בשרת.
+
+  **למה בשרת ולא ב-localStorage כמו שהיה:** ה-cookie של ההעדפה הוא
+  ``httponly``, ולכן JS אינו יכול לקרוא אותו כלל. הערך חייב להגיע
+  מרונדר. זה גם מה שמאפשר לתחולה "בכל המכשירים" לעבוד — localStorage
+  לא עובר מכשיר.
+
+  **המחלקה יושבת על ``<html>`` ולא על ``<body>``.** הסקריפט הזה רץ
+  בפרסור ה-head, ובשלב הזה ``document.body`` הוא ``null`` — החלה עליו
+  הייתה זורקת. ``documentElement`` קיים, והסלקטור ``.sticky-handwriting
+  .sticky-note-*`` מתאים ממנו בדיוק כפי שהתאים מ-``<body>``. זה גם
+  מכסה פתק במצב ``screen``, שיושב מחוץ למכל הפתקים.
+#}
+<script>
+(function () {
+  // אידמפוטנטי, כי קוראים לזה משני מקומות: מכאן בטעינת העמוד, ומהמתג
+  // בלוח כשמדליקים באמצע הסשן. בלי הקריאה השנייה המחלקה הייתה מוחלת
+  // על גופן שמעולם לא נטען, והטקסט היה נופל ל-``cursive`` הגנרי.
+  window.ensureHandwritingFont = function () {
+    if (document.getElementById('hw-font')) return;
+    var l = document.createElement('link');
+    l.id = 'hw-font';
+    l.rel = 'stylesheet';
+    // משקל 400 בלבד — אין בגופן bold, וההדגשה מסונתזת.
+    l.href = 'https://fonts.googleapis.com/css2?family=Gveret+Levin&display=swap';
+    document.head.appendChild(l);
+  };
+
+  // מקור יחיד להחלת המחלקה, כדי ששני המקורות — ההגדרה הגלובלית והמתג
+  // בלוח — לא ייגעו בה כל אחד בדרכו.
+  window.applyStickyHandwriting = function (on) {
+    if (on) { try { window.ensureHandwritingFont(); } catch (e) { /* אין מה לעשות */ } }
+    try {
+      document.documentElement.classList.toggle('sticky-handwriting', !!on);
+    } catch (e) { /* אין מה לעשות */ }
+  };
+
+  // ההעדפה של **המשטח הזה** בלבד. משטח שלא הוגדר אינו טוען דבר —
+  // במצב כבוי המחיר הוא אפס בקשות, לא בקשה שנזרקת.
+  window.STICKY_FONT_FROM_SETTINGS = {{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }};
+
+  if (window.STICKY_FONT_FROM_SETTINGS) window.applyStickyHandwriting(true);
+})();
+</script>

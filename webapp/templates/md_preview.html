@@ -2,6 +2,11 @@
 
 {% block title %}{{ file.file_name }} - Markdown Preview{% endblock %}
 
+{% block extra_head %}
+{% set note_font_surface = 'md' %}
+{% include "_note_fonts_head.html" with context %}
+{% endblock %}
+
 {% block extra_css %}
 <style>
 /* אזור התצוגה והביצועים */
