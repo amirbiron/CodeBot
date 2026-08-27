@@ -18,8 +18,9 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 ### הכלים (Tools)
 
 כל הכלים מקודמים ב‑`codekeeper_` (מונע התנגשות עם connectors אחרים). כולם read-only
-פרט לכלי הכתיבה `codekeeper_save_file`/`codekeeper_edit_file`/`codekeeper_append_file`
-וכלי הפתקים `codekeeper_create_note`/`codekeeper_update_note` (דורשים הרשאת `write`).
+פרט לכלי הכתיבה `codekeeper_save_file`/`codekeeper_edit_file`/`codekeeper_append_file`/
+`codekeeper_add_to_collection` וכלי הפתקים `codekeeper_create_note`/
+`codekeeper_update_note`/`codekeeper_note_str_replace` (דורשים הרשאת `write`).
 
 | כלי | תיאור |
 |-----|-------|
@@ -32,11 +33,21 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
 | `codekeeper_list_notes` | פתקים דביקים של קובץ (לפי `file_name`) — אותם פתקים שמוצגים ב‑UI של הוובאפ |
 | `codekeeper_create_note` | **כתיבה:** יצירת פתק דביק על קובץ קיים; `line` אופציונלי מעגן לשורת מקור (בלעדיו הפתק צף). דורש `write` |
-| `codekeeper_update_note` | **כתיבה:** עדכון חלקי של פתק לפי `note_id` (תוכן/שורה/צבע/מוזער) — דורס במקום, אין היסטוריית גרסאות לפתקים. דורש `write` |
+| `codekeeper_update_note` | **כתיבה:** עדכון חלקי של פתק לפי `note_id` (תוכן/שורה/צבע/מוזער) — דורס במקום, אבל התוכן הקודם נשמר כגרסה. דורש `write` |
+| `codekeeper_note_str_replace` | **כתיבה:** מצא‑והחלף מדויק **בתוך פתק** (`old_string`→`new_string`, אופציונלית `replace_all`) בלי לשלוח את כל הגוף. אותה סמנטיקה ואותם נוסחי שגיאה כמו `edit_file`. דורש `write` |
+| `codekeeper_list_note_versions` | הגרסאות הקודמות של פתק (מטא‑דאטה בלבד), החדשה תחילה |
+| `codekeeper_get_note_version` | תוכן של גרסה קודמת אחת; השחזור הוא `update_note` עם התוכן שנקרא |
 | `codekeeper_list_collections` | האוספים של המשתמש |
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
+| `codekeeper_add_to_collection` | **כתיבה:** שיוך קובץ שמור קיים לאוסף קיים. `save_file` **אינו** משייך — זו הקריאה השנייה שמשלימה אותו. נכשל במפורש כשהאוסף או הקובץ אינם קיימים. דורש `write` |
 | `codekeeper_docs_get_section` | סקשן בודד מקובץ RST של התיעוד (במקום קובץ שלם); בלי `section` מחזיר עץ כותרות. כולל breadcrumb/תת‑סקשנים/שכנים לניווט. עדיף על `codekeeper_get_repo_file` ל‑`docs/*.rst` |
+
+> **היסטוריית פתקים.** כל עדכון שנוגע ב‑`content` שומר את הגוף הקודם באוסף
+> `sticky_note_versions` **לפני** הדריסה — עד 20 גרסאות לפתק. כשל צילום **עוצר**
+> את העדכון (`snapshot_failed`): דריסה אחרי צילום שנכשל היא בדיוק אובדן הנתונים
+> שהמנגנון בא למנוע. `destructiveHint` נשאר `True` כי אחרי 20 עריכות המקור נדחף
+> החוצה. אוסף נפרד ולא מערך מוטבע — שלוש פונקציות הרשימה קוראות בלי פרויקציה.
 
 ### כלי אדמין — דפדפן הריפו (פאזה ד', קריאה בלבד)
 
@@ -49,6 +60,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן) |
 | `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB; בינארי ⇒ מטא‑דאטה בלבד) |
 | `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
+| `codekeeper_list_repo_note_paths` | **מפת גילוי:** אילו קבצים בריפו נושאים פתקים, וכמה על כל אחד. בלעדיה `list_repo_notes` דורש לדעת את הנתיב מראש |
 
 - **מדיניות סודות (חובה):** נתיבים כמו `.env*`, `*.pem`, `id_rsa*` נחסמים/מושמטים בכל
   הכלים; הרחבה דרך `MCP_REPO_DENYLIST_EXTRA` (CSV globs).

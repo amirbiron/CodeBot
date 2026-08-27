@@ -627,7 +627,7 @@ class _RepoNotesBackend:
         }))
         return {"ok": True, "note": {"id": "n1", "repo_name": repo_name, "repo_path": repo_path}}
 
-    def search_notes(self, user_id, *, query, limit):
+    def search_notes(self, user_id, *, query, limit, search_content=False):
         self.calls.append(("search", user_id, {"query": query, "limit": limit}))
         return {"ok": True, "query": query, "count": 0, "truncated": False, "notes": []}
 

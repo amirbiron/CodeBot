@@ -1002,7 +1002,232 @@ class ProductionBackend:
         note["_id"] = getattr(res, "inserted_id", None)
         return {"ok": True, "note": _as_note(note)}
 
-    def search_notes(self, user_id: int, *, query: str, limit: int) -> dict[str, Any]:
+    def get_note(self, user_id: int, *, note_id: str) -> dict[str, Any]:
+        """פתק בודד לפי מזהה, תחום לבעלות.
+
+        נדרש ל-``note_str_replace``: עריכת מצא-והחלף היא read-modify-write,
+        וכלי הרשימה מחייבים לדעת **איפה** הפתק יושב — בדיוק מה שהקורא
+        אינו יודע כשיש בידו ``note_id`` בלבד.
+        """
+        from bson import ObjectId  # lazy heavy import
+
+        try:
+            oid = ObjectId(str(note_id))
+        except Exception:
+            return {"ok": False, "error": "invalid_note_id"}
+        row = self._notes_coll().find_one({"_id": oid, "user_id": int(user_id)})
+        if not row:
+            return {"ok": False, "error": "not_found"}
+        return {"ok": True, "note": _as_note(row)}
+
+    #: כמה גרסאות קודמות נשמרות לכל פתק.
+    #:
+    #: **מספר חדש שאין לו תקדים בריפו** — קבצים אינם חסומים בכלל. פתק הוא
+    #: עד 20K תווים, ועד 1000 פתקים למשתמש; בלי תקרה, עריכה חוזרת של פתק
+    #: אחד הייתה מייצרת צמיחה בלתי חסומה באוסף שנועד להיות רשת ביטחון.
+    #: **ומכאן גם המגבלה שחייבת להיאמר:** אחרי 20 עריכות המקור נדחף
+    #: החוצה, ולכן ``destructiveHint`` נשאר ``True``.
+    NOTE_VERSION_RETENTION = 20
+
+    def _note_versions_coll(self) -> Any:
+        """אוסף גרסאות הפתקים, עם בניית אינדקס חד-פעמית.
+
+        **אוסף נפרד, ולא מערך מוטבע במסמך הפתק.** שלוש פונקציות הרשימה —
+        ``list_notes``, ``list_board_notes`` ו-``list_repo_notes`` — עושות
+        ``find(query)`` **בלי פרויקציה**, ולכן מערך היסטוריה מוטבע היה
+        נגרר לתוך כל רשימת פתקים. זו הפרה של חוק ה-Smart Projection בשלושה
+        מסלולים חמים בבת אחת, ובגודל שגדל עם כל עריכה.
+
+        האינדקס הייחודי אינו קוסמטי: הוא מה שהופך מספר גרסה כפול משתי
+        כתיבות מקבילות לשגיאה שנתפסת, במקום לשתי גרסאות שנושאות אותו
+        מספר ואי אפשר להבדיל ביניהן.
+        """
+        coll = self._raw_mongo()["sticky_note_versions"]
+        if not getattr(self, "_note_versions_idx_done", False):
+            self._note_versions_idx_done = True
+            for keys, name, uniq in (
+                ([("user_id", 1), ("note_id", 1), ("version", -1)], "note_version_idx", True),
+            ):
+                try:
+                    coll.create_index(keys, name=name, unique=uniq)
+                except Exception:
+                    logger.warning(
+                        "note versions index %s creation failed (non-fatal)", name, exc_info=True
+                    )
+        return coll
+
+    def _snapshot_note(self, user_id: int, note: dict[str, Any]) -> bool:
+        """שומר את התוכן הנוכחי של הפתק כגרסה קודמת. מחזיר האם הצליח.
+
+        **ערך ההחזרה נבדק אצל הקורא, והוא אינו קישוט.** ``update_note``
+        דורס במקום; אם הצילום נכשל ובכל זאת נדרוס, איבדנו את הפתק בשקט
+        בדיוק כמו לפני התיקון — רק שהפעם הבטחנו למשתמש שיש רשת. לכן כשל
+        כאן עוצר את העדכון.
+        """
+        content = note.get("content")
+        if not isinstance(content, str) or not content:
+            # אין מה לצלם. זו הצלחה, לא כשל: פתק ריק אינו מידע שאפשר לאבד.
+            return True
+        coll = self._note_versions_coll()
+        nid = str(note.get("_id"))
+        try:
+            prev = coll.find_one(
+                {"user_id": int(user_id), "note_id": nid}, {"version": 1}, sort=[("version", -1)]
+            )
+            nxt = int((prev or {}).get("version") or 0) + 1
+            coll.insert_one(
+                {
+                    "user_id": int(user_id),
+                    "note_id": nid,
+                    "version": nxt,
+                    "content": content,
+                    "saved_at": _dt.datetime.now(_dt.timezone.utc),
+                }
+            )
+        except Exception:
+            logger.error("note snapshot failed for %s", nid, exc_info=True)
+            return False
+        self._prune_note_versions(int(user_id), nid)
+        return True
+
+    def _prune_note_versions(self, user_id: int, note_id: str) -> None:
+        """מוחק גרסאות מעבר ל-:data:`NOTE_VERSION_RETENTION` האחרונות.
+
+        כשל בגיזום אינו מפיל את העדכון: התוצאה היא היסטוריה ארוכה מהתקרה,
+        שהיא **עודף** מידע ולא חוסר. הכיוון ההפוך היה מצדיק עצירה.
+        """
+        try:
+            coll = self._note_versions_coll()
+            keep = list(
+                coll.find({"user_id": int(user_id), "note_id": note_id}, {"version": 1})
+                .sort("version", -1)
+                .limit(int(self.NOTE_VERSION_RETENTION))
+            )
+            if len(keep) < int(self.NOTE_VERSION_RETENTION):
+                return
+            floor = int(keep[-1].get("version") or 0)
+            coll.delete_many(
+                {"user_id": int(user_id), "note_id": note_id, "version": {"$lt": floor}}
+            )
+        except Exception:
+            logger.warning("note version prune failed for %s", note_id, exc_info=True)
+
+    def list_note_versions(self, user_id: int, *, note_id: str) -> dict[str, Any]:
+        """מטא-דאטה של הגרסאות הקודמות — **בלי תוכן**, כמו ``list_versions``.
+
+        אינו נשען על קיום הפתק: היסטוריה של פתק שנמחק עדיין שייכת
+        למשתמש, והבעלות נשמרת במסמך הגרסה עצמו.
+        """
+        rows = list(
+            self._note_versions_coll()
+            .find({"user_id": int(user_id), "note_id": str(note_id)}, {"content": 1, "version": 1, "saved_at": 1})
+            .sort("version", -1)
+            .limit(int(self.NOTE_VERSION_RETENTION))
+        )
+        return {
+            "ok": True,
+            "note_id": str(note_id),
+            "count": len(rows),
+            "versions": [
+                {
+                    "version": int(r.get("version") or 0),
+                    "saved_at": _json_safe(r.get("saved_at")),
+                    "length": len(r.get("content") or ""),
+                }
+                for r in rows
+            ],
+        }
+
+    def get_note_version(self, user_id: int, *, note_id: str, version: int) -> dict[str, Any]:
+        """תוכן של גרסה קודמת אחת — המקבילה ל-``get_file(version=)``."""
+        row = self._note_versions_coll().find_one(
+            {"user_id": int(user_id), "note_id": str(note_id), "version": int(version)}
+        )
+        if not row:
+            return {"ok": False, "error": "version_not_found"}
+        return {
+            "ok": True,
+            "note_id": str(note_id),
+            "version": int(row.get("version") or 0),
+            "saved_at": _json_safe(row.get("saved_at")),
+            "content": str(row.get("content") or ""),
+        }
+
+    def list_repo_note_paths(self, user_id: int, *, repo_name: str) -> dict[str, Any]:
+        """הנתיבים בריפו שיש עליהם פתקים, עם ספירה — מפת גילוי.
+
+        בלי זה ``list_repo_notes`` דורש לדעת את הנתיב המדויק מראש, כלומר
+        צריך לדעת איפה הפתק כדי למצוא אותו.
+        """
+        from sticky_notes_target import repo_note_paths_pipeline
+
+        rows = list(self._notes_coll().aggregate(repo_note_paths_pipeline(int(user_id), repo_name)))
+        paths = [
+            {"repo_path": str(r.get("_id") or ""), "note_count": int(r.get("count") or 0)}
+            for r in rows
+            if r.get("_id")
+        ]
+        return {
+            "ok": True,
+            "repo_name": str(repo_name or ""),
+            "count": len(paths),
+            "paths": paths,
+        }
+
+    def add_to_collection(
+        self,
+        user_id: int,
+        *,
+        collection_id: str,
+        file_name: str,
+        folder: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """משייך קובץ קיים לאוסף קיים.
+
+        **שלושה שערים, ושלושתם נדרשים בגלל אותו כשל.**
+        ``CollectionsManager.add_items`` אינה מאמתת שהאוסף קיים או שייך
+        לקורא: היא כותבת את הפריט עם ה-``collection_id`` שקיבלה, ורק עדכון
+        המונים בסוף תחום לבעלות — ונכשל בשקט. כלומר היא מחזירה
+        ``{"ok": True, "added": 1}`` על אוסף שאינו קיים, ומשאירה פריט יתום.
+        זהו בדיוק K11: ערך חזרה חיובי על כשל, שמסתיים בהודעת ✅.
+
+        לכן: בעלות **לפני**, קיום הקובץ **לפני**, וספירת מה שנכתב **אחרי**.
+        """
+        cm = self._collections()
+        owned = cm.get_collection(int(user_id), str(collection_id))
+        if not isinstance(owned, dict) or not owned.get("ok"):
+            return {"ok": False, "error": "collection_not_found"}
+
+        name = str(file_name or "").strip()
+        doc = _latest_fresh(self._require_dbm(), int(user_id), name)
+        if not doc:
+            return {"ok": False, "error": "file_not_found"}
+
+        item: dict[str, Any] = {"file_name": name, "source": "regular"}
+        if folder is not None:
+            item["folder"] = folder
+        if note is not None:
+            item["note"] = note
+        res = cm.add_items(int(user_id), str(collection_id), [item])
+        if not isinstance(res, dict) or not res.get("ok"):
+            return {"ok": False, "error": str((res or {}).get("error") or "add_failed")}
+        added = int(res.get("added") or 0)
+        updated = int(res.get("updated") or 0)
+        if added == 0 and updated == 0:
+            # ``add_items`` מדלגת בשקט על פריט בעייתי ועדיין מחזירה ok.
+            return {"ok": False, "error": "not_added"}
+        return {
+            "ok": True,
+            "collection_id": str(collection_id),
+            "file_name": name,
+            "added": added,
+            "updated": updated,
+        }
+
+    def search_notes(
+        self, user_id: int, *, query: str, limit: int, search_content: bool = False
+    ) -> dict[str, Any]:
         """חיפוש פתקים **לפי שם**, חוצה את שלושת היעדים.
 
         **הפרויקציה נושאת משקל ואינה קוסמטיקה:** היא אוכפת "שם בלבד, בלי
@@ -1014,13 +1239,16 @@ class ProductionBackend:
         שה-``truncated`` יהיה עובדה ולא ניחוש: שורה נוספת שחזרה היא ראיה
         שיש עוד, ולא הערכה מתוך ספירה שווה לתקרה.
         """
-        from sticky_notes_target import title_search_filter
+        from sticky_notes_target import note_search_filter
 
         want = int(limit)
         projection = {key: 1 for key in _NOTE_REF_FIELDS}
         rows = list(
             self._notes_coll()
-            .find(title_search_filter(int(user_id), query), projection)
+            .find(
+                note_search_filter(int(user_id), query, search_content=bool(search_content)),
+                projection,
+            )
             .sort("updated_at", -1)
             .limit(want + 1)
         )
@@ -1031,6 +1259,7 @@ class ProductionBackend:
         return {
             "ok": True,
             "query": str(query or ""),
+            "searched_content": bool(search_content),
             "count": len(rows),
             "truncated": truncated,
             "notes": [_as_note_ref(r) for r in rows],
@@ -1097,6 +1326,13 @@ class ProductionBackend:
         note = coll.find_one({"_id": oid, "user_id": int(user_id)})
         if not note:
             return {"ok": False, "error": "not_found"}
+
+        # **הצילום לפני הדריסה, וכשל בו עוצר אותה.** זו הנקודה שאכלה פתק
+        # בפועל: העדכון מחליף את התוכן כולו, ועד היום לא היה ממה לשחזר.
+        # אם הצילום נכשל ובכל זאת נדרוס — איבדנו את הפתק בשקט, רק שהפעם
+        # אחרי שהבטחנו רשת ביטחון. כל כלי שעובר כאן יורש את ההגנה.
+        if "content" in fields and not self._snapshot_note(int(user_id), note):
+            return {"ok": False, "error": "snapshot_failed"}
 
         updates = dict(fields)
         # backfill לפתק legacy בלי scope_id — רק במסלול הכתיבה (list נשאר קריאה טהורה)

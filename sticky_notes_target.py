@@ -610,8 +610,10 @@ def repo_notes_filter(user_id: int, repo_name: Any, repo_path: Any) -> Dict[str,
     }
 
 
-def title_search_filter(user_id: int, needle: Any) -> Dict[str, Any]:
-    """שאילתת חיפוש פתקים **לפי שם**, חוצת שלושת היעדים.
+def note_search_filter(
+    user_id: int, needle: Any, *, search_content: bool = False
+) -> Dict[str, Any]:
+    """שאילתת חיפוש פתקים, חוצת שלושת היעדים.
 
     האח הרביעי של :func:`file_notes_filter`, :func:`board_notes_filter`
     ו-:func:`repo_notes_filter` — ומאותה סיבה שהם כאן: שאילתה שמורכבת
@@ -621,22 +623,67 @@ def title_search_filter(user_id: int, needle: Any) -> Dict[str, Any]:
     ``"config.py"`` היה תופס גם ``configXpy``, ושאילתה כמו ``"a("`` הייתה
     מפילה את מונגו בשגיאת פרסור. יש בריפו מקומות ששכחו זאת; הם אינם
     תקדים. הריכוז כאן מבטיח שראוט ווב עתידי לא יגזור החלטת escaping אחרת.
+    הוא חל על **שני** הפרדיקטים, לא רק על הראשון.
 
-    **חיפוש בשם ולא בתוכן** — החלטה, לא קיצור דרך. חיפוש תוכן היה מחייב
-    אינדקס טקסט, ומונגו מאפשר **אחד לכל אוסף**; זו החלטה שקשה לחזור ממנה
-    ולא נדרשת כאן.
+    ``search_content`` **כבוי כברירת מחדל, ובכוונה.** חיפוש השם נשען על
+    ``user_title_idx`` ומחזיר שורות בלי לגעת בגוף הפתק. הרחבתו לתוכן
+    מוסיפה פרדיקט שאין ולא יהיה עליו אינדקס — מונגו מתיר **אינדקס טקסט
+    אחד לכל אוסף**, וזו החלטה חד-כיוונית שלא נשרפת כאן. מה שכן מגן:
+    ``user_id`` נשאר פרדיקט ראשון, ולכן הסריקה חסומה למכסת המשתמש
+    (:data:`MAX_NOTES_PER_USER`) ואינה COLLSCAN.
 
-    ``$exists`` אינו נחוץ לנכונות (רג'קס לעולם אינו תופס שדה חסר) אבל
-    מצהיר על הכוונה ומתעד שפתק בלי שם אינו מועמד.
+    **פתק בלי שם הוא הסיבה שהדגל קיים.** רוב הפתקים בפועל נכתבים בלי
+    כותרת, ולכן היו בלתי-נראים לחיפוש לחלוטין. ``$exists`` על ``title``
+    אינו נחוץ לנכונות (רג'קס לעולם אינו תופס שדה חסר) אבל מצהיר על
+    הכוונה — ובענף התוכן הוא **אסור**, כי הוא היה מחזיר בדיוק את הפתקים
+    שהדגל בא למצוא אל מחוץ לתוצאה.
+
+    .. note::
+       פתקי legacy נשמרו עם ישויות HTML (``&quot;`` במקום ``"``);
+       ``_sanitize`` מנקה רק בכתיבה חדשה. חיפוש תוכן על תו כזה יפספס
+       אותם. זו מגבלת נתונים היסטוריים, לא של השאילתה.
     """
+    pattern = {"$regex": re.escape(str(needle or "")), "$options": "i"}
+    title_clause = {"title": {"$exists": True, **pattern}}
+    if not search_content:
+        return {"user_id": int(user_id), **title_clause}
     return {
         "user_id": int(user_id),
-        "title": {
-            "$exists": True,
-            "$regex": re.escape(str(needle or "")),
-            "$options": "i",
-        },
+        "$or": [title_clause, {"content": dict(pattern)}],
     }
+
+
+def title_search_filter(user_id: int, needle: Any) -> Dict[str, Any]:
+    """חיפוש **לפי שם בלבד** — מעטפת דקה של :func:`note_search_filter`.
+
+    שמורה כדי שהקוראים הקיימים לא ייגעו, ומממשת דרך המשותף כדי ששני
+    בוני-שאילתה לא ייווצרו לאותה שאלה.
+    """
+    return note_search_filter(user_id, needle, search_content=False)
+
+
+def repo_note_paths_pipeline(user_id: int, repo_name: Any) -> List[Dict[str, Any]]:
+    """הנתיבים בריפו שיש עליהם פתקים, עם ספירה לכל נתיב.
+
+    **מפת גילוי, לא תוכן.** :func:`repo_notes_filter` דורש שהקורא כבר ידע
+    את הנתיב המדויק — כלומר צריך לדעת איפה הפתק כדי למצוא אותו. הצינור
+    הזה סוגר את הלולאה: הוא מחזיר את הנתיבים בלבד, ומשם קוראים לכלי
+    הרשימה על נתיב ספציפי.
+
+    **אגרגציה ולא ``distinct`` בכוונה.** אותה מחלקת עלות, אבל הספירה
+    מגיעה חינם והופכת את המפה לשימושית — נתיב עם 12 פתקים ונתיב עם אחד
+    אינם אותו דבר לקורא.
+
+    ``$match`` נושא ``user_id`` **וגם** ``repo_name``, שהם בדיוק תחילית
+    ``user_repo_idx`` (``user_id, repo_name, repo_path``) — ולכן אין כאן
+    צורך באינדקס חדש. הצינור **אינו נוגע ב-``content``**: הוא מקבץ לפי
+    נתיב וסופר, כלומר עלותו מנותקת מגודל הפתקים.
+    """
+    return [
+        {"$match": {"user_id": int(user_id), "repo_name": _clean(repo_name)}},
+        {"$group": {"_id": "$repo_path", "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
 
 
 #: לכל סוג יעד — שדות הזיהוי שמאפשרים **לחזור אל הפתק**.
