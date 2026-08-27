@@ -57,8 +57,12 @@ function mkSelect(surface, value) {
 /**
  * ``fetchImpl`` מקבל את גוף הבקשה המפורסר ומחזיר ``{ok, body}``.
  * ברירת המחדל: הצלחה.
+ *
+ * ``opts.toast`` — ``undefined``: טוסט שמצליח (המסלול הרגיל);
+ * ``false``: טוסט שאינו מצליח להציג; ``null``: אין ``ckToast`` כלל.
+ * שני האחרונים חייבים ליפול לשורת ההודעה, אחרת הודעת כשל שמירה נעלמת.
  */
-function load(fetchImpl) {
+function load(fetchImpl, opts = {}) {
   const sent = [];
   const msg = { textContent: '', style: { display: 'none', color: '' } };
   const selects = [
@@ -87,10 +91,18 @@ function load(fetchImpl) {
       };
     },
   };
+  const toasts = [];
+  if (opts.toast !== null) {
+    sandbox.ckToast = (message, type, o) => {
+      toasts.push({ message, type, key: o && o.key });
+      return opts.toast !== false;
+    };
+  }
+
   vm.createContext(sandbox);
   sandbox.window = sandbox;
   vm.runInContext(fontsScript(), sandbox);
-  return { sent, msg, selects, scopeSel };
+  return { sent, msg, selects, scopeSel, toasts };
 }
 
 // ─── גוף הבקשה ──────────────────────────────────────────────────────────
@@ -131,14 +143,15 @@ await acheck('שינוי התחולה שולח גם את הערכים', async ()
 
 // ─── כשל ────────────────────────────────────────────────────────────────
 
-await acheck('כשל מחזיר את הבורר ומציג הודעה', async () => {
+await acheck('כשל מחזיר את הבורר ומציג חיווי שגיאה', async () => {
   const h = load(async () => ({ ok: false, status: 500, body: null }));
   h.selects[1].value = '1';
   await h.selects[1].__fire('change');
 
   eq(h.selects[1].value, '0', 'הבורר הוחזר');
-  eq(h.msg.style.display, 'block', 'ההודעה מוצגת');
-  eq(h.msg.textContent.includes('נכשלה'), true, 'נוסח ההודעה');
+  eq(h.toasts.length, 1, 'מספר החיוויים');
+  eq(h.toasts[0].type, 'error', 'סוג החיווי');
+  eq(h.toasts[0].message.includes('נכשלה'), true, 'נוסח ההודעה');
 });
 
 await acheck('הצלחה מציגה אישור ואינה מחזירה כלום', async () => {
@@ -146,7 +159,9 @@ await acheck('הצלחה מציגה אישור ואינה מחזירה כלום'
   h.selects[0].value = '1';
   await h.selects[0].__fire('change');
   eq(h.selects[0].value, '1', 'הבורר נשאר');
-  eq(h.msg.textContent, 'נשמר', 'ההודעה');
+  eq(h.toasts.length, 1, 'מספר החיוויים');
+  eq(h.toasts[0].message, 'נשמר', 'ההודעה');
+  eq(h.toasts[0].type, 'success', 'סוג החיווי');
 });
 
 await acheck('כשל מחזיר למצב האחרון שנשמר, לא לערך הקודם', async () => {
@@ -235,7 +250,7 @@ await acheck('הצלחה ואז כשל באותו תור — ההחזרה תוא
   eq(h.sent.length, 2, 'שתי בקשות');
   eq(h.selects[0].value, '1', 'מה שהשרת קיבל נשאר על המסך');
   eq(h.selects[1].value, '0', 'מה שנכשל הוחזר');
-  eq(h.msg.textContent.includes('נכשלה'), true, 'ההודעה');
+  eq(h.toasts[h.toasts.length - 1].type, 'error', 'החיווי האחרון');
 });
 
 await acheck('הגוף שנשלח תואם ל-snapshot של אותו רגע', async () => {
@@ -260,6 +275,60 @@ await acheck('הגוף שנשלח תואם ל-snapshot של אותו רגע', as
      JSON.stringify({ repo: true, md: false, board: false }), 'הראשונה');
   eq(JSON.stringify(h.sent[1].note_fonts),
      JSON.stringify({ repo: true, md: false, board: true }), 'השנייה');
+});
+
+// ─── החיווי ─────────────────────────────────────────────────────────────
+
+await acheck('שתי שמירות מוצלחות מפיקות שני חיוויים', async () => {
+  // **זה הבאג שדווח.** בגרסה הקודמת החיווי היה שורת סטטוס קבועה, ושמירה
+  // שנייה כתבה בה את אותה מחרוזת בדיוק — אפס שינוי ב-DOM, ולכן אפס חיווי.
+  // בדיקה על תוכן השורה הייתה עוברת גם על הקוד השבור; רק ספירת אירועים
+  // מבחינה ביניהם.
+  const h = load();
+  h.selects[0].value = '1';
+  await h.selects[0].__fire('change');
+  h.selects[1].value = '1';
+  await h.selects[1].__fire('change');
+
+  eq(h.sent.length, 2, 'שתי בקשות');
+  eq(h.toasts.length, 2, 'שני חיוויים — לא אחד');
+  eq(h.toasts[1].message, 'נשמר', 'גם השני');
+});
+
+await acheck('כל החיוויים נושאים מפתח אחיד', async () => {
+  // המפתח הוא מה שגורם לחיווי חדש להחליף את הקודם במקום להיערם לצידו.
+  const h = load();
+  h.selects[0].value = '1';
+  await h.selects[0].__fire('change');
+  h.scopeSel.value = 'device';
+  await h.scopeSel.__fire('change');
+
+  eq(h.toasts.length, 2, 'שני חיוויים');
+  eq(h.toasts[0].key, 'note-fonts', 'מפתח ראשון');
+  eq(h.toasts[1].key, 'note-fonts', 'מפתח שני');
+});
+
+await acheck('בלי ckToast — ההודעה נופלת לשורת הגיבוי', async () => {
+  // ``toast.js`` נטען ב-``defer``. אם הוא לא הגיע, הודעת כשל שמירה
+  // חייבת עדיין להגיע למשתמש.
+  const h = load(async () => ({ ok: false, status: 500, body: null }), { toast: null });
+  h.selects[1].value = '1';
+  await h.selects[1].__fire('change');
+
+  eq(h.msg.style.display, 'block', 'השורה מוצגת');
+  eq(h.msg.textContent.includes('נכשלה'), true, 'נוסח ההודעה');
+});
+
+await acheck('ckToast שהחזירה false — נופלת לשורת הגיבוי', async () => {
+  // ``ckToast`` מדווחת כשל בערך ההחזרה ולא בזריקה. קורא שמתעלם ממנו
+  // מציג "הכול תקין" על חיווי שלא הוצג — K11 בדפוסי הבאגים.
+  const h = load(async () => ({ ok: false, status: 500, body: null }), { toast: false });
+  h.selects[1].value = '1';
+  await h.selects[1].__fire('change');
+
+  eq(h.toasts.length, 1, 'הטוסט נוסה');
+  eq(h.msg.style.display, 'block', 'ובכל זאת השורה הוצגה');
+  eq(h.msg.textContent.includes('נכשלה'), true, 'נוסח ההודעה');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);

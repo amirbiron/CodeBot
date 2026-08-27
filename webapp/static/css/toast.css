@@ -1,0 +1,115 @@
+/* טוסט חיווי — התראה חולפת לפעולות שנשמרות מיד.
+ *
+ * המראה משוכפל מטוסט המועדפים/הנעץ (``bookmarks.css:342-355``), שנטען רק
+ * דרך ``bookmarks_snippet.html``. הקובץ הזה עומד בפני עצמו: אין לו תלות
+ * בשום קובץ אחר, ואפשר לטעון אותו לכל עמוד.
+ *
+ * **מרחב שמות משלו, בכוונה.** ``bookmarks.css`` ו-``multi-select.css``
+ * מגדירים שניהם את ``.notification`` / ``.notification-container`` /
+ * ``#notificationContainer`` עם ערכים סותרים לגמרי (פינה תחתונה מול
+ * עליונה, טוקני נושא מול גרדיאנט כהה קשיח). היום אין עמוד שטוען את
+ * שניהם, אבל דייר שלישי על אותם שמות היה הופך את זה לוודאי.
+ */
+
+:root {
+  /* טוקני רכיב (Level 3 לפי ``docs/webapp/theming_and_css.rst``), עם
+   * הערכים של ``bookmarks.css:2-73`` — הטוסט שהמראה שלו נבחר.
+   *
+   * **הרקע אינו נגזר מ-``--bg-secondary``, ונמדד למה.** גזירה כזו
+   * מתאימה את הטוסט לערכה מאליה, אבל ב-``classic`` היא נותנת סגול
+   * ``#8e63ff`` עם טקסט לבן — **3.9:1**, מתחת ל-4.5 של WCAG AA. נמדד
+   * בכרומיום, לא הוערך. כרטיס בהיר קבוע נותן שם 16:1.
+   *
+   * **``ocean`` נוסף לקבוצה הכהה.** ב-``bookmarks.css`` הוא יורש את
+   * ערכי ה-``:root`` הבהירים, ולכן מקבל כרטיס לבן על ערכה כהה. קריא,
+   * אבל מסנוור. כאן זה מתוקן. */
+  --ck-toast-bg: rgba(255, 255, 255, 0.97);
+  --ck-toast-color: #212529;
+  --ck-toast-accent: var(--info);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"],
+:root[data-theme="ocean"] {
+  --ck-toast-bg: rgba(18, 20, 28, 0.98);
+  --ck-toast-color: var(--text-primary, #f2f4ff);
+}
+
+:root[data-theme="high-contrast"] {
+  --ck-toast-bg: #111111;
+  --ck-toast-color: #ffffff;
+}
+
+.ck-toast-container {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+  /* המכל פרוס על כל רוחב המסך ב-z-index גבוה. בלי זה, כל עוד טוסט מוצג
+   * הרצועה התחתונה בולעת קליקים על מה שמתחתיה. */
+  pointer-events: none;
+}
+
+.ck-toast {
+  background: var(--ck-toast-bg);
+  color: var(--ck-toast-color);
+  border-radius: 8px;
+  padding: 12px 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 250px;
+  max-width: min(420px, calc(100vw - 40px));
+  transform: translateX(400px);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+  /* ``border-inline-end`` ולא ``border-left``: ב-``<html dir="rtl">``
+   * שתיהן מרנדרות לאותו מקום פיזי, והלוגית שורדת גם LTR. */
+  border-inline-end: 4px solid var(--ck-toast-accent);
+}
+
+.ck-toast.is-shown {
+  transform: translateX(0);
+}
+
+.ck-toast--success { --ck-toast-accent: var(--success); }
+.ck-toast--error   { --ck-toast-accent: var(--danger); }
+.ck-toast--warning { --ck-toast-accent: var(--warning); }
+.ck-toast--info    { --ck-toast-accent: var(--info); }
+
+.ck-toast__icon {
+  font-size: 18px;
+  font-weight: bold;
+  color: var(--ck-toast-accent);
+  flex-shrink: 0;
+}
+
+.ck-toast__msg {
+  flex: 1;
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .ck-toast-container {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+  .ck-toast {
+    min-width: auto;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ck-toast {
+    transition: none;
+  }
+}
