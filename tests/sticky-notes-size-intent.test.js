@@ -110,6 +110,32 @@ function withViewport(width, height, fn) {
   finally { w.innerWidth = prev.iw; w.innerHeight = prev.ih; vv.width = prev.vw; vv.height = prev.vh; }
 }
 
+/**
+ * מריץ כששני מקורות הרוחב **חלוקים** זה על זה.
+ *
+ * ``withViewport`` מצמיד את ``innerWidth`` ואת ``visualViewport.width``
+ * לאותו ערך — נכון לבדיקה שרק רוצה "אזור התצוגה הוא עכשיו N", ועיוור
+ * לחלוטין בבדיקה ששואלת **איזה מהם נקרא**. עם שני מקורות שווים, קוד
+ * שיחליף ביניהם מחזיר בדיוק אותו מספר וההצהרה עוברת מסיבה שאינה זו
+ * שנטענת.
+ */
+function withSplitViewport(innerWidth, vvWidth, fn) {
+  const w = sandbox.window, vv = w.visualViewport;
+  const prev = { iw: w.innerWidth, vw: vv.width };
+  w.innerWidth = innerWidth; vv.width = vvWidth;
+  try { return fn(); }
+  finally { w.innerWidth = prev.iw; vv.width = prev.vw; }
+}
+
+/** מריץ כש-``visualViewport`` אינו קיים כלל — ענף הנפילה של ``_viewportBox``. */
+function withoutVisualViewport(fn) {
+  const w = sandbox.window;
+  const prev = w.visualViewport;
+  w.visualViewport = undefined;
+  try { return fn(); }
+  finally { w.visualViewport = prev; }
+}
+
 /** אלמנט פתק מדומה: מלבן שמייצג את המוצג, ו-dataset שנושא את הכוונה. */
 function noteEl({ rect, intent }) {
   const el = {
@@ -530,18 +556,37 @@ check('שינוי visualViewport מרענן את הרוחב של פתק מעוג
 
 // ─── בעלים אחד לגבולות אזור התצוגה ─────────────────────────────────────
 
-check('‏_clampToViewport נגזר מאותם גבולות כמו _viewportBox', () => {
-  // אין הבדל התנהגותי בין שני העותקים כל עוד הם זהים — וזו בדיוק הסיבה
-  // שהם נסחפים בשקט. הבדיקה נועלת אותם זה לזה: מי שישנה את הגבולות
-  // במקום אחד בלבד ייפול כאן.
+check('‏_clampToViewport נגזר מאותו מקור כמו _viewportBox', () => {
+  // אין הבדל התנהגותי בין שני עותקים זהים — וזו בדיוק הסיבה שהם נסחפים
+  // בשקט. הבדיקה נועלת אותם זה לזה.
+  //
+  // **שני המקורות חייבים להיות חלוקים.** ``visualViewport.width`` הוא
+  // הנכון ו-``innerWidth`` הוא המלכודת: כשהם שווים, קוד שקורא את הלא-נכון
+  // מחזיר אותו מספר, והבדיקה מאשרת סחיפה במקום לתפוס אותה.
   const m = new StickyNotesManager({ board: 'b-vpbox', container: surfaceStub(400) });
   const el = noteEl({ rect: { width: 200, height: 100 } });
-  const { box, clamped } = withViewport(500, null, () => ({
+  const { box, clamped } = withSplitViewport(600, 500, () => ({
     box: m._viewportBox(),
     clamped: m._clampToViewport(el, 99999, 100),
   }));
-  eq(box.width, 500, '‏_viewportBox קרא את visualViewport');
-  eq(clamped.x, 500 - 200 - 12, '‏_clampToViewport נגזר מאותו רוחב');
+  eq(box.width, 500, '‏_viewportBox העדיף את visualViewport על פני innerWidth');
+  eq(clamped.x, 500 - 200 - 12, '‏_clampToViewport נגזר מאותו מקור — 600 היה הכישלון');
+});
+
+check('בלי visualViewport — נפילה ל-innerWidth, בשני המסלולים', () => {
+  // הענף השני של ``_viewportBox``, שאף בדיקה לא נגעה בו. הפונקציה היא
+  // היום המקור היחיד לארבעה אתרים, ולכן גם הנפילה שלה שווה נעילה.
+  const m = new StickyNotesManager({ board: 'b-novv', container: surfaceStub(400) });
+  const el = noteEl({ rect: { width: 200, height: 100 } });
+  // הסדר חשוב: withSplitViewport נוגע ב-visualViewport.width,
+  // ולכן הוא חייב לרוץ לפני שהאובייקט עצמו מוסר.
+  const { box, clamped } = withSplitViewport(700, 500, () =>
+    withoutVisualViewport(() => ({
+      box: m._viewportBox(),
+      clamped: m._clampToViewport(el, 99999, 100),
+    })));
+  eq(box.width, 700, 'נפל ל-innerWidth');
+  eq(clamped.x, 700 - 200 - 12, 'וגם ההצמדה נפלה לאותו מקור');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);
