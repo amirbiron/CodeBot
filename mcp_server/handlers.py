@@ -545,33 +545,185 @@ def create_repo_note(
     )
 
 
-def search_notes(
-    backend: Any, user_id: int, *, query: str, limit: int | None = None
-) -> dict[str, Any]:
-    """Find sticky notes by title across all three targets (read-only).
+def list_repo_note_paths(backend: Any, user_id: int, *, repo_name: str) -> dict[str, Any]:
+    """Which files inside a mirrored repo carry sticky notes (read-only).
 
-    **שם בלבד, לא תוכן.** חיפוש בגוף הפתק היה מחייב אינדקס טקסט, ומונגו
-    מתיר אחד לכל אוסף — החלטה שקשה לחזור ממנה. השם הוא ממילא מה שהמשתמש
-    נותן לפתק כדי למצוא אותו שוב.
+    **מפה, לא תוכן.** ``list_repo_notes`` דורש ``repo_name`` **וגם**
+    ``repo_path`` מדויק — כלומר צריך כבר לדעת איפה הפתק כדי למצוא אותו.
+    בלי הכלי הזה כל פתקי הריפו הם לשימוש עצמי בלבד: מי שלא רשם אותם אינו
+    יכול לגלות אותם.
+
+    אותה ולידציית שם כמו ב-``list_repo_notes``, ומאותה סיבה: שם עם ``/``
+    מייצר יעד שאינו מתלכד עם ``repo_metadata``, כלומר שאילתה שלעולם לא
+    תמצא דבר.
+    """
+    name = _clean_repo_name(repo_name)
+    if not name:
+        return {"ok": False, "error": "invalid_repo_name"}
+    return backend.list_repo_note_paths(user_id, repo_name=name)
+
+
+def add_to_collection(
+    backend: Any,
+    user_id: int,
+    *,
+    collection_id: str,
+    file_name: str,
+    folder: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """Attach an existing saved file to an existing collection.
+
+    **כלי נפרד, ולא פרמטר ל-``save_file``.** שמירה שמצליחה ושיוך שנכשל
+    הם הצלחה חלקית של שתי פעולות שנקשרו לאחת — ואז הודעת ההצלחה מתארת
+    מחצית ממה שקרה. שני כלים נותנים לכל פעולה תשובה כנה משלה; המחיר הוא
+    קריאה שנייה.
+
+    האימות עצמו חי ב-backend, לצד השאילתה שהוא מגן עליה.
+    """
+    cid = (collection_id or "").strip()
+    if not _NOTE_ID_RE.match(cid):
+        return {"ok": False, "error": "invalid_collection_id"}
+    name = (file_name or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_file_name"}
+    return backend.add_to_collection(
+        user_id, collection_id=cid, file_name=name, folder=folder, note=note
+    )
+
+
+def note_str_replace(
+    backend: Any,
+    user_id: int,
+    *,
+    note_id: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> dict[str, Any]:
+    """Exact find-and-replace inside one sticky note.
+
+    **אותו** ``_apply_edit`` **של** ``edit_file``, ובכוונה: שתי מימושים
+    של "מצא והחלף" נבדלים בדיוק במקרי הקצה — התאמה מרובה, מחרוזת ריקה,
+    ישן שווה לחדש — ואלה בדיוק המקרים שבהם ההבדל עולה בנתונים. גם נוסחי
+    השגיאה זהים, כדי שסוכן שלמד אחד יכיר את השני.
+
+    הקריאה עוברת דרך ``update_note``, ולכן היא יורשת את הצילום שנשמר
+    לפני הדריסה — וזו הסיבה שהסדר בין השניים אינו הפיך: ``str_replace``
+    בלי היסטוריה היה מוסיף עוד מסלול שדורס בלי ממה לשחזר.
+    """
+    nid = (note_id or "").strip()
+    if not _NOTE_ID_RE.match(nid):
+        return {"ok": False, "error": "invalid_note_id"}
+    if not isinstance(old_string, str) or not isinstance(new_string, str):
+        return {"ok": False, "error": "invalid_arguments"}
+
+    current = backend.get_note(user_id, note_id=nid)
+    if not isinstance(current, dict) or not current.get("ok"):
+        return {"ok": False, "error": str((current or {}).get("error") or "not_found")}
+    body = str((current.get("note") or {}).get("content") or "")
+    if body == "":
+        return {"ok": False, "error": "empty_note"}
+
+    # הקלט מנורמל כמו שהתוכן נורמל בכתיבה — אחרת ``old_string`` עם CRLF
+    # לא היה תופס גוף שנשמר עם ``\n`` בלבד.
+    old_clean = _sanitize_note_text(old_string)
+    new_clean = _sanitize_note_text(new_string)
+    new_body, occurrences, err = _apply_edit(body, old_clean, new_clean, bool(replace_all))
+    if err is not None or new_body is None:
+        out: dict[str, Any] = {"ok": False, "error": err or "edit_failed"}
+        if err == "ambiguous_match":
+            out["occurrences"] = occurrences
+            out["hint"] = "pass a longer unique old_string, or set replace_all=true"
+        return out
+    if not new_body.strip():
+        return {"ok": False, "error": "empty_content"}
+    if len(new_body) > MAX_NOTE_CONTENT:
+        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+
+    res = backend.update_note(user_id, note_id=nid, fields={"content": new_body})
+    if not res.get("ok"):
+        return res
+    return {"ok": True, "replacements": occurrences, "note": res.get("note")}
+
+
+def list_note_versions(backend: Any, user_id: int, *, note_id: str) -> dict[str, Any]:
+    """Previous revisions of a note — metadata only, newest first."""
+    nid = (note_id or "").strip()
+    if not _NOTE_ID_RE.match(nid):
+        return {"ok": False, "error": "invalid_note_id"}
+    return backend.list_note_versions(user_id, note_id=nid)
+
+
+def get_note_version(backend: Any, user_id: int, *, note_id: str, version: int) -> dict[str, Any]:
+    """Read the content of one previous revision."""
+    nid = (note_id or "").strip()
+    if not _NOTE_ID_RE.match(nid):
+        return {"ok": False, "error": "invalid_note_id"}
+    try:
+        ver = int(version)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "invalid_version"}
+    if ver < 1:
+        return {"ok": False, "error": "invalid_version"}
+    return backend.get_note_version(user_id, note_id=nid, version=ver)
+
+
+def search_notes(
+    backend: Any,
+    user_id: int,
+    *,
+    query: str,
+    limit: int | None = None,
+    search_content: bool = False,
+) -> dict[str, Any]:
+    """Find sticky notes across all three targets (read-only).
+
+    **שם כברירת מחדל; תוכן בבקשה מפורשת.** חיפוש השם נשען על
+    ``user_title_idx``; הרחבתו לתוכן מוסיפה פרדיקט שאין עליו אינדקס —
+    מונגו מתיר אינדקס טקסט אחד לכל אוסף, וזו החלטה חד-כיוונית שלא נשרפת
+    כאן. הסריקה נשארת חסומה ל-``user_id`` ולכן אינה COLLSCAN.
+
+    **הדגל קיים בגלל פתק בלי שם.** רוב הפתקים נכתבים בלי כותרת, ולכן היו
+    בלתי-נראים לחיפוש לחלוטין — לא "קשים למציאה", אלא בלתי-ניתנים
+    למציאה.
+
+    **אורך השאילתה נבדק מול היעד.** תקרת ``MAX_NOTE_TITLE`` נגזרת מכך
+    ששאילתה ארוכה משם אפשרי לעולם לא תתפוס דבר — נימוק שאינו חל על
+    התוכן, שמגיע עד ``MAX_NOTE_CONTENT``. בדיקה אחת לשני מרחבים הייתה
+    פוסלת חיפושים לגיטימיים בגוף הפתק.
 
     ``limit`` **נחתך ולא נדחה**: מספר גדול מדי הוא בקשה לרוחב, לא שגיאה.
     """
     from sticky_notes_target import MAX_NOTE_TITLE, canonical_title_text
 
-    # אותה קנוניזציה שהשם עצמו עבר בכתיבה — אחרת שאילתה עם רווחים כפולים
-    # לא הייתה תופסת פתק ששמו נשמר מכווץ. **בלי הקיצוץ**, כי אחריו הבדיקה
-    # שמתחת הייתה תמיד שקרית: ``normalize_note_title`` כבר חתך ל-80.
-    needle = canonical_title_text(query)
+    # **הקנוניזציה נגזרת מהיעד, כי היעדים נשמרו אחרת.**
+    #
+    # שם עובר ``canonical_title_text`` בכתיבה: כיווץ רצפי רווחים ואיחוד
+    # לשורה אחת. תוכן עובר ``_sanitize_note_text``, ש**משמר** את שניהם.
+    # החלת קנוניזציית-השם על מחרוזת תוכן הייתה הופכת ``"a  b"`` ל-
+    # ``"a b"`` ומאחדת שאילתה רב-שורתית לשורה — כלומר שאילתה שלעולם לא
+    # תתפוס את מה שנשמר, שמחזירה אפס בלי שום שגיאה. זה בדיוק הכשל השקט
+    # ש-``repo_notes_filter`` מתעד: נכתב בצורה אחת, מחופש בצורה אחרת.
+    #
+    # **בלי הקיצוץ** בשני המסלולים, כי אחריו הבדיקה שמתחת הייתה תמיד
+    # שקרית: ``normalize_note_title`` כבר חתך ל-80.
+    if search_content:
+        needle = _sanitize_note_text(query).strip()
+    else:
+        needle = canonical_title_text(query)
     if not needle:
         return {"ok": False, "error": "empty_query"}
-    if len(needle) > MAX_NOTE_TITLE:
-        # לא ייתכן שם ארוך מזה במסד, ולכן זו שאילתה שלעולם לא תתפוס דבר.
-        return {"ok": False, "error": "query_too_long", "max": MAX_NOTE_TITLE}
+    cap = MAX_NOTE_CONTENT if search_content else MAX_NOTE_TITLE
+    if len(needle) > cap:
+        # שאילתה ארוכה מהיעד שהיא נבדקת מולו לעולם לא תתפוס דבר.
+        return {"ok": False, "error": "query_too_long", "max": cap}
 
     return backend.search_notes(
         user_id,
         query=needle,
         limit=_clamp(limit, 1, MAX_NOTE_SEARCH_RESULTS, DEFAULT_NOTE_SEARCH_RESULTS),
+        search_content=bool(search_content),
     )
 
 
