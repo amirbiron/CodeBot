@@ -2207,9 +2207,19 @@
         //
         // ``ckToast`` מחזירה ``false`` כשלא הצליחה להציג. בלי הבדיקה,
         // כשל שמירה היה נבלע לגמרי כשהסקריפט אינו זמין.
+        // **כיבוי הערוץ השני הוא חלק מההחלטה, לא של הערוץ שנבחר.** ``notify``
+        // הוא נתב בין שני ערוצים מוציאי-זה-את-זה, ולכן הוא זה שאחראי על
+        // האינווריאנטה. בלי ``clearFallback`` בענף הטוסט, הוא עודכן אחד
+        // מהשניים ושכח את השני — CORE U5 בגרסת ממשק.
+        //
+        // התרחיש אינו תיאורטי: ``toast.js`` נטען ב-``defer`` ולכן רץ רק
+        // אחרי סיום הפרסור, בעוד שהמאזינים כאן נרשמים תוך כדי הפרסור.
+        // שמירה שנכשלת בחלון הזה מציגה שגיאה בשורת הגיבוי; ניסיון חוזר
+        // אחרי שהסקריפט נטען עובר לטוסט, והשגיאה הייתה נשארת לצידו.
         function notify(text, type) {
           if (typeof window.ckToast === 'function'
               && window.ckToast(text, type, { key: 'note-fonts' })) {
+            clearFallback();
             return;
           }
           fallbackMessage(text, type);
@@ -2224,7 +2234,8 @@
         // מבטל את הטיימר של קודמו.
         //
         // המשך אינו חייב להתאים לזה של הטוסט; אלה שני ערוצים נפרדים,
-        // ורק אחד מהם פעיל בכל רגע נתון.
+        // ורק אחד מהם פעיל בכל רגע נתון — ``notify`` הוא שאוכף את זה,
+        // בשני הכיוונים.
         //
         // **ומה זה לא פותר:** שמירה שנייה בזמן שהשורה עדיין מציגה את אותו
         // טקסט לא תפיק אירוע נראה. השורה אינה יכולה להנפיש — ה-CSS שהיה
@@ -2233,14 +2244,17 @@
         var FALLBACK_MS = 4000;
         var fallbackTimer = null;
 
-        function fallbackMessage(text, type) {
+        /** פרישת הגיבוי — מקום אחד, כדי ששני הקוראים לא ייסחפו. */
+        function clearFallback() {
           if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+          setMessage('', true);
+        }
+
+        function fallbackMessage(text, type) {
+          clearFallback();
           setMessage(text, type === 'success');
           if (!msgEl) return;
-          fallbackTimer = setTimeout(function () {
-            fallbackTimer = null;
-            setMessage('', true);
-          }, FALLBACK_MS);
+          fallbackTimer = setTimeout(clearFallback, FALLBACK_MS);
         }
 
 

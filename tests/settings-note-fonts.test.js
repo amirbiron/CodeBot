@@ -98,12 +98,17 @@ function load(fetchImpl, opts = {}) {
     },
   };
   const toasts = [];
-  if (opts.toast !== null) {
+  // ``ckToast`` מותקן על ה-sandbox ולא נלכד במשתנה, כי יש תרחיש שבו הוא
+  // **מופיע באמצע**: ``toast.js`` נטען ב-``defer`` ולכן רץ אחרי הפרסור,
+  // בעוד שהמאזינים נרשמים בסקריפט מוטבע תוך כדי הפרסור.
+  function installToast(ok = true) {
     sandbox.ckToast = (message, type, o) => {
       toasts.push({ message, type, key: o && o.key });
-      return opts.toast !== false;
+      return ok;
     };
   }
+  function removeToast() { delete sandbox.ckToast; }
+  if (opts.toast !== null) installToast(opts.toast !== false);
 
   vm.createContext(sandbox);
   sandbox.window = sandbox;
@@ -123,7 +128,8 @@ function load(fetchImpl, opts = {}) {
     }
   }
 
-  return { sent, msg, selects, scopeSel, toasts, advance, pending: () => timers.size };
+  return { sent, msg, selects, scopeSel, toasts, advance, installToast, removeToast,
+           pending: () => timers.size };
 }
 
 // ─── גוף הבקשה ──────────────────────────────────────────────────────────
@@ -386,6 +392,35 @@ await acheck('שמירה נוספת מאפסת את טיימר הגיבוי וא
   eq(h.msg.style.display, 'block', 'עדיין מוצגת');
   h.advance(3800);
   eq(h.msg.style.display, 'none', 'נעלמה לפי הטיימר החדש');
+});
+
+await acheck('מעבר מהגיבוי לטוסט מכבה את שורת הגיבוי', async () => {
+  // **התרחיש אמיתי ולא תיאורטי.** ``toast.js`` נטען ב-``defer``
+  // (``settings.html:377``) ולכן רץ רק אחרי סיום הפרסור, בעוד שהמאזינים
+  // ל-``change`` נרשמים בסקריפט מוטבע (``settings.html:1936``) תוך כדי
+  // הפרסור. בחיבור איטי יש חלון שבו העמוד אינטראקטיבי ו-``ckToast``
+  // עדיין אינו קיים.
+  //
+  // שמירה שנכשלת בחלון הזה נופלת לשורת הגיבוי ודורכת טיימר של 4 שניות.
+  // ניסיון חוזר אחרי שהסקריפט נטען עובר לטוסט — ובלי כיבוי מפורש,
+  // השגיאה המיושנת נשארת גלויה לצד טוסט ההצלחה.
+  let fail = true;
+  const h = load(async () => (fail ? { ok: false, status: 500, body: null }
+                                   : { ok: true, body: { ok: true } }), { toast: null });
+
+  h.selects[1].value = '1';
+  await h.selects[1].__fire('change');
+  eq(h.msg.style.display, 'block', 'שורת הכשל מוצגת');
+  eq(h.pending(), 1, 'הטיימר דרוך');
+
+  h.installToast();                       // ``toast.js`` הגיע
+  fail = false;
+  h.selects[0].value = '1';
+  await h.selects[0].__fire('change');
+
+  eq(h.toasts.length, 1, 'ההצלחה עברה בטוסט');
+  eq(h.msg.style.display, 'none', 'ושורת הגיבוי כובתה');
+  eq(h.pending(), 0, 'והטיימר שלה בוטל');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);
