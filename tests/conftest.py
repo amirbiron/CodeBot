@@ -151,8 +151,11 @@ def wired_mongo(request):
         # ``InvalidOperation: Cannot use MongoClient after close`` —
         # וזה מה שהפיל את איסוף הבדיקות ב-CI. השחזור של ההפניות מספיק;
         # הלקוח שנוצר כאן נאסף כרגיל כשאיש לא מחזיק בו.
+        created_client = wa.client
         (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db,
          _prev_testing) = previous
+        if created_client is not None and created_client is not previous[2]:
+            created_client.close()
         if _prev_testing is None:
             wa.app.config.pop("TESTING", None)
         else:
