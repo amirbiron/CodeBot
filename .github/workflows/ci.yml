@@ -231,6 +231,12 @@ jobs:
           # ``wired_mongo``). משתנה ייעודי ולא ``MONGODB_URL``, כי
           # ``tests/conftest.py`` מציב לאחרון ערך דמה כברירת מחדל —
           # ובלי ההפרדה אי אפשר להבחין בין "יש מונגו" ל"יש placeholder".
+          #
+          # ⚠️ כרגע הכתובת הזו **אינה נגישה** והבדיקות מדלגות: הג'וב אינו
+          # רץ בקונטיינר והשירות מוגדר בלי ``ports:``, ולכן המארח
+          # ``mongodb`` אינו נפתר. ראו את האזהרה ב-docs/testing.rst.
+          # המשתנה נשאר כאן במכוון — ברגע שיתווסף ``ports:`` והכתובת
+          # תשתנה ל-127.0.0.1, הבדיקות יתחילו לרוץ בלי לזכור דבר.
           NOTE_FONTS_TEST_MONGO_URI: mongodb://test:test123@mongodb:27017/test_db?authSource=admin
           REDIS_URL: redis://redis:6379/0
           GITHUB_TOKEN: ${{ secrets.TEST_GITHUB_TOKEN }}

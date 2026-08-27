@@ -99,6 +99,42 @@ def _test_mongo_uri() -> "str | None":
     return os.getenv("NOTE_FONTS_TEST_MONGO_URI")
 
 
+#: תוצאת בדיקת הנגישות, לפי URI. הבדיקה עולה כשנייה, והפיקסצ'ר רץ לכל
+#: בדיקה — בלי מטמון היו עשרים ומשהו בדיקות כפול הבדיקה הזו.
+#: ``test_note_boards_mongo`` מקבל את זה בחינם כי הוא משתמש ב-``pytestmark``
+#: שנבדק פעם אחת בטעינת המודול.
+_MONGO_REACHABLE: "dict[str, bool]" = {}
+
+
+def _server_is_reachable(url: str) -> bool:
+    """האם יש שרת בקצה השני.
+
+    **זה לא נימוס, זה מה שמונע נפילת חבילה.** בג'וב ``unit-tests``
+    השירות ``mongodb`` מוגדר בלי ``ports:`` והג'וב אינו רץ בקונטיינר,
+    ולכן שם המארח אינו נפתר כלל: ``[Errno -3] Temporary failure in name
+    resolution``. בלי הבדיקה הזו הפיקסצ'ר זורק, פיקסצ'ר שזורק הוא
+    ``ERROR``, ו-``--maxfail=1`` ב-``pytest.ini`` הופך שגיאה אחת
+    לעצירת כל ההרצה. זה קרה: 23 שגיאות בבנייה אחת.
+
+    הדפוס לקוח מ-``tests/test_note_boards_mongo.py:45``.
+    """
+    if url in _MONGO_REACHABLE:
+        return _MONGO_REACHABLE[url]
+    try:
+        import pymongo
+
+        client = pymongo.MongoClient(url, serverSelectionTimeoutMS=2000)
+        try:
+            client.admin.command("ping")
+            ok = True
+        finally:
+            client.close()
+    except Exception:
+        ok = False
+    _MONGO_REACHABLE[url] = ok
+    return ok
+
+
 @pytest.fixture
 def wired_mongo(request):
     """מפנה את ``webapp.app`` למסד ייעודי, ומחזיר הכול בסיום.
@@ -121,6 +157,8 @@ def wired_mongo(request):
     uri = _test_mongo_uri()
     if not uri:
         pytest.skip("דורש מונגו אמיתי; הגדירו NOTE_FONTS_TEST_MONGO_URI")
+    if not _server_is_reachable(uri):
+        pytest.skip(f"מונגו אינו נגיש ב-{uri}")
 
     import webapp.app as wa
 
