@@ -48,7 +48,13 @@ function makeSandbox() {
       get activeElement() { return null; },
     },
     window: {
-      addEventListener() {}, removeEventListener() {},
+      // **מתעד ולא מתעלם.** בדיקת הסיבוב חייבת לירות את אותו מאזין
+      // שהקוד רשם בפועל — בדיקה שקוראת ישירות לפונקציה הפנימית הייתה
+      // עוברת גם אם החיווט לאירוע נשבר, וזה בדיוק מה שהיה שבור.
+      addEventListener(type, fn) {
+        (sandbox.__listeners[type] || (sandbox.__listeners[type] = [])).push(fn);
+      },
+      removeEventListener() {},
       innerWidth: 1024, innerHeight: 768,
       matchMedia: () => ({ matches: false }),
       location: { search: '', hash: '' },
@@ -58,6 +64,7 @@ function makeSandbox() {
     HTMLElement: function HTMLElement() {},
     setTimeout, clearTimeout, setInterval, clearInterval,
     MutationObserver: undefined, ResizeObserver: undefined,
+    __listeners: {},
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -182,6 +189,170 @@ check('הרינדור קובע את הכוונה מהערך שהגיע מה-DB',
   eq(!!intent, true, 'יש כוונה');
   eq(intent.width, 640, 'רוחב');
   eq(intent.height, 500, 'גובה');
+});
+
+// ─── קדימות אחת לגודל, בכל ארבע נקודות השאילה ──────────────────────────
+//
+// **למה זה בדיקה ולא ניקיון.** ארבע נקודות שואלות "מה הרוחב של הפתק
+// הזה" — שתיים ב-``_applyPositionMode``, ``_clampToSurface``
+// ו-``_reflowWithinViewport``. כל אחת ענתה בסדר משלה, ושתיים מהן היו
+// הפוכות זו לזו: אחת העדיפה את הכוונה שעל האלמנט, השנייה את ``note.size``.
+// סדר שונה לאותה שאלה אינו "כפילות סגנונית": ההצמדה מחשבת כמה מקום נשאר
+// לפי רוחב אחד בזמן שהתצוגה כותבת רוחב אחר, והפתק נצמד למקום שנכון
+// לגודל שאינו הגודל שיוצג.
+
+check('הכוונה שעל האלמנט גוברת על note.size', () => {
+  // ``_enableResize`` הוא הכותב היחיד של הכוונה, והוא מעדכן אותה **לפני**
+  // שהשמירה יוצאת. ``note.size`` הוא הערך שהגיע מה-DB.
+  const el = noteEl({ rect: { width: 300, height: 200 }, intent: { width: 600, height: 400 } });
+  const r = mgr._resolveDisplaySize(el, { size: { width: 260, height: 200 } }, { width: 1000 });
+  eq(r.intent.width, 600, 'רוחב הכוונה');
+  eq(r.fitted.width, 600, 'רוחב מוצג');
+});
+
+check('בלי כוונה — note.size', () => {
+  const el = noteEl({ rect: { width: 300, height: 200 } });
+  const r = mgr._resolveDisplaySize(el, { size: { width: 640, height: 480 } }, { width: 1000 });
+  eq(r.intent.width, 640, 'רוחב');
+  eq(r.intent.height, 480, 'גובה');
+});
+
+check('בלי כוונה ובלי note.size — el.style, ואז המלבן', () => {
+  const el = noteEl({ rect: { width: 333, height: 222 } });
+  el.style.width = '410px';
+  const r = mgr._resolveDisplaySize(el, null, { width: 1000 });
+  eq(r.intent.width, 410, 'רוחב מ-style');
+  eq(r.intent.height, 222, 'גובה מהמלבן');
+});
+
+check('אין שום מקור — ברירות המחדל, ולא המינימום', () => {
+  // הבאג שזה מגן מפניו: ``_fitSizeToBounds(null, …)`` מחזירה 120×80, ולכן
+  // אתר שהעביר לה ``null`` היה מכווץ פתק תקין לגודם. בענף המשטח זה קרה
+  // בפועל לכל פתק בלי כוונה ובלי ``note.size``.
+  const el = noteEl({ rect: { width: 0, height: 0 } });
+  const r = mgr._resolveDisplaySize(el, null, { width: 1000 });
+  eq(r.intent.width, 260, 'רוחב');
+  eq(r.intent.height, 200, 'גובה');
+});
+
+check('ארבע נקודות השאילה מחזירות את אותו רוחב לאותו פתק', () => {
+  // התרחיש שהפריד ביניהן: הכוונה 600, ו-``note.size`` תקוע על 260.
+  // ``_clampToSurface`` העדיף את 260 ו-``_applyPositionMode`` את 600.
+  const m = new StickyNotesManager({ board: 'b-precedence', container: surfaceStub(400) });
+  const note = { size: { width: 260, height: 200 } };
+  const el = noteEl({ rect: { width: 300, height: 200 }, intent: { width: 600, height: 400 } });
+  const viaResolver = m._resolveDisplaySize(el, note, { width: 400 }).fitted.width;
+  eq(viaResolver, 400, 'הרוחב המוצג במשטח ברוחב 400');
+  // ``_clampToSurface`` נגזר מאותו מספר: ``maxX`` הוא הרוחב שנשאר.
+  const clamped = m._clampToSurface(el, 9999, 0, note);
+  eq(clamped.x, 400 - viaResolver, 'x המקסימלי נגזר מאותו רוחב');
+});
+
+// ─── סיבוב המכשיר: פתק משטח שכבר נטען ──────────────────────────────────
+
+/** משטח לוח מדומה שרוחבו ניתן לשינוי — "סיבוב". */
+function surfaceStub(width) {
+  return {
+    clientWidth: width,
+    style: {},
+    dataset: {},
+    classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+    appendChild() {}, addEventListener() {}, removeEventListener() {},
+    querySelectorAll: () => [], querySelector: () => null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width, height: 600 }),
+  };
+}
+
+/** פתק נעוץ למשטח, עם ``classList`` אמיתי — הלולאה מסננת לפיו. */
+function pinnedEl(intent) {
+  const classes = new Set(['sticky-note', 'is-pinned']);
+  return {
+    style: {},
+    dataset: { noteId: 'n-rot', userWidth: String(intent.width), userHeight: String(intent.height) },
+    classList: {
+      add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: intent.width, height: intent.height }),
+    querySelector: () => null, querySelectorAll: () => [],
+    setAttribute() {}, getAttribute: () => null,
+  };
+}
+
+// הבנאי יורה ``_init() → loadNotes()`` ברקע, וכשהיא נפתרת היא קוראת
+// ``_clearAllNotes()``. לכן ממתינים **לפני** רישום הפתק הידני, אחרת הוא
+// נמחק ב-microtask הראשון והבדיקה רצה על מפה ריקה — מוקש שכבר תועד
+// ב-``sticky-notes-target.test.js``.
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+// ההכנה מחוץ ל-``check``: ``check`` הוא סינכרוני, ופונקציה אסינכרונית
+// בתוכו הייתה מחזירה promise שנכשל בשקט — כלומר בדיקה שעוברת תמיד.
+
+/** בונה מנהל לוח ופתק נעוץ, ומחזיר את המאזינים שנרשמו בפועל. */
+async function rotatingBoard(boardId, startWidth) {
+  const surface = surfaceStub(startWidth);
+  sandbox.__listeners.resize = [];
+  const m = new StickyNotesManager({ board: boardId, container: surface });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const handlers = (sandbox.__listeners.resize || []).slice();
+  const el = pinnedEl({ width: 600, height: 400 });
+  m.notes.set('n-rot', { el, data: { id: 'n-rot', anchor_id: '__pinned__',
+                                     position: { x: 0, y: 0 },
+                                     size: { width: 600, height: 400 } } });
+  return { m, el, surface, fire: () => handlers.forEach((fn) => fn()), handlers };
+}
+
+const rotateIn = await rotatingBoard('b-rotate', 900);
+const rotateBack = await rotatingBoard('b-rotate-back', 320);
+
+check('סיבוב מצמצם פתק משטח שכבר היה על המסך', () => {
+  // **התסמין המקורי.** לוח נטען במסך רחב, המכשיר מסתובב לצר: הפתק נשאר
+  // ברוחבו הישן, גולש מעבר לקצה, והידית שלו יוצאת מהמסך.
+  //
+  // ``_reflowWithinViewport`` — היחיד שהיה מחובר ל-``resize`` — מדלג על
+  // ``is-pinned`` בכוונה, כי המיקום שם נמדד במרחב המשטח ולא במסך. לכן
+  // בלי מסלול נפרד לפתקי משטח, שינוי גבולות פשוט לא הגיע אליהם.
+  eq(rotateIn.handlers.length > 0, true, 'נרשם מאזין resize');
+  rotateIn.surface.clientWidth = 320;   // סיבוב לטלפון
+  rotateIn.fire();
+  eq(rotateIn.el.style.width, '320px', 'הרוחב המוצג נכנס במשטח');
+  eq(rotateIn.el.dataset.userWidth, '600', 'הכוונה לא נדרסה');
+});
+
+check('סיבוב חזרה למסך רחב מחזיר את הפתק לגודל שנקבע', () => {
+  rotateBack.fire();
+  eq(rotateBack.el.style.width, '320px', 'צר');
+  rotateBack.surface.clientWidth = 1200;  // חזרה לטאבלט
+  rotateBack.fire();
+  eq(rotateBack.el.style.width, '600px', 'חזר לגודל שנקבע');
+});
+
+// ─── הענף הצף ──────────────────────────────────────────────────────────
+
+check('פתק צף רחב מצטמצם בענף עצמו, ולא רק ב-reflow שאחריו', () => {
+  // הענף הצף לא התייעץ בכוונה כלל ולא צמצם דבר: הוא חישב ``maxLeft``
+  // מהרוחב הלא-מצומצם וכיסה על כך רק בזכות ``_reflowWithinViewport``
+  // שרץ אחריו. עם ``reflow: false`` — שלושה אתרים בקוד קוראים כך —
+  // הגודל פשוט לא נגע.
+  const m = new StickyNotesManager({ board: 'b-float', container: surfaceStub(420) });
+  const classes = new Set(['sticky-note']);
+  const el = {
+    style: {}, dataset: { noteId: 'nf' },
+    classList: {
+      add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 600, height: 300 }),
+    querySelector: () => null, querySelectorAll: () => [],
+  };
+  const note = { id: 'nf', anchor_id: '__floating__',
+                 position: { x: 40, y: 100 }, size: { width: 600, height: 300 } };
+  const prev = sandbox.window.innerWidth;
+  sandbox.window.innerWidth = 420;
+  try { m._applyPositionMode(el, note, { reflow: false }); }
+  finally { sandbox.window.innerWidth = prev; }
+  eq(el.style.width, '396px', 'הרוחב המוצג — 420 פחות שוליים משני הצדדים');
+  eq(el.classList.contains('is-floating'), true, 'אכן הענף הצף');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);

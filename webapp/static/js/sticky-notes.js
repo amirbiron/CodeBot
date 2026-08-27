@@ -118,6 +118,10 @@
   // (``_coerce_int`` ב-``sticky_notes_api.py``), ולכן צמצום שיורד מתחתם
   // היה נדחה שם ומייצר פער שקט בין מה שמוצג למה שנשמר.
   const NOTE_MIN_W = 120, NOTE_MIN_H = 80;
+  // מה שפתק מקבל כשאין לו שום מקור גודל — לא המינימום. הבחנה בין
+  // "קטן ככל שמותר" ל"הגודל הרגיל" שנעדרה, ולכן פתק בלי כוונה
+  // ובלי ``note.size`` התכווץ ל-120×80 במקום להיפתח כרגיל.
+  const NOTE_DEFAULT_W = 260, NOTE_DEFAULT_H = 200;
 
   /** מספר סופי מתוך ``dataset``, או ``null`` — ריק ופגום נחשבים "לא נאמר". */
   function finiteOrNull(raw){
@@ -396,7 +400,18 @@
         // המנהל המת היה מוסיף FAB ומאזינים לקונטיינר של הקובץ החדש.
         if (this._destroyed) return;
         this._createFab();
-        const onResize = () => { this._rebuildLineIndex(); this._reflowWithinViewport(); this._updateAnchoredPositions(); };
+        const onResize = () => {
+          this._rebuildLineIndex();
+          this._reflowWithinViewport();
+          // ``_reflowWithinViewport`` מדלג על פתקי משטח, ולכן בלי השורה
+          // הזו סיבוב מכשיר משאיר אותם ברוחב שכבר אינו נכנס. אין צורך
+          // באותה שורה במאזין של ``visualViewport``: שם משתנה החלון
+          // הנראה (מקלדת, פינץ'-זום) ולא רוחב המשטח, שממנו נגזר הצמצום.
+          this._reapplyPinnedLayout();
+          this._updateAnchoredPositions();
+          // רוחב חדש ← גובה חדש ← אורך המשטח כבר אינו מתאר את מה שעליו.
+          this._updateSurfaceExtent();
+        };
         const onScroll = () => { this._reflowWithinViewport(); this._updateAnchoredPositions(); };
         this._on(window, 'resize', onResize);
         this._on(window, 'scroll', onScroll, { passive: true });
@@ -1042,10 +1057,32 @@
           // ``getBoundingClientRect`` מכריחה את הדפדפן לחשב פריסה, ובגלילה
           // רציפה זה קורה בכל פריים.
           const posCtx = { shift: this._surfaceScrollShift(), scrollerRect: sc.getBoundingClientRect() };
+          this._reapplyPinnedLayout(posCtx);
+        } catch(_) {}
+      }
+
+      /**
+       * מחיל מחדש מצב מיקום על כל הפתקים הנעוצים למשטח.
+       *
+       * **למה זה חייב מסלול משלו.** ``_reflowWithinViewport`` מדלג על
+       * ``is-pinned`` בכוונה — המיקום של פתק משטח נמדד במרחב המשטח ולא
+       * במסך, והצמדה לפי ה-viewport הייתה מזיזה אותו למקום שגוי.
+       * ``_applyPositionMode`` היא הפונקציה היחידה שמצמצמת פתק משטח
+       * לרוחב המשטח, ולכן כל שינוי גבולות חייב לעבור דרך כאן.
+       *
+       * בלי זה, לוח שנטען במסך רחב ואז סובב נשאר עם פתקים ברוחב הישן:
+       * הם גולשים מעבר לקצה, והידית שלהם יוצאת מהמסך — כלומר הפתק אינו
+       * ניתן לחילוץ, וזה בדיוק התסמין שכל התיקון הזה בא לפתור.
+       *
+       * הכוונה אינה נגעת ואין שמירה: מה שהמשתמש קבע נשאר, ומה שמוצג
+       * חוזר אליו ברגע שהמסך מתרחב.
+       */
+      _reapplyPinnedLayout(posCtx){
+        try {
           for (const entry of this.notes.values()){
             const el = entry && entry.el;
             if (!el || !el.classList || !el.classList.contains('is-pinned')) continue;
-            this._applyPositionMode(el, entry.data, { reflow: false, posCtx });
+            this._applyPositionMode(el, entry.data, { reflow: false, posCtx: posCtx || null });
           }
         } catch(_) {}
       }
@@ -1140,6 +1177,57 @@
         };
       }
 
+      /**
+       * **הקדימות היחידה לגודל.** ארבע נקודות שואלות "מה הרוחב של הפתק
+       * הזה": שני הענפים ב-``_applyPositionMode``, ``_clampToSurface``
+       * ו-``_reflowWithinViewport``. כל אחת ענתה בסדר משלה, ושתיים מהן
+       * היו הפוכות זו לזו.
+       *
+       * סדר שונה לאותה שאלה אינו כפילות סגנונית: ההצמדה מחשבת כמה מקום
+       * נשאר לפי רוחב אחד בזמן שהתצוגה כותבת רוחב אחר, והפתק נצמד למקום
+       * שנכון לגודל שאינו הגודל שיוצג.
+       *
+       * הסדר: **הכוונה שעל האלמנט ← ``note.size`` ← ``el.style`` ← המלבן
+       * ← ברירת המחדל.** הכוונה קודמת כי היא ה-DOM המקומי, ו-``_enableResize``
+       * — הכותב היחיד שלה — מעדכן אותה לפני שהשמירה יוצאת לדרך.
+       */
+      _resolveDisplaySize(el, note, bounds){
+        const intent = this._getSizeIntent(el) || this._sizeIntentFallback(el, note);
+        return { intent, fitted: this._fitSizeToBounds(intent, bounds) };
+      }
+
+      /**
+       * נפילה לכל שדה בנפרד.
+       *
+       * ``_getSizeIntent`` הוא זוג או כלום — מכוון, כי חצי כוונה אינה
+       * כוונה. כאן דווקא כן שוקלים שדה-שדה: פתק שנשמר עם רוחב בלבד אינו
+       * אמור לאבד גם את גובהו לברירת המחדל.
+       */
+      _sizeIntentFallback(el, note){
+        let rect;
+        const fromRect = (key) => {
+          if (rect === undefined) {
+            try {
+              rect = (el && typeof el.getBoundingClientRect === 'function')
+                ? el.getBoundingClientRect() : null;
+            } catch(_) { rect = null; }
+          }
+          const v = rect ? Math.round(rect[key]) : 0;
+          return Number.isFinite(v) && v > 0 ? v : null;
+        };
+        const pick = (key, dflt) => {
+          const fromNote = (note && note.size) ? finiteOrNull(note.size[key]) : null;
+          if (fromNote !== null) return fromNote;
+          // ``el.style.width`` הוא ``"260px"`` — ``parseInt`` ולא ``Number``.
+          const fromStyle = (el && el.style) ? parseInt(el.style[key], 10) : NaN;
+          if (Number.isFinite(fromStyle)) return fromStyle;
+          const fromEl = fromRect(key);
+          if (fromEl !== null) return fromEl;
+          return dflt;
+        };
+        return { width: pick('width', NOTE_DEFAULT_W), height: pick('height', NOTE_DEFAULT_H) };
+      }
+
       _clampToViewport(el, x, y){
         try {
           const vp = window.visualViewport;
@@ -1217,14 +1305,7 @@
           // כמה מקום נשאר, וחישוב לפי רוחב שאינו זה שמוצג היה מצמיד את
           // הפתק למקום שנכון לגודל אחר. שתי הנקודות נגזרות מאותה פונקציה
           // ולכן אינן יכולות להיסחף.
-          let intentW = (note && note.size && typeof note.size.width === 'number') ? note.size.width : 0;
-          if (!intentW) {
-            const fromEl = this._getSizeIntent(el);
-            if (fromEl) intentW = fromEl.width;
-          }
-          if (!intentW) { try { intentW = Math.round(el.getBoundingClientRect().width) || 0; } catch(_) { intentW = 0; } }
-          if (!intentW) intentW = 260;
-          const w = this._fitSizeToBounds({ width: intentW }, { width: parent.clientWidth }).width;
+          const w = this._resolveDisplaySize(el, note, { width: parent.clientWidth }).fitted.width;
           const maxX = Math.max(0, parent.clientWidth - w);
           // ציר ה-Y נחסם מלמטה בלבד: המשטח גליל, וגרירה כלפי מטה מגדילה
           // אותו — כלומר פתק "רחוק" עדיין נגיש, בניגוד לפתק מעל הקצה.
@@ -2192,9 +2273,7 @@
               const parent = this.container;
               const surfaceW = parent && typeof parent.clientWidth === 'number' ? parent.clientWidth : null;
               if (Number.isFinite(surfaceW) && surfaceW > 0) {
-                const intent = this._getSizeIntent(el)
-                  || (note && note.size ? { width: note.size.width, height: note.size.height } : null);
-                const fitted = this._fitSizeToBounds(intent, { width: surfaceW });
+                const fitted = this._resolveDisplaySize(el, note, { width: surfaceW }).fitted;
                 el.style.width = fitted.width + 'px';
                 el.style.height = fitted.height + 'px';
               }
@@ -2240,8 +2319,6 @@
             el.style.visibility = '';
             el.style.position = 'fixed';
             if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
-            const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);
-            const height = (typeof note.size?.height === 'number') ? note.size.height : (parseInt(el.style.height || '200', 10) || 200);
             let left = (typeof note.position?.x === 'number') ? note.position.x - scroll.x : currentViewportX;
             let top = (typeof note.position?.y === 'number') ? note.position.y - scroll.y : currentViewportY;
             if (!Number.isFinite(left)) left = currentViewportX;
@@ -2249,12 +2326,25 @@
             const vp = window.visualViewport;
             const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
             const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+            // **הגבולות לפני הגודל, והגודל לפני ההצמדה.** ``maxLeft`` נגזר
+            // מהרוחב, ולכן חישובו לפי רוחב שאינו זה שיוצג מצמיד את הפתק
+            // למקום שנכון לגודל אחר. הענף הזה לא התייעץ בכוונה כלל ולא
+            // צמצם דבר, וכיסה על כך רק בזכות ``_reflowWithinViewport``
+            // שרץ אחריו — כלומר בכל קריאה עם ``reflow: false`` הבאג היה חי.
+            // אותם גבולות בדיוק כמו שם, כדי שהשניים לא יחשבו רוחב שונה.
+            const fitted = this._resolveDisplaySize(el, note, {
+              width: vpW - 24, height: vpH - 80
+            }).fitted;
+            const width = fitted.width;
+            const height = fitted.height;
             const maxLeft = Math.max(12, vpW - width - 12);
             const maxTop = Math.max(60, vpH - height - 20);
             left = clamp(Math.round(left), 12, maxLeft);
             top = clamp(Math.round(top), 60, maxTop);
             el.style.left = left + 'px';
             el.style.top = top + 'px';
+            el.style.width = width + 'px';
+            el.style.height = height + 'px';
             if (!opts || opts.reflow !== false) {
               this._reflowWithinViewport(el);
             }
@@ -3057,10 +3147,10 @@
         // אינו הגודל שיוצג. זה בדיוק המקום שבו הפתק "נדחף לקצה וממשיך
         // לגלוש": הרוחב לא נגע, ולכן ``vpW - w`` יצא שלילי והמקסימום
         // התכווץ למינימום.
-        const fitted = this._fitSizeToBounds(
-          this._getSizeIntent(el) || { width: Math.round(rect.width), height: Math.round(rect.height) },
-          { width: vpW - (minLeft * 2), height: vpH - minTop - 20 }
-        );
+        const entry = this._getEntry(el);
+        const fitted = this._resolveDisplaySize(el, entry ? entry.data : null, {
+          width: vpW - (minLeft * 2), height: vpH - minTop - 20
+        }).fitted;
         let w = fitted.width;
         let h = fitted.height;
         const maxLeft = Math.max(minLeft, vpW - w - minLeft);
