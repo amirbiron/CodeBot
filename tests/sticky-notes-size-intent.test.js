@@ -355,5 +355,124 @@ check('פתק צף רחב מצטמצם בענף עצמו, ולא רק ב-reflow 
   eq(el.classList.contains('is-floating'), true, 'אכן הענף הצף');
 });
 
+// ─── המצב המעוגן ───────────────────────────────────────────────────────
+//
+// **המצב השלישי, שלא הייתה לו מדיניות גודל בכלל.** הענף המעוגן מוסיף
+// ``is-pinned``, כותב ``left``, ויוצא — ולכן ``_reflowWithinViewport``
+// מדלג עליו (הוא מדלג על ``is-pinned``) ואף אחד אחר לא נגע בו.
+// ``_renderNote`` כותב 600px ל-``el.style.width``, וב-CSS אין
+// ``max-width`` על ``.sticky-note``. פתק מעוגן ברוחב 600 על מסך 320
+// גלש מהרגע הראשון, לא רק אחרי סיבוב.
+
+/** מנהל קובץ עם מארח עוגנים — התנאי ש-``_resolveMode`` דורש למצב anchored. */
+function anchoredManager(fileId) {
+  const host = {
+    style: {}, dataset: {},
+    classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+    appendChild() {}, addEventListener() {}, removeEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 2000 }),
+  };
+  return new StickyNotesManager({ file: fileId, anchorHost: host });
+}
+
+function anchoredEl(width, height) {
+  const classes = new Set(['sticky-note']);
+  return {
+    style: { top: '500px' }, dataset: { noteId: 'na' },
+    classList: {
+      add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 500, width, height }),
+    querySelector: () => null, querySelectorAll: () => [],
+  };
+}
+
+check('פתק מעוגן מצטמצם לרוחב אזור התצוגה', () => {
+  const m = anchoredManager('f-anchored');
+  const el = anchoredEl(600, 400);
+  const note = { id: 'na', anchor_id: 'a1', position: { x: 0, y: 500 },
+                 size: { width: 600, height: 400 } };
+  const prev = sandbox.window.innerWidth;
+  sandbox.window.innerWidth = 320;
+  try {
+    eq(m._resolveMode(note), 'anchored', 'אכן המצב המעוגן');
+    m._applyPositionMode(el, note, { reflow: false });
+  } finally { sandbox.window.innerWidth = prev; }
+  eq(el.style.width, '296px', 'רוחב — 320 פחות שוליים משני הצדדים');
+  eq(el.dataset.userWidth, undefined, 'הכוונה לא נכתבה כאן');
+});
+
+check('פתק מעוגן — ה-top שלו אינו מוצמד לאזור התצוגה', () => {
+  // ה-``top`` נגזר מהעוגן ב-``_updateAnchoredNotePosition``. הצמדתו
+  // לאזור התצוגה הייתה מנתקת את הפתק מהשורה שהוא מצביע עליה — וזו בדיוק
+  // הסיבה ש-``_reflowWithinViewport`` מדלג על ``is-pinned`` מלכתחילה.
+  const m = anchoredManager('f-anchored-top');
+  const el = anchoredEl(600, 400);
+  const note = { id: 'na', anchor_id: 'a1', position: { x: 0, y: 500 },
+                 size: { width: 600, height: 400 } };
+  const prev = sandbox.window.innerWidth, prevH = sandbox.window.innerHeight;
+  sandbox.window.innerWidth = 320; sandbox.window.innerHeight = 400;
+  try { m._applyPositionMode(el, note, { reflow: false }); }
+  finally { sandbox.window.innerWidth = prev; sandbox.window.innerHeight = prevH; }
+  eq(el.style.top, '500px', 'ה-top נשאר כפי שהיה');
+});
+
+check('פתק מעוגן — X מוצמד כך שהוא נכנס', () => {
+  const m = anchoredManager('f-anchored-x');
+  const el = anchoredEl(600, 400);
+  const note = { id: 'na', anchor_id: 'a1', position: { x: 9999, y: 500 },
+                 size: { width: 600, height: 400 } };
+  const prev = sandbox.window.innerWidth;
+  sandbox.window.innerWidth = 320;
+  try { m._applyPositionMode(el, note, { reflow: false }); }
+  finally { sandbox.window.innerWidth = prev; }
+  eq(el.style.left, '12px', 'הוצמד לגבול שנגזר מהרוחב המצומצם');
+});
+
+// ─── מקור אחד גם למה שנעשה עם הגודל, ולא רק לגודל עצמו ────────────────
+
+check('הענף הצף וה-reflow מגיעים לאותה תוצאה', () => {
+  // אחרי הסבב הקודם שניהם הריצו את אותו רצף בדיוק — אותם גבולות, אותו
+  // clamp, אותן ארבע כתיבות — וההערה בקוד ביקשה לשמור עליהם מסונכרנים.
+  // בדיקה שמשווה את שתי התוצאות הופכת את הסנכרון למאוכף במקום מבוקש.
+  const mk = () => {
+    const classes = new Set(['sticky-note']);
+    return {
+      style: { left: '40px', top: '100px' }, dataset: { noteId: 'nf' },
+      classList: {
+        add: (c) => classes.add(c), remove: (c) => classes.delete(c),
+        contains: (c) => classes.has(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+      },
+      getBoundingClientRect: () => ({ left: 40, top: 100, width: 600, height: 300 }),
+      querySelector: () => null, querySelectorAll: () => [],
+    };
+  };
+  const note = { id: 'nf', anchor_id: '__floating__',
+                 position: { x: 40, y: 100 }, size: { width: 600, height: 300 } };
+
+  const viaBranch = new StickyNotesManager({ board: 'b-cmp-a', container: surfaceStub(420) });
+  const elBranch = mk();
+  const viaReflow = new StickyNotesManager({ board: 'b-cmp-b', container: surfaceStub(420) });
+  // ``_reflowWithinViewport`` מסנן ב-``instanceof HTMLElement``, ולכן סטאב
+  // שאינו יורש ממנו מדולג בשקט — והבדיקה הייתה משווה שתי אי-כתיבות.
+  const elReflow = Object.setPrototypeOf(mk(), sandbox.HTMLElement.prototype);
+  viaReflow.notes.set('nf', { el: elReflow, data: note });
+
+  const prev = sandbox.window.innerWidth;
+  sandbox.window.innerWidth = 420;
+  try {
+    viaBranch._applyPositionMode(elBranch, note, { reflow: false });
+    elReflow.classList.add('is-floating');
+    viaReflow._reflowWithinViewport(elReflow);
+  } finally { sandbox.window.innerWidth = prev; }
+
+  eq(elBranch.style.width, elReflow.style.width, 'רוחב');
+  eq(elBranch.style.height, elReflow.style.height, 'גובה');
+  eq(elBranch.style.left, elReflow.style.left, 'left');
+  eq(elBranch.style.top, elReflow.style.top, 'top');
+});
+
 console.log(`${passed} עברו, ${failed} נכשלו`);
 process.exit(failed === 0 ? 0 : 1);

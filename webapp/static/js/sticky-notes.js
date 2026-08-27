@@ -1228,6 +1228,44 @@
         return { width: pick('width', NOTE_DEFAULT_W), height: pick('height', NOTE_DEFAULT_H) };
       }
 
+      /** גבולות אזור התצוגה, כפי שכל מסלול הצפה מודד אותם. */
+      _viewportBox(){
+        const vp = window.visualViewport;
+        return {
+          width: Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320),
+          height: Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320),
+        };
+      }
+
+      /**
+       * **מה שנעשה עם הגודל, ולא רק הגודל עצמו — במקום אחד.**
+       *
+       * ``_resolveDisplaySize`` איחדה את השאלה "מה הרוחב"; זו מאחדת את מה
+       * שקורה אחריה. הענף הצף ב-``_applyPositionMode`` ו-``_reflowWithinViewport``
+       * הריצו את אותו רצף בדיוק — אותם גבולות, אותו ``clamp``, אותן ארבע
+       * כתיבות — ונבדלו רק במקור של x ו-y. שני עותקים שההערה שביניהם
+       * מבקשת לשמור על סנכרון הם עותק אחד שטרם נכתב.
+       *
+       * **הצמצום קודם להצמדה.** ``maxLeft`` נגזר מהרוחב, ולכן חישובו לפי
+       * רוחב שאינו זה שיוצג מצמיד את הפתק למקום שנכון לגודל אחר — המצב
+       * שבו הפתק "נדחף לקצה וממשיך לגלוש".
+       */
+      _fitAndClampToViewport(el, note, x, y){
+        const box = this._viewportBox();
+        const minLeft = 12, minTop = 60;
+        const fitted = this._resolveDisplaySize(el, note, {
+          width: box.width - (minLeft * 2),
+          height: box.height - minTop - 20,
+        }).fitted;
+        const left = clamp(Math.round(x), minLeft, Math.max(minLeft, box.width - fitted.width - minLeft));
+        const top = clamp(Math.round(y), minTop, Math.max(minTop, box.height - fitted.height - 20));
+        el.style.left = left + 'px';
+        el.style.top = top + 'px';
+        el.style.width = fitted.width + 'px';
+        el.style.height = fitted.height + 'px';
+        return { left, top, width: fitted.width, height: fitted.height };
+      }
+
       _clampToViewport(el, x, y){
         try {
           const vp = window.visualViewport;
@@ -2302,6 +2340,21 @@
             el.style.position = 'absolute';
             let targetX = (typeof note.position?.x === 'number') ? note.position.x : currentAbsX;
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
+            // **רוחב בלבד, ו-X בלבד** — המצב היחיד שלא הייתה לו מדיניות
+            // גודל כלל, ולכן פתק מעוגן ברוחב 600 גלש במסך 320 כבר בטעינה:
+            // ``_reflowWithinViewport`` מדלג על ``is-pinned``, שאותו הענף
+            // הזה מוסיף, וב-CSS אין ``max-width`` על ``.sticky-note``.
+            //
+            // ה-``top`` **אינו** מוצמד: הוא נגזר מהעוגן ב-``_updateAnchoredNotePosition``,
+            // והצמדתו לאזור התצוגה הייתה מנתקת את הפתק מהשורה שהוא מצביע
+            // עליה. הגובה אינו מצטמצם מאותה סיבה שבמשטח — הפתק נגלל עם
+            // המסמך, ולכן פתק גבוה נשאר נגיש בעוד שרחב אינו.
+            const anchoredW = this._resolveDisplaySize(el, note, {
+              width: this._viewportBox().width - 24,
+            }).fitted.width;
+            el.style.width = anchoredW + 'px';
+            targetX = clamp(Math.round(targetX), 12,
+                            Math.max(12, this._viewportBox().width - anchoredW - 12));
             el.style.left = targetX + 'px';
             if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
             if (note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL) {
@@ -2323,28 +2376,11 @@
             let top = (typeof note.position?.y === 'number') ? note.position.y - scroll.y : currentViewportY;
             if (!Number.isFinite(left)) left = currentViewportX;
             if (!Number.isFinite(top)) top = currentViewportY;
-            const vp = window.visualViewport;
-            const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
-            const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
-            // **הגבולות לפני הגודל, והגודל לפני ההצמדה.** ``maxLeft`` נגזר
-            // מהרוחב, ולכן חישובו לפי רוחב שאינו זה שיוצג מצמיד את הפתק
-            // למקום שנכון לגודל אחר. הענף הזה לא התייעץ בכוונה כלל ולא
-            // צמצם דבר, וכיסה על כך רק בזכות ``_reflowWithinViewport``
-            // שרץ אחריו — כלומר בכל קריאה עם ``reflow: false`` הבאג היה חי.
-            // אותם גבולות בדיוק כמו שם, כדי שהשניים לא יחשבו רוחב שונה.
-            const fitted = this._resolveDisplaySize(el, note, {
-              width: vpW - 24, height: vpH - 80
-            }).fitted;
-            const width = fitted.width;
-            const height = fitted.height;
-            const maxLeft = Math.max(12, vpW - width - 12);
-            const maxTop = Math.max(60, vpH - height - 20);
-            left = clamp(Math.round(left), 12, maxLeft);
-            top = clamp(Math.round(top), 60, maxTop);
-            el.style.left = left + 'px';
-            el.style.top = top + 'px';
-            el.style.width = width + 'px';
-            el.style.height = height + 'px';
+            // הענף הזה לא התייעץ בכוונה כלל ולא צמצם דבר, וכיסה על כך רק
+            // בזכות ``_reflowWithinViewport`` שרץ אחריו — כלומר בכל קריאה
+            // עם ``reflow: false`` הבאג היה חי. עכשיו שניהם *הם* אותה
+            // פונקציה, ונבדלים רק במקור של x ו-y.
+            this._fitAndClampToViewport(el, note, left, top);
             if (!opts || opts.reflow !== false) {
               this._reflowWithinViewport(el);
             }
@@ -2623,6 +2659,23 @@
         try {
           const r = el.getBoundingClientRect();
           this._setSizeIntent(el, r.width, r.height);
+        } catch(_) {}
+        // **הכוונה נקבעה — עכשיו מצמידים את המוצג.** ``onMove`` חוסם את
+        // הרוחב ל-120..1200 בלי שום מודעות לגבולות, ולכן פתק שהוגדל ליד
+        // הקצה גלש מעבר לו ואף אחד לא הצמיד עד אירוע ``resize``/גלילה —
+        // שבלוח אין. נמדד בכרומיום: גלישה של 54px, עם ידית שינוי הגודל
+        // עצמה מחוץ לחלון, כלומר אי אפשר לכווץ בחזרה.
+        //
+        // קריאה אחת מכסה את שלושת המצבים, כי הם כבר מאוחדים: המשטח מצמצם
+        // לרוחב המשטח, המעוגן לרוחב אזור התצוגה, והצף עובר ל-
+        // ``_fitAndClampToViewport``. ``reflow: false`` כי הענף הצף *הוא*
+        // אותה פונקציה — קריאה נוספת היא עבודה כפולה.
+        //
+        // הסדר קובע: הכוונה נכתבת לפני, ולכן מה שהמשתמש בחר נשמר; המיקום
+        // נקרא ב-``_notePayloadFromEl`` אחרי, ולכן מה שנשמר הוא המוצמד.
+        try {
+          const entry = this._getEntry(el);
+          if (entry && entry.data) this._applyPositionMode(el, entry.data, { reflow: false });
         } catch(_) {}
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
@@ -3125,13 +3178,15 @@
       } catch(_) {}
     }
 
+    // **מסננת ומקור ה-x/y — ותו לא.** הצמצום, ההצמדה והכתיבה חיים
+    // ב-``_fitAndClampToViewport``, המשותף עם הענף הצף.
+    //
+    // ``is-pinned`` מדולג בכוונה: הוא מסמן גם משטח וגם מעוגן, ובשניהם
+    // המיקום נמדד מול מסגרת ייחוס אחרת מאזור התצוגה. הצמצום שלהם חי
+    // בענפים שלהם ב-``_applyPositionMode``, שאליהם ``_reapplyPinnedLayout``
+    // מגיע בשינוי גבולות.
     _reflowWithinViewport(target){
       const items = target ? [target] : Array.from(this.container.querySelectorAll('.sticky-note'));
-      const vp = window.visualViewport;
-      const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
-      const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
-      const minLeft = 12;
-      const minTop = 60;
       items.forEach(el => {
         if (!el || !(el instanceof HTMLElement)) return;
         if (el.classList.contains('is-pinned')) {
@@ -3142,25 +3197,8 @@
         if (!Number.isFinite(x)) x = Math.round(rect.left);
         let y = parseInt(el.style.top || String(Math.round(rect.top)), 10);
         if (!Number.isFinite(y)) y = Math.round(rect.top);
-        // **הצמצום קודם להצמדה, ולא להפך.** ``maxLeft`` נגזר מהרוחב, ולכן
-        // חישובו לפי הרוחב הישן היה מצמיד את הפתק למקום שנכון לגודל שכבר
-        // אינו הגודל שיוצג. זה בדיוק המקום שבו הפתק "נדחף לקצה וממשיך
-        // לגלוש": הרוחב לא נגע, ולכן ``vpW - w`` יצא שלילי והמקסימום
-        // התכווץ למינימום.
         const entry = this._getEntry(el);
-        const fitted = this._resolveDisplaySize(el, entry ? entry.data : null, {
-          width: vpW - (minLeft * 2), height: vpH - minTop - 20
-        }).fitted;
-        let w = fitted.width;
-        let h = fitted.height;
-        const maxLeft = Math.max(minLeft, vpW - w - minLeft);
-        const maxTop = Math.max(minTop, vpH - h - 20);
-        x = clamp(x, minLeft, maxLeft);
-        y = clamp(y, minTop, maxTop);
-        el.style.left = x + 'px';
-        el.style.top = y + 'px';
-        el.style.width = w + 'px';
-        el.style.height = h + 'px';
+        this._fitAndClampToViewport(el, entry ? entry.data : null, x, y);
       });
     }
 
