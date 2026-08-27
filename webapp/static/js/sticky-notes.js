@@ -114,6 +114,18 @@
 
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
 
+  // גבולות הגודל של פתק. אותם מספרים נאכפים גם בשרת
+  // (``_coerce_int`` ב-``sticky_notes_api.py``), ולכן צמצום שיורד מתחתם
+  // היה נדחה שם ומייצר פער שקט בין מה שמוצג למה שנשמר.
+  const NOTE_MIN_W = 120, NOTE_MIN_H = 80;
+
+  /** מספר סופי מתוך ``dataset``, או ``null`` — ריק ופגום נחשבים "לא נאמר". */
+  function finiteOrNull(raw){
+    if (raw === undefined || raw === null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
   function getScrollOffsets(){
     if (typeof window === 'undefined') return { x: 0, y: 0 };
     const doc = window.document || {};
@@ -581,6 +593,10 @@
       el.style.top = note.position.y + 'px';
       el.style.width = note.size.width + 'px';
       el.style.height = note.size.height + 'px';
+      // הכוונה נקבעת כאן, מהערך שהגיע מה-DB, ולא משתנה שוב עד ששינוי
+      // גודל ידני יכתוב אותה מחדש. ההצמדה שרצה בהמשך הרינדור מקטינה את
+      // המוצג בלבד — ולכן פתק שנפתח במסך צר וחוזר לרחב חוזר לגודלו.
+      this._setSizeIntent(el, note.size.width, note.size.height);
       if (note.color) el.style.backgroundColor = note.color;
 
       const header = createEl('div', 'sticky-note-header');
@@ -1074,6 +1090,56 @@
       // מחוץ למסך. הוא אמנם חזר לגבולות בלחיצה הבאה, בזכות
       // ``_reflowWithinViewport`` שרץ בפוקוס, אבל "נעלם ואז חוזר" הוא לא
       // התנהגות, הוא תיקון שקורה במקרה.
+      // ── הגודל שהמשתמש קבע, לעומת הגודל שמוצג ──────────────────────
+      //
+      // המיקום מוצמד לגבול; הגודל **מצטמצם** אליו. זה ההבדל בין השניים,
+      // וממנו נובע שהגודל צריך שני ערכים ולא אחד: מה שנקבע, ומה שנכנס
+      // במסך הנוכחי. מיקום לא צריך — הצמדה אינה מאבדת מידע.
+      //
+      // הכוונה יושבת על ה-``dataset`` של האלמנט ולא על ``note.size``, כי
+      // ``note.size`` אינו מתעדכן אחרי הרינדור — ``_enableResize`` כותב
+      // ל-``el.style`` בלבד, ולכן ה-DOM הוא שנשאל בשמירה.
+
+      /** הכותב היחיד: ``_enableResize``. כל כתיבה אחרת היא באג. */
+      _setSizeIntent(el, width, height){
+        try {
+          if (!el || !el.dataset) return;
+          if (Number.isFinite(width)) el.dataset.userWidth = String(Math.round(width));
+          if (Number.isFinite(height)) el.dataset.userHeight = String(Math.round(height));
+        } catch(_) {}
+      }
+
+      /** ``null`` כשלא נאמר — ולא ברירת מחדל, שהייתה דורסת גודל אמיתי. */
+      _getSizeIntent(el){
+        try {
+          if (!el || !el.dataset) return null;
+          const w = finiteOrNull(el.dataset.userWidth);
+          const h = finiteOrNull(el.dataset.userHeight);
+          if (w === null || h === null) return null;
+          return { width: w, height: h };
+        } catch(_) { return null; }
+      }
+
+      /**
+       * הגודל המוצג = הכוונה, מצומצמת לגבולות הנתונים.
+       *
+       * המינימום גובר על הגבול: מסך צר במיוחד אינו יכול לייצר פתק שהידית
+       * והכפתורים שלו אינם נכנסים בו — פתק כזה אינו ניתן לחילוץ, וזו בדיוק
+       * התקלה שהתיקון הזה בא לפתור.
+       */
+      _fitSizeToBounds(intent, bounds){
+        const src = intent && typeof intent === 'object' ? intent : {};
+        const b = bounds && typeof bounds === 'object' ? bounds : {};
+        const iw = Number.isFinite(src.width) ? src.width : NOTE_MIN_W;
+        const ih = Number.isFinite(src.height) ? src.height : NOTE_MIN_H;
+        const bw = Number.isFinite(b.width) ? b.width : iw;
+        const bh = Number.isFinite(b.height) ? b.height : ih;
+        return {
+          width: Math.round(Math.max(NOTE_MIN_W, Math.min(iw, bw))),
+          height: Math.round(Math.max(NOTE_MIN_H, Math.min(ih, bh)))
+        };
+      }
+
       _clampToViewport(el, x, y){
         try {
           const vp = window.visualViewport;
@@ -1147,9 +1213,18 @@
           if (!parent || typeof parent.clientWidth !== 'number' || parent.clientWidth <= 0) {
             return { x, y };
           }
-          let w = (note && note.size && typeof note.size.width === 'number') ? note.size.width : 0;
-          if (!w) { try { w = Math.round(el.getBoundingClientRect().width) || 0; } catch(_) { w = 0; } }
-          if (!w) w = 260;
+          // הרוחב שנלקח כאן חייב להיות **המוצג**, לא הכוונה: ההצמדה מחשבת
+          // כמה מקום נשאר, וחישוב לפי רוחב שאינו זה שמוצג היה מצמיד את
+          // הפתק למקום שנכון לגודל אחר. שתי הנקודות נגזרות מאותה פונקציה
+          // ולכן אינן יכולות להיסחף.
+          let intentW = (note && note.size && typeof note.size.width === 'number') ? note.size.width : 0;
+          if (!intentW) {
+            const fromEl = this._getSizeIntent(el);
+            if (fromEl) intentW = fromEl.width;
+          }
+          if (!intentW) { try { intentW = Math.round(el.getBoundingClientRect().width) || 0; } catch(_) { intentW = 0; } }
+          if (!intentW) intentW = 260;
+          const w = this._fitSizeToBounds({ width: intentW }, { width: parent.clientWidth }).width;
           const maxX = Math.max(0, parent.clientWidth - w);
           // ציר ה-Y נחסם מלמטה בלבד: המשטח גליל, וגרירה כלפי מטה מגדילה
           // אותו — כלומר פתק "רחוק" עדיין נגיש, בניגוד לפתק מעל הקצה.
@@ -1157,13 +1232,25 @@
         } catch(_) { return { x, y }; }
       }
 
+      // **המשפך.** חמש נקודות שמירה עוברות דרך כאן — גרירה, נעיצה, ביטול
+      // עיגון, החלפת מצב, ושינוי גודל ידני — ולכן מה שהיא קוראת הוא מה
+      // שנשמר בכולן.
+      //
+      // **המיקום מהמלבן, הגודל מהכוונה.** המיקום מוצמד ולא מאבד מידע, ולכן
+      // המוצג הוא האמת. הגודל **כן** מאבד: פתק שהוקטן כדי להיכנס למסך צר,
+      // או פתק ממוזער (``height: auto !important`` ב-CSS), מוצג קטן ממה
+      // שנקבע. קריאה מהמלבן הייתה שומרת את הגודל המוצג כבחירת המשתמש —
+      // ופתק שנגרר פעם אחת בטלפון לא היה חוזר לגודלו בטאבלט לעולם.
+      //
+      // נפילה למלבן כשאין כוונה: פתק שרונדר לפני שהשדה היה קיים.
       _notePayloadFromEl(el, mode){
         const rect = el.getBoundingClientRect();
         const origin = this._positionOrigin(el, mode);
         const x = Math.round(rect.left - origin.x);
         const y = Math.round(rect.top - origin.y);
-        const w = Math.round(rect.width);
-        const h = Math.round(rect.height);
+        const intent = this._getSizeIntent(el);
+        const w = Math.round(intent ? intent.width : rect.width);
+        const h = Math.round(intent ? intent.height : rect.height);
         const payload = { position: { x, y }, size: { width: w, height: h } };
         return payload;
       }
@@ -2098,6 +2185,19 @@
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
             if (!Number.isFinite(targetY)) targetY = currentAbsY;
             if (this._surfaceTarget) {
+              // **רוחב בלבד.** המשטח גליל וגדל כלפי מטה, ולכן פתק גבוה
+              // עדיין נגיש — בעוד שפתק רחב מהמשטח גולש ואין דרך להגיע
+              // לידית שלו. אותה אסימטריה שכבר קיימת ב-``_clampToSurface``,
+              // שחוסם את X ולא את Y.
+              const parent = this.container;
+              const surfaceW = parent && typeof parent.clientWidth === 'number' ? parent.clientWidth : null;
+              if (Number.isFinite(surfaceW) && surfaceW > 0) {
+                const intent = this._getSizeIntent(el)
+                  || (note && note.size ? { width: note.size.width, height: note.size.height } : null);
+                const fitted = this._fitSizeToBounds(intent, { width: surfaceW });
+                el.style.width = fitted.width + 'px';
+                el.style.height = fitted.height + 'px';
+              }
               const clamped = this._clampToSurface(el, targetX, targetY, note);
               targetX = clamped.x; targetY = clamped.y;
             }
@@ -2427,6 +2527,13 @@
       };
       const onUp = ()=>{
         if (!resizing) return; resizing=false;
+        // **הנקודה היחידה שבה הכוונה מתעדכנת.** כאן המלבן המוצג *הוא*
+        // הבחירה של המשתמש, ולכן הקריאה ממנו נכונה — בשונה מכל שאר
+        // מסלולי השמירה, שרצים על גודל שאולי הוקטן להתאמת מסך.
+        try {
+          const r = el.getBoundingClientRect();
+          this._setSizeIntent(el, r.width, r.height);
+        } catch(_) {}
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
         // פתק שגדל כלפי מטה מאריך את המשטח, בדיוק כמו פתק שנגרר לשם
@@ -2945,13 +3052,21 @@
         if (!Number.isFinite(x)) x = Math.round(rect.left);
         let y = parseInt(el.style.top || String(Math.round(rect.top)), 10);
         if (!Number.isFinite(y)) y = Math.round(rect.top);
-        let w = Math.round(rect.width);
-        let h = Math.round(rect.height);
+        // **הצמצום קודם להצמדה, ולא להפך.** ``maxLeft`` נגזר מהרוחב, ולכן
+        // חישובו לפי הרוחב הישן היה מצמיד את הפתק למקום שנכון לגודל שכבר
+        // אינו הגודל שיוצג. זה בדיוק המקום שבו הפתק "נדחף לקצה וממשיך
+        // לגלוש": הרוחב לא נגע, ולכן ``vpW - w`` יצא שלילי והמקסימום
+        // התכווץ למינימום.
+        const fitted = this._fitSizeToBounds(
+          this._getSizeIntent(el) || { width: Math.round(rect.width), height: Math.round(rect.height) },
+          { width: vpW - (minLeft * 2), height: vpH - minTop - 20 }
+        );
+        let w = fitted.width;
+        let h = fitted.height;
         const maxLeft = Math.max(minLeft, vpW - w - minLeft);
         const maxTop = Math.max(minTop, vpH - h - 20);
         x = clamp(x, minLeft, maxLeft);
         y = clamp(y, minTop, maxTop);
-        w = clamp(w, 120, 1200); h = clamp(h, 80, 1200);
         el.style.left = x + 'px';
         el.style.top = y + 'px';
         el.style.width = w + 'px';
