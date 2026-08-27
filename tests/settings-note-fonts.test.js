@@ -107,7 +107,6 @@ function load(fetchImpl, opts = {}) {
       return ok;
     };
   }
-  function removeToast() { delete sandbox.ckToast; }
   if (opts.toast !== null) installToast(opts.toast !== false);
 
   vm.createContext(sandbox);
@@ -128,7 +127,7 @@ function load(fetchImpl, opts = {}) {
     }
   }
 
-  return { sent, msg, selects, scopeSel, toasts, advance, installToast, removeToast,
+  return { sent, msg, selects, scopeSel, toasts, advance, installToast,
            pending: () => timers.size };
 }
 
