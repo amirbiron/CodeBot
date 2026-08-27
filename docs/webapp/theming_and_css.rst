@@ -321,6 +321,7 @@ Component Tokens ו‑Theme Builder
 - Collections (`webapp/static/css/collections.css`) עדיין מכיל צבעים קשיחים ישנים – כל שינוי חייב להמיר ל‑`var()` לפי טבלת הטוקנים.  
 - Split View ו‑Markdown Enhanced משתמשים ב‑``--split-*`` ו‑``--md-*`` בהתאמה – הוסיפו טוקן לפני שמוסיפים Class חדש.  
 - Sticky Notes, Reader Modes (`md_preview.html`) וה‑``theme_preview.html`` הם חריגים שנשארים Hardcoded כדי לשמור על תצוגת Preset.  
+- ``toast.css`` מגדיר את משפחת ``--ck-toast-*`` (Level 3) ונטען כיום רק מ-``settings.html``. מרחב השמות שלו נפרד מ-``.notification`` בכוונה: ``bookmarks.css`` ו-``multi-select.css`` מגדירים את הסלקטור ההוא בשניהם, עם ערכים סותרים. את ערכי הרקע והטקסט הוא מעתיק מ-``bookmarks.css`` במקום לגזור אותם מ-``--bg-secondary``; הגזירה נבדקה ונפסלה כי ב-Classic היא יורדת מתחת ליחס הניגודיות הנדרש.
 - `global_search.css` הינו דוגמה מצוינת לרכיב Component Tokens – כאשר מוסיפים תכונה חדשה (למשל badge נוסף) המשיכו את התבנית שם.  
 - Collections / Split View / Markdown Enhanced מוזכרים בדף זה כדי שמפתחים ידעו להצליב בין הרכיבים ולזהות אילו טוקנים משותפים.
 
@@ -336,7 +337,7 @@ Component Tokens ו‑Theme Builder
    - ``webapp/templates/base.html`` – בלוק ה‑``<style>``: מקור כל ה‑Primitives ו‑``:root[data-theme]``, קביעת ``data-theme`` מוקדמת, וה‑Theme Wizard.
    - ``webapp/static/css/dark-mode.css`` – שימוש בטוקנים עבור רכיבי Dark/Dim/Nebula.
    - ``webapp/static/css/high-contrast.css`` – טוקני הבסיס של High Contrast, ובנוסף התאמות פוקוס/Outline. שאר הטוקנים שלה מושלמים ברמת הרכיב.
-   - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css`` – דוגמאות מעשיות לטוקנים.
+   - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css``, ``toast.css`` – דוגמאות מעשיות לטוקנים.
    - Issue #2097 – מפרט Theme Builder (טוקנים במיקוד, UI/Backend/API, נגישות ו‑Reset flow).
 
 לשאלות תיעוד/Testing יש לפנות לערוץ Frontend או לפתוח Issue חדש עם קישור לדף זה. הקפידו לעיין גם ב‑`FEATURE_SUGGESTIONS/css_refactor_plan.md` לפני שינויים רוחביים בקוד.
