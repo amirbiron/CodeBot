@@ -1,5 +1,12 @@
 {% extends "base.html" %} {% block title %}הגדרות - Code Keeper Bot{% endblock
-%} {% block content %}
+%}
+{% block extra_css %}
+{# טוסט החיווי של כרטיס "גופן הפתקים". עומד בפני עצמו — אין לו תלות
+   ב-bookmarks.css או ב-multi-select.css, ומרחב השמות שלו נפרד מ-
+   .notification שאותם שני קבצים כבר חולקים עם ערכים סותרים. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
+{% endblock %}
+{% block content %}
 <h1 class="page-title">
   <i class="fas fa-cog"></i>
   הגדרות
@@ -364,6 +371,10 @@
 {% if show_web_push_settings %}
   <script defer src="{{ url_for('static', filename='js/push-settings.js') }}?v={{ static_version }}"></script>
 {% endif %}
+
+{# מגדיר window.ckToast. defer מספיק: הקריאה מתרחשת רק באינטראקציה של
+   המשתמש, הרבה אחרי ש-defer סיים לרוץ. #}
+<script defer src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 
 {# הוראות לסוכן — הטקסט שנטען לכל סשן של סוכן AI דרך GET /api/agent/primer #}
 <div class="glass-card" id="agent-instructions-section">
@@ -1122,8 +1133,9 @@
       <p style="opacity: 0.7; margin-top: 0.75rem; font-size: 0.9rem">
         התחולה חלה על שלוש הבחירות יחד. כשבוחרים כתב יד בלוחות, המתג שבמודאל ההגדרות של הלוח ננעל.
       </p>
-      {# שורת משוב, באותו דפוס של ``setMessage`` בכרטיס "הוראות לסוכן": #}
-      {# לא מודאל ולא ``alert`` — הבורר נשאר על המסך לצד ההודעה.        #}
+      {# רשת ביטחון בלבד. החיווי הרגיל הוא ``window.ckToast``; השורה הזו   #}
+      {# נכנסת לפעולה רק אם ``toast.js`` לא נטען, כדי שהודעת כשל שמירה    #}
+      {# לא תיעלם בשקט. במסלול התקין היא נשארת ריקה ובלתי נראית.          #}
       <div id="noteFontsMsg" style="display: none; margin-top: 0.5rem; font-size: 0.9rem"></div>
     </div>
   </div>
@@ -2186,6 +2198,65 @@
           msgEl.style.color = ok ? 'var(--success, #4ade80)' : 'var(--danger, #f87171)';
         }
 
+        // **החיווי הוא אירוע חוזר, לא מצב.** שורת סטטוס קבועה לא מסתירה
+        // את עצמה, ושמירה שנייה שכותבת בה את אותה מחרוזת אינה משנה כלום
+        // ב-DOM — כלומר אין חיווי בכלל. טוסט חולף נכנס מחדש בכל שמירה.
+        //
+        // ``key`` אחיד לשלושת הבוררים: שמירה חדשה מחליפה את הקודמת במקום
+        // לערום עוד כרטיס זהה לצידה.
+        //
+        // ``ckToast`` מחזירה ``false`` כשלא הצליחה להציג. בלי הבדיקה,
+        // כשל שמירה היה נבלע לגמרי כשהסקריפט אינו זמין.
+        // **כיבוי הערוץ השני הוא חלק מההחלטה, לא של הערוץ שנבחר.** ``notify``
+        // הוא נתב בין שני ערוצים מוציאי-זה-את-זה, ולכן הוא זה שאחראי על
+        // האינווריאנטה. בלי ``clearFallback`` בענף הטוסט, הוא עודכן אחד
+        // מהשניים ושכח את השני — CORE U5 בגרסת ממשק.
+        //
+        // התרחיש אינו תיאורטי: ``toast.js`` נטען ב-``defer`` ולכן רץ רק
+        // אחרי סיום הפרסור, בעוד שהמאזינים כאן נרשמים תוך כדי הפרסור.
+        // שמירה שנכשלת בחלון הזה מציגה שגיאה בשורת הגיבוי; ניסיון חוזר
+        // אחרי שהסקריפט נטען עובר לטוסט, והשגיאה הייתה נשארת לצידו.
+        function notify(text, type) {
+          if (typeof window.ckToast === 'function'
+              && window.ckToast(text, type, { key: 'note-fonts' })) {
+            clearFallback();
+            return;
+          }
+          fallbackMessage(text, type);
+        }
+
+        // **שורת הגיבוי חולפת גם היא.** היא נכנסת לפעולה רק כש-``toast.js``
+        // לא נטען, וקיימת כדי שהודעת כשל שמירה לא תיעלם בשקט. אבל שורת
+        // מצב שאינה מסתירה את עצמה היא בדיוק התסמין שתוקן כאן, ולכן היא
+        // מקבלת את אותו טיפול שורשי: מצב ← אירוע חולף.
+        //
+        // הטיימר מתאפס בכל שמירה במקום להיערם — אותה סיבה שבגללה הטוסט
+        // מבטל את הטיימר של קודמו.
+        //
+        // המשך אינו חייב להתאים לזה של הטוסט; אלה שני ערוצים נפרדים,
+        // ורק אחד מהם פעיל בכל רגע נתון — ``notify`` הוא שאוכף את זה,
+        // בשני הכיוונים.
+        //
+        // **ומה זה לא פותר:** שמירה שנייה בזמן שהשורה עדיין מציגה את אותו
+        // טקסט לא תפיק אירוע נראה. השורה אינה יכולה להנפיש — ה-CSS שהיה
+        // מנפיש אותה חי ב-``toast.css``, ובמצב שבו הגיבוי בכלל רץ הוא
+        // כנראה חסר גם הוא.
+        var FALLBACK_MS = 4000;
+        var fallbackTimer = null;
+
+        /** פרישת הגיבוי — מקום אחד, כדי ששני הקוראים לא ייסחפו. */
+        function clearFallback() {
+          if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+          setMessage('', true);
+        }
+
+        function fallbackMessage(text, type) {
+          clearFallback();
+          setMessage(text, type === 'success');
+          if (!msgEl) return;
+          fallbackTimer = setTimeout(clearFallback, FALLBACK_MS);
+        }
+
 
         // צילום של כל הבוררים, כדי שאפשר יהיה להחזיר אותם בכשל.
         function snapshot() {
@@ -2258,11 +2329,11 @@
               await send(sent);
               lastSaved = sent;
             } while (pending);
-            setMessage('נשמר', true);
+            notify('נשמר', 'success');
           } catch (err) {
             console.error('Failed to persist note fonts:', err);
             restore(lastSaved);
-            setMessage('השמירה נכשלה — הבחירה הוחזרה', false);
+            notify('השמירה נכשלה — הבחירה הוחזרה', 'error');
           } finally {
             inFlight = false;
           }
