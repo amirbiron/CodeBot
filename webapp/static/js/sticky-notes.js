@@ -122,6 +122,9 @@
   // "קטן ככל שמותר" ל"הגודל הרגיל" שנעדרה, ולכן פתק בלי כוונה
   // ובלי ``note.size`` התכווץ ל-120×80 במקום להיפתח כרגיל.
   const NOTE_DEFAULT_W = 260, NOTE_DEFAULT_H = 200;
+  // המרווח בין הפתק לקצה אזור התצוגה. משותף לכל המסלולים שמודדים מול
+  // אזור התצוגה, כדי ששינוי מדיניות שוליים לא ייפרד בין מצב למצב.
+  const NOTE_EDGE_GAP = 12, NOTE_TOP_GAP = 60, NOTE_BOTTOM_GAP = 20;
 
   /** מספר סופי מתוך ``dataset``, או ``null`` — ריק ופגום נחשבים "לא נאמר". */
   function finiteOrNull(raw){
@@ -415,9 +418,18 @@
         const onScroll = () => { this._reflowWithinViewport(); this._updateAnchoredPositions(); };
         this._on(window, 'resize', onResize);
         this._on(window, 'scroll', onScroll, { passive: true });
-        // במובייל: שינוי visual viewport (מקלדת) עלול להזיז את הפתקים – נתאים אותם לבטיחות
+        // במובייל: שינוי visual viewport (מקלדת, פינץ'-זום) עלול להזיז את
+        // הפתקים – נתאים אותם לבטיחות.
+        //
+        // **גם הנעוצים, ולא רק הצפים.** ``_reflowWithinViewport`` מדלג על
+        // ``is-pinned``, ובעבר זה הספיק: פתק משטח גוזר את רוחבו
+        // מ-``parent.clientWidth``, שפינץ'-זום אינו משנה. הפתק **המעוגן**
+        // גוזר אותו מ-``_viewportBox()``, שקורא את ``visualViewport``
+        // עצמו — ולכן בלי הקריאה הזו הוא נשאר ברוחב שנגזר מהזום הקודם.
+        // במשטח זו עבודה מיותרת אך לא מזיקה, וזה המחיר הנכון לעומת
+        // חיווט נפרד לכל מצב.
         if (window.visualViewport) {
-          const reflow = () => this._reflowWithinViewport();
+          const reflow = () => { this._reflowWithinViewport(); this._reapplyPinnedLayout(); };
           this._on(window.visualViewport, 'resize', reflow, { passive: true });
           this._on(window.visualViewport, 'scroll', reflow, { passive: true });
         }
@@ -1252,13 +1264,14 @@
        */
       _fitAndClampToViewport(el, note, x, y){
         const box = this._viewportBox();
-        const minLeft = 12, minTop = 60;
         const fitted = this._resolveDisplaySize(el, note, {
-          width: box.width - (minLeft * 2),
-          height: box.height - minTop - 20,
+          width: box.width - (NOTE_EDGE_GAP * 2),
+          height: box.height - NOTE_TOP_GAP - NOTE_BOTTOM_GAP,
         }).fitted;
-        const left = clamp(Math.round(x), minLeft, Math.max(minLeft, box.width - fitted.width - minLeft));
-        const top = clamp(Math.round(y), minTop, Math.max(minTop, box.height - fitted.height - 20));
+        const left = clamp(Math.round(x), NOTE_EDGE_GAP,
+                           Math.max(NOTE_EDGE_GAP, box.width - fitted.width - NOTE_EDGE_GAP));
+        const top = clamp(Math.round(y), NOTE_TOP_GAP,
+                          Math.max(NOTE_TOP_GAP, box.height - fitted.height - NOTE_BOTTOM_GAP));
         el.style.left = left + 'px';
         el.style.top = top + 'px';
         el.style.width = fitted.width + 'px';
@@ -1268,15 +1281,15 @@
 
       _clampToViewport(el, x, y){
         try {
-          const vp = window.visualViewport;
-          const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
-          const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+          const box = this._viewportBox();
           const r = el.getBoundingClientRect();
-          const w = Math.round(r.width) || 260;
-          const h = Math.round(r.height) || 200;
+          const w = Math.round(r.width) || NOTE_DEFAULT_W;
+          const h = Math.round(r.height) || NOTE_DEFAULT_H;
           return {
-            x: clamp(Math.round(x), 12, Math.max(12, vpW - w - 12)),
-            y: clamp(Math.round(y), 60, Math.max(60, vpH - h - 20))
+            x: clamp(Math.round(x), NOTE_EDGE_GAP,
+                     Math.max(NOTE_EDGE_GAP, box.width - w - NOTE_EDGE_GAP)),
+            y: clamp(Math.round(y), NOTE_TOP_GAP,
+                     Math.max(NOTE_TOP_GAP, box.height - h - NOTE_BOTTOM_GAP))
           };
         } catch(_) { return { x, y }; }
       }
@@ -2349,12 +2362,26 @@
             // והצמדתו לאזור התצוגה הייתה מנתקת את הפתק מהשורה שהוא מצביע
             // עליה. הגובה אינו מצטמצם מאותה סיבה שבמשטח — הפתק נגלל עם
             // המסמך, ולכן פתק גבוה נשאר נגיש בעוד שרחב אינו.
+            const anchoredBox = this._viewportBox();
             const anchoredW = this._resolveDisplaySize(el, note, {
-              width: this._viewportBox().width - 24,
+              width: anchoredBox.width - (NOTE_EDGE_GAP * 2),
             }).fitted.width;
             el.style.width = anchoredW + 'px';
-            targetX = clamp(Math.round(targetX), 12,
-                            Math.max(12, this._viewportBox().width - anchoredW - 12));
+            // **מרחב מסמך, לא viewport — והם מתלכדים כאן.** ``targetX``
+            // נשמר כ-``rect.left + scroll.x``, כלומר במרחב המסמך, בעוד
+            // שהגבול נמדד באזור התצוגה. נמדד בכרומיום על ``/md/<id>``:
+            // ``documentElement.scrollWidth`` שווה ל-``clientWidth`` גם עם
+            // בלוק קוד רחב, טבלה ברוחב 2864 ומילה בת 300 תווים — כולם
+            // נבלמים ב-``overflow-x: auto`` פר-אלמנט — וטווח הגלילה
+            // האופקית הוא 0 לשני הכיוונים. כלומר ``scroll.x`` הוא תמיד 0
+            // כאן ושני המרחבים מתלכדים. **מי שיוסיף גלילה אופקית לעמוד
+            // חייב להוסיף כאן את ההיסט.**
+            //
+            // ובלי ההצמדה הזו הפתק באמת אבוד: נמדד שפתק ב-``left: 1500px``
+            // על מסך 420 יושב מחוץ למסך **ואינו מרחיב את שטח הגלילה** —
+            // אין שום דרך להגיע אליו.
+            targetX = clamp(Math.round(targetX), NOTE_EDGE_GAP,
+                            Math.max(NOTE_EDGE_GAP, anchoredBox.width - anchoredW - NOTE_EDGE_GAP));
             el.style.left = targetX + 'px';
             if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
             if (note.anchor_id && note.anchor_id !== PIN_SENTINEL && note.anchor_id !== FLOATING_SENTINEL) {

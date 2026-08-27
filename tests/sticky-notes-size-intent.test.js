@@ -58,6 +58,15 @@ function makeSandbox() {
       innerWidth: 1024, innerHeight: 768,
       matchMedia: () => ({ matches: false }),
       location: { search: '', hash: '' },
+      // ה-``visualViewport`` הוא מסלול נפרד: הקוד רושם עליו מאזינים משלו,
+      // והוא — לא ``innerWidth`` — מה שמשתנה בפינץ'-זום ובפתיחת מקלדת.
+      visualViewport: {
+        width: 1024, height: 768,
+        addEventListener(type, fn) {
+          (sandbox.__vvListeners[type] || (sandbox.__vvListeners[type] = [])).push(fn);
+        },
+        removeEventListener() {},
+      },
     },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     fetch: async () => ({ json: async () => ({ ok: true, notes: [] }) }),
@@ -65,6 +74,7 @@ function makeSandbox() {
     setTimeout, clearTimeout, setInterval, clearInterval,
     MutationObserver: undefined, ResizeObserver: undefined,
     __listeners: {},
+    __vvListeners: {},
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -82,6 +92,22 @@ function check(name, fn) {
 }
 function eq(a, b, what) {
   if (a !== b) throw new Error(`${what || ''} — ציפיתי ל-${JSON.stringify(b)}, קיבלתי ${JSON.stringify(a)}`);
+}
+
+/**
+ * מריץ עם אזור תצוגה אחר.
+ *
+ * ``_viewportBox`` מעדיף את ``visualViewport`` על פני ``innerWidth``, ולכן
+ * בדיקה ששינתה רק את ``innerWidth`` הריצה בפועל את גודל ברירת המחדל —
+ * ועברה או נפלה מסיבה שאינה זו שנבדקה.
+ */
+function withViewport(width, height, fn) {
+  const w = sandbox.window, vv = w.visualViewport;
+  const prev = { iw: w.innerWidth, ih: w.innerHeight, vw: vv.width, vh: vv.height };
+  w.innerWidth = width; vv.width = width;
+  if (height != null) { w.innerHeight = height; vv.height = height; }
+  try { return fn(); }
+  finally { w.innerWidth = prev.iw; w.innerHeight = prev.ih; vv.width = prev.vw; vv.height = prev.vh; }
 }
 
 /** אלמנט פתק מדומה: מלבן שמייצג את המוצג, ו-dataset שנושא את הכוונה. */
@@ -347,10 +373,7 @@ check('פתק צף רחב מצטמצם בענף עצמו, ולא רק ב-reflow 
   };
   const note = { id: 'nf', anchor_id: '__floating__',
                  position: { x: 40, y: 100 }, size: { width: 600, height: 300 } };
-  const prev = sandbox.window.innerWidth;
-  sandbox.window.innerWidth = 420;
-  try { m._applyPositionMode(el, note, { reflow: false }); }
-  finally { sandbox.window.innerWidth = prev; }
+  withViewport(420, null, () => m._applyPositionMode(el, note, { reflow: false }));
   eq(el.style.width, '396px', 'הרוחב המוצג — 420 פחות שוליים משני הצדדים');
   eq(el.classList.contains('is-floating'), true, 'אכן הענף הצף');
 });
@@ -394,12 +417,10 @@ check('פתק מעוגן מצטמצם לרוחב אזור התצוגה', () => {
   const el = anchoredEl(600, 400);
   const note = { id: 'na', anchor_id: 'a1', position: { x: 0, y: 500 },
                  size: { width: 600, height: 400 } };
-  const prev = sandbox.window.innerWidth;
-  sandbox.window.innerWidth = 320;
-  try {
+  withViewport(320, null, () => {
     eq(m._resolveMode(note), 'anchored', 'אכן המצב המעוגן');
     m._applyPositionMode(el, note, { reflow: false });
-  } finally { sandbox.window.innerWidth = prev; }
+  });
   eq(el.style.width, '296px', 'רוחב — 320 פחות שוליים משני הצדדים');
   eq(el.dataset.userWidth, undefined, 'הכוונה לא נכתבה כאן');
 });
@@ -412,10 +433,7 @@ check('פתק מעוגן — ה-top שלו אינו מוצמד לאזור התצ
   const el = anchoredEl(600, 400);
   const note = { id: 'na', anchor_id: 'a1', position: { x: 0, y: 500 },
                  size: { width: 600, height: 400 } };
-  const prev = sandbox.window.innerWidth, prevH = sandbox.window.innerHeight;
-  sandbox.window.innerWidth = 320; sandbox.window.innerHeight = 400;
-  try { m._applyPositionMode(el, note, { reflow: false }); }
-  finally { sandbox.window.innerWidth = prev; sandbox.window.innerHeight = prevH; }
+  withViewport(320, 400, () => m._applyPositionMode(el, note, { reflow: false }));
   eq(el.style.top, '500px', 'ה-top נשאר כפי שהיה');
 });
 
@@ -424,10 +442,7 @@ check('פתק מעוגן — X מוצמד כך שהוא נכנס', () => {
   const el = anchoredEl(600, 400);
   const note = { id: 'na', anchor_id: 'a1', position: { x: 9999, y: 500 },
                  size: { width: 600, height: 400 } };
-  const prev = sandbox.window.innerWidth;
-  sandbox.window.innerWidth = 320;
-  try { m._applyPositionMode(el, note, { reflow: false }); }
-  finally { sandbox.window.innerWidth = prev; }
+  withViewport(320, null, () => m._applyPositionMode(el, note, { reflow: false }));
   eq(el.style.left, '12px', 'הוצמד לגבול שנגזר מהרוחב המצומצם');
 });
 
@@ -460,18 +475,73 @@ check('הענף הצף וה-reflow מגיעים לאותה תוצאה', () => {
   const elReflow = Object.setPrototypeOf(mk(), sandbox.HTMLElement.prototype);
   viaReflow.notes.set('nf', { el: elReflow, data: note });
 
-  const prev = sandbox.window.innerWidth;
-  sandbox.window.innerWidth = 420;
-  try {
+  withViewport(420, null, () => {
     viaBranch._applyPositionMode(elBranch, note, { reflow: false });
     elReflow.classList.add('is-floating');
     viaReflow._reflowWithinViewport(elReflow);
-  } finally { sandbox.window.innerWidth = prev; }
+  });
 
   eq(elBranch.style.width, elReflow.style.width, 'רוחב');
   eq(elBranch.style.height, elReflow.style.height, 'גובה');
   eq(elBranch.style.left, elReflow.style.left, 'left');
   eq(elBranch.style.top, elReflow.style.top, 'top');
+});
+
+// ─── ‏visualViewport: פינץ'-זום ומקלדת ─────────────────────────────────
+//
+// **מסלול שני, לא אותו מסלול.** ``window.resize`` ו-``visualViewport``
+// הם שני אירועים שונים: הראשון על שינוי החלון, השני על שינוי החלון
+// ה**נראה** — פינץ'-זום, פתיחת מקלדת. הרוחב של פתק מעוגן נגזר
+// מ-``_viewportBox()``, שקורא את ``visualViewport`` כשהוא קיים — ולכן
+// המסלול הזה חייב לרענן אותו בדיוק כמו הראשון.
+//
+// זו לא הייתה בעיה כשרק פתקי משטח היו מצומצמים: הרוחב שלהם נגזר
+// מ-``parent.clientWidth``, שפינץ'-זום אינו משנה. היא נולדה עם הענף
+// המעוגן.
+
+const vvAnchored = await (async () => {
+  const host = {
+    style: {}, dataset: {},
+    classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+    appendChild() {}, addEventListener() {}, removeEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 2000 }),
+  };
+  sandbox.__vvListeners.resize = [];
+  const m = new StickyNotesManager({ file: 'f-vv', anchorHost: host });
+  // ``_init`` רץ ברקע ורק הוא רושם את המאזינים — בלי ההמתנה הרשימה ריקה
+  // והבדיקה הייתה "עוברת" על אפס מאזינים.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const handlers = (sandbox.__vvListeners.resize || []).slice();
+  const el = anchoredEl(600, 400);
+  const note = { id: 'na', anchor_id: 'a1', position: { x: 0, y: 500 },
+                 size: { width: 600, height: 400 } };
+  m.notes.set('na', { el, data: note });
+  m._applyPositionMode(el, note, { reflow: false });   // רינדור ראשוני
+  return { m, el, handlers, fire: () => handlers.forEach((fn) => fn()) };
+})();
+
+check('שינוי visualViewport מרענן את הרוחב של פתק מעוגן', () => {
+  eq(vvAnchored.handlers.length > 0, true, 'נרשם מאזין ל-visualViewport');
+  eq(vvAnchored.el.style.width, '600px', 'רוחב התחלתי — נכנס ב-1024, ולכן לא צומצם');
+  withViewport(320, null, () => vvAnchored.fire());   // פינץ'-זום / מקלדת
+  eq(vvAnchored.el.style.width, '296px', 'הרוחב התעדכן למסך הנראה החדש');
+});
+
+// ─── בעלים אחד לגבולות אזור התצוגה ─────────────────────────────────────
+
+check('‏_clampToViewport נגזר מאותם גבולות כמו _viewportBox', () => {
+  // אין הבדל התנהגותי בין שני העותקים כל עוד הם זהים — וזו בדיוק הסיבה
+  // שהם נסחפים בשקט. הבדיקה נועלת אותם זה לזה: מי שישנה את הגבולות
+  // במקום אחד בלבד ייפול כאן.
+  const m = new StickyNotesManager({ board: 'b-vpbox', container: surfaceStub(400) });
+  const el = noteEl({ rect: { width: 200, height: 100 } });
+  const { box, clamped } = withViewport(500, null, () => ({
+    box: m._viewportBox(),
+    clamped: m._clampToViewport(el, 99999, 100),
+  }));
+  eq(box.width, 500, '‏_viewportBox קרא את visualViewport');
+  eq(clamped.x, 500 - 200 - 12, '‏_clampToViewport נגזר מאותו רוחב');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);
