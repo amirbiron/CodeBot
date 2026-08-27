@@ -660,6 +660,7 @@ class ConfigService:
                 "רשאי לקרוא מהם קבצי RST. גבול אבטחה — repo שאינו ברשימה נדחה. ברירת מחדל: CodeBot."
             ),
             category="mcp",
+            services=("mcp",),
         ),
         "MCP_ALLOWED_HOSTS": ConfigDefinition(
             key="MCP_ALLOWED_HOSTS",
@@ -1039,6 +1040,119 @@ class ConfigService:
             services=("webserver",),
             default="300",
             description="חלון dedup ל-Sentry Webhooks (שניות)",
+            category="monitoring",
+        ),
+        # ── Sentry API + Polling ──
+        # התיאורים מועתקים מ-docs/environment-variables.rst, שבו כולם כבר
+        # מתועדים; ה-services נגזרו מסגור ה-import של כל נקודת כניסה.
+        "SENTRY_AUTH_TOKEN": ConfigDefinition(
+            key="SENTRY_AUTH_TOKEN",
+            services=("bot",),
+            default="",
+            description="אסימון Bearer לקריאות API של Sentry (נדרש ל-ChatOps ולאינטגרציות)",
+            category="monitoring",
+        ),
+        "SENTRY_API_URL": ConfigDefinition(
+            key="SENTRY_API_URL",
+            services=("bot",),
+            default="https://sentry.io/api/0",
+            description="בסיס ה-API של Sentry (רלוונטי ל-self-hosted)",
+            category="monitoring",
+        ),
+        "SENTRY_ORG": ConfigDefinition(
+            key="SENTRY_ORG",
+            services=("webapp", "bot"),
+            default="",
+            description="ה-slug של הארגון ב-Sentry; משמש לבניית URLs ולקריאות API",
+            category="monitoring",
+        ),
+        "SENTRY_ORG_SLUG": ConfigDefinition(
+            key="SENTRY_ORG_SLUG",
+            services=("webapp", "bot"),
+            default="",
+            description="חלופה ל-SENTRY_ORG — נקרא רק אם SENTRY_ORG ריק",
+            category="monitoring",
+        ),
+        "SENTRY_PROJECT": ConfigDefinition(
+            key="SENTRY_PROJECT",
+            services=("bot",),
+            default="",
+            description="פרויקט ברירת מחדל לסינון Issues/Events",
+            category="monitoring",
+        ),
+        "SENTRY_PROJECT_SLUG": ConfigDefinition(
+            key="SENTRY_PROJECT_SLUG",
+            services=("bot",),
+            default="",
+            description="חלופה ל-SENTRY_PROJECT — נקרא רק אם SENTRY_PROJECT ריק",
+            category="monitoring",
+        ),
+        "SENTRY_PROJECT_URL": ConfigDefinition(
+            key="SENTRY_PROJECT_URL",
+            services=("webapp", "bot"),
+            default="",
+            description=(
+                "URL ישיר לפרויקט ב-Sentry, כשאין Dashboard ארגוני. נקרא רק אם "
+                "SENTRY_DASHBOARD_URL ריק"
+            ),
+            category="monitoring",
+        ),
+        "SENTRY_POLL_ENABLED": ConfigDefinition(
+            key="SENTRY_POLL_ENABLED",
+            services=("bot",),
+            default="false",
+            description=(
+                "מפעיל Polling תקופתי ל-Sentry, כחלופה כשאין Webhook. הבוט מושך "
+                "Issues אחרונים ומייצר internal_alerts מסוג sentry_issue"
+            ),
+            category="monitoring",
+        ),
+        "SENTRY_POLL_INTERVAL_SECS": ConfigDefinition(
+            key="SENTRY_POLL_INTERVAL_SECS",
+            services=("bot",),
+            default="300",
+            description="כל כמה שניות לבצע Polling ל-Sentry (מינימום 30)",
+            category="monitoring",
+        ),
+        "SENTRY_POLL_FIRST_SECS": ConfigDefinition(
+            key="SENTRY_POLL_FIRST_SECS",
+            services=("bot",),
+            default="20",
+            description="השהיה בשניות לפני ריצת ה-Poll הראשונה אחרי עליית הבוט",
+            category="monitoring",
+        ),
+        "SENTRY_POLL_LIMIT": ConfigDefinition(
+            key="SENTRY_POLL_LIMIT",
+            services=("bot",),
+            default="10",
+            description="כמה Issues למשוך בכל Poll (מינימום 1, מקסימום 100)",
+            category="monitoring",
+        ),
+        "SENTRY_POLL_SEVERITY": ConfigDefinition(
+            key="SENTRY_POLL_SEVERITY",
+            services=("bot",),
+            default="error",
+            description=(
+                "דרגת החומרה שתישלח כ-internal_alerts עבור Sentry Poll "
+                "(info/warning/error/critical)"
+            ),
+            category="monitoring",
+        ),
+        "SENTRY_POLL_SEED_SILENT": ConfigDefinition(
+            key="SENTRY_POLL_SEED_SILENT",
+            services=("bot",),
+            default="true",
+            description=(
+                "אם true — ההרצה הראשונה רק זורעת מצב ואינה שולחת התראות על Issues "
+                "קיימים; רק פעילות חדשה בהמשך תייצר התראה"
+            ),
+            category="monitoring",
+        ),
+        "SENTRY_POLL_DEDUP_SECONDS": ConfigDefinition(
+            key="SENTRY_POLL_DEDUP_SECONDS",
+            services=("bot",),
+            default="900",
+            description="חלון דה-דופליקציה בשניות לכל Issue, כדי למנוע הצפה (0 מנטרל)",
             category="monitoring",
         ),
         "OTEL_EXPORTER_OTLP_ENDPOINT": ConfigDefinition(
