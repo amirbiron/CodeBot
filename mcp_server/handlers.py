@@ -723,8 +723,6 @@ def search_notes(
     # שקרית: ``normalize_note_title`` כבר חתך ל-80.
     title_needle = canonical_title_text(query)
     content_needle = _sanitize_note_text(query).strip() if search_content else ""
-    if not title_needle and not content_needle:
-        return {"ok": False, "error": "empty_query"}
     # מחט השם נבדקת מול תקרת השם; ארוכה ממנה — אין שם כזה, והענף מושמט
     # (בחיפוש-שם-בלבד זו שאילתה שלעולם לא תתפוס, ולכן שגיאה מפורשת).
     if len(title_needle) > MAX_NOTE_TITLE:
@@ -733,6 +731,12 @@ def search_notes(
         title_needle = ""
     if search_content and len(content_needle) > MAX_NOTE_CONTENT:
         return {"ok": False, "error": "query_too_long", "max": MAX_NOTE_CONTENT}
+    # בדיקת הריקנות רצה **אחרי** ההשמטות, לא לפניהן: שאילתה שמחט-השם שלה
+    # הושמטה (ארוכה מדי) ומחט-התוכן שלה התרוקנה בניקוי הייתה עוברת בדיקה
+    # מוקדמת — ומפילה את בונה השאילתה על שתי מחטים ריקות במקום להיענות
+    # ב-``empty_query``.
+    if not title_needle and not content_needle:
+        return {"ok": False, "error": "empty_query"}
 
     return backend.search_notes(
         user_id,

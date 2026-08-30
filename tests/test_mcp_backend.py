@@ -331,3 +331,29 @@ def test_recent_files_zero_limit_does_no_query():
     coll = _FakeColl(rows=[{"file_name": "a.py"}])
     assert ProductionBackend(mongo_db=_FakeMongo(code_snippets=coll)).recent_files(7, limit=0) == []
     assert coll.log == {}
+
+
+# ── add_to_collection: חוזה ערך ההחזרה של add_items ────────────────────
+
+
+def test_a_non_dict_add_items_result_fails_cleanly_not_with_a_crash():
+    """‏``add_items`` שמחזירה ערך אמת שאינו dict היא כשל חוזה — לא קריסה.
+
+    הקוד הקודם עשה ``(res or {}).get`` — על ``True`` או מחרוזת זה
+    ``AttributeError`` שמפיל את הכלי במקום להחזיר שגיאה מסודרת.
+    """
+
+    class _CM:
+        def get_collection(self, user_id, collection_id):
+            return {"ok": True, "collection": {"id": collection_id}}
+
+        def add_items(self, user_id, collection_id, items):
+            return True  # ערך אמת שאינו dict
+
+    class _DBM:
+        def get_latest_version_fresh(self, user_id, file_name):
+            return {"file_name": file_name, "code": "x"}
+
+    be = ProductionBackend(db_manager=_DBM(), collections_manager=_CM())
+    res = be.add_to_collection(7, collection_id="a" * 24, file_name="a.py")
+    assert res == {"ok": False, "error": "add_failed"}

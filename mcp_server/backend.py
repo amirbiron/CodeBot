@@ -1093,7 +1093,17 @@ class ProductionBackend:
         if not isinstance(content, str) or not content:
             # אין מה לצלם. זו הצלחה, לא כשל: פתק ריק אינו מידע שאפשר לאבד.
             return True, None
-        coll = self._note_versions_coll()
+        coll = self._raw_mongo()["sticky_note_versions"]
+        # **בלי אינדקס מאומת — אין צילום, ולכן אין עדכון.** כל ההבטחה
+        # ("כפילות נתפסת ומתורגמת לניסיון חוזר") נשענת על האילוץ הייחודי;
+        # צילום בלעדיו יכול לייצר שתי גרסאות עם אותו מספר, בשקט — היסטוריה
+        # שקרית שמתחזה לרשת ביטחון. עצירה עד שה-gate מאשר (עם הניסיון
+        # החוזר וההשהיה שלו) היא fail-closed, באותו היגיון שבו כשל צילום
+        # עוצר את הדריסה. קריאות (רשימה/שליפה/גיזום) אינן חסומות — הן
+        # אינן זקוקות לאילוץ.
+        if not self._ensure_note_index(coll, _NoteIndex.NOTE_VERSIONS, self._ensure_versions_index):
+            logger.error("note snapshot refused: unique version index unconfirmed")
+            return False, None
         nid = str(note.get("_id"))
         for _attempt in range(self._SNAPSHOT_RETRIES):
             try:
@@ -1416,6 +1426,20 @@ class ProductionBackend:
         if not note:
             return {"ok": False, "error": "not_found"}
 
+        # **ההשוואה במרחב של הקורא; המסנן במרחב של המסד.** הגוף שהקורא
+        # קיבל עבר ``html.unescape`` ב-``_as_note`` (פתקי legacy נשמרו עם
+        # ישויות HTML), ולכן ``expected_content`` מושווה גם מול הערך
+        # הגולמי וגם מול פענוחו — השוואה מול הגולמי בלבד הייתה נועלת כל
+        # פתק legacy ב-``conflict`` נצחי. מסנן הכתיבה, לעומת זאת, נושא את
+        # הערך **הגולמי** שנשלף הרגע: זה מה שבאמת יושב במסד, וזה מה שסוגר
+        # את חלון המרוץ שבין הקריאה לכתיבה.
+        raw_stored = note.get("content")
+        if expected_content is not None:
+            decoded = html.unescape(raw_stored) if isinstance(raw_stored, str) else raw_stored
+            if expected_content != raw_stored and expected_content != decoded:
+                # הפתק כבר השתנה מאז שהקורא קרא אותו — עוד לפני שצילמנו.
+                return {"ok": False, "error": "conflict"}
+
         # **הצילום לפני הדריסה, וכשל בו עוצר אותה.** זו הנקודה שאכלה פתק
         # בפועל: העדכון מחליף את התוכן כולו, ועד היום לא היה ממה לשחזר.
         # אם הצילום נכשל ובכל זאת נדרוס — איבדנו את הפתק בשקט, רק שהפעם
@@ -1456,13 +1480,22 @@ class ProductionBackend:
         updates["updated_at"] = _dt.datetime.now(_dt.timezone.utc)
         write_filter: dict[str, Any] = {"_id": oid, "user_id": int(user_id)}
         if expected_content is not None:
-            write_filter["content"] = expected_content
+            write_filter["content"] = raw_stored
         try:
             res = coll.update_one(write_filter, {"$set": updates})
             matched = int(getattr(res, "matched_count", 0) or 0)
         except Exception:
-            # הדריסה לא קרתה — הצילום שקדם לה מתאר החלפה שלא התרחשה.
-            self._discard_snapshot(snap_ref)
+            # **חריגה אינה ראיה שהכתיבה לא קרתה.** כשל רשת יכול ליפול אחרי
+            # שהשרת כבר כתב — ומחיקת הצילום אז משאירה תוכן חדש בלי גרסה
+            # לשחזור, בדיוק האובדן שהמנגנון קיים למנוע. מוחקים רק כשקריאה
+            # חוזרת **מוכיחה** שהגוף לא השתנה; בכל ספק — הצילום נשאר,
+            # כי גרסה עודפת קלה מאובדן.
+            try:
+                after = coll.find_one({"_id": oid, "user_id": int(user_id)}, {"content": 1})
+                if after is not None and after.get("content") == raw_stored:
+                    self._discard_snapshot(snap_ref)
+            except Exception:
+                logger.warning("post-failure note verification failed; keeping snapshot")
             raise
         if matched == 0:
             # הפתק השתנה או נעלם בין הקריאה לכתיבה. בלי הבדיקה הזו היינו

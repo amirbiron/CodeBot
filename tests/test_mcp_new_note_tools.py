@@ -93,30 +93,6 @@ def test_the_file_name_is_trimmed_and_options_pass_through():
     assert b.last == {"collection_id": _OID, "file_name": "a.py", "folder": "docs", "note": "hi"}
 
 
-def test_a_non_dict_add_items_result_fails_cleanly_not_with_a_crash():
-    """‏``add_items`` שמחזירה ערך אמת שאינו dict היא כשל חוזה — לא קריסה.
-
-    הקוד הקודם עשה ``(res or {}).get`` — על ``True`` או מחרוזת זה
-    ``AttributeError`` שמפיל את הכלי במקום להחזיר שגיאה מסודרת.
-    """
-    from mcp_server.backend import ProductionBackend
-
-    class _CM:
-        def get_collection(self, user_id, collection_id):
-            return {"ok": True, "collection": {"id": collection_id}}
-
-        def add_items(self, user_id, collection_id, items):
-            return True  # ערך אמת שאינו dict
-
-    class _DBM:
-        def get_latest_version_fresh(self, user_id, file_name):
-            return {"file_name": file_name, "code": "x"}
-
-    be = ProductionBackend(db_manager=_DBM(), collections_manager=_CM())
-    res = be.add_to_collection(7, collection_id=_OID, file_name="a.py")
-    assert res == {"ok": False, "error": "add_failed"}
-
-
 # ── 2. מפת נתיבי פתקי הריפו ────────────────────────────────────────────
 
 
@@ -238,6 +214,19 @@ def test_a_title_needle_too_long_for_any_title_is_dropped_not_fatal_in_content_m
     assert res["ok"] is True
     assert b.last["query"] == ""              # ענף השם הושמט
     assert b.last["content_query"] == long_q  # ענף התוכן חי
+
+
+def test_both_needles_gone_after_the_drops_is_empty_query_not_a_crash():
+    """שאילתה של 81 תווי בקרה: מחט השם מושמטת (ארוכה מ-80) ומחט התוכן
+    מתרוקנת בניקוי. בדיקת ריקנות שרצה **לפני** ההשמטות הייתה מעבירה את
+    הזוג הריק לבונה השאילתה ומפילה את הכלי, במקום להיענות ב-``empty_query``.
+    """
+    from sticky_notes_target import MAX_NOTE_TITLE
+
+    b = _Recorder()
+    res = handlers.search_notes(b, 7, query="\x07" * (MAX_NOTE_TITLE + 1), search_content=True)
+    assert res == {"ok": False, "error": "empty_query"}
+    assert b.calls == []
 
 
 def test_the_title_path_still_canonicalizes():
