@@ -763,6 +763,62 @@ check('שם: מצב העריכה מחליף נעילה, פוקוס וסמל', ()
   eq(sandbox.__focused, null, 'והמיקוד שוחרר');
 });
 
+// ---------- גרירה: מה בכותרת הוא משטח גרירה ----------
+
+check('גרירה: הידית היא הכותרת כולה, לא ``.sticky-note-drag``', () => {
+  // ``cursor: move`` מוצהר על ``.sticky-note-header``, אבל המאזין ישב על
+  // ילד אחד בתוכה. נמדד בכרומיום על כותרת שגלשה לשתי שורות: חמש נקודות
+  // לרוחב הכותרת החזירו ``cursor: move`` ו**לא** הזיזו את הפתק — כל שורת
+  // הכפתורים הייתה שטח מת שנראה גריר.
+  //
+  // נופל אם מחזירים את ``_enableDrag(el, drag)``.
+  const captured = [];
+  const orig = fileMgr._enableDrag;
+  fileMgr._enableDrag = (el, handle) => { captured.push(handle); };
+  try {
+    fileMgr._renderNote({ id: 'drag-handle', content: '', position: { x: 0, y: 0 } });
+  } finally {
+    fileMgr._enableDrag = orig;
+  }
+
+  eq(captured.length, 1, '_enableDrag נקרא פעם אחת');
+  eq(captured[0].classList.contains('sticky-note-header'), true,
+     'הידית היא הכותרת');
+});
+
+check('גרירה: כפתור ושם בעריכה מוחרגים, שאר הכותרת לא', () => {
+  // ההרחבה לכותרת שלמה מכניסה תחתיה את שורת הכפתורים ואת שדה השם.
+  // ``_isDragExempt`` הוא מה שמחזיר לכל אחד מהם את תפקידו: כפתור נשאר
+  // כפתור, ושדה השם **בזמן עריכה** נשאר שדה שאפשר למקם בו סמן. במצב
+  // הנעול השדה הוא ``pointer-events: none`` וממילא אינו יעד האירוע.
+  const header = new FakeEl('div'); header.className = 'sticky-note-header';
+  const actions = new FakeEl('div'); actions.className = 'sticky-note-actions';
+  const btn = new FakeEl('button'); btn.className = 'sticky-note-btn sticky-note-pin';
+  const inner = new FakeEl('span');   // אמוג'י בתוך הכפתור
+  const title = new FakeEl('input'); title.className = 'sticky-note-title';
+  header.appendChild(actions); actions.appendChild(btn); btn.appendChild(inner);
+  header.appendChild(title);
+
+  eq(fileMgr._isDragExempt(header), false, 'הכותרת עצמה נגררת');
+  eq(fileMgr._isDragExempt(actions), false, 'השטח הריק בשורת הכפתורים נגרר');
+  eq(fileMgr._isDragExempt(btn), true, 'כפתור אינו משטח גרירה');
+  // ``closest`` ולא השוואת target ישירה: לחיצה על האמוג'י שבתוך הכפתור
+  // מחזירה את הצומת הפנימי, והשוואה ישירה הייתה מפספסת בדיוק את המקרה
+  // שהיא נועדה לתפוס — כלומר הכפתור היה גורר את הפתק.
+  eq(fileMgr._isDragExempt(inner), true, 'גם צומת בתוך כפתור');
+
+  title.setAttribute('readonly', 'readonly');
+  eq(fileMgr._isDragExempt(title), false, 'שם נעול — נגרר');
+  title.removeAttribute('readonly');
+  eq(fileMgr._isDragExempt(title), true, 'שם בעריכה — לא נגרר');
+
+  // ספק ⇒ לא לגרור. גרירה שגויה מזיזה פתק בלי כוונת המשתמש; גרירה שלא
+  // קרתה היא לכל היותר נגיעה שלא עשתה כלום.
+  eq(fileMgr._isDragExempt(null), false, 'בלי יעד אין ממה להחריג');
+  eq(fileMgr._isDragExempt({ closest(){ throw new Error('boom'); } }), true,
+     'חריגה נסגרת לצד הבטוח');
+});
+
 // ---------- מארקדאון: פרסר אינליין טהור ----------
 
 function inlineDump(mgr, text){
