@@ -2570,6 +2570,14 @@
      * ``_isDragExempt`` הוא מה שמאפשר את ההרחבה: כפתור צריך להישאר כפתור,
      * ושדה השם בזמן עריכה צריך להישאר שדה. במצב הנעול השדה הוא
      * ``pointer-events: none`` וממילא אינו יעד האירוע.
+     *
+     * **ה-``preventDefault`` שב-``onDown`` הוא מה שחוסם גלילה במגע** מאז
+     * שהידית היא הכותרת, ואין ל-``.sticky-note-header`` ``touch-action``
+     * ב-CSS בכוונה: ``touch-action`` נחתכת עם האבות, ולכן ``none`` שם היה
+     * משתק גם את הכפתורים וגם את שדה השם בעריכה, ו-``auto`` עליהם לא היה
+     * מחזיר כלום. הסדר כאן הוא מה שעושה את ההבדל — ``_isDragExempt`` רץ
+     * ראשון, ולכן החריגים לא מגיעים ל-``preventDefault`` כלל. ההסבר המלא
+     * והמדידות: ההערה אצל ``.sticky-note-drag`` ב-``sticky-notes.css``.
      */
     _enableDrag(el, handle){
       let startX=0, startY=0, origLeft=0, origTop=0, startScrollX=0, startScrollY=0, dragging=false;
