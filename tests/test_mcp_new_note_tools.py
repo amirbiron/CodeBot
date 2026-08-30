@@ -40,16 +40,19 @@ class _Recorder:
     def list_repo_note_paths(self, user_id, *, repo_name):
         return self._record("list_repo_note_paths", user_id, {"repo_name": repo_name})
 
-    def search_notes(self, user_id, *, query, limit, search_content=False):
+    def search_notes(self, user_id, *, query, limit, search_content=False, content_query=None):
         return self._record("search_notes", user_id, {
             "query": query, "limit": limit, "search_content": search_content,
+            "content_query": content_query,
         })
 
     def get_note(self, user_id, *, note_id):
         return self._record("get_note", user_id, {"note_id": note_id})
 
-    def update_note(self, user_id, *, note_id, fields):
-        return self._record("update_note", user_id, {"note_id": note_id, "fields": dict(fields)})
+    def update_note(self, user_id, *, note_id, fields, expected_content=None):
+        return self._record("update_note", user_id, {
+            "note_id": note_id, "fields": dict(fields), "expected_content": expected_content,
+        })
 
     def list_note_versions(self, user_id, *, note_id):
         return self._record("list_note_versions", user_id, {"note_id": note_id})
@@ -88,6 +91,30 @@ def test_the_file_name_is_trimmed_and_options_pass_through():
         b, 7, collection_id=_OID, file_name="  a.py  ", folder="docs", note="hi"
     )
     assert b.last == {"collection_id": _OID, "file_name": "a.py", "folder": "docs", "note": "hi"}
+
+
+def test_a_non_dict_add_items_result_fails_cleanly_not_with_a_crash():
+    """‏``add_items`` שמחזירה ערך אמת שאינו dict היא כשל חוזה — לא קריסה.
+
+    הקוד הקודם עשה ``(res or {}).get`` — על ``True`` או מחרוזת זה
+    ``AttributeError`` שמפיל את הכלי במקום להחזיר שגיאה מסודרת.
+    """
+    from mcp_server.backend import ProductionBackend
+
+    class _CM:
+        def get_collection(self, user_id, collection_id):
+            return {"ok": True, "collection": {"id": collection_id}}
+
+        def add_items(self, user_id, collection_id, items):
+            return True  # ערך אמת שאינו dict
+
+    class _DBM:
+        def get_latest_version_fresh(self, user_id, file_name):
+            return {"file_name": file_name, "code": "x"}
+
+    be = ProductionBackend(db_manager=_DBM(), collections_manager=_CM())
+    res = be.add_to_collection(7, collection_id=_OID, file_name="a.py")
+    assert res == {"ok": False, "error": "add_failed"}
 
 
 # ── 2. מפת נתיבי פתקי הריפו ────────────────────────────────────────────
@@ -152,18 +179,65 @@ def test_both_predicates_escape_regex_metacharacters(needle):
         assert clause[field]["$regex"] == re.escape(needle)
 
 
-def test_the_needle_keeps_its_whitespace_when_searching_content():
-    """**אי-סימטריה שהייתה שקטה.** שם עובר כיווץ רווחים בכתיבה; תוכן לא.
+def test_the_filter_carries_a_separate_needle_per_field():
+    """מחט השם קנונית, מחט התוכן גולמית — כל ענף עם המחט של היעד שלו."""
+    import re
 
-    קנוניזציית-שם על מחרוזת תוכן הופכת ``"a  b"`` ל-``"a b"`` ומאחדת
-    שאילתה רב-שורתית לשורה — שאילתה שלעולם לא תתפוס את מה שנשמר,
-    ומחזירה אפס בלי שום שגיאה.
+    flt = note_search_filter(7, "5 PR", search_content=True, content_needle="5   PR")
+    title = next(c for c in flt["$or"] if "title" in c)
+    content = next(c for c in flt["$or"] if "content" in c)
+    assert title["title"]["$regex"] == re.escape("5 PR")
+    assert content["content"]["$regex"] == re.escape("5   PR")
+
+
+def test_an_empty_needle_omits_its_branch_instead_of_matching_everything():
+    """רג'קס ריק תופס הכול — ענף ריק חייב להיעלם, לא להפוך לסופג-כול."""
+    flt = note_search_filter(7, "", search_content=True, content_needle="body")
+    assert "$or" not in flt and "title" not in flt
+    assert flt["content"]["$regex"] == "body"
+
+
+def test_two_empty_needles_raise_instead_of_building_a_broken_query():
+    """‏``$or`` ריק נופל במונגו בשגיאה עמומה; כאן הוא נופל מוקדם וברור."""
+    with pytest.raises(ValueError):
+        note_search_filter(7, "", search_content=True, content_needle="")
+    with pytest.raises(ValueError):
+        note_search_filter(7, "")
+
+
+def test_each_predicate_gets_the_needle_its_field_was_stored_with():
+    """**מחט לכל יעד.** שם נשמר מכווץ; תוכן נשמר כפי שהוא.
+
+    מחט אחת לשני הפרדיקטים שוברת בדיוק אחד מהם: מחט קנונית מפספסת תוכן
+    רב-שורתי, ומחט גולמית מפספסת שם שנשמר מכווץ — כלומר הדלקת הדגל הייתה
+    **מורידה** התאמות-שם במקום רק להוסיף התאמות-גוף, בלי שום שגיאה.
     """
     b = _Recorder()
     handlers.search_notes(b, 7, query="a  b", search_content=True)
-    assert b.last["query"] == "a  b"
+    assert b.last["query"] == "a b"           # מחט השם — קנונית
+    assert b.last["content_query"] == "a  b"  # מחט התוכן — כפי שנכתב
     handlers.search_notes(b, 7, query="שורה\nשנייה", search_content=True)
-    assert b.last["query"] == "שורה\nשנייה"
+    assert b.last["query"] == "שורה שנייה"
+    assert b.last["content_query"] == "שורה\nשנייה"
+
+
+def test_without_the_flag_no_content_needle_is_sent():
+    b = _Recorder()
+    handlers.search_notes(b, 7, query="a  b")
+    assert b.last["query"] == "a b"
+    assert b.last["content_query"] is None
+
+
+def test_a_title_needle_too_long_for_any_title_is_dropped_not_fatal_in_content_mode():
+    """שם ארוך מ-80 אינו קיים במסד; בענף התוכן זו סיבה להשמיט אותו, לא לדחות."""
+    from sticky_notes_target import MAX_NOTE_TITLE
+
+    b = _Recorder()
+    long_q = "x" * (MAX_NOTE_TITLE + 1)
+    res = handlers.search_notes(b, 7, query=long_q, search_content=True)
+    assert res["ok"] is True
+    assert b.last["query"] == ""              # ענף השם הושמט
+    assert b.last["content_query"] == long_q  # ענף התוכן חי
 
 
 def test_the_title_path_still_canonicalizes():
@@ -202,6 +276,27 @@ def test_a_replace_sends_only_the_new_body_and_reports_the_count():
     )
     assert res["ok"] is True and res["replacements"] == 1
     assert b.last["fields"] == {"content": "alpha gamma alpha"}
+
+
+def test_a_replace_guards_the_write_with_the_body_it_read():
+    """‏read-modify-write בלי שער = שתי עריכות חופפות שהאחרונה מוחקת את הראשונה.
+
+    הגוף שנקרא מועבר כ-``expected_content``; הדריסה מותנית בכך שהוא עדיין
+    הגוף שבמסד, והמפסידה מקבלת ``conflict`` במקום ניצחון שקרי.
+    """
+    b = _with_note("alpha beta alpha")
+    handlers.note_str_replace(b, 7, note_id=_OID, old_string="beta", new_string="gamma")
+    assert b.last["expected_content"] == "alpha beta alpha"
+
+
+def test_a_conflict_comes_back_with_a_retry_hint():
+    b = _Recorder(
+        get_note={"ok": True, "note": {"id": _OID, "content": "body"}},
+        update_note={"ok": False, "error": "conflict"},
+    )
+    res = handlers.note_str_replace(b, 7, note_id=_OID, old_string="body", new_string="x")
+    assert res["ok"] is False and res["error"] == "conflict"
+    assert "re-read" in res["hint"]
 
 
 def test_an_ambiguous_match_is_refused_with_the_count_and_a_hint():

@@ -42,8 +42,9 @@ _INSTRUCTIONS = (
     "codekeeper_list_board_notes read boards. codekeeper_create_note / "
     "codekeeper_create_board_note / codekeeper_update_note add or change them (write "
     "permission; notes appear in the CodeKeeper web UI). "
-    "codekeeper_search_notes finds a note by title across all three, when you know what "
-    "it is called but not where it sits. "
+    "codekeeper_search_notes finds a note across all three — by title, or with "
+    "search_content=true also by body text, which is how untitled notes (most notes) "
+    "are found. "
     "All data is scoped to the authenticated user."
 )
 
@@ -425,8 +426,10 @@ def build_mcp(
         name="codekeeper_update_note",
         description=(
             "Update an existing sticky note by note_id (from codekeeper_list_notes): any "
-            "of content, line, color, anchor_text, is_minimized. Overwrites in place "
-            "(notes have no version history). Requires write permission."
+            "of content, line, color, anchor_text, is_minimized. Overwrites in place; "
+            "when the content changes, the previous body is kept as a version (up to a "
+            "fixed number of recent revisions), readable with "
+            "codekeeper_list_note_versions. Requires write permission."
         ),
         annotations=_UPDATE_IN_PLACE_TOOL,
     )

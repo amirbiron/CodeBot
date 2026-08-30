@@ -627,8 +627,14 @@ class _RepoNotesBackend:
         }))
         return {"ok": True, "note": {"id": "n1", "repo_name": repo_name, "repo_path": repo_path}}
 
-    def search_notes(self, user_id, *, query, limit, search_content=False):
-        self.calls.append(("search", user_id, {"query": query, "limit": limit}))
+    def search_notes(self, user_id, *, query, limit, search_content=False, content_query=None):
+        # ה-fake מקליט **את כל** מה שה-backend האמיתי מקבל. השמטת ארגומנט
+        # מההקלטה הופכת כל בדיקה עליו ל-KeyError, ומוטציה שמפסיקה להעביר
+        # אותו ב-handler לבלתי-נתפסת.
+        self.calls.append(("search", user_id, {
+            "query": query, "limit": limit,
+            "search_content": search_content, "content_query": content_query,
+        }))
         return {"ok": True, "query": query, "count": 0, "truncated": False, "notes": []}
 
     @property
@@ -762,6 +768,21 @@ def test_the_query_is_canonicalized_like_a_stored_title():
     handlers.search_notes(b, 7, query="  5   PR \n ")
 
     assert b.last_kwargs["query"] == "5 PR"
+    assert b.last_kwargs["search_content"] is False
+
+
+def test_content_search_forwards_the_flag_and_both_needles():
+    """הדלקת הדגל מוסיפה חיפוש-גוף — היא אינה מחליפה את חיפוש-השם.
+
+    מחט השם נשארת קנונית (כמו שהשם נשמר) ומחט התוכן משמרת את הרווחים
+    (כמו שהתוכן נשמר). מחט אחת לשניהם הייתה שוברת בדיוק אחד מהם.
+    """
+    b = _RepoNotesBackend()
+    handlers.search_notes(b, 7, query="  5   PR \n ", search_content=True)
+
+    assert b.last_kwargs["search_content"] is True
+    assert b.last_kwargs["query"] == "5 PR"
+    assert b.last_kwargs["content_query"] == "5   PR"
 
 
 def test_the_search_limit_is_clamped_and_not_rejected():

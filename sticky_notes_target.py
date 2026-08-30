@@ -611,7 +611,11 @@ def repo_notes_filter(user_id: int, repo_name: Any, repo_path: Any) -> Dict[str,
 
 
 def note_search_filter(
-    user_id: int, needle: Any, *, search_content: bool = False
+    user_id: int,
+    needle: Any,
+    *,
+    search_content: bool = False,
+    content_needle: Any = None,
 ) -> Dict[str, Any]:
     """שאילתת חיפוש פתקים, חוצת שלושת היעדים.
 
@@ -624,6 +628,14 @@ def note_search_filter(
     מפילה את מונגו בשגיאת פרסור. יש בריפו מקומות ששכחו זאת; הם אינם
     תקדים. הריכוז כאן מבטיח שראוט ווב עתידי לא יגזור החלטת escaping אחרת.
     הוא חל על **שני** הפרדיקטים, לא רק על הראשון.
+
+    **שני מחטים, כי שני היעדים נשמרו אחרת.** שם עובר קנוניזציה בכתיבה
+    (כיווץ רווחים, איחוד לשורה אחת); תוכן נשמר כפי שהוא. לכן ``needle``
+    הוא מחט **השם** — קנוני — ו-``content_needle`` הוא מחט **התוכן**,
+    שמשמר רווחים ושורות. מחט אחת לשניהם הייתה שוברת בדיוק אחד מהם: מחט
+    קנונית מפספסת תוכן רב-שורתי, ומחט גולמית מפספסת שם שנשמר מכווץ —
+    כלומר הדלקת הדגל הייתה **מורידה** התאמות-שם במקום להוסיף התאמות-גוף.
+    כשלא סופק ``content_needle``, מחט השם משמשת את שניהם.
 
     ``search_content`` **כבוי כברירת מחדל, ובכוונה.** חיפוש השם נשען על
     ``user_title_idx`` ומחזיר שורות בלי לגעת בגוף הפתק. הרחבתו לתוכן
@@ -638,19 +650,31 @@ def note_search_filter(
     הכוונה — ובענף התוכן הוא **אסור**, כי הוא היה מחזיר בדיוק את הפתקים
     שהדגל בא למצוא אל מחוץ לתוצאה.
 
+    **מחט ריקה אינה פרדיקט.** רג'קס ריק תופס הכול, ולכן ענף שהמחט שלו
+    ריקה מושמט במקום להפוך לסופג-כול. שתי מחטים ריקות הן שגיאת קורא —
+    ``ValueError`` מיידי, כי החלופות גרועות ממנו: ``$or`` ריק נופל במונגו
+    בשגיאה עמומה, ושאילתה "תופסת הכול" משיבה תשובה לשאלה שלא נשאלה.
+
     .. note::
        פתקי legacy נשמרו עם ישויות HTML (``&quot;`` במקום ``"``);
        ``_sanitize`` מנקה רק בכתיבה חדשה. חיפוש תוכן על תו כזה יפספס
        אותם. זו מגבלת נתונים היסטוריים, לא של השאילתה.
     """
-    pattern = {"$regex": re.escape(str(needle or "")), "$options": "i"}
-    title_clause = {"title": {"$exists": True, **pattern}}
-    if not search_content:
-        return {"user_id": int(user_id), **title_clause}
-    return {
-        "user_id": int(user_id),
-        "$or": [title_clause, {"content": dict(pattern)}],
-    }
+    title_needle = str(needle or "")
+    clauses: List[Dict[str, Any]] = []
+    if title_needle:
+        clauses.append(
+            {"title": {"$exists": True, "$regex": re.escape(title_needle), "$options": "i"}}
+        )
+    if search_content:
+        body_needle = str(content_needle if content_needle is not None else title_needle or "")
+        if body_needle:
+            clauses.append({"content": {"$regex": re.escape(body_needle), "$options": "i"}})
+    if not clauses:
+        raise ValueError("note_search_filter: both needles are empty")
+    if len(clauses) == 1:
+        return {"user_id": int(user_id), **clauses[0]}
+    return {"user_id": int(user_id), "$or": clauses}
 
 
 def title_search_filter(user_id: int, needle: Any) -> Dict[str, Any]:

@@ -611,6 +611,13 @@ def note_str_replace(
     הקריאה עוברת דרך ``update_note``, ולכן היא יורשת את הצילום שנשמר
     לפני הדריסה — וזו הסיבה שהסדר בין השניים אינו הפיך: ``str_replace``
     בלי היסטוריה היה מוסיף עוד מסלול שדורס בלי ממה לשחזר.
+
+    **‏read-modify-write נושא שער אופטימי.** הגוף שנקרא כאן מועבר
+    ל-``update_note`` כ-``expected_content``, והדריסה מותנית בכך שהוא
+    עדיין הגוף שבמסד. בלעדיו שתי עריכות חופפות היו קוראות את אותו גוף,
+    שתיהן מדווחות הצלחה, והאחרונה מוחקת את עריכת הראשונה — הצילום היה
+    משמר את הגוף **הישן**, לא את העריכה שאבדה. המפסיד מקבל ``conflict``:
+    קריאה חוזרת של הפתק וניסיון נוסף הם התשובה הנכונה, לא ניצחון שקרי.
     """
     nid = (note_id or "").strip()
     if not _NOTE_ID_RE.match(nid):
@@ -641,8 +648,13 @@ def note_str_replace(
     if len(new_body) > MAX_NOTE_CONTENT:
         return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
 
-    res = backend.update_note(user_id, note_id=nid, fields={"content": new_body})
+    res = backend.update_note(
+        user_id, note_id=nid, fields={"content": new_body}, expected_content=body
+    )
     if not res.get("ok"):
+        if res.get("error") == "conflict":
+            res = dict(res)
+            res["hint"] = "the note changed since it was read — re-read it and retry"
         return res
     return {"ok": True, "replacements": occurrences, "note": res.get("note")}
 
@@ -697,33 +709,37 @@ def search_notes(
     """
     from sticky_notes_target import MAX_NOTE_TITLE, canonical_title_text
 
-    # **הקנוניזציה נגזרת מהיעד, כי היעדים נשמרו אחרת.**
+    # **מחט לכל יעד, כי היעדים נשמרו אחרת.**
     #
     # שם עובר ``canonical_title_text`` בכתיבה: כיווץ רצפי רווחים ואיחוד
     # לשורה אחת. תוכן עובר ``_sanitize_note_text``, ש**משמר** את שניהם.
-    # החלת קנוניזציית-השם על מחרוזת תוכן הייתה הופכת ``"a  b"`` ל-
-    # ``"a b"`` ומאחדת שאילתה רב-שורתית לשורה — כלומר שאילתה שלעולם לא
-    # תתפוס את מה שנשמר, שמחזירה אפס בלי שום שגיאה. זה בדיוק הכשל השקט
-    # ש-``repo_notes_filter`` מתעד: נכתב בצורה אחת, מחופש בצורה אחרת.
+    # מחט אחת לשני הפרדיקטים שוברת בדיוק אחד מהם: מחט קנונית מפספסת
+    # תוכן רב-שורתי, ומחט גולמית מפספסת שם שנשמר מכווץ — כלומר הדלקת
+    # הדגל הייתה **מורידה** התאמות-שם במקום רק להוסיף התאמות-גוף. זה
+    # בדיוק הכשל השקט ש-``repo_notes_filter`` מתעד: נכתב בצורה אחת,
+    # מחופש בצורה אחרת.
     #
-    # **בלי הקיצוץ** בשני המסלולים, כי אחריו הבדיקה שמתחת הייתה תמיד
+    # **בלי קיצוץ** באף מחט, כי אחריו בדיקת האורך שמתחת הייתה תמיד
     # שקרית: ``normalize_note_title`` כבר חתך ל-80.
-    if search_content:
-        needle = _sanitize_note_text(query).strip()
-    else:
-        needle = canonical_title_text(query)
-    if not needle:
+    title_needle = canonical_title_text(query)
+    content_needle = _sanitize_note_text(query).strip() if search_content else ""
+    if not title_needle and not content_needle:
         return {"ok": False, "error": "empty_query"}
-    cap = MAX_NOTE_CONTENT if search_content else MAX_NOTE_TITLE
-    if len(needle) > cap:
-        # שאילתה ארוכה מהיעד שהיא נבדקת מולו לעולם לא תתפוס דבר.
-        return {"ok": False, "error": "query_too_long", "max": cap}
+    # מחט השם נבדקת מול תקרת השם; ארוכה ממנה — אין שם כזה, והענף מושמט
+    # (בחיפוש-שם-בלבד זו שאילתה שלעולם לא תתפוס, ולכן שגיאה מפורשת).
+    if len(title_needle) > MAX_NOTE_TITLE:
+        if not search_content:
+            return {"ok": False, "error": "query_too_long", "max": MAX_NOTE_TITLE}
+        title_needle = ""
+    if search_content and len(content_needle) > MAX_NOTE_CONTENT:
+        return {"ok": False, "error": "query_too_long", "max": MAX_NOTE_CONTENT}
 
     return backend.search_notes(
         user_id,
-        query=needle,
+        query=title_needle,
         limit=_clamp(limit, 1, MAX_NOTE_SEARCH_RESULTS, DEFAULT_NOTE_SEARCH_RESULTS),
         search_content=bool(search_content),
+        content_query=content_needle or None,
     )
 
 
