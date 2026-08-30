@@ -61,19 +61,55 @@ def test_heavy_icon_is_deferred_not_eager():
     assert any("data-src=" in t for t in tags), "חסר ``data-src`` על התגית"
 
 
+OPEN_BRANCH_HEAD = "if (dropdown.classList.contains(\'active\')) {"
+
+
+def _open_branch_of_toggle_quick_access(html: str) -> str:
+    """גוף הענף ``if (dropdown.classList.contains('active')) { ... }``.
+
+    התאמת סוגריים ולא ``split`` על טקסט: הענף מכיל פונקציה מקוננת
+    (``closer``) עם סוגריים משלה, ולכן חיפוש נאיבי של ``}`` היה נעצר
+    באמצע ומחזיר בלוק חלקי.
+    """
+    fn = html.find("function toggleQuickAccess(")
+    assert fn != -1, "לא נמצאה ``toggleQuickAccess``"
+    head = html.find(OPEN_BRANCH_HEAD, fn)
+    assert head != -1, "לא נמצא ענף הפתיחה בתוך ``toggleQuickAccess``"
+    i = html.index("{", head + len(OPEN_BRANCH_HEAD) - 1)
+    depth = 0
+    for j in range(i, len(html)):
+        if html[j] == "{":
+            depth += 1
+        elif html[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return html[i : j + 1]
+    raise AssertionError("ענף הפתיחה אינו נסגר")
+
+
 def test_loader_exists_and_is_called_on_open():
-    """מי שמציב את ה-``src``, ומאיפה הוא נקרא."""
+    """מי שמציב את ה-``src``, ומאיפה בדיוק הוא נקרא.
+
+    **הבדיקה על הענף, לא על הפונקציה כולה.** ניסוח קודם כאן בדק רק
+    ש-``loadDeferredImages(dropdown)`` מופיע איפשהו ב-``toggleQuickAccess``,
+    וזה חלש מדי: נמדד בדפדפן שהעלאת הקריאה אל מעל ``const dropdown``
+    מפילה את הפונקציה כולה על ``ReferenceError`` — החלונית לא נפתחת
+    (``dropdownActive: false``) והאייקון לא נטען כלל — והבדיקה הישנה עברה.
+
+    (העברה מתונה יותר, אל מחוץ ל-``if`` אבל אחרי ההגדרה, נמדדה כבלתי
+    מזיקה: הלחיצה הראשונה תמיד פותחת, ולכן הטעינה קורית בכל מקרה. הבדיקה
+    כאן פוסלת גם אותה — בכוונה, כי המיקום בענף הוא מה שההערה בקוד
+    מצהירה, וקוד שסותר את ההערה שלו הוא ממצא בפני עצמו.)
+    """
     html = BASE_HTML.read_text(encoding="utf-8")
     assert "function loadDeferredImages(" in html, "חסרה הפונקציה ``loadDeferredImages``"
     assert "img[data-src]" in html, "הפונקציה חייבת לסרוק ``img[data-src]``"
 
-    # הקריאה חייבת לשבת בענף הפתיחה של ``toggleQuickAccess`` — הפונקציה
-    # היחידה שמוסיפה ``active`` ל-``quickAccessDropdown``.
-    body = html.split("function toggleQuickAccess(", 1)
-    assert len(body) == 2, "לא נמצאה ``toggleQuickAccess``"
-    assert "loadDeferredImages(dropdown)" in body[1].split("function ", 1)[0], (
-        "``loadDeferredImages`` אינה נקראת בתוך ``toggleQuickAccess`` — "
-        "בלי זה התמונה לעולם לא תקבל ``src``"
+    branch = _open_branch_of_toggle_quick_access(html)
+    assert "loadDeferredImages(dropdown)" in branch, (
+        "``loadDeferredImages(dropdown)`` אינה בענף הפתיחה של "
+        "``toggleQuickAccess``. שם היא חייבת לשבת: אחרי ש-``dropdown`` "
+        "הוגדר, ורק כשהחלונית נפתחת."
     )
 
 
@@ -104,3 +140,47 @@ def test_the_guard_can_actually_fail(bad_html, tmp_path, monkeypatch):
     monkeypatch.setattr(f"{__name__}.BASE_HTML", fake)
     with pytest.raises(AssertionError):
         test_heavy_icon_is_deferred_not_eager()
+
+
+# שני המיקומים נמדדו בדפדפן, ולא הומצאו: הראשון מפיל את הפונקציה כולה
+# ומשאיר את החלונית סגורה, השני בלתי מזיק אבל סותר את ההערה שבקוד.
+# שניהם עברו את הניסוח הקודם של הבדיקה.
+_ORIGINAL_CALL = """            if (dropdown.classList.contains('active')) {
+                // לפני המיקום: התמונה תופסת מקום שמור מראש (רוחב וגובה
+                // בסגנון), ולכן ההצבה אינה משנה את הגאומטריה שמחושבת מיד
+                // אחריה ב-``ensureQuickAccessVisible``.
+                loadDeferredImages(dropdown);"""
+
+_MOVED_OUT_OF_BRANCH = """            loadDeferredImages(dropdown);
+            if (dropdown.classList.contains('active')) {"""
+
+
+@pytest.mark.parametrize(
+    "label,replacement",
+    [
+        # נמדד: dropdownActive=false, naturalWidth=0 — שבור לגמרי
+        ("הקריאה מעל ``const dropdown``", None),
+        # נמדד: 8/8 בדפדפן — לא מזיק, אבל סותר את ההערה בקוד
+        ("הקריאה מחוץ לענף הפתיחה", _MOVED_OUT_OF_BRANCH),
+    ],
+)
+def test_open_branch_guard_can_actually_fail(label, replacement, tmp_path, monkeypatch):
+    """הבדיקה החדשה חייבת ליפול על שני המיקומים. הישנה עברה את שניהם."""
+    html = BASE_HTML.read_text(encoding="utf-8")
+    assert html.count(_ORIGINAL_CALL) == 1, "הקריאה בענף הפתיחה השתנתה — עדכנו את המוטציה"
+
+    if replacement is None:
+        html = html.replace(_ORIGINAL_CALL, "            if (dropdown.classList.contains('active')) {")
+        html = html.replace(
+            "        function toggleQuickAccess(ev) {\n",
+            "        function toggleQuickAccess(ev) {\n            loadDeferredImages(dropdown);\n",
+            1,
+        )
+    else:
+        html = html.replace(_ORIGINAL_CALL, replacement)
+
+    fake = tmp_path / "base.html"
+    fake.write_text(html, encoding="utf-8")
+    monkeypatch.setattr(f"{__name__}.BASE_HTML", fake)
+    with pytest.raises(AssertionError):
+        test_loader_exists_and_is_called_on_open()
