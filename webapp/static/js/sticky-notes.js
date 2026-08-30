@@ -768,7 +768,11 @@
       if (isPinnedInitial) el.classList.add('is-pinned');
 
       // interactions
-      this._enableDrag(el, drag);
+      //
+      // **הכותרת כולה, ולא ``drag`` בלבד.** ``cursor: move`` מוצהר על
+      // ``.sticky-note-header``; חיבור לילד אחד השאיר את ריפוד הכותרת
+      // ואת הרווחים בין הכפתורים כשטח שנראה גריר ואינו גורר.
+      this._enableDrag(el, header);
       this._enableResize(el, resizer);
       textarea.addEventListener('focus', () => {
         try {
@@ -2527,11 +2531,60 @@
       }
     }
 
+    /**
+     * מה בתוך הכותרת **אינו** משטח גרירה.
+     *
+     * שני סוגים בלבד, וכל אחד מסיבה משלו: כפתור — כי לחיצה עליו היא
+     * פעולה, ושדה השם **בזמן עריכה** — כי אז הוא מקבל מגע בחזרה וצריך
+     * למקם סמן. במצב הנעול השדה הוא ``pointer-events: none`` ואינו יכול
+     * להיות יעד האירוע מלכתחילה, ולכן אין צורך לבדוק אותו שם.
+     *
+     * ``closest`` ולא השוואת ``target`` ישירה: לחיצה על אמוג'י בתוך
+     * כפתור מחזירה את צומת הטקסט/הכפתור לפי הדפדפן, והשוואה ישירה
+     * הייתה מפספסת בדיוק את המקרה שהיא נועדה לתפוס.
+     */
+    _isDragExempt(target){
+      try {
+        if (!target || typeof target.closest !== 'function') return false;
+        if (target.closest('.sticky-note-btn')) return true;
+        const title = target.closest('.sticky-note-title');
+        if (title && !title.hasAttribute('readonly')) return true;
+        return false;
+      } catch(_) {
+        // ספק ⇒ לא לגרור. גרירה שגויה מזיזה פתק בלי כוונת המשתמש;
+        // גרירה שלא קרתה היא לכל היותר נגיעה שלא עשתה כלום.
+        return true;
+      }
+    }
+
+    /**
+     * גרירת הפתק מהכותרת.
+     *
+     * **הידית היא הכותרת כולה, לא רק ``.sticky-note-drag``.** ``cursor: move``
+     * מוצהר על ``.sticky-note-header``, כלומר הסמן הבטיח גרירה על כל רוחבה —
+     * אבל המאזין ישב על ילד אחד בלבד. נמדד בכרומיום, נקודה-נקודה לרוחב
+     * הכותרת: ריפוד הכותרת והרווחים בין הכפתורים החזירו ``cursor: move``
+     * ו**לא** הזיזו את הפתק. בכותרת שגלשה לשתי שורות — המצב הרגיל בפתק עם
+     * שם ארוך — כל שורת הכפתורים הפכה לשטח מת שנראה גריר.
+     *
+     * ``_isDragExempt`` הוא מה שמאפשר את ההרחבה: כפתור צריך להישאר כפתור,
+     * ושדה השם בזמן עריכה צריך להישאר שדה. במצב הנעול השדה הוא
+     * ``pointer-events: none`` וממילא אינו יעד האירוע.
+     *
+     * **ה-``preventDefault`` שב-``onDown`` הוא מה שחוסם גלילה במגע** מאז
+     * שהידית היא הכותרת, ואין ל-``.sticky-note-header`` ``touch-action``
+     * ב-CSS בכוונה: ``touch-action`` נחתכת עם האבות, ולכן ``none`` שם היה
+     * משתק גם את הכפתורים וגם את שדה השם בעריכה, ו-``auto`` עליהם לא היה
+     * מחזיר כלום. הסדר כאן הוא מה שעושה את ההבדל — ``_isDragExempt`` רץ
+     * ראשון, ולכן החריגים לא מגיעים ל-``preventDefault`` כלל. ההסבר המלא
+     * והמדידות: ההערה אצל ``.sticky-note-drag`` ב-``sticky-notes.css``.
+     */
     _enableDrag(el, handle){
       let startX=0, startY=0, origLeft=0, origTop=0, startScrollX=0, startScrollY=0, dragging=false;
       let pressTimer=null, longPressHandled=false;
       const LONG_PRESS_MS = 450;
       const onDown = (e)=>{
+        if (this._isDragExempt(e.target)) return;
         dragging = true;
         const ev = e.touches ? e.touches[0] : e;
         startX = ev.clientX; startY = ev.clientY;
