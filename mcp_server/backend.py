@@ -20,6 +20,7 @@ import enum as _enum
 import html
 import time as _time
 import logging
+import uuid as _uuid
 from typing import Any, Callable
 
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
@@ -56,6 +57,7 @@ class _NoteIndex(_enum.Enum):
 
     BOARD_TITLE = "one_title_per_board"
     REPO_TITLE = "one_title_per_repo_file"
+    NOTE_VERSIONS = "one_number_per_note_version"
 
 
 class _IndexGate:
@@ -1002,25 +1004,332 @@ class ProductionBackend:
         note["_id"] = getattr(res, "inserted_id", None)
         return {"ok": True, "note": _as_note(note)}
 
-    def search_notes(self, user_id: int, *, query: str, limit: int) -> dict[str, Any]:
-        """חיפוש פתקים **לפי שם**, חוצה את שלושת היעדים.
+    def get_note(self, user_id: int, *, note_id: str) -> dict[str, Any]:
+        """פתק בודד לפי מזהה, תחום לבעלות.
 
-        **הפרויקציה נושאת משקל ואינה קוסמטיקה:** היא אוכפת "שם בלבד, בלי
-        תוכן" בגבול המסד ולא בסמך הסריאלייזר, ובכך גם מנתקת את עלות
-        החיפוש מגודל גוף הפתק (עד 20K תווים למסמך) וגם מקטינה את קלט
-        המיון.
+        נדרש ל-``note_str_replace``: עריכת מצא-והחלף היא read-modify-write,
+        וכלי הרשימה מחייבים לדעת **איפה** הפתק יושב — בדיוק מה שהקורא
+        אינו יודע כשיש בידו ``note_id`` בלבד.
+        """
+        from bson import ObjectId  # lazy heavy import
+
+        try:
+            oid = ObjectId(str(note_id))
+        except Exception:
+            return {"ok": False, "error": "invalid_note_id"}
+        row = self._notes_coll().find_one({"_id": oid, "user_id": int(user_id)})
+        if not row:
+            return {"ok": False, "error": "not_found"}
+        return {"ok": True, "note": _as_note(row)}
+
+    #: כמה גרסאות קודמות נשמרות לכל פתק.
+    #:
+    #: **מספר חדש שאין לו תקדים בריפו** — קבצים אינם חסומים בכלל. פתק הוא
+    #: עד 20K תווים, ועד 1000 פתקים למשתמש; בלי תקרה, עריכה חוזרת של פתק
+    #: אחד הייתה מייצרת צמיחה בלתי חסומה באוסף שנועד להיות רשת ביטחון.
+    #: **ומכאן גם המגבלה שחייבת להיאמר:** אחרי 20 עריכות המקור נדחף
+    #: החוצה, ולכן ``destructiveHint`` נשאר ``True``.
+    NOTE_VERSION_RETENTION = 20
+
+    def _ensure_versions_index(self, coll: Any) -> bool:
+        """בונה ומאמת את האינדקס הייחודי של גרסאות הפתקים.
+
+        ההחזרה היא **אימות בקריאה חוזרת**, לא ערך ההחזרה של הבנייה:
+        ``create_index`` על אינדקס קיים בשם זהה מחזיר בשקט, ולכן רק
+        ``index_information`` מעיד שהאילוץ באמת חי וייחודי.
+        """
+        coll.create_index(
+            [("user_id", 1), ("note_id", 1), ("version", -1)],
+            name="note_version_idx",
+            unique=True,
+        )
+        spec = (coll.index_information() or {}).get("note_version_idx") or {}
+        return bool(spec.get("unique"))
+
+    def _note_versions_coll(self) -> Any:
+        """אוסף גרסאות הפתקים, עם אכיפת אינדקס דרך מנוע ה-gate המשותף.
+
+        **אוסף נפרד, ולא מערך מוטבע במסמך הפתק.** שלוש פונקציות הרשימה —
+        ``list_notes``, ``list_board_notes`` ו-``list_repo_notes`` — עושות
+        ``find(query)`` **בלי פרויקציה**, ולכן מערך היסטוריה מוטבע היה
+        נגרר לתוך כל רשימת פתקים. זו הפרה של חוק ה-Smart Projection בשלושה
+        מסלולים חמים בבת אחת, ובגודל שגדל עם כל עריכה.
+
+        האינדקס הייחודי אינו קוסמטי: הוא מה שהופך מספר גרסה כפול משתי
+        כתיבות מקבילות לשגיאה שנתפסת — ו-``_snapshot_note`` מתרגם אותה
+        לניסיון חוזר עם המספר הבא. ולכן הבנייה עוברת דרך
+        ``_ensure_note_index``, **לא** דרך דגל "ניסינו" חד-פעמי: דגל
+        שנדלק לפני הניסיון הופך כשל רשת חולף אחד בעליית התהליך לתהליך
+        שלם שכותב גרסאות בלי האילוץ שההבטחה נשענת עליו.
+        """
+        coll = self._raw_mongo()["sticky_note_versions"]
+        self._ensure_note_index(coll, _NoteIndex.NOTE_VERSIONS, self._ensure_versions_index)
+        return coll
+
+    #: כמה פעמים לנסות שוב כששני צילומים מקבילים התנגשו על אותו מספר גרסה
+    _SNAPSHOT_RETRIES = 3
+
+    def _snapshot_note(
+        self, user_id: int, note: dict[str, Any]
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """שומר את התוכן הנוכחי של הפתק כגרסה קודמת.
+
+        מחזיר ``(הצליח, ייחוס)``: הייחוס — ``{user_id, note_id, version}``
+        — הוא מה שמאפשר לקורא **לפצות**: הצילום נכתב לפני הדריסה, ואם
+        הדריסה אחריו לא קרתה (מחיקה מקבילה, קונפליקט, כשל כתיבה), גרסה
+        שמתארת החלפה שלא התרחשה חייבת להימחק — אחרת ההיסטוריה מעידה על
+        אירוע שלא היה, וכל ניסיון חוזר מוסיף כפילות.
+
+        **ערך ההצלחה נבדק אצל הקורא, והוא אינו קישוט.** ``update_note``
+        דורס במקום; אם הצילום נכשל ובכל זאת נדרוס, איבדנו את הפתק בשקט
+        בדיוק כמו לפני התיקון — רק שהפעם הבטחנו למשתמש שיש רשת. לכן כשל
+        כאן עוצר את העדכון.
+
+        **התנגשות מספר גרסה אינה כשל.** שני צילומים מקבילים קוראים את
+        אותו מקסימום ומנסים את אותו ``nxt``; האינדקס הייחודי דוחה את
+        השני, וכאן זה מתורגם לקריאה חוזרת של המקסימום וניסיון עם המספר
+        הבא — לא לדחיית העריכה כולה.
+        """
+        content = note.get("content")
+        if not isinstance(content, str) or not content:
+            # אין מה לצלם. זו הצלחה, לא כשל: פתק ריק אינו מידע שאפשר לאבד.
+            return True, None
+        coll = self._raw_mongo()["sticky_note_versions"]
+        # **בלי אינדקס מאומת — אין צילום, ולכן אין עדכון.** כל ההבטחה
+        # ("כפילות נתפסת ומתורגמת לניסיון חוזר") נשענת על האילוץ הייחודי;
+        # צילום בלעדיו יכול לייצר שתי גרסאות עם אותו מספר, בשקט — היסטוריה
+        # שקרית שמתחזה לרשת ביטחון. עצירה עד שה-gate מאשר (עם הניסיון
+        # החוזר וההשהיה שלו) היא fail-closed, באותו היגיון שבו כשל צילום
+        # עוצר את הדריסה. קריאות (רשימה/שליפה/גיזום) אינן חסומות — הן
+        # אינן זקוקות לאילוץ.
+        if not self._ensure_note_index(coll, _NoteIndex.NOTE_VERSIONS, self._ensure_versions_index):
+            logger.error("note snapshot refused: unique version index unconfirmed")
+            return False, None
+        nid = str(note.get("_id"))
+        for _attempt in range(self._SNAPSHOT_RETRIES):
+            try:
+                prev = coll.find_one(
+                    {"user_id": int(user_id), "note_id": nid},
+                    {"version": 1},
+                    sort=[("version", -1)],
+                )
+                nxt = int((prev or {}).get("version") or 0) + 1
+                coll.insert_one(
+                    {
+                        "user_id": int(user_id),
+                        "note_id": nid,
+                        "version": nxt,
+                        "content": content,
+                        # האורך נשמר בכתיבה כדי שרשימת הגרסאות לא תצטרך
+                        # לקרוא את הגוף (עד 20K תווים) רק כדי למדוד אותו.
+                        "length": len(content),
+                        "saved_at": _dt.datetime.now(_dt.timezone.utc),
+                    }
+                )
+            except _DuplicateKeyError:
+                continue  # צילום מקביל תפס את המספר — ננסה עם הבא
+            except Exception:
+                logger.error("note snapshot failed for %s", nid, exc_info=True)
+                return False, None
+            self._prune_note_versions(int(user_id), nid)
+            return True, {"user_id": int(user_id), "note_id": nid, "version": nxt}
+        logger.error("note snapshot for %s kept colliding on version numbers", nid)
+        return False, None
+
+    def _discard_snapshot(self, ref: dict[str, Any] | None) -> None:
+        """מפצה על צילום שהדריסה אחריו לא קרתה. Best-effort.
+
+        כשל כאן משאיר גרסה עודפת — עדות כוזבת קלה בהרבה מאובדן תוכן,
+        ולכן אינו משנה את תשובת הקורא.
+        """
+        if not ref:
+            return
+        try:
+            self._note_versions_coll().delete_one(dict(ref))
+        except Exception:
+            logger.warning("orphan snapshot cleanup failed: %s", ref, exc_info=True)
+
+    def _prune_note_versions(self, user_id: int, note_id: str) -> None:
+        """מוחק גרסאות מעבר ל-:data:`NOTE_VERSION_RETENTION` האחרונות.
+
+        כשל בגיזום אינו מפיל את העדכון: התוצאה היא היסטוריה ארוכה מהתקרה,
+        שהיא **עודף** מידע ולא חוסר. הכיוון ההפוך היה מצדיק עצירה.
+        """
+        try:
+            coll = self._note_versions_coll()
+            keep = list(
+                coll.find({"user_id": int(user_id), "note_id": note_id}, {"version": 1})
+                .sort("version", -1)
+                .limit(int(self.NOTE_VERSION_RETENTION))
+            )
+            if len(keep) < int(self.NOTE_VERSION_RETENTION):
+                return
+            floor = int(keep[-1].get("version") or 0)
+            coll.delete_many(
+                {"user_id": int(user_id), "note_id": note_id, "version": {"$lt": floor}}
+            )
+        except Exception:
+            logger.warning("note version prune failed for %s", note_id, exc_info=True)
+
+    def list_note_versions(self, user_id: int, *, note_id: str) -> dict[str, Any]:
+        """מטא-דאטה של הגרסאות הקודמות — **בלי תוכן**, כמו ``list_versions``.
+
+        אינו נשען על קיום הפתק: היסטוריה של פתק שנמחק עדיין שייכת
+        למשתמש, והבעלות נשמרת במסמך הגרסה עצמו.
+        """
+        # ``length`` נשמר בזמן הצילום בדיוק בשביל השורה הזו: פרויקציה בלי
+        # ``content``, כדי שרשימת מטא-דאטה לא תגרור עד 20 גופים מלאים.
+        rows = list(
+            self._note_versions_coll()
+            .find(
+                {"user_id": int(user_id), "note_id": str(note_id)},
+                {"version": 1, "saved_at": 1, "length": 1},
+            )
+            .sort("version", -1)
+            .limit(int(self.NOTE_VERSION_RETENTION))
+        )
+        return {
+            "ok": True,
+            "note_id": str(note_id),
+            "count": len(rows),
+            "versions": [
+                {
+                    "version": int(r.get("version") or 0),
+                    "saved_at": _json_safe(r.get("saved_at")),
+                    "length": int(r.get("length") or 0),
+                }
+                for r in rows
+            ],
+        }
+
+    def get_note_version(self, user_id: int, *, note_id: str, version: int) -> dict[str, Any]:
+        """תוכן של גרסה קודמת אחת — המקבילה ל-``get_file(version=)``."""
+        row = self._note_versions_coll().find_one(
+            {"user_id": int(user_id), "note_id": str(note_id), "version": int(version)}
+        )
+        if not row:
+            return {"ok": False, "error": "version_not_found"}
+        return {
+            "ok": True,
+            "note_id": str(note_id),
+            "version": int(row.get("version") or 0),
+            "saved_at": _json_safe(row.get("saved_at")),
+            "content": str(row.get("content") or ""),
+        }
+
+    def list_repo_note_paths(self, user_id: int, *, repo_name: str) -> dict[str, Any]:
+        """הנתיבים בריפו שיש עליהם פתקים, עם ספירה — מפת גילוי.
+
+        בלי זה ``list_repo_notes`` דורש לדעת את הנתיב המדויק מראש, כלומר
+        צריך לדעת איפה הפתק כדי למצוא אותו.
+        """
+        from sticky_notes_target import repo_note_paths_pipeline
+
+        rows = list(self._notes_coll().aggregate(repo_note_paths_pipeline(int(user_id), repo_name)))
+        paths = [
+            {"repo_path": str(r.get("_id") or ""), "note_count": int(r.get("count") or 0)}
+            for r in rows
+            if r.get("_id")
+        ]
+        return {
+            "ok": True,
+            "repo_name": str(repo_name or ""),
+            "count": len(paths),
+            "paths": paths,
+        }
+
+    def add_to_collection(
+        self,
+        user_id: int,
+        *,
+        collection_id: str,
+        file_name: str,
+        folder: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """משייך קובץ קיים לאוסף קיים.
+
+        **שלושה שערים, ושלושתם נדרשים בגלל אותו כשל.**
+        ``CollectionsManager.add_items`` אינה מאמתת שהאוסף קיים או שייך
+        לקורא: היא כותבת את הפריט עם ה-``collection_id`` שקיבלה, ורק עדכון
+        המונים בסוף תחום לבעלות — ונכשל בשקט. כלומר היא מחזירה
+        ``{"ok": True, "added": 1}`` על אוסף שאינו קיים, ומשאירה פריט יתום.
+        זהו בדיוק K11: ערך חזרה חיובי על כשל, שמסתיים בהודעת ✅.
+
+        לכן: בעלות **לפני**, קיום הקובץ **לפני**, וספירת מה שנכתב **אחרי**.
+        """
+        cm = self._collections()
+        owned = cm.get_collection(int(user_id), str(collection_id))
+        if not isinstance(owned, dict) or not owned.get("ok"):
+            return {"ok": False, "error": "collection_not_found"}
+
+        name = str(file_name or "").strip()
+        doc = _latest_fresh(self._require_dbm(), int(user_id), name)
+        if not doc:
+            return {"ok": False, "error": "file_not_found"}
+
+        item: dict[str, Any] = {"file_name": name, "source": "regular"}
+        if folder is not None:
+            item["folder"] = folder
+        if note is not None:
+            item["note"] = note
+        res = cm.add_items(int(user_id), str(collection_id), [item])
+        if not isinstance(res, dict) or not res.get("ok"):
+            # ``res`` שאינו dict (True, מחרוזת) הוא כשל חוזה — אין ממנו
+            # ``error`` לחלץ, וניסיון ``.get`` עליו היה מפיל את הכלי.
+            err = res.get("error") if isinstance(res, dict) else None
+            return {"ok": False, "error": str(err or "add_failed")}
+        added = int(res.get("added") or 0)
+        updated = int(res.get("updated") or 0)
+        if added == 0 and updated == 0:
+            # ``add_items`` מדלגת בשקט על פריט בעייתי ועדיין מחזירה ok.
+            return {"ok": False, "error": "not_added"}
+        return {
+            "ok": True,
+            "collection_id": str(collection_id),
+            "file_name": name,
+            "added": added,
+            "updated": updated,
+        }
+
+    def search_notes(
+        self,
+        user_id: int,
+        *,
+        query: str,
+        limit: int,
+        search_content: bool = False,
+        content_query: str | None = None,
+    ) -> dict[str, Any]:
+        """חיפוש פתקים חוצה את שלושת היעדים — שם, ואופציונלית גם גוף.
+
+        ``query`` הוא מחט **השם** (קנונית) ו-``content_query`` מחט
+        **התוכן** (משמרת רווחים ושורות) — שתי מחטים כי שני היעדים נשמרו
+        אחרת; ההסבר המלא ב-:func:`sticky_notes_target.note_search_filter`.
+
+        **הפרויקציה נושאת משקל ואינה קוסמטיקה:** היא אוכפת "בלי תוכן"
+        בגבול המסד ולא בסמך הסריאלייזר, ובכך גם מנתקת את עלות ההעברה
+        מגודל גוף הפתק (עד 20K תווים למסמך) וגם מקטינה את קלט המיון.
 
         **התקרה נאכפת עם שורת סנטינל** — ``limit(want + 1)`` — כדי
         שה-``truncated`` יהיה עובדה ולא ניחוש: שורה נוספת שחזרה היא ראיה
         שיש עוד, ולא הערכה מתוך ספירה שווה לתקרה.
         """
-        from sticky_notes_target import title_search_filter
+        from sticky_notes_target import note_search_filter
 
         want = int(limit)
         projection = {key: 1 for key in _NOTE_REF_FIELDS}
         rows = list(
             self._notes_coll()
-            .find(title_search_filter(int(user_id), query), projection)
+            .find(
+                note_search_filter(
+                    int(user_id),
+                    query,
+                    search_content=bool(search_content),
+                    content_needle=content_query,
+                ),
+                projection,
+            )
             .sort("updated_at", -1)
             .limit(want + 1)
         )
@@ -1028,13 +1337,17 @@ class ProductionBackend:
         if truncated:
             rows = rows[:want]
         self._backfill_file_names(int(user_id), rows)
-        return {
+        out: dict[str, Any] = {
             "ok": True,
             "query": str(query or ""),
+            "searched_content": bool(search_content),
             "count": len(rows),
             "truncated": truncated,
             "notes": [_as_note_ref(r) for r in rows],
         }
+        if content_query is not None:
+            out["content_query"] = str(content_query)
+        return out
 
     def _backfill_file_names(self, user_id: int, rows: list[dict[str, Any]]) -> None:
         """משלים ``file_name`` לפגיעות חיפוש שנשמרו לפני שהשדה היה קיים.
@@ -1084,8 +1397,24 @@ class ProductionBackend:
         except Exception:
             logger.warning("file name backfill for search hits failed", exc_info=True)
 
-    def update_note(self, user_id: int, *, note_id: str, fields: dict[str, Any]) -> dict[str, Any]:
-        """Partial in-place update by ObjectId, ownership enforced in the filter."""
+    def update_note(
+        self,
+        user_id: int,
+        *,
+        note_id: str,
+        fields: dict[str, Any],
+        expected_content: str | None = None,
+    ) -> dict[str, Any]:
+        """Partial in-place update by ObjectId, ownership enforced in the filter.
+
+        ``expected_content`` הוא שער אופטימי למסלולי read-modify-write:
+        כשהוא נתון, הדריסה מותנית בכך שהגוף במסד עדיין שווה למה שהקורא
+        קרא. בלעדיו שתי עריכות ``str_replace`` חופפות קוראות את אותו גוף,
+        כל אחת מחשבת החלפה משלה, והאחרונה דורסת את הראשונה — שתיהן
+        מדווחות הצלחה ועריכה אחת נעלמת. עם השער, המפסידה מקבלת
+        ``conflict`` מפורש במקום ניצחון שקרי. ``update_note`` הכללי
+        (עדכון-שדות, לא read-modify-write) אינו משתמש בו בכוונה.
+        """
         from bson import ObjectId  # lazy heavy import
 
         try:
@@ -1097,6 +1426,36 @@ class ProductionBackend:
         note = coll.find_one({"_id": oid, "user_id": int(user_id)})
         if not note:
             return {"ok": False, "error": "not_found"}
+
+        # **ההשוואה במרחב של הקורא; המסנן במרחב של המסד.** הגוף שהקורא
+        # קיבל עבר ``html.unescape`` ב-``_as_note`` (פתקי legacy נשמרו עם
+        # ישויות HTML), ולכן ``expected_content`` מושווה גם מול הערך
+        # הגולמי וגם מול פענוחו — השוואה מול הגולמי בלבד הייתה נועלת כל
+        # פתק legacy ב-``conflict`` נצחי. מסנן הכתיבה, לעומת זאת, נושא את
+        # הערך **הגולמי** שנשלף הרגע: זה מה שבאמת יושב במסד, וזה מה שסוגר
+        # את חלון המרוץ שבין הקריאה לכתיבה.
+        raw_stored = note.get("content")
+        if expected_content is not None:
+            decoded = html.unescape(raw_stored) if isinstance(raw_stored, str) else raw_stored
+            if expected_content != raw_stored and expected_content != decoded:
+                # הפתק כבר השתנה מאז שהקורא קרא אותו — עוד לפני שצילמנו.
+                return {"ok": False, "error": "conflict"}
+
+        # **הצילום לפני הדריסה, וכשל בו עוצר אותה.** זו הנקודה שאכלה פתק
+        # בפועל: העדכון מחליף את התוכן כולו, ועד היום לא היה ממה לשחזר.
+        # אם הצילום נכשל ובכל זאת נדרוס — איבדנו את הפתק בשקט, רק שהפעם
+        # אחרי שהבטחנו רשת ביטחון. כל כלי שעובר כאן יורש את ההגנה.
+        #
+        # **ורק כשהתוכן באמת משתנה.** צילום על עדכון-זהה אינו רשת אלא
+        # רעש: הוא מכפיל את אותו גוף בהיסטוריה, וכשהתקרה מלאה — דוחף
+        # החוצה גרסה ישנה שעוד אפשר היה לשחזר, בתמורה לעותק של מה שכבר
+        # יש. שינוי צבע/שורה בלבד ממילא אינו נוגע בגוף.
+        snap_ref: dict[str, Any] | None = None
+        content_changes = "content" in fields and fields.get("content") != note.get("content")
+        if content_changes:
+            ok, snap_ref = self._snapshot_note(int(user_id), note)
+            if not ok:
+                return {"ok": False, "error": "snapshot_failed"}
 
         updates = dict(fields)
         # backfill לפתק legacy בלי scope_id — רק במסלול הכתיבה (list נשאר קריאה טהורה)
@@ -1120,5 +1479,67 @@ class ProductionBackend:
                     updates["file_name"] = str(fname)
 
         updates["updated_at"] = _dt.datetime.now(_dt.timezone.utc)
-        coll.update_one({"_id": oid, "user_id": int(user_id)}, {"$set": updates})
+        # **אסימון כתיבה ייחודי, ולא חותמת זמן.** ``updated_at`` נראה כמו
+        # אסימון פעולה אבל אינו כזה: מונגו קוטם ל-מילישניות — נמדד, שתי
+        # כתיבות במרחק 3 מיקרו-שניות חוזרות **זהות** — ולכן שתי עריכות
+        # באותה מילישנייה נושאות את אותה חותמת. ``write_id`` נכתב פעם
+        # אחת לקריאה הזו ולעולם אינו חוזר על עצמו; רק הוא מבדיל בוודאות
+        # בין "הכתיבה שלנו נגעה במסמך" לבין "אף אחד לא נגע".
+        #
+        # נכתב רק כשיש צילום להגן עליו — זה המסלול היחיד שקורא אותו.
+        our_write_id = _uuid.uuid4().hex if snap_ref is not None else None
+        if our_write_id is not None:
+            updates["write_id"] = our_write_id
+        write_filter: dict[str, Any] = {"_id": oid, "user_id": int(user_id)}
+        if expected_content is not None:
+            write_filter["content"] = raw_stored
+        try:
+            res = coll.update_one(write_filter, {"$set": updates})
+            matched = int(getattr(res, "matched_count", 0) or 0)
+        except Exception:
+            # **חריגה אינה ראיה שהכתיבה לא קרתה.** כשל רשת יכול ליפול אחרי
+            # שהשרת כבר כתב — ומחיקת הצילום אז משאירה תוכן חדש בלי גרסה
+            # לשחזור, בדיוק האובדן שהמנגנון קיים למנוע. מוחקים רק כשקריאה
+            # חוזרת **מוכיחה** ששום כתיבה לא נגעה במסמך; בכל ספק — הצילום
+            # נשאר, כי גרסה עודפת קלה מאובדן.
+            #
+            # **שוויון-תוכן לבדו אינו הוכחה — ABA.** אם הכתיבה שלנו כן
+            # קרתה וכותב מקביל החזיר את הגוף ל-``raw_stored``, קריאת התוכן
+            # לבדה הייתה "מוכיחה" שדבר לא קרה.
+            #
+            # **וגם חותמת הזמן אינה מספיקה,** כי היא אינה ייחודית: מונגו
+            # קוטם ל-מילישניות, ולכן שחזור מקביל באותה מילישנייה מחזיר
+            # גם את התוכן וגם את החותמת לערכיהם המקוריים. לכן ההוכחה
+            # נשענת על ``write_id`` — אסימון שנוצר לקריאה הזו בלבד:
+            #
+            # * הכתיבה שלנו נגעה במסמך  ⇒ ``write_id`` הוא **שלנו**, שונה
+            #   מזה שקראנו ⇒ הצילום נשמר.
+            # * כותב אחר נגע במסמך      ⇒ הוא החליף ``write_id`` (מסלול
+            #   ה-MCP) או את התוכן/החותמת (הוובאפ) ⇒ מצב עמום, נשמר.
+            # * שלושתם זהים למה שקראנו ⇒ **דבר לא נגע במסמך**, כלומר
+            #   הכתיבה שלנו לא קרתה ⇒ הצילום מפוצה.
+            #
+            # אף מסלול בקוד אינו כותב ``write_id`` ישן בחזרה, ולכן אין
+            # דרך לזייף את הענף השלישי.
+            try:
+                after = coll.find_one(
+                    {"_id": oid, "user_id": int(user_id)},
+                    {"content": 1, "updated_at": 1, "write_id": 1},
+                )
+                untouched = after is not None and all(
+                    after.get(k) == note.get(k) for k in ("content", "updated_at", "write_id")
+                )
+                if untouched:
+                    self._discard_snapshot(snap_ref)
+            except Exception:
+                logger.warning("post-failure note verification failed; keeping snapshot")
+            raise
+        if matched == 0:
+            # הפתק השתנה או נעלם בין הקריאה לכתיבה. בלי הבדיקה הזו היינו
+            # מחזירים ``ok`` על כתיבה שלא כתבה דבר, ומשאירים גרסה יתומה.
+            self._discard_snapshot(snap_ref)
+            return {
+                "ok": False,
+                "error": "conflict" if expected_content is not None else "not_found",
+            }
         return {"ok": True, "note": _as_note({**note, **updates})}

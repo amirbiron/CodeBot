@@ -308,3 +308,29 @@ async def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch
     )
 
     assert seen["user_id"] == 4242
+
+
+async def test_str_replace_is_not_advertised_as_idempotent():
+    """‏``note_str_replace`` דורס אבל **אינו** אידמפוטנטי, ולכן אינו יכול
+    לשאת את האנוטציה של ``update_note``.
+
+    נמדד מול ``_apply_edit`` האמיתי: גוף ``"a"`` עם ``old="a"``/``new="aa"``
+    ו-``replace_all`` נותן ``"aa"`` ← ``"aaaa"`` ← ``"aaaaaaaa"``. הסכנה
+    המעשית ב-``idempotentHint`` שגוי היא לקוח שמנסה שוב אחרי timeout
+    ומכפיל את ההחלפה על גוף שכבר הוחלף.
+    """
+    from mcp_server.handlers import _apply_edit
+
+    body = "a"
+    for _ in range(2):
+        body, _n, err = _apply_edit(body, "a", "aa", True)
+        assert err is None
+    assert body == "aaaa", body  # ראיה: קריאה חוזרת משנה את המצב שוב
+
+    mcp = build_mcp(_FakeBackend())
+    by_name = {t.name: t for t in await mcp.list_tools()}
+    ann = by_name["codekeeper_note_str_replace"].annotations
+    assert ann.idempotentHint is False
+    assert ann.destructiveHint is True
+    # ``update_note`` כן אידמפוטנטי (אותו קלט פעמיים ⇒ אותו מצב סופי)
+    assert by_name["codekeeper_update_note"].annotations.idempotentHint is True

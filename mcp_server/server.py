@@ -42,8 +42,9 @@ _INSTRUCTIONS = (
     "codekeeper_list_board_notes read boards. codekeeper_create_note / "
     "codekeeper_create_board_note / codekeeper_update_note add or change them (write "
     "permission; notes appear in the CodeKeeper web UI). "
-    "codekeeper_search_notes finds a note by title across all three, when you know what "
-    "it is called but not where it sits. "
+    "codekeeper_search_notes finds a note across all three — by title, or with "
+    "search_content=true also by body text, which is how untitled notes (most notes) "
+    "are found. "
     "All data is scoped to the authenticated user."
 )
 
@@ -68,13 +69,32 @@ _WRITE_TOOL = {
     "openWorldHint": False,
 }
 
-# In-place update (sticky-note edit): overwrites the note with no version
-# history — destructive by the MCP definition, but idempotent (same input
-# twice ⇒ same final state).
+# In-place update (sticky-note edit): overwrites the note. Idempotent (same
+# input twice ⇒ same final state).
+#
+# **``destructiveHint`` נשאר ``True`` גם אחרי שנוספה היסטוריה.** השחזור
+# חסום ל-``NOTE_VERSION_RETENTION`` גרסאות אחרונות, ולכן אחרי מספיק עריכות
+# המקור נדחף החוצה — כלומר אובדן עדיין אפשרי. ההנחיה ללקוח מתארת את המקרה
+# הגרוע, לא את הרגיל.
 _UPDATE_IN_PLACE_TOOL = {
     "readOnlyHint": False,
     "destructiveHint": True,
     "idempotentHint": True,
+    "openWorldHint": False,
+}
+
+# מצא-והחלף בפתק: דורס כמו ``_UPDATE_IN_PLACE_TOOL``, אבל **אינו
+# אידמפוטנטי** — וזה נמדד, לא הונח. ``_apply_edit`` על גוף ``"a"`` עם
+# ``old="a"``/``new="aa"`` ו-``replace_all`` נותן ``"aa"`` ← ``"aaaa"`` ←
+# ``"aaaaaaaa"``: כל קריאה חוזרת משנה את המצב שוב. גם בלי ``replace_all``
+# הקריאה השנייה אינה no-op אלא ``no_match``.
+#
+# ההבדל אינו סמנטי בלבד: ``idempotentHint`` שגוי מזמין לקוח לנסות שוב
+# אחרי timeout, וניסיון חוזר כאן מכפיל את ההחלפה על גוף שכבר הוחלף.
+_REPLACE_IN_PLACE_TOOL = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
     "openWorldHint": False,
 }
 
@@ -96,6 +116,7 @@ _REPO_BROWSER_TOOLS = frozenset(
 _REPO_NOTE_TOOLS = frozenset(
     {
         "codekeeper_list_repo_notes",
+        "codekeeper_list_repo_note_paths",
         "codekeeper_create_repo_note",
     }
 )
@@ -420,8 +441,10 @@ def build_mcp(
         name="codekeeper_update_note",
         description=(
             "Update an existing sticky note by note_id (from codekeeper_list_notes): any "
-            "of content, line, color, anchor_text, is_minimized. Overwrites in place "
-            "(notes have no version history). Requires write permission."
+            "of content, line, color, anchor_text, is_minimized. Overwrites in place; "
+            "when the content changes, the previous body is kept as a version (up to a "
+            "fixed number of recent revisions), readable with "
+            "codekeeper_list_note_versions. Requires write permission."
         ),
         annotations=_UPDATE_IN_PLACE_TOOL,
     )
@@ -472,6 +495,23 @@ def build_mcp(
         )
 
     @mcp.tool(
+        name="codekeeper_list_repo_note_paths",
+        description=(
+            "[Admin] Map which files inside a mirrored repository carry sticky notes: "
+            "returns the repo_path of each, with how many notes sit on it. Start here — "
+            "codekeeper_list_repo_notes needs the exact path up front, so without this "
+            "map a note can only be found by whoever wrote it. Feed a returned repo_path "
+            "straight into codekeeper_list_repo_notes to read the notes themselves."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_repo_note_paths(ctx: Context, repo_name: str) -> dict:
+        # ערך ההחזרה של ``require_admin`` **הוא** המזהה המאומת — כמו
+        # ב-``list_repo_notes``, ומאותה סיבה.
+        user_id = require_admin(ctx)
+        return handlers.list_repo_note_paths(backend, user_id, repo_name=repo_name)
+
+    @mcp.tool(
         name="codekeeper_create_repo_note",
         description=(
             "[Admin] Attach a sticky note to a file inside a mirrored repository "
@@ -506,22 +546,120 @@ def build_mcp(
             title=title,
         )
 
+    @mcp.tool(
+        name="codekeeper_add_to_collection",
+        description=(
+            "Add an existing saved file to an existing collection (collection_id from "
+            "codekeeper_list_collections). Use after codekeeper_save_file: saving does not "
+            "place a file in a collection. Optional folder and note label it inside the "
+            "collection. Fails loudly if the collection or the file does not exist. "
+            "Requires write permission."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def add_to_collection(
+        ctx: Context,
+        collection_id: str,
+        file_name: str,
+        folder: str | None = None,
+        note: str | None = None,
+    ) -> dict:
+        require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
+        return handlers.add_to_collection(
+            backend,
+            current_user_id(ctx),
+            collection_id=collection_id,
+            file_name=file_name,
+            folder=folder,
+            note=note,
+        )
+
+    @mcp.tool(
+        name="codekeeper_note_str_replace",
+        description=(
+            "Exact find-and-replace inside ONE sticky note (note_id from "
+            "codekeeper_list_notes or codekeeper_search_notes) — send only the changed "
+            "snippet, never the whole note. Same semantics as codekeeper_edit_file: an "
+            "old_string matching more than once is refused unless replace_all=true. The "
+            "previous body is kept as a version, readable with "
+            "codekeeper_list_note_versions. NOT idempotent — do not blindly retry: a "
+            "repeated call re-applies the replacement to the already-edited body. "
+            "Requires write permission."
+        ),
+        annotations=_REPLACE_IN_PLACE_TOOL,
+    )
+    def note_str_replace(
+        ctx: Context,
+        note_id: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,
+    ) -> dict:
+        require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
+        return handlers.note_str_replace(
+            backend,
+            current_user_id(ctx),
+            note_id=note_id,
+            old_string=old_string,
+            new_string=new_string,
+            replace_all=replace_all,
+        )
+
+    @mcp.tool(
+        name="codekeeper_list_note_versions",
+        description=(
+            "Previous revisions of one sticky note (metadata only: version number, when "
+            "it was saved, how long it was), newest first. A revision is kept every time "
+            "the note's content is overwritten, up to a fixed number of the most recent "
+            "ones. Read one with codekeeper_get_note_version."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def list_note_versions(ctx: Context, note_id: str) -> dict:
+        return handlers.list_note_versions(backend, current_user_id(ctx), note_id=note_id)
+
+    @mcp.tool(
+        name="codekeeper_get_note_version",
+        description=(
+            "Read the content of one previous revision of a sticky note (version number "
+            "from codekeeper_list_note_versions). To restore it, pass the content back to "
+            "codekeeper_update_note."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def get_note_version(ctx: Context, note_id: str, version: int) -> dict:
+        return handlers.get_note_version(
+            backend, current_user_id(ctx), note_id=note_id, version=version
+        )
+
     # החיפוש **אינו** אדמין: הוא ``user_id``-scoped ולכן יכול להחזיר רק
     # פתקים של הקורא עצמו, ומשתמש רגיל אינו יכול ליצור פתק ריפו מלכתחילה.
     @mcp.tool(
         name="codekeeper_search_notes",
         description=(
-            "Find your sticky notes by title, across all three places a note can sit: a "
-            "file, a board, or a file in a mirrored repository. Matches part of the title, "
-            "case-insensitively; it does NOT search note content. Each hit says where the "
-            "note sits, with exactly the arguments the matching list tool needs "
-            "(file_name, board_id, or repo_name + repo_path) — read the note itself with "
-            "that tool."
+            "Find your sticky notes across all three places a note can sit: a file, a "
+            "board, or a file in a mirrored repository. Matches part of the title, "
+            "case-insensitively. Set search_content=true to ALSO match the note body — "
+            "needed to find the many notes that carry no title at all, and slower because "
+            "no index covers the body. Each hit says where the note sits, with exactly the "
+            "arguments the matching list tool needs (file_name, board_id, or repo_name + "
+            "repo_path) — read the note itself with that tool; hits never carry content."
         ),
         annotations=_READ_ONLY_TOOL,
     )
-    def search_notes(ctx: Context, query: str, limit: int | None = None) -> dict:
-        return handlers.search_notes(backend, current_user_id(ctx), query=query, limit=limit)
+    def search_notes(
+        ctx: Context,
+        query: str,
+        limit: int | None = None,
+        search_content: bool = False,
+    ) -> dict:
+        return handlers.search_notes(
+            backend,
+            current_user_id(ctx),
+            query=query,
+            limit=limit,
+            search_content=search_content,
+        )
 
     if repo_backend is not None:
         _register_repo_tools(mcp, repo_backend)
