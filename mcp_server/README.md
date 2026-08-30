@@ -18,9 +18,11 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 ### הכלים (Tools)
 
 כל הכלים מקודמים ב‑`codekeeper_` (מונע התנגשות עם connectors אחרים). כולם read-only
-פרט לכלי הכתיבה `codekeeper_save_file`/`codekeeper_edit_file`/`codekeeper_append_file`/
-`codekeeper_add_to_collection` וכלי הפתקים `codekeeper_create_note`/
-`codekeeper_update_note`/`codekeeper_note_str_replace` (דורשים הרשאת `write`).
+פרט לתשעת כלי הכתיבה, שדורשים הרשאת `write`: על קבצים —
+`codekeeper_save_file`/`codekeeper_edit_file`/`codekeeper_append_file`; על אוספים —
+`codekeeper_add_to_collection`; ועל פתקים — `codekeeper_create_note`/
+`codekeeper_create_board_note`/`codekeeper_create_repo_note`/`codekeeper_update_note`/
+`codekeeper_note_str_replace`.
 
 | כלי | תיאור |
 |-----|-------|
@@ -37,6 +39,10 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_note_str_replace` | **כתיבה:** מצא‑והחלף מדויק **בתוך פתק** (`old_string`→`new_string`, אופציונלית `replace_all`) בלי לשלוח את כל הגוף. אותה סמנטיקה ואותם נוסחי שגיאה כמו `edit_file`. דורש `write` |
 | `codekeeper_list_note_versions` | הגרסאות הקודמות של פתק (מטא‑דאטה בלבד), החדשה תחילה |
 | `codekeeper_get_note_version` | תוכן של גרסה קודמת אחת; השחזור הוא `update_note` עם התוכן שנקרא |
+| `codekeeper_list_boards` | הלוחות של המשתמש — משטחים שנושאים פתקים שאינם שייכים לשום קובץ. מייצר את לוח ברירת המחדל בקריאה הראשונה |
+| `codekeeper_list_board_notes` | הפתקים שעל לוח יחיד (לפי `board_id` מ‑`codekeeper_list_boards`) |
+| `codekeeper_create_board_note` | **כתיבה:** פתק חדש על לוח — בלי קובץ. `mode` הוא `surface` (יושב על הלוח, ברירת מחדל) או `screen` (צף מול המסך). `title` אופציונלי וייחודי בתוך הלוח. דורש `write` |
+| `codekeeper_search_notes` | חיפוש פתקים בשלושת המקומות שפתק יכול לשבת בהם — קובץ, לוח, או קובץ בריפו משוקף. לפי שם כברירת מחדל; `search_content=true` מרחיב גם לגוף הפתק, וזו הדרך למצוא פתק **בלי כותרת**. כל תוצאה מציינת איפה הפתק יושב ולעולם אינה נושאת תוכן |
 | `codekeeper_list_collections` | האוספים של המשתמש |
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
@@ -51,11 +57,25 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 > `destructiveHint` נשאר `True` כי אחרי 20 עריכות המקור נדחף החוצה. אוסף נפרד ולא
 > מערך מוטבע — שלוש פונקציות הרשימה קוראות בלי פרויקציה.
 
-### כלי אדמין — דפדפן הריפו (פאזה ד', קריאה בלבד)
+**ומה שאין** — כדי לחסוך חיפוש בטבלה אחרי כלי שלא קיים:
 
-חמישה כלים **לאדמין בלבד** (`ADMIN_USER_IDS`): ארבעה מעל ה‑Repo Sync Engine (bare
-mirrors), ומפת פתקי הריפו שקוראת מ‑`sticky_notes` בלבד. למשתמש שאינו אדמין כולם גם
-מוסתרים מ‑`tools/list` וגם חסומים בגוף הכלי (fail‑closed).
+- **אין מחיקה בכלל.** לא לקובץ, לא לפתק, לא לפריט באוסף. זו החלטת עיצוב של השירות.
+- **אין יצירת אוסף ואין יצירת לוח.** אפשר לקרוא אוספים ולשייך אליהם קובץ, ואפשר
+  לכתוב פתק על לוח — אבל את המכולות עצמן יוצרים בוובאפ. חריג אחד: `list_boards`
+  מייצר את **לוח ברירת המחדל** בקריאה הראשונה, אם למשתמש אין אף לוח.
+- **אין כלי שמחזיר את כל פתקי הריפו בקריאה אחת.** `list_repo_note_paths` מחזיר את
+  המפה (נתיב + כמה פתקים), ומשם קוראים כל קובץ בנפרד עם `list_repo_notes`.
+
+### כלי אדמין — דפדפן הריפו ופתקי הריפו
+
+שבעה כלים **לאדמין בלבד** (`ADMIN_USER_IDS`): ארבעה מעל ה‑Repo Sync Engine (bare
+mirrors), ושלושה על פתקי ריפו שקוראים/כותבים ל‑`sticky_notes` בלבד. למשתמש שאינו
+אדמין כולם גם מוסתרים מ‑`tools/list` וגם חסומים בגוף הכלי (fail‑closed).
+
+**דפדפן הריפו עצמו הוא קריאה בלבד לצמיתות** — אין ולא תהיה עריכה/`commit`/`push`,
+וה‑mirrors הם רפליקה חד‑כיוונית מ‑GitHub. `codekeeper_create_repo_note` אינו יוצא מן
+הכלל: הפתק נכתב ל‑`sticky_notes` שב‑CodeKeeper והוא הערה **על** הקובץ, לא שינוי בו —
+לא ב‑mirror ולא ב‑GitHub.
 
 | כלי | תיאור |
 |-----|-------|
@@ -64,6 +84,8 @@ mirrors), ומפת פתקי הריפו שקוראת מ‑`sticky_notes` בלבד
 | `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB; בינארי ⇒ מטא‑דאטה בלבד) |
 | `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
 | `codekeeper_list_repo_note_paths` | **מפת גילוי:** אילו קבצים בריפו נושאים פתקים, וכמה על כל אחד. בלעדיה `list_repo_notes` דורש לדעת את הנתיב מראש |
+| `codekeeper_list_repo_notes` | הפתקים שעל קובץ בודד בריפו משוקף (`repo_name` + `repo_path`) — אותם פתקים שמוצגים בדפדפן הריפו בוובאפ. מחזיר `orphaned: true` כשהנתיב כבר אינו בעץ, והפתקים חוזרים בכל מקרה |
+| `codekeeper_create_repo_note` | **כתיבה:** פתק חדש על קובץ בריפו משוקף. `mode` כמו בלוח; `title` אופציונלי וייחודי על אותו קובץ. עובר **שני** שערים ובסדר הזה — אדמין ואז כתיבה. דורש `write` |
 
 - **מדיניות סודות (חובה):** נתיבים כמו `.env*`, `*.pem`, `id_rsa*` נחסמים/מושמטים בכל
   הכלים; הרחבה דרך `MCP_REPO_DENYLIST_EXTRA` (CSV globs).
