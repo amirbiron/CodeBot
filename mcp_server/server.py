@@ -83,6 +83,21 @@ _UPDATE_IN_PLACE_TOOL = {
     "openWorldHint": False,
 }
 
+# מצא-והחלף בפתק: דורס כמו ``_UPDATE_IN_PLACE_TOOL``, אבל **אינו
+# אידמפוטנטי** — וזה נמדד, לא הונח. ``_apply_edit`` על גוף ``"a"`` עם
+# ``old="a"``/``new="aa"`` ו-``replace_all`` נותן ``"aa"`` ← ``"aaaa"`` ←
+# ``"aaaaaaaa"``: כל קריאה חוזרת משנה את המצב שוב. גם בלי ``replace_all``
+# הקריאה השנייה אינה no-op אלא ``no_match``.
+#
+# ההבדל אינו סמנטי בלבד: ``idempotentHint`` שגוי מזמין לקוח לנסות שוב
+# אחרי timeout, וניסיון חוזר כאן מכפיל את ההחלפה על גוף שכבר הוחלף.
+_REPLACE_IN_PLACE_TOOL = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
+    "openWorldHint": False,
+}
+
 # Admin-only repo-browser tools (Phase D). Registered ONLY when a repo_backend
 # is supplied — they read the mirror.
 _REPO_BROWSER_TOOLS = frozenset(
@@ -567,9 +582,11 @@ def build_mcp(
             "snippet, never the whole note. Same semantics as codekeeper_edit_file: an "
             "old_string matching more than once is refused unless replace_all=true. The "
             "previous body is kept as a version, readable with "
-            "codekeeper_list_note_versions. Requires write permission."
+            "codekeeper_list_note_versions. NOT idempotent — do not blindly retry: a "
+            "repeated call re-applies the replacement to the already-edited body. "
+            "Requires write permission."
         ),
-        annotations=_UPDATE_IN_PLACE_TOOL,
+        annotations=_REPLACE_IN_PLACE_TOOL,
     )
     def note_str_replace(
         ctx: Context,

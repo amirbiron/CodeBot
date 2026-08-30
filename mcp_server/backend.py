@@ -20,6 +20,7 @@ import enum as _enum
 import html
 import time as _time
 import logging
+import uuid as _uuid
 from typing import Any, Callable
 
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
@@ -1478,6 +1479,17 @@ class ProductionBackend:
                     updates["file_name"] = str(fname)
 
         updates["updated_at"] = _dt.datetime.now(_dt.timezone.utc)
+        # **אסימון כתיבה ייחודי, ולא חותמת זמן.** ``updated_at`` נראה כמו
+        # אסימון פעולה אבל אינו כזה: מונגו קוטם ל-מילישניות — נמדד, שתי
+        # כתיבות במרחק 3 מיקרו-שניות חוזרות **זהות** — ולכן שתי עריכות
+        # באותה מילישנייה נושאות את אותה חותמת. ``write_id`` נכתב פעם
+        # אחת לקריאה הזו ולעולם אינו חוזר על עצמו; רק הוא מבדיל בוודאות
+        # בין "הכתיבה שלנו נגעה במסמך" לבין "אף אחד לא נגע".
+        #
+        # נכתב רק כשיש צילום להגן עליו — זה המסלול היחיד שקורא אותו.
+        our_write_id = _uuid.uuid4().hex if snap_ref is not None else None
+        if our_write_id is not None:
+            updates["write_id"] = our_write_id
         write_filter: dict[str, Any] = {"_id": oid, "user_id": int(user_id)}
         if expected_content is not None:
             write_filter["content"] = raw_stored
@@ -1493,19 +1505,31 @@ class ProductionBackend:
             #
             # **שוויון-תוכן לבדו אינו הוכחה — ABA.** אם הכתיבה שלנו כן
             # קרתה וכותב מקביל החזיר את הגוף ל-``raw_stored``, קריאת התוכן
-            # לבדה הייתה "מוכיחה" שדבר לא קרה. לכן ההוכחה כפולה:
-            # ``updated_at`` הוא אסימון הפעולה — כל כתיבה (שלנו, של
-            # הוובאפ, של כל מסלול) מחליפה אותו, ולכן רק תוכן **וגם**
-            # חותמת שלא זזו מאז הקריאה מעידים שהמסמך לא נגוע.
+            # לבדה הייתה "מוכיחה" שדבר לא קרה.
+            #
+            # **וגם חותמת הזמן אינה מספיקה,** כי היא אינה ייחודית: מונגו
+            # קוטם ל-מילישניות, ולכן שחזור מקביל באותה מילישנייה מחזיר
+            # גם את התוכן וגם את החותמת לערכיהם המקוריים. לכן ההוכחה
+            # נשענת על ``write_id`` — אסימון שנוצר לקריאה הזו בלבד:
+            #
+            # * הכתיבה שלנו נגעה במסמך  ⇒ ``write_id`` הוא **שלנו**, שונה
+            #   מזה שקראנו ⇒ הצילום נשמר.
+            # * כותב אחר נגע במסמך      ⇒ הוא החליף ``write_id`` (מסלול
+            #   ה-MCP) או את התוכן/החותמת (הוובאפ) ⇒ מצב עמום, נשמר.
+            # * שלושתם זהים למה שקראנו ⇒ **דבר לא נגע במסמך**, כלומר
+            #   הכתיבה שלנו לא קרתה ⇒ הצילום מפוצה.
+            #
+            # אף מסלול בקוד אינו כותב ``write_id`` ישן בחזרה, ולכן אין
+            # דרך לזייף את הענף השלישי.
             try:
                 after = coll.find_one(
-                    {"_id": oid, "user_id": int(user_id)}, {"content": 1, "updated_at": 1}
+                    {"_id": oid, "user_id": int(user_id)},
+                    {"content": 1, "updated_at": 1, "write_id": 1},
                 )
-                if (
-                    after is not None
-                    and after.get("content") == raw_stored
-                    and after.get("updated_at") == note.get("updated_at")
-                ):
+                untouched = after is not None and all(
+                    after.get(k) == note.get(k) for k in ("content", "updated_at", "write_id")
+                )
+                if untouched:
                     self._discard_snapshot(snap_ref)
             except Exception:
                 logger.warning("post-failure note verification failed; keeping snapshot")
