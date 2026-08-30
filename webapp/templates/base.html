@@ -2086,7 +2086,15 @@
                         </button>
                         {% if user_is_admin %}
                         <a href="/repo/" class="quick-access-item" title="דפדפן קוד הפרויקט">
-                            <span class="qa-icon"><img src="{{ url_for('static', filename='icons/repo-browser-icon.png') }}" alt="" style="width: 1.3em; height: 1.3em; vertical-align: middle; border-radius: 3px;"></span>
+                            {# ``data-src`` ולא ``src``: הקובץ הוא 6MB, והוא היה יורד
+                               בכל טעינת עמוד בוובאפ — לכל אדמין, בכל דף. החלונית
+                               מוסתרת ב-``opacity``/``visibility``, וזה אינו מונע
+                               הורדה (גם ``display:none`` לא היה מונע). ``img`` בלי
+                               ``src`` אינו שולח בקשה כלל, ו-``loadDeferredImages``
+                               מציב אותו בפתיחה הראשונה של החלונית.
+                               הרוחב והגובה נשארים בסגנון, כך שהמקום שמור מראש
+                               ואין קפיצת פריסה כשהתמונה נוחתת. #}
+                            <span class="qa-icon"><img data-src="{{ url_for('static', filename='icons/repo-browser-icon.png') }}" alt="" style="width: 1.3em; height: 1.3em; vertical-align: middle; border-radius: 3px;"></span>
                             <span class="qa-label">דפדפן קוד</span>
                         </a>
                         {% endif %}
@@ -2368,6 +2376,34 @@
             }
         }
 
+        /**
+         * מציב ``src`` על תמונות שהומתנו בתוך ``root``, פעם אחת.
+         *
+         * הרקע: אייקון דפדפן הקוד שבחלונית הזו הוא 6MB, והוא ירד בכל טעינת
+         * עמוד בוובאפ — לכל אדמין, בכל דף. נמדד בכרומיום: בקשה אחת בטעינה,
+         * ``content-length`` 5.90MB, ו-``img.complete === true`` עוד לפני
+         * שנגעו בכפתור. הסתרת החלונית לא עזרה, וגם ``display: none`` לא היה
+         * עוזר — אלה אינם מונעים הורדת ``<img src>``.
+         *
+         * גנרי על ``img[data-src]`` ולא קשור לאייקון מסוים: מי שיוסיף תמונה
+         * כבדה נוספת לחלונית מקבל את אותה התנהגות בלי לגעת כאן.
+         *
+         * הסרת התכונה **לפני** ההצבה היא מה שהופך את זה לחד-פעמי: הקריאה
+         * הבאה כבר לא תמצא אותה, ולכן פתיחה חוזרת של החלונית אינה מציבה
+         * ``src`` מחדש.
+         */
+        function loadDeferredImages(root) {
+            if (!root) return;
+            try {
+                root.querySelectorAll('img[data-src]').forEach(function (img) {
+                    const src = img.getAttribute('data-src');
+                    if (!src) return;
+                    img.removeAttribute('data-src');
+                    img.src = src;
+                });
+            } catch (e) {}
+        }
+
         function toggleQuickAccess(ev) {
             try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (e) {}
             const dropdown = document.getElementById('quickAccessDropdown');
@@ -2376,6 +2412,10 @@
             dropdown.classList.toggle('active');
             toggle.classList.toggle('active');
             if (dropdown.classList.contains('active')) {
+                // לפני המיקום: התמונה תופסת מקום שמור מראש (רוחב וגובה
+                // בסגנון), ולכן ההצבה אינה משנה את הגאומטריה שמחושבת מיד
+                // אחריה ב-``ensureQuickAccessVisible``.
+                loadDeferredImages(dropdown);
                 try { dropdown.scrollTop = 0; } catch (e) {}
                 ensureQuickAccessVisible(dropdown);
                 const closer = function(event) {
