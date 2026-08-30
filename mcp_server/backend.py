@@ -1488,11 +1488,24 @@ class ProductionBackend:
             # **חריגה אינה ראיה שהכתיבה לא קרתה.** כשל רשת יכול ליפול אחרי
             # שהשרת כבר כתב — ומחיקת הצילום אז משאירה תוכן חדש בלי גרסה
             # לשחזור, בדיוק האובדן שהמנגנון קיים למנוע. מוחקים רק כשקריאה
-            # חוזרת **מוכיחה** שהגוף לא השתנה; בכל ספק — הצילום נשאר,
-            # כי גרסה עודפת קלה מאובדן.
+            # חוזרת **מוכיחה** ששום כתיבה לא נגעה במסמך; בכל ספק — הצילום
+            # נשאר, כי גרסה עודפת קלה מאובדן.
+            #
+            # **שוויון-תוכן לבדו אינו הוכחה — ABA.** אם הכתיבה שלנו כן
+            # קרתה וכותב מקביל החזיר את הגוף ל-``raw_stored``, קריאת התוכן
+            # לבדה הייתה "מוכיחה" שדבר לא קרה. לכן ההוכחה כפולה:
+            # ``updated_at`` הוא אסימון הפעולה — כל כתיבה (שלנו, של
+            # הוובאפ, של כל מסלול) מחליפה אותו, ולכן רק תוכן **וגם**
+            # חותמת שלא זזו מאז הקריאה מעידים שהמסמך לא נגוע.
             try:
-                after = coll.find_one({"_id": oid, "user_id": int(user_id)}, {"content": 1})
-                if after is not None and after.get("content") == raw_stored:
+                after = coll.find_one(
+                    {"_id": oid, "user_id": int(user_id)}, {"content": 1, "updated_at": 1}
+                )
+                if (
+                    after is not None
+                    and after.get("content") == raw_stored
+                    and after.get("updated_at") == note.get("updated_at")
+                ):
                     self._discard_snapshot(snap_ref)
             except Exception:
                 logger.warning("post-failure note verification failed; keeping snapshot")
