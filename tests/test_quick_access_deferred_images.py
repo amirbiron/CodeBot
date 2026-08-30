@@ -61,24 +61,21 @@ def test_heavy_icon_is_deferred_not_eager():
     assert any("data-src=" in t for t in tags), "חסר ``data-src`` על התגית"
 
 
-# ה-``{`` בסוף אינו קישוט: הוא העוגן שממנו מתחילה התאמת הסוגריים.
-OPEN_BRANCH_HEAD = "if (dropdown.classList.contains('active')) {"
-CALL = "loadDeferredImages(dropdown);"
+# העוגנים. ה-``{`` בסוף ``OPEN_BRANCH_HEAD`` אינו קישוט — הוא הנקודה
+# שממנה מתחילה התאמת הסוגריים.
 TOGGLE_FN = "function toggleQuickAccess("
 LOADER_FN = "function loadDeferredImages("
-
-# שורה שכל תוכנה הוא הקריאה — הזחה חופשית, כי הזחה אינה האינווריאנטה.
-_CALL_LINE = re.compile(r"^[ \t]*" + re.escape(CALL) + r"[ \t]*\r?\n", re.M)
+OPEN_BRANCH_HEAD = "if (dropdown.classList.contains('active')) {"
+CALL = "loadDeferredImages(dropdown);"
 
 
 def _block_after(html: str, anchor: str, start: int = 0) -> tuple[int, int]:
     """טווח הבלוק ``{...}`` שאחרי ``anchor``, כולל שני הסוגריים.
 
-    **התאמת סוגריים ולא חיתוך טקסט.** כל ניסיון לחתוך לפי מחרוזת —
-    ``split`` על ``"\n        function "``, או הצמדה לגוף מדויק —
-    קושר את הבדיקה להזחה ולנוסח הערות, ואז שינוי תמים בתבנית מפיל
-    אותה עם הודעה מבלבלת. נמדד: ריווד ההערה בענף הפתיחה, בלי לגעת
-    בקריאה, הפיל את הבדיקה. הבלוקים כאן מכילים פונקציות מקוננות
+    **התאמת סוגריים ולא חיתוך טקסט.** חיתוך לפי מחרוזת — ``split`` על
+    הזחה, או הצמדה לגוף מדויק — קושר את הבדיקה לעימוד ולנוסח הערות
+    במקום לאינווריאנטה. נמדד: ריווד ההערה בענף הפתיחה, בלי לגעת בקריאה,
+    הפיל ניסוח קודם של הבדיקה. הבלוקים כאן מכילים פונקציה מקוננת
     (``closer``), ולכן חיפוש נאיבי של ``}`` היה מחזיר בלוק חלקי.
     """
     i = html.find(anchor, start)
@@ -96,7 +93,14 @@ def _block_after(html: str, anchor: str, start: int = 0) -> tuple[int, int]:
 
 
 def _open_branch(html: str) -> tuple[int, int]:
-    """טווח ענף הפתיחה, מחופש בתוך ``toggleQuickAccess`` בלבד."""
+    """טווח ענף הפתיחה — **מעוגן בתוך ``toggleQuickAccess``**.
+
+    העיגון אינו קישוט. חיפוש גלובלי של ``OPEN_BRANCH_HEAD`` היה יכול
+    לתפוס ענף של תפריט אחר שנוסח באותה צורה; ``toggleFunModeMenu`` באותו
+    קובץ כבר מחזיקה משתנה בשם ``dropdown``. היום יש מופע אחד בקובץ, אז
+    זו סכנה רדומה ולא באג חי — אבל כל מי שקורא כאן את הענף חייב לעבור
+    דרך הפונקציה הזו, כדי שלא ייווצר שוב עוגן שני שאינו מוגבל.
+    """
     fn = html.find(TOGGLE_FN)
     assert fn != -1, "לא נמצאה ``toggleQuickAccess``"
     return _block_after(html, OPEN_BRANCH_HEAD, start=fn)
@@ -105,34 +109,26 @@ def _open_branch(html: str) -> tuple[int, int]:
 def test_loader_exists_and_is_called_on_open():
     """מי שמציב את ה-``src``, ומאיפה בדיוק הוא נקרא.
 
-    **הבדיקה על הענף, לא על הפונקציה כולה.** ניסוח קודם כאן בדק רק
-    ש-``loadDeferredImages(dropdown)`` מופיע איפשהו ב-``toggleQuickAccess``,
-    וזה חלש מדי: נמדד בדפדפן שהעלאת הקריאה אל מעל ``const dropdown``
-    מפילה את הפונקציה כולה על ``ReferenceError`` — החלונית לא נפתחת
-    (``dropdownActive: false``) והאייקון לא נטען כלל — והבדיקה הישנה עברה.
-
-    (העברה מתונה יותר, אל מחוץ ל-``if`` אבל אחרי ההגדרה, נמדדה כבלתי
-    מזיקה: הלחיצה הראשונה תמיד פותחת, ולכן הטעינה קורית בכל מקרה. הבדיקה
-    כאן פוסלת גם אותה — בכוונה, כי המיקום בענף הוא מה שההערה בקוד
-    מצהירה, וקוד שסותר את ההערה שלו הוא ממצא בפני עצמו.)
+    **על הענף, לא על הפונקציה כולה.** ניסוח ראשון כאן בדק רק שהקריאה
+    מופיעה איפשהו ב-``toggleQuickAccess``, וזה חלש מדי: נמדד בדפדפן
+    שהעלאתה אל מעל ``const dropdown`` מפילה את הפונקציה כולה על
+    ``ReferenceError`` — החלונית לא נפתחת ו-``naturalWidth`` נשאר 0 —
+    והבדיקה הישנה עברה.
     """
     html = BASE_HTML.read_text(encoding="utf-8")
-    assert "function loadDeferredImages(" in html, "חסרה הפונקציה ``loadDeferredImages``"
+    assert LOADER_FN in html, "חסרה הפונקציה ``loadDeferredImages``"
     assert "img[data-src]" in html, "הפונקציה חייבת לסרוק ``img[data-src]``"
 
     a, b = _open_branch(html)
     assert CALL in html[a:b], (
-        "``loadDeferredImages(dropdown)`` אינה בענף הפתיחה של "
-        "``toggleQuickAccess``. שם היא חייבת לשבת: אחרי ש-``dropdown`` "
-        "הוגדר, ורק כשהחלונית נפתחת."
+        f"``{CALL}`` אינה בענף הפתיחה של ``toggleQuickAccess``. שם היא "
+        "חייבת לשבת: אחרי ש-``dropdown`` הוגדר, ורק כשהחלונית נפתחת."
     )
 
 
 def test_loader_is_one_shot():
     """``data-src`` מוסר לפני ההצבה, ולכן פתיחה חוזרת אינה מציבה שוב."""
     html = BASE_HTML.read_text(encoding="utf-8")
-    # ``split`` על ``"\\n        function "`` היה תלוי בהזחה של הפונקציה
-    # הבאה בקובץ — קשר שרירותי בין הבדיקה לעימוד. התאמת סוגריים במקום.
     a, b = _block_after(html, LOADER_FN)
     fn = html[a:b]
     remove_at = fn.find("removeAttribute('data-src')")
@@ -160,82 +156,35 @@ def test_the_guard_can_actually_fail(bad_html, tmp_path, monkeypatch):
         test_heavy_icon_is_deferred_not_eager()
 
 
-# ---- מוטציות ----
-#
-# **המוטציות נבנות מבנית, לא מהצמדת טקסט.** ניסוח קודם כאן החזיק את הגוף
-# המדויק של ענף הפתיחה כמחרוזת קבועה — כולל הזחה ונוסח ההערה בעברית —
-# ואימת ``count == 1``. נמדד: ריווד ההערה בתבנית, בלי לגעת בקריאה, הפיל
-# את הבדיקה עם ההודעה "עדכנו את המוטציה", בעוד האינווריאנטה שלמה. זו
-# בדיוק אותה טעות מהכיוון ההפוך: קודם בדיקה חלשה מדי, אחר כך שבירה מדי.
-#
-# מה שנשאר קשור: שם הקריאה, כותרת הענף, ושמות שתי הפונקציות. אלה
-# האינווריאנטה עצמה — אם הם משתנים, הבדיקה **צריכה** ליפול.
+def test_open_branch_guard_can_actually_fail(tmp_path, monkeypatch):
+    """מוטציה אחת, והיא המבחינה: הקריאה יוצאת מהענף ונשארת בקובץ.
 
-def _strip_call_from_open_branch(html: str) -> str:
-    """מסיר את שורת הקריאה מענף הפתיחה, ומחזיר את ה-HTML בלעדיה."""
+    זה המקרה היחיד שמפריד בין הטענה הנכונה לבין ``CALL in html`` —
+    הניסוח החלש שהיה כאן בסבב הראשון ועבר על מיקום שגוי. מחיקת הקריאה
+    לגמרי לא הייתה מפרידה, כי גם הניסוח החלש היה נופל עליה.
+
+    **מוטציה אחת ולא שתיים.** נמדד שגם "הקריאה מעל ``const dropdown``"
+    (שבור לגמרי בדפדפן) וגם "הקריאה מחוץ ל-``if``" (בלתי מזיק) נופלות על
+    אותה טענה בדיוק. שנייה מהן היא חזרה, לא כיסוי.
+
+    הכול נגזר מ-``_open_branch`` המעוגן — כולל בניית המוטציה — כדי שלא
+    ייווצר עוגן שני עם היקף אחר.
+    """
+    html = BASE_HTML.read_text(encoding="utf-8")
+
     a, b = _open_branch(html)
-    stripped, n = _CALL_LINE.subn("", html[a:b], count=1)
-    assert n == 1, (
-        f"``{CALL}`` אינה בענף הפתיחה, ולכן אין מה להזיז. "
-        "אם היא הועברה בכוונה — זו בדיוק הרגרסיה שהבדיקה הזו שומרת עליה."
-    )
-    return html[:a] + stripped + html[b:]
+    without = html[:a] + html[a:b].replace(CALL, "", 1) + html[b:]
+    branch_at, _ = _open_branch(without)
+    line_start = without.rfind("\n", 0, branch_at) + 1
+    mutated = without[:line_start] + "            " + CALL + "\n" + without[line_start:]
 
+    # תנאי מקדים, לא בדיקה נפרדת: מוטציה שלא הוחלה מרוקנת את מה שאחריה.
+    assert CALL in mutated, "המוטציה מחקה את הקריאה במקום להזיז אותה"
+    ma, mb = _open_branch(mutated)
+    assert CALL not in mutated[ma:mb], "המוטציה לא הוציאה את הקריאה מהענף"
 
-def _call_above_dropdown_declaration(html: str) -> str:
-    """מוטציה: הקריאה בראש הפונקציה, לפני ש-``dropdown`` הוגדר.
-
-    נמדד בדפדפן: ``ReferenceError`` מפיל את ``toggleQuickAccess`` כולה —
-    ``dropdownActive: false``, ``naturalWidth: 0``, ו-``data-src`` נשאר
-    על התגית. 5/8 בהארנס. שבור לגמרי.
-    """
-    html = _strip_call_from_open_branch(html)
-    open_at, _ = _block_after(html, TOGGLE_FN)
-    return html[: open_at + 1] + "\n            " + CALL + html[open_at + 1 :]
-
-
-def _call_outside_open_branch(html: str) -> str:
-    """מוטציה: הקריאה אחרי ההגדרה, אבל מחוץ ל-``if``.
-
-    נמדד בדפדפן: 8/8 — בלתי מזיק, כי הלחיצה הראשונה תמיד פותחת. נפסל
-    בכל זאת, כי ההערה בקוד מצהירה שהקריאה בענף, וקוד שסותר את ההערה
-    שלו הוא ממצא בפני עצמו.
-    """
-    html = _strip_call_from_open_branch(html)
-    head = html.index(OPEN_BRANCH_HEAD)
-    line_start = html.rfind("\n", 0, head) + 1
-    indent = html[line_start:head]
-    return html[:line_start] + indent + CALL + "\n" + html[line_start:]
-
-
-@pytest.mark.parametrize(
-    "label,mutate",
-    [
-        ("הקריאה מעל ההגדרה של dropdown", _call_above_dropdown_declaration),
-        ("הקריאה מחוץ לענף הפתיחה", _call_outside_open_branch),
-    ],
-)
-def test_open_branch_guard_can_actually_fail(label, mutate, tmp_path, monkeypatch):
-    """הבדיקה חייבת ליפול על שני המיקומים. הניסוח הראשון עבר את שניהם."""
-    mutated = mutate(BASE_HTML.read_text(encoding="utf-8"))
     fake = tmp_path / "base.html"
     fake.write_text(mutated, encoding="utf-8")
     monkeypatch.setattr(f"{__name__}.BASE_HTML", fake)
     with pytest.raises(AssertionError):
         test_loader_exists_and_is_called_on_open()
-
-
-def test_mutations_are_actually_applied():
-    """מוטציה שלא הוחלה הופכת את הבדיקה שמעליה לחסרת ערך.
-
-    כבר קרה לי: מוטציה "עברה" רק מפני שמחרוזת ההחלפה לא תפסה כלל.
-    """
-    html = BASE_HTML.read_text(encoding="utf-8")
-    for mutate in (_call_above_dropdown_declaration, _call_outside_open_branch):
-        mutated = mutate(html)
-        assert mutated != html, f"{mutate.__name__} לא שינתה דבר"
-        assert mutated.count(CALL) == html.count(CALL), (
-            f"{mutate.__name__} שינתה את מספר הקריאות — היא אמורה להזיז, לא להוסיף"
-        )
-        a, b = _open_branch(mutated)
-        assert CALL not in mutated[a:b], f"{mutate.__name__} השאירה את הקריאה בענף"
