@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{# בסיס משותף לעמודי הלוחות: רשימת הלוחות ולוח יחיד.
+   תפקידו היחיד הוא לדרוס את בלוק ה-favicon, באותה תבנית שבה
+   ``repo/base_repo.html`` עושה זאת לעמודי דפדפן הריפו.
+
+   **בסיס משותף ולא בלוק כפול בשתי התבניות** — שתי הצהרות favicon
+   נפרדות לאותה קבוצת עמודים נסחפות: מי שיחליף את האייקון יעדכן אחת
+   וישכח את השנייה, ואז לוח יחיד ורשימת הלוחות יציגו אייקונים שונים.
+
+   הוא **אינו** מגדיר ``extra_head`` בכוונה: ``note_board.html`` כן
+   מגדיר אותו (גופני הפתקים), והגדרה כאן הייתה נדרסת שם בשקט. #}
+
+{% block favicons %}
+<!-- Boards Favicon (only for /boards and /boards/<id>) -->
+<link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='icons/boards-favicon.ico') }}?v={{ static_version }}">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icons/boards-favicon-32.png') }}?v={{ static_version }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='icons/boards-favicon-16.png') }}?v={{ static_version }}">
+<link rel="shortcut icon" href="{{ url_for('static', filename='icons/boards-favicon.ico') }}?v={{ static_version }}">
+{% endblock %}
