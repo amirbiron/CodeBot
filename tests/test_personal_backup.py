@@ -64,6 +64,11 @@ def mock_db():
     mock_raw_db.file_bookmarks.find_one.return_value = None
     mock_raw_db.sticky_notes.find.return_value = []
     mock_raw_db.user_preferences.find_one.return_value = {}
+    # note_boards מוגדר במפורש: MagicMock עצל מחזיר אובייקט truthy, ואז
+    # בדיקות קיום ודה-דופליקציה קוראות אותו כ"כבר קיים" ומדלגות בשקט.
+    mock_raw_db.note_boards.find.return_value = []
+    mock_raw_db.note_boards.find_one.return_value = None
+    mock_raw_db.note_boards.count_documents.return_value = 0
     db.db = mock_raw_db
 
     return db
@@ -685,6 +690,8 @@ class TestRestorePreservesDates:
 #
 # הבדיקה הזאת מריצה את שני מסלולי הקוד האמיתיים בזה אחר זה, ורק ה-DB מדומה.
 
+RT_BOARD_NAME = "רעיונות"
+RT_BOARD_NAME_2 = "משימות"
 RT_CREATED = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
 RT_UPDATED = datetime(2023, 11, 2, 18, 40, tzinfo=timezone.utc)
 
@@ -718,6 +725,18 @@ class TestExportRestoreRoundTrip:
             "width": 250, "height": 200,
             "created_at": RT_CREATED, "updated_at": RT_UPDATED,
         }]
+        mock_db.db.note_boards.find.return_value = [
+            {
+                "_id": "board-1", "user_id": 12345, "name": RT_BOARD_NAME,
+                "is_default": False, "is_pinned": True, "order": 3,
+                "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+            },
+            {
+                "_id": "board-2", "user_id": 12345, "name": RT_BOARD_NAME_2,
+                "is_default": False, "is_pinned": False, "order": 7,
+                "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+            },
+        ]
         return mock_db
 
     def _round_trip(self, service, db):
@@ -729,6 +748,10 @@ class TestExportRestoreRoundTrip:
         db.save_large_file.reset_mock()
         db.db.file_bookmarks.insert_one.reset_mock()
         db.db.sticky_notes.insert_one.reset_mock()
+        db.db.note_boards.insert_one.reset_mock()
+        # השחזור מדמה חשבון נקי: אין לוחות, ולכן אין למה לעשות דה-דופליקציה
+        db.db.note_boards.find.return_value = []
+        db.db.note_boards.find_one.return_value = None
 
         # get_file חייב להחזיר מסמך: גם שחזור הסימניות וגם שחזור הפתקיות
         # מדלגים על פריט שאי אפשר לשייך לקובץ. התוכן שונה מזה שבגיבוי כדי
@@ -769,6 +792,44 @@ class TestExportRestoreRoundTrip:
         assert doc["created_at"] == RT_CREATED
         assert doc["updated_at"] == RT_UPDATED
 
+    def test_note_board_survives_the_round_trip(self, backup_service, seeded_db):
+        """הלוח עצמו נכנס לגיבוי וקם מחדש בשחזור.
+
+        עד לתיקון הזה הייצוא קרא מ-``note_boards`` רק כדי להזליג ``board_name``
+        על הפתקים, ומסמכי הלוח לא נשמרו כלל — כך שכל הלוחות נעלמו בשחזור
+        לסביבה נקייה, וכל הפתקים נחתו על לוח ברירת המחדל.
+        """
+        self._round_trip(backup_service, seeded_db)
+
+        inserted = [
+            call.args[0]
+            for call in seeded_db.db.note_boards.insert_one.call_args_list
+            if call.args and str(call.args[0].get("name") or "") == RT_BOARD_NAME
+        ]
+        assert inserted, "הלוח לא שוחזר"
+        board = inserted[0]
+        assert board["is_pinned"] is True, "בלי is_pinned המשתמש מאבד את בורר הלוחות"
+        assert board["created_at"] == RT_CREATED
+        assert board["updated_at"] == RT_UPDATED
+        # לעולם לא לוח ברירת מחדל שני — one_default_per_user ידחה אותו
+        assert board["is_default"] is False
+
+    def test_relative_board_order_survives_the_round_trip(self, backup_service, seeded_db):
+        """‏``order`` ממוספר מחדש ולא מועתק — אבל הסדר היחסי נשמר.
+
+        העתקת המספר המקורי הייתה מתנגשת עם לוחות קיימים בחשבון היעד;
+        הייצוא ממוין לפי ``order``, ולכן מספור מחדש משמר את הסדר.
+        """
+        self._round_trip(backup_service, seeded_db)
+
+        by_name = {
+            str(call.args[0].get("name") or ""): call.args[0]
+            for call in seeded_db.db.note_boards.insert_one.call_args_list
+            if call.args
+        }
+        assert RT_BOARD_NAME in by_name and RT_BOARD_NAME_2 in by_name, by_name.keys()
+        assert by_name[RT_BOARD_NAME]["order"] < by_name[RT_BOARD_NAME_2]["order"]
+
     def test_bookmark_dates_survive_the_round_trip_via_the_fallback_export(
         self, backup_service, seeded_db
     ):
@@ -806,3 +867,94 @@ class TestExportRestoreRoundTrip:
         doc = seeded_db.db.file_bookmarks.insert_one.call_args.args[0]
         assert doc["created_at"] == RT_CREATED
         assert doc["updated_at"] == RT_UPDATED
+
+
+class TestRestoreNoteBoards:
+    """המלכודות של שחזור לוחות — כולן נגזרות מהמסד ומהתיעוד, לא מהערכה."""
+
+    def _zip_with_boards(self, boards):
+        return make_backup_zip({
+            "backup_info.json": {"version": 1},
+            "metadata/note_boards.json": boards,
+        })
+
+    def _restore(self, service, db, boards):
+        return service.restore_user_data(12345, self._zip_with_boards(boards), overwrite=True)
+
+    def test_default_board_from_the_backup_is_never_inserted(self, backup_service, mock_db):
+        """‏one_default_per_user הוא ייחודי-חלקי: לוח ברירת מחדל שני נדחה.
+
+        ומעבר לאינדקס — זו גם ההחלטה המוצרית: השם שנקבע בחשבון היעד
+        אינו נדרס, כי זו פעולה שאי אפשר לבטל.
+        """
+        self._restore(backup_service, mock_db, [
+            {"name": "המשרד שלי", "is_default": True, "order": 0},
+        ])
+        names = [
+            str(c.args[0].get("name") or "")
+            for c in mock_db.db.note_boards.insert_one.call_args_list
+            if c.args
+        ]
+        assert "המשרד שלי" not in names
+
+    def test_a_board_that_already_exists_is_not_duplicated(self, backup_service, mock_db):
+        """אידמפוטנטי, בדיוק כמו שחזור אוספים."""
+        mock_db.db.note_boards.find.return_value = [
+            {"_id": "b1", "user_id": 12345, "name": "רעיונות", "order": 1},
+        ]
+        result = self._restore(backup_service, mock_db, [
+            {"name": "רעיונות", "is_default": False, "order": 1},
+        ])
+        assert result["restored"]["note_boards"] == 0
+        names = [
+            str(c.args[0].get("name") or "")
+            for c in mock_db.db.note_boards.insert_one.call_args_list
+            if c.args
+        ]
+        assert names.count("רעיונות") == 0
+
+    def test_board_name_from_the_backup_is_normalized(self, backup_service, mock_db):
+        """ה-ZIP הוא קלט חיצוני שאפשר לערוך ביד — שם עובר את אותה נורמליזציה."""
+        self._restore(backup_service, mock_db, [
+            {"name": "  רעיונות   רבים  ", "is_default": False, "order": 1},
+            {"name": "x" * 500, "is_default": False, "order": 2},
+        ])
+        names = [
+            str(c.args[0].get("name") or "")
+            for c in mock_db.db.note_boards.insert_one.call_args_list
+            if c.args
+        ]
+        assert "רעיונות רבים" in names, names
+        assert all(len(n) <= 120 for n in names), [len(n) for n in names]
+
+    def test_a_corrupt_order_does_not_break_the_restore(self, backup_service, mock_db):
+        result = self._restore(backup_service, mock_db, [
+            {"name": "רעיונות", "is_default": False, "order": "לא מספר"},
+        ])
+        assert result["ok"] is True
+        inserted = [c.args[0] for c in mock_db.db.note_boards.insert_one.call_args_list if c.args]
+        board = [b for b in inserted if b.get("name") == "רעיונות"]
+        assert board and isinstance(board[0]["order"], int)
+
+    def test_the_board_quota_is_enforced_on_restore(self, backup_service, mock_db):
+        """התקרה נאכפת גם כאן, אחרת זו אכיפה עם דלת אחורית."""
+        from webapp.note_boards_api import MAX_BOARDS_PER_USER
+
+        mock_db.db.note_boards.find.return_value = [
+            {"_id": f"b{i}", "user_id": 12345, "name": f"לוח {i}", "order": i}
+            for i in range(MAX_BOARDS_PER_USER)
+        ]
+        result = self._restore(backup_service, mock_db, [
+            {"name": "אחד יותר מדי", "is_default": False, "order": 1},
+        ])
+        assert result["restored"]["note_boards"] == 0
+        assert any("תקרת" in e for e in result["errors"]), result["errors"]
+
+    def test_an_insert_that_did_not_land_is_reported(self, backup_service, mock_db):
+        """‏inserted_id אינו הוכחה — הסטנדרט בכל הריפו הוא אימות בקריאה חוזרת."""
+        mock_db.db.note_boards.find_one.return_value = None  # גם אחרי ה-insert
+        result = self._restore(backup_service, mock_db, [
+            {"name": "רעיונות", "is_default": False, "order": 1},
+        ])
+        assert result["restored"]["note_boards"] == 0
+        assert any("לא נכתב בפועל" in e for e in result["errors"]), result["errors"]

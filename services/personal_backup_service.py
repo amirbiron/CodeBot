@@ -38,6 +38,8 @@ MAX_SINGLE_FILE_SIZE = 50 * 1024 * 1024
 # מגבלות ייצוא כדי להימנע מ-OOM
 BOOKMARKS_EXPORT_LIMIT = 5000
 STICKY_NOTES_EXPORT_LIMIT = 5000
+#: תואם ל-``MAX_BOARDS_PER_USER`` ב-``webapp/note_boards_api``.
+BOARDS_EXPORT_LIMIT = 500
 
 # שדות מותריים לשחזור ב-user_preferences (allowlist)
 USER_PREFERENCES_ALLOWLIST = {
@@ -93,6 +95,10 @@ class PersonalBackupService:
             bookmarks_data = self._export_bookmarks(user_id)
             zf.writestr("metadata/bookmarks.json", _to_json(bookmarks_data))
 
+            # 5.5) לוחות פתקים — לפני הפתקיות, כדי לשמור על סדר אב-לפני-בנים
+            boards_data = self._export_note_boards(user_id)
+            zf.writestr("metadata/note_boards.json", _to_json(boards_data))
+
             # 6) פתקיות
             notes_data = self._export_sticky_notes(user_id)
             zf.writestr("metadata/sticky_notes.json", _to_json(notes_data))
@@ -115,6 +121,7 @@ class PersonalBackupService:
                 "collections_count": len(collections_data.get("collections", [])),
                 "bookmarks_count": len(bookmarks_data),
                 "notes_count": len(notes_data),
+                "boards_count": len(boards_data),
             }
             zf.writestr("backup_info.json", _to_json(backup_info))
 
@@ -409,6 +416,53 @@ class PersonalBackupService:
             logger.error(f"שגיאה בייצוא סימניות: {e}")
             return []
 
+    def _export_note_boards(self, user_id: int) -> List[Dict]:
+        """מייצא את לוחות הפתקים עצמם.
+
+        עד כה הייצוא קרא מ-``note_boards`` רק כדי להזליג ``board_name`` על
+        כל פתק, ומסמכי הלוח לא נשמרו — כך שהלוחות נעלמו בשחזור לסביבה
+        נקייה וכל הפתקים נחתו על לוח ברירת המחדל, בלי שגיאה אחת.
+
+        ה-``_id`` אינו מיוצא: הוא חסר ערך בסביבה אחרת, בדיוק כמו
+        ``file_id`` בפתקיות. השם הוא המפתח הקנוני לשיוך מחדש.
+        """
+        try:
+            raw_db = getattr(self.db, "db", None)
+            if raw_db is None:
+                return []
+            cur = raw_db.note_boards.find({"user_id": int(user_id)})
+            try:
+                cur = cur.sort([("order", 1)])
+            except Exception:
+                pass
+            try:
+                cur = cur.limit(int(BOARDS_EXPORT_LIMIT))
+            except Exception:
+                pass
+            raw = list(cur) if not isinstance(cur, list) else list(cur)[: int(BOARDS_EXPORT_LIMIT)]
+
+            out: List[Dict[str, Any]] = []
+            for doc in raw:
+                if not isinstance(doc, dict):
+                    continue
+                name = str(doc.get("name") or "")
+                if not name:
+                    continue
+                out.append({
+                    "name": name,
+                    "is_default": bool(doc.get("is_default", False)),
+                    # שדה דליל: נכתב רק ב-PATCH. בלעדיו המשתמש מאבד את
+                    # בורר הלוחות המהיר, שנשען עליו.
+                    "is_pinned": bool(doc.get("is_pinned", False)),
+                    "order": _safe_int(doc.get("order"), 0),
+                    "created_at": _dt_to_str(doc.get("created_at")),
+                    "updated_at": _dt_to_str(doc.get("updated_at")),
+                })
+            return out
+        except Exception as e:
+            logger.error(f"שגיאה בייצוא לוחות: {e}")
+            return []
+
     def _export_sticky_notes(self, user_id: int) -> List[Dict]:
         """מייצא פתקיות.
 
@@ -530,6 +584,7 @@ class PersonalBackupService:
             "collections": 0,
             "collection_items": 0,
             "bookmarks": 0,
+            "note_boards": 0,
             "sticky_notes": 0,
             "preferences": False,
             "drive_prefs": False,
@@ -641,6 +696,17 @@ class PersonalBackupService:
             bookmarks_data = self._read_json_from_zip(zf, "metadata/bookmarks.json", errors, budget=budget)
             if isinstance(bookmarks_data, list):
                 restored["bookmarks"] = self._restore_bookmarks(user_id, bookmarks_data, errors)
+
+            # 4.5) שחזור לוחות — חייב לרוץ לפני הפתקיות, כי השיוך הוא לפי
+            # שם הלוח. בסדר הפוך כל פתקי הלוח נוחתים על ברירת המחדל.
+            _report(80, "משחזר לוחות...")
+            boards_data = self._read_json_from_zip(
+                zf, "metadata/note_boards.json", errors, budget=budget
+            )
+            if isinstance(boards_data, list):
+                restored["note_boards"] = self._restore_note_boards(
+                    user_id, boards_data, errors
+                )
 
             # 5) שחזור פתקיות
             _report(85, "משחזר פתקיות...")
@@ -1132,6 +1198,98 @@ class PersonalBackupService:
 
         return count
 
+    # ``boards`` מגיע מ-``json.loads`` על ZIP שהמשתמש מעלה, ולכן איבר יכול
+    # להיות כל דבר. ``List[Any]`` אומר את האמת ומשאיר את ה-isinstance משמעותי.
+    def _restore_note_boards(self, user_id: int, boards: List[Any], errors: List[str]) -> int:
+        """משחזר לוחות פתקים. חייב לרוץ **לפני** הפתקיות.
+
+        ``_restore_board_note`` משייך פתק ללוח לפי שם; אם הלוחות עדיין לא
+        קיימים הוא לא ימצא התאמה וכל הפתקים ינחתו על לוח ברירת המחדל —
+        והשחזור "יצליח" בלי שגיאה אחת.
+
+        לוח ``is_default`` מהגיבוי **מדולג במכוון**: ``one_default_per_user``
+        הוא אינדקס ייחודי-חלקי, ולוח ברירת מחדל שני היה נדחה ב-E11000.
+        הפתקים שהיו עליו מגיעים ללוח ברירת המחדל המקומי דרך הפולבק שכבר
+        קיים, והשם שנקבע בחשבון היעד אינו נדרס — פעולה שאי אפשר לבטל.
+        """
+        from note_boards import ensure_default_board, normalize_board_name
+        from webapp.note_boards_api import MAX_BOARDS_PER_USER
+
+        count = 0
+        try:
+            raw_db = getattr(self.db, "db", None)
+            if raw_db is None:
+                return 0
+
+            # לוח ברירת המחדל המקומי חייב להתקיים לפני כל דה-דופליקציה.
+            ensure_default_board(raw_db, int(user_id))
+
+            # מפה לפי שם מנורמל — אותה נורמליזציה שבה נכתבים השמות, כדי
+            # ששאילתה לא תחפש בצורה אחת מה שנכתב בצורה אחרת.
+            existing: Dict[str, str] = {}
+            top_order = 0
+            try:
+                for doc in raw_db.note_boards.find({"user_id": int(user_id)}):
+                    if not isinstance(doc, dict):
+                        continue
+                    existing[normalize_board_name(doc.get("name"))] = str(doc.get("_id") or "")
+                    top_order = max(top_order, _safe_int(doc.get("order"), 0))
+            except Exception:
+                pass
+
+            for board in boards:
+                try:
+                    if not isinstance(board, dict):
+                        continue
+                    # ברירת המחדל של סביבת היעד מנצחת — ראו הדוקסטרינג.
+                    if bool(board.get("is_default", False)):
+                        continue
+                    name = normalize_board_name(board.get("name"))
+                    if name in existing:
+                        continue
+
+                    # התקרה נאכפת גם בשחזור, כמו מכסות הפתקים — אחרת זו
+                    # אכיפה עם דלת אחורית.
+                    if len(existing) >= int(MAX_BOARDS_PER_USER):
+                        errors.append("דילגתי על לוחות: חריגה מתקרת הלוחות")
+                        break
+
+                    top_order += 1
+                    now = datetime.now(timezone.utc)
+                    doc = {
+                        "user_id": int(user_id),
+                        "name": name,
+                        "is_default": False,
+                        "is_pinned": bool(board.get("is_pinned", False)),
+                        "order": top_order,
+                        "created_at": _str_to_dt(board.get("created_at")) or now,
+                        "updated_at": _str_to_dt(board.get("updated_at")) or now,
+                    }
+                    res = raw_db.note_boards.insert_one(doc)
+                    new_id = str(getattr(res, "inserted_id", "") or "")
+                    # אימות בקריאה חוזרת — ``inserted_id`` אינו הוכחה שהמסמך קיים.
+                    confirmed = raw_db.note_boards.find_one({"user_id": int(user_id), "name": name})
+                    if not confirmed:
+                        errors.append(f"הלוח '{name}' לא נכתב בפועל")
+                        continue
+                    existing[name] = str(confirmed.get("_id") or new_id)
+                    count += 1
+                except Exception:
+                    try:
+                        logger.exception("שגיאה בשחזור לוח (פריט בודד)", exc_info=True)
+                    except Exception:
+                        pass
+                    errors.append(f"שגיאה בשחזור לוח '{str((board or {}).get('name') or '')}'")
+                    continue
+        except Exception:
+            try:
+                logger.exception("שגיאה בשחזור לוחות", exc_info=True)
+            except Exception:
+                pass
+            errors.append("שגיאה בשחזור לוחות")
+
+        return count
+
     def _restore_board_note(self, raw_db, user_id: int, note: Dict) -> bool:
         """משחזר פתק לוח. מחזיר ``True`` אם נכתב.
 
@@ -1139,10 +1297,13 @@ class PersonalBackupService:
         יהיה תקף בסביבה אחרת. אין התאמה ⇒ לוח ברירת המחדל, שתמיד קיים —
         עדיף פתק שנחת במקום הלא-מדויק מאשר פתק שנעלם בשקט.
         """
-        from note_boards import ensure_default_board
+        from note_boards import ensure_default_board, normalize_board_name
         from sticky_notes_target import build_note_target, normalize_mode
 
-        board_name = str(note.get("board_name") or "").strip()
+        # אותה נורמליזציה שבה נכתב השם. נורמליזציה בצד אחד בלבד היא הכשל
+        # השקט: השאילתה רצה, מחזירה אפס, ולא זורקת.
+        raw_board_name = str(note.get("board_name") or "").strip()
+        board_name = normalize_board_name(raw_board_name) if raw_board_name else ""
         target_board_id = None
         if board_name:
             try:
@@ -1414,6 +1575,14 @@ def _to_json(obj: Any) -> str:
         raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
     return json.dumps(obj, ensure_ascii=False, indent=2, default=_default)
+
+
+def _safe_int(value: Any, default: int) -> int:
+    """מספר שלם מקלט חיצוני. ה-ZIP מועלה על ידי המשתמש וניתן לעריכה ביד."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _dt_to_str(dt) -> Optional[str]:
