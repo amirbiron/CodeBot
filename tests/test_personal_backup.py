@@ -5,6 +5,7 @@
 """
 import json
 import zipfile
+from datetime import datetime, timezone
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
@@ -563,3 +564,123 @@ class TestRestore:
         assert result["restored"]["sticky_notes"] == 0
         assert mock_db.db.sticky_notes.insert_one.call_count == 0
 
+
+
+# --- שימור תאריכים בשחזור ------------------------------------------------------
+#
+# הייצוא כבר שומר created_at/updated_at כמחרוזות ISO. עד לתיקון הזה השחזור
+# פשוט לא קרא אותן, ולכן כל קובץ, סימנייה או פתק שנעדר מהמסד קיבל את תאריך
+# היום. הטסטים כאן בודקים את הארגומנטים שנמסרים בפועל — הטסטים הקיימים
+# בודקים רק ש-save_code_snippet נקרא, ולכן אינם מסוגלים לתפוס את זה.
+
+ORIGINAL_ISO = "2019-03-07T09:15:00+00:00"
+EDITED_ISO = "2023-11-02T18:40:00+00:00"
+
+
+class TestStoredDatetimeParsing:
+    """‏_str_to_dt הוא ההפוך של _dt_to_str, והיעדרו הוא שורש הבאג."""
+
+    def test_round_trip_preserves_the_moment(self):
+        from services.personal_backup_service import _dt_to_str, _str_to_dt
+
+        original = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+        assert _str_to_dt(_dt_to_str(original)) == original
+
+    def test_naive_input_is_read_as_utc(self):
+        """מונגו שומר datetime בלי תווית אזור זמן, והוא תמיד UTC."""
+        from services.personal_backup_service import _str_to_dt
+
+        parsed = _str_to_dt("2019-03-07T09:15:00")
+        assert parsed == datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+        assert parsed.tzinfo is not None
+
+    def test_datetime_passes_through_as_aware(self):
+        from services.personal_backup_service import _str_to_dt
+
+        assert _str_to_dt(datetime(2019, 3, 7, 9, 15)) == datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+
+    @pytest.mark.parametrize("bad", [None, "", "   ", "לא תאריך", "2019-13-45", 1552000000, {"a": 1}, []])
+    def test_malformed_input_falls_back_to_none(self, bad):
+        """ה-ZIP הוא קלט חיצוני שהמשתמש מעלה ואפשר לערוך אותו ביד.
+
+        None שקול בדיוק להתנהגות שלפני התיקון, ולכן גיבוי ישן או פגום
+        מתנהג כמו קודם במקום להפיל את השחזור.
+        """
+        from services.personal_backup_service import _str_to_dt
+
+        assert _str_to_dt(bad) is None
+
+
+class TestRestorePreservesDates:
+    def _zip(self, files_dict: dict) -> bytes:
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for path, content in files_dict.items():
+                zf.writestr(path, json.dumps(content) if isinstance(content, (dict, list)) else str(content))
+        return buf.getvalue()
+
+    def test_regular_file_carries_both_dates_from_the_backup(self, backup_service, mock_db):
+        mock_db.get_file.return_value = None
+        mock_db.save_code_snippet.return_value = True
+
+        zip_bytes = self._zip({
+            "backup_info.json": {"version": 1},
+            "metadata/files.json": {
+                "regular_files": [{
+                    "file_name": "test.py", "programming_language": "python",
+                    "description": "", "tags": [],
+                    "created_at": ORIGINAL_ISO, "updated_at": EDITED_ISO,
+                }],
+                "large_files": [],
+            },
+            "files/test.py": "# test file",
+        })
+
+        assert backup_service.restore_user_data(12345, zip_bytes)["ok"] is True
+        snippet = mock_db.save_code_snippet.call_args.args[0]
+        assert snippet.created_at == datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+        assert snippet.updated_at == datetime(2023, 11, 2, 18, 40, tzinfo=timezone.utc)
+
+    def test_large_file_carries_the_date_from_the_backup(self, backup_service, mock_db):
+        mock_db.get_large_file.return_value = None
+        mock_db.save_large_file.return_value = True
+
+        zip_bytes = self._zip({
+            "backup_info.json": {"version": 1},
+            "metadata/files.json": {
+                "regular_files": [],
+                "large_files": [{
+                    "file_name": "big.txt", "programming_language": "text",
+                    "description": "", "tags": [], "created_at": ORIGINAL_ISO,
+                }],
+            },
+            "large_files/big.txt": "x\n" * 10,
+        })
+
+        assert backup_service.restore_user_data(12345, zip_bytes)["ok"] is True
+        large = mock_db.save_large_file.call_args.args[0]
+        assert large.created_at == datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+
+    def test_backup_without_dates_behaves_exactly_as_before(self, backup_service, mock_db):
+        """גיבוי ישן בלי השדות — created_at נופל ל-now, כמו קודם."""
+        mock_db.get_file.return_value = None
+        mock_db.save_code_snippet.return_value = True
+
+        zip_bytes = self._zip({
+            "backup_info.json": {"version": 1},
+            "metadata/files.json": {
+                "regular_files": [{
+                    "file_name": "test.py", "programming_language": "python",
+                    "description": "", "tags": [],
+                }],
+                "large_files": [],
+            },
+            "files/test.py": "# test file",
+        })
+
+        before = datetime.now(timezone.utc)
+        assert backup_service.restore_user_data(12345, zip_bytes)["ok"] is True
+        snippet = mock_db.save_code_snippet.call_args.args[0]
+        assert snippet.created_at >= before
+        # וקובץ חדש: שני התאריכים זהים בדיוק
+        assert snippet.updated_at == snippet.created_at

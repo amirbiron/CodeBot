@@ -807,6 +807,10 @@ class PersonalBackupService:
                     is_favorite=desired_is_favorite,
                     is_pinned=desired_is_pinned,
                     pin_order=desired_pin_order,
+                    # התאריכים מהגיבוי. None שקול להתנהגות הקודמת, ולכן
+                    # גיבוי ישן בלי השדות מתנהג כמו קודם.
+                    created_at=_str_to_dt(meta.get("created_at")),
+                    updated_at=_str_to_dt(meta.get("updated_at")),
                 )
                 self.db.save_code_snippet(snippet)
                 count += 1
@@ -891,6 +895,8 @@ class PersonalBackupService:
                     lines_count=len(content.split("\n")),
                     description=meta.get("description", ""),
                     tags=list(meta.get("tags") or []),
+                    created_at=_str_to_dt(meta.get("created_at")),
+                    updated_at=_str_to_dt(meta.get("updated_at")),
                 )
                 self.db.save_large_file(large_file)
                 count += 1
@@ -1072,8 +1078,8 @@ class PersonalBackupService:
                         "valid": True,
                         "sync_status": "synced",
                         "sync_confidence": 1.0,
-                        "created_at": datetime.now(timezone.utc),
-                        "updated_at": datetime.now(timezone.utc),
+                        "created_at": _str_to_dt(bm.get("created_at")) or datetime.now(timezone.utc),
+                        "updated_at": _str_to_dt(bm.get("updated_at")) or datetime.now(timezone.utc),
                     }
                     # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
                     if anchor_id_str:
@@ -1184,8 +1190,8 @@ class PersonalBackupService:
             "height": note.get("height", 200),
             "is_minimized": bool(note.get("is_minimized", False)),
             "mode": normalize_mode(note.get("mode")),
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "created_at": _str_to_dt(note.get("created_at")) or datetime.now(timezone.utc),
+            "updated_at": _str_to_dt(note.get("updated_at")) or datetime.now(timezone.utc),
         }
         # שדות היעד דרך הבנאי, ולא ביד — כך המסמך אינו יכול לצאת עם שני
         # משטחים או בלי אף אחד.
@@ -1276,8 +1282,8 @@ class PersonalBackupService:
                         "line_end": note.get("line_end"),
                         "anchor_id": note.get("anchor_id"),
                         "anchor_text": note.get("anchor_text"),
-                        "created_at": datetime.now(timezone.utc),
-                        "updated_at": datetime.now(timezone.utc),
+                        "created_at": _str_to_dt(note.get("created_at")) or datetime.now(timezone.utc),
+                        "updated_at": _str_to_dt(note.get("updated_at")) or datetime.now(timezone.utc),
                     }
                     raw_db.sticky_notes.insert_one(doc)
                     count += 1
@@ -1412,6 +1418,28 @@ def _dt_to_str(dt) -> Optional[str]:
     if isinstance(dt, datetime):
         return dt.isoformat()
     return str(dt)
+
+
+def _str_to_dt(value) -> Optional[datetime]:
+    """מפרש חותמת זמן שנקראה מקובץ גיבוי. ההפוכה של ``_dt_to_str``.
+
+    הגיבוי הוא קלט חיצוני — המשתמש מעלה את ה-ZIP ואפשר לערוך אותו ביד —
+    ולכן כל טיפוס שאינו ``datetime`` או מחרוזת תקינה מוחזר כ-``None``.
+    ``None`` שקול בדיוק להתנהגות שלפני התיקון, כך שגיבוי ישן או פגום
+    מתנהג כמו קודם במקום להפיל את השחזור.
+
+    התוצאה תמיד timezone-aware ב-UTC: מונגו שומר datetime בלי תווית אזור
+    זמן, וערך naive שיוכנס למסמך היה שובר השוואות מול ערכים aware.
+    """
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
 
 
 def _safe_zip_path(path: str) -> str:

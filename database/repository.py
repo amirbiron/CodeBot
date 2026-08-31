@@ -242,11 +242,11 @@ class Repository:
                             snippet.pin_order = 0
                 except Exception:
                     pass
-            # קובץ שמעולם לא נערך: "עודכן" הוא היצירה עצמה, ולכן שני התאריכים
-            # זהים *בדיוק*. קריאה נפרדת ל-now() כאן הייתה יוצרת הפרש של
-            # מיקרו-שניות, ושמירה שנופלת על גבול הדקה הייתה מציגה "עודכן"
-            # על קובץ טרי לגמרי.
-            snippet.updated_at = datetime.now(timezone.utc) if existing else snippet.created_at
+            # רק גרסה חדשה של קובץ קיים היא עריכה. כשאין גרסה קודמת משאירים
+            # את מה שהמודל קבע — created_at לקובץ חדש, או הערך מהגיבוי
+            # בשחזור. דריסה כאן הייתה מוחקת את updated_at המשוחזר.
+            if existing:
+                snippet.updated_at = datetime.now(timezone.utc)
             # הוסף שדות מטא קלים למסכי רשימות כדי לא למשוך `code` רק בשביל סטטיסטיקות.
             # זה שומר תאימות למסמכים ישנים (ללא שדות אלו) ומשפר ביצועים למסמכים חדשים.
             doc = asdict(snippet)
@@ -1331,9 +1331,10 @@ class Repository:
             existing = self.get_large_file(large_file.user_id, large_file.file_name)
             if existing:
                 # לפני המחיקה, לא אחריה: אחרי delete_large_file המסמך כבר לא פעיל.
-                # updated_at כבר נקבע ל-now ב-LargeFile.__post_init__, ואף קורא
-                # אינו מעביר אותו — אין מה לרענן כאן.
                 large_file.created_at = inherited_created_at(large_file.created_at, existing)
+                # שמירה מחדש על קובץ קיים היא עריכה. השחזור מגיבוי כן מעביר
+                # updated_at היסטורי, ולכן הרענון כאן אינו מיותר.
+                large_file.updated_at = datetime.now(timezone.utc)
                 self.delete_large_file(large_file.user_id, large_file.file_name)
             result = self.manager.large_files_collection.insert_one(asdict(large_file))
             return bool(result.inserted_id)
