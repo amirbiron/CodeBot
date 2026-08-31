@@ -33,10 +33,14 @@ class CodeSnippet:
     def __post_init__(self) -> None:
         if self.tags is None:
             self.tags = []
+        # שעון אחד לשני השדות: פריט שנוצר עכשיו ומעולם לא נערך חייב שיהיו לו
+        # created_at ו-updated_at *זהים*. שתי קריאות נפרדות ל-now() מייצרות
+        # הפרש של מיקרו-שניות שיכול ליפול על גבול דקה ולהציג "עודכן" בטעות.
+        now = datetime.now(timezone.utc)
         if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc)
+            self.created_at = now
         if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = now
         # אם הפריט מוגדר כלא-פעיל אך אין timestamps למחיקה, השאר ריק — נקבע בזמן מחיקה
 
 
@@ -60,10 +64,12 @@ class LargeFile:
     def __post_init__(self) -> None:
         if self.tags is None:
             self.tags = []
+        # ראה ההערה ב-CodeSnippet.__post_init__: שעון אחד לשני השדות.
+        now = datetime.now(timezone.utc)
         if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc)
+            self.created_at = now
         if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = now
         if self.content:
             self.file_size = len(self.content.encode('utf-8'))
             self.lines_count = len(self.content.split('\n'))

@@ -76,6 +76,25 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
 # חשוב: לא לשנות את המשתנה הפנימי ישירות ממודולים חיצוניים.
 HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
+
+# ===================== תאריך יצירה של קובץ =====================
+# כל "גרסה" של קובץ היא מסמך חדש באוסף. `created_at` על מסמך כזה מייצג את
+# יצירת *הקובץ*, לא את כתיבת השורה — אחרת כל עריכה הייתה מקדמת את התאריך
+# שמוצג למשתמש כ"נוצר". הכלל הזה הוא מקור אמת אחד לכל נקודות הכתיבה:
+# שכבת ה-DB, ראוטי ה-WebApp ושמירת מסמך משותף.
+def inherited_created_at(fallback: Any, *previous_docs: Any) -> Any:
+    """תאריך היצירה של קובץ: מהמסמך הקודם אם יש לו אחד, אחרת ``fallback``.
+
+    המועמדים נבדקים לפי הסדר ונשלפים שדה-שדה. אין מיזוג מילונים — מיזוג
+    היה מאפשר למסמך בלי ``created_at`` לדרוס את הערך של מסמך שיש לו.
+    """
+    for doc in previous_docs:
+        if isinstance(doc, dict):
+            value = doc.get("created_at")
+            if value:
+                return value
+    return fallback
+
 # Optional performance instrumentation
 try:
     from metrics import track_performance
@@ -211,6 +230,9 @@ class Repository:
             existing = self._fetch_latest_version(snippet.user_id, snippet.file_name)
             if existing:
                 snippet.version = existing['version'] + 1
+                # תאריך היצירה שייך לקובץ, לא לשורה: גרסה חדשה יורשת אותו
+                # מהגרסה הקודמת, אחרת "נוצר" היה מציג את זמן העריכה האחרונה.
+                snippet.created_at = inherited_created_at(snippet.created_at, existing)
                 # שמור סטטוס מועדפים מהגרסה הקודמת אם לא סופק מפורשות
                 try:
                     prev_is_fav = bool(existing.get('is_favorite', False))
@@ -237,7 +259,11 @@ class Repository:
                             snippet.pin_order = 0
                 except Exception:
                     pass
-            snippet.updated_at = datetime.now(timezone.utc)
+            # קובץ שמעולם לא נערך: "עודכן" הוא היצירה עצמה, ולכן שני התאריכים
+            # זהים *בדיוק*. קריאה נפרדת ל-now() כאן הייתה יוצרת הפרש של
+            # מיקרו-שניות, ושמירה שנופלת על גבול הדקה הייתה מציגה "עודכן"
+            # על קובץ טרי לגמרי.
+            snippet.updated_at = datetime.now(timezone.utc) if existing else snippet.created_at
             # הוסף שדות מטא קלים למסכי רשימות כדי לא למשוך `code` רק בשביל סטטיסטיקות.
             # זה שומר תאימות למסמכים ישנים (ללא שדות אלו) ומשפר ביצועים למסמכים חדשים.
             doc = asdict(snippet)
@@ -1321,6 +1347,10 @@ class Repository:
                 pass
             existing = self.get_large_file(large_file.user_id, large_file.file_name)
             if existing:
+                # לפני המחיקה, לא אחריה: אחרי delete_large_file המסמך כבר לא פעיל.
+                # updated_at כבר נקבע ל-now ב-LargeFile.__post_init__, ואף קורא
+                # אינו מעביר אותו — אין מה לרענן כאן.
+                large_file.created_at = inherited_created_at(large_file.created_at, existing)
                 self.delete_large_file(large_file.user_id, large_file.file_name)
             result = self.manager.large_files_collection.insert_one(asdict(large_file))
             return bool(result.inserted_id)

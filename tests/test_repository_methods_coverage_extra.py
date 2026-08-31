@@ -193,12 +193,16 @@ def test_save_large_file_normalize_and_existing(monkeypatch):
     from dataclasses import dataclass
     from database.repository import Repository
 
-    # dataclass compatible with asdict
+    # dataclass compatible with asdict.
+    # created_at/updated_at קיימים כאן כי save_large_file מקבל LargeFile, ושם הם
+    # תמיד מאותחלים ב-__post_init__. סטאב בלעדיהם מתאר ממשק שאינו קיים בפרודקשן.
     @dataclass
     class DLF:
         user_id: int
         file_name: str
         content: str
+        created_at: object = None
+        updated_at: object = None
 
     inserted = {"n": 0}
     class LColl:

@@ -227,6 +227,21 @@ except Exception:  # pragma: no cover - fallback for minimal environments
 
 LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
+# --- תאריך יצירה שנשמר בין גרסאות ---
+# הראוטים כאן כותבים ל-code_snippets ישירות ולא דרך Repository, ולכן הם
+# צריכים את אותו כלל בדיוק. הפולבק הוא עותק זהה ולא "תמיד now" — פולבק כזה
+# היה מחזיר את הבאג בשקט בסביבה שבה שכבת ה-DB לא נטענת.
+try:  # prefer the canonical rule from the repository layer
+    from database.repository import inherited_created_at
+except Exception:  # pragma: no cover - fallback for minimal environments
+    def inherited_created_at(fallback: Any, *previous_docs: Any) -> Any:
+        for _doc in previous_docs:
+            if isinstance(_doc, dict):
+                _value = _doc.get("created_at")
+                if _value:
+                    return _value
+        return fallback
+
 def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
     """מוסיף file_size/lines_count למסמכי CodeSnippet שנכתבים ישירות ל-DB."""
     try:
@@ -13771,7 +13786,7 @@ def api_restore_file_version(file_id):
         'description': description,
         'tags': tags,
         'version': next_version,
-        'created_at': now,
+        'created_at': inherited_created_at(now, latest_doc, version_doc, file_doc),
         'updated_at': now,
         'is_active': True,
         'is_favorite': bool((latest_doc or {}).get('is_favorite', file_doc.get('is_favorite', False))),
@@ -14613,7 +14628,7 @@ def edit_file_page(file_id):
                         'description': description,
                         'tags': tags,
                         'version': version,
-                        'created_at': now,
+                        'created_at': inherited_created_at(now, prev, file),
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -15823,7 +15838,7 @@ def api_save_shared_file():
             'description': description,
             'tags': tags,
             'version': version,
-            'created_at': now_utc,
+            'created_at': inherited_created_at(now_utc, prev),
             'updated_at': now_utc,
             'is_active': True,
         }
@@ -16531,7 +16546,7 @@ def upload_file_web():
                         'description': description,
                         'tags': final_tags,
                         'version': version,
-                        'created_at': now,
+                        'created_at': inherited_created_at(now, prev),
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -19008,7 +19023,7 @@ def _persist_story_markdown_file(
         'description': description[:400],
         'tags': dedup_tags,
         'version': version,
-        'created_at': now,
+        'created_at': inherited_created_at(now, prev),
         'updated_at': now,
         'is_active': True,
     }

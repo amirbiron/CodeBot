@@ -20,6 +20,20 @@ import logging
 
 from cache_manager import dynamic_cache, cache
 from webapp.activity_tracker import log_user_event
+
+# תאריך יצירה שנשמר בין גרסאות — אותו כלל בדיוק כמו בשכבת ה-DB וב-app.py.
+# הפולבק הוא עותק זהה ולא "תמיד now", כדי לא להחזיר את הבאג בשקט בסביבה
+# שבה שכבת ה-DB לא נטענת.
+try:  # prefer the canonical rule from the repository layer
+    from database.repository import inherited_created_at
+except Exception:  # pragma: no cover - fallback for minimal environments
+    def inherited_created_at(fallback: Any, *previous_docs: Any) -> Any:
+        for _doc in previous_docs:
+            if isinstance(_doc, dict):
+                _value = _doc.get("created_at")
+                if _value:
+                    return _value
+        return fallback
 try:
     from config import config as _cfg  # type: ignore
 except Exception:  # pragma: no cover
@@ -1312,7 +1326,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
             "file_size": file_size,
             "lines_count": lines_count,
             "is_active": True,
-            "created_at": now,
+            "created_at": inherited_created_at(now, prev),
             "updated_at": now,
         }
         try:
@@ -1354,7 +1368,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
         "version": int(version),
         "file_size": file_size,
         "lines_count": lines_count,
-        "created_at": now,
+        "created_at": inherited_created_at(now, prev),
         "updated_at": now,
         "is_active": True,
     }

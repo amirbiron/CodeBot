@@ -368,7 +368,10 @@
 
                 <div style="display: flex; gap: 2rem; margin-top: 1rem; opacity: 0.7; font-size: 0.9rem;">
                     <span><i class="fas fa-calendar"></i> נוצר: {{ file.created_at }}</span>
+                    {# קובץ שלא נערך מציג את אותו תאריך פעמיים — שורה כפולה בלי מידע #}
+                    {% if file.updated_at != file.created_at %}
                     <span><i class="fas fa-edit"></i> עודכן: {{ file.updated_at }}</span>
+                    {% endif %}
                 </div>
             </div>
 

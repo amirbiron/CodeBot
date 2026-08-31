@@ -492,6 +492,15 @@
     border-radius: 10px;
 }
 
+/* global_search.css מגדיר `.meta-item{display:flex}` על כל העמוד, וכלל של
+   המחבר גובר על ברירת המחדל של הדפדפן ל-`[hidden]`. בלי הכלל הזה התכונה
+   `hidden` אינה מסתירה כלום — נמדד בכרומיום: תיבה של 283x56 פיקסלים.
+   הספציפיות (0,2,0) מנצחת את (0,1,0) בלי !important, לפי המוסכמה שמתועדת
+   ב-docs/webapp/theming_and_css.rst. */
+.meta-item[hidden] {
+    display: none;
+}
+
 .meta-label {
     font-size: 0.9rem;
     opacity: 0.7;
@@ -943,9 +952,10 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         <div class="meta-label"><i class="fas fa-calendar-plus"></i> נוצר</div>
         <div class="meta-value">{{ file.created_at }}</div>
     </div>
-    <div class="meta-item">
+    {# נשאר ב-DOM גם כשהוא מוסתר, כדי שעדכון AJAX עתידי יוכל למלא אותו #}
+    <div class="meta-item" id="metaUpdatedItem" {% if file.updated_at == file.created_at %}hidden{% endif %}>
         <div class="meta-label"><i class="fas fa-calendar-check"></i> עודכן</div>
-        <div class="meta-value">{{ file.updated_at }}</div>
+        <div class="meta-value" id="metaUpdatedValue">{{ file.updated_at }}</div>
     </div>
 </div>
 
