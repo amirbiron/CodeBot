@@ -9,6 +9,8 @@
 import pytest
 
 from services.theme_parser_service import (
+    FALLBACK_DARK,
+    composite_over,
     contrast_ratio,
     normalize_color_to_rgba,
     parse_vscode_theme,
@@ -42,12 +44,9 @@ def _painted(color: str, over: str) -> str:
     בלי זה הבדיקה חסרת ערך — contrast_ratio מתעלם מ-alpha, ולכן
     rgba(0, 0, 0, 0.02) נמדד כשחור מלא ומחזיר ניגודיות גבוהה מדומה.
     """
-    fg = normalize_color_to_rgba(color)
-    bg = normalize_color_to_rgba(over)
-    assert fg is not None and bg is not None, f"צבע לא ניתן לפרסור: {color} / {over}"
-    r, g, b, alpha = fg
-    mixed = tuple(round(f * alpha + d * (1 - alpha)) for f, d in zip((r, g, b), bg[:3]))
-    return "#%02x%02x%02x" % mixed
+    painted = composite_over(color, over)
+    assert painted is not None, f"צבע לא ניתן לפרסור: {color} / {over}"
+    return painted
 
 
 def test_light_theme_surface_separates_from_both_gradient_ends():
@@ -89,11 +88,61 @@ def test_derived_glass_values_survive_the_whitelist_sanitizer():
 def test_dark_theme_glass_is_left_untouched():
     """ערכה כהה נראית טוב היום — הגזירה לא אמורה לגעת בה בכלל."""
     v = _vars(DARK)
-    assert v["--glass"] == "rgba(255, 255, 255, 0.05)"
-    assert v["--glass-border"] == "rgba(255, 255, 255, 0.1)"
-    assert v["--glass-hover"] == "rgba(255, 255, 255, 0.08)"
+    for key in ("--glass", "--glass-border", "--glass-hover"):
+        assert v[key] == FALLBACK_DARK[key], f"{key} השתנה בערכה כהה"
 
 
 @pytest.mark.parametrize("a,b,expected", [("#ffffff", "#000000", 21.0), ("#ffffff", "#ffffff", 1.0)])
 def test_contrast_ratio_helper(a, b, expected):
     assert contrast_ratio(a, b) == pytest.approx(expected, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# ממצאים שהתגלו בסקירה
+# ---------------------------------------------------------------------------
+
+RGB_LIGHT = {
+    "name": "rgb light", "type": "light",
+    "colors": {"editor.background": "rgb(248, 246, 241)",
+               "editor.foreground": "rgb(43, 63, 106)",
+               "sideBar.background": "rgb(235, 232, 223)"},
+}
+# ה-body צבוע linear-gradient(--bg-primary → --bg-secondary). כאן הרקע המשני
+# בהיר מהראשי, ולכן הכהיה ממנו עלולה לנחות בדיוק על הראשי.
+INVERTED_LIGHT = {
+    "name": "inverted light", "type": "light",
+    "colors": {"editor.background": "#f0f0f0", "sideBar.background": "#ffffff",
+               "editor.foreground": "#222222"},
+}
+
+
+def test_light_theme_declared_in_rgb_is_recognised_as_light():
+    """VALID_COLOR_REGEX מאשר rgb()/rgba(), ולכן גם הם חייבים להיכנס לגזירה."""
+    v = _vars(RGB_LIGHT)
+    assert v["--glass"] != FALLBACK_DARK["--glass"]
+    for end in (v["--bg-primary"], v["--bg-secondary"]):
+        painted = _painted(v["--glass"], end)
+        assert contrast_ratio(painted, end) >= MIN_SURFACE_CONTRAST
+
+
+def test_surface_separates_even_when_secondary_is_lighter_than_primary():
+    v = _vars(INVERTED_LIGHT)
+    for end in (v["--bg-primary"], v["--bg-secondary"]):
+        painted = _painted(v["--glass"], end)
+        assert contrast_ratio(painted, end) >= MIN_SURFACE_CONTRAST, (
+            f"--glass={v['--glass']} מול {end}"
+        )
+
+
+def test_contrast_ratio_refuses_to_answer_for_a_translucent_colour():
+    """
+    ההתעלמות מ-alpha החזירה 19.44 עבור rgba(0,0,0,0.02) מעל נייר בהיר,
+    בעוד הצבע המצויר בפועל נותן 1.045. ערך כזה נראה אמין ואינו נכון.
+    """
+    assert contrast_ratio("rgba(0, 0, 0, 0.02)", "#f8f6f1") is None
+
+
+def test_composite_over_matches_the_painted_colour():
+    assert composite_over("rgba(0, 0, 0, 0.02)", "#f8f6f1") == "#f3f1ec"
+    assert composite_over("#ffffff", "#000000") == "#ffffff"
+    assert composite_over("not-a-colour", "#000000") is None

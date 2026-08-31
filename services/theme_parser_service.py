@@ -576,6 +576,9 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
 _GLASS_SURFACE_DARKEN = 0.06
 _GLASS_HOVER_DARKEN = 0.06
 _GLASS_BORDER_OPACITY = 0.18
+# הפרדה מינימלית של המשטח משני קצות הגרדיאנט, ומספר הכהיות מרבי עד שמגיעים אליה.
+_GLASS_MIN_SURFACE_CONTRAST = 1.10
+_GLASS_MAX_DARKEN_STEPS = 8
 
 
 def _derive_glass_tokens(variables: dict) -> dict:
@@ -606,6 +609,21 @@ def _derive_glass_tokens(variables: dict) -> dict:
     surface = darken_color(str(base), _GLASS_SURFACE_DARKEN)
     if normalize_color_to_rgba(surface) is None:
         return result
+
+    # הכהיה אחת מ---bg-secondary אינה מספיקה כשהוא בהיר מ---bg-primary: היא
+    # נוחתת על הראשי עצמו והכרטיס נעלם בקצה אחד של הגרדיאנט (נמדד 1.009).
+    # מכהים עד שהמשטח נבדל משני הקצוות.
+    gradient_ends = [str(end) for end in (bg_primary, result.get("--bg-secondary")) if end]
+    for _ in range(_GLASS_MAX_DARKEN_STEPS):
+        ratios = [contrast_ratio(surface, end) for end in gradient_ends]
+        if not ratios or any(ratio is None for ratio in ratios):
+            break  # קצה שאינו אטום — אי אפשר למדוד, נשארים עם ההכהיה הבסיסית
+        if min(ratios) >= _GLASS_MIN_SURFACE_CONTRAST:
+            break
+        darker = darken_color(surface, _GLASS_SURFACE_DARKEN)
+        if darker == surface:
+            break  # התכנסות (שחור) — אין טעם להמשיך
+        surface = darker
 
     result["--glass"] = surface
     result["--glass-hover"] = darken_color(surface, _GLASS_HOVER_DARKEN)
@@ -772,10 +790,36 @@ def darken_color(color: str, amount: float = 0.2) -> str:
     return rgba_to_css(r, g, b, a)
 
 
+def composite_over(color: str, background: str) -> str | None:
+    """
+    מחזיר את הצבע שהדפדפן מצייר בפועל: ``color`` (אולי שקוף למחצה) מעל ``background``.
+
+    ``background`` נדרש להיות אטום — אין שכבה נוספת מתחתיו להרכיב מעליה.
+    מחזיר ``None`` אם אחד הערכים אינו ניתן לפרסור.
+    """
+    fg = normalize_color_to_rgba(color)
+    bg = normalize_color_to_rgba(background)
+    if fg is None or bg is None:
+        return None
+    alpha = fg[3]
+    mixed = tuple(
+        max(0, min(255, round(channel * alpha + base * (1 - alpha))))
+        for channel, base in zip(fg[:3], bg[:3])
+    )
+    return "#%02x%02x%02x" % mixed
+
+
 def _relative_luminance(color: str) -> float | None:
-    """לומיננסיה יחסית לפי WCAG 2.1. מחזיר None אם הצבע אינו ניתן לפרסור."""
+    """
+    לומיננסיה יחסית לפי WCAG 2.1.
+
+    מחזיר ``None`` אם הצבע אינו ניתן לפרסור, וגם אם הוא אינו אטום: לצבע
+    שקוף למחצה אין לומיננסיה משל עצמו — היא תלויה במה שמתחתיו. התעלמות
+    מ-alpha החזירה 19.44 עבור ``rgba(0, 0, 0, 0.02)`` מעל נייר בהיר, בעוד
+    הצבע המצויר בפועל נותן 1.045. הרכיבו קודם עם :func:`composite_over`.
+    """
     rgba = normalize_color_to_rgba(color)
-    if rgba is None:
+    if rgba is None or rgba[3] < 1.0:
         return None
 
     def _lin(channel: float) -> float:
@@ -787,7 +831,12 @@ def _relative_luminance(color: str) -> float | None:
 
 
 def contrast_ratio(color_a: str, color_b: str) -> float | None:
-    """יחס ניגודיות WCAG בין שני צבעים (1.0 = זהים, 21.0 = לבן מול שחור)."""
+    """
+    יחס ניגודיות WCAG בין שני צבעים (1.0 = זהים, 21.0 = לבן מול שחור).
+
+    מחזיר ``None`` אם אחד הצבעים אינו ניתן לפרסור או אינו אטום — ראו
+    :func:`_relative_luminance`.
+    """
     lum_a = _relative_luminance(color_a)
     lum_b = _relative_luminance(color_b)
     if lum_a is None or lum_b is None:
@@ -796,25 +845,24 @@ def contrast_ratio(color_a: str, color_b: str) -> float | None:
     return (hi + 0.05) / (lo + 0.05)
 
 
-def _is_dark_color(hex_color: str) -> bool:
-    """בודק אם צבע hex הוא כהה (luminance נמוך)."""
-    if not isinstance(hex_color, str) or not hex_color.startswith("#"):
-        return True
+def _is_dark_color(color: str) -> bool:
+    """
+    בודק אם צבע כהה.
 
-    hex_val = hex_color.lstrip("#")
-    if len(hex_val) == 3:
-        hex_val = "".join(c * 2 for c in hex_val)
-    if len(hex_val) not in (6, 8):
-        return True
+    תומך בכל הפורמטים ש-``VALID_COLOR_REGEX`` מאשר — hex בן 3/4/6/8 תווים,
+    ``rgb()`` ו-``rgba()`` — ולא ב-hex בלבד. ערכה בהירה שהצהירה על צבעיה
+    ב-``rgb()`` נחשבה קודם כהה, ולכן לא נכנסה לגזירת הזכוכית.
 
-    try:
-        r = int(hex_val[0:2], 16)
-        g = int(hex_val[2:4], 16)
-        b = int(hex_val[4:6], 16)
-        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-        return luminance < 0.5
-    except Exception:
+    ⚠️ ‏alpha אינו נלקח בחשבון: אין כאן רקע ידוע להרכיב מעליו, והצבע נבחן
+    כאילו הוא אטום. זו גם ההתנהגות שהייתה קודם עבור hex בן 8 תווים.
+
+    ערך שאינו ניתן לפרסור נחשב כהה — ברירת מחדל שמרנית שמונעת גזירה.
+    """
+    rgba = normalize_color_to_rgba(color) if isinstance(color, str) else None
+    if rgba is None:
         return True
+    r, g, b, _ = rgba
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5
 
 
 # ==========================================
