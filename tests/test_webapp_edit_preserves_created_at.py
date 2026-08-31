@@ -27,6 +27,66 @@ class _Result:
         self.modified_count = modified
 
 
+class _Cursor(list):
+    """מספיק כדי ש-‎.sort(key, direction)‎ של pymongo יעבוד על התוצאה."""
+
+    def sort(self, key_or_list, direction=1):
+        pairs = [(key_or_list, direction)] if isinstance(key_or_list, str) else list(key_or_list)
+        for key, order in reversed(pairs):
+            list.sort(self, key=lambda d: d.get(key, 0), reverse=(int(order) < 0))
+        return self
+
+    def limit(self, n):
+        return _Cursor(self[:n])
+
+    def skip(self, n):
+        return _Cursor(self[n:])
+
+
+def _matches(doc, query):
+    """התאמה לשאילתת Mongo — fail-closed על מה שלא ממומש.
+
+    אופרטור שלא ממומש מחזיר ``False`` ולא "מתאים לכולם". פייק מתירני היה
+    גורם לשאילתה להחזיר את *כל* המסמכים, והטסט היה עובר מהסיבה הלא נכונה.
+
+    לא זורקים חריגה במכוון: כל קריאת DB בראוטים הנבדקים עטופה ב-
+    ``try/except Exception``, ולכן חריגה מכאן הייתה נבלעת שם ומחזירה בדיוק
+    את אותו ירוק שקרי. תוצאה ריקה, לעומת זאת, מפילה את האסרשן בקול.
+    זו גם ההתנהגות של רוב הפייקים הקיימים בריפו.
+    """
+    for key, expected in query.items():
+        if key == "$or":
+            if not any(_matches(doc, cond) for cond in expected):
+                return False
+            continue
+        if key == "$and":
+            if not all(_matches(doc, cond) for cond in expected):
+                return False
+            continue
+        if key.startswith("$"):
+            return False  # אופרטור ברמת מסמך שלא ממומש
+        value = doc.get(key)
+        if isinstance(expected, dict):
+            for op, operand in expected.items():
+                if op == "$ne":
+                    if value == operand:
+                        return False
+                elif op == "$in":
+                    if value not in operand:
+                        return False
+                elif op == "$nin":
+                    if value in operand:
+                        return False
+                elif op == "$exists":
+                    if (key in doc) != bool(operand):
+                        return False
+                else:
+                    return False  # אופרטור שדה שלא ממומש
+        elif value != expected:
+            return False
+    return True
+
+
 class FakeCollection:
     def __init__(self, docs: Optional[List[Dict[str, Any]]] = None):
         self.docs: List[Dict[str, Any]] = list(docs or [])
@@ -44,8 +104,21 @@ class FakeCollection:
                 items.sort(key=lambda d: d.get(key, 0), reverse=(int(direction) < 0))
         return dict(items[0]) if items else None
 
+    def insert_many(self, docs, **kwargs):
+        return _Result(inserted_id=[self.insert_one(d).inserted_id for d in docs])
+
     def find(self, query=None, projection=None, **kwargs):
-        return list(self._filter(query or {}))
+        # קורסור ולא list: הראוט קורא ‎.sort('order', 1)‎ על התוצאה, ו-list.sort
+        # לא מקבל ארגומנטים פוזיציוניים. ה-TypeError היה נבלע ב-except של הראוט.
+        return _Cursor(self._filter(query or {}))
+
+    def distinct(self, key, query=None, **kwargs):
+        seen = []
+        for doc in self._filter(query or {}):
+            value = doc.get(key)
+            if value is not None and value not in seen:
+                seen.append(value)
+        return seen
 
     def update_many(self, query, update, **kwargs):
         items = self._filter(query)
@@ -66,19 +139,7 @@ class FakeCollection:
         return []
 
     def _filter(self, query):
-        def matches(doc):
-            for key, expected in query.items():
-                if key in ("$or", "$and"):
-                    continue
-                if isinstance(expected, dict):
-                    if "$ne" in expected and doc.get(key) == expected["$ne"]:
-                        return False
-                    continue
-                if doc.get(key) != expected:
-                    return False
-            return True
-
-        return [d for d in self.docs if matches(d)]
+        return [d for d in self.docs if _matches(d, query or {})]
 
 
 class FakeDB:
@@ -194,3 +255,55 @@ def test_restore_route_keeps_the_original_created_at(monkeypatch):
     latest = _newest(snippets)
     assert latest["version"] == 3
     assert latest["created_at"] == ORIGINAL_CREATED_AT
+
+
+class TestFakeMatchesFailsClosed:
+    """הפייק עצמו — לוגיקה לא טריוויאלית שצריכה בדיקה משלה.
+
+    פייק שמתאים לכל מסמך על אופרטור שהוא לא מכיר גורם לשאילתה להחזיר את
+    *כל* האוסף, והטסט שמעליו עובר מהסיבה הלא נכונה. לכן אופרטור לא ממומש
+    מחזיר ``False`` ולא "מתאים".
+
+    למה לא לזרוק חריגה: כל קריאת DB בראוטים הנבדקים עטופה ב-
+    ``try/except Exception``, ולכן חריגה מכאן הייתה נבלעת שם ומחזירה בדיוק
+    את אותו ירוק שקרי — רק עם יותר קוד.
+    """
+
+    DOC = {"user_id": 1, "file_name": "a.py", "is_active": True, "version": 3}
+
+    def test_equality(self):
+        assert _matches(self.DOC, {"user_id": 1}) is True
+        assert _matches(self.DOC, {"user_id": 2}) is False
+
+    def test_ne(self):
+        assert _matches(self.DOC, {"version": {"$ne": 9}}) is True
+        assert _matches(self.DOC, {"version": {"$ne": 3}}) is False
+
+    def test_in_and_nin(self):
+        assert _matches(self.DOC, {"version": {"$in": [3, 4]}}) is True
+        assert _matches(self.DOC, {"version": {"$in": [4, 5]}}) is False
+        assert _matches(self.DOC, {"version": {"$nin": [4, 5]}}) is True
+        assert _matches(self.DOC, {"version": {"$nin": [3]}}) is False
+
+    def test_exists(self):
+        assert _matches(self.DOC, {"file_name": {"$exists": True}}) is True
+        assert _matches(self.DOC, {"missing": {"$exists": True}}) is False
+
+    def test_or_and_and(self):
+        assert _matches(self.DOC, {"$or": [{"user_id": 9}, {"user_id": 1}]}) is True
+        assert _matches(self.DOC, {"$or": [{"user_id": 9}, {"user_id": 8}]}) is False
+        assert _matches(self.DOC, {"$and": [{"user_id": 1}, {"version": 3}]}) is True
+        assert _matches(self.DOC, {"$and": [{"user_id": 1}, {"version": 9}]}) is False
+
+    def test_unimplemented_field_operator_matches_nothing(self):
+        """‏$gt לא ממומש — ולכן לא מתאים, במקום להתאים לכל מסמך."""
+        assert _matches(self.DOC, {"version": {"$gt": 1}}) is False
+
+    def test_unimplemented_document_operator_matches_nothing(self):
+        assert _matches(self.DOC, {"$nor": [{"user_id": 9}]}) is False
+
+    def test_cursor_supports_sort_like_pymongo(self):
+        """‏find() חייב להחזיר קורסור: הראוט קורא ‎.sort('order', 1)‎ על התוצאה."""
+        coll = FakeCollection([{"order": 2, "n": "b"}, {"order": 1, "n": "a"}])
+        assert [d["n"] for d in coll.find({}).sort("order", 1)] == ["a", "b"]
+        assert [d["n"] for d in coll.find({}).sort("order", -1)] == ["b", "a"]

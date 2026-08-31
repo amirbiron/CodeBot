@@ -203,10 +203,16 @@ def test_brand_new_large_file_created_at_equals_updated_at(repo):
 
 
 class TestInheritedCreatedAtHelper:
-    """הכלל עצמו — מקור אמת אחד שכל נקודות הכתיבה נשענות עליו."""
+    """הכלל עצמו — מקור אמת אחד שכל נקודות הכתיבה נשענות עליו.
+
+    הוא חי ב-``file_dates.py`` בשורש הריפו ולא ב-``database/repository``:
+    ייבוא של כל תת-מודול תחת ``database/`` מריץ את ``database/__init__``,
+    שמייצר ``DatabaseManager()`` ומתחבר למסד. מודול שורש טהור מאפשר גם
+    ל-webapp לייבא אותו ישירות, בלי עותק fallback שצריך לתחזק.
+    """
 
     def test_takes_the_first_candidate_that_has_a_date(self):
-        from database.repository import inherited_created_at
+        from file_dates import inherited_created_at
 
         now = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
         assert inherited_created_at(now, {"created_at": ORIGINAL_CREATED_AT}) == ORIGINAL_CREATED_AT
@@ -216,15 +222,60 @@ class TestInheritedCreatedAtHelper:
 
         מיזוג היה נותן למסמך בלי created_at לדרוס את הערך של מסמך שיש לו.
         """
-        from database.repository import inherited_created_at
+        from file_dates import inherited_created_at
 
         now = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
         result = inherited_created_at(now, {"file_name": "a.py"}, {"created_at": ORIGINAL_CREATED_AT})
         assert result == ORIGINAL_CREATED_AT
 
     def test_falls_back_when_nothing_usable(self):
-        from database.repository import inherited_created_at
+        from file_dates import inherited_created_at
 
         now = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
         assert inherited_created_at(now) == now
         assert inherited_created_at(now, None, {}, {"created_at": None}) == now
+
+
+class TestFileWasEdited:
+    """האם להציג את שורת "עודכן" — נקבע מהתאריכים הגולמיים.
+
+    לא מהמחרוזות המפורמטות: הפורמט הוא ברזולוציית דקה, ולכן עריכה שקרתה
+    באותה דקה שבה הקובץ נוצר הייתה נעלמת מהמסך.
+    """
+
+    def test_never_edited_is_hidden(self):
+        from file_dates import file_was_edited
+
+        moment = datetime(2026, 8, 31, 14, 3, 10, tzinfo=timezone.utc)
+        assert file_was_edited(moment, moment) is False
+
+    def test_edit_inside_the_same_minute_still_counts(self):
+        """המקרה שהשוואת מחרוזות פספסה: שתיהן היו מציגות 31/08/2026 14:03."""
+        from file_dates import file_was_edited
+
+        created = datetime(2026, 8, 31, 14, 3, 10, tzinfo=timezone.utc)
+        edited = datetime(2026, 8, 31, 14, 3, 50, tzinfo=timezone.utc)
+        assert file_was_edited(created, edited) is True
+
+    def test_naive_and_aware_do_not_raise(self):
+        """מונגו מחזיר datetime בלי אזור זמן; חלק מהזרימות כותבות aware."""
+        from file_dates import file_was_edited
+
+        aware = datetime(2026, 8, 31, 14, 0, tzinfo=timezone.utc)
+        naive_later = datetime(2026, 8, 31, 15, 0)
+        assert file_was_edited(aware, naive_later) is True
+        assert file_was_edited(naive_later, aware) is False
+
+    def test_missing_updated_at_is_hidden(self):
+        """שורה עם ערך ריק גרועה משורה שאינה קיימת."""
+        from file_dates import file_was_edited
+
+        created = datetime(2026, 8, 31, 14, 0, tzinfo=timezone.utc)
+        assert file_was_edited(created, None) is False
+        assert file_was_edited(created, "not a date") is False
+
+    def test_missing_created_at_still_shows_the_update(self):
+        from file_dates import file_was_edited
+
+        updated = datetime(2026, 8, 31, 14, 0, tzinfo=timezone.utc)
+        assert file_was_edited(None, updated) is True

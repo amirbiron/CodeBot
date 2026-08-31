@@ -50,6 +50,8 @@ except Exception:  # pragma: no cover - דקורטור no-op במקרה שחסר
 
 from .manager import DatabaseManager
 from utils import normalize_code
+# תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
+from file_dates import inherited_created_at
 from config import config
 try:
     from observability import emit_event
@@ -75,25 +77,6 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
 # Alias ציבורי לשימוש בשכבות אחרות (למשל Webapp) בלי להסתמך על שם פרטי עם _.
 # חשוב: לא לשנות את המשתנה הפנימי ישירות ממודולים חיצוניים.
 HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
-
-
-# ===================== תאריך יצירה של קובץ =====================
-# כל "גרסה" של קובץ היא מסמך חדש באוסף. `created_at` על מסמך כזה מייצג את
-# יצירת *הקובץ*, לא את כתיבת השורה — אחרת כל עריכה הייתה מקדמת את התאריך
-# שמוצג למשתמש כ"נוצר". הכלל הזה הוא מקור אמת אחד לכל נקודות הכתיבה:
-# שכבת ה-DB, ראוטי ה-WebApp ושמירת מסמך משותף.
-def inherited_created_at(fallback: Any, *previous_docs: Any) -> Any:
-    """תאריך היצירה של קובץ: מהמסמך הקודם אם יש לו אחד, אחרת ``fallback``.
-
-    המועמדים נבדקים לפי הסדר ונשלפים שדה-שדה. אין מיזוג מילונים — מיזוג
-    היה מאפשר למסמך בלי ``created_at`` לדרוס את הערך של מסמך שיש לו.
-    """
-    for doc in previous_docs:
-        if isinstance(doc, dict):
-            value = doc.get("created_at")
-            if value:
-                return value
-    return fallback
 
 # Optional performance instrumentation
 try:

@@ -70,7 +70,7 @@ def test_root_module_imports_come_after_the_path_setup():
     assert setup_line is not None, "‏הכנת ה-sys.path נעלמה מ-app.py"
 
     # מודולים שיושבים בשורש הריפו ואינם נגישים מ-webapp/ בלי ההכנה
-    root_modules = ("sticky_notes_target", "sticky_notes_scope", "user_roles", "note_boards")
+    root_modules = ("sticky_notes_target", "sticky_notes_scope", "user_roles", "note_boards", "file_dates")
     offenders = [
         (i + 1, ln.strip())
         for i, ln in enumerate(lines[:setup_line])

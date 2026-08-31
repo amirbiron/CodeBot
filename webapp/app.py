@@ -177,6 +177,9 @@ from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
+# כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
+# שלמעלה, ראו tests/test_webapp_import_paths.py.
+from file_dates import inherited_created_at, file_was_edited  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
@@ -226,21 +229,6 @@ except Exception:  # pragma: no cover - fallback for minimal environments
     _HEAVY_FIELDS_EXCLUDE_PROJECTION = {"code": 0, "content": 0, "raw_content": 0}
 
 LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
-
-# --- תאריך יצירה שנשמר בין גרסאות ---
-# הראוטים כאן כותבים ל-code_snippets ישירות ולא דרך Repository, ולכן הם
-# צריכים את אותו כלל בדיוק. הפולבק הוא עותק זהה ולא "תמיד now" — פולבק כזה
-# היה מחזיר את הבאג בשקט בסביבה שבה שכבת ה-DB לא נטענת.
-try:  # prefer the canonical rule from the repository layer
-    from database.repository import inherited_created_at
-except Exception:  # pragma: no cover - fallback for minimal environments
-    def inherited_created_at(fallback: Any, *previous_docs: Any) -> Any:
-        for _doc in previous_docs:
-            if isinstance(_doc, dict):
-                _value = _doc.get("created_at")
-                if _value:
-                    return _value
-        return fallback
 
 def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
     """מוסיף file_size/lines_count למסמכי CodeSnippet שנכתבים ישירות ל-DB."""
@@ -12210,6 +12198,7 @@ def files():
                 'lines': lines_count,
                 'created_at': format_datetime_display(latest.get('created_at')),
                 'updated_at': format_datetime_display(latest.get('updated_at')),
+                'was_edited': file_was_edited(latest.get('created_at'), latest.get('updated_at')),
                 'last_opened_at': format_datetime_display(recent_map.get(fname)),
             })
 
@@ -12369,7 +12358,8 @@ def files():
             'size': format_file_size(size_bytes),
             'lines': lines_count,
             'created_at': format_datetime_display(file.get('created_at')),
-            'updated_at': format_datetime_display(file.get('updated_at'))
+            'updated_at': format_datetime_display(file.get('updated_at')),
+            'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at'))
         })
     
     # רשימת שפות לפילטר - רק מקבצים פעילים
@@ -12648,6 +12638,7 @@ def view_file(file_id):
                                  'lines': len(code.split('\n')) if code else 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12680,6 +12671,7 @@ def view_file(file_id):
                                  'lines': 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12741,6 +12733,7 @@ def view_file(file_id):
         'lines': len(code.split('\n')) if code else 0,
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
+        'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
         'version': (file.get('version', 1) if not is_large else None),
         'is_large': is_large,
         'can_pin': not is_large,
@@ -19530,6 +19523,9 @@ def public_share(share_id):
         'lines': lines_count,
         'created_at': created_at_str,
         'updated_at': created_at_str,
+        # מסמך internal_shares נושא רק את זמן יצירת *השיתוף* ואין בו
+        # updated_at, ולכן אין ממה לגזור עריכה. שתי השורות ממילא זהות כאן.
+        'was_edited': False,
         'version': 1,
         'can_pin': False,
     }
