@@ -99,10 +99,16 @@
         <p class="mig-error">⚠️ רשומת ה-audit לא נכתבה: {{ result.audit_error }}</p>
         {% endif %}
         {% set ci = result.cache_invalidation %}
-        {% if ci and ci.failed %}
-        <p class="mig-error">⚠️ ביטול הקאש נכשל עבור {{ ci.failed }} מתוך {{ ci.attempted }} משתמשים{% if ci.error %} ({{ ci.error }}){% endif %} — ייתכן שרשימות ימשיכו להציג את התאריך הישן עד שה-TTL יפוג.</p>
+        {# מדווחים את מה שנמדד: כמה מפתחות נמחקו בפועל. "בוטל בהצלחה" היה
+           טענה על מצב שנשענת על קריאה שאין לה ערוץ כשל. 0 מפתחות אינו
+           כשל — קאש קר הוא מצב לגיטימי — אבל היעדר Redis כן, כי אז
+           הניקוי חל רק על התהליך הזה. #}
+        {% if ci and ci.error %}
+        <p class="mig-error">⚠️ ביטול הקאש לא רץ כלל ({{ ci.error }}) — רשימות עשויות להמשיך להציג את התאריך הישן עד שה-TTL יפוג.</p>
+        {% elif ci and not ci.backend %}
+        <p class="mig-error">⚠️ ‏Redis אינו זמין. נמחקו {{ ci.keys_deleted }} מפתחות מהפולבק של התהליך הזה בלבד — ‏workers אחרים עשויים להמשיך להגיש את התאריך הישן עד שה-TTL יפוג.</p>
         {% elif ci %}
-        <p class="mig-note">קאש בוטל עבור {{ ci.ok }} משתמשים.</p>
+        <p class="mig-note">נמחקו {{ ci.keys_deleted }} מפתחות קאש עבור {{ ci.users }} משתמשים. ‏(0 אינו כשל — קאש קר הוא מצב תקין.)</p>
         {% endif %}
     </div>
     {% endif %}

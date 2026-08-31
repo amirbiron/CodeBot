@@ -492,6 +492,19 @@
     border-radius: 10px;
 }
 
+/* ``hidden`` מול ``display`` של מחבר: הדפדפן מגדיר ``[hidden]{display:none}``
+   במקור ה-user-agent, וכל הכרזת ``display`` של מחבר מנצחת אותו. ל-``.meta-item``
+   כאן אין ``display`` משלו, אבל ``global_search.css`` — שנטען גלובלית מ-
+   ``base.html`` — מגדיר ``.meta-item{display:flex}`` בלי לתחום אותו לתוצאות
+   החיפוש, והכלל הזה דולף לעמוד הזה. נמדד בדפדפן: הפריט נשא ``hidden``
+   ובכל זאת ``getComputedStyle`` החזיר ``display:flex`` ותיבה של 283×56.
+   כלומר "עודכן" הוצג תמיד, גם על קובץ שמעולם לא נערך — בדיקת שרת שקוראת
+   את התכונה ב-HTML לא יכולה לראות את זה.
+   אותו פתרון כבר קיים בקובץ הזה ב-``.file-actions__dropdown[hidden]``. */
+.meta-item[hidden] {
+    display: none;
+}
+
 .meta-label {
     font-size: 0.9rem;
     opacity: 0.7;

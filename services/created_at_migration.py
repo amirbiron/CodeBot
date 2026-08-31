@@ -152,23 +152,47 @@ def _write_audit(db, doc: Dict[str, Any]) -> Optional[str]:
 
 
 def _invalidate_users(user_ids) -> Dict[str, Any]:
-    """מבטל קאש למשתמשים שנגענו בהם, באותו מנגנון של ``save_code_snippet``.
+    """מבטל קאש למשתמשים שנגענו בהם, ומדווח את **מה שנמדד**.
 
-    בלי זה רשימות הקבצים ממשיכות להיות מוגשות מהקאש עם התאריך הישן עד
-    שה-TTL פג. מדווחים כמה משתמשים טופלו וכמה נכשלו — לא מכריזים הצלחה.
+    ‏``cache.invalidate_user_cache`` עוטף את כל גופו ב-``except Exception``
+    ומחזיר ``int`` — מספר המפתחות שנמחקו בפועל. כלומר הוא **אינו זורק**,
+    ולכן ``try/except`` סביבו הוא ``except`` שלא ירוץ לעולם, ו-"הקריאה
+    חזרה" אינו מידע. ערוץ הכשל היחיד שלו הוא ערך ההחזרה — וזה מה שנקרא
+    כאן (K11, ו-``return-value-failure-unchecked`` §4).
+
+    **‏0 אינו מסומן ככשל.** לפי K11 הקובע הוא החוזה: מפתח קיים רק אם
+    מישהו שלף את רשימת הקבצים של המשתמש קודם, ולכן קאש קר הוא מצב
+    לגיטימי. מה שכן ניתן להבחין בו — ולכן מדווח בנפרד — הוא היעדר
+    backend קאש בכלל, שהוא כשל אמיתי שהיה מוסתר מאחורי "0 מפתחות".
+
+    מחזיר ``users``, ``keys_deleted`` ו-``backend`` (האם יש קאש פעיל),
+    ו-``error`` כשה-import עצמו נכשל.
     """
-    ok, failed = 0, 0
     try:
         from cache_manager import cache  # type: ignore
     except Exception as exc:
-        return {"attempted": len(user_ids), "ok": 0, "failed": len(user_ids), "error": str(exc)}
+        logger.warning("ביטול קאש למיגרציה נכשל: לא ניתן לטעון cache_manager: %s", exc)
+        return {"users": len(user_ids), "keys_deleted": 0, "backend": False, "error": str(exc)}
+
+    # ``is_enabled`` הוא הדגל ש-``cache_manager`` מציב כשיש Redis חי, והוא
+    # מה ש-``delete_pattern`` עצמו בודק. הדוקסטרינג שלו קובע במפורש שכאשר
+    # הוא כבוי הניקוי חל **רק על הפולבק שבתהליך הזה**, ושבמצב הזה 0 אינו
+    # מבחין בין "לא היה מה למחוק" לבין "לא יכולתי לגשת". לכן מדווחים אותו
+    # לאדמין ולא מסתפקים במספר.
+    backend = bool(getattr(cache, "is_enabled", False))
+
+    keys_deleted = 0
     for uid in user_ids:
-        try:
-            cache.invalidate_user_cache(int(uid))
-            ok += 1
-        except Exception:
-            failed += 1
-    return {"attempted": len(user_ids), "ok": ok, "failed": failed}
+        keys_deleted += int(cache.invalidate_user_cache(int(uid)) or 0)
+
+    if not backend:
+        logger.warning(
+            "המיגרציה עדכנה %d משתמשים בזמן ש-Redis אינו זמין — ביטול הקאש "
+            "חל רק על הפולבק שבתהליך הזה, ו-workers אחרים עשויים להמשיך "
+            "להגיש את התאריך הישן עד ש-TTL יפוג",
+            len(user_ids),
+        )
+    return {"users": len(user_ids), "keys_deleted": keys_deleted, "backend": backend}
 
 
 def _sample_of(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -224,7 +248,11 @@ def apply(db, *, batch_size: int = DEFAULT_BATCH_SIZE) -> Dict[str, Any]:
         res = db.code_snippets.bulk_write(ops, ordered=False)
         modified = int(getattr(res, "modified_count", 0) or 0)
 
-    cache_report = _invalidate_users(sorted(user_ids)) if user_ids else {"attempted": 0, "ok": 0, "failed": 0}
+    cache_report = (
+        _invalidate_users(sorted(user_ids))
+        if user_ids
+        else {"users": 0, "keys_deleted": 0, "backend": True}
+    )
 
     # אימות בקריאה חוזרת: כמה קבצים עדיין עומדים בתנאי. הצינור אינו רואה
     # את מה שכבר תוקן, ולכן זהו גם מונה ההתקדמות של האצוות הבאות.

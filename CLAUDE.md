@@ -51,6 +51,8 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
 | קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
 | טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
+| שינוי חתימה או חוזה של פונקציה שיש לה דאבל בטסטים (fake/stub/mock) | `TESTING-PATTERNS.md` T4 + `bugbot-rules/double-mirrors-signature-not-contract.md` |
+| תכונה שמסתמכת על `hidden`, או כלל CSS שנטען גלובלית ועלול לדלוף לעמוד אחר | `TESTING-PATTERNS.md` T1(c) — בדיקת שרת רואה את התכונה, לא את ההתנהגות |
 | הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
 | מפתח/טוקן שמועבר כפרמטר URL (`params={"key": ...}`), או שינוי ברשימת דפוסי הניקוי | `CRITICAL-PATTERNS.md` K14 + `bugbot-rules/secret-in-url-query.md` |
 | מסיר שורת לוג, או עוטף אותה ב-guard שמונע הערכת ארגומנטים (הטריגר הנפוץ: תיקון PII) | `bugbot-rules/side-effect-riding-on-log-line.md` |
@@ -61,6 +63,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 הדפוס הזה כבר עלה בריפו הזה **שלוש פעמים** (`save_backup_bytes` ב-PR #3232 ב-#3172, ו-`delete_pattern` של הקאש).
 - **לפני כתיבת טסט חדש** → `claude-md-snippets/testing.md`. בפרט: טסט שנוסח עם תיקון חייב להיכשל בלי התיקון — הרץ אותו על הקוד הישן וּודא שהוא נופל.
 - **אחרי שטסט נופל על חריגה** → `bugbot-rules/widened-exception-scope.md`. אל תרחיב `except` כדי לעבור; בדוק קודם את הסטאב/fixture — שם השורש בדרך כלל.
+- **אחרי ששינית חוזה של פונקציה** → עדכן את הדאבלים שלה כך ש**יאכפו** את החוזה החדש, לא רק יקבלו את החתימה. דאבל שממשיך להחזיר הצלחה ללא תנאי הוא בדיקה שאינה מסוגלת להיכשל. ובחר את חבילות הטסטים להרצה לפי **מי קורא לפונקציה**, לא לפי דפוס שם קובץ. עלה כאן ב-PR #3305: `edit_file` ו-`append_file` נשברו לגמרי וכל הטסטים נשארו ירוקים.
 
 ### סגירת הלולאה (חובה, לא רשות)
 

@@ -102,7 +102,7 @@ def test_gate_refuses_when_the_affected_set_changed_since_the_dry_run(client, mo
     assert _latest_created(mongo_db, "y.py") == LATER
 
 
-def test_dry_run_then_apply_migrates_and_consumes_the_token(client, mongo_db):
+def test_dry_run_then_apply_migrates_and_clears_the_token_from_the_session(client, mongo_db):
     _seed_broken(mongo_db, "x.py")
     dry = _text(client.post(URL, data={"action": "dry_run"}))
     token = _token(dry)
@@ -113,7 +113,9 @@ def test_dry_run_then_apply_migrates_and_consumes_the_token(client, mongo_db):
     assert "האימות בקריאה חוזרת עבר" in body
     assert _latest_created(mongo_db, "x.py") == ORIGIN
 
-    # האסימון נצרך: הרצה חוזרת עם אותו אסימון נדחית
+    # האסימון נוקה מהסשן, ולכן **לקוח שממשיך עם העוגייה המעודכנת** נדחה.
+    # זו אינה חד-פעמיות: עותק ישן של העוגייה עדיין יעבור — ראו הבדיקה
+    # המקבילית בהמשך, שמודדת את זה במפורש.
     again = _text(client.post(URL, data={"action": "apply", "gate_token": token}))
     assert "יש להריץ dry-run" in again
 
@@ -122,3 +124,73 @@ def test_get_does_not_offer_apply_before_a_dry_run(client, mongo_db):
     _seed_broken(mongo_db, "x.py")
     body = _text(client.get(URL))
     assert 'value="apply"' not in body
+
+
+def test_concurrent_applies_never_corrupt_the_data(client, mongo_db):
+    """שתי בקשות מקבילות עם אותו אסימון — הנתונים נכונים בכל תזמון.
+
+    ‏``TESTING-PATTERNS`` T1(d): תכונת "חד-פעמי" נבדקת במקביל, לא ברצף.
+    ההרצה המקבילית גילתה שני דברים שהבדיקה הסדרתית הסתירה:
+
+    1. **השער אינו נעילה.** הסשן הוא עוגייה חתומה, ולכן השרת אינו יכול
+       לבטל עותק שכבר בידי הלקוח. נמדד: שתי בקשות מקבילות התקבלו שתיהן.
+    2. **התוצאה תלוית-תזמון.** לפעמים בדיקת החתימה מספיקה לתפוס את
+       השנייה (היא מודדת ``count_affected`` מחדש, ואם הראשונה כבר סיימה
+       המספר השתנה), ולפעמים לא. מדדתי את שני המצבים על אותו קוד.
+
+    לכן הבדיקה אינה קובעת כמה בקשות התקבלו — קביעה כזו הייתה flaky
+    מעצם היותה תלוית-תזמון. היא קובעת את מה שנכון תמיד: **הנתונים
+    נכונים, וההחלה אינה זוחלת בהרצה חוזרת**, כי ``apply`` מחשב את
+    קבוצת המושפעים מחדש בכל קריאה.
+
+    השער נשאר תהליכי ולא נעילה **במכוון**: נעילה אמיתית דורשת מצב בצד
+    השרת, וההגנה האמיתית — אידמפוטנטיות — כבר קיימת ונבדקת.
+    """
+    import threading
+
+    for i in range(4):
+        _seed_broken(mongo_db, f"c{i}.py")
+
+    token = _token(_text(client.post(URL, data={"action": "dry_run"})))
+    assert token
+
+    import webapp.app as W
+
+    def _twin():
+        """לקוח נפרד שנושא עותק של אותה עוגיית סשן — כמו לשונית שנייה."""
+        twin = W.app.test_client()
+        for cookie in client._cookies.values():
+            twin.set_cookie(cookie.key, cookie.value)
+        return twin
+
+    bodies = {}
+    start = threading.Barrier(2)
+
+    def run(idx):
+        c = _twin()
+        start.wait()
+        bodies[idx] = _text(c.post(URL, data={"action": "apply", "gate_token": token}))
+
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # אף בקשה לא קרסה, ואף אחת לא נדחתה בטענה שלא רץ dry-run.
+    assert len(bodies) == 2
+    for body in bodies.values():
+        assert "יש להריץ dry-run" not in body
+
+    # הקביעה שנכונה בכל תזמון: המיגרציה הושלמה והנתונים נכונים.
+    for i in range(4):
+        assert _latest_created(mongo_db, f"c{i}.py") == ORIGIN
+
+    from services import created_at_migration as mig
+
+    assert mig.count_affected(mongo_db) == 0, "נשארו קבצים לא מתוקנים"
+
+    # וההיסטוריה לא נפגעה: גרסה 1 שומרת על התאריך שלה.
+    for i in range(4):
+        v1 = mongo_db.code_snippets.find_one({"file_name": f"c{i}.py", "version": 1})
+        assert v1["created_at"] == ORIGIN

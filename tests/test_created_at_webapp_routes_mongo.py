@@ -7,6 +7,13 @@
 
 הבדיקות מריצות את הראוטים **האמיתיים** דרך ``test_client`` מול מסד זמני,
 ומאמתות בקריאה חוזרת מה-DB — לא לפי ערך ההחזרה של הראוט.
+
+**השדות נגזרים מה-HTML שנוצר, לא נכתבים ביד.** ``TESTING-PATTERNS`` T1(a)
+ו-``test-mirrors-spec-not-client`` §1: הצרכן של ``/edit`` ושל ``/upload``
+הוא משתמש שלוחץ על כפתור בטופס, ולכן בדיקה שמרכיבה POST משמות שקראתי
+במקור מוכיחה שה-handler לא קורס — לא שהטופס עובד. זה כבר תפס אותי כאן:
+ניחשתי ``file`` במקום ``code_file``. אחרי הגזירה, שינוי שם שדה בתבנית
+מפיל את הבדיקה במקום להשאיר אותה ירוקה על מסלול שאיש אינו מריץ.
 """
 
 from __future__ import annotations
@@ -14,6 +21,7 @@ from __future__ import annotations
 import io
 import json
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 
 import pytest
 
@@ -46,6 +54,61 @@ def client(mongo_db, monkeypatch):
     return c
 
 
+class _FormReader(HTMLParser):
+    """גוזר ``action``, ``method`` ושמות השדות של טופס מתוך HTML מרונדר.
+
+    ``html.parser`` מהספרייה הסטנדרטית — בלי תלות חדשה בשביל בדיקה.
+    """
+
+    def __init__(self, form_id: str):
+        super().__init__(convert_charrefs=True)
+        self._want = form_id
+        self._inside = False
+        self.action = None
+        self.method = None
+        self.fields: dict[str, str] = {}
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "form":
+            if a.get("id") == self._want:
+                self._inside = True
+                self.action = a.get("action")
+                self.method = (a.get("method") or "get").lower()
+            return
+        if self._inside and tag in {"input", "textarea", "select", "button"}:
+            name = a.get("name")
+            if name:
+                self.fields[name] = a.get("type") or tag
+
+    def handle_endtag(self, tag):
+        if tag == "form" and self._inside:
+            self._inside = False
+
+
+def read_form(html: str, form_id: str) -> _FormReader:
+    """מוצא טופס לפי ``id`` ומוודא שהוא באמת נמצא ושיש בו שדות."""
+    reader = _FormReader(form_id)
+    reader.feed(html)
+    assert reader.action is not None or reader.method is not None, (
+        f"הטופס {form_id!r} לא נמצא ב-HTML — הבדיקה לא בודקת שום מסלול"
+    )
+    assert reader.fields, f"לטופס {form_id!r} אין שדות עם name"
+    return reader
+
+
+def require_fields(reader: _FormReader, *names: str) -> None:
+    """נכשל אם שדה שהבדיקה מסתמכת עליו אינו קיים בטופס האמיתי.
+
+    זה הקשר שהופך את הבדיקה למסוגלת להיכשל על שינוי בתבנית.
+    """
+    missing = [n for n in names if n not in reader.fields]
+    assert not missing, (
+        f"שדות שהבדיקה שולחת אינם קיימים בטופס: {missing}. "
+        f"קיימים: {sorted(reader.fields)}"
+    )
+
+
 def _seed(mongo_db, file_name: str, *, version: int = 1, created_at=ORIGIN, **extra):
     """גרסה קיימת עם "נוצר" ותיק — נקודת ההשוואה של כל בדיקה."""
     doc = {
@@ -72,8 +135,12 @@ def test_edit_route_keeps_created_at(client, mongo_db):
     """‏POST ל-``/edit/<id>`` יוצר גרסה חדשה עם ה"נוצר" של הקודמת."""
     file_id = _seed(mongo_db, "edit_me.py")
 
+    # הצרכן הוא הטופס בעמוד — אז קוראים אותו, ולא מנחשים שמות שדות.
+    form = read_form(client.get(f"/edit/{file_id}").get_data(as_text=True), "editForm")
+    require_fields(form, "code", "file_name", "language", "description", "tags")
+
     resp = client.post(
-        f"/edit/{file_id}",
+        form.action or f"/edit/{file_id}",
         data={"code": "changed", "file_name": "edit_me.py", "language": "python",
               "description": "desc", "tags": "a,b"},
         follow_redirects=False,
@@ -158,9 +225,13 @@ def test_upload_route_keeps_created_at(client, mongo_db):
     """העלאת קובץ בשם שכבר קיים — גרסה חדשה, "נוצר" ישן."""
     _seed(mongo_db, "uploaded.py")
 
+    # שם שדה הקובץ נגזר מהטופס. בגרסה קודמת ניחשתי ``file`` והבדיקה נפלה;
+    # ``require_fields`` הופך את הניחוש הזה לבלתי אפשרי.
+    form = read_form(client.get("/upload").get_data(as_text=True), "uploadForm")
+    require_fields(form, "code_file", "file_name", "language")
+
     resp = client.post(
-        "/upload",
-        # שם השדה הוא ``code_file`` — כך הראוט קורא אותו
+        form.action or "/upload",
         data={"code_file": (io.BytesIO(b"print('new')"), "uploaded.py"),
               "file_name": "uploaded.py", "language": "python"},
         content_type="multipart/form-data",
