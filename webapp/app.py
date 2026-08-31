@@ -2694,6 +2694,23 @@ def _safe_dt_from_doc(value) -> datetime:
     return dt
 
 
+def _file_last_modified(doc: Dict[str, Any]) -> datetime:
+    """מתי הייצוג שהעמוד מגיש השתנה לאחרונה.
+
+    ‏``updated_at`` לבדו אינו מספיק: הוא מציין מתי **התוכן** נערך, ואילו
+    העמוד מרנדר גם את מצב המועדף והנעיצה. פעולות המטא-דאטה האלה אינן
+    נוגעות ב-``updated_at`` (ראו ``docs/database/detailed-schema.rst``),
+    ולכן בלי השדות שלהן דפדפן ששולח רק ``If-Modified-Since`` היה מקבל 304
+    עם מצב ישן. ``If-None-Match`` גובר לפי RFC 7232 §3.3 ולכן המסלול הזה
+    נדיר — אבל הוא קיים, ו-``curl -z`` מגיע דרכו.
+    """
+    candidates = [doc.get('updated_at'), doc.get('favorited_at'), doc.get('pinned_at')]
+    stamps = [_safe_dt_from_doc(v) for v in candidates if v is not None]
+    if not stamps:
+        return _safe_dt_from_doc(doc.get('created_at'))
+    return max(stamps)
+
+
 #: הפרויקציה שהילפרי ה-ETag צריכים. מוגדרת פעם אחת כדי שקורא שרוצה
 #: לשלוף את המסמך **בעצמו** ולחסוך שאילתה יוכל לבקש בדיוק את מה שהם
 #: קוראים — בלי לנחש ובלי שהרשימות ייסחפו זו מזו.
@@ -2851,6 +2868,14 @@ def _compute_file_etag(doc: Dict[str, Any], *, variant: str = '') -> str:
             'n': file_name,
             'v': version,
             'sha': hashlib.sha256(raw_code.encode('utf-8')).hexdigest(),
+            # מצב מועדף/נעוץ מרונדר לתוך ה-HTML (תוויות הכפתורים,
+            # ``aria-pressed``, ``data-is-pinned``), ולכן הוא חלק מהפלט ולא
+            # רק מטא-דאטה. עד כה הוא נעדר מכאן, ונכונות הקאש ניצלה רק בגלל
+            # ש-toggle_favorite/toggle_pin הזיזו את ``updated_at`` — תופעת
+            # לוואי של חותמת שמשמעותה "התוכן נערך". משנרשם כאן, הוולידטור
+            # נשען על מה שהעמוד באמת מציג.
+            'f': '1' if doc.get('is_favorite') else '0',
+            'p': '1' if doc.get('is_pinned') else '0',
             # גרסת ה-deploy: בלעדיה קובץ שלא נערך מחזיר ETag זהה בין deploys,
             # והדפדפן מקבל 304 ומציג תבנית ישנה (בלי אלמנטים חדשים).
             'sv': _STATIC_VERSION,
@@ -10684,15 +10709,35 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
             {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
             {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
         ]
+        # ספירה של *קבצים*, לא של מסמכי גרסה: אחרת "טען עוד" מבטיח יותר
+        # שורות ממה שיוצג בפועל.
         try:
-            files_recent_total = int(db.code_snippets.count_documents(file_query_recent))
+            count_rows = list(db.code_snippets.aggregate([
+                {'$match': file_query_recent},
+                {'$group': {'_id': '$file_name'}},
+                {'$count': 'n'},
+            ]))
+            files_recent_total = int(count_rows[0].get('n', 0)) if count_rows else 0
         except Exception:
             files_recent_total = 0
 
-        cursor = db.code_snippets.find(
-            file_query_recent,
-            {'file_name': 1, 'programming_language': 1, 'updated_at': 1, 'created_at': 1, 'version': 1, 'description': 1},
-        ).sort('updated_at', DESCENDING).limit(_TIMELINE_LIMITS['files'])
+        # גרסה אחרונה לכל שם קובץ, ולא שורה לכל מסמך גרסה. כל עריכה יוצרת
+        # מסמך חדש, ולכן ``find`` ישיר הציף את היסטוריית הפעולות בשורה לכל
+        # גרסה של אותו קובץ. זו אותה תבנית שכבר נהוגה בקובץ הזה במקומות
+        # אחרים שבוחרים "הגרסה האחרונה לכל קובץ".
+        cursor = db.code_snippets.aggregate([
+            {'$match': file_query_recent},
+            # ההיטלה נשארת מצומצמת — ``code`` לעולם אינו נשלף לרשימה.
+            {'$project': {
+                'file_name': 1, 'programming_language': 1, 'updated_at': 1,
+                'created_at': 1, 'version': 1, 'description': 1,
+            }},
+            {'$sort': {'file_name': 1, 'version': -1}},
+            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$sort': {'updated_at': -1}},
+            {'$limit': _TIMELINE_LIMITS['files']},
+        ])
     except Exception:
         cursor = []
         errors.append('files')
@@ -12593,7 +12638,7 @@ def view_file(file_id):
     # HTTP cache validators (ETag / Last-Modified)
     theme_key = _get_theme_etag_key(user_id)
     etag = _compute_file_etag(file, variant=theme_key)
-    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if inm and inm == etag:
@@ -15124,7 +15169,7 @@ def md_preview(file_id):
     # ובלי זה שינוי ההגדרה מחזיר את אותו ETag ← 304 ← הדגל הישן.
     note_fonts_key = _note_fonts_etag_key(user_id, user_doc=_etag_user_doc)
     etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}")
-    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if not force_no_cache and inm and inm == etag:
@@ -15278,7 +15323,7 @@ def reader_mode(filename):
 
     theme_key = _get_theme_etag_key(user_id)
     etag = _compute_file_etag(doc, variant=theme_key)
-    last_modified_dt = _safe_dt_from_doc(doc.get('updated_at') or doc.get('created_at'))
+    last_modified_dt = _file_last_modified(doc)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if inm and inm == etag:

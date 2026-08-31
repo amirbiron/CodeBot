@@ -375,13 +375,19 @@ class Repository:
                     pass
             new_state = not curr_state
             now = datetime.now(timezone.utc)
-            update = {
-                "$set": {
-                    "is_favorite": new_state,
-                    "updated_at": now,
-                    "favorited_at": (now if new_state else None),
-                }
+            # ``updated_at`` מציין מתי התוכן של הקובץ השתנה, וסימון מועדף
+            # אינו משנה אותו. ``favorited_at`` הוא השדה שמתעד את הפעולה הזו.
+            # חתימה כאן הייתה גורמת לקובץ שמעולם לא נערך להציג "עודכן"
+            # (``file_was_edited``) ולקפוץ לראש "עודכן לאחרונה".
+            #
+            # השדות מוגדרים פעם אחת, כי הם נכתבים בשלושה מקומות: ה-``$set``
+            # ושני מסלולי ה-fallback לאחסון in-memory שמתחת. שלושה עותקים
+            # נפרדים היו מבטיחים שתיקון באחד לא יגיע לשניים האחרים.
+            favorite_fields = {
+                "is_favorite": new_state,
+                "favorited_at": (now if new_state else None),
             }
+            update = {"$set": dict(favorite_fields)}
             # חשוב: עדכן *כל הגרסאות* של אותו קובץ כדי למנוע מצב שבו:
             # - ישנה גרסה ישנה עם is_favorite=True
             # - הגרסה האחרונה עם is_favorite=False
@@ -410,9 +416,7 @@ class Repository:
                     if candidates:
                         # עדכון כל המסמכים של אותו קובץ (כל הגרסאות)
                         for d in candidates:
-                            d['is_favorite'] = new_state
-                            d['updated_at'] = now
-                            d['favorited_at'] = (now if new_state else None)
+                            d.update(favorite_fields)
                         matched = 1
                 except Exception:
                     pass
@@ -428,9 +432,7 @@ class Repository:
                             continue
                         if str(d.get('file_name') or '') != str(file_name):
                             continue
-                        d['is_favorite'] = new_state
-                        d['updated_at'] = now
-                        d['favorited_at'] = (now if new_state else None)
+                        d.update(favorite_fields)
                 except Exception:
                     pass
             try:
@@ -1133,7 +1135,6 @@ class Repository:
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1168,7 +1169,6 @@ class Repository:
                 {"user_id": user_id, "file_name": {"$in": list(set(file_names))}, "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1206,7 +1206,6 @@ class Repository:
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }}
@@ -1395,7 +1394,6 @@ class Repository:
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1422,7 +1420,6 @@ class Repository:
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1501,10 +1498,9 @@ class Repository:
 
     def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
         try:
-            now = datetime.now(timezone.utc)
             res = self.manager.collection.update_many(
                 {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
-                {"$set": {"is_active": True, "updated_at": now},
+                {"$set": {"is_active": True},
                  "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
             )
             modified = int(res.modified_count or 0)
@@ -1512,7 +1508,7 @@ class Repository:
                 # Try large files collection
                 res2 = self.manager.large_files_collection.update_many(
                     {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
-                    {"$set": {"is_active": True, "updated_at": now},
+                    {"$set": {"is_active": True},
                      "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
                 )
                 modified += int(res2.modified_count or 0)

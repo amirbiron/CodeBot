@@ -193,3 +193,43 @@ def test_toggle_favorite_updates_and_counts(repo):
 
 def test_toggle_favorite_no_match_returns_none(repo):
     assert repo.toggle_favorite(999, "nope.py") is None
+
+
+def _latest(repo, user_id=1, file_name="a.py"):
+    docs = [d for d in repo.manager.collection.docs
+            if d.get("user_id") == user_id and d.get("file_name") == file_name]
+    assert docs
+    return max(docs, key=lambda d: int(d.get("version", 0) or 0))
+
+
+def test_toggle_favorite_does_not_claim_the_file_was_edited(repo):
+    """סימון מועדף אינו עריכה, ולכן אינו נוגע ב-``updated_at``.
+
+    ``file_was_edited`` נגזרת מ-``updated_at`` מול ``created_at`` כדי להחליט
+    אם להציג "עודכן". חתימה כאן גרמה לקובץ שמעולם לא נערך להציג "עודכן"
+    ולקפוץ לראש המיון "עודכן לאחרונה". ``favorited_at`` מתעד את הפעולה.
+    """
+    stamp = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+    repo.manager.collection.insert_one(_base_doc(is_favorite=False, created_at=stamp, updated_at=stamp))
+
+    repo.toggle_favorite(1, "a.py")
+
+    doc = _latest(repo)
+    assert doc["updated_at"] == stamp, "סימון מועדף שינה את updated_at"
+    assert doc.get("favorited_at") is not None, "הפעולה עצמה לא תועדה"
+
+    from file_dates import file_was_edited
+    assert file_was_edited(doc["created_at"], doc["updated_at"]) is False
+
+
+def test_soft_delete_does_not_claim_the_file_was_edited(repo):
+    """מחיקה רכה מתועדת ב-``deleted_at``, ולא בחותמת עריכה."""
+    stamp = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+    repo.manager.collection.insert_one(_base_doc(created_at=stamp, updated_at=stamp))
+
+    repo.delete_file(1, "a.py")
+
+    doc = _latest(repo)
+    assert doc["updated_at"] == stamp, "מחיקה רכה שינתה את updated_at"
+    assert doc.get("deleted_at") is not None, "המחיקה עצמה לא תועדה"
+    assert doc.get("is_active") is False
