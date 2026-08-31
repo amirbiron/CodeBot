@@ -40,11 +40,14 @@ def _get_app_helpers():
     """
     from webapp.app import (
         _build_activity_timeline,
+        _build_file_timeline_event,
         _build_files_need_attention,
         _build_notes_snapshot,
         _build_push_card,
-        _build_timeline_event,
         _finalize_events,
+        _timeline_latest_files,
+        _timeline_recent_files_count,
+        _timeline_recent_files_query,
         _get_active_dismissals,
         _load_whats_new,
         _MIN_DT,
@@ -78,8 +81,11 @@ def _get_app_helpers():
         _load_whats_new=_load_whats_new,
         _get_active_dismissals=_get_active_dismissals,
         _build_files_need_attention=_build_files_need_attention,
-        _build_timeline_event=_build_timeline_event,
+        _build_file_timeline_event=_build_file_timeline_event,
         _finalize_events=_finalize_events,
+        _timeline_recent_files_query=_timeline_recent_files_query,
+        _timeline_recent_files_count=_timeline_recent_files_count,
+        _timeline_latest_files=_timeline_latest_files,
         _MIN_DT=_MIN_DT,
         BOT_USERNAME_CLEAN=BOT_USERNAME_CLEAN,
     )
@@ -410,7 +416,16 @@ def api_dashboard_last_commit_files():
 
 @dashboard_bp.route("/api/dashboard/activity/files", methods=["GET"])
 def api_dashboard_activity_files():
-    """API: Load more file events for the activity feed (up to 7 days back)."""
+    """API: Load more file events for the activity feed (up to 7 days back).
+
+    ‏השאילתה, הקיבוץ ובניית האירוע מגיעים מאותן פונקציות שהטיימליין הראשי
+    משתמש בהן. עד כה זה היה עותק נפרד, ולכן הקיבוץ לפי שם קובץ תוקן בצד
+    אחד בלבד: העמוד הראשוני הציג שורה אחת לקובץ, ו"טען עוד" החזיר את
+    מסמכי הגרסה הגולמיים — כלומר את אותו קובץ שוב, פעם לכל גרסה.
+
+    ה-``offset`` שמגיע מהלקוח סופר אירועים שהוצגו, כלומר **קבצים**, ולכן
+    הדילוג חייב לרוץ על הזרם המקובץ ולא על המסמכים.
+    """
     if "user_id" not in session:
         return jsonify({"error": "נדרש להתחבר"}), 401
 
@@ -442,86 +457,19 @@ def api_dashboard_activity_files():
     recent_cutoff = now - timedelta(days=7)
 
     db = helpers.get_db()
-    base_query = {
-        "user_id": user_id_int,
-        "is_active": True,
-    }
-    recent_query: Dict[str, Any] = dict(base_query)
-    recent_query["$or"] = [
-        {"updated_at": {"$gte": recent_cutoff}},
-        {"updated_at": {"$exists": False}, "created_at": {"$gte": recent_cutoff}},
-        {"updated_at": None, "created_at": {"$gte": recent_cutoff}},
-    ]
+    recent_query = helpers._timeline_recent_files_query(user_id_int, recent_cutoff)
+
+    # ספירת קבצים ולא מסמכים — אותה יחידה שבה נספרות השורות המוצגות,
+    # אחרת "טען עוד" מבטיח יותר ממה שיוצג.
+    total_recent = helpers._timeline_recent_files_count(db, recent_query)
 
     try:
-        total_recent = int(db.code_snippets.count_documents(recent_query))
-    except Exception:
-        total_recent = 0
-
-    try:
-        cursor = (
-            db.code_snippets.find(
-                recent_query,
-                {
-                    "file_name": 1,
-                    "programming_language": 1,
-                    "updated_at": 1,
-                    "created_at": 1,
-                    "version": 1,
-                    "description": 1,
-                },
-            )
-            .sort("updated_at", DESCENDING)
-            .skip(offset)
-            .limit(limit)
-        )
-        docs = list(cursor or [])
+        docs = helpers._timeline_latest_files(db, recent_query, skip=offset, limit=limit)
     except Exception:
         logger.warning("Failed to fetch timeline files")
         return jsonify({"ok": False, "error": "load_failed"}), 500
 
-    items: List[Dict[str, Any]] = []
-    for doc in docs:
-        dt = doc.get("updated_at") or doc.get("created_at")
-        version = doc.get("version") or 1
-        is_new = version == 1
-        action = "נוצר" if is_new else "עודכן"
-        file_name = doc.get("file_name") or "ללא שם"
-        language = helpers.resolve_file_language(
-            doc.get("programming_language"), file_name
-        )
-        title = f"{action} {file_name}"
-        details: List[str] = []
-        if doc.get("programming_language"):
-            details.append(doc["programming_language"])
-        elif language and language != "text":
-            details.append(language)
-        if version:
-            details.append(f"גרסה {version}")
-        description = (doc.get("description") or "").strip()
-        subtitle = (
-            description
-            if description
-            else (" · ".join(details) if details else "ללא פרטים נוספים")
-        )
-        href = f"/file/{doc.get('_id')}"
-        file_badge = doc.get("programming_language") or (
-            language if language and language != "text" else None
-        )
-        items.append(
-            helpers._build_timeline_event(
-                "files",
-                title=title,
-                subtitle=subtitle,
-                dt=dt,
-                icon=helpers.lang_icon(language, helpers.LANG_ICON_SIZES["timeline"]),
-                icon_lang=language,
-                badge=file_badge,
-                badge_variant="code",
-                href=href,
-                meta={"details": " · ".join(details)},
-            )
-        )
+    items: List[Dict[str, Any]] = [helpers._build_file_timeline_event(doc) for doc in docs]
 
     # Maintain format consistency with dashboard
     finalized = helpers._finalize_events(

@@ -10688,6 +10688,112 @@ def _build_timeline_event(
     }
 
 
+#: השדות שאירוע קובץ בטיימליין קורא. ``code`` לעולם אינו נשלף לרשימה,
+#: לפי כלל ה-Smart Projection ב-``CLAUDE.md``.
+_TIMELINE_FILE_PROJECTION = {
+    'file_name': 1,
+    'programming_language': 1,
+    'updated_at': 1,
+    'created_at': 1,
+    'version': 1,
+    'description': 1,
+}
+
+
+def _timeline_recent_files_query(user_id: int, recent_cutoff: datetime,
+                                 active_query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """שאילתת הקבצים של שבעת הימים האחרונים.
+
+    ה-``$or`` מכסה מסמכים ישנים שבהם ``updated_at`` חסר או ``None``,
+    ואז נשענים על ``created_at``.
+    """
+    base = active_query or {'user_id': user_id, 'is_active': True}
+    query = dict(base) if isinstance(base, dict) else {'user_id': user_id, 'is_active': True}
+    query['$or'] = [
+        {'updated_at': {'$gte': recent_cutoff}},
+        {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
+        {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
+    ]
+    return query
+
+
+def _timeline_latest_files(db, match: Dict[str, Any], *, skip: int = 0, limit: int) -> List[Dict[str, Any]]:
+    """הגרסה האחרונה לכל שם קובץ, ולא מסמך גרסה לכל שורה.
+
+    כל עריכה יוצרת מסמך חדש ב-``code_snippets``, ולכן ``find`` ישיר מציף
+    את הפיד בשורה לכל גרסה. הקיבוץ הוא גם מה שהופך את ה-``skip`` לנכון:
+    ה-offset שמגיע מהלקוח סופר **אירועים שהוצגו** — כלומר קבצים — ודילוג
+    על אותו מספר מסמכי גרסה היה מחזיר את הגרסאות הישנות של אותו קובץ.
+    """
+    pipeline: List[Dict[str, Any]] = [
+        {'$match': match},
+        {'$project': dict(_TIMELINE_FILE_PROJECTION)},
+        {'$sort': {'file_name': 1, 'version': -1}},
+        {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+        {'$replaceRoot': {'newRoot': '$latest'}},
+        {'$sort': {'updated_at': -1}},
+    ]
+    if skip:
+        pipeline.append({'$skip': int(skip)})
+    pipeline.append({'$limit': int(limit)})
+    return list(db.code_snippets.aggregate(pipeline) or [])
+
+
+def _timeline_recent_files_count(db, match: Dict[str, Any]) -> int:
+    """כמה **קבצים** בטווח, לא כמה מסמכים.
+
+    המונה הזה מזין את כפתור "טען עוד", ולכן הוא חייב להיספר באותה יחידה
+    שבה נספרות השורות המוצגות.
+    """
+    try:
+        rows = list(db.code_snippets.aggregate([
+            {'$match': match},
+            {'$group': {'_id': '$file_name'}},
+            {'$count': 'n'},
+        ]))
+    except Exception:
+        return 0
+    return int(rows[0].get('n', 0)) if rows else 0
+
+
+def _build_file_timeline_event(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """אירוע טיימליין אחד עבור מסמך קובץ.
+
+    מוגדר פעם אחת כי גם הטיימליין הראשי וגם ``/api/dashboard/activity/files``
+    בונים את אותה שורה בדיוק; שני עותקים נפרדים כבר גרמו לכך ששינוי באחד
+    לא הגיע לשני.
+    """
+    dt = doc.get('updated_at') or doc.get('created_at')
+    version = doc.get('version') or 1
+    action = "נוצר" if version == 1 else "עודכן"
+    file_name = doc.get('file_name') or "ללא שם"
+    language = resolve_file_language(doc.get('programming_language'), file_name)
+    details: List[str] = []
+    if doc.get('programming_language'):
+        details.append(doc['programming_language'])
+    elif language and language != 'text':
+        details.append(language)
+    if version:
+        details.append(f"גרסה {version}")
+    description = (doc.get('description') or "").strip()
+    subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
+    file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
+    return _build_timeline_event(
+        'files',
+        title=f"{action} {file_name}",
+        subtitle=subtitle,
+        dt=dt,
+        # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון מצויר ולא
+        # אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
+        icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
+        icon_lang=language,
+        badge=file_badge,
+        badge_variant='code',
+        href=f"/file/{doc.get('_id')}",
+        meta={'details': " · ".join(details)},
+    )
+
+
 def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, Any]] = None, *, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     recent_cutoff = now - timedelta(days=7)
@@ -10697,85 +10803,15 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
 
     # Files activity
     try:
-        file_query = active_query or {
-            'user_id': user_id,
-            'is_active': True,
-        }
         # טווח 7 ימים: הכפתור "טען עוד" אמור להרחיב עד שבוע אחורה בלבד.
-        # נשתמש ב-$or כדי לכסות מקרים שבהם updated_at חסר/None ונשענים על created_at.
-        file_query_recent = dict(file_query) if isinstance(file_query, dict) else {'user_id': user_id, 'is_active': True}
-        file_query_recent['$or'] = [
-            {'updated_at': {'$gte': recent_cutoff}},
-            {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
-            {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
-        ]
-        # ספירה של *קבצים*, לא של מסמכי גרסה: אחרת "טען עוד" מבטיח יותר
-        # שורות ממה שיוצג בפועל.
-        try:
-            count_rows = list(db.code_snippets.aggregate([
-                {'$match': file_query_recent},
-                {'$group': {'_id': '$file_name'}},
-                {'$count': 'n'},
-            ]))
-            files_recent_total = int(count_rows[0].get('n', 0)) if count_rows else 0
-        except Exception:
-            files_recent_total = 0
-
-        # גרסה אחרונה לכל שם קובץ, ולא שורה לכל מסמך גרסה. כל עריכה יוצרת
-        # מסמך חדש, ולכן ``find`` ישיר הציף את היסטוריית הפעולות בשורה לכל
-        # גרסה של אותו קובץ. זו אותה תבנית שכבר נהוגה בקובץ הזה במקומות
-        # אחרים שבוחרים "הגרסה האחרונה לכל קובץ".
-        cursor = db.code_snippets.aggregate([
-            {'$match': file_query_recent},
-            # ההיטלה נשארת מצומצמת — ``code`` לעולם אינו נשלף לרשימה.
-            {'$project': {
-                'file_name': 1, 'programming_language': 1, 'updated_at': 1,
-                'created_at': 1, 'version': 1, 'description': 1,
-            }},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$sort': {'updated_at': -1}},
-            {'$limit': _TIMELINE_LIMITS['files']},
-        ])
+        file_query_recent = _timeline_recent_files_query(user_id, recent_cutoff, active_query)
+        files_recent_total = _timeline_recent_files_count(db, file_query_recent)
+        cursor = _timeline_latest_files(db, file_query_recent, limit=_TIMELINE_LIMITS['files'])
     except Exception:
         cursor = []
         errors.append('files')
     for doc in cursor or []:
-        dt = doc.get('updated_at') or doc.get('created_at')
-        version = doc.get('version') or 1
-        is_new = version == 1
-        action = "נוצר" if is_new else "עודכן"
-        file_name = doc.get('file_name') or "ללא שם"
-        language = resolve_file_language(doc.get('programming_language'), file_name)
-        title = f"{action} {file_name}"
-        details: List[str] = []
-        if doc.get('programming_language'):
-            details.append(doc['programming_language'])
-        elif language and language != 'text':
-            details.append(language)
-        if version:
-            details.append(f"גרסה {version}")
-        description = (doc.get('description') or "").strip()
-        subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
-        href = f"/file/{doc.get('_id')}"
-        file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
-        events['files'].append(
-            _build_timeline_event(
-                'files',
-                title=title,
-                subtitle=subtitle,
-                dt=dt,
-                # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון
-                # מצויר ולא אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
-                icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
-                icon_lang=language,
-                badge=file_badge,
-                badge_variant='code',
-                href=href,
-                meta={'details': " · ".join(details)},
-            )
-        )
+        events['files'].append(_build_file_timeline_event(doc))
 
     # Push/reminder events
     push_docs: List[Dict[str, Any]] = []
@@ -10797,6 +10833,10 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         last_push = _normalize_dt(doc.get('last_push_success_at'))
         ack_at = _normalize_dt(doc.get('ack_at'))
         status = str(doc.get('status') or 'pending').lower()
+        # ההשמות שלמטה מערבבות ``datetime`` עם ערך אופציונלי מהמסמך, ולכן
+        # הטיפוס מוצהר. עד שלולאת הקבצים עברה לפונקציה משלה היא הייתה
+        # ההשמה הראשונה כאן, ו-mypy הסיק ``Any`` במקרה.
+        dt: Any
         if ack_at:
             badge, variant = "נסגר", "success"
             subtitle = "התזכורת טופלה"
@@ -13889,8 +13929,9 @@ def api_file_move_to_trash(file_id):
 'is_active': True,
             },
             {'$set': {
+                # ``deleted_at`` מתעד את המחיקה, וסל המיחזור ממיין לפיו.
+                # ``updated_at`` נשאר על העריכה האחרונה בפועל.
                 'is_active': False,
-                'updated_at': now,
                 'deleted_at': now,
                 'deleted_expires_at': expires_at,
             }},
@@ -13928,13 +13969,12 @@ def api_recycle_bin_restore(file_id: str):
     except Exception:
         return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
 
-    now = datetime.now(timezone.utc)
     modified = 0
 
     try:
         res = db.code_snippets.update_many(
             {'_id': oid, 'user_id': user_id, 'is_active': False},
-            {'$set': {'is_active': True, 'updated_at': now},
+            {'$set': {'is_active': True},
              '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
         )
         modified += int(getattr(res, 'modified_count', 0) or 0)
@@ -13947,7 +13987,7 @@ def api_recycle_bin_restore(file_id: str):
             try:
                 res2 = large_coll.update_many(
                     {'_id': oid, 'user_id': user_id, 'is_active': False},
-                    {'$set': {'is_active': True, 'updated_at': now},
+                    {'$set': {'is_active': True},
                      '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
                 )
                 modified += int(getattr(res2, 'modified_count', 0) or 0)
@@ -14706,11 +14746,14 @@ def edit_file_page(file_id):
                                     }
                                     db.code_snippets.update_many(
                                         unpin_query,
+                                        # הגרסה החדשה כן נושאת ``updated_at``
+                                        # חדש. הגרסאות הישנות רק מאבדות את
+                                        # סימון הנעיצה — התוכן שלהן לא זז,
+                                        # ולכן החותמת שלהן נשארת.
                                         {'$set': {
                                             'is_pinned': False,
                                             'pinned_at': None,
                                             'pin_order': 0,
-                                            'updated_at': now,
                                         }},
                                     )
                                 except Exception as exc:
@@ -14725,11 +14768,13 @@ def edit_file_page(file_id):
                                                 'is_active': True,
                                                 '_id': {'$ne': res.inserted_id},
                                             },
+                                            # ראו ההערה באתר ביטול הנעיצה
+                                            # השני — התוכן של הגרסאות הישנות
+                                            # לא זז, ולכן החותמת שלהן נשארת.
                                             {'$set': {
                                                 'is_pinned': False,
                                                 'pinned_at': None,
                                                 'pin_order': 0,
-                                                'updated_at': now,
                                             }},
                                         )
                                     except Exception as exc:
@@ -16671,9 +16716,11 @@ def api_toggle_favorite(file_id):
         try:
             db.code_snippets.update_many(q, {
                 '$set': {
+                    # ``favorited_at`` מתעד את הפעולה. ``updated_at`` מציין
+                    # מתי התוכן, התיאור או השם השתנו, וסימון מועדף אינו משנה
+                    # אף אחד מהם — ראו ``docs/database/detailed-schema.rst``.
                     'is_favorite': new_state,
                     'favorited_at': (now if new_state else None),
-                    'updated_at': now,
                 }
             })
         except Exception:
@@ -16810,9 +16857,9 @@ def api_files_bulk_favorite():
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
+                # ראו ההערה ב-``api_toggle_favorite``.
                 'is_favorite': True,
                 'favorited_at': now,
-                'updated_at': now,
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
@@ -16839,7 +16886,6 @@ def api_files_bulk_unfavorite():
 
         db = get_db()
         user_id = session['user_id']
-        now = datetime.now(timezone.utc)
 
         q = {
             '_id': {'$in': object_ids},
@@ -16848,9 +16894,9 @@ def api_files_bulk_unfavorite():
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
+                # ראו ההערה ב-``api_toggle_favorite``.
                 'is_favorite': False,
                 'favorited_at': None,
-                'updated_at': now,
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
@@ -17100,10 +17146,10 @@ def api_files_bulk_delete():
             }
             res = db.code_snippets.update_many(q, {
                 '$set': {
+                    # ראו ההערה ב-``api_file_move_to_trash``.
                     'is_active': False,
                     'deleted_at': now,
                     'deleted_expires_at': expires_at,
-                    'updated_at': now,
                 }
             })
             modified_count = int(getattr(res, 'modified_count', 0))
