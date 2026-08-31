@@ -602,22 +602,22 @@ def _derive_glass_tokens(variables: dict) -> dict:
     if not bg_primary or _is_dark_color(str(bg_primary)):
         return result
 
-    base = result.get("--bg-secondary") or bg_primary
-    if normalize_color_to_rgba(str(base)) is None:
-        base = bg_primary
+    # ה-body צבוע גרדיאנט רציף בין שני הרקעים, ולכן הוא עובר בכל גוון שביניהם.
+    # משטח שהלומיננסיה שלו נופלת בתוך הרצועה נעלם בנקודה שבה הגרדיאנט משתווה
+    # לו — גם כשהניגודיות מול שני הקצוות מצוינת (נמדד: 3.43 ו-1.15, ובכל זאת
+    # בלתי נראה באמצע). לכן מעגנים בקצה הכהה ומכהים ממנו: כך המשטח יוצא כהה
+    # משני הקצוות ונשאר מחוץ לרצועה בכל מצב.
+    gradient_ends = [str(end) for end in (bg_primary, result.get("--bg-secondary")) if end]
+    usable_ends = [end for end in gradient_ends if _relative_luminance(end) is not None]
+    if not usable_ends:
+        return result  # קצוות שאינם אטומים או אינם ניתנים לפרסור — נשארים עם ה-FALLBACK
 
-    surface = darken_color(str(base), _GLASS_SURFACE_DARKEN)
+    surface = darken_color(min(usable_ends, key=_relative_luminance), _GLASS_SURFACE_DARKEN)
     if normalize_color_to_rgba(surface) is None:
         return result
 
-    # הכהיה אחת מ---bg-secondary אינה מספיקה כשהוא בהיר מ---bg-primary: היא
-    # נוחתת על הראשי עצמו והכרטיס נעלם בקצה אחד של הגרדיאנט (נמדד 1.009).
-    # מכהים עד שהמשטח נבדל משני הקצוות.
-    gradient_ends = [str(end) for end in (bg_primary, result.get("--bg-secondary")) if end]
     for _ in range(_GLASS_MAX_DARKEN_STEPS):
-        ratios = [contrast_ratio(surface, end) for end in gradient_ends]
-        if not ratios or any(ratio is None for ratio in ratios):
-            break  # קצה שאינו אטום — אי אפשר למדוד, נשארים עם ההכהיה הבסיסית
+        ratios = [contrast_ratio(surface, end) for end in usable_ends]
         if min(ratios) >= _GLASS_MIN_SURFACE_CONTRAST:
             break
         darker = darken_color(surface, _GLASS_SURFACE_DARKEN)
@@ -691,17 +691,12 @@ def normalize_color_to_rgba(color: str) -> tuple[int, int, int, float] | None:
     if color.startswith("#"):
         hex_val = color[1:]
 
-        if len(hex_val) == 3:
-            r = int(hex_val[0] * 2, 16)
-            g = int(hex_val[1] * 2, 16)
-            b = int(hex_val[2] * 2, 16)
-            return (r, g, b, 1.0)
-        if len(hex_val) == 4:
-            r = int(hex_val[0] * 2, 16)
-            g = int(hex_val[1] * 2, 16)
-            b = int(hex_val[2] * 2, 16)
-            a = int(hex_val[3] * 2, 16) / 255
-            return (r, g, b, a)
+        # הצורה המקוצרת מורחבת לצורה המלאה, וכך כל הפרסור עובר בענף אחד
+        # מוגן ב-try/except. קודם ענפי ה-3 וה-4 פרסרו ישירות ובלי הגנה,
+        # ולכן #ggg זרק ValueError במקום להחזיר None כפי שהחוזה מבטיח.
+        if len(hex_val) in (3, 4):
+            hex_val = "".join(ch * 2 for ch in hex_val)
+
         if len(hex_val) == 6:
             try:
                 r = int(hex_val[0:2], 16)

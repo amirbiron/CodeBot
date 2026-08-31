@@ -10,6 +10,8 @@ import pytest
 
 from services.theme_parser_service import (
     FALLBACK_DARK,
+    _is_dark_color,
+    _relative_luminance,
     composite_over,
     contrast_ratio,
     normalize_color_to_rgba,
@@ -146,3 +148,65 @@ def test_composite_over_matches_the_painted_colour():
     assert composite_over("rgba(0, 0, 0, 0.02)", "#f8f6f1") == "#f3f1ec"
     assert composite_over("#ffffff", "#000000") == "#ffffff"
     assert composite_over("not-a-colour", "#000000") is None
+
+
+# ---------------------------------------------------------------------------
+# סבב סקירה שני
+# ---------------------------------------------------------------------------
+
+# ה-body צבוע גרדיאנט רציף בין שני הרקעים, ולכן הוא עובר בכל גוון שביניהם.
+# משטח שהלומיננסיה שלו נופלת בתוך הרצועה נעלם בנקודה שבה הגרדיאנט משתווה לו,
+# גם כשהניגודיות מול שני הקצוות מצוינת. נמדד: #808080/#ffffff הפיק משטח
+# בלומיננסיה 0.863 בתוך רצועה של [0.216 .. 1.000], עם ניגודיות 3.43 ו-1.15.
+@pytest.mark.parametrize("name,bg_primary,bg_secondary", [
+    ("רגיל", "#f8f6f1", "#ebe8df"),
+    ("משני בהיר מהראשי", "#f0f0f0", "#ffffff"),
+    ("משני כהה מהראשי", "#ffffff", "#202020"),
+    ("ראשי אפור בינוני", "#808080", "#ffffff"),
+])
+def test_surface_stays_outside_the_gradient_luminance_band(name, bg_primary, bg_secondary):
+    v = _vars({"name": name, "type": "light", "colors": {
+        "editor.background": bg_primary, "sideBar.background": bg_secondary,
+        "editor.foreground": "#111111"}})
+    ends = [_relative_luminance(v["--bg-primary"]), _relative_luminance(v["--bg-secondary"])]
+    surface = _relative_luminance(v["--glass"])
+    assert surface is not None and all(e is not None for e in ends)
+    assert surface < min(ends), (
+        f"{name}: משטח {v['--glass']} בלומיננסיה {surface:.4f} "
+        f"בתוך רצועת הגרדיאנט [{min(ends):.4f} .. {max(ends):.4f}]"
+    )
+
+
+# hex בן 3 ו-4 תווים נותח בלי try/except, בעוד הענפים של 6 ו-8 כן היו מוגנים.
+MALFORMED_SHORT_HEX = ["#ggg", "#gggg"]
+
+
+@pytest.mark.parametrize("value", MALFORMED_SHORT_HEX)
+def test_normalize_color_to_rgba_returns_none_for_malformed_short_hex(value):
+    assert normalize_color_to_rgba(value) is None
+
+
+@pytest.mark.parametrize("value", MALFORMED_SHORT_HEX)
+def test_composite_over_returns_none_for_malformed_short_hex(value):
+    assert composite_over(value, "#000000") is None
+    assert composite_over("#000000", value) is None
+
+
+@pytest.mark.parametrize("value", MALFORMED_SHORT_HEX)
+def test_is_dark_color_defaults_to_dark_for_malformed_short_hex(value):
+    """חוזה הפונקציה: ערך שאינו ניתן לפרסור נחשב כהה ולכן לא נגזרת זכוכית."""
+    assert _is_dark_color(value) is True
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("#fff", (255, 255, 255, 1.0)),
+    ("#abc", (170, 187, 204, 1.0)),
+    ("#0f0f", (0, 255, 0, 1.0)),
+    ("#0008", (0, 0, 0, 136 / 255)),
+])
+def test_valid_short_hex_still_parses(value, expected):
+    """
+    בלי השומר הזה, מוטציה שמבטלת לגמרי את התמיכה ב-hex מקוצר הייתה עוברת:
+    הטסטים על #ggg בודקים רק שמוחזר None.
+    """
+    assert normalize_color_to_rgba(value) == pytest.approx(expected, abs=1e-6)
