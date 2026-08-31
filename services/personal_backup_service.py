@@ -1260,7 +1260,11 @@ class PersonalBackupService:
                     # ``one_default_per_user`` מבטיח שהוא יחיד, בעוד שהשם
                     # בחשבון היעד עשוי להיות אחר לגמרי.
                     if bool(board.get("is_default", False)):
-                        want_pinned = bool(board.get("is_pinned", False))
+                        raw_pinned = board.get("is_pinned", False)
+                        if not isinstance(raw_pinned, bool):
+                            errors.append("נעיצת לוח ברירת המחדל לא שוחזרה")
+                            continue
+                        want_pinned = raw_pinned
                         raw_db.note_boards.update_one(
                             {"user_id": int(user_id), "is_default": True},
                             {"$set": {"is_pinned": want_pinned, "updated_at": datetime.now(timezone.utc)}},
