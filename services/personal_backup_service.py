@@ -8,7 +8,7 @@ import zipfile
 from datetime import datetime, timezone
 
 from io import BytesIO
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from file_dates import as_utc
 
@@ -1136,6 +1136,11 @@ class PersonalBackupService:
                     if existing:
                         continue
 
+                    # שעון אחד לרשומה: שתי קריאות נפרדות ל-``now()`` היו
+                    # מייצרות הפרש מיקרו-שניות בין היצירה לעדכון, ורשומה
+                    # טרייה הייתה נראית "נערכה". אותו invariant שנקבע
+                    # ב-``database/models.py``.
+                    now = datetime.now(timezone.utc)
                     # insert ישיר (לא toggle!) כדי לא למחוק סימניות קיימות
                     doc = {
                         "user_id": user_id,
@@ -1149,8 +1154,8 @@ class PersonalBackupService:
                         "valid": True,
                         "sync_status": "synced",
                         "sync_confidence": 1.0,
-                        "created_at": _str_to_dt(bm.get("created_at")) or datetime.now(timezone.utc),
-                        "updated_at": _str_to_dt(bm.get("updated_at")) or datetime.now(timezone.utc),
+                        "created_at": _str_to_dt(bm.get("created_at")) or now,
+                        "updated_at": _str_to_dt(bm.get("updated_at")) or now,
                     }
                     # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
                     if anchor_id_str:
@@ -1211,6 +1216,12 @@ class PersonalBackupService:
         הוא אינדקס ייחודי-חלקי, ולוח ברירת מחדל שני היה נדחה ב-E11000.
         הפתקים שהיו עליו מגיעים ללוח ברירת המחדל המקומי דרך הפולבק שכבר
         קיים, והשם שנקבע בחשבון היעד אינו נדרס — פעולה שאי אפשר לבטל.
+
+        ``is_pinned`` שלו **כן** משוחזר על לוח ברירת המחדל המקומי: זו העדפת
+        תצוגה שאינה דורשת לא את השם ולא את ה-``_id``, ובלעדיה מי שנעץ את לוח
+        ברירת המחדל מאבד את ההעדפה בשחזור בעוד שמי שנעץ לוח רגיל מקבל אותה
+        בחזרה. ערך ההחזרה של הפונקציה סופר לוחות שנוצרו, ולכן עדכון כזה אינו
+        מגדיל אותו.
         """
         from note_boards import ensure_default_board, normalize_board_name
         from webapp.note_boards_api import MAX_BOARDS_PER_USER
@@ -1224,15 +1235,17 @@ class PersonalBackupService:
             # לוח ברירת המחדל המקומי חייב להתקיים לפני כל דה-דופליקציה.
             ensure_default_board(raw_db, int(user_id))
 
-            # מפה לפי שם מנורמל — אותה נורמליזציה שבה נכתבים השמות, כדי
-            # ששאילתה לא תחפש בצורה אחת מה שנכתב בצורה אחרת.
-            existing: Dict[str, str] = {}
+            # קבוצת שמות מנורמלים — אותה נורמליזציה שבה נכתבים השמות, כדי
+            # ששאילתה לא תחפש בצורה אחת מה שנכתב בצורה אחרת. קבוצה ולא מפה,
+            # כי כל מה שנדרש כאן הוא נוכחות וספירה; מפה שערכיה אינם נקראים
+            # רק מזמינה הסתמכות עתידית על מזהה שאיש לא אימת.
+            existing: Set[str] = set()
             top_order = 0
             try:
                 for doc in raw_db.note_boards.find({"user_id": int(user_id)}):
                     if not isinstance(doc, dict):
                         continue
-                    existing[normalize_board_name(doc.get("name"))] = str(doc.get("_id") or "")
+                    existing.add(normalize_board_name(doc.get("name")))
                     top_order = max(top_order, _safe_int(doc.get("order"), 0))
             except Exception:
                 pass
@@ -1242,7 +1255,24 @@ class PersonalBackupService:
                     if not isinstance(board, dict):
                         continue
                     # ברירת המחדל של סביבת היעד מנצחת — ראו הדוקסטרינג.
+                    # השם, ה-``_id`` ו-``is_default`` אינם נגעים; ``is_pinned``
+                    # כן משוחזר. המפתח הוא ``is_default`` ולא השם, כי
+                    # ``one_default_per_user`` מבטיח שהוא יחיד, בעוד שהשם
+                    # בחשבון היעד עשוי להיות אחר לגמרי.
                     if bool(board.get("is_default", False)):
+                        want_pinned = bool(board.get("is_pinned", False))
+                        raw_db.note_boards.update_one(
+                            {"user_id": int(user_id), "is_default": True},
+                            {"$set": {"is_pinned": want_pinned, "updated_at": datetime.now(timezone.utc)}},
+                        )
+                        # ``modified_count`` הוא 0 גם כשהערך כבר היה נכון,
+                        # ולכן אינו מבחין בין הצלחה לכישלון. האימות הוא
+                        # קריאה חוזרת של המצב.
+                        confirmed_default = raw_db.note_boards.find_one(
+                            {"user_id": int(user_id), "is_default": True}
+                        )
+                        if not confirmed_default or bool(confirmed_default.get("is_pinned", False)) != want_pinned:
+                            errors.append("נעיצת לוח ברירת המחדל לא שוחזרה")
                         continue
                     name = normalize_board_name(board.get("name"))
                     if name in existing:
@@ -1266,13 +1296,17 @@ class PersonalBackupService:
                         "updated_at": _str_to_dt(board.get("updated_at")) or now,
                     }
                     res = raw_db.note_boards.insert_one(doc)
-                    new_id = str(getattr(res, "inserted_id", "") or "")
-                    # אימות בקריאה חוזרת — ``inserted_id`` אינו הוכחה שהמסמך קיים.
-                    confirmed = raw_db.note_boards.find_one({"user_id": int(user_id), "name": name})
+                    new_id = getattr(res, "inserted_id", None)
+                    # אימות בקריאה חוזרת — ``inserted_id`` אינו הוכחה שהמסמך
+                    # קיים — ולפי המזהה שהוכנס, לא לפי השם: אין אינדקס ייחודי
+                    # על השם, ולכן חיפוש לפי שם היה נענה גם על ידי לוח אחר
+                    # שכבר קיים באותו שם ומאשר insert שנכשל. כלומר בדיקה
+                    # שאינה מסוגלת להיכשל.
+                    confirmed = raw_db.note_boards.find_one({"_id": new_id}) if new_id is not None else None
                     if not confirmed:
                         errors.append(f"הלוח '{name}' לא נכתב בפועל")
                         continue
-                    existing[name] = str(confirmed.get("_id") or new_id)
+                    existing.add(name)
                     count += 1
                 except Exception:
                     try:
@@ -1346,6 +1380,8 @@ class PersonalBackupService:
         except NoteQuotaError as exc:
             raise ValueError(f"quota:{exc}") from exc
 
+        # שעון אחד לרשומה — ראו ההערה ב-``_restore_bookmarks``.
+        now = datetime.now(timezone.utc)
         doc = {
             "user_id": int(user_id),
             "content": content,
@@ -1356,8 +1392,8 @@ class PersonalBackupService:
             "height": note.get("height", 200),
             "is_minimized": bool(note.get("is_minimized", False)),
             "mode": normalize_mode(note.get("mode")),
-            "created_at": _str_to_dt(note.get("created_at")) or datetime.now(timezone.utc),
-            "updated_at": _str_to_dt(note.get("updated_at")) or datetime.now(timezone.utc),
+            "created_at": _str_to_dt(note.get("created_at")) or now,
+            "updated_at": _str_to_dt(note.get("updated_at")) or now,
         }
         # שדות היעד דרך הבנאי, ולא ביד — כך המסמך אינו יכול לצאת עם שני
         # משטחים או בלי אף אחד.
@@ -1432,6 +1468,8 @@ class PersonalBackupService:
                     if existing_note:
                         continue
 
+                    # שעון אחד לרשומה — ראו ההערה ב-``_restore_bookmarks``.
+                    now = datetime.now(timezone.utc)
                     doc = {
                         "user_id": int(user_id),
                         "file_id": new_file_id,
@@ -1448,8 +1486,8 @@ class PersonalBackupService:
                         "line_end": note.get("line_end"),
                         "anchor_id": note.get("anchor_id"),
                         "anchor_text": note.get("anchor_text"),
-                        "created_at": _str_to_dt(note.get("created_at")) or datetime.now(timezone.utc),
-                        "updated_at": _str_to_dt(note.get("updated_at")) or datetime.now(timezone.utc),
+                        "created_at": _str_to_dt(note.get("created_at")) or now,
+                        "updated_at": _str_to_dt(note.get("updated_at")) or now,
                     }
                     raw_db.sticky_notes.insert_one(doc)
                     count += 1
