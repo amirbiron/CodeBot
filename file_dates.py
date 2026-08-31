@@ -30,13 +30,17 @@ def inherited_created_at(fallback: Any, *previous_docs: Any) -> Any:
     return fallback
 
 
-def _as_utc(value: datetime) -> datetime:
-    """מונגו מחזיר datetime בלי תווית אזור זמן, והוא תמיד UTC.
+def as_utc(value: datetime) -> datetime:
+    """מנרמל ``datetime`` ל-UTC עם תווית אזור זמן.
 
-    בלי הנרמול הזה השוואה בין ערך naive לערך aware זורקת ``TypeError``.
-    אותה מוסכמה שכבר נהוגה ב-``TimeUtils.to_israel_time``.
+    שני מקרים נפרדים, וחשוב לא לאחד ביניהם: ערך **naive** מגיע ממונגו,
+    שמאחסן UTC בלי תווית — ולכן מצמידים לו UTC. ערך **aware** בהיסט אחר
+    מומר. ``astimezone`` על ערך naive היה מניח שעון מקומי וזה שגוי כאן.
+
+    בלי הנרמול הזה השוואה בין naive ל-aware זורקת ``TypeError``. אותה
+    מוסכמה שכבר נהוגה ב-``TimeUtils.to_israel_time``.
     """
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def file_was_edited(created_at: Any, updated_at: Any) -> bool:
@@ -60,4 +64,4 @@ def file_was_edited(created_at: Any, updated_at: Any) -> bool:
         return False
     if not isinstance(created_at, datetime):
         return True
-    return _as_utc(updated_at) > _as_utc(created_at)
+    return as_utc(updated_at) > as_utc(created_at)

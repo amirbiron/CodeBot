@@ -8,7 +8,7 @@
 """
 
 import types
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -279,3 +279,43 @@ class TestFileWasEdited:
 
         updated = datetime(2026, 8, 31, 14, 0, tzinfo=timezone.utc)
         assert file_was_edited(None, updated) is True
+
+
+class TestAsUtc:
+    """נרמול תאריכים — הכלל הקנוני שגם השחזור מגיבוי נשען עליו.
+
+    שני מקרים נפרדים שאסור לאחד: ערך naive מגיע ממונגו, שמאחסן UTC בלי
+    תווית, ולכן מצמידים לו UTC. ערך aware בהיסט אחר מומר. ``astimezone``
+    על ערך naive היה מניח שעון מקומי — שגוי, ותלוי בסביבה שבה הקוד רץ.
+    """
+
+    def test_naive_is_treated_as_utc(self):
+        from file_dates import as_utc
+
+        result = as_utc(datetime(2019, 3, 7, 9, 15))
+        assert result == datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+        assert result.tzinfo == timezone.utc
+
+    def test_aware_in_another_offset_is_converted(self):
+        """המקרה שהריוויוור הצביע עליו: +03:00 חזר קודם כמו שהוא."""
+        from file_dates import as_utc
+
+        israel = timezone(timedelta(hours=3))
+        result = as_utc(datetime(2019, 3, 7, 12, 15, tzinfo=israel))
+        assert result.tzinfo == timezone.utc
+        assert result == datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+        assert result.hour == 9, "ההיסט לא הומר"
+
+    def test_utc_passes_through_unchanged(self):
+        from file_dates import as_utc
+
+        original = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+        assert as_utc(original) == original
+
+    def test_the_moment_is_never_shifted(self):
+        """נרמול משנה ייצוג, לא רגע בזמן."""
+        from file_dates import as_utc
+
+        for tz in (timezone.utc, timezone(timedelta(hours=3)), timezone(timedelta(hours=-8))):
+            value = datetime(2019, 3, 7, 9, 15, tzinfo=tz)
+            assert as_utc(value) == value

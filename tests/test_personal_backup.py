@@ -12,6 +12,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+def make_backup_zip(files_dict: dict) -> bytes:
+    """בונה ZIP גיבוי מדומה. מילון/רשימה נכתבים כ-JSON, כל השאר כמחרוזת."""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for path, content in files_dict.items():
+            zf.writestr(path, json.dumps(content) if isinstance(content, (dict, list)) else str(content))
+    return buf.getvalue()
+
+
 @pytest.fixture
 def mock_db():
     """יוצר DatabaseManager מדומה עם נתוני דוגמה."""
@@ -173,23 +182,12 @@ class TestExport:
 
 
 class TestRestore:
-    def _make_zip(self, files_dict: dict) -> bytes:
-        """יוצר ZIP מדומה עם קבצים נתונים."""
-        buf = BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            for path, content in files_dict.items():
-                if isinstance(content, dict) or isinstance(content, list):
-                    zf.writestr(path, json.dumps(content))
-                else:
-                    zf.writestr(path, str(content))
-        return buf.getvalue()
-
     def test_restore_basic(self, backup_service, mock_db):
         """בדיקת שחזור בסיסי."""
         mock_db.get_file.return_value = None  # אין קובץ קיים
         mock_db.save_code_snippet.return_value = True
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -231,7 +229,7 @@ class TestRestore:
         """בדיקה שקבצים קיימים לא נדרסים כש-overwrite=False."""
         mock_db.get_file.return_value = {"file_name": "test.py", "code": "old"}
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -257,7 +255,7 @@ class TestRestore:
         mock_db.toggle_favorite.return_value = False
         mock_db.toggle_pin.return_value = {"success": True, "is_pinned": False}
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -297,7 +295,7 @@ class TestRestore:
         mock_db.is_favorite.return_value = False
         mock_db.is_pinned.return_value = False
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -328,7 +326,7 @@ class TestRestore:
         mock_db.get_file.return_value = None
         mock_db.save_code_snippet.return_value = True
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -358,7 +356,7 @@ class TestRestore:
         }
         mock_db.save_large_file.return_value = True
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -382,7 +380,7 @@ class TestRestore:
         mock_db.get_file.return_value = {"_id": "file1", "file_name": "test.py", "code": "x"}
         mock_db.save_code_snippet.return_value = True
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {"regular_files": [], "large_files": []},
@@ -414,7 +412,7 @@ class TestRestore:
 
     def test_restore_preferences_allowlist_only(self, backup_service, mock_db):
         """שחזור העדפות לא צריך להזריק שדות שרירותיים."""
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {"regular_files": [], "large_files": []},
@@ -452,7 +450,7 @@ class TestRestore:
         mock_db.is_favorite.return_value = True
         mock_db.is_pinned.return_value = True
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -492,7 +490,7 @@ class TestRestore:
         }
         mock_db.save_large_file.return_value = True
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {
@@ -527,7 +525,7 @@ class TestRestore:
         # קוראת אותה כ"הפתק כבר קיים"
         mock_db.db.sticky_notes.find_one.return_value = None
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {"regular_files": [], "large_files": []},
@@ -549,7 +547,7 @@ class TestRestore:
         """פתקית עם file_name שלא נפתר ל-file_id לא תישמר (כדי לא ליצור יתומות)."""
         mock_db.get_file.return_value = None
 
-        zip_bytes = self._make_zip(
+        zip_bytes = make_backup_zip(
             {
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {"regular_files": [], "large_files": []},
@@ -612,18 +610,11 @@ class TestStoredDatetimeParsing:
 
 
 class TestRestorePreservesDates:
-    def _zip(self, files_dict: dict) -> bytes:
-        buf = BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            for path, content in files_dict.items():
-                zf.writestr(path, json.dumps(content) if isinstance(content, (dict, list)) else str(content))
-        return buf.getvalue()
-
     def test_regular_file_carries_both_dates_from_the_backup(self, backup_service, mock_db):
         mock_db.get_file.return_value = None
         mock_db.save_code_snippet.return_value = True
 
-        zip_bytes = self._zip({
+        zip_bytes = make_backup_zip({
             "backup_info.json": {"version": 1},
             "metadata/files.json": {
                 "regular_files": [{
@@ -645,7 +636,7 @@ class TestRestorePreservesDates:
         mock_db.get_large_file.return_value = None
         mock_db.save_large_file.return_value = True
 
-        zip_bytes = self._zip({
+        zip_bytes = make_backup_zip({
             "backup_info.json": {"version": 1},
             "metadata/files.json": {
                 "regular_files": [],
@@ -666,7 +657,7 @@ class TestRestorePreservesDates:
         mock_db.get_file.return_value = None
         mock_db.save_code_snippet.return_value = True
 
-        zip_bytes = self._zip({
+        zip_bytes = make_backup_zip({
             "backup_info.json": {"version": 1},
             "metadata/files.json": {
                 "regular_files": [{
@@ -684,3 +675,134 @@ class TestRestorePreservesDates:
         assert snippet.created_at >= before
         # וקובץ חדש: שני התאריכים זהים בדיוק
         assert snippet.updated_at == snippet.created_at
+
+
+# --- החוזה בין הייצוא לשחזור ---------------------------------------------------
+#
+# עד כאן שני הצדדים לא נפגשו באף בדיקה: TestExport בודק ZIP שנוצר, ו-TestRestore
+# מזין ZIP שנבנה ידנית בטסט. לכן שדה שהשחזור קורא והייצוא לא כותב נראה כמו
+# תיקון ועובר בשקט — בדיוק מה שקרה ל-updated_at של הסימניות.
+#
+# הבדיקה הזאת מריצה את שני מסלולי הקוד האמיתיים בזה אחר זה, ורק ה-DB מדומה.
+
+RT_CREATED = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+RT_UPDATED = datetime(2023, 11, 2, 18, 40, tzinfo=timezone.utc)
+
+
+class TestExportRestoreRoundTrip:
+    @pytest.fixture
+    def seeded_db(self, mock_db):
+        """מזין למסד המדומה נתונים עם תאריכים היסטוריים, לכל ארבע הישויות."""
+        mock_db.get_user_files.return_value = [{
+            "file_name": "hello.py", "code": "print('hello')",
+            "programming_language": "python", "description": "", "tags": [],
+            "is_favorite": False, "is_pinned": False, "pin_order": 0, "version": 3,
+            "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+        }]
+        mock_db.get_user_large_files.return_value = ([{
+            "file_name": "big.txt", "content": "x\n" * 10,
+            "programming_language": "text", "description": "", "tags": [],
+            "file_size": 20, "lines_count": 10,
+            "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+        }], 1)
+        mock_db.get_large_file.return_value = {"file_name": "big.txt", "content": "x\n" * 10}
+        mock_db.db.file_bookmarks.find.return_value = [{
+            "user_id": 12345, "file_name": "hello.py", "file_path": "hello.py",
+            "line_number": 1, "line_text_preview": "print('hello')", "note": "",
+            "color": "yellow", "valid": True,
+            "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+        }]
+        mock_db.db.sticky_notes.find.return_value = [{
+            "user_id": 12345, "file_name": "hello.py", "content": "a note",
+            "color": "#FFFFCC", "position_x": 10, "position_y": 10,
+            "width": 250, "height": 200,
+            "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+        }]
+        return mock_db
+
+    def _round_trip(self, service, db):
+        buffer = service.export_user_data(12345)
+        zip_bytes = buffer.getvalue() if hasattr(buffer, "getvalue") else buffer
+
+        # מנקים את צד הכתיבה כדי שהאסרשנים יתייחסו לשחזור בלבד
+        db.save_code_snippet.reset_mock()
+        db.save_large_file.reset_mock()
+        db.db.file_bookmarks.insert_one.reset_mock()
+        db.db.sticky_notes.insert_one.reset_mock()
+
+        # get_file חייב להחזיר מסמך: גם שחזור הסימניות וגם שחזור הפתקיות
+        # מדלגים על פריט שאי אפשר לשייך לקובץ. התוכן שונה מזה שבגיבוי כדי
+        # שהשחזור לא ידלג על הקובץ עצמו כ"זהה".
+        db.get_file.return_value = {"_id": "abc123", "file_name": "hello.py", "code": "print('OLD')"}
+        db.get_large_file.return_value = {"file_name": "big.txt", "content": "OLD\n"}
+        # ברירת המחדל של MagicMock אמיתית ולכן truthy — בדיקות הכפילות היו
+        # מדלגות על כל פריט.
+        db.db.file_bookmarks.find_one.return_value = None
+        db.db.sticky_notes.find_one.return_value = None
+
+        result = service.restore_user_data(12345, zip_bytes, overwrite=True)
+        assert result["ok"] is True, result
+        return result
+
+    def test_regular_file_dates_survive_the_round_trip(self, backup_service, seeded_db):
+        self._round_trip(backup_service, seeded_db)
+        snippet = seeded_db.save_code_snippet.call_args.args[0]
+        assert snippet.created_at == RT_CREATED
+        assert snippet.updated_at == RT_UPDATED
+
+    def test_large_file_dates_survive_the_round_trip(self, backup_service, seeded_db):
+        self._round_trip(backup_service, seeded_db)
+        large = seeded_db.save_large_file.call_args.args[0]
+        assert large.created_at == RT_CREATED
+        assert large.updated_at == RT_UPDATED
+
+    def test_bookmark_dates_survive_the_round_trip(self, backup_service, seeded_db):
+        """זה הטסט שתופס שדה שהשחזור קורא והייצוא לא כותב."""
+        self._round_trip(backup_service, seeded_db)
+        doc = seeded_db.db.file_bookmarks.insert_one.call_args.args[0]
+        assert doc["created_at"] == RT_CREATED
+        assert doc["updated_at"] == RT_UPDATED
+
+    def test_sticky_note_dates_survive_the_round_trip(self, backup_service, seeded_db):
+        self._round_trip(backup_service, seeded_db)
+        doc = seeded_db.db.sticky_notes.insert_one.call_args.args[0]
+        assert doc["created_at"] == RT_CREATED
+        assert doc["updated_at"] == RT_UPDATED
+
+    def test_bookmark_dates_survive_the_round_trip_via_the_fallback_export(
+        self, backup_service, seeded_db
+    ):
+        """לייצוא הסימניות שני מסלולים, וה-fallback נכנס כשהראשי זורק.
+
+        בלי הבדיקה הזאת התיקון במסלול ה-fallback היה נשאר לא מאומת — מוטציה
+        שמסירה אותו לא הפילה שום טסט.
+        """
+        seeded_db.db.file_bookmarks.find.side_effect = RuntimeError("אין תמיכה ב-find")
+
+        class _FakeBookmarksManager:
+            def __init__(self, _raw_db):
+                pass
+
+            def get_user_bookmarks(self, _user_id, limit=5000):
+                return {
+                    "ok": True,
+                    "files": [{
+                        "file_name": "hello.py",
+                        "file_path": "hello.py",
+                        "bookmarks": [{
+                            "line_number": 1,
+                            "line_text_preview": "print('hello')",
+                            "note": "",
+                            "color": "yellow",
+                            "created_at": RT_CREATED,
+                            "updated_at": RT_UPDATED,
+                        }],
+                    }],
+                }
+
+        with patch("database.bookmarks_manager.BookmarksManager", _FakeBookmarksManager):
+            self._round_trip(backup_service, seeded_db)
+
+        doc = seeded_db.db.file_bookmarks.insert_one.call_args.args[0]
+        assert doc["created_at"] == RT_CREATED
+        assert doc["updated_at"] == RT_UPDATED

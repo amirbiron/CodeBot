@@ -6,6 +6,8 @@ import logging
 import time
 import zipfile
 from datetime import datetime, timezone
+
+from file_dates import as_utc
 from io import BytesIO
 from typing import Any, Callable, Dict, List, Optional
 
@@ -362,6 +364,7 @@ class PersonalBackupService:
                             "note": str(d.get("note") or ""),
                             "color": str(d.get("color") or "yellow"),
                             "created_at": _dt_to_str(d.get("created_at")),
+                            "updated_at": _dt_to_str(d.get("updated_at")),
                         }
                     )
                     # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
@@ -397,6 +400,7 @@ class PersonalBackupService:
                                 "anchor_text": bm.get("anchor_text"),
                                 "anchor_type": bm.get("anchor_type"),
                                 "created_at": _dt_to_str(bm.get("created_at")),
+                                "updated_at": _dt_to_str(bm.get("updated_at")),
                             }
                         )
                 return flat_bookmarks
@@ -1428,18 +1432,19 @@ def _str_to_dt(value) -> Optional[datetime]:
     ``None`` שקול בדיוק להתנהגות שלפני התיקון, כך שגיבוי ישן או פגום
     מתנהג כמו קודם במקום להפיל את השחזור.
 
-    התוצאה תמיד timezone-aware ב-UTC: מונגו שומר datetime בלי תווית אזור
-    זמן, וערך naive שיוכנס למסמך היה שובר השוואות מול ערכים aware.
+    התוצאה תמיד timezone-aware ב-UTC, דרך ``file_dates.as_utc`` — הכלל
+    הקנוני היחיד לנרמול תאריכי קובץ בריפו. העתק מקומי שלו היה נדרש
+    לתחזוקה במקביל, וזה בדיוק הדפוס שתועד ב-issue #3307.
     """
     if isinstance(value, datetime):
-        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+        return as_utc(value)
     if not isinstance(value, str) or not value.strip():
         return None
     try:
         parsed = datetime.fromisoformat(value.strip())
     except ValueError:
         return None
-    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+    return as_utc(parsed)
 
 
 def _safe_zip_path(path: str) -> str:
