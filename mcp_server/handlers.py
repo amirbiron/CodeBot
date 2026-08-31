@@ -211,6 +211,11 @@ def _resave_edited(
         programming_language=str(doc.get("programming_language") or doc.get("language") or "text"),
         description=str(doc.get("description") or ""),
         tags=list(doc.get("tags") or []),
+        # ``edit_file``/``append_file`` פועלים **בהגדרה** על קובץ קיים — הם
+        # מגיעים לכאן רק אחרי ``get_file`` מוצלח. לכן ``prev`` תמיד מלא,
+        # ובלי הדגל הזה שער ה-``file_exists`` היה חוסם את שני הכלים לגמרי.
+        # השער נועד למנוע דריסה בשוגג ב-``save_file``, לא לחסום עריכה.
+        update_existing=True,
     )
 
 

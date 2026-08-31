@@ -35,8 +35,13 @@ class _RecordingBackend:
         self.calls.append(("items", user_id, collection_id, page, per_page, folder))
         return {}
 
-    def save_file(self, user_id, *, file_name, code, programming_language, description, update_existing=False):
-        self.calls.append(("save", user_id, file_name, code, programming_language, description))
+    def save_file(self, user_id, *, file_name, code, programming_language, description,
+                  update_existing=False):
+        # הדגל נרשם ולא נבלע: בלעדיו אי אפשר לאמת אף מסלול — לא שיצירה
+        # מעבירה False, ולא שעריכה מעבירה True.
+        self.calls.append(
+            ("save", user_id, file_name, code, programming_language, description, update_existing)
+        )
         return {"ok": True, "created": True, "file": {"file_name": file_name, "version": 1}}
 
 
@@ -112,7 +117,16 @@ def test_save_file_passes_explicit_language_and_trims_name():
     be = _RecordingBackend()
     out = handlers.save_file(be, 7, file_name=" a.py ", code="print(1)", language="python")
     assert out["ok"] is True
-    assert be.calls[0] == ("save", 7, "a.py", "print(1)", "python", "")
+    # ברירת המחדל היא יצירה: ``update_existing`` חייב להישאר False, אחרת
+    # ``save_file`` היה דורס קובץ קיים בלי שהמשתמש ביקש.
+    assert be.calls[0] == ("save", 7, "a.py", "print(1)", "python", "", False)
+
+
+def test_save_file_forwards_update_existing_when_asked():
+    """הצד השני של אותו חוזה: הדגל עובר הלאה כשמבקשים אותו במפורש."""
+    be = _RecordingBackend()
+    handlers.save_file(be, 7, file_name="a.py", code="x", language="python", update_existing=True)
+    assert be.calls[0][-1] is True
 
 
 def test_save_file_fills_a_language_when_omitted():

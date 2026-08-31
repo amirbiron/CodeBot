@@ -5872,14 +5872,24 @@ def admin_config_inspector_page():
 @app.route('/admin/migrations/created-at', methods=['GET', 'POST'])
 @admin_required
 def admin_migration_created_at():
-    """מיגרציית "נוצר": dry-run והחלה, מהדפדפן בלבד.
+    """מיגרציית "נוצר": dry-run והחלה באצוות, מהדפדפן בלבד.
 
     "נוצר" של קובץ שייך לקובץ הלוגי ולא לגרסה. הקוד כבר מוריש את
     ``created_at`` קדימה בכל גרסה חדשה; העמוד הזה מיישר את הקבצים
-    שנוצרו לפני התיקון. ההחלה מותרת רק אחרי ש-dry-run הוצג — הטופס
-    נושא את מונה ה-dry-run כדי שההחלה תמיד תתייחס למה שנצפה.
+    שנוצרו לפני התיקון.
+
+    **השער של "ראית dry-run" חי בסשן, לא בטופס.** שדה מוסתר הוא קלט
+    מהלקוח: כל POST של אדמין יכול לשאת ``dry_run_seen=1`` בלי שדבר
+    הוצג. במקום זה ה-dry-run מנפיק אסימון אקראי ושומר לצידו את מספר
+    הקבצים המושפעים; ההחלה מאמתת את שניהם, כך שמה שאושר הוא מה שיוחל.
+    אם קבוצת המושפעים השתנתה בינתיים — סירוב ובקשה להריץ dry-run מחדש.
+
+    האסימון אינו הגנת CSRF (אין CSRF פעיל באפליקציה) אלא שער תהליכי:
+    הוא מוודא שההחלה נשענת על תמונת מצב שהוצגה בפועל.
     """
     from services import created_at_migration as _mig
+
+    SESSION_KEY = 'created_at_migration_gate'
 
     db = get_db()
     result = None
@@ -5889,14 +5899,43 @@ def admin_migration_created_at():
         try:
             if action == 'dry_run':
                 result = _mig.dry_run(db)
+                session[SESSION_KEY] = {
+                    'token': secrets.token_urlsafe(24),
+                    'affected': int(result.get('affected_count') or 0),
+                }
+                session.modified = True
             elif action == 'apply':
-                # ההחלה דורשת שה-dry-run רץ באותו טופס; בלי זה — סירוב.
-                if (request.form.get('dry_run_seen') or '') != '1':
-                    error = 'יש להריץ dry-run לפני החלה.'
+                gate = session.get(SESSION_KEY) or {}
+                posted = str(request.form.get('gate_token') or '')
+                expected = str(gate.get('token') or '')
+                if not expected or not hmac.compare_digest(posted, expected):
+                    error = 'יש להריץ dry-run לפני החלה (או שהאסימון פג).'
                 else:
-                    result = _mig.apply(db)
+                    # חתימת התוצאה: אם קבוצת המושפעים השתנתה מאז ההצגה,
+                    # מה שהאדמין אישר אינו מה שיוחל — לכן סירוב.
+                    current = _mig.count_affected(db)
+                    if current != int(gate.get('affected') or -1):
+                        session.pop(SESSION_KEY, None)
+                        error = (
+                            f'קבוצת הקבצים המושפעים השתנתה מאז ה-dry-run '
+                            f'({gate.get("affected")} ← {current}). הרץ dry-run מחדש.'
+                        )
+                    else:
+                        result = _mig.apply(db)
+                        remaining = int(result.get('remaining_after') or 0)
+                        if remaining > 0:
+                            # ההחלה באצוות: האסימון נשאר תקף להמשך, עם
+                            # חתימה מעודכנת ליתרה שנמדדה בפועל.
+                            gate['affected'] = remaining
+                            session[SESSION_KEY] = gate
+                        else:
+                            session.pop(SESSION_KEY, None)
+                        session.modified = True
             else:
                 error = 'פעולה לא מוכרת.'
+        except _mig.MigrationError as exc:
+            logger.exception('created_at migration reporting failed: %s', exc)
+            error = f'הדו"ח נכשל ולכן אין על מה להחליט: {exc}'
         except Exception as exc:
             logger.exception('created_at migration failed: %s', exc)
             error = 'המיגרציה נכשלה — ראו לוגים.'
@@ -5905,7 +5944,13 @@ def admin_migration_created_at():
         for row in result.get('samples', []) or []:
             row['current_created_disp'] = format_datetime_display(row.get('current_created'))
             row['new_created_disp'] = format_datetime_display(row.get('new_created'))
-    return render_template('admin_migration_created_at.html', result=result, error=error)
+    gate_token = (session.get(SESSION_KEY) or {}).get('token') or ''
+    return render_template(
+        'admin_migration_created_at.html',
+        result=result,
+        error=error,
+        gate_token=gate_token,
+    )
 
 
 @app.route('/admin/cache-inspector')
@@ -10273,6 +10318,24 @@ def _to_display_datetime(value) -> Optional[datetime]:
 
 
 # עיצוב תאריך בטוח לתצוגה ללא נפילה לברירת מחדל של עכשיו
+def has_real_update(created_at, updated_at) -> bool:
+    """האם הקובץ נערך אי פעם — **על ה-datetime הגולמי**.
+
+    ההשוואה חייבת לקרות כאן ולא בתבנית. ``format_datetime_display``
+    מעגל לדקות, ולכן קובץ שנוצר ב-10:30:10 ונערך ב-10:30:50 מקבל שתי
+    מחרוזות זהות — ו"עודכן" היה נעלם למרות עריכה אמיתית. נמדד.
+    """
+    try:
+        a = _to_display_datetime(created_at)
+        b = _to_display_datetime(updated_at)
+        if a is None or b is None:
+            return False
+        return b > a
+    except Exception:
+        # ספק ⇒ להציג. הסתרה שגויה מוחקת מידע מהמשתמש; הצגה מיותרת לא.
+        return True
+
+
 def format_datetime_display(value) -> str:
     try:
         dt = _to_display_datetime(value)
@@ -12234,6 +12297,7 @@ def files():
                 'lines': lines_count,
                 'created_at': format_datetime_display(latest.get('created_at')),
                 'updated_at': format_datetime_display(latest.get('updated_at')),
+                'has_update': has_real_update(latest.get('created_at'), latest.get('updated_at')),
                 'last_opened_at': format_datetime_display(recent_map.get(fname)),
             })
 
@@ -12393,7 +12457,8 @@ def files():
             'size': format_file_size(size_bytes),
             'lines': lines_count,
             'created_at': format_datetime_display(file.get('created_at')),
-            'updated_at': format_datetime_display(file.get('updated_at'))
+            'updated_at': format_datetime_display(file.get('updated_at')),
+            'has_update': has_real_update(file.get('created_at'), file.get('updated_at'))
         })
     
     # רשימת שפות לפילטר - רק מקבצים פעילים
@@ -12672,6 +12737,7 @@ def view_file(file_id):
                                  'lines': len(code.split('\n')) if code else 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'has_update': has_real_update(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12704,6 +12770,7 @@ def view_file(file_id):
                                  'lines': 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'has_update': has_real_update(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12765,6 +12832,7 @@ def view_file(file_id):
         'lines': len(code.split('\n')) if code else 0,
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
+        'has_update': has_real_update(file.get('created_at'), file.get('updated_at')),
         'version': (file.get('version', 1) if not is_large else None),
         'is_large': is_large,
         'can_pin': not is_large,
@@ -14660,9 +14728,15 @@ def edit_file_page(file_id):
                         'tags': tags,
                         'version': version,
                         # "נוצר" יורש מהגרסה הקודמת — עריכה אינה לידה מחדש.
-                        # ``file`` הוא הנפילה לשינוי שם, שאז ``prev`` נשלף
-                        # לפי השם החדש ויכול להיות ריק.
-                        'created_at': (prev or file or {}).get('created_at') or now,
+                        #
+                        # **נפילה לפי שדה, לא לפי מילון.** ``(prev or file)``
+                        # בוחר את ``prev`` ברגע שהוא מילון לא-ריק, וגם אם אין
+                        # בו ``created_at`` כלל — ואז ``file`` לעולם לא נבדק
+                        # והתאריך נופל ל-now. מסמכים ותיקים בלי השדה קיימים
+                        # בפועל, ויש עליהם טסט.
+                        'created_at': ((prev or {}).get('created_at')
+                                       or (file or {}).get('created_at')
+                                       or now),
                         'updated_at': now,
                         'is_active': True,
                     }

@@ -943,10 +943,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         <div class="meta-label"><i class="fas fa-calendar-plus"></i> נוצר</div>
         <div class="meta-value">{{ file.created_at }}</div>
     </div>
-    {# כשהקובץ מעולם לא עודכן, שני התאריכים זהים ו"עודכן" הוא רעש —
-       מציגים רק "נוצר". הפריט נשאר ב-DOM מוסתר, כי עריכת תיאור חיה
-       (quick-update) צריכה להחזיר אותו לתצוגה בלי רענון. #}
-    <div class="meta-item" id="metaUpdatedItem" {% if file.updated_at == file.created_at %}hidden{% endif %}>
+    {# כשהקובץ מעולם לא עודכן "עודכן" הוא רעש — מציגים רק "נוצר". הפריט
+       נשאר ב-DOM מוסתר, כי עריכת תיאור חיה (quick-update) צריכה להחזיר
+       אותו לתצוגה בלי רענון.
+       ``has_update`` מחושב ב-app.py על ה-datetime הגולמי: השוואת המחרוזות
+       שהייתה כאן עיגלה לדקות, והסתירה עריכה שקרתה באותה דקה. #}
+    <div class="meta-item" id="metaUpdatedItem" {% if not file.has_update %}hidden{% endif %}>
         <div class="meta-label"><i class="fas fa-calendar-check"></i> עודכן</div>
         <div class="meta-value" id="metaUpdatedValue">{{ file.updated_at }}</div>
     </div>

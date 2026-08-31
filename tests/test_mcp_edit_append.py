@@ -18,13 +18,24 @@ class _EditBackend:
     def get_file(self, user_id, *, file_name, file_id=None, version=None):
         return self.doc
 
-    def save_file(self, user_id, *, file_name, code, programming_language, description, tags=None):
+    def save_file(self, user_id, *, file_name, code, programming_language, description,
+                  tags=None, update_existing=False):
+        """מדמה את **החוזה** של הבקנד, לא רק את החתימה שלו.
+
+        הפייק הקודם החזיר ``ok`` ללא תנאי, ולכן המשיך לעבור כששער
+        ``file_exists`` נוסף לבקנד ו-``_resave_edited`` שכח את הדגל —
+        בזמן ש-``edit_file`` ו-``append_file`` נשברו בפרודקשן לגמרי.
+        פייק שלא מדמה את התנאי הוא ירוק שקרי.
+        """
+        if self.doc is not None and not update_existing:
+            return {"ok": False, "error": "file_exists", "file_name": file_name}
         self.saved = {
             "file_name": file_name,
             "code": code,
             "programming_language": programming_language,
             "description": description,
             "tags": tags,
+            "update_existing": update_existing,
         }
         return {"ok": True, "created": False, "file": {"file_name": file_name, "version": 4}}
 

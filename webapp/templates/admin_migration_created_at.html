@@ -12,9 +12,15 @@
 .mig-table th, .mig-table td { padding: .45rem .6rem; border-bottom: 1px solid var(--card-border); text-align: right; }
 .mig-stat { font-size: 1.15rem; }
 .mig-stat b { font-variant-numeric: tabular-nums; }
-.mig-error { color: var(--danger-border, #b91c1c); }
+/* ‏--danger הוא צבע הטקסט של הערכה; --danger-border נגזר ממנו ב-45%
+   שקיפות ונועד לגבולות, ולכן כטקסט הוא חלש מדי לקריאה. */
+.mig-error { color: var(--danger); }
 .mig-note { opacity: .8; font-size: .92rem; }
 .mig-table-wrap { overflow-x: auto; }
+/* ‏.btn-danger אינה מוגדרת גלובלית (הכלל היחיד בריפו הוא מקומי
+   ל-collections), ולכן הכפתור ההרסני היה נראה ככפתור רגיל. */
+.mig-actions .btn-danger { background: var(--danger); border-color: var(--danger); color: var(--text-on-warning); }
+.mig-actions .btn-danger:hover { background: color-mix(in srgb, var(--danger) 82%, var(--text-primary)); border-color: color-mix(in srgb, var(--danger) 82%, var(--text-primary)); }
 </style>
 {% endblock %}
 
@@ -23,8 +29,8 @@
     <h1>🗓️ מיגרציית "נוצר"</h1>
 
     <div class="mig-card">
-        <p>"נוצר" של קובץ שייך לקובץ, לא לגרסה. הקוד כבר משמר אותו בעריכות חדשות; העמוד הזה מיישר קבצים שנערכו לפני התיקון: הגרסה האחרונה של כל קובץ תקבל את התאריך המוקדם ביותר מבין גרסאותיו. גרסאות ישנות אינן נגועות.</p>
-        <p class="mig-note">‏dry-run לקריאה בלבד — לא משנה דבר. ההחלה נפתחת רק אחרי שצפית בתוצאה שלו. שתי הפעולות נרשמות ל-audit.</p>
+        <p>"נוצר" של קובץ שייך לקובץ, לא לגרסה. הקוד כבר משמר אותו בעריכות חדשות; העמוד הזה מיישר קבצים שנערכו לפני התיקון: כל מסמך בגרסה הגבוהה ביותר של קובץ מקבל את התאריך המוקדם ביותר מבין גרסאותיו. גרסאות ישנות אינן נגועות.</p>
+        <p class="mig-note">‏dry-run לקריאה בלבד — לא משנה דבר. ההחלה נפתחת רק אחרי שצפית בתוצאה שלו, ורצה באצוות: כל לחיצה מטפלת בכמות חסומה ומדווחת כמה נותרו. ההחלה אידמפוטנטית, ולכן הרצה חוזרת בטוחה. שתי הפעולות נרשמות ל-audit.</p>
     </div>
 
     {% if error %}
@@ -33,13 +39,22 @@
 
     <div class="mig-card">
         <form method="post" class="mig-actions">
-            <input type="hidden" name="dry_run_seen" value="{% if result and result.mode == 'dry_run' %}1{% else %}0{% endif %}">
             <button type="submit" name="action" value="dry_run" class="btn btn-primary">🔍 הרץ dry-run</button>
-            {% if result and result.mode == 'dry_run' %}
+            {% if gate_token %}
+            {# האסימון מונפק ונשמר בסשן בצד השרת; כאן רק מוחזר. שדה מוסתר
+               לבדו אינו שער — האימות הוא מול הסשן. #}
+            <input type="hidden" name="gate_token" value="{{ gate_token }}">
+            {% if result and result.mode == 'apply' %}
             <button type="submit" name="action" value="apply" class="btn btn-danger"
-                    onclick="return confirm('להחיל את המיגרציה על {{ result.affected_count }} קבצים? הפעולה משנה את created_at של הגרסה האחרונה בכל אחד מהם.');">
-                ✅ החל על {{ result.affected_count }} קבצים
+                    onclick="return confirm('להמשיך לאצווה הבאה? נותרו {{ result.remaining_after }} קבצים.');">
+                ▶️ המשך — נותרו {{ result.remaining_after }}
             </button>
+            {% elif result and result.mode == 'dry_run' and result.affected_count %}
+            <button type="submit" name="action" value="apply" class="btn btn-danger"
+                    onclick="return confirm('להחיל את המיגרציה? הפעולה משנה את created_at של הגרסה האחרונה, עד {{ result.batch_size }} קבצים באצווה זו.');">
+                ✅ החל אצווה (עד {{ result.batch_size }} מתוך {{ result.affected_count }})
+            </button>
+            {% endif %}
             {% endif %}
         </form>
     </div>
@@ -47,6 +62,9 @@
     {% if result and result.mode == 'dry_run' %}
     <div class="mig-card">
         <p class="mig-stat">ייפגעו <b>{{ result.affected_count }}</b> קבצים מתוך <b>{{ result.total_files }}</b>.</p>
+        {% if result.audit_error %}
+        <p class="mig-error">⚠️ רשומת ה-audit לא נכתבה: {{ result.audit_error }}</p>
+        {% endif %}
         {% if result.samples %}
         <div class="mig-table-wrap">
         <table class="mig-table">
@@ -54,7 +72,7 @@
             <tbody>
             {% for s in result.samples %}
             <tr>
-                <td>{{ s.file_name }}</td>
+                <td>{{ s.file_name }}{% if s.duplicate_latest %} <span class="mig-note" title="יותר ממסמך אחד בגרסה הגבוהה ביותר — כולם יתוקנו">⧉</span>{% endif %}</td>
                 <td>{{ s.versions }}</td>
                 <td>{{ s.current_created_disp }}</td>
                 <td>{{ s.new_created_disp }}</td>
@@ -71,11 +89,20 @@
 
     {% if result and result.mode == 'apply' %}
     <div class="mig-card">
-        <p class="mig-stat">תוכננו <b>{{ result.planned }}</b> · עודכנו בפועל <b>{{ result.modified }}</b> · נותרו לא-תואמים אחרי אימות: <b>{{ result.remaining_after }}</b></p>
-        {% if result.remaining_after == 0 %}
-        <p>✅ האימות בקריאה חוזרת עבר — אין פערים שנותרו.</p>
+        <p class="mig-stat">באצווה זו: <b>{{ result.files_in_batch }}</b> קבצים · <b>{{ result.documents_planned }}</b> מסמכים תוכננו · <b>{{ result.modified }}</b> עודכנו בפועל · נותרו אחרי אימות: <b>{{ result.remaining_after }}</b></p>
+        {% if result.done %}
+        <p>✅ האימות בקריאה חוזרת עבר — לא נותרו פערים.</p>
         {% else %}
-        <p class="mig-error">⚠️ נותרו פערים. הרץ dry-run שוב לראות מה נשאר, ואל תריץ החלה נוספת לפני שמבינים למה.</p>
+        <p>עוד יש עבודה. לחצו "המשך" לאצווה הבאה — הפעולה אידמפוטנטית.</p>
+        {% endif %}
+        {% if result.audit_error %}
+        <p class="mig-error">⚠️ רשומת ה-audit לא נכתבה: {{ result.audit_error }}</p>
+        {% endif %}
+        {% set ci = result.cache_invalidation %}
+        {% if ci and ci.failed %}
+        <p class="mig-error">⚠️ ביטול הקאש נכשל עבור {{ ci.failed }} מתוך {{ ci.attempted }} משתמשים{% if ci.error %} ({{ ci.error }}){% endif %} — ייתכן שרשימות ימשיכו להציג את התאריך הישן עד שה-TTL יפוג.</p>
+        {% elif ci %}
+        <p class="mig-note">קאש בוטל עבור {{ ci.ok }} משתמשים.</p>
         {% endif %}
     </div>
     {% endif %}

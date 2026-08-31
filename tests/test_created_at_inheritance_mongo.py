@@ -13,50 +13,16 @@
 
 from __future__ import annotations
 
-import os
-import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-pymongo = pytest.importorskip("pymongo")
+from mongo_it import make_mongo_db_fixture, requires_mongo
 
-from pymongo.errors import ServerSelectionTimeoutError  # noqa: E402
+pytestmark = requires_mongo
 
-_TEST_DB_PREFIX = "codebot_created_it_"
-_MONGO_URL = os.environ.get("MONGODB_URL", "").strip()
-
-
-def _server_is_reachable(url: str) -> bool:
-    try:
-        client = pymongo.MongoClient(url, serverSelectionTimeoutMS=2000, tz_aware=True, tzinfo=timezone.utc)
-        client.admin.command("ping")
-        client.close()
-        return True
-    except (ServerSelectionTimeoutError, Exception):
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _MONGO_URL or not _server_is_reachable(_MONGO_URL),
-    reason="דורש MONGODB_URL עם שרת מונגו נגיש (קיים ב-CI, לא בהכרח מקומית)",
-)
-
-
-@pytest.fixture
-def mongo_db():
-    name = f"{_TEST_DB_PREFIX}{uuid.uuid4().hex[:12]}"
-    client = pymongo.MongoClient(_MONGO_URL, tz_aware=True, tzinfo=timezone.utc)
-    db = client[name]
-    try:
-        yield db
-    finally:
-        # סורג בטיחות: מוחקים רק מסד שנוצר כאן
-        assert name.startswith(_TEST_DB_PREFIX), f"סירוב למחוק מסד שאינו של הבדיקות: {name}"
-        try:
-            client.drop_database(name)
-        finally:
-            client.close()
+#: תחילית ייעודית לקובץ הזה — סורג המחיקה ב-``mongo_it`` נשען עליה.
+mongo_db = make_mongo_db_fixture("codebot_created_it_")
 
 
 @pytest.fixture
@@ -92,7 +58,10 @@ def test_new_version_inherits_created_at(repo, mongo_db):
     assert v2 is not None
 
     assert v2["created_at"] == v1["created_at"], "עריכה אינה לידה מחדש"
-    assert v2["updated_at"] > v1["updated_at"], "תאריך הגרסה חי ב-updated_at"
+    # ``>=`` ולא ``>``: שתי שמירות ברצף יכולות ליפול על אותה חותמת אם
+    # רזולוציית השעון מגסה. הטענה שנבדקת כאן היא ש-``updated_at`` **אינו
+    # יורש** מהגרסה הקודמת אלא נקבע מחדש — ולכן הוא לעולם לא נסוג אחורה.
+    assert v2["updated_at"] >= v1["updated_at"], "תאריך הגרסה חי ב-updated_at"
 
 
 def test_inheritance_survives_a_chain_of_edits(repo, mongo_db):
@@ -141,7 +110,12 @@ def test_migration_dry_run_reads_only_and_apply_fixes_latest_only(mongo_db):
     assert latest["created_at"] == t2
 
     a = mig.apply(mongo_db)
-    assert a == {**a, "planned": 1, "modified": 1, "remaining_after": 0}
+    assert a["files_in_batch"] == 1
+    assert a["documents_planned"] == 1
+    assert a["modified"] == 1
+    assert a["remaining_after"] == 0
+    assert a["done"] is True
+    assert a["audit_error"] is None
     latest = mongo_db.code_snippets.find_one({"file_name": "old.py", "version": 3})
     assert latest["created_at"] == t0, "האחרונה קיבלה את המוקדם"
     v2 = mongo_db.code_snippets.find_one({"file_name": "old.py", "version": 2})
@@ -149,7 +123,9 @@ def test_migration_dry_run_reads_only_and_apply_fixes_latest_only(mongo_db):
 
     # אידמפוטנטי: החלה שנייה לא מוצאת מה לתקן
     again = mig.apply(mongo_db)
-    assert again["planned"] == 0 and again["modified"] == 0
+    assert again["documents_planned"] == 0
+    assert again["modified"] == 0
+    assert again["remaining_after"] == 0
 
 
 def test_migration_audit_records_both_modes(mongo_db):
@@ -159,3 +135,128 @@ def test_migration_audit_records_both_modes(mongo_db):
     mig.apply(mongo_db)
     modes = [d["mode"] for d in mongo_db[mig.AUDIT_COLLECTION].find()]
     assert modes == ["dry_run", "apply"]
+
+
+def test_migration_fixes_latest_version_without_created_at(mongo_db):
+    """הגרסה האחרונה בלי ``created_at`` — הקובץ שהצינור הישן דילג עליו.
+
+    ``$gt`` מול ``null`` מחזיר ``false`` (נמדד מול mongod 7.0.14), ולכן
+    תנאי הפער לבדו הסתיר בדיוק את הקבצים השבורים ביותר: אלה שאין להם
+    תאריך כלל. ההורשה קדימה הייתה נותנת להם ``now`` בעריכה הבאה.
+    """
+    from services import created_at_migration as mig
+
+    t0 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    mongo_db.code_snippets.insert_one(
+        {"user_id": 7, "file_name": "nodate.py", "version": 1, "is_active": True, "created_at": t0}
+    )
+    mongo_db.code_snippets.insert_one(
+        {"user_id": 7, "file_name": "nodate.py", "version": 2, "is_active": True}
+    )
+
+    assert mig.count_affected(mongo_db) == 1, "הקובץ לא זוהה כמושפע"
+    a = mig.apply(mongo_db)
+    assert a["modified"] == 1 and a["remaining_after"] == 0
+
+    latest = mongo_db.code_snippets.find_one({"file_name": "nodate.py", "version": 2})
+    assert latest["created_at"] == t0
+
+
+def test_migration_fixes_every_document_at_the_highest_version(mongo_db):
+    """שני מסמכים באותה גרסה — שניהם מתוקנים, בלי לנחש מי "האחרון".
+
+    מרוץ כתיבה ידוע מייצר תאומים, והאפליקציה בוחרת ביניהם עם ``$sort``
+    בלי שובר-שוויון — כלומר הבחירה אינה יציבה. תיקון של אחד מהם היה
+    משאיר את ה-UI מציג לפעמים את התאריך הישן.
+    """
+    from services import created_at_migration as mig
+
+    t0 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    mongo_db.code_snippets.insert_many([
+        {"user_id": 8, "file_name": "twin.py", "version": 1, "is_active": True, "created_at": t0},
+        {"user_id": 8, "file_name": "twin.py", "version": 2, "is_active": True,
+         "created_at": t0 + timedelta(days=9)},
+        {"user_id": 8, "file_name": "twin.py", "version": 2, "is_active": True,
+         "created_at": t0 + timedelta(days=3)},
+    ])
+
+    a = mig.apply(mongo_db)
+    assert a["files_in_batch"] == 1
+    assert a["documents_planned"] == 2, "רק אחד מהתאומים תוקן"
+    assert a["modified"] == 2
+
+    twins = [d["created_at"] for d in mongo_db.code_snippets.find({"file_name": "twin.py", "version": 2})]
+    assert twins == [t0, t0]
+
+
+def test_migration_leaves_files_that_have_no_date_to_inherit(mongo_db):
+    """קובץ שלאף גרסה שלו אין ``created_at`` — אין ממה לרשת, לא נוגעים."""
+    from services import created_at_migration as mig
+
+    mongo_db.code_snippets.insert_many([
+        {"user_id": 9, "file_name": "blank.py", "version": 1, "is_active": True},
+        {"user_id": 9, "file_name": "blank.py", "version": 2, "is_active": True},
+    ])
+
+    assert mig.count_affected(mongo_db) == 0
+    a = mig.apply(mongo_db)
+    assert a["documents_planned"] == 0
+
+    for doc in mongo_db.code_snippets.find({"file_name": "blank.py"}):
+        assert doc.get("created_at") is None
+
+
+def test_migration_applies_in_batches(mongo_db):
+    """אצווה חסומה בגודל, ודיווח יתרה — כדי שלא תחסום בקשת HTTP."""
+    from services import created_at_migration as mig
+
+    t0 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    for i in range(3):
+        mongo_db.code_snippets.insert_many([
+            {"user_id": 10, "file_name": f"b{i}.py", "version": 1, "is_active": True, "created_at": t0},
+            {"user_id": 10, "file_name": f"b{i}.py", "version": 2, "is_active": True,
+             "created_at": t0 + timedelta(days=5)},
+        ])
+
+    first = mig.apply(mongo_db, batch_size=2)
+    assert first["files_in_batch"] == 2
+    assert first["remaining_after"] == 1
+    assert first["done"] is False
+
+    second = mig.apply(mongo_db, batch_size=2)
+    assert second["files_in_batch"] == 1
+    assert second["remaining_after"] == 0
+    assert second["done"] is True
+
+    for i in range(3):
+        latest = mongo_db.code_snippets.find_one({"file_name": f"b{i}.py", "version": 2})
+        assert latest["created_at"] == t0
+
+
+def test_migration_reports_audit_failure_instead_of_swallowing_it(mongo_db):
+    """כשל בכתיבת ה-audit חוזר בתוצאה — לא נבלע מאחורי דיווח הצלחה.
+
+    זהו הדפוס שכבר עלה בריפו הזה: פעולה שהכשל שלה מוחזר כערך ולא נזרק,
+    ומעליה דיווח "הצליח". ה-audit הוא חלק מהחוזה של מיגרציה, ולכן
+    הכישלון שלו חייב להגיע לעיני האדמין.
+    """
+    from services import created_at_migration as mig
+
+    class _FailingAudit:
+        def __init__(self, real):
+            self._real = real
+
+        def __getitem__(self, name):
+            if name == mig.AUDIT_COLLECTION:
+                class _Broken:
+                    def insert_one(self, *a, **k):
+                        raise RuntimeError("audit collection is read-only")
+                return _Broken()
+            return self._real[name]
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    db = _FailingAudit(mongo_db)
+    assert mig.dry_run(db)["audit_error"] == "audit collection is read-only"
+    assert mig.apply(db)["audit_error"] == "audit collection is read-only"
