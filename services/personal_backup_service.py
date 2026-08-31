@@ -7,9 +7,10 @@ import time
 import zipfile
 from datetime import datetime, timezone
 
-from file_dates import as_utc
 from io import BytesIO
 from typing import Any, Callable, Dict, List, Optional
+
+from file_dates import as_utc
 
 logger = logging.getLogger(__name__)
 
