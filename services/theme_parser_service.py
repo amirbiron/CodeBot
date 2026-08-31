@@ -526,6 +526,7 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
                 logger.warning("Invalid color value for %s: %s", vscode_key, str(color_value))
 
     result = _compute_derived_colors(result)
+    result = _derive_glass_tokens(result)
 
     # 🎨 יצירת CSS להדגשת תחביר מ-tokenColors
     syntax_css_parts = []
@@ -567,6 +568,53 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
         "syntax_css": syntax_css,
         "syntax_colors": syntax_colors,  # 🆕 לשימוש ב-HighlightStyle דינמי
     }
+
+
+# כמה להכהות את הרקע המשני כדי לקבל את משטח הזכוכית בערכה בהירה.
+# ה-body צבוע linear-gradient(--bg-primary → --bg-secondary), ולכן משטח
+# שצבעו בדיוק --bg-secondary נעלם בקצה אחד של הגרדיאנט (ניגודיות 1.000).
+_GLASS_SURFACE_DARKEN = 0.06
+_GLASS_HOVER_DARKEN = 0.06
+_GLASS_BORDER_OPACITY = 0.18
+
+
+def _derive_glass_tokens(variables: dict) -> dict:
+    """
+    גוזר --glass / --glass-border / --glass-hover מצבעי הערכה — רק לערכה בהירה.
+
+    למה זה נחוץ: הממשק מצייר כרטיסים, badges, navbar וכפתורים משניים עם
+    הטוקנים האלה, ואף מפתח ב-VSCODE_TO_CSS_MAP לא ממלא אותם. ערכה מיובאת
+    מקבלת אותם מ-FALLBACK_DARK/LIGHT בלבד.
+
+    למה רק בהירה: ערכי ה-FALLBACK הם גוונים לבנים, והם נכונים לערכה כהה.
+    בערכה בהירה הם 2%/5% שחור — נמדד בכרומיום מול השרת האמיתי: כרטיס מול
+    רקע = 1.053, כלומר בלתי נראה. ערכה כהה נשארת כפי שהיא.
+
+    הגדר לפי הבהירות שנמדדת ולא לפי "type" שבקובץ: type נכתב ביד, יכול
+    להיות חסר, ואז parse_vscode_theme מניח "dark".
+    """
+    result = variables.copy()
+
+    bg_primary = result.get("--bg-primary")
+    if not bg_primary or _is_dark_color(str(bg_primary)):
+        return result
+
+    base = result.get("--bg-secondary") or bg_primary
+    if normalize_color_to_rgba(str(base)) is None:
+        base = bg_primary
+
+    surface = darken_color(str(base), _GLASS_SURFACE_DARKEN)
+    if normalize_color_to_rgba(surface) is None:
+        return result
+
+    result["--glass"] = surface
+    result["--glass-hover"] = darken_color(surface, _GLASS_HOVER_DARKEN)
+
+    text_primary = result.get("--text-primary")
+    if text_primary and normalize_color_to_rgba(str(text_primary)) is not None:
+        result["--glass-border"] = color_with_opacity(str(text_primary), _GLASS_BORDER_OPACITY)
+
+    return result
 
 
 def _compute_derived_colors(variables: dict) -> dict:
@@ -722,6 +770,30 @@ def darken_color(color: str, amount: float = 0.2) -> str:
     g = max(0, int(g * (1 - amount)))
     b = max(0, int(b * (1 - amount)))
     return rgba_to_css(r, g, b, a)
+
+
+def _relative_luminance(color: str) -> float | None:
+    """לומיננסיה יחסית לפי WCAG 2.1. מחזיר None אם הצבע אינו ניתן לפרסור."""
+    rgba = normalize_color_to_rgba(color)
+    if rgba is None:
+        return None
+
+    def _lin(channel: float) -> float:
+        c = channel / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b, _ = rgba
+    return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
+
+
+def contrast_ratio(color_a: str, color_b: str) -> float | None:
+    """יחס ניגודיות WCAG בין שני צבעים (1.0 = זהים, 21.0 = לבן מול שחור)."""
+    lum_a = _relative_luminance(color_a)
+    lum_b = _relative_luminance(color_b)
+    if lum_a is None or lum_b is None:
+        return None
+    hi, lo = max(lum_a, lum_b), min(lum_a, lum_b)
+    return (hi + 0.05) / (lo + 0.05)
 
 
 def _is_dark_color(hex_color: str) -> bool:
