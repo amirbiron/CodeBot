@@ -608,7 +608,9 @@ def _derive_glass_tokens(variables: dict) -> dict:
     # בלתי נראה באמצע). לכן מעגנים בקצה הכהה ומכהים ממנו: כך המשטח יוצא כהה
     # משני הקצוות ונשאר מחוץ לרצועה בכל מצב.
     gradient_ends = [str(end) for end in (bg_primary, result.get("--bg-secondary")) if end]
-    usable_ends = [end for end in gradient_ends if _relative_luminance(end) is not None]
+    if any(_relative_luminance(end) is None for end in gradient_ends):
+        return result
+    usable_ends = gradient_ends
     if not usable_ends:
         return result  # קצוות שאינם אטומים או אינם ניתנים לפרסור — נשארים עם ה-FALLBACK
 
