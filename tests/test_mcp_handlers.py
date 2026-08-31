@@ -35,7 +35,7 @@ class _RecordingBackend:
         self.calls.append(("items", user_id, collection_id, page, per_page, folder))
         return {}
 
-    def save_file(self, user_id, *, file_name, code, programming_language, description):
+    def save_file(self, user_id, *, file_name, code, programming_language, description, update_existing=False):
         self.calls.append(("save", user_id, file_name, code, programming_language, description))
         return {"ok": True, "created": True, "file": {"file_name": file_name, "version": 1}}
 

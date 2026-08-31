@@ -33,7 +33,7 @@ _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
     "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
     "(metadata only), and codekeeper_get_file to read full contents. Use "
-    "codekeeper_save_file to create or update a file, and prefer "
+    "codekeeper_save_file to create a file (updating an existing name requires update_existing=true), and prefer "
     "codekeeper_edit_file / codekeeper_append_file to change part of an existing "
     "file without resending all of it (write tools require write permission). "
     "Sticky notes live on a file, on a board (a surface that belongs to no file), or "
@@ -232,8 +232,13 @@ def build_mcp(
     @mcp.tool(
         name="codekeeper_save_file",
         description=(
-            "Create a new file or update an existing one by file_name (saved as a new, "
-            "non-destructive version — old versions are kept). Requires write permission."
+            "Create a NEW file by file_name. If the name already exists the call "
+            "is refused with error=file_exists — updating an existing file must "
+            "be explicit: pass update_existing=true to replace its content as a "
+            "new non-destructive version (old versions are kept in history, but "
+            "search and the normal view show only the latest), or use "
+            "codekeeper_edit_file / codekeeper_append_file for partial changes. "
+            "Requires write permission."
         ),
         annotations=_WRITE_TOOL,
     )
@@ -243,6 +248,7 @@ def build_mcp(
         code: str,
         language: str | None = None,
         description: str = "",
+        update_existing: bool = False,
     ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.save_file(
@@ -252,6 +258,7 @@ def build_mcp(
             code=code,
             language=language,
             description=description,
+            update_existing=update_existing,
         )
 
     @mcp.tool(

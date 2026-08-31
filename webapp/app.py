@@ -5869,6 +5869,45 @@ def admin_config_inspector_page():
     )
 
 
+@app.route('/admin/migrations/created-at', methods=['GET', 'POST'])
+@admin_required
+def admin_migration_created_at():
+    """מיגרציית "נוצר": dry-run והחלה, מהדפדפן בלבד.
+
+    "נוצר" של קובץ שייך לקובץ הלוגי ולא לגרסה. הקוד כבר מוריש את
+    ``created_at`` קדימה בכל גרסה חדשה; העמוד הזה מיישר את הקבצים
+    שנוצרו לפני התיקון. ההחלה מותרת רק אחרי ש-dry-run הוצג — הטופס
+    נושא את מונה ה-dry-run כדי שההחלה תמיד תתייחס למה שנצפה.
+    """
+    from services import created_at_migration as _mig
+
+    db = get_db()
+    result = None
+    error = None
+    if request.method == 'POST':
+        action = (request.form.get('action') or '').strip()
+        try:
+            if action == 'dry_run':
+                result = _mig.dry_run(db)
+            elif action == 'apply':
+                # ההחלה דורשת שה-dry-run רץ באותו טופס; בלי זה — סירוב.
+                if (request.form.get('dry_run_seen') or '') != '1':
+                    error = 'יש להריץ dry-run לפני החלה.'
+                else:
+                    result = _mig.apply(db)
+            else:
+                error = 'פעולה לא מוכרת.'
+        except Exception as exc:
+            logger.exception('created_at migration failed: %s', exc)
+            error = 'המיגרציה נכשלה — ראו לוגים.'
+    if result:
+        # תאריכים לתצוגה, בלי לגעת בערכים שנשמרו ל-audit
+        for row in result.get('samples', []) or []:
+            row['current_created_disp'] = format_datetime_display(row.get('current_created'))
+            row['new_created_disp'] = format_datetime_display(row.get('new_created'))
+    return render_template('admin_migration_created_at.html', result=result, error=error)
+
+
 @app.route('/admin/cache-inspector')
 def admin_cache_inspector_page():
     """
@@ -13447,7 +13486,8 @@ def api_file_quick_update(file_id):
             return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
         
         data = request.get_json() or {}
-        updates = {'updated_at': datetime.now(timezone.utc)}
+        now_updated = datetime.now(timezone.utc)
+        updates = {'updated_at': now_updated}
         
         if 'description' in data:
             desc = (data.get('description') or '').strip()[:500]
@@ -13479,9 +13519,12 @@ def api_file_quick_update(file_id):
         
         return jsonify({
             'ok': True,
-            'updated_fields': list(updates.keys())
+            'updated_fields': list(updates.keys()),
+            # לרענון חי של "עודכן" במסך: בלי זה הערך הישן נשאר מוצג עד
+            # כניסה מחודשת לקובץ, למרות שהשמירה כבר קרתה.
+            'updated_at_display': format_datetime_display(now_updated),
         })
-        
+
     except Exception as e:
         logger.exception(f"Error in quick update: {e}")
         return jsonify({'ok': False, 'error': 'שגיאה בעדכון'}), 500
@@ -13771,7 +13814,10 @@ def api_restore_file_version(file_id):
         'description': description,
         'tags': tags,
         'version': next_version,
-        'created_at': now,
+        # "נוצר" של הקובץ הלוגי, לא של הגרסה המשוחזרת: יורש מהשרשרת החיה
+        # (הגרסה האחרונה), ולא מ-``version_doc`` הישן — כדי שהשחזור לא
+        # ידרוס תיקון עתידי של השרשרת בערך ארכיאולוגי.
+        'created_at': (latest_doc or {}).get('created_at') or file_doc.get('created_at') or now,
         'updated_at': now,
         'is_active': True,
         'is_favorite': bool((latest_doc or {}).get('is_favorite', file_doc.get('is_favorite', False))),
@@ -14613,7 +14659,10 @@ def edit_file_page(file_id):
                         'description': description,
                         'tags': tags,
                         'version': version,
-                        'created_at': now,
+                        # "נוצר" יורש מהגרסה הקודמת — עריכה אינה לידה מחדש.
+                        # ``file`` הוא הנפילה לשינוי שם, שאז ``prev`` נשלף
+                        # לפי השם החדש ויכול להיות ריק.
+                        'created_at': (prev or file or {}).get('created_at') or now,
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -15823,7 +15872,9 @@ def api_save_shared_file():
             'description': description,
             'tags': tags,
             'version': version,
-            'created_at': now_utc,
+            # שמירת מדריך על שם קיים היא גרסה חדשה של אותו קובץ — "נוצר"
+            # יורש. לקובץ חדש ``prev`` ריק והתאריך הוא של עכשיו.
+            'created_at': (prev or {}).get('created_at') or now_utc,
             'updated_at': now_utc,
             'is_active': True,
         }
@@ -16531,7 +16582,8 @@ def upload_file_web():
                         'description': description,
                         'tags': final_tags,
                         'version': version,
-                        'created_at': now,
+                        # העלאה על שם קיים היא גרסה חדשה — "נוצר" יורש.
+                        'created_at': (prev or {}).get('created_at') or now,
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -19008,7 +19060,8 @@ def _persist_story_markdown_file(
         'description': description[:400],
         'tags': dedup_tags,
         'version': version,
-        'created_at': now,
+        # ייצוא חוזר של אותו סיפור דורס את אותו שם קובץ — גרסה, לא לידה.
+        'created_at': (prev or {}).get('created_at') or now,
         'updated_at': now,
         'is_active': True,
     }

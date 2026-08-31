@@ -123,6 +123,7 @@ def save_file(
     code: str,
     language: str | None = None,
     description: str = "",
+    update_existing: bool = False,
 ) -> dict[str, Any]:
     """Validate + normalize a save request, then delegate to the backend.
 
@@ -157,6 +158,7 @@ def save_file(
         code=code,
         programming_language=lang,
         description=(description or "").strip(),
+        update_existing=bool(update_existing),
     )
 
 

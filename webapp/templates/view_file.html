@@ -943,9 +943,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         <div class="meta-label"><i class="fas fa-calendar-plus"></i> נוצר</div>
         <div class="meta-value">{{ file.created_at }}</div>
     </div>
-    <div class="meta-item">
+    {# כשהקובץ מעולם לא עודכן, שני התאריכים זהים ו"עודכן" הוא רעש —
+       מציגים רק "נוצר". הפריט נשאר ב-DOM מוסתר, כי עריכת תיאור חיה
+       (quick-update) צריכה להחזיר אותו לתצוגה בלי רענון. #}
+    <div class="meta-item" id="metaUpdatedItem" {% if file.updated_at == file.created_at %}hidden{% endif %}>
         <div class="meta-label"><i class="fas fa-calendar-check"></i> עודכן</div>
-        <div class="meta-value">{{ file.updated_at }}</div>
+        <div class="meta-value" id="metaUpdatedValue">{{ file.updated_at }}</div>
     </div>
 </div>
 
@@ -1587,6 +1590,14 @@ async function saveDescription() {
         if (p) { p.textContent = desc; p.hidden = !desc; }
         const label = document.getElementById('descMenuLabel');
         if (label) { label.textContent = desc ? '📝 ערוך תיאור' : '➕ הוסף תיאור'; }
+        // "עודכן" מתרענן במקום — עד עכשיו הערך הישן נשאר מוצג עד כניסה
+        // מחודשת לקובץ. הפריט גם נחשף אם היה מוסתר (עודכן==נוצר).
+        if (data.updated_at_display) {
+            const uv = document.getElementById('metaUpdatedValue');
+            if (uv) { uv.textContent = data.updated_at_display; }
+            const ui = document.getElementById('metaUpdatedItem');
+            if (ui) { ui.hidden = false; }
+        }
         showToast('התיאור נשמר', 'success');
         closeEditDescriptionModal();
     } catch (e) {
