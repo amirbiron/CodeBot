@@ -45,6 +45,15 @@ def detect_zip_common_root(names: Iterable[str]) -> Optional[str]:
     תיקיית שורש קיימת רק אם *כל* הרשומות נמצאות תחתיה. אם יש ולו קובץ אחד
     בשורש הארכיון, אין שורש משותף — אחרת ZIP כמו ``README.md`` + ``src/main.py``
     היה מזוהה בטעות עם שורש ``src``, ו-``src/main.py`` היה נחתך ל-``main.py``.
+
+    .. warning::
+
+       **אל תחילו אותה על שחזור ZIP לריפו.** ה-ZIP של גיבוי ריפו הוא ה-zipball
+       של GitHub — שכל תוכנו תחת תיקייה אחת בשם ``owner-repo-sha`` — ואליו נוסף
+       ``metadata.json`` בשורש. הקובץ הזה מפעיל כאן את הכלל שלמעלה, השורש אינו
+       מזוהה, וכל הריפו נפרס רובד אחד עמוק מדי. ‏``_handle_github_restore_zip_to_repo``
+       מחזיק בכוונה חישוב משלו שסופר תיקיות בלבד. איחוד השניים כבר נעשה פעם אחת
+       (PR #3205) והוא ששבר את השחזור.
     """
     top_levels = set()
     has_root_level_file = False
@@ -69,62 +78,6 @@ def detect_zip_common_root(names: Iterable[str]) -> Optional[str]:
     if root in ("..", "."):
         return None
     return root
-
-
-BACKUP_MANIFEST_NAME = "metadata.json"
-
-
-def is_ck_backup_manifest(raw: bytes) -> bool:
-    """האם ה-bytes האלה הם מניפסט הגיבוי של Ck, ולא ``metadata.json`` של המשתמש?
-
-    **ההבחנה חייבת להיות בתוכן ולא בשם.** ``metadata.json`` הוא שם קובץ לגיטימי
-    לחלוטין בריפו אמיתי, ודילוג עליו לפי שם היה מוחק מהשחזור קובץ תוכן.
-
-    ``backup_id`` הוא הסימן היחיד שמובטח: גם ``save_backup_file`` וגם
-    ``save_backup_bytes`` ב-``file_manager`` כותבים אותו לתוך המניפסט בכל
-    מסלול. נדרש בנוסף עוד שדה מזהה אחד, כדי שקובץ אקראי עם מפתח באותו שם
-    לא ייחשב בטעות למניפסט.
-    """
-    try:
-        data = json.loads(raw.decode("utf-8"))
-    except Exception:
-        return False
-    if not isinstance(data, dict):
-        return False
-    if not str(data.get("backup_id") or "").strip():
-        return False
-    return any(str(data.get(k) or "").strip() for k in ("backup_type", "created_by"))
-
-
-def zip_members_and_root(zf: zipfile.ZipFile) -> tuple[List[str], Optional[str]]:
-    """חברי הארכיון לפריסה, ותיקיית השורש שיש להסיר מהם.
-
-    **למה זה משותף ולא שכפול בכל קורא.** ה-ZIP של גיבוי ריפו נבנה מה-zipball
-    של GitHub — שכל תוכנו יושב תחת תיקייה אחת בשם ``owner-repo-sha`` — ואז
-    מוסיפים לו ``metadata.json`` **בשורש**. הצירוף הזה שובר את
-    :func:`detect_zip_common_root` לפי הכלל הנכון שלה עצמה: יש קובץ בשורש,
-    ולכן אין שורש משותף. התוצאה היא ששחזור לריפו העלה את ``metadata.json``
-    ואת כל התוכן רובד אחד עמוק מדי, בתוך תיקייה בשם ``owner-repo-sha``.
-
-    לכן המניפסט מוסר **לפני** חישוב השורש, ולא רק מרשימת הקבצים לפריסה.
-    """
-    names = zf.namelist()
-    members = [
-        n
-        for n in names
-        if not n.endswith("/")
-        and not n.startswith("__MACOSX/")
-        and not n.split("/")[-1].startswith("._")
-    ]
-    if BACKUP_MANIFEST_NAME in members:
-        try:
-            raw = zf.read(BACKUP_MANIFEST_NAME)
-        except Exception:
-            raw = b""
-        if is_ck_backup_manifest(raw):
-            members = [n for n in members if n != BACKUP_MANIFEST_NAME]
-            names = [n for n in names if n != BACKUP_MANIFEST_NAME]
-    return members, detect_zip_common_root(names)
 
 
 def normalize_repo_folder(folder: str) -> str:
@@ -477,7 +430,20 @@ class DocumentHandler:
 
                 # חשוב: סגירה דטרמיניסטית של ה-ZIP כדי להימנע מ-Unraisable Exception בזמן GC
                 with zipfile.ZipFile(buf, "r") as zf:
-                    members, common_root = zip_members_and_root(zf)
+                    all_names = [n for n in zf.namelist() if not n.endswith("/")]
+                    members = [
+                        n
+                        for n in all_names
+                        if not (n.startswith("__MACOSX/") or n.split("/")[-1].startswith("._"))
+                    ]
+                    # **בכוונה לא** ``detect_zip_common_root`` — ראו הערת האזהרה
+                    # מעליה. כאן נספרות תיקיות בלבד: קובץ בשורש אינו מכיל "/",
+                    # ולכן אינו משתתף בספירה ואינו מבטל את הזיהוי.
+                    top_levels = set()
+                    for name in zf.namelist():
+                        if "/" in name and not name.startswith("__MACOSX/"):
+                            top_levels.add(name.split("/", 1)[0])
+                    common_root = list(top_levels)[0] if len(top_levels) == 1 else None
 
                     def strip_root(path: str) -> str:
                         if common_root and path.startswith(common_root + "/"):
@@ -634,7 +600,14 @@ class DocumentHandler:
         """
         buf.seek(0)
         with zipfile.ZipFile(buf, "r") as zf:
-            members, common_root = zip_members_and_root(zf)
+            names_all = zf.namelist()
+            members = [
+                n
+                for n in names_all
+                if not n.endswith("/")
+                and not n.startswith("__MACOSX/")
+                and not n.split("/")[-1].startswith("._")
+            ]
             # הגנה מפני "פצצת ZIP": אכיפת מגבלות (מספר קבצים + גודל לא-דחוס) לפני
             # קריאת התוכן לזיכרון, כדי שארכיון זדוני לא ימוטט את התהליך.
             if len(members) > MAX_IMPORT_ZIP_MEMBERS:
@@ -652,6 +625,7 @@ class DocumentHandler:
                 total_uncompressed += entry_size
                 if total_uncompressed > MAX_IMPORT_TOTAL_UNCOMPRESSED_BYTES:
                     raise ValueError("סך התוכן הלא-דחוס בארכיון חורג מהמגבלה המותרת.")
+            common_root = detect_zip_common_root(names_all)
 
             def strip_root(path: str) -> str:
                 if common_root and path.startswith(common_root + "/"):
