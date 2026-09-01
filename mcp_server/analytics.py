@@ -13,14 +13,18 @@ file content out of an event.
 
 Three layers, all fail-closed:
 
-1. ``context`` / ``report_missing`` / ``enable_conversation_id`` stay off, so
-   the SDK never injects an argument into a tool schema. What the server
-   advertises after instrumentation is byte-for-byte what it advertised before.
+1. ``context`` and ``enable_conversation_id`` stay off, so the SDK never
+   injects an argument into an existing tool's schema. ``report_missing`` is
+   on, and it is the one thing the server advertises that it did not before: a
+   virtual ``get_more_tools`` the agent can call to say which capability it
+   wishes existed. It adds a tool to the listing; it changes none of the
+   existing ones.
 2. ``before_send`` on the ``Posthog`` client keeps an **allowlist** of
    ``$mcp_*`` properties. Deleting the three known payload keys would be a
    blocklist, and the MCP SDK is pre-1.0: a payload property added in a future
    release would ship before anyone thought to extend the list. An allowlist
-   drops the unknown key instead of forwarding it.
+   drops the unknown key instead of forwarding it. ``_ALLOWED_BY_EVENT`` holds
+   its single, per-event exception.
 3. Every ``$exception_list[*].value`` is replaced, on **every** event. Two
    separate routes end there. The sibling event that rides along with a failed
    tool call carries the same free text that ``$mcp_error_message`` is *read
@@ -85,12 +89,13 @@ _ALLOWED_MCP_PROPERTIES = frozenset(
     }
 )
 
-# Not allowlisted, and named here only so the reason is on the record rather
-# than inferred from an absence:
+# Not allowlisted by default, and named here only so the reason is on the record
+# rather than inferred from an absence:
 #   $mcp_parameters     the tool arguments — on save/edit/append they *are* the file
 #   $mcp_response       the tool result — file bodies, sticky notes, documents
 #   $mcp_error_message  free text from a failed tool
-#   $mcp_intent         agent-narrated free text (with $mcp_intent_source)
+#   $mcp_intent         agent-narrated free text (with $mcp_intent_source), which
+#                       ``_ALLOWED_BY_EVENT`` below re-admits on exactly one event
 # The list is documentation. The allowlist above is what actually decides.
 _PAYLOAD_PROPERTIES = frozenset(
     {
@@ -101,6 +106,23 @@ _PAYLOAD_PROPERTIES = frozenset(
         "$mcp_intent_source",
     }
 )
+
+# The one exception to the allowlist, admitted per event name.
+#
+# ``report_missing`` advertises a virtual ``get_more_tools`` tool so an agent can
+# say which capability it wishes this server had. That sentence *is* the event —
+# the SDK puts it in ``$mcp_intent`` and leaves ``$mcp_parameters`` empty
+# (measured: ``arguments: {}``). Blocked, the event degrades to a counter with no
+# reason, which is the same as not having the feature.
+#
+# The scope is tight by construction, not by care: ``posthog.mcp._intent`` only
+# resolves an intent when ``options.context`` is enabled or an ``intent_fallback``
+# is set. Both are off here, so ``get_more_tools`` is the only producer of
+# ``$mcp_intent`` on this server, and a regular ``$mcp_tool_call`` still cannot
+# carry one. ``$mcp_parameters`` stays blocked even on this event.
+_ALLOWED_BY_EVENT: dict[str, frozenset[str]] = {
+    "$mcp_missing_capability": frozenset({"$mcp_intent", "$mcp_intent_source"}),
+}
 
 _MCP_PROPERTY_PREFIX = "$mcp_"
 _EXCEPTION_LIST_KEY = "$exception_list"
@@ -169,10 +191,14 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
         if not isinstance(properties, dict):
             return event
 
+        allowed = _ALLOWED_MCP_PROPERTIES | _ALLOWED_BY_EVENT.get(
+            event.get("event"), frozenset()
+        )
+
         kept: dict = {}
         for key, value in properties.items():
             if isinstance(key, str) and key.startswith(_MCP_PROPERTY_PREFIX):
-                if key not in _ALLOWED_MCP_PROPERTIES:
+                if key not in allowed:
                     continue
             elif key == _EXCEPTION_LIST_KEY:
                 value = _redact_exception_values(value)
@@ -283,9 +309,13 @@ def instrument_mcp_server(server: Any) -> None:
                 # schema. That changes what this server advertises to its
                 # clients, and the argument itself is agent free text.
                 context=False,
-                # Registers a virtual `get_more_tools` tool — another change to
-                # the advertised tool list.
-                report_missing=False,
+                # Registers a virtual `get_more_tools` tool so an agent can
+                # report a capability this server does not offer. This is the
+                # only addition to the advertised tool list; the existing tools
+                # and their schemas are untouched. The agent's sentence arrives
+                # as `$mcp_intent`, which `_ALLOWED_BY_EVENT` admits on the
+                # `$mcp_missing_capability` event only.
+                report_missing=True,
                 # Adds an optional `conversation_id` argument, plus an
                 # instruction appended to tool results asking the agent to echo
                 # it back. Same reason.

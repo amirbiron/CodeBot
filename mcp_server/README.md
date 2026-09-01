@@ -278,6 +278,7 @@ Health check:   /healthz
 **מדידת שימוש (PostHog) — אופציונלי:**
 - `POSTHOG_PROJECT_TOKEN` (`phc_...`) + `POSTHOG_HOST` (`https://us.i.posthog.com` / `https://eu.i.posthog.com`).
 - חסר אחד מהם: בפרודקשן המדידה כבויה והשרת עולה רגיל; בפיתוח העלייה נכשלת ברעש. פרודקשן = `ENVIRONMENT`/`ENV` ששווה `production` או `prod`, או ששניהם לא מוגדרים.
+- `report_missing` דלוק: כלי וירטואלי `get_more_tools` שהסוכן קורא לו כדי לדווח על יכולת חסרה. התוספת היחידה לרשימת הכלים; הכלים הקיימים לא השתנו.
 - הארגומנטים והתוצאות של הכלים **אינם** נשלחים — `analytics.py` מחזיק רשימת היתר של מאפייני `$mcp_*`, ומחליף כל `$exception_list[*].value` בכל אירוע (כולל חריגות שנתפסות ב-`threading.excepthook`). פירוט: `docs/mcp-server.rst`.
 
 ---

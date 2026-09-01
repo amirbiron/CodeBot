@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import subprocess
+from collections import deque
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 MAX_DIFF_BYTES = 1 * 1024 * 1024  # 1MB
 MAX_DIFF_LINES = 10000
 MAX_FILE_SIZE_FOR_DISPLAY = 500 * 1024  # 500KB
+# תקרה קשיחה לשורות ההקשר ב-``git grep -C``; המהדק ב-mcp_server נמוך ממנה.
+MAX_GREP_CONTEXT_LINES = 20
 
 
 @dataclass
@@ -838,6 +841,58 @@ class GitMirrorService:
             return result.stdout
 
         return None
+
+    def list_all_files_with_sizes(
+        self, repo_name: str, ref: str = "HEAD"
+    ) -> Optional[List[Dict[str, Any]]]:
+        """רשימת הקבצים בריפו יחד עם גודל הבלוב, בתהליך git יחיד.
+
+        זהה ל-``list_all_files`` פרט ל-``-l``, שמוסיף את הגודל לפלט של
+        ``ls-tree``. **אפס עלות נוספת** — אותה קריאה, אותו object של עץ; רק
+        עמודה נוספת. ספירת שורות, לעומת זאת, הייתה מחייבת קריאת כל בלוב
+        בנפרד, ולכן היא לא מגיעה מכאן.
+
+        פורמט השורה הוא ``<mode> <type> <sha> <size>\t<path>``: הפיצול הוא
+        קודם על טאב (נתיב יכול להכיל רווח) ורק אחר כך על רווחים.
+
+        Returns:
+            רשימת ``{"path": str, "size": int}``, או ``None`` בכשל — בדיוק
+            כמו ``list_all_files``.
+        """
+        repo_name = str(repo_name or "").strip()
+        ref = str(ref or "").strip() or "HEAD"
+        if not self._validate_repo_name(repo_name):
+            return None
+        if not self._validate_repo_ref(ref):
+            return None
+
+        repo_path = self._get_repo_path(repo_name)
+
+        result = self._run_git_command(
+            ["git", "ls-tree", "-r", "-l", ref], cwd=repo_path, timeout=60
+        )
+
+        if not result.success:
+            return None
+
+        entries: List[Dict[str, Any]] = []
+        for line in result.stdout.split("\n"):
+            if not line.strip():
+                continue
+            head, tab, path = line.partition("\t")
+            if not tab or not path:
+                continue
+            fields = head.split()
+            # ``<mode> <type> <sha> <size>`` — פחות מארבעה שדות אינו בלוב תקין.
+            if len(fields) < 4:
+                continue
+            try:
+                size = int(fields[3])
+            except ValueError:
+                # ``-`` מופיע רק לרשומות שאינן בלוב; ``-r`` לא אמור להחזיר כאלה.
+                continue
+            entries.append({"path": path, "size": size})
+        return entries
 
     def list_all_files(self, repo_name: str, ref: str = "HEAD") -> Optional[List[str]]:
         """
@@ -1799,6 +1854,7 @@ class GitMirrorService:
         file_pattern: Optional[str] = None,
         case_sensitive: bool = True,
         ref: Optional[str] = None,
+        context_lines: int = 0,
     ) -> Dict[str, Any]:
         """
         חיפוש בקוד עם git grep (מהיר מאוד!)
@@ -1819,6 +1875,8 @@ class GitMirrorService:
             case_sensitive: case sensitive?
             ref: revision לחיפוש (origin/main, SHA, וכו').
                  None = ברירת מחדל origin/main
+            context_lines: כמה שורות להחזיר סביב כל התאמה. ``0`` (ברירת המחדל)
+                 משאיר את הפקודה ואת הפרסור זהים לחלוטין להתנהגות הקודמת.
 
         Returns:
             dict עם results, total_count, truncated
@@ -1857,6 +1915,23 @@ class GitMirrorService:
         matches_per_file = min(max_results, 20)  # מקסימום 20 התאמות לקובץ
         cmd.extend(["-m", str(matches_per_file)])
 
+        # שורות הקשר. ``-C`` משנה את *פורמט הפלט*: שורות הקשר מגיעות כ-
+        # ``<מספר>-<תוכן>`` (מקף) במקום ``<מספר>:<תוכן>``, וקבוצות לא רציפות
+        # מופרדות בשורת ``--``. הפרסור למטה מכיר את שתי הצורות, אבל רק כאשר
+        # ביקשו הקשר — כך שב-``context_lines == 0`` הפקודה זהה לקודמת.
+        # נרמול הגנתי: הקורא דרך ה-MCP כבר מהדק, אבל זו מתודה ציבורית.
+        # ``bool`` נדחה במפורש — ``int(True)`` הוא ``1``, וקריאה עם ``True``
+        # הייתה מקבלת בשקט שורת הקשר אחת במקום להיחשב קלט שגוי.
+        if isinstance(context_lines, bool):
+            context_lines = 0
+        else:
+            try:
+                context_lines = max(0, min(int(context_lines), MAX_GREP_CONTEXT_LINES))
+            except (TypeError, ValueError):
+                context_lines = 0
+        if context_lines > 0:
+            cmd.extend(["-C", str(context_lines)])
+
         # Case sensitivity
         if not case_sensitive:
             cmd.append("-i")
@@ -1888,7 +1963,9 @@ class GitMirrorService:
         try:
             # שימוש בשיטת streaming כדי להגביל את צריכת הזיכרון
             # עוצרים מוקדם כשמגיעים למספיק תוצאות
-            streaming_result = self._run_grep_with_streaming(cmd, repo_path, max_results, timeout)
+            streaming_result = self._run_grep_with_streaming(
+                cmd, repo_path, max_results, timeout, context_lines=context_lines
+            )
 
             if "error" in streaming_result:
                 return streaming_result
@@ -1914,7 +1991,8 @@ class GitMirrorService:
         cmd: List[str],
         repo_path: Path,
         max_results: int,
-        timeout: int
+        timeout: int,
+        context_lines: int = 0,
     ) -> Dict[str, Any]:
         """
         הרצת git grep עם streaming לצמצום צריכת זיכרון.
@@ -1941,6 +2019,28 @@ class GitMirrorService:
         max_lines = max_results * 50  # הגבלת קריאה גם אם אין מספיק התאמות
         truncated = False
         truncation_reason: Optional[str] = None
+
+        # --- מצב לשורות הקשר (פעיל רק כש-context_lines > 0) ---------------
+        # ``before`` הוא חלון מתגלגל של השורות שקדמו להתאמה, ו-``pending`` הן
+        # התאמות שעדיין ממתינות לשורות שאחריהן. git מוציא את השורות בסדר עולה,
+        # ולכן ההקשר שאחרי מגיע רק בהמשך הזרם.
+        before: deque = deque(maxlen=context_lines) if context_lines > 0 else deque()
+        pending: List[Dict[str, Any]] = []
+        reached_cap = False
+
+        def _feed_after(text: str) -> None:
+            """מוסיף שורה לכל התאמה שעדיין אוספת הקשר, ומשחררת מי שהתמלאה."""
+            still_open = []
+            for item in pending:
+                if len(item["context_after"]) < context_lines:
+                    item["context_after"].append(text)
+                if len(item["context_after"]) < context_lines:
+                    still_open.append(item)
+            pending[:] = still_open
+
+        def _flush_pending() -> None:
+            """סוף קבוצה או סוף קובץ: אין עוד שורות שיכולות להשתייך להתאמות."""
+            pending.clear()
 
         def _looks_like_git_sha(text: str) -> bool:
             t = (text or "").strip()
@@ -2011,28 +2111,77 @@ class GitMirrorService:
                 if not line:
                     continue
 
+                # --- שתי צורות שרק ``-C`` מייצר -------------------------
+                # ``--`` מפריד בין קבוצות לא רציפות, ו-``<מספר>-<תוכן>`` היא
+                # שורת הקשר. בלי הענפים האלה שתיהן היו נופלות ל-``else``
+                # ומתפרשות כשם קובץ.
+                if context_lines > 0 and line.strip() == "--":
+                    _flush_pending()
+                    before.clear()
+                    continue
+
                 # בדיקה אם זו שורת תוצאה (מספר:תוכן)
                 parts = line.split(":", 1)
                 is_match_line = len(parts) == 2 and parts[0].strip().isdigit()
+
+                if context_lines > 0 and not is_match_line:
+                    dash = line.split("-", 1)
+                    if len(dash) == 2 and dash[0].strip().isdigit():
+                        text = dash[1].strip()[:500]
+                        _feed_after(text)
+                        before.append(text)
+                        if reached_cap and not pending:
+                            process.kill()
+                            break
+                        continue
 
                 if is_match_line:
                     if current_file:
                         try:
                             line_num = int(parts[0].strip())
                             content = parts[1]
+                            text = content.strip()[:500]
 
-                            results.append({
+                            if reached_cap:
+                                # מעבר לתקרה כבר לא אוספים התאמות חדשות, אבל
+                                # השורה עדיין משמשת כהקשר להתאמות שלפניה.
+                                _feed_after(text)
+                                before.append(text)
+                                if not pending:
+                                    process.kill()
+                                    break
+                                continue
+
+                            row: Dict[str, Any] = {
                                 "path": current_file,
                                 "line": line_num,
-                                "content": content.strip()[:500]
-                            })
+                                "content": text,
+                            }
+                            if context_lines > 0:
+                                # החלון שלפני נלקח *לפני* שההתאמה נכנסת אליו.
+                                row["context_before"] = list(before)
+                                row["context_after"] = []
+                                _feed_after(text)
+                                before.append(text)
+                                if len(row["context_after"]) < context_lines:
+                                    pending.append(row)
+                            results.append(row)
 
                             if len(results) >= max_results:
-                                # מספיק תוצאות - עוצרים מוקדם!
-                                process.kill()
+                                if context_lines == 0:
+                                    # מספיק תוצאות - עוצרים מוקדם!
+                                    process.kill()
+                                    truncated = True
+                                    truncation_reason = "max_results"
+                                    break
+                                # עם הקשר אי אפשר לעצור מיד: להתאמות שכבר
+                                # נאספו חסרות עדיין השורות שאחריהן.
                                 truncated = True
                                 truncation_reason = "max_results"
-                                break
+                                reached_cap = True
+                                if not pending:
+                                    process.kill()
+                                    break
 
                         except ValueError:
                             continue
@@ -2052,6 +2201,14 @@ class GitMirrorService:
                             or _looks_like_git_sha(before_colon)
                         ):
                             file_line = file_line[colon_pos + 1:]
+
+                    if context_lines > 0:
+                        # קובץ חדש: שום שורה שלו אינה הקשר של ההתאמה הקודמת.
+                        _flush_pending()
+                        before.clear()
+                        if reached_cap:
+                            process.kill()
+                            break
 
                     current_file = file_line
 

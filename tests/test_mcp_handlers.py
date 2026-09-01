@@ -20,8 +20,8 @@ class _RecordingBackend:
     # בולע אותו, והבדיקה "קובץ חדש" הפעילה בפועל את **ענף הכשל** — אותו
     # ענף שבדיקה אחרת כבר מכסה. שתי בדיקות על מסלול אחד, ואפס על המסלול
     # של קובץ חדש אמיתי.
-    def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
-        self.calls.append(("get_file", user_id, file_name, file_id, version))
+    def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
+        self.calls.append(("get_file", user_id, file_name, file_id, version, lines))
         return None
 
     def file_exists(self, user_id, *, file_name):

@@ -57,14 +57,23 @@ class _DB:
 
 
 class _Mirror:
-    def __init__(self, files=None, file_result=None):
+    def __init__(self, files=None, file_result=None, sizes=None):
         self.files = files
         self.file_result = file_result or {}
+        self.sizes = sizes or {}
         self.calls = []
 
     def list_all_files(self, repo, ref):
         self.calls.append(("list", repo, ref))
         return self.files
+
+    def list_all_files_with_sizes(self, repo, ref):
+        # אותו סדר ואותם נתיבים כמו ``list_all_files`` — זה מה שהמימוש
+        # האמיתי מבטיח (``git ls-tree -r -l`` מול ``-r --name-only``).
+        self.calls.append(("list_sizes", repo, ref))
+        if self.files is None:
+            return None
+        return [{"path": f, "size": self.sizes.get(f, len(f))} for f in self.files]
 
     def get_file_at_commit(self, repo, path, commit, **k):
         self.calls.append(("get", repo, path, commit))

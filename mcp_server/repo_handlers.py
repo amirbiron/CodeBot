@@ -20,6 +20,10 @@ TREE_PER_PAGE_DEFAULT = 200
 TREE_PER_PAGE_MAX = 1000
 SEARCH_RESULTS_DEFAULT = 50
 SEARCH_RESULTS_MAX = 100
+# תקרת שורות ההקשר ב-``codekeeper_search_repo``. כל פגיעה גדלה פי ``2N+1``,
+# ומול ``SEARCH_RESULTS_MAX`` ו-``OUTPUT_BYTE_BUDGET`` זו התקרה שמשאירה עמוד
+# שלם בתקציב במקום להיחתך.
+CONTEXT_LINES_MAX = 10
 OUTPUT_BYTE_BUDGET = 256_000
 
 
@@ -35,6 +39,7 @@ def list_repo_tree(
     ref: str | None = None,
     page: int = 1,
     per_page: int = TREE_PER_PAGE_DEFAULT,
+    include_stats: bool = False,
 ) -> dict[str, Any]:
     name = (repo or "").strip()
     if not name:
@@ -46,17 +51,27 @@ def list_repo_tree(
         page=_clamp(page, 1, 10**9, 1),
         per_page=_clamp(per_page, 1, TREE_PER_PAGE_MAX, TREE_PER_PAGE_DEFAULT),
         byte_budget=OUTPUT_BYTE_BUDGET,
+        include_stats=bool(include_stats),
     )
 
 
-def get_repo_file(backend: Any, *, repo: str, path: str, ref: str | None = None) -> dict[str, Any]:
+def get_repo_file(
+    backend: Any,
+    *,
+    repo: str,
+    path: str,
+    ref: str | None = None,
+    lines: Any = None,
+) -> dict[str, Any]:
     name = (repo or "").strip()
     file_path = (path or "").strip()
     if not name:
         return {"ok": False, "error": "missing_repo"}
     if not file_path:
         return {"ok": False, "error": "missing_path"}
-    return backend.get_file(repo=name, path=file_path, ref=((ref or "").strip() or None))
+    return backend.get_file(
+        repo=name, path=file_path, ref=((ref or "").strip() or None), lines=lines
+    )
 
 
 def search_repo(
@@ -66,6 +81,7 @@ def search_repo(
     query: str,
     file_pattern: str | None = None,
     max_results: int = SEARCH_RESULTS_DEFAULT,
+    context_lines: int = 0,
 ) -> dict[str, Any]:
     name = (repo or "").strip()
     q = (query or "").strip()
@@ -79,4 +95,5 @@ def search_repo(
         file_pattern=((file_pattern or "").strip() or None),
         max_results=_clamp(max_results, 1, SEARCH_RESULTS_MAX, SEARCH_RESULTS_DEFAULT),
         byte_budget=OUTPUT_BYTE_BUDGET,
+        context_lines=_clamp(context_lines, 0, CONTEXT_LINES_MAX, 0),
     )

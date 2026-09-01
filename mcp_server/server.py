@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from . import docs_handlers, handlers, repo_handlers
+from .handlers import StrictInt, StrictLines
 from .analytics import attach_shutdown_drain, instrument_mcp_server
 from .auth import (
     PATAuthMiddleware,
@@ -48,6 +49,17 @@ _INSTRUCTIONS = (
     "search_content=true also by body text, which is how untitled notes (most notes) "
     "are found. "
     "All data is scoped to the authenticated user."
+)
+
+# תיאור הפרמטר ``lines``, משותף לשני הכלים שתומכים בקריאת טווח.
+# מוגדר פעם אחת כדי ששני הכלים לא יתארו את אותה סמנטיקה בשתי גרסאות —
+# אסימטריה בין הקבצים השמורים לבין הריפואים היא בדיוק מה שהפרמטר הזה
+# נועד להימנע ממנו.
+_RANGE_DOC = (
+    "Pass lines=[start, end] to read only that range (1-indexed, both ends "
+    "included) instead of the whole file; the reply then carries a `range` "
+    "block with the file's total_lines so you know what you did not get. "
+    "An `end` past the end of the file is clipped; a start past it is an error."
 )
 
 # Shared annotations: every tool here is a non-destructive, idempotent read over
@@ -219,7 +231,10 @@ def build_mcp(
 
     @mcp.tool(
         name="codekeeper_get_file",
-        description="Get a file's full content by name or id (optional version number).",
+        description=(
+            "Get a file's full content by name or id (optional version number). "
+            + _RANGE_DOC
+        ),
         annotations=_READ_ONLY_TOOL,
     )
     def get_file(
@@ -227,12 +242,22 @@ def build_mcp(
         file_name: str | None = None,
         file_id: str | None = None,
         version: int | None = None,
+        lines: StrictLines | None = None,
     ) -> dict:
         doc = handlers.get_file(
-            backend, current_user_id(ctx), file_name=file_name, file_id=file_id, version=version
+            backend,
+            current_user_id(ctx),
+            file_name=file_name,
+            file_id=file_id,
+            version=version,
+            lines=lines,
         )
         if doc is None:
             return {"found": False}
+        # מעטפת שגיאה של טווח לא חוקי אינה "קובץ" — היא מוחזרת כפי שהיא,
+        # באותה צורה שבה ``codekeeper_get_repo_file`` מדווח על אותה שגיאה.
+        if doc.get("ok") is False:
+            return doc
         return {"found": True, "file": doc}
 
     @mcp.tool(
@@ -697,7 +722,13 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         name="codekeeper_list_repo_tree",
         description=(
             "[Admin] List file paths in a mirrored repo (paginated; optional "
-            "subdirectory/ref filter; paths only, no content)."
+            "subdirectory/ref filter; paths only, no content). Set "
+            "include_stats=true to also get an `entries` list with each path's "
+            "byte size and line count, so you can tell a 40-line file from a "
+            "2,400-line one before reading it. `lines` comes from the code index "
+            "and is null when a file was never indexed; `lines_commit_sha` says "
+            "which commit it was counted at, because the index is refreshed by "
+            "the webapp's sync rather than by this service."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -708,10 +739,17 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         ref: str | None = None,
         page: int = 1,
         per_page: int = 200,
+        include_stats: bool = False,
     ) -> dict:
         require_admin(ctx)
         return repo_handlers.list_repo_tree(
-            repo_backend, repo=repo, path=path, ref=ref, page=page, per_page=per_page
+            repo_backend,
+            repo=repo,
+            path=path,
+            ref=ref,
+            page=page,
+            per_page=per_page,
+            include_stats=include_stats,
         )
 
     @mcp.tool(
@@ -719,19 +757,30 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         description=(
             "[Admin] Read one file from a mirrored repo (max 500KB; binary files "
             "return metadata only). On sync_in_progress, retry after retry_after "
-            "seconds — the file may exist."
+            "seconds — the file may exist. " + _RANGE_DOC
         ),
         annotations=_READ_ONLY_TOOL,
     )
-    def get_repo_file(ctx: Context, repo: str, path: str, ref: str | None = None) -> dict:
+    def get_repo_file(
+        ctx: Context,
+        repo: str,
+        path: str,
+        ref: str | None = None,
+        lines: StrictLines | None = None,
+    ) -> dict:
         require_admin(ctx)
-        return repo_handlers.get_repo_file(repo_backend, repo=repo, path=path, ref=ref)
+        return repo_handlers.get_repo_file(
+            repo_backend, repo=repo, path=path, ref=ref, lines=lines
+        )
 
     @mcp.tool(
         name="codekeeper_search_repo",
         description=(
             "[Admin] Text-search inside a mirrored repo; returns short snippets "
-            "(path+line), capped and truncated-flagged."
+            "(path+line), capped and truncated-flagged. Set context_lines=N "
+            "(0-10, default 0) to get N lines before and after each hit as "
+            "context_before / context_after, instead of fetching the whole file "
+            "just to see the surroundings."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -741,6 +790,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         query: str,
         file_pattern: str | None = None,
         max_results: int = 50,
+        context_lines: StrictInt = 0,
     ) -> dict:
         require_admin(ctx)
         return repo_handlers.search_repo(
@@ -749,6 +799,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             query=query,
             file_pattern=file_pattern,
             max_results=max_results,
+            context_lines=context_lines,
         )
 
 
