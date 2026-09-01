@@ -115,7 +115,13 @@ def test_trash_page_lists_items_and_restore_purge(monkeypatch):
 
 def test_db_health_collections_endpoint_rate_limited(monkeypatch):
     monkeypatch.setenv("DB_HEALTH_TOKEN", "test-db-health-token")
-    monkeypatch.setenv("DB_HEALTH_COLLECTIONS_COOLDOWN_SEC", "2")
+    # חלון ארוך במכוון. מה שנבדק כאן הוא שבקשה שנייה **בתוך** החלון נחסמת,
+    # ולא כמה זמן החלון נמשך — ולכן אסור שהטסט יתחרה בשעון. עם חלון קצר
+    # (2 שניות) הוא היה נכשל ב-CI לסירוגין: הבקשה הראשונה יוצרת תהליכון
+    # ולולאת asyncio בפעם הראשונה בתהליך (_ensure_db_health_async_loop),
+    # ותחת pytest -n auto כמה תהליכי בדיקה מתחרים על אותו מעבד — אז החלון
+    # הספיק לפוג לפני הבקשה השנייה, והשרת החזיר 200 בצדק.
+    monkeypatch.setenv("DB_HEALTH_COLLECTIONS_COOLDOWN_SEC", "3600")
 
     # Reset global per-process cooldown state between tests
     monkeypatch.setattr(webapp_app, "_DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO", None, raising=False)
@@ -138,6 +144,8 @@ def test_db_health_collections_endpoint_rate_limited(monkeypatch):
         assert resp2.status_code == 429
         payload2 = resp2.get_json()
         assert payload2 and payload2.get("error") == "rate_limited"
-        assert int(payload2.get("retry_after_sec") or 0) >= 1
+        # קרוב לחלון המלא, כי כמעט לא עבר זמן — ומעל כל השהיה סבירה בראנר,
+        # כך שהבדיקה הזו גם היא אינה תלויה בשעון.
+        assert int(payload2.get("retry_after_sec") or 0) > 3000
         assert resp2.headers.get("Retry-After")
 

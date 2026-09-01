@@ -1,5 +1,7 @@
 """Unit tests for RepoBackend (fake mirror/search/db — repo convention)."""
 
+import logging
+
 from mcp_server.repo_backend import SYNC_RETRY_AFTER_SECONDS, RepoBackend
 
 
@@ -152,17 +154,29 @@ def test_index_setup_is_skipped_without_the_canonical_helper():
     assert backend._db["repo_files"].indexes == []
 
 
-def test_one_failing_index_does_not_skip_the_other():
-    """כשל באחד לא מבטל את השני.
+def test_one_failing_index_does_not_skip_the_other(caplog):
+    """כשל באחד לא מבטל את השני — **ואינו נבלע בשקט**.
 
+    שני דברים נבדקים כאן, כי כל אחד מהם כבר נשבר פעם:
     בגרסה קודמת שתי היצירות ישבו תחת ``try`` אחד, וכשל בראשונה דילג בשקט
-    על השנייה.
+    על השנייה. וההיבט השני חשוב לא פחות: אינדקס שלא נוצר משאיר את השליפות
+    בסריקת collection מלאה, וזו תקלה שנראית כמו "פשוט קצת איטי" — אם היא
+    לא מגיעה ללוג, אף אחד לא יידע לחפש אותה.
     """
     manager = _RecordingManager(explode="repo_metadata")
 
-    RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
+    with caplog.at_level(logging.WARNING, logger="mcp_server.repo_backend"):
+        RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
 
     assert [c for c, _, _ in manager.calls] == ["repo_metadata", "repo_files"]
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    record = warnings[0]
+    assert "repo_metadata" in record.getMessage()
+    # ה-traceback הוא מה שמסביר **למה** האינדקס לא נוצר; בלעדיו נשארת
+    # שורת לוג שאומרת שמשהו נכשל ולא מה.
+    assert record.exc_info is not None
 
 
 def test_list_repos_sorted_projected_limited():
