@@ -611,8 +611,6 @@ def _derive_glass_tokens(variables: dict) -> dict:
     if any(_relative_luminance(end) is None for end in gradient_ends):
         return result
     usable_ends = gradient_ends
-    if not usable_ends:
-        return result  # קצוות שאינם אטומים או אינם ניתנים לפרסור — נשארים עם ה-FALLBACK
 
     surface = darken_color(min(usable_ends, key=_relative_luminance), _GLASS_SURFACE_DARKEN)
     if normalize_color_to_rgba(surface) is None:
