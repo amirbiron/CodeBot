@@ -276,9 +276,106 @@ def test_allowlist_names_still_exist_in_the_installed_sdk():
     assert not unknown, f"no longer emitted by the SDK: {sorted(unknown)}"
 
 
-def test_payload_properties_are_never_allowlisted():
-    """The two sets must stay disjoint; an overlap would silently open the gate."""
+def test_payload_properties_are_not_in_the_default_allowlist():
+    """The two sets stay disjoint, so nothing payload-bearing ships by default.
+
+    Named for what it actually proves. It used to be called "never allowlisted",
+    which stopped being true once ``_ALLOWED_BY_EVENT`` admitted ``$mcp_intent``
+    on one event — the assertion still passed, because that exception lives in a
+    separate mapping, so the name promised more than the check delivered. The
+    conditional exception is pinned by the tests below instead.
+    """
     assert not (analytics._ALLOWED_MCP_PROPERTIES & analytics._PAYLOAD_PROPERTIES)
+
+
+def test_the_only_per_event_exception_is_the_intent_on_missing_capability():
+    """Pins the whole exception table, so adding a second one is a deliberate act.
+
+    A new entry here widens the privacy gate, and the widening would otherwise
+    be invisible in review — this test makes it show up as a failing assertion.
+    """
+    assert analytics._ALLOWED_BY_EVENT == {
+        "$mcp_missing_capability": frozenset({"$mcp_intent", "$mcp_intent_source"})
+    }
+
+
+def _missing_capability_event(**extra_properties):
+    """An ``$mcp_missing_capability`` in the shape a real instrumented run produced.
+
+    Measured against ``mcp 1.28.1`` + ``posthog 7.45.3``: the agent's sentence
+    lands in ``$mcp_intent``, and ``$mcp_parameters`` carries ``arguments: {}``
+    because the SDK strips the injected ``context`` argument out of it itself.
+    """
+    properties = {
+        "$mcp_source": "posthog_mcp_analytics",
+        "$session_id": "ses_1",
+        "$mcp_resource_name": "get_more_tools",
+        "$mcp_server_name": "CodeKeeper",
+        "$mcp_intent": "I wish I could grep inside sticky notes",
+        "$mcp_intent_source": "context_parameter",
+        "$mcp_parameters": {
+            "request": {"method": "tools/call", "params": {"arguments": {}}}
+        },
+    }
+    properties.update(extra_properties)
+    return {
+        "event": "$mcp_missing_capability",
+        "distinct_id": "ses_1",
+        "properties": properties,
+    }
+
+
+def test_the_agents_sentence_survives_on_a_missing_capability_event():
+    """Without this the feature is a counter with no reason, which is the same
+    as not having it."""
+    scrubbed = analytics.scrub_mcp_payload(_missing_capability_event())
+
+    properties = scrubbed["properties"]
+    assert properties["$mcp_intent"] == "I wish I could grep inside sticky notes"
+    assert properties["$mcp_intent_source"] == "context_parameter"
+    assert properties["$mcp_resource_name"] == "get_more_tools"
+
+
+def test_the_exception_does_not_reopen_parameters_on_that_same_event():
+    """The exception admits the intent and nothing else."""
+    scrubbed = analytics.scrub_mcp_payload(
+        _missing_capability_event(**{"$mcp_response": {"content": [{"text": _FILE_BODY}]}})
+    )
+
+    properties = scrubbed["properties"]
+    assert "$mcp_parameters" not in properties
+    assert "$mcp_response" not in properties
+    assert _FILE_BODY not in _payload_text(scrubbed)
+
+
+def test_intent_is_still_blocked_on_an_ordinary_tool_call():
+    """The security boundary of the exception: it is scoped to one event name.
+
+    On this server a regular tool call cannot even produce an intent —
+    ``posthog.mcp._intent`` resolves one only when ``context`` is enabled or an
+    ``intent_fallback`` is set, and both are off. This test holds the line
+    anyway, so turning ``context`` on later cannot quietly start shipping the
+    agent's free text on every single call.
+    """
+    scrubbed = analytics.scrub_mcp_payload(
+        _tool_call_event(**{"$mcp_intent": "read the user's private notes", "$mcp_intent_source": "context_parameter"})
+    )
+
+    properties = scrubbed["properties"]
+    assert "$mcp_intent" not in properties
+    assert "$mcp_intent_source" not in properties
+    assert properties["$mcp_tool_name"] == "codekeeper_get_file"
+
+
+def test_a_lookalike_event_name_does_not_inherit_the_exception():
+    """The key is the exact event name, not a prefix or a substring."""
+    for name in ("$mcp_missing_capability_v2", "mcp_missing_capability", "$mcp_tools_list"):
+        event = _missing_capability_event()
+        event["event"] = name
+
+        scrubbed = analytics.scrub_mcp_payload(event)
+
+        assert "$mcp_intent" not in scrubbed["properties"], name
 
 
 def test_missing_configuration_is_loud_in_development_and_quiet_in_production(monkeypatch):

@@ -23,6 +23,8 @@ import logging
 import uuid as _uuid
 from typing import Any, Callable
 
+from .handlers import apply_line_range, normalize_line_range
+
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
 # בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
@@ -111,6 +113,32 @@ def _clean(doc: dict[str, Any], *, include_code: bool = False) -> dict[str, Any]
     # Friendlier alias without dropping the original field.
     if "programming_language" in out:
         out.setdefault("language", out["programming_language"])
+    return out
+
+
+def _apply_range_to_file(out: dict[str, Any], lines: Any) -> dict[str, Any]:
+    """חותך את תוכן הקובץ לטווח שביקשו, בעזרת אותו עוזר משותף.
+
+    **``code`` הוא הטקסט הקנוני.** ``_full`` כבר מבטיח את זה: קטע רגיל
+    (``CodeSnippet``) נושא ``code`` בלבד, קובץ גדול (``LargeFile``) נושא
+    ``content`` בלבד ו-``_full`` מעתיק אותו ל-``code``. מסמך שנושא את שניהם
+    עם ערכים שונים אינו קיים באף אחד משני המודלים. לכן החיתוך נעשה תמיד
+    מ-``code``, ו-``content`` — אם הוא קיים — מקבל את אותו ערך חתוך, כדי
+    ששני השדות לא ייפרדו בתשובה.
+
+    שגיאת טווח מוחזרת כמעטפת ``{"ok": false, ...}``, ולכן ``get_file`` שב-
+    ``server.py`` מזהה אותה ומעביר אותה כמות שהיא במקום ``{"found": true}``.
+    """
+    bounds = normalize_line_range(lines)
+    if isinstance(bounds, str):
+        return {"ok": False, "error": bounds}
+    sliced = apply_line_range(out.get("code") or "", *bounds)
+    if isinstance(sliced, str):
+        return {"ok": False, "error": sliced}
+    out["code"] = sliced["text"]
+    if "content" in out:
+        out["content"] = sliced["text"]
+    out["range"] = sliced["range"]
     return out
 
 
@@ -264,6 +292,7 @@ class ProductionBackend:
         file_name: str | None = None,
         file_id: str | None = None,
         version: int | None = None,
+        lines: Any = None,
     ) -> dict[str, Any] | None:
         dbm = self._require_dbm()
         if file_id:
@@ -279,7 +308,12 @@ class ProductionBackend:
             doc = _latest_fresh(dbm, user_id, file_name)
         else:
             return None
-        return _full(doc) if doc else None
+        if not doc:
+            return None
+        out = _full(doc)
+        if lines is None:
+            return out
+        return _apply_range_to_file(out, lines)
 
     def file_exists(self, user_id: int, *, file_name: str) -> bool | None:
         """Does the user already have a file by this name?

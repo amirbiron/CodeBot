@@ -11,16 +11,22 @@ class _RecordingRepoBackend:
         self.calls.append(("repos", limit))
         return {"ok": True}
 
-    def list_tree(self, *, repo, path, ref, page, per_page, byte_budget):
-        self.calls.append(("tree", repo, path, ref, page, per_page, byte_budget))
+    # הפרמטרים החדשים נוספים **בסוף** החתימה ובסוף ה-tuple: הטסטים הקיימים
+    # משווים לפי אינדקס מיקומי, אז הוספה בסוף בטוחה והוספה באמצע שוברת.
+    def list_tree(self, *, repo, path, ref, page, per_page, byte_budget, include_stats=False):
+        self.calls.append(
+            ("tree", repo, path, ref, page, per_page, byte_budget, include_stats)
+        )
         return {"ok": True}
 
-    def get_file(self, *, repo, path, ref):
-        self.calls.append(("get", repo, path, ref))
+    def get_file(self, *, repo, path, ref, lines=None):
+        self.calls.append(("get", repo, path, ref, lines))
         return {"ok": True}
 
-    def search(self, *, repo, query, file_pattern, max_results, byte_budget):
-        self.calls.append(("search", repo, query, file_pattern, max_results, byte_budget))
+    def search(self, *, repo, query, file_pattern, max_results, byte_budget, context_lines=0):
+        self.calls.append(
+            ("search", repo, query, file_pattern, max_results, byte_budget, context_lines)
+        )
         return {"ok": True}
 
 
@@ -55,7 +61,7 @@ def test_get_file_requires_repo_and_path():
     assert rh.get_repo_file(be, repo="r", path=" ") == {"ok": False, "error": "missing_path"}
     assert be.calls == []
     rh.get_repo_file(be, repo="r", path=" a.py ", ref="  ")
-    assert be.calls[0] == ("get", "r", "a.py", None)  # trimmed; blank ref -> None
+    assert be.calls[0] == ("get", "r", "a.py", None, None)  # trimmed; blank ref -> None
 
 
 def test_search_validates_query_and_clamps():

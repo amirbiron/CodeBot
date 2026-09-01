@@ -21,6 +21,7 @@ from typing import Any
 
 from .backend import _json_safe
 from .repo_handlers import TREE_PER_PAGE_MAX
+from .handlers import apply_line_range, normalize_line_range
 from .repo_policy import is_denied
 
 logger = logging.getLogger(__name__)
@@ -55,10 +56,21 @@ class RepoBackend:
     in production (importing the services stack only when a repo tool runs).
     """
 
-    def __init__(self, db: Any = None, mirror: Any = None, search_service: Any = None) -> None:
+    def __init__(
+        self,
+        db: Any = None,
+        mirror: Any = None,
+        search_service: Any = None,
+        db_manager: Any = None,
+    ) -> None:
         self._db = db
         self._mirror = mirror
         self._search = search_service
+        # ``db_manager`` נדרש **רק** ליצירת האינדקסים, דרך
+        # ``DatabaseManager.safe_create_index``. הוא מוזרק ולא מיובא, כדי
+        # לשמור על הכלל שבראש החבילה: מודול כאן אינו מייבא תלות כבדה
+        # ברמת המודול.
+        self._db_manager = db_manager
         self._ensure_indexes()
 
     # -- wiring ------------------------------------------------------------
@@ -77,13 +89,55 @@ class RepoBackend:
         return self._search
 
     def _ensure_indexes(self) -> None:
-        # list_repos runs on repo_metadata on every call, and the collection had
-        # no index at all — closing that gap is part of this phase, not "later".
-        try:
-            if self._db is not None:
-                self._db["repo_metadata"].create_index("repo_name", unique=True)
-        except Exception:
-            logger.warning("repo_metadata index creation failed (non-fatal)", exc_info=True)
+        """יצירת האינדקסים שהשירות הזה נשען עליהם, דרך המנגנון הקנוני.
+
+        **``DatabaseManager.safe_create_index`` ולא יצירה ישירה.** גרסה קודמת
+        כאן שכפלה את מדיניות ההתנגשות שלו — וקיבלה אותה שגויה: היא זיהתה את
+        הקודים ``85``/``86`` והחשיבה אותם להצלחה, בזמן שהמנגנון האמיתי
+        **קורא את האינדקסים בפועל אחרי ההתנגשות** ומאשר רק אם המפתחות *ו*-
+        ``unique`` תואמים (``_index_matches``). קוד ``86`` פירושו "אותו שם,
+        מפתחות אחרים" — כלומר בדיוק לא כיסוי, והשכפול שלי היה מכריז הצלחה
+        ומשאיר את השליפות ב-COLLSCAN.
+
+        **``unique=True`` בשניהם.** גרסה קודמת ביקשה אינדקס לא-ייחודי בטענה
+        שכל הצורך הוא חיפוש. זה החמיץ שהאינדקס הלא-ייחודי **חוסם** את
+        הייחודי: ``scripts/create_repo_indexes.py`` היה מקבל
+        ``IndexOptionsConflict`` ונופל, כלומר מסד חדש היה נשאר בלי אילוץ
+        הזהות שה-upsert של האינדקסר מניח.
+
+        ללא ``db_manager`` לא נוצרים אינדקסים — עדיף לא ליצור מאשר לשכפל שוב
+        את המדיניות.
+        """
+        create = getattr(self._db_manager, "safe_create_index", None)
+        if self._db is None or not callable(create):
+            # אותו דפוס ``getattr`` כמו ב-``DatabaseManager._create_indexes``,
+            # שנועד שם בדיוק לדמויות בדיקה בלי המתודה.
+            logger.debug("no db_manager.safe_create_index; skipping index setup")
+            return
+
+        wanted = (
+            # list_repos runs on repo_metadata on every call, and the collection
+            # had no index at all — closing that gap is part of this phase.
+            ("repo_metadata", [("repo_name", 1)]),
+            # ``repo_files`` נשלף לפי ``(repo_name, path)`` בכל מקום: ספירת
+            # השורות של ``list_tree``, ההעשרה של ``search_repo`` בכל חיפוש,
+            # דפדפן הריפו בוובאפ, וה-upsert של האינדקסר לכל קובץ בכל סנכרון.
+            # את האינדקס הצהיר ``scripts/create_repo_indexes.py``, אבל שום דבר
+            # לא מריץ את הסקריפט, ולכן בפועל הוא היה קיים רק אם מישהו הריץ
+            # אותו ידנית.
+            ("repo_files", [("repo_name", 1), ("path", 1)]),
+        )
+        for collection, keys in wanted:
+            # כל אחד בנפרד: כשל באחד אינו מדלג על השני, ו**שום** כשל כאן אינו
+            # מפיל את בניית השרת — אינדקס חסר פוגע בביצועים, לא בנכונות.
+            try:
+                create(collection, keys, unique=True)
+            except Exception:
+                logger.warning(
+                    "%s index setup raised (non-fatal); lookups may scan",
+                    collection,
+                    exc_info=True,
+                )
 
     # -- helpers -----------------------------------------------------------
     def _sync_running(self, repo_name: str) -> bool:
@@ -154,10 +208,22 @@ class RepoBackend:
         page: int = 1,
         per_page: int = 200,
         byte_budget: int = 256_000,
+        include_stats: bool = False,
     ) -> dict[str, Any]:
         use_ref = ref or self._default_ref(repo)
+        sizes: dict[str, int | None] = {}
         try:
-            files = self._require_mirror().list_all_files(repo, use_ref)
+            mirror = self._require_mirror()
+            if include_stats:
+                # ``-l`` באותה קריאת ``ls-tree`` — הגודל מגיע בחינם.
+                entries = mirror.list_all_files_with_sizes(repo, use_ref)
+                if entries is None:
+                    files = None
+                else:
+                    files = [e["path"] for e in entries]
+                    sizes = {e["path"]: e["size"] for e in entries}
+            else:
+                files = mirror.list_all_files(repo, use_ref)
         except Exception:
             logger.warning("list_tree read failed", exc_info=True)
             files = None
@@ -178,17 +244,31 @@ class RepoBackend:
 
         start = (page_i - 1) * per_page_i
         page_items = files[start : start + per_page_i]
+
+        # ההעשרה כולה במקום אחד: השליפה, ההרכבה והמיפוי לנתיב. הלולאה למטה
+        # מקבלת רשומה מוכנה או ``None``, ולא מסתעפת בגוף שלה.
+        stats = self._stats_for_page(repo, page_items, sizes) if include_stats else {}
+
         # Output byte budget: never let one page blow up the response.
         out: list[str] = []
+        entries_out: list[dict[str, Any]] = []
         used = 0
         truncated = False
         for item in page_items:
-            used += len(item.encode("utf-8")) + 8
+            entry = stats.get(item)
+            cost = len(item.encode("utf-8")) + 8
+            if entry is not None:
+                # רשומה מועשרת שוקלת הרבה יותר מנתיב, ולכן היא נספרת כפי
+                # שהיא — אחרת העמוד היה חורג מהתקציב בלי שאיש ידע.
+                cost += len(str(entry).encode("utf-8"))
+            used += cost
             if used > byte_budget:
                 truncated = True
                 break
             out.append(item)
-        return {
+            if entry is not None:
+                entries_out.append(entry)
+        result: dict[str, Any] = {
             "ok": True,
             "repo": repo,
             "ref": use_ref,
@@ -199,8 +279,74 @@ class RepoBackend:
             "paths": out,
             "truncated": truncated,
         }
+        if include_stats:
+            # נגזר מאותה לולאה ומאותה נקודת חיתוך כמו ``paths``, ולכן שתי
+            # הרשימות תמיד באותו אורך ובאותו סדר. ``tests`` אוכפים את זה.
+            result["entries"] = entries_out
+        return result
 
-    def get_file(self, *, repo: str, path: str, ref: str | None = None) -> dict[str, Any]:
+    def _stats_for_page(
+        self, repo: str, paths: list[str], sizes: dict[str, int | None]
+    ) -> dict[str, dict[str, Any]]:
+        """רשומת ``entries`` מוכנה לכל נתיב בעמוד, ממופה לפי נתיב.
+
+        מרכז את כל ההעשרה: הגודל מגיע כבר מ-``list_all_files_with_sizes``,
+        ספירת השורות נשלפת כאן, וההרכבה נעשית במקום אחד. ``list_tree`` רק
+        שואל ומקבל — הוא לא בונה רשומות בעצמו.
+        """
+        counts = self._line_counts(repo, paths)
+        return {
+            path: {
+                "path": path,
+                "size": sizes.get(path),
+                "lines": (counts.get(path) or {}).get("lines"),
+                "lines_commit_sha": (counts.get(path) or {}).get("commit_sha"),
+            }
+            for path in paths
+        }
+
+    def _line_counts(self, repo: str, paths: list[str]) -> dict[str, dict[str, Any]]:
+        """ספירות שורות מ-``repo_files``, לנתיבי עמוד אחד בלבד.
+
+        git לא נותן ספירת שורות בלי לקרוא כל בלוב, ולכן המקור הוא האינדקסר
+        (``services/code_indexer.py``), שכותב ``lines`` לצד ``commit_sha``.
+        השאילתה נשענת על האינדקס הייחודי ``(repo_name, path)`` וחסומה בגודל
+        העמוד, לא בגודל הריפו.
+
+        ``commit_sha`` מוחזר יחד עם הספירה **בכוונה**: האינדוקס נעשה על ידי
+        הסנכרון של הוובאפ, לא על ידי ה-autosync של שירות ה-MCP, ולכן ספירה
+        יכולה להיות של גרסה קודמת של הקובץ. ערך מיושן שנראה תקין גרוע מערך
+        חסר, ולכן המקור נשלח יחד איתו במקום להסתיר אותו.
+        """
+        if self._db is None or not paths:
+            return {}
+        try:
+            cursor = self._db["repo_files"].find(
+                {"repo_name": repo, "path": {"$in": list(paths)}},
+                {"path": 1, "lines": 1, "commit_sha": 1},
+            )
+            out: dict[str, dict[str, Any]] = {}
+            for doc in cursor:
+                key = doc.get("path")
+                if isinstance(key, str):
+                    out[key] = {
+                        "lines": doc.get("lines"),
+                        "commit_sha": doc.get("commit_sha"),
+                    }
+            return out
+        except Exception:
+            # מדד נלווה בלבד: כשל כאן משאיר ``lines`` ריק ולא מפיל את הרשימה.
+            logger.warning("repo_files line-count lookup failed", exc_info=True)
+            return {}
+
+    def get_file(
+        self,
+        *,
+        repo: str,
+        path: str,
+        ref: str | None = None,
+        lines: Any = None,
+    ) -> dict[str, Any]:
         if is_denied(path):  # policy: block, before touching the mirror
             return {"ok": False, "error": "path_denied"}
         use_ref = ref or self._default_ref(repo)
@@ -221,7 +367,24 @@ class RepoBackend:
                 return {"ok": True, "status": "binary", "file": file_meta}
             file_meta["lines"] = res.get("lines")
             file_meta["encoding"] = res.get("encoding")
-            return {"ok": True, "status": "ok", "file": file_meta, "content": res.get("content")}
+            content = res.get("content")
+            if lines is not None:
+                # אותו עוזר משותף שמשרת גם את ``codekeeper_get_file``, כדי
+                # ששני הכלים לא יסטו זה מזה בסמנטיקה.
+                bounds = normalize_line_range(lines)
+                if isinstance(bounds, str):
+                    return {"ok": False, "error": bounds}
+                sliced = apply_line_range(content or "", *bounds)
+                if isinstance(sliced, str):
+                    return {"ok": False, "error": sliced}
+                return {
+                    "ok": True,
+                    "status": "ok",
+                    "file": file_meta,
+                    "content": sliced["text"],
+                    "range": sliced["range"],
+                }
+            return {"ok": True, "status": "ok", "file": file_meta, "content": content}
 
         err = str(res.get("error") or "internal_error")
         if err == "file_too_large":
@@ -248,6 +411,7 @@ class RepoBackend:
         file_pattern: str | None = None,
         max_results: int = 50,
         byte_budget: int = 256_000,
+        context_lines: int = 0,
     ) -> dict[str, Any]:
         try:
             res = self._require_search().search(
@@ -256,6 +420,7 @@ class RepoBackend:
                 search_type="content",
                 file_pattern=(file_pattern or None),
                 max_results=int(max_results),
+                context_lines=int(context_lines),
             )
         except Exception:
             logger.warning("search failed", exc_info=True)
@@ -279,6 +444,11 @@ class RepoBackend:
                 "line": r.get("line"),
                 "snippet": str(r.get("content") or "")[:500],
             }
+            # שני המפתחות מתווספים אך ורק כשביקשו הקשר, כדי שתשובה ללא
+            # ``context_lines`` תישאר זהה בדיוק לזו של היום.
+            if context_lines > 0:
+                row["context_before"] = [str(x)[:500] for x in (r.get("context_before") or [])]
+                row["context_after"] = [str(x)[:500] for x in (r.get("context_after") or [])]
             used += len(str(row).encode("utf-8"))
             if used > byte_budget:
                 budget_truncated = True

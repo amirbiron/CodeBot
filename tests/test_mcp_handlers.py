@@ -20,8 +20,8 @@ class _RecordingBackend:
     # בולע אותו, והבדיקה "קובץ חדש" הפעילה בפועל את **ענף הכשל** — אותו
     # ענף שבדיקה אחרת כבר מכסה. שתי בדיקות על מסלול אחד, ואפס על המסלול
     # של קובץ חדש אמיתי.
-    def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
-        self.calls.append(("get_file", user_id, file_name, file_id, version))
+    def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
+        self.calls.append(("get_file", user_id, file_name, file_id, version, lines))
         return None
 
     def file_exists(self, user_id, *, file_name):
@@ -146,8 +146,10 @@ def test_save_file_fills_a_language_when_omitted():
 class _BackendWithExistingFile(_RecordingBackend):
     """‏``get_file`` מחזיר מסמך — כלומר הקובץ כבר קיים."""
 
-    def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
-        self.calls.append(("get_file", user_id, file_name))
+    def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
+        # אותה צורת tuple כמו ב-``_RecordingBackend``: מי שקורא לפי אינדקס
+        # לא אמור לקבל משהו אחר רק כי זו תת-מחלקה.
+        self.calls.append(("get_file", user_id, file_name, file_id, version, lines))
         return {"file_name": file_name, "code": "# תוכן קיים", "version": 3}
 
     # שני המסלולים מסכימים בכוונה: אם ``file_exists`` יוסר מה-backend,
@@ -161,7 +163,7 @@ class _BackendWithExistingFile(_RecordingBackend):
 class _BackendWhoseLookupFails(_RecordingBackend):
     """הבדיקה זורקת — כלומר לא ידוע אם הקובץ קיים."""
 
-    def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
+    def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
         raise RuntimeError("lookup down")
 
     def file_exists(self, user_id, *, file_name):

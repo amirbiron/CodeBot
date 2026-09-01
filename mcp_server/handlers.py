@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 # תקרת התוכן מיובאת ולא מוקלדת. עד היום MCP והוובאפ החזיקו כל אחד את המספר
 # שלו, כך ששינוי באחד היה משאיר את השני אוכף ערך אחר — ואז אותו פתק נדחה
@@ -24,6 +26,98 @@ MAX_SEARCH_LIMIT = 100
 MAX_COLLECTIONS_LIMIT = 500
 # Fallback when the app config isn't importable (kept in sync with config.MAX_CODE_SIZE).
 DEFAULT_MAX_CODE_SIZE = 100_000
+
+
+# ``strict=True`` על טיפוסי הפרמטרים החדשים, ולא רק ``int``/``list[int]``.
+#
+# נמדד מול Pydantic דרך FastMCP: ``list[int]`` **מקבל** ``[True, 5]`` וממיר
+# אותו ל-``[1, 5]``, וגם ``["3", "9"]`` ו-``[3.0, 9]`` עוברים. במצב כזה
+# ``lines=[True, 5]`` היה מחזיר בשקט את שורות 1‑5. אי אפשר לתפוס את זה
+# בוולידציה שלנו, כי הערך שמגיע לכאן הוא כבר ``int`` אמיתי — ההמרה קורית
+# בגבול, לפני שהקוד הזה רץ. לכן ההגנה חייבת לשבת בהצהרת הטיפוס.
+#
+# ``strict`` דוחה את שלושתם, **והסכימה שהלקוח רואה נשארת זהה**:
+# ``{"anyOf": [{"items": {"type": "integer"}, "type": "array"}, {"type": "null"}]}``
+# — בלי ``prefixItems``, ולכן בלי סיכון תאימות מול לקוחות.
+StrictInt = Annotated[int, Field(strict=True)]
+StrictLines = Annotated[list[StrictInt], Field(strict=True)]
+
+# קודי השגיאה של קריאת טווח. אותם קודים בדיוק בשני הכלים.
+LINE_RANGE_INVALID = "invalid_line_range"
+LINE_RANGE_OUT_OF_BOUNDS = "range_out_of_bounds"
+
+
+def normalize_line_range(lines: Any) -> tuple[int, int] | str:
+    """מאמת ``lines=[start, end]`` ומחזיר ``(start, end)`` או קוד שגיאה.
+
+    **הפונקציה הזו היא המקור היחיד לסמנטיקה של הטווח**, ושני הכלים
+    (``codekeeper_get_file`` ו-``codekeeper_get_repo_file``) קוראים לה — כדי
+    שלא תיווצר אסימטריה ביניהם. אימות האורך נעשה כאן ולא בהצהרת הטיפוס, כי
+    ``strict`` אינו אוכף אורך (נמדד: ``[3, 9, 12]`` עובר).
+
+    1-indexed וכולל את שני הקצוות. ``end`` שחורג מסוף הקובץ מקוצץ על ידי
+    הקורא, אחרי שהוא יודע כמה שורות יש בפועל.
+    """
+    if not isinstance(lines, (list, tuple)) or len(lines) != 2:
+        return LINE_RANGE_INVALID
+    start, end = lines
+    # ``bool`` הוא תת-מחלקה של ``int``; ההגנה האמיתית היא ב-``StrictLines``,
+    # וזו רשת נוספת לקוראים שאינם עוברים דרך הסכימה.
+    if isinstance(start, bool) or isinstance(end, bool):
+        return LINE_RANGE_INVALID
+    if not isinstance(start, int) or not isinstance(end, int):
+        return LINE_RANGE_INVALID
+    if start <= 0 or end <= 0 or start > end:
+        return LINE_RANGE_INVALID
+    return (start, end)
+
+
+def count_lines(text: str) -> int:
+    """ספירת השורות שכל שדות ה-``lines`` בתשובות ה-MCP מדווחים לפיה.
+
+    ``split("\n")`` ולא ``splitlines()``, כדי שהמספר יתאים לשדות שכבר
+    יושבים לצידו באותה תשובה: ``file.lines`` נספר ב-
+    ``content.count("\n") + 1`` (``services/git_mirror_service.py``), ו-
+    ``file.lines_count`` של קובץ שמור נספר ב-``len(content.split("\n"))``
+    (``database/models.py``, ``database/repository.py``). שתי הצורות זהות
+    לחלוטין — נמדד על כל מקרי הקצה, כולל מחרוזת ריקה ושורות ריקות רצופות.
+
+    ``splitlines()`` היה נותן מספר קטן ב-1 לכל קובץ שנגמר בשורה ריקה, כלומר
+    כמעט כל קובץ קוד, ואז אותה תשובה הייתה נושאת שני מספרים סותרים.
+
+    **החיתוך חייב להשתמש באותה חלוקה** (ראו :func:`apply_line_range`):
+    ספירה לפי ``split`` עם חיתוך לפי ``splitlines`` הייתה מדווחת על שורה
+    אחרונה שקיימת ואז מסרבת להחזיר אותה.
+
+    קובץ ריק הוא ``0`` ולא ``1``, גם זה כדי להתיישר: ``git_mirror_service``
+    מגן ב-``if content else 0``, ו-``database/repository.py`` באותה צורה.
+    """
+    return len(text.split("\n")) if text else 0
+
+
+def apply_line_range(text: str, start: int, end: int) -> dict[str, Any] | str:
+    """חותך ``text`` לטווח ומחזיר את הקטע יחד עם בלוק ה-``range``.
+
+    מחזיר קוד שגיאה כש-``start`` מעבר לסוף הקובץ — שם קיצוץ היה מחזיר קטע
+    ריק שנראה כמו תשובה תקינה. ``end`` שחורג כן מקוצץ, ומסומן ב-``truncated``.
+
+    החלוקה זהה לזו של :func:`count_lines`, כדי ש-``total_lines`` ומספר
+    המשבצות שאפשר לבקש יהיו אותו מספר.
+    """
+    all_lines = text.split("\n") if text else []
+    total = len(all_lines)
+    if start > total:
+        return LINE_RANGE_OUT_OF_BOUNDS
+    clipped_end = min(end, total)
+    return {
+        "text": "\n".join(all_lines[start - 1 : clipped_end]),
+        "range": {
+            "start": start,
+            "end": clipped_end,
+            "total_lines": total,
+            "truncated": clipped_end < end,
+        },
+    }
 
 
 def _clamp(value: Any, lo: int, hi: int, default: int) -> int:
@@ -63,10 +157,13 @@ def get_file(
     file_name: str | None = None,
     file_id: str | None = None,
     version: int | None = None,
+    lines: Any = None,
 ) -> dict[str, Any] | None:
     if not file_name and not file_id:
         return None
-    return backend.get_file(user_id, file_name=file_name, file_id=file_id, version=version)
+    return backend.get_file(
+        user_id, file_name=file_name, file_id=file_id, version=version, lines=lines
+    )
 
 
 def list_versions(backend: Any, user_id: int, *, file_name: str) -> list[dict[str, Any]]:
