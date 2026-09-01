@@ -439,6 +439,12 @@ class DocumentHandler:
                     # **בכוונה לא** ``detect_zip_common_root`` — ראו הערת האזהרה
                     # מעליה. כאן נספרות תיקיות בלבד: קובץ בשורש אינו מכיל "/",
                     # ולכן אינו משתתף בספירה ואינו מבטל את הזיהוי.
+                    #
+                    # **המחיר, והוא מכוון:** ZIP שאינו גיבוי — למשל ``README.md``
+                    # בשורש לצד ``src/`` — יאבד את הרובד ו-``src/main.py`` ייכתב
+                    # כ-``main.py``. עבור קובץ גיבוי, שבו הקובץ בשורש הוא
+                    # ``metadata.json``, זו בדיוק ההתנהגות הרצויה. המשתמש מקבל
+                    # על כך התראה לפני ההעלאה (``RESTORE_ZIP_PROMPT``).
                     top_levels = set()
                     for name in zf.namelist():
                         if "/" in name and not name.startswith("__MACOSX/"):

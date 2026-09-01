@@ -155,6 +155,20 @@ MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 TELEGRAM_SAFE_TEXT_LIMIT = 4000
 TELEGRAM_TRUNCATION_NOTICE = "\n\n(✂️ חלק מהטקסט קוצר כדי לעמוד במגבלת טלגרם)"
 
+# הבקשה לשלוח ZIP לשחזור מוגדרת פעם אחת: ``github_restore_zip_setpurge:``
+# מטופל בשני מקומות בקובץ הזה, ושכפול הטקסט אומר שהערה חדשה תופיע רק
+# באחד מהמסלולים.
+#
+# **וההערה על המבנה אינה קישוט.** זיהוי תיקיית השורש בשחזור סופר תיקיות
+# בלבד, ולכן ZIP עם קובץ בשורש לצד תיקייה אחת מאבד רובד. עבור קובץ גיבוי
+# — שבו הקובץ בשורש הוא ``metadata.json`` — זו בדיוק ההתנהגות הרצויה,
+# ולכן היא נשמרת ומוסברת למשתמש. ראו ``docs/workflows/backup-flow.rst``.
+RESTORE_ZIP_PROMPT = (
+    "שלח עכשיו קובץ ZIP לשחזור לריפו.\n\n"
+    "ℹ️ שים לב: מבנה עץ התיקיות נשמר כשמדובר בקובץ גיבוי של הבוט. "
+    "ZIP מסוג אחר, שיש בו קובץ בשורש לצד תיקייה אחת, עלול להיפרס שטוח."
+)
+
 # תווים שאסורים בשמות קבצים ב-Windows/macOS/Linux, פלוס תווי בקרה
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 ZIP_FILENAME_MAX_LEN = 100
@@ -2897,8 +2911,8 @@ class GitHubMenuHandler:
                 except Exception:
                     pass
             await query.edit_message_text(
-                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
-                "שלח עכשיו קובץ ZIP לשחזור לריפו."
+                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ")
+                + RESTORE_ZIP_PROMPT
             )
             return
 
@@ -8922,8 +8936,8 @@ class GitHubMenuHandler:
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             context.user_data["github_restore_zip_purge"] = purge_flag
             await query.edit_message_text(
-                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
-                "שלח עכשיו קובץ ZIP לשחזור לריפו."
+                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ")
+                + RESTORE_ZIP_PROMPT
             )
             return
         elif query.data == "github_restore_zip_list":

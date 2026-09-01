@@ -1183,3 +1183,34 @@ async def test_restore_keeps_nested_structure_when_there_is_no_single_root(
     assert github_stub.created_trees, replies.messages
     elements, _base_tree = github_stub.created_trees[0]
     assert sorted(e.path for e in elements) == ["api/app.py", "web/index.html"]
+
+
+@pytest.mark.asyncio
+async def test_restore_flattens_a_non_backup_zip_and_the_user_is_warned(
+    zip_handler, github_stub
+):
+    """**מגבלה מכוונת, מקובעת בבדיקה כדי שלא תתגלה כהפתעה.**
+
+    זיהוי השורש כאן סופר תיקיות בלבד, ולכן ``README.md`` בשורש לצד
+    ``src/`` אינו מבטל את הזיהוי — ``src`` נחתך ו-``src/main.py`` נכתב
+    כ-``main.py``. עבור קובץ גיבוי זו בדיוק ההתנהגות הרצויה, כי הקובץ
+    בשורש הוא ``metadata.json``.
+
+    הבחירה להשאיר את ההתנהגות ולהתריע עליה — ולא לשנות אותה — היא החלטת
+    מוצר. הבדיקה מקבעת את שני חלקיה: ההתנהגות **וגם** קיום ההתראה.
+    """
+    payload = _make_zip({"README.md": b"top", "src/main.py": b"code"})
+    update, replies = _make_update()
+    context = _context(_DummyBot(payload), upload_mode="github_restore_zip_to_repo")
+
+    await zip_handler.handle_document(update, context)
+
+    assert github_stub.created_trees, replies.messages
+    elements, _base_tree = github_stub.created_trees[0]
+    assert sorted(e.path for e in elements) == ["README.md", "main.py"]
+
+    # ההתראה חייבת להתקיים, אחרת המגבלה הופכת להפתעה שקטה
+    from github_menu_handler import RESTORE_ZIP_PROMPT
+
+    assert "עלול להיפרס שטוח" in RESTORE_ZIP_PROMPT, RESTORE_ZIP_PROMPT
+    assert "קובץ גיבוי" in RESTORE_ZIP_PROMPT, RESTORE_ZIP_PROMPT
