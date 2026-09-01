@@ -176,8 +176,18 @@ def test_the_version_lookup_does_not_load_the_file_body(wired_mongo):
     finally:
         coll.find_one = real
 
-    projected = [c for c in seen if c[1] and isinstance(c[1][0], dict) and c[1][0].get("version") == 1]
+    projected = [c for c in seen if c[1] and isinstance(c[1][0], dict)]
     assert projected, f"שאילתת הגרסה רצה בלי היטלה: {[(c[0], c[1]) for c in seen]}"
+
+    # לא די בכך ש-``version`` מבוקש: היטלה כמו ``{"version": 1, "code": 1}``
+    # הייתה עוברת בבדיקה כזו ובכל זאת מושכת את הגוף. הרשימה נלקחת מהריפו
+    # עצמו ולא ממחרוזת קשיחה, כדי ששדה כבד שייווסף בעתיד ייאכף כאן מיד.
+    from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION
+
+    projection = projected[0][1][0]
+    assert projection.get("version") == 1, projection
+    heavy = set(projection) & set(HEAVY_FIELDS_EXCLUDE_PROJECTION)
+    assert not heavy, f"ההיטלה נוגעת בשדות כבדים: {sorted(heavy)} ← {projection}"
 
 
 def test_the_index_for_the_version_lookup_is_created_by_production_code(wired_mongo):

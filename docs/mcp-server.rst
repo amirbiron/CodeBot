@@ -56,9 +56,10 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
    * - ``codekeeper_get_file``
      - תוכן מלא של קובץ (לפי שם/מזהה, אופציונלית גרסה)
    * - ``codekeeper_save_file``
-     - **כתיבה:** יצירה/עדכון קובץ (גרסה חדשה; בכפוף למגבלת
-       ``MAX_CODE_SIZE`` — ברירת מחדל 100K תווים, ניתנת להגדלה בקונפיג).
-       דורש ``write``
+     - **כתיבה:** יצירת קובץ **חדש**. שם שכבר תפוס נדחה ב-``file_exists``,
+       ולעדכון קובץ קיים יש ``codekeeper_edit_file`` / ``codekeeper_append_file``.
+       בכפוף למגבלת ``MAX_CODE_SIZE`` — ברירת מחדל 100K תווים, ניתנת להגדלה
+       בקונפיג. דורש ``write``
    * - ``codekeeper_edit_file``
      - **כתיבה:** מצא-והחלף מדויק בקובץ קיים (``old_string`` →
        ``new_string``) — בלי לשלוח את כל הקובץ. נשמר כגרסה חדשה. דורש
@@ -565,6 +566,14 @@ Claude Desktop
      - ``SECRET_KEY`` לא זהה בין הוובאפ לשירות ה-MCP
    * - ``insufficient_scope`` בשמירה
      - חיבור בקריאה בלבד — חברו מחדש עם write (או ``/connect_claude write``)
+   * - ``file_exists`` בשמירה
+     - כבר קיים קובץ בשם הזה, ו-``codekeeper_save_file`` אינו דורס: שמירה כזו
+       הייתה יוצרת גרסה חדשה, והתוכן הקודם היה נעלם מהחיפוש ומעמוד הקובץ.
+       לעריכה — ``codekeeper_edit_file`` / ``codekeeper_append_file``, או שמרו
+       בשם אחר
+   * - ``existence_check_unavailable`` בשמירה
+     - בדיקת הקיום **נכשלה** — זה אינו "הקובץ אינו קיים". שום דבר לא נשמר;
+       נסו שוב בעוד רגע. אותה הבחנה כמו ב-``repo_list_unavailable``
    * - ``admin_only`` בכלי ריפו
      - ה-user_id אינו ב-``ADMIN_USER_IDS`` בשירות ה-MCP. חל גם על
        ``codekeeper_list_repo_notes`` / ``codekeeper_create_repo_note``

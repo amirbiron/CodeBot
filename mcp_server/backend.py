@@ -281,28 +281,46 @@ class ProductionBackend:
             return None
         return _full(doc) if doc else None
 
-    def file_exists(self, user_id: int, *, file_name: str) -> bool:
+    def file_exists(self, user_id: int, *, file_name: str) -> bool | None:
         """Does the user already have a file by this name?
 
         A projected query, not ``get_file``: existence is a yes/no question and
         loading the whole document — content included — to answer it costs the
-        full file on every save. Falls back to ``get_file`` when the raw handle
-        is unavailable, so an injected backend without Mongo still works.
+        full file on every save.
+
+        **The contract:** ``True``/``False`` when the answer is known, and
+        ``None`` when it could not be determined. The distinction is not
+        cosmetic. ``False`` on a failed lookup reads as "no such file", so the
+        caller writes under a name that may well be taken — burying the existing
+        content at exactly the moment the guard was meant to fire.
+
+        ``get_file`` is the fallback **only** when the raw handle is missing (an
+        injected backend that has no Mongo of its own). A query that ran and
+        failed is a different thing, and is not retried through a second guess
+        that would answer ``None`` for "not found" just the same.
+
+        Same shape as :func:`sticky_notes_target.repo_file_exists`, down to the
+        ``{"_id": 1}`` projection and the ``None``-on-failure contract — and its
+        caller treats ``None`` the same way, refusing to write rather than
+        reading a failed lookup as permission.
         """
         try:
             coll = self._raw_mongo()["code_snippets"]
         except Exception:
-            coll = None
-        if coll is not None:
+            # אין handle גולמי. ``get_file`` הוא הדרך היחידה לשאול כאן, וגם
+            # הוא יכול להיכשל — חריגה משמעה "לא ידוע", לא "אין קובץ".
             try:
-                doc = coll.find_one(
-                    {"user_id": int(user_id), "file_name": file_name, "is_active": True},
-                    {"_id": 1},
-                )
-                return doc is not None
+                return self.get_file(user_id, file_name=file_name) is not None
             except Exception:
-                pass
-        return self.get_file(user_id, file_name=file_name) is not None
+                return None
+        try:
+            doc = coll.find_one(
+                {"user_id": int(user_id), "file_name": file_name, "is_active": True},
+                {"_id": 1},
+            )
+        except Exception:
+            return None
+        return doc is not None
 
     def list_versions(self, user_id: int, *, file_name: str) -> list[dict[str, Any]]:
         return [_clean(v) for v in (self._require_dbm().get_all_versions(user_id, file_name) or [])]

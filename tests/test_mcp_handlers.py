@@ -159,13 +159,26 @@ class _BackendWithExistingFile(_RecordingBackend):
 
 
 class _BackendWhoseLookupFails(_RecordingBackend):
-    """‏``get_file`` נכשל — בדיקת קיום שבורה אינה חוסמת שמירה של קובץ חדש."""
+    """הבדיקה זורקת — כלומר לא ידוע אם הקובץ קיים."""
 
     def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
         raise RuntimeError("lookup down")
 
     def file_exists(self, user_id, *, file_name):
         raise RuntimeError("lookup down")
+
+
+class _BackendWhoseCheckIsUnknown(_RecordingBackend):
+    """הבדיקה חוזרת עם ``None`` — החוזה של ``file_exists`` ל"לא ידוע".
+
+    זה המסלול הרגיל בפרודקשן: ``backend.file_exists`` תופס בעצמו את כשל
+    השאילתה ומחזיר ``None`` במקום לזרוק, ולכן ``handlers`` חייב לזהות את
+    הערך הזה — ולא רק חריגה.
+    """
+
+    def file_exists(self, user_id, *, file_name):
+        self.calls.append(("file_exists", user_id, file_name))
+        return None
 
 
 def test_save_file_is_blocked_when_the_name_already_exists():
@@ -198,14 +211,23 @@ def test_save_file_still_creates_a_genuinely_new_file():
     assert any(c[0] == "save" for c in be.calls), be.calls
 
 
-def test_a_failed_existence_check_does_not_block_a_save():
-    """בדיקת קיום שנכשלה אינה הופכת שמירה לחסומה.
+def test_a_failed_existence_check_blocks_the_save():
+    """בדיקה שנכשלה אינה "אין קובץ", ולכן היא חוסמת — עם קוד נפרד.
 
-    זה המצב היחיד שבו דריסה עדיין אפשרית, והבחירה מודעת: לחסום כל שמירה
-    בגלל תקלת קריאה היה משתק את הכלי לגמרי.
+    ‏``False`` על כשל היה נקרא כ"אין קובץ בשם הזה", והשמירה הייתה קוברת
+    תוכן קיים **בדיוק** ברגע שההגנה אמורה לפעול. הקוד נפרד מ-``file_exists``
+    כדי שהקורא יידע שזו תקלת בירור ולא תשובה — אותה הבחנה שכבר קיימת
+    בכלים על הריפו (``repo_list_unavailable``).
+
+    והנימוק ההפוך ("חסימה תשתק את הכלי") אינו מחזיק: שמירה בזמן שהמסד
+    אינו עונה נכשלת ממילא בשכבת ה-DB, שמסרבת לנחש מספר גרסה.
     """
-    be = _BackendWhoseLookupFails()
-    result = handlers.save_file(be, 7, file_name="a.py", code="x")
+    for be in (_BackendWhoseLookupFails(), _BackendWhoseCheckIsUnknown()):
+        result = handlers.save_file(be, 7, file_name="a.py", code="x")
 
-    assert result["ok"] is True
-    assert any(c[0] == "save" for c in be.calls), be.calls
+        assert result["ok"] is False, (type(be).__name__, result)
+        assert result["error"] == "existence_check_unavailable", result
+        # ובעיקר: לא נכתב דבר
+        assert not any(c[0] == "save" for c in be.calls), be.calls
+        # ההודעה חייבת להבדיל בין "לא ידוע" ל"קיים", אחרת הקורא ינחש
+        assert "לא הצלחתי לברר" in result["message"], result["message"]

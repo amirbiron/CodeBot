@@ -334,3 +334,21 @@ async def test_str_replace_is_not_advertised_as_idempotent():
     assert ann.destructiveHint is True
     # ``update_note`` כן אידמפוטנטי (אותו קלט פעמיים ⇒ אותו מצב סופי)
     assert by_name["codekeeper_update_note"].annotations.idempotentHint is True
+
+
+async def test_save_file_description_matches_what_the_tool_actually_does():
+    """התיאור הוא מה שהלקוח קורא כדי לבחור כלי — ולכן הוא חלק מהחוזה.
+
+    הוא הבטיח "create a new file **or update an existing one**" גם אחרי
+    שהכלי התחיל לסרב לשם תפוס, כלומר שלח את הלקוח לקריאה שתידחה. אותה
+    טעות בכיוון ההפוך של ``TESTING-PATTERNS`` T1: המפרט אינו הצרכן, אבל
+    כשהמפרט **הוא** מה שהצרכן קורא — הוא חייב להיות נכון.
+    """
+    mcp = build_mcp(_FakeBackend())
+    tool = {t.name: t for t in await mcp.list_tools()}["codekeeper_save_file"]
+    text = (tool.description or "").lower()
+
+    assert "update an existing" not in text, tool.description
+    # ומה שכן צריך להיות שם: לאן פונים כשהשם תפוס
+    assert "codekeeper_edit_file" in text
+    assert "codekeeper_append_file" in text

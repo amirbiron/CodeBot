@@ -33,9 +33,10 @@ _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
     "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
     "(metadata only), and codekeeper_get_file to read full contents. Use "
-    "codekeeper_save_file to create or update a file, and prefer "
-    "codekeeper_edit_file / codekeeper_append_file to change part of an existing "
-    "file without resending all of it (write tools require write permission). "
+    "codekeeper_save_file to create a NEW file — it refuses a name that is already "
+    "taken — and codekeeper_edit_file / codekeeper_append_file to change an "
+    "existing file, which is also cheaper because the whole file is not resent "
+    "(write tools require write permission). "
     "Sticky notes live on a file, on a board (a surface that belongs to no file), or "
     "on a file inside a mirrored repository. "
     "codekeeper_list_notes reads a file's notes; codekeeper_list_boards and "
@@ -232,8 +233,11 @@ def build_mcp(
     @mcp.tool(
         name="codekeeper_save_file",
         description=(
-            "Create a new file or update an existing one by file_name (saved as a new, "
-            "non-destructive version — old versions are kept). Requires write permission."
+            "Create a NEW file. Refuses with file_exists when file_name is already "
+            "taken: saving over it would bury the old content, which the search and "
+            "the file page both show by latest version only. Change an existing file "
+            "with codekeeper_edit_file / codekeeper_append_file — those keep the old "
+            "versions. Requires write permission."
         ),
         annotations=_WRITE_TOOL,
     )

@@ -164,18 +164,35 @@ def save_file(
     # רבים חולקים ``(user_id, file_name)`` בכוונה — זה בדיוק מה שגרסה היא —
     # ולכן אינדקס ייחודי היה שובר את הגרסאות. גם לפני החסימה כל שמירה יצרה
     # גרסה חדשה, כך שתוצאת המרוץ אינה גרועה מהמצב הקודם.
+    #
+    # **וכשל בבדיקה אינו "אין קובץ".** ``None`` כאן משמעו שלא הצלחנו לברר,
+    # והשמירה נחסמת עם קוד נפרד. זה הפוך מההתנהגות הראשונה שנכתבה כאן,
+    # ובכוונה: המסלול המתירני מסתיר תוכן קיים בדיוק ברגע שההגנה אמורה
+    # לפעול, ובתמורה הוא אינו באמת משאיר את הכלי עובד — שמירה בזמן שהמסד
+    # אינו עונה נכשלת ממילא בשכבת ה-DB, שגם היא מסרבת לנחש מספר גרסה.
     try:
         # בדיקת קיום ולא טעינת הקובץ: ``get_file`` מחזיר את המסמך המלא
         # כולל התוכן, וזה מחיר מיותר על שאלת כן/לא בכל שמירה.
         checker = getattr(backend, "file_exists", None)
         if callable(checker):
-            existing = bool(checker(user_id, file_name=name))
+            answer = checker(user_id, file_name=name)
+            existing = None if answer is None else bool(answer)
         else:
             existing = backend.get_file(user_id, file_name=name) is not None
     except Exception:
-        # כשל בבדיקה אינו הופך שמירה לבטוחה, אבל גם אינו סיבה לחסום
-        # שמירה של קובץ חדש. ממשיכים, וזה המצב היחיד שבו דריסה אפשרית.
-        existing = False
+        existing = None
+    if existing is None:
+        return {
+            "ok": False,
+            "error": "existence_check_unavailable",
+            "file_name": name,
+            "message": (
+                f"לא הצלחתי לברר אם '{name}' כבר קיים, ולכן לא שמרתי. זו "
+                "תקלת בירור ולא תשובה — אל תסיקו שהקובץ אינו קיים. נסו שוב "
+                "בעוד רגע, או השתמשו ב-codekeeper_edit_file / "
+                "codekeeper_append_file אם התכוונתם לערוך קובץ קיים."
+            ),
+        }
     if existing:
         return {
             "ok": False,
