@@ -464,7 +464,15 @@ def api_dashboard_activity_files():
     # ספירת קבצים ולא מסמכים — אותה יחידה שבה נספרות השורות המוצגות,
     # אחרת "טען עוד" מבטיח יותר ממה שיוצג. ``None`` פירושו שהספירה נכשלה,
     # ולא שאין קבצים.
-    counted = helpers._timeline_recent_files_count(db, recent_query)
+    # ``_timeline_recent_files_count`` תופס ``PyMongoError`` בלבד, ובכוונה.
+    # הגבול כאן קיים לכל השאר: ספירה שנכשלה מסיבה אחרת אינה סיבה להחזיר
+    # 500 על בקשה שהאירועים שלה נשלפו בהצלחה — ``None`` אומר "לא ידוע",
+    # וזה בדיוק המצב.
+    try:
+        counted = helpers._timeline_recent_files_count(db, recent_query)
+    except Exception:
+        logger.warning("timeline recent files count raised", exc_info=True)
+        counted = None
 
     try:
         docs, has_more_after_page = helpers._timeline_latest_files_page(

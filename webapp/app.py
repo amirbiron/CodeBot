@@ -10717,6 +10717,21 @@ def _timeline_recent_files_query(user_id: int, recent_cutoff: datetime,
     return query
 
 
+def _aggregate_snippets(db, pipeline: List[Dict[str, Any]]):
+    """‏``aggregate`` על ``code_snippets`` עם ``allowDiskUse``, ועם נפילה לאחור.
+
+    ``allowDiskUse`` מיותר בשרת בתצורת ברירת מחדל (``allowDiskUseByDefault``
+    הוא ``true``) אבל מגן על שרת שהוקשח עם ``false``. הנפילה לאחור על
+    ``TypeError`` היא לסטאבים ולמוקים ש-``aggregate`` שלהם אינו מקבל את
+    הפרמטר — אותה תאימות שכבר קיימת ב-``_aggregate_code_snippets``, וכאן
+    היא מוגדרת פעם אחת במקום להישכף.
+    """
+    try:
+        return db.code_snippets.aggregate(pipeline, allowDiskUse=True)
+    except TypeError:
+        return db.code_snippets.aggregate(pipeline)
+
+
 def _timeline_latest_files(db, match: Dict[str, Any], *, skip: int = 0, limit: int) -> List[Dict[str, Any]]:
     """הגרסה האחרונה לכל שם קובץ, ולא מסמך גרסה לכל שורה.
 
@@ -10752,7 +10767,7 @@ def _timeline_latest_files(db, match: Dict[str, Any], *, skip: int = 0, limit: i
     # מיותר — ``allowDiskUseByDefault`` הוא ``true`` — אבל הוא כן מגן על
     # שרת שהוקשח עם ``false``, ושם ``$group`` על היסטוריית גרסאות גדולה
     # היה נכשל.
-    return list(db.code_snippets.aggregate(pipeline, allowDiskUse=True) or [])
+    return list(_aggregate_snippets(db, pipeline) or [])
 
 
 def _timeline_latest_files_page(db, match: Dict[str, Any], *, skip: int = 0,
@@ -10785,11 +10800,11 @@ def _timeline_recent_files_count(db, match: Dict[str, Any]) -> Optional[int]:
     הקוראים מחליטים מה לעשות עם ``None`` — ראו ``_timeline_more_files``.
     """
     try:
-        rows = list(db.code_snippets.aggregate([
+        rows = list(_aggregate_snippets(db, [
             {'$match': match},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'n'},
-        ], allowDiskUse=True))
+        ]))
     except PyMongoError:
         # לא נבלע בשקט: הקורא צריך לדעת שהמספר אינו ידוע, ואנחנו צריכים
         # לדעת שזה קרה.
@@ -11862,11 +11877,7 @@ def files():
 
     def _aggregate_code_snippets(curr_pipeline: List[Dict[str, Any]]):
         """הרצת aggregation עם allowDiskUse כדי למנוע חריגות זיכרון בשלב sort."""
-        try:
-            return db.code_snippets.aggregate(curr_pipeline, allowDiskUse=True)
-        except TypeError:
-            # תאימות לסטאבים/מוקים בטסטים שלא מקבלים allowDiskUse
-            return db.code_snippets.aggregate(curr_pipeline)
+        return _aggregate_snippets(db, curr_pipeline)
 
     def _fallback_files_created_at_page(
         curr_query: Dict[str, Any],
@@ -12753,18 +12764,13 @@ def view_file(file_id):
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
         return resp
-    ims = request.headers.get('If-Modified-Since')
-    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
-    if ims and not inm:
-        try:
-            ims_dt = parse_date(ims)
-        except Exception:
-            ims_dt = None
-        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
-            resp = Response(status=304)
-            resp.headers['ETag'] = etag
-            resp.headers['Last-Modified'] = last_modified_str
-            return resp
+    # ‏``If-Modified-Since`` לבדו אינו משמש כאן לוולידציה, ובכוונה.
+    # העמוד מרנדר את מצב המועדף והנעיצה לתוך ה-HTML, ואין שדה שמתעד
+    # **מתי המצב הזה השתנה**: ``favorited_at`` אומר מתי סומן, ולכן אחרי
+    # הסרת סימון הוא מתאפס — וה-``Last-Modified`` הנגזר ממנו נסוג אחורה.
+    # לקוח שמחזיק את הערך המאוחר היה מקבל 304 עם כוכב תקוע. ה-ETag כן
+    # מכיל את המצב עצמו, ולכן הוא הוולידטור היחיד לעמוד הזה.
+    # ``Last-Modified`` ממשיך להישלח כמידע.
 
 
     # הדגשת syntax

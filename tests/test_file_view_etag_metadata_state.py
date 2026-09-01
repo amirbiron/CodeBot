@@ -96,14 +96,16 @@ def test_a_changed_favorite_returns_a_fresh_body_and_not_304(wired_mongo):
     assert "הסר ממועדפים" in after.get_data(as_text=True)
 
 
-def test_if_modified_since_alone_does_not_serve_a_stale_state(wired_mongo):
-    """הוולידטור השני: ``Last-Modified`` לבדו.
+def test_if_modified_since_alone_never_serves_a_304_for_this_page(wired_mongo):
+    """‏``If-Modified-Since`` לבדו אינו וולידטור לעמוד הזה, ובכוונה.
 
-    ``If-None-Match`` גובר לפי RFC 7232 §3.3, ולכן דפדפן ששמר את שני
-    הוולידטורים מוגן על ידי ה-ETag. אבל לקוח ששולח **רק**
-    ``If-Modified-Since`` — ``curl -z``, או דפדפן שאיבד את ה-ETag — נשען
-    על התאריך בלבד. כיוון שסימון מועדף אינו נוגע ב-``updated_at``, התאריך
-    חייב להיגזר גם מ-``favorited_at`` ו-``pinned_at``.
+    העמוד מרנדר את מצב המועדף והנעיצה לתוך ה-HTML, **ואין שדה שמתעד מתי
+    המצב הזה השתנה**: ``favorited_at`` אומר מתי סומן, ולכן בהסרת הסימון
+    הוא מתאפס ו-``Last-Modified`` הנגזר ממנו **נסוג אחורה**. לקוח שהחזיק
+    את הערך המאוחר היה מקבל 304 עם כוכב תקוע.
+
+    לכן ``If-None-Match`` הוא הוולידטור היחיד כאן — הוא מכיל את המצב
+    עצמו. ``Last-Modified`` ממשיך להישלח כמידע, אך אינו מייצר 304.
     """
     client, file_id = _seed(wired_mongo, is_favorite=False)
     first = client.get(f"/file/{file_id}")
@@ -111,16 +113,41 @@ def test_if_modified_since_alone_does_not_serve_a_stale_state(wired_mongo):
     assert last_modified, "העמוד אינו מגיש Last-Modified כלל"
 
     unchanged = client.get(f"/file/{file_id}", headers={"If-Modified-Since": last_modified})
-    assert unchanged.status_code == 304, "הוולידטור אינו עובד כלל"
+    assert unchanged.status_code == 200, (
+        "If-Modified-Since לבדו החזיר 304 — הוולידטור הזה אינו יכול לדעת "
+        "על שינוי במצב המועדף")
 
-    # סימון מועדף **אחרי** ה-Last-Modified שנמסר, בלי לגעת ב-updated_at
+    # וה-ETag כן ממשיך לעבוד, אחרת ויתרנו על הקאש לגמרי
+    etag = first.headers["ETag"]
+    assert client.get(f"/file/{file_id}", headers={"If-None-Match": etag}).status_code == 304
+
+
+def test_removing_a_favorite_is_not_served_stale(wired_mongo):
+    """המקרה שבו ``Last-Modified`` נסוג אחורה: **הסרת** סימון.
+
+    ``favorited_at`` מתאפס ל-``None`` ונושר מחישוב ה-``Last-Modified``,
+    שחוזר ל-``updated_at`` המוקדם יותר. לקוח שמחזיק את הערך מלפני ההסרה
+    שולח ``If-Modified-Since`` מאוחר יותר מהתאריך שהשרת מחשב עכשיו — ולכן
+    בדיקת "מוקדם או שווה" הייתה מחזירה 304 עם "הסר ממועדפים".
+    """
+    client, file_id = _seed(wired_mongo, is_favorite=True)
+    # מסמנים כמועדף עם חותמת עתידית, כדי שההפרש יהיה חד־משמעי
     from datetime import datetime, timedelta, timezone
+    later = datetime.now(timezone.utc) + timedelta(minutes=5)
     wired_mongo.get_db().code_snippets.update_one(
         {"_id": ObjectId(file_id)},
-        {"$set": {"is_favorite": True,
-                  "favorited_at": datetime.now(timezone.utc) + timedelta(seconds=5)}},
-    )
+        {"$set": {"is_favorite": True, "favorited_at": later}})
 
-    after = client.get(f"/file/{file_id}", headers={"If-Modified-Since": last_modified})
-    assert after.status_code == 200, "הוחזר 304 עם מצב המועדף הישן"
-    assert "הסר ממועדפים" in after.get_data(as_text=True)
+    while_favorite = client.get(f"/file/{file_id}")
+    stale_lm = while_favorite.headers["Last-Modified"]
+    assert "הסר ממועדפים" in while_favorite.get_data(as_text=True)
+
+    # הסרת הסימון — בדיוק כפי ש-``toggle_favorite`` עושה
+    wired_mongo.get_db().code_snippets.update_one(
+        {"_id": ObjectId(file_id)},
+        {"$set": {"is_favorite": False, "favorited_at": None}})
+
+    after = client.get(f"/file/{file_id}", headers={"If-Modified-Since": stale_lm})
+    assert after.status_code == 200, "הוחזר 304 עם מצב מועדף שכבר הוסר"
+    assert "הוסף למועדפים" in after.get_data(as_text=True), \
+        "העמוד עדיין מציג את הכפתור הישן"

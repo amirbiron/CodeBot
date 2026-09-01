@@ -1223,11 +1223,15 @@ class PersonalBackupService:
         בחזרה. ערך ההחזרה של הפונקציה סופר לוחות שנוצרו, ולכן עדכון כזה אינו
         מגדיל אותו.
         """
-        from note_boards import ensure_default_board, normalize_board_name
-        from webapp.note_boards_api import MAX_BOARDS_PER_USER
-
         count = 0
         try:
+            # הייבוא בתוך ה-try ולא לפניו: ``restore_user_data`` אינו עוטף
+            # את הקריאה הזו, ולכן ``ImportError`` היה מפיל את כל השחזור
+            # אחרי שקבצים, אוספים וסימניות כבר נכתבו — בעוד שכל שלב אחר
+            # מתנוון ל-``errors`` וממשיך.
+            from note_boards import ensure_default_board, normalize_board_name
+            from webapp.note_boards_api import MAX_BOARDS_PER_USER
+
             raw_db = getattr(self.db, "db", None)
             if raw_db is None:
                 return 0

@@ -139,3 +139,34 @@ def test_the_page_helper_reports_no_more_on_an_exact_multiple():
 
     assert len(page) == 5
     assert has_more is False, "עמוד מלא בדיוק דווח כאילו יש אחריו עוד"
+
+
+class _NoKwargsColl:
+    """אוסף ש-``aggregate`` שלו אינו מקבל ``allowDiskUse``.
+
+    זו בדיוק הצורה של סטאבים ומוקים בריפו, ולכן הפולבק על ``TypeError``
+    קיים כאן כמו ב-``_aggregate_code_snippets``.
+    """
+
+    def __init__(self, rows=None):
+        self.rows = rows if rows is not None else []
+        self.calls = 0
+
+    def aggregate(self, pipeline):
+        self.calls += 1
+        return list(self.rows)
+
+
+def test_a_stub_without_allow_disk_use_still_works():
+    """סטאב שאינו מקבל את הפרמטר אינו מפיל את השאילתה.
+
+    בלי הפולבק ה-``TypeError`` היה עולה מ-``_timeline_recent_files_count``
+    (שתופס ``PyMongoError`` בלבד) ומגיע עד לראוט כ-500.
+    """
+    coll = _NoKwargsColl(rows=[{"n": 3}])
+    assert wa._timeline_recent_files_count(_DB(coll), {}) == 3
+    assert coll.calls == 1
+
+    coll2 = _NoKwargsColl(rows=[{"_id": 1, "file_name": "a"}])
+    page, has_more = wa._timeline_latest_files_page(_DB(coll2), {}, limit=5)
+    assert len(page) == 1 and has_more is False

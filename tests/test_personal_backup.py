@@ -1129,3 +1129,34 @@ class TestRestoreNoteBoards:
         assert result["errors"] == [], result["errors"]
         default_board = mock_db.db.note_boards.find_one({"user_id": 12345, "is_default": True})
         assert default_board["is_pinned"] is False
+
+
+def test_a_failed_board_import_does_not_abort_the_whole_restore(backup_service, mock_db, monkeypatch):
+    """כשל ייבוא בשחזור הלוחות מתנוון ל-``errors``, ואינו מפיל את השחזור.
+
+    ‏``restore_user_data`` אינו עוטף את הקריאה ל-``_restore_note_boards``
+    (אימות: אין ``try`` בפונקציה שמכסה את השורה), ולכן ייבוא שיושב **לפני**
+    ה-``try`` הפנימי היה מפיל את כל השחזור — אחרי שקבצים, אוספים וסימניות
+    כבר נכתבו. כל שלב אחר בשחזור מתנוון וממשיך; זה חייב להתנהג כמוהו.
+    """
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _boom(name, *args, **kwargs):
+        if name == "webapp.note_boards_api":
+            raise ImportError("simulated")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _boom)
+
+    zip_bytes = make_backup_zip({
+        "backup_info.json": {"version": 1},
+        "metadata/note_boards.json": [{"name": "רעיונות", "is_default": False, "order": 1}],
+    })
+
+    result = backup_service.restore_user_data(12345, zip_bytes, overwrite=True)
+
+    assert result["ok"] is True, "כשל ייבוא הפיל את כל השחזור"
+    assert result["restored"]["note_boards"] == 0
+    assert any("לוחות" in e for e in result["errors"]), result["errors"]
