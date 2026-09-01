@@ -211,8 +211,14 @@ class Repository:
             # במכוון לא דרך הגרסה המקוּשה: ערך ישן כאן מייצר שתי גרסאות עם
             # אותו מספר, ואז העריכה הבאה נבנית שוב על גבי הבסיס הישן.
             existing = self._fetch_latest_version(snippet.user_id, snippet.file_name)
+            # שתי שאלות נפרדות, ובכוונה. **המספור** נשאל על כל המסמכים
+            # כולל אלה שבסל, אחרת שמירה בזמן שהקובץ בסל מתנגשת עם גרסה
+            # שתחזור לחיים בשחזור. **הירושה** נשארת על הגרסה הפעילה
+            # האחרונה, כי קובץ חדש שקיבל שם ממוחזר אינו אמור לרשת את
+            # התאריך והמועדפים של קובץ אחר שנמחק.
+            snippet.version = self._max_version_any_state(
+                snippet.user_id, snippet.file_name) + 1
             if existing:
-                snippet.version = existing['version'] + 1
                 # תאריך היצירה שייך לקובץ, לא לשורה: גרסה חדשה יורשת אותו
                 # מהגרסה הקודמת, אחרת "נוצר" היה מציג את זמן העריכה האחרונה.
                 snippet.created_at = inherited_created_at(snippet.created_at, existing)
@@ -799,6 +805,43 @@ class Repository:
         return self._fetch_latest_version(user_id, file_name)
 
     @_instrument_db("db.get_latest_version")
+    def _max_version_any_state(self, user_id: int, file_name: str) -> int:
+        """מספר הגרסה הגבוה ביותר לקובץ — **כולל מסמכים בסל המיחזור**.
+
+        מספר גרסה חייב להיות ייחודי לכל ``(user_id, file_name)`` בלי קשר
+        ל-``is_active``, כי מחיקה רכה אינה מוחקת: המסמכים נשארים ויכולים
+        לחזור לחיים בשחזור מהסל.
+
+        בלי זה, שמירה בזמן שהקובץ בסל לא רואה את הגרסאות המחוקות ומקבלת
+        ``version = 1``; שחזור מהסל מחזיר את הישנות, ואז הבחירה לפי הגרסה
+        הגבוהה ביותר נותנת לתוכן **הישן** לגבור על מה שנשמר אחריו.
+
+        מחזיר ``0`` כשאין אף מסמך — כך ש-``+1`` נותן גרסה 1.
+        """
+        try:
+            docs_list = getattr(self.manager.collection, 'docs', None)
+            if isinstance(docs_list, list):
+                versions = [
+                    int(d.get('version', 0) or 0) for d in docs_list
+                    if isinstance(d, dict)
+                    and d.get('user_id') == user_id
+                    and d.get('file_name') == file_name
+                ]
+                if versions:
+                    return max(versions)
+                return 0
+        except Exception:
+            pass
+        try:
+            doc = self.manager.collection.find_one(
+                {"user_id": user_id, "file_name": file_name},
+                sort=[("version", -1)],
+            )
+            return int((doc or {}).get('version', 0) or 0)
+        except Exception as e:
+            emit_event("db_max_version_error", severity="error", error=str(e))
+            return 0
+
     def _fetch_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         """קריאה ישירה מה-DB, בלי קאש.
 

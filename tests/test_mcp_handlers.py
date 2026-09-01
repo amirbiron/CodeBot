@@ -120,3 +120,61 @@ def test_save_file_fills_a_language_when_omitted():
     handlers.save_file(be, 7, file_name="a.py", code="print(1)")
     call = be.calls[0]
     assert call[0] == "save" and call[4]  # a non-empty language was resolved
+
+
+class _BackendWithExistingFile(_RecordingBackend):
+    """‏``get_file`` מחזיר מסמך — כלומר הקובץ כבר קיים."""
+
+    def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
+        self.calls.append(("get_file", user_id, file_name))
+        return {"file_name": file_name, "code": "# תוכן קיים", "version": 3}
+
+
+class _BackendWhoseLookupFails(_RecordingBackend):
+    """‏``get_file`` נכשל — בדיקת קיום שבורה אינה חוסמת שמירה של קובץ חדש."""
+
+    def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
+        raise RuntimeError("lookup down")
+
+
+def test_save_file_is_blocked_when_the_name_already_exists():
+    """שמירה על שם קיים נחסמת, ומפנה לכלי העריכה.
+
+    היא הייתה יוצרת גרסה חדשה, והתוכן הקודם היה נעלם משני המקומות שבהם
+    מחפשים אותו — החיפוש מקבץ לגרסה האחרונה לכל שם קובץ, ועמוד הקובץ
+    מציג אותה בלבד. קובץ ותיק שחלק שם עם מה שנשמר עכשיו הפך לבלתי נגיש
+    בלי שהכותב ידע שדרס משהו.
+    """
+    be = _BackendWithExistingFile()
+    result = handlers.save_file(be, 7, file_name="amir.md", code="# חדש")
+
+    assert result["ok"] is False
+    assert result["error"] == "file_exists"
+    assert result["file_name"] == "amir.md"
+    # ההפניה חייבת להיות לשמות כלים אמיתיים, אחרת היא שולחת למקום שאינו קיים
+    assert "codekeeper_edit_file" in result["message"]
+    assert "codekeeper_append_file" in result["message"]
+    # ובעיקר: לא נכתב דבר
+    assert not any(c[0] == "save" for c in be.calls), be.calls
+
+
+def test_save_file_still_creates_a_genuinely_new_file():
+    """הכיוון ההפוך — אחרת החסימה הייתה הופכת את הכלי לחסר תועלת."""
+    be = _RecordingBackend()
+    result = handlers.save_file(be, 7, file_name="new.py", code="print(1)")
+
+    assert result["ok"] is True
+    assert any(c[0] == "save" for c in be.calls), be.calls
+
+
+def test_a_failed_existence_check_does_not_block_a_save():
+    """בדיקת קיום שנכשלה אינה הופכת שמירה לחסומה.
+
+    זה המצב היחיד שבו דריסה עדיין אפשרית, והבחירה מודעת: לחסום כל שמירה
+    בגלל תקלת קריאה היה משתק את הכלי לגמרי.
+    """
+    be = _BackendWhoseLookupFails()
+    result = handlers.save_file(be, 7, file_name="a.py", code="x")
+
+    assert result["ok"] is True
+    assert any(c[0] == "save" for c in be.calls), be.calls
