@@ -10,6 +10,7 @@
 """
 
 import io
+import json
 import sys
 import types
 import zipfile
@@ -1109,3 +1110,97 @@ async def test_full_flow_rejects_non_zip(zip_handler, github_stub):
 
     assert not github_stub.created_trees
     assert any("אינו ZIP תקין" in m for m in replies.messages), replies.messages
+
+
+# ---------------------------------------------------------------------------
+# ZIP של גיבוי ריפו: מניפסט בשורש לצד תיקיית ה-zipball
+# ---------------------------------------------------------------------------
+
+
+def _repo_backup_zip(root="owner-repo-6dfaac9", manifest=None):
+    """משחזר את המבנה שהגיבוי מייצר בפועל.
+
+    ה-zipball של GitHub מכניס את כל התוכן תחת תיקייה אחת בשם
+    ``owner-repo-sha``, ואז הבוט מוסיף ``metadata.json`` **בשורש** —
+    ``github_menu_handler`` כותב אותו ישירות, ו-``save_backup_bytes``
+    מזריק אותו במסלול השני.
+    """
+    if manifest is None:
+        manifest = {
+            "backup_id": "backup_6865105071_1788252418_256ab8d3",
+            "user_id": 6865105071,
+            "backup_type": "github_repo_zip",
+            "created_by": "Code Keeper Bot",
+            "repo": "owner/repo",
+        }
+    return _make_zip({
+        "metadata.json": json.dumps(manifest).encode("utf-8"),
+        f"{root}/README.md": b"hello",
+        f"{root}/src/main.py": b"code",
+    })
+
+
+def test_backup_manifest_is_recognized_by_content_not_by_name():
+    """מניפסט אמיתי מזוהה, ו-``metadata.json`` של המשתמש אינו."""
+    real = json.dumps({"backup_id": "b1", "backup_type": "github_repo_zip"}).encode()
+    assert documents_mod.is_ck_backup_manifest(real) is True
+
+    # קובץ תוכן לגיטימי לגמרי בריפו — אסור לזהותו כמניפסט ולהשמיט אותו
+    assert documents_mod.is_ck_backup_manifest(b'{"name": "my-package"}') is False
+    assert documents_mod.is_ck_backup_manifest(b'{"backup_id": "b1"}') is False
+    assert documents_mod.is_ck_backup_manifest(b"not json at all") is False
+    assert documents_mod.is_ck_backup_manifest(b'["a", "b"]') is False
+
+
+def test_repo_backup_zip_strips_the_archive_root_despite_the_manifest():
+    """הבאג עצמו, ברמת הפרסור.
+
+    ``detect_zip_common_root`` מחזירה ``None`` כשיש קובץ בשורש — וזה הכלל
+    הנכון שלה. לכן המניפסט חייב לרדת **לפני** החישוב, אחרת תיקיית
+    ה-``owner-repo-sha`` נשארת והתוכן נכנס רובד אחד עמוק מדי.
+    """
+    with zipfile.ZipFile(io.BytesIO(_repo_backup_zip())) as zf:
+        members, common_root = documents_mod.zip_members_and_root(zf)
+
+    assert common_root == "owner-repo-6dfaac9", common_root
+    assert "metadata.json" not in members, members
+
+
+def test_a_users_own_metadata_json_still_suppresses_root_detection():
+    """הכיוון ההפוך: קובץ תוכן בשם הזה נשאר, וממשיך לבטל זיהוי שורש.
+
+    זו הרגרסיה שהכלל המקורי נועד למנוע — ``README.md`` + ``src/main.py``
+    שזוהו בטעות עם שורש ``src``.
+    """
+    raw = _make_zip({
+        "metadata.json": b'{"name": "my-package"}',
+        "src/main.py": b"code",
+    })
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        members, common_root = documents_mod.zip_members_and_root(zf)
+
+    assert common_root is None
+    assert "metadata.json" in members, members
+
+
+@pytest.mark.asyncio
+async def test_restore_of_a_repo_backup_lands_at_the_repo_root(zip_handler, github_stub):
+    """‏**הבדיקה המרכזית, דרך המסלול שהמשתמש מריץ.**
+
+    לפני התיקון השחזור העלה ``metadata.json`` ואת כל התוכן בתוך תיקייה
+    בשם ``owner-repo-6dfaac9`` — כלומר הריפו ה"משוחזר" קיבל רובד נוסף
+    וקובץ שאינו שלו.
+    """
+    update, replies = _make_update()
+    context = _context(
+        _DummyBot(_repo_backup_zip()),
+        upload_mode="github_restore_zip_to_repo",
+    )
+
+    await zip_handler.handle_document(update, context)
+
+    assert github_stub.created_trees, replies.messages
+    elements, _base_tree = github_stub.created_trees[0]
+    paths = sorted(e.path for e in elements)
+
+    assert paths == ["README.md", "src/main.py"], paths
