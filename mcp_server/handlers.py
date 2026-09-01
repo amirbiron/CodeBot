@@ -158,12 +158,24 @@ def save_file(
     # אובדן שקט, בלי שהכותב יודע שדרס משהו.
     #
     # לעריכה של קובץ קיים יש כלים ייעודיים, והם משמרים את ההיסטוריה.
+    #
+    # **החסימה היא מעקה, לא נעילה.** שתי בקשות מקבילות לאותו שם יכולות
+    # שתיהן לראות שאין קובץ ולעבור. אין לכך תיקון אטומי במודל הזה: מסמכים
+    # רבים חולקים ``(user_id, file_name)`` בכוונה — זה בדיוק מה שגרסה היא —
+    # ולכן אינדקס ייחודי היה שובר את הגרסאות. גם לפני החסימה כל שמירה יצרה
+    # גרסה חדשה, כך שתוצאת המרוץ אינה גרועה מהמצב הקודם.
     try:
-        existing = backend.get_file(user_id, file_name=name)
+        # בדיקת קיום ולא טעינת הקובץ: ``get_file`` מחזיר את המסמך המלא
+        # כולל התוכן, וזה מחיר מיותר על שאלת כן/לא בכל שמירה.
+        checker = getattr(backend, "file_exists", None)
+        if callable(checker):
+            existing = bool(checker(user_id, file_name=name))
+        else:
+            existing = backend.get_file(user_id, file_name=name) is not None
     except Exception:
         # כשל בבדיקה אינו הופך שמירה לבטוחה, אבל גם אינו סיבה לחסום
         # שמירה של קובץ חדש. ממשיכים, וזה המצב היחיד שבו דריסה אפשרית.
-        existing = None
+        existing = False
     if existing:
         return {
             "ok": False,

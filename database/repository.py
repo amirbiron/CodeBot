@@ -216,8 +216,16 @@ class Repository:
             # שתחזור לחיים בשחזור. **הירושה** נשארת על הגרסה הפעילה
             # האחרונה, כי קובץ חדש שקיבל שם ממוחזר אינו אמור לרשת את
             # התאריך והמועדפים של קובץ אחר שנמחק.
-            snippet.version = self._max_version_any_state(
-                snippet.user_id, snippet.file_name) + 1
+            max_version = self._max_version_any_state(
+                snippet.user_id, snippet.file_name)
+            if max_version is None:
+                # לא ידוע אינו אפס. כתיבה עם מספר מנוחש הייתה יוצרת גרסה
+                # כפולה, ואז התוכן הישן גובר בבחירה לפי הגרסה הגבוהה —
+                # כלומר אובדן שקט של מה שנשמר עכשיו. עדיף כשל גלוי.
+                emit_event("db_save_aborted_unknown_version", severity="error",
+                           file_name=str(snippet.file_name))
+                return False
+            snippet.version = max_version + 1
             if existing:
                 # תאריך היצירה שייך לקובץ, לא לשורה: גרסה חדשה יורשת אותו
                 # מהגרסה הקודמת, אחרת "נוצר" היה מציג את זמן העריכה האחרונה.
@@ -805,7 +813,7 @@ class Repository:
         return self._fetch_latest_version(user_id, file_name)
 
     @_instrument_db("db.get_latest_version")
-    def _max_version_any_state(self, user_id: int, file_name: str) -> int:
+    def _max_version_any_state(self, user_id: int, file_name: str) -> Optional[int]:
         """מספר הגרסה הגבוה ביותר לקובץ — **כולל מסמכים בסל המיחזור**.
 
         מספר גרסה חייב להיות ייחודי לכל ``(user_id, file_name)`` בלי קשר
@@ -816,7 +824,11 @@ class Repository:
         ``version = 1``; שחזור מהסל מחזיר את הישנות, ואז הבחירה לפי הגרסה
         הגבוהה ביותר נותנת לתוכן **הישן** לגבור על מה שנשמר אחריו.
 
-        מחזיר ``0`` כשאין אף מסמך — כך ש-``+1`` נותן גרסה 1.
+        **החוזה:** ``0`` כשאין אף מסמך (ואז ``+1`` נותן גרסה 1), ו-``None``
+        כשלא הצלחנו לברר. ההבחנה אינה קוסמטית: ``0`` בכשל היה נותן
+        ``version = 1`` בזמן שהגרסה הפעילה היא 5 — מספר כפול, ואז התוכן
+        הישן גובר בבחירה לפי הגרסה הגבוהה. כלומר בדיוק הבאג שהפונקציה
+        נכתבה כדי למנוע. הקורא מכריע מה לעשות עם ``None``.
         """
         try:
             docs_list = getattr(self.manager.collection, 'docs', None)
@@ -833,14 +845,17 @@ class Repository:
         except Exception:
             pass
         try:
+            # היטלה ל-``version`` בלבד: בלעדיה השאילתה מושכת את המסמך
+            # המלא **כולל** ``code`` בכל שמירה, רק כדי לקרוא מספר אחד.
             doc = self.manager.collection.find_one(
                 {"user_id": user_id, "file_name": file_name},
+                {"version": 1},
                 sort=[("version", -1)],
             )
             return int((doc or {}).get('version', 0) or 0)
         except Exception as e:
             emit_event("db_max_version_error", severity="error", error=str(e))
-            return 0
+            return None
 
     def _fetch_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         """קריאה ישירה מה-DB, בלי קאש.

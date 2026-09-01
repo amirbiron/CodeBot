@@ -103,3 +103,107 @@ def test_metadata_is_not_inherited_from_a_trashed_file(wired_mongo):
     assert fresh is not None
     assert fresh["created_at"] != old_stamp, \
         "התאריך נורש מקובץ שנמחק — 'נוצר' יציג תאריך של קובץ שנזרק"
+
+
+def test_a_failed_version_lookup_aborts_the_save(wired_mongo):
+    """כשלא ידוע מה מספר הגרסה הבא — לא שומרים, ולא מנחשים.
+
+    ‏``_max_version_any_state`` החזיר ``0`` בכשל DB, ערך שאינו נבדל
+    מ"אין מסמכים": ``version = 1`` בזמן שכבר קיימות 1,2,3 — מספר כפול,
+    ואז התוכן הישן גובר בבחירה לפי הגרסה הגבוהה.
+
+    הכשל מוזרק לשאילתה **האמיתית** ולא לפונקציה: זיוף הפונקציה כך
+    שתחזיר ``None`` היה עובר גם על הקוד הישן, כי שם ``None + 1`` זורק
+    ``TypeError`` שנבלע — כלומר הבדיקה הייתה עוברת מסיבה שגויה.
+    """
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    repo = _repo(db)
+
+    for i in range(3):
+        assert _save(repo, f"# v{i + 1}")
+    assert _versions(db) == [1, 2, 3]
+
+    coll = repo.manager.collection
+    real = coll.find_one
+
+    def failing(filter=None, *args, **kwargs):
+        # רק שאילתת המספור נכשלת. היא היחידה שאינה מסננת ``is_active``,
+        # וכך ``_fetch_latest_version`` ממשיך למצוא גרסה פעילה — בדיוק
+        # התרחיש שבו הקוד הישן כותב מספר מתנגש.
+        if isinstance(filter, dict) and "is_active" not in filter:
+            raise RuntimeError("version lookup down")
+        return real(filter, *args, **kwargs)
+
+    coll.find_one = failing
+    try:
+        ok = _save(repo, "# חדש")
+    finally:
+        coll.find_one = real
+
+    assert ok is False, "השמירה דיווחה הצלחה בלי מספר גרסה אמין"
+    after = _versions(db)
+    assert after == [1, 2, 3], f"נכתב מסמך למרות שהמספר לא היה ידוע: {after}"
+    assert len(after) == len(set(after)), f"מספרי גרסה כפולים: {after}"
+
+
+def test_the_version_lookup_does_not_load_the_file_body(wired_mongo):
+    """שאלת "מה המספר הגבוה" נשאלת עם היטלה, ולא מושכת את הקובץ.
+
+    בלי ההיטלה כל שמירה מושכת את המסמך המלא — **כולל** ``code`` — רק כדי
+    לקרוא מספר אחד. זו הפרה של כלל ה-Smart Projection, והיא על המסלול
+    החם ביותר.
+    """
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    repo = _repo(db)
+    assert _save(repo, "# " + "x" * 5000)
+
+    # מרגלים על ההפניה ש-``repo`` מחזיק, ולא על ``db.code_snippets``:
+    # ב-pymongo כל גישה לאטריביוט מייצרת אובייקט ``Collection`` חדש, ולכן
+    # השמה עליו נדבקת לאובייקט חולף ולא נראית לקוד.
+    coll = repo.manager.collection
+    seen = []
+    real = coll.find_one
+
+    def spy(filter=None, *args, **kwargs):
+        seen.append((filter, args, kwargs))
+        return real(filter, *args, **kwargs)
+
+    coll.find_one = spy
+    try:
+        assert _save(repo, "# עוד תוכן")
+    finally:
+        coll.find_one = real
+
+    projected = [c for c in seen if c[1] and isinstance(c[1][0], dict) and c[1][0].get("version") == 1]
+    assert projected, f"שאילתת הגרסה רצה בלי היטלה: {[(c[0], c[1]) for c in seen]}"
+
+
+def test_the_index_for_the_version_lookup_is_created_by_production_code(wired_mongo):
+    """האינדקס נוצר על ידי מסלול הייצור, ולא על ידי הבדיקה עצמה.
+
+    גרסה ראשונה של הבדיקה קראה ל-``safe_create_index`` בעצמה ואז בדקה
+    שהאינדקס קיים — כלומר יצרה את מה שבדקה, ועברה גם על הקוד שלפני
+    התיקון. כאן מורץ ``_create_indexes`` האמיתי.
+
+    ומול מונגו אמיתי בכוונה: ``create_index`` על סטאב מחזיר ``None``, וכל
+    טענה על קיום אינדקס עוברת בו בלי קשר למה שקרה.
+    """
+    from database.manager import DatabaseManager
+
+    db = wired_mongo.get_db()
+    try:
+        db.code_snippets.drop_index("idx_snippets_version_any_state")
+    except Exception:
+        pass
+
+    mgr = DatabaseManager.__new__(DatabaseManager)
+    mgr.db = db
+    mgr.client = None
+    DatabaseManager._create_indexes(mgr)
+
+    info = db.code_snippets.index_information()
+    assert "idx_snippets_version_any_state" in info, sorted(info)
+    keys = [k for k, _ in info["idx_snippets_version_any_state"]["key"]]
+    assert keys == ["user_id", "file_name", "version"], keys

@@ -1734,6 +1734,17 @@ class DatabaseManager:
             enforce=True,
         )
 
+        # code_snippets - מספר הגרסה הבא נשאל על **כל** המצבים, כולל מסמכים
+        # בסל המיחזור, כי מחיקה רכה אינה מוחקת והם יכולים לחזור בשחזור.
+        # ``idx_snippets_latest_version`` אינו משרת את השאילתה הזו:
+        # ``is_active`` הוא המפתח השני בו, והשאילתה מדלגת עליו — ולכן אין
+        # תחילית תואמת.
+        safe_create_index(
+            "code_snippets",
+            [("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)],
+            name="idx_snippets_version_any_state",
+        )
+
         # NOTE:
         # אינדקס נעוצים `user_pinned_pin_order_idx` נוצר ומטופל ב-webapp (ensure_code_snippets_indexes)
         # כדי למנוע כפילות והסטה של "מקור אמת" בין שני מנגנוני אתחול שונים.

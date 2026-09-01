@@ -15,9 +15,18 @@ class _RecordingBackend:
         self.calls.append(("search", user_id, query, language, limit))
         return []
 
-    def get_file(self, user_id, *, file_name, file_id, version):
+    # ברירות מחדל, ולא במקרה: ``save_file`` קורא ``get_file(user_id,
+    # file_name=...)`` בלבד. בלי הן הקריאה זורקת ``TypeError``, ה-except
+    # בולע אותו, והבדיקה "קובץ חדש" הפעילה בפועל את **ענף הכשל** — אותו
+    # ענף שבדיקה אחרת כבר מכסה. שתי בדיקות על מסלול אחד, ואפס על המסלול
+    # של קובץ חדש אמיתי.
+    def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
         self.calls.append(("get_file", user_id, file_name, file_id, version))
         return None
+
+    def file_exists(self, user_id, *, file_name):
+        self.calls.append(("file_exists", user_id, file_name))
+        return False
 
     def list_versions(self, user_id, *, file_name):
         self.calls.append(("versions", user_id, file_name))
@@ -108,18 +117,30 @@ def test_save_file_rejects_oversize():
     assert be.calls == []
 
 
+def _save_call(be):
+    """קריאת השמירה, לפי שם ולא לפי מיקום.
+
+    לפני השמירה רצה בדיקת קיום, ולכן ``calls[0]`` אינו השמירה. אינדוקס
+    לפי מיקום היה נשבר בכל פעם שמתווספת קריאה לפניה — ומסתיר את מה
+    שהבדיקה באמת רוצה לומר.
+    """
+    saves = [c for c in be.calls if c and c[0] == "save"]
+    assert saves, f"לא בוצעה שמירה. קריאות: {be.calls}"
+    return saves[0]
+
+
 def test_save_file_passes_explicit_language_and_trims_name():
     be = _RecordingBackend()
     out = handlers.save_file(be, 7, file_name=" a.py ", code="print(1)", language="python")
     assert out["ok"] is True
-    assert be.calls[0] == ("save", 7, "a.py", "print(1)", "python", "")
+    assert _save_call(be) == ("save", 7, "a.py", "print(1)", "python", "")
 
 
 def test_save_file_fills_a_language_when_omitted():
     be = _RecordingBackend()
     handlers.save_file(be, 7, file_name="a.py", code="print(1)")
-    call = be.calls[0]
-    assert call[0] == "save" and call[4]  # a non-empty language was resolved
+    call = _save_call(be)
+    assert call[4]  # a non-empty language was resolved
 
 
 class _BackendWithExistingFile(_RecordingBackend):
@@ -129,11 +150,21 @@ class _BackendWithExistingFile(_RecordingBackend):
         self.calls.append(("get_file", user_id, file_name))
         return {"file_name": file_name, "code": "# תוכן קיים", "version": 3}
 
+    # שני המסלולים מסכימים בכוונה: אם ``file_exists`` יוסר מה-backend,
+    # ה-fallback ל-``get_file`` עדיין נותן את אותה תשובה והבדיקה נשארת
+    # תקפה במקום להתחיל לעבור מסיבה אחרת.
+    def file_exists(self, user_id, *, file_name):
+        self.calls.append(("file_exists", user_id, file_name))
+        return True
+
 
 class _BackendWhoseLookupFails(_RecordingBackend):
     """‏``get_file`` נכשל — בדיקת קיום שבורה אינה חוסמת שמירה של קובץ חדש."""
 
     def get_file(self, user_id, *, file_name=None, file_id=None, version=None):
+        raise RuntimeError("lookup down")
+
+    def file_exists(self, user_id, *, file_name):
         raise RuntimeError("lookup down")
 
 
