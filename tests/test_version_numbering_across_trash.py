@@ -176,15 +176,25 @@ def test_the_version_lookup_does_not_load_the_file_body(wired_mongo):
     finally:
         coll.find_one = real
 
-    projected = [c for c in seen if c[1] and isinstance(c[1][0], dict)]
-    assert projected, f"שאילתת הגרסה רצה בלי היטלה: {[(c[0], c[1]) for c in seen]}"
+    # מזהים את שאילתת המספור לפי **המסנן** ולא לפי מיקומה ברשימה או לפי
+    # תוכן ההיטלה שלה: היא היחידה במסלול השמירה שאינה מסננת ``is_active``.
+    # זה אותו סימן היכר שמשמש את הבדיקה שמזריקה כשל למעלה, והוא נשאר נכון
+    # גם אם שאילתה אחרת במסלול תקבל היטלה משלה — למשל אם
+    # ``_fetch_latest_version`` תתחיל לשלול שדות כבדים.
+    numbering = [c for c in seen if isinstance(c[0], dict) and "is_active" not in c[0]]
+    assert len(numbering) == 1, f"ציפינו לשאילתת מספור אחת: {[c[0] for c in seen]}"
 
-    # לא די בכך ש-``version`` מבוקש: היטלה כמו ``{"version": 1, "code": 1}``
-    # הייתה עוברת בבדיקה כזו ובכל זאת מושכת את הגוף. הרשימה נלקחת מהריפו
-    # עצמו ולא ממחרוזת קשיחה, כדי ששדה כבד שייווסף בעתיד ייאכף כאן מיד.
+    args = numbering[0][1]
+    assert args and isinstance(args[0], dict), \
+        f"שאילתת המספור רצה בלי היטלה: {numbering[0]}"
+    projection = args[0]
+
+    # ``version`` נבדק כטענה ולא כמסנן: מסנן היה מדלג בשקט על היטלה שהשתנתה
+    # ומדווח "רצה בלי היטלה", שזו הודעה מטעה. וזה לבדו אינו מספיק — היטלה
+    # כמו ``{"version": 1, "code": 1}`` הייתה עוברת ובכל זאת מושכת את הגוף,
+    # ולכן הרשימה הכבדה נלקחת מהריפו עצמו ולא ממחרוזת קשיחה.
     from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION
 
-    projection = projected[0][1][0]
     assert projection.get("version") == 1, projection
     heavy = set(projection) & set(HEAVY_FIELDS_EXCLUDE_PROJECTION)
     assert not heavy, f"ההיטלה נוגעת בשדות כבדים: {sorted(heavy)} ← {projection}"

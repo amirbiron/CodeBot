@@ -168,6 +168,17 @@ class _BackendWhoseLookupFails(_RecordingBackend):
         raise RuntimeError("lookup down")
 
 
+class _BackendWithoutTheCheck(_RecordingBackend):
+    """‏backend שאין לו ``file_exists`` כלל.
+
+    היה כאן פולבק ל-``get_file``, ובו אותה דו-משמעות בדיוק: ``None``
+    חוזר גם על "אין קובץ" וגם על שאילתה שנפלה ונבלעה. backend שאינו יודע
+    לענות בזול אינו יודע לענות באמינות, ולכן זה "לא ידוע" — לא "פנוי".
+    """
+
+    file_exists = None  # מסתיר את המימוש של מחלקת הבסיס
+
+
 class _BackendWhoseCheckIsUnknown(_RecordingBackend):
     """הבדיקה חוזרת עם ``None`` — החוזה של ``file_exists`` ל"לא ידוע".
 
@@ -222,7 +233,8 @@ def test_a_failed_existence_check_blocks_the_save():
     והנימוק ההפוך ("חסימה תשתק את הכלי") אינו מחזיק: שמירה בזמן שהמסד
     אינו עונה נכשלת ממילא בשכבת ה-DB, שמסרבת לנחש מספר גרסה.
     """
-    for be in (_BackendWhoseLookupFails(), _BackendWhoseCheckIsUnknown()):
+    for be in (_BackendWhoseLookupFails(), _BackendWhoseCheckIsUnknown(),
+               _BackendWithoutTheCheck()):
         result = handlers.save_file(be, 7, file_name="a.py", code="x")
 
         assert result["ok"] is False, (type(be).__name__, result)

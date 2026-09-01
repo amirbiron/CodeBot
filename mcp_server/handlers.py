@@ -172,13 +172,16 @@ def save_file(
     # אינו עונה נכשלת ממילא בשכבת ה-DB, שגם היא מסרבת לנחש מספר גרסה.
     try:
         # בדיקת קיום ולא טעינת הקובץ: ``get_file`` מחזיר את המסמך המלא
-        # כולל התוכן, וזה מחיר מיותר על שאלת כן/לא בכל שמירה.
+        # כולל התוכן, וזה מחיר מיותר על שאלת כן/לא בכל שמירה — אבל לא רק
+        # מחיר. ``get_file`` בולע כשלים ומחזיר ``None`` גם על "אין קובץ"
+        # וגם על "השאילתה נפלה", ולכן הוא **אינו** יכול לשמש כאן אפילו
+        # כפולבק: backend שאינו יודע לענות בזול אינו יודע לענות באמינות.
         checker = getattr(backend, "file_exists", None)
-        if callable(checker):
+        if not callable(checker):
+            existing = None
+        else:
             answer = checker(user_id, file_name=name)
             existing = None if answer is None else bool(answer)
-        else:
-            existing = backend.get_file(user_id, file_name=name) is not None
     except Exception:
         existing = None
     if existing is None:

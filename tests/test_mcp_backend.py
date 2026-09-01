@@ -394,3 +394,34 @@ def test_file_exists_returns_none_when_the_query_fails():
     """
     be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=_ExplodingColl()))
     assert be.file_exists(7, file_name="amir.md") is None
+
+
+def test_file_exists_returns_none_when_there_is_no_raw_handle():
+    """בלי ידית מונגו אין תשובה — ובוודאי לא ``False``.
+
+    היה כאן פולבק ל-``get_file``, והוא החזיר את הדו-משמעות שהחוזה נועד
+    להסיר: המסלול נגמר ב-``Repository._fetch_latest_version``, שתופס את
+    הכשל שלו ומחזיר ``None`` — כך ש"נפל" ו"אין קובץ" חזרו זהים, ו-``is
+    not None`` תרגם את שניהם ל-``False``.
+
+    בפרודקשן הענף הזה בכלל לא נדרך: ``mcp_server.app.create_app`` מסרב
+    לעלות בלי מונגו ותמיד מעביר ``mongo_db``.
+    """
+    class _DbmWithoutMongo:
+        """מנהל DB מוזרק שאין לו ``db`` — בדיוק מה ש-``_raw_mongo`` דורש."""
+
+    be = ProductionBackend(db_manager=_DbmWithoutMongo())
+    assert be.file_exists(7, file_name="amir.md") is None
+
+
+def test_file_exists_ignores_a_name_that_only_sits_in_the_trash():
+    """שם שיושב בסל אינו חוסם שמירה, וזו החלטה ולא השמטה.
+
+    ``is_active: True`` הוא חלק מהשאלה: שימוש חוזר בשם של קובץ שנזרק
+    מותר, ומספור הגרסאות כבר חוצה את הסל כך שהמסמך החדש אינו מתנגש.
+    """
+    trashed = _FakeColl(doc=None)  # השאילתה מסננת is_active ולכן לא מוצאת
+    be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=trashed))
+
+    assert be.file_exists(7, file_name="amir.md") is False
+    assert trashed.log["query"]["is_active"] is True, trashed.log["query"]

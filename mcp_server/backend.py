@@ -294,10 +294,19 @@ class ProductionBackend:
         caller writes under a name that may well be taken — burying the existing
         content at exactly the moment the guard was meant to fire.
 
-        ``get_file`` is the fallback **only** when the raw handle is missing (an
-        injected backend that has no Mongo of its own). A query that ran and
-        failed is a different thing, and is not retried through a second guess
-        that would answer ``None`` for "not found" just the same.
+        **Only a query this method owns can answer it.** There is deliberately
+        no ``get_file`` fallback: that path ends at
+        ``Repository._fetch_latest_version``, which catches its own failures and
+        returns ``None`` — the very conflation this contract exists to remove.
+        Reading it as "no such file" would put the ambiguity back one layer
+        down. No raw handle therefore means ``None``, not ``False``. Production
+        never reaches that branch anyway: ``mcp_server.app.create_app`` refuses
+        to start without Mongo and always passes ``mongo_db``.
+
+        ``is_active: True`` is part of the question, not an oversight: a name
+        sitting in the trash does **not** block a save. Reusing the name of a
+        discarded file is allowed, and the version numbering already spans the
+        trash so the new document cannot collide with it.
 
         Same shape as :func:`sticky_notes_target.repo_file_exists`, down to the
         ``{"_id": 1}`` projection and the ``None``-on-failure contract — and its
@@ -307,12 +316,7 @@ class ProductionBackend:
         try:
             coll = self._raw_mongo()["code_snippets"]
         except Exception:
-            # אין handle גולמי. ``get_file`` הוא הדרך היחידה לשאול כאן, וגם
-            # הוא יכול להיכשל — חריגה משמעה "לא ידוע", לא "אין קובץ".
-            try:
-                return self.get_file(user_id, file_name=file_name) is not None
-            except Exception:
-                return None
+            return None
         try:
             doc = coll.find_one(
                 {"user_id": int(user_id), "file_name": file_name, "is_active": True},
