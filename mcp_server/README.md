@@ -275,6 +275,11 @@ Health check:   /healthz
 
 > `MCP_ALLOWED_HOSTS` (CSV, wildcard) אופציונלי לנעילת בדיקת ה‑Host; ריק = כבוי (מתאים לשרת ציבורי מוגן‑טוקן).
 
+**מדידת שימוש (PostHog) — אופציונלי:**
+- `POSTHOG_PROJECT_TOKEN` (`phc_...`) + `POSTHOG_HOST` (`https://us.i.posthog.com` / `https://eu.i.posthog.com`).
+- חסר אחד מהם: בפרודקשן המדידה כבויה והשרת עולה רגיל; ב‑`ENVIRONMENT`/`ENV` שאינו `production` העלייה נכשלת ברעש.
+- הארגומנטים והתוצאות של הכלים **אינם** נשלחים — `analytics.py` מחזיק רשימת היתר של מאפייני `$mcp_*`. פירוט: `docs/mcp-server.rst`.
+
 ---
 
 ## זרימת ה‑OAuth (בקצרה)
@@ -301,6 +306,7 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `oauth_routes.py` | מסך ה‑consent + הנפקת code |
 | `primer.py` | `GET /api/agent/primer` — פריימר טקסט לסוכן (24KB, cache 60ש׳, סינון סודות) |
 | `server.py` | חיווט FastMCP: כלים + OAuth + ASGI |
+| `analytics.py` | PostHog MCP analytics + שער הפרטיות (`before_send` עם רשימת היתר) |
 | `app.py` | נקודת כניסה: בוחר PAT/OAuth לפי ENV |
 
 צד הוובאפ: `webapp/routes/auth_routes.py` → `/oauth/identify` (גשר הזהות).

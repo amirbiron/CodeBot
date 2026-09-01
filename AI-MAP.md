@@ -73,7 +73,7 @@
 - `docs/development/scripts.rst` — **סקריפטים שימושיים**: תיקיית scripts/ מכילה כלים חד-פעמיים ותהליכי תחזוקה. לפני ההרצה ודאו שסביבת ה-DB היא סביבת ניסוי/פיתוח ושיש גיבוי עדכני.
 - `docs/development/i18n.rst` — **בינאום ותמיכה בשפות**: מודול i18n/ מספק שכבת תרגום פשוטה לבוט הטלגרם וה-WebApp. נכון לעכשיו קיימת חבילת מחרוזות בעברית (strings_he.py), אך המבנה מאפשר הוספת שפות חדשות ללא שינוי בלוגיקה העסקית.
 - `docs/integrations.rst` — **Integrations**: להפעלת פעולות שונות מול GitHub נדרש להגדיר לטוקן \(`GITHUB_TOKEN` או טוקן משתמש שנשמר במערכת\) את מרחבי ההרשאות המינימליים. הקפידו על עיקרון ההרשאות המצומצמות.
-- `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת ה-MCP שחושף את CodeKeeper ל-Claude: הכלים, האימות וההרשאות, פריימר הסוכן, עריכה מהדפדפן, והפעלה צעד אחר צעד מול Claude.ai ומול Claude Code.
+- `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת ה-MCP שחושף את CodeKeeper ל-Claude: הכלים, האימות וההרשאות, פריימר הסוכן, עריכה מהדפדפן, מדידת השימוש ושער הפרטיות שלה, וההפעלה צעד אחר צעד מול Claude.ai ומול Claude Code.
 - `docs/repository-integrations.rst` — **Repository Integrations**: מסמך זה מרכז את התמיכה בספקי מאגרי קוד. מטרתו למנוע בלבול ולהבהיר מה נתמך ומה לא.
 - `docs/security.rst` — **Security Guide**: אל תרשום סודות/PII בלוגים, השתמש ב‑ENV בלבד.
 - `docs/monitoring.md` — **Smart Observability v7 – Predictive Health & Adaptive Feedback**: חיבור Grafana לטלגרם דרך Webhook, אנוטציות, ספים דינמיים, הפרדה בין שגיאות פנימיות לחיצוניות, ו-Predictive Health.
