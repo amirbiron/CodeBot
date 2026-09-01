@@ -192,6 +192,51 @@ def test_list_all_files_with_sizes_matches_list_all_files(tmp_path):
 
 
 @requires_git
+def test_a_submodule_keeps_its_path_and_gets_no_size(tmp_path):
+    """הבדיקה שהייתה תופסת את הבאג ש-cubic מצא.
+
+    ``git ls-tree -l`` שם ``-`` בעמודת הגודל של gitlink, כי לתת-מודול אין
+    גודל בבייטים — התוכן שלו חי בריפו אחר. הפרסר דילג על רשומה כזו, ולכן
+    ``include_stats=True`` החזיר **פחות נתיבים** מקריאה רגילה: הפרה ישירה
+    של ההבטחה שהדגל רק מוסיף.
+
+    התכנון שלי טען ש-``-`` לא יופיע, על סמך ריפו יחיד בן 10,027 קבצים שאין
+    בו תת-מודולים. זו הכללה ממדגם אחד, וזה מה שהטסט הזה קיים כדי למנוע.
+    """
+    from services.git_mirror_service import GitMirrorService
+
+    inner = tmp_path / "inner"
+    inner.mkdir()
+    (inner / "f.txt").write_text("hello\n", encoding="utf-8")
+    _run(_GIT, "init", "-q", "-b", "main", ".", cwd=inner)
+    _run(_GIT, "add", "-A", cwd=inner)
+    _run(_GIT, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i", cwd=inner)
+
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    (outer / "top.txt").write_text("top\n", encoding="utf-8")
+    _run(_GIT, "init", "-q", "-b", "main", ".", cwd=outer)
+    _run(
+        _GIT, "-c", "protocol.file.allow=always",
+        "submodule", "add", "-q", str(inner), "sub", cwd=outer,
+    )
+    _run(_GIT, "add", "-A", cwd=outer)
+    _run(_GIT, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "o", cwd=outer)
+    _run(_GIT, "clone", "-q", "--mirror", str(outer), str(tmp_path / "repo.git"), cwd=tmp_path)
+
+    svc = GitMirrorService(base_path=str(tmp_path))
+    plain = svc.list_all_files("repo", "refs/heads/main")
+    with_sizes = svc.list_all_files_with_sizes("repo", "refs/heads/main")
+
+    assert "sub" in plain, "the fixture did not actually produce a submodule"
+    # התוספתיות: אותם נתיבים בדיוק, לא נתיב אחד פחות.
+    assert [e["path"] for e in with_sizes] == plain
+    by_path = {e["path"]: e["size"] for e in with_sizes}
+    assert by_path["sub"] is None      # gitlink — אין גודל, ולא מנחשים
+    assert by_path["top.txt"] == 4     # בלוב רגיל — גודל אמיתי
+
+
+@requires_git
 def test_list_all_files_with_sizes_returns_none_on_a_bad_ref(tmp_path):
     """אותו חוזה כשל כמו ``list_all_files``, שעליו ``list_tree`` נשען."""
     svc = _build_mirror(tmp_path, {"a.py": "x\n"})

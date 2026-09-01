@@ -179,7 +179,11 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
     version of this hook let those through, and a raised
     ``RuntimeError("mongo query failed for <file name>")`` reached the wire
     intact. This client serves only the MCP server, and everything that server
-    touches is user content, so no free text leaves it by any route.
+    touches is user content, so free text leaves it by exactly one declared
+    route: the agent's own sentence on ``$mcp_missing_capability``, admitted by
+    ``_ALLOWED_BY_EVENT``. That sentence describes a tool the agent wishes
+    existed — it never carries file content — and it is the entire point of
+    that event.
 
     Fails **closed**: any error while scrubbing drops the event rather than
     letting an unscrubbed one continue. The posthog client also drops an event

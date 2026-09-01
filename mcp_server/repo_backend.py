@@ -78,13 +78,34 @@ class RepoBackend:
         return self._search
 
     def _ensure_indexes(self) -> None:
+        """יצירת האינדקסים שהשירות הזה נשען עליהם, best-effort.
+
+        כל אינדקס ב-``try`` נפרד **בכוונה**: כשהיו תחת בלוק אחד, כשל בראשון
+        היה מדלג בשקט על השאר.
+        """
+        if self._db is None:
+            return
+
         # list_repos runs on repo_metadata on every call, and the collection had
         # no index at all — closing that gap is part of this phase, not "later".
         try:
-            if self._db is not None:
-                self._db["repo_metadata"].create_index("repo_name", unique=True)
+            self._db["repo_metadata"].create_index("repo_name", unique=True)
         except Exception:
             logger.warning("repo_metadata index creation failed (non-fatal)", exc_info=True)
+
+        # ``repo_files`` נשלף לפי ``(repo_name, path)`` בכל מקום: ספירת השורות
+        # של ``list_tree``, ההעשרה של ``search_repo``, דפדפן הריפו בוובאפ,
+        # וה-upsert של האינדקסר לכל קובץ בכל סנכרון. את האינדקס הצהיר
+        # ``scripts/create_repo_indexes.py``, אבל שום דבר לא מריץ את הסקריפט —
+        # לא CI, לא ה-Dockerfile ולא סקריפט הפעלה — ולכן בפועל הוא היה קיים רק
+        # אם מישהו הריץ אותו ידנית. אותם מפתחות ואותו ``unique`` כמו בסקריפט,
+        # כדי שלא תיווצר התנגשות אפשרויות כשהוא כבר קיים.
+        try:
+            self._db["repo_files"].create_index(
+                [("repo_name", 1), ("path", 1)], unique=True
+            )
+        except Exception:
+            logger.warning("repo_files index creation failed (non-fatal)", exc_info=True)
 
     # -- helpers -----------------------------------------------------------
     def _sync_running(self, repo_name: str) -> bool:
@@ -158,7 +179,7 @@ class RepoBackend:
         include_stats: bool = False,
     ) -> dict[str, Any]:
         use_ref = ref or self._default_ref(repo)
-        sizes: dict[str, int] = {}
+        sizes: dict[str, int | None] = {}
         try:
             mirror = self._require_mirror()
             if include_stats:
@@ -192,7 +213,9 @@ class RepoBackend:
         start = (page_i - 1) * per_page_i
         page_items = files[start : start + per_page_i]
 
-        line_counts = self._line_counts(repo, page_items) if include_stats else {}
+        # ההעשרה כולה במקום אחד: השליפה, ההרכבה והמיפוי לנתיב. הלולאה למטה
+        # מקבלת רשומה מוכנה או ``None``, ולא מסתעפת בגוף שלה.
+        stats = self._stats_for_page(repo, page_items, sizes) if include_stats else {}
 
         # Output byte budget: never let one page blow up the response.
         out: list[str] = []
@@ -200,16 +223,9 @@ class RepoBackend:
         used = 0
         truncated = False
         for item in page_items:
+            entry = stats.get(item)
             cost = len(item.encode("utf-8")) + 8
-            entry: dict[str, Any] | None = None
-            if include_stats:
-                counted = line_counts.get(item) or {}
-                entry = {
-                    "path": item,
-                    "size": sizes.get(item),
-                    "lines": counted.get("lines"),
-                    "lines_commit_sha": counted.get("commit_sha"),
-                }
+            if entry is not None:
                 # רשומה מועשרת שוקלת הרבה יותר מנתיב, ולכן היא נספרת כפי
                 # שהיא — אחרת העמוד היה חורג מהתקציב בלי שאיש ידע.
                 cost += len(str(entry).encode("utf-8"))
@@ -236,6 +252,26 @@ class RepoBackend:
             # הרשימות תמיד באותו אורך ובאותו סדר. ``tests`` אוכפים את זה.
             result["entries"] = entries_out
         return result
+
+    def _stats_for_page(
+        self, repo: str, paths: list[str], sizes: dict[str, int | None]
+    ) -> dict[str, dict[str, Any]]:
+        """רשומת ``entries`` מוכנה לכל נתיב בעמוד, ממופה לפי נתיב.
+
+        מרכז את כל ההעשרה: הגודל מגיע כבר מ-``list_all_files_with_sizes``,
+        ספירת השורות נשלפת כאן, וההרכבה נעשית במקום אחד. ``list_tree`` רק
+        שואל ומקבל — הוא לא בונה רשומות בעצמו.
+        """
+        counts = self._line_counts(repo, paths)
+        return {
+            path: {
+                "path": path,
+                "size": sizes.get(path),
+                "lines": (counts.get(path) or {}).get("lines"),
+                "lines_commit_sha": (counts.get(path) or {}).get("commit_sha"),
+            }
+            for path in paths
+        }
 
     def _line_counts(self, repo: str, paths: list[str]) -> dict[str, dict[str, Any]]:
         """ספירות שורות מ-``repo_files``, לנתיבי עמוד אחד בלבד.

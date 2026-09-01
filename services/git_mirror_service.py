@@ -856,8 +856,9 @@ class GitMirrorService:
         קודם על טאב (נתיב יכול להכיל רווח) ורק אחר כך על רווחים.
 
         Returns:
-            רשימת ``{"path": str, "size": int}``, או ``None`` בכשל — בדיוק
-            כמו ``list_all_files``.
+            רשימת ``{"path": str, "size": int | None}``, או ``None`` בכשל —
+            בדיוק כמו ``list_all_files``. ``size`` הוא ``None`` ל-submodule,
+            שאין לו גודל בבייטים; **הנתיבים זהים לאלה של ``list_all_files``**.
         """
         repo_name = str(repo_name or "").strip()
         ref = str(ref or "").strip() or "HEAD"
@@ -883,14 +884,22 @@ class GitMirrorService:
             if not tab or not path:
                 continue
             fields = head.split()
-            # ``<mode> <type> <sha> <size>`` — פחות מארבעה שדות אינו בלוב תקין.
+            # ``<mode> <type> <sha> <size>`` — פחות מארבעה שדות אינו רשומה תקינה.
             if len(fields) < 4:
                 continue
             try:
-                size = int(fields[3])
+                size: int | None = int(fields[3])
             except ValueError:
-                # ``-`` מופיע רק לרשומות שאינן בלוב; ``-r`` לא אמור להחזיר כאלה.
-                continue
+                # ``git ls-tree -l`` שם ``-`` בעמודת הגודל לכל רשומה שאינה
+                # בלוב. עם ``-r`` ובלי ``-t`` המקרה היחיד הוא **submodule**
+                # (gitlink, mode 160000, type ``commit``), שאין לו גודל בבייטים
+                # כי התוכן שלו חי בריפו אחר.
+                #
+                # הרשומה נשמרת עם ``size=None`` ולא מדולגת. דילוג היה מוחק את
+                # הנתיב מהרשימה, ואז ``include_stats=True`` היה מחזיר פחות
+                # נתיבים מקריאה רגילה — הפרה של ההבטחה שהדגל רק מוסיף.
+                # אומת מול ריפו עם submodule אמיתי.
+                size = None
             entries.append({"path": path, "size": size})
         return entries
 

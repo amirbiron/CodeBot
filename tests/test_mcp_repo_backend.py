@@ -107,6 +107,39 @@ def test_init_ensures_repo_metadata_index():
     assert args[0] == "repo_name" and kwargs.get("unique") is True
 
 
+def test_init_ensures_the_repo_files_index_the_lookups_rely_on():
+    """``repo_files`` נשלף לפי ``(repo_name, path)`` בכל מקום — ספירת השורות
+    של ``list_tree``, ההעשרה של ``search_repo``, דפדפן הריפו, וה-upsert של
+    האינדקסר לכל קובץ בכל סנכרון. את האינדקס הצהיר
+    ``scripts/create_repo_indexes.py``, אבל שום דבר בריפו לא מריץ אותו, ולכן
+    בפועל הוא היה קיים רק אם מישהו הריץ ידנית."""
+    db = _repos_db()
+    RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
+
+    assert db["repo_files"].indexes
+    args, kwargs = db["repo_files"].indexes[0]
+    # אותם מפתחות ואותו ``unique`` כמו בסקריפט, אחרת מונגו יזרוק
+    # ``IndexOptionsConflict`` כשהאינדקס כבר קיים.
+    assert args[0] == [("repo_name", 1), ("path", 1)]
+    assert kwargs.get("unique") is True
+
+
+def test_one_failing_index_does_not_skip_the_others():
+    """כל יצירה ב-``try`` נפרד. כשהיו תחת בלוק אחד, כשל בראשונה היה מדלג
+    בשקט על השנייה."""
+
+    class _ExplodingMetadata(_Coll):
+        def create_index(self, *a, **k):
+            raise RuntimeError("index build failed")
+
+    db = _repos_db()
+    db.c["repo_metadata"] = _ExplodingMetadata()
+
+    RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
+
+    assert db["repo_files"].indexes, "השנייה דולגה בגלל כשל בראשונה"
+
+
 def test_list_repos_sorted_projected_limited():
     be = RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search())
     out = be.list_repos(limit=1)
