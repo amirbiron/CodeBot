@@ -147,7 +147,9 @@ class _BackendWithExistingFile(_RecordingBackend):
     """‏``get_file`` מחזיר מסמך — כלומר הקובץ כבר קיים."""
 
     def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
-        self.calls.append(("get_file", user_id, file_name))
+        # אותה צורת tuple כמו ב-``_RecordingBackend``: מי שקורא לפי אינדקס
+        # לא אמור לקבל משהו אחר רק כי זו תת-מחלקה.
+        self.calls.append(("get_file", user_id, file_name, file_id, version, lines))
         return {"file_name": file_name, "code": "# תוכן קיים", "version": 3}
 
     # שני המסלולים מסכימים בכוונה: אם ``file_exists`` יוסר מה-backend,

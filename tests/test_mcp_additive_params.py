@@ -254,6 +254,12 @@ def _tree_backend(files, sizes=None, indexed=None):
             return [{"path": f, "size": (sizes or {}).get(f, 1)} for f in files]
 
     class _Coll:
+        def create_index(self, *a, **k):
+            # ``RepoBackend.__init__`` מוודא אינדקסים. בלי המתודה הזו הדמה
+            # הייתה זורקת ``AttributeError``, הכשל היה נבלע, וכל טסט כאן
+            # היה בונה שרת שמדווח בשקט שהאינדקס לא נוצר.
+            return "i"
+
         def find(self, query, projection=None):
             wanted = set(query.get("path", {}).get("$in", []))
             return [d for d in (indexed or []) if d["path"] in wanted]
@@ -328,10 +334,44 @@ def test_normalize_line_range_accepts_a_valid_pair():
 
 
 def test_apply_line_range_clips_an_end_past_the_file_and_says_so():
+    # ``"a\nb\nc\n"`` הוא ארבע שורות בקונבנציה הזו — השורה הריקה שאחרי
+    # ``c`` נספרת, בדיוק כמו ב-``file.lines`` וב-``lines_count``.
     out = handlers.apply_line_range("a\nb\nc\n", 2, 99)
 
-    assert out["text"] == "b\nc"
-    assert out["range"] == {"start": 2, "end": 3, "total_lines": 3, "truncated": True}
+    assert out["text"] == "b\nc\n"
+    assert out["range"] == {"start": 2, "end": 4, "total_lines": 4, "truncated": True}
+
+
+def test_total_lines_agrees_with_the_lines_field_sitting_next_to_it():
+    """המטרה של התיקון, מקובעת.
+
+    ``file.lines`` נספר ב-``content.count("\n") + 1``
+    (``services/git_mirror_service.py``) ו-``file.lines_count`` של קובץ שמור
+    ב-``len(content.split("\n"))`` (``database/models.py``,
+    ``database/repository.py``) — שתי הצורות זהות. ``splitlines()`` היה נותן
+    מספר קטן ב-1 לכל קובץ שנגמר בשורה ריקה, ואז אותה תשובה הייתה נושאת גם
+    100 וגם 101 לאותו קובץ.
+    """
+    for text in ("a\nb\nc\n", "a\nb\nc", "", "a\n", "\n", "a\n\n"):
+        git_convention = text.count("\n") + 1 if text else 0
+        saved_convention = len(text.split("\n")) if text else 0
+
+        assert handlers.count_lines(text) == git_convention == saved_convention, repr(text)
+
+
+def test_every_line_total_lines_claims_to_exist_can_actually_be_read():
+    """הספירה והחיתוך חייבים לחלוק חלוקה אחת.
+
+    ספירה לפי ``split`` עם חיתוך לפי ``splitlines`` הייתה מדווחת על שורה
+    אחרונה קיימת ואז מחזירה ``range_out_of_bounds`` כשמבקשים אותה.
+    """
+    for text in ("a\nb\nc\n", "a\nb\nc", "a\n", "a\n\n"):
+        last = handlers.count_lines(text)
+
+        out = handlers.apply_line_range(text, last, last)
+
+        assert isinstance(out, dict), (repr(text), out)
+        assert out["range"]["total_lines"] == last
 
 
 def test_apply_line_range_errors_when_start_is_past_the_file():
@@ -373,7 +413,8 @@ def test_get_file_with_lines_returns_only_the_range_and_the_total():
     )
 
     assert out["code"] == "2\n3\n4"
-    assert out["range"] == {"start": 2, "end": 4, "total_lines": 5, "truncated": False}
+    # שש, לא חמש: השורה הריקה שאחרי ``5`` נספרת, כמו ב-``lines_count``.
+    assert out["range"] == {"start": 2, "end": 4, "total_lines": 6, "truncated": False}
 
 
 def test_get_file_range_keeps_code_and_content_identical_on_a_large_file():

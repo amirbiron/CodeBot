@@ -72,13 +72,39 @@ def normalize_line_range(lines: Any) -> tuple[int, int] | str:
     return (start, end)
 
 
+def count_lines(text: str) -> int:
+    """ספירת השורות שכל שדות ה-``lines`` בתשובות ה-MCP מדווחים לפיה.
+
+    ``split("\n")`` ולא ``splitlines()``, כדי שהמספר יתאים לשדות שכבר
+    יושבים לצידו באותה תשובה: ``file.lines`` נספר ב-
+    ``content.count("\n") + 1`` (``services/git_mirror_service.py``), ו-
+    ``file.lines_count`` של קובץ שמור נספר ב-``len(content.split("\n"))``
+    (``database/models.py``, ``database/repository.py``). שתי הצורות זהות
+    לחלוטין — נמדד על כל מקרי הקצה, כולל מחרוזת ריקה ושורות ריקות רצופות.
+
+    ``splitlines()`` היה נותן מספר קטן ב-1 לכל קובץ שנגמר בשורה ריקה, כלומר
+    כמעט כל קובץ קוד, ואז אותה תשובה הייתה נושאת שני מספרים סותרים.
+
+    **החיתוך חייב להשתמש באותה חלוקה** (ראו :func:`apply_line_range`):
+    ספירה לפי ``split`` עם חיתוך לפי ``splitlines`` הייתה מדווחת על שורה
+    אחרונה שקיימת ואז מסרבת להחזיר אותה.
+
+    קובץ ריק הוא ``0`` ולא ``1``, גם זה כדי להתיישר: ``git_mirror_service``
+    מגן ב-``if content else 0``, ו-``database/repository.py`` באותה צורה.
+    """
+    return len(text.split("\n")) if text else 0
+
+
 def apply_line_range(text: str, start: int, end: int) -> dict[str, Any] | str:
     """חותך ``text`` לטווח ומחזיר את הקטע יחד עם בלוק ה-``range``.
 
     מחזיר קוד שגיאה כש-``start`` מעבר לסוף הקובץ — שם קיצוץ היה מחזיר קטע
     ריק שנראה כמו תשובה תקינה. ``end`` שחורג כן מקוצץ, ומסומן ב-``truncated``.
+
+    החלוקה זהה לזו של :func:`count_lines`, כדי ש-``total_lines`` ומספר
+    המשבצות שאפשר לבקש יהיו אותו מספר.
     """
-    all_lines = (text or "").splitlines()
+    all_lines = text.split("\n") if text else []
     total = len(all_lines)
     if start > total:
         return LINE_RANGE_OUT_OF_BOUNDS

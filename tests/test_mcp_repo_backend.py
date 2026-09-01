@@ -118,10 +118,50 @@ def test_init_ensures_the_repo_files_index_the_lookups_rely_on():
 
     assert db["repo_files"].indexes
     args, kwargs = db["repo_files"].indexes[0]
-    # אותם מפתחות ואותו ``unique`` כמו בסקריפט, אחרת מונגו יזרוק
-    # ``IndexOptionsConflict`` כשהאינדקס כבר קיים.
     assert args[0] == [("repo_name", 1), ("path", 1)]
-    assert kwargs.get("unique") is True
+    # **לא ``unique``.** מה שדרוש כאן הוא אינדקס חיפוש; ייחודיות היא אילוץ
+    # שלמות נתונים שהסקריפט אחראי עליו. בקשת ``unique`` על אוסף שכבר מכיל
+    # כפילויות נכשלת, והכשל היה נבלע — כלומר האינדקס לא נוצר בזמן שהלוג
+    # אומר "non-fatal".
+    assert kwargs.get("unique") in (None, False)
+
+
+def test_a_real_index_failure_is_reported_and_not_swallowed(caplog):
+    """אינדקס שלא נוצר משאיר את השליפות בסריקה מלאה, ולכן הוא לא "non-fatal"."""
+
+    class _ExplodingFiles(_Coll):
+        def create_index(self, *a, **k):
+            raise RuntimeError("no permission to build index")
+
+    db = _repos_db()
+    db.c["repo_files"] = _ExplodingFiles()
+
+    with caplog.at_level("ERROR"):
+        RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
+
+    assert any("NOT created" in r.message for r in caplog.records), caplog.records
+
+
+def test_a_benign_index_conflict_is_not_reported_as_a_failure(caplog):
+    """אינדקס זהה שכבר קיים (למשל הייחודי מהסקריפט) הוא כיסוי, לא תקלה.
+
+    הקודים נלקחו מ-``DatabaseManager.safe_create_index``: ``85``
+    IndexOptionsConflict ו-``86`` IndexKeySpecsConflict.
+    """
+
+    class _ConflictingFiles(_Coll):
+        def create_index(self, *a, **k):
+            error = RuntimeError("IndexOptionsConflict: index already exists")
+            error.code = 85
+            raise error
+
+    db = _repos_db()
+    db.c["repo_files"] = _ConflictingFiles()
+
+    with caplog.at_level("ERROR"):
+        RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
+
+    assert not [r for r in caplog.records if "NOT created" in r.message]
 
 
 def test_one_failing_index_does_not_skip_the_others():
