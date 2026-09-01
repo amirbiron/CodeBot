@@ -75,6 +75,7 @@ def _payload_text(event):
 
 
 def test_tool_call_loses_arguments_response_and_error_text():
+    """The three payload keys the SDK puts a real tool call's content into."""
     event = _tool_call_event(
         **{
             "$mcp_is_error": True,
@@ -95,6 +96,7 @@ def test_tool_call_loses_arguments_response_and_error_text():
 
 
 def test_tool_call_keeps_the_metadata_the_dashboard_runs_on():
+    """The gate must not be so blunt that it empties the analytics it guards."""
     scrubbed = analytics.scrub_mcp_payload(
         _tool_call_event(**{"$mcp_is_error": True, "$mcp_error_type": "ValueError"})
     )
@@ -198,8 +200,6 @@ def test_client_is_built_with_the_settings_the_privacy_gate_depends_on(monkeypat
     ``before_send`` — or a future SDK flipping ``capture_exception_code_variables``
     to default-on, which captures the local variables holding file content —
     would disable the protection with nothing else failing."""
-    pytest.importorskip("posthog")
-
     monkeypatch.setenv(analytics.ENV_PROJECT_TOKEN, "phc_test_token_not_real")
     monkeypatch.setenv(analytics.ENV_HOST, "https://us.i.posthog.com")
 
@@ -255,8 +255,13 @@ def test_scrubber_failure_drops_the_event_instead_of_sending_it_raw():
 
 def test_allowlist_names_still_exist_in_the_installed_sdk():
     """A rename in the SDK's property constants must fail here, loudly, rather
-    than silently drop a field the allowlist no longer matches."""
-    constants = pytest.importorskip("posthog.mcp.constants")
+    than silently drop a field the allowlist no longer matches.
+
+    Imported directly and not through ``importorskip``: ``posthog`` is pinned in
+    ``requirements/base.txt``, so the module going missing is itself the
+    regression, not a reason to skip.
+    """
+    from posthog.mcp import constants
 
     known = {
         value
@@ -272,10 +277,12 @@ def test_allowlist_names_still_exist_in_the_installed_sdk():
 
 
 def test_payload_properties_are_never_allowlisted():
+    """The two sets must stay disjoint; an overlap would silently open the gate."""
     assert not (analytics._ALLOWED_MCP_PROPERTIES & analytics._PAYLOAD_PROPERTIES)
 
 
 def test_missing_configuration_is_loud_in_development_and_quiet_in_production(monkeypatch):
+    """A production box must still boot; a developer must not be left guessing."""
     monkeypatch.delenv(analytics.ENV_PROJECT_TOKEN, raising=False)
     monkeypatch.delenv(analytics.ENV_HOST, raising=False)
 
@@ -300,6 +307,7 @@ def test_instrumenting_without_configuration_is_a_noop_in_production(monkeypatch
 
 
 def test_shutdown_drain_is_not_attached_without_a_client(monkeypatch):
+    """With analytics off, the app's lifespan is left exactly as it was."""
     monkeypatch.setattr(analytics, "_CLIENT", None)
 
     class _Router:
@@ -365,3 +373,75 @@ def test_shutdown_drain_wraps_the_lifespan_and_flushes_both_queues():
         "client.flush",
         "original.shutdown",
     ]
+
+
+async def test_a_real_instrumented_tool_call_reaches_posthog_with_no_content(monkeypatch):
+    """End-to-end through the wiring the guarantee actually depends on.
+
+    The unit tests above call ``scrub_mcp_payload`` directly, so a regression
+    that dropped the hook from the client — or wired ``instrument_mcp_server``
+    to a different one — would leave them all green while the gate did nothing
+    in production. This drives a real ``FastMCP`` server through a real MCP
+    session with a real ``Posthog`` client and asserts on what the client was
+    about to send.
+
+    ``send=False`` keeps everything inside the test: the payload is built and
+    passed through ``before_send``, then dropped instead of going to the network.
+    """
+    pytest.importorskip("mcp")
+    from mcp.server.fastmcp import FastMCP
+    from mcp.shared.memory import create_connected_server_and_client_session
+    from posthog import Posthog
+
+    about_to_send = []
+
+    def recording_gate(event):
+        # Wraps the real hook rather than replacing it, so what is recorded is
+        # exactly what the client would have queued.
+        result = analytics.scrub_mcp_payload(event)
+        if result is not None:
+            about_to_send.append(result)
+        return result
+
+    client = Posthog(
+        "phc_test_token_not_real",
+        host="https://us.i.posthog.com",
+        send=False,
+        before_send=recording_gate,
+        enable_exception_autocapture=False,
+        capture_exception_code_variables=False,
+    )
+    monkeypatch.setattr(analytics, "_CLIENT", client)
+    monkeypatch.setattr(analytics, "_ANALYTICS", None)
+
+    server = FastMCP("CodeKeeper-test", stateless_http=True)
+
+    @server.tool(name="codekeeper_get_file", description="Full content of a saved file.")
+    def get_file(file_name: str) -> dict:
+        return {"file_name": file_name, "code": _FILE_BODY}
+
+    analytics.instrument_mcp_server(server)
+
+    try:
+        async with create_connected_server_and_client_session(server._mcp_server) as session:
+            listed = await session.list_tools()
+            await session.call_tool("codekeeper_get_file", {"file_name": "notes.py"})
+        await analytics._drain()
+    finally:
+        client.shutdown()
+
+    tool_calls = [e for e in about_to_send if e.get("event") == "$mcp_tool_call"]
+    assert tool_calls, "instrumentation captured nothing — the wiring is broken"
+
+    properties = tool_calls[0]["properties"]
+    assert properties["$mcp_tool_name"] == "codekeeper_get_file"
+    assert properties["$mcp_duration_ms"] is not None
+    assert "$mcp_parameters" not in properties
+    assert "$mcp_response" not in properties
+    # The tool really did return the file body; none of it may be on the wire.
+    assert _FILE_BODY not in _payload_text(about_to_send)
+
+    # Instrumentation is additive: the advertised schema is untouched, with no
+    # `context` or `conversation_id` argument injected into it.
+    schema = next(t.inputSchema for t in listed.tools if t.name == "codekeeper_get_file")
+    assert sorted(schema.get("properties") or {}) == ["file_name"]

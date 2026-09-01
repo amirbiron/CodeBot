@@ -95,6 +95,12 @@ mcp==1.28.1
 # fail-closed against that, and tests/test_mcp_analytics_privacy.py fails
 # loudly if a property this repo relies on is renamed.
 posthog==7.45.3
+# Installs from the published py3-none-any wheel, which is what every install
+# path here uses — no --no-binary and no --no-build-isolation anywhere in the
+# Dockerfile, the workflows or render.yaml. Worth knowing before that changes:
+# the sdist declares `requires = ["setuptools>=83.0.0", "wheel"]`, above the
+# `setuptools>=78.1.1,<81` pinned at the top of this file, so building posthog
+# from source under that pin fails on the PEP 639 license field (reproduced).
 
 # Rate limiting (Flask + generic)
 Flask-Limiter==4.0.0
