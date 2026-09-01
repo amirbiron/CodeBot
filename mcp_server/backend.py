@@ -40,6 +40,38 @@ logger = logging.getLogger(__name__)
 
 _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
 
+#: תשתית החיפוש הסמנטי, שאינה עניינו של מי שקורא קובץ.
+#:
+#: ``snippetEmbedding`` לבדו הוא 768 מספרים — כ-9KB בכל תשובה, בלי קשר לגודל
+#: הקובץ. הוא היה יוצא גם כשמבקשים שש שורות, וגדול פי כמה מהקובץ עצמו: בדיוק
+#: ההפך ממה ש-``lines`` נועד לחסוך. השאר קטנים, אבל אף אחד מהם אינו אומר דבר
+#: לצרכן — הם הנהלת חשבונות של ה-EmbeddingWorker.
+#:
+#: **אף אחד מהם לא נשלף מכאן.** הווקטור נקרא אך ורק בתוך מונגו, ב-
+#: ``$vectorSearch`` (``search_engine.py``); שום קוד פייתון לא קורא אותו חזרה
+#: ממסמך. את דגלי העיבוד (``needs_embedding``, ``contentHash``, ``chunkCount``
+#: וכו׳) שולף ``services/embedding_worker.py`` דרך projection ייעודי משלו
+#: (``database/manager.py``), ולא דרך הכלים כאן.
+#:
+#: **הרשימה משוכפלת במכוון מ-``SNIPPET_SEMANTIC_FIELDS`` שב-``database/schemas.py``.**
+#: ייבוא ישיר היה מריץ את ``database/__init__.py``, שבונה ``DatabaseManager()``
+#: בזמן טעינת המודול — בניגוד לכלל שבראש החבילה, שלפיו מודול כאן מייבא רק
+#: תלויות קלות. מה שמחזיק את שתי הרשימות צמודות הוא טסט שדורש **שוויון מלא**
+#: בשני הכיוונים, כדי ששדה שנוסף שם לא ידלוף לכאן, ושדה שהוסר שם לא יישאר
+#: כאן תלוי באוויר.
+_SEMANTIC_FIELDS = (
+    "snippetEmbedding",
+    "needs_embedding",
+    "needs_chunking",
+    "contentHash",
+    "embeddingUpdatedAt",
+    "embeddingModelKey",
+    "embeddingModel",
+    "embeddingApiVersion",
+    "embeddingDim",
+    "chunkCount",
+)
+
 # שדות הפתק שנחשפים ל-MCP — רזה במכוון (בלי מיקום/גודל פיקסלים, שהם עניין ויזואלי)
 #: פתק לוח נושא ``board_id`` ו-``mode``; בלעדיהם הפלט לא אומר איפה הוא
 #: יושב. בפתק קובץ שניהם ריקים, ולכן התוספת אינה משנה את מסלול הקובץ.
@@ -101,11 +133,17 @@ def _json_safe(value: Any) -> Any:
 
 
 def _clean(doc: dict[str, Any], *, include_code: bool = False) -> dict[str, Any]:
-    """Serialize a file document. Drops heavy fields unless ``include_code``."""
+    """Serialize a file document. Drops heavy fields unless ``include_code``.
+
+    שדות החיפוש הסמנטי יורדים **תמיד**, גם עם ``include_code``: הם אינם תוכן
+    הקובץ אלא תשתית שמתלווה אליו, ומי שביקש את הקוד לא ביקש אותה.
+    """
     out: dict[str, Any] = {}
     for key, val in (doc or {}).items():
         if key == "_id":
             out["id"] = str(val)
+            continue
+        if key in _SEMANTIC_FIELDS:
             continue
         if not include_code and key in _HEAVY_FIELDS:
             continue
