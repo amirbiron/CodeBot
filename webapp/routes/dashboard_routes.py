@@ -45,7 +45,7 @@ def _get_app_helpers():
         _build_notes_snapshot,
         _build_push_card,
         _finalize_events,
-        _timeline_latest_files,
+        _timeline_latest_files_page,
         _timeline_more_files,
         _timeline_recent_files_count,
         _timeline_recent_files_query,
@@ -87,7 +87,7 @@ def _get_app_helpers():
         _timeline_recent_files_query=_timeline_recent_files_query,
         _timeline_recent_files_count=_timeline_recent_files_count,
         _timeline_more_files=_timeline_more_files,
-        _timeline_latest_files=_timeline_latest_files,
+        _timeline_latest_files_page=_timeline_latest_files_page,
         _MIN_DT=_MIN_DT,
         BOT_USERNAME_CLEAN=BOT_USERNAME_CLEAN,
     )
@@ -467,7 +467,8 @@ def api_dashboard_activity_files():
     counted = helpers._timeline_recent_files_count(db, recent_query)
 
     try:
-        docs = helpers._timeline_latest_files(db, recent_query, skip=offset, limit=limit)
+        docs, has_more_after_page = helpers._timeline_latest_files_page(
+            db, recent_query, skip=offset, limit=limit)
     except Exception:
         logger.warning("Failed to fetch timeline files")
         return jsonify({"ok": False, "error": "load_failed"}), 500
@@ -479,10 +480,11 @@ def api_dashboard_activity_files():
         sorted(items, key=lambda ev: ev.get("_dt") or helpers._MIN_DT, reverse=True)
     )
     next_offset = offset + len(finalized)
-    # כשל בספירה אינו מסתיר את הכפתור: עמוד מלא מעיד שכנראה יש עוד.
+    # ``has_more_after_page`` הוא עובדה: נשלפה שורה אחת מעבר לעמוד, וקיומה
+    # מכריע. כך כשל בספירה אינו מסתיר את הכפתור, ועמוד שהתמלא בדיוק אינו
+    # מציע לחיצה שתחזור ריקה.
     remaining = helpers._timeline_more_files(
-        counted, shown_total=next_offset, page_len=len(finalized), page_size=limit,
-    )
+        counted, shown_total=next_offset, has_more=has_more_after_page)
 
     return jsonify(
         {

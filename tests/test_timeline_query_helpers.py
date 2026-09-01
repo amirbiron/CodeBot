@@ -88,22 +88,54 @@ def test_the_sort_has_a_fallback_and_a_tiebreaker():
 
 
 @pytest.mark.parametrize(
-    "counted,shown_total,page_len,page_size,expected",
+    "counted,shown_total,has_more,expected",
     [
-        (10, 4, 4, 12, 6),      # ספירה ידועה — חשבון פשוט
-        (4, 4, 4, 12, 0),       # הכול הוצג
-        (2, 5, 5, 12, 0),       # לא יורד מתחת לאפס
-        (None, 12, 12, 12, 1),  # לא ידוע + עמוד מלא ⇒ כנראה יש עוד
-        (None, 15, 3, 12, 0),   # לא ידוע + עמוד חלקי ⇒ סיימנו
+        (10, 4, True, 6),      # ספירה ידועה — חשבון פשוט
+        (4, 4, False, 0),      # הכול הוצג
+        (2, 5, False, 0),      # לא יורד מתחת לאפס
+        (None, 12, True, 1),   # לא ידוע + יש שורה נוספת ⇒ יש עוד
+        (None, 12, False, 0),  # לא ידוע + אין שורה נוספת ⇒ סיימנו
+        # מרוץ: הספירה אומרת "אין עוד" אבל ה-look-ahead מצא שורה נוספת.
+        # עדיף כפתור מיותר על הסתרת קבצים.
+        (4, 4, True, 1),
     ],
 )
-def test_more_files_rule(counted, shown_total, page_len, page_size, expected):
-    """‏``shown_total`` ו-``page_len`` אינם אותו דבר, ובכוונה.
+def test_more_files_rule(counted, shown_total, has_more, expected):
+    """‏``has_more`` הוא עובדה מה-look-ahead, ולא אומדן מגודל העמוד.
 
-    כשהספירה ידועה קובע הסך הכול; כשאינה ידועה קובע רק האם העמוד הנוכחי
-    התמלא. בעמוד הראשון הם מתלכדים, ובדפדוף נפרדים — ולכן שתי השורות
-    האחרונות כאן הן המקרה שמבחין ביניהם.
+    לפני כן הוסק "יש עוד" מכך שהעמוד התמלא, ולכן מספר קבצים שהוא כפולה
+    מדויקת של גודל העמוד ייצר לחיצה נוספת שחוזרת ריקה.
     """
     assert wa._timeline_more_files(
-        counted, shown_total=shown_total, page_len=page_len, page_size=page_size
+        counted, shown_total=shown_total, has_more=has_more
     ) == expected
+
+
+def test_the_page_helper_fetches_one_row_beyond_the_page():
+    """‏look-ahead: שולפים ``limit + 1`` ומחזירים ``limit``.
+
+    השורה העודפת אינה מוצגת — היא רק התשובה לשאלה "יש עוד?", וכך
+    ההחלטה מבוססת על עובדה במקום על ניחוש מגודל העמוד.
+    """
+    rows = [{"_id": i, "file_name": f"f{i}"} for i in range(6)]
+    coll = _SpyColl(rows=rows)
+    page, has_more = wa._timeline_latest_files_page(_DB(coll), {}, limit=5)
+
+    assert len(page) == 5, "הוחזרו יותר שורות מגודל העמוד"
+    assert has_more is True
+    limits = [s["$limit"] for s in coll.calls[-1]["pipeline"] if "$limit" in s]
+    assert limits == [6], f"לא נשלפה שורה מעבר לעמוד: {limits}"
+
+
+def test_the_page_helper_reports_no_more_on_an_exact_multiple():
+    """המקרה שנשבר: בדיוק ``limit`` שורות ⇒ **אין** עוד.
+
+    עמוד שהתמלא בדיוק אינו מעיד שיש המשך, וזו הייתה ההנחה השגויה שגרמה
+    לכפולה מדויקת של קבצים להציג לחיצה שחוזרת ריקה.
+    """
+    rows = [{"_id": i, "file_name": f"f{i}"} for i in range(5)]
+    coll = _SpyColl(rows=rows)
+    page, has_more = wa._timeline_latest_files_page(_DB(coll), {}, limit=5)
+
+    assert len(page) == 5
+    assert has_more is False, "עמוד מלא בדיוק דווח כאילו יש אחריו עוד"

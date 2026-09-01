@@ -10755,6 +10755,23 @@ def _timeline_latest_files(db, match: Dict[str, Any], *, skip: int = 0, limit: i
     return list(db.code_snippets.aggregate(pipeline, allowDiskUse=True) or [])
 
 
+def _timeline_latest_files_page(db, match: Dict[str, Any], *, skip: int = 0,
+                                limit: int) -> Tuple[List[Dict[str, Any]], bool]:
+    """עמוד קבצים, ולצידו **עובדה** אם קיים עוד אחריו.
+
+    שולף שורה אחת מעבר לעמוד ומחזיר רק את גודל העמוד; קיומה של השורה
+    העודפת הוא התשובה. זה מחליף אומדן בעובדה: קודם הסקנו "יש עוד" מכך
+    שהעמוד התמלא, ולכן מספר קבצים שהוא כפולה מדויקת של גודל העמוד הציג
+    לחיצה נוספת שחוזרת ריקה.
+
+    השורה העודפת נשלפת תמיד ולא רק כשהספירה נכשלה, כי היא גם מכריעה
+    מרוץ: קובץ שנוסף בין הספירה לשליפה גורם לספירה לומר "אין עוד" בעוד
+    שיש. הכיוון הזה הוא המזיק — הוא **מסתיר** מהמשתמש קבצים.
+    """
+    docs = _timeline_latest_files(db, match, skip=skip, limit=int(limit) + 1)
+    return docs[: int(limit)], len(docs) > int(limit)
+
+
 def _timeline_recent_files_count(db, match: Dict[str, Any]) -> Optional[int]:
     """כמה **קבצים** בטווח, לא כמה מסמכים.
 
@@ -10782,20 +10799,21 @@ def _timeline_recent_files_count(db, match: Dict[str, Any]) -> Optional[int]:
 
 
 def _timeline_more_files(counted: Optional[int], *, shown_total: int,
-                         page_len: int, page_size: int) -> int:
+                         has_more: bool) -> int:
     """כמה קבצים נותרו מעבר למה שכבר הוצג.
 
-    שני הפרמטרים אינם אותו דבר, ובכוונה: כשהספירה **ידועה** התשובה נגזרת
-    מכמה הוצג בסך הכול (``shown_total``), וכשהיא ``None`` היא נגזרת מכך
-    שהעמוד **הנוכחי** התמלא עד התקרה (``page_len`` מול ``page_size``).
-    בעמוד הראשון שני הערכים מתלכדים, ובדפדוף הם נפרדים.
+    ``has_more`` מגיע מה-look-ahead ולכן הוא **עובדה** ולא אומדן: יש או
+    אין שורה נוספת אחרי העמוד. כשהספירה ידועה היא נותנת מספר לתווית
+    הכפתור, וכשאינה ידועה די בעובדה עצמה.
 
-    כשאין ספירה **לא מסתירים את הכפתור על סמך מספר שאיננו יודעים**:
-    עמוד מלא מעיד שכנראה יש עוד, ועמוד חלקי מעיד שסיימנו ממילא.
+    ה-``max`` אינו קישוט: ספירה שאומרת "אין עוד" בזמן שה-look-ahead מצא
+    שורה נוספת פירושה מרוץ (קובץ שנוסף בין שתי השאילתות), ואז עדיף
+    להראות כפתור מיותר מאשר להסתיר קבצים.
     """
+    from_lookahead = 1 if has_more else 0
     if counted is not None:
-        return max(0, int(counted) - int(shown_total))
-    return 1 if int(page_len) >= int(page_size) else 0
+        return max(max(0, int(counted) - int(shown_total)), from_lookahead)
+    return from_lookahead
 
 
 def _build_file_timeline_event(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -10843,13 +10861,15 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     errors: List[str] = []
     # ``None`` = לא ידוע, ולא אפס. ראו ``_timeline_recent_files_count``.
     files_recent_total: Optional[int] = None
+    files_has_more = False
 
     # Files activity
     try:
         # טווח 7 ימים: הכפתור "טען עוד" אמור להרחיב עד שבוע אחורה בלבד.
         file_query_recent = _timeline_recent_files_query(user_id, recent_cutoff, active_query)
         files_recent_total = _timeline_recent_files_count(db, file_query_recent)
-        cursor = _timeline_latest_files(db, file_query_recent, limit=_TIMELINE_LIMITS['files'])
+        cursor, files_has_more = _timeline_latest_files_page(
+            db, file_query_recent, limit=_TIMELINE_LIMITS['files'])
     except Exception:
         cursor = []
         errors.append('files')
@@ -10939,9 +10959,7 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         if group_id == 'files':
             shown = len(sorted_items)
             remaining = _timeline_more_files(
-                files_recent_total, shown_total=shown, page_len=shown,
-                page_size=_TIMELINE_LIMITS['files'],
-            )
+                files_recent_total, shown_total=shown, has_more=files_has_more)
             # התבנית מחשבת ``total_recent - shown`` לתווית הכפתור, ולכן
             # היא צריכה מספר שלם. כשהספירה אינה ידועה אנחנו נותנים לה
             # ``shown + remaining`` — כלומר את מה שאנחנו כן יודעים.

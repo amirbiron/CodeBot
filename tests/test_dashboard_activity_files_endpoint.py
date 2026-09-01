@@ -239,3 +239,71 @@ def test_a_failed_count_does_not_hide_the_load_more_button(wired_mongo, monkeypa
     assert len(tail["events"]) == 1, tail
     assert tail["remaining"] == 0, tail
     assert tail["has_more"] is False, tail
+
+
+def test_an_exact_page_multiple_does_not_offer_an_empty_click(wired_mongo, monkeypatch):
+    """מספר קבצים שהוא כפולה מדויקת של גודל העמוד אינו מציג לחיצת סרק.
+
+    קודם הוסק "יש עוד" מכך שהעמוד התמלא, ולכן ארבעה קבצים ב-``limit=4``
+    הציגו "טען עוד 1" — ולחיצה עליו החזירה רשימה ריקה. עכשיו נשלפת שורה
+    אחת מעבר לעמוד, וקיומה (או היעדרה) הוא התשובה.
+
+    הבדיקה רצה במסלול שבו הספירה נכשלה, כי שם ההחלטה נשענה על האומדן.
+    """
+    import webapp.app as wa
+
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    now = datetime.now(timezone.utc)
+    for i in range(4):
+        db.code_snippets.insert_one({
+            "_id": ObjectId(), "user_id": USER_ID, "file_name": f"f{i}.py",
+            "code": "x", "programming_language": "python", "version": 1,
+            "is_active": True, "created_at": now, "updated_at": now - timedelta(minutes=i),
+        })
+
+    client = wired_mongo.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = USER_ID
+        sess["user_data"] = {"id": USER_ID, "first_name": "בדיקה",
+                             "is_admin": False, "is_premium": False}
+
+    monkeypatch.setattr(wa, "_timeline_recent_files_count", lambda *a, **k: None)
+
+    page = client.get("/api/dashboard/activity/files?offset=0&limit=4").get_json()
+    assert len(page["events"]) == 4, page
+    assert page["has_more"] is False, "הובטחה לחיצה נוספת על עמוד שאין אחריו כלום"
+    assert page["remaining"] == 0, page
+
+    # ולראיה: הלחיצה שהייתה מוצעת אכן מחזירה ריק
+    nxt = client.get(f"/api/dashboard/activity/files?offset={page['next_offset']}&limit=4").get_json()
+    assert nxt["events"] == [], nxt
+
+
+def test_more_files_than_one_page_still_offers_the_button(wired_mongo, monkeypatch):
+    """הכיוון ההפוך — אחרת התיקון היה מסתיר את הכפתור תמיד."""
+    import webapp.app as wa
+
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    now = datetime.now(timezone.utc)
+    for i in range(5):
+        db.code_snippets.insert_one({
+            "_id": ObjectId(), "user_id": USER_ID, "file_name": f"g{i}.py",
+            "code": "x", "programming_language": "python", "version": 1,
+            "is_active": True, "created_at": now, "updated_at": now - timedelta(minutes=i),
+        })
+
+    client = wired_mongo.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = USER_ID
+        sess["user_data"] = {"id": USER_ID, "first_name": "בדיקה",
+                             "is_admin": False, "is_premium": False}
+
+    monkeypatch.setattr(wa, "_timeline_recent_files_count", lambda *a, **k: None)
+
+    page = client.get("/api/dashboard/activity/files?offset=0&limit=4").get_json()
+    assert len(page["events"]) == 4, page
+    assert page["has_more"] is True, page
+    nxt = client.get(f"/api/dashboard/activity/files?offset={page['next_offset']}&limit=4").get_json()
+    assert len(nxt["events"]) == 1, nxt
