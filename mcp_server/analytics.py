@@ -21,10 +21,15 @@ Three layers, all fail-closed:
    blocklist, and the MCP SDK is pre-1.0: a payload property added in a future
    release would ship before anyone thought to extend the list. An allowlist
    drops the unknown key instead of forwarding it.
-3. The ``$exception`` sibling that rides along with a failed tool call carries
-   the same free text under ``$exception_list[*].value`` — it is what
-   ``$mcp_error_message`` is *read from*. Removing only ``$mcp_error_message``
-   would move the leak one key over, so the value is replaced there too.
+3. Every ``$exception_list[*].value`` is replaced, on **every** event. Two
+   separate routes end there. The sibling event that rides along with a failed
+   tool call carries the same free text that ``$mcp_error_message`` is *read
+   from*, so removing only that key would move the leak one key over. And
+   ``enable_exception_autocapture`` hooks ``sys.excepthook`` /
+   ``threading.excepthook``, so an uncaught exception anywhere in the process —
+   the repo-autosync daemon, a pymongo error naming a file — arrives as a plain
+   ``$exception`` with no ``$mcp_*`` key to key off. This client serves only
+   this server, so the rule is unconditional.
 
 A missing or broken PostHog configuration never takes the server down: in
 production analytics simply does not run, and only a development/debug
@@ -100,7 +105,7 @@ _PAYLOAD_PROPERTIES = frozenset(
 _MCP_PROPERTY_PREFIX = "$mcp_"
 _EXCEPTION_LIST_KEY = "$exception_list"
 _EXCEPTION_VALUE_PLACEHOLDER = (
-    "[redacted by CodeKeeper: tool error text is not sent to PostHog]"
+    "[redacted by CodeKeeper: exception text is not sent to PostHog]"
 )
 
 _PRODUCTION_ENVIRONMENTS = ("production", "prod")
@@ -114,6 +119,8 @@ def _resolve_environment() -> str:
 
 
 def _is_debug_environment() -> bool:
+    """True anywhere that is not production, which is where a missing key
+    should stop the boot instead of quietly disabling analytics."""
     return _resolve_environment() not in _PRODUCTION_ENVIRONMENTS
 
 
@@ -125,7 +132,7 @@ def _redact_exception_values(exception_list: Any) -> Any:
     every entry is treated the same way. The frames are this repo's own source
     positions — local variables are only captured with
     ``capture_exception_code_variables``, which stays off (see
-    :func:`_build_client`)."""
+    :func:`_build_client`) — so error grouping still works on type + stack."""
     if not isinstance(exception_list, list):
         return exception_list
     redacted = []
@@ -137,11 +144,20 @@ def _redact_exception_values(exception_list: Any) -> Any:
 
 
 def scrub_mcp_payload(event: dict) -> Optional[dict]:
-    """``before_send`` hook: strip user content from MCP analytics events.
+    """``before_send`` hook: strip free text from every event this client sends.
 
-    Runs on every event this client sends. An event with no ``$mcp_*`` property
-    is not an MCP analytics event (an ``$exception`` from the client's own
-    autocapture, for instance) and passes through untouched.
+    One rule, applied to everything: ``$mcp_*`` properties survive only if
+    they are on the allowlist, and an ``$exception_list`` message is always
+    replaced.
+
+    The "everything" is load-bearing. ``enable_exception_autocapture`` installs
+    ``sys.excepthook`` and ``threading.excepthook``, so an uncaught exception in
+    any thread of this process — the repo-autosync daemon, say — is captured as
+    a plain ``$exception`` carrying no ``$mcp_*`` property at all. An earlier
+    version of this hook let those through, and a raised
+    ``RuntimeError("mongo query failed for <file name>")`` reached the wire
+    intact. This client serves only the MCP server, and everything that server
+    touches is user content, so no free text leaves it by any route.
 
     Fails **closed**: any error while scrubbing drops the event rather than
     letting an unscrubbed one continue. The posthog client also drops an event
@@ -151,11 +167,6 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
     try:
         properties = event.get("properties")
         if not isinstance(properties, dict):
-            return event
-        if not any(
-            isinstance(key, str) and key.startswith(_MCP_PROPERTY_PREFIX)
-            for key in properties
-        ):
             return event
 
         kept: dict = {}
@@ -225,6 +236,8 @@ _ANALYTICS: Any = None
 
 
 def _report_missing_configuration() -> None:
+    """Loud in development, a logged warning in production. Silence in both would
+    make "analytics is off" indistinguishable from "analytics is broken"."""
     missing = [
         name
         for name in (ENV_PROJECT_TOKEN, ENV_HOST)

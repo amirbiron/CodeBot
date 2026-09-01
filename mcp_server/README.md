@@ -278,7 +278,7 @@ Health check:   /healthz
 **מדידת שימוש (PostHog) — אופציונלי:**
 - `POSTHOG_PROJECT_TOKEN` (`phc_...`) + `POSTHOG_HOST` (`https://us.i.posthog.com` / `https://eu.i.posthog.com`).
 - חסר אחד מהם: בפרודקשן המדידה כבויה והשרת עולה רגיל; ב‑`ENVIRONMENT`/`ENV` שאינו `production` העלייה נכשלת ברעש.
-- הארגומנטים והתוצאות של הכלים **אינם** נשלחים — `analytics.py` מחזיק רשימת היתר של מאפייני `$mcp_*`. פירוט: `docs/mcp-server.rst`.
+- הארגומנטים והתוצאות של הכלים **אינם** נשלחים — `analytics.py` מחזיק רשימת היתר של מאפייני `$mcp_*`, ומחליף כל `$exception_list[*].value` בכל אירוע (כולל חריגות שנתפסות ב-`threading.excepthook`). פירוט: `docs/mcp-server.rst`.
 
 ---
 

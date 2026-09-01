@@ -158,21 +158,85 @@ def test_exception_sibling_loses_the_message_and_keeps_the_stack():
     assert _FILE_BODY not in _payload_text(scrubbed)
 
 
-def test_non_mcp_event_passes_through_untouched():
-    """The client's own exception autocapture sends ``$exception`` events with no
-    ``$mcp_*`` property. Scrubbing those would empty out error tracking."""
+def test_client_level_exception_autocapture_is_redacted_too():
+    """The gate cannot be scoped to events that carry a ``$mcp_*`` property.
+
+    ``enable_exception_autocapture`` installs ``sys.excepthook`` and
+    ``threading.excepthook``, so an uncaught exception in any thread of the MCP
+    process — the repo-autosync daemon, for one — arrives here as a plain
+    ``$exception`` with no ``$mcp_*`` key anywhere on it. Verified by raising in
+    a worker thread with a real client: the message reached the wire intact
+    while this hook only looked at MCP events.
+    """
     event = {
         "event": "$exception",
         "distinct_id": "worker",
         "properties": {
             "$exception_level": "error",
-            "$exception_list": [{"type": "OSError", "value": "disk full"}],
+            "$exception_list": [
+                {
+                    "type": "RuntimeError",
+                    "value": "mongo query failed for " + _FILE_BODY,
+                    "stacktrace": {"frames": [{"function": "_sync_once"}]},
+                }
+            ],
         },
     }
 
     scrubbed = analytics.scrub_mcp_payload(event)
 
-    assert scrubbed["properties"]["$exception_list"][0]["value"] == "disk full"
+    entry = scrubbed["properties"]["$exception_list"][0]
+    assert entry["value"] == analytics._EXCEPTION_VALUE_PLACEHOLDER
+    # Type and frames survive, so error-tracking still groups these.
+    assert entry["type"] == "RuntimeError"
+    assert entry["stacktrace"] == {"frames": [{"function": "_sync_once"}]}
+    assert _FILE_BODY not in _payload_text(scrubbed)
+
+
+def test_client_is_built_with_the_settings_the_privacy_gate_depends_on(monkeypatch):
+    """The gate is only in force because the constructor wires it in. Losing
+    ``before_send`` — or a future SDK flipping ``capture_exception_code_variables``
+    to default-on, which captures the local variables holding file content —
+    would disable the protection with nothing else failing."""
+    pytest.importorskip("posthog")
+
+    monkeypatch.setenv(analytics.ENV_PROJECT_TOKEN, "phc_test_token_not_real")
+    monkeypatch.setenv(analytics.ENV_HOST, "https://us.i.posthog.com")
+
+    captured = {}
+
+    class _FakePosthog:
+        def __init__(self, token, **kwargs):
+            captured["token"] = token
+            captured.update(kwargs)
+
+        def shutdown(self):  # registered with atexit
+            pass
+
+    import posthog
+
+    monkeypatch.setattr(posthog, "Posthog", _FakePosthog)
+
+    client = analytics._build_client()
+
+    assert client is not None
+    assert captured["token"] == "phc_test_token_not_real"
+    assert captured["host"] == "https://us.i.posthog.com"
+    assert captured["before_send"] is analytics.scrub_mcp_payload
+    assert captured["capture_exception_code_variables"] is False
+    assert captured["enable_exception_autocapture"] is True
+
+
+def test_client_is_not_built_when_either_variable_is_missing(monkeypatch):
+    """Both are required: the host decides the region, and guessing it sends
+    events somewhere they cannot be read."""
+    monkeypatch.setenv(analytics.ENV_PROJECT_TOKEN, "phc_test_token_not_real")
+    monkeypatch.delenv(analytics.ENV_HOST, raising=False)
+    assert analytics._build_client() is None
+
+    monkeypatch.delenv(analytics.ENV_PROJECT_TOKEN, raising=False)
+    monkeypatch.setenv(analytics.ENV_HOST, "https://us.i.posthog.com")
+    assert analytics._build_client() is None
 
 
 def test_scrubber_failure_drops_the_event_instead_of_sending_it_raw():
