@@ -2174,6 +2174,18 @@
      - ``300``
      - ``120``
      - MCP
+   * - ``POSTHOG_PROJECT_TOKEN``
+     - טוקן הפרויקט ב-PostHog (``phc_...``) עבור מדידת השימוש בשרת ה-MCP. חסר (או חסר ``POSTHOG_HOST``) — בפרודקשן המדידה כבויה והשרת עולה רגיל; בסביבת פיתוח העלייה נכשלת ברעש. ראו :ref:`mcp-analytics`.
+     - לא
+     - "" (מדידה כבויה)
+     - ``phc_XXXXXXXX``
+     - MCP
+   * - ``POSTHOG_HOST``
+     - כתובת ה-PostHog שאליה נשלחים האירועים: ``https://us.i.posthog.com`` ל-US Cloud או ``https://eu.i.posthog.com`` ל-EU Cloud. נדרש יחד עם ``POSTHOG_PROJECT_TOKEN`` — האזור אינו מנוחש.
+     - לא
+     - "" (מדידה כבויה)
+     - ``https://us.i.posthog.com``
+     - MCP
 
 .. note::
 

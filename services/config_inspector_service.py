@@ -703,6 +703,27 @@ class ConfigService:
             description="מרווח בשניות בין מעברי ה-autosync של דפדפן הריפו ב-MCP (מינימום 30).",
             category="mcp",
         ),
+        "POSTHOG_PROJECT_TOKEN": ConfigDefinition(
+            key="POSTHOG_PROJECT_TOKEN",
+            services=("mcp",),
+            default="",
+            description=(
+                "טוקן הפרויקט ב-PostHog (phc_...) למדידת השימוש בשרת ה-MCP. ריק — "
+                "המדידה כבויה והשרת עולה רגיל (בסביבת פיתוח העלייה נכשלת ברעש)."
+            ),
+            category="mcp",
+            sensitive=True,
+        ),
+        "POSTHOG_HOST": ConfigDefinition(
+            key="POSTHOG_HOST",
+            services=("mcp",),
+            default="",
+            description=(
+                "כתובת ה-PostHog שאליה נשלחים אירועי ה-MCP: https://us.i.posthog.com "
+                "ל-US Cloud או https://eu.i.posthog.com ל-EU. נדרש יחד עם POSTHOG_PROJECT_TOKEN."
+            ),
+            category="mcp",
+        ),
 
         # --- Repo Sync Engine (Git Mirror) ---
         "REPO_NAME": ConfigDefinition(

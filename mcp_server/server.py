@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from . import docs_handlers, handlers, repo_handlers
+from .analytics import attach_shutdown_drain, instrument_mcp_server
 from .auth import (
     PATAuthMiddleware,
     current_user_id,
@@ -192,6 +193,10 @@ def build_mcp(
         kwargs["auth_server_provider"] = auth_provider
         kwargs["auth"] = auth_settings
     mcp: FastMCP = AdminAwareFastMCP(name, **kwargs)
+    # PostHog MCP analytics. Additive: no tool is changed and no tool schema is
+    # touched. Must run before ``streamable_http_app()`` below, which the same
+    # call also wraps. See ``mcp_server/analytics.py`` for the privacy gate.
+    instrument_mcp_server(mcp)
 
     @mcp.tool(
         name="codekeeper_list_files",
@@ -825,6 +830,8 @@ def build_app(
         repo_backend=repo_backend,
     )
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
+    # Drain analytics on ASGI shutdown, before uvicorn's event loop closes.
+    attach_shutdown_drain(app)
     # Unauthenticated health endpoint for the hosting platform.
     app.router.routes.append(Route("/healthz", _healthz, methods=["GET"]))
     # GET /api/agent/primer. Authenticates INSIDE its own handler, in both modes:
