@@ -355,6 +355,7 @@ class ProductionBackend:
         programming_language: str,
         description: str = "",
         tags: list[str] | None = None,
+        update_existing: bool = False,
     ) -> dict[str, Any]:
         """Create a new file or append a new version of an existing one.
 
@@ -369,6 +370,26 @@ class ProductionBackend:
         dbm = self._require_dbm()
         # Captured before the save so we can report create vs. update honestly.
         prev = _latest_fresh(dbm, user_id, file_name)
+        # Updating an existing name must be an explicit choice. The silent
+        # upsert bit for real: saving new content under a name that already
+        # holds something else hides the old content from search and from the
+        # normal view (both read the latest version only), leaving it
+        # reachable only through the version history. Full-content rewrites
+        # stay possible via update_existing=True; partial changes belong to
+        # edit_file/append_file.
+        if prev is not None and not update_existing:
+            return {
+                "ok": False,
+                "error": "file_exists",
+                "file_name": file_name,
+                "latest_version": int(prev.get("version") or 0),
+                "hint": (
+                    "A file with this name already exists. To change part of it "
+                    "use codekeeper_edit_file or codekeeper_append_file; to "
+                    "replace its content entirely, pass update_existing=true; "
+                    "or pick a different file_name."
+                ),
+            }
         ok = bool(
             dbm.save_code_snippet(
                 CodeSnippet(

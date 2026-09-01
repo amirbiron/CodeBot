@@ -160,10 +160,26 @@ def test_save_file_creates_new_file():
     assert dbm.saved.programming_language == "python" and dbm.saved.description == "hi"
 
 
-def test_save_file_updates_existing_bumps_version():
+def test_save_file_refuses_existing_without_explicit_flag():
+    """שם קיים בלי ``update_existing`` — סירוב מוסבר, בלי כתיבה.
+
+    ה-upsert השקט נשך: שמירת תוכן חדש על שם שכבר מחזיק משהו אחר מסתירה
+    את התוכן הישן מחיפוש ומהתצוגה (שניהם קוראים גרסה אחרונה בלבד).
+    """
     dbm = _FakeDbManager(files=[{"_id": "a", "file_name": "x.py", "version": 1}])
     out = ProductionBackend(db_manager=dbm).save_file(
         7, file_name="x.py", code="v2", programming_language="python"
+    )
+    assert out["ok"] is False and out["error"] == "file_exists"
+    assert out["latest_version"] == 1
+    assert "edit_file" in out["hint"] and "update_existing" in out["hint"]
+    assert dbm.saved is None  # הסירוב קרה לפני כל כתיבה
+
+
+def test_save_file_updates_existing_bumps_version():
+    dbm = _FakeDbManager(files=[{"_id": "a", "file_name": "x.py", "version": 1}])
+    out = ProductionBackend(db_manager=dbm).save_file(
+        7, file_name="x.py", code="v2", programming_language="python", update_existing=True
     )
     assert out["ok"] is True and out["created"] is False
     assert out["file"]["version"] == 2  # append-only: new version, not overwrite

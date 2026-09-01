@@ -211,6 +211,16 @@ class Repository:
             existing = self._fetch_latest_version(snippet.user_id, snippet.file_name)
             if existing:
                 snippet.version = existing['version'] + 1
+                # ``created_at`` שייך לקובץ הלוגי, לא לגרסה. בלי ההורשה כאן,
+                # כל עריכת תוכן הייתה מזיזה את "נוצר" בממשק לתאריך העריכה —
+                # בעוד שעריכת תיאור (עדכון-במקום) משמרת אותו. תאריך הגרסה
+                # עצמה ממשיך לחיות ב-``updated_at`` שלה, וההיסטוריה מציגה
+                # אותו. ``or`` ולא השמה עיוורת: מסמך ותיק בלי השדה לא אמור
+                # לאפס את ברירת המחדל שהמודל כבר קבע.
+                try:
+                    snippet.created_at = existing.get('created_at') or snippet.created_at
+                except Exception:
+                    pass
                 # שמור סטטוס מועדפים מהגרסה הקודמת אם לא סופק מפורשות
                 try:
                     prev_is_fav = bool(existing.get('is_favorite', False))

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}מיגרציית "נוצר"{% endblock %}
+
+{% block extra_css %}
+<style>
+/* עמוד אדמין חד-פעמי: נשען על טוקני הערכה בלבד, בלי צבעים קשיחים */
+.mig-page { max-width: 900px; margin: 0 auto; padding: 1rem; display: flex; flex-direction: column; gap: 1.25rem; }
+.mig-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1.25rem; }
+.mig-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+.mig-table { width: 100%; border-collapse: collapse; }
+.mig-table th, .mig-table td { padding: .45rem .6rem; border-bottom: 1px solid var(--card-border); text-align: right; }
+.mig-stat { font-size: 1.15rem; }
+.mig-stat b { font-variant-numeric: tabular-nums; }
+/* ‏--danger הוא צבע הטקסט של הערכה; --danger-border נגזר ממנו ב-45%
+   שקיפות ונועד לגבולות, ולכן כטקסט הוא חלש מדי לקריאה. */
+.mig-error { color: var(--danger); }
+.mig-note { opacity: .8; font-size: .92rem; }
+.mig-table-wrap { overflow-x: auto; }
+/* ‏.btn-danger אינה מוגדרת גלובלית (הכלל היחיד בריפו הוא מקומי
+   ל-collections), ולכן הכפתור ההרסני היה נראה ככפתור רגיל. */
+.mig-actions .btn-danger { background: var(--danger); border-color: var(--danger); color: var(--text-on-warning); }
+.mig-actions .btn-danger:hover { background: color-mix(in srgb, var(--danger) 82%, var(--text-primary)); border-color: color-mix(in srgb, var(--danger) 82%, var(--text-primary)); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mig-page">
+    <h1>🗓️ מיגרציית "נוצר"</h1>
+
+    <div class="mig-card">
+        <p>"נוצר" של קובץ שייך לקובץ, לא לגרסה. הקוד כבר משמר אותו בעריכות חדשות; העמוד הזה מיישר קבצים שנערכו לפני התיקון: כל מסמך בגרסה הגבוהה ביותר של קובץ מקבל את התאריך המוקדם ביותר מבין גרסאותיו. גרסאות ישנות אינן נגועות.</p>
+        <p class="mig-note">‏dry-run לקריאה בלבד — לא משנה דבר. ההחלה נפתחת רק אחרי שצפית בתוצאה שלו, ורצה באצוות: כל לחיצה מטפלת בכמות חסומה ומדווחת כמה נותרו. ההחלה אידמפוטנטית, ולכן הרצה חוזרת בטוחה. שתי הפעולות נרשמות ל-audit.</p>
+    </div>
+
+    {% if error %}
+    <div class="mig-card mig-error">⚠️ {{ error }}</div>
+    {% endif %}
+
+    <div class="mig-card">
+        <form method="post" class="mig-actions">
+            <button type="submit" name="action" value="dry_run" class="btn btn-primary">🔍 הרץ dry-run</button>
+            {% if gate_token %}
+            {# האסימון מונפק ונשמר בסשן בצד השרת; כאן רק מוחזר. שדה מוסתר
+               לבדו אינו שער — האימות הוא מול הסשן. #}
+            <input type="hidden" name="gate_token" value="{{ gate_token }}">
+            {% if result and result.mode == 'apply' %}
+            <button type="submit" name="action" value="apply" class="btn btn-danger"
+                    onclick="return confirm('להמשיך לאצווה הבאה? נותרו {{ result.remaining_after }} קבצים.');">
+                ▶️ המשך — נותרו {{ result.remaining_after }}
+            </button>
+            {% elif result and result.mode == 'dry_run' and result.affected_count %}
+            <button type="submit" name="action" value="apply" class="btn btn-danger"
+                    onclick="return confirm('להחיל את המיגרציה? הפעולה משנה את created_at של הגרסה האחרונה, עד {{ result.batch_size }} קבצים באצווה זו.');">
+                ✅ החל אצווה (עד {{ result.batch_size }} מתוך {{ result.affected_count }})
+            </button>
+            {% endif %}
+            {% endif %}
+        </form>
+    </div>
+
+    {% if result and result.mode == 'dry_run' %}
+    <div class="mig-card">
+        <p class="mig-stat">ייפגעו <b>{{ result.affected_count }}</b> קבצים מתוך <b>{{ result.total_files }}</b>.</p>
+        {% if result.audit_error %}
+        <p class="mig-error">⚠️ רשומת ה-audit לא נכתבה: {{ result.audit_error }}</p>
+        {% endif %}
+        {% if result.samples %}
+        <div class="mig-table-wrap">
+        <table class="mig-table">
+            <thead><tr><th>קובץ</th><th>גרסאות</th><th>"נוצר" הנוכחי</th><th>"נוצר" אחרי</th></tr></thead>
+            <tbody>
+            {% for s in result.samples %}
+            <tr>
+                <td>{{ s.file_name }}{% if s.duplicate_latest %} <span class="mig-note" title="יותר ממסמך אחד בגרסה הגבוהה ביותר — כולם יתוקנו">⧉</span>{% endif %}</td>
+                <td>{{ s.versions }}</td>
+                <td>{{ s.current_created_disp }}</td>
+                <td>{{ s.new_created_disp }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p>אין מה לתקן — כל הקבצים כבר עקביים. 🎉</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if result and result.mode == 'apply' %}
+    <div class="mig-card">
+        <p class="mig-stat">באצווה זו: <b>{{ result.files_in_batch }}</b> קבצים · <b>{{ result.documents_planned }}</b> מסמכים תוכננו · <b>{{ result.modified }}</b> עודכנו בפועל · נותרו אחרי אימות: <b>{{ result.remaining_after }}</b></p>
+        {% if result.done %}
+        <p>✅ האימות בקריאה חוזרת עבר — לא נותרו פערים.</p>
+        {% else %}
+        <p>עוד יש עבודה. לחצו "המשך" לאצווה הבאה — הפעולה אידמפוטנטית.</p>
+        {% endif %}
+        {% if result.audit_error %}
+        <p class="mig-error">⚠️ רשומת ה-audit לא נכתבה: {{ result.audit_error }}</p>
+        {% endif %}
+        {% set ci = result.cache_invalidation %}
+        {# מדווחים את מה שנמדד: כמה מפתחות נמחקו בפועל. "בוטל בהצלחה" היה
+           טענה על מצב שנשענת על קריאה שאין לה ערוץ כשל. 0 מפתחות אינו
+           כשל — קאש קר הוא מצב לגיטימי — אבל היעדר Redis כן, כי אז
+           הניקוי חל רק על התהליך הזה. #}
+        {% if ci and ci.error %}
+        <p class="mig-error">⚠️ ביטול הקאש לא רץ כלל ({{ ci.error }}) — רשימות עשויות להמשיך להציג את התאריך הישן עד שה-TTL יפוג.</p>
+        {% elif ci and not ci.backend %}
+        <p class="mig-error">⚠️ ‏Redis אינו זמין. נמחקו {{ ci.keys_deleted }} מפתחות מהפולבק של התהליך הזה בלבד — ‏workers אחרים עשויים להמשיך להגיש את התאריך הישן עד שה-TTL יפוג.</p>
+        {% elif ci %}
+        <p class="mig-note">נמחקו {{ ci.keys_deleted }} מפתחות קאש עבור {{ ci.users }} משתמשים. ‏(0 אינו כשל — קאש קר הוא מצב תקין.)</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

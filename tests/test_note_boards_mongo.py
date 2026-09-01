@@ -26,60 +26,18 @@
 
 from __future__ import annotations
 
-import os
-import uuid
 from datetime import datetime, timezone
 
 import pytest
 
-pymongo = pytest.importorskip("pymongo")
+from pymongo.errors import DuplicateKeyError
 
-from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError  # noqa: E402
+from mongo_it import make_mongo_db_fixture, requires_mongo
 
-#: תחילית מסדי הבדיקה. ה-teardown מוחק **רק** מסד שמתחיל בה.
-_TEST_DB_PREFIX = "codebot_notes_it_"
+pytestmark = requires_mongo
 
-_MONGO_URL = os.environ.get("MONGODB_URL", "").strip()
-
-
-def _server_is_reachable(url: str) -> bool:
-    """האם יש שרת בקצה השני. בלי זה הבדיקות היו נתלות עד timeout ארוך."""
-    try:
-        client = pymongo.MongoClient(url, serverSelectionTimeoutMS=2000, tz_aware=True, tzinfo=timezone.utc)
-        client.admin.command("ping")
-        client.close()
-        return True
-    except (ServerSelectionTimeoutError, Exception):
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _MONGO_URL or not _server_is_reachable(_MONGO_URL),
-    reason="דורש MONGODB_URL עם שרת מונגו נגיש (קיים ב-CI, לא בהכרח מקומית)",
-)
-
-
-@pytest.fixture
-def mongo_db():
-    """מסד חד-פעמי, עם ``tz_aware=True`` בדיוק כמו בפרודקשן.
-
-    ``tz_aware`` אינו פרט טכני: בלעדיו pymongo מחזיר ``datetime`` נאיבי,
-    וההשוואה שמחליטה על 409 (``prev_dt < note['updated_at']``) זורקת
-    ``TypeError`` — שנבלע ב-``except Exception``. כלומר בדיקת הקונקרנטיות
-    הייתה מפסיקה לרוץ בשקט. יש על כך בדיקה בהמשך הקובץ.
-    """
-    name = f"{_TEST_DB_PREFIX}{uuid.uuid4().hex[:12]}"
-    client = pymongo.MongoClient(_MONGO_URL, tz_aware=True, tzinfo=timezone.utc)
-    db = client[name]
-    try:
-        yield db
-    finally:
-        # סורג בטיחות: מוחקים רק מסד שנוצר כאן
-        assert name.startswith(_TEST_DB_PREFIX), f"סירוב למחוק מסד שאינו של הבדיקות: {name}"
-        try:
-            client.drop_database(name)
-        finally:
-            client.close()
+#: תחילית ייעודית לקובץ הזה — סורג המחיקה ב-``mongo_it`` נשען עליה.
+mongo_db = make_mongo_db_fixture("codebot_notes_it_")
 
 
 @pytest.fixture
