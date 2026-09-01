@@ -120,6 +120,70 @@ def test_bulk_delete_route_does_not_touch_updated_at(wired_mongo):
     assert all(d.get("deleted_at") for d in docs), "המחיקה עצמה לא תועדה"
 
 
+def test_bulk_tag_route_does_not_touch_updated_at(wired_mongo):
+    """תיוג מרובה אינו "עריכה", ולכן אינו חותם ``updated_at``.
+
+    זה היה הראוט האחרון שנשאר חותם: תיוג של עשרה קבצים הקפיץ את כולם
+    לראש "עודכן לאחרונה" וסימן אותם כ"עודכן", בלי שנגעו בבית אחד של תוכן.
+    """
+    client, ids = _seed(wired_mongo)
+
+    resp = client.post("/api/files/bulk-tag",
+                       json={"file_ids": [str(i) for i in ids], "tags": ["python", "utils"]})
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    assert resp.get_json().get("success") is True
+
+    assert _stamps(wired_mongo) == _expected(), "תיוג מרובה שינה את updated_at"
+
+    # והפעולה עצמה כן בוצעה — אחרת הבדיקה הייתה עוברת גם על ראוט שבור
+    docs = list(wired_mongo.get_db().code_snippets.find({"user_id": USER_ID}))
+    assert all("python" in (d.get("tags") or []) for d in docs), \
+        [d.get("tags") for d in docs]
+
+
+def test_bulk_tag_still_reports_how_many_files_carry_the_tags(wired_mongo):
+    """המספר שחוזר ללקוח אינו משתנה — הוא מציג אותו ומחליט לפיו אם לרענן.
+
+    עד עכשיו ה-``$set`` על ``updated_at`` הפך **כל** התאמה למודיפיקציה,
+    ולכן ``modified_count`` היה שווה למספר הקבצים שנבחרו. בלעדיו קובץ
+    שכבר נשא את התגית אינו נספר, ולכן המונה עבר ל-``matched_count``.
+    """
+    client, ids = _seed(wired_mongo)
+    payload = {"file_ids": [str(i) for i in ids], "tags": ["python"]}
+
+    first = client.post("/api/files/bulk-tag", json=payload).get_json()
+    assert first["updated"] == len(ids), first
+
+    # תיוג חוזר באותה תגית: שום מסמך לא באמת משתנה, והמספר חייב להישאר
+    again = client.post("/api/files/bulk-tag", json=payload).get_json()
+    assert again["updated"] == len(ids), \
+        f"המונה צנח לתיוג חוזר, והלקוח מציג אותו: {again}"
+
+
+def test_quick_update_stamps_only_when_the_description_changed(wired_mongo):
+    """‏``quick-update`` מטפל בתיאור **ובתגיות**, ורק הראשון הוא עריכה.
+
+    ``updated_at`` מציין מתי התוכן, התיאור או השם השתנו. שינוי תגיות
+    בלבד דרך אותו ראוט אינו אמור להיחשב עריכה.
+    """
+    client, ids = _seed(wired_mongo)
+
+    # תגיות בלבד — אין חתימה
+    resp = client.post(f"/api/file/{ids[-1]}/quick-update", json={"tags": ["a", "b"]})
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    assert _stamps(wired_mongo) == _expected(), "שינוי תגיות בלבד חתם updated_at"
+    doc = wired_mongo.get_db().code_snippets.find_one({"_id": ids[-1]})
+    assert doc.get("tags") == ["a", "b"], doc.get("tags")
+
+    # תיאור — כן חתימה, אחרת ויתרנו על המשמעות של השדה
+    resp = client.post(f"/api/file/{ids[-1]}/quick-update", json={"description": "תיאור חדש"})
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    doc = wired_mongo.get_db().code_snippets.find_one({"_id": ids[-1]})
+    assert doc.get("updated_at") != STAMP + timedelta(minutes=len(ids)), \
+        "שינוי תיאור לא חתם updated_at"
+    assert doc.get("description") == "תיאור חדש"
+
+
 def test_a_fresh_file_is_not_marked_edited_after_a_metadata_route(wired_mongo):
     """ההבטחה של ה-PR, במסלול שהדפדפן עובר בו.
 

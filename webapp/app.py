@@ -13613,7 +13613,7 @@ def api_file_quick_update(file_id):
             return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
         
         data = request.get_json() or {}
-        updates = {'updated_at': datetime.now(timezone.utc)}
+        updates = {}
         
         if 'description' in data:
             desc = (data.get('description') or '').strip()[:500]
@@ -13632,9 +13632,15 @@ def api_file_quick_update(file_id):
                     clean_tags.append(tag)
             updates['tags'] = clean_tags
         
-        if len(updates) <= 1:  # רק updated_at
+        if not updates:
             return jsonify({'ok': False, 'error': 'לא סופקו שדות לעדכון'}), 400
-        
+
+        # ``updated_at`` נחתם רק כשהתיאור השתנה. הראוט הזה מטפל בשני שדות,
+        # ורק אחד מהם נכלל בחוזה של ``updated_at`` — תגיות הן מטא-דאטה,
+        # בדיוק כמו מועדפים ונעיצה, ושינוי שלהן אינו "עריכה" של הקובץ.
+        if 'description' in updates:
+            updates['updated_at'] = datetime.now(timezone.utc)
+
         db.code_snippets.update_one({'_id': oid}, {'$set': updates})
         
         # Invalidate cache
@@ -17011,18 +17017,25 @@ def api_files_bulk_tag():
 
         db = get_db()
         user_id = session['user_id']
-        now = datetime.now(timezone.utc)
 
         q = {
             '_id': {'$in': object_ids},
             'user_id': user_id,
             'is_active': True
         }
+        # ``$addToSet`` בלבד. תיוג הוא מטא-דאטה, ו-``updated_at`` מציין מתי
+        # התוכן, התיאור או השם השתנו — ``file_was_edited`` נגזרת ממנו והפיד
+        # בדשבורד ממיין לפיו. חתימה כאן הקפיצה כל קובץ שתויג לראש "עודכן
+        # לאחרונה" וסימנה אותו כ"עודכן" בלי שנגעו בתוכן.
         res = db.code_snippets.update_many(q, {
             '$addToSet': {'tags': {'$each': norm_tags}},
-            '$set': {'updated_at': now}
         })
-        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+        # ``matched_count`` ולא ``modified_count``: הלקוח מציג את המספר הזה
+        # ומחליט לפיו אם לרענן את העמוד, והשאלה שלו היא "על כמה קבצים
+        # התגיות נמצאות עכשיו" — קובץ שכבר נשא אותן נספר. עד עכשיו ה-``$set``
+        # הפך כל התאמה למודיפיקציה, ולכן זה בדיוק המספר שהוחזר גם קודם.
+        matched = int(getattr(res, 'matched_count', 0) or 0)
+        return jsonify({'success': True, 'updated': matched})
     except Exception:
         return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
