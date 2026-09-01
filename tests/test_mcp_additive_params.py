@@ -387,6 +387,27 @@ def test_apply_line_range_reports_total_lines_so_the_reader_knows_what_it_missed
     assert out["range"]["truncated"] is False
 
 
+def test_a_crlf_file_comes_back_byte_for_byte():
+    """קובץ CRLF מוחזר כפי שהוא, כולל ה-``\r`` בסוף כל שורה.
+
+    זה נראה כמו באג אבל זו התכונה: קריאת טווח חייבת להיות ניתנת להרכבה —
+    הטווח המלא מחזיר את הקובץ במדויק, וחיבור שני טווחים סמוכים משחזר אותו.
+    פיצול עם ``splitlines`` היה מקצץ את ה-``\r``, שובר את שתי התכונות,
+    **וגם** מחזיר 3 שורות מול ``count_lines`` שמחזיר 4 — בדיוק הסתירה בין
+    ``total_lines`` ל-``lines`` שכבר תוקנה פעם אחת.
+    """
+    text = "a\r\nb\r\nc\r\n"
+    total = handlers.count_lines(text)
+
+    whole = handlers.apply_line_range(text, 1, total)
+    head = handlers.apply_line_range(text, 1, 2)
+    tail = handlers.apply_line_range(text, 3, total)
+
+    assert whole["text"] == text
+    assert head["text"] + "\n" + tail["text"] == text
+    assert handlers.apply_line_range(text, 1, 1)["text"] == "a\r"
+
+
 def _saved_backend(doc):
     from mcp_server.backend import ProductionBackend
 

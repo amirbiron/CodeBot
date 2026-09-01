@@ -99,85 +99,70 @@ def _repos_db():
     )
 
 
-def test_init_ensures_repo_metadata_index():
-    db = _repos_db()
-    RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
-    assert db["repo_metadata"].indexes  # gap #6: created as part of this phase
-    args, kwargs = db["repo_metadata"].indexes[0]
-    assert args[0] == "repo_name" and kwargs.get("unique") is True
+class _RecordingManager:
+    """דמה ל-``DatabaseManager`` עבור יצירת האינדקסים בלבד."""
+
+    def __init__(self, explode=None):
+        self.calls = []
+        self._explode = explode
+
+    def safe_create_index(self, collection_name, keys, **kwargs):
+        self.calls.append((collection_name, keys, kwargs))
+        if self._explode and collection_name == self._explode:
+            raise RuntimeError("boom")
 
 
-def test_init_ensures_the_repo_files_index_the_lookups_rely_on():
-    """``repo_files`` נשלף לפי ``(repo_name, path)`` בכל מקום — ספירת השורות
-    של ``list_tree``, ההעשרה של ``search_repo``, דפדפן הריפו, וה-upsert של
-    האינדקסר לכל קובץ בכל סנכרון. את האינדקס הצהיר
-    ``scripts/create_repo_indexes.py``, אבל שום דבר בריפו לא מריץ אותו, ולכן
-    בפועל הוא היה קיים רק אם מישהו הריץ ידנית."""
-    db = _repos_db()
-    RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
+def test_init_delegates_both_indexes_to_the_canonical_helper():
+    """``DatabaseManager.safe_create_index`` ולא יצירה ישירה.
 
-    assert db["repo_files"].indexes
-    args, kwargs = db["repo_files"].indexes[0]
-    assert args[0] == [("repo_name", 1), ("path", 1)]
-    # **לא ``unique``.** מה שדרוש כאן הוא אינדקס חיפוש; ייחודיות היא אילוץ
-    # שלמות נתונים שהסקריפט אחראי עליו. בקשת ``unique`` על אוסף שכבר מכיל
-    # כפילויות נכשלת, והכשל היה נבלע — כלומר האינדקס לא נוצר בזמן שהלוג
-    # אומר "non-fatal".
-    assert kwargs.get("unique") in (None, False)
-
-
-def test_a_real_index_failure_is_reported_and_not_swallowed(caplog):
-    """אינדקס שלא נוצר משאיר את השליפות בסריקה מלאה, ולכן הוא לא "non-fatal"."""
-
-    class _ExplodingFiles(_Coll):
-        def create_index(self, *a, **k):
-            raise RuntimeError("no permission to build index")
-
-    db = _repos_db()
-    db.c["repo_files"] = _ExplodingFiles()
-
-    with caplog.at_level("ERROR"):
-        RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
-
-    assert any("NOT created" in r.message for r in caplog.records), caplog.records
-
-
-def test_a_benign_index_conflict_is_not_reported_as_a_failure(caplog):
-    """אינדקס זהה שכבר קיים (למשל הייחודי מהסקריפט) הוא כיסוי, לא תקלה.
-
-    הקודים נלקחו מ-``DatabaseManager.safe_create_index``: ``85``
-    IndexOptionsConflict ו-``86`` IndexKeySpecsConflict.
+    הוא מה שקורא את האינדקסים בפועל אחרי התנגשות ומאשר רק אם המפתחות
+    **וגם** ``unique`` תואמים. שכפול המדיניות כאן כבר יצא שגוי פעם אחת:
+    הוא החשיב קוד ``86`` ("אותו שם, מפתחות אחרים") להצלחה.
     """
+    manager = _RecordingManager()
 
-    class _ConflictingFiles(_Coll):
-        def create_index(self, *a, **k):
-            error = RuntimeError("IndexOptionsConflict: index already exists")
-            error.code = 85
-            raise error
+    RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
 
-    db = _repos_db()
-    db.c["repo_files"] = _ConflictingFiles()
-
-    with caplog.at_level("ERROR"):
-        RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
-
-    assert not [r for r in caplog.records if "NOT created" in r.message]
+    assert [(c, k) for c, k, _ in manager.calls] == [
+        ("repo_metadata", [("repo_name", 1)]),
+        ("repo_files", [("repo_name", 1), ("path", 1)]),
+    ]
 
 
-def test_one_failing_index_does_not_skip_the_others():
-    """כל יצירה ב-``try`` נפרד. כשהיו תחת בלוק אחד, כשל בראשונה היה מדלג
-    בשקט על השנייה."""
+def test_both_indexes_keep_the_unique_constraint():
+    """אינדקס לא-ייחודי **חוסם** את הייחודי.
 
-    class _ExplodingMetadata(_Coll):
-        def create_index(self, *a, **k):
-            raise RuntimeError("index build failed")
+    ``scripts/create_repo_indexes.py`` מצהיר על ``(repo_name, path)`` כזהות,
+    וה-upsert של האינדקסר מניח את זה. אינדקס לא-ייחודי על אותם מפתחות היה
+    גורם לסקריפט לקבל ``IndexOptionsConflict`` וליפול — כלומר מסד חדש היה
+    נשאר בלי האילוץ, לתמיד.
+    """
+    manager = _RecordingManager()
 
-    db = _repos_db()
-    db.c["repo_metadata"] = _ExplodingMetadata()
+    RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
 
-    RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
+    assert all(kwargs.get("unique") is True for _, _, kwargs in manager.calls), manager.calls
 
-    assert db["repo_files"].indexes, "השנייה דולגה בגלל כשל בראשונה"
+
+def test_index_setup_is_skipped_without_the_canonical_helper():
+    """עדיף לא ליצור אינדקס מאשר לשכפל שוב את מדיניות ההתנגשות."""
+    backend = RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search())
+
+    assert backend._db["repo_metadata"].indexes == []
+    assert backend._db["repo_files"].indexes == []
+
+
+def test_one_failing_index_does_not_skip_the_other():
+    """כשל באחד לא מבטל את השני.
+
+    בגרסה קודמת שתי היצירות ישבו תחת ``try`` אחד, וכשל בראשונה דילג בשקט
+    על השנייה.
+    """
+    manager = _RecordingManager(explode="repo_metadata")
+
+    RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
+
+    assert [c for c, _, _ in manager.calls] == ["repo_metadata", "repo_files"]
 
 
 def test_list_repos_sorted_projected_limited():

@@ -56,10 +56,21 @@ class RepoBackend:
     in production (importing the services stack only when a repo tool runs).
     """
 
-    def __init__(self, db: Any = None, mirror: Any = None, search_service: Any = None) -> None:
+    def __init__(
+        self,
+        db: Any = None,
+        mirror: Any = None,
+        search_service: Any = None,
+        db_manager: Any = None,
+    ) -> None:
         self._db = db
         self._mirror = mirror
         self._search = search_service
+        # ``db_manager`` נדרש **רק** ליצירת האינדקסים, דרך
+        # ``DatabaseManager.safe_create_index``. הוא מוזרק ולא מיובא, כדי
+        # לשמור על הכלל שבראש החבילה: מודול כאן אינו מייבא תלות כבדה
+        # ברמת המודול.
+        self._db_manager = db_manager
         self._ensure_indexes()
 
     # -- wiring ------------------------------------------------------------
@@ -78,64 +89,55 @@ class RepoBackend:
         return self._search
 
     def _ensure_indexes(self) -> None:
-        """יצירת האינדקסים שהשירות הזה נשען עליהם, best-effort.
+        """יצירת האינדקסים שהשירות הזה נשען עליהם, דרך המנגנון הקנוני.
 
-        כל אינדקס ב-``try`` נפרד **בכוונה**: כשהיו תחת בלוק אחד, כשל בראשון
-        היה מדלג בשקט על השאר.
+        **``DatabaseManager.safe_create_index`` ולא יצירה ישירה.** גרסה קודמת
+        כאן שכפלה את מדיניות ההתנגשות שלו — וקיבלה אותה שגויה: היא זיהתה את
+        הקודים ``85``/``86`` והחשיבה אותם להצלחה, בזמן שהמנגנון האמיתי
+        **קורא את האינדקסים בפועל אחרי ההתנגשות** ומאשר רק אם המפתחות *ו*-
+        ``unique`` תואמים (``_index_matches``). קוד ``86`` פירושו "אותו שם,
+        מפתחות אחרים" — כלומר בדיוק לא כיסוי, והשכפול שלי היה מכריז הצלחה
+        ומשאיר את השליפות ב-COLLSCAN.
+
+        **``unique=True`` בשניהם.** גרסה קודמת ביקשה אינדקס לא-ייחודי בטענה
+        שכל הצורך הוא חיפוש. זה החמיץ שהאינדקס הלא-ייחודי **חוסם** את
+        הייחודי: ``scripts/create_repo_indexes.py`` היה מקבל
+        ``IndexOptionsConflict`` ונופל, כלומר מסד חדש היה נשאר בלי אילוץ
+        הזהות שה-upsert של האינדקסר מניח.
+
+        ללא ``db_manager`` לא נוצרים אינדקסים — עדיף לא ליצור מאשר לשכפל שוב
+        את המדיניות.
         """
-        if self._db is None:
+        create = getattr(self._db_manager, "safe_create_index", None)
+        if self._db is None or not callable(create):
+            # אותו דפוס ``getattr`` כמו ב-``DatabaseManager._create_indexes``,
+            # שנועד שם בדיוק לדמויות בדיקה בלי המתודה.
+            logger.debug("no db_manager.safe_create_index; skipping index setup")
             return
 
-        # list_repos runs on repo_metadata on every call, and the collection had
-        # no index at all — closing that gap is part of this phase, not "later".
-        try:
-            self._db["repo_metadata"].create_index("repo_name", unique=True)
-        except Exception:
-            logger.warning("repo_metadata index creation failed (non-fatal)", exc_info=True)
-
-        # ``repo_files`` נשלף לפי ``(repo_name, path)`` בכל מקום: ספירת השורות
-        # של ``list_tree``, ההעשרה של ``search_repo``, דפדפן הריפו בוובאפ,
-        # וה-upsert של האינדקסר לכל קובץ בכל סנכרון. את האינדקס הצהיר
-        # ``scripts/create_repo_indexes.py``, אבל שום דבר לא מריץ את הסקריפט —
-        # לא CI, לא ה-Dockerfile ולא סקריפט הפעלה — ולכן בפועל הוא היה קיים רק
-        # אם מישהו הריץ אותו ידנית.
-        #
-        # **לא ``unique``, במכוון.** מה שדרוש כאן הוא אינדקס *חיפוש*; הייחודיות
-        # היא אילוץ שלמות נתונים, וזו מטרה נפרדת שהסקריפט אחראי עליה. בקשת
-        # ``unique`` הייתה נכשלת על אוסף שכבר מכיל כפילויות — והכשל היה נבלע
-        # יחד עם כל השאר, כך שהאינדקס לא נוצר בזמן שהלוג אומר "non-fatal".
-        # אינדקס לא-ייחודי אינו יכול להיכשל מהסיבה הזו.
-        self._create_lookup_index("repo_files", [("repo_name", 1), ("path", 1)])
-
-    def _create_lookup_index(self, collection: str, keys: list[tuple[str, int]]) -> None:
-        """יצירת אינדקס חיפוש, עם הבחנה בין התנגשות שפירה לכשל אמיתי.
-
-        קודי ההתנגשות ואופן הזיהוי נלקחו מ-``DatabaseManager.safe_create_index``
-        (``database/manager.py``), שכבר פותר בדיוק את זה: ``85``
-        (IndexOptionsConflict), ``86`` (IndexKeySpecsConflict) ו-"already exists"
-        פירושם שאינדקס על אותם מפתחות כבר קיים — למשל הייחודי שהסקריפט יוצר —
-        וזו הצלחה, לא תקלה. **כל שאר הסיבות אינן נבלעות**: הן נרשמות כשגיאה
-        עם המשמעות המעשית, כי אינדקס שלא נוצר משאיר את השליפות בסריקה מלאה.
-        """
-        try:
-            self._db[collection].create_index(keys)
-        except Exception as error:
-            code = getattr(error, "code", None)
-            message = str(error or "").lower()
-            already_covered = (
-                code in {85, 86}
-                or "indexoptionsconflict" in message
-                or "indexkeyspecsconflict" in message
-                or "already exists" in message
-            )
-            if already_covered:
-                return
-            logger.error(
-                "%s index on %s was NOT created; lookups will scan the collection",
-                collection,
-                keys,
-                exc_info=True,
-            )
+        wanted = (
+            # list_repos runs on repo_metadata on every call, and the collection
+            # had no index at all — closing that gap is part of this phase.
+            ("repo_metadata", [("repo_name", 1)]),
+            # ``repo_files`` נשלף לפי ``(repo_name, path)`` בכל מקום: ספירת
+            # השורות של ``list_tree``, ההעשרה של ``search_repo`` בכל חיפוש,
+            # דפדפן הריפו בוובאפ, וה-upsert של האינדקסר לכל קובץ בכל סנכרון.
+            # את האינדקס הצהיר ``scripts/create_repo_indexes.py``, אבל שום דבר
+            # לא מריץ את הסקריפט, ולכן בפועל הוא היה קיים רק אם מישהו הריץ
+            # אותו ידנית.
+            ("repo_files", [("repo_name", 1), ("path", 1)]),
+        )
+        for collection, keys in wanted:
+            # כל אחד בנפרד: כשל באחד אינו מדלג על השני, ו**שום** כשל כאן אינו
+            # מפיל את בניית השרת — אינדקס חסר פוגע בביצועים, לא בנכונות.
+            try:
+                create(collection, keys, unique=True)
+            except Exception:
+                logger.warning(
+                    "%s index setup raised (non-fatal); lookups may scan",
+                    collection,
+                    exc_info=True,
+                )
 
     # -- helpers -----------------------------------------------------------
     def _sync_running(self, repo_name: str) -> bool:
