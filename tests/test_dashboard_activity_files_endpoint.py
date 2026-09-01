@@ -120,3 +120,122 @@ def test_the_endpoint_agrees_with_the_dashboard_timeline(wired_mongo):
     for key in ("title", "subtitle", "icon_lang", "badge", "badge_variant", "href"):
         assert [e.get(key) for e in data["events"]] == \
                [e.get(key) for e in files_group["events"]], key
+
+
+def _titles(client, offset=0, limit=12):
+    data = client.get(f"/api/dashboard/activity/files?offset={offset}&limit={limit}").get_json()
+    return [e.get("title") for e in data.get("events", [])], data
+
+
+def test_a_file_without_updated_at_is_not_pushed_to_the_bottom(wired_mongo):
+    """קובץ בלי ``updated_at`` ממוין לפי ``created_at``, ולא נופל לסוף.
+
+    ה-``$match`` מכליל אותו — שניים מענפי ה-``$or`` קיימים בדיוק בשבילו —
+    אבל מונגו משווה שדה חסר כאילו היה ``null``, ו-``null`` נמוך מ-``Date``
+    בסדר ההשוואה של BSON. כלומר מיון יורד על ``updated_at`` לבדו היה
+    מטביע קובץ טרי מתחת לכל מי שיש לו חותמת.
+    """
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    now = datetime.now(timezone.utc)
+
+    # ישן, אבל יש לו updated_at
+    db.code_snippets.insert_one({
+        "_id": ObjectId(), "user_id": USER_ID, "file_name": "old.py",
+        "code": "x", "programming_language": "python", "version": 1, "is_active": True,
+        "created_at": now - timedelta(days=3), "updated_at": now - timedelta(days=3),
+    })
+    # טרי, בלי updated_at כלל
+    db.code_snippets.insert_one({
+        "_id": ObjectId(), "user_id": USER_ID, "file_name": "fresh.py",
+        "code": "y", "programming_language": "python", "version": 1, "is_active": True,
+        "created_at": now - timedelta(minutes=5),
+    })
+
+    client = wired_mongo.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = USER_ID
+        sess["user_data"] = {"id": USER_ID, "first_name": "בדיקה",
+                             "is_admin": False, "is_premium": False}
+
+    titles, data = _titles(client)
+    assert len(titles) == 2, data
+    assert titles[0].endswith("fresh.py"), f"הקובץ הטרי לא הופיע ראשון: {titles}"
+
+
+def test_pagination_is_stable_when_timestamps_are_equal(wired_mongo):
+    """שני קבצים עם ``updated_at`` **זהה** מדפדפים בלי כפילות ובלי דילוג.
+
+    ‏``$sort`` אינו יציב, ולכן מפתח מיון לא ייחודי נותן סדר אחר בין
+    קריאות — ועם ``$skip`` זה מתורגם לשורה שחוזרת פעמיים ולשורה שנעלמת.
+    """
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    same = datetime.now(timezone.utc) - timedelta(hours=1)
+    for name in ("a.py", "b.py", "c.py"):
+        db.code_snippets.insert_one({
+            "_id": ObjectId(), "user_id": USER_ID, "file_name": name,
+            "code": "x", "programming_language": "python", "version": 1,
+            "is_active": True, "created_at": same, "updated_at": same,
+        })
+
+    client = wired_mongo.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = USER_ID
+        sess["user_data"] = {"id": USER_ID, "first_name": "בדיקה",
+                             "is_admin": False, "is_premium": False}
+
+    # אותו סדר בשתי קריאות זהות
+    first, _ = _titles(client)
+    again, _ = _titles(client)
+    assert first == again, f"הסדר השתנה בין שתי קריאות זהות: {first} / {again}"
+
+    # ודפדוף עמוד-עמוד מכסה את כל השלושה, בלי חזרות
+    paged = []
+    for off in range(3):
+        page, _ = _titles(client, offset=off, limit=1)
+        paged.extend(page)
+    assert len(paged) == len(set(paged)) == 3, f"כפילות או דילוג בדפדוף: {paged}"
+    assert sorted(paged) == sorted(first), (paged, first)
+
+
+def test_a_failed_count_does_not_hide_the_load_more_button(wired_mongo, monkeypatch):
+    """כשל בספירה אינו מסתיר קבצים שקיימים.
+
+    צד הלקוח מסיר את הכפתור כשהוא מקבל ``remaining`` אפס
+    (``dashboard.html``: ``parseInt(remaining || '0')`` ואז ``rem <= 0``),
+    ולכן ספירה שנבלעת לאפס הייתה מסתירה מהמשתמש את שאר הקבצים.
+    """
+    import webapp.app as wa
+
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    now = datetime.now(timezone.utc)
+    for i in range(3):
+        db.code_snippets.insert_one({
+            "_id": ObjectId(), "user_id": USER_ID, "file_name": f"f{i}.py",
+            "code": "x", "programming_language": "python", "version": 1,
+            "is_active": True, "created_at": now, "updated_at": now - timedelta(minutes=i),
+        })
+
+    client = wired_mongo.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = USER_ID
+        sess["user_data"] = {"id": USER_ID, "first_name": "בדיקה",
+                             "is_admin": False, "is_premium": False}
+
+    monkeypatch.setattr(wa, "_timeline_recent_files_count", lambda *a, **k: None)
+
+    # עמוד מלא (limit=2 מתוך 3) — הכפתור חייב לשרוד
+    data = client.get("/api/dashboard/activity/files?offset=0&limit=2").get_json()
+    assert data["ok"] is True, data
+    assert len(data["events"]) == 2, data
+    assert data["total_recent"] is None, "הספירה לא ידועה — אסור לדווח מספר"
+    assert data["remaining"] > 0, f"הכפתור נעלם למרות שהעמוד התמלא: {data}"
+    assert data["has_more"] is True, data
+
+    # עמוד חלקי — סיימנו ממילא
+    tail = client.get("/api/dashboard/activity/files?offset=2&limit=2").get_json()
+    assert len(tail["events"]) == 1, tail
+    assert tail["remaining"] == 0, tail
+    assert tail["has_more"] is False, tail

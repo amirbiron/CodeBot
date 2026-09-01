@@ -10731,29 +10731,71 @@ def _timeline_latest_files(db, match: Dict[str, Any], *, skip: int = 0, limit: i
         {'$sort': {'file_name': 1, 'version': -1}},
         {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
         {'$replaceRoot': {'newRoot': '$latest'}},
-        {'$sort': {'updated_at': -1}},
+        # מפתח מיון עם נפילה ל-``created_at``. ה-``$match`` מכליל קובץ
+        # שאין לו ``updated_at`` (שניים מענפי ה-``$or``), אבל מונגו משווה
+        # שדה חסר כאילו היה ``null``, ו-``null`` נמוך מ-``Date`` בסדר
+        # ההשוואה של BSON — כך שקובץ כזה היה שוקע מתחת לכולם במיון יורד.
+        # ``$ifNull`` מטפל בשני המקרים: הוא מתייחס לשדה חסר ול-undefined
+        # כאל null. זה גם מה שהבנאי כבר עושה כדי להציג את התאריך.
+        {'$addFields': {'_sort_at': {'$ifNull': ['$updated_at', '$created_at']}}},
+        # שובר שוויון על ``_id``: ``$sort`` אינו יציב, ומסמכים עם מפתח מיון
+        # זהה עלולים לחזור בסדר אחר בכל ריצה. עם ``$skip`` זה מתורגם
+        # לשורות כפולות בדף אחד וחסרות בבא. זו גם המוסכמה המתועדת ב-
+        # ``docs/database/cursor-pagination.rst``: מיון משני לפי ``_id``
+        # באותו כיוון.
+        {'$sort': {'_sort_at': -1, '_id': -1}},
     ]
     if skip:
         pipeline.append({'$skip': int(skip)})
     pipeline.append({'$limit': int(limit)})
-    return list(db.code_snippets.aggregate(pipeline) or [])
+    # ``allowDiskUse`` הוא מוסכמה בקובץ הזה. בשרת בתצורת ברירת מחדל הוא
+    # מיותר — ``allowDiskUseByDefault`` הוא ``true`` — אבל הוא כן מגן על
+    # שרת שהוקשח עם ``false``, ושם ``$group`` על היסטוריית גרסאות גדולה
+    # היה נכשל.
+    return list(db.code_snippets.aggregate(pipeline, allowDiskUse=True) or [])
 
 
-def _timeline_recent_files_count(db, match: Dict[str, Any]) -> int:
+def _timeline_recent_files_count(db, match: Dict[str, Any]) -> Optional[int]:
     """כמה **קבצים** בטווח, לא כמה מסמכים.
 
     המונה הזה מזין את כפתור "טען עוד", ולכן הוא חייב להיספר באותה יחידה
     שבה נספרות השורות המוצגות.
+
+    **החוזה:** ``None`` פירושו *לא הצלחנו לספור* — ולא "אפס קבצים".
+    ההבחנה הזו נחוצה כי צד הלקוח מסיר את הכפתור כשהוא מקבל אפס
+    (``dashboard.html``: ``parseInt(remaining || '0')`` ואז ``rem <= 0``),
+    כך שכשל ספירה שנבלע לאפס היה מסתיר מהמשתמש קבצים שכן קיימים.
+    הקוראים מחליטים מה לעשות עם ``None`` — ראו ``_timeline_more_files``.
     """
     try:
         rows = list(db.code_snippets.aggregate([
             {'$match': match},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'n'},
-        ]))
-    except Exception:
-        return 0
+        ], allowDiskUse=True))
+    except PyMongoError:
+        # לא נבלע בשקט: הקורא צריך לדעת שהמספר אינו ידוע, ואנחנו צריכים
+        # לדעת שזה קרה.
+        logger.warning("timeline recent files count failed", exc_info=True)
+        return None
     return int(rows[0].get('n', 0)) if rows else 0
+
+
+def _timeline_more_files(counted: Optional[int], *, shown_total: int,
+                         page_len: int, page_size: int) -> int:
+    """כמה קבצים נותרו מעבר למה שכבר הוצג.
+
+    שני הפרמטרים אינם אותו דבר, ובכוונה: כשהספירה **ידועה** התשובה נגזרת
+    מכמה הוצג בסך הכול (``shown_total``), וכשהיא ``None`` היא נגזרת מכך
+    שהעמוד **הנוכחי** התמלא עד התקרה (``page_len`` מול ``page_size``).
+    בעמוד הראשון שני הערכים מתלכדים, ובדפדוף הם נפרדים.
+
+    כשאין ספירה **לא מסתירים את הכפתור על סמך מספר שאיננו יודעים**:
+    עמוד מלא מעיד שכנראה יש עוד, ועמוד חלקי מעיד שסיימנו ממילא.
+    """
+    if counted is not None:
+        return max(0, int(counted) - int(shown_total))
+    return 1 if int(page_len) >= int(page_size) else 0
 
 
 def _build_file_timeline_event(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -10799,7 +10841,8 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     recent_cutoff = now - timedelta(days=7)
     events: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _TIMELINE_GROUP_META}
     errors: List[str] = []
-    files_recent_total = 0
+    # ``None`` = לא ידוע, ולא אפס. ראו ``_timeline_recent_files_count``.
+    files_recent_total: Optional[int] = None
 
     # Files activity
     try:
@@ -10895,10 +10938,16 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         }
         if group_id == 'files':
             shown = len(sorted_items)
-            total = max(0, int(files_recent_total or 0))
-            group_payload['total_recent'] = total
+            remaining = _timeline_more_files(
+                files_recent_total, shown_total=shown, page_len=shown,
+                page_size=_TIMELINE_LIMITS['files'],
+            )
+            # התבנית מחשבת ``total_recent - shown`` לתווית הכפתור, ולכן
+            # היא צריכה מספר שלם. כשהספירה אינה ידועה אנחנו נותנים לה
+            # ``shown + remaining`` — כלומר את מה שאנחנו כן יודעים.
+            group_payload['total_recent'] = shown + remaining
             group_payload['shown'] = shown
-            group_payload['has_more'] = bool(total > shown)
+            group_payload['has_more'] = bool(remaining > 0)
         groups_payload.append(group_payload)
         filters.append({'id': group_id, 'label': meta['title'], 'count': len(sorted_items)})
 

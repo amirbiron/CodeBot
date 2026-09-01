@@ -46,6 +46,7 @@ def _get_app_helpers():
         _build_push_card,
         _finalize_events,
         _timeline_latest_files,
+        _timeline_more_files,
         _timeline_recent_files_count,
         _timeline_recent_files_query,
         _get_active_dismissals,
@@ -85,6 +86,7 @@ def _get_app_helpers():
         _finalize_events=_finalize_events,
         _timeline_recent_files_query=_timeline_recent_files_query,
         _timeline_recent_files_count=_timeline_recent_files_count,
+        _timeline_more_files=_timeline_more_files,
         _timeline_latest_files=_timeline_latest_files,
         _MIN_DT=_MIN_DT,
         BOT_USERNAME_CLEAN=BOT_USERNAME_CLEAN,
@@ -460,8 +462,9 @@ def api_dashboard_activity_files():
     recent_query = helpers._timeline_recent_files_query(user_id_int, recent_cutoff)
 
     # ספירת קבצים ולא מסמכים — אותה יחידה שבה נספרות השורות המוצגות,
-    # אחרת "טען עוד" מבטיח יותר ממה שיוצג.
-    total_recent = helpers._timeline_recent_files_count(db, recent_query)
+    # אחרת "טען עוד" מבטיח יותר ממה שיוצג. ``None`` פירושו שהספירה נכשלה,
+    # ולא שאין קבצים.
+    counted = helpers._timeline_recent_files_count(db, recent_query)
 
     try:
         docs = helpers._timeline_latest_files(db, recent_query, skip=offset, limit=limit)
@@ -476,13 +479,18 @@ def api_dashboard_activity_files():
         sorted(items, key=lambda ev: ev.get("_dt") or helpers._MIN_DT, reverse=True)
     )
     next_offset = offset + len(finalized)
-    remaining = max(0, total_recent - next_offset)
+    # כשל בספירה אינו מסתיר את הכפתור: עמוד מלא מעיד שכנראה יש עוד.
+    remaining = helpers._timeline_more_files(
+        counted, shown_total=next_offset, page_len=len(finalized), page_size=limit,
+    )
 
     return jsonify(
         {
             "ok": True,
             "events": finalized,
-            "total_recent": total_recent,
+            # ``null`` נאמר בכנות "לא ידוע". הלקוח קורא רק ``next_offset``
+            # ו-``remaining``, ולכן זה אינו שובר אותו.
+            "total_recent": counted,
             "offset": offset,
             "next_offset": next_offset,
             "remaining": remaining,

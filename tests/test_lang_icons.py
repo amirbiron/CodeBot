@@ -405,24 +405,35 @@ def test_both_timeline_paths_build_file_icons_identically():
     routes_src = DASHBOARD_ROUTES.read_text(encoding="utf-8")
 
     # שני המסלולים בונים את האירוע דרך **בנאי אחד**. קודם היו כאן שני
-    # עותקים של אותה לולאה, והשומר הזה השווה ביניהם טקסטואלית; מאז הם
-    # אוחדו, ולכן הטענה היא שהבנאי המשותף קיים ושכל מסלול מגיע דרכו.
-    # זה חזק יותר מהשוואת מחרוזות: סחיפה בין שני עותקים כבר לא אפשרית.
-    assert "def _build_file_timeline_event(" in app_src, (
+    # עותקים של אותה לולאה, והשומר השווה ביניהם טקסטואלית; מאז הם אוחדו.
+    #
+    # כל טענה מצומצמת לטווח שהיא מתיימרת לבדוק. גרסה קודמת של השומר
+    # בדקה ``icon_lang=language`` על פני **כל** ``app.py`` — והמחרוזת
+    # מופיעה גם בעותק ה-``_legacy_`` המת, כך שהקוד המת כיסה על החי;
+    # ובדקה ששם הבנאי מופיע ב-routes, מה שהתקיים משורת הייבוא לבדה.
+    marker = "def _build_file_timeline_event("
+    assert marker in app_src, (
         "הבנאי המשותף של אירוע קובץ נעלם — בלעדיו שני המסלולים חוזרים "
         "להיות שני עותקים שיכולים להיסחף"
     )
-    assert app_src.count("icon_lang=language") >= 1, (
+    start = app_src.index(marker)
+    end = app_src.index("\ndef ", start + len(marker))
+    builder_src = app_src[start:end]
+
+    assert "icon_lang=language" in builder_src, (
         "הבנאי חייב להעביר icon_lang, אחרת צד הלקוח לא יידע לבנות את "
         "האייקון ויפול חזרה לאמוג'י"
     )
-    assert "_build_file_timeline_event" in routes_src, (
-        "מסלול ״טען עוד״ חייב לבנות את האירוע דרך אותו בנאי"
+    assert ('LANG_ICON_SIZES["timeline"]' in builder_src
+            or "LANG_ICON_SIZES['timeline']" in builder_src), (
+        "הבנאי לא משתמש בגודל המרוכז לטיימליין"
     )
 
-    # הגודל נשלף מהמקום המרוכז, בבנאי היחיד
-    assert 'LANG_ICON_SIZES["timeline"]' in app_src or "LANG_ICON_SIZES['timeline']" in app_src, (
-        "app.py לא משתמש בגודל המרוכז לטיימליין"
+    # ב-routes נדרשת ה**קריאה** ולא רק השם: ייבוא לבדו אינו מוכיח
+    # שהמסלול עובר דרך הבנאי.
+    assert "_build_file_timeline_event(doc)" in routes_src, (
+        "מסלול ״טען עוד״ חייב לבנות את האירוע דרך אותו בנאי, ולא רק "
+        "לייבא אותו"
     )
 
 
