@@ -404,20 +404,37 @@ def test_both_timeline_paths_build_file_icons_identically():
     app_src = APP_PY.read_text(encoding="utf-8")
     routes_src = DASHBOARD_ROUTES.read_text(encoding="utf-8")
 
-    # שני המסלולים בונים אירועי קבצים ומעבירים את השפה לצד הלקוח
-    assert app_src.count("icon_lang=language") == 2, (
-        "הרינדור הראשוני של אירועי קבצים חייב להעביר icon_lang"
+    # שני המסלולים בונים את האירוע דרך **בנאי אחד**. קודם היו כאן שני
+    # עותקים של אותה לולאה, והשומר השווה ביניהם טקסטואלית; מאז הם אוחדו.
+    #
+    # כל טענה מצומצמת לטווח שהיא מתיימרת לבדוק. גרסה קודמת של השומר
+    # בדקה ``icon_lang=language`` על פני **כל** ``app.py`` — והמחרוזת
+    # מופיעה גם בעותק ה-``_legacy_`` המת, כך שהקוד המת כיסה על החי;
+    # ובדקה ששם הבנאי מופיע ב-routes, מה שהתקיים משורת הייבוא לבדה.
+    marker = "def _build_file_timeline_event("
+    assert marker in app_src, (
+        "הבנאי המשותף של אירוע קובץ נעלם — בלעדיו שני המסלולים חוזרים "
+        "להיות שני עותקים שיכולים להיסחף"
     )
-    assert "icon_lang=language" in routes_src, (
-        "מסלול ״טען עוד״ חייב להעביר icon_lang, אחרת צד הלקוח לא יידע "
-        "לבנות את האייקון ויפול חזרה לאמוג'י"
+    start = app_src.index(marker)
+    end = app_src.index("\ndef ", start + len(marker))
+    builder_src = app_src[start:end]
+
+    assert "icon_lang=language" in builder_src, (
+        "הבנאי חייב להעביר icon_lang, אחרת צד הלקוח לא יידע לבנות את "
+        "האייקון ויפול חזרה לאמוג'י"
+    )
+    assert ('LANG_ICON_SIZES["timeline"]' in builder_src
+            or "LANG_ICON_SIZES['timeline']" in builder_src), (
+        "הבנאי לא משתמש בגודל המרוכז לטיימליין"
     )
 
-    # ושניהם שולפים את הגודל מאותו מקום
-    for src, name in ((app_src, "app.py"), (routes_src, "dashboard_routes.py")):
-        assert 'LANG_ICON_SIZES["timeline"]' in src or "LANG_ICON_SIZES['timeline']" in src, (
-            f"{name} לא משתמש בגודל המרוכז לטיימליין"
-        )
+    # ב-routes נדרשת ה**קריאה** ולא רק השם: ייבוא לבדו אינו מוכיח
+    # שהמסלול עובר דרך הבנאי.
+    assert "_build_file_timeline_event(doc)" in routes_src, (
+        "מסלול ״טען עוד״ חייב לבנות את האירוע דרך אותו בנאי, ולא רק "
+        "לייבא אותו"
+    )
 
 
 def test_timeline_event_carries_language_for_client():

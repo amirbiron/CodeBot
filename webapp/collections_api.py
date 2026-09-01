@@ -20,6 +20,9 @@ import logging
 
 from cache_manager import dynamic_cache, cache
 from webapp.activity_tracker import log_user_event
+
+# תאריכי קובץ — מודול שורש טהור, אותו כלל בדיוק כמו בשכבת ה-DB וב-app.py
+from file_dates import inherited_created_at
 try:
     from config import config as _cfg  # type: ignore
 except Exception:  # pragma: no cover
@@ -1312,7 +1315,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
             "file_size": file_size,
             "lines_count": lines_count,
             "is_active": True,
-            "created_at": now,
+            "created_at": inherited_created_at(now, prev),
             "updated_at": now,
         }
         try:
@@ -1354,7 +1357,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
         "version": int(version),
         "file_size": file_size,
         "lines_count": lines_count,
-        "created_at": now,
+        "created_at": inherited_created_at(now, prev),
         "updated_at": now,
         "is_active": True,
     }

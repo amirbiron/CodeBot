@@ -30,7 +30,14 @@ class _FakeCollection:
         self.docs.append(stored)
         return type("R", (), {"inserted_id": stored["_id"]})()
 
-    def find_one(self, query, sort=None):
+    def find_one(self, query, projection=None, *args, **kwargs):
+        """חתימה כמו של ``Collection.find_one`` האמיתי.
+
+        ‏pymongo מקבל את ההיטלה כארגומנט **פוזיציוני שני**, ולכן סטאב
+        שמצהיר על ``sort`` במקום הזה מקבל אליה את ההיטלה. כאן זה עדיין
+        לא נשבר — לאוסף יש ``docs``, ולכן חישוב הגרסה פונה למסלול
+        הזיכרון המהיר ולא לשאילתה — אבל היישור מסיר את התלות במקריות.
+        """
         matches = [
             d
             for d in self.docs
@@ -39,7 +46,9 @@ class _FakeCollection:
         ]
         if not matches:
             return None
-        return max(matches, key=lambda d: int(d.get("version", 0) or 0))
+        doc = max(matches, key=lambda d: int(d.get("version", 0) or 0))
+        include = {k for k, v in (projection or {}).items() if v}
+        return {k: v for k, v in doc.items() if k in include} if include else doc
 
     def update_many(self, *a, **k):
         return type("R", (), {"modified_count": 0})()
@@ -50,6 +59,10 @@ class _FakeDBM:
 
     def __init__(self):
         self.collection = _FakeCollection()
+        # ``db`` כמו במנהל האמיתי: ``ProductionBackend._raw_mongo`` נשען
+        # עליו, ובלעדיו ``file_exists`` אינו יכול לענות — ומאז שכשל בירור
+        # חוסם שמירה, backend בלי ידית פשוט לא שומר.
+        self.db = {"code_snippets": self.collection}
         from database.repository import Repository
 
         self.repo = Repository(self)

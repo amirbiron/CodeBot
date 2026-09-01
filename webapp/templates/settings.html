@@ -3775,6 +3775,7 @@ async function handleRestoreFile(input) {
     if (r.collections > 0) summary += `אוספים: ${r.collections}<br>`;
     if (r.collection_items > 0) summary += `פריטים באוספים: ${r.collection_items}<br>`;
     if (r.bookmarks > 0) summary += `סימניות: ${r.bookmarks}<br>`;
+    if (r.note_boards > 0) summary += `לוחות פתקים: ${r.note_boards}<br>`;
     if (r.sticky_notes > 0) summary += `פתקיות: ${r.sticky_notes}<br>`;
     if (r.preferences) summary += `העדפות: שוחזרו<br>`;
     if (r.drive_prefs) summary += `העדפות Drive: שוחזרו<br>`;

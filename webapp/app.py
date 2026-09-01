@@ -177,6 +177,9 @@ from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
+# כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
+# שלמעלה, ראו tests/test_webapp_import_paths.py.
+from file_dates import inherited_created_at, file_was_edited  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
@@ -2691,6 +2694,23 @@ def _safe_dt_from_doc(value) -> datetime:
     return dt
 
 
+def _file_last_modified(doc: Dict[str, Any]) -> datetime:
+    """מתי הייצוג שהעמוד מגיש השתנה לאחרונה.
+
+    ‏``updated_at`` לבדו אינו מספיק: הוא מציין מתי **התוכן** נערך, ואילו
+    העמוד מרנדר גם את מצב המועדף והנעיצה. פעולות המטא-דאטה האלה אינן
+    נוגעות ב-``updated_at`` (ראו ``docs/database/detailed-schema.rst``),
+    ולכן בלי השדות שלהן דפדפן ששולח רק ``If-Modified-Since`` היה מקבל 304
+    עם מצב ישן. ``If-None-Match`` גובר לפי RFC 7232 §3.3 ולכן המסלול הזה
+    נדיר — אבל הוא קיים, ו-``curl -z`` מגיע דרכו.
+    """
+    candidates = [doc.get('updated_at'), doc.get('favorited_at'), doc.get('pinned_at')]
+    stamps = [_safe_dt_from_doc(v) for v in candidates if v is not None]
+    if not stamps:
+        return _safe_dt_from_doc(doc.get('created_at'))
+    return max(stamps)
+
+
 #: הפרויקציה שהילפרי ה-ETag צריכים. מוגדרת פעם אחת כדי שקורא שרוצה
 #: לשלוף את המסמך **בעצמו** ולחסוך שאילתה יוכל לבקש בדיוק את מה שהם
 #: קוראים — בלי לנחש ובלי שהרשימות ייסחפו זו מזו.
@@ -2848,6 +2868,14 @@ def _compute_file_etag(doc: Dict[str, Any], *, variant: str = '') -> str:
             'n': file_name,
             'v': version,
             'sha': hashlib.sha256(raw_code.encode('utf-8')).hexdigest(),
+            # מצב מועדף/נעוץ מרונדר לתוך ה-HTML (תוויות הכפתורים,
+            # ``aria-pressed``, ``data-is-pinned``), ולכן הוא חלק מהפלט ולא
+            # רק מטא-דאטה. עד כה הוא נעדר מכאן, ונכונות הקאש ניצלה רק בגלל
+            # ש-toggle_favorite/toggle_pin הזיזו את ``updated_at`` — תופעת
+            # לוואי של חותמת שמשמעותה "התוכן נערך". משנרשם כאן, הוולידטור
+            # נשען על מה שהעמוד באמת מציג.
+            'f': '1' if doc.get('is_favorite') else '0',
+            'p': '1' if doc.get('is_pinned') else '0',
             # גרסת ה-deploy: בלעדיה קובץ שלא נערך מחזיר ETag זהה בין deploys,
             # והדפדפן מקבל 304 ומציג תבנית ישנה (בלי אלמנטים חדשים).
             'sv': _STATIC_VERSION,
@@ -10660,74 +10688,208 @@ def _build_timeline_event(
     }
 
 
+#: השדות שאירוע קובץ בטיימליין קורא. ``code`` לעולם אינו נשלף לרשימה,
+#: לפי כלל ה-Smart Projection ב-``CLAUDE.md``.
+_TIMELINE_FILE_PROJECTION = {
+    'file_name': 1,
+    'programming_language': 1,
+    'updated_at': 1,
+    'created_at': 1,
+    'version': 1,
+    'description': 1,
+}
+
+
+def _timeline_recent_files_query(user_id: int, recent_cutoff: datetime,
+                                 active_query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """שאילתת הקבצים של שבעת הימים האחרונים.
+
+    ה-``$or`` מכסה מסמכים ישנים שבהם ``updated_at`` חסר או ``None``,
+    ואז נשענים על ``created_at``.
+    """
+    base = active_query or {'user_id': user_id, 'is_active': True}
+    query = dict(base) if isinstance(base, dict) else {'user_id': user_id, 'is_active': True}
+    query['$or'] = [
+        {'updated_at': {'$gte': recent_cutoff}},
+        {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
+        {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
+    ]
+    return query
+
+
+def _aggregate_snippets(db, pipeline: List[Dict[str, Any]]):
+    """‏``aggregate`` על ``code_snippets`` עם ``allowDiskUse``, ועם נפילה לאחור.
+
+    ``allowDiskUse`` מיותר בשרת בתצורת ברירת מחדל (``allowDiskUseByDefault``
+    הוא ``true``) אבל מגן על שרת שהוקשח עם ``false``. הנפילה לאחור על
+    ``TypeError`` היא לסטאבים ולמוקים ש-``aggregate`` שלהם אינו מקבל את
+    הפרמטר — אותה תאימות שכבר קיימת ב-``_aggregate_code_snippets``, וכאן
+    היא מוגדרת פעם אחת במקום להישכף.
+    """
+    try:
+        return db.code_snippets.aggregate(pipeline, allowDiskUse=True)
+    except TypeError:
+        return db.code_snippets.aggregate(pipeline)
+
+
+def _timeline_latest_files(db, match: Dict[str, Any], *, skip: int = 0, limit: int) -> List[Dict[str, Any]]:
+    """הגרסה האחרונה לכל שם קובץ, ולא מסמך גרסה לכל שורה.
+
+    כל עריכה יוצרת מסמך חדש ב-``code_snippets``, ולכן ``find`` ישיר מציף
+    את הפיד בשורה לכל גרסה. הקיבוץ הוא גם מה שהופך את ה-``skip`` לנכון:
+    ה-offset שמגיע מהלקוח סופר **אירועים שהוצגו** — כלומר קבצים — ודילוג
+    על אותו מספר מסמכי גרסה היה מחזיר את הגרסאות הישנות של אותו קובץ.
+    """
+    pipeline: List[Dict[str, Any]] = [
+        {'$match': match},
+        {'$project': dict(_TIMELINE_FILE_PROJECTION)},
+        {'$sort': {'file_name': 1, 'version': -1}},
+        {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+        {'$replaceRoot': {'newRoot': '$latest'}},
+        # מפתח מיון עם נפילה ל-``created_at``. ה-``$match`` מכליל קובץ
+        # שאין לו ``updated_at`` (שניים מענפי ה-``$or``), אבל מונגו משווה
+        # שדה חסר כאילו היה ``null``, ו-``null`` נמוך מ-``Date`` בסדר
+        # ההשוואה של BSON — כך שקובץ כזה היה שוקע מתחת לכולם במיון יורד.
+        # ``$ifNull`` מטפל בשני המקרים: הוא מתייחס לשדה חסר ול-undefined
+        # כאל null. זה גם מה שהבנאי כבר עושה כדי להציג את התאריך.
+        {'$addFields': {'_sort_at': {'$ifNull': ['$updated_at', '$created_at']}}},
+        # שובר שוויון על ``_id``: ``$sort`` אינו יציב, ומסמכים עם מפתח מיון
+        # זהה עלולים לחזור בסדר אחר בכל ריצה. עם ``$skip`` זה מתורגם
+        # לשורות כפולות בדף אחד וחסרות בבא. זו גם המוסכמה המתועדת ב-
+        # ``docs/database/cursor-pagination.rst``: מיון משני לפי ``_id``
+        # באותו כיוון.
+        {'$sort': {'_sort_at': -1, '_id': -1}},
+    ]
+    if skip:
+        pipeline.append({'$skip': int(skip)})
+    pipeline.append({'$limit': int(limit)})
+    # ``allowDiskUse`` הוא מוסכמה בקובץ הזה. בשרת בתצורת ברירת מחדל הוא
+    # מיותר — ``allowDiskUseByDefault`` הוא ``true`` — אבל הוא כן מגן על
+    # שרת שהוקשח עם ``false``, ושם ``$group`` על היסטוריית גרסאות גדולה
+    # היה נכשל.
+    return list(_aggregate_snippets(db, pipeline) or [])
+
+
+def _timeline_latest_files_page(db, match: Dict[str, Any], *, skip: int = 0,
+                                limit: int) -> Tuple[List[Dict[str, Any]], bool]:
+    """עמוד קבצים, ולצידו **עובדה** אם קיים עוד אחריו.
+
+    שולף שורה אחת מעבר לעמוד ומחזיר רק את גודל העמוד; קיומה של השורה
+    העודפת הוא התשובה. זה מחליף אומדן בעובדה: קודם הסקנו "יש עוד" מכך
+    שהעמוד התמלא, ולכן מספר קבצים שהוא כפולה מדויקת של גודל העמוד הציג
+    לחיצה נוספת שחוזרת ריקה.
+
+    השורה העודפת נשלפת תמיד ולא רק כשהספירה נכשלה, כי היא גם מכריעה
+    מרוץ: קובץ שנוסף בין הספירה לשליפה גורם לספירה לומר "אין עוד" בעוד
+    שיש. הכיוון הזה הוא המזיק — הוא **מסתיר** מהמשתמש קבצים.
+    """
+    docs = _timeline_latest_files(db, match, skip=skip, limit=int(limit) + 1)
+    return docs[: int(limit)], len(docs) > int(limit)
+
+
+def _timeline_recent_files_count(db, match: Dict[str, Any]) -> Optional[int]:
+    """כמה **קבצים** בטווח, לא כמה מסמכים.
+
+    המונה הזה מזין את כפתור "טען עוד", ולכן הוא חייב להיספר באותה יחידה
+    שבה נספרות השורות המוצגות.
+
+    **החוזה:** ``None`` פירושו *לא הצלחנו לספור* — ולא "אפס קבצים".
+    ההבחנה הזו נחוצה כי צד הלקוח מסיר את הכפתור כשהוא מקבל אפס
+    (``dashboard.html``: ``parseInt(remaining || '0')`` ואז ``rem <= 0``),
+    כך שכשל ספירה שנבלע לאפס היה מסתיר מהמשתמש קבצים שכן קיימים.
+    הקוראים מחליטים מה לעשות עם ``None`` — ראו ``_timeline_more_files``.
+    """
+    try:
+        rows = list(_aggregate_snippets(db, [
+            {'$match': match},
+            {'$group': {'_id': '$file_name'}},
+            {'$count': 'n'},
+        ]))
+    except PyMongoError:
+        # לא נבלע בשקט: הקורא צריך לדעת שהמספר אינו ידוע, ואנחנו צריכים
+        # לדעת שזה קרה.
+        logger.warning("timeline recent files count failed", exc_info=True)
+        return None
+    return int(rows[0].get('n', 0)) if rows else 0
+
+
+def _timeline_more_files(counted: Optional[int], *, shown_total: int,
+                         has_more: bool) -> int:
+    """כמה קבצים נותרו מעבר למה שכבר הוצג.
+
+    ``has_more`` מגיע מה-look-ahead ולכן הוא **עובדה** ולא אומדן: יש או
+    אין שורה נוספת אחרי העמוד. כשהספירה ידועה היא נותנת מספר לתווית
+    הכפתור, וכשאינה ידועה די בעובדה עצמה.
+
+    ה-``max`` אינו קישוט: ספירה שאומרת "אין עוד" בזמן שה-look-ahead מצא
+    שורה נוספת פירושה מרוץ (קובץ שנוסף בין שתי השאילתות), ואז עדיף
+    להראות כפתור מיותר מאשר להסתיר קבצים.
+    """
+    from_lookahead = 1 if has_more else 0
+    if counted is not None:
+        return max(max(0, int(counted) - int(shown_total)), from_lookahead)
+    return from_lookahead
+
+
+def _build_file_timeline_event(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """אירוע טיימליין אחד עבור מסמך קובץ.
+
+    מוגדר פעם אחת כי גם הטיימליין הראשי וגם ``/api/dashboard/activity/files``
+    בונים את אותה שורה בדיוק; שני עותקים נפרדים כבר גרמו לכך ששינוי באחד
+    לא הגיע לשני.
+    """
+    dt = doc.get('updated_at') or doc.get('created_at')
+    version = doc.get('version') or 1
+    action = "נוצר" if version == 1 else "עודכן"
+    file_name = doc.get('file_name') or "ללא שם"
+    language = resolve_file_language(doc.get('programming_language'), file_name)
+    details: List[str] = []
+    if doc.get('programming_language'):
+        details.append(doc['programming_language'])
+    elif language and language != 'text':
+        details.append(language)
+    if version:
+        details.append(f"גרסה {version}")
+    description = (doc.get('description') or "").strip()
+    subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
+    file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
+    return _build_timeline_event(
+        'files',
+        title=f"{action} {file_name}",
+        subtitle=subtitle,
+        dt=dt,
+        # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון מצויר ולא
+        # אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
+        icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
+        icon_lang=language,
+        badge=file_badge,
+        badge_variant='code',
+        href=f"/file/{doc.get('_id')}",
+        meta={'details': " · ".join(details)},
+    )
+
+
 def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, Any]] = None, *, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     recent_cutoff = now - timedelta(days=7)
     events: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _TIMELINE_GROUP_META}
     errors: List[str] = []
-    files_recent_total = 0
+    # ``None`` = לא ידוע, ולא אפס. ראו ``_timeline_recent_files_count``.
+    files_recent_total: Optional[int] = None
+    files_has_more = False
 
     # Files activity
     try:
-        file_query = active_query or {
-            'user_id': user_id,
-            'is_active': True,
-        }
         # טווח 7 ימים: הכפתור "טען עוד" אמור להרחיב עד שבוע אחורה בלבד.
-        # נשתמש ב-$or כדי לכסות מקרים שבהם updated_at חסר/None ונשענים על created_at.
-        file_query_recent = dict(file_query) if isinstance(file_query, dict) else {'user_id': user_id, 'is_active': True}
-        file_query_recent['$or'] = [
-            {'updated_at': {'$gte': recent_cutoff}},
-            {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
-            {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
-        ]
-        try:
-            files_recent_total = int(db.code_snippets.count_documents(file_query_recent))
-        except Exception:
-            files_recent_total = 0
-
-        cursor = db.code_snippets.find(
-            file_query_recent,
-            {'file_name': 1, 'programming_language': 1, 'updated_at': 1, 'created_at': 1, 'version': 1, 'description': 1},
-        ).sort('updated_at', DESCENDING).limit(_TIMELINE_LIMITS['files'])
+        file_query_recent = _timeline_recent_files_query(user_id, recent_cutoff, active_query)
+        files_recent_total = _timeline_recent_files_count(db, file_query_recent)
+        cursor, files_has_more = _timeline_latest_files_page(
+            db, file_query_recent, limit=_TIMELINE_LIMITS['files'])
     except Exception:
         cursor = []
         errors.append('files')
     for doc in cursor or []:
-        dt = doc.get('updated_at') or doc.get('created_at')
-        version = doc.get('version') or 1
-        is_new = version == 1
-        action = "נוצר" if is_new else "עודכן"
-        file_name = doc.get('file_name') or "ללא שם"
-        language = resolve_file_language(doc.get('programming_language'), file_name)
-        title = f"{action} {file_name}"
-        details: List[str] = []
-        if doc.get('programming_language'):
-            details.append(doc['programming_language'])
-        elif language and language != 'text':
-            details.append(language)
-        if version:
-            details.append(f"גרסה {version}")
-        description = (doc.get('description') or "").strip()
-        subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
-        href = f"/file/{doc.get('_id')}"
-        file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
-        events['files'].append(
-            _build_timeline_event(
-                'files',
-                title=title,
-                subtitle=subtitle,
-                dt=dt,
-                # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון
-                # מצויר ולא אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
-                icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
-                icon_lang=language,
-                badge=file_badge,
-                badge_variant='code',
-                href=href,
-                meta={'details': " · ".join(details)},
-            )
-        )
+        events['files'].append(_build_file_timeline_event(doc))
 
     # Push/reminder events
     push_docs: List[Dict[str, Any]] = []
@@ -10749,6 +10911,10 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         last_push = _normalize_dt(doc.get('last_push_success_at'))
         ack_at = _normalize_dt(doc.get('ack_at'))
         status = str(doc.get('status') or 'pending').lower()
+        # ההשמות שלמטה מערבבות ``datetime`` עם ערך אופציונלי מהמסמך, ולכן
+        # הטיפוס מוצהר. עד שלולאת הקבצים עברה לפונקציה משלה היא הייתה
+        # ההשמה הראשונה כאן, ו-mypy הסיק ``Any`` במקרה.
+        dt: Any
         if ack_at:
             badge, variant = "נסגר", "success"
             subtitle = "התזכורת טופלה"
@@ -10807,10 +10973,14 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         }
         if group_id == 'files':
             shown = len(sorted_items)
-            total = max(0, int(files_recent_total or 0))
-            group_payload['total_recent'] = total
+            remaining = _timeline_more_files(
+                files_recent_total, shown_total=shown, has_more=files_has_more)
+            # התבנית מחשבת ``total_recent - shown`` לתווית הכפתור, ולכן
+            # היא צריכה מספר שלם. כשהספירה אינה ידועה אנחנו נותנים לה
+            # ``shown + remaining`` — כלומר את מה שאנחנו כן יודעים.
+            group_payload['total_recent'] = shown + remaining
             group_payload['shown'] = shown
-            group_payload['has_more'] = bool(total > shown)
+            group_payload['has_more'] = bool(remaining > 0)
         groups_payload.append(group_payload)
         filters.append({'id': group_id, 'label': meta['title'], 'count': len(sorted_items)})
 
@@ -11707,11 +11877,7 @@ def files():
 
     def _aggregate_code_snippets(curr_pipeline: List[Dict[str, Any]]):
         """הרצת aggregation עם allowDiskUse כדי למנוע חריגות זיכרון בשלב sort."""
-        try:
-            return db.code_snippets.aggregate(curr_pipeline, allowDiskUse=True)
-        except TypeError:
-            # תאימות לסטאבים/מוקים בטסטים שלא מקבלים allowDiskUse
-            return db.code_snippets.aggregate(curr_pipeline)
+        return _aggregate_snippets(db, curr_pipeline)
 
     def _fallback_files_created_at_page(
         curr_query: Dict[str, Any],
@@ -12195,6 +12361,7 @@ def files():
                 'lines': lines_count,
                 'created_at': format_datetime_display(latest.get('created_at')),
                 'updated_at': format_datetime_display(latest.get('updated_at')),
+                'was_edited': file_was_edited(latest.get('created_at'), latest.get('updated_at')),
                 'last_opened_at': format_datetime_display(recent_map.get(fname)),
             })
 
@@ -12354,7 +12521,8 @@ def files():
             'size': format_file_size(size_bytes),
             'lines': lines_count,
             'created_at': format_datetime_display(file.get('created_at')),
-            'updated_at': format_datetime_display(file.get('updated_at'))
+            'updated_at': format_datetime_display(file.get('updated_at')),
+            'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at'))
         })
     
     # רשימת שפות לפילטר - רק מקבצים פעילים
@@ -12588,7 +12756,7 @@ def view_file(file_id):
     # HTTP cache validators (ETag / Last-Modified)
     theme_key = _get_theme_etag_key(user_id)
     etag = _compute_file_etag(file, variant=theme_key)
-    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if inm and inm == etag:
@@ -12596,18 +12764,13 @@ def view_file(file_id):
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
         return resp
-    ims = request.headers.get('If-Modified-Since')
-    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
-    if ims and not inm:
-        try:
-            ims_dt = parse_date(ims)
-        except Exception:
-            ims_dt = None
-        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
-            resp = Response(status=304)
-            resp.headers['ETag'] = etag
-            resp.headers['Last-Modified'] = last_modified_str
-            return resp
+    # ‏``If-Modified-Since`` לבדו אינו משמש כאן לוולידציה, ובכוונה.
+    # העמוד מרנדר את מצב המועדף והנעיצה לתוך ה-HTML, ואין שדה שמתעד
+    # **מתי המצב הזה השתנה**: ``favorited_at`` אומר מתי סומן, ולכן אחרי
+    # הסרת סימון הוא מתאפס — וה-``Last-Modified`` הנגזר ממנו נסוג אחורה.
+    # לקוח שמחזיק את הערך המאוחר היה מקבל 304 עם כוכב תקוע. ה-ETag כן
+    # מכיל את המצב עצמו, ולכן הוא הוולידטור היחיד לעמוד הזה.
+    # ``Last-Modified`` ממשיך להישלח כמידע.
 
 
     # הדגשת syntax
@@ -12633,6 +12796,7 @@ def view_file(file_id):
                                  'lines': len(code.split('\n')) if code else 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12665,6 +12829,7 @@ def view_file(file_id):
                                  'lines': 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12726,6 +12891,7 @@ def view_file(file_id):
         'lines': len(code.split('\n')) if code else 0,
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
+        'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
         'version': (file.get('version', 1) if not is_large else None),
         'is_large': is_large,
         'can_pin': not is_large,
@@ -13423,9 +13589,17 @@ def api_file_quick_update(file_id):
     """
     עדכון מהיר של תיאור ו/או תגיות לקובץ.
     Body: { "description": "...", "tags": ["tag1", "tag2"] }
-    
-    הערה: עדכון מוצלח גם מעדכן את updated_at, מה שיגרום לקובץ
-    לצאת מרשימת "לא עודכן זמן רב" (וזו התנהגות רצויה).
+
+    ``updated_at`` נחתם **רק כשהתיאור נכלל בעדכון**. הוא מציין מתי התוכן,
+    התיאור או השם השתנו, ותגיות הן מטא-דאטה — כמו מועדפים ונעיצה — ולכן
+    שינוי שלהן אינו "עריכה" של הקובץ. ראו ``docs/database/detailed-schema.rst``.
+
+    **מה שנגזר מזה:** מתוך שתי קבוצות "דורש טיפול", רק אחת מושפעת. קובץ
+    שנמצא שם בגלל תיאור או תגיות חסרים יוצא משם ברגע שהם נוספים, בלי קשר
+    לחותמת. קובץ שנמצא שם בגלל "לא עודכן זמן רב" (``updated_at`` ישן, ורק
+    לקבצים שכבר יש להם תיאור ותגיות) **יישאר שם** אחרי שינוי תגיות בלבד.
+    להסרה מהרשימה בלי לזייף עריכה יש מסלול ייעודי:
+    ``POST /api/file/<file_id>/dismiss-attention``.
     """
     try:
         user_id = session['user_id']
@@ -13447,7 +13621,7 @@ def api_file_quick_update(file_id):
             return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
         
         data = request.get_json() or {}
-        updates = {'updated_at': datetime.now(timezone.utc)}
+        updates = {}
         
         if 'description' in data:
             desc = (data.get('description') or '').strip()[:500]
@@ -13466,9 +13640,15 @@ def api_file_quick_update(file_id):
                     clean_tags.append(tag)
             updates['tags'] = clean_tags
         
-        if len(updates) <= 1:  # רק updated_at
+        if not updates:
             return jsonify({'ok': False, 'error': 'לא סופקו שדות לעדכון'}), 400
-        
+
+        # ``updated_at`` נחתם רק כשהתיאור השתנה. הראוט הזה מטפל בשני שדות,
+        # ורק אחד מהם נכלל בחוזה של ``updated_at`` — תגיות הן מטא-דאטה,
+        # בדיוק כמו מועדפים ונעיצה, ושינוי שלהן אינו "עריכה" של הקובץ.
+        if 'description' in updates:
+            updates['updated_at'] = datetime.now(timezone.utc)
+
         db.code_snippets.update_one({'_id': oid}, {'$set': updates})
         
         # Invalidate cache
@@ -13771,7 +13951,7 @@ def api_restore_file_version(file_id):
         'description': description,
         'tags': tags,
         'version': next_version,
-        'created_at': now,
+        'created_at': inherited_created_at(now, latest_doc, version_doc, file_doc),
         'updated_at': now,
         'is_active': True,
         'is_favorite': bool((latest_doc or {}).get('is_favorite', file_doc.get('is_favorite', False))),
@@ -13836,8 +14016,9 @@ def api_file_move_to_trash(file_id):
 'is_active': True,
             },
             {'$set': {
+                # ``deleted_at`` מתעד את המחיקה, וסל המיחזור ממיין לפיו.
+                # ``updated_at`` נשאר על העריכה האחרונה בפועל.
                 'is_active': False,
-                'updated_at': now,
                 'deleted_at': now,
                 'deleted_expires_at': expires_at,
             }},
@@ -13875,13 +14056,12 @@ def api_recycle_bin_restore(file_id: str):
     except Exception:
         return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
 
-    now = datetime.now(timezone.utc)
     modified = 0
 
     try:
         res = db.code_snippets.update_many(
             {'_id': oid, 'user_id': user_id, 'is_active': False},
-            {'$set': {'is_active': True, 'updated_at': now},
+            {'$set': {'is_active': True},
              '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
         )
         modified += int(getattr(res, 'modified_count', 0) or 0)
@@ -13894,7 +14074,7 @@ def api_recycle_bin_restore(file_id: str):
             try:
                 res2 = large_coll.update_many(
                     {'_id': oid, 'user_id': user_id, 'is_active': False},
-                    {'$set': {'is_active': True, 'updated_at': now},
+                    {'$set': {'is_active': True},
                      '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
                 )
                 modified += int(getattr(res2, 'modified_count', 0) or 0)
@@ -14613,7 +14793,7 @@ def edit_file_page(file_id):
                         'description': description,
                         'tags': tags,
                         'version': version,
-                        'created_at': now,
+                        'created_at': inherited_created_at(now, prev, file),
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -14653,11 +14833,14 @@ def edit_file_page(file_id):
                                     }
                                     db.code_snippets.update_many(
                                         unpin_query,
+                                        # הגרסה החדשה כן נושאת ``updated_at``
+                                        # חדש. הגרסאות הישנות רק מאבדות את
+                                        # סימון הנעיצה — התוכן שלהן לא זז,
+                                        # ולכן החותמת שלהן נשארת.
                                         {'$set': {
                                             'is_pinned': False,
                                             'pinned_at': None,
                                             'pin_order': 0,
-                                            'updated_at': now,
                                         }},
                                     )
                                 except Exception as exc:
@@ -14672,11 +14855,13 @@ def edit_file_page(file_id):
                                                 'is_active': True,
                                                 '_id': {'$ne': res.inserted_id},
                                             },
+                                            # ראו ההערה באתר ביטול הנעיצה
+                                            # השני — התוכן של הגרסאות הישנות
+                                            # לא זז, ולכן החותמת שלהן נשארת.
                                             {'$set': {
                                                 'is_pinned': False,
                                                 'pinned_at': None,
                                                 'pin_order': 0,
-                                                'updated_at': now,
                                             }},
                                         )
                                     except Exception as exc:
@@ -15116,7 +15301,7 @@ def md_preview(file_id):
     # ובלי זה שינוי ההגדרה מחזיר את אותו ETag ← 304 ← הדגל הישן.
     note_fonts_key = _note_fonts_etag_key(user_id, user_doc=_etag_user_doc)
     etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}")
-    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if not force_no_cache and inm and inm == etag:
@@ -15270,7 +15455,7 @@ def reader_mode(filename):
 
     theme_key = _get_theme_etag_key(user_id)
     etag = _compute_file_etag(doc, variant=theme_key)
-    last_modified_dt = _safe_dt_from_doc(doc.get('updated_at') or doc.get('created_at'))
+    last_modified_dt = _file_last_modified(doc)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if inm and inm == etag:
@@ -15823,7 +16008,7 @@ def api_save_shared_file():
             'description': description,
             'tags': tags,
             'version': version,
-            'created_at': now_utc,
+            'created_at': inherited_created_at(now_utc, prev),
             'updated_at': now_utc,
             'is_active': True,
         }
@@ -16531,7 +16716,7 @@ def upload_file_web():
                         'description': description,
                         'tags': final_tags,
                         'version': version,
-                        'created_at': now,
+                        'created_at': inherited_created_at(now, prev),
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -16618,9 +16803,11 @@ def api_toggle_favorite(file_id):
         try:
             db.code_snippets.update_many(q, {
                 '$set': {
+                    # ``favorited_at`` מתעד את הפעולה. ``updated_at`` מציין
+                    # מתי התוכן, התיאור או השם השתנו, וסימון מועדף אינו משנה
+                    # אף אחד מהם — ראו ``docs/database/detailed-schema.rst``.
                     'is_favorite': new_state,
                     'favorited_at': (now if new_state else None),
-                    'updated_at': now,
                 }
             })
         except Exception:
@@ -16757,9 +16944,9 @@ def api_files_bulk_favorite():
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
+                # ראו ההערה ב-``api_toggle_favorite``.
                 'is_favorite': True,
                 'favorited_at': now,
-                'updated_at': now,
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
@@ -16786,7 +16973,6 @@ def api_files_bulk_unfavorite():
 
         db = get_db()
         user_id = session['user_id']
-        now = datetime.now(timezone.utc)
 
         q = {
             '_id': {'$in': object_ids},
@@ -16795,9 +16981,9 @@ def api_files_bulk_unfavorite():
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
+                # ראו ההערה ב-``api_toggle_favorite``.
                 'is_favorite': False,
                 'favorited_at': None,
-                'updated_at': now,
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
@@ -16839,18 +17025,25 @@ def api_files_bulk_tag():
 
         db = get_db()
         user_id = session['user_id']
-        now = datetime.now(timezone.utc)
 
         q = {
             '_id': {'$in': object_ids},
             'user_id': user_id,
             'is_active': True
         }
+        # ``$addToSet`` בלבד. תיוג הוא מטא-דאטה, ו-``updated_at`` מציין מתי
+        # התוכן, התיאור או השם השתנו — ``file_was_edited`` נגזרת ממנו והפיד
+        # בדשבורד ממיין לפיו. חתימה כאן הקפיצה כל קובץ שתויג לראש "עודכן
+        # לאחרונה" וסימנה אותו כ"עודכן" בלי שנגעו בתוכן.
         res = db.code_snippets.update_many(q, {
             '$addToSet': {'tags': {'$each': norm_tags}},
-            '$set': {'updated_at': now}
         })
-        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+        # ``matched_count`` ולא ``modified_count``: הלקוח מציג את המספר הזה
+        # ומחליט לפיו אם לרענן את העמוד, והשאלה שלו היא "על כמה קבצים
+        # התגיות נמצאות עכשיו" — קובץ שכבר נשא אותן נספר. עד עכשיו ה-``$set``
+        # הפך כל התאמה למודיפיקציה, ולכן זה בדיוק המספר שהוחזר גם קודם.
+        matched = int(getattr(res, 'matched_count', 0) or 0)
+        return jsonify({'success': True, 'updated': matched})
     except Exception:
         return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
@@ -17047,10 +17240,10 @@ def api_files_bulk_delete():
             }
             res = db.code_snippets.update_many(q, {
                 '$set': {
+                    # ראו ההערה ב-``api_file_move_to_trash``.
                     'is_active': False,
                     'deleted_at': now,
                     'deleted_expires_at': expires_at,
-                    'updated_at': now,
                 }
             })
             modified_count = int(getattr(res, 'modified_count', 0))
@@ -19008,7 +19201,7 @@ def _persist_story_markdown_file(
         'description': description[:400],
         'tags': dedup_tags,
         'version': version,
-        'created_at': now,
+        'created_at': inherited_created_at(now, prev),
         'updated_at': now,
         'is_active': True,
     }
@@ -19515,6 +19708,9 @@ def public_share(share_id):
         'lines': lines_count,
         'created_at': created_at_str,
         'updated_at': created_at_str,
+        # מסמך internal_shares נושא רק את זמן יצירת *השיתוף* ואין בו
+        # updated_at, ולכן אין ממה לגזור עריכה. שתי השורות ממילא זהות כאן.
+        'was_edited': False,
         'version': 1,
         'can_pin': False,
     }

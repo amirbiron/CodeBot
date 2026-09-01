@@ -50,6 +50,8 @@ except Exception:  # pragma: no cover - דקורטור no-op במקרה שחסר
 
 from .manager import DatabaseManager
 from utils import normalize_code
+# תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
+from file_dates import inherited_created_at
 from config import config
 try:
     from observability import emit_event
@@ -209,8 +211,25 @@ class Repository:
             # במכוון לא דרך הגרסה המקוּשה: ערך ישן כאן מייצר שתי גרסאות עם
             # אותו מספר, ואז העריכה הבאה נבנית שוב על גבי הבסיס הישן.
             existing = self._fetch_latest_version(snippet.user_id, snippet.file_name)
+            # שתי שאלות נפרדות, ובכוונה. **המספור** נשאל על כל המסמכים
+            # כולל אלה שבסל, אחרת שמירה בזמן שהקובץ בסל מתנגשת עם גרסה
+            # שתחזור לחיים בשחזור. **הירושה** נשארת על הגרסה הפעילה
+            # האחרונה, כי קובץ חדש שקיבל שם ממוחזר אינו אמור לרשת את
+            # התאריך והמועדפים של קובץ אחר שנמחק.
+            max_version = self._max_version_any_state(
+                snippet.user_id, snippet.file_name)
+            if max_version is None:
+                # לא ידוע אינו אפס. כתיבה עם מספר מנוחש הייתה יוצרת גרסה
+                # כפולה, ואז התוכן הישן גובר בבחירה לפי הגרסה הגבוהה —
+                # כלומר אובדן שקט של מה שנשמר עכשיו. עדיף כשל גלוי.
+                emit_event("db_save_aborted_unknown_version", severity="error",
+                           file_name=str(snippet.file_name))
+                return False
+            snippet.version = max_version + 1
             if existing:
-                snippet.version = existing['version'] + 1
+                # תאריך היצירה שייך לקובץ, לא לשורה: גרסה חדשה יורשת אותו
+                # מהגרסה הקודמת, אחרת "נוצר" היה מציג את זמן העריכה האחרונה.
+                snippet.created_at = inherited_created_at(snippet.created_at, existing)
                 # שמור סטטוס מועדפים מהגרסה הקודמת אם לא סופק מפורשות
                 try:
                     prev_is_fav = bool(existing.get('is_favorite', False))
@@ -237,7 +256,11 @@ class Repository:
                             snippet.pin_order = 0
                 except Exception:
                     pass
-            snippet.updated_at = datetime.now(timezone.utc)
+            # רק גרסה חדשה של קובץ קיים היא עריכה. כשאין גרסה קודמת משאירים
+            # את מה שהמודל קבע — created_at לקובץ חדש, או הערך מהגיבוי
+            # בשחזור. דריסה כאן הייתה מוחקת את updated_at המשוחזר.
+            if existing:
+                snippet.updated_at = datetime.now(timezone.utc)
             # הוסף שדות מטא קלים למסכי רשימות כדי לא למשוך `code` רק בשביל סטטיסטיקות.
             # זה שומר תאימות למסמכים ישנים (ללא שדות אלו) ומשפר ביצועים למסמכים חדשים.
             doc = asdict(snippet)
@@ -366,13 +389,19 @@ class Repository:
                     pass
             new_state = not curr_state
             now = datetime.now(timezone.utc)
-            update = {
-                "$set": {
-                    "is_favorite": new_state,
-                    "updated_at": now,
-                    "favorited_at": (now if new_state else None),
-                }
+            # ``updated_at`` מציין מתי התוכן של הקובץ השתנה, וסימון מועדף
+            # אינו משנה אותו. ``favorited_at`` הוא השדה שמתעד את הפעולה הזו.
+            # חתימה כאן הייתה גורמת לקובץ שמעולם לא נערך להציג "עודכן"
+            # (``file_was_edited``) ולקפוץ לראש "עודכן לאחרונה".
+            #
+            # השדות מוגדרים פעם אחת, כי הם נכתבים בשלושה מקומות: ה-``$set``
+            # ושני מסלולי ה-fallback לאחסון in-memory שמתחת. שלושה עותקים
+            # נפרדים היו מבטיחים שתיקון באחד לא יגיע לשניים האחרים.
+            favorite_fields = {
+                "is_favorite": new_state,
+                "favorited_at": (now if new_state else None),
             }
+            update = {"$set": dict(favorite_fields)}
             # חשוב: עדכן *כל הגרסאות* של אותו קובץ כדי למנוע מצב שבו:
             # - ישנה גרסה ישנה עם is_favorite=True
             # - הגרסה האחרונה עם is_favorite=False
@@ -401,9 +430,7 @@ class Repository:
                     if candidates:
                         # עדכון כל המסמכים של אותו קובץ (כל הגרסאות)
                         for d in candidates:
-                            d['is_favorite'] = new_state
-                            d['updated_at'] = now
-                            d['favorited_at'] = (now if new_state else None)
+                            d.update(favorite_fields)
                         matched = 1
                 except Exception:
                     pass
@@ -419,9 +446,7 @@ class Repository:
                             continue
                         if str(d.get('file_name') or '') != str(file_name):
                             continue
-                        d['is_favorite'] = new_state
-                        d['updated_at'] = now
-                        d['favorited_at'] = (now if new_state else None)
+                        d.update(favorite_fields)
                 except Exception:
                     pass
             try:
@@ -788,6 +813,50 @@ class Repository:
         return self._fetch_latest_version(user_id, file_name)
 
     @_instrument_db("db.get_latest_version")
+    def _max_version_any_state(self, user_id: int, file_name: str) -> Optional[int]:
+        """מספר הגרסה הגבוה ביותר לקובץ — **כולל מסמכים בסל המיחזור**.
+
+        מספר גרסה חייב להיות ייחודי לכל ``(user_id, file_name)`` בלי קשר
+        ל-``is_active``, כי מחיקה רכה אינה מוחקת: המסמכים נשארים ויכולים
+        לחזור לחיים בשחזור מהסל.
+
+        בלי זה, שמירה בזמן שהקובץ בסל לא רואה את הגרסאות המחוקות ומקבלת
+        ``version = 1``; שחזור מהסל מחזיר את הישנות, ואז הבחירה לפי הגרסה
+        הגבוהה ביותר נותנת לתוכן **הישן** לגבור על מה שנשמר אחריו.
+
+        **החוזה:** ``0`` כשאין אף מסמך (ואז ``+1`` נותן גרסה 1), ו-``None``
+        כשלא הצלחנו לברר. ההבחנה אינה קוסמטית: ``0`` בכשל היה נותן
+        ``version = 1`` בזמן שהגרסה הפעילה היא 5 — מספר כפול, ואז התוכן
+        הישן גובר בבחירה לפי הגרסה הגבוהה. כלומר בדיוק הבאג שהפונקציה
+        נכתבה כדי למנוע. הקורא מכריע מה לעשות עם ``None``.
+        """
+        try:
+            docs_list = getattr(self.manager.collection, 'docs', None)
+            if isinstance(docs_list, list):
+                versions = [
+                    int(d.get('version', 0) or 0) for d in docs_list
+                    if isinstance(d, dict)
+                    and d.get('user_id') == user_id
+                    and d.get('file_name') == file_name
+                ]
+                if versions:
+                    return max(versions)
+                return 0
+        except Exception:
+            pass
+        try:
+            # היטלה ל-``version`` בלבד: בלעדיה השאילתה מושכת את המסמך
+            # המלא **כולל** ``code`` בכל שמירה, רק כדי לקרוא מספר אחד.
+            doc = self.manager.collection.find_one(
+                {"user_id": user_id, "file_name": file_name},
+                {"version": 1},
+                sort=[("version", -1)],
+            )
+            return int((doc or {}).get('version', 0) or 0)
+        except Exception as e:
+            emit_event("db_max_version_error", severity="error", error=str(e))
+            return None
+
     def _fetch_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         """קריאה ישירה מה-DB, בלי קאש.
 
@@ -1124,7 +1193,6 @@ class Repository:
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1159,7 +1227,6 @@ class Repository:
                 {"user_id": user_id, "file_name": {"$in": list(set(file_names))}, "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1197,7 +1264,6 @@ class Repository:
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }}
@@ -1321,6 +1387,11 @@ class Repository:
                 pass
             existing = self.get_large_file(large_file.user_id, large_file.file_name)
             if existing:
+                # לפני המחיקה, לא אחריה: אחרי delete_large_file המסמך כבר לא פעיל.
+                large_file.created_at = inherited_created_at(large_file.created_at, existing)
+                # שמירה מחדש על קובץ קיים היא עריכה. השחזור מגיבוי כן מעביר
+                # updated_at היסטורי, ולכן הרענון כאן אינו מיותר.
+                large_file.updated_at = datetime.now(timezone.utc)
                 self.delete_large_file(large_file.user_id, large_file.file_name)
             result = self.manager.large_files_collection.insert_one(asdict(large_file))
             return bool(result.inserted_id)
@@ -1381,7 +1452,6 @@ class Repository:
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1408,7 +1478,6 @@ class Repository:
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
                     "is_active": False,
-                    "updated_at": now,
                     "deleted_at": now,
                     "deleted_expires_at": expires,
                 }},
@@ -1487,10 +1556,9 @@ class Repository:
 
     def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
         try:
-            now = datetime.now(timezone.utc)
             res = self.manager.collection.update_many(
                 {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
-                {"$set": {"is_active": True, "updated_at": now},
+                {"$set": {"is_active": True},
                  "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
             )
             modified = int(res.modified_count or 0)
@@ -1498,7 +1566,7 @@ class Repository:
                 # Try large files collection
                 res2 = self.manager.large_files_collection.update_many(
                     {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
-                    {"$set": {"is_active": True, "updated_at": now},
+                    {"$set": {"is_active": True},
                      "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
                 )
                 modified += int(res2.modified_count or 0)

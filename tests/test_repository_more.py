@@ -24,8 +24,12 @@ def test_soft_delete_files_by_names_paths(monkeypatch):
     flt, upd = coll.last
     assert flt["user_id"] == 7 and "file_name" in flt and "$in" in flt["file_name"] and flt["is_active"] is True
     assert upd["$set"]["is_active"] is False
-    assert isinstance(upd["$set"]["updated_at"], datetime)
-    assert "deleted_at" in upd["$set"] and "deleted_expires_at" in upd["$set"]
+    # מחיקה רכה מתועדת ב-``deleted_at``, ולא בחותמת עריכה: ``updated_at``
+    # מציין מתי התוכן השתנה, ומחיקה אינה משנה אותו. הטענה כאן הפוכה מבעבר
+    # במכוון — היא קיבעה את ההתנהגות שגרמה לקובץ למחוק להיראות "נערך".
+    assert isinstance(upd["$set"]["deleted_at"], datetime)
+    assert "deleted_expires_at" in upd["$set"]
+    assert "updated_at" not in upd["$set"], upd["$set"]
 
     # empty list returns 0 and does not call update_many
     coll2 = DummyCollection(modified_count=5)

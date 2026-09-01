@@ -357,3 +357,71 @@ def test_a_non_dict_add_items_result_fails_cleanly_not_with_a_crash():
     be = ProductionBackend(db_manager=_DBM(), collections_manager=_CM())
     res = be.add_to_collection(7, collection_id="a" * 24, file_name="a.py")
     assert res == {"ok": False, "error": "add_failed"}
+
+
+class _ExplodingColl:
+    """אוסף שהשאילתה עליו נכשלת — לא "אין מסמך", אלא "לא ידעתי"."""
+
+    def find_one(self, *a, **k):
+        raise RuntimeError("mongo down")
+
+
+def test_file_exists_answers_from_a_projected_query():
+    """התשובה מגיעה משאילתה עם היטלה, ולא מטעינת הקובץ.
+
+    ‏``get_file`` מחזיר את המסמך המלא כולל ``code``; לשאלת כן/לא זה מחיר
+    של קובץ שלם בכל שמירה.
+    """
+    coll = _FakeColl(doc={"_id": "abc"})
+    be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=coll))
+
+    assert be.file_exists(7, file_name="amir.md") is True
+    assert coll.log["query"] == {"user_id": 7, "file_name": "amir.md", "is_active": True}
+    assert coll.log["projection"] == {"_id": 1}, coll.log["projection"]
+
+    empty = _FakeColl(doc=None)
+    be2 = ProductionBackend(mongo_db=_FakeMongo(code_snippets=empty))
+    assert be2.file_exists(7, file_name="amir.md") is False
+
+
+def test_file_exists_returns_none_when_the_query_fails():
+    """כשל שאילתה מוחזר כ-``None``, ולא כ-``False``.
+
+    ‏``False`` היה נקרא אצל הקורא כ"אין קובץ בשם הזה", והשמירה הייתה
+    קוברת תוכן קיים בדיוק ברגע שההגנה אמורה לפעול. וגם אין נפילה חזרה
+    ל-``get_file``: ה-handle **כן** זמין, השאילתה היא שנכשלה, וניחוש שני
+    היה מחזיר ``None`` גם על "לא קיים" — כלומר מטשטש בדיוק את ההבחנה.
+    """
+    be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=_ExplodingColl()))
+    assert be.file_exists(7, file_name="amir.md") is None
+
+
+def test_file_exists_returns_none_when_there_is_no_raw_handle():
+    """בלי ידית מונגו אין תשובה — ובוודאי לא ``False``.
+
+    היה כאן פולבק ל-``get_file``, והוא החזיר את הדו-משמעות שהחוזה נועד
+    להסיר: המסלול נגמר ב-``Repository._fetch_latest_version``, שתופס את
+    הכשל שלו ומחזיר ``None`` — כך ש"נפל" ו"אין קובץ" חזרו זהים, ו-``is
+    not None`` תרגם את שניהם ל-``False``.
+
+    בפרודקשן הענף הזה בכלל לא נדרך: ``mcp_server.app.create_app`` מסרב
+    לעלות בלי מונגו ותמיד מעביר ``mongo_db``.
+    """
+    class _DbmWithoutMongo:
+        """מנהל DB מוזרק שאין לו ``db`` — בדיוק מה ש-``_raw_mongo`` דורש."""
+
+    be = ProductionBackend(db_manager=_DbmWithoutMongo())
+    assert be.file_exists(7, file_name="amir.md") is None
+
+
+def test_file_exists_ignores_a_name_that_only_sits_in_the_trash():
+    """שם שיושב בסל אינו חוסם שמירה, וזו החלטה ולא השמטה.
+
+    ``is_active: True`` הוא חלק מהשאלה: שימוש חוזר בשם של קובץ שנזרק
+    מותר, ומספור הגרסאות כבר חוצה את הסל כך שהמסמך החדש אינו מתנגש.
+    """
+    trashed = _FakeColl(doc=None)  # השאילתה מסננת is_active ולכן לא מוצאת
+    be = ProductionBackend(mongo_db=_FakeMongo(code_snippets=trashed))
+
+    assert be.file_exists(7, file_name="amir.md") is False
+    assert trashed.log["query"]["is_active"] is True, trashed.log["query"]

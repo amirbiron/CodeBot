@@ -33,10 +33,15 @@ class CodeSnippet:
     def __post_init__(self) -> None:
         if self.tags is None:
             self.tags = []
+        # העדכון האחרון של רשומה הוא היצירה שלה, עד שנערכה. שתי קריאות
+        # נפרדות ל-now() היו מייצרות הפרש של מיקרו-שניות שיכול ליפול על
+        # גבול דקה ולהציג "עודכן" על קובץ טרי. וחשוב לא פחות: קורא שמעביר
+        # created_at היסטורי — למשל שחזור מגיבוי — מקבל updated_at עקבי
+        # איתו במקום את השעה הנוכחית.
         if self.created_at is None:
             self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = self.created_at
         # אם הפריט מוגדר כלא-פעיל אך אין timestamps למחיקה, השאר ריק — נקבע בזמן מחיקה
 
 
@@ -60,10 +65,11 @@ class LargeFile:
     def __post_init__(self) -> None:
         if self.tags is None:
             self.tags = []
+        # ראה ההערה ב-CodeSnippet.__post_init__.
         if self.created_at is None:
             self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = self.created_at
         if self.content:
             self.file_size = len(self.content.encode('utf-8'))
             self.lines_count = len(self.content.split('\n'))

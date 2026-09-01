@@ -13,9 +13,25 @@ class _FakeCollection:
         self._existing_doc = existing_doc
         self.last_insert = None
 
-    def find_one(self, query, sort=None):
-        # Simulate latest version query by file_name and user_id
-        return dict(self._existing_doc) if self._existing_doc else None
+    def find_one(self, query, projection=None, *args, **kwargs):
+        """חתימה כמו של ``Collection.find_one`` האמיתי, ובכוונה.
+
+        ‏pymongo מקבל את ההיטלה כארגומנט **פוזיציוני שני**
+        (``find_one(filter, *args, **kwargs)`` שמעביר ל-``find``), ולכן
+        סטאב שמצהיר על ``sort`` במקום הזה מקבל אליו את ההיטלה ונופל
+        ב-``TypeError``. הכשל נבלע ב-``except`` של הקוד הנקרא, וה-CI
+        מדווח עליו כ-assert שאינו קשור.
+
+        וההיטלה גם **מכובדת**: סטאב שמחזיר את המסמך המלא בלי קשר למה
+        שהתבקש מסתיר בדיוק את הבאג שבו הקוד קורא שדה שלא ביקש.
+        """
+        if not self._existing_doc:
+            return None
+        doc = dict(self._existing_doc)
+        include = {k for k, v in (projection or {}).items() if v}
+        if include:
+            doc = {k: v for k, v in doc.items() if k in include}
+        return doc
 
     def insert_one(self, payload):
         # capture the inserted document for assertions

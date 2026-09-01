@@ -6,8 +6,11 @@ import logging
 import time
 import zipfile
 from datetime import datetime, timezone
+
 from io import BytesIO
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
+
+from file_dates import as_utc
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,8 @@ MAX_SINGLE_FILE_SIZE = 50 * 1024 * 1024
 # מגבלות ייצוא כדי להימנע מ-OOM
 BOOKMARKS_EXPORT_LIMIT = 5000
 STICKY_NOTES_EXPORT_LIMIT = 5000
+#: תואם ל-``MAX_BOARDS_PER_USER`` ב-``webapp/note_boards_api``.
+BOARDS_EXPORT_LIMIT = 500
 
 # שדות מותריים לשחזור ב-user_preferences (allowlist)
 USER_PREFERENCES_ALLOWLIST = {
@@ -90,6 +95,10 @@ class PersonalBackupService:
             bookmarks_data = self._export_bookmarks(user_id)
             zf.writestr("metadata/bookmarks.json", _to_json(bookmarks_data))
 
+            # 5.5) לוחות פתקים — לפני הפתקיות, כדי לשמור על סדר אב-לפני-בנים
+            boards_data = self._export_note_boards(user_id)
+            zf.writestr("metadata/note_boards.json", _to_json(boards_data))
+
             # 6) פתקיות
             notes_data = self._export_sticky_notes(user_id)
             zf.writestr("metadata/sticky_notes.json", _to_json(notes_data))
@@ -112,6 +121,7 @@ class PersonalBackupService:
                 "collections_count": len(collections_data.get("collections", [])),
                 "bookmarks_count": len(bookmarks_data),
                 "notes_count": len(notes_data),
+                "boards_count": len(boards_data),
             }
             zf.writestr("backup_info.json", _to_json(backup_info))
 
@@ -362,6 +372,7 @@ class PersonalBackupService:
                             "note": str(d.get("note") or ""),
                             "color": str(d.get("color") or "yellow"),
                             "created_at": _dt_to_str(d.get("created_at")),
+                            "updated_at": _dt_to_str(d.get("updated_at")),
                         }
                     )
                     # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
@@ -397,11 +408,59 @@ class PersonalBackupService:
                                 "anchor_text": bm.get("anchor_text"),
                                 "anchor_type": bm.get("anchor_type"),
                                 "created_at": _dt_to_str(bm.get("created_at")),
+                                "updated_at": _dt_to_str(bm.get("updated_at")),
                             }
                         )
                 return flat_bookmarks
         except Exception as e:
             logger.error(f"שגיאה בייצוא סימניות: {e}")
+            return []
+
+    def _export_note_boards(self, user_id: int) -> List[Dict]:
+        """מייצא את לוחות הפתקים עצמם.
+
+        עד כה הייצוא קרא מ-``note_boards`` רק כדי להזליג ``board_name`` על
+        כל פתק, ומסמכי הלוח לא נשמרו — כך שהלוחות נעלמו בשחזור לסביבה
+        נקייה וכל הפתקים נחתו על לוח ברירת המחדל, בלי שגיאה אחת.
+
+        ה-``_id`` אינו מיוצא: הוא חסר ערך בסביבה אחרת, בדיוק כמו
+        ``file_id`` בפתקיות. השם הוא המפתח הקנוני לשיוך מחדש.
+        """
+        try:
+            raw_db = getattr(self.db, "db", None)
+            if raw_db is None:
+                return []
+            cur = raw_db.note_boards.find({"user_id": int(user_id)})
+            try:
+                cur = cur.sort([("order", 1)])
+            except Exception:
+                pass
+            try:
+                cur = cur.limit(int(BOARDS_EXPORT_LIMIT))
+            except Exception:
+                pass
+            raw = list(cur) if not isinstance(cur, list) else list(cur)[: int(BOARDS_EXPORT_LIMIT)]
+
+            out: List[Dict[str, Any]] = []
+            for doc in raw:
+                if not isinstance(doc, dict):
+                    continue
+                name = str(doc.get("name") or "")
+                if not name:
+                    continue
+                out.append({
+                    "name": name,
+                    "is_default": bool(doc.get("is_default", False)),
+                    # שדה דליל: נכתב רק ב-PATCH. בלעדיו המשתמש מאבד את
+                    # בורר הלוחות המהיר, שנשען עליו.
+                    "is_pinned": bool(doc.get("is_pinned", False)),
+                    "order": _safe_int(doc.get("order"), 0),
+                    "created_at": _dt_to_str(doc.get("created_at")),
+                    "updated_at": _dt_to_str(doc.get("updated_at")),
+                })
+            return out
+        except Exception as e:
+            logger.error(f"שגיאה בייצוא לוחות: {e}")
             return []
 
     def _export_sticky_notes(self, user_id: int) -> List[Dict]:
@@ -525,6 +584,7 @@ class PersonalBackupService:
             "collections": 0,
             "collection_items": 0,
             "bookmarks": 0,
+            "note_boards": 0,
             "sticky_notes": 0,
             "preferences": False,
             "drive_prefs": False,
@@ -636,6 +696,17 @@ class PersonalBackupService:
             bookmarks_data = self._read_json_from_zip(zf, "metadata/bookmarks.json", errors, budget=budget)
             if isinstance(bookmarks_data, list):
                 restored["bookmarks"] = self._restore_bookmarks(user_id, bookmarks_data, errors)
+
+            # 4.5) שחזור לוחות — חייב לרוץ לפני הפתקיות, כי השיוך הוא לפי
+            # שם הלוח. בסדר הפוך כל פתקי הלוח נוחתים על ברירת המחדל.
+            _report(80, "משחזר לוחות...")
+            boards_data = self._read_json_from_zip(
+                zf, "metadata/note_boards.json", errors, budget=budget
+            )
+            if isinstance(boards_data, list):
+                restored["note_boards"] = self._restore_note_boards(
+                    user_id, boards_data, errors
+                )
 
             # 5) שחזור פתקיות
             _report(85, "משחזר פתקיות...")
@@ -807,6 +878,10 @@ class PersonalBackupService:
                     is_favorite=desired_is_favorite,
                     is_pinned=desired_is_pinned,
                     pin_order=desired_pin_order,
+                    # התאריכים מהגיבוי. None שקול להתנהגות הקודמת, ולכן
+                    # גיבוי ישן בלי השדות מתנהג כמו קודם.
+                    created_at=_str_to_dt(meta.get("created_at")),
+                    updated_at=_str_to_dt(meta.get("updated_at")),
                 )
                 self.db.save_code_snippet(snippet)
                 count += 1
@@ -891,6 +966,8 @@ class PersonalBackupService:
                     lines_count=len(content.split("\n")),
                     description=meta.get("description", ""),
                     tags=list(meta.get("tags") or []),
+                    created_at=_str_to_dt(meta.get("created_at")),
+                    updated_at=_str_to_dt(meta.get("updated_at")),
                 )
                 self.db.save_large_file(large_file)
                 count += 1
@@ -1059,6 +1136,11 @@ class PersonalBackupService:
                     if existing:
                         continue
 
+                    # שעון אחד לרשומה: שתי קריאות נפרדות ל-``now()`` היו
+                    # מייצרות הפרש מיקרו-שניות בין היצירה לעדכון, ורשומה
+                    # טרייה הייתה נראית "נערכה". אותו invariant שנקבע
+                    # ב-``database/models.py``.
+                    now = datetime.now(timezone.utc)
                     # insert ישיר (לא toggle!) כדי לא למחוק סימניות קיימות
                     doc = {
                         "user_id": user_id,
@@ -1072,8 +1154,8 @@ class PersonalBackupService:
                         "valid": True,
                         "sync_status": "synced",
                         "sync_confidence": 1.0,
-                        "created_at": datetime.now(timezone.utc),
-                        "updated_at": datetime.now(timezone.utc),
+                        "created_at": _str_to_dt(bm.get("created_at")) or now,
+                        "updated_at": _str_to_dt(bm.get("updated_at")) or now,
                     }
                     # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
                     if anchor_id_str:
@@ -1121,6 +1203,135 @@ class PersonalBackupService:
 
         return count
 
+    # ``boards`` מגיע מ-``json.loads`` על ZIP שהמשתמש מעלה, ולכן איבר יכול
+    # להיות כל דבר. ``List[Any]`` אומר את האמת ומשאיר את ה-isinstance משמעותי.
+    def _restore_note_boards(self, user_id: int, boards: List[Any], errors: List[str]) -> int:
+        """משחזר לוחות פתקים. חייב לרוץ **לפני** הפתקיות.
+
+        ``_restore_board_note`` משייך פתק ללוח לפי שם; אם הלוחות עדיין לא
+        קיימים הוא לא ימצא התאמה וכל הפתקים ינחתו על לוח ברירת המחדל —
+        והשחזור "יצליח" בלי שגיאה אחת.
+
+        לוח ``is_default`` מהגיבוי **מדולג במכוון**: ``one_default_per_user``
+        הוא אינדקס ייחודי-חלקי, ולוח ברירת מחדל שני היה נדחה ב-E11000.
+        הפתקים שהיו עליו מגיעים ללוח ברירת המחדל המקומי דרך הפולבק שכבר
+        קיים, והשם שנקבע בחשבון היעד אינו נדרס — פעולה שאי אפשר לבטל.
+
+        ``is_pinned`` שלו **כן** משוחזר על לוח ברירת המחדל המקומי: זו העדפת
+        תצוגה שאינה דורשת לא את השם ולא את ה-``_id``, ובלעדיה מי שנעץ את לוח
+        ברירת המחדל מאבד את ההעדפה בשחזור בעוד שמי שנעץ לוח רגיל מקבל אותה
+        בחזרה. ערך ההחזרה של הפונקציה סופר לוחות שנוצרו, ולכן עדכון כזה אינו
+        מגדיל אותו.
+        """
+        count = 0
+        try:
+            # הייבוא בתוך ה-try ולא לפניו: ``restore_user_data`` אינו עוטף
+            # את הקריאה הזו, ולכן ``ImportError`` היה מפיל את כל השחזור
+            # אחרי שקבצים, אוספים וסימניות כבר נכתבו — בעוד שכל שלב אחר
+            # מתנוון ל-``errors`` וממשיך.
+            from note_boards import ensure_default_board, normalize_board_name
+            from webapp.note_boards_api import MAX_BOARDS_PER_USER
+
+            raw_db = getattr(self.db, "db", None)
+            if raw_db is None:
+                return 0
+
+            # לוח ברירת המחדל המקומי חייב להתקיים לפני כל דה-דופליקציה.
+            ensure_default_board(raw_db, int(user_id))
+
+            # קבוצת שמות מנורמלים — אותה נורמליזציה שבה נכתבים השמות, כדי
+            # ששאילתה לא תחפש בצורה אחת מה שנכתב בצורה אחרת. קבוצה ולא מפה,
+            # כי כל מה שנדרש כאן הוא נוכחות וספירה; מפה שערכיה אינם נקראים
+            # רק מזמינה הסתמכות עתידית על מזהה שאיש לא אימת.
+            existing: Set[str] = set()
+            top_order = 0
+            try:
+                for doc in raw_db.note_boards.find({"user_id": int(user_id)}):
+                    if not isinstance(doc, dict):
+                        continue
+                    existing.add(normalize_board_name(doc.get("name")))
+                    top_order = max(top_order, _safe_int(doc.get("order"), 0))
+            except Exception:
+                pass
+
+            for board in boards:
+                try:
+                    if not isinstance(board, dict):
+                        continue
+                    # ברירת המחדל של סביבת היעד מנצחת — ראו הדוקסטרינג.
+                    # השם, ה-``_id`` ו-``is_default`` אינם נגעים; ``is_pinned``
+                    # כן משוחזר. המפתח הוא ``is_default`` ולא השם, כי
+                    # ``one_default_per_user`` מבטיח שהוא יחיד, בעוד שהשם
+                    # בחשבון היעד עשוי להיות אחר לגמרי.
+                    if bool(board.get("is_default", False)):
+                        raw_pinned = board.get("is_pinned", False)
+                        if not isinstance(raw_pinned, bool):
+                            errors.append("נעיצת לוח ברירת המחדל לא שוחזרה")
+                            continue
+                        want_pinned = raw_pinned
+                        raw_db.note_boards.update_one(
+                            {"user_id": int(user_id), "is_default": True},
+                            {"$set": {"is_pinned": want_pinned, "updated_at": datetime.now(timezone.utc)}},
+                        )
+                        # ``modified_count`` הוא 0 גם כשהערך כבר היה נכון,
+                        # ולכן אינו מבחין בין הצלחה לכישלון. האימות הוא
+                        # קריאה חוזרת של המצב.
+                        confirmed_default = raw_db.note_boards.find_one(
+                            {"user_id": int(user_id), "is_default": True}
+                        )
+                        if not confirmed_default or bool(confirmed_default.get("is_pinned", False)) != want_pinned:
+                            errors.append("נעיצת לוח ברירת המחדל לא שוחזרה")
+                        continue
+                    name = normalize_board_name(board.get("name"))
+                    if name in existing:
+                        continue
+
+                    # התקרה נאכפת גם בשחזור, כמו מכסות הפתקים — אחרת זו
+                    # אכיפה עם דלת אחורית.
+                    if len(existing) >= int(MAX_BOARDS_PER_USER):
+                        errors.append("דילגתי על לוחות: חריגה מתקרת הלוחות")
+                        break
+
+                    top_order += 1
+                    now = datetime.now(timezone.utc)
+                    doc = {
+                        "user_id": int(user_id),
+                        "name": name,
+                        "is_default": False,
+                        "is_pinned": bool(board.get("is_pinned", False)),
+                        "order": top_order,
+                        "created_at": _str_to_dt(board.get("created_at")) or now,
+                        "updated_at": _str_to_dt(board.get("updated_at")) or now,
+                    }
+                    res = raw_db.note_boards.insert_one(doc)
+                    new_id = getattr(res, "inserted_id", None)
+                    # אימות בקריאה חוזרת — ``inserted_id`` אינו הוכחה שהמסמך
+                    # קיים — ולפי המזהה שהוכנס, לא לפי השם: אין אינדקס ייחודי
+                    # על השם, ולכן חיפוש לפי שם היה נענה גם על ידי לוח אחר
+                    # שכבר קיים באותו שם ומאשר insert שנכשל. כלומר בדיקה
+                    # שאינה מסוגלת להיכשל.
+                    confirmed = raw_db.note_boards.find_one({"_id": new_id}) if new_id is not None else None
+                    if not confirmed:
+                        errors.append(f"הלוח '{name}' לא נכתב בפועל")
+                        continue
+                    existing.add(name)
+                    count += 1
+                except Exception:
+                    try:
+                        logger.exception("שגיאה בשחזור לוח (פריט בודד)", exc_info=True)
+                    except Exception:
+                        pass
+                    errors.append(f"שגיאה בשחזור לוח '{str((board or {}).get('name') or '')}'")
+                    continue
+        except Exception:
+            try:
+                logger.exception("שגיאה בשחזור לוחות", exc_info=True)
+            except Exception:
+                pass
+            errors.append("שגיאה בשחזור לוחות")
+
+        return count
+
     def _restore_board_note(self, raw_db, user_id: int, note: Dict) -> bool:
         """משחזר פתק לוח. מחזיר ``True`` אם נכתב.
 
@@ -1128,10 +1339,13 @@ class PersonalBackupService:
         יהיה תקף בסביבה אחרת. אין התאמה ⇒ לוח ברירת המחדל, שתמיד קיים —
         עדיף פתק שנחת במקום הלא-מדויק מאשר פתק שנעלם בשקט.
         """
-        from note_boards import ensure_default_board
+        from note_boards import ensure_default_board, normalize_board_name
         from sticky_notes_target import build_note_target, normalize_mode
 
-        board_name = str(note.get("board_name") or "").strip()
+        # אותה נורמליזציה שבה נכתב השם. נורמליזציה בצד אחד בלבד היא הכשל
+        # השקט: השאילתה רצה, מחזירה אפס, ולא זורקת.
+        raw_board_name = str(note.get("board_name") or "").strip()
+        board_name = normalize_board_name(raw_board_name) if raw_board_name else ""
         target_board_id = None
         if board_name:
             try:
@@ -1174,6 +1388,8 @@ class PersonalBackupService:
         except NoteQuotaError as exc:
             raise ValueError(f"quota:{exc}") from exc
 
+        # שעון אחד לרשומה — ראו ההערה ב-``_restore_bookmarks``.
+        now = datetime.now(timezone.utc)
         doc = {
             "user_id": int(user_id),
             "content": content,
@@ -1184,8 +1400,8 @@ class PersonalBackupService:
             "height": note.get("height", 200),
             "is_minimized": bool(note.get("is_minimized", False)),
             "mode": normalize_mode(note.get("mode")),
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "created_at": _str_to_dt(note.get("created_at")) or now,
+            "updated_at": _str_to_dt(note.get("updated_at")) or now,
         }
         # שדות היעד דרך הבנאי, ולא ביד — כך המסמך אינו יכול לצאת עם שני
         # משטחים או בלי אף אחד.
@@ -1260,6 +1476,8 @@ class PersonalBackupService:
                     if existing_note:
                         continue
 
+                    # שעון אחד לרשומה — ראו ההערה ב-``_restore_bookmarks``.
+                    now = datetime.now(timezone.utc)
                     doc = {
                         "user_id": int(user_id),
                         "file_id": new_file_id,
@@ -1276,8 +1494,8 @@ class PersonalBackupService:
                         "line_end": note.get("line_end"),
                         "anchor_id": note.get("anchor_id"),
                         "anchor_text": note.get("anchor_text"),
-                        "created_at": datetime.now(timezone.utc),
-                        "updated_at": datetime.now(timezone.utc),
+                        "created_at": _str_to_dt(note.get("created_at")) or now,
+                        "updated_at": _str_to_dt(note.get("updated_at")) or now,
                     }
                     raw_db.sticky_notes.insert_one(doc)
                     count += 1
@@ -1405,6 +1623,14 @@ def _to_json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=2, default=_default)
 
 
+def _safe_int(value: Any, default: int) -> int:
+    """מספר שלם מקלט חיצוני. ה-ZIP מועלה על ידי המשתמש וניתן לעריכה ביד."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _dt_to_str(dt) -> Optional[str]:
     """ממיר datetime למחרוזת ISO, או מחזיר None."""
     if dt is None:
@@ -1412,6 +1638,29 @@ def _dt_to_str(dt) -> Optional[str]:
     if isinstance(dt, datetime):
         return dt.isoformat()
     return str(dt)
+
+
+def _str_to_dt(value) -> Optional[datetime]:
+    """מפרש חותמת זמן שנקראה מקובץ גיבוי. ההפוכה של ``_dt_to_str``.
+
+    הגיבוי הוא קלט חיצוני — המשתמש מעלה את ה-ZIP ואפשר לערוך אותו ביד —
+    ולכן כל טיפוס שאינו ``datetime`` או מחרוזת תקינה מוחזר כ-``None``.
+    ``None`` שקול בדיוק להתנהגות שלפני התיקון, כך שגיבוי ישן או פגום
+    מתנהג כמו קודם במקום להפיל את השחזור.
+
+    התוצאה תמיד timezone-aware ב-UTC, דרך ``file_dates.as_utc`` — הכלל
+    הקנוני היחיד לנרמול תאריכי קובץ בריפו. העתק מקומי שלו היה נדרש
+    לתחזוקה במקביל, וזה בדיוק הדפוס שתועד ב-issue #3307.
+    """
+    if isinstance(value, datetime):
+        return as_utc(value)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return as_utc(parsed)
 
 
 def _safe_zip_path(path: str) -> str:

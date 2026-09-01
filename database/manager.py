@@ -408,7 +408,6 @@ def _normalize_pinned_orders(self, user_id: int) -> int:
         str(d.get("_id") or "")
     ))
 
-    now = datetime.now(timezone.utc)
     if len(keep) > MAX_PINNED_FILES:
         overflow = keep[MAX_PINNED_FILES:]
         for doc in overflow:
@@ -435,7 +434,6 @@ def _normalize_pinned_orders(self, user_id: int) -> int:
                         "is_pinned": False,
                         "pinned_at": None,
                         "pin_order": 0,
-                        "updated_at": now,
                     }},
                 )
         except Exception:
@@ -519,16 +517,18 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                     "is_pinned": False,
                     "pinned_at": None,
                     "pin_order": 0,
-                    "updated_at": now
                 }}
             )
+            # ``pinned_at`` מתעד את הנעיצה. ``updated_at`` נשאר על העריכה
+            # האחרונה של התוכן — נעיצה אינה עריכה. בלי ההפרדה הזו קובץ שמעולם
+            # לא נערך היה מציג "עודכן" (``file_was_edited``), וכל גרסאותיו היו
+            # מציפות את היסטוריית הפעולות בדשבורד ברגע הנעיצה או הסרתה.
             self.collection.update_one(
                 {"_id": snippet.get("_id")},
                 {"$set": {
                     "is_pinned": True,
                     "pinned_at": now,
                     "pin_order": next_order,
-                    "updated_at": now
                 }}
             )
 
@@ -541,7 +541,6 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                         "is_pinned": False,
                         "pinned_at": None,
                         "pin_order": 0,
-                        "updated_at": now
                     }}
                 )
                 _normalize_pinned_orders(self, user_id)
@@ -563,7 +562,6 @@ def toggle_pin(self, user_id: int, file_name: str) -> dict:
                     "is_pinned": False,
                     "pinned_at": None,
                     "pin_order": 0,
-                    "updated_at": datetime.now(timezone.utc)
                 }}
             )
             _normalize_pinned_orders(self, user_id)
@@ -1734,6 +1732,17 @@ class DatabaseManager:
             [("user_id", ASCENDING), ("is_active", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)],
             name="idx_snippets_latest_version",
             enforce=True,
+        )
+
+        # code_snippets - מספר הגרסה הבא נשאל על **כל** המצבים, כולל מסמכים
+        # בסל המיחזור, כי מחיקה רכה אינה מוחקת והם יכולים לחזור בשחזור.
+        # ``idx_snippets_latest_version`` אינו משרת את השאילתה הזו:
+        # ``is_active`` הוא המפתח השני בו, והשאילתה מדלגת עליו — ולכן אין
+        # תחילית תואמת.
+        safe_create_index(
+            "code_snippets",
+            [("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)],
+            name="idx_snippets_version_any_state",
         )
 
         # NOTE:

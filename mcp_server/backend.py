@@ -281,6 +281,51 @@ class ProductionBackend:
             return None
         return _full(doc) if doc else None
 
+    def file_exists(self, user_id: int, *, file_name: str) -> bool | None:
+        """Does the user already have a file by this name?
+
+        A projected query, not ``get_file``: existence is a yes/no question and
+        loading the whole document — content included — to answer it costs the
+        full file on every save.
+
+        **The contract:** ``True``/``False`` when the answer is known, and
+        ``None`` when it could not be determined. The distinction is not
+        cosmetic. ``False`` on a failed lookup reads as "no such file", so the
+        caller writes under a name that may well be taken — burying the existing
+        content at exactly the moment the guard was meant to fire.
+
+        **Only a query this method owns can answer it.** There is deliberately
+        no ``get_file`` fallback: that path ends at
+        ``Repository._fetch_latest_version``, which catches its own failures and
+        returns ``None`` — the very conflation this contract exists to remove.
+        Reading it as "no such file" would put the ambiguity back one layer
+        down. No raw handle therefore means ``None``, not ``False``. Production
+        never reaches that branch anyway: ``mcp_server.app.create_app`` refuses
+        to start without Mongo and always passes ``mongo_db``.
+
+        ``is_active: True`` is part of the question, not an oversight: a name
+        sitting in the trash does **not** block a save. Reusing the name of a
+        discarded file is allowed, and the version numbering already spans the
+        trash so the new document cannot collide with it.
+
+        Same shape as :func:`sticky_notes_target.repo_file_exists`, down to the
+        ``{"_id": 1}`` projection and the ``None``-on-failure contract — and its
+        caller treats ``None`` the same way, refusing to write rather than
+        reading a failed lookup as permission.
+        """
+        try:
+            coll = self._raw_mongo()["code_snippets"]
+        except Exception:
+            return None
+        try:
+            doc = coll.find_one(
+                {"user_id": int(user_id), "file_name": file_name, "is_active": True},
+                {"_id": 1},
+            )
+        except Exception:
+            return None
+        return doc is not None
+
     def list_versions(self, user_id: int, *, file_name: str) -> list[dict[str, Any]]:
         return [_clean(v) for v in (self._require_dbm().get_all_versions(user_id, file_name) or [])]
 
