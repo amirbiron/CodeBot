@@ -23,8 +23,11 @@ Three layers, all fail-closed:
    ``$mcp_*`` properties. Deleting the three known payload keys would be a
    blocklist, and the MCP SDK is pre-1.0: a payload property added in a future
    release would ship before anyone thought to extend the list. An allowlist
-   drops the unknown key instead of forwarding it. ``_ALLOWED_BY_EVENT`` holds
-   its single, per-event exception.
+   drops the unknown key instead of forwarding it. Two narrow exceptions widen
+   it, both as a lookup from a discriminator to an extra allowlist unioned into
+   the same set: ``_ALLOWED_BY_EVENT`` (keyed on the event name) and
+   ``_ALLOWED_BY_ERROR_TYPE`` (keyed on ``$mcp_error_type``). Each one names the
+   route it opens; neither is a general escape hatch.
 3. Every ``$exception_list[*].value`` is replaced, on **every** event. Two
    separate routes end there. The sibling event that rides along with a failed
    tool call carries the same free text that ``$mcp_error_message`` is *read
@@ -124,8 +127,39 @@ _ALLOWED_BY_EVENT: dict[str, frozenset[str]] = {
     "$mcp_missing_capability": frozenset({"$mcp_intent", "$mcp_intent_source"}),
 }
 
+#: החריג השני, ובאותו מנגנון: מילון מ**מבחין** לרשימת היתר נוספת, שנאסף
+#: לאותו ``allowed`` באותה שורה. ההבדל היחיד הוא לפי מה מפתחים —
+#: ``_ALLOWED_BY_EVENT`` לפי שם האירוע, וכאן לפי ערך ``$mcp_error_type``.
+#:
+#: **מה זה קונה:** בלי ההודעה, כשל ולידציה מגיע לדשבורד כמונה בלי שם השדה
+#: שנדחה. עם ההודעה רואים אותו, וזו ההבחנה בין "סוכן טועה" ל"הסכימה לא
+#: ברורה".
+#:
+#: ⚠️ **ומה זה עולה, במדידה ולא בהערכה.** ההודעה של Pydantic נושאת את
+#: ``input_value`` — הערך שנדחה. הוא מקוצץ ל-50 תווים, אבל הקיצוץ **שומר
+#: ראש וזנב**, ולכן סוד בתחילת הערך או בסופו עובר שלם. נמדד על
+#: ``pydantic 2.12.3`` (המקובע ב-``requirements/base.txt``): קלט בן 500+
+#: תווים שהסתיים ב-``AWS_KEY=AKIA_BOTTOM`` החזיר את הזנב הזה במלואו.
+#: והמקרה הרחב יותר הוא ``type=missing``, שבו Pydantic מדווח כ-``input_value``
+#: את **אובייקט הארגומנטים כולו** — כלומר ``save_file`` בלי ``file_name``
+#: שם קטע מגוף הקובץ בהודעה.
+#:
+#: זו הרחבה מודעת של השער, שהתקבלה אחרי שהמדידה הוצגה. היא **לא** ניקוי:
+#: אין כאן ניסיון לחטא את המחרוזת של Pydantic, כי סניטציה מומצאת על טקסט
+#: חופשי נכשלת בשקט (ראו ``amir-bug-patterns``, ``secret-in-derived-text``).
+#: הגידור הוא בהיקף בלבד — סוג שגיאה אחד, ומפתח אחד.
+#:
+#: האורך אינו חלק מהגידור כאן כי ה-SDK כבר חוסם אותו: ``$mcp_error_message``
+#: מקוצץ ל-2,048 תווים ב-``posthog/mcp/_truncation.py``. ב-Pydantic עצמו אין
+#: תקרה על מספר השגיאות — 300 שדות שגויים מייצרים 77,619 תווים — ולכן
+#: הסתמכות על המקור בלבד לא הייתה מספיקה.
+_ALLOWED_BY_ERROR_TYPE: dict[str, frozenset[str]] = {
+    "ValidationError": frozenset({"$mcp_error_message"}),
+}
+
 _MCP_PROPERTY_PREFIX = "$mcp_"
 _EXCEPTION_LIST_KEY = "$exception_list"
+_ERROR_TYPE_KEY = "$mcp_error_type"
 _EXCEPTION_VALUE_PLACEHOLDER = (
     "[redacted by CodeKeeper: exception text is not sent to PostHog]"
 )
@@ -165,6 +199,31 @@ def _redact_exception_values(exception_list: Any) -> Any:
     return redacted
 
 
+def _error_type_of(properties: dict) -> str:
+    """``$mcp_error_type`` כמחרוזת, או ``""`` כשאי אפשר לומר.
+
+    **נכשל-סגור בכוונה.** מפתח חסר, ``None``, מספר או רשימה — כולם מחזירים
+    מחרוזת ריקה, שלא תואמת שום מפתח ב-``_ALLOWED_BY_ERROR_TYPE``, ולכן
+    ההודעה נחסמת. אין ברירת מחדל מתירנית: שער שמתיר כשהוא לא יודע אינו שער.
+
+    **הבדיקה היא על הטיפוס ולא על הייצוג הטקסטואלי**, וזה לא ניסוח יפה:
+    ``str(value)`` היה נראה שקול, כי ``None``, מספר ורשימה כולם מודפסים
+    כמשהו שאינו ``"ValidationError"`` ולכן נחסמים ממילא. הפער היחיד הוא
+    אובייקט שאינו מחרוזת אבל מדפיס את עצמו כשם המותר — ``StrEnum``, wrapper
+    של ספרייה — והוא היה פותח את השער. ``$mcp_error_type`` מגיע מ-SDK חיצוני,
+    ולכן זה לא תרחיש תיאורטי. יש על שני הכיוונים טסט ומוטציה.
+
+    ומנגד לא ``type(value) is str``: תת-מחלקה של ``str`` **היא** מחרוזת, ואין
+    סיבה לחסום אותה.
+
+    הטיפוס הוא ``str`` ולא ``str | None`` כדי שהערך תמיד יהיה בר-גיבוב:
+    ``dict.get`` עם מפתח לא-גיבוב זורק ``TypeError``, וזה היה מפיל את
+    ה-hook כולו ומוחק את האירוע — התנהגות בטוחה, אבל רועשת ומיותרת.
+    """
+    value = properties.get(_ERROR_TYPE_KEY)
+    return value if isinstance(value, str) else ""
+
+
 def scrub_mcp_payload(event: dict) -> Optional[dict]:
     """``before_send`` hook: strip free text from every event this client sends.
 
@@ -179,11 +238,22 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
     version of this hook let those through, and a raised
     ``RuntimeError("mongo query failed for <file name>")`` reached the wire
     intact. This client serves only the MCP server, and everything that server
-    touches is user content, so free text leaves it by exactly one declared
-    route: the agent's own sentence on ``$mcp_missing_capability``, admitted by
-    ``_ALLOWED_BY_EVENT``. That sentence describes a tool the agent wishes
-    existed — it never carries file content — and it is the entire point of
-    that event.
+    touches is user content, so free text leaves it by exactly two declared
+    routes, and by nothing else:
+
+    * the agent's own sentence on ``$mcp_missing_capability``, admitted by
+      ``_ALLOWED_BY_EVENT``. It describes a tool the agent wishes existed, never
+      carries file content, and is the entire point of that event.
+    * ``$mcp_error_message`` when ``$mcp_error_type`` is exactly
+      ``"ValidationError"``, admitted by ``_ALLOWED_BY_ERROR_TYPE``. **This one
+      can carry a fragment of user content** — Pydantic renders the rejected
+      ``input_value`` into the message, keeping its head and its tail around a
+      50-character cap. That cost was measured and accepted deliberately; the
+      constant's own comment carries the measurement. It is bounded by scope,
+      not sanitized: nothing here rewrites Pydantic's string.
+
+    ``$mcp_parameters`` stays blocked on both, so neither route becomes a way to
+    read a call's arguments.
 
     Fails **closed**: any error while scrubbing drops the event rather than
     letting an unscrubbed one continue. The posthog client also drops an event
@@ -195,8 +265,10 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
         if not isinstance(properties, dict):
             return event
 
-        allowed = _ALLOWED_MCP_PROPERTIES | _ALLOWED_BY_EVENT.get(
-            event.get("event"), frozenset()
+        allowed = (
+            _ALLOWED_MCP_PROPERTIES
+            | _ALLOWED_BY_EVENT.get(event.get("event"), frozenset())
+            | _ALLOWED_BY_ERROR_TYPE.get(_error_type_of(properties), frozenset())
         )
 
         kept: dict = {}

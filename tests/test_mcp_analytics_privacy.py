@@ -542,3 +542,191 @@ async def test_a_real_instrumented_tool_call_reaches_posthog_with_no_content(mon
     # `context` or `conversation_id` argument injected into it.
     schema = next(t.inputSchema for t in listed.tools if t.name == "codekeeper_get_file")
     assert sorted(schema.get("properties") or {}) == ["file_name"]
+
+
+# ---------------------------------------------------------------------------
+# החריג השני: הודעת שגיאה על ``ValidationError`` בלבד
+#
+# החריג הזה שונה מהראשון בכך שהוא **כן** עלול לשאת קטע מתוכן המשתמש: Pydantic
+# מרנדר את ``input_value`` לתוך ההודעה, מקצץ ל-50 תווים, ושומר ראש וזנב. זה
+# נמדד והתקבל במודע. מה שהטסטים כאן שומרים הוא **ההיקף**: סוג שגיאה אחד,
+# מפתח אחד, ובכל מצב אחר — חסום.
+# ---------------------------------------------------------------------------
+
+_VALIDATION_MESSAGE = (
+    "1 validation error for save_fileArguments\n"
+    "file_name\n"
+    "  Field required [type=missing, "
+    "input_value={'code': 'PASSWORD=hunter...AWS_KEY=AKIA_BOTTOM\\n'}, "
+    "input_type=dict]"
+)
+
+
+def _failed_tool_call(error_type, message=_VALIDATION_MESSAGE, **extra):
+    return _tool_call_event(
+        **{
+            "$mcp_is_error": True,
+            "$mcp_error_type": error_type,
+            "$mcp_error_message": message,
+            **extra,
+        }
+    )
+
+
+def test_the_whole_error_type_exception_table_is_pinned():
+    """הרחבה של הטבלה הזו מרחיבה את השער, ולכן היא חייבת להיות מעשה מודע.
+
+    בלי הקיבוע, סוג שגיאה נוסף היה נכנס בשקט בביקורת קוד.
+    """
+    assert analytics._ALLOWED_BY_ERROR_TYPE == {
+        "ValidationError": frozenset({"$mcp_error_message"})
+    }
+
+
+def test_a_validation_error_message_reaches_posthog():
+    """המטרה של החריג: לראות **איזה שדה** נדחה, ולא רק שמשהו נדחה."""
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError"))
+
+    assert out["properties"]["$mcp_error_message"] == _VALIDATION_MESSAGE
+    assert "file_name" in out["properties"]["$mcp_error_message"]
+
+
+def test_a_runtime_error_message_is_still_blocked():
+    """``RuntimeError`` הוא הסוג שכבר עקף את השער פעם אחת.
+
+    בגרסה מוקדמת של ה-hook, ``RuntimeError("mongo query failed for <file>")``
+    הגיע לרשת שלם. החריג החדש הוא לפי סוג, ולכן הוא בדיוק המקום שבו הטעות
+    הזו יכולה לחזור.
+    """
+    out = analytics.scrub_mcp_payload(
+        _failed_tool_call("RuntimeError", "mongo query failed for notes.py")
+    )
+
+    assert "$mcp_error_message" not in out["properties"]
+    assert "notes.py" not in _payload_text(out)
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    ["ValueError", "TypeError", "KeyError", "ToolError", "Exception", ""],
+)
+def test_no_other_error_type_opens_the_message(error_type):
+    out = analytics.scrub_mcp_payload(_failed_tool_call(error_type))
+
+    assert "$mcp_error_message" not in out["properties"]
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    ["validationerror", "VALIDATIONERROR", " ValidationError", "ValidationError "],
+)
+def test_the_match_is_exact_and_not_fuzzy(error_type):
+    """התאמה לפי שוויון מדויק. ``in`` או ``lower()`` היו פותחים שמות שכנים."""
+    out = analytics.scrub_mcp_payload(_failed_tool_call(error_type))
+
+    assert "$mcp_error_message" not in out["properties"]
+
+
+def test_a_missing_error_type_blocks_the_message():
+    """נכשל-סגור: בלי מבחין אין היתר."""
+    event = _failed_tool_call("ValidationError")
+    del event["properties"]["$mcp_error_type"]
+
+    out = analytics.scrub_mcp_payload(event)
+
+    assert "$mcp_error_message" not in out["properties"]
+
+
+@pytest.mark.parametrize("error_type", [None, 42, 3.5, True, ["ValidationError"], {"a": 1}])
+def test_a_non_string_error_type_blocks_the_message(error_type):
+    """טיפוס לא צפוי חוסם — **ואינו מפיל את ה-hook**.
+
+    רשימה ומילון אינם בני-גיבוב; חיפוש ישיר שלהם במילון היה זורק
+    ``TypeError``, מה שהיה מוחק את האירוע כולו. בטוח, אבל רועש ומיותר.
+    """
+    out = analytics.scrub_mcp_payload(_failed_tool_call(error_type))
+
+    assert out is not None
+    assert "$mcp_error_message" not in out["properties"]
+
+
+def test_the_exception_does_not_reopen_parameters_or_response():
+    """הדרישה המפורשת: ``$mcp_parameters`` חסום גם על האירוע הזה.
+
+    אחרת החריג היה הופך לדלת אחורית לקריאת הארגומנטים — כלומר לקובץ עצמו.
+    """
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError"))
+
+    assert "$mcp_parameters" not in out["properties"]
+    assert "$mcp_response" not in out["properties"]
+    assert _FILE_BODY not in _payload_text(out)
+
+
+def test_the_error_type_exception_does_not_leak_into_other_events():
+    """``$mcp_error_type`` על אירוע ``missing_capability`` לא פותח שם הודעה."""
+    event = _missing_capability_event(
+        **{"$mcp_error_type": "ValidationError", "$mcp_error_message": "x"}
+    )
+
+    out = analytics.scrub_mcp_payload(event)
+
+    assert out["properties"]["$mcp_error_message"] == "x"
+
+
+def test_the_exception_list_message_stays_redacted_even_on_validation_errors():
+    """ההודעה מותרת; התאום שלה ב-``$exception_list`` נשאר מושחר.
+
+    ההודעה עוברת מקוצצת ל-2,048 תווים בידי ה-SDK, בעוד ה-``$exception_list``
+    נושא את השרשרת המלאה. פתיחת שניהם הייתה מרחיבה את החריג בלי שאיש ביקש.
+    """
+    event = _failed_tool_call("ValidationError")
+    event["properties"]["$exception_list"] = [
+        {"type": "ValidationError", "value": _FILE_BODY, "stacktrace": {"frames": []}}
+    ]
+
+    out = analytics.scrub_mcp_payload(event)
+
+    assert out["properties"]["$mcp_error_message"] == _VALIDATION_MESSAGE
+    assert _FILE_BODY not in _payload_text(out)
+
+
+class _LooksLikeValidationError:
+    """אינו מחרוזת, אבל ``str()`` שלו מחזיר בדיוק את שם הסוג המותר."""
+
+    def __str__(self):  # pragma: no cover - נקרא רק אם המימוש שגוי
+        return "ValidationError"
+
+    __repr__ = __str__
+
+
+def test_something_that_merely_prints_like_the_allowed_type_is_blocked():
+    """הבדיקה חייבת להיות על **הטיפוס**, לא על הייצוג הטקסטואלי.
+
+    זה הפער היחיד שמפריד בין ``isinstance(value, str)`` לבין ``str(value)``:
+    לכל טיפוס לא צפוי אחר — ``None``, מספר, רשימה — שתי הגרסאות חוסמות
+    ממילא, כי הייצוג שלהן אינו ``"ValidationError"``. מוטציה שהחליפה את
+    ``isinstance`` ב-``str`` שרדה את כל שאר הטסטים, וזה מה שהיא פספסה:
+    אובייקט שמדפיס את עצמו כשם המותר היה פותח את השער.
+
+    ולא מדובר בהמצאה תיאורטית — ``StrEnum`` ו-wrappers של ספריות מדפיסים
+    בדיוק כך, ו-``$mcp_error_type`` מגיע מ-SDK חיצוני.
+    """
+    out = analytics.scrub_mcp_payload(_failed_tool_call(_LooksLikeValidationError()))
+
+    assert out is not None
+    assert "$mcp_error_message" not in out["properties"]
+
+
+def test_a_str_subclass_is_still_accepted():
+    """הצד השני: תת-מחלקה של ``str`` היא מחרוזת, ואין סיבה לחסום אותה.
+
+    בלי הטסט הזה, "תקן את מוטציה C" היה מזמין בדיקה נוקשה מדי
+    (``type(value) is str``) שהייתה חוסמת ערך תקין לחלוטין.
+    """
+
+    class _StrEnumLike(str):
+        pass
+
+    out = analytics.scrub_mcp_payload(_failed_tool_call(_StrEnumLike("ValidationError")))
+
+    assert out["properties"]["$mcp_error_message"] == _VALIDATION_MESSAGE
