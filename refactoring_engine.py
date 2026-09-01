@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import ast
+import copy
+import hashlib
 import re
 import logging
 from dataclasses import dataclass, field
@@ -365,6 +367,11 @@ class RefactoringEngine:
                 return RefactorResult(success=False, proposal=None, error=f"סוג רפקטורינג לא נתמך: {refactor_type}")
             validated = self._validate_proposal(proposal)
             return RefactorResult(success=True, proposal=proposal, validation_passed=validated)
+        except ValueError as e:
+            # ValueError משמש אותנו לתרחישי "אין מה לעשות"/"אין מספיק נתונים" — זה מצב צפוי,
+            # לא תקלה מערכתית, ולכן לא נרצה ERROR + traceback בלוגים.
+            logger.info("רפקטורינג לא בוצע: %s", e)
+            return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
         except Exception as e:
             logger.error(f"שגיאה ברפקטורינג: {e}", exc_info=True)
             return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
@@ -1095,13 +1102,307 @@ class RefactoringEngine:
         )
 
     def _find_code_duplication(self) -> List[Dict[str, Any]]:
-        return []
+        """
+        איתור כפילויות בקוד לצורך חילוץ לפונקציות עזר.
+
+        מימוש שמרני ובטוח:
+        - מזהה כרגע כפילויות של פונקציות טופ-לבל (sync/async) שהגוף שלהן זהה (AST זהה),
+          ללא decorators.
+        - לא מנסה לפרמט/לנתח "בלוקים" בתוך פונקציה, כדי לא לשבור סמנטיקה.
+
+        מחזיר רשימת קבוצות כפולות בפורמט:
+        {
+          "key": <hash>,
+          "helper_name": <str>,
+          "functions": [{"name": str, "start_line": int, "end_line": int, "is_async": bool}],
+        }
+        """
+        if not self.analyzer or not getattr(self.analyzer, "tree", None):
+            return []
+
+        tree = self.analyzer.tree  # type: ignore[assignment]
+        lines = (self.analyzer.code or "").splitlines()
+
+        def _is_top_level(node: ast.AST) -> bool:
+            # אנחנו סורקים רק tree.body, אז זה תמיד top-level
+            return True
+
+        def _has_decorators(node: ast.AST) -> bool:
+            decs = getattr(node, "decorator_list", None)
+            return bool(decs)
+
+        def _line_count(node: ast.AST) -> int:
+            start = int(getattr(node, "lineno", 0) or 0)
+            end = int(getattr(node, "end_lineno", start) or start)
+            return max(0, end - start + 1)
+
+        # סף שמרני: אל תחלץ פונקציות קצרות מדי (רעש/לא שווה)
+        min_lines = 8
+
+        # אוסף: key -> nodes
+        groups: Dict[str, List[ast.AST]] = {}
+
+        for node in getattr(tree, "body", []):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not _is_top_level(node):
+                continue
+            if _has_decorators(node):
+                continue
+            if _line_count(node) < min_lines:
+                continue
+            # נרמול מינימלי: נתעלם רק משם הפונקציה, אבל נשמור הכל (כולל שמות משתנים)
+            # כדי לא להכליל בטעות פונקציות "דומות" שאינן זהות.
+            n2 = copy.deepcopy(node)
+            try:
+                n2.name = "__DUP__"  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            dumped = ast.dump(n2, include_attributes=False)
+            key = hashlib.sha1(dumped.encode("utf-8")).hexdigest()
+            groups.setdefault(key, []).append(node)
+
+        duplicates: List[Dict[str, Any]] = []
+        for key, nodes in groups.items():
+            if len(nodes) < 2:
+                continue
+            # סדר יציב לפי הופעה
+            nodes_sorted = sorted(nodes, key=lambda n: int(getattr(n, "lineno", 0) or 0))
+            helper_name = f"_extracted_{key[:8]}"
+            functions_meta: List[Dict[str, Any]] = []
+            for n in nodes_sorted:
+                start = int(getattr(n, "lineno", 0) or 0)
+                end = int(getattr(n, "end_lineno", start) or start)
+                name = str(getattr(n, "name", "unknown"))
+                is_async = isinstance(n, ast.AsyncFunctionDef)
+                # שמירת מידע בסיסי לצרכי החלפה
+                functions_meta.append(
+                    {
+                        "name": name,
+                        "start_line": start,
+                        "end_line": end,
+                        "is_async": is_async,
+                    }
+                )
+            duplicates.append({"key": key, "helper_name": helper_name, "functions": functions_meta})
+
+        # מיון: הכי הרבה מופעים קודם
+        duplicates.sort(key=lambda d: len(d.get("functions", [])), reverse=True)
+        return duplicates
 
     def _build_utils_from_duplicates(self, duplicates: List[Dict[str, Any]]) -> str:
-        return '"""\nפונקציות עזר משותפות\n"""\n\n# TODO: implement\n'
+        assert self.analyzer is not None
+        if not duplicates:
+            return '"""\nפונקציות עזר משותפות\n"""\n'
+
+        # נבנה map מהשם המקורי לקבוצה/עוזר (לצורך דוקסטרינג)
+        original_to_helper: Dict[str, str] = {}
+        for grp in duplicates:
+            helper = str(grp.get("helper_name") or "")
+            for f in (grp.get("functions") or []):
+                try:
+                    original_to_helper[str(f.get("name") or "")] = helper
+                except Exception:
+                    pass
+
+        # מפה של (lineno,name) -> AST node, כדי שנוכל להוציא את המימוש המקורי
+        tree = self.analyzer.tree
+        if tree is None:
+            return '"""\nפונקציות עזר משותפות\n"""\n'
+        fn_nodes: Dict[Tuple[int, str], ast.AST] = {}
+        for node in getattr(tree, "body", []):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                start = int(getattr(node, "lineno", 0) or 0)
+                name = str(getattr(node, "name", ""))
+                fn_nodes[(start, name)] = node
+
+        parts: List[str] = []
+        parts.append('"""')
+        parts.append("פונקציות עזר משותפות (נוצרו אוטומטית מרפקטורינג)")
+        parts.append('"""')
+        parts.append("")
+
+        for grp in duplicates:
+            helper_name = str(grp.get("helper_name") or "")
+            funcs = list(grp.get("functions") or [])
+            if not helper_name or not funcs:
+                continue
+            # נבחר את המופע הראשון כ"קנוני"
+            first = funcs[0]
+            start = int(first.get("start_line") or 0)
+            name = str(first.get("name") or "")
+            node = fn_nodes.get((start, name))
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            # שמרני: לא מעבירים decorators בכלל
+            node2 = copy.deepcopy(node)
+            node2.decorator_list = []  # type: ignore[attr-defined]
+            try:
+                node2.name = helper_name  # type: ignore[attr-defined]
+            except Exception:
+                continue
+            try:
+                code = ast.unparse(node2).rstrip() + "\n"
+            except Exception:
+                continue
+
+            # הערת מקור קצרה כדי לעזור להבין מה קרה
+            original_names = [str(f.get("name") or "") for f in funcs if f.get("name")]
+            original_names = [n for n in original_names if n]
+            if original_names:
+                parts.append(f"# Extracted from duplicated functions: {', '.join(original_names[:6])}{'...' if len(original_names) > 6 else ''}")
+            parts.append(code)
+            parts.append("")
+
+        return "\n".join(parts).rstrip() + "\n"
 
     def _replace_duplicates_with_calls(self, duplicates: List[Dict[str, Any]]) -> str:
-        return self.analyzer.code  # type: ignore[return-value]
+        assert self.analyzer is not None
+        if not duplicates:
+            return self.analyzer.code  # type: ignore[return-value]
+
+        code = self.analyzer.code or ""
+        tree = self.analyzer.tree
+        if tree is None:
+            return code
+
+        # Map: (start_line, name) -> node
+        fn_nodes: Dict[Tuple[int, str], ast.AST] = {}
+        for node in getattr(tree, "body", []):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                start = int(getattr(node, "lineno", 0) or 0)
+                name = str(getattr(node, "name", ""))
+                fn_nodes[(start, name)] = node
+
+        # החלפות שנבצע: (start,end) -> new_text
+        replacements: List[Tuple[int, int, str]] = []
+        helpers_needed: Set[str] = set()
+
+        for grp in duplicates:
+            helper_name = str(grp.get("helper_name") or "")
+            funcs = list(grp.get("functions") or [])
+            if not helper_name or len(funcs) < 2:
+                continue
+            helpers_needed.add(helper_name)
+            for f in funcs:
+                start = int(f.get("start_line") or 0)
+                end = int(f.get("end_line") or start)
+                name = str(f.get("name") or "")
+                node = fn_nodes.get((start, name))
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                # בנה wrapper עם אותה חתימה/אנוטציות (באמצעות AST) כדי להיות בטוחים שלא שוברים API
+                call = self._build_call_to_helper(node.args, helper_name)  # type: ignore[arg-type]
+                if isinstance(node, ast.AsyncFunctionDef):
+                    body_stmt: ast.stmt = ast.Return(value=ast.Await(value=call))
+                    wrapper = ast.AsyncFunctionDef(
+                        name=node.name,
+                        args=node.args,
+                        body=[body_stmt],
+                        decorator_list=[],
+                        returns=node.returns,
+                        type_comment=getattr(node, "type_comment", None),
+                    )
+                else:
+                    body_stmt = ast.Return(value=call)
+                    wrapper = ast.FunctionDef(
+                        name=node.name,
+                        args=node.args,
+                        body=[body_stmt],
+                        decorator_list=[],
+                        returns=node.returns,
+                        type_comment=getattr(node, "type_comment", None),
+                    )
+                ast.fix_missing_locations(wrapper)
+                wrapper_code = ast.unparse(wrapper).rstrip() + "\n"
+                # הוספת הערת הסבר קצרה (לא בתוך docstring כדי לא לשנות ABI של docstring)
+                wrapper_code = f"# extracted: implementation moved to utils.{helper_name}\n{wrapper_code}"
+                replacements.append((start, end, wrapper_code))
+
+        if not replacements:
+            return code
+
+        # הזרקת import לאחר בלוק imports קיים (שמרני)
+        import_line = ""
+        if helpers_needed:
+            helpers_sorted = ", ".join(sorted(helpers_needed))
+            import_line = f"from utils import {helpers_sorted}\n"
+
+        out_lines = code.splitlines(keepends=True)
+
+        # החלפת פונקציות מלמטה למעלה כדי לא לשבור אינדקסים
+        for start, end, new_text in sorted(replacements, key=lambda t: (t[0], t[1]), reverse=True):
+            if start <= 0 or end <= 0 or end < start:
+                continue
+            # אינדקסים: 1-based lines to 0-based slice
+            out_lines[start - 1 : end] = [new_text if new_text.endswith("\n") else new_text + "\n"]
+
+        # הוספת import אם צריך ואם לא קיים
+        if import_line and import_line not in "".join(out_lines):
+            insert_at = self._find_import_insertion_index("".join(out_lines))
+            out_lines[insert_at:insert_at] = [import_line]
+
+        return "".join(out_lines)
+
+    def _find_import_insertion_index(self, content: str) -> int:
+        """
+        מחזיר אינדקס (0-based על splitlines(keepends=True)) למיקום סביר להזרקת import:
+        אחרי docstring מודולרי (אם קיים) ואחרי בלוק imports ראשוני (אם קיים).
+        """
+        lines = content.splitlines(keepends=True)
+        try:
+            tree = ast.parse(content)
+        except Exception:
+            return 0
+        # אם יש docstring במודול – נתחיל אחרי הצומת הראשון
+        idx = 0
+        if getattr(tree, "body", None):
+            first = tree.body[0]
+            if isinstance(first, ast.Expr) and isinstance(getattr(first, "value", None), ast.Constant):
+                if isinstance(first.value.value, str):
+                    end = int(getattr(first, "end_lineno", 1) or 1)
+                    idx = max(idx, end)
+        # עבור כל import צמוד בתחילת המודול
+        for node in getattr(tree, "body", []):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                end = int(getattr(node, "end_lineno", getattr(node, "lineno", 1)) or 1)
+                idx = max(idx, end)
+            else:
+                # עוצרים כשיצאנו מבלוק imports הראשוני
+                if idx > 0:
+                    break
+        # idx הוא שורה 1-based; נחזיר אינדקס 0-based בסגנון slice insertion
+        return min(len(lines), idx)
+
+    def _build_call_to_helper(self, args: ast.arguments, helper_name: str) -> ast.Call:
+        """
+        בונה קריאה ל-helper עם העברת כל הפרמטרים בצורה נכונה (posonly/args/*args/kwonly/**kwargs).
+        """
+        call_args: List[ast.expr] = []
+        call_keywords: List[ast.keyword] = []
+
+        def _name(n: str) -> ast.Name:
+            return ast.Name(id=n, ctx=ast.Load())
+
+        # positional-only + normal args
+        for a in list(getattr(args, "posonlyargs", [])) + list(getattr(args, "args", [])):
+            call_args.append(_name(a.arg))
+
+        # *args
+        vararg = getattr(args, "vararg", None)
+        if vararg is not None:
+            call_args.append(ast.Starred(value=_name(vararg.arg), ctx=ast.Load()))
+
+        # keyword-only
+        for a in list(getattr(args, "kwonlyargs", [])):
+            call_keywords.append(ast.keyword(arg=a.arg, value=_name(a.arg)))
+
+        # **kwargs
+        kwarg = getattr(args, "kwarg", None)
+        if kwarg is not None:
+            call_keywords.append(ast.keyword(arg=None, value=_name(kwarg.arg)))
+
+        return ast.Call(func=_name(helper_name), args=call_args, keywords=call_keywords)
 
     def _merge_similar(self) -> RefactorProposal:
         raise ValueError("פיצ'ר מיזוג קוד טרם יושם במלואו")
