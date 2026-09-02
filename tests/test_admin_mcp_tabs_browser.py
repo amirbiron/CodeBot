@@ -37,9 +37,39 @@ HEALTH_ROWS = [
 ]
 NAV_ROWS = [{
     "session": "ses_x", "started": "2026-09-02T08:15:00.843000Z",
-    "client": "claude-code", "calls": 15, "searches": 0, "file_reads": 14,
-    "errors": 0, "total_ms": 2574.0, "total_sessions": 10,
+    "client": "claude-code", "calls": 15, "searches": 0,
+    "outline_reads": 2, "content_reads": 12,
+    "errors": 0, "total_ms": 2574.0,
+    # ארוך בכוונה: הטור הזה הוא מה שיכול להרחיב את הטבלה מעבר למסך.
+    "intent": (
+        "mapping the admin routes in webapp/app.py before reading the exact line range, "
+        "so a single outline call replaces a full read of twenty thousand lines"
+    ),
+    "total_sessions": 10,
 }]
+FAILURE_ROWS = [
+    {
+        "failed_at": "2026-09-02T00:43:14.487000Z",
+        "tool": "codekeeper_get_file", "client": "claude-code",
+        "error_type": "ValidationError",
+        "error_message": (
+            "1 validation error for get_fileArguments\nlines.1\n"
+            "  Input should be a valid integer "
+            "[type=int_type, input_value='9', input_type=str]"
+        ),
+        "session": "ses_x",
+    },
+    {
+        "failed_at": "2026-09-01T21:01:34.441000Z",
+        "tool": "codekeeper_get_repo_file", "client": None,
+        "error_type": "ValidationError", "error_message": None,
+        "session": "ses_y",
+    },
+]
+POSTHOG_LINKS = {
+    "intent_clusters": "https://us.posthog.com/project/567754/mcp-analytics/intent-clustering",
+    "sessions": "https://us.posthog.com/project/567754/mcp-analytics/sessions",
+}
 
 
 def _find_chromium():
@@ -73,11 +103,15 @@ def live_server():
     import webapp.app as app_mod
     from werkzeug.serving import make_server
 
-    fake = types.SimpleNamespace(get_dashboard=lambda: {
-        mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
-        mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=list(NAV_ROWS), total=10),
-        mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
-    })
+    fake = types.SimpleNamespace(
+        get_dashboard=lambda: {
+            mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
+            mcp.ENDPOINT_TOOL_FAILURES: EndpointResult(rows=list(FAILURE_ROWS)),
+            mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=list(NAV_ROWS), total=10),
+            mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
+        },
+        posthog_links=lambda: dict(POSTHOG_LINKS),
+    )
 
     patch = pytest.MonkeyPatch()
     patch.setattr(mcp, "get_mcp_analytics_service", lambda: fake)
@@ -219,3 +253,118 @@ def test_null_cells_never_render_the_word_none(page):
 
     assert "None" not in text
     assert "—" in text
+
+
+def test_the_wider_navigation_table_scrolls_inside_its_own_card(page):
+    """הטבלה גדלה משמונה עמודות לעשר, והכוונה היא טקסט חופשי באורך לא ידוע.
+
+    זה בדיוק מה שמפיל פריסות: הרוחב נקבע בזמן הרינדור, ולא ב-CSS שנקרא.
+    ההבטחה היא ש**הכרטיס** גולל ולא גוף העמוד, ואת זה אפשר למדוד רק בדפדפן.
+    """
+    page.click('button.mcp-tab[data-panel="navigation"]')
+    page.wait_for_timeout(150)
+
+    measured = page.evaluate("""() => {
+        const panel = '.mcp-panel[data-panel="navigation"]';
+        const wrap = document.querySelector(panel + ' .mcp-table-wrapper');
+        return {
+            docWidth: document.documentElement.scrollWidth,
+            viewport: document.documentElement.clientWidth,
+            wrapperScrolls: wrap.scrollWidth > wrap.clientWidth,
+            overflowX: getComputedStyle(wrap).overflowX,
+        };
+    }""")
+
+    assert measured["docWidth"] <= measured["viewport"] + 1, measured
+    assert measured["overflowX"] == "auto"
+
+
+def test_a_long_intent_keeps_its_full_text_in_the_title_attribute(page):
+    """הקיצוץ הוא של התצוגה בלבד. מה שהדפדפן באמת מציג ב-hover נמדד כאן."""
+    page.click('button.mcp-tab[data-panel="navigation"]')
+    page.wait_for_timeout(150)
+
+    measured = page.evaluate("""() => {
+        const el = document.querySelector('.mcp-panel[data-panel="navigation"] .mcp-clip');
+        return {title: el.getAttribute('title'), shown: el.textContent};
+    }""")
+
+    assert measured["title"] == NAV_ROWS[0]["intent"]
+    assert len(measured["shown"]) < len(measured["title"])
+    assert measured["shown"].endswith("…")
+
+
+def test_an_intent_that_looks_like_markup_is_never_a_live_element(page):
+    """``<script>`` בכוונה חייב להישאר טקסט — בדפדפן, לא רק במחרוזת.
+
+    בדיקת שרת מוכיחה ש-Jinja עשה escape. רק הדפדפן מוכיח שמה שנבנה בפועל
+    ב-DOM הוא צומת טקסט ולא אלמנט.
+    """
+    hostile = "<script>window.__pwned = 1</script>"
+    measured = page.evaluate(
+        """(hostile) => {
+            const el = document.querySelector('.mcp-panel[data-panel="navigation"] .mcp-clip');
+            el.setAttribute('title', hostile);
+            return {
+                pwned: window.__pwned === 1,
+                childElements: el.children.length,
+            };
+        }""",
+        hostile,
+    )
+
+    assert measured["pwned"] is False
+    assert measured["childElements"] == 0
+
+
+def test_the_failure_messages_render_under_the_tool_table(page):
+    """הפאנל שייך לטאב הבריאות, ולא לטאב רביעי."""
+    page.click('button.mcp-tab[data-panel="health"]')
+    page.wait_for_timeout(150)
+    text = page.inner_text('.mcp-panel[data-panel="health"]')
+
+    assert len(page.query_selector_all("button.mcp-tab")) == 3
+    assert "lines.1" in text
+    assert "Input should be a valid integer" in text
+    assert "לא ניתן לטעון" not in text, "הודעה חסרה הוצגה ככשל"
+
+
+def test_the_multiline_error_message_wraps_instead_of_stretching_the_table(page):
+    """ההודעה של Pydantic היא רב-שורתית ובעלת מקטעים ארוכים בלי רווח.
+
+    בלי ``overflow-wrap`` היא הייתה מותחת את הטבלה על פני המסך. זו תכונת
+    פריסה — היא קיימת רק אחרי שהדפדפן חישב אותה.
+    """
+    page.click('button.mcp-tab[data-panel="health"]')
+    page.wait_for_timeout(150)
+
+    measured = page.evaluate("""() => {
+        const cell = document.querySelector('.mcp-errmsg');
+        const style = getComputedStyle(cell);
+        return {
+            whiteSpace: style.whiteSpace,
+            overflowWrap: style.overflowWrap,
+            lines: cell.getClientRects().length,
+            docWidth: document.documentElement.scrollWidth,
+            viewport: document.documentElement.clientWidth,
+        };
+    }""")
+
+    assert measured["whiteSpace"] == "pre-wrap"
+    assert measured["overflowWrap"] == "anywhere"
+    assert measured["docWidth"] <= measured["viewport"] + 1, measured
+
+
+def test_the_outbound_links_open_safely_in_a_new_tab(page):
+    page.click('button.mcp-tab[data-panel="navigation"]')
+    page.wait_for_timeout(150)
+
+    links = page.evaluate("""() => [...document.querySelectorAll('a.mcp-outlink')].map(a => ({
+        href: a.href, target: a.target, rel: a.rel,
+    }))""")
+
+    assert len(links) == 2
+    for link in links:
+        assert link["href"] in POSTHOG_LINKS.values()
+        assert link["target"] == "_blank"
+        assert "noopener" in link["rel"] and "noreferrer" in link["rel"]

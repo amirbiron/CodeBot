@@ -5861,28 +5861,41 @@ def admin_rules_page():
 def admin_mcp_page():
     """מסך אדמין לנתוני MCP analytics מ-PostHog.
 
-    שלושת האנדפוינטים נקראים בצד השרת, כי המפתח של PostHog אינו יכול להגיע
+    ארבעת האנדפוינטים נקראים בצד השרת, כי המפתח של PostHog אינו יכול להגיע
     לדפדפן. השירות לעולם אינו זורק ומדווח כשל ב-``error_code``, ולכן כל טאב
-    מקבל את המצב שלו בנפרד: אנדפוינט אחד שנכשל אינו מחשיך את השניים האחרים.
+    מקבל את המצב שלו בנפרד: אנדפוינט אחד שנכשל אינו מחשיך את האחרים.
     """
     from services.mcp_analytics_service import (
         ENDPOINT_MISSING_CAPABILITIES,
         ENDPOINT_NAVIGATION_COST,
+        ENDPOINT_TOOL_FAILURES,
         ENDPOINT_TOOL_HEALTH,
         NAVIGATION_COST_LIMIT,
+        TOOL_FAILURES_LIMIT,
         EndpointResult,
         get_mcp_analytics_service,
     )
 
     generated_at = format_datetime_display(datetime.now(timezone.utc))
+    service = get_mcp_analytics_service()
+    # נבנה לפני הבלוק כדי שהקישורים יופיעו גם כשהשליפה נכשלת: הם אינם תלויים
+    # בנתונים, והם בדיוק מה שאדמין צריך כשהעמוד לא הצליח להביא אותם.
     try:
-        results = get_mcp_analytics_service().get_dashboard()
+        posthog_links = service.posthog_links()
+    except Exception:
+        logger.exception("Error building PostHog links for the MCP page")
+        posthog_links = {}
+    try:
+        results = service.get_dashboard()
         return render_template(
             'admin_mcp.html',
             tool_health=results[ENDPOINT_TOOL_HEALTH],
+            tool_failures=results[ENDPOINT_TOOL_FAILURES],
             navigation_cost=results[ENDPOINT_NAVIGATION_COST],
             missing_capabilities=results[ENDPOINT_MISSING_CAPABILITIES],
             navigation_limit=NAVIGATION_COST_LIMIT,
+            failures_limit=TOOL_FAILURES_LIMIT,
+            posthog_links=posthog_links,
             generated_at=generated_at,
         )
     except Exception:
@@ -5896,9 +5909,12 @@ def admin_mcp_page():
         return render_template(
             'admin_mcp.html',
             tool_health=failed,
+            tool_failures=failed,
             navigation_cost=failed,
             missing_capabilities=failed,
             navigation_limit=NAVIGATION_COST_LIMIT,
+            failures_limit=TOOL_FAILURES_LIMIT,
+            posthog_links=posthog_links,
             generated_at=generated_at,
         ), 500
 

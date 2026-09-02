@@ -572,14 +572,14 @@ def test_a_stuck_endpoint_cannot_hang_the_page(monkeypatch):
         elapsed = time.monotonic() - started
 
         assert elapsed < 3.0, f"התקציב לא נאכף: {elapsed:.2f}s"
-        assert len(results) == 3
+        assert len(results) == len(mcp.DASHBOARD_ENDPOINTS)
         assert all(r.error_code == "unavailable" for r in results.values())
     finally:
         # משחרר את ה-workers מיד, כדי שלא ישרדו את הטסט
         release.set()
 
 
-def test_the_three_endpoints_actually_run_in_parallel(monkeypatch):
+def test_every_endpoint_actually_runs_in_parallel(monkeypatch):
     """מדידת מקביליות, ולא רק "נכנס בתקציב".
 
     שלוש קריאות קצרות עוברות כל תקציב סביר גם סדרתית, ולכן טסט שבודק רק
@@ -604,7 +604,8 @@ def test_the_three_endpoints_actually_run_in_parallel(monkeypatch):
     results = service.get_dashboard()
 
     assert all(r.ok for r in results.values())
-    assert state["peak"] == 3, f"רצו סדרתית — שיא במקביל היה {state['peak']}"
+    expected = len(mcp.DASHBOARD_ENDPOINTS)
+    assert state["peak"] == expected, f"רצו סדרתית — שיא במקביל היה {state['peak']}"
 
 
 def test_one_failing_endpoint_does_not_take_down_the_others(monkeypatch):
@@ -634,7 +635,7 @@ def test_a_breach_of_the_no_raise_contract_is_contained_and_logged(monkeypatch):
     monkeypatch.setattr(service, "run_endpoint", _throws)
     results = service.get_dashboard()
 
-    assert len(results) == 3
+    assert len(results) == len(mcp.DASHBOARD_ENDPOINTS)
     assert all(r.error_code == "unavailable" for r in results.values())
 
 
@@ -661,3 +662,67 @@ def test_an_open_circuit_is_reported_as_a_temporary_outage(monkeypatch, configur
     result = configured.run_endpoint(mcp.ENDPOINT_TOOL_HEALTH)
 
     assert result.error_code == "unavailable"
+
+
+# --------------------------------------------------------------------------
+# האנדפוינטים שהעמוד מריץ
+# --------------------------------------------------------------------------
+
+
+def test_the_dashboard_runs_the_failures_endpoint_with_its_own_limit():
+    """הפאנל יושב בתוך טאב קיים ולכן הוא קצר, ותקרה משלו היא מה שמבטיח זאת."""
+    assert (mcp.ENDPOINT_TOOL_FAILURES, mcp.TOOL_FAILURES_LIMIT) in mcp.DASHBOARD_ENDPOINTS
+
+
+def test_the_navigation_endpoint_is_the_second_version():
+    """v1 נשאר חי ב-PostHog כבסיס להשוואה; העמוד קורא ל-v2.
+
+    השם המפורש כאן ולא רק בקבוע, כי החלפה בשקט חזרה ל-v1 הייתה מחזירה את
+    הטור המאוחד — ואת המדד שהפיצול בא לתקן — בלי שאף בדיקה אחרת תרגיש.
+    """
+    assert mcp.ENDPOINT_NAVIGATION_COST == "ck_mcp_navigation_cost_v2"
+    names = [name for name, _ in mcp.DASHBOARD_ENDPOINTS]
+    assert "ck_mcp_navigation_cost" not in names
+
+
+# --------------------------------------------------------------------------
+# הקישורים היוצאים ל-PostHog
+# --------------------------------------------------------------------------
+
+
+def test_the_links_are_built_from_the_validated_configuration(configured):
+    links = configured.posthog_links()
+
+    assert links == {
+        "intent_clusters": "https://us.posthog.com/project/567754/mcp-analytics/intent-clustering",
+        "sessions": "https://us.posthog.com/project/567754/mcp-analytics/sessions",
+    }
+
+
+def test_the_api_key_is_not_part_of_the_link(monkeypatch, configured):
+    """המפתח חי רק בכותרת ``Authorization``, וכתובת שנפתחת בדפדפן היא בדיוק
+    המקום שבו סוד לא יכול להיות — הוא היה נכתב להיסטוריה, ל-Referer ולכל
+    ערוץ תצפית שרושם כתובות (``CRITICAL-PATTERNS.md`` K14)."""
+    monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_MUST_NOT_APPEAR_IN_A_URL")
+
+    for url in configured.posthog_links().values():
+        assert "phx_" not in url
+        assert "?" not in url and "#" not in url
+
+
+@pytest.mark.parametrize(
+    ("env", "value"),
+    [
+        ("POSTHOG_HOST", "https://us.i.posthog.com"),
+        ("POSTHOG_HOST", "not-a-url"),
+        ("POSTHOG_PROJECT_ID", "phx_pasted_into_the_wrong_variable"),
+        ("POSTHOG_PROJECT_ID", ""),
+    ],
+)
+def test_a_rejected_configuration_produces_no_link_at_all(monkeypatch, configured, env, value):
+    """קישור שנבנה מערך פסול מוביל לשום מקום, וגרוע מכך: ``project_id`` נכנס
+    לנתיב הכתובת, ולכן ערך שהודבק במשתנה הלא נכון היה נרשם לערוץ תצפית.
+    הבדיקה היא אותה רשימה לבנה שכבר שומרת על הבקשה עצמה."""
+    monkeypatch.setenv(env, value)
+
+    assert configured.posthog_links() == {}
