@@ -265,16 +265,34 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
         if not isinstance(properties, dict):
             return event
 
-        allowed = (
-            _ALLOWED_MCP_PROPERTIES
-            | _ALLOWED_BY_EVENT.get(event.get("event"), frozenset())
-            | _ALLOWED_BY_ERROR_TYPE.get(_error_type_of(properties), frozenset())
-        )
+        # שני החריגים המותנים, שניהם באותה צורה: מילון ממבחין לרשימת היתר
+        # נוספת. הם מוחזקים בנפרד מהרשימה הקבועה כי הם כפופים לתנאי נוסף —
+        # ראו את הלולאה.
+        conditional = _ALLOWED_BY_EVENT.get(
+            event.get("event"), frozenset()
+        ) | _ALLOWED_BY_ERROR_TYPE.get(_error_type_of(properties), frozenset())
 
         kept: dict = {}
         for key, value in properties.items():
             if isinstance(key, str) and key.startswith(_MCP_PROPERTY_PREFIX):
-                if key not in allowed:
+                if key in _ALLOWED_MCP_PROPERTIES:
+                    pass
+                elif key in conditional and isinstance(value, str):
+                    # **מה שנכנס דרך חריג חייב להיות מחרוזת.** שני החריגים
+                    # פותחים שדות שהצדקתם היא "משפט שאדם קורא": המשפט של
+                    # הסוכן, והודעת שגיאת ולידציה. מילון או רשימה תחת אותו
+                    # שם אינם המשפט הזה — הם מבנה שלם, והוא עובר שלם.
+                    #
+                    # זה נמדד: ``$mcp_error_message`` כמילון שמכיל גוף קובץ
+                    # עבר את השער עם התוכן בפנים, וכך גם ``$mcp_intent``.
+                    # הבדיקה הקודמת אימתה את **המבחין** (``$mcp_error_type``
+                    # הוא מחרוזת) ולא את מה שנמסר בפועל — כלומר בדקה מי
+                    # מבקש, ולא מה עובר.
+                    #
+                    # הכלל חל על שני החריגים ולא רק על החדש, כי החור זהה
+                    # בשניהם. תיקון של אחד בלבד היה משאיר את השני פתוח.
+                    pass
+                else:
                     continue
             elif key == _EXCEPTION_LIST_KEY:
                 value = _redact_exception_values(value)

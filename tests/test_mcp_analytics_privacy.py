@@ -662,15 +662,93 @@ def test_the_exception_does_not_reopen_parameters_or_response():
     assert _FILE_BODY not in _payload_text(out)
 
 
-def test_the_error_type_exception_does_not_leak_into_other_events():
-    """``$mcp_error_type`` על אירוע ``missing_capability`` לא פותח שם הודעה."""
+def test_the_error_type_exception_is_keyed_on_the_type_and_not_on_the_event():
+    """המבחין הוא סוג השגיאה בלבד, בכל אירוע — וזה מה שהטסט הזה מקבע.
+
+    **השם הקודם של הטסט הזה שיקר.** הוא נקרא
+    ``..._does_not_leak_into_other_events`` בזמן שהאסרשן שלו אישר בדיוק את
+    ההפך: שההודעה **כן** עוברת על ``$mcp_missing_capability``. זה אותו דפוס
+    שכבר תוקן בקובץ הזה פעם אחת — טסט שמבטיח יותר ממה שהוא בודק — ובגרסה
+    ההיא לפחות האסרשן היה נכון והשם היה רחב מדי. כאן השם אמר את ההפך
+    מהאסרשן, וזה גרוע יותר: קורא שסורק שמות היה מסיק שיש גידור שאין.
+
+    ההתנהגות עצמה מכוונת ותואמת למפרט: ``$mcp_error_message`` נפתח לפי
+    ``$mcp_error_type`` **בלבד**, בלי תנאי נוסף על שם האירוע. שגיאת ולידציה
+    על ``get_more_tools`` היא עדיין שגיאת ולידציה, ואותו ערך אבחוני.
+
+    צמצום לאירוע ``$mcp_tool_call`` בלבד הוא שינוי מפרט, לא תיקון באג, ולכן
+    הוא לא נעשה כאן בשקט.
+    """
     event = _missing_capability_event(
-        **{"$mcp_error_type": "ValidationError", "$mcp_error_message": "x"}
+        **{"$mcp_error_type": "ValidationError", "$mcp_error_message": "field required"}
     )
 
     out = analytics.scrub_mcp_payload(event)
 
-    assert out["properties"]["$mcp_error_message"] == "x"
+    assert out["properties"]["$mcp_error_message"] == "field required"
+
+
+# ---------------------------------------------------------------------------
+# מה שנכנס דרך חריג חייב להיות מחרוזת
+#
+# החריגים פותחים שדות שההצדקה שלהם היא "משפט שאדם קורא". מילון או רשימה תחת
+# אותו שם אינם המשפט הזה — הם מבנה שלם שעובר שלם. הבדיקה הקודמת אימתה את
+# **המבחין** ולא את מה שנמסר, כלומר בדקה מי מבקש ולא מה עובר.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"loc": ["file_name"], "input": _FILE_BODY},
+        [{"input": _FILE_BODY}],
+        {"nested": {"deeper": _FILE_BODY}},
+    ],
+)
+def test_a_structured_error_message_does_not_ride_the_exception(message):
+    """נמדד לפני התיקון: מילון תחת ``$mcp_error_message`` עבר עם התוכן בפנים."""
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
+
+    assert "$mcp_error_message" not in out["properties"]
+    assert _FILE_BODY not in _payload_text(out)
+
+
+@pytest.mark.parametrize("message", [None, 42, True, 3.5])
+def test_a_non_string_error_message_is_dropped_even_on_a_validation_error(message):
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
+
+    assert "$mcp_error_message" not in out["properties"]
+
+
+@pytest.mark.parametrize(
+    "intent",
+    [{"text": _FILE_BODY}, [_FILE_BODY], None, 42],
+)
+def test_the_same_rule_guards_the_older_intent_exception(intent):
+    """אותו חור בדיוק היה גם בחריג של ``$mcp_intent``, שנשלח ב-#3315.
+
+    תיקון של החדש בלבד היה משאיר את הישן פתוח — כלומר טלאי, לא שורש.
+    """
+    event = _missing_capability_event(**{"$mcp_intent": intent})
+
+    out = analytics.scrub_mcp_payload(event)
+
+    assert "$mcp_intent" not in out["properties"]
+    assert _FILE_BODY not in _payload_text(out)
+
+
+def test_a_plain_sentence_still_passes_through_both_exceptions():
+    """הכלל מצמצם ולא סוגר: מה שהחריגים נועדו לו ממשיך לעבור.
+
+    בלי הטסט הזה, "לחסום הכל" היה עובר את כל השאר.
+    """
+    tool_call = analytics.scrub_mcp_payload(
+        _failed_tool_call("ValidationError", "1 validation error\nfile_name")
+    )
+    missing = analytics.scrub_mcp_payload(_missing_capability_event())
+
+    assert tool_call["properties"]["$mcp_error_message"] == "1 validation error\nfile_name"
+    assert missing["properties"]["$mcp_intent"]
 
 
 def test_the_exception_list_message_stays_redacted_even_on_validation_errors():
