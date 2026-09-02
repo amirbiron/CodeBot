@@ -755,9 +755,15 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
     @mcp.tool(
         name="codekeeper_get_repo_file",
         description=(
-            "[Admin] Read one file from a mirrored repo (max 500KB; binary files "
-            "return metadata only). On sync_in_progress, retry after retry_after "
-            "seconds — the file may exist. " + _RANGE_DOC
+            "[Admin] Read one file from a mirrored repo. On sync_in_progress, "
+            "retry after retry_after seconds — the file may exist. " + _RANGE_DOC
+            # התקרה יושבת בסוף, אחרי הסבר הטווח, ולא לפניו — וכשהיא הופיעה
+            # ראשונה היא נקראה יחד עם "instead of the whole file" כאילו הטווח
+            # עוקף אותה. עכשיו הוא באמת עוקף, אבל **שתי תקרות שונות**, ולכן
+            # שני המספרים חייבים להופיע: סוכן שקיבל ``too_large`` צריך לדעת
+            # אם ``lines`` יעזור לו או שהקובץ מעבר לגבול בכל מקרה.
+            + " Size limits differ by mode: 500KB for a whole file, 10MB when "
+            "lines is given. Binary files return metadata only."
         ),
         annotations=_READ_ONLY_TOOL,
     )

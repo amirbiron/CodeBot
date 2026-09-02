@@ -352,3 +352,24 @@ async def test_save_file_description_matches_what_the_tool_actually_does():
     # ומה שכן צריך להיות שם: לאן פונים כשהשם תפוס
     assert "codekeeper_edit_file" in text
     assert "codekeeper_append_file" in text
+
+
+async def test_the_description_names_both_size_ceilings():
+    """התיאור הוא מה שהסוכן קורא כדי להחליט איך לקרוא לכלי.
+
+    בגרסה הקודמת ``(max 500KB)`` ישב במשפט הראשון, ומיד אחריו הופיע
+    "read only that range **instead of the whole file**", ומזה השתמעה
+    מסקנה שלא הייתה נכונה אז: שהטווח עוקף את התקרה.
+
+    היום הוא **כן** עוקף — אבל לתקרה אחרת, לא לאין-תקרה. ולכן שני
+    המספרים חייבים להופיע: סוכן שקיבל ``too_large`` צריך לדעת אם ``lines``
+    יעזור לו (קובץ בין 500KB ל-10MB) או שהקובץ מעבר לגבול בכל מקרה.
+    תיאור שמזכיר רק אחד מהם מחזיר בדיוק את הניחוש שהוא נועד למנוע.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    assert "500KB for a whole file" in description
+    assert "10MB when lines is given" in description
+    assert description.index("500KB") > description.index("lines=[start, end]")
+    assert "Binary files return metadata only" in description

@@ -162,7 +162,8 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
        ``include_stats=true`` מוסיף ``entries`` עם גודל וספירת שורות לכל נתיב —
        ראו :ref:`mcp-tree-stats`
    * - ``codekeeper_get_repo_file``
-     - תוכן קובץ בודד (עד 500KB; קובץ בינארי → מטא-דאטה בלבד).
+     - תוכן קובץ בודד (עד 500KB לקובץ מלא, עד 10MB עם ``lines``; קובץ
+       בינארי ← מטא-דאטה בלבד).
        ``lines=[start, end]`` כמו ב-``codekeeper_get_file``, באותה סמנטיקה
        בדיוק — ראו :ref:`mcp-line-range`
    * - ``codekeeper_search_repo``
@@ -599,8 +600,11 @@ Claude Desktop
 
 .. warning::
 
-   תקרת ה-500KB של ``codekeeper_get_repo_file`` נבדקת **לפני** פענוח הקובץ,
-   ולכן קריאת טווח מקובץ גדול מ-500KB עדיין מחזירה ``status: "too_large"``.
+   ל-``codekeeper_get_repo_file`` יש **שתי תקרות**, לפי מצב הקריאה: 500KB
+   לקובץ מלא, ו-10MB כשמועבר ``lines``. הבלוב עדיין נקרא ומפוענח במלואו
+   לפני החיתוך, ולכן התקרה הוחלפה ולא בוטלה — קובץ מעל 10MB מוחזר
+   כ-``status: "too_large"`` גם עם טווח, והשדה ``max`` בתשובה אומר לפי איזו
+   תקרה נשפט. ה-500KB ממשיכה לחול על הוובאפ ועל כל קריאה בלי ``lines``.
    הטווח אינו דרך לעקוף את התקרה.
 
 .. _mcp-tree-stats:

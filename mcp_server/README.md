@@ -81,7 +81,7 @@ mirrors), ושלושה על פתקי ריפו שקוראים/כותבים ל‑`
 |-----|-------|
 | `codekeeper_list_repos` | רשימת הריפואים המשוקפים (מטא‑דאטה) |
 | `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן) |
-| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB; בינארי ⇒ מטא‑דאטה בלבד) |
+| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB לקובץ מלא, עד 10MB עם `lines`; בינארי ⇒ מטא‑דאטה בלבד) |
 | `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
 | `codekeeper_list_repo_note_paths` | **מפת גילוי:** אילו קבצים בריפו נושאים פתקים, וכמה על כל אחד. בלעדיה `list_repo_notes` דורש לדעת את הנתיב מראש |
 | `codekeeper_list_repo_notes` | הפתקים שעל קובץ בודד בריפו משוקף (`repo_name` + `repo_path`) — אותם פתקים שמוצגים בדפדפן הריפו בוובאפ. מחזיר `orphaned: true` כשהנתיב כבר אינו בעץ, והפתקים חוזרים בכל מקרה |
