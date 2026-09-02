@@ -98,7 +98,10 @@ def _start_line(
     מאוחר יותר — נמדד. לכן סריקה אחורה עד השורה שמתחילה ב-``@``. מעטר
     קודם שייתפס בדרך שייך לאותו סימבול ממילא, ולכן הרחבה כזו נכונה.
     """
-    decorators = getattr(node, "decorator_list", [])
+    # ``decorator_list`` קיים בוודאות בשלושת הטיפוסים שבחתימה, ולכן גישה
+    # ישירה ולא ``getattr`` עם ברירת מחדל — הגנה שהטיפוס כבר נותן היא
+    # רעש שמסתיר את מה שבאמת יכול להיכשל.
+    decorators = node.decorator_list
     start = min([node.lineno] + [d.lineno for d in decorators])
     if not decorators:
         return start
