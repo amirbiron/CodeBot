@@ -196,14 +196,24 @@ def test_two_symbols_may_share_a_full_name_and_both_survive():
 
 
 def test_real_duplicate_names_in_the_repo_are_not_collapsed():
+    """כל שם כפול מוחזר במספר המופעים המלא שלו.
+
+    הטסט נגזר מהסימבולים עצמם ולא ננעל על שם ספציפי: ``app.py`` משתנה,
+    והתכונה שנבדקת היא שאף שלב לא ממפתח לפי שם — לא איזה שם במקרה כפול.
+    """
     path = pathlib.Path("webapp/app.py")
     if not path.exists():  # pragma: no cover
         pytest.skip("webapp/app.py לא קיים")
 
     symbols = extract_outline(path.read_text(encoding="utf-8"), "webapp/app.py")["symbols"]
-    repeated = {name for name, n in Counter(r["name"] for r in symbols).items() if n > 1}
+    counts = Counter(row["name"] for row in symbols)
+    repeated = {name: n for name, n in counts.items() if n > 1}
 
-    assert "login_required.decorated_function" in repeated
+    assert repeated, "אין שמות כפולים — הטסט מאבד את מה שהוא בודק"
+    for name, occurrences in repeated.items():
+        rows = [row for row in symbols if row["name"] == name]
+        assert len(rows) == occurrences
+        assert len({row["start"] for row in rows}) == occurrences
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +321,7 @@ def test_a_bug_in_the_traversal_is_not_swallowed_as_no_outline(monkeypatch):
     """
     import mcp_server.outline as module
 
-    def _explode(_tree):
+    def _explode(_tree, _lines):
         raise AttributeError("boom")
 
     monkeypatch.setattr(module, "_collect", _explode)
@@ -484,3 +494,171 @@ def test_a_decorated_tool_is_findable_through_a_real_mirror(tmp_path):
     assert "register.get_repo_file" in names
     found = next(r for r in out["symbols"] if r["name"] == "register.get_repo_file")
     assert found["start"] == 2  # שורת ה-``@mcp.tool``, לא ה-``def``
+
+
+# ---------------------------------------------------------------------------
+# נרמול הקלט
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("suffix", [".py", ".PY", ".Py", ".pyi", ".PYI"])
+def test_a_python_file_is_recognised_whatever_the_case_of_its_suffix(suffix):
+    """``.pyi`` הוא פייתון תקין, והוא נפוץ הרבה יותר מסיומת באותיות גדולות."""
+    assert extract_outline("def f():\n    pass\n", f"mod{suffix}")["status"] == "ok"
+
+
+def test_a_unicode_name_is_matched_case_insensitively():
+    """``lower`` מפספסת מיפויים של יותר מתו אחד; ``casefold`` לא."""
+    assert _names("def straße():\n    pass\n", symbol="STRASSE") == ["straße"]
+
+
+def test_a_multiline_parenthesised_decorator_still_anchors_at_the_at_sign():
+    """``d.lineno`` הוא שורת ה**ביטוי**, לא שורת ה-``@``.
+
+    בכתיב הרגיל הם זהים. ב-``@(`` עם ירידת שורה הביטוי מתחיל שורה מאוחר
+    יותר, וטווח שנגזר מהאאוטליין היה מחמיץ את השורה הראשונה של הסימבול.
+    התחביר הזה אינו מופיע בריפו אפילו פעם אחת, אבל התיקון הוא ארבע שורות
+    בלי תלות חדשה — זול יותר מלתעד מגבלה ידועה.
+    """
+    text = "@(\n    deco\n)\ndef f():\n    pass\n"
+
+    assert extract_outline(text, "x.py")["symbols"][0]["start"] == 1
+
+
+def test_an_undecorated_symbol_is_not_dragged_backwards():
+    """הסריקה אחורה רצה רק כשיש מעטר, ולא בולעת שורות שכנות."""
+    text = "@deco\ndef a():\n    pass\n\n\ndef b():\n    pass\n"
+
+    symbols = extract_outline(text, "x.py")["symbols"]
+
+    assert symbols[0]["start"] == 1
+    assert symbols[1]["start"] == 6
+
+
+# ---------------------------------------------------------------------------
+# העימוד — בטוח בהוכחה, לא בתקווה
+# ---------------------------------------------------------------------------
+
+
+def test_a_full_page_provably_fits_the_output_budget():
+    """זו הסיבה שאורך השם חסום, וזו הסיבה שאין חיתוך בזמן ריצה.
+
+    חיתוך לפי בתים **בתוך** עמוד, יחד עם עימוד אריתמטי, מאבד סימבולים:
+    העמוד נעצר באמצע והעמוד הבא מתחיל אחרי ``per_page`` המלא. במקום לזהות
+    את המצב הזה ולתקן אותו, הוא הפוך לבלתי-ניתן-לייצוג — והטסט הזה הוא
+    מה שמחזיק את ההוכחה כשמישהו ישנה אחד משלושת המספרים.
+    """
+    import json
+
+    from mcp_server.outline import _MAX_NAME_LENGTH
+
+    worst = {"name": "x" * _MAX_NAME_LENGTH, "start": 9_999_999, "end": 9_999_999}
+    record = len(json.dumps(worst, ensure_ascii=False).encode("utf-8"))
+
+    assert repo_handlers.OUTLINE_PER_PAGE_MAX * record < repo_handlers.OUTPUT_BYTE_BUDGET
+
+
+def test_a_name_longer_than_the_bound_is_marked_and_shortened():
+    # שם מלא גדל ב-``len("nNN.")`` לרמה; 60 רמות עוברות את 200 התווים.
+    deep = "".join(f"{' ' * (4 * i)}def name{i}():\n" for i in range(60))
+    deep += " " * (4 * 60) + "pass\n"
+
+    from mcp_server.outline import _MAX_NAME_LENGTH
+
+    longest = max(extract_outline(deep, "x.py")["symbols"], key=lambda r: len(r["name"]))
+
+    assert len(longest["name"]) <= _MAX_NAME_LENGTH
+    assert longest["name"].endswith("\u2026")
+
+
+def test_no_symbol_is_unreachable_across_pages():
+    """המאפיין שהעימוד קיים בשבילו: איחוד כל העמודים הוא כל הסימבולים."""
+    backend = _backend(_SAMPLE)
+    seen = []
+    for page in range(1, 6):
+        seen += repo_handlers.get_repo_file(
+            backend, repo="r", path="a.py", outline=True, page=page, per_page=50
+        )["symbols"]
+
+    every = repo_handlers.get_repo_file(
+        backend, repo="r", path="a.py", outline=True, per_page=500
+    )["symbols"]
+
+    assert seen == every[: len(seen)]
+    assert len(seen) == 250
+
+
+@pytest.mark.parametrize("page", [0, -5, "x", None, 1.5])
+def test_a_direct_caller_cannot_slice_with_a_bad_page(page):
+    """``get_file`` הוא API ציבורי, ולא רק מה שהמטפל קורא לו.
+
+    זו בדיוק ההגנה ש-``list_tree`` עושה בכוונה, עם הערה כתובה, ושמסלול
+    האאוטליין דילג עליה.
+    """
+    from mcp_server.repo_backend import RepoBackend
+
+    backend = RepoBackend(mirror=_Mirror(_SAMPLE))
+
+    out = backend.get_file(repo="r", path="a.py", outline=True, page=page)
+
+    assert out["page"] == 1
+    assert out["symbols"][0]["name"] == "f0"
+
+
+@pytest.mark.parametrize("per_page", ["x", None, [1]])
+def test_a_non_numeric_per_page_falls_back_to_the_default(per_page):
+    from mcp_server.repo_backend import RepoBackend
+
+    backend = RepoBackend(mirror=_Mirror(_SAMPLE))
+
+    out = backend.get_file(repo="r", path="a.py", outline=True, per_page=per_page)
+
+    assert out["per_page"] == repo_handlers.OUTLINE_PER_PAGE_DEFAULT
+
+
+@pytest.mark.parametrize("per_page", [0, -1])
+def test_a_non_positive_per_page_becomes_the_smallest_valid_page(per_page):
+    """אותה נוסחה בדיוק כמו ב-``list_tree``, ובכוונה.
+
+    אפס אינו "לא מספר" — הוא מספר מחוץ לתחום, ולכן הוא נצבט לגבול הקרוב
+    ולא נופל לברירת המחדל. יישור למוסכמה של הקובץ עדיף על התנהגות שנייה
+    שנראית סבירה לבדה.
+    """
+    from mcp_server.repo_backend import RepoBackend
+
+    backend = RepoBackend(mirror=_Mirror(_SAMPLE))
+
+    out = backend.get_file(repo="r", path="a.py", outline=True, per_page=per_page)
+
+    assert out["per_page"] == 1
+    assert len(out["symbols"]) == 1
+
+
+def test_the_response_does_not_carry_a_truncated_flag():
+    """שדה שתמיד ``false`` מסמן משהו אחר ממה שאותה מילה מסמנת בכלי השכן.
+
+    ב-``list_repo_tree`` ``truncated`` פירושו "התקציב חתך בתוך העמוד".
+    כאן אין חיתוך, ולכן אין שדה — ``total`` הוא מה שאומר אם יש עוד עמודים.
+    """
+    out = repo_handlers.get_repo_file(
+        _backend(_SAMPLE), repo="r", path="a.py", outline=True
+    )
+
+    assert "truncated" not in out
+
+
+# ---------------------------------------------------------------------------
+# ``lines`` ו-``outline`` אינם מצטברים
+# ---------------------------------------------------------------------------
+
+
+def test_asking_for_both_a_range_and_an_outline_is_rejected():
+    """התעלמות שקטה מפרמטר שהקורא העביר היא הכשל השקט מהצד השני.
+
+    הוא היה מקבל תשובה תקינה, בלי שום סימן שהטווח שביקש לא נקרא.
+    """
+    out = repo_handlers.get_repo_file(
+        _backend(_SAMPLE), repo="r", path="a.py", outline=True, lines=[1, 5]
+    )
+
+    assert out == {"ok": False, "error": "outline_and_lines"}

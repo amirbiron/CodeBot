@@ -21,7 +21,17 @@ from typing import Any
 _FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
 _SCOPE_NODES = _FUNCTION_NODES + (ast.ClassDef,)
 
-_PYTHON_SUFFIX = ".py"
+#: ``.pyi`` הוא פייתון תקין ש-``ast.parse`` מנתחת, והוא נפוץ הרבה יותר
+#: מסיומת באותיות גדולות. הבדיקה מנורמלת, ולא השוואת מחרוזת אחת.
+_PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
+
+#: תקרת אורך לשם סימבול. השם הארוך ביותר בריפו הזה הוא 81 תווים
+#: (``DatabaseManager.connect._init_noop_collections.NoOpCollection.find_one_and_update``),
+#: אז 200 לא ייגע בשום דבר אמיתי. מה שהוא כן עושה: הופך את גודל הרשומה
+#: לחסום, וזה מה שמאפשר להוכיח שעמוד שלם נכנס בתקציב הפלט במקום לקוות
+#: לזה ולחתוך בזמן ריצה. חיתוך בזמן ריצה בתוך עמוד + עימוד אריתמטי הוא
+#: בדיוק הצירוף שמאבד סימבולים בשקט.
+_MAX_NAME_LENGTH = 200
 
 
 def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str, Any]:
@@ -32,7 +42,7 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     בתוכה — "תן לי הכול תחת המרחב הזה". ``total`` סופר את ההתאמות אחרי
     הסינון, כי עליו נשען העימוד.
     """
-    if not path.endswith(_PYTHON_SUFFIX):
+    if not any(path.lower().endswith(suffix) for suffix in _PYTHON_SUFFIXES):
         return {"status": "no_outline", "reason": "unsupported_language"}
 
     # ההרחבה הגורפת עוטפת **רק** את הפרסינג, ובכוונה. הקלט הוא קובץ
@@ -54,7 +64,7 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
             "line": getattr(error, "lineno", None),
         }
 
-    rows = _collect(tree)
+    rows = _collect(tree, text.split("\n"))
 
     # ממוין לפי שורת התחלה, ושובר-שוויון לפי שם. אין כאן מקרה של מעטר
     # משותף — מעטר שייך לסימבול אחד — אבל שובר-שוויון קבוע הוא מה שהופך
@@ -62,13 +72,48 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     rows.sort(key=lambda row: (row["start"], row["name"]))
 
     if symbol:
-        needle = symbol.lower()
-        rows = [row for row in rows if needle in row["name"].lower()]
+        # ``casefold`` ולא ``lower``: זה הפרימיטיב להשוואה חסרת-רישיות.
+        # ``lower`` מפספסת מיפויים של יותר מתו אחד, למשל ``straße`` מול
+        # ``STRASSE``.
+        needle = symbol.casefold()
+        rows = [row for row in rows if needle in row["name"].casefold()]
 
     return {"status": "ok", "symbols": rows, "total": len(rows)}
 
 
-def _collect(tree: ast.AST) -> list[dict[str, Any]]:
+def _bounded(name: str) -> str:
+    """שם חסום באורך, כדי שגודל הרשומה יהיה חסום.
+
+    בלי חסם, שום ערך של ``per_page`` אינו בטוח-בהוכחה מול תקציב הפלט —
+    ואז נדרש חיתוך בזמן ריצה, שיחד עם עימוד אריתמטי מאבד סימבולים.
+    """
+    if len(name) <= _MAX_NAME_LENGTH:
+        return name
+    return name[: _MAX_NAME_LENGTH - 1] + "\u2026"
+
+
+def _start_line(node: ast.AST, lines: list[str]) -> int:
+    """שורת ההתחלה: המעטר הראשון, ולא ה-``def``.
+
+    ב-``webapp/app.py`` 203 מתוך 408 הפונקציות ברמה העליונה מעוטרות, וטווח
+    שהיה מתחיל ב-``def`` היה מחמיץ את ``@app.route(...)``.
+
+    ``decorator_list[i].lineno`` הוא שורת ה**ביטוי**, לא שורת ה-``@``.
+    בכתיב הרגיל הם זהים, אבל ב-``@(``ואז ירידת שורה הביטוי מתחיל שורה
+    מאוחר יותר — נמדד. לכן סריקה אחורה עד השורה שמתחילה ב-``@``. מעטר
+    קודם שייתפס בדרך שייך לאותו סימבול ממילא, ולכן הרחבה כזו נכונה.
+    """
+    decorators = getattr(node, "decorator_list", [])
+    start = min([node.lineno] + [d.lineno for d in decorators])
+    if not decorators:
+        return start
+    index = start - 1  # 0-based
+    while index > 0 and lines[index - 1].lstrip().startswith("@"):
+        index -= 1
+    return index + 1
+
+
+def _collect(tree: ast.AST, lines: list[str]) -> list[dict[str, Any]]:
     """מעבר על העץ עם מחסנית מפורשת, ולא ברקורסיה.
 
     קינון עמוק לא יכול לייצר ``RecursionError`` בצד שלנו — וזה מה שמאפשר
@@ -84,15 +129,13 @@ def _collect(tree: ast.AST) -> list[dict[str, Any]]:
                 name = f"{prefix}{child.name}"
                 rows.append(
                     {
-                        "name": name,
+                        "name": _bounded(name),
                         # שורת ההתחלה היא של המעטר הראשון ולא של ה-``def``.
                         # ב-``webapp/app.py`` 203 מתוך 408 הפונקציות ברמה
                         # העליונה מעוטרות, ובלי זה טווח שנקרא לפי האאוטליין
                         # היה מתחיל **אחרי** ``@app.route(...)`` — כלומר
                         # מחמיץ את השורה שמזהה את הנתיב.
-                        "start": min(
-                            [child.lineno] + [d.lineno for d in child.decorator_list]
-                        ),
+                        "start": _start_line(child, lines),
                         "end": child.end_lineno or child.lineno,
                     }
                 )

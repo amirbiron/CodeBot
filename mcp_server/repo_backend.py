@@ -20,7 +20,11 @@ import logging
 from typing import Any
 
 from .backend import _json_safe
-from .repo_handlers import OUTPUT_BYTE_BUDGET, TREE_PER_PAGE_MAX
+from .repo_handlers import (
+    OUTLINE_PER_PAGE_DEFAULT,
+    OUTLINE_PER_PAGE_MAX,
+    TREE_PER_PAGE_MAX,
+)
 from .handlers import apply_line_range, normalize_line_range
 from .outline import extract_outline
 from .repo_policy import is_denied
@@ -72,8 +76,8 @@ def _outline_response(
     content: str,
     path: str,
     symbol: str | None,
-    page: int,
-    per_page: int,
+    page: Any,
+    per_page: Any,
 ) -> dict[str, Any]:
     """עוטף את ``extract_outline`` בעימוד ובמעטפת התשובה של הכלי.
 
@@ -88,33 +92,36 @@ def _outline_response(
         # קובץ שבור כקובץ בלי סימבולים.
         return {"ok": True, "file": file_meta, **result}
 
+    # אותה הגנה שהשכן ``list_tree`` עושה בכוונה ועם נימוק כתוב: המטפל כבר
+    # מהדק, אבל המתודה הזו היא API ציבורי, וקורא ישיר לא יחתוך עם start
+    # שלילי ולא יקרוס על ערך לא-מספרי.
+    page_i = max(1, _safe_int(page, 1))
+    per_page_i = min(max(1, _safe_int(per_page, OUTLINE_PER_PAGE_DEFAULT)),
+                     OUTLINE_PER_PAGE_MAX)
+
     symbols = result["symbols"]
-    total = result["total"]
-    start = (page - 1) * per_page
-    window = symbols[start : start + per_page]
+    start = (page_i - 1) * per_page_i
 
-    # ``truncated`` כאן הוא אותו דבר שהוא ב-``list_repo_tree``: תקציב
-    # הבתים שחתך **בתוך** העמוד, לא "יש עוד עמודים". שתי המשמעויות
-    # תחת מילה אחת היו הופכות את השדה למטעה בין שני כלים שכנים.
-    used = 0
-    kept: list[dict[str, Any]] = []
-    truncated = False
-    for row in window:
-        used += len(row["name"]) + 24
-        if used > OUTPUT_BYTE_BUDGET:
-            truncated = True
-            break
-        kept.append(row)
-
+    # **אין כאן חיתוך לפי תקציב, במכוון.** חיתוך בתוך עמוד יחד עם עימוד
+    # אריתמטי הוא הצירוף שמאבד סימבולים: העמוד נעצר באמצע, והעמוד הבא
+    # מתחיל אחרי ``per_page`` המלא — מה שנחתך לא חוזר לעולם משום עמוד.
+    #
+    # במקום לזהות את המצב הרע, הוא הפוך לבלתי-ניתן-לייצוג: אורך השם חסום
+    # ב-``_MAX_NAME_LENGTH`` (200), ולכן רשומה שוקלת לכל היותר כ-250 בתים,
+    # ועמוד מקסימלי הוא 500 × 250 = 125,000 — פחות ממחצית ``OUTPUT_BYTE_BUDGET``
+    # שהוא 256,000. זו אריתמטיקה, לא תקווה, ויש עליה טסט.
+    #
+    # ומכיוון שאין חיתוך, אין גם שדה ``truncated``: הוא היה קבוע ``false``
+    # ומסמן משהו אחר ממה שאותה מילה מסמנת ב-``list_repo_tree``. ``total``,
+    # ``page`` ו-``per_page`` הם מה שאומר אם יש עוד עמודים.
     return {
         "ok": True,
         "status": "outline",
         "file": file_meta,
-        "symbols": kept,
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "truncated": truncated,
+        "symbols": symbols[start : start + per_page_i],
+        "total": result["total"],
+        "page": page_i,
+        "per_page": per_page_i,
     }
 
 
@@ -426,6 +433,12 @@ class RepoBackend:
         # כי קובץ גדול נפסל ממילא; עכשיו טווח פגום כמו ``[9, 2]`` היה גורם
         # לקריאה ולפענוח של עד 10MB רק כדי להיפסל בסוף. הבדיקה טהורה וזולה,
         # ואין סיבה שתרוץ אחרי העבודה היקרה.
+        # שני מצבי קריאה שאינם מצטברים. התעלמות שקטה מאחד מהם היא בדיוק
+        # הכשל שהפרויקט הזה רודף אחריו: הקורא טרח להעביר פרמטר, קיבל
+        # תשובה תקינה, ואין שום סימן שמה שביקש לא קרה.
+        if outline and lines is not None:
+            return {"ok": False, "error": "outline_and_lines"}
+
         bounds: Any = None
         if lines is not None:
             # אותו עוזר משותף שמשרת גם את ``codekeeper_get_file``, כדי
