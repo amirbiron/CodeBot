@@ -117,6 +117,10 @@ def live_server():
             time.sleep(0.25)
     else:  # pragma: no cover
         httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+        patch.undo()
+        pytest.skip("שרת הבדיקה לא עלה")
         pytest.skip("שרת הבדיקה לא עלה")
 
     try:
