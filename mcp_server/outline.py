@@ -26,7 +26,6 @@ _SCOPE_NODES = _FUNCTION_NODES + (ast.ClassDef,)
 _PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 
 
-
 def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str, Any]:
     """מפת הסימבולים של ``text``, או ``no_outline`` עם הסיבה.
 
@@ -72,17 +71,6 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
         rows = [row for row in rows if needle in row["name"].casefold()]
 
     return {"status": "ok", "symbols": rows, "total": len(rows)}
-
-
-def _bounded(name: str) -> str:
-    """שם חסום באורך, כדי שגודל הרשומה יהיה חסום.
-
-    בלי חסם, שום ערך של ``per_page`` אינו בטוח-בהוכחה מול תקציב הפלט —
-    ואז נדרש חיתוך בזמן ריצה, שיחד עם עימוד אריתמטי מאבד סימבולים.
-    """
-    if len(name) <= _MAX_NAME_LENGTH:
-        return name
-    return name[: _MAX_NAME_LENGTH - 1] + "\u2026"
 
 
 def _start_line(
