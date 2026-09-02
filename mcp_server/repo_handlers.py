@@ -24,6 +24,11 @@ SEARCH_RESULTS_MAX = 100
 # ומול ``SEARCH_RESULTS_MAX`` ו-``OUTPUT_BYTE_BUDGET`` זו התקרה שמשאירה עמוד
 # שלם בתקציב במקום להיחתך.
 CONTEXT_LINES_MAX = 10
+# עימוד האאוטליין. קבועים משלו ולא מיחזור של ``TREE_*``: רשומת סימבול
+# נושאת שם מלא בנקודות ושתי שורות, ושוקלת יותר מנתיב. ``TREE_PER_PAGE_MAX``
+# הוא 1000, ועמוד כזה של סימבולים היה חוצה את תקציב הפלט לבדו.
+OUTLINE_PER_PAGE_DEFAULT = 100
+OUTLINE_PER_PAGE_MAX = 500
 OUTPUT_BYTE_BUDGET = 256_000
 
 
@@ -62,6 +67,10 @@ def get_repo_file(
     path: str,
     ref: str | None = None,
     lines: Any = None,
+    outline: bool = False,
+    symbol: str | None = None,
+    page: int = 1,
+    per_page: int = OUTLINE_PER_PAGE_DEFAULT,
 ) -> dict[str, Any]:
     name = (repo or "").strip()
     file_path = (path or "").strip()
@@ -70,7 +79,14 @@ def get_repo_file(
     if not file_path:
         return {"ok": False, "error": "missing_path"}
     return backend.get_file(
-        repo=name, path=file_path, ref=((ref or "").strip() or None), lines=lines
+        repo=name,
+        path=file_path,
+        ref=((ref or "").strip() or None),
+        lines=lines,
+        outline=bool(outline),
+        symbol=((symbol or "").strip() or None),
+        page=_clamp(page, 1, 10_000, 1),
+        per_page=_clamp(per_page, 1, OUTLINE_PER_PAGE_MAX, OUTLINE_PER_PAGE_DEFAULT),
     )
 
 

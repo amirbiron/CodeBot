@@ -16,12 +16,19 @@ search skips, get blocks. Heavy content is returned only by ``get_file``
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from .backend import _json_safe
-from .repo_handlers import TREE_PER_PAGE_MAX
+from .repo_handlers import (
+    OUTLINE_PER_PAGE_DEFAULT,
+    OUTLINE_PER_PAGE_MAX,
+    OUTPUT_BYTE_BUDGET,
+    TREE_PER_PAGE_MAX,
+)
 from .handlers import apply_line_range, normalize_line_range
+from .outline import extract_outline
 from .repo_policy import is_denied
 
 #: תקרת גודל נפרדת לקריאת טווח שורות.
@@ -64,6 +71,69 @@ _REPOS_PROJECTION = {
     "total_files": 1,
     "sync_status": 1,
 }
+
+
+def _outline_response(
+    file_meta: dict[str, Any],
+    content: str,
+    path: str,
+    symbol: str | None,
+    page: Any,
+    per_page: Any,
+) -> dict[str, Any]:
+    """עוטף את ``extract_outline`` בעימוד ובמעטפת התשובה של הכלי.
+
+    **``status`` ולא ``error``.** קובץ שאין לו אאוטליין הוא בדיוק המקרה של
+    ``binary``: הקריאה הצליחה, פשוט אין תוכן מהסוג שביקשו. ``error`` שמור
+    ל-``ok: false``, לפי אוצר המילים שכבר קיים בכלים כאן.
+    """
+    result = extract_outline(content, path, symbol=symbol)
+    if result.get("status") != "ok":
+        # ערוץ הכשל של ``extract_outline`` הוא ערך ההחזרה ולא חריגה, ולכן
+        # נבדק כאן במפורש. בדיקה של "לא נזרקה חריגה" בלבד הייתה מציגה
+        # קובץ שבור כקובץ בלי סימבולים.
+        return {"ok": True, "file": file_meta, **result}
+
+    # אותה הגנה שהשכן ``list_tree`` עושה בכוונה ועם נימוק כתוב: המטפל כבר
+    # מהדק, אבל המתודה הזו היא API ציבורי, וקורא ישיר לא יחתוך עם start
+    # שלילי ולא יקרוס על ערך לא-מספרי.
+    page_i = max(1, _safe_int(page, 1))
+    per_page_i = min(max(1, _safe_int(per_page, OUTLINE_PER_PAGE_DEFAULT)),
+                     OUTLINE_PER_PAGE_MAX)
+
+    symbols = result["symbols"]
+    window = symbols[(page_i - 1) * per_page_i :][:per_page_i]
+
+    # **מדידה בבתים, על הסריאליזציה האמיתית.** גרסה קודמת ניסתה להוכיח
+    # שהעמוד נכנס בתקציב על ידי חסימת אורך השם ב-200 **תווים** — וזה נשבר
+    # בשני מקומות: שם ב-CJK הוא שלושה בתים לתו, כך שעמוד מקסימלי הגיע
+    # ל-323,000 בתים מול תקציב של 256,000; והקיצוץ הרס את הזהות, כך
+    # ש-``symbol=`` עם השם המלא לא מצא את הסימבול. חסימת תווים אינה
+    # בטיחות בתים, וקיצוץ מזהה אינו אופציה.
+    #
+    # **וכשהעמוד לא נכנס — דוחים אותו, לא חותכים.** חיתוך בתוך עמוד יחד עם
+    # עימוד אריתמטי מאבד סימבולים: העמוד נעצר באמצע והבא מתחיל אחרי
+    # ``per_page`` המלא. דחייה מפורשת עם ``max`` היא חסרת אובדן, דטרמיניסטית,
+    # ואומרת לקורא בדיוק מה לעשות — במקום להחזיר תשובה שנראית שלמה.
+    payload_bytes = len(json.dumps(window, ensure_ascii=False).encode("utf-8"))
+    if payload_bytes > OUTPUT_BYTE_BUDGET:
+        return {
+            "ok": False,
+            "error": "page_too_large",
+            "bytes": payload_bytes,
+            "max": OUTPUT_BYTE_BUDGET,
+            "per_page": per_page_i,
+        }
+
+    return {
+        "ok": True,
+        "status": "outline",
+        "file": file_meta,
+        "symbols": window,
+        "total": result["total"],
+        "page": page_i,
+        "per_page": per_page_i,
+    }
 
 
 class RepoBackend:
@@ -363,6 +433,10 @@ class RepoBackend:
         path: str,
         ref: str | None = None,
         lines: Any = None,
+        outline: bool = False,
+        symbol: str | None = None,
+        page: int = 1,
+        per_page: int = 100,
     ) -> dict[str, Any]:
         if is_denied(path):  # policy: block, before touching the mirror
             return {"ok": False, "error": "path_denied"}
@@ -370,6 +444,12 @@ class RepoBackend:
         # כי קובץ גדול נפסל ממילא; עכשיו טווח פגום כמו ``[9, 2]`` היה גורם
         # לקריאה ולפענוח של עד 10MB רק כדי להיפסל בסוף. הבדיקה טהורה וזולה,
         # ואין סיבה שתרוץ אחרי העבודה היקרה.
+        # שני מצבי קריאה שאינם מצטברים. התעלמות שקטה מאחד מהם היא בדיוק
+        # הכשל שהפרויקט הזה רודף אחריו: הקורא טרח להעביר פרמטר, קיבל
+        # תשובה תקינה, ואין שום סימן שמה שביקש לא קרה.
+        if outline and lines is not None:
+            return {"ok": False, "error": "outline_and_lines"}
+
         bounds: Any = None
         if lines is not None:
             # אותו עוזר משותף שמשרת גם את ``codekeeper_get_file``, כדי
@@ -382,7 +462,10 @@ class RepoBackend:
         # רק לקריאת טווח. בלי ``lines`` לא מועבר ``max_size`` כלל, כך
         # שברירת המחדל של שירות המראה נשארת מקור האמת היחיד ל-500KB —
         # ושתי ההתנהגויות לא נפרדות לשני מספרים שצריך לסנכרן.
-        size_kwargs = {"max_size": RANGE_READ_MAX_BYTES} if lines is not None else {}
+        # אאוטליין נשפט כמו קריאת טווח: הוא קורא את הקובץ כולו אבל מחזיר
+        # פלט זעיר, ולכן אין סיבה שתקרת התצוגה של 500KB תחסום אותו.
+        wants_slice = lines is not None or outline
+        size_kwargs = {"max_size": RANGE_READ_MAX_BYTES} if wants_slice else {}
         try:
             res = self._require_mirror().get_file_at_commit(
                 repo, path, use_ref, **size_kwargs
@@ -403,6 +486,9 @@ class RepoBackend:
             file_meta["lines"] = res.get("lines")
             file_meta["encoding"] = res.get("encoding")
             content = res.get("content")
+            if outline:
+                return _outline_response(file_meta, content or "", path,
+                                         symbol, page, per_page)
             if bounds is not None:
                 sliced = apply_line_range(content or "", *bounds)
                 if isinstance(sliced, str):

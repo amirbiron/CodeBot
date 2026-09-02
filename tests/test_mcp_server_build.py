@@ -370,6 +370,17 @@ async def test_the_description_names_both_size_ceilings():
     description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
 
     assert "500KB for a whole file" in description
-    assert "10MB when lines is given" in description
+    assert "10MB with lines or outline" in description
     assert description.index("500KB") > description.index("lines=[start, end]")
     assert "Binary files return metadata only" in description
+
+
+async def test_the_description_tells_the_agent_the_outline_is_python_only():
+    """סוכן שיבקש מפה של ``.rst`` ויקבל ``no_outline`` צריך לדעת שזו
+    התנהגות מוצהרת ולא תקלה — אחרת הוא ינסה שוב."""
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    assert "outline=true" in description
+    assert "Python only" in description
+    assert "no_outline" in description

@@ -19,8 +19,15 @@ class _RecordingRepoBackend:
         )
         return {"ok": True}
 
-    def get_file(self, *, repo, path, ref, lines=None):
-        self.calls.append(("get", repo, path, ref, lines))
+    # כמו ב-``list_tree`` למעלה: הפרמטרים החדשים נוספים **בסוף** החתימה
+    # ובסוף ה-tuple, כי הטסטים הקיימים משווים לפי אינדקס מיקומי.
+    def get_file(
+        self, *, repo, path, ref, lines=None,
+        outline=False, symbol=None, page=1, per_page=100,
+    ):
+        self.calls.append(
+            ("get", repo, path, ref, lines, outline, symbol, page, per_page)
+        )
         return {"ok": True}
 
     def search(self, *, repo, query, file_pattern, max_results, byte_budget, context_lines=0):
@@ -61,7 +68,11 @@ def test_get_file_requires_repo_and_path():
     assert rh.get_repo_file(be, repo="r", path=" ") == {"ok": False, "error": "missing_path"}
     assert be.calls == []
     rh.get_repo_file(be, repo="r", path=" a.py ", ref="  ")
-    assert be.calls[0] == ("get", "r", "a.py", None, None)  # trimmed; blank ref -> None
+    # trimmed; blank ref -> None. ברירות המחדל של האאוטליין בסוף ה-tuple,
+    # והן חייבות להיות "כבוי" — קריאה רגילה לא מבקשת מפה.
+    assert be.calls[0] == (
+        "get", "r", "a.py", None, None, False, None, 1, rh.OUTLINE_PER_PAGE_DEFAULT
+    )
 
 
 def test_search_validates_query_and_clamps():
