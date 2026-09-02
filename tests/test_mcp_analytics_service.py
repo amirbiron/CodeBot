@@ -83,10 +83,52 @@ def test_trailing_slash_in_host_does_not_double_up(monkeypatch):
     monkeypatch.setenv("POSTHOG_PROJECT_ID", "1")
     monkeypatch.setenv("POSTHOG_HOST", "https://us.posthog.com/")
 
-    host, _, _, error = McpAnalyticsService().resolve_config()
+    config = McpAnalyticsService().resolve_config()
 
-    assert error is None
-    assert host == "https://us.posthog.com"
+    assert isinstance(config, mcp.PostHogConfig)
+    assert config.host == "https://us.posthog.com"
+
+
+def test_resolve_config_returns_either_a_config_or_an_error_never_both(monkeypatch):
+    """מצב לא חוקי שאינו ניתן לייצוג: אין "קונפיגורציה חלקית לצד שגיאה"."""
+    monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
+    monkeypatch.setenv("POSTHOG_PROJECT_ID", "1")
+    monkeypatch.setenv("POSTHOG_HOST", "https://us.posthog.com")
+    good = McpAnalyticsService().resolve_config()
+    assert isinstance(good, mcp.PostHogConfig)
+    assert not isinstance(good, EndpointResult)
+
+    monkeypatch.delenv("POSTHOG_HOST")
+    bad = McpAnalyticsService().resolve_config()
+    assert isinstance(bad, EndpointResult)
+    assert not isinstance(bad, mcp.PostHogConfig)
+
+
+@pytest.mark.parametrize("value", ["foo", "https://", "ftp://us.posthog.com", "//us.posthog.com"])
+def test_a_malformed_host_is_rejected_before_any_request(monkeypatch, value):
+    """``foo`` ו-``ftp://`` עברו קודם ונשלחה עליהם בקשה שנועדה להיכשל."""
+    monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
+    monkeypatch.setenv("POSTHOG_PROJECT_ID", "1")
+    monkeypatch.setenv("POSTHOG_HOST", value)
+
+    def _must_not_be_called(*args, **kwargs):  # pragma: no cover
+        raise AssertionError(f"בקשה נשלחה למרות host לא תקין: {value!r}")
+
+    monkeypatch.setattr("http_sync.request", _must_not_be_called)
+    result = McpAnalyticsService().run_endpoint(mcp.ENDPOINT_TOOL_HEALTH)
+
+    assert result.error_code == "config_invalid"
+
+
+def test_the_ingestion_check_looks_at_the_hostname_not_the_whole_string(monkeypatch):
+    """כתובת שנושאת את הרצף בנתיב אינה כתובת בליעה."""
+    monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
+    monkeypatch.setenv("POSTHOG_PROJECT_ID", "1")
+    monkeypatch.setenv("POSTHOG_HOST", "https://us.posthog.com/x/.i.posthog.com")
+
+    config = McpAnalyticsService().resolve_config()
+
+    assert isinstance(config, mcp.PostHogConfig), "hostname תקין סווג בטעות ככתובת בליעה"
 
 
 # --------------------------------------------------------------------------
@@ -106,6 +148,21 @@ def test_zero_rows_is_success_not_failure(configured):
     assert result.rows == []
     assert result.error_code == ""
     assert result.ok is True
+
+
+def test_zero_rows_does_not_require_column_names(configured):
+    """``columns`` נחוץ רק כדי לזווג שורות, ואין מה לזווג באפס שורות.
+
+    ה-spec מבטיח רק את ``results``; לדרוש ``columns`` גם כשאין שורות היה
+    הופך את המצב הריק — המצב הצפוי של הטאב השלישי בהשקה — לשגיאת
+    ``bad_payload``. בפועל PostHog כן מחזיר ``columns`` גם ריק, אימתתי,
+    ולכן זו שבריריות ולא באג פעיל — אבל אין לדרישה הצדקה.
+    """
+    result = configured._result_from_response(_Resp(200, {"results": []}), "x")
+
+    assert result.ok is True
+    assert result.rows == []
+    assert result.error_code == ""
 
 
 def test_empty_rows_with_an_error_code_is_a_failure():
@@ -265,7 +322,8 @@ def test_the_key_travels_in_the_header_and_the_url_carries_no_query_string(monke
     assert seen["method"] == "POST"
     assert "?" not in seen["url"], "אסור שתהיה שורת שאילתה בכתובת"
     assert "phx_" not in seen["url"]
-    assert seen["kwargs"]["headers"]["Authorization"].startswith("Bearer ")
+    # ``startswith("Bearer ")`` היה עובר גם עם מפתח ריק או שגוי.
+    assert seen["kwargs"]["headers"]["Authorization"] == "Bearer phx_TEST_ONLY_NOT_REAL"
     assert seen["kwargs"]["json"] == {"limit": 50}, "limit חייב לשבת בגוף ולא בכתובת"
 
 
@@ -278,11 +336,18 @@ def test_circuit_labels_are_explicit_and_distinct_per_endpoint(monkeypatch, conf
         return _Resp(200, {"results": [], "columns": ["a"]})
 
     monkeypatch.setattr("http_sync.request", _capture)
-    for name in (mcp.ENDPOINT_TOOL_HEALTH, mcp.ENDPOINT_NAVIGATION_COST):
+    endpoints = (
+        mcp.ENDPOINT_TOOL_HEALTH,
+        mcp.ENDPOINT_NAVIGATION_COST,
+        mcp.ENDPOINT_MISSING_CAPABILITIES,
+    )
+    for name in endpoints:
         configured.run_endpoint(name)
 
     assert all(service == "posthog" for service, _ in labels)
-    assert len({endpoint for _, endpoint in labels}) == 2, "שני האנדפוינטים חולקים תווית מפסק"
+    assert len({endpoint for _, endpoint in labels}) == len(endpoints), (
+        "אנדפוינטים חולקים תווית מפסק — כשל של אחד יחסום את השאר"
+    )
 
 
 def test_request_overrides_the_projects_slow_retry_defaults(monkeypatch, configured):
@@ -295,8 +360,16 @@ def test_request_overrides_the_projects_slow_retry_defaults(monkeypatch, configu
     monkeypatch.setattr("http_sync.request", _capture)
     configured.run_endpoint(mcp.ENDPOINT_TOOL_HEALTH)
 
-    assert seen["timeout"] == mcp.REQUEST_TIMEOUT_SECONDS
     assert seen["max_attempts"] == mcp.REQUEST_MAX_ATTEMPTS
+    # טאפל ולא סקלר: ערך סקלרי מתפרק ל-connect *ו*-read נפרדים, בלי חסם
+    # על הסכום, ולכן הוא מתיר כפול ממה שהוא נראה.
+    assert seen["timeout"] == (
+        mcp.REQUEST_CONNECT_TIMEOUT_SECONDS,
+        mcp.REQUEST_READ_TIMEOUT_SECONDS,
+    )
+    assert isinstance(seen["timeout"], tuple)
+    # בלי זה ``max_attempts`` אינו מספר הבקשות בפועל.
+    assert seen["adapter_retries"] is False
 
 
 # --------------------------------------------------------------------------
@@ -304,45 +377,111 @@ def test_request_overrides_the_projects_slow_retry_defaults(monkeypatch, configu
 # --------------------------------------------------------------------------
 
 
-def test_the_three_timing_constants_stay_coherent():
-    """התקציב חייב להיות מעל המקרה הגרוע של קריאה בודדת.
+def _worst_case_backoff(attempts: int) -> float:
+    """סכום ההשהיות המקסימלי, נגזר מ-``DEFAULT_RETRY_POLICY`` ולא מועתק כקבוע.
 
-    אחרת הוא חותך קריאה שעוד עשויה להצליח ומשאיר אחריה thread רץ. זה לא
-    היה תיאורטי: בגרסה הראשונה של המימוש התקציב היה 6 שניות מול מקרה גרוע
-    של 8.25, והמדידה היא שחשפה את זה.
+    ``compute_backoff_delay`` הוא ``min(cap, base·2^(n-1)) + random()·jitter``,
+    ולכן התקרה לכל השהיה היא ``capped + jitter``. גזירה מהמדיניות היא מה
+    שגורם לטסט להישבר גם כשמישהו משנה ``HTTP_RESILIENCE_BACKOFF_BASE``
+    דרך ENV, בלי לגעת בקוד.
     """
-    backoff_allowance = 0.25
-    worst_case = mcp.REQUEST_TIMEOUT_SECONDS * mcp.REQUEST_MAX_ATTEMPTS + backoff_allowance
+    from resilience import DEFAULT_RETRY_POLICY as pol
 
-    assert worst_case < mcp.TOTAL_BUDGET_SECONDS
+    return sum(
+        min(pol.backoff_cap, pol.backoff_base * (2 ** (i - 1))) + pol.jitter
+        for i in range(1, max(0, attempts - 1) + 1)
+    )
+
+
+def test_a_single_full_length_call_fits_inside_the_budget():
+    """זה היחס שחייב להתקיים — ולא ``worst_case < budget``.
+
+    המקרה הגרוע המלא (שני ניסיונות) **גדול** מהתקציב בכוונה, כי להכניס
+    אותו מתחתיו היה מחייב ``connect + read <= 3.125`` — לחנוק שאילתה על
+    30 יום נתונים. מה שהתקציב כן מבטיח: קריאה יחידה שצורכת את מלוא הזמן
+    אינה נחתכת. retry עשוי להיחתך, וזה מקובל — הוא עוזר כש-503 חוזר מהר.
+    """
+    one_full_call = mcp.REQUEST_CONNECT_TIMEOUT_SECONDS + mcp.REQUEST_READ_TIMEOUT_SECONDS
+
+    assert one_full_call < mcp.TOTAL_BUDGET_SECONDS, (
+        "קריאה יחידה שלוקחת את מלוא הזמן נחתכת על ידי התקציב"
+    )
+
+
+def test_the_documented_worst_case_matches_the_real_policy():
+    """המספר בתיעוד נגזר, לא מועתק. אם המדיניות תזוז — הטסט ייפול."""
+    one_call = mcp.REQUEST_CONNECT_TIMEOUT_SECONDS + mcp.REQUEST_READ_TIMEOUT_SECONDS
+    worst = one_call * mcp.REQUEST_MAX_ATTEMPTS + _worst_case_backoff(mcp.REQUEST_MAX_ATTEMPTS)
+
+    assert worst == pytest.approx(12.75, abs=0.01), (
+        f"ה-worst case זז ל-{worst}; עדכן את docs/webapp/mcp-analytics.rst"
+    )
+    assert worst > mcp.TOTAL_BUDGET_SECONDS, (
+        "אם ה-worst case נכנס מתחת לתקציב, ההסבר בתיעוד כבר לא נכון"
+    )
+
+
+def test_the_timeout_is_a_tuple_because_a_scalar_means_two_windows():
+    """``requests`` מפרק ערך סקלרי ל-connect *ו*-read, ו-urllib3 מקבל
+    ``total=None`` — כלומר אין חסם על הסכום, ו-``timeout=3.0`` מתיר שש."""
+    assert isinstance(mcp.REQUEST_TIMEOUT, tuple)
+    assert len(mcp.REQUEST_TIMEOUT) == 2
 
 
 def test_a_stuck_endpoint_cannot_hang_the_page(monkeypatch):
-    """התקציב העליון חותך בוודאות, בלי תלות ב-timeout שעלול להידרס מ-ENV."""
-    monkeypatch.setattr(mcp, "TOTAL_BUDGET_SECONDS", 1.0)
-    service = McpAnalyticsService()
-    monkeypatch.setattr(service, "run_endpoint", lambda name, limit=None: time.sleep(30))
+    """התקציב העליון חותך בוודאות, בלי תלות ב-timeout שעלול להידרס מ-ENV.
 
-    started = time.monotonic()
-    results = service.get_dashboard()
-    elapsed = time.monotonic() - started
+    החסימה היא ``threading.Event`` ולא ``sleep``: ה-executor נסגר ב-
+    ``wait=False``, ולכן thread שישן שורד את הטסט ומעכב את סיום התהליך.
+    """
+    import threading
 
-    assert elapsed < 3.0, f"התקציב לא נאכף: {elapsed:.2f}s"
-    assert len(results) == 3
-    assert all(r.error_code == "unavailable" for r in results.values())
-
-
-def test_a_call_that_finishes_within_the_worst_case_is_not_cut(monkeypatch):
+    release = threading.Event()
     monkeypatch.setattr(mcp, "TOTAL_BUDGET_SECONDS", 1.0)
     service = McpAnalyticsService()
     monkeypatch.setattr(
-        service, "run_endpoint",
-        lambda name, limit=None: (time.sleep(0.2), EndpointResult(rows=[{"a": 1}]))[1],
+        service, "run_endpoint", lambda name, limit=None: release.wait(timeout=30)
     )
 
+    try:
+        started = time.monotonic()
+        results = service.get_dashboard()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 3.0, f"התקציב לא נאכף: {elapsed:.2f}s"
+        assert len(results) == 3
+        assert all(r.error_code == "unavailable" for r in results.values())
+    finally:
+        # משחרר את ה-workers מיד, כדי שלא ישרדו את הטסט
+        release.set()
+
+
+def test_the_three_endpoints_actually_run_in_parallel(monkeypatch):
+    """מדידת מקביליות, ולא רק "נכנס בתקציב".
+
+    שלוש קריאות קצרות עוברות כל תקציב סביר גם סדרתית, ולכן טסט שבודק רק
+    זמן כולל אינו מוכיח כלום. מה שמוכיח: כמה workers היו פעילים בו-זמנית.
+    """
+    import threading
+
+    lock = threading.Lock()
+    state = {"active": 0, "peak": 0}
+
+    def _tracked(name, limit=None):
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.15)
+        with lock:
+            state["active"] -= 1
+        return EndpointResult(rows=[{"a": 1}])
+
+    service = McpAnalyticsService()
+    monkeypatch.setattr(service, "run_endpoint", _tracked)
     results = service.get_dashboard()
 
     assert all(r.ok for r in results.values())
+    assert state["peak"] == 3, f"רצו סדרתית — שיא במקביל היה {state['peak']}"
 
 
 def test_one_failing_endpoint_does_not_take_down_the_others(monkeypatch):

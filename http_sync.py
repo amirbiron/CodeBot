@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Optional, Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 import time
 import logging
 
@@ -52,7 +53,7 @@ except Exception:  # pragma: no cover
         return None
 
 
-def _extract_retry_count(resp: requests.Response) -> Optional[int]:
+def _extract_retry_count(resp: requests.Response) -> int | None:
     try:
         raw = getattr(resp, "raw", None)
         retries_obj = getattr(raw, "retries", None)
@@ -128,7 +129,13 @@ def _sleep_with_backoff(attempt: int, policy: RetryPolicy) -> None:
         return
 
 
-def _create_session() -> requests.Session:
+def _create_session(adapter_retries: bool = True) -> requests.Session:
+    """בונה Session עם pooling, ועם שכבת ה-Retry של ה-adapter או בלעדיה.
+
+    ``adapter_retries=False`` מייצר Session שבו ה-adapter **אינו** מנסה שוב.
+    זו הדרך היחידה לגרום ל-``max_attempts`` של :func:`request` להיות מספר
+    הבקשות בפועל — ראו ההסבר ב-docstring שלה.
+    """
     pool_conns = _to_int("REQUESTS_POOL_CONNECTIONS", 20)
     pool_max = _to_int("REQUESTS_POOL_MAXSIZE", 100)
     retries = _to_int("REQUESTS_RETRIES", 2)
@@ -137,7 +144,11 @@ def _create_session() -> requests.Session:
     sess = requests.Session()
     adapter_kwargs = {"pool_connections": pool_conns, "pool_maxsize": pool_max}
 
-    if Retry is not None:
+    if not adapter_retries:
+        # 0 (int) מתקבל על ידי HTTPAdapter גם כשאין urllib3.Retry זמין,
+        # ומשמעותו "בקשה אחת, בלי ניסיון חוזר".
+        adapter_kwargs["max_retries"] = 0
+    elif Retry is not None:
         status_forcelist = (500, 502, 503, 504)
         allowed = frozenset(["GET", "POST", "PUT", "PATCH", "DELETE"])  # HEAD rarely used here
         try:
@@ -171,16 +182,41 @@ def _create_session() -> requests.Session:
     return sess
 
 
-def get_session() -> requests.Session:
-    sess: Optional[requests.Session] = getattr(_local, "session", None)
+def get_session(adapter_retries: bool = True) -> requests.Session:
+    """Session פר-thread. שני מופעים נפרדים: עם שכבת retry של ה-adapter ובלעדיה.
+
+    שניהם נשמרים ב-thread-local ונבנים פעם אחת, כדי ששינוי ההתנהגות לא
+    יעלה ב-connection pool נוסף בכל קריאה.
+    """
+    attr = "session" if adapter_retries else "session_no_adapter_retries"
+    sess: requests.Session | None = getattr(_local, attr, None)
     if sess is None:
-        sess = _create_session()
-        _local.session = sess
+        sess = _create_session(adapter_retries=adapter_retries)
+        setattr(_local, attr, sess)
     return sess
 
 
 def request(method: str, url: str, **kwargs):
+    """קריאת HTTP עם Retry, Circuit Breaker ומדדים.
+
+    .. warning::
+
+       ``max_attempts`` **אינו** מספר הבקשות שיישלחו בפועל. מתחת ללולאה
+       שכאן, ה-Session מרכיב על ה-adapter ``urllib3.Retry`` משלו
+       (``REQUESTS_RETRIES``, ברירת מחדל 2), שמנסה שוב על ``5xx`` בתוך
+       בקשה אחת. שתי השכבות **מוכפלות**: ``max_attempts=2`` מייצר עד שש
+       בקשות רשת, לא שתיים — נמדד.
+
+       כדי ש-``max_attempts`` יהיה הסך הכולל, העבירו גם
+       ``adapter_retries=False``. אז שכבת ה-adapter מבוטלת והלולאה כאן היא
+       היחידה. ה-Circuit Breaker והמדדים אינם מושפעים — הם חיים כאן ולא
+       ב-adapter.
+
+    :param adapter_retries: ``False`` מבטל את שכבת ה-Retry של ה-adapter
+        לקריאה הזו. ברירת המחדל ``True`` משמרת את ההתנהגות ההיסטורית.
+    """
     timeout = kwargs.pop("timeout", _to_float("REQUESTS_TIMEOUT", 8.0))
+    adapter_retries = bool(kwargs.pop("adapter_retries", True))
     slow_ms = _to_float("HTTP_SLOW_MS", 0.0)
     logger = logging.getLogger(__name__)
 
@@ -276,10 +312,10 @@ def request(method: str, url: str, **kwargs):
     result: requests.Response | None = None
     retries_performed = 0
     observed_retry_history = 0
-    last_status_code: Optional[int] = None
-    last_duration_ms: Optional[float] = None
-    last_status_label: Optional[str] = None
-    last_error_signature: Optional[str] = None
+    last_status_code: int | None = None
+    last_duration_ms: float | None = None
+    last_status_label: str | None = None
+    last_error_signature: str | None = None
 
     def _total_retries() -> int:
         return max(0, retries_performed + observed_retry_history)
@@ -290,7 +326,15 @@ def request(method: str, url: str, **kwargs):
         for attempt in range(1, max_attempts + 1):
             t0 = time.perf_counter()
             try:
-                resp = get_session().request(method=method, url=url, timeout=timeout, **kwargs)
+                # המסלול הרגיל קורא ל-``get_session()`` **בלי ארגומנטים**, בדיוק
+                # כפי שקרא תמיד. זו לא קוסמטיקה: "additive בלבד" פירושו שקוד
+                # קיים — כולל סטאבים שמזייפים את ``get_session`` בחתימה צרה —
+                # אינו רואה שום הבדל. ארגומנט חדש בקריאה הזו היה משנה את
+                # החוזה לכל קורא, גם כשהערך הוא ברירת המחדל.
+                session = (
+                    get_session() if adapter_retries else get_session(adapter_retries=False)
+                )
+                resp = session.request(method=method, url=url, timeout=timeout, **kwargs)
                 duration_seconds = time.perf_counter() - t0
                 duration_ms = duration_seconds * 1000.0
                 status_code = int(getattr(resp, "status_code", 0) or 0)

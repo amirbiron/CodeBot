@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +46,34 @@ NAVIGATION_COST_LIMIT = 50
 TOTAL_COLUMN = "total_sessions"
 
 # --- תקציב זמן ---
-# שלוש הגנות נפרדות, כי אף אחת מהן לבדה אינה מספיקה:
-# 1. ``timeout`` חוסם בקשה בודדת שנתקעת.
-# 2. ``max_attempts`` חוסם את לולאת ה-retry שמכפילה את ההמתנה — ``http_sync``
-#    מנסה שוב גם אחרי ``requests.Timeout``, ולכן ברירת המחדל (8 שניות × 3)
-#    הייתה 24 שניות של עמוד תלוי. שני ניסיונות נשמרים כדי לכבד את
-#    ``503 query_capacity``, שהתיעוד של PostHog אומר עליו "retry shortly".
+# שלוש הגנות נפרדות, כי אף אחת מהן לבדה אינה מספיקה.
+#
+# 1. ``timeout`` חוסם בקשה בודדת שנתקעת — **והוא טאפל בכוונה.** ערך סקלרי
+#    מתפרק ב-``requests`` ל-``connect`` *ו*-``read`` נפרדים
+#    (``TimeoutSauce(connect=t, read=t)``), ו-urllib3 מקבל ``total=None``,
+#    כלומר אין שום חסם על הסכום. ``timeout=3.0`` פירושו עד שש שניות
+#    לבקשה, לא שלוש. נמדד.
+# 2. ``max_attempts`` חוסם את לולאת ה-retry. **הוא לבדו אינו מספיק:**
+#    ה-adapter של ``http_sync`` נושא ``urllib3.Retry`` משלו, ושתי השכבות
+#    מוכפלות — ``max_attempts=2`` ייצר שש בקשות רשת. לכן מועבר גם
+#    ``adapter_retries=False``, שמבטל את השכבה הפנימית לקריאה הזו.
+#    שני ניסיונות נשמרים כדי לכבד את ``503 query_capacity``, שהתיעוד של
+#    PostHog אומר עליו "retry shortly".
 # 3. התקציב העליון חותך בוודאות, בלי תלות בשתי הראשונות ובלי תלות ב-ENV
 #    שעלול לדרוס אותן.
 #
-# **שלושת המספרים תלויים זה בזה, ושינוי של אחד מחייב את השאר.** התקציב חייב
-# להיות גדול מהמקרה הגרוע של קריאה בודדת — ``timeout × max_attempts`` ועוד
-# ה-backoff — אחרת הוא חותך קריאה שעוד עשויה להצליח ומשאיר אחריו thread שרץ
-# בלי שאיש ממתין לו. כאן: 3.0 × 2 + 0.25 = 6.25 שניות, מתחת ל-7.
-# נמדד ב-``tests/test_mcp_analytics_service.py``, לא מוערך.
-REQUEST_TIMEOUT_SECONDS = 3.0
+# **התקציב אינו מתיימר לכסות את המקרה הגרוע, והחישוב אומר זאת במפורש:**
+#
+#   קריאה אחת שצורכת את מלוא הזמן : 2.0 + 4.0                = 6.0  < 7.0
+#   worst case מלא עם retry        : 2 x 6.0 + backoff(<=0.75) = 12.75 > 7.0
+#
+# כלומר קריאה יחידה איטית **לא** נחתכת, ו-retry כן עשוי להיחתך — וזה
+# הגיוני: retry עוזר כש-503 חוזר מהר, ולא כש-PostHog לוקח שש שניות לענות.
+# להכניס את ה-worst case מתחת ל-7 היה מחייב ``connect + read <= 3.125``,
+# כלומר לחנוק שאילתה על 30 יום נתונים. ראו ``docs/webapp/mcp-analytics.rst``.
+REQUEST_CONNECT_TIMEOUT_SECONDS = 2.0
+REQUEST_READ_TIMEOUT_SECONDS = 4.0
+REQUEST_TIMEOUT = (REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
 REQUEST_MAX_ATTEMPTS = 2
 TOTAL_BUDGET_SECONDS = 7.0
 
@@ -67,7 +81,11 @@ TOTAL_BUDGET_SECONDS = 7.0
 # (``us.posthog.com``). אותו שם משתנה משמש את שני השירותים עם ערכים שונים,
 # ולכן ערך של שירות ה-MCP שיגיע לכאן היה מחזיר 404 — הודעה שמכוונת לחפש
 # אנדפוינט חסר במקום משתנה סביבה שגוי.
-INGESTION_HOST_MARKER = ".i.posthog.com"
+#
+# ההשוואה היא מול ה-**hostname** המפורסר ולא מול המחרוזת כולה: כתובת
+# שנושאת את הרצף הזה בנתיב או בשאילתה אינה כתובת בליעה.
+INGESTION_HOST_SUFFIX = ".i.posthog.com"
+ALLOWED_SCHEMES = ("http", "https")
 
 # תווית ה-service למפסק. ה-endpoint נקבע פר-אנדפוינט כדי שכשל של אחד לא
 # יפתח מפסק שחוסם את השניים האחרים.
@@ -110,14 +128,30 @@ def _config_error(code: str, detail: str) -> EndpointResult:
     return EndpointResult(error_code=code, error_detail=detail)
 
 
+@dataclass(frozen=True)
+class PostHogConfig:
+    """קונפיגורציה תקפה של PostHog — כל שדה בה כבר אומת.
+
+    המחלקה הזו קיימת כדי שלא ניתן יהיה לייצג "קונפיגורציה חלקית": פונקציית
+    הפתרון מחזירה **או** את זה **או** ``EndpointResult`` עם שגיאה, ולעולם
+    לא טאפל שבו חלק מהערכים ריקים לצד שגיאה. אותו עיקרון שחל על החוזה של
+    ``EndpointResult`` — ערוץ אחד, ומצב לא חוקי שאינו ניתן לייצוג.
+    """
+
+    host: str
+    project_id: str
+    api_key: str
+
+
 class McpAnalyticsService:
     """קורא את שלושת האנדפוינטים של PostHog ומחזיר שורות מוכנות לתבנית."""
 
-    def resolve_config(self) -> tuple[str, str, str, EndpointResult | None]:
-        """מחזיר ``(host, project_id, api_key, error)``.
+    def resolve_config(self) -> PostHogConfig | EndpointResult:
+        """מחזיר קונפיגורציה מאומתת, או שגיאה — לעולם לא שילוב של השתיים.
 
-        שלוש הבדיקות כאן רצות **לפני** שנשלחת בקשה. בקשה שלא נשלחה אינה
-        יכולה לחזור עם קוד סטטוס מטעה.
+        כל הבדיקות כאן רצות **לפני** שנשלחת בקשה, מפני שקוד סטטוס שחוזר
+        מכתובת שגויה מטעה יותר משהוא עוזר: כתובת הבליעה מחזירה ``404``,
+        וההודעה על ``404`` שולחת לחפש אנדפוינט קיים.
         """
         api_key = (os.environ.get(ENV_API_KEY) or "").strip()
         project_id = (os.environ.get(ENV_PROJECT_ID) or "").strip()
@@ -133,30 +167,32 @@ class McpAnalyticsService:
             if not value
         ]
         if missing:
-            return (
-                "",
-                "",
-                "",
-                _config_error(
-                    "config_missing",
-                    "המדידה אינה מוגדרת בשירות הוובאפ. חסר: " + ", ".join(missing),
-                ),
+            return _config_error(
+                "config_missing",
+                "המדידה אינה מוגדרת בשירות הוובאפ. חסר: " + ", ".join(missing),
             )
 
-        if INGESTION_HOST_MARKER in host:
-            return (
-                "",
-                "",
-                "",
-                _config_error(
-                    "host_is_ingestion",
-                    f"הערך של {ENV_HOST} בוובאפ הוא כתובת שליחת האירועים, "
-                    "ולא כתובת קריאת הנתונים. לקריאה צריך https://us.posthog.com "
-                    "(שירות ה-MCP משתמש באותו שם משתנה עם הכתובת השנייה).",
-                ),
+        parts = urlsplit(host)
+        if parts.scheme not in ALLOWED_SCHEMES or not parts.hostname:
+            return _config_error(
+                "config_invalid",
+                f"הערך של {ENV_HOST} אינו כתובת תקינה. נדרשת כתובת מלאה "
+                f"עם סכימה, למשל https://us.posthog.com — התקבל: {host!r}.",
             )
 
-        return host, project_id, api_key, None
+        # ההשוואה על ה-hostname המפורסר. ``in host`` היה תופס גם כתובת
+        # שנושאת את הרצף בנתיב או בשאילתה, וזו אינה כתובת בליעה.
+        hostname = parts.hostname.lower()
+        bare_ingestion = INGESTION_HOST_SUFFIX.lstrip(".")
+        if hostname.endswith(INGESTION_HOST_SUFFIX) or hostname == bare_ingestion:
+            return _config_error(
+                "host_is_ingestion",
+                f"הערך של {ENV_HOST} בוובאפ הוא כתובת שליחת האירועים, "
+                "ולא כתובת קריאת הנתונים. לקריאה צריך https://us.posthog.com "
+                "(שירות ה-MCP משתמש באותו שם משתנה עם הכתובת השנייה).",
+            )
+
+        return PostHogConfig(host=host, project_id=project_id, api_key=api_key)
 
     def run_endpoint(self, name: str, limit: int | None = None) -> EndpointResult:
         """מריץ אנדפוינט אחד. לעולם אינו זורק — ראו ``EndpointResult``."""
@@ -165,11 +201,11 @@ class McpAnalyticsService:
         from http_sync import CircuitOpenError
         from http_sync import request as http_request
 
-        host, project_id, api_key, cfg_error = self.resolve_config()
-        if cfg_error is not None:
-            return cfg_error
+        config = self.resolve_config()
+        if isinstance(config, EndpointResult):
+            return config
 
-        url = f"{host}/api/projects/{project_id}/endpoints/{name}/run"
+        url = f"{config.host}/api/projects/{config.project_id}/endpoints/{name}/run"
         body: dict[str, Any] = {}
         if limit is not None:
             body["limit"] = limit
@@ -181,11 +217,14 @@ class McpAnalyticsService:
                 json=body,
                 headers={
                     # הסוד יושב כאן ורק כאן. אין לו דרך להגיע לכתובת.
-                    "Authorization": f"Bearer {api_key}",
+                    "Authorization": f"Bearer {config.api_key}",
                     "Content-Type": "application/json",
                 },
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=REQUEST_TIMEOUT,
                 max_attempts=REQUEST_MAX_ATTEMPTS,
+                # בלי זה ``max_attempts`` אינו מספר הבקשות: ה-adapter של
+                # ``http_sync`` נושא ``Retry`` משלו, ושתי השכבות מוכפלות.
+                adapter_retries=False,
                 service=CIRCUIT_SERVICE,
                 endpoint=f"mcp_analytics.{name}",
             )
@@ -310,6 +349,11 @@ class McpAnalyticsService:
 
         if not isinstance(results, list):
             return [], "התשובה מ-PostHog אינה כוללת שורות תקינות."
+        # אפס שורות הוא מצב תקין ומצופה (הטאב השלישי בהשקה), ואין בו מה
+        # לזווג — לכן הוא אינו תלוי בקיום ``columns``. בפועל PostHog כן
+        # מחזיר ``columns`` גם ריק, אבל ה-spec מבטיח רק את ``results``.
+        if not results:
+            return [], ""
         if not isinstance(columns, list) or not columns:
             return [], "התשובה מ-PostHog אינה כוללת את שמות העמודות."
         if not all(isinstance(col, str) for col in columns):
