@@ -48,9 +48,20 @@ def failing_server():
         server.server_close()
 
 
+ADAPTER_RETRIES_FOR_TEST = 2
+
+
 @pytest.fixture(autouse=True)
-def _fresh_sessions():
-    """ה-Sessions נשמרים ב-thread-local ושורדים בין טסטים."""
+def _fresh_sessions(monkeypatch):
+    """Sessions טריים, ושכבת adapter פעילה שאפשר למדוד.
+
+    ה-CI מגדיר ``REQUESTS_RETRIES=0`` כדי שהטסטים ירוצו מהר. עם אפס, שני
+    המסלולים — עם הדגל ובלעדיו — מייצרים בדיוק אותו מספר בקשות, והטסטים
+    כאן היו עוברים בלי לבדוק דבר. לכן הם **קובעים בעצמם** את הערך שהם
+    מודדים, במקום לקוות שהסביבה תספק אותו.
+    """
+    monkeypatch.setenv("REQUESTS_RETRIES", str(ADAPTER_RETRIES_FOR_TEST))
+    monkeypatch.setenv("REQUESTS_RETRY_BACKOFF", "0")
     for attr in ("session", "session_no_adapter_retries"):
         if hasattr(http_sync._local, attr):
             delattr(http_sync._local, attr)
@@ -61,11 +72,10 @@ def _fresh_sessions():
 
 
 def _post(server, **kwargs):
+    """שולח בקשה וסופר. **אינו בולע חריגות** — 503 חוזר כתשובה רגילה
+    במסלול הזה (``raise_on_status=False``), ולכן כל חריגה כאן היא ממצא."""
     url = f"http://127.0.0.1:{server.server_port}/x"
-    try:
-        http_sync.request("POST", url, json={}, timeout=2, **kwargs)
-    except Exception:
-        pass
+    http_sync.request("POST", url, json={}, timeout=2, **kwargs)
     return server.hit_count
 
 
@@ -87,11 +97,14 @@ def test_the_existing_path_is_untouched(failing_server, monkeypatch):
     שלושה קוראים אחרים בריפו מעבירים ``max_attempts`` בלי הדגל החדש, ואסור
     שההתנהגות שלהם תזוז. המספר הצפוי נגזר מ-``REQUESTS_RETRIES`` ולא מועתק.
     """
-    expected_inner = http_sync._to_int("REQUESTS_RETRIES", 2)
+    expected_inner = http_sync._to_int("REQUESTS_RETRIES", 0)
+    assert expected_inner > 0, "ה-fixture אמור לכפות שכבת adapter פעילה"
+
     hits = _post(failing_server, max_attempts=2, service="test", endpoint="test.legacy")
 
-    assert hits == 2 * (1 + expected_inner)
-    assert hits > 2, "אם זה שווה ל-max_attempts, ברירת המחדל השתנתה"
+    assert hits == 2 * (1 + expected_inner), (
+        "המסלול הקיים זז — ``max_attempts`` שלו כבר אינו מוכפל בשכבת ה-adapter"
+    )
 
 
 def test_the_two_sessions_are_distinct_and_carry_different_adapters():
@@ -104,7 +117,7 @@ def test_the_two_sessions_are_distinct_and_carry_different_adapters():
     inner = with_retries.get_adapter("http://x").max_retries
     disabled = without.get_adapter("http://x").max_retries
 
-    assert getattr(inner, "total", inner) == http_sync._to_int("REQUESTS_RETRIES", 2)
+    assert getattr(inner, "total", inner) == http_sync._to_int("REQUESTS_RETRIES", 0)
     assert getattr(disabled, "total", disabled) == 0
 
 
@@ -162,16 +175,32 @@ def test_timeout_for_span_collapses_both_windows(value, expected):
     assert http_sync._timeout_for_span(value) == expected
 
 
-def test_a_scalar_timeout_is_two_windows_not_one():
+def test_requests_expands_a_scalar_timeout_into_two_windows(failing_server, monkeypatch):
     """הבסיס לכך שהתקציב ב-``mcp_analytics_service`` משתמש בטאפל.
 
-    ``requests`` ממיר ערך סקלרי ל-``connect`` *ו*-``read`` נפרדים, ו-urllib3
-    מקבל ``total=None`` — כלומר אין חסם על הסכום, וערך שנראה כתקרה אחת
-    מתיר בפועל את כפליו.
+    בודק את ההמרה **שהספרייה עושה בפועל**, לא ``Timeout`` שנבנה ידנית:
+    בנייה ידנית של ``Timeout(connect=3, read=3)`` הייתה עוברת גם אילו
+    ``requests`` היה ממיר סקלר ל-``total`` בלבד, ואז הטענה שהטסט בא
+    לבסס לא הייתה נכונה.
     """
-    from urllib3.util import Timeout
+    import requests.adapters as adapters
 
-    scalar = Timeout(connect=3.0, read=3.0)
+    seen = []
+    real_sauce = adapters.TimeoutSauce
 
-    assert scalar.total is None
-    assert scalar.connect_timeout + scalar.read_timeout == 6.0
+    class _SpyTimeout(real_sauce):
+        def __init__(self, *args, **kwargs):
+            seen.append(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(adapters, "TimeoutSauce", _SpyTimeout)
+    _post(failing_server, max_attempts=1, adapter_retries=False,
+          service="scalar_probe", endpoint="scalar_probe.ep")
+
+    assert seen, "לא נלכדה בניית timeout"
+    built = seen[0]
+    assert built.get("connect") == 2 and built.get("read") == 2, (
+        f"requests לא פירק את הסקלר לשני חלונות: {built}"
+    )
+    # ואין ``total`` שיחסום את הסכום — זו הנקודה כולה
+    assert real_sauce(**built).total is None

@@ -85,7 +85,11 @@ TOTAL_BUDGET_SECONDS = 7.0
 # ההשוואה היא מול ה-**hostname** המפורסר ולא מול המחרוזת כולה: כתובת
 # שנושאת את הרצף הזה בנתיב או בשאילתה אינה כתובת בליעה.
 INGESTION_HOST_SUFFIX = ".i.posthog.com"
-ALLOWED_SCHEMES = ("http", "https")
+
+# HTTPS בלבד. הבקשה נושאת את המפתח בכותרת ``Authorization``, ו-HTTP רגיל
+# היה שולח אותו בטקסט גלוי — כלומר קונפיגורציה שגויה אחת מספיקה כדי
+# להפוך את הסוד לחשוף על החוט.
+ALLOWED_SCHEMES = ("https",)
 
 # תווית ה-service למפסק. ה-endpoint נקבע פר-אנדפוינט כדי שכשל של אחד לא
 # יפתח מפסק שחוסם את השניים האחרים.
@@ -173,15 +177,19 @@ class McpAnalyticsService:
             )
 
         parts = urlsplit(host)
-        if parts.scheme not in ALLOWED_SCHEMES or not parts.hostname:
+        # הערך משמש כ-origin שאליו משורשר נתיב ה-API, ולכן כל רכיב נוסף —
+        # נתיב, שאילתה, פרגמנט או פרטי הזדהות — היה מייצר כתובת שגויה
+        # בשקט. נדחה כאן ולא מתגלה כ-404 מאוחר יותר.
+        has_extra_parts = bool(parts.path or parts.query or parts.fragment or parts.username)
+        if parts.scheme not in ALLOWED_SCHEMES or not parts.hostname or has_extra_parts:
             # ההודעה מתארת מה נדרש, ולא מצטטת את הערך שהתקבל. הערך מגיע
             # מ-``os.environ`` ומוצג בעמוד HTML; מספיקה טעות העתקה אחת בין
             # שני משתני הסביבה כדי שסוד ייחת לכאן ויוצג. הערך עצמו נבדק
             # ב-Config Inspector, שם הוא ממוסך כשהוא רגיש.
             return _config_error(
                 "config_invalid",
-                f"הערך של {ENV_HOST} אינו כתובת תקינה. נדרשת כתובת מלאה עם "
-                "סכימה, למשל https://us.posthog.com",
+                f"הערך של {ENV_HOST} אינו כתובת תקינה. נדרשת כתובת https "
+                "בלבד, בלי נתיב ובלי פרמטרים — למשל https://us.posthog.com",
             )
 
         # ההשוואה על ה-hostname המפורסר. ``in host`` היה תופס גם כתובת

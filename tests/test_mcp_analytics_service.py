@@ -104,7 +104,20 @@ def test_resolve_config_returns_either_a_config_or_an_error_never_both(monkeypat
     assert not isinstance(bad, mcp.PostHogConfig)
 
 
-@pytest.mark.parametrize("value", ["foo", "https://", "ftp://us.posthog.com", "//us.posthog.com"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "foo",                                  # בלי סכימה בכלל
+        "https://",                             # בלי hostname
+        "ftp://us.posthog.com",                 # סכימה לא נתמכת
+        "//us.posthog.com",                     # protocol-relative
+        "http://us.posthog.com",                # HTTP — הכותרת נושאת את המפתח
+        "https://us.posthog.com/api",           # נתיב: היה משורשר פעמיים
+        "https://us.posthog.com?x=1",           # שאילתה
+        "https://us.posthog.com#f",             # פרגמנט
+        "https://user:pw@us.posthog.com",       # פרטי הזדהות בכתובת
+    ],
+)
 def test_a_malformed_host_is_rejected_before_any_request(monkeypatch, value):
     """``foo`` ו-``ftp://`` עברו קודם ונשלחה עליהם בקשה שנועדה להיכשל."""
     monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
@@ -124,7 +137,8 @@ def test_the_ingestion_check_looks_at_the_hostname_not_the_whole_string(monkeypa
     """כתובת שנושאת את הרצף בנתיב אינה כתובת בליעה."""
     monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
     monkeypatch.setenv("POSTHOG_PROJECT_ID", "1")
-    monkeypatch.setenv("POSTHOG_HOST", "https://us.posthog.com/x/.i.posthog.com")
+    # ה-hostname מסתיים ב-``.example.com``; רק חיפוש תת-מחרוזת היה תופס כאן.
+    monkeypatch.setenv("POSTHOG_HOST", "https://not-us.i.posthog.com.example.com")
 
     config = McpAnalyticsService().resolve_config()
 
@@ -304,6 +318,20 @@ def test_no_failure_message_ever_quotes_an_environment_value(monkeypatch):
     וזה בדיוק ``CRITICAL-PATTERNS.md`` K13, סוד שרוכב על מחרוזת נגזרת.
     """
     sentinel = "phx_SECRET_PASTED_INTO_THE_WRONG_VARIABLE"
+    sent = []
+
+    def _always_fails(method, url, **kwargs):
+        """כשל דטרמיניסטי, בלי רשת.
+
+        בלי הסטאב הזה שתיים משלוש האיטרציות עוברות ולידציה ושולחות POST
+        אמיתי ל-PostHog — עם ה-sentinel בנתיב וב-Bearer — ואז ה-assert
+        עובר ריק, כי אין מסלול שגיאה שנבדק בכלל.
+        """
+        sent.append((url, kwargs))
+        return _Resp(503, {"code": "query_capacity", "detail": "busy"})
+
+    monkeypatch.setattr("http_sync.request", _always_fails)
+
     for name in ("POSTHOG_HOST", "POSTHOG_PROJECT_ID", "POSTHOG_PERSONAL_API_KEY"):
         for key in ENV_KEYS:
             monkeypatch.setenv(key, "https://us.posthog.com" if key == "POSTHOG_HOST" else "v")
@@ -311,9 +339,13 @@ def test_no_failure_message_ever_quotes_an_environment_value(monkeypatch):
 
         result = McpAnalyticsService().run_endpoint(mcp.ENDPOINT_TOOL_HEALTH)
 
+        assert not result.ok, f"{name}: לא נבדק שום מסלול שגיאה"
         assert sentinel not in result.error_detail, (
             f"הערך של {name} צוטט בהודעה שמוצגת בעמוד"
         )
+
+    # ולא יצאה אף בקשה אמיתית לרשת
+    assert all(url.startswith("https://us.posthog.com") for url, _ in sent)
 
 
 def test_the_api_key_never_appears_in_any_failure_message(configured):
@@ -429,17 +461,22 @@ def test_a_single_full_length_call_fits_inside_the_budget():
     )
 
 
-def test_the_documented_worst_case_matches_the_real_policy():
-    """המספר בתיעוד נגזר, לא מועתק. אם המדיניות תזוז — הטסט ייפול."""
+def test_the_full_worst_case_exceeds_the_budget_by_design():
+    """ההצהרה שבתיעוד, כיחס — לא כמספר מוחלט.
+
+    המספר עצמו תלוי במדיניות שנקראת מ-ENV: ה-CI מאפס את ה-backoff ואת
+    ה-jitter, ולכן שם ה-worst case הוא 12.0 ולא 12.75. השוואה לקבוע מקודד
+    הייתה שוברת את הטסט בכל סביבה שמכווננת את המדיניות אחרת — וזה בדיוק
+    מה שקרה. מה שנכון בכל סביבה הוא היחס: המקרה הגרוע המלא חורג מהתקציב
+    **בכוונה**, ורק קריאה יחידה מובטחת להיכנס.
+    """
     one_call = mcp.REQUEST_CONNECT_TIMEOUT_SECONDS + mcp.REQUEST_READ_TIMEOUT_SECONDS
     worst = one_call * mcp.REQUEST_MAX_ATTEMPTS + _worst_case_backoff(mcp.REQUEST_MAX_ATTEMPTS)
 
-    assert worst == pytest.approx(12.75, abs=0.01), (
-        f"ה-worst case זז ל-{worst}; עדכן את docs/webapp/mcp-analytics.rst"
-    )
     assert worst > mcp.TOTAL_BUDGET_SECONDS, (
         "אם ה-worst case נכנס מתחת לתקציב, ההסבר בתיעוד כבר לא נכון"
     )
+    assert one_call < mcp.TOTAL_BUDGET_SECONDS, "קריאה יחידה מלאה נחתכת"
 
 
 def test_the_timeout_is_a_tuple_because_a_scalar_means_two_windows():

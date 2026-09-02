@@ -59,8 +59,10 @@ def _install(monkeypatch, health=None, navigation=None, missing=None):
 def client(monkeypatch):
     import webapp.app as app_mod
 
-    app_mod.app.testing = True
-    app_mod.app.config["SECRET_KEY"] = "test"
+    # ``monkeypatch`` משחזר לבד בסיום. השמה ישירה הייתה מדליפה את המצב
+    # לטסטים שרצים אחרי הקובץ הזה, ויוצרת תלות בסדר.
+    monkeypatch.setattr(app_mod.app, "testing", True)
+    monkeypatch.setitem(app_mod.app.config, "SECRET_KEY", "test")
     monkeypatch.setenv("ADMIN_USER_IDS", "1")
     with app_mod.app.test_client() as test_client:
         yield test_client

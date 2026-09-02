@@ -64,20 +64,27 @@ def _free_port() -> int:
 
 @pytest.fixture(scope="module")
 def live_server():
-    """מריץ את הוובאפ האמיתי עם שירות מזויף, בלי לגעת ברשת."""
+    """מריץ את הוובאפ האמיתי עם שירות מזויף, בלי לגעת ברשת.
+
+    כל שינוי גלובלי עובר דרך ``MonkeyPatch`` ומשוחזר בסיום, והשרת נעצר
+    במפורש. pytest מריץ את כל הקבצים בתהליך אחד, ולכן מצב שלא שוחזר
+    היה מדליף לטסטים אחרים ויוצר תלות בסדר.
+    """
     import webapp.app as app_mod
+    from werkzeug.serving import make_server
 
     fake = types.SimpleNamespace(get_dashboard=lambda: {
         mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
         mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=list(NAV_ROWS), total=10),
         mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
     })
-    original = mcp.get_mcp_analytics_service
-    mcp.get_mcp_analytics_service = lambda: fake
+
+    patch = pytest.MonkeyPatch()
+    patch.setattr(mcp, "get_mcp_analytics_service", lambda: fake)
+    patch.setenv("ADMIN_USER_IDS", "1")
 
     app = app_mod.app
-    app.config["SECRET_KEY"] = "browser-tab-test"
-    os.environ["ADMIN_USER_IDS"] = "1"
+    patch.setitem(app.config, "SECRET_KEY", "browser-tab-test")
 
     # ה-session נבנה דרך ``test_client`` ולא דרך route עזר. Flask אוסר
     # ``@app.route`` אחרי שהאפליקציה טיפלה בבקשה הראשונה, ובריצת סוויטה
@@ -91,12 +98,11 @@ def live_server():
         assert cookie is not None, "לא נוצר session cookie"
         session_cookie = cookie.value
 
-    port = _free_port()
-    server = threading.Thread(
-        target=lambda: app.run(host="127.0.0.1", port=port, use_reloader=False),
-        daemon=True,
-    )
-    server.start()
+    # ``make_server`` ולא ``app.run``: הוא מחזיר אובייקט שאפשר לעצור.
+    httpd = make_server("127.0.0.1", 0, app, threaded=True)
+    port = httpd.server_port
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
 
     import time
     import urllib.request
@@ -110,12 +116,16 @@ def live_server():
                 break
             time.sleep(0.25)
     else:  # pragma: no cover
+        httpd.shutdown()
         pytest.skip("שרת הבדיקה לא עלה")
 
     try:
         yield f"http://127.0.0.1:{port}", session_cookie
     finally:
-        mcp.get_mcp_analytics_service = original
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+        patch.undo()
 
 
 @pytest.fixture
