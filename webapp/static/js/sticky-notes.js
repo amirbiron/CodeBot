@@ -221,6 +221,11 @@
   //: זו הספרייה שמרנדרת את תצוגת ה-Markdown בריפו, ולכן היא הצרכן
   //: שהפתק צריך להסכים איתו על מה נחשב מקונן.
   const MD_TAB_STOP = 4;
+  //: **ההגדרה היחידה של "רווח מוביל".** ``MD_UL_RE``/``MD_OL_RE`` מכילים
+  //: אותה קבוצה, אבל אף אחד לא קורא אותה: כל השאלות על הזחה נענות
+  //: דרך ``_lineIndentCols``, כדי שלא יהיו שני חלקים שחולקים על מה
+  //: נחשב הזחה — הדפוס שכבר נשך כאן בזיהוי מפריד הטבלה.
+  const MD_INDENT_RE  = /^[ \t]*/;
   //: תקרת הזחה. מעליה כל הרמות מקבלות את אותו רוחב — הפתק צר, והזחה
   //: בלתי מוגבלת דוחקת את הטקסט לרצועה של תו-תו. הרמות העמוקות עדיין
   //: מוצגות; הן פשוט אינן נכנסות עוד פנימה.
@@ -1487,18 +1492,23 @@
 
       // מסווג בלוק לשורה בודדת. קוד רב-שורי מטופל בלולאה, לא כאן.
       //
-      // **שורת רשימה מחזירה גם את ההזחה ואת הסמן**, ולא רק את התוכן —
-      // מהם נגזרת עמודת התוכן, וממנה עומק הקינון. הערכים מוחזרים
+      // **שורת רשימה מחזירה גם את הסמן ואת הרווחים שאחריו**, ולא רק את
+      // התוכן — מהם נגזרת עמודת התוכן, וממנה עומק הקינון. הערכים מוחזרים
       // **בשדות בשם** ולא נקראים כקבוצות רג'קס אצל הקורא: זו בדיוק
       // המלכודת שההערה מעל ``MD_INLINE_RE`` מתעדת — קבוצה שנוספת מזיזה
       // בשקט את כל האינדקסים שאחריה.
+      //
+      // **ההזחה עצמה אינה מוחזרת מכאן בכוונה.** היא נענית ב-
+      // ``_lineIndentCols`` על השורה הגולמית, כי גם שורת גדר צריכה אותה
+      // והיא לעולם אינה מגיעה לכאן. שני יצרנים לאותו ערך היו יכולים
+      // להיסחף זה מזה בשקט.
       _classifyLine(line){
         let m;
         if ((m = MD_HEADING_RE.exec(line))) return { kind: 'heading', level: m[1].length, content: m[2] };
         if ((m = MD_QUOTE_RE.exec(line)))   return { kind: 'quote', content: m[1] };
         if (MD_HR_RE.test(line))            return { kind: 'hr', content: '' };
-        if ((m = MD_OL_RE.exec(line)))      return { kind: 'ol', content: m[4], marker: m[2] + '.', indent: m[1], markerChars: m[2].length + 1, spaceRun: m[3] };
-        if ((m = MD_UL_RE.exec(line)))      return { kind: 'ul', content: m[4], indent: m[1], markerChars: 1, spaceRun: m[3] };
+        if ((m = MD_OL_RE.exec(line)))      return { kind: 'ol', content: m[4], marker: m[2] + '.', markerChars: m[2].length + 1, spaceRun: m[3] };
+        if ((m = MD_UL_RE.exec(line)))      return { kind: 'ul', content: m[4], markerChars: 1, spaceRun: m[3] };
         return { kind: 'plain', content: line };
       }
 
@@ -1523,6 +1533,36 @@
       }
 
       /**
+       * ההזחה של שורה גולמית, בעמודות. **התשובה היחידה בקוד לשאלה הזו.**
+       *
+       * שורת רשימה, כותרת, ציטוט, טבלה ושורת גדר — כולן נמדדות כאן, ולכן
+       * אין שתי הגדרות של "רווח מוביל" שיכולות להיסחף זו מזו.
+       */
+      _lineIndentCols(line){
+        return this._indentCols(MD_INDENT_RE.exec(String(line == null ? '' : line))[0]);
+      }
+
+      /**
+       * סוגר את כל הפריטים הפתוחים שההזחה הזו כבר אינה נמצאת בתוכם.
+       *
+       * **זו כל התשובה לשאלה "מה גבול בלוק עושה לרשימה".** שורה נשארת
+       * בתוך פריט כל עוד ההזחה שלה מגיעה לעמודת התוכן שלו, ולכן בלוק
+       * שמוזח לתוך הפריט אינו סוגר אותו ובלוק בעמודה 0 סוגר את כולם.
+       * מקור: ``markdown-it@14.1.0``, ``lib/rules_block/list.mjs`` —
+       * ``if (state.sCount[nextLine] < state.blkIndent) { break }``.
+       *
+       * הגרסה הקודמת הפרידה בין השניים: שורת רשימה סגרה לפי הזחה, וכל
+       * בלוק אחר עשה ``listStack.length = 0`` — איפוס גורף שהתעלם
+       * מההזחה של עצמו, בעוד שורת גדר לא נגעה במחסנית כלל. שתי
+       * ההתנהגויות היו שגויות בכיוונים הפוכים: גדר בעמודה 0 השאירה
+       * רשימה פתוחה, וכותרת מוזחת בתוך פריט סגרה אותו. שאלה אחת,
+       * מקום אחד.
+       */
+      _closeListsAbove(stack, indentCols){
+        while (stack.length && indentCols < stack[stack.length - 1]) stack.pop();
+      }
+
+      /**
        * עמודת התוכן של פריט רשימה — העמודה שבה מתחיל הטקסט שלו, ולכן גם
        * ההזחה שממנה ואילך שורה נחשבת **בתוך** הפריט.
        *
@@ -1532,8 +1572,8 @@
        * ``if (indentAfterMarker > 4) { indentAfterMarker = 1 }`` ואז
        * ``const indent = initial + indentAfterMarker``.
        */
-      _listContentCol(block){
-        const afterMarker = this._indentCols(block.indent) + (block.markerChars || 0);
+      _listContentCol(line, block){
+        const afterMarker = this._lineIndentCols(line) + (block.markerChars || 0);
         const spaceCols = this._indentCols(block.spaceRun, afterMarker) - afterMarker;
         return afterMarker + (spaceCols > 4 ? 1 : spaceCols);
       }
@@ -1552,11 +1592,10 @@
        * מגיע לעמודה 2 שבה מתחיל הטקסט של הפריט הראשון. נמדד מול
        * ``markdown-it``, לא הונח.
        */
-      _listDepth(stack, block){
-        const indentCols = this._indentCols(block.indent);
-        while (stack.length && indentCols < stack[stack.length - 1]) stack.pop();
+      _listDepth(stack, line, block){
+        this._closeListsAbove(stack, this._lineIndentCols(line));
         const depth = stack.length;
-        stack.push(this._listContentCol(block));
+        stack.push(this._listContentCol(line, block));
         return depth;
       }
 
@@ -1826,9 +1865,12 @@
               li = done.lastIndex;
               charOffset = done.nextOffset;
               taskIndex += done.tasksConsumed;
-              // טבלה היא בלוק שאינו רשימה, ולכן היא סוגרת רשימה פתוחה —
-              // בדיוק כמו כותרת או קו מפריד.
-              listStack.length = 0;
+              // טבלה היא בלוק ככל בלוק אחר, ולכן היא סוגרת פריטים לפי
+              // ההזחה של **שורת הכותרת שלה**: טבלה בעמודה 0 סוגרת את
+              // הרשימה, וטבלה שמוזחת לתוך פריט נשארת בתוכו. הענף הזה
+              // עושה ``continue`` לפני הכלל המשותף שלמטה, ולכן הוא קורא
+              // לו במפורש.
+              this._closeListsAbove(listStack, this._lineIndentCols(line));
               continue;
             }
             const m = TASK_LINE_RE.exec(line);
@@ -1855,22 +1897,31 @@
             const inCode = inFence || isFenceLine;
             const b = (wantMd && !inCode) ? this._classifyLine(line) : null;
             let depth = 0;
-            if (b) {
-              if (b.kind === 'ul' || b.kind === 'ol') {
-                depth = this._listDepth(listStack, b);
+            // **כלל אחד לכל השורות: מי שאינו בתוך תוכן גדר, ואינו ריק,
+            // מעדכן את המחסנית לפי ההזחה של עצמו.**
+            //
+            // ``!inFence`` הוא בדיוק "לא בתוך תוכן ליטרלי", ולכן הוא גם
+            // מכניס את שורת הגדר **הפותחת** לכלל בלי ענף מיוחד: כשרואים
+            // אותה הדגל עדיין ``false``, והוא מתהפך רק בסוף הענף שמרנדר
+            // אותה. שורת הסגירה ושורות התוכן רואות ``true`` ואינן נוגעות
+            // במחסנית — נכון, כי הן שייכות לבלוק שהפותחת כבר תחמה.
+            //
+            // **שורה ריקה אינה סוגרת רשימה** — נמדד מול ``markdown-it``,
+            // גם שורה אחת וגם שתיים.
+            //
+            // הסטייה המכוונת מ-``markdown-it`` נשארת ונובעת מהכלל עצמו:
+            // שם שורת טקסט או טבלה בעמודה 0 מיד אחרי פריט היא המשך
+            // הפסקה שלו והרשימה ממשיכה. בפתק אין המשך פסקה — כל שורת
+            // מקור היא שורת תצוגה נפרדת עם ההיסט שלה — והזחה 0 סוגרת
+            // ממילא, בלי שנדרש ענף שיאמר זאת.
+            if (wantMd && !inFence && line.trim() !== '') {
+              if (b && (b.kind === 'ul' || b.kind === 'ol')) {
+                depth = this._listDepth(listStack, line, b);
                 // עומק 0 אינו מקבל מחלקה: הוא חסר הזחה ממילא, ומחלקה
                 // ריקה הייתה רק רעש ב-DOM.
                 if (depth > 0) row.classList.add('is-depth-' + Math.min(depth, MD_MAX_LIST_DEPTH));
-              } else if (line.trim() !== '') {
-                // **שורה ריקה אינה סוגרת רשימה** — נמדד מול
-                // ``markdown-it``, גם שורה אחת וגם שתיים. כל שורה אחרת
-                // שאינה רשימה — כותרת, ציטוט, קו מפריד, טקסט — כן סוגרת.
-                //
-                // כאן יש **סטייה מכוונת** מ-``markdown-it``: שם שורת טקסט
-                // בעמודה 0 מיד אחרי פריט היא המשך הפסקה שלו, והרשימה
-                // ממשיכה. בפתק אין המשך פסקה — כל שורת מקור היא שורת
-                // תצוגה נפרדת עם ההיסט שלה — ולכן שורת טקסט סוגרת.
-                listStack.length = 0;
+              } else {
+                this._closeListsAbove(listStack, this._lineIndentCols(line));
               }
             }
             if (m && !inCode) {

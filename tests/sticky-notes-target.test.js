@@ -1098,13 +1098,14 @@ check('קינון: רוחב הזחה — טאב מתקדם לעמודה שמתח
 });
 
 check('קינון: עמודת התוכן של פריט', () => {
-  eq(mdMgr._listContentCol(mdMgr._classifyLine('- א')), 2, '"- " → עמודה 2');
-  eq(mdMgr._listContentCol(mdMgr._classifyLine('1. א')), 3, '"1. " → עמודה 3');
-  eq(mdMgr._listContentCol(mdMgr._classifyLine('12. א')), 4, '"12. " → עמודה 4');
-  eq(mdMgr._listContentCol(mdMgr._classifyLine('  - א')), 4, 'הזחה נספרת');
+  const cc = (line) => mdMgr._listContentCol(line, mdMgr._classifyLine(line));
+  eq(cc('- א'), 2, '"- " → עמודה 2');
+  eq(cc('1. א'), 3, '"1. " → עמודה 3');
+  eq(cc('12. א'), 4, '"12. " → עמודה 4');
+  eq(cc('  - א'), 4, 'הזחה נספרת');
   // מעבר לארבעה רווחים זה בלוק קוד מוזח בתוך הפריט, ולכן ההזחה חוזרת ל-1.
-  eq(mdMgr._listContentCol(mdMgr._classifyLine('-      א')), 2, 'שישה רווחים → 1');
-  eq(mdMgr._listContentCol(mdMgr._classifyLine('-    א')), 5, 'ארבעה רווחים עדיין נספרים');
+  eq(cc('-      א'), 2, 'שישה רווחים → 1');
+  eq(cc('-    א'), 5, 'ארבעה רווחים עדיין נספרים');
 });
 
 check('קינון: רשימה לא ממוספרת — שתי רמות', () => {
@@ -1184,7 +1185,7 @@ check('קינון: שורה ריקה אינה סוגרת רשימה', () => {
   eq(depths(two.view).join(','), '0,0,0,1', 'שתי שורות ריקות');
 });
 
-check('קינון: כותרת, קו מפריד וטקסט סוגרים רשימה', () => {
+check('קינון: כותרת, קו מפריד וטקסט בעמודה 0 סוגרים רשימה', () => {
   const h = renderMd(mdMgr, '- א\n# כותרת\n  - ב');
   eq(depths(h.view).join(','), '0,0,0', 'כותרת');
   const hr = renderMd(mdMgr, '- א\n---\n  - ב');
@@ -1195,7 +1196,7 @@ check('קינון: כותרת, קו מפריד וטקסט סוגרים רשימ�
   eq(depths(t.view).join(','), '0,0,0', 'שורת טקסט');
 });
 
-check('קינון: גדר קוד אינה משנה את המחסנית', () => {
+check('קינון: גדר מוזחת לתוך פריט אינה סוגרת אותו', () => {
   const { view } = renderMd(mdMgr, '- א\n  ```\n  - לא רשימה\n  ```\n  - ב');
   const d = depths(view);
   eq(d[0], 0, 'הפריט הראשון');
@@ -1203,9 +1204,79 @@ check('קינון: גדר קוד אינה משנה את המחסנית', () => {
   eq(view.querySelectorAll('.sticky-md-pre').length, 3, 'שלוש שורות ליטרליות');
 });
 
-check('קינון: טבלה סוגרת רשימה', () => {
+check('קינון: טבלה בעמודה 0 סוגרת רשימה', () => {
   const { view } = renderMd(mdMgr, '- א\n| א | ב |\n| --- | --- |\n| 1 | 2 |\n  - ב');
   eq(depths(view).pop(), 0, 'הפריט שאחרי הטבלה חוזר לעומק 0');
+});
+
+// ---------- גבול בלוק סוגר לפי ההזחה של עצמו ----------
+//
+// שורה נשארת בתוך פריט כל עוד ההזחה שלה מגיעה לעמודת התוכן שלו. לכן
+// בלוק בעמודה 0 סוגר את הרשימה, ובלוק שמוזח לתוך הפריט נשאר בתוכו —
+// **בלי קשר לסוג הבלוק.** לפני התיקון שורת גדר לא נגעה במחסנית כלל
+// וכל בלוק אחר איפס אותה לגמרי, כלומר שתי התנהגויות שגויות בכיוונים
+// הפוכים. כל המקרים כאן נמדדו מול markdown-it.
+
+check('סגירה: _closeListsAbove סוגר רק את מה שמעל ההזחה', () => {
+  const st = [2, 4, 6];
+  mdMgr._closeListsAbove(st, 6);
+  eq(st.join(','), '2,4,6', 'הזחה ששווה לעמודת התוכן נשארת בפנים');
+  mdMgr._closeListsAbove(st, 5);
+  eq(st.join(','), '2,4', 'הזחה נמוכה יותר סוגרת את הפנימי בלבד');
+  mdMgr._closeListsAbove(st, 0);
+  eq(st.join(','), '', 'עמודה 0 סוגרת הכול');
+  mdMgr._closeListsAbove(st, 0);
+  eq(st.join(','), '', 'ומחסנית ריקה אינה נשברת');
+});
+
+check('סגירה: _lineIndentCols הוא התשובה היחידה להזחה', () => {
+  eq(mdMgr._lineIndentCols('- א'), 0);
+  eq(mdMgr._lineIndentCols('  - א'), 2);
+  eq(mdMgr._lineIndentCols('\t```'), 4, 'טאב בשורת גדר, לא רק ברשימה');
+  eq(mdMgr._lineIndentCols('   # כותרת'), 3);
+  eq(mdMgr._lineIndentCols(''), 0);
+});
+
+check('גדר: פתיחה בעמודה 0 סוגרת את הרשימה', () => {
+  // הבאג שדווח: הגדר לא נגעה במחסנית, ולכן ``  - ב`` שאחריה יצא תת-פריט
+  // של ``- א`` — למרות שהגדר בעמודה 0 סיימה את הרשימה.
+  const { view } = renderMd(mdMgr, '- א\n```\n- לא רשימה\n```\n  - ב');
+  eq(depths(view).join(','), '0,0,0,0,0');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows[4].classList.contains('is-depth-1'), false, 'ואין מחלקת עומק על השורה שאחריה');
+  eq(rows[4].classList.contains('sticky-md-li'), true, 'והיא עדיין פריט רשימה');
+});
+
+check('גדר: פתיחה שאינה מגיעה לעמודת התוכן סוגרת גם היא', () => {
+  // רווח אחד אינו מגיע לעמודה 2 שבה מתחיל הטקסט של ``- א``.
+  const { view } = renderMd(mdMgr, '- א\n ```\n x\n ```\n  - ב');
+  eq(depths(view).join(','), '0,0,0,0,0');
+});
+
+check('גדר: מקוננת סוגרת רק את מה שמעליה', () => {
+  // הגדר בעמודה 2 סוגרת את ``  - ב`` (עמודת תוכן 4) ומשאירה את ``- א``
+  // (עמודת תוכן 2) פתוח, ולכן ``    - ג`` יוצא רמה 1 ולא רמה 2.
+  const { view } = renderMd(mdMgr, '- א\n  - ב\n  ```\n  x\n  ```\n    - ג');
+  eq(depths(view).join(','), '0,1,0,0,0,1');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows[5].classList.contains('is-depth-1'), true, 'מחלקת רמה 1');
+  eq(rows[5].classList.contains('is-depth-2'), false, 'ולא רמה 2');
+});
+
+check('בלוק מוזח לתוך פריט אינו סוגר אותו', () => {
+  const h = renderMd(mdMgr, '- א\n  # כותרת\n  - ב');
+  eq(depths(h.view).join(','), '0,0,1', 'כותרת מוזחת');
+  const hr = renderMd(mdMgr, '- א\n  ---\n  - ב');
+  eq(depths(hr.view).join(','), '0,0,1', 'קו מפריד מוזח');
+  const q = renderMd(mdMgr, '- א\n  > ציטוט\n  - ב');
+  eq(depths(q.view).join(','), '0,0,1', 'ציטוט מוזח');
+  const t = renderMd(mdMgr, '- א\n  טקסט\n  - ב');
+  eq(depths(t.view).join(','), '0,0,1', 'טקסט מוזח');
+});
+
+check('טבלה מוזחת לתוך פריט אינה סוגרת אותו', () => {
+  const { view } = renderMd(mdMgr, '- א\n  | א | ב |\n  | --- | --- |\n  | 1 | 2 |\n  - ב');
+  eq(depths(view).pop(), 1, 'הפריט שאחרי הטבלה נשאר בתוך הפריט שמעליה');
 });
 
 check('קינון: התקרה עוצרת את ההזחה ולא את התצוגה', () => {
