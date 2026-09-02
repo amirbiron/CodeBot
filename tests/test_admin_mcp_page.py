@@ -29,18 +29,48 @@ HEALTH_ROWS = [
 NAV_ROWS = [
     {
         "session": "ses_01a0612c", "started": "2026-09-02T08:15:00.843000Z",
-        "client": "claude-code", "calls": 15, "searches": 0, "file_reads": 14,
-        "errors": 0, "total_ms": 2574.0, "total_sessions": 10,
+        "client": "claude-code", "calls": 15, "searches": 0,
+        "outline_reads": 2, "content_reads": 12,
+        "errors": 0, "total_ms": 2574.0,
+        "intent": "mapping webapp/app.py before reading the admin routes",
+        "total_sessions": 10,
     }
 ]
+FAILURE_ROWS = [
+    {
+        "failed_at": "2026-09-02T00:43:14.487000Z",
+        "tool": "codekeeper_get_file", "client": "claude-code",
+        "error_type": "ValidationError",
+        "error_message": (
+            "1 validation error for get_fileArguments\nlines.1\n"
+            "  Input should be a valid integer "
+            "[type=int_type, input_value='9', input_type=str]"
+        ),
+        "session": "ses_01a05ed4",
+    },
+    {
+        # נקלטה לפני שההודעות נשמרו כלל. התא יציג "—", וזה מצב תקין.
+        "failed_at": "2026-09-01T21:01:34.441000Z",
+        "tool": "codekeeper_get_repo_file", "client": None,
+        "error_type": "ValidationError", "error_message": None,
+        "session": "ses_01a05ec0",
+    },
+]
+POSTHOG_LINKS = {
+    "intent_clusters": "https://us.posthog.com/project/567754/mcp-analytics/intent-clustering",
+    "sessions": "https://us.posthog.com/project/567754/mcp-analytics/sessions",
+}
 
 
-def _install(monkeypatch, health=None, navigation=None, missing=None):
+def _install(monkeypatch, health=None, navigation=None, missing=None, failures=None, links=None):
     """מחליף את השירות כולו, כדי שהבדיקה לא תיגע ברשת ולא תישבר על נתונים."""
     fake = types.SimpleNamespace(
         get_dashboard=lambda: {
             mcp.ENDPOINT_TOOL_HEALTH: (
                 health if health is not None else EndpointResult(rows=list(HEALTH_ROWS))
+            ),
+            mcp.ENDPOINT_TOOL_FAILURES: (
+                failures if failures is not None else EndpointResult(rows=list(FAILURE_ROWS))
             ),
             mcp.ENDPOINT_NAVIGATION_COST: (
                 navigation
@@ -50,7 +80,8 @@ def _install(monkeypatch, health=None, navigation=None, missing=None):
             mcp.ENDPOINT_MISSING_CAPABILITIES: (
                 missing if missing is not None else EndpointResult(rows=[])
             ),
-        }
+        },
+        posthog_links=lambda: (POSTHOG_LINKS if links is None else links),
     )
     monkeypatch.setattr(mcp, "get_mcp_analytics_service", lambda: fake)
 
@@ -185,7 +216,7 @@ def test_a_failing_endpoint_reads_as_a_failure_and_not_as_empty(admin, monkeypat
     assert "PostHog עמוס כרגע." in panel.get_text()
 
 
-def test_one_failing_tab_does_not_blank_the_other_two(admin, monkeypatch):
+def test_one_failing_tab_does_not_blank_the_others(admin, monkeypatch):
     """ההבטחה של "שגיאה פר-טאב", דרך ה-DOM ולא דרך השירות."""
     _install(
         monkeypatch,
@@ -256,7 +287,7 @@ def test_the_page_never_leaks_a_traceback(admin, monkeypatch):
     def _explode():
         raise RuntimeError("boom")
 
-    fake = types.SimpleNamespace(get_dashboard=_explode)
+    fake = types.SimpleNamespace(get_dashboard=_explode, posthog_links=lambda: POSTHOG_LINKS)
     monkeypatch.setattr(mcp, "get_mcp_analytics_service", lambda: fake)
     response = admin.get("/admin/mcp")
     body = response.get_data(as_text=True)
@@ -266,3 +297,263 @@ def test_the_page_never_leaks_a_traceback(admin, monkeypatch):
     assert "RuntimeError" not in body
     assert "אירעה שגיאה בטעינת הנתונים" in body
     assert len(BeautifulSoup(body, "html.parser").select("button.mcp-tab")) == 3
+
+
+# --------------------------------------------------------------------------
+# הודעות השגיאה בטאב הבריאות
+# --------------------------------------------------------------------------
+
+
+def test_the_failure_message_itself_reaches_the_page(admin, monkeypatch):
+    """הטבלה למעלה אומרת "20% שגיאות"; הפאנל הזה אומר למה.
+
+    בלעדיו הדף הוא דוח מסירה בלי פתק המסירה: מספר כשלים בלי שם השדה שנדחה.
+    """
+    _install(monkeypatch)
+    panel = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="health"]')
+    text = panel.get_text(" ", strip=True)
+
+    assert "lines.1" in text
+    assert "Input should be a valid integer" in text
+
+
+def test_the_failures_panel_lives_under_the_tool_table_and_not_in_a_new_tab(admin, monkeypatch):
+    """הוא הפירוט של עמודת השגיאות שכבר שם, ולכן הוא שייך לאותו טאב."""
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+
+    assert len(soup.select("button.mcp-tab")) == 3
+    assert len(soup.select(".mcp-panel")) == 3
+    health = soup.select_one('.mcp-panel[data-panel="health"]')
+    assert health.select_one(".mcp-errmsg") is not None
+
+
+def test_a_failure_with_no_message_shows_a_dash_and_not_an_error(admin, monkeypatch):
+    """**מצב תקין, לא כשל.**
+
+    הצינזור קרה בזמן השליחה ואינו הפיך, ולכן קריאות שנכשלו לפני פתיחת השער
+    נספרות אבל אין להן טקסט. תא ריק הוא התשובה הנכונה; ``.mcp-alert`` היה
+    אומר שהשליפה נכשלה, וזה שקר.
+    """
+    _install(monkeypatch)
+    health = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="health"]')
+    cells = [td.get_text(" ", strip=True) for td in health.select("td.mcp-errmsg")]
+
+    # התא נושא גם טקסט ל-screen reader לצד המקף, ולכן ההשוואה על התחלת התא.
+    assert any(cell.startswith("—") for cell in cells), cells
+    assert "None" not in health.get_text(" ", strip=True)
+    assert health.select_one(".mcp-alert") is None
+
+
+def test_a_failing_failures_endpoint_does_not_blank_the_tool_table(admin, monkeypatch):
+    """אנדפוינט נפרד, ולכן כשל נפרד — בתוך אותו טאב."""
+    _install(
+        monkeypatch,
+        failures=EndpointResult(error_code="unavailable", error_detail="PostHog עמוס כרגע."),
+    )
+    health = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="health"]')
+
+    assert health.select_one(".mcp-alert") is not None
+    assert "codekeeper_get_repo_file" in health.get_text()
+
+
+def test_no_failures_at_all_reads_as_empty_and_not_as_a_failure(admin, monkeypatch):
+    _install(monkeypatch, failures=EndpointResult(rows=[]))
+    health = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="health"]')
+
+    assert health.select_one(".mcp-alert") is None
+    assert "אף קריאה לא נכשלה" in health.get_text()
+
+
+# --------------------------------------------------------------------------
+# הפרדת האאוטליין מקריאת התוכן
+# --------------------------------------------------------------------------
+
+
+def test_outline_and_content_are_two_columns_and_not_one(admin, monkeypatch):
+    """המדד כולו: טור אחד שסופר את שניהם לא יכול להראות שהאחת החליפה את השנייה."""
+    _install(monkeypatch)
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+    headers = [th.get_text(strip=True) for th in nav.select("thead th")]
+
+    assert "אאוטליין" in headers
+    assert "קריאת תוכן" in headers
+    assert "קריאות קובץ" not in headers
+    row = [td.get_text(" ", strip=True) for td in nav.select("tbody tr td")]
+    assert "2" in row and "12" in row
+
+
+def test_the_table_says_sessions_are_not_comparable(admin, monkeypatch):
+    """ההערה שחייבת להיכנס: הטור מודד עלות, לא איכות."""
+    _install(monkeypatch)
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+    text = nav.get_text(" ", strip=True)
+
+    assert "אין להשוות בין סשנים בלי לדעת מה הייתה המשימה" in text
+    assert "מודד עלות, לא איכות" in text
+
+
+# --------------------------------------------------------------------------
+# טור הכוונה
+# --------------------------------------------------------------------------
+
+
+def test_the_intent_column_shows_what_the_agent_wrote(admin, monkeypatch):
+    """במקום ``ses_01a06104-b1e2...`` יופיע מה הסוכן ניסה לעשות."""
+    _install(monkeypatch)
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+
+    assert "מה הסוכן ניסה לעשות" in [th.get_text(strip=True) for th in nav.select("thead th")]
+    assert "mapping webapp/app.py" in nav.get_text(" ", strip=True)
+
+
+def test_a_long_intent_is_clipped_in_view_with_the_whole_text_in_the_title(admin, monkeypatch):
+    """הקיצוץ הוא החלטה של התצוגה בלבד — הטקסט המלא נשאר נגיש ב-``title``.
+
+    נבדק דרך העמוד ולא דרך המאקרו: ``title`` הוא תכונת DOM, ומה שנשבר בה
+    נשבר בדפדפן. קריאה ישירה למאקרו הייתה מוכיחה שהוא לא קורס, לא שהתא נכון.
+    """
+    long_intent = (
+        "mapping the admin routes in webapp/app.py before reading the exact line "
+        "range, so the outline call replaces a full file read of twenty thousand lines"
+    )
+    _install(
+        monkeypatch,
+        navigation=EndpointResult(rows=[{**NAV_ROWS[0], "intent": long_intent}], total=1),
+    )
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+    span = nav.select_one(".mcp-clip")
+
+    assert span is not None
+    assert span["title"] == long_intent
+    assert len(span.get_text()) < len(long_intent)
+    assert span.get_text().endswith("…")
+
+
+def test_an_intent_that_contains_a_script_tag_is_shown_as_text(admin, monkeypatch):
+    """``$mcp_intent`` הוא טקסט חופשי שסוכן כתב, בדיוק כמו ``capability``.
+
+    ההגנה היא ה-escape של Jinja: אין ``|safe`` ואין הזרקה ל-``innerHTML``.
+    הבדיקה על ה-DOM המרונדר ולא על המחרוזת, כי מה שקובע הוא מה שהדפדפן בונה.
+    """
+    hostile = "<script>alert(1)</script>"
+    _install(
+        monkeypatch,
+        navigation=EndpointResult(
+            rows=[{**NAV_ROWS[0], "intent": hostile}], total=1
+        ),
+    )
+    response = admin.get("/admin/mcp")
+    body = response.get_data(as_text=True)
+    soup = BeautifulSoup(body, "html.parser")
+
+    assert hostile not in body
+    assert "&lt;script&gt;" in body
+    assert not [s for s in soup.select("script") if "alert(1)" in (s.string or "")]
+    # גם בתוך ``title``: תכונה לא מצוטטת או לא ממולטת היא אותו חור בדיוק.
+    assert soup.select_one(".mcp-clip")["title"] == hostile
+
+
+def test_a_session_with_no_intent_renders_empty_and_not_as_an_error(admin, monkeypatch):
+    """אירועים שנאספו לפני הפתיחה לא נושאים כוונה. זה צפוי."""
+    _install(
+        monkeypatch,
+        navigation=EndpointResult(rows=[{**NAV_ROWS[0], "intent": None}], total=1),
+    )
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+
+    assert nav.select_one(".mcp-alert") is None
+    assert "None" not in nav.get_text(" ", strip=True)
+    assert "—" in nav.get_text(" ", strip=True)
+
+
+# --------------------------------------------------------------------------
+# הקישורים היוצאים
+# --------------------------------------------------------------------------
+
+
+def test_the_page_links_out_to_what_it_cannot_fetch(admin, monkeypatch):
+    """אשכולות הכוונות וסיכומי הסשן הם כלי API של PostHog ולא שאילתות."""
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+    links = soup.select("a.mcp-outlink")
+
+    assert {a["href"] for a in links} == set(POSTHOG_LINKS.values())
+    for link in links:
+        # יעד חיצוני שנפתח בלשונית חדשה חייב את שניהם: בלי ``noopener``
+        # לדף היעד יש ``window.opener`` לעמוד האדמין.
+        assert link["target"] == "_blank"
+        assert "noopener" in link["rel"] and "noreferrer" in link["rel"]
+
+
+def test_a_broken_configuration_drops_the_links_instead_of_building_a_dead_one(admin, monkeypatch):
+    """כתובת שנבנתה מערך פסול מובילה לשום מקום, וההודעה על הקונפיגורציה כבר מוצגת."""
+    _install(monkeypatch, links={})
+    soup = _soup(admin.get("/admin/mcp"))
+
+    assert soup.select("a.mcp-outlink") == []
+
+
+def test_the_failures_panel_survives_a_failing_tool_health_endpoint(admin, monkeypatch):
+    """שני אנדפוינטים נפרדים, ולכן שני מצבי כשל נפרדים — גם בתוך אותו טאב.
+
+    עד לתיקון, פאנל הכשלים ישב בתוך ה-``else`` של ``tool_health.ok``: כשל
+    בשליפת בריאות הכלים החביא גם פירוט שהגיע בהצלחה. זו אותה הבטחה של
+    "שגיאה פר-אנדפוינט" שכבר נאכפת בין הטאבים, רק בתוך טאב.
+    """
+    _install(
+        monkeypatch,
+        health=EndpointResult(error_code="unavailable", error_detail="PostHog עמוס כרגע."),
+    )
+    health = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="health"]')
+
+    assert health.select_one(".mcp-alert") is not None
+    # ...והפירוט עדיין שם.
+    assert "lines.1" in health.get_text(" ", strip=True)
+    assert health.select_one(".mcp-errmsg") is not None
+
+
+def test_the_outbound_links_survive_a_failing_navigation_endpoint(admin, monkeypatch):
+    """הקישורים אינם תלויים בנתונים — והם בדיוק מה שאדמין צריך כשאין נתונים."""
+    _install(
+        monkeypatch,
+        navigation=EndpointResult(error_code="query_failed", error_detail="השאילתה נכשלה."),
+    )
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+
+    assert nav.select_one(".mcp-alert") is not None
+    assert len(nav.select("a.mcp-outlink")) == 2
+
+
+def test_the_outbound_links_survive_an_empty_navigation_table(admin, monkeypatch):
+    _install(monkeypatch, navigation=EndpointResult(rows=[]))
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+
+    assert nav.select_one(".mcp-state") is not None
+    assert len(nav.select("a.mcp-outlink")) == 2
+
+
+def test_a_clipped_intent_is_reachable_without_a_mouse(admin, monkeypatch):
+    """``title`` נחשף רק ב-hover. מי שמנווט במקלדת או במגע לא רואה אותו כלל,
+    ולכן הטקסט המלא יושב גם ב-``aria-label`` והתא ממוקד-אפשרי."""
+    _install(monkeypatch)
+    span = _soup(admin.get("/admin/mcp")).select_one(".mcp-clip")
+
+    assert span["tabindex"] == "0"
+    assert span["aria-label"] == NAV_ROWS[0]["intent"]
+    assert span["title"] == NAV_ROWS[0]["intent"]
+
+
+def test_the_template_does_not_point_at_a_file_that_is_not_in_this_repo(admin, monkeypatch):
+    """``bugbot-rules/xss-innerhtml.md`` חי ב-``amir-bug-patterns``, לא כאן.
+
+    הפניה שנראית כמו נתיב מקומי שולחת את הקורא הבא לחפש קובץ שאינו קיים.
+    התיקון הוא לנקוב בשם הריפו — לא למחוק הפניה נכונה, ולא להמציא קובץ.
+    """
+    import pathlib
+
+    template = pathlib.Path("webapp/templates/admin_mcp.html").read_text(encoding="utf-8")
+
+    assert "bugbot-rules/xss-innerhtml.md" in template
+    assert "amir-bug-patterns" in template
+    assert not pathlib.Path("bugbot-rules/xss-innerhtml.md").exists()

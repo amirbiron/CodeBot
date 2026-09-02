@@ -74,13 +74,23 @@ def _payload_text(event):
     return "\n".join(found)
 
 
-def test_tool_call_loses_arguments_response_and_error_text():
-    """The three payload keys the SDK puts a real tool call's content into."""
+def test_tool_call_loses_its_arguments_and_its_result():
+    """The two payload keys the SDK puts a real tool call's content into.
+
+    These are the guarantee that survived every widening of this gate: on a
+    write tool ``$mcp_parameters`` *is* the file, and ``$mcp_response`` is the
+    body of whatever was read. Nothing in this module can reopen either.
+
+    The error message on this event is deliberately content-free, because the
+    message is now forwarded (see the section at the bottom of this file) and
+    it would otherwise be the string proving the assertion below rather than
+    the two keys under test.
+    """
     event = _tool_call_event(
         **{
             "$mcp_is_error": True,
             "$mcp_error_type": "ValueError",
-            "$mcp_error_message": "failed while reading " + _FILE_BODY,
+            "$mcp_error_message": "database is locked",
         }
     )
 
@@ -89,9 +99,8 @@ def test_tool_call_loses_arguments_response_and_error_text():
     properties = scrubbed["properties"]
     assert "$mcp_parameters" not in properties
     assert "$mcp_response" not in properties
-    assert "$mcp_error_message" not in properties
     # The file body must be gone from the whole event, not just from the keys
-    # named above — the same string sat in three of them.
+    # named above — the same string sat in both of them.
     assert _FILE_BODY not in _payload_text(scrubbed)
 
 
@@ -276,27 +285,48 @@ def test_allowlist_names_still_exist_in_the_installed_sdk():
     assert not unknown, f"no longer emitted by the SDK: {sorted(unknown)}"
 
 
-def test_payload_properties_are_not_in_the_default_allowlist():
-    """The two sets stay disjoint, so nothing payload-bearing ships by default.
+def test_the_blocked_payload_keys_are_on_neither_allowlist():
+    """The blocked set stays disjoint from **both** allowlists.
 
-    Named for what it actually proves. It used to be called "never allowlisted",
-    which stopped being true once ``_ALLOWED_BY_EVENT`` admitted ``$mcp_intent``
-    on one event — the assertion still passed, because that exception lives in a
-    separate mapping, so the name promised more than the check delivered. The
-    conditional exception is pinned by the tests below instead.
+    Named for what it actually proves. An earlier version was called "never
+    allowlisted", which stopped being true the moment a separate mapping
+    re-admitted ``$mcp_intent`` on one event: the assertion still passed,
+    because that exception lived somewhere this test never looked, so the name
+    promised more than the check delivered. Now there is nowhere else to look —
+    the two sets below are the whole decision — and this assertion means what
+    its name says.
     """
-    assert not (analytics._ALLOWED_MCP_PROPERTIES & analytics._PAYLOAD_PROPERTIES)
+    allowed = analytics._ALLOWED_MCP_PROPERTIES | analytics._ALLOWED_FREE_TEXT_PROPERTIES
+    assert not (allowed & analytics._PAYLOAD_PROPERTIES)
+    assert analytics._PAYLOAD_PROPERTIES == {"$mcp_parameters", "$mcp_response"}
 
 
-def test_the_only_per_event_exception_is_the_intent_on_missing_capability():
-    """Pins the whole exception table, so adding a second one is a deliberate act.
+def test_the_free_text_allowlist_is_pinned_to_exactly_two_names():
+    """Adding a third free-text property widens the gate, so it must be loud.
 
-    A new entry here widens the privacy gate, and the widening would otherwise
-    be invisible in review — this test makes it show up as a failing assertion.
+    Both names here forward text this server did not write — an agent's
+    sentence and a library's exception message — and both were accepted with
+    their costs measured. A fourth name arriving quietly in review is exactly
+    what this assertion exists to prevent.
     """
-    assert analytics._ALLOWED_BY_EVENT == {
-        "$mcp_missing_capability": frozenset({"$mcp_intent", "$mcp_intent_source"})
+    assert analytics._ALLOWED_FREE_TEXT_PROPERTIES == {
+        "$mcp_error_message",
+        "$mcp_intent",
     }
+
+
+def test_no_conditional_discriminator_survives_in_the_module():
+    """The per-event and per-error-type tables are **gone**, not dormant.
+
+    Both were mappings from a discriminator to an extra allowlist, and both
+    lost their last entry when the two properties they guarded were admitted
+    unconditionally. An empty mapping left behind reads like a gate that is
+    still deciding something, and the next person to widen the surface would
+    have reached for it. Dead code shaped like a security control is worse than
+    no code, so it was deleted — and this test keeps it deleted.
+    """
+    assert not hasattr(analytics, "_ALLOWED_BY_EVENT")
+    assert not hasattr(analytics, "_ALLOWED_BY_ERROR_TYPE")
 
 
 def _missing_capability_event(**extra_properties):
@@ -348,34 +378,52 @@ def test_the_exception_does_not_reopen_parameters_on_that_same_event():
     assert _FILE_BODY not in _payload_text(scrubbed)
 
 
-def test_intent_is_still_blocked_on_an_ordinary_tool_call():
-    """The security boundary of the exception: it is scoped to one event name.
+def test_the_agents_sentence_rides_an_ordinary_tool_call_too():
+    """The intent is no longer scoped to ``$mcp_missing_capability``.
 
-    On this server a regular tool call cannot even produce an intent —
-    ``posthog.mcp._intent`` resolves one only when ``context`` is enabled or an
-    ``intent_fallback`` is set, and both are off. This test holds the line
-    anyway, so turning ``context`` on later cannot quietly start shipping the
-    agent's free text on every single call.
+    This is the half of the change that makes the navigation-cost table
+    readable: without it every row says a session made 15 calls and nothing
+    says what it was trying to do. It is a deliberate widening — the sentence
+    is free text an agent wrote — and it is only reachable because
+    ``instrument_mcp_server`` turns ``context`` on, which is what makes the SDK
+    produce an intent on a plain tool call at all.
     """
     scrubbed = analytics.scrub_mcp_payload(
-        _tool_call_event(**{"$mcp_intent": "read the user's private notes", "$mcp_intent_source": "context_parameter"})
+        _tool_call_event(
+            **{
+                "$mcp_intent": "reading the outline before requesting a line range",
+                "$mcp_intent_source": "context_parameter",
+            }
+        )
     )
 
     properties = scrubbed["properties"]
-    assert "$mcp_intent" not in properties
-    assert "$mcp_intent_source" not in properties
+    assert properties["$mcp_intent"] == "reading the outline before requesting a line range"
+    assert properties["$mcp_intent_source"] == "context_parameter"
     assert properties["$mcp_tool_name"] == "codekeeper_get_file"
+    # Widening the intent did not widen anything next to it.
+    assert "$mcp_parameters" not in properties
+    assert "$mcp_response" not in properties
+    assert _FILE_BODY not in _payload_text(scrubbed)
 
 
-def test_a_lookalike_event_name_does_not_inherit_the_exception():
-    """The key is the exact event name, not a prefix or a substring."""
+def test_the_intent_is_not_keyed_on_an_event_name_any_more():
+    """No event name is privileged, and none is excluded.
+
+    The old gate keyed the intent on one exact event name, and this test used
+    to prove that lookalike names did not inherit it. The property is now
+    admitted on its own merits, so the same names prove the opposite — and the
+    test is kept rather than deleted precisely because the assertion flipped:
+    a reader comparing the two versions can see the decision, not just its
+    result.
+    """
     for name in ("$mcp_missing_capability_v2", "mcp_missing_capability", "$mcp_tools_list"):
         event = _missing_capability_event()
         event["event"] = name
 
         scrubbed = analytics.scrub_mcp_payload(event)
 
-        assert "$mcp_intent" not in scrubbed["properties"], name
+        assert scrubbed["properties"]["$mcp_intent"], name
 
 
 def test_missing_configuration_is_loud_in_development_and_quiet_in_production(monkeypatch):
@@ -522,7 +570,10 @@ async def test_a_real_instrumented_tool_call_reaches_posthog_with_no_content(mon
     try:
         async with create_connected_server_and_client_session(server._mcp_server) as session:
             listed = await session.list_tools()
-            await session.call_tool("codekeeper_get_file", {"file_name": "notes.py"})
+            await session.call_tool(
+                "codekeeper_get_file",
+                {"file_name": "notes.py", "context": "reading a saved file to answer a question"},
+            )
         await analytics._drain()
     finally:
         client.shutdown()
@@ -538,19 +589,35 @@ async def test_a_real_instrumented_tool_call_reaches_posthog_with_no_content(mon
     # The tool really did return the file body; none of it may be on the wire.
     assert _FILE_BODY not in _payload_text(about_to_send)
 
-    # Instrumentation is additive: the advertised schema is untouched, with no
-    # `context` or `conversation_id` argument injected into it.
+    # The agent's sentence made it through the real pipeline, which is what the
+    # intent column on `/admin/mcp` reads. The unit tests above prove the gate
+    # admits it; only this one proves anything produces it.
+    assert properties["$mcp_intent"] == "reading a saved file to answer a question"
+    assert properties["$mcp_intent_source"] == "context_parameter"
+
+    # `codekeeper_get_file` is a file-read tool called with neither `lines` nor
+    # `outline`, so it is a full content read — the expensive kind the outline
+    # feature exists to replace.
+    assert properties[analytics.CK_READ_MODE_KEY] == analytics.READ_MODE_FULL
+
+    # Instrumentation is **no longer** schema-neutral, and this is the assertion
+    # that used to say it was. `context=True` adds one string parameter to every
+    # tool, and marks it required — measured, not assumed. `conversation_id`
+    # stays off, so it must not appear here.
     schema = next(t.inputSchema for t in listed.tools if t.name == "codekeeper_get_file")
-    assert sorted(schema.get("properties") or {}) == ["file_name"]
+    assert sorted(schema.get("properties") or {}) == ["context", "file_name"]
+    assert "context" in (schema.get("required") or [])
+    assert "conversation_id" not in (schema.get("properties") or {})
 
 
 # ---------------------------------------------------------------------------
-# החריג השני: הודעת שגיאה על ``ValidationError`` בלבד
+# הודעת השגיאה — עוברת עכשיו על **כל** סוג שגיאה
 #
-# החריג הזה שונה מהראשון בכך שהוא **כן** עלול לשאת קטע מתוכן המשתמש: Pydantic
-# מרנדר את ``input_value`` לתוך ההודעה, מקצץ ל-50 תווים, ושומר ראש וזנב. זה
-# נמדד והתקבל במודע. מה שהטסטים כאן שומרים הוא **ההיקף**: סוג שגיאה אחד,
-# מפתח אחד, ובכל מצב אחר — חסום.
+# עד לשינוי הזה ההודעה הייתה מגודרת ל-``ValidationError`` בלבד, והגידור הוא
+# שמנע ממנה לשאת שמות קבצים ונתיבים מהודעות של ספריות. הגידור הוסר בהחלטה
+# מפורשת של בעל הפרויקט, אחרי שהעלות הוצגה. מה שהטסטים כאן שומרים הוא לא
+# ההיקף — הוא נפתח — אלא **מה שנשאר סגור לצידו**: הארגומנטים, התוצאה,
+# ושרשרת החריגות המלאה.
 # ---------------------------------------------------------------------------
 
 _VALIDATION_MESSAGE = (
@@ -573,189 +640,67 @@ def _failed_tool_call(error_type, message=_VALIDATION_MESSAGE, **extra):
     )
 
 
-def test_the_whole_error_type_exception_table_is_pinned():
-    """הרחבה של הטבלה הזו מרחיבה את השער, ולכן היא חייבת להיות מעשה מודע.
-
-    בלי הקיבוע, סוג שגיאה נוסף היה נכנס בשקט בביקורת קוד.
-    """
-    assert analytics._ALLOWED_BY_ERROR_TYPE == {
-        "ValidationError": frozenset({"$mcp_error_message"})
-    }
-
-
 def test_a_validation_error_message_reaches_posthog():
-    """המטרה של החריג: לראות **איזה שדה** נדחה, ולא רק שמשהו נדחה."""
+    """המטרה המקורית של הפתיחה: לראות **איזה שדה** נדחה, ולא רק שמשהו נדחה."""
     out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError"))
 
     assert out["properties"]["$mcp_error_message"] == _VALIDATION_MESSAGE
     assert "file_name" in out["properties"]["$mcp_error_message"]
 
 
-def test_a_runtime_error_message_is_still_blocked():
-    """``RuntimeError`` הוא הסוג שכבר עקף את השער פעם אחת.
+@pytest.mark.parametrize(
+    "error_type",
+    ["RuntimeError", "ValueError", "TypeError", "KeyError", "ToolError", "Exception", ""],
+)
+def test_every_other_error_type_now_carries_its_message_too(error_type):
+    """הפוך מהטסט שהיה כאן — וזו בדיוק הנקודה.
 
-    בגרסה מוקדמת של ה-hook, ``RuntimeError("mongo query failed for <file>")``
-    הגיע לרשת שלם. החריג החדש הוא לפי סוג, ולכן הוא בדיוק המקום שבו הטעות
-    הזו יכולה לחזור.
+    הגרסה הקודמת אכפה ש``RuntimeError`` נחסם, כי ``RuntimeError("mongo query
+    failed for <קובץ>")`` הוא המקרה שכבר עקף את השער פעם אחת. הגידור הזה הוסר
+    ביודעין, ולכן ההודעה הזו יוצאת עכשיו. הטסט לא נמחק אלא הופך: מי שמשווה את
+    שתי הגרסאות רואה החלטה, לא שינוי שקט.
     """
     out = analytics.scrub_mcp_payload(
-        _failed_tool_call("RuntimeError", "mongo query failed for notes.py")
+        _failed_tool_call(error_type, "mongo query failed for notes.py")
     )
 
-    assert "$mcp_error_message" not in out["properties"]
-    assert "notes.py" not in _payload_text(out)
+    assert out["properties"]["$mcp_error_message"] == "mongo query failed for notes.py"
 
 
-@pytest.mark.parametrize(
-    "error_type",
-    ["ValueError", "TypeError", "KeyError", "ToolError", "Exception", ""],
-)
-def test_no_other_error_type_opens_the_message(error_type):
-    out = analytics.scrub_mcp_payload(_failed_tool_call(error_type))
+def test_a_message_without_any_error_type_is_forwarded():
+    """אין יותר מבחין, ולכן אין יותר מה להיכשל-סגור עליו.
 
-    assert "$mcp_error_message" not in out["properties"]
-
-
-@pytest.mark.parametrize(
-    "error_type",
-    ["validationerror", "VALIDATIONERROR", " ValidationError", "ValidationError "],
-)
-def test_the_match_is_exact_and_not_fuzzy(error_type):
-    """התאמה לפי שוויון מדויק. ``in`` או ``lower()`` היו פותחים שמות שכנים."""
-    out = analytics.scrub_mcp_payload(_failed_tool_call(error_type))
-
-    assert "$mcp_error_message" not in out["properties"]
-
-
-def test_a_missing_error_type_blocks_the_message():
-    """נכשל-סגור: בלי מבחין אין היתר."""
+    בגרסה הקודמת היעדר ``$mcp_error_type`` חסם את ההודעה. זה נשמר כטסט כדי
+    שהמעבר מ"נכשל-סגור על מבחין" ל"אין מבחין" יהיה כתוב ולא משתמע.
+    """
     event = _failed_tool_call("ValidationError")
     del event["properties"]["$mcp_error_type"]
 
     out = analytics.scrub_mcp_payload(event)
 
-    assert "$mcp_error_message" not in out["properties"]
+    assert out["properties"]["$mcp_error_message"] == _VALIDATION_MESSAGE
 
 
-@pytest.mark.parametrize("error_type", [None, 42, 3.5, True, ["ValidationError"], {"a": 1}])
-def test_a_non_string_error_type_blocks_the_message(error_type):
-    """טיפוס לא צפוי חוסם — **ואינו מפיל את ה-hook**.
+def test_opening_the_message_did_not_open_the_arguments_or_the_result():
+    """הדרישה המפורשת, וההגנה היחידה שנשארה על גוף הקובץ בקריאת כתיבה.
 
-    רשימה ומילון אינם בני-גיבוב; חיפוש ישיר שלהם במילון היה זורק
-    ``TypeError``, מה שהיה מוחק את האירוע כולו. בטוח, אבל רועש ומיותר.
+    ``$mcp_parameters`` הוא הקובץ עצמו ב-``save_file``/``edit_file``, ולכן
+    פתיחת ההודעה אסור לה לגרור אותו. אין שום מסלול במודול שיכול לפתוח אותו.
     """
-    out = analytics.scrub_mcp_payload(_failed_tool_call(error_type))
-
-    assert out is not None
-    assert "$mcp_error_message" not in out["properties"]
-
-
-def test_the_exception_does_not_reopen_parameters_or_response():
-    """הדרישה המפורשת: ``$mcp_parameters`` חסום גם על האירוע הזה.
-
-    אחרת החריג היה הופך לדלת אחורית לקריאת הארגומנטים — כלומר לקובץ עצמו.
-    """
-    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError"))
+    out = analytics.scrub_mcp_payload(_failed_tool_call("RuntimeError"))
 
     assert "$mcp_parameters" not in out["properties"]
     assert "$mcp_response" not in out["properties"]
     assert _FILE_BODY not in _payload_text(out)
 
 
-def test_the_error_type_exception_is_keyed_on_the_type_and_not_on_the_event():
-    """המבחין הוא סוג השגיאה בלבד, בכל אירוע — וזה מה שהטסט הזה מקבע.
-
-    **השם הקודם של הטסט הזה שיקר.** הוא נקרא
-    ``..._does_not_leak_into_other_events`` בזמן שהאסרשן שלו אישר בדיוק את
-    ההפך: שההודעה **כן** עוברת על ``$mcp_missing_capability``. זה אותו דפוס
-    שכבר תוקן בקובץ הזה פעם אחת — טסט שמבטיח יותר ממה שהוא בודק — ובגרסה
-    ההיא לפחות האסרשן היה נכון והשם היה רחב מדי. כאן השם אמר את ההפך
-    מהאסרשן, וזה גרוע יותר: קורא שסורק שמות היה מסיק שיש גידור שאין.
-
-    ההתנהגות עצמה מכוונת ותואמת למפרט: ``$mcp_error_message`` נפתח לפי
-    ``$mcp_error_type`` **בלבד**, בלי תנאי נוסף על שם האירוע. שגיאת ולידציה
-    על ``get_more_tools`` היא עדיין שגיאת ולידציה, ואותו ערך אבחוני.
-
-    צמצום לאירוע ``$mcp_tool_call`` בלבד הוא שינוי מפרט, לא תיקון באג, ולכן
-    הוא לא נעשה כאן בשקט.
-    """
-    event = _missing_capability_event(
-        **{"$mcp_error_type": "ValidationError", "$mcp_error_message": "field required"}
-    )
-
-    out = analytics.scrub_mcp_payload(event)
-
-    assert out["properties"]["$mcp_error_message"] == "field required"
-
-
-# ---------------------------------------------------------------------------
-# מה שנכנס דרך חריג חייב להיות מחרוזת
-#
-# החריגים פותחים שדות שההצדקה שלהם היא "משפט שאדם קורא". מילון או רשימה תחת
-# אותו שם אינם המשפט הזה — הם מבנה שלם שעובר שלם. הבדיקה הקודמת אימתה את
-# **המבחין** ולא את מה שנמסר, כלומר בדקה מי מבקש ולא מה עובר.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        {"loc": ["file_name"], "input": _FILE_BODY},
-        [{"input": _FILE_BODY}],
-        {"nested": {"deeper": _FILE_BODY}},
-    ],
-)
-def test_a_structured_error_message_does_not_ride_the_exception(message):
-    """נמדד לפני התיקון: מילון תחת ``$mcp_error_message`` עבר עם התוכן בפנים."""
-    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
-
-    assert "$mcp_error_message" not in out["properties"]
-    assert _FILE_BODY not in _payload_text(out)
-
-
-@pytest.mark.parametrize("message", [None, 42, True, 3.5])
-def test_a_non_string_error_message_is_dropped_even_on_a_validation_error(message):
-    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
-
-    assert "$mcp_error_message" not in out["properties"]
-
-
-@pytest.mark.parametrize(
-    "intent",
-    [{"text": _FILE_BODY}, [_FILE_BODY], None, 42],
-)
-def test_the_same_rule_guards_the_older_intent_exception(intent):
-    """אותו חור בדיוק היה גם בחריג של ``$mcp_intent``, שנשלח ב-#3315.
-
-    תיקון של החדש בלבד היה משאיר את הישן פתוח — כלומר טלאי, לא שורש.
-    """
-    event = _missing_capability_event(**{"$mcp_intent": intent})
-
-    out = analytics.scrub_mcp_payload(event)
-
-    assert "$mcp_intent" not in out["properties"]
-    assert _FILE_BODY not in _payload_text(out)
-
-
-def test_a_plain_sentence_still_passes_through_both_exceptions():
-    """הכלל מצמצם ולא סוגר: מה שהחריגים נועדו לו ממשיך לעבור.
-
-    בלי הטסט הזה, "לחסום הכל" היה עובר את כל השאר.
-    """
-    tool_call = analytics.scrub_mcp_payload(
-        _failed_tool_call("ValidationError", "1 validation error\nfile_name")
-    )
-    missing = analytics.scrub_mcp_payload(_missing_capability_event())
-
-    assert tool_call["properties"]["$mcp_error_message"] == "1 validation error\nfile_name"
-    assert missing["properties"]["$mcp_intent"]
-
-
-def test_the_exception_list_message_stays_redacted_even_on_validation_errors():
+def test_the_exception_list_message_stays_redacted_even_when_the_message_passes():
     """ההודעה מותרת; התאום שלה ב-``$exception_list`` נשאר מושחר.
 
-    ההודעה עוברת מקוצצת ל-2,048 תווים בידי ה-SDK, בעוד ה-``$exception_list``
-    נושא את השרשרת המלאה. פתיחת שניהם הייתה מרחיבה את החריג בלי שאיש ביקש.
+    אלה לא אותם נתונים: ``$mcp_error_message`` נושא את הרשומה הראשית בלבד,
+    מקוצצת ל-2,048 תווים בידי ה-SDK, ואילו ``$exception_list`` נושא את שרשרת
+    ה-``__cause__`` **המלאה ובלי תקרה**. פתיחת השני יחד עם הראשון הייתה
+    הרחבה שאיש לא ביקש, ולכן ההשחרה שם נשארת ללא תנאי.
     """
     event = _failed_tool_call("ValidationError")
     event["properties"]["$exception_list"] = [
@@ -768,43 +713,390 @@ def test_the_exception_list_message_stays_redacted_even_on_validation_errors():
     assert _FILE_BODY not in _payload_text(out)
 
 
-class _LooksLikeValidationError:
-    """אינו מחרוזת, אבל ``str()`` שלו מחזיר בדיוק את שם הסוג המותר."""
+# ---------------------------------------------------------------------------
+# מה שנכנס דרך רשימת הטקסט החופשי חייב להיות מחרוזת
+#
+# שני השדות מוצדקים כ"משפט שאדם קורא". מילון או רשימה תחת אותו שם אינם המשפט
+# הזה — הם מבנה שלם שעובר שלם. זו הבדיקה היחידה ששרדה את הסרת הגידור, והיא גם
+# היחידה שמפרידה בין "טקסט חופשי" לבין "כל מה שה-SDK ישים שם".
+# ---------------------------------------------------------------------------
 
-    def __str__(self):  # pragma: no cover - נקרא רק אם המימוש שגוי
-        return "ValidationError"
 
-    __repr__ = __str__
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"loc": ["file_name"], "input": _FILE_BODY},
+        [{"input": _FILE_BODY}],
+        {"nested": {"deeper": _FILE_BODY}},
+    ],
+)
+def test_a_structured_error_message_is_still_dropped(message):
+    """נמדד לפני שהכלל נוסף: מילון תחת ``$mcp_error_message`` עבר עם התוכן בפנים."""
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
+
+    assert "$mcp_error_message" not in out["properties"]
+    assert _FILE_BODY not in _payload_text(out)
 
 
-def test_something_that_merely_prints_like_the_allowed_type_is_blocked():
-    """הבדיקה חייבת להיות על **הטיפוס**, לא על הייצוג הטקסטואלי.
+@pytest.mark.parametrize("message", [None, 42, True, 3.5])
+def test_a_non_string_error_message_is_dropped(message):
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
 
-    זה הפער היחיד שמפריד בין ``isinstance(value, str)`` לבין ``str(value)``:
-    לכל טיפוס לא צפוי אחר — ``None``, מספר, רשימה — שתי הגרסאות חוסמות
-    ממילא, כי הייצוג שלהן אינו ``"ValidationError"``. מוטציה שהחליפה את
-    ``isinstance`` ב-``str`` שרדה את כל שאר הטסטים, וזה מה שהיא פספסה:
-    אובייקט שמדפיס את עצמו כשם המותר היה פותח את השער.
-
-    ולא מדובר בהמצאה תיאורטית — ``StrEnum`` ו-wrappers של ספריות מדפיסים
-    בדיוק כך, ו-``$mcp_error_type`` מגיע מ-SDK חיצוני.
-    """
-    out = analytics.scrub_mcp_payload(_failed_tool_call(_LooksLikeValidationError()))
-
-    assert out is not None
     assert "$mcp_error_message" not in out["properties"]
 
 
-def test_a_str_subclass_is_still_accepted():
-    """הצד השני: תת-מחלקה של ``str`` היא מחרוזת, ואין סיבה לחסום אותה.
+@pytest.mark.parametrize(
+    "intent",
+    [{"text": _FILE_BODY}, [_FILE_BODY], None, 42],
+)
+def test_the_same_rule_guards_the_intent(intent):
+    """אותו חור בדיוק היה גם ב-``$mcp_intent``, ולכן אותו כלל חל על שניהם.
 
-    בלי הטסט הזה, "תקן את מוטציה C" היה מזמין בדיקה נוקשה מדי
-    (``type(value) is str``) שהייתה חוסמת ערך תקין לחלוטין.
+    עכשיו זה חשוב יותר מקודם: הכוונה מגיעה על **כל** קריאת כלי, ולא על אירוע
+    נדיר אחד.
+    """
+    event = _tool_call_event(**{"$mcp_intent": intent})
+
+    out = analytics.scrub_mcp_payload(event)
+
+    assert "$mcp_intent" not in out["properties"]
+    assert _FILE_BODY not in _payload_text(out)
+
+
+def test_a_plain_sentence_still_passes_through_both_names():
+    """הכלל מצמצם ולא סוגר: מה שהשדות נועדו לו ממשיך לעבור.
+
+    בלי הטסט הזה, "לחסום הכל" היה עובר את כל השאר.
+    """
+    tool_call = analytics.scrub_mcp_payload(
+        _failed_tool_call("ValidationError", "1 validation error\nfile_name")
+    )
+    missing = analytics.scrub_mcp_payload(_missing_capability_event())
+
+    assert tool_call["properties"]["$mcp_error_message"] == "1 validation error\nfile_name"
+    assert missing["properties"]["$mcp_intent"]
+
+
+def test_a_str_subclass_is_accepted():
+    """תת-מחלקה של ``str`` **היא** מחרוזת, ואין סיבה לחסום אותה.
+
+    בלי הטסט הזה, הכלל היה מזמין בדיקה נוקשה מדי (``type(value) is str``)
+    שהייתה חוסמת ערך תקין לחלוטין — ``StrEnum`` הוא המקרה הנפוץ.
     """
 
     class _StrEnumLike(str):
         pass
 
-    out = analytics.scrub_mcp_payload(_failed_tool_call(_StrEnumLike("ValidationError")))
+    out = analytics.scrub_mcp_payload(
+        _failed_tool_call("ValidationError", _StrEnumLike(_VALIDATION_MESSAGE))
+    )
 
     assert out["properties"]["$mcp_error_message"] == _VALIDATION_MESSAGE
+
+
+# ---------------------------------------------------------------------------
+# ``ck_read_mode`` — מאפיין שהשרת מחשב בעצמו
+#
+# ``outline=true`` ו-``lines=[5, 80]`` הן אותו כלי, וההבחנה ביניהן חיה
+# ב-``$mcp_parameters`` שחסום ונשאר חסום. במקום לפתוח אותו, השרת גוזר תווית
+# אחת מתוך קבוצה סגורה. הטסטים כאן שומרים את שני הצדדים: שהתווית נכונה, ושדרך
+# השם הזה לא יכולה לעבור מחרוזת חופשית.
+# ---------------------------------------------------------------------------
+
+
+def _tool_call_request(name, arguments):
+    """הצורה ש-``posthog.mcp`` בונה ומעביר לקולבק (``build_tool_call_request``)."""
+    return {"method": "tools/call", "params": {"name": name, "arguments": arguments}}
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({"repo": "r", "path": "p", "outline": True}, analytics.READ_MODE_OUTLINE),
+        ({"repo": "r", "path": "p", "lines": [5, 80]}, analytics.READ_MODE_RANGE),
+        ({"repo": "r", "path": "p"}, analytics.READ_MODE_FULL),
+        # אאוטליין וטווח יחד נדחים בכלי כ-``outline_and_lines``. הקריאה לא
+        # קראה תוכן, ולכן העמודה הזולה היא המקום הישר בשבילה.
+        (
+            {"repo": "r", "path": "p", "outline": True, "lines": [5, 80]},
+            analytics.READ_MODE_OUTLINE,
+        ),
+        # ``outline=false`` מפורש הוא קריאה מלאה, לא אאוטליין — הבדיקה היא על
+        # הערך ולא רק על קיום המפתח.
+        ({"repo": "r", "path": "p", "outline": False}, analytics.READ_MODE_FULL),
+    ],
+)
+def test_the_read_mode_is_derived_from_which_parameter_was_passed(arguments, expected):
+    props = analytics.read_mode_properties(
+        _tool_call_request("codekeeper_get_repo_file", arguments)
+    )
+
+    assert props == {analytics.CK_READ_MODE_KEY: expected}
+
+
+def test_the_read_mode_never_echoes_a_value_that_came_from_the_caller():
+    """הטענה המרכזית של הפיצ'ר: מה שיוצא הוא תווית, לא ארגומנט.
+
+    בלי זה הפיצול היה הופך לדלת אחורית ל-``$mcp_parameters`` — בדיוק מה שהוא
+    נבנה כדי לעקוף.
+    """
+    props = analytics.read_mode_properties(
+        _tool_call_request(
+            "codekeeper_get_repo_file",
+            {"repo": "secret-repo", "path": "config/.env.production", "lines": [1, 40]},
+        )
+    )
+
+    assert props == {analytics.CK_READ_MODE_KEY: analytics.READ_MODE_RANGE}
+    assert "secret-repo" not in str(props)
+    assert ".env" not in str(props)
+
+
+@pytest.mark.parametrize(
+    "request_payload",
+    [
+        # לחיצת היד ורשימת הכלים — ה-SDK מריץ את הקולבק גם עליהן. גרסה
+        # שנפלה כאן ל-``full`` תייגה אותן כקריאת קובץ מלאה, וניפחה בדיוק את
+        # העמודה שהפיצ'ר נבנה כדי למדוד. נמדד מול ``posthog 7.45.3``.
+        {"method": "initialize", "params": {}},
+        {"method": "tools/list", "params": {}},
+        # כלי אמיתי שאינו קורא קבצים.
+        {
+            "method": "tools/call",
+            "params": {"name": "codekeeper_search_repo", "arguments": {"query": "x"}},
+        },
+        {"method": "tools/call", "params": {"name": "get_more_tools", "arguments": {}}},
+        # קלט פגום מ-SDK חיצוני — נכשל-סגור, בלי לזרוק.
+        {"method": "tools/call", "params": None},
+        {"method": "tools/call"},
+        None,
+        "tools/call",
+    ],
+)
+def test_nothing_but_a_file_read_gets_tagged(request_payload):
+    assert analytics.read_mode_properties(request_payload) is None
+
+
+@pytest.mark.parametrize("arguments", [None, "outline=true", ["outline"], 42])
+def test_arguments_that_are_not_a_mapping_read_as_a_full_read(arguments):
+    """קריאה לכלי קריאת קובץ נספרת, גם כשה-SDK מסר ארגומנטים בצורה לא צפויה.
+
+    זה המסלול שכיסוי הקוד הצביע עליו: ``arguments`` שאינו מילון. הבחירה כאן
+    היא ``full`` ולא ``None`` בכוונה — הקריאה **כן** קרתה, והעמודה היקרה היא
+    המקום הזהיר בשבילה. ``None`` היה מעלים אותה משתי העמודות והסכום היה
+    מפסיק להשתוות ל-``file_reads``.
+    """
+    request = _tool_call_request("codekeeper_get_repo_file", arguments)
+
+    assert analytics.read_mode_properties(request) == {
+        analytics.CK_READ_MODE_KEY: analytics.READ_MODE_FULL
+    }
+
+
+def test_the_gate_forwards_a_declared_read_mode():
+    event = _tool_call_event(**{analytics.CK_READ_MODE_KEY: analytics.READ_MODE_OUTLINE})
+
+    out = analytics.scrub_mcp_payload(event)
+
+    assert out["properties"][analytics.CK_READ_MODE_KEY] == analytics.READ_MODE_OUTLINE
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "def secret():\n    return 'user file content'\n",
+        {"mode": "outline", "path": "config/.env"},
+        ["outline"],
+        None,
+        42,
+        "OUTLINE",
+        "",
+    ],
+)
+def test_the_gate_drops_anything_the_read_mode_was_not_declared_to_be(value):
+    """מאפיין משלנו אינו נושא ``$mcp_`` ולכן רשימת ההיתר אינה חלה עליו.
+
+    בלי האכיפה הזו היה כאן שם שדרכו אפשר לשלוח כל מחרוזת — כלומר בדיוק החור
+    שהשער קיים כדי לסגור, רק בשם אחר. המילון והרשימה כאן אינם קישוט: ``value
+    in frozenset`` על טיפוס לא בר-גיבוב זורק ``TypeError``, וזה היה מפיל את
+    ה-hook ומוחק את האירוע כולו.
+    """
+    event = _tool_call_event(**{analytics.CK_READ_MODE_KEY: value})
+
+    out = analytics.scrub_mcp_payload(event)
+
+    assert out is not None
+    assert analytics.CK_READ_MODE_KEY not in out["properties"]
+
+
+async def test_the_file_read_tool_names_still_match_the_registered_tools(monkeypatch):
+    """הרשימה משוכפלת מ-``server.py`` ולכן חייבת להיאכף, לא להיזכר.
+
+    ``analytics.py`` אינו יכול לייבא מ-``server.py`` (ייבוא מעגלי), ולכן שמות
+    הכלים כתובים בשני מקומות. שינוי שם כלי בלי לעדכן כאן לא היה מפיל שום דבר:
+    הטבלה ב-``/admin/mcp`` הייתה ממשיכה להיטען, פשוט עם אפסים בשתי העמודות
+    החדשות — כשל שקט, וזה בדיוק מה שהטסט הזה הופך לרועש.
+
+    הכלים נגזרים מהסכימה המוצהרת ולא מרשימה שנייה קשיחה: כלי שמקבל ``lines``
+    הוא כלי שקורא תוכן קובץ, וזו ההגדרה שהמדד נשען עליה.
+    """
+    pytest.importorskip("mcp")
+    from mcp_server.server import build_mcp
+
+    # ``build_mcp`` קורא ל-``instrument_mcp_server``, וזה **זורק** כשאין
+    # קונפיגורציית PostHog מחוץ לפרודקשן — זו התנהגות מכוונת ומקובעת בטסט
+    # אחר בקובץ הזה. בלי הקיבוע כאן הטסט עבר או נפל לפי ה-``ENVIRONMENT``
+    # של מי שהריץ אותו, ולא לפי מה שהוא אמור לבדוק.
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    # ``object()`` ולא דמה מקובץ טסט אחר. שתי סיבות, ושתיהן שורש:
+    # ``tests`` אינו חבילה, ולכן ``from tests.x import y`` תלוי במה שנאסף
+    # באותה ריצה — הטסט הזה עבר לבד ונפל בסוויטה. ומעבר לכך, אין מה לדמות:
+    # ההרשמה של הכלים בונה סגורים בלבד, ושיטות ה-backend נקראות רק בקריאה
+    # בפועל. ``repo_backend`` חייב להיות לא-``None`` כדי שכלי הריפו יירשמו.
+    mcp = build_mcp(object(), repo_backend=object())
+    mcp._request_is_admin = lambda: True
+    with_lines = {
+        tool.name
+        for tool in await mcp.list_tools()
+        if "lines" in ((tool.inputSchema or {}).get("properties") or {})
+    }
+
+    assert with_lines == analytics.FILE_READ_TOOLS
+
+
+# ---------------------------------------------------------------------------
+# סינון סודות על הטקסט החופשי
+#
+# שני השדות האלה יוצאים ביודעין, ולכן הם עוברים דרך אותה רשימת דפוסים שמסננת
+# את הפריימר. לא רג'קס שהומצא כאן: כשלכל צרכן הייתה רשימה משלו, דפוס נוסף
+# לאחד ולא לשני. הטסטים כאן שומרים גם את מה שהמסנן תופס, וגם — במפורש — את
+# מה שהוא **לא** תופס, כדי שההגבלה תישאר מתועדת ולא תתגלה מחדש.
+# ---------------------------------------------------------------------------
+
+_AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
+_GH_TOKEN = "ghp_abcdefghij0123456789ABCDEFGHIJ"
+
+
+def test_a_secret_in_a_validation_message_is_redacted_before_it_ships():
+    """המקרה שנמדד: Pydantic משאיר את הזנב של ``input_value``, והזנב הוא המפתח.
+
+    זה בדיוק התרחיש שבגללו החריג הזה תועד כמסוכן — ועכשיו הוא מסונן.
+    """
+    message = (
+        "1 validation error for save_fileArguments\nfile_name\n"
+        "  Field required [type=missing, "
+        f"input_value={{'code': 'x...AWS_KEY={_AWS_KEY}'}}, input_type=dict]"
+    )
+
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
+
+    sent = out["properties"]["$mcp_error_message"]
+    assert _AWS_KEY not in sent
+    assert "***REDACTED***" in sent
+    # מה שאינו סוד נשאר קריא — אחרת אין טעם בחריג מלכתחילה.
+    assert "file_name" in sent
+    assert "type=missing" in sent
+
+
+def test_a_secret_an_agent_wrote_into_its_intent_is_redacted_too():
+    """הכוונה היא טקסט שסוכן כתב. התיאור מבקש ממנו לא לכתוב שם סודות, אבל
+    הנחיה למודל אינה גבול — ולכן אותו מסנן חל גם כאן."""
+    out = analytics.scrub_mcp_payload(
+        _tool_call_event(**{"$mcp_intent": f"retrying with token {_GH_TOKEN}"})
+    )
+
+    sent = out["properties"]["$mcp_intent"]
+    assert _GH_TOKEN not in sent
+    assert "***REDACTED***" in sent
+
+
+def test_the_filter_is_the_primers_and_not_a_second_copy():
+    """שתי רשימות דפוסים נפרדות כבר נכשלו כאן: דפוס נוסף לאחת ולא לשנייה.
+
+    האסרשן הוא על **זהות האובייקט** ולא על התנהגות דומה — התנהגות דומה היא
+    בדיוק מה שמתפצל בשקט.
+    """
+    from mcp_server import primer, redaction
+
+    assert analytics.redact_secrets is redaction.redact_secrets
+    assert primer.redact_secrets is redaction.redact_secrets
+
+
+def test_an_ordinary_message_is_not_mangled_by_the_filter():
+    """המסנן מצמצם חשיפה; אסור לו להרוס את הערך האבחוני.
+
+    בלי הטסט הזה, דפוס רחב מדי היה הופך כל הודעה ל-``***REDACTED***`` והטבלה
+    בעמוד הייתה נראית מלאה ואומרת כלום.
+    """
+    message = (
+        "1 validation error for get_repo_fileArguments\nlines.0\n"
+        "  Input should be a valid integer"
+    )
+
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
+
+    assert out["properties"]["$mcp_error_message"] == message
+
+
+def test_the_documented_gap_is_pinned_so_it_cannot_be_forgotten():
+    """**ההגבלה הידועה, כטסט ולא כהערה.**
+
+    הכלל לפי *שם* (``API_KEY=…``) מעוגן ל-``^``, ולכן הוא אינו יורה כשההשמה
+    יושבת באמצע שורה — וזו בדיוק הצורה של הודעת Pydantic. העיגון מגן על
+    הפריימר מפני מחיקת ``key=value`` מתוך פרוזה, ולכן ההרחבה היא החלטה בפני
+    עצמה ולא תיקון.
+
+    הטסט מקבע את המצב הקיים כדי ששינוי עתידי בדפוס — לכל כיוון — ייראה כאן
+    ולא יתגלה בפרודקשן. אם מישהו יסיר את העיגון, הטסט הזה ייפול ויאלץ אותו
+    להחליט במודע.
+    """
+    mid_line = "input_value={'env': 'API_KEY=abcdefghijklmnop123456'}"
+
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", mid_line))
+
+    assert out["properties"]["$mcp_error_message"] == mid_line
+
+    # הצד השני של אותו דפוס: בתחילת שורה הוא כן יורה.
+    at_line_start = "API_KEY=abcdefghijklmnop123456"
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", at_line_start))
+    assert "abcdefghijklmnop123456" not in out["properties"]["$mcp_error_message"]
+
+
+# ---------------------------------------------------------------------------
+# ``$mcp_intent_source`` — תווית סגורה, לא טקסט חופשי
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("source", ["context_parameter", "inferred"])
+def test_the_two_real_intent_sources_pass(source):
+    """שני הערכים שה-SDK מייצר, שנקראו מ-``posthog.mcp._intent``."""
+    out = analytics.scrub_mcp_payload(_tool_call_event(**{"$mcp_intent_source": source}))
+
+    assert out["properties"]["$mcp_intent_source"] == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"from": "def secret():\n    return 'user file content'\n"},
+        ["context_parameter"],
+        "context_parameter ",
+        "CONTEXT_PARAMETER",
+        "def secret(): return 'user file content'",
+        None,
+        42,
+    ],
+)
+def test_anything_that_is_not_one_of_the_two_labels_is_dropped(source):
+    """השדה הזה ישב עד עכשיו ברשימת המטא-דאטה, שאינה בודקת טיפוס כלל.
+
+    מבנה שיגיע תחתיו במהדורה עתידית של ה-SDK היה עובר שלם — אותו חור שכבר
+    נמדד ב-``$mcp_error_message``, רק בשם אחר. הרשימה כאן סגורה, ולכן גם
+    ערך חדש שה-SDK יוסיף ייחסם עד שמישהו יאשר אותו במפורש.
+    """
+    out = analytics.scrub_mcp_payload(_tool_call_event(**{"$mcp_intent_source": source}))
+
+    assert out is not None
+    assert "$mcp_intent_source" not in out["properties"]
+    assert _FILE_BODY not in _payload_text(out)

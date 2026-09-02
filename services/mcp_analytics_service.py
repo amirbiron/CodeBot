@@ -4,7 +4,7 @@ MCP Analytics Service
 קריאת נתוני השימוש ב-MCP מ-PostHog, עבור מסך האדמין ``/admin/mcp``.
 
 שרת ה-MCP מדווח ל-PostHog אירוע על כל קריאת כלי (``mcp_server/analytics.py``).
-המודול הזה קורא את הנתונים חזרה דרך שלושה *endpoints* שמורים — שאילתות שחיות
+המודול הזה קורא את הנתונים חזרה דרך *endpoints* שמורים — שאילתות שחיות
 ב-PostHog ולא בקוד, כך שאפשר לשנות אותן בלי דיפלוי.
 
 **המפתח נשאר בצד השרת.** הוא עובר בכותרת ``Authorization`` בלבד, לעולם לא
@@ -37,14 +37,50 @@ ENV_HOST = "POSTHOG_HOST"
 
 # --- שמות האנדפוינטים ב-PostHog ---
 ENDPOINT_TOOL_HEALTH = "ck_mcp_tool_health"
-ENDPOINT_NAVIGATION_COST = "ck_mcp_navigation_cost"
 ENDPOINT_MISSING_CAPABILITIES = "ck_mcp_missing_capabilities"
 
-# ``ck_mcp_navigation_cost`` מחזיר שורה לכל סשן, ובלי ``limit`` הוא מחזיר את
-# כולן — כמות שגדלה בלי תקרה. הספירה המלאה מגיעה בעמודה ``total_sessions``
+#: הקריאות שנכשלו, שורה לכל אחת. יושב מתחת לטבלת הכלים באותו טאב ולא כטאב
+#: נוסף: הוא הפירוט של עמודת השגיאות שכבר שם. בלעדיו הטבלה אומרת "20%
+#: שגיאות" ולא אומרת למה — דוח מסירה בלי פתק המסירה.
+ENDPOINT_TOOL_FAILURES = "ck_mcp_tool_failures"
+
+#: **v2 ולא v1.** הגרסה השנייה מפצלת את ``file_reads`` לשתי עמודות לפי
+#: ``ck_read_mode`` — אאוטליין מול קריאת תוכן — ומוסיפה את הכוונה של הסשן.
+#: ``ck_mcp_navigation_cost`` (v1) נשאר חי ב-PostHog בכוונה: הוא הבסיס להשוואה
+#: מול הטור המאוחד, והעמוד פשוט אינו קורא לו יותר.
+ENDPOINT_NAVIGATION_COST = "ck_mcp_navigation_cost_v2"
+
+# ``ck_mcp_navigation_cost_v2`` מחזיר שורה לכל סשן, ובלי ``limit`` הוא מחזיר
+# את כולן — כמות שגדלה בלי תקרה. הספירה המלאה מגיעה בעמודה ``total_sessions``
 # שנגזרת ב-``count() OVER ()`` בתוך השאילתה, ולכן התקרה כאן אינה מסתירה מידע.
 NAVIGATION_COST_LIMIT = 50
+
+#: הפאנל יושב בתוך טאב קיים ולא לבד, ולכן הוא קצר. אין לו ``total`` בשאילתה,
+#: ולכן ``has_more`` הוא מה שאומר שנחתך.
+TOOL_FAILURES_LIMIT = 25
+
 TOTAL_COLUMN = "total_sessions"
+
+#: נתיבי ה-UI של PostHog עצמו. שני דברים שהעמוד הזה **אינו יכול** להביא —
+#: סיכום כוונה לסשן ואשכולות כוונות — הם כלי API של PostHog ולא שאילתות
+#: HogQL, ולכן הם אינם נגישים דרך אנדפוינט שמור. במקום לחקות אותם חצי,
+#: העמוד מקשר אליהם. הנתיבים נלקחו מטבלת הראוטים של PostHog.
+POSTHOG_INTENT_CLUSTERS_PATH = "/mcp-analytics/intent-clustering"
+POSTHOG_SESSIONS_PATH = "/mcp-analytics/sessions"
+
+#: מה שהעמוד מריץ, ובאיזו תקרה. ``None`` פירושו בלי ``limit`` בגוף הבקשה.
+#:
+#: יושב ברמת המודול ולא בתוך :meth:`McpAnalyticsService.get_dashboard` כדי
+#: שגם גודל ה-pool וגם הבדיקות ייגזרו מאותו מקור. הבדיקות ספרו קודם ``3``
+#: כמספר קשיח, ואנדפוינט רביעי הפיל אותן על המספר במקום על ההתנהגות —
+#: כלומר ההבטחה שהן שומרות (הכול רץ במקביל) הייתה נשברת בשקט ביום שמישהו
+#: יוסיף חמישי ויתקן את המספר.
+DASHBOARD_ENDPOINTS: tuple[tuple[str, int | None], ...] = (
+    (ENDPOINT_TOOL_HEALTH, None),
+    (ENDPOINT_TOOL_FAILURES, TOOL_FAILURES_LIMIT),
+    (ENDPOINT_NAVIGATION_COST, NAVIGATION_COST_LIMIT),
+    (ENDPOINT_MISSING_CAPABILITIES, None),
+)
 
 # --- תקציב זמן ---
 # שלוש הגנות נפרדות, כי אף אחת מהן לבדה אינה מספיקה.
@@ -153,7 +189,11 @@ class PostHogConfig:
 
 
 class McpAnalyticsService:
-    """קורא את שלושת האנדפוינטים של PostHog ומחזיר שורות מוכנות לתבנית."""
+    """קורא את האנדפוינטים של PostHog ומחזיר שורות מוכנות לתבנית.
+
+    הרשימה עצמה היא ``DASHBOARD_ENDPOINTS``, ולא מספר שכתוב כאן: ספירה בפרוזה
+    מתיישנת בשקט ברגע שמישהו מוסיף אנדפוינט.
+    """
 
     def resolve_config(self) -> PostHogConfig | EndpointResult:
         """מחזיר קונפיגורציה מאומתת, או שגיאה — לעולם לא שילוב של השתיים.
@@ -208,7 +248,23 @@ class McpAnalyticsService:
         # הערך משמש כ-origin שאליו משורשר נתיב ה-API, ולכן כל רכיב נוסף —
         # נתיב, שאילתה, פרגמנט או פרטי הזדהות — היה מייצר כתובת שגויה
         # בשקט. נדחה כאן ולא מתגלה כ-404 מאוחר יותר.
-        has_extra_parts = bool(parts.path or parts.query or parts.fragment or parts.username)
+        #
+        # **הבדיקה היא ``is not None`` ולא ערך אמיתי, ולא ניסוח יפה.** נמדד:
+        # ב-``https://:secret@us.posthog.com`` מחזיר ``urlsplit`` את
+        # ``username=''`` — מחרוזת ריקה, שהיא falsy — ולכן ``or parts.username``
+        # לבדו אישר את הכתובת. הסיסמה נשארה בערך הגולמי, שממנו נבנים גם נתיב
+        # ה-API וגם הקישורים היוצאים שמרונדרים לעמוד: סוד ב-``href`` שנפתח
+        # בדפדפן, כלומר בהיסטוריה וב-``Referer``.
+        #
+        # ולכן גם ``parts.password`` נבדק בנפרד: זו בדיוק הצורה שבה חצי מפרטי
+        # ההזדהות קיים והחצי השני ריק.
+        has_extra_parts = bool(
+            parts.path
+            or parts.query
+            or parts.fragment
+            or parts.username is not None
+            or parts.password is not None
+        )
         if parts.scheme not in ALLOWED_SCHEMES or not parts.hostname or has_extra_parts:
             # ההודעה מתארת מה נדרש, ולא מצטטת את הערך שהתקבל. הערך מגיע
             # מ-``os.environ`` ומוצג בעמוד HTML; מספיקה טעות העתקה אחת בין
@@ -410,18 +466,45 @@ class McpAnalyticsService:
             rows.append(dict(zip(columns, raw, strict=True)))
         return rows, ""
 
-    def get_dashboard(self) -> dict[str, EndpointResult]:
-        """מריץ את שלושת האנדפוינטים ומחזיר מילון לפי שם.
+    def posthog_links(self) -> dict[str, str]:
+        """קישורים יוצאים לתצוגות של PostHog עצמו, או מילון ריק.
 
-        הקריאות רצות במקביל כדי להוריד את המקרה הטיפוסי משלושה סבבי רשת
+        **מה הם, ולמה הם קישור ולא טבלה.** סיכום כוונה לסשן ואשכולות כוונות
+        הם *כלי API* של PostHog — עבודת LLM שרצה ונשמרת אצלם — ולא שאילתות.
+        הדשבורד הזה מדבר עם PostHog רק דרך אנדפוינטים שמורים, שהם HogQL בלבד,
+        ולכן אין דרך להביא אותם לכאן. חיקוי חלקי היה מציג מספר שנראה כמו
+        ``discovery rate`` בלי להיות אחד.
+
+        הכתובת נבנית משני הערכים שכבר עברו ולידציה ב-:meth:`resolve_config`,
+        ולכן אין כאן מה לנקות: ``project_id`` הוא ספרות ASCII בלבד ו-``host``
+        הוא origin של ``https`` בלי נתיב, שאילתה או פרטי הזדהות. המפתח אינו
+        משתתף בבנייה כלל — הוא חי רק בכותרת ``Authorization``.
+
+        מילון ריק כשהקונפיגורציה פסולה: קישור שנבנה מערך שגוי מוביל לשום מקום,
+        וההודעה על הקונפיגורציה כבר מוצגת בטאב עצמו.
+        """
+        config = self.resolve_config()
+        if isinstance(config, EndpointResult):
+            return {}
+        base = f"{config.host}/project/{config.project_id}"
+        return {
+            "intent_clusters": f"{base}{POSTHOG_INTENT_CLUSTERS_PATH}",
+            "sessions": f"{base}{POSTHOG_SESSIONS_PATH}",
+        }
+
+    def get_dashboard(self) -> dict[str, EndpointResult]:
+        """מריץ את ארבעת האנדפוינטים ומחזיר מילון לפי שם.
+
+        הקריאות רצות במקביל כדי להוריד את המקרה הטיפוסי מארבעה סבבי רשת
         לאחד. **המקבול אינו ההגנה מפני היתקעות** — הוא מקצר את הסכום ולא
         את הגרוע ביותר; לזה משמש התקציב העליון.
+
+        התקציב לא זז כשנוסף האנדפוינט הרביעי, וזה לא פספוס: הוא נגזר מהמקרה
+        הגרוע של קריאה **בודדת** (``connect + read``), וקריאה נוספת שרצה
+        לצידה אינה מאריכה אותו. ה-pool מקבל worker לכל spec, ולכן הרביעי לא
+        ממתין בתור.
         """
-        specs = (
-            (ENDPOINT_TOOL_HEALTH, None),
-            (ENDPOINT_NAVIGATION_COST, NAVIGATION_COST_LIMIT),
-            (ENDPOINT_MISSING_CAPABILITIES, None),
-        )
+        specs = DASHBOARD_ENDPOINTS
         out: dict[str, EndpointResult] = {}
         deadline = time.monotonic() + TOTAL_BUDGET_SECONDS
 

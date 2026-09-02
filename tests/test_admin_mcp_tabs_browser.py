@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 import threading
@@ -37,9 +38,66 @@ HEALTH_ROWS = [
 ]
 NAV_ROWS = [{
     "session": "ses_x", "started": "2026-09-02T08:15:00.843000Z",
-    "client": "claude-code", "calls": 15, "searches": 0, "file_reads": 14,
-    "errors": 0, "total_ms": 2574.0, "total_sessions": 10,
+    "client": "claude-code", "calls": 15, "searches": 0,
+    "outline_reads": 2, "content_reads": 12,
+    "errors": 0, "total_ms": 2574.0,
+    # ארוך בכוונה: הטור הזה הוא מה שיכול להרחיב את הטבלה מעבר למסך.
+    "intent": (
+        "mapping the admin routes in webapp/app.py before reading the exact line range, "
+        "so a single outline call replaces a full read of twenty thousand lines"
+    ),
+    "total_sessions": 10,
 }]
+FAILURE_ROWS = [
+    {
+        "failed_at": "2026-09-02T00:43:14.487000Z",
+        "tool": "codekeeper_get_file", "client": "claude-code",
+        "error_type": "ValidationError",
+        "error_message": (
+            "1 validation error for get_fileArguments\nlines.1\n"
+            "  Input should be a valid integer "
+            "[type=int_type, input_value='9', input_type=str]"
+        ),
+        "session": "ses_x",
+    },
+    {
+        "failed_at": "2026-09-01T21:01:34.441000Z",
+        "tool": "codekeeper_get_repo_file", "client": None,
+        "error_type": "ValidationError", "error_message": None,
+        "session": "ses_y",
+    },
+]
+POSTHOG_LINKS = {
+    "intent_clusters": "https://us.posthog.com/project/567754/mcp-analytics/intent-clustering",
+    "sessions": "https://us.posthog.com/project/567754/mcp-analytics/sessions",
+}
+
+
+# --------------------------------------------------------------------------
+# החלפת שורות בשרת, לפני הרינדור
+#
+# בדיקת escape חייבת לקרוא את מה ש-Jinja הוציאה. טסט ששותל מחרוזת ב-DOM אחרי
+# הרינדור בודק את הדפדפן, לא את התבנית — וזו בדיוק הטעות שהגרסה הקודמת של
+# בדיקת ה-XSS כאן עשתה.
+# --------------------------------------------------------------------------
+
+_NAV_ROWS_OVERRIDE: list | None = None
+
+
+def _nav_rows():
+    return list(_NAV_ROWS_OVERRIDE if _NAV_ROWS_OVERRIDE is not None else NAV_ROWS)
+
+
+@contextlib.contextmanager
+def _hostile_intent(text):
+    """מחליף את הכוונה בשורת הניווט לאורך הבקשה, ומשחזר בסיום."""
+    global _NAV_ROWS_OVERRIDE
+    previous = _NAV_ROWS_OVERRIDE
+    _NAV_ROWS_OVERRIDE = [{**NAV_ROWS[0], "intent": text}]
+    try:
+        yield
+    finally:
+        _NAV_ROWS_OVERRIDE = previous
 
 
 def _find_chromium():
@@ -73,11 +131,17 @@ def live_server():
     import webapp.app as app_mod
     from werkzeug.serving import make_server
 
-    fake = types.SimpleNamespace(get_dashboard=lambda: {
-        mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
-        mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=list(NAV_ROWS), total=10),
-        mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
-    })
+    fake = types.SimpleNamespace(
+        get_dashboard=lambda: {
+            mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
+            mcp.ENDPOINT_TOOL_FAILURES: EndpointResult(rows=list(FAILURE_ROWS)),
+            # ``_nav_rows()`` ולא ``NAV_ROWS`` ישירות: כך טסט יכול להחליף את
+            # השורות **בשרת** לפני הרינדור, במקום לשתול ערך ב-DOM אחרי כן.
+            mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=_nav_rows(), total=10),
+            mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
+        },
+        posthog_links=lambda: dict(POSTHOG_LINKS),
+    )
 
     patch = pytest.MonkeyPatch()
     patch.setattr(mcp, "get_mcp_analytics_service", lambda: fake)
@@ -219,3 +283,184 @@ def test_null_cells_never_render_the_word_none(page):
 
     assert "None" not in text
     assert "—" in text
+
+
+def test_the_wider_navigation_table_scrolls_inside_its_own_card(page):
+    """כשהטבלה רחבה מהכרטיס — **הכרטיס** גולל, לא גוף העמוד.
+
+    **הגרסה הקודמת של הטסט הזה הבטיחה יותר ממה שהיא בדקה, ובדיעבד גם יותר
+    ממה שנכון.** היא חישבה ``wrapperScrolls`` ולא אישרה אותו. כשהוספתי את
+    האסרשן הוא נפל — ב-1280 פיקסלים הטבלה בת עשר העמודות פשוט **נכנסת**,
+    ואין שום גלילה להוכיח. כלומר גם השם היה שגוי, לא רק האסרשן חסר.
+
+    לכן המדידה עברה לרוחב שבו הגלישה אמיתית. המבנה כאן הוא שלוש טענות
+    שכל אחת מהן מסוגלת ליפול: קודם שיש בכלל גלישה (אחרת הטסט חסר משמעות
+    ועדיף שיצעק), אחר כך שהכרטיס הוא זה שגולל, ולבסוף שגוף העמוד אינו.
+    """
+    page.click('button.mcp-tab[data-panel="navigation"]')
+    page.wait_for_timeout(150)
+    # רוחב טלפון: כאן עשר עמודות בוודאות אינן נכנסות.
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(250)
+
+    measured = page.evaluate("""() => {
+        const panel = '.mcp-panel[data-panel="navigation"]';
+        const wrap = document.querySelector(panel + ' .mcp-table-wrapper');
+        const table = wrap.querySelector('table');
+        return {
+            tableWidth: table.scrollWidth,
+            cardWidth: wrap.clientWidth,
+            wrapperScrolls: wrap.scrollWidth > wrap.clientWidth,
+            overflowX: getComputedStyle(wrap).overflowX,
+            docWidth: document.documentElement.scrollWidth,
+            viewport: document.documentElement.clientWidth,
+        };
+    }""")
+
+    # 1. יש גלישה בכלל — בלי זה שתי הטענות הבאות ריקות מתוכן.
+    assert measured["tableWidth"] > measured["cardWidth"], measured
+    # 2. הכרטיס הוא שגולל.
+    assert measured["overflowX"] == "auto"
+    assert measured["wrapperScrolls"] is True, measured
+    # 3. וגוף העמוד לא — זו ההבטחה שהמשתמש מרגיש.
+    assert measured["docWidth"] <= measured["viewport"] + 1, measured
+
+
+def test_a_long_intent_keeps_its_full_text_in_the_title_attribute(page):
+    """הקיצוץ הוא של התצוגה בלבד. מה שהדפדפן באמת מציג ב-hover נמדד כאן."""
+    page.click('button.mcp-tab[data-panel="navigation"]')
+    page.wait_for_timeout(150)
+
+    measured = page.evaluate("""() => {
+        const el = document.querySelector('.mcp-panel[data-panel="navigation"] .mcp-clip');
+        return {title: el.getAttribute('title'), shown: el.textContent};
+    }""")
+
+    assert measured["title"] == NAV_ROWS[0]["intent"]
+    assert len(measured["shown"]) < len(measured["title"])
+    assert measured["shown"].endswith("…")
+
+
+def test_an_intent_that_looks_like_markup_is_never_a_live_element(live_server):
+    """``<script>`` בכוונה חייב להישאר טקסט — בדפדפן, לא רק במחרוזת.
+
+    **הגרסה הקודמת של הטסט הזה לא בדקה כלום.** היא דחפה את המחרוזת העוינת
+    ל-DOM עם ``setAttribute('title', hostile)`` ואז אישרה שאין ילדים ואין
+    ``window.__pwned``. אבל ``setAttribute`` **לעולם אינו מפרסר HTML**, ולכן
+    שתי האסרשנים היו נכונים תמיד — גם אילו Jinja הייתה שבורה לחלוטין. טסט
+    XSS שאינו מסוגל להיכשל גרוע מהיעדר טסט, כי הוא נותן ביטחון במקום שאין בו.
+
+    הגרסה הזו מזריקה את המחרוזת דרך **הנתונים**, נותנת לשרת לרנדר, ובודקת את
+    ה-DOM שהדפדפן בנה בפועל: אפס אלמנטי ילד, הטקסט שרד כטקסט, ושום סקריפט
+    לא רץ.
+    """
+    hostile = "<script>window.__pwned = 1</script>"
+    base_url, session_cookie = live_server
+    executable = _find_chromium()
+
+    with sync_playwright() as pw:
+        try:
+            browser = (
+                pw.chromium.launch(executable_path=executable)
+                if executable
+                else pw.chromium.launch()
+            )
+        except Exception as exc:  # pragma: no cover
+            pytest.skip(f"אין Chromium זמין: {exc}")
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context.add_cookies([{
+            "name": "session", "value": session_cookie,
+            "domain": "127.0.0.1", "path": "/",
+        }])
+        p = context.new_page()
+        p.add_init_script(
+            "try{localStorage.setItem('welcomeModalSeen','1');"
+            "localStorage.setItem('onboarding_completed','1');}catch(e){}"
+        )
+        # ``_hostile_intent`` מחליף את הכוונה בשרת לפני הרינדור, ולכן מה
+        # שנבדק הוא הפלט האמיתי של Jinja ולא ערך שהטסט שתל ב-DOM אחרי כן.
+        with _hostile_intent(hostile):
+            p.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
+        p.wait_for_timeout(400)
+        p.evaluate(
+            "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
+            ".forEach(e => e.remove())"
+        )
+        try:
+            p.click('button.mcp-tab[data-panel="navigation"]')
+            p.wait_for_timeout(150)
+            measured = p.evaluate("""() => {
+                const el = document.querySelector('.mcp-panel[data-panel="navigation"] .mcp-clip');
+                return {
+                    found: !!el,
+                    pwned: window.__pwned === 1,
+                    childElements: el ? el.children.length : -1,
+                    scriptsWithPayload: [...document.querySelectorAll('script')]
+                        .filter(s => (s.textContent || '').includes('__pwned')).length,
+                    title: el ? el.getAttribute('title') : null,
+                };
+            }""")
+        finally:
+            context.close()
+            browser.close()
+
+    assert measured["found"], "תא הכוונה לא רונדר — הטסט לא בדק דבר"
+    # לא נוצר אלמנט: המחרוזת נשארה טקסט, לא markup.
+    assert measured["childElements"] == 0
+    assert measured["scriptsWithPayload"] == 0
+    assert measured["pwned"] is False
+    # ועדיין נגיש כטקסט מלא — escape ולא מחיקה.
+    assert measured["title"] == hostile
+
+
+def test_the_failure_messages_render_under_the_tool_table(page):
+    """הפאנל שייך לטאב הבריאות, ולא לטאב רביעי."""
+    page.click('button.mcp-tab[data-panel="health"]')
+    page.wait_for_timeout(150)
+    text = page.inner_text('.mcp-panel[data-panel="health"]')
+
+    assert len(page.query_selector_all("button.mcp-tab")) == 3
+    assert "lines.1" in text
+    assert "Input should be a valid integer" in text
+    assert "לא ניתן לטעון" not in text, "הודעה חסרה הוצגה ככשל"
+
+
+def test_the_multiline_error_message_wraps_instead_of_stretching_the_table(page):
+    """ההודעה של Pydantic היא רב-שורתית ובעלת מקטעים ארוכים בלי רווח.
+
+    בלי ``overflow-wrap`` היא הייתה מותחת את הטבלה על פני המסך. זו תכונת
+    פריסה — היא קיימת רק אחרי שהדפדפן חישב אותה.
+    """
+    page.click('button.mcp-tab[data-panel="health"]')
+    page.wait_for_timeout(150)
+
+    measured = page.evaluate("""() => {
+        const cell = document.querySelector('.mcp-errmsg');
+        const style = getComputedStyle(cell);
+        return {
+            whiteSpace: style.whiteSpace,
+            overflowWrap: style.overflowWrap,
+            lines: cell.getClientRects().length,
+            docWidth: document.documentElement.scrollWidth,
+            viewport: document.documentElement.clientWidth,
+        };
+    }""")
+
+    assert measured["whiteSpace"] == "pre-wrap"
+    assert measured["overflowWrap"] == "anywhere"
+    assert measured["docWidth"] <= measured["viewport"] + 1, measured
+
+
+def test_the_outbound_links_open_safely_in_a_new_tab(page):
+    page.click('button.mcp-tab[data-panel="navigation"]')
+    page.wait_for_timeout(150)
+
+    links = page.evaluate("""() => [...document.querySelectorAll('a.mcp-outlink')].map(a => ({
+        href: a.href, target: a.target, rel: a.rel,
+    }))""")
+
+    assert len(links) == 2
+    for link in links:
+        assert link["href"] in POSTHOG_LINKS.values()
+        assert link["target"] == "_blank"
+        assert "noopener" in link["rel"] and "noreferrer" in link["rel"]

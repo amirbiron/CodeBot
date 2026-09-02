@@ -188,6 +188,46 @@
       overflow-wrap: anywhere;
     }
 
+    /* הודעת שגיאה של Pydantic: רב-שורתית, ובעלת שורות ארוכות בלי רווחים
+       (``input_value=...``). מוצגת כפי שהיא ובלי עיבוד — כל ניסיון לתמצת
+       אותה היה קושר את התבנית לפורמט של ספרייה חיצונית. */
+    .mcp-errmsg {
+      max-width: 62ch;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: var(--code-text, inherit);
+    }
+
+    /* טקסט שסוכן כתב, מקוצץ בתצוגה. הטקסט המלא יושב ב-``title`` ולא נמחק:
+       הקיצוץ הוא החלטה של התצוגה בלבד. */
+    .mcp-clip {
+      display: inline-block;
+      max-width: 40ch;
+      overflow-wrap: anywhere;
+      cursor: help;
+    }
+
+    /* קישור יוצא ל-PostHog. משתמש ב-``--primary`` שקיים בכל הערכות, כולל
+       High Contrast — היא מגדירה אותו באחד מששת הטוקנים שלה. */
+    .mcp-outlinks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 0.8rem;
+    }
+    .mcp-outlink {
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .mcp-outlink:hover { text-decoration: underline; }
+
     /* --- מצב ריק ושגיאה --- */
     .mcp-state {
       text-align: center;
@@ -251,6 +291,21 @@
   {%- if value is none -%}
     <span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>
   {%- else -%}{{ value | round | int }}<span class="mcp-unit">ms</span>{%- endif -%}
+{%- endmacro %}
+
+{#- טקסט חופשי שסוכן כתב, מקוצץ בתצוגה עם המלא ב-``title``.
+
+    אין כאן ``|safe`` ואין הזרקה ל-``innerHTML``: Jinja עושה escape אוטומטי גם
+    לגוף וגם לערך התכונה, ולכן ``<script>`` בכוונה מוצג כטקסט. "רק אדמינים
+    רואים" אינו הגנה — אדמינים הם היעד. הכלל המלא נמצא בריפו
+    ``amir-bug-patterns``, בקובץ ``bugbot-rules/xss-innerhtml.md`` — הוא אינו
+    בריפו הזה, ולכן הוא מוזכר עם שם הריפו ולא כנתיב מקומי. -#}
+{% macro clipped(value, limit=64) -%}
+  {%- if value -%}
+    <span class="mcp-clip" tabindex="0" role="note" aria-label="{{ value }}" title="{{ value }}">{{ value | truncate(limit, True, '…') }}</span>
+  {%- else -%}
+    <span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>
+  {%- endif -%}
 {%- endmacro %}
 
 {% macro when(value) -%}
@@ -385,6 +440,54 @@
         {% endif %}
       </div>
     {% endif %}
+
+
+      {# ---- הקריאות שנכשלו, מתחת לטבלת הכלים ולא כטאב נפרד ----
+         הן הפירוט של עמודת השגיאות שכבר למעלה: הטבלה אומרת "20% שגיאות",
+         והפאנל הזה אומר למה. אנדפוינט נפרד, ולכן גם כשל נפרד — טבלת הכלים
+         נשארת מוצגת גם אם דווקא הפירוט לא נטען. #}
+      <div class="mcp-table-wrapper">
+        <div class="mcp-table-head">
+          <h2><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> הקריאות שנכשלו</h2>
+          {{ meta_line(tool_failures) }}
+        </div>
+        {% if not tool_failures.ok %}
+          {{ panel_error(tool_failures) }}
+        {% elif tool_failures.rows %}
+          <table class="mcp-table">
+            <thead>
+              <tr>
+                <th scope="col">מתי</th>
+                <th scope="col">כלי</th>
+                <th scope="col">לקוח</th>
+                <th scope="col">סוג</th>
+                <th scope="col">ההודעה</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in tool_failures.rows %}
+                <tr>
+                  <td class="mcp-num">{{ when(row.failed_at) }}</td>
+                  <td class="mcp-mono">{{ nv(row.tool) }}</td>
+                  <td>{{ nv(row.client) }}</td>
+                  <td class="mcp-mono">{{ nv(row.error_type) }}</td>
+                  <td class="mcp-errmsg">{{ nv(row.error_message) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="mcp-meta" style="margin-top:0.8rem;">
+            מוצגות עד {{ failures_limit }} הקריאות האחרונות שנכשלו{% if tool_failures.has_more %} · יש עוד{% endif %}.
+            תא הודעה ריק (—) הוא <strong>מצב תקין</strong> ולא כשל: עד לפתיחת השער ההודעה לא נשמרה כלל,
+            ולכן קריאות שנכשלו לפני כן נספרות אבל אין להן טקסט. הצינזור קרה בזמן השליחה, והוא אינו הפיך.
+          </p>
+        {% else %}
+          <div class="mcp-state">
+            <i class="fas fa-circle-check" aria-hidden="true"></i>
+            <p>אף קריאה לא נכשלה ב-30 הימים האחרונים.</p>
+          </div>
+        {% endif %}
+      </div>
   </div>
 
   {# ---------- טאב 2: עלות ניווט ---------- #}
@@ -405,9 +508,11 @@
                 <th scope="col">לקוח</th>
                 <th scope="col">קריאות</th>
                 <th scope="col">חיפושים</th>
-                <th scope="col">קריאות קובץ</th>
+                <th scope="col">אאוטליין</th>
+                <th scope="col">קריאת תוכן</th>
                 <th scope="col">שגיאות</th>
                 <th scope="col">זמן כולל</th>
+                <th scope="col">מה הסוכן ניסה לעשות</th>
                 <th scope="col">סשן</th>
               </tr>
             </thead>
@@ -418,9 +523,11 @@
                   <td>{{ nv(row.client) }}</td>
                   <td class="mcp-num">{{ nv(row.calls) }}</td>
                   <td class="mcp-num">{{ nv(row.searches) }}</td>
-                  <td class="mcp-num">{{ nv(row.file_reads) }}</td>
+                  <td class="mcp-num">{{ nv(row.outline_reads) }}</td>
+                  <td class="mcp-num">{{ nv(row.content_reads) }}</td>
                   <td class="mcp-num">{{ nv(row.errors) }}</td>
                   <td class="mcp-num">{{ ms(row.total_ms) }}</td>
+                  <td>{{ clipped(row.intent) }}</td>
                   <td class="mcp-mono">{{ nv(row.session) }}</td>
                 </tr>
               {% endfor %}
@@ -432,7 +539,17 @@
             {% else %}
               מוצגים {{ navigation_cost.rows | length }} הסשנים האחרונים{% if navigation_cost.has_more %} · יש עוד{% endif %}.
             {% endif %}
-            הטור "קריאות קובץ" הוא המדד המעניין: ערך גבוה בסשן אחד הוא סוכן שהרכיב לעצמו מפה קובץ-אחרי-קובץ במקום להשתמש ב-outline.
+            שני טורי הקריאה הופרדו כי הם הפוכים במשמעות: אאוטליין הוא המפה — הפתרון, וקריאת תוכן היא הניווט היקר — הבעיה.
+            טור אחד שסופר את שניהם יחד לא יכול להראות שהאחת החליפה את השנייה, וזה בדיוק מה שהעמוד נבנה כדי למדוד.
+          </p>
+          <p class="mcp-meta" style="margin-top:0.5rem;">
+            <strong>אין להשוות בין סשנים בלי לדעת מה הייתה המשימה.</strong>
+            15 קריאות במשימה גדולה יכולות להיות יעילות יותר מ-20 במשימה קטנה. הטור מודד עלות, לא איכות.
+          </p>
+          <p class="mcp-meta" style="margin-top:0.5rem;">
+            שתי עמודות שנוספו כאן מתמלאות רק מרגע שהאיסוף שלהן עלה לאוויר, וזה צפוי:
+            בסשנים שנרשמו לפני כן אין כוונה שמורה (התא ריק), ולא נשמר מצב הקריאה — ולכן <em>כל</em> קריאות הקובץ שלהם נספרות כקריאת תוכן.
+            עמודת "התחיל" אומרת לאילו שורות זה נוגע.
           </p>
         {% else %}
           <div class="mcp-state">
@@ -441,6 +558,24 @@
           </div>
         {% endif %}
       </div>
+    {% endif %}
+
+    {% if posthog_links %}
+      <div class="mcp-outlinks">
+        <a class="mcp-outlink" href="{{ posthog_links.intent_clusters }}" target="_blank" rel="noopener noreferrer">
+          <i class="fas fa-diagram-project" aria-hidden="true"></i>
+          אשכולות כוונות ב-PostHog
+        </a>
+        <a class="mcp-outlink" href="{{ posthog_links.sessions }}" target="_blank" rel="noopener noreferrer">
+          <i class="fas fa-list-check" aria-hidden="true"></i>
+          סיכומי כוונה לסשן ב-PostHog
+        </a>
+      </div>
+      <p class="mcp-meta" style="margin-top:0.5rem;">
+        שני אלה אינם כאן כי הם כלי API של PostHog ולא שאילתות, והעמוד הזה מדבר עם PostHog רק דרך אנדפוינטים שמורים —
+        כלומר HogQL בלבד. האשכולות נותנים בתמורה משהו שהטבלה לא: <code>discovery rate</code> מול קטלוג הכלים,
+        והתאמה בין תיאור הכלי לכוונה — כלומר האם התיאור גורם לסוכנים למצוא אותו.
+      </p>
     {% endif %}
   </div>
 
