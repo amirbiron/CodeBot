@@ -131,6 +131,37 @@ def test_the_circuit_breaker_still_sees_failures_without_adapter_retries(failing
         )
 
 
+def test_a_tuple_timeout_does_not_break_the_span_attributes(failing_server):
+    """``requests`` מקבל ``(connect, read)``, ולכן ``http_sync`` חייב לקבל גם.
+
+    זה נתפס רק כשטסט קרא דרך ``http_sync`` האמיתי: כל הטסטים שמזייפים את
+    ``request`` עברו, והקוד היה זורק ``TypeError`` על ``float(tuple)``
+    ברגע שבקשה אמיתית נשלחת.
+    """
+    url = f"http://127.0.0.1:{failing_server.server_port}/x"
+
+    try:
+        http_sync.request(
+            "POST", url, json={}, timeout=(1.0, 2.0), max_attempts=1,
+            adapter_retries=False, service="tuple_timeout", endpoint="tuple_timeout.ep",
+        )
+    except TypeError as exc:  # pragma: no cover
+        pytest.fail(f"טאפל timeout הפיל את http_sync: {exc}")
+    except Exception:
+        pass  # 503 צפוי; מה שנבדק הוא שלא נזרק TypeError
+
+    assert failing_server.hit_count == 1
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(3.0, 3.0), ((2.0, 4.0), 6.0), ([1.0, 2.0], 3.0), ((None, 5.0), 5.0), ("bad", 0.0)],
+)
+def test_timeout_for_span_collapses_both_windows(value, expected):
+    """הסכום הוא התקרה האמיתית — גם לערך סקלרי, שמתפרק לשני חלונות."""
+    assert http_sync._timeout_for_span(value) == expected
+
+
 def test_a_scalar_timeout_is_two_windows_not_one():
     """הבסיס לכך שהתקציב ב-``mcp_analytics_service`` משתמש בטאפל.
 

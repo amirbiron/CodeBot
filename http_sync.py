@@ -196,6 +196,20 @@ def get_session(adapter_retries: bool = True) -> requests.Session:
     return sess
 
 
+def _timeout_for_span(timeout: Any) -> float:
+    """ממיר ``timeout`` לערך יחיד ל-span, גם כשהוא טאפל ``(connect, read)``.
+
+    ערך סקלרי ב-``requests`` מתפרק בפועל ל-connect **וגם** ל-read בלי חסם
+    על הסכום, ולכן הסכום הוא התקרה האמיתית בשני המקרים.
+    """
+    try:
+        if isinstance(timeout, (tuple, list)):
+            return float(sum(float(part) for part in timeout if part is not None))
+        return float(timeout)
+    except Exception:
+        return 0.0
+
+
 def request(method: str, url: str, **kwargs):
     """קריאת HTTP עם Retry, Circuit Breaker ומדדים.
 
@@ -290,7 +304,10 @@ def request(method: str, url: str, **kwargs):
     span_attrs = {
         "http.method": str(method).upper(),
         "http.url": str(url),
-        "timeout": float(timeout),
+        # ``requests`` מקבל גם טאפל ``(connect, read)``, ולא רק מספר. הסכום
+        # הוא התקרה האמיתית לבקשה — ``urllib3`` מקבל ``total=None`` ולכן אין
+        # חסם אחר עליה — וזה הערך המשמעותי ב-span.
+        "timeout": _timeout_for_span(timeout),
         "service": service_label,
         "endpoint": endpoint_label,
     }
