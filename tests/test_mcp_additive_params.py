@@ -510,3 +510,114 @@ def test_get_repo_file_denylist_still_runs_before_anything_else():
     res = _repo_backend_for_content("secret\n").get_file(repo="r", path=".env", lines=[1, 1])
 
     assert res == {"ok": False, "error": "path_denied"}
+
+
+# ---------------------------------------------------------------------------
+# קריאת טווח מקובץ שגדול מתקרת התצוגה
+#
+# עד כאן ``lines`` לא עזר לקובץ גדול: בדיקת ה-500KB רצה לפני הפענוח והחיתוך,
+# ולכן ``webapp/app.py`` בן 805,594 הבייטים הוחזר כ-``too_large`` עם הפרמטר
+# בדיוק כמו בלעדיו (#3317).
+# ---------------------------------------------------------------------------
+
+
+class _SizeRecordingMirror:
+    """דמה שרושמת את ``max_size`` שהועבר, ומדמה את בדיקת הגודל האמיתית."""
+
+    def __init__(self, size):
+        self._size = size
+        self.calls = []
+
+    def get_file_at_commit(self, repo, path, commit, max_size=512_000, **k):
+        self.calls.append(max_size)
+        if self._size > max_size:
+            return {"error": "file_too_large", "size": self._size, "max_size": max_size}
+        return {
+            "success": True,
+            "file_path": path,
+            "resolved_commit": "abc123",
+            "is_binary": False,
+            "content": "\n".join(f"line{i}" for i in range(1, 21)),
+            "encoding": "utf-8",
+            "size": self._size,
+            "lines": 20,
+        }
+
+    def get_default_branch(self, repo):
+        return "main"
+
+
+def _backend_over(size):
+    from mcp_server.repo_backend import RepoBackend
+
+    mirror = _SizeRecordingMirror(size)
+    return RepoBackend(mirror=mirror), mirror
+
+
+def test_a_range_read_lifts_the_display_cap():
+    """הקייס שבגללו זה נעשה: קובץ מעל 500KB, בבקשת טווח."""
+    from mcp_server.repo_backend import RANGE_READ_MAX_BYTES
+
+    backend, mirror = _backend_over(805_594)  # webapp/app.py
+
+    out = backend.get_file(repo="r", path="webapp/app.py", lines=[1, 3])
+
+    assert out["status"] == "ok"
+    assert out["content"] == "line1\nline2\nline3"
+    assert mirror.calls == [RANGE_READ_MAX_BYTES]
+
+
+def test_a_whole_file_read_keeps_the_display_cap():
+    """בלי ``lines`` שום דבר לא זז — הוובאפ קורא לאותה פונקציה.
+
+    ``max_size`` **אינו** מועבר, כדי שברירת המחדל של שירות המראה תישאר
+    מקור האמת היחיד ל-500KB ולא יופיע מספר שני שצריך לסנכרן.
+    """
+    backend, mirror = _backend_over(805_594)
+
+    out = backend.get_file(repo="r", path="webapp/app.py")
+
+    assert out["status"] == "too_large"
+    assert out["max"] == 512_000
+    assert mirror.calls == [512_000]  # ברירת המחדל של הדמה, לא ערך שהועבר
+
+
+def test_the_range_ceiling_still_bites():
+    """התקרה הוחלפה, לא בוטלה. הבלוב עדיין נקרא ומפוענח במלואו."""
+    from mcp_server.repo_backend import RANGE_READ_MAX_BYTES
+
+    backend, _ = _backend_over(RANGE_READ_MAX_BYTES + 1)
+
+    out = backend.get_file(repo="r", path="huge.map", lines=[1, 3])
+
+    assert out["status"] == "too_large"
+    assert out["max"] == RANGE_READ_MAX_BYTES
+
+
+def test_the_reported_max_matches_the_ceiling_that_was_applied():
+    """``max`` בתשובה חייב לומר לפי מה נשפטת, אחרת אי אפשר להבין את הסירוב."""
+    from mcp_server.repo_backend import RANGE_READ_MAX_BYTES
+
+    whole, _ = _backend_over(20_000_000)
+    ranged, _ = _backend_over(20_000_000)
+
+    assert whole.get_file(repo="r", path="x")["max"] == 512_000
+    assert ranged.get_file(repo="r", path="x", lines=[1, 2])["max"] == RANGE_READ_MAX_BYTES
+
+
+def test_a_bad_range_is_rejected_without_reading_the_file_at_all():
+    """טווח פגום לא אמור לעלות קריאה ופענוח של עד 10MB.
+
+    כשהתקרה הייתה 500KB זה לא היה משנה — קובץ גדול נפסל ממילא. הרמת
+    התקרה הפכה את זה לעלות אמיתית, ולכן היא חלק מהשינוי ולא שיפור נפרד.
+
+    **הגרסה הראשונה של הטסט הזה שיקרה בשם שלה:** היא נקראה
+    ``..._before_the_cap_is_lifted`` בזמן שהקובץ כן נקרא, ורק אחר כך
+    הטווח נפסל. ``mirror.calls`` הוא מה שהופך את ההבטחה לבדיקה.
+    """
+    backend, mirror = _backend_over(805_594)
+
+    out = backend.get_file(repo="r", path="webapp/app.py", lines=[9, 2])
+
+    assert out == {"ok": False, "error": "invalid_line_range"}
+    assert mirror.calls == []

@@ -24,6 +24,23 @@ from .repo_handlers import TREE_PER_PAGE_MAX
 from .handlers import apply_line_range, normalize_line_range
 from .repo_policy import is_denied
 
+#: תקרת גודל נפרדת לקריאת טווח שורות.
+#:
+#: התקרה הרגילה של ``get_file_at_commit`` היא 500KB, והיא נבדקת **לפני**
+#: הפענוח והחיתוך — ולכן ``lines`` לא עזר לקובץ גדול: הוא הוחזר כ-
+#: ``too_large`` עם הפרמטר בדיוק כמו בלעדיו (#3317). ``webapp/app.py`` בן
+#: 805,594 הבייטים, הקובץ שהכי הרבה עובדים עליו, היה בלתי קריא דרך הכלי.
+#:
+#: **למה תקרה אחרת ולא ביטול.** הבלוב עדיין נקרא ומפוענח במלואו לפני
+#: החיתוך, אז "בלי תקרה" פירושו שקובץ פתולוגי בריפו יגיע ל-RAM כמו שהוא.
+#: נמדד: קריאה ופענוח צורכים כפי שלושה מגודל הקובץ — 6.6MB הגיעו ל-35.7MB
+#: שיא. תקרה של 10MB חוסמת את זה בערך ב-30MB, ונותנת פי 12 מרווח מעל
+#: הקובץ הגדול ביותר שבאמת קוראים.
+#:
+#: זו החלטת מדיניות של שכבת ה-MCP, לא של שירות המראה — ולכן היא כאן ולא
+#: שם, ואינה מייתרת את 500KB שממשיכה לחול על קריאה מלאה ועל הוובאפ.
+RANGE_READ_MAX_BYTES = 10 * 1024 * 1024
+
 logger = logging.getLogger(__name__)
 
 SYNC_RETRY_AFTER_SECONDS = 30
@@ -349,9 +366,27 @@ class RepoBackend:
     ) -> dict[str, Any]:
         if is_denied(path):  # policy: block, before touching the mirror
             return {"ok": False, "error": "path_denied"}
+        # הטווח נבדק **לפני** הקריאה. כשהתקרה הייתה 500KB זה לא היה משנה,
+        # כי קובץ גדול נפסל ממילא; עכשיו טווח פגום כמו ``[9, 2]`` היה גורם
+        # לקריאה ולפענוח של עד 10MB רק כדי להיפסל בסוף. הבדיקה טהורה וזולה,
+        # ואין סיבה שתרוץ אחרי העבודה היקרה.
+        bounds: Any = None
+        if lines is not None:
+            # אותו עוזר משותף שמשרת גם את ``codekeeper_get_file``, כדי
+            # ששני הכלים לא יסטו זה מזה בסמנטיקה.
+            bounds = normalize_line_range(lines)
+            if isinstance(bounds, str):
+                return {"ok": False, "error": bounds}
+
         use_ref = ref or self._default_ref(repo)
+        # רק לקריאת טווח. בלי ``lines`` לא מועבר ``max_size`` כלל, כך
+        # שברירת המחדל של שירות המראה נשארת מקור האמת היחיד ל-500KB —
+        # ושתי ההתנהגויות לא נפרדות לשני מספרים שצריך לסנכרן.
+        size_kwargs = {"max_size": RANGE_READ_MAX_BYTES} if lines is not None else {}
         try:
-            res = self._require_mirror().get_file_at_commit(repo, path, use_ref)
+            res = self._require_mirror().get_file_at_commit(
+                repo, path, use_ref, **size_kwargs
+            )
         except Exception:
             logger.warning("get_file read failed", exc_info=True)
             res = {"error": "internal_error"}
@@ -368,12 +403,7 @@ class RepoBackend:
             file_meta["lines"] = res.get("lines")
             file_meta["encoding"] = res.get("encoding")
             content = res.get("content")
-            if lines is not None:
-                # אותו עוזר משותף שמשרת גם את ``codekeeper_get_file``, כדי
-                # ששני הכלים לא יסטו זה מזה בסמנטיקה.
-                bounds = normalize_line_range(lines)
-                if isinstance(bounds, str):
-                    return {"ok": False, "error": bounds}
+            if bounds is not None:
                 sliced = apply_line_range(content or "", *bounds)
                 if isinstance(sliced, str):
                     return {"ok": False, "error": sliced}
