@@ -85,7 +85,9 @@ def _bounded(name: str) -> str:
     return name[: _MAX_NAME_LENGTH - 1] + "\u2026"
 
 
-def _start_line(node: ast.AST, lines: list[str]) -> int:
+def _start_line(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef, lines: list[str]
+) -> int:
     """שורת ההתחלה: המעטר הראשון, ולא ה-``def``.
 
     ב-``webapp/app.py`` 203 מתוך 408 הפונקציות ברמה העליונה מעוטרות, וטווח
