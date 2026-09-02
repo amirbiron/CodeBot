@@ -2181,11 +2181,23 @@
      - ``phc_XXXXXXXX``
      - MCP
    * - ``POSTHOG_HOST``
-     - כתובת ה-PostHog שאליה נשלחים האירועים: ``https://us.i.posthog.com`` ל-US Cloud או ``https://eu.i.posthog.com`` ל-EU Cloud. נדרש יחד עם ``POSTHOG_PROJECT_TOKEN`` — האזור אינו מנוחש.
+     - כתובת PostHog. **הערך שונה בין השירותים ואינו ניתן להעתקה ביניהם:** בשירות ה-MCP זו כתובת שליחת האירועים (``https://us.i.posthog.com`` ל-US Cloud, ``https://eu.i.posthog.com`` ל-EU), ובוובאפ זו כתובת קריאת הנתונים (``https://us.posthog.com``) עבור :doc:`webapp/mcp-analytics`. בוובאפ ערך חסר מוצג כשגיאת קונפיגורציה ואינו נופל לברירת מחדל; ערך שהוא כתובת שליחה נדחה בהודעה ייעודית, כדי שלא ייראה כאנדפוינט חסר. ראו :ref:`mcp-analytics`.
      - לא
-     - "" (מדידה כבויה)
-     - ``https://us.i.posthog.com``
-     - MCP
+     - "" (המדידה כבויה ב-MCP; העמוד מציג שגיאת קונפיגורציה בוובאפ)
+     - ``https://us.i.posthog.com`` (MCP) · ``https://us.posthog.com`` (WebApp)
+     - MCP/WebApp
+   * - ``POSTHOG_PERSONAL_API_KEY``
+     - מפתח אישי של PostHog (``phx_...``) לקריאת נתוני המדידה במסך ``/admin/mcp``. דורש את ה-scope ``endpoint:read``. אינו מחליף את ``POSTHOG_PROJECT_TOKEN``, שהוא מפתח כתיבה של שירות אחר. ריק — העמוד מציג שהמדידה אינה מוגדרת. ראו :doc:`webapp/mcp-analytics`.
+     - לא
+     - "" (העמוד מציג שהמדידה אינה מוגדרת)
+     - ``phx_XXXXXXXX``
+     - WebApp
+   * - ``POSTHOG_PROJECT_ID``
+     - מזהה הפרויקט המספרי ב-PostHog, לבניית נתיב ה-API של ``/admin/mcp``. מופיע בכתובת של הפרויקט בממשק PostHog. **ספרות בלבד** — ערך אחר נדחה לפני שנשלחת בקשה, מפני שהוא נכנס לנתיב הכתובת שנרשמת כ-``http.url`` על ה-span. ראו :doc:`webapp/mcp-analytics`.
+     - לא
+     - "" (העמוד מציג שהמדידה אינה מוגדרת)
+     - ``567754``
+     - WebApp
 
 .. note::
 

@@ -121,6 +121,7 @@
 - `docs/webapp/advanced-caching.md` — **מערכת Caching מתקדמת עם TTL דינמי**: מסמך זה מרכז את ההמלצות והדוגמאות להטמעת מערכת caching חכמה עם TTL דינמי, כפי שגובש ב-Feature Suggestion. המטרה: שיפור מהיר של זמני תגובה, הורדת עומסים על DB, ושימור עקביות בין שרתים.
 - `docs/webapp/cache-inspector.rst` — **Cache Inspector (לוח בקרה של Redis)**: כלי אדמין לצפייה ולניהול של ה-Redis cache: סטטיסטיקות כלליות, חיפוש מפתחות, הצגת TTL וסטטוס, ומחיקה בטוחה של מפתחות.
 - `docs/webapp/config-inspector.rst` — **Config Inspector (סקירת משתני סביבה)**: כלי אדמין שמציג תמונת מצב של הקונפיגורציה ומשתני הסביבה, עם הסתרת ערכים רגישים.
+- `docs/webapp/mcp-analytics.rst` — **MCP Analytics (מדידת השימוש בכלי ה-MCP)**: מסך אדמין שמציג את נתוני השימוש בכלי ה-MCP מתוך PostHog — בריאות הכלים, עלות הניווט בריפו, ויכולות שסוכנים ביקשו — עם מצבי הכשל ומשתני הסביבה שהוא דורש.
 - `docs/webapp/static-checklist.rst` — **Static Performance & Security Checklist (gzip/br, Cache, SRI)**: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
 - `docs/webapp/commands-catalog.rst` — **תחזוקת קטלוג הפקודות (``commands.json``)**: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
 - `docs/webapp/code-execution.rst` — **הרצת קוד (Code Execution Playground)**: ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
@@ -192,4 +193,4 @@
 
 ---
 
-עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 228.
+עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 229.
