@@ -174,10 +174,14 @@ class McpAnalyticsService:
 
         parts = urlsplit(host)
         if parts.scheme not in ALLOWED_SCHEMES or not parts.hostname:
+            # ההודעה מתארת מה נדרש, ולא מצטטת את הערך שהתקבל. הערך מגיע
+            # מ-``os.environ`` ומוצג בעמוד HTML; מספיקה טעות העתקה אחת בין
+            # שני משתני הסביבה כדי שסוד ייחת לכאן ויוצג. הערך עצמו נבדק
+            # ב-Config Inspector, שם הוא ממוסך כשהוא רגיש.
             return _config_error(
                 "config_invalid",
-                f"הערך של {ENV_HOST} אינו כתובת תקינה. נדרשת כתובת מלאה "
-                f"עם סכימה, למשל https://us.posthog.com — התקבל: {host!r}.",
+                f"הערך של {ENV_HOST} אינו כתובת תקינה. נדרשת כתובת מלאה עם "
+                "סכימה, למשל https://us.posthog.com",
             )
 
         # ההשוואה על ה-hostname המפורסר. ``in host`` היה תופס גם כתובת

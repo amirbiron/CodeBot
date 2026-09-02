@@ -295,6 +295,27 @@ def test_401_is_never_reported_as_a_generic_outage(configured):
 # --------------------------------------------------------------------------
 
 
+def test_no_failure_message_ever_quotes_an_environment_value(monkeypatch):
+    """הודעות שגיאה מוצגות בעמוד HTML, וערכי ENV אינם מצוטטות בהן.
+
+    זה אינו זהירות תיאורטית: שני השירותים חולקים את שם המשתנה
+    ``POSTHOG_HOST``, ולכן טעות העתקה אחת בין ההגדרות מספיקה כדי שערך
+    רגיש ינחת במשתנה הלא נכון. הודעה שמצטטת אותו הייתה מציגה אותו —
+    וזה בדיוק ``CRITICAL-PATTERNS.md`` K13, סוד שרוכב על מחרוזת נגזרת.
+    """
+    sentinel = "phx_SECRET_PASTED_INTO_THE_WRONG_VARIABLE"
+    for name in ("POSTHOG_HOST", "POSTHOG_PROJECT_ID", "POSTHOG_PERSONAL_API_KEY"):
+        for key in ENV_KEYS:
+            monkeypatch.setenv(key, "https://us.posthog.com" if key == "POSTHOG_HOST" else "v")
+        monkeypatch.setenv(name, sentinel)
+
+        result = McpAnalyticsService().run_endpoint(mcp.ENDPOINT_TOOL_HEALTH)
+
+        assert sentinel not in result.error_detail, (
+            f"הערך של {name} צוטט בהודעה שמוצגת בעמוד"
+        )
+
+
 def test_the_api_key_never_appears_in_any_failure_message(configured):
     responses = [
         _Resp(401), _Resp(404), _Resp(503, {"code": "query_capacity"}),
