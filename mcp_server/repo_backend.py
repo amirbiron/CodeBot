@@ -16,6 +16,7 @@ search skips, get blocks. Heavy content is returned only by ``get_file``
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -23,6 +24,7 @@ from .backend import _json_safe
 from .repo_handlers import (
     OUTLINE_PER_PAGE_DEFAULT,
     OUTLINE_PER_PAGE_MAX,
+    OUTPUT_BYTE_BUDGET,
     TREE_PER_PAGE_MAX,
 )
 from .handlers import apply_line_range, normalize_line_range
@@ -100,25 +102,34 @@ def _outline_response(
                      OUTLINE_PER_PAGE_MAX)
 
     symbols = result["symbols"]
-    start = (page_i - 1) * per_page_i
+    window = symbols[(page_i - 1) * per_page_i :][:per_page_i]
 
-    # **אין כאן חיתוך לפי תקציב, במכוון.** חיתוך בתוך עמוד יחד עם עימוד
-    # אריתמטי הוא הצירוף שמאבד סימבולים: העמוד נעצר באמצע, והעמוד הבא
-    # מתחיל אחרי ``per_page`` המלא — מה שנחתך לא חוזר לעולם משום עמוד.
+    # **מדידה בבתים, על הסריאליזציה האמיתית.** גרסה קודמת ניסתה להוכיח
+    # שהעמוד נכנס בתקציב על ידי חסימת אורך השם ב-200 **תווים** — וזה נשבר
+    # בשני מקומות: שם ב-CJK הוא שלושה בתים לתו, כך שעמוד מקסימלי הגיע
+    # ל-323,000 בתים מול תקציב של 256,000; והקיצוץ הרס את הזהות, כך
+    # ש-``symbol=`` עם השם המלא לא מצא את הסימבול. חסימת תווים אינה
+    # בטיחות בתים, וקיצוץ מזהה אינו אופציה.
     #
-    # במקום לזהות את המצב הרע, הוא הפוך לבלתי-ניתן-לייצוג: אורך השם חסום
-    # ב-``_MAX_NAME_LENGTH`` (200), ולכן רשומה שוקלת לכל היותר כ-250 בתים,
-    # ועמוד מקסימלי הוא 500 × 250 = 125,000 — פחות ממחצית ``OUTPUT_BYTE_BUDGET``
-    # שהוא 256,000. זו אריתמטיקה, לא תקווה, ויש עליה טסט.
-    #
-    # ומכיוון שאין חיתוך, אין גם שדה ``truncated``: הוא היה קבוע ``false``
-    # ומסמן משהו אחר ממה שאותה מילה מסמנת ב-``list_repo_tree``. ``total``,
-    # ``page`` ו-``per_page`` הם מה שאומר אם יש עוד עמודים.
+    # **וכשהעמוד לא נכנס — דוחים אותו, לא חותכים.** חיתוך בתוך עמוד יחד עם
+    # עימוד אריתמטי מאבד סימבולים: העמוד נעצר באמצע והבא מתחיל אחרי
+    # ``per_page`` המלא. דחייה מפורשת עם ``max`` היא חסרת אובדן, דטרמיניסטית,
+    # ואומרת לקורא בדיוק מה לעשות — במקום להחזיר תשובה שנראית שלמה.
+    payload_bytes = len(json.dumps(window, ensure_ascii=False).encode("utf-8"))
+    if payload_bytes > OUTPUT_BYTE_BUDGET:
+        return {
+            "ok": False,
+            "error": "page_too_large",
+            "bytes": payload_bytes,
+            "max": OUTPUT_BYTE_BUDGET,
+            "per_page": per_page_i,
+        }
+
     return {
         "ok": True,
         "status": "outline",
         "file": file_meta,
-        "symbols": symbols[start : start + per_page_i],
+        "symbols": window,
         "total": result["total"],
         "page": page_i,
         "per_page": per_page_i,

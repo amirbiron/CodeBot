@@ -205,15 +205,21 @@ def test_real_duplicate_names_in_the_repo_are_not_collapsed():
     if not path.exists():  # pragma: no cover
         pytest.skip("webapp/app.py לא קיים")
 
-    symbols = extract_outline(path.read_text(encoding="utf-8"), "webapp/app.py")["symbols"]
-    counts = Counter(row["name"] for row in symbols)
-    repeated = {name: n for name, n in counts.items() if n > 1}
+    text = path.read_text(encoding="utf-8")
+    symbols = extract_outline(text, "webapp/app.py")["symbols"]
+
+    # העוגן הבלתי תלוי. הגרסה הקודמת של הטסט הזה גזרה גם את הציפייה וגם
+    # את הבדיקה מאותה רשימה, ולכן ``len(rows) == occurrences`` היה
+    # טאוטולוגיה: קריסה **חלקית** — שם כפול אחד שנעלם ואחר שנשאר — הייתה
+    # עוברת. הספירה מול ה-לקסר היא מה שתופס כל קריסה, מלאה או חלקית.
+    assert len(symbols) == _count_definitions_by_tokenize(text)
+
+    repeated = {name: n for name, n in Counter(r["name"] for r in symbols).items() if n > 1}
 
     assert repeated, "אין שמות כפולים — הטסט מאבד את מה שהוא בודק"
-    for name, occurrences in repeated.items():
-        rows = [row for row in symbols if row["name"] == name]
-        assert len(rows) == occurrences
-        assert len({row["start"] for row in rows}) == occurrences
+    for name in repeated:
+        starts = {row["start"] for row in symbols if row["name"] == name}
+        assert len(starts) == repeated[name]
 
 
 # ---------------------------------------------------------------------------
@@ -540,35 +546,58 @@ def test_an_undecorated_symbol_is_not_dragged_backwards():
 # ---------------------------------------------------------------------------
 
 
-def test_a_full_page_provably_fits_the_output_budget():
-    """זו הסיבה שאורך השם חסום, וזו הסיבה שאין חיתוך בזמן ריצה.
+#: תו CJK תופס שלושה בתים ב-UTF-8. זה בדיוק המקרה שהוכחה שנשענה על
+#: ספירת **תווים** פספסה.
+_CJK = "\u5b57"
 
-    חיתוך לפי בתים **בתוך** עמוד, יחד עם עימוד אריתמטי, מאבד סימבולים:
-    העמוד נעצר באמצע והעמוד הבא מתחיל אחרי ``per_page`` המלא. במקום לזהות
-    את המצב הזה ולתקן אותו, הוא הפוך לבלתי-ניתן-לייצוג — והטסט הזה הוא
-    מה שמחזיק את ההוכחה כשמישהו ישנה אחד משלושת המספרים.
+
+def _wide_symbol(index: int) -> str:
+    return "def " + _CJK * 181 + f"{index}():\n    pass\n"
+
+
+def test_an_oversized_page_is_rejected_and_never_silently_trimmed():
+    """הגרסה הקודמת "הוכיחה" שעמוד נכנס בתקציב על ידי חסימת אורך השם
+    ב-200 **תווים**. זה נשבר בשני מקומות: שם ב-CJK הוא שלושה בתים לתו,
+    כך שעמוד מקסימלי הגיע ל-323,000 בתים מול תקציב של 256,000; והקיצוץ
+    הרס את הזהות. עכשיו נמדדים בתים אמיתיים, והעמוד נדחה במקום להיחתך.
     """
+    text = "".join(_wide_symbol(i) for i in range(500))
+
+    out = repo_handlers.get_repo_file(
+        _backend(text), repo="r", path="a.py", outline=True, per_page=500
+    )
+
+    assert out["ok"] is False
+    assert out["error"] == "page_too_large"
+    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+
+
+def test_a_smaller_page_of_the_same_file_succeeds_and_fits():
+    """הדחייה אומרת לקורא מה לעשות, וזה באמת עובד."""
     import json
 
-    from mcp_server.outline import _MAX_NAME_LENGTH
+    text = "".join(_wide_symbol(i) for i in range(500))
 
-    worst = {"name": "x" * _MAX_NAME_LENGTH, "start": 9_999_999, "end": 9_999_999}
-    record = len(json.dumps(worst, ensure_ascii=False).encode("utf-8"))
+    out = repo_handlers.get_repo_file(
+        _backend(text), repo="r", path="a.py", outline=True, per_page=100
+    )
 
-    assert repo_handlers.OUTLINE_PER_PAGE_MAX * record < repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["status"] == "outline"
+    serialized = json.dumps(out["symbols"], ensure_ascii=False).encode("utf-8")
+    assert len(serialized) <= repo_handlers.OUTPUT_BYTE_BUDGET
 
 
-def test_a_name_longer_than_the_bound_is_marked_and_shortened():
-    # שם מלא גדל ב-``len("nNN.")`` לרמה; 60 רמות עוברות את 200 התווים.
+def test_a_long_name_keeps_its_identity_so_the_filter_still_finds_it():
+    """קיצוץ השם שבר את ``symbol=``: חיפוש בשם המלא החזיר אפס תוצאות.
+
+    מזהה שנחתך אינו מזהה, ושני שמות ארוכים ושונים היו יכולים להתנגש בו.
+    """
     deep = "".join(f"{' ' * (4 * i)}def name{i}():\n" for i in range(60))
     deep += " " * (4 * 60) + "pass\n"
+    full = ".".join(f"name{i}" for i in range(60))
 
-    from mcp_server.outline import _MAX_NAME_LENGTH
-
-    longest = max(extract_outline(deep, "x.py")["symbols"], key=lambda r: len(r["name"]))
-
-    assert len(longest["name"]) <= _MAX_NAME_LENGTH
-    assert longest["name"].endswith("\u2026")
+    assert len(full) > 200
+    assert _names(deep, symbol=full) == [full]
 
 
 def test_no_symbol_is_unreachable_across_pages():
@@ -662,3 +691,24 @@ def test_asking_for_both_a_range_and_an_outline_is_rejected():
     )
 
     assert out == {"ok": False, "error": "outline_and_lines"}
+
+
+@pytest.mark.parametrize(
+    ("label", "text"),
+    [
+        ("comment", "@(\n    # note\n    deco\n)\ndef f():\n    pass\n"),
+        ("blank", "@(\n\n    deco\n)\ndef f():\n    pass\n"),
+    ],
+)
+def test_a_decorator_split_by_a_comment_or_blank_line_still_anchors_at_the_at_sign(
+    label, text
+):
+    """הסריקה אחורה מדלגת על שורות ריקות והערות, אבל רק אם היא נוחתת על ``@``."""
+    assert extract_outline(text, "x.py")["symbols"][0]["start"] == 1
+
+
+def test_a_leading_comment_does_not_drag_an_undecorated_symbol_backwards():
+    """הדילוג לא בולע שורות כשאין ``@`` בסוף המסלול."""
+    text = "# a note\n\ndef f():\n    pass\n"
+
+    assert extract_outline(text, "x.py")["symbols"][0]["start"] == 3

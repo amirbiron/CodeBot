@@ -25,13 +25,6 @@ _SCOPE_NODES = _FUNCTION_NODES + (ast.ClassDef,)
 #: מסיומת באותיות גדולות. הבדיקה מנורמלת, ולא השוואת מחרוזת אחת.
 _PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 
-#: תקרת אורך לשם סימבול. השם הארוך ביותר בריפו הזה הוא 81 תווים
-#: (``DatabaseManager.connect._init_noop_collections.NoOpCollection.find_one_and_update``),
-#: אז 200 לא ייגע בשום דבר אמיתי. מה שהוא כן עושה: הופך את גודל הרשומה
-#: לחסום, וזה מה שמאפשר להוכיח שעמוד שלם נכנס בתקציב הפלט במקום לקוות
-#: לזה ולחתוך בזמן ריצה. חיתוך בזמן ריצה בתוך עמוד + עימוד אריתמטי הוא
-#: בדיוק הצירוף שמאבד סימבולים בשקט.
-_MAX_NAME_LENGTH = 200
 
 
 def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str, Any]:
@@ -107,9 +100,22 @@ def _start_line(node: ast.AST, lines: list[str]) -> int:
     start = min([node.lineno] + [d.lineno for d in decorators])
     if not decorators:
         return start
+    # סריקה אחורה עד השורה שפותחת ב-``@``. בין ה-``@`` לבין הביטוי יכולות
+    # לשבת שורות ריקות והערות, ולכן הן מדולגות — אבל **רק** אם בסוף נוחתים
+    # על ``@`` אמיתי. אם לא, נשארים במקום: עדיף טווח מדויק-חלקית מטווח
+    # שבלע שורות של סימבול קודם.
     index = start - 1  # 0-based
-    while index > 0 and lines[index - 1].lstrip().startswith("@"):
-        index -= 1
+    scan = index
+    while scan > 0:
+        previous = lines[scan - 1].strip()
+        if previous.startswith("@"):
+            scan -= 1
+            index = scan
+            continue
+        if previous == "" or previous.startswith("#"):
+            scan -= 1
+            continue
+        break
     return index + 1
 
 
@@ -129,7 +135,7 @@ def _collect(tree: ast.AST, lines: list[str]) -> list[dict[str, Any]]:
                 name = f"{prefix}{child.name}"
                 rows.append(
                     {
-                        "name": _bounded(name),
+                        "name": name,
                         # שורת ההתחלה היא של המעטר הראשון ולא של ה-``def``.
                         # ב-``webapp/app.py`` 203 מתוך 408 הפונקציות ברמה
                         # העליונה מעוטרות, ובלי זה טווח שנקרא לפי האאוטליין
