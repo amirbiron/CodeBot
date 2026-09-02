@@ -716,11 +716,38 @@ class ConfigService:
         ),
         "POSTHOG_HOST": ConfigDefinition(
             key="POSTHOG_HOST",
-            services=("mcp",),
+            services=("mcp", "webapp"),
             default="",
             description=(
-                "כתובת ה-PostHog שאליה נשלחים אירועי ה-MCP: https://us.i.posthog.com "
-                "ל-US Cloud או https://eu.i.posthog.com ל-EU. נדרש יחד עם POSTHOG_PROJECT_TOKEN."
+                "כתובת PostHog. הערך שונה בין השירותים ואינו ניתן להעתקה ביניהם: "
+                "ב-MCP זו כתובת שליחת האירועים (https://us.i.posthog.com ל-US Cloud, "
+                "https://eu.i.posthog.com ל-EU), ובוובאפ זו כתובת קריאת הנתונים "
+                "(https://us.posthog.com) עבור /admin/mcp. הערך המוצג כאן הוא של "
+                "הוובאפ בלבד. חסר בוובאפ — העמוד מציג שגיאת קונפיגורציה ואינו נופל "
+                "לברירת מחדל."
+            ),
+            category="mcp",
+        ),
+        "POSTHOG_PERSONAL_API_KEY": ConfigDefinition(
+            key="POSTHOG_PERSONAL_API_KEY",
+            services=("webapp",),
+            default="",
+            description=(
+                "מפתח אישי של PostHog (phx_...) לקריאת נתוני ה-MCP analytics במסך "
+                "/admin/mcp. דורש את ה-scope endpoint:read. ריק — העמוד מציג הודעה "
+                "שהמדידה אינה מוגדרת. אינו מחליף את POSTHOG_PROJECT_TOKEN, שהוא "
+                "מפתח כתיבה של שירות אחר."
+            ),
+            category="mcp",
+            sensitive=True,
+        ),
+        "POSTHOG_PROJECT_ID": ConfigDefinition(
+            key="POSTHOG_PROJECT_ID",
+            services=("webapp",),
+            default="",
+            description=(
+                "מזהה הפרויקט המספרי ב-PostHog, לבניית נתיב ה-API של /admin/mcp. "
+                "מופיע בכתובת של הפרויקט בממשק PostHog."
             ),
             category="mcp",
         ),

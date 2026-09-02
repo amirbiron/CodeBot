@@ -1,0 +1,523 @@
+{% extends "base.html" %}
+
+{% block title %}MCP Analytics{% endblock %}
+
+{% block extra_css %}
+  <style>
+    /* MCP Analytics — מסך אדמין.
+       כל הצבעים כאן הם טוקנים. הטוקנים הסמנטיים (--card-bg, --text-primary,
+       --bg-*) מוגדרים רק בבלוקים פר-ערכה ב-base.html, ולכן לכל אחד מהם יש
+       כאן fallback לטוקן שכן יושב ב-:root הגלובלי. זה מה שמאפשר לעמוד לעבוד
+       בכל הערכות — כולל High Contrast, שמגדירה שישה טוקנים בלבד — בלי בלוק
+       override ייעודי לכל ערכה. */
+
+    .mcp-page {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 1rem;
+      color: var(--text-primary, inherit);
+    }
+
+    .mcp-page .page-title {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.8rem;
+      font-weight: 600;
+      margin-bottom: 0;
+    }
+    .mcp-page .page-title i { color: var(--primary); }
+
+    .mcp-subtitle {
+      font-size: 0.9rem;
+      opacity: 0.7;
+      margin: 0;
+    }
+
+    /* --- טאבים --- */
+    .mcp-tabs {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .mcp-tab {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      color: inherit;
+      border-radius: 10px;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+    /* הספציפיות מוכפלת בכוונה: dark-mode.css מגדיר transition על
+       [data-theme="dark"] * ונטען אחרי extra_css, ולכן כלל על מחלקה יחידה
+       נדרס בשקט בכל הערכות הכהות וההנפשה פשוט לא רצה. */
+    .mcp-tab.mcp-tab {
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .mcp-tab:hover { background: var(--glass-hover); }
+    .mcp-tab.active {
+      background: var(--glass-hover);
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .mcp-tab .mcp-tab-count {
+      opacity: 0.65;
+      font-size: 0.85em;
+      margin-inline-start: 0.35rem;
+    }
+
+    .mcp-panel { display: none; }
+    /* הפאנל הפעיל משחזר את פריסת ה-flex של .mcp-page. בלי זה הילדים אינם
+       ילדים ישירים של ההורה, ומאבדים את ה-gap. */
+    .mcp-panel.active {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* --- כרטיסי סיכום --- */
+    .mcp-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+    .mcp-card {
+      background: var(--card-bg, var(--glass));
+      border: 1px solid var(--card-border, var(--glass-border));
+      border-radius: 16px;
+      padding: 1.1rem 1.25rem;
+    }
+    .mcp-card h3 {
+      font-size: 0.8rem;
+      margin: 0;
+      opacity: 0.7;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 500;
+    }
+    .mcp-card-value {
+      font-size: 2rem;
+      font-weight: 600;
+      margin-top: 0.4rem;
+      line-height: 1.1;
+    }
+    .mcp-card-value.is-danger { color: var(--danger); }
+    .mcp-card-value.is-warning { color: var(--warning); }
+    .mcp-card-sub {
+      font-size: 0.8rem;
+      opacity: 0.65;
+      margin-top: 0.25rem;
+    }
+
+    /* --- טבלה --- */
+    .mcp-table-wrapper {
+      background: var(--card-bg, var(--glass));
+      border: 1px solid var(--card-border, var(--glass-border));
+      border-radius: 16px;
+      padding: 1.1rem 1.25rem;
+      /* הטבלאות רחבות; הגלילה האופקית חייבת לחיות כאן ולא על גוף העמוד */
+      overflow-x: auto;
+    }
+    .mcp-table-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.9rem;
+    }
+    .mcp-table-head h2 {
+      margin: 0;
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .mcp-meta {
+      font-size: 0.8rem;
+      opacity: 0.65;
+    }
+
+    .mcp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    .mcp-table thead th {
+      text-align: right;
+      padding: 0.7rem 0.6rem;
+      border-bottom: 1px solid var(--card-border, var(--glass-border));
+      font-weight: 500;
+      opacity: 0.8;
+      white-space: nowrap;
+    }
+    .mcp-table tbody td {
+      padding: 0.65rem 0.6rem;
+      border-bottom: 1px solid var(--card-border, var(--glass-border));
+      vertical-align: middle;
+    }
+    .mcp-table tbody tr:last-child td { border-bottom: none; }
+    .mcp-table tbody tr:hover { background: var(--glass); }
+
+    .mcp-mono {
+      font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      font-size: 0.88rem;
+      color: var(--code-text, inherit);
+    }
+    .mcp-num { white-space: nowrap; }
+    .mcp-empty { opacity: 0.45; }
+    .mcp-unit { opacity: 0.55; font-size: 0.85em; margin-inline-start: 0.25rem; }
+
+    /* errors מוצג לצד האחוז ולא במקומו: על מדגם קטן האחוז מטעה
+       (קריאה אחת שנכשלה = 100%), והמונה הוא מה שמאפשר לשפוט. */
+    .mcp-rate { display: inline-flex; align-items: baseline; gap: 0.4rem; }
+    .mcp-rate-pct { font-weight: 600; }
+    .mcp-rate-pct.is-danger { color: var(--danger); }
+    .mcp-rate-pct.is-warning { color: var(--warning); }
+    .mcp-rate-abs { font-size: 0.82em; opacity: 0.7; }
+
+    .mcp-capability {
+      /* טקסט חופשי שסוכן כתב — עלול להיות ארוך */
+      max-width: 46ch;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    /* --- מצב ריק ושגיאה --- */
+    .mcp-state {
+      text-align: center;
+      padding: 2rem 1rem;
+      opacity: 0.75;
+    }
+    .mcp-state i {
+      font-size: 2rem;
+      margin-bottom: 0.6rem;
+      display: block;
+    }
+    .mcp-state p { margin: 0.25rem 0 0; }
+    .mcp-state-hint {
+      font-size: 0.85rem;
+      opacity: 0.75;
+      margin-top: 0.5rem !important;
+    }
+
+    .mcp-alert {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      padding: 0.9rem 1.1rem;
+      border-radius: 12px;
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      font-size: 0.92rem;
+    }
+    .mcp-alert i { margin-top: 0.15rem; }
+    .mcp-alert code {
+      background: var(--code-bg, var(--glass));
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+
+    @media (max-width: 768px) {
+      .mcp-page { padding: 0.75rem; }
+      .mcp-page .page-title { font-size: 1.35rem; }
+      .mcp-card-value { font-size: 1.6rem; }
+      .mcp-table { font-size: 0.85rem; }
+      .mcp-tabs { gap: 0.35rem; }
+      .mcp-tab { padding: 0.45rem 0.7rem; font-size: 0.88rem; }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+
+{#- תא של עמודה Nullable. שש עמודות בשלוש השאילתות מוצהרות Nullable ב-PostHog,
+    ולכן None הוא ערך תקין ואפשרי — ובלי הטיפול הזה הוא היה מוצג כ"None". -#}
+{% macro nv(value) -%}
+  {%- if value is none -%}
+    <span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>
+  {%- else -%}{{ value }}{%- endif -%}
+{%- endmacro %}
+
+{#- מספר עם יחידה. היחידה מודפסת רק כשיש ערך: "— ms" על תא ריק הוא רעש,
+    וב-RTL הוא גם קופץ לצד הלא נכון של המקף. -#}
+{% macro ms(value) -%}
+  {%- if value is none -%}
+    <span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>
+  {%- else -%}{{ value | round | int }}<span class="mcp-unit">ms</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro when(value) -%}
+  {%- set shown = (value | datetime_display) if value else '' -%}
+  {%- if shown -%}{{ shown }}
+  {%- else -%}<span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>{%- endif -%}
+{%- endmacro %}
+
+{#- שגיאה של אנדפוינט בודד. מוצגת בתוך הטאב שלו בלבד: אנדפוינט אחד שנכשל
+    אינו סיבה להחשיך את השניים שהצליחו. -#}
+{% macro panel_error(result) -%}
+  <div class="mcp-alert" role="alert">
+    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+    <div>
+      <strong>לא ניתן לטעון את הנתונים.</strong>
+      {{ result.error_detail }}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro meta_line(result) -%}
+  {%- if result.last_refresh -%}
+    <span class="mcp-meta">
+      עודכן: {{ result.last_refresh | datetime_display }}
+      {%- if result.is_cached %} · מהמטמון של PostHog{% endif -%}
+    </span>
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="mcp-page" dir="rtl">
+
+  <div>
+    <div class="page-title">
+      <i class="fas fa-plug" aria-hidden="true"></i>
+      MCP Analytics
+    </div>
+    <p class="mcp-subtitle">
+      שימוש בכלי ה-MCP של CodeKeeper, מתוך PostHog. הנתונים מתרעננים אצל PostHog אחת לרבע שעה.
+      {% if generated_at %}נטען: {{ generated_at }}.{% endif %}
+    </p>
+  </div>
+
+  <div class="mcp-tabs" role="tablist">
+    <button type="button" class="mcp-tab active" data-panel="health" role="tab" aria-selected="true" aria-controls="mcpPanelHealth">
+      <i class="fas fa-heart-pulse" aria-hidden="true"></i>
+      בריאות הכלים
+      {%- if tool_health.ok %}<span class="mcp-tab-count">({{ tool_health.rows | length }})</span>{% endif -%}
+    </button>
+    <button type="button" class="mcp-tab" data-panel="navigation" role="tab" aria-selected="false" aria-controls="mcpPanelNavigation">
+      <i class="fas fa-route" aria-hidden="true"></i>
+      עלות ניווט
+      {%- if navigation_cost.ok %}<span class="mcp-tab-count">({{ navigation_cost.total if navigation_cost.total is not none else navigation_cost.rows | length }})</span>{% endif -%}
+    </button>
+    <button type="button" class="mcp-tab" data-panel="missing" role="tab" aria-selected="false" aria-controls="mcpPanelMissing">
+      <i class="fas fa-lightbulb" aria-hidden="true"></i>
+      כלים חסרים
+      {%- if missing_capabilities.ok %}<span class="mcp-tab-count">({{ missing_capabilities.rows | length }})</span>{% endif -%}
+    </button>
+  </div>
+
+  {# ---------- טאב 1: בריאות הכלים ---------- #}
+  <div id="mcpPanelHealth" class="mcp-panel active" data-panel="health" role="tabpanel">
+    {% if not tool_health.ok %}
+      {{ panel_error(tool_health) }}
+    {% else %}
+      {% set total_calls = tool_health.rows | sum(attribute='calls') %}
+      {% set total_errors = tool_health.rows | sum(attribute='errors') %}
+      <div class="mcp-cards">
+        <div class="mcp-card">
+          <h3>כלים בשימוש</h3>
+          <div class="mcp-card-value">{{ tool_health.rows | length }}</div>
+          <div class="mcp-card-sub">ב-30 הימים האחרונים</div>
+        </div>
+        <div class="mcp-card">
+          <h3>קריאות</h3>
+          <div class="mcp-card-value">{{ total_calls }}</div>
+        </div>
+        <div class="mcp-card">
+          <h3>שגיאות</h3>
+          <div class="mcp-card-value {% if total_errors %}is-warning{% endif %}">{{ total_errors }}</div>
+          <div class="mcp-card-sub">מתוך {{ total_calls }} קריאות</div>
+        </div>
+      </div>
+
+      <div class="mcp-table-wrapper">
+        <div class="mcp-table-head">
+          <h2><i class="fas fa-list" aria-hidden="true"></i> לפי כלי</h2>
+          {{ meta_line(tool_health) }}
+        </div>
+        {% if tool_health.rows %}
+          <table class="mcp-table">
+            <thead>
+              <tr>
+                <th scope="col">כלי</th>
+                <th scope="col">קריאות</th>
+                <th scope="col">שגיאות</th>
+                <th scope="col">p50</th>
+                <th scope="col">p95</th>
+                <th scope="col">סשנים</th>
+                <th scope="col">נראה לאחרונה</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in tool_health.rows %}
+                <tr>
+                  <td class="mcp-mono">{{ nv(row.tool) }}</td>
+                  <td class="mcp-num">{{ nv(row.calls) }}</td>
+                  <td class="mcp-num">
+                    <span class="mcp-rate">
+                      {%- if row.error_rate_pct is not none -%}
+                        <span class="mcp-rate-pct {% if row.errors and row.calls and row.calls >= 20 and row.error_rate_pct >= 10 %}is-danger{% elif row.errors %}is-warning{% endif %}">{{ row.error_rate_pct }}%</span>
+                      {%- endif -%}
+                      <span class="mcp-rate-abs">({{ nv(row.errors) }})</span>
+                    </span>
+                  </td>
+                  <td class="mcp-num">{{ ms(row.p50_ms) }}</td>
+                  <td class="mcp-num">{{ ms(row.p95_ms) }}</td>
+                  <td class="mcp-num">{{ nv(row.sessions) }}</td>
+                  <td class="mcp-num">{{ when(row.last_seen) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="mcp-meta" style="margin-top:0.8rem;">
+            האחוז מוצג לצד מספר השגיאות בכוונה: על מדגם קטן הוא מטעה — קריאה אחת שנכשלה מתוך אחת היא 100%.
+          </p>
+        {% else %}
+          <div class="mcp-state">
+            <i class="fas fa-inbox" aria-hidden="true"></i>
+            <p>לא נרשמו קריאות לכלים ב-30 הימים האחרונים.</p>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  {# ---------- טאב 2: עלות ניווט ---------- #}
+  <div id="mcpPanelNavigation" class="mcp-panel" data-panel="navigation" role="tabpanel">
+    {% if not navigation_cost.ok %}
+      {{ panel_error(navigation_cost) }}
+    {% else %}
+      <div class="mcp-table-wrapper">
+        <div class="mcp-table-head">
+          <h2><i class="fas fa-route" aria-hidden="true"></i> לפי סשן</h2>
+          {{ meta_line(navigation_cost) }}
+        </div>
+        {% if navigation_cost.rows %}
+          <table class="mcp-table">
+            <thead>
+              <tr>
+                <th scope="col">התחיל</th>
+                <th scope="col">לקוח</th>
+                <th scope="col">קריאות</th>
+                <th scope="col">חיפושים</th>
+                <th scope="col">קריאות קובץ</th>
+                <th scope="col">שגיאות</th>
+                <th scope="col">זמן כולל</th>
+                <th scope="col">סשן</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in navigation_cost.rows %}
+                <tr>
+                  <td class="mcp-num">{{ when(row.started) }}</td>
+                  <td>{{ nv(row.client) }}</td>
+                  <td class="mcp-num">{{ nv(row.calls) }}</td>
+                  <td class="mcp-num">{{ nv(row.searches) }}</td>
+                  <td class="mcp-num">{{ nv(row.file_reads) }}</td>
+                  <td class="mcp-num">{{ nv(row.errors) }}</td>
+                  <td class="mcp-num">{{ ms(row.total_ms) }}</td>
+                  <td class="mcp-mono">{{ nv(row.session) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="mcp-meta" style="margin-top:0.8rem;">
+            {% if navigation_cost.total is not none %}
+              מוצגים {{ navigation_cost.rows | length }} מתוך {{ navigation_cost.total }} סשנים, החדשים תחילה.
+            {% else %}
+              מוצגים {{ navigation_cost.rows | length }} הסשנים האחרונים{% if navigation_cost.has_more %} · יש עוד{% endif %}.
+            {% endif %}
+            הטור "קריאות קובץ" הוא המדד המעניין: ערך גבוה בסשן אחד הוא סוכן שהרכיב לעצמו מפה קובץ-אחרי-קובץ במקום להשתמש ב-outline.
+          </p>
+        {% else %}
+          <div class="mcp-state">
+            <i class="fas fa-inbox" aria-hidden="true"></i>
+            <p>לא נרשמו סשנים ב-30 הימים האחרונים.</p>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  {# ---------- טאב 3: כלים חסרים ---------- #}
+  <div id="mcpPanelMissing" class="mcp-panel" data-panel="missing" role="tabpanel">
+    {% if not missing_capabilities.ok %}
+      {{ panel_error(missing_capabilities) }}
+    {% else %}
+      <div class="mcp-table-wrapper">
+        <div class="mcp-table-head">
+          <h2><i class="fas fa-lightbulb" aria-hidden="true"></i> יכולות שסוכנים ביקשו</h2>
+          {{ meta_line(missing_capabilities) }}
+        </div>
+        {% if missing_capabilities.rows %}
+          <table class="mcp-table">
+            <thead>
+              <tr>
+                <th scope="col">מתי</th>
+                <th scope="col">מה הסוכן ביקש</th>
+                <th scope="col">מקור</th>
+                <th scope="col">לקוח</th>
+                <th scope="col">סשן</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in missing_capabilities.rows %}
+                <tr>
+                  <td class="mcp-num">{{ when(row.reported_at) }}</td>
+                  <td class="mcp-capability">{{ nv(row.capability) }}</td>
+                  <td>{{ nv(row.intent_source) }}</td>
+                  <td>{{ nv(row.client) }}</td>
+                  <td class="mcp-mono">{{ nv(row.session) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="mcp-state">
+            <i class="fas fa-inbox" aria-hidden="true"></i>
+            <p>אף סוכן עוד לא דיווח על יכולת חסרה.</p>
+            <p class="mcp-state-hint">
+              הדיווח מגיע מהכלי הווירטואלי <code>get_more_tools</code>, שסוכן קורא לו כדי לומר איזה כלי היה עוזר לו.
+              האיסוף פעיל — הטבלה תתמלא מעצמה בדיווח הראשון.
+            </p>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+  (function () {
+    // מיפוי לפי data-panel ולא לפי מזהים קבועים, כדי שהוספת טאב לא תדרוש
+    // נגיעה בלוגיקה. אין כאן שום כתיבה ל-innerHTML: כל התוכן מרונדר בשרת
+    // ועובר escape של Jinja — וזה חשוב במיוחד בטאב "כלים חסרים", שבו
+    // הטקסט נכתב על ידי סוכן חיצוני.
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.mcp-tab'));
+    var panels = Array.prototype.slice.call(document.querySelectorAll('.mcp-panel'));
+
+    function activate(name) {
+      tabs.forEach(function (tab) {
+        var on = tab.dataset.panel === name;
+        tab.classList.toggle('active', on);
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      panels.forEach(function (panel) {
+        panel.classList.toggle('active', panel.dataset.panel === name);
+      });
+    }
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        activate(tab.dataset.panel);
+      });
+    });
+  })();
+</script>
+{% endblock %}
