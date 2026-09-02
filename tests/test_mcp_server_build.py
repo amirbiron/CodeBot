@@ -352,3 +352,26 @@ async def test_save_file_description_matches_what_the_tool_actually_does():
     # ומה שכן צריך להיות שם: לאן פונים כשהשם תפוס
     assert "codekeeper_edit_file" in text
     assert "codekeeper_append_file" in text
+
+
+async def test_the_size_limit_is_not_advertised_as_something_lines_bypasses():
+    """התיאור הוא מה שהסוכן קורא כדי להחליט איך לקרוא לכלי.
+
+    בגרסה הקודמת ``(max 500KB)`` ישב במשפט הראשון, ומיד אחריו הופיע
+    "read only that range **instead of the whole file**". קריאה סבירה של
+    שני אלה יחד היא שהטווח הוא הדרך לעקוף את התקרה — והוא לא: הבדיקה רצה
+    ב-``get_file_at_commit`` **לפני** הפענוח והחיתוך. סוכן שקיבל
+    ``too_large`` היה מנסה שוב עם ``lines`` ושורף קריאה על אותה תשובה.
+
+    הטסט מקבע את שני חצאי התיקון, כי סדר לבדו לא מספיק: התקרה מופיעה
+    **אחרי** הסבר הטווח, ונאמר במפורש שהיא חלה על הקובץ ולא על הטווח.
+
+    התיעוד לבני-אדם כבר נשא את הסייג הזה (``docs/mcp-server.rst``, סעיף
+    ``mcp-line-range``). הוא חסר היה בדיוק במקום שהסוכן קורא.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    assert description.index("500KB") > description.index("lines=[start, end]")
+    assert "The 500KB limit is on the file, not on the range" in description
+    assert "Binary files return metadata only" in description

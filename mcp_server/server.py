@@ -755,9 +755,17 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
     @mcp.tool(
         name="codekeeper_get_repo_file",
         description=(
-            "[Admin] Read one file from a mirrored repo (max 500KB; binary files "
-            "return metadata only). On sync_in_progress, retry after retry_after "
-            "seconds — the file may exist. " + _RANGE_DOC
+            "[Admin] Read one file from a mirrored repo. On sync_in_progress, "
+            "retry after retry_after seconds — the file may exist. " + _RANGE_DOC
+            # התקרה יושבת בסוף, אחרי הסבר הטווח, ולא לפניו. כשהיא הופיעה ראשונה
+            # היא נקראה יחד עם "read only that range instead of the whole file"
+            # כאילו הטווח הוא הדרך לעקוף אותה — והוא לא: הבדיקה רצה לפני
+            # הפענוח והחיתוך. סוכן שקיבל ``too_large`` היה מנסה שוב עם ``lines``
+            # ומקבל בדיוק אותה תשובה. המשפט האחרון אומר את זה במפורש, כי סדר
+            # לבדו עדיין משאיר את ההסקה פתוחה.
+            + " The 500KB limit is on the file, not on the range: a larger file "
+            "returns too_large with lines just as without it. Binary files "
+            "return metadata only."
         ),
         annotations=_READ_ONLY_TOOL,
     )
