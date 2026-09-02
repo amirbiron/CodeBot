@@ -492,3 +492,68 @@ def test_a_broken_configuration_drops_the_links_instead_of_building_a_dead_one(a
     soup = _soup(admin.get("/admin/mcp"))
 
     assert soup.select("a.mcp-outlink") == []
+
+
+def test_the_failures_panel_survives_a_failing_tool_health_endpoint(admin, monkeypatch):
+    """שני אנדפוינטים נפרדים, ולכן שני מצבי כשל נפרדים — גם בתוך אותו טאב.
+
+    עד לתיקון, פאנל הכשלים ישב בתוך ה-``else`` של ``tool_health.ok``: כשל
+    בשליפת בריאות הכלים החביא גם פירוט שהגיע בהצלחה. זו אותה הבטחה של
+    "שגיאה פר-אנדפוינט" שכבר נאכפת בין הטאבים, רק בתוך טאב.
+    """
+    _install(
+        monkeypatch,
+        health=EndpointResult(error_code="unavailable", error_detail="PostHog עמוס כרגע."),
+    )
+    health = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="health"]')
+
+    assert health.select_one(".mcp-alert") is not None
+    # ...והפירוט עדיין שם.
+    assert "lines.1" in health.get_text(" ", strip=True)
+    assert health.select_one(".mcp-errmsg") is not None
+
+
+def test_the_outbound_links_survive_a_failing_navigation_endpoint(admin, monkeypatch):
+    """הקישורים אינם תלויים בנתונים — והם בדיוק מה שאדמין צריך כשאין נתונים."""
+    _install(
+        monkeypatch,
+        navigation=EndpointResult(error_code="query_failed", error_detail="השאילתה נכשלה."),
+    )
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+
+    assert nav.select_one(".mcp-alert") is not None
+    assert len(nav.select("a.mcp-outlink")) == 2
+
+
+def test_the_outbound_links_survive_an_empty_navigation_table(admin, monkeypatch):
+    _install(monkeypatch, navigation=EndpointResult(rows=[]))
+    nav = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="navigation"]')
+
+    assert nav.select_one(".mcp-state") is not None
+    assert len(nav.select("a.mcp-outlink")) == 2
+
+
+def test_a_clipped_intent_is_reachable_without_a_mouse(admin, monkeypatch):
+    """``title`` נחשף רק ב-hover. מי שמנווט במקלדת או במגע לא רואה אותו כלל,
+    ולכן הטקסט המלא יושב גם ב-``aria-label`` והתא ממוקד-אפשרי."""
+    _install(monkeypatch)
+    span = _soup(admin.get("/admin/mcp")).select_one(".mcp-clip")
+
+    assert span["tabindex"] == "0"
+    assert span["aria-label"] == NAV_ROWS[0]["intent"]
+    assert span["title"] == NAV_ROWS[0]["intent"]
+
+
+def test_the_template_does_not_point_at_a_file_that_is_not_in_this_repo(admin, monkeypatch):
+    """``bugbot-rules/xss-innerhtml.md`` חי ב-``amir-bug-patterns``, לא כאן.
+
+    הפניה שנראית כמו נתיב מקומי שולחת את הקורא הבא לחפש קובץ שאינו קיים.
+    התיקון הוא לנקוב בשם הריפו — לא למחוק הפניה נכונה, ולא להמציא קובץ.
+    """
+    import pathlib
+
+    template = pathlib.Path("webapp/templates/admin_mcp.html").read_text(encoding="utf-8")
+
+    assert "bugbot-rules/xss-innerhtml.md" in template
+    assert "amir-bug-patterns" in template
+    assert not pathlib.Path("bugbot-rules/xss-innerhtml.md").exists()

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 import threading
@@ -72,6 +73,33 @@ POSTHOG_LINKS = {
 }
 
 
+# --------------------------------------------------------------------------
+# החלפת שורות בשרת, לפני הרינדור
+#
+# בדיקת escape חייבת לקרוא את מה ש-Jinja הוציאה. טסט ששותל מחרוזת ב-DOM אחרי
+# הרינדור בודק את הדפדפן, לא את התבנית — וזו בדיוק הטעות שהגרסה הקודמת של
+# בדיקת ה-XSS כאן עשתה.
+# --------------------------------------------------------------------------
+
+_NAV_ROWS_OVERRIDE: list | None = None
+
+
+def _nav_rows():
+    return list(_NAV_ROWS_OVERRIDE if _NAV_ROWS_OVERRIDE is not None else NAV_ROWS)
+
+
+@contextlib.contextmanager
+def _hostile_intent(text):
+    """מחליף את הכוונה בשורת הניווט לאורך הבקשה, ומשחזר בסיום."""
+    global _NAV_ROWS_OVERRIDE
+    previous = _NAV_ROWS_OVERRIDE
+    _NAV_ROWS_OVERRIDE = [{**NAV_ROWS[0], "intent": text}]
+    try:
+        yield
+    finally:
+        _NAV_ROWS_OVERRIDE = previous
+
+
 def _find_chromium():
     """מאתר Chromium מותקן. מחזיר ``None`` אם אין — הטסט ידולג."""
     from pathlib import Path
@@ -107,7 +135,9 @@ def live_server():
         get_dashboard=lambda: {
             mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
             mcp.ENDPOINT_TOOL_FAILURES: EndpointResult(rows=list(FAILURE_ROWS)),
-            mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=list(NAV_ROWS), total=10),
+            # ``_nav_rows()`` ולא ``NAV_ROWS`` ישירות: כך טסט יכול להחליף את
+            # השורות **בשרת** לפני הרינדור, במקום לשתול ערך ב-DOM אחרי כן.
+            mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=_nav_rows(), total=10),
             mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
         },
         posthog_links=lambda: dict(POSTHOG_LINKS),
@@ -256,27 +286,44 @@ def test_null_cells_never_render_the_word_none(page):
 
 
 def test_the_wider_navigation_table_scrolls_inside_its_own_card(page):
-    """הטבלה גדלה משמונה עמודות לעשר, והכוונה היא טקסט חופשי באורך לא ידוע.
+    """כשהטבלה רחבה מהכרטיס — **הכרטיס** גולל, לא גוף העמוד.
 
-    זה בדיוק מה שמפיל פריסות: הרוחב נקבע בזמן הרינדור, ולא ב-CSS שנקרא.
-    ההבטחה היא ש**הכרטיס** גולל ולא גוף העמוד, ואת זה אפשר למדוד רק בדפדפן.
+    **הגרסה הקודמת של הטסט הזה הבטיחה יותר ממה שהיא בדקה, ובדיעבד גם יותר
+    ממה שנכון.** היא חישבה ``wrapperScrolls`` ולא אישרה אותו. כשהוספתי את
+    האסרשן הוא נפל — ב-1280 פיקסלים הטבלה בת עשר העמודות פשוט **נכנסת**,
+    ואין שום גלילה להוכיח. כלומר גם השם היה שגוי, לא רק האסרשן חסר.
+
+    לכן המדידה עברה לרוחב שבו הגלישה אמיתית. המבנה כאן הוא שלוש טענות
+    שכל אחת מהן מסוגלת ליפול: קודם שיש בכלל גלישה (אחרת הטסט חסר משמעות
+    ועדיף שיצעק), אחר כך שהכרטיס הוא זה שגולל, ולבסוף שגוף העמוד אינו.
     """
     page.click('button.mcp-tab[data-panel="navigation"]')
     page.wait_for_timeout(150)
+    # רוחב טלפון: כאן עשר עמודות בוודאות אינן נכנסות.
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(250)
 
     measured = page.evaluate("""() => {
         const panel = '.mcp-panel[data-panel="navigation"]';
         const wrap = document.querySelector(panel + ' .mcp-table-wrapper');
+        const table = wrap.querySelector('table');
         return {
-            docWidth: document.documentElement.scrollWidth,
-            viewport: document.documentElement.clientWidth,
+            tableWidth: table.scrollWidth,
+            cardWidth: wrap.clientWidth,
             wrapperScrolls: wrap.scrollWidth > wrap.clientWidth,
             overflowX: getComputedStyle(wrap).overflowX,
+            docWidth: document.documentElement.scrollWidth,
+            viewport: document.documentElement.clientWidth,
         };
     }""")
 
-    assert measured["docWidth"] <= measured["viewport"] + 1, measured
+    # 1. יש גלישה בכלל — בלי זה שתי הטענות הבאות ריקות מתוכן.
+    assert measured["tableWidth"] > measured["cardWidth"], measured
+    # 2. הכרטיס הוא שגולל.
     assert measured["overflowX"] == "auto"
+    assert measured["wrapperScrolls"] is True, measured
+    # 3. וגוף העמוד לא — זו ההבטחה שהמשתמש מרגיש.
+    assert measured["docWidth"] <= measured["viewport"] + 1, measured
 
 
 def test_a_long_intent_keeps_its_full_text_in_the_title_attribute(page):
@@ -294,27 +341,76 @@ def test_a_long_intent_keeps_its_full_text_in_the_title_attribute(page):
     assert measured["shown"].endswith("…")
 
 
-def test_an_intent_that_looks_like_markup_is_never_a_live_element(page):
+def test_an_intent_that_looks_like_markup_is_never_a_live_element(live_server):
     """``<script>`` בכוונה חייב להישאר טקסט — בדפדפן, לא רק במחרוזת.
 
-    בדיקת שרת מוכיחה ש-Jinja עשה escape. רק הדפדפן מוכיח שמה שנבנה בפועל
-    ב-DOM הוא צומת טקסט ולא אלמנט.
+    **הגרסה הקודמת של הטסט הזה לא בדקה כלום.** היא דחפה את המחרוזת העוינת
+    ל-DOM עם ``setAttribute('title', hostile)`` ואז אישרה שאין ילדים ואין
+    ``window.__pwned``. אבל ``setAttribute`` **לעולם אינו מפרסר HTML**, ולכן
+    שתי האסרשנים היו נכונים תמיד — גם אילו Jinja הייתה שבורה לחלוטין. טסט
+    XSS שאינו מסוגל להיכשל גרוע מהיעדר טסט, כי הוא נותן ביטחון במקום שאין בו.
+
+    הגרסה הזו מזריקה את המחרוזת דרך **הנתונים**, נותנת לשרת לרנדר, ובודקת את
+    ה-DOM שהדפדפן בנה בפועל: אפס אלמנטי ילד, הטקסט שרד כטקסט, ושום סקריפט
+    לא רץ.
     """
     hostile = "<script>window.__pwned = 1</script>"
-    measured = page.evaluate(
-        """(hostile) => {
-            const el = document.querySelector('.mcp-panel[data-panel="navigation"] .mcp-clip');
-            el.setAttribute('title', hostile);
-            return {
-                pwned: window.__pwned === 1,
-                childElements: el.children.length,
-            };
-        }""",
-        hostile,
-    )
+    base_url, session_cookie = live_server
+    executable = _find_chromium()
 
-    assert measured["pwned"] is False
+    with sync_playwright() as pw:
+        try:
+            browser = (
+                pw.chromium.launch(executable_path=executable)
+                if executable
+                else pw.chromium.launch()
+            )
+        except Exception as exc:  # pragma: no cover
+            pytest.skip(f"אין Chromium זמין: {exc}")
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context.add_cookies([{
+            "name": "session", "value": session_cookie,
+            "domain": "127.0.0.1", "path": "/",
+        }])
+        p = context.new_page()
+        p.add_init_script(
+            "try{localStorage.setItem('welcomeModalSeen','1');"
+            "localStorage.setItem('onboarding_completed','1');}catch(e){}"
+        )
+        # ``_hostile_intent`` מחליף את הכוונה בשרת לפני הרינדור, ולכן מה
+        # שנבדק הוא הפלט האמיתי של Jinja ולא ערך שהטסט שתל ב-DOM אחרי כן.
+        with _hostile_intent(hostile):
+            p.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
+        p.wait_for_timeout(400)
+        p.evaluate(
+            "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
+            ".forEach(e => e.remove())"
+        )
+        try:
+            p.click('button.mcp-tab[data-panel="navigation"]')
+            p.wait_for_timeout(150)
+            measured = p.evaluate("""() => {
+                const el = document.querySelector('.mcp-panel[data-panel="navigation"] .mcp-clip');
+                return {
+                    found: !!el,
+                    pwned: window.__pwned === 1,
+                    childElements: el ? el.children.length : -1,
+                    scriptsWithPayload: [...document.querySelectorAll('script')]
+                        .filter(s => (s.textContent || '').includes('__pwned')).length,
+                    title: el ? el.getAttribute('title') : null,
+                };
+            }""")
+        finally:
+            context.close()
+            browser.close()
+
+    assert measured["found"], "תא הכוונה לא רונדר — הטסט לא בדק דבר"
+    # לא נוצר אלמנט: המחרוזת נשארה טקסט, לא markup.
     assert measured["childElements"] == 0
+    assert measured["scriptsWithPayload"] == 0
+    assert measured["pwned"] is False
+    # ועדיין נגיש כטקסט מלא — escape ולא מחיקה.
+    assert measured["title"] == hostile
 
 
 def test_the_failure_messages_render_under_the_tool_table(page):

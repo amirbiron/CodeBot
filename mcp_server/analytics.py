@@ -61,9 +61,23 @@ whose exposure was accepted deliberately by the project owner, not derived:
   narrow in practice; that is a property of today's code, not a guarantee of
   the gate.
 
-There is no sanitization pass over either string. Inventing one for free text
-fails silently (see ``amir-bug-patterns``, ``secret-in-derived-text``), and a
-gate that half-cleans is worse than one that states plainly what it forwards.
+Both of those strings are then run through
+:func:`mcp_server.redaction.redact_secrets` — the **same** pattern list that
+filters the agent primer, imported rather than re-implemented. Inventing a
+second sanitizer for free text is what fails silently (see
+``amir-bug-patterns``, ``secret-in-derived-text``): when each sink kept its own
+list, a pattern was added to one and forgotten in the other.
+
+**What that filter buys, measured — and what it does not.** Every known secret
+*shape* is caught anywhere in the string, mid-message included: an AWS key in
+the tail of a Pydantic ``input_value``, ``ghp_``, ``ckmcp_``, ``sk-``, a JWT, a
+``Bearer`` header, a ``scheme://user:pass@host`` connection string. What it
+does **not** catch is the name-based rule (``API_KEY=…``) when the assignment
+sits mid-line, because that rule is anchored to the start of a line — and a
+Pydantic message is one long line. That anchor protects the primer from having
+``key=value`` deleted out of prose. So this is a real reduction in exposure and
+**not** a guarantee: the fields above are still free text, and the paragraph
+about what they can carry still stands.
 
 A missing or broken PostHog configuration never takes the server down: in
 production analytics simply does not run, and only a development/debug
@@ -78,6 +92,8 @@ import contextlib
 import logging
 import os
 from typing import Any, Optional
+
+from .redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -116,15 +132,25 @@ _ALLOWED_MCP_PROPERTIES = frozenset(
         "$mcp_tool_category",
         "$mcp_tool_description",
         "$mcp_tool_name",
-        # A closed label the SDK writes itself — ``context_parameter`` or
-        # ``inferred``. It sits with the metadata and not with the free text
-        # below because it is a source tag, exactly like ``$mcp_error_type``:
-        # it says where the sentence came from, never what it said.
-        "$mcp_intent_source",
     }
 )
 
-#: Allowed like the set above, **but only when the value is a string.**
+#: ``$mcp_intent_source`` — מאיפה הגיעה הכוונה, לא מה היא אמרה.
+#:
+#: תווית סגורה שה-SDK כותב בעצמו, ולכן היא נאכפת מול הערכים שלו ולא מתקבלת
+#: כמחרוזת חופשית. הערכים נקראו מ-``posthog.mcp._intent``:
+#: ``context_parameter`` כשהסוכן העביר ``context``, ו-``inferred`` כש-
+#: ``intent_fallback`` גזר אותה (כבוי כאן, ונשמר כדי שהדלקתו לא תשתיק את
+#: השדה).
+#:
+#: **למה לא ברשימת המטא-דאטה הרגילה.** שם כל ערך עובר בלי בדיקת טיפוס, וזה
+#: נכון לשדות שה-SDK מייצר כמספר או כבוליאני. כאן השדה אמור להיות אחת משתי
+#: מילים, ומבנה שיגיע תחתיו במהדורה עתידית היה עובר שלם — אותו חור בדיוק
+#: שכבר נמדד ב-``$mcp_error_message``, רק בשם אחר.
+_ALLOWED_INTENT_SOURCES = frozenset({"context_parameter", "inferred"})
+
+#: Allowed like the set above, **but only when the value is a string** — and the
+#: string is run through :func:`~mcp_server.redaction.redact_secrets` first.
 #:
 #: These two are the free text the gate forwards on purpose: the sentence an
 #: agent wrote, and the message a failed call raised. The type check is not
@@ -135,9 +161,9 @@ _ALLOWED_MCP_PROPERTIES = frozenset(
 #: it is a structure, and a structure travels whole.
 #:
 #: They are kept in their own set rather than folded into
-#: ``_ALLOWED_MCP_PROPERTIES`` so the string rule cannot be lost by someone
-#: moving a name between lines. What the two of them cost is written out in the
-#: module docstring, in measurements rather than adjectives.
+#: ``_ALLOWED_MCP_PROPERTIES`` so neither the string rule nor the redaction can
+#: be lost by someone moving a name between lines. What the two of them cost is
+#: written out in the module docstring, in measurements rather than adjectives.
 _ALLOWED_FREE_TEXT_PROPERTIES = frozenset(
     {
         "$mcp_error_message",
@@ -202,16 +228,28 @@ _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
     CK_READ_MODE_KEY: frozenset({READ_MODE_OUTLINE, READ_MODE_RANGE, READ_MODE_FULL}),
 }
 
-#: שני הכלים שמקבלים ``lines``, ורק הם. הרשימה משוכפלת כאן ולא מיובאת
-#: מ-``server.py``, כי ``server.py`` מייבא את המודול הזה — ייבוא הפוך היה מעגלי.
-#: זו אותה מוסכמה שכבר קיימת בין ``outline.py`` ל-``backend.py``: משכפלים,
-#: ואוכפים את הסנכרון בטסט. בלי הטסט, שינוי שם כלי היה משתיק את המדד בשקט —
-#: הטבלה הייתה ממשיכה להיטען, פשוט עם אפסים.
+#: שני הכלים שמקבלים ``lines``, ורק הם.
+#:
+#: **הרשימה משוכפלת כאן ולא מיובאת מ-``server.py``, וזו הגבלה אמיתית ולא
+#: העדפה:** ``server.py`` מייבא את המודול הזה, וייבוא הפוך היה מעגלי. שמות
+#: הכלים עצמם הם מחרוזות בתוך המעטרים ``@mcp.tool(name=...)``, ולהוציא אותם
+#: למודול קבועים פירושו לגעת בכל הרשמות הכלים — שינוי רחב בהרבה ממה שהמדד
+#: הזה מצדיק, ובמשטח שטעות הקלדה בו שוברת כלי בפרודקשן.
+#:
+#: **מה שסוגר את הפער הוא אכיפה, לא זיכרון:**
+#: ``test_the_file_read_tool_names_still_match_the_registered_tools`` בונה שרת
+#: אמיתי, שואל אילו כלים מצהירים על ``lines`` בסכימה שלהם, ומשווה לקבוצה כאן.
+#: הוא נגזר ממקור האמת ולא מרשימה שנייה קשיחה, ולכן שינוי שם כלי מפיל אותו
+#: ברעש. בלעדיו הכשל היה שקט לגמרי: הטבלה ב-``/admin/mcp`` הייתה ממשיכה
+#: להיטען, פשוט עם אפסים בשתי העמודות החדשות.
+#:
+#: אותה מוסכמה שכבר קיימת בין ``outline.py`` ל-``backend.py``.
 FILE_READ_TOOLS = frozenset({"codekeeper_get_file", "codekeeper_get_repo_file"})
 
 _TOOL_CALL_METHOD = "tools/call"
 _MCP_PROPERTY_PREFIX = "$mcp_"
 _EXCEPTION_LIST_KEY = "$exception_list"
+_INTENT_SOURCE_KEY = "$mcp_intent_source"
 _EXCEPTION_VALUE_PLACEHOLDER = (
     "[redacted by CodeKeeper: exception text is not sent to PostHog]"
 )
@@ -339,6 +377,16 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
             if isinstance(key, str) and key.startswith(_MCP_PROPERTY_PREFIX):
                 if key in _ALLOWED_MCP_PROPERTIES:
                     pass
+                elif key == _INTENT_SOURCE_KEY:
+                    # תווית סגורה, לא טקסט חופשי — ראו ``_ALLOWED_INTENT_SOURCES``.
+                    #
+                    # ``isinstance`` לפני ההשוואה, מאותה סיבה בדיוק שבמאפיין
+                    # שלנו למטה: ``value in frozenset`` על מילון או רשימה זורק
+                    # ``TypeError`` (טיפוס לא בר-גיבוב), וזה היה מפיל את ה-hook
+                    # ומוחק את **כל** האירוע במקום להפיל מפתח אחד. בטוח, אבל
+                    # רועש ומיותר. הטסט על מילון תפס את זה.
+                    if not isinstance(value, str) or value not in _ALLOWED_INTENT_SOURCES:
+                        continue
                 elif key in _ALLOWED_FREE_TEXT_PROPERTIES and isinstance(value, str):
                     # **מה שנכנס דרך רשימת הטקסט החופשי חייב להיות מחרוזת.**
                     # שני השדות האלה מוצדקים כ"משפט שאדם קורא": המשפט של
@@ -349,7 +397,14 @@ def scrub_mcp_payload(event: dict) -> Optional[dict]:
                     # עבר גרסה קודמת של השער עם התוכן בפנים, וכך גם
                     # ``$mcp_intent``. הבדיקה דאז אימתה את ה**מבחין** ולא את
                     # מה שנמסר בפועל — כלומר בדקה מי מבקש, ולא מה עובר.
-                    pass
+                    #
+                    # **ואז מסננים סודות.** אותה רשימת דפוסים שמסננת את הפריימר
+                    # (``mcp_server.redaction``), ולא רג'קס שהומצא כאן: סניטציה
+                    # מקומית על טקסט חופשי היא בדיוק מה שנכשל בשקט
+                    # (``amir-bug-patterns``, ``secret-in-derived-text``). מה
+                    # שהיא תופסת ומה שלא — נמדד, וכתוב ב-``redact_secrets``.
+                    # היא מצמצמת חשיפה; היא אינה הופכת את השדות האלה לבטוחים.
+                    value = redact_secrets(value)
                 else:
                     continue
             elif key in _ALLOWED_CUSTOM_PROPERTIES:

@@ -726,3 +726,58 @@ def test_a_rejected_configuration_produces_no_link_at_all(monkeypatch, configure
     monkeypatch.setenv(env, value)
 
     assert configured.posthog_links() == {}
+
+
+# --------------------------------------------------------------------------
+# פרטי הזדהות בכתובת ה-host
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        # הצורה שנמצאה: **שם משתמש ריק** וסיסמה מלאה. ``urlsplit`` מחזיר כאן
+        # ``username=''`` — מחרוזת ריקה, falsy — ולכן בדיקה על הערך בלבד
+        # אישרה את הכתובת והסיסמה נשארה בערך שממנו נבנים גם נתיב ה-API וגם
+        # הקישורים שמרונדרים לעמוד.
+        "https://:secret@us.posthog.com",
+        "https://user:secret@us.posthog.com",
+        "https://user@us.posthog.com",
+        "https://:@us.posthog.com",
+    ],
+)
+def test_credentials_in_the_host_are_rejected(monkeypatch, configured, host):
+    monkeypatch.setenv("POSTHOG_HOST", host)
+
+    result = configured.resolve_config()
+
+    assert isinstance(result, EndpointResult)
+    assert result.error_code == "config_invalid"
+    # ההודעה מתארת מה נדרש ואינה מצטטת את הערך — היא מוצגת בעמוד HTML.
+    assert "secret" not in result.error_detail
+    assert "user" not in result.error_detail
+
+
+def test_a_password_in_the_host_never_reaches_an_href(monkeypatch, configured):
+    """הנזק המעשי של הבאג: הכתובת נבנית מהערך הגולמי, לא מהחלקים המפורסרים.
+
+    קישור נפתח בדפדפן, ולכן סוד בתוכו נכתב להיסטוריה, ל-``Referer`` ולכל
+    ערוץ תצפית שרושם כתובות — ``CRITICAL-PATTERNS.md`` K14, בפעם השלישית
+    באותו קובץ.
+    """
+    monkeypatch.setenv("POSTHOG_HOST", "https://:hunter2secret@us.posthog.com")
+
+    links = configured.posthog_links()
+
+    assert links == {}
+    assert "hunter2secret" not in str(links)
+
+
+def test_a_clean_host_is_still_accepted(monkeypatch, configured):
+    """הצד השני: החמרה שדוחה גם כתובת תקינה היא שבירה, לא תיקון."""
+    monkeypatch.setenv("POSTHOG_HOST", "https://us.posthog.com")
+
+    config = configured.resolve_config()
+
+    assert not isinstance(config, EndpointResult)
+    assert config.host == "https://us.posthog.com"

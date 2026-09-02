@@ -877,6 +877,22 @@ def test_nothing_but_a_file_read_gets_tagged(request_payload):
     assert analytics.read_mode_properties(request_payload) is None
 
 
+@pytest.mark.parametrize("arguments", [None, "outline=true", ["outline"], 42])
+def test_arguments_that_are_not_a_mapping_read_as_a_full_read(arguments):
+    """קריאה לכלי קריאת קובץ נספרת, גם כשה-SDK מסר ארגומנטים בצורה לא צפויה.
+
+    זה המסלול שכיסוי הקוד הצביע עליו: ``arguments`` שאינו מילון. הבחירה כאן
+    היא ``full`` ולא ``None`` בכוונה — הקריאה **כן** קרתה, והעמודה היקרה היא
+    המקום הזהיר בשבילה. ``None`` היה מעלים אותה משתי העמודות והסכום היה
+    מפסיק להשתוות ל-``file_reads``.
+    """
+    request = _tool_call_request("codekeeper_get_repo_file", arguments)
+
+    assert analytics.read_mode_properties(request) == {
+        analytics.CK_READ_MODE_KEY: analytics.READ_MODE_FULL
+    }
+
+
 def test_the_gate_forwards_a_declared_read_mode():
     event = _tool_call_event(**{analytics.CK_READ_MODE_KEY: analytics.READ_MODE_OUTLINE})
 
@@ -913,7 +929,7 @@ def test_the_gate_drops_anything_the_read_mode_was_not_declared_to_be(value):
     assert analytics.CK_READ_MODE_KEY not in out["properties"]
 
 
-async def test_the_file_read_tool_names_still_match_the_registered_tools():
+async def test_the_file_read_tool_names_still_match_the_registered_tools(monkeypatch):
     """הרשימה משוכפלת מ-``server.py`` ולכן חייבת להיאכף, לא להיזכר.
 
     ``analytics.py`` אינו יכול לייבא מ-``server.py`` (ייבוא מעגלי), ולכן שמות
@@ -926,6 +942,12 @@ async def test_the_file_read_tool_names_still_match_the_registered_tools():
     """
     pytest.importorskip("mcp")
     from mcp_server.server import build_mcp
+
+    # ``build_mcp`` קורא ל-``instrument_mcp_server``, וזה **זורק** כשאין
+    # קונפיגורציית PostHog מחוץ לפרודקשן — זו התנהגות מכוונת ומקובעת בטסט
+    # אחר בקובץ הזה. בלי הקיבוע כאן הטסט עבר או נפל לפי ה-``ENVIRONMENT``
+    # של מי שהריץ אותו, ולא לפי מה שהוא אמור לבדוק.
+    monkeypatch.setenv("ENVIRONMENT", "production")
 
     # ``object()`` ולא דמה מקובץ טסט אחר. שתי סיבות, ושתיהן שורש:
     # ``tests`` אינו חבילה, ולכן ``from tests.x import y`` תלוי במה שנאסף
@@ -941,3 +963,140 @@ async def test_the_file_read_tool_names_still_match_the_registered_tools():
     }
 
     assert with_lines == analytics.FILE_READ_TOOLS
+
+
+# ---------------------------------------------------------------------------
+# סינון סודות על הטקסט החופשי
+#
+# שני השדות האלה יוצאים ביודעין, ולכן הם עוברים דרך אותה רשימת דפוסים שמסננת
+# את הפריימר. לא רג'קס שהומצא כאן: כשלכל צרכן הייתה רשימה משלו, דפוס נוסף
+# לאחד ולא לשני. הטסטים כאן שומרים גם את מה שהמסנן תופס, וגם — במפורש — את
+# מה שהוא **לא** תופס, כדי שההגבלה תישאר מתועדת ולא תתגלה מחדש.
+# ---------------------------------------------------------------------------
+
+_AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
+_GH_TOKEN = "ghp_abcdefghij0123456789ABCDEFGHIJ"
+
+
+def test_a_secret_in_a_validation_message_is_redacted_before_it_ships():
+    """המקרה שנמדד: Pydantic משאיר את הזנב של ``input_value``, והזנב הוא המפתח.
+
+    זה בדיוק התרחיש שבגללו החריג הזה תועד כמסוכן — ועכשיו הוא מסונן.
+    """
+    message = (
+        "1 validation error for save_fileArguments\nfile_name\n"
+        "  Field required [type=missing, "
+        f"input_value={{'code': 'x...AWS_KEY={_AWS_KEY}'}}, input_type=dict]"
+    )
+
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
+
+    sent = out["properties"]["$mcp_error_message"]
+    assert _AWS_KEY not in sent
+    assert "***REDACTED***" in sent
+    # מה שאינו סוד נשאר קריא — אחרת אין טעם בחריג מלכתחילה.
+    assert "file_name" in sent
+    assert "type=missing" in sent
+
+
+def test_a_secret_an_agent_wrote_into_its_intent_is_redacted_too():
+    """הכוונה היא טקסט שסוכן כתב. התיאור מבקש ממנו לא לכתוב שם סודות, אבל
+    הנחיה למודל אינה גבול — ולכן אותו מסנן חל גם כאן."""
+    out = analytics.scrub_mcp_payload(
+        _tool_call_event(**{"$mcp_intent": f"retrying with token {_GH_TOKEN}"})
+    )
+
+    sent = out["properties"]["$mcp_intent"]
+    assert _GH_TOKEN not in sent
+    assert "***REDACTED***" in sent
+
+
+def test_the_filter_is_the_primers_and_not_a_second_copy():
+    """שתי רשימות דפוסים נפרדות כבר נכשלו כאן: דפוס נוסף לאחת ולא לשנייה.
+
+    האסרשן הוא על **זהות האובייקט** ולא על התנהגות דומה — התנהגות דומה היא
+    בדיוק מה שמתפצל בשקט.
+    """
+    from mcp_server import primer, redaction
+
+    assert analytics.redact_secrets is redaction.redact_secrets
+    assert primer.redact_secrets is redaction.redact_secrets
+
+
+def test_an_ordinary_message_is_not_mangled_by_the_filter():
+    """המסנן מצמצם חשיפה; אסור לו להרוס את הערך האבחוני.
+
+    בלי הטסט הזה, דפוס רחב מדי היה הופך כל הודעה ל-``***REDACTED***`` והטבלה
+    בעמוד הייתה נראית מלאה ואומרת כלום.
+    """
+    message = (
+        "1 validation error for get_repo_fileArguments\nlines.0\n"
+        "  Input should be a valid integer"
+    )
+
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", message))
+
+    assert out["properties"]["$mcp_error_message"] == message
+
+
+def test_the_documented_gap_is_pinned_so_it_cannot_be_forgotten():
+    """**ההגבלה הידועה, כטסט ולא כהערה.**
+
+    הכלל לפי *שם* (``API_KEY=…``) מעוגן ל-``^``, ולכן הוא אינו יורה כשההשמה
+    יושבת באמצע שורה — וזו בדיוק הצורה של הודעת Pydantic. העיגון מגן על
+    הפריימר מפני מחיקת ``key=value`` מתוך פרוזה, ולכן ההרחבה היא החלטה בפני
+    עצמה ולא תיקון.
+
+    הטסט מקבע את המצב הקיים כדי ששינוי עתידי בדפוס — לכל כיוון — ייראה כאן
+    ולא יתגלה בפרודקשן. אם מישהו יסיר את העיגון, הטסט הזה ייפול ויאלץ אותו
+    להחליט במודע.
+    """
+    mid_line = "input_value={'env': 'API_KEY=abcdefghijklmnop123456'}"
+
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", mid_line))
+
+    assert out["properties"]["$mcp_error_message"] == mid_line
+
+    # הצד השני של אותו דפוס: בתחילת שורה הוא כן יורה.
+    at_line_start = "API_KEY=abcdefghijklmnop123456"
+    out = analytics.scrub_mcp_payload(_failed_tool_call("ValidationError", at_line_start))
+    assert "abcdefghijklmnop123456" not in out["properties"]["$mcp_error_message"]
+
+
+# ---------------------------------------------------------------------------
+# ``$mcp_intent_source`` — תווית סגורה, לא טקסט חופשי
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("source", ["context_parameter", "inferred"])
+def test_the_two_real_intent_sources_pass(source):
+    """שני הערכים שה-SDK מייצר, שנקראו מ-``posthog.mcp._intent``."""
+    out = analytics.scrub_mcp_payload(_tool_call_event(**{"$mcp_intent_source": source}))
+
+    assert out["properties"]["$mcp_intent_source"] == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"from": "def secret():\n    return 'user file content'\n"},
+        ["context_parameter"],
+        "context_parameter ",
+        "CONTEXT_PARAMETER",
+        "def secret(): return 'user file content'",
+        None,
+        42,
+    ],
+)
+def test_anything_that_is_not_one_of_the_two_labels_is_dropped(source):
+    """השדה הזה ישב עד עכשיו ברשימת המטא-דאטה, שאינה בודקת טיפוס כלל.
+
+    מבנה שיגיע תחתיו במהדורה עתידית של ה-SDK היה עובר שלם — אותו חור שכבר
+    נמדד ב-``$mcp_error_message``, רק בשם אחר. הרשימה כאן סגורה, ולכן גם
+    ערך חדש שה-SDK יוסיף ייחסם עד שמישהו יאשר אותו במפורש.
+    """
+    out = analytics.scrub_mcp_payload(_tool_call_event(**{"$mcp_intent_source": source}))
+
+    assert out is not None
+    assert "$mcp_intent_source" not in out["properties"]
+    assert _FILE_BODY not in _payload_text(out)

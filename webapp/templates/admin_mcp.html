@@ -297,10 +297,12 @@
 
     אין כאן ``|safe`` ואין הזרקה ל-``innerHTML``: Jinja עושה escape אוטומטי גם
     לגוף וגם לערך התכונה, ולכן ``<script>`` בכוונה מוצג כטקסט. "רק אדמינים
-    רואים" אינו הגנה — אדמינים הם היעד (``bugbot-rules/xss-innerhtml.md``). -#}
+    רואים" אינו הגנה — אדמינים הם היעד. הכלל המלא נמצא בריפו
+    ``amir-bug-patterns``, בקובץ ``bugbot-rules/xss-innerhtml.md`` — הוא אינו
+    בריפו הזה, ולכן הוא מוזכר עם שם הריפו ולא כנתיב מקומי. -#}
 {% macro clipped(value, limit=64) -%}
   {%- if value -%}
-    <span class="mcp-clip" title="{{ value }}">{{ value | truncate(limit, True, '…') }}</span>
+    <span class="mcp-clip" tabindex="0" role="note" aria-label="{{ value }}" title="{{ value }}">{{ value | truncate(limit, True, '…') }}</span>
   {%- else -%}
     <span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>
   {%- endif -%}
@@ -437,6 +439,8 @@
           </div>
         {% endif %}
       </div>
+    {% endif %}
+
 
       {# ---- הקריאות שנכשלו, מתחת לטבלת הכלים ולא כטאב נפרד ----
          הן הפירוט של עמודת השגיאות שכבר למעלה: הטבלה אומרת "20% שגיאות",
@@ -484,7 +488,6 @@
           </div>
         {% endif %}
       </div>
-    {% endif %}
   </div>
 
   {# ---------- טאב 2: עלות ניווט ---------- #}
@@ -548,23 +551,6 @@
             בסשנים שנרשמו לפני כן אין כוונה שמורה (התא ריק), ולא נשמר מצב הקריאה — ולכן <em>כל</em> קריאות הקובץ שלהם נספרות כקריאת תוכן.
             עמודת "התחיל" אומרת לאילו שורות זה נוגע.
           </p>
-          {% if posthog_links %}
-            <div class="mcp-outlinks">
-              <a class="mcp-outlink" href="{{ posthog_links.intent_clusters }}" target="_blank" rel="noopener noreferrer">
-                <i class="fas fa-diagram-project" aria-hidden="true"></i>
-                אשכולות כוונות ב-PostHog
-              </a>
-              <a class="mcp-outlink" href="{{ posthog_links.sessions }}" target="_blank" rel="noopener noreferrer">
-                <i class="fas fa-list-check" aria-hidden="true"></i>
-                סיכומי כוונה לסשן ב-PostHog
-              </a>
-            </div>
-            <p class="mcp-meta" style="margin-top:0.5rem;">
-              שני אלה אינם כאן כי הם כלי API של PostHog ולא שאילתות, והעמוד הזה מדבר עם PostHog רק דרך אנדפוינטים שמורים —
-              כלומר HogQL בלבד. האשכולות נותנים בתמורה משהו שהטבלה לא: <code>discovery rate</code> מול קטלוג הכלים,
-              והתאמה בין תיאור הכלי לכוונה — כלומר האם התיאור גורם לסוכנים למצוא אותו.
-            </p>
-          {% endif %}
         {% else %}
           <div class="mcp-state">
             <i class="fas fa-inbox" aria-hidden="true"></i>
@@ -572,6 +558,24 @@
           </div>
         {% endif %}
       </div>
+    {% endif %}
+
+    {% if posthog_links %}
+      <div class="mcp-outlinks">
+        <a class="mcp-outlink" href="{{ posthog_links.intent_clusters }}" target="_blank" rel="noopener noreferrer">
+          <i class="fas fa-diagram-project" aria-hidden="true"></i>
+          אשכולות כוונות ב-PostHog
+        </a>
+        <a class="mcp-outlink" href="{{ posthog_links.sessions }}" target="_blank" rel="noopener noreferrer">
+          <i class="fas fa-list-check" aria-hidden="true"></i>
+          סיכומי כוונה לסשן ב-PostHog
+        </a>
+      </div>
+      <p class="mcp-meta" style="margin-top:0.5rem;">
+        שני אלה אינם כאן כי הם כלי API של PostHog ולא שאילתות, והעמוד הזה מדבר עם PostHog רק דרך אנדפוינטים שמורים —
+        כלומר HogQL בלבד. האשכולות נותנים בתמורה משהו שהטבלה לא: <code>discovery rate</code> מול קטלוג הכלים,
+        והתאמה בין תיאור הכלי לכוונה — כלומר האם התיאור גורם לסוכנים למצוא אותו.
+      </p>
     {% endif %}
   </div>
 

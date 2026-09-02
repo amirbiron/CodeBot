@@ -4,7 +4,7 @@ MCP Analytics Service
 קריאת נתוני השימוש ב-MCP מ-PostHog, עבור מסך האדמין ``/admin/mcp``.
 
 שרת ה-MCP מדווח ל-PostHog אירוע על כל קריאת כלי (``mcp_server/analytics.py``).
-המודול הזה קורא את הנתונים חזרה דרך שלושה *endpoints* שמורים — שאילתות שחיות
+המודול הזה קורא את הנתונים חזרה דרך *endpoints* שמורים — שאילתות שחיות
 ב-PostHog ולא בקוד, כך שאפשר לשנות אותן בלי דיפלוי.
 
 **המפתח נשאר בצד השרת.** הוא עובר בכותרת ``Authorization`` בלבד, לעולם לא
@@ -189,7 +189,11 @@ class PostHogConfig:
 
 
 class McpAnalyticsService:
-    """קורא את שלושת האנדפוינטים של PostHog ומחזיר שורות מוכנות לתבנית."""
+    """קורא את האנדפוינטים של PostHog ומחזיר שורות מוכנות לתבנית.
+
+    הרשימה עצמה היא ``DASHBOARD_ENDPOINTS``, ולא מספר שכתוב כאן: ספירה בפרוזה
+    מתיישנת בשקט ברגע שמישהו מוסיף אנדפוינט.
+    """
 
     def resolve_config(self) -> PostHogConfig | EndpointResult:
         """מחזיר קונפיגורציה מאומתת, או שגיאה — לעולם לא שילוב של השתיים.
@@ -244,7 +248,23 @@ class McpAnalyticsService:
         # הערך משמש כ-origin שאליו משורשר נתיב ה-API, ולכן כל רכיב נוסף —
         # נתיב, שאילתה, פרגמנט או פרטי הזדהות — היה מייצר כתובת שגויה
         # בשקט. נדחה כאן ולא מתגלה כ-404 מאוחר יותר.
-        has_extra_parts = bool(parts.path or parts.query or parts.fragment or parts.username)
+        #
+        # **הבדיקה היא ``is not None`` ולא ערך אמיתי, ולא ניסוח יפה.** נמדד:
+        # ב-``https://:secret@us.posthog.com`` מחזיר ``urlsplit`` את
+        # ``username=''`` — מחרוזת ריקה, שהיא falsy — ולכן ``or parts.username``
+        # לבדו אישר את הכתובת. הסיסמה נשארה בערך הגולמי, שממנו נבנים גם נתיב
+        # ה-API וגם הקישורים היוצאים שמרונדרים לעמוד: סוד ב-``href`` שנפתח
+        # בדפדפן, כלומר בהיסטוריה וב-``Referer``.
+        #
+        # ולכן גם ``parts.password`` נבדק בנפרד: זו בדיוק הצורה שבה חצי מפרטי
+        # ההזדהות קיים והחצי השני ריק.
+        has_extra_parts = bool(
+            parts.path
+            or parts.query
+            or parts.fragment
+            or parts.username is not None
+            or parts.password is not None
+        )
         if parts.scheme not in ALLOWED_SCHEMES or not parts.hostname or has_extra_parts:
             # ההודעה מתארת מה נדרש, ולא מצטטת את הערך שהתקבל. הערך מגיע
             # מ-``os.environ`` ומוצג בעמוד HTML; מספיקה טעות העתקה אחת בין
