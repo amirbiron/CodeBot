@@ -1073,6 +1073,255 @@ check('רינדור: charOffset נשמר לכל שורה', () => {
   eq(rows[2].dataset.charOffset, '20', 'שורה 3 — נספר על הגלם, לא על המרונדר');
 });
 
+// ---------- רשימות מקוננות ----------
+//
+// המודל נמדד מול ``markdown-it@14.1.0``, אותה ספרייה שמרנדרת את תצוגת
+// ה-Markdown בריפו, ולכן היא הצרכן שהפתק צריך להסכים איתו על מה מקונן.
+// הכלל: פריט נסגר כשההזחה של השורה הבאה **אינה מגיעה לעמודת התוכן שלו**.
+
+/** עומקי הרשימה בכל שורה, לפי מחלקות ``is-depth-N``. */
+function depths(view){
+  return view.querySelectorAll('.sticky-task-line').map((r) => {
+    for (let d = 1; d <= 9; d += 1) if (r.classList.contains('is-depth-' + d)) return d;
+    return 0;
+  });
+}
+
+check('קינון: רוחב הזחה — טאב מתקדם לעמודה שמתחלקת ב-4', () => {
+  eq(mdMgr._indentCols(''), 0, 'ריק');
+  eq(mdMgr._indentCols('   '), 3, 'שלושה רווחים');
+  eq(mdMgr._indentCols('\t'), 4, 'טאב מעמודה 0');
+  eq(mdMgr._indentCols(' \t'), 4, 'רווח ואז טאב — עדיין עמודה 4, לא 5');
+  eq(mdMgr._indentCols('\t\t'), 8, 'שני טאבים');
+  eq(mdMgr._indentCols('\t', 2), 4, 'טאב מעמודה 2');
+  eq(mdMgr._indentCols('\t', 4), 8, 'טאב מעמודה 4 מדלג לתחנה הבאה');
+});
+
+check('קינון: עמודת התוכן של פריט', () => {
+  const cc = (line) => mdMgr._listContentCol(line, mdMgr._classifyLine(line));
+  eq(cc('- א'), 2, '"- " → עמודה 2');
+  eq(cc('1. א'), 3, '"1. " → עמודה 3');
+  eq(cc('12. א'), 4, '"12. " → עמודה 4');
+  eq(cc('  - א'), 4, 'הזחה נספרת');
+  // מעבר לארבעה רווחים זה בלוק קוד מוזח בתוך הפריט, ולכן ההזחה חוזרת ל-1.
+  eq(cc('-      א'), 2, 'שישה רווחים → 1');
+  eq(cc('-    א'), 5, 'ארבעה רווחים עדיין נספרים');
+});
+
+check('קינון: רשימה לא ממוספרת — שתי רמות', () => {
+  const { view } = renderMd(mdMgr,
+    '- פריט ראשון\n- פריט שני\n  - תת-פריט 2.1\n  - תת-פריט 2.2\n    - תת-תת-פריט\n- פריט שלישי');
+  // בדיוק מה ש-markdown-it החזיר על אותו קלט: 0,0,1,1,2,0
+  eq(depths(view).join(','), '0,0,1,1,2,0');
+});
+
+check('קינון: רשימה ממוספרת — הזחה של שלושה רווחים', () => {
+  const { view } = renderMd(mdMgr,
+    '1. שלב ראשון\n2. שלב שני\n   1. תת-שלב 2.1\n   2. תת-שלב 2.2\n3. שלב שלישי');
+  eq(depths(view).join(','), '0,0,1,1,0');
+});
+
+check('קינון: המספר המוצג הוא מה שהוקלד, גם בתת-רשימה', () => {
+  // התצוגה היא ראי חד-כיווני של המקור. מספור מחדש היה מציג משהו שאינו
+  // כתוב בפתק.
+  const { view } = renderMd(mdMgr, '2. שני\n   7. שבע');
+  const bullets = view.querySelectorAll('.sticky-md-bullet');
+  eq(bullets[0].textContent, '2.');
+  eq(bullets[1].textContent, '7.');
+});
+
+check('קינון: התבליט משתנה עם העומק', () => {
+  // נמדד בכרומיום: ``disc`` ← ``circle`` ← ``square``, והאחרון חוזר.
+  const { view } = renderMd(mdMgr, '- א\n  - ב\n    - ג\n      - ד');
+  const bullets = view.querySelectorAll('.sticky-md-bullet');
+  eq(bullets.map((b) => b.textContent).join(''), '•◦▪▪');
+});
+
+check('קינון: רווח אחד אינו מגיע לעמודת התוכן — אחים, לא בן', () => {
+  // זה מה שמבדיל בין "עמודת התוכן קובעת" לבין "כל הזחה = רמה".
+  // נמדד מול markdown-it: שני הפריטים באותה רמה.
+  const { view } = renderMd(mdMgr, '- א\n - ב');
+  eq(depths(view).join(','), '0,0');
+});
+
+check('קינון: שורת צ\'קבוקס מוזחת מקבלת את אותו עומק', () => {
+  const { view } = renderMd(mdMgr, '- [ ] משימה\n  - [ ] תת-משימה\n  - תת-פריט');
+  eq(depths(view).join(','), '0,1,1', 'הצ\'קבוקס והפריט באותה רמה');
+  eq(view.querySelectorAll('.sticky-task-box').length, 2, 'שתי תיבות סימון');
+});
+
+check('קינון: שורת צ\'קבוקס מזינה את מחסנית העומק', () => {
+  // הבאג שהמבנה הזה מונע: כשהסיווג ישב בענף ה-wantMd בלבד, שורת המשימה
+  // לא נכנסה למחסנית, והפריט שאחריה יצא בעומק 0 במקום 1.
+  const { view } = renderMd(mdMgr, '- [ ] משימה\n  - תת-פריט');
+  eq(depths(view).join(','), '0,1');
+});
+
+check('קינון: אינדקס המשימות אינו זז בגלל הזחה', () => {
+  // ההתאמה מול ``sticky_notes_tasks`` בשרת היא מה שקובע איזו שורה
+  // תסומן. הזחה היא תצוגה בלבד ואסור לה לגעת בסידור.
+  const { view } = renderMd(mdMgr, '- [ ] א\n  - [ ] ב\n- פריט\n    - [x] ג');
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 3, 'שלוש תיבות');
+  eq(boxes.map((b) => b.dataset.taskIndex).join(','), '0,1,2', 'סידור רציף');
+  eq(boxes[2].checked, true, 'המסומנת היא השלישית');
+});
+
+check('קינון: charOffset נשמר גם ברשימה מקוננת', () => {
+  // החוזה הקדוש של המנוע: כל שורת מקור היא אלמנט אחד עם ההיסט שלה.
+  // הזחה לא מקפלת שורות ולא מזיזה את החשבון.
+  const content = '- א\n  - ב\n    - ג\nאחרי';
+  const { view } = renderMd(mdMgr, content);
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows.map((r) => Number(r.dataset.charOffset)).join(','),
+     [0, content.indexOf('  - ב'), content.indexOf('    - ג'), content.indexOf('אחרי')].join(','));
+});
+
+check('קינון: שורה ריקה אינה סוגרת רשימה', () => {
+  // נמדד מול markdown-it — גם שורה ריקה אחת וגם שתיים.
+  const one = renderMd(mdMgr, '- א\n\n  - ב');
+  eq(depths(one.view).join(','), '0,0,1', 'שורה ריקה אחת');
+  const two = renderMd(mdMgr, '- א\n\n\n  - ב');
+  eq(depths(two.view).join(','), '0,0,0,1', 'שתי שורות ריקות');
+});
+
+check('קינון: כותרת, קו מפריד וטקסט בעמודה 0 סוגרים רשימה', () => {
+  const h = renderMd(mdMgr, '- א\n# כותרת\n  - ב');
+  eq(depths(h.view).join(','), '0,0,0', 'כותרת');
+  const hr = renderMd(mdMgr, '- א\n---\n  - ב');
+  eq(depths(hr.view).join(','), '0,0,0', 'קו מפריד');
+  // סטייה מכוונת מ-markdown-it, ששם רואה בשורה כזו המשך פסקה של הפריט.
+  // בפתק כל שורת מקור היא שורת תצוגה נפרדת, ואין המשך פסקה.
+  const t = renderMd(mdMgr, '- א\nטקסט\n  - ב');
+  eq(depths(t.view).join(','), '0,0,0', 'שורת טקסט');
+});
+
+check('קינון: גדר מוזחת לתוך פריט אינה סוגרת אותו', () => {
+  const { view } = renderMd(mdMgr, '- א\n  ```\n  - לא רשימה\n  ```\n  - ב');
+  const d = depths(view);
+  eq(d[0], 0, 'הפריט הראשון');
+  eq(d[4], 1, 'הפריט שאחרי הגדר חוזר לעומק שלו');
+  eq(view.querySelectorAll('.sticky-md-pre').length, 3, 'שלוש שורות ליטרליות');
+});
+
+check('קינון: טבלה בעמודה 0 סוגרת רשימה', () => {
+  const { view } = renderMd(mdMgr, '- א\n| א | ב |\n| --- | --- |\n| 1 | 2 |\n  - ב');
+  eq(depths(view).pop(), 0, 'הפריט שאחרי הטבלה חוזר לעומק 0');
+});
+
+// ---------- גבול בלוק סוגר לפי ההזחה של עצמו ----------
+//
+// שורה נשארת בתוך פריט כל עוד ההזחה שלה מגיעה לעמודת התוכן שלו. לכן
+// בלוק בעמודה 0 סוגר את הרשימה, ובלוק שמוזח לתוך הפריט נשאר בתוכו —
+// **בלי קשר לסוג הבלוק.** לפני התיקון שורת גדר לא נגעה במחסנית כלל
+// וכל בלוק אחר איפס אותה לגמרי, כלומר שתי התנהגויות שגויות בכיוונים
+// הפוכים. כל המקרים כאן נמדדו מול markdown-it.
+
+check('סגירה: _closeListsAbove סוגר רק את מה שמעל ההזחה', () => {
+  const st = [2, 4, 6];
+  mdMgr._closeListsAbove(st, 6);
+  eq(st.join(','), '2,4,6', 'הזחה ששווה לעמודת התוכן נשארת בפנים');
+  mdMgr._closeListsAbove(st, 5);
+  eq(st.join(','), '2,4', 'הזחה נמוכה יותר סוגרת את הפנימי בלבד');
+  mdMgr._closeListsAbove(st, 0);
+  eq(st.join(','), '', 'עמודה 0 סוגרת הכול');
+  mdMgr._closeListsAbove(st, 0);
+  eq(st.join(','), '', 'ומחסנית ריקה אינה נשברת');
+});
+
+check('סגירה: _lineIndentCols הוא התשובה היחידה להזחה', () => {
+  eq(mdMgr._lineIndentCols('- א'), 0);
+  eq(mdMgr._lineIndentCols('  - א'), 2);
+  eq(mdMgr._lineIndentCols('\t```'), 4, 'טאב בשורת גדר, לא רק ברשימה');
+  eq(mdMgr._lineIndentCols('   # כותרת'), 3);
+  eq(mdMgr._lineIndentCols(''), 0);
+});
+
+check('גדר: פתיחה בעמודה 0 סוגרת את הרשימה', () => {
+  // הבאג שדווח: הגדר לא נגעה במחסנית, ולכן ``  - ב`` שאחריה יצא תת-פריט
+  // של ``- א`` — למרות שהגדר בעמודה 0 סיימה את הרשימה.
+  const { view } = renderMd(mdMgr, '- א\n```\n- לא רשימה\n```\n  - ב');
+  eq(depths(view).join(','), '0,0,0,0,0');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows[4].classList.contains('is-depth-1'), false, 'ואין מחלקת עומק על השורה שאחריה');
+  eq(rows[4].classList.contains('sticky-md-li'), true, 'והיא עדיין פריט רשימה');
+});
+
+check('גדר: פתיחה שאינה מגיעה לעמודת התוכן סוגרת גם היא', () => {
+  // רווח אחד אינו מגיע לעמודה 2 שבה מתחיל הטקסט של ``- א``.
+  const { view } = renderMd(mdMgr, '- א\n ```\n x\n ```\n  - ב');
+  eq(depths(view).join(','), '0,0,0,0,0');
+});
+
+check('גדר: מקוננת סוגרת רק את מה שמעליה', () => {
+  // הגדר בעמודה 2 סוגרת את ``  - ב`` (עמודת תוכן 4) ומשאירה את ``- א``
+  // (עמודת תוכן 2) פתוח, ולכן ``    - ג`` יוצא רמה 1 ולא רמה 2.
+  const { view } = renderMd(mdMgr, '- א\n  - ב\n  ```\n  x\n  ```\n    - ג');
+  eq(depths(view).join(','), '0,1,0,0,0,1');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  eq(rows[5].classList.contains('is-depth-1'), true, 'מחלקת רמה 1');
+  eq(rows[5].classList.contains('is-depth-2'), false, 'ולא רמה 2');
+});
+
+check('בלוק מוזח לתוך פריט אינו סוגר אותו', () => {
+  const h = renderMd(mdMgr, '- א\n  # כותרת\n  - ב');
+  eq(depths(h.view).join(','), '0,0,1', 'כותרת מוזחת');
+  const hr = renderMd(mdMgr, '- א\n  ---\n  - ב');
+  eq(depths(hr.view).join(','), '0,0,1', 'קו מפריד מוזח');
+  const q = renderMd(mdMgr, '- א\n  > ציטוט\n  - ב');
+  eq(depths(q.view).join(','), '0,0,1', 'ציטוט מוזח');
+  const t = renderMd(mdMgr, '- א\n  טקסט\n  - ב');
+  eq(depths(t.view).join(','), '0,0,1', 'טקסט מוזח');
+});
+
+check('טבלה מוזחת לתוך פריט אינה סוגרת אותו', () => {
+  const { view } = renderMd(mdMgr, '- א\n  | א | ב |\n  | --- | --- |\n  | 1 | 2 |\n  - ב');
+  eq(depths(view).pop(), 1, 'הפריט שאחרי הטבלה נשאר בתוך הפריט שמעליה');
+});
+
+check('קינון: התקרה עוצרת את ההזחה ולא את התצוגה', () => {
+  const deep = ['- 0', '  - 1', '    - 2', '      - 3', '        - 4',
+                '          - 5', '            - 6'].join('\n');
+  const { view } = renderMd(mdMgr, deep);
+  eq(depths(view).join(','), '0,1,2,3,4,5,5', 'עומק 6 מקבל את מחלקת רמה 5');
+  eq(view.querySelectorAll('.sticky-md-li').length, 7, 'וכל שבע השורות מוצגות');
+});
+
+check('קינון: מארקדאון כבוי — אין הזחה', () => {
+  // כיבוי מציג את התוכן הגולמי כפי שהוקלד, וההזחה היא עיצוב מארקדאון.
+  const off = new StickyNotesManager({ board: 'b-nest-off', markdown: false });
+  const parts = makeNote('- [ ] א\n  - [ ] ב');
+  off._syncTaskView(parts.el);
+  eq(depths(parts.view).join(','), '0,0');
+  eq(parts.view.querySelectorAll('.sticky-task-box').length, 2, 'הצ\'קבוקסים עדיין עובדים');
+});
+
+check('קינון: ה-CSS מזיח בפועל, ובכיוון הלוגי', () => {
+  // **שומר טקסטואלי, לא מדידה.** ההזחה נמדדה בכרומיום ב-RTL — התבליט
+  // זז מ-393.2 ל-379.2 ל-365.1 פיקסלים לאורך שלוש הרמות, ועל הקוד
+  // שלפני התיקון כל השורות ישבו על 393.2. Playwright אינו בתלויות
+  // הפרויקט ולכן ההארנס לא נשאר כאן; מה שנשאר הוא הבדיקה שההחלטה לא
+  // בוטלה בשקט.
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  eq(/--sticky-li-indent\s*:/.test(css), true, 'הטוקן מוגדר');
+  for (let d = 1; d <= 5; d += 1) {
+    eq(css.includes('.sticky-task-line.is-depth-' + d), true, 'כלל לרמה ' + d);
+  }
+  // המחלקה על ``.sticky-task-line`` ולא על ``.sticky-md-li``: זה האלמנט
+  // המשותף לשורת רשימה ולשורת צ'קבוקס, ובלעדיו צ'קבוקס מוזח לא מוזח.
+  eq(/\.sticky-md-li\.is-depth-/.test(css), false, 'המחלקה על שורת המקור, לא על פריט הרשימה');
+  // ``padding-inline-start`` ולא ``padding-left`` — הפתקים בעברית, וכלל
+  // פיזי היה מזיח מהצד הלא נכון. נמדד: ``padding-right`` הוא שקיבל ערך.
+  const depthRules = css.split('\n').filter((l) => l.includes('.sticky-task-line.is-depth-'));
+  eq(depthRules.length, 5, 'חמישה כללים');
+  eq(depthRules.every((l) => l.includes('padding-inline-start')), true, 'תכונה לוגית בכל הכללים');
+  eq(depthRules.some((l) => /padding-(left|right)\s*:/.test(l)), false, 'ואין תכונה פיזית');
+  // כל כלל **מפנה** לטוקן. בלי זה שינוי שם של הטוקן משאיר את ההגדרה
+  // ואת הכללים במקומם, ה-``calc`` נשבר, וההזחה יורדת ל-0 בשקט.
+  eq(depthRules.every((l) => l.includes('var(--sticky-li-indent)')), true, 'כל כלל מפנה לטוקן');
+});
+
 check('רינדור: מארקדאון כבוי מציג טקסט גולמי', () => {
   const off = new StickyNotesManager({ board: 'b-off', markdown: false });
   const parts = makeNote('# כותרת\n**מודגש**');
