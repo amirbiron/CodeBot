@@ -211,8 +211,25 @@
   const MD_HEADING_RE = /^(#{1,3})[ \t]+(.*)$/;
   const MD_QUOTE_RE   = /^[ \t]*>[ \t]?(.*)$/;
   const MD_HR_RE      = /^[ \t]*-{3,}[ \t]*$/;
-  const MD_OL_RE      = /^([ \t]*)(\d+)\.[ \t]+(.*)$/;
-  const MD_UL_RE      = /^([ \t]*)[-*][ \t]+(.*)$/;
+  //: **הרווחים שאחרי הסמן נלכדים בקבוצה משלהם**, ולא נבלעים בכמת.
+  //: מהם נגזרת עמודת התוכן של הפריט, וממנה עומק הקינון — ראו
+  //: ``_listContentCol``. בלי הקבוצה הזו אין דרך לדעת היכן מתחיל הטקסט.
+  const MD_OL_RE      = /^([ \t]*)(\d+)\.([ \t]+)(.*)$/;
+  const MD_UL_RE      = /^([ \t]*)([-*])([ \t]+)(.*)$/;
+  //: טאב מתקדם לעמודה הבאה שמתחלקת ב-4. מקור: ``markdown-it@14.1.0``,
+  //: ``lib/rules_block/state_block.mjs`` — ``offset += 4 - offset % 4``.
+  //: זו הספרייה שמרנדרת את תצוגת ה-Markdown בריפו, ולכן היא הצרכן
+  //: שהפתק צריך להסכים איתו על מה נחשב מקונן.
+  const MD_TAB_STOP = 4;
+  //: תקרת הזחה. מעליה כל הרמות מקבלות את אותו רוחב — הפתק צר, והזחה
+  //: בלתי מוגבלת דוחקת את הטקסט לרצועה של תו-תו. הרמות העמוקות עדיין
+  //: מוצגות; הן פשוט אינן נכנסות עוד פנימה.
+  const MD_MAX_LIST_DEPTH = 5;
+  //: תבליט לפי עומק, כמו רשימה מקוננת רגילה בדפדפן. **נמדד ולא הונח:**
+  //: ``getComputedStyle(ul).listStyleType`` בכרומיום מחזיר ``disc`` לרמה
+  //: הראשונה, ``circle`` לשנייה ו-``square`` משלישית ואילך — והרמה
+  //: האחרונה חוזרת על עצמה, בדיוק כמו כאן.
+  const MD_BULLETS = ['•', '◦', '▪'];
   const MD_FENCE_RE   = /^[ \t]*```/;
   //: טבלת GFM מזוהה בזוג בלבד: שורה עם ``|`` ומיד אחריה שורת מפריד
   //: שכל תאיה מקפים, עם יישור אופציונלי. בלי הזוג הזה כל שורה שמכילה
@@ -1469,14 +1486,78 @@
       }
 
       // מסווג בלוק לשורה בודדת. קוד רב-שורי מטופל בלולאה, לא כאן.
+      //
+      // **שורת רשימה מחזירה גם את ההזחה ואת הסמן**, ולא רק את התוכן —
+      // מהם נגזרת עמודת התוכן, וממנה עומק הקינון. הערכים מוחזרים
+      // **בשדות בשם** ולא נקראים כקבוצות רג'קס אצל הקורא: זו בדיוק
+      // המלכודת שההערה מעל ``MD_INLINE_RE`` מתעדת — קבוצה שנוספת מזיזה
+      // בשקט את כל האינדקסים שאחריה.
       _classifyLine(line){
         let m;
         if ((m = MD_HEADING_RE.exec(line))) return { kind: 'heading', level: m[1].length, content: m[2] };
         if ((m = MD_QUOTE_RE.exec(line)))   return { kind: 'quote', content: m[1] };
         if (MD_HR_RE.test(line))            return { kind: 'hr', content: '' };
-        if ((m = MD_OL_RE.exec(line)))      return { kind: 'ol', content: m[3], marker: m[2] + '.' };
-        if ((m = MD_UL_RE.exec(line)))      return { kind: 'ul', content: m[2] };
+        if ((m = MD_OL_RE.exec(line)))      return { kind: 'ol', content: m[4], marker: m[2] + '.', indent: m[1], markerChars: m[2].length + 1, spaceRun: m[3] };
+        if ((m = MD_UL_RE.exec(line)))      return { kind: 'ul', content: m[4], indent: m[1], markerChars: 1, spaceRun: m[3] };
         return { kind: 'plain', content: line };
+      }
+
+      /**
+       * רוחב הזחה בעמודות, כשטאב מתקדם לעמודה הבאה שמתחלקת ב-4.
+       *
+       * ``startCol`` היא העמודה שממנה מודדים. היא נדרשת כי הרווחים
+       * שאחרי הסמן אינם מתחילים בעמודה 0, ומיקום הטאב בתוך השורה הוא
+       * שקובע לכמה עמודות הוא שווה.
+       *
+       * מקור: ``markdown-it@14.1.0``, ``lib/rules_block/state_block.mjs``
+       * — ``if (ch === 0x09) { offset += 4 - offset % 4 }``.
+       */
+      _indentCols(ws, startCol){
+        let col = Number.isFinite(startCol) ? startCol : 0;
+        const src = String(ws == null ? '' : ws);
+        for (let i = 0; i < src.length; i += 1){
+          if (src[i] === '\t') col += MD_TAB_STOP - (col % MD_TAB_STOP);
+          else col += 1;
+        }
+        return col;
+      }
+
+      /**
+       * עמודת התוכן של פריט רשימה — העמודה שבה מתחיל הטקסט שלו, ולכן גם
+       * ההזחה שממנה ואילך שורה נחשבת **בתוך** הפריט.
+       *
+       * **רווחים שמעבר לארבעה נספרים כאחד.** בתקן הם בלוק קוד מוזח בתוך
+       * הפריט, לא הזחה עמוקה יותר, ולכן ``-␣␣␣␣␣␣טקסט`` אינו פותח רמה.
+       * מקור: ``markdown-it@14.1.0``, ``lib/rules_block/list.mjs`` —
+       * ``if (indentAfterMarker > 4) { indentAfterMarker = 1 }`` ואז
+       * ``const indent = initial + indentAfterMarker``.
+       */
+      _listContentCol(block){
+        const afterMarker = this._indentCols(block.indent) + (block.markerChars || 0);
+        const spaceCols = this._indentCols(block.spaceRun, afterMarker) - afterMarker;
+        return afterMarker + (spaceCols > 4 ? 1 : spaceCols);
+      }
+
+      /**
+       * עומק הקינון של שורת רשימה, ועדכון המחסנית עבור השורות הבאות.
+       *
+       * המחסנית מחזיקה את עמודות התוכן של הפריטים הפתוחים. שורה נשארת
+       * **בתוך** פריט כל עוד ההזחה שלה מגיעה לעמודת התוכן שלו; אחרת
+       * הפריט נסגר. מקור: ``markdown-it@14.1.0``,
+       * ``lib/rules_block/list.mjs`` —
+       * ``if (state.sCount[nextLine] < state.blkIndent) { break }``.
+       *
+       * זה מה שמבדיל בין "עמודת התוכן קובעת" לבין "כל הזחה = רמה":
+       * ``- א`` ואחריו ``␣- ב`` (רווח אחד) הם **אחים**, כי רווח אחד אינו
+       * מגיע לעמודה 2 שבה מתחיל הטקסט של הפריט הראשון. נמדד מול
+       * ``markdown-it``, לא הונח.
+       */
+      _listDepth(stack, block){
+        const indentCols = this._indentCols(block.indent);
+        while (stack.length && indentCols < stack[stack.length - 1]) stack.pop();
+        const depth = stack.length;
+        stack.push(this._listContentCol(block));
+        return depth;
       }
 
       // האם יש מארקדאון שכדאי לרנדר — כדי לא להפוך פתק טקסט רגיל לתצוגה.
@@ -1719,6 +1800,10 @@
           let taskIndex = 0;
           let charOffset = 0;
           let inFence = false;
+          // **מחסנית אחת לכל הפתק** — עמודות התוכן של פריטי הרשימה
+          // הפתוחים. היא חיה כאן ולא במתודה, כי עומק הקינון אינו תכונה
+          // של שורה בודדת אלא של השורות שקדמו לה.
+          const listStack = [];
           // **לולאה מאונדקסת ולא ``forEach``** — טבלה היא בלוק רב-שורתי,
           // והיא צריכה לצרוך כמה שורות בבת אחת ולקדם את ההיסט על כולן.
           for (let li = 0; li < lines.length; li += 1) {
@@ -1741,6 +1826,9 @@
               li = done.lastIndex;
               charOffset = done.nextOffset;
               taskIndex += done.tasksConsumed;
+              // טבלה היא בלוק שאינו רשימה, ולכן היא סוגרת רשימה פתוחה —
+              // בדיוק כמו כותרת או קו מפריד.
+              listStack.length = 0;
               continue;
             }
             const m = TASK_LINE_RE.exec(line);
@@ -1757,7 +1845,35 @@
             // שהלקוח שולח מצביע על משימה אחרת מזו שהמשתמש לחץ עליה.
             const thisTaskIndex = m ? taskIndex : -1;
             if (m) taskIndex += 1;
-            if (m && !inFence && !isFenceLine) {
+            // **הסיווג נעשה פעם אחת, לפני שהשורה מתפצלת לענף.**
+            //
+            // ``- [ ] א`` היא גם שורת משימה תקפה וגם פריט רשימה תקף, ושתי
+            // השאלות — "האם זו משימה" ו"מה עומק הקינון שלה" — נשאלות על
+            // אותה שורה. הסיווג ישב פעם בתוך ענף ה-``wantMd`` בלבד, ולכן
+            // שורות המשימה כלל לא הזינו את מחסנית העומק: ``- [ ] א``
+            // ואחריה ``  - ב`` היו יוצאות בעומק שגוי. שאלה אחת, מקום אחד.
+            const inCode = inFence || isFenceLine;
+            const b = (wantMd && !inCode) ? this._classifyLine(line) : null;
+            let depth = 0;
+            if (b) {
+              if (b.kind === 'ul' || b.kind === 'ol') {
+                depth = this._listDepth(listStack, b);
+                // עומק 0 אינו מקבל מחלקה: הוא חסר הזחה ממילא, ומחלקה
+                // ריקה הייתה רק רעש ב-DOM.
+                if (depth > 0) row.classList.add('is-depth-' + Math.min(depth, MD_MAX_LIST_DEPTH));
+              } else if (line.trim() !== '') {
+                // **שורה ריקה אינה סוגרת רשימה** — נמדד מול
+                // ``markdown-it``, גם שורה אחת וגם שתיים. כל שורה אחרת
+                // שאינה רשימה — כותרת, ציטוט, קו מפריד, טקסט — כן סוגרת.
+                //
+                // כאן יש **סטייה מכוונת** מ-``markdown-it``: שם שורת טקסט
+                // בעמודה 0 מיד אחרי פריט היא המשך הפסקה שלו, והרשימה
+                // ממשיכה. בפתק אין המשך פסקה — כל שורת מקור היא שורת
+                // תצוגה נפרדת עם ההיסט שלה — ולכן שורת טקסט סוגרת.
+                listStack.length = 0;
+              }
+            }
+            if (m && !inCode) {
               // צ'קבוקס אינטראקטיבי — רק מחוץ לגדר.
               row.classList.add('sticky-task');
               const box = createEl('input', 'sticky-task-box');
@@ -1770,7 +1886,7 @@
               else span.textContent = m[3].slice(1).trim();
               row.appendChild(box);
               row.appendChild(span);
-            } else if (inFence || isFenceLine) {
+            } else if (inCode) {
               // בתוך גדר קוד — כל שורה ליטרלית, בלי אינליין. הגדר עצמה
               // נשארת גלויה: כל שורת מקור היא שורת תצוגה אחת עם charOffset
               // משלה, וזה מה ששומר על חזרה-לעריכה מדויקת.
@@ -1779,7 +1895,6 @@
               row.textContent = line === '' ? ' ' : line;
               if (isFenceLine) inFence = !inFence;
             } else if (wantMd) {
-              const b = this._classifyLine(line);
               if (b.kind === 'heading'){
                 row.classList.add('sticky-md-h', 'sticky-md-h' + b.level);
                 this._appendInline(row, b.content);
@@ -1792,7 +1907,13 @@
               } else if (b.kind === 'ul' || b.kind === 'ol'){
                 row.classList.add('sticky-md-li', b.kind === 'ol' ? 'is-ol' : 'is-ul');
                 const bullet = createEl('span', 'sticky-md-bullet');
-                bullet.textContent = b.kind === 'ol' ? b.marker : '•';
+                // **ברשימה ממוספרת מוצג המספר שהוקלד, ולא מספור מחדש.**
+                // התצוגה היא ראי חד-כיווני של המקור, וכל "תיקון" מספור
+                // היה מציג משהו שאינו כתוב בפתק. ברשימה לא ממוספרת אין
+                // מה לשקף, ולכן שם התבליט משתנה עם העומק.
+                bullet.textContent = b.kind === 'ol'
+                  ? b.marker
+                  : MD_BULLETS[Math.min(depth, MD_BULLETS.length - 1)];
                 const body = createEl('span', 'sticky-md-li-body');
                 this._appendInline(body, b.content);
                 row.appendChild(bullet);
