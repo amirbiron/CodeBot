@@ -20,8 +20,9 @@ import logging
 from typing import Any
 
 from .backend import _json_safe
-from .repo_handlers import TREE_PER_PAGE_MAX
+from .repo_handlers import OUTPUT_BYTE_BUDGET, TREE_PER_PAGE_MAX
 from .handlers import apply_line_range, normalize_line_range
+from .outline import extract_outline
 from .repo_policy import is_denied
 
 #: תקרת גודל נפרדת לקריאת טווח שורות.
@@ -64,6 +65,57 @@ _REPOS_PROJECTION = {
     "total_files": 1,
     "sync_status": 1,
 }
+
+
+def _outline_response(
+    file_meta: dict[str, Any],
+    content: str,
+    path: str,
+    symbol: str | None,
+    page: int,
+    per_page: int,
+) -> dict[str, Any]:
+    """עוטף את ``extract_outline`` בעימוד ובמעטפת התשובה של הכלי.
+
+    **``status`` ולא ``error``.** קובץ שאין לו אאוטליין הוא בדיוק המקרה של
+    ``binary``: הקריאה הצליחה, פשוט אין תוכן מהסוג שביקשו. ``error`` שמור
+    ל-``ok: false``, לפי אוצר המילים שכבר קיים בכלים כאן.
+    """
+    result = extract_outline(content, path, symbol=symbol)
+    if result.get("status") != "ok":
+        # ערוץ הכשל של ``extract_outline`` הוא ערך ההחזרה ולא חריגה, ולכן
+        # נבדק כאן במפורש. בדיקה של "לא נזרקה חריגה" בלבד הייתה מציגה
+        # קובץ שבור כקובץ בלי סימבולים.
+        return {"ok": True, "file": file_meta, **result}
+
+    symbols = result["symbols"]
+    total = result["total"]
+    start = (page - 1) * per_page
+    window = symbols[start : start + per_page]
+
+    # ``truncated`` כאן הוא אותו דבר שהוא ב-``list_repo_tree``: תקציב
+    # הבתים שחתך **בתוך** העמוד, לא "יש עוד עמודים". שתי המשמעויות
+    # תחת מילה אחת היו הופכות את השדה למטעה בין שני כלים שכנים.
+    used = 0
+    kept: list[dict[str, Any]] = []
+    truncated = False
+    for row in window:
+        used += len(row["name"]) + 24
+        if used > OUTPUT_BYTE_BUDGET:
+            truncated = True
+            break
+        kept.append(row)
+
+    return {
+        "ok": True,
+        "status": "outline",
+        "file": file_meta,
+        "symbols": kept,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "truncated": truncated,
+    }
 
 
 class RepoBackend:
@@ -363,6 +415,10 @@ class RepoBackend:
         path: str,
         ref: str | None = None,
         lines: Any = None,
+        outline: bool = False,
+        symbol: str | None = None,
+        page: int = 1,
+        per_page: int = 100,
     ) -> dict[str, Any]:
         if is_denied(path):  # policy: block, before touching the mirror
             return {"ok": False, "error": "path_denied"}
@@ -382,7 +438,10 @@ class RepoBackend:
         # רק לקריאת טווח. בלי ``lines`` לא מועבר ``max_size`` כלל, כך
         # שברירת המחדל של שירות המראה נשארת מקור האמת היחיד ל-500KB —
         # ושתי ההתנהגויות לא נפרדות לשני מספרים שצריך לסנכרן.
-        size_kwargs = {"max_size": RANGE_READ_MAX_BYTES} if lines is not None else {}
+        # אאוטליין נשפט כמו קריאת טווח: הוא קורא את הקובץ כולו אבל מחזיר
+        # פלט זעיר, ולכן אין סיבה שתקרת התצוגה של 500KB תחסום אותו.
+        wants_slice = lines is not None or outline
+        size_kwargs = {"max_size": RANGE_READ_MAX_BYTES} if wants_slice else {}
         try:
             res = self._require_mirror().get_file_at_commit(
                 repo, path, use_ref, **size_kwargs
@@ -403,6 +462,9 @@ class RepoBackend:
             file_meta["lines"] = res.get("lines")
             file_meta["encoding"] = res.get("encoding")
             content = res.get("content")
+            if outline:
+                return _outline_response(file_meta, content or "", path,
+                                         symbol, page, per_page)
             if bounds is not None:
                 sliced = apply_line_range(content or "", *bounds)
                 if isinstance(sliced, str):

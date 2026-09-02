@@ -762,8 +762,13 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # עוקף אותה. עכשיו הוא באמת עוקף, אבל **שתי תקרות שונות**, ולכן
             # שני המספרים חייבים להופיע: סוכן שקיבל ``too_large`` צריך לדעת
             # אם ``lines`` יעזור לו או שהקובץ מעבר לגבול בכל מקרה.
-            + " Size limits differ by mode: 500KB for a whole file, 10MB when "
-            "lines is given. Binary files return metadata only."
+            + " Set outline=true for a map instead of content: every function and "
+            "class with its start and end line, so you can follow up with an exact "
+            "lines= range. Names are fully qualified with dots (Class.method, "
+            "outer.inner), symbol= filters on that full name, and page/per_page walk "
+            "long files. Python only; anything else returns status no_outline. Size "
+            "limits differ by mode: 500KB for a whole file, 10MB with lines or "
+            "outline. Binary files return metadata only."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -773,10 +778,22 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         path: str,
         ref: str | None = None,
         lines: StrictLines | None = None,
+        outline: bool = False,
+        symbol: str | None = None,
+        page: int = 1,
+        per_page: int = repo_handlers.OUTLINE_PER_PAGE_DEFAULT,
     ) -> dict:
         require_admin(ctx)
         return repo_handlers.get_repo_file(
-            repo_backend, repo=repo, path=path, ref=ref, lines=lines
+            repo_backend,
+            repo=repo,
+            path=path,
+            ref=ref,
+            lines=lines,
+            outline=outline,
+            symbol=symbol,
+            page=page,
+            per_page=per_page,
         )
 
     @mcp.tool(
