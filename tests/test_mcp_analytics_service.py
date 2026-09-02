@@ -345,8 +345,9 @@ def test_no_failure_message_ever_quotes_an_environment_value(monkeypatch):
         )
 
     # ולא יצאה אף בקשה אמיתית לרשת
-    assert all(url.startswith("https://us.posthog.com") for url, _ in sent)
-
+    # הסטאב על http_sync.request מונע כל בקשה אמיתית; כאן רק מוודאים
+    # שהסוד לא נכנס לכתובת של אף בקשה שנשלחה.
+    assert all("phx_" not in url for url, _ in sent)
 
 def test_the_api_key_never_appears_in_any_failure_message(configured):
     responses = [
