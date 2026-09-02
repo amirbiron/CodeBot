@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -85,6 +86,10 @@ TOTAL_BUDGET_SECONDS = 7.0
 # ההשוואה היא מול ה-**hostname** המפורסר ולא מול המחרוזת כולה: כתובת
 # שנושאת את הרצף הזה בנתיב או בשאילתה אינה כתובת בליעה.
 INGESTION_HOST_SUFFIX = ".i.posthog.com"
+
+# מזהה הפרויקט ב-PostHog הוא מספר, והוא הערך היחיד מבין השלושה שנכנס
+# לנתיב הכתובת. ספרות ASCII בלבד — ראו ההסבר ב-``resolve_config``.
+PROJECT_ID_PATTERN = re.compile(r"[0-9]+")
 
 # HTTPS בלבד. הבקשה נושאת את המפתח בכותרת ``Authorization``, ו-HTTP רגיל
 # היה שולח אותו בטקסט גלוי — כלומר קונפיגורציה שגויה אחת מספיקה כדי
@@ -174,6 +179,29 @@ class McpAnalyticsService:
             return _config_error(
                 "config_missing",
                 "המדידה אינה מוגדרת בשירות הוובאפ. חסר: " + ", ".join(missing),
+            )
+
+        # ``project_id`` הוא הערך היחיד מבין השלושה שנכנס ל**נתיב הכתובת**,
+        # ו-``http_sync`` רושם את הכתובת המלאה כ-``http.url`` על ה-span. כלומר
+        # ערך שנחת כאן בטעות — למשל מפתח שהודבק במשתנה הלא נכון — היה נרשם
+        # לערוץ תצפית. זה ``CRITICAL-PATTERNS.md`` K14, בנתיב במקום בשורת
+        # השאילתה.
+        #
+        # הבדיקה היא **רשימה לבנה**: היא מצהירה על הצורה הנתמכת במקום לנסות
+        # לזהות "מה נראה כמו סוד". רשימה שחורה מפספסת כל צורה שלא נחזתה
+        # מראש, וזו בדיוק הנקודה של K14. מזהה הפרויקט ב-PostHog הוא מספר
+        # (הערך שהפרויקט הזה מחזיר הוא ``567754``), ולכן ספרות בלבד.
+        #
+        # ``str.isdigit()`` **אינו** מספיק כאן: הוא מחזיר ``True`` גם על
+        # ספרות יוניקוד שאינן ASCII (``'٣٤'``, ``'²'``) — נבדק. הן היו
+        # עוברות את מה שההערה למעלה מבטיחה ונכנסות לנתיב הכתובת. הביטוי
+        # הרגולרי אומר בדיוק את מה שנטען.
+        if not PROJECT_ID_PATTERN.fullmatch(project_id):
+            # כמו ההודעות האחרות — מתארת מה נדרש, ואינה מצטטת את הערך.
+            return _config_error(
+                "config_invalid",
+                f"הערך של {ENV_PROJECT_ID} אינו מזהה פרויקט תקין. נדרש מספר "
+                "(ספרות בלבד) — מזהה הפרויקט המספרי של PostHog.",
             )
 
         parts = urlsplit(host)

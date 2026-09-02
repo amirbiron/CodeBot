@@ -121,7 +121,6 @@ def live_server():
         thread.join(timeout=5)
         patch.undo()
         pytest.skip("שרת הבדיקה לא עלה")
-        pytest.skip("שרת הבדיקה לא עלה")
 
     try:
         yield f"http://127.0.0.1:{port}", session_cookie

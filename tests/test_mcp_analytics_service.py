@@ -78,6 +78,54 @@ def test_ingestion_host_is_rejected_before_the_request_is_sent(monkeypatch):
     assert "us.posthog.com" in result.error_detail
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "phx_SECRET_PASTED_INTO_THE_WRONG_VARIABLE",  # מפתח במשתנה הלא נכון
+        "my-project",                                  # שם במקום מזהה
+        "12 34",                                       # רווח
+        "12/../secret",                                # ניסיון לצאת מהנתיב
+        "١٢٣",                                          # ספרות יוניקוד: str.isdigit() מחזיר True
+        "²",                                           # אותו דבר
+    ],
+)
+def test_a_project_id_that_is_not_a_number_is_rejected_before_any_request(monkeypatch, value):
+    """הערך היחיד מבין השלושה שנכנס לנתיב הכתובת, ולכן ל-``http.url`` על ה-span.
+
+    ``http_sync`` רושם ``span_attrs = {"http.url": str(url)}``, כלומר ערך
+    שנחת כאן בטעות נכתב לערוץ תצפית — ``CRITICAL-PATTERNS.md`` K14, בנתיב
+    במקום בשורת השאילתה. הדחייה חייבת לקרות **לפני** השליחה; סטאב שנופל
+    כשהוא נקרא הוא מה שמוכיח את זה, במקום לבדוק את הכתובת בדיעבד.
+    """
+    monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
+    monkeypatch.setenv("POSTHOG_HOST", "https://us.posthog.com")
+    monkeypatch.setenv("POSTHOG_PROJECT_ID", value)
+
+    def _must_not_be_called(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("בקשה נשלחה עם מזהה פרויקט לא תקין")
+
+    monkeypatch.setattr("http_sync.request", _must_not_be_called)
+
+    result = McpAnalyticsService().run_endpoint(mcp.ENDPOINT_TOOL_HEALTH)
+
+    assert result.error_code == "config_invalid"
+    # חסר הוא עדיין ``config_missing`` — סדר הבדיקות לא זז
+    assert result.error_code != "config_missing"
+    assert value not in result.error_detail, "ההודעה ציטטה את הערך"
+
+
+def test_a_numeric_project_id_is_accepted(monkeypatch):
+    """הצד השני של הרשימה הלבנה — אחרת הבדיקה למעלה יכולה לדחות הכול."""
+    monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
+    monkeypatch.setenv("POSTHOG_HOST", "https://us.posthog.com")
+    monkeypatch.setenv("POSTHOG_PROJECT_ID", "567754")
+
+    config = McpAnalyticsService().resolve_config()
+
+    assert isinstance(config, mcp.PostHogConfig)
+    assert config.project_id == "567754"
+
+
 def test_trailing_slash_in_host_does_not_double_up(monkeypatch):
     monkeypatch.setenv("POSTHOG_PERSONAL_API_KEY", "phx_TEST")
     monkeypatch.setenv("POSTHOG_PROJECT_ID", "1")
@@ -332,9 +380,18 @@ def test_no_failure_message_ever_quotes_an_environment_value(monkeypatch):
 
     monkeypatch.setattr("http_sync.request", _always_fails)
 
+    # ערכי הבסיס חייבים להיות **תקפים**, אחרת האיטרציה נופלת על ולידציה
+    # שאינה זו שנבדקת: ``project_id="v"`` נדחה לפני שליחה, אף בקשה לא
+    # יוצאת, ``sent`` נשאר ריק, וה-assert שבסוף עובר על קבוצה ריקה.
+    valid = {
+        "POSTHOG_HOST": "https://us.posthog.com",
+        "POSTHOG_PROJECT_ID": "567754",
+        "POSTHOG_PERSONAL_API_KEY": "phx_TEST_ONLY_NOT_REAL",
+    }
+
     for name in ("POSTHOG_HOST", "POSTHOG_PROJECT_ID", "POSTHOG_PERSONAL_API_KEY"):
         for key in ENV_KEYS:
-            monkeypatch.setenv(key, "https://us.posthog.com" if key == "POSTHOG_HOST" else "v")
+            monkeypatch.setenv(key, valid[key])
         monkeypatch.setenv(name, sentinel)
 
         result = McpAnalyticsService().run_endpoint(mcp.ENDPOINT_TOOL_HEALTH)
@@ -344,10 +401,17 @@ def test_no_failure_message_ever_quotes_an_environment_value(monkeypatch):
             f"הערך של {name} צוטט בהודעה שמוצגת בעמוד"
         )
 
-    # ולא יצאה אף בקשה אמיתית לרשת
-    # הסטאב על http_sync.request מונע כל בקשה אמיתית; כאן רק מוודאים
-    # שהסוד לא נכנס לכתובת של אף בקשה שנשלחה.
+    # הסטאב על ``http_sync.request`` מונע כל בקשה אמיתית; שני ה-assertים
+    # כאן בודקים דברים שונים, ושניהם נדרשים.
+    #
+    # האיטרציה השלישית היא היחידה שעוברת ולידציה ושולחת בפועל — שתי
+    # הראשונות נדחות לפני שליחה. היא מה שמונע מהבדיקות למטה לעבור ריק.
+    assert sent, "אף בקשה לא נשלחה — ה-assertים למטה עוברים על קבוצה ריקה"
+    # הכתובת נבנית מ-host + project_id. ``startswith`` לבדו עיוור לסוד
+    # שנכנס ל**נתיב**, ולכן צריך גם את הבדיקה השנייה.
+    assert all(url.startswith("https://us.posthog.com") for url, _ in sent)
     assert all("phx_" not in url for url, _ in sent)
+
 
 def test_the_api_key_never_appears_in_any_failure_message(configured):
     responses = [
