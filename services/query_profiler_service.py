@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
 import os
-import weakref
+import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -436,21 +435,7 @@ class QueryProfilerService:
 
         return record
 
-    async def record_slow_query(
-        self,
-        collection: str,
-        operation: str,
-        query: Dict[str, Any],
-        execution_time_ms: float,
-        client_info: Optional[Dict[str, Any]] = None,
-    ) -> SlowQueryRecord:
-        """
-        רישום שאילתה איטית.
-        נקרא אוטומטית על ידי ה-CommandListener.
-        """
-        return self.record_slow_query_sync(collection, operation, query, execution_time_ms, client_info)
-
-    async def get_slow_queries(
+    def get_slow_queries(
         self,
         limit: int = 50,
         collection_filter: Optional[str] = None,
@@ -477,7 +462,7 @@ class QueryProfilerService:
 
         return queries[: max(1, int(limit))]
 
-    async def get_explain_plan(
+    def get_explain_plan(
         self,
         collection: str,
         query: Dict[str, Any],
@@ -516,7 +501,7 @@ class QueryProfilerService:
                 )
                 return cursor.explain()
 
-        explain_result = await asyncio.to_thread(_run_explain)
+        explain_result = _run_explain()
         return self._parse_explain_result(collection, query, explain_result)
 
     def _parse_explain_result(self, collection: str, query: Dict[str, Any], explain_result: Dict[str, Any]) -> ExplainPlan:
@@ -601,7 +586,7 @@ class QueryProfilerService:
         n_returned = int(execution_stats.get("nReturned", 0) or 0)
         return docs_examined == 0 and keys_examined >= n_returned and n_returned > 0
 
-    async def analyze_and_recommend(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
+    def analyze_and_recommend(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
         """ניתוח explain plan ויצירת המלצות אופטימיזציה."""
         recommendations: List[OptimizationRecommendation] = []
 
@@ -629,7 +614,7 @@ class QueryProfilerService:
 
         return recommendations
 
-    async def generate_recommendations(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
+    def generate_recommendations(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
         """
         אלגוריתם יצירת המלצות:
 
@@ -638,7 +623,7 @@ class QueryProfilerService:
         3. זיהוי דפוסים בעייתיים
         4. יצירת המלצות עם עדיפויות
         """
-        recommendations = await self.analyze_and_recommend(explain_plan)
+        recommendations = self.analyze_and_recommend(explain_plan)
         severity_order = {SeverityLevel.CRITICAL: 0, SeverityLevel.WARNING: 1, SeverityLevel.INFO: 2}
         return sorted(recommendations, key=lambda r: severity_order.get(r.severity, 999))
 
@@ -748,7 +733,7 @@ class QueryProfilerService:
             estimated_improvement="הפחתת עומס על בסיס הנתונים",
         )
 
-    async def get_collection_stats(self, collection: str) -> Dict[str, Any]:
+    def get_collection_stats(self, collection: str) -> Dict[str, Any]:
         """קבלת סטטיסטיקות collection לצורך המלצות"""
 
         def _get_stats() -> Dict[str, Any]:
@@ -766,7 +751,7 @@ class QueryProfilerService:
                 "total_index_size": stats.get("totalIndexSize", 0),
             }
 
-        return await asyncio.to_thread(_get_stats)
+        return _get_stats()
 
     def get_summary(self) -> Dict[str, Any]:
         """קבלת סיכום מצב הפרופיילר"""
@@ -792,15 +777,6 @@ class QueryProfilerService:
             "unique_patterns": len(self._query_patterns),
             "threshold_ms": self.slow_threshold_ms,
         }
-
-    async def get_summary_async(self) -> Dict[str, Any]:
-        """
-        גרסה אסינכרונית לסיכום.
-
-        בבסיס (in-memory) אין I/O, אז אין צורך ב-to_thread.
-        מחלקות יורשות (למשל Persistent*) יכולות לדרוס כדי להימנע מחסימה על I/O סינכרוני.
-        """
-        return self.get_summary()
 
     # --- Aggregations ---
     def _fix_pipeline_for_explain(self, pipeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -852,7 +828,7 @@ class QueryProfilerService:
             fixed.append(new_stage)
         return fixed
 
-    async def get_aggregation_explain(
+    def get_aggregation_explain(
         self,
         collection: str,
         pipeline: List[Dict[str, Any]],
@@ -886,7 +862,7 @@ class QueryProfilerService:
                 cursor={},
             )
 
-        explain_result = await asyncio.to_thread(_run_explain)
+        explain_result = _run_explain()
         return self._parse_aggregation_explain(collection, pipeline, explain_result)
 
     def _parse_aggregation_explain(
@@ -1005,7 +981,7 @@ class QueryProfilerService:
             normalized.append(normalized_stage)
         return normalized
 
-    async def analyze_aggregation_and_recommend(self, explain: AggregationExplainPlan) -> List[OptimizationRecommendation]:
+    def analyze_aggregation_and_recommend(self, explain: AggregationExplainPlan) -> List[OptimizationRecommendation]:
         """המלצות ספציפיות לאגרגציות"""
         recommendations: List[OptimizationRecommendation] = []
 
@@ -1086,24 +1062,25 @@ class PersistentQueryProfilerService(QueryProfilerService):
 
     COLLECTION_NAME = "slow_queries_log"
 
+    #: זמן שמירה לרשומות שאילתות איטיות, בשניות (7 ימים).
+    #: מקור אמת יחיד: ``DatabaseManager._create_profiler_indexes`` יוצר את אינדקס ה-TTL
+    #: לפי הערך הזה, ו-endpoint התחזוקה ``/api/debug/maintenance_cleanup`` משתמש באותו
+    #: ערך. אם השניים יתפצלו — כל הרצת תחזוקה תפיל ותיצור מחדש את האינדקס.
+    TTL_SECONDS = 7 * 24 * 60 * 60  # 604800
+
     def __init__(self, db_manager: Any, slow_threshold_ms: int = QueryProfilerService.DEFAULT_SLOW_THRESHOLD_MS):
         super().__init__(db_manager=db_manager, slow_threshold_ms=slow_threshold_ms)
 
-        # Cache/locks ברמת instance (לא משותף בין instances),
-        # ובנוסף מבודד פר-event-loop כדי למנוע שימוש ב-asyncio.Lock בין לופים שונים
-        # (למשל ב-Flask כשמריצים asyncio.run() שעשוי ליצור loop חדש).
-        self._summary_cache_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, Any]]" = (
-            weakref.WeakKeyDictionary()
-        )
-        self._summary_cache_expires_at_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, datetime]" = (
-            weakref.WeakKeyDictionary()
-        )
-        self._summary_lock_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
-            weakref.WeakKeyDictionary()
-        )
+        # Cache ברמת instance (לא משותף בין instances).
+        # היה כאן בעבר cache מבודד פר-event-loop (WeakKeyDictionary + asyncio.Lock), כי
+        # asyncio.Lock אינו ניתן לשיתוף בין לופים. השירות סינכרוני לגמרי, אין כאן לופים,
+        # ולכן נעילת threading פשוטה מספיקה ונכונה גם תחת gevent (שממנקי-פאטץ' אותה).
+        self._summary_cache: Optional[Dict[str, Any]] = None
+        self._summary_cache_expires_at: Optional[datetime] = None
+        self._summary_lock = threading.Lock()
         self._CACHE_TTL_SECONDS = 60
 
-    async def record_slow_query(
+    def record_slow_query_sync(
         self,
         collection: str,
         operation: str,
@@ -1111,11 +1088,12 @@ class PersistentQueryProfilerService(QueryProfilerService):
         execution_time_ms: float,
         client_info: Optional[Dict[str, Any]] = None,
     ) -> SlowQueryRecord:
-        record = await super().record_slow_query(collection, operation, query, execution_time_ms, client_info)
-        await self._persist_record(record)
+        """רישום שאילתה איטית, ובנוסף שמירה ב-MongoDB."""
+        record = super().record_slow_query_sync(collection, operation, query, execution_time_ms, client_info)
+        self._persist_record(record)
         return record
 
-    async def _persist_record(self, record: SlowQueryRecord) -> None:
+    def _persist_record(self, record: SlowQueryRecord) -> None:
         doc = {
             "query_id": record.query_id,
             "collection": record.collection,
@@ -1133,9 +1111,9 @@ class PersistentQueryProfilerService(QueryProfilerService):
             db[self.COLLECTION_NAME].insert_one(doc)
             return None
 
-        await asyncio.to_thread(_insert)
+        _insert()
 
-    async def get_slow_queries(
+    def get_slow_queries(
         self,
         limit: int = 50,
         collection_filter: Optional[str] = None,
@@ -1159,7 +1137,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
             cursor = db[self.COLLECTION_NAME].find(query, sort=[("execution_time_ms", -1)], limit=limit_n)
             return list(cursor)
 
-        docs = await asyncio.to_thread(_fetch)
+        docs = _fetch()
 
         out: List[SlowQueryRecord] = []
         for doc in docs:
@@ -1178,7 +1156,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
             )
         return out
 
-    async def get_pattern_statistics(self, days: int = 7) -> List[Dict[str, Any]]:
+    def get_pattern_statistics(self, days: int = 7) -> List[Dict[str, Any]]:
         since = datetime.utcnow() - timedelta(days=max(1, int(days)))
         pipeline = [
             {"$match": {"timestamp": {"$gte": since}}},
@@ -1203,47 +1181,43 @@ class PersistentQueryProfilerService(QueryProfilerService):
                 return []
             return list(db[self.COLLECTION_NAME].aggregate(pipeline))
 
-        return await asyncio.to_thread(_aggregate)
+        return _aggregate()
 
-    async def get_summary_async(self) -> Dict[str, Any]:
+    def get_summary(self) -> Dict[str, Any]:
         """
-        סיכום אסינכרוני שלא חוסם את ה-Event Loop:
-        - Cache קצר (TTL) כדי לא להעמיס על ה-DB
-        - חישוב כבד ב-thread (asyncio.to_thread)
+        סיכום מצב הפרופיילר, עם Cache קצר (TTL) כדי לא להעמיס על ה-DB.
+
+        שינוי התנהגות מכוון (PR של הסרת שכבת ה-asyncio): בעבר ``get_summary`` היה
+        ללא cache ורק ``get_summary_async`` היה ממוטמן. שתי המתודות אוחדו לאחת
+        ממוטמנת — זו ההתנהגות שכל הקוראים בפועל כבר קיבלו.
         """
         now = datetime.utcnow()
-        loop = asyncio.get_running_loop()
 
-        cached = self._summary_cache_by_loop.get(loop)
-        expires_at = self._summary_cache_expires_at_by_loop.get(loop)
+        cached = self._summary_cache
+        expires_at = self._summary_cache_expires_at
         if cached is not None and expires_at is not None and expires_at > now:
             return cached
 
-        lock = self._summary_lock_by_loop.get(loop)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._summary_lock_by_loop[loop] = lock
-
-        async with lock:
+        with self._summary_lock:
             # Double-check בתוך הנעילה כדי למנוע cache stampede
             now = datetime.utcnow()
-            cached = self._summary_cache_by_loop.get(loop)
-            expires_at = self._summary_cache_expires_at_by_loop.get(loop)
+            cached = self._summary_cache
+            expires_at = self._summary_cache_expires_at
             if cached is not None and expires_at is not None and expires_at > now:
                 return cached
 
             try:
-                result = await asyncio.to_thread(self._calculate_summary_sync)
+                result = self._calculate_summary_sync()
             except Exception as e:
                 logger.error("Error calculating profiler summary", exc_info=True, extra={"error": str(e)})
                 return super().get_summary()
 
-            self._summary_cache_by_loop[loop] = result
-            self._summary_cache_expires_at_by_loop[loop] = now + timedelta(seconds=self._CACHE_TTL_SECONDS)
+            self._summary_cache = result
+            self._summary_cache_expires_at = now + timedelta(seconds=self._CACHE_TTL_SECONDS)
             return result
 
     def _calculate_summary_sync(self) -> Dict[str, Any]:
-        """חישוב סינכרוני (רץ ב-thread דרך asyncio.to_thread) – כולל כל הלוגיקה המלאה."""
+        """חישוב הסיכום מול ה-DB – כולל כל הלוגיקה המלאה. נקרא מתוך get_summary עם cache."""
         try:
             db = getattr(self.db_manager, "db", None)
             if db is None:
@@ -1290,12 +1264,4 @@ class PersistentQueryProfilerService(QueryProfilerService):
             }
         except Exception:
             return super().get_summary()
-
-    def get_summary(self) -> Dict[str, Any]:
-        """
-        תאימות לאחור (סינכרוני).
-
-        ⚠️ חשוב: בשרת אסינכרוני, עדיף לקרוא ל-get_summary_async() כדי לא לחסום את ה-Event Loop.
-        """
-        return self._calculate_summary_sync()
 

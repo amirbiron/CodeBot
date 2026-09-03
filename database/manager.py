@@ -1065,32 +1065,22 @@ class DatabaseManager:
                                         "cmd": req_data["cmd_name"],
                                     }
 
-                                    # הרצה אסינכרונית
-                                    try:
-                                        loop = asyncio.get_running_loop()
-                                    except RuntimeError:
-                                        loop = None
-
-                                    if loop is not None:
-                                        loop.create_task(
-                                            profiler.record_slow_query(
-                                                collection=coll,
-                                                operation=req_data["cmd_name"],
-                                                query=req_data["query"],
-                                                execution_time_ms=float(dur_ms),
-                                                client_info=client_info,
-                                            )
-                                        )
-                                    else:
-                                        asyncio.run(
-                                            profiler.record_slow_query(
-                                                collection=coll,
-                                                operation=req_data["cmd_name"],
-                                                query=req_data["query"],
-                                                execution_time_ms=float(dur_ms),
-                                                client_info=client_info,
-                                            )
-                                        )
+                                    # רישום סינכרוני. ה-CommandListener של pymongo הוא סינכרוני,
+                                    # ולכן הרישום נעשה כאן ישירות.
+                                    #
+                                    # קודם לכן הקוד תיזמן קורוטינה: create_task כשנראתה לולאה
+                                    # רצה, ואחרת asyncio.run. תחת gevent הלולאה ה"רצה" שנראית
+                                    # עלולה להיות של גרינלט אחר (מצב ה-loop של asyncio נשמר
+                                    # ברמת ה-OS thread, וגרינלטים חולקים thread) — והמשימה
+                                    # נתלתה על לולאה שנסגרת מיד. התוצאה: הרשומה אבדה בשקט,
+                                    # בלי חריגה ובלי לוג. אומת בשחזור.
+                                    profiler.record_slow_query_sync(
+                                        collection=coll,
+                                        operation=req_data["cmd_name"],
+                                        query=req_data["query"],
+                                        execution_time_ms=float(dur_ms),
+                                        client_info=client_info,
+                                    )
                                 except Exception as e:
                                     # החזרת לוג שגיאה למקרה הצורך
                                     logger.error(f"Profiler Error: {str(e)}")
@@ -1338,6 +1328,7 @@ class DatabaseManager:
         background: bool = True,
         enforce: bool = False,
         partial_filter_expression: Optional[Dict[str, Any]] = None,
+        expire_after_seconds: Optional[int] = None,
     ) -> None:
         """יוצר אינדקס בצורה בטוחה וב-Background.
 
@@ -1349,6 +1340,10 @@ class DatabaseManager:
         Args:
             partial_filter_expression: אופציונלי - תנאי סינון לאינדקס חלקי (Partial Index).
                                        מאפשר לאנדקס רק חלק מהמסמכים לפי פילטר.
+            expire_after_seconds: אופציונלי - יוצר אינדקס TTL שמוחק מסמכים אחרי X שניות.
+                                  שם הפרמטר ב-pymongo הוא ``expireAfterSeconds``
+                                  (מקור: pymongo/synchronous/collection.py, create_index).
+                                  ⚠️ אינדקס TTL מוחק נתונים בפועל — לא להוסיף בלי כוונה מפורשת.
         """
         db = getattr(self, "db", None)
         if db is None:
@@ -1433,6 +1428,17 @@ class DatabaseManager:
                     if existing_partial is not None:
                         return False
 
+                # TTL: אינדקס עם expireAfterSeconds שונה הוא אינדקס אחר לכל דבר.
+                # בלי ההשוואה הזו, שינוי retention היה נבלע בשקט ("כבר קיים") והנתונים
+                # היו ממשיכים להימחק לפי הערך הישן.
+                existing_expire = idx.get("expireAfterSeconds")
+                if expire_after_seconds is not None:
+                    if existing_expire is None or int(existing_expire) != int(expire_after_seconds):
+                        return False
+                else:
+                    if existing_expire is not None:
+                        return False
+
                 return True
             except Exception:
                 return False
@@ -1445,6 +1451,8 @@ class DatabaseManager:
             }
             if partial_filter_expression is not None:
                 index_kwargs["partialFilterExpression"] = partial_filter_expression
+            if expire_after_seconds is not None:
+                index_kwargs["expireAfterSeconds"] = int(expire_after_seconds)
             collection.create_index(desired_keys, **index_kwargs)
             emit_event(
                 "db_index_created",
@@ -1506,6 +1514,8 @@ class DatabaseManager:
                         }
                         if partial_filter_expression is not None:
                             recreate_kwargs["partialFilterExpression"] = partial_filter_expression
+                        if expire_after_seconds is not None:
+                            recreate_kwargs["expireAfterSeconds"] = int(expire_after_seconds)
                         collection.create_index(desired_keys, **recreate_kwargs)
                         emit_event(
                             "db_index_created",
@@ -1540,6 +1550,46 @@ class DatabaseManager:
                 index_name=name or "",
                 error=msg,
             )
+
+    def _create_profiler_indexes(self, safe_create_index) -> None:
+        """אינדקסים לאוסף ``slow_queries_log`` שהפרופיילר כותב אליו.
+
+        שלושה אינדקסים, בדיוק כפי שמתועד ב-``docs/observability/query-performance-profiler.rst``:
+
+        1. ``ttl_cleanup`` על ``timestamp`` — מחיקה אוטומטית אחרי 7 ימים.
+        2. ``collection_timestamp`` — משרת סינון לפי collection עם מיון לפי זמן.
+        3. ``query_pattern`` — משרת חיפוש לפי ``query_id``.
+
+        שם השדה ``timestamp`` נגזר מהכותב עצמו (``PersistentQueryProfilerService._persist_record``)
+        ומהקוראים (``get_slow_queries``, ``_calculate_summary_sync``) — לא מנוחש.
+
+        ⚠️ ``ttl_cleanup`` הוא אינדקס TTL: ברגע שהוא נוצר, MongoDB תמחק כל רשומה ישנה
+        מ-7 ימים בסבב הניקוי הבא (עד דקה). זו מחיקת נתונים בפועל, במכוון.
+        """
+        try:
+            from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+            collection_name = PersistentQueryProfilerService.COLLECTION_NAME
+            ttl_seconds = int(PersistentQueryProfilerService.TTL_SECONDS)
+        except Exception:
+            # השירות אינו זמין (סביבה מינימלית) — אין טעם ליצור אינדקסים לאוסף שאיש לא כותב אליו.
+            return
+
+        safe_create_index(
+            collection_name,
+            [("timestamp", ASCENDING)],
+            name="ttl_cleanup",
+            expire_after_seconds=ttl_seconds,
+        )
+        safe_create_index(
+            collection_name,
+            [("collection", ASCENDING), ("timestamp", DESCENDING)],
+            name="collection_timestamp",
+        )
+        safe_create_index(
+            collection_name,
+            [("query_id", ASCENDING)],
+            name="query_pattern",
+        )
 
     def _create_indexes(self):
         """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
@@ -1615,6 +1665,11 @@ class DatabaseManager:
             name="idx_job_runs_id",
             unique=True,
         )
+
+        # slow_queries_log - האוסף שהפרופיילר כותב אליו.
+        # קריאה לא-קשורה (unbound) כמו שאר הקובץ, כדי לתמוך גם ב-self דמה מטסטים
+        # שאין עליו את המתודה (ראה שים התאימות למעלה).
+        DatabaseManager._create_profiler_indexes(self, safe_create_index)
 
         # scheduler_jobs - אינדקס לשאילתות polling לפי next_run_time (רץ בתדירות גבוהה)
         safe_create_index(

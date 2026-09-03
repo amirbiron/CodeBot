@@ -117,17 +117,18 @@ def test_db_health_collections_endpoint_rate_limited(monkeypatch):
     monkeypatch.setenv("DB_HEALTH_TOKEN", "test-db-health-token")
     # חלון ארוך במכוון. מה שנבדק כאן הוא שבקשה שנייה **בתוך** החלון נחסמת,
     # ולא כמה זמן החלון נמשך — ולכן אסור שהטסט יתחרה בשעון. עם חלון קצר
-    # (2 שניות) הוא היה נכשל ב-CI לסירוגין: הבקשה הראשונה יוצרת תהליכון
-    # ולולאת asyncio בפעם הראשונה בתהליך (_ensure_db_health_async_loop),
-    # ותחת pytest -n auto כמה תהליכי בדיקה מתחרים על אותו מעבד — אז החלון
-    # הספיק לפוג לפני הבקשה השנייה, והשרת החזיר 200 בצדק.
+    # (2 שניות) הוא היה נכשל ב-CI לסירוגין, כי תחת pytest -n auto כמה תהליכי
+    # בדיקה מתחרים על אותו מעבד והחלון הספיק לפוג לפני הבקשה השנייה.
     monkeypatch.setenv("DB_HEALTH_COLLECTIONS_COOLDOWN_SEC", "3600")
 
     # Reset global per-process cooldown state between tests
     monkeypatch.setattr(webapp_app, "_DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO", None, raising=False)
 
     class _Svc:
-        async def get_collection_stats(self, collection_name=None):
+        # סינכרוני, כמו SyncDatabaseHealthService.get_collection_stats שה-WebApp
+        # מקבל בפועל (services/db_health_service.py). הסטאב היה אסינכרוני, ועבר רק
+        # כי המעטפת שהוסרה עשתה await על מה שקיבלה — כלומר הוא לא בדק את החוזה האמיתי.
+        def get_collection_stats(self, collection_name=None):
             return [CollectionStat(name="users", count=1)]
 
     monkeypatch.setattr(webapp_app, "_get_webapp_db_health_service", lambda: _Svc(), raising=True)

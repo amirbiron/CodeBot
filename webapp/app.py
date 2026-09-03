@@ -13,14 +13,13 @@ import math
 import time
 import mimetypes
 import uuid
-import inspect
 import socket
 
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple, Set, Union
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
 from markupsafe import Markup
@@ -52,7 +51,6 @@ import secrets
 import yaml
 import threading
 import base64
-import contextvars
 import traceback
 import asyncio
 
@@ -226,7 +224,9 @@ except Exception:  # pragma: no cover
 try:  # prefer the canonical list projection from repository layer
     from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION as _HEAVY_FIELDS_EXCLUDE_PROJECTION  # type: ignore
 except Exception:  # pragma: no cover - fallback for minimal environments
-    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {"code": 0, "content": 0, "raw_content": 0}
+    # חייב להישאר זהה לקבוע הקנוני ב-database/repository.py. חסר כאן בעבר raw_data,
+    # כלומר בסביבה מינימלית שדה כבד היה נמשך בשאילתות רשימה בלי שאיש ישים לב.
+    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {"code": 0, "content": 0, "raw_data": 0, "raw_content": 0}
 
 LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
@@ -4742,158 +4742,6 @@ def _profiler_rate_limit_ok() -> bool:
         return True
 
 
-def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
-    """הרצה בטוחה של awaitable בסביבה סינכרונית (Flask/WSGI).
-
-    - אם יש event loop פעיל ב-thread הנוכחי: מריצים ב-thread נקי עם לולאה חדשה.
-    - אחרת: מריצים לולאה חדשה באותו thread.
-    """
-
-    def _get_native_thread_class():
-        try:
-            from gevent import monkey as gevent_monkey  # type: ignore
-        except Exception:
-            return threading.Thread
-        try:
-            return gevent_monkey.get_original("threading", "Thread")
-        except Exception:
-            start_fn = None
-            for module_name in ("thread", "_thread"):
-                try:
-                    start_fn = gevent_monkey.get_original(module_name, "start_new_thread")
-                    break
-                except Exception:
-                    continue
-            if start_fn is None:
-                return threading.Thread
-
-            class _NativeThread:
-                def __init__(self, *, target=None, name=None, daemon=None, args=None, kwargs=None):
-                    self._target = target
-                    self._args = tuple(args or ())
-                    self._kwargs = dict(kwargs or {})
-                    self.name = name or "native_thread"
-                    # start_new_thread לא תומך ב-daemon; נשמר לשקיפות בלבד.
-                    self.daemon = bool(daemon) if daemon is not None else False
-
-                def start(self):
-                    def _runner():
-                        # ננסה להצמיד שם לת׳רד (best-effort).
-                        try:
-                            threading.current_thread().name = self.name
-                        except Exception:
-                            pass
-                        if self._target is not None:
-                            self._target(*self._args, **self._kwargs)
-
-                    start_fn(_runner, ())
-
-            return _NativeThread
-
-    def _is_running_loop_error(exc: BaseException) -> bool:
-        msg = str(exc).lower()
-        return (
-            "event loop is already running" in msg
-            or "cannot run the event loop while another loop is running" in msg
-            or "asyncio.run() cannot be called from a running event loop" in msg
-        )
-
-    async def _runner():
-        return await awaitable
-
-    def _run_in_new_loop():
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-        run_in_clean_context = False
-        if running_loop is not None:
-            loop_thread_id = getattr(running_loop, "_thread_id", None)
-            if loop_thread_id is None or loop_thread_id != threading.get_ident():
-                # Loop context leaked from a different thread (gevent/contextvars).
-                # Run in a clean context to avoid false "loop already running".
-                run_in_clean_context = True
-                running_loop = None
-            elif running_loop.is_running():
-                raise RuntimeError("event loop is already running")
-
-        def _run_in_new_loop_inner():
-            prev_loop = None
-            loop = None
-            try:
-                try:
-                    prev_loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    prev_loop = None
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                return loop.run_until_complete(_runner())
-            finally:
-                if loop is not None:
-                    try:
-                        loop.close()
-                    finally:
-                        try:
-                            if prev_loop is None or prev_loop.is_closed():
-                                asyncio.set_event_loop(None)
-                            else:
-                                asyncio.set_event_loop(prev_loop)
-                        except Exception:
-                            pass
-
-        if run_in_clean_context:
-            return contextvars.Context().run(_run_in_new_loop_inner)
-        return _run_in_new_loop_inner()
-
-    def _run_in_fresh_thread():
-        future: Future = Future()
-
-        def _target():
-            try:
-                future.set_result(_run_in_new_loop())
-            except BaseException as exc:
-                future.set_exception(exc)
-
-        native_thread = _get_native_thread_class()
-        thread = native_thread(target=_target, name=f"{thread_label}_loop", daemon=True)
-        thread.start()
-        return future.result()
-
-    def _run_in_threadpool():
-        return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
-
-    def _run_in_threadpool_with_fallback():
-        try:
-            return _run_in_threadpool()
-        except RuntimeError as exc:
-            if _is_running_loop_error(exc):
-                return _run_in_fresh_thread()
-            raise
-
-    # תחת gevent/asyncio: אם יש event loop פעיל, נברח ל-thread "נקי".
-    try:
-        running_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        running_loop = None
-    if running_loop is not None:
-        loop_thread_id = getattr(running_loop, "_thread_id", None)
-        if loop_thread_id is not None and loop_thread_id == threading.get_ident():
-            return _run_in_threadpool_with_fallback()
-
-    # אין event loop פעיל ב-thread הנוכחי => מותר להריץ לולאה חדשה כאן.
-    try:
-        return _run_in_new_loop()
-    except RuntimeError as exc:
-        if _is_running_loop_error(exc):
-            return _run_in_threadpool_with_fallback()
-        raise
-
-
-def _run_profiler(awaitable):
-    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI."""
-    return _run_awaitable_blocking(awaitable, thread_label="profiler")
-
-
 @app.route("/admin/profiler")
 @admin_required
 def admin_profiler_page():
@@ -5005,13 +4853,11 @@ def api_profiler_slow_queries():
             since = None
     try:
         svc = _get_webapp_profiler_service()
-        queries = _run_profiler(
-            svc.get_slow_queries(
-                limit=limit,
-                collection_filter=collection,
-                min_execution_time_ms=float(min_time) if min_time else None,
-                since=since,
-            )
+        queries = svc.get_slow_queries(
+            limit=limit,
+            collection_filter=collection,
+            min_execution_time_ms=float(min_time) if min_time else None,
+            since=since,
         )
         return jsonify({"status": "success", "data": [_serialize_slow_query(q) for q in queries], "count": len(queries)})
     except Exception:
@@ -5027,7 +4873,7 @@ def api_profiler_summary():
         return jsonify({"status": "error", "message": "rate_limited"}), 429
     try:
         svc = _get_webapp_profiler_service()
-        summary = _run_profiler(svc.get_summary_async())
+        summary = svc.get_summary()
         return jsonify({"status": "success", "data": summary})
     except Exception:
         logger.exception("api_profiler_summary_failed")
@@ -5053,9 +4899,9 @@ def api_profiler_explain():
     try:
         svc = _get_webapp_profiler_service()
         if isinstance(pipeline, list):
-            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
+            explain = svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity)
             return jsonify({"status": "success", "data": _serialize_aggregation_explain(explain)})
-        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
+        explain = svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
         return jsonify({"status": "success", "data": _serialize_explain_plan(explain)})
     except ValueError as e:
         if "broken array normalization" in str(e):
@@ -5090,8 +4936,8 @@ def api_profiler_recommendations():
     try:
         svc = _get_webapp_profiler_service()
         if isinstance(pipeline, list):
-            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
-            recommendations = _run_profiler(svc.analyze_aggregation_and_recommend(explain))
+            explain = svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity)
+            recommendations = svc.analyze_aggregation_and_recommend(explain)
             return jsonify(
                 {
                     "status": "success",
@@ -5101,8 +4947,8 @@ def api_profiler_recommendations():
                     },
                 }
             )
-        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
-        recommendations = _run_profiler(svc.generate_recommendations(explain))
+        explain = svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
+        recommendations = svc.generate_recommendations(explain)
         return jsonify(
             {
                 "status": "success",
@@ -5140,7 +4986,7 @@ def api_profiler_collection_stats(name: str):
         return jsonify({"status": "error", "message": "rate_limited"}), 429
     try:
         svc = _get_webapp_profiler_service()
-        stats = _run_profiler(svc.get_collection_stats(name))
+        stats = svc.get_collection_stats(name)
         return jsonify({"status": "success", "data": stats})
     except Exception:
         logger.exception("api_profiler_collection_stats_failed")
@@ -5204,128 +5050,10 @@ def _maintenance_cleanup_is_authorized() -> bool:
 
 
 _WEBAPP_DB_HEALTH_SERVICE = None
-_DB_HEALTH_ASYNC_LOOP = None
-_DB_HEALTH_ASYNC_LOOP_THREAD = None
-_DB_HEALTH_ASYNC_LOOP_READY = threading.Event()
-_DB_HEALTH_ASYNC_LOOP_LOCK = threading.Lock()
 
 # Throttling ל-collStats (Per-process). מגן על DB מפני הרצות תכופות.
 _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO: Optional[float] = None
 _DB_HEALTH_COLLECTIONS_COOLDOWN_LOCK = threading.Lock()
-
-
-def _get_db_health_native_thread_class():
-    try:
-        from gevent import monkey as gevent_monkey  # type: ignore
-    except Exception:
-        return threading.Thread
-    try:
-        return gevent_monkey.get_original("threading", "Thread")
-    except Exception:
-        start_fn = None
-        for module_name in ("thread", "_thread"):
-            try:
-                start_fn = gevent_monkey.get_original(module_name, "start_new_thread")
-                break
-            except Exception:
-                continue
-        if start_fn is None:
-            return threading.Thread
-
-        class _NativeThread:
-            def __init__(self, *, target=None, name=None, daemon=None, args=None, kwargs=None):
-                self._target = target
-                self._args = tuple(args or ())
-                self._kwargs = dict(kwargs or {})
-                self.name = name or "native_thread"
-                self.daemon = bool(daemon) if daemon is not None else False
-                self._start_called = threading.Event()
-                self._started = threading.Event()
-                self._finished = threading.Event()
-
-            def start(self):
-                def _runner():
-                    try:
-                        threading.current_thread().name = self.name
-                    except Exception:
-                        pass
-                    self._started.set()
-                    try:
-                        if self._target is not None:
-                            self._target(*self._args, **self._kwargs)
-                    finally:
-                        self._finished.set()
-
-                start_fn(_runner, ())
-                self._start_called.set()
-
-            def is_alive(self) -> bool:
-                return self._start_called.is_set() and not self._finished.is_set()
-
-        return _NativeThread
-
-
-def _ensure_db_health_async_loop():
-    global _DB_HEALTH_ASYNC_LOOP, _DB_HEALTH_ASYNC_LOOP_THREAD
-    loop = _DB_HEALTH_ASYNC_LOOP
-    if loop is not None and not loop.is_closed() and loop.is_running():
-        return loop
-    with _DB_HEALTH_ASYNC_LOOP_LOCK:
-        loop = _DB_HEALTH_ASYNC_LOOP
-        if loop is not None and not loop.is_closed():
-            if loop.is_running():
-                return loop
-            thread = _DB_HEALTH_ASYNC_LOOP_THREAD
-            if thread is not None and thread.is_alive():
-                _DB_HEALTH_ASYNC_LOOP_READY.wait(timeout=0.25)
-                if loop.is_running():
-                    return loop
-            try:
-                loop.close()
-            except Exception:
-                logger.warning("db_health_loop_close_failed", exc_info=True)
-        _DB_HEALTH_ASYNC_LOOP_READY.clear()
-        loop = asyncio.new_event_loop()
-
-        def _run_loop():
-            asyncio.set_event_loop(loop)
-            loop.call_soon(_DB_HEALTH_ASYNC_LOOP_READY.set)
-            loop.run_forever()
-
-        native_thread = _get_db_health_native_thread_class()
-        thread = native_thread(target=_run_loop, name="db_health_async_loop", daemon=True)
-        try:
-            thread.start()
-        except Exception:
-            try:
-                loop.close()
-            except Exception:
-                logger.warning("db_health_loop_close_failed", exc_info=True)
-            raise
-        _DB_HEALTH_ASYNC_LOOP = loop
-        _DB_HEALTH_ASYNC_LOOP_THREAD = thread
-        return loop
-
-
-def _run_db_health(awaitable):
-    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI.
-
-    אם מתקבל awaitable – נריץ אותו בלולאה ייעודית ברקע.
-    """
-    if inspect.isawaitable(awaitable):
-        try:
-            loop = _ensure_db_health_async_loop()
-        except Exception:
-            logger.exception("db_health_async_loop_failed")
-            return _run_awaitable_blocking(awaitable, thread_label="db_health")
-        try:
-            async def _await_wrapper(item):
-                return await item
-            return asyncio.run_coroutine_threadsafe(_await_wrapper(awaitable), loop).result()
-        except Exception:
-            logger.exception("db_health_async_loop_failed")
-            raise
-    return awaitable
 
 
 def _get_webapp_db_health_service():
@@ -5352,9 +5080,7 @@ def _get_webapp_db_health_service():
             close_fn = getattr(current_service, "close", None)
             if callable(close_fn):
                 try:
-                    close_result = close_fn()
-                    if inspect.isawaitable(close_result):
-                        _run_awaitable_blocking(close_result, thread_label="db_health_close")
+                    close_fn()
                 except Exception:
                     logger.warning("db_health_service_close_failed", exc_info=True)
 
@@ -5384,7 +5110,7 @@ def api_db_pool():
         return jsonify({"error": "unauthorized"}), 401
     try:
         svc = _get_webapp_db_health_service()
-        pool = _run_db_health(svc.get_pool_status())
+        pool = svc.get_pool_status()
         return jsonify(pool.to_dict())
     except Exception as e:
         logger.exception("api_db_pool_failed")
@@ -5405,7 +5131,7 @@ def api_db_ops():
     include_system = str(request.args.get("include_system", "")).lower() == "true"
     try:
         svc = _get_webapp_db_health_service()
-        ops = _run_db_health(svc.get_current_operations(threshold_ms=threshold, include_system=include_system))
+        ops = svc.get_current_operations(threshold_ms=threshold, include_system=include_system)
         return jsonify(
             {
                 "count": len(ops),
@@ -5465,7 +5191,7 @@ def api_db_collections():
     collection = request.args.get("collection")
     try:
         svc = _get_webapp_db_health_service()
-        stats = _run_db_health(svc.get_collection_stats(collection_name=collection))
+        stats = svc.get_collection_stats(collection_name=collection)
         duration_ms = int((time.monotonic() - start_mono) * 1000)
         logger.info(
             "api_db_collections_loaded",
@@ -5521,14 +5247,12 @@ def api_db_collection_documents(collection: str):
 
     try:
         svc = _get_webapp_db_health_service()
-        result = _run_db_health(
-            svc.get_documents(
-                collection_name=collection,
-                skip=skip,
-                limit=limit,
-                filters=filters or None,
-                sort=sort_value,
-            )
+        result = svc.get_documents(
+            collection_name=collection,
+            skip=skip,
+            limit=limit,
+            filters=filters or None,
+            sort=sort_value,
         )
         return jsonify(result)
     except InvalidCollectionNameError as e:
@@ -5549,7 +5273,7 @@ def api_db_health():
         return jsonify({"error": "unauthorized"}), 401
     try:
         svc = _get_webapp_db_health_service()
-        summary = _run_db_health(svc.get_health_summary())
+        summary = svc.get_health_summary()
         return jsonify(summary)
     except Exception as e:
         logger.exception("api_db_health_failed")

@@ -106,7 +106,7 @@ def test_db_manager_profiler_runs_when_slow_mongo_disabled(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
-        async def record_slow_query(self, **kwargs):
+        def record_slow_query_sync(self, **kwargs):
             called["count"] += 1
             return None
 

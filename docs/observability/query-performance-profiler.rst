@@ -346,6 +346,10 @@ Collection
 
 שם: ``slow_queries_log``
 
+שלושת האינדקסים שלהלן נוצרים על ידי ``DatabaseManager._create_profiler_indexes``,
+שרצה כחלק מיצירת האינדקסים בעליית התהליך. הכתיבה עצמה נעשית סינכרונית
+מתוך ה-``CommandListener`` של pymongo — ראו :doc:`asyncio-loop-safety`.
+
 TTL Index
 ~~~~~~~~~
 
