@@ -190,3 +190,76 @@ class TestRecommendationsSurviveTheSafeDefault:
         assert any("COLLSCAN" in r.title for r in recommendations), (
             f"המלצת ה-COLLSCAN נעלמה בלי executionStats. התקבל: {[r.title for r in recommendations]}"
         )
+
+
+class TestTheRoutesTellTheUserWhatHappened:
+    """הענפים האלה חייבים להיבדק דרך הראוט, לא דרך השירות.
+
+    שם מחלקה ב-``except`` מוערך רק כשחריגה מגיעה אליו. גרסה מוקדמת של הקוד הזה
+    הזכירה שם שלא היה מיובא — הטסטים ברמת השירות עברו, והכשל היה מתגלה רק
+    בפרודקשן, כ-NameError בתוך handler של שגיאה.
+    """
+
+    TOKEN = "test-profiler-admin"
+
+    def _client(self, monkeypatch, raising):
+        import webapp.app as webapp_app
+
+        monkeypatch.setattr(webapp_app, "_profiler_is_authorized", lambda: True, raising=True)
+        monkeypatch.setattr(webapp_app, "_profiler_rate_limit_ok", lambda: True, raising=True)
+
+        class _Svc:
+            def get_explain_plan(self, **kwargs):
+                raise raising
+
+            def get_aggregation_explain(self, **kwargs):
+                raise raising
+
+        monkeypatch.setattr(webapp_app, "_get_webapp_profiler_service", lambda: _Svc(), raising=True)
+        return webapp_app
+
+    def test_a_timeout_is_not_reported_as_a_crash(self, monkeypatch):
+        from services.query_profiler_service import ExplainTimeoutError
+
+        webapp_app = self._client(monkeypatch, ExplainTimeoutError("explain exceeded 5000ms"))
+
+        with webapp_app.app.test_client() as client:
+            resp = client.post(
+                "/api/profiler/recommendations",
+                json={"collection": "code_snippets", "verbosity": "executionStats"},
+            )
+
+        assert resp.status_code == 504, resp.get_data(as_text=True)[:300]
+        payload = resp.get_json()
+        assert payload["error_code"] == "EXPLAIN_TIMEOUT"
+        assert "queryPlanner" in payload["message"], "ההודעה חייבת לומר למשתמש מה לעשות"
+
+    def test_an_unsupported_verbosity_is_a_400_and_not_a_500(self, monkeypatch):
+        from services.query_profiler_service import ExplainVerbosityError
+
+        webapp_app = self._client(monkeypatch, ExplainVerbosityError("Unsupported explain verbosity 'nope'"))
+
+        with webapp_app.app.test_client() as client:
+            resp = client.post(
+                "/api/profiler/explain",
+                json={"collection": "code_snippets", "verbosity": "nope"},
+            )
+
+        assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
+        assert resp.get_json()["error_code"] == "INVALID_VERBOSITY"
+
+    def test_a_broken_query_shape_still_reports_as_before(self, monkeypatch):
+        """``ExplainVerbosityError`` יורשת מ-``ValueError``, ולכן סדר ה-except משנה.
+
+        אם היא הייתה נתפסת לפני הבדיקה של "broken array normalization", המקרה
+        הוותיק היה מקבל פתאום INVALID_VERBOSITY.
+        """
+        webapp_app = self._client(
+            monkeypatch, ValueError("Query shape contains broken array normalization from old version.")
+        )
+
+        with webapp_app.app.test_client() as client:
+            resp = client.post("/api/profiler/explain", json={"collection": "code_snippets"})
+
+        assert resp.status_code == 400
+        assert resp.get_json()["error_code"] == "BROKEN_QUERY_SHAPE"

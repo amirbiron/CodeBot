@@ -211,6 +211,23 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+class ExplainVerbosityError(ValueError):
+    """רמת פירוט שאינה אחת מאלה ש-MongoDB מגדירה.
+
+    יורשת מ-``ValueError`` כדי שצרכנים קיימים שתופסים ``ValueError`` ימשיכו
+    לעבוד; מי שרוצה להבדיל בין "קלט לא חוקי" ל"שאילתה שבורה" בודק את הטיפוס.
+    """
+
+
+class ExplainTimeoutError(RuntimeError):
+    """ה-explain חרג מהתקרה.
+
+    ``executionStats`` ו-``allPlansExecution`` מריצים את השאילתה בפועל — ועל
+    שאילתות איטיות זה בדיוק מה שקורה. בלי הטיפוס הזה החריגה הייתה מגיעה
+    למשתמש כ-500 גנרי, שלא ניתן להבחין בינו לבין קריסה.
+    """
+
+
 class QueryProfilerService:
     """
     שירות לניתוח ביצועי שאילתות MongoDB.
@@ -501,15 +518,28 @@ class QueryProfilerService:
         """
         if verbosity not in self.EXPLAIN_VERBOSITIES:
             allowed = ", ".join(sorted(self.EXPLAIN_VERBOSITIES))
-            raise ValueError(f"Unsupported explain verbosity {verbosity!r}. Allowed values: {allowed}")
+            raise ExplainVerbosityError(
+                f"Unsupported explain verbosity {verbosity!r}. Allowed values: {allowed}"
+            )
 
         db = getattr(self.db_manager, "db", None)
         if db is None:
             raise RuntimeError("No MongoDB database available")
 
-        timeout_seconds = max(1, int(self._explain_max_time_ms())) / 1000.0
-        with pymongo.timeout(timeout_seconds):
-            return db.command("explain", inner_command, verbosity=verbosity)
+        max_time_ms = max(1, int(self._explain_max_time_ms()))
+        try:
+            with pymongo.timeout(max_time_ms / 1000.0):
+                return db.command("explain", inner_command, verbosity=verbosity)
+        except pymongo.errors.PyMongoError as exc:
+            # ``exc.timeout`` הוא הסיווג של pymongo עצמה, ולא ניחוש לפי סוג החריגה:
+            # חריגה מהדדליין יכולה להגיע כ-ExecutionTimeout, NetworkTimeout או
+            # ServerSelectionTimeoutError, ולכולן הדגל הזה. מקור: הדוקסטרינג של
+            # ``pymongo.timeout``.
+            if getattr(exc, "timeout", False):
+                raise ExplainTimeoutError(
+                    f"explain exceeded {max_time_ms}ms with verbosity={verbosity!r}"
+                ) from exc
+            raise
 
     def get_explain_plan(
         self,

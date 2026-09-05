@@ -190,6 +190,13 @@ from services.db_health_service import (  # noqa: E402
     MAX_SKIP,
     clean_db_health_filter_value,
 )
+from services.query_profiler_service import (  # noqa: E402
+    # ממופים לשמות פרטיים כי הם משמשים רק בענפי ה-except של ראוטי הפרופיילר.
+    # ייבוא ברמת המודול ולא בתוך הפונקציה: שם מחלקה ב-``except`` מוערך רק כשחריגה
+    # מגיעה לשם, ולכן שם שאינו קיים היה מתגלה כ-NameError רק בזמן כשל אמיתי.
+    ExplainTimeoutError as _ProfilerExplainTimeout,
+    ExplainVerbosityError as _ProfilerVerbosityError,
+)
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
     COPY_CODE_SCRIPT_CSP_HASH,
@@ -4903,6 +4910,21 @@ def api_profiler_explain():
             return jsonify({"status": "success", "data": _serialize_aggregation_explain(explain)})
         explain = svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
         return jsonify({"status": "success", "data": _serialize_explain_plan(explain)})
+    except _ProfilerExplainTimeout as e:
+        # תקרת הזמן של ה-explain. בלי הענף הזה זו הייתה תשובת 500 גנרית, שאי אפשר
+        # להבחין בינה לבין קריסה — והמשתמש לא היה יודע שהפתרון הוא queryPlanner.
+        logger.warning("api_profiler_explain_explain_timeout", extra={"error": str(e)})
+        return jsonify({
+            "status": "error",
+            "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
+            "error_code": "EXPLAIN_TIMEOUT"
+        }), 504
+    except _ProfilerVerbosityError as e:
+        return jsonify({
+            "status": "error",
+            "message": f"רמת פירוט לא נתמכת ל-explain. {e}",
+            "error_code": "INVALID_VERBOSITY"
+        }), 400
     except ValueError as e:
         if "broken array normalization" in str(e):
             return jsonify({
@@ -4958,6 +4980,21 @@ def api_profiler_recommendations():
                 },
             }
         )
+    except _ProfilerExplainTimeout as e:
+        # תקרת הזמן של ה-explain. בלי הענף הזה זו הייתה תשובת 500 גנרית, שאי אפשר
+        # להבחין בינה לבין קריסה — והמשתמש לא היה יודע שהפתרון הוא queryPlanner.
+        logger.warning("api_profiler_recommendations_explain_timeout", extra={"error": str(e)})
+        return jsonify({
+            "status": "error",
+            "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
+            "error_code": "EXPLAIN_TIMEOUT"
+        }), 504
+    except _ProfilerVerbosityError as e:
+        return jsonify({
+            "status": "error",
+            "message": f"רמת פירוט לא נתמכת ל-explain. {e}",
+            "error_code": "INVALID_VERBOSITY"
+        }), 400
     except ValueError as e:
         if "broken array normalization" in str(e):
             return jsonify({
