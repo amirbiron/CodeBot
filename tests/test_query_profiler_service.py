@@ -327,3 +327,68 @@ class TestPersistentQueryProfilerServiceSummary:
         assert calls["n"] == 1
         assert r1 == r2
 
+    def test_a_new_record_invalidates_the_cache_even_without_a_db(self, monkeypatch):
+        """ביטול ה-cache חייב לכסות גם את המסלול שאין בו DB.
+
+        כשאין DB, ``_persist_record`` יוצאת מוקדם ואין כתיבה — אבל הרשומה כן
+        נוספה לזיכרון, והסיכום במסלול הזה נבנה בדיוק מהזיכרון. אם הביטול יושב
+        בסוף ``_persist_record``, הוא מדולג, והדשבורד מציג מספר ישן עד 60 שניות.
+        """
+        manager = MagicMock()
+        manager.db = None  # אין DB — מסלול ה-fallback לזיכרון
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        calls = {"n": 0}
+
+        def _calc():
+            calls["n"] += 1
+            return {"total_slow_queries": calls["n"]}
+
+        monkeypatch.setattr(svc, "_calculate_summary_sync", _calc)
+
+        assert svc.get_summary()["total_slow_queries"] == 1
+        assert svc.get_summary()["total_slow_queries"] == 1, "ה-cache אמור לתפוס"
+
+        svc.record_slow_query_sync(
+            collection="code_snippets",
+            operation="find",
+            query={"user_id": 1},
+            execution_time_ms=1500.0,
+        )
+
+        assert svc.get_summary()["total_slow_queries"] == 2, (
+            "רשומה חדשה בזיכרון לא ביטלה את ה-cache"
+        )
+
+    def test_a_failed_db_write_still_invalidates_the_cache(self, monkeypatch):
+        """גם כתיבה שנכשלה השאירה רשומה בזיכרון, אז ה-cache חייב להתבטל."""
+        manager = MagicMock()
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        calls = {"n": 0}
+
+        def _calc():
+            calls["n"] += 1
+            return {"total_slow_queries": calls["n"]}
+
+        monkeypatch.setattr(svc, "_calculate_summary_sync", _calc)
+        monkeypatch.setattr(
+            svc,
+            "_persist_record",
+            lambda record: (_ for _ in ()).throw(RuntimeError("mongo down")),
+        )
+
+        assert svc.get_summary()["total_slow_queries"] == 1
+
+        with pytest.raises(RuntimeError):
+            svc.record_slow_query_sync(
+                collection="code_snippets",
+                operation="find",
+                query={"user_id": 1},
+                execution_time_ms=1500.0,
+            )
+
+        assert svc.get_summary()["total_slow_queries"] == 2, (
+            "כתיבה שנכשלה השאירה רשומה בזיכרון אבל ה-cache נשאר ישן"
+        )
+

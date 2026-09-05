@@ -1316,6 +1316,19 @@ def create_app() -> web.Application:
         from services.db_provider import get_db
 
         def _run_cleanup() -> dict:
+            # ⚠️ מוקדם בכוונה: הפונקציה הזו מוחקת מסמכים ומפילה אינדקסים. כל מה
+            # שיכול להיכשל בלי לגעת ב-DB חייב להיכשל **לפני** הפעולות ההרסניות,
+            # אחרת ImportError היה מחזיר 500 אחרי שהנתונים כבר נמחקו והאינדקס
+            # הישן הופל — ובלי שנוצר אינדקס TTL חדש במקומו.
+            from services.query_profiler_service import (  # type: ignore
+                PersistentQueryProfilerService as _ProfilerSvc,
+            )
+
+            # מקור אמת יחיד ל-retention של slow_queries_log — אותו ערך שבו משתמש
+            # DatabaseManager._create_profiler_indexes. אם השניים יתפצלו, כל הרצת
+            # תחזוקה תפיל ותיצור מחדש את אינדקס ה-TTL.
+            profiler_ttl_seconds = int(_ProfilerSvc.TTL_SECONDS)
+
             preview = str(request.query.get("preview", "") or "").lower() in {"1", "true", "yes", "on"}
             db = get_db()
 
@@ -1420,18 +1433,11 @@ def create_app() -> web.Application:
                     pass
                 service_metrics_pre_drop = {"dropped": dropped_pre}
 
-            # מקור אמת יחיד ל-retention של slow_queries_log — אותו ערך שבו משתמש
-            # DatabaseManager._create_profiler_indexes. אם השניים יתפצלו, כל הרצת
-            # תחזוקה תפיל ותיצור מחדש את אינדקס ה-TTL.
-            from services.query_profiler_service import (  # type: ignore
-                PersistentQueryProfilerService as _ProfilerSvc,
-            )
-
             ttl_results: dict[str, Any] = {
                 "slow_queries_log": _ensure_ttl_index(
                     slow_queries_coll,
                     field="timestamp",
-                    expire_seconds=int(_ProfilerSvc.TTL_SECONDS),
+                    expire_seconds=profiler_ttl_seconds,
                     index_name="ttl_cleanup",
                 ),
                 # service_metrics uses "ts" in code, but we'll also create a "timestamp" TTL for safety/backward-compat

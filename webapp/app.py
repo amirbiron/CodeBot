@@ -5308,6 +5308,12 @@ def api_debug_maintenance_cleanup():
     if not _maintenance_cleanup_is_authorized():
         return jsonify({"error": "unauthorized"}), 401
 
+    # ⚠️ מוקדם בכוונה: ה-endpoint הזה מוחק מסמכים ומפיל אינדקסים. כל מה שיכול
+    # להיכשל בלי לגעת ב-DB חייב להיכשל **לפני** הפעולות ההרסניות — אחרת כשל
+    # בייבוא היה מחזיר 500 אחרי שהנתונים כבר נמחקו והאינדקס הישן הופל, בלי
+    # שנוצר אינדקס TTL חדש במקומו.
+    profiler_ttl_seconds = _profiler_ttl_seconds()
+
     preview = str(request.args.get("preview") or "").lower() in {"1", "true", "yes", "on"}
 
     def _ensure_ttl_index(coll: Any, *, field: str, expire_seconds: int, index_name: str) -> dict:
@@ -5429,7 +5435,7 @@ def api_debug_maintenance_cleanup():
                 field="timestamp",
                 # מקור אמת יחיד. אותו אינדקס נוצר גם ב-DatabaseManager._create_profiler_indexes;
                 # אם שני המקומות יתפצלו, כל הרצת תחזוקה תפיל ותיצור אותו מחדש.
-                expire_seconds=_profiler_ttl_seconds(),
+                expire_seconds=profiler_ttl_seconds,
                 index_name="ttl_cleanup",
             ),
             "service_metrics_ts": _ensure_ttl_index(

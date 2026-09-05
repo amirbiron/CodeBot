@@ -1090,7 +1090,19 @@ class PersistentQueryProfilerService(QueryProfilerService):
     ) -> SlowQueryRecord:
         """רישום שאילתה איטית, ובנוסף שמירה ב-MongoDB."""
         record = super().record_slow_query_sync(collection, operation, query, execution_time_ms, client_info)
-        self._persist_record(record)
+        try:
+            self._persist_record(record)
+        finally:
+            # ביטול ה-cache יושב כאן, ולא בתוך ``_persist_record``, כי **שני**
+            # מסלולים משנים מצב שהסיכום נבנה ממנו: הרשומה שנוספה לזיכרון
+            # (``super()``, תמיד) והכתיבה ל-DB (רק כשיש DB). ``_persist_record``
+            # יוצאת מוקדם כשאין DB, וביטול שיושב בסופה היה מדלג בדיוק על המסלול
+            # שבו הסיכום נבנה מהזיכרון — הדשבורד היה מציג מספר ישן עד 60 שניות.
+            #
+            # ``finally`` ולא אחרי: גם כתיבה שנכשלה השאירה רשומה בזיכרון.
+            # ואחרי הכתיבה ולא לפניה: ``insert_one`` הוא נקודת yield תחת gevent,
+            # וביטול מוקדם היה מאפשר לגרינלט אחר לבנות מחדש cache בלי המסמך החדש.
+            self._invalidate_summary_cache()
         return record
 
     def _persist_record(self, record: SlowQueryRecord) -> None:
@@ -1109,11 +1121,6 @@ class PersistentQueryProfilerService(QueryProfilerService):
             return
 
         db[self.COLLECTION_NAME].insert_one(doc)
-
-        # ה-cache של get_summary נבנה מהאוסף הזה. בלי ביטול, שאילתה איטית חדשה
-        # לא הייתה מופיעה בסיכום עד 60 שניות — כלומר הדשבורד היה מציג מספר
-        # שהמשתמש כבר יודע שאינו נכון.
-        self._invalidate_summary_cache()
 
     def _invalidate_summary_cache(self) -> None:
         with self._summary_lock:

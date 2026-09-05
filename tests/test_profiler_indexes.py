@@ -237,3 +237,37 @@ class TestRegisteredJobPointsAtRealCode:
         assert hasattr(dm.DatabaseManager, job.callback_name), (
             f"הג'וב מצביע על {job.callback_name!r} שאינו קיים על DatabaseManager"
         )
+
+
+class TestDestructiveEndpointsFailFast:
+    """שני endpointים של ``maintenance_cleanup`` מוחקים מסמכים ומפילים אינדקסים.
+
+    כל מה שיכול להיכשל בלי לגעת ב-DB — כאן זה ייבוא של ``PersistentQueryProfilerService``
+    ושליפת ``TTL_SECONDS`` — חייב לקרות **לפני** הפעולה ההרסנית. אחרת כשל בייבוא
+    מחזיר 500 אחרי שהנתונים נמחקו והאינדקס הישן הופל, ובלי שנוצר TTL חדש במקומו.
+    הבדיקה עוברת על סדר השורות בקוד, כי שם הפגם חי.
+    """
+
+    #: הסימנים ההרסניים שאסור שיקדימו את שליפת ה-TTL.
+    _DESTRUCTIVE = ("delete_many(", "drop_index(")
+
+    def _cleanup_body(self, path: str, marker: str) -> str:
+        source = pathlib.Path(path).read_text(encoding="utf-8")
+        start = source.index(marker)
+        return source[start:start + 12000]
+
+    def test_webapp_resolves_ttl_before_deleting(self):
+        body = self._cleanup_body("webapp/app.py", "def api_debug_maintenance_cleanup(")
+        ttl_at = body.index("profiler_ttl_seconds = ")
+        for token in self._DESTRUCTIVE:
+            assert ttl_at < body.index(token), (
+                f"{token} מופיע לפני שליפת ה-TTL — כשל בייבוא ישאיר את ה-DB חצי מנוקה"
+            )
+
+    def test_webserver_resolves_ttl_before_deleting(self):
+        body = self._cleanup_body("services/webserver.py", "def _run_cleanup()")
+        ttl_at = body.index("profiler_ttl_seconds = ")
+        for token in self._DESTRUCTIVE:
+            assert ttl_at < body.index(token), (
+                f"{token} מופיע לפני שליפת ה-TTL — כשל בייבוא ישאיר את ה-DB חצי מנוקה"
+            )

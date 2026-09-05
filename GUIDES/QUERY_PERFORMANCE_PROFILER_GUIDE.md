@@ -5,6 +5,19 @@
 
 ---
 
+> [!WARNING]
+> **דוגמאות הקוד כאן קדמו למעבר לסינכרוני, וה-API כבר לא נראה כך.**
+>
+> המדריך נכתב כשכל מתודות הפרופיילר היו `async def` ועטפו pymongo ב-`await asyncio.to_thread(...)`. הדפוס הזה **הוסר**: תחת gunicorn עם `worker_class=gevent` פתיחת event loop מקוד סינכרוני מפילה כל בקשה חופפת באותו worker, וזה הפיל את `/admin/profiler` בפרודקשן. היום `PersistentQueryProfilerService` סינכרונית לגמרי.
+>
+> כלומר: כל `async def`, כל `await` וכל `asyncio.to_thread` שמופיעים בדוגמאות שלהלן הם **היסטוריה, לא הוראה**. הרעיונות, מבנה הנתונים והשיקולים עדיין נכונים; החתימות לא.
+>
+> - המימוש בפועל: `services/query_profiler_service.py`
+> - למה, והמנגנון המלא: `docs/observability/asyncio-loop-safety.rst`
+> - הכלל הכללי: `docs/performance-bible.md`, סעיף 5
+
+---
+
 ### ⚠️ נקודות חשובות לפני שמתחילים
 
 | נושא | מה חשוב לדעת |
@@ -2307,143 +2320,18 @@ safe_create_index(
 
 #### אלטרנטיבה: Capped Collection
 
-```python
-# יצירת Capped Collection (גודל קבוע, FIFO)
-await self.db.create_collection(
-    "slow_queries_log",
-    capped=True,
-    size=100 * 1024 * 1024,  # 100MB
-    max=10000  # מקסימום 10,000 מסמכים
-)
-```
+נשקלה ולא נבחרה. Capped Collection מוחקת לפי גודל ולא לפי גיל, אז אין דרך להבטיח "שבוע אחורה", והיא לא מאפשרת אינדקס TTL. נבחר במקום זה אינדקס TTL רגיל על `timestamp`.
 
 #### מימוש שמירה ב-MongoDB
 
-```python
-# services/query_profiler_service.py - גרסה עם persistence
+> ⚠️ **כאן היה עותק מלא של המחלקה, והוא נהיה שגוי.** הוא הראה `async def` עם `await asyncio.to_thread(...)` — בדיוק הדפוס שהוסר מהקוד, כי תחת gunicorn עם gevent הוא מפיל בקשות חופפות. עותק של קוד בתוך מדריך מתיישן בשקט ואז מטעה את מי שקורא אותו, ולכן במקום לתקן את העותק — הוא הוסר. **המימוש עצמו הוא מקור האמת:** `services/query_profiler_service.py`, המחלקה `PersistentQueryProfilerService`.
 
-class PersistentQueryProfilerService(QueryProfilerService):
-    """
-    גרסה משופרת של הפרופיילר עם שמירה ב-MongoDB.
-    מתאימה ל-Production.
-    """
-    
-    COLLECTION_NAME = "slow_queries_log"
-    
-    async def record_slow_query(
-        self,
-        collection: str,
-        operation: str,
-        query: Dict[str, Any],
-        execution_time_ms: float,
-        client_info: Optional[Dict[str, Any]] = None
-    ) -> SlowQueryRecord:
-        """רישום שאילתה עם שמירה ל-MongoDB"""
-        
-        # יצירת הרשומה (כמו קודם)
-        record = await super().record_slow_query(
-            collection, operation, query, execution_time_ms, client_info
-        )
-        
-        # שמירה ל-MongoDB
-        await self._persist_record(record)
-        
-        return record
-    
-    async def _persist_record(self, record: SlowQueryRecord) -> None:
-        """שמירת רשומה ל-MongoDB"""
-        doc = {
-            "query_id": record.query_id,
-            "collection": record.collection,
-            "operation": record.operation,
-            "query_shape": record.query_shape,
-            "execution_time_ms": record.execution_time_ms,
-            "timestamp": record.timestamp,
-            "client_info": record.client_info
-        }
-        
-        await asyncio.to_thread(
-            self.db_manager.db[self.COLLECTION_NAME].insert_one,
-            doc
-        )
-    
-    async def get_slow_queries(
-        self,
-        limit: int = 50,
-        collection_filter: Optional[str] = None,
-        min_execution_time_ms: Optional[float] = None,
-        since: Optional[datetime] = None
-    ) -> List[SlowQueryRecord]:
-        """קבלת שאילתות מ-MongoDB (לא רק מזיכרון)"""
-        
-        query = {}
-        
-        if collection_filter:
-            query["collection"] = collection_filter
-        
-        if min_execution_time_ms:
-            query["execution_time_ms"] = {"$gte": min_execution_time_ms}
-        
-        if since:
-            query["timestamp"] = {"$gte": since}
-        
-        def _fetch():
-            cursor = self.db_manager.db[self.COLLECTION_NAME].find(
-                query,
-                sort=[("execution_time_ms", -1)],
-                limit=limit
-            )
-            return list(cursor)
-        
-        docs = await asyncio.to_thread(_fetch)
-        
-        return [
-            SlowQueryRecord(
-                query_id=doc["query_id"],
-                collection=doc["collection"],
-                operation=doc["operation"],
-                query_shape=doc["query_shape"],
-                execution_time_ms=doc["execution_time_ms"],
-                timestamp=doc["timestamp"],
-                client_info=doc.get("client_info")
-            )
-            for doc in docs
-        ]
-    
-    async def get_pattern_statistics(
-        self,
-        days: int = 7
-    ) -> List[Dict[str, Any]]:
-        """סטטיסטיקות מצטברות לפי דפוס שאילתה"""
-        
-        since = datetime.utcnow() - timedelta(days=days)
-        
-        pipeline = [
-            {"$match": {"timestamp": {"$gte": since}}},
-            {"$group": {
-                "_id": {
-                    "query_id": "$query_id",
-                    "collection": "$collection",
-                    "operation": "$operation"
-                },
-                "count": {"$sum": 1},
-                "avg_time_ms": {"$avg": "$execution_time_ms"},
-                "max_time_ms": {"$max": "$execution_time_ms"},
-                "min_time_ms": {"$min": "$execution_time_ms"},
-                "last_seen": {"$max": "$timestamp"},
-                "query_shape": {"$first": "$query_shape"}
-            }},
-            {"$sort": {"count": -1}},
-            {"$limit": 50}
-        ]
-        
-        def _aggregate():
-            return list(
-                self.db_manager.db[self.COLLECTION_NAME].aggregate(pipeline)
-            )
-        
-        return await asyncio.to_thread(_aggregate)
-```
+מה שחשוב לדעת עליה, בלי לקרוא אותה:
+
+- **כל המתודות סינכרוניות.** אין בה `async` ואין `await`. היא נצרכת מ-Flask על WSGI, ושם פתיחת event loop מפילה גרינלטים אחרים באותו worker. הסבר מלא: `docs/observability/asyncio-loop-safety.rst`.
+- **צרכן אסינכרוני מתאים את עצמו אליה**, לא להפך — `handlers/profiler_handler.py` עוטף כל קריאה ב-`asyncio.to_thread(...)`, כי שם באמת רצה לולאה.
+- `COLLECTION_NAME` ו-`TTL_SECONDS` הם המקור היחיד לשם האוסף ולזמן השמירה. גם `database/manager.py` וגם שני ה-endpointים של `maintenance_cleanup` קוראים אותם משם.
+- הכתיבה מגיעה מ-`CommandListener` של pymongo, שהוא סינכרוני, ולכן `record_slow_query_sync` נקראת ישירות מתוכו.
 
 ### טבלת השוואה: זיכרון vs MongoDB
 
