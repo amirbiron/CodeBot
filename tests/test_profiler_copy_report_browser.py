@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import threading
 
 import pytest
@@ -122,12 +121,6 @@ def _find_chromium():
     return None
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def fenced_block(report: str, info: str) -> str:
     """מחלץ את תוכן בלוק הקוד לפי כללי CommonMark, כמו כל קורא Markdown.
 
@@ -185,49 +178,51 @@ def live_server():
     import webapp.app as app_mod
     from werkzeug.serving import make_server
 
-    patch = pytest.MonkeyPatch()
-    patch.setenv("ADMIN_USER_IDS", "1")
+    # ``MonkeyPatch.context`` ולא ``MonkeyPatch()`` ידני: הוא מבטל את עצמו
+    # ביציאה מהבלוק **גם כשההקמה נופלת באמצע**. עם ``patch.undo()`` שיושב רק
+    # אחרי ה-yield, חריגה בהקמה הייתה מותירה ``ADMIN_USER_IDS`` ו-``SECRET_KEY``
+    # דרוכים לכל שאר הסוויטה — כשל שמתגלה בטסט אחר לגמרי.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("ADMIN_USER_IDS", "1")
 
-    app = app_mod.app
-    patch.setitem(app.config, "SECRET_KEY", "profiler-copy-test")
+        app = app_mod.app
+        patch.setitem(app.config, "SECRET_KEY", "profiler-copy-test")
 
-    # ה-session נבנה דרך ``test_client``, לא דרך route עזר: Flask אוסר
-    # ``@app.route`` אחרי הבקשה הראשונה, ובסוויטה מלאה טסט קודם כבר עשה זאת.
-    with app.test_client() as client:
-        with client.session_transaction() as sess:
-            sess["user_id"] = 1
-            sess["user_data"] = {"id": 1, "is_admin": True, "is_premium": False}
-        cookie = client.get_cookie("session")
-        assert cookie is not None, "לא נוצר session cookie"
-        session_cookie = cookie.value
+        # ה-session נבנה דרך ``test_client``, לא דרך route עזר: Flask אוסר
+        # ``@app.route`` אחרי הבקשה הראשונה, ובסוויטה מלאה טסט קודם כבר עשה זאת.
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["user_id"] = 1
+                sess["user_data"] = {"id": 1, "is_admin": True, "is_premium": False}
+            cookie = client.get_cookie("session")
+            assert cookie is not None, "לא נוצר session cookie"
+            session_cookie = cookie.value
 
-    httpd = make_server("127.0.0.1", _free_port(), app, threaded=True)
-    port = httpd.server_port
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
+        # פורט 0: הליבה בוחרת פורט פנוי ומקצה אותו באותה פעולה. בחירת פורט
+        # מראש ואז bind נפרד היא חלון מירוץ — מישהו אחר יכול לתפוס אותו בין
+        # שתי הפעולות.
+        httpd = make_server("127.0.0.1", 0, app, threaded=True)
+        port = httpd.server_port
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
 
-    for _ in range(60):
         try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1)
-            break
-        except Exception as exc:
-            if "HTTP Error" in str(exc):  # השרת עונה, גם אם 404
-                break
-            time.sleep(0.25)
-    else:  # pragma: no cover
-        httpd.shutdown()
-        httpd.server_close()
-        thread.join(timeout=5)
-        patch.undo()
-        pytest.skip("שרת הבדיקה לא עלה")
+            for _ in range(60):
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1)
+                    break
+                except Exception as exc:
+                    if "HTTP Error" in str(exc):  # השרת עונה, גם אם 404
+                        break
+                    time.sleep(0.25)
+            else:  # pragma: no cover
+                pytest.skip("שרת הבדיקה לא עלה")
 
-    try:
-        yield f"http://127.0.0.1:{port}", session_cookie
-    finally:
-        httpd.shutdown()
-        httpd.server_close()
-        thread.join(timeout=5)
-        patch.undo()
+            yield f"http://127.0.0.1:{port}", session_cookie
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=5)
 
 
 @pytest.fixture
@@ -243,33 +238,33 @@ def page(live_server):
             )
         except Exception as exc:  # pragma: no cover
             pytest.skip(f"אין Chromium זמין: {exc}")
-        context = browser.new_context(
+
+        # ``Browser`` ו-``BrowserContext`` הם context managers, ולכן הם נסגרים
+        # גם כשההקמה שאחריהם נופלת. ``close()`` ידני אחרי ה-yield לא היה רץ אם
+        # ``goto`` זרק — והתהליך של Chromium היה נשאר תלוי עד סוף הריצה.
+        with browser, browser.new_context(
             viewport={"width": 1280, "height": 900},
             # בלי ההרשאות האלה ``clipboard.readText`` נחסם, והטסט היה בודק
             # את עצמו במקום את הדף.
             permissions=["clipboard-read", "clipboard-write"],
-        )
-        context.add_cookies([{
-            "name": "session", "value": session_cookie,
-            "domain": "127.0.0.1", "path": "/",
-        }])
-        p = context.new_page()
-        # מודאל ה-onboarding נפתח למשתמש חדש וחוסם קליקים בעמוד.
-        p.add_init_script(
-            "try{localStorage.setItem('welcomeModalSeen','1');"
-            "localStorage.setItem('onboarding_completed','1');}catch(e){}"
-        )
-        p.goto(f"{base_url}/admin/profiler", wait_until="domcontentloaded")
-        p.wait_for_timeout(300)
-        p.evaluate(
-            "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-            ".forEach(e => e.remove())"
-        )
-        try:
+        ) as context:
+            context.add_cookies([{
+                "name": "session", "value": session_cookie,
+                "domain": "127.0.0.1", "path": "/",
+            }])
+            p = context.new_page()
+            # מודאל ה-onboarding נפתח למשתמש חדש וחוסם קליקים בעמוד.
+            p.add_init_script(
+                "try{localStorage.setItem('welcomeModalSeen','1');"
+                "localStorage.setItem('onboarding_completed','1');}catch(e){}"
+            )
+            p.goto(f"{base_url}/admin/profiler", wait_until="domcontentloaded")
+            p.wait_for_timeout(300)
+            p.evaluate(
+                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
+                ".forEach(e => e.remove())"
+            )
             yield p
-        finally:
-            context.close()
-            browser.close()
 
 
 def copy_report(page, payload, *, verbosity, aggregate=False, collection=COLLECTION):
